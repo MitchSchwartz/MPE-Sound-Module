@@ -39,7 +39,9 @@ Reference stack: Raspberry Pi 5 + 1.3″ I2C OLED + one KY-040 encoder + a USB s
 
 ### Getting the patch library
 
-The 3,192 patches on the device aren't hosted in this repo — they're Surge XT's own bundled factory + third-party library. **[Download Surge XT for PC/Mac/Linux](https://surge-synthesizer.github.io/)** and you get the same patches, automatically, in the same folder structure Surge always uses. Point the Pi's patch-scan paths at that library (or copy it over once) rather than expecting it inside this codebase.
+The 3,192 patches on the device aren't in this repo — they're Surge XT's bundled factory + third-party library. **[Download Surge XT for PC/Mac/Linux](https://surge-synthesizer.github.io/)** and you get the same patches in Surge's normal folder layout. Point the Pi's patch-scan paths at that library (or copy it over once).
+
+**Two repos (maintainers):** shareable code lives here in **MPE-Module**; your private backup (custom patches, factory/third-party copy, binary) lives in **[MPE-Personal](https://github.com/M-Ferda/MPE-Personal)** as sibling `assets/`. See [`assets/README.md`](assets/README.md).
 
 ## Power Controls
 
