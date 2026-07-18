@@ -188,3 +188,12 @@ See [docs/SURGE_CLI_HEADLESS_SETUP.md](docs/SURGE_CLI_HEADLESS_SETUP.md) for ful
 ## License
 
 [PolyForm Noncommercial 1.0.0](LICENSE) — free for personal use, modification, and non-commercial purposes. No resale or commercial use without a separate agreement.
+
+## Reference hardware (v1)
+
+One blessed stack for builders — exact parts, wiring, and encoder notes:
+
+- **[REFERENCE_BOM.md](REFERENCE_BOM.md)** — purchase links + summary (USB Sound Blaster dongle, not a DAC HAT)
+- **[docs/HARDWARE_WIRING.md](docs/HARDWARE_WIRING.md)** — full wiring diagram (1.3″ OLED + 1 encoder; fan on pins 1 & 6)
+
+Software targets this configuration only; other displays are unsupported on v1.

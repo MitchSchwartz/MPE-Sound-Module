@@ -50,14 +50,14 @@ This guide covers the wiring for the patch browser UI system with:
 | OLED Pin | Description | Connect To | Pi Physical Pin | Pi GPIO |
 |----------|-------------|------------|-----------------|---------|
 | VCC      | Power 3.3V  | 3.3V       | Pin 17          | N/A     |
-| GND      | Ground      | GND        | Pin 9, 14, or 20| N/A     |
+| GND      | Ground      | GND        | Pin 9           | N/A     |
 | SCL      | I2C Clock   | I2C1 SCL   | Pin 5           | GPIO 3  |
 | SDA      | I2C Data    | I2C1 SDA   | Pin 3           | GPIO 2  |
 
 **Notes:**
 - Use Pin 17 for 3.3V (NOT Pin 1 - fan is using it)
-- Use any available GND pin EXCEPT Pin 6 (fan is using it)
-- Recommended GND: Pin 9 or Pin 14
+- Use Pin 9 for OLED GND (NOT Pin 6 — fan)
+- Encoder uses **Pin 14** for GND (separate jumper; see encoder table)
 - I2C address is typically `0x3C` (verify with `i2cdetect -y 1`)
 
 ### Rotary Encoder Wiring
@@ -68,12 +68,12 @@ This guide covers the wiring for the patch browser UI system with:
 | DT          | Data signal    | GPIO 27    | Pin 13          | GPIO 27  |
 | SW          | Button switch  | GPIO 22    | Pin 15          | GPIO 22  |
 | + (VCC)     | Power 3.3V     | **NOT CONNECTED** | -        | -        |
-| GND         | Ground         | GND        | Pin 9, 14, or 20| N/A      |
+| GND         | Ground         | GND        | Pin 14          | N/A      |
 
 **Notes:**
 - **VCC pin is NOT needed** - Pi's internal pull-ups are used instead (configured in software)
 - This saves a 3.3V pin for other uses (only OLED needs 3.3V power)
-- GND connection is required
+- GND on **Pin 14** (separate from OLED GND on Pin 9)
 - `gpiozero` library automatically enables pull-up resistors on GPIO pins
 
 ## Complete Wiring Diagram (ASCII)
@@ -88,9 +88,10 @@ This guide covers the wiring for the patch browser UI system with:
 │ Pin 3    │ GPIO 2   │ → OLED SDA                           │
 │ Pin 5    │ GPIO 3   │ → OLED SCL                           │
 │ Pin 6    │ GND      │ *** FAN ONLY (DO NOT USE) ***        │
-│ Pin 9    │ GND      │ → OLED GND + Encoder GND (shared)    │
+│ Pin 9    │ GND      │ → OLED GND                           │
 │ Pin 11   │ GPIO 17  │ → Encoder CLK                        │
 │ Pin 13   │ GPIO 27  │ → Encoder DT                         │
+│ Pin 14   │ GND      │ → Encoder GND                        │
 │ Pin 15   │ GPIO 22  │ → Encoder SW                         │
 │ Pin 17   │ 3.3V     │ → OLED VCC ONLY                      │
 └──────────┴──────────┴──────────────────────────────────────┘
@@ -100,10 +101,10 @@ This guide covers the wiring for the patch browser UI system with:
 │  (128x64 I2C)    │                    │  (KY-040)          │
 ├──────────────────┤                    ├────────────────────┤
 │ VCC → Pin 17     │                    │ CLK → Pin 11       │
-│ GND → Pin 9      │◄───── shared ─────►│ DT  → Pin 13       │
-│ SCL → Pin 5      │       (GND)        │ SW  → Pin 15       │
+│ GND → Pin 9      │                    │ DT  → Pin 13       │
+│ SCL → Pin 5      │                    │ SW  → Pin 15       │
 │ SDA → Pin 3      │                    │ +   → NOT CONNECTED│
-└──────────────────┘                    │ GND → Pin 9        │
+└──────────────────┘                    │ GND → Pin 14       │
                                         └────────────────────┘
 
 ┌──────────────────┐
@@ -131,12 +132,12 @@ POWER USAGE:
      │ [6]  GND ══════════ FAN ONLY│ (Do not use)
      │ [7]  GPIO 4                 │
      │ [8]  GPIO 14                │
-     │ [9]  GND ══════════ SHARED  │─── OLED + Encoder GND
+     │ [9]  GND ══════════ OLED GND │
      │ [10] GPIO 15                │
      │ [11] GPIO 17 ══════ ENC CLK │
      │ [12] GPIO 18                │
      │ [13] GPIO 27 ══════ ENC DT  │
-     │ [14] GND (alternate)        │
+     │ [14] GND ══════════ ENC GND │
      │ [15] GPIO 22 ══════ ENC SW  │
      │ [16] GPIO 23                │
      │ [17] 3.3V ═════════ OLED VCC│ (OLED only, encoder needs no power)
@@ -270,11 +271,12 @@ pip3 install luma.oled gpiozero RPi.GPIO pillow
 - Pin 3 (GPIO 2) - OLED SDA
 - Pin 5 (GPIO 3) - OLED SCL
 - Pin 6 (GND) - Fan ground
-- Pin 9 (GND) - OLED + Encoder ground (shared)
+- Pin 9 (GND) - OLED ground
+- Pin 14 (GND) - Encoder ground
 - Pin 11 (GPIO 17) - Encoder CLK
 - Pin 13 (GPIO 27) - Encoder DT
 - Pin 15 (GPIO 22) - Encoder SW
-- Pin 17 (3.3V) - OLED + Encoder power (shared)
+- Pin 17 (3.3V) - OLED power only (encoder VCC not connected)
 
 **Available for Future Expansion:**
 - GPIOs: 4, 7, 8-11, 13-16, 18-21, 23-27

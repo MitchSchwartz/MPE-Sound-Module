@@ -33,10 +33,11 @@ Rotary Encoder:
   DT  → Pin 13 (GPIO 27)
   SW  → Pin 15 (GPIO 22)
   VCC → NOT CONNECTED (uses Pi's internal pull-ups)
-  GND → Pin 9 (GND, shared with OLED)
+  GND → Pin 14 (GND)
 
 Note:
 - Pins 1 and 6 are used by the fan - DO NOT USE
+- OLED GND (Pin 9) and encoder GND (Pin 14) are separate jumpers
 - Encoder doesn't need VCC - saves a 3.3V pin!
 ```
 
@@ -81,7 +82,7 @@ Follow [docs/HARDWARE_WIRING.md](docs/HARDWARE_WIRING.md) for detailed wiring in
 - [ ] OLED SDA → GPIO 2, SCL → GPIO 3
 - [ ] OLED power: VCC → 3.3V (Pin 17), GND → Pin 9
 - [ ] Encoder CLK → GPIO 17, DT → GPIO 27, SW → GPIO 22
-- [ ] Encoder power: VCC → 3.3V (Pin 17), GND → Pin 9
+- [ ] Encoder: VCC **not connected**; GND → Pin 14
 - [ ] Verify fan is on Pins 1 & 6 (don't disturb)
 
 ### 2. Run Automated Installer

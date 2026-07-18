@@ -1,6 +1,10 @@
 Pi-Surge-MPE Wiring Diagram
 ============================
 
+*** SUPERSEDED — v1 build uses 1 encoder + 1 OLED only. ***
+*** See docs/HARDWARE_WIRING.md and REFERENCE_BOM.md instead. ***
+*** This file describes an old 5-encoder + JACK design. ***
+
 RASPBERRY PI 4/5 GPIO HEADER (40 pins)
 ======================================
 
