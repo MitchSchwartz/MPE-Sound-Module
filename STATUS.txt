@@ -55,15 +55,14 @@ When you return:
    - Play notes - should hear Church patch
 
 3. PATCH CHANGE TEST
-   See QUICKSTART.md for how to change default patch
+   See README.md for how to change default patch
 
 --------------------------------------------------------------------------------
 DOCUMENTATION
 --------------------------------------------------------------------------------
 
 README FILES:
-  QUICKSTART.md          - Quick reference commands
-  SETUP_COMPLETE.md      - Full summary of what was done
+  README.md              - Project overview and documentation map
   docs/SURGE_CLI_HEADLESS_SETUP.md - Complete technical documentation
 
 KEY COMMANDS:
@@ -114,7 +113,7 @@ If something doesn't work:
 4. Verify audio device:
    ssh surge.local 'aplay -l'
 
-5. See SETUP_COMPLETE.md for more troubleshooting steps
+5. See docs/SURGE_CLI_HEADLESS_SETUP.md for more troubleshooting steps
 
 --------------------------------------------------------------------------------
 SSH ACCESS

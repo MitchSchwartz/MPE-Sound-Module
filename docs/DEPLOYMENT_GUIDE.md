@@ -367,7 +367,7 @@ ssh -i ~/.ssh/surge_pi_key mitch@surge.local "sudo systemctl status surge-xt-cli
 
 Once stable, update your documentation:
 
-- [ ] Update [CURRENT_STATE.md](CURRENT_STATE.md) with new audio detection approach
+- [ ] Update [README.md](../README.md) if audio detection behavior changed
 - [ ] Update [PROJECT_PLAN.md](PROJECT_PLAN.md) to mark Phase 1 robustness complete
 - [ ] Document any device-specific tuning needed for your setup
 

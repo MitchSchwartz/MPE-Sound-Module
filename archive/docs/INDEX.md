@@ -1,8 +1,10 @@
 # Pi-Surge-MPE Documentation Index
 
+**Archived — superseded by [README.md](../../README.md) at repo root.**
+
 ## Quick Navigation
 
-**New users start here**: [QUICKSTART.md](QUICKSTART.md)
+**New users start here**: [README.md](../../README.md)
 
 ## Documentation Overview
 
@@ -10,8 +12,8 @@
 
 | File | Purpose | When to Read |
 |------|---------|--------------|
-| [README.md](README.md) | Project overview, architecture, goals | First - understand what this is |
-| [QUICKSTART.md](QUICKSTART.md) | Fast path to working audio | Second - get it running ASAP |
+| [README.md](../../README.md) | Project overview (current) | First — start at repo root |
+| [QUICKSTART.md](QUICKSTART.md) | *(archived — file removed)* | — |
 | [INSTALL.md](INSTALL.md) | Detailed installation steps | During setup for complete guide |
 | [HARDWARE.md](HARDWARE.md) | Hardware specs, wiring, BOM | Before ordering parts |
 | [WIRING_DIAGRAM.txt](WIRING_DIAGRAM.txt) | Visual wiring guide | When connecting encoders |
@@ -94,7 +96,7 @@ See [requirements.txt](requirements.txt):
 
 1. Read [README.md](README.md) - Understand project
 2. Read [HARDWARE.md](HARDWARE.md) - Order parts
-3. Follow [QUICKSTART.md](QUICKSTART.md) - Get running
+3. Follow [README.md](../../README.md) - Get running
 4. Reference [INSTALL.md](INSTALL.md) - Detailed steps
 5. Check [FAQ.md](FAQ.md) - If problems arise
 
@@ -127,7 +129,7 @@ See [requirements.txt](requirements.txt):
 
 ### Troubleshooting
 
-1. Check [QUICKSTART.md](QUICKSTART.md) - Quick fixes
+1. Check [README.md](../../README.md) - Quick fixes
 2. Check [FAQ.md](FAQ.md) - Comprehensive troubleshooting
 3. Check [INSTALL.md](INSTALL.md) - Validation steps
 4. Check service logs: `journalctl --user -u <service>`
@@ -195,7 +197,7 @@ See [ROADMAP.md](ROADMAP.md) for future versions.
 ## Support
 
 ### Self-Help
-1. [QUICKSTART.md](QUICKSTART.md) - Common issues
+1. [README.md](../../README.md) - Current project overview
 2. [FAQ.md](FAQ.md) - Comprehensive Q&A
 3. [INSTALL.md](INSTALL.md) - Validation steps
 

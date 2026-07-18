@@ -311,7 +311,7 @@ sudo systemctl restart patch-browser
 - [HARDWARE_WIRING.md](docs/HARDWARE_WIRING.md) - Complete wiring guide with diagrams
 - [PATCH_BROWSER_SETUP.md](docs/PATCH_BROWSER_SETUP.md) - Detailed setup and configuration
 - [PROJECT_PLAN.md](PROJECT_PLAN.md) - Overall project roadmap and status
-- [QUICKSTART.md](QUICKSTART.md) - General Pi-Surge-MPE quick reference
+- [README.md](../README.md) - Project overview and quick reference
 
 ## Bill of Materials
 

@@ -456,4 +456,4 @@ After the patch browser is working:
 
 - [HARDWARE_WIRING.md](HARDWARE_WIRING.md) - Wiring diagrams and connections
 - [PROJECT_PLAN.md](../PROJECT_PLAN.md) - Overall project roadmap
-- [QUICKSTART.md](../QUICKSTART.md) - Quick reference commands
+- [README.md](../README.md) - Project overview and quick reference

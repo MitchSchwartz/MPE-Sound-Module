@@ -8,7 +8,7 @@ pi-surge-mpe/
 ├── LICENSE                      # MIT License
 ├── .gitignore                   # Git ignore rules
 │
-├── QUICKSTART.md                # Fast path to working audio (START HERE!)
+├── README.md                    # Project overview (START HERE!)
 ├── INSTALL.md                   # Detailed installation guide
 ├── HARDWARE.md                  # Hardware setup, wiring, BOM
 ├── SURGE_CONFIG.md              # Surge XT configuration guide
@@ -29,7 +29,7 @@ pi-surge-mpe/
 
 ### For First-Time Setup
 1. **README.md** - Understand what this project is
-2. **QUICKSTART.md** - Get audio working ASAP
+2. **README.md** - Get oriented and find the right doc
 3. **INSTALL.md** - Detailed installation steps
 4. **HARDWARE.md** - Wire encoders, assemble hardware
 5. **SURGE_CONFIG.md** - Optimize Surge settings
@@ -42,7 +42,7 @@ pi-surge-mpe/
 4. **encoder_controller.py** - Code walkthrough
 
 ### For Troubleshooting
-1. **QUICKSTART.md** - Common issues section
+1. **README.md** - Documentation map and common issues
 2. **FAQ.md** - Comprehensive troubleshooting
 3. **INSTALL.md** - Step-by-step validation
 

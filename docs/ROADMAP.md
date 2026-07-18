@@ -487,7 +487,7 @@ Assuming part-time work (weekends/evenings):
    - Build from source on Pi
 
 3. **Start Milestone 1 testing**:
-   - Follow QUICKSTART.md
+   - Follow [README.md](../README.md)
    - Document any issues/changes needed
    - Measure performance metrics
 

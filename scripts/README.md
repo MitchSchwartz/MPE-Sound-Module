@@ -10,6 +10,7 @@
 
 ### Deployment Scripts
 - **deploy-all.sh** - Complete system deployment (all services and scripts)
+- **deploy-patches.sh** - Deploy custom user patches only (~5–10 sec)
 - **deploy-patch-browser.sh** - Deploy UI updates only
 - **deploy-boot-animation.sh** - Deploy boot animation updates
 - **deploy-crash-fixes.sh** - Deploy crash fix scripts

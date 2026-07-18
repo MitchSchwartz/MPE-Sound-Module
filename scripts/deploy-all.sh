@@ -147,21 +147,19 @@ else
     echo "  (No user preferences found)"
 fi
 
-if [ -d "assets/user-data/custom-patches" ]; then
-    ssh -i "$SSH_KEY" "$PI_USER@$PI_HOST" "mkdir -p '/home/mitch/Documents/Surge XT/Patches'"
-    cd assets/user-data && tar czf /tmp/custom-patches.tar.gz custom-patches/ && cd ../..
-    scp -i "$SSH_KEY" /tmp/custom-patches.tar.gz "$PI_USER@$PI_HOST:/tmp/"
+if [ -d "assets/user-data/Patches" ]; then
+    ssh -i "$SSH_KEY" "$PI_USER@$PI_HOST" "mkdir -p '/home/mitch/Documents/Surge XT'"
+    cd assets/user-data && tar czf /tmp/user-patches.tar.gz Patches/ && cd ../..
+    scp -i "$SSH_KEY" /tmp/user-patches.tar.gz "$PI_USER@$PI_HOST:/tmp/"
     ssh -i "$SSH_KEY" "$PI_USER@$PI_HOST" << 'EOF'
 cd "/home/mitch/Documents/Surge XT"
-tar xzf /tmp/custom-patches.tar.gz
-mv custom-patches/* Patches/ 2>/dev/null || true
-rmdir custom-patches 2>/dev/null || true
-rm /tmp/custom-patches.tar.gz
+tar xzf /tmp/user-patches.tar.gz
+rm /tmp/user-patches.tar.gz
 EOF
-    rm /tmp/custom-patches.tar.gz
+    rm /tmp/user-patches.tar.gz
     echo "✓ Custom patches deployed"
 else
-    echo "  (No custom patches found)"
+    echo "  (No custom patches found in assets/user-data/Patches)"
 fi
 echo ""
 

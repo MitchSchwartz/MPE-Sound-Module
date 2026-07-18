@@ -30,9 +30,9 @@ Build a dedicated, headless MPE synthesizer module for live performance using:
 
 **Documentation:**
 - [README.md](README.md) - Project overview
-- [CURRENT_STATE.md](CURRENT_STATE.md) - Complete system state (500+ lines)
-- [SETUP_COMPLETE.md](SETUP_COMPLETE.md) - What was configured and why
-- [QUICKSTART.md](QUICKSTART.md) - Quick reference commands
+- [README.md](README.md) - Project overview
+- [docs/SURGE_CLI_HEADLESS_SETUP.md](docs/SURGE_CLI_HEADLESS_SETUP.md) - Technical deep dive
+- [COMMANDS.md](COMMANDS.md) - Command reference
 - [docs/SURGE_CLI_HEADLESS_SETUP.md](docs/SURGE_CLI_HEADLESS_SETUP.md) - Technical deep dive
 
 **Configuration Files:**

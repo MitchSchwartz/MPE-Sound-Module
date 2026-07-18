@@ -83,11 +83,19 @@ git push
 
 ### 3. Deploy to Pi
 
+**Option A — direct deploy (default):**
+
 ```bash
 ./scripts/deploy-patches.sh
 ```
 
-This script:
+**Option B — if Pi uses `setup-pi-symlinks.sh`:** commit/push on your PC, then on the Pi:
+
+```bash
+cd ~/MPE-Module && git pull && sudo systemctl restart surge-xt-cli patch-browser
+```
+
+This script (Option A):
 - Compresses your custom patches (~50KB)
 - Uploads to Pi via SSH
 - Extracts to `/home/mitch/Documents/Surge XT/Patches`

@@ -397,7 +397,7 @@ sudo systemctl daemon-reload
 - [ ] Reboot test (cold start verification)
 
 ### Step 7: Documentation Update
-- [ ] Update `CURRENT_STATE.md` with new audio detection approach
+- [ ] Update [README.md](../README.md) if audio detection behavior changed
 - [ ] Update `PROJECT_PLAN.md` to reflect robustness improvements
 - [ ] Document new scripts in `README.md`
 
@@ -487,7 +487,7 @@ Allow user to specify preferred devices in config file:
 ### Modified Files
 - [ ] `scripts/start-surge-cli.sh` (use new detection script)
 - [ ] `config/surge-xt-cli.service` (improved restart handling)
-- [ ] `CURRENT_STATE.md` (document new audio approach)
+- [ ] `README.md` (document new audio approach if user-facing)
 - [ ] `PROJECT_PLAN.md` (update Phase 1 status)
 
 ### Backup Files (create before modifying)
