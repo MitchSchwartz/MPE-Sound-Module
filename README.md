@@ -1,199 +1,113 @@
 # Pi-Surge-MPE
 
-**Status**: ✅ **FULLY OPERATIONAL** - Headless MPE synthesizer module
+**A dedicated MPE compatible sound module for your MPE instrument. No laptop. A pi with a  1.5" screen and one knob.**
 
-A dedicated MPE sound module for live performance using Raspberry Pi + Surge XT CLI.
-
-## Current System (Working)
-
-### Hardware
-- **SBC**: Raspberry Pi 5 (or 4)
-- **Audio**: Sound Blaster Play! 3 USB audio interface
-- **MIDI**: Roli Seaboard BLOCK (USB, auto-connects)
-- **Network**: surge.local / 192.168.1.203
-- **User**: mitch
-
-### Software Stack
-- **OS**: Raspberry Pi OS Lite 64-bit (Debian Trixie)
-- **Audio**: ALSA (direct, no JACK)
-- **Synth**: Surge XT CLI (headless, v1.3+)
-- **MPE**: Always enabled (48 semitones pitch bend)
-- **Auto-start**: systemd service
-- **Patches**: 3,192 available (639 factory + 2,553 third-party)
-
-### Architecture
-
-```
-[Roli Seaboard] --USB MIDI--> [Surge XT CLI] --ALSA--> [Sound Blaster Play! 3]
-                                     ↑
-                                     |
-                            (MPE always enabled)
-                            (Auto-starts on boot)
-                            (Headless daemon)
-```
-
-## What Works
-
-✅ Boot to ready in ~25 seconds
-✅ MPE always enabled (no manual config)
-✅ Roli auto-connects on Surge restart
-✅ 44.1kHz audio, 512 buffer (~11ms latency)
-✅ Church.fxp default patch
-✅ SSH key authentication
-✅ No GUI/VNC needed for operation
-
-## Quick Start
-
-```bash
-# Check status
-ssh 192.168.1.203 'systemctl status surge-xt-cli'
-
-# View logs
-ssh 192.168.1.203 'tail -f ~/surge-cli.log'
-
-# Restart (e.g., after plugging in Roli)
-ssh 192.168.1.203 'sudo systemctl restart surge-xt-cli'
-```
-
-**Full command reference**: See [COMMANDS.md](COMMANDS.md) and [QUICKSTART.md](QUICKSTART.md)
-
-## Documentation
-
-- **[COMMANDS.md](COMMANDS.md)** - Complete command reference (backup, deploy, troubleshoot) ⭐
-- **[BACKUP_GUIDE.md](BACKUP_GUIDE.md)** - Backup and disaster recovery guide
-- **[QUICKSTART.md](QUICKSTART.md)** - Quick reference commands
-- **[CURRENT_STATE.md](CURRENT_STATE.md)** - Complete system documentation
-- **[SETUP_COMPLETE.md](SETUP_COMPLETE.md)** - What was configured and why
-- **[docs/SURGE_CLI_HEADLESS_SETUP.md](docs/SURGE_CLI_HEADLESS_SETUP.md)** - Technical deep dive + custom UI code
-
-## Directory Structure (Pi)
-
-```
-/home/mitch/
-├── start-surge-cli.sh              # Startup script
-├── surge-cli.log                   # Runtime log
-└── surge/                          # Surge XT source + build
-    ├── build/surge_xt_products/
-    │   └── surge-xt-cli            # Main binary
-    └── resources/data/
-        ├── patches_factory/        # 639 factory patches
-        └── patches_3rdparty/       # 2,553 third-party patches
-
-/etc/systemd/system/
-└── surge-xt-cli.service            # Auto-start service
-```
-
-## Directory Structure (Repo)
-
-```
-MPE Module/
-├── README.md                       # This file
-├── CURRENT_STATE.md                # Complete system state
-├── QUICKSTART.md                   # Quick reference
-├── SETUP_COMPLETE.md               # Setup summary
-├── STATUS.txt                      # Current status
-├── scripts/
-│   └── start-surge-cli.sh          # Startup script (template)
-├── config/
-│   └── surge-xt-cli.service        # Service file (template)
-└── docs/
-    └── SURGE_CLI_HEADLESS_SETUP.md # Technical documentation
-```
-
-## Backup & Disaster Recovery
-
-This repo contains **EVERYTHING** needed to restore the device from scratch.
-
-### Complete Device Backup
-
-**Pull everything from device to git:**
-```bash
-./scripts/pull-all-from-device.sh    # One-time: pulls binary + all patches (~450MB)
-./scripts/sync-from-device.sh        # Ongoing: pulls config/user changes
-git add -A
-git commit -m "Backup from device"
-git push
-```
-
-### Disaster Recovery
-
-**SD card failed? Restore in 3 steps:**
-
-```bash
-# 1. Flash fresh Raspberry Pi OS, configure SSH
-# 2. Clone this repo
-git clone https://github.com/yourusername/MPE-Module.git
-cd MPE-Module
-
-# 3. Deploy everything
-./scripts/deploy-all.sh
-```
-
-✅ Device restored! Binary + patches + configs all deployed.
-
-### What's Backed Up
-
-- ✅ Surge XT CLI binary (24MB)
-- ✅ All 3,192 patches (422MB: 639 factory + 2,553 third-party)
-- ✅ System configs (systemd services, udev rules)
-- ✅ Python scripts and shell scripts
-- ✅ User preferences and custom patches
-- ✅ Complete documentation
-
-**Repo size:** ~450MB total
-
-**First clone:** 2-3 minutes
-**Daily pushes:** 3-5 seconds (git only sends changed files)
-
-See [BACKUP_GUIDE.md](BACKUP_GUIDE.md) for detailed backup procedures.
+Plug a Roli into a Raspberry Pi. Turn it on. Play. That's the whole interaction.
 
 ---
 
-## Future: Custom Preset Browser
+## Why this exists
 
-**Planned hardware**:
-- 1.3" OLED display (I2C)
-- 2x Rotary encoders (GPIO)
+I wanted to just show up and play my MPE instruments without tech in the way. Latency, tech issue, big birght screens... wrong vibe.
 
-**Features**:
-- Browse 3,192 patches via encoders
-- Display category + patch name on OLED
-- Send OSC/MIDI to Surge to switch patches
+What if my MPE instruments were just... instruments? ...portable 5-D electric pianos.
 
-**Status**: Documented, code examples provided, hardware not yet built
+Under the hood it's [Surge XT](https://surge-synthesizer.github.io/) (free, open-source, genuinely powerful) running headless on a Pi, always in MPE mode. It boots straight to your sound library.   
 
-See [docs/SURGE_CLI_HEADLESS_SETUP.md](docs/SURGE_CLI_HEADLESS_SETUP.md) for full implementation.
+Every patch is fully editable and MPE-assignable from your computer, across all five expression dimensions — it turns a Roli into a standalone instrument, outside the Equator ecosystem entirely.
 
-## Why This Approach?
+**Think of is as the 'dumb phone' of digital instruments**  If you want a multi-engine DAWless workstation, that's [Zynthian](https://zynthian.org/). This is one instrument that does one thing without fuss (and doesn't fight you on MPE persistence the way Zynthian's Surge integration currently does).
 
-### Why Surge XT CLI (not GUI)?
-- No X11/VNC overhead
-- Auto MIDI connection via `--all-midi-inputs`
-- MPE always on via `--mpe-enable`
-- Built for headless/embedded use
-- Lower latency, more reliable
+## What it does
 
-### Why Not Zynthian?
-- Preset saving unreliable
-- MPE incompatible with quick switching
-- Over-engineered for single synth
-- We only need Surge XT, nothing else
+- Boots to sound-ready in **~25 seconds**
+- Roli auto-connects
+- MPE always on (48-semitone pitch bend, full pressure/timbre)
+- **Stock loaded with Surge XT's 3,192 patches** on board (639 factory + 2,553 community), browsable live via one rotary encoder + a small OLED screen
+- **A dedicated Favorites folder** — forced to the top of the patch list on the device. Browsing any factory or community patch lets you copy it straight into Favorites from the encoder itself, so your live set builds up on the device without touching a computer.
 
-### Why Direct ALSA (not JACK)?
-- Simpler setup
-- Lower latency
-- One less thing to configure
-- Surge CLI works great with ALSA
+**Status:** core (boot, audio, MPE) is solid and has been performance-tested for hours at a time. The knob/screen UI is ~95% reliable — good enough to gig with, not yet 'polished consumer product.'
+
+## Build one
+
+Everything to replicate the reference hardware — exact parts (with purchase links), wiring diagrams, GPIO pinout:
+
+- **[REFERENCE_BOM.md](REFERENCE_BOM.md)** — the parts list, what to buy, what to skip
+- **[docs/HARDWARE_WIRING.md](docs/HARDWARE_WIRING.md)** — full wiring diagram
+
+Reference stack: Raspberry Pi 5 + 1.3″ I2C OLED + one KY-040 encoder + a USB sound dongle (no DAC HAT needed). Software targets this configuration; other displays/encoders aren't supported yet.
+
+### Getting the patch library
+
+The 3,192 patches on the device aren't hosted in this repo — they're Surge XT's own bundled factory + third-party library. **[Download Surge XT for PC/Mac/Linux](https://surge-synthesizer.github.io/)** and you get the same patches, automatically, in the same folder structure Surge always uses. Point the Pi's patch-scan paths at that library (or copy it over once) rather than expecting it inside this codebase.
+
+## Power Controls
+
+**[docs/POWER_BUTTON_SETUP.md](docs/POWER_BUTTON_SETUP.md)** — Shut Down: hold the encoder 8 seconds to shut down. Power On: auto with power switch or press encoder for 3 seconds if already powered.
+
+## Optional: foot pedal
+
+**[docs/FOOT_PEDAL.md](docs/FOOT_PEDAL.md)** — hands-free sustain/reverb/chorus via a USB footswitch, auto-starts when plugged in, remappable to other pedals
+
+## Sound design workflow
+
+Patches are edited on a normal computer with the real Surge XT GUI, then pushed to the Pi in seconds:
+
+1. Edit patches in Surge XT on your PC, using its regular interface
+2. Deploy the changed patches to the Pi with `scripts/deploy-patch-browser.sh` or `scripts/deploy-all.sh` or use a github repo like I do.
+3. Pick up the Roli and play — the browser on the device shows the new patch immediately
+
+Full walkthrough: **[docs/PATCH-EDITING-WORKFLOW.md](docs/PATCH-EDITING-WORKFLOW.md)**
+
+> **Known rough edge:** this workflow currently runs through git, which is fine if you're comfortable with it and clunky if you're not. A simpler sync path (drag-and-drop or a one-click push) is a likely next improvement — not built yet.
+
+## Quick reference (if you already have one running)
+
+```bash
+ssh surge.local 'systemctl status surge-xt-cli'   # check it's alive
+ssh surge.local 'tail -f ~/surge-cli.log'          # watch logs
+ssh surge.local 'sudo systemctl restart surge-xt-cli'  # restart (e.g. after plugging in Roli)
+```
+
+Full command reference: **[COMMANDS.md](COMMANDS.md)**
+
+## How it's built (for the curious)
+
+```
+[Roli Seaboard] --USB MIDI--> [Surge XT CLI] --ALSA--> [USB audio dongle] --> speakers/headphones
+                                     ↑
+                            MPE always enabled, headless, auto-starts on boot
+```
+
+- **Surge XT CLI, not GUI** — no X11/VNC overhead, auto MIDI connect, MPE hardcoded on, lower latency
+- **Direct ALSA, not JACK** — simpler, lower latency, one less thing to configure
+- **Not Zynthian** — different category. Zynthian is a multi-engine workstation; getting persistent, always-on MPE through its generalized preset architecture is a known unsolved friction point (confirmed on Zynthian's own forum as recently as 2025). This project sidesteps that by being narrow on purpose.
+
+## Documentation map
+
+| Doc                                                                  | For                                                  |
+| -------------------------------------------------------------------- | ---------------------------------------------------- |
+| [REFERENCE_BOM.md](REFERENCE_BOM.md)                                 | Building the hardware                                |
+| [docs/HARDWARE_WIRING.md](docs/HARDWARE_WIRING.md)                   | Wiring the OLED + encoder                            |
+| [docs/PATCH-EDITING-WORKFLOW.md](docs/PATCH-EDITING-WORKFLOW.md)     | Editing sounds, pushing to the Pi                    |
+| [docs/FOOT_PEDAL.md](docs/FOOT_PEDAL.md)                             | USB footswitch setup + remapping                     |
+| [docs/POWER_BUTTON_SETUP.md](docs/POWER_BUTTON_SETUP.md)             | Shutdown/power-on via the encoder button             |
+| [COMMANDS.md](COMMANDS.md)                                           | Backup, deploy, restore, day-to-day ops              |
+| [docs/BACKUP_GUIDE.md](docs/BACKUP_GUIDE.md)                         | Full disaster recovery                               |
+| [FAQ.md](FAQ.md)                                                     | Alternatives, troubleshooting, "can I use X instead" |
+| [docs/SURGE_CLI_HEADLESS_SETUP.md](docs/SURGE_CLI_HEADLESS_SETUP.md) | Full technical deep dive                             |
+
+## Credits
+
+This runs on top of, and ships with, **[Surge XT](https://surge-synthesizer.github.io/)** — a free, open-source synth engine built by the **Surge Synth Team** (originally released under GPL-3.0 by Claes Johanson/Vember Audio in 2018). None of the sound engine, MPE handling, or patch format is this project's work — this repo is the headless Pi wrapper around it.
+
+The **3,192 bundled patches** are Surge XT's own stock library, not custom content for this project — get them by [installing Surge XT](https://surge-synthesizer.github.io/) on any platform, not by cloning this repo:
+
+- **639 factory patches** — created by the Surge Synth Team
+- **2,553 third-party patches** — contributed by the wider Surge community
+
+Surge XT itself is licensed **GPL-3.0**. Sounds/patches you make or perform with it are yours to use freely, commercially or otherwise — see the [Surge XT license FAQ](https://github.com/surge-synthesizer/surge) for specifics. This repo's own code (Pi setup, wiring, UI, deploy scripts) is licensed separately below.
 
 ## License
 
 [PolyForm Noncommercial 1.0.0](LICENSE) — free for personal use, modification, and non-commercial purposes. No resale or commercial use without a separate agreement.
-
-## Reference hardware (v1)
-
-One blessed stack for builders — exact parts, wiring, and encoder notes:
-
-- **[REFERENCE_BOM.md](REFERENCE_BOM.md)** — purchase links + summary (USB Sound Blaster dongle, not a DAC HAT)
-- **[docs/HARDWARE_WIRING.md](docs/HARDWARE_WIRING.md)** — full wiring diagram (1.3″ OLED + 1 encoder; fan on pins 1 & 6)
-
-Software targets this configuration only; other displays are unsupported on v1.
