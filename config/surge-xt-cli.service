@@ -1,0 +1,20 @@
+[Unit]
+Description=Surge XT CLI Synthesizer (Headless)
+After=sound.target network.target
+Wants=sound.target
+
+[Service]
+Type=forking
+User=mitch
+WorkingDirectory=/home/mitch/MPE-Module
+Environment="XDG_RUNTIME_DIR=/run/user/1000"
+ExecStart=/home/mitch/MPE-Module/scripts/start-surge-cli.sh
+Restart=on-failure
+RestartSec=10
+StartLimitBurst=5
+StartLimitIntervalSec=300
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

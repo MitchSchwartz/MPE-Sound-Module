@@ -1,0 +1,20 @@
+[Unit]
+Description=Boot Animation for OLED Display
+After=systemd-modules-load.service local-fs.target
+Before=surge-xt-cli.service patch-browser.service
+
+[Service]
+Type=simple
+User=mitch
+WorkingDirectory=/home/mitch/MPE-Module
+Environment="BOOT_ANIM_DURATION=40"
+ExecStart=/usr/bin/python3 /home/mitch/MPE-Module/boot_animation.py
+RemainAfterExit=no
+StandardOutput=journal
+StandardError=journal
+TimeoutStopSec=2
+KillMode=mixed
+KillSignal=SIGTERM
+
+[Install]
+WantedBy=multi-user.target

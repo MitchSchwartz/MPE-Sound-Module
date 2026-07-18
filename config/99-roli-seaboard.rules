@@ -1,0 +1,9 @@
+# Roli Seaboard BLOCK USB device rules
+# Only restart Surge on disconnect (not connect) to prevent restart loops
+# Surge uses --all-midi-inputs so it will auto-detect Roli when it connects
+
+# Disable USB autosuspend for Roli Seaboard (prevents disconnection issues)
+ACTION=="add", SUBSYSTEM=="usb", ATTRS{idVendor}=="2af4", ATTRS{idProduct}=="0700", ATTR{power/autosuspend}="-1"
+
+# Only restart Surge when Roli disconnects (Surge will auto-detect on connect)
+ACTION=="remove", SUBSYSTEM=="usb", ATTRS{idVendor}=="2af4", ATTRS{idProduct}=="0700", RUN+="/bin/systemctl restart surge-xt-cli.service"

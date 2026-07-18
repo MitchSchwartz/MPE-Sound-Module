@@ -1,0 +1,23 @@
+[Unit]
+Description=USB Foot Pedal to Surge OSC Bridge
+Documentation=https://github.com/MitchSchwartz/MPE-Module
+After=network.target surge-xt-cli.service
+Requires=surge-xt-cli.service
+
+[Service]
+Type=simple
+User=mitch
+Group=mitch
+WorkingDirectory=/home/mitch/MPE-Module
+ExecStart=/usr/bin/python3 /home/mitch/MPE-Module/scripts/pedal-to-osc.py
+# No automatic restart - udev rule will trigger on device connection
+Restart=no
+StandardOutput=journal
+StandardError=journal
+
+# Allow access to input devices
+SupplementaryGroups=input
+
+[Install]
+# Not enabled by default - started by udev rule when pedal connects
+WantedBy=

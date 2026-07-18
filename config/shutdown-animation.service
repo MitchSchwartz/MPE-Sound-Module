@@ -1,0 +1,16 @@
+[Unit]
+Description=Shutdown Animation for OLED Display
+DefaultDependencies=no
+Before=shutdown.target reboot.target halt.target
+
+[Service]
+Type=oneshot
+User=mitch
+WorkingDirectory=/home/mitch/MPE-Module
+ExecStart=/usr/bin/python3 /home/mitch/MPE-Module/shutdown_animation.py
+StandardOutput=journal
+StandardError=journal
+TimeoutStartSec=10
+
+[Install]
+WantedBy=halt.target reboot.target shutdown.target

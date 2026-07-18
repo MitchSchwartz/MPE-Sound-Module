@@ -1,0 +1,4 @@
+---
+alwaysApply: true
+---
+The ssh path is mitch@192.168.1.203 if this fails the ip address may need to be looked up.

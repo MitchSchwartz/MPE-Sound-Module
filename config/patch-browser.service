@@ -1,0 +1,18 @@
+[Unit]
+Description=Patch Browser UI for OLED Display
+After=surge-xt-cli.service boot-animation.service
+Wants=surge-xt-cli.service
+
+[Service]
+Type=simple
+User=mitch
+WorkingDirectory=/home/mitch/MPE-Module
+ExecStartPre=/bin/sleep 2
+ExecStart=/home/mitch/MPE-Module/scripts/start-patch-browser.sh
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
