@@ -425,4 +425,4 @@ backup          # Sync from device
 
 ---
 
-See [BACKUP_GUIDE.md](BACKUP_GUIDE.md) for detailed backup procedures and troubleshooting.
+See [docs/BACKUP_GUIDE.md](docs/BACKUP_GUIDE.md) for detailed backup procedures and troubleshooting.

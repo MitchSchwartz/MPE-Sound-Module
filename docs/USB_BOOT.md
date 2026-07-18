@@ -138,7 +138,7 @@ cd pisurge
 chmod +x install.sh
 ./install.sh
 
-# Follow QUICKSTART.md from here
+# Follow README.md from here
 ```
 
 Everything else is identical to SD card installation.
@@ -242,7 +242,7 @@ sudo dd if=/dev/sdX of=/dev/sdY bs=4M status=progress
 
 1. Flash Pi OS Lite to USB drive (use Raspberry Pi Imager)
 2. Boot Pi from USB
-3. Follow [QUICKSTART.md](QUICKSTART.md) as normal
+3. Follow [README.md](../README.md) as normal
 4. Test Milestone 1 without touching your Zynthian SD card
 
 Your Zynthian backup is safe, and you can test Pi-Surge-MPE in parallel!

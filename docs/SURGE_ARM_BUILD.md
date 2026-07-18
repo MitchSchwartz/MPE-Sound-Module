@@ -242,7 +242,7 @@ After getting Surge XT binary:
 
 1. Place in `/usr/local/bin/Surge-XT`
 2. Make executable: `sudo chmod +x /usr/local/bin/Surge-XT`
-3. Continue with [QUICKSTART.md](QUICKSTART.md) Milestone 1 testing
+3. Continue with [README.md](../README.md) Milestone 1 testing
 
 ## Sources
 
