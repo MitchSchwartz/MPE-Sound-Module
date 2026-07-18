@@ -1,0 +1,14 @@
+[Unit]
+Description=Surge XT Crash Watchdog
+After=surge-xt-cli.service
+BindsTo=surge-xt-cli.service
+
+[Service]
+Type=simple
+User=<user>
+ExecStart=/home/<user>/scripts/surge-watchdog.sh
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

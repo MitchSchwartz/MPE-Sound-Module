@@ -1,0 +1,34 @@
+# Pi-Surge-MPE .gitignore
+
+# Python bytecode
+__pycache__/
+*.py[cod]
+
+# OS files
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# IDE
+.vscode/
+.idea/
+*.sublime-*
+
+# Dev scratch files
+scratch.*
+
+# SSH keys (NEVER commit these!)
+*.pem
+*_key
+*_key.pub
+id_rsa*
+id_ed25519*
+
+# Local dev/test files
+test_*.py
+config.local.ini
+*.local.*
+
+# Everything else (binaries, patches, configs) GOES IN GIT for backup!

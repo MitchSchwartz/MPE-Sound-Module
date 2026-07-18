@@ -1,0 +1,20 @@
+# udev rules for USB audio device hot-plug support
+# Automatically restart Surge XT CLI when USB audio devices are connected/disconnected
+#
+# This ensures that when you plug in a USB DAC after the system has booted,
+# Surge will restart and detect the newly connected device.
+#
+# Installation:
+#   sudo cp 99-usb-audio.rules /etc/udev/rules.d/
+#   sudo udevadm control --reload-rules
+#
+# Testing:
+#   1. Plug/unplug USB audio device
+#   2. Check logs: sudo journalctl -u surge-xt-cli -f
+#   3. Verify service restarted: systemctl status surge-xt-cli
+
+# Restart Surge XT CLI when USB audio devices connect
+ACTION=="add", SUBSYSTEM=="sound", KERNEL=="card[0-9]*", ATTRS{id}!="vc4hdmi*", RUN+="/bin/systemctl restart surge-xt-cli.service"
+
+# Restart Surge XT CLI when USB audio devices disconnect
+ACTION=="remove", SUBSYSTEM=="sound", KERNEL=="card[0-9]*", ATTRS{id}!="vc4hdmi*", RUN+="/bin/systemctl restart surge-xt-cli.service"

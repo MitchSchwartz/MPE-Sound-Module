@@ -1,0 +1,5 @@
+---
+alwaysApply: true
+---
+
+The deployment method is to push to github and then pull from github to the pi. DO NOT USE SSH FOR DIRECT DEPLOYMENT. ALWAYS CREATE DEPLOY SCRIPTS IN THE SCRIPTS FOLDER.

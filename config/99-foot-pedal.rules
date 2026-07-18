@@ -1,0 +1,9 @@
+# udev rule for PCsensor FootSwitch
+# Automatically starts foot-pedal.service when pedal is connected
+# Stops service when pedal is disconnected
+
+# Trigger when FootSwitch is connected
+ACTION=="add", SUBSYSTEM=="input", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="e026", ENV{SYSTEMD_WANTS}="foot-pedal.service", TAG+="systemd"
+
+# Stop service when FootSwitch is disconnected
+ACTION=="remove", SUBSYSTEM=="input", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="e026", RUN+="/bin/systemctl stop foot-pedal.service"

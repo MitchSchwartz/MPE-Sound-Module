@@ -1,0 +1,10 @@
+{
+  "sustain_fade_enabled": true,
+  "sustain_fade_duration": 1.0,
+  "sustain_fade_curve": "linear",
+  "_comment": "Pedal-to-OSC Bridge Configuration",
+  "_notes": {
+    "sustain_fade_curve": "Options: 'linear' or 'exponential'",
+    "sustain_fade_duration": "Duration in seconds (recommended: 1.0-5.0)"
+  }
+}

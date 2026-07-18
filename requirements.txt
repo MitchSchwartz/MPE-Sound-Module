@@ -1,0 +1,18 @@
+# Python dependencies for Pi-Surge-MPE
+# Install with: pip3 install -r requirements.txt
+
+# MIDI and GPIO
+python-rtmidi>=1.4.9
+gpiozero>=1.6.2
+RPi.GPIO>=0.7.1
+
+# OLED Display (for patch browser UI)
+luma.oled>=3.12.0
+pillow>=10.0.0
+
+# Encoder input handling
+python-evdev>=1.6.0  # Kernel-level driver (best with hardware caps)
+pigpio>=1.78  # Hardware-timed GPIO sampling (best for noisy encoders)
+
+# OSC (for patch loading)
+python-osc>=1.9.0
