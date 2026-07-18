@@ -2,29 +2,38 @@
 
 Complete guide for editing Surge XT patches on Windows and deploying them to your Raspberry Pi device.
 
+## Two repos
+
+| Repo | Role |
+|------|------|
+| **MPE-Module** | Code, docs, deploy scripts (this repo) |
+| **MPE-Personal** | Private backup: `assets/user-data/Patches/`, factory/third-party copy, binary |
+
+Clone both as siblings (`~/GitHub/MPE-Module` + `~/GitHub/MPE-Personal`). Scripts resolve `../MPE-Personal` automatically, or set `MPE_PERSONAL_REPO`.
+
 ## Overview
 
 This workflow enables seamless patch editing:
 1. Edit patches in Surge XT on Windows using the native GUI
-2. Changes automatically tracked in git (via symlinks)
-3. Fast deployment to Pi (~5-10 seconds)
+2. Changes land in **MPE-Personal** via symlinks → commit there
+3. Deploy from **MPE-Module** scripts (~5–10 seconds)
 4. Test patches on your Roli Seaboard MIDI controller
 
 ## One-Time Setup
 
 ### Step 1: Create Windows Symlinks
 
-Run this script once to link Windows Surge XT to your git repo:
+Run once (from MPE-Module; requires MPE-Personal cloned beside it):
 
 ```bash
-cd "c:/Users/mitch/GitHub/MPE Module"
+cd "c:/Users/mitch/GitHub/MPE-Module"
 ./scripts/setup-windows-symlinks.sh
 ```
 
 This creates a junction from:
-- `c:\Users\mitch\Documents\Surge XT\Patches` → `c:\Users\mitch\GitHub\MPE Module\assets\user-data\Patches`
+- `c:\Users\mitch\Documents\Surge XT\Patches` → `c:\Users\mitch\GitHub\MPE-Personal\assets\user-data\Patches`
 
-Now any patches you save in Surge XT are automatically in your git repo!
+Now any patches you save in Surge XT are automatically in MPE-Personal!
 
 ### Step 2: Verify Setup
 
@@ -62,22 +71,15 @@ The patch is now automatically in your git repo!
 
 ### 2. Review and Commit Changes
 
+Commit in **MPE-Personal** (not MPE-Module):
+
 ```bash
-cd "c:/Users/mitch/GitHub/MPE Module"
+cd "c:/Users/mitch/GitHub/MPE-Personal"
 
-# See what changed
 git status
-
-# View the actual changes (binary diff)
 git diff assets/user-data/Patches/
-
-# Stage the changes
 git add assets/user-data/Patches/
-
-# Commit with descriptive message
 git commit -m "Update Church - Mod.fxp: added chorus effect, adjusted reverb decay"
-
-# Push to GitHub (optional, for backup)
 git push
 ```
 
@@ -89,10 +91,10 @@ git push
 ./scripts/deploy-patches.sh
 ```
 
-**Option B — if Pi uses `setup-pi-symlinks.sh`:** commit/push on your PC, then on the Pi:
+**Option B — if Pi uses `setup-pi-symlinks.sh`:** commit/push MPE-Personal, then on the Pi:
 
 ```bash
-cd ~/MPE-Module && git pull && sudo systemctl restart surge-xt-cli patch-browser
+cd ~/MPE-Personal && git pull && sudo systemctl restart surge-xt-cli patch-browser
 ```
 
 This script (Option A):
@@ -113,9 +115,9 @@ This script (Option A):
 
 ### Browse Factory Patches for Reference
 
-Factory and third-party patches are available in your git repo:
-- Factory: `c:/Users/mitch/GitHub/MPE Module/assets/patches/patches_factory`
-- Third-party: `c:/Users/mitch/GitHub/MPE Module/assets/patches/third-party/patches_3rdparty`
+Factory and third-party patches (backup copy) live in MPE-Personal:
+- Factory: `c:/Users/mitch/GitHub/MPE-Personal/assets/patches/patches_factory`
+- Third-party: `c:/Users/mitch/GitHub/MPE-Personal/assets/patches/third-party/patches_3rdparty`
 
 To use a factory patch as a starting point:
 1. Navigate to the factory patches folder
@@ -137,14 +139,10 @@ This pulls:
 - Custom patches from Pi → `assets/user-data/Patches`
 - System configs and service files
 
-Review changes:
+Review and commit in MPE-Personal:
 ```bash
+cd ../MPE-Personal
 git status
-git diff
-```
-
-Commit if you want to keep the changes:
-```bash
 git add -A
 git commit -m "Sync from device $(date +%Y-%m-%d)"
 git push
@@ -185,7 +183,7 @@ dir "c:\Users\mitch\Documents\Surge XT\Patches"
 
 # Should show: <JUNCTION> tag
 # If not, recreate it:
-cd "c:/Users/mitch/GitHub/MPE Module"
+cd "c:/Users/mitch/GitHub/MPE-Module"
 ./scripts/setup-windows-symlinks.sh
 ```
 
@@ -262,10 +260,11 @@ To see what changed:
 
 ### Windows
 - **Surge XT Install**: `c:\Users\mitch\Documents\Surge XT\`
-- **Git Repo**: `c:\Users\mitch\GitHub\MPE Module\`
+- **Code repo**: `c:\Users\mitch\GitHub\MPE-Module\`
+- **Personal repo**: `c:\Users\mitch\GitHub\MPE-Personal\`
 - **Custom Patches** (via symlink): `c:\Users\mitch\Documents\Surge XT\Patches\Mitch\`
-- **Factory Patches** (read-only): `c:\Users\mitch\GitHub\MPE Module\assets\patches\patches_factory\`
-- **Third-party Patches** (read-only): `c:\Users\mitch\GitHub\MPE Module\assets\patches\third-party\patches_3rdparty\`
+- **Factory Patches** (read-only backup): `c:\Users\mitch\GitHub\MPE-Personal\assets\patches\patches_factory\`
+- **Third-party Patches** (read-only backup): `c:\Users\mitch\GitHub\MPE-Personal\assets\patches\third-party\patches_3rdparty\`
 
 ### Pi (surge.local)
 - **Surge Binary**: `/home/mitch/surge/build/surge_xt_products/surge-xt-cli`
@@ -275,31 +274,25 @@ To see what changed:
 - **User Preferences**: `/home/mitch/.local/share/Surge XT/SurgeXTUserDefaults.xml`
 - **Surge CLI Log**: `/home/mitch/surge-cli.log`
 
-### Git Repo Structure
+### Repo layout
 ```
-MPE Module/
+MPE-Module/                    # code + deploy scripts
 ├── scripts/
-│   ├── setup-windows-symlinks.sh      # One-time setup (creates junction)
-│   ├── deploy-patches.sh              # Fast patch deployment (daily use)
-│   ├── deploy-all.sh                  # Full system deployment (disaster recovery)
-│   ├── sync-from-device.sh            # Backup from Pi (weekly)
-│   └── start-surge-cli.sh             # Pi service startup script
-├── assets/
-│   ├── binaries/
-│   │   └── surge-xt-cli               # 24MB binary
-│   ├── patches/
-│   │   ├── patches_factory/           # 639 factory patches (47MB)
-│   │   └── third-party/
-│   │       └── patches_3rdparty/      # 2,553 third-party patches (375MB)
-│   ├── configs/active/                # Systemd services, udev rules
-│   └── user-data/
-│       ├── Patches/                   # YOUR CUSTOM PATCHES (edit here!)
-│       │   ├── Mitch/
-│       │   │   └── Church - Mod.fxp
-│       │   └── MIDI Programs/
-│       └── SurgeXTUserDefaults.xml
-└── docs/
-    └── PATCH-EDITING-WORKFLOW.md      # This file
+│   ├── setup-windows-symlinks.sh
+│   ├── setup-pi-symlinks.sh
+│   ├── deploy-patches.sh
+│   ├── deploy-all.sh
+│   └── sync-from-device.sh
+└── docs/PATCH-EDITING-WORKFLOW.md
+
+MPE-Personal/                  # private backup (sibling clone)
+└── assets/
+    ├── binaries/surge-xt-cli
+    ├── patches/patches_factory/
+    ├── patches/third-party/patches_3rdparty/
+    ├── configs/active/
+    └── user-data/Patches/     # YOUR CUSTOM PATCHES (edit via symlink)
+        └── Mitch/
 ```
 
 ## Quick Reference
@@ -307,19 +300,17 @@ MPE Module/
 ### Common Commands
 
 ```bash
-# One-time setup
+# One-time setup (from MPE-Module)
 ./scripts/setup-windows-symlinks.sh
 
 # Daily workflow
-git status                              # See changed patches
-git add assets/user-data/Patches/       # Stage patches
-git commit -m "Updated patches"         # Commit changes
-./scripts/deploy-patches.sh             # Deploy to Pi (5-10 sec)
+cd ../MPE-Personal && git status
+git add assets/user-data/Patches/ && git commit -m "Updated patches"
+cd ../MPE-Module && ./scripts/deploy-patches.sh
 
 # Weekly backup
-./scripts/sync-from-device.sh           # Pull from Pi
-git commit -am "Backup from device"     # Commit backup
-git push                                # Push to GitHub
+./scripts/sync-from-device.sh
+cd ../MPE-Personal && git commit -am "Backup from device" && git push
 
 # Disaster recovery
 ./scripts/deploy-all.sh                 # Full system deploy (3-6 min)
@@ -342,40 +333,21 @@ ssh surge.local "ls -la '/home/mitch/Documents/Surge XT/Patches/Mitch/'"  # List
 ## Example Workflow Session
 
 ```bash
-# Morning: Start editing patches
-cd "c:/Users/mitch/GitHub/MPE Module"
+# Morning: edit in Surge XT (saves into MPE-Personal via symlink)
 
-# Open Surge XT, edit Church - Mod.fxp
-# Add chorus effect, adjust reverb decay, tweak filter resonance
-# Save in Surge XT
-
-# Commit the changes
+cd "c:/Users/mitch/GitHub/MPE-Personal"
 git add assets/user-data/Patches/Mitch/Church\ -\ Mod.fxp
 git commit -m "Church - Mod: add chorus, longer reverb, brighter filter"
-
-# Deploy to Pi
-./scripts/deploy-patches.sh
-
-# Test on Roli Seaboard
-# (Pick up controller, play the patch)
-
-# Sounds great! Push to GitHub
 git push
 
-# Later: Create a new pad patch
-# Open Surge XT, start from Init
-# Create lush pad sound with wavetable oscillators
-# Save as Mitch/Ethereal Pad.fxp
-
-# Commit and deploy
-git add assets/user-data/Patches/Mitch/Ethereal\ Pad.fxp
-git commit -m "Add new pad patch: Ethereal Pad"
+cd "../MPE-Module"
 ./scripts/deploy-patches.sh
 
-# End of day: Backup everything
+# Later: new patch → commit in MPE-Personal, deploy from MPE-Module
+
+# End of day
 ./scripts/sync-from-device.sh
-git commit -am "Daily backup $(date +%Y-%m-%d)"
-git push
+cd ../MPE-Personal && git commit -am "Daily backup $(date +%Y-%m-%d)" && git push
 ```
 
 Happy patching!

@@ -3,10 +3,15 @@
 
 set -e
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=lib/paths.sh
+source "$SCRIPT_DIR/lib/paths.sh"
+cd "$MPE_MODULE_REPO"
+
 PI_HOST="${PI_HOST:-surge.local}"
 PI_USER="${PI_USER:-mitch}"
 SSH_KEY="${SSH_KEY:-$HOME/.ssh/surge_pi_key}"
-PATCHES_SRC="assets/user-data/Patches"
+PATCHES_SRC="$MPE_ASSETS_DIR/user-data/Patches"
 
 echo "======================================="
 echo "  Deploy Custom Patches"
@@ -32,7 +37,7 @@ if ! ssh -i "$SSH_KEY" -o ConnectTimeout=5 "$PI_USER@$PI_HOST" "echo 'Connected'
 fi
 
 echo "Packaging patches..."
-cd assets/user-data && tar czf /tmp/user-patches.tar.gz Patches/ && cd ../..
+cd "$MPE_ASSETS_DIR/user-data" && tar czf /tmp/user-patches.tar.gz Patches/
 
 echo "Uploading..."
 scp -i "$SSH_KEY" /tmp/user-patches.tar.gz "$PI_USER@$PI_HOST:/tmp/"
@@ -56,5 +61,6 @@ EOF
 echo ""
 echo "✅ Custom patches deployed"
 echo ""
-echo "Tip: if you ran setup-pi-symlinks.sh on the Pi, git pull there instead of re-uploading."
+echo "Tip: if Pi symlinks point at cloned MPE-Personal, git pull there instead of re-uploading."
+echo "Personal repo: $MPE_PERSONAL_REPO"
 echo ""

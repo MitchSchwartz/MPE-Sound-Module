@@ -3,6 +3,13 @@
 
 set -e
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=lib/paths.sh
+source "$SCRIPT_DIR/lib/paths.sh"
+cd "$MPE_MODULE_REPO"
+ASSETS="$MPE_ASSETS_DIR"
+mkdir -p "$ASSETS/configs/active"
+
 PI_HOST="${PI_HOST:-surge.local}"
 PI_USER="${PI_USER:-mitch}"
 SSH_KEY="${SSH_KEY:-$HOME/.ssh/surge_pi_key}"
@@ -42,21 +49,21 @@ echo ""
 
 # Deploy Surge binary
 echo "Step 2/8: Deploying Surge binary (24MB)..."
-if [ -f "assets/binaries/surge-xt-cli" ]; then
-    scp -i "$SSH_KEY" assets/binaries/surge-xt-cli \
+if [ -f "$ASSETS/binaries/surge-xt-cli" ]; then
+    scp -i "$SSH_KEY" "$ASSETS/binaries/surge-xt-cli" \
         "$PI_USER@$PI_HOST:/home/mitch/surge/build/surge_xt_products/"
     ssh -i "$SSH_KEY" "$PI_USER@$PI_HOST" "chmod +x ~/surge/build/surge_xt_products/surge-xt-cli"
     echo "✓ Binary deployed"
 else
-    echo "⚠️  Warning: Surge binary not found in assets/binaries/"
+    echo "⚠️  Warning: Surge binary not found in $ASSETS/binaries/"
 fi
 echo ""
 
 # Deploy factory patches
 echo "Step 3/8: Deploying factory patches (47MB)..."
-if [ -d "assets/patches/patches_factory" ]; then
+if [ -d "$ASSETS/patches/patches_factory" ]; then
     echo "Creating archive..."
-    cd assets/patches && tar czf /tmp/patches_factory.tar.gz patches_factory/ && cd ../..
+    cd "$ASSETS/patches" && tar czf /tmp/patches_factory.tar.gz patches_factory/
     echo "Uploading..."
     scp -i "$SSH_KEY" /tmp/patches_factory.tar.gz "$PI_USER@$PI_HOST:/tmp/"
     echo "Extracting on Pi..."
@@ -68,15 +75,15 @@ EOF
     rm /tmp/patches_factory.tar.gz
     echo "✓ Factory patches deployed"
 else
-    echo "⚠️  Warning: Factory patches not found in assets/patches/patches_factory"
+    echo "⚠️  Warning: Factory patches not found in $ASSETS/patches/patches_factory"
 fi
 echo ""
 
 # Deploy third-party patches
 echo "Step 4/8: Deploying third-party patches (375MB, this may take a few minutes)..."
-if [ -d "assets/patches/third-party" ]; then
+if [ -d "$ASSETS/patches/third-party" ]; then
     echo "Creating archive..."
-    cd assets/patches && tar czf /tmp/patches_3rdparty.tar.gz third-party/ && cd ../..
+    cd "$ASSETS/patches" && tar czf /tmp/patches_3rdparty.tar.gz third-party/
     echo "Uploading..."
     scp -i "$SSH_KEY" /tmp/patches_3rdparty.tar.gz "$PI_USER@$PI_HOST:/tmp/"
     echo "Extracting on Pi..."
@@ -89,7 +96,7 @@ EOF
     rm /tmp/patches_3rdparty.tar.gz
     echo "✓ Third-party patches deployed"
 else
-    echo "⚠️  Warning: Third-party patches not found in assets/patches/third-party"
+    echo "⚠️  Warning: Third-party patches not found in $ASSETS/patches/third-party"
 fi
 echo ""
 
@@ -139,17 +146,17 @@ echo ""
 
 # Deploy user data
 echo "Step 8/8: Deploying user data..."
-if [ -f "assets/user-data/SurgeXTUserDefaults.xml" ]; then
-    scp -i "$SSH_KEY" assets/user-data/SurgeXTUserDefaults.xml \
+if [ -f "$ASSETS/user-data/SurgeXTUserDefaults.xml" ]; then
+    scp -i "$SSH_KEY" "$ASSETS/user-data/SurgeXTUserDefaults.xml" \
         "$PI_USER@$PI_HOST:.local/share/Surge\ XT/"
     echo "✓ User preferences deployed"
 else
     echo "  (No user preferences found)"
 fi
 
-if [ -d "assets/user-data/Patches" ]; then
+if [ -d "$ASSETS/user-data/Patches" ]; then
     ssh -i "$SSH_KEY" "$PI_USER@$PI_HOST" "mkdir -p '/home/mitch/Documents/Surge XT'"
-    cd assets/user-data && tar czf /tmp/user-patches.tar.gz Patches/ && cd ../..
+    cd "$ASSETS/user-data" && tar czf /tmp/user-patches.tar.gz Patches/
     scp -i "$SSH_KEY" /tmp/user-patches.tar.gz "$PI_USER@$PI_HOST:/tmp/"
     ssh -i "$SSH_KEY" "$PI_USER@$PI_HOST" << 'EOF'
 cd "/home/mitch/Documents/Surge XT"
@@ -159,7 +166,7 @@ EOF
     rm /tmp/user-patches.tar.gz
     echo "✓ Custom patches deployed"
 else
-    echo "  (No custom patches found in assets/user-data/Patches)"
+    echo "  (No custom patches found in $ASSETS/user-data/Patches)"
 fi
 echo ""
 

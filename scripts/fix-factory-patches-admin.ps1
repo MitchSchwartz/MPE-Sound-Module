@@ -19,7 +19,7 @@ if (-not $isAdmin) {
 }
 
 $programDataFactory = "C:\ProgramData\Surge XT\patches_factory"
-$gitRepoFactory = "C:\Users\mitch\GitHub\MPE Module\assets\patches\patches_factory"
+$gitRepoFactory = "C:\Users\mitch\GitHub\MPE-Personal\assets\patches\patches_factory"
 
 # Step 1: Check if git repo factory patches exist
 Write-Host "Step 1/3: Checking git repo factory patches..." -ForegroundColor White

@@ -269,10 +269,12 @@ chmod 600 ~/.ssh/surge_pi_key
 
 ### Verify Assets Downloaded
 
+From MPE-Module (reads sibling MPE-Personal):
+
 ```bash
-ls -lh assets/binaries/surge-xt-cli
-du -sh assets/patches/*
-find assets -type f | wc -l
+ls -lh ../MPE-Personal/assets/binaries/surge-xt-cli
+du -sh ../MPE-Personal/assets/patches/*
+find ../MPE-Personal/assets -type f | wc -l
 ```
 
 ---
