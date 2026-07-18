@@ -57,7 +57,7 @@ CLK    ───────→ GPIO 17
 DT     ───────→ GPIO 27
 SW     ───────→ GPIO 22
 VCC    ───────→ 3.3V (Pin 17)
-GND    ───────→ GND (Pin 9)
+GND    ───────→ GND (Pin 14)
 ```
 
 ### Without VCC (Our Solution)
@@ -67,7 +67,7 @@ CLK    ───────→ GPIO 17 (with internal pull-up enabled)
 DT     ───────→ GPIO 27 (with internal pull-up enabled)
 SW     ───────→ GPIO 22 (with internal pull-up enabled)
 VCC    ───────→ NOT CONNECTED
-GND    ───────→ GND (Pin 9)
+GND    ───────→ GND (Pin 14)
 ```
 
 ## Benefits
@@ -83,7 +83,8 @@ GND    ───────→ GND (Pin 9)
 Pin 1 (3.3V):  Fan power        ← Reserved
 Pin 17 (3.3V): OLED VCC         ← Only 3.3V consumer
 Pin 6 (GND):   Fan ground       ← Reserved
-Pin 9 (GND):   OLED + Encoder   ← Shared ground
+Pin 9 (GND):   OLED ground      ← OLED only
+Pin 14 (GND):  Encoder ground   ← Encoder only (separate jumper)
 ```
 
 ## What If My Encoder Has Built-In Pull-Ups?
