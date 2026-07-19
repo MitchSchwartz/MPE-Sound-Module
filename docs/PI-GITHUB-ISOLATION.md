@@ -1,101 +1,53 @@
-# Pi GitHub isolation (device account)
+# Pi GitHub isolation
 
-The Pi must **not** use your personal **MitchSchwartz** GitHub SSH key. That key can reach all of your work repos. Use a **device-only** identity instead.
+The Pi must **not** use your personal **MitchSchwartz account SSH key**. That key can reach all of your work repos.
 
-## Target layout
+**One repo only:** [MitchSchwartz/MPE-Sound-Module](https://github.com/MitchSchwartz/MPE-Sound-Module) — no duplicate under M-Ferda.
 
-| Machine | GitHub identity | Repo |
-|---------|-----------------|------|
-| **Laptop** | MitchSchwartz | [MitchSchwartz/MPE-Sound-Module](https://github.com/MitchSchwartz/MPE-Sound-Module) (canonical, public) |
-| **Pi** | **M-Ferda** (device container account) | `M-Ferda/MPE-Sound-Module` (mirror — pull only) |
-| **Laptop** | MitchSchwartz | `MitchSchwartz/MPE-Library` (private patches backup) |
+## How isolation works
 
-The Pi never needs MitchSchwartz credentials.
+| Machine | GitHub access | Scope |
+|---------|---------------|--------|
+| **Laptop** | MitchSchwartz (normal login / `gh`) | All your repos |
+| **Pi** | **Read-only deploy key** (`~/.ssh/mpe_github`) | **This repo only** |
 
-## One-time setup (M-Ferda account)
+The Pi pulls from `git@github.com:MitchSchwartz/MPE-Sound-Module.git` but the key cannot see OM-Repo, MPE-Library, or anything else on your account.
 
-Do these steps **logged into GitHub as M-Ferda** (browser), not MitchSchwartz.
-
-### 1. Create the device mirror repo
-
-On M-Ferda: **New repository** → `MPE-Sound-Module` (private is fine).
-
-From your laptop, push a copy once:
-
-```bash
-cd MPE-Module   # local clone; folder name on disk can stay MPE-Module
-git remote add mferda https://github.com/M-Ferda/MPE-Sound-Module.git   # if not exists
-git push mferda main
-```
-
-(Or use GitHub **Import repository** from `MitchSchwartz/MPE-Sound-Module` while logged in as M-Ferda.)
-
-### 2. Generate a Pi-only SSH key
+## Pi setup (already scripted on device)
 
 On the Pi:
 
-```bash
-ssh-keygen -t ed25519 -f ~/.ssh/mferda_github -C 'surge-pi-mferda' -N ''
-```
+- `~/.ssh/mpe_github` — device deploy key (not registered to your account)
+- `~/.ssh/config` — forces `github.com` to use that key only (`IdentitiesOnly yes`)
+- `~/MPE-Module` remote → `MitchSchwartz/MPE-Sound-Module`
 
-Copy the public key:
+Deploy key is added under **Repo → Settings → Deploy keys** on GitHub (title: `surge-pi-readonly`).
 
-```bash
-cat ~/.ssh/mferda_github.pub
-```
+## Required: revoke the old Pi key from your account
 
-### 3. Add key to M-Ferda (not MitchSchwartz)
+If the Pi ever had `~/.ssh/id_ed25519` added to **MitchSchwartz → Settings → SSH keys**, **delete it there**. Until you do, that key still has full account access even if the Pi prefers the deploy key.
 
-GitHub → **M-Ferda** → Settings → SSH and GPG keys → New SSH key → paste `mferda_github.pub`.
-
-### 4. Configure Pi SSH to use only the device key
-
-On the Pi, `~/.ssh/config`:
-
-```
-Host github.com
-  HostName github.com
-  User git
-  IdentityFile ~/.ssh/mferda_github
-  IdentitiesOnly yes
-```
-
-Verify:
+Optional on Pi after revoking:
 
 ```bash
-ssh -T git@github.com
-# Must say: Hi M-Ferda! ...
+mv ~/.ssh/id_ed25519 ~/.ssh/id_ed25519.disabled
+mv ~/.ssh/id_ed25519.pub ~/.ssh/id_ed25519.pub.disabled
 ```
 
-### 5. Point the Pi clone at M-Ferda
+## Verify
 
 ```bash
-cd ~/MPE-Module   # path on disk can stay; override with MPE_MODULE_REPO if you rename
-git remote set-url origin git@github.com:M-Ferda/MPE-Sound-Module.git
-git fetch origin
-git status
+ssh surge.local 'cd ~/MPE-Module && git fetch origin && git status'
 ```
 
-### 6. Revoke Pi access to MitchSchwartz
+Deploy keys do not respond to `ssh -T git@github.com` with “Hi username” — that is normal. `git fetch` is the test.
 
-On GitHub → **MitchSchwartz** → Settings → SSH keys: **delete** any key that was generated on the Pi (`id_ed25519` from `surge.local`). After this, even if the old key file remains on the Pi, it cannot reach your work account.
+## Ongoing sync
 
-Optional on Pi: `mv ~/.ssh/id_ed25519 ~/.ssh/id_ed25519.disabled` so it cannot be picked up accidentally.
-
-## Ongoing sync (laptop → Pi)
-
-After you push to MitchSchwartz:
+After you push from the laptop:
 
 ```bash
-# laptop — update M-Ferda mirror
-git push mferda main
-
-# Pi — pull from device repo only
-ssh surge.local 'cd ~/MPE-Module && git pull && bash scripts/configure-pi-paths.sh --local --force'
+ssh surge.local 'cd ~/MPE-Module && git pull'
 ```
 
-## Alternative: read-only deploy key (single repo, no M-Ferda mirror)
-
-If you prefer one repo on MitchSchwartz only: add `mferda_github.pub` as a **read-only deploy key** on `MitchSchwartz/MPE-Sound-Module` (Repo → Settings → Deploy keys). The Pi can pull that repo only — still revoke the MitchSchwartz account key from the Pi as in step 6.
-
-The M-Ferda mirror is cleaner if you want the device identity to match the container account end-to-end.
+No second repo or M-Ferda mirror needed.
