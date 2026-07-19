@@ -10,6 +10,6 @@ parent/
 └── MPE-Library/     ← private backup (assets/)
 ```
 
-Scripts resolve `../MPE-Library` (or legacy `../MPE-Personal`) automatically, or set `MPE_PERSONAL_REPO`. See **[docs/PATHS.md](docs/PATHS.md)**.
+Scripts resolve `../MPE-Library` automatically, or set `MPE_PERSONAL_REPO`. See **[docs/PATHS.md](docs/PATHS.md)**.
 
 Stock Surge factory + third-party patches can also be reinstalled from [Surge XT](https://surge-synthesizer.github.io/) instead of git.

@@ -2,7 +2,7 @@
 
 Machine-specific paths are **not hardcoded** in scripts. Defaults assume:
 
-- **PC:** `MPE-Module` and `MPE-Personal` cloned as **siblings**
+- **PC:** `MPE-Module` and `MPE-Library` cloned as **siblings**
 - **Pi:** same two repos under `$HOME`, Surge build under `$HOME/surge`
 
 Override via `config/mpe.env` (copy from [`config/mpe.env.example`](../config/mpe.env.example)) or environment variables.
@@ -12,28 +12,28 @@ Override via `config/mpe.env` (copy from [`config/mpe.env.example`](../config/mp
 ```
 parent/                    # e.g. ~/GitHub
 ├── MPE-Module/            # this repo — code, docs, scripts
-└── MPE-Personal/          # private — assets/
+└── MPE-Library/          # private — assets/
     └── assets/
         ├── user-data/Patches/
         ├── patches/
         └── binaries/
 ```
 
-Deploy/sync scripts in `MPE-Module/scripts/` resolve `../MPE-Personal` automatically.
+Deploy/sync scripts in `MPE-Module/scripts/` resolve `../MPE-Library` automatically.
 
 ## Environment variables
 
 | Variable | Default | Used on |
 |----------|---------|---------|
-| `MPE_PERSONAL_REPO` | `../MPE-Personal` | PC deploy/sync |
+| `MPE_PERSONAL_REPO` | `../MPE-Library` | PC deploy/sync |
 | `SURGE_XT_DIR` | `$HOME/Documents/Surge XT` | PC symlink setup |
 | `PI_HOST` | `surge.local` | PC → Pi SSH |
 | `PI_USER` | `pi` | PC → Pi SSH |
 | `SSH_KEY` | `$HOME/.ssh/surge_pi_key` | PC → Pi SSH |
 | `PI_MPE_MODULE` | `$HOME/MPE-Module` on Pi | Pi clone path override |
-| `PI_MPE_PERSONAL` | `$HOME/MPE-Personal` on Pi | Pi clone path override |
+| `PI_MPE_PERSONAL` | `$HOME/MPE-Library` on Pi | Pi clone path override |
 | `MPE_MODULE_REPO` | script location / `$HOME/MPE-Module` | Pi runtime |
-| `MPE_PERSONAL_REPO` | `$HOME/MPE-Personal` | Pi runtime |
+| `MPE_PERSONAL_REPO` | `$HOME/MPE-Library` | Pi runtime |
 | `MPE_SURGE_ROOT` | `$HOME/surge` | Pi runtime |
 
 Full list: [`config/mpe.env.example`](../config/mpe.env.example).
@@ -42,7 +42,7 @@ Full list: [`config/mpe.env.example`](../config/mpe.env.example).
 
 When you first set up (or move) the Pi, **verify or reconfigure** where repos and Surge paths live:
 
-1. **Clone both repos** where you want them (default: `$HOME/MPE-Module`, `$HOME/MPE-Personal`).
+1. **Clone both repos** where you want them (default: `$HOME/MPE-Module`, `$HOME/MPE-Library`).
 2. **If paths differ**, create `/etc/mpe/mpe.env` on the Pi (or `~/.config/mpe/mpe.env`):
    ```bash
    sudo mkdir -p /etc/mpe
@@ -54,10 +54,10 @@ When you first set up (or move) the Pi, **verify or reconfigure** where repos an
    cd MPE-Module
    ./scripts/configure-pi-paths.sh
    ```
-4. **Point Surge patch dirs at MPE-Personal** (symlinks or copies):
+4. **Point Surge patch dirs at MPE-Library** (symlinks or copies):
    ```bash
-   # From PC — set PI_MPE_PERSONAL if not in $HOME/MPE-Personal
-   export PI_MPE_PERSONAL=/your/path/MPE-Personal   # optional
+   # From PC — set PI_MPE_PERSONAL if not in $HOME/MPE-Library
+   export PI_MPE_PERSONAL=/your/path/MPE-Library   # optional
    ./scripts/setup-pi-symlinks.sh
    ```
 5. **Restart services** after any path change:
@@ -65,7 +65,7 @@ When you first set up (or move) the Pi, **verify or reconfigure** where repos an
    ssh $PI_USER@$PI_HOST 'sudo systemctl daemon-reload && sudo systemctl restart surge-xt-cli patch-browser'
    ```
 
-If you previously had everything under one repo with patches in `MPE-Module/assets/`, symlinks on the Pi must be **recreated** to target `MPE-Personal/assets/` instead.
+If you previously had everything under one repo with patches in `MPE-Module/assets/`, symlinks on the Pi must be **recreated** to target `MPE-Library/assets/` instead.
 
 ## PC quick start
 
@@ -79,4 +79,4 @@ cp config/mpe.env.example config/mpe.env   # optional — edit PI_USER, paths
 
 - [`assets/README.md`](../assets/README.md) — where patches live
 - [`docs/PATCH-EDITING-WORKFLOW.md`](PATCH-EDITING-WORKFLOW.md) — edit → commit → deploy
-- [`docs/BACKUP_GUIDE.md`](BACKUP_GUIDE.md) — pull/sync backups into MPE-Personal
+- [`docs/BACKUP_GUIDE.md`](BACKUP_GUIDE.md) — pull/sync backups into MPE-Library
