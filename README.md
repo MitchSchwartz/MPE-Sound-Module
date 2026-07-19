@@ -43,9 +43,9 @@ Reference stack: Raspberry Pi 5 + 1.3″ I2C OLED + one KY-040 encoder + a USB s
 
 The 3,192 patches on the device aren't in this repo — they ship inside Surge XT's own source tree, so building Surge XT (see below) gets you the same patches in Surge's normal folder layout. No separate download or repo needed.
 
-Never built any of this before? Start with **[docs/BUILD-FROM-ZERO.md](docs/BUILD-FROM-ZERO.md)** — a full walkthrough from a blank Pi to a working module.
+Never built any of this before? Start with **[docs/BUILD-FROM-ZERO.md](docs/BUILD-FROM-ZERO.md)** — full walkthrough from a blank Pi to a working module.
 
-**Tested Surge XT (reference Pi):** `1.4.main.253f8d86` — pre-1.4 nightly, newer than stable 1.3.4. See BUILD-FROM-ZERO for version notes and planned prebuilt-binary release.
+**Canonical repo:** [github.com/MitchSchwartz/MPE-Sound-Module](https://github.com/MitchSchwartz/MPE-Sound-Module) · **Pi device setup:** [docs/PI-GITHUB-ISOLATION.md](docs/PI-GITHUB-ISOLATION.md) (M-Ferda account — not MitchSchwartz).
 
 ## How to navigate it
 
@@ -112,6 +112,7 @@ Full command reference: **[COMMANDS.md](COMMANDS.md)**
 | Doc                                                                  | For                                                  |
 | -------------------------------------------------------------------- | ---------------------------------------------------- |
 | [docs/BUILD-FROM-ZERO.md](docs/BUILD-FROM-ZERO.md)                   | Full walkthrough: blank Pi → working module          |
+| [docs/PI-GITHUB-ISOLATION.md](docs/PI-GITHUB-ISOLATION.md)           | Pi must use M-Ferda device account, not MitchSchwartz |
 | [REFERENCE_BOM.md](REFERENCE_BOM.md)                                 | Building the hardware                                |
 | [docs/HARDWARE_WIRING.md](docs/HARDWARE_WIRING.md)                   | Wiring the OLED + encoder                            |
 | [docs/PATCH_BROWSER_UI.md](docs/PATCH_BROWSER_UI.md)                 | How the encoder/button navigation actually works     |
