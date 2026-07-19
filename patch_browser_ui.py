@@ -1240,8 +1240,10 @@ class PatchBrowser:
         print("Press Ctrl+C to exit\n")
 
         # Load the initial patch first (if not already loaded), then update display
-        if not last_patch_state:
+        if not last_patch_state and self.categories:
             self.load_current_patch_immediate()
+        elif not self.categories:
+            print("Warning: No patch categories found — check Surge patch symlinks (see docs/PATHS.md)")
         self.update_display()
 
     def _on_encoder_rotate(self, value):
@@ -1793,6 +1795,10 @@ class PatchBrowser:
 
     def get_current_category(self):
         """Get current category name"""
+        if not self.categories:
+            return "(No patches)"
+        if self.category_index >= len(self.categories):
+            self.category_index = 0
         return self.categories[self.category_index]
 
     def get_current_patches(self):
@@ -1858,6 +1864,8 @@ class PatchBrowser:
     def _navigate_forward(self):
         """Navigate forward one step (category or patch)"""
         with self.scroll_lock:
+            if not self.categories:
+                return
             if self.scroll_mode == SCROLL_MODE_CATEGORY:
                 self.category_index = (self.category_index + 1) % len(self.categories)
                 self.patch_index = 0  # Reset to first patch in new category
@@ -1869,6 +1877,8 @@ class PatchBrowser:
     def _navigate_backward(self):
         """Navigate backward one step (category or patch)"""
         with self.scroll_lock:
+            if not self.categories:
+                return
             if self.scroll_mode == SCROLL_MODE_CATEGORY:
                 self.category_index = (self.category_index - 1) % len(self.categories)
                 self.patch_index = 0  # Reset to first patch in new category
