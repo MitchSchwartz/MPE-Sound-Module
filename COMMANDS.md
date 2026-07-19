@@ -1,6 +1,11 @@
 # Command Reference
 
-Quick reference for all backup, deployment, and device management commands.
+Quick reference for backup, deployment, and device management. **Set `PI_HOST`, `PI_USER`, and `SSH_KEY` in `config/mpe.env`** (copy from `config/mpe.env.example`) — examples below use those variables.
+
+```bash
+# Optional: load env before running commands
+set -a && source config/mpe.env && set +a
+```
 
 ---
 
@@ -109,15 +114,15 @@ PI_HOST=other-pi.local bash scripts/deploy-all.sh
 ### Check Service Status
 
 ```bash
-ssh surge.local 'systemctl status surge-xt-cli'
-ssh surge.local 'systemctl status patch-browser'
-ssh surge.local 'systemctl status boot-animation'
+ssh $PI_USER@$PI_HOST 'systemctl status surge-xt-cli'
+ssh $PI_USER@$PI_HOST 'systemctl status patch-browser'
+ssh $PI_USER@$PI_HOST 'systemctl status boot-animation'
 ```
 
 Or check all services:
 
 ```bash
-ssh surge.local 'systemctl status surge-xt-cli patch-browser boot-animation'
+ssh $PI_USER@$PI_HOST 'systemctl status surge-xt-cli patch-browser boot-animation'
 ```
 
 ---
@@ -126,14 +131,14 @@ ssh surge.local 'systemctl status surge-xt-cli patch-browser boot-animation'
 
 **Surge logs:**
 ```bash
-ssh surge.local 'tail -30 ~/surge-cli.log'         # Last 30 lines
-ssh surge.local 'tail -f ~/surge-cli.log'          # Follow in real-time
+ssh $PI_USER@$PI_HOST 'tail -30 ~/surge-cli.log'         # Last 30 lines
+ssh $PI_USER@$PI_HOST 'tail -f ~/surge-cli.log'          # Follow in real-time
 ```
 
 **System logs:**
 ```bash
-ssh surge.local 'sudo journalctl -u surge-xt-cli -n 50'
-ssh surge.local 'sudo journalctl -u patch-browser -n 50'
+ssh $PI_USER@$PI_HOST 'sudo journalctl -u surge-xt-cli -n 50'
+ssh $PI_USER@$PI_HOST 'sudo journalctl -u patch-browser -n 50'
 ```
 
 ---
@@ -142,12 +147,12 @@ ssh surge.local 'sudo journalctl -u patch-browser -n 50'
 
 **Restart Surge:**
 ```bash
-ssh surge.local 'sudo systemctl restart surge-xt-cli'
+ssh $PI_USER@$PI_HOST 'sudo systemctl restart surge-xt-cli'
 ```
 
 **Restart all services:**
 ```bash
-ssh surge.local 'sudo systemctl restart surge-xt-cli patch-browser boot-animation'
+ssh $PI_USER@$PI_HOST 'sudo systemctl restart surge-xt-cli patch-browser boot-animation'
 ```
 
 ---
@@ -155,7 +160,7 @@ ssh surge.local 'sudo systemctl restart surge-xt-cli patch-browser boot-animatio
 ### Clear Logs
 
 ```bash
-ssh surge.local 'echo "" > ~/surge-cli.log'
+ssh $PI_USER@$PI_HOST 'echo "" > ~/surge-cli.log'
 ```
 
 ---
@@ -165,16 +170,16 @@ ssh surge.local 'echo "" > ~/surge-cli.log'
 ### Connect to Pi
 
 ```bash
-ssh surge.local
+ssh $PI_USER@$PI_HOST
 # or
-ssh <pi-user>@surge.local
+ssh <pi-user>@<hostname>
 # or
 ssh <pi-user>@192.168.1.203
 ```
 
 With SSH key:
 ```bash
-ssh -i ~/.ssh/surge_pi_key <pi-user>@surge.local
+ssh -i "$SSH_KEY" $PI_USER@$PI_HOST
 ```
 
 ---
@@ -182,7 +187,7 @@ ssh -i ~/.ssh/surge_pi_key <pi-user>@surge.local
 ### Copy Files To Pi
 
 ```bash
-scp -i ~/.ssh/surge_pi_key localfile.txt <pi-user>@surge.local:~/
+scp -i "$SSH_KEY" localfile.txt $PI_USER@$PI_HOST:~/
 ```
 
 ---
@@ -190,7 +195,7 @@ scp -i ~/.ssh/surge_pi_key localfile.txt <pi-user>@surge.local:~/
 ### Copy Files From Pi
 
 ```bash
-scp -i ~/.ssh/surge_pi_key <pi-user>@surge.local:~/remotefile.txt ./
+scp -i "$SSH_KEY" $PI_USER@$PI_HOST:~/remotefile.txt ./
 ```
 
 ---
@@ -236,9 +241,9 @@ git reset --soft HEAD~1
 Override default settings:
 
 ```bash
-export PI_HOST=surge.local        # Pi hostname (default: surge.local)
-export PI_USER=mitch              # SSH user (default: mitch)
-export SSH_KEY=~/.ssh/surge_pi_key  # SSH key path
+export PI_HOST=your-pi.local      # Pi hostname
+export PI_USER=your-pi-username   # SSH user (required — set in mpe.env)
+export SSH_KEY=$HOME/.ssh/your_pi_key
 ```
 
 Use in commands:
@@ -253,7 +258,7 @@ PI_HOST=192.168.1.203 bash scripts/deploy-all.sh
 ### Test SSH Connection
 
 ```bash
-ssh -i ~/.ssh/surge_pi_key <pi-user>@surge.local "echo 'Connected'"
+ssh -i "$SSH_KEY" $PI_USER@$PI_HOST "echo 'Connected'"
 ```
 
 ---
@@ -261,20 +266,20 @@ ssh -i ~/.ssh/surge_pi_key <pi-user>@surge.local "echo 'Connected'"
 ### Check SSH Key Permissions
 
 ```bash
-ls -la ~/.ssh/surge_pi_key
-chmod 600 ~/.ssh/surge_pi_key
+ls -la "$SSH_KEY"
+chmod 600 "$SSH_KEY"
 ```
 
 ---
 
 ### Verify Assets Downloaded
 
-From MPE-Module (reads sibling MPE-Personal):
+From MPE-Module (reads sibling assets repo via `MPE_PERSONAL_REPO`):
 
 ```bash
-ls -lh ../MPE-Personal/assets/binaries/surge-xt-cli
-du -sh ../MPE-Personal/assets/patches/*
-find ../MPE-Personal/assets -type f | wc -l
+ls -lh ../mpe-assets/assets/binaries/surge-xt-cli
+du -sh ../mpe-assets/assets/patches/*
+find ../mpe-assets/assets -type f | wc -l
 ```
 
 ---
@@ -282,7 +287,7 @@ find ../MPE-Personal/assets -type f | wc -l
 ### Check Disk Space on Pi
 
 ```bash
-ssh surge.local 'df -h'
+ssh $PI_USER@$PI_HOST 'df -h'
 ```
 
 ---
@@ -290,7 +295,7 @@ ssh surge.local 'df -h'
 ### Check Process Running
 
 ```bash
-ssh surge.local 'ps aux | grep surge'
+ssh $PI_USER@$PI_HOST 'ps aux | grep surge'
 ```
 
 ---
@@ -298,8 +303,8 @@ ssh surge.local 'ps aux | grep surge'
 ### Kill Hung Process
 
 ```bash
-ssh surge.local 'sudo systemctl stop surge-xt-cli'
-ssh surge.local 'killall surge-xt-cli'
+ssh $PI_USER@$PI_HOST 'sudo systemctl stop surge-xt-cli'
+ssh $PI_USER@$PI_HOST 'killall surge-xt-cli'
 ```
 
 ---
@@ -311,10 +316,10 @@ ssh surge.local 'killall surge-xt-cli'
 | **Initial backup** | `bash scripts/pull-all-from-device.sh` |
 | **Weekly sync** | `bash scripts/sync-from-device.sh` |
 | **Deploy to Pi** | `bash scripts/deploy-all.sh` |
-| **Check status** | `ssh surge.local 'systemctl status surge-xt-cli'` |
-| **View logs** | `ssh surge.local 'tail -30 ~/surge-cli.log'` |
-| **Restart Surge** | `ssh surge.local 'sudo systemctl restart surge-xt-cli'` |
-| **Connect to Pi** | `ssh surge.local` |
+| **Check status** | `ssh $PI_USER@$PI_HOST 'systemctl status surge-xt-cli'` |
+| **View logs** | `ssh $PI_USER@$PI_HOST 'tail -30 ~/surge-cli.log'` |
+| **Restart Surge** | `ssh $PI_USER@$PI_HOST 'sudo systemctl restart surge-xt-cli'` |
+| **Connect to Pi** | `ssh $PI_USER@$PI_HOST` |
 | **Git status** | `git status` |
 | **Commit** | `git add -A && git commit -m "message"` |
 | **Push** | `git push` |
@@ -354,8 +359,8 @@ cd MPE-Module
 bash scripts/deploy-all.sh
 
 # 3. Verify
-ssh surge.local 'systemctl status surge-xt-cli'
-ssh surge.local 'tail -30 ~/surge-cli.log'
+ssh $PI_USER@$PI_HOST 'systemctl status surge-xt-cli'
+ssh $PI_USER@$PI_HOST 'tail -30 ~/surge-cli.log'
 ```
 
 **Time:** 10-15 minutes
@@ -367,13 +372,13 @@ ssh surge.local 'tail -30 ~/surge-cli.log'
 ```bash
 # 1. Edit script locally
 # 2. Deploy single script
-scp -i ~/.ssh/surge_pi_key scripts/start-surge-cli.sh <pi-user>@surge.local:~/
+scp -i "$SSH_KEY" scripts/start-surge-cli.sh $PI_USER@$PI_HOST:~/
 
 # 3. Make executable
-ssh surge.local 'chmod +x ~/start-surge-cli.sh'
+ssh $PI_USER@$PI_HOST 'chmod +x ~/start-surge-cli.sh'
 
 # 4. Restart service
-ssh surge.local 'sudo systemctl restart surge-xt-cli'
+ssh $PI_USER@$PI_HOST 'sudo systemctl restart surge-xt-cli'
 
 # 5. Sync back to git
 bash scripts/sync-from-device.sh
@@ -389,10 +394,10 @@ git add -A && git commit -m "Update start script" && git push
 nano config/surge-xt-cli.service
 
 # 2. Deploy config
-scp -i ~/.ssh/surge_pi_key config/surge-xt-cli.service <pi-user>@surge.local:~/
-ssh surge.local 'sudo cp ~/surge-xt-cli.service /etc/systemd/system/'
-ssh surge.local 'sudo systemctl daemon-reload'
-ssh surge.local 'sudo systemctl restart surge-xt-cli'
+scp -i "$SSH_KEY" config/surge-xt-cli.service $PI_USER@$PI_HOST:~/
+ssh $PI_USER@$PI_HOST 'sudo cp ~/surge-xt-cli.service /etc/systemd/system/'
+ssh $PI_USER@$PI_HOST 'sudo systemctl daemon-reload'
+ssh $PI_USER@$PI_HOST 'sudo systemctl restart surge-xt-cli'
 
 # 3. Commit to git
 git add config/surge-xt-cli.service
@@ -409,10 +414,10 @@ git push
 Add to `~/.bashrc` or `~/.bash_profile`:
 
 ```bash
-alias pi='ssh surge.local'
-alias pilogs='ssh surge.local "tail -f ~/surge-cli.log"'
-alias pistatus='ssh surge.local "systemctl status surge-xt-cli"'
-alias pirestart='ssh surge.local "sudo systemctl restart surge-xt-cli"'
+alias pi='ssh $PI_USER@$PI_HOST'
+alias pilogs='ssh $PI_USER@$PI_HOST "tail -f ~/surge-cli.log"'
+alias pistatus='ssh $PI_USER@$PI_HOST "systemctl status surge-xt-cli"'
+alias pirestart='ssh $PI_USER@$PI_HOST "sudo systemctl restart surge-xt-cli"'
 alias backup='bash scripts/sync-from-device.sh'
 ```
 

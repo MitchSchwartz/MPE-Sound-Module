@@ -1,6 +1,6 @@
 # Build from zero
 
-A greenfield walkthrough: blank Raspberry Pi → working MPE sound module. Follow in order. You do **not** need access to the private `MPE-Library` repo for any of this — that repo is just Mitch's personal patch backup, not a dependency.
+A greenfield walkthrough: blank Raspberry Pi → working MPE sound module. Follow in order. You do **not** need a separate private assets repo for any of this — that pattern is optional for backing up custom patches, not a build dependency.
 
 **What this repo is:** a **bootstrap / reference design**, not a finished product or installer. Expect SSH, git, CMake, and systemd — or an AI assistant walking you through those steps. There is no one-click setup yet.
 
@@ -35,12 +35,12 @@ These would lower the bar for less technical builders — tracked as follow-ups,
 
 ## 1. Flash the OS
 
-Use Raspberry Pi Imager → **Raspberry Pi OS Lite (64-bit)**. In the imager's advanced options, set a hostname (this repo's scripts default to `surge.local`), enable SSH, and set a username/password.
+Use Raspberry Pi Imager → **Raspberry Pi OS Lite (64-bit)**. In the imager's advanced options, set a hostname, enable SSH, and set a username/password.
 
-Boot the Pi, then confirm you can reach it:
+Boot the Pi, then confirm you can reach it (replace hostname and user with yours):
 
 ```bash
-ssh <your-user>@surge.local
+ssh <your-user>@<hostname>
 ```
 
 ## 2. Clone this repo on the Pi
@@ -132,4 +132,4 @@ After boot (~25s), the OLED should show the patch browser. **There is no normal 
 
 ## Optional: editing/adding patches later
 
-Once the base system works, patches are edited on a PC running the normal Surge XT GUI and pushed to the Pi with `scripts/deploy-patches.sh`. Full workflow: **[`docs/PATCH-EDITING-WORKFLOW.md`](PATCH-EDITING-WORKFLOW.md)**. This needs its own git remote for your patches (`MPE-Library` is Mitch's private one — set up your own, or skip this and just use the bundled factory/third-party library from step 3).
+Once the base system works, patches are edited on a PC running the normal Surge XT GUI and pushed to the Pi with `scripts/deploy-patches.sh`. Full workflow: **[`docs/PATCH-EDITING-WORKFLOW.md`](PATCH-EDITING-WORKFLOW.md)**. Optional: use a private git repo for your custom patches, or skip that and use only the bundled factory/third-party library from step 3.

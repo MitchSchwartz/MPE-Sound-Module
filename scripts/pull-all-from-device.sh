@@ -1,5 +1,5 @@
 #!/bin/bash
-# Pull all assets from Pi to MPE-Personal (private backup repo)
+# Pull all assets from Pi to your private assets repo
 
 set -e
 
@@ -70,6 +70,6 @@ scp -i "$SSH_KEY" "$PI_USER@$PI_HOST:/tmp/custom-patches.tar.gz" "$ASSETS/user-d
 mpe_pi_ssh "rm -f /tmp/custom-patches.tar.gz" 2>/dev/null || true
 
 echo ""
-echo "✅ Pull Complete — commit in MPE-Personal:"
+echo "✅ Pull Complete — commit in your assets repo:"
 echo "  cd $MPE_PERSONAL_REPO && git add assets/ && git commit -m 'Backup $(date +%Y-%m-%d)'"
 echo ""

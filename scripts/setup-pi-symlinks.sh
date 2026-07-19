@@ -1,5 +1,5 @@
 #!/bin/bash
-# Setup symlinks on Pi to MPE-Personal
+# Setup symlinks on Pi to your private assets repo
 
 set -e
 
@@ -8,7 +8,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/lib/paths.sh"
 
 echo "========================================="
-echo "  Setup Pi Symlinks to MPE-Personal"
+echo "  Setup Pi Symlinks to Assets Repo"
 echo "========================================="
 echo ""
 echo "Target: $PI_USER@$PI_HOST"
@@ -46,5 +46,5 @@ EOF
 
 mpe_pi_ssh "sudo systemctl restart surge-xt-cli" || true
 echo ""
-echo "✅ Done. Clone MPE-Personal on Pi first if symlinks failed."
+echo "✅ Done. Clone your assets repo on Pi first if symlinks failed."
 echo ""

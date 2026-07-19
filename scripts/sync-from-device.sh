@@ -1,5 +1,5 @@
 #!/bin/bash
-# Sync changes from Pi back to MPE-Personal (private backup repo)
+# Sync changes from Pi back to your private assets repo
 
 set -e
 
@@ -62,6 +62,6 @@ scp -i "$SSH_KEY" "$PI_USER@$PI_HOST:/tmp/custom-patches.tar.gz" "$ASSETS/user-d
 mpe_pi_ssh "rm -f /tmp/custom-patches.tar.gz" 2>/dev/null || true
 
 echo ""
-echo "✅ Sync Complete — commit in MPE-Personal:"
+echo "✅ Sync Complete — commit in your assets repo:"
 echo "  cd $MPE_PERSONAL_REPO && git status"
 echo ""

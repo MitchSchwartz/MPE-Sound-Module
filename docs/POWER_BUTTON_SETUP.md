@@ -128,7 +128,7 @@ When powered OFF:
 
 **System doesn't shutdown after release:**
 - Check user has sudo permissions: `sudo poweroff` (manually test)
-- Add to sudoers if needed: `sudo visudo` → add `mitch ALL=(ALL) NOPASSWD: /sbin/poweroff`
+- Add to sudoers if needed: `sudo visudo` → add `<pi-user> ALL=(ALL) NOPASSWD: /sbin/poweroff`
 
 ### Power On Not Working
 

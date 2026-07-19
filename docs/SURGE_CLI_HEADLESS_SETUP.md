@@ -1,59 +1,33 @@
-# Surge XT CLI - Headless Setup Complete
+# Surge XT CLI — Headless Setup
 
-## ✅ What's Working Now
+Build and run **Surge XT CLI** on a Raspberry Pi: headless MPE synth, auto MIDI connect, systemd on boot.
 
-Your Raspberry Pi is now running **Surge XT CLI in headless mode** with:
+## What you get
 
-- ✅ **Auto MIDI connection** - ANY MIDI device you plug in will automatically connect
-- ✅ **MPE always enabled** - 48 semitones pitch bend range
-- ✅ **Church patch loaded by default**
-- ✅ **Auto-starts on boot** - no manual intervention needed
-- ✅ **Audio output to Sound Blaster Play! 3**
-- ✅ **No GUI overhead** - runs efficiently in background
+- Auto MIDI connection — devices you plug in connect without manual setup
+- MPE always enabled (48 semitone pitch bend range)
+- Auto-starts on boot via systemd
+- Direct ALSA to your USB audio interface (no GUI / X11)
 
-## System Status
+## Verify services
 
-**Current Setup:**
 ```bash
-Status: Surge XT CLI running as systemd service
-Patch: /home/mitch/surge/resources/data/patches_factory/Keys/Church.fxp
-MIDI: All inputs auto-connected
-MPE: Enabled (48 semitone bend range)
-Audio: Sound Blaster Play! 3 USB
+ssh $PI_USER@$PI_HOST 'systemctl status surge-xt-cli'
+ssh $PI_USER@$PI_HOST 'tail -f ~/surge-cli.log'
+ssh $PI_USER@$PI_HOST 'sudo systemctl restart surge-xt-cli'
+ssh $PI_USER@$PI_HOST 'sudo systemctl stop surge-xt-cli'
 ```
 
-## How to Control It
-
-### Check Status
-```bash
-ssh <pi-user>@surge.local 'systemctl status surge-xt-cli'
-```
-
-### View Logs
-```bash
-ssh <pi-user>@surge.local 'tail -f ~/surge-cli.log'
-```
-
-### Restart Surge
-```bash
-ssh <pi-user>@surge.local 'sudo systemctl restart surge-xt-cli'
-```
-
-### Stop Surge
-```bash
-ssh <pi-user>@surge.local 'sudo systemctl stop surge-xt-cli'
-```
-
-## Boot Sequence
+## Boot sequence
 
 On power-on, the Pi will:
-1. Boot Raspberry Pi OS Lite
-2. Initialize audio system
-3. Start `surge-xt-cli.service` automatically
-4. Load Church patch with MPE enabled
-5. Wait for MIDI devices (Roli will auto-connect when plugged in)
 
-**No keyboard, mouse, monitor, or VNC needed for performance!**
+1. Boot Raspberry Pi OS Lite
+2. Initialize audio
+3. Start `surge-xt-cli.service`
+4. Wait for MIDI devices (controller auto-connects when plugged in)
+
+**No keyboard, mouse, monitor, or VNC needed for performance.**
 
 ---
 
@@ -105,7 +79,7 @@ surge-xt-cli \
 ```python
 from pythonosc import udp_client
 
-client = udp_client.SimpleUDPClient("surge.local", 8000)
+client = udp_client.SimpleUDPClient("localhost", 8000)
 client.send_message("/patch/load", ["Bass", "Acid Bass"])
 ```
 
@@ -113,9 +87,10 @@ client.send_message("/patch/load", ["Bass", "Acid Bass"])
 
 Change the startup script to load a different patch on boot.
 
-**Edit `/home/mitch/start-surge-cli.sh`:**
+**Edit your Surge start script** (from `scripts/start-surge-cli.sh` after `configure-pi-paths.sh`):
+
 ```bash
-INIT_PATCH="/home/mitch/surge/resources/data/patches_3rdparty/Exquis MPE/Keys/Churchy.fxp"
+INIT_PATCH="$MPE_SURGE_ROOT/resources/data/patches_3rdparty/Exquis MPE/Keys/Example.fxp"
 ```
 
 Then restart:
@@ -185,8 +160,8 @@ import glob
 def scan_surge_presets():
     """Scan Surge patch directories and build a category/patch tree"""
     base_dirs = [
-        "/home/mitch/surge/resources/data/patches_factory",
-        "/home/mitch/surge/resources/data/patches_3rdparty"
+        "$MPE_SURGE_ROOT/resources/data/patches_factory",
+        "$MPE_SURGE_ROOT/resources/data/patches_3rdparty"
     ]
 
     presets = {}
@@ -390,16 +365,16 @@ def load_patch_via_restart(patch_path):
 
     # Update startup script
     script = f'''#!/bin/bash
-SURGE_CLI="/home/mitch/surge/build/surge_xt_products/surge-xt-cli"
+SURGE_CLI="$HOME/surge/build/surge_xt_products/surge-xt-cli"
 INIT_PATCH="{patch_path}"
 AUDIO_DEVICE="0.22"
 
 "$SURGE_CLI" --all-midi-inputs --mpe-enable --mpe-pitch-bend-range=48 \\
   --init-patch="$INIT_PATCH" --audio-interface="$AUDIO_DEVICE" --no-stdin \\
-  >> /home/mitch/surge-cli.log 2>&1 &
+  >> "$HOME/surge-cli.log" 2>&1 &
 '''
 
-    with open('/home/mitch/start-surge-cli.sh', 'w') as f:
+    with open(os.path.expanduser('~/MPE-Module/scripts/start-surge-cli.sh'), 'w') as f:
         f.write(script)
 
     subprocess.run(['sudo', 'systemctl', 'start', 'surge-xt-cli'])
@@ -420,14 +395,10 @@ AUDIO_DEVICE="0.22"
 
 ## Files Created
 
-**On the Pi:**
-- `/home/mitch/start-surge-cli.sh` - Surge startup script
-- `/etc/systemd/system/surge-xt-cli.service` - Auto-start service
-- `/home/mitch/surge-cli.log` - Runtime log
-
-**Backup files (GUI version):**
-- `/home/mitch/.bash_profile.gui_backup` - GUI auto-start (disabled)
-- `/home/mitch/.xinitrc.gui_backup` - X11 startup config (disabled)
+**On the Pi (after configure-pi-paths.sh):**
+- `$MPE_MODULE_REPO/scripts/start-surge-cli.sh` — Surge startup script
+- `/etc/systemd/system/surge-xt-cli.service` — Auto-start service
+- `$MPE_SURGE_LOG` — Runtime log (default: `~/surge-cli.log`)
 
 ---
 

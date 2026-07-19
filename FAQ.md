@@ -69,7 +69,7 @@ From experience there's no significant latency when playing.
 **A:** Rebuild from source in the same `~/surge` checkout on the Pi, then restart the service:
 
 ```bash
-ssh <pi-user>@surge.local
+ssh <pi-user>@<hostname>
 cd ~/surge && git pull && cd build && cmake --build . --target surge-xt-cli
 sudo systemctl restart surge-xt-cli
 ```
@@ -170,7 +170,7 @@ systemd-analyze blame
 **A:**
 
 ```bash
-ssh <pi-user>@surge.local   # or your configured PI_USER@PI_HOST
+ssh <pi-user>@<hostname>   # or your configured PI_USER@PI_HOST
 ```
 
 No VNC/GUI access is set up or needed for normal operation — everything runs headless.
@@ -188,8 +188,8 @@ No VNC/GUI access is set up or needed for normal operation — everything runs h
 **A:**
 
 ```bash
-ssh <pi-user>@surge.local 'systemctl status surge-xt-cli patch-browser'
-ssh <pi-user>@surge.local 'journalctl -u surge-xt-cli -e'
+ssh <pi-user>@<hostname> 'systemctl status surge-xt-cli patch-browser'
+ssh <pi-user>@<hostname> 'journalctl -u surge-xt-cli -e'
 ```
 
 
@@ -199,7 +199,7 @@ ssh <pi-user>@surge.local 'journalctl -u surge-xt-cli -e'
 **A:**
 
 ```bash
-ssh <pi-user>@surge.local 'journalctl -u surge-xt-cli -e --no-pager'
+ssh <pi-user>@<hostname> 'journalctl -u surge-xt-cli -e --no-pager'
 ```
 
 Check for missing shared libraries or an audio device that isn't where the config expects it (`scripts/detect-audio-device.sh` can help re-detect it).
@@ -209,8 +209,8 @@ Check for missing shared libraries or an audio device that isn't where the confi
 **A:**
 
 ```bash
-ssh <pi-user>@surge.local 'lsusb'
-ssh <pi-user>@surge.local 'dmesg | tail -50'
+ssh <pi-user>@<hostname> 'lsusb'
+ssh <pi-user>@<hostname> 'dmesg | tail -50'
 ```
 
 Try a different USB port, or a powered hub if you're chaining multiple USB devices off the Pi.

@@ -4,9 +4,9 @@ Complete guide to backing up and restoring your Pi-Surge-MPE device.
 
 ## Overview
 
-Clone both repos as siblings under the same parent folder. Backup data goes in **MPE-Personal**; run pull/sync scripts from **MPE-Module**. Path overrides: **[PATHS.md](PATHS.md)**.
+Clone both repos as siblings under the same parent folder. Backup data goes in **your private assets repo**; run pull/sync scripts from **MPE-Module**. Path overrides: **[PATHS.md](PATHS.md)**.
 
-Everything needed to restore the device is committed to MPE-Personal:
+Everything needed to restore the device can be committed to the assets repo:
 - Surge XT CLI binary (24MB)
 - All 3,192 patches (422MB)
 - System configurations
@@ -39,7 +39,7 @@ This will download:
 ### Step 2: Commit to Git
 
 ```bash
-cd ../MPE-Personal
+cd ../mpe-assets
 git status
 git add assets/
 git commit -m "Initial backup: binary + patches + configs"
@@ -88,7 +88,7 @@ git push
 **Prerequisites:**
 - Fresh SD card with Raspberry Pi OS Lite
 - SSH configured and Pi on network
-- SSH key (`~/.ssh/surge_pi_key`) available
+- SSH key configured in `config/mpe.env` (`SSH_KEY`) available
 
 ### Step 1: Clone Repository
 
@@ -122,8 +122,8 @@ This will:
 ### Step 3: Verify
 
 ```bash
-ssh surge.local 'systemctl status surge-xt-cli'
-ssh surge.local 'tail -30 ~/surge-cli.log'
+ssh $PI_USER@$PI_HOST 'systemctl status surge-xt-cli'
+ssh $PI_USER@$PI_HOST 'tail -30 ~/surge-cli.log'
 ```
 
 ✅ Device restored! Play your MIDI controller to test.
@@ -165,7 +165,7 @@ You can set up Windows Task Scheduler to run `sync-from-device.sh` automatically
 5. Action: Start a program
    - Program: `C:\Program Files\Git\bin\bash.exe`
    - Arguments: `scripts/sync-from-device.sh`
-   - Start in: `c:\Users\mitch\GitHub\MPE Module`
+   - Start in: your `MPE-Module` clone directory
 6. Finish
 
 **Note:** Your computer must be on for scheduled backups to run.
@@ -178,9 +178,10 @@ For extra protection, sync your local repo folder to cloud storage:
 
 ### Option 1: OneDrive
 
-Move your repo to OneDrive:
+Move your repo folder into OneDrive/Drive sync if desired — example:
+
 ```bash
-mv "c:\Users\mitch\GitHub\MPE Module" "c:\Users\mitch\OneDrive\GitHub\MPE Module"
+mv ~/GitHub/MPE-Module ~/OneDrive/GitHub/MPE-Module
 ```
 
 OneDrive will automatically sync the ~450MB to cloud.
@@ -208,9 +209,9 @@ bash scripts/pull-all-from-device.sh
 **Error:** "Permission denied"
 
 ```bash
-# Check SSH key
-ls -la ~/.ssh/surge_pi_key
-chmod 600 ~/.ssh/surge_pi_key
+# Check SSH key from config/mpe.env
+ls -la "$SSH_KEY"
+chmod 600 "$SSH_KEY"
 ```
 
 ### Deploy Script Fails
