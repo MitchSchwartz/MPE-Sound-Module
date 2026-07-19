@@ -51,10 +51,10 @@ Run the power button setup script on the Pi:
 
 ```bash
 # Copy script to Pi
-scp scripts/setup-power-button.sh mitch@surge.local:~/
+scp scripts/setup-power-button.sh <pi-user>@surge.local:~/
 
 # SSH to Pi and run setup
-ssh mitch@surge.local
+ssh <pi-user>@surge.local
 chmod +x ~/setup-power-button.sh
 ./setup-power-button.sh
 ```
@@ -104,9 +104,11 @@ Parameters:
 When powered ON:
 ```
 0s ────→ 0.5s ────→ 2s ────→ 8s ────→ Release
-  ignored   mode     favorite  POWEROFF  → shutdown
-            change   toggle    warning
+  ignored   mode     copy to   POWEROFF  → shutdown
+            toggle   quick-    warning
+                     access*
 ```
+\*Target folder: `MPE_FAVORITES_NAME` (default `!Quick Access`). See [`PATCH_BROWSER_UI.md`](PATCH_BROWSER_UI.md).
 
 When powered OFF:
 ```
@@ -174,7 +176,7 @@ bash scripts/deploy-boot-animation.sh
 
 ```bash
 # SSH to Pi
-ssh mitch@surge.local
+ssh <pi-user>@surge.local
 
 # Remove gpio-shutdown overlay
 sudo sed -i '/gpio-shutdown/d' /boot/firmware/config.txt

@@ -14,7 +14,7 @@ What if my MPE instruments were just... instruments? ...portable 5-D electric pi
 
 Under the hood it's [Surge XT](https://surge-synthesizer.github.io/) (free, open-source, genuinely powerful) running headless on a Pi, always in MPE mode. It boots straight to your sound library.   
 
-Every patch is fully editable and MPE-assignable from your computer, across all five expression dimensions — it turns a Roli into a standalone instrument, outside the Equator ecosystem entirely.
+Every patch is fully editable and MPE-assignable from your computer, across all five expression dimensions — it turns a Roli into a standalone instrument, outside the Equator ecosystem entirely. Surge XT's mod matrix lets you map pretty much any synth parameter (filter cutoff, wavetable position, FM amount, envelope times, effect sends, etc.) to any MPE dimension — pressure, timbre/Y-axis, per-note pitch bend, slide — so patches aren't limited to the handful of expression targets a controller ships with. Reasonably deep sound design, not just "pressure = volume."
 
 **Think of is as the 'dumb phone' of digital instruments**  If you want a multi-engine DAWless workstation, that's [Zynthian](https://zynthian.org/). This is one instrument that does one thing without fuss (and doesn't fight you on MPE persistence the way Zynthian's Surge integration currently does).
 
@@ -24,9 +24,9 @@ Every patch is fully editable and MPE-assignable from your computer, across all 
 - Roli auto-connects
 - MPE always on (48-semitone pitch bend, full pressure/timbre)
 - **Stock loaded with Surge XT's 3,192 patches** on board (639 factory + 2,553 community), browsable live via one rotary encoder + a small OLED screen
-- **A dedicated Favorites folder** — forced to the top of the patch list on the device. Browsing any factory or community patch lets you copy it straight into Favorites from the encoder itself, so your live set builds up on the device without touching a computer.
+- **Quick-access patch folder** — default `!Quick Access` under Surge user patches (leading `!` sorts first); rename via `MPE_FAVORITES_NAME`. Curate on PC and deploy; optional on-device copy via **2s+ hold** (unreliable on KY-040)
 
-**Status:** core (boot, audio, MPE) is solid and has been performance-tested for hours at a time. The knob/screen UI is ~95% reliable — good enough to gig with, not yet 'polished consumer product.'
+**Status:** core (boot, audio, MPE) is solid and has been performance-tested for hours at a time. The knob/screen UI is **not good yet** — scrolling is unreliable (missed and double steps), and the button has **no normal click** (short taps are deliberately ignored). What the debounce stack mostly fixed is **false presses** — ghost scrolls and accidental actions from button/encoder coupling. Usable if you're patient; not gig-polished.
 
 ## Build one
 
@@ -39,9 +39,27 @@ Reference stack: Raspberry Pi 5 + 1.3″ I2C OLED + one KY-040 encoder + a USB s
 
 ### Getting the patch library
 
-The 3,192 patches on the device aren't in this repo — they're Surge XT's bundled factory + third-party library. **[Download Surge XT for PC/Mac/Linux](https://surge-synthesizer.github.io/)** and you get the same patches in Surge's normal folder layout. Point the Pi's patch-scan paths at that library (or copy it over once).
+The 3,192 patches on the device aren't in this repo — they ship inside Surge XT's own source tree, so building Surge XT (see below) gets you the same patches in Surge's normal folder layout. No separate download or repo needed.
 
-**Two repos (maintainers):** shareable code here; private backup in **[MPE-Library](https://github.com/M-Ferda/MPE-Library)** as sibling `assets/`. Setup: **[docs/STABLE-SETUP.md](docs/STABLE-SETUP.md)** · paths: **[docs/PATHS.md](docs/PATHS.md)**
+Never built any of this before? Start with **[docs/BUILD-FROM-ZERO.md](docs/BUILD-FROM-ZERO.md)** — a full walkthrough from a blank Pi to a working module.
+
+## How to navigate it
+
+One encoder (rotate + push), one OLED. **There is no normal tap/click** — releases under ~0.5s are ignored on purpose because the KY-040 button is too noisy for short presses.
+
+What actually works today:
+
+- **Rotate** — browse categories or patches (unreliable — expect missed/double steps)
+- **Hold ~0.5–2s and release** — toggle category ↔ patch mode (aim ~1s)
+- **Hold 2s+ and release** — copy patch to quick-access folder (`MPE_FAVORITES_NAME`, default `!Quick Access`) — confirm with another ~1s hold; unreliable, PC workflow preferred
+- **Hold 8s+** — power menu
+- **Stop scrolling ~1.25s** — patch loads
+
+Folder name config: **`MPE_FAVORITES_NAME`** in `/etc/mpe/mpe.env` — see **[docs/PATCH_BROWSER_UI.md](docs/PATCH_BROWSER_UI.md)** (controls + configuration table).
+
+**Next major UI upgrade needed:** separate reliable **enter (~1s hold)** and **back (~3s hold)** instead of one overloaded toggle; **second encoder** for scroll vs confirm (down the road).
+
+Full detail: **[docs/PATCH_BROWSER_UI.md](docs/PATCH_BROWSER_UI.md)**
 
 ## Power Controls
 
@@ -89,8 +107,10 @@ Full command reference: **[COMMANDS.md](COMMANDS.md)**
 
 | Doc                                                                  | For                                                  |
 | -------------------------------------------------------------------- | ---------------------------------------------------- |
+| [docs/BUILD-FROM-ZERO.md](docs/BUILD-FROM-ZERO.md)                   | Full walkthrough: blank Pi → working module          |
 | [REFERENCE_BOM.md](REFERENCE_BOM.md)                                 | Building the hardware                                |
 | [docs/HARDWARE_WIRING.md](docs/HARDWARE_WIRING.md)                   | Wiring the OLED + encoder                            |
+| [docs/PATCH_BROWSER_UI.md](docs/PATCH_BROWSER_UI.md)                 | How the encoder/button navigation actually works     |
 | [docs/PATCH-EDITING-WORKFLOW.md](docs/PATCH-EDITING-WORKFLOW.md)     | Editing sounds, pushing to the Pi                    |
 | [docs/FOOT_PEDAL.md](docs/FOOT_PEDAL.md)                             | USB footswitch setup + remapping                     |
 | [docs/POWER_BUTTON_SETUP.md](docs/POWER_BUTTON_SETUP.md)             | Shutdown/power-on via the encoder button             |

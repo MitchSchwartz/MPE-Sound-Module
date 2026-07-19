@@ -3,404 +3,237 @@
 ## General Questions
 
 ### Q: Why build this instead of using Zynthian?
-**A:** Zynthian has fundamental issues for this use case:
-- Preset saving is unreliable (silent failures, wrong presets loading)
-- MPE is incompatible with "Active Mode" quick switching
-- Only workaround is loading multiple chains in snapshots (high CPU, limited patches)
-- UI is confusing for live use
-- Simple settings hidden or disabled by default (CC74/Y-axis)
 
-This custom build is simpler, faster, and actually works for MPE.
+**A:** Zynthian is a great multi-engine workstation, but persistent, always-on MPE through its generalized preset architecture is a known friction point (confirmed on Zynthian's own forum as recently as 2025) — preset switching and MPE settings don't always survive a patch change. This project is narrow on purpose: one synth (Surge XT), MPE hardcoded on, nothing to reconfigure.
 
 ### Q: Can I use a different synth instead of Surge XT?
-**A:** Yes, but ensure it:
-- Runs on ARM64 Linux
-- Has native MPE support (not just poly-pressure)
-- Can run standalone (not just as a plugin)
-- Has fast preset switching
-- Isn't too CPU-heavy for Pi
 
-Alternatives: Vital (free), u-he Hive, Pianoteq (if you want piano)
+**A:** Not with this codebase as-is. The boot service, patch browser, and OSC control are all built specifically around Surge XT's CLI and OSC protocol. Swapping synths would mean rewriting `patch_browser_ui.py` and the systemd services. If you want to try, the synth needs to run on ARM64 Linux headless, support MPE natively, and expose some form of remote patch-load control.
 
 ### Q: Will this work on Pi 3?
-**A:** Not recommended. Surge XT + effects is too CPU-intensive for Pi 3. You'd need to severely limit polyphony and disable effects.
 
-### Q: Can I add more encoders?
-**A:** Yes! The Pi has plenty of GPIO pins. Just add more entries to `ENCODER_PINS` in `encoder_controller.py` and wire them up.
+**A:** Not tested, not recommended. The reference build is Pi 4 (4GB+) or Pi 5. Surge XT plus the patch browser UI is more CPU than a Pi 3 comfortably has to spare.
 
-### Q: What about using a MIDI controller with knobs instead of encoders?
-**A:** That works too! But you lose the DIY integration. This project is about building a dedicated unit, not just running software.
+### Q: Can I add more encoders/buttons?
+
+**A:** The UI code (`patch_browser_ui.py`) is built around exactly one encoder + button. Adding more is a real code change, not a config flag — GPIO is available if you want to extend it yourself.
+
+### Q: What about using a MIDI controller with knobs instead of the encoder?
+
+**A:** Not currently how this project works — the encoder drives the on-device patch browser (GPIO), not MIDI CCs. You could route a MIDI controller's CCs into Surge XT for sound-shaping (filter cutoff, etc.) independently of the browser; that's normal Surge MIDI mapping, not something this repo adds.
 
 ## Hardware Questions
 
-### Q: Sound Blaster S3 is out of stock. Alternatives?
-**A:** Any USB audio interface with good ALSA support:
-- **Behringer UCA222** - Cheaper, higher latency
-- **Focusrite Scarlett Solo** - Excellent, but pricier
-- **M-Audio M-Track Solo** - Good middle ground
-- Test compatibility: `aplay -l` should list it
+
+
+### Q: What's the actual audio interface?
+
+**A:** A **Creative Sound Blaster Play! 3** USB dongle (SB1730) — not a DAC HAT, no GPIO audio wiring. See `[REFERENCE_BOM.md](REFERENCE_BOM.md)` for the exact part and ASIN. Any USB audio interface with solid ALSA support should work if you adapt the device-detection script in `scripts/detect-audio-device.sh`.
 
 ### Q: Can I use a different display?
-**A:** Yes. The 3.5" is just a suggestion. Any SPI/I2C display will work. Just need to adapt the Python code.
 
-### Q: My encoders are noisy/jumping values
-**A:** Common issue with cheap KY-040 encoders:
-- Add 0.1µF capacitors across CLK/GND and DT/GND
-- Increase `bounce_time` in `encoder_controller.py`
-- Use shielded wire
-- Keep wires short
+**A:** The reference build is a 1.3" I2C OLED (128×64, SH1106/SSD1306). The patch browser UI code assumes that display and one encoder — a different display means adapting `patch_browser_ui.py`, not just swapping hardware.
+
+### Q: My encoder is noisy/jumping values
+
+**A:** Poor — on the reference KY-040, scrolling is unreliable (missed and double steps are normal). The software debounce stack mostly **eliminated false button presses** (ghost scrolls, accidental taps); it did **not** make browsing feel good. See [`docs/ENCODER_NO_VCC.md`](docs/ENCODER_NO_VCC.md) for the no-VCC wiring trick and [`ENCODER_BUTTON_REVIEW.md`](ENCODER_BUTTON_REVIEW.md) for known UX debt.
+
+**There is no normal click.** Releases under ~0.5s are ignored on purpose. Mode changes require a **~0.5–2s hold** (aim ~1s in practice). **Next major upgrade:** separate **enter (~1s)** and **back (~3s)** holds; **second encoder** down the road — see [`docs/PATCH_BROWSER_UI.md`](docs/PATCH_BROWSER_UI.md).
+
+### Q: Can I add patches to favorites from the device?
+
+**A:** **Yes — but it's unreliable.** Hold **2s+** → `Copy to <name>?` dialog → bold hold (~1s) to confirm. Folder name is **`MPE_FAVORITES_NAME`** (default **`!Quick Access`** — include the `!` in the folder name so it sorts first). Set in `/etc/mpe/mpe.env` on the Pi.
+
+**Recommended:** curate the same folder on your PC in Surge XT and deploy ([`docs/PATCH-EDITING-WORKFLOW.md`](docs/PATCH-EDITING-WORKFLOW.md)). Full gesture + config table: [`docs/PATCH_BROWSER_UI.md`](docs/PATCH_BROWSER_UI.md).
 
 ### Q: Can I use this with a different MPE controller?
-**A:** Yes! Anything that sends MPE MIDI:
-- Roli Seaboard/Lightpad
-- Haken Continuum
-- LinnStrument
-- Eigenharp
-- Sensel Morph
 
-Just ensure USB MIDI works on Linux.
+**A:** Yes, though I've only tested this with Roli Lumi Keys and Seaboard Block, anything that sends standard MPE over USB MIDI (Roli suite, Haken Continuum, LinnStrument, Sensel Morph, etc.) should be compatible. MIDI should auto-connect with no controller-specific config needed.
 
 ### Q: What's the total latency?
-**A:** Typical setup (~48kHz, 512 buffer):
-- USB MIDI: ~1-2ms
-- JACK: ~10-12ms (512 samples @ 48kHz)
-- USB audio: ~1-2ms
-- **Total: ~13-16ms**
 
-This is acceptable for most players. Decrease buffer for lower latency.
+**A:** Not formally benchmarked end-to-end. The signal path is USB MIDI in → Surge XT CLI → direct ALSA → USB audio dongle out, with no JACK layer in between — fewer buffering stages than a JACK-based setup, but treat any specific number as unverified until measured on your own hardware.  
+  
+From experience there's no significant latency when playing.
 
 ## Software Questions
 
-### Q: Where can I get Surge XT ARM binary?
-**A:** Options:
-1. **Download**: https://github.com/surge-synthesizer/releases-xt/releases
-   - Look for ARM64/aarch64 builds
-2. **Build from source**: https://github.com/surge-synthesizer/surge
-   - Takes ~30 min on Pi 4
-   - Enables latest features
+
+
+### Q: Where do I get the Surge XT ARM binary?
+
+**A:** You build it from source on the Pi — see `[docs/SURGE_CLI_HEADLESS_SETUP.md](docs/SURGE_CLI_HEADLESS_SETUP.md)` and `[docs/BUILD-FROM-ZERO.md](docs/BUILD-FROM-ZERO.md)`. Expect it to take a while on a Pi (build from source, not a prebuilt CLI package).
 
 ### Q: How do I update Surge XT?
-**A:**
+
+**A:** Rebuild from source in the same `~/surge` checkout on the Pi, then restart the service:
+
 ```bash
-# Stop service
-systemctl --user stop surge.service
-
-# Replace binary
-sudo mv /usr/local/bin/Surge-XT /usr/local/bin/Surge-XT.old
-sudo cp ~/Downloads/Surge-XT /usr/local/bin/
-sudo chmod +x /usr/local/bin/Surge-XT
-
-# Restart service
-systemctl --user start surge.service
+ssh <pi-user>@surge.local
+cd ~/surge && git pull && cd build && cmake --build . --target surge-xt-cli
+sudo systemctl restart surge-xt-cli
 ```
+
+
 
 ### Q: Can I run other plugins alongside Surge?
-**A:** Not in this setup. This is designed for Surge only. Adding plugin hosting (Carla, etc.) defeats the simplicity goal.
 
-If you need multiple synths, use Zynthian or build a custom plugin host.
+**A:** Not in this setup — no plugin host is included, by design. Adding one (Carla, etc.) defeats the "no tech in the way" goal this project is built around.
 
-### Q: How do I add custom wavetables to Surge?
-**A:**
-```bash
-# User wavetables go here:
-~/.local/share/surge-xt/wavetables/
+### Q: How do I add custom patches?
 
-# Copy .wav files (2048 samples, mono, 16-bit)
-cp mywavetable.wav ~/.local/share/surge-xt/wavetables/
+**A:** Edit/save patches in Surge XT's normal GUI on your PC, then push them to the Pi with `scripts/deploy-patches.sh` (fast, patches only) or `scripts/deploy-all.sh` (full deploy). Full walkthrough: `[docs/PATCH-EDITING-WORKFLOW.md](docs/PATCH-EDITING-WORKFLOW.md)`.
 
-# Restart Surge to load
-systemctl --user restart surge.service
-```
+Note that these scripts are only tested on my setup and may need adjustment since all local paths were recently updated from absolute to relative.
 
-### Q: Surge XT has a GUI. Can I run this headless?
-**A:** Surge XT requires X11 currently (for the GUI). To run truly headless, you'd need:
-1. Virtual X server (Xvfb)
-2. Or wait for Surge headless mode (not available yet)
-3. Or fork Surge and build headless version
+### Q: Does this run headless with no GUI at all?
 
-For now, just SSH with X forwarding or use VNC if you need to see the GUI remotely.
-
-## Audio Questions
-
-### Q: I'm getting xruns (dropouts). How to fix?
-**A:**
-1. **Increase buffer size**: Edit `~/.jackdrc`, change `-p512` to `-p1024`
-2. **Reduce CPU load**:
-   - Lower Surge polyphony (Menu > Settings > Max Voices)
-   - Disable expensive effects (reverb, delay)
-   - Use simpler presets
-3. **Check temperature**: `vcgencmd measure_temp` - if > 80°C, add cooling
-4. **Kill other processes**: `htop`, kill anything unnecessary
-
-### Q: Sound is crackling/distorted
-**A:**
-- **Check CPU**: `top` - should be < 80%
-- **Check temperature**: `vcgencmd measure_temp`
-- **Check JACK xruns**: Look for "xrun" in logs
-- **Check audio levels**: Use `alsamixer`, ensure not clipping
-- **Check USB power**: Use powered USB hub if needed
-
-### Q: Latency feels too high
-**A:**
-```bash
-# Decrease buffer size
-nano ~/.jackdrc
-# Change -p512 to -p256
-
-# Restart JACK
-systemctl --user restart jack.service
-
-# Monitor for xruns - if you get them, buffer is too small
-```
-
-### Q: How do I record audio output?
-**A:** Use `jack_capture`:
-```bash
-sudo apt install jack-capture
-
-# Record to WAV
-jack_capture -p Surge-XT:out_1 -p Surge-XT:out_2
-
-# Stop with Ctrl+C
-```
+**A:** Only a custom patch selector and folder navigator is included, which usies the oLED and encoder, and runs via CLI (`surge-xt-cli`), not  GUI. It auto-starts on boot via systemd.   
+  
+No X11, no VNC, no Xvfb needed on the Pi. You only ever see the Surge GUI when editing patches on your own PC.
 
 ## MPE Questions
 
+
+
 ### Q: Per-note pitch bend works, but not pressure/timbre
+
 **A:**
-- **Check Roli settings**: Use Roli Dashboard to ensure all axes enabled
-- **Check Surge MPE config**: Menu > MPE Settings > ensure enabled
-- **Check MIDI mapping**: Some presets don't respond to pressure/timbre
-- **Check CC74**: In Surge, ensure Y-axis (CC74) is mapped correctly
+
+- Check your controller's own settings (e.g. Roli Dashboard) — make sure all expression axes are enabled and being sent
+- Confirm MPE is enabled in Surge (it's hardcoded on in this build's config, but worth verifying via logs), and verify parameter / channel mapping
+- Some presets simply don't map pressure/timbre to anything audible — try a preset built for MPE (Pads/Leads generally respond better than Drums)
+
+
 
 ### Q: How do I know if MPE is working?
-**A:**
-```bash
-# Monitor raw MIDI
-aseqdump -p <roli-port>
 
-# Play notes - should see:
-# - Note On on channel 2-15 (not 1!)
-# - Pitch Bend messages
-# - Poly Aftertouch (pressure)
+**A:**
+
+```bash
+# On the Pi, monitor raw MIDI
+aseqdump -p <controller-port>
+
+# Play notes — you should see:
+# - Note On on channels 2-15 (not just channel 1)
+# - Pitch Bend messages per note
+# - Poly/Channel Aftertouch (pressure)
 # - CC74 (timbre/Y-axis)
 ```
 
+
+
 ### Q: Some presets don't respond to MPE
-**A:** Normal. Not all Surge presets are designed for MPE:
-- **Pads**: Usually good for MPE
-- **Leads**: Good for pitch bends
-- **Drums**: Don't need MPE
-- **Arps**: Can be weird with MPE
 
-Create your own MPE-optimized presets.
+**A:** Normal — not every Surge preset is built with MPE modulation targets. Pads and leads tend to respond well; drums and simple leads often don't need or use it.
 
-### Q: Can I use this with a regular MIDI keyboard?
-**A:** Yes! Surge XT works fine with regular MIDI. You just won't get per-note expression. Set Surge to non-MPE mode.
+### Q: Can I use this with a regular (non-MPE) MIDI keyboard?
 
-## Encoder Questions
-
-### Q: Encoders not responding
-**A:**
-```bash
-# Check GPIO state
-gpio readall
-
-# Run encoder script manually to see errors
-cd ~/pisurge
-python3 encoder_controller.py
-
-# Rotate encoder - should see output
-```
-
-### Q: How do I remap an encoder?
-**A:** Edit `encoder_controller.py`:
-```python
-# Change MIDI CC number
-MIDI_CC = {
-    'spare1': 71,  # Change from 1 to 71 (resonance)
-    ...
-}
-```
-
-### Q: Encoder values jumping/erratic
-**A:**
-- Add hardware debouncing (capacitors)
-- Increase `bounce_time` in encoder initialization
-- Use better quality encoders (Alps, Bourns)
-
-### Q: Can I use buttons on encoders?
-**A:** Yes! Button handlers are already in the code, just not mapped yet. Add your own actions:
-```python
-def _on_button_press(self, encoder_name):
-    if encoder_name == 'volume':
-        # Mute/unmute
-        self._send_midi_cc('volume', 0)
-```
+**A:** Yes. Surge XT handles regular MIDI fine; you just won't get per-note expression since a normal keyboard doesn't send it.
 
 ## Performance Questions
 
-### Q: Boot time is > 30 seconds
+
+
+### Q: Boot time is longer than ~30 seconds
+
 **A:**
+
 ```bash
 # Check what's slow
 systemd-analyze blame
 
-# Run boot optimization
-sudo ./boot_config.sh
-
-# Disable WiFi/Bluetooth if on Ethernet
-sudo nano /boot/config.txt
-# Add:
+# Common culprits: WiFi/Bluetooth init, unnecessary services
+# Disable in /boot/firmware/config.txt if not needed:
 # dtoverlay=disable-wifi
 # dtoverlay=disable-bt
 ```
 
-### Q: CPU usage is too high
+
+
+### Q: CPU usage / temperature is too high
+
 **A:**
-1. **Check temperature first**: Thermal throttling?
-2. **Reduce Surge CPU**:
-   - Lower polyphony
-   - Disable HQ mode
-   - Use simpler effects
-3. **Stop encoders** (if testing): `systemctl --user stop encoders.service`
-4. **Overclock Pi** (advanced): Edit `/boot/config.txt`
 
-### Q: What's the polyphony limit?
-**A:** Depends on preset complexity:
-- Simple presets: 32+ voices
-- Complex presets: 8-16 voices
-- With effects: 8-12 voices
+1. Check for thermal throttling first: `vcgencmd measure_temp`
+2. Reduce Surge polyphony (Settings > Max Voices) or disable expensive effects (reverb, delay) on the preset
+3. Make sure nothing else is running on the Pi competing for CPU
 
-Test and tune for your needs.
 
-## Preset Questions
-
-### Q: How do I navigate presets with encoders?
-**A:** The encoder script sends MIDI CC 20/21 for category/patch navigation. However, Surge XT doesn't natively support MIDI preset navigation.
-
-**Solutions**:
-1. **Use OSC** (recommended): See SURGE_CONFIG.md for OSC setup
-2. **MIDI Program Change**: Load presets into banks, send PC messages
-3. **Custom Surge fork**: Add MIDI CC preset nav (advanced)
-
-### Q: How many presets can I have?
-**A:** Limited only by storage:
-- MicroSD has plenty of space
-- Surge loads presets on-demand (fast)
-- Organize into categories for easy navigation
-
-### Q: Can I import DX7 patches?
-**A:** No. Surge XT is not a DX7 emulator. It's FM-capable but not DX7-compatible.
-
-For DX7: Use Dexed plugin (but adds plugin hosting complexity)
-
-### Q: Where do I find more Surge presets?
-**A:**
-- Surge XT comes with 3000+ factory presets
-- Community presets: Check Surge Discord/forum
-- Create your own!
 
 ## Networking Questions
 
-### Q: How do I access the Pi remotely?
-**A:**
-```bash
-# SSH (command line)
-ssh pi@<pi-ip>
 
-# VNC (GUI, if needed)
-# Install: sudo apt install realvnc-vnc-server
-# Enable: sudo raspi-config > Interface > VNC > Enable
+
+### Q: How do I access the Pi remotely?
+
+**A:**
+
+```bash
+ssh <pi-user>@surge.local   # or your configured PI_USER@PI_HOST
 ```
 
-### Q: Can I control this over WiFi/Ethernet?
-**A:** Yes! The encoders are local (GPIO), but you can:
-- SSH in to change settings
-- Send OSC messages over network
-- Use MIDI over network (rtpmidi)
+No VNC/GUI access is set up or needed for normal operation — everything runs headless.
 
-### Q: Can I use this with Ableton/DAW?
-**A:** Not directly. This is a standalone synth module.
+### Q: Can I use this with a DAW?
 
-To use with DAW:
-- Send MIDI from DAW to Roli
-- Roli sends MPE to Pi
-- Pi sends audio back to DAW (via USB audio)
-- Adds latency, not ideal
+**A:** Not directly — this is a standalone instrument, not a plugin host. You could route MIDI from a DAW into your MPE controller and audio back out via the USB dongle, but that adds latency and isn't the intended use case.
 
 ## Troubleshooting
 
-### Q: Nothing works after reboot
-**A:**
-```bash
-# Check all services
-~/pisurge/monitor.sh
 
-# Look for errors
-journalctl --user -u jack.service
-journalctl --user -u surge.service
+
+### Q: Nothing works after reboot
+
+**A:**
+
+```bash
+ssh <pi-user>@surge.local 'systemctl status surge-xt-cli patch-browser'
+ssh <pi-user>@surge.local 'journalctl -u surge-xt-cli -e'
 ```
+
+
 
 ### Q: Surge XT won't launch
+
 **A:**
+
 ```bash
-# Try running manually
-Surge-XT
-
-# Check for missing libraries
-ldd /usr/local/bin/Surge-XT
-
-# Reinstall if needed
+ssh <pi-user>@surge.local 'journalctl -u surge-xt-cli -e --no-pager'
 ```
+
+Check for missing shared libraries or an audio device that isn't where the config expects it (`scripts/detect-audio-device.sh` can help re-detect it).
 
 ### Q: USB devices not detected
+
 **A:**
+
 ```bash
-# List USB devices
-lsusb
-
-# Check dmesg for errors
-dmesg | tail -50
-
-# Try different USB port
-# Try powered USB hub
+ssh <pi-user>@surge.local 'lsusb'
+ssh <pi-user>@surge.local 'dmesg | tail -50'
 ```
 
-## Advanced Topics
+Try a different USB port, or a powered hub if you're chaining multiple USB devices off the Pi.
 
-### Q: Can I run multiple instances of Surge?
-**A:** Yes, but defeats the purpose of this build. Each instance = more CPU.
+## Contributing
 
-Better: Use Surge's layering features within one instance.
 
-### Q: Can I add a sequencer?
-**A:** Not in this build. For sequencing, use:
-- External hardware sequencer → Roli → Pi
-- Or add Seq24/Ardour (but adds complexity)
-
-### Q: Can I build a custom Surge fork with headless mode?
-**A:** Yes! Surge is open source. You'd need to:
-1. Fork Surge repo
-2. Add headless rendering (remove GUI dependencies)
-3. Add MIDI preset navigation
-4. Build for ARM64
-
-This is advanced but doable.
 
 ### Q: How do I contribute to this project?
-**A:** Great! Areas that need work:
-- OSC-based preset navigation
-- Display support (show patch names)
-- Better boot time optimization
-- Surge preset library for MPE
-- Alternative synth support
+
+**A:** Areas that could use work:
+
+- Non-git patch sync (drag-and-drop or one-click push — see the "known rough edge" note in the [README](README.md))
+- Alternative display/encoder support
+- Latency benchmarking
+- Encoder debouncing / reliability
+- Housing options that account for the OLED 
 
 See GitHub issues for current tasks.
 
 ## Still Having Issues?
 
-1. **Check logs**: `journalctl --user -u <service-name> -f`
-2. **Search issues**: GitHub repo issues page
-3. **Ask community**: Surge Discord, Lines forum
-4. **File bug report**: Include logs and `monitor.sh` output
+1. Check logs: `journalctl -u <service-name> -f` (services: `surge-xt-cli`, `patch-browser`)
+2. Check `[docs/SURGE_CLI_HEADLESS_SETUP.md](docs/SURGE_CLI_HEADLESS_SETUP.md)` for the full technical setup
+3. Search/file a GitHub issue with logs and Pi model/OS version included
+

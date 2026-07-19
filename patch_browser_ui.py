@@ -19,7 +19,7 @@ import sys
 import os
 import threading
 from pathlib import Path
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from gpiozero import RotaryEncoder, Button
 from luma.core.interface.serial import i2c
 from luma.core.render import canvas
@@ -68,15 +68,35 @@ class Config:
 
     # Press Duration Thresholds
     bold_press_min: float = 0.5  # Mode toggle (500ms)
-    long_press_min: float = 2.0  # Copy to !Mitch (2s)
+    long_press_min: float = 2.0  # Copy to favorites (2s)
     poweroff_press_min: float = 8.0  # Power menu (8s)
 
     # Scroll Modes
     scroll_mode_category: int = 0
     scroll_mode_patch: int = 1
 
+    # User quick-access folder (on-disk name under ~/Documents/Surge XT/Patches/)
+    # Override via MPE_FAVORITES_NAME in /etc/mpe/mpe.env — see docs/PATCH_BROWSER_UI.md
+    favorites_name: str = field(
+        default_factory=lambda: os.environ.get("MPE_FAVORITES_NAME", "!Quick Access")
+    )
+
 # Global config instance
 CONFIG = Config()
+
+# Alias used throughout scanner/UI (set MPE_FAVORITES_NAME before patch-browser starts)
+FAVORITES_NAME = CONFIG.favorites_name
+
+
+def favorites_display_name(name=None):
+    """Browser category label — leading ! sorts first. Idempotent if name already has !."""
+    n = name if name is not None else FAVORITES_NAME
+    return n if n.startswith("!") else f"!{n}"
+
+
+def favorites_folder_matches(name):
+    """True if on-disk folder/category name matches MPE_FAVORITES_NAME (with or without !)."""
+    return name.lstrip("!").lower() == FAVORITES_NAME.lstrip("!").lower()
 
 # Backwards compatibility - keep old constant names pointing to config
 ENCODER_CLK = CONFIG.encoder_clk
@@ -100,7 +120,7 @@ SCROLL_MODE_PATCH = CONFIG.scroll_mode_patch
 SURGE_PATCH_DIRS = [
     Path.home() / "surge" / "resources" / "data" / "patches_factory",
     Path.home() / "surge" / "resources" / "data" / "patches_3rdparty",
-    Path.home() / "Documents" / "Surge XT" / "Patches",  # User patches (includes Mitch category)
+    Path.home() / "Documents" / "Surge XT" / "Patches",  # User patches (includes favorites category)
 ]
 
 # State persistence files
@@ -145,9 +165,9 @@ class PatchScanner:
                 rel_path = Path(root).relative_to(patch_dir)
                 category = str(rel_path.parts[0]) if rel_path.parts else "Uncategorized"
 
-                # Force "mitch" category to the top by prepending "!"
-                if category.lower() == "mitch":
-                    category = "!Mitch"
+                # Force the favorites category to the top by prepending "!"
+                if favorites_folder_matches(category):
+                    category = favorites_display_name(category)
 
                 # Find all .fxp files
                 fxp_files = [f for f in files if f.lower().endswith('.fxp')]
@@ -161,12 +181,12 @@ class PatchScanner:
                         patch_name = fxp_file.replace('.fxp', '').replace('.FXP', '')
 
                         # Check for duplicates by name (prevent same patch appearing twice in same category)
-                        # This handles cases where a patch exists in both original location and !Mitch folder
+                        # This handles cases where a patch exists in both original location and the favorites folder
                         existing_patch = next((p for p in self.patches[category] if p['name'] == patch_name), None)
                         if existing_patch:
-                            # Patch with same name already exists - prefer the one in !Mitch folder if this is !Mitch
-                            if category == "!Mitch" and "Mitch" in str(patch_path):
-                                # Replace with the one from Mitch folder
+                            # Patch with same name already exists - prefer the one in the favorites folder
+                            if category == favorites_display_name() and favorites_folder_matches(str(patch_path)):
+                                # Replace with the one from the favorites folder
                                 existing_patch['path'] = str(patch_path)
                             # Otherwise keep the existing one (skip duplicate)
                             continue
@@ -178,10 +198,10 @@ class PatchScanner:
                         })
                         total_patches += 1
 
-        # Sort categories and patches alphabetically, but put !Mitch first
+        # Sort categories and patches alphabetically, but put favorites first
         def sort_key(item):
             category_name = item[0]
-            if category_name == '!Mitch':
+            if category_name == favorites_display_name():
                 return ('', category_name)  # Empty string sorts before all letters
             return (category_name, category_name)
 
@@ -242,9 +262,9 @@ class PatchScanner:
             patch_name = fxp_file.stem
             category_name = category_path.name
 
-            # Force "mitch" category to the top
-            if category_name.lower() == "mitch":
-                category_name = "!Mitch"
+            # Force the favorites category to the top
+            if favorites_folder_matches(category_name):
+                category_name = favorites_display_name(category_name)
 
             patches.append({
                 'name': patch_name,
@@ -285,7 +305,7 @@ class PatchScanner:
         return None
 
     def get_categories(self):
-        """Get sorted list of category names (!Mitch will be first due to ! prefix)"""
+        """Get sorted list of category names (favorites will be first due to ! prefix)"""
         with self.scan_lock:
             return list(self.patches.keys())
 
@@ -295,50 +315,49 @@ class PatchScanner:
             return self.patches.get(category, [])
 
     
-    def is_in_mitch_folder(self, patch_path):
-        """Check if a patch is already in the !Mitch folder"""
+    def is_in_favorites_folder(self, patch_path):
+        """Check if a patch is already in the favorites folder"""
         patch_path_obj = Path(patch_path)
-        # Check if patch is in any Mitch/Mitch folder
         for patch_dir in self.patch_dirs:
-            mitch_folder = patch_dir / "Mitch"
-            if mitch_folder.exists() and patch_path_obj.is_relative_to(mitch_folder):
+            favorites_folder = patch_dir / FAVORITES_NAME
+            if favorites_folder.exists() and patch_path_obj.is_relative_to(favorites_folder):
                 return True
         return False
     
-    def get_mitch_folder_path(self):
-        """Get the path to the !Mitch folder (creates if needed)"""
-        # Use the user patches directory for !Mitch folder
+    def get_favorites_folder_path(self):
+        """Get the path to the favorites folder (creates if needed)"""
+        # Use the user patches directory for the favorites folder
         user_patches_dir = Path.home() / "Documents" / "Surge XT" / "Patches"
-        mitch_folder = user_patches_dir / "Mitch"
-        mitch_folder.mkdir(parents=True, exist_ok=True)
-        return mitch_folder
+        favorites_folder = user_patches_dir / FAVORITES_NAME
+        favorites_folder.mkdir(parents=True, exist_ok=True)
+        return favorites_folder
     
-    def copy_patch_to_mitch(self, patch_path):
-        """Copy a patch file to the !Mitch folder"""
+    def copy_patch_to_favorites(self, patch_path):
+        """Copy a patch file to the favorites folder"""
         try:
             source_path = Path(patch_path)
             if not source_path.exists():
                 print(f"Error: Source patch not found: {patch_path}")
                 return False
             
-            mitch_folder = self.get_mitch_folder_path()
-            dest_path = mitch_folder / source_path.name
+            favorites_folder = self.get_favorites_folder_path()
+            dest_path = favorites_folder / source_path.name
             
-            # Check if file already exists in !Mitch folder
+            # Check if file already exists in the favorites folder
             if dest_path.exists():
-                print(f"Patch already exists in !Mitch folder: {source_path.name}")
+                print(f"Patch already exists in favorites folder: {source_path.name}")
                 return False  # Don't create duplicate
             
             # Copy the file
             import shutil
             shutil.copy2(source_path, dest_path)
-            print(f"Copied patch to !Mitch folder: {source_path.name}")
+            print(f"Copied patch to favorites folder: {source_path.name}")
             
             # Rescan to pick up the new patch
             self.scan_patches()
             return True
         except Exception as e:
-            print(f"Error copying patch to !Mitch folder: {e}")
+            print(f"Error copying patch to favorites folder: {e}")
             return False
 
 # ============================================================================
@@ -519,10 +538,10 @@ class PatchDisplay:
     def show_dialog(self, dialog_type, selection, patch=None, power_action=None):
         """Show confirmation dialog"""
         with canvas(self.device) as draw:
-            if dialog_type == "copy_to_mitch":
-                # Show copy to !Mitch confirmation
+            if dialog_type == "copy_to_favorites":
+                # Show copy to favorites confirmation
                 patch_name = patch['name'][:18] if patch and len(patch['name']) > 18 else (patch['name'] if patch else "")
-                draw.text((0, 0), "Copy to !Mitch?", fill="white", font=self.font_small)
+                draw.text((0, 0), f"Copy to {favorites_display_name()}?"[:20], fill="white", font=self.font_small)
                 draw.text((0, 12), patch_name, fill="white", font=self.font_small)
                 draw.text((0, 30), "> No" if selection == 0 else "  No", fill="white", font=self.font_small)
                 draw.text((0, 42), "  Yes" if selection == 0 else "> Yes", fill="white", font=self.font_small)
@@ -1139,7 +1158,7 @@ class PatchBrowser:
         
         # Confirmation dialog state
         self.dialog_active = False
-        self.dialog_type = None  # "copy_to_mitch", "power_menu", "power_confirm"
+        self.dialog_type = None  # "copy_to_favorites", "power_menu", "power_confirm"
         self.dialog_selection = 0  # Selection index (varies by dialog type)
         self.dialog_patch = None  # Patch to copy (if dialog active)
         self.power_action = None  # "shutdown" or "restart" (when in power_confirm dialog)
@@ -1216,7 +1235,8 @@ class PatchBrowser:
             self.categories = self.scanner.get_categories()
 
         print(f"Loaded {len(self.categories)} categories")
-        print("Button: 0.5-2s = Change Mode, >2s = Toggle Favorite")
+        print(f"Quick-access folder: {FAVORITES_NAME} (browser: {favorites_display_name()})")
+        print("Button: 0.5-2s = Change Mode, >2s = Copy to quick-access (hold ~1s to confirm in dialog)")
         print("Press Ctrl+C to exit\n")
 
         # Load the initial patch first (if not already loaded), then update display
@@ -1512,18 +1532,18 @@ class PatchBrowser:
         self.ignore_next_button_release = False  # Clear ignore flag
         self.update_display()
 
-    def _handle_copy_to_mitch_dialog(self):
-        """Handle copy to !Mitch dialog confirmation"""
+    def _handle_copy_to_favorites_dialog(self):
+        """Handle copy to favorites dialog confirmation"""
         if self.dialog_selection == 1:  # Yes selected
             if self.dialog_patch:
-                success = self.scanner.copy_patch_to_mitch(self.dialog_patch['path'])
+                success = self.scanner.copy_patch_to_favorites(self.dialog_patch['path'])
                 if success:
-                    print(f"Copied patch to !Mitch: {self.dialog_patch['name']}")
+                    print(f"Copied patch to favorites: {self.dialog_patch['name']}")
                     # Refresh categories to show new patch
                     self.categories = self.scanner.get_categories()
                     self.update_display()
                 else:
-                    print(f"Failed to copy patch to !Mitch: {self.dialog_patch['name']}")
+                    print(f"Failed to copy patch to favorites: {self.dialog_patch['name']}")
         self._close_dialog()
 
     def _handle_power_menu_dialog(self):
@@ -1621,8 +1641,8 @@ class PatchBrowser:
         has verified the release should be processed (not opening release, meets duration).
         """
         # Route to appropriate dialog handler
-        if self.dialog_type == "copy_to_mitch":
-            self._handle_copy_to_mitch_dialog()
+        if self.dialog_type == "copy_to_favorites":
+            self._handle_copy_to_favorites_dialog()
         elif self.dialog_type == "power_menu":
             self._handle_power_menu_dialog()
         elif self.dialog_type == "power_confirm":
@@ -1630,10 +1650,10 @@ class PatchBrowser:
         elif self.dialog_type == "surge_error":
             self._handle_surge_error_dialog()
 
-    def _show_copy_to_mitch_dialog(self, patch):
-        """Show confirmation dialog for copying patch to !Mitch"""
+    def _show_copy_to_favorites_dialog(self, patch):
+        """Show confirmation dialog for copying patch to favorites"""
         self.dialog_active = True
-        self.dialog_type = "copy_to_mitch"
+        self.dialog_type = "copy_to_favorites"
         self.dialog_patch = patch
         self.dialog_selection = 0
         self.button_press_in_progress = False
@@ -1735,16 +1755,16 @@ class PatchBrowser:
             threading.Timer(BUTTON_ENCODER_ISOLATION, clear_button_flag).start()
             return  # Don't process other button actions when dialog is active
 
-        # Long press (>= 2s) - Show copy to !Mitch confirmation dialog
+        # Long press (>= 2s) - Show copy to favorites confirmation dialog
         if press_duration >= LONG_PRESS_MIN:
             patch = self.get_current_patch()
             if patch is not None:
-                # Check if patch is already in !Mitch folder
-                if self.scanner.is_in_mitch_folder(patch['path']):
-                    print(f"Patch already in !Mitch folder: {patch['name']}")
+                # Check if patch is already in the favorites folder
+                if self.scanner.is_in_favorites_folder(patch['path']):
+                    print(f"Patch already in favorites folder: {patch['name']}")
                 else:
                     # Show confirmation dialog
-                    self._show_copy_to_mitch_dialog(patch)
+                    self._show_copy_to_favorites_dialog(patch)
             else:
                 print("No patch selected")
 
@@ -1889,7 +1909,7 @@ class PatchBrowser:
                     self.dialog_selection = (self.dialog_selection + 1) % (max_selection + 1)
                 else:
                     self.dialog_selection = (self.dialog_selection - 1) % (max_selection + 1)
-            else:  # copy_to_mitch or other 2-option dialogs
+            else:  # copy_to_favorites or other 2-option dialogs
                 # 2 options (No, Yes)
                 if direction == "CW":
                     self.dialog_selection = (self.dialog_selection + 1) % 2

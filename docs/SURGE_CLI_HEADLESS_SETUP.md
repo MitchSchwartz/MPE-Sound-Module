@@ -26,22 +26,22 @@ Audio: Sound Blaster Play! 3 USB
 
 ### Check Status
 ```bash
-ssh mitch@surge.local 'systemctl status surge-xt-cli'
+ssh <pi-user>@surge.local 'systemctl status surge-xt-cli'
 ```
 
 ### View Logs
 ```bash
-ssh mitch@surge.local 'tail -f ~/surge-cli.log'
+ssh <pi-user>@surge.local 'tail -f ~/surge-cli.log'
 ```
 
 ### Restart Surge
 ```bash
-ssh mitch@surge.local 'sudo systemctl restart surge-xt-cli'
+ssh <pi-user>@surge.local 'sudo systemctl restart surge-xt-cli'
 ```
 
 ### Stop Surge
 ```bash
-ssh mitch@surge.local 'sudo systemctl stop surge-xt-cli'
+ssh <pi-user>@surge.local 'sudo systemctl stop surge-xt-cli'
 ```
 
 ## Boot Sequence

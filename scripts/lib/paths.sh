@@ -41,10 +41,13 @@ MPE_SURGE_USER_DEFAULTS="${MPE_SURGE_USER_DEFAULTS:-$HOME/.local/share/Surge XT/
 LOG_FILE="${MPE_SURGE_LOG:-$HOME/surge-cli.log}"
 
 PI_HOST="${PI_HOST:-surge.local}"
-PI_USER="${PI_USER:-mitch}"
+# No safe default: Raspberry Pi Imager requires a custom username per-device (no
+# more shipped "pi" user), so this must come from config/mpe.env or the environment.
+PI_USER="${PI_USER:-}"
 SSH_KEY="${SSH_KEY:-$HOME/.ssh/surge_pi_key}"
 PI_MPE_MODULE="${PI_MPE_MODULE:-}"
 PI_MPE_PERSONAL="${PI_MPE_PERSONAL:-}"
+MPE_FAVORITES_NAME="${MPE_FAVORITES_NAME:-!Quick Access}"
 
 if [ -z "${SURGE_XT_DIR:-}" ]; then
     if [ -n "${USERPROFILE:-}" ] && command -v cygpath >/dev/null 2>&1; then
@@ -81,6 +84,11 @@ mpe_pi_source_line() {
 }
 
 mpe_pi_ssh() {
+    if [ -z "$PI_USER" ]; then
+        echo "ERROR: PI_USER not set." >&2
+        echo "Copy config/mpe.env.example to config/mpe.env and set PI_USER to your Pi's login username." >&2
+        exit 1
+    fi
     ssh -i "$SSH_KEY" "$PI_USER@$PI_HOST" "$@"
 }
 

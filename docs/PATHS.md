@@ -28,13 +28,14 @@ Deploy/sync scripts in `MPE-Module/scripts/` resolve `../MPE-Library` automatica
 | `MPE_PERSONAL_REPO` | `../MPE-Library` | PC deploy/sync |
 | `SURGE_XT_DIR` | `$HOME/Documents/Surge XT` | PC symlink setup |
 | `PI_HOST` | `surge.local` | PC → Pi SSH |
-| `PI_USER` | `pi` | PC → Pi SSH |
+| `PI_USER` | **none — required** | PC → Pi SSH. No safe default: Raspberry Pi Imager makes you set a custom username per device, so this must be set in `config/mpe.env`. Scripts error clearly if it's unset. |
 | `SSH_KEY` | `$HOME/.ssh/surge_pi_key` | PC → Pi SSH |
 | `PI_MPE_MODULE` | `$HOME/MPE-Module` on Pi | Pi clone path override |
 | `PI_MPE_PERSONAL` | `$HOME/MPE-Library` on Pi | Pi clone path override |
 | `MPE_MODULE_REPO` | script location / `$HOME/MPE-Module` | Pi runtime |
 | `MPE_PERSONAL_REPO` | `$HOME/MPE-Library` | Pi runtime |
 | `MPE_SURGE_ROOT` | `$HOME/surge` | Pi runtime |
+| `MPE_FAVORITES_NAME` | `!Quick Access` | **Patch browser UI** — folder under `~/Documents/Surge XT/Patches/`; **use leading `!`** to pin first. On-device 2s-hold copy target. See [`docs/PATCH_BROWSER_UI.md`](PATCH_BROWSER_UI.md). |
 
 Full list: [`config/mpe.env.example`](../config/mpe.env.example).
 

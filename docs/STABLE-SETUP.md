@@ -4,11 +4,11 @@
 
 ```bash
 cd MPE-Module
-cp config/mpe.env.example config/mpe.env   # edit PI_USER if needed
+cp config/mpe.env.example config/mpe.env   # set PI_USER — required, no default
 ./scripts/setup-windows-symlinks.sh
 ```
 
-`config/mpe.env` is gitignored — yours has `PI_USER=mitch`.
+`config/mpe.env` is gitignored — machine-specific, never committed.
 
 ## Pi (once, when online)
 

@@ -18,6 +18,20 @@ Clone both as siblings under the same parent folder. Scripts resolve `../MPE-Per
 3. Deploy from **MPE-Module** scripts (~5–10 seconds)
 4. Test on your MPE controller
 
+## Quick-access folder (live set)
+
+The Pi browser pins **one user patch folder** at the top of the category list. Default folder name: **`!Quick Access`** (the `!` is part of the folder name in Surge — it sorts first). Override with **`MPE_FAVORITES_NAME`** in `/etc/mpe/mpe.env`.
+
+**PC workflow (recommended):**
+
+1. In Surge XT, create `~/Documents/Surge XT/Patches/!Quick Access/` (or your custom name — leading `!` recommended).
+2. Save or copy patches into that folder.
+3. Deploy with the steps below.
+
+**On-device (optional, unreliable):** hold **2s+** while browsing a patch → copy-to-folder dialog. Same target folder as above.
+
+See [`PATCH_BROWSER_UI.md`](PATCH_BROWSER_UI.md) for the full controls + config table.
+
 ## One-Time Setup
 
 ### Step 1: Create Windows Symlinks

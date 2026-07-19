@@ -13,7 +13,7 @@
 | Qty | Part | Spec | Buy (CA) | Notes |
 |-----|------|------|----------|-------|
 | 1 | **1.3″ I2C OLED** | Walfront 128×64, blue, I2C `0x3C`, 4-pin header | [B0B5HRB59Q](https://www.amazon.ca/dp/B0B5HRB59Q) | **Confirmed part:** *OLED Display 1.3 Inch 128X64 IIC I2C SPI OLED Display Module* (Walfront). Wire **I2C only** (VCC/GND/SCL/SDA) — ignore SPI pins if present. Controller is typically **SH1106** (code falls back to SSD1306). Seller ref: `ame8xh1pwt27589`. Verify: `sudo i2cdetect -y 1` → `3c`. |
-| 1 | **KY-040 rotary encoder module** | WMYCONGCONG, CLK/DT/SW/+/GND | [B07FJQH1F7](https://www.amazon.ca/dp/B07FJQH1F7) (5-pack + jumpers) | **Reference build only — weak recommendation.** UPC `705169048923`. Cheap module; works with this repo’s debounce stack (~95% feel) but bouncy and inconsistent unit-to-unit. Use **one** from the pack; **do not connect `+` (VCC)** — [`docs/ENCODER_NO_VCC.md`](docs/ENCODER_NO_VCC.md). Prefer a better encoder if you care about tactile quality. |
+| 1 | **KY-040 rotary encoder module** | WMYCONGCONG, CLK/DT/SW/+/GND | [B07FJQH1F7](https://www.amazon.ca/dp/B07FJQH1F7) (5-pack + jumpers) | **Reference build only — weak recommendation.** Cheap, bouncy, no normal click (short taps ignored). Software mostly fixes **false presses**, not navigation quality. **Do not connect `+` (VCC)** — [`docs/ENCODER_NO_VCC.md`](docs/ENCODER_NO_VCC.md). Prefer a better encoder if you care about feel. |
 | ~8 | **Jumper wires** | Female–female, 2.54 mm | *(included in encoder listing above)* | OLED: 4 wires. Encoder: 3 signals + GND on **its own** Pi GND pin (see wiring). |
 
 ### Wiring (summary)
@@ -63,13 +63,14 @@ Full ASCII diagram: [`docs/HARDWARE_WIRING.md`](docs/HARDWARE_WIRING.md)
 
 ## Software side of “the knob design”
 
-Hardware is only half of it. This repo includes **encoder/button filtering** tuned for a cheap KY-040:
+Hardware is only half of it. This repo includes filtering tuned for a cheap KY-040:
 
-- [`patch_browser_ui.py`](patch_browser_ui.py) — `Config` debounce times, evdev + gpiozero paths, dialog/power-menu state machine
+- [`patch_browser_ui.py`](patch_browser_ui.py) — debounce, evdev + gpiozero paths, hold-based button model
 - [`docs/ENCODER_NO_VCC.md`](docs/ENCODER_NO_VCC.md) — why VCC is left floating
-- [`ENCODER_BUTTON_REVIEW.md`](ENCODER_BUTTON_REVIEW.md) — known UX edge cases and fixes
+- [`docs/PATCH_BROWSER_UI.md`](docs/PATCH_BROWSER_UI.md) — honest interaction model (no normal click; holds only)
+- [`ENCODER_BUTTON_REVIEW.md`](ENCODER_BUTTON_REVIEW.md) — known issues; next upgrade is separate enter (~1s) / back (~3s) holds
 
-Expect ~**95% reliable** mechanical feel with the **WMYCONGCONG KY-040** above — mostly software, not hardware. A nicer encoder may still need tuning but starts from a better baseline.
+Do not expect tight scrolling or tap-to-confirm on the stock KY-040. The stack mainly suppresses false presses.
 
 ---
 
@@ -83,13 +84,7 @@ Expect ~**95% reliable** mechanical feel with the **WMYCONGCONG KY-040** above �
 
 ---
 
-## What this BOM replaces
-
-| File | Status |
-|------|--------|
-| [`docs/HARDWARE_WIRING.md`](docs/HARDWARE_WIRING.md) | **Canonical** wiring for v1 (1 OLED + 1 encoder) |
-| [`WIRING_DIAGRAM.txt`](WIRING_DIAGRAM.txt) | **Stale** — describes old 5-encoder + JACK plan; ignore for v1 |
-| [`HARDWARE.md`](HARDWARE.md) | **Generic** early project doc; use this file + HARDWARE_WIRING for builds |
+This file and [`docs/HARDWARE_WIRING.md`](docs/HARDWARE_WIRING.md) are the canonical hardware reference for v1 (1 OLED + 1 encoder). There's no other BOM or wiring doc in this repo — this is it.
 
 ---
 
