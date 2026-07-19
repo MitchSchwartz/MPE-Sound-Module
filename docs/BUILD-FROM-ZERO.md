@@ -2,6 +2,30 @@
 
 A greenfield walkthrough: blank Raspberry Pi → working MPE sound module. Follow in order. You do **not** need access to the private `MPE-Library` repo for any of this — that repo is just Mitch's personal patch backup, not a dependency.
 
+**What this repo is:** a **bootstrap / reference design**, not a finished product or installer. Expect SSH, git, CMake, and systemd — or an AI assistant walking you through those steps. There is no one-click setup yet.
+
+**Who it's for:** comfortable Linux/Pi builders, synth-DIY people, or technical users with AI guidance. Not aimed at plug-and-play Surge users who don't want a terminal.
+
+## Tested Surge XT version (reference device)
+
+The maintainer's Pi was last smoke-tested with:
+
+| Item | Value |
+|------|--------|
+| **CLI version** | `1.4.main.253f8d86` (`surge-xt-cli --version`) |
+| **Source commit** | `253f8d86` on Surge `main` (2025-12-24) |
+| **Latest stable release** | Surge XT **1.3.4** ([surge-synthesizer.github.io](https://surge-synthesizer.github.io/downloads/)) |
+
+This build is **newer than stable 1.3.4** (pre-1.4 nightly), not an old pinned release. Other Surge versions may work; they are not validated here. If you want the conservative path, checkout `release_xt/1.3.4` before building and smoke-test MPE + OSC patch loading the same way.
+
+## Planned (not shipped yet)
+
+These would lower the bar for less technical builders — tracked as follow-ups, not launch blockers:
+
+- **Prebuilt `surge-xt-cli` for aarch64** — GitHub Release tarball + install script (~2–4 hrs to package from a known-good build); skips the 30–45 min Pi compile
+- **Patch library bundle or shallow clone script** — factory + third-party data without a full Surge build
+- **Non-git patch sync** — drag-and-drop or one-command push from PC (today: git + SSH scripts)
+
 ## 0. What you need
 
 - Raspberry Pi 4 (4GB+) or Pi 5, running headless
@@ -29,7 +53,15 @@ cd MPE-Module
 
 ## 3. Install OS packages and build Surge XT from source
 
-Surge XT doesn't ship a prebuilt ARM64 CLI, so you build it once on the Pi. Follow **[`docs/SURGE_CLI_HEADLESS_SETUP.md`](SURGE_CLI_HEADLESS_SETUP.md)** for the build steps (CMake build of `surge-xt-cli` under `~/surge`). This also gives you the **3,192 bundled factory + third-party patches** — they ship inside the Surge source tree, so building Surge is how you get the patch library, no separate download needed.
+Official Surge XT releases do **not** include a prebuilt ARM64 CLI in this repo yet (a release tarball is planned — see **Planned** above). For now you build once on the Pi. Follow **[`docs/SURGE_CLI_HEADLESS_SETUP.md`](SURGE_CLI_HEADLESS_SETUP.md)** for the build steps (CMake target `surge-xt-cli` under `~/surge`).
+
+Building Surge also gives you the **3,192 bundled factory + third-party patches** — they ship inside the Surge source tree. Alternative: install Surge XT on a PC and copy `resources/data/patches_*` to the Pi if you already have them.
+
+After building, confirm version matches or note what you used:
+
+```bash
+~/surge/build/surge_xt_products/surge-xt-cli --version
+```
 
 Also install the Python dependencies for the on-device UI:
 
