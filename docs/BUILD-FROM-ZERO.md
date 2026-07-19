@@ -47,7 +47,7 @@ ssh <your-user>@surge.local
 
 ```bash
 cd ~
-git clone https://github.com/M-Ferda/MPE-Module.git
+git clone https://github.com/MitchSchwartz/MPE-Module.git
 cd MPE-Module
 ```
 
