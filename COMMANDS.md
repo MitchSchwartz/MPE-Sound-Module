@@ -167,14 +167,14 @@ ssh surge.local 'echo "" > ~/surge-cli.log'
 ```bash
 ssh surge.local
 # or
-ssh <user>@surge.local
+ssh <pi-user>@surge.local
 # or
-ssh <user>@<lan-ip>
+ssh <pi-user>@<lan-ip>
 ```
 
 With SSH key:
 ```bash
-ssh -i ~/.ssh/surge_pi_key <user>@surge.local
+ssh -i ~/.ssh/surge_pi_key <pi-user>@surge.local
 ```
 
 ---
@@ -182,7 +182,7 @@ ssh -i ~/.ssh/surge_pi_key <user>@surge.local
 ### Copy Files To Pi
 
 ```bash
-scp -i ~/.ssh/surge_pi_key localfile.txt <user>@surge.local:~/
+scp -i ~/.ssh/surge_pi_key localfile.txt <pi-user>@surge.local:~/
 ```
 
 ---
@@ -190,7 +190,7 @@ scp -i ~/.ssh/surge_pi_key localfile.txt <user>@surge.local:~/
 ### Copy Files From Pi
 
 ```bash
-scp -i ~/.ssh/surge_pi_key <user>@surge.local:~/remotefile.txt ./
+scp -i ~/.ssh/surge_pi_key <pi-user>@surge.local:~/remotefile.txt ./
 ```
 
 ---
@@ -253,7 +253,7 @@ PI_HOST=<lan-ip> bash scripts/deploy-all.sh
 ### Test SSH Connection
 
 ```bash
-ssh -i ~/.ssh/surge_pi_key <user>@surge.local "echo 'Connected'"
+ssh -i ~/.ssh/surge_pi_key <pi-user>@surge.local "echo 'Connected'"
 ```
 
 ---
@@ -367,7 +367,7 @@ ssh surge.local 'tail -30 ~/surge-cli.log'
 ```bash
 # 1. Edit script locally
 # 2. Deploy single script
-scp -i ~/.ssh/surge_pi_key scripts/start-surge-cli.sh <user>@surge.local:~/
+scp -i ~/.ssh/surge_pi_key scripts/start-surge-cli.sh <pi-user>@surge.local:~/
 
 # 3. Make executable
 ssh surge.local 'chmod +x ~/start-surge-cli.sh'
@@ -389,7 +389,7 @@ git add -A && git commit -m "Update start script" && git push
 nano config/surge-xt-cli.service
 
 # 2. Deploy config
-scp -i ~/.ssh/surge_pi_key config/surge-xt-cli.service <user>@surge.local:~/
+scp -i ~/.ssh/surge_pi_key config/surge-xt-cli.service <pi-user>@surge.local:~/
 ssh surge.local 'sudo cp ~/surge-xt-cli.service /etc/systemd/system/'
 ssh surge.local 'sudo systemctl daemon-reload'
 ssh surge.local 'sudo systemctl restart surge-xt-cli'

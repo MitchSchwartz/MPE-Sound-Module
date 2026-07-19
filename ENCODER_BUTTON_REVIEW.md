@@ -1,5 +1,18 @@
 # Encoder and Button Handling Review
 
+## Planned upgrade (highest UX priority)
+
+Replace the overloaded **0.5–2s toggle** with distinct hold actions:
+
+| Hold | Action |
+|---|---|
+| **~1s** | Enter / confirm |
+| **~3s** | Back / cancel |
+
+**Hardware:** **second encoder** (scroll + confirm) — roadmap, not v1 BOM.
+
+---
+
 ## Current Issues Identified
 
 ### 1. Power Menu Exits on Button Release
@@ -102,6 +115,6 @@ def _get_encoder_cooldown(self):
 - [ ] No selection jumps when button pressed in dialogs
 - [ ] Encoder navigation works smoothly in all dialogs
 - [ ] Normal browsing mode still works correctly
-- [ ] Copy to !Mitch dialog works correctly
+- [ ] On-device copy-to-quick-access (2s hold) — experimental; set `MPE_FAVORITES_NAME` to match folder on disk
 - [ ] Power confirm dialog works correctly
 

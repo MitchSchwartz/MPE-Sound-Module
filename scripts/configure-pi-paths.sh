@@ -35,6 +35,7 @@ _run_on_pi() {
     echo "  MPE-Module:     $MPE_MODULE_REPO"
     echo "  MPE-Personal:   ${MPE_PERSONAL_REPO:-"(not cloned yet)"}"
     echo "  Surge root:     $MPE_SURGE_ROOT"
+    echo "  Favorites name: $MPE_FAVORITES_NAME"
     echo ""
 
     sudo mkdir -p /etc/mpe
@@ -45,8 +46,9 @@ MPE_PI_USER=$MPE_PI_USER
 MPE_MODULE_REPO=$MPE_MODULE_REPO
 MPE_PERSONAL_REPO=${MPE_PERSONAL_REPO:-$HOME/MPE-Library}
 MPE_SURGE_ROOT=$MPE_SURGE_ROOT
-MPE_SURGE_DOCS=$MPE_SURGE_DOCS
+MPE_SURGE_DOCS="$MPE_SURGE_DOCS"
 MPE_SURGE_LOG=$LOG_FILE
+MPE_FAVORITES_NAME="$MPE_FAVORITES_NAME"
 EOF
     else
         echo "Keeping existing /etc/mpe/mpe.env (use --force to rewrite)"
