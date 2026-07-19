@@ -21,13 +21,13 @@ cd ~/MPE-Module && git pull
 
 # from PC
 cd MPE-Module
-./scripts/setup-pi-symlinks.sh    # needs MPE-Personal cloned on Pi too
+./scripts/setup-pi-symlinks.sh    # needs MPE-Library cloned on Pi too
 ```
 
 ## Daily
 
 ```bash
-cd ../MPE-Personal && git add assets/user-data/Patches && git commit
+cd ../MPE-Library && git add assets/user-data/Patches && git commit
 cd ../MPE-Module && ./scripts/deploy-patches.sh
 ```
 

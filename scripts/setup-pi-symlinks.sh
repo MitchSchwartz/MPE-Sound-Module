@@ -24,7 +24,7 @@ echo ""
 mpe_pi_ssh bash -s <<EOF
 set -e
 $(mpe_pi_source_line)
-PERSONAL="\${MPE_PERSONAL_REPO:-${PI_MPE_PERSONAL:-\$HOME/MPE-Personal}}"
+PERSONAL="\${MPE_PERSONAL_REPO:-${PI_MPE_PERSONAL:-\$HOME/MPE-Library}}"
 ASSETS="\$PERSONAL/assets"
 
 [ -d "\$ASSETS/patches/patches_factory" ] || { echo "Missing factory patches in \$ASSETS"; exit 1; }

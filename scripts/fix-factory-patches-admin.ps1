@@ -23,7 +23,7 @@ $moduleRoot = Split-Path -Parent $PSScriptRoot
 if ($env:MPE_PERSONAL_REPO) {
     $personalRoot = $env:MPE_PERSONAL_REPO
 } else {
-    $personalRoot = Join-Path (Split-Path -Parent $moduleRoot) "MPE-Personal"
+    $personalRoot = Join-Path (Split-Path -Parent $moduleRoot) "MPE-Library"
 }
 $gitRepoFactory = Join-Path $personalRoot "assets\patches\patches_factory"
 
