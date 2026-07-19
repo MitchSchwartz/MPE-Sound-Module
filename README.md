@@ -4,6 +4,8 @@
 
 Plug a Roli into a Raspberry Pi. Turn it on. Play. That's the whole interaction.
 
+**Bootstrap, not a product.** This repo is a reference design and doc set for technical builders — SSH, git, CMake, wiring, systemd. Comfortable with a terminal (or AI-guided setup) is assumed. No installer, no prebuilt Surge binary yet, no plug-and-play path for non-dev Surge users.
+
 ---
 
 ## Why this exists
@@ -42,6 +44,8 @@ Reference stack: Raspberry Pi 5 + 1.3″ I2C OLED + one KY-040 encoder + a USB s
 The 3,192 patches on the device aren't in this repo — they ship inside Surge XT's own source tree, so building Surge XT (see below) gets you the same patches in Surge's normal folder layout. No separate download or repo needed.
 
 Never built any of this before? Start with **[docs/BUILD-FROM-ZERO.md](docs/BUILD-FROM-ZERO.md)** — a full walkthrough from a blank Pi to a working module.
+
+**Tested Surge XT (reference Pi):** `1.4.main.253f8d86` — pre-1.4 nightly, newer than stable 1.3.4. See BUILD-FROM-ZERO for version notes and planned prebuilt-binary release.
 
 ## How to navigate it
 
