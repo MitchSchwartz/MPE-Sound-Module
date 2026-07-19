@@ -2,7 +2,7 @@
 
 Patches, Surge binary backup, and user prefs are **not stored in this repo**.
 
-They live in the private **[MPE-Library](https://github.com/M-Ferda/MPE-Library)** repo as `assets/` — clone it as a **sibling** of `MPE-Module`:
+They live in the private **[MPE-Library](https://github.com/MitchSchwartz/MPE-Library)** repo as `assets/` — clone it as a **sibling** of `MPE-Module`:
 
 ```
 parent/
