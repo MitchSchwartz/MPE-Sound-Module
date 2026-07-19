@@ -26,6 +26,8 @@ MPE_MODULE_REPO="${MPE_MODULE_REPO:-$_MPE_MODULE_ROOT}"
 MPE_PERSONAL_REPO="${MPE_PERSONAL_REPO:-}"
 if [ -n "$MPE_PERSONAL_REPO" ] && [ -d "$MPE_PERSONAL_REPO" ]; then
     MPE_PERSONAL_REPO="$(cd "$MPE_PERSONAL_REPO" && pwd)"
+elif [ -d "$MPE_MODULE_REPO/../MPE-Library" ]; then
+    MPE_PERSONAL_REPO="$(cd "$MPE_MODULE_REPO/../MPE-Library" && pwd)"
 elif [ -d "$MPE_MODULE_REPO/../MPE-Personal" ]; then
     MPE_PERSONAL_REPO="$(cd "$MPE_MODULE_REPO/../MPE-Personal" && pwd)"
 fi
@@ -61,7 +63,7 @@ SURGE_PROGRAMDATA="${SURGE_PROGRAMDATA:-$_default_programdata}"
 mpe_require_personal() {
     if [ -z "$MPE_PERSONAL_REPO" ] || [ ! -d "$MPE_ASSETS_DIR" ]; then
         echo "ERROR: MPE-Personal not found."
-        echo "Clone it beside MPE-Module (../MPE-Personal) or set MPE_PERSONAL_REPO."
+        echo "Clone MPE-Library beside MPE-Module (../MPE-Library) or set MPE_PERSONAL_REPO."
         exit 1
     fi
 }
