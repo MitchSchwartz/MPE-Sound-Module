@@ -5,10 +5,10 @@ Wants=sound.target
 
 [Service]
 Type=forking
-User=mitch
-WorkingDirectory=/home/mitch/MPE-Module
-Environment="XDG_RUNTIME_DIR=/run/user/1000"
-ExecStart=/home/mitch/MPE-Module/scripts/start-surge-cli.sh
+User=@MPE_PI_USER@
+WorkingDirectory=@MPE_MODULE_REPO@
+EnvironmentFile=-/etc/mpe/mpe.env
+ExecStart=@MPE_MODULE_REPO@/scripts/start-surge-cli.sh
 Restart=on-failure
 RestartSec=10
 StartLimitBurst=5

@@ -2,7 +2,11 @@
 # Test audio device detection logic
 # This script helps diagnose audio device detection without launching Surge
 
-SURGE_CLI="${1:-/home/mitch/surge/build/surge_xt_products/surge-xt-cli}"
+SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")" && pwd)"
+# shellcheck source=lib/paths.sh
+source "$SCRIPT_DIR/lib/paths.sh"
+
+SURGE_CLI="${1:-$SURGE_CLI}"
 SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
 
 echo "======================================="

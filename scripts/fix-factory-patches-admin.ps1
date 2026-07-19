@@ -19,7 +19,13 @@ if (-not $isAdmin) {
 }
 
 $programDataFactory = "C:\ProgramData\Surge XT\patches_factory"
-$gitRepoFactory = "C:\Users\mitch\GitHub\MPE-Personal\assets\patches\patches_factory"
+$moduleRoot = Split-Path -Parent $PSScriptRoot
+if ($env:MPE_PERSONAL_REPO) {
+    $personalRoot = $env:MPE_PERSONAL_REPO
+} else {
+    $personalRoot = Join-Path (Split-Path -Parent $moduleRoot) "MPE-Personal"
+}
+$gitRepoFactory = Join-Path $personalRoot "assets\patches\patches_factory"
 
 # Step 1: Check if git repo factory patches exist
 Write-Host "Step 1/3: Checking git repo factory patches..." -ForegroundColor White

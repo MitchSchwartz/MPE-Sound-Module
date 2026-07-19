@@ -7,9 +7,8 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=lib/paths.sh
 source "$SCRIPT_DIR/lib/paths.sh"
+mpe_require_personal
 
-SURGE_XT_DIR="${SURGE_XT_DIR:-c:/Users/mitch/Documents/Surge XT}"
-SURGE_PROGRAMDATA="${SURGE_PROGRAMDATA:-c:/ProgramData/Surge XT}"
 PATCHES_SOURCE="$MPE_ASSETS_DIR/user-data/Patches"
 
 echo "========================================="

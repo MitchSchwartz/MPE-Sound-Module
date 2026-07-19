@@ -663,7 +663,9 @@ class PatchLoader:
 class SurgeMonitor:
     """Monitors Surge XT CLI process health and provides restart capability"""
 
-    def __init__(self, log_file='/home/mitch/surge-cli.log'):
+    def __init__(self, log_file=None):
+        if log_file is None:
+            log_file = os.environ.get('MPE_SURGE_LOG', os.path.expanduser('~/surge-cli.log'))
         """
         Initialize Surge health monitor
 

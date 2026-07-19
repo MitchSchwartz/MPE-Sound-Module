@@ -7,9 +7,11 @@
 set -e  # Exit on error
 
 # Configuration
-PI_HOST="${PI_HOST:-surge.local}"
-PI_USER="${PI_USER:-mitch}"
-PI_REPO_PATH="/home/mitch/MPE-Module"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=lib/paths.sh
+source "$SCRIPT_DIR/lib/paths.sh"
+PI_REPO_PATH="$MPE_MODULE_REPO"
+PI_REPO_REMOTE="${PI_MPE_MODULE:-\$HOME/MPE-Module}"
 
 # Detect if we're running on the Pi itself
 # Check if current directory is the repo path, or if we're in a git repo that matches
@@ -197,7 +199,7 @@ else
     echo "[4/5] Pulling latest changes from GitHub on Pi..."
     $SSH_CMD ${PI_USER}@${PI_HOST} << ENDSSH
         set -e
-        cd ${PI_REPO_PATH}
+        cd ${PI_REPO_REMOTE}
         
         # Check if repo exists
         if [ ! -d ".git" ]; then

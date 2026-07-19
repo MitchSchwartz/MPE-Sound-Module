@@ -4,7 +4,7 @@ Complete guide to backing up and restoring your Pi-Surge-MPE device.
 
 ## Overview
 
-Backup data lives in the private **[MPE-Personal](https://github.com/M-Ferda/MPE-Personal)** repo (`assets/`). Deploy/sync scripts live in **MPE-Module**. Clone both as siblings.
+Clone both repos as siblings under the same parent folder. Backup data goes in **MPE-Personal**; run pull/sync scripts from **MPE-Module**. Path overrides: **[PATHS.md](PATHS.md)**.
 
 Everything needed to restore the device is committed to MPE-Personal:
 - Surge XT CLI binary (24MB)
@@ -23,7 +23,7 @@ Everything needed to restore the device is committed to MPE-Personal:
 Run the pull script to download everything from the Pi:
 
 ```bash
-cd "c:/Users/mitch/GitHub/MPE-Module"
+cd MPE-Module
 bash scripts/pull-all-from-device.sh
 ```
 

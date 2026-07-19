@@ -5,9 +5,10 @@ Before=shutdown.target reboot.target halt.target
 
 [Service]
 Type=oneshot
-User=mitch
-WorkingDirectory=/home/mitch/MPE-Module
-ExecStart=/usr/bin/python3 /home/mitch/MPE-Module/shutdown_animation.py
+User=@MPE_PI_USER@
+WorkingDirectory=@MPE_MODULE_REPO@
+EnvironmentFile=-/etc/mpe/mpe.env
+ExecStart=/usr/bin/python3 @MPE_MODULE_REPO@/shutdown_animation.py
 StandardOutput=journal
 StandardError=journal
 TimeoutStartSec=10

@@ -8,7 +8,11 @@
 #   0 - Success, device found
 #   1 - Error, no devices available
 
-SURGE_CLI="${1:-/home/mitch/surge/build/surge_xt_products/surge-xt-cli}"
+SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")" && pwd)"
+# shellcheck source=lib/paths.sh
+source "$SCRIPT_DIR/lib/paths.sh"
+
+SURGE_CLI="${1:-$SURGE_CLI}"
 
 # Verify surge CLI exists
 if [ ! -f "$SURGE_CLI" ]; then

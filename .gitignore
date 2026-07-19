@@ -29,6 +29,7 @@ id_ed25519*
 # Local dev/test files
 test_*.py
 config.local.ini
+config/mpe.env
 *.local.*
 
 # Everything else (binaries, patches, configs) GOES IN GIT for backup!

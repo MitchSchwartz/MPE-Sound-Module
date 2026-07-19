@@ -5,8 +5,9 @@ BindsTo=surge-xt-cli.service
 
 [Service]
 Type=simple
-User=mitch
-ExecStart=/home/mitch/scripts/surge-watchdog.sh
+User=@MPE_PI_USER@
+EnvironmentFile=-/etc/mpe/mpe.env
+ExecStart=@MPE_SCRIPTS_DIR@/surge-watchdog.sh
 Restart=always
 RestartSec=10
 

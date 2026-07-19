@@ -5,10 +5,11 @@ Wants=surge-xt-cli.service
 
 [Service]
 Type=simple
-User=mitch
-WorkingDirectory=/home/mitch/MPE-Module
+User=@MPE_PI_USER@
+WorkingDirectory=@MPE_MODULE_REPO@
+EnvironmentFile=-/etc/mpe/mpe.env
 ExecStartPre=/bin/sleep 2
-ExecStart=/home/mitch/MPE-Module/scripts/start-patch-browser.sh
+ExecStart=@MPE_MODULE_REPO@/scripts/start-patch-browser.sh
 Restart=on-failure
 RestartSec=5
 StandardOutput=journal
