@@ -47,8 +47,8 @@ ssh <your-user>@surge.local
 
 ```bash
 cd ~
-git clone https://github.com/MitchSchwartz/MPE-Module.git
-cd MPE-Module
+git clone https://github.com/MitchSchwartz/MPE-Sound-Module.git
+cd MPE-Sound-Module
 ```
 
 ## 3. Install OS packages and build Surge XT from source
@@ -83,7 +83,7 @@ sudo i2cdetect -y 1   # should show 3c
 Back on your PC (not the Pi), point the deploy tooling at your Pi:
 
 ```bash
-cd MPE-Module
+cd MPE-Sound-Module
 cp config/mpe.env.example config/mpe.env
 # edit config/mpe.env: set PI_HOST and PI_USER — PI_USER is REQUIRED, there's
 # no default. It must match the username you set in Raspberry Pi Imager.
