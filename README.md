@@ -45,7 +45,7 @@ The 3,192 patches on the device aren't in this repo — they ship inside Surge X
 
 Never built any of this before? Start with **[docs/BUILD-FROM-ZERO.md](docs/BUILD-FROM-ZERO.md)** — full walkthrough from a blank Pi to a working module.
 
-**Canonical repo:** [github.com/MitchSchwartz/MPE-Sound-Module](https://github.com/MitchSchwartz/MPE-Sound-Module) · **Pi device setup:** [docs/PI-GITHUB-ISOLATION.md](docs/PI-GITHUB-ISOLATION.md) (M-Ferda account — not MitchSchwartz).
+**Repo:** [github.com/MitchSchwartz/MPE-Sound-Module](https://github.com/MitchSchwartz/MPE-Sound-Module)
 
 ## How to navigate it
 
@@ -78,7 +78,7 @@ Full detail: **[docs/PATCH_BROWSER_UI.md](docs/PATCH_BROWSER_UI.md)**
 Patches are edited on a normal computer with the real Surge XT GUI, then pushed to the Pi in seconds:
 
 1. Edit patches in Surge XT on your PC, using its regular interface
-2. Deploy the changed patches to the Pi with `scripts/deploy-patch-browser.sh` or `scripts/deploy-all.sh` or use a github repo like I do.
+2. Deploy the changed patches to the Pi with `scripts/deploy-patch-browser.sh` or `scripts/deploy-all.sh`, or sync via your own private assets repo (see workflow doc).
 3. Pick up the Roli and play — the browser on the device shows the new patch immediately
 
 Full walkthrough: **[docs/PATCH-EDITING-WORKFLOW.md](docs/PATCH-EDITING-WORKFLOW.md)**
@@ -88,9 +88,10 @@ Full walkthrough: **[docs/PATCH-EDITING-WORKFLOW.md](docs/PATCH-EDITING-WORKFLOW
 ## Quick reference (if you already have one running)
 
 ```bash
-ssh surge.local 'systemctl status surge-xt-cli'   # check it's alive
-ssh surge.local 'tail -f ~/surge-cli.log'          # watch logs
-ssh surge.local 'sudo systemctl restart surge-xt-cli'  # restart (e.g. after plugging in Roli)
+# Set PI_HOST / PI_USER in config/mpe.env first (see COMMANDS.md)
+ssh $PI_USER@$PI_HOST 'systemctl status surge-xt-cli'   # check it's alive
+ssh $PI_USER@$PI_HOST 'tail -f ~/surge-cli.log'          # watch logs
+ssh $PI_USER@$PI_HOST 'sudo systemctl restart surge-xt-cli'  # restart (e.g. after plugging in Roli)
 ```
 
 Full command reference: **[COMMANDS.md](COMMANDS.md)**
@@ -112,7 +113,6 @@ Full command reference: **[COMMANDS.md](COMMANDS.md)**
 | Doc                                                                  | For                                                  |
 | -------------------------------------------------------------------- | ---------------------------------------------------- |
 | [docs/BUILD-FROM-ZERO.md](docs/BUILD-FROM-ZERO.md)                   | Full walkthrough: blank Pi → working module          |
-| [docs/PI-GITHUB-ISOLATION.md](docs/PI-GITHUB-ISOLATION.md)           | Pi must use M-Ferda device account, not MitchSchwartz |
 | [REFERENCE_BOM.md](REFERENCE_BOM.md)                                 | Building the hardware                                |
 | [docs/HARDWARE_WIRING.md](docs/HARDWARE_WIRING.md)                   | Wiring the OLED + encoder                            |
 | [docs/PATCH_BROWSER_UI.md](docs/PATCH_BROWSER_UI.md)                 | How the encoder/button navigation actually works     |

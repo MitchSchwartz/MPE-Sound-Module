@@ -1,20 +1,20 @@
 # Surge XT Patch Editing Workflow
 
-Complete guide for editing Surge XT patches on Windows and deploying them to your Raspberry Pi device.
+Complete guide for editing Surge XT patches on your PC and deploying them to your Raspberry Pi device.
 
 ## Two repos
 
 | Repo | Role |
 |------|------|
 | **MPE-Module** | Code, docs, deploy scripts (this repo) |
-| **MPE-Personal** | Private backup: `assets/user-data/Patches/`, factory/third-party copy, binary |
+| **Your assets repo** | Private backup: `assets/user-data/Patches/`, optional factory/third-party copy, binary |
 
-Clone both as siblings under the same parent folder. Scripts resolve `../MPE-Personal` automatically, or set `MPE_PERSONAL_REPO`. Full path reference: **[PATHS.md](PATHS.md)**.
+Clone both as siblings under the same parent folder. Scripts resolve the assets repo automatically (`../mpe-assets`, `../MPE-Library`, or `../MPE-Personal`), or set `MPE_PERSONAL_REPO`. Full path reference: **[PATHS.md](PATHS.md)**.
 
 ## Overview
 
-1. Edit patches in Surge XT on Windows using the native GUI
-2. Changes land in **MPE-Personal** via symlinks → commit there
+1. Edit patches in Surge XT on your PC using the native GUI
+2. Changes land in **your assets repo** via symlinks → commit there
 3. Deploy from **MPE-Module** scripts (~5–10 seconds)
 4. Test on your MPE controller
 
@@ -34,9 +34,9 @@ See [`PATCH_BROWSER_UI.md`](PATCH_BROWSER_UI.md) for the full controls + config 
 
 ## One-Time Setup
 
-### Step 1: Create Windows Symlinks
+### Step 1: Create PC symlinks
 
-From **MPE-Module** (with **MPE-Personal** cloned beside it):
+From **MPE-Module** (with your **assets repo** cloned beside it):
 
 ```bash
 cd MPE-Module
@@ -46,32 +46,32 @@ cd MPE-Module
 Optional overrides (see `config/mpe.env.example`):
 
 ```bash
-export MPE_PERSONAL_REPO="../MPE-Personal"
+export MPE_PERSONAL_REPO="../mpe-assets"
 export SURGE_XT_DIR="$HOME/Documents/Surge XT"
 ./scripts/setup-windows-symlinks.sh
 ```
 
-This junctions Surge XT's `Patches` folder → `../MPE-Personal/assets/user-data/Patches`.
+This junctions Surge XT's `Patches` folder → `../mpe-assets/assets/user-data/Patches` (or your path).
 
 ### Step 2: Verify Setup
 
-Open Surge XT → Patch Browser → you should see your custom folders (e.g. `Mitch/`).
+Open Surge XT → Patch Browser → you should see your custom folders (e.g. `Live/`).
 
 ## Daily Editing Workflow
 
-### 1. Edit Patches in Windows
+### 1. Edit Patches on PC
 
-Save patches under your custom folder in Surge XT. Files land in MPE-Personal via the symlink.
+Save patches under your custom folder in Surge XT. Files land in the assets repo via the symlink.
 
 ### 2. Review and Commit Changes
 
-Commit in **MPE-Personal** (not MPE-Module):
+Commit in **your assets repo** (not MPE-Module):
 
 ```bash
-cd ../MPE-Personal
+cd ../mpe-assets
 git status
 git add assets/user-data/Patches/
-git commit -m "Update Church - Mod.fxp: added chorus"
+git commit -m "Update MyPatch.fxp: added chorus"
 git push
 ```
 
@@ -84,12 +84,12 @@ cd ../MPE-Module
 ./scripts/deploy-patches.sh
 ```
 
-Set `PI_HOST`, `PI_USER`, `SSH_KEY` if needed (see PATHS.md).
+Set `PI_HOST`, `PI_USER`, `SSH_KEY` in `config/mpe.env` if needed (see PATHS.md).
 
-**Option B — Pi symlinks to MPE-Personal:** commit/push MPE-Personal, then on the Pi:
+**Option B — Pi symlinks to assets repo:** commit/push assets repo, then on the Pi:
 
 ```bash
-cd ~/MPE-Personal && git pull
+cd ~/mpe-assets && git pull
 sudo systemctl restart surge-xt-cli patch-browser
 ```
 
@@ -103,9 +103,9 @@ Play your controller; load the patch from the on-device browser.
 
 When you first set up the Pi — or if clone paths change — reconfigure:
 
-1. Clone **MPE-Module** and **MPE-Personal** (default: both under `$HOME`)
+1. Clone **MPE-Module** and your **assets repo** (default: both under `$HOME`)
 2. `./scripts/configure-pi-paths.sh` — writes `/etc/mpe/mpe.env`, installs systemd units
-3. `./scripts/setup-pi-symlinks.sh` — points Surge patch dirs at MPE-Personal
+3. `./scripts/setup-pi-symlinks.sh` — points Surge patch dirs at assets repo
 4. Restart services
 
 Details: **[PATHS.md](PATHS.md)** § Pi setup.
@@ -114,21 +114,21 @@ Details: **[PATHS.md](PATHS.md)** § Pi setup.
 
 ### Browse Factory Patches for Reference
 
-Backup copies (optional) in MPE-Personal:
+Backup copies (optional) in your assets repo:
 
-- `../MPE-Personal/assets/patches/patches_factory`
-- `../MPE-Personal/assets/patches/third-party/patches_3rdparty`
+- `../mpe-assets/assets/patches/patches_factory`
+- `../mpe-assets/assets/patches/third-party/patches_3rdparty`
 
 Or use the factory library from a normal [Surge XT](https://surge-synthesizer.github.io/) install.
 
-To start from a factory patch: copy into `assets/user-data/Patches/Mitch/`, rename, edit in Surge XT.
+To start from a factory patch: copy into `assets/user-data/Patches/YourFolder/`, rename, edit in Surge XT.
 
 ### Sync Changes from Pi to PC
 
 ```bash
 cd MPE-Module
 ./scripts/sync-from-device.sh
-cd ../MPE-Personal
+cd ../mpe-assets
 git add -A && git commit -m "Sync from device $(date +%Y-%m-%d)"
 ```
 
@@ -150,19 +150,19 @@ Paths below use `$HOME` — your OS user home (Windows: Git Bash `$HOME` ≈ `~/
 | What | Path |
 |------|------|
 | Code repo | `MPE-Module/` (this clone) |
-| Personal repo | `../MPE-Personal/` |
+| Assets repo | `../mpe-assets/` (or `MPE_PERSONAL_REPO`) |
 | Surge XT user data | `$SURGE_XT_DIR` (default: `$HOME/Documents/Surge XT`) |
 | Custom patches (symlink) | `$SURGE_XT_DIR/Patches/` |
-| Custom patches (git) | `../MPE-Personal/assets/user-data/Patches/` |
+| Custom patches (git) | `../mpe-assets/assets/user-data/Patches/` |
 
 ### Pi
 
 | What | Path |
 |------|------|
 | Code repo | `$HOME/MPE-Module` (override: `MPE_MODULE_REPO`) |
-| Personal repo | `$HOME/MPE-Personal` (override: `MPE_PERSONAL_REPO`) |
+| Assets repo | `$HOME/mpe-assets` (override: `MPE_PERSONAL_REPO`) |
 | Surge CLI binary | `$HOME/surge/build/surge_xt_products/surge-xt-cli` |
-| Factory / 3rd-party | `$HOME/surge/resources/data/patches_*` (often symlinked to MPE-Personal) |
+| Factory / 3rd-party | `$HOME/surge/resources/data/patches_*` (often symlinked to assets repo) |
 | Custom patches | `$HOME/Documents/Surge XT/Patches/` |
 | Surge log | `$HOME/surge-cli.log` |
 
@@ -173,7 +173,7 @@ Paths below use `$HOME` — your OS user home (Windows: Git Bash `$HOME` ≈ `~/
 cd MPE-Module && ./scripts/setup-windows-symlinks.sh
 
 # Daily
-cd ../MPE-Personal && git add assets/user-data/Patches/ && git commit -m "patches"
+cd ../mpe-assets && git add assets/user-data/Patches/ && git commit -m "patches"
 cd ../MPE-Module && ./scripts/deploy-patches.sh
 
 # Pi path (re)configuration

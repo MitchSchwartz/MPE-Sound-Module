@@ -33,7 +33,7 @@ _run_on_pi() {
     echo "Pi path configuration"
     echo "  User:           $MPE_PI_USER"
     echo "  MPE-Module:     $MPE_MODULE_REPO"
-    echo "  MPE-Personal:   ${MPE_PERSONAL_REPO:-"(not cloned yet)"}"
+    echo "  Assets repo:    ${MPE_PERSONAL_REPO:-"(not cloned yet)"}"
     echo "  Surge root:     $MPE_SURGE_ROOT"
     echo "  Favorites name: $MPE_FAVORITES_NAME"
     echo ""

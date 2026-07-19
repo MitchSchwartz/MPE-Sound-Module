@@ -1,6 +1,6 @@
 #!/bin/bash
 # Setup Windows symlinks for Surge XT patch editing workflow
-# Patches live in MPE-Personal (private); code/scripts in MPE-Module
+# Patches live in your private assets repo; code/scripts in MPE-Module
 
 set -e
 
@@ -22,7 +22,7 @@ echo ""
 echo "Step 1/4: Validating environment..."
 
 if [ ! -d "$MPE_PERSONAL_REPO" ]; then
-    echo "❌ ERROR: MPE-Personal not found at $MPE_PERSONAL_REPO"
+    echo "❌ ERROR: Assets repo not found at $MPE_PERSONAL_REPO"
     echo "Clone it beside MPE-Module or set MPE_PERSONAL_REPO"
     exit 1
 fi
@@ -173,6 +173,6 @@ echo ""
 echo "Symlinks point at MPE-Personal:"
 echo "  $MPE_PERSONAL_REPO/assets/"
 echo ""
-echo "Commit custom patches in MPE-Personal; deploy from MPE-Module:"
+echo "Commit custom patches in your assets repo; deploy from MPE-Module:"
 echo "  cd $MPE_MODULE_REPO && ./scripts/deploy-patches.sh"
 echo ""

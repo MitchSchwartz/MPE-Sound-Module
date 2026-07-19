@@ -65,8 +65,8 @@ SURGE_PROGRAMDATA="${SURGE_PROGRAMDATA:-$_default_programdata}"
 
 mpe_require_personal() {
     if [ -z "$MPE_PERSONAL_REPO" ] || [ ! -d "$MPE_ASSETS_DIR" ]; then
-        echo "ERROR: MPE-Personal not found."
-        echo "Clone MPE-Library beside MPE-Module (../MPE-Library) or set MPE_PERSONAL_REPO."
+        echo "ERROR: Private assets repo not found."
+        echo "Clone it beside MPE-Module (e.g. ../mpe-assets) or set MPE_PERSONAL_REPO."
         exit 1
     fi
 }
