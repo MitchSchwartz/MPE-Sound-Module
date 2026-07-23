@@ -8,11 +8,11 @@ Plug a Roli into a Raspberry Pi. Turn it on. Play. That's the whole interaction.
 
 ## Demo
 
-https://github.com/MitchSchwartz/MPE-Sound-Module/raw/main/docs/demo.mp4
+https://github.com/user-attachments/assets/74652240-74af-48be-9db1-608f54805d25
 
-[![Click to play — Pi-Surge-MPE demo: LUMI keyboard and patch browser on the reference build](docs/Cover-play.jpg)](https://github.com/MitchSchwartz/MPE-Sound-Module/releases/download/demo-video/demo.mp4)
+[![Click to play — Pi-Surge-MPE demo: LUMI keyboard and patch browser on the reference build](docs/Cover-play.jpg)](https://github.com/user-attachments/assets/74652240-74af-48be-9db1-608f54805d25)
 
-Click the thumbnail to play — boot, patch browse, and play on the reference hardware. GitHub’s repo file viewer won’t preview the MP4; the player above and the [release copy](https://github.com/MitchSchwartz/MPE-Sound-Module/releases/download/demo-video/demo.mp4) open the stream directly.
+Click the thumbnail or use the player above.
 
 ---
 
