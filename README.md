@@ -10,10 +10,6 @@ Plug a Roli into a Raspberry Pi. Turn it on. Play. That's the whole interaction.
 
 https://github.com/user-attachments/assets/74652240-74af-48be-9db1-608f54805d25
 
-[![Click to play — Pi-Surge-MPE demo: LUMI keyboard and patch browser on the reference build](docs/Cover-play.jpg)](https://github.com/user-attachments/assets/74652240-74af-48be-9db1-608f54805d25)
-
-Click the thumbnail or use the player above.
-
 ---
 
 ## Why this exists
