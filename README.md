@@ -6,6 +6,12 @@ Plug a Roli into a Raspberry Pi. Turn it on. Play. That's the whole interaction.
 
 **Bootstrap, not a product.** This repo is a reference design and doc set for technical builders — SSH, git, CMake, wiring, systemd. Comfortable with a terminal (or AI-guided setup) is assumed. No installer, no prebuilt Surge binary yet, no plug-and-play path for non-dev Surge users.
 
+## Demo
+
+[![Pi-Surge-MPE — LUMI keyboard and patch browser on the reference build](docs/Cover.jpg)](docs/demo.mp4)
+
+Click to watch — boot, patch browse, and play on the reference hardware (opens in GitHub’s inline player).
+
 ---
 
 ## Why this exists
