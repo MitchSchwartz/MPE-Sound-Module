@@ -67,8 +67,7 @@ class Config:
     encoder_post_button_cooldown: float = 0.05  # Cooldown after button (50ms)
 
     # Press Duration Thresholds
-    bold_press_min: float = 0.5  # Mode toggle (500ms)
-    long_press_min: float = 2.0  # Copy to favorites (2s)
+    bold_press_min: float = 0.5  # Mode toggle (500ms+, up to power menu at 8s)
     poweroff_press_min: float = 8.0  # Power menu (8s)
 
     # Scroll Modes
@@ -111,7 +110,6 @@ LOAD_DEBOUNCE_TIME = CONFIG.load_debounce_time
 BUTTON_ENCODER_ISOLATION = CONFIG.button_encoder_isolation
 ENCODER_POST_BUTTON_COOLDOWN = CONFIG.encoder_post_button_cooldown
 BOLD_PRESS_MIN = CONFIG.bold_press_min
-LONG_PRESS_MIN = CONFIG.long_press_min
 POWEROFF_PRESS_MIN = CONFIG.poweroff_press_min
 SCROLL_MODE_CATEGORY = CONFIG.scroll_mode_category
 SCROLL_MODE_PATCH = CONFIG.scroll_mode_patch
@@ -1677,7 +1675,7 @@ class PatchBrowser:
             self.schedule_patch_load()
 
     def _on_button_up(self):
-        """Handle button release - determine if short (favorite) or long (mode switch) press"""
+        """Handle button release — bold hold toggles category/patch mode; 8s+ opens power menu."""
         import threading
         import sys
 
@@ -1757,21 +1755,9 @@ class PatchBrowser:
             threading.Timer(BUTTON_ENCODER_ISOLATION, clear_button_flag).start()
             return  # Don't process other button actions when dialog is active
 
-        # Long press (>= 2s) - Show copy to favorites confirmation dialog
-        if press_duration >= LONG_PRESS_MIN:
-            patch = self.get_current_patch()
-            if patch is not None:
-                # Check if patch is already in the favorites folder
-                if self.scanner.is_in_favorites_folder(patch['path']):
-                    print(f"Patch already in favorites folder: {patch['name']}")
-                else:
-                    # Show confirmation dialog
-                    self._show_copy_to_favorites_dialog(patch)
-            else:
-                print("No patch selected")
-
-        # Bold press (0.5s to 2s) - Change mode (toggle between category and patch)
-        elif press_duration >= BOLD_PRESS_MIN:
+        # Bold press (0.5s+, below power menu at 8s) — toggle category/patch mode.
+        # On-device copy-to-favorites (formerly 2s+ hold) is disabled; use PC workflow instead.
+        if press_duration >= BOLD_PRESS_MIN:
             self._toggle_scroll_mode()
 
         # Quick press (< 0.5s) - Ignore (debouncing)
