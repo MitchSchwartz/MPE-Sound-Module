@@ -103,12 +103,10 @@ Parameters:
 
 When powered ON:
 ```
-0s ────→ 0.5s ────→ 2s ────→ 8s ────→ Release
-  ignored   mode     copy to   POWEROFF  → shutdown
-            toggle   quick-    warning
-                     access*
+0s ────→ 0.5s ────────────────→ 8s ────→ Release
+  ignored   mode toggle           POWEROFF  → shutdown
+            (aim ~1s)             warning
 ```
-\*Target folder: `MPE_FAVORITES_NAME` (default `!Quick Access`). See [`PATCH_BROWSER_UI.md`](PATCH_BROWSER_UI.md).
 
 When powered OFF:
 ```
@@ -124,7 +122,7 @@ When powered OFF:
 **Display doesn't show "RELEASE TO POWER OFF":**
 - Check patch browser is running: `sudo systemctl status patch-browser.service`
 - View logs: `sudo journalctl -u patch-browser.service -f`
-- Verify OLED is working: Try mode change (0.5-2s press)
+- Verify OLED is working: Try mode change (~1s hold)
 
 **System doesn't shutdown after release:**
 - Check user has sudo permissions: `sudo poweroff` (manually test)

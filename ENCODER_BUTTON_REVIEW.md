@@ -2,7 +2,7 @@
 
 ## Planned upgrade (highest UX priority)
 
-Replace the overloaded **0.5–2s toggle** with distinct hold actions:
+Replace the overloaded **0.5s+ toggle** (currently spans up to the 8s power menu) with distinct hold actions:
 
 | Hold | Action |
 |---|---|
@@ -115,6 +115,6 @@ def _get_encoder_cooldown(self):
 - [ ] No selection jumps when button pressed in dialogs
 - [ ] Encoder navigation works smoothly in all dialogs
 - [ ] Normal browsing mode still works correctly
-- [ ] On-device copy-to-quick-access (2s hold) — experimental; set `MPE_FAVORITES_NAME` to match folder on disk
+- [x] On-device copy-to-quick-access — disabled (overlapped mode toggle); use PC workflow + `MPE_FAVORITES_NAME`
 - [ ] Power confirm dialog works correctly
 
