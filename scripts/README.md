@@ -7,6 +7,7 @@
 - **detect-audio-device.sh** - Robust audio device fallback (USB DAC → Pi headphone jack → any device)
 - **surge-watchdog.sh** - Automatic crash recovery and service restart
 - **start-patch-browser.sh** - Launch patch browser UI service
+- **start-touch-patch-browser.sh** - Launch SmartiPi touch patch browser (pygame + KMS)
 
 ### Deployment Scripts
 - **deploy-all.sh** - Complete system deployment (all services and scripts)
@@ -26,6 +27,7 @@
 
 ### Setup Scripts
 - **setup-power-button.sh** - Configure GPIO power button (8-second hold to shutdown)
+- **setup-touch-pi.sh** - SmartiPi touch Pi: apt deps, udev rules, `MPE_UI_MODE=touch` services
 
 ---
 

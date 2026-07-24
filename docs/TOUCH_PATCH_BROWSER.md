@@ -8,10 +8,39 @@ Fullscreen touch UI for the second Pi + **SmartiPi touch screen** (~5", **landsc
 fbset -s 2>/dev/null || cat /sys/class/graphics/fb0/virtual_size
 ```
 
+## Local setup (SmartiPi Pi)
+
+Run **on the Pi** after flashing Trixie Lite, cloning the repo, and building Surge ([`BUILD-FROM-ZERO.md`](BUILD-FROM-ZERO.md) step 3 — skip the OLED wiring step):
+
+```bash
+cd ~/MPE-Module
+git checkout feature/touch-patch-browser-ui   # until merged to main
+cp config/mpe.env.example config/mpe.env
+echo 'MPE_UI_MODE=touch' >> config/mpe.env
+./scripts/setup-touch-pi.sh
+sudo reboot
+```
+
+After reboot, the touch browser should start fullscreen. Verify:
+
+```bash
+systemctl is-enabled touch-patch-browser patch-browser
+systemctl status surge-xt-cli touch-patch-browser
+journalctl -u touch-patch-browser -n 30
+```
+
+**One-time sudoers** (power menu + start script stopping other services): add to `sudo visudo`:
+
+```
+your-user ALL=(ALL) NOPASSWD: /sbin/poweroff, /sbin/reboot, /bin/systemctl
+```
+
+See [`docs/POWER_BUTTON_SETUP.md`](POWER_BUTTON_SETUP.md) for the encoder Pi pattern.
+
 ## Design goals
 
-- **Minimal while playing:** large “now playing” view; browse is one tap away
-- **Non-disruptive:** dark theme, no chrome until you ask for it
+- **Browser is home:** patch list + detail on one screen; no separate playing mode
+- **Non-disruptive:** dark theme, minimal chrome
 - **Every feature on-screen:** browse, settings, brightness, power (no encoder)
 - **Borrowed patterns:** `PatchScanner`, `PatchLoader`, `SurgeMonitor`, favorites folder, last-patch restore from `patch_browser_ui.py`
 
@@ -62,7 +91,7 @@ ls /dev/fb* /dev/dri/*
 journalctl -u touch-patch-browser -n 50
 ```
 
-On Bookworm, your `config.txt` may need the vendor overlay for your specific panel (DSI) or HDMI `config.txt` timings. For sysfs brightness, add `dtoverlay=rpi-backlight` when supported. **HDMI 5" kits** sometimes have no software backlight — the slider will show unavailable; use the panel's physical control if present.
+On Trixie (and recent Pi OS releases), your `config.txt` may need the vendor overlay for your specific panel (DSI) or HDMI `config.txt` timings. For sysfs brightness, add `dtoverlay=rpi-backlight` when supported. **HDMI 5" kits** sometimes have no software backlight — the slider will show unavailable; use the panel's physical control if present.
 
 ## Brightness
 
@@ -139,7 +168,7 @@ Brightness in **System settings** still uses a horizontal slider (one-off contro
 
 ## Known gaps (v0)
 
-- Surge error screen is toast-only; dedicated restart dialog coming next
+- Surge error screen is toast-only; **Restart Surge** in System settings when the service is down
 - Search/filter across 3000+ patches not implemented (scroll lists first)
 - Portrait panels are unsupported for this rig (yours is landscape)
 - Boot/shutdown animations still target the 1.3" OLED service

@@ -30,12 +30,13 @@ mpe_enable_patch_browser_ui() {
     fi
 
     sudo systemctl disable --now "$other" 2>/dev/null || true
-    sudo systemctl enable "$unit"
+    sudo systemctl enable --now "$unit"
     echo "  Patch browser UI: $mode ($unit enabled, $other disabled)"
 }
 
 mpe_enable_core_services() {
-    sudo systemctl enable surge-xt-cli.service surge-watchdog.service 2>/dev/null || true
+    sudo systemctl enable --now surge-xt-cli.service 2>/dev/null || true
+    sudo systemctl enable surge-watchdog.service 2>/dev/null || true
     mpe_enable_patch_browser_ui
 }
 
@@ -46,5 +47,9 @@ mpe_restart_core_services() {
     if [ "$(_mpe_ui_mode_normalized)" = oled ]; then
         sudo systemctl restart boot-animation.service 2>/dev/null || true
     fi
-    sudo systemctl restart "$browser" 2>/dev/null || true
+    if systemctl is-enabled --quiet "$browser" 2>/dev/null; then
+        sudo systemctl restart "$browser" 2>/dev/null || true
+    else
+        sudo systemctl start "$browser" 2>/dev/null || true
+    fi
 }

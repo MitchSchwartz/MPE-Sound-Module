@@ -37,7 +37,7 @@ These would lower the bar for less technical builders — tracked as follow-ups,
 
 On Linux (Kubuntu/Ubuntu): install **[Raspberry Pi Imager](https://www.raspberrypi.com/software/)** — `sudo apt install rpi-imager` or download the AppImage from the site.
 
-Flash **Raspberry Pi OS (64-bit) Lite** (Bookworm). In the imager's **gear icon / advanced options**: set hostname, enable SSH, and set your username and password (there is no default `pi` user anymore).
+Flash **Raspberry Pi OS (64-bit) Lite** (Imager currently ships **Trixie**-based releases). In the imager's **gear icon / advanced options**: set hostname, enable SSH, and set your username and password (there is no default `pi` user anymore).
 
 - **Encoder/OLED Pi:** Lite is correct (headless appliance).
 - **SmartiPi touch Pi:** Lite is also fine — the touch browser uses pygame + KMS, no desktop required.
@@ -71,17 +71,23 @@ After building, confirm version matches or note what you used:
 Also install the Python dependencies for the on-device UI:
 
 ```bash
-sudo apt update && sudo apt install -y python3-pip i2c-tools
-pip3 install -r requirements.txt
+sudo apt update && sudo apt install -y python3-pip python3-pygame \
+  libsdl2-2.0-0 libsdl2-image-2.0-0 libsdl2-mixer-2.0-0 libsdl2-ttf-2.0-0
+pip3 install --break-system-packages -r requirements.txt 2>/dev/null || pip3 install -r requirements.txt
 ```
+
+On **Trixie**, prefer `apt install python3-pygame` over pip alone (PEP 668 externally-managed Python).
 
 ## 4. Wire the hardware
 
-Wire the OLED + encoder per **[`docs/HARDWARE_WIRING.md`](HARDWARE_WIRING.md)** (exact GPIO pins, and which pins are reserved for the case fan). Verify the OLED is detected:
+**Encoder/OLED build:** wire the OLED + encoder per **[`docs/HARDWARE_WIRING.md`](HARDWARE_WIRING.md)**. Verify the OLED:
 
 ```bash
+sudo apt install -y i2c-tools
 sudo i2cdetect -y 1   # should show 3c
 ```
+
+**SmartiPi touch build:** skip OLED wiring. Assemble the case, connect the panel, plug USB audio + MPE controller when ready. Follow **[`docs/TOUCH_PATCH_BROWSER.md`](TOUCH_PATCH_BROWSER.md)** for UI setup (`MPE_UI_MODE=touch`, `./scripts/setup-touch-pi.sh`).
 
 ## 5. Configure paths and systemd services
 
@@ -105,15 +111,20 @@ This templates and installs the `surge-xt-cli` and `patch-browser` systemd servi
 
 ## 6. Enable and start the services
 
+**OLED Pi** (default `MPE_UI_MODE=oled`):
+
 ```bash
-sudo systemctl daemon-reload
-sudo systemctl enable --now surge-xt-cli
-./scripts/configure-pi-paths.sh --local --force   # enables patch-browser or touch per MPE_UI_MODE
+./scripts/configure-pi-paths.sh --local --force
 ```
 
-Set **`MPE_UI_MODE=touch`** in `config/mpe.env` (or `/etc/mpe/mpe.env`) on the SmartiPi Pi before running configure. Default is `oled`.
+**SmartiPi touch Pi** — set mode first, then run the touch setup script (installs deps + udev + services):
 
-Check both Surge and the browser are running:
+```bash
+echo 'MPE_UI_MODE=touch' >> config/mpe.env
+./scripts/setup-touch-pi.sh
+```
+
+Check Surge and the correct browser are running:
 
 ```bash
 systemctl status surge-xt-cli patch-browser touch-patch-browser
@@ -137,7 +148,10 @@ You should see Note On messages on channels 2–15 (not just channel 1), per-not
 sudo reboot
 ```
 
-After boot (~25s), the OLED should show the patch browser. **There is no normal button click** — short taps do nothing. Hold ~1s to toggle category/patch mode; stop scrolling ~1.25s to load a patch. Full honest model: **[`docs/PATCH_BROWSER_UI.md`](PATCH_BROWSER_UI.md)**.
+After boot (~25s):
+
+- **OLED Pi:** patch browser on the 1.3" display. Hold ~1s to toggle category/patch mode — see **[`docs/PATCH_BROWSER_UI.md`](PATCH_BROWSER_UI.md)**.
+- **Touch Pi:** fullscreen patch browser on the SmartiPi panel. Tap patches to load; **…** for brightness and power.
 
 ## Optional: editing/adding patches later
 
