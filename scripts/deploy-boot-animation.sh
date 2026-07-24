@@ -20,7 +20,7 @@ else
     mpe_pi_ssh 'cd "${MPE_MODULE_REPO:-$HOME/MPE-Module}" && ./scripts/configure-pi-paths.sh --local --force'
 fi
 
-mpe_pi_ssh 'sudo systemctl enable boot-animation patch-browser 2>/dev/null; sudo systemctl restart boot-animation patch-browser 2>/dev/null || true'
+mpe_pi_ssh "$(mpe_pi_source_line); source $(mpe_pi_repo_path)/scripts/lib/mpe-services.sh; mpe_restart_core_services"
 
 echo "Testing animation (5s)..."
 mpe_pi_ssh bash -s <<EOF
