@@ -9,6 +9,7 @@ source "$SCRIPT_DIR/lib/paths.sh"
 if [ -z "${SDL_VIDEODRIVER:-}" ] && [ -z "${DISPLAY:-}" ]; then
     export SDL_VIDEODRIVER=kmsdrm
 fi
+export SDL_MOUSE_TOUCH_EVENTS=1
 
 # Windowed mode for development on a PC or Pi with desktop:
 #   MPE_TOUCH_WINDOWED=1 ./scripts/start-touch-patch-browser.sh

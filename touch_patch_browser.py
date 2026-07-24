@@ -23,7 +23,8 @@ try:
     import pygame
 except ImportError as exc:
     print("FATAL: pygame is required for the touch patch browser.")
-    print("Install with: pip3 install pygame")
+    print("On the Pi: sudo apt install python3-pygame")
+    print("Or: pip3 install pygame")
     raise SystemExit(1) from exc
 
 from patch_browser.backlight import BacklightController
@@ -178,6 +179,7 @@ class ScrollList:
         return False
 
     def consume_tap(self, pos: tuple[int, int]) -> int | None:
+        """Select on finger-up; ignore swipes. Row comes from finger-down position."""
         if self._pointer_down_pos is None or self._pointer_scrolled:
             self._pointer_down_pos = None
             self._pointer_scrolled = False
@@ -185,7 +187,7 @@ class ScrollList:
         if not self.rect.contains(*self._pointer_down_pos):
             self._pointer_down_pos = None
             return None
-        index = self.item_at(*pos)
+        index = self.item_at(*self._pointer_down_pos)
         self._pointer_down_pos = None
         self._pointer_scrolled = False
         return index
@@ -244,6 +246,7 @@ class TouchPatchBrowser:
         else:
             self.screen = pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
         self.width, self.height = self.screen.get_size()
+        pygame.mouse.set_visible(False)
         self.theme = Theme()
         self.font_lg = self._load_font(34)
         self.font_md = self._load_font(22)
@@ -273,12 +276,17 @@ class TouchPatchBrowser:
         self._slider_dragging = False
         self._dragging_mixer_id: str | None = None
         self.mixer_channels: list[MixerChannel] = []
+        self._scan_dirty = False
+        self._pending_last_patch: dict | None = None
+        self._pending_load_next = 0.0
+        self._surge_restart_btn: Rect | None = None
         self._running = True
         self._scan_lock = threading.Lock()
 
         self._layout()
         self._bootstrap_patches()
         self._start_background_scan()
+        self._wait_for_initial_scan()
 
     def _load_font(self, size: int) -> pygame.font.Font:
         for name in ("dejavusans", "dejavusansmono", "liberationsans", "arial"):
@@ -344,7 +352,7 @@ class TouchPatchBrowser:
         self._layout_nav_buttons()
 
         settings_w = min(420, self.width - margin * 2)
-        settings_h = min(360, self.height - margin * 2)
+        settings_h = min(420, self.height - margin * 2)
         self.settings_rect = Rect(
             (self.width - settings_w) // 2,
             (self.height - settings_h) // 2,
@@ -414,32 +422,68 @@ class TouchPatchBrowser:
                 self.browse_folder_index = 0
                 self.loaded_folder_index = 0
                 self.left_nav_mode = LeftNavMode.PATCHES
-                if self.loader.osc_enabled and self.loader.load_patch(last["patch_path"]):
-                    self.loaded_patch_info = {
-                        "name": Path(last["patch_path"]).stem,
-                        "category": last["category"],
-                        "path": last["patch_path"],
-                    }
-                    self.detail_patch = dict(self.loaded_patch_info)
+                self.detail_patch = {
+                    "name": Path(last["patch_path"]).stem,
+                    "category": last["category"],
+                    "path": last["patch_path"],
+                }
+                if self._try_load_patch_path(last["patch_path"], last["category"]):
+                    self.loaded_patch_info = dict(self.detail_patch)
                     self._apply_volume(self.volume_level, persist=False)
+                else:
+                    self._pending_last_patch = dict(self.detail_patch)
+                    self._pending_load_next = time.time() + 2.0
         self._refresh_lists()
+
+    def _try_load_patch_path(self, patch_path: str, category: str) -> bool:
+        if not self.loader.osc_enabled:
+            return False
+        return bool(self.loader.load_patch(patch_path))
+
+    def _retry_pending_load(self) -> None:
+        if not self._pending_last_patch or time.time() < self._pending_load_next:
+            return
+        patch = self._pending_last_patch
+        if self._try_load_patch_path(patch["path"], patch["category"]):
+            self.loaded_patch_info = dict(patch)
+            self.detail_patch = dict(patch)
+            self._pending_last_patch = None
+            self._apply_volume(self.volume_level, persist=False)
+            self._refresh_lists()
+            self._toast("Patch loaded", 1.5)
+        else:
+            self._pending_load_next = time.time() + 2.0
+
+    def _apply_scan_results(self) -> None:
+        with self._scan_lock:
+            self.categories = self.scanner.get_categories()
+            if self.loaded_patch_info:
+                try:
+                    idx = self.categories.index(self.loaded_patch_info["category"])
+                    self.browse_folder_index = idx
+                    self.loaded_folder_index = idx
+                except ValueError:
+                    pass
+        self._refresh_lists()
+        if not self.categories:
+            self._toast("No patches found — check Surge patch symlinks", 4.0)
 
     def _start_background_scan(self) -> None:
         def worker() -> None:
             self.scanner.scan_patches_background()
             self.scanner.wait_for_scan(timeout=120)
-            with self._scan_lock:
-                self.categories = self.scanner.get_categories()
-                if self.loaded_patch_info:
-                    try:
-                        idx = self.categories.index(self.loaded_patch_info["category"])
-                        self.browse_folder_index = idx
-                        self.loaded_folder_index = idx
-                    except ValueError:
-                        pass
-                self._refresh_lists()
+            self._scan_dirty = True
 
         threading.Thread(target=worker, daemon=True, name="TouchScanSync").start()
+
+    def _wait_for_initial_scan(self) -> None:
+        if self.scanner.scan_complete.is_set():
+            self._apply_scan_results()
+            return
+        if self.scanner.wait_for_scan(timeout=5.0):
+            self._apply_scan_results()
+        else:
+            print("Patch scan still running — list will update when complete")
 
     def _browse_category_name(self) -> str:
         if not self.categories:
@@ -507,6 +551,7 @@ class TouchPatchBrowser:
                 "path": patch["path"],
             }
             self.detail_patch = dict(self.loaded_patch_info)
+            self._pending_last_patch = None
             self.scanner.save_last_patch(patch["category"], patch["path"])
             try:
                 self.loaded_folder_index = self.categories.index(patch["category"])
@@ -784,17 +829,29 @@ class TouchPatchBrowser:
         )
 
         status = self.surge_monitor.get_status_summary()
+        status_y = self.settings_rect.y + 180
         self.screen.blit(
             self.font_sm.render(
                 f"Surge: {status['status']} — {status['details'][:36]}",
                 True,
                 self.theme.ok if status["status"] == "Running" else self.theme.danger,
             ),
-            (self.settings_rect.x + 24, self.settings_rect.y + 180),
+            (self.settings_rect.x + 24, status_y),
         )
 
-        self._power_btn = Rect(self.settings_rect.x + 24, self.settings_rect.y + 220, self.settings_rect.w - 48, 48)
-        self._close_settings_btn = Rect(self.settings_rect.x + 24, self.settings_rect.y + 280, self.settings_rect.w - 48, 48)
+        btn_y = status_y + 36
+        if status.get("can_restart"):
+            self._surge_restart_btn = Rect(
+                self.settings_rect.x + 24, btn_y, self.settings_rect.w - 48, 44
+            )
+            self._draw_button(self._surge_restart_btn, "Restart Surge")
+            btn_y += 52
+        else:
+            self._surge_restart_btn = None
+
+        self._power_btn = Rect(self.settings_rect.x + 24, btn_y, self.settings_rect.w - 48, 48)
+        btn_y += 54
+        self._close_settings_btn = Rect(self.settings_rect.x + 24, btn_y, self.settings_rect.w - 48, 48)
         self._draw_button(self._power_btn, "Power…")
         self._draw_button(self._close_settings_btn, "Close")
 
@@ -896,6 +953,14 @@ class TouchPatchBrowser:
         if self._close_settings_btn.contains(*pos):
             self.screen_state = Screen.BROWSER
             return
+        if self._surge_restart_btn and self._surge_restart_btn.contains(*pos):
+            ok, message = self.surge_monitor.restart_surge()
+            if ok:
+                self._toast(message, 2.5)
+                self._pending_last_patch = None
+            else:
+                self._toast(f"Restart failed: {message}", 3.5)
+            return
         if self._power_btn.contains(*pos):
             self.screen_state = Screen.POWER_MENU
             return
@@ -944,7 +1009,10 @@ class TouchPatchBrowser:
             was_mixer = self._dragging_mixer_id is not None
             self._dragging_mixer_id = None
             self._slider_dragging = False
-            if self.screen_state == Screen.BROWSER and not was_mixer:
+            if self.screen_state == Screen.SETTINGS:
+                if not self.settings_rect.contains(*event.pos):
+                    self.screen_state = Screen.BROWSER
+            elif self.screen_state == Screen.BROWSER and not was_mixer:
                 self._handle_browser_tap(event.pos)
         elif event.type == pygame.MOUSEMOTION:
             if self._slider_dragging:
@@ -958,6 +1026,10 @@ class TouchPatchBrowser:
         print(f"Quick-access folder: {favorites_display_name()} ({FAVORITES_NAME})")
 
         while self._running:
+            if self._scan_dirty:
+                self._scan_dirty = False
+                self._apply_scan_results()
+            self._retry_pending_load()
             for event in pygame.event.get():
                 self._handle_event(event)
             self._draw()

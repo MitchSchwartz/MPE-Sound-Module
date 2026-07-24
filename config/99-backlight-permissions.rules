@@ -1,0 +1,3 @@
+# Allow the Pi user to adjust panel brightness from the touch patch browser
+# without sudo on every drag. Installed by scripts/setup-touch-pi.sh or configure-pi-paths.sh.
+SUBSYSTEM=="backlight", RUN+="/bin/chmod 666 /sys/class/backlight/%k/brightness"
