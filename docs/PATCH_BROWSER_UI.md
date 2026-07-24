@@ -14,8 +14,7 @@ The on-device UI is **not good yet**. Scrolling is unreliable — missed steps a
 |---|---|
 | **Rotate encoder** | Scroll categories (category mode) or patches within one category (patch mode) |
 | **< 0.5s button (tap)** | **Ignored** — too unreliable on KY-040 |
-| **0.5s – 2s hold + release** | **Toggle mode** — category ↔ patch. Aim **~1s** in practice |
-| **2s+ hold + release** | **Copy current patch to quick-access folder** — confirm dialog; bold hold (~1s) again for Yes/No. **Unreliable** — overlaps mode-toggle window; PC workflow is safer ([`PATCH-EDITING-WORKFLOW.md`](PATCH-EDITING-WORKFLOW.md)) |
+| **0.5s+ hold + release** | **Toggle mode** — category ↔ patch. Aim **~1s** in practice (works up to the 8s power menu) |
 | **8s+ hold** | **Power menu** — shutdown/restart ([`POWER_BUTTON_SETUP.md`](POWER_BUTTON_SETUP.md)) |
 | **Stop scrolling ~1.25s** (patch mode) | **Load patch** — no separate "select" click |
 
@@ -27,7 +26,7 @@ Set on the **Pi** in `/etc/mpe/mpe.env` (written by `configure-pi-paths.sh --loc
 
 | Variable | Default | What it controls |
 |---|---|---|
-| **`MPE_FAVORITES_NAME`** | `!Quick Access` | **Folder name** under `~/Documents/Surge XT/Patches/` — use a leading **`!`** so it sorts first in Surge and on the device. Used for pinned category + on-device long-press copy target. |
+| **`MPE_FAVORITES_NAME`** | `!Quick Access` | **Folder name** under `~/Documents/Surge XT/Patches/` — use a leading **`!`** so it sorts first in Surge and on the device. Used for the pinned quick-access category in the browser. |
 
 **Examples:**
 
@@ -56,16 +55,10 @@ Factory/third-party categories sort A–Z — hundreds of them. Without the `!` 
 |---|---|
 | **On disk (Surge user patches)** | `~/Documents/Surge XT/Patches/<MPE_FAVORITES_NAME>/` |
 | **Browser category list** | Same name — if it lacks `!`, the UI adds one for display only |
-| **Long-press copy target** | Same folder on disk |
 
 **Default:** create **`!Quick Access`** in Surge XT (bang in the folder name). That pins it at the top in both Surge's browser and on the Pi without extra config.
 
-**Two ways to fill the folder:**
-
-1. **PC (recommended)** — create/rename folder in Surge XT, add patches, deploy ([`PATCH-EDITING-WORKFLOW.md`](PATCH-EDITING-WORKFLOW.md)).
-2. **On-device (experimental)** — while browsing a patch, **hold 2s+** → `Copy to !<name>?` dialog → bold hold to confirm Yes. Works sometimes; encoder timing makes this frustrating.
-
-The folder is created automatically on first copy if it doesn't exist.
+**Fill the folder on your PC** — create/rename the folder in Surge XT, add patches, deploy ([`PATCH-EDITING-WORKFLOW.md`](PATCH-EDITING-WORKFLOW.md)). On-device copy via encoder hold was **disabled** — it overlapped mode toggle and made navigation unreliable.
 
 ## Load debounce
 

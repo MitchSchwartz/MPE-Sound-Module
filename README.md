@@ -30,7 +30,7 @@ Every patch is fully editable and MPE-assignable from your computer, across all 
 - Roli auto-connects
 - MPE always on (48-semitone pitch bend, full pressure/timbre)
 - **Stock loaded with Surge XT's 3,192 patches** on board (639 factory + 2,553 community), browsable live via one rotary encoder + a small OLED screen
-- **Quick-access patch folder** — default `!Quick Access` under Surge user patches (leading `!` sorts first); rename via `MPE_FAVORITES_NAME`. Curate on PC and deploy; optional on-device copy via **2s+ hold** (unreliable on KY-040)
+- **Quick-access patch folder** — default `!Quick Access` under Surge user patches (leading `!` sorts first); rename via `MPE_FAVORITES_NAME`. Curate on PC and deploy
 
 **Status:** core (boot, audio, MPE) is solid and has been performance-tested for hours at a time. The knob/screen UI is **not good yet** — scrolling is unreliable (missed and double steps), and the button has **no normal click** (short taps are deliberately ignored). What the debounce stack mostly fixed is **false presses** — ghost scrolls and accidental actions from button/encoder coupling. Usable if you're patient; not gig-polished.
 
@@ -58,8 +58,7 @@ One encoder (rotate + push), one OLED. **There is no normal tap/click** — rele
 What actually works today:
 
 - **Rotate** — browse categories or patches (unreliable — expect missed/double steps)
-- **Hold ~0.5–2s and release** — toggle category ↔ patch mode (aim ~1s)
-- **Hold 2s+ and release** — copy patch to quick-access folder (`MPE_FAVORITES_NAME`, default `!Quick Access`) — confirm with another ~1s hold; unreliable, PC workflow preferred
+- **Hold ~0.5s+ and release** — toggle category ↔ patch mode (aim ~1s; works up to the 8s power menu)
 - **Hold 8s+** — power menu
 - **Stop scrolling ~1.25s** — patch loads
 
