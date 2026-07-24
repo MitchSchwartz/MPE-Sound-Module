@@ -78,7 +78,8 @@ if [ -n "$PI_MPE_MODULE" ]; then
 else
     mpe_pi_ssh 'cd "${MPE_MODULE_REPO:-$HOME/MPE-Module}" && ./scripts/configure-pi-paths.sh --local --force'
 fi
-mpe_pi_ssh 'sudo systemctl enable surge-xt-cli patch-browser boot-animation surge-watchdog 2>/dev/null || true'
+mpe_pi_ssh 'sudo systemctl enable surge-xt-cli surge-watchdog 2>/dev/null || true'
+mpe_pi_ssh "$(mpe_pi_source_line); source $(mpe_pi_repo_path)/scripts/lib/mpe-services.sh; mpe_enable_core_services"
 scp -i "$SSH_KEY" config/99-*.rules "$PI_USER@$PI_HOST:~/" 2>/dev/null && \
     mpe_pi_ssh 'sudo cp ~/99-*.rules /etc/udev/rules.d/ 2>/dev/null; sudo udevadm control --reload-rules; sudo udevadm trigger' || true
 echo "✓ Services configured"
@@ -105,7 +106,7 @@ fi
 echo ""
 
 echo "Starting services..."
-mpe_pi_ssh 'sudo systemctl restart surge-xt-cli patch-browser boot-animation 2>/dev/null || true'
+mpe_pi_ssh "$(mpe_pi_source_line); source $(mpe_pi_repo_path)/scripts/lib/mpe-services.sh; mpe_restart_core_services"
 echo ""
 echo "======================================"
 echo "  ✅ Deployment Complete!"

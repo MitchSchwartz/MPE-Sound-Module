@@ -48,6 +48,7 @@ SSH_KEY="${SSH_KEY:-$HOME/.ssh/surge_pi_key}"
 PI_MPE_MODULE="${PI_MPE_MODULE:-}"
 PI_MPE_PERSONAL="${PI_MPE_PERSONAL:-}"
 MPE_FAVORITES_NAME="${MPE_FAVORITES_NAME:-!Quick Access}"
+MPE_UI_MODE="${MPE_UI_MODE:-oled}"
 
 if [ -z "${SURGE_XT_DIR:-}" ]; then
     if [ -n "${USERPROFILE:-}" ] && command -v cygpath >/dev/null 2>&1; then

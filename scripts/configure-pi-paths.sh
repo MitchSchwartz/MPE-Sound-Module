@@ -8,6 +8,8 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=lib/paths.sh
 source "$SCRIPT_DIR/lib/paths.sh"
+# shellcheck source=lib/mpe-services.sh
+source "$SCRIPT_DIR/lib/mpe-services.sh"
 
 FORCE=false
 for arg in "$@"; do
@@ -49,6 +51,7 @@ MPE_SURGE_ROOT=$MPE_SURGE_ROOT
 MPE_SURGE_DOCS="$MPE_SURGE_DOCS"
 MPE_SURGE_LOG=$LOG_FILE
 MPE_FAVORITES_NAME="$MPE_FAVORITES_NAME"
+MPE_UI_MODE="$MPE_UI_MODE"
 EOF
     else
         echo "Keeping existing /etc/mpe/mpe.env (use --force to rewrite)"
@@ -74,7 +77,10 @@ EOF
 
     sudo systemctl daemon-reload
     echo ""
-    echo "Done. Restart: sudo systemctl restart surge-xt-cli patch-browser"
+    echo "Enabling services (MPE_UI_MODE=$MPE_UI_MODE)..."
+    mpe_enable_core_services
+    echo ""
+    echo "Done. Restart: sudo systemctl restart surge-xt-cli $(mpe_patch_browser_unit)"
 }
 
 if [ "${1:-}" = "--local" ] || _is_pi; then
