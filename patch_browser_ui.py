@@ -1234,7 +1234,7 @@ class PatchBrowser:
 
         print(f"Loaded {len(self.categories)} categories")
         print(f"Quick-access folder: {FAVORITES_NAME} (browser: {favorites_display_name()})")
-        print("Button: 0.5-2s = Change Mode, >2s = Copy to quick-access (hold ~1s to confirm in dialog)")
+        print("Button: 0.5s+ hold = Change Mode (aim ~1s), 8s+ = Power menu")
         print("Press Ctrl+C to exit\n")
 
         # Load the initial patch first (if not already loaded), then update display

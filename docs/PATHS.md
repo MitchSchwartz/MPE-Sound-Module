@@ -35,7 +35,7 @@ Deploy/sync scripts resolve `../mpe-assets`, `../MPE-Library`, or `../MPE-Person
 | `MPE_MODULE_REPO` | script location / `$HOME/MPE-Module` | Pi runtime |
 | `MPE_PERSONAL_REPO` | assets repo on Pi | Pi runtime |
 | `MPE_SURGE_ROOT` | `$HOME/surge` | Pi runtime |
-| `MPE_FAVORITES_NAME` | `!Quick Access` | **Patch browser UI** — folder under `~/Documents/Surge XT/Patches/`; **use leading `!`** to pin first. On-device 2s-hold copy target. See [`docs/PATCH_BROWSER_UI.md`](PATCH_BROWSER_UI.md). |
+| `MPE_FAVORITES_NAME` | `!Quick Access` | **Patch browser UI** — quick-access folder under `~/Documents/Surge XT/Patches/`; **use leading `!`** to pin first. Curate on PC and deploy. See [`docs/PATCH_BROWSER_UI.md`](PATCH_BROWSER_UI.md). |
 
 Full list: [`config/mpe.env.example`](../config/mpe.env.example).
 

@@ -28,7 +28,7 @@ The Pi browser pins **one user patch folder** at the top of the category list. D
 2. Save or copy patches into that folder.
 3. Deploy with the steps below.
 
-**On-device (optional, unreliable):** hold **2s+** while browsing a patch → copy-to-folder dialog. Same target folder as above.
+On-device copy via encoder hold is **disabled** — it overlapped mode toggle. Use the PC workflow above.
 
 See [`PATCH_BROWSER_UI.md`](PATCH_BROWSER_UI.md) for the full controls + config table.
 

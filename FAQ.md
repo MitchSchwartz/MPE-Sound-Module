@@ -38,13 +38,13 @@
 
 **A:** Poor — on the reference KY-040, scrolling is unreliable (missed and double steps are normal). The software debounce stack mostly **eliminated false button presses** (ghost scrolls, accidental taps); it did **not** make browsing feel good. See [`docs/ENCODER_NO_VCC.md`](docs/ENCODER_NO_VCC.md) for the no-VCC wiring trick and [`ENCODER_BUTTON_REVIEW.md`](ENCODER_BUTTON_REVIEW.md) for known UX debt.
 
-**There is no normal click.** Releases under ~0.5s are ignored on purpose. Mode changes require a **~0.5–2s hold** (aim ~1s in practice). **Next major upgrade:** separate **enter (~1s)** and **back (~3s)** holds; **second encoder** down the road — see [`docs/PATCH_BROWSER_UI.md`](docs/PATCH_BROWSER_UI.md).
+**There is no normal click.** Releases under ~0.5s are ignored on purpose. Mode changes require a **~0.5s+ hold** (aim ~1s in practice; works up to the 8s power menu). **Next major upgrade:** separate **enter (~1s)** and **back (~3s)** holds; **second encoder** down the road — see [`docs/PATCH_BROWSER_UI.md`](docs/PATCH_BROWSER_UI.md).
 
 ### Q: Can I add patches to favorites from the device?
 
-**A:** **Yes — but it's unreliable.** Hold **2s+** → `Copy to <name>?` dialog → bold hold (~1s) to confirm. Folder name is **`MPE_FAVORITES_NAME`** (default **`!Quick Access`** — include the `!` in the folder name so it sorts first). Set in `/etc/mpe/mpe.env` on the Pi.
+**A:** **No** — on-device copy was disabled because the 2s+ hold overlapped mode toggle and made navigation unreliable. Curate the quick-access folder on your PC in Surge XT and deploy instead. Folder name is **`MPE_FAVORITES_NAME`** (default **`!Quick Access`** — include the `!` in the folder name so it sorts first). Set in `/etc/mpe/mpe.env` on the Pi.
 
-**Recommended:** curate the same folder on your PC in Surge XT and deploy ([`docs/PATCH-EDITING-WORKFLOW.md`](docs/PATCH-EDITING-WORKFLOW.md)). Full gesture + config table: [`docs/PATCH_BROWSER_UI.md`](docs/PATCH_BROWSER_UI.md).
+Full workflow: [`docs/PATCH-EDITING-WORKFLOW.md`](docs/PATCH-EDITING-WORKFLOW.md). Gesture + config table: [`docs/PATCH_BROWSER_UI.md`](docs/PATCH_BROWSER_UI.md).
 
 ### Q: Can I use this with a different MPE controller?
 
