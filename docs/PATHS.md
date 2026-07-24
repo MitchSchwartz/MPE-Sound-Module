@@ -36,6 +36,7 @@ Deploy/sync scripts resolve `../mpe-assets`, `../MPE-Library`, or `../MPE-Person
 | `MPE_PERSONAL_REPO` | assets repo on Pi | Pi runtime |
 | `MPE_SURGE_ROOT` | `$HOME/surge` | Pi runtime |
 | `MPE_FAVORITES_NAME` | `!Quick Access` | **Patch browser UI** — quick-access folder under `~/Documents/Surge XT/Patches/`; **use leading `!`** to pin first. Curate on PC and deploy. See [`docs/PATCH_BROWSER_UI.md`](PATCH_BROWSER_UI.md). |
+| `MPE_UI_MODE` | `oled` | **Which patch browser boots:** `oled` (encoder/OLED) or `touch` (SmartiPi). Applied by `configure-pi-paths.sh`. |
 
 Full list: [`config/mpe.env.example`](../config/mpe.env.example).
 

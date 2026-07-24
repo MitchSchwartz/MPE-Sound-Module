@@ -16,3 +16,6 @@ pigpio>=1.78  # Hardware-timed GPIO sampling (best for noisy encoders)
 
 # OSC (for patch loading)
 python-osc>=1.9.0
+
+# Touch patch browser (5" DSI — optional on encoder-only builds)
+pygame>=2.5.0

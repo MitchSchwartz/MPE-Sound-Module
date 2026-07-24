@@ -10,6 +10,8 @@ set -e  # Exit on error
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=lib/paths.sh
 source "$SCRIPT_DIR/lib/paths.sh"
+# shellcheck source=lib/mpe-services.sh
+source "$SCRIPT_DIR/lib/mpe-services.sh"
 PI_REPO_PATH="$MPE_MODULE_REPO"
 PI_REPO_REMOTE="${PI_MPE_MODULE:-\$HOME/MPE-Module}"
 
@@ -156,14 +158,10 @@ if [ "$RUNNING_ON_PI" = true ]; then
     echo ""
     
     # Step 4: Restart service if running
-    echo "[4/4] Restarting patch-browser service..."
-    if systemctl is-active --quiet patch-browser.service; then
-        echo "  - Stopping patch-browser.service..."
-        sudo systemctl stop patch-browser.service
-
-        echo "  - Starting patch-browser.service..."
-        sudo systemctl start patch-browser.service
-
+    browser="$(mpe_patch_browser_unit)"
+    echo "[4/4] Restarting $browser..."
+    if systemctl is-active --quiet "$browser"; then
+        sudo systemctl restart "$browser"
         echo "✓ Service restarted"
     else
         echo "  - Service not currently running"
@@ -225,21 +223,18 @@ ENDSSH
     echo ""
 
     # Step 5: Restart service if running
-    echo "[5/5] Restarting patch-browser service..."
-    $SSH_CMD ${PI_USER}@${PI_HOST} << 'ENDSSH'
-        if systemctl is-active --quiet patch-browser.service; then
-            echo "  - Stopping patch-browser.service..."
-            sudo systemctl stop patch-browser.service
-
-            echo "  - Starting patch-browser.service..."
-            sudo systemctl start patch-browser.service
-
-            echo "✓ Service restarted"
-        else
-            echo "  - Service not currently running"
-            echo "  - Will start on next boot or manual start"
-        fi
-ENDSSH
+    echo "[5/5] Restarting patch browser UI..."
+    $SSH_CMD ${PI_USER}@${PI_HOST} bash -s <<EOF
+$(mpe_pi_source_line)
+source "\$MPE_MODULE_REPO/scripts/lib/mpe-services.sh"
+browser=\$(mpe_patch_browser_unit)
+if systemctl is-active --quiet "\$browser"; then
+    sudo systemctl restart "\$browser"
+    echo "✓ Restarted \$browser"
+else
+    echo "  - \$browser not currently running"
+fi
+EOF
     echo ""
 fi
 

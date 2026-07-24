@@ -1,0 +1,21 @@
+[Unit]
+Description=Touch Patch Browser UI for 5 inch DSI Display
+After=surge-xt-cli.service
+Wants=surge-xt-cli.service
+Conflicts=patch-browser.service
+
+[Service]
+Type=simple
+User=@MPE_PI_USER@
+WorkingDirectory=@MPE_MODULE_REPO@
+EnvironmentFile=-/etc/mpe/mpe.env
+Environment=SDL_VIDEODRIVER=kmsdrm
+ExecStartPre=/bin/sleep 3
+ExecStart=@MPE_MODULE_REPO@/scripts/start-touch-patch-browser.sh
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

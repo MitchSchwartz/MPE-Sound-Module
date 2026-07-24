@@ -35,7 +35,12 @@ These would lower the bar for less technical builders — tracked as follow-ups,
 
 ## 1. Flash the OS
 
-Use Raspberry Pi Imager → **Raspberry Pi OS Lite (64-bit)**. In the imager's advanced options, set a hostname, enable SSH, and set a username/password.
+On Linux (Kubuntu/Ubuntu): install **[Raspberry Pi Imager](https://www.raspberrypi.com/software/)** — `sudo apt install rpi-imager` or download the AppImage from the site.
+
+Flash **Raspberry Pi OS (64-bit) Lite** (Bookworm). In the imager's **gear icon / advanced options**: set hostname, enable SSH, and set your username and password (there is no default `pi` user anymore).
+
+- **Encoder/OLED Pi:** Lite is correct (headless appliance).
+- **SmartiPi touch Pi:** Lite is also fine — the touch browser uses pygame + KMS, no desktop required.
 
 Boot the Pi, then confirm you can reach it (replace hostname and user with yours):
 
@@ -103,14 +108,18 @@ This templates and installs the `surge-xt-cli` and `patch-browser` systemd servi
 ```bash
 sudo systemctl daemon-reload
 sudo systemctl enable --now surge-xt-cli
-sudo systemctl enable --now patch-browser
+./scripts/configure-pi-paths.sh --local --force   # enables patch-browser or touch per MPE_UI_MODE
 ```
 
-Check both are running:
+Set **`MPE_UI_MODE=touch`** in `config/mpe.env` (or `/etc/mpe/mpe.env`) on the SmartiPi Pi before running configure. Default is `oled`.
+
+Check both Surge and the browser are running:
 
 ```bash
-systemctl status surge-xt-cli patch-browser
+systemctl status surge-xt-cli patch-browser touch-patch-browser
 ```
+
+(Only one of the two browser units should be **enabled**.)
 
 ## 7. Plug in your MPE controller and play
 
