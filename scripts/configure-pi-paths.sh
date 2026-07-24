@@ -38,6 +38,7 @@ _run_on_pi() {
     echo "  Assets repo:    ${MPE_PERSONAL_REPO:-"(not cloned yet)"}"
     echo "  Surge root:     $MPE_SURGE_ROOT"
     echo "  Favorites name: $MPE_FAVORITES_NAME"
+    echo "  UI mode:        $MPE_UI_MODE"
     echo ""
 
     sudo mkdir -p /etc/mpe
@@ -78,6 +79,19 @@ EOF
     sudo systemctl daemon-reload
     echo ""
     echo "Enabling services (MPE_UI_MODE=$MPE_UI_MODE)..."
+    if [ "$(_mpe_ui_mode_normalized)" = touch ]; then
+        echo "Installing touch udev rules..."
+        for rule in "$MPE_MODULE_REPO/config/99-backlight-permissions.rules" \
+                    "$MPE_MODULE_REPO/config/99-usb-audio.rules" \
+                    "$MPE_MODULE_REPO/config/99-roli-seaboard.rules"; do
+            if [ -f "$rule" ]; then
+                sudo cp "$rule" "/etc/udev/rules.d/$(basename "$rule")"
+                echo "  ✓ $(basename "$rule")"
+            fi
+        done
+        sudo udevadm control --reload-rules
+        sudo udevadm trigger
+    fi
     mpe_enable_core_services
     echo ""
     echo "Done. Restart: sudo systemctl restart surge-xt-cli $(mpe_patch_browser_unit)"

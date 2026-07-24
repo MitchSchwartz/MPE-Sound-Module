@@ -10,6 +10,7 @@ User=@MPE_PI_USER@
 WorkingDirectory=@MPE_MODULE_REPO@
 EnvironmentFile=-/etc/mpe/mpe.env
 Environment=SDL_VIDEODRIVER=kmsdrm
+Environment=SDL_MOUSE_TOUCH_EVENTS=1
 ExecStartPre=/bin/sleep 3
 ExecStart=@MPE_MODULE_REPO@/scripts/start-touch-patch-browser.sh
 Restart=on-failure
