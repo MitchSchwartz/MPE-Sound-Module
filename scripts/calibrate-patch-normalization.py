@@ -44,6 +44,7 @@ GESTURE_SECONDS = 3.0
 NOTE = 60
 MPE_CHANNEL = 2  # Surge MPE: channel 2 = first note channel
 STRIKE_VELOCITY = 96
+DEFAULT_PI_CAPTURE = "plughw:3,0"
 
 
 def parse_args() -> argparse.Namespace:
@@ -83,9 +84,16 @@ def parse_args() -> argparse.Namespace:
         help="Max patches to process (0 = all)",
     )
     parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Re-calibrate patches that already have entries (overwrites gain_db)",
+    )
+    parser.add_argument(
         "--audio-device",
-        default="default",
-        help="ALSA device for ffmpeg capture (default: default)",
+        default=None,
+        help=(
+            "ALSA device for ffmpeg capture (default: auto-detect Sound Blaster / plughw:3,0 on Pi)"
+        ),
     )
     parser.add_argument(
         "--osc-host",
@@ -151,15 +159,64 @@ def find_surge_midi_port() -> int | None:
 
     midi_out = rtmidi.MidiOut()
     ports = midi_out.get_ports()
-    for index, name in enumerate(ports):
-        lower = name.lower()
-        if "surge" in lower and "input" in lower:
-            return index
-    for index, name in enumerate(ports):
-        if "surge" in name.lower():
-            return index
+
+    def match_port(predicate) -> int | None:
+        for index, name in enumerate(ports):
+            if predicate(name.lower()):
+                return index
+        return None
+
+    # Prefer Surge's direct MIDI input port.
+    port = match_port(lambda n: "surge" in n and "input" in n)
+    if port is not None:
+        return port
+
+    port = match_port(lambda n: "surge" in n)
+    if port is not None:
+        return port
+
+    # Pi fallback: route through ALSA Midi Through when Surge has no named port.
+    port = match_port(lambda n: "midi through" in n or "through port" in n)
+    if port is not None:
+        print(
+            f"Using MIDI Through port {port!r} ({ports[port]}) — ensure Surge listens on Through",
+            file=sys.stderr,
+        )
+        return port
+
     print(f"Available MIDI ports: {ports}", file=sys.stderr)
     return None
+
+
+def detect_capture_device(explicit: str | None) -> str:
+    """Resolve ALSA capture device for Surge output monitoring."""
+    if explicit:
+        return explicit
+
+    detect_script = REPO_ROOT / "scripts" / "detect-audio-device.sh"
+    surge_cli = Path.home() / "surge" / "build" / "surge_xt_products" / "surge-xt-cli"
+    if detect_script.is_file() and surge_cli.is_file():
+        try:
+            result = subprocess.run(
+                [str(detect_script), str(surge_cli)],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            for line in result.stdout.splitlines():
+                if line.startswith("DEVICE_ID="):
+                    device_id = line.split("=", 1)[1].strip()
+                    if device_id:
+                        card, dev = device_id.split(".", 1)
+                        capture = f"plughw:{card},{dev}"
+                        print(f"Auto-detected capture device: {capture}", file=sys.stderr)
+                        return capture
+        except (OSError, ValueError) as exc:
+            print(f"Warning: audio auto-detect failed: {exc}", file=sys.stderr)
+
+    # Common Pi + Sound Blaster Play! 3 card index when detect script unavailable.
+    print(f"Using default Pi capture device: {DEFAULT_PI_CAPTURE}", file=sys.stderr)
+    return DEFAULT_PI_CAPTURE
 
 
 def send_performance_gesture(port_index: int, pre_roll: float = 0.25) -> None:
@@ -234,13 +291,19 @@ def calibrate_patch(
         lufs = mock_lufs
         true_peak = mock_lufs + 6.0
     else:
-        if not loader.load_patch(str(patch_path)):
+        if not loader.load_patch(str(patch_path), apply_normalization=False):
             print(f"  [fail] OSC load failed: {name}", file=sys.stderr)
             return False
 
         port = find_surge_midi_port()
         if port is None:
             return False
+
+        # Unity gain for measurement — stored calibration must not skew capture.
+        loader.user_volume_trim = 1.0
+        loader._patch_gain_linear = 1.0
+        loader._send_combined_volume()
+        time.sleep(0.2)
 
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
             wav = Path(tmp.name)
@@ -274,6 +337,17 @@ def calibrate_patch(
             wav.unlink(missing_ok=True)
 
     gain_db = compute_gain_db(lufs, true_peak)
+    if lufs < -40.0:
+        print(
+            f"  [warn] {name}: measured {lufs:.1f} LUFS — capture may be wrong device "
+            f"(expect roughly -30 to -10 LUFS for audible Surge output)",
+            file=sys.stderr,
+        )
+    if gain_db > 20.0:
+        print(
+            f"  [warn] {name}: gain {gain_db:+.1f} dB is very high — re-check ALSA routing before trusting",
+            file=sys.stderr,
+        )
     store.set_calibration(name, gain_db, lufs, true_peak_dbtp=true_peak)
     print(f"  [ok] {name}: {lufs:.1f} LUFS, peak {true_peak:.1f} dBTP -> gain {gain_db:+.2f} dB")
     return True
@@ -282,6 +356,7 @@ def calibrate_patch(
 def main() -> int:
     args = parse_args()
     output_path = args.output or default_normalization_path()
+    audio_device = detect_capture_device(args.audio_device)
 
     patch_paths = collect_patch_paths(args)
     if args.limit > 0:
@@ -292,21 +367,32 @@ def main() -> int:
         return 1
 
     store = PatchNormalizationStore(output_path)
-    missing = store.list_missing([p.stem for p in patch_paths])
-    targets = [p for p in patch_paths if p.stem in missing] if not args.mock_lufs else patch_paths
+    if args.force or args.mock_lufs is not None:
+        targets = patch_paths
+    else:
+        missing = store.list_missing([p.stem for p in patch_paths])
+        targets = [p for p in patch_paths if p.stem in missing]
 
     print(f"Output: {output_path}")
+    print(f"Capture device: {audio_device}")
     if args.favorites_only:
         print(f"Scope: favorites ({favorites_display_name()})")
     elif args.folder:
         print(f"Scope: folder {args.folder!r}")
     else:
         print("Scope: all scanned patches")
-    print(f"Targets: {len(targets)} patch(es) ({len(patch_paths)} in scope, {len(missing)} missing entries)")
+    missing_count = len(store.list_missing([p.stem for p in patch_paths]))
+    print(
+        f"Targets: {len(targets)} patch(es) ({len(patch_paths)} in scope, "
+        f"{missing_count} missing entries"
+        f"{', force overwrite' if args.force else ''})"
+    )
 
     if args.dry_run:
         for path in targets:
-            calibrate_patch(path, None, store, audio_device=args.audio_device, mock_lufs=None, dry_run=True)
+            calibrate_patch(
+                path, None, store, audio_device=audio_device, mock_lufs=None, dry_run=True
+            )
         est = len(targets) * (GESTURE_SECONDS + 1.5)
         print(f"Estimated time: ~{est / 60:.1f} min at {GESTURE_SECONDS}s capture per patch")
         print(f"Starter file in repo: {repo_starter_path()}")
@@ -324,7 +410,7 @@ def main() -> int:
             path,
             loader,
             store,
-            audio_device=args.audio_device,
+            audio_device=audio_device,
             mock_lufs=args.mock_lufs,
             dry_run=False,
         ):
