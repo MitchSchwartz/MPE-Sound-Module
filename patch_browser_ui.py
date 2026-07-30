@@ -26,6 +26,16 @@ from luma.core.render import canvas
 from PIL import ImageFont
 import subprocess
 
+from patch_browser.patch_loader import PatchLoader
+from patch_browser.patch_scanner import (
+    FAVORITES_NAME,
+    LAST_PATCH_FILE,
+    PatchScanner,
+    SURGE_PATCH_DIRS,
+    favorites_display_name,
+    favorites_folder_matches,
+)
+
 # Kernel-level encoder support (optional, falls back to gpiozero)
 try:
     import evdev
@@ -74,30 +84,8 @@ class Config:
     scroll_mode_category: int = 0
     scroll_mode_patch: int = 1
 
-    # User quick-access folder (on-disk name under ~/Documents/Surge XT/Patches/)
-    # Override via MPE_FAVORITES_NAME in /etc/mpe/mpe.env — see docs/PATCH_BROWSER_UI.md
-    favorites_name: str = field(
-        default_factory=lambda: os.environ.get("MPE_FAVORITES_NAME", "!Quick Access")
-    )
-
 # Global config instance
 CONFIG = Config()
-
-# Alias used throughout scanner/UI (set MPE_FAVORITES_NAME before patch-browser starts)
-FAVORITES_NAME = CONFIG.favorites_name
-
-
-def favorites_display_name(name=None):
-    """Browser category label — leading ! sorts first. Idempotent if name already has !."""
-    n = name if name is not None else FAVORITES_NAME
-    return n if n.startswith("!") else f"!{n}"
-
-
-def favorites_folder_matches(name):
-    """True if on-disk folder/category name matches MPE_FAVORITES_NAME (with or without !)."""
-    return name.lstrip("!").lower() == FAVORITES_NAME.lstrip("!").lower()
-
-# Backwards compatibility - keep old constant names pointing to config
 ENCODER_CLK = CONFIG.encoder_clk
 ENCODER_DT = CONFIG.encoder_dt
 ENCODER_SW = CONFIG.encoder_sw
@@ -113,250 +101,6 @@ BOLD_PRESS_MIN = CONFIG.bold_press_min
 POWEROFF_PRESS_MIN = CONFIG.poweroff_press_min
 SCROLL_MODE_CATEGORY = CONFIG.scroll_mode_category
 SCROLL_MODE_PATCH = CONFIG.scroll_mode_patch
-
-# Surge Patch Directories
-SURGE_PATCH_DIRS = [
-    Path.home() / "surge" / "resources" / "data" / "patches_factory",
-    Path.home() / "surge" / "resources" / "data" / "patches_3rdparty",
-    Path.home() / "Documents" / "Surge XT" / "Patches",  # User patches (includes favorites category)
-]
-
-# State persistence files
-LAST_PATCH_FILE = Path.home() / ".patch_browser_last_patch.json"
-
-# ============================================================================
-# PATCH SCANNER
-# ============================================================================
-
-class PatchScanner:
-    """Scans and organizes Surge patches by category"""
-
-    def __init__(self, patch_dirs, last_patch_file=LAST_PATCH_FILE):
-        self.patch_dirs = patch_dirs
-        self.last_patch_file = last_patch_file
-        self.patches = {}  # {category: [patch_paths]}
-
-        # Threading support for background scanning
-        self.scan_complete = threading.Event()
-        self.scan_lock = threading.Lock()
-        self.scan_thread = None
-
-        # Do NOT call scan_patches() here anymore - will be called explicitly
-
-    def scan_patches(self):
-        """Scan all patch directories and organize by category"""
-        print("Scanning Surge patches...")
-        total_patches = 0
-
-        # Clear patches dict for full scan (removes any quick-scan temporary data)
-        with self.scan_lock:
-            self.patches = {}
-
-        for patch_dir in self.patch_dirs:
-            if not patch_dir.exists():
-                print(f"Warning: Patch directory not found: {patch_dir}")
-                continue
-
-            # Walk through directory structure
-            for root, dirs, files in os.walk(patch_dir):
-                # Category is the immediate subdirectory name
-                rel_path = Path(root).relative_to(patch_dir)
-                category = str(rel_path.parts[0]) if rel_path.parts else "Uncategorized"
-
-                # Force the favorites category to the top by prepending "!"
-                if favorites_folder_matches(category):
-                    category = favorites_display_name(category)
-
-                # Find all .fxp files
-                fxp_files = [f for f in files if f.lower().endswith('.fxp')]
-
-                if fxp_files:
-                    if category not in self.patches:
-                        self.patches[category] = []
-
-                    for fxp_file in fxp_files:
-                        patch_path = Path(root) / fxp_file
-                        patch_name = fxp_file.replace('.fxp', '').replace('.FXP', '')
-
-                        # Check for duplicates by name (prevent same patch appearing twice in same category)
-                        # This handles cases where a patch exists in both original location and the favorites folder
-                        existing_patch = next((p for p in self.patches[category] if p['name'] == patch_name), None)
-                        if existing_patch:
-                            # Patch with same name already exists - prefer the one in the favorites folder
-                            if category == favorites_display_name() and favorites_folder_matches(str(patch_path)):
-                                # Replace with the one from the favorites folder
-                                existing_patch['path'] = str(patch_path)
-                            # Otherwise keep the existing one (skip duplicate)
-                            continue
-
-                        self.patches[category].append({
-                            'name': patch_name,
-                            'path': str(patch_path),
-                            'category': category
-                        })
-                        total_patches += 1
-
-        # Sort categories and patches alphabetically, but put favorites first
-        def sort_key(item):
-            category_name = item[0]
-            if category_name == favorites_display_name():
-                return ('', category_name)  # Empty string sorts before all letters
-            return (category_name, category_name)
-
-        # Update patches dict atomically to prevent race conditions with UI thread
-        with self.scan_lock:
-            self.patches = {k: sorted(v, key=lambda x: x['name'])
-                           for k, v in sorted(self.patches.items(), key=sort_key)}
-
-        print(f"Found {total_patches} patches in {len(self.patches)} categories")
-        # Debug: Show first 3 categories
-        cat_names = list(self.patches.keys())
-        print(f"First 3 categories: {cat_names[:3]}")
-        return self.patches
-
-    def scan_patches_background(self):
-        """
-        Start background thread to scan patches.
-        Returns immediately, sets scan_complete event when done.
-        """
-        def _scan_worker():
-            try:
-                self.scan_patches()
-                self.scan_complete.set()
-                print("Background patch scan complete")
-            except Exception as e:
-                print(f"Error during background scan: {e}")
-                # Still signal completion and add error category
-                with self.scan_lock:
-                    if not self.patches:
-                        self.patches = {"Error": [{"name": "Scan failed", "path": "", "category": "Error"}]}
-                self.scan_complete.set()
-
-        self.scan_thread = threading.Thread(target=_scan_worker, daemon=True, name="PatchScanner")
-        self.scan_thread.start()
-        print("Started background patch scanning...")
-
-    def wait_for_scan(self, timeout=None):
-        """Wait for background scan to complete"""
-        return self.scan_complete.wait(timeout=timeout)
-
-    def quick_scan_category(self, category_path):
-        """
-        Quickly scan a single category directory without full scan.
-        Used to load last patch immediately before full background scan.
-
-        Args:
-            category_path: Path object pointing to category directory
-
-        Returns:
-            List of patch dicts in the category
-        """
-        patches = []
-
-        if not category_path.exists():
-            return patches
-
-        for fxp_file in category_path.glob("*.fxp"):
-            patch_name = fxp_file.stem
-            category_name = category_path.name
-
-            # Force the favorites category to the top
-            if favorites_folder_matches(category_name):
-                category_name = favorites_display_name(category_name)
-
-            patches.append({
-                'name': patch_name,
-                'path': str(fxp_file),
-                'category': category_name
-            })
-
-        return sorted(patches, key=lambda x: x['name'])
-
-    def save_last_patch(self, category, patch_path):
-        """Save the last loaded patch for restoration on reconnect"""
-        import json
-        try:
-            state = {
-                'category': category,
-                'patch_path': str(patch_path)
-            }
-            with open(self.last_patch_file, 'w') as f:
-                json.dump(state, f, indent=2)
-        except Exception as e:
-            print(f"Warning: Could not save last patch state: {e}")
-
-    def load_last_patch(self):
-        """Load the last patch state (returns dict with category and patch_path, or None)"""
-        import json
-        if self.last_patch_file.exists():
-            try:
-                with open(self.last_patch_file, 'r') as f:
-                    state = json.load(f)
-                    # Validate the patch still exists
-                    patch_path = Path(state['patch_path'])
-                    if patch_path.exists():
-                        return state
-                    else:
-                        print(f"Last patch no longer exists: {patch_path}")
-            except Exception as e:
-                print(f"Warning: Could not load last patch state: {e}")
-        return None
-
-    def get_categories(self):
-        """Get sorted list of category names (favorites will be first due to ! prefix)"""
-        with self.scan_lock:
-            return list(self.patches.keys())
-
-    def get_patches_in_category(self, category):
-        """Get all patches in a specific category"""
-        with self.scan_lock:
-            return self.patches.get(category, [])
-
-    
-    def is_in_favorites_folder(self, patch_path):
-        """Check if a patch is already in the favorites folder"""
-        patch_path_obj = Path(patch_path)
-        for patch_dir in self.patch_dirs:
-            favorites_folder = patch_dir / FAVORITES_NAME
-            if favorites_folder.exists() and patch_path_obj.is_relative_to(favorites_folder):
-                return True
-        return False
-    
-    def get_favorites_folder_path(self):
-        """Get the path to the favorites folder (creates if needed)"""
-        # Use the user patches directory for the favorites folder
-        user_patches_dir = Path.home() / "Documents" / "Surge XT" / "Patches"
-        favorites_folder = user_patches_dir / FAVORITES_NAME
-        favorites_folder.mkdir(parents=True, exist_ok=True)
-        return favorites_folder
-    
-    def copy_patch_to_favorites(self, patch_path):
-        """Copy a patch file to the favorites folder"""
-        try:
-            source_path = Path(patch_path)
-            if not source_path.exists():
-                print(f"Error: Source patch not found: {patch_path}")
-                return False
-            
-            favorites_folder = self.get_favorites_folder_path()
-            dest_path = favorites_folder / source_path.name
-            
-            # Check if file already exists in the favorites folder
-            if dest_path.exists():
-                print(f"Patch already exists in favorites folder: {source_path.name}")
-                return False  # Don't create duplicate
-            
-            # Copy the file
-            import shutil
-            shutil.copy2(source_path, dest_path)
-            print(f"Copied patch to favorites folder: {source_path.name}")
-            
-            # Rescan to pick up the new patch
-            self.scan_patches()
-            return True
-        except Exception as e:
-            print(f"Error copying patch to favorites folder: {e}")
-            return False
 
 # ============================================================================
 # OLED DISPLAY MANAGER
@@ -588,90 +332,6 @@ class PatchDisplay:
                              fill="white", font=self.font_small)
                 else:
                     draw.text((0, 54), "Press to continue", fill="white", font=self.font_small)
-
-# ============================================================================
-# PATCH LOADER
-# ============================================================================
-
-class PatchLoader:
-    """Loads patches into Surge XT CLI via OSC"""
-
-    def __init__(self, osc_host='127.0.0.1', osc_port=53280):
-        """
-        Initialize OSC client for Surge XT
-
-        Args:
-            osc_host: IP address of Surge (default: localhost)
-            osc_port: OSC port (default: 53280)
-        """
-        try:
-            from pythonosc import udp_client
-            self.osc_client = udp_client.SimpleUDPClient(osc_host, osc_port)
-            self.osc_enabled = True
-            print(f"OSC client initialized: {osc_host}:{osc_port}")
-        except ImportError:
-            print("Warning: python-osc not installed, patch loading disabled")
-            self.osc_enabled = False
-        except Exception as e:
-            print(f"Warning: OSC client failed to initialize: {e}")
-            self.osc_enabled = False
-
-    def set_volume(self, volume=1.5):
-        """
-        Set Surge XT master volume via OSC
-        
-        Args:
-            volume: Volume level (1.0 = default, 1.5 = 150%, etc.)
-        
-        Returns:
-            True if command sent successfully, False otherwise
-        """
-        if not self.osc_enabled:
-            return False
-        
-        try:
-            # Set volume for both scenes
-            self.osc_client.send_message('/param/a/amp/volume', volume)
-            self.osc_client.send_message('/param/b/amp/volume', volume)
-            return True
-        except Exception as e:
-            print(f"Error setting volume via OSC: {e}")
-            return False
-
-    def load_patch(self, patch_path):
-        """
-        Load a patch into Surge XT via OSC
-
-        Surge OSC command: /patch/load <path_without_fxp_extension>
-        Surge automatically appends .fxp to the path
-
-        Args:
-            patch_path: Full path to .fxp file
-
-        Returns:
-            True if command sent successfully, False otherwise
-        """
-        if not self.osc_enabled:
-            print(f"OSC disabled, cannot load: {patch_path}")
-            return False
-
-        try:
-            # Remove .fxp extension (Surge adds it automatically)
-            path_no_ext = str(patch_path)
-            if path_no_ext.endswith('.fxp') or path_no_ext.endswith('.FXP'):
-                path_no_ext = path_no_ext[:-4]
-
-            # Send OSC message: /patch/load <path>
-            self.osc_client.send_message('/patch/load', [path_no_ext])
-            print(f"Loaded patch: {Path(patch_path).name}")
-            
-            # Volume is at default (100%) - no adjustment needed
-            
-            return True
-
-        except Exception as e:
-            print(f"Error loading patch via OSC: {e}")
-            return False
 
 # ============================================================================
 # SURGE XT CLI HEALTH MONITOR
