@@ -1077,17 +1077,24 @@ class TouchPatchBrowser:
         entry = self.loader.normalization.get_entry(self.detail_patch["name"])
         return bool(entry and entry.get("gain_db") is not None)
 
-    def _toggle_normalization(self) -> None:
+    def _normalization_patch_name(self) -> str | None:
         if not self.detail_patch:
+            return None
+        if self.loaded_patch_info and self.loaded_patch_info.get("name") == self.detail_patch.get("name"):
+            return self.loaded_patch_info["name"]
+        return self.detail_patch["name"]
+
+    def _toggle_normalization(self) -> None:
+        name = self._normalization_patch_name()
+        if not name:
             return
-        name = self.detail_patch["name"]
         store = self.loader.normalization
         new_state = not store.is_enabled(name)
         store.set_enabled(name, new_state)
         if self.loader.osc_enabled:
             self.loader.refresh_patch_volume(name)
         if new_state:
-            if self._normalization_has_gain():
+            if store.get_raw_gain_db(name) is not None:
                 self._toast("Normalize on", 1.5)
             else:
                 self._toast("Normalize on (no calibration)", 2.0)

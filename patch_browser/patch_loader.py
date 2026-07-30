@@ -52,7 +52,12 @@ class PatchLoader:
             return False
 
     def _apply_patch_normalization(self, patch_name: str) -> None:
-        gain_db = self.normalization.get_gain_db(patch_name)
+        store = self.normalization
+        if not store.is_enabled(patch_name):
+            self._patch_gain_linear = 1.0
+            return
+
+        gain_db = store.get_raw_gain_db(patch_name)
         if gain_db is not None:
             self._patch_gain_linear = db_to_linear(gain_db)
         else:
