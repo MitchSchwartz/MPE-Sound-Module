@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import re
 import subprocess
@@ -74,6 +75,9 @@ DEFAULT_PI_CAPTURE = "plughw:1,0"
 LOOPBACK_CAPTURE = "plughw:Loopback,1,0"
 SURGE_LOOPBACK_INTERFACE = "0.19"
 MIN_VALID_LUFS = -39.0
+PATCH_LOAD_SETTLE_SECONDS = 0.75
+MEASURE_RETRY_INTERVAL_SECONDS = 3.0
+MEASURE_MAX_ATTEMPTS = 4  # ~0, 3, 6, 9s within 10s total
 
 
 def parse_args() -> argparse.Namespace:
@@ -116,6 +120,11 @@ def parse_args() -> argparse.Namespace:
         "--force",
         action="store_true",
         help="Re-calibrate patches that already have entries (overwrites gain_db)",
+    )
+    parser.add_argument(
+        "--patch",
+        metavar="NAME",
+        help='Only calibrate patch(es) whose stem matches NAME (e.g. "Bowed String")',
     )
     parser.add_argument(
         "--use-loopback",
@@ -194,7 +203,15 @@ def collect_patch_paths(args: argparse.Namespace) -> list[Path]:
     by_name: dict[str, Path] = {}
     for path in paths:
         by_name[path.stem] = path
-    return [by_name[k] for k in sorted(by_name)]
+    result = [by_name[k] for k in sorted(by_name)]
+
+    if args.patch:
+        needle = args.patch.strip()
+        result = [p for p in result if p.stem == needle or needle.lower() in p.stem.lower()]
+        if not result:
+            print(f"Warning: no patches matched --patch {needle!r}", file=sys.stderr)
+
+    return result
 
 
 def find_surge_midi_port() -> int | None:
@@ -356,6 +373,46 @@ def send_performance_gesture(port_index: int, pre_roll: float = 0.25) -> None:
     time.sleep(0.2)
 
 
+def is_invalid_measurement(lufs: float, true_peak: float) -> bool:
+    """True when capture is silent or loudnorm returned unusable values (-inf LUFS, etc.)."""
+    if not math.isfinite(lufs) or lufs < MIN_VALID_LUFS:
+        return True
+    if not math.isfinite(true_peak):
+        return True
+    return False
+
+
+def capture_gesture_wav(port_index: int, audio_device: str) -> Path:
+    """Record the standard MPE gesture to a temporary WAV; caller must unlink the path."""
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+        wav = Path(tmp.name)
+    capture = subprocess.Popen(
+        [
+            "ffmpeg",
+            "-y",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-f",
+            "alsa",
+            "-i",
+            audio_device,
+            "-t",
+            str(GESTURE_SECONDS),
+            "-ac",
+            "2",
+            str(wav),
+        ]
+    )
+    time.sleep(0.15)
+    send_performance_gesture(port_index)
+    capture.wait()
+    if capture.returncode != 0:
+        wav.unlink(missing_ok=True)
+        raise RuntimeError("ffmpeg capture failed")
+    return wav
+
+
 def measure_lufs(wav_path: Path) -> tuple[float, float]:
     """Return (integrated_lufs, true_peak_dbtp) from ffmpeg loudnorm."""
     cmd = [
@@ -412,46 +469,43 @@ def calibrate_patch(
         loader.user_volume_trim = 1.0
         loader._patch_gain_linear = 1.0
         loader._send_combined_volume()
-        time.sleep(0.2)
+        time.sleep(PATCH_LOAD_SETTLE_SECONDS)
 
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
-            wav = Path(tmp.name)
-        try:
-            capture = subprocess.Popen(
-                [
-                    "ffmpeg",
-                    "-y",
-                    "-hide_banner",
-                    "-loglevel",
-                    "error",
-                    "-f",
-                    "alsa",
-                    "-i",
-                    audio_device,
-                    "-t",
-                    str(GESTURE_SECONDS),
-                    "-ac",
-                    "2",
-                    str(wav),
-                ]
-            )
-            time.sleep(0.15)
-            send_performance_gesture(port)
-            capture.wait()
-            if capture.returncode != 0:
+        lufs = float("-inf")
+        true_peak = float("-inf")
+        for attempt in range(1, MEASURE_MAX_ATTEMPTS + 1):
+            if attempt > 1:
+                print(
+                    f"  [retry] {name}: waiting for patch/load "
+                    f"(attempt {attempt}/{MEASURE_MAX_ATTEMPTS})...",
+                    file=sys.stderr,
+                )
+                time.sleep(MEASURE_RETRY_INTERVAL_SECONDS)
+
+            wav: Path | None = None
+            try:
+                wav = capture_gesture_wav(port, audio_device)
+                lufs, true_peak = measure_lufs(wav)
+            except RuntimeError:
                 print(f"  [fail] ffmpeg capture: {name}", file=sys.stderr)
                 return False
-            lufs, true_peak = measure_lufs(wav)
-        finally:
-            wav.unlink(missing_ok=True)
+            finally:
+                if wav is not None:
+                    wav.unlink(missing_ok=True)
 
-    if mock_lufs is None and lufs < MIN_VALID_LUFS:
-        print(
-            f"  [fail] {name}: measured {lufs:.1f} LUFS (peak {true_peak:.1f} dBTP) — "
-            f"capture chain did not record Surge output; check MIDI routing and --audio-device",
-            file=sys.stderr,
-        )
-        return False
+            if not is_invalid_measurement(lufs, true_peak):
+                break
+
+        if is_invalid_measurement(lufs, true_peak):
+            lufs_display = f"{lufs:.1f}" if math.isfinite(lufs) else str(lufs)
+            peak_display = f"{true_peak:.1f}" if math.isfinite(true_peak) else str(true_peak)
+            print(
+                f"  [fail] {name}: measured {lufs_display} LUFS (peak {peak_display} dBTP) after "
+                f"{MEASURE_MAX_ATTEMPTS} attempt(s) — patch may still be loading or capture chain "
+                f"did not record Surge output; check MIDI routing and --audio-device",
+                file=sys.stderr,
+            )
+            return False
 
     gain_db = compute_gain_db(lufs, true_peak)
     if lufs < -40.0:
