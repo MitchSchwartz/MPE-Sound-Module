@@ -160,9 +160,9 @@ Spec: [`Documents/specs/touch-patch-browser-spec.md`](../Documents/specs/touch-p
 
 The patch detail pane uses a **vertical fader strip** (mixing-board style) instead of a thin horizontal slider:
 
-- **Vol** — active; drag the handle up/down (top = louder). Persists to `~/.patch_browser_volume.json` and sends OSC via `PatchLoader.set_volume`.
-- **Cut / Res / Snd** — dim placeholders for future Surge parameters.
-- Touch **down + drag** on a fader; release does not trigger nav taps underneath.
+- **Vol** — drag the handle up/down (top = louder). Persists to `~/.patch_browser_volume.json` and sends OSC via `PatchLoader.set_volume`.
+- Touch **down + drag** on the fader; release does not trigger nav taps underneath.
+- **Norm.** — label-left / checkbox-right toggle for per-patch loudness normalization (see [`PATCH_NORMALIZATION.md`](PATCH_NORMALIZATION.md)).
 
 Brightness in **System settings** still uses a horizontal slider (one-off control, not live mixing).
 

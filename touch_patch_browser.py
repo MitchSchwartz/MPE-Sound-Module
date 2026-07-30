@@ -51,6 +51,9 @@ FADER_TRACK_W = 10
 FADER_HANDLE_W = 46
 FADER_HANDLE_H = 24
 FADER_TRACK_H = 168
+NORM_ROW_W = 128
+NORM_ROW_H = 40
+NORM_CHECKBOX_SIZE = 22
 NAV_FOLDER_TITLE_H = 34
 SCROLL_DRAG_THRESHOLD_PX = 10
 SCROLL_DRAG_THRESHOLD_CATCH_PX = 5  # lower bar when finger lands during momentum coast
@@ -637,17 +640,18 @@ class TouchPatchBrowser:
         main_w = self.width - margin * 2 - left_w - gap
         self.main_rect = Rect(main_x, content_top, main_w, content_bottom - content_top)
         self._layout_mixer_strip()
+        bottom_row_y = self.main_rect.bottom - 52
         self.favorites_btn = Rect(
             self.main_rect.right - 56,
-            self.main_rect.bottom - 52,
+            bottom_row_y,
             40,
             40,
         )
         self.normalize_btn = Rect(
-            self.favorites_btn.x - 48,
-            self.favorites_btn.y,
-            40,
-            40,
+            self.favorites_btn.x - NORM_ROW_W - 10,
+            bottom_row_y,
+            NORM_ROW_W,
+            NORM_ROW_H,
         )
 
         self._layout_nav_buttons()
@@ -716,9 +720,6 @@ class TouchPatchBrowser:
     def _mixer_channel_defs(self) -> list[dict]:
         return [
             {"id": "volume", "label": "Vol", "min": VOLUME_MIN, "max": VOLUME_MAX, "enabled": True},
-            {"id": "cutoff", "label": "Cut", "min": 0.0, "max": 1.0, "enabled": False},
-            {"id": "res", "label": "Res", "min": 0.0, "max": 1.0, "enabled": False},
-            {"id": "send", "label": "Snd", "min": 0.0, "max": 1.0, "enabled": False},
         ]
 
     def _layout_mixer_strip(self) -> None:
@@ -1093,23 +1094,40 @@ class TouchPatchBrowser:
         else:
             self._toast("Normalize off", 1.5)
 
+    def _normalize_checkbox_rect(self, row: Rect) -> Rect:
+        pad = (row.h - NORM_CHECKBOX_SIZE) // 2
+        return Rect(
+            row.right - pad - NORM_CHECKBOX_SIZE,
+            row.y + pad,
+            NORM_CHECKBOX_SIZE,
+            NORM_CHECKBOX_SIZE,
+        )
+
     def _draw_normalize_toggle(self, rect: Rect, enabled: bool, *, has_gain: bool) -> None:
-        if enabled and has_gain:
-            bg = self.theme.accent
-            label_color = (255, 255, 255)
-        elif enabled:
-            bg = self.theme.surface_alt
-            label_color = self.theme.muted
-        else:
-            bg = self.theme.surface
-            label_color = self.theme.muted
-        pygame.draw.rect(self.screen, bg, rect.pygame_rect, border_radius=8)
-        if not enabled:
-            pygame.draw.rect(self.screen, self.theme.muted, rect.pygame_rect, width=1, border_radius=8)
-        label = self.font_sm.render("Norm", True, label_color)
-        lx = rect.x + (rect.w - label.get_width()) // 2
+        pygame.draw.rect(self.screen, self.theme.surface_alt, rect.pygame_rect, border_radius=8)
+
+        label = self.font_sm.render("Norm.", True, self.theme.text)
         ly = rect.y + (rect.h - label.get_height()) // 2
-        self.screen.blit(label, (lx, ly))
+        self.screen.blit(label, (rect.x + 12, ly))
+
+        box = self._normalize_checkbox_rect(rect)
+        if enabled and has_gain:
+            box_bg = self.theme.accent
+            check_color = (255, 255, 255)
+        elif enabled:
+            box_bg = self.theme.surface
+            check_color = self.theme.muted
+        else:
+            box_bg = self.theme.surface
+            check_color = None
+        pygame.draw.rect(self.screen, box_bg, box.pygame_rect, border_radius=5)
+        border_color = self.theme.accent if enabled and has_gain else self.theme.muted
+        pygame.draw.rect(self.screen, border_color, box.pygame_rect, width=2, border_radius=5)
+        if enabled:
+            check = self.font_sm.render("✓", True, check_color)
+            cx = box.x + (box.w - check.get_width()) // 2
+            cy = box.y + (box.h - check.get_height()) // 2 - 1
+            self.screen.blit(check, (cx, cy))
 
     def _toggle_favorites(self) -> None:
         if not self.detail_patch:
