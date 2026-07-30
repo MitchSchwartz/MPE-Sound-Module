@@ -32,7 +32,11 @@ Every patch is fully editable and MPE-assignable from your computer, across all 
 - **Stock loaded with Surge XT's 3,192 patches** on board (639 factory + 2,553 community), browsable live via one rotary encoder + a small OLED screen
 - **Quick-access patch folder** — default `!Quick Access` under Surge user patches (leading `!` sorts first); rename via `MPE_FAVORITES_NAME`. Curate on PC and deploy
 
-**Status:** core (boot, audio, MPE) is solid and has been performance-tested for hours at a time. The knob/screen UI is **not good yet** — scrolling is unreliable (missed and double steps), and the button has **no normal click** (short taps are deliberately ignored). What the debounce stack mostly fixed is **false presses** — ghost scrolls and accidental actions from button/encoder coupling. Usable if you're patient; not gig-polished.
+**Status:** core (boot, audio, MPE) is solid and has been performance-tested for hours at a time. The **encoder/OLED UI** is still rough — scrolling is unreliable (missed and double steps), and the button has **no normal click** (short taps are deliberately ignored). Usable if you're patient; not gig-polished.
+
+**Touch variant (SmartiPi):** a fullscreen **5″ landscape touch browser** is on `main` — scroll/tap via evdev, vertical **Vol** fader, per-patch **Norm.** toggle, and **Calibrate Quick Select** from system settings. See **[docs/TOUCH_PATCH_BROWSER.md](docs/TOUCH_PATCH_BROWSER.md)**.
+
+**Per-patch loudness:** offline calibration matches Quick Select (and any folder) to a common level with −3 dBFS headroom; runtime is a JSON lookup + OSC trim. Pilot: **12/12 Quick Select patches calibrated** on the reference Pi. See **[docs/PATCH_NORMALIZATION.md](docs/PATCH_NORMALIZATION.md)**.
 
 ## Build one
 
@@ -88,6 +92,19 @@ Full walkthrough: **[docs/PATCH-EDITING-WORKFLOW.md](docs/PATCH-EDITING-WORKFLOW
 
 > **Known rough edge:** this workflow currently runs through git, which is fine if you're comfortable with it and clunky if you're not. A simpler sync path (drag-and-drop or a one-click push) is a likely next improvement — not built yet.
 
+### Per-patch normalization (touch or SSH)
+
+Calibrate once; every `load_patch()` applies a stored gain baseline (MPE expression untouched):
+
+```bash
+# Pi touch display — fullscreen loader on the 800×480 panel
+./scripts/calibrate-with-loader.sh --favorites-only
+
+# Or from touch UI: System settings → Calibrate Quick Select
+```
+
+Toggle **Norm.** on the patch detail pane to bypass normalization for one patch; the choice persists in `~/.patch_browser_normalization.json`. Full design: **[docs/PATCH_NORMALIZATION.md](docs/PATCH_NORMALIZATION.md)**.
+
 ## Quick reference (if you already have one running)
 
 ```bash
@@ -119,6 +136,8 @@ Full command reference: **[COMMANDS.md](COMMANDS.md)**
 | [REFERENCE_BOM.md](REFERENCE_BOM.md)                                 | Building the hardware                                |
 | [docs/HARDWARE_WIRING.md](docs/HARDWARE_WIRING.md)                   | Wiring the OLED + encoder                            |
 | [docs/PATCH_BROWSER_UI.md](docs/PATCH_BROWSER_UI.md)                 | How the encoder/button navigation actually works     |
+| [docs/TOUCH_PATCH_BROWSER.md](docs/TOUCH_PATCH_BROWSER.md)           | SmartiPi / 5″ touch browser setup and interaction    |
+| [docs/PATCH_NORMALIZATION.md](docs/PATCH_NORMALIZATION.md)           | Per-patch loudness calibration and Norm toggle       |
 | [docs/PATCH-EDITING-WORKFLOW.md](docs/PATCH-EDITING-WORKFLOW.md)     | Editing sounds, pushing to the Pi                    |
 | [docs/FOOT_PEDAL.md](docs/FOOT_PEDAL.md)                             | USB footswitch setup + remapping                     |
 | [docs/POWER_BUTTON_SETUP.md](docs/POWER_BUTTON_SETUP.md)             | Shutdown/power-on via the encoder button             |
