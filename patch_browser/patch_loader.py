@@ -4,7 +4,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from patch_browser.patch_normalization import PatchNormalizationStore, db_to_linear
+from patch_browser.patch_normalization import (
+    MAX_AMP_VOLUME_LINEAR,
+    NORM_MAX_AMP_VOLUME_LINEAR,
+    PatchNormalizationStore,
+    db_to_linear,
+)
 
 
 class PatchLoader:
@@ -32,17 +37,26 @@ class PatchLoader:
         self.normalization = normalization_store or PatchNormalizationStore()
         self.user_volume_trim = 1.0
         self._patch_gain_linear = 1.0
+        self._norm_active = False
 
     def set_volume(self, volume=1.0):
         """Set user volume trim (stacks on per-patch normalization baseline)."""
         self.user_volume_trim = float(volume)
         return self._send_combined_volume()
 
+    def _volume_cap(self) -> float:
+        if self._norm_active:
+            return NORM_MAX_AMP_VOLUME_LINEAR
+        return MAX_AMP_VOLUME_LINEAR
+
     def _send_combined_volume(self):
         if not self.osc_enabled:
             return False
 
         combined = self.user_volume_trim * self._patch_gain_linear
+        cap = self._volume_cap()
+        if combined > cap:
+            combined = cap
         try:
             self.osc_client.send_message("/param/a/amp/volume", combined)
             self.osc_client.send_message("/param/b/amp/volume", combined)
@@ -55,8 +69,10 @@ class PatchLoader:
         store = self.normalization
         if not store.is_enabled(patch_name):
             self._patch_gain_linear = 1.0
+            self._norm_active = False
             return
 
+        self._norm_active = True
         gain_db = store.get_raw_gain_db(patch_name)
         if gain_db is not None:
             self._patch_gain_linear = db_to_linear(gain_db)
@@ -86,6 +102,7 @@ class PatchLoader:
                 self._apply_patch_normalization(patch_name)
             else:
                 self._patch_gain_linear = 1.0
+                self._norm_active = False
             self._send_combined_volume()
             return True
         except Exception as e:
