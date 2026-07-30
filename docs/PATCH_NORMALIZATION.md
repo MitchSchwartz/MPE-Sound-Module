@@ -18,7 +18,7 @@ Static loudness matching for Surge XT patches on the MPE appliance. Calibrate on
 
 - **Standard:** integrated LUFS (EBU R128) via ffmpeg `loudnorm`
 - **Gesture per patch:** strike mid note → hold with channel pressure sweep low→max → release
-- **Target:** mid-loudness (~−18 LUFS integrated), capped at calibration so true peak stays ≤ −1 dBTP at max pressure
+- **Target:** mid-loudness (~−18 LUFS integrated) for relative matching, capped so true peak lands ~−3 dBFS below clip
 
 ### Storage
 
@@ -77,7 +77,7 @@ python3 scripts/calibrate-patch-normalization.py --favorites-only --mock-lufs -2
 - **Surge XT CLI** running (`surge-xt-cli.service`) with OSC in on port **53280**
 - **ffmpeg** (capture + `loudnorm` measurement)
 - **python-osc**, **python-rtmidi** (gesture MIDI into Surge)
-- Default ALSA capture device (`--audio-device default`; override if needed)
+- Default ALSA capture device auto-detects Sound Blaster via `arecord -l` (`plughw:1,0` typical on Pi; `--audio-device` to override)
 
 Keep Surge alive for the whole batch — one load + gesture + capture per patch.
 
@@ -89,7 +89,7 @@ Roughly **4–5 seconds per patch** (load, 3 s capture, analysis). Ten favorites
 
 1. Ensure Surge is up: `systemctl is-active surge-xt-cli`
 2. Dry-run: `python3 scripts/calibrate-patch-normalization.py --favorites-only --dry-run`
-3. Calibrate: `python3 scripts/calibrate-patch-normalization.py --favorites-only`
+3. Calibrate: `python3 scripts/calibrate-patch-normalization.py --favorites-only --force`
 4. Copy output to runtime path if you used `--output`:
    `cp config/patch_normalization.json ~/.patch_browser_normalization.json`
 5. Restart patch browser; switch patches — loudness should stay closer without re-trimming every time

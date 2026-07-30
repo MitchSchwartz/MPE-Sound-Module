@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
@@ -23,6 +24,30 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
+
+
+def load_mpe_env() -> None:
+    """Load /etc/mpe/mpe.env (or local config) so MPE_FAVORITES_NAME matches the appliance."""
+    for candidate in (
+        Path("/etc/mpe/mpe.env"),
+        Path.home() / ".config" / "mpe" / "mpe.env",
+        REPO_ROOT / "config" / "mpe.env",
+    ):
+        if not candidate.is_file():
+            continue
+        for line in candidate.read_text().splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, value = line.partition("=")
+            key = key.strip()
+            value = value.strip().strip("\"'")
+            if key and key not in os.environ:
+                os.environ[key] = value
+        break
+
+
+load_mpe_env()
 
 from patch_browser.patch_normalization import (  # noqa: E402
     PatchNormalizationStore,
@@ -36,6 +61,7 @@ from patch_browser.patch_scanner import (
     PatchScanner,
     SURGE_PATCH_DIRS,
     favorites_display_name,
+    resolve_user_patches_dir,
 )
 
 OSC_HOST = "127.0.0.1"
@@ -44,7 +70,10 @@ GESTURE_SECONDS = 3.0
 NOTE = 60
 MPE_CHANNEL = 2  # Surge MPE: channel 2 = first note channel
 STRIKE_VELOCITY = 96
-DEFAULT_PI_CAPTURE = "plughw:3,0"
+DEFAULT_PI_CAPTURE = "plughw:1,0"
+LOOPBACK_CAPTURE = "plughw:Loopback,1,0"
+SURGE_LOOPBACK_INTERFACE = "0.19"
+MIN_VALID_LUFS = -39.0
 
 
 def parse_args() -> argparse.Namespace:
@@ -89,6 +118,12 @@ def parse_args() -> argparse.Namespace:
         help="Re-calibrate patches that already have entries (overwrites gain_db)",
     )
     parser.add_argument(
+        "--use-loopback",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Route Surge through ALSA snd-aloop for digital capture (default: on when /etc/mpe/mpe.env exists)",
+    )
+    parser.add_argument(
         "--audio-device",
         default=None,
         help=(
@@ -109,8 +144,9 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def favorites_folder_on_disk(parent: Path) -> Path:
-    return parent / FAVORITES_NAME.lstrip("!")
+def favorites_folder_on_disk(parent: Path | None = None) -> Path:
+    base = parent or resolve_user_patches_dir()
+    return base / FAVORITES_NAME.lstrip("!")
 
 
 def collect_patch_paths(args: argparse.Namespace) -> list[Path]:
@@ -119,8 +155,7 @@ def collect_patch_paths(args: argparse.Namespace) -> list[Path]:
 
     paths: list[Path] = []
     if args.favorites_only:
-        user_patches_dir = Path.home() / "Documents" / "Surge XT" / "Patches"
-        fav_dir = favorites_folder_on_disk(user_patches_dir)
+        fav_dir = favorites_folder_on_disk()
         if fav_dir.is_dir():
             paths = sorted(fav_dir.glob("*.fxp"))
     elif args.folder:
@@ -188,33 +223,95 @@ def find_surge_midi_port() -> int | None:
     return None
 
 
-def detect_capture_device(explicit: str | None) -> str:
-    """Resolve ALSA capture device for Surge output monitoring."""
+def surge_cli_path() -> Path:
+    env = os.environ.get("SURGE_CLI", "").strip()
+    if env:
+        return Path(env).expanduser()
+    return Path.home() / "surge" / "build" / "surge_xt_products" / "surge-xt-cli"
+
+
+def should_use_loopback(explicit: bool | None) -> bool:
+    if explicit is not None:
+        return explicit
+    return Path("/etc/mpe/mpe.env").is_file()
+
+
+def ensure_snd_aloop() -> None:
+    subprocess.run(["sudo", "modprobe", "snd-aloop"], check=False)
+
+
+def stop_mpe_audio_services() -> None:
+    for unit in ("touch-patch-browser", "surge-xt-cli"):
+        subprocess.run(["sudo", "systemctl", "stop", unit], check=False)
+    time.sleep(1)
+    subprocess.run(["pkill", "-f", "surge-xt-cli"], check=False)
+    time.sleep(0.5)
+
+
+def start_surge_loopback() -> None:
+    cli = surge_cli_path()
+    if not cli.is_file():
+        raise RuntimeError(f"Surge CLI not found: {cli}")
+    ensure_snd_aloop()
+    log_path = Path.home() / "surge-cli-calibration.log"
+    with log_path.open("a") as log:
+        log.write(f"\n{time.strftime('%Y-%m-%d %H:%M:%S')}: calibration loopback start\n")
+        subprocess.Popen(
+            [
+                str(cli),
+                "--all-midi-inputs",
+                "--mpe-enable",
+                "--mpe-pitch-bend-range=48",
+                f"--audio-interface={SURGE_LOOPBACK_INTERFACE}",
+                f"--osc-in-port={OSC_PORT}",
+                "--no-stdin",
+            ],
+            stdout=log,
+            stderr=subprocess.STDOUT,
+        )
+    time.sleep(2.5)
+
+
+def restore_mpe_audio_services() -> None:
+    subprocess.run(["pkill", "-f", "surge-xt-cli"], check=False)
+    time.sleep(0.5)
+    subprocess.run(["sudo", "systemctl", "start", "surge-xt-cli"], check=False)
+    subprocess.run(["sudo", "systemctl", "start", "touch-patch-browser"], check=False)
+
+
+def detect_capture_device(explicit: str | None, *, use_loopback: bool) -> str:
+    """Resolve ALSA capture device for Surge output monitoring on the Pi."""
     if explicit:
         return explicit
+    if use_loopback:
+        ensure_snd_aloop()
+        print(f"Using ALSA loopback capture: {LOOPBACK_CAPTURE}", file=sys.stderr)
+        return LOOPBACK_CAPTURE
 
-    detect_script = REPO_ROOT / "scripts" / "detect-audio-device.sh"
-    surge_cli = Path.home() / "surge" / "build" / "surge_xt_products" / "surge-xt-cli"
-    if detect_script.is_file() and surge_cli.is_file():
-        try:
-            result = subprocess.run(
-                [str(detect_script), str(surge_cli)],
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-            for line in result.stdout.splitlines():
-                if line.startswith("DEVICE_ID="):
-                    device_id = line.split("=", 1)[1].strip()
-                    if device_id:
-                        card, dev = device_id.split(".", 1)
-                        capture = f"plughw:{card},{dev}"
-                        print(f"Auto-detected capture device: {capture}", file=sys.stderr)
-                        return capture
-        except (OSError, ValueError) as exc:
-            print(f"Warning: audio auto-detect failed: {exc}", file=sys.stderr)
+    try:
+        result = subprocess.run(
+            ["arecord", "-l"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        for line in result.stdout.splitlines():
+            lower = line.lower()
+            if "sound blaster" in lower and "card" in lower:
+                match = re.search(r"card\s+(\d+):", line, re.IGNORECASE)
+                if match:
+                    capture = f"plughw:{match.group(1)},0"
+                    print(f"Auto-detected Sound Blaster capture: {capture}", file=sys.stderr)
+                    return capture
+            if "card" in lower and "usb audio" in lower and "sound blaster" not in lower:
+                match = re.search(r"card\s+(\d+):", line, re.IGNORECASE)
+                if match:
+                    capture = f"plughw:{match.group(1)},0"
+                    print(f"Auto-detected USB capture: {capture}", file=sys.stderr)
+                    return capture
+    except OSError as exc:
+        print(f"Warning: arecord probe failed: {exc}", file=sys.stderr)
 
-    # Common Pi + Sound Blaster Play! 3 card index when detect script unavailable.
     print(f"Using default Pi capture device: {DEFAULT_PI_CAPTURE}", file=sys.stderr)
     return DEFAULT_PI_CAPTURE
 
@@ -336,6 +433,14 @@ def calibrate_patch(
         finally:
             wav.unlink(missing_ok=True)
 
+    if mock_lufs is None and lufs < MIN_VALID_LUFS:
+        print(
+            f"  [fail] {name}: measured {lufs:.1f} LUFS (peak {true_peak:.1f} dBTP) — "
+            f"capture chain did not record Surge output; check MIDI routing and --audio-device",
+            file=sys.stderr,
+        )
+        return False
+
     gain_db = compute_gain_db(lufs, true_peak)
     if lufs < -40.0:
         print(
@@ -356,7 +461,8 @@ def calibrate_patch(
 def main() -> int:
     args = parse_args()
     output_path = args.output or default_normalization_path()
-    audio_device = detect_capture_device(args.audio_device)
+    use_loopback = should_use_loopback(args.use_loopback)
+    audio_device = detect_capture_device(args.audio_device, use_loopback=use_loopback)
 
     patch_paths = collect_patch_paths(args)
     if args.limit > 0:
@@ -375,6 +481,8 @@ def main() -> int:
 
     print(f"Output: {output_path}")
     print(f"Capture device: {audio_device}")
+    if use_loopback:
+        print("Surge routing: ALSA loopback (temporary service restart for calibration)")
     if args.favorites_only:
         print(f"Scope: favorites ({favorites_display_name()})")
     elif args.folder:
@@ -403,19 +511,39 @@ def main() -> int:
         print("Error: OSC client unavailable — is Surge running on the OSC port?", file=sys.stderr)
         return 1
 
+    loopback_started = False
+    if use_loopback and args.mock_lufs is None:
+        try:
+            stop_mpe_audio_services()
+            start_surge_loopback()
+            loopback_started = True
+            loader = PatchLoader(osc_host=args.osc_host, osc_port=args.osc_port)
+            if not loader.osc_enabled:
+                raise RuntimeError("OSC unavailable after loopback Surge start")
+        except Exception as exc:
+            print(f"Error: loopback calibration setup failed: {exc}", file=sys.stderr)
+            if loopback_started:
+                restore_mpe_audio_services()
+            return 1
+
     updated = 0
-    for index, path in enumerate(targets, start=1):
-        print(f"[{index}/{len(targets)}] {path.stem}")
-        if calibrate_patch(
-            path,
-            loader,
-            store,
-            audio_device=audio_device,
-            mock_lufs=args.mock_lufs,
-            dry_run=False,
-        ):
-            updated += 1
-            store.save()
+    try:
+        for index, path in enumerate(targets, start=1):
+            print(f"[{index}/{len(targets)}] {path.stem}")
+            if calibrate_patch(
+                path,
+                loader,
+                store,
+                audio_device=audio_device,
+                mock_lufs=args.mock_lufs,
+                dry_run=False,
+            ):
+                updated += 1
+                store.save()
+    finally:
+        if loopback_started:
+            print("Restoring surge-xt-cli and touch-patch-browser services...", file=sys.stderr)
+            restore_mpe_audio_services()
 
     if updated:
         store.save()

@@ -22,10 +22,27 @@ SCANNER_CONFIG = ScannerConfig()
 FAVORITES_NAME = SCANNER_CONFIG.favorites_name
 LAST_PATCH_FILE = Path.home() / ".patch_browser_last_patch.json"
 
+
+def resolve_user_patches_dir() -> Path:
+    """User patch library — env override, then Documents (PC), then Linux Surge default."""
+    surge_docs = os.environ.get("MPE_SURGE_DOCS", "").strip()
+    if surge_docs:
+        candidate = Path(surge_docs) / "Patches"
+        if candidate.is_dir():
+            return candidate
+
+    documents = Path.home() / "Documents" / "Surge XT" / "Patches"
+    if documents.is_dir():
+        return documents
+
+    linux_default = Path.home() / ".Surge Synth Team" / "Surge XT" / "Patches"
+    return linux_default
+
+
 SURGE_PATCH_DIRS = [
     Path.home() / "surge" / "resources" / "data" / "patches_factory",
     Path.home() / "surge" / "resources" / "data" / "patches_3rdparty",
-    Path.home() / "Documents" / "Surge XT" / "Patches",
+    resolve_user_patches_dir(),
 ]
 
 
@@ -239,7 +256,7 @@ class PatchScanner:
             return False
 
     def get_favorites_folder_path(self):
-        user_patches_dir = Path.home() / "Documents" / "Surge XT" / "Patches"
+        user_patches_dir = resolve_user_patches_dir()
         favorites_folder = user_patches_dir / FAVORITES_NAME.lstrip("!")
         favorites_folder.mkdir(parents=True, exist_ok=True)
         return favorites_folder
