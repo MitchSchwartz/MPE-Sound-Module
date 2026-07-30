@@ -72,6 +72,32 @@ python3 scripts/calibrate-patch-normalization.py --favorites-only --output ~/.pa
 python3 scripts/calibrate-patch-normalization.py --favorites-only --mock-lufs -20 --limit 1
 ```
 
+### Pi touch display (loader UI)
+
+When calibration runs on the Pi touch build, the patch browser stops and tty1 would otherwise show a Linux console. Use the loader wrapper so the DSI panel shows progress instead:
+
+```bash
+# SSH or local shell on the Pi — fullscreen progress on the 800×480 display
+./scripts/calibrate-with-loader.sh --favorites-only
+
+# Re-calibrate all Quick Select entries
+./scripts/calibrate-with-loader.sh --favorites-only --force
+```
+
+**From the touch UI:** System settings (⋯) → **Calibrate Quick Select** → confirm. The browser exits, the loader takes over kmsdrm, then `surge-xt-cli` and `touch-patch-browser` restart when finished.
+
+The loader shows patch name, `N / M` progress, elapsed time, and *Do not touch — Surge is measuring loudness*. Implementation: `patch_browser/calibration_loader.py` subprocesses `calibrate-patch-normalization.py --progress-json`.
+
+**What happens to services**
+
+| Step | touch-patch-browser | surge-xt-cli |
+|------|---------------------|--------------|
+| Loader starts | Stopped (wrapper + calibrator) | Stopped; temporary loopback Surge for capture |
+| During run | Loader fullscreen on DSI | Calibration Surge instance |
+| Done | systemd restart | systemd restart |
+
+Running the raw calibrator over SSH without the loader still works; the display stays on bash until services restore.
+
 ### Dependencies
 
 - **Surge XT CLI** running (`surge-xt-cli.service`) with OSC in on port **53280**
@@ -81,15 +107,17 @@ python3 scripts/calibrate-patch-normalization.py --favorites-only --mock-lufs -2
 
 Keep Surge alive for the whole batch — one load + gesture + capture per patch.
 
+On the **Pi touch build**, prefer `./scripts/calibrate-with-loader.sh` (see [Pi touch display](#pi-touch-display-loader-ui)) so the DSI panel shows progress instead of a bare console.
+
 ### Timing (Quick Select pilot)
 
-Roughly **4–5 seconds per patch** (load, 3 s capture, analysis). Ten favorites ≈ **1 minute**; fifty ≈ **4 minutes**. Full library scales linearly — run from PC/SSH, not as a blocking Pi menu action.
+Roughly **4–5 seconds per patch** (load, 3 s capture, analysis). Ten favorites ≈ **1 minute**; fifty ≈ **4 minutes**. Use the loader from settings or `calibrate-with-loader.sh` on the Pi; raw SSH calibrate is fine for headless runs.
 
 ## Testing on the Pi
 
 1. Ensure Surge is up: `systemctl is-active surge-xt-cli`
 2. Dry-run: `python3 scripts/calibrate-patch-normalization.py --favorites-only --dry-run`
-3. Calibrate: `python3 scripts/calibrate-patch-normalization.py --favorites-only --force`
+3. Calibrate with loader: `./scripts/calibrate-with-loader.sh --favorites-only --force`
 4. Copy output to runtime path if you used `--output`:
    `cp config/patch_normalization.json ~/.patch_browser_normalization.json`
 5. Restart patch browser; switch patches — loudness should stay closer without re-trimming every time

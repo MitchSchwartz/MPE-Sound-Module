@@ -68,6 +68,7 @@ DEFAULT_BRIGHTNESS_PERCENT = 100
 class Screen(Enum):
     BROWSER = auto()
     SETTINGS = auto()
+    CALIBRATE_CONFIRM = auto()
     POWER_MENU = auto()
     POWER_CONFIRM = auto()
 
@@ -77,19 +78,7 @@ class LeftNavMode(Enum):
     PATCHES = auto()
 
 
-@dataclass
-class Theme:
-    bg: tuple[int, int, int] = (10, 10, 12)
-    surface: tuple[int, int, int] = (22, 22, 28)
-    surface_alt: tuple[int, int, int] = (32, 32, 40)
-    text: tuple[int, int, int] = (232, 232, 236)
-    muted: tuple[int, int, int] = (130, 130, 140)
-    accent: tuple[int, int, int] = (107, 159, 255)
-    playing: tuple[int, int, int] = (255, 180, 90)
-    danger: tuple[int, int, int] = (220, 90, 90)
-    ok: tuple[int, int, int] = (90, 200, 140)
-
-
+from patch_browser.ui_theme import Theme
 @dataclass
 class Rect:
     x: int
@@ -1454,10 +1443,13 @@ class TouchPatchBrowser:
         else:
             self._surge_restart_btn = None
 
-        self._power_btn = Rect(self.settings_rect.x + 24, btn_y, self.settings_rect.w - 48, 48)
-        btn_y += 54
+        self._power_btn = Rect(self.settings_rect.x + 24, btn_y, self.settings_rect.w - 48, 44)
+        self._draw_button(self._power_btn, "Power…", muted=True)
+        btn_y += 52
+        self._calibrate_btn = Rect(self.settings_rect.x + 24, btn_y, self.settings_rect.w - 48, 44)
+        self._draw_button(self._calibrate_btn, "Calibrate Quick Select")
+        btn_y += 52
         self._close_settings_btn = Rect(self.settings_rect.x + 24, btn_y, self.settings_rect.w - 48, 48)
-        self._draw_button(self._power_btn, "Power…")
         self._draw_button(self._close_settings_btn, "Close")
 
     def _draw_power_menu(self) -> None:
@@ -1502,6 +1494,46 @@ class TouchPatchBrowser:
         self._draw_button(self._confirm_no, "Cancel", accent=True)
         self._draw_button(self._confirm_yes, "Confirm")
 
+    def _draw_calibrate_confirm(self) -> None:
+        self.screen.fill(self.theme.bg)
+        overlay = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 190))
+        self.screen.blit(overlay, (0, 0))
+
+        panel_w = min(460, self.width - 48)
+        panel_h = 260
+        panel = Rect((self.width - panel_w) // 2, (self.height - panel_h) // 2, panel_w, panel_h)
+        pygame.draw.rect(self.screen, self.theme.surface, panel.pygame_rect, border_radius=16)
+
+        self.screen.blit(
+            self.font_md.render("Calibrate Quick Select?", True, self.theme.text),
+            (panel.x + 24, panel.y + 20),
+        )
+        hint = self.font_sm.render(
+            "Measures loudness per patch (~1 min). Do not touch during run.",
+            True,
+            self.theme.muted,
+        )
+        self.screen.blit(hint, (panel.x + 24, panel.y + 58))
+
+        self._calibrate_confirm_no = Rect(panel.x + 24, panel.y + 140, (panel.w - 60) // 2, 52)
+        self._calibrate_confirm_yes = Rect(
+            self._calibrate_confirm_no.x + self._calibrate_confirm_no.w + 12,
+            panel.y + 140,
+            (panel.w - 60) // 2,
+            52,
+        )
+        self._draw_button(self._calibrate_confirm_no, "Cancel", accent=True)
+        self._draw_button(self._calibrate_confirm_yes, "Start")
+
+    def _launch_calibration_loader(self) -> None:
+        repo = Path(__file__).resolve().parent
+        script = repo / "scripts" / "calibrate-with-loader.sh"
+        if self._evdev_bridge is not None:
+            self._evdev_bridge.stop()
+        pygame.quit()
+        os.execv("/bin/bash", ["bash", str(script), "--favorites-only"])
+
     def _draw_toast(self) -> None:
         if time.time() > self.toast_until or not self.toast_message:
             return
@@ -1522,6 +1554,8 @@ class TouchPatchBrowser:
             self._draw_power_menu()
         elif self.screen_state == Screen.POWER_CONFIRM:
             self._draw_power_confirm()
+        elif self.screen_state == Screen.CALIBRATE_CONFIRM:
+            self._draw_calibrate_confirm()
         self._draw_toast()
         pygame.display.flip()
 
@@ -1580,6 +1614,9 @@ class TouchPatchBrowser:
         if self._power_btn.contains(*pos):
             self.screen_state = Screen.POWER_MENU
             return
+        if self._calibrate_btn.contains(*pos):
+            self.screen_state = Screen.CALIBRATE_CONFIRM
+            return
         if self.brightness_slider_rect.contains(*pos):
             now = time.time()
             if (
@@ -1608,6 +1645,12 @@ class TouchPatchBrowser:
                 else:
                     self.screen_state = Screen.SETTINGS
                 return
+
+    def _handle_calibrate_confirm_touch(self, pos: tuple[int, int]) -> None:
+        if self._calibrate_confirm_no.contains(*pos):
+            self.screen_state = Screen.SETTINGS
+        elif self._calibrate_confirm_yes.contains(*pos):
+            self._launch_calibration_loader()
 
     def _handle_power_confirm_touch(self, pos: tuple[int, int]) -> None:
         if self._confirm_no.contains(*pos):
@@ -1645,6 +1688,8 @@ class TouchPatchBrowser:
                 self._handle_power_menu_touch(event.pos)
             elif self.screen_state == Screen.POWER_CONFIRM:
                 self._handle_power_confirm_touch(event.pos)
+            elif self.screen_state == Screen.CALIBRATE_CONFIRM:
+                self._handle_calibrate_confirm_touch(event.pos)
             elif self.screen_state == Screen.BROWSER:
                 self._handle_mixer_down(event.pos)
         elif event.type == pygame.MOUSEBUTTONUP and event.button == 1:

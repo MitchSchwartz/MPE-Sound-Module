@@ -141,7 +141,19 @@ def parse_args() -> argparse.Namespace:
         default=OSC_PORT,
         help=f"Surge OSC port (default: {OSC_PORT})",
     )
+    parser.add_argument(
+        "--progress-json",
+        action="store_true",
+        help="Emit machine-readable progress lines on stdout (human logs go to stderr)",
+    )
     return parser.parse_args()
+
+
+def emit_progress(args: argparse.Namespace, payload: dict) -> None:
+    """Print a JSON progress event when --progress-json is set."""
+    if not args.progress_json:
+        return
+    print(json.dumps(payload), flush=True)
 
 
 def favorites_folder_on_disk(parent: Path | None = None) -> Path:
@@ -469,7 +481,10 @@ def main() -> int:
         patch_paths = patch_paths[: args.limit]
 
     if not patch_paths:
-        print("No patches matched the selection.", file=sys.stderr)
+        msg = "No patches matched the selection."
+        print(msg, file=sys.stderr)
+        emit_progress(args, {"type": "error", "message": msg})
+        emit_progress(args, {"type": "done", "updated": 0, "exit_code": 1})
         return 1
 
     store = PatchNormalizationStore(output_path)
@@ -496,6 +511,21 @@ def main() -> int:
         f"{', force overwrite' if args.force else ''})"
     )
 
+    scope_label = (
+        f"Quick Select ({favorites_display_name()})"
+        if args.favorites_only
+        else (f'Folder "{args.folder}"' if args.folder else "All patches")
+    )
+    emit_progress(
+        args,
+        {"type": "start", "total": len(targets), "scope": scope_label},
+    )
+
+    if not targets:
+        print("No patches need calibration (all entries present). Use --force to re-run.", file=sys.stderr)
+        emit_progress(args, {"type": "done", "updated": 0, "exit_code": 0})
+        return 0
+
     if args.dry_run:
         for path in targets:
             calibrate_patch(
@@ -504,17 +534,26 @@ def main() -> int:
         est = len(targets) * (GESTURE_SECONDS + 1.5)
         print(f"Estimated time: ~{est / 60:.1f} min at {GESTURE_SECONDS}s capture per patch")
         print(f"Starter file in repo: {repo_starter_path()}")
+        emit_progress(args, {"type": "done", "updated": 0, "exit_code": 0})
         return 0
 
     loader = PatchLoader(osc_host=args.osc_host, osc_port=args.osc_port)
     if not loader.osc_enabled:
-        print("Error: OSC client unavailable — is Surge running on the OSC port?", file=sys.stderr)
+        msg = "OSC client unavailable — is Surge running on the OSC port?"
+        print(f"Error: {msg}", file=sys.stderr)
+        emit_progress(args, {"type": "error", "message": msg})
+        emit_progress(args, {"type": "done", "updated": 0, "exit_code": 1})
         return 1
 
     loopback_started = False
     if use_loopback and args.mock_lufs is None:
         try:
+            emit_progress(
+                args,
+                {"type": "setup", "message": "Stopping patch browser and Surge…"},
+            )
             stop_mpe_audio_services()
+            emit_progress(args, {"type": "setup", "message": "Starting Surge for measurement…"})
             start_surge_loopback()
             loopback_started = True
             loader = PatchLoader(osc_host=args.osc_host, osc_port=args.osc_port)
@@ -522,26 +561,49 @@ def main() -> int:
                 raise RuntimeError("OSC unavailable after loopback Surge start")
         except Exception as exc:
             print(f"Error: loopback calibration setup failed: {exc}", file=sys.stderr)
+            emit_progress(args, {"type": "error", "message": str(exc)})
             if loopback_started:
                 restore_mpe_audio_services()
+            emit_progress(args, {"type": "done", "updated": 0, "exit_code": 1})
             return 1
 
     updated = 0
+    exit_code = 0
     try:
         for index, path in enumerate(targets, start=1):
-            print(f"[{index}/{len(targets)}] {path.stem}")
-            if calibrate_patch(
+            name = path.stem
+            print(f"[{index}/{len(targets)}] {name}", file=sys.stderr if args.progress_json else sys.stdout)
+            emit_progress(
+                args,
+                {"type": "patch", "index": index, "total": len(targets), "name": name},
+            )
+            ok = calibrate_patch(
                 path,
                 loader,
                 store,
                 audio_device=audio_device,
                 mock_lufs=args.mock_lufs,
                 dry_run=False,
-            ):
+            )
+            emit_progress(
+                args,
+                {
+                    "type": "patch_done",
+                    "index": index,
+                    "total": len(targets),
+                    "name": name,
+                    "ok": ok,
+                },
+            )
+            if ok:
                 updated += 1
                 store.save()
     finally:
         if loopback_started:
+            emit_progress(
+                args,
+                {"type": "setup", "message": "Restarting patch browser and Surge…"},
+            )
             print("Restoring surge-xt-cli and touch-patch-browser services...", file=sys.stderr)
             restore_mpe_audio_services()
 
@@ -550,7 +612,9 @@ def main() -> int:
         print(f"Wrote {updated} calibration entries to {output_path}")
     else:
         print("No entries updated.")
-    return 0
+        exit_code = 0
+    emit_progress(args, {"type": "done", "updated": updated, "exit_code": exit_code})
+    return exit_code
 
 
 if __name__ == "__main__":
