@@ -177,6 +177,12 @@ Set `MPE_TOUCH_EVDEV=0` to fall back to SDL-only input (debugging).
 - **Norm.** — label-left / checkbox-right on the patch detail pane; persists per patch stem in `~/.patch_browser_normalization.json` (calibration data kept when toggling off).
 - **Calibrate Quick Select** — System settings (⋯) → confirm → stops the browser, runs `calibrate-with-loader.sh`, restarts Surge + browser. See **[PATCH_NORMALIZATION.md](PATCH_NORMALIZATION.md)**.
 
+## System settings (⋯)
+
+- **Surge status** — `SurgeMonitor` probes the CLI process, OSC port 53280, and recent log lines. Stale PIDs and historical audio-device errors in `surge-cli.log` no longer show as false *down* (fixed 2026-07-30).
+- **Restart Surge** — shown when status is not healthy; uses the same systemd unit as the encoder build.
+- **Calibrate Quick Select** — see [Per-patch normalization](#per-patch-normalization) below.
+
 ## Known gaps (v0)
 
 - Search/filter across 3000+ patches not implemented (scroll lists first)
