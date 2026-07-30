@@ -58,7 +58,12 @@ class PatchLoader:
         else:
             self._patch_gain_linear = 1.0
 
-    def load_patch(self, patch_path):
+    def refresh_patch_volume(self, patch_name: str) -> bool:
+        """Re-apply normalization baseline + user trim (e.g. after toggling enabled)."""
+        self._apply_patch_normalization(patch_name)
+        return self._send_combined_volume()
+
+    def load_patch(self, patch_path, *, apply_normalization: bool = True):
         if not self.osc_enabled:
             print(f"OSC disabled, cannot load: {patch_path}")
             return False
@@ -72,7 +77,10 @@ class PatchLoader:
             patch_name = Path(patch_path).stem
             print(f"Loaded patch: {Path(patch_path).name}")
 
-            self._apply_patch_normalization(patch_name)
+            if apply_normalization:
+                self._apply_patch_normalization(patch_name)
+            else:
+                self._patch_gain_linear = 1.0
             self._send_combined_volume()
             return True
         except Exception as e:

@@ -9,11 +9,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-# Integrated LUFS target for the mid-loudness point of the performance gesture.
+# Integrated LUFS target for relative loudness matching across patches.
 TARGET_LUFS = -18.0
 
-# True-peak headroom (dBTP) when capping gain at calibration time.
-SAFE_PEAK_DBTP = -1.0
+# After applying gain, the gesture's true peak should land ~3 dB below clip (0 dBFS).
+# Sound-engineer spec: normalize close to 0 with headroom, not open-ended LUFS boost.
+SAFE_PEAK_DBTP = -3.0
 
 
 def default_normalization_path() -> Path:
@@ -50,12 +51,13 @@ def compute_gain_db(
     """
     Compute static per-patch gain from measured gesture render.
 
-    Normalizes toward mid-loudness (integrated LUFS) but caps gain so boosting
-    does not push true peak past safe_peak_dbtp — computed once at calibration.
+    Uses integrated LUFS for relative matching across patches, but caps gain so
+    the boosted peak lands at safe_peak_dbtp (~-3 dBFS headroom before clip).
+    Attenuation-only patches use the LUFS delta; loud patches are limited by peak cap.
     """
-    mid_gain = target_lufs - lufs_integrated
+    lufs_gain = target_lufs - lufs_integrated
     peak_gain = safe_peak_dbtp - true_peak_dbtp
-    return min(mid_gain, peak_gain)
+    return min(lufs_gain, peak_gain)
 
 
 class PatchNormalizationStore:
@@ -92,9 +94,31 @@ class PatchNormalizationStore:
         entry = self._data.get(self.patch_key(patch_name))
         return entry if isinstance(entry, dict) else None
 
-    def get_gain_db(self, patch_name: str) -> float | None:
+    def is_enabled(self, patch_name: str) -> bool:
+        """Whether normalization is enabled for this patch (default True)."""
         entry = self.get_entry(patch_name)
-        if not entry or not entry.get("enabled", True):
+        if not entry:
+            return True
+        return bool(entry.get("enabled", True))
+
+    def set_enabled(self, patch_name: str, enabled: bool) -> None:
+        """Persist per-patch normalization on/off (issue #5 UI toggle)."""
+        key = self.patch_key(patch_name)
+        entry = self._data.get(key)
+        if entry is None:
+            if not enabled:
+                self._data[key] = {"enabled": False}
+        elif isinstance(entry, dict):
+            entry["enabled"] = enabled
+        else:
+            self._data[key] = {"enabled": enabled}
+        self.save()
+
+    def get_gain_db(self, patch_name: str) -> float | None:
+        if not self.is_enabled(patch_name):
+            return None
+        entry = self.get_entry(patch_name)
+        if not entry:
             return None
         gain = entry.get("gain_db")
         if gain is None:

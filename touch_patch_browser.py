@@ -654,6 +654,12 @@ class TouchPatchBrowser:
             40,
             40,
         )
+        self.normalize_btn = Rect(
+            self.favorites_btn.x - 48,
+            self.favorites_btn.y,
+            40,
+            40,
+        )
 
         self._layout_nav_buttons()
 
@@ -1070,6 +1076,52 @@ class TouchPatchBrowser:
             self.categories = self.scanner.get_categories()
         self._refresh_lists()
 
+    def _normalization_enabled_for_detail(self) -> bool:
+        if not self.detail_patch:
+            return True
+        return self.loader.normalization.is_enabled(self.detail_patch["name"])
+
+    def _normalization_has_gain(self) -> bool:
+        if not self.detail_patch:
+            return False
+        entry = self.loader.normalization.get_entry(self.detail_patch["name"])
+        return bool(entry and entry.get("gain_db") is not None)
+
+    def _toggle_normalization(self) -> None:
+        if not self.detail_patch:
+            return
+        name = self.detail_patch["name"]
+        store = self.loader.normalization
+        new_state = not store.is_enabled(name)
+        store.set_enabled(name, new_state)
+        if self.loader.osc_enabled:
+            self.loader.refresh_patch_volume(name)
+        if new_state:
+            if self._normalization_has_gain():
+                self._toast("Normalize on", 1.5)
+            else:
+                self._toast("Normalize on (no calibration)", 2.0)
+        else:
+            self._toast("Normalize off", 1.5)
+
+    def _draw_normalize_toggle(self, rect: Rect, enabled: bool, *, has_gain: bool) -> None:
+        if enabled and has_gain:
+            bg = self.theme.accent
+            label_color = (255, 255, 255)
+        elif enabled:
+            bg = self.theme.surface_alt
+            label_color = self.theme.muted
+        else:
+            bg = self.theme.surface
+            label_color = self.theme.muted
+        pygame.draw.rect(self.screen, bg, rect.pygame_rect, border_radius=8)
+        if not enabled:
+            pygame.draw.rect(self.screen, self.theme.muted, rect.pygame_rect, width=1, border_radius=8)
+        label = self.font_sm.render("Norm", True, label_color)
+        lx = rect.x + (rect.w - label.get_width()) // 2
+        ly = rect.y + (rect.h - label.get_height()) // 2
+        self.screen.blit(label, (lx, ly))
+
     def _toggle_favorites(self) -> None:
         if not self.detail_patch:
             return
@@ -1338,6 +1390,11 @@ class TouchPatchBrowser:
         self.screen.blit(cat, (self.main_rect.x + 24, self.main_rect.y + 68))
 
         self._draw_mixer_strip()
+        self._draw_normalize_toggle(
+            self.normalize_btn,
+            self._normalization_enabled_for_detail(),
+            has_gain=self._normalization_has_gain(),
+        )
         self._draw_heart_icon(self.favorites_btn, self._patch_is_favorited(self.detail_patch))
 
     def _draw_browser(self) -> None:
@@ -1483,6 +1540,10 @@ class TouchPatchBrowser:
     def _handle_browser_tap(self, pos: tuple[int, int]) -> None:
         if self.system_settings_btn.contains(*pos):
             self.screen_state = Screen.SETTINGS
+            return
+
+        if self.detail_patch and self.normalize_btn.contains(*pos):
+            self._toggle_normalization()
             return
 
         if self.detail_patch and self.favorites_btn.contains(*pos):
