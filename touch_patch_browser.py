@@ -39,6 +39,7 @@ from patch_browser.patch_scanner import (
     favorites_display_name,
 )
 from patch_browser.surge_monitor import SurgeMonitor
+from patch_browser.surge_cpu_monitor import SurgeCpuMonitor
 
 TAP_MOVE_THRESHOLD_PX = 14
 VOLUME_STATE_FILE = Path.home() / ".patch_browser_volume.json"
@@ -66,6 +67,9 @@ MIXER_DOUBLE_TAP_MS = 400
 MIXER_DRAG_THRESHOLD_PX = 10
 DEFAULT_VOLUME = 1.0
 DEFAULT_BRIGHTNESS_PERCENT = 100
+CPU_METER_W = 76
+CPU_METER_H = 32
+CPU_METER_BAR_H = 8
 
 
 class Screen(Enum):
@@ -465,6 +469,8 @@ class TouchPatchBrowser:
         self.scanner = PatchScanner(SURGE_PATCH_DIRS)
         self.loader = PatchLoader()
         self.surge_monitor = SurgeMonitor()
+        self.cpu_monitor = SurgeCpuMonitor(self.surge_monitor)
+        self.cpu_monitor.start()
 
         self.categories: list[str] = []
         self.browse_folder_index = 0
@@ -626,6 +632,12 @@ class TouchPatchBrowser:
 
         self.status_rect = Rect(margin, margin, self.width - margin * 2, status_h)
         self.system_settings_btn = Rect(self.status_rect.right - 44, self.status_rect.y + 6, 36, 32)
+        self.cpu_meter_rect = Rect(
+            self.system_settings_btn.x - CPU_METER_W - 8,
+            self.status_rect.y + 6,
+            CPU_METER_W,
+            CPU_METER_H,
+        )
 
         content_top = self.status_rect.y + self.status_rect.h + gap
         content_bottom = self.height - footer_h - margin
@@ -1346,6 +1358,39 @@ class TouchPatchBrowser:
         text = self.font_sm.render(label, True, self.theme.muted)
         self.screen.blit(text, (rect.x, rect.y - 22))
 
+    def _cpu_meter_color(self, percent: float) -> tuple[int, int, int]:
+        if percent < 40.0:
+            return self.theme.ok
+        if percent < 75.0:
+            return self.theme.playing
+        return self.theme.danger
+
+    def _draw_cpu_meter(self, rect: Rect) -> None:
+        snap = self.cpu_monitor.snapshot()
+        label = self.font_sm.render("CPU", True, self.theme.muted)
+        self.screen.blit(label, (rect.x, rect.y))
+
+        bar_y = rect.y + label.get_height() + 2
+        bar_rect = pygame.Rect(rect.x, bar_y, rect.w, CPU_METER_BAR_H)
+        pygame.draw.rect(self.screen, self.theme.surface_alt, bar_rect, border_radius=4)
+
+        if not snap["online"] or snap["percent"] is None:
+            dash = self.font_sm.render("—", True, self.theme.muted)
+            self.screen.blit(dash, (rect.right - dash.get_width(), rect.y))
+            return
+
+        percent = max(0.0, min(100.0, float(snap["percent"])))
+        fill_w = max(1, int(bar_rect.w * (percent / 100.0)))
+        fill_rect = pygame.Rect(bar_rect.x, bar_rect.y, fill_w, bar_rect.h)
+        pygame.draw.rect(
+            self.screen,
+            self._cpu_meter_color(percent),
+            fill_rect,
+            border_radius=4,
+        )
+        value = self.font_sm.render(f"{round(percent)}%", True, self.theme.text)
+        self.screen.blit(value, (rect.right - value.get_width(), rect.y))
+
     def _draw_status_bar(self) -> None:
         pygame.draw.rect(self.screen, self.theme.surface, self.status_rect.pygame_rect, border_radius=10)
         if self.loaded_patch_info:
@@ -1363,6 +1408,7 @@ class TouchPatchBrowser:
             self.font_sm.render(subtitle, True, self.theme.muted),
             (self.status_rect.x + 12, self.status_rect.y + 26),
         )
+        self._draw_cpu_meter(self.cpu_meter_rect)
         self._draw_button(self.system_settings_btn, "...", small=True, muted=True)
 
     def _draw_left_nav_collapsed(self) -> None:
@@ -1774,6 +1820,7 @@ class TouchPatchBrowser:
 
         if self._evdev_bridge is not None:
             self._evdev_bridge.stop()
+        self.cpu_monitor.stop()
         pygame.quit()
 
 
