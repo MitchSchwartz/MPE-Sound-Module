@@ -49,11 +49,19 @@ fi
 echo "$(date): USB devices at startup:" >> "$LOG_FILE"
 lsusb 2>&1 | grep -i "midi\|roli\|seaboard" >> "$LOG_FILE" || echo "  No USB MIDI devices found" >> "$LOG_FILE"
 
+# Drop idle ALSA loopback from calibration (extra PCM/timer overhead on the Pi).
+# shellcheck source=lib/unload-snd-aloop.sh
+source "$SCRIPT_DIR/lib/unload-snd-aloop.sh"
+
+SURGE_BUFFER_SIZE="${MPE_SURGE_BUFFER_SIZE:-1024}"
+echo "$(date): ALSA buffer size: $SURGE_BUFFER_SIZE samples" >> "$LOG_FILE"
+
 "$SURGE_CLI" \
   --all-midi-inputs \
   --mpe-enable \
   --mpe-pitch-bend-range=48 \
   --audio-interface="$AUDIO_DEVICE" \
+  --buffer-size="$SURGE_BUFFER_SIZE" \
   --osc-in-port=53280 \
   --no-stdin \
   >> "$LOG_FILE" 2>&1 &

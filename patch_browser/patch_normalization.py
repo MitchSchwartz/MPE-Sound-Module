@@ -16,6 +16,14 @@ TARGET_LUFS = -18.0
 # Sound-engineer spec: normalize close to 0 with headroom, not open-ended LUFS boost.
 SAFE_PEAK_DBTP = -3.0
 
+# Surge OSC /param/*/amp/volume ceiling — matches touch browser VOLUME_MAX (1.5).
+MAX_AMP_VOLUME_LINEAR = 1.5
+
+# Lower runtime cap when per-patch normalization is active. Heavy MPE polyphony on the Pi
+# xruns before clip: boosted amp gain raises per-voice CPU and earlier buffer stress.
+# Tradeoff: normalized patches run quieter; user trim can compensate for solo playing.
+NORM_MAX_AMP_VOLUME_LINEAR = 0.85
+
 
 def default_normalization_path() -> Path:
     """Resolve normalization JSON path (env override, then user state file)."""
