@@ -31,14 +31,14 @@ except ImportError as exc:
 
 from patch_browser.backlight import BacklightController
 from patch_browser.touch_evdev import TouchEvdevBridge, evdev_bridge_enabled
-from patch_browser_ui import (
+from patch_browser.patch_loader import PatchLoader
+from patch_browser.patch_scanner import (
     FAVORITES_NAME,
-    PatchLoader,
     PatchScanner,
     SURGE_PATCH_DIRS,
-    SurgeMonitor,
     favorites_display_name,
 )
+from patch_browser.surge_monitor import SurgeMonitor
 
 TAP_MOVE_THRESHOLD_PX = 14
 VOLUME_STATE_FILE = Path.home() / ".patch_browser_volume.json"
