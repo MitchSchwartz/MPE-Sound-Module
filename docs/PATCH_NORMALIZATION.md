@@ -75,6 +75,8 @@ Static or crackle under **many held keys** is usually **ALSA buffer underrun (xr
 
 If crackle persists with Norm off and moderate polyphony, try `MPE_SURGE_BUFFER_SIZE=2048` in `/etc/mpe/mpe.env` and restart `surge-xt-cli`. Tradeoff: higher latency.
 
+**Live diagnosis:** the touch browser header **CPU** meter (see [`TOUCH_PATCH_BROWSER.md`](TOUCH_PATCH_BROWSER.md)) tracks `surge-xt-cli` process load while you play — use it to see when dense polyphony is pushing the Pi toward xrun territory. Norm on should keep typical Quick Select patches lower on that meter than uncapped gain would.
+
 **Quick Select reference (2026-07-30):** calibrated `gain_db` spans about +4 to +18 dB. Without a runtime cap that would map to **~1.6–8.0** linear OSC — too hot for dense MPE on the Pi. With Norm on, combined amp/volume is capped at **0.85** linear.
 
 ## Calibration script
