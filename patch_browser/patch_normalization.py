@@ -60,6 +60,27 @@ def compute_gain_db(
     return min(lufs_gain, peak_gain)
 
 
+def _read_json_dict(path: Path) -> dict[str, Any]:
+    try:
+        raw = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError) as exc:
+        print(f"Warning: could not load normalization file {path}: {exc}")
+        return {}
+    return raw if isinstance(raw, dict) else {}
+
+
+def _merge_patch_entry(
+    base: dict[str, Any] | None,
+    overlay: dict[str, Any],
+) -> dict[str, Any]:
+    """Field-wise merge so user toggles do not drop calibration fields."""
+    if not isinstance(base, dict):
+        return dict(overlay)
+    merged = dict(base)
+    merged.update(overlay)
+    return merged
+
+
 class PatchNormalizationStore:
     """Load/save patch_normalization.json keyed by patch name (stem)."""
 
@@ -69,18 +90,21 @@ class PatchNormalizationStore:
         self.load()
 
     def load(self) -> None:
-        for candidate in (self.path, repo_starter_path()):
-            if not candidate.exists():
-                continue
-            try:
-                raw = json.loads(candidate.read_text())
-            except (OSError, json.JSONDecodeError) as exc:
-                print(f"Warning: could not load normalization file {candidate}: {exc}")
-                continue
-            if isinstance(raw, dict):
-                self._data = raw
-                return
-        self._data = {}
+        """Load repo starter, then overlay user state so toggles keep calibration."""
+        merged: dict[str, dict[str, Any]] = {}
+
+        starter = repo_starter_path()
+        if starter.exists():
+            for key, entry in _read_json_dict(starter).items():
+                if isinstance(entry, dict):
+                    merged[key] = dict(entry)
+
+        if self.path.exists():
+            for key, entry in _read_json_dict(self.path).items():
+                if isinstance(entry, dict):
+                    merged[key] = _merge_patch_entry(merged.get(key), entry)
+
+        self._data = merged
 
     def save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -95,28 +119,26 @@ class PatchNormalizationStore:
         return entry if isinstance(entry, dict) else None
 
     def is_enabled(self, patch_name: str) -> bool:
-        """Whether normalization is enabled for this patch (default True)."""
+        """Whether normalization is enabled for this patch (default True when no entry)."""
         entry = self.get_entry(patch_name)
-        if not entry:
+        if entry is None:
             return True
-        return bool(entry.get("enabled", True))
+        if "enabled" not in entry:
+            return True
+        return bool(entry["enabled"])
 
     def set_enabled(self, patch_name: str, enabled: bool) -> None:
         """Persist per-patch normalization on/off (issue #5 UI toggle)."""
         key = self.patch_key(patch_name)
         entry = self._data.get(key)
-        if entry is None:
-            if not enabled:
-                self._data[key] = {"enabled": False}
-        elif isinstance(entry, dict):
+        if isinstance(entry, dict):
             entry["enabled"] = enabled
         else:
             self._data[key] = {"enabled": enabled}
         self.save()
 
-    def get_gain_db(self, patch_name: str) -> float | None:
-        if not self.is_enabled(patch_name):
-            return None
+    def get_raw_gain_db(self, patch_name: str) -> float | None:
+        """Calibration gain for a patch, ignoring the enabled flag."""
         entry = self.get_entry(patch_name)
         if not entry:
             return None
@@ -124,6 +146,11 @@ class PatchNormalizationStore:
         if gain is None:
             return None
         return float(gain)
+
+    def get_gain_db(self, patch_name: str) -> float | None:
+        if not self.is_enabled(patch_name):
+            return None
+        return self.get_raw_gain_db(patch_name)
 
     def get_gain_linear(self, patch_name: str) -> float:
         gain_db = self.get_gain_db(patch_name)
@@ -137,14 +164,23 @@ class PatchNormalizationStore:
         gain_db: float,
         lufs_measured: float,
         *,
-        enabled: bool = True,
+        enabled: bool | None = None,
         calibrated_at: str | None = None,
         true_peak_dbtp: float | None = None,
     ) -> None:
         key = self.patch_key(patch_name)
+        existing = self.get_entry(patch_name)
+        if enabled is None:
+            if existing is None or "enabled" not in existing:
+                enabled_value: bool = True
+            else:
+                enabled_value = bool(existing["enabled"])
+        else:
+            enabled_value = enabled
+
         entry: dict[str, Any] = {
             "gain_db": round(float(gain_db), 3),
-            "enabled": enabled,
+            "enabled": enabled_value,
             "lufs_measured": round(float(lufs_measured), 2),
             "calibrated_at": calibrated_at or datetime.now(timezone.utc).isoformat(),
         }
