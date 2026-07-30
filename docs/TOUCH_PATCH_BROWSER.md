@@ -14,7 +14,7 @@ Run **on the Pi** after flashing Trixie Lite, cloning the repo, and building Sur
 
 ```bash
 cd ~/MPE-Module
-git checkout feature/touch-patch-browser-ui   # until merged to main
+git pull origin main
 cp config/mpe.env.example config/mpe.env
 echo 'MPE_UI_MODE=touch' >> config/mpe.env
 ./scripts/setup-touch-pi.sh
@@ -50,7 +50,7 @@ Interaction model:
 | **Up** | Switch left nav to folder list | Does not load anything |
 | **Current** | When browsing another folder — jump to loaded patch's folder + patch list | |
 | **< collapse** | Nav hides; `>` tab remains to expand | Main detail gets full width |
-| **Main (right)** | Selected patch: vertical fader strip (Vol + future params) | No back button — list is always on the left |
+| **Main (right)** | Selected patch: **Vol** fader + **Norm.** toggle | No back button — list is always on the left |
 
 ## Hardware
 
@@ -166,9 +166,20 @@ The patch detail pane uses a **vertical fader strip** (mixing-board style) inste
 
 Brightness in **System settings** still uses a horizontal slider (one-off control, not live mixing).
 
+## Touch input (evdev)
+
+Scroll and tap use a **Linux evdev bridge** (`patch_browser/touch_evdev.py`) that reads the panel's `/dev/input/event*` device directly and forwards `SYN_REPORT` to pygame. SDL's synthetic touch events were unreliable on the SmartiPi stack (missed drags, scroll fighting fader grabs). Drag thresholds on list scroll vs mixer fader are tuned separately.
+
+Set `MPE_TOUCH_EVDEV=0` to fall back to SDL-only input (debugging).
+
+## Per-patch normalization
+
+- **Norm.** — label-left / checkbox-right on the patch detail pane; persists per patch stem in `~/.patch_browser_normalization.json` (calibration data kept when toggling off).
+- **Calibrate Quick Select** — System settings (⋯) → confirm → stops the browser, runs `calibrate-with-loader.sh`, restarts Surge + browser. See **[PATCH_NORMALIZATION.md](PATCH_NORMALIZATION.md)**.
+
 ## Known gaps (v0)
 
-- Surge error screen is toast-only; **Restart Surge** in System settings when the service is down
 - Search/filter across 3000+ patches not implemented (scroll lists first)
 - Portrait panels are unsupported for this rig (yours is landscape)
 - Boot/shutdown animations still target the 1.3" OLED service
+- Very large patches (e.g. **Bowed String**, ~8 MB) may need a calibration retry — use `--patch "Bowed String"` or re-run loader with `--force`
