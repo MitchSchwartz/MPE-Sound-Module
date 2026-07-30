@@ -9,7 +9,9 @@ Default layout target: 800×480 landscape — most common 5" panel size.
 from __future__ import annotations
 
 import json
+import math
 import os
+import queue
 import signal
 import subprocess
 import sys
@@ -28,6 +30,7 @@ except ImportError as exc:
     raise SystemExit(1) from exc
 
 from patch_browser.backlight import BacklightController
+from patch_browser.touch_evdev import TouchEvdevBridge, evdev_bridge_enabled
 from patch_browser_ui import (
     FAVORITES_NAME,
     PatchLoader,
@@ -48,6 +51,18 @@ FADER_TRACK_W = 10
 FADER_HANDLE_W = 46
 FADER_HANDLE_H = 24
 FADER_TRACK_H = 168
+NAV_FOLDER_TITLE_H = 34
+SCROLL_DRAG_THRESHOLD_PX = 10
+SCROLL_DRAG_THRESHOLD_CATCH_PX = 5  # lower bar when finger lands during momentum coast
+SCROLL_VELOCITY_DRAG_PX_S = 220.0  # skip distance threshold when finger is already moving
+SCROLL_FRICTION = 2.8  # lower = longer coast (1/s)
+SCROLL_MIN_VELOCITY = 12.0  # px/s
+SCROLL_VELOCITY_CAP = 3200.0
+SCROLL_SAMPLE_WINDOW_S = 0.12
+MIXER_DOUBLE_TAP_MS = 400
+MIXER_DRAG_THRESHOLD_PX = 10
+DEFAULT_VOLUME = 1.0
+DEFAULT_BRIGHTNESS_PERCENT = 100
 
 
 class Screen(Enum):
@@ -83,6 +98,30 @@ class Rect:
     h: int
 
     @property
+    def left(self) -> int:
+        return self.x
+
+    @property
+    def top(self) -> int:
+        return self.y
+
+    @property
+    def right(self) -> int:
+        return self.x + self.w
+
+    @property
+    def bottom(self) -> int:
+        return self.y + self.h
+
+    @property
+    def centerx(self) -> int:
+        return self.x + self.w // 2
+
+    @property
+    def centery(self) -> int:
+        return self.y + self.h // 2
+
+    @property
     def pygame_rect(self) -> pygame.Rect:
         return pygame.Rect(self.x, self.y, self.w, self.h)
 
@@ -91,7 +130,7 @@ class Rect:
 
 
 class ScrollList:
-    """Touch-scrollable list with tap vs scroll discrimination."""
+    """Touch-scrollable list with tap vs scroll discrimination and inertial momentum."""
 
     def __init__(self, rect: Rect, row_height: int = 56, padding: int = 8):
         self.rect = rect
@@ -101,21 +140,206 @@ class ScrollList:
         self.highlight_index: int | None = None
         self.loaded_marker_index: int | None = None
         self.scroll_offset = 0
+        self._scroll_pixels = 0.0
         self._drag_start_y: int | None = None
-        self._drag_scroll_start = 0
+        self._drag_scroll_pixels_start = 0.0
         self._pointer_down_pos: tuple[int, int] | None = None
         self._pointer_scrolled = False
+        self._velocity = 0.0
+        self._momentum_active = False
+        self._last_motion_y: int | None = None
+        self._last_motion_time = 0.0
+        self._drag_start_time = 0.0
+        self._scroll_samples: list[tuple[float, float]] = []
+        self._pending_tap_index: int | None = None
+        self._was_momentum_on_down = False
+
+    def take_tap_index(self) -> int | None:
+        idx = self._pending_tap_index
+        self._pending_tap_index = None
+        return idx
+
+    def is_interacting(self) -> bool:
+        return self._drag_start_y is not None or self._momentum_active
+
+    def is_dragging(self) -> bool:
+        return self._drag_start_y is not None
+
+    def pointer_down(self, pos: tuple[int, int]) -> bool:
+        """Begin tracking if touch is inside the list."""
+        if not self.rect.contains(*pos):
+            return False
+        was_momentum = self._momentum_active
+        self.stop_momentum()
+        self._clear_pointer()
+        self._was_momentum_on_down = was_momentum
+        self._pointer_down_pos = pos
+        self._drag_start_y = pos[1]
+        self._drag_scroll_pixels_start = self._scroll_pixels
+        self._last_motion_y = pos[1]
+        now = time.time()
+        self._last_motion_time = now
+        self._drag_start_time = now
+        self._scroll_samples = [(now, self._scroll_pixels)]
+        return True
+
+    def pointer_move(self, pos: tuple[int, int]) -> bool:
+        if self._drag_start_y is None:
+            return False
+        if not self._pointer_scrolled:
+            move = self._pointer_move_distance(pos)
+            threshold = (
+                SCROLL_DRAG_THRESHOLD_CATCH_PX
+                if self._was_momentum_on_down
+                else SCROLL_DRAG_THRESHOLD_PX
+            )
+            now = time.time()
+            velocity_bypass = False
+            if self._last_motion_y is not None:
+                motion_dt = now - self._last_motion_time
+                if motion_dt > 0:
+                    instant_v = abs(pos[1] - self._last_motion_y) / motion_dt
+                    if instant_v >= SCROLL_VELOCITY_DRAG_PX_S:
+                        velocity_bypass = True
+            down_dt = now - self._drag_start_time
+            if down_dt > 0.008:
+                avg_v = abs(pos[1] - self._drag_start_y) / down_dt
+                if avg_v >= SCROLL_VELOCITY_DRAG_PX_S:
+                    velocity_bypass = True
+            if move <= threshold and not velocity_bypass:
+                return True
+            self._pointer_scrolled = True
+
+        delta = pos[1] - self._drag_start_y
+        self._scroll_pixels = self._drag_scroll_pixels_start - float(delta)
+        self._clamp_scroll()
+        self._record_scroll_sample()
+
+        now = time.time()
+        if self._last_motion_y is not None:
+            motion_dt = now - self._last_motion_time
+            if motion_dt > 0:
+                instant_v = -(pos[1] - self._last_motion_y) / motion_dt
+                self._velocity = max(
+                    -SCROLL_VELOCITY_CAP,
+                    min(
+                        SCROLL_VELOCITY_CAP,
+                        self._velocity * 0.55 + instant_v * 0.45,
+                    ),
+                )
+        self._last_motion_y = pos[1]
+        self._last_motion_time = now
+        return True
+
+    def pointer_up(self, pos: tuple[int, int]) -> int | None:
+        """End gesture; return tapped row index or None if scroll/miss."""
+        self._pending_tap_index = None
+        if self._drag_start_y is None and self._pointer_down_pos is None:
+            return None
+
+        if self._drag_start_y is not None:
+            release_v = self._release_velocity()
+            if self._pointer_scrolled and abs(release_v) >= SCROLL_MIN_VELOCITY:
+                self._velocity = release_v
+                self._momentum_active = True
+            else:
+                self.stop_momentum()
+            self._drag_start_y = None
+            self._last_motion_y = None
+
+        if self._momentum_active:
+            self._clear_pointer()
+            return None
+        if self._pointer_down_pos is None:
+            return None
+        if self._pointer_scrolled:
+            self._clear_pointer()
+            return None
+        if not self.rect.contains(*self._pointer_down_pos):
+            self._clear_pointer()
+            return None
+        index = self.item_at(*self._pointer_down_pos)
+        self._pending_tap_index = index
+        self._clear_pointer()
+        return index
 
     def set_items(
         self,
         items: list[str],
         highlight_index: int | None = None,
         loaded_marker_index: int | None = None,
+        *,
+        preserve_scroll: bool = True,
     ) -> None:
         self.items = items
         self.highlight_index = highlight_index
         self.loaded_marker_index = loaded_marker_index
+        if preserve_scroll:
+            self._scroll_pixels = max(0.0, min(self._scroll_pixels, self._max_scroll_pixels()))
+            self._sync_scroll_offset()
+        else:
+            self._scroll_pixels = 0.0
+            self.stop_momentum()
+            self._sync_scroll_offset()
+
+    def stop_momentum(self) -> None:
+        self._velocity = 0.0
+        self._momentum_active = False
+
+    def _pointer_move_distance(self, pos: tuple[int, int]) -> float:
+        if self._pointer_down_pos is None:
+            return 0.0
+        dx = pos[0] - self._pointer_down_pos[0]
+        dy = pos[1] - self._pointer_down_pos[1]
+        return (dx * dx + dy * dy) ** 0.5
+
+    def _clear_pointer(self) -> None:
+        self._pointer_down_pos = None
+        self._pointer_scrolled = False
+        self._drag_start_y = None
+        self._last_motion_y = None
+        self._was_momentum_on_down = False
+        self._scroll_samples.clear()
+
+    def _record_scroll_sample(self) -> None:
+        now = time.time()
+        self._scroll_samples.append((now, self._scroll_pixels))
+        cutoff = now - SCROLL_SAMPLE_WINDOW_S
+        self._scroll_samples = [(t, s) for t, s in self._scroll_samples if t >= cutoff]
+
+    def _release_velocity(self) -> float:
+        now = time.time()
+        self._record_scroll_sample()
+        if len(self._scroll_samples) >= 2:
+            t0, s0 = self._scroll_samples[0]
+            t1, s1 = self._scroll_samples[-1]
+            dt = t1 - t0
+            if dt > 0.008:
+                return max(
+                    -SCROLL_VELOCITY_CAP,
+                    min(SCROLL_VELOCITY_CAP, (s1 - s0) / dt),
+                )
+        return self._velocity
+
+    def tick(self, dt: float) -> bool:
+        """Advance inertial scroll. Returns True if scroll position changed."""
+        if not self._momentum_active:
+            return False
+        dt = max(dt, 1.0 / 120.0)
+
+        before = self._scroll_pixels
+        self._scroll_pixels += self._velocity * dt
         self._clamp_scroll()
+
+        if self._scroll_pixels != before and (
+            self._scroll_pixels <= 0.0 or self._scroll_pixels >= self._max_scroll_pixels()
+        ):
+            self._velocity *= 0.35
+
+        self._velocity *= math.exp(-SCROLL_FRICTION * dt)
+        if abs(self._velocity) < SCROLL_MIN_VELOCITY:
+            self.stop_momentum()
+        return self._scroll_pixels != before or self._momentum_active
 
     def visible_count(self) -> int:
         inner_h = self.rect.h - self.padding * 2
@@ -124,16 +348,26 @@ class ScrollList:
     def _max_scroll(self) -> int:
         return max(0, len(self.items) - self.visible_count())
 
+    def _max_scroll_pixels(self) -> float:
+        return float(self._max_scroll() * self.row_height)
+
+    def _sync_scroll_offset(self) -> None:
+        maximum = self._max_scroll()
+        row = int(self._scroll_pixels // self.row_height)
+        self.scroll_offset = max(0, min(maximum, row))
+
     def _clamp_scroll(self) -> None:
-        self.scroll_offset = max(0, min(self.scroll_offset, self._max_scroll()))
+        max_pixels = self._max_scroll_pixels()
+        self._scroll_pixels = max(0.0, min(self._scroll_pixels, max_pixels))
+        self._sync_scroll_offset()
 
     def item_at(self, px: int, py: int) -> int | None:
         if not self.rect.contains(px, py) or not self.items:
             return None
-        local_y = py - self.rect.y - self.padding + self.scroll_offset * self.row_height
-        index = local_y // self.row_height
+        local_y = py - self.rect.y - self.padding + self._scroll_pixels
+        index = int(local_y // self.row_height)
         if 0 <= index < len(self.items):
-            return int(index)
+            return index
         return None
 
     def scroll_to_index(self, index: int) -> None:
@@ -145,61 +379,42 @@ class ScrollList:
             self.scroll_offset = index
         elif index >= self.scroll_offset + visible:
             self.scroll_offset = index - visible + 1
+        self._scroll_pixels = float(self.scroll_offset * self.row_height)
+        self.stop_momentum()
         self._clamp_scroll()
 
     def handle_event(self, event: pygame.event.Event) -> bool:
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-            if self.rect.contains(*event.pos):
-                self._pointer_down_pos = event.pos
-                self._pointer_scrolled = False
-                self._drag_start_y = event.pos[1]
-                self._drag_scroll_start = self.scroll_offset
-                return True
-        elif event.type == pygame.MOUSEMOTION and self._drag_start_y is not None:
-            if self._pointer_down_pos:
-                dx = event.pos[0] - self._pointer_down_pos[0]
-                dy = event.pos[1] - self._pointer_down_pos[1]
-                if (dx * dx + dy * dy) ** 0.5 > TAP_MOVE_THRESHOLD_PX:
-                    self._pointer_scrolled = True
-            delta = event.pos[1] - self._drag_start_y
-            if delta != 0:
-                self._pointer_scrolled = True
-            self.scroll_offset = self._drag_scroll_start - delta // self.row_height
-            self._clamp_scroll()
+            return self.pointer_down(event.pos)
+        if event.type == pygame.MOUSEMOTION:
+            return self.pointer_move(event.pos)
+        if event.type == pygame.MOUSEBUTTONUP and event.button == 1:
+            # Mouse path only — caller runs consume_tap separately.
+            if self._drag_start_y is None and self._pointer_down_pos is None:
+                return False
+            self.pointer_up(event.pos)
             return True
-        elif event.type == pygame.MOUSEBUTTONUP and event.button == 1:
-            if self._drag_start_y is not None:
-                self._drag_start_y = None
-                return True
-        elif event.type == pygame.MOUSEWHEEL:
+        if event.type == pygame.MOUSEWHEEL:
             if self.rect.contains(*pygame.mouse.get_pos()):
-                self.scroll_offset -= event.y
+                self.stop_momentum()
+                self._scroll_pixels -= event.y * self.row_height
                 self._clamp_scroll()
                 return True
         return False
-
-    def consume_tap(self, pos: tuple[int, int]) -> int | None:
-        """Select on finger-up; ignore swipes. Row comes from finger-down position."""
-        if self._pointer_down_pos is None or self._pointer_scrolled:
-            self._pointer_down_pos = None
-            self._pointer_scrolled = False
-            return None
-        if not self.rect.contains(*self._pointer_down_pos):
-            self._pointer_down_pos = None
-            return None
-        index = self.item_at(*self._pointer_down_pos)
-        self._pointer_down_pos = None
-        self._pointer_scrolled = False
-        return index
 
     def draw(self, surface: pygame.Surface, font: pygame.font.Font, theme: Theme) -> None:
         pygame.draw.rect(surface, theme.surface, self.rect.pygame_rect, border_radius=10)
         clip = surface.get_clip()
         surface.set_clip(self.rect.pygame_rect)
 
-        start = self.scroll_offset
-        end = min(len(self.items), start + self.visible_count() + 1)
-        y = self.rect.y + self.padding
+        if not self.items:
+            surface.set_clip(clip)
+            return
+
+        start = int(self._scroll_pixels // self.row_height)
+        sub_pixel = self._scroll_pixels - start * self.row_height
+        end = min(len(self.items), start + self.visible_count() + 3)
+        y = self.rect.y + self.padding - int(sub_pixel)
 
         for index in range(start, end):
             label = self.items[index]
@@ -244,7 +459,7 @@ class TouchPatchBrowser:
         if windowed:
             self.screen = pygame.display.set_mode((800, 480))
         else:
-            self.screen = pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
+            self.screen = pygame.display.set_mode((800, 480), pygame.FULLSCREEN)
         self.width, self.height = self.screen.get_size()
         pygame.mouse.set_visible(False)
         self.theme = Theme()
@@ -267,6 +482,7 @@ class TouchPatchBrowser:
         self.left_nav_mode = LeftNavMode.PATCHES
         self.left_nav_collapsed = False
         self.screen_state = Screen.BROWSER
+        self.nav_folder_title_rect: Rect | None = None
 
         self.volume_level = self._load_volume_level()
         self.brightness_percent = self.backlight.get_percent()
@@ -275,6 +491,13 @@ class TouchPatchBrowser:
         self.power_action: str | None = None
         self._slider_dragging = False
         self._dragging_mixer_id: str | None = None
+        self._mixer_levels: dict[str, float] = {}
+        self._mixer_last_tap_id: str | None = None
+        self._mixer_last_tap_time = 0.0
+        self._mixer_drag_origin: tuple[int, int] | None = None
+        self._mixer_drag_moved = False
+        self._brightness_last_tap_time = 0.0
+        self._brightness_drag_moved = False
         self.mixer_channels: list[MixerChannel] = []
         self._scan_dirty = False
         self._pending_last_patch: dict | None = None
@@ -282,11 +505,92 @@ class TouchPatchBrowser:
         self._surge_restart_btn: Rect | None = None
         self._running = True
         self._scan_lock = threading.Lock()
+        self._evdev_touch_queue: queue.SimpleQueue[tuple[str, tuple[int, int]]] = queue.SimpleQueue()
+        self._evdev_bridge: TouchEvdevBridge | None = None
+        self._touch_list_capture = False
 
         self._layout()
         self._bootstrap_patches()
         self._start_background_scan()
         self._wait_for_initial_scan()
+        self._start_evdev_touch_bridge()
+
+    def _start_evdev_touch_bridge(self) -> None:
+        if not evdev_bridge_enabled():
+            return
+
+        def enqueue(kind: str, pos: tuple[int, int]) -> None:
+            self._evdev_touch_queue.put((kind, pos))
+
+        bridge = TouchEvdevBridge(
+            self.width,
+            self.height,
+            on_down=lambda pos: enqueue("down", pos),
+            on_up=lambda pos: enqueue("up", pos),
+            on_motion=lambda pos: enqueue("motion", pos),
+        )
+        if bridge.start():
+            self._evdev_bridge = bridge
+
+    def _drain_evdev_touch_queue(self) -> None:
+        while True:
+            try:
+                kind, pos = self._evdev_touch_queue.get_nowait()
+            except queue.Empty:
+                break
+            if self.screen_state == Screen.BROWSER:
+                self._handle_evdev_browser_touch(kind, pos)
+            else:
+                self._inject_evdev_pointer_event(kind, pos)
+
+    def _inject_evdev_pointer_event(self, kind: str, pos: tuple[int, int]) -> None:
+        if kind == "down":
+            event = pygame.event.Event(pygame.MOUSEBUTTONDOWN, {"pos": pos, "button": 1})
+        elif kind == "up":
+            event = pygame.event.Event(pygame.MOUSEBUTTONUP, {"pos": pos, "button": 1})
+        else:
+            event = pygame.event.Event(
+                pygame.MOUSEMOTION,
+                {"pos": pos, "rel": (0, 0), "buttons": (1, 0, 0)},
+            )
+        self._handle_event(event)
+
+    def _handle_evdev_browser_touch(self, kind: str, pos: tuple[int, int]) -> None:
+        if kind == "down":
+            self._touch_list_capture = False
+            if not self.left_nav_collapsed and self.nav_list.pointer_down(pos):
+                self._touch_list_capture = True
+            else:
+                self._handle_mixer_down(pos)
+        elif kind == "motion":
+            if self._touch_list_capture or self.nav_list.is_dragging():
+                self.nav_list.pointer_move(pos)
+            else:
+                self._handle_mixer_motion(pos)
+        elif kind == "up":
+            was_mixer = self._dragging_mixer_id is not None
+            if was_mixer and self._mixer_drag_moved:
+                self._mixer_last_tap_id = None
+            self._dragging_mixer_id = None
+            self._mixer_drag_origin = None
+            self._mixer_drag_moved = False
+
+            list_gesture = self._touch_list_capture or self.nav_list.is_dragging()
+            if not self.left_nav_collapsed and list_gesture:
+                idx = self.nav_list.pointer_up(pos)
+                if idx is not None:
+                    self._select_nav_index(idx)
+            elif not was_mixer:
+                self._handle_browser_tap(pos)
+            self._touch_list_capture = False
+
+    def _select_nav_index(self, idx: int) -> None:
+        if self.left_nav_mode == LeftNavMode.FOLDERS:
+            self._enter_folder(idx)
+        else:
+            patches = self._patches_in_browse_folder()
+            if idx < len(patches):
+                self._select_patch(patches[idx])
 
     def _load_font(self, size: int) -> pygame.font.Font:
         for name in ("dejavusans", "dejavusansmono", "liberationsans", "arial"):
@@ -338,16 +642,18 @@ class TouchPatchBrowser:
         self.left_panel_rect = Rect(margin, content_top, left_w, content_bottom - content_top)
         self.nav_toggle_btn = Rect(margin, content_top, left_w, content_bottom - content_top)
         self.nav_header_rect = Rect(margin, content_top, LEFT_NAV_WIDTH, nav_header_h)
-        list_top = content_top + nav_header_h + 4
-        self.nav_list = ScrollList(
-            Rect(margin, list_top, LEFT_NAV_WIDTH, content_bottom - list_top),
-            row_height=50 if self.left_nav_mode == LeftNavMode.PATCHES else 44,
-        )
+        self._update_nav_list_geometry(content_top, content_bottom, nav_header_h, margin)
 
         main_x = margin + left_w + gap
         main_w = self.width - margin * 2 - left_w - gap
         self.main_rect = Rect(main_x, content_top, main_w, content_bottom - content_top)
         self._layout_mixer_strip()
+        self.favorites_btn = Rect(
+            self.main_rect.right - 56,
+            self.main_rect.bottom - 52,
+            40,
+            40,
+        )
 
         self._layout_nav_buttons()
 
@@ -366,12 +672,50 @@ class TouchPatchBrowser:
             36,
         )
 
+    def _update_nav_list_geometry(
+        self,
+        content_top: int | None = None,
+        content_bottom: int | None = None,
+        nav_header_h: int = 36,
+        margin: int = 16,
+    ) -> None:
+        if content_top is None:
+            gap = 10
+            footer_h = 22
+            content_top = self.status_rect.y + self.status_rect.h + gap
+            content_bottom = self.height - footer_h - margin
+
+        show_folder_title = (
+            not self.left_nav_collapsed and self.left_nav_mode == LeftNavMode.PATCHES
+        )
+        folder_title_h = NAV_FOLDER_TITLE_H if show_folder_title else 0
+        list_top = content_top + nav_header_h + 4 + folder_title_h
+
+        if show_folder_title:
+            self.nav_folder_title_rect = Rect(
+                margin,
+                content_top + nav_header_h + 4,
+                LEFT_NAV_WIDTH,
+                folder_title_h,
+            )
+        else:
+            self.nav_folder_title_rect = None
+
+        list_rect = Rect(margin, list_top, LEFT_NAV_WIDTH, content_bottom - list_top)
+        row_height = 50 if self.left_nav_mode == LeftNavMode.PATCHES else 44
+        if not hasattr(self, "nav_list"):
+            self.nav_list = ScrollList(list_rect, row_height=row_height)
+        else:
+            self.nav_list.rect = list_rect
+            self.nav_list.row_height = row_height
+            self.nav_list._clamp_scroll()
+
     def _layout_nav_buttons(self) -> None:
         y = self.nav_header_rect.y + 4
         x = self.nav_header_rect.x + 6
+        self.nav_back_btn = Rect(x, y, 36, 28)
+        x += 42
         self.nav_collapse_btn = Rect(self.nav_header_rect.right - 38, y, 32, 28)
-        self.nav_up_btn = Rect(x, y, 52, 28)
-        x += 58
         self.nav_current_btn = Rect(x, y, 72, 28)
 
     def _mixer_channel_defs(self) -> list[dict]:
@@ -433,7 +777,7 @@ class TouchPatchBrowser:
                 else:
                     self._pending_last_patch = dict(self.detail_patch)
                     self._pending_load_next = time.time() + 2.0
-        self._refresh_lists()
+        self._refresh_lists(scroll_to_selection=True)
 
     def _try_load_patch_path(self, patch_path: str, category: str) -> bool:
         if not self.loader.osc_enabled:
@@ -449,7 +793,7 @@ class TouchPatchBrowser:
             self.detail_patch = dict(patch)
             self._pending_last_patch = None
             self._apply_volume(self.volume_level, persist=False)
-            self._refresh_lists()
+            self._refresh_lists(scroll_to_selection=True)
             self._toast("Patch loaded", 1.5)
         else:
             self._pending_load_next = time.time() + 2.0
@@ -459,9 +803,9 @@ class TouchPatchBrowser:
             self.categories = self.scanner.get_categories()
             if self.loaded_patch_info:
                 try:
-                    idx = self.categories.index(self.loaded_patch_info["category"])
-                    self.browse_folder_index = idx
-                    self.loaded_folder_index = idx
+                    self.loaded_folder_index = self.categories.index(
+                        self.loaded_patch_info["category"]
+                    )
                 except ValueError:
                     pass
         self._refresh_lists()
@@ -501,9 +845,13 @@ class TouchPatchBrowser:
             and self.browse_folder_index != self.loaded_folder_index
         )
 
-    def _refresh_lists(self) -> None:
+    def _refresh_lists(self, *, scroll_to_selection: bool = False) -> None:
         if self.left_nav_collapsed:
             return
+
+        saved_scroll = self.nav_list._scroll_pixels
+        saved_velocity = self.nav_list._velocity
+        saved_momentum = self.nav_list._momentum_active
 
         self.nav_list.row_height = 50 if self.left_nav_mode == LeftNavMode.PATCHES else 44
 
@@ -514,7 +862,14 @@ class TouchPatchBrowser:
                 highlight_index=self.browse_folder_index,
                 loaded_marker_index=loaded_idx,
             )
-            self.nav_list.scroll_to_index(self.browse_folder_index)
+            if scroll_to_selection:
+                self.nav_list.scroll_to_index(self.browse_folder_index)
+            else:
+                self.nav_list._scroll_pixels = min(saved_scroll, self.nav_list._max_scroll_pixels())
+                self.nav_list._sync_scroll_offset()
+                if saved_momentum:
+                    self.nav_list._velocity = saved_velocity
+                    self.nav_list._momentum_active = True
         else:
             patches = self._patches_in_browse_folder()
             names = [p["name"] for p in patches]
@@ -531,10 +886,17 @@ class TouchPatchBrowser:
                         loaded_idx = i
                         break
             self.nav_list.set_items(names, highlight_index=highlight, loaded_marker_index=loaded_idx)
-            if highlight is not None:
-                self.nav_list.scroll_to_index(highlight)
-            elif loaded_idx is not None:
-                self.nav_list.scroll_to_index(loaded_idx)
+            if scroll_to_selection:
+                if highlight is not None:
+                    self.nav_list.scroll_to_index(highlight)
+                elif loaded_idx is not None:
+                    self.nav_list.scroll_to_index(loaded_idx)
+            else:
+                self.nav_list._scroll_pixels = min(saved_scroll, self.nav_list._max_scroll_pixels())
+                self.nav_list._sync_scroll_offset()
+                if saved_momentum:
+                    self.nav_list._velocity = saved_velocity
+                    self.nav_list._momentum_active = True
 
     def _toast(self, message: str, seconds: float = 2.0) -> None:
         self.toast_message = message
@@ -566,11 +928,16 @@ class TouchPatchBrowser:
             return
         self.browse_folder_index = max(0, min(index, len(self.categories) - 1))
         self.left_nav_mode = LeftNavMode.PATCHES
+        self._update_nav_list_geometry()
         self._refresh_lists()
+        self.nav_list._scroll_pixels = 0.0
+        self.nav_list.stop_momentum()
+        self.nav_list._clamp_scroll()
 
     def _go_up_to_folders(self) -> None:
         self.left_nav_mode = LeftNavMode.FOLDERS
-        self._refresh_lists()
+        self._update_nav_list_geometry()
+        self._refresh_lists(scroll_to_selection=True)
 
     def _go_to_loaded_folder(self) -> None:
         if not self.loaded_patch_info:
@@ -581,7 +948,8 @@ class TouchPatchBrowser:
             return
         self.browse_folder_index = idx
         self.left_nav_mode = LeftNavMode.PATCHES
-        self._refresh_lists()
+        self._update_nav_list_geometry()
+        self._refresh_lists(scroll_to_selection=True)
 
     def _toggle_nav_collapsed(self) -> None:
         self.left_nav_collapsed = not self.left_nav_collapsed
@@ -594,7 +962,7 @@ class TouchPatchBrowser:
         except ValueError:
             pass
         self._load_patch(patch)
-        self._refresh_lists()
+        self._refresh_lists(scroll_to_selection=True)
 
     def _brightness_from_x(self, x: int, rect: Rect) -> int:
         if rect.w <= 0:
@@ -602,10 +970,15 @@ class TouchPatchBrowser:
         ratio = (x - rect.x) / rect.w
         return max(0, min(100, round(ratio * 100)))
 
+    def _mixer_default_value(self, channel: MixerChannel) -> float:
+        if channel.channel_id == "volume":
+            return DEFAULT_VOLUME
+        return (channel.min_value + channel.max_value) / 2
+
     def _mixer_value(self, channel: MixerChannel) -> float:
         if channel.channel_id == "volume":
             return self.volume_level
-        return (channel.min_value + channel.max_value) / 2
+        return self._mixer_levels.get(channel.channel_id, self._mixer_default_value(channel))
 
     def _value_to_handle_y(self, channel: MixerChannel, value: float) -> int:
         span = channel.max_value - channel.min_value
@@ -621,12 +994,24 @@ class TouchPatchBrowser:
         return channel.min_value + ratio * (channel.max_value - channel.min_value)
 
     def _set_mixer_value(self, channel: MixerChannel, value: float) -> None:
+        clamped = max(channel.min_value, min(channel.max_value, value))
         if channel.channel_id == "volume":
-            self._apply_volume(value)
+            if channel.enabled:
+                self._apply_volume(clamped)
+            return
+        self._mixer_levels[channel.channel_id] = clamped
+
+    def _reset_mixer_channel(self, channel: MixerChannel) -> None:
+        default = self._mixer_default_value(channel)
+        self._set_mixer_value(channel, default)
+        if channel.channel_id == "volume":
+            self._toast("Volume reset", 1.2)
+        elif channel.enabled:
+            self._toast(f"{channel.label} reset", 1.2)
 
     def _mixer_channel_at(self, pos: tuple[int, int]) -> MixerChannel | None:
         for channel in self.mixer_channels:
-            if channel.enabled and channel.column_rect.contains(*pos):
+            if channel.column_rect.contains(*pos):
                 return channel
         return None
 
@@ -634,11 +1019,37 @@ class TouchPatchBrowser:
         channel = self._mixer_channel_at(pos)
         if channel is None:
             return False
+
+        now = time.time()
+        if (
+            self._mixer_last_tap_id == channel.channel_id
+            and not self._mixer_drag_moved
+            and (now - self._mixer_last_tap_time) * 1000.0 <= MIXER_DOUBLE_TAP_MS
+        ):
+            self._reset_mixer_channel(channel)
+            self._mixer_last_tap_id = None
+            self._mixer_last_tap_time = 0.0
+            self._mixer_drag_origin = None
+            self._mixer_drag_moved = False
+            self._dragging_mixer_id = None
+            return True
+
+        self._mixer_last_tap_id = channel.channel_id
+        self._mixer_last_tap_time = now
+        self._mixer_drag_origin = pos
+        self._mixer_drag_moved = False
         self._dragging_mixer_id = channel.channel_id
-        self._set_mixer_value(channel, self._value_from_track_y(channel, pos[1]))
+        if channel.enabled:
+            self._set_mixer_value(channel, self._value_from_track_y(channel, pos[1]))
         return True
 
     def _handle_mixer_motion(self, pos: tuple[int, int]) -> None:
+        if self._mixer_drag_origin and not self._mixer_drag_moved:
+            dx = pos[0] - self._mixer_drag_origin[0]
+            dy = pos[1] - self._mixer_drag_origin[1]
+            if (dx * dx + dy * dy) ** 0.5 > MIXER_DRAG_THRESHOLD_PX:
+                self._mixer_drag_moved = True
+                self._mixer_last_tap_id = None
         if not self._dragging_mixer_id:
             return
         for channel in self.mixer_channels:
@@ -650,6 +1061,143 @@ class TouchPatchBrowser:
         self.brightness_percent = percent
         if not self.backlight.set_percent(percent):
             self._toast("Brightness control unavailable", 2.5)
+
+    def _patch_is_favorited(self, patch: dict) -> bool:
+        return self.scanner.is_patch_in_favorites(patch)
+
+    def _sync_categories_after_favorites_change(self) -> None:
+        with self._scan_lock:
+            self.categories = self.scanner.get_categories()
+        self._refresh_lists()
+
+    def _toggle_favorites(self) -> None:
+        if not self.detail_patch:
+            return
+
+        quick_label = favorites_display_name().lstrip("!")
+        patch = self.detail_patch
+        if self._patch_is_favorited(patch):
+            if self.scanner.remove_patch_from_favorites(patch):
+                self._sync_categories_after_favorites_change()
+                self._toast(f"Removed from {quick_label}", 2.0)
+            else:
+                self._toast("Could not remove from Quick Select", 2.5)
+            return
+
+        if self.scanner.copy_patch_to_favorites(patch["path"]):
+            self._sync_categories_after_favorites_change()
+            self._toast(f"Added to {quick_label}", 2.0)
+        else:
+            self._toast(f"Already in {quick_label}", 2.0)
+
+    def _draw_heart_icon(self, rect: Rect, filled: bool) -> None:
+        pygame.draw.rect(self.screen, self.theme.surface_alt, rect.pygame_rect, border_radius=8)
+        symbol = "♥" if filled else "♡"
+        color = self.theme.danger if filled else self.theme.muted
+        text = self.font_lg.render(symbol, True, color)
+        tx = rect.x + (rect.w - text.get_width()) // 2
+        ty = rect.y + (rect.h - text.get_height()) // 2
+        self.screen.blit(text, (tx, ty))
+
+    def _draw_icon_button(
+        self,
+        rect: Rect,
+        icon: str,
+        *,
+        accent: bool = False,
+        muted: bool = False,
+    ) -> None:
+        if muted:
+            color = self.theme.surface
+        elif accent:
+            color = self.theme.accent
+        else:
+            color = self.theme.surface_alt
+        pygame.draw.rect(self.screen, color, rect.pygame_rect, border_radius=8)
+        icon_color = (255, 255, 255) if accent else self.theme.text
+        if icon == "back":
+            self._draw_chevron(self.screen, rect, icon_color, direction="left")
+        elif icon == "panel_close":
+            self._draw_sidebar_panel_icon(self.screen, rect, icon_color, panel_open=True)
+        elif icon == "panel_open":
+            self._draw_sidebar_panel_icon(self.screen, rect, icon_color, panel_open=False)
+
+    @staticmethod
+    def _draw_sidebar_panel_icon(
+        surface: pygame.Surface,
+        rect: Rect,
+        color: tuple[int, int, int],
+        *,
+        panel_open: bool,
+    ) -> None:
+        """Sidebar panel open/close — split layout icon (not a plain back chevron)."""
+        pad = 6
+        ix = rect.x + pad
+        iy = rect.y + (rect.h - 14) // 2
+        iw = max(18, rect.w - pad * 2)
+        ih = 14
+        split_x = ix + max(6, int(iw * 0.36))
+
+        frame = pygame.Rect(ix, iy, iw, ih)
+        pygame.draw.rect(surface, color, frame, width=2, border_radius=2)
+        pygame.draw.line(surface, color, (split_x, iy + 2), (split_x, iy + ih - 2), 2)
+
+        cy = iy + ih // 2
+        if panel_open:
+            sidebar = pygame.Rect(ix + 2, iy + 2, split_x - ix - 3, ih - 4)
+            pygame.draw.rect(surface, color, sidebar, border_radius=1)
+            cx = split_x + (ix + iw - split_x) // 2 + 1
+            for dx in (4, 9):
+                points = [(cx + dx, cy - 4), (cx + dx - 4, cy), (cx + dx, cy + 4)]
+                pygame.draw.lines(surface, color, False, points, 2)
+        else:
+            strip_w = max(4, int(iw * 0.14))
+            strip = pygame.Rect(ix + 2, iy + 2, strip_w, ih - 4)
+            pygame.draw.rect(surface, color, strip, border_radius=1)
+            cx = ix + strip_w + (iw - strip_w) // 2
+            for dx in (-4, -9):
+                points = [(cx + dx, cy - 4), (cx + dx + 4, cy), (cx + dx, cy + 4)]
+                pygame.draw.lines(surface, color, False, points, 2)
+
+    @staticmethod
+    def _draw_chevron(
+        surface: pygame.Surface,
+        rect: Rect,
+        color: tuple[int, int, int],
+        *,
+        direction: str,
+    ) -> None:
+        cx, cy = rect.centerx, rect.centery
+        if direction == "left":
+            points = [(cx + 5, cy - 8), (cx - 5, cy), (cx + 5, cy + 8)]
+        else:
+            points = [(cx - 5, cy - 8), (cx + 5, cy), (cx - 5, cy + 8)]
+        pygame.draw.lines(surface, color, False, points, 3)
+
+    def _draw_nav_header(self) -> None:
+        pygame.draw.rect(self.screen, self.theme.surface, self.nav_header_rect.pygame_rect)
+
+        if self.left_nav_mode == LeftNavMode.PATCHES:
+            self._draw_icon_button(self.nav_back_btn, "back", muted=True)
+        if self._show_current_folder_button():
+            self._draw_button(self.nav_current_btn, "Current", small=True, accent=True)
+        self._draw_icon_button(self.nav_collapse_btn, "panel_close", muted=True)
+
+    def _draw_folder_title_bar(self) -> None:
+        if self.nav_folder_title_rect is None:
+            return
+        rect = self.nav_folder_title_rect
+        pygame.draw.rect(self.screen, self.theme.surface_alt, rect.pygame_rect, border_radius=8)
+        pygame.draw.line(
+            self.screen,
+            self.theme.muted,
+            (rect.x + 10, rect.bottom - 1),
+            (rect.right - 10, rect.bottom - 1),
+            1,
+        )
+        folder_name = self._browse_category_name()
+        label = self.font_sm.render(folder_name[:34], True, self.theme.text)
+        self.screen.blit(label, (rect.x + 12, rect.y + (rect.h - label.get_height()) // 2))
 
     def _draw_button(
         self,
@@ -750,20 +1298,19 @@ class TouchPatchBrowser:
 
     def _draw_left_nav_collapsed(self) -> None:
         pygame.draw.rect(self.screen, self.theme.surface, self.left_panel_rect.pygame_rect, border_radius=10)
-        label = self.font_md.render(">", True, self.theme.muted)
-        cx = self.left_panel_rect.x + (self.left_panel_rect.w - label.get_width()) // 2
-        cy = self.left_panel_rect.y + (self.left_panel_rect.h - label.get_height()) // 2
-        self.screen.blit(label, (cx, cy))
+        expand_rect = Rect(
+            self.left_panel_rect.x + 4,
+            self.left_panel_rect.y + 8,
+            self.left_panel_rect.w - 8,
+            32,
+        )
+        self._draw_icon_button(expand_rect, "panel_open", muted=True)
 
     def _draw_left_nav_expanded(self) -> None:
         pygame.draw.rect(self.screen, self.theme.surface, self.left_panel_rect.pygame_rect, border_radius=10)
 
-        if self.left_nav_mode == LeftNavMode.PATCHES:
-            self._draw_button(self.nav_up_btn, "Up", small=True)
-        if self._show_current_folder_button():
-            self._draw_button(self.nav_current_btn, "Current", small=True, accent=True)
-
-        self._draw_button(self.nav_collapse_btn, "<", small=True, muted=True)
+        self._draw_nav_header()
+        self._draw_folder_title_bar()
 
         font = self.font_md if self.left_nav_mode == LeftNavMode.PATCHES else self.font_sm
         self.nav_list.draw(self.screen, font, self.theme)
@@ -791,6 +1338,7 @@ class TouchPatchBrowser:
         self.screen.blit(cat, (self.main_rect.x + 24, self.main_rect.y + 68))
 
         self._draw_mixer_strip()
+        self._draw_heart_icon(self.favorites_btn, self._patch_is_favorited(self.detail_patch))
 
     def _draw_browser(self) -> None:
         self.screen.fill(self.theme.bg)
@@ -920,9 +1468,25 @@ class TouchPatchBrowser:
         self._draw_toast()
         pygame.display.flip()
 
+    def _ignore_sdl_pointer_event(self, event: pygame.event.Event) -> bool:
+        if self._evdev_bridge is None or not self._evdev_bridge.active:
+            return False
+        return event.type in (
+            pygame.MOUSEBUTTONDOWN,
+            pygame.MOUSEBUTTONUP,
+            pygame.MOUSEMOTION,
+            pygame.FINGERDOWN,
+            pygame.FINGERUP,
+            pygame.FINGERMOTION,
+        )
+
     def _handle_browser_tap(self, pos: tuple[int, int]) -> None:
         if self.system_settings_btn.contains(*pos):
             self.screen_state = Screen.SETTINGS
+            return
+
+        if self.detail_patch and self.favorites_btn.contains(*pos):
+            self._toggle_favorites()
             return
 
         if self.left_nav_collapsed:
@@ -933,21 +1497,12 @@ class TouchPatchBrowser:
         if self.nav_collapse_btn.contains(*pos):
             self._toggle_nav_collapsed()
             return
-        if self.nav_up_btn.contains(*pos) and self.left_nav_mode == LeftNavMode.PATCHES:
+        if self.nav_back_btn.contains(*pos) and self.left_nav_mode == LeftNavMode.PATCHES:
             self._go_up_to_folders()
             return
         if self.nav_current_btn.contains(*pos) and self._show_current_folder_button():
             self._go_to_loaded_folder()
             return
-
-        idx = self.nav_list.consume_tap(pos)
-        if idx is not None:
-            if self.left_nav_mode == LeftNavMode.FOLDERS:
-                self._enter_folder(idx)
-            else:
-                patches = self._patches_in_browse_folder()
-                if idx < len(patches):
-                    self._select_patch(patches[idx])
 
     def _handle_settings_touch(self, pos: tuple[int, int]) -> None:
         if self._close_settings_btn.contains(*pos):
@@ -965,6 +1520,18 @@ class TouchPatchBrowser:
             self.screen_state = Screen.POWER_MENU
             return
         if self.brightness_slider_rect.contains(*pos):
+            now = time.time()
+            if (
+                not self._brightness_drag_moved
+                and self._brightness_last_tap_time > 0
+                and (now - self._brightness_last_tap_time) * 1000.0 <= MIXER_DOUBLE_TAP_MS
+            ):
+                self._apply_brightness(DEFAULT_BRIGHTNESS_PERCENT)
+                self._toast("Brightness reset", 1.2)
+                self._brightness_last_tap_time = 0.0
+                return
+            self._brightness_last_tap_time = now
+            self._brightness_drag_moved = False
             self._slider_dragging = True
             self._apply_brightness(self._brightness_from_x(pos[0], self.brightness_slider_rect))
 
@@ -993,6 +1560,20 @@ class TouchPatchBrowser:
             self._running = False
             return
 
+        if event.type in (pygame.FINGERDOWN, pygame.FINGERMOTION, pygame.FINGERUP):
+            x = int(event.x * self.width)
+            y = int(event.y * self.height)
+            pos = (x, y)
+            if event.type == pygame.FINGERDOWN:
+                event = pygame.event.Event(pygame.MOUSEBUTTONDOWN, {"pos": pos, "button": 1})
+            elif event.type == pygame.FINGERUP:
+                event = pygame.event.Event(pygame.MOUSEBUTTONUP, {"pos": pos, "button": 1})
+            else:
+                event = pygame.event.Event(
+                    pygame.MOUSEMOTION,
+                    {"pos": pos, "rel": (0, 0), "buttons": (1, 0, 0)},
+                )
+
         if self.screen_state == Screen.BROWSER and not self.left_nav_collapsed:
             self.nav_list.handle_event(event)
 
@@ -1007,15 +1588,27 @@ class TouchPatchBrowser:
                 self._handle_mixer_down(event.pos)
         elif event.type == pygame.MOUSEBUTTONUP and event.button == 1:
             was_mixer = self._dragging_mixer_id is not None
+            if was_mixer and self._mixer_drag_moved:
+                self._mixer_last_tap_id = None
             self._dragging_mixer_id = None
+            self._mixer_drag_origin = None
+            self._mixer_drag_moved = False
             self._slider_dragging = False
+            self._brightness_drag_moved = False
             if self.screen_state == Screen.SETTINGS:
                 if not self.settings_rect.contains(*event.pos):
                     self.screen_state = Screen.BROWSER
-            elif self.screen_state == Screen.BROWSER and not was_mixer:
-                self._handle_browser_tap(event.pos)
+            elif self.screen_state == Screen.BROWSER:
+                idx = self.nav_list.take_tap_index()
+                if idx is not None:
+                    self._select_nav_index(idx)
+                elif not was_mixer:
+                    self._handle_browser_tap(event.pos)
         elif event.type == pygame.MOUSEMOTION:
             if self._slider_dragging:
+                if not self._brightness_drag_moved:
+                    self._brightness_drag_moved = True
+                    self._brightness_last_tap_time = 0.0
                 self._apply_brightness(self._brightness_from_x(event.pos[0], self.brightness_slider_rect))
             self._handle_mixer_motion(event.pos)
 
@@ -1023,18 +1616,30 @@ class TouchPatchBrowser:
         clock = pygame.time.Clock()
         print("Touch patch browser running.")
         print(f"Display: {self.width}x{self.height}")
-        print(f"Quick-access folder: {favorites_display_name()} ({FAVORITES_NAME})")
+        print(f"Quick Select folder: {favorites_display_name()} ({FAVORITES_NAME.lstrip('!')})")
 
         while self._running:
-            if self._scan_dirty:
+            if self._scan_dirty and not (
+                self.screen_state == Screen.BROWSER
+                and not self.left_nav_collapsed
+                and self.nav_list.is_interacting()
+            ):
                 self._scan_dirty = False
                 self._apply_scan_results()
             self._retry_pending_load()
+            self._drain_evdev_touch_queue()
             for event in pygame.event.get():
+                if self._ignore_sdl_pointer_event(event):
+                    continue
                 self._handle_event(event)
+            dt = max(clock.get_time() / 1000.0, 1.0 / 120.0)
+            if self.screen_state == Screen.BROWSER and not self.left_nav_collapsed:
+                self.nav_list.tick(dt)
             self._draw()
-            clock.tick(30)
+            clock.tick(60)
 
+        if self._evdev_bridge is not None:
+            self._evdev_bridge.stop()
         pygame.quit()
 
 
