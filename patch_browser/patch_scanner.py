@@ -204,6 +204,40 @@ class PatchScanner:
                 return True
         return False
 
+    def is_patch_in_favorites(self, patch):
+        """True if patch dict is stored in the Quick Select favorites folder."""
+        if not patch:
+            return False
+        patch_path = patch.get("path")
+        if patch_path and self.is_in_favorites_folder(patch_path):
+            return True
+        name = patch.get("name")
+        if name and self.get_favorites_patch_path(name) is not None:
+            return True
+        return False
+
+    def remove_patch_from_favorites(self, patch):
+        """Remove patch copy from favorites; returns False if nothing to remove."""
+        if not patch:
+            return False
+        fav_path = None
+        patch_path = patch.get("path")
+        if patch_path and self.is_in_favorites_folder(patch_path):
+            fav_path = Path(patch_path)
+        else:
+            name = patch.get("name")
+            if name:
+                fav_path = self.get_favorites_patch_path(name)
+        if not fav_path or not fav_path.exists():
+            return False
+        try:
+            fav_path.unlink()
+            self.scan_patches()
+            return True
+        except OSError as exc:
+            print(f"Error removing patch from favorites folder: {exc}")
+            return False
+
     def get_favorites_folder_path(self):
         user_patches_dir = Path.home() / "Documents" / "Surge XT" / "Patches"
         favorites_folder = user_patches_dir / FAVORITES_NAME.lstrip("!")
