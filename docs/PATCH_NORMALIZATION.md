@@ -44,6 +44,14 @@ File: `patch_normalization.json` keyed by **patch name** (stem). Favorites copie
 
 `enabled: false` skips normalization for that patch (falls back to global trim only).
 
+### Toggle persistence
+
+The touch UI **Norm.** checkbox writes only the `enabled` flag for that patch stem. Calibration fields (`gain_db`, `lufs_measured`, etc.) are preserved:
+
+- **User file** `~/.patch_browser_normalization.json` overlays the repo starter at load time (field-wise merge per patch).
+- **Re-enable** after turning Norm off restores the stored gain immediately — no re-calibration.
+- **Disable** with no prior entry creates a minimal `{"enabled": false}` row; enabling again without calibration shows *Normalize on (no calibration)* and leaves volume at the user trim only.
+
 ### Runtime volume
 
 Surge OSC `/param/a/amp/volume` and `/param/b/amp/volume` use a linear scale (`1.0` = unity). Stored `gain_db` converts via `10^(gain_db/20)`.
@@ -112,6 +120,8 @@ On the **Pi touch build**, prefer `./scripts/calibrate-with-loader.sh` (see [Pi 
 ### Timing (Quick Select pilot)
 
 Roughly **4–5 seconds per patch** (load, 3 s capture, analysis). Ten favorites ≈ **1 minute**; fifty ≈ **4 minutes**. Use the loader from settings or `calibrate-with-loader.sh` on the Pi; raw SSH calibrate is fine for headless runs.
+
+**Reference Pi (2026-07-30):** Quick Select folder **12/12 calibrated** with loopback capture and −3 dBFS peak cap. One outlier (**Bowed String**, ~8 MB patch) needed a load retry before LUFS measurement succeeded — the calibrator now retries when integrated LUFS is `-inf`.
 
 ## Testing on the Pi
 
