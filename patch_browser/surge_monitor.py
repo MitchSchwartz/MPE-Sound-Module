@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import os
+import socket
 import subprocess
 import time
 from pathlib import Path
+
+OSC_PORT = 53280
 
 
 class SurgeMonitor:
@@ -26,46 +29,100 @@ class SurgeMonitor:
         self._find_surge_process()
 
     def _find_surge_process(self):
+        """Refresh cached PID from a running surge-xt-cli instance."""
         try:
             result = subprocess.run(
-                ["pgrep", "-f", "surge-xt-cli"],
+                ["pgrep", "-f", r"surge-xt-cli.*--osc-in-port"],
                 capture_output=True,
                 text=True,
                 timeout=1,
             )
+            if result.returncode != 0 or not result.stdout.strip():
+                result = subprocess.run(
+                    ["pgrep", "-f", "surge-xt-cli"],
+                    capture_output=True,
+                    text=True,
+                    timeout=1,
+                )
             if result.returncode == 0 and result.stdout.strip():
-                self.surge_pid = int(result.stdout.strip().split()[0])
-                self.is_healthy = True
-                print(f"Found existing Surge process: PID {self.surge_pid}")
-            else:
-                self.is_healthy = False
+                pids = [int(pid) for pid in result.stdout.strip().split() if pid.isdigit()]
+                if pids:
+                    self.surge_pid = pids[0]
+                    self.is_healthy = True
+                    self.last_error = None
+                    return
+            self.surge_pid = None
+            self.is_healthy = False
+            if self.last_error is None:
                 self.last_error = "Surge not running"
         except Exception as e:
             print(f"Error finding Surge process: {e}")
+            self.surge_pid = None
             self.is_healthy = False
             self.last_error = str(e)
+
+    def _pid_is_alive(self, pid: int | None) -> bool:
+        if pid is None:
+            return False
+        try:
+            os.kill(pid, 0)
+            return True
+        except OSError:
+            return False
+
+    def _is_osc_port_in_use(self) -> bool:
+        """Return True when something is bound to Surge's OSC input port."""
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+                sock.settimeout(0.2)
+                sock.bind(("127.0.0.1", OSC_PORT))
+                return False
+        except OSError:
+            return True
+        except Exception:
+            pass
+
+        for cmd in (["ss", "-ulnp"], ["netstat", "-uln"]):
+            try:
+                result = subprocess.run(
+                    cmd, capture_output=True, text=True, timeout=1
+                )
+                if result.returncode == 0 and str(OSC_PORT) in result.stdout:
+                    return True
+            except (FileNotFoundError, subprocess.TimeoutExpired):
+                continue
+        return False
+
+    def _surge_is_live(self) -> tuple[bool, str | None]:
+        """True when the running instance responds via process and/or OSC."""
+        self._find_surge_process()
+        pid_ok = self._pid_is_alive(self.surge_pid)
+        if not pid_ok:
+            self.surge_pid = None
+
+        osc_ok = self._is_osc_port_in_use()
+        if pid_ok or osc_ok:
+            if osc_ok and not pid_ok:
+                self._find_surge_process()
+            return True, None
+
+        error = self._get_last_error_from_log() or "Surge not running"
+        return False, error
 
     def check_health(self):
         current_time = time.time()
         if current_time - self.last_check_time < self.check_interval:
             return self.is_healthy, self.last_error
         self.last_check_time = current_time
+
         if current_time - self.startup_time < 5.0:
+            self.is_healthy = True
+            self.last_error = None
             return True, None
-        if self.surge_pid is not None:
-            try:
-                os.kill(self.surge_pid, 0)
-                self.is_healthy = True
-                self.last_error = None
-                return True, None
-            except OSError:
-                self.is_healthy = False
-                self.last_error = "Surge crashed or exited"
-                error_detail = self._get_last_error_from_log()
-                if error_detail:
-                    self.last_error = error_detail
-                return False, self.last_error
-        self._find_surge_process()
+
+        live, error = self._surge_is_live()
+        self.is_healthy = live
+        self.last_error = error if not live else None
         return self.is_healthy, self.last_error
 
     def _get_last_error_from_log(self):
@@ -87,6 +144,8 @@ class SurgeMonitor:
                     keyword in line_lower
                     for keyword in ["error", "fatal", "crash", "failed", "unable"]
                 ):
+                    if "unable to open audio device" in line_lower:
+                        continue
                     if "error" in line_lower:
                         parts = line.split("Error:", 1)
                         if len(parts) > 1:
@@ -108,10 +167,10 @@ class SurgeMonitor:
             )
             if result.returncode == 0:
                 time.sleep(3)
-                self._find_surge_process()
-                if self.is_healthy:
+                live, error = self._surge_is_live()
+                if live:
                     return True, "Surge restarted"
-                return False, "Restart failed - check logs"
+                return False, error or "Restart failed - check logs"
             return False, f"systemctl error: {result.stderr[:30]}"
         except subprocess.TimeoutExpired:
             return False, "Restart timeout"
@@ -121,9 +180,13 @@ class SurgeMonitor:
     def get_status_summary(self):
         is_healthy, error = self.check_health()
         if is_healthy:
+            if self.surge_pid:
+                details = f"PID {self.surge_pid}"
+            else:
+                details = f"OSC :{OSC_PORT}"
             return {
                 "status": "Running",
-                "details": f"PID {self.surge_pid}",
+                "details": details,
                 "can_restart": False,
             }
         return {
