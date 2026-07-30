@@ -60,6 +60,22 @@ On load:
 
 1. Normalization sets `_patch_gain_linear` baseline
 2. User volume slider (`set_volume`) is a trim multiplier on top: `combined = trim × baseline`
+3. When **Norm.** is on, combined OSC amp/volume is capped at **0.85** linear (≈ −1.4 dB) to preserve CPU/buffer headroom under heavy MPE polyphony on the Pi. Norm off uses the touch UI ceiling (**1.5**). User trim stacks below the cap.
+
+### Polyphony and static/crackle (Pi)
+
+Static or crackle under **many held keys** is usually **ALSA buffer underrun (xrun)**, not clip — especially on the Pi + Sound Blaster path.
+
+| Factor | Effect |
+|--------|--------|
+| **Norm ON** | Quiet patches get large `gain_db` boosts; runtime cap is **0.85** (not 1.5) so Surge runs cooler under poly. Fewer voices before xrun. |
+| **Norm OFF** | Unity baseline; user trim up to **1.5** — more headroom for solo, less for dense chords. |
+| **ALSA buffer** | `surge-xt-cli` starts with **`MPE_SURGE_BUFFER_SIZE`** (default **1024** samples @ 44.1 kHz ≈ 23 ms). Was 512 (~12 ms) and xran under load. |
+| **snd-aloop** | Loaded only during calibration loopback. Unloaded on Surge start and after `calibrate-with-loader.sh` if refcount is 0. |
+
+If crackle persists with Norm off and moderate polyphony, try `MPE_SURGE_BUFFER_SIZE=2048` in `/etc/mpe/mpe.env` and restart `surge-xt-cli`. Tradeoff: higher latency.
+
+**Quick Select reference (2026-07-30):** calibrated `gain_db` spans about +4 to +18 dB. Without a runtime cap that would map to **~1.6–8.0** linear OSC — too hot for dense MPE on the Pi. With Norm on, combined amp/volume is capped at **0.85** linear.
 
 ## Calibration script
 

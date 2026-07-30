@@ -1091,7 +1091,10 @@ class TouchPatchBrowser:
         store = self.loader.normalization
         new_state = not store.is_enabled(name)
         store.set_enabled(name, new_state)
-        if self.loader.osc_enabled:
+        loaded_name = (
+            self.loaded_patch_info.get("name") if self.loaded_patch_info else None
+        )
+        if self.loader.osc_enabled and loaded_name == name:
             self.loader.refresh_patch_volume(name)
         if new_state:
             if store.get_raw_gain_db(name) is not None:

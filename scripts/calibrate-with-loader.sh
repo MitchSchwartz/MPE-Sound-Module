@@ -37,4 +37,12 @@ if systemctl is-active --quiet patch-browser.service 2>/dev/null; then
 fi
 
 cd "$MPE_MODULE_REPO"
-exec python3 -u "$MPE_MODULE_REPO/patch_browser/calibration_loader.py" "$@"
+python3 -u "$MPE_MODULE_REPO/patch_browser/calibration_loader.py" "$@"
+EXIT=$?
+
+# Belt-and-suspenders: calibrator restores services in finally, but ensure loopback
+# module is gone if calibration was interrupted or sudo unload in Python failed.
+# shellcheck source=lib/unload-snd-aloop.sh
+source "$SCRIPT_DIR/lib/unload-snd-aloop.sh"
+
+exit "$EXIT"

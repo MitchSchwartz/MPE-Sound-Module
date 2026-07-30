@@ -269,6 +269,20 @@ def ensure_snd_aloop() -> None:
     subprocess.run(["sudo", "modprobe", "snd-aloop"], check=False)
 
 
+def unload_snd_aloop_if_idle() -> None:
+    """Remove ALSA loopback module when nothing holds a reference (post-calibration)."""
+    try:
+        with open("/proc/modules") as modules:
+            for line in modules:
+                if line.startswith("snd_aloop "):
+                    parts = line.split()
+                    if len(parts) >= 3 and parts[2] == "0":
+                        subprocess.run(["sudo", "modprobe", "-r", "snd_aloop"], check=False)
+                    return
+    except OSError:
+        pass
+
+
 def stop_mpe_audio_services() -> None:
     for unit in ("touch-patch-browser", "surge-xt-cli"):
         subprocess.run(["sudo", "systemctl", "stop", unit], check=False)
@@ -304,6 +318,7 @@ def start_surge_loopback() -> None:
 def restore_mpe_audio_services() -> None:
     subprocess.run(["pkill", "-f", "surge-xt-cli"], check=False)
     time.sleep(0.5)
+    unload_snd_aloop_if_idle()
     subprocess.run(["sudo", "systemctl", "start", "surge-xt-cli"], check=False)
     subprocess.run(["sudo", "systemctl", "start", "touch-patch-browser"], check=False)
 
