@@ -84,6 +84,6 @@ If poweroff from the touch UI or `systemctl poweroff` takes more than ~30 s:
 2. Look for a large gap between `Stopping` and `Stopped` on one unit (often `surge-xt-cli`). The shutdown splash unit should **not** appear in that list with a premature `Stopped` before power is cut.
 3. Refresh units after pulling fixes: `sudo ./scripts/configure-pi-paths.sh --local --force && sudo systemctl daemon-reload`.
 
-**GUI returned after tapping Shut down:** fixed in `fix/shorter-shutdown` — the in-app hold loop used to exit on SIGTERM when systemd stopped `touch-patch-browser`, which handed control back to the pygame main loop. Hold now ignores SIGTERM and uses `systemctl poweroff` instead of detached `poweroff(8)`.
+**GUI returned after tapping Shut down:** fixed by moving splash to `mpe-shutdown-splash.service` (Plymouth-like ordering) instead of an in-browser pygame hold loop. See [`SHUTDOWN.md`](SHUTDOWN.md).
 
 See [TOUCH_PATCH_BROWSER.md](TOUCH_PATCH_BROWSER.md) §Shutdown timing for unit timeout values.

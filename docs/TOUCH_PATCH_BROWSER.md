@@ -124,7 +124,7 @@ Both browser units are installed by `configure-pi-paths.sh`. Which one **boots**
 | `MPE_UI_MODE` | Enabled | Disabled |
 |---------------|---------|----------|
 | `oled` (default) | `patch-browser.service`, `boot-animation.service` | `touch-patch-browser.service` |
-| `touch` | `touch-patch-browser.service`, `touch-boot-animation.service`, `touch-shutdown-animation.service` | `patch-browser.service`, `boot-animation.service`, `shutdown-animation.service` |
+| `touch` | `touch-patch-browser.service`, `touch-boot-animation.service`, `mpe-shutdown-splash.service` | `patch-browser.service`, `boot-animation.service`, `shutdown-animation.service` |
 
 On the SmartiPi Pi, set in `config/mpe.env` then reconfigure:
 
@@ -157,7 +157,7 @@ This adds `console=serial0,115200 fbcon=map:0` to `/boot/firmware/cmdline.txt` a
 
 **Calibration handoff:** the browser paints **Starting calibration…**, flips, and `exec`s `calibration_loader.py`. The loader paints on its first frame (`paint_immediate`) before heavy init. On exit it shows **Returning to patch browser…**, re-arms `touch-boot-animation`, then async-restarts the browser.
 
-**Shutdown:** Power menu confirm stops `getty@tty1`, calls `systemctl poweroff` / `systemctl reboot` (systemd owns the transaction — see `systemd.special(7)`), and holds the shutdown splash until the process is killed. The splash **never** returns to the patch browser on SIGTERM or timeout. `touch-shutdown-animation.service` covers non-UI halt/reboot with `--hold` and `TimeoutStopSec=infinity`.
+**Shutdown:** Power menu confirm starts `mpe-shutdown-splash.service`, then `systemctl poweroff` / `systemctl reboot`; the browser exits cleanly — splash is **not** held in-process. See [`SHUTDOWN.md`](SHUTDOWN.md). `mpe-shutdown-splash.service` uses Plymouth-like ordering (`Before=systemd-poweroff.service`, `TimeoutStopSec=infinity`) for UI and non-UI halt/reboot.
 
 **Shutdown timing:** User services (Surge, browser, gadget) use bounded `TimeoutStopSec` so a stuck daemon cannot block poweroff for minutes. The shutdown splash unit is **not** bounded — it stays up until power is cut. After a test shutdown, on the next boot run `./scripts/shutdown-analyze-last.sh` to compare `Stopping`/`Stopped` lines in the previous boot journal and `/tmp/mpe-shutdown-splash.log`.
 
