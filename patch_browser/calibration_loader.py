@@ -28,6 +28,11 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
 from patch_browser.calibration_teardown import restore_mpe_audio_services  # noqa: E402
+from patch_browser.ui_text import (
+    draw_wrapped_text_in_rect,
+    text_block_height,
+    wrap_text_lines,
+)
 from patch_browser.ui_theme import load_theme_mode_from_prefs, theme_for_mode  # noqa: E402
 
 CALIBRATE_SCRIPT = REPO_ROOT / "scripts" / "calibrate-patch-normalization.py"
@@ -244,10 +249,20 @@ class CalibrationLoaderApp:
         color = self.theme.accent if accent else self.theme.surface_alt
         pygame.draw.rect(self.screen, color, rect.pygame_rect, border_radius=8)
         text_color = (255, 255, 255) if accent else self.theme.text
-        text = self.font_md.render(label, True, text_color)
-        tx = rect.x + (rect.w - text.get_width()) // 2
-        ty = rect.y + (rect.h - text.get_height()) // 2
-        self.screen.blit(text, (tx, ty))
+        draw_wrapped_text_in_rect(
+            self.screen,
+            self.font_md,
+            label,
+            rect.x,
+            rect.y,
+            rect.w,
+            rect.h,
+            text_color,
+            pad_x=8,
+            line_spacing=2,
+            max_lines=2,
+            align="center",
+        )
 
     def _draw_progress_bar(self, y: int, w: int, h: int) -> None:
         total = max(self.state.total, 1)
@@ -260,9 +275,27 @@ class CalibrationLoaderApp:
             fill = pygame.Rect(x, y, fill_w, h)
             pygame.draw.rect(self.screen, self.theme.accent, fill, border_radius=8)
 
-    def _blit_centered(self, surf: pygame.Surface, y: int) -> None:
-        x = (self.width - surf.get_width()) // 2
-        self.screen.blit(surf, (x, y))
+    def _blit_wrapped_centered(
+        self,
+        text: str,
+        y: int,
+        font: pygame.font.Font,
+        color: tuple[int, int, int],
+        *,
+        max_width: int | None = None,
+        max_lines: int = 3,
+        line_spacing: int = 4,
+    ) -> int:
+        wrap_w = max_width if max_width is not None else self.width - 80
+        lines = wrap_text_lines(font, text, wrap_w, max_lines=max_lines)
+        block_h = text_block_height(font, len(lines), line_spacing=line_spacing)
+        start_y = y
+        for i, line in enumerate(lines):
+            surf = font.render(line, True, color)
+            x = (self.width - surf.get_width()) // 2
+            ty = start_y + i * (font.get_linesize() + line_spacing)
+            self.screen.blit(surf, (x, ty))
+        return start_y + block_h
 
     def _handle_pointer_down(self, pos: tuple[int, int]) -> None:
         if self.state.finished:
@@ -281,24 +314,29 @@ class CalibrationLoaderApp:
         elif self.state.phase == "cancelling":
             title_text = "Cancelling…"
         title = self.font_title.render(title_text, True, self.theme.text)
-        self._blit_centered(title, 72)
+        self.screen.blit(title, ((self.width - title.get_width()) // 2, 72))
 
         if self.state.phase == "preparing":
-            sub = self.font_md.render(self.state.message, True, self.theme.muted)
-            self._blit_centered(sub, 200)
+            self._blit_wrapped_centered(
+                self.state.message, 200, self.font_md, self.theme.muted
+            )
         elif self.state.phase in ("error", "cancelled"):
-            sub = self.font_md.render(self.state.message[:52], True, self.theme.danger)
-            self._blit_centered(sub, 200)
+            self._blit_wrapped_centered(
+                self.state.message, 200, self.font_md, self.theme.danger, max_lines=4
+            )
         elif self.state.phase == "done":
-            sub = self.font_md.render(self.state.message, True, self.theme.ok)
-            self._blit_centered(sub, 200)
+            self._blit_wrapped_centered(
+                self.state.message, 200, self.font_md, self.theme.ok, max_lines=3
+            )
         elif self.state.phase == "cancelling":
-            sub = self.font_md.render(self.state.message, True, self.theme.muted)
-            self._blit_centered(sub, 200)
+            self._blit_wrapped_centered(
+                self.state.message, 200, self.font_md, self.theme.muted
+            )
         else:
             name = self.state.patch_name or "…"
-            patch_s = self.font_md.render(name[:36], True, self.theme.text)
-            self._blit_centered(patch_s, 168)
+            name_y = self._blit_wrapped_centered(
+                name, 168, self.font_md, self.theme.text, max_width=min(520, self.width - 80)
+            )
 
             if self.state.total > 0:
                 prog = self.font_md.render(
@@ -306,15 +344,15 @@ class CalibrationLoaderApp:
                     True,
                     self.theme.accent,
                 )
-                self._blit_centered(prog, 210)
-                self._draw_progress_bar(252, min(520, self.width - 80), 14)
+                self.screen.blit(prog, ((self.width - prog.get_width()) // 2, name_y + 8))
+                self._draw_progress_bar(name_y + 42, min(520, self.width - 80), 14)
 
         elapsed_s = self.font_sm.render(
             f"Elapsed {_format_elapsed(self.state.elapsed_s)}",
             True,
             self.theme.muted,
         )
-        self._blit_centered(elapsed_s, 300)
+        self.screen.blit(elapsed_s, ((self.width - elapsed_s.get_width()) // 2, 300))
 
         if self.state.phase in ("preparing", "calibrating"):
             warn = self.font_sm.render(
@@ -322,11 +360,11 @@ class CalibrationLoaderApp:
                 True,
                 self.theme.muted,
             )
-            self._blit_centered(warn, self.height - 120)
+            self.screen.blit(warn, ((self.width - warn.get_width()) // 2, self.height - 120))
             self._draw_button(self._cancel_rect, "Cancel", accent=True)
         elif self.state.phase in ("done", "error", "cancelled"):
             hint = self.font_sm.render("Restarting patch browser…", True, self.theme.muted)
-            self._blit_centered(hint, self.height - 56)
+            self.screen.blit(hint, ((self.width - hint.get_width()) // 2, self.height - 56))
 
         pygame.display.flip()
 
