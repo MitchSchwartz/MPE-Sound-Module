@@ -105,9 +105,32 @@ _kill_stale_script() {
     done
 }
 
+_wait_for_no_script() {
+    local script="$1"
+    local timeout_s="${2:-5}"
+    local deadline=$((SECONDS + timeout_s))
+    while [ "$SECONDS" -lt "$deadline" ]; do
+        local remaining=0
+        while read -r pid; do
+            [ -z "$pid" ] && continue
+            _cmdline_matches_script "$pid" "$script" || continue
+            remaining=1
+            break
+        done < <(pgrep -f "$script" 2>/dev/null || true)
+        if [ "$remaining" -eq 0 ]; then
+            return 0
+        fi
+        sleep 0.1
+    done
+    _log "warning: $script still running after ${timeout_s}s"
+    return 1
+}
+
 _clear_stale_pygame_holders() {
     _kill_stale_script "touch_patch_browser.py"
     _kill_stale_script "touch_boot_splash.py"
+    _wait_for_no_script "touch_patch_browser.py" 5 || true
+    _wait_for_no_script "touch_boot_splash.py" 3 || true
 }
 
 _wait_for_drm_release() {
@@ -119,8 +142,9 @@ main() {
     if ! _should_run; then
         exit 0
     fi
-    _stop_boot_splash
+    # Kill orphaned pygame holders before stopping boot splash (stale browser blocks splash).
     _clear_stale_pygame_holders
+    _stop_boot_splash
     _wait_for_drm_release
     _log "ready"
 }
