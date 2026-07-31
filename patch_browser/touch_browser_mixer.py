@@ -6,7 +6,12 @@ import time
 
 from patch_browser.geometry import Rect
 from patch_browser.mixer import MixerChannel
-from patch_browser.touch_ui_constants import *
+from patch_browser.touch_ui_constants import (
+    DEFAULT_VOLUME,
+    FADER_HANDLE_H,
+    MIXER_DOUBLE_TAP_MS,
+    MIXER_DRAG_THRESHOLD_PX,
+)
 
 
 class TouchBrowserMixerMixin:
