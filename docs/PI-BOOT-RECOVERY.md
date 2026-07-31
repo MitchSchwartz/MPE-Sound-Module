@@ -75,3 +75,13 @@ sudo ./scripts/apply-dsi-cmdline.sh --strip-tty1   # only if serial console atta
 ```
 
 For USB-host: add `dtoverlay=dwc2,dr_mode=peripheral`, reboot **with USB-C unplugged**, then plug the cable after `multi-user.target` is up.
+
+## Slow shutdown diagnosis
+
+If poweroff from the touch UI or `systemctl poweroff` takes more than ~30 s:
+
+1. After the Pi comes back, run `./scripts/shutdown-analyze-last.sh` — it prints the **previous boot** stop timeline from journalctl and `/tmp/mpe-shutdown-splash.log`.
+2. Look for a large gap between `Stopping` and `Stopped` on one unit (often `surge-xt-cli` or `touch-shutdown-animation`).
+3. Refresh units after pulling fixes: `sudo ./scripts/configure-pi-paths.sh --local --force && sudo systemctl daemon-reload`.
+
+See [TOUCH_PATCH_BROWSER.md](TOUCH_PATCH_BROWSER.md) §Shutdown timing for unit timeout values.
