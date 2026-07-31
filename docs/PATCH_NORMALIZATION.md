@@ -44,6 +44,19 @@ File: `patch_normalization.json` keyed by **patch name** (stem). Favorites copie
 
 `enabled: false` skips normalization for that patch (falls back to global trim only).
 
+### Global master switch
+
+System settings (⋯) → **Patch normalization** turns all per-patch normalization off at once. Per-patch `enabled` flags and calibration data in `~/.patch_browser_normalization.json` are **not** cleared — the global state is stored under the reserved `_global` key in the same file:
+
+```json
+{
+  "_global": { "enabled": false },
+  "My Patch": { "gain_db": -2.5, "enabled": true, "lufs_measured": -15.5 }
+}
+```
+
+When global is off, the patch detail **Norm.** control is greyed out and non-interactive; turning global back on restores each patch’s stored `enabled` setting.
+
 ### Toggle persistence
 
 The touch UI **Norm.** checkbox writes only the `enabled` flag for that patch stem. Calibration fields (`gain_db`, `lufs_measured`, etc.) are preserved:
