@@ -16,7 +16,7 @@ ExecStart=/usr/bin/python3 -u @MPE_MODULE_REPO@/touch_boot_splash.py --mode hold
 RemainAfterExit=no
 StandardOutput=null
 StandardError=journal
-TimeoutStopSec=3
+TimeoutStopSec=8
 KillMode=mixed
 KillSignal=SIGTERM
 

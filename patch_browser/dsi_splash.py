@@ -7,6 +7,7 @@ pygame frames never flash on the panel.
 from __future__ import annotations
 
 import os
+import signal
 import subprocess
 import sys
 import time
@@ -30,6 +31,7 @@ CAL_RETURN_HOLD_SECONDS = 1.2
 FAST_RESTART_DEBOUNCE_S = 30.0
 LAST_SPLASH_STAMP = Path("/tmp/mpe-dsi-splash-last.ts")
 BROWSER_READY_FLAG = Path("/run/mpe-touch-browser-ready")
+DISPLAY_REQUEST_FLAG = Path("/run/mpe-touch-display-request")
 BOOT_SPLASH_UNIT = "touch-boot-animation.service"
 
 
@@ -188,6 +190,35 @@ def clear_browser_ready_flag() -> None:
         pass
 
 
+def request_display_handoff() -> None:
+    """Ask touch-boot-animation to release kmsdrm (cooperative exit)."""
+    try:
+        DISPLAY_REQUEST_FLAG.write_text(f"{time.time():.3f}\n", encoding="utf-8")
+    except OSError:
+        pass
+
+
+def clear_display_handoff_request() -> None:
+    try:
+        DISPLAY_REQUEST_FLAG.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def display_handoff_requested() -> bool:
+    return DISPLAY_REQUEST_FLAG.is_file()
+
+
+def wait_for_boot_splash_release(*, timeout: float = 5.0) -> None:
+    """Wait until the boot splash unit exits after a cooperative handoff."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if not boot_splash_service_active():
+            return
+        time.sleep(0.05)
+    stop_boot_splash_service(wait=True, timeout=max(1.0, timeout / 2))
+
+
 def draw_splash_frame(
     screen: "pygame.Surface",
     *,
@@ -246,11 +277,14 @@ def acquire_browser_display(
             pygame.init()
         return pygame.display.set_mode((width, height))
 
-    stop_boot_splash_service()
     configure_kmsdrm_env()
     if not pygame.get_init():
         pygame.init()
-    time.sleep(0.15)
+    if boot_splash_service_active():
+        request_display_handoff()
+        wait_for_boot_splash_release()
+    clear_display_handoff_request()
+    time.sleep(0.1)
     return _open_fullscreen_surface(width, height)
 
 
@@ -394,7 +428,7 @@ def paint_hold_black() -> None:
 
 
 def run_hold_loop() -> None:
-    """Hold branded boot frame until killed (systemd early boot service)."""
+    """Hold branded boot frame until killed or display handoff is requested."""
     if pygame is None:
         sys.exit(0)
     configure_kmsdrm_env()
@@ -409,8 +443,17 @@ def run_hold_loop() -> None:
     _mark_splash_ran()
     clock = pygame.time.Clock()
     frame = 0
+    exiting = False
+
+    def _request_exit(*_args: object) -> None:
+        nonlocal exiting
+        exiting = True
+
+    signal.signal(signal.SIGTERM, _request_exit)
+    signal.signal(signal.SIGINT, _request_exit)
+
     try:
-        while True:
+        while not exiting and not display_handoff_requested():
             progress = 0.15 + 0.75 * (0.5 + 0.5 * ((frame % 120) / 120.0))
             draw_splash_frame(screen, mode=SplashMode.BOOT, theme=theme, progress=progress)
             for event in pygame.event.get():
@@ -420,3 +463,4 @@ def run_hold_loop() -> None:
             clock.tick(30)
     finally:
         pygame.quit()
+        clear_display_handoff_request()
