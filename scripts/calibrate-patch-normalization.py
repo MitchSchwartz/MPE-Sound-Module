@@ -22,6 +22,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -86,6 +87,7 @@ MEASURE_RETRY_INTERVAL_SECONDS = 3.0
 MEASURE_MAX_ATTEMPTS = 4  # ~0, 3, 6, 9s within 10s total
 
 _interrupted = False
+FAILURE_REPORT_PATH = Path("/tmp/calibration-last-failure.json")
 
 
 def _handle_interrupt(_signum: int, _frame: object | None) -> None:
@@ -187,6 +189,29 @@ def emit_progress(args: argparse.Namespace, payload: dict) -> None:
         pass
 
 
+def write_failure_report(
+    *,
+    patch_index: int,
+    patch_name: str,
+    total: int,
+    reason: str,
+    exit_code: int,
+) -> None:
+    """Persist last failure for post-mortems on the Pi (/tmp survives until reboot)."""
+    payload = {
+        "patch_index": patch_index,
+        "patch_name": patch_name,
+        "total": total,
+        "reason": reason,
+        "exit_code": exit_code,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+    try:
+        FAILURE_REPORT_PATH.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    except OSError as exc:
+        print(f"Warning: could not write {FAILURE_REPORT_PATH}: {exc}", file=sys.stderr)
+
+
 def favorites_folder_on_disk(parent: Path | None = None) -> Path:
     base = parent or resolve_user_patches_dir()
     return base / FAVORITES_NAME.lstrip("!")
@@ -244,36 +269,42 @@ def find_surge_midi_port(*, announce: bool = True) -> int | None:
         return None
 
     midi_out = rtmidi.MidiOut()
-    ports = midi_out.get_ports()
+    try:
+        ports = midi_out.get_ports()
 
-    def match_port(predicate) -> int | None:
-        for index, name in enumerate(ports):
-            if predicate(name.lower()):
-                return index
-        return None
+        def match_port(predicate) -> int | None:
+            for index, name in enumerate(ports):
+                if predicate(name.lower()):
+                    return index
+            return None
 
-    # Prefer Surge's direct MIDI input port.
-    port = match_port(lambda n: "surge" in n and "input" in n)
-    if port is not None:
-        return port
+        # Prefer Surge's direct MIDI input port.
+        port = match_port(lambda n: "surge" in n and "input" in n)
+        if port is not None:
+            return port
 
-    port = match_port(lambda n: "surge" in n)
-    if port is not None:
-        return port
+        port = match_port(lambda n: "surge" in n)
+        if port is not None:
+            return port
 
-    # Pi fallback: route through ALSA Midi Through when Surge has no named port.
-    port = match_port(lambda n: "midi through" in n or "through port" in n)
-    if port is not None:
+        # Pi fallback: route through ALSA Midi Through when Surge has no named port.
+        port = match_port(lambda n: "midi through" in n or "through port" in n)
+        if port is not None:
+            if announce:
+                print(
+                    f"Using MIDI Through port {port!r} ({ports[port]}) — ensure Surge listens on Through",
+                    file=sys.stderr,
+                )
+            return port
+
         if announce:
-            print(
-                f"Using MIDI Through port {port!r} ({ports[port]}) — ensure Surge listens on Through",
-                file=sys.stderr,
-            )
-        return port
-
-    if announce:
-        print(f"Available MIDI ports: {ports}", file=sys.stderr)
-    return None
+            print(f"Available MIDI ports: {ports}", file=sys.stderr)
+        return None
+    finally:
+        try:
+            midi_out.close_port()
+        except Exception:
+            pass
 
 
 def surge_cli_path() -> Path:
@@ -354,12 +385,25 @@ def detect_capture_device(explicit: str | None, *, use_loopback: bool) -> str:
     return DEFAULT_PI_CAPTURE
 
 
-def send_performance_gesture(port_index: int, pre_roll: float = 0.25) -> None:
+def open_midi_out(port_index: int):
+    """Open one ALSA sequencer client for the whole calibration run."""
     import rtmidi
 
     midi_out = rtmidi.MidiOut()
     midi_out.open_port(port_index)
+    return midi_out
 
+
+def close_midi_out(midi_out: object | None) -> None:
+    if midi_out is None:
+        return
+    try:
+        midi_out.close_port()  # type: ignore[union-attr]
+    except Exception:
+        pass
+
+
+def send_performance_gesture(midi_out: object, pre_roll: float = 0.25) -> None:
     time.sleep(pre_roll)
 
     ch = MPE_CHANNEL - 1
@@ -367,18 +411,18 @@ def send_performance_gesture(port_index: int, pre_roll: float = 0.25) -> None:
     note_off = 0x80 | ch
     pressure_cc = 0xE0 | ch
 
-    midi_out.send_message([note_on, NOTE, STRIKE_VELOCITY])
+    midi_out.send_message([note_on, NOTE, STRIKE_VELOCITY])  # type: ignore[union-attr]
 
     steps = 24
     hold_seconds = 1.8
     step_sleep = hold_seconds / steps
     for step in range(steps + 1):
         pressure = int(127 * step / steps)
-        midi_out.send_message([pressure_cc, pressure & 0x7F, (pressure >> 7) & 0x7F])
+        midi_out.send_message([pressure_cc, pressure & 0x7F, (pressure >> 7) & 0x7F])  # type: ignore[union-attr]
         time.sleep(step_sleep)
 
     time.sleep(0.15)
-    midi_out.send_message([note_off, NOTE, 0])
+    midi_out.send_message([note_off, NOTE, 0])  # type: ignore[union-attr]
     time.sleep(0.2)
 
 
@@ -391,7 +435,7 @@ def is_invalid_measurement(lufs: float, true_peak: float) -> bool:
     return False
 
 
-def capture_gesture_wav(port_index: int, audio_device: str) -> Path:
+def capture_gesture_wav(midi_out: object, audio_device: str) -> Path:
     """Record the standard MPE gesture to a temporary WAV; caller must unlink the path."""
     with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
         wav = Path(tmp.name)
@@ -414,7 +458,7 @@ def capture_gesture_wav(port_index: int, audio_device: str) -> Path:
         ]
     )
     time.sleep(0.15)
-    send_performance_gesture(port_index)
+    send_performance_gesture(midi_out)
     capture.wait()
     if capture.returncode != 0:
         wav.unlink(missing_ok=True)
@@ -454,7 +498,7 @@ def calibrate_patch(
     audio_device: str,
     mock_lufs: float | None,
     dry_run: bool,
-    midi_port: int | None = None,
+    midi_out: object | None = None,
 ) -> bool:
     name = patch_path.stem
     if dry_run:
@@ -471,8 +515,7 @@ def calibrate_patch(
             print(f"  [fail] OSC load failed: {name}", file=sys.stderr)
             return False
 
-        port = midi_port if midi_port is not None else find_surge_midi_port()
-        if port is None:
+        if midi_out is None:
             return False
 
         # Unity gain for measurement — stored calibration must not skew capture.
@@ -494,7 +537,7 @@ def calibrate_patch(
 
             wav: Path | None = None
             try:
-                wav = capture_gesture_wav(port, audio_device)
+                wav = capture_gesture_wav(midi_out, audio_device)
                 lufs, true_peak = measure_lufs(wav)
             except RuntimeError:
                 print(f"  [fail] ffmpeg capture: {name}", file=sys.stderr)
@@ -647,26 +690,47 @@ def main() -> int:
 
     updated = 0
     exit_code = 0
+    midi_out: object | None = None
+    last_patch_index = 0
+    last_patch_name = ""
     try:
+        if args.mock_lufs is None:
+            midi_out = open_midi_out(midi_port)
         for index, path in enumerate(targets, start=1):
             if _interrupted:
                 print("Calibration interrupted — keeping partial progress.", file=sys.stderr)
                 break
             name = path.stem
+            last_patch_index = index
+            last_patch_name = name
             print(f"[{index}/{len(targets)}] {name}", file=sys.stderr if args.progress_json else sys.stdout)
             emit_progress(
                 args,
                 {"type": "patch", "index": index, "total": len(targets), "name": name},
             )
-            ok = calibrate_patch(
-                path,
-                loader,
-                store,
-                audio_device=audio_device,
-                mock_lufs=args.mock_lufs,
-                dry_run=False,
-                midi_port=midi_port,
-            )
+            try:
+                ok = calibrate_patch(
+                    path,
+                    loader,
+                    store,
+                    audio_device=audio_device,
+                    mock_lufs=args.mock_lufs,
+                    dry_run=False,
+                    midi_out=midi_out,
+                )
+            except Exception as exc:
+                msg = f"{name}: {exc}"
+                print(f"  [fail] {msg}", file=sys.stderr)
+                write_failure_report(
+                    patch_index=index,
+                    patch_name=name,
+                    total=len(targets),
+                    reason=str(exc),
+                    exit_code=1,
+                )
+                emit_progress(args, {"type": "error", "message": msg})
+                exit_code = 1
+                break
             emit_progress(
                 args,
                 {
@@ -680,6 +744,7 @@ def main() -> int:
             if ok:
                 updated += 1
     finally:
+        close_midi_out(midi_out)
         if loopback_started and not args.no_restore_services:
             emit_progress(
                 args,
@@ -695,6 +760,13 @@ def main() -> int:
         exit_code = 0
     if _interrupted:
         exit_code = 130
+        write_failure_report(
+            patch_index=last_patch_index,
+            patch_name=last_patch_name,
+            total=len(targets),
+            reason="interrupted",
+            exit_code=exit_code,
+        )
     emit_progress(args, {"type": "done", "updated": updated, "exit_code": exit_code})
     return exit_code
 
