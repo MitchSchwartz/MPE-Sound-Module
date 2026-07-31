@@ -1,10 +1,21 @@
-"""Shared cleanup after calibration run or cancel (Surge, snd-aloop, systemd)."""
+"""Shared cleanup after calibration run or cancel (Surge, snd-aloop, systemd).
+
+Browser handoff invariant (``MPE_CALIB_FROM_BROWSER=1``):
+
+- Do not stop ``touch-patch-browser`` during ``stop_mpe_audio_services`` — the loader
+  replaces the browser process via ``exec``; stopping the unit kills teardown.
+- On restore, schedule ``systemctl restart touch-patch-browser`` asynchronously instead
+  of a blocking ``systemctl start`` (same-process deadlock otherwise).
+
+See ``patch_browser.calibration_constants`` for the env var name and helper.
+"""
 
 from __future__ import annotations
 
-import os
 import subprocess
 import time
+
+from patch_browser.calibration_constants import calibration_from_browser
 
 
 def unload_snd_aloop_if_idle() -> None:
@@ -21,14 +32,10 @@ def unload_snd_aloop_if_idle() -> None:
         pass
 
 
-def _calibration_from_browser() -> bool:
-    return os.environ.get("MPE_CALIB_FROM_BROWSER") == "1"
-
-
 def stop_mpe_audio_services() -> None:
     """Stop production Surge (and patch browser unless launched from browser exec handoff)."""
     units: list[str] = []
-    if not _calibration_from_browser():
+    if not calibration_from_browser():
         units.append("touch-patch-browser")
     units.append("surge-xt-cli")
     for unit in units:
@@ -60,7 +67,7 @@ def restore_mpe_audio_services(*, restart_browser: bool = True) -> None:
     unload_snd_aloop_if_idle()
     subprocess.run(["sudo", "systemctl", "start", "surge-xt-cli"], check=False)
     if restart_browser:
-        if _calibration_from_browser():
+        if calibration_from_browser():
             # Loader runs as the service main process; synchronous restart deadlocks
             # stop (this process) with teardown still in finally.
             _schedule_touch_browser_restart()
