@@ -41,7 +41,10 @@ class SurgeCpuMonitor:
         self._source = "none"
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
-        self._clk_tck = os.sysconf(os.SC_CLK_TCK)
+        try:
+            self._clk_tck = os.sysconf("SC_CLK_TCK")
+        except (AttributeError, OSError, ValueError):
+            self._clk_tck = 100
         self._last_jiffies: tuple[int, float] | None = None
         self._osc_client = None
         self._osc_cpu_supported: bool | None = None
