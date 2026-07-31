@@ -40,6 +40,7 @@ File: `patch_normalization.json` keyed by **patch name** (stem). Favorites copie
 |------|---------|
 | `~/.patch_browser_normalization.json` | Runtime store on Pi/PC (default) |
 | `config/patch_normalization.json` | Shipped starter `{}` in repo |
+| `config/patch_normalization.pi-backup-*.json` | Tracked Pi runtime snapshots (e.g. partial cal); restore to `~/.patch_browser_normalization.json` on deploy — not overwritten by git pull |
 | `MPE_NORMALIZATION_FILE` | Env override for either script or runtime |
 
 `enabled: false` skips normalization for that patch (falls back to global trim only).
