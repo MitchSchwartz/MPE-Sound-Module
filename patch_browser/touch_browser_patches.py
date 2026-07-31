@@ -6,6 +6,8 @@ import threading
 import time
 from pathlib import Path
 
+import pygame
+
 from patch_browser.dsi_splash import BOOT_MIN_SECONDS
 from patch_browser.patch_scanner import favorites_display_name
 from patch_browser.touch_ui_enums import LeftNavMode
