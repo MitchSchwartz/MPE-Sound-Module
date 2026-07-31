@@ -26,7 +26,7 @@
 
 - **Mixin composition** keeps method bodies identical to pre-refactor behavior; no protocol/lazy-import indirection.
 - **Public script path unchanged** — systemd and `start-touch-patch-browser.sh` still invoke `touch_patch_browser.py`.
-- **`patch_browser_ui.py` (OLED)** untouched in this pass.
+- **`patch_browser_ui.py` (OLED)** — logging cleanup landed in the grumpy audit pass (~241-line diff); not part of the touch-browser mixin split itself.
 
 ## Deferred
 

@@ -123,6 +123,19 @@ class CalibrationLoaderLaunchTests(unittest.TestCase):
         self.assertEqual(Path(argv[1]), CALIBRATE_WITH_LOADER_SCRIPT)
         self.assertEqual(argv[-1], "--force")
 
+    @mock.patch("patch_browser.touch_browser_normalization.sys.exit")
+    @mock.patch("patch_browser.touch_browser_normalization.os.execv")
+    @mock.patch("patch_browser.touch_browser_normalization.pygame.quit")
+    def test_launch_calibration_loader_execv_failure_exits_cleanly(
+        self,
+        _quit: mock.Mock,
+        execv_mock: mock.Mock,
+        exit_mock: mock.Mock,
+    ) -> None:
+        execv_mock.side_effect = OSError("exec failed")
+        self.mixin._launch_calibration_loader()
+        exit_mock.assert_called_once_with(1)
+
 
 if __name__ == "__main__":
     unittest.main()
