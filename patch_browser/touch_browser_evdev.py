@@ -2,50 +2,12 @@
 
 from __future__ import annotations
 
-import json
-import math
-import os
 import queue
-import subprocess
-import threading
-import time
-from pathlib import Path
 
 import pygame
 
-from patch_browser.calibration_constants import (
-    MPE_CALIB_FROM_BROWSER,
-    MPE_CALIB_FROM_BROWSER_ACTIVE,
-)
-from patch_browser.geometry import Rect
-from patch_browser.mixer import MixerChannel
-from patch_browser.patch_scanner import FAVORITES_NAME, favorites_display_name
-from patch_browser.scroll_widgets import ContentScrollArea, ScrollList
-from patch_browser.touch_ui_constants import *
-from patch_browser.touch_ui_enums import (
-    CalibrateMode,
-    LeftNavMode,
-    Screen,
-    audio_profile_display,
-)
-from patch_browser.ui_prefs import (
-    load_ui_preference,
-    load_volume_level,
-    read_ui_prefs_file,
-    save_theme_mode,
-    save_ui_preference,
-    save_volume_level,
-    write_ui_prefs_file,
-)
-from patch_browser.ui_text import (
-    blit_text_block,
-    draw_wrapped_text_in_rect,
-    ellipsize_text,
-    text_block_height,
-    wrap_text_lines,
-    wrapped_row_height,
-)
-from patch_browser.ui_theme import THEME_MODE_OLED_BLACK, THEME_MODE_STANDARD, Theme
+from patch_browser.touch_evdev import TouchEvdevBridge, evdev_bridge_enabled
+from patch_browser.touch_ui_enums import LeftNavMode, Screen
 
 
 class TouchBrowserEvdevMixin:
