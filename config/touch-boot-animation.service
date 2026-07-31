@@ -1,7 +1,8 @@
 [Unit]
 Description=Touch DSI Boot Splash (5 inch panel)
-After=systemd-modules-load.service local-fs.target
-Before=touch-patch-browser.service
+DefaultDependencies=no
+After=local-fs.target systemd-udev-settle.service
+Before=getty@tty1.service touch-patch-browser.service
 Conflicts=boot-animation.service
 
 [Service]
@@ -13,11 +14,11 @@ Environment=SDL_VIDEODRIVER=kmsdrm
 Environment=SDL_MOUSE_TOUCH_EVENTS=1
 ExecStart=/usr/bin/python3 -u @MPE_MODULE_REPO@/touch_boot_splash.py --mode hold
 RemainAfterExit=no
-StandardOutput=journal
+StandardOutput=null
 StandardError=journal
 TimeoutStopSec=3
 KillMode=mixed
 KillSignal=SIGTERM
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=sysinit.target

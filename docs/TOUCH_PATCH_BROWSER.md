@@ -143,17 +143,19 @@ On the SmartiPi DSI panel, **KMS/DRM keeps the last pygame frame** when `touch-p
 
 **Touch boot sequence** (`MPE_UI_MODE=touch`):
 
-1. `touch-boot-animation.service` — claims DRM early and loops the branded **MPE Sound Module** splash until the browser starts.
-2. `start-touch-patch-browser.sh` — stops the splash service, clears stale pixels (`clear-dsi-framebuffer.py`), starts `touch_patch_browser.py`.
-3. Browser — fills background immediately, then plays a short in-app boot splash (~1.2 s) unless a full splash ran within the last 30 s (service restart debounce).
+1. `touch-boot-animation.service` — starts before `getty@tty1`, claims DRM, loops the branded splash until the browser takes over.
+2. `start-touch-patch-browser.sh` — does **not** stop the splash or clear the framebuffer (that would release DRM and flash the console).
+3. `touch_patch_browser.py` — stops the splash service, opens kmsdrm, paints boot splash immediately, keeps animating during patch scan, then signals ready.
 
-**Calibration handoff:** the browser paints **Starting calibration…** and `exec`s `calibration_loader.py` directly (no bash wrapper). The loader paints on first frame before Surge prep. On exit it shows **Returning to patch browser…** before async restart.
+**Calibration handoff:** the browser paints **Starting calibration…**, flips, and `exec`s `calibration_loader.py`. The loader paints on its first frame (`paint_immediate`) before heavy init. On exit it shows **Returning to patch browser…**, re-arms `touch-boot-animation`, then async-restarts the browser.
 
-**Shutdown:** Power menu confirm runs an in-app shutdown splash (~2 s) before `poweroff`/`reboot`. `touch-shutdown-animation.service` covers systemd halt/reboot paths.
+**Shutdown:** Power menu confirm runs an in-app shutdown splash (~3 s), stops `getty@tty1`, spawns `poweroff`/`reboot`, and holds the shutdown frame until halt. `touch-shutdown-animation.service` covers systemd halt/reboot paths with `--hold`.
+
+**Optional (reduce kernel scroll on the panel):** add `console=serial0,115200 fbcon=map:0` to `/boot/firmware/cmdline.txt` so boot messages go to serial and fbcon stays off the DSI.
 
 Implementation: `patch_browser/dsi_splash.py`, `touch_boot_splash.py`, `touch_shutdown_splash.py`. OLED builds keep `boot-animation.service` / `shutdown-animation.service`.
 
-**Stale-frame belt-and-suspenders:** `scripts/clear-dsi-framebuffer.py` still runs between splash stop and browser import; `touch_patch_browser.py` fills the background and flips immediately after `set_mode()`.
+**Ready flag:** `/run/mpe-touch-browser-ready` is written when the browser finishes its boot splash (after initial patch scan).
 
 ## Config
 
