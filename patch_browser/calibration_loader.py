@@ -27,10 +27,28 @@ except ImportError as exc:
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
+from patch_browser.calibration_teardown import restore_mpe_audio_services  # noqa: E402
 from patch_browser.ui_theme import Theme  # noqa: E402
 
 CALIBRATE_SCRIPT = REPO_ROOT / "scripts" / "calibrate-patch-normalization.py"
 DONE_HOLD_SECONDS = 2.5
+CANCEL_BTN_W = 160
+CANCEL_BTN_H = 44
+
+
+@dataclass
+class Rect:
+    x: int
+    y: int
+    w: int
+    h: int
+
+    @property
+    def pygame_rect(self) -> pygame.Rect:
+        return pygame.Rect(self.x, self.y, self.w, self.h)
+
+    def contains(self, px: int, py: int) -> bool:
+        return self.x <= px < self.x + self.w and self.y <= py < self.y + self.h
 
 
 @dataclass
@@ -45,6 +63,7 @@ class LoaderState:
     error: str = ""
     exit_code: int | None = None
     finished: bool = False
+    cancelled: bool = False
 
 
 @dataclass
@@ -74,6 +93,16 @@ class ProgressReader:
         if self._thread:
             self._thread.join(timeout=2.0)
         return code
+
+    def terminate(self) -> None:
+        if self.proc.poll() is not None:
+            return
+        self.proc.terminate()
+        try:
+            self.proc.wait(timeout=4.0)
+        except subprocess.TimeoutExpired:
+            self.proc.kill()
+            self.proc.wait(timeout=2.0)
 
 
 def _format_elapsed(seconds: float) -> str:
@@ -149,6 +178,12 @@ class CalibrationLoaderApp:
         self._started_at = time.monotonic()
         self._done_at: float | None = None
         self._running = True
+        self._cancel_rect = Rect(
+            (self.width - CANCEL_BTN_W) // 2,
+            self.height - 72,
+            CANCEL_BTN_W,
+            CANCEL_BTN_H,
+        )
 
         cmd = [sys.executable, "-u", str(CALIBRATE_SCRIPT), "--progress-json", *calibrate_args]
         self.reader = ProgressReader(
@@ -174,6 +209,29 @@ class CalibrationLoaderApp:
                 break
             _apply_event(self.state, event)
 
+    def _cancel_calibration(self) -> None:
+        if self.state.cancelled or self.state.finished:
+            return
+        self.state.cancelled = True
+        self.state.phase = "cancelling"
+        self.state.message = "Cancelling…"
+        self.reader.terminate()
+        restore_mpe_audio_services()
+        self.state.phase = "cancelled"
+        self.state.message = f"Cancelled — kept {self.state.updated} calibration(s)"
+        self.state.exit_code = 130
+        self.state.finished = True
+        self._done_at = time.monotonic()
+
+    def _draw_button(self, rect: Rect, label: str, *, accent: bool = False) -> None:
+        color = self.theme.accent if accent else self.theme.surface_alt
+        pygame.draw.rect(self.screen, color, rect.pygame_rect, border_radius=8)
+        text_color = (255, 255, 255) if accent else self.theme.text
+        text = self.font_md.render(label, True, text_color)
+        tx = rect.x + (rect.w - text.get_width()) // 2
+        ty = rect.y + (rect.h - text.get_height()) // 2
+        self.screen.blit(text, (tx, ty))
+
     def _draw_progress_bar(self, y: int, w: int, h: int) -> None:
         total = max(self.state.total, 1)
         ratio = min(1.0, self.state.index / total) if self.state.index else 0.0
@@ -189,21 +247,36 @@ class CalibrationLoaderApp:
         x = (self.width - surf.get_width()) // 2
         self.screen.blit(surf, (x, y))
 
+    def _handle_pointer_down(self, pos: tuple[int, int]) -> None:
+        if self.state.finished:
+            return
+        if self.state.phase in ("preparing", "calibrating", "cancelling"):
+            if self._cancel_rect.contains(*pos):
+                self._cancel_calibration()
+
     def _draw(self) -> None:
         self.screen.fill(self.theme.bg)
         self.state.elapsed_s = self._elapsed()
 
-        title = self.font_title.render("Calibrating patches…", True, self.theme.text)
+        title_text = "Calibrating patches…"
+        if self.state.phase == "cancelled":
+            title_text = "Calibration cancelled"
+        elif self.state.phase == "cancelling":
+            title_text = "Cancelling…"
+        title = self.font_title.render(title_text, True, self.theme.text)
         self._blit_centered(title, 72)
 
         if self.state.phase == "preparing":
             sub = self.font_md.render(self.state.message, True, self.theme.muted)
             self._blit_centered(sub, 200)
-        elif self.state.phase == "error":
-            sub = self.font_md.render(self.state.message[:48], True, self.theme.danger)
+        elif self.state.phase in ("error", "cancelled"):
+            sub = self.font_md.render(self.state.message[:52], True, self.theme.danger)
             self._blit_centered(sub, 200)
         elif self.state.phase == "done":
             sub = self.font_md.render(self.state.message, True, self.theme.ok)
+            self._blit_centered(sub, 200)
+        elif self.state.phase == "cancelling":
+            sub = self.font_md.render(self.state.message, True, self.theme.muted)
             self._blit_centered(sub, 200)
         else:
             name = self.state.patch_name or "…"
@@ -226,15 +299,15 @@ class CalibrationLoaderApp:
         )
         self._blit_centered(elapsed_s, 300)
 
-        if self.state.phase == "calibrating":
+        if self.state.phase in ("preparing", "calibrating"):
             warn = self.font_sm.render(
                 "Do not touch — Surge is measuring loudness",
                 True,
                 self.theme.muted,
             )
-            self._blit_centered(warn, self.height - 56)
-
-        if self.state.phase in ("done", "error"):
+            self._blit_centered(warn, self.height - 120)
+            self._draw_button(self._cancel_rect, "Cancel", accent=True)
+        elif self.state.phase in ("done", "error", "cancelled"):
             hint = self.font_sm.render("Restarting patch browser…", True, self.theme.muted)
             self._blit_centered(hint, self.height - 56)
 
@@ -244,21 +317,30 @@ class CalibrationLoaderApp:
         clock = pygame.time.Clock()
         while self._running:
             for event in pygame.event.get():
-                if event.type in (pygame.QUIT, pygame.KEYDOWN):
-                    if event.type == pygame.KEYDOWN and event.key not in (
-                        pygame.K_ESCAPE,
-                        pygame.K_q,
-                    ):
-                        continue
-                    # Ignore quit during calibration — Surge must stay exclusive.
+                if event.type == pygame.QUIT:
                     if not self.state.finished:
-                        continue
-                    self._running = False
+                        self._cancel_calibration()
+                    else:
+                        self._running = False
+                elif event.type == pygame.KEYDOWN:
+                    if event.key in (pygame.K_ESCAPE, pygame.K_q):
+                        if not self.state.finished:
+                            self._cancel_calibration()
+                        else:
+                            self._running = False
+                elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                    self._handle_pointer_down(event.pos)
+                elif event.type == pygame.FINGERDOWN:
+                    x = int(event.x * self.width)
+                    y = int(event.y * self.height)
+                    self._handle_pointer_down((x, y))
 
             self._drain_events()
             if self.reader.proc.poll() is not None and not self.state.finished:
                 code = self.reader.proc.returncode or 0
-                if self.state.phase != "error":
+                if self.state.cancelled:
+                    pass
+                elif self.state.phase != "error":
                     _apply_event(
                         self.state,
                         {

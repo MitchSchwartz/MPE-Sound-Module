@@ -5,8 +5,9 @@
 # restores surge-xt-cli and touch-patch-browser when finished.
 #
 # Examples:
-#   ./scripts/calibrate-with-loader.sh --favorites-only
-#   ./scripts/calibrate-with-loader.sh --favorites-only --force
+#   ./scripts/calibrate-with-loader.sh              # missing gain_db only (all scanned patches)
+#   ./scripts/calibrate-with-loader.sh --force      # re-calibrate entire library
+#   ./scripts/calibrate-with-loader.sh --favorites-only   # Quick Select folder only (SSH/ad-hoc)
 
 set -euo pipefail
 
