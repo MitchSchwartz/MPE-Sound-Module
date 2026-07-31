@@ -41,6 +41,7 @@ from patch_browser.dsi_splash import (
     BOOT_MIN_SECONDS,
     SplashMode,
     acquire_browser_display,
+    boot_animation_phase,
     clear_browser_ready_flag,
     draw_splash_frame,
     signal_browser_ready,
@@ -71,29 +72,32 @@ class TouchPatchBrowser(
         self.screen.fill(self.theme.bg)
         pygame.display.flip()
 
-    def _paint_boot_splash_frame(self, *, progress: float) -> None:
+    def _paint_boot_splash_frame(self, *, animation_phase: float) -> None:
         draw_splash_frame(
             self.screen,
             mode=SplashMode.BOOT,
             theme=self.theme,
-            progress=progress,
+            animation_phase=animation_phase,
         )
 
-    def _finish_boot_splash(self) -> None:
-        """Hold branded boot frames until minimum time and first scan settle."""
-        start = getattr(self, "_boot_splash_started", time.monotonic())
-        clock = pygame.time.Clock()
-        while True:
-            elapsed = time.monotonic() - start
-            progress = min(1.0, elapsed / BOOT_MIN_SECONDS)
-            self._paint_boot_splash_frame(progress=progress)
-            if elapsed >= BOOT_MIN_SECONDS:
-                break
-            for event in pygame.event.get():
-                if event.type == pygame.QUIT:
-                    self._running = False
-                    return
-            clock.tick(30)
+    def _boot_splash_elapsed(self) -> float:
+        return time.monotonic() - getattr(self, "_boot_splash_started", time.monotonic())
+
+    def _tick_boot_splash_until_ready(self) -> bool:
+        """Animate boot splash until min time elapsed. True when ready for first UI draw."""
+        if self._boot_splash_done:
+            return True
+        elapsed = self._boot_splash_elapsed()
+        if elapsed < BOOT_MIN_SECONDS:
+            self._paint_boot_splash_frame(animation_phase=boot_animation_phase(elapsed))
+            return False
+        return True
+
+    def _complete_boot_splash(self) -> None:
+        """End boot splash after the first full UI frame is on screen."""
+        if self._boot_splash_done:
+            return
+        self._boot_splash_done = True
         signal_browser_ready()
     def _pointer_move_distance(
         self, start: tuple[int, int] | None, end: tuple[int, int]
@@ -113,13 +117,24 @@ class TouchPatchBrowser(
         self.toast_message = message
         self.toast_until = time.time() + seconds
     def run(self) -> None:
-        signal_browser_ready()
         clock = pygame.time.Clock()
         print("Touch patch browser running.")
         print(f"Display: {self.width}x{self.height}")
         print(f"Quick Select folder: {favorites_display_name()} ({FAVORITES_NAME.lstrip('!')})")
 
         while self._running:
+            if not self._boot_splash_done:
+                if not self._tick_boot_splash_until_ready():
+                    for event in pygame.event.get():
+                        if event.type == pygame.QUIT:
+                            self._running = False
+                            break
+                    clock.tick(30)
+                    continue
+                self._draw()
+                self._complete_boot_splash()
+                clock.tick(60)
+                continue
             if self._scan_dirty and not (
                 self.screen_state == Screen.BROWSER
                 and not self.left_nav_collapsed
@@ -161,7 +176,8 @@ class TouchPatchBrowser(
         self.theme_mode = load_theme_mode_from_prefs()
         self.theme = theme_for_mode(self.theme_mode)
         self._boot_splash_started = time.monotonic()
-        self._paint_boot_splash_frame(progress=0.05)
+        self._boot_splash_done = False
+        self._paint_boot_splash_frame(animation_phase=0.0)
         self.font_lg = self._load_font(34)
         self.font_md = self._load_font(22)
         self.font_sm = self._load_font(18)
@@ -224,7 +240,6 @@ class TouchPatchBrowser(
         self._bootstrap_patches()
         self._start_background_scan()
         self._wait_for_initial_scan()
-        self._finish_boot_splash()
         self._start_evdev_touch_bridge()
 
 
