@@ -113,6 +113,7 @@ class TouchPatchBrowser(
         self.toast_message = message
         self.toast_until = time.time() + seconds
     def run(self) -> None:
+        signal_browser_ready()
         clock = pygame.time.Clock()
         print("Touch patch browser running.")
         print(f"Display: {self.width}x{self.height}")
