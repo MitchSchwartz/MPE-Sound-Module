@@ -2194,6 +2194,8 @@ class TouchPatchBrowser:
             self._sync_settings_scroll_viewport()
             self._settings_content_scroll.pointer_down(pos)
             self._settings_swipe_start = pos
+            if hit is not None:
+                self._settings_pending_hit = hit
             return
 
         if hit is not None:
