@@ -8,6 +8,7 @@ from pathlib import Path
 import pygame
 
 from patch_browser.calibration_constants import (
+    CALIBRATE_WITH_LOADER_SCRIPT,
     MPE_CALIB_FROM_BROWSER,
     MPE_CALIB_FROM_BROWSER_ACTIVE,
 )
@@ -169,9 +170,7 @@ class TouchBrowserNormalizationMixin:
             f"({total - targets} already done)."
         )
     def _launch_calibration_loader(self) -> None:
-        repo = Path(__file__).resolve().parent
-        script = repo / "scripts" / "calibrate-with-loader.sh"
-        args = ["bash", str(script)]
+        args = ["bash", str(CALIBRATE_WITH_LOADER_SCRIPT)]
         if self._pending_calibrate_mode == CalibrateMode.FORCE_FULL:
             args.append("--force")
         if self._evdev_bridge is not None:
