@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -126,10 +127,31 @@ class PatchNormalizationStore:
         self._data = merged
 
     def save(self) -> None:
+        """Persist store atomically so cancel/interrupt mid-write cannot truncate JSON."""
         self.path.parent.mkdir(parents=True, exist_ok=True)
         payload: dict[str, Any] = dict(self._data)
         payload[_GLOBAL_SETTINGS_KEY] = {"enabled": self._global_enabled}
-        self.path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+        text = json.dumps(payload, indent=2, sort_keys=True) + "\n"
+        fd, tmp_name = tempfile.mkstemp(
+            dir=self.path.parent,
+            prefix=f".{self.path.name}.",
+            suffix=".tmp",
+        )
+        tmp_path = Path(tmp_name)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                handle.write(text)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(tmp_path, self.path)
+            dir_fd = os.open(self.path.parent, os.O_RDONLY)
+            try:
+                os.fsync(dir_fd)
+            finally:
+                os.close(dir_fd)
+        except Exception:
+            tmp_path.unlink(missing_ok=True)
+            raise
 
     @staticmethod
     def patch_key(patch_name: str) -> str:
