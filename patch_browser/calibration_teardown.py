@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 import time
 
@@ -20,6 +21,23 @@ def unload_snd_aloop_if_idle() -> None:
         pass
 
 
+def _calibration_from_browser() -> bool:
+    return os.environ.get("MPE_CALIB_FROM_BROWSER") == "1"
+
+
+def stop_mpe_audio_services() -> None:
+    """Stop production Surge (and patch browser unless launched from browser exec handoff)."""
+    units: list[str] = []
+    if not _calibration_from_browser():
+        units.append("touch-patch-browser")
+    units.append("surge-xt-cli")
+    for unit in units:
+        subprocess.run(["sudo", "systemctl", "stop", unit], check=False)
+    time.sleep(1)
+    subprocess.run(["pkill", "-f", "surge-xt-cli"], check=False)
+    time.sleep(0.5)
+
+
 def restore_mpe_audio_services(*, restart_browser: bool = True) -> None:
     """Stop calibration Surge, unload loopback, restart production services."""
     subprocess.run(["pkill", "-f", "surge-xt-cli"], check=False)
@@ -27,4 +45,9 @@ def restore_mpe_audio_services(*, restart_browser: bool = True) -> None:
     unload_snd_aloop_if_idle()
     subprocess.run(["sudo", "systemctl", "start", "surge-xt-cli"], check=False)
     if restart_browser:
-        subprocess.run(["sudo", "systemctl", "start", "touch-patch-browser"], check=False)
+        if _calibration_from_browser():
+            # Loader still runs inside touch-patch-browser.service after execv handoff;
+            # restart replaces this process tree with a fresh browser on kmsdrm.
+            subprocess.run(["sudo", "systemctl", "restart", "touch-patch-browser"], check=False)
+        else:
+            subprocess.run(["sudo", "systemctl", "start", "touch-patch-browser"], check=False)

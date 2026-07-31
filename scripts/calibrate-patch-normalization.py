@@ -53,6 +53,7 @@ load_mpe_env()
 
 from patch_browser.calibration_teardown import (  # noqa: E402
     restore_mpe_audio_services,
+    stop_mpe_audio_services,
     unload_snd_aloop_if_idle,
 )
 from patch_browser.patch_normalization import (  # noqa: E402
@@ -290,14 +291,6 @@ def should_use_loopback(explicit: bool | None) -> bool:
 
 def ensure_snd_aloop() -> None:
     subprocess.run(["sudo", "modprobe", "snd-aloop"], check=False)
-
-
-def stop_mpe_audio_services() -> None:
-    for unit in ("touch-patch-browser", "surge-xt-cli"):
-        subprocess.run(["sudo", "systemctl", "stop", unit], check=False)
-    time.sleep(1)
-    subprocess.run(["pkill", "-f", "surge-xt-cli"], check=False)
-    time.sleep(0.5)
 
 
 def start_surge_loopback() -> None:
