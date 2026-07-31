@@ -252,6 +252,9 @@ def acquire_browser_display(
         pygame.init()
     time.sleep(0.15)
     return _open_fullscreen_surface(width, height)
+
+
+def paint_immediate(
     *,
     mode: SplashMode,
     width: int = DEFAULT_WIDTH,
