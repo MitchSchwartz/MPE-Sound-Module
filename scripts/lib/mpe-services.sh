@@ -22,11 +22,13 @@ mpe_enable_patch_browser_ui() {
     if [ "$mode" = touch ]; then
         unit=touch-patch-browser.service
         other=patch-browser.service
-        sudo systemctl disable --now boot-animation.service 2>/dev/null || true
+        sudo systemctl disable --now boot-animation.service shutdown-animation.service 2>/dev/null || true
+        sudo systemctl enable touch-boot-animation.service touch-shutdown-animation.service 2>/dev/null || true
     else
         unit=patch-browser.service
         other=touch-patch-browser.service
-        sudo systemctl enable boot-animation.service 2>/dev/null || true
+        sudo systemctl disable --now touch-boot-animation.service touch-shutdown-animation.service 2>/dev/null || true
+        sudo systemctl enable boot-animation.service shutdown-animation.service 2>/dev/null || true
     fi
 
     sudo systemctl disable --now "$other" 2>/dev/null || true
@@ -57,6 +59,8 @@ mpe_restart_core_services() {
     sudo systemctl restart surge-xt-cli.service 2>/dev/null || true
     if [ "$(_mpe_ui_mode_normalized)" = oled ]; then
         sudo systemctl restart boot-animation.service 2>/dev/null || true
+    elif [ "$(_mpe_ui_mode_normalized)" = touch ]; then
+        sudo systemctl restart touch-boot-animation.service 2>/dev/null || true
     fi
     if systemctl is-enabled --quiet "$browser" 2>/dev/null; then
         sudo systemctl restart "$browser" 2>/dev/null || true
