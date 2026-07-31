@@ -16,6 +16,54 @@ from patch_browser.touch_ui_enums import LeftNavMode
 class TouchBrowserPatchesMixin:
     """Mixin — expects TouchPatchBrowser host attributes."""
 
+    def _surge_ready_for_patch_load(self) -> bool:
+        if not self.loader.osc_enabled:
+            return False
+        healthy, _ = self.surge_monitor.check_health()
+        if not healthy:
+            return False
+        return bool(self.surge_monitor._is_osc_port_in_use())
+
+    def _queue_patch_reload(self, patch: dict, *, delay_s: float = 2.0) -> None:
+        self._pending_last_patch = dict(patch)
+        self._pending_load_next = time.time() + delay_s
+
+    def _note_surge_patch_load_success(self) -> None:
+        self._last_known_surge_pid = self.surge_monitor.surge_pid
+        self._surge_was_healthy = True
+
+    def _maybe_requeue_patch_after_surge_change(self) -> None:
+        healthy, _ = self.surge_monitor.check_health()
+        pid = self.surge_monitor.surge_pid if healthy else None
+        prev_pid = self._last_known_surge_pid
+        was_healthy = self._surge_was_healthy
+
+        if not self._surge_liveness_initialized:
+            self._surge_liveness_initialized = True
+            self._surge_was_healthy = healthy
+            if healthy and pid is not None:
+                self._last_known_surge_pid = pid
+            return
+
+        pid_changed = (
+            healthy
+            and pid is not None
+            and prev_pid is not None
+            and pid != prev_pid
+        )
+        recovered = (not was_healthy) and healthy
+
+        self._surge_was_healthy = healthy
+        if healthy and pid is not None:
+            self._last_known_surge_pid = pid
+
+        if not (pid_changed or recovered):
+            return
+
+        patch = self.loaded_patch_info or self._pending_last_patch
+        if patch:
+            self._queue_patch_reload(patch, delay_s=1.0)
+
     def _bootstrap_patches(self) -> None:
         last = self.scanner.load_last_patch()
         if last:
@@ -35,15 +83,18 @@ class TouchBrowserPatchesMixin:
                 if self._try_load_patch_path(last["patch_path"], last["category"]):
                     self.loaded_patch_info = dict(self.detail_patch)
                     self._apply_volume(self.volume_level, persist=False)
+                    self._note_surge_patch_load_success()
                 else:
-                    self._pending_last_patch = dict(self.detail_patch)
-                    self._pending_load_next = time.time() + 2.0
+                    self._queue_patch_reload(self.detail_patch)
         self._refresh_lists(scroll_to_selection=True)
+
     def _try_load_patch_path(self, patch_path: str, category: str) -> bool:
-        if not self.loader.osc_enabled:
+        if not self._surge_ready_for_patch_load():
             return False
         return bool(self.loader.load_patch(patch_path))
+
     def _retry_pending_load(self) -> None:
+        self._maybe_requeue_patch_after_surge_change()
         if not self._pending_last_patch or time.time() < self._pending_load_next:
             return
         patch = self._pending_last_patch
@@ -53,6 +104,7 @@ class TouchBrowserPatchesMixin:
             self._pending_last_patch = None
             self._apply_volume(self.volume_level, persist=False)
             self._refresh_lists(scroll_to_selection=True)
+            self._note_surge_patch_load_success()
             self._toast("Patch loaded", 1.5)
         else:
             self._pending_load_next = time.time() + 2.0
@@ -180,6 +232,7 @@ class TouchBrowserPatchesMixin:
             self.detail_patch = dict(self.loaded_patch_info)
             self._pending_last_patch = None
             self.scanner.save_last_patch(patch["category"], patch["path"])
+            self._note_surge_patch_load_success()
             try:
                 self.loaded_folder_index = self.categories.index(patch["category"])
             except ValueError:
