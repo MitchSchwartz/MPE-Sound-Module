@@ -57,7 +57,7 @@ run_or_echo() {
     if [ "$DRY_RUN" = true ]; then
         log "DRY-RUN: $*"
     else
-        eval "$@"
+        "$@"
     fi
 }
 
@@ -70,7 +70,7 @@ require_root() {
 
 ensure_configfs() {
     if [ ! -d "$GADGET_ROOT" ]; then
-        run_or_echo "mount -t configfs none /sys/kernel/config"
+        run_or_echo mount -t configfs none /sys/kernel/config
     fi
     if [ ! -d "$GADGET_ROOT" ]; then
         log "ERROR: configfs not mounted at $GADGET_ROOT (check dtoverlay=dwc2,dr_mode=peripheral)"
@@ -86,7 +86,7 @@ create_gadget() {
     }
 
     ensure_configfs
-    run_or_echo "modprobe libcomposite"
+    run_or_echo modprobe libcomposite
 
     if [ "$DRY_RUN" = true ]; then
         log "DRY-RUN: would create gadget $GADGET_NAME on UDC $udc (44100 Hz stereo UAC2)"

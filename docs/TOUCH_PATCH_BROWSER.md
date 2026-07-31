@@ -185,6 +185,8 @@ Set `MPE_TOUCH_EVDEV=0` to fall back to SDL-only input (debugging).
 - **Norm.** — label-left / checkbox-right on the patch detail pane; persists per patch stem in `~/.patch_browser_normalization.json` (calibration data kept when toggling off). Greyed out when global normalization is off.
 - **Calibrate missing patches** / **Force full re-calibration** — System settings (⋯) → confirm modal → loader on DSI. See **[PATCH_NORMALIZATION.md](PATCH_NORMALIZATION.md)**.
 
+**Calibration handoff:** launching calibration from the touch browser sets `MPE_CALIB_FROM_BROWSER=1` before `exec` into `calibrate-with-loader.sh`. Teardown must not stop `touch-patch-browser` synchronously (same systemd main process) and schedules an async restart instead. Constant and invariant live in `patch_browser/calibration_constants.py` and `calibration_teardown.py`.
+
 ## System settings (⋯)
 
 Right-side **slide-out panel** (tap **⋯**, tap outside, swipe right, or **×** to close). Scrollable body; **Power…** fixed at the bottom with a divider. Row buttons and toggles activate on **finger up** (same tap-vs-scroll thresholds as the patch list) so you can scroll without triggering rows under your finger. Confirm modals (calibration, power) use the same up-to-activate pattern.
