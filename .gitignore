@@ -26,8 +26,8 @@ scratch.*
 id_rsa*
 id_ed25519*
 
-# Local dev/test files
-test_*.py
+# Local dev/test files (repo root only — tests/ is tracked for CI)
+/test_*.py
 config.local.ini
 config/mpe.env
 *.local.*
