@@ -17,6 +17,7 @@ import json
 import math
 import os
 import re
+import signal
 import subprocess
 import sys
 import tempfile
@@ -82,6 +83,13 @@ MIN_VALID_LUFS = -39.0
 PATCH_LOAD_SETTLE_SECONDS = 0.75
 MEASURE_RETRY_INTERVAL_SECONDS = 3.0
 MEASURE_MAX_ATTEMPTS = 4  # ~0, 3, 6, 9s within 10s total
+
+_interrupted = False
+
+
+def _handle_interrupt(_signum: int, _frame: object | None) -> None:
+    global _interrupted
+    _interrupted = True
 
 
 def parse_args() -> argparse.Namespace:
@@ -517,6 +525,7 @@ def calibrate_patch(
             file=sys.stderr,
         )
     store.set_calibration(name, gain_db, lufs, true_peak_dbtp=true_peak)
+    store.save()
     print(f"  [ok] {name}: {lufs:.1f} LUFS, peak {true_peak:.1f} dBTP -> gain {gain_db:+.2f} dB")
     return True
 
@@ -618,10 +627,16 @@ def main() -> int:
             emit_progress(args, {"type": "done", "updated": 0, "exit_code": 1})
             return 1
 
+    signal.signal(signal.SIGTERM, _handle_interrupt)
+    signal.signal(signal.SIGINT, _handle_interrupt)
+
     updated = 0
     exit_code = 0
     try:
         for index, path in enumerate(targets, start=1):
+            if _interrupted:
+                print("Calibration interrupted — keeping partial progress.", file=sys.stderr)
+                break
             name = path.stem
             print(f"[{index}/{len(targets)}] {name}", file=sys.stderr if args.progress_json else sys.stdout)
             emit_progress(
@@ -648,7 +663,6 @@ def main() -> int:
             )
             if ok:
                 updated += 1
-                store.save()
     finally:
         if loopback_started:
             emit_progress(
@@ -659,11 +673,12 @@ def main() -> int:
             restore_mpe_audio_services()
 
     if updated:
-        store.save()
         print(f"Wrote {updated} calibration entries to {output_path}")
     else:
         print("No entries updated.")
         exit_code = 0
+    if _interrupted:
+        exit_code = 130
     emit_progress(args, {"type": "done", "updated": updated, "exit_code": exit_code})
     return exit_code
 
