@@ -25,6 +25,15 @@ fi
 echo "✓ Surge CLI found: $SURGE_CLI"
 echo ""
 
+# Mock tier-0 check (no Pi hardware — expects TIER=0 on ALSA.UAC2_Gadget direct hw)
+echo "--- Mock usb-host Tier 0 (ALSA.UAC2_Gadget) ---"
+if python3 -m unittest tests.test_detect_audio_device -q 2>/dev/null; then
+    echo "✅ Mock tier-0 unit tests passed (DEVICE_ID=0.13, TIER=0)"
+else
+    echo "⚠️  Mock unit tests failed — run from repo root: python3 -m unittest tests.test_detect_audio_device"
+fi
+echo ""
+
 # Run detection script
 echo "--- Testing Detection Script ---"
 DETECTION_OUTPUT=$("$SCRIPT_DIR/detect-audio-device.sh" "$SURGE_CLI" 2>&1)
