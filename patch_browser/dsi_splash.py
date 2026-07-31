@@ -28,9 +28,8 @@ DEFAULT_HEIGHT = 480
 BOOT_MIN_SECONDS = 1.2
 BOOT_MAX_SECONDS = 3.0
 SHUTDOWN_SECONDS = 3.0
-SHUTDOWN_HOLD_MAX_SECONDS = 45.0
 BOOT_HOLD_MAX_SECONDS = 180.0
-SHUTDOWN_SLOW_HINT_SECONDS = 15.0
+SHUTDOWN_FAILED_HINT_SECONDS = 8.0
 SHUTDOWN_SPINNER_PERIOD = 1.2
 BOOT_SPINNER_PERIOD = 1.2
 SHUTDOWN_LOG = Path("/tmp/mpe-shutdown-splash.log")
@@ -140,8 +139,10 @@ def boot_animation_phase(elapsed: float, *, period: float = BOOT_SPINNER_PERIOD)
     return spinner_animation_phase(elapsed, period=period)
 
 
-def shutdown_subtitle(elapsed: float) -> str:
-    if elapsed >= SHUTDOWN_SLOW_HINT_SECONDS:
+def shutdown_subtitle(elapsed: float, *, failed: bool = False) -> str:
+    if failed:
+        return "Shutdown failed — check sudo/logs"
+    if elapsed >= SHUTDOWN_FAILED_HINT_SECONDS:
         return "Still shutting down…"
     return "Shutting down…"
 
@@ -461,27 +462,15 @@ def run_shutdown_animation(
     start = time.monotonic()
     clock = pygame.time.Clock()
     _log_shutdown(f"shutdown splash started hold={hold_until_halt}")
-    exiting = False
-
-    def _request_exit(*_args: object) -> None:
-        nonlocal exiting
-        exiting = True
-
+    # systemd halt/reboot path: hold until this unit is killed (TimeoutStopSec=infinity).
+    # Do not exit on SIGTERM — that hands the panel back to a console or stale frame.
     if hold_until_halt:
-        signal.signal(signal.SIGTERM, _request_exit)
-        signal.signal(signal.SIGINT, _request_exit)
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
+        signal.signal(signal.SIGINT, signal.SIG_IGN)
 
     while True:
         elapsed = time.monotonic() - start
-        if exiting:
-            _log_shutdown("received SIGTERM, exiting shutdown splash")
-            break
         if not hold_until_halt and elapsed >= SHUTDOWN_SECONDS:
-            break
-        if hold_until_halt and elapsed >= SHUTDOWN_HOLD_MAX_SECONDS:
-            _log_shutdown(
-                f"systemd hold exceeded {SHUTDOWN_HOLD_MAX_SECONDS:.0f}s, exiting splash",
-            )
             break
         draw_splash_frame(
             screen,
@@ -499,27 +488,32 @@ def run_shutdown_animation(
             pygame.quit()
 
 
-def _spawn_power_action(power_action: str, *, retry: bool = False) -> None:
-    cmd = ["sudo", "poweroff"] if power_action == "shutdown" else ["sudo", "reboot"]
+def request_system_power_action(power_action: str) -> bool:
+    """Ask systemd to halt or reboot (kiosk pattern).
+
+    Uses ``systemctl poweroff`` / ``systemctl reboot`` so systemd owns the
+    shutdown transaction (see systemd.special(7)). Detached ``poweroff(8)`` from
+    Python can fail silently and leave the UI running.
+    """
+    verb = "poweroff" if power_action == "shutdown" else "reboot"
+    cmd = ["sudo", "systemctl", verb]
     try:
-        if retry:
-            subprocess.Popen(
-                cmd,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                start_new_session=True,
-            )
-            _log_shutdown(f"retry: {' '.join(cmd)}")
-        else:
-            subprocess.Popen(
-                cmd,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                start_new_session=True,
-            )
-            _log_shutdown(f"spawned: {' '.join(cmd)}")
-    except OSError as exc:
-        _log_shutdown(f"spawn failed: {exc}")
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+        if result.returncode != 0:
+            err = (result.stderr or result.stdout or "").strip()
+            _log_shutdown(f"systemctl {verb} failed rc={result.returncode} {err}")
+            return False
+        _log_shutdown(f"systemctl {verb} accepted")
+        return True
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        _log_shutdown(f"systemctl {verb} error: {exc}")
+        return False
 
 
 def run_browser_shutdown_hold(
@@ -528,39 +522,29 @@ def run_browser_shutdown_hold(
     *,
     power_action: str = "shutdown",
 ) -> None:
-    """User-confirmed shutdown: spawn poweroff/reboot and animate until halt."""
+    """User-confirmed shutdown: request systemd halt and hold splash until killed.
+
+    Never returns to the browser main loop on success or failure — the caller
+    should ``sys.exit`` after this if the process is still alive.
+    """
     _hide_cursor()
-    _spawn_power_action(power_action, retry=False)
+    _log_shutdown(f"browser shutdown hold start action={power_action}")
+    power_ok = request_system_power_action(power_action)
     start = time.monotonic()
     clock = pygame.time.Clock()
-    retried = False
-    exiting = False
-
-    def _request_exit(*_args: object) -> None:
-        nonlocal exiting
-        exiting = True
-
-    signal.signal(signal.SIGTERM, _request_exit)
-    signal.signal(signal.SIGINT, _request_exit)
+    # Ignore SIGTERM while shutting down: touch-patch-browser is stopped during
+    # poweroff; exiting this loop previously restored the patch browser GUI.
+    signal.signal(signal.SIGTERM, signal.SIG_IGN)
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
 
     while True:
         elapsed = time.monotonic() - start
-        if exiting:
-            _log_shutdown("received SIGTERM, exiting browser shutdown hold")
-            break
-        if elapsed >= SHUTDOWN_HOLD_MAX_SECONDS:
-            _log_shutdown("browser hold max reached, exiting splash loop")
-            break
-        if elapsed >= SHUTDOWN_SLOW_HINT_SECONDS and not retried:
-            retried = True
-            _log_shutdown(f"slow shutdown after {SHUTDOWN_SLOW_HINT_SECONDS:.0f}s")
-            _spawn_power_action(power_action, retry=True)
         draw_splash_frame(
             screen,
             mode=SplashMode.SHUTDOWN,
             theme=theme,
             animation_phase=shutdown_animation_phase(elapsed),
-            subtitle_override=shutdown_subtitle(elapsed),
+            subtitle_override=shutdown_subtitle(elapsed, failed=not power_ok),
         )
         clock.tick(30)
 
