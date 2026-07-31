@@ -144,8 +144,9 @@ On the SmartiPi DSI panel, **KMS/DRM keeps the last pygame frame** when `touch-p
 **Touch boot sequence** (`MPE_UI_MODE=touch`):
 
 1. `touch-boot-animation.service` — starts before `getty@tty1`, claims DRM, loops the branded splash until the browser takes over.
-2. `start-touch-patch-browser.sh` — does **not** stop the splash or clear the framebuffer (that would release DRM and flash the console).
-3. `touch_patch_browser.py` — cooperative handoff from the boot splash, paints boot splash immediately on kmsdrm, keeps an **indeterminate spinner** during patch scan, then draws the UI and signals ready (no percentage bar).
+2. `touch-patch-browser.service` **`ExecStartPre=prepare-dsi-display.sh`** — cooperative handoff + stop boot splash, kill stale pygame holders, wait for DRM release (prevents `kmsdrm not available` restart loops).
+3. `start-touch-patch-browser.sh` — does **not** stop the splash or clear the framebuffer (that would release DRM and flash the console).
+4. `touch_patch_browser.py` — cooperative handoff from the boot splash, paints boot splash immediately on kmsdrm, keeps an **indeterminate spinner** during patch scan, then draws the UI and signals ready (no percentage bar). On acquire failure, exits cleanly without orphaning DRM.
 
 **Kernel console on DSI:** run once on the Pi (requires reboot):
 
@@ -161,7 +162,7 @@ This adds `console=serial0,115200 fbcon=map:0` to `/boot/firmware/cmdline.txt` a
 
 **Shutdown timing:** User services (Surge, browser, gadget) use bounded `TimeoutStopSec` so a stuck daemon cannot block poweroff for minutes. The shutdown splash unit is **not** bounded — it stays up until power is cut. After a test shutdown, on the next boot run `./scripts/shutdown-analyze-last.sh` to compare `Stopping`/`Stopped` lines in the previous boot journal and `/tmp/mpe-shutdown-splash.log`.
 
-Implementation: `patch_browser/dsi_splash.py`, `touch_boot_splash.py`, `touch_shutdown_splash.py`, `scripts/apply-dsi-cmdline.sh`. OLED builds keep `boot-animation.service` / `shutdown-animation.service`.
+Implementation: `patch_browser/dsi_splash.py`, `touch_boot_splash.py`, `touch_shutdown_splash.py`, `scripts/prepare-dsi-display.sh`, `scripts/apply-dsi-cmdline.sh`. OLED builds keep `boot-animation.service` / `shutdown-animation.service`.
 
 **Ready flag:** `/run/mpe-touch-browser-ready` is written after the browser's first full UI frame (post boot splash).
 
