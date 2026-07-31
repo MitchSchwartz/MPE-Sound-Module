@@ -4,10 +4,23 @@ from __future__ import annotations
 
 import os
 import unittest
+from pathlib import Path
 from unittest import mock
 
 from patch_browser import calibration_teardown as ct
-from patch_browser.calibration_constants import MPE_CALIB_FROM_BROWSER
+from patch_browser.calibration_constants import (
+    CALIBRATE_WITH_LOADER_SCRIPT,
+    MPE_CALIB_FROM_BROWSER,
+    REPO_ROOT,
+)
+from patch_browser.touch_ui_enums import CalibrateMode
+
+import sys
+
+if "pygame" not in sys.modules:
+    sys.modules["pygame"] = mock.MagicMock()
+
+from patch_browser.touch_browser_normalization import TouchBrowserNormalizationMixin
 
 
 def _systemctl_calls(run_mock: mock.Mock, verb: str) -> list[str]:
@@ -71,6 +84,44 @@ class CalibrationHandoffTests(unittest.TestCase):
         started = _systemctl_calls(run_mock, "start")
         self.assertIn("touch-patch-browser", started)
         self.assertIn("surge-xt-cli", started)
+
+
+class CalibrationLoaderLaunchTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.mixin = TouchBrowserNormalizationMixin.__new__(TouchBrowserNormalizationMixin)
+        self.mixin._pending_calibrate_mode = CalibrateMode.MISSING_ONLY
+        self.mixin._evdev_bridge = None
+
+    def test_calibrate_with_loader_script_resolves_to_repo_root(self) -> None:
+        self.assertEqual(CALIBRATE_WITH_LOADER_SCRIPT, REPO_ROOT / "scripts" / "calibrate-with-loader.sh")
+        self.assertTrue(CALIBRATE_WITH_LOADER_SCRIPT.is_file())
+
+    @mock.patch("patch_browser.touch_browser_normalization.os.execv")
+    @mock.patch("patch_browser.touch_browser_normalization.pygame.quit")
+    def test_launch_calibration_loader_uses_repo_root_script(
+        self,
+        _quit: mock.Mock,
+        execv_mock: mock.Mock,
+    ) -> None:
+        self.mixin._launch_calibration_loader()
+        execv_mock.assert_called_once()
+        argv = execv_mock.call_args.args[1]
+        self.assertEqual(argv[0], "bash")
+        self.assertEqual(Path(argv[1]), CALIBRATE_WITH_LOADER_SCRIPT)
+        self.assertNotIn("--force", argv)
+
+    @mock.patch("patch_browser.touch_browser_normalization.os.execv")
+    @mock.patch("patch_browser.touch_browser_normalization.pygame.quit")
+    def test_launch_calibration_loader_force_appends_flag(
+        self,
+        _quit: mock.Mock,
+        execv_mock: mock.Mock,
+    ) -> None:
+        self.mixin._pending_calibrate_mode = CalibrateMode.FORCE_FULL
+        self.mixin._launch_calibration_loader()
+        argv = execv_mock.call_args.args[1]
+        self.assertEqual(Path(argv[1]), CALIBRATE_WITH_LOADER_SCRIPT)
+        self.assertEqual(argv[-1], "--force")
 
 
 if __name__ == "__main__":
