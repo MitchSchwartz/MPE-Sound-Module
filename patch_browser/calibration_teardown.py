@@ -38,6 +38,21 @@ def stop_mpe_audio_services() -> None:
     time.sleep(0.5)
 
 
+def _schedule_touch_browser_restart() -> None:
+    """Restart browser after this process exits (avoids systemd stop deadlock)."""
+    subprocess.Popen(
+        [
+            "sudo",
+            "bash",
+            "-c",
+            "sleep 2; systemctl restart touch-patch-browser",
+        ],
+        start_new_session=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+
 def restore_mpe_audio_services(*, restart_browser: bool = True) -> None:
     """Stop calibration Surge, unload loopback, restart production services."""
     subprocess.run(["pkill", "-f", "surge-xt-cli"], check=False)
@@ -46,8 +61,8 @@ def restore_mpe_audio_services(*, restart_browser: bool = True) -> None:
     subprocess.run(["sudo", "systemctl", "start", "surge-xt-cli"], check=False)
     if restart_browser:
         if _calibration_from_browser():
-            # Loader still runs inside touch-patch-browser.service after execv handoff;
-            # restart replaces this process tree with a fresh browser on kmsdrm.
-            subprocess.run(["sudo", "systemctl", "restart", "touch-patch-browser"], check=False)
+            # Loader runs as the service main process; synchronous restart deadlocks
+            # stop (this process) with teardown still in finally.
+            _schedule_touch_browser_restart()
         else:
             subprocess.run(["sudo", "systemctl", "start", "touch-patch-browser"], check=False)
