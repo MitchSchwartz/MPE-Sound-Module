@@ -94,21 +94,40 @@ If crackle persists with Norm off and moderate polyphony, try `MPE_SURGE_BUFFER_
 
 ## Calibration script
 
-```bash
-# List Quick Select patches that need entries (~estimate only)
-python3 scripts/calibrate-patch-normalization.py --favorites-only --dry-run
+Patch discovery scans all folders under the Surge patch symlink roots (`SURGE_PATCH_DIRS` in `patch_browser/patch_scanner.py`), deduplicated by patch stem. **Default scope is the full library**, not Quick Select.
 
-# Calibrate favorites (Surge CLI running, OSC 53280, ffmpeg + rtmidi installed)
+| Flag | Effect |
+|------|--------|
+| *(none)* | All scanned patches **missing** a `gain_db` entry |
+| `--force` | Re-calibrate **every** scanned patch (overwrites `gain_db`) |
+| `--favorites-only` | Quick Select folder only (legacy / ad-hoc) |
+| `--folder "Name"` | One category folder under user patches |
+| `--patch "Stem"` | Single patch by name |
+| `--dry-run` | List targets; no Surge/ffmpeg |
+| `--limit N` | Process at most N patches |
+| `--progress-json` | Machine-readable progress on stdout (loader UI) |
+
+```bash
+# List patches missing calibration (~estimate only)
+python3 scripts/calibrate-patch-normalization.py --dry-run
+
+# Incremental — only patches without gain_db (full library scan)
+python3 scripts/calibrate-patch-normalization.py
+
+# Force full library re-calibration
+python3 scripts/calibrate-patch-normalization.py --force
+
+# Quick Select only (optional; not the touch UI default)
 python3 scripts/calibrate-patch-normalization.py --favorites-only
 
 # Specific folder under user patches
 python3 scripts/calibrate-patch-normalization.py --folder "Quick Select"
 
 # Custom output path
-python3 scripts/calibrate-patch-normalization.py --favorites-only --output ~/.patch_browser_normalization.json
+python3 scripts/calibrate-patch-normalization.py --output ~/.patch_browser_normalization.json
 
 # Test write path without Surge/ffmpeg
-python3 scripts/calibrate-patch-normalization.py --favorites-only --mock-lufs -20 --limit 1
+python3 scripts/calibrate-patch-normalization.py --mock-lufs -20 --limit 1
 ```
 
 ### Pi touch display (loader UI)
@@ -116,16 +135,19 @@ python3 scripts/calibrate-patch-normalization.py --favorites-only --mock-lufs -2
 When calibration runs on the Pi touch build, the patch browser stops and tty1 would otherwise show a Linux console. Use the loader wrapper so the DSI panel shows progress instead:
 
 ```bash
-# SSH or local shell on the Pi — fullscreen progress on the 800×480 display
-./scripts/calibrate-with-loader.sh --favorites-only
+# SSH or local shell on the Pi — incremental (missing gain_db only)
+./scripts/calibrate-with-loader.sh
 
-# Re-calibrate all Quick Select entries
+# Force full library re-calibration
+./scripts/calibrate-with-loader.sh --force
+
+# Quick Select only (ad-hoc)
 ./scripts/calibrate-with-loader.sh --favorites-only --force
 ```
 
-**From the touch UI:** System settings (⋯) → **Calibrate Quick Select** → confirm. The browser exits, the loader takes over kmsdrm, then `surge-xt-cli` and `touch-patch-browser` restart when finished.
+**From the touch UI:** System settings (⋯) → **Calibrate missing patches** or **Force full re-calibration** → confirm modal (mode, duration hint, DSI handoff) → **Start**. The browser exits, the loader takes over kmsdrm, then `surge-xt-cli` and `touch-patch-browser` restart when finished. **Cancel** on the loader stops the calibrator, tears down loopback Surge, and restores services (partial JSON writes are kept).
 
-The loader shows patch name, `N / M` progress, elapsed time, and *Do not touch — Surge is measuring loudness*. Implementation: `patch_browser/calibration_loader.py` subprocesses `calibrate-patch-normalization.py --progress-json`.
+The loader shows patch name, `N / M` progress, elapsed time, *Do not touch — Surge is measuring loudness*, and a **Cancel** button. Implementation: `patch_browser/calibration_loader.py` subprocesses `calibrate-patch-normalization.py --progress-json`.
 
 **What happens to services**
 
@@ -157,8 +179,8 @@ Roughly **4–5 seconds per patch** (load, 3 s capture, analysis). Ten favorites
 ## Testing on the Pi
 
 1. Ensure Surge is up: `systemctl is-active surge-xt-cli`
-2. Dry-run: `python3 scripts/calibrate-patch-normalization.py --favorites-only --dry-run`
-3. Calibrate with loader: `./scripts/calibrate-with-loader.sh --favorites-only --force`
+2. Dry-run: `python3 scripts/calibrate-patch-normalization.py --dry-run`
+3. Calibrate with loader: `./scripts/calibrate-with-loader.sh --force`
 4. Copy output to runtime path if you used `--output`:
    `cp config/patch_normalization.json ~/.patch_browser_normalization.json`
 5. Restart patch browser; switch patches — loudness should stay closer without re-trimming every time

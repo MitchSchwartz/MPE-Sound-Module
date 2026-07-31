@@ -50,6 +50,10 @@ def load_mpe_env() -> None:
 
 load_mpe_env()
 
+from patch_browser.calibration_teardown import (  # noqa: E402
+    restore_mpe_audio_services,
+    unload_snd_aloop_if_idle,
+)
 from patch_browser.patch_normalization import (  # noqa: E402
     PatchNormalizationStore,
     compute_gain_db,
@@ -269,20 +273,6 @@ def ensure_snd_aloop() -> None:
     subprocess.run(["sudo", "modprobe", "snd-aloop"], check=False)
 
 
-def unload_snd_aloop_if_idle() -> None:
-    """Remove ALSA loopback module when nothing holds a reference (post-calibration)."""
-    try:
-        with open("/proc/modules") as modules:
-            for line in modules:
-                if line.startswith("snd_aloop "):
-                    parts = line.split()
-                    if len(parts) >= 3 and parts[2] == "0":
-                        subprocess.run(["sudo", "modprobe", "-r", "snd_aloop"], check=False)
-                    return
-    except OSError:
-        pass
-
-
 def stop_mpe_audio_services() -> None:
     for unit in ("touch-patch-browser", "surge-xt-cli"):
         subprocess.run(["sudo", "systemctl", "stop", unit], check=False)
@@ -313,14 +303,6 @@ def start_surge_loopback() -> None:
             stderr=subprocess.STDOUT,
         )
     time.sleep(2.5)
-
-
-def restore_mpe_audio_services() -> None:
-    subprocess.run(["pkill", "-f", "surge-xt-cli"], check=False)
-    time.sleep(0.5)
-    unload_snd_aloop_if_idle()
-    subprocess.run(["sudo", "systemctl", "start", "surge-xt-cli"], check=False)
-    subprocess.run(["sudo", "systemctl", "start", "touch-patch-browser"], check=False)
 
 
 def detect_capture_device(explicit: str | None, *, use_loopback: bool) -> str:
