@@ -6,6 +6,7 @@ pygame frames never flash on the panel.
 
 from __future__ import annotations
 
+import math
 import os
 import signal
 import subprocess
@@ -27,6 +28,10 @@ DEFAULT_HEIGHT = 480
 BOOT_MIN_SECONDS = 1.2
 BOOT_MAX_SECONDS = 3.0
 SHUTDOWN_SECONDS = 3.0
+SHUTDOWN_HOLD_MAX_SECONDS = 120.0
+SHUTDOWN_SLOW_HINT_SECONDS = 15.0
+SHUTDOWN_SPINNER_PERIOD = 1.2
+SHUTDOWN_LOG = Path("/tmp/mpe-shutdown-splash.log")
 CAL_RETURN_HOLD_SECONDS = 1.2
 FAST_RESTART_DEBOUNCE_S = 30.0
 LAST_SPLASH_STAMP = Path("/tmp/mpe-dsi-splash-last.ts")
@@ -97,6 +102,32 @@ def _load_font(size: int) -> "pygame.font.Font":
         except (OSError, TypeError):
             continue
     return pygame.font.Font(None, size)
+
+
+def _hide_cursor() -> None:
+    if pygame is not None:
+        pygame.mouse.set_visible(False)
+
+
+def _log_shutdown(message: str) -> None:
+    try:
+        with SHUTDOWN_LOG.open("a", encoding="utf-8") as handle:
+            handle.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} {message}\n")
+    except OSError:
+        pass
+
+
+def shutdown_animation_phase(elapsed: float, *, period: float = SHUTDOWN_SPINNER_PERIOD) -> float:
+    """Return 0..1 cycle phase for the shutdown spinner."""
+    if period <= 0:
+        return 0.0
+    return (elapsed % period) / period
+
+
+def shutdown_subtitle(elapsed: float) -> str:
+    if elapsed >= SHUTDOWN_SLOW_HINT_SECONDS:
+        return "Still shutting down…"
+    return "Shutting down…"
 
 
 def _subtitle_for_mode(mode: SplashMode) -> str:
@@ -219,12 +250,35 @@ def wait_for_boot_splash_release(*, timeout: float = 5.0) -> None:
     stop_boot_splash_service(wait=True, timeout=max(1.0, timeout / 2))
 
 
+def _draw_shutdown_spinner(
+    screen: "pygame.Surface",
+    theme,
+    center_x: int,
+    center_y: int,
+    phase: float,
+) -> None:
+    """Rotating dot spinner (*phase* 0..1)."""
+    dot_count = 8
+    radius = 16
+    active = int(phase * dot_count) % dot_count
+    for index in range(dot_count):
+        angle = (2 * math.pi * index / dot_count) - (math.pi / 2)
+        x = int(center_x + radius * math.cos(angle))
+        y = int(center_y + radius * math.sin(angle))
+        trail = (active - index) % dot_count
+        dot_radius = 5 if trail == 0 else max(2, 5 - trail)
+        color = theme.accent if trail <= 1 else theme.muted
+        pygame.draw.circle(screen, color, (x, y), dot_radius)
+
+
 def draw_splash_frame(
     screen: "pygame.Surface",
     *,
     mode: SplashMode,
     theme=None,
     progress: float = 0.0,
+    animation_phase: float = 0.0,
+    subtitle_override: str | None = None,
     title: str = "MPE Sound Module",
 ) -> None:
     """Paint one branded splash frame onto *screen*."""
@@ -239,7 +293,7 @@ def draw_splash_frame(
     title_surf = title_font.render(title, True, theme.text)
     screen.blit(title_surf, ((screen.get_width() - title_surf.get_width()) // 2, 150))
 
-    subtitle = _subtitle_for_mode(mode)
+    subtitle = subtitle_override if subtitle_override is not None else _subtitle_for_mode(mode)
     if subtitle:
         sub_surf = sub_font.render(subtitle, True, theme.muted)
         screen.blit(sub_surf, ((screen.get_width() - sub_surf.get_width()) // 2, 210))
@@ -258,8 +312,17 @@ def draw_splash_frame(
         pct = hint_font.render(f"{int(progress * 100)}%", True, theme.muted)
         screen.blit(pct, ((screen.get_width() - pct.get_width()) // 2, bar_y + 24))
     elif mode == SplashMode.SHUTDOWN:
-        hint = hint_font.render("Please wait", True, theme.muted)
-        screen.blit(hint, ((screen.get_width() - hint.get_width()) // 2, 280))
+        slow = subtitle_override is not None and "Still" in subtitle_override
+        hint_text = "This may take a moment" if slow else "Please wait"
+        hint = hint_font.render(hint_text, True, theme.muted)
+        screen.blit(hint, ((screen.get_width() - hint.get_width()) // 2, 330))
+        _draw_shutdown_spinner(
+            screen,
+            theme,
+            screen.get_width() // 2,
+            295,
+            animation_phase,
+        )
 
     pygame.display.flip()
 
@@ -275,7 +338,9 @@ def acquire_browser_display(
     if windowed or os.environ.get("DISPLAY"):
         if not pygame.get_init():
             pygame.init()
-        return pygame.display.set_mode((width, height))
+        screen = pygame.display.set_mode((width, height))
+        _hide_cursor()
+        return screen
 
     configure_kmsdrm_env()
     if not pygame.get_init():
@@ -285,7 +350,9 @@ def acquire_browser_display(
         wait_for_boot_splash_release()
     clear_display_handoff_request()
     time.sleep(0.1)
-    return _open_fullscreen_surface(width, height)
+    screen = _open_fullscreen_surface(width, height)
+    _hide_cursor()
+    return screen
 
 
 def paint_immediate(
@@ -298,6 +365,7 @@ def paint_immediate(
     if pygame is None:
         raise RuntimeError("pygame is required for dsi_splash")
     screen = acquire_browser_display(width=width, height=height)
+    _hide_cursor()
     theme = theme_for_mode(load_theme_mode_from_prefs())
     draw_splash_frame(screen, mode=mode, theme=theme, progress=0.0)
     return screen, theme.bg
@@ -318,7 +386,7 @@ def run_boot_animation(*, duration: float | None = None, debounce: bool = True) 
         screen = pygame.display.set_mode((DEFAULT_WIDTH, DEFAULT_HEIGHT))
     else:
         screen = _open_fullscreen_surface()
-    pygame.mouse.set_visible(False)
+    _hide_cursor()
     theme = theme_for_mode(load_theme_mode_from_prefs())
 
     total = duration
@@ -355,7 +423,7 @@ def run_shutdown_animation(
     screen: "pygame.Surface | None" = None,
     hold_until_halt: bool = False,
 ) -> None:
-    """Fade branded shutdown splash; reuse *screen* when called from the live browser."""
+    """Animated shutdown splash; reuse *screen* when called from the live browser."""
     if pygame is None:
         return
     owns_display = screen is None
@@ -371,37 +439,93 @@ def run_shutdown_animation(
             screen = _open_fullscreen_surface()
 
     assert screen is not None
+    _hide_cursor()
     windowed = os.environ.get("MPE_TOUCH_WINDOWED") == "1"
     if not windowed and not os.environ.get("DISPLAY"):
         stop_getty_tty1()
 
     start = time.monotonic()
     clock = pygame.time.Clock()
+    _log_shutdown(f"shutdown splash started hold={hold_until_halt}")
     while True:
         elapsed = time.monotonic() - start
-        if elapsed >= SHUTDOWN_SECONDS and not hold_until_halt:
+        if not hold_until_halt and elapsed >= SHUTDOWN_SECONDS:
             break
-        alpha = min(1.0, elapsed / SHUTDOWN_SECONDS)
+        if hold_until_halt and elapsed >= SHUTDOWN_HOLD_MAX_SECONDS:
+            _log_shutdown(
+                f"systemd hold exceeded {SHUTDOWN_HOLD_MAX_SECONDS:.0f}s, exiting splash",
+            )
+            break
         draw_splash_frame(
             screen,
             mode=SplashMode.SHUTDOWN,
             theme=theme,
-            progress=1.0 - alpha * 0.35 if elapsed < SHUTDOWN_SECONDS else 0.0,
+            animation_phase=shutdown_animation_phase(elapsed),
+            subtitle_override=shutdown_subtitle(elapsed),
         )
-        if hold_until_halt and elapsed >= SHUTDOWN_SECONDS:
-            clock.tick(10)
-            continue
-        if not hold_until_halt:
-            clock.tick(30)
-            continue
-        clock.tick(10)
+        clock.tick(30)
 
     if not hold_until_halt:
-        draw_splash_frame(screen, mode=SplashMode.SHUTDOWN, theme=theme, progress=0.0)
         screen.fill((0, 0, 0))
         pygame.display.flip()
         if owns_display:
             pygame.quit()
+
+
+def _spawn_power_action(power_action: str, *, retry: bool = False) -> None:
+    shell_cmd = "sync && poweroff" if power_action == "shutdown" else "sync && reboot"
+    cmd = ["sudo", "poweroff"] if power_action == "shutdown" else ["sudo", "reboot"]
+    try:
+        if retry:
+            subprocess.Popen(
+                ["sudo", "sh", "-c", shell_cmd],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
+            _log_shutdown(f"retry: {shell_cmd}")
+        else:
+            subprocess.Popen(
+                cmd,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
+            _log_shutdown(f"spawned: {' '.join(cmd)}")
+    except OSError as exc:
+        _log_shutdown(f"spawn failed: {exc}")
+
+
+def run_browser_shutdown_hold(
+    screen: "pygame.Surface",
+    theme,
+    *,
+    power_action: str = "shutdown",
+) -> None:
+    """User-confirmed shutdown: spawn poweroff/reboot and animate until halt."""
+    _hide_cursor()
+    _spawn_power_action(power_action, retry=False)
+    start = time.monotonic()
+    clock = pygame.time.Clock()
+    retried = False
+
+    while True:
+        elapsed = time.monotonic() - start
+        if elapsed >= SHUTDOWN_HOLD_MAX_SECONDS:
+            _log_shutdown("browser hold max reached, exiting splash loop")
+            break
+        if elapsed >= SHUTDOWN_SLOW_HINT_SECONDS and not retried:
+            retried = True
+            _log_shutdown(f"slow shutdown after {SHUTDOWN_SLOW_HINT_SECONDS:.0f}s")
+            _spawn_power_action(power_action, retry=True)
+        draw_splash_frame(
+            screen,
+            mode=SplashMode.SHUTDOWN,
+            theme=theme,
+            animation_phase=shutdown_animation_phase(elapsed),
+            subtitle_override=shutdown_subtitle(elapsed),
+        )
+        clock.tick(30)
 
 
 def hold_shutdown_frame(*, screen: "pygame.Surface | None" = None) -> None:
@@ -421,6 +545,7 @@ def paint_hold_black() -> None:
             screen = pygame.display.set_mode((DEFAULT_WIDTH, DEFAULT_HEIGHT))
         else:
             screen = _open_fullscreen_surface()
+        _hide_cursor()
         screen.fill((0, 0, 0))
         pygame.display.flip()
     finally:
@@ -438,7 +563,7 @@ def run_hold_loop() -> None:
         screen = pygame.display.set_mode((DEFAULT_WIDTH, DEFAULT_HEIGHT))
     else:
         screen = _open_fullscreen_surface()
-    pygame.mouse.set_visible(False)
+    _hide_cursor()
     theme = theme_for_mode(load_theme_mode_from_prefs())
     _mark_splash_ran()
     clock = pygame.time.Clock()
