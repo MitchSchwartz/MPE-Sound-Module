@@ -24,6 +24,20 @@ class Theme:
     playing: tuple[int, int, int]
     danger: tuple[int, int, int]
     ok: tuple[int, int, int]
+    # Tiered OLED surfaces — None keeps standard-theme legacy draw behavior.
+    surface_elevated: tuple[int, int, int] | None = None
+    surface_content: tuple[int, int, int] | None = None
+    backdrop_alpha: int | None = None
+    hairline_alpha: int = 0
+    elevated_top_highlight: bool = False
+
+    def panel_surface(self) -> tuple[int, int, int]:
+        """2dp — settings slide-out, modals."""
+        return self.surface_elevated if self.surface_elevated is not None else self.surface
+
+    def content_surface(self) -> tuple[int, int, int]:
+        """Main detail canvas — true black on OLED, raised card on standard."""
+        return self.surface_content if self.surface_content is not None else self.surface
 
 
 STANDARD_THEME = Theme(
@@ -40,20 +54,29 @@ STANDARD_THEME = Theme(
 
 OLED_BLACK_THEME = Theme(
     bg=(0, 0, 0),
-    surface=(0, 0, 0),
-    surface_alt=(18, 18, 22),
+    surface=(13, 13, 16),  # #0D0D10 — 1dp header / nav
+    surface_alt=(26, 26, 32),  # #1A1A20 — row hover / selected
     text=(235, 235, 240),
     muted=(150, 150, 158),
     accent=(90, 130, 210),
     playing=(210, 155, 75),
     danger=(210, 85, 85),
     ok=(80, 185, 125),
+    surface_elevated=(20, 20, 24),  # #141418 — 2dp panels / modals
+    surface_content=(0, 0, 0),  # true-black main content (OLED power)
+    backdrop_alpha=128,  # ~50% dim behind overlays
+    hairline_alpha=18,  # ~7% white hairline where used
+    elevated_top_highlight=True,
 )
+
+
+def theme_oled_black() -> Theme:
+    return OLED_BLACK_THEME
 
 
 def theme_for_mode(mode: str) -> Theme:
     if mode == THEME_MODE_OLED_BLACK:
-        return OLED_BLACK_THEME
+        return theme_oled_black()
     return STANDARD_THEME
 
 

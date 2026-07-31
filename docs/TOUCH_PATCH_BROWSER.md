@@ -199,6 +199,24 @@ UI preferences persist in `~/.patch_browser_ui.json` (e.g. `show_cpu_meter`, `th
 - **Calibrate missing patches** — incremental run over the full scanned library (patches without `gain_db` only).
 - **Force full re-calibration** — re-measures every patch in the scan tree (`--force`). See [Per-patch normalization](#per-patch-normalization).
 
+## OLED black theme
+
+Toggle in System settings → **OLED black**. Persists as `theme_mode: "oled_black"` in `~/.patch_browser_ui.json`. Standard theme is unchanged.
+
+OLED mode follows the usual **Material / iOS dark** pattern: **tiered surfaces + subtle elevation**, not hard outlines. Overlays use a **~50% black backdrop dim**; panels sit on a brighter surface tier so they read above true-black content.
+
+| Token | Role | Before (flat) | After (tiered) |
+|-------|------|---------------|----------------|
+| `bg` | Canvas / main content | `#000000` | `#000000` (unchanged — OLED power) |
+| `surface` | 1dp — status bar, nav | `#000000` | `#0D0D10` |
+| `surface_elevated` | 2dp — settings panel, modals | *(same as surface)* | `#141418` |
+| `surface_content` | Patch detail pane | *(same as surface)* | `#000000` |
+| `surface_alt` | Row hover / selected | `#121216` | `#1A1A20` |
+| Overlay | Backdrop behind panels/modals | mixed 120–200 α | `#000000` @ 50% α |
+| Hairline | Optional header separator | none | `#FFFFFF` @ ~7% (header bottom only) |
+
+Implementation: `patch_browser/ui_theme.py` (`theme_oled_black()` / `OLED_BLACK_THEME`); elevated panels get an optional **1px top highlight** (light falloff, not a border). Calibration loader inherits the same tokens when launched from the browser.
+
 ## Known gaps (v0)
 
 - Search/filter across 3000+ patches not implemented (scroll lists first)
