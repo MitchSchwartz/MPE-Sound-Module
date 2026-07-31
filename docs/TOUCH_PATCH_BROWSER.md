@@ -208,12 +208,12 @@ OLED mode follows the usual **Material / iOS dark** pattern: **tiered surfaces +
 | Token | Role | Before (flat) | After (tiered) |
 |-------|------|---------------|----------------|
 | `bg` | Canvas / main content | `#000000` | `#000000` (unchanged — OLED power) |
-| `surface` | 1dp — status bar, nav | `#000000` | `#0D0D10` |
-| `surface_elevated` | 2dp — settings panel, modals | *(same as surface)* | `#141418` |
+| `surface` | 1dp — status bar, nav | `#000000` | `#060608` |
+| `surface_elevated` | 2dp — settings panel, modals | *(same as surface)* | `#0A0A0E` |
 | `surface_content` | Patch detail pane | *(same as surface)* | `#000000` |
-| `surface_alt` | Row hover / selected | `#121216` | `#1A1A20` |
+| `surface_alt` | Row hover / selected | `#121216` | `#0E0E12` |
 | Overlay | Backdrop behind panels/modals | mixed 120–200 α | `#000000` @ 50% α |
-| Hairline | Optional header separator | none | `#FFFFFF` @ ~7% (header bottom only) |
+| Hairline | Optional header separator | none | `#FFFFFF` @ ~9% (header bottom only) |
 
 Implementation: `patch_browser/ui_theme.py` (`theme_oled_black()` / `OLED_BLACK_THEME`); elevated panels get an optional **1px top highlight** (light falloff, not a border). Calibration loader inherits the same tokens when launched from the browser.
 

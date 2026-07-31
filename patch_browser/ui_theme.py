@@ -54,18 +54,18 @@ STANDARD_THEME = Theme(
 
 OLED_BLACK_THEME = Theme(
     bg=(0, 0, 0),
-    surface=(13, 13, 16),  # #0D0D10 — 1dp header / nav
-    surface_alt=(26, 26, 32),  # #1A1A20 — row hover / selected
+    surface=(6, 6, 8),  # #060608 — 1dp header / nav
+    surface_alt=(14, 14, 18),  # #0E0E12 — row hover / selected
     text=(235, 235, 240),
     muted=(150, 150, 158),
     accent=(90, 130, 210),
     playing=(210, 155, 75),
     danger=(210, 85, 85),
     ok=(80, 185, 125),
-    surface_elevated=(20, 20, 24),  # #141418 — 2dp panels / modals
+    surface_elevated=(10, 10, 14),  # #0A0A0E — 2dp panels / modals
     surface_content=(0, 0, 0),  # true-black main content (OLED power)
     backdrop_alpha=128,  # ~50% dim behind overlays
-    hairline_alpha=18,  # ~7% white hairline where used
+    hairline_alpha=24,  # ~9% white hairline (bumped for darker surfaces)
     elevated_top_highlight=True,
 )
 
