@@ -42,19 +42,43 @@ def configure_kmsdrm_env() -> None:
     """Set SDL kmsdrm env when running headless on the Pi DSI panel."""
     if os.environ.get("MPE_TOUCH_WINDOWED") == "1" or os.environ.get("DISPLAY"):
         return
-    if os.environ.get("SDL_VIDEODRIVER"):
+    driver = os.environ.get("SDL_VIDEODRIVER", "").strip()
+    if driver and driver != "kmsdrm":
         return
     os.environ["SDL_VIDEODRIVER"] = "kmsdrm"
-    detect = REPO_ROOT / "scripts" / "lib" / "detect-drm-card.sh"
-    if detect.is_file():
-        try:
-            card = subprocess.check_output(["bash", str(detect)], text=True).strip()
-            if card:
-                os.environ["SDL_KMSDRM_DEVICE"] = card
-        except (subprocess.CalledProcessError, OSError):
-            pass
+    if not os.environ.get("SDL_KMSDRM_DEVICE"):
+        detect = REPO_ROOT / "scripts" / "lib" / "detect-drm-card.sh"
+        if detect.is_file():
+            try:
+                card = subprocess.check_output(["bash", str(detect)], text=True).strip()
+                if card:
+                    os.environ["SDL_KMSDRM_DEVICE"] = card
+            except (subprocess.CalledProcessError, OSError):
+                pass
     os.environ.setdefault("SDL_KMSDRM_REQUIRE_DRM_MASTER", "1")
     os.environ.setdefault("SDL_VIDEO_EGL", "0")
+
+
+def _open_fullscreen_surface(
+    width: int = DEFAULT_WIDTH,
+    height: int = DEFAULT_HEIGHT,
+) -> "pygame.Surface":
+    """Open kmsdrm fullscreen with short retries while DRM comes up at boot."""
+    windowed = os.environ.get("MPE_TOUCH_WINDOWED") == "1"
+    if windowed:
+        return pygame.display.set_mode((width, height))
+    last_error: pygame.error | None = None
+    for attempt in range(24):
+        try:
+            return pygame.display.set_mode((width, height), pygame.FULLSCREEN)
+        except pygame.error as exc:
+            last_error = exc
+            if "kmsdrm" not in str(exc).lower() or attempt >= 23:
+                raise
+            time.sleep(0.5)
+    if last_error is not None:
+        raise last_error
+    raise RuntimeError("failed to open kmsdrm display")
 
 
 def _load_font(size: int) -> "pygame.font.Font":
@@ -165,7 +189,7 @@ def paint_immediate(
     if windowed:
         screen = pygame.display.set_mode((width, height))
     else:
-        screen = pygame.display.set_mode((width, height), pygame.FULLSCREEN)
+        screen = _open_fullscreen_surface(width, height)
     theme = theme_for_mode(load_theme_mode_from_prefs())
     draw_splash_frame(screen, mode=mode, theme=theme, progress=0.0)
     return screen, theme.bg
@@ -185,7 +209,7 @@ def run_boot_animation(*, duration: float | None = None, debounce: bool = True) 
     if windowed:
         screen = pygame.display.set_mode((DEFAULT_WIDTH, DEFAULT_HEIGHT))
     else:
-        screen = pygame.display.set_mode((DEFAULT_WIDTH, DEFAULT_HEIGHT), pygame.FULLSCREEN)
+        screen = _open_fullscreen_surface()
     pygame.mouse.set_visible(False)
     theme = theme_for_mode(load_theme_mode_from_prefs())
 
@@ -232,7 +256,7 @@ def run_shutdown_animation(*, screen: "pygame.Surface | None" = None) -> None:
         if windowed:
             screen = pygame.display.set_mode((DEFAULT_WIDTH, DEFAULT_HEIGHT))
         else:
-            screen = pygame.display.set_mode((DEFAULT_WIDTH, DEFAULT_HEIGHT), pygame.FULLSCREEN)
+            screen = _open_fullscreen_surface()
 
     assert screen is not None
     start = time.monotonic()
@@ -263,7 +287,7 @@ def paint_hold_black() -> None:
         if windowed:
             screen = pygame.display.set_mode((DEFAULT_WIDTH, DEFAULT_HEIGHT))
         else:
-            screen = pygame.display.set_mode((DEFAULT_WIDTH, DEFAULT_HEIGHT), pygame.FULLSCREEN)
+            screen = _open_fullscreen_surface()
         screen.fill((0, 0, 0))
         pygame.display.flip()
     finally:
@@ -280,7 +304,7 @@ def run_hold_loop() -> None:
     if windowed:
         screen = pygame.display.set_mode((DEFAULT_WIDTH, DEFAULT_HEIGHT))
     else:
-        screen = pygame.display.set_mode((DEFAULT_WIDTH, DEFAULT_HEIGHT), pygame.FULLSCREEN)
+        screen = _open_fullscreen_surface()
     pygame.mouse.set_visible(False)
     theme = theme_for_mode(load_theme_mode_from_prefs())
     _mark_splash_ran()
