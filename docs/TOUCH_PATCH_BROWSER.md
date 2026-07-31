@@ -153,7 +153,7 @@ On the SmartiPi DSI panel, **KMS/DRM keeps the last pygame frame** when `touch-p
 sudo ./scripts/apply-dsi-cmdline.sh
 ```
 
-This adds `console=serial0,115200 fbcon=map:0` to `/boot/firmware/cmdline.txt` so boot messages go to serial and fbcon stays off the panel. A timestamped backup is saved beside the original file.
+This adds `console=serial0,115200 fbcon=map:0` to `/boot/firmware/cmdline.txt` and removes `console=tty1` when present so boot messages go to serial and fbcon stays off the panel. A timestamped backup is saved beside the original file.
 
 **Calibration handoff:** the browser paints **Starting calibration…**, flips, and `exec`s `calibration_loader.py`. The loader paints on its first frame (`paint_immediate`) before heavy init. On exit it shows **Returning to patch browser…**, re-arms `touch-boot-animation`, then async-restarts the browser.
 
