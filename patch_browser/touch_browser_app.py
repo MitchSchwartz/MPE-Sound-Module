@@ -40,8 +40,10 @@ from patch_browser.touch_ui_enums import CalibrateMode, LeftNavMode, Screen
 from patch_browser.dsi_splash import (
     BOOT_MIN_SECONDS,
     SplashMode,
+    clear_browser_ready_flag,
     draw_splash_frame,
-    recent_splash_debounce,
+    signal_browser_ready,
+    stop_boot_splash_service,
 )
 from patch_browser.ui_theme import load_theme_mode_from_prefs, theme_for_mode
 
@@ -68,28 +70,31 @@ class TouchPatchBrowser(
         """Paint background immediately so stale DRM frames never show."""
         self.screen.fill(self.theme.bg)
         pygame.display.flip()
-    def _play_boot_splash_if_needed(self) -> None:
-        """Brief branded boot frames after early splash service hands off."""
-        if recent_splash_debounce():
-            return
-        start = time.monotonic()
+
+    def _paint_boot_splash_frame(self, *, progress: float) -> None:
+        draw_splash_frame(
+            self.screen,
+            mode=SplashMode.BOOT,
+            theme=self.theme,
+            progress=progress,
+        )
+
+    def _finish_boot_splash(self) -> None:
+        """Hold branded boot frames until minimum time and first scan settle."""
+        start = getattr(self, "_boot_splash_started", time.monotonic())
         clock = pygame.time.Clock()
         while True:
             elapsed = time.monotonic() - start
+            progress = min(1.0, elapsed / BOOT_MIN_SECONDS)
+            self._paint_boot_splash_frame(progress=progress)
             if elapsed >= BOOT_MIN_SECONDS:
                 break
-            progress = min(1.0, elapsed / BOOT_MIN_SECONDS)
-            draw_splash_frame(
-                self.screen,
-                mode=SplashMode.BOOT,
-                theme=self.theme,
-                progress=progress,
-            )
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     self._running = False
                     return
             clock.tick(30)
+        signal_browser_ready()
     def _pointer_move_distance(
         self, start: tuple[int, int] | None, end: tuple[int, int]
     ) -> float:
@@ -141,9 +146,13 @@ class TouchPatchBrowser(
         self.cpu_monitor.stop()
         pygame.quit()
     def __init__(self) -> None:
+        clear_browser_ready_flag()
+        windowed = os.environ.get("MPE_TOUCH_WINDOWED") == "1"
+        if not windowed and not os.environ.get("DISPLAY"):
+            stop_boot_splash_service()
+
         pygame.init()
         pygame.display.set_caption("Pi-Surge-MPE Touch Browser")
-        windowed = os.environ.get("MPE_TOUCH_WINDOWED") == "1"
         if windowed:
             self.screen = pygame.display.set_mode((800, 480))
         else:
@@ -152,7 +161,8 @@ class TouchPatchBrowser(
         pygame.mouse.set_visible(False)
         self.theme_mode = load_theme_mode_from_prefs()
         self.theme = theme_for_mode(self.theme_mode)
-        self._clear_display()
+        self._boot_splash_started = time.monotonic()
+        self._paint_boot_splash_frame(progress=0.05)
         self.font_lg = self._load_font(34)
         self.font_md = self._load_font(22)
         self.font_sm = self._load_font(18)
@@ -215,7 +225,7 @@ class TouchPatchBrowser(
         self._bootstrap_patches()
         self._start_background_scan()
         self._wait_for_initial_scan()
-        self._play_boot_splash_if_needed()
+        self._finish_boot_splash()
         self._start_evdev_touch_bridge()
 
 

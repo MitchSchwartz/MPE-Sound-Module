@@ -25,9 +25,12 @@ DEFAULT_WIDTH = 800
 DEFAULT_HEIGHT = 480
 BOOT_MIN_SECONDS = 1.2
 BOOT_MAX_SECONDS = 3.0
-SHUTDOWN_SECONDS = 2.0
+SHUTDOWN_SECONDS = 3.0
+CAL_RETURN_HOLD_SECONDS = 1.2
 FAST_RESTART_DEBOUNCE_S = 30.0
 LAST_SPLASH_STAMP = Path("/tmp/mpe-dsi-splash-last.ts")
+BROWSER_READY_FLAG = Path("/run/mpe-touch-browser-ready")
+BOOT_SPLASH_UNIT = "touch-boot-animation.service"
 
 
 class SplashMode(str, Enum):
@@ -124,6 +127,63 @@ def recent_splash_debounce() -> bool:
 def _mark_splash_ran() -> None:
     try:
         LAST_SPLASH_STAMP.write_text(f"{time.time():.3f}\n", encoding="utf-8")
+    except OSError:
+        pass
+
+
+def _systemctl(*args: str) -> None:
+    try:
+        subprocess.run(["sudo", "systemctl", *args], check=False, capture_output=True)
+    except OSError:
+        pass
+
+
+def boot_splash_service_active() -> bool:
+    """True while the early-boot splash unit holds DRM."""
+    try:
+        result = subprocess.run(
+            ["systemctl", "is-active", "--quiet", BOOT_SPLASH_UNIT],
+            check=False,
+        )
+        return result.returncode == 0
+    except OSError:
+        return False
+
+
+def stop_boot_splash_service(*, wait: bool = True, timeout: float = 2.5) -> None:
+    """Stop the systemd boot splash so this process can claim kmsdrm."""
+    if not boot_splash_service_active():
+        return
+    _systemctl("stop", BOOT_SPLASH_UNIT)
+    if not wait:
+        return
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if not boot_splash_service_active():
+            return
+        time.sleep(0.05)
+
+
+def start_boot_splash_service() -> None:
+    """Re-arm the boot splash (calibration return / async browser restart)."""
+    _systemctl("start", BOOT_SPLASH_UNIT)
+
+
+def stop_getty_tty1() -> None:
+    """Hide login prompt on the panel framebuffer during shutdown."""
+    _systemctl("stop", "getty@tty1.service")
+
+
+def signal_browser_ready() -> None:
+    try:
+        BROWSER_READY_FLAG.write_text(f"{time.time():.3f}\n", encoding="utf-8")
+    except OSError:
+        pass
+
+
+def clear_browser_ready_flag() -> None:
+    try:
+        BROWSER_READY_FLAG.unlink(missing_ok=True)
     except OSError:
         pass
 
@@ -242,7 +302,11 @@ def run_boot_animation(*, duration: float | None = None, debounce: bool = True) 
         pygame.quit()
 
 
-def run_shutdown_animation(*, screen: "pygame.Surface | None" = None) -> None:
+def run_shutdown_animation(
+    *,
+    screen: "pygame.Surface | None" = None,
+    hold_until_halt: bool = False,
+) -> None:
     """Fade branded shutdown splash; reuse *screen* when called from the live browser."""
     if pygame is None:
         return
@@ -259,21 +323,42 @@ def run_shutdown_animation(*, screen: "pygame.Surface | None" = None) -> None:
             screen = _open_fullscreen_surface()
 
     assert screen is not None
+    windowed = os.environ.get("MPE_TOUCH_WINDOWED") == "1"
+    if not windowed and not os.environ.get("DISPLAY"):
+        stop_getty_tty1()
+
     start = time.monotonic()
     clock = pygame.time.Clock()
     while True:
         elapsed = time.monotonic() - start
-        if elapsed >= SHUTDOWN_SECONDS:
+        if elapsed >= SHUTDOWN_SECONDS and not hold_until_halt:
             break
         alpha = min(1.0, elapsed / SHUTDOWN_SECONDS)
-        draw_splash_frame(screen, mode=SplashMode.SHUTDOWN, theme=theme, progress=1.0 - alpha * 0.35)
-        clock.tick(30)
+        draw_splash_frame(
+            screen,
+            mode=SplashMode.SHUTDOWN,
+            theme=theme,
+            progress=1.0 - alpha * 0.35 if elapsed < SHUTDOWN_SECONDS else 0.0,
+        )
+        if hold_until_halt and elapsed >= SHUTDOWN_SECONDS:
+            clock.tick(10)
+            continue
+        if not hold_until_halt:
+            clock.tick(30)
+            continue
+        clock.tick(10)
 
-    draw_splash_frame(screen, mode=SplashMode.SHUTDOWN, theme=theme, progress=0.0)
-    screen.fill((0, 0, 0))
-    pygame.display.flip()
-    if owns_display:
-        pygame.quit()
+    if not hold_until_halt:
+        draw_splash_frame(screen, mode=SplashMode.SHUTDOWN, theme=theme, progress=0.0)
+        screen.fill((0, 0, 0))
+        pygame.display.flip()
+        if owns_display:
+            pygame.quit()
+
+
+def hold_shutdown_frame(*, screen: "pygame.Surface | None" = None) -> None:
+    """Paint shutdown splash once and loop until systemd kills the process."""
+    run_shutdown_animation(screen=screen, hold_until_halt=True)
 
 
 def paint_hold_black() -> None:

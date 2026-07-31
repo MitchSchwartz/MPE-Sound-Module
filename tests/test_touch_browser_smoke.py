@@ -164,7 +164,7 @@ class TouchBrowserSmokeTests(unittest.TestCase):
             mock.patch("patch_browser.touch_browser_app.evdev_bridge_enabled", return_value=False),
             mock.patch.object(TouchPatchBrowser, "_start_background_scan"),
             mock.patch.object(TouchPatchBrowser, "_wait_for_initial_scan"),
-            mock.patch.object(TouchPatchBrowser, "_play_boot_splash_if_needed"),
+            mock.patch.object(TouchPatchBrowser, "_finish_boot_splash"),
             mock.patch.object(TouchPatchBrowser, "_start_evdev_touch_bridge"),
         ]
         for patcher in patches:
