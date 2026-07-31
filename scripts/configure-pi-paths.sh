@@ -47,6 +47,7 @@ _run_on_pi() {
         echo "Writing /etc/mpe/mpe.env ..."
         sudo tee /etc/mpe/mpe.env > /dev/null <<EOF
 MPE_PI_USER=$MPE_PI_USER
+MPE_HOME=$HOME
 MPE_MODULE_REPO=$MPE_MODULE_REPO
 MPE_PERSONAL_REPO=${MPE_PERSONAL_REPO:-$HOME/MPE-Library}
 MPE_SURGE_ROOT=$MPE_SURGE_ROOT

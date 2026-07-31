@@ -150,7 +150,7 @@ On the SmartiPi DSI panel, **KMS/DRM keeps the last pygame frame** when `touch-p
 **Kernel console on DSI:** run once on the Pi (requires reboot):
 
 ```bash
-sudo ./scripts/apply-dsi-cmdline.sh
+sudo ./scripts/apply-dsi-cmdline (default keeps `console=tty1`; use `--strip-tty1` only with serial recovery).sh
 ```
 
 This adds `console=serial0,115200 fbcon=map:0` to `/boot/firmware/cmdline.txt` and removes `console=tty1` when present so boot messages go to serial and fbcon stays off the panel. A timestamped backup is saved beside the original file.
