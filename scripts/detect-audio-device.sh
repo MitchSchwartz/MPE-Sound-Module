@@ -48,15 +48,27 @@ get_device_name() {
     echo "$DEVICE_LIST" | grep "\[$device_id\]" | sed 's/.*\] : //' | sed 's/;.*//' | head -1 || true
 }
 
+# Surge ALSA gadget lines (card id UAC2Gadget → ALSA.UAC2_Gadget; host USB names vary)
+GADGET_GREP='UAC2[_ ]?Gadget|UAC2Gadget|USB Audio Passthrough|MPE Sound Module|ALSA\.UAC2'
+
+# Filter DEVICE_LIST to lines that look like the configfs UAC2 gadget card
+filter_gadget_devices() {
+    echo "$DEVICE_LIST" | grep -iE "$GADGET_GREP" || true
+}
+
 # ============================================================================
 # TIER 0: USB audio gadget (usb-host profile only)
 # ============================================================================
 if [ "$AUDIO_PROFILE" = "usb-host" ]; then
-    DEVICE=$(echo "$DEVICE_LIST" | \
-        grep -iE "(UAC2|Gadget|USB Audio Passthrough|MPE Sound Module)" | \
-        grep -v "Direct hardware" | \
-        grep -v "Direct sample mixing" | \
-        head -1 || true)
+    GADGET_DEVICES=$(filter_gadget_devices)
+
+    # Prefer Direct hardware on the gadget card (e.g. [0.13] ALSA.UAC2_Gadget)
+    DEVICE=$(echo "$GADGET_DEVICES" | grep -i "Direct hardware" | head -1 || true)
+
+    # Fallback: any gadget line except Direct sample mixing
+    if [ -z "$DEVICE" ]; then
+        DEVICE=$(echo "$GADGET_DEVICES" | grep -v "Direct sample mixing" | head -1 || true)
+    fi
 
     if [ -n "$DEVICE" ]; then
         DEVICE_ID=$(extract_device_id "$DEVICE")
