@@ -26,9 +26,13 @@ fi
 export SDL_MOUSE_TOUCH_EVENTS=1
 
 if systemctl is-active --quiet touch-patch-browser.service 2>/dev/null; then
-    echo "Stopping touch patch browser for calibration…"
-    sudo systemctl stop touch-patch-browser.service
-    sleep 0.5
+    if [ "${MPE_CALIB_FROM_BROWSER:-}" = "1" ]; then
+        echo "Calibration launched from touch browser (same service) — skipping self-stop."
+    else
+        echo "Stopping touch patch browser for calibration…"
+        sudo systemctl stop touch-patch-browser.service
+        sleep 0.5
+    fi
 fi
 
 if systemctl is-active --quiet patch-browser.service 2>/dev/null; then

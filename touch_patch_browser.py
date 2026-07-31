@@ -67,9 +67,9 @@ MIXER_DOUBLE_TAP_MS = 400
 MIXER_DRAG_THRESHOLD_PX = 10
 DEFAULT_VOLUME = 1.0
 DEFAULT_BRIGHTNESS_PERCENT = 100
-CPU_METER_W = 76
-CPU_METER_H = 32
-CPU_METER_BAR_H = 8
+CPU_METER_W = 56
+CPU_METER_H = 20
+CPU_METER_BAR_H = 6
 
 
 class Screen(Enum):
@@ -1460,13 +1460,15 @@ class TouchPatchBrowser:
         label = self.font_sm.render("CPU", True, self.theme.muted)
         self.screen.blit(label, (rect.x, rect.y))
 
-        bar_y = rect.y + label.get_height() + 2
+        bar_y = rect.y + label.get_height() + 1
         bar_rect = pygame.Rect(rect.x, bar_y, rect.w, CPU_METER_BAR_H)
-        pygame.draw.rect(self.screen, self.theme.surface_alt, bar_rect, border_radius=4)
+        pygame.draw.rect(self.screen, self.theme.surface_alt, bar_rect, border_radius=3)
 
         if not snap["online"] or snap["percent"] is None:
             dash = self.font_sm.render("—", True, self.theme.muted)
-            self.screen.blit(dash, (rect.right - dash.get_width(), rect.y))
+            dash_x = bar_rect.x + (bar_rect.w - dash.get_width()) // 2
+            dash_y = bar_rect.y + (bar_rect.h - dash.get_height()) // 2
+            self.screen.blit(dash, (dash_x, dash_y))
             return
 
         percent = max(0.0, min(100.0, float(snap["percent"])))
@@ -1476,10 +1478,8 @@ class TouchPatchBrowser:
             self.screen,
             self._cpu_meter_color(percent),
             fill_rect,
-            border_radius=4,
+            border_radius=3,
         )
-        value = self.font_sm.render(f"{round(percent)}%", True, self.theme.text)
-        self.screen.blit(value, (rect.right - value.get_width(), rect.y))
 
     def _draw_status_bar(self) -> None:
         pygame.draw.rect(self.screen, self.theme.surface, self.status_rect.pygame_rect, border_radius=10)
@@ -1727,6 +1727,7 @@ class TouchPatchBrowser:
             args.append("--force")
         if self._evdev_bridge is not None:
             self._evdev_bridge.stop()
+        os.environ["MPE_CALIB_FROM_BROWSER"] = "1"
         pygame.quit()
         os.execv("/bin/bash", args)
 

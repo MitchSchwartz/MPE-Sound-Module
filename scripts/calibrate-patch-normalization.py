@@ -167,6 +167,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Emit machine-readable progress lines on stdout (human logs go to stderr)",
     )
+    parser.add_argument(
+        "--no-restore-services",
+        action="store_true",
+        help="Skip systemd restore in finally (loader UI releases DRM first, then restores)",
+    )
     return parser.parse_args()
 
 
@@ -174,7 +179,11 @@ def emit_progress(args: argparse.Namespace, payload: dict) -> None:
     """Print a JSON progress event when --progress-json is set."""
     if not args.progress_json:
         return
-    print(json.dumps(payload), flush=True)
+    try:
+        print(json.dumps(payload), flush=True)
+    except BrokenPipeError:
+        # Loader exited or closed stdout — keep calibrating; teardown still runs.
+        pass
 
 
 def favorites_folder_on_disk(parent: Path | None = None) -> Path:
@@ -226,7 +235,7 @@ def collect_patch_paths(args: argparse.Namespace) -> list[Path]:
     return result
 
 
-def find_surge_midi_port() -> int | None:
+def find_surge_midi_port(*, announce: bool = True) -> int | None:
     try:
         import rtmidi
     except ImportError:
@@ -254,13 +263,15 @@ def find_surge_midi_port() -> int | None:
     # Pi fallback: route through ALSA Midi Through when Surge has no named port.
     port = match_port(lambda n: "midi through" in n or "through port" in n)
     if port is not None:
-        print(
-            f"Using MIDI Through port {port!r} ({ports[port]}) — ensure Surge listens on Through",
-            file=sys.stderr,
-        )
+        if announce:
+            print(
+                f"Using MIDI Through port {port!r} ({ports[port]}) — ensure Surge listens on Through",
+                file=sys.stderr,
+            )
         return port
 
-    print(f"Available MIDI ports: {ports}", file=sys.stderr)
+    if announce:
+        print(f"Available MIDI ports: {ports}", file=sys.stderr)
     return None
 
 
@@ -450,6 +461,7 @@ def calibrate_patch(
     audio_device: str,
     mock_lufs: float | None,
     dry_run: bool,
+    midi_port: int | None = None,
 ) -> bool:
     name = patch_path.stem
     if dry_run:
@@ -466,7 +478,7 @@ def calibrate_patch(
             print(f"  [fail] OSC load failed: {name}", file=sys.stderr)
             return False
 
-        port = find_surge_midi_port()
+        port = midi_port if midi_port is not None else find_surge_midi_port()
         if port is None:
             return False
 
@@ -630,6 +642,16 @@ def main() -> int:
     signal.signal(signal.SIGTERM, _handle_interrupt)
     signal.signal(signal.SIGINT, _handle_interrupt)
 
+    midi_port = find_surge_midi_port()
+    if midi_port is None and args.mock_lufs is None:
+        msg = "Surge MIDI port not found — is Surge running with MIDI inputs?"
+        print(f"Error: {msg}", file=sys.stderr)
+        emit_progress(args, {"type": "error", "message": msg})
+        if loopback_started:
+            restore_mpe_audio_services()
+        emit_progress(args, {"type": "done", "updated": 0, "exit_code": 1})
+        return 1
+
     updated = 0
     exit_code = 0
     try:
@@ -650,6 +672,7 @@ def main() -> int:
                 audio_device=audio_device,
                 mock_lufs=args.mock_lufs,
                 dry_run=False,
+                midi_port=midi_port,
             )
             emit_progress(
                 args,
@@ -664,7 +687,7 @@ def main() -> int:
             if ok:
                 updated += 1
     finally:
-        if loopback_started:
+        if loopback_started and not args.no_restore_services:
             emit_progress(
                 args,
                 {"type": "setup", "message": "Restarting patch browser and Surge…"},
