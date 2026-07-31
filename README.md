@@ -6,6 +6,10 @@ Plug a Roli into a Raspberry Pi. Turn it on. Play. That's the whole interaction.
 
 **Bootstrap, not a product.** This repo is a reference design and doc set for technical builders — SSH, git, CMake, wiring, systemd. Comfortable with a terminal (or AI-guided setup) is assumed. No installer, no prebuilt Surge binary yet, no plug-and-play path for non-dev Surge users.
 
+## Git workflow
+
+**`dev`** is the integration branch for day-to-day development and agent work. **`main`** is the release line — land changes there only via pull request or explicit promotion from `dev`. Pi deploy can keep tracking `main` until you promote.
+
 ## Demo
 
 https://github.com/user-attachments/assets/74652240-74af-48be-9db1-608f54805d25
