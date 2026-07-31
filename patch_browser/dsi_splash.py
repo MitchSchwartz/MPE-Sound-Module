@@ -233,7 +233,25 @@ def draw_splash_frame(
     pygame.display.flip()
 
 
-def paint_immediate(
+def acquire_browser_display(
+    width: int = DEFAULT_WIDTH,
+    height: int = DEFAULT_HEIGHT,
+) -> "pygame.Surface":
+    """Stop the boot splash if needed and open kmsdrm with retries."""
+    if pygame is None:
+        raise RuntimeError("pygame is required for dsi_splash")
+    windowed = os.environ.get("MPE_TOUCH_WINDOWED") == "1"
+    if windowed or os.environ.get("DISPLAY"):
+        if not pygame.get_init():
+            pygame.init()
+        return pygame.display.set_mode((width, height))
+
+    stop_boot_splash_service()
+    configure_kmsdrm_env()
+    if not pygame.get_init():
+        pygame.init()
+    time.sleep(0.15)
+    return _open_fullscreen_surface(width, height)
     *,
     mode: SplashMode,
     width: int = DEFAULT_WIDTH,
@@ -242,14 +260,7 @@ def paint_immediate(
     """Open kmsdrm, paint one splash frame, return (screen, theme.bg). Caller keeps DRM."""
     if pygame is None:
         raise RuntimeError("pygame is required for dsi_splash")
-    configure_kmsdrm_env()
-    if not pygame.get_init():
-        pygame.init()
-    windowed = os.environ.get("MPE_TOUCH_WINDOWED") == "1"
-    if windowed:
-        screen = pygame.display.set_mode((width, height))
-    else:
-        screen = _open_fullscreen_surface(width, height)
+    screen = acquire_browser_display(width=width, height=height)
     theme = theme_for_mode(load_theme_mode_from_prefs())
     draw_splash_frame(screen, mode=mode, theme=theme, progress=0.0)
     return screen, theme.bg
