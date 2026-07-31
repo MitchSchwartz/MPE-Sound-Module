@@ -99,6 +99,14 @@ class LeftNavMode(Enum):
     PATCHES = auto()
 
 
+from patch_browser.ui_text import (
+    blit_text_block,
+    draw_wrapped_text_in_rect,
+    ellipsize_text,
+    text_block_height,
+    wrap_text_lines,
+    wrapped_row_height,
+)
 from patch_browser.ui_theme import (
     THEME_MODE_OLED_BLACK,
     THEME_MODE_STANDARD,
@@ -441,8 +449,11 @@ class ScrollList:
                 pygame.draw.rect(surface, theme.surface_alt, row_rect, border_radius=8)
 
             text_color = theme.text if is_highlight or is_loaded else theme.muted
-            text = font.render(label[:40], True, text_color)
-            surface.blit(text, (row_rect.x + 10, row_rect.y + 10))
+            max_w = max(1, row_rect.w - 28)
+            clipped = ellipsize_text(font, label, max_w)
+            text = font.render(clipped, True, text_color)
+            ty = row_rect.y + (row_rect.h - text.get_height()) // 2
+            surface.blit(text, (row_rect.x + 10, ty))
 
             if is_loaded:
                 pygame.draw.circle(surface, theme.playing, (row_rect.right - 16, row_rect.centery), 5)
@@ -902,6 +913,20 @@ class TouchPatchBrowser:
         shown_x = self.settings_panel_rect.x
         return int(hidden_x + (shown_x - hidden_x) * self._settings_slide)
 
+    def _settings_toggle_label_width(self, inner_w: int) -> int:
+        return max(1, inner_w - 12 - NORM_CHECKBOX_SIZE - 16)
+
+    def _settings_action_label_width(self, inner_w: int) -> int:
+        return max(1, inner_w - 32)
+
+    def _settings_row_height(self, label: str, inner_w: int, *, toggle: bool = False) -> int:
+        max_w = (
+            self._settings_toggle_label_width(inner_w)
+            if toggle
+            else self._settings_action_label_width(inner_w)
+        )
+        return wrapped_row_height(self.font_md, label, max_w)
+
     def _layout_settings_content(self) -> None:
         """Compute scrollable settings rows and fixed footer hit targets (panel-local coords)."""
         pad = 20
@@ -911,28 +936,40 @@ class TouchPatchBrowser:
         self.brightness_slider_rect = Rect(pad, y + 28, inner_w, 36)
         y += 78
 
-        self.cpu_meter_toggle_rect = Rect(pad, y, inner_w, SETTINGS_ROW_H)
-        y += SETTINGS_ROW_H + SETTINGS_ROW_GAP
+        cpu_h = self._settings_row_height("CPU meter", inner_w, toggle=True)
+        self.cpu_meter_toggle_rect = Rect(pad, y, inner_w, cpu_h)
+        y += cpu_h + SETTINGS_ROW_GAP
 
-        self.oled_black_toggle_rect = Rect(pad, y, inner_w, SETTINGS_ROW_H)
-        y += SETTINGS_ROW_H + SETTINGS_ROW_GAP
+        oled_h = self._settings_row_height("OLED black", inner_w, toggle=True)
+        self.oled_black_toggle_rect = Rect(pad, y, inner_w, oled_h)
+        y += oled_h + SETTINGS_ROW_GAP
 
-        self.norm_global_toggle_rect = Rect(pad, y, inner_w, SETTINGS_ROW_H)
-        y += SETTINGS_ROW_H + SETTINGS_ROW_GAP + 4
+        norm_h = self._settings_row_height("Patch normalization", inner_w, toggle=True)
+        self.norm_global_toggle_rect = Rect(pad, y, inner_w, norm_h)
+        y += norm_h + SETTINGS_ROW_GAP + 4
 
         self._settings_status_y = y
-        y += 36
-
         status = self.surge_monitor.get_status_summary()
+        status_lines = wrap_text_lines(
+            self.font_sm,
+            f"Surge: {status['status']} — {status['details']}",
+            inner_w - 8,
+            max_lines=2,
+        )
+        y += text_block_height(self.font_sm, len(status_lines), line_spacing=2) + 8
+
         self._surge_restart_btn = None
         if status.get("can_restart"):
-            self._surge_restart_btn = Rect(pad, y, inner_w, SETTINGS_ROW_H)
-            y += SETTINGS_ROW_H + SETTINGS_ROW_GAP
+            restart_h = self._settings_row_height("Restart Surge", inner_w)
+            self._surge_restart_btn = Rect(pad, y, inner_w, restart_h)
+            y += restart_h + SETTINGS_ROW_GAP
 
-        self._calibrate_missing_btn = Rect(pad, y, inner_w, SETTINGS_ROW_H)
-        y += SETTINGS_ROW_H + SETTINGS_ROW_GAP
-        self._calibrate_force_btn = Rect(pad, y, inner_w, SETTINGS_ROW_H)
-        y += SETTINGS_ROW_H + SETTINGS_ROW_GAP
+        cal_missing_h = self._settings_row_height("Calibrate missing patches", inner_w)
+        self._calibrate_missing_btn = Rect(pad, y, inner_w, cal_missing_h)
+        y += cal_missing_h + SETTINGS_ROW_GAP
+        cal_force_h = self._settings_row_height("Force full re-calibration", inner_w)
+        self._calibrate_force_btn = Rect(pad, y, inner_w, cal_force_h)
+        y += cal_force_h + SETTINGS_ROW_GAP
 
         self._settings_content_height = y
 
@@ -1466,9 +1503,19 @@ class TouchPatchBrowser:
         pygame.draw.rect(self.screen, row_bg, rect.pygame_rect, border_radius=8)
 
         text_color = self.theme.muted if disabled else self.theme.text
-        label_surf = self.font_sm.render(label, True, text_color)
-        ly = rect.y + (rect.h - label_surf.get_height()) // 2
-        self.screen.blit(label_surf, (rect.x + 12, ly))
+        label_max_w = max(1, rect.w - NORM_CHECKBOX_SIZE - 28)
+        lines = wrap_text_lines(self.font_sm, label, label_max_w, max_lines=2)
+        block_h = text_block_height(self.font_sm, len(lines), line_spacing=2)
+        start_y = rect.y + max(0, (rect.h - block_h) // 2)
+        blit_text_block(
+            self.screen,
+            self.font_sm,
+            lines,
+            rect.x + 12,
+            start_y,
+            text_color,
+            line_spacing=2,
+        )
 
         box = self._normalize_checkbox_rect(rect)
         if disabled:
@@ -1665,7 +1712,9 @@ class TouchPatchBrowser:
             1,
         )
         folder_name = self._browse_category_name()
-        label = self.font_sm.render(folder_name[:34], True, self.theme.text)
+        max_w = max(1, rect.w - 24)
+        clipped = ellipsize_text(self.font_sm, folder_name, max_w)
+        label = self.font_sm.render(clipped, True, self.theme.text)
         self.screen.blit(label, (rect.x + 12, rect.y + (rect.h - label.get_height()) // 2))
 
     def _draw_button(
@@ -1685,10 +1734,15 @@ class TouchPatchBrowser:
         pygame.draw.rect(self.screen, color, rect.pygame_rect, border_radius=8)
         font = self.font_sm if small else self.font_md
         text_color = (255, 255, 255) if accent else self.theme.text
-        text = font.render(label, True, text_color)
-        tx = rect.x + (rect.w - text.get_width()) // 2
-        ty = rect.y + (rect.h - text.get_height()) // 2
-        self.screen.blit(text, (tx, ty))
+        max_w = max(1, rect.w - 16)
+        lines = wrap_text_lines(font, label, max_w, max_lines=2)
+        block_h = text_block_height(font, len(lines), line_spacing=2)
+        start_y = rect.y + max(0, (rect.h - block_h) // 2)
+        for i, line in enumerate(lines):
+            surf = font.render(line, True, text_color)
+            tx = rect.x + (rect.w - surf.get_width()) // 2
+            ty = start_y + i * (font.get_linesize() + 2)
+            self.screen.blit(surf, (tx, ty))
 
     def _draw_vertical_fader(self, channel: MixerChannel) -> None:
         value = self._mixer_value(channel)
@@ -1782,18 +1836,21 @@ class TouchPatchBrowser:
     def _draw_status_bar(self) -> None:
         pygame.draw.rect(self.screen, self.theme.surface, self.status_rect.pygame_rect, border_radius=10)
         if self.loaded_patch_info:
-            title = self.loaded_patch_info["name"][:34]
-            subtitle = self.loaded_patch_info["category"][:30]
+            title = self.loaded_patch_info["name"]
+            subtitle = self.loaded_patch_info["category"]
         else:
             title = "No patch loaded"
             subtitle = "Select a patch from the left list"
 
+        title_max_w = max(1, self.status_rect.w - self.system_settings_btn.w - 36)
+        title_lines = wrap_text_lines(self.font_md, title, title_max_w, max_lines=1)
         self.screen.blit(
-            self.font_md.render(title, True, self.theme.text),
+            self.font_md.render(title_lines[0], True, self.theme.text),
             (self.status_rect.x + 12, self.status_rect.y + 6),
         )
+        sub_lines = wrap_text_lines(self.font_sm, subtitle, title_max_w, max_lines=1)
         self.screen.blit(
-            self.font_sm.render(subtitle, True, self.theme.muted),
+            self.font_sm.render(sub_lines[0], True, self.theme.muted),
             (self.status_rect.x + 12, self.status_rect.y + 26),
         )
         if self.show_cpu_meter:
@@ -1835,11 +1892,39 @@ class TouchPatchBrowser:
             )
             return
 
-        name = self.font_lg.render(self.detail_patch["name"][:26], True, self.theme.text)
-        self.screen.blit(name, (self.main_rect.x + 24, self.main_rect.y + 24))
+        name_lines = wrap_text_lines(
+            self.font_lg,
+            self.detail_patch["name"],
+            max(1, self.main_rect.w - 48),
+            max_lines=2,
+        )
+        name_block_h = text_block_height(self.font_lg, len(name_lines), line_spacing=4)
+        blit_text_block(
+            self.screen,
+            self.font_lg,
+            name_lines,
+            self.main_rect.x + 24,
+            self.main_rect.y + 24,
+            self.theme.text,
+            line_spacing=4,
+        )
 
-        cat = self.font_sm.render(self.detail_patch["category"][:40], True, self.theme.muted)
-        self.screen.blit(cat, (self.main_rect.x + 24, self.main_rect.y + 68))
+        cat_y = self.main_rect.y + 24 + name_block_h + 8
+        cat_lines = wrap_text_lines(
+            self.font_sm,
+            self.detail_patch["category"],
+            max(1, self.main_rect.w - 48),
+            max_lines=2,
+        )
+        blit_text_block(
+            self.screen,
+            self.font_sm,
+            cat_lines,
+            self.main_rect.x + 24,
+            cat_y,
+            self.theme.muted,
+            line_spacing=2,
+        )
 
         self._draw_mixer_strip()
         self._draw_normalize_toggle(
@@ -1871,9 +1956,20 @@ class TouchPatchBrowser:
     def _draw_settings_action_row(self, rect: Rect, label: str, *, muted: bool = False) -> None:
         bg = self.theme.surface_alt if muted else self.theme.surface
         pygame.draw.rect(self.screen, bg, rect.pygame_rect, border_radius=10)
-        text = self.font_md.render(label, True, self.theme.muted if muted else self.theme.text)
-        ty = rect.y + (rect.h - text.get_height()) // 2
-        self.screen.blit(text, (rect.x + 16, ty))
+        text_color = self.theme.muted if muted else self.theme.text
+        draw_wrapped_text_in_rect(
+            self.screen,
+            self.font_md,
+            label,
+            rect.x,
+            rect.y,
+            rect.w,
+            rect.h,
+            text_color,
+            pad_x=16,
+            line_spacing=2,
+            max_lines=2,
+        )
 
     def _draw_settings_panel(self) -> None:
         panel = self._settings_panel_screen_rect()
@@ -1942,13 +2038,21 @@ class TouchPatchBrowser:
 
         status = self.surge_monitor.get_status_summary()
         status_y = panel.y + self._settings_status_y - scroll
-        self.screen.blit(
-            self.font_sm.render(
-                f"Surge: {status['status']} — {status['details'][:32]}",
-                True,
-                self.theme.ok if status["status"] == "Running" else self.theme.danger,
-            ),
-            (content_x + 20, status_y),
+        status_lines = wrap_text_lines(
+            self.font_sm,
+            f"Surge: {status['status']} — {status['details']}",
+            self.settings_panel_rect.w - 48,
+            max_lines=2,
+        )
+        status_color = self.theme.ok if status["status"] == "Running" else self.theme.danger
+        blit_text_block(
+            self.screen,
+            self.font_sm,
+            status_lines,
+            content_x + 20,
+            status_y,
+            status_color,
+            line_spacing=2,
         )
 
         if self._surge_restart_btn:
@@ -1973,10 +2077,17 @@ class TouchPatchBrowser:
         )
         power = self._panel_local_to_screen(self._power_btn)
         pygame.draw.rect(self.screen, self.theme.surface_alt, power.pygame_rect, border_radius=10)
-        power_label = self.font_md.render("Power…", True, self.theme.text)
-        self.screen.blit(
-            power_label,
-            (power.x + 16, power.y + (power.h - power_label.get_height()) // 2),
+        draw_wrapped_text_in_rect(
+            self.screen,
+            self.font_md,
+            "Power…",
+            power.x,
+            power.y,
+            power.w,
+            power.h,
+            self.theme.text,
+            pad_x=16,
+            max_lines=1,
         )
 
     def _draw_settings(self) -> None:
@@ -2036,32 +2147,45 @@ class TouchPatchBrowser:
         title = self._calibration_mode_label(mode)
 
         panel_w = min(520, self.width - 48)
-        panel_h = 300
-        panel = Rect((self.width - panel_w) // 2, (self.height - panel_h) // 2, panel_w, panel_h)
-        pygame.draw.rect(self.screen, self.theme.surface, panel.pygame_rect, border_radius=16)
-
-        self.screen.blit(
-            self.font_md.render(f"{title}?", True, self.theme.text),
-            (panel.x + 24, panel.y + 18),
-        )
-
-        y = panel.y + 56
-        for line in (
+        body_raw = (
             self._calibration_mode_description(mode, targets, total),
             "Touch browser will stop; loader takes over the display.",
             self._calibration_duration_hint(targets),
             "Do not touch the screen during measurement.",
-        ):
-            hint = self.font_sm.render(line[:58], True, self.theme.muted)
-            self.screen.blit(hint, (panel.x + 24, y))
-            y += 26
+        )
+        body_max_w = panel_w - 48
+        body_lines: list[str] = []
+        for paragraph in body_raw:
+            body_lines.extend(wrap_text_lines(self.font_sm, paragraph, body_max_w))
 
-        self._calibrate_confirm_no = Rect(panel.x + 24, panel.y + 220, (panel.w - 60) // 2, 52)
+        title_surf = self.font_md.render(f"{title}?", True, self.theme.text)
+        body_h = text_block_height(self.font_sm, len(body_lines), line_spacing=6)
+        btn_h = 52
+        btn_gap = 12
+        panel_h = 18 + title_surf.get_height() + 16 + body_h + 20 + btn_h + 24
+        panel = Rect((self.width - panel_w) // 2, (self.height - panel_h) // 2, panel_w, panel_h)
+        pygame.draw.rect(self.screen, self.theme.surface, panel.pygame_rect, border_radius=16)
+
+        self.screen.blit(title_surf, (panel.x + 24, panel.y + 18))
+
+        body_y = panel.y + 18 + title_surf.get_height() + 16
+        blit_text_block(
+            self.screen,
+            self.font_sm,
+            body_lines,
+            panel.x + 24,
+            body_y,
+            self.theme.muted,
+            line_spacing=6,
+        )
+
+        btn_y = body_y + body_h + 20
+        self._calibrate_confirm_no = Rect(panel.x + 24, btn_y, (panel.w - 60) // 2, btn_h)
         self._calibrate_confirm_yes = Rect(
-            self._calibrate_confirm_no.x + self._calibrate_confirm_no.w + 12,
-            panel.y + 220,
+            self._calibrate_confirm_no.x + self._calibrate_confirm_no.w + btn_gap,
+            btn_y,
             (panel.w - 60) // 2,
-            52,
+            btn_h,
         )
         start_disabled = mode == CalibrateMode.MISSING_ONLY and targets == 0
         self._draw_button(self._calibrate_confirm_no, "Cancel", accent=True)
@@ -2086,13 +2210,24 @@ class TouchPatchBrowser:
     def _draw_toast(self) -> None:
         if time.time() > self.toast_until or not self.toast_message:
             return
-        text = self.font_sm.render(self.toast_message, True, self.theme.text)
+        max_w = min(560, self.width - 48)
+        lines = wrap_text_lines(self.font_sm, self.toast_message, max_w, max_lines=3)
+        line_surfs = [self.font_sm.render(line, True, self.theme.text) for line in lines]
         pad_x, pad_y = 16, 10
-        w = text.get_width() + pad_x * 2
-        h = text.get_height() + pad_y * 2
-        rect = pygame.Rect((self.width - w) // 2, self.height - 80, w, h)
+        w = max(s.get_width() for s in line_surfs) + pad_x * 2
+        block_h = text_block_height(self.font_sm, len(lines), line_spacing=2)
+        h = block_h + pad_y * 2
+        rect = pygame.Rect((self.width - w) // 2, self.height - 80 - max(0, block_h - 20), w, h)
         pygame.draw.rect(self.screen, self.theme.surface_alt, rect, border_radius=10)
-        self.screen.blit(text, (rect.x + pad_x, rect.y + pad_y))
+        blit_text_block(
+            self.screen,
+            self.font_sm,
+            lines,
+            rect.x + pad_x,
+            rect.y + pad_y,
+            self.theme.text,
+            line_spacing=2,
+        )
 
     def _draw(self) -> None:
         modal = self.screen_state in (
