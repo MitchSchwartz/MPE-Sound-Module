@@ -122,7 +122,12 @@ class TouchBrowserInputMixin:
             ok, message = self.surge_monitor.restart_surge()
             if ok:
                 self._toast(message, 2.5)
-                self._pending_last_patch = None
+                patch = self.loaded_patch_info
+                if patch:
+                    self._last_known_surge_pid = None
+                    self._surge_was_healthy = False
+                    self._surge_liveness_initialized = False
+                    self._queue_patch_reload(patch, delay_s=2.0)
                 self._layout_settings_content()
             else:
                 self._toast(f"Restart failed: {message}", 3.5)
