@@ -99,7 +99,13 @@ class LeftNavMode(Enum):
     PATCHES = auto()
 
 
-from patch_browser.ui_theme import Theme
+from patch_browser.ui_theme import (
+    THEME_MODE_OLED_BLACK,
+    THEME_MODE_STANDARD,
+    Theme,
+    load_theme_mode_from_prefs,
+    theme_for_mode,
+)
 @dataclass
 class Rect:
     x: int
@@ -576,7 +582,8 @@ class TouchPatchBrowser:
             self.screen = pygame.display.set_mode((800, 480), pygame.FULLSCREEN)
         self.width, self.height = self.screen.get_size()
         pygame.mouse.set_visible(False)
-        self.theme = Theme()
+        self.theme_mode = load_theme_mode_from_prefs()
+        self.theme = theme_for_mode(self.theme_mode)
         self._clear_display()
         self.font_lg = self._load_font(34)
         self.font_md = self._load_font(22)
@@ -775,19 +782,47 @@ class TouchPatchBrowser:
         return default
 
     def _save_ui_preference(self, key: str, value: bool) -> None:
-        data: dict[str, bool] = {}
+        data = self._read_ui_prefs_file()
+        data[key] = value
+        self._write_ui_prefs_file(data)
+
+    def _read_ui_prefs_file(self) -> dict:
         if UI_STATE_FILE.exists():
             try:
                 loaded = json.loads(UI_STATE_FILE.read_text())
                 if isinstance(loaded, dict):
-                    data = {k: bool(v) for k, v in loaded.items()}
+                    return dict(loaded)
             except (OSError, json.JSONDecodeError, TypeError, ValueError):
                 pass
-        data[key] = value
+        return {}
+
+    def _write_ui_prefs_file(self, data: dict) -> None:
         try:
             UI_STATE_FILE.write_text(json.dumps(data, indent=2))
         except OSError as exc:
             print(f"Warning: could not persist UI preferences ({exc})")
+
+    def _save_theme_mode(self, mode: str) -> None:
+        data = self._read_ui_prefs_file()
+        data["theme_mode"] = mode
+        self._write_ui_prefs_file(data)
+
+    def _apply_theme_mode(self, mode: str) -> None:
+        self.theme_mode = mode
+        self.theme = theme_for_mode(mode)
+        self._save_theme_mode(mode)
+
+    def _toggle_oled_black_theme(self) -> None:
+        mode = (
+            THEME_MODE_STANDARD
+            if self.theme_mode == THEME_MODE_OLED_BLACK
+            else THEME_MODE_OLED_BLACK
+        )
+        self._apply_theme_mode(mode)
+        if mode == THEME_MODE_OLED_BLACK:
+            self._toast("OLED black on", 1.5)
+        else:
+            self._toast("Standard theme", 1.5)
 
     def _toggle_cpu_meter_visibility(self) -> None:
         self.show_cpu_meter = not self.show_cpu_meter
@@ -877,6 +912,9 @@ class TouchPatchBrowser:
         y += 78
 
         self.cpu_meter_toggle_rect = Rect(pad, y, inner_w, SETTINGS_ROW_H)
+        y += SETTINGS_ROW_H + SETTINGS_ROW_GAP
+
+        self.oled_black_toggle_rect = Rect(pad, y, inner_w, SETTINGS_ROW_H)
         y += SETTINGS_ROW_H + SETTINGS_ROW_GAP
 
         self.norm_global_toggle_rect = Rect(pad, y, inner_w, SETTINGS_ROW_H)
@@ -1886,6 +1924,14 @@ class TouchPatchBrowser:
             label="CPU meter",
         )
 
+        oled_toggle = self._panel_local_to_screen(self.oled_black_toggle_rect, scrolled=True)
+        self._draw_normalize_toggle(
+            oled_toggle,
+            self.theme_mode == THEME_MODE_OLED_BLACK,
+            has_gain=True,
+            label="OLED black",
+        )
+
         norm_toggle = self._panel_local_to_screen(self.norm_global_toggle_rect, scrolled=True)
         self._draw_normalize_toggle(
             norm_toggle,
@@ -2128,6 +2174,8 @@ class TouchPatchBrowser:
             return "norm_global"
         if self.cpu_meter_toggle_rect.contains(*local_pos):
             return "cpu_meter"
+        if self.oled_black_toggle_rect.contains(*local_pos):
+            return "oled_black"
         if self._surge_restart_btn and self._surge_restart_btn.contains(*local_pos):
             return "surge_restart"
         if self._calibrate_missing_btn.contains(*local_pos):
@@ -2147,6 +2195,8 @@ class TouchPatchBrowser:
             self._toggle_global_normalization()
         elif hit == "cpu_meter":
             self._toggle_cpu_meter_visibility()
+        elif hit == "oled_black":
+            self._toggle_oled_black_theme()
         elif hit == "surge_restart":
             ok, message = self.surge_monitor.restart_surge()
             if ok:

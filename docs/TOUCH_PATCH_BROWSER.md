@@ -189,7 +189,7 @@ Set `MPE_TOUCH_EVDEV=0` to fall back to SDL-only input (debugging).
 
 Right-side **slide-out panel** (tap **⋯**, tap outside, swipe right, or **×** to close). Scrollable body; **Power…** fixed at the bottom with a divider. Row buttons and toggles activate on **finger up** (same tap-vs-scroll thresholds as the patch list) so you can scroll without triggering rows under your finger. Confirm modals (calibration, power) use the same up-to-activate pattern.
 
-UI preferences persist in `~/.patch_browser_ui.json` (e.g. `show_cpu_meter`).
+UI preferences persist in `~/.patch_browser_ui.json` (e.g. `show_cpu_meter`, `theme_mode`: `"standard"` or `"oled_black"`).
 
 - **CPU meter** — toggle show/hide for the header bar (not the numeric overlay; bar-only meter). Default on.
 - **Patch normalization** — master toggle for all per-patch Norm. controls (persists in `~/.patch_browser_normalization.json` under `_global`; per-patch flags unchanged when off).
