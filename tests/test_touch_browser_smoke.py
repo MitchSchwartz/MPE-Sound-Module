@@ -9,7 +9,9 @@ from unittest import mock
 
 
 def _install_fake_pygame() -> None:
-    if isinstance(sys.modules.get("pygame"), types.ModuleType):
+    if isinstance(sys.modules.get("pygame"), types.ModuleType) and hasattr(
+        sys.modules["pygame"], "display"
+    ):
         return
 
     fake = types.ModuleType("pygame")
@@ -155,6 +157,8 @@ class TouchBrowserSmokeTests(unittest.TestCase):
         backlight.get_percent.return_value = 100
         backlight.restore_saved.return_value = None
 
+        fake_screen = mock.Mock()
+        fake_screen.get_size.return_value = (800, 480)
         patches = [
             mock.patch("patch_browser.touch_browser_app.PatchScanner", return_value=scanner),
             mock.patch("patch_browser.touch_browser_app.PatchLoader", return_value=loader),
@@ -162,9 +166,14 @@ class TouchBrowserSmokeTests(unittest.TestCase):
             mock.patch("patch_browser.touch_browser_app.SurgeCpuMonitor", return_value=cpu_monitor),
             mock.patch("patch_browser.touch_browser_app.BacklightController", return_value=backlight),
             mock.patch("patch_browser.touch_browser_app.evdev_bridge_enabled", return_value=False),
+            mock.patch(
+                "patch_browser.touch_browser_app.acquire_browser_display",
+                return_value=fake_screen,
+            ),
             mock.patch.object(TouchPatchBrowser, "_start_background_scan"),
             mock.patch.object(TouchPatchBrowser, "_wait_for_initial_scan"),
             mock.patch.object(TouchPatchBrowser, "_complete_boot_splash"),
+            mock.patch.object(TouchPatchBrowser, "_paint_boot_splash_frame"),
             mock.patch.object(TouchPatchBrowser, "_start_evdev_touch_bridge"),
         ]
         for patcher in patches:

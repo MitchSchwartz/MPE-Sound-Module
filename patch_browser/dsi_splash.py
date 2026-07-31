@@ -351,20 +351,26 @@ def acquire_browser_display(
     configure_kmsdrm_env()
     if not pygame.get_init():
         pygame.init()
-    if boot_splash_service_active():
-        request_display_handoff()
-        wait_for_boot_splash_release()
-    clear_display_handoff_request()
-    screen = _open_fullscreen_surface(width, height)
-    _hide_cursor()
-    theme = theme_for_mode(load_theme_mode_from_prefs())
-    draw_splash_frame(
-        screen,
-        mode=SplashMode.BOOT,
-        theme=theme,
-        animation_phase=0.0,
-    )
-    return screen
+    try:
+        if boot_splash_service_active():
+            request_display_handoff()
+            wait_for_boot_splash_release()
+        clear_display_handoff_request()
+        screen = _open_fullscreen_surface(width, height)
+        _hide_cursor()
+        theme = theme_for_mode(load_theme_mode_from_prefs())
+        draw_splash_frame(
+            screen,
+            mode=SplashMode.BOOT,
+            theme=theme,
+            animation_phase=0.0,
+        )
+        return screen
+    except Exception:
+        # Release pygame/DRM so systemd restart loops do not orphan /dev/dri/card*.
+        if pygame.get_init():
+            pygame.quit()
+        raise
 
 
 def paint_immediate(

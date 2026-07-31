@@ -169,7 +169,20 @@ class TouchPatchBrowser(
             pygame.display.set_caption("Pi-Surge-MPE Touch Browser")
             self.screen = pygame.display.set_mode((800, 480))
         else:
-            self.screen = acquire_browser_display()
+            try:
+                self.screen = acquire_browser_display()
+            except RuntimeError as exc:
+                print(f"FATAL: cannot acquire DSI display: {exc}", file=sys.stderr)
+                if pygame.get_init():
+                    pygame.quit()
+                raise SystemExit(1) from exc
+            except Exception as exc:
+                if type(exc).__name__ != "error":
+                    raise
+                print(f"FATAL: cannot acquire DSI display: {exc}", file=sys.stderr)
+                if pygame.get_init():
+                    pygame.quit()
+                raise SystemExit(1) from exc
             pygame.display.set_caption("Pi-Surge-MPE Touch Browser")
         self.width, self.height = self.screen.get_size()
         pygame.mouse.set_visible(False)
@@ -221,6 +234,9 @@ class TouchPatchBrowser(
         self._scan_dirty = False
         self._pending_last_patch: dict | None = None
         self._pending_load_next = 0.0
+        self._last_known_surge_pid: int | None = None
+        self._surge_was_healthy = False
+        self._surge_liveness_initialized = False
         self._surge_restart_btn: Rect | None = None
         self._settings_slide = 0.0
         self._settings_swipe_start: tuple[int, int] | None = None
