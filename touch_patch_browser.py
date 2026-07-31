@@ -1690,6 +1690,51 @@ class TouchPatchBrowser:
             points = [(cx - 5, cy - 8), (cx + 5, cy), (cx - 5, cy + 8)]
         pygame.draw.lines(surface, color, False, points, 3)
 
+    def _draw_modal_backdrop(self, legacy_alpha: int = 150) -> None:
+        alpha = self.theme.backdrop_alpha if self.theme.backdrop_alpha is not None else legacy_alpha
+        overlay = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, alpha))
+        self.screen.blit(overlay, (0, 0))
+
+    def _settings_overlay_alpha(self) -> int:
+        if self.theme.backdrop_alpha is not None:
+            slide = self._settings_slide
+            return int(self.theme.backdrop_alpha * (0.35 + 0.65 * slide))
+        return int(140 + 60 * self._settings_slide)
+
+    def _draw_hairline(self, y: int, x_left: int, x_right: int) -> None:
+        if self.theme.hairline_alpha <= 0 or x_right <= x_left:
+            return
+        line = pygame.Surface((x_right - x_left, 1), pygame.SRCALPHA)
+        line.fill((255, 255, 255, self.theme.hairline_alpha))
+        self.screen.blit(line, (x_left, y))
+
+    def _draw_divider_line(self, x_left: int, y: int, x_right: int) -> None:
+        if self.theme.hairline_alpha > 0:
+            self._draw_hairline(y, x_left, x_right)
+        else:
+            pygame.draw.line(
+                self.screen,
+                self.theme.surface_alt,
+                (x_left, y),
+                (x_right, y),
+                1,
+            )
+
+    def _draw_elevated_panel(self, rect: Rect, *, border_radius: int = 16) -> None:
+        color = self.theme.panel_surface()
+        pygame.draw.rect(self.screen, color, rect.pygame_rect, border_radius=border_radius)
+        if self.theme.elevated_top_highlight:
+            inset = min(border_radius, max(0, rect.w // 4))
+            highlight = tuple(min(255, channel + 14) for channel in color)
+            pygame.draw.line(
+                self.screen,
+                highlight,
+                (rect.x + inset, rect.y),
+                (rect.right - inset, rect.y),
+                1,
+            )
+
     def _draw_nav_header(self) -> None:
         pygame.draw.rect(self.screen, self.theme.surface, self.nav_header_rect.pygame_rect)
 
@@ -1856,6 +1901,11 @@ class TouchPatchBrowser:
         if self.show_cpu_meter:
             self._draw_cpu_meter(self.cpu_meter_rect)
         self._draw_button(self.system_settings_btn, "...", small=True, muted=True)
+        self._draw_hairline(
+            self.status_rect.bottom - 1,
+            self.status_rect.x + 12,
+            self.status_rect.right - 12,
+        )
 
     def _draw_left_nav_collapsed(self) -> None:
         pygame.draw.rect(self.screen, self.theme.surface, self.left_panel_rect.pygame_rect, border_radius=10)
@@ -1877,7 +1927,12 @@ class TouchPatchBrowser:
         self.nav_list.draw(self.screen, font, self.theme)
 
     def _draw_main_detail(self) -> None:
-        pygame.draw.rect(self.screen, self.theme.surface, self.main_rect.pygame_rect, border_radius=10)
+        pygame.draw.rect(
+            self.screen,
+            self.theme.content_surface(),
+            self.main_rect.pygame_rect,
+            border_radius=10,
+        )
 
         if not self.detail_patch:
             hint = self.font_md.render("Select a patch", True, self.theme.muted)
@@ -1973,23 +2028,22 @@ class TouchPatchBrowser:
 
     def _draw_settings_panel(self) -> None:
         panel = self._settings_panel_screen_rect()
-        alpha = int(140 + 60 * self._settings_slide)
+        alpha = self._settings_overlay_alpha()
         overlay = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
         overlay.fill((0, 0, 0, alpha))
         self.screen.blit(overlay, (0, 0))
 
-        pygame.draw.rect(self.screen, self.theme.surface, panel.pygame_rect, border_radius=16)
-        shadow = pygame.Surface((panel.w, panel.h), pygame.SRCALPHA)
-        shadow.fill((0, 0, 0, 40))
-        self.screen.blit(shadow, (panel.x - 4, panel.y + 2))
+        self._draw_elevated_panel(panel, border_radius=16)
+        if self.theme.backdrop_alpha is None:
+            shadow = pygame.Surface((panel.w, panel.h), pygame.SRCALPHA)
+            shadow.fill((0, 0, 0, 40))
+            self.screen.blit(shadow, (panel.x - 4, panel.y + 2))
 
         header_rect = Rect(panel.x, panel.y, panel.w, SETTINGS_PANEL_HEADER_H)
-        pygame.draw.line(
-            self.screen,
-            self.theme.surface_alt,
-            (header_rect.x + 16, header_rect.bottom - 1),
-            (header_rect.right - 16, header_rect.bottom - 1),
-            1,
+        self._draw_divider_line(
+            header_rect.x + 16,
+            header_rect.bottom - 1,
+            header_rect.right - 16,
         )
         self.screen.blit(
             self.font_md.render("System", True, self.theme.text),
@@ -2068,13 +2122,7 @@ class TouchPatchBrowser:
         self.screen.set_clip(clip)
 
         footer_y = panel.y + self.settings_panel_rect.h - SETTINGS_PANEL_FOOTER_H
-        pygame.draw.line(
-            self.screen,
-            self.theme.surface_alt,
-            (panel.x + 16, footer_y),
-            (panel.right - 16, footer_y),
-            1,
-        )
+        self._draw_divider_line(panel.x + 16, footer_y, panel.right - 16)
         power = self._panel_local_to_screen(self._power_btn)
         pygame.draw.rect(self.screen, self.theme.surface_alt, power.pygame_rect, border_radius=10)
         draw_wrapped_text_in_rect(
@@ -2095,14 +2143,12 @@ class TouchPatchBrowser:
         self._draw_settings_panel()
 
     def _draw_power_menu(self) -> None:
-        overlay = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
-        overlay.fill((0, 0, 0, 120))
-        self.screen.blit(overlay, (0, 0))
+        self._draw_modal_backdrop(legacy_alpha=120)
 
         panel_w = min(360, self.width - 48)
         panel_h = 280
         panel = Rect((self.width - panel_w) // 2, (self.height - panel_h) // 2, panel_w, panel_h)
-        pygame.draw.rect(self.screen, self.theme.surface, panel.pygame_rect, border_radius=16)
+        self._draw_elevated_panel(panel, border_radius=16)
 
         self.screen.blit(self.font_md.render("Power", True, self.theme.text), (panel.x + 24, panel.y + 20))
 
@@ -2120,14 +2166,12 @@ class TouchPatchBrowser:
             y += SETTINGS_ROW_H + SETTINGS_ROW_GAP
 
     def _draw_power_confirm(self) -> None:
-        overlay = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
-        overlay.fill((0, 0, 0, 150))
-        self.screen.blit(overlay, (0, 0))
+        self._draw_modal_backdrop(legacy_alpha=150)
 
         panel_w = min(420, self.width - 48)
         panel_h = 220
         panel = Rect((self.width - panel_w) // 2, (self.height - panel_h) // 2, panel_w, panel_h)
-        pygame.draw.rect(self.screen, self.theme.surface, panel.pygame_rect, border_radius=16)
+        self._draw_elevated_panel(panel, border_radius=16)
 
         action = "Shut down?" if self.power_action == "shutdown" else "Restart?"
         self.screen.blit(self.font_md.render(action, True, self.theme.danger), (panel.x + 24, panel.y + 24))
@@ -2138,9 +2182,7 @@ class TouchPatchBrowser:
         self._draw_button(self._confirm_yes, "Confirm")
 
     def _draw_calibrate_confirm(self) -> None:
-        overlay = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
-        overlay.fill((0, 0, 0, 150))
-        self.screen.blit(overlay, (0, 0))
+        self._draw_modal_backdrop(legacy_alpha=150)
 
         mode = self._pending_calibrate_mode
         targets, total = self._calibration_scope_stats(mode)
@@ -2164,7 +2206,7 @@ class TouchPatchBrowser:
         btn_gap = 12
         panel_h = 18 + title_surf.get_height() + 16 + body_h + 20 + btn_h + 24
         panel = Rect((self.width - panel_w) // 2, (self.height - panel_h) // 2, panel_w, panel_h)
-        pygame.draw.rect(self.screen, self.theme.surface, panel.pygame_rect, border_radius=16)
+        self._draw_elevated_panel(panel, border_radius=16)
 
         self.screen.blit(title_surf, (panel.x + 24, panel.y + 18))
 
