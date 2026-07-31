@@ -42,6 +42,8 @@ Every patch is fully editable and MPE-assignable from your computer, across all 
 
 **Per-patch loudness:** offline calibration matches Quick Select (and any folder) to a common level with −3 dBFS headroom; runtime is a JSON lookup + OSC trim. Pilot: **12/12 Quick Select patches calibrated** on the reference Pi. See **[docs/PATCH_NORMALIZATION.md](docs/PATCH_NORMALIZATION.md)**.
 
+**Desk tether (optional):** route Surge to a tethered PC over USB-C as a standard audio device — set `MPE_AUDIO_PROFILE=usb-host`. Standalone analog out is unchanged. See **[docs/USB-AUDIO-HOST.md](docs/USB-AUDIO-HOST.md)**.
+
 ## Build one
 
 Everything to replicate the reference hardware — exact parts (with purchase links), wiring diagrams, GPIO pinout:

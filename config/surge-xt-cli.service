@@ -1,6 +1,6 @@
 [Unit]
 Description=Surge XT CLI Synthesizer (Headless)
-After=sound.target network.target
+After=sound.target network.target usb-audio-gadget.service
 Wants=sound.target
 
 [Service]

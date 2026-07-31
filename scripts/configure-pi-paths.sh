@@ -39,6 +39,7 @@ _run_on_pi() {
     echo "  Surge root:     $MPE_SURGE_ROOT"
     echo "  Favorites name: $MPE_FAVORITES_NAME"
     echo "  UI mode:        $MPE_UI_MODE"
+    echo "  Audio profile:  ${MPE_AUDIO_PROFILE:-standalone}"
     echo ""
 
     sudo mkdir -p /etc/mpe
@@ -53,6 +54,7 @@ MPE_SURGE_DOCS="$MPE_SURGE_DOCS"
 MPE_SURGE_LOG=$LOG_FILE
 MPE_FAVORITES_NAME="$MPE_FAVORITES_NAME"
 MPE_UI_MODE="$MPE_UI_MODE"
+MPE_AUDIO_PROFILE=${MPE_AUDIO_PROFILE:-standalone}
 EOF
     else
         echo "Keeping existing /etc/mpe/mpe.env (use --force to rewrite)"
