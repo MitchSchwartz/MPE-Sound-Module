@@ -18,6 +18,7 @@ import signal
 import sys
 import os
 import threading
+import logging
 from pathlib import Path
 from dataclasses import dataclass, field
 from gpiozero import RotaryEncoder, Button
@@ -37,6 +38,8 @@ from patch_browser.patch_scanner import (
 )
 
 from patch_browser.surge_monitor import SurgeMonitor
+
+logger = logging.getLogger(__name__)
 
 
 # Kernel-level encoder support (optional, falls back to gpiozero)
@@ -760,81 +763,46 @@ class PatchBrowser:
             self.last_direction = "CCW"
         self.last_scroll_time = current_time
 
-    def _on_rotate_cw(self):
-        """Handle clockwise rotation - unified filtering"""
+    def _on_rotate(self, direction_value: int) -> None:
+        """Handle rotation (+1 CW, -1 CCW) with unified filtering."""
         current_time = time.time()
-        
-        # Apply unified filtering (works for both dialogs and normal mode)
-        should_process, reason = self._should_process_encoder_event(current_time, 1)
+
+        should_process, _reason = self._should_process_encoder_event(current_time, direction_value)
         if not should_process:
-            return  # Blocked by filtering logic
-        
-        # Track in recent events buffer (for lookback window)
-        self.recent_encoder_events.append((current_time, 1))
-        # Keep only last 200ms of events
+            return
+
+        self.recent_encoder_events.append((current_time, direction_value))
         cutoff_time = current_time - 0.2
-        self.recent_encoder_events = [(ts, val) for ts, val in self.recent_encoder_events if ts >= cutoff_time]
-        
-        # Accumulate event
+        self.recent_encoder_events = [
+            (ts, val) for ts, val in self.recent_encoder_events if ts >= cutoff_time
+        ]
+
         with self.scroll_lock:
-            self.scroll_events += 1
-        
-        self.last_direction = "CW"
+            self.scroll_events += direction_value
+
+        self.last_direction = "CW" if direction_value > 0 else "CCW"
         self.last_scroll_time = current_time
+
+    def _on_rotate_cw(self):
+        """Handle clockwise rotation - unified filtering."""
+        self._on_rotate(1)
 
     def _on_rotate_ccw(self):
-        """Handle counter-clockwise rotation - unified filtering"""
-        current_time = time.time()
-        
-        # Apply unified filtering (works for both dialogs and normal mode)
-        should_process, reason = self._should_process_encoder_event(current_time, -1)
-        if not should_process:
-            return  # Blocked by filtering logic
-        
-        # Track in recent events buffer (for lookback window)
-        self.recent_encoder_events.append((current_time, -1))
-        # Keep only last 200ms of events
-        cutoff_time = current_time - 0.2
-        self.recent_encoder_events = [(ts, val) for ts, val in self.recent_encoder_events if ts >= cutoff_time]
-        
-        # Accumulate event
-        with self.scroll_lock:
-            self.scroll_events -= 1
-        
-        self.last_direction = "CCW"
-        self.last_scroll_time = current_time
+        """Handle counter-clockwise rotation - unified filtering."""
+        self._on_rotate(-1)
 
     def _on_button_down(self):
-        """Handle button press start - record time and start poweroff timer"""
-        import threading
-        import subprocess
-        import sys
-        # Log IMMEDIATELY at function entry - before any checks
-        try:
-            sys.stderr.write("[BUTTON] _on_button_down CALLED\n")
-            sys.stderr.flush()
-        except:
-            pass
-        
+        """Handle button press start - record time and start poweroff timer."""
         current_time = time.time()
-        
-        # Write to stderr (unbuffered) and flush immediately
-        try:
-            msg = f"[BUTTON] Button down detected at {current_time:.3f}\n"
-            sys.stderr.write(msg)
-            sys.stderr.flush()
-            print(msg.strip())
-        except Exception as e:
-            sys.stderr.write(f"[BUTTON] Error logging: {e}\n")
-            sys.stderr.flush()
+        logger.debug("Button down at %.3f", current_time)
 
         # Reject spurious button-down events (bounce from previous release)
         # Only block if very recent (within 10ms) to prevent double-triggers
         if (current_time - self.last_button_time) < BUTTON_DEBOUNCE:
-            msg = f"[BUTTON] Rejected (too soon after last: {current_time - self.last_button_time:.3f}s)\n"
-            sys.stderr.write(msg)
-            sys.stderr.flush()
-            print(msg.strip())
+            logger.debug(
+                "Button down rejected (%.3fs since last)",
+                current_time - self.last_button_time,
+            )
             return
 
         # Clear stale button state if somehow still set from previous spurious event
@@ -845,81 +813,49 @@ class PatchBrowser:
         # Do this FIRST to block any encoder events that might come in during button press
         self.button_press_in_progress = True
         self.button_press_start_time = current_time
-        
+
         # Clear any accumulated encoder events (prevent false triggers)
         with self.scroll_lock:
             self.scroll_events = 0
-        
-        # Set encoder cooldown to prevent false scrolls from mechanical coupling
-        # Also set a pre-button cooldown to ignore events that happened just before button press
-        self.encoder_cooldown_until = current_time + self._get_encoder_cooldown()
-        self.button_press_start_time = current_time  # Track when button was pressed
 
-        # Start a timer to show power menu after 8 seconds
-        import sys
-        msg = f"[BUTTON] Starting power menu timer thread...\n"
-        sys.stderr.write(msg)
-        sys.stderr.flush()
-        print(msg.strip())
-        
+        # Set encoder cooldown to prevent false scrolls from mechanical coupling
+        self.encoder_cooldown_until = current_time + self._get_encoder_cooldown()
+
+        logger.debug("Starting power menu timer thread")
+
         def power_menu_timer():
-            import sys
-            import time
-            saved_start_time = current_time  # Capture the start time for this press
-            msg = f"[POWER] Timer started, waiting {POWEROFF_PRESS_MIN}s for power menu...\n"
-            sys.stderr.write(msg)
-            sys.stderr.flush()
-            print(msg.strip())
-            
-            # Wait for 8 seconds, checking every second
+            saved_start_time = current_time
+            logger.debug("Power menu timer started (%.0fs hold)", POWEROFF_PRESS_MIN)
+
             for i in range(int(POWEROFF_PRESS_MIN)):
                 time.sleep(1)
-                # Check if button is still pressed and this is still the same press
                 if not self.button.is_pressed:
-                    msg = f"[POWER] Button released at {i+1}s, cancelling timer\n"
-                    sys.stderr.write(msg)
-                    sys.stderr.flush()
-                    print(msg.strip())
-                    return  # Button released, cancel timer
-                
-                # Check if button_press_start_time changed (new press started)
-                if self.button_press_start_time != saved_start_time:
-                    msg = f"[POWER] New button press detected at {i+1}s, cancelling timer\n"
-                    sys.stderr.write(msg)
-                    sys.stderr.flush()
-                    print(msg.strip())
-                    return  # New press started, cancel this timer
-                
-                msg = f"[POWER] Still holding... {i+1}/{int(POWEROFF_PRESS_MIN)}s\n"
-                sys.stderr.write(msg)
-                sys.stderr.flush()
-                print(msg.strip())
+                    logger.debug("Power menu timer cancelled: button released at %ds", i + 1)
+                    return
 
-            # 8 seconds elapsed and button still pressed - show power menu
+                if self.button_press_start_time != saved_start_time:
+                    logger.debug("Power menu timer cancelled: new press at %ds", i + 1)
+                    return
+
+                logger.debug("Power menu hold progress %d/%ds", i + 1, int(POWEROFF_PRESS_MIN))
+
             if self.button.is_pressed and self.button_press_start_time == saved_start_time:
-                msg = f"\n*** POWER MENU (8 seconds elapsed) ***\n"
-                sys.stderr.write(msg)
-                sys.stderr.flush()
-                print(msg.strip())
-                # Show power menu (while button is still held)
+                logger.debug("Power menu threshold reached — opening menu")
                 self.dialog_active = True
                 self.dialog_type = "power_menu"
-                self.dialog_selection = 2  # Start with "Cancel" selected (safest default)
+                self.dialog_selection = 2
                 self.power_action = None
-                self.dialog_open_time = time.time()  # Track when power menu opened
-                # CRITICAL: Reset button_press_start_time so the release doesn't have a valid press duration
-                # This ensures we require a NEW press after menu opens, not just a release
+                self.dialog_open_time = time.time()
                 self.button_press_start_time = None
-                # Keep button_press_in_progress True initially, but clear it when button is released
-                # Set cooldown to prevent false encoder events
-                # Use longer cooldown when power menu first appears (button still held)
                 self.encoder_cooldown_until = time.time() + 0.2
                 self.update_display()
             else:
-                msg = f"[POWER] Timer expired but conditions not met: is_pressed={self.button.is_pressed}, start_time_match={self.button_press_start_time == saved_start_time}\n"
-                sys.stderr.write(msg)
-                sys.stderr.flush()
-                print(msg.strip())
+                logger.debug(
+                    "Power menu timer expired without opening menu "
+                    "(is_pressed=%s, start_time_match=%s)",
+                    self.button.is_pressed,
+                    self.button_press_start_time == saved_start_time,
+                )
 
         threading.Thread(target=power_menu_timer, daemon=True).start()
 
@@ -1054,42 +990,37 @@ class PatchBrowser:
 
     def _handle_power_confirm_dialog(self):
         """Handle power confirmation dialog"""
-        import sys
-        import subprocess
-        
-        # Log what was selected for debugging
-        sys.stderr.write(f"[POWER] Confirm dialog: selection={self.dialog_selection}, action={self.power_action}\n")
-        sys.stderr.flush()
-        
-        # selection == 0 = "No" selected, selection == 1 = "Yes" selected
-        if self.dialog_selection == 1:  # Yes - execute action
-            sys.stderr.write(f"[POWER] Executing {self.power_action}\n")
-            sys.stderr.flush()
+        logger.debug(
+            "Power confirm: selection=%s action=%s",
+            self.dialog_selection,
+            self.power_action,
+        )
+
+        if self.dialog_selection == 1:
             if self.power_action == "shutdown":
                 print("Shutting down system...")
-                subprocess.run(['sudo', 'poweroff'])
+                result = subprocess.run(["sudo", "poweroff"], check=False)
+                if result.returncode != 0:
+                    logger.warning("poweroff failed with exit code %s", result.returncode)
             elif self.power_action == "restart":
                 print("Restarting system...")
-                subprocess.run(['sudo', 'reboot'])
-        elif self.dialog_selection == 0:  # No - go back to power menu
-            sys.stderr.write("[POWER] No selected, returning to power menu\n")
-            sys.stderr.flush()
-            self.dialog_type = "power_menu"
-            self.dialog_selection = 2  # Start with Cancel selected
-            self.power_action = None
-            self.dialog_open_time = time.time()  # Track when returning to menu
-            # Set cooldown to prevent false events from button press
-            self.encoder_cooldown_until = time.time() + self._get_encoder_cooldown()
-            self.update_display()
-        else:
-            # Invalid selection - just go back to menu
-            sys.stderr.write(f"[POWER] Invalid selection {self.dialog_selection}, returning to menu\n")
-            sys.stderr.flush()
+                result = subprocess.run(["sudo", "reboot"], check=False)
+                if result.returncode != 0:
+                    logger.warning("reboot failed with exit code %s", result.returncode)
+        elif self.dialog_selection == 0:
+            logger.debug("Power confirm: No selected, returning to power menu")
             self.dialog_type = "power_menu"
             self.dialog_selection = 2
             self.power_action = None
-            self.dialog_open_time = time.time()  # Track when returning to menu
-            # Set cooldown to prevent false events from button press
+            self.dialog_open_time = time.time()
+            self.encoder_cooldown_until = time.time() + self._get_encoder_cooldown()
+            self.update_display()
+        else:
+            logger.debug("Power confirm: invalid selection %s", self.dialog_selection)
+            self.dialog_type = "power_menu"
+            self.dialog_selection = 2
+            self.power_action = None
+            self.dialog_open_time = time.time()
             self.encoder_cooldown_until = time.time() + self._get_encoder_cooldown()
             self.update_display()
 
@@ -1161,37 +1092,19 @@ class PatchBrowser:
 
     def _on_button_up(self):
         """Handle button release — bold hold toggles category/patch mode; 8s+ opens power menu."""
-        import threading
-        import sys
-
-        # Log immediately at function entry
-        try:
-            sys.stderr.write(f"[BUTTON] _on_button_up CALLED\n")
-            sys.stderr.flush()
-        except:
-            pass
-
         current_time = time.time()
-        
-        # If button_press_start_time is None, this release has no valid press duration
-        # This can happen when power menu opened while button was held (we reset it)
+        logger.debug("Button up at %.3f", current_time)
+
         if self.button_press_start_time is None:
-            sys.stderr.write("[BUTTON] _on_button_up: button_press_start_time is None (likely power menu reset)\n")
-            sys.stderr.flush()
-            # Still clear button state and encoder events
+            logger.debug("Button up ignored: no press start time (power menu reset)")
             self.button_press_in_progress = False
             with self.scroll_lock:
                 self.scroll_events = 0
             self.encoder_cooldown_until = current_time + self._get_encoder_cooldown()
-            return  # No valid press duration, can't process
-        
+            return
+
         press_duration = current_time - self.button_press_start_time
-        
-        try:
-            sys.stderr.write(f"[BUTTON] _on_button_up: press_duration={press_duration:.3f}s\n")
-            sys.stderr.flush()
-        except:
-            pass
+        logger.debug("Button up press_duration=%.3fs", press_duration)
 
         # Ignore if button was pressed too recently (debounce) - but only for very rapid presses
         # Allow longer presses even if recent (user might be trying different press durations)

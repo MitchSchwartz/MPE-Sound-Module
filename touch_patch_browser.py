@@ -29,7 +29,12 @@ except ImportError as exc:
     print("Or: pip3 install pygame")
     raise SystemExit(1) from exc
 
+from patch_browser.calibration_constants import (
+    MPE_CALIB_FROM_BROWSER,
+    MPE_CALIB_FROM_BROWSER_ACTIVE,
+)
 from patch_browser.backlight import BacklightController
+from patch_browser.geometry import Rect
 from patch_browser.touch_evdev import TouchEvdevBridge, evdev_bridge_enabled
 from patch_browser.patch_loader import PatchLoader
 from patch_browser.patch_scanner import (
@@ -121,43 +126,6 @@ from patch_browser.ui_theme import (
     load_theme_mode_from_prefs,
     theme_for_mode,
 )
-@dataclass
-class Rect:
-    x: int
-    y: int
-    w: int
-    h: int
-
-    @property
-    def left(self) -> int:
-        return self.x
-
-    @property
-    def top(self) -> int:
-        return self.y
-
-    @property
-    def right(self) -> int:
-        return self.x + self.w
-
-    @property
-    def bottom(self) -> int:
-        return self.y + self.h
-
-    @property
-    def centerx(self) -> int:
-        return self.x + self.w // 2
-
-    @property
-    def centery(self) -> int:
-        return self.y + self.h // 2
-
-    @property
-    def pygame_rect(self) -> pygame.Rect:
-        return pygame.Rect(self.x, self.y, self.w, self.h)
-
-    def contains(self, px: int, py: int) -> bool:
-        return self.x <= px < self.x + self.w and self.y <= py < self.y + self.h
 
 
 class ScrollList:
@@ -2278,7 +2246,7 @@ class TouchPatchBrowser:
             args.append("--force")
         if self._evdev_bridge is not None:
             self._evdev_bridge.stop()
-        os.environ["MPE_CALIB_FROM_BROWSER"] = "1"
+        os.environ[MPE_CALIB_FROM_BROWSER] = MPE_CALIB_FROM_BROWSER_ACTIVE
         pygame.quit()
         os.execv("/bin/bash", args)
 
