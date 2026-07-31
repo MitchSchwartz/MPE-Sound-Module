@@ -64,6 +64,18 @@ sudo systemctl disable touch-boot-animation.service
 | Four raspberries, no SSH, USB-C tethered | `dr_mode=peripheral` + host PC connected during **early** boot |
 | Kernel text flash then hang | Rare cmdline combos; keep `console=tty1` unless using `--strip-tty1` with serial recovery |
 | SSH up, panel black | `touch-boot-animation` or DRM handoff — check `journalctl -u touch-boot-animation` |
+| `pygame.error: kmsdrm not available`, touch-patch-browser restart loop | Stale pygame holding `/dev/dri/card*` — `prepare-dsi-display.sh` (ExecStartPre) stops boot splash and kills orphan holders; see below |
+
+### kmsdrm crash loop (touch-patch-browser)
+
+If `journalctl -u touch-patch-browser` shows repeated `kmsdrm not available` and high restart counters (~80+):
+
+1. SSH in and stop the loop: `sudo systemctl stop touch-patch-browser touch-boot-animation`
+2. Kill orphans: `pkill -f touch_patch_browser.py; pkill -f touch_boot_splash.py`
+3. Pull latest and refresh units: `sudo ./scripts/configure-pi-paths.sh --local --force`
+4. Start cleanly: `sudo systemctl start touch-boot-animation && sudo systemctl start touch-patch-browser`
+
+`ExecStartPre=prepare-dsi-display.sh` requests cooperative handoff from `touch-boot-animation`, stops the unit if needed, clears stale pygame processes, and waits for DRM release before the browser opens kmsdrm.
 
 ## After recovery — safer re-apply
 

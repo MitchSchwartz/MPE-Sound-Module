@@ -11,6 +11,7 @@ WorkingDirectory=@MPE_MODULE_REPO@
 EnvironmentFile=-/etc/mpe/mpe.env
 Environment=SDL_VIDEODRIVER=kmsdrm
 Environment=SDL_MOUSE_TOUCH_EVENTS=1
+ExecStartPre=@MPE_MODULE_REPO@/scripts/prepare-dsi-display.sh
 ExecStart=@MPE_MODULE_REPO@/scripts/start-touch-patch-browser.sh
 TimeoutStopSec=10
 KillMode=control-group
