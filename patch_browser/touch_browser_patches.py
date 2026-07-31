@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pygame
 
-from patch_browser.dsi_splash import BOOT_MIN_SECONDS
+from patch_browser.dsi_splash import boot_animation_phase
 from patch_browser.patch_scanner import favorites_display_name
 from patch_browser.touch_ui_enums import LeftNavMode
 
@@ -89,10 +89,9 @@ class TouchBrowserPatchesMixin:
             boot_elapsed = time.monotonic() - getattr(
                 self, "_boot_splash_started", start
             )
-            progress = min(0.92, max(0.08, boot_elapsed / BOOT_MIN_SECONDS * 0.85))
-            if elapsed > 5.0:
-                progress = min(0.95, progress + (elapsed - 5.0) * 0.01)
-            self._paint_boot_splash_frame(progress=progress)
+            self._paint_boot_splash_frame(
+                animation_phase=boot_animation_phase(boot_elapsed),
+            )
             if elapsed >= max_wait:
                 break
             if self.scanner.wait_for_scan(timeout=0.15):
