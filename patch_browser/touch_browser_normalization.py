@@ -202,6 +202,7 @@ class TouchBrowserNormalizationMixin:
             theme=self.theme,
             progress=0.0,
         )
+        pygame.display.flip()
         os.environ[MPE_CALIB_FROM_BROWSER] = MPE_CALIB_FROM_BROWSER_ACTIVE
         try:
             os.execv(sys.executable, argv)

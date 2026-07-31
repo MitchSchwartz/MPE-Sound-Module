@@ -6,6 +6,7 @@ import threading
 import time
 from pathlib import Path
 
+from patch_browser.dsi_splash import BOOT_MIN_SECONDS
 from patch_browser.patch_scanner import favorites_display_name
 from patch_browser.touch_ui_enums import LeftNavMode
 
@@ -77,10 +78,23 @@ class TouchBrowserPatchesMixin:
         if self.scanner.scan_complete.is_set():
             self._apply_scan_results()
             return
-        if self.scanner.wait_for_scan(timeout=5.0):
-            self._apply_scan_results()
-        else:
-            print("Patch scan still running — list will update when complete")
+
+        start = time.monotonic()
+        clock = pygame.time.Clock()
+        while not self.scanner.scan_complete.is_set():
+            elapsed = time.monotonic() - start
+            boot_elapsed = time.monotonic() - getattr(
+                self, "_boot_splash_started", start
+            )
+            progress = min(0.92, max(0.08, boot_elapsed / BOOT_MIN_SECONDS * 0.85))
+            if elapsed > 5.0:
+                progress = min(0.95, progress + (elapsed - 5.0) * 0.01)
+            self._paint_boot_splash_frame(progress=progress)
+            if self.scanner.wait_for_scan(timeout=0.15):
+                break
+            clock.tick(30)
+
+        self._apply_scan_results()
     def _browse_category_name(self) -> str:
         if not self.categories:
             return "(No patches)"
