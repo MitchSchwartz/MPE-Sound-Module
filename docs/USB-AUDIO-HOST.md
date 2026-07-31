@@ -10,13 +10,28 @@ Full research and phased plan: **[USB-AUDIO-PASSTHROUGH-PLAN.md](USB-AUDIO-PASST
 
 ## One-time Pi boot config (manual)
 
-Edit **`/boot/firmware/config.txt`** on the Pi and add:
+Edit **`/boot/firmware/config.txt`** on the Pi.
+
+**Pi 4 Model B** — add a **`[pi4]`** section (do not put peripheral mode under `[all]`; that breaks USB-A host ports for Roli/DAC):
 
 ```ini
+[pi4]
 dtoverlay=dwc2,dr_mode=peripheral
 ```
 
-Reboot once. This enables the USB-C port as a **device (gadget)** port.
+**Other boards** — follow the plan doc; Pi 5 / CM5 images often ship `dtoverlay=dwc2,dr_mode=host` under `[cm5]` only. Leave that as-is unless you are on Pi 4.
+
+Reboot once with **USB-C unplugged from the host**. This enables the USB-C port as a **device (gadget)** port.
+
+### Boot checklist (`usb-host` first enable)
+
+1. Unplug **USB-C data** from the laptop/dock.
+2. Add the `[pi4]` overlay (Pi 4) or your board’s peripheral overlay.
+3. Set `MPE_AUDIO_PROFILE=usb-host` in `/etc/mpe/mpe.env`.
+4. Run `./scripts/configure-pi-paths.sh --local --force` and `sudo systemctl enable usb-audio-gadget.service`.
+5. Reboot; wait for SSH (~90s).
+6. Verify: `ls /sys/class/udc/` non-empty, `./scripts/setup-usb-audio-gadget.sh status` → bound, `aplay -l` shows **UAC2Gadget**.
+7. **Then** plug **USB-A (host) → USB-C (Pi)**; on the host run `lsusb` (expect **1d6b:0104** / “USB Audio Passthrough”).
 
 **Important:** On Pi 4, boot with the **USB-C data cable unplugged** from the host PC. A connected host during early firmware/kernel init can hang the boot splash (four raspberries) before SSH starts. Plug the cable in after the Pi is up (or after `usb-audio-gadget.service` is active). See [PI-BOOT-RECOVERY.md](PI-BOOT-RECOVERY.md). Do not enable legacy `g_audio` / `g_midi` modules alongside configfs — the setup script uses **configfs UAC2** only.
 
