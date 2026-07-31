@@ -29,6 +29,7 @@ BOOT_MIN_SECONDS = 1.2
 BOOT_MAX_SECONDS = 3.0
 SHUTDOWN_SECONDS = 3.0
 SHUTDOWN_HOLD_MAX_SECONDS = 120.0
+BOOT_HOLD_MAX_SECONDS = 180.0
 SHUTDOWN_SLOW_HINT_SECONDS = 15.0
 SHUTDOWN_SPINNER_PERIOD = 1.2
 BOOT_SPINNER_PERIOD = 1.2
@@ -593,6 +594,11 @@ def run_hold_loop() -> None:
     try:
         while not exiting and not display_handoff_requested():
             elapsed = time.monotonic() - hold_start
+            if elapsed >= BOOT_HOLD_MAX_SECONDS:
+                _log_shutdown(
+                    f"boot hold exceeded {BOOT_HOLD_MAX_SECONDS:.0f}s, exiting splash",
+                )
+                break
             draw_splash_frame(
                 screen,
                 mode=SplashMode.BOOT,

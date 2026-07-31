@@ -19,6 +19,7 @@ StandardError=journal
 TimeoutStopSec=8
 KillMode=mixed
 KillSignal=SIGTERM
+TimeoutStartSec=120
 
 [Install]
 WantedBy=sysinit.target
