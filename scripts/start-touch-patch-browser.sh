@@ -24,8 +24,13 @@ fi
 #   MPE_TOUCH_WINDOWED=1 ./scripts/start-touch-patch-browser.sh
 
 if systemctl is-active --quiet boot-animation.service 2>/dev/null; then
-    echo "Stopping boot animation..."
+    echo "Stopping OLED boot animation..."
     sudo systemctl stop boot-animation.service
+fi
+
+if systemctl is-active --quiet touch-boot-animation.service 2>/dev/null; then
+    echo "Stopping touch boot splash..."
+    sudo systemctl stop touch-boot-animation.service
 fi
 
 if systemctl is-active --quiet patch-browser.service 2>/dev/null; then
