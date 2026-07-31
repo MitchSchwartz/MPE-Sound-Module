@@ -1,0 +1,21 @@
+[Unit]
+Description=Touch DSI Shutdown Splash (5 inch panel)
+DefaultDependencies=no
+Before=shutdown.target reboot.target halt.target getty@tty1.service
+Conflicts=shutdown-animation.service
+
+[Service]
+Type=simple
+User=@MPE_PI_USER@
+WorkingDirectory=@MPE_MODULE_REPO@
+EnvironmentFile=-/etc/mpe/mpe.env
+Environment=SDL_VIDEODRIVER=kmsdrm
+ExecStartPre=-/bin/systemctl stop getty@tty1.service
+ExecStart=/usr/bin/python3 -u @MPE_MODULE_REPO@/touch_shutdown_splash.py --hold
+StandardOutput=null
+StandardError=journal
+TimeoutStopSec=infinity
+KillMode=mixed
+
+[Install]
+WantedBy=halt.target reboot.target shutdown.target

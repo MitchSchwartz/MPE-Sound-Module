@@ -24,19 +24,17 @@ fi
 #   MPE_TOUCH_WINDOWED=1 ./scripts/start-touch-patch-browser.sh
 
 if systemctl is-active --quiet boot-animation.service 2>/dev/null; then
-    echo "Stopping boot animation..."
+    echo "Stopping OLED boot animation..." >&2
     sudo systemctl stop boot-animation.service
 fi
 
+# Keep touch-boot-animation running until the browser claims DRM (see touch_browser_app).
+# Do not clear the framebuffer here — that releases kmsdrm and flashes the console.
+
 if systemctl is-active --quiet patch-browser.service 2>/dev/null; then
-    echo "Stopping OLED patch browser (touch build uses a separate service)..."
+    echo "Stopping OLED patch browser (touch build uses a separate service)..." >&2
     sudo systemctl stop patch-browser.service
 fi
 
-# KMS/DRM keeps the last pygame frame on the panel until something redraws.
-# Clear immediately so an old UI never flashes during the python import/scan gap.
-python3 -u "$MPE_MODULE_REPO/scripts/clear-dsi-framebuffer.py" 2>/dev/null || true
-
-echo "Starting touch patch browser..."
 cd "$MPE_MODULE_REPO"
-python3 -u "$MPE_MODULE_REPO/touch_patch_browser.py"
+exec python3 -u "$MPE_MODULE_REPO/touch_patch_browser.py"

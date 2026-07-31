@@ -37,6 +37,15 @@ from patch_browser.touch_browser_patches import TouchBrowserPatchesMixin
 from patch_browser.touch_browser_prefs import TouchBrowserPrefsMixin
 from patch_browser.touch_ui_constants import TAP_MOVE_THRESHOLD_PX
 from patch_browser.touch_ui_enums import CalibrateMode, LeftNavMode, Screen
+from patch_browser.dsi_splash import (
+    BOOT_MIN_SECONDS,
+    SplashMode,
+    acquire_browser_display,
+    boot_animation_phase,
+    clear_browser_ready_flag,
+    draw_splash_frame,
+    signal_browser_ready,
+)
 from patch_browser.ui_theme import load_theme_mode_from_prefs, theme_for_mode
 
 
@@ -62,6 +71,34 @@ class TouchPatchBrowser(
         """Paint background immediately so stale DRM frames never show."""
         self.screen.fill(self.theme.bg)
         pygame.display.flip()
+
+    def _paint_boot_splash_frame(self, *, animation_phase: float) -> None:
+        draw_splash_frame(
+            self.screen,
+            mode=SplashMode.BOOT,
+            theme=self.theme,
+            animation_phase=animation_phase,
+        )
+
+    def _boot_splash_elapsed(self) -> float:
+        return time.monotonic() - getattr(self, "_boot_splash_started", time.monotonic())
+
+    def _tick_boot_splash_until_ready(self) -> bool:
+        """Animate boot splash until min time elapsed. True when ready for first UI draw."""
+        if self._boot_splash_done:
+            return True
+        elapsed = self._boot_splash_elapsed()
+        if elapsed < BOOT_MIN_SECONDS:
+            self._paint_boot_splash_frame(animation_phase=boot_animation_phase(elapsed))
+            return False
+        return True
+
+    def _complete_boot_splash(self) -> None:
+        """End boot splash after the first full UI frame is on screen."""
+        if self._boot_splash_done:
+            return
+        self._boot_splash_done = True
+        signal_browser_ready()
     def _pointer_move_distance(
         self, start: tuple[int, int] | None, end: tuple[int, int]
     ) -> float:
@@ -86,6 +123,18 @@ class TouchPatchBrowser(
         print(f"Quick Select folder: {favorites_display_name()} ({FAVORITES_NAME.lstrip('!')})")
 
         while self._running:
+            if not self._boot_splash_done:
+                if not self._tick_boot_splash_until_ready():
+                    for event in pygame.event.get():
+                        if event.type == pygame.QUIT:
+                            self._running = False
+                            break
+                    clock.tick(30)
+                    continue
+                self._draw()
+                self._complete_boot_splash()
+                clock.tick(60)
+                continue
             if self._scan_dirty and not (
                 self.screen_state == Screen.BROWSER
                 and not self.left_nav_collapsed
@@ -113,18 +162,22 @@ class TouchPatchBrowser(
         self.cpu_monitor.stop()
         pygame.quit()
     def __init__(self) -> None:
-        pygame.init()
-        pygame.display.set_caption("Pi-Surge-MPE Touch Browser")
+        clear_browser_ready_flag()
         windowed = os.environ.get("MPE_TOUCH_WINDOWED") == "1"
         if windowed:
+            pygame.init()
+            pygame.display.set_caption("Pi-Surge-MPE Touch Browser")
             self.screen = pygame.display.set_mode((800, 480))
         else:
-            self.screen = pygame.display.set_mode((800, 480), pygame.FULLSCREEN)
+            self.screen = acquire_browser_display()
+            pygame.display.set_caption("Pi-Surge-MPE Touch Browser")
         self.width, self.height = self.screen.get_size()
         pygame.mouse.set_visible(False)
         self.theme_mode = load_theme_mode_from_prefs()
         self.theme = theme_for_mode(self.theme_mode)
-        self._clear_display()
+        self._boot_splash_started = time.monotonic()
+        self._boot_splash_done = False
+        self._paint_boot_splash_frame(animation_phase=0.0)
         self.font_lg = self._load_font(34)
         self.font_md = self._load_font(22)
         self.font_sm = self._load_font(18)
