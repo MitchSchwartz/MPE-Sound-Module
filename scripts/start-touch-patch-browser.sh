@@ -33,7 +33,9 @@ if systemctl is-active --quiet patch-browser.service 2>/dev/null; then
     sudo systemctl stop patch-browser.service
 fi
 
-sleep 0.5
+# KMS/DRM keeps the last pygame frame on the panel until something redraws.
+# Clear immediately so an old UI never flashes during the python import/scan gap.
+python3 -u "$MPE_MODULE_REPO/scripts/clear-dsi-framebuffer.py" 2>/dev/null || true
 
 echo "Starting touch patch browser..."
 cd "$MPE_MODULE_REPO"

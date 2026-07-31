@@ -135,7 +135,15 @@ cd ~/MPE-Module
 systemctl is-enabled patch-browser touch-patch-browser
 ```
 
-Only one browser UI should be enabled — both talk to Surge over OSC.
+Only one browser UI should talk to Surge over OSC.
+
+### Boot / restart — no stale UI flash
+
+On the SmartiPi DSI panel, **KMS/DRM keeps the last pygame frame** when `touch-patch-browser` stops or before the new process flips the display. That frame can be an **older build** (e.g. pre-`d66ef3a` with four stub faders Cut/Res/Snd/Vol) until the current app draws.
+
+**Ruled out on `raspberrypi2` (2026-07-31):** `boot-animation.service` and `patch-browser.service` are **disabled**; `ExecStart` points at `~/MPE-Module/touch_patch_browser.py` (single Vol fader at `8fca259`); no second service races the DSI.
+
+**Fix:** `scripts/clear-dsi-framebuffer.py` runs from `start-touch-patch-browser.sh` before Python import; `touch_patch_browser.py` fills the background and flips immediately after `set_mode()`.
 
 ## Config
 
@@ -179,7 +187,7 @@ Set `MPE_TOUCH_EVDEV=0` to fall back to SDL-only input (debugging).
 
 ## System settings (⋯)
 
-Right-side **slide-out panel** (tap **⋯**, tap outside, swipe right, or **×** to close). Scrollable body; **Power…** fixed at the bottom with a divider.
+Right-side **slide-out panel** (tap **⋯**, tap outside, swipe right, or **×** to close). Scrollable body; **Power…** fixed at the bottom with a divider. Row buttons and toggles activate on **finger up** (same tap-vs-scroll thresholds as the patch list) so you can scroll without triggering rows under your finger. Confirm modals (calibration, power) use the same up-to-activate pattern.
 
 UI preferences persist in `~/.patch_browser_ui.json` (e.g. `show_cpu_meter`).
 
