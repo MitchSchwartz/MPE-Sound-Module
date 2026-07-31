@@ -12,6 +12,7 @@ RemainAfterExit=yes
 EnvironmentFile=-/etc/mpe/mpe.env
 ExecStart=@MPE_MODULE_REPO@/scripts/setup-usb-audio-gadget.sh start
 ExecStop=@MPE_MODULE_REPO@/scripts/setup-usb-audio-gadget.sh stop
+TimeoutStopSec=10
 StandardOutput=journal
 StandardError=journal
 

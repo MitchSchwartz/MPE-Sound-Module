@@ -14,8 +14,8 @@ ExecStartPre=-/bin/systemctl stop getty@tty1.service
 ExecStart=/usr/bin/python3 -u @MPE_MODULE_REPO@/touch_shutdown_splash.py --hold
 StandardOutput=null
 StandardError=journal
-TimeoutStopSec=infinity
-KillMode=mixed
+TimeoutStopSec=30
+KillMode=control-group
 
 [Install]
 WantedBy=halt.target reboot.target shutdown.target

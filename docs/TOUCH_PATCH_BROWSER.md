@@ -159,6 +159,8 @@ This adds `console=serial0,115200 fbcon=map:0` to `/boot/firmware/cmdline.txt` a
 
 **Shutdown:** Power menu confirm runs an in-app shutdown splash (~3 s), stops `getty@tty1`, spawns `poweroff`/`reboot`, and holds the shutdown frame until halt. `touch-shutdown-animation.service` covers systemd halt/reboot paths with `--hold`.
 
+**Shutdown timing:** MPE units use bounded `TimeoutStopSec` (Surge 15 s, browser/gadget 10 s, shutdown splash 30 s) so a stuck service cannot block poweroff for minutes. The splash exits on SIGTERM instead of waiting forever. After a test shutdown, on the next boot run `./scripts/shutdown-analyze-last.sh` to compare `Stopping`/`Stopped` lines in the previous boot journal and `/tmp/mpe-shutdown-splash.log`.
+
 Implementation: `patch_browser/dsi_splash.py`, `touch_boot_splash.py`, `touch_shutdown_splash.py`, `scripts/apply-dsi-cmdline.sh`. OLED builds keep `boot-animation.service` / `shutdown-animation.service`.
 
 **Ready flag:** `/run/mpe-touch-browser-ready` is written after the browser's first full UI frame (post boot splash).

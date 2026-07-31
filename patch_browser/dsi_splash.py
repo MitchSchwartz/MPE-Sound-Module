@@ -28,7 +28,7 @@ DEFAULT_HEIGHT = 480
 BOOT_MIN_SECONDS = 1.2
 BOOT_MAX_SECONDS = 3.0
 SHUTDOWN_SECONDS = 3.0
-SHUTDOWN_HOLD_MAX_SECONDS = 120.0
+SHUTDOWN_HOLD_MAX_SECONDS = 45.0
 BOOT_HOLD_MAX_SECONDS = 180.0
 SHUTDOWN_SLOW_HINT_SECONDS = 15.0
 SHUTDOWN_SPINNER_PERIOD = 1.2
@@ -461,8 +461,21 @@ def run_shutdown_animation(
     start = time.monotonic()
     clock = pygame.time.Clock()
     _log_shutdown(f"shutdown splash started hold={hold_until_halt}")
+    exiting = False
+
+    def _request_exit(*_args: object) -> None:
+        nonlocal exiting
+        exiting = True
+
+    if hold_until_halt:
+        signal.signal(signal.SIGTERM, _request_exit)
+        signal.signal(signal.SIGINT, _request_exit)
+
     while True:
         elapsed = time.monotonic() - start
+        if exiting:
+            _log_shutdown("received SIGTERM, exiting shutdown splash")
+            break
         if not hold_until_halt and elapsed >= SHUTDOWN_SECONDS:
             break
         if hold_until_halt and elapsed >= SHUTDOWN_HOLD_MAX_SECONDS:
@@ -487,17 +500,16 @@ def run_shutdown_animation(
 
 
 def _spawn_power_action(power_action: str, *, retry: bool = False) -> None:
-    shell_cmd = "sync && poweroff" if power_action == "shutdown" else "sync && reboot"
     cmd = ["sudo", "poweroff"] if power_action == "shutdown" else ["sudo", "reboot"]
     try:
         if retry:
             subprocess.Popen(
-                ["sudo", "sh", "-c", shell_cmd],
+                cmd,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 start_new_session=True,
             )
-            _log_shutdown(f"retry: {shell_cmd}")
+            _log_shutdown(f"retry: {' '.join(cmd)}")
         else:
             subprocess.Popen(
                 cmd,
@@ -522,9 +534,20 @@ def run_browser_shutdown_hold(
     start = time.monotonic()
     clock = pygame.time.Clock()
     retried = False
+    exiting = False
+
+    def _request_exit(*_args: object) -> None:
+        nonlocal exiting
+        exiting = True
+
+    signal.signal(signal.SIGTERM, _request_exit)
+    signal.signal(signal.SIGINT, _request_exit)
 
     while True:
         elapsed = time.monotonic() - start
+        if exiting:
+            _log_shutdown("received SIGTERM, exiting browser shutdown hold")
+            break
         if elapsed >= SHUTDOWN_HOLD_MAX_SECONDS:
             _log_shutdown("browser hold max reached, exiting splash loop")
             break
