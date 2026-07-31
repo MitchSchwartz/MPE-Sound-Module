@@ -83,6 +83,7 @@ class TouchBrowserPatchesMixin:
 
         start = time.monotonic()
         clock = pygame.time.Clock()
+        max_wait = 8.0
         while not self.scanner.scan_complete.is_set():
             elapsed = time.monotonic() - start
             boot_elapsed = time.monotonic() - getattr(
@@ -92,11 +93,16 @@ class TouchBrowserPatchesMixin:
             if elapsed > 5.0:
                 progress = min(0.95, progress + (elapsed - 5.0) * 0.01)
             self._paint_boot_splash_frame(progress=progress)
+            if elapsed >= max_wait:
+                break
             if self.scanner.wait_for_scan(timeout=0.15):
                 break
             clock.tick(30)
 
-        self._apply_scan_results()
+        if self.scanner.scan_complete.is_set():
+            self._apply_scan_results()
+        else:
+            print("Patch scan still running — list will update when complete")
     def _browse_category_name(self) -> str:
         if not self.categories:
             return "(No patches)"
