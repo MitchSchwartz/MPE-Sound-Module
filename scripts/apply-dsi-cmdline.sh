@@ -26,6 +26,17 @@ fi
 line="$(tr -d '\n' < "$CMDLINE")"
 changed=0
 
+remove_token() {
+    local token="$1"
+    if [[ " $line " != *" $token "* ]]; then
+        return
+    fi
+    line="${line// $token/}"
+    line="${line//$token /}"
+    line="${line//$token/}"
+    changed=1
+}
+
 add_token() {
     local token="$1"
     if [[ " $line " == *" $token "* ]]; then
@@ -36,6 +47,7 @@ add_token() {
 }
 
 # Prefer serial console; keep framebuffer console off the DSI.
+remove_token "console=tty1"
 add_token "console=serial0,115200"
 add_token "fbcon=map:0"
 
