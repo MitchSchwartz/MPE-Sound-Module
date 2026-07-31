@@ -577,6 +577,7 @@ class TouchPatchBrowser:
         self.width, self.height = self.screen.get_size()
         pygame.mouse.set_visible(False)
         self.theme = Theme()
+        self._clear_display()
         self.font_lg = self._load_font(34)
         self.font_md = self._load_font(22)
         self.font_sm = self._load_font(18)
@@ -623,6 +624,10 @@ class TouchPatchBrowser:
         self._surge_restart_btn: Rect | None = None
         self._settings_slide = 0.0
         self._settings_swipe_start: tuple[int, int] | None = None
+        self._settings_pointer_down_pos: tuple[int, int] | None = None
+        self._settings_pending_hit: str | None = None
+        self._modal_pointer_down_pos: tuple[int, int] | None = None
+        self._modal_pending_index: int | None = None
         self._settings_content_scroll = ContentScrollArea(Rect(0, 0, 1, 1))
         self._settings_content_height = 0
         self._running = True
@@ -720,6 +725,28 @@ class TouchPatchBrowser:
             if path:
                 return pygame.font.Font(path, size)
         return pygame.font.Font(None, size)
+
+    def _clear_display(self) -> None:
+        """Paint background immediately so stale DRM frames never show."""
+        self.screen.fill(self.theme.bg)
+        pygame.display.flip()
+
+    def _pointer_move_distance(
+        self, start: tuple[int, int] | None, end: tuple[int, int]
+    ) -> float:
+        if start is None:
+            return 0.0
+        dx = end[0] - start[0]
+        dy = end[1] - start[1]
+        return (dx * dx + dy * dy) ** 0.5
+
+    def _clear_settings_pointer(self) -> None:
+        self._settings_pointer_down_pos = None
+        self._settings_pending_hit = None
+
+    def _clear_modal_pointer(self) -> None:
+        self._modal_pointer_down_pos = None
+        self._modal_pending_index = None
 
     def _load_volume_level(self) -> float:
         if VOLUME_STATE_FILE.exists():
@@ -2082,28 +2109,45 @@ class TouchPatchBrowser:
             self._go_to_loaded_folder()
             return
 
-    def _handle_settings_touch(self, pos: tuple[int, int]) -> None:
+    def _settings_hit_at(self, pos: tuple[int, int]) -> str | None:
         close = self._panel_local_to_screen(self._close_settings_btn)
         if close.contains(*pos):
-            self._close_settings_panel()
-            return
+            return "close"
 
         power = self._panel_local_to_screen(self._power_btn)
         if power.contains(*pos):
-            self.screen_state = Screen.POWER_MENU
-            return
+            return "power"
 
         local_x = pos[0] - self._settings_panel_x()
-        local_y = pos[1] - self.settings_panel_rect.y + int(self._settings_content_scroll.scroll_pixels)
+        local_y = pos[1] - self.settings_panel_rect.y + int(
+            self._settings_content_scroll.scroll_pixels
+        )
         local_pos = (local_x, local_y)
 
         if self.norm_global_toggle_rect.contains(*local_pos):
-            self._toggle_global_normalization()
-            return
+            return "norm_global"
         if self.cpu_meter_toggle_rect.contains(*local_pos):
-            self._toggle_cpu_meter_visibility()
-            return
+            return "cpu_meter"
         if self._surge_restart_btn and self._surge_restart_btn.contains(*local_pos):
+            return "surge_restart"
+        if self._calibrate_missing_btn.contains(*local_pos):
+            return "cal_missing"
+        if self._calibrate_force_btn.contains(*local_pos):
+            return "cal_force"
+        if self.brightness_slider_rect.contains(*local_pos):
+            return "brightness"
+        return None
+
+    def _execute_settings_hit(self, hit: str, pos: tuple[int, int]) -> None:
+        if hit == "close":
+            self._close_settings_panel()
+        elif hit == "power":
+            self.screen_state = Screen.POWER_MENU
+        elif hit == "norm_global":
+            self._toggle_global_normalization()
+        elif hit == "cpu_meter":
+            self._toggle_cpu_meter_visibility()
+        elif hit == "surge_restart":
             ok, message = self.surge_monitor.restart_surge()
             if ok:
                 self._toast(message, 2.5)
@@ -2111,18 +2155,16 @@ class TouchPatchBrowser:
                 self._layout_settings_content()
             else:
                 self._toast(f"Restart failed: {message}", 3.5)
-            return
-        if self._calibrate_missing_btn.contains(*local_pos):
+        elif hit == "cal_missing":
             self._pending_calibrate_mode = CalibrateMode.MISSING_ONLY
             self.screen_state = Screen.CALIBRATE_CONFIRM
-            return
-        if self._calibrate_force_btn.contains(*local_pos):
+        elif hit == "cal_force":
             self._pending_calibrate_mode = CalibrateMode.FORCE_FULL
             self.screen_state = Screen.CALIBRATE_CONFIRM
-            return
-        slider = self.brightness_slider_rect
-        if slider.contains(*local_pos):
-            screen_slider = self._panel_local_to_screen(slider, scrolled=True)
+        elif hit == "brightness":
+            screen_slider = self._panel_local_to_screen(
+                self.brightness_slider_rect, scrolled=True
+            )
             now = time.time()
             if (
                 not self._brightness_drag_moved
@@ -2132,11 +2174,19 @@ class TouchPatchBrowser:
                 self._apply_brightness(DEFAULT_BRIGHTNESS_PERCENT)
                 self._toast("Brightness reset", 1.2)
                 self._brightness_last_tap_time = 0.0
-                return
-            self._brightness_last_tap_time = now
+            else:
+                self._brightness_last_tap_time = now
+                self._apply_brightness(self._brightness_from_x(pos[0], screen_slider))
+
+    def _handle_settings_pointer_down(self, pos: tuple[int, int]) -> None:
+        self._clear_settings_pointer()
+        self._settings_pointer_down_pos = pos
+
+        hit = self._settings_hit_at(pos)
+        if hit == "brightness":
             self._brightness_drag_moved = False
             self._slider_dragging = True
-            self._apply_brightness(self._brightness_from_x(pos[0], screen_slider))
+            self._settings_pending_hit = hit
             return
 
         scroll_vp = self._settings_scroll_viewport_screen()
@@ -2144,37 +2194,124 @@ class TouchPatchBrowser:
             self._sync_settings_scroll_viewport()
             self._settings_content_scroll.pointer_down(pos)
             self._settings_swipe_start = pos
+            return
 
-    def _handle_power_menu_touch(self, pos: tuple[int, int]) -> None:
+        if hit is not None:
+            self._settings_pending_hit = hit
+
+    def _handle_settings_pointer_up(self, pos: tuple[int, int]) -> None:
+        scrolled = self._settings_content_scroll.pointer_up(pos)
+        slider_moved = self._slider_dragging and self._brightness_drag_moved
+        tap_ok = (
+            not scrolled
+            and not slider_moved
+            and not self._settings_content_scroll.is_interacting()
+            and self._pointer_move_distance(self._settings_pointer_down_pos, pos)
+            <= TAP_MOVE_THRESHOLD_PX
+        )
+
+        if tap_ok and self._settings_pending_hit:
+            down_hit = self._settings_pending_hit
+            up_hit = self._settings_hit_at(pos)
+            if up_hit == down_hit:
+                self._execute_settings_hit(down_hit, pos)
+
+        if (
+            not scrolled
+            and not self._slider_dragging
+            and not self._settings_content_scroll.is_interacting()
+        ):
+            if not self._settings_panel_contains(pos):
+                self._close_settings_panel()
+            elif self._settings_swipe_start is not None:
+                dx = pos[0] - self._settings_swipe_start[0]
+                if dx > 56:
+                    self._close_settings_panel()
+
+        self._settings_swipe_start = None
+        self._slider_dragging = False
+        self._brightness_drag_moved = False
+        self._clear_settings_pointer()
+
+    def _handle_power_menu_pointer_down(self, pos: tuple[int, int]) -> None:
+        self._clear_modal_pointer()
+        self._modal_pointer_down_pos = pos
         for i, rect in enumerate(self._power_option_rects):
             if rect.contains(*pos):
-                if i == 0:
-                    self.power_action = "shutdown"
-                    self.screen_state = Screen.POWER_CONFIRM
-                elif i == 1:
-                    self.power_action = "restart"
-                    self.screen_state = Screen.POWER_CONFIRM
-                else:
-                    self.screen_state = Screen.SETTINGS
+                self._modal_pending_index = i
                 return
 
-    def _handle_calibrate_confirm_touch(self, pos: tuple[int, int]) -> None:
+    def _handle_power_menu_pointer_up(self, pos: tuple[int, int]) -> None:
+        if (
+            self._modal_pending_index is not None
+            and self._pointer_move_distance(self._modal_pointer_down_pos, pos)
+            <= TAP_MOVE_THRESHOLD_PX
+        ):
+            i = self._modal_pending_index
+            if i == 0:
+                self.power_action = "shutdown"
+                self.screen_state = Screen.POWER_CONFIRM
+            elif i == 1:
+                self.power_action = "restart"
+                self.screen_state = Screen.POWER_CONFIRM
+            else:
+                self.screen_state = Screen.SETTINGS
+        self._clear_modal_pointer()
+
+    def _handle_calibrate_confirm_pointer_down(self, pos: tuple[int, int]) -> None:
+        self._clear_modal_pointer()
+        self._modal_pointer_down_pos = pos
         if self._calibrate_confirm_no.contains(*pos):
-            self.screen_state = Screen.SETTINGS
+            self._modal_pending_index = 0
         elif self._calibrate_confirm_yes.contains(*pos):
+            self._modal_pending_index = 1
+
+    def _handle_calibrate_confirm_pointer_up(self, pos: tuple[int, int]) -> None:
+        if (
+            self._modal_pending_index is None
+            or self._pointer_move_distance(self._modal_pointer_down_pos, pos)
+            > TAP_MOVE_THRESHOLD_PX
+        ):
+            self._clear_modal_pointer()
+            return
+        if self._modal_pending_index == 0:
+            self.screen_state = Screen.SETTINGS
+        else:
             targets, _ = self._calibration_scope_stats(self._pending_calibrate_mode)
-            if self._pending_calibrate_mode == CalibrateMode.MISSING_ONLY and targets == 0:
+            if (
+                self._pending_calibrate_mode == CalibrateMode.MISSING_ONLY
+                and targets == 0
+            ):
                 self._toast("All patches already calibrated", 2.5)
                 self.screen_state = Screen.SETTINGS
-                return
-            self._launch_calibration_loader()
+            else:
+                self._launch_calibration_loader()
+        self._clear_modal_pointer()
 
-    def _handle_power_confirm_touch(self, pos: tuple[int, int]) -> None:
+    def _handle_power_confirm_pointer_down(self, pos: tuple[int, int]) -> None:
+        self._clear_modal_pointer()
+        self._modal_pointer_down_pos = pos
         if self._confirm_no.contains(*pos):
-            self.screen_state = Screen.POWER_MENU
+            self._modal_pending_index = 0
         elif self._confirm_yes.contains(*pos):
-            cmd = ["sudo", "poweroff"] if self.power_action == "shutdown" else ["sudo", "reboot"]
-            subprocess.run(cmd, check=False)
+            self._modal_pending_index = 1
+
+    def _handle_power_confirm_pointer_up(self, pos: tuple[int, int]) -> None:
+        if (
+            self._modal_pending_index is not None
+            and self._pointer_move_distance(self._modal_pointer_down_pos, pos)
+            <= TAP_MOVE_THRESHOLD_PX
+        ):
+            if self._modal_pending_index == 0:
+                self.screen_state = Screen.POWER_MENU
+            else:
+                cmd = (
+                    ["sudo", "poweroff"]
+                    if self.power_action == "shutdown"
+                    else ["sudo", "reboot"]
+                )
+                subprocess.run(cmd, check=False)
+        self._clear_modal_pointer()
 
     def _handle_event(self, event: pygame.event.Event) -> None:
         if event.type == pygame.QUIT:
@@ -2200,13 +2337,13 @@ class TouchPatchBrowser:
 
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             if self.screen_state == Screen.SETTINGS:
-                self._handle_settings_touch(event.pos)
+                self._handle_settings_pointer_down(event.pos)
             elif self.screen_state == Screen.POWER_MENU:
-                self._handle_power_menu_touch(event.pos)
+                self._handle_power_menu_pointer_down(event.pos)
             elif self.screen_state == Screen.POWER_CONFIRM:
-                self._handle_power_confirm_touch(event.pos)
+                self._handle_power_confirm_pointer_down(event.pos)
             elif self.screen_state == Screen.CALIBRATE_CONFIRM:
-                self._handle_calibrate_confirm_touch(event.pos)
+                self._handle_calibrate_confirm_pointer_down(event.pos)
             elif self.screen_state == Screen.BROWSER:
                 self._handle_mixer_down(event.pos)
         elif event.type == pygame.MOUSEBUTTONUP and event.button == 1:
@@ -2217,22 +2354,14 @@ class TouchPatchBrowser:
             self._mixer_drag_origin = None
             self._mixer_drag_moved = False
             if self.screen_state == Screen.SETTINGS:
-                scrolled = self._settings_content_scroll.pointer_up(event.pos)
-                if (
-                    not scrolled
-                    and not self._slider_dragging
-                    and not self._settings_content_scroll.is_interacting()
-                ):
-                    if not self._settings_panel_contains(event.pos):
-                        self._close_settings_panel()
-                    elif self._settings_swipe_start is not None:
-                        dx = event.pos[0] - self._settings_swipe_start[0]
-                        if dx > 56:
-                            self._close_settings_panel()
-                self._settings_swipe_start = None
-            self._slider_dragging = False
-            self._brightness_drag_moved = False
-            if self.screen_state == Screen.BROWSER:
+                self._handle_settings_pointer_up(event.pos)
+            elif self.screen_state == Screen.POWER_MENU:
+                self._handle_power_menu_pointer_up(event.pos)
+            elif self.screen_state == Screen.POWER_CONFIRM:
+                self._handle_power_confirm_pointer_up(event.pos)
+            elif self.screen_state == Screen.CALIBRATE_CONFIRM:
+                self._handle_calibrate_confirm_pointer_up(event.pos)
+            elif self.screen_state == Screen.BROWSER:
                 idx = self.nav_list.take_tap_index()
                 if idx is not None:
                     self._select_nav_index(idx)
