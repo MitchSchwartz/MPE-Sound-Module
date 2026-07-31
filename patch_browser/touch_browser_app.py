@@ -37,6 +37,12 @@ from patch_browser.touch_browser_patches import TouchBrowserPatchesMixin
 from patch_browser.touch_browser_prefs import TouchBrowserPrefsMixin
 from patch_browser.touch_ui_constants import TAP_MOVE_THRESHOLD_PX
 from patch_browser.touch_ui_enums import CalibrateMode, LeftNavMode, Screen
+from patch_browser.dsi_splash import (
+    BOOT_MIN_SECONDS,
+    SplashMode,
+    draw_splash_frame,
+    recent_splash_debounce,
+)
 from patch_browser.ui_theme import load_theme_mode_from_prefs, theme_for_mode
 
 
@@ -62,6 +68,28 @@ class TouchPatchBrowser(
         """Paint background immediately so stale DRM frames never show."""
         self.screen.fill(self.theme.bg)
         pygame.display.flip()
+    def _play_boot_splash_if_needed(self) -> None:
+        """Brief branded boot frames after early splash service hands off."""
+        if recent_splash_debounce():
+            return
+        start = time.monotonic()
+        clock = pygame.time.Clock()
+        while True:
+            elapsed = time.monotonic() - start
+            if elapsed >= BOOT_MIN_SECONDS:
+                break
+            progress = min(1.0, elapsed / BOOT_MIN_SECONDS)
+            draw_splash_frame(
+                self.screen,
+                mode=SplashMode.BOOT,
+                theme=self.theme,
+                progress=progress,
+            )
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    self._running = False
+                    return
+            clock.tick(30)
     def _pointer_move_distance(
         self, start: tuple[int, int] | None, end: tuple[int, int]
     ) -> float:
@@ -187,6 +215,7 @@ class TouchPatchBrowser(
         self._bootstrap_patches()
         self._start_background_scan()
         self._wait_for_initial_scan()
+        self._play_boot_splash_if_needed()
         self._start_evdev_touch_bridge()
 
 
