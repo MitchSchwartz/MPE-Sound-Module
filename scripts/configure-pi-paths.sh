@@ -79,6 +79,18 @@ EOF
         _install_service "$svc"
     done
 
+    _install_usb_gadget_dropin() {
+        local dropin_dir="/etc/systemd/system/usb-audio-gadget.service.d"
+        local mpe_home="${MPE_HOME:-$HOME}"
+        sudo mkdir -p "$dropin_dir"
+        sudo tee "$dropin_dir/home.conf" > /dev/null <<EOF
+[Service]
+Environment=HOME=$mpe_home
+EOF
+        echo "  ✓ usb-audio-gadget.service.d/home.conf (HOME=$mpe_home)"
+    }
+    _install_usb_gadget_dropin
+
     sudo systemctl daemon-reload
     echo ""
     echo "Enabling services (MPE_UI_MODE=$MPE_UI_MODE)..."
