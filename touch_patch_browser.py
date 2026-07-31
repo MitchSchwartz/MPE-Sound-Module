@@ -682,6 +682,12 @@ class TouchPatchBrowser:
             self.settings_rect.w - 48,
             36,
         )
+        self.norm_global_toggle_rect = Rect(
+            self.settings_rect.x + 24,
+            self.settings_rect.y + 178,
+            self.settings_rect.w - 48,
+            NORM_ROW_H,
+        )
 
     def _update_nav_list_geometry(
         self,
@@ -1097,6 +1103,8 @@ class TouchPatchBrowser:
         return self.detail_patch["name"]
 
     def _toggle_normalization(self) -> None:
+        if not self.loader.normalization.is_globally_enabled():
+            return
         name = self._normalization_patch_name()
         if not name:
             return
@@ -1116,6 +1124,20 @@ class TouchPatchBrowser:
         else:
             self._toast("Normalize off", 1.5)
 
+    def _toggle_global_normalization(self) -> None:
+        store = self.loader.normalization
+        new_state = not store.is_globally_enabled()
+        store.set_globally_enabled(new_state)
+        loaded_name = (
+            self.loaded_patch_info.get("name") if self.loaded_patch_info else None
+        )
+        if self.loader.osc_enabled and loaded_name:
+            self.loader.refresh_patch_volume(loaded_name)
+        if new_state:
+            self._toast("Patch normalization on", 2.0)
+        else:
+            self._toast("Patch normalization off", 2.0)
+
     def _normalize_checkbox_rect(self, row: Rect) -> Rect:
         pad = (row.h - NORM_CHECKBOX_SIZE) // 2
         return Rect(
@@ -1125,27 +1147,43 @@ class TouchPatchBrowser:
             NORM_CHECKBOX_SIZE,
         )
 
-    def _draw_normalize_toggle(self, rect: Rect, enabled: bool, *, has_gain: bool) -> None:
-        pygame.draw.rect(self.screen, self.theme.surface_alt, rect.pygame_rect, border_radius=8)
+    def _draw_normalize_toggle(
+        self,
+        rect: Rect,
+        enabled: bool,
+        *,
+        has_gain: bool,
+        disabled: bool = False,
+        label: str = "Norm.",
+    ) -> None:
+        row_bg = self.theme.surface if disabled else self.theme.surface_alt
+        pygame.draw.rect(self.screen, row_bg, rect.pygame_rect, border_radius=8)
 
-        label = self.font_sm.render("Norm.", True, self.theme.text)
-        ly = rect.y + (rect.h - label.get_height()) // 2
-        self.screen.blit(label, (rect.x + 12, ly))
+        text_color = self.theme.muted if disabled else self.theme.text
+        label_surf = self.font_sm.render(label, True, text_color)
+        ly = rect.y + (rect.h - label_surf.get_height()) // 2
+        self.screen.blit(label_surf, (rect.x + 12, ly))
 
         box = self._normalize_checkbox_rect(rect)
-        if enabled and has_gain:
+        if disabled:
+            box_bg = self.theme.surface
+            border_color = self.theme.muted
+            check_color = self.theme.muted if enabled else None
+        elif enabled and has_gain:
             box_bg = self.theme.accent
+            border_color = self.theme.accent
             check_color = (255, 255, 255)
         elif enabled:
             box_bg = self.theme.surface
+            border_color = self.theme.muted
             check_color = self.theme.muted
         else:
             box_bg = self.theme.surface
+            border_color = self.theme.muted
             check_color = None
         pygame.draw.rect(self.screen, box_bg, box.pygame_rect, border_radius=5)
-        border_color = self.theme.accent if enabled and has_gain else self.theme.muted
         pygame.draw.rect(self.screen, border_color, box.pygame_rect, width=2, border_radius=5)
-        if enabled:
+        if enabled and check_color is not None:
             check = self.font_sm.render("✓", True, check_color)
             cx = box.x + (box.w - check.get_width()) // 2
             cy = box.y + (box.h - check.get_height()) // 2 - 1
@@ -1457,6 +1495,7 @@ class TouchPatchBrowser:
             self.normalize_btn,
             self._normalization_enabled_for_detail(),
             has_gain=self._normalization_has_gain(),
+            disabled=not self.loader.normalization.is_globally_enabled(),
         )
         self._draw_heart_icon(self.favorites_btn, self._patch_is_favorited(self.detail_patch))
 
@@ -1496,8 +1535,15 @@ class TouchPatchBrowser:
             f"Brightness  {self.brightness_percent}%",
         )
 
+        self._draw_normalize_toggle(
+            self.norm_global_toggle_rect,
+            self.loader.normalization.is_globally_enabled(),
+            has_gain=True,
+            label="Patch normalization",
+        )
+
         status = self.surge_monitor.get_status_summary()
-        status_y = self.settings_rect.y + 180
+        status_y = self.settings_rect.y + 230
         self.screen.blit(
             self.font_sm.render(
                 f"Surge: {status['status']} — {status['details'][:36]}",
@@ -1676,6 +1722,9 @@ class TouchPatchBrowser:
     def _handle_settings_touch(self, pos: tuple[int, int]) -> None:
         if self._close_settings_btn.contains(*pos):
             self.screen_state = Screen.BROWSER
+            return
+        if self.norm_global_toggle_rect.contains(*pos):
+            self._toggle_global_normalization()
             return
         if self._surge_restart_btn and self._surge_restart_btn.contains(*pos):
             ok, message = self.surge_monitor.restart_surge()

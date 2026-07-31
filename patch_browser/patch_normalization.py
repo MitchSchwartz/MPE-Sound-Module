@@ -89,12 +89,17 @@ def _merge_patch_entry(
     return merged
 
 
+# Reserved key in user normalization JSON — master switch, not a patch stem.
+_GLOBAL_SETTINGS_KEY = "_global"
+
+
 class PatchNormalizationStore:
     """Load/save patch_normalization.json keyed by patch name (stem)."""
 
     def __init__(self, path: Path | None = None):
         self.path = path or default_normalization_path()
         self._data: dict[str, dict[str, Any]] = {}
+        self._global_enabled = True
         self.load()
 
     def load(self) -> None:
@@ -104,11 +109,17 @@ class PatchNormalizationStore:
         starter = repo_starter_path()
         if starter.exists():
             for key, entry in _read_json_dict(starter).items():
+                if key == _GLOBAL_SETTINGS_KEY:
+                    continue
                 if isinstance(entry, dict):
                     merged[key] = dict(entry)
 
         if self.path.exists():
             for key, entry in _read_json_dict(self.path).items():
+                if key == _GLOBAL_SETTINGS_KEY:
+                    if isinstance(entry, dict) and "enabled" in entry:
+                        self._global_enabled = bool(entry["enabled"])
+                    continue
                 if isinstance(entry, dict):
                     merged[key] = _merge_patch_entry(merged.get(key), entry)
 
@@ -116,7 +127,9 @@ class PatchNormalizationStore:
 
     def save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(json.dumps(self._data, indent=2, sort_keys=True) + "\n")
+        payload: dict[str, Any] = dict(self._data)
+        payload[_GLOBAL_SETTINGS_KEY] = {"enabled": self._global_enabled}
+        self.path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
 
     @staticmethod
     def patch_key(patch_name: str) -> str:
@@ -126,14 +139,27 @@ class PatchNormalizationStore:
         entry = self._data.get(self.patch_key(patch_name))
         return entry if isinstance(entry, dict) else None
 
+    def is_globally_enabled(self) -> bool:
+        """Master switch — when False, no patch normalization is applied."""
+        return self._global_enabled
+
+    def set_globally_enabled(self, enabled: bool) -> None:
+        """Persist global normalization on/off without changing per-patch flags."""
+        self._global_enabled = bool(enabled)
+        self.save()
+
     def is_enabled(self, patch_name: str) -> bool:
-        """Whether normalization is enabled for this patch (default True when no entry)."""
+        """Per-patch enabled flag (default True when no entry). Ignores global switch."""
         entry = self.get_entry(patch_name)
         if entry is None:
             return True
         if "enabled" not in entry:
             return True
         return bool(entry["enabled"])
+
+    def is_effectively_enabled(self, patch_name: str) -> bool:
+        """Whether normalization applies at runtime (global + per-patch)."""
+        return self.is_globally_enabled() and self.is_enabled(patch_name)
 
     def set_enabled(self, patch_name: str, enabled: bool) -> None:
         """Persist per-patch normalization on/off (issue #5 UI toggle)."""
@@ -156,7 +182,7 @@ class PatchNormalizationStore:
         return float(gain)
 
     def get_gain_db(self, patch_name: str) -> float | None:
-        if not self.is_enabled(patch_name):
+        if not self.is_effectively_enabled(patch_name):
             return None
         return self.get_raw_gain_db(patch_name)
 

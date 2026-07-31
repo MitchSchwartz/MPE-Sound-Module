@@ -67,7 +67,7 @@ class PatchLoader:
 
     def _apply_patch_normalization(self, patch_name: str) -> None:
         store = self.normalization
-        if not store.is_enabled(patch_name):
+        if not store.is_effectively_enabled(patch_name):
             self._patch_gain_linear = 1.0
             self._norm_active = False
             return
