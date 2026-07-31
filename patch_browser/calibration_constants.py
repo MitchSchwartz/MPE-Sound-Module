@@ -14,10 +14,14 @@ Read by ``calibration_teardown`` and ``scripts/calibrate-with-loader.sh``.
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 # Environment variable name (value must be "1" when set).
 MPE_CALIB_FROM_BROWSER = "MPE_CALIB_FROM_BROWSER"
 MPE_CALIB_FROM_BROWSER_ACTIVE = "1"
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+CALIBRATE_WITH_LOADER_SCRIPT = REPO_ROOT / "scripts" / "calibrate-with-loader.sh"
 
 
 def calibration_from_browser() -> bool:
