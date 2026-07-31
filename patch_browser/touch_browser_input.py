@@ -7,7 +7,11 @@ import time
 
 import pygame
 
-from patch_browser.touch_ui_constants import *
+from patch_browser.touch_ui_constants import (
+    DEFAULT_BRIGHTNESS_PERCENT,
+    MIXER_DOUBLE_TAP_MS,
+    TAP_MOVE_THRESHOLD_PX,
+)
 from patch_browser.touch_ui_enums import CalibrateMode, LeftNavMode, Screen
 
 

@@ -64,7 +64,7 @@ class CalibrateMidiReuseTests(unittest.TestCase):
             loader = loader_cls.return_value
             loader.osc_enabled = True
             parse_args.return_value = mock.Mock(
-                output=None,
+                output=Path("/tmp/test-patch-normalization.json"),
                 use_loopback=False,
                 audio_device="plughw:Loopback,1,0",
                 favorites_only=False,

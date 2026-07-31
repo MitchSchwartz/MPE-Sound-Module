@@ -5,7 +5,27 @@ from __future__ import annotations
 from patch_browser.geometry import Rect
 from patch_browser.mixer import MixerChannel
 from patch_browser.scroll_widgets import ScrollList
-from patch_browser.touch_ui_constants import *
+from patch_browser.touch_ui_constants import (
+    CPU_METER_H,
+    CPU_METER_W,
+    FADER_COLUMN_W,
+    FADER_TRACK_H,
+    FADER_TRACK_W,
+    LEFT_NAV_COLLAPSED_WIDTH,
+    LEFT_NAV_WIDTH,
+    NAV_FOLDER_TITLE_H,
+    NORM_CHECKBOX_SIZE,
+    NORM_ROW_H,
+    NORM_ROW_W,
+    SETTINGS_PANEL_ANIM_SPEED,
+    SETTINGS_PANEL_FOOTER_H,
+    SETTINGS_PANEL_HEADER_H,
+    SETTINGS_PANEL_W,
+    SETTINGS_ROW_GAP,
+    SETTINGS_ROW_H,
+    VOLUME_MAX,
+    VOLUME_MIN,
+)
 from patch_browser.touch_ui_enums import LeftNavMode, Screen, audio_profile_display
 from patch_browser.ui_text import text_block_height, wrap_text_lines, wrapped_row_height
 

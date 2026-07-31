@@ -9,7 +9,15 @@ import pygame
 from patch_browser.draw_primitives import draw_chevron, draw_sidebar_panel_icon
 from patch_browser.geometry import Rect
 from patch_browser.mixer import MixerChannel
-from patch_browser.touch_ui_constants import *
+from patch_browser.touch_ui_constants import (
+    CPU_METER_BAR_H,
+    FADER_HANDLE_H,
+    FADER_HANDLE_W,
+    SETTINGS_PANEL_FOOTER_H,
+    SETTINGS_PANEL_HEADER_H,
+    SETTINGS_ROW_GAP,
+    SETTINGS_ROW_H,
+)
 from patch_browser.touch_ui_enums import (
     CalibrateMode,
     LeftNavMode,

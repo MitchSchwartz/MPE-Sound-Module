@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import json
 import os
+import sys
+import time
 from pathlib import Path
 
 import pygame
@@ -13,9 +16,26 @@ from patch_browser.calibration_constants import (
     MPE_CALIB_FROM_BROWSER_ACTIVE,
 )
 from patch_browser.geometry import Rect
-from patch_browser.touch_ui_constants import *
+from patch_browser.touch_ui_constants import NORM_CHECKBOX_SIZE
 from patch_browser.touch_ui_enums import CalibrateMode
 from patch_browser.ui_text import blit_text_block, text_block_height, wrap_text_lines
+
+CALIBRATION_EXECV_FAILURE_REPORT = Path("/tmp/touch-browser-calibration-execv-failure.json")
+
+
+def _write_calibration_execv_failure_report(message: str, *, script: Path) -> None:
+    payload = {
+        "error": message,
+        "script": str(script),
+        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    }
+    try:
+        CALIBRATION_EXECV_FAILURE_REPORT.write_text(
+            json.dumps(payload, indent=2) + "\n",
+            encoding="utf-8",
+        )
+    except OSError:
+        pass
 
 
 class TouchBrowserNormalizationMixin:
@@ -177,4 +197,13 @@ class TouchBrowserNormalizationMixin:
             self._evdev_bridge.stop()
         os.environ[MPE_CALIB_FROM_BROWSER] = MPE_CALIB_FROM_BROWSER_ACTIVE
         pygame.quit()
-        os.execv("/bin/bash", args)
+        try:
+            os.execv("/bin/bash", args)
+        except OSError as exc:
+            message = f"Failed to launch calibration loader: {exc}"
+            print(message, file=sys.stderr)
+            _write_calibration_execv_failure_report(
+                message,
+                script=CALIBRATE_WITH_LOADER_SCRIPT,
+            )
+            sys.exit(1)
