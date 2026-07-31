@@ -76,3 +76,8 @@ sudo systemctl daemon-reload
 ```
 
 Touch mode enables `mpe-shutdown-splash.service` via `scripts/lib/mpe-services.sh`.
+
+## Migration from `touch-shutdown-animation.service`
+
+Older touch images enabled `touch-shutdown-animation.service` (in-browser / legacy unit). That unit is **not** shipped in `config/` anymore. `configure-pi-paths.sh` disables it, removes a stale `/etc/systemd/system/touch-shutdown-animation.service` if present, and enables `mpe-shutdown-splash.service` in touch mode.
+
