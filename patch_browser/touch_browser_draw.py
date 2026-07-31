@@ -360,12 +360,6 @@ class TouchBrowserDrawMixin:
 
         self._draw_main_detail()
 
-        footer = self.font_sm.render(
-            "Scroll without selecting · tap patch to load",
-            True,
-            self.theme.muted,
-        )
-        self.screen.blit(footer, (24, self.height - 20))
     def _draw_settings_action_row(self, rect: Rect, label: str, *, muted: bool = False) -> None:
         bg = self.theme.surface_alt if muted else self.theme.surface
         pygame.draw.rect(self.screen, bg, rect.pygame_rect, border_radius=10)
