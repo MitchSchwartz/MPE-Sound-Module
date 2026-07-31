@@ -28,7 +28,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
 from patch_browser.calibration_teardown import restore_mpe_audio_services  # noqa: E402
-from patch_browser.ui_theme import Theme  # noqa: E402
+from patch_browser.ui_theme import load_theme_mode_from_prefs, theme_for_mode  # noqa: E402
 
 CALIBRATE_SCRIPT = REPO_ROOT / "scripts" / "calibrate-patch-normalization.py"
 DONE_HOLD_SECONDS = 2.5
@@ -180,7 +180,7 @@ class CalibrationLoaderApp:
         self.width, self.height = self.screen.get_size()
         pygame.mouse.set_visible(False)
 
-        self.theme = Theme()
+        self.theme = theme_for_mode(load_theme_mode_from_prefs())
         self.font_title = _load_font(32)
         self.font_md = _load_font(22)
         self.font_sm = _load_font(18)
