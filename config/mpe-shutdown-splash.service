@@ -1,7 +1,10 @@
 [Unit]
-Description=Touch DSI Shutdown Splash (5 inch panel)
+Description=MPE Touch DSI Shutdown Splash (5 inch panel)
+# Plymouth-like ordering: splash before systemd-poweroff/reboot/halt, not in-app hold.
+# Ref: plymouth-poweroff.service.in (DefaultDependencies=no, Before=systemd-poweroff.service)
+After=getty@tty1.service touch-patch-browser.service
+Before=systemd-poweroff.service systemd-reboot.service systemd-halt.service
 DefaultDependencies=no
-Before=shutdown.target reboot.target halt.target getty@tty1.service
 Conflicts=shutdown-animation.service
 
 [Service]

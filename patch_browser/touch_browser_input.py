@@ -7,10 +7,7 @@ import time
 
 import pygame
 
-from patch_browser.dsi_splash import (
-    run_browser_shutdown_hold,
-    stop_getty_tty1,
-)
+from patch_browser.dsi_splash import trigger_user_shutdown
 from patch_browser.touch_ui_constants import (
     DEFAULT_BRIGHTNESS_PERCENT,
     MIXER_DOUBLE_TAP_MS,
@@ -276,13 +273,7 @@ class TouchBrowserInputMixin:
                 if self._evdev_bridge is not None:
                     self._evdev_bridge.stop()
                 self._running = False
-                stop_getty_tty1()
-                run_browser_shutdown_hold(
-                    self.screen,
-                    self.theme,
-                    power_action=self.power_action,
-                )
-                # Hold loop only returns if poweroff never kills this process.
+                trigger_user_shutdown(self.power_action)
                 sys.exit(0)
         self._clear_modal_pointer()
     def _handle_event(self, event: pygame.event.Event) -> None:

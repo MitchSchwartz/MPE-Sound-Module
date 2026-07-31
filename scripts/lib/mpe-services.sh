@@ -23,11 +23,11 @@ mpe_enable_patch_browser_ui() {
         unit=touch-patch-browser.service
         other=patch-browser.service
         sudo systemctl disable --now boot-animation.service shutdown-animation.service 2>/dev/null || true
-        sudo systemctl enable touch-boot-animation.service touch-shutdown-animation.service 2>/dev/null || true
+        sudo systemctl enable touch-boot-animation.service mpe-shutdown-splash.service 2>/dev/null || true
     else
         unit=patch-browser.service
         other=touch-patch-browser.service
-        sudo systemctl disable --now touch-boot-animation.service touch-shutdown-animation.service 2>/dev/null || true
+        sudo systemctl disable --now touch-boot-animation.service mpe-shutdown-splash.service 2>/dev/null || true
         sudo systemctl enable boot-animation.service shutdown-animation.service 2>/dev/null || true
     fi
 

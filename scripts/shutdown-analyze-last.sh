@@ -10,7 +10,7 @@ echo "=== Previous boot: systemd stop phase (reverse) ==="
 journalctl -b -1 -o short-precise --no-pager \
     -u surge-xt-cli.service \
     -u touch-patch-browser.service \
-    -u touch-shutdown-animation.service \
+    -u mpe-shutdown-splash.service \
     -u usb-audio-gadget.service \
     -u surge-watchdog.service \
     -u foot-pedal.service \
