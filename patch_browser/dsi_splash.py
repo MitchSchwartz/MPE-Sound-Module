@@ -39,6 +39,7 @@ LAST_SPLASH_STAMP = Path("/tmp/mpe-dsi-splash-last.ts")
 BROWSER_READY_FLAG = Path("/run/mpe-touch-browser-ready")
 DISPLAY_REQUEST_FLAG = Path("/run/mpe-touch-display-request")
 BOOT_SPLASH_UNIT = "touch-boot-animation.service"
+SHUTDOWN_SPLASH_UNIT = "mpe-shutdown-splash.service"
 
 
 class SplashMode(str, Enum):
@@ -488,15 +489,9 @@ def run_shutdown_animation(
             pygame.quit()
 
 
-def request_system_power_action(power_action: str) -> bool:
-    """Ask systemd to halt or reboot (kiosk pattern).
-
-    Uses ``systemctl poweroff`` / ``systemctl reboot`` so systemd owns the
-    shutdown transaction (see systemd.special(7)). Detached ``poweroff(8)`` from
-    Python can fail silently and leave the UI running.
-    """
-    verb = "poweroff" if power_action == "shutdown" else "reboot"
-    cmd = ["sudo", "systemctl", verb]
+def _run_systemctl(args: list[str], *, log_label: str) -> bool:
+    """Run ``systemctl`` with sudo; log outcome to SHUTDOWN_LOG."""
+    cmd = ["sudo", "systemctl", *args]
     try:
         result = subprocess.run(
             cmd,
@@ -507,46 +502,51 @@ def request_system_power_action(power_action: str) -> bool:
         )
         if result.returncode != 0:
             err = (result.stderr or result.stdout or "").strip()
-            _log_shutdown(f"systemctl {verb} failed rc={result.returncode} {err}")
+            _log_shutdown(f"{log_label} failed rc={result.returncode} {err}")
             return False
-        _log_shutdown(f"systemctl {verb} accepted")
+        _log_shutdown(f"{log_label} ok")
         return True
     except (OSError, subprocess.TimeoutExpired) as exc:
-        _log_shutdown(f"systemctl {verb} error: {exc}")
+        _log_shutdown(f"{log_label} error: {exc}")
         return False
 
 
-def run_browser_shutdown_hold(
-    screen: "pygame.Surface",
-    theme,
-    *,
-    power_action: str = "shutdown",
-) -> None:
-    """User-confirmed shutdown: request systemd halt and hold splash until killed.
+def start_shutdown_splash_service() -> bool:
+    """Start the dedicated shutdown splash unit (Plymouth-like pattern).
 
-    Never returns to the browser main loop on success or failure — the caller
-    should ``sys.exit`` after this if the process is still alive.
+    The splash runs in its own systemd unit ordered ``Before=systemd-poweroff.service``,
+    not inside the patch browser process.
     """
-    _hide_cursor()
-    _log_shutdown(f"browser shutdown hold start action={power_action}")
-    power_ok = request_system_power_action(power_action)
-    start = time.monotonic()
-    clock = pygame.time.Clock()
-    # Ignore SIGTERM while shutting down: touch-patch-browser is stopped during
-    # poweroff; exiting this loop previously restored the patch browser GUI.
-    signal.signal(signal.SIGTERM, signal.SIG_IGN)
-    signal.signal(signal.SIGINT, signal.SIG_IGN)
+    return _run_systemctl(
+        ["start", SHUTDOWN_SPLASH_UNIT],
+        log_label=f"systemctl start {SHUTDOWN_SPLASH_UNIT}",
+    )
 
-    while True:
-        elapsed = time.monotonic() - start
-        draw_splash_frame(
-            screen,
-            mode=SplashMode.SHUTDOWN,
-            theme=theme,
-            animation_phase=shutdown_animation_phase(elapsed),
-            subtitle_override=shutdown_subtitle(elapsed, failed=not power_ok),
-        )
-        clock.tick(30)
+
+def request_system_power_action(power_action: str) -> bool:
+    """Ask systemd to halt or reboot (kiosk pattern).
+
+    Uses ``systemctl poweroff`` / ``systemctl reboot`` so systemd owns the
+    shutdown transaction (see systemd.special(7)). Detached ``poweroff(8)`` from
+    Python can fail silently and leave the UI running.
+    """
+    verb = "poweroff" if power_action == "shutdown" else "reboot"
+    return _run_systemctl([verb], log_label=f"systemctl {verb}")
+
+
+def trigger_user_shutdown(power_action: str) -> bool:
+    """UI-confirmed shutdown: splash unit first, then systemd poweroff/reboot.
+
+    The browser should exit immediately after this returns — splash is held by
+    ``mpe-shutdown-splash.service``, not an in-process pygame loop.
+    """
+    _log_shutdown(f"trigger_user_shutdown action={power_action}")
+    stop_getty_tty1()
+    splash_ok = start_shutdown_splash_service()
+    power_ok = request_system_power_action(power_action)
+    if not splash_ok:
+        _log_shutdown("shutdown splash unit failed to start — poweroff may show console")
+    return power_ok
 
 
 def hold_shutdown_frame(*, screen: "pygame.Surface | None" = None) -> None:
