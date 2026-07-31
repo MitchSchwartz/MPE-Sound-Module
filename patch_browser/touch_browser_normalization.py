@@ -11,10 +11,11 @@ from pathlib import Path
 import pygame
 
 from patch_browser.calibration_constants import (
-    CALIBRATE_WITH_LOADER_SCRIPT,
+    CALIBRATION_LOADER_SCRIPT,
     MPE_CALIB_FROM_BROWSER,
     MPE_CALIB_FROM_BROWSER_ACTIVE,
 )
+from patch_browser.dsi_splash import SplashMode, draw_splash_frame
 from patch_browser.geometry import Rect
 from patch_browser.touch_ui_constants import NORM_CHECKBOX_SIZE
 from patch_browser.touch_ui_enums import CalibrateMode
@@ -190,20 +191,25 @@ class TouchBrowserNormalizationMixin:
             f"({total - targets} already done)."
         )
     def _launch_calibration_loader(self) -> None:
-        args = ["bash", str(CALIBRATE_WITH_LOADER_SCRIPT)]
+        argv = [sys.executable, "-u", str(CALIBRATION_LOADER_SCRIPT)]
         if self._pending_calibrate_mode == CalibrateMode.FORCE_FULL:
-            args.append("--force")
+            argv.append("--force")
         if self._evdev_bridge is not None:
             self._evdev_bridge.stop()
+        draw_splash_frame(
+            self.screen,
+            mode=SplashMode.CAL_ENTER,
+            theme=self.theme,
+            progress=0.0,
+        )
         os.environ[MPE_CALIB_FROM_BROWSER] = MPE_CALIB_FROM_BROWSER_ACTIVE
-        pygame.quit()
         try:
-            os.execv("/bin/bash", args)
+            os.execv(sys.executable, argv)
         except OSError as exc:
             message = f"Failed to launch calibration loader: {exc}"
             print(message, file=sys.stderr)
             _write_calibration_execv_failure_report(
                 message,
-                script=CALIBRATE_WITH_LOADER_SCRIPT,
+                script=CALIBRATION_LOADER_SCRIPT,
             )
             sys.exit(1)

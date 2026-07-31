@@ -124,7 +124,7 @@ Both browser units are installed by `configure-pi-paths.sh`. Which one **boots**
 | `MPE_UI_MODE` | Enabled | Disabled |
 |---------------|---------|----------|
 | `oled` (default) | `patch-browser.service`, `boot-animation.service` | `touch-patch-browser.service` |
-| `touch` | `touch-patch-browser.service` | `patch-browser.service`, `boot-animation.service` |
+| `touch` | `touch-patch-browser.service`, `touch-boot-animation.service`, `touch-shutdown-animation.service` | `patch-browser.service`, `boot-animation.service`, `shutdown-animation.service` |
 
 On the SmartiPi Pi, set in `config/mpe.env` then reconfigure:
 
@@ -137,13 +137,23 @@ systemctl is-enabled patch-browser touch-patch-browser
 
 Only one browser UI should talk to Surge over OSC.
 
-### Boot / restart — no stale UI flash
+### Boot / restart — branded splash (no console flash)
 
-On the SmartiPi DSI panel, **KMS/DRM keeps the last pygame frame** when `touch-patch-browser` stops or before the new process flips the display. That frame can be an **older build** (e.g. pre-`d66ef3a` with four stub faders Cut/Res/Snd/Vol) until the current app draws.
+On the SmartiPi DSI panel, **KMS/DRM keeps the last pygame frame** when `touch-patch-browser` stops or before the new process flips the display.
 
-**Ruled out on `raspberrypi2` (2026-07-31):** `boot-animation.service` and `patch-browser.service` are **disabled**; `ExecStart` points at `~/MPE-Module/touch_patch_browser.py` (single Vol fader at `8fca259`); no second service races the DSI.
+**Touch boot sequence** (`MPE_UI_MODE=touch`):
 
-**Fix:** `scripts/clear-dsi-framebuffer.py` runs from `start-touch-patch-browser.sh` before Python import; `touch_patch_browser.py` fills the background and flips immediately after `set_mode()`.
+1. `touch-boot-animation.service` — claims DRM early and loops the branded **MPE Sound Module** splash until the browser starts.
+2. `start-touch-patch-browser.sh` — stops the splash service, clears stale pixels (`clear-dsi-framebuffer.py`), starts `touch_patch_browser.py`.
+3. Browser — fills background immediately, then plays a short in-app boot splash (~1.2 s) unless a full splash ran within the last 30 s (service restart debounce).
+
+**Calibration handoff:** the browser paints **Starting calibration…** and `exec`s `calibration_loader.py` directly (no bash wrapper). The loader paints on first frame before Surge prep. On exit it shows **Returning to patch browser…** before async restart.
+
+**Shutdown:** Power menu confirm runs an in-app shutdown splash (~2 s) before `poweroff`/`reboot`. `touch-shutdown-animation.service` covers systemd halt/reboot paths.
+
+Implementation: `patch_browser/dsi_splash.py`, `touch_boot_splash.py`, `touch_shutdown_splash.py`. OLED builds keep `boot-animation.service` / `shutdown-animation.service`.
+
+**Stale-frame belt-and-suspenders:** `scripts/clear-dsi-framebuffer.py` still runs between splash stop and browser import; `touch_patch_browser.py` fills the background and flips immediately after `set_mode()`.
 
 ## Config
 
@@ -152,6 +162,7 @@ Same `/etc/mpe/mpe.env` as the encoder build:
 | Variable | Purpose |
 |----------|---------|
 | `MPE_UI_MODE` | `oled` or `touch` — which patch browser systemd enables at boot |
+| `MPE_BOOT_SPLASH_SECONDS` | Max in-app boot splash duration (default 3; min 1.2) |
 | `MPE_FAVORITES_NAME` | Quick-access folder under Surge user patches |
 | `MPE_TOUCH_WINDOWED` | Set `1` for windowed dev mode |
 
@@ -185,7 +196,7 @@ Set `MPE_TOUCH_EVDEV=0` to fall back to SDL-only input (debugging).
 - **Norm.** — label-left / checkbox-right on the patch detail pane; persists per patch stem in `~/.patch_browser_normalization.json` (calibration data kept when toggling off). Greyed out when global normalization is off.
 - **Calibrate missing patches** / **Force full re-calibration** — System settings (⋯) → confirm modal → loader on DSI. See **[PATCH_NORMALIZATION.md](PATCH_NORMALIZATION.md)**.
 
-**Calibration handoff:** launching calibration from the touch browser sets `MPE_CALIB_FROM_BROWSER=1` before `exec` into `calibrate-with-loader.sh`. Teardown must not stop `touch-patch-browser` synchronously (same systemd main process) and schedules an async restart instead. Constant and invariant live in `patch_browser/calibration_constants.py` and `calibration_teardown.py`.
+**Calibration handoff:** launching calibration from the touch browser sets `MPE_CALIB_FROM_BROWSER=1` before `exec` into `calibration_loader.py` (direct Python exec — no bash gap). Teardown must not stop `touch-patch-browser` synchronously (same systemd main process) and schedules an async restart instead. Constant and invariant live in `patch_browser/calibration_constants.py` and `calibration_teardown.py`.
 
 ## System settings (⋯)
 
@@ -224,5 +235,4 @@ Implementation: `patch_browser/ui_theme.py` (`theme_oled_black()` / `OLED_BLACK_
 
 - Search/filter across 3000+ patches not implemented (scroll lists first)
 - Portrait panels are unsupported for this rig (yours is landscape)
-- Boot/shutdown animations still target the 1.3" OLED service
 - Very large patches (e.g. **Bowed String**, ~8 MB) may need a calibration retry — use `--patch "Bowed String"` or re-run loader with `--force`

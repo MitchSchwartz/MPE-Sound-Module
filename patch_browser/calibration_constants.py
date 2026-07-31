@@ -22,6 +22,7 @@ MPE_CALIB_FROM_BROWSER_ACTIVE = "1"
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CALIBRATE_WITH_LOADER_SCRIPT = REPO_ROOT / "scripts" / "calibrate-with-loader.sh"
+CALIBRATION_LOADER_SCRIPT = REPO_ROOT / "patch_browser" / "calibration_loader.py"
 
 
 def calibration_from_browser() -> bool:

@@ -7,6 +7,7 @@ import time
 
 import pygame
 
+from patch_browser.dsi_splash import run_shutdown_animation
 from patch_browser.touch_ui_constants import (
     DEFAULT_BRIGHTNESS_PERCENT,
     MIXER_DOUBLE_TAP_MS,
@@ -269,6 +270,9 @@ class TouchBrowserInputMixin:
             if self._modal_pending_index == 0:
                 self.screen_state = Screen.POWER_MENU
             else:
+                if self._evdev_bridge is not None:
+                    self._evdev_bridge.stop()
+                run_shutdown_animation(screen=self.screen)
                 cmd = (
                     ["sudo", "poweroff"]
                     if self.power_action == "shutdown"
