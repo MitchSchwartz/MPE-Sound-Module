@@ -39,6 +39,8 @@ CALIBRATE_SCRIPT = REPO_ROOT / "scripts" / "calibrate-patch-normalization.py"
 DONE_HOLD_SECONDS = 2.5
 CANCEL_BTN_W = 160
 CANCEL_BTN_H = 44
+LOADER_STDERR_LOG = Path("/tmp/calibration-loader.stderr")
+LOADER_FAILURE_REPORT = Path("/tmp/calibration-loader-last-exit.json")
 
 
 @dataclass
@@ -93,8 +95,18 @@ class ProgressReader:
 
         def _drain_stderr() -> None:
             assert self.proc.stderr is not None
-            for _line in self.proc.stderr:
-                pass
+            try:
+                log_handle = LOADER_STDERR_LOG.open("a", encoding="utf-8")
+            except OSError:
+                log_handle = None
+            try:
+                for line in self.proc.stderr:
+                    if log_handle is not None:
+                        log_handle.write(line)
+                        log_handle.flush()
+            finally:
+                if log_handle is not None:
+                    log_handle.close()
 
         self._thread = threading.Thread(target=_read_stdout, daemon=True)
         self._thread.start()
@@ -173,6 +185,28 @@ def _apply_event(state: LoaderState, event: dict) -> None:
         state.finished = True
 
 
+def _write_loader_exit_report(state: LoaderState, *, subprocess_code: int | None) -> None:
+    payload = {
+        "phase": state.phase,
+        "patch_name": state.patch_name,
+        "patch_index": state.index,
+        "total": state.total,
+        "updated": state.updated,
+        "error": state.error,
+        "exit_code": state.exit_code if state.exit_code is not None else subprocess_code,
+        "subprocess_code": subprocess_code,
+        "cancelled": state.cancelled,
+        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    }
+    try:
+        LOADER_FAILURE_REPORT.write_text(
+            json.dumps(payload, indent=2) + "\n",
+            encoding="utf-8",
+        )
+    except OSError:
+        pass
+
+
 class CalibrationLoaderApp:
     def __init__(self, calibrate_args: list[str]) -> None:
         pygame.init()
@@ -201,6 +235,10 @@ class CalibrationLoaderApp:
             CANCEL_BTN_H,
         )
 
+        try:
+            LOADER_STDERR_LOG.write_text("", encoding="utf-8")
+        except OSError:
+            pass
         cmd = [
             sys.executable,
             "-u",
@@ -419,6 +457,8 @@ class CalibrationLoaderApp:
             exit_code = self.state.exit_code
             if exit_code is None:
                 exit_code = self.reader.join()
+            if exit_code not in (0, 130):
+                _write_loader_exit_report(self.state, subprocess_code=exit_code)
             pygame.quit()
             # Release kmsdrm before touch-patch-browser claims the display.
             restore_mpe_audio_services()
