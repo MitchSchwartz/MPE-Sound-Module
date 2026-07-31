@@ -40,10 +40,10 @@ from patch_browser.touch_ui_enums import CalibrateMode, LeftNavMode, Screen
 from patch_browser.dsi_splash import (
     BOOT_MIN_SECONDS,
     SplashMode,
+    acquire_browser_display,
     clear_browser_ready_flag,
     draw_splash_frame,
     signal_browser_ready,
-    stop_boot_splash_service,
 )
 from patch_browser.ui_theme import load_theme_mode_from_prefs, theme_for_mode
 
@@ -148,15 +148,13 @@ class TouchPatchBrowser(
     def __init__(self) -> None:
         clear_browser_ready_flag()
         windowed = os.environ.get("MPE_TOUCH_WINDOWED") == "1"
-        if not windowed and not os.environ.get("DISPLAY"):
-            stop_boot_splash_service()
-
-        pygame.init()
-        pygame.display.set_caption("Pi-Surge-MPE Touch Browser")
         if windowed:
+            pygame.init()
+            pygame.display.set_caption("Pi-Surge-MPE Touch Browser")
             self.screen = pygame.display.set_mode((800, 480))
         else:
-            self.screen = pygame.display.set_mode((800, 480), pygame.FULLSCREEN)
+            self.screen = acquire_browser_display()
+            pygame.display.set_caption("Pi-Surge-MPE Touch Browser")
         self.width, self.height = self.screen.get_size()
         pygame.mouse.set_visible(False)
         self.theme_mode = load_theme_mode_from_prefs()
