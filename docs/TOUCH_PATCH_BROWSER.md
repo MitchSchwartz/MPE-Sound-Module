@@ -179,9 +179,14 @@ Set `MPE_TOUCH_EVDEV=0` to fall back to SDL-only input (debugging).
 
 ## System settings (⋯)
 
+Right-side **slide-out panel** (tap **⋯**, tap outside, swipe right, or **×** to close). Scrollable body; **Power…** fixed at the bottom with a divider.
+
+UI preferences persist in `~/.patch_browser_ui.json` (e.g. `show_cpu_meter`).
+
+- **CPU meter** — toggle show/hide for the header bar (not the numeric overlay; bar-only meter). Default on.
 - **Patch normalization** — master toggle for all per-patch Norm. controls (persists in `~/.patch_browser_normalization.json` under `_global`; per-patch flags unchanged when off).
 - **Surge status** — `SurgeMonitor` probes the CLI process, OSC port 53280, and recent log lines. Stale PIDs and historical audio-device errors in `surge-cli.log` no longer show as false *down* (fixed 2026-07-30).
-- **Header CPU meter** — compact bar to the left of the **⋯** settings button. Polls at ~5 Hz on a background thread (UI stays responsive). Surge XT does **not** document a CPU OSC address (`/q/cpu`, `/cpu`, `/status/cpu` are probed speculatively when OSC out is enabled). The meter therefore uses **`/proc` CPU time for the `surge-xt-cli` process** as a live-play diagnostic — same green → yellow → red thresholds as a DAW meter. Shows **—** when Surge is offline. This approximates audio-engine stress on a dedicated Pi; it is not identical to Surge’s internal VU *Show CPU Usage* ratio (audio callback time ÷ buffer time), which is GUI-only today.
+- **Header CPU meter** — compact bar to the left of the **⋯** settings button when enabled. Polls at ~5 Hz on a background thread (UI stays responsive). Surge XT does **not** document a CPU OSC address (`/q/cpu`, `/cpu`, `/status/cpu` are probed speculatively when OSC out is enabled). The meter therefore uses **`/proc` CPU time for the `surge-xt-cli` process** as a live-play diagnostic — same green → yellow → red thresholds as a DAW meter. Shows **—** when Surge is offline. This approximates audio-engine stress on a dedicated Pi; it is not identical to Surge’s internal VU *Show CPU Usage* ratio (audio callback time ÷ buffer time), which is GUI-only today.
 - **Restart Surge** — shown when status is not healthy; uses the same systemd unit as the encoder build.
 - **Calibrate missing patches** — incremental run over the full scanned library (patches without `gain_db` only).
 - **Force full re-calibration** — re-measures every patch in the scan tree (`--force`). See [Per-patch normalization](#per-patch-normalization).

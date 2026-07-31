@@ -43,8 +43,15 @@ from patch_browser.surge_cpu_monitor import SurgeCpuMonitor
 
 TAP_MOVE_THRESHOLD_PX = 14
 VOLUME_STATE_FILE = Path.home() / ".patch_browser_volume.json"
+UI_STATE_FILE = Path.home() / ".patch_browser_ui.json"
 VOLUME_MIN = 0.25
 VOLUME_MAX = 1.5
+SETTINGS_PANEL_W = 320
+SETTINGS_ROW_H = 52
+SETTINGS_ROW_GAP = 8
+SETTINGS_PANEL_HEADER_H = 56
+SETTINGS_PANEL_FOOTER_H = 72
+SETTINGS_PANEL_ANIM_SPEED = 10.0
 LEFT_NAV_WIDTH = 268
 LEFT_NAV_COLLAPSED_WIDTH = 36
 FADER_COLUMN_W = 54
@@ -439,6 +446,110 @@ class ScrollList:
         surface.set_clip(clip)
 
 
+class ContentScrollArea:
+    """Pixel-based vertical scroll for panels taller than their viewport."""
+
+    def __init__(self, viewport: Rect):
+        self.viewport = viewport
+        self.content_height = 0
+        self._scroll_pixels = 0.0
+        self._drag_start_y: int | None = None
+        self._drag_scroll_start = 0.0
+        self._pointer_down_pos: tuple[int, int] | None = None
+        self._pointer_scrolled = False
+        self._velocity = 0.0
+        self._momentum_active = False
+        self._scroll_samples: list[tuple[float, float]] = []
+
+    @property
+    def scroll_pixels(self) -> float:
+        return self._scroll_pixels
+
+    def reset(self) -> None:
+        self._scroll_pixels = 0.0
+        self.stop_momentum()
+        self._clear_pointer()
+
+    def stop_momentum(self) -> None:
+        self._velocity = 0.0
+        self._momentum_active = False
+
+    def _max_scroll_pixels(self) -> float:
+        return max(0.0, float(self.content_height - self.viewport.h))
+
+    def _clamp_scroll(self) -> None:
+        self._scroll_pixels = max(0.0, min(self._scroll_pixels, self._max_scroll_pixels()))
+
+    def _clear_pointer(self) -> None:
+        self._pointer_down_pos = None
+        self._pointer_scrolled = False
+        self._drag_start_y = None
+        self._scroll_samples.clear()
+
+    def is_interacting(self) -> bool:
+        return self._drag_start_y is not None or self._momentum_active
+
+    def pointer_down(self, pos: tuple[int, int]) -> bool:
+        if not self.viewport.contains(*pos):
+            return False
+        self.stop_momentum()
+        self._clear_pointer()
+        self._pointer_down_pos = pos
+        self._drag_start_y = pos[1]
+        self._drag_scroll_start = self._scroll_pixels
+        self._scroll_samples = [(time.time(), self._scroll_pixels)]
+        return True
+
+    def pointer_move(self, pos: tuple[int, int]) -> bool:
+        if self._drag_start_y is None:
+            return False
+        if not self._pointer_scrolled:
+            dx = pos[0] - self._pointer_down_pos[0]
+            dy = pos[1] - self._pointer_down_pos[1]
+            if (dx * dx + dy * dy) ** 0.5 >= SCROLL_DRAG_THRESHOLD_PX:
+                self._pointer_scrolled = True
+        if self._pointer_scrolled:
+            self._scroll_pixels = self._drag_scroll_start - (pos[1] - self._drag_start_y)
+            self._clamp_scroll()
+            self._scroll_samples.append((time.time(), self._scroll_pixels))
+            cutoff = time.time() - SCROLL_SAMPLE_WINDOW_S
+            self._scroll_samples = [(t, s) for t, s in self._scroll_samples if t >= cutoff]
+            return True
+        return False
+
+    def pointer_up(self, pos: tuple[int, int]) -> bool:
+        scrolled = self._pointer_scrolled
+        if scrolled and len(self._scroll_samples) >= 2:
+            t0, s0 = self._scroll_samples[0]
+            t1, s1 = self._scroll_samples[-1]
+            dt = t1 - t0
+            if dt > 0.008:
+                self._velocity = max(
+                    -SCROLL_VELOCITY_CAP,
+                    min(SCROLL_VELOCITY_CAP, (s1 - s0) / dt),
+                )
+                if abs(self._velocity) >= SCROLL_MIN_VELOCITY:
+                    self._momentum_active = True
+        self._clear_pointer()
+        return scrolled
+
+    def tick(self, dt: float) -> bool:
+        if not self._momentum_active:
+            return False
+        dt = max(dt, 1.0 / 120.0)
+        before = self._scroll_pixels
+        self._scroll_pixels += self._velocity * dt
+        self._clamp_scroll()
+        if self._scroll_pixels != before and (
+            self._scroll_pixels <= 0.0 or self._scroll_pixels >= self._max_scroll_pixels()
+        ):
+            self._velocity *= 0.35
+        self._velocity *= math.exp(-SCROLL_FRICTION * dt)
+        if abs(self._velocity) < SCROLL_MIN_VELOCITY:
+            self.stop_momentum()
+        return self._scroll_pixels != before or self._momentum_active
+
+
 @dataclass
 class MixerChannel:
     """Vertical mixing-board fader column."""
@@ -490,6 +601,7 @@ class TouchPatchBrowser:
         self.nav_folder_title_rect: Rect | None = None
 
         self.volume_level = self._load_volume_level()
+        self.show_cpu_meter = self._load_ui_preference("show_cpu_meter", default=True)
         self.brightness_percent = self.backlight.get_percent()
         self.toast_message = ""
         self.toast_until = 0.0
@@ -509,6 +621,10 @@ class TouchPatchBrowser:
         self._pending_last_patch: dict | None = None
         self._pending_load_next = 0.0
         self._surge_restart_btn: Rect | None = None
+        self._settings_slide = 0.0
+        self._settings_swipe_start: tuple[int, int] | None = None
+        self._settings_content_scroll = ContentScrollArea(Rect(0, 0, 1, 1))
+        self._settings_content_height = 0
         self._running = True
         self._scan_lock = threading.Lock()
         self._evdev_touch_queue: queue.SimpleQueue[tuple[str, tuple[int, int]]] = queue.SimpleQueue()
@@ -621,6 +737,40 @@ class TouchPatchBrowser:
         except OSError as exc:
             print(f"Warning: could not persist volume ({exc})")
 
+    def _load_ui_preference(self, key: str, *, default: bool = True) -> bool:
+        if UI_STATE_FILE.exists():
+            try:
+                data = json.loads(UI_STATE_FILE.read_text())
+                if key in data:
+                    return bool(data[key])
+            except (OSError, json.JSONDecodeError, TypeError, ValueError):
+                pass
+        return default
+
+    def _save_ui_preference(self, key: str, value: bool) -> None:
+        data: dict[str, bool] = {}
+        if UI_STATE_FILE.exists():
+            try:
+                loaded = json.loads(UI_STATE_FILE.read_text())
+                if isinstance(loaded, dict):
+                    data = {k: bool(v) for k, v in loaded.items()}
+            except (OSError, json.JSONDecodeError, TypeError, ValueError):
+                pass
+        data[key] = value
+        try:
+            UI_STATE_FILE.write_text(json.dumps(data, indent=2))
+        except OSError as exc:
+            print(f"Warning: could not persist UI preferences ({exc})")
+
+    def _toggle_cpu_meter_visibility(self) -> None:
+        self.show_cpu_meter = not self.show_cpu_meter
+        self._save_ui_preference("show_cpu_meter", self.show_cpu_meter)
+        self._layout()
+        if self.show_cpu_meter:
+            self._toast("CPU meter on", 1.5)
+        else:
+            self._toast("CPU meter off", 1.5)
+
     def _apply_volume(self, level: float, persist: bool = True) -> None:
         self.volume_level = max(VOLUME_MIN, min(VOLUME_MAX, level))
         if self.loader.osc_enabled:
@@ -640,12 +790,16 @@ class TouchPatchBrowser:
 
         self.status_rect = Rect(margin, margin, self.width - margin * 2, status_h)
         self.system_settings_btn = Rect(self.status_rect.right - 44, self.status_rect.y + 6, 36, 32)
-        self.cpu_meter_rect = Rect(
-            self.system_settings_btn.x - CPU_METER_W - 8,
-            self.status_rect.y + 6,
-            CPU_METER_W,
-            CPU_METER_H,
-        )
+        cpu_left = self.system_settings_btn.x - CPU_METER_W - 8
+        if self.show_cpu_meter:
+            self.cpu_meter_rect = Rect(
+                cpu_left,
+                self.status_rect.y + 6,
+                CPU_METER_W,
+                CPU_METER_H,
+            )
+        else:
+            self.cpu_meter_rect = Rect(cpu_left, self.status_rect.y + 6, 0, 0)
 
         content_top = self.status_rect.y + self.status_rect.h + gap
         content_bottom = self.height - footer_h - margin
@@ -676,26 +830,105 @@ class TouchPatchBrowser:
 
         self._layout_nav_buttons()
 
-        settings_w = min(420, self.width - margin * 2)
-        settings_h = min(520, self.height - margin * 2)
-        self.settings_rect = Rect(
-            (self.width - settings_w) // 2,
-            (self.height - settings_h) // 2,
-            settings_w,
-            settings_h,
+        panel_w = min(SETTINGS_PANEL_W, self.width - margin)
+        self.settings_panel_rect = Rect(self.width - panel_w, margin, panel_w, self.height - margin * 2)
+        self._layout_settings_content()
+
+    def _settings_panel_x(self) -> int:
+        """Animated X offset — panel slides in from the right edge."""
+        hidden_x = self.width
+        shown_x = self.settings_panel_rect.x
+        return int(hidden_x + (shown_x - hidden_x) * self._settings_slide)
+
+    def _layout_settings_content(self) -> None:
+        """Compute scrollable settings rows and fixed footer hit targets (panel-local coords)."""
+        pad = 20
+        inner_w = self.settings_panel_rect.w - pad * 2
+        y = 0
+
+        self.brightness_slider_rect = Rect(pad, y + 28, inner_w, 36)
+        y += 78
+
+        self.cpu_meter_toggle_rect = Rect(pad, y, inner_w, SETTINGS_ROW_H)
+        y += SETTINGS_ROW_H + SETTINGS_ROW_GAP
+
+        self.norm_global_toggle_rect = Rect(pad, y, inner_w, SETTINGS_ROW_H)
+        y += SETTINGS_ROW_H + SETTINGS_ROW_GAP + 4
+
+        self._settings_status_y = y
+        y += 36
+
+        status = self.surge_monitor.get_status_summary()
+        self._surge_restart_btn = None
+        if status.get("can_restart"):
+            self._surge_restart_btn = Rect(pad, y, inner_w, SETTINGS_ROW_H)
+            y += SETTINGS_ROW_H + SETTINGS_ROW_GAP
+
+        self._calibrate_missing_btn = Rect(pad, y, inner_w, SETTINGS_ROW_H)
+        y += SETTINGS_ROW_H + SETTINGS_ROW_GAP
+        self._calibrate_force_btn = Rect(pad, y, inner_w, SETTINGS_ROW_H)
+        y += SETTINGS_ROW_H + SETTINGS_ROW_GAP
+
+        self._settings_content_height = y
+
+        header_bottom = SETTINGS_PANEL_HEADER_H
+        footer_top = self.settings_panel_rect.h - SETTINGS_PANEL_FOOTER_H
+        scroll_h = max(80, footer_top - header_bottom)
+        self._settings_scroll_viewport = Rect(0, header_bottom, self.settings_panel_rect.w, scroll_h)
+        self._settings_content_scroll.viewport = Rect(
+            self.settings_panel_rect.x,
+            self.settings_panel_rect.y + header_bottom,
+            self.settings_panel_rect.w,
+            scroll_h,
         )
-        self.brightness_slider_rect = Rect(
-            self.settings_rect.x + 24,
-            self.settings_rect.y + 120,
-            self.settings_rect.w - 48,
-            36,
+        self._settings_content_scroll.content_height = self._settings_content_height
+
+        self._power_btn = Rect(pad, footer_top + 12, inner_w, SETTINGS_ROW_H)
+        self._close_settings_btn = Rect(self.settings_panel_rect.w - 48, 10, 40, 40)
+
+    def _panel_local_to_screen(self, rect: Rect, *, scrolled: bool = False) -> Rect:
+        px = self._settings_panel_x()
+        py = self.settings_panel_rect.y
+        scroll = int(self._settings_content_scroll.scroll_pixels) if scrolled else 0
+        return Rect(rect.x + px, rect.y + py - scroll, rect.w, rect.h)
+
+    def _settings_scroll_viewport_screen(self) -> Rect:
+        px = self._settings_panel_x()
+        vp = self._settings_scroll_viewport
+        return Rect(vp.x + px, vp.y + self.settings_panel_rect.y, vp.w, vp.h)
+
+    def _settings_panel_screen_rect(self) -> Rect:
+        return Rect(
+            self._settings_panel_x(),
+            self.settings_panel_rect.y,
+            self.settings_panel_rect.w,
+            self.settings_panel_rect.h,
         )
-        self.norm_global_toggle_rect = Rect(
-            self.settings_rect.x + 24,
-            self.settings_rect.y + 178,
-            self.settings_rect.w - 48,
-            NORM_ROW_H,
-        )
+
+    def _settings_panel_contains(self, pos: tuple[int, int]) -> bool:
+        return self._settings_panel_screen_rect().contains(*pos)
+
+    def _sync_settings_scroll_viewport(self) -> None:
+        self._settings_content_scroll.viewport = self._settings_scroll_viewport_screen()
+
+    def _open_settings_panel(self) -> None:
+        self._layout_settings_content()
+        self._settings_content_scroll.reset()
+        self._sync_settings_scroll_viewport()
+        self.screen_state = Screen.SETTINGS
+
+    def _close_settings_panel(self) -> None:
+        self.screen_state = Screen.BROWSER
+
+    def _tick_settings_animation(self, dt: float) -> None:
+        target = 1.0 if self.screen_state == Screen.SETTINGS else 0.0
+        if abs(self._settings_slide - target) < 0.004:
+            self._settings_slide = target
+        else:
+            step = min(1.0, SETTINGS_PANEL_ANIM_SPEED * dt)
+            self._settings_slide += (target - self._settings_slide) * step
+        if self._settings_slide > 0.004 or self.screen_state == Screen.SETTINGS:
+            self._sync_settings_scroll_viewport()
 
     def _update_nav_list_geometry(
         self,
@@ -1498,7 +1731,8 @@ class TouchPatchBrowser:
             self.font_sm.render(subtitle, True, self.theme.muted),
             (self.status_rect.x + 12, self.status_rect.y + 26),
         )
-        self._draw_cpu_meter(self.cpu_meter_rect)
+        if self.show_cpu_meter:
+            self._draw_cpu_meter(self.cpu_meter_rect)
         self._draw_button(self.system_settings_btn, "...", small=True, muted=True)
 
     def _draw_left_nav_collapsed(self) -> None:
@@ -1569,75 +1803,119 @@ class TouchPatchBrowser:
         )
         self.screen.blit(footer, (24, self.height - 20))
 
-    def _draw_settings(self) -> None:
-        self.screen.fill(self.theme.bg)
+    def _draw_settings_action_row(self, rect: Rect, label: str, *, muted: bool = False) -> None:
+        bg = self.theme.surface_alt if muted else self.theme.surface
+        pygame.draw.rect(self.screen, bg, rect.pygame_rect, border_radius=10)
+        text = self.font_md.render(label, True, self.theme.muted if muted else self.theme.text)
+        ty = rect.y + (rect.h - text.get_height()) // 2
+        self.screen.blit(text, (rect.x + 16, ty))
+
+    def _draw_settings_panel(self) -> None:
+        panel = self._settings_panel_screen_rect()
+        alpha = int(140 + 60 * self._settings_slide)
         overlay = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
-        overlay.fill((0, 0, 0, 160))
+        overlay.fill((0, 0, 0, alpha))
         self.screen.blit(overlay, (0, 0))
 
-        pygame.draw.rect(self.screen, self.theme.surface, self.settings_rect.pygame_rect, border_radius=16)
+        pygame.draw.rect(self.screen, self.theme.surface, panel.pygame_rect, border_radius=16)
+        shadow = pygame.Surface((panel.w, panel.h), pygame.SRCALPHA)
+        shadow.fill((0, 0, 0, 40))
+        self.screen.blit(shadow, (panel.x - 4, panel.y + 2))
+
+        header_rect = Rect(panel.x, panel.y, panel.w, SETTINGS_PANEL_HEADER_H)
+        pygame.draw.line(
+            self.screen,
+            self.theme.surface_alt,
+            (header_rect.x + 16, header_rect.bottom - 1),
+            (header_rect.right - 16, header_rect.bottom - 1),
+            1,
+        )
         self.screen.blit(
             self.font_md.render("System", True, self.theme.text),
-            (self.settings_rect.x + 24, self.settings_rect.y + 20),
+            (panel.x + 20, panel.y + 16),
         )
+        close_screen = self._panel_local_to_screen(self._close_settings_btn)
+        self._draw_icon_button(close_screen, "×", muted=True)
 
+        scroll_vp = self._settings_scroll_viewport_screen()
+        clip = self.screen.get_clip()
+        self.screen.set_clip(scroll_vp.pygame_rect)
+
+        scroll = int(self._settings_content_scroll.scroll_pixels)
+        content_x = panel.x
+
+        slider = self._panel_local_to_screen(self.brightness_slider_rect, scrolled=True)
         self._draw_slider(
-            self.brightness_slider_rect,
+            slider,
             self.brightness_percent / 100.0,
             f"Brightness  {self.brightness_percent}%",
         )
 
+        cpu_toggle = self._panel_local_to_screen(self.cpu_meter_toggle_rect, scrolled=True)
         self._draw_normalize_toggle(
-            self.norm_global_toggle_rect,
+            cpu_toggle,
+            self.show_cpu_meter,
+            has_gain=True,
+            label="CPU meter",
+        )
+
+        norm_toggle = self._panel_local_to_screen(self.norm_global_toggle_rect, scrolled=True)
+        self._draw_normalize_toggle(
+            norm_toggle,
             self.loader.normalization.is_globally_enabled(),
             has_gain=True,
             label="Patch normalization",
         )
 
         status = self.surge_monitor.get_status_summary()
-        status_y = self.settings_rect.y + 230
+        status_y = panel.y + self._settings_status_y - scroll
         self.screen.blit(
             self.font_sm.render(
-                f"Surge: {status['status']} — {status['details'][:36]}",
+                f"Surge: {status['status']} — {status['details'][:32]}",
                 True,
                 self.theme.ok if status["status"] == "Running" else self.theme.danger,
             ),
-            (self.settings_rect.x + 24, status_y),
+            (content_x + 20, status_y),
         )
 
-        btn_y = status_y + 36
-        if status.get("can_restart"):
-            self._surge_restart_btn = Rect(
-                self.settings_rect.x + 24, btn_y, self.settings_rect.w - 48, 44
-            )
-            self._draw_button(self._surge_restart_btn, "Restart Surge")
-            btn_y += 52
-        else:
-            self._surge_restart_btn = None
+        if self._surge_restart_btn:
+            restart = self._panel_local_to_screen(self._surge_restart_btn, scrolled=True)
+            self._draw_settings_action_row(restart, "Restart Surge")
 
-        self._power_btn = Rect(self.settings_rect.x + 24, btn_y, self.settings_rect.w - 48, 44)
-        self._draw_button(self._power_btn, "Power…", muted=True)
-        btn_y += 52
-        self._calibrate_missing_btn = Rect(
-            self.settings_rect.x + 24, btn_y, self.settings_rect.w - 48, 44
+        cal_missing = self._panel_local_to_screen(self._calibrate_missing_btn, scrolled=True)
+        self._draw_settings_action_row(cal_missing, "Calibrate missing patches")
+
+        cal_force = self._panel_local_to_screen(self._calibrate_force_btn, scrolled=True)
+        self._draw_settings_action_row(cal_force, "Force full re-calibration", muted=True)
+
+        self.screen.set_clip(clip)
+
+        footer_y = panel.y + self.settings_panel_rect.h - SETTINGS_PANEL_FOOTER_H
+        pygame.draw.line(
+            self.screen,
+            self.theme.surface_alt,
+            (panel.x + 16, footer_y),
+            (panel.right - 16, footer_y),
+            1,
         )
-        self._draw_button(self._calibrate_missing_btn, "Calibrate missing patches")
-        btn_y += 52
-        self._calibrate_force_btn = Rect(
-            self.settings_rect.x + 24, btn_y, self.settings_rect.w - 48, 44
+        power = self._panel_local_to_screen(self._power_btn)
+        pygame.draw.rect(self.screen, self.theme.surface_alt, power.pygame_rect, border_radius=10)
+        power_label = self.font_md.render("Power…", True, self.theme.text)
+        self.screen.blit(
+            power_label,
+            (power.x + 16, power.y + (power.h - power_label.get_height()) // 2),
         )
-        self._draw_button(self._calibrate_force_btn, "Force full re-calibration", muted=True)
-        btn_y += 52
-        self._close_settings_btn = Rect(self.settings_rect.x + 24, btn_y, self.settings_rect.w - 48, 48)
-        self._draw_button(self._close_settings_btn, "Close")
+
+    def _draw_settings(self) -> None:
+        self._draw_browser()
+        self._draw_settings_panel()
 
     def _draw_power_menu(self) -> None:
-        self.screen.fill(self.theme.bg)
         overlay = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
-        overlay.fill((0, 0, 0, 180))
+        overlay.fill((0, 0, 0, 120))
         self.screen.blit(overlay, (0, 0))
 
-        panel_w = min(420, self.width - 48)
+        panel_w = min(360, self.width - 48)
         panel_h = 280
         panel = Rect((self.width - panel_w) // 2, (self.height - panel_h) // 2, panel_w, panel_h)
         pygame.draw.rect(self.screen, self.theme.surface, panel.pygame_rect, border_radius=16)
@@ -1647,17 +1925,19 @@ class TouchPatchBrowser:
         self._power_option_rects = []
         y = panel.y + 70
         for i, option in enumerate(["Shutdown", "Restart", "Cancel"]):
-            rect = Rect(panel.x + 24, y, panel.w - 48, 52)
+            rect = Rect(panel.x + 24, y, panel.w - 48, SETTINGS_ROW_H)
             self._power_option_rects.append(rect)
             color = self.theme.accent if i == 2 else self.theme.surface_alt
             pygame.draw.rect(self.screen, color, rect.pygame_rect, border_radius=10)
-            self.screen.blit(self.font_md.render(option, True, self.theme.text), (rect.x + 16, rect.y + 12))
-            y += 60
+            self.screen.blit(
+                self.font_md.render(option, True, self.theme.text),
+                (rect.x + 16, rect.y + (rect.h - self.font_md.get_height()) // 2),
+            )
+            y += SETTINGS_ROW_H + SETTINGS_ROW_GAP
 
     def _draw_power_confirm(self) -> None:
-        self.screen.fill(self.theme.bg)
         overlay = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
-        overlay.fill((0, 0, 0, 190))
+        overlay.fill((0, 0, 0, 150))
         self.screen.blit(overlay, (0, 0))
 
         panel_w = min(420, self.width - 48)
@@ -1674,9 +1954,8 @@ class TouchPatchBrowser:
         self._draw_button(self._confirm_yes, "Confirm")
 
     def _draw_calibrate_confirm(self) -> None:
-        self.screen.fill(self.theme.bg)
         overlay = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
-        overlay.fill((0, 0, 0, 190))
+        overlay.fill((0, 0, 0, 150))
         self.screen.blit(overlay, (0, 0))
 
         mode = self._pending_calibrate_mode
@@ -1743,16 +2022,23 @@ class TouchPatchBrowser:
         self.screen.blit(text, (rect.x + pad_x, rect.y + pad_y))
 
     def _draw(self) -> None:
-        if self.screen_state == Screen.BROWSER:
-            self._draw_browser()
-        elif self.screen_state == Screen.SETTINGS:
+        modal = self.screen_state in (
+            Screen.POWER_MENU,
+            Screen.POWER_CONFIRM,
+            Screen.CALIBRATE_CONFIRM,
+        )
+        panel_visible = self.screen_state == Screen.SETTINGS or self._settings_slide > 0.004
+
+        if modal or panel_visible:
             self._draw_settings()
-        elif self.screen_state == Screen.POWER_MENU:
-            self._draw_power_menu()
-        elif self.screen_state == Screen.POWER_CONFIRM:
-            self._draw_power_confirm()
-        elif self.screen_state == Screen.CALIBRATE_CONFIRM:
-            self._draw_calibrate_confirm()
+            if self.screen_state == Screen.POWER_MENU:
+                self._draw_power_menu()
+            elif self.screen_state == Screen.POWER_CONFIRM:
+                self._draw_power_confirm()
+            elif self.screen_state == Screen.CALIBRATE_CONFIRM:
+                self._draw_calibrate_confirm()
+        else:
+            self._draw_browser()
         self._draw_toast()
         pygame.display.flip()
 
@@ -1770,7 +2056,7 @@ class TouchPatchBrowser:
 
     def _handle_browser_tap(self, pos: tuple[int, int]) -> None:
         if self.system_settings_btn.contains(*pos):
-            self.screen_state = Screen.SETTINGS
+            self._open_settings_panel()
             return
 
         if self.detail_patch and self.normalize_btn.contains(*pos):
@@ -1797,32 +2083,46 @@ class TouchPatchBrowser:
             return
 
     def _handle_settings_touch(self, pos: tuple[int, int]) -> None:
-        if self._close_settings_btn.contains(*pos):
-            self.screen_state = Screen.BROWSER
+        close = self._panel_local_to_screen(self._close_settings_btn)
+        if close.contains(*pos):
+            self._close_settings_panel()
             return
-        if self.norm_global_toggle_rect.contains(*pos):
+
+        power = self._panel_local_to_screen(self._power_btn)
+        if power.contains(*pos):
+            self.screen_state = Screen.POWER_MENU
+            return
+
+        local_x = pos[0] - self._settings_panel_x()
+        local_y = pos[1] - self.settings_panel_rect.y + int(self._settings_content_scroll.scroll_pixels)
+        local_pos = (local_x, local_y)
+
+        if self.norm_global_toggle_rect.contains(*local_pos):
             self._toggle_global_normalization()
             return
-        if self._surge_restart_btn and self._surge_restart_btn.contains(*pos):
+        if self.cpu_meter_toggle_rect.contains(*local_pos):
+            self._toggle_cpu_meter_visibility()
+            return
+        if self._surge_restart_btn and self._surge_restart_btn.contains(*local_pos):
             ok, message = self.surge_monitor.restart_surge()
             if ok:
                 self._toast(message, 2.5)
                 self._pending_last_patch = None
+                self._layout_settings_content()
             else:
                 self._toast(f"Restart failed: {message}", 3.5)
             return
-        if self._power_btn.contains(*pos):
-            self.screen_state = Screen.POWER_MENU
-            return
-        if self._calibrate_missing_btn.contains(*pos):
+        if self._calibrate_missing_btn.contains(*local_pos):
             self._pending_calibrate_mode = CalibrateMode.MISSING_ONLY
             self.screen_state = Screen.CALIBRATE_CONFIRM
             return
-        if self._calibrate_force_btn.contains(*pos):
+        if self._calibrate_force_btn.contains(*local_pos):
             self._pending_calibrate_mode = CalibrateMode.FORCE_FULL
             self.screen_state = Screen.CALIBRATE_CONFIRM
             return
-        if self.brightness_slider_rect.contains(*pos):
+        slider = self.brightness_slider_rect
+        if slider.contains(*local_pos):
+            screen_slider = self._panel_local_to_screen(slider, scrolled=True)
             now = time.time()
             if (
                 not self._brightness_drag_moved
@@ -1836,7 +2136,14 @@ class TouchPatchBrowser:
             self._brightness_last_tap_time = now
             self._brightness_drag_moved = False
             self._slider_dragging = True
-            self._apply_brightness(self._brightness_from_x(pos[0], self.brightness_slider_rect))
+            self._apply_brightness(self._brightness_from_x(pos[0], screen_slider))
+            return
+
+        scroll_vp = self._settings_scroll_viewport_screen()
+        if scroll_vp.contains(*pos):
+            self._sync_settings_scroll_viewport()
+            self._settings_content_scroll.pointer_down(pos)
+            self._settings_swipe_start = pos
 
     def _handle_power_menu_touch(self, pos: tuple[int, int]) -> None:
         for i, rect in enumerate(self._power_option_rects):
@@ -1909,12 +2216,23 @@ class TouchPatchBrowser:
             self._dragging_mixer_id = None
             self._mixer_drag_origin = None
             self._mixer_drag_moved = False
+            if self.screen_state == Screen.SETTINGS:
+                scrolled = self._settings_content_scroll.pointer_up(event.pos)
+                if (
+                    not scrolled
+                    and not self._slider_dragging
+                    and not self._settings_content_scroll.is_interacting()
+                ):
+                    if not self._settings_panel_contains(event.pos):
+                        self._close_settings_panel()
+                    elif self._settings_swipe_start is not None:
+                        dx = event.pos[0] - self._settings_swipe_start[0]
+                        if dx > 56:
+                            self._close_settings_panel()
+                self._settings_swipe_start = None
             self._slider_dragging = False
             self._brightness_drag_moved = False
-            if self.screen_state == Screen.SETTINGS:
-                if not self.settings_rect.contains(*event.pos):
-                    self.screen_state = Screen.BROWSER
-            elif self.screen_state == Screen.BROWSER:
+            if self.screen_state == Screen.BROWSER:
                 idx = self.nav_list.take_tap_index()
                 if idx is not None:
                     self._select_nav_index(idx)
@@ -1925,7 +2243,13 @@ class TouchPatchBrowser:
                 if not self._brightness_drag_moved:
                     self._brightness_drag_moved = True
                     self._brightness_last_tap_time = 0.0
-                self._apply_brightness(self._brightness_from_x(event.pos[0], self.brightness_slider_rect))
+                screen_slider = self._panel_local_to_screen(
+                    self.brightness_slider_rect, scrolled=True
+                )
+                self._apply_brightness(self._brightness_from_x(event.pos[0], screen_slider))
+            elif self.screen_state == Screen.SETTINGS:
+                self._sync_settings_scroll_viewport()
+                self._settings_content_scroll.pointer_move(event.pos)
             self._handle_mixer_motion(event.pos)
 
     def run(self) -> None:
@@ -1949,6 +2273,9 @@ class TouchPatchBrowser:
                     continue
                 self._handle_event(event)
             dt = max(clock.get_time() / 1000.0, 1.0 / 120.0)
+            self._tick_settings_animation(dt)
+            if self.screen_state == Screen.SETTINGS:
+                self._settings_content_scroll.tick(dt)
             if self.screen_state == Screen.BROWSER and not self.left_nav_collapsed:
                 self.nav_list.tick(dt)
             self._draw()
