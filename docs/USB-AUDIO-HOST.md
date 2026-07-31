@@ -16,7 +16,9 @@ Edit **`/boot/firmware/config.txt`** on the Pi and add:
 dtoverlay=dwc2,dr_mode=peripheral
 ```
 
-Reboot once. This enables the USB-C port as a **device (gadget)** port. Do not enable legacy `g_audio` / `g_midi` modules alongside configfs — the setup script uses **configfs UAC2** only.
+Reboot once. This enables the USB-C port as a **device (gadget)** port.
+
+**Important:** On Pi 4, boot with the **USB-C data cable unplugged** from the host PC. A connected host during early firmware/kernel init can hang the boot splash (four raspberries) before SSH starts. Plug the cable in after the Pi is up (or after `usb-audio-gadget.service` is active). See [PI-BOOT-RECOVERY.md](PI-BOOT-RECOVERY.md). Do not enable legacy `g_audio` / `g_midi` modules alongside configfs — the setup script uses **configfs UAC2** only.
 
 **Pi 4 / Pi 5 only** — Pi 3 has no OTG. Roli and Sound Blaster stay on **USB-A host ports**.
 

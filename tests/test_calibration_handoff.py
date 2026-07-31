@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import os
+import sys
 import unittest
 from pathlib import Path
 from unittest import mock
 
 from patch_browser import calibration_teardown as ct
 from patch_browser.calibration_constants import (
+    CALIBRATION_LOADER_SCRIPT,
     CALIBRATE_WITH_LOADER_SCRIPT,
     MPE_CALIB_FROM_BROWSER,
     REPO_ROOT,
@@ -97,41 +99,42 @@ class CalibrationLoaderLaunchTests(unittest.TestCase):
         self.assertTrue(CALIBRATE_WITH_LOADER_SCRIPT.is_file())
 
     @mock.patch("patch_browser.touch_browser_normalization.os.execv")
-    @mock.patch("patch_browser.touch_browser_normalization.pygame.quit")
-    def test_launch_calibration_loader_uses_repo_root_script(
+    def test_launch_calibration_loader_uses_python_loader(
         self,
-        _quit: mock.Mock,
         execv_mock: mock.Mock,
     ) -> None:
+        self.mixin.screen = mock.Mock()
+        self.mixin.theme = mock.Mock()
         self.mixin._launch_calibration_loader()
         execv_mock.assert_called_once()
         argv = execv_mock.call_args.args[1]
-        self.assertEqual(argv[0], "bash")
-        self.assertEqual(Path(argv[1]), CALIBRATE_WITH_LOADER_SCRIPT)
+        self.assertEqual(argv[0], sys.executable)
+        self.assertEqual(argv[1], "-u")
+        self.assertEqual(Path(argv[2]), CALIBRATION_LOADER_SCRIPT)
         self.assertNotIn("--force", argv)
 
     @mock.patch("patch_browser.touch_browser_normalization.os.execv")
-    @mock.patch("patch_browser.touch_browser_normalization.pygame.quit")
     def test_launch_calibration_loader_force_appends_flag(
         self,
-        _quit: mock.Mock,
         execv_mock: mock.Mock,
     ) -> None:
+        self.mixin.screen = mock.Mock()
+        self.mixin.theme = mock.Mock()
         self.mixin._pending_calibrate_mode = CalibrateMode.FORCE_FULL
         self.mixin._launch_calibration_loader()
         argv = execv_mock.call_args.args[1]
-        self.assertEqual(Path(argv[1]), CALIBRATE_WITH_LOADER_SCRIPT)
+        self.assertEqual(Path(argv[2]), CALIBRATION_LOADER_SCRIPT)
         self.assertEqual(argv[-1], "--force")
 
     @mock.patch("patch_browser.touch_browser_normalization.sys.exit")
     @mock.patch("patch_browser.touch_browser_normalization.os.execv")
-    @mock.patch("patch_browser.touch_browser_normalization.pygame.quit")
     def test_launch_calibration_loader_execv_failure_exits_cleanly(
         self,
-        _quit: mock.Mock,
         execv_mock: mock.Mock,
         exit_mock: mock.Mock,
     ) -> None:
+        self.mixin.screen = mock.Mock()
+        self.mixin.theme = mock.Mock()
         execv_mock.side_effect = OSError("exec failed")
         self.mixin._launch_calibration_loader()
         exit_mock.assert_called_once_with(1)
