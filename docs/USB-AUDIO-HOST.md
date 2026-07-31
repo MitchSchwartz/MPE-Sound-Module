@@ -48,7 +48,27 @@ Reboot once. This enables the USB-C port as a **device (gadget)** port.
    sudo systemctl restart surge-xt-cli.service
    ```
 
-5. On the **host**, select the new playback device (often **“USB Audio Passthrough”** or **“MPE Sound Module”**). Linux: `pavucontrol`; Windows: Sound settings.
+5. On the **host**, select the gadget as a **capture / input / recording** device — **not** playback/output. The Pi sends audio *out* via UAC2; the host receives it on its **input** side (Passthrough). Linux: `pavucontrol` → Recording; Windows: Sound settings → Input.
+
+### Host capture on Linux
+
+List cards:
+
+```bash
+arecord -l
+```
+
+Prefer **hardware** device for capture — `plughw:N,0` has been observed **silent** while `hw:N,0` works (tone test peak ~26267):
+
+```bash
+arecord -D hw:N,0 -f S16_LE -r 44100 -c 2 -d 5 /tmp/mpe-host-capture.wav
+```
+
+**Open issue:** host capture may stay silent while Surge plays user patches even when tone tests work. See **[USB-AUDIO-PASSTHROUGH-SPIKE.md](USB-AUDIO-PASSTHROUGH-SPIKE.md)**.
+
+`speaker-test` on the Pi without a host actively capturing the UAC2 stream may report **I/O error -5** — expected when nothing reads the gadget endpoint.
+
+Pi-side checks: `./scripts/usb-host-verify.sh`
 
 ### Return to analog (gig / couch)
 
@@ -81,10 +101,12 @@ sudo systemctl restart surge-xt-cli.service
 | `scripts/setup-usb-audio-gadget.sh` | Create/bind or tear down configfs UAC2 gadget |
 | `config/usb-audio-gadget.service` | Start gadget at boot when profile is `usb-host` |
 | `scripts/detect-audio-device.sh` | Tier 0: gadget card when profile is `usb-host` |
+| `scripts/usb-host-verify.sh` | Pi-side profile/gadget/Surge checks + host `arecord` hints |
 
 Diagnostics:
 
 ```bash
+./scripts/usb-host-verify.sh
 ./scripts/setup-usb-audio-gadget.sh status
 ./scripts/test-audio-detection.sh
 aplay -l
@@ -106,4 +128,4 @@ System settings (⋯) shows a read-only **Audio profile** line when running the 
 
 ## Status
 
-**Phase 1 scripts landed — Pi hardware spike still required.** See plan doc for Phase 0 exit criteria (10+ min stable playback, latency note, cable matrix).
+**Phase 1 scripts landed — Phase 0 spike documented.** See **[USB-AUDIO-PASSTHROUGH-SPIKE.md](USB-AUDIO-PASSTHROUGH-SPIKE.md)** for measured results (`hw` vs `plughw`, host input vs playback, open capture-during-play issue). Plan doc Phase 0 exit criteria (10+ min stable playback, latency note) still pending soak tests.
