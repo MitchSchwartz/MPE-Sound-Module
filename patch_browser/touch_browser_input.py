@@ -2,15 +2,12 @@
 
 from __future__ import annotations
 
-import subprocess
 import time
 
 import pygame
 
 from patch_browser.dsi_splash import (
-    SplashMode,
-    draw_splash_frame,
-    run_shutdown_animation,
+    run_browser_shutdown_hold,
     stop_getty_tty1,
 )
 from patch_browser.touch_ui_constants import (
@@ -278,28 +275,11 @@ class TouchBrowserInputMixin:
                 if self._evdev_bridge is not None:
                     self._evdev_bridge.stop()
                 stop_getty_tty1()
-                run_shutdown_animation(screen=self.screen)
-                cmd = (
-                    ["sudo", "poweroff"]
-                    if self.power_action == "shutdown"
-                    else ["sudo", "reboot"]
+                run_browser_shutdown_hold(
+                    self.screen,
+                    self.theme,
+                    power_action=self.power_action,
                 )
-                subprocess.Popen(
-                    cmd,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    start_new_session=True,
-                )
-                theme = self.theme
-                clock = pygame.time.Clock()
-                while True:
-                    draw_splash_frame(
-                        self.screen,
-                        mode=SplashMode.SHUTDOWN,
-                        theme=theme,
-                        progress=0.0,
-                    )
-                    clock.tick(10)
         self._clear_modal_pointer()
     def _handle_event(self, event: pygame.event.Event) -> None:
         if event.type == pygame.QUIT:
