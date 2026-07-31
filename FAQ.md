@@ -30,6 +30,10 @@
 
 **A:** A **Creative Sound Blaster Play! 3** USB dongle (SB1730) — not a DAC HAT, no GPIO audio wiring. See `[REFERENCE_BOM.md](REFERENCE_BOM.md)` for the exact part and ASIN. Any USB audio interface with solid ALSA support should work if you adapt the device-detection script in `scripts/detect-audio-device.sh`.
 
+### Q: Can I send audio to my laptop when the Pi is USB-tethered at my desk?
+
+**A:** Yes — optional **`usb-host`** profile routes Surge to a **UAC2 USB gadget** on the Pi’s USB-C port so the host PC sees a normal playback device (no aux cable). Default **`standalone`** profile still uses the Sound Blaster → 3.5 mm path for gig/couch. Setup: **[docs/USB-AUDIO-HOST.md](docs/USB-AUDIO-HOST.md)**. Not low-latency enough to replace headphones on the Sound Blaster for playing feel.
+
 ### Q: Can I use a different display?
 
 **A:** The reference build is a 1.3" I2C OLED (128×64, SH1106/SSD1306). The patch browser UI code assumes that display and one encoder — a different display means adapting `patch_browser_ui.py`, not just swapping hardware.

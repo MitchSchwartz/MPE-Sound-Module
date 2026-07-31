@@ -47,8 +47,11 @@ Full ASCII diagram: [`docs/HARDWARE_WIRING.md`](docs/HARDWARE_WIRING.md)
 | 1 | **microSD** | 32GB+, UHS-I | *(retailer)* | Flash Pi OS Lite; deploy via repo scripts. |
 | 1 | **Pi power supply** | Official 5V 5A (Pi 5) or 3A (Pi 4) | *(retailer)* | Undervoltage = audio glitches. |
 | 1 | **USB cable** | Pi ↔ Roli Seaboard | *(retailer)* | MPE MIDI input. |
+| 1 | **USB-C cable** *(desk kit)* | Host PC ↔ Pi USB-C | *(retailer)* | **Data-capable.** For `MPE_AUDIO_PROFILE=usb-host` — Surge → host speakers without aux. Prefer USB-A → USB-C on Pi 5 + Mac. See `docs/USB-AUDIO-HOST.md`. |
 
-**Audio path:** Surge XT CLI → ALSA → Sound Blaster USB → analog out. No GPIO audio HAT required.
+**Audio path (standalone):** Surge XT CLI → ALSA → Sound Blaster USB → analog out. No GPIO audio HAT required.
+
+**Audio path (usb-host, optional):** Surge XT CLI → ALSA → UAC2 gadget → USB-C → host PC.
 
 ---
 
