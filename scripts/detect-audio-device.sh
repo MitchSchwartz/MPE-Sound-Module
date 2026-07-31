@@ -12,6 +12,8 @@
 #   0 - Success, device found
 #   1 - Error, no devices available
 
+set -euo pipefail
+
 SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")" && pwd)"
 # shellcheck source=lib/paths.sh
 source "$SCRIPT_DIR/lib/paths.sh"
@@ -26,7 +28,7 @@ if [ ! -f "$SURGE_CLI" ]; then
 fi
 
 # Get all output devices from surge
-DEVICE_LIST=$("$SURGE_CLI" --list-devices 2>&1 | grep "Output Audio Device")
+DEVICE_LIST=$("$SURGE_CLI" --list-devices 2>&1 | grep "Output Audio Device" || true)
 
 if [ -z "$DEVICE_LIST" ]; then
     echo "ERROR: No audio devices found by surge-xt-cli --list-devices" >&2
@@ -43,7 +45,7 @@ extract_device_id() {
 get_device_name() {
     local device_id="$1"
     # Extract everything after the ] and before the first ;
-    echo "$DEVICE_LIST" | grep "\[$device_id\]" | sed 's/.*\] : //' | sed 's/;.*//' | head -1
+    echo "$DEVICE_LIST" | grep "\[$device_id\]" | sed 's/.*\] : //' | sed 's/;.*//' | head -1 || true
 }
 
 # ============================================================================
@@ -54,7 +56,7 @@ if [ "$AUDIO_PROFILE" = "usb-host" ]; then
         grep -iE "(UAC2|Gadget|USB Audio Passthrough|MPE Sound Module)" | \
         grep -v "Direct hardware" | \
         grep -v "Direct sample mixing" | \
-        head -1)
+        head -1 || true)
 
     if [ -n "$DEVICE" ]; then
         DEVICE_ID=$(extract_device_id "$DEVICE")
@@ -77,7 +79,7 @@ fi
 DEVICE=$(echo "$DEVICE_LIST" | \
     grep "Sound Blaster Play! 3" | \
     grep "Front output" | \
-    head -1)
+    head -1 || true)
 
 # If no "Front output", try excluding problematic variants
 if [ -z "$DEVICE" ]; then
@@ -88,7 +90,7 @@ if [ -z "$DEVICE" ]; then
         grep -v "USB Stream" | \
         grep -v "Direct hardware" | \
         grep -v "Direct sample mixing" | \
-        head -1)
+        head -1 || true)
 fi
 
 if [ -n "$DEVICE" ]; then
@@ -112,7 +114,7 @@ DEVICE=$(echo "$DEVICE_LIST" | \
     grep -v "S/PDIF" | \
     grep -v "HDMI" | \
     grep -v "Stream" | \
-    head -1)
+    head -1 || true)
 
 if [ -n "$DEVICE" ]; then
     DEVICE_ID=$(extract_device_id "$DEVICE")
@@ -133,7 +135,7 @@ fi
 DEVICE=$(echo "$DEVICE_LIST" | \
     grep -E "(Headphones|bcm2835|vc4-hdmi)" | \
     grep -v "HDMI" | \
-    head -1)
+    head -1 || true)
 
 if [ -n "$DEVICE" ]; then
     DEVICE_ID=$(extract_device_id "$DEVICE")
