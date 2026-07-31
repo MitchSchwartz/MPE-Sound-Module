@@ -23,6 +23,23 @@ fi
 
 MPE_MODULE_REPO="${MPE_MODULE_REPO:-$_MPE_MODULE_ROOT}"
 
+# systemd runs some oneshots as root; honor Pi user home for Surge/logs when set.
+mpe_apply_pi_home() {
+    if [ -n "${MPE_HOME:-}" ]; then
+        export HOME="$MPE_HOME"
+        return 0
+    fi
+    local u="${MPE_PI_USER:-}"
+    if [ -z "$u" ] && [ -f /etc/mpe/mpe.env ]; then
+        u="$(grep -E '^MPE_PI_USER=' /etc/mpe/mpe.env 2>/dev/null | cut -d= -f2- | tr -d '"' || true)"
+    fi
+    if [ "$(id -un 2>/dev/null || true)" = root ] && [ -n "$u" ] && [ -d "/home/$u" ]; then
+        export HOME="/home/$u"
+    fi
+}
+
+mpe_apply_pi_home
+
 MPE_PERSONAL_REPO="${MPE_PERSONAL_REPO:-}"
 if [ -n "$MPE_PERSONAL_REPO" ] && [ -d "$MPE_PERSONAL_REPO" ]; then
     MPE_PERSONAL_REPO="$(cd "$MPE_PERSONAL_REPO" && pwd)"

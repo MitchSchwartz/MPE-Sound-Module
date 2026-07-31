@@ -28,6 +28,13 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
 from patch_browser.calibration_teardown import restore_mpe_audio_services  # noqa: E402
+from patch_browser.dsi_splash import (
+    CAL_RETURN_HOLD_SECONDS,
+    SplashMode,
+    draw_splash_frame,
+    paint_immediate,
+    start_boot_splash_service,
+)
 from patch_browser.geometry import Rect  # noqa: E402
 from patch_browser.ui_text import (
     draw_wrapped_text_in_rect,
@@ -194,21 +201,36 @@ def _write_loader_exit_report(state: LoaderState, *, subprocess_code: int | None
 
 
 class CalibrationLoaderApp:
-    def __init__(self, calibrate_args: list[str]) -> None:
-        pygame.init()
-        pygame.display.set_caption("Patch Calibration")
-        windowed = os.environ.get("MPE_TOUCH_WINDOWED") == "1"
-        if windowed:
-            self.screen = pygame.display.set_mode((800, 480))
+    def __init__(
+        self,
+        calibrate_args: list[str],
+        *,
+        preopened_screen: "pygame.Surface | None" = None,
+    ) -> None:
+        if preopened_screen is not None:
+            self.screen = preopened_screen
+            self.width, self.height = self.screen.get_size()
         else:
-            self.screen = pygame.display.set_mode((800, 480), pygame.FULLSCREEN)
-        self.width, self.height = self.screen.get_size()
+            pygame.init()
+            pygame.display.set_caption("Patch Calibration")
+            windowed = os.environ.get("MPE_TOUCH_WINDOWED") == "1"
+            if windowed:
+                self.screen = pygame.display.set_mode((800, 480))
+            else:
+                self.screen = pygame.display.set_mode((800, 480), pygame.FULLSCREEN)
+            self.width, self.height = self.screen.get_size()
         pygame.mouse.set_visible(False)
 
         self.theme = theme_for_mode(load_theme_mode_from_prefs())
         self.font_title = _load_font(32)
         self.font_md = _load_font(22)
         self.font_sm = _load_font(18)
+        draw_splash_frame(
+            self.screen,
+            mode=SplashMode.CAL_ENTER,
+            theme=self.theme,
+            progress=0.05,
+        )
 
         self.state = LoaderState()
         self._started_at = time.monotonic()
@@ -445,7 +467,16 @@ class CalibrationLoaderApp:
                 exit_code = self.reader.join()
             if exit_code not in (0, 130):
                 _write_loader_exit_report(self.state, subprocess_code=exit_code)
+            draw_splash_frame(
+                self.screen,
+                mode=SplashMode.CAL_RETURN,
+                theme=self.theme,
+                progress=1.0,
+            )
+            time.sleep(CAL_RETURN_HOLD_SECONDS)
             pygame.quit()
+            if not os.environ.get("MPE_TOUCH_WINDOWED") == "1" and not os.environ.get("DISPLAY"):
+                start_boot_splash_service()
             # Release kmsdrm before touch-patch-browser claims the display.
             restore_mpe_audio_services()
 
@@ -457,7 +488,16 @@ def main(argv: list[str] | None = None) -> int:
     if not CALIBRATE_SCRIPT.is_file():
         print(f"Missing calibrator: {CALIBRATE_SCRIPT}", file=sys.stderr)
         return 1
-    return CalibrationLoaderApp(args).run()
+
+    preopened: pygame.Surface | None = None
+    windowed = os.environ.get("MPE_TOUCH_WINDOWED") == "1"
+    if not windowed and not os.environ.get("DISPLAY"):
+        try:
+            preopened, _ = paint_immediate(mode=SplashMode.CAL_ENTER)
+        except RuntimeError:
+            preopened = None
+
+    return CalibrationLoaderApp(args, preopened_screen=preopened).run()
 
 
 if __name__ == "__main__":

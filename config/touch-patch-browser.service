@@ -1,7 +1,7 @@
 [Unit]
 Description=Touch Patch Browser UI for 5 inch DSI Display
-After=surge-xt-cli.service
-Wants=surge-xt-cli.service
+After=surge-xt-cli.service touch-boot-animation.service
+Wants=surge-xt-cli.service touch-boot-animation.service
 Conflicts=patch-browser.service
 
 [Service]
@@ -11,11 +11,10 @@ WorkingDirectory=@MPE_MODULE_REPO@
 EnvironmentFile=-/etc/mpe/mpe.env
 Environment=SDL_VIDEODRIVER=kmsdrm
 Environment=SDL_MOUSE_TOUCH_EVENTS=1
-ExecStartPre=/bin/sleep 3
 ExecStart=@MPE_MODULE_REPO@/scripts/start-touch-patch-browser.sh
 Restart=on-failure
 RestartSec=5
-StandardOutput=journal
+StandardOutput=null
 StandardError=journal
 
 [Install]

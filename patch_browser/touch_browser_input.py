@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
-import subprocess
 import time
 
 import pygame
 
+from patch_browser.dsi_splash import (
+    run_browser_shutdown_hold,
+    stop_getty_tty1,
+)
 from patch_browser.touch_ui_constants import (
     DEFAULT_BRIGHTNESS_PERCENT,
     MIXER_DOUBLE_TAP_MS,
@@ -269,12 +272,14 @@ class TouchBrowserInputMixin:
             if self._modal_pending_index == 0:
                 self.screen_state = Screen.POWER_MENU
             else:
-                cmd = (
-                    ["sudo", "poweroff"]
-                    if self.power_action == "shutdown"
-                    else ["sudo", "reboot"]
+                if self._evdev_bridge is not None:
+                    self._evdev_bridge.stop()
+                stop_getty_tty1()
+                run_browser_shutdown_hold(
+                    self.screen,
+                    self.theme,
+                    power_action=self.power_action,
                 )
-                subprocess.run(cmd, check=False)
         self._clear_modal_pointer()
     def _handle_event(self, event: pygame.event.Event) -> None:
         if event.type == pygame.QUIT:
