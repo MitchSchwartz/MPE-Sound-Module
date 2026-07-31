@@ -28,6 +28,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
 from patch_browser.calibration_teardown import restore_mpe_audio_services  # noqa: E402
+from patch_browser.geometry import Rect  # noqa: E402
 from patch_browser.ui_text import (
     draw_wrapped_text_in_rect,
     text_block_height,
@@ -41,21 +42,6 @@ CANCEL_BTN_W = 160
 CANCEL_BTN_H = 44
 LOADER_STDERR_LOG = Path("/tmp/calibration-loader.stderr")
 LOADER_FAILURE_REPORT = Path("/tmp/calibration-loader-last-exit.json")
-
-
-@dataclass
-class Rect:
-    x: int
-    y: int
-    w: int
-    h: int
-
-    @property
-    def pygame_rect(self) -> pygame.Rect:
-        return pygame.Rect(self.x, self.y, self.w, self.h)
-
-    def contains(self, px: int, py: int) -> bool:
-        return self.x <= px < self.x + self.w and self.y <= py < self.y + self.h
 
 
 @dataclass
