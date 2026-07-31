@@ -262,5 +262,5 @@ def log_missing_normalization_summary(
     else:
         print(
             f"Patch normalization: {missing_count} of {total} patches missing calibration "
-            f"(run scripts/calibrate-patch-normalization.py --favorites-only)"
+            f"(run scripts/calibrate-patch-normalization.py or System → Calibrate missing patches)"
         )

@@ -80,6 +80,13 @@ class Screen(Enum):
     POWER_CONFIRM = auto()
 
 
+class CalibrateMode(Enum):
+    """Which normalization calibration scope to run from System settings."""
+
+    MISSING_ONLY = auto()
+    FORCE_FULL = auto()
+
+
 class LeftNavMode(Enum):
     FOLDERS = auto()
     PATCHES = auto()
@@ -487,6 +494,7 @@ class TouchPatchBrowser:
         self.toast_message = ""
         self.toast_until = 0.0
         self.power_action: str | None = None
+        self._pending_calibrate_mode: CalibrateMode = CalibrateMode.MISSING_ONLY
         self._slider_dragging = False
         self._dragging_mixer_id: str | None = None
         self._mixer_levels: dict[str, float] = {}
@@ -669,7 +677,7 @@ class TouchPatchBrowser:
         self._layout_nav_buttons()
 
         settings_w = min(420, self.width - margin * 2)
-        settings_h = min(420, self.height - margin * 2)
+        settings_h = min(520, self.height - margin * 2)
         self.settings_rect = Rect(
             (self.width - settings_w) // 2,
             (self.height - settings_h) // 2,
@@ -1189,6 +1197,50 @@ class TouchPatchBrowser:
             cy = box.y + (box.h - check.get_height()) // 2 - 1
             self.screen.blit(check, (cx, cy))
 
+    def _calibration_scope_stats(self, mode: CalibrateMode) -> tuple[int, int]:
+        """Return (target_count, total_in_scope) for confirm modal duration hints."""
+        with self._scan_lock:
+            names: list[str] = []
+            seen: set[str] = set()
+            for patches in self.scanner.patches.values():
+                for patch in patches:
+                    stem = Path(patch["path"]).stem
+                    if stem not in seen:
+                        seen.add(stem)
+                        names.append(stem)
+        store = self.loader.normalization
+        total = len(names)
+        if mode == CalibrateMode.FORCE_FULL:
+            return total, total
+        missing = store.list_missing(names)
+        return len(missing), total
+
+    def _calibration_duration_hint(self, targets: int) -> str:
+        if targets <= 0:
+            return "Nothing to calibrate — all patches already have entries."
+        seconds = targets * 4.5
+        if seconds < 60:
+            return f"Approx. {int(seconds)} sec ({targets} patch(es))."
+        return f"Approx. {seconds / 60.0:.0f} min ({targets} patch(es))."
+
+    def _calibration_mode_label(self, mode: CalibrateMode) -> str:
+        if mode == CalibrateMode.FORCE_FULL:
+            return "Force full normalization"
+        return "Normalize missing only"
+
+    def _calibration_mode_description(self, mode: CalibrateMode, targets: int, total: int) -> str:
+        if mode == CalibrateMode.FORCE_FULL:
+            return (
+                f"Re-measure loudness for all {total} patches in the library "
+                "(overwrites existing gain_db entries)."
+            )
+        if targets == 0:
+            return "Every scanned patch already has a gain_db entry."
+        return (
+            f"Calibrate {targets} patch(es) missing gain_db entries "
+            f"({total - targets} already done)."
+        )
+
     def _toggle_favorites(self) -> None:
         if not self.detail_patch:
             return
@@ -1566,8 +1618,15 @@ class TouchPatchBrowser:
         self._power_btn = Rect(self.settings_rect.x + 24, btn_y, self.settings_rect.w - 48, 44)
         self._draw_button(self._power_btn, "Power…", muted=True)
         btn_y += 52
-        self._calibrate_btn = Rect(self.settings_rect.x + 24, btn_y, self.settings_rect.w - 48, 44)
-        self._draw_button(self._calibrate_btn, "Calibrate Quick Select")
+        self._calibrate_missing_btn = Rect(
+            self.settings_rect.x + 24, btn_y, self.settings_rect.w - 48, 44
+        )
+        self._draw_button(self._calibrate_missing_btn, "Calibrate missing patches")
+        btn_y += 52
+        self._calibrate_force_btn = Rect(
+            self.settings_rect.x + 24, btn_y, self.settings_rect.w - 48, 44
+        )
+        self._draw_button(self._calibrate_force_btn, "Force full re-calibration", muted=True)
         btn_y += 52
         self._close_settings_btn = Rect(self.settings_rect.x + 24, btn_y, self.settings_rect.w - 48, 48)
         self._draw_button(self._close_settings_btn, "Close")
@@ -1620,39 +1679,56 @@ class TouchPatchBrowser:
         overlay.fill((0, 0, 0, 190))
         self.screen.blit(overlay, (0, 0))
 
-        panel_w = min(460, self.width - 48)
-        panel_h = 260
+        mode = self._pending_calibrate_mode
+        targets, total = self._calibration_scope_stats(mode)
+        title = self._calibration_mode_label(mode)
+
+        panel_w = min(520, self.width - 48)
+        panel_h = 300
         panel = Rect((self.width - panel_w) // 2, (self.height - panel_h) // 2, panel_w, panel_h)
         pygame.draw.rect(self.screen, self.theme.surface, panel.pygame_rect, border_radius=16)
 
         self.screen.blit(
-            self.font_md.render("Calibrate Quick Select?", True, self.theme.text),
-            (panel.x + 24, panel.y + 20),
+            self.font_md.render(f"{title}?", True, self.theme.text),
+            (panel.x + 24, panel.y + 18),
         )
-        hint = self.font_sm.render(
-            "Measures loudness per patch (~1 min). Do not touch during run.",
-            True,
-            self.theme.muted,
-        )
-        self.screen.blit(hint, (panel.x + 24, panel.y + 58))
 
-        self._calibrate_confirm_no = Rect(panel.x + 24, panel.y + 140, (panel.w - 60) // 2, 52)
+        y = panel.y + 56
+        for line in (
+            self._calibration_mode_description(mode, targets, total),
+            "Touch browser will stop; loader takes over the display.",
+            self._calibration_duration_hint(targets),
+            "Do not touch the screen during measurement.",
+        ):
+            hint = self.font_sm.render(line[:58], True, self.theme.muted)
+            self.screen.blit(hint, (panel.x + 24, y))
+            y += 26
+
+        self._calibrate_confirm_no = Rect(panel.x + 24, panel.y + 220, (panel.w - 60) // 2, 52)
         self._calibrate_confirm_yes = Rect(
             self._calibrate_confirm_no.x + self._calibrate_confirm_no.w + 12,
-            panel.y + 140,
+            panel.y + 220,
             (panel.w - 60) // 2,
             52,
         )
+        start_disabled = mode == CalibrateMode.MISSING_ONLY and targets == 0
         self._draw_button(self._calibrate_confirm_no, "Cancel", accent=True)
-        self._draw_button(self._calibrate_confirm_yes, "Start")
+        self._draw_button(
+            self._calibrate_confirm_yes,
+            "Start",
+            muted=start_disabled,
+        )
 
     def _launch_calibration_loader(self) -> None:
         repo = Path(__file__).resolve().parent
         script = repo / "scripts" / "calibrate-with-loader.sh"
+        args = ["bash", str(script)]
+        if self._pending_calibrate_mode == CalibrateMode.FORCE_FULL:
+            args.append("--force")
         if self._evdev_bridge is not None:
             self._evdev_bridge.stop()
         pygame.quit()
-        os.execv("/bin/bash", ["bash", str(script), "--favorites-only"])
+        os.execv("/bin/bash", args)
 
     def _draw_toast(self) -> None:
         if time.time() > self.toast_until or not self.toast_message:
@@ -1737,7 +1813,12 @@ class TouchPatchBrowser:
         if self._power_btn.contains(*pos):
             self.screen_state = Screen.POWER_MENU
             return
-        if self._calibrate_btn.contains(*pos):
+        if self._calibrate_missing_btn.contains(*pos):
+            self._pending_calibrate_mode = CalibrateMode.MISSING_ONLY
+            self.screen_state = Screen.CALIBRATE_CONFIRM
+            return
+        if self._calibrate_force_btn.contains(*pos):
+            self._pending_calibrate_mode = CalibrateMode.FORCE_FULL
             self.screen_state = Screen.CALIBRATE_CONFIRM
             return
         if self.brightness_slider_rect.contains(*pos):
@@ -1773,6 +1854,11 @@ class TouchPatchBrowser:
         if self._calibrate_confirm_no.contains(*pos):
             self.screen_state = Screen.SETTINGS
         elif self._calibrate_confirm_yes.contains(*pos):
+            targets, _ = self._calibration_scope_stats(self._pending_calibrate_mode)
+            if self._pending_calibrate_mode == CalibrateMode.MISSING_ONLY and targets == 0:
+                self._toast("All patches already calibrated", 2.5)
+                self.screen_state = Screen.SETTINGS
+                return
             self._launch_calibration_loader()
 
     def _handle_power_confirm_touch(self, pos: tuple[int, int]) -> None:
