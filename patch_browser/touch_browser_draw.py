@@ -2,40 +2,18 @@
 
 from __future__ import annotations
 
-import json
-import math
-import os
-import queue
-import subprocess
-import threading
 import time
-from pathlib import Path
 
 import pygame
 
-from patch_browser.calibration_constants import (
-    MPE_CALIB_FROM_BROWSER,
-    MPE_CALIB_FROM_BROWSER_ACTIVE,
-)
+from patch_browser.draw_primitives import draw_chevron, draw_sidebar_panel_icon
 from patch_browser.geometry import Rect
 from patch_browser.mixer import MixerChannel
-from patch_browser.patch_scanner import FAVORITES_NAME, favorites_display_name
-from patch_browser.scroll_widgets import ContentScrollArea, ScrollList
 from patch_browser.touch_ui_constants import *
 from patch_browser.touch_ui_enums import (
     CalibrateMode,
     LeftNavMode,
-    Screen,
     audio_profile_display,
-)
-from patch_browser.ui_prefs import (
-    load_ui_preference,
-    load_volume_level,
-    read_ui_prefs_file,
-    save_theme_mode,
-    save_ui_preference,
-    save_volume_level,
-    write_ui_prefs_file,
 )
 from patch_browser.ui_text import (
     blit_text_block,
@@ -43,9 +21,8 @@ from patch_browser.ui_text import (
     ellipsize_text,
     text_block_height,
     wrap_text_lines,
-    wrapped_row_height,
 )
-from patch_browser.ui_theme import THEME_MODE_OLED_BLACK, THEME_MODE_STANDARD, Theme
+from patch_browser.ui_theme import THEME_MODE_OLED_BLACK
 
 
 class TouchBrowserDrawMixin:
@@ -76,59 +53,11 @@ class TouchBrowserDrawMixin:
         pygame.draw.rect(self.screen, color, rect.pygame_rect, border_radius=8)
         icon_color = (255, 255, 255) if accent else self.theme.text
         if icon == "back":
-            self._draw_chevron(self.screen, rect, icon_color, direction="left")
+            draw_chevron(self.screen, rect, icon_color, direction="left")
         elif icon == "panel_close":
-            self._draw_sidebar_panel_icon(self.screen, rect, icon_color, panel_open=True)
+            draw_sidebar_panel_icon(self.screen, rect, icon_color, panel_open=True)
         elif icon == "panel_open":
-            self._draw_sidebar_panel_icon(self.screen, rect, icon_color, panel_open=False)
-    def _draw_sidebar_panel_icon(
-        surface: pygame.Surface,
-        rect: Rect,
-        color: tuple[int, int, int],
-        *,
-        panel_open: bool,
-    ) -> None:
-        """Sidebar panel open/close — split layout icon (not a plain back chevron)."""
-        pad = 6
-        ix = rect.x + pad
-        iy = rect.y + (rect.h - 14) // 2
-        iw = max(18, rect.w - pad * 2)
-        ih = 14
-        split_x = ix + max(6, int(iw * 0.36))
-
-        frame = pygame.Rect(ix, iy, iw, ih)
-        pygame.draw.rect(surface, color, frame, width=2, border_radius=2)
-        pygame.draw.line(surface, color, (split_x, iy + 2), (split_x, iy + ih - 2), 2)
-
-        cy = iy + ih // 2
-        if panel_open:
-            sidebar = pygame.Rect(ix + 2, iy + 2, split_x - ix - 3, ih - 4)
-            pygame.draw.rect(surface, color, sidebar, border_radius=1)
-            cx = split_x + (ix + iw - split_x) // 2 + 1
-            for dx in (4, 9):
-                points = [(cx + dx, cy - 4), (cx + dx - 4, cy), (cx + dx, cy + 4)]
-                pygame.draw.lines(surface, color, False, points, 2)
-        else:
-            strip_w = max(4, int(iw * 0.14))
-            strip = pygame.Rect(ix + 2, iy + 2, strip_w, ih - 4)
-            pygame.draw.rect(surface, color, strip, border_radius=1)
-            cx = ix + strip_w + (iw - strip_w) // 2
-            for dx in (-4, -9):
-                points = [(cx + dx, cy - 4), (cx + dx + 4, cy), (cx + dx, cy + 4)]
-                pygame.draw.lines(surface, color, False, points, 2)
-    def _draw_chevron(
-        surface: pygame.Surface,
-        rect: Rect,
-        color: tuple[int, int, int],
-        *,
-        direction: str,
-    ) -> None:
-        cx, cy = rect.centerx, rect.centery
-        if direction == "left":
-            points = [(cx + 5, cy - 8), (cx - 5, cy), (cx + 5, cy + 8)]
-        else:
-            points = [(cx - 5, cy - 8), (cx + 5, cy), (cx - 5, cy + 8)]
-        pygame.draw.lines(surface, color, False, points, 3)
+            draw_sidebar_panel_icon(self.screen, rect, icon_color, panel_open=False)
     def _draw_modal_backdrop(self, legacy_alpha: int = 150) -> None:
         alpha = self.theme.backdrop_alpha if self.theme.backdrop_alpha is not None else legacy_alpha
         overlay = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
