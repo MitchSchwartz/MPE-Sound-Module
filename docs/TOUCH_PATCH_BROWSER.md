@@ -157,9 +157,9 @@ This adds `console=serial0,115200 fbcon=map:0` to `/boot/firmware/cmdline.txt` a
 
 **Calibration handoff:** the browser paints **Starting calibration…**, flips, and `exec`s `calibration_loader.py`. The loader paints on its first frame (`paint_immediate`) before heavy init. On exit it shows **Returning to patch browser…**, re-arms `touch-boot-animation`, then async-restarts the browser.
 
-**Shutdown:** Power menu confirm runs an in-app shutdown splash (~3 s), stops `getty@tty1`, spawns `poweroff`/`reboot`, and holds the shutdown frame until halt. `touch-shutdown-animation.service` covers systemd halt/reboot paths with `--hold`.
+**Shutdown:** Power menu confirm stops `getty@tty1`, calls `systemctl poweroff` / `systemctl reboot` (systemd owns the transaction — see `systemd.special(7)`), and holds the shutdown splash until the process is killed. The splash **never** returns to the patch browser on SIGTERM or timeout. `touch-shutdown-animation.service` covers non-UI halt/reboot with `--hold` and `TimeoutStopSec=infinity`.
 
-**Shutdown timing:** MPE units use bounded `TimeoutStopSec` (Surge 15 s, browser/gadget 10 s, shutdown splash 30 s) so a stuck service cannot block poweroff for minutes. The splash exits on SIGTERM instead of waiting forever. After a test shutdown, on the next boot run `./scripts/shutdown-analyze-last.sh` to compare `Stopping`/`Stopped` lines in the previous boot journal and `/tmp/mpe-shutdown-splash.log`.
+**Shutdown timing:** User services (Surge, browser, gadget) use bounded `TimeoutStopSec` so a stuck daemon cannot block poweroff for minutes. The shutdown splash unit is **not** bounded — it stays up until power is cut. After a test shutdown, on the next boot run `./scripts/shutdown-analyze-last.sh` to compare `Stopping`/`Stopped` lines in the previous boot journal and `/tmp/mpe-shutdown-splash.log`.
 
 Implementation: `patch_browser/dsi_splash.py`, `touch_boot_splash.py`, `touch_shutdown_splash.py`, `scripts/apply-dsi-cmdline.sh`. OLED builds keep `boot-animation.service` / `shutdown-animation.service`.
 

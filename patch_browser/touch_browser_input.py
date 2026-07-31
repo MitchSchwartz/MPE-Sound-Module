@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 import time
 
 import pygame
@@ -274,12 +275,15 @@ class TouchBrowserInputMixin:
             else:
                 if self._evdev_bridge is not None:
                     self._evdev_bridge.stop()
+                self._running = False
                 stop_getty_tty1()
                 run_browser_shutdown_hold(
                     self.screen,
                     self.theme,
                     power_action=self.power_action,
                 )
+                # Hold loop only returns if poweroff never kills this process.
+                sys.exit(0)
         self._clear_modal_pointer()
     def _handle_event(self, event: pygame.event.Event) -> None:
         if event.type == pygame.QUIT:
