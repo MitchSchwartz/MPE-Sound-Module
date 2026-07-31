@@ -13,8 +13,15 @@
 #   2. Check logs: sudo journalctl -u surge-xt-cli -f
 #   3. Verify service restarted: systemctl status surge-xt-cli
 
-# Restart Surge XT CLI when USB audio devices connect
-ACTION=="add", SUBSYSTEM=="sound", KERNEL=="card[0-9]*", ATTRS{id}!="vc4hdmi*", RUN+="/bin/systemctl restart surge-xt-cli.service"
+# Skip HDMI and USB gadget passthrough card (bind/unbind via usb-audio-gadget.service)
+ACTION=="add|remove", SUBSYSTEM=="sound", KERNEL=="card[0-9]*", ATTR{id}=="vc4hdmi*", GOTO="mpe_usb_audio_end"
+ACTION=="add|remove", SUBSYSTEM=="sound", KERNEL=="card[0-9]*", ATTR{id}=="UAC2Gadget", GOTO="mpe_usb_audio_end"
+ACTION=="add|remove", SUBSYSTEM=="sound", KERNEL=="card[0-9]*", ATTR{id}=="UAC2", GOTO="mpe_usb_audio_end"
 
-# Restart Surge XT CLI when USB audio devices disconnect
-ACTION=="remove", SUBSYSTEM=="sound", KERNEL=="card[0-9]*", ATTRS{id}!="vc4hdmi*", RUN+="/bin/systemctl restart surge-xt-cli.service"
+# Restart Surge XT CLI when external USB audio devices connect
+ACTION=="add", SUBSYSTEM=="sound", KERNEL=="card[0-9]*", RUN+="/bin/systemctl restart surge-xt-cli.service"
+
+# Restart Surge XT CLI when external USB audio devices disconnect
+ACTION=="remove", SUBSYSTEM=="sound", KERNEL=="card[0-9]*", RUN+="/bin/systemctl restart surge-xt-cli.service"
+
+LABEL="mpe_usb_audio_end"

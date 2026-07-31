@@ -3,8 +3,9 @@
 ## Active Production Scripts
 
 ### Core System Scripts
-- **start-surge-cli.sh** - Primary Surge XT CLI startup with 4-tier audio detection
-- **detect-audio-device.sh** - Robust audio device fallback (USB DAC → Pi headphone jack → any device)
+- **start-surge-cli.sh** - Primary Surge XT CLI startup with tiered audio detection
+- **detect-audio-device.sh** - Audio fallback (gadget → USB DAC → Pi headphone → any device)
+- **setup-usb-audio-gadget.sh** - Configfs UAC2 gadget for `MPE_AUDIO_PROFILE=usb-host`
 - **surge-watchdog.sh** - Automatic crash recovery and service restart
 - **start-patch-browser.sh** - Launch patch browser UI service
 - **start-touch-patch-browser.sh** - Launch SmartiPi touch patch browser (pygame + KMS)
@@ -28,6 +29,7 @@
 ### Setup Scripts
 - **setup-power-button.sh** - Configure GPIO power button (8-second hold to shutdown)
 - **setup-touch-pi.sh** - SmartiPi touch Pi: apt deps, udev rules, `MPE_UI_MODE=touch` services
+- **setup-usb-audio-gadget.sh** - UAC2 USB audio gadget bind/unbind (desk tether profile)
 
 ---
 

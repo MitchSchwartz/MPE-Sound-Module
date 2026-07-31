@@ -99,6 +99,13 @@ class LeftNavMode(Enum):
     PATCHES = auto()
 
 
+def _audio_profile_display() -> str:
+    profile = os.environ.get("MPE_AUDIO_PROFILE", "standalone").strip().lower()
+    if profile == "usb-host":
+        return "Audio profile: USB host (gadget)"
+    return "Audio profile: Analog (standalone)"
+
+
 from patch_browser.ui_text import (
     blit_text_block,
     draw_wrapped_text_in_rect,
@@ -946,7 +953,16 @@ class TouchPatchBrowser:
 
         norm_h = self._settings_row_height("Patch normalization", inner_w, toggle=True)
         self.norm_global_toggle_rect = Rect(pad, y, inner_w, norm_h)
-        y += norm_h + SETTINGS_ROW_GAP + 4
+        y += norm_h + SETTINGS_ROW_GAP
+
+        audio_profile_lines = wrap_text_lines(
+            self.font_sm,
+            _audio_profile_display(),
+            inner_w - 8,
+            max_lines=1,
+        )
+        self._settings_audio_profile_y = y
+        y += text_block_height(self.font_sm, len(audio_profile_lines), line_spacing=2) + 8
 
         self._settings_status_y = y
         status = self.surge_monitor.get_status_summary()
@@ -2088,6 +2104,23 @@ class TouchPatchBrowser:
             self.loader.normalization.is_globally_enabled(),
             has_gain=True,
             label="Patch normalization",
+        )
+
+        audio_y = panel.y + self._settings_audio_profile_y - scroll
+        audio_lines = wrap_text_lines(
+            self.font_sm,
+            _audio_profile_display(),
+            self.settings_panel_rect.w - 48,
+            max_lines=1,
+        )
+        blit_text_block(
+            self.screen,
+            self.font_sm,
+            audio_lines,
+            content_x + 20,
+            audio_y,
+            self.theme.muted,
+            line_spacing=2,
         )
 
         status = self.surge_monitor.get_status_summary()

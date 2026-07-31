@@ -4,6 +4,10 @@
 #
 # Usage: detect-audio-device.sh [path-to-surge-xt-cli]
 #
+# Tier 0 (usb-host profile): UAC2 gadget → tethered host PC
+# Tier 1: Sound Blaster Play! 3 (standalone default)
+# Tier 2–4: generic USB, Pi headphone, last resort
+#
 # Exit codes:
 #   0 - Success, device found
 #   1 - Error, no devices available
@@ -13,6 +17,7 @@ SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")" && 
 source "$SCRIPT_DIR/lib/paths.sh"
 
 SURGE_CLI="${1:-$SURGE_CLI}"
+AUDIO_PROFILE="${MPE_AUDIO_PROFILE:-standalone}"
 
 # Verify surge CLI exists
 if [ ! -f "$SURGE_CLI" ]; then
@@ -40,6 +45,30 @@ get_device_name() {
     # Extract everything after the ] and before the first ;
     echo "$DEVICE_LIST" | grep "\[$device_id\]" | sed 's/.*\] : //' | sed 's/;.*//' | head -1
 }
+
+# ============================================================================
+# TIER 0: USB audio gadget (usb-host profile only)
+# ============================================================================
+if [ "$AUDIO_PROFILE" = "usb-host" ]; then
+    DEVICE=$(echo "$DEVICE_LIST" | \
+        grep -iE "(UAC2|Gadget|USB Audio Passthrough|MPE Sound Module)" | \
+        grep -v "Direct hardware" | \
+        grep -v "Direct sample mixing" | \
+        head -1)
+
+    if [ -n "$DEVICE" ]; then
+        DEVICE_ID=$(extract_device_id "$DEVICE")
+        if [ -n "$DEVICE_ID" ]; then
+            DEVICE_NAME=$(get_device_name "$DEVICE_ID")
+            echo "DEVICE_ID=$DEVICE_ID"
+            echo "DEVICE_NAME=$DEVICE_NAME"
+            echo "TIER=0"
+            echo "REASON=USB audio gadget (host passthrough, usb-host profile)" >&2
+            exit 0
+        fi
+    fi
+    echo "REASON=usb-host profile set but no gadget ALSA device found — falling back" >&2
+fi
 
 # ============================================================================
 # TIER 1: Preferred USB DAC (Sound Blaster Play! 3)

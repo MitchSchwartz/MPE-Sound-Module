@@ -5,7 +5,7 @@
 **GitHub:** [Issue #6](https://github.com/MitchSchwartz/MPE-Sound-Module/issues/6) — USB audio to host when tethered  
 **Related (separate scope):** [Issue #4](https://github.com/MitchSchwartz/MPE-Sound-Module/issues/4) — external line-in through Surge FX
 
-**Status:** Plan only — no Pi implementation in this document.
+**Status:** Phase 1 scripts landed — Pi spike pending.
 
 ---
 
