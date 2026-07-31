@@ -31,6 +31,7 @@ SHUTDOWN_SECONDS = 3.0
 SHUTDOWN_HOLD_MAX_SECONDS = 120.0
 SHUTDOWN_SLOW_HINT_SECONDS = 15.0
 SHUTDOWN_SPINNER_PERIOD = 1.2
+BOOT_SPINNER_PERIOD = 1.2
 SHUTDOWN_LOG = Path("/tmp/mpe-shutdown-splash.log")
 CAL_RETURN_HOLD_SECONDS = 1.2
 FAST_RESTART_DEBOUNCE_S = 30.0
@@ -117,11 +118,25 @@ def _log_shutdown(message: str) -> None:
         pass
 
 
-def shutdown_animation_phase(elapsed: float, *, period: float = SHUTDOWN_SPINNER_PERIOD) -> float:
-    """Return 0..1 cycle phase for the shutdown spinner."""
+def spinner_animation_phase(
+    elapsed: float,
+    *,
+    period: float = SHUTDOWN_SPINNER_PERIOD,
+) -> float:
+    """Return 0..1 cycle phase for rotating-dot spinners."""
     if period <= 0:
         return 0.0
     return (elapsed % period) / period
+
+
+def shutdown_animation_phase(elapsed: float, *, period: float = SHUTDOWN_SPINNER_PERIOD) -> float:
+    """Return 0..1 cycle phase for the shutdown spinner."""
+    return spinner_animation_phase(elapsed, period=period)
+
+
+def boot_animation_phase(elapsed: float, *, period: float = BOOT_SPINNER_PERIOD) -> float:
+    """Return 0..1 cycle phase for the boot splash spinner."""
+    return spinner_animation_phase(elapsed, period=period)
 
 
 def shutdown_subtitle(elapsed: float) -> str:
@@ -250,7 +265,7 @@ def wait_for_boot_splash_release(*, timeout: float = 5.0) -> None:
     stop_boot_splash_service(wait=True, timeout=max(1.0, timeout / 2))
 
 
-def _draw_shutdown_spinner(
+def _draw_spinner(
     screen: "pygame.Surface",
     theme,
     center_x: int,
@@ -298,25 +313,13 @@ def draw_splash_frame(
         sub_surf = sub_font.render(subtitle, True, theme.muted)
         screen.blit(sub_surf, ((screen.get_width() - sub_surf.get_width()) // 2, 210))
 
-    if mode == SplashMode.BOOT:
-        bar_w = min(420, screen.get_width() - 120)
-        bar_h = 10
-        bar_x = (screen.get_width() - bar_w) // 2
-        bar_y = 280
-        track = pygame.Rect(bar_x, bar_y, bar_w, bar_h)
-        pygame.draw.rect(screen, theme.surface_alt, track, border_radius=6)
-        fill_w = max(0, min(bar_w, int(bar_w * max(0.0, min(1.0, progress)))))
-        if fill_w > 0:
-            fill = pygame.Rect(bar_x, bar_y, fill_w, bar_h)
-            pygame.draw.rect(screen, theme.accent, fill, border_radius=6)
-        pct = hint_font.render(f"{int(progress * 100)}%", True, theme.muted)
-        screen.blit(pct, ((screen.get_width() - pct.get_width()) // 2, bar_y + 24))
-    elif mode == SplashMode.SHUTDOWN:
-        slow = subtitle_override is not None and "Still" in subtitle_override
-        hint_text = "This may take a moment" if slow else "Please wait"
-        hint = hint_font.render(hint_text, True, theme.muted)
-        screen.blit(hint, ((screen.get_width() - hint.get_width()) // 2, 330))
-        _draw_shutdown_spinner(
+    if mode in (SplashMode.BOOT, SplashMode.SHUTDOWN):
+        if mode == SplashMode.SHUTDOWN:
+            slow = subtitle_override is not None and "Still" in subtitle_override
+            hint_text = "This may take a moment" if slow else "Please wait"
+            hint = hint_font.render(hint_text, True, theme.muted)
+            screen.blit(hint, ((screen.get_width() - hint.get_width()) // 2, 330))
+        _draw_spinner(
             screen,
             theme,
             screen.get_width() // 2,
@@ -349,9 +352,15 @@ def acquire_browser_display(
         request_display_handoff()
         wait_for_boot_splash_release()
     clear_display_handoff_request()
-    time.sleep(0.1)
     screen = _open_fullscreen_surface(width, height)
     _hide_cursor()
+    theme = theme_for_mode(load_theme_mode_from_prefs())
+    draw_splash_frame(
+        screen,
+        mode=SplashMode.BOOT,
+        theme=theme,
+        animation_phase=0.0,
+    )
     return screen
 
 
@@ -367,7 +376,7 @@ def paint_immediate(
     screen = acquire_browser_display(width=width, height=height)
     _hide_cursor()
     theme = theme_for_mode(load_theme_mode_from_prefs())
-    draw_splash_frame(screen, mode=mode, theme=theme, progress=0.0)
+    draw_splash_frame(screen, mode=mode, theme=theme, animation_phase=0.0)
     return screen, theme.bg
 
 
@@ -402,14 +411,18 @@ def run_boot_animation(*, duration: float | None = None, debounce: bool = True) 
     try:
         while True:
             elapsed = time.monotonic() - start
-            progress = min(1.0, elapsed / total)
-            draw_splash_frame(screen, mode=SplashMode.BOOT, theme=theme, progress=progress)
+            draw_splash_frame(
+                screen,
+                mode=SplashMode.BOOT,
+                theme=theme,
+                animation_phase=boot_animation_phase(elapsed),
+            )
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     return
             if duration is not None and elapsed >= duration:
                 return
-            if duration is None and progress >= 1.0:
+            if duration is None and elapsed >= total:
                 # Hold final frame until systemd stops us (touch browser start).
                 clock.tick(30)
                 continue
@@ -567,7 +580,7 @@ def run_hold_loop() -> None:
     theme = theme_for_mode(load_theme_mode_from_prefs())
     _mark_splash_ran()
     clock = pygame.time.Clock()
-    frame = 0
+    hold_start = time.monotonic()
     exiting = False
 
     def _request_exit(*_args: object) -> None:
@@ -579,12 +592,16 @@ def run_hold_loop() -> None:
 
     try:
         while not exiting and not display_handoff_requested():
-            progress = 0.15 + 0.75 * (0.5 + 0.5 * ((frame % 120) / 120.0))
-            draw_splash_frame(screen, mode=SplashMode.BOOT, theme=theme, progress=progress)
+            elapsed = time.monotonic() - hold_start
+            draw_splash_frame(
+                screen,
+                mode=SplashMode.BOOT,
+                theme=theme,
+                animation_phase=boot_animation_phase(elapsed),
+            )
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     return
-            frame += 1
             clock.tick(30)
     finally:
         pygame.quit()
