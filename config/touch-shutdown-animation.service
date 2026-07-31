@@ -14,8 +14,9 @@ ExecStartPre=-/bin/systemctl stop getty@tty1.service
 ExecStart=/usr/bin/python3 -u @MPE_MODULE_REPO@/touch_shutdown_splash.py --hold
 StandardOutput=null
 StandardError=journal
-TimeoutStopSec=30
-KillMode=control-group
+# Hold until power is cut — do not SIGTERM the splash while poweroff is pending.
+TimeoutStopSec=infinity
+KillMode=mixed
 
 [Install]
 WantedBy=halt.target reboot.target shutdown.target
