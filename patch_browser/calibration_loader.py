@@ -71,6 +71,7 @@ class ProgressReader:
     proc: subprocess.Popen[str]
     state_queue: queue.SimpleQueue[dict] = field(default_factory=queue.SimpleQueue)
     _thread: threading.Thread | None = None
+    _stderr_thread: threading.Thread | None = None
 
     def start(self) -> None:
         def _read_stdout() -> None:
@@ -85,13 +86,23 @@ class ProgressReader:
                     continue
                 self.state_queue.put(event)
 
+        def _drain_stderr() -> None:
+            assert self.proc.stderr is not None
+            for _line in self.proc.stderr:
+                pass
+
         self._thread = threading.Thread(target=_read_stdout, daemon=True)
         self._thread.start()
+        if self.proc.stderr is not None:
+            self._stderr_thread = threading.Thread(target=_drain_stderr, daemon=True)
+            self._stderr_thread.start()
 
     def join(self) -> int:
         code = self.proc.wait()
         if self._thread:
             self._thread.join(timeout=2.0)
+        if self._stderr_thread:
+            self._stderr_thread.join(timeout=2.0)
         return code
 
     def terminate(self) -> None:
@@ -185,7 +196,14 @@ class CalibrationLoaderApp:
             CANCEL_BTN_H,
         )
 
-        cmd = [sys.executable, "-u", str(CALIBRATE_SCRIPT), "--progress-json", *calibrate_args]
+        cmd = [
+            sys.executable,
+            "-u",
+            str(CALIBRATE_SCRIPT),
+            "--progress-json",
+            "--no-restore-services",
+            *calibrate_args,
+        ]
         self.reader = ProgressReader(
             proc=subprocess.Popen(
                 cmd,
@@ -216,7 +234,6 @@ class CalibrationLoaderApp:
         self.state.phase = "cancelling"
         self.state.message = "Cancelling…"
         self.reader.terminate()
-        restore_mpe_audio_services()
         self.state.phase = "cancelled"
         self.state.message = f"Cancelled — kept {self.state.updated} calibration(s)"
         self.state.exit_code = 130
@@ -315,55 +332,59 @@ class CalibrationLoaderApp:
 
     def run(self) -> int:
         clock = pygame.time.Clock()
-        while self._running:
-            for event in pygame.event.get():
-                if event.type == pygame.QUIT:
-                    if not self.state.finished:
-                        self._cancel_calibration()
-                    else:
-                        self._running = False
-                elif event.type == pygame.KEYDOWN:
-                    if event.key in (pygame.K_ESCAPE, pygame.K_q):
+        try:
+            while self._running:
+                for event in pygame.event.get():
+                    if event.type == pygame.QUIT:
                         if not self.state.finished:
                             self._cancel_calibration()
                         else:
                             self._running = False
-                elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-                    self._handle_pointer_down(event.pos)
-                elif event.type == pygame.FINGERDOWN:
-                    x = int(event.x * self.width)
-                    y = int(event.y * self.height)
-                    self._handle_pointer_down((x, y))
+                    elif event.type == pygame.KEYDOWN:
+                        if event.key in (pygame.K_ESCAPE, pygame.K_q):
+                            if not self.state.finished:
+                                self._cancel_calibration()
+                            else:
+                                self._running = False
+                    elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                        self._handle_pointer_down(event.pos)
+                    elif event.type == pygame.FINGERDOWN:
+                        x = int(event.x * self.width)
+                        y = int(event.y * self.height)
+                        self._handle_pointer_down((x, y))
 
-            self._drain_events()
-            if self.reader.proc.poll() is not None and not self.state.finished:
-                code = self.reader.proc.returncode or 0
-                if self.state.cancelled:
-                    pass
-                elif self.state.phase != "error":
-                    _apply_event(
-                        self.state,
-                        {
-                            "type": "done",
-                            "updated": self.state.updated,
-                            "exit_code": code,
-                        },
-                    )
-                self._done_at = time.monotonic()
-
-            if self.state.finished:
-                if self._done_at is None:
+                self._drain_events()
+                if self.reader.proc.poll() is not None and not self.state.finished:
+                    code = self.reader.proc.returncode or 0
+                    if self.state.cancelled:
+                        pass
+                    elif self.state.phase != "error":
+                        _apply_event(
+                            self.state,
+                            {
+                                "type": "done",
+                                "updated": self.state.updated,
+                                "exit_code": code,
+                            },
+                        )
                     self._done_at = time.monotonic()
-                if time.monotonic() - self._done_at >= DONE_HOLD_SECONDS:
-                    self._running = False
 
-            self._draw()
-            clock.tick(30)
+                if self.state.finished:
+                    if self._done_at is None:
+                        self._done_at = time.monotonic()
+                    if time.monotonic() - self._done_at >= DONE_HOLD_SECONDS:
+                        self._running = False
 
-        exit_code = self.state.exit_code
-        if exit_code is None:
-            exit_code = self.reader.join()
-        pygame.quit()
+                self._draw()
+                clock.tick(30)
+        finally:
+            exit_code = self.state.exit_code
+            if exit_code is None:
+                exit_code = self.reader.join()
+            pygame.quit()
+            # Release kmsdrm before touch-patch-browser claims the display.
+            restore_mpe_audio_services()
+
         return exit_code if exit_code is not None else 0
 
 

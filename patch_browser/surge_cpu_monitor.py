@@ -11,7 +11,8 @@ OSC_IN_PORT = 53280
 OSC_OUT_PORT = 53270
 OSC_CPU_QUERY_PATHS = ("/q/cpu", "/cpu", "/status/cpu")
 POLL_INTERVAL_S = 0.2  # 5 Hz
-CPU_FALLOFF = 0.92
+CPU_ATTACK = 0.35  # blend toward rising load (calmer than raw 5 Hz jumps)
+CPU_FALLOFF = 0.94  # Ableton-style hold/decay between samples
 
 
 class SurgeCpuMonitor:
@@ -83,6 +84,16 @@ class SurgeCpuMonitor:
                 "source": self._source,
             }
 
+    def _blend_percent(self, sample: float) -> None:
+        """Attack/decay smoothing — visual calm over raw proc/OSC spikes."""
+        if self._percent is None:
+            self._percent = sample
+            return
+        if sample >= self._percent:
+            self._percent += (sample - self._percent) * CPU_ATTACK
+        else:
+            self._percent = max(sample, self._percent * CPU_FALLOFF)
+
     def _worker(self) -> None:
         while not self._stop.wait(self.poll_interval):
             try:
@@ -124,13 +135,7 @@ class SurgeCpuMonitor:
             self._source = "proc"
             if percent is None:
                 return
-            if self._percent is None:
-                self._percent = percent
-            else:
-                self._percent = max(
-                    percent,
-                    self._percent * CPU_FALLOFF,
-                )
+            self._blend_percent(percent)
 
     def _try_osc_cpu_query(self) -> bool:
         if self._osc_client is None:
@@ -152,7 +157,7 @@ class SurgeCpuMonitor:
                     with self._lock:
                         self._online = True
                         self._source = "osc"
-                        self._percent = percent
+                        self._blend_percent(percent)
                     return True
         except OSError:
             self._osc_cpu_supported = False
