@@ -22,6 +22,24 @@ def draw_chevron(
     pygame.draw.lines(surface, color, False, points, 3)
 
 
+def draw_current_patch_icon(
+    surface: pygame.Surface,
+    rect: Rect,
+    color: tuple[int, int, int],
+) -> None:
+    """Locate / jump-to-loaded — crosshair with center dot."""
+    cx, cy = rect.centerx, rect.centery
+    pygame.draw.circle(surface, color, (cx, cy), 7, 2)
+    pygame.draw.circle(surface, color, (cx, cy), 2)
+    for x1, y1, x2, y2 in (
+        (cx, cy - 10, cx, cy - 7),
+        (cx, cy + 7, cx, cy + 10),
+        (cx - 10, cy, cx - 7, cy),
+        (cx + 7, cy, cx + 10, cy),
+    ):
+        pygame.draw.line(surface, color, (x1, y1), (x2, y2), 2)
+
+
 def draw_sidebar_panel_icon(
     surface: pygame.Surface,
     rect: Rect,

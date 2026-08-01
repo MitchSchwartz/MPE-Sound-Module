@@ -296,14 +296,22 @@ class TouchBrowserLayoutMixin:
 
     def _layout_nav_buttons(self) -> None:
         y = self.nav_header_rect.y + 4
+        btn_h = 28
+        icon_w = 32
+        all_w = 38
         x = self.nav_header_rect.x + 6
-        self.nav_back_btn = Rect(x, y, 36, 28)
         if self.left_nav_mode in (LeftNavMode.PATCHES, LeftNavMode.ALL_PATCHES):
+            self.nav_back_btn = Rect(x, y, 36, btn_h)
             x += 42
-        self.nav_current_btn = Rect(x, y, 72, 28)
-        x += 76
-        self.nav_all_btn = Rect(x, y, 38, 28)
-        self.nav_collapse_btn = Rect(self.nav_header_rect.right - 38, y, 32, 28)
+        else:
+            self.nav_back_btn = Rect(0, 0, 0, 0)
+        self.nav_current_btn = Rect(x, y, icon_w, btn_h)
+        x += icon_w + 6
+        self.nav_all_btn = Rect(x, y, all_w, btn_h)
+        if self.left_nav_mode != LeftNavMode.ALL_PATCHES:
+            self.nav_collapse_btn = Rect(self.nav_header_rect.right - 38, y, 32, btn_h)
+        else:
+            self.nav_collapse_btn = Rect(0, 0, 0, 0)
 
     def _az_rail_letter_at(self, pos: tuple[int, int]) -> str | None:
         for letter, rect in self.az_rail_letter_rects:

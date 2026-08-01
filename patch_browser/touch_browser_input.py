@@ -85,7 +85,7 @@ class TouchBrowserInputMixin:
             return
         if (
             self.nav_all_btn.contains(*pos)
-            and self.left_nav_mode in (LeftNavMode.FOLDERS, LeftNavMode.PATCHES)
+            and self.left_nav_mode != LeftNavMode.ALL_PATCHES
         ):
             self._enter_all_patches()
             return
@@ -98,7 +98,7 @@ class TouchBrowserInputMixin:
             else:
                 self._go_up_to_folders()
             return
-        if self.nav_current_btn.contains(*pos):
+        if self.nav_current_btn.contains(*pos) and self.loaded_patch_info:
             self._go_to_loaded_folder()
             return
     def _settings_hit_at(self, pos: tuple[int, int]) -> str | None:

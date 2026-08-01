@@ -302,16 +302,28 @@ class TouchBrowserPatchesMixin:
         self.nav_list._scroll_pixels = 0.0
         self.nav_list.stop_momentum()
         self.nav_list._clamp_scroll()
+    def _snapshot_all_patches_scroll(self) -> None:
+        if self.left_nav_mode == LeftNavMode.ALL_PATCHES:
+            self._all_patches_saved_scroll = self.nav_list._scroll_pixels
+
+    def _restore_all_patches_scroll(self) -> None:
+        self.nav_list._scroll_pixels = min(
+            self._all_patches_saved_scroll,
+            self.nav_list._max_scroll_pixels(),
+        )
+        self.nav_list._sync_scroll_offset()
+        self.nav_list.stop_momentum()
+
     def _enter_all_patches(self) -> None:
         self._rebuild_all_patches_index()
         self.left_nav_mode = LeftNavMode.ALL_PATCHES
         self.left_nav_collapsed = False
         self._relayout()
-        self.nav_list._scroll_pixels = 0.0
-        self.nav_list.stop_momentum()
         self._refresh_lists()
+        self._restore_all_patches_scroll()
 
     def _go_back_from_all_patches(self) -> None:
+        self._snapshot_all_patches_scroll()
         self.left_nav_mode = LeftNavMode.FOLDERS
         self._relayout()
         self._refresh_lists(scroll_to_selection=True)
@@ -382,14 +394,13 @@ class TouchBrowserPatchesMixin:
         self._relayout()
     def _select_patch(self, patch: dict) -> None:
         from_all = self.left_nav_mode == LeftNavMode.ALL_PATCHES
+        if from_all:
+            self._snapshot_all_patches_scroll()
         self.left_nav_mode = LeftNavMode.PATCHES
         try:
             self.browse_folder_index = self.categories.index(patch["category"])
         except ValueError:
             pass
-        if from_all:
-            self.left_nav_collapsed = True
-            self._relayout()
         self._load_patch(patch)
         self._refresh_lists(scroll_to_selection=True)
     def _patch_is_favorited(self, patch: dict) -> bool:
