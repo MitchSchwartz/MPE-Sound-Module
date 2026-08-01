@@ -83,10 +83,12 @@ class StartShutdownSplashServiceTests(unittest.TestCase):
 class TriggerUserShutdownTests(unittest.TestCase):
     @mock.patch("patch_browser.dsi_splash.request_system_power_action")
     @mock.patch("patch_browser.dsi_splash.start_shutdown_splash_service")
+    @mock.patch("patch_browser.dsi_splash.stop_boot_splash_service")
     @mock.patch("patch_browser.dsi_splash.stop_getty_tty1")
     def test_splash_before_poweroff(
         self,
         stop_getty_mock: mock.Mock,
+        stop_boot_mock: mock.Mock,
         start_splash_mock: mock.Mock,
         power_mock: mock.Mock,
     ) -> None:
@@ -94,6 +96,9 @@ class TriggerUserShutdownTests(unittest.TestCase):
 
         def _stop_getty() -> None:
             order.append("stop_getty")
+
+        def _stop_boot(*_args: object, **_kwargs: object) -> None:
+            order.append("stop_boot")
 
         def _start_splash() -> bool:
             order.append("start_splash")
@@ -104,18 +109,24 @@ class TriggerUserShutdownTests(unittest.TestCase):
             return True
 
         stop_getty_mock.side_effect = _stop_getty
+        stop_boot_mock.side_effect = _stop_boot
         start_splash_mock.side_effect = _start_splash
         power_mock.side_effect = _power
 
         self.assertTrue(trigger_user_shutdown("shutdown"))
-        self.assertEqual(order, ["stop_getty", "start_splash", "power:shutdown"])
+        self.assertEqual(
+            order,
+            ["stop_getty", "stop_boot", "start_splash", "power:shutdown"],
+        )
 
     @mock.patch("patch_browser.dsi_splash.request_system_power_action", return_value=False)
     @mock.patch("patch_browser.dsi_splash.start_shutdown_splash_service", return_value=True)
+    @mock.patch("patch_browser.dsi_splash.stop_boot_splash_service")
     @mock.patch("patch_browser.dsi_splash.stop_getty_tty1")
     def test_power_failure_still_returns_false(
         self,
         _stop_getty: mock.Mock,
+        _stop_boot: mock.Mock,
         _start_splash: mock.Mock,
         _power: mock.Mock,
     ) -> None:

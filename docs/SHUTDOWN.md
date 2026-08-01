@@ -52,11 +52,14 @@ User services (`touch-patch-browser`, `surge-xt-cli`, `usb-audio-gadget`) keep *
 
 Power menu confirm in `patch_browser/touch_browser_input.py`:
 
-1. `systemctl start mpe-shutdown-splash.service` — splash on panel immediately
-2. `systemctl poweroff` or `systemctl reboot`
-3. Browser exits (`sys.exit`) — **no** pygame hold loop
+1. `release_display_for_shutdown()` — paint shutdown frame, `pygame.quit()` (release DRM)
+2. `systemctl start mpe-shutdown-splash.service` — splash on panel immediately (no ~12s DRM retry)
+3. `systemctl poweroff` or `systemctl reboot`
+4. Browser exits (`sys.exit`) — **no** in-process hold loop
 
-Implementation: `patch_browser/dsi_splash.py` (`trigger_user_shutdown`, `start_shutdown_splash_service`).
+`trigger_user_shutdown` also stops `touch-boot-animation.service` if it is still active so boot splash cannot block shutdown splash or poweroff.
+
+Implementation: `patch_browser/dsi_splash.py` (`release_display_for_shutdown`, `trigger_user_shutdown`).
 
 ## Diagnosis after a test shutdown
 

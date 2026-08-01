@@ -13,8 +13,8 @@ THEME_MODE_OLED_BLACK = "oled_black"
 THEME_MODES = (THEME_MODE_STANDARD, THEME_MODE_OLED_BLACK)
 
 # Single accent knob — sliders, checkboxes, accent buttons, progress fills, etc.
-ACCENT: tuple[int, int, int] = (100, 110, 203)  # #646ecb
-ACCENT_HEX = "#646ecb"
+ACCENT: tuple[int, int, int] = (127, 27, 228)  # #7f1be4
+ACCENT_HEX = "#7f1be4"
 
 
 def accent_color() -> tuple[int, int, int]:

@@ -7,7 +7,7 @@ import time
 
 import pygame
 
-from patch_browser.dsi_splash import trigger_user_shutdown
+from patch_browser.dsi_splash import release_display_for_shutdown, trigger_user_shutdown
 from patch_browser.touch_ui_constants import (
     DEFAULT_BRIGHTNESS_PERCENT,
     MIXER_DOUBLE_TAP_MS,
@@ -277,6 +277,7 @@ class TouchBrowserInputMixin:
             else:
                 if self._evdev_bridge is not None:
                     self._evdev_bridge.stop()
+                release_display_for_shutdown(self.screen, theme=self.theme)
                 self._running = False
                 trigger_user_shutdown(self.power_action)
                 sys.exit(0)
