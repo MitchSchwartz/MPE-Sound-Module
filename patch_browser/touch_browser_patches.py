@@ -209,20 +209,16 @@ class TouchBrowserPatchesMixin:
 
         if self.left_nav_mode == LeftNavMode.ALL_PATCHES:
             names = [p["name"] for p in self.all_patches_flat]
-            highlight = self._patch_list_index(self.all_patches_flat, self.detail_patch)
             loaded_idx = self._patch_list_index(self.all_patches_flat, self.loaded_patch_info)
             self.nav_list.set_items(
                 names,
-                highlight_index=highlight,
+                highlight_index=None,
                 loaded_marker_index=loaded_idx,
                 preserve_scroll=not scroll_to_selection,
             )
-            if scroll_to_selection:
-                if highlight is not None:
-                    self.nav_list.scroll_to_index(highlight)
-                elif loaded_idx is not None:
-                    self.nav_list.scroll_to_index(loaded_idx)
-            else:
+            if scroll_to_selection and loaded_idx is not None:
+                self.nav_list.scroll_to_index(loaded_idx)
+            elif not scroll_to_selection:
                 self.nav_list._scroll_pixels = min(saved_scroll, self.nav_list._max_scroll_pixels())
                 self.nav_list._sync_scroll_offset()
                 if saved_momentum:
@@ -381,13 +377,19 @@ class TouchBrowserPatchesMixin:
     def _go_to_loaded_folder(self) -> None:
         if not self.loaded_patch_info:
             return
+        from_all = self.left_nav_mode == LeftNavMode.ALL_PATCHES
+        if from_all:
+            self._snapshot_all_patches_scroll()
         try:
             idx = self.categories.index(self.loaded_patch_info["category"])
         except ValueError:
             return
         self.browse_folder_index = idx
         self.left_nav_mode = LeftNavMode.PATCHES
-        self._update_nav_list_geometry()
+        if from_all:
+            self._relayout()
+        else:
+            self._update_nav_list_geometry()
         self._refresh_lists(scroll_to_selection=True)
     def _toggle_nav_collapsed(self) -> None:
         self.left_nav_collapsed = not self.left_nav_collapsed
@@ -401,6 +403,9 @@ class TouchBrowserPatchesMixin:
             self.browse_folder_index = self.categories.index(patch["category"])
         except ValueError:
             pass
+        if from_all:
+            self.left_nav_collapsed = False
+            self._relayout()
         self._load_patch(patch)
         self._refresh_lists(scroll_to_selection=True)
     def _patch_is_favorited(self, patch: dict) -> bool:
