@@ -7,6 +7,7 @@ import time
 import pygame
 
 from patch_browser.draw_primitives import (
+    draw_all_patches_icon,
     draw_chevron,
     draw_current_patch_icon,
     draw_sidebar_panel_icon,
@@ -125,65 +126,43 @@ class TouchBrowserDrawMixin:
                 (rect.right - inset, rect.y),
                 1,
             )
-    def _draw_nav_chip(
+    def _nav_icon_colors(
+        self,
+        *,
+        selected: bool,
+        disabled: bool,
+    ) -> tuple[tuple[int, int, int], tuple[int, int, int]]:
+        if disabled:
+            return self.theme.surface, self.theme.muted
+        if selected:
+            return self.theme.surface_alt, self.theme.accent
+        return self.theme.surface_alt, self.theme.text
+
+    def _draw_nav_icon_button(
         self,
         rect: Rect,
-        label: str,
         *,
-        selected: bool = False,
+        selected: bool,
         disabled: bool = False,
+        draw_icon,
     ) -> None:
-        if disabled:
-            bg = self.theme.surface
-            text_color = self.theme.muted
-            border_color = None
-        elif selected:
-            bg = self.theme.surface_alt
-            text_color = self.theme.accent
-            border_color = self.theme.accent
-        else:
-            bg = self.theme.surface_alt
-            text_color = self.theme.text
-            border_color = None
+        bg, icon_color = self._nav_icon_colors(selected=selected, disabled=disabled)
         pygame.draw.rect(self.screen, bg, rect.pygame_rect, border_radius=8)
-        if border_color is not None:
-            pygame.draw.rect(
-                self.screen,
-                border_color,
-                rect.pygame_rect,
-                width=2,
-                border_radius=8,
-            )
-        font = self.font_sm
-        clipped = ellipsize_text(font, label, max(1, rect.w - 12))
-        surf = font.render(clipped, True, text_color)
-        tx = rect.x + (rect.w - surf.get_width()) // 2
-        ty = rect.y + (rect.h - surf.get_height()) // 2
-        self.screen.blit(surf, (tx, ty))
+        draw_icon(self.screen, rect, icon_color)
 
     def _draw_nav_current_button(self, rect: Rect, *, selected: bool, disabled: bool) -> None:
-        if disabled:
-            bg = self.theme.surface
-            icon_color = self.theme.muted
-            border_color = None
-        elif selected:
-            bg = self.theme.surface_alt
-            icon_color = self.theme.accent
-            border_color = self.theme.accent
-        else:
-            bg = self.theme.surface_alt
-            icon_color = self.theme.text
-            border_color = None
-        pygame.draw.rect(self.screen, bg, rect.pygame_rect, border_radius=8)
-        if border_color is not None:
-            pygame.draw.rect(
-                self.screen,
-                border_color,
-                rect.pygame_rect,
-                width=2,
-                border_radius=8,
-            )
-        draw_current_patch_icon(self.screen, rect, icon_color)
+        self._draw_nav_icon_button(
+            rect,
+            selected=selected,
+            disabled=disabled,
+            draw_icon=draw_current_patch_icon,
+        )
+
+    def _draw_nav_all_button(self, rect: Rect, *, selected: bool) -> None:
+        def _draw(surface, icon_rect, icon_color):
+            draw_all_patches_icon(surface, icon_rect, icon_color, self.font_sm)
+
+        self._draw_nav_icon_button(rect, selected=selected, draw_icon=_draw)
 
     def _draw_nav_header(self) -> None:
         pygame.draw.rect(self.screen, self.theme.surface, self.nav_header_rect.pygame_rect)
@@ -202,7 +181,7 @@ class TouchBrowserDrawMixin:
             selected=current_selected,
             disabled=current_disabled,
         )
-        self._draw_nav_chip(self.nav_all_btn, "All", selected=all_selected)
+        self._draw_nav_all_button(self.nav_all_btn, selected=all_selected)
         if self.left_nav_mode != LeftNavMode.ALL_PATCHES:
             self._draw_icon_button(self.nav_collapse_btn, "panel_close", muted=True)
     def _draw_folder_title_bar(self) -> None:

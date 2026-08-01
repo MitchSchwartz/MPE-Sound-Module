@@ -28,11 +28,14 @@ def draw_current_patch_icon(
     color: tuple[int, int, int],
 ) -> None:
     """Jump to loaded patch folder — folder outline with crosshair."""
-    cx, cy = rect.centerx, rect.centery + 1
-    body_w, body_h = 18, 11
-    tab_w, tab_h = 7, 4
+    pad = 2
+    cx = rect.centerx
+    body_w = max(16, rect.w - pad * 2 - 2)
+    body_h = max(10, rect.h - pad * 2 - 4)
+    tab_w = max(8, body_w // 3)
+    tab_h = max(4, body_h // 3)
     body_x = cx - body_w // 2
-    body_y = cy - body_h // 2 + 2
+    body_y = rect.y + pad + tab_h - 1
     tab_x = body_x + 2
     tab_y = body_y - tab_h + 1
 
@@ -40,24 +43,47 @@ def draw_current_patch_icon(
     body = pygame.Rect(body_x, body_y, body_w, body_h)
     pygame.draw.rect(surface, color, tab, width=2, border_radius=1)
     pygame.draw.rect(surface, color, body, width=2, border_radius=2)
+
+    icx, icy = body.centerx, body.centery
+    arm = min(body.w, body.h) // 2 + 2
+    pygame.draw.circle(surface, color, (icx, icy), max(3, arm // 2), 2)
+    pygame.draw.circle(surface, color, (icx, icy), 2)
+    tick = max(2, arm // 3)
+    for x1, y1, x2, y2 in (
+        (icx, icy - arm, icx, icy - tick),
+        (icx, icy + tick, icx, icy + arm),
+        (icx - arm, icy, icx - tick, icy),
+        (icx + tick, icy, icx + arm, icy),
+    ):
+        pygame.draw.line(surface, color, (x1, y1), (x2, y2), 2)
+
+
+def draw_all_patches_icon(
+    surface: pygame.Surface,
+    rect: Rect,
+    color: tuple[int, int, int],
+    font: pygame.font.Font,
+) -> None:
+    """Flat A→Z browse — stacked A/Z with index rail."""
+    rail_x = rect.right - 5
     pygame.draw.line(
         surface,
         color,
-        (tab_x + tab_w - 1, tab_y + tab_h - 1),
-        (body_x + body_w - 1, body_y),
+        (rail_x, rect.y + 3),
+        (rail_x, rect.bottom - 3),
         2,
     )
-
-    icx, icy = body.centerx, body.centery
-    pygame.draw.circle(surface, color, (icx, icy), 4, 1)
-    pygame.draw.circle(surface, color, (icx, icy), 1)
-    for x1, y1, x2, y2 in (
-        (icx, icy - 6, icx, icy - 4),
-        (icx, icy + 4, icx, icy + 6),
-        (icx - 6, icy, icx - 4, icy),
-        (icx + 4, icy, icx + 6, icy),
-    ):
-        pygame.draw.line(surface, color, (x1, y1), (x2, y2), 1)
+    text_w = max(1, rect.w - 10)
+    a = font.render("A", True, color)
+    z = font.render("Z", True, color)
+    ax = rect.x + (text_w - a.get_width()) // 2
+    zx = rect.x + (text_w - z.get_width()) // 2
+    ay = rect.y + 1
+    zy = rect.bottom - z.get_height() - 1
+    surface.blit(a, (ax, ay))
+    surface.blit(z, (zx, zy))
+    mid_y = (ay + a.get_height() + zy) // 2
+    pygame.draw.line(surface, color, (rect.x + 4, mid_y), (rail_x - 3, mid_y), 1)
 
 
 def draw_sidebar_panel_icon(
