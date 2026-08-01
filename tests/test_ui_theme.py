@@ -70,16 +70,29 @@ class UiThemeAccentTests(unittest.TestCase):
 
 
 class UiThemePreferencesTests(unittest.TestCase):
-    def test_full_accent_style_uses_accent_for_text(self) -> None:
+    def test_monochrome_style_uses_accent_for_text(self) -> None:
         prefs = ui_theme.ThemePreferences(
             theme_mode=ui_theme.THEME_MODE_OLED_BLACK,
             accent_rgb=(200, 100, 50),
-            accent_style=ui_theme.ACCENT_STYLE_FULL,
+            accent_style=ui_theme.ACCENT_STYLE_MONOCHROME,
         )
         ui_theme.apply_theme_preferences(prefs)
         self.assertEqual(ui_theme.ACCENT, (200, 100, 50))
         self.assertEqual(ui_theme.TEXT, (200, 100, 50))
         self.assertEqual(ui_theme.MUTED, ui_theme.derive_muted_from_accent((200, 100, 50)))
+        self.assertTrue(ui_theme.is_monochrome_style())
+
+    def test_monochrome_style_maps_semantic_colors_to_accent(self) -> None:
+        prefs = ui_theme.ThemePreferences(
+            theme_mode=ui_theme.THEME_MODE_STANDARD,
+            accent_rgb=(12, 34, 56),
+            accent_style=ui_theme.ACCENT_STYLE_MONOCHROME,
+        )
+        ui_theme.apply_theme_preferences(prefs)
+        theme = ui_theme.STANDARD_THEME
+        self.assertEqual(ui_theme.theme_semantic_color(theme, "playing"), (12, 34, 56))
+        self.assertEqual(ui_theme.theme_semantic_color(theme, "danger"), (12, 34, 56))
+        self.assertEqual(ui_theme.theme_semantic_color(theme, "ok"), (12, 34, 56))
 
     def test_minimal_accent_style_keeps_legacy_text(self) -> None:
         prefs = ui_theme.ThemePreferences(
@@ -91,6 +104,47 @@ class UiThemePreferencesTests(unittest.TestCase):
         self.assertEqual(ui_theme.ACCENT, (200, 100, 50))
         self.assertEqual(ui_theme.TEXT, ui_theme.MINIMAL_TEXT_OLED)
         self.assertEqual(ui_theme.MUTED, ui_theme.MINIMAL_MUTED_OLED)
+        theme = ui_theme.OLED_BLACK_THEME
+        self.assertEqual(ui_theme.theme_semantic_color(theme, "playing"), theme.playing)
+
+    def test_legacy_full_accent_style_loads_as_monochrome(self) -> None:
+        self.assertEqual(
+            ui_theme.normalize_accent_style("full"),
+            ui_theme.ACCENT_STYLE_MONOCHROME,
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            prefs_path = Path(tmp) / "ui.json"
+            prefs_path.write_text(json.dumps({"accent_style": "full"}))
+            with mock.patch.object(ui_theme, "UI_STATE_FILE", prefs_path):
+                prefs = ui_theme.load_theme_preferences()
+        self.assertEqual(prefs.accent_style, ui_theme.ACCENT_STYLE_MONOCHROME)
+
+    def test_custom_accent_colors_round_trip(self) -> None:
+        colors = [
+            ui_theme.SavedAccentColor("abc123", "#aabbcc", (170, 187, 204)),
+            ui_theme.SavedAccentColor("def456", "#112233", (17, 34, 51)),
+        ]
+        payload = ui_theme.serialize_custom_accent_colors(colors)
+        parsed = ui_theme.parse_custom_accent_colors(payload)
+        self.assertEqual(parsed, colors)
+
+    def test_load_custom_accent_colors_from_prefs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            prefs_path = Path(tmp) / "ui.json"
+            prefs_path.write_text(
+                json.dumps(
+                    {
+                        "custom_accent_colors": [
+                            {"id": "cafebabe", "name": "#ff0088", "rgb": [255, 0, 136]}
+                        ]
+                    }
+                )
+            )
+            with mock.patch.object(ui_theme, "UI_STATE_FILE", prefs_path):
+                loaded = ui_theme.load_custom_accent_colors()
+        self.assertEqual(len(loaded), 1)
+        self.assertEqual(loaded[0].color_id, "cafebabe")
+        self.assertEqual(loaded[0].rgb, (255, 0, 136))
 
     def test_load_theme_preferences_reads_accent_fields(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -129,6 +183,7 @@ class UiThemePreferencesTests(unittest.TestCase):
                 with mock.patch.object(ui_theme, "UI_STATE_FILE", prefs_path):
                     prefs = ui_theme.reload_theme_from_prefs()
             self.assertEqual(prefs.accent_rgb, (78, 205, 196))
+            self.assertEqual(prefs.accent_style, ui_theme.ACCENT_STYLE_MONOCHROME)
             self.assertEqual(ui_theme.ACCENT, (78, 205, 196))
             self.assertEqual(ui_theme.TEXT, (78, 205, 196))
         finally:
