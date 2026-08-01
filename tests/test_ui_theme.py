@@ -82,7 +82,7 @@ class UiThemePreferencesTests(unittest.TestCase):
         self.assertEqual(ui_theme.MUTED, ui_theme.derive_muted_from_accent((200, 100, 50)))
         self.assertTrue(ui_theme.is_monochrome_style())
 
-    def test_monochrome_style_maps_semantic_colors_to_accent(self) -> None:
+    def test_monochrome_style_maps_playing_to_accent_not_danger(self) -> None:
         prefs = ui_theme.ThemePreferences(
             theme_mode=ui_theme.THEME_MODE_STANDARD,
             accent_rgb=(12, 34, 56),
@@ -91,8 +91,8 @@ class UiThemePreferencesTests(unittest.TestCase):
         ui_theme.apply_theme_preferences(prefs)
         theme = ui_theme.STANDARD_THEME
         self.assertEqual(ui_theme.theme_semantic_color(theme, "playing"), (12, 34, 56))
-        self.assertEqual(ui_theme.theme_semantic_color(theme, "danger"), (12, 34, 56))
         self.assertEqual(ui_theme.theme_semantic_color(theme, "ok"), (12, 34, 56))
+        self.assertEqual(ui_theme.theme_semantic_color(theme, "danger"), theme.danger)
 
     def test_minimal_accent_style_keeps_legacy_text(self) -> None:
         prefs = ui_theme.ThemePreferences(
@@ -106,6 +106,8 @@ class UiThemePreferencesTests(unittest.TestCase):
         self.assertEqual(ui_theme.MUTED, ui_theme.MINIMAL_MUTED_OLED)
         theme = ui_theme.OLED_BLACK_THEME
         self.assertEqual(ui_theme.theme_semantic_color(theme, "playing"), theme.playing)
+        self.assertEqual(ui_theme.theme_semantic_color(theme, "ok"), (200, 100, 50))
+        self.assertEqual(ui_theme.theme_semantic_color(theme, "danger"), theme.danger)
 
     def test_legacy_full_accent_style_loads_as_monochrome(self) -> None:
         self.assertEqual(
