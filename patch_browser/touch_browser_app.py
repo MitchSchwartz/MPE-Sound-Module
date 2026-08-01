@@ -46,7 +46,7 @@ from patch_browser.dsi_splash import (
     draw_splash_frame,
     signal_browser_ready,
 )
-from patch_browser.ui_theme import reload_theme_from_prefs, theme_for_mode
+from patch_browser.ui_theme import DEFAULT_ACCENT_RGB, THEME_VIEW_MAIN, reload_theme_from_prefs, theme_for_mode
 
 
 class TouchPatchBrowser(
@@ -192,6 +192,11 @@ class TouchPatchBrowser(
         self.theme = theme_for_mode(self.theme_mode)
         self._theme_saved_prefs = None
         self._theme_draft_prefs = None
+        self._theme_view_state = THEME_VIEW_MAIN
+        self._custom_accent_colors = []
+        self._picker_rgb = DEFAULT_ACCENT_RGB
+        self._picker_editing_id = None
+        self._picker_slider_channel = None
         self._boot_splash_started = time.monotonic()
         self._boot_splash_done = False
         self._paint_boot_splash_frame(animation_phase=0.0)
