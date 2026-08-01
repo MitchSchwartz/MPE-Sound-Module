@@ -386,10 +386,9 @@ class TouchBrowserDrawMixin:
                 self.nav_list.rect.w - 8,
                 row_h - 2,
             )
-            is_highlight = self.nav_list.highlight_index == index
             is_loaded = self.nav_list.loaded_marker_index == index
             is_jump = flash_row and index == jump_index
-            if is_highlight or is_loaded:
+            if is_loaded:
                 pygame.draw.rect(self.screen, self.theme.surface_alt, row_rect, border_radius=8)
             if is_jump:
                 pygame.draw.rect(self.screen, self.theme.accent, row_rect, width=2, border_radius=8)
@@ -404,7 +403,7 @@ class TouchBrowserDrawMixin:
 
             name_max_w = max(1, row_rect.w - 34)
             name_clipped = ellipsize_text(self.font_md, patch["name"], name_max_w)
-            name_color = self.theme.text if is_highlight or is_loaded or is_jump else self.theme.muted
+            name_color = self.theme.text if is_loaded or is_jump else self.theme.muted
             name_s = self.font_md.render(name_clipped, True, name_color)
             self.screen.blit(name_s, (row_rect.x + 26, row_rect.y + 6))
 
