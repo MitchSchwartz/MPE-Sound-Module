@@ -20,7 +20,7 @@ try:
 except ImportError:
     pygame = None  # type: ignore[assignment]
 
-from patch_browser.ui_theme import load_theme_mode_from_prefs, theme_for_mode
+from patch_browser.ui_theme import reload_theme_from_prefs, theme_for_mode
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_WIDTH = 800
@@ -301,7 +301,7 @@ def draw_splash_frame(
 ) -> None:
     """Paint one branded splash frame onto *screen*."""
     if theme is None:
-        theme = theme_for_mode(load_theme_mode_from_prefs())
+        theme = theme_for_mode(reload_theme_from_prefs().theme_mode)
     screen.fill(theme.bg)
 
     title_font = _load_font(36)
@@ -358,7 +358,7 @@ def acquire_browser_display(
         clear_display_handoff_request()
         screen = _open_fullscreen_surface(width, height)
         _hide_cursor()
-        theme = theme_for_mode(load_theme_mode_from_prefs())
+        theme = theme_for_mode(reload_theme_from_prefs().theme_mode)
         draw_splash_frame(
             screen,
             mode=SplashMode.BOOT,
@@ -384,7 +384,7 @@ def paint_immediate(
         raise RuntimeError("pygame is required for dsi_splash")
     screen = acquire_browser_display(width=width, height=height)
     _hide_cursor()
-    theme = theme_for_mode(load_theme_mode_from_prefs())
+    theme = theme_for_mode(reload_theme_from_prefs().theme_mode)
     draw_splash_frame(screen, mode=mode, theme=theme, animation_phase=0.0)
     return screen, theme.bg
 
@@ -405,7 +405,7 @@ def run_boot_animation(*, duration: float | None = None, debounce: bool = True) 
     else:
         screen = _open_fullscreen_surface()
     _hide_cursor()
-    theme = theme_for_mode(load_theme_mode_from_prefs())
+    theme = theme_for_mode(reload_theme_from_prefs().theme_mode)
 
     total = duration
     if total is None:
@@ -449,7 +449,7 @@ def run_shutdown_animation(
     if pygame is None:
         return
     owns_display = screen is None
-    theme = theme_for_mode(load_theme_mode_from_prefs())
+    theme = theme_for_mode(reload_theme_from_prefs().theme_mode)
 
     if owns_display:
         configure_kmsdrm_env()
@@ -553,7 +553,7 @@ def release_display_for_shutdown(
     if pygame is None:
         return
     if theme is None:
-        theme = theme_for_mode(load_theme_mode_from_prefs())
+        theme = theme_for_mode(reload_theme_from_prefs().theme_mode)
     if screen is not None and pygame.get_init():
         draw_splash_frame(
             screen,
@@ -621,7 +621,7 @@ def run_hold_loop() -> None:
     else:
         screen = _open_fullscreen_surface()
     _hide_cursor()
-    theme = theme_for_mode(load_theme_mode_from_prefs())
+    theme = theme_for_mode(reload_theme_from_prefs().theme_mode)
     _mark_splash_ran()
     clock = pygame.time.Clock()
     hold_start = time.monotonic()
