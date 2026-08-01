@@ -368,11 +368,12 @@ def start_surge_loopback() -> str:
     ensure_snd_aloop()
     interface = resolve_surge_loopback_interface(cli)
     buffer_size = os.environ.get("MPE_SURGE_BUFFER_SIZE", "1024")
+    sample_rate = os.environ.get("MPE_SURGE_SAMPLE_RATE", "44100")
     log_path = Path.home() / "surge-cli-calibration.log"
     with log_path.open("a") as log:
         log.write(
             f"\n{time.strftime('%Y-%m-%d %H:%M:%S')}: calibration loopback start "
-            f"(interface={interface}, buffer={buffer_size})\n"
+            f"(interface={interface}, buffer={buffer_size}, rate={sample_rate})\n"
         )
         subprocess.Popen(
             [
@@ -382,6 +383,7 @@ def start_surge_loopback() -> str:
                 "--mpe-pitch-bend-range=48",
                 f"--audio-interface={interface}",
                 f"--buffer-size={buffer_size}",
+                f"--sample-rate={sample_rate}",
                 f"--osc-in-port={OSC_PORT}",
                 "--no-stdin",
             ],
@@ -401,11 +403,12 @@ def start_surge_standalone() -> str:
         raise RuntimeError(f"detect-audio-device.sh not found: {script}")
     interface = resolve_surge_standalone_interface(cli, detect_script=script)
     buffer_size = os.environ.get("MPE_SURGE_BUFFER_SIZE", "1024")
+    sample_rate = os.environ.get("MPE_SURGE_SAMPLE_RATE", "44100")
     log_path = Path.home() / "surge-cli-calibration.log"
     with log_path.open("a") as log:
         log.write(
             f"\n{time.strftime('%Y-%m-%d %H:%M:%S')}: calibration standalone start "
-            f"(interface={interface}, buffer={buffer_size})\n"
+            f"(interface={interface}, buffer={buffer_size}, rate={sample_rate})\n"
         )
         subprocess.Popen(
             [
@@ -415,6 +418,7 @@ def start_surge_standalone() -> str:
                 "--mpe-pitch-bend-range=48",
                 f"--audio-interface={interface}",
                 f"--buffer-size={buffer_size}",
+                f"--sample-rate={sample_rate}",
                 f"--osc-in-port={OSC_PORT}",
                 "--no-stdin",
             ],
