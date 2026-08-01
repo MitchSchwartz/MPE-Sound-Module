@@ -87,7 +87,11 @@ Static or crackle under **many held keys** is usually **ALSA buffer underrun (xr
 | **ALSA buffer** | `surge-xt-cli` starts with **`MPE_SURGE_BUFFER_SIZE`** (default **1024** samples @ 44.1 kHz ≈ 23 ms). Was 512 (~12 ms) and xran under load. |
 | **snd-aloop** | Loaded only during calibration loopback. Unloaded on Surge start and after `calibrate-with-loader.sh` if refcount is 0. |
 
-**Calibration capture path (standalone / Sound Blaster):** Stops production Surge, starts a **cal-only** Surge instance on Sound Blaster **Direct hardware** (`detect-audio-device.sh`), and captures via **`dsnoop:CARD=S3,DEV=0`** (ALSA snoop of playback — not raw `plughw:1,0` ADC input). Headphones may be silent during cal; that is expected. Loopback (`snd-aloop`) is used only for non-standalone profiles (e.g. `usb-host`). Launch from **System → Calibrate** (`calibrate-with-loader.sh`).
+**Calibration capture path (default: loopback):** Stops production Surge, starts a **cal-only** Surge instance routed through `snd-aloop` (`calibration_loopback.py` dynamically resolves the interface/capture device — no hardcoded card index). Headphones/Sound Blaster are silent during cal; that is expected. Launch from **System → Calibrate** (`calibrate-with-loader.sh`).
+
+**2026-08-01 A/B (see below):** loopback measured **4–14 dB hotter** than the Sound Blaster/`dsnoop` path on the same patches, so it's now the default on every profile, not just `usb-host`. The `dsnoop:CARD=S3,DEV=0` path (`calibration_standalone.py`) is kept as an escape hatch — set `MPE_CAL_ROUTE=standalone` (env) or `--no-use-loopback` (CLI) to force it if loopback ever regresses again.
+
+**Failed measurements now fail loud, not quiet.** `is_invalid_measurement` used to have a true-peak fallback that let near-silent captures (-47 to -57 LUFS) through and save an extrapolated `gain_db` of +17 to +25 dB — that gain didn't restore real perceived loudness because the underlying capture was still garbage. The fallback is removed: a patch that can't clear `MIN_VALID_LUFS` (-39.0) is now skipped (not saved) so it shows up as "kept 0" and needs a longer gesture or louder velocity, not a bigger guessed gain.
 
 If crackle persists with Norm off and moderate polyphony, try `MPE_SURGE_BUFFER_SIZE=2048` in `/etc/mpe/mpe.env` and restart `surge-xt-cli`. Tradeoff: higher latency.
 
@@ -169,7 +173,7 @@ Running the raw calibrator over SSH without the loader still works; the display 
 - **Surge XT CLI** running (`surge-xt-cli.service`) with OSC in on port **53280**
 - **ffmpeg** (capture + `loudnorm` measurement)
 - **python-osc**, **python-rtmidi** (gesture MIDI into Surge)
-- Default ALSA capture on standalone uses **`dsnoop:CARD=S3,DEV=0`** when available (`arecord -L`); `--audio-device` to override. Loopback Pi path uses card-index loopback capture after `snd-aloop` loads.
+- Default capture is **loopback** (`snd-aloop`, dynamic card-index resolution); `--audio-device` to override. `MPE_CAL_ROUTE=standalone` / `--no-use-loopback` falls back to **`dsnoop:CARD=S3,DEV=0`** Sound Blaster capture (`arecord -L`) if loopback breaks.
 
 Keep Surge alive for the whole batch — one load + gesture + capture per patch.
 
