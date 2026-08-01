@@ -156,7 +156,10 @@ class PatchNormalizationStoreTests(unittest.TestCase):
 
             loader.refresh_patch_volume("Lead")
             on_volume = loader.osc_client.messages[-1][1]
-            self.assertLess(on_volume, 1.0)
+            # gain_db=4.0 -> ~1.585x linear; norm-on cap now matches norm-off ceiling
+            # (see NORM_MAX_AMP_VOLUME_LINEAR), so the calibrated gain actually comes
+            # through instead of being clamped back down near unity.
+            self.assertGreater(on_volume, 1.0)
 
             store.set_globally_enabled(False)
             self.assertTrue(store.is_enabled("Lead"))
