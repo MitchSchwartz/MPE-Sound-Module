@@ -28,13 +28,19 @@ class ShouldUseLoopbackTests(unittest.TestCase):
 
     @mock.patch.dict(os.environ, {"MPE_AUDIO_PROFILE": "standalone"}, clear=False)
     @mock.patch.object(Path, "is_file", return_value=True)
-    def test_standalone_profile_disables_loopback_on_pi(self, _is_file: mock.Mock) -> None:
-        self.assertFalse(self.cal.should_use_loopback(None))
+    def test_standalone_profile_defaults_to_loopback(self, _is_file: mock.Mock) -> None:
+        # 2026-08-01 A/B: loopback measured 4-14 dB hotter than dsnoop on the same
+        # patches — it's the default now regardless of profile.
+        self.assertTrue(self.cal.should_use_loopback(None))
 
     @mock.patch.dict(os.environ, {"MPE_AUDIO_PROFILE": "usb-host"}, clear=False)
     @mock.patch.object(Path, "is_file", return_value=True)
     def test_usb_host_profile_enables_loopback_on_pi(self, _is_file: mock.Mock) -> None:
         self.assertTrue(self.cal.should_use_loopback(None))
+
+    @mock.patch.dict(os.environ, {"MPE_CAL_ROUTE": "standalone"}, clear=False)
+    def test_route_override_can_force_standalone(self) -> None:
+        self.assertFalse(self.cal.should_use_loopback(None))
 
     def test_explicit_flag_wins(self) -> None:
         self.assertTrue(self.cal.should_use_loopback(True))

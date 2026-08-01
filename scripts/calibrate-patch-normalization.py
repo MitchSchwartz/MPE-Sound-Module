@@ -91,7 +91,6 @@ MPE_CHANNEL = 2  # Surge MPE: channel 2 = first note channel
 STRIKE_VELOCITY = 96
 DEFAULT_PI_CAPTURE = "plughw:1,0"
 MIN_VALID_LUFS = -39.0
-MIN_VALID_TRUE_PEAK_DBTP = -35.0  # fallback when LUFS integration is dominated by capture silence
 PATCH_LOAD_SETTLE_SECONDS = 0.75
 MEASURE_RETRY_INTERVAL_SECONDS = 3.0
 MEASURE_MAX_ATTEMPTS = 4  # ~0, 3, 6, 9s within 10s total
@@ -346,18 +345,15 @@ def surge_cli_path() -> Path:
 def should_use_loopback(explicit: bool | None) -> bool:
     if explicit is not None:
         return explicit
-    # A/B override: force one route regardless of MPE_AUDIO_PROFILE, for
-    # comparing loopback vs. standalone/dsnoop capture on the same hardware.
+    # Escape hatch: force the Sound Blaster/dsnoop path if loopback ever
+    # regresses again. Loopback is the default — A/B on 2026-08-01 measured
+    # it 4-14 dB hotter than dsnoop on the same patches (see PATCH_NORMALIZATION.md).
     route_override = os.environ.get("MPE_CAL_ROUTE", "").strip().lower()
-    if route_override == "loopback":
-        return True
     if route_override == "standalone":
         return False
-    profile = os.environ.get("MPE_AUDIO_PROFILE", "standalone").strip().lower()
-    if profile == "standalone":
-        # Dedicated cal Surge on Sound Blaster + dsnoop capture (see standalone setup).
-        return False
-    return Path("/etc/mpe/mpe.env").is_file()
+    if route_override == "loopback":
+        return True
+    return True
 
 
 def start_surge_loopback() -> str:
@@ -509,14 +505,15 @@ def send_performance_gesture(midi_out: object, pre_roll: float = 0.25) -> None:
 
 
 def is_invalid_measurement(lufs: float, true_peak: float) -> bool:
-    """True when capture is silent or loudnorm returned unusable values (-inf LUFS, etc.)."""
-    if math.isfinite(true_peak) and true_peak >= MIN_VALID_TRUE_PEAK_DBTP:
-        return False
-    if not math.isfinite(lufs) or lufs < MIN_VALID_LUFS:
-        return True
-    if not math.isfinite(true_peak):
-        return True
-    return False
+    """True when capture is silent or loudnorm returned unusable values (-inf LUFS, etc.).
+
+    No true-peak fallback: a 2026-08-01 A/B (see PATCH_NORMALIZATION.md) showed the old
+    fallback let near-silent captures (-47 to -57 LUFS) through and save extrapolated
+    gains of +17 to +25 dB that didn't restore real loudness. Fail loud instead — a
+    patch that can't clear MIN_VALID_LUFS needs a longer/louder gesture, not a bigger
+    guessed gain.
+    """
+    return not math.isfinite(lufs) or lufs < MIN_VALID_LUFS
 
 
 def capture_gesture_wav(midi_out: object, audio_device: str) -> Path:
