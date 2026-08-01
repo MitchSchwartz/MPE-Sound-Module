@@ -12,8 +12,6 @@ from patch_browser.all_patches_index import build_flat_patch_list
 from patch_browser.dsi_splash import boot_animation_phase
 from patch_browser.patch_scanner import favorites_display_name
 from patch_browser.touch_ui_constants import (
-    ALL_PATCHES_JUMP_FLASH_S,
-    ALL_PATCHES_ROW_HEIGHT,
     ALL_PATCHES_SCROLL_ANIM_S,
     AZ_RAIL_FEEDBACK_S,
 )
@@ -349,8 +347,6 @@ class TouchBrowserPatchesMixin:
             )
             self._az_rail_active_letter = letter
             self._az_rail_active_until = time.time() + AZ_RAIL_FEEDBACK_S
-            self._all_patches_jump_index = index
-            self._all_patches_jump_until = time.time() + ALL_PATCHES_JUMP_FLASH_S
 
     def _handle_az_rail_touch(self, kind: str, pos: tuple[int, int]) -> bool:
         if self.left_nav_mode != LeftNavMode.ALL_PATCHES:
