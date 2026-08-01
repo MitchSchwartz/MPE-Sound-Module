@@ -27,8 +27,20 @@ Run on Pi: `./scripts/usb-host-verify.sh`
 
 ## Open issues
 
-1. **Host capture silent during normal Surge play** — investigate ALSA period/buffer on gadget capture path, Surge output routing, and host DAW/Pulse routing. Tone tests suggest the USB path works; patch playback may need separate routing or buffer tuning.
+1. ~~Host capture silent during normal Surge play~~ — **root-caused 2026-07-31, see below.** Not a Surge/ALSA bug — it's a link-layer attach failure.
 2. **Boot with USB-C tethered** — early boot hang if host connected before kernel ready; see [PI-BOOT-RECOVERY.md](PI-BOOT-RECOVERY.md).
+
+---
+
+## Root cause found: PD-power dock on the same port as gadget data (2026-07-31)
+
+**Symptom:** Tone (`speaker-test`) captured fine on the host when the host started capturing *before* playback. MIDI notes into Surge — via OSC `/mnote`, `/patch/load` + note, or raw MIDI on any channel — produced silence on host capture, even after ruling out CPU contention (touch-patch-browser's 100% CPU bug) and a transient under-voltage/reboot event. Confirmed via `aseqdump` that MIDI notes *were* reaching Surge's ALSA sequencer input — so this was never a MIDI-routing problem.
+
+**Actual fault:** `cat /sys/class/udc/fe980000.usb/state` on the Pi read `not attached` — the Pi's own USB-C controller believed nothing was connected, even with a confirmed well-seated cable and the gadget bound (`UDC=fe980000.usb`, `GADGET=bound`). The gadget had cleanly enumerated on the host three times earlier in the session (before power was moved to a PD dock), then never attached again after the dock took over powering the Pi through the same USB-C port used for gadget data.
+
+**Why:** Raspberry Pi's official OTG app note is explicit about this — power the Pi via GPIO 5V/GND, "leaving the USB-C free" for the host data connection. Pi 4's USB-C port has no real ID-pin dual-role detection; when a PD-negotiating power source and a `dwc2` peripheral-mode data session share the same port, CC-line role negotiation can get stuck and `dwc2` never receives a clean attach event. This is a documented Pi 4 hardware limitation (see community writeups on Pi4 Type-C VBUS/CC conflicts), not a cable, seating, or Surge/ALSA issue — no amount of cable swapping or software config resolves it.
+
+**Fix required (blocked on hardware, as of 2026-07-31):** Power the Pi via GPIO 5V/GND from a dedicated supply, independent of the USB-C cable carrying gadget data to the host. Until then, USB-host passthrough is not usable when the Pi's only power source is a USB-C PD dock on the same port.
 
 ---
 
