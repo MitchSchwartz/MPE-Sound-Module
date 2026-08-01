@@ -11,7 +11,12 @@ import pygame
 from patch_browser.all_patches_index import build_flat_patch_list
 from patch_browser.dsi_splash import boot_animation_phase
 from patch_browser.patch_scanner import favorites_display_name
-from patch_browser.touch_ui_constants import ALL_PATCHES_ROW_HEIGHT
+from patch_browser.touch_ui_constants import (
+    ALL_PATCHES_JUMP_FLASH_S,
+    ALL_PATCHES_ROW_HEIGHT,
+    ALL_PATCHES_SCROLL_ANIM_S,
+    AZ_RAIL_FEEDBACK_S,
+)
 from patch_browser.touch_ui_enums import LeftNavMode
 
 
@@ -225,8 +230,9 @@ class TouchBrowserPatchesMixin:
                     self.nav_list._momentum_active = True
         elif self.left_nav_mode == LeftNavMode.FOLDERS:
             loaded_idx = self.loaded_folder_index if self.loaded_patch_info else None
+            folder_labels = [f"{name}  >" for name in self.categories]
             self.nav_list.set_items(
-                self.categories,
+                folder_labels,
                 highlight_index=self.browse_folder_index,
                 loaded_marker_index=loaded_idx,
             )
@@ -321,14 +327,45 @@ class TouchBrowserPatchesMixin:
     def _jump_all_patches_to_letter(self, letter: str) -> None:
         index = self.all_patches_letter_index.get(letter)
         if index is None:
-            for bucket in self.all_patches_letter_index:
+            for bucket in sorted(self.all_patches_letter_index):
                 if bucket >= letter:
                     index = self.all_patches_letter_index[bucket]
                     break
         if index is None and self.all_patches_letter_index:
             index = max(self.all_patches_letter_index.values())
         if index is not None:
-            self.nav_list.scroll_to_index(index)
+            self.nav_list.animate_scroll_to_index(
+                index,
+                align="top",
+                duration=ALL_PATCHES_SCROLL_ANIM_S,
+            )
+            self._az_rail_active_letter = letter
+            self._az_rail_active_until = time.time() + AZ_RAIL_FEEDBACK_S
+            self._all_patches_jump_index = index
+            self._all_patches_jump_until = time.time() + ALL_PATCHES_JUMP_FLASH_S
+
+    def _handle_az_rail_touch(self, kind: str, pos: tuple[int, int]) -> bool:
+        if self.left_nav_mode != LeftNavMode.ALL_PATCHES:
+            return False
+        if kind == "down":
+            letter = self._az_rail_letter_at(pos)
+            if letter is None:
+                return False
+            self._az_rail_capture = True
+            self._az_rail_scrub_letter = letter
+            self._jump_all_patches_to_letter(letter)
+            return True
+        if kind == "motion" and self._az_rail_capture:
+            letter = self._az_rail_letter_at(pos)
+            if letter is not None and letter != self._az_rail_scrub_letter:
+                self._az_rail_scrub_letter = letter
+                self._jump_all_patches_to_letter(letter)
+            return True
+        if kind == "up" and self._az_rail_capture:
+            self._az_rail_capture = False
+            self._az_rail_scrub_letter = None
+            return True
+        return False
     def _go_to_loaded_folder(self) -> None:
         if not self.loaded_patch_info:
             return

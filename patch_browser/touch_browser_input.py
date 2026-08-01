@@ -85,7 +85,7 @@ class TouchBrowserInputMixin:
             return
         if (
             self.nav_all_btn.contains(*pos)
-            and self.left_nav_mode == LeftNavMode.FOLDERS
+            and self.left_nav_mode in (LeftNavMode.FOLDERS, LeftNavMode.PATCHES)
         ):
             self._enter_all_patches()
             return
@@ -98,7 +98,7 @@ class TouchBrowserInputMixin:
             else:
                 self._go_up_to_folders()
             return
-        if self.nav_current_btn.contains(*pos) and self._show_current_folder_button():
+        if self.nav_current_btn.contains(*pos):
             self._go_to_loaded_folder()
             return
     def _settings_hit_at(self, pos: tuple[int, int]) -> str | None:
@@ -465,7 +465,9 @@ class TouchBrowserInputMixin:
             elif self.screen_state == Screen.CALIBRATE_CONFIRM:
                 self._handle_calibrate_confirm_pointer_down(event.pos)
             elif self.screen_state == Screen.BROWSER:
-                if self.left_nav_mode != LeftNavMode.ALL_PATCHES:
+                if self._handle_az_rail_touch("down", event.pos):
+                    pass
+                elif self.left_nav_mode != LeftNavMode.ALL_PATCHES:
                     self._handle_mixer_down(event.pos)
         elif event.type == pygame.MOUSEBUTTONUP and event.button == 1:
             was_mixer = self._dragging_mixer_id is not None
@@ -487,18 +489,17 @@ class TouchBrowserInputMixin:
             elif self.screen_state == Screen.CALIBRATE_CONFIRM:
                 self._handle_calibrate_confirm_pointer_up(event.pos)
             elif self.screen_state == Screen.BROWSER:
-                if self.left_nav_mode == LeftNavMode.ALL_PATCHES:
-                    letter = self._az_rail_letter_at(event.pos)
-                    if letter is not None:
-                        self._jump_all_patches_to_letter(letter)
-                        return
+                if self._handle_az_rail_touch("up", event.pos):
+                    return
                 idx = self.nav_list.take_tap_index()
                 if idx is not None:
                     self._select_nav_index(idx)
                 elif not was_mixer:
                     self._handle_browser_tap(event.pos)
         elif event.type == pygame.MOUSEMOTION:
-            if self._picker_slider_channel and self.screen_state == Screen.THEME:
+            if self._handle_az_rail_touch("motion", event.pos):
+                pass
+            elif self._picker_slider_channel and self.screen_state == Screen.THEME:
                 self._apply_picker_slider_channel(self._picker_slider_channel, event.pos)
             elif self._slider_dragging:
                 if not self._brightness_drag_moved:

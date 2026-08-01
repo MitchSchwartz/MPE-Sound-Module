@@ -54,16 +54,15 @@ class TouchBrowserEvdevMixin:
         if kind == "down":
             self._touch_list_capture = False
             self._az_rail_capture = False
-            if (
-                self.left_nav_mode == LeftNavMode.ALL_PATCHES
-                and self._az_rail_letter_at(pos) is not None
-            ):
-                self._az_rail_capture = True
-            elif not self.left_nav_collapsed and self.nav_list.pointer_down(pos):
+            if self._handle_az_rail_touch("down", pos):
+                return
+            if not self.left_nav_collapsed and self.nav_list.pointer_down(pos):
                 self._touch_list_capture = True
             elif self.left_nav_mode != LeftNavMode.ALL_PATCHES:
                 self._handle_mixer_down(pos)
         elif kind == "motion":
+            if self._handle_az_rail_touch("motion", pos):
+                return
             if self._touch_list_capture or self.nav_list.is_dragging():
                 self.nav_list.pointer_move(pos)
             elif self.left_nav_mode != LeftNavMode.ALL_PATCHES:
@@ -76,11 +75,7 @@ class TouchBrowserEvdevMixin:
             self._mixer_drag_origin = None
             self._mixer_drag_moved = False
 
-            if self._az_rail_capture:
-                letter = self._az_rail_letter_at(pos)
-                if letter is not None:
-                    self._jump_all_patches_to_letter(letter)
-                self._az_rail_capture = False
+            if self._handle_az_rail_touch("up", pos):
                 self._touch_list_capture = False
                 return
 

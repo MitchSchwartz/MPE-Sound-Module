@@ -5,6 +5,8 @@ from __future__ import annotations
 import string
 from typing import TYPE_CHECKING
 
+from patch_browser.patch_scanner import favorites_folder_matches
+
 if TYPE_CHECKING:
     from patch_browser.patch_scanner import PatchScanner
 
@@ -25,11 +27,14 @@ def build_flat_patch_list(scanner: PatchScanner) -> tuple[list[dict], dict[str, 
     Return all patches sorted by name and letter → first row index for scroll jump.
 
     Each patch dict is the scanner entry: name, path, category.
+    Quick Select / favorites folder copies are skipped (canonical row + ♥ only).
     """
     patches: list[dict] = []
     with scanner.scan_lock:
-        for category in scanner.patches.values():
-            patches.extend(category)
+        for category, category_patches in scanner.patches.items():
+            if favorites_folder_matches(category):
+                continue
+            patches.extend(category_patches)
 
     patches.sort(key=lambda p: (p["name"].casefold(), p.get("path", "")))
 

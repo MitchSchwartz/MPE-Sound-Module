@@ -126,10 +126,16 @@ class TouchBrowserDrawMixin:
 
         if self.left_nav_mode in (LeftNavMode.PATCHES, LeftNavMode.ALL_PATCHES):
             self._draw_icon_button(self.nav_back_btn, "back", muted=True)
-        if self.left_nav_mode == LeftNavMode.FOLDERS:
-            self._draw_button(self.nav_all_btn, "All", small=True, accent=True)
-        if self._show_current_folder_button():
-            self._draw_button(self.nav_current_btn, "Current", small=True, accent=True)
+        all_muted = self.left_nav_mode == LeftNavMode.ALL_PATCHES
+        current_muted = not self.loaded_patch_info or not self._show_current_folder_button()
+        self._draw_button(self.nav_all_btn, "All", small=True, accent=not all_muted, muted=all_muted)
+        self._draw_button(
+            self.nav_current_btn,
+            "Current",
+            small=True,
+            accent=not current_muted,
+            muted=current_muted,
+        )
         if self.left_nav_mode != LeftNavMode.ALL_PATCHES:
             self._draw_icon_button(self.nav_collapse_btn, "panel_close", muted=True)
     def _draw_folder_title_bar(self) -> None:
@@ -322,29 +328,40 @@ class TouchBrowserDrawMixin:
         end = min(len(patches), start + self.nav_list.visible_count() + 3)
         y = self.nav_list.rect.y + self.nav_list.padding - int(sub_pixel)
 
+        jump_index = getattr(self, "_all_patches_jump_index", None)
+        jump_until = getattr(self, "_all_patches_jump_until", 0.0)
+        now = time.time()
+        flash_row = jump_index is not None and now < jump_until
+
         for index in range(start, end):
             patch = patches[index]
             row_rect = pygame.Rect(
                 self.nav_list.rect.x + 4,
                 y,
                 self.nav_list.rect.w - 8,
-                row_h - 4,
+                row_h - 2,
             )
             is_highlight = self.nav_list.highlight_index == index
             is_loaded = self.nav_list.loaded_marker_index == index
+            is_jump = flash_row and index == jump_index
             if is_highlight or is_loaded:
                 pygame.draw.rect(self.screen, self.theme.surface_alt, row_rect, border_radius=8)
+            if is_jump:
+                pygame.draw.rect(self.screen, self.theme.accent, row_rect, width=2, border_radius=8)
+                bar = pygame.Rect(row_rect.x, row_rect.y + 4, 3, row_rect.h - 8)
+                pygame.draw.rect(self.screen, self.theme.accent, bar, border_radius=2)
 
-            heart = "♥" if self._patch_is_favorited(patch) else "♡"
-            heart_color = self.theme.danger if self._patch_is_favorited(patch) else self.theme.muted
+            favorited = self._patch_is_favorited(patch)
+            heart = "♥" if favorited else "♡"
+            heart_color = self.theme.accent if favorited else self.theme.muted
             heart_s = self.font_sm.render(heart, True, heart_color)
-            self.screen.blit(heart_s, (row_rect.x + 6, row_rect.y + 6))
+            self.screen.blit(heart_s, (row_rect.x + 6, row_rect.y + 8))
 
             name_max_w = max(1, row_rect.w - 34)
             name_clipped = ellipsize_text(self.font_md, patch["name"], name_max_w)
-            name_color = self.theme.text if is_highlight or is_loaded else self.theme.muted
+            name_color = self.theme.text if is_highlight or is_loaded or is_jump else self.theme.muted
             name_s = self.font_md.render(name_clipped, True, name_color)
-            self.screen.blit(name_s, (row_rect.x + 26, row_rect.y + 4))
+            self.screen.blit(name_s, (row_rect.x + 26, row_rect.y + 6))
 
             folder_clipped = ellipsize_text(
                 self.font_sm,
@@ -352,7 +369,7 @@ class TouchBrowserDrawMixin:
                 name_max_w,
             )
             folder_s = self.font_sm.render(folder_clipped, True, self.theme.muted)
-            self.screen.blit(folder_s, (row_rect.x + 26, row_rect.y + 22))
+            self.screen.blit(folder_s, (row_rect.x + 26, row_rect.y + 26))
 
             if is_loaded:
                 pygame.draw.circle(
@@ -375,9 +392,32 @@ class TouchBrowserDrawMixin:
             self.az_rail_rect.pygame_rect,
             border_radius=8,
         )
+        now = time.time()
+        active_letter = getattr(self, "_az_rail_active_letter", None)
+        active_until = getattr(self, "_az_rail_active_until", 0.0)
+        scrub_letter = getattr(self, "_az_rail_scrub_letter", None)
+        capturing = getattr(self, "_az_rail_capture", False)
         for letter, rect in self.az_rail_letter_rects:
+            has_patches = letter in self.all_patches_letter_index
+            is_active = letter == active_letter and now < active_until
+            is_pressed = capturing and letter == scrub_letter
+            if is_active or is_pressed:
+                pill = pygame.Rect(
+                    rect.x - 8,
+                    rect.y + 1,
+                    rect.w + 10,
+                    max(rect.h - 2, 10),
+                )
+                pygame.draw.rect(self.screen, self.theme.surface_alt, pill, border_radius=6)
+                pygame.draw.rect(self.screen, self.theme.accent, pill, width=2, border_radius=6)
             label = "#" if letter == "#" else letter
-            text = self.font_sm.render(label, True, self.theme.muted)
+            if is_active or is_pressed:
+                color = self.theme.accent
+            elif has_patches:
+                color = self.theme.text
+            else:
+                color = self.theme.muted
+            text = self.font_sm.render(label, True, color)
             tx = rect.x + (rect.w - text.get_width()) // 2
             ty = rect.y + max(0, (rect.h - text.get_height()) // 2)
             self.screen.blit(text, (tx, ty))
