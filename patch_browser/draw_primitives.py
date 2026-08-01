@@ -27,17 +27,37 @@ def draw_current_patch_icon(
     rect: Rect,
     color: tuple[int, int, int],
 ) -> None:
-    """Locate / jump-to-loaded — crosshair with center dot."""
-    cx, cy = rect.centerx, rect.centery
-    pygame.draw.circle(surface, color, (cx, cy), 7, 2)
-    pygame.draw.circle(surface, color, (cx, cy), 2)
+    """Jump to loaded patch folder — folder outline with crosshair."""
+    cx, cy = rect.centerx, rect.centery + 1
+    body_w, body_h = 18, 11
+    tab_w, tab_h = 7, 4
+    body_x = cx - body_w // 2
+    body_y = cy - body_h // 2 + 2
+    tab_x = body_x + 2
+    tab_y = body_y - tab_h + 1
+
+    tab = pygame.Rect(tab_x, tab_y, tab_w, tab_h)
+    body = pygame.Rect(body_x, body_y, body_w, body_h)
+    pygame.draw.rect(surface, color, tab, width=2, border_radius=1)
+    pygame.draw.rect(surface, color, body, width=2, border_radius=2)
+    pygame.draw.line(
+        surface,
+        color,
+        (tab_x + tab_w - 1, tab_y + tab_h - 1),
+        (body_x + body_w - 1, body_y),
+        2,
+    )
+
+    icx, icy = body.centerx, body.centery
+    pygame.draw.circle(surface, color, (icx, icy), 4, 1)
+    pygame.draw.circle(surface, color, (icx, icy), 1)
     for x1, y1, x2, y2 in (
-        (cx, cy - 10, cx, cy - 7),
-        (cx, cy + 7, cx, cy + 10),
-        (cx - 10, cy, cx - 7, cy),
-        (cx + 7, cy, cx + 10, cy),
+        (icx, icy - 6, icx, icy - 4),
+        (icx, icy + 4, icx, icy + 6),
+        (icx - 6, icy, icx - 4, icy),
+        (icx + 4, icy, icx + 6, icy),
     ):
-        pygame.draw.line(surface, color, (x1, y1), (x2, y2), 2)
+        pygame.draw.line(surface, color, (x1, y1), (x2, y2), 1)
 
 
 def draw_sidebar_panel_icon(
