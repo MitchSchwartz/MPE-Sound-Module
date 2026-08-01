@@ -1,8 +1,19 @@
-"""Shared UI colors for pygame surfaces (touch browser, calibration loader)."""
+"""Shared UI colors for pygame surfaces (touch browser, calibration loader).
+
+Live knobs: ACCENT, TEXT, MUTED, ACCENT_STYLE — set via apply_theme_preferences() /
+reload_theme_from_prefs() from ~/.patch_browser_ui.json.
+
+Surface tiers (bg, surface, surface_elevated, …) come from Theme for standard vs
+oled_black base mode. Boot/shutdown splashes and calibration loader reload prefs
+so load screens match the active theme.
+
+See docs/TOUCH_PATCH_BROWSER.md § UI theme.
+"""
 
 from __future__ import annotations
 
 import json
+import secrets
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -12,12 +23,14 @@ THEME_MODE_STANDARD = "standard"
 THEME_MODE_OLED_BLACK = "oled_black"
 THEME_MODES = (THEME_MODE_STANDARD, THEME_MODE_OLED_BLACK)
 
-ACCENT_STYLE_FULL = "full"
+ACCENT_STYLE_MONOCHROME = "monochrome"
 ACCENT_STYLE_MINIMAL = "minimal"
-ACCENT_STYLES = (ACCENT_STYLE_FULL, ACCENT_STYLE_MINIMAL)
+ACCENT_STYLE_FULL = ACCENT_STYLE_MONOCHROME  # legacy alias
+ACCENT_STYLES = (ACCENT_STYLE_MONOCHROME, ACCENT_STYLE_MINIMAL)
+LEGACY_ACCENT_STYLES = {"full": ACCENT_STYLE_MONOCHROME}
 
 DEFAULT_ACCENT_RGB: tuple[int, int, int] = (127, 27, 228)  # #7f1be4
-DEFAULT_ACCENT_STYLE = ACCENT_STYLE_FULL
+DEFAULT_ACCENT_STYLE = ACCENT_STYLE_MONOCHROME
 
 MINIMAL_TEXT_STANDARD: tuple[int, int, int] = (232, 232, 236)
 MINIMAL_TEXT_OLED: tuple[int, int, int] = (235, 235, 240)
@@ -33,6 +46,12 @@ ACCENT_PRESETS: tuple[tuple[str, tuple[int, int, int]], ...] = (
     ("Rose", (230, 90, 130)),
 )
 
+MAX_CUSTOM_ACCENT_COLORS = 12
+
+THEME_VIEW_MAIN = "main"
+THEME_VIEW_COLORS = "colors"
+THEME_VIEW_PICKER = "picker"
+
 # Primary label / title color (replaces near-white body text).
 TEXT: tuple[int, int, int] = DEFAULT_ACCENT_RGB
 TEXT_HEX = "#7f1be4"
@@ -44,6 +63,9 @@ MUTED_HEX = "#6028b4"
 # Interactive chrome — sliders, checkbox fills, accent buttons, progress fills, etc.
 ACCENT: tuple[int, int, int] = DEFAULT_ACCENT_RGB
 ACCENT_HEX = "#7f1be4"
+
+# Active accent style — updated by apply_theme_preferences().
+ACCENT_STYLE: str = DEFAULT_ACCENT_STYLE
 
 
 def text_color() -> tuple[int, int, int]:
@@ -59,6 +81,40 @@ def muted_color() -> tuple[int, int, int]:
 def accent_color() -> tuple[int, int, int]:
     """Return the active accent RGB."""
     return ACCENT
+
+
+def accent_style_name() -> str:
+    """Return the active accent style id."""
+    return ACCENT_STYLE
+
+
+def is_monochrome_style() -> bool:
+    """True when semantic UI colors map to the accent (CPU meter excluded)."""
+    return ACCENT_STYLE == ACCENT_STYLE_MONOCHROME
+
+
+def normalize_accent_style(raw: object) -> str | None:
+    if raw in ACCENT_STYLES:
+        return str(raw)
+    if isinstance(raw, str) and raw in LEGACY_ACCENT_STYLES:
+        return LEGACY_ACCENT_STYLES[raw]
+    return None
+
+
+def theme_semantic_color(theme: Theme, kind: str) -> tuple[int, int, int]:
+    """Resolve semantic UI colors for ok / danger / playing.
+
+    ok → accent (all accent styles). danger → theme danger red (all styles).
+    playing → accent in monochrome; semantic amber in minimal.
+    CPU meter bypasses this helper and keeps green/yellow/red thresholds.
+    """
+    if kind == "ok":
+        return accent_color()
+    if kind == "danger":
+        return theme.danger
+    if is_monochrome_style():
+        return accent_color()
+    return getattr(theme, kind)
 
 
 @dataclass(frozen=True)
@@ -138,6 +194,105 @@ class ThemePreferences:
     accent_style: str
 
 
+@dataclass(frozen=True)
+class SavedAccentColor:
+    color_id: str
+    name: str
+    rgb: tuple[int, int, int]
+
+
+def rgb_to_hex(rgb: tuple[int, int, int]) -> str:
+    red, green, blue = rgb
+    return f"#{red:02x}{green:02x}{blue:02x}"
+
+
+def clamp_rgb_channel(value: int) -> int:
+    return max(0, min(255, int(value)))
+
+
+def clamp_rgb(rgb: tuple[int, int, int]) -> tuple[int, int, int]:
+    red, green, blue = rgb
+    return (clamp_rgb_channel(red), clamp_rgb_channel(green), clamp_rgb_channel(blue))
+
+
+def new_custom_color_id() -> str:
+    return secrets.token_hex(4)
+
+
+def default_custom_color_name(rgb: tuple[int, int, int]) -> str:
+    return rgb_to_hex(clamp_rgb(rgb))
+
+
+def _parse_saved_accent_color(raw: object) -> SavedAccentColor | None:
+    if not isinstance(raw, dict):
+        return None
+    color_id = raw.get("id")
+    if not isinstance(color_id, str) or not color_id.strip():
+        return None
+    parsed_rgb = _parse_accent_rgb(raw.get("rgb"))
+    if parsed_rgb is None:
+        return None
+    rgb = clamp_rgb(parsed_rgb)
+    name = raw.get("name")
+    if not isinstance(name, str) or not name.strip():
+        name = default_custom_color_name(rgb)
+    return SavedAccentColor(color_id=color_id.strip(), name=name.strip(), rgb=rgb)
+
+
+def parse_custom_accent_colors(raw: object) -> list[SavedAccentColor]:
+    if not isinstance(raw, list):
+        return []
+    colors: list[SavedAccentColor] = []
+    seen_ids: set[str] = set()
+    for item in raw:
+        parsed = _parse_saved_accent_color(item)
+        if parsed is None or parsed.color_id in seen_ids:
+            continue
+        seen_ids.add(parsed.color_id)
+        colors.append(parsed)
+        if len(colors) >= MAX_CUSTOM_ACCENT_COLORS:
+            break
+    return colors
+
+
+def load_custom_accent_colors() -> list[SavedAccentColor]:
+    if not UI_STATE_FILE.exists():
+        return []
+    try:
+        data = json.loads(UI_STATE_FILE.read_text())
+        return parse_custom_accent_colors(data.get("custom_accent_colors"))
+    except (OSError, json.JSONDecodeError, TypeError, ValueError):
+        return []
+
+
+def serialize_custom_accent_colors(colors: list[SavedAccentColor]) -> list[dict[str, object]]:
+    payload: list[dict[str, object]] = []
+    for color in colors[:MAX_CUSTOM_ACCENT_COLORS]:
+        payload.append(
+            {
+                "id": color.color_id,
+                "name": color.name,
+                "rgb": list(color.rgb),
+            }
+        )
+    return payload
+
+
+def find_custom_accent_color(colors: list[SavedAccentColor], color_id: str) -> SavedAccentColor | None:
+    for color in colors:
+        if color.color_id == color_id:
+            return color
+    return None
+
+
+def find_custom_accent_by_rgb(colors: list[SavedAccentColor], rgb: tuple[int, int, int]) -> SavedAccentColor | None:
+    target = clamp_rgb(rgb)
+    for color in colors:
+        if color.rgb == target:
+            return color
+    return None
+
+
 def derive_muted_from_accent(accent: tuple[int, int, int]) -> tuple[int, int, int]:
     """Tint secondary labels from the active accent (full-accent style)."""
     red, green, blue = accent
@@ -162,9 +317,10 @@ def minimal_muted_for_mode(mode: str) -> tuple[int, int, int]:
 
 def apply_theme_preferences(prefs: ThemePreferences) -> None:
     """Apply accent/text/muted globals from saved or draft preferences."""
-    global ACCENT, TEXT, MUTED
+    global ACCENT, TEXT, MUTED, ACCENT_STYLE
 
     ACCENT = prefs.accent_rgb
+    ACCENT_STYLE = prefs.accent_style
     if prefs.accent_style == ACCENT_STYLE_MINIMAL:
         TEXT = minimal_text_for_mode(prefs.theme_mode)
         MUTED = minimal_muted_for_mode(prefs.theme_mode)
@@ -193,8 +349,9 @@ def load_theme_preferences(*, default_mode: str = THEME_MODE_STANDARD) -> ThemeP
             if parsed is not None:
                 accent = parsed
             raw_style = data.get("accent_style")
-            if raw_style in ACCENT_STYLES:
-                style = str(raw_style)
+            normalized = normalize_accent_style(raw_style)
+            if normalized is not None:
+                style = normalized
         except (OSError, json.JSONDecodeError, TypeError, ValueError):
             pass
     return ThemePreferences(theme_mode=mode, accent_rgb=accent, accent_style=style)
