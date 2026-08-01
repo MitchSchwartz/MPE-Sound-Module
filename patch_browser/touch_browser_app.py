@@ -222,6 +222,8 @@ class TouchPatchBrowser(
         self.az_rail_rect = Rect(0, 0, 0, 0)
         self.az_rail_letter_rects: list[tuple[str, Rect]] = []
         self.nav_all_btn = Rect(0, 0, 0, 0)
+        self.nav_current_btn = Rect(0, 0, 0, 0)
+        self._all_patches_saved_scroll = 0.0
         self.browse_folder_index = 0
         self.loaded_folder_index = 0
         self.detail_patch: dict | None = None

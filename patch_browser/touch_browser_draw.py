@@ -6,7 +6,11 @@ import time
 
 import pygame
 
-from patch_browser.draw_primitives import draw_chevron, draw_sidebar_panel_icon
+from patch_browser.draw_primitives import (
+    draw_chevron,
+    draw_current_patch_icon,
+    draw_sidebar_panel_icon,
+)
 from patch_browser.geometry import Rect
 from patch_browser.mixer import MixerChannel
 from patch_browser.touch_ui_constants import (
@@ -121,21 +125,62 @@ class TouchBrowserDrawMixin:
                 (rect.right - inset, rect.y),
                 1,
             )
+    def _draw_nav_chip(
+        self,
+        rect: Rect,
+        label: str,
+        *,
+        selected: bool = False,
+        disabled: bool = False,
+    ) -> None:
+        if disabled:
+            bg = self.theme.surface
+            text_color = self.theme.muted
+        elif selected:
+            bg = self.theme.accent
+            text_color = self.theme.bg
+        else:
+            bg = self.theme.surface_alt
+            text_color = self.theme.text
+        pygame.draw.rect(self.screen, bg, rect.pygame_rect, border_radius=8)
+        font = self.font_sm
+        clipped = ellipsize_text(font, label, max(1, rect.w - 12))
+        surf = font.render(clipped, True, text_color)
+        tx = rect.x + (rect.w - surf.get_width()) // 2
+        ty = rect.y + (rect.h - surf.get_height()) // 2
+        self.screen.blit(surf, (tx, ty))
+
+    def _draw_nav_current_button(self, rect: Rect, *, selected: bool, disabled: bool) -> None:
+        if disabled:
+            bg = self.theme.surface
+            icon_color = self.theme.muted
+        elif selected:
+            bg = self.theme.accent
+            icon_color = self.theme.bg
+        else:
+            bg = self.theme.surface_alt
+            icon_color = self.theme.text
+        pygame.draw.rect(self.screen, bg, rect.pygame_rect, border_radius=8)
+        draw_current_patch_icon(self.screen, rect, icon_color)
+
     def _draw_nav_header(self) -> None:
         pygame.draw.rect(self.screen, self.theme.surface, self.nav_header_rect.pygame_rect)
 
         if self.left_nav_mode in (LeftNavMode.PATCHES, LeftNavMode.ALL_PATCHES):
             self._draw_icon_button(self.nav_back_btn, "back", muted=True)
-        all_muted = self.left_nav_mode == LeftNavMode.ALL_PATCHES
-        current_muted = not self.loaded_patch_info or not self._show_current_folder_button()
-        self._draw_button(self.nav_all_btn, "All", small=True, accent=not all_muted, muted=all_muted)
-        self._draw_button(
-            self.nav_current_btn,
-            "Current",
-            small=True,
-            accent=not current_muted,
-            muted=current_muted,
+        all_selected = self.left_nav_mode == LeftNavMode.ALL_PATCHES
+        current_selected = (
+            self.left_nav_mode == LeftNavMode.PATCHES
+            and self.loaded_patch_info is not None
+            and self.browse_folder_index == self.loaded_folder_index
         )
+        current_disabled = self.loaded_patch_info is None
+        self._draw_nav_current_button(
+            self.nav_current_btn,
+            selected=current_selected,
+            disabled=current_disabled,
+        )
+        self._draw_nav_chip(self.nav_all_btn, "All", selected=all_selected)
         if self.left_nav_mode != LeftNavMode.ALL_PATCHES:
             self._draw_icon_button(self.nav_collapse_btn, "panel_close", muted=True)
     def _draw_folder_title_bar(self) -> None:
@@ -374,7 +419,7 @@ class TouchBrowserDrawMixin:
             if is_loaded:
                 pygame.draw.circle(
                     self.screen,
-                    self.theme.playing,
+                    self.theme.accent,
                     (row_rect.right - 12, row_rect.centery),
                     4,
                 )
