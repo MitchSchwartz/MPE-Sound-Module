@@ -64,7 +64,7 @@ Prefer **hardware** device for capture — `plughw:N,0` has been observed **sile
 arecord -D hw:N,0 -f S16_LE -r 44100 -c 2 -d 5 /tmp/mpe-host-capture.wav
 ```
 
-**Open issue:** host capture may stay silent while Surge plays user patches even when tone tests work. See **[USB-AUDIO-PASSTHROUGH-SPIKE.md](USB-AUDIO-PASSTHROUGH-SPIKE.md)**.
+**Root-caused 2026-07-31:** if the Pi is powered through a USB-C PD dock plugged into the *same* port used for gadget data, `dwc2` can get stuck `not attached` (check `cat /sys/class/udc/*/state` on the Pi) even with MIDI/OSC correctly reaching Surge. This is a Pi 4 hardware limitation, not a Surge bug — see **[USB-AUDIO-PASSTHROUGH-SPIKE.md](USB-AUDIO-PASSTHROUGH-SPIKE.md)**. Power the Pi via GPIO 5V/GND, independent of the USB-C data cable, to avoid it.
 
 `speaker-test` on the Pi without a host actively capturing the UAC2 stream may report **I/O error -5** — expected when nothing reads the gadget endpoint.
 
