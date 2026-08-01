@@ -20,6 +20,8 @@ from patch_browser.ui_theme import (
     ACCENT_STYLE_MONOCHROME,
     THEME_MODE_OLED_BLACK,
     THEME_MODE_STANDARD,
+    THEME_VIEW_COLORS,
+    THEME_VIEW_PICKER,
 )
 
 
