@@ -136,13 +136,24 @@ class TouchBrowserDrawMixin:
         if disabled:
             bg = self.theme.surface
             text_color = self.theme.muted
+            border_color = None
         elif selected:
-            bg = self.theme.accent
-            text_color = self.theme.bg
+            bg = self.theme.surface_alt
+            text_color = self.theme.accent
+            border_color = self.theme.accent
         else:
             bg = self.theme.surface_alt
             text_color = self.theme.text
+            border_color = None
         pygame.draw.rect(self.screen, bg, rect.pygame_rect, border_radius=8)
+        if border_color is not None:
+            pygame.draw.rect(
+                self.screen,
+                border_color,
+                rect.pygame_rect,
+                width=2,
+                border_radius=8,
+            )
         font = self.font_sm
         clipped = ellipsize_text(font, label, max(1, rect.w - 12))
         surf = font.render(clipped, True, text_color)
@@ -154,13 +165,24 @@ class TouchBrowserDrawMixin:
         if disabled:
             bg = self.theme.surface
             icon_color = self.theme.muted
+            border_color = None
         elif selected:
-            bg = self.theme.accent
-            icon_color = self.theme.bg
+            bg = self.theme.surface_alt
+            icon_color = self.theme.accent
+            border_color = self.theme.accent
         else:
             bg = self.theme.surface_alt
             icon_color = self.theme.text
+            border_color = None
         pygame.draw.rect(self.screen, bg, rect.pygame_rect, border_radius=8)
+        if border_color is not None:
+            pygame.draw.rect(
+                self.screen,
+                border_color,
+                rect.pygame_rect,
+                width=2,
+                border_radius=8,
+            )
         draw_current_patch_icon(self.screen, rect, icon_color)
 
     def _draw_nav_header(self) -> None:
@@ -373,11 +395,6 @@ class TouchBrowserDrawMixin:
         end = min(len(patches), start + self.nav_list.visible_count() + 3)
         y = self.nav_list.rect.y + self.nav_list.padding - int(sub_pixel)
 
-        jump_index = getattr(self, "_all_patches_jump_index", None)
-        jump_until = getattr(self, "_all_patches_jump_until", 0.0)
-        now = time.time()
-        flash_row = jump_index is not None and now < jump_until
-
         for index in range(start, end):
             patch = patches[index]
             row_rect = pygame.Rect(
@@ -387,13 +404,8 @@ class TouchBrowserDrawMixin:
                 row_h - 2,
             )
             is_loaded = self.nav_list.loaded_marker_index == index
-            is_jump = flash_row and index == jump_index
             if is_loaded:
                 pygame.draw.rect(self.screen, self.theme.surface_alt, row_rect, border_radius=8)
-            if is_jump:
-                pygame.draw.rect(self.screen, self.theme.accent, row_rect, width=2, border_radius=8)
-                bar = pygame.Rect(row_rect.x, row_rect.y + 4, 3, row_rect.h - 8)
-                pygame.draw.rect(self.screen, self.theme.accent, bar, border_radius=2)
 
             favorited = self._patch_is_favorited(patch)
             heart = "♥" if favorited else "♡"
@@ -403,7 +415,7 @@ class TouchBrowserDrawMixin:
 
             name_max_w = max(1, row_rect.w - 34)
             name_clipped = ellipsize_text(self.font_md, patch["name"], name_max_w)
-            name_color = self.theme.text if is_loaded or is_jump else self.theme.muted
+            name_color = self.theme.text if is_loaded else self.theme.muted
             name_s = self.font_md.render(name_clipped, True, name_color)
             self.screen.blit(name_s, (row_rect.x + 26, row_rect.y + 6))
 
