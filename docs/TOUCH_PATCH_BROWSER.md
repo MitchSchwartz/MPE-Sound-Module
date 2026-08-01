@@ -258,9 +258,9 @@ Persists as `theme_mode` in `~/.patch_browser_ui.json`.
 
 Legacy pref `accent_style: "full"` loads as `monochrome`.
 
-**Exceptions (always accent-colored):** patch **loaded** dot in the nav list (`theme.accent`), regardless of style.
+**Exceptions (always accent-colored):** patch **loaded** dot in the nav list (`theme.accent`); **ok** success text (e.g. calibration done). Regardless of accent style.
 
-**Exceptions (semantic, not accent):** **CPU meter** bar (green → yellow → red).
+**Exceptions (semantic, not accent):** **danger** destructive labels and confirms (red); **CPU meter** bar (green → yellow → red).
 
 ### Accent color
 

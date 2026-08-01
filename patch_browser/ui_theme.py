@@ -102,7 +102,16 @@ def normalize_accent_style(raw: object) -> str | None:
 
 
 def theme_semantic_color(theme: Theme, kind: str) -> tuple[int, int, int]:
-    """Map playing/danger/ok to accent in monochrome mode."""
+    """Resolve semantic UI colors for ok / danger / playing.
+
+    ok → accent (all accent styles). danger → theme danger red (all styles).
+    playing → accent in monochrome; semantic amber in minimal.
+    CPU meter bypasses this helper and keeps green/yellow/red thresholds.
+    """
+    if kind == "ok":
+        return accent_color()
+    if kind == "danger":
+        return theme.danger
     if is_monochrome_style():
         return accent_color()
     return getattr(theme, kind)
