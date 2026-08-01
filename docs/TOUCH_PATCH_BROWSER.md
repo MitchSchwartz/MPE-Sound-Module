@@ -213,20 +213,89 @@ Set `MPE_TOUCH_EVDEV=0` to fall back to SDL-only input (debugging).
 
 Right-side **slide-out panel** (tap **⋯**, tap outside, swipe right, or **×** to close). Scrollable body; **Power…** fixed at the bottom with a divider. Row buttons and toggles activate on **finger up** (same tap-vs-scroll thresholds as the patch list) so you can scroll without triggering rows under your finger. Confirm modals (calibration, power) use the same up-to-activate pattern.
 
-UI preferences persist in `~/.patch_browser_ui.json` (e.g. `show_cpu_meter`, `theme_mode`: `"standard"` or `"oled_black"`).
+UI preferences persist in `~/.patch_browser_ui.json` (see [UI theme](#ui-theme-system-settings--theme)).
 
 - **CPU meter** — toggle show/hide for the header bar (not the numeric overlay; bar-only meter). Default on.
+- **Theme…** — base theme, accent style, accent color (presets + saved custom colors). See [UI theme](#ui-theme-system-settings--theme).
 - **Patch normalization** — master toggle for all per-patch Norm. controls (persists in `~/.patch_browser_normalization.json` under `_global`; per-patch flags unchanged when off).
 - **Audio profile** — read-only line (`Analog` vs `USB host`); set via `MPE_AUDIO_PROFILE` in `/etc/mpe/mpe.env`. See **[USB-AUDIO-HOST.md](USB-AUDIO-HOST.md)**.
-- **Surge status** — `SurgeMonitor` probes the CLI process, OSC port 53280, and recent log lines. Stale PIDs and historical audio-device errors in `surge-cli.log` no longer show as false *down* (fixed 2026-07-30).
-- **Header CPU meter** — compact bar to the left of the **⋯** settings button when enabled. Polls at ~5 Hz on a background thread (UI stays responsive). Surge XT does **not** document a CPU OSC address (`/q/cpu`, `/cpu`, `/status/cpu` are probed speculatively when OSC out is enabled). The meter therefore uses **`/proc` CPU time for the `surge-xt-cli` process** as a live-play diagnostic — same green → yellow → red thresholds as a DAW meter. Shows **—** when Surge is offline. This approximates audio-engine stress on a dedicated Pi; it is not identical to Surge’s internal VU *Show CPU Usage* ratio (audio callback time ÷ buffer time), which is GUI-only today.
+- **Header CPU meter** — compact bar to the left of the **⋯** settings button when enabled. Polls at ~5 Hz on a background thread (UI stays responsive). Surge XT does **not** document a CPU OSC address (`/q/cpu`, `/cpu`, `/status/cpu` are probed speculatively when OSC out is enabled). The meter therefore uses **`/proc` CPU time for the `surge-xt-cli` process** as a live-play diagnostic — same green → yellow → red thresholds as a DAW meter. Shows **—** when Surge is offline. This approximates audio-engine stress on a dedicated Pi; it is not identical to Surge’s internal VU *Show CPU Usage* ratio (audio callback time ÷ buffer time), which is GUI-only today. **CPU meter colors always use semantic green/yellow/red**, even in Monochrome accent style.
 - **Restart Surge** — shown when status is not healthy; uses the same systemd unit as the encoder build.
 - **Calibrate missing patches** — incremental run over the full scanned library (patches without `gain_db` only).
 - **Force full re-calibration** — re-measures every patch in the scan tree (`--force`). See [Per-patch normalization](#per-patch-normalization).
 
-## OLED black theme
+## UI theme (System → Theme…)
 
-Toggle in System settings → **OLED black**. Persists as `theme_mode: "oled_black"` in `~/.patch_browser_ui.json`. Standard theme is unchanged.
+*Last updated: 2026-08-01 (America/Toronto)*
+
+The touch UI uses a **single live theme system** in `patch_browser/ui_theme.py`. Accent, text, and muted colors are module-level knobs updated from saved preferences; `Theme` surface tokens (background tiers, overlays) come from the selected **base theme**.
+
+**Where it applies:** patch browser, **boot splash**, **shutdown splash**, and **calibration loader** all call `reload_theme_from_prefs()` at paint time so load/return screens match the active accent and style.
+
+### Flow
+
+1. **Theme** modal — base theme, accent style, accent preview + **Choose color…**, **Done** / **Cancel**
+2. **Accent color** screen — preset swatches, **Saved** custom colors (× to delete), **+** custom picker, **Back**
+3. **Custom color** picker — live preview, **Red / Green / Blue** sliders, **Save** (primary), **Delete** (when editing a saved color), **Back**
+
+Changes preview live in the modal; **Done** on the Theme screen writes theme prefs. **Save** on the custom picker writes to the saved palette immediately.
+
+### Base theme
+
+| Value | Label | Surfaces |
+|-------|-------|----------|
+| `standard` | Original dark | Raised gray canvas (`#0A0A0C` family) |
+| `oled_black` | OLED dark | True-black content + tiered elevation (see table below) |
+
+Persists as `theme_mode` in `~/.patch_browser_ui.json`.
+
+### Accent style
+
+| Value | Label | Behavior |
+|-------|-------|----------|
+| `monochrome` | Monochrome | Labels, chrome, heart (favorited), and most UI accents use the chosen accent color |
+| `minimal` | Minimal accent | Near-white/gray **text** and **muted**; accent color on interactive chrome only (sliders, checkbox fills, primary buttons) |
+
+Legacy pref `accent_style: "full"` loads as `monochrome`.
+
+**Exceptions (always accent-colored):** patch **loaded** dot in the nav list (`theme.accent`), regardless of style.
+
+**Exceptions (semantic, not accent):** **CPU meter** bar (green → yellow → red).
+
+### Accent color
+
+- **Presets:** Purple, Blue, Violet, Teal, Amber, Rose (`ACCENT_PRESETS` in code)
+- **Saved custom colors:** up to 12 entries in `custom_accent_colors` (each `{ "id", "name", "rgb" }`)
+- **Custom picker:** RGB sliders; **Save** adds/updates palette; **×** on a saved swatch deletes
+
+Persists as `accent_rgb` (3 integers) and `custom_accent_colors` in `~/.patch_browser_ui.json`.
+
+Example:
+
+```json
+{
+  "theme_mode": "oled_black",
+  "accent_style": "monochrome",
+  "accent_rgb": [127, 27, 228],
+  "custom_accent_colors": [
+    { "id": "a1b2c3d4", "name": "#ff0088", "rgb": [255, 0, 136] }
+  ],
+  "show_cpu_meter": true
+}
+```
+
+### Modal button hierarchy
+
+One **primary** (accent fill) commit button per dialog; dismiss actions stay neutral.
+
+| Role | Visual | Examples |
+|------|--------|----------|
+| Primary | Accent fill | Done, Save, Start |
+| Dismiss | `surface_alt` | Cancel, Back |
+| Destructive | Danger fill / label | Confirm shutdown, Delete |
+| Secondary | `surface_alt` row | Choose color…, Power menu rows (Shutdown/Restart use danger **text**) |
+
+### OLED dark surface tiers
 
 OLED mode follows the usual **Material / iOS dark** pattern: **tiered surfaces + subtle elevation**, not hard outlines. Overlays use a **~50% black backdrop dim**; panels sit on a brighter surface tier so they read above true-black content.
 
@@ -240,7 +309,7 @@ OLED mode follows the usual **Material / iOS dark** pattern: **tiered surfaces +
 | Overlay | Backdrop behind panels/modals | mixed 120–200 α | `#000000` @ 50% α |
 | Hairline | Optional header separator | none | `#FFFFFF` @ ~9% (header bottom only) |
 
-Implementation: `patch_browser/ui_theme.py` (`theme_oled_black()` / `OLED_BLACK_THEME`); elevated panels get an optional **1px top highlight** (light falloff, not a border). Calibration loader inherits the same tokens when launched from the browser.
+Implementation: `patch_browser/ui_theme.py` (`OLED_BLACK_THEME`, `apply_theme_preferences`, `reload_theme_from_prefs`); elevated panels get an optional **1px top highlight** (light falloff, not a border). Tests: `tests/test_ui_theme.py`, `tests/test_touch_browser_smoke.py`.
 
 ## Known gaps (v0)
 

@@ -1,4 +1,14 @@
-"""Shared UI colors for pygame surfaces (touch browser, calibration loader)."""
+"""Shared UI colors for pygame surfaces (touch browser, calibration loader).
+
+Live knobs: ACCENT, TEXT, MUTED, ACCENT_STYLE — set via apply_theme_preferences() /
+reload_theme_from_prefs() from ~/.patch_browser_ui.json.
+
+Surface tiers (bg, surface, surface_elevated, …) come from Theme for standard vs
+oled_black base mode. Boot/shutdown splashes and calibration loader reload prefs
+so load screens match the active theme.
+
+See docs/TOUCH_PATCH_BROWSER.md § UI theme.
+"""
 
 from __future__ import annotations
 
