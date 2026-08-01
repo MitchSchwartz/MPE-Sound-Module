@@ -48,6 +48,7 @@ Interaction model:
 
 | **Left nav (expanded)** | **Patches** in current folder, or **Folders** after Up | Tap patch → load + detail on main |
 | **Up** | Switch left nav to folder list | Does not load anything |
+| **All** | Flat A–Z list of every patch (hearts show Quick Access) | Hides patch detail until a row is tapped |
 | **Current** | When browsing another folder — jump to loaded patch's folder + patch list | |
 | **< collapse** | Nav hides; `>` tab remains to expand | Main detail gets full width |
 | **Main (right)** | Selected patch: **Vol** fader + **Norm.** toggle | No back button — list is always on the left |
@@ -242,8 +243,21 @@ OLED mode follows the usual **Material / iOS dark** pattern: **tiered surfaces +
 
 Implementation: `patch_browser/ui_theme.py` (`theme_oled_black()` / `OLED_BLACK_THEME`); elevated panels get an optional **1px top highlight** (light falloff, not a border). Calibration loader inherits the same tokens when launched from the browser.
 
+## All patches view (#10)
+
+From the folder list, tap **All** in the left nav header:
+
+- **Flat list** of every scanned patch, sorted A→Z
+- **Folder name** shown as a subtitle on each row (not used for navigation)
+- **♥ / ♡** — filled heart if the patch is already in Quick Access (`MPE_FAVORITES_NAME`); indicator only (toggle still on patch detail after load)
+- **A–Z rail** on the right — tap a letter to jump scroll to that section
+- Tap a patch → loads in Surge and collapses to the detail pane (Vol + Norm)
+- **Up** returns to the folder list
+
+Spec: [`Documents/specs/touch-patch-browser-browse-ux-spec.md`](../Documents/specs/touch-patch-browser-browse-ux-spec.md)
+
 ## Known gaps (v0)
 
-- Search/filter across 3000+ patches not implemented (scroll lists first)
+- Prefix/text search and folder chips not implemented (All patches + A–Z first)
 - Portrait panels are unsupported for this rig (yours is landscape)
 - Very large patches (e.g. **Bowed String**, ~8 MB) may need a calibration retry — use `--patch "Bowed String"` or re-run loader with `--force`
