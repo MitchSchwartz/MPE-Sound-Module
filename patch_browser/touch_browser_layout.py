@@ -298,7 +298,6 @@ class TouchBrowserLayoutMixin:
         y = self.nav_header_rect.y + 4
         btn_h = 28
         icon_w = 32
-        all_w = 38
         x = self.nav_header_rect.x + 6
         if self.left_nav_mode in (LeftNavMode.PATCHES, LeftNavMode.ALL_PATCHES):
             self.nav_back_btn = Rect(x, y, 36, btn_h)
@@ -307,7 +306,7 @@ class TouchBrowserLayoutMixin:
             self.nav_back_btn = Rect(0, 0, 0, 0)
         self.nav_current_btn = Rect(x, y, icon_w, btn_h)
         x += icon_w + 6
-        self.nav_all_btn = Rect(x, y, all_w, btn_h)
+        self.nav_all_btn = Rect(x, y, icon_w, btn_h)
         if self.left_nav_mode != LeftNavMode.ALL_PATCHES:
             self.nav_collapse_btn = Rect(self.nav_header_rect.right - 38, y, 32, btn_h)
         else:

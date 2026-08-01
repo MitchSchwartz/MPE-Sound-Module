@@ -12,6 +12,7 @@ from patch_browser.all_patches_index import build_flat_patch_list
 from patch_browser.dsi_splash import boot_animation_phase
 from patch_browser.patch_scanner import favorites_display_name
 from patch_browser.touch_ui_constants import (
+    ALL_PATCHES_ROW_HEIGHT,
     ALL_PATCHES_SCROLL_ANIM_S,
     AZ_RAIL_FEEDBACK_S,
 )
