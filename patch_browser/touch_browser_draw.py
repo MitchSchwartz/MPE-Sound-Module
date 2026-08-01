@@ -53,7 +53,7 @@ class TouchBrowserDrawMixin:
     def _draw_heart_icon(self, rect: Rect, filled: bool) -> None:
         pygame.draw.rect(self.screen, self.theme.surface_alt, rect.pygame_rect, border_radius=8)
         symbol = "♥" if filled else "♡"
-        color = self._semantic_color("danger") if filled else self.theme.muted
+        color = self.theme.accent if filled else self.theme.muted
         text = self.font_lg.render(symbol, True, color)
         tx = rect.x + (rect.w - text.get_width()) // 2
         ty = rect.y + (rect.h - text.get_height()) // 2
