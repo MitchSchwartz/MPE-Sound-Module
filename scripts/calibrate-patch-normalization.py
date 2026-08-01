@@ -86,6 +86,11 @@ from patch_browser.patch_scanner import (
 OSC_HOST = "127.0.0.1"
 OSC_PORT = 53280
 GESTURE_SECONDS = 3.0
+# Progressive retry: slow-attack/filter-sweep patches (e.g. long acid filter opens)
+# don't reach real loudness in a 3s gesture. Each retry after an invalid measurement
+# holds the note longer instead of just re-trying the same short gesture — capped at
+# MEASURE_MAX_ATTEMPTS entries. First value must equal GESTURE_SECONDS (base case).
+GESTURE_DURATIONS_SECONDS = (3.0, 5.0, 8.0, 12.0)
 NOTE = 60
 MPE_CHANNEL = 2  # Surge MPE: channel 2 = first note channel
 STRIKE_VELOCITY = 96
@@ -93,7 +98,7 @@ DEFAULT_PI_CAPTURE = "plughw:1,0"
 MIN_VALID_LUFS = -39.0
 PATCH_LOAD_SETTLE_SECONDS = 0.75
 MEASURE_RETRY_INTERVAL_SECONDS = 3.0
-MEASURE_MAX_ATTEMPTS = 4  # ~0, 3, 6, 9s within 10s total
+MEASURE_MAX_ATTEMPTS = len(GESTURE_DURATIONS_SECONDS)  # ~0, 3, 8, 16s within ~27s total
 
 _interrupted = False
 FAILURE_REPORT_PATH = Path("/tmp/calibration-last-failure.json")
@@ -481,7 +486,18 @@ def close_midi_out(midi_out: object | None) -> None:
         pass
 
 
-def send_performance_gesture(midi_out: object, pre_roll: float = 0.25) -> None:
+def hold_seconds_for_gesture(gesture_seconds: float, pre_roll: float = 0.25) -> float:
+    """Note-hold duration that fits inside gesture_seconds with pre-roll/tail margin."""
+    base_hold = 1.8
+    if gesture_seconds <= GESTURE_DURATIONS_SECONDS[0]:
+        return base_hold
+    # Tail overhead: pre_roll + final 0.15s pressure step + 0.2s post note-off.
+    return max(base_hold, gesture_seconds - pre_roll - 0.35 - 0.3)
+
+
+def send_performance_gesture(
+    midi_out: object, pre_roll: float = 0.25, hold_seconds: float = 1.8
+) -> None:
     time.sleep(pre_roll)
 
     ch = MPE_CHANNEL - 1
@@ -492,7 +508,6 @@ def send_performance_gesture(midi_out: object, pre_roll: float = 0.25) -> None:
     midi_out.send_message([note_on, NOTE, STRIKE_VELOCITY])  # type: ignore[union-attr]
 
     steps = 24
-    hold_seconds = 1.8
     step_sleep = hold_seconds / steps
     for step in range(steps + 1):
         pressure = int(127 * step / steps)
@@ -516,7 +531,9 @@ def is_invalid_measurement(lufs: float, true_peak: float) -> bool:
     return not math.isfinite(lufs) or lufs < MIN_VALID_LUFS
 
 
-def capture_gesture_wav(midi_out: object, audio_device: str) -> Path:
+def capture_gesture_wav(
+    midi_out: object, audio_device: str, gesture_seconds: float = GESTURE_SECONDS
+) -> Path:
     """Record the standard MPE gesture to a temporary WAV; caller must unlink the path."""
     with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
         wav = Path(tmp.name)
@@ -532,14 +549,14 @@ def capture_gesture_wav(midi_out: object, audio_device: str) -> Path:
             "-i",
             audio_device,
             "-t",
-            str(GESTURE_SECONDS),
+            str(gesture_seconds),
             "-ac",
             "2",
             str(wav),
         ]
     )
     time.sleep(0.15)
-    send_performance_gesture(midi_out)
+    send_performance_gesture(midi_out, hold_seconds=hold_seconds_for_gesture(gesture_seconds))
     capture.wait()
     if capture.returncode != 0:
         wav.unlink(missing_ok=True)
@@ -608,17 +625,18 @@ def calibrate_patch(
         lufs = float("-inf")
         true_peak = float("-inf")
         for attempt in range(1, MEASURE_MAX_ATTEMPTS + 1):
+            gesture_seconds = GESTURE_DURATIONS_SECONDS[attempt - 1]
             if attempt > 1:
                 print(
-                    f"  [retry] {name}: waiting for patch/load "
-                    f"(attempt {attempt}/{MEASURE_MAX_ATTEMPTS})...",
+                    f"  [retry] {name}: below {MIN_VALID_LUFS:.0f} LUFS, holding longer "
+                    f"({gesture_seconds:.0f}s gesture, attempt {attempt}/{MEASURE_MAX_ATTEMPTS})...",
                     file=sys.stderr,
                 )
                 time.sleep(MEASURE_RETRY_INTERVAL_SECONDS)
 
             wav: Path | None = None
             try:
-                wav = capture_gesture_wav(midi_out, audio_device)
+                wav = capture_gesture_wav(midi_out, audio_device, gesture_seconds=gesture_seconds)
                 lufs, true_peak = measure_lufs(wav)
             except RuntimeError:
                 print(f"  [fail] ffmpeg capture: {name}", file=sys.stderr)
@@ -633,10 +651,13 @@ def calibrate_patch(
         if is_invalid_measurement(lufs, true_peak):
             lufs_display = f"{lufs:.1f}" if math.isfinite(lufs) else str(lufs)
             peak_display = f"{true_peak:.1f}" if math.isfinite(true_peak) else str(true_peak)
+            longest = GESTURE_DURATIONS_SECONDS[-1]
             print(
                 f"  [fail] {name}: measured {lufs_display} LUFS (peak {peak_display} dBTP) after "
-                f"{MEASURE_MAX_ATTEMPTS} attempt(s) — patch may still be loading or capture chain "
-                f"did not record Surge output; check MIDI routing and --audio-device",
+                f"{MEASURE_MAX_ATTEMPTS} attempt(s) up to a {longest:.0f}s gesture — patch may still "
+                f"be loading, capture chain did not record Surge output, or the patch genuinely "
+                f"can't reach {MIN_VALID_LUFS:.0f} LUFS from this MIDI gesture; check MIDI routing "
+                f"and --audio-device",
                 file=sys.stderr,
             )
             return False
