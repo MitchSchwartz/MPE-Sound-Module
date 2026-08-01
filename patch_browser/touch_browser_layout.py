@@ -153,16 +153,7 @@ class TouchBrowserLayoutMixin:
         self._settings_audio_profile_y = y
         y += text_block_height(self.font_sm, len(audio_profile_lines), line_spacing=2) + 8
 
-        self._settings_status_y = y
         status = self.surge_monitor.get_status_summary()
-        status_lines = wrap_text_lines(
-            self.font_sm,
-            f"Surge: {status['status']} — {status['details']}",
-            inner_w - 8,
-            max_lines=2,
-        )
-        y += text_block_height(self.font_sm, len(status_lines), line_spacing=2) + 8
-
         self._surge_restart_btn = None
         if status.get("can_restart"):
             restart_h = self._settings_row_height("Restart Surge", inner_w)

@@ -205,6 +205,33 @@ class TouchBrowserSmokeTests(unittest.TestCase):
         browser._handle_event(event)
         browser._draw()
 
+    def test_theme_modal_hit_test_supports_all_views(self) -> None:
+        browser = self._make_browser()
+        from patch_browser.geometry import Rect
+        from patch_browser.ui_theme import THEME_VIEW_COLORS, THEME_VIEW_PICKER
+
+        browser._theme_view_state = THEME_VIEW_PICKER
+        browser._picker_slider_rects = {}
+        browser._picker_back_rect = None
+        browser._picker_save_rect = None
+        browser._picker_delete_rect = None
+        browser._theme_modal_hit_at((10, 10))
+
+        browser._theme_view_state = THEME_VIEW_COLORS
+        browser._theme_color_delete_rects = []
+        browser._theme_color_swatch_rects = []
+        browser._theme_colors_back_rect = None
+        browser._theme_modal_hit_at((10, 10))
+
+        browser._theme_view_state = "main"
+        browser._theme_base_option_rects = []
+        browser._theme_style_option_rects = [Rect(0, 0, 100, 44), Rect(110, 0, 100, 44)]
+        browser._theme_choose_color_btn = None
+        browser._theme_done_rect = None
+        browser._theme_cancel_rect = None
+        hit = browser._theme_modal_hit_at((150, 22))
+        self.assertEqual(hit, "style:1")
+
 
 if __name__ == "__main__":
     unittest.main()
