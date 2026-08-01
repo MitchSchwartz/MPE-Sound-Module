@@ -20,10 +20,13 @@ SAFE_PEAK_DBTP = -3.0
 # Surge OSC /param/*/amp/volume ceiling — matches touch browser VOLUME_MAX (1.5).
 MAX_AMP_VOLUME_LINEAR = 1.5
 
-# Lower runtime cap when per-patch normalization is active. Heavy MPE polyphony on the Pi
-# xruns before clip: boosted amp gain raises per-voice CPU and earlier buffer stress.
-# Tradeoff: normalized patches run quieter; user trim can compensate for solo playing.
-NORM_MAX_AMP_VOLUME_LINEAR = 0.85
+# Runtime cap when per-patch normalization is active. Was 0.85 — but that clamped away
+# almost all of the calibrated gain for genuinely quiet patches (e.g. Acid needs +16.6dB /
+# 6.78x linear; 0.85 capped it to roughly unity, giving <1.5dB difference between norm on
+# and off). Raised to match the norm-off ceiling (MAX_AMP_VOLUME_LINEAR) — same Surge
+# amp/volume range either way, pending Pi xrun/CPU test under dense MPE polyphony
+# (2026-08-01, see PATCH_NORMALIZATION.md).
+NORM_MAX_AMP_VOLUME_LINEAR = MAX_AMP_VOLUME_LINEAR
 
 
 def default_normalization_path() -> Path:

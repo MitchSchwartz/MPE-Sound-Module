@@ -82,7 +82,7 @@ Static or crackle under **many held keys** is usually **ALSA buffer underrun (xr
 
 | Factor | Effect |
 |--------|--------|
-| **Norm ON** | Quiet patches get large `gain_db` boosts; runtime cap is **0.85** (not 1.5) so Surge runs cooler under poly. Fewer voices before xrun. |
+| **Norm ON** | Quiet patches get large `gain_db` boosts; runtime cap now matches norm-off (**1.5**, was 0.85 — see 2026-08-01 fix below). |
 | **Norm OFF** | Unity baseline; user trim up to **1.5** — more headroom for solo, less for dense chords. |
 | **ALSA buffer** | `surge-xt-cli` starts with **`MPE_SURGE_BUFFER_SIZE`** (default **1024** samples @ 44.1 kHz ≈ 23 ms). Was 512 (~12 ms) and xran under load. |
 | **snd-aloop** | Loaded only during calibration loopback. Unloaded on Surge start and after `calibrate-with-loader.sh` if refcount is 0. |
@@ -94,6 +94,10 @@ Static or crackle under **many held keys** is usually **ALSA buffer underrun (xr
 **Failed measurements now fail loud, not quiet.** `is_invalid_measurement` used to have a true-peak fallback that let near-silent captures (-47 to -57 LUFS) through and save an extrapolated `gain_db` of +17 to +25 dB — that gain didn't restore real perceived loudness because the underlying capture was still garbage. The fallback is removed: a patch that can't clear `MIN_VALID_LUFS` (-39.0) is now skipped (not saved) so it shows up as "kept 0" and needs a longer gesture or louder velocity, not a bigger guessed gain.
 
 **Progressive gesture retry.** Instead of retrying a below-threshold patch with the same fixed 3s gesture and giving up, each retry holds the note longer: `GESTURE_DURATIONS_SECONDS = (3.0, 5.0, 8.0, 12.0)` (`MEASURE_MAX_ATTEMPTS` now derives from this tuple). Note-hold time scales with gesture length via `hold_seconds_for_gesture()`, capped by pre-roll/tail overhead. This targets slow-attack/filter-sweep patches (long acid filter opens, slow pads) that never reach real loudness in a short gesture — they now get up to ~27s total across 4 attempts before being skipped for real.
+
+**Root cause of "Acid is quiet, no change with norm on/off" (2026-08-01):** not a capture or measurement bug — the patch's own `.fxp` routing (`a_vca_velsense=-5.14`, inverted velocity: harder hits are quieter; scene `volume=-15.7dB`) makes it genuinely quiet by design. Calibration correctly computed a large corrective `gain_db` (+16 to +26 dB depending on capture route), but `_send_combined_volume()` clamped the norm-on send to **`NORM_MAX_AMP_VOLUME_LINEAR=0.85`** — below unity — so almost the entire calibrated gain was thrown away before it ever reached Surge. Norm-on (0.85) vs norm-off (1.0, capped at `MAX_AMP_VOLUME_LINEAR=1.5`) differed by only ~1.4 dB, which is inaudible. Every patch needing more than a ~-1.4dB correction was silently under-corrected the same way — `Acid` just made the gap obvious.
+
+**Fix:** raised `NORM_MAX_AMP_VOLUME_LINEAR` to match `MAX_AMP_VOLUME_LINEAR` (1.5) — same Surge `amp/volume` ceiling either way, pending the Pi xrun/CPU stress test (dense MPE polyphony) that motivated the lower cap originally. If that test shows real xrun/CPU regression, the next lever is reducing max voice count for heavily-boosted patches rather than re-lowering the global cap.
 
 If crackle persists with Norm off and moderate polyphony, try `MPE_SURGE_BUFFER_SIZE=2048` in `/etc/mpe/mpe.env` and restart `surge-xt-cli`. Tradeoff: higher latency.
 
