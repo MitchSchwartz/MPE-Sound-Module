@@ -25,6 +25,7 @@ class CalibrateMode(Enum):
 class LeftNavMode(Enum):
     FOLDERS = auto()
     PATCHES = auto()
+    ALL_PATCHES = auto()
 
 
 def audio_profile_display() -> str:

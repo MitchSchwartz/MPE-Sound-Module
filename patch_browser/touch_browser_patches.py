@@ -8,8 +8,10 @@ from pathlib import Path
 
 import pygame
 
+from patch_browser.all_patches_index import build_flat_patch_list
 from patch_browser.dsi_splash import boot_animation_phase
 from patch_browser.patch_scanner import favorites_display_name
+from patch_browser.touch_ui_constants import ALL_PATCHES_ROW_HEIGHT
 from patch_browser.touch_ui_enums import LeftNavMode
 
 
@@ -108,6 +110,11 @@ class TouchBrowserPatchesMixin:
             self._toast("Patch loaded", 1.5)
         else:
             self._pending_load_next = time.time() + 2.0
+    def _rebuild_all_patches_index(self) -> None:
+        self.all_patches_flat, self.all_patches_letter_index = build_flat_patch_list(
+            self.scanner
+        )
+
     def _apply_scan_results(self) -> None:
         with self._scan_lock:
             self.categories = self.scanner.get_categories()
@@ -118,6 +125,7 @@ class TouchBrowserPatchesMixin:
                     )
                 except ValueError:
                     pass
+            self._rebuild_all_patches_index()
         self._refresh_lists()
         if not self.categories:
             self._toast("No patches found — check Surge patch symlinks", 4.0)
@@ -167,6 +175,20 @@ class TouchBrowserPatchesMixin:
             self.loaded_patch_info is not None
             and self.browse_folder_index != self.loaded_folder_index
         )
+    def _patch_list_index(self, patches: list[dict], patch: dict | None) -> int | None:
+        if not patch:
+            return None
+        target_path = patch.get("path")
+        target_name = patch.get("name")
+        for i, candidate in enumerate(patches):
+            if target_path and candidate.get("path") == target_path:
+                return i
+            if candidate.get("name") == target_name and candidate.get("category") == patch.get(
+                "category"
+            ):
+                return i
+        return None
+
     def _refresh_lists(self, *, scroll_to_selection: bool = False) -> None:
         if self.left_nav_collapsed:
             return
@@ -175,9 +197,33 @@ class TouchBrowserPatchesMixin:
         saved_velocity = self.nav_list._velocity
         saved_momentum = self.nav_list._momentum_active
 
-        self.nav_list.row_height = 50 if self.left_nav_mode == LeftNavMode.PATCHES else 44
+        if self.left_nav_mode == LeftNavMode.ALL_PATCHES:
+            self.nav_list.row_height = ALL_PATCHES_ROW_HEIGHT
+        else:
+            self.nav_list.row_height = 50 if self.left_nav_mode == LeftNavMode.PATCHES else 44
 
-        if self.left_nav_mode == LeftNavMode.FOLDERS:
+        if self.left_nav_mode == LeftNavMode.ALL_PATCHES:
+            names = [p["name"] for p in self.all_patches_flat]
+            highlight = self._patch_list_index(self.all_patches_flat, self.detail_patch)
+            loaded_idx = self._patch_list_index(self.all_patches_flat, self.loaded_patch_info)
+            self.nav_list.set_items(
+                names,
+                highlight_index=highlight,
+                loaded_marker_index=loaded_idx,
+                preserve_scroll=not scroll_to_selection,
+            )
+            if scroll_to_selection:
+                if highlight is not None:
+                    self.nav_list.scroll_to_index(highlight)
+                elif loaded_idx is not None:
+                    self.nav_list.scroll_to_index(loaded_idx)
+            else:
+                self.nav_list._scroll_pixels = min(saved_scroll, self.nav_list._max_scroll_pixels())
+                self.nav_list._sync_scroll_offset()
+                if saved_momentum:
+                    self.nav_list._velocity = saved_velocity
+                    self.nav_list._momentum_active = True
+        elif self.left_nav_mode == LeftNavMode.FOLDERS:
             loaded_idx = self.loaded_folder_index if self.loaded_patch_info else None
             self.nav_list.set_items(
                 self.categories,
@@ -250,10 +296,39 @@ class TouchBrowserPatchesMixin:
         self.nav_list._scroll_pixels = 0.0
         self.nav_list.stop_momentum()
         self.nav_list._clamp_scroll()
+    def _enter_all_patches(self) -> None:
+        self._rebuild_all_patches_index()
+        self.left_nav_mode = LeftNavMode.ALL_PATCHES
+        self.left_nav_collapsed = False
+        self._relayout()
+        self.nav_list._scroll_pixels = 0.0
+        self.nav_list.stop_momentum()
+        self._refresh_lists()
+
+    def _go_back_from_all_patches(self) -> None:
+        self.left_nav_mode = LeftNavMode.FOLDERS
+        self._relayout()
+        self._refresh_lists(scroll_to_selection=True)
+
     def _go_up_to_folders(self) -> None:
+        if self.left_nav_mode == LeftNavMode.ALL_PATCHES:
+            self._go_back_from_all_patches()
+            return
         self.left_nav_mode = LeftNavMode.FOLDERS
         self._update_nav_list_geometry()
         self._refresh_lists(scroll_to_selection=True)
+
+    def _jump_all_patches_to_letter(self, letter: str) -> None:
+        index = self.all_patches_letter_index.get(letter)
+        if index is None:
+            for bucket in self.all_patches_letter_index:
+                if bucket >= letter:
+                    index = self.all_patches_letter_index[bucket]
+                    break
+        if index is None and self.all_patches_letter_index:
+            index = max(self.all_patches_letter_index.values())
+        if index is not None:
+            self.nav_list.scroll_to_index(index)
     def _go_to_loaded_folder(self) -> None:
         if not self.loaded_patch_info:
             return
@@ -269,11 +344,15 @@ class TouchBrowserPatchesMixin:
         self.left_nav_collapsed = not self.left_nav_collapsed
         self._relayout()
     def _select_patch(self, patch: dict) -> None:
+        from_all = self.left_nav_mode == LeftNavMode.ALL_PATCHES
         self.left_nav_mode = LeftNavMode.PATCHES
         try:
             self.browse_folder_index = self.categories.index(patch["category"])
         except ValueError:
             pass
+        if from_all:
+            self.left_nav_collapsed = True
+            self._relayout()
         self._load_patch(patch)
         self._refresh_lists(scroll_to_selection=True)
     def _patch_is_favorited(self, patch: dict) -> bool:
@@ -281,6 +360,7 @@ class TouchBrowserPatchesMixin:
     def _sync_categories_after_favorites_change(self) -> None:
         with self._scan_lock:
             self.categories = self.scanner.get_categories()
+            self._rebuild_all_patches_index()
         self._refresh_lists()
     def _toggle_favorites(self) -> None:
         if not self.detail_patch:

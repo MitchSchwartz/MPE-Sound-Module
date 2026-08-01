@@ -139,7 +139,10 @@ class TouchPatchBrowser(
             if self._scan_dirty and not (
                 self.screen_state == Screen.BROWSER
                 and not self.left_nav_collapsed
-                and self.nav_list.is_interacting()
+                and (
+                    self.nav_list.is_interacting()
+                    or getattr(self, "_az_rail_capture", False)
+                )
             ):
                 self._scan_dirty = False
                 self._apply_scan_results()
@@ -209,6 +212,11 @@ class TouchPatchBrowser(
         self.cpu_monitor.start()
 
         self.categories: list[str] = []
+        self.all_patches_flat: list[dict] = []
+        self.all_patches_letter_index: dict[str, int] = {}
+        self.az_rail_rect = Rect(0, 0, 0, 0)
+        self.az_rail_letter_rects: list[tuple[str, Rect]] = []
+        self.nav_all_btn = Rect(0, 0, 0, 0)
         self.browse_folder_index = 0
         self.loaded_folder_index = 0
         self.detail_patch: dict | None = None
@@ -256,6 +264,7 @@ class TouchPatchBrowser(
         self._evdev_touch_queue: queue.SimpleQueue[tuple[str, tuple[int, int]]] = queue.SimpleQueue()
         self._evdev_bridge: TouchEvdevBridge | None = None
         self._touch_list_capture = False
+        self._az_rail_capture = False
 
         self._layout()
         self._bootstrap_patches()

@@ -53,14 +53,20 @@ class TouchBrowserEvdevMixin:
     def _handle_evdev_browser_touch(self, kind: str, pos: tuple[int, int]) -> None:
         if kind == "down":
             self._touch_list_capture = False
-            if not self.left_nav_collapsed and self.nav_list.pointer_down(pos):
+            self._az_rail_capture = False
+            if (
+                self.left_nav_mode == LeftNavMode.ALL_PATCHES
+                and self._az_rail_letter_at(pos) is not None
+            ):
+                self._az_rail_capture = True
+            elif not self.left_nav_collapsed and self.nav_list.pointer_down(pos):
                 self._touch_list_capture = True
-            else:
+            elif self.left_nav_mode != LeftNavMode.ALL_PATCHES:
                 self._handle_mixer_down(pos)
         elif kind == "motion":
             if self._touch_list_capture or self.nav_list.is_dragging():
                 self.nav_list.pointer_move(pos)
-            else:
+            elif self.left_nav_mode != LeftNavMode.ALL_PATCHES:
                 self._handle_mixer_motion(pos)
         elif kind == "up":
             was_mixer = self._dragging_mixer_id is not None
@@ -70,6 +76,14 @@ class TouchBrowserEvdevMixin:
             self._mixer_drag_origin = None
             self._mixer_drag_moved = False
 
+            if self._az_rail_capture:
+                letter = self._az_rail_letter_at(pos)
+                if letter is not None:
+                    self._jump_all_patches_to_letter(letter)
+                self._az_rail_capture = False
+                self._touch_list_capture = False
+                return
+
             list_gesture = self._touch_list_capture or self.nav_list.is_dragging()
             if not self.left_nav_collapsed and list_gesture:
                 idx = self.nav_list.pointer_up(pos)
@@ -78,8 +92,12 @@ class TouchBrowserEvdevMixin:
             elif not was_mixer:
                 self._handle_browser_tap(pos)
             self._touch_list_capture = False
+            self._az_rail_capture = False
     def _select_nav_index(self, idx: int) -> None:
-        if self.left_nav_mode == LeftNavMode.FOLDERS:
+        if self.left_nav_mode == LeftNavMode.ALL_PATCHES:
+            if idx < len(self.all_patches_flat):
+                self._select_patch(self.all_patches_flat[idx])
+        elif self.left_nav_mode == LeftNavMode.FOLDERS:
             self._enter_folder(idx)
         else:
             patches = self._patches_in_browse_folder()

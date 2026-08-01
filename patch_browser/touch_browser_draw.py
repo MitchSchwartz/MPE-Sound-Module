@@ -110,11 +110,14 @@ class TouchBrowserDrawMixin:
     def _draw_nav_header(self) -> None:
         pygame.draw.rect(self.screen, self.theme.surface, self.nav_header_rect.pygame_rect)
 
-        if self.left_nav_mode == LeftNavMode.PATCHES:
+        if self.left_nav_mode in (LeftNavMode.PATCHES, LeftNavMode.ALL_PATCHES):
             self._draw_icon_button(self.nav_back_btn, "back", muted=True)
+        if self.left_nav_mode == LeftNavMode.FOLDERS:
+            self._draw_button(self.nav_all_btn, "All", small=True, accent=True)
         if self._show_current_folder_button():
             self._draw_button(self.nav_current_btn, "Current", small=True, accent=True)
-        self._draw_icon_button(self.nav_collapse_btn, "panel_close", muted=True)
+        if self.left_nav_mode != LeftNavMode.ALL_PATCHES:
+            self._draw_icon_button(self.nav_collapse_btn, "panel_close", muted=True)
     def _draw_folder_title_bar(self) -> None:
         if self.nav_folder_title_rect is None:
             return
@@ -128,6 +131,9 @@ class TouchBrowserDrawMixin:
             1,
         )
         folder_name = self._browse_category_name()
+        if self.left_nav_mode == LeftNavMode.ALL_PATCHES:
+            count = len(self.all_patches_flat)
+            folder_name = f"All patches ({count})"
         max_w = max(1, rect.w - 24)
         clipped = ellipsize_text(self.font_sm, folder_name, max_w)
         label = self.font_sm.render(clipped, True, self.theme.text)
@@ -279,14 +285,94 @@ class TouchBrowserDrawMixin:
             32,
         )
         self._draw_icon_button(expand_rect, "panel_open", muted=True)
+    def _draw_all_patches_list(self) -> None:
+        pygame.draw.rect(self.screen, self.theme.surface, self.nav_list.rect.pygame_rect, border_radius=10)
+        clip = self.screen.get_clip()
+        self.screen.set_clip(self.nav_list.rect.pygame_rect)
+
+        patches = self.all_patches_flat
+        if not patches:
+            self.screen.set_clip(clip)
+            return
+
+        row_h = self.nav_list.row_height
+        start = int(self.nav_list._scroll_pixels // row_h)
+        sub_pixel = self.nav_list._scroll_pixels - start * row_h
+        end = min(len(patches), start + self.nav_list.visible_count() + 3)
+        y = self.nav_list.rect.y + self.nav_list.padding - int(sub_pixel)
+
+        for index in range(start, end):
+            patch = patches[index]
+            row_rect = pygame.Rect(
+                self.nav_list.rect.x + 4,
+                y,
+                self.nav_list.rect.w - 8,
+                row_h - 4,
+            )
+            is_highlight = self.nav_list.highlight_index == index
+            is_loaded = self.nav_list.loaded_marker_index == index
+            if is_highlight or is_loaded:
+                pygame.draw.rect(self.screen, self.theme.surface_alt, row_rect, border_radius=8)
+
+            heart = "♥" if self._patch_is_favorited(patch) else "♡"
+            heart_color = self.theme.danger if self._patch_is_favorited(patch) else self.theme.muted
+            heart_s = self.font_sm.render(heart, True, heart_color)
+            self.screen.blit(heart_s, (row_rect.x + 6, row_rect.y + 6))
+
+            name_max_w = max(1, row_rect.w - 34)
+            name_clipped = ellipsize_text(self.font_md, patch["name"], name_max_w)
+            name_color = self.theme.text if is_highlight or is_loaded else self.theme.muted
+            name_s = self.font_md.render(name_clipped, True, name_color)
+            self.screen.blit(name_s, (row_rect.x + 26, row_rect.y + 4))
+
+            folder_clipped = ellipsize_text(
+                self.font_sm,
+                patch.get("category", ""),
+                name_max_w,
+            )
+            folder_s = self.font_sm.render(folder_clipped, True, self.theme.muted)
+            self.screen.blit(folder_s, (row_rect.x + 26, row_rect.y + 22))
+
+            if is_loaded:
+                pygame.draw.circle(
+                    self.screen,
+                    self.theme.playing,
+                    (row_rect.right - 12, row_rect.centery),
+                    4,
+                )
+
+            y += row_h
+
+        self.screen.set_clip(clip)
+
+    def _draw_az_rail(self) -> None:
+        if self.az_rail_rect.w <= 0:
+            return
+        pygame.draw.rect(
+            self.screen,
+            self.theme.surface,
+            self.az_rail_rect.pygame_rect,
+            border_radius=8,
+        )
+        for letter, rect in self.az_rail_letter_rects:
+            label = "#" if letter == "#" else letter
+            text = self.font_sm.render(label, True, self.theme.muted)
+            tx = rect.x + (rect.w - text.get_width()) // 2
+            ty = rect.y + max(0, (rect.h - text.get_height()) // 2)
+            self.screen.blit(text, (tx, ty))
+
     def _draw_left_nav_expanded(self) -> None:
         pygame.draw.rect(self.screen, self.theme.surface, self.left_panel_rect.pygame_rect, border_radius=10)
 
         self._draw_nav_header()
         self._draw_folder_title_bar()
 
-        font = self.font_md if self.left_nav_mode == LeftNavMode.PATCHES else self.font_sm
-        self.nav_list.draw(self.screen, font, self.theme)
+        if self.left_nav_mode == LeftNavMode.ALL_PATCHES:
+            self._draw_all_patches_list()
+            self._draw_az_rail()
+        else:
+            font = self.font_md if self.left_nav_mode == LeftNavMode.PATCHES else self.font_sm
+            self.nav_list.draw(self.screen, font, self.theme)
     def _draw_main_detail(self) -> None:
         pygame.draw.rect(
             self.screen,
@@ -359,7 +445,8 @@ class TouchBrowserDrawMixin:
         else:
             self._draw_left_nav_expanded()
 
-        self._draw_main_detail()
+        if self.left_nav_mode != LeftNavMode.ALL_PATCHES:
+            self._draw_main_detail()
 
     def _draw_settings_action_row(self, rect: Rect, label: str, *, muted: bool = False) -> None:
         bg = self.theme.surface_alt if muted else self.theme.surface
