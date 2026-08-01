@@ -12,6 +12,8 @@ THEME_MODE_STANDARD = "standard"
 THEME_MODE_OLED_BLACK = "oled_black"
 THEME_MODES = (THEME_MODE_STANDARD, THEME_MODE_OLED_BLACK)
 
+ACCENT = (100, 110, 203)  # #646ecb
+
 
 @dataclass(frozen=True)
 class Theme:
@@ -46,7 +48,7 @@ STANDARD_THEME = Theme(
     surface_alt=(32, 32, 40),
     text=(232, 232, 236),
     muted=(130, 130, 140),
-    accent=(107, 159, 255),
+    accent=ACCENT,
     playing=(255, 180, 90),
     danger=(220, 90, 90),
     ok=(90, 200, 140),
@@ -58,7 +60,7 @@ OLED_BLACK_THEME = Theme(
     surface_alt=(14, 14, 18),  # #0E0E12 — row hover / selected
     text=(235, 235, 240),
     muted=(150, 150, 158),
-    accent=(100, 110, 203),  # #646ecb
+    accent=ACCENT,
     playing=(210, 155, 75),
     danger=(210, 85, 85),
     ok=(80, 185, 125),
