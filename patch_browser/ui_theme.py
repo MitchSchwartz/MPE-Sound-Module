@@ -12,7 +12,14 @@ THEME_MODE_STANDARD = "standard"
 THEME_MODE_OLED_BLACK = "oled_black"
 THEME_MODES = (THEME_MODE_STANDARD, THEME_MODE_OLED_BLACK)
 
-ACCENT = (100, 110, 203)  # #646ecb
+# Single accent knob — sliders, checkboxes, accent buttons, progress fills, etc.
+ACCENT: tuple[int, int, int] = (100, 110, 203)  # #646ecb
+ACCENT_HEX = "#646ecb"
+
+
+def accent_color() -> tuple[int, int, int]:
+    """Return the active accent RGB. All UI chrome must use theme.accent (not hardcoded blues)."""
+    return ACCENT
 
 
 @dataclass(frozen=True)
@@ -22,7 +29,6 @@ class Theme:
     surface_alt: tuple[int, int, int]
     text: tuple[int, int, int]
     muted: tuple[int, int, int]
-    accent: tuple[int, int, int]
     playing: tuple[int, int, int]
     danger: tuple[int, int, int]
     ok: tuple[int, int, int]
@@ -32,6 +38,10 @@ class Theme:
     backdrop_alpha: int | None = None
     hairline_alpha: int = 0
     elevated_top_highlight: bool = False
+
+    @property
+    def accent(self) -> tuple[int, int, int]:
+        return accent_color()
 
     def panel_surface(self) -> tuple[int, int, int]:
         """2dp — settings slide-out, modals."""
@@ -48,7 +58,6 @@ STANDARD_THEME = Theme(
     surface_alt=(32, 32, 40),
     text=(232, 232, 236),
     muted=(130, 130, 140),
-    accent=ACCENT,
     playing=(255, 180, 90),
     danger=(220, 90, 90),
     ok=(90, 200, 140),
@@ -60,7 +69,6 @@ OLED_BLACK_THEME = Theme(
     surface_alt=(14, 14, 18),  # #0E0E12 — row hover / selected
     text=(235, 235, 240),
     muted=(150, 150, 158),
-    accent=ACCENT,
     playing=(210, 155, 75),
     danger=(210, 85, 85),
     ok=(80, 185, 125),
