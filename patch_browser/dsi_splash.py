@@ -540,14 +540,44 @@ def request_system_power_action(power_action: str) -> bool:
     return _run_systemctl([verb], log_label=f"systemctl {verb}")
 
 
+def release_display_for_shutdown(
+    screen: "pygame.Surface | None" = None,
+    *,
+    theme=None,
+) -> None:
+    """Paint one shutdown frame and release kmsdrm before the splash unit starts.
+
+    Without this, ``mpe-shutdown-splash`` can block up to ~12s retrying while the
+    browser still holds DRM (``sys.exit`` from the power menu skips ``pygame.quit``).
+    """
+    if pygame is None:
+        return
+    if theme is None:
+        theme = theme_for_mode(load_theme_mode_from_prefs())
+    if screen is not None and pygame.get_init():
+        draw_splash_frame(
+            screen,
+            mode=SplashMode.SHUTDOWN,
+            theme=theme,
+            animation_phase=0.0,
+        )
+        pygame.display.flip()
+    if pygame.get_init():
+        pygame.quit()
+    stop_boot_splash_service(wait=False)
+    clear_display_handoff_request()
+
+
 def trigger_user_shutdown(power_action: str) -> bool:
     """UI-confirmed shutdown: splash unit first, then systemd poweroff/reboot.
 
-    The browser should exit immediately after this returns — splash is held by
+    Call :func:`release_display_for_shutdown` from the browser **before** this so
+    the splash unit can claim DRM immediately. Splash is held by
     ``mpe-shutdown-splash.service``, not an in-process pygame loop.
     """
     _log_shutdown(f"trigger_user_shutdown action={power_action}")
     stop_getty_tty1()
+    stop_boot_splash_service(wait=False)
     splash_ok = start_shutdown_splash_service()
     power_ok = request_system_power_action(power_action)
     if not splash_ok:
