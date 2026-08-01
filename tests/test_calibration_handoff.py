@@ -99,7 +99,7 @@ class CalibrationLoaderLaunchTests(unittest.TestCase):
         self.assertTrue(CALIBRATE_WITH_LOADER_SCRIPT.is_file())
 
     @mock.patch("patch_browser.touch_browser_normalization.os.execv")
-    def test_launch_calibration_loader_uses_python_loader(
+    def test_launch_calibration_loader_uses_bash_wrapper(
         self,
         execv_mock: mock.Mock,
     ) -> None:
@@ -108,9 +108,8 @@ class CalibrationLoaderLaunchTests(unittest.TestCase):
         self.mixin._launch_calibration_loader()
         execv_mock.assert_called_once()
         argv = execv_mock.call_args.args[1]
-        self.assertEqual(argv[0], sys.executable)
-        self.assertEqual(argv[1], "-u")
-        self.assertEqual(Path(argv[2]), CALIBRATION_LOADER_SCRIPT)
+        self.assertEqual(argv[0], "bash")
+        self.assertEqual(Path(argv[1]), CALIBRATE_WITH_LOADER_SCRIPT)
         self.assertNotIn("--force", argv)
 
     @mock.patch("patch_browser.touch_browser_normalization.os.execv")
@@ -123,7 +122,7 @@ class CalibrationLoaderLaunchTests(unittest.TestCase):
         self.mixin._pending_calibrate_mode = CalibrateMode.FORCE_FULL
         self.mixin._launch_calibration_loader()
         argv = execv_mock.call_args.args[1]
-        self.assertEqual(Path(argv[2]), CALIBRATION_LOADER_SCRIPT)
+        self.assertEqual(Path(argv[1]), CALIBRATE_WITH_LOADER_SCRIPT)
         self.assertEqual(argv[-1], "--force")
 
     @mock.patch("patch_browser.touch_browser_normalization.sys.exit")
