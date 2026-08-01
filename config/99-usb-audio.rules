@@ -17,6 +17,8 @@
 ACTION=="add|remove", SUBSYSTEM=="sound", KERNEL=="card[0-9]*", ATTR{id}=="vc4hdmi*", GOTO="mpe_usb_audio_end"
 ACTION=="add|remove", SUBSYSTEM=="sound", KERNEL=="card[0-9]*", ATTR{id}=="UAC2Gadget", GOTO="mpe_usb_audio_end"
 ACTION=="add|remove", SUBSYSTEM=="sound", KERNEL=="card[0-9]*", ATTR{id}=="UAC2", GOTO="mpe_usb_audio_end"
+# Skip snd-aloop (calibration loads/unloads this; must not restart production Surge mid-run)
+ACTION=="add|remove", SUBSYSTEM=="sound", KERNEL=="card[0-9]*", ATTR{id}=="Loopback", GOTO="mpe_usb_audio_end"
 
 # Restart Surge XT CLI when external USB audio devices connect
 ACTION=="add", SUBSYSTEM=="sound", KERNEL=="card[0-9]*", RUN+="/bin/systemctl restart surge-xt-cli.service"
