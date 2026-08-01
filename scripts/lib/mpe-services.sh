@@ -16,18 +16,31 @@ mpe_patch_browser_unit() {
     fi
 }
 
+mpe_retire_touch_shutdown_animation_unit() {
+    local legacy=touch-shutdown-animation.service
+    local shipped="${MPE_MODULE_REPO:-}/config/touch-shutdown-animation.service"
+    sudo systemctl disable --now "$legacy" 2>/dev/null || true
+    if [ ! -f "$shipped" ] && [ -f "/etc/systemd/system/$legacy" ]; then
+        sudo rm -f "/etc/systemd/system/$legacy"
+        echo "  Removed stale $legacy (use mpe-shutdown-splash.service)"
+        sudo systemctl daemon-reload
+    fi
+}
+
+
 mpe_enable_patch_browser_ui() {
     local mode unit other
     mode="$(_mpe_ui_mode_normalized)"
     if [ "$mode" = touch ]; then
         unit=touch-patch-browser.service
         other=patch-browser.service
+        mpe_retire_touch_shutdown_animation_unit
         sudo systemctl disable --now boot-animation.service shutdown-animation.service 2>/dev/null || true
-        sudo systemctl enable touch-boot-animation.service touch-shutdown-animation.service 2>/dev/null || true
+        sudo systemctl enable touch-boot-animation.service mpe-shutdown-splash.service 2>/dev/null || true
     else
         unit=patch-browser.service
         other=touch-patch-browser.service
-        sudo systemctl disable --now touch-boot-animation.service touch-shutdown-animation.service 2>/dev/null || true
+        sudo systemctl disable --now touch-boot-animation.service mpe-shutdown-splash.service 2>/dev/null || true
         sudo systemctl enable boot-animation.service shutdown-animation.service 2>/dev/null || true
     fi
 

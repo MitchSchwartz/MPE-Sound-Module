@@ -52,6 +52,17 @@ def load_mpe_env() -> None:
 
 load_mpe_env()
 
+from patch_browser.calibration_loopback import (  # noqa: E402
+    ensure_snd_aloop,
+    resolve_loopback_capture_device,
+    resolve_surge_loopback_interface,
+)
+from patch_browser.calibration_standalone import (  # noqa: E402
+    detect_script_path,
+    resolve_standalone_capture_device,
+    resolve_surge_standalone_interface,
+    should_restart_surge_for_standalone,
+)
 from patch_browser.calibration_teardown import (  # noqa: E402
     restore_mpe_audio_services,
     stop_mpe_audio_services,
@@ -79,9 +90,8 @@ NOTE = 60
 MPE_CHANNEL = 2  # Surge MPE: channel 2 = first note channel
 STRIKE_VELOCITY = 96
 DEFAULT_PI_CAPTURE = "plughw:1,0"
-LOOPBACK_CAPTURE = "plughw:Loopback,1,0"
-SURGE_LOOPBACK_INTERFACE = "0.19"
 MIN_VALID_LUFS = -39.0
+MIN_VALID_TRUE_PEAK_DBTP = -35.0  # fallback when LUFS integration is dominated by capture silence
 PATCH_LOAD_SETTLE_SECONDS = 0.75
 MEASURE_RETRY_INTERVAL_SECONDS = 3.0
 MEASURE_MAX_ATTEMPTS = 4  # ~0, 3, 6, 9s within 10s total
@@ -307,6 +317,25 @@ def find_surge_midi_port(*, announce: bool = True) -> int | None:
             pass
 
 
+def wait_for_surge_midi_port(*, timeout_s: float = 8.0) -> int | None:
+    """Retry MIDI port discovery while calibration Surge is starting."""
+    deadline = time.monotonic() + timeout_s
+    last_ports: list[str] = []
+    while time.monotonic() < deadline:
+        port = find_surge_midi_port(announce=False)
+        if port is not None:
+            return port
+        try:
+            import rtmidi
+
+            last_ports = rtmidi.MidiOut().get_ports()
+        except Exception:
+            pass
+        time.sleep(0.5)
+    print(f"Available MIDI ports after wait: {last_ports}", file=sys.stderr)
+    return find_surge_midi_port(announce=True)
+
+
 def surge_cli_path() -> Path:
     env = os.environ.get("SURGE_CLI", "").strip()
     if env:
@@ -317,28 +346,35 @@ def surge_cli_path() -> Path:
 def should_use_loopback(explicit: bool | None) -> bool:
     if explicit is not None:
         return explicit
+    profile = os.environ.get("MPE_AUDIO_PROFILE", "standalone").strip().lower()
+    if profile == "standalone":
+        # Dedicated cal Surge on Sound Blaster + dsnoop capture (see standalone setup).
+        # Loopback routing broke after extra ALSA cards (LUMI, USB-host experiments).
+        return False
     return Path("/etc/mpe/mpe.env").is_file()
 
 
-def ensure_snd_aloop() -> None:
-    subprocess.run(["sudo", "modprobe", "snd-aloop"], check=False)
-
-
-def start_surge_loopback() -> None:
+def start_surge_loopback() -> str:
     cli = surge_cli_path()
     if not cli.is_file():
         raise RuntimeError(f"Surge CLI not found: {cli}")
     ensure_snd_aloop()
+    interface = resolve_surge_loopback_interface(cli)
+    buffer_size = os.environ.get("MPE_SURGE_BUFFER_SIZE", "1024")
     log_path = Path.home() / "surge-cli-calibration.log"
     with log_path.open("a") as log:
-        log.write(f"\n{time.strftime('%Y-%m-%d %H:%M:%S')}: calibration loopback start\n")
+        log.write(
+            f"\n{time.strftime('%Y-%m-%d %H:%M:%S')}: calibration loopback start "
+            f"(interface={interface}, buffer={buffer_size})\n"
+        )
         subprocess.Popen(
             [
                 str(cli),
                 "--all-midi-inputs",
                 "--mpe-enable",
                 "--mpe-pitch-bend-range=48",
-                f"--audio-interface={SURGE_LOOPBACK_INTERFACE}",
+                f"--audio-interface={interface}",
+                f"--buffer-size={buffer_size}",
                 f"--osc-in-port={OSC_PORT}",
                 "--no-stdin",
             ],
@@ -346,6 +382,40 @@ def start_surge_loopback() -> None:
             stderr=subprocess.STDOUT,
         )
     time.sleep(2.5)
+    return interface
+
+
+def start_surge_standalone() -> str:
+    cli = surge_cli_path()
+    if not cli.is_file():
+        raise RuntimeError(f"Surge CLI not found: {cli}")
+    script = detect_script_path(REPO_ROOT)
+    if not script.is_file():
+        raise RuntimeError(f"detect-audio-device.sh not found: {script}")
+    interface = resolve_surge_standalone_interface(cli, detect_script=script)
+    buffer_size = os.environ.get("MPE_SURGE_BUFFER_SIZE", "1024")
+    log_path = Path.home() / "surge-cli-calibration.log"
+    with log_path.open("a") as log:
+        log.write(
+            f"\n{time.strftime('%Y-%m-%d %H:%M:%S')}: calibration standalone start "
+            f"(interface={interface}, buffer={buffer_size})\n"
+        )
+        subprocess.Popen(
+            [
+                str(cli),
+                "--all-midi-inputs",
+                "--mpe-enable",
+                "--mpe-pitch-bend-range=48",
+                f"--audio-interface={interface}",
+                f"--buffer-size={buffer_size}",
+                f"--osc-in-port={OSC_PORT}",
+                "--no-stdin",
+            ],
+            stdout=log,
+            stderr=subprocess.STDOUT,
+        )
+    time.sleep(2.5)
+    return interface
 
 
 def detect_capture_device(explicit: str | None, *, use_loopback: bool) -> str:
@@ -354,8 +424,14 @@ def detect_capture_device(explicit: str | None, *, use_loopback: bool) -> str:
         return explicit
     if use_loopback:
         ensure_snd_aloop()
-        print(f"Using ALSA loopback capture: {LOOPBACK_CAPTURE}", file=sys.stderr)
-        return LOOPBACK_CAPTURE
+        capture = resolve_loopback_capture_device()
+        print(f"Using ALSA loopback capture: {capture}", file=sys.stderr)
+        return capture
+
+    sb_capture = resolve_standalone_capture_device()
+    if sb_capture:
+        print(f"Auto-detected Sound Blaster snoop capture: {sb_capture}", file=sys.stderr)
+        return sb_capture
 
     try:
         result = subprocess.run(
@@ -370,7 +446,7 @@ def detect_capture_device(explicit: str | None, *, use_loopback: bool) -> str:
                 match = re.search(r"card\s+(\d+):", line, re.IGNORECASE)
                 if match:
                     capture = f"plughw:{match.group(1)},0"
-                    print(f"Auto-detected Sound Blaster capture: {capture}", file=sys.stderr)
+                    print(f"Auto-detected Sound Blaster capture (fallback): {capture}", file=sys.stderr)
                     return capture
             if "card" in lower and "usb audio" in lower and "sound blaster" not in lower:
                 match = re.search(r"card\s+(\d+):", line, re.IGNORECASE)
@@ -428,6 +504,8 @@ def send_performance_gesture(midi_out: object, pre_roll: float = 0.25) -> None:
 
 def is_invalid_measurement(lufs: float, true_peak: float) -> bool:
     """True when capture is silent or loudnorm returned unusable values (-inf LUFS, etc.)."""
+    if math.isfinite(true_peak) and true_peak >= MIN_VALID_TRUE_PEAK_DBTP:
+        return False
     if not math.isfinite(lufs) or lufs < MIN_VALID_LUFS:
         return True
     if not math.isfinite(true_peak):
@@ -582,7 +660,15 @@ def main() -> int:
     args = parse_args()
     output_path = args.output or default_normalization_path()
     use_loopback = should_use_loopback(args.use_loopback)
+    standalone_restart = should_restart_surge_for_standalone(
+        use_loopback=use_loopback,
+        dry_run=args.dry_run,
+        mock_lufs=args.mock_lufs,
+    )
     audio_device = detect_capture_device(args.audio_device, use_loopback=use_loopback)
+    if (use_loopback or standalone_restart) and not args.dry_run and args.mock_lufs is None:
+        # Resolve capture after production Surge stops (and snd-aloop loads for loopback).
+        audio_device = None  # filled in setup below
 
     patch_paths = collect_patch_paths(args)
     if args.limit > 0:
@@ -603,9 +689,12 @@ def main() -> int:
         targets = [p for p in patch_paths if p.stem in missing]
 
     print(f"Output: {output_path}")
-    print(f"Capture device: {audio_device}")
+    capture_label = audio_device if audio_device else "(resolved after Surge restart)"
+    print(f"Capture device: {capture_label}")
     if use_loopback:
         print("Surge routing: ALSA loopback (temporary service restart for calibration)")
+    elif standalone_restart:
+        print("Surge routing: Sound Blaster (temporary service restart for calibration)")
     if args.favorites_only:
         print(f"Scope: favorites ({favorites_display_name()})")
     elif args.folder:
@@ -653,7 +742,7 @@ def main() -> int:
         emit_progress(args, {"type": "done", "updated": 0, "exit_code": 1})
         return 1
 
-    loopback_started = False
+    cal_surge_started = False
     if use_loopback and args.mock_lufs is None:
         try:
             emit_progress(
@@ -661,16 +750,42 @@ def main() -> int:
                 {"type": "setup", "message": "Stopping patch browser and Surge…"},
             )
             stop_mpe_audio_services()
+            audio_device = detect_capture_device(args.audio_device, use_loopback=True)
+            print(f"Capture device: {audio_device}", file=sys.stderr)
             emit_progress(args, {"type": "setup", "message": "Starting Surge for measurement…"})
-            start_surge_loopback()
-            loopback_started = True
+            loopback_interface = start_surge_loopback()
+            cal_surge_started = True
+            print(f"Surge loopback interface: {loopback_interface}", file=sys.stderr)
             loader = PatchLoader(osc_host=args.osc_host, osc_port=args.osc_port)
             if not loader.osc_enabled:
                 raise RuntimeError("OSC unavailable after loopback Surge start")
         except Exception as exc:
             print(f"Error: loopback calibration setup failed: {exc}", file=sys.stderr)
             emit_progress(args, {"type": "error", "message": str(exc)})
-            if loopback_started:
+            if cal_surge_started:
+                restore_mpe_audio_services()
+            emit_progress(args, {"type": "done", "updated": 0, "exit_code": 1})
+            return 1
+    elif standalone_restart:
+        try:
+            emit_progress(
+                args,
+                {"type": "setup", "message": "Stopping production Surge for measurement…"},
+            )
+            stop_mpe_audio_services()
+            emit_progress(args, {"type": "setup", "message": "Starting Surge on Sound Blaster…"})
+            standalone_interface = start_surge_standalone()
+            cal_surge_started = True
+            audio_device = detect_capture_device(args.audio_device, use_loopback=False)
+            print(f"Capture device: {audio_device}", file=sys.stderr)
+            print(f"Surge standalone interface: {standalone_interface}", file=sys.stderr)
+            loader = PatchLoader(osc_host=args.osc_host, osc_port=args.osc_port)
+            if not loader.osc_enabled:
+                raise RuntimeError("OSC unavailable after standalone Surge start")
+        except Exception as exc:
+            print(f"Error: standalone calibration setup failed: {exc}", file=sys.stderr)
+            emit_progress(args, {"type": "error", "message": str(exc)})
+            if cal_surge_started:
                 restore_mpe_audio_services()
             emit_progress(args, {"type": "done", "updated": 0, "exit_code": 1})
             return 1
@@ -678,12 +793,12 @@ def main() -> int:
     signal.signal(signal.SIGTERM, _handle_interrupt)
     signal.signal(signal.SIGINT, _handle_interrupt)
 
-    midi_port = find_surge_midi_port()
+    midi_port = wait_for_surge_midi_port() if args.mock_lufs is None else None
     if midi_port is None and args.mock_lufs is None:
         msg = "Surge MIDI port not found — is Surge running with MIDI inputs?"
         print(f"Error: {msg}", file=sys.stderr)
         emit_progress(args, {"type": "error", "message": msg})
-        if loopback_started:
+        if cal_surge_started:
             restore_mpe_audio_services()
         emit_progress(args, {"type": "done", "updated": 0, "exit_code": 1})
         return 1
@@ -745,7 +860,7 @@ def main() -> int:
                 updated += 1
     finally:
         close_midi_out(midi_out)
-        if loopback_started and not args.no_restore_services:
+        if cal_surge_started and not args.no_restore_services:
             emit_progress(
                 args,
                 {"type": "setup", "message": "Restarting patch browser and Surge…"},

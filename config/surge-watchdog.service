@@ -8,6 +8,8 @@ Type=simple
 User=@MPE_PI_USER@
 EnvironmentFile=-/etc/mpe/mpe.env
 ExecStart=@MPE_SCRIPTS_DIR@/surge-watchdog.sh
+TimeoutStopSec=10
+KillMode=control-group
 Restart=always
 RestartSec=10
 
