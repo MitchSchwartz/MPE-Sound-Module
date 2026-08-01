@@ -427,7 +427,7 @@ class CalibrationLoaderApp:
                 self.theme.muted,
             )
             self.screen.blit(warn, ((self.width - warn.get_width()) // 2, self.height - 120))
-            self._draw_button(self._cancel_rect, "Cancel", accent=True)
+            self._draw_button(self._cancel_rect, "Cancel")
         elif self.state.phase in ("done", "error", "cancelled"):
             hint = self.font_sm.render("Restarting patch browser…", True, self.theme.muted)
             self.screen.blit(hint, ((self.width - hint.get_width()) // 2, self.height - 56))
