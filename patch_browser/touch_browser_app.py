@@ -270,6 +270,11 @@ class TouchPatchBrowser(
         self._evdev_bridge: TouchEvdevBridge | None = None
         self._touch_list_capture = False
         self._az_rail_capture = False
+        self._az_rail_scrub_letter: str | None = None
+        self._az_rail_active_letter: str | None = None
+        self._az_rail_active_until = 0.0
+        self._all_patches_jump_index: int | None = None
+        self._all_patches_jump_until = 0.0
 
         self._layout()
         self._bootstrap_patches()
