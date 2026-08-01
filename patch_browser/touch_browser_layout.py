@@ -6,6 +6,8 @@ from patch_browser.geometry import Rect
 from patch_browser.mixer import MixerChannel
 from patch_browser.scroll_widgets import ScrollList
 from patch_browser.touch_ui_constants import (
+    ALL_PATCHES_ROW_HEIGHT,
+    AZ_RAIL_WIDTH,
     CPU_METER_H,
     CPU_METER_W,
     FADER_COLUMN_W,
@@ -26,6 +28,7 @@ from patch_browser.touch_ui_constants import (
     VOLUME_MAX,
     VOLUME_MIN,
 )
+from patch_browser.all_patches_index import AZ_RAIL_LETTERS
 from patch_browser.touch_ui_enums import LeftNavMode, Screen, audio_profile_display
 from patch_browser.ui_text import text_block_height, wrap_text_lines, wrapped_row_height
 
@@ -34,6 +37,10 @@ class TouchBrowserLayoutMixin:
     """Mixin — expects TouchPatchBrowser host attributes."""
 
     def _left_nav_width(self) -> int:
+        if self.left_nav_mode == LeftNavMode.ALL_PATCHES:
+            margin = 16
+            gap = 10
+            return self.width - margin * 2 - AZ_RAIL_WIDTH - gap
         return LEFT_NAV_COLLAPSED_WIDTH if self.left_nav_collapsed else LEFT_NAV_WIDTH
     def _layout(self) -> None:
         margin = 16
@@ -61,12 +68,25 @@ class TouchBrowserLayoutMixin:
 
         self.left_panel_rect = Rect(margin, content_top, left_w, content_bottom - content_top)
         self.nav_toggle_btn = Rect(margin, content_top, left_w, content_bottom - content_top)
-        self.nav_header_rect = Rect(margin, content_top, LEFT_NAV_WIDTH, nav_header_h)
+        nav_header_w = left_w if self.left_nav_mode == LeftNavMode.ALL_PATCHES else LEFT_NAV_WIDTH
+        self.nav_header_rect = Rect(margin, content_top, nav_header_w, nav_header_h)
         self._update_nav_list_geometry(content_top, content_bottom, nav_header_h, margin)
 
-        main_x = margin + left_w + gap
-        main_w = self.width - margin * 2 - left_w - gap
-        self.main_rect = Rect(main_x, content_top, main_w, content_bottom - content_top)
+        if self.left_nav_mode == LeftNavMode.ALL_PATCHES:
+            self.az_rail_rect = Rect(
+                margin + left_w + gap,
+                content_top,
+                AZ_RAIL_WIDTH,
+                content_bottom - content_top,
+            )
+            self._layout_az_rail_letters()
+            self.main_rect = Rect(margin + left_w + gap + AZ_RAIL_WIDTH, content_top, 0, 0)
+        else:
+            self.az_rail_rect = Rect(0, 0, 0, 0)
+            self.az_rail_letter_rects = []
+            main_x = margin + left_w + gap
+            main_w = self.width - margin * 2 - left_w - gap
+            self.main_rect = Rect(main_x, content_top, main_w, content_bottom - content_top)
         self._layout_mixer_strip()
         bottom_row_y = self.main_rect.bottom - 52
         self.favorites_btn = Rect(
@@ -222,36 +242,81 @@ class TouchBrowserLayoutMixin:
             content_bottom = self.height - footer_h - margin
 
         show_folder_title = (
-            not self.left_nav_collapsed and self.left_nav_mode == LeftNavMode.PATCHES
+            not self.left_nav_collapsed
+            and self.left_nav_mode in (LeftNavMode.PATCHES, LeftNavMode.ALL_PATCHES)
         )
         folder_title_h = NAV_FOLDER_TITLE_H if show_folder_title else 0
         list_top = content_top + nav_header_h + 4 + folder_title_h
 
         if show_folder_title:
+            title_w = (
+                self._left_nav_width()
+                if self.left_nav_mode == LeftNavMode.ALL_PATCHES
+                else LEFT_NAV_WIDTH
+            )
             self.nav_folder_title_rect = Rect(
                 margin,
                 content_top + nav_header_h + 4,
-                LEFT_NAV_WIDTH,
+                title_w,
                 folder_title_h,
             )
         else:
             self.nav_folder_title_rect = None
 
-        list_rect = Rect(margin, list_top, LEFT_NAV_WIDTH, content_bottom - list_top)
-        row_height = 50 if self.left_nav_mode == LeftNavMode.PATCHES else 44
+        list_w = (
+            self._left_nav_width()
+            if self.left_nav_mode == LeftNavMode.ALL_PATCHES
+            else LEFT_NAV_WIDTH
+        )
+        list_rect = Rect(margin, list_top, list_w, content_bottom - list_top)
+        if self.left_nav_mode == LeftNavMode.ALL_PATCHES:
+            row_height = ALL_PATCHES_ROW_HEIGHT
+        elif self.left_nav_mode == LeftNavMode.PATCHES:
+            row_height = 50
+        else:
+            row_height = 44
         if not hasattr(self, "nav_list"):
             self.nav_list = ScrollList(list_rect, row_height=row_height)
         else:
             self.nav_list.rect = list_rect
             self.nav_list.row_height = row_height
             self.nav_list._clamp_scroll()
+    def _layout_az_rail_letters(self) -> None:
+        letters = AZ_RAIL_LETTERS
+        count = len(letters)
+        if count == 0 or self.az_rail_rect.h <= 0:
+            self.az_rail_letter_rects = []
+            return
+        cell_h = max(8, self.az_rail_rect.h // count)
+        rects: list[tuple[str, Rect]] = []
+        y = self.az_rail_rect.y
+        for letter in letters:
+            h = min(cell_h, self.az_rail_rect.bottom - y)
+            if h <= 0:
+                break
+            rects.append(
+                (
+                    letter,
+                    Rect(self.az_rail_rect.x, y, self.az_rail_rect.w, h),
+                )
+            )
+            y += h
+        self.az_rail_letter_rects = rects
+
     def _layout_nav_buttons(self) -> None:
         y = self.nav_header_rect.y + 4
         x = self.nav_header_rect.x + 6
         self.nav_back_btn = Rect(x, y, 36, 28)
         x += 42
         self.nav_collapse_btn = Rect(self.nav_header_rect.right - 38, y, 32, 28)
+        self.nav_all_btn = Rect(self.nav_collapse_btn.x - 44, y, 38, 28)
         self.nav_current_btn = Rect(x, y, 72, 28)
+
+    def _az_rail_letter_at(self, pos: tuple[int, int]) -> str | None:
+        for letter, rect in self.az_rail_letter_rects:
+            if rect.contains(*pos):
+                return letter
+        return None
     def _mixer_channel_defs(self) -> list[dict]:
         return [
             {"id": "volume", "label": "Vol", "min": VOLUME_MIN, "max": VOLUME_MAX, "enabled": True},

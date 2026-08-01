@@ -80,8 +80,20 @@ class TouchBrowserInputMixin:
         if self.nav_collapse_btn.contains(*pos):
             self._toggle_nav_collapsed()
             return
-        if self.nav_back_btn.contains(*pos) and self.left_nav_mode == LeftNavMode.PATCHES:
-            self._go_up_to_folders()
+        if (
+            self.nav_all_btn.contains(*pos)
+            and self.left_nav_mode == LeftNavMode.FOLDERS
+        ):
+            self._enter_all_patches()
+            return
+        if self.nav_back_btn.contains(*pos) and self.left_nav_mode in (
+            LeftNavMode.PATCHES,
+            LeftNavMode.ALL_PATCHES,
+        ):
+            if self.left_nav_mode == LeftNavMode.ALL_PATCHES:
+                self._go_back_from_all_patches()
+            else:
+                self._go_up_to_folders()
             return
         if self.nav_current_btn.contains(*pos) and self._show_current_folder_button():
             self._go_to_loaded_folder()
@@ -380,7 +392,8 @@ class TouchBrowserInputMixin:
             elif self.screen_state == Screen.CALIBRATE_CONFIRM:
                 self._handle_calibrate_confirm_pointer_down(event.pos)
             elif self.screen_state == Screen.BROWSER:
-                self._handle_mixer_down(event.pos)
+                if self.left_nav_mode != LeftNavMode.ALL_PATCHES:
+                    self._handle_mixer_down(event.pos)
         elif event.type == pygame.MOUSEBUTTONUP and event.button == 1:
             was_mixer = self._dragging_mixer_id is not None
             if was_mixer and self._mixer_drag_moved:
@@ -399,6 +412,11 @@ class TouchBrowserInputMixin:
             elif self.screen_state == Screen.CALIBRATE_CONFIRM:
                 self._handle_calibrate_confirm_pointer_up(event.pos)
             elif self.screen_state == Screen.BROWSER:
+                if self.left_nav_mode == LeftNavMode.ALL_PATCHES:
+                    letter = self._az_rail_letter_at(event.pos)
+                    if letter is not None:
+                        self._jump_all_patches_to_letter(letter)
+                        return
                 idx = self.nav_list.take_tap_index()
                 if idx is not None:
                     self._select_nav_index(idx)
