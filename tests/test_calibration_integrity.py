@@ -1,0 +1,200 @@
+"""Regression coverage for the 2026-08-01 calibration integrity fixes.
+
+Each test here pins down a specific failure mode discovered while debugging
+"calibration saves 0" / "Acid is quiet, no change with norm on or off":
+
+1. is_invalid_measurement must reject below-floor LUFS even when true peak
+   looks fine — no fallback that lets near-silent captures through and saves
+   an extrapolated gain (the original bug).
+2. NORM_MAX_AMP_VOLUME_LINEAR must not silently regress back to a value that
+   clamps away most calibrated gain (the norm-cap bug).
+3. End-to-end: a patch with a large real-world gain_db must have that gain
+   actually reach the OSC send (within the cap), not get clamped to ~unity.
+"""
+
+from __future__ import annotations
+
+import importlib.util
+import json
+import math
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+from unittest import mock
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+CAL_MODULE_PATH = REPO_ROOT / "scripts" / "calibrate-patch-normalization.py"
+
+sys.path.insert(0, str(REPO_ROOT))
+
+from patch_browser.patch_loader import PatchLoader  # noqa: E402
+from patch_browser.patch_normalization import (  # noqa: E402
+    MAX_AMP_VOLUME_LINEAR,
+    NORM_MAX_AMP_VOLUME_LINEAR,
+    PatchNormalizationStore,
+    db_to_linear,
+)
+
+
+def load_cal_module():
+    spec = importlib.util.spec_from_file_location("calibrate_patch_normalization", CAL_MODULE_PATH)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["calibrate_patch_normalization"] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+class FakeOscClient:
+    def __init__(self) -> None:
+        self.messages: list[tuple[str, float]] = []
+
+    def send_message(self, address: str, value: float) -> None:
+        self.messages.append((address, value))
+
+
+class IsInvalidMeasurementTests(unittest.TestCase):
+    """Pins the removal of the true-peak fallback (2026-08-01)."""
+
+    def setUp(self) -> None:
+        self.cal = load_cal_module()
+
+    def test_silent_capture_is_invalid(self) -> None:
+        self.assertTrue(self.cal.is_invalid_measurement(float("-inf"), float("-inf")))
+
+    def test_below_floor_lufs_is_invalid_even_with_healthy_peak(self) -> None:
+        # Regression: this exact shape (quiet integrated LUFS, fine-looking peak)
+        # is what the removed true-peak fallback used to rescue and save a bogus
+        # extrapolated gain for. It must fail now.
+        healthy_peak_dbtp = -20.0
+        self.assertTrue(
+            self.cal.is_invalid_measurement(self.cal.MIN_VALID_LUFS - 5.0, healthy_peak_dbtp)
+        )
+
+    def test_acid_measured_shape_is_rejected(self) -> None:
+        # Real numbers captured during the 2026-08-01 A/B (loopback route):
+        # -47.0 LUFS, -29.4 dBTP. Healthy-looking peak, quiet integrated LUFS.
+        self.assertTrue(self.cal.is_invalid_measurement(-47.0, -29.4))
+
+    def test_lufs_at_or_above_floor_with_finite_peak_is_valid(self) -> None:
+        self.assertFalse(self.cal.is_invalid_measurement(self.cal.MIN_VALID_LUFS, -10.0))
+        self.assertFalse(self.cal.is_invalid_measurement(-18.0, -6.0))
+
+    def test_non_finite_lufs_always_invalid_regardless_of_peak(self) -> None:
+        self.assertTrue(self.cal.is_invalid_measurement(float("nan"), -1.0))
+        self.assertTrue(self.cal.is_invalid_measurement(float("-inf"), -1.0))
+
+    def test_no_true_peak_fallback_constant_remains(self) -> None:
+        # The fallback constant (MIN_VALID_TRUE_PEAK_DBTP) must not come back —
+        # its presence previously masked this whole bug class.
+        self.assertFalse(hasattr(self.cal, "MIN_VALID_TRUE_PEAK_DBTP"))
+
+
+class NormCapIntegrityTests(unittest.TestCase):
+    """Pins the norm-cap fix — calibrated gain must actually reach Surge."""
+
+    def test_norm_cap_matches_off_cap(self) -> None:
+        # If this ever regresses to a value well below MAX_AMP_VOLUME_LINEAR,
+        # norm-on vs norm-off becomes inaudible again for any patch needing a
+        # real boost — exactly the "no change with norm on or off" bug.
+        self.assertEqual(NORM_MAX_AMP_VOLUME_LINEAR, MAX_AMP_VOLUME_LINEAR)
+
+    def test_norm_cap_is_not_a_near_unity_clamp(self) -> None:
+        # Guardrail independent of the equality above: whatever the cap is,
+        # it must allow meaningfully more than unity gain, or normalization
+        # can't correct any patch that's genuinely quiet by design.
+        self.assertGreater(NORM_MAX_AMP_VOLUME_LINEAR, 1.2)
+
+    def test_large_calibrated_gain_reaches_osc_send_within_cap(self) -> None:
+        """End-to-end regression for the exact Acid bug shape."""
+        with tempfile.TemporaryDirectory() as tmp:
+            user_path = Path(tmp) / "user.json"
+            gain_db = 16.61  # measured standalone-route gain for Acid, 2026-08-01
+            user_path.write_text(
+                json.dumps({"Acid": {"gain_db": gain_db, "enabled": True, "lufs_measured": -51.2}})
+            )
+            store = PatchNormalizationStore(user_path)
+            loader = PatchLoader(normalization_store=store)
+            loader.osc_client = FakeOscClient()
+            loader.osc_enabled = True
+            loader.user_volume_trim = 1.0
+
+            loader.refresh_patch_volume("Acid")
+            sent = loader.osc_client.messages[-1][1]
+
+            expected_linear = db_to_linear(gain_db)
+            # The whole point of the fix: sent volume must track the real gain
+            # (up to the cap), not collapse to ~unity regardless of how large
+            # the calibrated correction was.
+            self.assertAlmostEqual(sent, min(expected_linear, NORM_MAX_AMP_VOLUME_LINEAR))
+            self.assertGreaterEqual(sent, 1.5)  # meaningfully above unity, not clamped away
+
+    def test_modest_gain_is_not_clamped_at_all(self) -> None:
+        """Typical Quick Select gains (+4 to +18dB per docs) should pass through untouched
+        whenever they're at or below the cap — no clamping side effects for the common case."""
+        with tempfile.TemporaryDirectory() as tmp:
+            user_path = Path(tmp) / "user.json"
+            gain_db = 3.0  # 3dB -> ~1.41x, comfortably under any reasonable cap
+            user_path.write_text(
+                json.dumps({"Lead": {"gain_db": gain_db, "enabled": True, "lufs_measured": -21.0}})
+            )
+            store = PatchNormalizationStore(user_path)
+            loader = PatchLoader(normalization_store=store)
+            loader.osc_client = FakeOscClient()
+            loader.osc_enabled = True
+            loader.user_volume_trim = 1.0
+
+            loader.refresh_patch_volume("Lead")
+            sent = loader.osc_client.messages[-1][1]
+            self.assertAlmostEqual(sent, db_to_linear(gain_db))
+
+
+class CalibrationPipelineDoesNotSilentlySaveGarbageTests(unittest.TestCase):
+    """End-to-end via the real capture path (mock_lufs intentionally bypasses
+    is_invalid_measurement entirely — it's a write-any-value testing escape
+    hatch, not representative of the real gate). Mock capture_gesture_wav /
+    measure_lufs instead so is_invalid_measurement is actually exercised."""
+
+    def setUp(self) -> None:
+        self.cal = load_cal_module()
+
+    def _run_calibrate_patch(self, lufs: float, true_peak: float) -> tuple[bool, object]:
+        with tempfile.TemporaryDirectory() as tmp:
+            out_path = Path(tmp) / "norm.json"
+            store = self.cal.PatchNormalizationStore(out_path)
+            fake_loader = mock.Mock()
+            fake_loader.load_patch.return_value = True
+
+            with (
+                mock.patch.object(self.cal, "capture_gesture_wav", return_value=Path("/tmp/fake.wav")),
+                mock.patch.object(self.cal, "measure_lufs", return_value=(lufs, true_peak)),
+                mock.patch.object(Path, "unlink"),
+                mock.patch.object(self.cal.time, "sleep"),
+            ):
+                saved = self.cal.calibrate_patch(
+                    Path("/tmp/Fake.fxp"),
+                    fake_loader,
+                    store,
+                    audio_device="plughw:Loopback,1,0",
+                    mock_lufs=None,
+                    dry_run=False,
+                    midi_out=mock.Mock(),
+                )
+            return saved, store
+
+    def test_below_floor_capture_is_not_saved(self) -> None:
+        # -47.0 LUFS / -41.0 dBTP: quiet integrated LUFS, healthy-looking peak —
+        # the exact shape the old fallback used to rescue.
+        saved, store = self._run_calibrate_patch(-47.0, -41.0)
+        self.assertFalse(saved)
+        self.assertIsNone(store.get_raw_gain_db("Fake"))
+
+    def test_above_floor_capture_is_saved(self) -> None:
+        saved, store = self._run_calibrate_patch(-18.0, -6.0)
+        self.assertTrue(saved)
+        self.assertIsNotNone(store.get_raw_gain_db("Fake"))
+
+
+if __name__ == "__main__":
+    unittest.main()
