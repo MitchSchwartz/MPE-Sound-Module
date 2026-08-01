@@ -93,6 +93,8 @@ Static or crackle under **many held keys** is usually **ALSA buffer underrun (xr
 
 **Failed measurements now fail loud, not quiet.** `is_invalid_measurement` used to have a true-peak fallback that let near-silent captures (-47 to -57 LUFS) through and save an extrapolated `gain_db` of +17 to +25 dB — that gain didn't restore real perceived loudness because the underlying capture was still garbage. The fallback is removed: a patch that can't clear `MIN_VALID_LUFS` (-39.0) is now skipped (not saved) so it shows up as "kept 0" and needs a longer gesture or louder velocity, not a bigger guessed gain.
 
+**Progressive gesture retry.** Instead of retrying a below-threshold patch with the same fixed 3s gesture and giving up, each retry holds the note longer: `GESTURE_DURATIONS_SECONDS = (3.0, 5.0, 8.0, 12.0)` (`MEASURE_MAX_ATTEMPTS` now derives from this tuple). Note-hold time scales with gesture length via `hold_seconds_for_gesture()`, capped by pre-roll/tail overhead. This targets slow-attack/filter-sweep patches (long acid filter opens, slow pads) that never reach real loudness in a short gesture — they now get up to ~27s total across 4 attempts before being skipped for real.
+
 If crackle persists with Norm off and moderate polyphony, try `MPE_SURGE_BUFFER_SIZE=2048` in `/etc/mpe/mpe.env` and restart `surge-xt-cli`. Tradeoff: higher latency.
 
 **Live diagnosis:** the touch browser header **CPU** meter (see [`TOUCH_PATCH_BROWSER.md`](TOUCH_PATCH_BROWSER.md)) tracks `surge-xt-cli` process load while you play — use it to see when dense polyphony is pushing the Pi toward xrun territory. Norm on should keep typical Quick Select patches lower on that meter than uncapped gain would.
