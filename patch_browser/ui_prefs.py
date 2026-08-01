@@ -64,3 +64,16 @@ def save_theme_mode(mode: str) -> None:
     data = read_ui_prefs_file()
     data["theme_mode"] = mode
     write_ui_prefs_file(data)
+
+
+def save_theme_preferences(
+    *,
+    theme_mode: str,
+    accent_rgb: tuple[int, int, int],
+    accent_style: str,
+) -> None:
+    data = read_ui_prefs_file()
+    data["theme_mode"] = theme_mode
+    data["accent_rgb"] = list(accent_rgb)
+    data["accent_style"] = accent_style
+    write_ui_prefs_file(data)

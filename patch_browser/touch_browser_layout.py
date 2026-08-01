@@ -116,8 +116,8 @@ class TouchBrowserLayoutMixin:
         self.cpu_meter_toggle_rect = Rect(pad, y, inner_w, cpu_h)
         y += cpu_h + SETTINGS_ROW_GAP
 
-        oled_h = self._settings_row_height("OLED black", inner_w, toggle=True)
-        self.oled_black_toggle_rect = Rect(pad, y, inner_w, oled_h)
+        oled_h = self._settings_row_height("Theme…", inner_w)
+        self.theme_btn_rect = Rect(pad, y, inner_w, oled_h)
         y += oled_h + SETTINGS_ROW_GAP
 
         norm_h = self._settings_row_height("Patch normalization", inner_w, toggle=True)

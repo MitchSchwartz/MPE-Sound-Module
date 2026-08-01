@@ -14,6 +14,12 @@ from patch_browser.touch_ui_constants import (
     TAP_MOVE_THRESHOLD_PX,
 )
 from patch_browser.touch_ui_enums import CalibrateMode, LeftNavMode, Screen
+from patch_browser.ui_theme import (
+    ACCENT_STYLE_FULL,
+    ACCENT_STYLE_MINIMAL,
+    THEME_MODE_OLED_BLACK,
+    THEME_MODE_STANDARD,
+)
 
 
 class TouchBrowserInputMixin:
@@ -21,6 +27,7 @@ class TouchBrowserInputMixin:
 
     def _draw(self) -> None:
         modal = self.screen_state in (
+            Screen.THEME,
             Screen.POWER_MENU,
             Screen.POWER_CONFIRM,
             Screen.CALIBRATE_CONFIRM,
@@ -33,6 +40,8 @@ class TouchBrowserInputMixin:
                 self._draw_power_menu()
             elif self.screen_state == Screen.POWER_CONFIRM:
                 self._draw_power_confirm()
+            elif self.screen_state == Screen.THEME:
+                self._draw_theme_modal()
             elif self.screen_state == Screen.CALIBRATE_CONFIRM:
                 self._draw_calibrate_confirm()
         else:
@@ -96,8 +105,8 @@ class TouchBrowserInputMixin:
             return "norm_global"
         if self.cpu_meter_toggle_rect.contains(*local_pos):
             return "cpu_meter"
-        if self.oled_black_toggle_rect.contains(*local_pos):
-            return "oled_black"
+        if self.theme_btn_rect.contains(*local_pos):
+            return "theme"
         if self._surge_restart_btn and self._surge_restart_btn.contains(*local_pos):
             return "surge_restart"
         if self._calibrate_missing_btn.contains(*local_pos):
@@ -116,8 +125,8 @@ class TouchBrowserInputMixin:
             self._toggle_global_normalization()
         elif hit == "cpu_meter":
             self._toggle_cpu_meter_visibility()
-        elif hit == "oled_black":
-            self._toggle_oled_black_theme()
+        elif hit == "theme":
+            self._open_theme_modal()
         elif hit == "surge_restart":
             ok, message = self.surge_monitor.restart_surge()
             if ok:
@@ -231,6 +240,61 @@ class TouchBrowserInputMixin:
             else:
                 self.screen_state = Screen.SETTINGS
         self._clear_modal_pointer()
+    def _theme_modal_hit_at(self, pos: tuple[int, int]) -> str | None:
+        for index, rect in enumerate(getattr(self, "_theme_base_option_rects", [])):
+            if rect.contains(*pos):
+                return f"base:{index}"
+        for index, rect in enumerate(getattr(self, "_theme_style_option_rects", [])):
+            if rect.contains(*pos):
+                return f"style:{index}"
+        for index, (rect, _rgb) in enumerate(getattr(self, "_theme_color_swatch_rects", [])):
+            if rect.contains(*pos):
+                return f"color:{index}"
+        done = getattr(self, "_theme_done_rect", None)
+        if done is not None and done.contains(*pos):
+            return "done"
+        cancel = getattr(self, "_theme_cancel_rect", None)
+        if cancel is not None and cancel.contains(*pos):
+            return "cancel"
+        return None
+
+    def _handle_theme_modal_pointer_down(self, pos: tuple[int, int]) -> None:
+        self._clear_modal_pointer()
+        self._modal_pointer_down_pos = pos
+        hit = self._theme_modal_hit_at(pos)
+        if hit is not None:
+            self._modal_pending_key = hit
+
+    def _handle_theme_modal_pointer_up(self, pos: tuple[int, int]) -> None:
+        if (
+            self._modal_pending_key is None
+            or self._pointer_move_distance(self._modal_pointer_down_pos, pos)
+            > TAP_MOVE_THRESHOLD_PX
+        ):
+            self._clear_modal_pointer()
+            return
+
+        hit = self._modal_pending_key
+        if hit == "base:0":
+            self._set_theme_base_mode(THEME_MODE_STANDARD)
+        elif hit == "base:1":
+            self._set_theme_base_mode(THEME_MODE_OLED_BLACK)
+        elif hit == "style:0":
+            self._set_theme_accent_style(ACCENT_STYLE_FULL)
+        elif hit == "style:1":
+            self._set_theme_accent_style(ACCENT_STYLE_MINIMAL)
+        elif hit.startswith("color:"):
+            index = int(hit.split(":", 1)[1])
+            swatches = getattr(self, "_theme_color_swatch_rects", [])
+            if 0 <= index < len(swatches):
+                _rect, rgb = swatches[index]
+                self._set_theme_accent_rgb(rgb)
+        elif hit == "done":
+            self._commit_theme_modal()
+        elif hit == "cancel":
+            self._cancel_theme_modal()
+        self._clear_modal_pointer()
+
     def _handle_calibrate_confirm_pointer_down(self, pos: tuple[int, int]) -> None:
         self._clear_modal_pointer()
         self._modal_pointer_down_pos = pos
@@ -311,6 +375,8 @@ class TouchBrowserInputMixin:
                 self._handle_power_menu_pointer_down(event.pos)
             elif self.screen_state == Screen.POWER_CONFIRM:
                 self._handle_power_confirm_pointer_down(event.pos)
+            elif self.screen_state == Screen.THEME:
+                self._handle_theme_modal_pointer_down(event.pos)
             elif self.screen_state == Screen.CALIBRATE_CONFIRM:
                 self._handle_calibrate_confirm_pointer_down(event.pos)
             elif self.screen_state == Screen.BROWSER:
@@ -328,6 +394,8 @@ class TouchBrowserInputMixin:
                 self._handle_power_menu_pointer_up(event.pos)
             elif self.screen_state == Screen.POWER_CONFIRM:
                 self._handle_power_confirm_pointer_up(event.pos)
+            elif self.screen_state == Screen.THEME:
+                self._handle_theme_modal_pointer_up(event.pos)
             elif self.screen_state == Screen.CALIBRATE_CONFIRM:
                 self._handle_calibrate_confirm_pointer_up(event.pos)
             elif self.screen_state == Screen.BROWSER:

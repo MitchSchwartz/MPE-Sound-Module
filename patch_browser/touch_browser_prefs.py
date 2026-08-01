@@ -3,16 +3,22 @@
 from __future__ import annotations
 
 from patch_browser.touch_ui_constants import VOLUME_MAX, VOLUME_MIN
+from patch_browser.touch_ui_enums import Screen
 from patch_browser.ui_prefs import (
     load_ui_preference,
     load_volume_level,
     read_ui_prefs_file,
-    save_theme_mode,
+    save_theme_preferences,
     save_ui_preference,
     save_volume_level,
     write_ui_prefs_file,
 )
-from patch_browser.ui_theme import THEME_MODE_OLED_BLACK, THEME_MODE_STANDARD, theme_for_mode
+from patch_browser.ui_theme import (
+    ThemePreferences,
+    apply_theme_preferences,
+    load_theme_preferences,
+    theme_for_mode,
+)
 
 
 class TouchBrowserPrefsMixin:
@@ -36,25 +42,81 @@ class TouchBrowserPrefsMixin:
     def _write_ui_prefs_file(self, data: dict) -> None:
         write_ui_prefs_file(data)
 
-    def _save_theme_mode(self, mode: str) -> None:
-        save_theme_mode(mode)
+    def _load_theme_preferences(self) -> ThemePreferences:
+        return load_theme_preferences()
 
-    def _apply_theme_mode(self, mode: str) -> None:
-        self.theme_mode = mode
-        self.theme = theme_for_mode(mode)
-        self._save_theme_mode(mode)
+    def _apply_theme_preferences(self, prefs: ThemePreferences, *, persist: bool = True) -> None:
+        apply_theme_preferences(prefs)
+        self.theme_mode = prefs.theme_mode
+        self.theme = theme_for_mode(prefs.theme_mode)
+        if persist:
+            save_theme_preferences(
+                theme_mode=prefs.theme_mode,
+                accent_rgb=prefs.accent_rgb,
+                accent_style=prefs.accent_style,
+            )
 
-    def _toggle_oled_black_theme(self) -> None:
-        mode = (
-            THEME_MODE_STANDARD
-            if self.theme_mode == THEME_MODE_OLED_BLACK
-            else THEME_MODE_OLED_BLACK
+    def _theme_draft(self) -> ThemePreferences:
+        draft = getattr(self, "_theme_draft_prefs", None)
+        if draft is not None:
+            return draft
+        return self._load_theme_preferences()
+
+    def _open_theme_modal(self) -> None:
+        saved = self._load_theme_preferences()
+        self._theme_saved_prefs = saved
+        self._theme_draft_prefs = saved
+        self.screen_state = Screen.THEME
+
+    def _apply_theme_draft(self, prefs: ThemePreferences) -> None:
+        self._theme_draft_prefs = prefs
+        self._apply_theme_preferences(prefs, persist=False)
+
+    def _set_theme_base_mode(self, mode: str) -> None:
+        draft = self._theme_draft()
+        self._apply_theme_draft(
+            ThemePreferences(
+                theme_mode=mode,
+                accent_rgb=draft.accent_rgb,
+                accent_style=draft.accent_style,
+            )
         )
-        self._apply_theme_mode(mode)
-        if mode == THEME_MODE_OLED_BLACK:
-            self._toast("OLED black on", 1.5)
-        else:
-            self._toast("Standard theme", 1.5)
+
+    def _set_theme_accent_style(self, accent_style: str) -> None:
+        draft = self._theme_draft()
+        self._apply_theme_draft(
+            ThemePreferences(
+                theme_mode=draft.theme_mode,
+                accent_rgb=draft.accent_rgb,
+                accent_style=accent_style,
+            )
+        )
+
+    def _set_theme_accent_rgb(self, accent_rgb: tuple[int, int, int]) -> None:
+        draft = self._theme_draft()
+        self._apply_theme_draft(
+            ThemePreferences(
+                theme_mode=draft.theme_mode,
+                accent_rgb=accent_rgb,
+                accent_style=draft.accent_style,
+            )
+        )
+
+    def _commit_theme_modal(self) -> None:
+        draft = self._theme_draft()
+        self._apply_theme_preferences(draft, persist=True)
+        self._theme_saved_prefs = None
+        self._theme_draft_prefs = None
+        self.screen_state = Screen.SETTINGS
+        self._toast("Theme saved", 1.5)
+
+    def _cancel_theme_modal(self) -> None:
+        saved = getattr(self, "_theme_saved_prefs", None)
+        if saved is not None:
+            self._apply_theme_preferences(saved, persist=False)
+        self._theme_saved_prefs = None
+        self._theme_draft_prefs = None
+        self.screen_state = Screen.SETTINGS
 
     def _toggle_cpu_meter_visibility(self) -> None:
         self.show_cpu_meter = not self.show_cpu_meter

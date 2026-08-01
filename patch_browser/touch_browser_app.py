@@ -46,7 +46,7 @@ from patch_browser.dsi_splash import (
     draw_splash_frame,
     signal_browser_ready,
 )
-from patch_browser.ui_theme import load_theme_mode_from_prefs, theme_for_mode
+from patch_browser.ui_theme import reload_theme_from_prefs, theme_for_mode
 
 
 class TouchPatchBrowser(
@@ -113,6 +113,7 @@ class TouchPatchBrowser(
     def _clear_modal_pointer(self) -> None:
         self._modal_pointer_down_pos = None
         self._modal_pending_index = None
+        self._modal_pending_key = None
     def _toast(self, message: str, seconds: float = 2.0) -> None:
         self.toast_message = message
         self.toast_until = time.time() + seconds
@@ -186,8 +187,11 @@ class TouchPatchBrowser(
             pygame.display.set_caption("Pi-Surge-MPE Touch Browser")
         self.width, self.height = self.screen.get_size()
         pygame.mouse.set_visible(False)
-        self.theme_mode = load_theme_mode_from_prefs()
+        prefs = reload_theme_from_prefs()
+        self.theme_mode = prefs.theme_mode
         self.theme = theme_for_mode(self.theme_mode)
+        self._theme_saved_prefs = None
+        self._theme_draft_prefs = None
         self._boot_splash_started = time.monotonic()
         self._boot_splash_done = False
         self._paint_boot_splash_frame(animation_phase=0.0)
@@ -244,6 +248,7 @@ class TouchPatchBrowser(
         self._settings_pending_hit: str | None = None
         self._modal_pointer_down_pos: tuple[int, int] | None = None
         self._modal_pending_index: int | None = None
+        self._modal_pending_key: str | None = None
         self._settings_content_scroll = ContentScrollArea(Rect(0, 0, 1, 1))
         self._settings_content_height = 0
         self._running = True

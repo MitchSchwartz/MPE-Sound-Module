@@ -41,7 +41,7 @@ from patch_browser.ui_text import (
     text_block_height,
     wrap_text_lines,
 )
-from patch_browser.ui_theme import load_theme_mode_from_prefs, theme_for_mode  # noqa: E402
+from patch_browser.ui_theme import reload_theme_from_prefs, theme_for_mode  # noqa: E402
 
 CALIBRATE_SCRIPT = REPO_ROOT / "scripts" / "calibrate-patch-normalization.py"
 DONE_HOLD_SECONDS = 2.5
@@ -235,7 +235,8 @@ class CalibrationLoaderApp:
             self.width, self.height = self.screen.get_size()
         pygame.mouse.set_visible(False)
 
-        self.theme = theme_for_mode(load_theme_mode_from_prefs())
+        prefs = reload_theme_from_prefs()
+        self.theme = theme_for_mode(prefs.theme_mode)
         self.font_title = _load_font(32)
         self.font_md = _load_font(22)
         self.font_sm = _load_font(18)
@@ -313,7 +314,7 @@ class CalibrationLoaderApp:
     def _draw_button(self, rect: Rect, label: str, *, accent: bool = False) -> None:
         color = self.theme.accent if accent else self.theme.surface_alt
         pygame.draw.rect(self.screen, color, rect.pygame_rect, border_radius=8)
-        text_color = (255, 255, 255) if accent else self.theme.text
+        text_color = self.theme.bg if accent else self.theme.text
         draw_wrapped_text_in_rect(
             self.screen,
             self.font_md,
