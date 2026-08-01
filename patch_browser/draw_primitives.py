@@ -64,26 +64,11 @@ def draw_all_patches_icon(
     color: tuple[int, int, int],
     font: pygame.font.Font,
 ) -> None:
-    """Flat A→Z browse — stacked A/Z with index rail."""
-    rail_x = rect.right - 5
-    pygame.draw.line(
-        surface,
-        color,
-        (rail_x, rect.y + 3),
-        (rail_x, rect.bottom - 3),
-        2,
-    )
-    text_w = max(1, rect.w - 10)
-    a = font.render("A", True, color)
-    z = font.render("Z", True, color)
-    ax = rect.x + (text_w - a.get_width()) // 2
-    zx = rect.x + (text_w - z.get_width()) // 2
-    ay = rect.y + 1
-    zy = rect.bottom - z.get_height() - 1
-    surface.blit(a, (ax, ay))
-    surface.blit(z, (zx, zy))
-    mid_y = (ay + a.get_height() + zy) // 2
-    pygame.draw.line(surface, color, (rect.x + 4, mid_y), (rail_x - 3, mid_y), 1)
+    """Flat A→Z browse — simple A-Z label."""
+    label = font.render("A-Z", True, color)
+    tx = rect.x + (rect.w - label.get_width()) // 2
+    ty = rect.y + (rect.h - label.get_height()) // 2
+    surface.blit(label, (tx, ty))
 
 
 def draw_sidebar_panel_icon(
