@@ -7,6 +7,7 @@ import unittest
 from unittest.mock import MagicMock
 
 from patch_browser.all_patches_index import build_flat_patch_list, first_sort_letter
+from patch_browser.patch_scanner import favorites_display_name
 
 
 class TestAllPatchesIndex(unittest.TestCase):
@@ -25,6 +26,9 @@ class TestAllPatchesIndex(unittest.TestCase):
             ],
             "Keys": [
                 {"name": "Glass", "path": "/g.fxp", "category": "Keys"},
+            ],
+            favorites_display_name(): [
+                {"name": "Acid", "path": "/fav/a.fxp", "category": favorites_display_name()},
             ],
         }
 

@@ -45,6 +45,10 @@ class ScrollList:
         self._scroll_samples: list[tuple[float, float]] = []
         self._pending_tap_index: int | None = None
         self._was_momentum_on_down = False
+        self._scroll_anim_from = 0.0
+        self._scroll_anim_target: float | None = None
+        self._scroll_anim_elapsed = 0.0
+        self._scroll_anim_duration = 0.0
 
     def take_tap_index(self) -> int | None:
         idx = self._pending_tap_index
@@ -52,7 +56,14 @@ class ScrollList:
         return idx
 
     def is_interacting(self) -> bool:
-        return self._drag_start_y is not None or self._momentum_active
+        return (
+            self._drag_start_y is not None
+            or self._momentum_active
+            or self._scroll_anim_target is not None
+        )
+
+    def is_scroll_animating(self) -> bool:
+        return self._scroll_anim_target is not None
 
     def is_dragging(self) -> bool:
         return self._drag_start_y is not None
@@ -177,6 +188,7 @@ class ScrollList:
     def stop_momentum(self) -> None:
         self._velocity = 0.0
         self._momentum_active = False
+        self._scroll_anim_target = None
 
     def _pointer_move_distance(self, pos: tuple[int, int]) -> float:
         if self._pointer_down_pos is None:
@@ -214,10 +226,27 @@ class ScrollList:
         return self._velocity
 
     def tick(self, dt: float) -> bool:
-        """Advance inertial scroll. Returns True if scroll position changed."""
+        """Advance inertial scroll / animated jumps. Returns True if scroll position changed."""
+        dt = max(dt, 1.0 / 120.0)
+        if self._scroll_anim_target is not None:
+            before = self._scroll_pixels
+            self._scroll_anim_elapsed += dt
+            progress = min(
+                1.0,
+                self._scroll_anim_elapsed / max(self._scroll_anim_duration, 1e-6),
+            )
+            eased = 1.0 - (1.0 - progress) ** 3
+            self._scroll_pixels = (
+                self._scroll_anim_from
+                + (self._scroll_anim_target - self._scroll_anim_from) * eased
+            )
+            self._clamp_scroll()
+            if progress >= 1.0:
+                self._scroll_anim_target = None
+            return self._scroll_pixels != before
+
         if not self._momentum_active:
             return False
-        dt = max(dt, 1.0 / 120.0)
 
         before = self._scroll_pixels
         self._scroll_pixels += self._velocity * dt
@@ -262,18 +291,42 @@ class ScrollList:
             return index
         return None
 
-    def scroll_to_index(self, index: int) -> None:
+    def scroll_to_index(self, index: int, *, align: str = "visible") -> None:
         if not self.items:
             return
         index = max(0, min(index, len(self.items) - 1))
-        visible = self.visible_count()
-        if index < self.scroll_offset:
+        if align == "top":
             self.scroll_offset = index
-        elif index >= self.scroll_offset + visible:
-            self.scroll_offset = index - visible + 1
+        else:
+            visible = self.visible_count()
+            if index < self.scroll_offset:
+                self.scroll_offset = index
+            elif index >= self.scroll_offset + visible:
+                self.scroll_offset = index - visible + 1
         self._scroll_pixels = float(self.scroll_offset * self.row_height)
         self.stop_momentum()
         self._clamp_scroll()
+
+    def animate_scroll_to_index(
+        self,
+        index: int,
+        *,
+        align: str = "top",
+        duration: float = 0.22,
+    ) -> None:
+        if not self.items:
+            return
+        index = max(0, min(index, len(self.items) - 1))
+        if align == "top":
+            target_pixels = float(index * self.row_height)
+        else:
+            self.scroll_to_index(index, align="visible")
+            return
+        self.stop_momentum()
+        self._scroll_anim_from = self._scroll_pixels
+        self._scroll_anim_target = target_pixels
+        self._scroll_anim_elapsed = 0.0
+        self._scroll_anim_duration = max(0.05, duration)
 
     def handle_event(self, event: pygame.event.Event) -> bool:
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
