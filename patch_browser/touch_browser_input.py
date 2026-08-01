@@ -15,10 +15,13 @@ from patch_browser.touch_ui_constants import (
 )
 from patch_browser.touch_ui_enums import CalibrateMode, LeftNavMode, Screen
 from patch_browser.ui_theme import (
-    ACCENT_STYLE_FULL,
+    ACCENT_PRESETS,
     ACCENT_STYLE_MINIMAL,
+    ACCENT_STYLE_MONOCHROME,
     THEME_MODE_OLED_BLACK,
     THEME_MODE_STANDARD,
+    THEME_VIEW_COLORS,
+    THEME_VIEW_PICKER,
 )
 
 
@@ -253,15 +256,44 @@ class TouchBrowserInputMixin:
                 self.screen_state = Screen.SETTINGS
         self._clear_modal_pointer()
     def _theme_modal_hit_at(self, pos: tuple[int, int]) -> str | None:
+        view = self._theme_view()
+
+        if view == THEME_VIEW_PICKER:
+            for channel, rect in getattr(self, "_picker_slider_rects", {}).items():
+                if rect.contains(*pos):
+                    return f"picker_slider:{channel}"
+            back = getattr(self, "_picker_back_rect", None)
+            if back is not None and back.contains(*pos):
+                return "picker_back"
+            save = getattr(self, "_picker_save_rect", None)
+            if save is not None and save.contains(*pos):
+                return "picker_save"
+            delete = getattr(self, "_picker_delete_rect", None)
+            if delete is not None and delete.contains(*pos):
+                return "picker_delete"
+            return None
+
+        if view == THEME_VIEW_COLORS:
+            for delete_rect, color_id in getattr(self, "_theme_color_delete_rects", []):
+                if delete_rect.contains(*pos):
+                    return f"delete:{color_id}"
+            for rect, _rgb, hit_id in getattr(self, "_theme_color_swatch_rects", []):
+                if rect.contains(*pos):
+                    return hit_id
+            back = getattr(self, "_theme_colors_back_rect", None)
+            if back is not None and back.contains(*pos):
+                return "colors_back"
+            return None
+
         for index, rect in enumerate(getattr(self, "_theme_base_option_rects", [])):
             if rect.contains(*pos):
                 return f"base:{index}"
         for index, rect in enumerate(getattr(self, "_theme_style_option_rects", [])):
             if rect.contains(*pos):
                 return f"style:{index}"
-        for index, (rect, _rgb) in enumerate(getattr(self, "_theme_color_swatch_rects", [])):
-            if rect.contains(*pos):
-                return f"color:{index}"
+        choose = getattr(self, "_theme_choose_color_btn", None)
+        if choose is not None and choose.contains(*pos):
+            return "choose_colors"
         done = getattr(self, "_theme_done_rect", None)
         if done is not None and done.contains(*pos):
             return "done"
@@ -270,12 +302,32 @@ class TouchBrowserInputMixin:
             return "cancel"
         return None
 
+    def _apply_picker_slider_channel(self, channel: str, pos: tuple[int, int]) -> None:
+        sliders = getattr(self, "_picker_slider_rects", {})
+        rect = sliders.get(channel)
+        if rect is None:
+            return
+        current = getattr(self, "_picker_rgb", self._theme_draft().accent_rgb)
+        value = self._picker_channel_from_x(pos[0], rect)
+        if channel == "r":
+            self._set_picker_rgb((value, current[1], current[2]))
+        elif channel == "g":
+            self._set_picker_rgb((current[0], value, current[2]))
+        else:
+            self._set_picker_rgb((current[0], current[1], value))
+
     def _handle_theme_modal_pointer_down(self, pos: tuple[int, int]) -> None:
         self._clear_modal_pointer()
         self._modal_pointer_down_pos = pos
         hit = self._theme_modal_hit_at(pos)
-        if hit is not None:
+        if hit is None:
+            return
+        if hit.startswith("picker_slider:"):
+            self._picker_slider_channel = hit.split(":", 1)[1]
+            self._apply_picker_slider_channel(self._picker_slider_channel, pos)
             self._modal_pending_key = hit
+            return
+        self._modal_pending_key = hit
 
     def _handle_theme_modal_pointer_up(self, pos: tuple[int, int]) -> None:
         if (
@@ -287,24 +339,45 @@ class TouchBrowserInputMixin:
             return
 
         hit = self._modal_pending_key
-        if hit == "base:0":
+        if hit == "choose_colors":
+            self._open_theme_color_palette()
+        elif hit == "colors_back":
+            self._close_theme_color_palette()
+        elif hit == "picker_back":
+            self._close_theme_color_picker()
+        elif hit == "picker_save":
+            self._save_picker_custom_color()
+            self._close_theme_color_picker()
+        elif hit == "picker_delete":
+            self._delete_picker_custom_color()
+        elif hit.startswith("delete:"):
+            self._delete_custom_accent_color(hit.split(":", 1)[1])
+        elif hit == "custom_new":
+            self._open_theme_color_picker()
+        elif hit.startswith("preset:"):
+            index = int(hit.split(":", 1)[1])
+            if 0 <= index < len(ACCENT_PRESETS):
+                _name, rgb = ACCENT_PRESETS[index]
+                self._set_theme_accent_rgb(rgb)
+        elif hit.startswith("custom:"):
+            color_id = hit.split(":", 1)[1]
+            for color in getattr(self, "_custom_accent_colors", []):
+                if color.color_id == color_id:
+                    self._set_theme_accent_rgb(color.rgb)
+                    break
+        elif hit == "base:0":
             self._set_theme_base_mode(THEME_MODE_STANDARD)
         elif hit == "base:1":
             self._set_theme_base_mode(THEME_MODE_OLED_BLACK)
         elif hit == "style:0":
-            self._set_theme_accent_style(ACCENT_STYLE_FULL)
+            self._set_theme_accent_style(ACCENT_STYLE_MONOCHROME)
         elif hit == "style:1":
             self._set_theme_accent_style(ACCENT_STYLE_MINIMAL)
-        elif hit.startswith("color:"):
-            index = int(hit.split(":", 1)[1])
-            swatches = getattr(self, "_theme_color_swatch_rects", [])
-            if 0 <= index < len(swatches):
-                _rect, rgb = swatches[index]
-                self._set_theme_accent_rgb(rgb)
         elif hit == "done":
             self._commit_theme_modal()
         elif hit == "cancel":
             self._cancel_theme_modal()
+        self._picker_slider_channel = None
         self._clear_modal_pointer()
 
     def _handle_calibrate_confirm_pointer_down(self, pos: tuple[int, int]) -> None:
@@ -401,6 +474,8 @@ class TouchBrowserInputMixin:
             self._dragging_mixer_id = None
             self._mixer_drag_origin = None
             self._mixer_drag_moved = False
+            if self._picker_slider_channel and self.screen_state == Screen.THEME:
+                self._picker_slider_channel = None
             if self.screen_state == Screen.SETTINGS:
                 self._handle_settings_pointer_up(event.pos)
             elif self.screen_state == Screen.POWER_MENU:
@@ -423,7 +498,9 @@ class TouchBrowserInputMixin:
                 elif not was_mixer:
                     self._handle_browser_tap(event.pos)
         elif event.type == pygame.MOUSEMOTION:
-            if self._slider_dragging:
+            if self._picker_slider_channel and self.screen_state == Screen.THEME:
+                self._apply_picker_slider_channel(self._picker_slider_channel, event.pos)
+            elif self._slider_dragging:
                 if not self._brightness_drag_moved:
                     self._brightness_drag_moved = True
                     self._brightness_last_tap_time = 0.0

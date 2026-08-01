@@ -323,7 +323,7 @@ class ScrollList:
             surface.blit(text, (row_rect.x + 10, ty))
 
             if is_loaded:
-                pygame.draw.circle(surface, theme.playing, (row_rect.right - 16, row_rect.centery), 5)
+                pygame.draw.circle(surface, theme.accent, (row_rect.right - 16, row_rect.centery), 5)
 
             y += self.row_height
 

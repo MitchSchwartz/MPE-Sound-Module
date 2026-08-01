@@ -8,15 +8,27 @@ from patch_browser.ui_prefs import (
     load_ui_preference,
     load_volume_level,
     read_ui_prefs_file,
+    save_custom_accent_colors,
     save_theme_preferences,
     save_ui_preference,
     save_volume_level,
     write_ui_prefs_file,
 )
 from patch_browser.ui_theme import (
+    THEME_VIEW_COLORS,
+    THEME_VIEW_MAIN,
+    THEME_VIEW_PICKER,
+    MAX_CUSTOM_ACCENT_COLORS,
+    SavedAccentColor,
     ThemePreferences,
     apply_theme_preferences,
+    clamp_rgb,
+    default_custom_color_name,
+    find_custom_accent_by_rgb,
+    find_custom_accent_color,
+    load_custom_accent_colors,
     load_theme_preferences,
+    new_custom_color_id,
     theme_for_mode,
 )
 
@@ -62,11 +74,56 @@ class TouchBrowserPrefsMixin:
             return draft
         return self._load_theme_preferences()
 
+    def _theme_view(self) -> str:
+        return getattr(self, "_theme_view_state", THEME_VIEW_MAIN)
+
+    def _reload_custom_accent_colors(self) -> list[SavedAccentColor]:
+        colors = load_custom_accent_colors()
+        self._custom_accent_colors = colors
+        return colors
+
+    def _persist_custom_accent_colors(self) -> None:
+        colors = getattr(self, "_custom_accent_colors", [])
+        save_custom_accent_colors(colors)
+
     def _open_theme_modal(self) -> None:
         saved = self._load_theme_preferences()
         self._theme_saved_prefs = saved
         self._theme_draft_prefs = saved
+        self._theme_view_state = THEME_VIEW_MAIN
+        self._reload_custom_accent_colors()
+        self._picker_rgb = saved.accent_rgb
+        self._picker_editing_id = None
+        self._picker_slider_channel = None
         self.screen_state = Screen.THEME
+
+    def _open_theme_color_palette(self) -> None:
+        self._theme_view_state = THEME_VIEW_COLORS
+        self._reload_custom_accent_colors()
+
+    def _open_theme_color_picker(self, *, editing_id: str | None = None) -> None:
+        draft = self._theme_draft()
+        if editing_id is not None:
+            existing = find_custom_accent_color(self._custom_accent_colors, editing_id)
+            if existing is not None:
+                self._picker_rgb = existing.rgb
+                self._picker_editing_id = existing.color_id
+            else:
+                self._picker_rgb = draft.accent_rgb
+                self._picker_editing_id = None
+        else:
+            self._picker_rgb = draft.accent_rgb
+            self._picker_editing_id = None
+        self._picker_slider_channel = None
+        self._theme_view_state = THEME_VIEW_PICKER
+
+    def _close_theme_color_picker(self) -> None:
+        self._picker_slider_channel = None
+        self._picker_editing_id = None
+        self._theme_view_state = THEME_VIEW_COLORS
+
+    def _close_theme_color_palette(self) -> None:
+        self._theme_view_state = THEME_VIEW_MAIN
 
     def _apply_theme_draft(self, prefs: ThemePreferences) -> None:
         self._theme_draft_prefs = prefs
@@ -94,19 +151,92 @@ class TouchBrowserPrefsMixin:
 
     def _set_theme_accent_rgb(self, accent_rgb: tuple[int, int, int]) -> None:
         draft = self._theme_draft()
+        rgb = clamp_rgb(accent_rgb)
+        self._picker_rgb = rgb
         self._apply_theme_draft(
             ThemePreferences(
                 theme_mode=draft.theme_mode,
-                accent_rgb=accent_rgb,
+                accent_rgb=rgb,
                 accent_style=draft.accent_style,
             )
         )
+
+    def _set_picker_rgb(self, accent_rgb: tuple[int, int, int]) -> None:
+        rgb = clamp_rgb(accent_rgb)
+        self._picker_rgb = rgb
+        self._set_theme_accent_rgb(rgb)
+
+    def _save_picker_custom_color(self) -> None:
+        rgb = clamp_rgb(getattr(self, "_picker_rgb", self._theme_draft().accent_rgb))
+        colors = list(getattr(self, "_custom_accent_colors", []))
+        editing_id = getattr(self, "_picker_editing_id", None)
+
+        if editing_id is not None:
+            updated: list[SavedAccentColor] = []
+            found = False
+            for color in colors:
+                if color.color_id == editing_id:
+                    updated.append(
+                        SavedAccentColor(
+                            color_id=color.color_id,
+                            name=default_custom_color_name(rgb),
+                            rgb=rgb,
+                        )
+                    )
+                    found = True
+                else:
+                    updated.append(color)
+            if found:
+                colors = updated
+            else:
+                editing_id = None
+
+        if editing_id is None:
+            existing = find_custom_accent_by_rgb(colors, rgb)
+            if existing is not None:
+                self._picker_editing_id = existing.color_id
+                self._toast("Color updated", 1.2)
+            elif len(colors) >= MAX_CUSTOM_ACCENT_COLORS:
+                self._toast("Palette full — delete one first", 2.0)
+                return
+            else:
+                saved = SavedAccentColor(
+                    color_id=new_custom_color_id(),
+                    name=default_custom_color_name(rgb),
+                    rgb=rgb,
+                )
+                colors.append(saved)
+                self._picker_editing_id = saved.color_id
+                self._toast("Color saved", 1.2)
+
+        self._custom_accent_colors = colors
+        self._persist_custom_accent_colors()
+        self._set_theme_accent_rgb(rgb)
+
+    def _delete_custom_accent_color(self, color_id: str) -> None:
+        colors = [color for color in getattr(self, "_custom_accent_colors", []) if color.color_id != color_id]
+        if len(colors) == len(getattr(self, "_custom_accent_colors", [])):
+            return
+        self._custom_accent_colors = colors
+        self._persist_custom_accent_colors()
+        if getattr(self, "_picker_editing_id", None) == color_id:
+            self._picker_editing_id = None
+        self._toast("Color deleted", 1.2)
+
+    def _delete_picker_custom_color(self) -> None:
+        editing_id = getattr(self, "_picker_editing_id", None)
+        if editing_id is None:
+            return
+        self._delete_custom_accent_color(editing_id)
+        self._close_theme_color_picker()
 
     def _commit_theme_modal(self) -> None:
         draft = self._theme_draft()
         self._apply_theme_preferences(draft, persist=True)
         self._theme_saved_prefs = None
         self._theme_draft_prefs = None
+        self._theme_view_state = THEME_VIEW_MAIN
+        self._picker_slider_channel = None
         self.screen_state = Screen.SETTINGS
         self._toast("Theme saved", 1.5)
 
@@ -116,6 +246,8 @@ class TouchBrowserPrefsMixin:
             self._apply_theme_preferences(saved, persist=False)
         self._theme_saved_prefs = None
         self._theme_draft_prefs = None
+        self._theme_view_state = THEME_VIEW_MAIN
+        self._picker_slider_channel = None
         self.screen_state = Screen.SETTINGS
 
     def _toggle_cpu_meter_visibility(self) -> None:

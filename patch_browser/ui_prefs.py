@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 
 from patch_browser.touch_ui_constants import UI_STATE_FILE, VOLUME_MAX, VOLUME_MIN, VOLUME_STATE_FILE
+from patch_browser.ui_theme import SavedAccentColor, serialize_custom_accent_colors
 
 
 def load_volume_level() -> float:
@@ -76,4 +77,10 @@ def save_theme_preferences(
     data["theme_mode"] = theme_mode
     data["accent_rgb"] = list(accent_rgb)
     data["accent_style"] = accent_style
+    write_ui_prefs_file(data)
+
+
+def save_custom_accent_colors(colors: list[SavedAccentColor]) -> None:
+    data = read_ui_prefs_file()
+    data["custom_accent_colors"] = serialize_custom_accent_colors(colors)
     write_ui_prefs_file(data)

@@ -41,7 +41,11 @@ from patch_browser.ui_text import (
     text_block_height,
     wrap_text_lines,
 )
-from patch_browser.ui_theme import reload_theme_from_prefs, theme_for_mode  # noqa: E402
+from patch_browser.ui_theme import (  # noqa: E402
+    reload_theme_from_prefs,
+    theme_for_mode,
+    theme_semantic_color,
+)
 
 CALIBRATE_SCRIPT = REPO_ROOT / "scripts" / "calibrate-patch-normalization.py"
 DONE_HOLD_SECONDS = 2.5
@@ -388,11 +392,19 @@ class CalibrationLoaderApp:
             )
         elif self.state.phase in ("error", "cancelled"):
             self._blit_wrapped_centered(
-                self.state.message, 200, self.font_md, self.theme.danger, max_lines=4
+                self.state.message,
+                200,
+                self.font_md,
+                theme_semantic_color(self.theme, "danger"),
+                max_lines=4,
             )
         elif self.state.phase == "done":
             self._blit_wrapped_centered(
-                self.state.message, 200, self.font_md, self.theme.ok, max_lines=3
+                self.state.message,
+                200,
+                self.font_md,
+                theme_semantic_color(self.theme, "ok"),
+                max_lines=3,
             )
         elif self.state.phase == "cancelling":
             self._blit_wrapped_centered(
@@ -427,7 +439,7 @@ class CalibrationLoaderApp:
                 self.theme.muted,
             )
             self.screen.blit(warn, ((self.width - warn.get_width()) // 2, self.height - 120))
-            self._draw_button(self._cancel_rect, "Cancel", accent=True)
+            self._draw_button(self._cancel_rect, "Cancel")
         elif self.state.phase in ("done", "error", "cancelled"):
             hint = self.font_sm.render("Restarting patch browser…", True, self.theme.muted)
             self.screen.blit(hint, ((self.width - hint.get_width()) // 2, self.height - 56))
