@@ -153,16 +153,23 @@ class TouchBrowserDrawMixin:
         accent: bool = False,
         small: bool = False,
         muted: bool = False,
+        danger: bool = False,
     ) -> None:
+        """Modal/action button. accent=primary commit; danger=destructive; default=dismiss/secondary."""
         if muted:
-            color = self.theme.surface
+            bg = self.theme.surface
+            text_color = self.theme.muted
+        elif danger:
+            bg = self.theme.danger
+            text_color = self.theme.bg
         elif accent:
-            color = self.theme.accent
+            bg = self.theme.accent
+            text_color = self.theme.bg
         else:
-            color = self.theme.surface_alt
-        pygame.draw.rect(self.screen, color, rect.pygame_rect, border_radius=8)
+            bg = self.theme.surface_alt
+            text_color = self.theme.text
+        pygame.draw.rect(self.screen, bg, rect.pygame_rect, border_radius=8)
         font = self.font_sm if small else self.font_md
-        text_color = self.theme.bg if accent else self.theme.text
         max_w = max(1, rect.w - 16)
         lines = wrap_text_lines(font, label, max_w, max_lines=2)
         block_h = text_block_height(font, len(lines), line_spacing=2)
@@ -514,10 +521,8 @@ class TouchBrowserDrawMixin:
         for i, option in enumerate(["Shutdown", "Restart", "Cancel"]):
             rect = Rect(panel.x + 24, y, panel.w - 48, SETTINGS_ROW_H)
             self._power_option_rects.append(rect)
-            accent_row = i == 2
-            color = self.theme.accent if accent_row else self.theme.surface_alt
-            label_color = self.theme.bg if accent_row else self.theme.text
-            pygame.draw.rect(self.screen, color, rect.pygame_rect, border_radius=10)
+            pygame.draw.rect(self.screen, self.theme.surface_alt, rect.pygame_rect, border_radius=10)
+            label_color = self.theme.text if option == "Cancel" else self.theme.danger
             self.screen.blit(
                 self.font_md.render(option, True, label_color),
                 (rect.x + 16, rect.y + (rect.h - self.font_md.get_height()) // 2),
@@ -539,8 +544,8 @@ class TouchBrowserDrawMixin:
 
         self._confirm_no = Rect(panel.x + 24, panel.y + 100, (panel.w - 60) // 2, 52)
         self._confirm_yes = Rect(self._confirm_no.x + self._confirm_no.w + 12, panel.y + 100, (panel.w - 60) // 2, 52)
-        self._draw_button(self._confirm_no, "Cancel", accent=True)
-        self._draw_button(self._confirm_yes, "Confirm")
+        self._draw_button(self._confirm_no, "Cancel")
+        self._draw_button(self._confirm_yes, "Confirm", danger=True)
 
     def _draw_theme_section_label(self, x: int, y: int, label: str) -> None:
         self.screen.blit(self.font_sm.render(label, True, self.theme.muted), (x, y))
@@ -695,8 +700,8 @@ class TouchBrowserDrawMixin:
             (inner_w - btn_gap) // 2,
             btn_h,
         )
-        self._draw_button(self._theme_cancel_rect, "Cancel", accent=True)
-        self._draw_button(self._theme_done_rect, "Done")
+        self._draw_button(self._theme_cancel_rect, "Cancel")
+        self._draw_button(self._theme_done_rect, "Done", accent=True)
 
     def _draw_theme_colors_panel(self, panel: Rect) -> None:
         draft = self._theme_draft()
@@ -751,7 +756,7 @@ class TouchBrowserDrawMixin:
 
         back_h = 52
         self._theme_colors_back_rect = Rect(inner_x, panel.bottom - back_h - 20, inner_w, back_h)
-        self._draw_button(self._theme_colors_back_rect, "Back", accent=True)
+        self._draw_button(self._theme_colors_back_rect, "Back")
         self._theme_cancel_rect = None
         self._theme_done_rect = None
 
@@ -794,10 +799,10 @@ class TouchBrowserDrawMixin:
         self._picker_back_rect = Rect(inner_x, btn_y, btn_w, btn_h)
         self._picker_save_rect = Rect(self._picker_back_rect.right + btn_gap, btn_y, btn_w, btn_h)
         self._picker_delete_rect = Rect(self._picker_save_rect.right + btn_gap, btn_y, btn_w, btn_h)
-        self._draw_button(self._picker_back_rect, "Back", accent=True)
-        self._draw_button(self._picker_save_rect, "Save")
+        self._draw_button(self._picker_back_rect, "Back")
+        self._draw_button(self._picker_save_rect, "Save", accent=True)
         can_delete = getattr(self, "_picker_editing_id", None) is not None
-        self._draw_button(self._picker_delete_rect, "Delete", muted=not can_delete)
+        self._draw_button(self._picker_delete_rect, "Delete", danger=can_delete, muted=not can_delete)
 
         self._theme_color_swatch_rects = []
         self._theme_color_delete_rects = []
@@ -886,10 +891,11 @@ class TouchBrowserDrawMixin:
             btn_h,
         )
         start_disabled = mode == CalibrateMode.MISSING_ONLY and targets == 0
-        self._draw_button(self._calibrate_confirm_no, "Cancel", accent=True)
+        self._draw_button(self._calibrate_confirm_no, "Cancel")
         self._draw_button(
             self._calibrate_confirm_yes,
             "Start",
+            accent=not start_disabled,
             muted=start_disabled,
         )
     def _draw_toast(self) -> None:
