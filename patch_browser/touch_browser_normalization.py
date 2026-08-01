@@ -11,7 +11,7 @@ from pathlib import Path
 import pygame
 
 from patch_browser.calibration_constants import (
-    CALIBRATION_LOADER_SCRIPT,
+    CALIBRATE_WITH_LOADER_SCRIPT,
     MPE_CALIB_FROM_BROWSER,
     MPE_CALIB_FROM_BROWSER_ACTIVE,
 )
@@ -191,9 +191,9 @@ class TouchBrowserNormalizationMixin:
             f"({total - targets} already done)."
         )
     def _launch_calibration_loader(self) -> None:
-        argv = [sys.executable, "-u", str(CALIBRATION_LOADER_SCRIPT)]
+        args = ["bash", str(CALIBRATE_WITH_LOADER_SCRIPT)]
         if self._pending_calibrate_mode == CalibrateMode.FORCE_FULL:
-            argv.append("--force")
+            args.append("--force")
         if self._evdev_bridge is not None:
             self._evdev_bridge.stop()
         draw_splash_frame(
@@ -205,12 +205,12 @@ class TouchBrowserNormalizationMixin:
         pygame.display.flip()
         os.environ[MPE_CALIB_FROM_BROWSER] = MPE_CALIB_FROM_BROWSER_ACTIVE
         try:
-            os.execv(sys.executable, argv)
+            os.execv("/bin/bash", args)
         except OSError as exc:
             message = f"Failed to launch calibration loader: {exc}"
             print(message, file=sys.stderr)
             _write_calibration_execv_failure_report(
                 message,
-                script=CALIBRATION_LOADER_SCRIPT,
+                script=CALIBRATE_WITH_LOADER_SCRIPT,
             )
             sys.exit(1)

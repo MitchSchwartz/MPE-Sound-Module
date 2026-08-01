@@ -87,6 +87,8 @@ Static or crackle under **many held keys** is usually **ALSA buffer underrun (xr
 | **ALSA buffer** | `surge-xt-cli` starts with **`MPE_SURGE_BUFFER_SIZE`** (default **1024** samples @ 44.1 kHz ≈ 23 ms). Was 512 (~12 ms) and xran under load. |
 | **snd-aloop** | Loaded only during calibration loopback. Unloaded on Surge start and after `calibrate-with-loader.sh` if refcount is 0. |
 
+**Calibration capture path (standalone / Sound Blaster):** Stops production Surge, starts a **cal-only** Surge instance on Sound Blaster **Direct hardware** (`detect-audio-device.sh`), and captures via **`dsnoop:CARD=S3,DEV=0`** (ALSA snoop of playback — not raw `plughw:1,0` ADC input). Headphones may be silent during cal; that is expected. Loopback (`snd-aloop`) is used only for non-standalone profiles (e.g. `usb-host`). Launch from **System → Calibrate** (`calibrate-with-loader.sh`).
+
 If crackle persists with Norm off and moderate polyphony, try `MPE_SURGE_BUFFER_SIZE=2048` in `/etc/mpe/mpe.env` and restart `surge-xt-cli`. Tradeoff: higher latency.
 
 **Live diagnosis:** the touch browser header **CPU** meter (see [`TOUCH_PATCH_BROWSER.md`](TOUCH_PATCH_BROWSER.md)) tracks `surge-xt-cli` process load while you play — use it to see when dense polyphony is pushing the Pi toward xrun territory. Norm on should keep typical Quick Select patches lower on that meter than uncapped gain would.
@@ -107,6 +109,8 @@ Patch discovery scans all folders under the Surge patch symlink roots (`SURGE_PA
 | `--dry-run` | List targets; no Surge/ffmpeg |
 | `--limit N` | Process at most N patches |
 | `--progress-json` | Machine-readable progress on stdout (loader UI) |
+
+The loader progress line shows **`patch index / total · saved N`**. On cancel, **saved** is the count of patches that measured successfully and were written to JSON — not the attempt index. If capture fails for every patch, cancel reads *saved 0 calibrations (N attempted; none measured successfully)* even after a long run.
 
 ```bash
 # List patches missing calibration (~estimate only)
@@ -165,7 +169,7 @@ Running the raw calibrator over SSH without the loader still works; the display 
 - **Surge XT CLI** running (`surge-xt-cli.service`) with OSC in on port **53280**
 - **ffmpeg** (capture + `loudnorm` measurement)
 - **python-osc**, **python-rtmidi** (gesture MIDI into Surge)
-- Default ALSA capture device auto-detects Sound Blaster via `arecord -l` (`plughw:1,0` typical on Pi; `--audio-device` to override)
+- Default ALSA capture on standalone uses **`dsnoop:CARD=S3,DEV=0`** when available (`arecord -L`); `--audio-device` to override. Loopback Pi path uses card-index loopback capture after `snd-aloop` loads.
 
 Keep Surge alive for the whole batch — one load + gesture + capture per patch.
 

@@ -91,6 +91,7 @@ EOF
     }
     _install_usb_gadget_dropin
 
+    mpe_retire_touch_shutdown_animation_unit
     sudo systemctl daemon-reload
     echo ""
     echo "Enabling services (MPE_UI_MODE=$MPE_UI_MODE)..."

@@ -64,6 +64,18 @@ sudo systemctl disable touch-boot-animation.service
 | Four raspberries, no SSH, USB-C tethered | `dr_mode=peripheral` + host PC connected during **early** boot |
 | Kernel text flash then hang | Rare cmdline combos; keep `console=tty1` unless using `--strip-tty1` with serial recovery |
 | SSH up, panel black | `touch-boot-animation` or DRM handoff — check `journalctl -u touch-boot-animation` |
+| `pygame.error: kmsdrm not available`, touch-patch-browser restart loop | Stale pygame holding `/dev/dri/card*` — `prepare-dsi-display.sh` (ExecStartPre) stops boot splash and kills orphan holders; see below |
+
+### kmsdrm crash loop (touch-patch-browser)
+
+If `journalctl -u touch-patch-browser` shows repeated `kmsdrm not available` and high restart counters (~80+):
+
+1. SSH in and stop the loop: `sudo systemctl stop touch-patch-browser touch-boot-animation`
+2. Kill orphans: `pkill -f touch_patch_browser.py; pkill -f touch_boot_splash.py`
+3. Pull latest and refresh units: `sudo ./scripts/configure-pi-paths.sh --local --force`
+4. Start cleanly: `sudo systemctl start touch-boot-animation && sudo systemctl start touch-patch-browser`
+
+`ExecStartPre=prepare-dsi-display.sh` requests cooperative handoff from `touch-boot-animation`, stops the unit if needed, clears stale pygame processes, and waits for DRM release before the browser opens kmsdrm.
 
 ## After recovery — safer re-apply
 
@@ -75,3 +87,15 @@ sudo ./scripts/apply-dsi-cmdline.sh --strip-tty1   # only if serial console atta
 ```
 
 For USB-host: add `dtoverlay=dwc2,dr_mode=peripheral`, reboot **with USB-C unplugged**, then plug the cable after `multi-user.target` is up.
+
+## Slow shutdown diagnosis
+
+If poweroff from the touch UI or `systemctl poweroff` takes more than ~30 s:
+
+1. After the Pi comes back, run `./scripts/shutdown-analyze-last.sh` — it prints the **previous boot** stop timeline from journalctl and `/tmp/mpe-shutdown-splash.log`.
+2. Look for a large gap between `Stopping` and `Stopped` on one unit (often `surge-xt-cli`). The shutdown splash unit should **not** appear in that list with a premature `Stopped` before power is cut.
+3. Refresh units after pulling fixes: `sudo ./scripts/configure-pi-paths.sh --local --force && sudo systemctl daemon-reload`.
+
+**GUI returned after tapping Shut down:** fixed by moving splash to `mpe-shutdown-splash.service` (Plymouth-like ordering) instead of an in-browser pygame hold loop. See [`SHUTDOWN.md`](SHUTDOWN.md).
+
+See [TOUCH_PATCH_BROWSER.md](TOUCH_PATCH_BROWSER.md) §Shutdown timing for unit timeout values.

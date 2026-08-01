@@ -51,6 +51,20 @@ LOADER_STDERR_LOG = Path("/tmp/calibration-loader.stderr")
 LOADER_FAILURE_REPORT = Path("/tmp/calibration-loader-last-exit.json")
 
 
+def format_cancel_message(*, saved: int, attempted: int) -> str:
+    """Human-readable cancel summary — saved count is successes, not attempt index."""
+    if saved:
+        if saved == attempted:
+            return f"Cancelled — {saved} patch(es) saved"
+        return f"Cancelled — {saved} calibration(s) saved before cancel"
+    if attempted:
+        return (
+            "Cancelled — saved 0 calibrations "
+            f"({attempted} patch(es) attempted; none measured successfully)"
+        )
+    return "Cancelled — saved 0 calibrations"
+
+
 @dataclass
 class LoaderState:
     phase: str = "preparing"
@@ -285,8 +299,13 @@ class CalibrationLoaderApp:
         self.state.phase = "cancelling"
         self.state.message = "Cancelling…"
         self.reader.terminate()
+        self.reader.join()
+        self._drain_events()
         self.state.phase = "cancelled"
-        self.state.message = f"Cancelled — kept {self.state.updated} calibration(s)"
+        self.state.message = format_cancel_message(
+            saved=self.state.updated,
+            attempted=self.state.index,
+        )
         self.state.exit_code = 130
         self.state.finished = True
         self._done_at = time.monotonic()
@@ -386,7 +405,7 @@ class CalibrationLoaderApp:
 
             if self.state.total > 0:
                 prog = self.font_md.render(
-                    f"{self.state.index} / {self.state.total}",
+                    f"{self.state.index} / {self.state.total} · saved {self.state.updated}",
                     True,
                     self.theme.accent,
                 )

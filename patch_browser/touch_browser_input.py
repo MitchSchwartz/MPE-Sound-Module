@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
+import sys
 import time
 
 import pygame
 
-from patch_browser.dsi_splash import (
-    run_browser_shutdown_hold,
-    stop_getty_tty1,
-)
+from patch_browser.dsi_splash import trigger_user_shutdown
 from patch_browser.touch_ui_constants import (
     DEFAULT_BRIGHTNESS_PERCENT,
     MIXER_DOUBLE_TAP_MS,
@@ -124,7 +122,12 @@ class TouchBrowserInputMixin:
             ok, message = self.surge_monitor.restart_surge()
             if ok:
                 self._toast(message, 2.5)
-                self._pending_last_patch = None
+                patch = self.loaded_patch_info
+                if patch:
+                    self._last_known_surge_pid = None
+                    self._surge_was_healthy = False
+                    self._surge_liveness_initialized = False
+                    self._queue_patch_reload(patch, delay_s=2.0)
                 self._layout_settings_content()
             else:
                 self._toast(f"Restart failed: {message}", 3.5)
@@ -274,12 +277,9 @@ class TouchBrowserInputMixin:
             else:
                 if self._evdev_bridge is not None:
                     self._evdev_bridge.stop()
-                stop_getty_tty1()
-                run_browser_shutdown_hold(
-                    self.screen,
-                    self.theme,
-                    power_action=self.power_action,
-                )
+                self._running = False
+                trigger_user_shutdown(self.power_action)
+                sys.exit(0)
         self._clear_modal_pointer()
     def _handle_event(self, event: pygame.event.Event) -> None:
         if event.type == pygame.QUIT:
