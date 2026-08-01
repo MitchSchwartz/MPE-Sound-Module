@@ -346,10 +346,16 @@ def surge_cli_path() -> Path:
 def should_use_loopback(explicit: bool | None) -> bool:
     if explicit is not None:
         return explicit
+    # A/B override: force one route regardless of MPE_AUDIO_PROFILE, for
+    # comparing loopback vs. standalone/dsnoop capture on the same hardware.
+    route_override = os.environ.get("MPE_CAL_ROUTE", "").strip().lower()
+    if route_override == "loopback":
+        return True
+    if route_override == "standalone":
+        return False
     profile = os.environ.get("MPE_AUDIO_PROFILE", "standalone").strip().lower()
     if profile == "standalone":
         # Dedicated cal Surge on Sound Blaster + dsnoop capture (see standalone setup).
-        # Loopback routing broke after extra ALSA cards (LUMI, USB-host experiments).
         return False
     return Path("/etc/mpe/mpe.env").is_file()
 
