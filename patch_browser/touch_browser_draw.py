@@ -30,7 +30,7 @@ from patch_browser.ui_text import (
     text_block_height,
     wrap_text_lines,
 )
-from patch_browser.ui_theme import THEME_MODE_OLED_BLACK
+from patch_browser.ui_theme import ACCENT_PRESETS, ACCENT_STYLE_FULL, ACCENT_STYLE_MINIMAL, THEME_MODE_OLED_BLACK, THEME_MODE_STANDARD
 
 
 class TouchBrowserDrawMixin:
@@ -59,7 +59,7 @@ class TouchBrowserDrawMixin:
         else:
             color = self.theme.surface_alt
         pygame.draw.rect(self.screen, color, rect.pygame_rect, border_radius=8)
-        icon_color = (255, 255, 255) if accent else self.theme.text
+        icon_color = self.theme.bg if accent else self.theme.text
         if icon == "back":
             draw_chevron(self.screen, rect, icon_color, direction="left")
         elif icon == "panel_close":
@@ -80,7 +80,8 @@ class TouchBrowserDrawMixin:
         if self.theme.hairline_alpha <= 0 or x_right <= x_left:
             return
         line = pygame.Surface((x_right - x_left, 1), pygame.SRCALPHA)
-        line.fill((255, 255, 255, self.theme.hairline_alpha))
+        r, g, b = self.theme.accent
+        line.fill((r, g, b, self.theme.hairline_alpha))
         self.screen.blit(line, (x_left, y))
     def _draw_divider_line(self, x_left: int, y: int, x_right: int) -> None:
         if self.theme.hairline_alpha > 0:
@@ -147,7 +148,7 @@ class TouchBrowserDrawMixin:
             color = self.theme.surface_alt
         pygame.draw.rect(self.screen, color, rect.pygame_rect, border_radius=8)
         font = self.font_sm if small else self.font_md
-        text_color = (255, 255, 255) if accent else self.theme.text
+        text_color = self.theme.bg if accent else self.theme.text
         max_w = max(1, rect.w - 16)
         lines = wrap_text_lines(font, label, max_w, max_lines=2)
         block_h = text_block_height(font, len(lines), line_spacing=2)
@@ -425,13 +426,8 @@ class TouchBrowserDrawMixin:
             label="CPU meter",
         )
 
-        oled_toggle = self._panel_local_to_screen(self.oled_black_toggle_rect, scrolled=True)
-        self._draw_normalize_toggle(
-            oled_toggle,
-            self.theme_mode == THEME_MODE_OLED_BLACK,
-            has_gain=True,
-            label="OLED black",
-        )
+        theme_row = self._panel_local_to_screen(self.theme_btn_rect, scrolled=True)
+        self._draw_settings_action_row(theme_row, "Theme…")
 
         norm_toggle = self._panel_local_to_screen(self.norm_global_toggle_rect, scrolled=True)
         self._draw_normalize_toggle(
@@ -523,10 +519,12 @@ class TouchBrowserDrawMixin:
         for i, option in enumerate(["Shutdown", "Restart", "Cancel"]):
             rect = Rect(panel.x + 24, y, panel.w - 48, SETTINGS_ROW_H)
             self._power_option_rects.append(rect)
-            color = self.theme.accent if i == 2 else self.theme.surface_alt
+            accent_row = i == 2
+            color = self.theme.accent if accent_row else self.theme.surface_alt
+            label_color = self.theme.bg if accent_row else self.theme.text
             pygame.draw.rect(self.screen, color, rect.pygame_rect, border_radius=10)
             self.screen.blit(
-                self.font_md.render(option, True, self.theme.text),
+                self.font_md.render(option, True, label_color),
                 (rect.x + 16, rect.y + (rect.h - self.font_md.get_height()) // 2),
             )
             y += SETTINGS_ROW_H + SETTINGS_ROW_GAP
@@ -545,6 +543,123 @@ class TouchBrowserDrawMixin:
         self._confirm_yes = Rect(self._confirm_no.x + self._confirm_no.w + 12, panel.y + 100, (panel.w - 60) // 2, 52)
         self._draw_button(self._confirm_no, "Cancel", accent=True)
         self._draw_button(self._confirm_yes, "Confirm")
+
+    def _draw_theme_section_label(self, x: int, y: int, label: str) -> None:
+        self.screen.blit(self.font_sm.render(label, True, self.theme.muted), (x, y))
+
+    def _draw_theme_choice(
+        self,
+        rect: Rect,
+        label: str,
+        *,
+        selected: bool,
+    ) -> None:
+        bg = self.theme.surface_alt
+        pygame.draw.rect(self.screen, bg, rect.pygame_rect, border_radius=10)
+        if selected:
+            pygame.draw.rect(self.screen, self.theme.accent, rect.pygame_rect, width=2, border_radius=10)
+        label_color = self.theme.accent if selected else self.theme.text
+        self.screen.blit(
+            self.font_sm.render(label, True, label_color),
+            (rect.x + 12, rect.y + (rect.h - self.font_sm.get_height()) // 2),
+        )
+
+    def _draw_theme_swatch(self, rect: Rect, rgb: tuple[int, int, int], *, selected: bool) -> None:
+        pygame.draw.rect(self.screen, rgb, rect.pygame_rect, border_radius=8)
+        if selected:
+            pygame.draw.rect(self.screen, self.theme.text, rect.pygame_rect, width=2, border_radius=8)
+
+    def _draw_theme_modal(self) -> None:
+        self._draw_modal_backdrop(legacy_alpha=150)
+
+        draft = self._theme_draft()
+        panel_w = min(520, self.width - 48)
+        panel_h = min(456, self.height - 32)
+        panel = Rect((self.width - panel_w) // 2, (self.height - panel_h) // 2, panel_w, panel_h)
+        self._draw_elevated_panel(panel, border_radius=16)
+
+        self.screen.blit(self.font_md.render("Theme", True, self.theme.text), (panel.x + 24, panel.y + 18))
+
+        inner_x = panel.x + 24
+        inner_w = panel.w - 48
+        gap = SETTINGS_ROW_GAP
+        option_h = 44
+        col_gap = 10
+        col_w = (inner_w - col_gap) // 2
+        y = panel.y + 56
+
+        self._draw_theme_section_label(inner_x, y, "Base theme")
+        y += self.font_sm.get_height() + 8
+        self._theme_base_option_rects = [
+            Rect(inner_x, y, col_w, option_h),
+            Rect(inner_x + col_w + col_gap, y, col_w, option_h),
+        ]
+        self._draw_theme_choice(
+            self._theme_base_option_rects[0],
+            "Original dark",
+            selected=draft.theme_mode == THEME_MODE_STANDARD,
+        )
+        self._draw_theme_choice(
+            self._theme_base_option_rects[1],
+            "OLED dark",
+            selected=draft.theme_mode == THEME_MODE_OLED_BLACK,
+        )
+        y += option_h + gap + 8
+
+        self._draw_theme_section_label(inner_x, y, "Accent style")
+        y += self.font_sm.get_height() + 8
+        self._theme_style_option_rects = [
+            Rect(inner_x, y, col_w, option_h),
+            Rect(inner_x + col_w + col_gap, y, col_w, option_h),
+        ]
+        self._draw_theme_choice(
+            self._theme_style_option_rects[0],
+            "Full accent",
+            selected=draft.accent_style == ACCENT_STYLE_FULL,
+        )
+        self._draw_theme_choice(
+            self._theme_style_option_rects[1],
+            "Minimal accent",
+            selected=draft.accent_style == ACCENT_STYLE_MINIMAL,
+        )
+        y += option_h + gap + 8
+
+        self._draw_theme_section_label(inner_x, y, "Accent color")
+        y += self.font_sm.get_height() + 8
+        swatch_size = 44
+        swatch_gap = 10
+        cols = 3
+        self._theme_color_swatch_rects: list[tuple[Rect, tuple[int, int, int]]] = []
+        for index, (_name, rgb) in enumerate(ACCENT_PRESETS):
+            row = index // cols
+            col = index % cols
+            total_row_w = cols * swatch_size + (cols - 1) * swatch_gap
+            row_x = inner_x + max(0, (inner_w - total_row_w) // 2)
+            rect = Rect(
+                row_x + col * (swatch_size + swatch_gap),
+                y + row * (swatch_size + swatch_gap),
+                swatch_size,
+                swatch_size,
+            )
+            self._theme_color_swatch_rects.append((rect, rgb))
+            selected = draft.accent_rgb == rgb
+            self._draw_theme_swatch(rect, rgb, selected=selected)
+        swatch_rows = (len(ACCENT_PRESETS) + cols - 1) // cols
+        y += swatch_rows * swatch_size + max(0, swatch_rows - 1) * swatch_gap + 16
+
+        btn_h = 52
+        btn_gap = 12
+        btn_y = panel.bottom - btn_h - 20
+        self._theme_cancel_rect = Rect(inner_x, btn_y, (inner_w - btn_gap) // 2, btn_h)
+        self._theme_done_rect = Rect(
+            self._theme_cancel_rect.right + btn_gap,
+            btn_y,
+            (inner_w - btn_gap) // 2,
+            btn_h,
+        )
+        self._draw_button(self._theme_cancel_rect, "Cancel", accent=True)
+        self._draw_button(self._theme_done_rect, "Done")
+
     def _draw_calibrate_confirm(self) -> None:
         self._draw_modal_backdrop(legacy_alpha=150)
 

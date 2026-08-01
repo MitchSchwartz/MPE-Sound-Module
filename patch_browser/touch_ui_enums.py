@@ -9,6 +9,7 @@ from enum import Enum, auto
 class Screen(Enum):
     BROWSER = auto()
     SETTINGS = auto()
+    THEME = auto()
     CALIBRATE_CONFIRM = auto()
     POWER_MENU = auto()
     POWER_CONFIRM = auto()

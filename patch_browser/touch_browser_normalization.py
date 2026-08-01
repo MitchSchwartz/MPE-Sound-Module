@@ -134,7 +134,7 @@ class TouchBrowserNormalizationMixin:
         elif enabled and has_gain:
             box_bg = self.theme.accent
             border_color = self.theme.accent
-            check_color = (255, 255, 255)
+            check_color = self.theme.bg
         elif enabled:
             box_bg = self.theme.surface
             border_color = self.theme.muted
