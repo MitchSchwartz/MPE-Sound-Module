@@ -8,7 +8,6 @@ import time
 import pygame
 
 from patch_browser.geometry import Rect
-from patch_browser.ui_theme import theme_semantic_color
 from patch_browser.touch_ui_constants import (
     SCROLL_DRAG_THRESHOLD_CATCH_PX,
     SCROLL_DRAG_THRESHOLD_PX,
@@ -324,8 +323,7 @@ class ScrollList:
             surface.blit(text, (row_rect.x + 10, ty))
 
             if is_loaded:
-                marker_color = theme_semantic_color(theme, "playing")
-                pygame.draw.circle(surface, marker_color, (row_rect.right - 16, row_rect.centery), 5)
+                pygame.draw.circle(surface, theme.accent, (row_rect.right - 16, row_rect.centery), 5)
 
             y += self.row_height
 
