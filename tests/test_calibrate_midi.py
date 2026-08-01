@@ -53,6 +53,7 @@ class CalibrateMidiReuseTests(unittest.TestCase):
             mock.patch.object(cal, "PatchLoader") as loader_cls,
             mock.patch.object(cal, "wait_for_surge_midi_port", return_value=0),
             mock.patch.object(cal, "should_use_loopback", return_value=False),
+            mock.patch.object(cal, "should_restart_surge_for_standalone", return_value=False),
             mock.patch.object(cal, "detect_capture_device", return_value="plughw:Loopback,1,0"),
             mock.patch.object(cal, "emit_progress"),
             mock.patch.object(cal, "open_midi_out", return_value=fake_out),
