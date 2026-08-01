@@ -51,7 +51,7 @@ class CalibrateMidiReuseTests(unittest.TestCase):
             mock.patch.object(cal, "collect_patch_paths", return_value=[Path("/tmp/Fake.fxp")]),
             mock.patch.object(cal, "PatchNormalizationStore") as store_cls,
             mock.patch.object(cal, "PatchLoader") as loader_cls,
-            mock.patch.object(cal, "find_surge_midi_port", return_value=0),
+            mock.patch.object(cal, "wait_for_surge_midi_port", return_value=0),
             mock.patch.object(cal, "should_use_loopback", return_value=False),
             mock.patch.object(cal, "detect_capture_device", return_value="plughw:Loopback,1,0"),
             mock.patch.object(cal, "emit_progress"),
