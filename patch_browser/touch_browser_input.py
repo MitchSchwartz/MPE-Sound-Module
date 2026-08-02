@@ -65,6 +65,10 @@ class TouchBrowserInputMixin:
             pygame.FINGERMOTION,
         )
     def _handle_browser_tap(self, pos: tuple[int, int]) -> None:
+        if self.audio_profile_badge_rect.contains(*pos):
+            self._open_settings_panel(focus="audio_profile")
+            return
+
         if self.system_settings_btn.contains(*pos):
             self._open_settings_panel()
             return
