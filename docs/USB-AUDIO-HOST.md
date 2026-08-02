@@ -99,12 +99,23 @@ Pi-side checks: `./scripts/usb-host-verify.sh`
 
 ### Return to analog (gig / couch)
 
+With **`MPE_USB_GADGET_PERSIST=1`** (default), switching to analog **does not disconnect** the USB gadget from the host — only Surge's output route changes to the Sound Blaster. PipeWire and REAPER keep the same capture device; you should not need to restart the DAW. The host input goes silent while in analog mode (badge shows **Analog**).
+
+```bash
+# Touch UI: System settings → USB host audio (toggle off)
+# Or in /etc/mpe/mpe.env:
+MPE_AUDIO_PROFILE=standalone
+sudo ./scripts/set-audio-profile.sh standalone
+```
+
+To fully remove the gadget from the host (old behavior):
+
 ```bash
 # In /etc/mpe/mpe.env:
-MPE_AUDIO_PROFILE=standalone
-
-sudo systemctl stop usb-audio-gadget.service
-sudo systemctl restart surge-xt-cli.service
+MPE_USB_GADGET_PERSIST=0
+sudo ./scripts/set-audio-profile.sh standalone
+# Or one-shot teardown:
+sudo ./scripts/setup-usb-audio-gadget.sh destroy
 ```
 
 ---
@@ -137,6 +148,16 @@ On Linux the gadget appears in `arecord -l` and in REAPER's ALSA input list as `
 **First time you arm a track after boot:** the Pi stall watchdog may restart Surge once (~4 s) because Surge wedged at boot before any host app opened the input. After that, audio is continuous for the rest of the session.
 
 **Hearing yourself:** monitor through the DAW (input monitoring), not automatically through PC speakers. For playing feel without a DAW, use standalone profile + Sound Blaster headphones — see FAQ.
+
+### DAW hotplug (REAPER + PipeWire)
+
+Switching **USB → Analog → USB** used to **destroy** the UAC2 gadget, which made the host drop the USB device and forced a REAPER restart even though `arecord -l` showed a card again (new enumeration / stale DAW handle).
+
+**Default fix (`MPE_USB_GADGET_PERSIST=1`):** analog mode only changes **where Surge plays** (Sound Blaster vs gadget). The gadget stays **bound** — the host keeps one stable PipeWire source. REAPER device reselect often still fails on Linux; persist avoids the disconnect so you should not need a restart.
+
+**PC cost:** negligible — idle USB audio class, no extra Surge load. In analog mode the host capture reads silence until you toggle USB back on.
+
+**Unbind vs destroy:** writing `""` to the gadget UDC (**unbind**) still disconnects from the host the same as destroy. Persist mode skips both on profile switch.
 
 ### Optional host tweak (Linux / PipeWire only)
 

@@ -1,17 +1,17 @@
 [Unit]
-Description=MPE pressure floor MIDI remapper (Light fader)
+Description=MPE pressure floor MIDI remapper (Touch fader)
 After=sound.target
 Before=surge-xt-cli.service
-PartOf=surge-xt-cli.service
 
 [Service]
 Type=simple
 User=@MPE_PI_USER@
 WorkingDirectory=@MPE_MODULE_REPO@
 EnvironmentFile=-/etc/mpe/mpe.env
+Environment=PYTHONUNBUFFERED=1
 ExecStart=@MPE_MODULE_REPO@/scripts/mpe-pressure-remap.py
 Restart=on-failure
-RestartSec=3
+RestartSec=2
 StandardOutput=journal
 StandardError=journal
 
