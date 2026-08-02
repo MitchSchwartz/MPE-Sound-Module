@@ -66,8 +66,31 @@ Implementation: `patch_browser/dsi_splash.py` (`release_display_for_shutdown`, `
 On the next boot:
 
 ```bash
-./scripts/shutdown-analyze-last.sh
+# 1) Before shutting down — label the test (persists in repo logs/)
+./scripts/shutdown-mark-test.sh ui "power menu confirm"
+
+# 2) Shut down (UI or SSH), then after boot:
+./scripts/shutdown-measure-last.sh
 ```
+
+`shutdown-measure-last.sh` prints:
+
+- **Per-unit stop durations** — `Stopping` → `Stopped` deltas from the previous boot journal
+- **Shutdown milestones** — `shutdown.target`, `systemd-poweroff.service`
+- **App trace** — `logs/shutdown-trace.jsonl` (UI handoff timestamps; survives reboot)
+- **Splash log** — `/tmp/mpe-shutdown-splash.log` when present
+
+Run three labeled tests to isolate paths:
+
+| Label | How |
+|-------|-----|
+| `ui` | Power menu → confirm shutdown |
+| `ssh` | `sudo systemctl poweroff` from SSH |
+| `cal` | Start calibration, then shut down from UI |
+
+Compare stop durations across tests. A unit gap near its `TimeoutStopSec` (e.g. 15s on `surge-xt-cli`) is the smoking gun.
+
+Legacy alias: `./scripts/shutdown-analyze-last.sh` (same as measure).
 
 Check `/tmp/mpe-shutdown-splash.log` and journal stop lines. The splash unit should **not** show `Stopped` long before power is cut.
 

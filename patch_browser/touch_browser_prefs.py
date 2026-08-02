@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import queue
+import threading
+import time
+
 from patch_browser.touch_ui_constants import VOLUME_MAX, VOLUME_MIN
 from patch_browser.touch_ui_enums import Screen
 from patch_browser.ui_prefs import (
@@ -259,11 +263,9 @@ class TouchBrowserPrefsMixin:
         else:
             self._toast("CPU meter off", 1.5)
 
-    def _toggle_audio_profile(self) -> None:
-        from patch_browser.audio_profile import apply_profile, current_profile
-
-        target = "usb-host" if current_profile() == "standalone" else "standalone"
-        ok, message = apply_profile(target)
+    def _finish_audio_profile_switch(self, ok: bool, message: str) -> None:
+        self._audio_profile_switching = False
+        self._audio_profile_switch_target = None
         if ok:
             self._toast(message, 3.0)
             patch = self.loaded_patch_info
@@ -276,6 +278,37 @@ class TouchBrowserPrefsMixin:
             self._layout()
         else:
             self._toast(f"Audio profile: {message}", 4.0)
+
+    def _poll_audio_profile_switch(self) -> None:
+        if not self._audio_profile_switching:
+            return
+        try:
+            ok, message = self._audio_profile_result_queue.get_nowait()
+        except queue.Empty:
+            return
+        self._finish_audio_profile_switch(ok, message)
+
+    def _toggle_audio_profile(self) -> None:
+        if getattr(self, "_audio_profile_switching", False):
+            return
+        from patch_browser.audio_profile import apply_profile, current_profile
+
+        target = "usb-host" if current_profile() == "standalone" else "standalone"
+        self._audio_profile_switching = True
+        self._audio_profile_switch_target = target
+        self._audio_profile_switch_started = time.monotonic()
+        label = "USB host" if target == "usb-host" else "Analog"
+        self._toast(f"Switching to {label}…", 1.5)
+
+        def _worker() -> None:
+            ok, message = apply_profile(target)
+            self._audio_profile_result_queue.put((ok, message))
+
+        threading.Thread(
+            target=_worker,
+            daemon=True,
+            name="AudioProfileSwitch",
+        ).start()
 
     def _apply_volume(self, level: float, persist: bool = True) -> None:
         self.volume_level = max(VOLUME_MIN, min(VOLUME_MAX, level))

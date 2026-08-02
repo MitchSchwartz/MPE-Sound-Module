@@ -10,6 +10,8 @@ from pathlib import Path
 VALID_PROFILES = frozenset({"standalone", "usb-host"})
 MPE_ENV_PATH = Path("/etc/mpe/mpe.env")
 SET_PROFILE_SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "set-audio-profile.sh"
+# Gadget wait (8s) + Surge restart without MIDI wait (~5–8s) + margin
+PROFILE_SWITCH_TIMEOUT_S = 45.0
 
 
 def normalize_profile(value: str | None) -> str:
@@ -53,10 +55,10 @@ def apply_profile(profile: str) -> tuple[bool, str]:
             ["sudo", str(SET_PROFILE_SCRIPT), profile],
             capture_output=True,
             text=True,
-            timeout=30,
+            timeout=PROFILE_SWITCH_TIMEOUT_S,
         )
     except subprocess.TimeoutExpired:
-        return False, "Profile switch timed out"
+        return False, f"Profile switch timed out ({int(PROFILE_SWITCH_TIMEOUT_S)}s)"
     except OSError as exc:
         return False, str(exc)[:40]
 

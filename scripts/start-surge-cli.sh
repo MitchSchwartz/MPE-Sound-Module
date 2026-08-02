@@ -42,8 +42,15 @@ XMLEOF
 fi
 
 if [ -f "$SCRIPT_DIR/wait-for-usb-midi.sh" ]; then
-    echo "$(date): Waiting for USB MIDI devices..." >> "$LOG_FILE"
-    bash "$SCRIPT_DIR/wait-for-usb-midi.sh" >> "$LOG_FILE" 2>&1
+    # shellcheck source=lib/profile-switch-flag.sh
+    source "$SCRIPT_DIR/lib/profile-switch-flag.sh"
+    if profile_switch_flag_set; then
+        profile_switch_flag_clear
+        echo "$(date): Skipping USB MIDI wait (audio profile switch restart)" >> "$LOG_FILE"
+    else
+        echo "$(date): Waiting for USB MIDI devices..." >> "$LOG_FILE"
+        bash "$SCRIPT_DIR/wait-for-usb-midi.sh" >> "$LOG_FILE" 2>&1
+    fi
 fi
 
 echo "$(date): USB devices at startup:" >> "$LOG_FILE"

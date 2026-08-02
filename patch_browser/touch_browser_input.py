@@ -49,6 +49,8 @@ class TouchBrowserInputMixin:
                 self._draw_calibrate_confirm()
         else:
             self._draw_browser()
+        if getattr(self, "_audio_profile_switching", False):
+            self._draw_audio_profile_switch_overlay()
         self._draw_toast()
         pygame.display.flip()
     def _ignore_sdl_pointer_event(self, event: pygame.event.Event) -> bool:
@@ -143,7 +145,8 @@ class TouchBrowserInputMixin:
         elif hit == "cpu_meter":
             self._toggle_cpu_meter_visibility()
         elif hit == "audio_profile":
-            self._toggle_audio_profile()
+            if not getattr(self, "_audio_profile_switching", False):
+                self._toggle_audio_profile()
         elif hit == "theme":
             self._open_theme_modal()
         elif hit == "surge_restart":
@@ -436,6 +439,8 @@ class TouchBrowserInputMixin:
                 sys.exit(0)
         self._clear_modal_pointer()
     def _handle_event(self, event: pygame.event.Event) -> None:
+        if getattr(self, "_audio_profile_switching", False):
+            return
         if event.type == pygame.QUIT:
             self._running = False
             return

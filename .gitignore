@@ -31,5 +31,7 @@ id_ed25519*
 config.local.ini
 config/mpe.env
 *.local.*
+logs/shutdown-trace.jsonl
+logs/shutdown-test-marker.json
 
 # Everything else (binaries, patches, configs) GOES IN GIT for backup!
