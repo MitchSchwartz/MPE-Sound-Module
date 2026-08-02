@@ -25,9 +25,9 @@ CALIBRATE_WITH_LOADER_SCRIPT = REPO_ROOT / "scripts" / "calibrate-with-loader.sh
 CALIBRATION_LOADER_SCRIPT = REPO_ROOT / "patch_browser" / "calibration_loader.py"
 TOUCH_PATCH_BROWSER_SCRIPT = REPO_ROOT / "touch_patch_browser.py"
 
-# Pi-measured average per patch (loopback cal, Aug 2026): settle + 3–12s gesture,
-# ffmpeg measure, and ~25% of patches needing progressive retries — not 3s capture alone.
-CALIBRATION_SECONDS_PER_PATCH_ESTIMATE = 15.0
+# Pi-measured average per patch (loopback cal, Aug 2026): full gesture + light-touch
+# capture, settle, ffmpeg measure, and ~25% needing progressive retries.
+CALIBRATION_SECONDS_PER_PATCH_ESTIMATE = 22.0
 
 
 def estimate_calibration_duration_seconds(patch_count: int) -> float:

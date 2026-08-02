@@ -90,12 +90,12 @@ class IsInvalidMeasurementTests(unittest.TestCase):
 
 
 class CalibrationDurationHintTests(unittest.TestCase):
-    def test_sixteen_patches_about_four_minutes(self) -> None:
+    def test_sixteen_patches_about_six_minutes(self) -> None:
         from patch_browser.calibration_constants import format_calibration_duration_hint
 
         self.assertEqual(
             format_calibration_duration_hint(16),
-            "Approx. 4 min (16 patch(es)).",
+            "Approx. 6 min (16 patch(es)).",
         )
 
     def test_zero_targets(self) -> None:
@@ -172,7 +172,7 @@ class CalibrationPipelineDoesNotSilentlySaveGarbageTests(unittest.TestCase):
     def setUp(self) -> None:
         self.cal = load_cal_module()
 
-    def _run_calibrate_patch(self, lufs: float, true_peak: float) -> tuple[bool, object]:
+    def _run_calibrate_patch(self, lufs: float, true_peak: float) -> tuple[object, object]:
         with tempfile.TemporaryDirectory() as tmp:
             out_path = Path(tmp) / "norm.json"
             store = self.cal.PatchNormalizationStore(out_path)
@@ -182,6 +182,7 @@ class CalibrationPipelineDoesNotSilentlySaveGarbageTests(unittest.TestCase):
             with (
                 mock.patch.object(self.cal, "capture_gesture_wav", return_value=Path("/tmp/fake.wav")),
                 mock.patch.object(self.cal, "measure_lufs", return_value=(lufs, true_peak)),
+                mock.patch.object(self.cal, "measure_light_touch_lufs", return_value=None),
                 mock.patch.object(Path, "unlink"),
                 mock.patch.object(self.cal.time, "sleep"),
             ):
@@ -197,18 +198,18 @@ class CalibrationPipelineDoesNotSilentlySaveGarbageTests(unittest.TestCase):
             return saved, store
 
     def test_silent_capture_is_not_saved(self) -> None:
-        saved, store = self._run_calibrate_patch(-60.0, -50.0)
-        self.assertFalse(saved)
+        result, store = self._run_calibrate_patch(-60.0, -50.0)
+        self.assertFalse(result.ok)
         self.assertIsNone(store.get_raw_gain_db("Fake"))
 
     def test_quiet_patch_with_healthy_peak_is_saved(self) -> None:
-        saved, store = self._run_calibrate_patch(-47.0, -29.4)
-        self.assertTrue(saved)
+        result, store = self._run_calibrate_patch(-47.0, -29.4)
+        self.assertTrue(result.ok)
         self.assertIsNotNone(store.get_raw_gain_db("Fake"))
 
     def test_normal_loudness_capture_is_saved(self) -> None:
-        saved, store = self._run_calibrate_patch(-18.0, -6.0)
-        self.assertTrue(saved)
+        result, store = self._run_calibrate_patch(-18.0, -6.0)
+        self.assertTrue(result.ok)
         self.assertIsNotNone(store.get_raw_gain_db("Fake"))
 
 

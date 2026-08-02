@@ -11,8 +11,10 @@ from pathlib import Path
 from patch_browser.patch_pressure import (
     DEFAULT_PRESSURE_FLOOR,
     PatchPressureStore,
+    compute_pressure_floor,
     effective_pressure_mult,
     remap_pressure_7bit,
+    resolve_light_touch_target,
 )
 from patch_browser.pressure_midi import find_remap_output_port_index, normalize_midi_bytes, remap_midi_message
 
@@ -35,13 +37,32 @@ class PatchPressureTests(unittest.TestCase):
             saved = json.loads(path.read_text())
             self.assertAlmostEqual(saved["Duduk"]["user_floor"], 0.4)
 
-    def test_clear_user_floor_resets_default(self) -> None:
+    def test_clear_user_floor_resets_to_calibrated(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "pressure.json"
+            store = PatchPressureStore(path)
+            store.set_calibration("Lead", 0.35, -30.0)
+            store.set_user_floor("Lead", 0.55, persist=False)
+            store.save()
+            store.clear_user_floor("Lead")
+            self.assertAlmostEqual(store.get_effective_floor("Lead"), 0.35)
+
+    def test_clear_user_floor_without_cal_resets_default(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "pressure.json"
             store = PatchPressureStore(path)
             store.set_user_floor("Lead", 0.55)
             store.clear_user_floor("Lead")
             self.assertAlmostEqual(store.get_effective_floor("Lead"), DEFAULT_PRESSURE_FLOOR)
+
+    def test_compute_pressure_floor_from_shortfall(self) -> None:
+        self.assertAlmostEqual(compute_pressure_floor(-28.0, -28.0), 0.0)
+        self.assertAlmostEqual(compute_pressure_floor(-34.0, -28.0), 6.0 / 18.0)
+        self.assertAlmostEqual(compute_pressure_floor(-55.0, -28.0), 0.9)
+
+    def test_resolve_light_touch_target(self) -> None:
+        self.assertAlmostEqual(resolve_light_touch_target([-30.0, -28.0, -26.0]), -28.0)
+        self.assertAlmostEqual(resolve_light_touch_target([-30.0]), -28.0)
 
     def test_live_state_roundtrip(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
