@@ -20,12 +20,25 @@ class _AudioHost(TouchBrowserPrefsMixin):
         self._audio_profile_switch_target = None
         self._audio_profile_switch_started = 0.0
         self._audio_profile_result_queue: queue.SimpleQueue[tuple[bool, str]] = queue.SimpleQueue()
+        self._pending_last_patch = None
+        self._profile_switch_reload_active = False
+        self._profile_switch_sent_once = False
+        self._last_known_surge_pid = None
+        self._surge_was_healthy = False
+        self._surge_liveness_initialized = False
+        self.surge_monitor = mock.Mock()
+        self.surge_monitor.last_check_time = 0.0
+        self.scanner = mock.Mock()
         self.loaded_patch_info = None
         self.toast_message = ""
         self.toast_until = 0.0
+        self._queued_reload: tuple[dict, float] | None = None
 
     def _toast(self, message: str, seconds: float = 2.0) -> None:
         self.toast_message = message
+
+    def _queue_patch_reload(self, patch: dict, *, delay_s: float = 2.0) -> None:
+        self._queued_reload = (dict(patch), delay_s)
 
     def _layout_settings_content(self) -> None:
         pass

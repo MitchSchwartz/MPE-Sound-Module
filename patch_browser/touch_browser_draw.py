@@ -330,9 +330,7 @@ class TouchBrowserDrawMixin:
         usb = label == "USB"
         fill = self.theme.surface_alt
         text_color = self.theme.accent if usb else self.theme.muted
-        border = self.theme.accent if usb else self.theme.muted
         pygame.draw.rect(self.screen, fill, rect.pygame_rect, border_radius=8)
-        pygame.draw.rect(self.screen, border, rect.pygame_rect, width=1, border_radius=8)
         badge = self.font_sm.render(label, True, text_color)
         self.screen.blit(
             badge,

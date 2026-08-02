@@ -274,6 +274,8 @@ class TouchPatchBrowser(
         self._audio_profile_switch_target: str | None = None
         self._audio_profile_switch_started = 0.0
         self._audio_profile_result_queue: queue.SimpleQueue[tuple[bool, str]] = queue.SimpleQueue()
+        self._profile_switch_reload_active = False
+        self._profile_switch_sent_once = False
         self._evdev_touch_queue: queue.SimpleQueue[tuple[str, tuple[int, int]]] = queue.SimpleQueue()
         self._evdev_bridge: TouchEvdevBridge | None = None
         self._touch_list_capture = False
