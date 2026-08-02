@@ -4,8 +4,8 @@ Invariant when ``MPE_CALIB_FROM_BROWSER=1``:
 
 - ``stop_mpe_audio_services`` must **not** stop ``touch-patch-browser`` (the loader
   runs as the service main process; stopping it deadlocks teardown).
-- ``restore_mpe_audio_services`` must **schedule** an async ``systemctl restart``
-  instead of a synchronous ``systemctl start`` on ``touch-patch-browser``.
+- ``restore_mpe_audio_services`` must **not** ``systemctl restart touch-patch-browser`` —
+  the loader ``exec``s back into ``touch_patch_browser.py`` (same service PID chain).
 
 Set by ``touch_patch_browser`` before ``exec`` into ``calibrate-with-loader.sh``.
 Read by ``calibration_teardown`` and ``scripts/calibrate-with-loader.sh``.
@@ -23,6 +23,7 @@ MPE_CALIB_FROM_BROWSER_ACTIVE = "1"
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CALIBRATE_WITH_LOADER_SCRIPT = REPO_ROOT / "scripts" / "calibrate-with-loader.sh"
 CALIBRATION_LOADER_SCRIPT = REPO_ROOT / "patch_browser" / "calibration_loader.py"
+TOUCH_PATCH_BROWSER_SCRIPT = REPO_ROOT / "touch_patch_browser.py"
 
 # Pi-measured average per patch (loopback cal, Aug 2026): settle + 3–12s gesture,
 # ffmpeg measure, and ~25% of patches needing progressive retries — not 3s capture alone.

@@ -17,6 +17,7 @@ TimeoutStopSec=10
 KillMode=control-group
 Restart=on-failure
 RestartSec=5
+SuccessExitStatus=130
 StandardOutput=null
 StandardError=journal
 
