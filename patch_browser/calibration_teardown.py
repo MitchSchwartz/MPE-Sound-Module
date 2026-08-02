@@ -47,12 +47,21 @@ def stop_mpe_audio_services() -> None:
 
 def _schedule_touch_browser_restart() -> None:
     """Restart browser after this process exits (avoids systemd stop deadlock)."""
+    # Use `start` (not `restart`) once the loader exits cleanly — Restart=on-failure
+    # will not re-arm the unit after exit 0. Stop boot splash first so prepare-dsi-display
+    # does not race a stale holder when the browser claims kmsdrm.
     subprocess.Popen(
         [
             "sudo",
             "bash",
             "-c",
-            "sleep 2; systemctl restart touch-patch-browser",
+            (
+                "sleep 4; "
+                "systemctl stop touch-boot-animation.service 2>/dev/null || true; "
+                "sleep 1; "
+                "systemctl start touch-patch-browser.service "
+                ">> /tmp/touch-browser-restart.log 2>&1"
+            ),
         ],
         start_new_session=True,
         stdout=subprocess.DEVNULL,

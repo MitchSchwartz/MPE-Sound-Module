@@ -74,7 +74,8 @@ class CalibrationHandoffTests(unittest.TestCase):
         popen_mock.assert_called_once()
         cmd = popen_mock.call_args.args[0]
         self.assertEqual(cmd[0], "sudo")
-        self.assertIn("systemctl restart touch-patch-browser", cmd[-1])
+        self.assertIn("systemctl start touch-patch-browser.service", cmd[-1])
+        self.assertIn("stop touch-boot-animation.service", cmd[-1])
         started = _systemctl_calls(run_mock, "start")
         self.assertNotIn("touch-patch-browser", started)
         self.assertIn("surge-xt-cli", started)

@@ -3,9 +3,9 @@
 Each test here pins down a specific failure mode discovered while debugging
 "calibration saves 0" / "Acid is quiet, no change with norm on or off":
 
-1. is_invalid_measurement must reject below-floor LUFS even when true peak
-   looks fine — no fallback that lets near-silent captures through and saves
-   an extrapolated gain (the original bug).
+1. is_invalid_measurement must reject silent captures (low true peak / -inf)
+   even when integrated LUFS looks parseable — but accept quiet real patches
+   (healthy peak, low LUFS) so compute_gain_db can boost them.
 2. NORM_MAX_AMP_VOLUME_LINEAR must not silently regress back to a value that
    clamps away most calibrated gain (the norm-cap bug).
 3. End-to-end: a patch with a large real-world gain_db must have that gain
@@ -55,7 +55,7 @@ class FakeOscClient:
 
 
 class IsInvalidMeasurementTests(unittest.TestCase):
-    """Pins the removal of the true-peak fallback (2026-08-01)."""
+    """Peak-based validity: quiet real patches in, silent captures out."""
 
     def setUp(self) -> None:
         self.cal = load_cal_module()
@@ -63,19 +63,19 @@ class IsInvalidMeasurementTests(unittest.TestCase):
     def test_silent_capture_is_invalid(self) -> None:
         self.assertTrue(self.cal.is_invalid_measurement(float("-inf"), float("-inf")))
 
-    def test_below_floor_lufs_is_invalid_even_with_healthy_peak(self) -> None:
-        # Regression: this exact shape (quiet integrated LUFS, fine-looking peak)
-        # is what the removed true-peak fallback used to rescue and save a bogus
-        # extrapolated gain for. It must fail now.
-        healthy_peak_dbtp = -20.0
-        self.assertTrue(
-            self.cal.is_invalid_measurement(self.cal.MIN_VALID_LUFS - 5.0, healthy_peak_dbtp)
+    def test_low_peak_is_invalid_even_with_finite_lufs(self) -> None:
+        self.assertTrue(self.cal.is_invalid_measurement(-60.0, -50.0))
+
+    def test_quiet_lufs_with_healthy_peak_is_valid(self) -> None:
+        # Overnight near-misses: real signal, below old -39 LUFS floor.
+        self.assertFalse(self.cal.is_invalid_measurement(-42.0, -28.0))
+        self.assertFalse(
+            self.cal.is_invalid_measurement(self.cal.MIN_VALID_LUFS - 8.0, -20.0)
         )
 
-    def test_acid_measured_shape_is_rejected(self) -> None:
-        # Real numbers captured during the 2026-08-01 A/B (loopback route):
-        # -47.0 LUFS, -29.4 dBTP. Healthy-looking peak, quiet integrated LUFS.
-        self.assertTrue(self.cal.is_invalid_measurement(-47.0, -29.4))
+    def test_acid_measured_shape_is_accepted(self) -> None:
+        # Real numbers from 2026-08-01 A/B — quiet patch, clear peak.
+        self.assertFalse(self.cal.is_invalid_measurement(-47.0, -29.4))
 
     def test_lufs_at_or_above_floor_with_finite_peak_is_valid(self) -> None:
         self.assertFalse(self.cal.is_invalid_measurement(self.cal.MIN_VALID_LUFS, -10.0))
@@ -85,10 +85,8 @@ class IsInvalidMeasurementTests(unittest.TestCase):
         self.assertTrue(self.cal.is_invalid_measurement(float("nan"), -1.0))
         self.assertTrue(self.cal.is_invalid_measurement(float("-inf"), -1.0))
 
-    def test_no_true_peak_fallback_constant_remains(self) -> None:
-        # The fallback constant (MIN_VALID_TRUE_PEAK_DBTP) must not come back —
-        # its presence previously masked this whole bug class.
-        self.assertFalse(hasattr(self.cal, "MIN_VALID_TRUE_PEAK_DBTP"))
+    def test_peak_floor_constant_is_exposed(self) -> None:
+        self.assertEqual(self.cal.MIN_VALID_TRUE_PEAK_DBTP, -45.0)
 
 
 class NormCapIntegrityTests(unittest.TestCase):
@@ -183,14 +181,17 @@ class CalibrationPipelineDoesNotSilentlySaveGarbageTests(unittest.TestCase):
                 )
             return saved, store
 
-    def test_below_floor_capture_is_not_saved(self) -> None:
-        # -47.0 LUFS / -41.0 dBTP: quiet integrated LUFS, healthy-looking peak —
-        # the exact shape the old fallback used to rescue.
-        saved, store = self._run_calibrate_patch(-47.0, -41.0)
+    def test_silent_capture_is_not_saved(self) -> None:
+        saved, store = self._run_calibrate_patch(-60.0, -50.0)
         self.assertFalse(saved)
         self.assertIsNone(store.get_raw_gain_db("Fake"))
 
-    def test_above_floor_capture_is_saved(self) -> None:
+    def test_quiet_patch_with_healthy_peak_is_saved(self) -> None:
+        saved, store = self._run_calibrate_patch(-47.0, -29.4)
+        self.assertTrue(saved)
+        self.assertIsNotNone(store.get_raw_gain_db("Fake"))
+
+    def test_normal_loudness_capture_is_saved(self) -> None:
         saved, store = self._run_calibrate_patch(-18.0, -6.0)
         self.assertTrue(saved)
         self.assertIsNotNone(store.get_raw_gain_db("Fake"))

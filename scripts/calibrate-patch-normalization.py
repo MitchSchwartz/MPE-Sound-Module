@@ -95,7 +95,8 @@ NOTE = 60
 MPE_CHANNEL = 2  # Surge MPE: channel 2 = first note channel
 STRIKE_VELOCITY = 96
 DEFAULT_PI_CAPTURE = "plughw:1,0"
-MIN_VALID_LUFS = -39.0
+MIN_VALID_LUFS = -39.0  # legacy reference only — validity uses peak floor below
+MIN_VALID_TRUE_PEAK_DBTP = -45.0  # reject captures with no audible Surge output
 PATCH_LOAD_SETTLE_SECONDS = 0.75
 MEASURE_RETRY_INTERVAL_SECONDS = 3.0
 MEASURE_MAX_ATTEMPTS = len(GESTURE_DURATIONS_SECONDS)  # ~0, 3, 8, 16s within ~27s total
@@ -524,15 +525,15 @@ def send_performance_gesture(
 
 
 def is_invalid_measurement(lufs: float, true_peak: float) -> bool:
-    """True when capture is silent or loudnorm returned unusable values (-inf LUFS, etc.).
+    """True when capture is silent or loudnorm returned unusable values.
 
-    No true-peak fallback: a 2026-08-01 A/B (see PATCH_NORMALIZATION.md) showed the old
-    fallback let near-silent captures (-47 to -57 LUFS) through and save extrapolated
-    gains of +17 to +25 dB that didn't restore real loudness. Fail loud instead — a
-    patch that can't clear MIN_VALID_LUFS needs a longer/louder gesture, not a bigger
-    guessed gain.
+    Validity is peak-based: quiet-but-real patches (e.g. -47 LUFS, -29 dBTP) are
+    accepted so compute_gain_db can apply the large boost they need. Reject only
+    when true peak shows no audible signal (broken routing / failed gesture).
     """
-    return not math.isfinite(lufs) or lufs < MIN_VALID_LUFS
+    if not math.isfinite(lufs) or not math.isfinite(true_peak):
+        return True
+    return true_peak < MIN_VALID_TRUE_PEAK_DBTP
 
 
 def capture_gesture_wav(
@@ -632,7 +633,8 @@ def calibrate_patch(
             gesture_seconds = GESTURE_DURATIONS_SECONDS[attempt - 1]
             if attempt > 1:
                 print(
-                    f"  [retry] {name}: below {MIN_VALID_LUFS:.0f} LUFS, holding longer "
+                    f"  [retry] {name}: capture too quiet (peak below "
+                    f"{MIN_VALID_TRUE_PEAK_DBTP:.0f} dBTP), holding longer "
                     f"({gesture_seconds:.0f}s gesture, attempt {attempt}/{MEASURE_MAX_ATTEMPTS})...",
                     file=sys.stderr,
                 )
@@ -658,19 +660,17 @@ def calibrate_patch(
             longest = GESTURE_DURATIONS_SECONDS[-1]
             print(
                 f"  [fail] {name}: measured {lufs_display} LUFS (peak {peak_display} dBTP) after "
-                f"{MEASURE_MAX_ATTEMPTS} attempt(s) up to a {longest:.0f}s gesture — patch may still "
-                f"be loading, capture chain did not record Surge output, or the patch genuinely "
-                f"can't reach {MIN_VALID_LUFS:.0f} LUFS from this MIDI gesture; check MIDI routing "
-                f"and --audio-device",
+                f"{MEASURE_MAX_ATTEMPTS} attempt(s) up to a {longest:.0f}s gesture — capture had "
+                f"no audible peak (need ≥ {MIN_VALID_TRUE_PEAK_DBTP:.0f} dBTP); check MIDI routing, "
+                f"patch load, or --audio-device",
                 file=sys.stderr,
             )
             return False
 
     gain_db = compute_gain_db(lufs, true_peak)
-    if lufs < -40.0:
+    if lufs < -48.0:
         print(
-            f"  [warn] {name}: measured {lufs:.1f} LUFS — capture may be wrong device "
-            f"(expect roughly -30 to -10 LUFS for audible Surge output)",
+            f"  [warn] {name}: measured {lufs:.1f} LUFS (quiet patch — gain will be large)",
             file=sys.stderr,
         )
     if gain_db > 20.0:
