@@ -49,17 +49,19 @@ class _NormHost(TouchBrowserPatchesMixin, TouchBrowserNormalizationMixin):
 class NormToggleReloadTests(unittest.TestCase):
     def test_per_patch_toggle_reloads_loaded_patch(self) -> None:
         host = _NormHost()
-        host.loader.load_patch.return_value = True
+        host.loader.reload_patch_after_norm_toggle = mock.Mock(return_value=True)
 
         host._toggle_normalization()
 
         host.loader.normalization.set_enabled.assert_called_once_with("Acid", True)
-        host.loader.load_patch.assert_called_once_with("/patches/Bass/Acid.fxp")
+        host.loader.reload_patch_after_norm_toggle.assert_called_once_with(
+            "/patches/Bass/Acid.fxp"
+        )
         host.loader.refresh_patch_volume.assert_not_called()
 
     def test_per_patch_toggle_falls_back_to_volume_refresh_when_reload_fails(self) -> None:
         host = _NormHost()
-        host.loader.load_patch.return_value = False
+        host.loader.reload_patch_after_norm_toggle = mock.Mock(return_value=False)
 
         host._toggle_normalization()
 

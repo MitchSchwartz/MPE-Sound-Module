@@ -109,9 +109,15 @@ class TouchBrowserPatchesMixin:
         loaded = self.loaded_patch_info
         if not loaded or not self.loader.osc_enabled:
             return False
-        if not self._try_load_patch_path(loaded["path"], loaded["category"]):
+        if not self._surge_ready_for_patch_load():
             return False
-        self._apply_volume(self.volume_level, persist=False)
+        if not self.loader.reload_patch_after_norm_toggle(loaded["path"]):
+            return False
+        if not (
+            not self.loader.normalization.is_effectively_enabled(loaded["name"])
+            and self.volume_level == 1.0
+        ):
+            self._apply_volume(self.volume_level, persist=False)
         self._note_surge_patch_load_success()
         return True
 

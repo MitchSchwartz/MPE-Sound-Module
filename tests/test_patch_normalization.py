@@ -125,6 +125,24 @@ class PatchNormalizationStoreTests(unittest.TestCase):
 
             loader.refresh_patch_volume("Lead")
             self.assertEqual(len(loader.osc_client.messages), 4)
+
+    def test_norm_off_reload_loads_patch_twice(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            user_path = Path(tmp) / "user.json"
+            user_path.write_text(
+                json.dumps({"Church - Mod": {"gain_db": 4.11, "enabled": True, "lufs_measured": -22.0}})
+            )
+            store = PatchNormalizationStore(user_path)
+            loader = PatchLoader(normalization_store=store)
+            loader.osc_client = FakeOscClient()
+            loader.osc_enabled = True
+
+            store.set_enabled("Church - Mod", False)
+            loader.reload_patch_after_norm_toggle("/patches/Church - Mod.fxp")
+            loads = [m for m in loader.osc_client.messages if m[0] == "/patch/load"]
+            self.assertEqual(len(loads), 2)
+            amp = [m for m in loader.osc_client.messages if "amp/volume" in m[0]]
+            self.assertEqual(len(amp), 0)
             self.assertEqual(loader.osc_client.messages[-1][1], loader.osc_client.messages[-2][1])
 
     def test_combined_volume_clamps_above_max_amp_linear(self) -> None:
