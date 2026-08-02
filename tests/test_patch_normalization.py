@@ -221,6 +221,7 @@ class PatchNormalizationStoreTests(unittest.TestCase):
             self.assertEqual(saved_off["Lead"]["gain_db"], 4.0)
 
             store.set_globally_enabled(True)
+            loader.user_volume_trim = 1.0
             loader.refresh_patch_volume("Lead")
             restored = loader.osc_client.messages[-1][1]
             self.assertAlmostEqual(on_volume, restored)
