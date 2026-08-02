@@ -94,6 +94,35 @@ class PatchLoader:
             return self._send_combined_volume()
         return True
 
+    def reload_patch_after_norm_toggle(self, patch_path: str) -> bool:
+        """Reload patch after norm toggle; norm-off needs a second load on headless Surge."""
+        if not self.osc_enabled:
+            return False
+
+        path_no_ext = str(patch_path)
+        if path_no_ext.endswith(".fxp") or path_no_ext.endswith(".FXP"):
+            path_no_ext = path_no_ext[:-4]
+
+        patch_name = Path(patch_path).stem
+        try:
+            self.osc_client.send_message("/patch/load", [path_no_ext])
+            if not self.normalization.is_effectively_enabled(patch_name):
+                self._patch_gain_linear = 1.0
+                self._norm_active = False
+                # Stale OSC amp/volume (e.g. prior norm-on cap at 1.5) can survive one load.
+                self.osc_client.send_message("/patch/load", [path_no_ext])
+                return self._send_combined_volume()
+
+            self._apply_patch_normalization(patch_name)
+            if not self._send_combined_volume():
+                return False
+            if self._norm_active:
+                return self._send_combined_volume()
+            return True
+        except Exception as e:
+            print(f"Error reloading patch after norm toggle: {e}")
+            return False
+
     def load_patch(self, patch_path, *, apply_normalization: bool = True):
         if not self.osc_enabled:
             print(f"OSC disabled, cannot load: {patch_path}")

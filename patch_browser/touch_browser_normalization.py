@@ -72,6 +72,7 @@ class TouchBrowserNormalizationMixin:
             if not self._reload_loaded_patch_after_norm_change():
                 if self.loader.osc_enabled:
                     self.loader.refresh_patch_volume(loaded["name"])
+                self._toast("Norm saved — reselect patch if level unchanged", 2.5)
         if new_state:
             if store.get_raw_gain_db(name) is not None:
                 self._toast("Normalize on", 1.5)
