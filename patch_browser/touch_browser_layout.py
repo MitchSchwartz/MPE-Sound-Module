@@ -211,9 +211,16 @@ class TouchBrowserLayoutMixin:
         return self._settings_panel_screen_rect().contains(*pos)
     def _sync_settings_scroll_viewport(self) -> None:
         self._settings_content_scroll.viewport = self._settings_scroll_viewport_screen()
-    def _open_settings_panel(self) -> None:
+    def _open_settings_panel(self, *, focus: str | None = None) -> None:
         self._layout_settings_content()
         self._settings_content_scroll.reset()
+        if focus == "audio_profile":
+            row = self.audio_profile_toggle_rect
+            target = max(0, row.y - 12)
+            self._settings_content_scroll._scroll_pixels = min(
+                float(target),
+                self._settings_content_scroll._max_scroll_pixels(),
+            )
         self._sync_settings_scroll_viewport()
         self.screen_state = Screen.SETTINGS
     def _close_settings_panel(self) -> None:
