@@ -117,5 +117,43 @@ class SurgeRequeueTests(unittest.TestCase):
         self.assertEqual(host._last_known_surge_pid, 42)
 
 
+class ProfileSwitchReloadTests(unittest.TestCase):
+    def test_skips_liveness_requeue_while_profile_switch_active(self) -> None:
+        host = _PatchHost()
+        host._surge_liveness_initialized = True
+        host._last_known_surge_pid = 1
+        host._surge_was_healthy = True
+        host.loaded_patch_info = {"name": "A", "category": "B", "path": "/p/a.fxp"}
+        host._profile_switch_reload_active = True
+        host.surge_monitor.check_health.return_value = (True, None)
+        host.surge_monitor.surge_pid = 99
+
+        host._maybe_requeue_patch_after_surge_change()
+
+        self.assertIsNone(host._pending_last_patch)
+
+    def test_profile_switch_sends_load_twice(self) -> None:
+        host = _PatchHost()
+        patch = {"name": "Lead", "category": "Synth", "path": "/p/lead.fxp"}
+        host._pending_last_patch = dict(patch)
+        host._pending_load_next = 0.0
+        host._profile_switch_reload_active = True
+        host._profile_switch_sent_once = False
+        host.surge_monitor.check_health.return_value = (True, None)
+        host.surge_monitor._is_osc_port_in_use.return_value = True
+        host.loader.load_patch.return_value = True
+
+        host._retry_pending_load()
+        self.assertTrue(host._profile_switch_sent_once)
+        self.assertIsNotNone(host._pending_last_patch)
+        self.assertGreater(host._pending_load_next, time.time())
+
+        host._pending_load_next = 0.0
+        host._retry_pending_load()
+        self.assertFalse(host._profile_switch_reload_active)
+        self.assertIsNone(host._pending_last_patch)
+        self.assertEqual(host.loader.load_patch.call_count, 2)
+
+
 if __name__ == "__main__":
     unittest.main()

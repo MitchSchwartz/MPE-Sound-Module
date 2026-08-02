@@ -268,15 +268,19 @@ class TouchBrowserPrefsMixin:
         self._audio_profile_switch_target = None
         if ok:
             self._toast(message, 3.0)
-            patch = self.loaded_patch_info
+            patch = self.loaded_patch_info or self._pending_last_patch
             if patch:
                 self._last_known_surge_pid = None
                 self._surge_was_healthy = False
                 self._surge_liveness_initialized = False
-                self._queue_patch_reload(patch, delay_s=3.0)
+                self.surge_monitor.last_check_time = 0.0
+                self.surge_monitor._find_surge_process()
+                self._queue_patch_reload(patch, delay_s=4.0)
             self._layout_settings_content()
             self._layout()
         else:
+            self._profile_switch_reload_active = False
+            self._profile_switch_sent_once = False
             self._toast(f"Audio profile: {message}", 4.0)
 
     def _poll_audio_profile_switch(self) -> None:
@@ -292,6 +296,13 @@ class TouchBrowserPrefsMixin:
         if getattr(self, "_audio_profile_switching", False):
             return
         from patch_browser.audio_profile import apply_profile, current_profile
+
+        patch = self.loaded_patch_info
+        if patch:
+            self.scanner.save_last_patch(patch["category"], patch["path"])
+            self._pending_last_patch = dict(patch)
+        self._profile_switch_reload_active = True
+        self._profile_switch_sent_once = False
 
         target = "usb-host" if current_profile() == "standalone" else "standalone"
         self._audio_profile_switching = True

@@ -32,13 +32,18 @@ class TouchBrowserPatchesMixin:
 
     def _queue_patch_reload(self, patch: dict, *, delay_s: float = 2.0) -> None:
         self._pending_last_patch = dict(patch)
-        self._pending_load_next = time.time() + delay_s
+        next_at = time.time() + delay_s
+        if next_at > self._pending_load_next:
+            self._pending_load_next = next_at
 
     def _note_surge_patch_load_success(self) -> None:
         self._last_known_surge_pid = self.surge_monitor.surge_pid
         self._surge_was_healthy = True
 
     def _maybe_requeue_patch_after_surge_change(self) -> None:
+        if getattr(self, "_profile_switch_reload_active", False):
+            return
+
         healthy, _ = self.surge_monitor.check_health()
         pid = self.surge_monitor.surge_pid if healthy else None
         prev_pid = self._last_known_surge_pid
@@ -107,6 +112,16 @@ class TouchBrowserPatchesMixin:
         if self._try_load_patch_path(patch["path"], patch["category"]):
             self.loaded_patch_info = dict(patch)
             self.detail_patch = dict(patch)
+            if getattr(self, "_profile_switch_reload_active", False):
+                if not getattr(self, "_profile_switch_sent_once", False):
+                    self._profile_switch_sent_once = True
+                    self._pending_last_patch = dict(patch)
+                    self._pending_load_next = time.time() + 2.0
+                    self._apply_volume(self.volume_level, persist=False)
+                    self._note_surge_patch_load_success()
+                    return
+                self._profile_switch_reload_active = False
+                self._profile_switch_sent_once = False
             self._pending_last_patch = None
             self._apply_volume(self.volume_level, persist=False)
             self._refresh_lists(scroll_to_selection=True)
