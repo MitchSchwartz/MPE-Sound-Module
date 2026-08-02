@@ -33,6 +33,7 @@ from patch_browser.touch_browser_evdev import TouchBrowserEvdevMixin
 from patch_browser.touch_browser_input import TouchBrowserInputMixin
 from patch_browser.touch_browser_layout import TouchBrowserLayoutMixin
 from patch_browser.touch_browser_hold import TouchBrowserHoldMixin
+from patch_browser.touch_browser_light import TouchBrowserLightMixin
 from patch_browser.touch_browser_mixer import TouchBrowserMixerMixin
 from patch_browser.touch_browser_normalization import TouchBrowserNormalizationMixin
 from patch_browser.touch_browser_patches import TouchBrowserPatchesMixin
@@ -58,6 +59,7 @@ class TouchPatchBrowser(
     TouchBrowserPatchesMixin,
     TouchBrowserMixerMixin,
     TouchBrowserHoldMixin,
+    TouchBrowserLightMixin,
     TouchBrowserNormalizationMixin,
     TouchBrowserDrawMixin,
     TouchBrowserInputMixin,
