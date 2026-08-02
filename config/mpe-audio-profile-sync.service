@@ -1,0 +1,19 @@
+[Unit]
+Description=MPE sync audio profile services from /etc/mpe/mpe.env
+Documentation=file:@MPE_MODULE_REPO@/docs/USB-AUDIO-HOST.md
+DefaultDependencies=no
+After=local-fs.target
+Before=surge-xt-cli.service
+ConditionPathExists=/etc/mpe/mpe.env
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+EnvironmentFile=-/etc/mpe/mpe.env
+ExecStart=@MPE_MODULE_REPO@/scripts/sync-audio-profile-on-boot.sh
+TimeoutStopSec=15
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
