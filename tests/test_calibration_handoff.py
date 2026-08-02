@@ -30,7 +30,10 @@ def _systemctl_calls(run_mock: mock.Mock, verb: str) -> list[str]:
     for call in run_mock.call_args_list:
         args = list(call.args[0])
         if len(args) >= 4 and args[:3] == ["sudo", "systemctl", verb]:
-            units.append(args[3])
+            unit = args[3]
+            if unit.endswith(".service"):
+                unit = unit[: -len(".service")]
+            units.append(unit)
     return units
 
 

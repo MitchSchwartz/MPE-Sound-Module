@@ -190,13 +190,17 @@ Running the raw calibrator over SSH without the loader still works; the display 
 - **python-osc**, **python-rtmidi** (gesture MIDI into Surge)
 - Default capture is **loopback** (`snd-aloop`, dynamic card-index resolution); `--audio-device` to override. `MPE_CAL_ROUTE=standalone` / `--no-use-loopback` falls back to **`dsnoop:CARD=S3,DEV=0`** Sound Blaster capture (`arecord -L`) if loopback breaks.
 
-Keep Surge alive for the whole batch — one load + gesture + capture per patch.
+Keep Surge alive for the whole batch — one load + **two gestures** + capture per patch when Touch calibration is enabled (full pressure sweep for **Norm**, fixed low pressure for **Touch**).
+
+### Touch calibration (same run as Norm)
+
+After the full-expression gesture writes `gain_db`, the calibrator plays a **light-touch** gesture (note 60, velocity 96, pressure held at ~25/127) and measures integrated LUFS again. When the batch finishes, it computes a cohort **median** light-touch LUFS and writes per-patch **`cal_floor`** to `~/.patch_browser_pressure.json` — patches quieter at light touch get a higher floor. The **Touch** fader double-tap resets to that calibrated default (manual `user_floor` overrides are preserved). Skip with `--no-touch-cal`.
 
 On the **Pi touch build**, prefer `./scripts/calibrate-with-loader.sh` (see [Pi touch display](#pi-touch-display-loader-ui)) so the DSI panel shows progress instead of a bare console.
 
 ### Timing (Quick Select pilot)
 
-Roughly **4–5 seconds per patch** (load, 3 s capture, analysis). Ten favorites ≈ **1 minute**; fifty ≈ **4 minutes**. Use the loader from settings or `calibrate-with-loader.sh` on the Pi; raw SSH calibrate is fine for headless runs.
+Roughly **~20–25 seconds per patch** (load, full + light capture, analysis). Sixteen Quick Select favorites ≈ **6 minutes**. Use the loader from settings or `calibrate-with-loader.sh` on the Pi; raw SSH calibrate is fine for headless runs.
 
 **Reference Pi (2026-07-30):** Quick Select folder **12/12 calibrated** with loopback capture and −3 dBFS peak cap. One outlier (**Bowed String**, ~8 MB patch) needed a load retry before LUFS measurement succeeded — the calibrator now retries when integrated LUFS is `-inf`.
 
