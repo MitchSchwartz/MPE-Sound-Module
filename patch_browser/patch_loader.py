@@ -53,11 +53,10 @@ class PatchLoader:
         if not self.osc_enabled:
             return False
 
-        # Norm off at unity trim: leave Surge patch-native amp/volume (fxp defaults).
-        # Forcing 1.0 OSC made norm on vs off differ by only ~3.5 dB (1.5 vs 1.0).
-        if not self._norm_active and self.user_volume_trim == 1.0:
-            return True
-
+        # Always send explicitly — amp/volume is sticky on headless Surge (not restored
+        # by /patch/load), so skipping the OSC send when norm is off left the parameter
+        # stuck at whatever a prior norm-on session set it to (e.g. 1.5), making on/off
+        # sound identical. Norm off must positively assert unity * trim, not "do nothing".
         combined = self.user_volume_trim * self._patch_gain_linear
         cap = self._volume_cap()
         if combined > cap:
@@ -95,7 +94,7 @@ class PatchLoader:
         return True
 
     def reload_patch_after_norm_toggle(self, patch_path: str) -> bool:
-        """Reload patch after norm toggle; norm-off needs a second load on headless Surge."""
+        """Reload patch after norm toggle and re-assert amp/volume for the new state."""
         if not self.osc_enabled:
             return False
 
@@ -106,19 +105,11 @@ class PatchLoader:
         patch_name = Path(patch_path).stem
         try:
             self.osc_client.send_message("/patch/load", [path_no_ext])
-            if not self.normalization.is_effectively_enabled(patch_name):
-                self._patch_gain_linear = 1.0
-                self._norm_active = False
-                # Stale OSC amp/volume (e.g. prior norm-on cap at 1.5) can survive one load.
-                self.osc_client.send_message("/patch/load", [path_no_ext])
-                return self._send_combined_volume()
-
             self._apply_patch_normalization(patch_name)
             if not self._send_combined_volume():
                 return False
-            if self._norm_active:
-                return self._send_combined_volume()
-            return True
+            # Headless Surge sometimes ignores the first amp/volume OSC after a reload.
+            return self._send_combined_volume()
         except Exception as e:
             print(f"Error reloading patch after norm toggle: {e}")
             return False
