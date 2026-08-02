@@ -89,3 +89,56 @@ only the launch-path commit was a genuine regression. Full narrative in
 - All picked up automatically by CI (`.github/workflows/test.yml` runs
   `python3 -m unittest discover -s tests` on push/PR to `dev`/`main`) —
   80 tests passing as of this entry.
+
+## 2026-08-02 — USB-host end-to-end + norm toggle chain + browse/theme polish
+
+### USB host audio — working end-to-end
+
+- **Root-caused** the long-standing "host hears silence while playing" issue to a
+  Surge/JUCE ALSA writer stall (`appl_ptr` frozen, ~0 CPU) once the host stops
+  consuming the UAC2 stream — not cable, PD, or DAW routing. Documented in
+  [`docs/USB-AUDIO-HOST.md`](docs/USB-AUDIO-HOST.md) §Writer stall and
+  [`docs/USB-AUDIO-PASSTHROUGH-SPIKE.md`](docs/USB-AUDIO-PASSTHROUGH-SPIKE.md).
+- Added **`uac2-stall-watchdog.service`** — restarts Surge when the host opens
+  capture but the gadget writer is wedged. Verified live: peak 0.66 on host at
+  512-sample buffer, 0 xruns.
+- **Profile persistence:** `MPE_AUDIO_PROFILE` in `/etc/mpe/mpe.env` survives
+  reboot; touch settings toggle + `mpe-audio-profile-sync.service` at boot;
+  `configure-pi-paths.sh --force` preserves profile and buffer size.
+- **In-app toggle:** System settings → USB host audio; keeps loaded patch when
+  switching analog ↔ USB; background overlay during switch.
+- Tests: `tests/test_uac2_card.py`, stall watchdog helpers.
+
+### Norm toggle regression chain (follow-on to 2026-08-01 cap fix)
+
+Even after raising `NORM_MAX_AMP_VOLUME_LINEAR` to 1.5, norm on/off still
+sounded the same on some patches:
+
+1. **Skip-send on norm off** — left sticky `amp/volume` from prior norm-on session.
+2. **Global toggle re-enable** — did not reload patch / re-apply calibration.
+3. **Unity-trim skip** — briefly skipped OSC when norm off at unity (reverted).
+
+**Fix:** always assert OSC amp/volume; reload patch on global enable; preserve
+calibration data on disable. See [`docs/PATCH_NORMALIZATION.md`](docs/PATCH_NORMALIZATION.md)
+§Norm toggle behavior.
+
+### Touch UI — All patches browse (#10) + theme system
+
+- **All** nav: flat A→Z list, folder subtitle, A–Z jump rail, Quick Access hearts.
+- **Theme modal:** base theme (standard / OLED dark), accent style (monochrome /
+  minimal), accent presets + custom RGB picker; applies to boot/shutdown splash
+  and calibration loader.
+- **Settings panel** slide-out (replaces modal); CPU meter toggle; finger-up
+  activation on scroll areas.
+- Documented in [`docs/TOUCH_PATCH_BROWSER.md`](docs/TOUCH_PATCH_BROWSER.md).
+
+### Calibration + loader handoff
+
+- Accept quiet-but-real patches (peak-based validity, not integrated-LUFS floor).
+- Post-calibration browser crash loop fixed; loader `paint_immediate` handoff.
+- Pi normalization snapshot tracked in repo (`config/patch_normalization.pi-backup-*`).
+
+### Test coverage
+
+- **136 tests** passing locally as of this entry (was 80 on 2026-08-01).
+- New: norm toggle/global restore, UAC2 card helpers, calibration integrity pins.
