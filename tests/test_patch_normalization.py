@@ -146,7 +146,7 @@ class PatchNormalizationStoreTests(unittest.TestCase):
             self.assertLessEqual(sent, NORM_MAX_AMP_VOLUME_LINEAR)
             self.assertAlmostEqual(sent, NORM_MAX_AMP_VOLUME_LINEAR)
 
-    def test_norm_off_leaves_patch_native_amp_at_unity_trim(self) -> None:
+    def test_norm_off_uses_higher_volume_cap(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             user_path = Path(tmp) / "user.json"
             user_path.write_text(
@@ -160,12 +160,8 @@ class PatchNormalizationStoreTests(unittest.TestCase):
 
             store.set_enabled("Loud", False)
             loader.refresh_patch_volume("Loud")
-            self.assertEqual(len(loader.osc_client.messages), 0)
-
-            loader.user_volume_trim = 0.8
-            loader.refresh_patch_volume("Loud")
             sent = loader.osc_client.messages[-1][1]
-            self.assertAlmostEqual(sent, 0.8)
+            self.assertAlmostEqual(sent, 1.0)
 
     def test_set_calibration_preserves_disabled_toggle(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -206,14 +202,9 @@ class PatchNormalizationStoreTests(unittest.TestCase):
             store.set_globally_enabled(False)
             self.assertTrue(store.is_enabled("Lead"))
             self.assertIsNone(store.get_gain_db("Lead"))
-            loader.osc_client.messages.clear()
-            loader.refresh_patch_volume("Lead")
-            self.assertEqual(len(loader.osc_client.messages), 0)
-
-            loader.user_volume_trim = 0.8
             loader.refresh_patch_volume("Lead")
             off_volume = loader.osc_client.messages[-1][1]
-            self.assertAlmostEqual(off_volume, 0.8)
+            self.assertAlmostEqual(off_volume, 1.0)
 
             saved_off = json.loads(user_path.read_text())
             self.assertFalse(saved_off["_global"]["enabled"])
@@ -221,7 +212,6 @@ class PatchNormalizationStoreTests(unittest.TestCase):
             self.assertEqual(saved_off["Lead"]["gain_db"], 4.0)
 
             store.set_globally_enabled(True)
-            loader.user_volume_trim = 1.0
             loader.refresh_patch_volume("Lead")
             restored = loader.osc_client.messages[-1][1]
             self.assertAlmostEqual(on_volume, restored)
