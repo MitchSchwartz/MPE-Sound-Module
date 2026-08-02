@@ -10,9 +10,7 @@ from patch_browser.touch_ui_constants import (
     AUDIO_BADGE_PAD_X,
     AZ_RAIL_WIDTH,
     BROWSER_BOTTOM_MARGIN,
-    CPU_METER_BAR_H,
     CPU_METER_BAR_W,
-    CPU_METER_H,
     CPU_METER_LABEL_GAP,
     DETAIL_HEADER_MIN_H,
     DETAIL_MIXER_GAP,
@@ -57,9 +55,16 @@ class TouchBrowserLayoutMixin:
             return self.width - margin * 2 - AZ_RAIL_WIDTH - gap
         return LEFT_NAV_COLLAPSED_WIDTH if self.left_nav_collapsed else LEFT_NAV_WIDTH
 
+    def _cpu_meter_text_size(self) -> tuple[int, int]:
+        return self.font_sm.size("CPU")
+
     def _cpu_meter_width(self) -> int:
-        label_w = self.font_sm.size("CPU")[0]
+        label_w, _label_h = self._cpu_meter_text_size()
         return label_w + CPU_METER_LABEL_GAP + CPU_METER_BAR_W
+
+    def _cpu_meter_height(self) -> int:
+        _label_w, label_h = self._cpu_meter_text_size()
+        return label_h
 
     def _audio_badge_width(self) -> int:
         label_w = self.font_sm.size(header_badge_label())[0]
@@ -77,11 +82,12 @@ class TouchBrowserLayoutMixin:
         if self.show_cpu_meter:
             meter_w = self._cpu_meter_width()
             right_cursor -= meter_w
+            meter_h = self._cpu_meter_height()
             self.cpu_meter_rect = Rect(
                 right_cursor,
-                self.status_rect.y + (status_h - CPU_METER_H) // 2,
+                self.status_rect.y + (status_h - meter_h) // 2,
                 meter_w,
-                CPU_METER_H,
+                meter_h,
             )
             right_cursor -= STATUS_BAR_ITEM_GAP
         else:

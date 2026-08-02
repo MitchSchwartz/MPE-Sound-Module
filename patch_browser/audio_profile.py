@@ -34,7 +34,7 @@ def header_badge_label() -> str:
 
 
 def settings_toggle_label() -> str:
-    return "USB host audio (desk tether)"
+    return "USB Audio"
 
 
 def settings_toggle_on() -> bool:
