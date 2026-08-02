@@ -18,7 +18,6 @@ from patch_browser.mixer import MixerChannel
 from patch_browser.dsi_splash import shutdown_animation_phase
 from patch_browser.patch_normalization import volume_fader_display_pct
 from patch_browser.touch_ui_constants import (
-    CPU_METER_BAR_H,
     CPU_METER_BAR_W,
     CPU_METER_LABEL_GAP,
     DETAIL_TITLE_PAD_X,
@@ -318,9 +317,10 @@ class TouchBrowserDrawMixin:
         label_y = rect.y + (rect.h - label.get_height()) // 2
         self.screen.blit(label, (label_x, label_y))
 
+        bar_h = label.get_height()
         bar_x = rect.x + label.get_width() + CPU_METER_LABEL_GAP
-        bar_y = rect.y + (rect.h - CPU_METER_BAR_H) // 2
-        bar_rect = pygame.Rect(bar_x, bar_y, CPU_METER_BAR_W, CPU_METER_BAR_H)
+        bar_y = label_y
+        bar_rect = pygame.Rect(bar_x, bar_y, CPU_METER_BAR_W, bar_h)
         pygame.draw.rect(self.screen, self.theme.surface_alt, bar_rect, border_radius=3)
 
         if not snap["online"] or snap["percent"] is None:
