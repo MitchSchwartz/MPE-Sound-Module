@@ -61,21 +61,14 @@ class CalibrationHandoffTests(unittest.TestCase):
         self.assertIn("surge-xt-cli", stopped)
 
     @mock.patch("patch_browser.calibration_teardown.time.sleep")
-    @mock.patch("patch_browser.calibration_teardown.subprocess.Popen")
     @mock.patch("patch_browser.calibration_teardown.subprocess.run")
-    def test_restore_schedules_restart_when_from_browser(
+    def test_restore_does_not_systemd_restart_browser_when_from_browser(
         self,
         run_mock: mock.Mock,
-        popen_mock: mock.Mock,
         _sleep: mock.Mock,
     ) -> None:
         os.environ[MPE_CALIB_FROM_BROWSER] = "1"
         ct.restore_mpe_audio_services(restart_browser=True)
-        popen_mock.assert_called_once()
-        cmd = popen_mock.call_args.args[0]
-        self.assertEqual(cmd[0], "sudo")
-        self.assertIn("systemctl start touch-patch-browser.service", cmd[-1])
-        self.assertIn("stop touch-boot-animation.service", cmd[-1])
         started = _systemctl_calls(run_mock, "start")
         self.assertNotIn("touch-patch-browser", started)
         self.assertIn("surge-xt-cli", started)
@@ -100,7 +93,7 @@ class CalibrationLoaderLaunchTests(unittest.TestCase):
         self.assertTrue(CALIBRATE_WITH_LOADER_SCRIPT.is_file())
 
     @mock.patch("patch_browser.touch_browser_normalization.os.execv")
-    def test_launch_calibration_loader_uses_bash_wrapper(
+    def test_launch_calibration_loader_execs_loader_directly(
         self,
         execv_mock: mock.Mock,
     ) -> None:
@@ -109,8 +102,8 @@ class CalibrationLoaderLaunchTests(unittest.TestCase):
         self.mixin._launch_calibration_loader()
         execv_mock.assert_called_once()
         argv = execv_mock.call_args.args[1]
-        self.assertEqual(argv[0], "bash")
-        self.assertEqual(Path(argv[1]), CALIBRATE_WITH_LOADER_SCRIPT)
+        self.assertEqual(argv[0], sys.executable)
+        self.assertEqual(Path(argv[2]), CALIBRATION_LOADER_SCRIPT)
         self.assertNotIn("--force", argv)
 
     @mock.patch("patch_browser.touch_browser_normalization.os.execv")
@@ -123,7 +116,7 @@ class CalibrationLoaderLaunchTests(unittest.TestCase):
         self.mixin._pending_calibrate_mode = CalibrateMode.FORCE_FULL
         self.mixin._launch_calibration_loader()
         argv = execv_mock.call_args.args[1]
-        self.assertEqual(Path(argv[1]), CALIBRATE_WITH_LOADER_SCRIPT)
+        self.assertEqual(Path(argv[2]), CALIBRATION_LOADER_SCRIPT)
         self.assertEqual(argv[-1], "--force")
 
     @mock.patch("patch_browser.touch_browser_normalization.sys.exit")
