@@ -39,13 +39,13 @@ def unload_snd_aloop_if_idle() -> None:
 
 
 def stop_mpe_audio_services() -> None:
-    """Stop production Surge (and patch browser unless launched from browser exec handoff)."""
+    """Stop production Surge, pressure remapper, and patch browser (unless browser handoff)."""
     units: list[str] = []
     if not calibration_from_browser():
         units.append("touch-patch-browser")
-    units.append("surge-xt-cli")
+    units.extend(["mpe-pressure-remap", "surge-xt-cli"])
     for unit in units:
-        subprocess.run(["sudo", "systemctl", "stop", unit], check=False)
+        subprocess.run(["sudo", "systemctl", "stop", f"{unit}.service"], check=False)
     time.sleep(1)
     subprocess.run(["sudo", "pkill", "-f", "surge-xt-cli"], check=False)
     time.sleep(0.5)
@@ -67,6 +67,7 @@ def restore_mpe_audio_services(*, restart_browser: bool = True) -> None:
     subprocess.run(["sudo", "pkill", "-f", "surge-xt-cli"], check=False)
     time.sleep(0.5)
     unload_snd_aloop_if_idle()
-    subprocess.run(["sudo", "systemctl", "start", "surge-xt-cli"], check=False)
+    subprocess.run(["sudo", "systemctl", "start", "mpe-pressure-remap.service"], check=False)
+    subprocess.run(["sudo", "systemctl", "start", "surge-xt-cli.service"], check=False)
     if restart_browser and not calibration_from_browser():
         subprocess.run(["sudo", "systemctl", "start", "touch-patch-browser"], check=False)
