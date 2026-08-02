@@ -186,14 +186,27 @@ class PatchNormalizationStore:
         """Whether normalization applies at runtime (global + per-patch)."""
         return self.is_globally_enabled() and self.is_enabled(patch_name)
 
+    def _ensure_calibration_fields(self, key: str, entry: dict[str, Any]) -> dict[str, Any]:
+        """Keep gain_db from repo starter when persisting enable toggles."""
+        if entry.get("gain_db") is not None:
+            return entry
+        starter = repo_starter_path()
+        if not starter.exists():
+            return entry
+        starter_entry = _read_json_dict(starter).get(key)
+        if isinstance(starter_entry, dict):
+            return _merge_patch_entry(starter_entry, entry)
+        return entry
+
     def set_enabled(self, patch_name: str, enabled: bool) -> None:
         """Persist per-patch normalization on/off (issue #5 UI toggle)."""
         key = self.patch_key(patch_name)
         entry = self._data.get(key)
-        if isinstance(entry, dict):
-            entry["enabled"] = enabled
-        else:
-            self._data[key] = {"enabled": enabled}
+        if not isinstance(entry, dict):
+            entry = {}
+        entry = self._ensure_calibration_fields(key, entry)
+        entry["enabled"] = enabled
+        self._data[key] = entry
         self.save()
 
     def get_raw_gain_db(self, patch_name: str) -> float | None:

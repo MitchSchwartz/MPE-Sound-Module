@@ -67,11 +67,11 @@ class TouchBrowserNormalizationMixin:
         store = self.loader.normalization
         new_state = not store.is_enabled(name)
         store.set_enabled(name, new_state)
-        loaded_name = (
-            self.loaded_patch_info.get("name") if self.loaded_patch_info else None
-        )
-        if self.loader.osc_enabled and loaded_name == name:
-            self.loader.refresh_patch_volume(name)
+        loaded = self.loaded_patch_info
+        if loaded and store.patch_key(loaded["name"]) == store.patch_key(name):
+            if not self._reload_loaded_patch_after_norm_change():
+                if self.loader.osc_enabled:
+                    self.loader.refresh_patch_volume(loaded["name"])
         if new_state:
             if store.get_raw_gain_db(name) is not None:
                 self._toast("Normalize on", 1.5)
@@ -83,11 +83,10 @@ class TouchBrowserNormalizationMixin:
         store = self.loader.normalization
         new_state = not store.is_globally_enabled()
         store.set_globally_enabled(new_state)
-        loaded_name = (
-            self.loaded_patch_info.get("name") if self.loaded_patch_info else None
-        )
-        if self.loader.osc_enabled and loaded_name:
-            self.loader.refresh_patch_volume(loaded_name)
+        if self.loaded_patch_info and not self._reload_loaded_patch_after_norm_change():
+            loaded_name = self.loaded_patch_info.get("name")
+            if self.loader.osc_enabled and loaded_name:
+                self.loader.refresh_patch_volume(loaded_name)
         if new_state:
             self._toast("Patch normalization on", 2.0)
         else:
