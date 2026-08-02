@@ -58,7 +58,7 @@ class CalibrateMidiReuseTests(unittest.TestCase):
             mock.patch.object(cal, "emit_progress"),
             mock.patch.object(cal, "open_midi_out", return_value=fake_out),
             mock.patch.object(cal, "close_midi_out") as close_mock,
-            mock.patch.object(cal, "calibrate_patch", return_value=True),
+            mock.patch.object(cal, "calibrate_patch", return_value=cal.CalibrateResult(ok=True)),
         ):
             store = store_cls.return_value
             store.list_missing.return_value = ["Fake"]
@@ -66,12 +66,14 @@ class CalibrateMidiReuseTests(unittest.TestCase):
             loader.osc_enabled = True
             parse_args.return_value = mock.Mock(
                 output=Path("/tmp/test-patch-normalization.json"),
+                pressure_output=None,
                 use_loopback=False,
                 audio_device="plughw:Loopback,1,0",
                 favorites_only=False,
                 folder=None,
                 limit=0,
                 force=False,
+                no_touch_cal=False,
                 patch=None,
                 mock_lufs=None,
                 dry_run=False,

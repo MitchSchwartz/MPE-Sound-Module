@@ -22,6 +22,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -78,6 +79,15 @@ from patch_browser.patch_normalization import (  # noqa: E402
     default_normalization_path,
     repo_starter_path,
 )
+from patch_browser.patch_pressure import (  # noqa: E402
+    PatchPressureStore,
+    LIGHT_TOUCH_GESTURE_SECONDS,
+    LIGHT_TOUCH_HOLD_SECONDS,
+    LIGHT_TOUCH_PRESSURE,
+    compute_pressure_floor,
+    default_pressure_path,
+    resolve_light_touch_target,
+)
 from patch_browser.patch_loader import PatchLoader
 from patch_browser.patch_scanner import (
     FAVORITES_NAME,
@@ -107,6 +117,12 @@ MEASURE_MAX_ATTEMPTS = len(GESTURE_DURATIONS_SECONDS)  # ~0, 3, 8, 16s within ~2
 
 _interrupted = False
 FAILURE_REPORT_PATH = Path("/tmp/calibration-last-failure.json")
+
+
+@dataclass
+class CalibrateResult:
+    ok: bool
+    lufs_light: float | None = None
 
 
 def _handle_interrupt(_signum: int, _frame: object | None) -> None:
@@ -154,6 +170,17 @@ def parse_args() -> argparse.Namespace:
         "--force",
         action="store_true",
         help="Re-calibrate patches that already have entries (overwrites gain_db)",
+    )
+    parser.add_argument(
+        "--no-touch-cal",
+        action="store_true",
+        help="Skip light-touch measurement and Touch floor writes",
+    )
+    parser.add_argument(
+        "--pressure-output",
+        type=Path,
+        default=None,
+        help="Touch calibration JSON (default: MPE_PRESSURE_FILE or ~/.patch_browser_pressure.json)",
     )
     parser.add_argument(
         "--patch",
@@ -528,6 +555,76 @@ def send_performance_gesture(
     time.sleep(0.2)
 
 
+def send_light_touch_gesture(
+    midi_out: object, pre_roll: float = 0.25, hold_seconds: float = LIGHT_TOUCH_HOLD_SECONDS
+) -> None:
+    """Strike at fixed low pressure — measures light-touch loudness per patch."""
+    time.sleep(pre_roll)
+
+    ch = MPE_CHANNEL - 1
+    note_on = 0x90 | ch
+    note_off = 0x80 | ch
+    pressure_cc = 0xE0 | ch
+    pressure = max(0, min(127, int(LIGHT_TOUCH_PRESSURE)))
+
+    midi_out.send_message([note_on, NOTE, STRIKE_VELOCITY])  # type: ignore[union-attr]
+    midi_out.send_message(  # type: ignore[union-attr]
+        [pressure_cc, pressure & 0x7F, (pressure >> 7) & 0x7F]
+    )
+    time.sleep(hold_seconds)
+    midi_out.send_message([note_off, NOTE, 0])  # type: ignore[union-attr]
+    time.sleep(0.2)
+
+
+def capture_light_touch_wav(midi_out: object, audio_device: str) -> Path:
+    """Record the light-touch gesture to a temporary WAV; caller must unlink."""
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+        wav = Path(tmp.name)
+    capture = subprocess.Popen(
+        [
+            "ffmpeg",
+            "-y",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-f",
+            "alsa",
+            "-i",
+            audio_device,
+            "-t",
+            str(LIGHT_TOUCH_GESTURE_SECONDS),
+            "-ac",
+            "2",
+            str(wav),
+        ]
+    )
+    time.sleep(0.15)
+    send_light_touch_gesture(midi_out)
+    capture.wait()
+    if capture.returncode != 0:
+        wav.unlink(missing_ok=True)
+        raise RuntimeError("ffmpeg light-touch capture failed")
+    return wav
+
+
+def measure_light_touch_lufs(
+    midi_out: object, audio_device: str
+) -> tuple[float, float] | None:
+    """Return (lufs, true_peak) for light-touch gesture, or None when inaudible."""
+    wav: Path | None = None
+    try:
+        wav = capture_light_touch_wav(midi_out, audio_device)
+        lufs, true_peak = measure_lufs(wav)
+    except RuntimeError:
+        return None
+    finally:
+        if wav is not None:
+            wav.unlink(missing_ok=True)
+    if is_invalid_measurement(lufs, true_peak):
+        return None
+    return lufs, true_peak
+
+
 def is_invalid_measurement(lufs: float, true_peak: float) -> bool:
     """True when capture is silent or loudnorm returned unusable values.
 
@@ -606,24 +703,26 @@ def calibrate_patch(
     mock_lufs: float | None,
     dry_run: bool,
     midi_out: object | None = None,
-) -> bool:
+    touch_cal: bool = True,
+) -> CalibrateResult:
     name = patch_path.stem
     if dry_run:
         existing = store.get_entry(name)
         status = "skip (has entry)" if existing and existing.get("gain_db") is not None else "would calibrate"
         print(f"  [{status}] {name}")
-        return False
+        return CalibrateResult(ok=False)
 
     if mock_lufs is not None:
         lufs = mock_lufs
         true_peak = mock_lufs + 6.0
+        lufs_light = (mock_lufs - 12.0) if touch_cal else None
     else:
         if not loader.load_patch(str(patch_path), apply_normalization=False):
             print(f"  [fail] OSC load failed: {name}", file=sys.stderr)
-            return False
+            return CalibrateResult(ok=False)
 
         if midi_out is None:
-            return False
+            return CalibrateResult(ok=False)
 
         # Unity gain for measurement — stored calibration must not skew capture.
         loader.user_volume_trim = 1.0
@@ -650,7 +749,7 @@ def calibrate_patch(
                 lufs, true_peak = measure_lufs(wav)
             except RuntimeError:
                 print(f"  [fail] ffmpeg capture: {name}", file=sys.stderr)
-                return False
+                return CalibrateResult(ok=False)
             finally:
                 if wav is not None:
                     wav.unlink(missing_ok=True)
@@ -669,7 +768,18 @@ def calibrate_patch(
                 f"patch load, or --audio-device",
                 file=sys.stderr,
             )
-            return False
+            return CalibrateResult(ok=False)
+
+        lufs_light: float | None = None
+        if touch_cal:
+            light = measure_light_touch_lufs(midi_out, audio_device)
+            if light is None:
+                print(
+                    f"  [warn] {name}: light-touch capture inaudible — Norm saved, Touch skipped",
+                    file=sys.stderr,
+                )
+            else:
+                lufs_light = light[0]
 
     gain_db = compute_gain_db(lufs, true_peak)
     if lufs < -48.0:
@@ -684,8 +794,11 @@ def calibrate_patch(
         )
     store.set_calibration(name, gain_db, lufs, true_peak_dbtp=true_peak)
     store.save()
-    print(f"  [ok] {name}: {lufs:.1f} LUFS, peak {true_peak:.1f} dBTP -> gain {gain_db:+.2f} dB")
-    return True
+    touch_note = ""
+    if lufs_light is not None:
+        touch_note = f", light {lufs_light:.1f} LUFS"
+    print(f"  [ok] {name}: {lufs:.1f} LUFS, peak {true_peak:.1f} dBTP -> gain {gain_db:+.2f} dB{touch_note}")
+    return CalibrateResult(ok=True, lufs_light=lufs_light)
 
 
 def main() -> int:
@@ -714,6 +827,8 @@ def main() -> int:
         return 1
 
     store = PatchNormalizationStore(output_path)
+    pressure_path = args.pressure_output or default_pressure_path()
+    touch_cal = not args.no_touch_cal
     if args.force or args.mock_lufs is not None:
         targets = patch_paths
     else:
@@ -843,6 +958,7 @@ def main() -> int:
     midi_out: object | None = None
     last_patch_index = 0
     last_patch_name = ""
+    light_measurements: list[tuple[str, float]] = []
     try:
         if args.mock_lufs is None:
             midi_out = open_midi_out(midi_port)
@@ -859,7 +975,7 @@ def main() -> int:
                 {"type": "patch", "index": index, "total": len(targets), "name": name},
             )
             try:
-                ok = calibrate_patch(
+                result = calibrate_patch(
                     path,
                     loader,
                     store,
@@ -867,6 +983,7 @@ def main() -> int:
                     mock_lufs=args.mock_lufs,
                     dry_run=False,
                     midi_out=midi_out,
+                    touch_cal=touch_cal,
                 )
             except Exception as exc:
                 msg = f"{name}: {exc}"
@@ -888,11 +1005,27 @@ def main() -> int:
                     "index": index,
                     "total": len(targets),
                     "name": name,
-                    "ok": ok,
+                    "ok": result.ok,
                 },
             )
-            if ok:
+            if result.ok:
                 updated += 1
+                if result.lufs_light is not None:
+                    light_measurements.append((name, result.lufs_light))
+        if light_measurements and touch_cal and not _interrupted:
+            target_lufs = resolve_light_touch_target([v for _, v in light_measurements])
+            pressure_store = PatchPressureStore(pressure_path)
+            touch_updated = 0
+            for name, lufs_light in light_measurements:
+                floor = compute_pressure_floor(lufs_light, target_lufs)
+                pressure_store.set_calibration(name, floor, lufs_light)
+                touch_updated += 1
+            pressure_store.save()
+            print(
+                f"Wrote {touch_updated} touch calibration entries to {pressure_path} "
+                f"(light target {target_lufs:.1f} LUFS)",
+                file=sys.stderr if args.progress_json else sys.stdout,
+            )
     finally:
         close_midi_out(midi_out)
         if cal_surge_started and not args.no_restore_services:
