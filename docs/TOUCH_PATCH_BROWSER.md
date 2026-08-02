@@ -35,7 +35,7 @@ journalctl -u touch-patch-browser -n 30
 your-user ALL=(ALL) NOPASSWD: /sbin/poweroff, /sbin/reboot, /bin/systemctl, /home/your-user/MPE-Module/scripts/set-audio-profile.sh
 ```
 
-(`set-audio-profile.sh` is used by the **USB host audio** settings toggle.)
+(`set-audio-profile.sh` is used by the **USB Audio** settings toggle.)
 
 See [`docs/POWER_BUTTON_SETUP.md`](POWER_BUTTON_SETUP.md) for the encoder Pi pattern.
 
@@ -53,7 +53,7 @@ Interaction model:
 | **All** | Flat A–Z list of every patch (hearts show Quick Access) | Hides patch detail until a row is tapped |
 | **Current** | When browsing another folder — jump to loaded patch's folder + patch list | |
 | **< collapse** | Nav hides; `>` tab remains to expand | Main detail gets full width |
-| **Main (right)** | Selected patch: **Vol** + **Tail** faders, **Norm** when Norm. on, **Norm.** toggle | No back button — list is always on the left |
+| **Main (right)** | Selected patch: **Vol**, **Tail**, and **Touch** faders; **Norm** when Norm. on; **Norm.** toggle | No back button — list is always on the left |
 
 ## Hardware
 
@@ -193,8 +193,9 @@ Spec: [`Documents/specs/touch-patch-browser-spec.md`](../Documents/specs/touch-p
 
 The patch detail pane uses a **vertical fader strip** (mixing-board style) instead of a thin horizontal slider:
 
-- **Vol** — drag the handle up/down (top = louder). **Global** trim; persists to `~/.patch_browser_volume.json` and sends OSC via `PatchLoader.set_volume`.
-- **Tail** — per-patch multiplier on amp envelope **sustain, decay, and release** (both scenes). Scales the envelope tail while preserving its shape. Default **1.0×** = patch-as-loaded. Double-tap resets to 1.0×. Persists in `~/.patch_browser_hold.json`.
+- **Vol** — drag the handle up/down (top = louder). Per-patch trim; persists to `~/.patch_browser_volume.json`. Display is **0–100** across fader travel with **dB-linear** mapping so normalized patches use the full range.
+- **Tail** — per-patch multiplier on amp envelope **sustain, decay, and release** (both scenes). Scales the envelope tail while preserving its shape. Range **0.25×–4.0×**; default **1.0×** = patch-as-loaded. Double-tap resets to 1.0×. Persists in `~/.patch_browser_hold.json`.
+- **Touch** — per-patch **MPE pressure floor** (how much expression you get from a light press). Range **0–90%** floor; **0%** = stock patch response. Calibration can store a default per patch (`~/.patch_browser_pressure.json`); drag to override. Double-tap resets to the calibrated default (or 0% if uncalibrated). Live remapping runs in `mpe-pressure-remap.service` (LUMI / pressure MIDI → Surge via ALSA **Midi Through**).
 - **Norm** — per-patch normalization gain (dB); visible only when **Norm.** is checked. Double-tap resets to calibrated default.
 - Touch **down + drag** on a fader; release does not trigger nav taps underneath.
 - **Norm.** — label-left / checkbox-right toggle for per-patch loudness normalization (see [`PATCH_NORMALIZATION.md`](PATCH_NORMALIZATION.md)).
@@ -223,7 +224,7 @@ UI preferences persist in `~/.patch_browser_ui.json` (see [UI theme](#ui-theme-s
 - **CPU meter** — toggle show/hide for the header bar (not the numeric overlay; bar-only meter). Default on.
 - **Theme…** — base theme, accent style, accent color (presets + saved custom colors). See [UI theme](#ui-theme-system-settings--theme).
 - **Patch normalization** — master toggle for all per-patch Norm. controls (persists in `~/.patch_browser_normalization.json` under `_global`; per-patch flags unchanged when off).
-- **USB host audio** — toggle in System settings (⋯); header badge shows **Analog** or **USB**. Switches run **in the background** with a “Switching audio…” overlay (UI stays responsive). Requires GPIO split power + one-time boot overlay for desk tether — see **[USB-AUDIO-HOST.md](USB-AUDIO-HOST.md)**.
+- **USB Audio** — toggle in System settings (⋯); header badge shows **Analog** or **USB**. Switches run **in the background** with a “Switching audio…” overlay (UI stays responsive). Requires GPIO split power + one-time boot overlay for desk tether — see **[USB-AUDIO-HOST.md](USB-AUDIO-HOST.md)**.
 - **Header CPU meter** — compact bar to the left of the **⋯** settings button when enabled. Polls at ~5 Hz on a background thread (UI stays responsive). Surge XT does **not** document a CPU OSC address (`/q/cpu`, `/cpu`, `/status/cpu` are probed speculatively when OSC out is enabled). The meter therefore uses **`/proc` CPU time for the `surge-xt-cli` process** as a live-play diagnostic — same green → yellow → red thresholds as a DAW meter. Shows **—** when Surge is offline. This approximates audio-engine stress on a dedicated Pi; it is not identical to Surge’s internal VU *Show CPU Usage* ratio (audio callback time ÷ buffer time), which is GUI-only today. **CPU meter colors always use semantic green/yellow/red**, even in Monochrome accent style.
 - **Restart Surge** — shown when status is not healthy; uses the same systemd unit as the encoder build.
 - **Calibrate missing patches** — incremental run over the full scanned library (patches without `gain_db` only).
@@ -324,7 +325,7 @@ From the folder list, tap **All** in the left nav header:
 - **Folder name** shown as a subtitle on each row (not used for navigation)
 - **♥ / ♡** — filled heart if the patch is already in Quick Access (`MPE_FAVORITES_NAME`); indicator only (toggle still on patch detail after load)
 - **A–Z rail** on the right — tap a letter to jump scroll to that section
-- Tap a patch → loads in Surge and collapses to the detail pane (Vol + Norm)
+- Tap a patch → loads in Surge and shows the detail pane (Vol, Tail, Touch, Norm.)
 - **Up** returns to the folder list
 
 Spec: [`Documents/specs/touch-patch-browser-browse-ux-spec.md`](../Documents/specs/touch-patch-browser-browse-ux-spec.md)
