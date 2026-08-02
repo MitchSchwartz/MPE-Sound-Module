@@ -63,7 +63,19 @@ Reboot once with **USB-C unplugged from the host**. This enables the USB-C port 
    sudo systemctl restart surge-xt-cli.service
    ```
 
+   Or toggle **USB host audio** in touch settings (⋯) — writes `/etc/mpe/mpe.env` and restarts Surge.
+
 5. On the **host**, select the gadget as a **capture / input / recording** device — **not** playback/output. The Pi sends audio *out* via UAC2; the host receives it on its **input** side (Passthrough). Linux: `pavucontrol` → Recording; Windows: Sound settings → Input.
+
+### Profile persistence (Pi)
+
+`MPE_AUDIO_PROFILE` lives in **`/etc/mpe/mpe.env`** and survives reboot:
+
+- Touch settings toggle → `set-audio-profile.sh` updates the file and matching systemd units
+- **`mpe-audio-profile-sync.service`** runs at boot (before Surge) and re-enables gadget + stall watchdog to match the file
+- **`configure-pi-paths.sh --force`** rewrites paths but **preserves** `MPE_AUDIO_PROFILE` and `MPE_SURGE_BUFFER_SIZE` from the existing file
+
+After a git pull on the Pi: `./scripts/configure-pi-paths.sh --local --force` — your audio mode is kept.
 
 ### Host capture on Linux
 
