@@ -53,7 +53,7 @@ Interaction model:
 | **All** | Flat A–Z list of every patch (hearts show Quick Access) | Hides patch detail until a row is tapped |
 | **Current** | When browsing another folder — jump to loaded patch's folder + patch list | |
 | **< collapse** | Nav hides; `>` tab remains to expand | Main detail gets full width |
-| **Main (right)** | Selected patch: **Vol** fader + **Norm.** toggle | No back button — list is always on the left |
+| **Main (right)** | Selected patch: **Vol** + **Tail** faders, **Norm** when Norm. on, **Norm.** toggle | No back button — list is always on the left |
 
 ## Hardware
 
@@ -193,8 +193,10 @@ Spec: [`Documents/specs/touch-patch-browser-spec.md`](../Documents/specs/touch-p
 
 The patch detail pane uses a **vertical fader strip** (mixing-board style) instead of a thin horizontal slider:
 
-- **Vol** — drag the handle up/down (top = louder). Persists to `~/.patch_browser_volume.json` and sends OSC via `PatchLoader.set_volume`.
-- Touch **down + drag** on the fader; release does not trigger nav taps underneath.
+- **Vol** — drag the handle up/down (top = louder). **Global** trim; persists to `~/.patch_browser_volume.json` and sends OSC via `PatchLoader.set_volume`.
+- **Tail** — per-patch multiplier on amp envelope **sustain, decay, and release** (both scenes). Scales the envelope tail while preserving its shape. Default **1.0×** = patch-as-loaded. Double-tap resets to 1.0×. Persists in `~/.patch_browser_hold.json`.
+- **Norm** — per-patch normalization gain (dB); visible only when **Norm.** is checked. Double-tap resets to calibrated default.
+- Touch **down + drag** on a fader; release does not trigger nav taps underneath.
 - **Norm.** — label-left / checkbox-right toggle for per-patch loudness normalization (see [`PATCH_NORMALIZATION.md`](PATCH_NORMALIZATION.md)).
 
 Brightness in **System settings** still uses a horizontal slider (one-off control, not live mixing).

@@ -73,8 +73,8 @@ Surge OSC `/param/a/amp/volume` and `/param/b/amp/volume` use a linear scale (`1
 On load:
 
 1. Normalization sets `_patch_gain_linear` baseline
-2. User volume slider (`set_volume`) is a trim multiplier on top: `combined = trim × baseline`
-3. When **Norm.** is on or off, combined OSC amp/volume shares the same ceiling (**1.5** linear). User trim stacks below the cap. (The norm-on cap was **0.85** until 2026-08-01 — see below — which silently discarded most calibrated gain.)
+2. User volume slider (`set_volume`) maps fader travel **linearly in dB** from `eff_min` to `eff_max` (`eff_max` = capped norm baseline when Norm on, else the **1.5** ceiling). Display shows **0–100** across fader travel (not raw linear trim).
+3. When **Norm.** is on or off, `eff_max` never exceeds **1.5** linear on Surge amp/volume. (The norm-on cap was **0.85** until 2026-08-01 — see below. A 2026-08-02 fix stopped product-then-cap from flattening the Vol fader; a follow-up switched to dB-linear mapping so the top of the fader is not compressed into the last ~20%.)
 
 ### Polyphony and static/crackle (Pi)
 

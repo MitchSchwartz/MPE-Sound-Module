@@ -17,7 +17,7 @@ TARGET_LUFS = -18.0
 # Sound-engineer spec: normalize close to 0 with headroom, not open-ended LUFS boost.
 SAFE_PEAK_DBTP = -3.0
 
-# Surge OSC /param/*/amp/volume ceiling — matches touch browser VOLUME_MAX (1.5).
+# Surge OSC /param/*/amp/volume ceiling (Pi headroom / xrun guard).
 MAX_AMP_VOLUME_LINEAR = 1.5
 
 # Runtime cap when per-patch normalization is active. Was 0.85 — but that clamped away
@@ -27,6 +27,10 @@ MAX_AMP_VOLUME_LINEAR = 1.5
 # amp/volume range either way, pending Pi xrun/CPU test under dense MPE polyphony
 # (2026-08-01, see PATCH_NORMALIZATION.md).
 NORM_MAX_AMP_VOLUME_LINEAR = MAX_AMP_VOLUME_LINEAR
+
+# Per-patch manual level slider range (dB gain sent to Surge amp/volume).
+NORM_GAIN_DB_MIN = -12.0
+NORM_GAIN_DB_MAX = 24.0
 
 
 def default_normalization_path() -> Path:
@@ -51,6 +55,46 @@ def linear_to_db(linear: float) -> float:
     if linear <= 0:
         return -120.0
     return 20.0 * math.log10(linear)
+
+
+def volume_fader_display_pct(
+    trim: float,
+    *,
+    fader_min: float,
+    fader_max: float,
+) -> int:
+    """Map fader value to 0–100 for the touch UI label."""
+    span = fader_max - fader_min
+    if span <= 0:
+        return 100
+    ratio = (trim - fader_min) / span
+    return round(max(0.0, min(1.0, ratio)) * 100)
+
+
+def volume_fader_to_amp_linear(
+    trim: float,
+    *,
+    patch_gain_linear: float,
+    cap: float,
+    fader_min: float,
+    fader_max: float,
+) -> float:
+    """Map Vol fader position to Surge amp/volume with even dB steps across travel."""
+    eff_max = min(patch_gain_linear, cap)
+    eff_min = eff_max * fader_min
+    if eff_max <= 0:
+        return 0.0
+    if eff_min <= 0:
+        eff_min = eff_max * 0.001
+
+    span = fader_max - fader_min
+    if span <= 0:
+        return eff_max
+    t = (trim - fader_min) / span
+    t = max(0.0, min(1.0, t))
+    log_min = math.log(eff_min)
+    log_max = math.log(eff_max)
+    return math.exp(log_min + t * (log_max - log_min))
 
 
 def compute_gain_db(
@@ -211,6 +255,10 @@ class PatchNormalizationStore:
 
     def get_raw_gain_db(self, patch_name: str) -> float | None:
         """Calibration gain for a patch, ignoring the enabled flag."""
+        return self.get_calibrated_gain_db(patch_name)
+
+    def get_calibrated_gain_db(self, patch_name: str) -> float | None:
+        """System-calibrated gain_db only (double-tap slider reset target)."""
         entry = self.get_entry(patch_name)
         if not entry:
             return None
@@ -219,10 +267,52 @@ class PatchNormalizationStore:
             return None
         return float(gain)
 
+    def get_effective_gain_db(self, patch_name: str) -> float | None:
+        """Runtime gain: user_gain_db when set, else calibrated gain_db."""
+        entry = self.get_entry(patch_name)
+        if not entry:
+            return None
+        if "user_gain_db" in entry:
+            return float(entry["user_gain_db"])
+        return self.get_calibrated_gain_db(patch_name)
+
+    def get_slider_default_gain_db(self, patch_name: str) -> float:
+        """Slider double-tap reset — calibrated gain, or 0 dB when uncalibrated."""
+        calibrated = self.get_calibrated_gain_db(patch_name)
+        return calibrated if calibrated is not None else 0.0
+
+    def has_user_gain_override(self, patch_name: str) -> bool:
+        entry = self.get_entry(patch_name)
+        return bool(entry and "user_gain_db" in entry)
+
+    def set_user_gain_db(self, patch_name: str, gain_db: float, *, persist: bool = True) -> None:
+        """Set manual per-patch level override (defer persist=False while dragging)."""
+        key = self.patch_key(patch_name)
+        entry = self._data.get(key)
+        if not isinstance(entry, dict):
+            entry = {}
+        entry = self._ensure_calibration_fields(key, entry)
+        entry["user_gain_db"] = round(float(gain_db), 3)
+        self._data[key] = entry
+        if persist:
+            self.save()
+
+    def clear_user_gain_db(self, patch_name: str, *, persist: bool = True) -> None:
+        """Remove manual override; runtime reverts to calibrated gain_db."""
+        key = self.patch_key(patch_name)
+        entry = self.get_entry(patch_name)
+        if not entry or "user_gain_db" not in entry:
+            return
+        updated = dict(entry)
+        del updated["user_gain_db"]
+        self._data[key] = updated
+        if persist:
+            self.save()
+
     def get_gain_db(self, patch_name: str) -> float | None:
         if not self.is_effectively_enabled(patch_name):
             return None
-        return self.get_raw_gain_db(patch_name)
+        return self.get_effective_gain_db(patch_name)
 
     def get_gain_linear(self, patch_name: str) -> float:
         gain_db = self.get_gain_db(patch_name)
@@ -258,6 +348,8 @@ class PatchNormalizationStore:
         }
         if true_peak_dbtp is not None:
             entry["true_peak_dbtp"] = round(float(true_peak_dbtp), 2)
+        if existing and "user_gain_db" in existing:
+            entry["user_gain_db"] = existing["user_gain_db"]
         self._data[key] = entry
 
     def list_missing(self, patch_names: list[str]) -> list[str]:

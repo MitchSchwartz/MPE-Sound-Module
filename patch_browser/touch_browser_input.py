@@ -484,8 +484,10 @@ class TouchBrowserInputMixin:
                     self._handle_mixer_down(event.pos)
         elif event.type == pygame.MOUSEBUTTONUP and event.button == 1:
             was_mixer = self._dragging_mixer_id is not None
-            if was_mixer and self._mixer_drag_moved:
-                self._mixer_last_tap_id = None
+            if was_mixer:
+                if self._mixer_drag_moved:
+                    self._mixer_last_tap_id = None
+                self._persist_mixer_drag()
             self._dragging_mixer_id = None
             self._mixer_drag_origin = None
             self._mixer_drag_moved = False

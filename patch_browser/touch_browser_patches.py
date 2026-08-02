@@ -95,8 +95,10 @@ class TouchBrowserPatchesMixin:
                     self.loaded_patch_info = dict(self.detail_patch)
                     self._apply_volume(self.volume_level, persist=False)
                     self._note_surge_patch_load_success()
+                    self._layout()
                 else:
                     self._queue_patch_reload(self.detail_patch)
+                    self._layout()
         self._refresh_lists(scroll_to_selection=True)
 
     def _try_load_patch_path(self, patch_path: str, category: str) -> bool:
@@ -136,6 +138,7 @@ class TouchBrowserPatchesMixin:
             self._pending_last_patch = None
             self._apply_volume(self.volume_level, persist=False)
             self._refresh_lists(scroll_to_selection=True)
+            self._layout()
             self._note_surge_patch_load_success()
             self._toast("Patch loaded", 1.5)
         else:
@@ -311,6 +314,7 @@ class TouchBrowserPatchesMixin:
             except ValueError:
                 pass
             self._apply_volume(self.volume_level, persist=False)
+            self._layout()
         else:
             self._toast("Load failed", 3)
     def _enter_folder(self, index: int) -> None:

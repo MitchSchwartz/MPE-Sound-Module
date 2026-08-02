@@ -32,6 +32,7 @@ from patch_browser.touch_browser_draw import TouchBrowserDrawMixin
 from patch_browser.touch_browser_evdev import TouchBrowserEvdevMixin
 from patch_browser.touch_browser_input import TouchBrowserInputMixin
 from patch_browser.touch_browser_layout import TouchBrowserLayoutMixin
+from patch_browser.touch_browser_hold import TouchBrowserHoldMixin
 from patch_browser.touch_browser_mixer import TouchBrowserMixerMixin
 from patch_browser.touch_browser_normalization import TouchBrowserNormalizationMixin
 from patch_browser.touch_browser_patches import TouchBrowserPatchesMixin
@@ -56,6 +57,7 @@ class TouchPatchBrowser(
     TouchBrowserLayoutMixin,
     TouchBrowserPatchesMixin,
     TouchBrowserMixerMixin,
+    TouchBrowserHoldMixin,
     TouchBrowserNormalizationMixin,
     TouchBrowserDrawMixin,
     TouchBrowserInputMixin,
@@ -249,6 +251,8 @@ class TouchPatchBrowser(
         self._mixer_last_tap_time = 0.0
         self._mixer_drag_origin: tuple[int, int] | None = None
         self._mixer_drag_moved = False
+        self._pending_norm_toggle = False
+        self._pending_favorites_toggle = False
         self._brightness_last_tap_time = 0.0
         self._brightness_drag_moved = False
         self.mixer_channels: list[MixerChannel] = []
