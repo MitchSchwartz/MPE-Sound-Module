@@ -104,6 +104,17 @@ class TouchBrowserPatchesMixin:
             return False
         return bool(self.loader.load_patch(patch_path))
 
+    def _reload_loaded_patch_after_norm_change(self) -> bool:
+        """Re-load the current patch so Surge + normalization baseline stay in sync."""
+        loaded = self.loaded_patch_info
+        if not loaded or not self.loader.osc_enabled:
+            return False
+        if not self._try_load_patch_path(loaded["path"], loaded["category"]):
+            return False
+        self._apply_volume(self.volume_level, persist=False)
+        self._note_surge_patch_load_success()
+        return True
+
     def _retry_pending_load(self) -> None:
         self._maybe_requeue_patch_after_surge_change()
         if not self._pending_last_patch or time.time() < self._pending_load_next:
