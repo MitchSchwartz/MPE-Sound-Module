@@ -48,19 +48,28 @@ class TouchBrowserLayoutMixin:
         status_h = 44
         nav_header_h = 36
         footer_h = 22
+        audio_badge_w = 56
 
         self.status_rect = Rect(margin, margin, self.width - margin * 2, status_h)
         self.system_settings_btn = Rect(self.status_rect.right - 44, self.status_rect.y + 6, 36, 32)
-        cpu_left = self.system_settings_btn.x - CPU_METER_W - 8
+        right_cursor = self.system_settings_btn.x - 8
         if self.show_cpu_meter:
+            right_cursor -= CPU_METER_W + 6
             self.cpu_meter_rect = Rect(
-                cpu_left,
+                right_cursor,
                 self.status_rect.y + 6,
                 CPU_METER_W,
                 CPU_METER_H,
             )
         else:
-            self.cpu_meter_rect = Rect(cpu_left, self.status_rect.y + 6, 0, 0)
+            self.cpu_meter_rect = Rect(right_cursor, self.status_rect.y + 6, 0, 0)
+        right_cursor -= audio_badge_w + 6
+        self.audio_profile_badge_rect = Rect(
+            right_cursor,
+            self.status_rect.y + 10,
+            audio_badge_w,
+            24,
+        )
 
         content_top = self.status_rect.y + self.status_rect.h + gap
         content_bottom = self.height - footer_h - margin
@@ -144,14 +153,13 @@ class TouchBrowserLayoutMixin:
         self.norm_global_toggle_rect = Rect(pad, y, inner_w, norm_h)
         y += norm_h + SETTINGS_ROW_GAP
 
-        audio_profile_lines = wrap_text_lines(
-            self.font_sm,
+        audio_h = self._settings_row_height(
             audio_profile_display(),
-            inner_w - 8,
-            max_lines=1,
+            inner_w,
+            toggle=True,
         )
-        self._settings_audio_profile_y = y
-        y += text_block_height(self.font_sm, len(audio_profile_lines), line_spacing=2) + 8
+        self.audio_profile_toggle_rect = Rect(pad, y, inner_w, audio_h)
+        y += audio_h + SETTINGS_ROW_GAP
 
         status = self.surge_monitor.get_status_summary()
         self._surge_restart_btn = None

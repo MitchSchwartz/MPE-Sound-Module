@@ -63,6 +63,10 @@ from patch_browser.calibration_standalone import (  # noqa: E402
     resolve_surge_standalone_interface,
     should_restart_surge_for_standalone,
 )
+from patch_browser.calibration_constants import (  # noqa: E402
+    CALIBRATION_SECONDS_PER_PATCH_ESTIMATE,
+    estimate_calibration_duration_seconds,
+)
 from patch_browser.calibration_teardown import (  # noqa: E402
     restore_mpe_audio_services,
     stop_mpe_audio_services,
@@ -756,8 +760,11 @@ def main() -> int:
             calibrate_patch(
                 path, None, store, audio_device=audio_device, mock_lufs=None, dry_run=True
             )
-        est = len(targets) * (GESTURE_SECONDS + 1.5)
-        print(f"Estimated time: ~{est / 60:.1f} min at {GESTURE_SECONDS}s capture per patch")
+        est = estimate_calibration_duration_seconds(len(targets))
+        print(
+            f"Estimated time: ~{est / 60:.1f} min "
+            f"({CALIBRATION_SECONDS_PER_PATCH_ESTIMATE:.0f}s per patch, typical Pi loopback run)"
+        )
         print(f"Starter file in repo: {repo_starter_path()}")
         emit_progress(args, {"type": "done", "updated": 0, "exit_code": 0})
         return 0

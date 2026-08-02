@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 from enum import Enum, auto
 
 
@@ -29,7 +28,6 @@ class LeftNavMode(Enum):
 
 
 def audio_profile_display() -> str:
-    profile = os.environ.get("MPE_AUDIO_PROFILE", "standalone").strip().lower()
-    if profile == "usb-host":
-        return "Audio profile: USB host (gadget)"
-    return "Audio profile: Analog (standalone)"
+    from patch_browser.audio_profile import settings_toggle_label
+
+    return settings_toggle_label()

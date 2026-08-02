@@ -259,6 +259,24 @@ class TouchBrowserPrefsMixin:
         else:
             self._toast("CPU meter off", 1.5)
 
+    def _toggle_audio_profile(self) -> None:
+        from patch_browser.audio_profile import apply_profile, current_profile
+
+        target = "usb-host" if current_profile() == "standalone" else "standalone"
+        ok, message = apply_profile(target)
+        if ok:
+            self._toast(message, 3.0)
+            patch = self.loaded_patch_info
+            if patch:
+                self._last_known_surge_pid = None
+                self._surge_was_healthy = False
+                self._surge_liveness_initialized = False
+                self._queue_patch_reload(patch, delay_s=3.0)
+            self._layout_settings_content()
+            self._layout()
+        else:
+            self._toast(f"Audio profile: {message}", 4.0)
+
     def _apply_volume(self, level: float, persist: bool = True) -> None:
         self.volume_level = max(VOLUME_MIN, min(VOLUME_MAX, level))
         if self.loader.osc_enabled:

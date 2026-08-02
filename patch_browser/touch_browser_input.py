@@ -120,6 +120,8 @@ class TouchBrowserInputMixin:
             return "norm_global"
         if self.cpu_meter_toggle_rect.contains(*local_pos):
             return "cpu_meter"
+        if self.audio_profile_toggle_rect.contains(*local_pos):
+            return "audio_profile"
         if self.theme_btn_rect.contains(*local_pos):
             return "theme"
         if self._surge_restart_btn and self._surge_restart_btn.contains(*local_pos):
@@ -140,6 +142,8 @@ class TouchBrowserInputMixin:
             self._toggle_global_normalization()
         elif hit == "cpu_meter":
             self._toggle_cpu_meter_visibility()
+        elif hit == "audio_profile":
+            self._toggle_audio_profile()
         elif hit == "theme":
             self._open_theme_modal()
         elif hit == "surge_restart":

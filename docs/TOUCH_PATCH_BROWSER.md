@@ -32,8 +32,10 @@ journalctl -u touch-patch-browser -n 30
 **One-time sudoers** (power menu + start script stopping other services): add to `sudo visudo`:
 
 ```
-your-user ALL=(ALL) NOPASSWD: /sbin/poweroff, /sbin/reboot, /bin/systemctl
+your-user ALL=(ALL) NOPASSWD: /sbin/poweroff, /sbin/reboot, /bin/systemctl, /home/your-user/MPE-Module/scripts/set-audio-profile.sh
 ```
+
+(`set-audio-profile.sh` is used by the **USB host audio** settings toggle.)
 
 See [`docs/POWER_BUTTON_SETUP.md`](POWER_BUTTON_SETUP.md) for the encoder Pi pattern.
 
@@ -219,7 +221,7 @@ UI preferences persist in `~/.patch_browser_ui.json` (see [UI theme](#ui-theme-s
 - **CPU meter** — toggle show/hide for the header bar (not the numeric overlay; bar-only meter). Default on.
 - **Theme…** — base theme, accent style, accent color (presets + saved custom colors). See [UI theme](#ui-theme-system-settings--theme).
 - **Patch normalization** — master toggle for all per-patch Norm. controls (persists in `~/.patch_browser_normalization.json` under `_global`; per-patch flags unchanged when off).
-- **Audio profile** — read-only line (`Analog` vs `USB host`); set via `MPE_AUDIO_PROFILE` in `/etc/mpe/mpe.env`. See **[USB-AUDIO-HOST.md](USB-AUDIO-HOST.md)**.
+- **USB host audio** — toggle in System settings (⋯); header badge shows **Analog** or **USB**. Switches `MPE_AUDIO_PROFILE`, gadget service, and restarts Surge. Requires GPIO split power + one-time boot overlay for desk tether — see **[USB-AUDIO-HOST.md](USB-AUDIO-HOST.md)**.
 - **Header CPU meter** — compact bar to the left of the **⋯** settings button when enabled. Polls at ~5 Hz on a background thread (UI stays responsive). Surge XT does **not** document a CPU OSC address (`/q/cpu`, `/cpu`, `/status/cpu` are probed speculatively when OSC out is enabled). The meter therefore uses **`/proc` CPU time for the `surge-xt-cli` process** as a live-play diagnostic — same green → yellow → red thresholds as a DAW meter. Shows **—** when Surge is offline. This approximates audio-engine stress on a dedicated Pi; it is not identical to Surge’s internal VU *Show CPU Usage* ratio (audio callback time ÷ buffer time), which is GUI-only today. **CPU meter colors always use semantic green/yellow/red**, even in Monochrome accent style.
 - **Restart Surge** — shown when status is not healthy; uses the same systemd unit as the encoder build.
 - **Calibrate missing patches** — incremental run over the full scanned library (patches without `gain_db` only).

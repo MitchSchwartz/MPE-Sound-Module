@@ -14,6 +14,7 @@ from patch_browser.calibration_constants import (
     CALIBRATE_WITH_LOADER_SCRIPT,
     MPE_CALIB_FROM_BROWSER,
     MPE_CALIB_FROM_BROWSER_ACTIVE,
+    format_calibration_duration_hint,
 )
 from patch_browser.dsi_splash import SplashMode, draw_splash_frame
 from patch_browser.geometry import Rect
@@ -168,12 +169,7 @@ class TouchBrowserNormalizationMixin:
         missing = store.list_missing(names)
         return len(missing), total
     def _calibration_duration_hint(self, targets: int) -> str:
-        if targets <= 0:
-            return "Nothing to calibrate — all patches already have entries."
-        seconds = targets * 4.5
-        if seconds < 60:
-            return f"Approx. {int(seconds)} sec ({targets} patch(es))."
-        return f"Approx. {seconds / 60.0:.0f} min ({targets} patch(es))."
+        return format_calibration_duration_hint(targets)
     def _calibration_mode_label(self, mode: CalibrateMode) -> str:
         if mode == CalibrateMode.FORCE_FULL:
             return "Force full normalization"
