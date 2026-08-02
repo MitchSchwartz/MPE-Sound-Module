@@ -126,7 +126,8 @@ class PatchNormalizationStoreTests(unittest.TestCase):
             loader.refresh_patch_volume("Lead")
             self.assertEqual(len(loader.osc_client.messages), 4)
 
-    def test_norm_off_reload_loads_patch_twice(self) -> None:
+    def test_norm_toggle_reload_asserts_unity_amp_when_off(self) -> None:
+        """Norm off must positively send amp/volume=1.0 — never rely on Surge's stale state."""
         with tempfile.TemporaryDirectory() as tmp:
             user_path = Path(tmp) / "user.json"
             user_path.write_text(
@@ -137,13 +138,18 @@ class PatchNormalizationStoreTests(unittest.TestCase):
             loader.osc_client = FakeOscClient()
             loader.osc_enabled = True
 
+            # Simulate a prior norm-on session leaving amp/volume pinned high.
+            loader.reload_patch_after_norm_toggle("/patches/Church - Mod.fxp")
+            on_volume = loader.osc_client.messages[-1][1]
+            self.assertGreater(on_volume, 1.0)
+
             store.set_enabled("Church - Mod", False)
             loader.reload_patch_after_norm_toggle("/patches/Church - Mod.fxp")
             loads = [m for m in loader.osc_client.messages if m[0] == "/patch/load"]
             self.assertEqual(len(loads), 2)
-            amp = [m for m in loader.osc_client.messages if "amp/volume" in m[0]]
-            self.assertEqual(len(amp), 0)
-            self.assertEqual(loader.osc_client.messages[-1][1], loader.osc_client.messages[-2][1])
+            off_volume = loader.osc_client.messages[-1][1]
+            self.assertAlmostEqual(off_volume, 1.0)
+            self.assertNotAlmostEqual(off_volume, on_volume)
 
     def test_combined_volume_clamps_above_max_amp_linear(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -164,7 +170,8 @@ class PatchNormalizationStoreTests(unittest.TestCase):
             self.assertLessEqual(sent, NORM_MAX_AMP_VOLUME_LINEAR)
             self.assertAlmostEqual(sent, NORM_MAX_AMP_VOLUME_LINEAR)
 
-    def test_norm_off_leaves_patch_native_amp_at_unity_trim(self) -> None:
+    def test_norm_off_sends_explicit_unity_at_default_trim(self) -> None:
+        """Norm off must explicitly assert unity — not skip OSC and trust prior state."""
         with tempfile.TemporaryDirectory() as tmp:
             user_path = Path(tmp) / "user.json"
             user_path.write_text(
@@ -178,7 +185,8 @@ class PatchNormalizationStoreTests(unittest.TestCase):
 
             store.set_enabled("Loud", False)
             loader.refresh_patch_volume("Loud")
-            self.assertEqual(len(loader.osc_client.messages), 0)
+            self.assertGreater(len(loader.osc_client.messages), 0)
+            self.assertAlmostEqual(loader.osc_client.messages[-1][1], 1.0)
 
             loader.user_volume_trim = 0.8
             loader.refresh_patch_volume("Loud")
@@ -226,7 +234,7 @@ class PatchNormalizationStoreTests(unittest.TestCase):
             self.assertIsNone(store.get_gain_db("Lead"))
             loader.osc_client.messages.clear()
             loader.refresh_patch_volume("Lead")
-            self.assertEqual(len(loader.osc_client.messages), 0)
+            self.assertAlmostEqual(loader.osc_client.messages[-1][1], 1.0)
 
             loader.user_volume_trim = 0.8
             loader.refresh_patch_volume("Lead")
