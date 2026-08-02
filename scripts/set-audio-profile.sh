@@ -38,6 +38,7 @@ rm -f "$tmp"
 
 export MPE_AUDIO_PROFILE="$PROFILE"
 mpe_enable_usb_audio_gadget
+mpe_enable_audio_profile_sync
 
 # shellcheck source=lib/wait-for-uac2-gadget.sh
 source "$SCRIPT_DIR/lib/wait-for-uac2-gadget.sh"
