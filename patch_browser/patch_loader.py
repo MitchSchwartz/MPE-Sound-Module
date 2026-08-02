@@ -2,14 +2,29 @@
 
 from __future__ import annotations
 
+import re
+import socket
+import struct
+import time
 from pathlib import Path
 
+from patch_browser.patch_hold import (
+    PatchHoldStore,
+    effective_aeg_value,
+    iter_hold_osc_paths,
+)
 from patch_browser.patch_normalization import (
     MAX_AMP_VOLUME_LINEAR,
     NORM_MAX_AMP_VOLUME_LINEAR,
     PatchNormalizationStore,
     db_to_linear,
+    volume_fader_to_amp_linear,
 )
+from patch_browser.touch_ui_constants import VOLUME_MAX, VOLUME_MIN
+
+OSC_OUT_PORT = 53270
+OSC_QUERY_TIMEOUT_S = 0.08
+PATCH_LOAD_SETTLE_S = 0.06
 
 
 class PatchLoader:
@@ -20,6 +35,8 @@ class PatchLoader:
         osc_host="127.0.0.1",
         osc_port=53280,
         normalization_store=None,
+        hold_store=None,
+        osc_out_port: int = OSC_OUT_PORT,
     ):
         try:
             from pythonosc import udp_client
@@ -35,9 +52,13 @@ class PatchLoader:
             self.osc_enabled = False
 
         self.normalization = normalization_store or PatchNormalizationStore()
+        self.hold = hold_store or PatchHoldStore()
+        self.osc_host = osc_host
+        self.osc_out_port = osc_out_port
         self.user_volume_trim = 1.0
         self._patch_gain_linear = 1.0
         self._norm_active = False
+        self._loaded_patch_name: str | None = None
 
     def set_volume(self, volume=1.0):
         """Set user volume trim (stacks on per-patch normalization baseline)."""
@@ -53,15 +74,14 @@ class PatchLoader:
         if not self.osc_enabled:
             return False
 
-        # Norm off at unity trim: leave Surge patch-native amp/volume (fxp defaults).
-        # Forcing 1.0 OSC made norm on vs off differ by only ~3.5 dB (1.5 vs 1.0).
-        if not self._norm_active and self.user_volume_trim == 1.0:
-            return True
-
-        combined = self.user_volume_trim * self._patch_gain_linear
         cap = self._volume_cap()
-        if combined > cap:
-            combined = cap
+        combined = volume_fader_to_amp_linear(
+            self.user_volume_trim,
+            patch_gain_linear=self._patch_gain_linear,
+            cap=cap,
+            fader_min=VOLUME_MIN,
+            fader_max=VOLUME_MAX,
+        )
         try:
             self.osc_client.send_message("/param/a/amp/volume", combined)
             self.osc_client.send_message("/param/b/amp/volume", combined)
@@ -78,7 +98,7 @@ class PatchLoader:
             return
 
         self._norm_active = True
-        gain_db = store.get_raw_gain_db(patch_name)
+        gain_db = store.get_effective_gain_db(patch_name)
         if gain_db is not None:
             self._patch_gain_linear = db_to_linear(gain_db)
         else:
@@ -93,6 +113,118 @@ class PatchLoader:
         if self._norm_active:
             return self._send_combined_volume()
         return True
+
+    @staticmethod
+    def _parse_surge_param_query(data: bytes) -> float | None:
+        """Parse Surge /q/param/... replies (often `fs`: float + display string like '9.64 %')."""
+        if len(data) < 8 or data[0] != 0x2F:
+            return None
+        try:
+            from pythonosc.osc_message import OscMessage
+
+            for param in OscMessage(data).params:
+                if isinstance(param, str):
+                    match = re.search(r"([\d.]+)\s*%", param)
+                    if match:
+                        return max(0.0, min(1.0, float(match.group(1)) / 100.0))
+                    try:
+                        value = float(param.strip())
+                    except ValueError:
+                        continue
+                    if value <= 1.0:
+                        return max(0.0, min(1.0, value))
+                    return max(0.0, min(1.0, value / 100.0))
+                if isinstance(param, (int, float)):
+                    value = float(param)
+                    if 0.0 <= value <= 1.0:
+                        return value
+        except Exception:
+            pass
+
+        match = re.search(rb"([\d.]+)\s*%", data)
+        if match:
+            return max(0.0, min(1.0, float(match.group(1).decode()) / 100.0))
+
+        idx = data.find(b"\x00,\x00")
+        while idx != -1:
+            start = idx + 4
+            if start + 4 <= len(data):
+                try:
+                    value = struct.unpack(">f", data[start : start + 4])[0]
+                except struct.error:
+                    return None
+                if 0.0 <= value <= 1.0:
+                    return value
+            idx = data.find(b"\x00,\x00", idx + 1)
+        return None
+
+    def _query_osc_float(self, osc_path: str) -> float | None:
+        """Query a Surge parameter via /q/ prefix (requires --osc-out-port)."""
+        if not self.osc_enabled or self.osc_client is None:
+            return None
+
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            sock.bind((self.osc_host, self.osc_out_port))
+            sock.settimeout(OSC_QUERY_TIMEOUT_S)
+            query_paths = (f"/q{osc_path}", f"/q{osc_path.rstrip('/')}")
+            for query in query_paths:
+                self.osc_client.send_message(query, [])
+                try:
+                    data, _addr = sock.recvfrom(4096)
+                except socket.timeout:
+                    continue
+                value = self._parse_surge_param_query(data)
+                if value is not None:
+                    return max(0.0, min(1.0, float(value)))
+        except OSError:
+            return None
+        finally:
+            sock.close()
+        return None
+
+    def _capture_hold_baseline(self, patch_name: str) -> bool:
+        """Read AEG sustain/decay/release from Surge after patch load."""
+        baseline: dict[str, dict[str, float]] = {"a": {}, "b": {}}
+        captured = False
+        for scene, stage, osc_path in iter_hold_osc_paths():
+            value = self._query_osc_float(osc_path)
+            if value is None:
+                continue
+            baseline[scene][stage] = value
+            captured = True
+        if not captured:
+            return False
+        for scene, stage, _osc_path in iter_hold_osc_paths():
+            if stage not in baseline[scene]:
+                stored = self.hold.get_baseline(patch_name)
+                if stored and stage in stored.get(scene, {}):
+                    baseline[scene][stage] = stored[scene][stage]
+                else:
+                    baseline[scene][stage] = 0.0
+        self.hold.set_baseline(patch_name, baseline)
+        return True
+
+    def _send_hold_osc(self, patch_name: str) -> bool:
+        baseline = self.hold.get_baseline(patch_name)
+        if not baseline:
+            return False
+        mult = self.hold.get_effective_hold_mult(patch_name)
+        try:
+            for scene, stage, osc_path in iter_hold_osc_paths():
+                base_val = baseline[scene][stage]
+                effective = effective_aeg_value(base_val, mult)
+                self.osc_client.send_message(osc_path, effective)
+            return True
+        except Exception as e:
+            print(f"Error applying Hold via OSC: {e}")
+            return False
+
+    def refresh_hold(self, patch_name: str) -> bool:
+        """Re-apply Hold multiplier to the current patch baseline."""
+        if not self.osc_enabled:
+            return False
+        return self._send_hold_osc(patch_name)
 
     def load_patch(self, patch_path, *, apply_normalization: bool = True):
         if not self.osc_enabled:
@@ -114,6 +246,11 @@ class PatchLoader:
                 self._patch_gain_linear = 1.0
                 self._norm_active = False
             self._send_combined_volume()
+            self._loaded_patch_name = patch_name
+            time.sleep(PATCH_LOAD_SETTLE_S)
+            if not self._capture_hold_baseline(patch_name):
+                print(f"Hold baseline query failed for {patch_name}; using stored values if any")
+            self._send_hold_osc(patch_name)
             return True
         except Exception as e:
             print(f"Error loading patch via OSC: {e}")

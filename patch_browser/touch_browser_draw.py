@@ -16,6 +16,7 @@ from patch_browser.draw_primitives import (
 from patch_browser.geometry import Rect
 from patch_browser.mixer import MixerChannel
 from patch_browser.dsi_splash import shutdown_animation_phase
+from patch_browser.patch_normalization import volume_fader_display_pct
 from patch_browser.touch_ui_constants import (
     CPU_METER_BAR_H,
     FADER_HANDLE_H,
@@ -24,6 +25,8 @@ from patch_browser.touch_ui_constants import (
     SETTINGS_PANEL_HEADER_H,
     SETTINGS_ROW_GAP,
     SETTINGS_ROW_H,
+    VOLUME_MAX,
+    VOLUME_MIN,
 )
 from patch_browser.audio_profile import header_badge_label, settings_toggle_on
 from patch_browser.touch_ui_enums import (
@@ -272,7 +275,11 @@ class TouchBrowserDrawMixin:
         )
 
         if channel.enabled and channel.channel_id == "volume":
-            value_label = f"{round(value * 100)}"
+            value_label = f"{volume_fader_display_pct(value, fader_min=VOLUME_MIN, fader_max=VOLUME_MAX)}"
+        elif channel.enabled and channel.channel_id == "tail":
+            value_label = self.loader.hold.format_hold_mult(value)
+        elif channel.enabled and channel.channel_id == "norm":
+            value_label = f"{value:+.1f}"
         else:
             value_label = "—"
         val_s = self.font_sm.render(value_label, True, self.theme.muted if channel.enabled else self.theme.muted)

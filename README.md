@@ -1,6 +1,6 @@
 # Pi-Surge-MPE
 
-**A dedicated MPE compatible sound module for your MPE instrument. No laptop. A pi with a  1.5" screen and one knob.**
+**A dedicated MPE compatible sound module for your MPE instrument. No laptop — just a Pi, a screen, and a way to browse patches.**
 
 Plug a Roli into a Raspberry Pi. Turn it on. Play. That's the whole interaction.
 
@@ -18,7 +18,7 @@ https://github.com/user-attachments/assets/74652240-74af-48be-9db1-608f54805d25
 
 ## Why this exists
 
-I wanted to just show up and play my MPE instruments without tech in the way. Latency, tech issue, big birght screens... wrong vibe.
+I wanted to just show up and play my MPE instruments without tech in the way. Latency, tech issues, big bright screens... wrong vibe.
 
 What if my MPE instruments were just... instruments? ...portable 5-D electric pianos.
 
@@ -30,19 +30,27 @@ Every patch is fully editable and MPE-assignable from your computer, across all 
 
 ## What it does
 
-- Boots to sound-ready in **~25 seconds**
-- Roli auto-connects
-- MPE always on (48-semitone pitch bend, full pressure/timbre)
-- **Stock loaded with Surge XT's 3,192 patches** on board (639 factory + 2,553 community), browsable live via one rotary encoder + a small OLED screen
-- **Quick-access patch folder** — default `!Quick Access` under Surge user patches (leading `!` sorts first); rename via `MPE_FAVORITES_NAME`. Curate on PC and deploy
+### Audio
 
-**Status:** core (boot, audio, MPE) is solid and has been performance-tested for hours at a time. The **encoder/OLED UI** is still rough — scrolling is unreliable (missed and double steps), and the button has **no normal click** (short taps are deliberately ignored). Usable if you're patient; not gig-polished.
+- **MPE sound module** — compatible with any MPE MIDI controller (Roli Seaboard, LinnStrument, Osmose, etc.)
+- **Runs Surge XT** — free, open-source synth engine, always in MPE mode, full mod matrix across all 5 expression dimensions
+- **3,192 patches included** — 639 factory + 2,553 community
+- **Analog and USB audio out** — 3.5mm jack standalone, or USB to a laptop/PC as a standard audio input
+- **Per-patch volume normalization** — calibrate once, every patch loads at a matched level
+- **Favorites folder** — curate a quick-access set of patches on your PC, deploy to the device
 
-**Touch variant (SmartiPi):** a fullscreen **5″ landscape touch browser** is on `main` — scroll/tap via evdev, vertical **Vol** fader, per-patch **Norm.** toggle, and **Calibrate Quick Select** from system settings. See **[docs/TOUCH_PATCH_BROWSER.md](docs/TOUCH_PATCH_BROWSER.md)**.
+### UI
 
-**Per-patch loudness:** offline calibration matches Quick Select (and any folder) to a common level with −3 dBFS headroom; runtime is a JSON lookup + OSC trim. Pilot: **12/12 Quick Select patches calibrated** on the reference Pi. See **[docs/PATCH_NORMALIZATION.md](docs/PATCH_NORMALIZATION.md)**.
+- **Two interface options** — rotary encoder + OLED screen, or fullscreen touch display (SmartiPi 5″)
+- **Full-library browsing** — folder view or a flat, alphabetical searchable list
+- **Theming** — light/dark base themes with custom accent colors
+- **CPU meter** — live engine headroom while playing
 
-**Desk tether (optional):** route Surge to a tethered PC over USB-C as a standard audio device — set `MPE_AUDIO_PROFILE=usb-host`. Standalone analog out is unchanged. See **[docs/USB-AUDIO-HOST.md](docs/USB-AUDIO-HOST.md)**.
+**Status:** 
+
+- core (boot, audio, MPE) is solid and has been performance-tested for hours at a time. 
+- The **touch UI** is the more polished, actively developed interface.
+- The **encoder/OLED UI** is still rough — scrolling is unreliable (missed and double steps), is usable if you're patient; not gig-polished. 
 
 ## Build one
 
@@ -53,6 +61,8 @@ Everything to replicate the reference hardware — exact parts (with purchase li
 
 Reference stack: Raspberry Pi 5 + 1.3″ I2C OLED + one KY-040 encoder + a USB sound dongle (no DAC HAT needed). Software targets this configuration; other displays/encoders aren't supported yet.
 
+**Prefer a touch screen?** A SmartiPi + 5″ landscape touch panel is a fully supported alternate build — skip the OLED/encoder wiring entirely. See **[docs/TOUCH_PATCH_BROWSER.md](docs/TOUCH_PATCH_BROWSER.md)**.
+
 ### Getting the patch library
 
 The 3,192 patches on the device aren't in this repo — they ship inside Surge XT's own source tree, so building Surge XT (see below) gets you the same patches in Surge's normal folder layout. No separate download or repo needed.
@@ -62,6 +72,8 @@ Never built any of this before? Start with **[docs/BUILD-FROM-ZERO.md](docs/BUIL
 **Repo:** [github.com/MitchSchwartz/MPE-Sound-Module](https://github.com/MitchSchwartz/MPE-Sound-Module)
 
 ## How to navigate it
+
+*This section covers the encoder/OLED build. On the touch build, everything is on-screen — see [docs/TOUCH_PATCH_BROWSER.md](docs/TOUCH_PATCH_BROWSER.md) instead.*
 
 One encoder (rotate + push), one OLED. **There is no normal tap/click** — releases under ~0.5s are ignored on purpose because the KY-040 button is too noisy for short presses.
 
@@ -136,6 +148,7 @@ Full command reference: **[COMMANDS.md](COMMANDS.md)**
 
 ## Documentation map
 
+
 | Doc                                                                  | For                                                  |
 | -------------------------------------------------------------------- | ---------------------------------------------------- |
 | [docs/BUILD-FROM-ZERO.md](docs/BUILD-FROM-ZERO.md)                   | Full walkthrough: blank Pi → working module          |
@@ -144,6 +157,7 @@ Full command reference: **[COMMANDS.md](COMMANDS.md)**
 | [docs/PATCH_BROWSER_UI.md](docs/PATCH_BROWSER_UI.md)                 | How the encoder/button navigation actually works     |
 | [docs/TOUCH_PATCH_BROWSER.md](docs/TOUCH_PATCH_BROWSER.md)           | SmartiPi / 5″ touch browser setup and interaction    |
 | [docs/PATCH_NORMALIZATION.md](docs/PATCH_NORMALIZATION.md)           | Per-patch loudness calibration and Norm toggle       |
+| [docs/USB-AUDIO-HOST.md](docs/USB-AUDIO-HOST.md)                     | USB desk-tether audio (route to a laptop/PC)         |
 | [docs/PATCH-EDITING-WORKFLOW.md](docs/PATCH-EDITING-WORKFLOW.md)     | Editing sounds, pushing to the Pi                    |
 | [docs/FOOT_PEDAL.md](docs/FOOT_PEDAL.md)                             | USB footswitch setup + remapping                     |
 | [docs/POWER_BUTTON_SETUP.md](docs/POWER_BUTTON_SETUP.md)             | Shutdown/power-on via the encoder button             |
@@ -151,6 +165,9 @@ Full command reference: **[COMMANDS.md](COMMANDS.md)**
 | [docs/BACKUP_GUIDE.md](docs/BACKUP_GUIDE.md)                         | Full disaster recovery                               |
 | [FAQ.md](FAQ.md)                                                     | Alternatives, troubleshooting, "can I use X instead" |
 | [docs/SURGE_CLI_HEADLESS_SETUP.md](docs/SURGE_CLI_HEADLESS_SETUP.md) | Full technical deep dive                             |
+| [docs/WHATS-NEW.md](docs/WHATS-NEW.md)                               | Recent feature updates, in plain English             |
+| [CHANGELOG.md](CHANGELOG.md)                                         | Full engineering log                                 |
+
 
 ## Credits
 

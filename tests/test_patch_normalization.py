@@ -48,7 +48,17 @@ class PatchNormalizationStoreTests(unittest.TestCase):
             store.set_enabled("Lead", False)
             loader.refresh_patch_volume("Lead")
             off_volume = loader.osc_client.messages[-1][1]
-            self.assertAlmostEqual(off_volume, 0.8)
+            from patch_browser.patch_normalization import volume_fader_to_amp_linear
+            from patch_browser.touch_ui_constants import VOLUME_MAX, VOLUME_MIN
+
+            expected_off = volume_fader_to_amp_linear(
+                0.8,
+                patch_gain_linear=1.0,
+                cap=1.5,
+                fader_min=VOLUME_MIN,
+                fader_max=VOLUME_MAX,
+            )
+            self.assertAlmostEqual(off_volume, expected_off)
 
             store.set_enabled("Lead", True)
             loader.refresh_patch_volume("Lead")
@@ -127,6 +137,62 @@ class PatchNormalizationStoreTests(unittest.TestCase):
             self.assertEqual(len(loader.osc_client.messages), 4)
             self.assertEqual(loader.osc_client.messages[-1][1], loader.osc_client.messages[-2][1])
 
+    def test_volume_trim_scales_when_norm_baseline_exceeds_cap(self) -> None:
+        """Vol fader must not flatten when trim * baseline always hits the cap."""
+        with tempfile.TemporaryDirectory() as tmp:
+            user_path = Path(tmp) / "user.json"
+            user_path.write_text(
+                json.dumps({"Loud": {"gain_db": 18.0, "enabled": True, "lufs_measured": -40.0}})
+            )
+            store = PatchNormalizationStore(user_path)
+            loader = PatchLoader(normalization_store=store)
+            loader.osc_client = FakeOscClient()
+            loader.osc_enabled = True
+
+            loader.refresh_patch_volume("Loud")
+
+            loader.set_volume(1.0)
+            at_unity = loader.osc_client.messages[-1][1]
+
+            loader.set_volume(0.625)
+            at_half = loader.osc_client.messages[-1][1]
+
+            loader.set_volume(0.25)
+            at_quarter = loader.osc_client.messages[-1][1]
+
+            from patch_browser.patch_normalization import NORM_MAX_AMP_VOLUME_LINEAR
+
+            self.assertAlmostEqual(at_unity, NORM_MAX_AMP_VOLUME_LINEAR)
+            self.assertAlmostEqual(at_half, 0.75)
+            self.assertAlmostEqual(at_quarter, NORM_MAX_AMP_VOLUME_LINEAR * 0.25)
+            self.assertGreater(at_unity, at_half)
+            self.assertGreater(at_half, at_quarter)
+
+    def test_volume_fader_db_linear_even_steps(self) -> None:
+        import math
+
+        from patch_browser.patch_normalization import volume_fader_to_amp_linear
+
+        fader_min, fader_max = 0.25, 1.0
+        cap = 1.5
+
+        def at_pct(pct: float) -> float:
+            trim = fader_min + (pct / 100.0) * (fader_max - fader_min)
+            return volume_fader_to_amp_linear(
+                trim,
+                patch_gain_linear=8.0,
+                cap=cap,
+                fader_min=fader_min,
+                fader_max=fader_max,
+            )
+
+        def db(linear: float) -> float:
+            return 20.0 * math.log10(linear)
+
+        low_span = db(at_pct(60.0)) - db(at_pct(40.0))
+        high_span = db(at_pct(100.0)) - db(at_pct(80.0))
+        self.assertAlmostEqual(low_span, high_span, delta=0.05)
+
     def test_combined_volume_clamps_above_max_amp_linear(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             user_path = Path(tmp) / "user.json"
@@ -146,7 +212,7 @@ class PatchNormalizationStoreTests(unittest.TestCase):
             self.assertLessEqual(sent, NORM_MAX_AMP_VOLUME_LINEAR)
             self.assertAlmostEqual(sent, NORM_MAX_AMP_VOLUME_LINEAR)
 
-    def test_norm_off_leaves_patch_native_amp_at_unity_trim(self) -> None:
+    def test_norm_off_uses_higher_volume_cap(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             user_path = Path(tmp) / "user.json"
             user_path.write_text(
@@ -160,12 +226,8 @@ class PatchNormalizationStoreTests(unittest.TestCase):
 
             store.set_enabled("Loud", False)
             loader.refresh_patch_volume("Loud")
-            self.assertEqual(len(loader.osc_client.messages), 0)
-
-            loader.user_volume_trim = 0.8
-            loader.refresh_patch_volume("Loud")
             sent = loader.osc_client.messages[-1][1]
-            self.assertAlmostEqual(sent, 0.8)
+            self.assertAlmostEqual(sent, 1.0)
 
     def test_set_calibration_preserves_disabled_toggle(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -206,14 +268,9 @@ class PatchNormalizationStoreTests(unittest.TestCase):
             store.set_globally_enabled(False)
             self.assertTrue(store.is_enabled("Lead"))
             self.assertIsNone(store.get_gain_db("Lead"))
-            loader.osc_client.messages.clear()
-            loader.refresh_patch_volume("Lead")
-            self.assertEqual(len(loader.osc_client.messages), 0)
-
-            loader.user_volume_trim = 0.8
             loader.refresh_patch_volume("Lead")
             off_volume = loader.osc_client.messages[-1][1]
-            self.assertAlmostEqual(off_volume, 0.8)
+            self.assertAlmostEqual(off_volume, 1.0)
 
             saved_off = json.loads(user_path.read_text())
             self.assertFalse(saved_off["_global"]["enabled"])
@@ -224,6 +281,61 @@ class PatchNormalizationStoreTests(unittest.TestCase):
             loader.refresh_patch_volume("Lead")
             restored = loader.osc_client.messages[-1][1]
             self.assertAlmostEqual(on_volume, restored)
+
+    def test_user_gain_override_takes_precedence(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            user_path = Path(tmp) / "user.json"
+            user_path.write_text(
+                json.dumps(
+                    {
+                        "Lead": {
+                            "gain_db": 6.0,
+                            "user_gain_db": 3.0,
+                            "enabled": True,
+                            "lufs_measured": -24.0,
+                        }
+                    }
+                )
+            )
+            store = PatchNormalizationStore(user_path)
+            self.assertEqual(store.get_effective_gain_db("Lead"), 3.0)
+            self.assertEqual(store.get_calibrated_gain_db("Lead"), 6.0)
+            self.assertTrue(store.has_user_gain_override("Lead"))
+
+            loader = PatchLoader(normalization_store=store)
+            loader.osc_client = FakeOscClient()
+            loader.osc_enabled = True
+            loader.user_volume_trim = 1.0
+            loader.refresh_patch_volume("Lead")
+            from patch_browser.patch_normalization import db_to_linear, NORM_MAX_AMP_VOLUME_LINEAR
+
+            sent = loader.osc_client.messages[-1][1]
+            expected = min(db_to_linear(3.0), NORM_MAX_AMP_VOLUME_LINEAR)
+            self.assertAlmostEqual(sent, expected)
+
+    def test_clear_user_gain_reverts_to_calibrated(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            user_path = Path(tmp) / "user.json"
+            user_path.write_text(
+                json.dumps({"Lead": {"gain_db": 6.0, "user_gain_db": 2.0, "enabled": True}})
+            )
+            store = PatchNormalizationStore(user_path)
+            store.clear_user_gain_db("Lead")
+            self.assertFalse(store.has_user_gain_override("Lead"))
+            self.assertEqual(store.get_effective_gain_db("Lead"), 6.0)
+
+    def test_set_calibration_preserves_user_gain_override(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            user_path = Path(tmp) / "user.json"
+            user_path.write_text(json.dumps({"Lead": {"gain_db": 4.0, "user_gain_db": 8.0}}))
+            store = PatchNormalizationStore(user_path)
+            store.set_calibration("Lead", 5.0, -20.0, true_peak_dbtp=-4.0)
+            self.assertEqual(store.get_calibrated_gain_db("Lead"), 5.0)
+            self.assertEqual(store.get_effective_gain_db("Lead"), 8.0)
+            store.save()
+            saved = json.loads(user_path.read_text())
+            self.assertEqual(saved["Lead"]["gain_db"], 5.0)
+            self.assertEqual(saved["Lead"]["user_gain_db"], 8.0)
 
 
 if __name__ == "__main__":

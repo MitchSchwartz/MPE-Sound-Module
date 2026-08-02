@@ -56,6 +56,12 @@ class TouchBrowserEvdevMixin:
             self._az_rail_capture = False
             if self._handle_az_rail_touch("down", pos):
                 return
+            if self.detail_patch and self.normalize_btn.contains(*pos):
+                self._pending_norm_toggle = True
+                return
+            if self.detail_patch and self.favorites_btn.contains(*pos):
+                self._pending_favorites_toggle = True
+                return
             if not self.left_nav_collapsed and self.nav_list.pointer_down(pos):
                 self._touch_list_capture = True
             elif self.left_nav_mode != LeftNavMode.ALL_PATCHES:
@@ -69,11 +75,24 @@ class TouchBrowserEvdevMixin:
                 self._handle_mixer_motion(pos)
         elif kind == "up":
             was_mixer = self._dragging_mixer_id is not None
-            if was_mixer and self._mixer_drag_moved:
-                self._mixer_last_tap_id = None
+            if was_mixer:
+                if self._mixer_drag_moved:
+                    self._mixer_last_tap_id = None
+                self._persist_mixer_drag()
             self._dragging_mixer_id = None
             self._mixer_drag_origin = None
             self._mixer_drag_moved = False
+
+            if getattr(self, "_pending_norm_toggle", False):
+                self._pending_norm_toggle = False
+                self._toggle_normalization()
+                self._touch_list_capture = False
+                return
+            if getattr(self, "_pending_favorites_toggle", False):
+                self._pending_favorites_toggle = False
+                self._toggle_favorites()
+                self._touch_list_capture = False
+                return
 
             if self._handle_az_rail_touch("up", pos):
                 self._touch_list_capture = False

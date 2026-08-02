@@ -73,8 +73,8 @@ Surge OSC `/param/a/amp/volume` and `/param/b/amp/volume` use a linear scale (`1
 On load:
 
 1. Normalization sets `_patch_gain_linear` baseline
-2. User volume slider (`set_volume`) is a trim multiplier on top: `combined = trim × baseline`
-3. When **Norm.** is on, combined OSC amp/volume is capped at **0.85** linear (≈ −1.4 dB) to preserve CPU/buffer headroom under heavy MPE polyphony on the Pi. Norm off uses the touch UI ceiling (**1.5**). User trim stacks below the cap.
+2. User volume slider (`set_volume`) maps fader travel **linearly in dB** from `eff_min` to `eff_max` (`eff_max` = capped norm baseline when Norm on, else the **1.5** ceiling). Display shows **0–100** across fader travel (not raw linear trim).
+3. When **Norm.** is on or off, `eff_max` never exceeds **1.5** linear on Surge amp/volume. (The norm-on cap was **0.85** until 2026-08-01 — see below. A 2026-08-02 fix stopped product-then-cap from flattening the Vol fader; a follow-up switched to dB-linear mapping so the top of the fader is not compressed into the last ~20%.)
 
 ### Polyphony and static/crackle (Pi)
 
@@ -103,7 +103,16 @@ If crackle persists with Norm off and moderate polyphony, try `MPE_SURGE_BUFFER_
 
 **Live diagnosis:** the touch browser header **CPU** meter (see [`TOUCH_PATCH_BROWSER.md`](TOUCH_PATCH_BROWSER.md)) tracks `surge-xt-cli` process load while you play — use it to see when dense polyphony is pushing the Pi toward xrun territory. Norm on should keep typical Quick Select patches lower on that meter than uncapped gain would.
 
-**Quick Select reference (2026-07-30):** calibrated `gain_db` spans about +4 to +18 dB. Without a runtime cap that would map to **~1.6–8.0** linear OSC — too hot for dense MPE on the Pi. With Norm on, combined amp/volume is capped at **0.85** linear.
+**Quick Select reference (2026-07-30):** calibrated `gain_db` spans about +4 to +18 dB. Without a runtime cap that would map to **~1.6–8.0** linear OSC — too hot for dense MPE on the Pi. With Norm on, combined amp/volume is capped at **1.5** linear (same as norm off).
+
+### Norm toggle behavior (2026-08-02 fixes)
+
+Headless Surge keeps `amp/volume` **sticky** across patch loads — it is not reset by `/patch/load`. Two bugs made norm on/off sound identical:
+
+1. **Stale OSC when norm off.** An early pass skipped the OSC send when norm was off at unity trim, leaving the parameter stuck at whatever a prior norm-on session set (e.g. 1.5). **Fix:** `_send_combined_volume()` always asserts `trim × baseline` via OSC for both on and off.
+2. **Global/per-patch re-enable.** Toggling global norm back on did not reload the patch or re-apply stored calibration. **Fix:** reload loaded patch after global toggle; per-patch toggle reloads when needed.
+
+When norm is off at unity user trim, OSC sends **1.0** (not "skip send").
 
 ## Calibration script
 
