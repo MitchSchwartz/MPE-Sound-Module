@@ -4,18 +4,24 @@ Browser handoff invariant (``MPE_CALIB_FROM_BROWSER=1``):
 
 - Do not stop ``touch-patch-browser`` during ``stop_mpe_audio_services`` — the loader
   replaces the browser process via ``exec``; stopping the unit kills teardown.
-- On restore, schedule ``systemctl restart touch-patch-browser`` asynchronously instead
-  of a blocking ``systemctl start`` (same-process deadlock otherwise).
+- Do not ``systemctl restart touch-patch-browser`` from the loader — ``exec`` back
+  into ``touch_patch_browser.py`` instead (same service PID chain, no crash loop).
 
 See ``patch_browser.calibration_constants`` for the env var name and helper.
 """
 
 from __future__ import annotations
 
+import os
 import subprocess
+import sys
 import time
 
-from patch_browser.calibration_constants import calibration_from_browser
+from patch_browser.calibration_constants import (
+    MPE_CALIB_FROM_BROWSER,
+    TOUCH_PATCH_BROWSER_SCRIPT,
+    calibration_from_browser,
+)
 
 
 def unload_snd_aloop_if_idle() -> None:
@@ -45,27 +51,14 @@ def stop_mpe_audio_services() -> None:
     time.sleep(0.5)
 
 
-def _schedule_touch_browser_restart() -> None:
-    """Restart browser after this process exits (avoids systemd stop deadlock)."""
-    # Use `start` (not `restart`) once the loader exits cleanly — Restart=on-failure
-    # will not re-arm the unit after exit 0. Stop boot splash first so prepare-dsi-display
-    # does not race a stale holder when the browser claims kmsdrm.
-    subprocess.Popen(
-        [
-            "sudo",
-            "bash",
-            "-c",
-            (
-                "sleep 4; "
-                "systemctl stop touch-boot-animation.service 2>/dev/null || true; "
-                "sleep 1; "
-                "systemctl start touch-patch-browser.service "
-                ">> /tmp/touch-browser-restart.log 2>&1"
-            ),
-        ],
-        start_new_session=True,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+def exec_touch_patch_browser() -> None:
+    """Replace loader process with the touch browser (browser-initiated cal only)."""
+    if not TOUCH_PATCH_BROWSER_SCRIPT.is_file():
+        raise RuntimeError(f"Touch patch browser not found: {TOUCH_PATCH_BROWSER_SCRIPT}")
+    os.environ.pop(MPE_CALIB_FROM_BROWSER, None)
+    os.execv(
+        sys.executable,
+        [sys.executable, "-u", str(TOUCH_PATCH_BROWSER_SCRIPT)],
     )
 
 
@@ -75,10 +68,5 @@ def restore_mpe_audio_services(*, restart_browser: bool = True) -> None:
     time.sleep(0.5)
     unload_snd_aloop_if_idle()
     subprocess.run(["sudo", "systemctl", "start", "surge-xt-cli"], check=False)
-    if restart_browser:
-        if calibration_from_browser():
-            # Loader runs as the service main process; synchronous restart deadlocks
-            # stop (this process) with teardown still in finally.
-            _schedule_touch_browser_restart()
-        else:
-            subprocess.run(["sudo", "systemctl", "start", "touch-patch-browser"], check=False)
+    if restart_browser and not calibration_from_browser():
+        subprocess.run(["sudo", "systemctl", "start", "touch-patch-browser"], check=False)
