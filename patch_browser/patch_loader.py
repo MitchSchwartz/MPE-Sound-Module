@@ -53,11 +53,6 @@ class PatchLoader:
         if not self.osc_enabled:
             return False
 
-        # Norm off at unity trim: leave Surge patch-native amp/volume (fxp defaults).
-        # Forcing 1.0 OSC made norm on vs off differ by only ~3.5 dB (1.5 vs 1.0).
-        if not self._norm_active and self.user_volume_trim == 1.0:
-            return True
-
         combined = self.user_volume_trim * self._patch_gain_linear
         cap = self._volume_cap()
         if combined > cap:
