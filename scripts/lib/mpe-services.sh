@@ -16,6 +16,27 @@ mpe_patch_browser_unit() {
     fi
 }
 
+# Read one KEY=value from /etc/mpe/mpe.env (appliance canon — not repo config/mpe.env).
+mpe_read_appliance_env_var() {
+    local key="$1"
+    local file="/etc/mpe/mpe.env"
+    [ -f "$file" ] || return 1
+    grep -E "^${key}=" "$file" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '"' | tr -d "'"
+}
+
+# Reload runtime profile from the appliance env file.
+mpe_source_appliance_env() {
+    if [ ! -f /etc/mpe/mpe.env ]; then
+        return 0
+    fi
+    # shellcheck disable=SC1091
+    set -a
+    source /etc/mpe/mpe.env
+    set +a
+    MPE_AUDIO_PROFILE="${MPE_AUDIO_PROFILE:-standalone}"
+    export MPE_AUDIO_PROFILE
+}
+
 mpe_retire_touch_shutdown_animation_unit() {
     local legacy=touch-shutdown-animation.service
     local shipped="${MPE_MODULE_REPO:-}/config/touch-shutdown-animation.service"
@@ -62,8 +83,13 @@ mpe_enable_usb_audio_gadget() {
     fi
 }
 
+mpe_enable_audio_profile_sync() {
+    sudo systemctl enable mpe-audio-profile-sync.service 2>/dev/null || true
+}
+
 mpe_enable_core_services() {
     mpe_enable_usb_audio_gadget
+    mpe_enable_audio_profile_sync
     sudo systemctl enable --now surge-xt-cli.service 2>/dev/null || true
     sudo systemctl enable surge-watchdog.service 2>/dev/null || true
     mpe_enable_patch_browser_ui
