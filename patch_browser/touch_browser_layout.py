@@ -374,13 +374,13 @@ class TouchBrowserLayoutMixin:
                     "enabled": True,
                 }
             )
-        if getattr(self, "_show_light_fader", lambda: False)():
+        if getattr(self, "_show_touch_fader", lambda: False)():
             from patch_browser.patch_pressure import PRESSURE_FLOOR_MAX, PRESSURE_FLOOR_MIN
 
             defs.append(
                 {
-                    "id": "light",
-                    "label": "Light",
+                    "id": "touch",
+                    "label": "Touch",
                     "min": PRESSURE_FLOOR_MIN,
                     "max": PRESSURE_FLOOR_MAX,
                     "enabled": True,

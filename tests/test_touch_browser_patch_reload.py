@@ -50,6 +50,12 @@ class _PatchHost(TouchBrowserPatchesMixin):
     def _toast(self, message: str, seconds: float = 2.0) -> None:
         return None
 
+    def _layout(self) -> None:
+        return None
+
+    def _sync_pressure_live(self, floor: float | None = None) -> None:
+        return None
+
 
 class SurgeReadyForPatchLoadTests(unittest.TestCase):
     def test_false_when_osc_disabled(self) -> None:
