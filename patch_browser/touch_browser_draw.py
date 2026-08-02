@@ -281,7 +281,7 @@ class TouchBrowserDrawMixin:
             value_label = f"{volume_fader_display_pct(value, fader_min=VOLUME_MIN, fader_max=VOLUME_MAX)}"
         elif channel.enabled and channel.channel_id == "tail":
             value_label = self.loader.hold.format_hold_mult(value)
-        elif channel.enabled and channel.channel_id == "light":
+        elif channel.enabled and channel.channel_id == "touch":
             value_label = self.loader.pressure.format_floor(value)
         elif channel.enabled and channel.channel_id == "norm":
             value_label = f"{value:+.1f}"

@@ -1,4 +1,4 @@
-"""Touch patch browser — Light (MPE pressure floor) mixin."""
+"""Touch patch browser — Touch (MPE pressure floor) mixin."""
 
 from __future__ import annotations
 
@@ -9,13 +9,13 @@ from patch_browser.patch_pressure import (
 )
 
 
-class TouchBrowserLightMixin:
+class TouchBrowserTouchMixin:
     """Mixin — expects TouchPatchBrowser host attributes."""
 
-    def _show_light_fader(self) -> bool:
+    def _show_touch_fader(self) -> bool:
         return bool(self.detail_patch)
 
-    def _light_floor_for_detail(self) -> float:
+    def _touch_floor_for_detail(self) -> float:
         if not self.detail_patch:
             return DEFAULT_PRESSURE_FLOOR
         return self.loader.pressure.get_effective_floor(self.detail_patch["name"])
@@ -27,7 +27,7 @@ class TouchBrowserLightMixin:
         eff = self.loader.pressure.get_effective_floor(name) if floor is None else float(floor)
         self.loader.pressure.write_live_state(name, eff)
 
-    def _apply_light_floor(self, floor: float, *, persist: bool = True) -> None:
+    def _apply_touch_floor(self, floor: float, *, persist: bool = True) -> None:
         if not self.detail_patch:
             return
         name = self.detail_patch["name"]
@@ -39,10 +39,10 @@ class TouchBrowserLightMixin:
             store.set_user_floor(name, clamped, persist=persist)
         self._sync_pressure_live(clamped)
 
-    def _reset_light_to_default(self) -> None:
+    def _reset_touch_to_default(self) -> None:
         if not self.detail_patch:
             return
         name = self.detail_patch["name"]
         self.loader.pressure.clear_user_floor(name)
         self._sync_pressure_live(DEFAULT_PRESSURE_FLOOR)
-        self._toast("Light reset", 1.2)
+        self._toast("Touch reset", 1.2)

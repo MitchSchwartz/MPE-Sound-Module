@@ -14,7 +14,7 @@ from patch_browser.patch_pressure import (
     effective_pressure_mult,
     remap_pressure_7bit,
 )
-from patch_browser.pressure_midi import remap_midi_message
+from patch_browser.pressure_midi import find_remap_output_port_index, normalize_midi_bytes, remap_midi_message
 
 
 class PatchPressureTests(unittest.TestCase):
@@ -65,6 +65,21 @@ class PressureMidiTests(unittest.TestCase):
     def test_note_on_unchanged(self) -> None:
         msg = remap_midi_message([0x91, 60, 100], floor=0.5)
         self.assertEqual(msg, [0x91, 60, 100])
+
+    def test_find_remap_output_port_index(self) -> None:
+        ports = [
+            "Midi Through:Midi Through Port-0 14:0",
+            "LUMI Keys BLOCK:LUMI Keys BLOCK MIDI 1 32:0",
+        ]
+        self.assertEqual(find_remap_output_port_index(ports), 0)
+
+    def test_normalize_nested_rtmidi_payload(self) -> None:
+        nested = ([0x91, 60, 100], 0.0)
+        self.assertEqual(normalize_midi_bytes(nested), [0x91, 60, 100])
+        self.assertEqual(
+            remap_midi_message(nested, floor=0.5),
+            [0x91, 60, 100],
+        )
 
 
 if __name__ == "__main__":
