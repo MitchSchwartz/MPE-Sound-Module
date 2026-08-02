@@ -43,6 +43,7 @@ Every patch is fully editable and MPE-assignable from your computer, across all 
 
 - **Two interface options** — rotary encoder + OLED screen, or fullscreen touch display (SmartiPi 5″)
 - **Full-library browsing** — folder view or a flat, alphabetical searchable list
+- **Per-patch mixer (touch)** — vertical faders on the patch detail pane: **Vol** (level), **Tail** (envelope length), **Touch** (MPE pressure response for light vs full press)
 - **Theming** — light/dark base themes with custom accent colors
 - **CPU meter** — live engine headroom while playing
 

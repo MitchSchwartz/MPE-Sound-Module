@@ -8,13 +8,9 @@ A plain-English rundown of what changed this week — for anyone following along
 
 ## 🔊 Audio
 
-### Play through your laptop speakers — no aux cable
+### USB audio out to your laptop
 
-You can now tether the module to a laptop or desktop over a single USB-C cable and it shows up as a normal audio input, the same way a USB audio interface would. No drivers, no aux cord snaking across the desk, no separate DAC. Plug in, select the module as your input, and you're recording or monitoring straight off the Pi.
-
-This one took real work to get right. Early attempts *looked* perfect — every check passed, the cable was recognized, everything was "connected" — but the host just heard silence. It turned out the audio engine itself was quietly getting stuck mid-stream once the laptop stopped listening for a moment, and it never woke back up on its own. There's now a small watchdog running on the Pi that notices when this happens and kicks the audio engine back into gear automatically, so you never have to think about it. Verified with real playback captured on the host end — clean signal, no glitches.
-
-The setting also now survives a reboot, and switching between "USB to laptop" and "normal analog output" no longer interrupts whatever patch you had loaded.
+Tether the module to a laptop or desktop over USB-C and it shows up as a normal audio input — no aux cable across the desk. Toggle **USB Audio** in System settings (⋯); the header badge shows **Analog** or **USB**. Your loaded patch stays put when you switch. See [`USB-AUDIO-HOST.md`](USB-AUDIO-HOST.md) for hardware setup (split power on Pi 4/5).
 
 ### Every patch, the same volume
 
@@ -23,16 +19,26 @@ If you've ever loaded a patch that was uncomfortably loud right after one that w
 This week closed out a run of loudness bugs that were sneaky because they mostly *looked* like they were working:
 
 - Some genuinely quiet patches (by design — a few patches are quiet on purpose, like ones with inverted velocity) were getting under-corrected because the safety ceiling on the correction was set too conservatively. That ceiling has been raised, and those patches now come back to a normal, listenable level.
-- Turning the per-patch "Normalize" toggle off and back on didn't always do what it looked like it was doing — the underlying volume could get stuck at whatever it was before you touched the toggle. Fixed so the toggle now reliably reflects what you see on screen.
+- Turning the per-patch **Norm.** toggle off and back on didn't always do what it looked like it was doing — the underlying volume could get stuck at whatever it was before you touched the toggle. Fixed so the toggle now reliably reflects what you see on screen.
 - Calibration itself got smarter about patches with a slow attack (think: a pad that fades in over several seconds) — it now gives those patches a longer chance to reach real volume before giving up on measuring them, instead of judging them too early and skipping them.
 
 ---
 
 ## 🖥️ Touch screen UI
 
+### Per-patch mixer faders
+
+The patch detail pane now has a vertical fader strip — mixing-board style, taller than the old thin sliders:
+
+- **Vol** — overall level for the loaded patch. Drag up for louder; display runs **0–100** across the full travel so normalized patches aren't stuck in the top fifth of the slider.
+- **Tail** — stretch or shorten the amp envelope **sustain, decay, and release** (both scenes). Default **1.0×** is patch-as-loaded; drag down for tighter tails, up for longer holds and releases. Double-tap resets to 1.0×. Your setting is remembered per patch.
+- **Touch** — how much expression you get from a **light** press vs a full one. Some patches barely whisper until you're pushing hard; this fader lifts the floor so feather-touch playing still speaks. Calibration can set a starting point automatically; double-tap resets to that default. Remapped in real time via the pressure remapper service — no Surge GUI needed.
+
+**Norm** (when **Norm.** is on) and the **Norm.** checkbox sit alongside these faders; see [`PATCH_NORMALIZATION.md`](PATCH_NORMALIZATION.md).
+
 ### Browse your entire library, not just favorites
 
-There's a new **All** view that flattens your whole patch library into one alphabetical list with a quick-jump rail on the side — tap a letter, land there instantly. Previously you could only browse folder by folder; now you can just scroll straight to the patch you want by name, from anywhere in the library. Favorited patches show a little heart so you always know what's already in your quick-access folder.
+There's an **All** view that flattens your whole patch library into one alphabetical list with a quick-jump rail on the side — tap a letter, land there instantly. Previously you could only browse folder by folder; now you can just scroll straight to the patch you want by name, from anywhere in the library. Favorited patches show a little heart so you always know what's already in your quick-access folder.
 
 ### Make it yours
 
@@ -40,7 +46,7 @@ A proper theme system landed — pick a base look (the original dark theme, or a
 
 ### A cleaner settings panel
 
-Settings moved from a popup modal into a slide-out panel that feels more like part of the app and less like an interruption. There's also a small CPU meter now living in the header — handy if you're playing something demanding and want to keep an eye on headroom before things get crackly.
+Settings moved from a popup modal into a slide-out panel that feels more like part of the app and less like an interruption. There's also a compact **CPU** meter in the header — label plus a vertical bar — handy if you're playing something demanding and want to keep an eye on headroom before things get crackly.
 
 ---
 
@@ -52,8 +58,8 @@ Not the flashy stuff, but it matters if you're actually using this as an instrum
 - Fixed a crash loop where the touch screen could get stuck restarting itself over and over after certain updates — root cause was a stale process holding onto the display it needed.
 - Calibration (the "learn each patch's volume" process) had a chain of four separate bugs stacking on top of each other that made one overnight run come back with "0 patches saved." All four are now fixed and covered by automated tests so they can't quietly creep back in.
 
-**136 automated tests** now run on every change before it ships (up from 80 a few days ago) — the safety net behind all of the above.
+**150+ automated tests** now run on every change before it ships — the safety net behind all of the above.
 
 ---
 
-*Want the full engineering log with commit references? See [`CHANGELOG.md`](../CHANGELOG.md). Full technical detail on loudness matching lives in [`PATCH_NORMALIZATION.md`](PATCH_NORMALIZATION.md); on USB desk audio in [`USB-AUDIO-HOST.md`](USB-AUDIO-HOST.md); on the touch screen in [`TOUCH_PATCH_BROWSER.md`](TOUCH_PATCH_BROWSER.md).*
+*Want the full engineering log with commit references? See [`CHANGELOG.md`](../CHANGELOG.md). Full technical detail on loudness matching lives in [`PATCH_NORMALIZATION.md`](PATCH_NORMALIZATION.md); on the touch screen in [`TOUCH_PATCH_BROWSER.md`](TOUCH_PATCH_BROWSER.md); on USB desk audio in [`USB-AUDIO-HOST.md`](USB-AUDIO-HOST.md).*
