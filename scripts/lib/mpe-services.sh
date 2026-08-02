@@ -52,9 +52,12 @@ mpe_enable_patch_browser_ui() {
 mpe_enable_usb_audio_gadget() {
     if [ "${MPE_AUDIO_PROFILE:-standalone}" = "usb-host" ]; then
         sudo systemctl enable --now usb-audio-gadget.service 2>/dev/null || true
+        sudo systemctl enable --now uac2-stall-watchdog.service 2>/dev/null || true
         echo "  USB audio gadget: enabled (MPE_AUDIO_PROFILE=usb-host)"
+        echo "  UAC2 stall watchdog: enabled"
     else
         sudo systemctl disable --now usb-audio-gadget.service 2>/dev/null || true
+        sudo systemctl disable --now uac2-stall-watchdog.service 2>/dev/null || true
         echo "  USB audio gadget: disabled (MPE_AUDIO_PROFILE=${MPE_AUDIO_PROFILE:-standalone})"
     fi
 }
