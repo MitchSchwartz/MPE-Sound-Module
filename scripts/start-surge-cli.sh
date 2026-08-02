@@ -70,6 +70,7 @@ echo "$(date): ALSA buffer size: $SURGE_BUFFER_SIZE samples" >> "$LOG_FILE"
   --audio-interface="$AUDIO_DEVICE" \
   --buffer-size="$SURGE_BUFFER_SIZE" \
   --osc-in-port=53280 \
+  --osc-out-port=53270 \
   --no-stdin \
   >> "$LOG_FILE" 2>&1 &
 

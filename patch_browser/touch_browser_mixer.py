@@ -6,6 +6,7 @@ import time
 
 from patch_browser.geometry import Rect
 from patch_browser.mixer import MixerChannel
+from patch_browser.patch_hold import DEFAULT_HOLD_MULT
 from patch_browser.touch_ui_constants import (
     DEFAULT_VOLUME,
     FADER_HANDLE_H,
@@ -22,44 +23,82 @@ class TouchBrowserMixerMixin:
             return self.brightness_percent
         ratio = (x - rect.x) / rect.w
         return max(0, min(100, round(ratio * 100)))
+
     def _mixer_default_value(self, channel: MixerChannel) -> float:
         if channel.channel_id == "volume":
             return DEFAULT_VOLUME
+        if channel.channel_id == "tail":
+            return DEFAULT_HOLD_MULT
+        if channel.channel_id == "norm" and self.detail_patch:
+            return self.loader.normalization.get_slider_default_gain_db(self.detail_patch["name"])
         return (channel.min_value + channel.max_value) / 2
+
     def _mixer_value(self, channel: MixerChannel) -> float:
         if channel.channel_id == "volume":
             return self.volume_level
+        if channel.channel_id == "tail":
+            return self._tail_mult_for_detail()
+        if channel.channel_id == "norm":
+            return self._norm_gain_db_for_detail()
         return self._mixer_levels.get(channel.channel_id, self._mixer_default_value(channel))
+
     def _value_to_handle_y(self, channel: MixerChannel, value: float) -> int:
         span = channel.max_value - channel.min_value
         ratio = 0.0 if span <= 0 else (value - channel.min_value) / span
         ratio = max(0.0, min(1.0, ratio))
         travel = channel.track_rect.h - FADER_HANDLE_H
         return int(channel.track_rect.y + travel * (1.0 - ratio))
+
     def _value_from_track_y(self, channel: MixerChannel, y: int) -> float:
         travel = max(1, channel.track_rect.h - FADER_HANDLE_H)
         local = y - channel.track_rect.y - FADER_HANDLE_H // 2
         ratio = 1.0 - max(0.0, min(1.0, local / travel))
         return channel.min_value + ratio * (channel.max_value - channel.min_value)
-    def _set_mixer_value(self, channel: MixerChannel, value: float) -> None:
+
+    def _set_mixer_value(self, channel: MixerChannel, value: float, *, persist: bool = True) -> None:
         clamped = max(channel.min_value, min(channel.max_value, value))
         if channel.channel_id == "volume":
             if channel.enabled:
                 self._apply_volume(clamped)
             return
+        if channel.channel_id == "norm":
+            if channel.enabled:
+                self._apply_norm_gain_db(clamped, persist=persist)
+            return
+        if channel.channel_id == "tail":
+            if channel.enabled:
+                self._apply_tail_mult(clamped, persist=persist)
+            return
         self._mixer_levels[channel.channel_id] = clamped
+
+    def _persist_mixer_drag(self) -> None:
+        """Flush deferred norm/tail slider writes after finger-up."""
+        channel_id = self._dragging_mixer_id
+        if channel_id == "norm":
+            self.loader.normalization.save()
+        elif channel_id == "tail":
+            self.loader.hold.save()
+
     def _reset_mixer_channel(self, channel: MixerChannel) -> None:
+        if channel.channel_id == "norm":
+            self._reset_norm_gain_to_calibrated()
+            return
+        if channel.channel_id == "tail":
+            self._reset_tail_to_patch_default()
+            return
         default = self._mixer_default_value(channel)
         self._set_mixer_value(channel, default)
         if channel.channel_id == "volume":
             self._toast("Volume reset", 1.2)
         elif channel.enabled:
             self._toast(f"{channel.label} reset", 1.2)
+
     def _mixer_channel_at(self, pos: tuple[int, int]) -> MixerChannel | None:
         for channel in self.mixer_channels:
             if channel.column_rect.contains(*pos):
                 return channel
         return None
+
     def _handle_mixer_down(self, pos: tuple[int, int]) -> bool:
         channel = self._mixer_channel_at(pos)
         if channel is None:
@@ -85,8 +124,9 @@ class TouchBrowserMixerMixin:
         self._mixer_drag_moved = False
         self._dragging_mixer_id = channel.channel_id
         if channel.enabled:
-            self._set_mixer_value(channel, self._value_from_track_y(channel, pos[1]))
+            self._set_mixer_value(channel, self._value_from_track_y(channel, pos[1]), persist=False)
         return True
+
     def _handle_mixer_motion(self, pos: tuple[int, int]) -> None:
         if self._mixer_drag_origin and not self._mixer_drag_moved:
             dx = pos[0] - self._mixer_drag_origin[0]
@@ -98,5 +138,9 @@ class TouchBrowserMixerMixin:
             return
         for channel in self.mixer_channels:
             if channel.channel_id == self._dragging_mixer_id and channel.enabled:
-                self._set_mixer_value(channel, self._value_from_track_y(channel, pos[1]))
+                self._set_mixer_value(
+                    channel,
+                    self._value_from_track_y(channel, pos[1]),
+                    persist=False,
+                )
                 break

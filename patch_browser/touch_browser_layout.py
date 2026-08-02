@@ -8,11 +8,13 @@ from patch_browser.scroll_widgets import ScrollList
 from patch_browser.touch_ui_constants import (
     ALL_PATCHES_ROW_HEIGHT,
     AZ_RAIL_WIDTH,
+    BROWSER_BOTTOM_MARGIN,
     CPU_METER_H,
     CPU_METER_W,
     FADER_COLUMN_W,
     FADER_TRACK_H,
     FADER_TRACK_W,
+    FAVORITES_BTN_SIZE,
     LEFT_NAV_COLLAPSED_WIDTH,
     LEFT_NAV_WIDTH,
     NAV_FOLDER_TITLE_H,
@@ -47,7 +49,6 @@ class TouchBrowserLayoutMixin:
         gap = 10
         status_h = 44
         nav_header_h = 36
-        footer_h = 22
         audio_badge_w = 56
 
         self.status_rect = Rect(margin, margin, self.width - margin * 2, status_h)
@@ -72,7 +73,7 @@ class TouchBrowserLayoutMixin:
         )
 
         content_top = self.status_rect.y + self.status_rect.h + gap
-        content_bottom = self.height - footer_h - margin
+        content_bottom = self.height - BROWSER_BOTTOM_MARGIN
         left_w = self._left_nav_width()
 
         self.left_panel_rect = Rect(margin, content_top, left_w, content_bottom - content_top)
@@ -96,17 +97,18 @@ class TouchBrowserLayoutMixin:
             main_x = margin + left_w + gap
             main_w = self.width - margin * 2 - left_w - gap
             self.main_rect = Rect(main_x, content_top, main_w, content_bottom - content_top)
+        action_row_h = max(NORM_ROW_H, FAVORITES_BTN_SIZE)
+        bottom_row_y = self.main_rect.bottom - action_row_h - BROWSER_BOTTOM_MARGIN
         self._layout_mixer_strip()
-        bottom_row_y = self.main_rect.bottom - 52
         self.favorites_btn = Rect(
-            self.main_rect.right - 56,
-            bottom_row_y,
-            40,
-            40,
+            self.main_rect.right - FAVORITES_BTN_SIZE - 8,
+            bottom_row_y + (action_row_h - FAVORITES_BTN_SIZE) // 2,
+            FAVORITES_BTN_SIZE,
+            FAVORITES_BTN_SIZE,
         )
         self.normalize_btn = Rect(
             self.favorites_btn.x - NORM_ROW_W - 10,
-            bottom_row_y,
+            bottom_row_y + (action_row_h - NORM_ROW_H) // 2,
             NORM_ROW_W,
             NORM_ROW_H,
         )
@@ -243,9 +245,8 @@ class TouchBrowserLayoutMixin:
     ) -> None:
         if content_top is None:
             gap = 10
-            footer_h = 22
             content_top = self.status_rect.y + self.status_rect.h + gap
-            content_bottom = self.height - footer_h - margin
+            content_bottom = self.height - BROWSER_BOTTOM_MARGIN
 
         show_folder_title = (
             not self.left_nav_collapsed
@@ -334,19 +335,51 @@ class TouchBrowserLayoutMixin:
                 return letter
         return None
     def _mixer_channel_defs(self) -> list[dict]:
-        return [
+        from patch_browser.patch_hold import HOLD_MULT_MAX, HOLD_MULT_MIN
+        from patch_browser.patch_normalization import NORM_GAIN_DB_MAX, NORM_GAIN_DB_MIN
+
+        defs: list[dict] = [
             {"id": "volume", "label": "Vol", "min": VOLUME_MIN, "max": VOLUME_MAX, "enabled": True},
         ]
+        if getattr(self, "_show_tail_fader", getattr(self, "_show_hold_fader", lambda: False))():
+            defs.append(
+                {
+                    "id": "tail",
+                    "label": "Tail",
+                    "min": HOLD_MULT_MIN,
+                    "max": HOLD_MULT_MAX,
+                    "enabled": True,
+                }
+            )
+        if getattr(self, "_show_norm_level_fader", lambda: False)():
+            defs.append(
+                {
+                    "id": "norm",
+                    "label": "Norm",
+                    "min": NORM_GAIN_DB_MIN,
+                    "max": NORM_GAIN_DB_MAX,
+                    "enabled": True,
+                }
+            )
+        return defs
+
     def _layout_mixer_strip(self) -> None:
         defs = self._mixer_channel_defs()
         count = len(defs)
-        strip_w = count * FADER_COLUMN_W
-        strip_x = self.main_rect.x + max(16, (self.main_rect.w - strip_w) // 2)
+        if count <= 0:
+            self.mixer_channels = []
+            return
+
         strip_top = self.main_rect.y + 96
+        pad_x = 24
+        inner_w = max(FADER_COLUMN_W, self.main_rect.w - pad_x * 2)
+        columns_w = count * FADER_COLUMN_W
+        gap = max(16, (inner_w - columns_w) // (count + 1))
+        strip_x = self.main_rect.x + pad_x
 
         self.mixer_channels = []
         for i, spec in enumerate(defs):
-            col_x = strip_x + i * FADER_COLUMN_W
+            col_x = strip_x + gap + i * (FADER_COLUMN_W + gap)
             track_x = col_x + (FADER_COLUMN_W - FADER_TRACK_W) // 2
             column_rect = Rect(col_x, strip_top, FADER_COLUMN_W, FADER_TRACK_H + 44)
             track_rect = Rect(track_x, strip_top, FADER_TRACK_W, FADER_TRACK_H)
