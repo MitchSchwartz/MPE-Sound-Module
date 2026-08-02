@@ -1,4 +1,4 @@
-"""Tests for per-patch normalization toggle applying via patch reload."""
+"""Tests for per-patch normalization toggle applying volume refresh."""
 
 from __future__ import annotations
 
@@ -32,6 +32,7 @@ class _NormHost(TouchBrowserPatchesMixin, TouchBrowserNormalizationMixin):
         }
         self.loaded_patch_info = dict(self.detail_patch)
         self.toast_message = ""
+        self.layout_calls = 0
 
     def _toast(self, message: str, seconds: float = 2.0) -> None:
         self.toast_message = message
@@ -45,25 +46,28 @@ class _NormHost(TouchBrowserPatchesMixin, TouchBrowserNormalizationMixin):
     def _surge_ready_for_patch_load(self) -> bool:
         return True
 
+    def _layout(self) -> None:
+        self.layout_calls += 1
+
 
 class NormToggleReloadTests(unittest.TestCase):
-    def test_per_patch_toggle_reloads_loaded_patch(self) -> None:
+    def test_per_patch_toggle_refreshes_volume_without_full_reload(self) -> None:
         host = _NormHost()
-        host.loader.load_patch.return_value = True
 
         host._toggle_normalization()
 
         host.loader.normalization.set_enabled.assert_called_once_with("Acid", True)
-        host.loader.load_patch.assert_called_once_with("/patches/Bass/Acid.fxp")
-        host.loader.refresh_patch_volume.assert_not_called()
+        host.loader.load_patch.assert_not_called()
+        host.loader.refresh_patch_volume.assert_called_once_with("Acid")
+        self.assertEqual(host.layout_calls, 1)
 
-    def test_per_patch_toggle_falls_back_to_volume_refresh_when_reload_fails(self) -> None:
+    def test_per_patch_toggle_skips_refresh_when_osc_disabled(self) -> None:
         host = _NormHost()
-        host.loader.load_patch.return_value = False
+        host.loader.osc_enabled = False
 
         host._toggle_normalization()
 
-        host.loader.refresh_patch_volume.assert_called_once_with("Acid")
+        host.loader.refresh_patch_volume.assert_not_called()
 
 
 if __name__ == "__main__":
