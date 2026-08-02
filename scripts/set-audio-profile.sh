@@ -38,6 +38,17 @@ rm -f "$tmp"
 
 export MPE_AUDIO_PROFILE="$PROFILE"
 mpe_enable_usb_audio_gadget
+
+# shellcheck source=lib/wait-for-uac2-gadget.sh
+source "$SCRIPT_DIR/lib/wait-for-uac2-gadget.sh"
+if [ "$PROFILE" = "usb-host" ]; then
+    wait_for_uac2_gadget 8 || true
+fi
+
+# shellcheck source=lib/profile-switch-flag.sh
+source "$SCRIPT_DIR/lib/profile-switch-flag.sh"
+profile_switch_flag_mark
 systemctl restart surge-xt-cli.service
+# start-surge-cli.sh clears the flag after reading (fast profile restarts skip MIDI wait).
 
 echo "MPE_AUDIO_PROFILE=$PROFILE applied"

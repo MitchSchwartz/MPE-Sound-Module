@@ -27,13 +27,17 @@ except ImportError as exc:
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
-from patch_browser.calibration_teardown import restore_mpe_audio_services  # noqa: E402
+from patch_browser.calibration_teardown import (  # noqa: E402
+    exec_touch_patch_browser,
+    restore_mpe_audio_services,
+)
+from patch_browser.calibration_constants import calibration_from_browser  # noqa: E402
+from patch_browser.shutdown_trace import log_shutdown_event, systemd_shutdown_pending  # noqa: E402
 from patch_browser.dsi_splash import (
     CAL_RETURN_HOLD_SECONDS,
     SplashMode,
     draw_splash_frame,
     paint_immediate,
-    start_boot_splash_service,
 )
 from patch_browser.geometry import Rect  # noqa: E402
 from patch_browser.ui_text import (
@@ -250,6 +254,7 @@ class CalibrationLoaderApp:
             theme=self.theme,
             progress=0.05,
         )
+        pygame.display.flip()
 
         self.state = LoaderState()
         self._started_at = time.monotonic()
@@ -497,6 +502,14 @@ class CalibrationLoaderApp:
             exit_code = self.state.exit_code
             if exit_code is None:
                 exit_code = self.reader.join()
+            shutdown_pending = systemd_shutdown_pending()
+            log_shutdown_event(
+                "loader_teardown_begin",
+                phase=self.state.phase,
+                exit_code=exit_code,
+                shutdown_pending=shutdown_pending,
+                from_browser=calibration_from_browser(),
+            )
             if exit_code not in (0, 130):
                 _write_loader_exit_report(self.state, subprocess_code=exit_code)
             draw_splash_frame(
@@ -507,10 +520,9 @@ class CalibrationLoaderApp:
             )
             time.sleep(CAL_RETURN_HOLD_SECONDS)
             pygame.quit()
-            if not os.environ.get("MPE_TOUCH_WINDOWED") == "1" and not os.environ.get("DISPLAY"):
-                start_boot_splash_service()
-            # Release kmsdrm before touch-patch-browser claims the display.
-            restore_mpe_audio_services()
+            restore_mpe_audio_services(restart_browser=not calibration_from_browser())
+            if calibration_from_browser():
+                exec_touch_patch_browser()
 
         return exit_code if exit_code is not None else 0
 
