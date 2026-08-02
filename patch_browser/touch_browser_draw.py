@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import time
 
+import math
 import pygame
 
 from patch_browser.draw_primitives import (
@@ -14,6 +15,7 @@ from patch_browser.draw_primitives import (
 )
 from patch_browser.geometry import Rect
 from patch_browser.mixer import MixerChannel
+from patch_browser.dsi_splash import shutdown_animation_phase
 from patch_browser.touch_ui_constants import (
     CPU_METER_BAR_H,
     FADER_HANDLE_H,
@@ -644,10 +646,12 @@ class TouchBrowserDrawMixin:
         )
 
         audio_toggle = self._panel_local_to_screen(self.audio_profile_toggle_rect, scrolled=True)
+        switching = getattr(self, "_audio_profile_switching", False)
         self._draw_normalize_toggle(
             audio_toggle,
             settings_toggle_on(),
             has_gain=True,
+            disabled=switching,
             label=audio_profile_display(),
         )
 
@@ -682,6 +686,50 @@ class TouchBrowserDrawMixin:
     def _draw_settings(self) -> None:
         self._draw_browser()
         self._draw_settings_panel()
+
+    def _draw_audio_profile_switch_overlay(self) -> None:
+        """Blocking overlay while set-audio-profile.sh runs off the main thread."""
+        self._draw_modal_backdrop(legacy_alpha=170)
+        panel_w = min(420, self.width - 48)
+        panel_h = 160
+        panel = Rect((self.width - panel_w) // 2, (self.height - panel_h) // 2, panel_w, panel_h)
+        self._draw_elevated_panel(panel, border_radius=16)
+
+        elapsed = time.monotonic() - getattr(self, "_audio_profile_switch_started", time.monotonic())
+        title = self.font_md.render("Switching audio…", True, self.theme.text)
+        self.screen.blit(title, (panel.x + 24, panel.y + 28))
+
+        hint = "Starting USB gadget and restarting Surge"
+        target = getattr(self, "_audio_profile_switch_target", None)
+        if target == "standalone":
+            hint = "Stopping USB gadget and restarting Surge"
+        elif target != "usb-host":
+            hint = "Restarting Surge for new audio route"
+        draw_wrapped_text_in_rect(
+            self.screen,
+            self.font_sm,
+            hint,
+            panel.x + 24,
+            panel.y + 64,
+            panel.w - 48,
+            48,
+            self.theme.muted,
+            max_lines=2,
+        )
+
+        spin_y = panel.y + panel.h - 44
+        phase = shutdown_animation_phase(elapsed)
+        dot_count = 8
+        radius = 14
+        cx = panel.x + panel.w // 2
+        cy = spin_y
+        for i in range(dot_count):
+            angle = (phase + i / dot_count) * 6.28318
+            x = int(cx + radius * math.cos(angle))
+            y = int(cy + radius * math.sin(angle))
+            alpha = int(40 + 215 * (i / dot_count))
+            color = tuple(min(255, int(c * alpha / 255)) for c in self.theme.accent)
+            pygame.draw.circle(self.screen, color, (x, y), 4)
     def _draw_power_menu(self) -> None:
         self._draw_modal_backdrop(legacy_alpha=120)
 

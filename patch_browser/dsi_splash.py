@@ -21,6 +21,7 @@ except ImportError:
     pygame = None  # type: ignore[assignment]
 
 from patch_browser.ui_theme import reload_theme_from_prefs, theme_for_mode
+from patch_browser.shutdown_trace import log_shutdown_event
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_WIDTH = 800
@@ -469,6 +470,7 @@ def run_shutdown_animation(
     start = time.monotonic()
     clock = pygame.time.Clock()
     _log_shutdown(f"shutdown splash started hold={hold_until_halt}")
+    log_shutdown_event("shutdown_splash_hold_loop", hold_until_halt=hold_until_halt)
     # systemd halt/reboot path: hold until this unit is killed (TimeoutStopSec=infinity).
     # Do not exit on SIGTERM — that hands the panel back to a console or stale frame.
     if hold_until_halt:
@@ -566,6 +568,7 @@ def release_display_for_shutdown(
         pygame.quit()
     stop_boot_splash_service(wait=False)
     clear_display_handoff_request()
+    log_shutdown_event("release_display_for_shutdown")
 
 
 def trigger_user_shutdown(power_action: str) -> bool:
@@ -576,10 +579,20 @@ def trigger_user_shutdown(power_action: str) -> bool:
     ``mpe-shutdown-splash.service``, not an in-process pygame loop.
     """
     _log_shutdown(f"trigger_user_shutdown action={power_action}")
+    log_shutdown_event("trigger_user_shutdown", action=power_action)
     stop_getty_tty1()
     stop_boot_splash_service(wait=False)
     splash_ok = start_shutdown_splash_service()
+    log_shutdown_event(
+        "shutdown_splash_started" if splash_ok else "shutdown_splash_failed",
+        action=power_action,
+    )
     power_ok = request_system_power_action(power_action)
+    log_shutdown_event(
+        "system_power_action",
+        action=power_action,
+        ok=power_ok,
+    )
     if not splash_ok:
         _log_shutdown("shutdown splash unit failed to start — poweroff may show console")
     return power_ok

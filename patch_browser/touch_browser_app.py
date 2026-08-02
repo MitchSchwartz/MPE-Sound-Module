@@ -18,6 +18,7 @@ except ImportError as exc:
     print("Or: pip3 install pygame")
     raise SystemExit(1) from exc
 
+from patch_browser.shutdown_trace import log_shutdown_event
 from patch_browser.backlight import BacklightController
 from patch_browser.geometry import Rect
 from patch_browser.mixer import MixerChannel
@@ -148,6 +149,7 @@ class TouchPatchBrowser(
                 self._apply_scan_results()
             self._retry_pending_load()
             self._drain_evdev_touch_queue()
+            self._poll_audio_profile_switch()
             for event in pygame.event.get():
                 if self._ignore_sdl_pointer_event(event):
                     continue
@@ -268,6 +270,10 @@ class TouchPatchBrowser(
         self._settings_content_height = 0
         self._running = True
         self._scan_lock = threading.Lock()
+        self._audio_profile_switching = False
+        self._audio_profile_switch_target: str | None = None
+        self._audio_profile_switch_started = 0.0
+        self._audio_profile_result_queue: queue.SimpleQueue[tuple[bool, str]] = queue.SimpleQueue()
         self._evdev_touch_queue: queue.SimpleQueue[tuple[str, tuple[int, int]]] = queue.SimpleQueue()
         self._evdev_bridge: TouchEvdevBridge | None = None
         self._touch_list_capture = False
@@ -283,9 +289,14 @@ class TouchPatchBrowser(
         self._start_evdev_touch_bridge()
 
 
+def _exit_on_signal(signum: int, *_args: object) -> None:
+    log_shutdown_event("browser_signal_exit", signal=signum)
+    sys.exit(0)
+
+
 def main() -> None:
-    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
-    signal.signal(signal.SIGINT, lambda *_: sys.exit(0))
+    signal.signal(signal.SIGTERM, _exit_on_signal)
+    signal.signal(signal.SIGINT, _exit_on_signal)
     TouchPatchBrowser().run()
 
 
