@@ -109,6 +109,65 @@ sudo systemctl restart surge-xt-cli.service
 
 ---
 
+## Plug-and-play (host — no special routing)
+
+On the **host**, use the gadget like any USB audio interface:
+
+1. Plug in the Pi (usb-host profile, cable to USB-C).
+2. Open your DAW.
+3. Select **USB Audio Passthrough** / **MPE Sound Module** as a **capture / input** device (44100 Hz stereo).
+4. Arm a track and record — or enable input monitoring to hear yourself.
+
+**No host-side install required.** No PipeWire loopback, no per-DAW routing rules.
+
+On Linux the gadget appears in `arecord -l` and in REAPER's ALSA input list as `hw:Passthrough` (card name varies). On Windows/macOS it appears under Sound settings → **Input**.
+
+**First time you arm a track after boot:** the Pi stall watchdog may restart Surge once (~4 s) because Surge wedged at boot before any host app opened the input. After that, audio is continuous for the rest of the session.
+
+**Hearing yourself:** monitor through the DAW (input monitoring), not automatically through PC speakers. For playing feel without a DAW, use standalone profile + Sound Blaster headphones — see FAQ.
+
+### Optional host tweak (Linux / PipeWire only)
+
+If you notice extra delay when first arming a track:
+
+```bash
+./scripts/setup-host-usb-monitor.sh   # optional WirePlumber no-suspend drop-in
+```
+
+Uninstall with `./scripts/setup-host-usb-monitor.sh --uninstall`. This is **not** required for normal DAW use.
+
+### Diagnostics (Linux)
+
+```bash
+arecord -l   # find card N — prefer hw:N,0 over plughw (plughw can be silent)
+```
+
+
+## Writer stall (root-caused 2026-08-02)
+
+**Symptom:** Everything verifies green — gadget bound, Tier 0 selected, host enumerates the device — yet the host records pure digital silence while you play. A tone test (`speaker-test`) captures fine.
+
+**Cause:** Surge/JUCE's ALSA output thread blocks **indefinitely** once the USB host stops consuming the gadget stream, and never recovers when the host returns. Signature on the Pi:
+
+```
+state: RUNNING
+hw_ptr  : 1440217   <- racing
+appl_ptr: 1068890   <- frozen
+```
+
+plus the Surge process dropping to **~0 CPU ticks** — the audio thread is not running, so nothing is rendered regardless of MIDI. Because the host is normally not capturing when Surge starts at boot, Surge is already wedged by the time a DAW opens the input.
+
+Not a cable, power, MIDI-routing, volume/mute, or DAW problem. `speaker-test` works because it opens its own fresh PCM.
+
+**Mitigation:**
+
+1. **Pi (automatic)** — `uac2-stall-watchdog.service` restarts Surge when the host opens a capture stream but the writer is frozen. Enabled with the `usb-host` profile; no user action.
+2. **Host (normal DAW use)** — opening any capture input (REAPER arm, `arecord`, etc.) starts the USB stream; the watchdog completes recovery. No loopback or custom routing needed.
+
+The watchdog only acts when the host **is** streaming (`Playback Rate != 0`) but `appl_ptr` is frozen, so an idle module with nothing plugged in never restart-loops.
+
+---
+
 ## Scripts and services
 
 | Path | Role |
@@ -117,6 +176,10 @@ sudo systemctl restart surge-xt-cli.service
 | `config/usb-audio-gadget.service` | Start gadget at boot when profile is `usb-host` |
 | `scripts/detect-audio-device.sh` | Tier 0: gadget card when profile is `usb-host` |
 | `scripts/usb-host-verify.sh` | Pi-side profile/gadget/Surge checks + host `arecord` hints |
+| `scripts/uac2-stall-watchdog.sh` | Restart Surge when the gadget writer wedges |
+| `config/uac2-stall-watchdog.service` | Runs the stall watchdog (enabled with the `usb-host` profile) |
+| `scripts/setup-host-usb-monitor.sh` | **Optional** host WirePlumber drop-in (Linux only) |
+| `scripts/lib/uac2-card.sh` | Dynamic gadget card index + stream-state helpers |
 
 Diagnostics:
 
@@ -143,4 +206,10 @@ System settings (⋯) shows a read-only **Audio profile** line when running the 
 
 ## Status
 
-**Phase 1 scripts landed — Phase 0 spike documented.** See **[USB-AUDIO-PASSTHROUGH-SPIKE.md](USB-AUDIO-PASSTHROUGH-SPIKE.md)** for measured results (`hw` vs `plughw`, host input vs playback, open capture-during-play issue). Plan doc Phase 0 exit criteria (10+ min stable playback, latency note) still pending soak tests.
+**Working end-to-end as of 2026-08-02.** Surge → UAC2 → host verified with live playback (peak 0.66 captured on the host at a 512-sample buffer, 0 xruns). The long-standing "silent during play" issue was root-caused to the Surge/JUCE ALSA writer stall documented above, not the link layer.
+
+Current config: `MPE_SURGE_BUFFER_SIZE=512` (~11.6 ms), gadget `req_number=2`, `p_hs_bint` at kernel default.
+
+Remaining latency lever (untried): gadget `p_hs_bint=1` drops the USB service interval from ~1 ms to 125 µs. Lower buffers than 512 were deliberately not adopted — 512 is the conservative setting with CPU headroom for heavy patches.
+
+Still pending: 10+ min soak test and a round-trip latency measurement. See **[USB-AUDIO-PASSTHROUGH-SPIKE.md](USB-AUDIO-PASSTHROUGH-SPIKE.md)** for the `hw` vs `plughw` and host-input findings.

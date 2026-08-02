@@ -19,7 +19,7 @@ Run on Pi: `./scripts/usb-host-verify.sh`
 | Linux `arecord -D hw:N,0` | Pass | Tone test peak ~26267 on `hw:N,0` |
 | Linux `arecord -D plughw:N,0` | Fail (silent) | Do not use plughw for capture — use `hw:N,0` |
 | `speaker-test` on Pi without host reader | Expected fail | I/O error -5 when nothing consumes UAC2 stream |
-| Surge + user patch → host capture | **Open** | Tone/generator may work; live patch playback still silent on host capture in testing |
+| Surge + user patch → host capture | **Pass (2026-08-02)** | Root-caused to a JUCE ALSA writer stall — see below. Peak 0.66 captured live at 512-sample buffer |
 | 10+ min stable playback | Not verified | Needs timed soak on hardware |
 | Latency measurement | Not verified | Blocked on stable host capture during play |
 
@@ -27,7 +27,7 @@ Run on Pi: `./scripts/usb-host-verify.sh`
 
 ## Open issues
 
-1. ~~Host capture silent during normal Surge play~~ — **root-caused 2026-07-31, see below.** Not a Surge/ALSA bug — it's a link-layer attach failure.
+1. ~~Host capture silent during normal Surge play~~ — **fully root-caused 2026-08-02: a Surge/JUCE ALSA writer stall.** See §Writer stall below. The 2026-07-31 PD-power finding was a *separate, real* fault that masked this one; with the UDC reading `configured`, the stall is what remained.
 2. **Boot with USB-C tethered** — early boot hang if host connected before kernel ready; see [PI-BOOT-RECOVERY.md](PI-BOOT-RECOVERY.md).
 
 ---
