@@ -13,6 +13,7 @@ from patch_browser.patch_hold import (
     effective_aeg_value,
     iter_hold_osc_paths,
 )
+from patch_browser.patch_pressure import PatchPressureStore
 from patch_browser.patch_normalization import (
     MAX_AMP_VOLUME_LINEAR,
     NORM_MAX_AMP_VOLUME_LINEAR,
@@ -36,6 +37,7 @@ class PatchLoader:
         osc_port=53280,
         normalization_store=None,
         hold_store=None,
+        pressure_store=None,
         osc_out_port: int = OSC_OUT_PORT,
     ):
         try:
@@ -53,6 +55,7 @@ class PatchLoader:
 
         self.normalization = normalization_store or PatchNormalizationStore()
         self.hold = hold_store or PatchHoldStore()
+        self.pressure = pressure_store or PatchPressureStore()
         self.osc_host = osc_host
         self.osc_out_port = osc_out_port
         self.user_volume_trim = 1.0
