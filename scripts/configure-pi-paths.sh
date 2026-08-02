@@ -43,23 +43,37 @@ _run_on_pi() {
     echo ""
 
     sudo mkdir -p /etc/mpe
+    _preserved_audio_profile=""
+    _preserved_surge_buffer=""
+    if [ -f /etc/mpe/mpe.env ]; then
+        _preserved_audio_profile="$(mpe_read_appliance_env_var MPE_AUDIO_PROFILE 2>/dev/null || true)"
+        _preserved_surge_buffer="$(mpe_read_appliance_env_var MPE_SURGE_BUFFER_SIZE 2>/dev/null || true)"
+    fi
+    if [ -n "$_preserved_audio_profile" ]; then
+        MPE_AUDIO_PROFILE="$_preserved_audio_profile"
+    fi
     if [ "$FORCE" = true ] || [ ! -f /etc/mpe/mpe.env ]; then
         echo "Writing /etc/mpe/mpe.env ..."
-        sudo tee /etc/mpe/mpe.env > /dev/null <<EOF
-MPE_PI_USER=$MPE_PI_USER
-MPE_HOME=$HOME
-MPE_MODULE_REPO=$MPE_MODULE_REPO
-MPE_PERSONAL_REPO=${MPE_PERSONAL_REPO:-$HOME/MPE-Library}
-MPE_SURGE_ROOT=$MPE_SURGE_ROOT
-MPE_SURGE_DOCS="$MPE_SURGE_DOCS"
-MPE_SURGE_LOG=$LOG_FILE
-MPE_FAVORITES_NAME="$MPE_FAVORITES_NAME"
-MPE_UI_MODE="$MPE_UI_MODE"
-MPE_AUDIO_PROFILE=${MPE_AUDIO_PROFILE:-standalone}
-EOF
+        {
+            echo "MPE_PI_USER=$MPE_PI_USER"
+            echo "MPE_HOME=$HOME"
+            echo "MPE_MODULE_REPO=$MPE_MODULE_REPO"
+            echo "MPE_PERSONAL_REPO=${MPE_PERSONAL_REPO:-$HOME/MPE-Library}"
+            echo "MPE_SURGE_ROOT=$MPE_SURGE_ROOT"
+            echo "MPE_SURGE_DOCS=\"$MPE_SURGE_DOCS\""
+            echo "MPE_SURGE_LOG=$LOG_FILE"
+            echo "MPE_FAVORITES_NAME=\"$MPE_FAVORITES_NAME\""
+            echo "MPE_UI_MODE=\"$MPE_UI_MODE\""
+            echo "MPE_AUDIO_PROFILE=${MPE_AUDIO_PROFILE:-standalone}"
+            if [ -n "$_preserved_surge_buffer" ]; then
+                echo "MPE_SURGE_BUFFER_SIZE=$_preserved_surge_buffer"
+            fi
+        } | sudo tee /etc/mpe/mpe.env > /dev/null
     else
-        echo "Keeping existing /etc/mpe/mpe.env (use --force to rewrite)"
+        echo "Keeping existing /etc/mpe/mpe.env (use --force to rewrite paths; audio profile preserved on --force)"
     fi
+
+    mpe_source_appliance_env
 
     _install_service() {
         local src="$1"
