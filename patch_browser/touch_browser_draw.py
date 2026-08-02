@@ -19,6 +19,9 @@ from patch_browser.dsi_splash import shutdown_animation_phase
 from patch_browser.patch_normalization import volume_fader_display_pct
 from patch_browser.touch_ui_constants import (
     CPU_METER_BAR_H,
+    CPU_METER_BAR_W,
+    CPU_METER_LABEL_GAP,
+    DETAIL_TITLE_PAD_X,
     FADER_HANDLE_H,
     FADER_HANDLE_W,
     SETTINGS_PANEL_FOOTER_H,
@@ -278,6 +281,8 @@ class TouchBrowserDrawMixin:
             value_label = f"{volume_fader_display_pct(value, fader_min=VOLUME_MIN, fader_max=VOLUME_MAX)}"
         elif channel.enabled and channel.channel_id == "tail":
             value_label = self.loader.hold.format_hold_mult(value)
+        elif channel.enabled and channel.channel_id == "touch":
+            value_label = self.loader.pressure.format_floor(value)
         elif channel.enabled and channel.channel_id == "norm":
             value_label = f"{value:+.1f}"
         else:
@@ -309,10 +314,13 @@ class TouchBrowserDrawMixin:
     def _draw_cpu_meter(self, rect: Rect) -> None:
         snap = self.cpu_monitor.snapshot()
         label = self.font_sm.render("CPU", True, self.theme.muted)
-        self.screen.blit(label, (rect.x, rect.y))
+        label_x = rect.x
+        label_y = rect.y + (rect.h - label.get_height()) // 2
+        self.screen.blit(label, (label_x, label_y))
 
-        bar_y = rect.y + label.get_height() + 1
-        bar_rect = pygame.Rect(rect.x, bar_y, rect.w, CPU_METER_BAR_H)
+        bar_x = rect.x + label.get_width() + CPU_METER_LABEL_GAP
+        bar_y = rect.y + (rect.h - CPU_METER_BAR_H) // 2
+        bar_rect = pygame.Rect(bar_x, bar_y, CPU_METER_BAR_W, CPU_METER_BAR_H)
         pygame.draw.rect(self.screen, self.theme.surface_alt, bar_rect, border_radius=3)
 
         if not snap["online"] or snap["percent"] is None:
@@ -323,8 +331,8 @@ class TouchBrowserDrawMixin:
             return
 
         percent = max(0.0, min(100.0, float(snap["percent"])))
-        fill_w = max(1, int(bar_rect.w * (percent / 100.0)))
-        fill_rect = pygame.Rect(bar_rect.x, bar_rect.y, fill_w, bar_rect.h)
+        fill_h = max(1, int(bar_rect.h * (percent / 100.0)))
+        fill_rect = pygame.Rect(bar_rect.x, bar_rect.bottom - fill_h, bar_rect.w, fill_h)
         pygame.draw.rect(
             self.screen,
             self._cpu_meter_color(percent),
@@ -520,35 +528,22 @@ class TouchBrowserDrawMixin:
             )
             return
 
-        name_lines = wrap_text_lines(
-            self.font_lg,
-            self.detail_patch["name"],
-            max(1, self.main_rect.w - 48),
-            max_lines=2,
-        )
-        name_block_h = text_block_height(self.font_lg, len(name_lines), line_spacing=4)
+        name_lines, cat_lines, name_y, cat_y, _header_bottom = self._detail_title_block()
         blit_text_block(
             self.screen,
             self.font_lg,
             name_lines,
-            self.main_rect.x + 24,
-            self.main_rect.y + 24,
+            self.main_rect.x + DETAIL_TITLE_PAD_X,
+            name_y,
             self.theme.text,
             line_spacing=4,
         )
 
-        cat_y = self.main_rect.y + 24 + name_block_h + 8
-        cat_lines = wrap_text_lines(
-            self.font_sm,
-            self.detail_patch["category"],
-            max(1, self.main_rect.w - 48),
-            max_lines=2,
-        )
         blit_text_block(
             self.screen,
             self.font_sm,
             cat_lines,
-            self.main_rect.x + 24,
+            self.main_rect.x + DETAIL_TITLE_PAD_X,
             cat_y,
             self.theme.muted,
             line_spacing=2,

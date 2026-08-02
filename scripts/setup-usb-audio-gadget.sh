@@ -25,7 +25,7 @@ DRY_RUN=false
 log() { echo "[usb-audio-gadget] $*" >&2; }
 
 usage() {
-    echo "Usage: $0 start|stop|status|restart [--dry-run]" >&2
+    echo "Usage: $0 start|stop|destroy|status|restart [--dry-run]" >&2
     exit 1
 }
 
@@ -34,6 +34,13 @@ profile_is_usb_host() {
         usb-host) return 0 ;;
         *) return 1 ;;
     esac
+}
+
+# shellcheck source=lib/gadget-persist.sh
+source "$SCRIPT_DIR/lib/gadget-persist.sh"
+
+gadget_should_bind() {
+    mpe_gadget_should_bind
 }
 
 find_udc() {
@@ -157,8 +164,8 @@ destroy_gadget() {
 }
 
 cmd_start() {
-    if ! profile_is_usb_host; then
-        log "Profile ${MPE_AUDIO_PROFILE:-standalone} — skipping gadget setup"
+    if ! gadget_should_bind; then
+        log "Profile ${MPE_AUDIO_PROFILE:-standalone} and MPE_USB_GADGET_PERSIST=0 — skipping gadget setup"
         exit 0
     fi
     require_root
@@ -167,16 +174,25 @@ cmd_start() {
 
 cmd_stop() {
     require_root
+    if mpe_gadget_persist_enabled; then
+        log "MPE_USB_GADGET_PERSIST=1 — leaving gadget bound (host keeps USB device)"
+        return 0
+    fi
+    destroy_gadget
+}
+
+cmd_destroy() {
+    require_root
     destroy_gadget
 }
 
 cmd_status() {
-    if ! profile_is_usb_host; then
-        echo "PROFILE=${MPE_AUDIO_PROFILE:-standalone}"
+    echo "PROFILE=${MPE_AUDIO_PROFILE:-standalone}"
+    echo "PERSIST=$(mpe_gadget_persist_enabled && echo 1 || echo 0)"
+    if ! gadget_should_bind && ! gadget_bound; then
         echo "GADGET=skipped"
         exit 0
     fi
-    echo "PROFILE=usb-host"
     if gadget_bound; then
         echo "GADGET=bound"
         echo "UDC=$(cat "$GADGET_DIR/UDC" 2>/dev/null || true)"
@@ -203,6 +219,7 @@ done
 case "$cmd" in
     start) cmd_start ;;
     stop) cmd_stop ;;
+    destroy) cmd_destroy ;;
     restart) cmd_stop; cmd_start ;;
     status) cmd_status ;;
     *) usage ;;

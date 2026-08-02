@@ -7,6 +7,7 @@ import time
 from patch_browser.geometry import Rect
 from patch_browser.mixer import MixerChannel
 from patch_browser.patch_hold import DEFAULT_HOLD_MULT
+from patch_browser.patch_pressure import DEFAULT_PRESSURE_FLOOR
 from patch_browser.touch_ui_constants import (
     DEFAULT_VOLUME,
     FADER_HANDLE_H,
@@ -29,6 +30,8 @@ class TouchBrowserMixerMixin:
             return DEFAULT_VOLUME
         if channel.channel_id == "tail":
             return DEFAULT_HOLD_MULT
+        if channel.channel_id == "touch":
+            return DEFAULT_PRESSURE_FLOOR
         if channel.channel_id == "norm" and self.detail_patch:
             return self.loader.normalization.get_slider_default_gain_db(self.detail_patch["name"])
         return (channel.min_value + channel.max_value) / 2
@@ -38,6 +41,8 @@ class TouchBrowserMixerMixin:
             return self.volume_level
         if channel.channel_id == "tail":
             return self._tail_mult_for_detail()
+        if channel.channel_id == "touch":
+            return self._touch_floor_for_detail()
         if channel.channel_id == "norm":
             return self._norm_gain_db_for_detail()
         return self._mixer_levels.get(channel.channel_id, self._mixer_default_value(channel))
@@ -69,6 +74,10 @@ class TouchBrowserMixerMixin:
             if channel.enabled:
                 self._apply_tail_mult(clamped, persist=persist)
             return
+        if channel.channel_id == "touch":
+            if channel.enabled:
+                self._apply_touch_floor(clamped, persist=persist)
+            return
         self._mixer_levels[channel.channel_id] = clamped
 
     def _persist_mixer_drag(self) -> None:
@@ -78,6 +87,8 @@ class TouchBrowserMixerMixin:
             self.loader.normalization.save()
         elif channel_id == "tail":
             self.loader.hold.save()
+        elif channel_id == "touch":
+            self.loader.pressure.save()
 
     def _reset_mixer_channel(self, channel: MixerChannel) -> None:
         if channel.channel_id == "norm":
@@ -85,6 +96,9 @@ class TouchBrowserMixerMixin:
             return
         if channel.channel_id == "tail":
             self._reset_tail_to_patch_default()
+            return
+        if channel.channel_id == "touch":
+            self._reset_touch_to_default()
             return
         default = self._mixer_default_value(channel)
         self._set_mixer_value(channel, default)

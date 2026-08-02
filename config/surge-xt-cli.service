@@ -1,7 +1,7 @@
 [Unit]
 Description=Surge XT CLI Synthesizer (Headless)
-After=sound.target network.target usb-audio-gadget.service
-Wants=sound.target
+After=sound.target network.target usb-audio-gadget.service mpe-pressure-remap.service
+Wants=sound.target mpe-pressure-remap.service
 
 [Service]
 Type=forking
