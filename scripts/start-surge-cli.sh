@@ -63,8 +63,35 @@ source "$SCRIPT_DIR/lib/unload-snd-aloop.sh"
 SURGE_BUFFER_SIZE="${MPE_SURGE_BUFFER_SIZE:-1024}"
 echo "$(date): ALSA buffer size: $SURGE_BUFFER_SIZE samples" >> "$LOG_FILE"
 
+MPE_PRESSURE_REMAP="${MPE_PRESSURE_REMAP:-1}"
+if [ "$MPE_PRESSURE_REMAP" = "1" ]; then
+  MPE_LIGHT_MIDI_INDEX=""
+  for _wait in $(seq 1 24); do
+    MPE_LIGHT_MIDI_INDEX="$(
+      "$SURGE_CLI" --list-devices 2>&1 \
+        | grep -i "MPE Light Bus" \
+        | sed -n 's/.*\[\([0-9][0-9]*\)\].*/\1/p' \
+        | head -1
+    )"
+    if [ -n "$MPE_LIGHT_MIDI_INDEX" ]; then
+      break
+    fi
+    sleep 0.25
+  done
+  if [ -n "$MPE_LIGHT_MIDI_INDEX" ]; then
+    SURGE_MIDI_ARGS=(--midi-input="$MPE_LIGHT_MIDI_INDEX")
+    echo "$(date): Surge MIDI input index $MPE_LIGHT_MIDI_INDEX (MPE Light Bus remapper)" >> "$LOG_FILE"
+  else
+    SURGE_MIDI_ARGS=(--all-midi-inputs)
+    echo "$(date): WARNING: MPE Light Bus not found — falling back to --all-midi-inputs (Light fader inactive)" >> "$LOG_FILE"
+  fi
+else
+  SURGE_MIDI_ARGS=(--all-midi-inputs)
+  echo "$(date): Surge MIDI all inputs (remapper disabled)" >> "$LOG_FILE"
+fi
+
 "$SURGE_CLI" \
-  --all-midi-inputs \
+  "${SURGE_MIDI_ARGS[@]}" \
   --mpe-enable \
   --mpe-pitch-bend-range=48 \
   --audio-interface="$AUDIO_DEVICE" \

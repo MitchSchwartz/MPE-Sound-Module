@@ -94,6 +94,7 @@ class TouchBrowserPatchesMixin:
                 if self._try_load_patch_path(last["patch_path"], last["category"]):
                     self.loaded_patch_info = dict(self.detail_patch)
                     self._apply_volume(self.volume_level, persist=False)
+                    self._sync_pressure_live()
                     self._note_surge_patch_load_success()
                     self._layout()
                 else:
@@ -114,6 +115,7 @@ class TouchBrowserPatchesMixin:
         if not self._try_load_patch_path(loaded["path"], loaded["category"]):
             return False
         self._apply_volume(self.volume_level, persist=False)
+        self._sync_pressure_live()
         self._note_surge_patch_load_success()
         return True
 
@@ -131,12 +133,14 @@ class TouchBrowserPatchesMixin:
                     self._pending_last_patch = dict(patch)
                     self._pending_load_next = time.time() + 2.0
                     self._apply_volume(self.volume_level, persist=False)
+                    self._sync_pressure_live()
                     self._note_surge_patch_load_success()
                     return
                 self._profile_switch_reload_active = False
                 self._profile_switch_sent_once = False
             self._pending_last_patch = None
             self._apply_volume(self.volume_level, persist=False)
+            self._sync_pressure_live()
             self._refresh_lists(scroll_to_selection=True)
             self._layout()
             self._note_surge_patch_load_success()
@@ -314,6 +318,7 @@ class TouchBrowserPatchesMixin:
             except ValueError:
                 pass
             self._apply_volume(self.volume_level, persist=False)
+            self._sync_pressure_live()
             self._layout()
         else:
             self._toast("Load failed", 3)

@@ -7,16 +7,26 @@ from patch_browser.mixer import MixerChannel
 from patch_browser.scroll_widgets import ScrollList
 from patch_browser.touch_ui_constants import (
     ALL_PATCHES_ROW_HEIGHT,
+    AUDIO_BADGE_PAD_X,
     AZ_RAIL_WIDTH,
     BROWSER_BOTTOM_MARGIN,
+    CPU_METER_BAR_H,
+    CPU_METER_BAR_W,
     CPU_METER_H,
-    CPU_METER_W,
+    CPU_METER_LABEL_GAP,
+    DETAIL_HEADER_MIN_H,
+    DETAIL_MIXER_GAP,
+    DETAIL_TITLE_GAP,
+    DETAIL_TITLE_PAD_TOP,
+    DETAIL_TITLE_PAD_X,
     FADER_COLUMN_W,
     FADER_TRACK_H,
     FADER_TRACK_W,
     FAVORITES_BTN_SIZE,
     LEFT_NAV_COLLAPSED_WIDTH,
     LEFT_NAV_WIDTH,
+    MIXER_BOTTOM_GAP,
+    MIXER_LABEL_H,
     NAV_FOLDER_TITLE_H,
     NORM_CHECKBOX_SIZE,
     NORM_ROW_H,
@@ -27,9 +37,11 @@ from patch_browser.touch_ui_constants import (
     SETTINGS_PANEL_W,
     SETTINGS_ROW_GAP,
     SETTINGS_ROW_H,
+    STATUS_BAR_ITEM_GAP,
     VOLUME_MAX,
     VOLUME_MIN,
 )
+from patch_browser.audio_profile import header_badge_label
 from patch_browser.all_patches_index import AZ_RAIL_LETTERS
 from patch_browser.touch_ui_enums import LeftNavMode, Screen, audio_profile_display
 from patch_browser.ui_text import text_block_height, wrap_text_lines, wrapped_row_height
@@ -44,27 +56,38 @@ class TouchBrowserLayoutMixin:
             gap = 10
             return self.width - margin * 2 - AZ_RAIL_WIDTH - gap
         return LEFT_NAV_COLLAPSED_WIDTH if self.left_nav_collapsed else LEFT_NAV_WIDTH
+
+    def _cpu_meter_width(self) -> int:
+        label_w = self.font_sm.size("CPU")[0]
+        return label_w + CPU_METER_LABEL_GAP + CPU_METER_BAR_W
+
+    def _audio_badge_width(self) -> int:
+        label_w = self.font_sm.size(header_badge_label())[0]
+        return label_w + AUDIO_BADGE_PAD_X * 2
+
     def _layout(self) -> None:
         margin = 16
         gap = 10
         status_h = 44
         nav_header_h = 36
-        audio_badge_w = 56
 
         self.status_rect = Rect(margin, margin, self.width - margin * 2, status_h)
         self.system_settings_btn = Rect(self.status_rect.right - 44, self.status_rect.y + 6, 36, 32)
-        right_cursor = self.system_settings_btn.x - 8
+        right_cursor = self.system_settings_btn.x - STATUS_BAR_ITEM_GAP
         if self.show_cpu_meter:
-            right_cursor -= CPU_METER_W + 6
+            meter_w = self._cpu_meter_width()
+            right_cursor -= meter_w
             self.cpu_meter_rect = Rect(
                 right_cursor,
-                self.status_rect.y + 6,
-                CPU_METER_W,
+                self.status_rect.y + (status_h - CPU_METER_H) // 2,
+                meter_w,
                 CPU_METER_H,
             )
+            right_cursor -= STATUS_BAR_ITEM_GAP
         else:
             self.cpu_meter_rect = Rect(right_cursor, self.status_rect.y + 6, 0, 0)
-        right_cursor -= audio_badge_w + 6
+        audio_badge_w = self._audio_badge_width()
+        right_cursor -= audio_badge_w
         self.audio_profile_badge_rect = Rect(
             right_cursor,
             self.status_rect.y + 10,
@@ -98,7 +121,7 @@ class TouchBrowserLayoutMixin:
             main_w = self.width - margin * 2 - left_w - gap
             self.main_rect = Rect(main_x, content_top, main_w, content_bottom - content_top)
         action_row_h = max(NORM_ROW_H, FAVORITES_BTN_SIZE)
-        bottom_row_y = self.main_rect.bottom - action_row_h - BROWSER_BOTTOM_MARGIN
+        bottom_row_y = self._detail_bottom_row_y()
         self._layout_mixer_strip()
         self.favorites_btn = Rect(
             self.main_rect.right - FAVORITES_BTN_SIZE - 8,
@@ -351,6 +374,18 @@ class TouchBrowserLayoutMixin:
                     "enabled": True,
                 }
             )
+        if getattr(self, "_show_light_fader", lambda: False)():
+            from patch_browser.patch_pressure import PRESSURE_FLOOR_MAX, PRESSURE_FLOOR_MIN
+
+            defs.append(
+                {
+                    "id": "light",
+                    "label": "Light",
+                    "min": PRESSURE_FLOOR_MIN,
+                    "max": PRESSURE_FLOOR_MAX,
+                    "enabled": True,
+                }
+            )
         if getattr(self, "_show_norm_level_fader", lambda: False)():
             defs.append(
                 {
@@ -363,6 +398,40 @@ class TouchBrowserLayoutMixin:
             )
         return defs
 
+    def _detail_title_block(self) -> tuple[list[str], list[str], int, int, int]:
+        """Patch name/category lines and y positions (name_y, cat_y, header_bottom)."""
+        text_w = max(1, self.main_rect.w - DETAIL_TITLE_PAD_X * 2)
+        name_y = self.main_rect.y + DETAIL_TITLE_PAD_TOP
+        if not getattr(self, "detail_patch", None):
+            header_bottom = self.main_rect.y + DETAIL_HEADER_MIN_H
+            return [], [], name_y, name_y, header_bottom
+
+        name_lines = wrap_text_lines(
+            self.font_lg,
+            self.detail_patch["name"],
+            text_w,
+            max_lines=2,
+        )
+        name_block_h = text_block_height(self.font_lg, len(name_lines), line_spacing=4)
+        cat_y = name_y + name_block_h + DETAIL_TITLE_GAP
+        cat_lines = wrap_text_lines(
+            self.font_sm,
+            self.detail_patch["category"],
+            text_w,
+            max_lines=2,
+        )
+        cat_block_h = text_block_height(self.font_sm, len(cat_lines), line_spacing=2)
+        header_bottom = cat_y + cat_block_h
+        return name_lines, cat_lines, name_y, cat_y, header_bottom
+
+    def _detail_header_height(self) -> int:
+        _, _, _name_y, _, header_bottom = self._detail_title_block()
+        return max(DETAIL_HEADER_MIN_H, header_bottom - self.main_rect.y)
+
+    def _detail_bottom_row_y(self) -> int:
+        action_row_h = max(NORM_ROW_H, FAVORITES_BTN_SIZE)
+        return self.main_rect.bottom - action_row_h - BROWSER_BOTTOM_MARGIN
+
     def _layout_mixer_strip(self) -> None:
         defs = self._mixer_channel_defs()
         count = len(defs)
@@ -370,8 +439,11 @@ class TouchBrowserLayoutMixin:
             self.mixer_channels = []
             return
 
-        strip_top = self.main_rect.y + 96
-        pad_x = 24
+        strip_top = self.main_rect.y + self._detail_header_height() + DETAIL_MIXER_GAP
+        bottom_row_y = self._detail_bottom_row_y()
+        available = bottom_row_y - strip_top - MIXER_BOTTOM_GAP
+        track_h = max(FADER_TRACK_H, available - MIXER_LABEL_H)
+        pad_x = DETAIL_TITLE_PAD_X
         inner_w = max(FADER_COLUMN_W, self.main_rect.w - pad_x * 2)
         columns_w = count * FADER_COLUMN_W
         gap = max(16, (inner_w - columns_w) // (count + 1))
@@ -381,8 +453,8 @@ class TouchBrowserLayoutMixin:
         for i, spec in enumerate(defs):
             col_x = strip_x + gap + i * (FADER_COLUMN_W + gap)
             track_x = col_x + (FADER_COLUMN_W - FADER_TRACK_W) // 2
-            column_rect = Rect(col_x, strip_top, FADER_COLUMN_W, FADER_TRACK_H + 44)
-            track_rect = Rect(track_x, strip_top, FADER_TRACK_W, FADER_TRACK_H)
+            column_rect = Rect(col_x, strip_top, FADER_COLUMN_W, track_h + MIXER_LABEL_H)
+            track_rect = Rect(track_x, strip_top, FADER_TRACK_W, track_h)
             self.mixer_channels.append(
                 MixerChannel(
                     channel_id=spec["id"],
