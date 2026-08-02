@@ -89,6 +89,44 @@ class PatchNormalizationStoreTests(unittest.TestCase):
             store.set_enabled("Pad", True)
             self.assertEqual(store.get_gain_db("Pad"), -3.0)
 
+    def test_set_enabled_off_on_restores_starter_gain_after_minimal_entry(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            starter = Path(tmp) / "starter.json"
+            user_path = Path(tmp) / "user.json"
+            starter.write_text(
+                json.dumps({"Acid": {"gain_db": 12.0, "enabled": True, "lufs_measured": -40.0}})
+            )
+            user_path.write_text("{}")
+
+            with mock.patch(
+                "patch_browser.patch_normalization.repo_starter_path",
+                return_value=starter,
+            ):
+                store = PatchNormalizationStore(user_path)
+                store._data = {}
+                store.set_enabled("Acid", False)
+                self.assertFalse(store.is_enabled("Acid"))
+                self.assertEqual(store.get_raw_gain_db("Acid"), 12.0)
+
+                store.set_enabled("Acid", True)
+                self.assertTrue(store.is_enabled("Acid"))
+                self.assertEqual(store.get_raw_gain_db("Acid"), 12.0)
+
+    def test_refresh_sends_volume_twice_when_norm_active(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            user_path = Path(tmp) / "user.json"
+            user_path.write_text(
+                json.dumps({"Lead": {"gain_db": 6.0, "enabled": True, "lufs_measured": -24.0}})
+            )
+            store = PatchNormalizationStore(user_path)
+            loader = PatchLoader(normalization_store=store)
+            loader.osc_client = FakeOscClient()
+            loader.osc_enabled = True
+
+            loader.refresh_patch_volume("Lead")
+            self.assertEqual(len(loader.osc_client.messages), 4)
+            self.assertEqual(loader.osc_client.messages[-1][1], loader.osc_client.messages[-2][1])
+
     def test_combined_volume_clamps_above_max_amp_linear(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             user_path = Path(tmp) / "user.json"
