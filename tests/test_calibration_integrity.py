@@ -89,6 +89,21 @@ class IsInvalidMeasurementTests(unittest.TestCase):
         self.assertEqual(self.cal.MIN_VALID_TRUE_PEAK_DBTP, -45.0)
 
 
+class CalibrationDurationHintTests(unittest.TestCase):
+    def test_sixteen_patches_about_four_minutes(self) -> None:
+        from patch_browser.calibration_constants import format_calibration_duration_hint
+
+        self.assertEqual(
+            format_calibration_duration_hint(16),
+            "Approx. 4 min (16 patch(es)).",
+        )
+
+    def test_zero_targets(self) -> None:
+        from patch_browser.calibration_constants import format_calibration_duration_hint
+
+        self.assertIn("Nothing to calibrate", format_calibration_duration_hint(0))
+
+
 class NormCapIntegrityTests(unittest.TestCase):
     """Pins the norm-cap fix — calibrated gain must actually reach Surge."""
 

@@ -24,6 +24,33 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 CALIBRATE_WITH_LOADER_SCRIPT = REPO_ROOT / "scripts" / "calibrate-with-loader.sh"
 CALIBRATION_LOADER_SCRIPT = REPO_ROOT / "patch_browser" / "calibration_loader.py"
 
+# Pi-measured average per patch (loopback cal, Aug 2026): settle + 3–12s gesture,
+# ffmpeg measure, and ~25% of patches needing progressive retries — not 3s capture alone.
+CALIBRATION_SECONDS_PER_PATCH_ESTIMATE = 15.0
+
+
+def estimate_calibration_duration_seconds(patch_count: int) -> float:
+    """Rough wall-clock for confirm modal / dry-run (not a guarantee)."""
+    if patch_count <= 0:
+        return 0.0
+    return patch_count * CALIBRATION_SECONDS_PER_PATCH_ESTIMATE
+
+
+def format_calibration_duration_hint(patch_count: int) -> str:
+    """Human-readable duration for touch UI confirm modal."""
+    if patch_count <= 0:
+        return "Nothing to calibrate — all patches already have entries."
+    seconds = estimate_calibration_duration_seconds(patch_count)
+    if seconds < 60:
+        return f"Approx. {int(seconds)} sec ({patch_count} patch(es))."
+    if seconds < 3600:
+        return f"Approx. {seconds / 60.0:.0f} min ({patch_count} patch(es))."
+    hours = int(seconds // 3600)
+    minutes = int(round((seconds % 3600) / 60.0))
+    if minutes == 0:
+        return f"Approx. {hours} hr ({patch_count} patch(es))."
+    return f"Approx. {hours} hr {minutes} min ({patch_count} patch(es))."
+
 
 def calibration_from_browser() -> bool:
     """True when calibration was launched via touch browser exec handoff."""
