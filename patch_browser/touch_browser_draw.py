@@ -23,6 +23,7 @@ from patch_browser.touch_ui_constants import (
     SETTINGS_ROW_GAP,
     SETTINGS_ROW_H,
 )
+from patch_browser.audio_profile import header_badge_label, settings_toggle_on
 from patch_browser.touch_ui_enums import (
     CalibrateMode,
     LeftNavMode,
@@ -321,6 +322,24 @@ class TouchBrowserDrawMixin:
             fill_rect,
             border_radius=3,
         )
+
+    def _draw_audio_profile_badge(self, rect: Rect) -> None:
+        label = header_badge_label()
+        usb = label == "USB"
+        fill = self.theme.surface_alt
+        text_color = self.theme.accent if usb else self.theme.muted
+        border = self.theme.accent if usb else self.theme.muted
+        pygame.draw.rect(self.screen, fill, rect.pygame_rect, border_radius=8)
+        pygame.draw.rect(self.screen, border, rect.pygame_rect, width=1, border_radius=8)
+        badge = self.font_sm.render(label, True, text_color)
+        self.screen.blit(
+            badge,
+            (
+                rect.x + (rect.w - badge.get_width()) // 2,
+                rect.y + (rect.h - badge.get_height()) // 2,
+            ),
+        )
+
     def _draw_status_bar(self) -> None:
         pygame.draw.rect(self.screen, self.theme.surface, self.status_rect.pygame_rect, border_radius=10)
         if self.loaded_patch_info:
@@ -330,7 +349,10 @@ class TouchBrowserDrawMixin:
             title = "No patch loaded"
             subtitle = "Select a patch from the left list"
 
-        title_max_w = max(1, self.status_rect.w - self.system_settings_btn.w - 36)
+        title_max_w = max(
+            1,
+            self.audio_profile_badge_rect.x - self.status_rect.x - 24,
+        )
         title_lines = wrap_text_lines(self.font_md, title, title_max_w, max_lines=1)
         self.screen.blit(
             self.font_md.render(title_lines[0], True, self.theme.text),
@@ -343,6 +365,7 @@ class TouchBrowserDrawMixin:
         )
         if self.show_cpu_meter:
             self._draw_cpu_meter(self.cpu_meter_rect)
+        self._draw_audio_profile_badge(self.audio_profile_badge_rect)
         self._draw_button(self.system_settings_btn, "...", small=True, muted=True)
         self._draw_hairline(
             self.status_rect.bottom - 1,
@@ -620,21 +643,12 @@ class TouchBrowserDrawMixin:
             label="Patch normalization",
         )
 
-        audio_y = panel.y + self._settings_audio_profile_y - scroll
-        audio_lines = wrap_text_lines(
-            self.font_sm,
-            audio_profile_display(),
-            self.settings_panel_rect.w - 48,
-            max_lines=1,
-        )
-        blit_text_block(
-            self.screen,
-            self.font_sm,
-            audio_lines,
-            content_x + 20,
-            audio_y,
-            self.theme.muted,
-            line_spacing=2,
+        audio_toggle = self._panel_local_to_screen(self.audio_profile_toggle_rect, scrolled=True)
+        self._draw_normalize_toggle(
+            audio_toggle,
+            settings_toggle_on(),
+            has_gain=True,
+            label=audio_profile_display(),
         )
 
         if self._surge_restart_btn:
