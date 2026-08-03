@@ -136,6 +136,7 @@ class TouchPatchBrowser(
 
         self.volume_level = self._load_volume_level()
         self.show_cpu_meter = self._load_ui_preference("show_cpu_meter", default=True)
+        self.poly_governor_enabled = self._load_ui_preference("poly_governor_enabled", default=True)
         self.brightness_percent = self.backlight.get_percent()
         self.toast_message = ""
         self.toast_until = 0.0

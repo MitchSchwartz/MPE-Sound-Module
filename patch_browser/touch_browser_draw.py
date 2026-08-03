@@ -634,6 +634,14 @@ class TouchBrowserDrawMixin:
             label="CPU meter",
         )
 
+        poly_toggle = self._panel_local_to_screen(self.poly_governor_toggle_rect, scrolled=True)
+        self._draw_normalize_toggle(
+            poly_toggle,
+            self.poly_governor_enabled,
+            has_gain=True,
+            label="Dynamic voice limit",
+        )
+
         theme_row = self._panel_local_to_screen(self.theme_btn_rect, scrolled=True)
         self._draw_settings_action_row(theme_row, "Theme…")
 
