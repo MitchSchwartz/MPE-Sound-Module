@@ -95,7 +95,7 @@ class CalibrationDurationHintTests(unittest.TestCase):
 
         self.assertEqual(
             format_calibration_duration_hint(16),
-            "Approx. 6 min (16 patch(es)).",
+            "Approx. 12 min (16 patch(es)).",
         )
 
     def test_zero_targets(self) -> None:
@@ -137,10 +137,8 @@ class NormCapIntegrityTests(unittest.TestCase):
             sent = loader.osc_client.messages[-1][1]
 
             expected_linear = db_to_linear(gain_db)
-            # The whole point of the fix: sent volume must track the real gain
-            # (up to the cap), not collapse to ~unity regardless of how large
-            # the calibrated correction was.
-            self.assertAlmostEqual(sent, min(expected_linear, NORM_MAX_AMP_VOLUME_LINEAR))
+            # Stage 1 (#31): norm-on sends full calibrated gain — peak safety is at cal time.
+            self.assertAlmostEqual(sent, expected_linear)
             self.assertGreaterEqual(sent, 1.5)  # meaningfully above unity, not clamped away
 
     def test_modest_gain_is_not_clamped_at_all(self) -> None:
@@ -178,12 +176,20 @@ class CalibrationPipelineDoesNotSilentlySaveGarbageTests(unittest.TestCase):
             store = self.cal.PatchNormalizationStore(out_path)
             fake_loader = mock.Mock()
             fake_loader.load_patch.return_value = True
+            fake_loader.osc_enabled = True
+            fake_loader.osc_client = mock.Mock()
+
+            if self.cal.is_invalid_measurement(lufs, true_peak):
+                strike_return = None
+                sustain_return = None
+            else:
+                strike_return = (lufs - 5.0, true_peak - 1.0)
+                sustain_return = (lufs, true_peak)
 
             with (
-                mock.patch.object(self.cal, "capture_gesture_wav", return_value=Path("/tmp/fake.wav")),
-                mock.patch.object(self.cal, "measure_lufs", return_value=(lufs, true_peak)),
+                mock.patch.object(self.cal, "measure_strike_anchor_lufs", return_value=strike_return),
+                mock.patch.object(self.cal, "measure_sustain_anchor_lufs", return_value=sustain_return),
                 mock.patch.object(self.cal, "measure_light_touch_lufs", return_value=None),
-                mock.patch.object(Path, "unlink"),
                 mock.patch.object(self.cal.time, "sleep"),
             ):
                 saved = self.cal.calibrate_patch(

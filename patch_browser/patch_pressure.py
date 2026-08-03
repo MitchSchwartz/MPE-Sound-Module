@@ -24,6 +24,10 @@ LIGHT_TOUCH_TARGET_LUFS = -28.0
 # dB shortfall at light touch mapped to floor=1.0 (empirical; tune on Pi).
 FLOOR_DB_PER_UNIT = 18.0
 
+# Strike vs sustain spread — patches with huge dynamic range get extra floor (#31 Stage 3).
+EXPRESSION_GAP_DB_THRESHOLD = 12.0
+GAP_FLOOR_DB_PER_UNIT = 24.0
+
 LIVE_STATE_FILE = Path.home() / ".patch_browser_pressure_live.json"
 
 
@@ -48,6 +52,22 @@ def compute_pressure_floor(lufs_light: float, target_lufs_light: float) -> float
         return DEFAULT_PRESSURE_FLOOR
     floor = shortfall_db / FLOOR_DB_PER_UNIT
     return max(PRESSURE_FLOOR_MIN, min(PRESSURE_FLOOR_MAX, floor))
+
+
+def compute_touch_calibration_floor(
+    lufs_light: float,
+    target_lufs_light: float,
+    lufs_strike: float,
+    lufs_sustain: float,
+) -> float:
+    """Light-touch cohort alignment + strike/sustain gap lift (#31 Stage 3)."""
+    from_light = compute_pressure_floor(lufs_light, target_lufs_light)
+    gap_db = float(lufs_sustain) - float(lufs_strike)
+    from_gap = DEFAULT_PRESSURE_FLOOR
+    if gap_db > EXPRESSION_GAP_DB_THRESHOLD:
+        from_gap = (gap_db - EXPRESSION_GAP_DB_THRESHOLD) / GAP_FLOOR_DB_PER_UNIT
+        from_gap = max(PRESSURE_FLOOR_MIN, min(PRESSURE_FLOOR_MAX, from_gap))
+    return max(from_light, from_gap)
 
 
 def resolve_light_touch_target(lufs_light_values: list[float]) -> float:
@@ -174,11 +194,6 @@ class PatchPressureStore:
         }
         if existing and "user_floor" in existing:
             entry["user_floor"] = existing["user_floor"]
-        if abs(clamped - DEFAULT_PRESSURE_FLOOR) < 0.01 and not (
-            existing and "user_floor" in existing
-        ):
-            self._data.pop(key, None)
-            return
         self._data[key] = entry
 
     def format_floor(self, floor: float) -> str:

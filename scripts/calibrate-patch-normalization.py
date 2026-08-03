@@ -75,7 +75,10 @@ from patch_browser.calibration_teardown import (  # noqa: E402
 )
 from patch_browser.patch_normalization import (  # noqa: E402
     PatchNormalizationStore,
+    SAFE_PEAK_DBTP,
     compute_gain_db,
+    compute_gain_db_dual_anchor,
+    db_to_linear,
     default_normalization_path,
     repo_starter_path,
 )
@@ -84,7 +87,7 @@ from patch_browser.patch_pressure import (  # noqa: E402
     LIGHT_TOUCH_GESTURE_SECONDS,
     LIGHT_TOUCH_HOLD_SECONDS,
     LIGHT_TOUCH_PRESSURE,
-    compute_pressure_floor,
+    compute_touch_calibration_floor,
     default_pressure_path,
     resolve_light_touch_target,
 )
@@ -108,6 +111,14 @@ GESTURE_DURATIONS_SECONDS = (3.0, 5.0, 8.0, 12.0)
 NOTE = 60
 MPE_CHANNEL = 2  # Surge MPE: channel 2 = first note channel
 STRIKE_VELOCITY = 96
+STRIKE_ANCHOR_VELOCITY = 127
+STRIKE_ANCHOR_PRESSURE = 8
+SUSTAIN_ANCHOR_VELOCITY = 80
+SUSTAIN_ANCHOR_PRESSURE = 127
+ANCHOR_HOLD_SECONDS = 1.5
+ANCHOR_GESTURE_SECONDS = 2.5
+SUSTAIN_ANCHOR_GESTURE_SECONDS = (2.5, 4.0, 6.0, 8.0)
+CLOSED_LOOP_VERIFY_PASSES = 3
 DEFAULT_PI_CAPTURE = "plughw:1,0"
 MIN_VALID_LUFS = -39.0  # legacy reference only — validity uses peak floor below
 MIN_VALID_TRUE_PEAK_DBTP = -45.0  # reject captures with no audible Surge output
@@ -123,6 +134,8 @@ FAILURE_REPORT_PATH = Path("/tmp/calibration-last-failure.json")
 class CalibrateResult:
     ok: bool
     lufs_light: float | None = None
+    lufs_strike: float | None = None
+    lufs_sustain: float | None = None
 
 
 def _handle_interrupt(_signum: int, _frame: object | None) -> None:
@@ -625,6 +638,156 @@ def measure_light_touch_lufs(
     return lufs, true_peak
 
 
+def send_anchor_gesture(
+    midi_out: object,
+    *,
+    velocity: int,
+    pressure: int,
+    hold_seconds: float = ANCHOR_HOLD_SECONDS,
+    pre_roll: float = 0.25,
+) -> None:
+    time.sleep(pre_roll)
+    ch = MPE_CHANNEL - 1
+    note_on = 0x90 | ch
+    note_off = 0x80 | ch
+    pressure_cc = 0xE0 | ch
+    press = max(0, min(127, int(pressure)))
+    vel = max(1, min(127, int(velocity)))
+    midi_out.send_message([note_on, NOTE, vel])  # type: ignore[union-attr]
+    midi_out.send_message(  # type: ignore[union-attr]
+        [pressure_cc, press & 0x7F, (press >> 7) & 0x7F]
+    )
+    time.sleep(hold_seconds)
+    midi_out.send_message([note_off, NOTE, 0])  # type: ignore[union-attr]
+    time.sleep(0.2)
+
+
+def capture_anchor_wav(
+    midi_out: object,
+    audio_device: str,
+    *,
+    velocity: int,
+    pressure: int,
+    gesture_seconds: float = ANCHOR_GESTURE_SECONDS,
+    hold_seconds: float = ANCHOR_HOLD_SECONDS,
+) -> Path:
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+        wav = Path(tmp.name)
+    capture = subprocess.Popen(
+        [
+            "ffmpeg",
+            "-y",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-f",
+            "alsa",
+            "-i",
+            audio_device,
+            "-t",
+            str(gesture_seconds),
+            "-ac",
+            "2",
+            str(wav),
+        ]
+    )
+    time.sleep(0.15)
+    send_anchor_gesture(
+        midi_out, velocity=velocity, pressure=pressure, hold_seconds=hold_seconds
+    )
+    capture.wait()
+    if capture.returncode != 0:
+        wav.unlink(missing_ok=True)
+        raise RuntimeError("ffmpeg anchor capture failed")
+    return wav
+
+
+def measure_anchor_lufs(
+    midi_out: object,
+    audio_device: str,
+    *,
+    velocity: int,
+    pressure: int,
+    gesture_seconds: float = ANCHOR_GESTURE_SECONDS,
+    hold_seconds: float = ANCHOR_HOLD_SECONDS,
+) -> tuple[float, float] | None:
+    wav: Path | None = None
+    try:
+        wav = capture_anchor_wav(
+            midi_out,
+            audio_device,
+            velocity=velocity,
+            pressure=pressure,
+            gesture_seconds=gesture_seconds,
+            hold_seconds=hold_seconds,
+        )
+        lufs, true_peak = measure_lufs(wav)
+    except RuntimeError:
+        return None
+    finally:
+        if wav is not None:
+            wav.unlink(missing_ok=True)
+    if is_invalid_measurement(lufs, true_peak):
+        return None
+    return lufs, true_peak
+
+
+def measure_strike_anchor_lufs(midi_out: object, audio_device: str) -> tuple[float, float] | None:
+    return measure_anchor_lufs(
+        midi_out,
+        audio_device,
+        velocity=STRIKE_ANCHOR_VELOCITY,
+        pressure=STRIKE_ANCHOR_PRESSURE,
+    )
+
+
+def measure_sustain_anchor_lufs(midi_out: object, audio_device: str) -> tuple[float, float] | None:
+    for gesture_seconds in SUSTAIN_ANCHOR_GESTURE_SECONDS:
+        hold = max(ANCHOR_HOLD_SECONDS, gesture_seconds - 0.8)
+        result = measure_anchor_lufs(
+            midi_out,
+            audio_device,
+            velocity=SUSTAIN_ANCHOR_VELOCITY,
+            pressure=SUSTAIN_ANCHOR_PRESSURE,
+            gesture_seconds=gesture_seconds,
+            hold_seconds=hold,
+        )
+        if result is not None:
+            return result
+    return None
+
+
+def apply_measurement_gain(loader: PatchLoader, gain_db: float) -> None:
+    linear = db_to_linear(gain_db)
+    loader.user_volume_trim = 1.0
+    if not loader.osc_enabled or loader.osc_client is None:
+        return
+    loader.osc_client.send_message("/param/a/amp/volume", linear)
+    loader.osc_client.send_message("/param/b/amp/volume", linear)
+
+
+def finalize_gain_with_closed_loop(
+    loader: PatchLoader,
+    midi_out: object,
+    audio_device: str,
+    gain_db: float,
+) -> tuple[float, float, float]:
+    trial = float(gain_db)
+    last_lufs = float("-inf")
+    last_peak = float("-inf")
+    for _ in range(CLOSED_LOOP_VERIFY_PASSES):
+        apply_measurement_gain(loader, trial)
+        time.sleep(0.35)
+        measured = measure_sustain_anchor_lufs(midi_out, audio_device)
+        if measured is None:
+            break
+        last_lufs, last_peak = measured
+        if last_peak <= SAFE_PEAK_DBTP + 0.5:
+            return trial, last_lufs, last_peak
+        trial = compute_gain_db(last_lufs, last_peak)
+    return trial, last_lufs, last_peak
+
+
 def is_invalid_measurement(lufs: float, true_peak: float) -> bool:
     """True when capture is silent or loudnorm returned unusable values.
 
@@ -713,8 +876,11 @@ def calibrate_patch(
         return CalibrateResult(ok=False)
 
     if mock_lufs is not None:
-        lufs = mock_lufs
+        lufs_strike = mock_lufs
+        lufs_sustain = mock_lufs - 2.0
         true_peak = mock_lufs + 6.0
+        peak_strike = true_peak
+        peak_sustain = true_peak
         lufs_light = (mock_lufs - 12.0) if touch_cal else None
     else:
         if not loader.load_patch(str(patch_path), apply_normalization=False):
@@ -724,51 +890,25 @@ def calibrate_patch(
         if midi_out is None:
             return CalibrateResult(ok=False)
 
-        # Unity gain for measurement — stored calibration must not skew capture.
         loader.user_volume_trim = 1.0
         loader._patch_gain_linear = 1.0
         loader._send_combined_volume()
         time.sleep(PATCH_LOAD_SETTLE_SECONDS)
 
-        lufs = float("-inf")
-        true_peak = float("-inf")
-        for attempt in range(1, MEASURE_MAX_ATTEMPTS + 1):
-            gesture_seconds = GESTURE_DURATIONS_SECONDS[attempt - 1]
-            if attempt > 1:
-                print(
-                    f"  [retry] {name}: capture too quiet (peak below "
-                    f"{MIN_VALID_TRUE_PEAK_DBTP:.0f} dBTP), holding longer "
-                    f"({gesture_seconds:.0f}s gesture, attempt {attempt}/{MEASURE_MAX_ATTEMPTS})...",
-                    file=sys.stderr,
-                )
-                time.sleep(MEASURE_RETRY_INTERVAL_SECONDS)
-
-            wav: Path | None = None
-            try:
-                wav = capture_gesture_wav(midi_out, audio_device, gesture_seconds=gesture_seconds)
-                lufs, true_peak = measure_lufs(wav)
-            except RuntimeError:
-                print(f"  [fail] ffmpeg capture: {name}", file=sys.stderr)
-                return CalibrateResult(ok=False)
-            finally:
-                if wav is not None:
-                    wav.unlink(missing_ok=True)
-
-            if not is_invalid_measurement(lufs, true_peak):
-                break
-
-        if is_invalid_measurement(lufs, true_peak):
-            lufs_display = f"{lufs:.1f}" if math.isfinite(lufs) else str(lufs)
-            peak_display = f"{true_peak:.1f}" if math.isfinite(true_peak) else str(true_peak)
-            longest = GESTURE_DURATIONS_SECONDS[-1]
-            print(
-                f"  [fail] {name}: measured {lufs_display} LUFS (peak {peak_display} dBTP) after "
-                f"{MEASURE_MAX_ATTEMPTS} attempt(s) up to a {longest:.0f}s gesture — capture had "
-                f"no audible peak (need ≥ {MIN_VALID_TRUE_PEAK_DBTP:.0f} dBTP); check MIDI routing, "
-                f"patch load, or --audio-device",
-                file=sys.stderr,
-            )
+        strike = measure_strike_anchor_lufs(midi_out, audio_device)
+        if strike is None:
+            print(f"  [fail] {name}: strike anchor inaudible", file=sys.stderr)
             return CalibrateResult(ok=False)
+        lufs_strike, peak_strike = strike
+
+        sustain = measure_sustain_anchor_lufs(midi_out, audio_device)
+        if sustain is None:
+            print(f"  [fail] {name}: sustain anchor inaudible", file=sys.stderr)
+            return CalibrateResult(ok=False)
+        lufs_sustain, peak_sustain = sustain
+
+        true_peak = max(peak_strike, peak_sustain)
+        lufs = lufs_sustain
 
         lufs_light: float | None = None
         if touch_cal:
@@ -781,10 +921,15 @@ def calibrate_patch(
             else:
                 lufs_light = light[0]
 
-    gain_db = compute_gain_db(lufs, true_peak)
-    if lufs < -48.0:
+    gain_db = compute_gain_db_dual_anchor(
+        lufs_strike,
+        peak_strike if mock_lufs is None else true_peak,
+        lufs_sustain,
+        peak_sustain if mock_lufs is None else true_peak,
+    )
+    if min(lufs_strike, lufs_sustain) < -48.0:
         print(
-            f"  [warn] {name}: measured {lufs:.1f} LUFS (quiet patch — gain will be large)",
+            f"  [warn] {name}: quiet patch (strike {lufs_strike:.1f}, sustain {lufs_sustain:.1f} LUFS)",
             file=sys.stderr,
         )
     if gain_db > 20.0:
@@ -792,13 +937,37 @@ def calibrate_patch(
             f"  [warn] {name}: gain {gain_db:+.1f} dB is very high — re-check ALSA routing before trusting",
             file=sys.stderr,
         )
-    store.set_calibration(name, gain_db, lufs, true_peak_dbtp=true_peak)
+
+    if mock_lufs is None and midi_out is not None:
+        gain_db, verify_lufs, verify_peak = finalize_gain_with_closed_loop(
+            loader, midi_out, audio_device, gain_db
+        )
+        if math.isfinite(verify_lufs):
+            lufs = verify_lufs
+            true_peak = verify_peak
+
+    store.set_calibration(
+        name,
+        gain_db,
+        lufs,
+        true_peak_dbtp=true_peak,
+        strike_lufs=lufs_strike,
+        sustain_lufs=lufs_sustain,
+    )
     store.save()
     touch_note = ""
     if lufs_light is not None:
         touch_note = f", light {lufs_light:.1f} LUFS"
-    print(f"  [ok] {name}: {lufs:.1f} LUFS, peak {true_peak:.1f} dBTP -> gain {gain_db:+.2f} dB{touch_note}")
-    return CalibrateResult(ok=True, lufs_light=lufs_light)
+    print(
+        f"  [ok] {name}: strike {lufs_strike:.1f} / sustain {lufs_sustain:.1f} LUFS, "
+        f"peak {true_peak:.1f} dBTP -> gain {gain_db:+.2f} dB{touch_note}"
+    )
+    return CalibrateResult(
+        ok=True,
+        lufs_light=lufs_light,
+        lufs_strike=lufs_strike,
+        lufs_sustain=lufs_sustain,
+    )
 
 
 def main() -> int:
@@ -958,7 +1127,7 @@ def main() -> int:
     midi_out: object | None = None
     last_patch_index = 0
     last_patch_name = ""
-    light_measurements: list[tuple[str, float]] = []
+    light_measurements: list[tuple[str, float, float, float]] = []
     try:
         if args.mock_lufs is None:
             midi_out = open_midi_out(midi_port)
@@ -1010,14 +1179,22 @@ def main() -> int:
             )
             if result.ok:
                 updated += 1
-                if result.lufs_light is not None:
-                    light_measurements.append((name, result.lufs_light))
+                if (
+                    result.lufs_light is not None
+                    and result.lufs_strike is not None
+                    and result.lufs_sustain is not None
+                ):
+                    light_measurements.append(
+                        (name, result.lufs_light, result.lufs_strike, result.lufs_sustain)
+                    )
         if light_measurements and touch_cal and not _interrupted:
-            target_lufs = resolve_light_touch_target([v for _, v in light_measurements])
+            target_lufs = resolve_light_touch_target([v for _, v, _, _ in light_measurements])
             pressure_store = PatchPressureStore(pressure_path)
             touch_updated = 0
-            for name, lufs_light in light_measurements:
-                floor = compute_pressure_floor(lufs_light, target_lufs)
+            for name, lufs_light, lufs_strike, lufs_sustain in light_measurements:
+                floor = compute_touch_calibration_floor(
+                    lufs_light, target_lufs, lufs_strike, lufs_sustain
+                )
                 pressure_store.set_calibration(name, floor, lufs_light)
                 touch_updated += 1
             pressure_store.save()
