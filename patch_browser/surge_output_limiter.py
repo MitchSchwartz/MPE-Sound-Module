@@ -33,9 +33,15 @@ LIMITER_INPUT_THRESHOLD_DB = 0.0  # param5: unity pregain into limiter
 LIMITER_WIDTH = 1.0  # param3: ct_percent_bipolar
 LIMITER_HPWIDTH_HZ = -60.0  # param9: Side Low Cut default (deactivated)
 
-# Fast envelope — slow attack lets peaks creep to 0 dBFS before GR catches up.
-LIMITER_ATTACK = -1.0  # ct_percent_bipolar
-LIMITER_RELEASE = -1.0
+# ct_percent_bipolar (native -1..1). Surge's Conditioner.cpp computes:
+#   am = 1 + 0.9*attack;  attack_coeff = 0.001*am*am
+#   rm = 1 + 0.9*release; release_coeff = 0.0001*rm*rm
+# i.e. HIGHER native value = FASTER response (shorter time constant), not lower.
+# native -1 -> ~2.3s attack / ~22.7s release (effectively off — the bug we had).
+# native +1 -> ~6ms attack / ~63ms release (fast enough to catch the 128-sample
+# / ~2.9ms lookahead window this effect uses for peak detection).
+LIMITER_ATTACK = 1.0
+LIMITER_RELEASE = 1.0
 LIM_LABEL = "LIM"
 
 # Surge fx_bypass enum — global FX (incl. our slot) only run when this is fxb_all_fx.
