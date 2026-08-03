@@ -70,6 +70,10 @@ class SurgeMonitor:
         except OSError:
             return False
 
+    def osc_port_in_use(self) -> bool:
+        """Return True when something is bound to Surge's OSC input port."""
+        return self._is_osc_port_in_use()
+
     def _is_osc_port_in_use(self) -> bool:
         """Return True when something is bound to Surge's OSC input port."""
         try:

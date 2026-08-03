@@ -66,111 +66,6 @@ class TouchPatchBrowser(
 ):
     """Fullscreen touch patch browser."""
 
-    def _load_font(self, size: int) -> pygame.font.Font:
-        for name in ("dejavusans", "dejavusansmono", "liberationsans", "arial"):
-            path = pygame.font.match_font(name)
-            if path:
-                return pygame.font.Font(path, size)
-        return pygame.font.Font(None, size)
-    def _clear_display(self) -> None:
-        """Paint background immediately so stale DRM frames never show."""
-        self.screen.fill(self.theme.bg)
-        pygame.display.flip()
-
-    def _paint_boot_splash_frame(self, *, animation_phase: float) -> None:
-        draw_splash_frame(
-            self.screen,
-            mode=SplashMode.BOOT,
-            theme=self.theme,
-            animation_phase=animation_phase,
-        )
-
-    def _boot_splash_elapsed(self) -> float:
-        return time.monotonic() - getattr(self, "_boot_splash_started", time.monotonic())
-
-    def _tick_boot_splash_until_ready(self) -> bool:
-        """Animate boot splash until min time elapsed. True when ready for first UI draw."""
-        if self._boot_splash_done:
-            return True
-        elapsed = self._boot_splash_elapsed()
-        if elapsed < BOOT_MIN_SECONDS:
-            self._paint_boot_splash_frame(animation_phase=boot_animation_phase(elapsed))
-            return False
-        return True
-
-    def _complete_boot_splash(self) -> None:
-        """End boot splash after the first full UI frame is on screen."""
-        if self._boot_splash_done:
-            return
-        self._boot_splash_done = True
-        signal_browser_ready()
-    def _pointer_move_distance(
-        self, start: tuple[int, int] | None, end: tuple[int, int]
-    ) -> float:
-        if start is None:
-            return 0.0
-        dx = end[0] - start[0]
-        dy = end[1] - start[1]
-        return (dx * dx + dy * dy) ** 0.5
-    def _clear_settings_pointer(self) -> None:
-        self._settings_pointer_down_pos = None
-        self._settings_pending_hit = None
-    def _clear_modal_pointer(self) -> None:
-        self._modal_pointer_down_pos = None
-        self._modal_pending_index = None
-        self._modal_pending_key = None
-    def _toast(self, message: str, seconds: float = 2.0) -> None:
-        self.toast_message = message
-        self.toast_until = time.time() + seconds
-    def run(self) -> None:
-        clock = pygame.time.Clock()
-        print("Touch patch browser running.")
-        print(f"Display: {self.width}x{self.height}")
-        print(f"Quick Select folder: {favorites_display_name()} ({FAVORITES_NAME.lstrip('!')})")
-
-        while self._running:
-            if not self._boot_splash_done:
-                if not self._tick_boot_splash_until_ready():
-                    for event in pygame.event.get():
-                        if event.type == pygame.QUIT:
-                            self._running = False
-                            break
-                    clock.tick(30)
-                    continue
-                self._draw()
-                self._complete_boot_splash()
-                clock.tick(60)
-                continue
-            if self._scan_dirty and not (
-                self.screen_state == Screen.BROWSER
-                and not self.left_nav_collapsed
-                and (
-                    self.nav_list.is_interacting()
-                    or getattr(self, "_az_rail_capture", False)
-                )
-            ):
-                self._scan_dirty = False
-                self._apply_scan_results()
-            self._retry_pending_load()
-            self._drain_evdev_touch_queue()
-            self._poll_audio_profile_switch()
-            for event in pygame.event.get():
-                if self._ignore_sdl_pointer_event(event):
-                    continue
-                self._handle_event(event)
-            dt = max(clock.get_time() / 1000.0, 1.0 / 120.0)
-            self._tick_settings_animation(dt)
-            if self.screen_state == Screen.SETTINGS:
-                self._settings_content_scroll.tick(dt)
-            if self.screen_state == Screen.BROWSER and not self.left_nav_collapsed:
-                self.nav_list.tick(dt)
-            self._draw()
-            clock.tick(60)
-
-        if self._evdev_bridge is not None:
-            self._evdev_bridge.stop()
-        self.cpu_monitor.stop()
-        pygame.quit()
     def __init__(self) -> None:
         clear_browser_ready_flag()
         windowed = os.environ.get("MPE_TOUCH_WINDOWED") == "1"
@@ -295,6 +190,112 @@ class TouchPatchBrowser(
         self._start_background_scan()
         self._wait_for_initial_scan()
         self._start_evdev_touch_bridge()
+
+    def _load_font(self, size: int) -> pygame.font.Font:
+        for name in ("dejavusans", "dejavusansmono", "liberationsans", "arial"):
+            path = pygame.font.match_font(name)
+            if path:
+                return pygame.font.Font(path, size)
+        return pygame.font.Font(None, size)
+    def _clear_display(self) -> None:
+        """Paint background immediately so stale DRM frames never show."""
+        self.screen.fill(self.theme.bg)
+        pygame.display.flip()
+
+    def _paint_boot_splash_frame(self, *, animation_phase: float) -> None:
+        draw_splash_frame(
+            self.screen,
+            mode=SplashMode.BOOT,
+            theme=self.theme,
+            animation_phase=animation_phase,
+        )
+
+    def _boot_splash_elapsed(self) -> float:
+        return time.monotonic() - getattr(self, "_boot_splash_started", time.monotonic())
+
+    def _tick_boot_splash_until_ready(self) -> bool:
+        """Animate boot splash until min time elapsed. True when ready for first UI draw."""
+        if self._boot_splash_done:
+            return True
+        elapsed = self._boot_splash_elapsed()
+        if elapsed < BOOT_MIN_SECONDS:
+            self._paint_boot_splash_frame(animation_phase=boot_animation_phase(elapsed))
+            return False
+        return True
+
+    def _complete_boot_splash(self) -> None:
+        """End boot splash after the first full UI frame is on screen."""
+        if self._boot_splash_done:
+            return
+        self._boot_splash_done = True
+        signal_browser_ready()
+    def _pointer_move_distance(
+        self, start: tuple[int, int] | None, end: tuple[int, int]
+    ) -> float:
+        if start is None:
+            return 0.0
+        dx = end[0] - start[0]
+        dy = end[1] - start[1]
+        return (dx * dx + dy * dy) ** 0.5
+    def _clear_settings_pointer(self) -> None:
+        self._settings_pointer_down_pos = None
+        self._settings_pending_hit = None
+    def _clear_modal_pointer(self) -> None:
+        self._modal_pointer_down_pos = None
+        self._modal_pending_index = None
+        self._modal_pending_key = None
+    def _toast(self, message: str, seconds: float = 2.0) -> None:
+        self.toast_message = message
+        self.toast_until = time.time() + seconds
+    def run(self) -> None:
+        clock = pygame.time.Clock()
+        print("Touch patch browser running.")
+        print(f"Display: {self.width}x{self.height}")
+        print(f"Quick Select folder: {favorites_display_name()} ({FAVORITES_NAME.lstrip('!')})")
+
+        while self._running:
+            if not self._boot_splash_done:
+                if not self._tick_boot_splash_until_ready():
+                    for event in pygame.event.get():
+                        if event.type == pygame.QUIT:
+                            self._running = False
+                            break
+                    clock.tick(30)
+                    continue
+                self._draw()
+                self._complete_boot_splash()
+                clock.tick(60)
+                continue
+            if self._scan_dirty and not (
+                self.screen_state == Screen.BROWSER
+                and not self.left_nav_collapsed
+                and (
+                    self.nav_list.is_interacting()
+                    or getattr(self, "_az_rail_capture", False)
+                )
+            ):
+                self._scan_dirty = False
+                self._apply_scan_results()
+            self._retry_pending_load()
+            self._drain_evdev_touch_queue()
+            self._poll_audio_profile_switch()
+            for event in pygame.event.get():
+                if self._ignore_sdl_pointer_event(event):
+                    continue
+                self._handle_event(event)
+            dt = max(clock.get_time() / 1000.0, 1.0 / 120.0)
+            self._tick_settings_animation(dt)
+            if self.screen_state == Screen.SETTINGS:
+                self._settings_content_scroll.tick(dt)
+            if self.screen_state == Screen.BROWSER and not self.left_nav_collapsed:
+                self.nav_list.tick(dt)
+            self._draw()
+            clock.tick(60)
+
+        if self._evdev_bridge is not None:
+            self._evdev_bridge.stop()
+        self.cpu_monitor.stop()
+        pygame.quit()
 
 
 def _exit_on_signal(signum: int, *_args: object) -> None:

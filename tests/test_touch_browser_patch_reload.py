@@ -66,13 +66,13 @@ class SurgeReadyForPatchLoadTests(unittest.TestCase):
     def test_false_when_osc_port_closed(self) -> None:
         host = _PatchHost()
         host.surge_monitor.check_health.return_value = (True, None)
-        host.surge_monitor._is_osc_port_in_use.return_value = False
+        host.surge_monitor.osc_port_in_use.return_value = False
         self.assertFalse(host._surge_ready_for_patch_load())
 
     def test_true_when_healthy_and_port_open(self) -> None:
         host = _PatchHost()
         host.surge_monitor.check_health.return_value = (True, None)
-        host.surge_monitor._is_osc_port_in_use.return_value = True
+        host.surge_monitor.osc_port_in_use.return_value = True
         self.assertTrue(host._surge_ready_for_patch_load())
 
 
@@ -86,7 +86,7 @@ class BootstrapPatchesTests(unittest.TestCase):
         }
         host.scanner.quick_scan_category.return_value = [{"name": "test", "path": "/tmp/test.fxp"}]
         host.surge_monitor.check_health.return_value = (False, "down")
-        host.surge_monitor._is_osc_port_in_use.return_value = False
+        host.surge_monitor.osc_port_in_use.return_value = False
 
         host._bootstrap_patches()
 
@@ -146,7 +146,7 @@ class ProfileSwitchReloadTests(unittest.TestCase):
         host._profile_switch_reload_active = True
         host._profile_switch_sent_once = False
         host.surge_monitor.check_health.return_value = (True, None)
-        host.surge_monitor._is_osc_port_in_use.return_value = True
+        host.surge_monitor.osc_port_in_use.return_value = True
         host.loader.load_patch.return_value = True
 
         host._retry_pending_load()

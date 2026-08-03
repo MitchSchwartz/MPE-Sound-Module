@@ -28,7 +28,7 @@ class TouchBrowserPatchesMixin:
         healthy, _ = self.surge_monitor.check_health()
         if not healthy:
             return False
-        return bool(self.surge_monitor._is_osc_port_in_use())
+        return bool(self.surge_monitor.osc_port_in_use())
 
     def _queue_patch_reload(self, patch: dict, *, delay_s: float = 2.0) -> None:
         self._pending_last_patch = dict(patch)

@@ -141,6 +141,25 @@ ssh $PI_USER@$PI_HOST 'sudo journalctl -u surge-xt-cli -n 50'
 ssh $PI_USER@$PI_HOST 'sudo journalctl -u patch-browser -n 50'
 ```
 
+**OSC ports (localhost only):**
+
+Surge XT CLI uses two UDP ports on `127.0.0.1`. They are easy to confuse when debugging “Surge looks dead” or patch loads fail silently.
+
+| Port | Direction | Used for |
+|------|-----------|----------|
+| **53280** | In (Surge listens) | Commands from the patch browser — `/patch/load`, `/param/...` volume, Hold, etc. `SurgeMonitor` health checks whether this port is bound. |
+| **53270** | Out (Surge replies) | Query replies — `PatchLoader` sends `/q/param/...` here and binds locally to read float responses (Hold baseline capture after patch load). |
+
+Quick checks on the Pi:
+
+```bash
+ss -ulnp | grep -E '53270|53280'
+pgrep -af surge-xt-cli
+tail -30 ~/surge-cli.log
+```
+
+If **53280** is not listening, Surge is not running or failed during audio/MIDI startup. If **53280** is up but Hold or patch queries fail, confirm `start-surge-cli.sh` passes `--osc-out-port=53270` and that nothing else bound 53270.
+
 ---
 
 ### Restart Services

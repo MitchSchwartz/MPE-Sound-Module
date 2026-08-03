@@ -15,5 +15,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Install test dependencies
+        run: pip install python-osc
       - name: Run unit tests
         run: python3 -m unittest discover -s tests
+
+  shell-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run shell tests
+        run: |
+          bash tests/test_gadget_persist.sh
+          bash tests/test_prepare_dsi_display.sh
