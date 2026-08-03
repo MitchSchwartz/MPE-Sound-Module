@@ -18,14 +18,17 @@ from patch_browser.surge_playback import (
 )
 from patch_browser.ui_prefs import load_ui_preference
 
-POLL_INTERVAL_S = 0.5
-CPU_HIGH_THRESHOLD = 70.0
-CPU_SPIKE_THRESHOLD = 85.0
+POLL_INTERVAL_S = 0.25
+CPU_SPIKE_THRESHOLD = 78.0
+CPU_HIGH_THRESHOLD = 65.0
+CPU_WARM_THRESHOLD = 62.0
 CPU_LOW_THRESHOLD = 45.0
-CPU_HIGH_HOLD_S = 0.4
+CPU_HIGH_HOLD_S = 0.25
 CPU_LOW_HOLD_S = 5.0
+PATCH_WARM_WINDOW_S = 4.0
 STEP_DOWN = 2
-STEP_DOWN_SPIKE = 3
+STEP_DOWN_SPIKE = 4
+STEP_DOWN_WARM = 2
 STEP_UP = 1
 
 
@@ -68,6 +71,9 @@ class SurgePolyGovernor:
         self._high_since: float | None = None
         self._low_since: float | None = None
         self._state_mtime = 0.0
+        self._last_patch: str | None = None
+        self._patch_changed_at: float | None = None
+        self._warm_preempt_done = False
         self._pref_check_counter = 0
         self._enabled = governor_active()
 
@@ -104,6 +110,13 @@ class SurgePolyGovernor:
             return
         self._state_mtime = stat.st_mtime
         data = read_poly_state()
+        patch = data.get("patch")
+        if isinstance(patch, str) and patch != self._last_patch:
+            self._last_patch = patch
+            self._high_since = None
+            self._low_since = None
+            self._patch_changed_at = time.monotonic()
+            self._warm_preempt_done = False
         ceiling = data.get("ceiling_poly")
         effective = data.get("effective_poly")
         if isinstance(ceiling, (int, float)):
@@ -191,6 +204,19 @@ class SurgePolyGovernor:
             return
 
         now = time.monotonic()
+        if (
+            self._patch_changed_at is not None
+            and not self._warm_preempt_done
+            and now - self._patch_changed_at <= PATCH_WARM_WINDOW_S
+            and cpu >= CPU_WARM_THRESHOLD
+            and self._effective_poly > self._floor_poly
+        ):
+            self._warm_preempt_done = True
+            self._high_since = now
+            self._low_since = None
+            self._apply_limit(self._effective_poly - STEP_DOWN_WARM)
+            return
+
         if cpu >= CPU_SPIKE_THRESHOLD:
             self._low_since = None
             if self._high_since is None:

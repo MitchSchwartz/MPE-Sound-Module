@@ -11,6 +11,7 @@ from patch_browser.surge_playback import (
     ONE_VOICE_PER_KEY,
     clamp_poly_limit,
     effective_poly_after_load,
+    effective_poly_on_load,
     ensure_reuse_single_patch,
     parse_polylimit_query,
     patch_xml_reuse_single,
@@ -47,6 +48,15 @@ class SurgePlaybackTests(unittest.TestCase):
         with mock.patch("patch_browser.surge_playback.poly_ceiling", return_value=12):
             self.assertEqual(effective_poly_after_load(32), 12)
             self.assertEqual(effective_poly_after_load(8), 8)
+
+    def test_effective_poly_on_load_reserves_governor_headroom(self) -> None:
+        with (
+            mock.patch("patch_browser.surge_playback.poly_ceiling", return_value=12),
+            mock.patch("patch_browser.surge_playback.governor_load_headroom", return_value=3),
+            mock.patch("patch_browser.surge_playback.poly_floor", return_value=6),
+        ):
+            self.assertEqual(effective_poly_on_load(16, governor_active=False), 12)
+            self.assertEqual(effective_poly_on_load(16, governor_active=True), 9)
 
     def test_clamp_poly_limit(self) -> None:
         self.assertEqual(clamp_poly_limit(1), 2)
