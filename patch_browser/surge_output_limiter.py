@@ -7,7 +7,7 @@ import time
 
 from patch_browser.ui_prefs import load_ui_preference
 
-DEFAULT_LIMITER_THRESHOLD_DB = 1.0
+DEFAULT_LIMITER_THRESHOLD_DB = -1.0
 DEFAULT_LIMITER_FX_SLOT = 4
 CONDITIONER_TYPE = "Conditioner"
 
@@ -33,7 +33,12 @@ def limiter_threshold_db() -> float:
         value = float(raw)
     except ValueError:
         return DEFAULT_LIMITER_THRESHOLD_DB
-    return max(0.0, min(12.0, value))
+    return max(-48.0, min(0.0, value))
+
+
+def normalize_limiter_threshold_db(value: float) -> float:
+    """Surge Conditioner threshold OSC uses dB in [-48, 0] (e.g. -1 = 1 dB headroom)."""
+    return max(-48.0, min(0.0, float(value)))
 
 
 def limiter_fx_slot() -> int:
@@ -75,7 +80,11 @@ def apply_output_limiter(osc_client, *, threshold_db: float | None = None) -> bo
     if osc_client is None:
         return False
     slot = limiter_fx_slot()
-    threshold = limiter_threshold_db() if threshold_db is None else max(0.0, float(threshold_db))
+    threshold = (
+        limiter_threshold_db()
+        if threshold_db is None
+        else normalize_limiter_threshold_db(threshold_db)
+    )
     try:
         osc_client.send_message(_fx_path(slot, "type"), CONDITIONER_TYPE)
         time.sleep(0.05)
