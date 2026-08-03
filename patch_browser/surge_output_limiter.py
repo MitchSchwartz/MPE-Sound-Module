@@ -15,7 +15,18 @@ from patch_browser.ui_prefs import load_ui_preference
 
 DEFAULT_LIMITER_THRESHOLD_DB = -1.0
 DEFAULT_LIMITER_FX_SLOT = 4
-CONDITIONER_TYPE = "Conditioner"
+
+# Surge's OSC layer reports/expects vt_int parameters (like an FX slot's "type")
+# as a RAW integer float, not a normalized 0..1 value and NOT a string — see
+# OpenSoundControl::sendParameter's `case vt_int: val01 = float(p->val.i);`.
+# Sending the string "Conditioner" here fails Surge's isFloat32() check on the
+# generic /param/... path (there's no special-case for "type" the way there is
+# for "deactivate") and gets silently rejected, leaving the slot on whatever
+# effect the patch itself saved. Index comes from Surge's fx_type enum
+# (SurgeStorage.h): fxt_off=0, fxt_delay=1, fxt_reverb=2, fxt_phaser=3,
+# fxt_rotaryspeaker=4, fxt_distortion=5, fxt_eq=6, fxt_freqshift=7,
+# fxt_conditioner=8.
+CONDITIONER_TYPE_INDEX = 8
 
 # Conditioner OSC param1..param9 map to cond_params enum index + 1 in Surge source.
 PARAM_BASS = 1
@@ -168,7 +179,7 @@ def apply_output_limiter(osc_client, *, threshold_db: float | None = None) -> bo
     try:
         # Patches/presets often default to "No Send and Global FX" — global slot 4 never runs.
         osc_client.send_message(FX_BYPASS_OSC, float(FX_BYPASS_ALL_FX))
-        osc_client.send_message(_fx_path(slot, "type"), CONDITIONER_TYPE)
+        osc_client.send_message(_fx_path(slot, "type"), float(CONDITIONER_TYPE_INDEX))
         time.sleep(0.05)
         _send_param(osc_client, slot, PARAM_BASS, 0.0)
         _send_param(osc_client, slot, PARAM_TREBLE, 0.0)
