@@ -57,7 +57,7 @@ MPE_SURGE_DOCS="${MPE_SURGE_DOCS:-$HOME/Documents/Surge XT}"
 MPE_SURGE_USER_DEFAULTS="${MPE_SURGE_USER_DEFAULTS:-$HOME/.local/share/Surge XT/SurgeXTUserDefaults.xml}"
 LOG_FILE="${MPE_SURGE_LOG:-$HOME/surge-cli.log}"
 
-PI_HOST="${PI_HOST:-surge.local}"
+PI_HOST="${PI_HOST:-raspberrypi2.local}"
 # No safe default: Raspberry Pi Imager requires a custom username per-device (no
 # more shipped "pi" user), so this must come from config/mpe.env or the environment.
 PI_USER="${PI_USER:-}"
