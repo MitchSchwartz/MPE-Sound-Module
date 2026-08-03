@@ -28,8 +28,19 @@ PARAM_RELEASE = 7
 PARAM_GAIN = 8
 PARAM_HPWIDTH = 9
 
-# Native values — converted to Surge OSC 0..1 in _send_param (see surge_osc_params.py).
-LIMITER_INPUT_THRESHOLD_DB = 0.0  # param5: unity pregain into limiter
+# param5 (cond_threshold) is INPUT DRIVE, not the output ceiling — Conditioner.cpp:
+#   pregain = db_to_linear(-threshold)
+#   la = max(1.0, la)   // detector floored at unity; does nothing below 0 dBFS
+# At threshold=0 dB (unity pregain, what this used to be) the gain-reduction
+# detector only reacts once the raw signal is ALREADY at/over 0 dBFS. Combined
+# with the attack smoothing being an exponential filter (not instant even with
+# the 128-sample lookahead), a fast-attack transient (e.g. a plucky "stab")
+# can punch several dB over 0 before gain reduction ramps down enough to catch
+# it. Driving harder (more negative) makes the detector trip earlier relative
+# to true signal level, trading some always-on gentle compression for real
+# margin against fast transients — this is how Surge's own UI groups
+# Threshold/Attack/Release/Gain together as "Limiter".
+DEFAULT_LIMITER_DRIVE_DB = -6.0
 LIMITER_WIDTH = 1.0  # param3: ct_percent_bipolar
 LIMITER_HPWIDTH_HZ = -60.0  # param9: Side Low Cut default (deactivated)
 
@@ -71,6 +82,16 @@ def limiter_threshold_db() -> float:
 def normalize_limiter_threshold_db(value: float) -> float:
     """Output ceiling dB in [-48, 0] — applied on Conditioner param8 (Gain)."""
     return max(-48.0, min(0.0, float(value)))
+
+
+def limiter_drive_db() -> float:
+    """Input drive (param5) — more negative reacts earlier on fast transients."""
+    raw = os.environ.get("MPE_LIMITER_DRIVE_DB", str(DEFAULT_LIMITER_DRIVE_DB)).strip()
+    try:
+        value = float(raw)
+    except ValueError:
+        return DEFAULT_LIMITER_DRIVE_DB
+    return max(-48.0, min(0.0, value))
 
 
 def limiter_fx_slot() -> int:
@@ -153,7 +174,7 @@ def apply_output_limiter(osc_client, *, threshold_db: float | None = None) -> bo
         _send_param(osc_client, slot, PARAM_TREBLE, 0.0)
         _send_param(osc_client, slot, PARAM_WIDTH, LIMITER_WIDTH)
         _send_param(osc_client, slot, PARAM_BALANCE, 0.0)
-        _send_param(osc_client, slot, PARAM_THRESHOLD, LIMITER_INPUT_THRESHOLD_DB)
+        _send_param(osc_client, slot, PARAM_THRESHOLD, limiter_drive_db())
         _send_param(osc_client, slot, PARAM_ATTACK, LIMITER_ATTACK)
         _send_param(osc_client, slot, PARAM_RELEASE, LIMITER_RELEASE)
         # Output ceiling on Conditioner gain (post-limiter trim) — not global volume.

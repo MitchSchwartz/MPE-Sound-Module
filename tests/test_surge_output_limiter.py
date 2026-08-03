@@ -36,7 +36,7 @@ class SurgeOutputLimiterTests(unittest.TestCase):
         self.assertEqual(osc.messages[0], ("/param/global/fx_bypass", 0.0))
         self.assertEqual(osc.messages[1], ("/param/fx/global/4/type", "Conditioner"))
         self.assertIn(("/param/global/fx_bypass", 0.0), osc.messages)
-        self.assertIn(("/param/fx/global/4/param5", db_attenuation_to_normalized(0.0)), osc.messages)
+        self.assertIn(("/param/fx/global/4/param5", db_attenuation_to_normalized(-6.0)), osc.messages)
         self.assertIn(
             ("/param/fx/global/4/param8", db_attenuation_to_normalized(-1.0)),
             osc.messages,
