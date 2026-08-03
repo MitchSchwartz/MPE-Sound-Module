@@ -194,7 +194,7 @@ Keep Surge alive for the whole batch — one load + **two gestures** + capture p
 
 ### Touch calibration (same run as Norm)
 
-After the full-expression gesture writes `gain_db`, the calibrator plays a **light-touch** gesture (note 60, velocity 96, pressure held at ~25/127) and measures integrated LUFS again. When the batch finishes, it computes a cohort **median** light-touch LUFS and writes per-patch **`cal_floor`** to `~/.patch_browser_pressure.json` — patches quieter at light touch get a higher floor. The **Touch** fader double-tap resets to that calibrated default (manual `user_floor` overrides are preserved). Skip with `--no-touch-cal`.
+After the full-expression gesture writes `gain_db`, the calibrator plays a **light-touch** gesture (note 60, velocity 96, pressure held at ~25/127) and measures integrated LUFS again. When the batch finishes, it computes a cohort **median** light-touch LUFS and writes per-patch **`cal_floor`** to `~/.patch_browser_pressure.json` — patches quieter at light touch get a higher floor. The **Touch** fader shows that value as the default handle position; double-tap clears manual trim and restores it (see [`TOUCH_PATCH_BROWSER.md`](TOUCH_PATCH_BROWSER.md) §Mixer faders). Skip with `--no-touch-cal`.
 
 On the **Pi touch build**, prefer `./scripts/calibrate-with-loader.sh` (see [Pi touch display](#pi-touch-display-loader-ui)) so the DSI panel shows progress instead of a bare console.
 

@@ -6,8 +6,8 @@ import time
 
 from patch_browser.geometry import Rect
 from patch_browser.mixer import MixerChannel
+from patch_browser.mixer_controls import mixer_control_by_id, mixer_controls_for_browser
 from patch_browser.touch_ui_constants import (
-    DEFAULT_VOLUME,
     FADER_HANDLE_H,
     MIXER_DOUBLE_TAP_MS,
     MIXER_DRAG_THRESHOLD_PX,
@@ -23,26 +23,19 @@ class TouchBrowserMixerMixin:
         ratio = (x - rect.x) / rect.w
         return max(0, min(100, round(ratio * 100)))
 
+    def _mixer_control(self, channel_id: str):
+        return mixer_control_by_id(self, channel_id)
+
     def _mixer_default_value(self, channel: MixerChannel) -> float:
-        if channel.channel_id == "volume":
-            return DEFAULT_VOLUME
-        if channel.channel_id == "touch" and self.detail_patch:
-            return self.loader.pressure.get_slider_default_floor(self.detail_patch["name"])
-        if channel.channel_id in ("tail",):
-            return 0.0
-        if channel.channel_id == "norm" and self.detail_patch:
-            return self.loader.normalization.get_slider_default_gain_db(self.detail_patch["name"])
+        control = self._mixer_control(channel.channel_id)
+        if control is not None:
+            return control.default(self)
         return (channel.min_value + channel.max_value) / 2
 
     def _mixer_value(self, channel: MixerChannel) -> float:
-        if channel.channel_id == "volume":
-            return self.volume_level
-        if channel.channel_id == "tail":
-            return self._tail_offset_for_detail()
-        if channel.channel_id == "touch":
-            return self._touch_floor_for_detail()
-        if channel.channel_id == "norm":
-            return self._norm_gain_db_for_detail()
+        control = self._mixer_control(channel.channel_id)
+        if control is not None:
+            return control.read(self)
         return self._mixer_levels.get(channel.channel_id, self._mixer_default_value(channel))
 
     def _value_to_handle_y(self, channel: MixerChannel, value: float) -> int:
@@ -60,49 +53,26 @@ class TouchBrowserMixerMixin:
 
     def _set_mixer_value(self, channel: MixerChannel, value: float, *, persist: bool = True) -> None:
         clamped = max(channel.min_value, min(channel.max_value, value))
-        if channel.channel_id == "volume":
+        control = self._mixer_control(channel.channel_id)
+        if control is not None:
             if channel.enabled:
-                self._apply_volume(clamped)
-            return
-        if channel.channel_id == "norm":
-            if channel.enabled:
-                self._apply_norm_gain_db(clamped, persist=persist)
-            return
-        if channel.channel_id == "tail":
-            if channel.enabled:
-                self._apply_tail_offset(clamped, persist=persist)
-            return
-        if channel.channel_id == "touch":
-            if channel.enabled:
-                self._apply_touch_floor(clamped, persist=persist)
+                control.write(self, clamped, persist=persist)
             return
         self._mixer_levels[channel.channel_id] = clamped
 
     def _persist_mixer_drag(self) -> None:
-        """Flush deferred norm/tail slider writes after finger-up."""
-        channel_id = self._dragging_mixer_id
-        if channel_id == "norm":
-            self.loader.normalization.save()
-        elif channel_id == "tail":
-            self.loader.hold.save()
-        elif channel_id == "touch":
-            self.loader.pressure.save()
+        control = self._mixer_control(self._dragging_mixer_id or "")
+        if control is not None:
+            control.persist(self)
 
     def _reset_mixer_channel(self, channel: MixerChannel) -> None:
-        if channel.channel_id == "norm":
-            self._reset_norm_gain_to_calibrated()
-            return
-        if channel.channel_id == "tail":
-            self._reset_tail_to_patch_default()
-            return
-        if channel.channel_id == "touch":
-            self._reset_touch_to_default()
+        control = self._mixer_control(channel.channel_id)
+        if control is not None:
+            control.reset(self)
             return
         default = self._mixer_default_value(channel)
         self._set_mixer_value(channel, default)
-        if channel.channel_id == "volume":
-            self._toast("Volume reset", 1.2)
-        elif channel.enabled:
+        if channel.enabled:
             self._toast(f"{channel.label} reset", 1.2)
 
     def _mixer_channel_at(self, pos: tuple[int, int]) -> MixerChannel | None:

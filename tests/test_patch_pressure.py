@@ -87,12 +87,45 @@ class PatchPressureTests(unittest.TestCase):
     def test_format_touch_offset(self) -> None:
         store = PatchPressureStore(Path("/tmp/unused.json"))
         self.assertEqual(store.format_touch_offset(0.0), "0")
-        self.assertEqual(store.format_touch_offset(0.12), "+12")
-        self.assertEqual(store.format_touch_offset(-0.08), "-8")
+        self.assertEqual(store.format_touch_offset(0.45), "+25")
+        self.assertEqual(store.format_touch_offset(-0.9), "-50")
+
+    def test_touch_offset_display_roundtrip(self) -> None:
+        from patch_browser.patch_pressure import (
+            offset_to_touch_trim,
+            touch_trim_to_offset,
+        )
+
+        for offset in (-0.9, -0.5, 0.0, 0.35, 0.9):
+            trim = offset_to_touch_trim(offset)
+            self.assertAlmostEqual(touch_trim_to_offset(trim), offset, places=2)
+
+    def test_cal_anchor_roundtrip(self) -> None:
+        from patch_browser.patch_pressure import (
+            cal_floor_to_touch_anchor,
+            touch_fader_to_offset,
+            touch_fader_value,
+        )
+
+        baseline = 0.4
+        for offset in (-0.4, -0.15, 0.0, 0.35):
+            display = touch_fader_value(baseline, offset)
+            self.assertAlmostEqual(touch_fader_to_offset(display, baseline), offset, places=2)
+        self.assertEqual(cal_floor_to_touch_anchor(0.0), 0.0)
+        self.assertEqual(cal_floor_to_touch_anchor(0.9), 50.0)
+        self.assertAlmostEqual(cal_floor_to_touch_anchor(0.45), 25.0)
+
+    def test_format_touch_display(self) -> None:
+        store = PatchPressureStore(Path("/tmp/unused.json"))
+        self.assertEqual(store.format_touch_display(0.0), "0")
+        self.assertEqual(store.format_touch_display(34.0), "+34")
+        self.assertEqual(store.format_touch_display(-50.0), "-50")
 
     def test_touch_offset_range(self) -> None:
-        self.assertAlmostEqual(clamp_touch_offset(-0.9), PRESSURE_OFFSET_MIN)
-        self.assertAlmostEqual(clamp_touch_offset(0.9), PRESSURE_OFFSET_MAX)
+        from patch_browser.patch_pressure import PRESSURE_FLOOR_MAX
+
+        self.assertAlmostEqual(clamp_touch_offset(-1.0), -PRESSURE_FLOOR_MAX)
+        self.assertAlmostEqual(clamp_touch_offset(1.0), PRESSURE_FLOOR_MAX)
 
     def test_compute_pressure_floor_from_shortfall(self) -> None:
         self.assertAlmostEqual(compute_pressure_floor(-28.0, -28.0), 0.0)

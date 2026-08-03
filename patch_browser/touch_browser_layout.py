@@ -36,8 +36,6 @@ from patch_browser.touch_ui_constants import (
     SETTINGS_ROW_GAP,
     SETTINGS_ROW_H,
     STATUS_BAR_ITEM_GAP,
-    VOLUME_MAX,
-    VOLUME_MIN,
 )
 from patch_browser.audio_profile import header_badge_label
 from patch_browser.all_patches_index import AZ_RAIL_LETTERS
@@ -368,41 +366,19 @@ class TouchBrowserLayoutMixin:
                 return letter
         return None
     def _mixer_channel_defs(self) -> list[dict]:
-        from patch_browser.patch_hold import HOLD_OFFSET_MAX, HOLD_OFFSET_MIN
-        from patch_browser.patch_normalization import NORM_GAIN_DB_MAX, NORM_GAIN_DB_MIN
+        from patch_browser.mixer_controls import mixer_controls_for_browser
 
-        defs: list[dict] = [
-            {"id": "volume", "label": "Vol", "min": VOLUME_MIN, "max": VOLUME_MAX, "enabled": True},
-        ]
-        if getattr(self, "_show_tail_fader", getattr(self, "_show_hold_fader", lambda: False))():
+        defs: list[dict] = []
+        for control in mixer_controls_for_browser(self):
+            if not control.visible(self):
+                continue
+            spec = control.spec
             defs.append(
                 {
-                    "id": "tail",
-                    "label": "Tail",
-                    "min": HOLD_OFFSET_MIN,
-                    "max": HOLD_OFFSET_MAX,
-                    "enabled": True,
-                }
-            )
-        if getattr(self, "_show_touch_fader", lambda: False)():
-            from patch_browser.patch_pressure import PRESSURE_FLOOR_MAX, PRESSURE_FLOOR_MIN
-
-            defs.append(
-                {
-                    "id": "touch",
-                    "label": "Touch",
-                    "min": PRESSURE_FLOOR_MIN,
-                    "max": PRESSURE_FLOOR_MAX,
-                    "enabled": True,
-                }
-            )
-        if getattr(self, "_show_norm_level_fader", lambda: False)():
-            defs.append(
-                {
-                    "id": "norm",
-                    "label": "Norm",
-                    "min": NORM_GAIN_DB_MIN,
-                    "max": NORM_GAIN_DB_MAX,
+                    "id": spec.channel_id,
+                    "label": spec.label,
+                    "min": spec.min_value,
+                    "max": spec.max_value,
                     "enabled": True,
                 }
             )
