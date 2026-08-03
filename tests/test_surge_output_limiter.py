@@ -9,7 +9,6 @@ from patch_browser.surge_output_limiter import (
     apply_output_limiter,
     disable_output_limiter,
     limiter_active,
-    limiter_amp_cap_linear,
     limiter_header_badge_label,
     sync_output_limiter,
 )
@@ -35,6 +34,8 @@ class SurgeOutputLimiterTests(unittest.TestCase):
         self.assertIn(("/param/fx/global/4/param5", 0.0), osc.messages)
         self.assertIn(("/param/fx/global/4/param8", -1.0), osc.messages)
         self.assertIn(("/param/fx/global/4/param1/enable+", 0.0), osc.messages)
+        self.assertIn(("/param/fx/global/4/param9/enable+", 0.0), osc.messages)
+        self.assertIn(("/param/fx/global/4/param6", 0.0), osc.messages)
         self.assertIn(("/param/fx/global/4/param9", -60.0), osc.messages)
         self.assertEqual(osc.messages[-1], ("/param/fx/global/4/deactivate", 0.0))
 
@@ -67,31 +68,6 @@ class SurgeOutputLimiterTests(unittest.TestCase):
     def test_header_badge_shows_lim_when_active(self) -> None:
         with mock.patch("patch_browser.surge_output_limiter.limiter_active", return_value=True):
             self.assertEqual(limiter_header_badge_label(), "LIM")
-
-    def test_amp_cap_matches_threshold_db(self) -> None:
-        with mock.patch("patch_browser.surge_output_limiter.limiter_threshold_db", return_value=-1.0):
-            self.assertAlmostEqual(limiter_amp_cap_linear(), 0.891, places=3)
-
-
-class PatchLoaderLimiterCapTests(unittest.TestCase):
-    def test_send_combined_volume_caps_when_limiter_active(self) -> None:
-        from patch_browser.patch_loader import PatchLoader
-
-        loader = PatchLoader()
-        loader.osc_client = FakeOscClient()
-        loader.osc_enabled = True
-        loader.user_volume_trim = 1.0
-        loader._patch_gain_linear = 1.5
-        loader._norm_active = False
-        with (
-            mock.patch("patch_browser.patch_loader.limiter_active", return_value=True),
-            mock.patch("patch_browser.patch_loader.limiter_amp_cap_linear", return_value=0.891),
-        ):
-            loader._send_combined_volume()
-        amp_values = [
-            value for address, value in loader.osc_client.messages if address.endswith("/amp/volume")
-        ]
-        self.assertEqual(amp_values, [0.891, 0.891])
 
 
 if __name__ == "__main__":

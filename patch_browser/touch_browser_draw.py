@@ -382,7 +382,12 @@ class TouchBrowserDrawMixin:
             subtitle = "Select a patch from the left list"
 
         title_x = getattr(self, "status_title_x", self.status_rect.x + 12)
-        title_max_w = max(1, self.audio_profile_badge_rect.x - title_x - 12)
+        widget_left = (
+            self.limiter_badge_rect.x
+            if self.limiter_badge_rect.w > 0
+            else self.audio_profile_badge_rect.x
+        )
+        title_max_w = max(1, widget_left - title_x - 12)
         title_lines = wrap_text_lines(self.font_md, title, title_max_w, max_lines=1)
         self.screen.blit(
             self.font_md.render(title_lines[0], True, self.theme.text),
@@ -395,9 +400,9 @@ class TouchBrowserDrawMixin:
         )
         if self.limiter_badge_rect.w > 0:
             self._draw_limiter_badge(self.limiter_badge_rect)
+        self._draw_audio_profile_badge(self.audio_profile_badge_rect)
         if self.show_cpu_meter:
             self._draw_cpu_meter(self.cpu_meter_rect)
-        self._draw_audio_profile_badge(self.audio_profile_badge_rect)
         self._draw_button(self.system_settings_btn, "...", small=True, muted=True)
         self._draw_hairline(
             self.status_rect.bottom - 1,
