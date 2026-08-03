@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-import json
 import os
-import tempfile
 from pathlib import Path
 from typing import Any
+
+from patch_browser.json_store import atomic_write_json, read_json_dict
 
 # Floor at zero pressure: mult(0)=floor, mult(1)=1.0 always.
 PRESSURE_FLOOR_MIN = 0.0
@@ -23,6 +23,10 @@ LIGHT_TOUCH_TARGET_LUFS = -28.0
 
 # dB shortfall at light touch mapped to floor=1.0 (empirical; tune on Pi).
 FLOOR_DB_PER_UNIT = 18.0
+
+# Strike vs sustain spread — patches with huge dynamic range get extra floor (#31 Stage 3).
+EXPRESSION_GAP_DB_THRESHOLD = 12.0
+GAP_FLOOR_DB_PER_UNIT = 24.0
 
 LIVE_STATE_FILE = Path.home() / ".patch_browser_pressure_live.json"
 
@@ -50,6 +54,22 @@ def compute_pressure_floor(lufs_light: float, target_lufs_light: float) -> float
     return max(PRESSURE_FLOOR_MIN, min(PRESSURE_FLOOR_MAX, floor))
 
 
+def compute_touch_calibration_floor(
+    lufs_light: float,
+    target_lufs_light: float,
+    lufs_strike: float,
+    lufs_sustain: float,
+) -> float:
+    """Light-touch cohort alignment + strike/sustain gap lift (#31 Stage 3)."""
+    from_light = compute_pressure_floor(lufs_light, target_lufs_light)
+    gap_db = float(lufs_sustain) - float(lufs_strike)
+    from_gap = DEFAULT_PRESSURE_FLOOR
+    if gap_db > EXPRESSION_GAP_DB_THRESHOLD:
+        from_gap = (gap_db - EXPRESSION_GAP_DB_THRESHOLD) / GAP_FLOOR_DB_PER_UNIT
+        from_gap = max(PRESSURE_FLOOR_MIN, min(PRESSURE_FLOOR_MAX, from_gap))
+    return max(from_light, from_gap)
+
+
 def resolve_light_touch_target(lufs_light_values: list[float]) -> float:
     """Cohort median for batches; fixed target for single-patch runs."""
     if len(lufs_light_values) >= 2:
@@ -67,15 +87,6 @@ def remap_pressure_7bit(value: int, floor: float) -> int:
     return max(0, min(127, int(round(out))))
 
 
-def _read_json_dict(path: Path) -> dict[str, Any]:
-    try:
-        raw = json.loads(path.read_text())
-    except (OSError, json.JSONDecodeError) as exc:
-        print(f"Warning: could not load pressure file {path}: {exc}")
-        return {}
-    return raw if isinstance(raw, dict) else {}
-
-
 class PatchPressureStore:
     """Persist per-patch pressure floor overrides."""
 
@@ -87,33 +98,12 @@ class PatchPressureStore:
     def load(self) -> None:
         self._data = {}
         if self.path.exists():
-            for key, entry in _read_json_dict(self.path).items():
+            for key, entry in read_json_dict(self.path, label="pressure file").items():
                 if isinstance(entry, dict):
                     self._data[key] = dict(entry)
 
     def save(self) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        text = json.dumps(self._data, indent=2, sort_keys=True) + "\n"
-        fd, tmp_name = tempfile.mkstemp(
-            dir=self.path.parent,
-            prefix=f".{self.path.name}.",
-            suffix=".tmp",
-        )
-        tmp_path = Path(tmp_name)
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as handle:
-                handle.write(text)
-                handle.flush()
-                os.fsync(handle.fileno())
-            os.replace(tmp_path, self.path)
-            dir_fd = os.open(self.path.parent, os.O_RDONLY)
-            try:
-                os.fsync(dir_fd)
-            finally:
-                os.close(dir_fd)
-        except Exception:
-            tmp_path.unlink(missing_ok=True)
-            raise
+        atomic_write_json(self.path, self._data)
 
     @staticmethod
     def patch_key(patch_name: str) -> str:
@@ -204,11 +194,6 @@ class PatchPressureStore:
         }
         if existing and "user_floor" in existing:
             entry["user_floor"] = existing["user_floor"]
-        if abs(clamped - DEFAULT_PRESSURE_FLOOR) < 0.01 and not (
-            existing and "user_floor" in existing
-        ):
-            self._data.pop(key, None)
-            return
         self._data[key] = entry
 
     def format_floor(self, floor: float) -> str:
@@ -221,30 +206,12 @@ class PatchPressureStore:
             "patch": self.patch_key(patch_name),
             "floor": max(PRESSURE_FLOOR_MIN, min(PRESSURE_FLOOR_MAX, eff)),
         }
-        text = json.dumps(payload) + "\n"
-        fd, tmp_name = tempfile.mkstemp(
-            dir=LIVE_STATE_FILE.parent,
-            prefix=".patch_browser_pressure_live.",
-            suffix=".tmp",
-        )
-        tmp_path = Path(tmp_name)
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as handle:
-                handle.write(text)
-                handle.flush()
-                os.fsync(handle.fileno())
-            os.replace(tmp_path, LIVE_STATE_FILE)
-        except Exception:
-            tmp_path.unlink(missing_ok=True)
-            raise
+        atomic_write_json(LIVE_STATE_FILE, payload)
 
     @staticmethod
     def read_live_floor(default: float = DEFAULT_PRESSURE_FLOOR) -> float:
-        try:
-            data = json.loads(LIVE_STATE_FILE.read_text())
-            val = data.get("floor")
-            if isinstance(val, (int, float)):
-                return max(PRESSURE_FLOOR_MIN, min(PRESSURE_FLOOR_MAX, float(val)))
-        except (OSError, json.JSONDecodeError, TypeError):
-            pass
+        data = read_json_dict(LIVE_STATE_FILE)
+        val = data.get("floor")
+        if isinstance(val, (int, float)):
+            return max(PRESSURE_FLOOR_MIN, min(PRESSURE_FLOOR_MAX, float(val)))
         return default

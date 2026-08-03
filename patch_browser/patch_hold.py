@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-import json
 import os
-import tempfile
 from pathlib import Path
 from typing import Any
+
+from patch_browser.json_store import atomic_write_json, read_json_dict
 
 # Multiplier range for the Hold mixer fader (1.0 = patch-as-loaded).
 HOLD_MULT_MIN = 0.25
@@ -52,15 +52,6 @@ def effective_aeg_value(baseline: float, mult: float) -> float:
     return max(AEG_PARAM_MIN, min(AEG_PARAM_MAX, float(baseline) * float(mult)))
 
 
-def _read_json_dict(path: Path) -> dict[str, Any]:
-    try:
-        raw = json.loads(path.read_text())
-    except (OSError, json.JSONDecodeError) as exc:
-        print(f"Warning: could not load hold file {path}: {exc}")
-        return {}
-    return raw if isinstance(raw, dict) else {}
-
-
 class PatchHoldStore:
     """Persist per-patch AEG baselines and optional user Hold multiplier."""
 
@@ -72,33 +63,12 @@ class PatchHoldStore:
     def load(self) -> None:
         self._data = {}
         if self.path.exists():
-            for key, entry in _read_json_dict(self.path).items():
+            for key, entry in read_json_dict(self.path, label="hold file").items():
                 if isinstance(entry, dict):
                     self._data[key] = dict(entry)
 
     def save(self) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        text = json.dumps(self._data, indent=2, sort_keys=True) + "\n"
-        fd, tmp_name = tempfile.mkstemp(
-            dir=self.path.parent,
-            prefix=f".{self.path.name}.",
-            suffix=".tmp",
-        )
-        tmp_path = Path(tmp_name)
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as handle:
-                handle.write(text)
-                handle.flush()
-                os.fsync(handle.fileno())
-            os.replace(tmp_path, self.path)
-            dir_fd = os.open(self.path.parent, os.O_RDONLY)
-            try:
-                os.fsync(dir_fd)
-            finally:
-                os.close(dir_fd)
-        except Exception:
-            tmp_path.unlink(missing_ok=True)
-            raise
+        atomic_write_json(self.path, self._data)
 
     @staticmethod
     def patch_key(patch_name: str) -> str:

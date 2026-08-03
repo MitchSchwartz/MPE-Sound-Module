@@ -66,6 +66,132 @@ class TouchPatchBrowser(
 ):
     """Fullscreen touch patch browser."""
 
+    def __init__(self) -> None:
+        clear_browser_ready_flag()
+        windowed = os.environ.get("MPE_TOUCH_WINDOWED") == "1"
+        if windowed:
+            pygame.init()
+            pygame.display.set_caption("Pi-Surge-MPE Touch Browser")
+            self.screen = pygame.display.set_mode((800, 480))
+        else:
+            try:
+                self.screen = acquire_browser_display()
+            except RuntimeError as exc:
+                print(f"FATAL: cannot acquire DSI display: {exc}", file=sys.stderr)
+                if pygame.get_init():
+                    pygame.quit()
+                raise SystemExit(1) from exc
+            except Exception as exc:
+                if type(exc).__name__ != "error":
+                    raise
+                print(f"FATAL: cannot acquire DSI display: {exc}", file=sys.stderr)
+                if pygame.get_init():
+                    pygame.quit()
+                raise SystemExit(1) from exc
+            pygame.display.set_caption("Pi-Surge-MPE Touch Browser")
+        self.width, self.height = self.screen.get_size()
+        pygame.mouse.set_visible(False)
+        prefs = reload_theme_from_prefs()
+        self.theme_mode = prefs.theme_mode
+        self.theme = theme_for_mode(self.theme_mode)
+        self._theme_saved_prefs = None
+        self._theme_draft_prefs = None
+        self._theme_view_state = THEME_VIEW_MAIN
+        self._custom_accent_colors = []
+        self._picker_rgb = DEFAULT_ACCENT_RGB
+        self._picker_editing_id = None
+        self._picker_slider_channel = None
+        self._boot_splash_started = time.monotonic()
+        self._boot_splash_done = False
+        self._paint_boot_splash_frame(animation_phase=0.0)
+        self.font_lg = self._load_font(34)
+        self.font_md = self._load_font(22)
+        self.font_sm = self._load_font(18)
+
+        self.backlight = BacklightController()
+        self.backlight.restore_saved()
+
+        self.scanner = PatchScanner(SURGE_PATCH_DIRS)
+        self.loader = PatchLoader()
+        self.surge_monitor = SurgeMonitor()
+        self.cpu_monitor = SurgeCpuMonitor(self.surge_monitor)
+        self.cpu_monitor.start()
+
+        self.categories: list[str] = []
+        self.all_patches_flat: list[dict] = []
+        self.all_patches_letter_index: dict[str, int] = {}
+        self.az_rail_rect = Rect(0, 0, 0, 0)
+        self.az_rail_letter_rects: list[tuple[str, Rect]] = []
+        self.nav_all_btn = Rect(0, 0, 0, 0)
+        self.nav_current_btn = Rect(0, 0, 0, 0)
+        self._all_patches_saved_scroll = 0.0
+        self.browse_folder_index = 0
+        self.loaded_folder_index = 0
+        self.detail_patch: dict | None = None
+        self.loaded_patch_info: dict | None = None
+        self.left_nav_mode = LeftNavMode.PATCHES
+        self.left_nav_collapsed = False
+        self.screen_state = Screen.BROWSER
+        self.nav_folder_title_rect: Rect | None = None
+
+        self.volume_level = self._load_volume_level()
+        self.show_cpu_meter = self._load_ui_preference("show_cpu_meter", default=True)
+        self.poly_governor_enabled = self._load_ui_preference("poly_governor_enabled", default=True)
+        self.brightness_percent = self.backlight.get_percent()
+        self.toast_message = ""
+        self.toast_until = 0.0
+        self.power_action: str | None = None
+        self._pending_calibrate_mode: CalibrateMode = CalibrateMode.MISSING_ONLY
+        self._slider_dragging = False
+        self._dragging_mixer_id: str | None = None
+        self._mixer_levels: dict[str, float] = {}
+        self._mixer_last_tap_id: str | None = None
+        self._mixer_last_tap_time = 0.0
+        self._mixer_drag_origin: tuple[int, int] | None = None
+        self._mixer_drag_moved = False
+        self._pending_norm_toggle = False
+        self._pending_favorites_toggle = False
+        self._brightness_last_tap_time = 0.0
+        self._brightness_drag_moved = False
+        self.mixer_channels: list[MixerChannel] = []
+        self._scan_dirty = False
+        self._pending_last_patch: dict | None = None
+        self._pending_load_next = 0.0
+        self._last_known_surge_pid: int | None = None
+        self._surge_was_healthy = False
+        self._surge_liveness_initialized = False
+        self._surge_restart_btn: Rect | None = None
+        self._settings_slide = 0.0
+        self._settings_swipe_start: tuple[int, int] | None = None
+        self._settings_pointer_down_pos: tuple[int, int] | None = None
+        self._settings_pending_hit: str | None = None
+        self._modal_pointer_down_pos: tuple[int, int] | None = None
+        self._modal_pending_index: int | None = None
+        self._modal_pending_key: str | None = None
+        self._settings_content_scroll = ContentScrollArea(Rect(0, 0, 1, 1))
+        self._settings_content_height = 0
+        self._running = True
+        self._scan_lock = threading.Lock()
+        self._audio_profile_switching = False
+        self._audio_profile_switch_target: str | None = None
+        self._audio_profile_switch_started = 0.0
+        self._audio_profile_result_queue: queue.SimpleQueue[tuple[bool, str]] = queue.SimpleQueue()
+        self._profile_switch_reload_active = False
+        self._profile_switch_sent_once = False
+        self._evdev_touch_queue: queue.SimpleQueue[tuple[str, tuple[int, int]]] = queue.SimpleQueue()
+        self._evdev_bridge: TouchEvdevBridge | None = None
+        self._touch_list_capture = False
+        self._az_rail_capture = False
+        self._az_rail_scrub_letter: str | None = None
+        self._az_rail_active_letter: str | None = None
+        self._az_rail_active_until = 0.0
+
+        self._layout()
+        self._bootstrap_patches()
+        self._start_background_scan()
+        self._wait_for_initial_scan()
+        self._start_evdev_touch_bridge()
+
     def _load_font(self, size: int) -> pygame.font.Font:
         for name in ("dejavusans", "dejavusansmono", "liberationsans", "arial"):
             path = pygame.font.match_font(name)
@@ -171,130 +297,6 @@ class TouchPatchBrowser(
             self._evdev_bridge.stop()
         self.cpu_monitor.stop()
         pygame.quit()
-    def __init__(self) -> None:
-        clear_browser_ready_flag()
-        windowed = os.environ.get("MPE_TOUCH_WINDOWED") == "1"
-        if windowed:
-            pygame.init()
-            pygame.display.set_caption("Pi-Surge-MPE Touch Browser")
-            self.screen = pygame.display.set_mode((800, 480))
-        else:
-            try:
-                self.screen = acquire_browser_display()
-            except RuntimeError as exc:
-                print(f"FATAL: cannot acquire DSI display: {exc}", file=sys.stderr)
-                if pygame.get_init():
-                    pygame.quit()
-                raise SystemExit(1) from exc
-            except Exception as exc:
-                if type(exc).__name__ != "error":
-                    raise
-                print(f"FATAL: cannot acquire DSI display: {exc}", file=sys.stderr)
-                if pygame.get_init():
-                    pygame.quit()
-                raise SystemExit(1) from exc
-            pygame.display.set_caption("Pi-Surge-MPE Touch Browser")
-        self.width, self.height = self.screen.get_size()
-        pygame.mouse.set_visible(False)
-        prefs = reload_theme_from_prefs()
-        self.theme_mode = prefs.theme_mode
-        self.theme = theme_for_mode(self.theme_mode)
-        self._theme_saved_prefs = None
-        self._theme_draft_prefs = None
-        self._theme_view_state = THEME_VIEW_MAIN
-        self._custom_accent_colors = []
-        self._picker_rgb = DEFAULT_ACCENT_RGB
-        self._picker_editing_id = None
-        self._picker_slider_channel = None
-        self._boot_splash_started = time.monotonic()
-        self._boot_splash_done = False
-        self._paint_boot_splash_frame(animation_phase=0.0)
-        self.font_lg = self._load_font(34)
-        self.font_md = self._load_font(22)
-        self.font_sm = self._load_font(18)
-
-        self.backlight = BacklightController()
-        self.backlight.restore_saved()
-
-        self.scanner = PatchScanner(SURGE_PATCH_DIRS)
-        self.loader = PatchLoader()
-        self.surge_monitor = SurgeMonitor()
-        self.cpu_monitor = SurgeCpuMonitor(self.surge_monitor)
-        self.cpu_monitor.start()
-
-        self.categories: list[str] = []
-        self.all_patches_flat: list[dict] = []
-        self.all_patches_letter_index: dict[str, int] = {}
-        self.az_rail_rect = Rect(0, 0, 0, 0)
-        self.az_rail_letter_rects: list[tuple[str, Rect]] = []
-        self.nav_all_btn = Rect(0, 0, 0, 0)
-        self.nav_current_btn = Rect(0, 0, 0, 0)
-        self._all_patches_saved_scroll = 0.0
-        self.browse_folder_index = 0
-        self.loaded_folder_index = 0
-        self.detail_patch: dict | None = None
-        self.loaded_patch_info: dict | None = None
-        self.left_nav_mode = LeftNavMode.PATCHES
-        self.left_nav_collapsed = False
-        self.screen_state = Screen.BROWSER
-        self.nav_folder_title_rect: Rect | None = None
-
-        self.volume_level = self._load_volume_level()
-        self.show_cpu_meter = self._load_ui_preference("show_cpu_meter", default=True)
-        self.brightness_percent = self.backlight.get_percent()
-        self.toast_message = ""
-        self.toast_until = 0.0
-        self.power_action: str | None = None
-        self._pending_calibrate_mode: CalibrateMode = CalibrateMode.MISSING_ONLY
-        self._slider_dragging = False
-        self._dragging_mixer_id: str | None = None
-        self._mixer_levels: dict[str, float] = {}
-        self._mixer_last_tap_id: str | None = None
-        self._mixer_last_tap_time = 0.0
-        self._mixer_drag_origin: tuple[int, int] | None = None
-        self._mixer_drag_moved = False
-        self._pending_norm_toggle = False
-        self._pending_favorites_toggle = False
-        self._brightness_last_tap_time = 0.0
-        self._brightness_drag_moved = False
-        self.mixer_channels: list[MixerChannel] = []
-        self._scan_dirty = False
-        self._pending_last_patch: dict | None = None
-        self._pending_load_next = 0.0
-        self._last_known_surge_pid: int | None = None
-        self._surge_was_healthy = False
-        self._surge_liveness_initialized = False
-        self._surge_restart_btn: Rect | None = None
-        self._settings_slide = 0.0
-        self._settings_swipe_start: tuple[int, int] | None = None
-        self._settings_pointer_down_pos: tuple[int, int] | None = None
-        self._settings_pending_hit: str | None = None
-        self._modal_pointer_down_pos: tuple[int, int] | None = None
-        self._modal_pending_index: int | None = None
-        self._modal_pending_key: str | None = None
-        self._settings_content_scroll = ContentScrollArea(Rect(0, 0, 1, 1))
-        self._settings_content_height = 0
-        self._running = True
-        self._scan_lock = threading.Lock()
-        self._audio_profile_switching = False
-        self._audio_profile_switch_target: str | None = None
-        self._audio_profile_switch_started = 0.0
-        self._audio_profile_result_queue: queue.SimpleQueue[tuple[bool, str]] = queue.SimpleQueue()
-        self._profile_switch_reload_active = False
-        self._profile_switch_sent_once = False
-        self._evdev_touch_queue: queue.SimpleQueue[tuple[str, tuple[int, int]]] = queue.SimpleQueue()
-        self._evdev_bridge: TouchEvdevBridge | None = None
-        self._touch_list_capture = False
-        self._az_rail_capture = False
-        self._az_rail_scrub_letter: str | None = None
-        self._az_rail_active_letter: str | None = None
-        self._az_rail_active_until = 0.0
-
-        self._layout()
-        self._bootstrap_patches()
-        self._start_background_scan()
-        self._wait_for_initial_scan()
-        self._start_evdev_touch_bridge()
 
 
 def _exit_on_signal(signum: int, *_args: object) -> None:

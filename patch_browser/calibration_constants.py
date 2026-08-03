@@ -27,7 +27,7 @@ TOUCH_PATCH_BROWSER_SCRIPT = REPO_ROOT / "touch_patch_browser.py"
 
 # Pi-measured average per patch (loopback cal, Aug 2026): full gesture + light-touch
 # capture, settle, ffmpeg measure, and ~25% needing progressive retries.
-CALIBRATION_SECONDS_PER_PATCH_ESTIMATE = 22.0
+CALIBRATION_SECONDS_PER_PATCH_ESTIMATE = 45.0
 
 
 def estimate_calibration_duration_seconds(patch_count: int) -> float:

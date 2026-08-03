@@ -36,16 +36,19 @@ Every patch is fully editable and MPE-assignable from your computer, across all 
 - **Runs Surge XT** — free, open-source synth engine, always in MPE mode, full mod matrix across all 5 expression dimensions
 - **3,192 patches included** — 639 factory + 2,553 community
 - **Analog and USB audio out** — 3.5mm jack standalone, or USB to a laptop/PC as a standard audio input
-- **Per-patch volume normalization** — calibrate once, every patch loads at a matched level
+- **Per-patch volume normalization** — calibrate once (strike + sustain anchors, peak-safe closed loop); every patch loads at a matched level. The same run sets **Touch** pressure floors for light vs full press on favorites.
+- **Reuse Single on load** — patches are rewritten at load so restrikes on the same key reuse the voice instead of stacking new ones (lighter CPU on dense patches)
+- **Dynamic voice limit** — a background governor watches CPU and steps Surge's poly limit down under sustained load, then recovers when headroom returns; Surge's built-in softkill handles voice stealing (no MIDI panic)
 - **Favorites folder** — curate a quick-access set of patches on your PC, deploy to the device
 
 ### UI
 
 - **Two interface options** — rotary encoder + OLED screen, or fullscreen touch display (SmartiPi 5″)
 - **Full-library browsing** — folder view or a flat, alphabetical searchable list
-- **Per-patch mixer (touch)** — vertical faders on the patch detail pane: **Vol** (level), **Tail** (envelope length), **Touch** (MPE pressure response for light vs full press)
+- **Per-patch mixer (touch)** — vertical faders on the patch detail pane: **Vol** (level), **Tail** (envelope length), **Touch** (MPE pressure response for light vs full press; calibrated with norm on Quick Select)
 - **Theming** — light/dark base themes with custom accent colors
 - **CPU meter** — live engine headroom while playing
+- **Dynamic voice limit toggle (touch)** — System settings → turn CPU-aware poly limiting on or off (default on)
 
 **Status:** 
 
@@ -113,16 +116,32 @@ Full walkthrough: **[docs/PATCH-EDITING-WORKFLOW.md](docs/PATCH-EDITING-WORKFLOW
 
 ### Per-patch normalization (touch or SSH)
 
-Calibrate once; every `load_patch()` applies a stored gain baseline (MPE expression untouched):
+Calibrate once; every `load_patch()` applies a stored gain baseline (MPE expression untouched). The calibrator measures each patch at **strike** (hard hit, light pressure) and **sustain** (moderate velocity, full pressure), picks the safer of the two gains, then verifies peak level in a short closed loop before saving. When **Norm.** is on, the full calibrated gain reaches Surge — peak headroom is enforced at calibration time, not by clamping at load.
+
+The same run captures a **light-touch** gesture and writes **Touch** pressure floors to `~/.patch_browser_pressure.json` (cohort alignment plus extra lift for patches with a wide strike/sustain gap). Double-tap **Touch** resets to that calibrated default.
 
 ```bash
-# Pi touch display — fullscreen loader on the 800×480 panel
-./scripts/calibrate-with-loader.sh --favorites-only
+# Pi touch display — fullscreen loader on the 800×480 panel (~5–12 min for Quick Select)
+./scripts/calibrate-with-loader.sh --favorites-only --force   # re-cal entire favorites folder
+./scripts/calibrate-with-loader.sh --favorites-only           # only patches missing gain_db
 
 # Or from touch UI: System settings → Calibrate Quick Select
 ```
 
 Toggle **Norm.** on the patch detail pane to bypass normalization for one patch; the choice persists in `~/.patch_browser_normalization.json`. Full design: **[docs/PATCH_NORMALIZATION.md](docs/PATCH_NORMALIZATION.md)**.
+
+### Playback policy (Pi)
+
+On every patch load, **Reuse Single** is applied automatically (XML rewrite — not an OSC toggle). A static poly **ceiling** is applied via Surge OSC; the **dynamic voice limit** governor (`surge-poly-governor.service`) can step that limit down further when CPU stays high.
+
+| Control | Where |
+| -------- | ----- |
+| Dynamic voice limit on/off | Touch UI → System settings |
+| Poly ceiling / floor | `/etc/mpe/mpe.env` — `MPE_POLY_CEILING` (default 12), `MPE_POLY_FLOOR` (default 6) |
+| Disable Reuse Single | `MPE_REUSE_SINGLE=0` in `mpe.env` |
+| Disable governor entirely | `MPE_POLY_GOVERNOR=0` or turn off in touch settings |
+
+Manual OSC smoke test: `python3 scripts/manual/test-poly-governor-osc.py`
 
 ## Quick reference (if you already have one running)
 

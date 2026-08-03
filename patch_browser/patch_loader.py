@@ -21,6 +21,15 @@ from patch_browser.patch_normalization import (
     db_to_linear,
     volume_fader_to_amp_linear,
 )
+from patch_browser.surge_playback import (
+    effective_poly_after_load,
+    ensure_reuse_single_patch,
+    poly_ceiling,
+    query_polylimit,
+    reuse_single_enabled,
+    send_polylimit,
+    write_poly_state,
+)
 from patch_browser.touch_ui_constants import VOLUME_MAX, VOLUME_MIN
 
 OSC_OUT_PORT = 53270
@@ -62,6 +71,8 @@ class PatchLoader:
         self._patch_gain_linear = 1.0
         self._norm_active = False
         self._loaded_patch_name: str | None = None
+        self._native_poly_limit: int | None = None
+        self._effective_poly_limit: int | None = None
 
     def set_volume(self, volume=1.0):
         """Set user volume trim (stacks on per-patch normalization baseline)."""
@@ -84,6 +95,7 @@ class PatchLoader:
             cap=cap,
             fader_min=VOLUME_MIN,
             fader_max=VOLUME_MAX,
+            norm_active=self._norm_active,
         )
         try:
             self.osc_client.send_message("/param/a/amp/volume", combined)
@@ -229,13 +241,34 @@ class PatchLoader:
             return False
         return self._send_hold_osc(patch_name)
 
+    def _apply_playback_policy(self, patch_name: str) -> None:
+        """Reuse Single (patch XML) + Pi poly ceiling via Surge OSC."""
+        native = query_polylimit(
+            self.osc_client,
+            osc_host=self.osc_host,
+            osc_out_port=self.osc_out_port,
+        )
+        ceiling = poly_ceiling()
+        effective = effective_poly_after_load(native, ceiling=ceiling)
+        self._native_poly_limit = native
+        self._effective_poly_limit = effective
+        send_polylimit(self.osc_client, effective)
+        write_poly_state(
+            patch_name=patch_name,
+            native_poly=native if native is not None else effective,
+            ceiling_poly=ceiling,
+            effective_poly=effective,
+            reuse_single=reuse_single_enabled(),
+        )
+
     def load_patch(self, patch_path, *, apply_normalization: bool = True):
         if not self.osc_enabled:
             print(f"OSC disabled, cannot load: {patch_path}")
             return False
 
         try:
-            path_no_ext = str(patch_path)
+            load_path = ensure_reuse_single_patch(Path(patch_path))
+            path_no_ext = str(load_path)
             if path_no_ext.endswith(".fxp") or path_no_ext.endswith(".FXP"):
                 path_no_ext = path_no_ext[:-4]
 
@@ -251,6 +284,7 @@ class PatchLoader:
             self._send_combined_volume()
             self._loaded_patch_name = patch_name
             time.sleep(PATCH_LOAD_SETTLE_S)
+            self._apply_playback_policy(patch_name)
             if not self._capture_hold_baseline(patch_name):
                 print(f"Hold baseline query failed for {patch_name}; using stored values if any")
             self._send_hold_osc(patch_name)

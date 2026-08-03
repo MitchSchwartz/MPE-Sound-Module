@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import json
 import math
 import os
-import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+from patch_browser.json_store import atomic_write_json, read_json_dict
 
 # Integrated LUFS target for relative loudness matching across patches.
 TARGET_LUFS = -18.0
@@ -78,9 +78,14 @@ def volume_fader_to_amp_linear(
     cap: float,
     fader_min: float,
     fader_max: float,
+    norm_active: bool = False,
 ) -> float:
     """Map Vol fader position to Surge amp/volume with even dB steps across travel."""
-    eff_max = min(patch_gain_linear, cap)
+    if norm_active:
+        # Peak-safe gain_db is computed at calibration — do not re-clamp here (#31 Stage 1).
+        eff_max = max(0.0, float(patch_gain_linear))
+    else:
+        eff_max = min(patch_gain_linear, cap)
     eff_min = eff_max * fader_min
     if eff_max <= 0:
         return 0.0
@@ -116,13 +121,23 @@ def compute_gain_db(
     return min(lufs_gain, peak_gain)
 
 
-def _read_json_dict(path: Path) -> dict[str, Any]:
-    try:
-        raw = json.loads(path.read_text())
-    except (OSError, json.JSONDecodeError) as exc:
-        print(f"Warning: could not load normalization file {path}: {exc}")
-        return {}
-    return raw if isinstance(raw, dict) else {}
+def compute_gain_db_dual_anchor(
+    strike_lufs: float,
+    strike_peak_dbtp: float,
+    sustain_lufs: float,
+    sustain_peak_dbtp: float,
+    *,
+    target_lufs: float = TARGET_LUFS,
+    safe_peak_dbtp: float = SAFE_PEAK_DBTP,
+) -> float:
+    """Gain from strike-led and sustain-led anchors — max so both land safely (#31 Stage 2)."""
+    strike_gain = compute_gain_db(
+        strike_lufs, strike_peak_dbtp, target_lufs=target_lufs, safe_peak_dbtp=safe_peak_dbtp
+    )
+    sustain_gain = compute_gain_db(
+        sustain_lufs, sustain_peak_dbtp, target_lufs=target_lufs, safe_peak_dbtp=safe_peak_dbtp
+    )
+    return max(strike_gain, sustain_gain)
 
 
 def _merge_patch_entry(
@@ -156,14 +171,14 @@ class PatchNormalizationStore:
 
         starter = repo_starter_path()
         if starter.exists():
-            for key, entry in _read_json_dict(starter).items():
+            for key, entry in read_json_dict(starter, label="normalization file").items():
                 if key == _GLOBAL_SETTINGS_KEY:
                     continue
                 if isinstance(entry, dict):
                     merged[key] = dict(entry)
 
         if self.path.exists():
-            for key, entry in _read_json_dict(self.path).items():
+            for key, entry in read_json_dict(self.path, label="normalization file").items():
                 if key == _GLOBAL_SETTINGS_KEY:
                     if isinstance(entry, dict) and "enabled" in entry:
                         self._global_enabled = bool(entry["enabled"])
@@ -175,30 +190,9 @@ class PatchNormalizationStore:
 
     def save(self) -> None:
         """Persist store atomically so cancel/interrupt mid-write cannot truncate JSON."""
-        self.path.parent.mkdir(parents=True, exist_ok=True)
         payload: dict[str, Any] = dict(self._data)
         payload[_GLOBAL_SETTINGS_KEY] = {"enabled": self._global_enabled}
-        text = json.dumps(payload, indent=2, sort_keys=True) + "\n"
-        fd, tmp_name = tempfile.mkstemp(
-            dir=self.path.parent,
-            prefix=f".{self.path.name}.",
-            suffix=".tmp",
-        )
-        tmp_path = Path(tmp_name)
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as handle:
-                handle.write(text)
-                handle.flush()
-                os.fsync(handle.fileno())
-            os.replace(tmp_path, self.path)
-            dir_fd = os.open(self.path.parent, os.O_RDONLY)
-            try:
-                os.fsync(dir_fd)
-            finally:
-                os.close(dir_fd)
-        except Exception:
-            tmp_path.unlink(missing_ok=True)
-            raise
+        atomic_write_json(self.path, payload)
 
     @staticmethod
     def patch_key(patch_name: str) -> str:
@@ -237,7 +231,7 @@ class PatchNormalizationStore:
         starter = repo_starter_path()
         if not starter.exists():
             return entry
-        starter_entry = _read_json_dict(starter).get(key)
+        starter_entry = read_json_dict(starter, label="normalization file").get(key)
         if isinstance(starter_entry, dict):
             return _merge_patch_entry(starter_entry, entry)
         return entry
@@ -329,6 +323,8 @@ class PatchNormalizationStore:
         enabled: bool | None = None,
         calibrated_at: str | None = None,
         true_peak_dbtp: float | None = None,
+        strike_lufs: float | None = None,
+        sustain_lufs: float | None = None,
     ) -> None:
         key = self.patch_key(patch_name)
         existing = self.get_entry(patch_name)
@@ -348,6 +344,10 @@ class PatchNormalizationStore:
         }
         if true_peak_dbtp is not None:
             entry["true_peak_dbtp"] = round(float(true_peak_dbtp), 2)
+        if strike_lufs is not None:
+            entry["strike_lufs"] = round(float(strike_lufs), 2)
+        if sustain_lufs is not None:
+            entry["sustain_lufs"] = round(float(sustain_lufs), 2)
         if existing and "user_gain_db" in existing:
             entry["user_gain_db"] = existing["user_gain_db"]
         self._data[key] = entry
