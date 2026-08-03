@@ -281,7 +281,7 @@ class TouchBrowserDrawMixin:
         elif channel.enabled and channel.channel_id == "tail":
             value_label = self.loader.hold.format_hold_mult(value)
         elif channel.enabled and channel.channel_id == "touch":
-            value_label = self.loader.pressure.format_floor(value)
+            value_label = self.loader.pressure.format_touch_offset(value)
         elif channel.enabled and channel.channel_id == "norm":
             value_label = f"{value:+.1f}"
         else:

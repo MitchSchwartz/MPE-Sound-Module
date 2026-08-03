@@ -385,14 +385,14 @@ class TouchBrowserLayoutMixin:
                 }
             )
         if getattr(self, "_show_touch_fader", lambda: False)():
-            from patch_browser.patch_pressure import PRESSURE_FLOOR_MAX, PRESSURE_FLOOR_MIN
+            from patch_browser.patch_pressure import PRESSURE_OFFSET_MAX, PRESSURE_OFFSET_MIN
 
             defs.append(
                 {
                     "id": "touch",
                     "label": "Touch",
-                    "min": PRESSURE_FLOOR_MIN,
-                    "max": PRESSURE_FLOOR_MAX,
+                    "min": PRESSURE_OFFSET_MIN,
+                    "max": PRESSURE_OFFSET_MAX,
                     "enabled": True,
                 }
             )
