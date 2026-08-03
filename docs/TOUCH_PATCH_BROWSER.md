@@ -191,11 +191,22 @@ Spec: [`Documents/specs/touch-patch-browser-spec.md`](../Documents/specs/touch-p
 
 ## Mixer faders
 
-The patch detail pane uses a **vertical fader strip** (mixing-board style) instead of a thin horizontal slider:
+The patch detail pane uses a **vertical fader strip** (mixing-board style) instead of a thin horizontal slider.
+
+**Canon — three different zero semantics** (do not conflate Tail and Touch):
+
+| Fader | Scale | At rest (no user override) | Double-tap reset |
+|-------|-------|------------------------------|------------------|
+| **Vol** | 0–100 (dB-linear) | Last volume | Default level |
+| **Tail** | −50…+50 | **0** (patch-as-loaded) | **0** |
+| **Touch** | −50…+50 | **Cal anchor** (maps `cal_floor` 0→0, max→+50) | **Cal anchor** |
+| **Norm** | dB (e.g. −12…+24) | Calibrated gain | Calibrated gain |
+
+Per-fader detail:
 
 - **Vol** — drag the handle up/down (top = louder). Per-patch trim; persists to `~/.patch_browser_volume.json`. Display is **0–100** across fader travel with **dB-linear** mapping so normalized patches use the full range.
-- **Tail** — per-patch multiplier on amp envelope **sustain, decay, and release** (both scenes). Scales the envelope tail while preserving its shape. Under the hood: **0.25×–4.0×** via log mapping; fader shows **−50…+50** with **0** at center (patch-as-loaded). Double-tap resets to **0**. Persists in `~/.patch_browser_hold.json`.
-- **Touch** — per-patch **MPE pressure floor** (how much expression you get from a light press). Fader shows **−50…+50** with **0** at center = calibrated default (or stock if uncalibrated). Calibration stores defaults per patch (`~/.patch_browser_pressure.json`); drag to override. Double-tap resets to **0**. Live remapping runs in `mpe-pressure-remap.service` (LUMI / pressure MIDI → Surge via ALSA **Midi Through**).
+- **Tail** — per-patch multiplier on amp envelope **sustain, decay, and release** (both scenes). Under the hood: **0.25×–4.0×** via log mapping; fader shows **−50…+50** with **0** at center (patch-as-loaded). Double-tap resets to **0**. Persists in `~/.patch_browser_hold.json`.
+- **Touch** — per-patch **MPE pressure floor** (light press vs full press). Fader shows **−50…+50**. **Handle position = cal anchor + user trim** (`touch_fader_value` in `patch_pressure.py`): calibration sets the anchor; drag applies trim (negative = less lift than cal). Stored as `cal_floor` + optional `user_touch_offset` in `~/.patch_browser_pressure.json`. Double-tap clears trim and restores the cal anchor. Live remapping: `mpe-pressure-remap.service`.
 - **Norm** — per-patch normalization gain (dB); visible only when **Norm.** is checked. Double-tap resets to calibrated default.
 - Touch **down + drag** on a fader; release does not trigger nav taps underneath.
 - **Norm.** — label-left / checkbox-right toggle for per-patch loudness normalization (see [`PATCH_NORMALIZATION.md`](PATCH_NORMALIZATION.md)).
