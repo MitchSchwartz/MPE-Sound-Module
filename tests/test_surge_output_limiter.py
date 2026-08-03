@@ -9,6 +9,7 @@ from patch_browser.surge_output_limiter import (
     apply_output_limiter,
     disable_output_limiter,
     limiter_active,
+    limiter_header_badge_label,
     sync_output_limiter,
 )
 
@@ -28,7 +29,9 @@ class SurgeOutputLimiterTests(unittest.TestCase):
             with mock.patch("patch_browser.surge_output_limiter.time.sleep"):
                 self.assertTrue(apply_output_limiter(osc, threshold_db=-1.0))
         self.assertEqual(osc.messages[0], ("/param/fx/global/4/type", "Conditioner"))
-        self.assertIn(("/param/fx/global/4/param6", -1.0), osc.messages)
+        self.assertIn(("/param/fx/global/4/param5", 0.0), osc.messages)
+        self.assertIn(("/param/fx/global/4/param8", -1.0), osc.messages)
+        self.assertIn(("/param/fx/global/4/param9", -60.0), osc.messages)
         self.assertEqual(osc.messages[-1], ("/param/fx/global/4/deactivate", 0.0))
 
     def test_disable_bypasses_slot(self) -> None:
@@ -52,6 +55,14 @@ class SurgeOutputLimiterTests(unittest.TestCase):
             mock.patch("patch_browser.surge_output_limiter.limiter_enabled_by_pref", return_value=False),
         ):
             self.assertFalse(limiter_active())
+
+    def test_header_badge_hidden_when_inactive(self) -> None:
+        with mock.patch("patch_browser.surge_output_limiter.limiter_active", return_value=False):
+            self.assertIsNone(limiter_header_badge_label())
+
+    def test_header_badge_shows_lim_when_active(self) -> None:
+        with mock.patch("patch_browser.surge_output_limiter.limiter_active", return_value=True):
+            self.assertEqual(limiter_header_badge_label(), "LIM")
 
 
 if __name__ == "__main__":
