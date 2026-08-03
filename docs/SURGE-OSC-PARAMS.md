@@ -41,8 +41,32 @@ Conditioner params (`ConditionerEffect.cpp`):
 
 | OSC suffix | Role | Native intent | OSC helper |
 |------------|------|---------------|------------|
-| `param5` | Threshold (pregain) | 0 dB unity | `db_attenuation_to_normalized(0)` |
-| `param6` / `param7` | Attack / release | −1 = fast | `bipolar_to_normalized(-1)` |
-| `param8` | Gain (post trim) | ceiling e.g. −1 dB | `db_attenuation_to_normalized(threshold_db)` |
+| `param5` | Threshold (**input drive**, not ceiling) | −6 dB (`MPE_LIMITER_DRIVE_DB`) | `db_attenuation_to_normalized(-6)` |
+| `param6` / `param7` | Attack / release | **+1 = fastest** (higher native = faster, see below) | `bipolar_to_normalized(1)` |
+| `param8` | Gain (post-limit output trim = the ceiling) | e.g. −1 dB (`MPE_LIMITER_THRESHOLD_DB`) | `db_attenuation_to_normalized(threshold_db)` |
 
 Appliance ceiling is **`param8` only** — do not drive `/param/global/volume` from the limiter (conflicts with patch volume; raw dB on that path caused ~−54 dBFS silence).
+
+### Attack/release direction (verified against `Conditioner.cpp`)
+
+```cpp
+float am = 1.0f + 0.9f * *pd_float[cond_attack];   // native -1..1
+float attack = 0.001f * am * am;                    // HIGHER native -> LARGER coeff -> FASTER
+```
+
+Native `−1` → `am=0.1` → attack coeff `0.00001` → **~2.3s** time constant (effectively off).
+Native `+1` → `am=1.9` → attack coeff `0.00361` → **~6ms** time constant.
+Same relationship for release (`0.0001*rm*rm`): native `+1` ≈ 63ms, native `−1` ≈ 22.7s.
+
+### Threshold = input drive, not the ceiling (verified against `Conditioner.cpp`)
+
+```cpp
+float pregain = storage->db_to_linear(-*pd_float[cond_threshold]);
+...
+la = max(1.f, la);   // detector floored at unity (0 dBFS) — inert below it
+gain = 1.f / filtered_lamax2;
+```
+
+The gain-reduction detector does **nothing** until the (pregain-scaled) signal reaches 0 dBFS. At `threshold = 0 dB` (unity pregain), the detector only reacts once the raw signal is *already* at full scale — combined with attack smoothing being an exponential filter (not instant, even with the 128-sample/~2.9ms lookahead), fast-attack transients can punch several dB over 0 dBFS before gain reduction catches up. Driving `param5` more negative feeds extra gain into the detector so it trips earlier relative to true signal level, trading a bit of always-on gentle compression for real margin against fast transients (e.g. plucky "stab" patches). This is why Surge's own UI groups `Threshold/Attack/Release/Gain` together as **"Limiter"** (`group_label` id 2 in the source) — `Threshold` is meant to be driven, not left at unity.
+
+`param8` (Gain) is the separate final output trim applied *after* limiting — that's the actual ceiling knob (`MPE_LIMITER_THRESHOLD_DB`).
