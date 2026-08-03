@@ -368,7 +368,7 @@ class TouchBrowserLayoutMixin:
                 return letter
         return None
     def _mixer_channel_defs(self) -> list[dict]:
-        from patch_browser.patch_hold import HOLD_MULT_MAX, HOLD_MULT_MIN
+        from patch_browser.patch_hold import HOLD_OFFSET_MAX, HOLD_OFFSET_MIN
         from patch_browser.patch_normalization import NORM_GAIN_DB_MAX, NORM_GAIN_DB_MIN
 
         defs: list[dict] = [
@@ -379,8 +379,8 @@ class TouchBrowserLayoutMixin:
                 {
                     "id": "tail",
                     "label": "Tail",
-                    "min": HOLD_MULT_MIN,
-                    "max": HOLD_MULT_MAX,
+                    "min": HOLD_OFFSET_MIN,
+                    "max": HOLD_OFFSET_MAX,
                     "enabled": True,
                 }
             )
