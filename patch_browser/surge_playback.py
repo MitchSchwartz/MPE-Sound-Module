@@ -24,6 +24,7 @@ REUSE_SINGLE_CACHE_DIR = Path("/tmp/mpe-reuse-single")
 
 DEFAULT_POLY_CEILING = 12
 DEFAULT_POLY_FLOOR = 6
+DEFAULT_GOVERNOR_LOAD_HEADROOM = 3
 
 
 def reuse_single_enabled() -> bool:
@@ -44,6 +45,14 @@ def poly_floor() -> int:
         return clamp_poly_limit(int(raw))
     except ValueError:
         return DEFAULT_POLY_FLOOR
+
+
+def governor_load_headroom() -> int:
+    raw = os.environ.get("MPE_POLY_GOVERNOR_HEADROOM", str(DEFAULT_GOVERNOR_LOAD_HEADROOM)).strip()
+    try:
+        return max(0, int(raw))
+    except ValueError:
+        return DEFAULT_GOVERNOR_LOAD_HEADROOM
 
 
 def clamp_poly_limit(value: int, *, minimum: int = POLY_MIN, maximum: int = POLY_MAX) -> int:
@@ -224,3 +233,16 @@ def effective_poly_after_load(native_poly: int | None, *, ceiling: int | None = 
     native = clamp_poly_limit(native_poly if native_poly is not None else DEFAULT_POLY_CEILING)
     cap = ceiling if ceiling is not None else poly_ceiling()
     return min(native, clamp_poly_limit(cap))
+
+
+def effective_poly_on_load(
+    native_poly: int | None,
+    *,
+    ceiling: int | None = None,
+    governor_active: bool = False,
+) -> int:
+    """Poly limit after load — conservative headroom when dynamic governor is enabled."""
+    effective = effective_poly_after_load(native_poly, ceiling=ceiling)
+    if governor_active:
+        effective = max(poly_floor(), effective - governor_load_headroom())
+    return effective
