@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import json
 import math
 import os
-import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+from patch_browser.json_store import atomic_write_json, read_json_dict
 
 # Integrated LUFS target for relative loudness matching across patches.
 TARGET_LUFS = -18.0
@@ -116,15 +116,6 @@ def compute_gain_db(
     return min(lufs_gain, peak_gain)
 
 
-def _read_json_dict(path: Path) -> dict[str, Any]:
-    try:
-        raw = json.loads(path.read_text())
-    except (OSError, json.JSONDecodeError) as exc:
-        print(f"Warning: could not load normalization file {path}: {exc}")
-        return {}
-    return raw if isinstance(raw, dict) else {}
-
-
 def _merge_patch_entry(
     base: dict[str, Any] | None,
     overlay: dict[str, Any],
@@ -156,14 +147,14 @@ class PatchNormalizationStore:
 
         starter = repo_starter_path()
         if starter.exists():
-            for key, entry in _read_json_dict(starter).items():
+            for key, entry in read_json_dict(starter, label="normalization file").items():
                 if key == _GLOBAL_SETTINGS_KEY:
                     continue
                 if isinstance(entry, dict):
                     merged[key] = dict(entry)
 
         if self.path.exists():
-            for key, entry in _read_json_dict(self.path).items():
+            for key, entry in read_json_dict(self.path, label="normalization file").items():
                 if key == _GLOBAL_SETTINGS_KEY:
                     if isinstance(entry, dict) and "enabled" in entry:
                         self._global_enabled = bool(entry["enabled"])
@@ -175,30 +166,9 @@ class PatchNormalizationStore:
 
     def save(self) -> None:
         """Persist store atomically so cancel/interrupt mid-write cannot truncate JSON."""
-        self.path.parent.mkdir(parents=True, exist_ok=True)
         payload: dict[str, Any] = dict(self._data)
         payload[_GLOBAL_SETTINGS_KEY] = {"enabled": self._global_enabled}
-        text = json.dumps(payload, indent=2, sort_keys=True) + "\n"
-        fd, tmp_name = tempfile.mkstemp(
-            dir=self.path.parent,
-            prefix=f".{self.path.name}.",
-            suffix=".tmp",
-        )
-        tmp_path = Path(tmp_name)
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as handle:
-                handle.write(text)
-                handle.flush()
-                os.fsync(handle.fileno())
-            os.replace(tmp_path, self.path)
-            dir_fd = os.open(self.path.parent, os.O_RDONLY)
-            try:
-                os.fsync(dir_fd)
-            finally:
-                os.close(dir_fd)
-        except Exception:
-            tmp_path.unlink(missing_ok=True)
-            raise
+        atomic_write_json(self.path, payload)
 
     @staticmethod
     def patch_key(patch_name: str) -> str:
@@ -237,7 +207,7 @@ class PatchNormalizationStore:
         starter = repo_starter_path()
         if not starter.exists():
             return entry
-        starter_entry = _read_json_dict(starter).get(key)
+        starter_entry = read_json_dict(starter, label="normalization file").get(key)
         if isinstance(starter_entry, dict):
             return _merge_patch_entry(starter_entry, entry)
         return entry
