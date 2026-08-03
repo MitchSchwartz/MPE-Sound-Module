@@ -84,6 +84,7 @@ class PatchLoader:
             cap=cap,
             fader_min=VOLUME_MIN,
             fader_max=VOLUME_MAX,
+            norm_active=self._norm_active,
         )
         try:
             self.osc_client.send_message("/param/a/amp/volume", combined)
