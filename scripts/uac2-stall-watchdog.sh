@@ -24,6 +24,7 @@ SURGE_SERVICE="surge-xt-cli.service"
 POLL_SECONDS="${MPE_UAC2_WATCHDOG_POLL:-1}"
 STALL_POLLS="${MPE_UAC2_WATCHDOG_STALL_POLLS:-4}"
 COOLDOWN_SECONDS="${MPE_UAC2_WATCHDOG_COOLDOWN:-20}"
+GRACE_SECONDS="${MPE_UAC2_WATCHDOG_GRACE:-25}"
 WATCHDOG_LOG="${MPE_UAC2_WATCHDOG_LOG:-$HOME/uac2-stall-watchdog.log}"
 
 log() {
@@ -54,6 +55,9 @@ rate_numid=""
 status_path=""
 last_appl=""
 stall_count=0
+last_rate="0"
+last_owner_pid=""
+grace_until=0
 
 while true; do
     sleep "$POLL_SECONDS"
@@ -74,6 +78,30 @@ while true; do
     # Host not streaming: a frozen writer is expected, not a fault.
     rate="$(uac2_host_stream_rate "$card" "$rate_numid" 2>/dev/null || echo 0)"
     if [ -z "$rate" ] || [ "$rate" = "0" ]; then
+        last_rate="0"
+        last_appl=""
+        stall_count=0
+        continue
+    fi
+
+    if [ "$last_rate" = "0" ]; then
+        grace_until=$((SECONDS + GRACE_SECONDS))
+        last_appl=""
+        stall_count=0
+        log "Host stream opened @ ${rate}Hz — stall grace ${GRACE_SECONDS}s"
+    fi
+    last_rate="$rate"
+
+    owner_pid="$(awk '/owner_pid/{print $3; exit}' "$status_path" 2>/dev/null || true)"
+    if [ -n "$owner_pid" ] && [ "$owner_pid" != "$last_owner_pid" ]; then
+        last_owner_pid="$owner_pid"
+        grace_until=$((SECONDS + GRACE_SECONDS))
+        last_appl=""
+        stall_count=0
+        log "UAC2 owner PID $owner_pid — stall grace ${GRACE_SECONDS}s"
+    fi
+
+    if [ "$SECONDS" -lt "$grace_until" ]; then
         last_appl=""
         stall_count=0
         continue
