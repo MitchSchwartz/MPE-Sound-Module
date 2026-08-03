@@ -12,6 +12,8 @@ from patch_browser.patch_hold import (
     DEFAULT_HOLD_MULT,
     PatchHoldStore,
     effective_aeg_value,
+    hold_mult_to_offset,
+    hold_offset_to_mult,
 )
 from patch_browser.patch_loader import PatchLoader
 
@@ -61,6 +63,18 @@ class PatchHoldStoreTests(unittest.TestCase):
     def test_effective_aeg_value_clamps(self) -> None:
         self.assertAlmostEqual(effective_aeg_value(0.5, 2.0), 1.0)
         self.assertAlmostEqual(effective_aeg_value(0.8, 0.25), 0.2)
+
+    def test_hold_offset_round_trip(self) -> None:
+        self.assertAlmostEqual(hold_mult_to_offset(DEFAULT_HOLD_MULT), 0.0)
+        self.assertAlmostEqual(hold_offset_to_mult(0.0), DEFAULT_HOLD_MULT)
+        self.assertAlmostEqual(hold_offset_to_mult(-0.45), 0.25)
+        self.assertAlmostEqual(hold_offset_to_mult(0.45), 4.0)
+
+    def test_format_hold_offset(self) -> None:
+        store = PatchHoldStore(Path("/tmp/unused-hold-fmt.json"))
+        self.assertEqual(store.format_hold_offset(0.0), "0")
+        self.assertEqual(store.format_hold_offset(0.12), "+12")
+        self.assertEqual(store.format_hold_offset(-0.08), "-8")
 
 
 class PatchLoaderHoldTests(unittest.TestCase):
