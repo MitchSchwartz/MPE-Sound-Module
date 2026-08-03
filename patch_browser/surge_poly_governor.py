@@ -11,6 +11,7 @@ from patch_browser.surge_monitor import SurgeMonitor
 from patch_browser.surge_playback import (
     POLY_STATE_FILE,
     clamp_poly_limit,
+    poly_emergency,
     poly_floor,
     query_polylimit,
     read_poly_state,
@@ -18,12 +19,13 @@ from patch_browser.surge_playback import (
 )
 from patch_browser.ui_prefs import load_ui_preference
 
-POLL_INTERVAL_S = 0.25
+POLL_INTERVAL_S = 0.15
+CPU_EMERGENCY_THRESHOLD = 90.0
 CPU_SPIKE_THRESHOLD = 78.0
-CPU_HIGH_THRESHOLD = 65.0
-CPU_WARM_THRESHOLD = 62.0
-CPU_LOW_THRESHOLD = 45.0
-CPU_HIGH_HOLD_S = 0.25
+CPU_HIGH_THRESHOLD = 50.0
+CPU_WARM_THRESHOLD = 48.0
+CPU_LOW_THRESHOLD = 40.0
+CPU_HIGH_HOLD_S = 0.15
 CPU_LOW_HOLD_S = 5.0
 PATCH_WARM_WINDOW_S = 4.0
 STEP_DOWN = 2
@@ -124,8 +126,9 @@ class SurgePolyGovernor:
         if isinstance(effective, (int, float)):
             self._effective_poly = clamp_poly_limit(int(effective))
 
-    def _apply_limit(self, new_limit: int) -> None:
-        new_limit = clamp_poly_limit(new_limit, minimum=self._floor_poly)
+    def _apply_limit(self, new_limit: int, *, minimum: int | None = None) -> None:
+        floor = self._floor_poly if minimum is None else minimum
+        new_limit = clamp_poly_limit(new_limit, minimum=floor)
         if self._ceiling_poly is not None:
             new_limit = min(new_limit, self._ceiling_poly)
         if self._effective_poly == new_limit:
@@ -137,13 +140,13 @@ class SurgePolyGovernor:
         if self.cpu_monitor is not None:
             snap = self.cpu_monitor.snapshot()
             if snap.get("online"):
-                smoothed = snap.get("percent")
+                # Prefer raw proc/OSC sample — smoothed meter lags on rising load.
                 raw = snap.get("raw_percent")
-                candidates = [
-                    v for v in (raw, smoothed) if isinstance(v, (int, float))
-                ]
-                if candidates:
-                    return float(max(candidates))
+                if isinstance(raw, (int, float)):
+                    return float(raw)
+                smoothed = snap.get("percent")
+                if isinstance(smoothed, (int, float)):
+                    return float(smoothed)
         healthy, _ = self.surge_monitor.check_health()
         if not healthy:
             return None
@@ -204,6 +207,14 @@ class SurgePolyGovernor:
             return
 
         now = time.monotonic()
+        if cpu >= CPU_EMERGENCY_THRESHOLD:
+            self._low_since = None
+            self._high_since = now
+            emergency = poly_emergency()
+            if self._effective_poly is not None and self._effective_poly > emergency:
+                self._apply_limit(emergency, minimum=emergency)
+            return
+
         if (
             self._patch_changed_at is not None
             and not self._warm_preempt_done

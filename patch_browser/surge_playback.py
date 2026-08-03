@@ -23,7 +23,8 @@ POLY_STATE_FILE = Path.home() / ".patch_browser_poly_state.json"
 REUSE_SINGLE_CACHE_DIR = Path("/tmp/mpe-reuse-single")
 
 DEFAULT_POLY_CEILING = 12
-DEFAULT_POLY_FLOOR = 6
+DEFAULT_POLY_FLOOR = 4
+DEFAULT_POLY_EMERGENCY = 3
 DEFAULT_GOVERNOR_LOAD_HEADROOM = 3
 
 
@@ -45,6 +46,16 @@ def poly_floor() -> int:
         return clamp_poly_limit(int(raw))
     except ValueError:
         return DEFAULT_POLY_FLOOR
+
+
+def poly_emergency() -> int:
+    """Minimum poly during CPU emergency (below normal floor)."""
+    raw = os.environ.get("MPE_POLY_EMERGENCY", str(DEFAULT_POLY_EMERGENCY)).strip()
+    try:
+        value = clamp_poly_limit(int(raw))
+    except ValueError:
+        value = DEFAULT_POLY_EMERGENCY
+    return min(value, poly_floor())
 
 
 def governor_load_headroom() -> int:

@@ -64,7 +64,7 @@ class SurgePolyGovernorTests(unittest.TestCase):
             osc = FakeOscClient()
             monitor = mock.Mock()
             monitor.check_health.return_value = (True, None)
-            governor = SurgePolyGovernor(osc, surge_monitor=monitor, cpu_monitor=FakeCpuMonitor(90.0))
+            governor = SurgePolyGovernor(osc, surge_monitor=monitor, cpu_monitor=FakeCpuMonitor(55.0))
             with self._patch_state_file(state_path):
                 with mock.patch("patch_browser.surge_poly_governor.governor_active", return_value=True):
                     governor._high_since = time.monotonic() - 2.0
@@ -72,6 +72,23 @@ class SurgePolyGovernorTests(unittest.TestCase):
                     governor._tick()
             self.assertTrue(osc.messages)
             self.assertEqual(osc.messages[-1][1], 10.0)
+
+    def test_emergency_slam_at_90(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            state_path = Path(tmp) / "poly.json"
+            self._write_state(state_path, effective=9, ceiling=12)
+            osc = FakeOscClient()
+            monitor = mock.Mock()
+            monitor.check_health.return_value = (True, None)
+            governor = SurgePolyGovernor(osc, surge_monitor=monitor, cpu_monitor=FakeCpuMonitor(92.0))
+            with self._patch_state_file(state_path):
+                with mock.patch("patch_browser.surge_poly_governor.governor_active", return_value=True):
+                    governor._last_patch = "Lead"
+                    governor._warm_preempt_done = True
+                    governor._refresh_patch_state()
+                    governor._tick()
+            self.assertTrue(osc.messages)
+            self.assertEqual(osc.messages[-1][1], 3.0)
 
     def test_spike_steps_down_immediately(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
