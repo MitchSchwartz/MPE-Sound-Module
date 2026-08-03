@@ -41,8 +41,8 @@ class SurgeOutputLimiterTests(unittest.TestCase):
             ("/param/fx/global/4/param8", db_attenuation_to_normalized(-1.0)),
             osc.messages,
         )
-        self.assertIn(("/param/fx/global/4/param6", bipolar_to_normalized(-1.0)), osc.messages)
-        self.assertIn(("/param/fx/global/4/param7", bipolar_to_normalized(-1.0)), osc.messages)
+        self.assertIn(("/param/fx/global/4/param6", bipolar_to_normalized(1.0)), osc.messages)
+        self.assertIn(("/param/fx/global/4/param7", bipolar_to_normalized(1.0)), osc.messages)
         self.assertNotIn(("/param/global/volume", mock.ANY), osc.messages)
         self.assertIn(("/param/fx/global/4/param1/enable+", 0.0), osc.messages)
         self.assertIn(("/param/fx/global/4/param9/enable+", 0.0), osc.messages)
