@@ -40,6 +40,7 @@ from patch_browser.touch_ui_constants import (
     VOLUME_MIN,
 )
 from patch_browser.audio_profile import header_badge_label
+from patch_browser.surge_output_limiter import limiter_header_badge_label
 from patch_browser.all_patches_index import AZ_RAIL_LETTERS
 from patch_browser.touch_ui_enums import LeftNavMode, Screen, audio_profile_display
 from patch_browser.ui_text import text_block_height, wrap_text_lines, wrapped_row_height
@@ -70,6 +71,13 @@ class TouchBrowserLayoutMixin:
         label_w = self.font_sm.size(header_badge_label())[0]
         return label_w + AUDIO_BADGE_PAD_X * 2
 
+    def _limiter_badge_width(self) -> int:
+        label = limiter_header_badge_label()
+        if not label:
+            return 0
+        label_w = self.font_sm.size(label)[0]
+        return label_w + AUDIO_BADGE_PAD_X * 2
+
     def _layout(self) -> None:
         margin = 16
         gap = 10
@@ -92,6 +100,18 @@ class TouchBrowserLayoutMixin:
             right_cursor -= STATUS_BAR_ITEM_GAP
         else:
             self.cpu_meter_rect = Rect(right_cursor, self.status_rect.y + 6, 0, 0)
+        limiter_badge_w = self._limiter_badge_width()
+        if limiter_badge_w:
+            right_cursor -= limiter_badge_w
+            self.limiter_badge_rect = Rect(
+                right_cursor,
+                self.status_rect.y + 10,
+                limiter_badge_w,
+                24,
+            )
+            right_cursor -= STATUS_BAR_ITEM_GAP
+        else:
+            self.limiter_badge_rect = Rect(right_cursor, self.status_rect.y + 10, 0, 0)
         audio_badge_w = self._audio_badge_width()
         right_cursor -= audio_badge_w
         self.audio_profile_badge_rect = Rect(
