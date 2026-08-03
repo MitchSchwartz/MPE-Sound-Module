@@ -31,7 +31,6 @@ from patch_browser.touch_ui_constants import (
     VOLUME_MIN,
 )
 from patch_browser.audio_profile import header_badge_label, settings_toggle_on
-from patch_browser.surge_output_limiter import LIM_LABEL
 from patch_browser.touch_ui_enums import (
     CalibrateMode,
     LeftNavMode,
@@ -356,22 +355,6 @@ class TouchBrowserDrawMixin:
             ),
         )
 
-    def _draw_limiter_badge(self, rect: Rect) -> None:
-        if rect.w <= 0:
-            return
-        monitor = getattr(self, "limiter_monitor", None)
-        reducing = bool(monitor.snapshot().get("reducing")) if monitor else False
-        if reducing and int(time.monotonic() * 4) % 2 == 0:
-            return
-        badge = self.font_sm.render(LIM_LABEL, True, self.theme.danger)
-        self.screen.blit(
-            badge,
-            (
-                rect.x + (rect.w - badge.get_width()) // 2,
-                rect.y + (rect.h - badge.get_height()) // 2,
-            ),
-        )
-
     def _draw_status_bar(self) -> None:
         pygame.draw.rect(self.screen, self.theme.surface, self.status_rect.pygame_rect, border_radius=10)
         if self.loaded_patch_info:
@@ -382,11 +365,7 @@ class TouchBrowserDrawMixin:
             subtitle = "Select a patch from the left list"
 
         title_x = getattr(self, "status_title_x", self.status_rect.x + 12)
-        widget_left = (
-            self.limiter_badge_rect.x
-            if self.limiter_badge_rect.w > 0
-            else self.audio_profile_badge_rect.x
-        )
+        widget_left = self.audio_profile_badge_rect.x
         title_max_w = max(1, widget_left - title_x - 12)
         title_lines = wrap_text_lines(self.font_md, title, title_max_w, max_lines=1)
         self.screen.blit(
@@ -398,8 +377,6 @@ class TouchBrowserDrawMixin:
             self.font_sm.render(sub_lines[0], True, self.theme.muted),
             (title_x, self.status_rect.y + 26),
         )
-        if self.limiter_badge_rect.w > 0:
-            self._draw_limiter_badge(self.limiter_badge_rect)
         self._draw_audio_profile_badge(self.audio_profile_badge_rect)
         if self.show_cpu_meter:
             self._draw_cpu_meter(self.cpu_meter_rect)
@@ -662,14 +639,6 @@ class TouchBrowserDrawMixin:
             self.poly_governor_enabled,
             has_gain=True,
             label="Dynamic voice limit",
-        )
-
-        limiter_toggle = self._panel_local_to_screen(self.output_limiter_toggle_rect, scrolled=True)
-        self._draw_normalize_toggle(
-            limiter_toggle,
-            self.output_limiter_enabled,
-            has_gain=True,
-            label="Output limiter",
         )
 
         theme_row = self._panel_local_to_screen(self.theme_btn_rect, scrolled=True)

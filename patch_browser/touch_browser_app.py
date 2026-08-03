@@ -26,7 +26,6 @@ from patch_browser.patch_loader import PatchLoader
 from patch_browser.patch_scanner import FAVORITES_NAME, SURGE_PATCH_DIRS, PatchScanner, favorites_display_name
 from patch_browser.scroll_widgets import ContentScrollArea, ScrollList
 from patch_browser.surge_cpu_monitor import SurgeCpuMonitor
-from patch_browser.surge_limiter_monitor import SurgeLimiterMonitor
 from patch_browser.surge_monitor import SurgeMonitor
 from patch_browser.touch_evdev import TouchEvdevBridge, evdev_bridge_enabled
 from patch_browser.touch_browser_draw import TouchBrowserDrawMixin
@@ -117,8 +116,6 @@ class TouchPatchBrowser(
         self.surge_monitor = SurgeMonitor()
         self.cpu_monitor = SurgeCpuMonitor(self.surge_monitor)
         self.cpu_monitor.start()
-        self.limiter_monitor = SurgeLimiterMonitor(self.surge_monitor, self.cpu_monitor, self.loader)
-        self.limiter_monitor.start()
 
         self.categories: list[str] = []
         self.all_patches_flat: list[dict] = []
@@ -140,7 +137,6 @@ class TouchPatchBrowser(
         self.volume_level = self._load_volume_level()
         self.show_cpu_meter = self._load_ui_preference("show_cpu_meter", default=True)
         self.poly_governor_enabled = self._load_ui_preference("poly_governor_enabled", default=True)
-        self.output_limiter_enabled = self._load_ui_preference("output_limiter_enabled", default=False)
         self.brightness_percent = self.backlight.get_percent()
         self.toast_message = ""
         self.toast_until = 0.0
@@ -300,7 +296,6 @@ class TouchPatchBrowser(
         if self._evdev_bridge is not None:
             self._evdev_bridge.stop()
         self.cpu_monitor.stop()
-        self.limiter_monitor.stop()
         pygame.quit()
 
 
