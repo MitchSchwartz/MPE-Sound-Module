@@ -28,10 +28,12 @@ class SurgeOutputLimiterTests(unittest.TestCase):
         with mock.patch("patch_browser.surge_output_limiter.limiter_fx_slot", return_value=4):
             with mock.patch("patch_browser.surge_output_limiter.time.sleep"):
                 self.assertTrue(apply_output_limiter(osc, threshold_db=-1.0))
-        self.assertEqual(osc.messages[0], ("/param/fx/global/4/type", "Conditioner"))
+        self.assertEqual(osc.messages[0], ("/param/global/fx_bypass", 0.0))
+        self.assertEqual(osc.messages[1], ("/param/fx/global/4/type", "Conditioner"))
+        self.assertIn(("/param/global/fx_bypass", 0.0), osc.messages)
         self.assertIn(("/param/fx/global/4/param5", -6.0), osc.messages)
         self.assertIn(("/param/fx/global/4/param8", -1.0), osc.messages)
-        self.assertIn(("/param/fx/global/4/param1/enable", 0.0), osc.messages)
+        self.assertIn(("/param/fx/global/4/param1/enable+", 0.0), osc.messages)
         self.assertIn(("/param/fx/global/4/param9", -60.0), osc.messages)
         self.assertEqual(osc.messages[-1], ("/param/fx/global/4/deactivate", 0.0))
 

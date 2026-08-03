@@ -305,7 +305,7 @@ One **primary** (accent fill) commit button per dialog; dismiss actions stay neu
 
 OLED mode follows the usual **Material / iOS dark** pattern: **tiered surfaces + subtle elevation**, not hard outlines. Overlays use a **~50% black backdrop dim**; panels sit on a brighter surface tier so they read above true-black content.
 
-**Status indicators** (header **LIM**, **USB** / **Analog** badges, CPU label): **text only — no box, border, or outline.** The **LIM** label flashes **red** at 4 Hz only while the limiter is actively reducing level (not merely when the setting is on).
+**Status indicators** (header **LIM**, **USB** / **Analog** badges, CPU label): **text only — no box, border, or outline.** **LIM** is solid danger red at the **left** of the header when the output limiter is enabled. It **blinks** when measured output peak is at the limiter ceiling (default **−1 dBFS**, within ±0.75 dB) — via ALSA dsnoop on **Analog** profile only. **USB-host** has no Pi-side playback tap, so LIM stays solid there. Surge does not expose Conditioner gain-reduction over OSC. Disable peak tap with `MPE_LIMITER_PEAK_METER=0`.
 
 | Token | Role | Before (flat) | After (tiered) |
 |-------|------|---------------|----------------|
