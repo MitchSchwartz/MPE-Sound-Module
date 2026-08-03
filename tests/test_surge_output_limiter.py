@@ -5,6 +5,11 @@ from __future__ import annotations
 import unittest
 from unittest import mock
 
+from patch_browser.surge_osc_params import (
+    bipolar_to_normalized,
+    db_attenuation_to_normalized,
+    freq_audible_hp_to_normalized,
+)
 from patch_browser.surge_output_limiter import (
     apply_output_limiter,
     disable_output_limiter,
@@ -31,15 +36,24 @@ class SurgeOutputLimiterTests(unittest.TestCase):
         self.assertEqual(osc.messages[0], ("/param/global/fx_bypass", 0.0))
         self.assertEqual(osc.messages[1], ("/param/fx/global/4/type", "Conditioner"))
         self.assertIn(("/param/global/fx_bypass", 0.0), osc.messages)
-        self.assertIn(("/param/fx/global/4/param5", 0.0), osc.messages)
-        self.assertIn(("/param/fx/global/4/param8", 0.0), osc.messages)
-        self.assertIn(("/param/fx/global/4/param6", -1.0), osc.messages)
-        self.assertIn(("/param/fx/global/4/param7", -1.0), osc.messages)
-        self.assertIn(("/param/global/volume", -1.0), osc.messages)
+        self.assertIn(("/param/fx/global/4/param5", db_attenuation_to_normalized(0.0)), osc.messages)
+        self.assertIn(
+            ("/param/fx/global/4/param8", db_attenuation_to_normalized(-1.0)),
+            osc.messages,
+        )
+        self.assertIn(("/param/fx/global/4/param6", bipolar_to_normalized(-1.0)), osc.messages)
+        self.assertIn(("/param/fx/global/4/param7", bipolar_to_normalized(-1.0)), osc.messages)
+        self.assertNotIn(("/param/global/volume", mock.ANY), osc.messages)
         self.assertIn(("/param/fx/global/4/param1/enable+", 0.0), osc.messages)
         self.assertIn(("/param/fx/global/4/param9/enable+", 0.0), osc.messages)
-        self.assertIn(("/param/fx/global/4/param9", -60.0), osc.messages)
-        self.assertEqual(osc.messages[-1], ("/param/global/volume", -1.0))
+        self.assertIn(
+            ("/param/fx/global/4/param9", freq_audible_hp_to_normalized(-60.0)),
+            osc.messages,
+        )
+        self.assertEqual(
+            osc.messages[-1],
+            ("/param/fx/global/4/deactivate", 0.0),
+        )
 
     def test_disable_bypasses_slot(self) -> None:
         osc = FakeOscClient()
@@ -47,10 +61,7 @@ class SurgeOutputLimiterTests(unittest.TestCase):
             self.assertTrue(disable_output_limiter(osc))
         self.assertEqual(
             osc.messages,
-            [
-                ("/param/fx/global/4/deactivate", 1.0),
-                ("/param/global/volume", 0.0),
-            ],
+            [("/param/fx/global/4/deactivate", 1.0)],
         )
 
     def test_sync_respects_pref(self) -> None:
