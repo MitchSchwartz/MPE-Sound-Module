@@ -11,20 +11,25 @@ DEFAULT_LIMITER_THRESHOLD_DB = -1.0
 DEFAULT_LIMITER_FX_SLOT = 4
 CONDITIONER_TYPE = "Conditioner"
 
-# Conditioner OSC param order matches init_ctrltypes in Surge (param1..param9).
+# Conditioner OSC param1..param9 map to cond_params enum index + 1 in Surge source.
 PARAM_BASS = 1
 PARAM_TREBLE = 2
 PARAM_WIDTH = 3
-PARAM_HPWIDTH = 4
-PARAM_BALANCE = 5
-PARAM_THRESHOLD = 6
-PARAM_ATTACK = 7
-PARAM_RELEASE = 8
-PARAM_GAIN = 9
+PARAM_BALANCE = 4
+PARAM_THRESHOLD = 5
+PARAM_ATTACK = 6
+PARAM_RELEASE = 7
+PARAM_GAIN = 8
+PARAM_HPWIDTH = 9
 
-# Fast limiter: negative attack/release = faster in Surge Conditioner UI.
-LIMITER_ATTACK = -100.0
-LIMITER_RELEASE = -20.0
+# Unity pregain into the limiter; ceiling is applied via PARAM_GAIN after limiting.
+LIMITER_INPUT_THRESHOLD_DB = 0.0
+LIMITER_WIDTH = 1.0
+LIMITER_HPWIDTH_HZ = -60.0
+
+# Fast limiter: negative attack/release on ct_percent_bipolar = faster envelope.
+LIMITER_ATTACK = -1.0
+LIMITER_RELEASE = -1.0
 
 
 def limiter_threshold_db() -> float:
@@ -37,7 +42,7 @@ def limiter_threshold_db() -> float:
 
 
 def normalize_limiter_threshold_db(value: float) -> float:
-    """Surge Conditioner threshold OSC uses dB in [-48, 0] (e.g. -1 = 1 dB headroom)."""
+    """Output ceiling dB in [-48, 0] — applied as Conditioner Gain (param8) after limiting."""
     return max(-48.0, min(0.0, float(value)))
 
 
@@ -67,6 +72,13 @@ def limiter_active() -> bool:
     return limiter_enabled_by_env() and limiter_enabled_by_pref()
 
 
+def limiter_header_badge_label() -> str | None:
+    """Compact status-bar label when limiter is on; None when bypassed."""
+    if not limiter_active():
+        return None
+    return "LIM"
+
+
 def _fx_path(slot: int, suffix: str) -> str:
     return f"/param/fx/global/{slot}/{suffix}"
 
@@ -90,13 +102,13 @@ def apply_output_limiter(osc_client, *, threshold_db: float | None = None) -> bo
         time.sleep(0.05)
         _send_param(osc_client, slot, PARAM_BASS, 0.0)
         _send_param(osc_client, slot, PARAM_TREBLE, 0.0)
-        _send_param(osc_client, slot, PARAM_WIDTH, 0.0)
-        _send_param(osc_client, slot, PARAM_HPWIDTH, -60.0)
+        _send_param(osc_client, slot, PARAM_WIDTH, LIMITER_WIDTH)
         _send_param(osc_client, slot, PARAM_BALANCE, 0.0)
-        _send_param(osc_client, slot, PARAM_THRESHOLD, threshold)
+        _send_param(osc_client, slot, PARAM_THRESHOLD, LIMITER_INPUT_THRESHOLD_DB)
         _send_param(osc_client, slot, PARAM_ATTACK, LIMITER_ATTACK)
         _send_param(osc_client, slot, PARAM_RELEASE, LIMITER_RELEASE)
-        _send_param(osc_client, slot, PARAM_GAIN, 0.0)
+        _send_param(osc_client, slot, PARAM_GAIN, threshold)
+        _send_param(osc_client, slot, PARAM_HPWIDTH, LIMITER_HPWIDTH_HZ)
         osc_client.send_message(_fx_path(slot, "deactivate"), 0.0)
         return True
     except Exception as exc:
