@@ -40,7 +40,7 @@ from patch_browser.touch_ui_constants import (
     VOLUME_MIN,
 )
 from patch_browser.audio_profile import header_badge_label
-from patch_browser.surge_output_limiter import limiter_header_badge_label
+from patch_browser.surge_output_limiter import LIM_LABEL
 from patch_browser.all_patches_index import AZ_RAIL_LETTERS
 from patch_browser.touch_ui_enums import LeftNavMode, Screen, audio_profile_display
 from patch_browser.ui_text import text_block_height, wrap_text_lines, wrapped_row_height
@@ -72,10 +72,13 @@ class TouchBrowserLayoutMixin:
         return label_w + AUDIO_BADGE_PAD_X * 2
 
     def _limiter_badge_width(self) -> int:
-        label = limiter_header_badge_label()
-        if not label:
+        monitor = getattr(self, "limiter_monitor", None)
+        if monitor is None:
             return 0
-        label_w = self.font_sm.size(label)[0]
+        snap = monitor.snapshot()
+        if not snap.get("reducing"):
+            return 0
+        label_w = self.font_sm.size(LIM_LABEL)[0]
         return label_w + AUDIO_BADGE_PAD_X * 2
 
     def _layout(self) -> None:

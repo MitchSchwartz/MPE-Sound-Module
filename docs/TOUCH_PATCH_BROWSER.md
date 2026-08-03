@@ -305,6 +305,8 @@ One **primary** (accent fill) commit button per dialog; dismiss actions stay neu
 
 OLED mode follows the usual **Material / iOS dark** pattern: **tiered surfaces + subtle elevation**, not hard outlines. Overlays use a **~50% black backdrop dim**; panels sit on a brighter surface tier so they read above true-black content.
 
+**Status indicators** (header **LIM**, **USB** / **Analog** badges, CPU label): **text only — no box, border, or outline.** The **LIM** label flashes **red** at 4 Hz only while the limiter is actively reducing level (not merely when the setting is on).
+
 | Token | Role | Before (flat) | After (tiered) |
 |-------|------|---------------|----------------|
 | `bg` | Canvas / main content | `#000000` | `#000000` (unchanged — OLED power) |

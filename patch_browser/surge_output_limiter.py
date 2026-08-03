@@ -22,14 +22,15 @@ PARAM_RELEASE = 7
 PARAM_GAIN = 8
 PARAM_HPWIDTH = 9
 
-# Unity pregain into the limiter; ceiling is applied via PARAM_GAIN after limiting.
-LIMITER_INPUT_THRESHOLD_DB = 0.0
+# Factory-style drive into the envelope limiter; output ceiling via PARAM_GAIN.
+LIMITER_INPUT_THRESHOLD_DB = -6.0
 LIMITER_WIDTH = 1.0
 LIMITER_HPWIDTH_HZ = -60.0
 
 # Fast limiter: negative attack/release on ct_percent_bipolar = faster envelope.
 LIMITER_ATTACK = -1.0
 LIMITER_RELEASE = -1.0
+LIM_LABEL = "LIM"
 
 
 def limiter_threshold_db() -> float:
@@ -73,10 +74,8 @@ def limiter_active() -> bool:
 
 
 def limiter_header_badge_label() -> str | None:
-    """Compact status-bar label when limiter is on; None when bypassed."""
-    if not limiter_active():
-        return None
-    return "LIM"
+    """Static label helper — prefer SurgeLimiterMonitor.snapshot() for live UI."""
+    return LIM_LABEL if limiter_active() else None
 
 
 def _fx_path(slot: int, suffix: str) -> str:
@@ -109,6 +108,8 @@ def apply_output_limiter(osc_client, *, threshold_db: float | None = None) -> bo
         _send_param(osc_client, slot, PARAM_RELEASE, LIMITER_RELEASE)
         _send_param(osc_client, slot, PARAM_GAIN, threshold)
         _send_param(osc_client, slot, PARAM_HPWIDTH, LIMITER_HPWIDTH_HZ)
+        osc_client.send_message(_fx_path(slot, "param1/enable"), 0.0)
+        osc_client.send_message(_fx_path(slot, "param2/enable"), 0.0)
         osc_client.send_message(_fx_path(slot, "deactivate"), 0.0)
         return True
     except Exception as exc:

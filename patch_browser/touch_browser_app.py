@@ -26,6 +26,7 @@ from patch_browser.patch_loader import PatchLoader
 from patch_browser.patch_scanner import FAVORITES_NAME, SURGE_PATCH_DIRS, PatchScanner, favorites_display_name
 from patch_browser.scroll_widgets import ContentScrollArea, ScrollList
 from patch_browser.surge_cpu_monitor import SurgeCpuMonitor
+from patch_browser.surge_limiter_monitor import SurgeLimiterMonitor
 from patch_browser.surge_monitor import SurgeMonitor
 from patch_browser.touch_evdev import TouchEvdevBridge, evdev_bridge_enabled
 from patch_browser.touch_browser_draw import TouchBrowserDrawMixin
@@ -116,6 +117,8 @@ class TouchPatchBrowser(
         self.surge_monitor = SurgeMonitor()
         self.cpu_monitor = SurgeCpuMonitor(self.surge_monitor)
         self.cpu_monitor.start()
+        self.limiter_monitor = SurgeLimiterMonitor(self.surge_monitor, self.cpu_monitor, self.loader)
+        self.limiter_monitor.start()
 
         self.categories: list[str] = []
         self.all_patches_flat: list[dict] = []
@@ -138,6 +141,7 @@ class TouchPatchBrowser(
         self.show_cpu_meter = self._load_ui_preference("show_cpu_meter", default=True)
         self.poly_governor_enabled = self._load_ui_preference("poly_governor_enabled", default=True)
         self.output_limiter_enabled = self._load_ui_preference("output_limiter_enabled", default=False)
+        self._limiter_badge_was_reducing = False
         self.brightness_percent = self.backlight.get_percent()
         self.toast_message = ""
         self.toast_until = 0.0
@@ -291,12 +295,21 @@ class TouchPatchBrowser(
                 self._settings_content_scroll.tick(dt)
             if self.screen_state == Screen.BROWSER and not self.left_nav_collapsed:
                 self.nav_list.tick(dt)
+            reducing = (
+                self.limiter_monitor.snapshot().get("reducing")
+                if getattr(self, "limiter_monitor", None)
+                else False
+            )
+            if reducing != self._limiter_badge_was_reducing:
+                self._limiter_badge_was_reducing = reducing
+                self._layout()
             self._draw()
             clock.tick(60)
 
         if self._evdev_bridge is not None:
             self._evdev_bridge.stop()
         self.cpu_monitor.stop()
+        self.limiter_monitor.stop()
         pygame.quit()
 
 
