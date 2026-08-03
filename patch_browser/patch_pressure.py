@@ -14,8 +14,8 @@ PRESSURE_FLOOR_MAX = 0.9
 DEFAULT_PRESSURE_FLOOR = 0.0
 
 # Touch fader: bipolar offset from calibrated baseline (0 = center = cal default).
-PRESSURE_OFFSET_MIN = -0.45
-PRESSURE_OFFSET_MAX = 0.45
+PRESSURE_OFFSET_MIN = -0.50
+PRESSURE_OFFSET_MAX = 0.50
 TOUCH_OFFSET_CLEAR_EPSILON = 0.01
 
 # Light-touch calibration gesture (7-bit MPE pressure held constant).
@@ -261,7 +261,7 @@ class PatchPressureStore:
         return f"{round(clamp_effective_floor(floor) * 100)}"
 
     def format_touch_offset(self, offset: float) -> str:
-        """Bipolar Touch fader label — 0 at center, ±45 scale."""
+        """Bipolar Touch fader label — 0 at center, ±50 scale."""
         pts = round(clamp_touch_offset(offset) * 100)
         if pts > 0:
             return f"+{pts}"
