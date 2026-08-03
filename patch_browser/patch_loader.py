@@ -31,6 +31,7 @@ from patch_browser.surge_playback import (
     write_poly_state,
 )
 from patch_browser.surge_poly_governor import governor_active
+from patch_browser.surge_output_limiter import sync_output_limiter
 from patch_browser.touch_ui_constants import VOLUME_MAX, VOLUME_MIN
 
 OSC_OUT_PORT = 53270
@@ -265,6 +266,7 @@ class PatchLoader:
             effective_poly=effective,
             reuse_single=reuse_single_enabled(),
         )
+        sync_output_limiter(self.osc_client)
 
     def load_patch(self, patch_path, *, apply_normalization: bool = True):
         if not self.osc_enabled:
