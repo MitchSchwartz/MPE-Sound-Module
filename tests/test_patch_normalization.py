@@ -160,11 +160,38 @@ class PatchNormalizationStoreTests(unittest.TestCase):
             loader.set_volume(0.25)
             at_quarter = loader.osc_client.messages[-1][1]
 
-            from patch_browser.patch_normalization import NORM_MAX_AMP_VOLUME_LINEAR
+            from patch_browser.patch_normalization import db_to_linear, volume_fader_to_amp_linear
+            from patch_browser.touch_ui_constants import VOLUME_MAX, VOLUME_MIN
 
-            self.assertAlmostEqual(at_unity, NORM_MAX_AMP_VOLUME_LINEAR)
-            self.assertAlmostEqual(at_half, 0.75)
-            self.assertAlmostEqual(at_quarter, NORM_MAX_AMP_VOLUME_LINEAR * 0.25)
+            gain_linear = db_to_linear(18.0)
+            expected_unity = volume_fader_to_amp_linear(
+                1.0,
+                patch_gain_linear=gain_linear,
+                cap=1.5,
+                fader_min=VOLUME_MIN,
+                fader_max=VOLUME_MAX,
+                norm_active=True,
+            )
+            expected_half = volume_fader_to_amp_linear(
+                0.625,
+                patch_gain_linear=gain_linear,
+                cap=1.5,
+                fader_min=VOLUME_MIN,
+                fader_max=VOLUME_MAX,
+                norm_active=True,
+            )
+            expected_quarter = volume_fader_to_amp_linear(
+                0.25,
+                patch_gain_linear=gain_linear,
+                cap=1.5,
+                fader_min=VOLUME_MIN,
+                fader_max=VOLUME_MAX,
+                norm_active=True,
+            )
+
+            self.assertAlmostEqual(at_unity, expected_unity)
+            self.assertAlmostEqual(at_half, expected_half)
+            self.assertAlmostEqual(at_quarter, expected_quarter)
             self.assertGreater(at_unity, at_half)
             self.assertGreater(at_half, at_quarter)
 
@@ -193,7 +220,8 @@ class PatchNormalizationStoreTests(unittest.TestCase):
         high_span = db(at_pct(100.0)) - db(at_pct(80.0))
         self.assertAlmostEqual(low_span, high_span, delta=0.05)
 
-    def test_combined_volume_clamps_above_max_amp_linear(self) -> None:
+    def test_combined_volume_sends_full_norm_gain_when_active(self) -> None:
+        """Norm-on applies full calibrated linear gain (#31 Stage 1)."""
         with tempfile.TemporaryDirectory() as tmp:
             user_path = Path(tmp) / "user.json"
             user_path.write_text(
@@ -207,10 +235,10 @@ class PatchNormalizationStoreTests(unittest.TestCase):
 
             loader.refresh_patch_volume("Loud")
             sent = loader.osc_client.messages[-1][1]
-            from patch_browser.patch_normalization import NORM_MAX_AMP_VOLUME_LINEAR
+            from patch_browser.patch_normalization import NORM_MAX_AMP_VOLUME_LINEAR, db_to_linear
 
-            self.assertLessEqual(sent, NORM_MAX_AMP_VOLUME_LINEAR)
-            self.assertAlmostEqual(sent, NORM_MAX_AMP_VOLUME_LINEAR)
+            self.assertGreater(sent, NORM_MAX_AMP_VOLUME_LINEAR)
+            self.assertAlmostEqual(sent, db_to_linear(18.0))
 
     def test_norm_off_uses_higher_volume_cap(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

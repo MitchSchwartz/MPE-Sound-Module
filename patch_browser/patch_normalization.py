@@ -78,9 +78,14 @@ def volume_fader_to_amp_linear(
     cap: float,
     fader_min: float,
     fader_max: float,
+    norm_active: bool = False,
 ) -> float:
     """Map Vol fader position to Surge amp/volume with even dB steps across travel."""
-    eff_max = min(patch_gain_linear, cap)
+    if norm_active:
+        # Peak-safe gain_db is computed at calibration — do not re-clamp here (#31 Stage 1).
+        eff_max = max(0.0, float(patch_gain_linear))
+    else:
+        eff_max = min(patch_gain_linear, cap)
     eff_min = eff_max * fader_min
     if eff_max <= 0:
         return 0.0
@@ -114,6 +119,25 @@ def compute_gain_db(
     lufs_gain = target_lufs - lufs_integrated
     peak_gain = safe_peak_dbtp - true_peak_dbtp
     return min(lufs_gain, peak_gain)
+
+
+def compute_gain_db_dual_anchor(
+    strike_lufs: float,
+    strike_peak_dbtp: float,
+    sustain_lufs: float,
+    sustain_peak_dbtp: float,
+    *,
+    target_lufs: float = TARGET_LUFS,
+    safe_peak_dbtp: float = SAFE_PEAK_DBTP,
+) -> float:
+    """Gain from strike-led and sustain-led anchors — max so both land safely (#31 Stage 2)."""
+    strike_gain = compute_gain_db(
+        strike_lufs, strike_peak_dbtp, target_lufs=target_lufs, safe_peak_dbtp=safe_peak_dbtp
+    )
+    sustain_gain = compute_gain_db(
+        sustain_lufs, sustain_peak_dbtp, target_lufs=target_lufs, safe_peak_dbtp=safe_peak_dbtp
+    )
+    return max(strike_gain, sustain_gain)
 
 
 def _merge_patch_entry(
@@ -299,6 +323,8 @@ class PatchNormalizationStore:
         enabled: bool | None = None,
         calibrated_at: str | None = None,
         true_peak_dbtp: float | None = None,
+        strike_lufs: float | None = None,
+        sustain_lufs: float | None = None,
     ) -> None:
         key = self.patch_key(patch_name)
         existing = self.get_entry(patch_name)
@@ -318,6 +344,10 @@ class PatchNormalizationStore:
         }
         if true_peak_dbtp is not None:
             entry["true_peak_dbtp"] = round(float(true_peak_dbtp), 2)
+        if strike_lufs is not None:
+            entry["strike_lufs"] = round(float(strike_lufs), 2)
+        if sustain_lufs is not None:
+            entry["sustain_lufs"] = round(float(sustain_lufs), 2)
         if existing and "user_gain_db" in existing:
             entry["user_gain_db"] = existing["user_gain_db"]
         self._data[key] = entry
