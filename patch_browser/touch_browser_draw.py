@@ -31,7 +31,7 @@ from patch_browser.touch_ui_constants import (
     VOLUME_MIN,
 )
 from patch_browser.audio_profile import header_badge_label, settings_toggle_on
-from patch_browser.surge_output_limiter import limiter_header_badge_label
+from patch_browser.surge_output_limiter import LIM_LABEL
 from patch_browser.touch_ui_enums import (
     CalibrateMode,
     LeftNavMode,
@@ -357,13 +357,16 @@ class TouchBrowserDrawMixin:
         )
 
     def _draw_limiter_badge(self, rect: Rect) -> None:
-        label = limiter_header_badge_label()
-        if not label or rect.w <= 0:
+        monitor = getattr(self, "limiter_monitor", None)
+        if monitor is None or rect.w <= 0:
             return
-        warn = self._semantic_color("playing")
-        pygame.draw.rect(self.screen, self.theme.surface_alt, rect.pygame_rect, border_radius=8)
-        pygame.draw.rect(self.screen, warn, rect.pygame_rect, width=2, border_radius=8)
-        badge = self.font_sm.render(label, True, warn)
+        snap = monitor.snapshot()
+        if not snap.get("reducing"):
+            return
+        # 4 Hz blink while gain reduction is active.
+        if int(time.monotonic() * 4) % 2 == 0:
+            return
+        badge = self.font_sm.render(LIM_LABEL, True, self.theme.danger)
         self.screen.blit(
             badge,
             (
@@ -397,8 +400,9 @@ class TouchBrowserDrawMixin:
         )
         if self.show_cpu_meter:
             self._draw_cpu_meter(self.cpu_meter_rect)
-        if self.limiter_badge_rect.w > 0:
-            self._draw_limiter_badge(self.limiter_badge_rect)
+        if self.limiter_badge_rect.w > 0 and getattr(self, "limiter_monitor", None):
+            if self.limiter_monitor.snapshot().get("reducing"):
+                self._draw_limiter_badge(self.limiter_badge_rect)
         self._draw_audio_profile_badge(self.audio_profile_badge_rect)
         self._draw_button(self.system_settings_btn, "...", small=True, muted=True)
         self._draw_hairline(
