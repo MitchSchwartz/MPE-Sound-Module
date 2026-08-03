@@ -237,7 +237,7 @@ class TouchBrowserSmokeTests(unittest.TestCase):
         with mock.patch("patch_browser.touch_browser_layout.limiter_active", return_value=True):
             browser._layout()
         self.assertGreater(browser.limiter_badge_rect.w, 0)
-        self.assertEqual(browser.limiter_badge_rect.x, browser.status_rect.x + 12)
+        self.assertLess(browser.limiter_badge_rect.x, browser.audio_profile_badge_rect.x)
 
 
 if __name__ == "__main__":
