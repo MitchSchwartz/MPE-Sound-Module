@@ -32,18 +32,26 @@ class SurgeOutputLimiterTests(unittest.TestCase):
         self.assertEqual(osc.messages[1], ("/param/fx/global/4/type", "Conditioner"))
         self.assertIn(("/param/global/fx_bypass", 0.0), osc.messages)
         self.assertIn(("/param/fx/global/4/param5", 0.0), osc.messages)
-        self.assertIn(("/param/fx/global/4/param8", -1.0), osc.messages)
+        self.assertIn(("/param/fx/global/4/param8", 0.0), osc.messages)
+        self.assertIn(("/param/fx/global/4/param6", -1.0), osc.messages)
+        self.assertIn(("/param/fx/global/4/param7", -1.0), osc.messages)
+        self.assertIn(("/param/global/volume", -1.0), osc.messages)
         self.assertIn(("/param/fx/global/4/param1/enable+", 0.0), osc.messages)
         self.assertIn(("/param/fx/global/4/param9/enable+", 0.0), osc.messages)
-        self.assertIn(("/param/fx/global/4/param6", 0.0), osc.messages)
         self.assertIn(("/param/fx/global/4/param9", -60.0), osc.messages)
-        self.assertEqual(osc.messages[-1], ("/param/fx/global/4/deactivate", 0.0))
+        self.assertEqual(osc.messages[-1], ("/param/global/volume", -1.0))
 
     def test_disable_bypasses_slot(self) -> None:
         osc = FakeOscClient()
         with mock.patch("patch_browser.surge_output_limiter.limiter_fx_slot", return_value=4):
             self.assertTrue(disable_output_limiter(osc))
-        self.assertEqual(osc.messages, [("/param/fx/global/4/deactivate", 1.0)])
+        self.assertEqual(
+            osc.messages,
+            [
+                ("/param/fx/global/4/deactivate", 1.0),
+                ("/param/global/volume", 0.0),
+            ],
+        )
 
     def test_sync_respects_pref(self) -> None:
         osc = FakeOscClient()

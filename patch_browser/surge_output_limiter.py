@@ -22,14 +22,18 @@ PARAM_RELEASE = 7
 PARAM_GAIN = 8
 PARAM_HPWIDTH = 9
 
-# Unity pregain into the envelope — no +6 dB factory push; ceiling is PARAM_GAIN only.
+GLOBAL_VOLUME_OSC = "/param/global/volume"
+MASTER_VOLUME_UNITY_DB = 0.0
+
+# Unity pregain; envelope catches peaks, master volume sets the final ceiling.
 LIMITER_INPUT_THRESHOLD_DB = 0.0
+LIMITER_OUTPUT_GAIN_DB = 0.0
 LIMITER_WIDTH = 1.0
 LIMITER_HPWIDTH_HZ = -60.0
 
-# Neutral attack/release — fast negative values hold gain down and sound ~6 dB quieter.
-LIMITER_ATTACK = 0.0
-LIMITER_RELEASE = 0.0
+# Fast envelope — slow attack lets peaks creep to 0 dBFS before GR catches up.
+LIMITER_ATTACK = -1.0
+LIMITER_RELEASE = -1.0
 LIM_LABEL = "LIM"
 
 # Surge fx_bypass enum — global FX (incl. our slot) only run when this is fxb_all_fx.
@@ -57,7 +61,7 @@ def limiter_threshold_db() -> float:
 
 
 def normalize_limiter_threshold_db(value: float) -> float:
-    """Output ceiling dB in [-48, 0] — applied as Conditioner Gain (param8) after limiting."""
+    """Output ceiling dB in [-48, 0] — applied on master volume after global FX."""
     return max(-48.0, min(0.0, float(value)))
 
 
@@ -130,13 +134,15 @@ def apply_output_limiter(osc_client, *, threshold_db: float | None = None) -> bo
         _send_param(osc_client, slot, PARAM_THRESHOLD, LIMITER_INPUT_THRESHOLD_DB)
         _send_param(osc_client, slot, PARAM_ATTACK, LIMITER_ATTACK)
         _send_param(osc_client, slot, PARAM_RELEASE, LIMITER_RELEASE)
-        _send_param(osc_client, slot, PARAM_GAIN, threshold)
+        _send_param(osc_client, slot, PARAM_GAIN, LIMITER_OUTPUT_GAIN_DB)
         _send_param(osc_client, slot, PARAM_HPWIDTH, LIMITER_HPWIDTH_HZ)
         # Disable EQ/HP bands — brick-wall limiter uses threshold + gain only.
         osc_client.send_message(_fx_enable_path(slot, PARAM_BASS), 0.0)
         osc_client.send_message(_fx_enable_path(slot, PARAM_TREBLE), 0.0)
         osc_client.send_message(_fx_enable_path(slot, PARAM_HPWIDTH), 0.0)
         osc_client.send_message(_fx_path(slot, "deactivate"), 0.0)
+        # Master amp runs after global FX — one ceiling trim here (not param8 + master).
+        osc_client.send_message(GLOBAL_VOLUME_OSC, threshold)
         return True
     except Exception as exc:
         print(f"Error applying output limiter via OSC: {exc}")
@@ -150,6 +156,7 @@ def disable_output_limiter(osc_client) -> bool:
     slot = limiter_fx_slot()
     try:
         osc_client.send_message(_fx_path(slot, "deactivate"), 1.0)
+        osc_client.send_message(GLOBAL_VOLUME_OSC, MASTER_VOLUME_UNITY_DB)
         return True
     except Exception as exc:
         print(f"Error disabling output limiter via OSC: {exc}")
