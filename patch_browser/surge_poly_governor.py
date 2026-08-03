@@ -19,11 +19,13 @@ from patch_browser.surge_playback import (
 from patch_browser.ui_prefs import load_ui_preference
 
 POLL_INTERVAL_S = 0.5
-CPU_HIGH_THRESHOLD = 75.0
+CPU_HIGH_THRESHOLD = 70.0
+CPU_SPIKE_THRESHOLD = 85.0
 CPU_LOW_THRESHOLD = 45.0
-CPU_HIGH_HOLD_S = 1.0
+CPU_HIGH_HOLD_S = 0.4
 CPU_LOW_HOLD_S = 5.0
 STEP_DOWN = 2
+STEP_DOWN_SPIKE = 3
 STEP_UP = 1
 
 
@@ -121,8 +123,14 @@ class SurgePolyGovernor:
     def _cpu_percent(self) -> float | None:
         if self.cpu_monitor is not None:
             snap = self.cpu_monitor.snapshot()
-            if snap.get("online") and isinstance(snap.get("percent"), (int, float)):
-                return float(snap["percent"])
+            if snap.get("online"):
+                smoothed = snap.get("percent")
+                raw = snap.get("raw_percent")
+                candidates = [
+                    v for v in (raw, smoothed) if isinstance(v, (int, float))
+                ]
+                if candidates:
+                    return float(max(candidates))
         healthy, _ = self.surge_monitor.check_health()
         if not healthy:
             return None
@@ -183,7 +191,17 @@ class SurgePolyGovernor:
             return
 
         now = time.monotonic()
-        if cpu >= CPU_HIGH_THRESHOLD:
+        if cpu >= CPU_SPIKE_THRESHOLD:
+            self._low_since = None
+            if self._high_since is None:
+                self._high_since = now
+                if self._effective_poly > self._floor_poly:
+                    self._apply_limit(self._effective_poly - STEP_DOWN_SPIKE)
+            elif now - self._high_since >= CPU_HIGH_HOLD_S:
+                if self._effective_poly > self._floor_poly:
+                    self._apply_limit(self._effective_poly - STEP_DOWN)
+                self._high_since = now
+        elif cpu >= CPU_HIGH_THRESHOLD:
             self._low_since = None
             if self._high_since is None:
                 self._high_since = now

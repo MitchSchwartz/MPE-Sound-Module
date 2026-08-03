@@ -38,6 +38,7 @@ class SurgeCpuMonitor:
         self.osc_out_port = osc_out_port
         self._lock = threading.Lock()
         self._percent: float | None = None
+        self._raw_percent: float | None = None
         self._online = False
         self._source = "none"
         self._stop = threading.Event()
@@ -81,11 +82,13 @@ class SurgeCpuMonitor:
             return {
                 "online": self._online,
                 "percent": self._percent,
+                "raw_percent": self._raw_percent,
                 "source": self._source,
             }
 
     def _blend_percent(self, sample: float) -> None:
         """Attack/decay smoothing — visual calm over raw proc/OSC spikes."""
+        self._raw_percent = sample
         if self._percent is None:
             self._percent = sample
             return

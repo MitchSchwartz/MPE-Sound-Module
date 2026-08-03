@@ -25,7 +25,12 @@ class FakeCpuMonitor:
         self._percent = percent
 
     def snapshot(self) -> dict:
-        return {"online": self._percent is not None, "percent": self._percent, "source": "proc"}
+        return {
+            "online": self._percent is not None,
+            "percent": self._percent,
+            "raw_percent": self._percent,
+            "source": "proc",
+        }
 
 
 class SurgePolyGovernorTests(unittest.TestCase):
@@ -59,6 +64,21 @@ class SurgePolyGovernorTests(unittest.TestCase):
             self.assertTrue(osc.messages)
             self.assertEqual(osc.messages[-1][1], 10.0)
 
+    def test_spike_steps_down_immediately(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            state_path = Path(tmp) / "poly.json"
+            self._write_state(state_path, effective=12, ceiling=12)
+            osc = FakeOscClient()
+            monitor = mock.Mock()
+            monitor.check_health.return_value = (True, None)
+            governor = SurgePolyGovernor(osc, surge_monitor=monitor, cpu_monitor=FakeCpuMonitor(88.0))
+            with mock.patch("patch_browser.surge_poly_governor.POLY_STATE_FILE", state_path):
+                with mock.patch("patch_browser.surge_poly_governor.governor_active", return_value=True):
+                    governor._refresh_patch_state()
+                    governor._tick()
+            self.assertTrue(osc.messages)
+            self.assertEqual(osc.messages[-1][1], 9.0)
+
     def test_disabled_skips_adjustment(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             state_path = Path(tmp) / "poly.json"
@@ -67,10 +87,10 @@ class SurgePolyGovernorTests(unittest.TestCase):
             monitor = mock.Mock()
             monitor.check_health.return_value = (True, None)
             governor = SurgePolyGovernor(osc, surge_monitor=monitor, cpu_monitor=FakeCpuMonitor(90.0))
+            governor._enabled = False
             with mock.patch("patch_browser.surge_poly_governor.POLY_STATE_FILE", state_path):
-                with mock.patch("patch_browser.surge_poly_governor.governor_active", return_value=False):
-                    governor._refresh_patch_state()
-                    governor._tick()
+                governor._refresh_patch_state()
+                governor._tick()
             self.assertEqual(osc.messages, [])
 
 
