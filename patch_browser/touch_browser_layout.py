@@ -84,19 +84,7 @@ class TouchBrowserLayoutMixin:
         nav_header_h = 36
 
         self.status_rect = Rect(margin, margin, self.width - margin * 2, status_h)
-        left_cursor = self.status_rect.x + 12
-        limiter_badge_w = self._limiter_badge_width()
-        if limiter_badge_w:
-            self.limiter_badge_rect = Rect(
-                left_cursor,
-                self.status_rect.y + 10,
-                limiter_badge_w,
-                24,
-            )
-            left_cursor += limiter_badge_w + STATUS_BAR_ITEM_GAP
-        else:
-            self.limiter_badge_rect = Rect(left_cursor, self.status_rect.y + 10, 0, 0)
-        self.status_title_x = left_cursor
+        self.status_title_x = self.status_rect.x + 12
         self.system_settings_btn = Rect(self.status_rect.right - 44, self.status_rect.y + 6, 36, 32)
         right_cursor = self.system_settings_btn.x - STATUS_BAR_ITEM_GAP
         if self.show_cpu_meter:
@@ -120,6 +108,18 @@ class TouchBrowserLayoutMixin:
             audio_badge_w,
             24,
         )
+        limiter_badge_w = self._limiter_badge_width()
+        if limiter_badge_w:
+            right_cursor -= limiter_badge_w
+            self.limiter_badge_rect = Rect(
+                right_cursor,
+                self.status_rect.y + 10,
+                limiter_badge_w,
+                24,
+            )
+            right_cursor -= STATUS_BAR_ITEM_GAP
+        else:
+            self.limiter_badge_rect = Rect(right_cursor, self.status_rect.y + 10, 0, 0)
 
         content_top = self.status_rect.y + self.status_rect.h + gap
         content_bottom = self.height - BROWSER_BOTTOM_MARGIN

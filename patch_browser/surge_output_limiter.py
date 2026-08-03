@@ -6,7 +6,6 @@ import os
 import time
 
 from patch_browser.ui_prefs import load_ui_preference
-from patch_browser.patch_normalization import db_to_linear
 
 DEFAULT_LIMITER_THRESHOLD_DB = -1.0
 DEFAULT_LIMITER_FX_SLOT = 4
@@ -23,14 +22,14 @@ PARAM_RELEASE = 7
 PARAM_GAIN = 8
 PARAM_HPWIDTH = 9
 
-# Factory-style drive into the envelope limiter; output ceiling via PARAM_GAIN.
+# Unity pregain into the envelope — no +6 dB factory push; ceiling is PARAM_GAIN only.
 LIMITER_INPUT_THRESHOLD_DB = 0.0
 LIMITER_WIDTH = 1.0
 LIMITER_HPWIDTH_HZ = -60.0
 
-# Fast limiter: negative attack/release on ct_percent_bipolar = faster envelope.
-LIMITER_ATTACK = -1.0
-LIMITER_RELEASE = -1.0
+# Neutral attack/release — fast negative values hold gain down and sound ~6 dB quieter.
+LIMITER_ATTACK = 0.0
+LIMITER_RELEASE = 0.0
 LIM_LABEL = "LIM"
 
 # Surge fx_bypass enum — global FX (incl. our slot) only run when this is fxb_all_fx.
@@ -84,11 +83,6 @@ def limiter_enabled_by_pref() -> bool:
     return load_ui_preference("output_limiter_enabled", default=False)
 
 
-def limiter_amp_cap_linear() -> float:
-    """Scene amp ceiling (linear) matching MPE_LIMITER_THRESHOLD_DB when limiter is on."""
-    return db_to_linear(limiter_threshold_db())
-
-
 def limiter_active() -> bool:
     return limiter_enabled_by_env() and limiter_enabled_by_pref()
 
@@ -138,9 +132,10 @@ def apply_output_limiter(osc_client, *, threshold_db: float | None = None) -> bo
         _send_param(osc_client, slot, PARAM_RELEASE, LIMITER_RELEASE)
         _send_param(osc_client, slot, PARAM_GAIN, threshold)
         _send_param(osc_client, slot, PARAM_HPWIDTH, LIMITER_HPWIDTH_HZ)
-        # Disable bass/treble EQ bands — limiter uses threshold/gain only.
+        # Disable EQ/HP bands — brick-wall limiter uses threshold + gain only.
         osc_client.send_message(_fx_enable_path(slot, PARAM_BASS), 0.0)
         osc_client.send_message(_fx_enable_path(slot, PARAM_TREBLE), 0.0)
+        osc_client.send_message(_fx_enable_path(slot, PARAM_HPWIDTH), 0.0)
         osc_client.send_message(_fx_path(slot, "deactivate"), 0.0)
         return True
     except Exception as exc:
