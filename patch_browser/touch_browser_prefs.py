@@ -259,9 +259,18 @@ class TouchBrowserPrefsMixin:
         self._save_ui_preference("show_cpu_meter", self.show_cpu_meter)
         self._layout()
         if self.show_cpu_meter:
-            self._toast("CPU meter on", 1.5)
+            self._toast("CPU meter on", 1.2)
         else:
-            self._toast("CPU meter off", 1.5)
+            self._toast("CPU meter off", 1.2)
+
+    def _toggle_poly_governor(self) -> None:
+        self.poly_governor_enabled = not self.poly_governor_enabled
+        self._save_ui_preference("poly_governor_enabled", self.poly_governor_enabled)
+        self._layout()
+        if self.poly_governor_enabled:
+            self._toast("Dynamic voice limit on", 1.8)
+        else:
+            self._toast("Dynamic voice limit off", 1.8)
 
     def _finish_audio_profile_switch(self, ok: bool, message: str) -> None:
         self._audio_profile_switching = False

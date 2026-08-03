@@ -176,6 +176,10 @@ class TouchBrowserLayoutMixin:
         self.cpu_meter_toggle_rect = Rect(pad, y, inner_w, cpu_h)
         y += cpu_h + SETTINGS_ROW_GAP
 
+        poly_h = self._settings_row_height("Dynamic voice limit", inner_w, toggle=True)
+        self.poly_governor_toggle_rect = Rect(pad, y, inner_w, poly_h)
+        y += poly_h + SETTINGS_ROW_GAP
+
         oled_h = self._settings_row_height("Theme…", inner_w)
         self.theme_btn_rect = Rect(pad, y, inner_w, oled_h)
         y += oled_h + SETTINGS_ROW_GAP
