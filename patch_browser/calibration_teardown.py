@@ -43,7 +43,7 @@ def stop_mpe_audio_services() -> None:
     units: list[str] = []
     if not calibration_from_browser():
         units.append("touch-patch-browser")
-    units.extend(["mpe-pressure-remap", "surge-poly-governor", "surge-xt-cli"])
+    units.extend(["mpe-pressure-remap", "surge-poly-governor", "surge-output-limiter", "surge-xt-cli"])
     for unit in units:
         subprocess.run(["sudo", "systemctl", "stop", f"{unit}.service"], check=False)
     time.sleep(1)
@@ -69,6 +69,7 @@ def restore_mpe_audio_services(*, restart_browser: bool = True) -> None:
     unload_snd_aloop_if_idle()
     subprocess.run(["sudo", "systemctl", "start", "mpe-pressure-remap.service"], check=False)
     subprocess.run(["sudo", "systemctl", "start", "surge-poly-governor.service"], check=False)
+    subprocess.run(["sudo", "systemctl", "start", "surge-output-limiter.service"], check=False)
     subprocess.run(["sudo", "systemctl", "start", "surge-xt-cli.service"], check=False)
     if restart_browser and not calibration_from_browser():
         subprocess.run(["sudo", "systemctl", "start", "touch-patch-browser"], check=False)

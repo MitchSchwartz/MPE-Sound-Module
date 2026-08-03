@@ -180,6 +180,10 @@ class TouchBrowserLayoutMixin:
         self.poly_governor_toggle_rect = Rect(pad, y, inner_w, poly_h)
         y += poly_h + SETTINGS_ROW_GAP
 
+        limiter_h = self._settings_row_height("Output limiter", inner_w, toggle=True)
+        self.output_limiter_toggle_rect = Rect(pad, y, inner_w, limiter_h)
+        y += limiter_h + SETTINGS_ROW_GAP
+
         oled_h = self._settings_row_height("Theme…", inner_w)
         self.theme_btn_rect = Rect(pad, y, inner_w, oled_h)
         y += oled_h + SETTINGS_ROW_GAP
