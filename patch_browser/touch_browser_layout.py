@@ -40,7 +40,6 @@ from patch_browser.touch_ui_constants import (
     VOLUME_MIN,
 )
 from patch_browser.audio_profile import header_badge_label
-from patch_browser.surge_output_limiter import LIM_LABEL, limiter_active
 from patch_browser.all_patches_index import AZ_RAIL_LETTERS
 from patch_browser.touch_ui_enums import LeftNavMode, Screen, audio_profile_display
 from patch_browser.ui_text import text_block_height, wrap_text_lines, wrapped_row_height
@@ -69,12 +68,6 @@ class TouchBrowserLayoutMixin:
 
     def _audio_badge_width(self) -> int:
         label_w = self.font_sm.size(header_badge_label())[0]
-        return label_w + AUDIO_BADGE_PAD_X * 2
-
-    def _limiter_badge_width(self) -> int:
-        if not limiter_active():
-            return 0
-        label_w = self.font_sm.size(LIM_LABEL)[0]
         return label_w + AUDIO_BADGE_PAD_X * 2
 
     def _layout(self) -> None:
@@ -108,19 +101,6 @@ class TouchBrowserLayoutMixin:
             audio_badge_w,
             24,
         )
-        limiter_badge_w = self._limiter_badge_width()
-        if limiter_badge_w:
-            right_cursor -= limiter_badge_w
-            self.limiter_badge_rect = Rect(
-                right_cursor,
-                self.status_rect.y + 10,
-                limiter_badge_w,
-                24,
-            )
-            right_cursor -= STATUS_BAR_ITEM_GAP
-        else:
-            self.limiter_badge_rect = Rect(right_cursor, self.status_rect.y + 10, 0, 0)
-
         content_top = self.status_rect.y + self.status_rect.h + gap
         content_bottom = self.height - BROWSER_BOTTOM_MARGIN
         left_w = self._left_nav_width()
@@ -199,10 +179,6 @@ class TouchBrowserLayoutMixin:
         poly_h = self._settings_row_height("Dynamic voice limit", inner_w, toggle=True)
         self.poly_governor_toggle_rect = Rect(pad, y, inner_w, poly_h)
         y += poly_h + SETTINGS_ROW_GAP
-
-        limiter_h = self._settings_row_height("Output limiter", inner_w, toggle=True)
-        self.output_limiter_toggle_rect = Rect(pad, y, inner_w, limiter_h)
-        y += limiter_h + SETTINGS_ROW_GAP
 
         oled_h = self._settings_row_height("Theme…", inner_w)
         self.theme_btn_rect = Rect(pad, y, inner_w, oled_h)

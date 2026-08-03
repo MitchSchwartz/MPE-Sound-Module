@@ -232,13 +232,5 @@ class TouchBrowserSmokeTests(unittest.TestCase):
         hit = browser._theme_modal_hit_at((150, 22))
         self.assertEqual(hit, "style:1")
 
-    def test_limiter_badge_layout_when_active(self) -> None:
-        browser = self._make_browser()
-        with mock.patch("patch_browser.touch_browser_layout.limiter_active", return_value=True):
-            browser._layout()
-        self.assertGreater(browser.limiter_badge_rect.w, 0)
-        self.assertLess(browser.limiter_badge_rect.x, browser.audio_profile_badge_rect.x)
-
-
 if __name__ == "__main__":
     unittest.main()

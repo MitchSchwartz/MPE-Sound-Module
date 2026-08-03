@@ -305,7 +305,7 @@ One **primary** (accent fill) commit button per dialog; dismiss actions stay neu
 
 OLED mode follows the usual **Material / iOS dark** pattern: **tiered surfaces + subtle elevation**, not hard outlines. Overlays use a **~50% black backdrop dim**; panels sit on a brighter surface tier so they read above true-black content.
 
-**Status indicators** (header **LIM**, **USB** / **Analog** badges, CPU label): **text only — no box, border, or outline.** Order left→right among readouts: **LIM** (when limiter on) · **USB/Analog** · **CPU** · **⋯**. Patch title stays on the left. **LIM** blinks when measured output peak is at the limiter ceiling (Analog profile only; see above).
+**Status indicators** (header **USB** / **Analog** badges, CPU label): **text only — no box, border, or outline.** Order left→right among readouts: **USB/Analog** · **CPU** · **⋯**. Patch title stays on the left.
 
 | Token | Role | Before (flat) | After (tiered) |
 |-------|------|---------------|----------------|
