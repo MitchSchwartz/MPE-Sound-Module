@@ -141,7 +141,6 @@ class TouchPatchBrowser(
         self.show_cpu_meter = self._load_ui_preference("show_cpu_meter", default=True)
         self.poly_governor_enabled = self._load_ui_preference("poly_governor_enabled", default=True)
         self.output_limiter_enabled = self._load_ui_preference("output_limiter_enabled", default=False)
-        self._limiter_badge_was_reducing = False
         self.brightness_percent = self.backlight.get_percent()
         self.toast_message = ""
         self.toast_until = 0.0
@@ -295,14 +294,6 @@ class TouchPatchBrowser(
                 self._settings_content_scroll.tick(dt)
             if self.screen_state == Screen.BROWSER and not self.left_nav_collapsed:
                 self.nav_list.tick(dt)
-            reducing = (
-                self.limiter_monitor.snapshot().get("reducing")
-                if getattr(self, "limiter_monitor", None)
-                else False
-            )
-            if reducing != self._limiter_badge_was_reducing:
-                self._limiter_badge_was_reducing = reducing
-                self._layout()
             self._draw()
             clock.tick(60)
 
