@@ -67,8 +67,8 @@ class PatchHoldStoreTests(unittest.TestCase):
     def test_hold_offset_round_trip(self) -> None:
         self.assertAlmostEqual(hold_mult_to_offset(DEFAULT_HOLD_MULT), 0.0)
         self.assertAlmostEqual(hold_offset_to_mult(0.0), DEFAULT_HOLD_MULT)
-        self.assertAlmostEqual(hold_offset_to_mult(-0.45), 0.25)
-        self.assertAlmostEqual(hold_offset_to_mult(0.45), 4.0)
+        self.assertAlmostEqual(hold_offset_to_mult(-0.50), 0.25)
+        self.assertAlmostEqual(hold_offset_to_mult(0.50), 4.0)
 
     def test_format_hold_offset(self) -> None:
         store = PatchHoldStore(Path("/tmp/unused-hold-fmt.json"))

@@ -15,9 +15,9 @@ HOLD_MULT_MAX = 4.0
 DEFAULT_HOLD_MULT = 1.0
 
 # Tail fader UI: bipolar offset from 1.0× (0 = center), same scale as Touch.
-HOLD_OFFSET_MIN = -0.45
-HOLD_OFFSET_MAX = 0.45
-HOLD_OFFSET_SPAN = 0.45
+HOLD_OFFSET_MIN = -0.50
+HOLD_OFFSET_MAX = 0.50
+HOLD_OFFSET_SPAN = 0.50
 HOLD_OFFSET_CLEAR_EPSILON = 0.01
 
 # Surge OSC amp envelope params are normalized 0..1.
@@ -170,7 +170,7 @@ class PatchHoldStore:
             self.save()
 
     def format_hold_offset(self, offset: float) -> str:
-        """Bipolar Tail fader label — 0 at center, ±45 scale (matches Touch)."""
+        """Bipolar Tail fader label — 0 at center, ±50 scale (matches Touch)."""
         pts = round(clamp_hold_offset(offset) * 100)
         if pts > 0:
             return f"+{pts}"
