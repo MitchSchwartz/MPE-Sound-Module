@@ -31,7 +31,11 @@ from patch_browser.surge_playback import (
     write_poly_state,
 )
 from patch_browser.surge_poly_governor import governor_active
-from patch_browser.surge_output_limiter import sync_output_limiter
+from patch_browser.surge_output_limiter import (
+    limiter_active,
+    limiter_amp_cap_linear,
+    sync_output_limiter,
+)
 from patch_browser.touch_ui_constants import VOLUME_MAX, VOLUME_MIN
 
 OSC_OUT_PORT = 53270
@@ -99,6 +103,8 @@ class PatchLoader:
             fader_max=VOLUME_MAX,
             norm_active=self._norm_active,
         )
+        if limiter_active():
+            combined = min(combined, limiter_amp_cap_linear())
         try:
             self.osc_client.send_message("/param/a/amp/volume", combined)
             self.osc_client.send_message("/param/b/amp/volume", combined)
@@ -292,6 +298,7 @@ class PatchLoader:
             self._loaded_patch_name = patch_name
             time.sleep(PATCH_LOAD_SETTLE_S)
             self._apply_playback_policy(patch_name)
+            self._send_combined_volume()
             if not self._capture_hold_baseline(patch_name):
                 print(f"Hold baseline query failed for {patch_name}; using stored values if any")
             self._send_hold_osc(patch_name)

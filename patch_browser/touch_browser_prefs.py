@@ -280,6 +280,7 @@ class TouchBrowserPrefsMixin:
         self._layout()
         if getattr(self, "loader", None) and self.loader.osc_enabled:
             sync_output_limiter(self.loader.osc_client)
+            self.loader._send_combined_volume()
         if self.output_limiter_enabled:
             self._toast("Output limiter on", 1.8)
         else:

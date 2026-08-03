@@ -11,7 +11,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
 from patch_browser.surge_monitor import SurgeMonitor  # noqa: E402
-from patch_browser.surge_output_limiter import sync_output_limiter  # noqa: E402
+from patch_browser.surge_output_limiter import limiter_active, sync_output_limiter  # noqa: E402
 from patch_browser.touch_ui_constants import UI_STATE_FILE
 
 
@@ -39,9 +39,10 @@ def main() -> int:
                     stat = UI_STATE_FILE.stat()
                     if stat.st_mtime > prefs_mtime:
                         prefs_mtime = stat.st_mtime
-                        sync_output_limiter(osc)
                 except OSError:
                     pass
+                if limiter_active():
+                    sync_output_limiter(osc)
         except Exception as exc:
             print(f"Surge output limiter sync error: {exc}", flush=True)
         time.sleep(0.5)
