@@ -6,6 +6,7 @@ import os
 import time
 
 from patch_browser.ui_prefs import load_ui_preference
+from patch_browser.patch_normalization import db_to_linear
 
 DEFAULT_LIMITER_THRESHOLD_DB = -1.0
 DEFAULT_LIMITER_FX_SLOT = 4
@@ -23,7 +24,7 @@ PARAM_GAIN = 8
 PARAM_HPWIDTH = 9
 
 # Factory-style drive into the envelope limiter; output ceiling via PARAM_GAIN.
-LIMITER_INPUT_THRESHOLD_DB = -6.0
+LIMITER_INPUT_THRESHOLD_DB = 0.0
 LIMITER_WIDTH = 1.0
 LIMITER_HPWIDTH_HZ = -60.0
 
@@ -81,6 +82,11 @@ def limiter_enabled_by_env() -> bool:
 
 def limiter_enabled_by_pref() -> bool:
     return load_ui_preference("output_limiter_enabled", default=False)
+
+
+def limiter_amp_cap_linear() -> float:
+    """Scene amp ceiling (linear) matching MPE_LIMITER_THRESHOLD_DB when limiter is on."""
+    return db_to_linear(limiter_threshold_db())
 
 
 def limiter_active() -> bool:
