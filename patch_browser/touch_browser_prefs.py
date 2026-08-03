@@ -272,20 +272,6 @@ class TouchBrowserPrefsMixin:
         else:
             self._toast("Dynamic voice limit off", 1.8)
 
-    def _toggle_output_limiter(self) -> None:
-        from patch_browser.surge_output_limiter import sync_output_limiter
-
-        self.output_limiter_enabled = not self.output_limiter_enabled
-        self._save_ui_preference("output_limiter_enabled", self.output_limiter_enabled)
-        self._layout()
-        if getattr(self, "loader", None) and self.loader.osc_enabled:
-            sync_output_limiter(self.loader.osc_client)
-            self.loader._send_combined_volume()
-        if self.output_limiter_enabled:
-            self._toast("Output limiter on", 1.8)
-        else:
-            self._toast("Output limiter off", 1.8)
-
     def _finish_audio_profile_switch(self, ok: bool, message: str) -> None:
         self._audio_profile_switching = False
         self._audio_profile_switch_target = None

@@ -137,9 +137,7 @@ On every patch load, **Reuse Single** is applied automatically (XML rewrite — 
 | Control | Where |
 | -------- | ----- |
 | Dynamic voice limit on/off | Touch UI → System settings |
-| Output limiter on/off | Touch UI → System settings (Surge Conditioner on global FX slot 4, default **−1 dB** threshold) |
 | Poly ceiling / floor / emergency | `/etc/mpe/mpe.env` — `MPE_POLY_CEILING` (12), `MPE_POLY_FLOOR` (4), `MPE_POLY_EMERGENCY` (3 at ≥90% CPU) |
-| Limiter threshold / FX slot | `MPE_LIMITER_THRESHOLD_DB=-1.0`, `MPE_LIMITER_FX_SLOT=4` |
 | Disable Reuse Single | `MPE_REUSE_SINGLE=0` in `mpe.env` |
 | Disable governor entirely | `MPE_POLY_GOVERNOR=0` or turn off in touch settings |
 

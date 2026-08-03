@@ -128,8 +128,6 @@ class TouchBrowserInputMixin:
             return "cpu_meter"
         if self.poly_governor_toggle_rect.contains(*local_pos):
             return "poly_governor"
-        if self.output_limiter_toggle_rect.contains(*local_pos):
-            return "output_limiter"
         if self.audio_profile_toggle_rect.contains(*local_pos):
             return "audio_profile"
         if self.theme_btn_rect.contains(*local_pos):
@@ -154,8 +152,6 @@ class TouchBrowserInputMixin:
             self._toggle_cpu_meter_visibility()
         elif hit == "poly_governor":
             self._toggle_poly_governor()
-        elif hit == "output_limiter":
-            self._toggle_output_limiter()
         elif hit == "audio_profile":
             if not getattr(self, "_audio_profile_switching", False):
                 self._toggle_audio_profile()
