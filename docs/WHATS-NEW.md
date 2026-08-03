@@ -1,6 +1,6 @@
 # What's new
 
-*Last updated: 2026-08-02 (America/Toronto)*
+*Last updated: 2026-08-03 (America/Toronto)*
 
 A plain-English rundown of what changed this week — for anyone following along, not just people reading commit logs. Grouped by what it actually does for you, not by what file it touched.
 
@@ -31,8 +31,8 @@ This week closed out a run of loudness bugs that were sneaky because they mostly
 The patch detail pane now has a vertical fader strip — mixing-board style, taller than the old thin sliders:
 
 - **Vol** — overall level for the loaded patch. Drag up for louder; display runs **0–100** across the full travel so normalized patches aren't stuck in the top fifth of the slider.
-- **Tail** — stretch or shorten the amp envelope **sustain, decay, and release** (both scenes). Default **1.0×** is patch-as-loaded; drag down for tighter tails, up for longer holds and releases. Double-tap resets to 1.0×. Your setting is remembered per patch.
-- **Touch** — how much expression you get from a **light** press vs a full one. Some patches barely whisper until you're pushing hard; this fader lifts the floor so feather-touch playing still speaks. Calibration can set a starting point automatically; double-tap resets to that default. Remapped in real time via the pressure remapper service — no Surge GUI needed.
+- **Tail** — stretch or shorten the amp envelope **sustain, decay, and release** (both scenes). **0** at center = patch-as-loaded; drag down for tighter tails, up for longer holds and releases. Display runs **−50…+50** (same scale as Touch). Double-tap resets to **0**. Your setting is remembered per patch.
+- **Touch** — how much expression you get from a **light** press vs a full one. Some patches barely whisper until you're pushing hard; this fader lifts the floor so feather-touch playing still speaks. **0** at center = calibrated default (or stock response if uncalibrated). Display runs **−50…+50**. Double-tap resets to **0**. Remapped in real time via the pressure remapper service — no Surge GUI needed.
 
 **Norm** (when **Norm.** is on) and the **Norm.** checkbox sit alongside these faders; see [`PATCH_NORMALIZATION.md`](PATCH_NORMALIZATION.md).
 

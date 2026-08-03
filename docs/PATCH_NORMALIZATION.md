@@ -12,7 +12,7 @@ Static loudness matching for Surge XT patches on the MPE appliance. Calibrate on
 | **Offline / SSH** | Render gesture → measure LUFS → write gain to JSON |
 | **Load** | Lookup by patch name (stem) → set amp/volume baseline → user trim stacks on top |
 
-**Not** a runtime limiter — MPE expression (velocity, pressure) stays untouched.
+**Gain matching only** — velocity and pressure curves stay untouched (no dynamic compression at play time).
 
 ### Measurement
 
