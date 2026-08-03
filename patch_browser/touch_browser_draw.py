@@ -642,6 +642,14 @@ class TouchBrowserDrawMixin:
             label="Dynamic voice limit",
         )
 
+        limiter_toggle = self._panel_local_to_screen(self.output_limiter_toggle_rect, scrolled=True)
+        self._draw_normalize_toggle(
+            limiter_toggle,
+            self.output_limiter_enabled,
+            has_gain=True,
+            label="Output limiter",
+        )
+
         theme_row = self._panel_local_to_screen(self.theme_btn_rect, scrolled=True)
         self._draw_settings_action_row(theme_row, "Theme…")
 

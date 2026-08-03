@@ -100,6 +100,7 @@ mpe_enable_core_services() {
     mpe_enable_audio_profile_sync
     sudo systemctl enable --now mpe-pressure-remap.service 2>/dev/null || true
     sudo systemctl enable --now surge-poly-governor.service 2>/dev/null || true
+    sudo systemctl enable --now surge-output-limiter.service 2>/dev/null || true
     sudo systemctl enable --now surge-xt-cli.service 2>/dev/null || true
     sudo systemctl enable surge-watchdog.service 2>/dev/null || true
     mpe_enable_patch_browser_ui
