@@ -32,6 +32,20 @@ LIMITER_ATTACK = -1.0
 LIMITER_RELEASE = -1.0
 LIM_LABEL = "LIM"
 
+# Surge fx_bypass enum — global FX (incl. our slot) only run when this is fxb_all_fx.
+FX_BYPASS_ALL_FX = 0
+FX_BYPASS_OSC = "/param/global/fx_bypass"
+
+# Peak within this band of MPE_LIMITER_THRESHOLD_DB counts as "pinned at ceiling".
+CEILING_MATCH_DB = 0.75
+# Ignore noise floor — must be loud enough to be musically "at limit".
+CEILING_MIN_SIGNAL_DB = -18.0
+
+
+def _fx_enable_path(slot: int, param_index: int) -> str:
+    """Surge extended params use a trailing '+' (e.g. param1/enable+)."""
+    return _fx_path(slot, f"param{param_index}/enable+")
+
 
 def limiter_threshold_db() -> float:
     raw = os.environ.get("MPE_LIMITER_THRESHOLD_DB", str(DEFAULT_LIMITER_THRESHOLD_DB)).strip()
@@ -73,6 +87,14 @@ def limiter_active() -> bool:
     return limiter_enabled_by_env() and limiter_enabled_by_pref()
 
 
+def at_limiter_ceiling(peak_dbtp: float) -> bool:
+    """True when measured output peak is at the configured limiter ceiling."""
+    ceiling = limiter_threshold_db()
+    if peak_dbtp < CEILING_MIN_SIGNAL_DB:
+        return False
+    return abs(float(peak_dbtp) - ceiling) <= CEILING_MATCH_DB
+
+
 def limiter_header_badge_label() -> str | None:
     """Static label helper — prefer SurgeLimiterMonitor.snapshot() for live UI."""
     return LIM_LABEL if limiter_active() else None
@@ -97,6 +119,8 @@ def apply_output_limiter(osc_client, *, threshold_db: float | None = None) -> bo
         else normalize_limiter_threshold_db(threshold_db)
     )
     try:
+        # Patches/presets often default to "No Send and Global FX" — global slot 4 never runs.
+        osc_client.send_message(FX_BYPASS_OSC, float(FX_BYPASS_ALL_FX))
         osc_client.send_message(_fx_path(slot, "type"), CONDITIONER_TYPE)
         time.sleep(0.05)
         _send_param(osc_client, slot, PARAM_BASS, 0.0)
@@ -108,8 +132,9 @@ def apply_output_limiter(osc_client, *, threshold_db: float | None = None) -> bo
         _send_param(osc_client, slot, PARAM_RELEASE, LIMITER_RELEASE)
         _send_param(osc_client, slot, PARAM_GAIN, threshold)
         _send_param(osc_client, slot, PARAM_HPWIDTH, LIMITER_HPWIDTH_HZ)
-        osc_client.send_message(_fx_path(slot, "param1/enable"), 0.0)
-        osc_client.send_message(_fx_path(slot, "param2/enable"), 0.0)
+        # Disable bass/treble EQ bands — limiter uses threshold/gain only.
+        osc_client.send_message(_fx_enable_path(slot, PARAM_BASS), 0.0)
+        osc_client.send_message(_fx_enable_path(slot, PARAM_TREBLE), 0.0)
         osc_client.send_message(_fx_path(slot, "deactivate"), 0.0)
         return True
     except Exception as exc:

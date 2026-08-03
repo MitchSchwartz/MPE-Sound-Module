@@ -40,7 +40,7 @@ from patch_browser.touch_ui_constants import (
     VOLUME_MIN,
 )
 from patch_browser.audio_profile import header_badge_label
-from patch_browser.surge_output_limiter import LIM_LABEL
+from patch_browser.surge_output_limiter import LIM_LABEL, limiter_active
 from patch_browser.all_patches_index import AZ_RAIL_LETTERS
 from patch_browser.touch_ui_enums import LeftNavMode, Screen, audio_profile_display
 from patch_browser.ui_text import text_block_height, wrap_text_lines, wrapped_row_height
@@ -72,11 +72,7 @@ class TouchBrowserLayoutMixin:
         return label_w + AUDIO_BADGE_PAD_X * 2
 
     def _limiter_badge_width(self) -> int:
-        monitor = getattr(self, "limiter_monitor", None)
-        if monitor is None:
-            return 0
-        snap = monitor.snapshot()
-        if not snap.get("reducing"):
+        if not limiter_active():
             return 0
         label_w = self.font_sm.size(LIM_LABEL)[0]
         return label_w + AUDIO_BADGE_PAD_X * 2
@@ -88,6 +84,19 @@ class TouchBrowserLayoutMixin:
         nav_header_h = 36
 
         self.status_rect = Rect(margin, margin, self.width - margin * 2, status_h)
+        left_cursor = self.status_rect.x + 12
+        limiter_badge_w = self._limiter_badge_width()
+        if limiter_badge_w:
+            self.limiter_badge_rect = Rect(
+                left_cursor,
+                self.status_rect.y + 10,
+                limiter_badge_w,
+                24,
+            )
+            left_cursor += limiter_badge_w + STATUS_BAR_ITEM_GAP
+        else:
+            self.limiter_badge_rect = Rect(left_cursor, self.status_rect.y + 10, 0, 0)
+        self.status_title_x = left_cursor
         self.system_settings_btn = Rect(self.status_rect.right - 44, self.status_rect.y + 6, 36, 32)
         right_cursor = self.system_settings_btn.x - STATUS_BAR_ITEM_GAP
         if self.show_cpu_meter:
@@ -103,18 +112,6 @@ class TouchBrowserLayoutMixin:
             right_cursor -= STATUS_BAR_ITEM_GAP
         else:
             self.cpu_meter_rect = Rect(right_cursor, self.status_rect.y + 6, 0, 0)
-        limiter_badge_w = self._limiter_badge_width()
-        if limiter_badge_w:
-            right_cursor -= limiter_badge_w
-            self.limiter_badge_rect = Rect(
-                right_cursor,
-                self.status_rect.y + 10,
-                limiter_badge_w,
-                24,
-            )
-            right_cursor -= STATUS_BAR_ITEM_GAP
-        else:
-            self.limiter_badge_rect = Rect(right_cursor, self.status_rect.y + 10, 0, 0)
         audio_badge_w = self._audio_badge_width()
         right_cursor -= audio_badge_w
         self.audio_profile_badge_rect = Rect(

@@ -357,14 +357,11 @@ class TouchBrowserDrawMixin:
         )
 
     def _draw_limiter_badge(self, rect: Rect) -> None:
+        if rect.w <= 0:
+            return
         monitor = getattr(self, "limiter_monitor", None)
-        if monitor is None or rect.w <= 0:
-            return
-        snap = monitor.snapshot()
-        if not snap.get("reducing"):
-            return
-        # 4 Hz blink while gain reduction is active.
-        if int(time.monotonic() * 4) % 2 == 0:
+        reducing = bool(monitor.snapshot().get("reducing")) if monitor else False
+        if reducing and int(time.monotonic() * 4) % 2 == 0:
             return
         badge = self.font_sm.render(LIM_LABEL, True, self.theme.danger)
         self.screen.blit(
@@ -384,25 +381,22 @@ class TouchBrowserDrawMixin:
             title = "No patch loaded"
             subtitle = "Select a patch from the left list"
 
-        title_max_w = max(
-            1,
-            self.audio_profile_badge_rect.x - self.status_rect.x - 24,
-        )
+        title_x = getattr(self, "status_title_x", self.status_rect.x + 12)
+        title_max_w = max(1, self.audio_profile_badge_rect.x - title_x - 12)
         title_lines = wrap_text_lines(self.font_md, title, title_max_w, max_lines=1)
         self.screen.blit(
             self.font_md.render(title_lines[0], True, self.theme.text),
-            (self.status_rect.x + 12, self.status_rect.y + 6),
+            (title_x, self.status_rect.y + 6),
         )
         sub_lines = wrap_text_lines(self.font_sm, subtitle, title_max_w, max_lines=1)
         self.screen.blit(
             self.font_sm.render(sub_lines[0], True, self.theme.muted),
-            (self.status_rect.x + 12, self.status_rect.y + 26),
+            (title_x, self.status_rect.y + 26),
         )
+        if self.limiter_badge_rect.w > 0:
+            self._draw_limiter_badge(self.limiter_badge_rect)
         if self.show_cpu_meter:
             self._draw_cpu_meter(self.cpu_meter_rect)
-        if self.limiter_badge_rect.w > 0 and getattr(self, "limiter_monitor", None):
-            if self.limiter_monitor.snapshot().get("reducing"):
-                self._draw_limiter_badge(self.limiter_badge_rect)
         self._draw_audio_profile_badge(self.audio_profile_badge_rect)
         self._draw_button(self.system_settings_btn, "...", small=True, muted=True)
         self._draw_hairline(
