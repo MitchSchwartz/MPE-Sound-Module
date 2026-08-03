@@ -118,7 +118,7 @@ Full walkthrough: **[docs/PATCH-EDITING-WORKFLOW.md](docs/PATCH-EDITING-WORKFLOW
 
 Calibrate once; every `load_patch()` applies a stored gain baseline (MPE expression untouched). The calibrator measures each patch at **strike** (hard hit, light pressure) and **sustain** (moderate velocity, full pressure), picks the safer of the two gains, then verifies peak level in a short closed loop before saving. When **Norm.** is on, the full calibrated gain reaches Surge — peak headroom is enforced at calibration time, not by clamping at load.
 
-The same run captures a **light-touch** gesture and writes **Touch** pressure floors to `~/.patch_browser_pressure.json` (cohort alignment plus extra lift for patches with a wide strike/sustain gap). Double-tap **Touch** resets to that calibrated default.
+The same run captures a **light-touch** gesture and writes **Touch** pressure floors to `~/.patch_browser_pressure.json` (cohort alignment plus extra lift for patches with a wide strike/sustain gap). The **Touch** fader is bipolar: **0** at center = calibrated default; drag up/down to trim. Double-tap **Touch** resets to **0**.
 
 ```bash
 # Pi touch display — fullscreen loader on the 800×480 panel (~5–12 min for Quick Select)
