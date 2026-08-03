@@ -14,7 +14,7 @@ HOLD_MULT_MIN = 0.25
 HOLD_MULT_MAX = 4.0
 DEFAULT_HOLD_MULT = 1.0
 
-# Tail fader UI: bipolar offset from 1.0× (0 = center), same scale as Touch.
+# Tail fader UI: bipolar offset from 1.0× (0 = center). Same ±50 *display range* as Touch, different zero semantics — see docs/TOUCH_PATCH_BROWSER.md §Mixer faders.
 HOLD_OFFSET_MIN = -0.50
 HOLD_OFFSET_MAX = 0.50
 HOLD_OFFSET_SPAN = 0.50
@@ -170,7 +170,7 @@ class PatchHoldStore:
             self.save()
 
     def format_hold_offset(self, offset: float) -> str:
-        """Bipolar Tail fader label — 0 at center, ±50 scale (matches Touch)."""
+        """Bipolar Tail fader label — 0 at center, ±50 scale."""
         pts = round(clamp_hold_offset(offset) * 100)
         if pts > 0:
             return f"+{pts}"

@@ -45,7 +45,7 @@ Every patch is fully editable and MPE-assignable from your computer, across all 
 
 - **Two interface options** — rotary encoder + OLED screen, or fullscreen touch display (SmartiPi 5″)
 - **Full-library browsing** — folder view or a flat, alphabetical searchable list
-- **Per-patch mixer (touch)** — vertical faders on the patch detail pane: **Vol** (level), **Tail** (envelope length; **0** = patch-as-loaded), **Touch** (MPE pressure response; **0** = calibrated default). Both Tail and Touch use a **−50…+50** bipolar scale centered at **0**.
+- **Per-patch mixer (touch)** — vertical faders on the patch detail pane: **Vol** (level), **Tail** (envelope length; **0** = patch-as-loaded), **Touch** (MPE pressure floor; **cal value** = default handle position on **−50…+50**). See **[docs/TOUCH_PATCH_BROWSER.md](docs/TOUCH_PATCH_BROWSER.md)** §Mixer faders.
 - **Theming** — light/dark base themes with custom accent colors
 - **CPU meter** — live engine headroom while playing
 - **Dynamic voice limit toggle (touch)** — System settings → turn CPU-aware poly limiting on or off (default on). No in-Surge output limiter — loudness headroom comes from per-patch normalization at calibration time; use host/USB gain staging if you need a safety ceiling live.
@@ -118,7 +118,7 @@ Full walkthrough: **[docs/PATCH-EDITING-WORKFLOW.md](docs/PATCH-EDITING-WORKFLOW
 
 Calibrate once; every `load_patch()` applies a stored gain baseline (MPE expression untouched). The calibrator measures each patch at **strike** (hard hit, light pressure) and **sustain** (moderate velocity, full pressure), picks the safer of the two gains, then verifies peak level in a short closed loop before saving. When **Norm.** is on, the full calibrated gain reaches Surge — peak safety is baked in at calibration time.
 
-The same run captures a **light-touch** gesture and writes **Touch** pressure floors to `~/.patch_browser_pressure.json` (cohort alignment plus extra lift for patches with a wide strike/sustain gap). **Tail** and **Touch** faders are bipolar: **0** at center = patch default; drag up/down to trim. Double-tap either fader resets to **0**.
+The same run captures a **light-touch** gesture and writes **Touch** pressure floors to `~/.patch_browser_pressure.json` (cohort alignment plus extra lift for patches with a wide strike/sustain gap). **Tail** fader: **0** at center = patch default; double-tap resets to **0**. **Touch** fader: handle sits at the calibrated value; drag to override; double-tap restores calibration. Details: **[docs/TOUCH_PATCH_BROWSER.md](docs/TOUCH_PATCH_BROWSER.md)** §Mixer faders.
 
 ```bash
 # Pi touch display — fullscreen loader on the 800×480 panel (~5–12 min for Quick Select)

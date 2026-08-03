@@ -1,4 +1,9 @@
-"""Per-patch MPE pressure floor — light touch vs full press (issue #29 / #31)."""
+"""Per-patch MPE pressure floor — light touch vs full press (issue #29 / #31).
+
+Touch fader semantics (canon): docs/TOUCH_PATCH_BROWSER.md §Mixer faders.
+Implementation: cal_floor_to_touch_anchor + user_touch_offset → touch_fader_value.
+Do not describe Touch as "0 at center like Tail" — Tail is offset-centered; Touch is cal-anchored.
+"""
 
 from __future__ import annotations
 
@@ -13,9 +18,17 @@ PRESSURE_FLOOR_MIN = 0.0
 PRESSURE_FLOOR_MAX = 0.9
 DEFAULT_PRESSURE_FLOOR = 0.0
 
-# Touch fader: bipolar offset from calibrated baseline (0 = center = cal default).
-PRESSURE_OFFSET_MIN = -0.50
-PRESSURE_OFFSET_MAX = 0.50
+# Touch fader UI: −50…+50 scale; cal floor anchors handle, trim moves from there.
+TOUCH_FADER_MIN = -50.0
+TOUCH_FADER_MAX = 50.0
+TOUCH_CAL_DISPLAY_MAX = 50.0
+TOUCH_DISPLAY_MIN = TOUCH_FADER_MIN
+TOUCH_DISPLAY_MAX = TOUCH_FADER_MAX
+TOUCH_DISPLAY_CLEAR_EPSILON = 1.0
+
+# User trim stored as offset from calibrated baseline (internal floor units).
+PRESSURE_OFFSET_MIN = -PRESSURE_FLOOR_MAX
+PRESSURE_OFFSET_MAX = PRESSURE_FLOOR_MAX
 TOUCH_OFFSET_CLEAR_EPSILON = 0.01
 
 # Light-touch calibration gesture (7-bit MPE pressure held constant).
@@ -52,6 +65,48 @@ def effective_pressure_mult(raw: float, floor: float) -> float:
 
 def clamp_effective_floor(floor: float) -> float:
     return max(PRESSURE_FLOOR_MIN, min(PRESSURE_FLOOR_MAX, float(floor)))
+
+
+def clamp_touch_display(display: float) -> float:
+    return max(TOUCH_DISPLAY_MIN, min(TOUCH_DISPLAY_MAX, float(display)))
+
+
+def cal_floor_to_touch_anchor(floor: float) -> float:
+    """Map calibrated floor (0…0.9) to anchor on fader (0…+50). Zero cal → 0."""
+    f = clamp_effective_floor(floor)
+    if PRESSURE_FLOOR_MAX <= 0:
+        return 0.0
+    return (f / PRESSURE_FLOOR_MAX) * TOUCH_CAL_DISPLAY_MAX
+
+
+def offset_to_touch_trim(offset: float) -> float:
+    """Map user trim (−0.9…+0.9 floor units) to ±50 fader delta."""
+    o = clamp_touch_offset(offset)
+    if PRESSURE_FLOOR_MAX <= 0:
+        return 0.0
+    return o / PRESSURE_FLOOR_MAX * TOUCH_FADER_MAX
+
+
+def touch_trim_to_offset(trim: float) -> float:
+    """Map ±50 fader delta back to user trim offset."""
+    t = max(-TOUCH_FADER_MAX, min(TOUCH_FADER_MAX, float(trim)))
+    if TOUCH_FADER_MAX == 0:
+        return 0.0
+    return clamp_touch_offset(t / TOUCH_FADER_MAX * PRESSURE_FLOOR_MAX)
+
+
+def touch_fader_value(baseline: float, offset: float) -> float:
+    """Fader position: cal anchor + user trim, clamped to −50…+50."""
+    anchor = cal_floor_to_touch_anchor(baseline)
+    trim = offset_to_touch_trim(offset)
+    return max(TOUCH_FADER_MIN, min(TOUCH_FADER_MAX, anchor + trim))
+
+
+def touch_fader_to_offset(display: float, baseline: float) -> float:
+    """Derive user trim from fader position relative to cal anchor."""
+    d = max(TOUCH_FADER_MIN, min(TOUCH_FADER_MAX, float(display)))
+    anchor = cal_floor_to_touch_anchor(baseline)
+    return touch_trim_to_offset(d - anchor)
 
 
 def clamp_touch_offset(offset: float) -> float:
@@ -138,7 +193,7 @@ class PatchPressureStore:
         return None
 
     def get_user_touch_offset(self, patch_name: str) -> float:
-        """User trim relative to calibrated baseline; 0 = cal default (fader center)."""
+        """User trim relative to calibrated baseline; 0 = no override (fader at cal anchor)."""
         key = self.patch_key(patch_name)
         entry = self._data.get(key)
         if not entry:
@@ -260,9 +315,16 @@ class PatchPressureStore:
         """Absolute effective floor as whole-percent label (legacy)."""
         return f"{round(clamp_effective_floor(floor) * 100)}"
 
+    def format_touch_display(self, display: float) -> str:
+        """Touch fader label on the −50…+50 trim scale."""
+        pts = round(clamp_touch_display(display))
+        if pts > 0:
+            return f"+{pts}"
+        return str(pts)
+
     def format_touch_offset(self, offset: float) -> str:
-        """Bipolar Touch fader label — 0 at center, ±50 scale."""
-        pts = round(clamp_touch_offset(offset) * 100)
+        """Trim component label on ±50 scale."""
+        pts = round(offset_to_touch_trim(offset))
         if pts > 0:
             return f"+{pts}"
         return str(pts)
