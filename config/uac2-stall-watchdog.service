@@ -1,7 +1,8 @@
 [Unit]
 Description=MPE UAC2 stall watchdog (restart Surge when gadget write wedges)
 Documentation=file:@MPE_MODULE_REPO@/docs/USB-AUDIO-HOST.md
-After=surge-xt-cli.service usb-audio-gadget.service
+After=usb-audio-gadget.service
+Wants=usb-audio-gadget.service
 ConditionPathExists=@MPE_MODULE_REPO@/scripts/uac2-stall-watchdog.sh
 
 [Service]
