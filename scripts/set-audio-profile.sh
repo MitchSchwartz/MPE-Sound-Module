@@ -48,6 +48,9 @@ fi
 
 # shellcheck source=lib/profile-switch-flag.sh
 source "$SCRIPT_DIR/lib/profile-switch-flag.sh"
+# shellcheck source=lib/uac2-host-route.sh
+source "$SCRIPT_DIR/lib/uac2-host-route.sh"
+uac2_host_streaming_clear
 profile_switch_flag_mark
 systemctl restart surge-xt-cli.service
 # start-surge-cli.sh clears the flag after reading (fast profile restarts skip MIDI wait).
