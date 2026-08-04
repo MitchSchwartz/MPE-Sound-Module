@@ -21,7 +21,10 @@ except ImportError:
     pygame = None  # type: ignore[assignment]
 
 from patch_browser.ui_theme import reload_theme_from_prefs, theme_for_mode
-from patch_browser.shutdown_trace import log_shutdown_event
+from patch_browser.shutdown_trace import (
+    log_shutdown_event,
+    shutdown_splash_disabled,
+)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_WIDTH = 800
@@ -525,10 +528,17 @@ def start_shutdown_splash_service() -> bool:
     The splash runs in its own systemd unit ordered ``Before=systemd-poweroff.service``,
     not inside the patch browser process.
     """
-    return _run_systemctl(
+    if shutdown_splash_disabled():
+        _log_shutdown(f"skip {SHUTDOWN_SPLASH_UNIT} (MPE_SHUTDOWN_SKIP_SPLASH)")
+        log_shutdown_event("shutdown_step_splash_service_skipped")
+        return True
+    log_shutdown_event("shutdown_step_splash_service_start")
+    ok = _run_systemctl(
         ["start", SHUTDOWN_SPLASH_UNIT],
         log_label=f"systemctl start {SHUTDOWN_SPLASH_UNIT}",
     )
+    log_shutdown_event("shutdown_step_splash_service_done", ok=ok)
+    return ok
 
 
 def request_system_power_action(power_action: str) -> bool:
@@ -552,11 +562,22 @@ def release_display_for_shutdown(
     Without this, ``mpe-shutdown-splash`` can block up to ~12s retrying while the
     browser still holds DRM (``sys.exit`` from the power menu skips ``pygame.quit``).
     """
+    log_shutdown_event("shutdown_step_release_display_begin")
     if pygame is None:
+        log_shutdown_event("shutdown_step_release_display_no_pygame")
         return
-    if theme is None:
+    # Hide login prompt before releasing DRM — prevents console flash on tty1.
+    stop_getty_tty1()
+    skip_splash = shutdown_splash_disabled()
+    if theme is None and not skip_splash:
         theme = theme_for_mode(reload_theme_from_prefs().theme_mode)
-    if screen is not None and pygame.get_init():
+    if skip_splash:
+        log_shutdown_event("shutdown_step_paint_shutdown_frame_skipped")
+        if screen is not None and pygame.get_init():
+            screen.fill((0, 0, 0))
+            pygame.display.flip()
+    elif screen is not None and pygame.get_init():
+        log_shutdown_event("shutdown_step_paint_shutdown_frame")
         draw_splash_frame(
             screen,
             mode=SplashMode.SHUTDOWN,
@@ -565,10 +586,12 @@ def release_display_for_shutdown(
         )
         pygame.display.flip()
     if pygame.get_init():
+        log_shutdown_event("shutdown_step_pygame_quit")
         pygame.quit()
+    log_shutdown_event("shutdown_step_stop_boot_splash")
     stop_boot_splash_service(wait=False)
     clear_display_handoff_request()
-    log_shutdown_event("release_display_for_shutdown")
+    log_shutdown_event("shutdown_step_release_display_done")
 
 
 def trigger_user_shutdown(power_action: str) -> bool:
@@ -578,8 +601,11 @@ def trigger_user_shutdown(power_action: str) -> bool:
     the splash unit can claim DRM immediately. Splash is held by
     ``mpe-shutdown-splash.service``, not an in-process pygame loop.
     """
-    _log_shutdown(f"trigger_user_shutdown action={power_action}")
-    log_shutdown_event("trigger_user_shutdown", action=power_action)
+    _log_shutdown(
+        f"trigger_user_shutdown action={power_action} "
+        f"skip_splash={shutdown_splash_disabled()}",
+    )
+    log_shutdown_event("shutdown_step_trigger_begin", action=power_action)
     stop_getty_tty1()
     stop_boot_splash_service(wait=False)
     splash_ok = start_shutdown_splash_service()
@@ -587,14 +613,16 @@ def trigger_user_shutdown(power_action: str) -> bool:
         "shutdown_splash_started" if splash_ok else "shutdown_splash_failed",
         action=power_action,
     )
+    log_shutdown_event("shutdown_step_request_power_action", action=power_action)
     power_ok = request_system_power_action(power_action)
     log_shutdown_event(
         "system_power_action",
         action=power_action,
         ok=power_ok,
     )
-    if not splash_ok:
+    if not splash_ok and not shutdown_splash_disabled():
         _log_shutdown("shutdown splash unit failed to start — poweroff may show console")
+    log_shutdown_event("shutdown_step_trigger_done", action=power_action, ok=power_ok)
     return power_ok
 
 

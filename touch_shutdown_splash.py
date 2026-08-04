@@ -7,6 +7,7 @@ import argparse
 import sys
 
 from patch_browser.dsi_splash import hold_shutdown_frame, run_shutdown_animation
+from patch_browser.shutdown_trace import log_shutdown_event, shutdown_splash_disabled
 
 
 def main() -> int:
@@ -17,6 +18,13 @@ def main() -> int:
         help="Hold shutdown frame until systemd kills this unit (halt/reboot path)",
     )
     args = parser.parse_args()
+    if shutdown_splash_disabled():
+        log_shutdown_event(
+            "shutdown_splash_unit_skipped",
+            hold=args.hold,
+            reason="MPE_SHUTDOWN_SKIP_SPLASH",
+        )
+        return 0
     if args.hold:
         hold_shutdown_frame()
     else:

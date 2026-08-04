@@ -8,6 +8,7 @@ import time
 import pygame
 
 from patch_browser.dsi_splash import release_display_for_shutdown, trigger_user_shutdown
+from patch_browser.shutdown_trace import begin_shutdown_session, log_shutdown_event
 from patch_browser.touch_ui_constants import (
     DEFAULT_BRIGHTNESS_PERCENT,
     MIXER_DOUBLE_TAP_MS,
@@ -438,11 +439,19 @@ class TouchBrowserInputMixin:
         ):
             if self._modal_pending_index == 0:
                 self.screen_state = Screen.POWER_MENU
-            else:
+            elif not getattr(self, "_shutdown_in_progress", False):
+                self._shutdown_in_progress = True
+                begin_shutdown_session("power_menu_confirm")
+                log_shutdown_event(
+                    "shutdown_step_power_confirm",
+                    action=self.power_action,
+                )
                 if self._evdev_bridge is not None:
+                    log_shutdown_event("shutdown_step_evdev_stop")
                     self._evdev_bridge.stop()
                 release_display_for_shutdown(self.screen, theme=self.theme)
                 self._running = False
+                log_shutdown_event("shutdown_step_browser_exit")
                 trigger_user_shutdown(self.power_action)
                 sys.exit(0)
         self._clear_modal_pointer()

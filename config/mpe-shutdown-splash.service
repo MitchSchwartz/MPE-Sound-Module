@@ -14,7 +14,7 @@ WorkingDirectory=@MPE_MODULE_REPO@
 EnvironmentFile=-/etc/mpe/mpe.env
 Environment=SDL_VIDEODRIVER=kmsdrm
 ExecStartPre=-/bin/systemctl stop getty@tty1.service
-ExecStart=/usr/bin/python3 -u @MPE_MODULE_REPO@/touch_shutdown_splash.py --hold
+ExecStart=@MPE_MODULE_REPO@/scripts/run-shutdown-splash.sh
 StandardOutput=null
 StandardError=journal
 # Hold until power is cut — do not SIGTERM the splash while poweroff is pending.
