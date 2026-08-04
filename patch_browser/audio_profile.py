@@ -22,6 +22,9 @@ def normalize_profile(value: str | None) -> str:
 
 
 def current_profile() -> str:
+    from_file = read_profile_from_env_file(MPE_ENV_PATH)
+    if from_file is not None:
+        return from_file
     return normalize_profile(os.environ.get("MPE_AUDIO_PROFILE"))
 
 
