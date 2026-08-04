@@ -145,7 +145,9 @@ On the **host**, use the gadget like any USB audio interface:
 
 On Linux the gadget appears in `arecord -l` and in REAPER's ALSA input list as `hw:Passthrough` (card name varies). On Windows/macOS it appears under Sound settings → **Input**.
 
-**First time you arm a track after boot:** the Pi stall watchdog may restart Surge once (~4 s) because Surge wedged at boot before any host app opened the input. After that, audio is continuous for the rest of the session.
+**First time you arm a track after boot:** Surge may have wedged at boot before any host app opened the input. The stall watchdog detects a frozen writer when your DAW opens capture and restarts Surge — typically **~3–5 s** (immediate fast-path + Surge restart). The touch header badge shows **Sync** and the subtitle reads *Recovering USB audio for DAW…* during that window. If the writer was already healthy when the stream opened, audio is immediate and no restart runs.
+
+**Underlying bug (not fixed here):** Surge XT / JUCE's ALSA output thread can block indefinitely when nothing consumes the UAC2 gadget stream at boot; the watchdog is operational recovery, not a root-cause fix in Surge.
 
 **Hearing yourself:** monitor through the DAW (input monitoring), not automatically through PC speakers. For playing feel without a DAW, use standalone profile + Sound Blaster headphones — see FAQ.
 
@@ -194,8 +196,9 @@ Not a cable, power, MIDI-routing, volume/mute, or DAW problem. `speaker-test` wo
 
 **Mitigation:**
 
-1. **Pi (automatic)** — `uac2-stall-watchdog.service` restarts Surge when the host opens a capture stream but the writer is frozen. Enabled with the `usb-host` profile; no user action.
-2. **Host (normal DAW use)** — opening any capture input (REAPER arm, `arecord`, etc.) starts the USB stream; the watchdog completes recovery. No loopback or custom routing needed.
+1. **Pi (automatic)** — `uac2-stall-watchdog.service` restarts Surge when the host opens a capture stream but the writer is frozen. On stream open it probes for a pre-existing wedge and restarts immediately instead of waiting the full grace window. Enabled with the `usb-host` profile; no user action.
+2. **Touch UI** — header badge **Sync** + subtitle *Recovering USB audio for DAW…* while recovery runs (`/tmp/mpe-uac2-recovery.state`).
+3. **Host (normal DAW use)** — opening any capture input (REAPER arm, `arecord`, etc.) starts the USB stream; the watchdog completes recovery. No loopback or custom routing needed.
 
 The watchdog only acts when the host **is** streaming (`Playback Rate != 0`) but `appl_ptr` is frozen, so an idle module with nothing plugged in never restart-loops.
 
