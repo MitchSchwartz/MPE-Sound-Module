@@ -130,6 +130,23 @@ sudo ./scripts/setup-usb-audio-gadget.sh destroy
 - Sample rate: **44100 Hz** stereo (matches Surge tuning — see `PATCH_NORMALIZATION.md`).
 - Switching profiles **restarts Surge** (same pattern as USB DAC hot-plug).
 
+### Lazy route (default since 2026-08-04)
+
+In **`usb-host`** profile, Surge **boots on the Sound Blaster** (analog headphones still work on the bench). The UAC2 gadget stays bound so the host sees **USB Audio Passthrough**, but Surge does not open the gadget PCM until the host **opens capture** (REAPER arm, `arecord`, etc.).
+
+When capture starts, `uac2-stall-watchdog.service` restarts Surge with output on the gadget **while the host is already consuming** — typically **~3–5 s** once per session, no 30 s stall grace. This avoids the Surge/JUCE boot wedge (opening UAC2 with no consumer at boot).
+
+Touch UI badge **Sync** + subtitle *Recovering USB audio for DAW…* during that restart.
+
+Disable lazy route (old behavior: boot directly on UAC2 + stall detection):
+
+```bash
+# In /etc/mpe/mpe.env:
+MPE_UAC2_LAZY_ROUTE=0
+sudo ./scripts/configure-pi-paths.sh --local --force
+sudo systemctl restart surge-xt-cli uac2-stall-watchdog
+```
+
 ---
 
 ## Plug-and-play (host — no special routing)
@@ -145,7 +162,7 @@ On the **host**, use the gadget like any USB audio interface:
 
 On Linux the gadget appears in `arecord -l` and in REAPER's ALSA input list as `hw:Passthrough` (card name varies). On Windows/macOS it appears under Sound settings → **Input**.
 
-**First time you arm a track after boot:** Surge may have wedged at boot before any host app opened the input. The stall watchdog detects a frozen writer when your DAW opens capture and restarts Surge — typically **~3–5 s** (immediate fast-path + Surge restart). The touch header badge shows **Sync** and the subtitle reads *Recovering USB audio for DAW…* during that window. If the writer was already healthy when the stream opened, audio is immediate and no restart runs.
+**First time you arm a track after boot:** the lazy route restarts Surge onto the UAC2 gadget while your DAW is already capturing — typically **~3–5 s**. If lazy route is disabled (`MPE_UAC2_LAZY_ROUTE=0`), the stall watchdog detects a frozen writer instead (same ~3–5 s target when detection is healthy).
 
 **Underlying bug (not fixed here):** Surge XT / JUCE's ALSA output thread can block indefinitely when nothing consumes the UAC2 gadget stream at boot; the watchdog is operational recovery, not a root-cause fix in Surge.
 
