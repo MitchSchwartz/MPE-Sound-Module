@@ -88,7 +88,24 @@ class DetectAudioDeviceTests(unittest.TestCase):
         self.assertIn("DEVICE_ID=0.13", result.stdout)
         self.assertIn("TIER=0", result.stdout)
 
-    def test_standalone_skips_gadget_tier0(self) -> None:
+    def test_usb_host_lazy_no_sound_blaster_uses_gadget(self) -> None:
+        device_list = "\n".join(
+            [
+                "Output Audio Device [0.9] : Direct hardware device on ALSA.UAC2_Gadget",
+                "Output Audio Device [0.1] : ALSA.bcm2835 Headphones, bcm2835 Headphones",
+            ]
+        )
+        result = _run_detect(device_list, profile="usb-host")
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+        self.assertIn("DEVICE_ID=0.9", result.stdout)
+        self.assertIn("TIER=0", result.stdout)
+        self.assertIn("no Sound Blaster", result.stderr)
+
+    def test_usb_host_skips_pi_headphone_fallback(self) -> None:
+        device_list = "Output Audio Device [0.1] : ALSA.bcm2835 Headphones, bcm2835 Headphones"
+        result = _run_detect(device_list, profile="usb-host")
+        self.assertNotIn("TIER=3", result.stdout)
+
         result = _run_detect(MOCK_GADGET_LIST, profile="standalone")
         self.assertEqual(result.returncode, 0, msg=result.stderr)
         self.assertIn("DEVICE_ID=0.4", result.stdout)

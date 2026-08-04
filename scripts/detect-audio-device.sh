@@ -56,6 +56,27 @@ filter_gadget_devices() {
     echo "$DEVICE_LIST" | grep -iE "$GADGET_GREP" || true
 }
 
+try_select_uac2_gadget() {
+    local reason="${1:?reason required}"
+    local gadget_devices device device_id device_name
+    gadget_devices=$(filter_gadget_devices)
+    device=$(echo "$gadget_devices" | grep -i "Direct hardware" | head -1 || true)
+    if [ -z "$device" ]; then
+        device=$(echo "$gadget_devices" | grep -v "Direct sample mixing" | head -1 || true)
+    fi
+    if [ -z "$device" ]; then
+        return 1
+    fi
+    device_id=$(extract_device_id "$device")
+    [ -n "$device_id" ] || return 1
+    device_name=$(get_device_name "$device_id")
+    echo "DEVICE_ID=$device_id"
+    echo "DEVICE_NAME=$device_name"
+    echo "TIER=0"
+    echo "REASON=$reason" >&2
+    return 0
+}
+
 # ============================================================================
 # TIER 0: USB audio gadget (usb-host profile only)
 # ============================================================================
@@ -72,26 +93,8 @@ if [ "$AUDIO_PROFILE" = "usb-host" ]; then
     fi
 
     if [ "$use_gadget" -eq 1 ]; then
-        GADGET_DEVICES=$(filter_gadget_devices)
-
-        # Prefer Direct hardware on the gadget card (e.g. [0.13] ALSA.UAC2_Gadget)
-        DEVICE=$(echo "$GADGET_DEVICES" | grep -i "Direct hardware" | head -1 || true)
-
-        # Fallback: any gadget line except Direct sample mixing
-        if [ -z "$DEVICE" ]; then
-            DEVICE=$(echo "$GADGET_DEVICES" | grep -v "Direct sample mixing" | head -1 || true)
-        fi
-
-        if [ -n "$DEVICE" ]; then
-            DEVICE_ID=$(extract_device_id "$DEVICE")
-            if [ -n "$DEVICE_ID" ]; then
-                DEVICE_NAME=$(get_device_name "$DEVICE_ID")
-                echo "DEVICE_ID=$DEVICE_ID"
-                echo "DEVICE_NAME=$DEVICE_NAME"
-                echo "TIER=0"
-                echo "REASON=USB audio gadget (host passthrough, usb-host profile)" >&2
-                exit 0
-            fi
+        if try_select_uac2_gadget "USB audio gadget (host passthrough, usb-host profile)"; then
+            exit 0
         fi
         echo "REASON=usb-host profile set but no gadget ALSA device found — falling back" >&2
     else
@@ -132,6 +135,13 @@ if [ -n "$DEVICE" ]; then
     fi
 fi
 
+# usb-host without Sound Blaster: Pi headphone does not reach the host — use UAC2 gadget.
+if [ "$AUDIO_PROFILE" = "usb-host" ]; then
+    if try_select_uac2_gadget "usb-host desk mode (no Sound Blaster — UAC2 gadget)"; then
+        exit 0
+    fi
+fi
+
 # ============================================================================
 # TIER 2: Any USB audio device
 # ============================================================================
@@ -156,8 +166,9 @@ if [ -n "$DEVICE" ]; then
 fi
 
 # ============================================================================
-# TIER 3: Raspberry Pi headphone jack (built-in audio)
+# TIER 3: Raspberry Pi headphone jack (built-in audio) — not used in usb-host
 # ============================================================================
+if [ "$AUDIO_PROFILE" != "usb-host" ]; then
 # Look for bcm2835 (Pi's audio chip) or "Headphones" device
 DEVICE=$(echo "$DEVICE_LIST" | \
     grep -E "(Headphones|bcm2835|vc4-hdmi)" | \
@@ -174,6 +185,7 @@ if [ -n "$DEVICE" ]; then
         echo "REASON=Raspberry Pi headphone jack (fallback)" >&2
         exit 0
     fi
+fi
 fi
 
 # ============================================================================
