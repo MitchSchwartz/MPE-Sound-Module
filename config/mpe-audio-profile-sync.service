@@ -11,6 +11,7 @@ Type=oneshot
 RemainAfterExit=yes
 EnvironmentFile=-/etc/mpe/mpe.env
 ExecStart=@MPE_MODULE_REPO@/scripts/sync-audio-profile-on-boot.sh
+TimeoutStartSec=60
 TimeoutStopSec=15
 StandardOutput=journal
 StandardError=journal
