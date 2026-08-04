@@ -12,6 +12,8 @@ Environment=PYTHONUNBUFFERED=1
 ExecStart=@MPE_MODULE_REPO@/scripts/surge-poly-governor.py
 Restart=on-failure
 RestartSec=2
+TimeoutStopSec=5
+KillMode=mixed
 StandardOutput=journal
 StandardError=journal
 

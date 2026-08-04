@@ -20,6 +20,30 @@ TRACE_PATH = Path(
     )
 )
 
+_session_t0: float | None = None
+
+
+def shutdown_splash_disabled() -> bool:
+    """Diagnostic mode: skip branded shutdown/boot splash (see MPE_SHUTDOWN_SKIP_SPLASH)."""
+    return os.environ.get("MPE_SHUTDOWN_SKIP_SPLASH", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+
+
+def begin_shutdown_session(source: str) -> None:
+    """Mark T0 for elapsed_s on subsequent trace events in this shutdown."""
+    global _session_t0
+    _session_t0 = time.monotonic()
+    log_shutdown_event("shutdown_session_begin", source=source)
+
+
+def reset_shutdown_session() -> None:
+    """Clear session anchor (tests only)."""
+    global _session_t0
+    _session_t0 = None
+
 
 def log_shutdown_event(event: str, **fields: Any) -> None:
     """Append one JSON line; never raises (shutdown path must stay safe)."""
@@ -29,6 +53,10 @@ def log_shutdown_event(event: str, **fields: Any) -> None:
         "event": event,
         "pid": os.getpid(),
     }
+    if _session_t0 is not None:
+        payload["elapsed_s"] = round(time.monotonic() - _session_t0, 3)
+    if shutdown_splash_disabled():
+        payload["skip_splash"] = True
     payload.update(fields)
     try:
         TRACE_PATH.parent.mkdir(parents=True, exist_ok=True)
