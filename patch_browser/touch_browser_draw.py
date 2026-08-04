@@ -334,9 +334,15 @@ class TouchBrowserDrawMixin:
 
     def _draw_audio_profile_badge(self, rect: Rect) -> None:
         label = header_badge_label()
-        usb = label == "USB"
+        from patch_browser.usb_audio_recovery import is_recovering
+
+        recovering = label == "Sync"
+        usb = label == "USB" or recovering
         fill = self.theme.surface_alt
-        text_color = self.theme.accent if usb else self.theme.muted
+        if recovering:
+            text_color = self.theme.accent
+        else:
+            text_color = self.theme.accent if usb else self.theme.muted
         pygame.draw.rect(self.screen, fill, rect.pygame_rect, border_radius=8)
         badge = self.font_sm.render(label, True, text_color)
         self.screen.blit(
@@ -356,6 +362,12 @@ class TouchBrowserDrawMixin:
             title = "No patch loaded"
             subtitle = "Select a patch from the left list"
 
+        from patch_browser.usb_audio_recovery import status_subtitle
+
+        recovery_hint = status_subtitle()
+        if recovery_hint:
+            subtitle = recovery_hint
+
         title_x = getattr(self, "status_title_x", self.status_rect.x + 12)
         widget_left = self.audio_profile_badge_rect.x
         title_max_w = max(1, widget_left - title_x - 12)
@@ -365,8 +377,9 @@ class TouchBrowserDrawMixin:
             (title_x, self.status_rect.y + 6),
         )
         sub_lines = wrap_text_lines(self.font_sm, subtitle, title_max_w, max_lines=1)
+        sub_color = self.theme.accent if recovery_hint else self.theme.muted
         self.screen.blit(
-            self.font_sm.render(sub_lines[0], True, self.theme.muted),
+            self.font_sm.render(sub_lines[0], True, sub_color),
             (title_x, self.status_rect.y + 26),
         )
         self._draw_audio_profile_badge(self.audio_profile_badge_rect)

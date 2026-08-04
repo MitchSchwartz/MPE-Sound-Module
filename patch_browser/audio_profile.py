@@ -30,7 +30,13 @@ def is_usb_host() -> bool:
 
 
 def header_badge_label() -> str:
-    return "USB" if is_usb_host() else "Analog"
+    if is_usb_host():
+        from patch_browser.usb_audio_recovery import is_recovering
+
+        if is_recovering():
+            return "Sync"
+        return "USB"
+    return "Analog"
 
 
 def settings_toggle_label() -> str:

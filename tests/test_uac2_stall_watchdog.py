@@ -229,6 +229,76 @@ class Uac2StallWatchdogTests(unittest.TestCase):
             self.assertTrue(restart_marker.exists(), "expected Surge restart when wedged")
             self.assertIn("wedged", log_file.read_text(encoding="utf-8"))
 
+    def test_immediate_restart_when_host_opens_on_wedged_writer(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            asound = tmp_path / "asound"
+            status = asound / "card4" / "pcm0p" / "sub0" / "status"
+            status.parent.mkdir(parents=True)
+            (asound / "cards").write_text(" 4 [UAC2Gadget]: UAC2_Gadget\n", encoding="utf-8")
+            status.write_text("state: RUNNING\nappl_ptr    : 4096\n", encoding="utf-8")
+
+            bin_dir = tmp_path / "bin"
+            bin_dir.mkdir()
+            restart_marker = tmp_path / "surge-restarted"
+            recovery_marker = tmp_path / "recovery.state"
+
+            amixer = bin_dir / "amixer"
+            amixer.write_text(
+                "#!/bin/bash\n"
+                'if [[ "$*" == *"controls"* ]]; then echo "numid=4,iface=PCM,name='"'"'Playback Rate'"'"'"; fi\n'
+                'if [[ "$*" == *"cget"* ]]; then echo "  : values=44100"; fi\n',
+                encoding="utf-8",
+            )
+            amixer.chmod(amixer.stat().st_mode | stat.S_IXUSR)
+
+            systemctl = bin_dir / "systemctl"
+            systemctl.write_text(
+                f"#!/bin/bash\nif [ \"$1\" = \"restart\" ]; then touch {restart_marker}; fi\n",
+                encoding="utf-8",
+            )
+            systemctl.chmod(systemctl.stat().st_mode | stat.S_IXUSR)
+
+            sudo_shim = bin_dir / "sudo"
+            sudo_shim.write_text("#!/bin/bash\nif [ \"$1\" = \"-n\" ]; then shift; fi\nexec \"$@\"\n", encoding="utf-8")
+            sudo_shim.chmod(sudo_shim.stat().st_mode | stat.S_IXUSR)
+
+            scripts_dir = tmp_path / "scripts"
+            shutil.copytree(REPO_ROOT / "scripts" / "lib", scripts_dir / "lib")
+            watchdog = scripts_dir / "uac2-stall-watchdog.sh"
+            shutil.copy2(WATCHDOG_SCRIPT, watchdog)
+
+            log_file = tmp_path / "watchdog.log"
+            env = os.environ.copy()
+            env.update(
+                {
+                    "MPE_AUDIO_PROFILE": "usb-host",
+                    "MPE_UAC2_ASOUND_ROOT": str(asound),
+                    "MPE_UAC2_WATCHDOG_POLL": "1",
+                    "MPE_UAC2_WATCHDOG_STALL_POLLS": "4",
+                    "MPE_UAC2_WATCHDOG_COOLDOWN": "0",
+                    "MPE_UAC2_WATCHDOG_GRACE": "25",
+                    "MPE_UAC2_WATCHDOG_FAST_PROBE": "0",
+                    "MPE_UAC2_WATCHDOG_POST_RESTART_GRACE": "1",
+                    "MPE_UAC2_RECOVERY_STATE": str(recovery_marker),
+                    "MPE_UAC2_WATCHDOG_LOG": str(log_file),
+                    "HOME": str(tmp_path),
+                    "PATH": f"{bin_dir}:{env.get('PATH', '')}",
+                }
+            )
+            subprocess.run(
+                ["timeout", "4", "bash", str(watchdog)],
+                capture_output=True,
+                text=True,
+                env=env,
+                check=False,
+            )
+            log_text = log_file.read_text(encoding="utf-8")
+            self.assertTrue(restart_marker.exists(), "expected immediate restart on wedged stream open")
+            self.assertIn("already wedged", log_text)
+            self.assertTrue(recovery_marker.is_file())
+            self.assertIn("recovering", recovery_marker.read_text(encoding="utf-8"))
+
 
 class SetupHostUsbMonitorTests(unittest.TestCase):
     def test_install_script_references_only_optional_dropin(self) -> None:
