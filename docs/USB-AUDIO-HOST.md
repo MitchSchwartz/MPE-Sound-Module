@@ -130,6 +130,21 @@ sudo ./scripts/setup-usb-audio-gadget.sh destroy
 - Sample rate: **44100 Hz** stereo (matches Surge tuning — see `PATCH_NORMALIZATION.md`).
 - Switching profiles **restarts Surge** (same pattern as USB DAC hot-plug).
 
+### Host-gated routing (usb-host)
+
+Surge **must not** keep UAC2 PCM open unless the laptop/DAW is **actively capturing** (`Playback Rate != 0` on the gadget).
+
+| Host capture | Surge output |
+|--------------|--------------|
+| **Idle** (disarmed, rate 0) | Sound Blaster if plugged, else Pi headphone (inaudible sink) |
+| **Active** (armed, rate 44100) | UAC2 gadget → host |
+
+`uac2-stall-watchdog.service` watches host stream rate and **restarts Surge on transitions** (~3–5 s, **Sync** badge). No stall heuristics, no Sound Blaster requirement for Reaper.
+
+- **Disarm / re-arm:** brief Surge restart gap; **Reaper session stays open** (gadget stays bound via `MPE_USB_GADGET_PERSIST=1`).
+- **Analog profile toggle:** Surge → Sound Blaster; USB input on host goes silent; **no Reaper restart**.
+- **No external DAC:** idle sink is Pi headphone; Reaper path unchanged.
+
 ---
 
 ## Plug-and-play (host — no special routing)
@@ -145,9 +160,9 @@ On the **host**, use the gadget like any USB audio interface:
 
 On Linux the gadget appears in `arecord -l` and in REAPER's ALSA input list as `hw:Passthrough` (card name varies). On Windows/macOS it appears under Sound settings → **Input**.
 
-**First time you arm a track after boot:** Surge may have wedged at boot before any host app opened the input. The stall watchdog detects a frozen writer when your DAW opens capture and restarts Surge — typically **~3–5 s** (immediate fast-path + Surge restart). The touch header badge shows **Sync** and the subtitle reads *Recovering USB audio for DAW…* during that window. If the writer was already healthy when the stream opened, audio is immediate and no restart runs.
+**First arm after boot:** watchdog restarts Surge onto UAC2 while your DAW is already capturing — typically **~3–5 s** (**Sync** badge). **Disarm** moves Surge back to idle output before the writer can wedge.
 
-**Underlying bug (not fixed here):** Surge XT / JUCE's ALSA output thread can block indefinitely when nothing consumes the UAC2 gadget stream at boot; the watchdog is operational recovery, not a root-cause fix in Surge.
+**Underlying constraint:** Surge/JUCE must not hold UAC2 open without an active host consumer. Host-gated routing enforces that by construction instead of detecting stalls after the fact.
 
 **Hearing yourself:** monitor through the DAW (input monitoring), not automatically through PC speakers. For playing feel without a DAW, use standalone profile + Sound Blaster headphones — see FAQ.
 
@@ -178,29 +193,11 @@ arecord -l   # find card N — prefer hw:N,0 over plughw (plughw can be silent)
 ```
 
 
-## Writer stall (root-caused 2026-08-02)
+## Writer stall (historical — superseded by host-gated routing)
 
-**Symptom:** Everything verifies green — gadget bound, Tier 0 selected, host enumerates the device — yet the host records pure digital silence while you play. A tone test (`speaker-test`) captures fine.
+**Root cause (2026-08-02):** Surge/JUCE ALSA output wedged when UAC2 opened with no host consumer.
 
-**Cause:** Surge/JUCE's ALSA output thread blocks **indefinitely** once the USB host stops consuming the gadget stream, and never recovers when the host returns. Signature on the Pi:
-
-```
-state: RUNNING
-hw_ptr  : 1440217   <- racing
-appl_ptr: 1068890   <- frozen
-```
-
-plus the Surge process dropping to **~0 CPU ticks** — the audio thread is not running, so nothing is rendered regardless of MIDI. Because the host is normally not capturing when Surge starts at boot, Surge is already wedged by the time a DAW opens the input.
-
-Not a cable, power, MIDI-routing, volume/mute, or DAW problem. `speaker-test` works because it opens its own fresh PCM.
-
-**Mitigation:**
-
-1. **Pi (automatic)** — `uac2-stall-watchdog.service` restarts Surge when the host opens a capture stream but the writer is frozen. On stream open it probes for a pre-existing wedge and restarts immediately instead of waiting the full grace window. Enabled with the `usb-host` profile; no user action.
-2. **Touch UI** — header badge **Sync** + subtitle *Recovering USB audio for DAW…* while recovery runs (`/tmp/mpe-uac2-recovery.state`).
-3. **Host (normal DAW use)** — opening any capture input (REAPER arm, `arecord`, etc.) starts the USB stream; the watchdog completes recovery. No loopback or custom routing needed.
-
-The watchdog only acts when the host **is** streaming (`Playback Rate != 0`) but `appl_ptr` is frozen, so an idle module with nothing plugged in never restart-loops.
+**Previous mitigations** (lazy route, appl_ptr watchdog, grace periods) are **removed**. Host-gated routing prevents holding UAC2 unless capture is active; the watcher restarts Surge on capture open/close transitions.
 
 ---
 
@@ -210,10 +207,11 @@ The watchdog only acts when the host **is** streaming (`Playback Rate != 0`) but
 |------|------|
 | `scripts/setup-usb-audio-gadget.sh` | Create/bind or tear down configfs UAC2 gadget |
 | `config/usb-audio-gadget.service` | Start gadget at boot when profile is `usb-host` |
-| `scripts/detect-audio-device.sh` | Tier 0: gadget card when profile is `usb-host` |
+| `scripts/detect-audio-device.sh` | UAC2 when host capturing; idle output otherwise |
 | `scripts/usb-host-verify.sh` | Pi-side profile/gadget/Surge checks + host `arecord` hints |
-| `scripts/uac2-stall-watchdog.sh` | Restart Surge when the gadget writer wedges |
-| `config/uac2-stall-watchdog.service` | Runs the stall watchdog (enabled with the `usb-host` profile) |
+| `scripts/uac2-stall-watchdog.sh` | Host capture open/close → restart Surge (route gate) |
+| `config/uac2-stall-watchdog.service` | Runs the host-route watcher (enabled with `usb-host`) |
+| `scripts/lib/uac2-host-route.sh` | Host-streaming flag read by detect + watcher |
 | `scripts/setup-host-usb-monitor.sh` | **Optional** host WirePlumber drop-in (Linux only) |
 | `scripts/lib/uac2-card.sh` | Dynamic gadget card index + stream-state helpers |
 
