@@ -28,6 +28,13 @@ uac2_appl_ptr() {
     awk '/appl_ptr/{print $3}' "$status" 2>/dev/null
 }
 
+# Hardware read pointer — keeps advancing while the host consumes even if appl_ptr froze.
+uac2_hw_ptr() {
+    local status="${1:?status path required}"
+    [ -r "$status" ] || return 1
+    awk '/hw_ptr/{print $3}' "$status" 2>/dev/null
+}
+
 # numid of the read-only 'Playback Rate' PCM control.
 uac2_rate_numid() {
     local card="${1:?card required}"
