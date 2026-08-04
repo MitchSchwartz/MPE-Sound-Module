@@ -60,28 +60,43 @@ filter_gadget_devices() {
 # TIER 0: USB audio gadget (usb-host profile only)
 # ============================================================================
 if [ "$AUDIO_PROFILE" = "usb-host" ]; then
-    GADGET_DEVICES=$(filter_gadget_devices)
+    # shellcheck source=lib/uac2-lazy-route.sh
+    source "$SCRIPT_DIR/lib/uac2-lazy-route.sh"
 
-    # Prefer Direct hardware on the gadget card (e.g. [0.13] ALSA.UAC2_Gadget)
-    DEVICE=$(echo "$GADGET_DEVICES" | grep -i "Direct hardware" | head -1 || true)
-
-    # Fallback: any gadget line except Direct sample mixing
-    if [ -z "$DEVICE" ]; then
-        DEVICE=$(echo "$GADGET_DEVICES" | grep -v "Direct sample mixing" | head -1 || true)
+    use_gadget=0
+    if uac2_force_output_active; then
+        use_gadget=1
+        uac2_force_output_clear
+    elif ! uac2_lazy_route_enabled; then
+        use_gadget=1
     fi
 
-    if [ -n "$DEVICE" ]; then
-        DEVICE_ID=$(extract_device_id "$DEVICE")
-        if [ -n "$DEVICE_ID" ]; then
-            DEVICE_NAME=$(get_device_name "$DEVICE_ID")
-            echo "DEVICE_ID=$DEVICE_ID"
-            echo "DEVICE_NAME=$DEVICE_NAME"
-            echo "TIER=0"
-            echo "REASON=USB audio gadget (host passthrough, usb-host profile)" >&2
-            exit 0
+    if [ "$use_gadget" -eq 1 ]; then
+        GADGET_DEVICES=$(filter_gadget_devices)
+
+        # Prefer Direct hardware on the gadget card (e.g. [0.13] ALSA.UAC2_Gadget)
+        DEVICE=$(echo "$GADGET_DEVICES" | grep -i "Direct hardware" | head -1 || true)
+
+        # Fallback: any gadget line except Direct sample mixing
+        if [ -z "$DEVICE" ]; then
+            DEVICE=$(echo "$GADGET_DEVICES" | grep -v "Direct sample mixing" | head -1 || true)
         fi
+
+        if [ -n "$DEVICE" ]; then
+            DEVICE_ID=$(extract_device_id "$DEVICE")
+            if [ -n "$DEVICE_ID" ]; then
+                DEVICE_NAME=$(get_device_name "$DEVICE_ID")
+                echo "DEVICE_ID=$DEVICE_ID"
+                echo "DEVICE_NAME=$DEVICE_NAME"
+                echo "TIER=0"
+                echo "REASON=USB audio gadget (host passthrough, usb-host profile)" >&2
+                exit 0
+            fi
+        fi
+        echo "REASON=usb-host profile set but no gadget ALSA device found — falling back" >&2
+    else
+        echo "REASON=usb-host lazy route — Sound Blaster until host opens capture" >&2
     fi
-    echo "REASON=usb-host profile set but no gadget ALSA device found — falling back" >&2
 fi
 
 # ============================================================================

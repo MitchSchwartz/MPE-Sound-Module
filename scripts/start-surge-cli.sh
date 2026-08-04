@@ -24,6 +24,16 @@ echo "$(date): Selected audio device: $AUDIO_DEVICE" >> "$LOG_FILE"
 echo "$(date):   Name: $DEVICE_NAME" >> "$LOG_FILE"
 echo "$(date):   Tier: $DEVICE_TIER" >> "$LOG_FILE"
 
+# shellcheck source=lib/uac2-lazy-route.sh
+source "$SCRIPT_DIR/lib/uac2-lazy-route.sh"
+if [ "$DEVICE_TIER" = "0" ]; then
+    surge_audio_route_write uac2
+    echo "$(date): Surge audio route: uac2 (USB gadget)" >> "$LOG_FILE"
+else
+    surge_audio_route_write analog
+    echo "$(date): Surge audio route: analog" >> "$LOG_FILE"
+fi
+
 USER_DEFAULTS_DIR="$(dirname "$MPE_SURGE_USER_DEFAULTS")"
 USER_DEFAULTS="$MPE_SURGE_USER_DEFAULTS"
 mkdir -p "$USER_DEFAULTS_DIR"
