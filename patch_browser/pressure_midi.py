@@ -16,6 +16,13 @@ SKIP_PORT_SUBSTRINGS = (
     "midi through",
     "through port",
     "rtmidi output",
+    "rtmidi input",
+)
+
+ROLI_PORT_SUBSTRINGS = (
+    "lumi",
+    "seaboard",
+    "roli",
 )
 
 
@@ -38,6 +45,18 @@ def is_mpe_member_channel(status_byte: int) -> bool:
 def should_skip_midi_port(name: str) -> bool:
     lower = name.lower()
     return any(token in lower for token in SKIP_PORT_SUBSTRINGS)
+
+
+def is_roli_controller_port(name: str) -> bool:
+    lower = name.lower()
+    if should_skip_midi_port(name):
+        return False
+    return any(token in lower for token in ROLI_PORT_SUBSTRINGS)
+
+
+def list_roli_input_port_names(port_names: list[str]) -> list[str]:
+    """Physical ROLI ALSA inputs the remapper should listen on (order-stable)."""
+    return [name for name in port_names if is_roli_controller_port(name)]
 
 
 def normalize_midi_bytes(message) -> list[int]:

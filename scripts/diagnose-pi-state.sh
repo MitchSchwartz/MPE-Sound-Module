@@ -35,7 +35,7 @@ fi
 echo ""
 
 echo "Recent udev events for Roli:"
-journalctl -b -g "2af4:0700|Roli|Seaboard|surge-xt-cli.*restart" --no-pager 2>/dev/null | tail -10 || echo "  No events found"
+journalctl -b -g "2af4|Roli|Seaboard|LUMI|mpe-pressure-remap|roli-connect" --no-pager 2>/dev/null | tail -10 || echo "  No events found"
 echo ""
 
 echo "--- 3. AUDIO SETUP ---"

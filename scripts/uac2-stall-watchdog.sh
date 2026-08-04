@@ -19,12 +19,16 @@ source "$SCRIPT_DIR/lib/paths.sh"
 source "$SCRIPT_DIR/lib/uac2-card.sh"
 # shellcheck source=lib/profile-switch-flag.sh
 source "$SCRIPT_DIR/lib/profile-switch-flag.sh"
+# shellcheck source=lib/uac2-recovery-state.sh
+source "$SCRIPT_DIR/lib/uac2-recovery-state.sh"
 
 SURGE_SERVICE="surge-xt-cli.service"
 POLL_SECONDS="${MPE_UAC2_WATCHDOG_POLL:-1}"
 STALL_POLLS="${MPE_UAC2_WATCHDOG_STALL_POLLS:-4}"
 COOLDOWN_SECONDS="${MPE_UAC2_WATCHDOG_COOLDOWN:-20}"
 GRACE_SECONDS="${MPE_UAC2_WATCHDOG_GRACE:-25}"
+POST_RESTART_GRACE="${MPE_UAC2_WATCHDOG_POST_RESTART_GRACE:-5}"
+FAST_PROBE_SECONDS="${MPE_UAC2_WATCHDOG_FAST_PROBE:-1}"
 WATCHDOG_LOG="${MPE_UAC2_WATCHDOG_LOG:-$HOME/uac2-stall-watchdog.log}"
 
 log() {
@@ -38,6 +42,7 @@ if [ "${MPE_AUDIO_PROFILE:-standalone}" != "usb-host" ]; then
 fi
 
 restart_surge() {
+    uac2_recovery_set recovering
     # Skip the 15s USB-MIDI wait; this is a recovery restart, not a cold boot.
     profile_switch_flag_mark
     if [ "$(id -u)" -eq 0 ]; then
@@ -46,6 +51,17 @@ restart_surge() {
         sudo -n systemctl restart --no-block "$SURGE_SERVICE" 2>/dev/null ||
             log "WARN: could not restart $SURGE_SERVICE (no root / no passwordless sudo)"
     fi
+}
+
+# Surge/JUCE often wedges at boot before any host consumer; detect that at stream open.
+writer_already_wedged() {
+    local status_path="$1"
+    local appl_a appl_b
+    appl_a="$(uac2_appl_ptr "$status_path" 2>/dev/null || true)"
+    [ -z "$appl_a" ] && return 1
+    sleep "$FAST_PROBE_SECONDS"
+    appl_b="$(uac2_appl_ptr "$status_path" 2>/dev/null || true)"
+    [ -n "$appl_b" ] && [ "$appl_a" = "$appl_b" ]
 }
 
 log "=== UAC2 stall watchdog started (poll=${POLL_SECONDS}s, stall=${STALL_POLLS} polls) ==="
@@ -58,6 +74,7 @@ stall_count=0
 last_rate="0"
 last_owner_pid=""
 grace_until=0
+post_restart_grace_until=0
 
 while true; do
     sleep "$POLL_SECONDS"
@@ -81,13 +98,22 @@ while true; do
         last_rate="0"
         last_appl=""
         stall_count=0
+        uac2_recovery_clear
         continue
     fi
 
     if [ "$last_rate" = "0" ]; then
-        grace_until=$((SECONDS + GRACE_SECONDS))
         last_appl=""
         stall_count=0
+        if writer_already_wedged "$status_path"; then
+            log "Host stream opened @ ${rate}Hz but writer already wedged — immediate Surge restart"
+            restart_surge
+            post_restart_grace_until=$((SECONDS + POST_RESTART_GRACE))
+            sleep "$COOLDOWN_SECONDS"
+            last_rate="$rate"
+            continue
+        fi
+        grace_until=$((SECONDS + GRACE_SECONDS))
         log "Host stream opened @ ${rate}Hz — stall grace ${GRACE_SECONDS}s"
     fi
     last_rate="$rate"
@@ -95,10 +121,15 @@ while true; do
     owner_pid="$(awk '/owner_pid/{print $3; exit}' "$status_path" 2>/dev/null || true)"
     if [ -n "$owner_pid" ] && [ "$owner_pid" != "$last_owner_pid" ]; then
         last_owner_pid="$owner_pid"
-        grace_until=$((SECONDS + GRACE_SECONDS))
         last_appl=""
         stall_count=0
-        log "UAC2 owner PID $owner_pid — stall grace ${GRACE_SECONDS}s"
+        if [ "$SECONDS" -lt "$post_restart_grace_until" ]; then
+            grace_until="$post_restart_grace_until"
+            log "UAC2 owner PID $owner_pid — post-restart grace ${POST_RESTART_GRACE}s"
+        else
+            grace_until=$((SECONDS + GRACE_SECONDS))
+            log "UAC2 owner PID $owner_pid — stall grace ${GRACE_SECONDS}s"
+        fi
     fi
 
     if [ "$SECONDS" -lt "$grace_until" ]; then
@@ -114,16 +145,20 @@ while true; do
         continue
     fi
 
-    if [ "$appl" = "$last_appl" ]; then
+    if [ -z "$last_appl" ]; then
+        stall_count=0
+    elif [ "$appl" = "$last_appl" ]; then
         stall_count=$((stall_count + 1))
     else
         stall_count=0
+        uac2_recovery_clear
     fi
     last_appl="$appl"
 
     if [ "$stall_count" -ge "$STALL_POLLS" ]; then
         log "Surge write wedged (appl_ptr stuck at $appl for $((stall_count * POLL_SECONDS))s, host streaming @ ${rate}Hz) — restarting $SURGE_SERVICE"
         restart_surge
+        post_restart_grace_until=$((SECONDS + POST_RESTART_GRACE))
         sleep "$COOLDOWN_SECONDS"
         last_appl=""
         stall_count=0

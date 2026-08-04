@@ -1,9 +1,10 @@
-# Roli Seaboard BLOCK USB device rules
-# Only restart Surge on disconnect (not connect) to prevent restart loops
-# Surge uses --all-midi-inputs so it will auto-detect Roli when it connects
+# ROLI Ltd USB controllers (Seaboard BLOCK, LUMI Keys, … — vendor 2af4)
+# Restart the pressure remapper so RtMidi reopens the ALSA port after power-cycle / hot-plug.
+# Surge reads remapped MIDI via Midi Through; remapper must not keep a stale port handle.
 
-# Disable USB autosuspend for Roli Seaboard (prevents disconnection issues)
-ACTION=="add", SUBSYSTEM=="usb", ATTRS{idVendor}=="2af4", ATTRS{idProduct}=="0700", ATTR{power/autosuspend}="-1"
+# Disable USB autosuspend (prevents random disconnects on battery-powered controllers)
+ACTION=="add", SUBSYSTEM=="usb", ATTR{idVendor}=="2af4", ATTR{power/autosuspend}="-1"
 
-# Only restart Surge when Roli disconnects (Surge will auto-detect on connect)
-ACTION=="remove", SUBSYSTEM=="usb", ATTRS{idVendor}=="2af4", ATTRS{idProduct}=="0700", RUN+="/bin/systemctl restart surge-xt-cli.service"
+# Debounced reconnect — scripts/roli-connect-debounce.sh
+ACTION=="add", SUBSYSTEM=="usb", ATTR{idVendor}=="2af4", RUN+="/bin/bash @MPE_MODULE_REPO@/scripts/roli-connect-debounce.sh add"
+ACTION=="remove", SUBSYSTEM=="usb", ATTR{idVendor}=="2af4", RUN+="/bin/bash @MPE_MODULE_REPO@/scripts/roli-connect-debounce.sh remove"

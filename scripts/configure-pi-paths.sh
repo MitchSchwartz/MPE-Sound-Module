@@ -115,7 +115,8 @@ EOF
                     "$MPE_MODULE_REPO/config/99-usb-audio.rules" \
                     "$MPE_MODULE_REPO/config/99-roli-seaboard.rules"; do
             if [ -f "$rule" ]; then
-                sudo cp "$rule" "/etc/udev/rules.d/$(basename "$rule")"
+                sed "s|@MPE_MODULE_REPO@|$MPE_MODULE_REPO|g" "$rule" |
+                    sudo tee "/etc/udev/rules.d/$(basename "$rule")" > /dev/null
                 echo "  ✓ $(basename "$rule")"
             fi
         done

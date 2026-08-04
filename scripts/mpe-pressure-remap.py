@@ -16,10 +16,13 @@ from patch_browser.patch_pressure import PatchPressureStore  # noqa: E402
 from patch_browser.pressure_midi import (  # noqa: E402
     REMAP_OUTPUT_PORT_NAME,
     find_remap_output_port_index,
+    is_roli_controller_port,
+    list_roli_input_port_names,
     normalize_midi_bytes,
     remap_midi_message,
-    should_skip_midi_port,
 )
+
+RECONNECT_POLL_S = 1.0
 
 
 class PressureRemapDaemon:
@@ -29,6 +32,8 @@ class PressureRemapDaemon:
         self._out = None
         self._inputs: list = []
         self._queue: queue.SimpleQueue = queue.SimpleQueue()
+        self._connected_roli_names: tuple[str, ...] = ()
+        self._next_reconnect_check = 0.0
 
     def _refresh_floor(self) -> None:
         from patch_browser.patch_pressure import LIVE_STATE_FILE
@@ -67,6 +72,66 @@ class PressureRemapDaemon:
                 sent += 1
         return sent
 
+    def _close_inputs(self) -> None:
+        for midi_in in self._inputs:
+            try:
+                midi_in.close_port()
+            except Exception:
+                pass
+        self._inputs.clear()
+        self._connected_roli_names = ()
+
+    def _open_inputs(self, probe) -> int:
+        import rtmidi
+
+        ports = list(probe.get_ports())
+        opened = 0
+        connected: list[str] = []
+        for index, name in enumerate(ports):
+            if not is_roli_controller_port(name):
+                continue
+            midi_in = rtmidi.MidiIn()
+            try:
+                midi_in.open_port(index)
+            except Exception as exc:
+                print(f"Warning: could not open MIDI in {name!r}: {exc}", flush=True)
+                continue
+            midi_in.set_callback(self._enqueue)
+            self._inputs.append(midi_in)
+            opened += 1
+            connected.append(name)
+            print(f"  Listening: {name}", flush=True)
+        self._connected_roli_names = tuple(sorted(connected))
+        return opened
+
+    def _roli_ports_on_bus(self, probe) -> tuple[str, ...]:
+        return tuple(sorted(list_roli_input_port_names(list(probe.get_ports()))))
+
+    def _maybe_reconnect_inputs(self, probe) -> None:
+        now = time.monotonic()
+        if now < self._next_reconnect_check:
+            return
+        self._next_reconnect_check = now + RECONNECT_POLL_S
+
+        desired = self._roli_ports_on_bus(probe)
+        if not desired:
+            if self._connected_roli_names:
+                print("ROLI disconnected — closing stale MIDI inputs", flush=True)
+                self._close_inputs()
+            return
+
+        if desired == self._connected_roli_names and self._inputs:
+            return
+
+        print(
+            f"ROLI port change {self._connected_roli_names!r} → {desired!r} — reopening inputs",
+            flush=True,
+        )
+        self._close_inputs()
+        opened = self._open_inputs(probe)
+        if opened == 0:
+            print("Warning: ROLI seen on bus but no MIDI inputs opened", flush=True)
+
     def run(self) -> int:
         try:
             import rtmidi
@@ -95,34 +160,19 @@ class PressureRemapDaemon:
         )
 
         probe = rtmidi.MidiIn()
-        ports = list(probe.get_ports())
-        del probe
-
-        opened = 0
-        for index, name in enumerate(ports):
-            if should_skip_midi_port(name):
-                continue
-            midi_in = rtmidi.MidiIn()
-            try:
-                midi_in.open_port(index)
-            except Exception as exc:
-                print(f"Warning: could not open MIDI in {name!r}: {exc}", flush=True)
-                continue
-            midi_in.set_callback(self._enqueue)
-            self._inputs.append(midi_in)
-            opened += 1
-            print(f"  Listening: {name}", flush=True)
-
-        if opened == 0:
+        if self._open_inputs(probe) == 0:
             print("Error: no physical MIDI inputs opened", file=sys.stderr, flush=True)
             return 1
 
         try:
             while True:
                 self._drain_queue()
+                self._maybe_reconnect_inputs(probe)
                 time.sleep(0.002)
         except KeyboardInterrupt:
             return 0
+        finally:
+            self._close_inputs()
 
 
 def main() -> int:
