@@ -79,6 +79,12 @@ class StartShutdownSplashServiceTests(unittest.TestCase):
             log_label=f"systemctl start {SHUTDOWN_SPLASH_UNIT}",
         )
 
+    @mock.patch("patch_browser.dsi_splash._run_systemctl")
+    def test_skip_when_env_set(self, run_mock: mock.Mock) -> None:
+        with mock.patch.dict("os.environ", {"MPE_SHUTDOWN_SKIP_SPLASH": "1"}):
+            self.assertTrue(start_shutdown_splash_service())
+        run_mock.assert_not_called()
+
 
 class TriggerUserShutdownTests(unittest.TestCase):
     @mock.patch("patch_browser.dsi_splash.request_system_power_action")
