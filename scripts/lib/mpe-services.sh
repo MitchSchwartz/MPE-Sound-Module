@@ -73,20 +73,15 @@ mpe_enable_patch_browser_ui() {
 mpe_enable_usb_audio_gadget() {
     # shellcheck source=lib/gadget-persist.sh
     source "$SCRIPT_DIR/lib/gadget-persist.sh"
-    # Boot sync must not `start` units that After=surge-xt-cli — deadlock before Surge is up.
-    local start_watchdog=1
-    if [ "${MPE_BOOT_PROFILE_SYNC:-0}" = "1" ]; then
-        start_watchdog=0
-    fi
+    # Host-route watcher starts after Surge via surge-xt-cli.service ExecStartPost
+    # (start-uac2-watchdog-if-needed.sh). Never start it here — boot sync and profile
+    # switches both run before Surge is listening.
 
     if [ "${MPE_AUDIO_PROFILE:-standalone}" = "usb-host" ]; then
         sudo systemctl enable --now usb-audio-gadget.service 2>/dev/null || true
         sudo systemctl enable uac2-stall-watchdog.service 2>/dev/null || true
-        if [ "$start_watchdog" -eq 1 ]; then
-            sudo systemctl start uac2-stall-watchdog.service 2>/dev/null || true
-        fi
         echo "  USB audio gadget: enabled (MPE_AUDIO_PROFILE=usb-host)"
-        echo "  UAC2 stall watchdog: enabled"
+        echo "  UAC2 host-route watcher: enabled (starts after Surge)"
     else
         sudo systemctl disable --now uac2-stall-watchdog.service 2>/dev/null || true
         if mpe_gadget_persist_enabled; then
