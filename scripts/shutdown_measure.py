@@ -31,6 +31,9 @@ MPE_UNITS = [
     "foot-pedal.service",
     "patch-browser.service",
     "shutdown-animation.service",
+    "mpe-pressure-remap.service",
+    "surge-poly-governor.service",
+    "uac2-stall-watchdog.service",
 ]
 
 MILESTONE_UNITS = [
@@ -211,16 +214,35 @@ def _print_trace(rows: list[dict], marker: dict | None) -> None:
     shown = [r for r in rows if cutoff is None or r.get("ts_epoch", 0) >= cutoff]
     if not shown:
         shown = rows[-12:]
-    for row in shown[-20:]:
+    prev_elapsed: float | None = None
+    for row in shown[-30:]:
         event = row.get("event", "?")
         ts = row.get("ts_wall", "?")
-        extra = {k: v for k, v in row.items() if k not in ("event", "ts_wall", "ts_epoch", "pid")}
+        elapsed = row.get("elapsed_s")
+        step_delta = ""
+        if isinstance(elapsed, (int, float)):
+            if prev_elapsed is not None:
+                step_delta = f" (+{elapsed - prev_elapsed:.3f}s)"
+            prev_elapsed = float(elapsed)
+            elapsed_s = f"[+{elapsed:.3f}s{step_delta}] "
+        else:
+            elapsed_s = ""
+        extra = {
+            k: v
+            for k, v in row.items()
+            if k not in ("event", "ts_wall", "ts_epoch", "pid", "elapsed_s")
+        }
         extra_s = " ".join(f"{k}={v}" for k, v in extra.items())
-        print(f"  {ts}  {event}  {extra_s}".rstrip())
+        print(f"  {ts}  {elapsed_s}{event}  {extra_s}".rstrip())
 
     if len(shown) >= 2 and shown[0].get("ts_epoch") and shown[-1].get("ts_epoch"):
         wall = shown[-1]["ts_epoch"] - shown[0]["ts_epoch"]
         print(f"  → trace span (first→last event): {wall:.2f}s")
+    session_rows = [r for r in shown if r.get("elapsed_s") is not None]
+    if session_rows:
+        first = session_rows[0]["elapsed_s"]
+        last = session_rows[-1]["elapsed_s"]
+        print(f"  → session elapsed (T0→last):       {last - first:.3f}s")
 
 
 def _print_splash_log() -> None:
