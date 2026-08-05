@@ -298,6 +298,14 @@ class TouchBrowserPrefsMixin:
         try:
             ok, message = self._audio_profile_result_queue.get_nowait()
         except queue.Empty:
+            from patch_browser.audio_profile import PROFILE_SWITCH_TIMEOUT_S
+
+            elapsed = time.monotonic() - self._audio_profile_switch_started
+            if elapsed > PROFILE_SWITCH_TIMEOUT_S + 5.0:
+                self._finish_audio_profile_switch(
+                    False,
+                    f"Switch timed out ({int(PROFILE_SWITCH_TIMEOUT_S)}s)",
+                )
             return
         self._finish_audio_profile_switch(ok, message)
 

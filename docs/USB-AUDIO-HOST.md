@@ -73,6 +73,7 @@ Reboot once with **USB-C unplugged from the host**. This enables the USB-C port 
 
 - Touch settings toggle → `set-audio-profile.sh` updates the file and matching systemd units
 - **`mpe-audio-profile-sync.service`** runs at boot (before Surge) and re-enables gadget + stall watchdog to match the file
+- **`surge-xt-cli.service` `ExecStartPost`** starts the host-route watcher after Surge is up (usb-host only)
 - **`configure-pi-paths.sh --force`** rewrites paths but **preserves** `MPE_AUDIO_PROFILE` and `MPE_SURGE_BUFFER_SIZE` from the existing file
 
 After a git pull on the Pi: `./scripts/configure-pi-paths.sh --local --force` — your audio mode is kept.

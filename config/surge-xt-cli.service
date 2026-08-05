@@ -9,6 +9,7 @@ User=@MPE_PI_USER@
 WorkingDirectory=@MPE_MODULE_REPO@
 EnvironmentFile=-/etc/mpe/mpe.env
 ExecStart=@MPE_MODULE_REPO@/scripts/start-surge-cli.sh
+ExecStartPost=+@MPE_MODULE_REPO@/scripts/start-uac2-watchdog-if-needed.sh
 ExecStop=/usr/bin/pkill -TERM -f surge-xt-cli
 TimeoutStopSec=15
 KillMode=control-group
