@@ -1,10 +1,26 @@
 # USB audio to host PC (`usb-host` profile)
 
-*Last updated: 2026-07-31 (America/Toronto)*
+*Last updated: 2026-08-05 (America/Toronto)*
 
 When the Pi is tethered to a laptop or desk PC, route Surge output over **USB-C** as a standard UAC2 playback device — no aux cable to the host. **Standalone gig mode** (`MPE_AUDIO_PROFILE=standalone`, default) is unchanged: Sound Blaster → 3.5 mm analog.
 
 Full research and phased plan: **[USB-AUDIO-PASSTHROUGH-PLAN.md](USB-AUDIO-PASSTHROUGH-PLAN.md)**.
+
+**Reference hardware:** **Pi 4 Model B** (live unit). Pi 5 notes in the plan doc are for future/alternate BOM only.
+
+---
+
+## Pi 4 quirks (read first)
+
+| Quirk | Symptom | Fix |
+|-------|---------|-----|
+| **Boot with USB-C tethered** | Four raspberries hang, no SSH | Power on with **USB-C data unplugged** from host; plug in after Pi is up ([PI-BOOT-RECOVERY.md](PI-BOOT-RECOVERY.md)) |
+| **PD power on same USB-C as data** | `udc` stuck `not attached`, host capture silent | **Split power:** GPIO 5V/GND or official PSU — **not** a PD dock on the gadget port ([USB-AUDIO-PASSTHROUGH-SPIKE.md](USB-AUDIO-PASSTHROUGH-SPIKE.md)) |
+| **`[pi4]` overlay under `[all]`** | USB-A host ports dead (Roli, Sound Blaster) | Use **`[pi4]`** section only for `dr_mode=peripheral` |
+| **Host capture left open** | Aux silent while badge still **USB** | Host-gated routing: Surge → UAC2 while host streams @ 44100. **Disarm Reaper**, remove stray PipeWire links (qpwgraph), don't set ALSA **capture default** to the gadget (see §Host quirks) |
+| **`plughw` on Linux host** | Silent capture | Use **`hw:N,0`** in `arecord` / REAPER ALSA |
+
+**Cable (Pi 4 desk):** prefer **USB-A (host PC) → USB-C (Pi)** data cable. Power the Pi from **GPIO or official PSU**, not from the same USB-C port that carries gadget data.
 
 ---
 
@@ -54,7 +70,7 @@ Reboot once with **USB-C unplugged from the host**. This enables the USB-C port 
    ./scripts/configure-pi-paths.sh --local --force
    ```
 
-3. Plug a **data-capable USB cable** from the host PC to the Pi **USB-C** port. Prefer **USB-A (host) → USB-C (Pi)** on Pi 5 + Mac; USB-C ↔ USB-C can have PD quirks.
+3. Plug a **data-capable USB cable** from the host PC to the Pi **USB-C** port. On **Pi 4**, use **USB-A (host) → USB-C (Pi)** with **split power** (see quirks table). Avoid PD docks on the gadget port.
 
 4. Start the gadget and Surge:
 
@@ -177,15 +193,24 @@ Switching **USB → Analog → USB** used to **destroy** the UAC2 gadget, which 
 
 **Unbind vs destroy:** writing `""` to the gadget UDC (**unbind**) still disconnects from the host the same as destroy. Persist mode skips both on profile switch.
 
-### Optional host tweak (Linux / PipeWire only)
+### Host quirks (Linux desk PC)
 
-If you notice extra delay when first arming a track:
+**Aux vs USB is one route at a time in `usb-host` profile.** While the host keeps a capture stream open (`Playback Rate` 44100 on the gadget), Surge plays to **UAC2** — the Sound Blaster **aux is silent**. That is expected. To hear aux again: disarm all Reaper tracks using the Pi input, remove persistent **PipeWire** links (e.g. qpwgraph → other inputs), then wait for the host-route watcher to restart Surge onto Sound Blaster (~3–5 s).
+
+**Do not** set ALSA `pcm.!default` capture to the gadget on the host. That can leave PipeWire holding `/dev/snd/pcm*D0c` open and block aux even when you think the DAW is idle. Use the named device only:
 
 ```bash
-./scripts/setup-host-usb-monitor.sh   # optional WirePlumber no-suspend drop-in
+cp config/host/asoundrc.mpe-pi ~/.asoundrc   # pcm.mpe_pi — explicit, not default capture
+./scripts/setup-host-usb-monitor.sh            # optional WirePlumber no-suspend
 ```
 
-Uninstall with `./scripts/setup-host-usb-monitor.sh --uninstall`. This is **not** required for normal DAW use.
+Uninstall WirePlumber drop-in: `./scripts/setup-host-usb-monitor.sh --uninstall`.
+
+**Analog-only (aux) at the desk:** toggle **USB Audio off** in Pi settings (`standalone`) — Surge stays on Sound Blaster regardless of host capture state.
+
+### Optional host tweak (Linux / PipeWire only)
+
+If you notice extra delay when first arming a track, the WirePlumber no-suspend drop-in above helps. It is **not** required for normal DAW use.
 
 ### Diagnostics (Linux)
 
