@@ -36,8 +36,6 @@ from patch_browser.touch_ui_constants import (
     SETTINGS_ROW_GAP,
     SETTINGS_ROW_H,
     STATUS_BAR_ITEM_GAP,
-    VOLUME_MAX,
-    VOLUME_MIN,
 )
 from patch_browser.audio_profile import header_badge_label
 from patch_browser.all_patches_index import AZ_RAIL_LETTERS
@@ -77,6 +75,7 @@ class TouchBrowserLayoutMixin:
         nav_header_h = 36
 
         self.status_rect = Rect(margin, margin, self.width - margin * 2, status_h)
+        self.status_title_x = self.status_rect.x + 12
         self.system_settings_btn = Rect(self.status_rect.right - 44, self.status_rect.y + 6, 36, 32)
         right_cursor = self.system_settings_btn.x - STATUS_BAR_ITEM_GAP
         if self.show_cpu_meter:
@@ -100,7 +99,6 @@ class TouchBrowserLayoutMixin:
             audio_badge_w,
             24,
         )
-
         content_top = self.status_rect.y + self.status_rect.h + gap
         content_bottom = self.height - BROWSER_BOTTOM_MARGIN
         left_w = self._left_nav_width()
@@ -368,41 +366,19 @@ class TouchBrowserLayoutMixin:
                 return letter
         return None
     def _mixer_channel_defs(self) -> list[dict]:
-        from patch_browser.patch_hold import HOLD_MULT_MAX, HOLD_MULT_MIN
-        from patch_browser.patch_normalization import NORM_GAIN_DB_MAX, NORM_GAIN_DB_MIN
+        from patch_browser.mixer_controls import mixer_controls_for_browser
 
-        defs: list[dict] = [
-            {"id": "volume", "label": "Vol", "min": VOLUME_MIN, "max": VOLUME_MAX, "enabled": True},
-        ]
-        if getattr(self, "_show_tail_fader", getattr(self, "_show_hold_fader", lambda: False))():
+        defs: list[dict] = []
+        for control in mixer_controls_for_browser(self):
+            if not control.visible(self):
+                continue
+            spec = control.spec
             defs.append(
                 {
-                    "id": "tail",
-                    "label": "Tail",
-                    "min": HOLD_MULT_MIN,
-                    "max": HOLD_MULT_MAX,
-                    "enabled": True,
-                }
-            )
-        if getattr(self, "_show_touch_fader", lambda: False)():
-            from patch_browser.patch_pressure import PRESSURE_FLOOR_MAX, PRESSURE_FLOOR_MIN
-
-            defs.append(
-                {
-                    "id": "touch",
-                    "label": "Touch",
-                    "min": PRESSURE_FLOOR_MIN,
-                    "max": PRESSURE_FLOOR_MAX,
-                    "enabled": True,
-                }
-            )
-        if getattr(self, "_show_norm_level_fader", lambda: False)():
-            defs.append(
-                {
-                    "id": "norm",
-                    "label": "Norm",
-                    "min": NORM_GAIN_DB_MIN,
-                    "max": NORM_GAIN_DB_MAX,
+                    "id": spec.channel_id,
+                    "label": spec.label,
+                    "min": spec.min_value,
+                    "max": spec.max_value,
                     "enabled": True,
                 }
             )

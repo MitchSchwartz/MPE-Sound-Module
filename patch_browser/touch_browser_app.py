@@ -157,6 +157,7 @@ class TouchPatchBrowser(
         self._scan_dirty = False
         self._pending_last_patch: dict | None = None
         self._pending_load_next = 0.0
+        self._pending_load_toast = True
         self._last_known_surge_pid: int | None = None
         self._surge_was_healthy = False
         self._surge_liveness_initialized = False

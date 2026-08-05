@@ -10,8 +10,12 @@ from pathlib import Path
 
 from patch_browser.patch_pressure import (
     DEFAULT_PRESSURE_FLOOR,
+    PRESSURE_OFFSET_MAX,
+    PRESSURE_OFFSET_MIN,
     PatchPressureStore,
+    clamp_touch_offset,
     compute_pressure_floor,
+    effective_floor_from_offset,
     effective_pressure_mult,
     remap_pressure_7bit,
     resolve_light_touch_target,
@@ -28,32 +32,100 @@ class PatchPressureTests(unittest.TestCase):
         self.assertGreater(effective_pressure_mult(0.0, 0.5), effective_pressure_mult(0.0, 0.0))
         self.assertGreater(remap_pressure_7bit(20, 0.5), remap_pressure_7bit(20, 0.0))
 
-    def test_user_floor_persists(self) -> None:
+    def test_user_touch_offset_persists(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "pressure.json"
             store = PatchPressureStore(path)
-            store.set_user_floor("Duduk", 0.4)
-            self.assertAlmostEqual(store.get_effective_floor("Duduk"), 0.4)
+            store.set_calibration("Duduk", 0.52, -30.0)
+            store.set_user_touch_offset("Duduk", 0.1)
+            self.assertAlmostEqual(store.get_user_touch_offset("Duduk"), 0.1)
+            self.assertAlmostEqual(store.get_effective_floor("Duduk"), 0.62)
             saved = json.loads(path.read_text())
-            self.assertAlmostEqual(saved["Duduk"]["user_floor"], 0.4)
+            self.assertAlmostEqual(saved["Duduk"]["user_touch_offset"], 0.1)
+            self.assertNotIn("user_floor", saved["Duduk"])
 
-    def test_clear_user_floor_resets_to_calibrated(self) -> None:
+    def test_negative_offset_reduces_below_calibrated(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = PatchPressureStore(Path(tmp) / "pressure.json")
+            store.set_calibration("Lead", 0.4, -30.0)
+            store.set_user_touch_offset("Lead", -0.15)
+            self.assertAlmostEqual(store.get_effective_floor("Lead"), 0.25)
+
+    def test_offset_clamps_at_zero_floor(self) -> None:
+        baseline = 0.2
+        self.assertAlmostEqual(effective_floor_from_offset(baseline, -0.5), 0.0)
+
+    def test_legacy_user_floor_migrates_to_offset(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "pressure.json"
+            path.write_text(
+                json.dumps({"Lead": {"cal_floor": 0.35, "user_floor": 0.55, "lufs_light": -30.0}})
+            )
+            store = PatchPressureStore(path)
+            self.assertAlmostEqual(store.get_user_touch_offset("Lead"), 0.2)
+            self.assertAlmostEqual(store.get_effective_floor("Lead"), 0.55)
+
+    def test_clear_user_touch_offset_resets_to_calibrated(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "pressure.json"
             store = PatchPressureStore(path)
             store.set_calibration("Lead", 0.35, -30.0)
-            store.set_user_floor("Lead", 0.55, persist=False)
+            store.set_user_touch_offset("Lead", 0.2, persist=False)
             store.save()
-            store.clear_user_floor("Lead")
+            store.clear_user_touch_offset("Lead")
+            self.assertAlmostEqual(store.get_user_touch_offset("Lead"), 0.0)
             self.assertAlmostEqual(store.get_effective_floor("Lead"), 0.35)
 
-    def test_clear_user_floor_without_cal_resets_default(self) -> None:
+    def test_clear_user_touch_offset_without_cal_resets_default(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "pressure.json"
             store = PatchPressureStore(path)
-            store.set_user_floor("Lead", 0.55)
-            store.clear_user_floor("Lead")
+            store.set_user_touch_offset("Lead", 0.15)
+            store.clear_user_touch_offset("Lead")
             self.assertAlmostEqual(store.get_effective_floor("Lead"), DEFAULT_PRESSURE_FLOOR)
+
+    def test_format_touch_offset(self) -> None:
+        store = PatchPressureStore(Path("/tmp/unused.json"))
+        self.assertEqual(store.format_touch_offset(0.0), "0")
+        self.assertEqual(store.format_touch_offset(0.45), "+25")
+        self.assertEqual(store.format_touch_offset(-0.9), "-50")
+
+    def test_touch_offset_display_roundtrip(self) -> None:
+        from patch_browser.patch_pressure import (
+            offset_to_touch_trim,
+            touch_trim_to_offset,
+        )
+
+        for offset in (-0.9, -0.5, 0.0, 0.35, 0.9):
+            trim = offset_to_touch_trim(offset)
+            self.assertAlmostEqual(touch_trim_to_offset(trim), offset, places=2)
+
+    def test_cal_anchor_roundtrip(self) -> None:
+        from patch_browser.patch_pressure import (
+            cal_floor_to_touch_anchor,
+            touch_fader_to_offset,
+            touch_fader_value,
+        )
+
+        baseline = 0.4
+        for offset in (-0.4, -0.15, 0.0, 0.35):
+            display = touch_fader_value(baseline, offset)
+            self.assertAlmostEqual(touch_fader_to_offset(display, baseline), offset, places=2)
+        self.assertEqual(cal_floor_to_touch_anchor(0.0), 0.0)
+        self.assertEqual(cal_floor_to_touch_anchor(0.9), 50.0)
+        self.assertAlmostEqual(cal_floor_to_touch_anchor(0.45), 25.0)
+
+    def test_format_touch_display(self) -> None:
+        store = PatchPressureStore(Path("/tmp/unused.json"))
+        self.assertEqual(store.format_touch_display(0.0), "0")
+        self.assertEqual(store.format_touch_display(34.0), "+34")
+        self.assertEqual(store.format_touch_display(-50.0), "-50")
+
+    def test_touch_offset_range(self) -> None:
+        from patch_browser.patch_pressure import PRESSURE_FLOOR_MAX
+
+        self.assertAlmostEqual(clamp_touch_offset(-1.0), -PRESSURE_FLOOR_MAX)
+        self.assertAlmostEqual(clamp_touch_offset(1.0), PRESSURE_FLOOR_MAX)
 
     def test_compute_pressure_floor_from_shortfall(self) -> None:
         self.assertAlmostEqual(compute_pressure_floor(-28.0, -28.0), 0.0)

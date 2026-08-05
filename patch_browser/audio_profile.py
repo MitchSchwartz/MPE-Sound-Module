@@ -22,6 +22,9 @@ def normalize_profile(value: str | None) -> str:
 
 
 def current_profile() -> str:
+    from_file = read_profile_from_env_file(MPE_ENV_PATH)
+    if from_file is not None:
+        return from_file
     return normalize_profile(os.environ.get("MPE_AUDIO_PROFILE"))
 
 
@@ -30,7 +33,13 @@ def is_usb_host() -> bool:
 
 
 def header_badge_label() -> str:
-    return "USB" if is_usb_host() else "Analog"
+    if is_usb_host():
+        from patch_browser.usb_audio_recovery import is_recovering
+
+        if is_recovering():
+            return "Sync"
+        return "USB"
+    return "Analog"
 
 
 def settings_toggle_label() -> str:

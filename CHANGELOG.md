@@ -142,3 +142,30 @@ calibration data on disable. See [`docs/PATCH_NORMALIZATION.md`](docs/PATCH_NORM
 
 - **136 tests** passing locally as of this entry (was 80 on 2026-08-01).
 - New: norm toggle/global restore, UAC2 card helpers, calibration integrity pins.
+
+## 2026-08-03 — Touch fader semantics (cal anchor + trim)
+
+- **Touch** fader canon documented in `docs/TOUCH_PATCH_BROWSER.md` §Mixer faders.
+  Calibrated `cal_floor` sets the default handle position on **−50…+50**; user trim
+  moves from there; double-tap clears trim and restores cal. **Not** the same as
+  **Tail** (0 at center = patch-as-loaded).
+- Removed legacy alias helpers in `patch_pressure.py` that implied three competing
+  mapping models.
+
+## 2026-08-03 — Output limiter removed + Tail/Touch fader alignment
+
+### Removed in-Surge output limiter
+
+Surge has no synth-wide FX bus — Global FX slot 4 is part of each patch, and the
+LinnStrument MPE pack uses it on most patches (mostly reverb). Commandeering that
+slot for a Conditioner limiter overwrote patch sound design. Removed limiter OSC
+sync, **LIM** header badge, settings toggle, peak monitor, `surge-output-limiter`
+systemd unit, and `docs/SURGE-OSC-PARAMS.md`. Real peak safety stays in offline
+calibration; live limiting belongs in the host/USB chain if needed.
+
+### Tail/Touch fader UI
+
+- **Tail** fader: **0** at center = patch-as-loaded (1.0× multiplier); display
+  **−50…+50**; log mapping preserves **0.25×–4.0×** at full throw.
+- **Touch** uses the same **±50** display range but **cal-anchored** semantics (see
+  entry above and `docs/TOUCH_PATCH_BROWSER.md`).

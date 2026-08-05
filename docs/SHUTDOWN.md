@@ -90,6 +90,33 @@ Run three labeled tests to isolate paths:
 
 Compare stop durations across tests. A unit gap near its `TimeoutStopSec` (e.g. 15s on `surge-xt-cli`) is the smoking gun.
 
+**Common slow culprit:** `mpe-pressure-remap.service` and `surge-poly-governor.service` used to inherit systemd’s default **90s** stop timeout. They now ship with `TimeoutStopSec=5` — run `configure-pi-paths.sh --local --force` after pulling.
+
+## Diagnostic mode (skip splash, step trace)
+
+When shutdown feels stuck (~1 minute on the spinner):
+
+```bash
+# On the Pi — add to /etc/mpe/mpe.env:
+MPE_SHUTDOWN_SKIP_SPLASH=1
+
+sudo ./scripts/configure-pi-paths.sh --local --force   # refresh units + run-shutdown-splash.sh
+sudo systemctl restart touch-patch-browser
+```
+
+Then:
+
+```bash
+./scripts/shutdown-mark-test.sh ui "skip-splash diagnostic"
+# Power menu → confirm shutdown
+# After boot:
+./scripts/shutdown-measure-last.sh
+```
+
+With `MPE_SHUTDOWN_SKIP_SPLASH=1`: no branded splash (black frame only), `run-shutdown-splash.sh` exits immediately, trace logs `shutdown_step_*` with `elapsed_s`.
+
+Remove the flag when done diagnosing.
+
 Legacy alias: `./scripts/shutdown-analyze-last.sh` (same as measure).
 
 Check `/tmp/mpe-shutdown-splash.log` and journal stop lines. The splash unit should **not** show `Stopped` long before power is cut.

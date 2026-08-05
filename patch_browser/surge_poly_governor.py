@@ -11,6 +11,7 @@ from patch_browser.surge_monitor import SurgeMonitor
 from patch_browser.surge_playback import (
     POLY_STATE_FILE,
     clamp_poly_limit,
+    poly_emergency,
     poly_floor,
     query_polylimit,
     read_poly_state,
@@ -18,12 +19,18 @@ from patch_browser.surge_playback import (
 )
 from patch_browser.ui_prefs import load_ui_preference
 
-POLL_INTERVAL_S = 0.5
-CPU_HIGH_THRESHOLD = 75.0
-CPU_LOW_THRESHOLD = 45.0
-CPU_HIGH_HOLD_S = 1.0
+POLL_INTERVAL_S = 0.15
+CPU_EMERGENCY_THRESHOLD = 90.0
+CPU_SPIKE_THRESHOLD = 78.0
+CPU_HIGH_THRESHOLD = 50.0
+CPU_WARM_THRESHOLD = 48.0
+CPU_LOW_THRESHOLD = 40.0
+CPU_HIGH_HOLD_S = 0.15
 CPU_LOW_HOLD_S = 5.0
+PATCH_WARM_WINDOW_S = 4.0
 STEP_DOWN = 2
+STEP_DOWN_SPIKE = 4
+STEP_DOWN_WARM = 2
 STEP_UP = 1
 
 
@@ -66,6 +73,9 @@ class SurgePolyGovernor:
         self._high_since: float | None = None
         self._low_since: float | None = None
         self._state_mtime = 0.0
+        self._last_patch: str | None = None
+        self._patch_changed_at: float | None = None
+        self._warm_preempt_done = False
         self._pref_check_counter = 0
         self._enabled = governor_active()
 
@@ -102,6 +112,13 @@ class SurgePolyGovernor:
             return
         self._state_mtime = stat.st_mtime
         data = read_poly_state()
+        patch = data.get("patch")
+        if isinstance(patch, str) and patch != self._last_patch:
+            self._last_patch = patch
+            self._high_since = None
+            self._low_since = None
+            self._patch_changed_at = time.monotonic()
+            self._warm_preempt_done = False
         ceiling = data.get("ceiling_poly")
         effective = data.get("effective_poly")
         if isinstance(ceiling, (int, float)):
@@ -109,8 +126,9 @@ class SurgePolyGovernor:
         if isinstance(effective, (int, float)):
             self._effective_poly = clamp_poly_limit(int(effective))
 
-    def _apply_limit(self, new_limit: int) -> None:
-        new_limit = clamp_poly_limit(new_limit, minimum=self._floor_poly)
+    def _apply_limit(self, new_limit: int, *, minimum: int | None = None) -> None:
+        floor = self._floor_poly if minimum is None else minimum
+        new_limit = clamp_poly_limit(new_limit, minimum=floor)
         if self._ceiling_poly is not None:
             new_limit = min(new_limit, self._ceiling_poly)
         if self._effective_poly == new_limit:
@@ -121,8 +139,14 @@ class SurgePolyGovernor:
     def _cpu_percent(self) -> float | None:
         if self.cpu_monitor is not None:
             snap = self.cpu_monitor.snapshot()
-            if snap.get("online") and isinstance(snap.get("percent"), (int, float)):
-                return float(snap["percent"])
+            if snap.get("online"):
+                # Prefer raw proc/OSC sample — smoothed meter lags on rising load.
+                raw = snap.get("raw_percent")
+                if isinstance(raw, (int, float)):
+                    return float(raw)
+                smoothed = snap.get("percent")
+                if isinstance(smoothed, (int, float)):
+                    return float(smoothed)
         healthy, _ = self.surge_monitor.check_health()
         if not healthy:
             return None
@@ -183,7 +207,38 @@ class SurgePolyGovernor:
             return
 
         now = time.monotonic()
-        if cpu >= CPU_HIGH_THRESHOLD:
+        if cpu >= CPU_EMERGENCY_THRESHOLD:
+            self._low_since = None
+            self._high_since = now
+            emergency = poly_emergency()
+            if self._effective_poly is not None and self._effective_poly > emergency:
+                self._apply_limit(emergency, minimum=emergency)
+            return
+
+        if (
+            self._patch_changed_at is not None
+            and not self._warm_preempt_done
+            and now - self._patch_changed_at <= PATCH_WARM_WINDOW_S
+            and cpu >= CPU_WARM_THRESHOLD
+            and self._effective_poly > self._floor_poly
+        ):
+            self._warm_preempt_done = True
+            self._high_since = now
+            self._low_since = None
+            self._apply_limit(self._effective_poly - STEP_DOWN_WARM)
+            return
+
+        if cpu >= CPU_SPIKE_THRESHOLD:
+            self._low_since = None
+            if self._high_since is None:
+                self._high_since = now
+                if self._effective_poly > self._floor_poly:
+                    self._apply_limit(self._effective_poly - STEP_DOWN_SPIKE)
+            elif now - self._high_since >= CPU_HIGH_HOLD_S:
+                if self._effective_poly > self._floor_poly:
+                    self._apply_limit(self._effective_poly - STEP_DOWN)
+                self._high_since = now
+        elif cpu >= CPU_HIGH_THRESHOLD:
             self._low_since = None
             if self._high_since is None:
                 self._high_since = now

@@ -232,6 +232,5 @@ class TouchBrowserSmokeTests(unittest.TestCase):
         hit = browser._theme_modal_hit_at((150, 22))
         self.assertEqual(hit, "style:1")
 
-
 if __name__ == "__main__":
     unittest.main()

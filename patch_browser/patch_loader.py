@@ -22,7 +22,7 @@ from patch_browser.patch_normalization import (
     volume_fader_to_amp_linear,
 )
 from patch_browser.surge_playback import (
-    effective_poly_after_load,
+    effective_poly_on_load,
     ensure_reuse_single_patch,
     poly_ceiling,
     query_polylimit,
@@ -30,6 +30,7 @@ from patch_browser.surge_playback import (
     send_polylimit,
     write_poly_state,
 )
+from patch_browser.surge_poly_governor import governor_active
 from patch_browser.touch_ui_constants import VOLUME_MAX, VOLUME_MIN
 
 OSC_OUT_PORT = 53270
@@ -249,7 +250,11 @@ class PatchLoader:
             osc_out_port=self.osc_out_port,
         )
         ceiling = poly_ceiling()
-        effective = effective_poly_after_load(native, ceiling=ceiling)
+        effective = effective_poly_on_load(
+            native,
+            ceiling=ceiling,
+            governor_active=governor_active(),
+        )
         self._native_poly_limit = native
         self._effective_poly_limit = effective
         send_polylimit(self.osc_client, effective)
@@ -260,7 +265,6 @@ class PatchLoader:
             effective_poly=effective,
             reuse_single=reuse_single_enabled(),
         )
-
     def load_patch(self, patch_path, *, apply_normalization: bool = True):
         if not self.osc_enabled:
             print(f"OSC disabled, cannot load: {patch_path}")
@@ -285,6 +289,7 @@ class PatchLoader:
             self._loaded_patch_name = patch_name
             time.sleep(PATCH_LOAD_SETTLE_S)
             self._apply_playback_policy(patch_name)
+            self._send_combined_volume()
             if not self._capture_hold_baseline(patch_name):
                 print(f"Hold baseline query failed for {patch_name}; using stored values if any")
             self._send_hold_osc(patch_name)

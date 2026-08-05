@@ -45,10 +45,10 @@ Every patch is fully editable and MPE-assignable from your computer, across all 
 
 - **Two interface options** — rotary encoder + OLED screen, or fullscreen touch display (SmartiPi 5″)
 - **Full-library browsing** — folder view or a flat, alphabetical searchable list
-- **Per-patch mixer (touch)** — vertical faders on the patch detail pane: **Vol** (level), **Tail** (envelope length), **Touch** (MPE pressure response for light vs full press; calibrated with norm on Quick Select)
+- **Per-patch mixer (touch)** — vertical faders on the patch detail pane: **Vol** (level), **Tail** (envelope length; **0** = patch-as-loaded), **Touch** (MPE pressure floor; **cal value** = default handle position on **−50…+50**). See **[docs/TOUCH_PATCH_BROWSER.md](docs/TOUCH_PATCH_BROWSER.md)** §Mixer faders.
 - **Theming** — light/dark base themes with custom accent colors
 - **CPU meter** — live engine headroom while playing
-- **Dynamic voice limit toggle (touch)** — System settings → turn CPU-aware poly limiting on or off (default on)
+- **Dynamic voice limit toggle (touch)** — System settings → turn CPU-aware poly limiting on or off (default on). No in-Surge output limiter — loudness headroom comes from per-patch normalization at calibration time; use host/USB gain staging if you need a safety ceiling live.
 
 **Status:** 
 
@@ -116,9 +116,9 @@ Full walkthrough: **[docs/PATCH-EDITING-WORKFLOW.md](docs/PATCH-EDITING-WORKFLOW
 
 ### Per-patch normalization (touch or SSH)
 
-Calibrate once; every `load_patch()` applies a stored gain baseline (MPE expression untouched). The calibrator measures each patch at **strike** (hard hit, light pressure) and **sustain** (moderate velocity, full pressure), picks the safer of the two gains, then verifies peak level in a short closed loop before saving. When **Norm.** is on, the full calibrated gain reaches Surge — peak headroom is enforced at calibration time, not by clamping at load.
+Calibrate once; every `load_patch()` applies a stored gain baseline (MPE expression untouched). The calibrator measures each patch at **strike** (hard hit, light pressure) and **sustain** (moderate velocity, full pressure), picks the safer of the two gains, then verifies peak level in a short closed loop before saving. When **Norm.** is on, the full calibrated gain reaches Surge — peak safety is baked in at calibration time.
 
-The same run captures a **light-touch** gesture and writes **Touch** pressure floors to `~/.patch_browser_pressure.json` (cohort alignment plus extra lift for patches with a wide strike/sustain gap). Double-tap **Touch** resets to that calibrated default.
+The same run captures a **light-touch** gesture and writes **Touch** pressure floors to `~/.patch_browser_pressure.json` (cohort alignment plus extra lift for patches with a wide strike/sustain gap). **Tail** fader: **0** at center = patch default; double-tap resets to **0**. **Touch** fader: handle sits at the calibrated value; drag to override; double-tap restores calibration. Details: **[docs/TOUCH_PATCH_BROWSER.md](docs/TOUCH_PATCH_BROWSER.md)** §Mixer faders.
 
 ```bash
 # Pi touch display — fullscreen loader on the 800×480 panel (~5–12 min for Quick Select)
@@ -137,7 +137,7 @@ On every patch load, **Reuse Single** is applied automatically (XML rewrite — 
 | Control | Where |
 | -------- | ----- |
 | Dynamic voice limit on/off | Touch UI → System settings |
-| Poly ceiling / floor | `/etc/mpe/mpe.env` — `MPE_POLY_CEILING` (default 12), `MPE_POLY_FLOOR` (default 6) |
+| Poly ceiling / floor / emergency | `/etc/mpe/mpe.env` — `MPE_POLY_CEILING` (12), `MPE_POLY_FLOOR` (4), `MPE_POLY_EMERGENCY` (3 at ≥90% CPU) |
 | Disable Reuse Single | `MPE_REUSE_SINGLE=0` in `mpe.env` |
 | Disable governor entirely | `MPE_POLY_GOVERNOR=0` or turn off in touch settings |
 

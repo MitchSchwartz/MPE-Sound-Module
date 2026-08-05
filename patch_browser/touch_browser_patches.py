@@ -30,8 +30,19 @@ class TouchBrowserPatchesMixin:
             return False
         return bool(self.surge_monitor.osc_port_in_use())
 
-    def _queue_patch_reload(self, patch: dict, *, delay_s: float = 2.0) -> None:
+    def _queue_patch_reload(
+        self, patch: dict, *, delay_s: float = 2.0, toast: bool = True
+    ) -> None:
+        path = patch.get("path")
+        if (
+            path
+            and self._pending_last_patch
+            and self._pending_last_patch.get("path") == path
+            and time.time() < self._pending_load_next
+        ):
+            return
         self._pending_last_patch = dict(patch)
+        self._pending_load_toast = toast
         next_at = time.time() + delay_s
         if next_at > self._pending_load_next:
             self._pending_load_next = next_at
@@ -73,7 +84,7 @@ class TouchBrowserPatchesMixin:
 
         patch = self.loaded_patch_info or self._pending_last_patch
         if patch:
-            self._queue_patch_reload(patch, delay_s=1.0)
+            self._queue_patch_reload(patch, delay_s=1.0, toast=False)
 
     def _bootstrap_patches(self) -> None:
         last = self.scanner.load_last_patch()
@@ -144,7 +155,9 @@ class TouchBrowserPatchesMixin:
             self._refresh_lists(scroll_to_selection=True)
             self._layout()
             self._note_surge_patch_load_success()
-            self._toast("Patch loaded", 1.5)
+            if getattr(self, "_pending_load_toast", True):
+                self._toast("Patch loaded", 1.5)
+            self._pending_load_toast = True
         else:
             self._pending_load_next = time.time() + 2.0
     def _rebuild_all_patches_index(self) -> None:

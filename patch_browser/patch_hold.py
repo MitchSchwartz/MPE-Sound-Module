@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import os
 from pathlib import Path
 from typing import Any
@@ -12,6 +13,12 @@ from patch_browser.json_store import atomic_write_json, read_json_dict
 HOLD_MULT_MIN = 0.25
 HOLD_MULT_MAX = 4.0
 DEFAULT_HOLD_MULT = 1.0
+
+# Tail fader UI: bipolar offset from 1.0× (0 = center). Same ±50 *display range* as Touch, different zero semantics — see docs/TOUCH_PATCH_BROWSER.md §Mixer faders.
+HOLD_OFFSET_MIN = -0.50
+HOLD_OFFSET_MAX = 0.50
+HOLD_OFFSET_SPAN = 0.50
+HOLD_OFFSET_CLEAR_EPSILON = 0.01
 
 # Surge OSC amp envelope params are normalized 0..1.
 AEG_PARAM_MIN = 0.0
@@ -50,6 +57,23 @@ def empty_baseline() -> dict[str, dict[str, float]]:
 def effective_aeg_value(baseline: float, mult: float) -> float:
     """Scale a captured baseline by Hold multiplier, clamped to Surge range."""
     return max(AEG_PARAM_MIN, min(AEG_PARAM_MAX, float(baseline) * float(mult)))
+
+
+def clamp_hold_offset(offset: float) -> float:
+    return max(HOLD_OFFSET_MIN, min(HOLD_OFFSET_MAX, float(offset)))
+
+
+def hold_offset_to_mult(offset: float) -> float:
+    """Map bipolar Tail fader position to Hold multiplier (log2, ±2 octaves)."""
+    offset = clamp_hold_offset(offset)
+    mult = 2.0 ** (offset / HOLD_OFFSET_SPAN * 2.0)
+    return max(HOLD_MULT_MIN, min(HOLD_MULT_MAX, mult))
+
+
+def hold_mult_to_offset(mult: float) -> float:
+    """Map stored Hold multiplier to bipolar Tail fader position."""
+    mult = max(HOLD_MULT_MIN, min(HOLD_MULT_MAX, float(mult)))
+    return clamp_hold_offset(math.log2(mult) * HOLD_OFFSET_SPAN / 2.0)
 
 
 class PatchHoldStore:
@@ -145,7 +169,9 @@ class PatchHoldStore:
         if persist:
             self.save()
 
-    def format_hold_mult(self, mult: float) -> str:
-        if abs(mult - round(mult)) < 0.05:
-            return f"{mult:.0f}×"
-        return f"{mult:.1f}×"
+    def format_hold_offset(self, offset: float) -> str:
+        """Bipolar Tail fader label — 0 at center, ±50 scale."""
+        pts = round(clamp_hold_offset(offset) * 100)
+        if pts > 0:
+            return f"+{pts}"
+        return str(pts)
