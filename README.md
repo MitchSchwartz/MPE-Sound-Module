@@ -12,6 +12,12 @@ Plug a Roli into a Raspberry Pi. Turn it on. Play. That's the whole interaction.
 
 ## Demo
 
+**Touch screen build** (SmartiPi, 5" landscape touch panel)
+
+<!-- TODO: replace with the user-attachments URL for docs/demo-touch.mp4 -->
+
+**Encoder + OLED build** (reference hardware)
+
 https://github.com/user-attachments/assets/74652240-74af-48be-9db1-608f54805d25
 
 ---
