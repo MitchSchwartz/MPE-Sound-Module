@@ -11,7 +11,11 @@ Plug a Roli into a Raspberry Pi. Turn it on. Play. That's the whole interaction.
 **`dev`** is the integration branch for day-to-day development and agent work. **`main`** is the release line — land changes there only via pull request or explicit promotion from `dev`. Pi deploy can keep tracking `main` until you promote.
 
 ## Demo
+#Touchscreen Version
+https://github.com/user-attachments/assets/c3e12d33-1f02-4c8b-8dda-a7b0a855dd4a
 
+
+#Encoder Version
 https://github.com/user-attachments/assets/74652240-74af-48be-9db1-608f54805d25
 
 ---
