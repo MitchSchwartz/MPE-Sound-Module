@@ -14,9 +14,10 @@ from patch_browser.context_menu import (
     is_qa_browse,
     qa_folder_display_name,
 )
-from patch_browser.favorites_index import DEFAULT_FAVORITES_FOLDER
+from patch_browser.favorites_index import qa_folder_key_for_library
 from patch_browser.geometry import Rect
 from patch_browser.instrument_filter import patches_in_browse_subtree
+from patch_browser.scroll_widgets import ScrollableActionList
 from patch_browser.touch_keyboard import TouchKeyboardLayout
 from patch_browser.touch_ui_constants import (
     BROWSER_BOTTOM_MARGIN,
@@ -36,7 +37,7 @@ class TouchBrowserContextMixin:
         self._context_target: ContextTarget | None = None
         self._context_menu_view: str = "main"
         self._context_menu_actions: list[tuple[str, str]] = []
-        self._context_menu_rects: list[tuple[str, Rect]] = []
+        self._context_action_sheet = ScrollableActionList()
         self._context_menu_panel = Rect(0, 0, 0, 0)
         self._context_menu_title = ""
         self._name_prompt_text = ""
@@ -145,27 +146,17 @@ class TouchBrowserContextMixin:
             self._cancel_long_press()
 
     def _layout_context_menu(self) -> None:
-        margin = 16
-        row_h = SETTINGS_ROW_H
-        section_h = 28
-        gap = SETTINGS_ROW_GAP
-        header_h = 44
-        body_h = 0
-        for action_id, _label in self._context_menu_actions:
-            body_h += (section_h if action_id == "_section" else row_h) + gap
-        panel_h = header_h + body_h + 12
-        panel_h = min(panel_h, self.height - margin * 2 - 80)
-        panel_y = self.height - panel_h - BROWSER_BOTTOM_MARGIN
-        panel_w = self.width - margin * 2
-        self._context_menu_panel = Rect(margin, panel_y, panel_w, panel_h)
-        self._context_menu_rects = []
-        y = self._context_menu_panel.y + header_h
-        inner_w = self._context_menu_panel.w - 24
-        for action_id, label in self._context_menu_actions:
-            h = section_h if action_id == "_section" else row_h
-            rect = Rect(self._context_menu_panel.x + 12, y, inner_w, h)
-            self._context_menu_rects.append((action_id, rect))
-            y += h + gap
+        self._context_action_sheet.layout(
+            screen_w=self.width,
+            screen_h=self.height,
+            margin=16,
+            bottom_margin=BROWSER_BOTTOM_MARGIN,
+            actions=self._context_menu_actions,
+            row_h=SETTINGS_ROW_H,
+            section_h=28,
+            gap=SETTINGS_ROW_GAP,
+        )
+        self._context_menu_panel = self._context_action_sheet.panel
 
     def _open_context_menu(self, target: ContextTarget) -> None:
         self.nav_list.stop_momentum()
@@ -173,11 +164,21 @@ class TouchBrowserContextMixin:
         self._context_target = target
         self._context_menu_view = "main"
         favorited = False
+        qa_patch_count = 0
         if target.kind == "patch" and target.patch:
             favorited = self._patch_is_favorited(target.patch)
+        if target.kind == "qa_folder":
+            qa_patch_count = len(
+                patches_in_browse_subtree(
+                    self.scanner,
+                    target.category,
+                    target.inner_segments,
+                )
+            )
         self._context_menu_actions = build_context_actions(
             target,
             is_favorited=favorited,
+            qa_patch_count=qa_patch_count,
         )
         if not self._context_menu_actions:
             return
@@ -199,7 +200,7 @@ class TouchBrowserContextMixin:
         self._context_target = None
         self._context_menu_view = "main"
         self._context_menu_actions = []
-        self._context_menu_rects = []
+        self._context_action_sheet.scroll.reset()
 
     def _open_folder_picker(self, action_prefix: str) -> None:
         folders = self.scanner.favorites_index.folders
@@ -227,12 +228,22 @@ class TouchBrowserContextMixin:
             self._close_context_menu()
             return
         favorited = False
+        qa_patch_count = 0
         if target.kind == "patch" and target.patch:
             favorited = self._patch_is_favorited(target.patch)
+        if target.kind == "qa_folder":
+            qa_patch_count = len(
+                patches_in_browse_subtree(
+                    self.scanner,
+                    target.category,
+                    target.inner_segments,
+                )
+            )
         self._context_menu_view = "main"
         self._context_menu_actions = build_context_actions(
             target,
             is_favorited=favorited,
+            qa_patch_count=qa_patch_count,
         )
         self._context_menu_title = self._context_menu_heading(target)
         self._layout_context_menu()
@@ -245,28 +256,26 @@ class TouchBrowserContextMixin:
             self._close_context_menu()
             return
 
-        if action_id == "add_all_liked":
+        if action_id == "add_all_qa":
             patches = self._patches_for_library_target(target)
+            folder_key = qa_folder_key_for_library(target.category, target.inner_segments)
             added, skipped = self.scanner.add_patches_to_favorites(
                 patches,
-                folder=DEFAULT_FAVORITES_FOLDER,
+                folder=folder_key,
             )
             self._sync_categories_after_favorites_change()
             self._close_context_menu()
-            self._toast(f"Added {added} to {DEFAULT_FAVORITES_FOLDER} ({skipped} skipped)", 2.5)
+            label = folder_key or "Quick Select"
+            self._toast(f"Added {added} to {label} ({skipped} skipped)", 2.5)
             return
 
-        if action_id == "add_all_pick_folder":
-            self._open_folder_picker("add_all_folder")
-            return
-
-        if action_id == "favorite_liked":
+        if action_id == "favorite_qa":
             patch = target.patch
             if patch and self.scanner.add_patch_to_favorites(patch):
                 self._sync_categories_after_favorites_change()
-                self._toast(f"Added to {DEFAULT_FAVORITES_FOLDER}", 2.0)
+                self._toast("Added to Quick Select", 2.0)
             else:
-                self._toast("Could not add to Quick Access", 2.5)
+                self._toast("Could not add to Quick Select", 2.5)
             self._close_context_menu()
             return
 
@@ -312,6 +321,36 @@ class TouchBrowserContextMixin:
             self._open_name_prompt("qa_rename")
             return
 
+        if action_id == "qa_remove_all":
+            count = len(
+                patches_in_browse_subtree(
+                    self.scanner,
+                    target.category,
+                    target.inner_segments,
+                )
+            )
+            folder_label = qa_folder_display_name(target)
+            self._context_menu_view = "qa_remove_all_confirm"
+            self._context_menu_actions = [
+                ("qa_remove_all_confirm", f"Remove {count} patches"),
+                ("qa_cancel", "Cancel"),
+            ]
+            self._context_menu_title = f"Remove all from {folder_label}?"
+            self._layout_context_menu()
+            return
+
+        if action_id == "qa_remove_all_confirm":
+            patches = patches_in_browse_subtree(
+                self.scanner,
+                target.category,
+                target.inner_segments,
+            )
+            removed = self.scanner.remove_patches_from_favorites_bulk(patches)
+            self._sync_categories_after_favorites_change()
+            self._close_context_menu()
+            self._toast(f"Removed {removed} patches", 2.0)
+            return
+
         if action_id == "qa_delete":
             name = target.folder_name.strip()
             self._context_menu_view = "qa_delete_confirm"
@@ -335,13 +374,7 @@ class TouchBrowserContextMixin:
         if action_id.startswith("pick_folder:"):
             folder = action_id.split(":", 1)[1]
             view = self._context_menu_view
-            if view == "add_all_folder":
-                patches = self._patches_for_library_target(target)
-                added, skipped = self.scanner.add_patches_to_favorites(patches, folder=folder)
-                self._sync_categories_after_favorites_change()
-                self._close_context_menu()
-                self._toast(f"Added {added} to {folder} ({skipped} skipped)", 2.5)
-            elif view == "add_patch_folder" and target.patch:
+            if view == "add_patch_folder" and target.patch:
                 ok = self.scanner.add_patch_to_favorites(target.patch, folder=folder)
                 self._sync_categories_after_favorites_change()
                 self._close_context_menu()
@@ -476,63 +509,94 @@ class TouchBrowserContextMixin:
         self._close_name_prompt()
         self._close_context_menu()
 
-    def _handle_name_prompt_tap(self, pos: tuple[int, int]) -> None:
+    def _name_prompt_hit_at(self, pos: tuple[int, int]) -> str | None:
+        if self._name_prompt_ok and self._name_prompt_ok.contains(*pos):
+            return "name:save"
+        if self._name_prompt_cancel and self._name_prompt_cancel.contains(*pos):
+            return "name:cancel"
+        kb = self._name_prompt_keyboard
+        if kb is None:
+            return None
+        hit = kb.hit(pos)
+        if hit is None:
+            return None
+        return f"name:key:{hit}"
+
+    def _apply_name_prompt_hit(self, hit: str) -> None:
+        if hit == "name:save":
+            self._commit_name_prompt()
+        elif hit == "name:cancel":
+            self._close_name_prompt()
+        elif hit.startswith("name:key:"):
+            key = hit.split(":", 2)[2]
+            if key == "backspace":
+                self._name_prompt_text = self._name_prompt_text[:-1]
+            elif key == " ":
+                self._name_prompt_text += " "
+            elif key:
+                self._name_prompt_text += key
+
+    def _handle_name_prompt_pointer_down(self, pos: tuple[int, int]) -> None:
+        panel = getattr(self, "_name_prompt_panel", None)
+        if panel is not None and not panel.contains(*pos):
+            return
+        self._clear_modal_pointer()
+        hit = self._name_prompt_hit_at(pos)
+        self._modal_press_hit(pos, hit)
+
+    def _handle_name_prompt_pointer_up(self, pos: tuple[int, int]) -> None:
         panel = getattr(self, "_name_prompt_panel", None)
         if panel is not None and not panel.contains(*pos):
             self._close_name_prompt()
+            self._clear_modal_pointer()
             return
-        if self._name_prompt_ok and self._name_prompt_ok.contains(*pos):
-            self._commit_name_prompt()
+        if (
+            self._modal_pending_key is None
+            or self._pointer_move_distance(self._modal_pointer_down_pos, pos) > TAP_MOVE_THRESHOLD_PX
+        ):
+            self._clear_modal_pointer()
             return
-        if self._name_prompt_cancel and self._name_prompt_cancel.contains(*pos):
-            self._close_name_prompt()
-            return
-        kb = self._name_prompt_keyboard
-        if kb is None:
-            return
-        hit = kb.hit(pos)
-        if hit == "backspace":
-            self._name_prompt_text = self._name_prompt_text[:-1]
-        elif hit == " ":
-            self._name_prompt_text += " "
-        elif hit:
-            self._name_prompt_text += hit
+        self._apply_name_prompt_hit(self._modal_pending_key)
+        self._clear_modal_pointer()
 
-    def _handle_context_menu_tap(self, pos: tuple[int, int]) -> None:
+    def _handle_name_prompt_tap(self, pos: tuple[int, int]) -> None:
+        self._handle_name_prompt_pointer_up(pos)
+
+    def _handle_context_menu_pointer_down(self, pos: tuple[int, int]) -> None:
+        if self._context_menu_ignore_next_up:
+            return
+        self._context_action_sheet.pointer_down(pos)
+
+    def _handle_context_menu_pointer_move(self, pos: tuple[int, int]) -> None:
+        self._context_action_sheet.pointer_move(pos)
+
+    def _handle_context_menu_pointer_up(self, pos: tuple[int, int]) -> None:
         if self._context_menu_ignore_next_up:
             self._context_menu_ignore_next_up = False
             return
-        if not self._context_menu_panel.contains(*pos):
+        scrolled = self._context_action_sheet.pointer_up(pos)
+        if not self._context_action_sheet.contains(*pos):
             self._close_context_menu()
             return
-        for action_id, rect in self._context_menu_rects:
-            if action_id == "_section":
-                continue
-            if rect.contains(*pos):
-                self._execute_context_action(action_id)
-                return
+        if scrolled:
+            return
+        action_id = self._context_action_sheet.action_at(pos)
+        if action_id:
+            self._execute_context_action(action_id)
+
+    def _handle_context_menu_tap(self, pos: tuple[int, int]) -> None:
+        self._handle_context_menu_pointer_up(pos)
 
     def _draw_context_menu(self) -> None:
         self._draw_modal_backdrop(legacy_alpha=140)
-        panel = self._context_menu_panel
-        self._draw_elevated_panel(panel, border_radius=16)
-        title = self.font_md.render(self._context_menu_title, True, self.theme.text)
-        self.screen.blit(title, (panel.x + 16, panel.y + 12))
-        for action_id, rect in self._context_menu_rects:
-            if action_id == "_section":
-                label = next(l for aid, l in self._context_menu_actions if aid == action_id)
-                surf = self.font_sm.render(label, True, self.theme.muted)
-                self.screen.blit(surf, (rect.x + 4, rect.y + 6))
-                continue
-            pygame.draw.rect(self.screen, self.theme.surface_alt, rect.pygame_rect, border_radius=10)
-            label = next(l for aid, l in self._context_menu_actions if aid == action_id)
-            danger_ids = ("qa_delete", "qa_delete_confirm", "unfavorite_confirm")
-            color = self.theme.danger if action_id in danger_ids else self.theme.text
-            surf = self.font_md.render(label, True, color)
-            self.screen.blit(
-                surf,
-                (rect.x + 14, rect.y + (rect.h - surf.get_height()) // 2),
-            )
+        self._context_action_sheet.draw(
+            self.screen,
+            title=self._context_menu_title,
+            font_md=self.font_md,
+            font_sm=self.font_sm,
+            theme=self.theme,
+            draw_elevated_panel=lambda panel, **kw: self._draw_elevated_panel(panel, **kw),
+        )
 
     def _draw_name_prompt(self) -> None:
         self._draw_modal_backdrop(legacy_alpha=150)
@@ -554,26 +618,44 @@ class TouchBrowserContextMixin:
         kb = self._name_prompt_keyboard
         if kb:
             for rect, label in kb.keys:
-                pygame.draw.rect(self.screen, self.theme.surface_alt, rect.pygame_rect, border_radius=6)
+                key_hit = f"name:key:{label}"
+                pressed = self._pressed(key_hit)
+                bg = self.theme.accent if pressed else self.theme.surface_alt
+                text_color = self.theme.bg if pressed else self.theme.text
+                pygame.draw.rect(self.screen, bg, rect.pygame_rect, border_radius=6)
                 key_label = label.upper() if len(label) == 1 else label
-                ks = self.font_sm.render(key_label, True, self.theme.text)
+                ks = self.font_sm.render(key_label, True, text_color)
                 self.screen.blit(
                     ks,
                     (rect.x + (rect.w - ks.get_width()) // 2, rect.y + (rect.h - ks.get_height()) // 2),
                 )
             for special, rect in (
-                ("⌫", kb.backspace_rect),
-                ("space", kb.space_rect),
+                ("backspace", kb.backspace_rect),
+                (" ", kb.space_rect),
             ):
                 if rect is None:
                     continue
-                pygame.draw.rect(self.screen, self.theme.surface_alt, rect.pygame_rect, border_radius=6)
-                ks = self.font_sm.render(special, True, self.theme.text)
+                key_hit = f"name:key:{special}"
+                pressed = self._pressed(key_hit)
+                bg = self.theme.accent if pressed else self.theme.surface_alt
+                text_color = self.theme.bg if pressed else self.theme.text
+                pygame.draw.rect(self.screen, bg, rect.pygame_rect, border_radius=6)
+                display = "⌫" if special == "backspace" else "space"
+                ks = self.font_sm.render(display, True, text_color)
                 self.screen.blit(
                     ks,
                     (rect.x + (rect.w - ks.get_width()) // 2, rect.y + (rect.h - ks.get_height()) // 2),
                 )
         if self._name_prompt_cancel:
-            self._draw_button(self._name_prompt_cancel, "Cancel")
+            self._draw_button(
+                self._name_prompt_cancel,
+                "Cancel",
+                pressed=self._pressed("name:cancel"),
+            )
         if self._name_prompt_ok:
-            self._draw_button(self._name_prompt_ok, "Save", accent=True)
+            self._draw_button(
+                self._name_prompt_ok,
+                "Save",
+                accent=True,
+                pressed=self._pressed("name:save"),
+            )

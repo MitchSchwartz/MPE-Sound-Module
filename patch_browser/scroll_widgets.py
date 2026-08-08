@@ -824,7 +824,7 @@ class ScrollableActionList:
             pressed = row.action_id == self.pressed_action_id
             if pressed:
                 bg = theme.accent
-                color = theme.bg if row.action_id not in DANGER_ACTION_IDS else theme.bg
+                color = theme.bg
             else:
                 bg = theme.surface_alt
                 color = theme.danger if row.action_id in DANGER_ACTION_IDS else theme.text

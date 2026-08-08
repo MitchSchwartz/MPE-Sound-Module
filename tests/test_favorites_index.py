@@ -23,7 +23,7 @@ class FavoritesIndexTests(unittest.TestCase):
             index.add(
                 "factory:Bass/Lead",
                 folder=DEFAULT_FAVORITES_FOLDER,
-                dest_path=Path(tmp) / "Liked" / "Lead.fxp",
+                dest_path=Path(tmp) / "Lead.fxp",
             )
             index.save()
             reloaded = FavoritesIndex(path)
@@ -104,16 +104,20 @@ class PatchScannerFavoritesTests(unittest.TestCase):
         path.write_bytes(b"fxp")
         return path
 
-    def test_add_patch_to_favorites_uses_liked_subfolder(self) -> None:
+    def test_add_patch_to_favorites_uses_qa_root(self) -> None:
         source = self._touch("Bass/Acid.fxp")
         self.scanner.scan_patches()
         entry = self.scanner.get_patch_by_path(source)
         assert entry is not None
         self.assertTrue(self.scanner.add_patch_to_favorites(entry))
-        dest = self.qa / DEFAULT_FAVORITES_FOLDER / "Acid.fxp"
+        dest = self.qa / "Acid.fxp"
         self.assertTrue(dest.exists())
         self.assertTrue(
             self.scanner.favorites_index.is_favorited(entry["stable_key"])
+        )
+        self.assertEqual(
+            self.scanner.favorites_index.get_entry(entry["stable_key"])["folder"],
+            "",
         )
 
     def test_rescan_favorites_only_updates_qa_category(self) -> None:
@@ -134,7 +138,16 @@ class PatchScannerFavoritesTests(unittest.TestCase):
             len(self.scanner.get_patches_in_category("Piano")),
             before_count,
         )
-        self.assertIn(DEFAULT_FAVORITES_FOLDER, self.scanner.get_subfolders(label))
+
+    def test_add_folder_mirror_creates_subfolder(self) -> None:
+        self._touch("Bass/Acid.fxp")
+        self._touch("Bass/Sub/Wub.fxp")
+        self.scanner.scan_patches()
+        patches = self.scanner.get_patches_in_folder("Bass", ("Sub",))
+        added, skipped = self.scanner.add_patches_to_favorites(patches, folder="Bass/Sub")
+        self.assertEqual(added, 1)
+        self.assertEqual(skipped, 0)
+        self.assertTrue((self.qa / "Bass" / "Sub" / "Wub.fxp").exists())
 
     def test_remove_uses_index_not_full_rescan(self) -> None:
         source = self._touch("Lead/Solo.fxp")

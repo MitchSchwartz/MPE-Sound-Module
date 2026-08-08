@@ -104,6 +104,7 @@ class TouchBrowserPrefsMixin:
     def _open_theme_color_palette(self) -> None:
         self._theme_view_state = THEME_VIEW_COLORS
         self._reload_custom_accent_colors()
+        self._theme_colors_scroll.reset()
 
     def _open_theme_color_picker(self, *, editing_id: str | None = None) -> None:
         draft = self._theme_draft()

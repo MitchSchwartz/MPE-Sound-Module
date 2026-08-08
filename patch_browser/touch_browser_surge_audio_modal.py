@@ -106,11 +106,12 @@ class TouchBrowserSurgeAudioModalMixin:
                 rect,
                 buffer_option_label(preset),
                 selected=preset == current,
+                pressed=self._pressed(f"buffer:{preset}"),
             )
 
         cancel_y = panel.y + panel.h - inner_pad - SETTINGS_ROW_H
         self._surge_buffer_cancel_rect = Rect(inner_x, cancel_y, inner_w, SETTINGS_ROW_H)
-        self._draw_button(self._surge_buffer_cancel_rect, "Cancel")
+        self._draw_button(self._surge_buffer_cancel_rect, "Cancel", pressed=self._pressed("cancel"))
 
     def _draw_surge_sample_rate_modal(self) -> None:
         self._draw_modal_backdrop(legacy_alpha=150)
@@ -146,11 +147,12 @@ class TouchBrowserSurgeAudioModalMixin:
                 rect,
                 sample_rate_option_label(preset),
                 selected=preset == current,
+                pressed=self._pressed(f"rate:{preset}"),
             )
 
         cancel_y = panel.y + panel.h - inner_pad - SETTINGS_ROW_H
         self._surge_sample_rate_cancel_rect = Rect(inner_x, cancel_y, inner_w, SETTINGS_ROW_H)
-        self._draw_button(self._surge_sample_rate_cancel_rect, "Cancel")
+        self._draw_button(self._surge_sample_rate_cancel_rect, "Cancel", pressed=self._pressed("cancel"))
 
     def _surge_buffer_modal_hit_at(self, pos: tuple[int, int]) -> str | None:
         cancel = getattr(self, "_surge_buffer_cancel_rect", None)
@@ -172,10 +174,8 @@ class TouchBrowserSurgeAudioModalMixin:
 
     def _handle_surge_buffer_modal_pointer_down(self, pos: tuple[int, int]) -> None:
         self._clear_modal_pointer()
-        self._modal_pointer_down_pos = pos
         hit = self._surge_buffer_modal_hit_at(pos)
-        if hit is not None:
-            self._modal_pending_key = hit
+        self._modal_press_hit(pos, hit)
 
     def _handle_surge_buffer_modal_pointer_up(self, pos: tuple[int, int]) -> None:
         if (
@@ -194,10 +194,8 @@ class TouchBrowserSurgeAudioModalMixin:
 
     def _handle_surge_sample_rate_modal_pointer_down(self, pos: tuple[int, int]) -> None:
         self._clear_modal_pointer()
-        self._modal_pointer_down_pos = pos
         hit = self._surge_sample_rate_modal_hit_at(pos)
-        if hit is not None:
-            self._modal_pending_key = hit
+        self._modal_press_hit(pos, hit)
 
     def _handle_surge_sample_rate_modal_pointer_up(self, pos: tuple[int, int]) -> None:
         if (
