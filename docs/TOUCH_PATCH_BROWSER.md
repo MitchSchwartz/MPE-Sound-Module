@@ -423,7 +423,7 @@ Tests: `tests/test_patch_metadata.py`, `tests/test_patch_scanner_metadata.py`
 
 When browsing a **folder** or **All patches**, a **Filter** control appears under the nav header:
 
-- Tap the **filter icon** (funnel, left of the A–Z rail in All patches) to expand/collapse a **wrapped chip panel** in the nav list
+- Tap the **filter icon** (funnel, in the nav header beside the A–Z button) to expand/collapse a **wrapped chip panel** in the nav list
 - **All** clears the filter (`__all__` sentinel — not confused with instrument ids)
 - Other chips (Piano, Pad, Bass, Percussion, …) narrow the list; panel closes after selection
 - Filter button shows **accent** when a filter is active, the panel is open, or while pressed
