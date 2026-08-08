@@ -477,6 +477,10 @@ class TouchBrowserContextMixin:
         self._close_context_menu()
 
     def _handle_name_prompt_tap(self, pos: tuple[int, int]) -> None:
+        panel = getattr(self, "_name_prompt_panel", None)
+        if panel is not None and not panel.contains(*pos):
+            self._close_name_prompt()
+            return
         if self._name_prompt_ok and self._name_prompt_ok.contains(*pos):
             self._commit_name_prompt()
             return
