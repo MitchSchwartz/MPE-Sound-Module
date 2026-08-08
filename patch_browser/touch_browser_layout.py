@@ -27,7 +27,6 @@ from patch_browser.touch_ui_constants import (
     MIXER_BOTTOM_GAP,
     MIXER_LABEL_H,
     NAV_FOLDER_TITLE_H,
-    NORM_CHECKBOX_SIZE,
     NORM_ROW_H,
     NORM_ROW_W,
     PATCHES_ROW_HEIGHT,
@@ -37,6 +36,7 @@ from patch_browser.touch_ui_constants import (
     SETTINGS_PANEL_W,
     SETTINGS_ROW_GAP,
     SETTINGS_ROW_H,
+    SETTINGS_TOGGLE_W,
     STATUS_BAR_ITEM_GAP,
 )
 from patch_browser.audio_profile import header_badge_label
@@ -164,7 +164,7 @@ class TouchBrowserLayoutMixin:
         shown_x = self.settings_panel_rect.x
         return int(hidden_x + (shown_x - hidden_x) * self._settings_slide)
     def _settings_toggle_label_width(self, inner_w: int) -> int:
-        return max(1, inner_w - 12 - NORM_CHECKBOX_SIZE - 16)
+        return max(1, inner_w - 16 - SETTINGS_TOGGLE_W - 16)
     def _settings_action_label_width(self, inner_w: int) -> int:
         return max(1, inner_w - 32)
     def _settings_row_height(self, label: str, inner_w: int, *, toggle: bool = False) -> int:
@@ -189,7 +189,8 @@ class TouchBrowserLayoutMixin:
         px = self._settings_panel_x()
         py = self.settings_panel_rect.y
         scroll = int(self._settings_content_scroll.scroll_pixels) if scrolled else 0
-        return Rect(rect.x + px, rect.y + py - scroll, rect.w, rect.h)
+        content_top = SETTINGS_PANEL_HEADER_H if scrolled else 0
+        return Rect(rect.x + px, rect.y + py + content_top - scroll, rect.w, rect.h)
     def _settings_scroll_viewport_screen(self) -> Rect:
         px = self._settings_panel_x()
         vp = self._settings_scroll_viewport
