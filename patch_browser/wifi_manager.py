@@ -156,24 +156,23 @@ def scan_wifi() -> tuple[list[WifiNetwork], str | None]:
         detail = (result.stderr or result.stdout or "scan failed").strip()
         return [], detail.splitlines()[0][:80]
 
-        saved = known_connection_names()
-        merged: dict[str, WifiNetwork] = {}
-        for line in result.stdout.splitlines():
-            if not line.strip():
-                continue
-            parsed = _parse_wifi_list_line(line)
-            if parsed is None:
-                continue
-            bssid_raw, ssid, signal_raw, security, in_use = parsed
-            if not ssid or ssid == "--":
-                continue
-            try:
-                signal = int(signal_raw)
-            except ValueError:
-                signal = 0
-            secured = security not in ("", "--")
-            active = in_use == "*"
-            saved_profile = connection_has_usable_profile(ssid, secured=secured)
+    merged: dict[str, WifiNetwork] = {}
+    for line in result.stdout.splitlines():
+        if not line.strip():
+            continue
+        parsed = _parse_wifi_list_line(line)
+        if parsed is None:
+            continue
+        bssid_raw, ssid, signal_raw, security, in_use = parsed
+        if not ssid or ssid == "--":
+            continue
+        try:
+            signal = int(signal_raw)
+        except ValueError:
+            signal = 0
+        secured = security not in ("", "--")
+        active = in_use == "*"
+        saved_profile = connection_has_usable_profile(ssid, secured=secured)
         bssid = _unescape_nmcli(bssid_raw) if bssid_raw else None
         candidate = WifiNetwork(
             ssid=ssid,
