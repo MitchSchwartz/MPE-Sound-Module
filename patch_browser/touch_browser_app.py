@@ -56,7 +56,8 @@ from patch_browser.dsi_splash import (
     draw_splash_frame,
     signal_browser_ready,
 )
-from patch_browser.ui_theme import DEFAULT_ACCENT_RGB, THEME_VIEW_MAIN, reload_theme_from_prefs, theme_for_mode
+from patch_browser.touch_press import TouchPressState
+from patch_browser.ui_theme import DEFAULT_ACCENT_RGB, THEME_VIEW_COLORS, THEME_VIEW_MAIN, reload_theme_from_prefs, theme_for_mode
 
 
 class TouchPatchBrowser(
@@ -192,6 +193,9 @@ class TouchPatchBrowser(
         self._modal_pending_key: str | None = None
         self._modal_panel_rect: Rect | None = None
         self._settings_content_scroll = ContentScrollArea(Rect(0, 0, 1, 1))
+        self._theme_colors_scroll = ContentScrollArea(Rect(0, 0, 1, 1))
+        self._theme_colors_scroll_capture = False
+        self._touch_press = TouchPressState()
         self._settings_content_height = 0
         self._running = True
         self._scan_lock = threading.Lock()
@@ -210,7 +214,6 @@ class TouchPatchBrowser(
         self._wifi_networks: list = []
         self._wifi_scan_error: str | None = None
         self._wifi_password = ""
-        self._wifi_key_pressed: str | None = None
         self._wifi_key_flash_key: str | None = None
         self._wifi_key_flash_until = 0.0
         self._profile_switch_reload_active = False
@@ -278,10 +281,21 @@ class TouchPatchBrowser(
     def _clear_settings_pointer(self) -> None:
         self._settings_pointer_down_pos = None
         self._settings_pending_hit = None
+        self._touch_press.clear()
+
     def _clear_modal_pointer(self) -> None:
         self._modal_pointer_down_pos = None
         self._modal_pending_index = None
         self._modal_pending_key = None
+        self._touch_press.clear()
+
+    def _modal_press_hit(self, pos: tuple[int, int], hit: str | None) -> None:
+        self._modal_pointer_down_pos = pos
+        self._modal_pending_key = hit
+        self._touch_press.set(hit)
+
+    def _pressed(self, target_id: str) -> bool:
+        return self._touch_press.is_pressed(target_id)
     def _toast(self, message: str, seconds: float = 2.0) -> None:
         self.toast_message = message
         self.toast_until = time.time() + seconds
@@ -327,6 +341,11 @@ class TouchPatchBrowser(
             self._tick_settings_animation(dt)
             if self.screen_state == Screen.SETTINGS:
                 self._settings_content_scroll.tick(dt)
+            if (
+                self.screen_state == Screen.THEME
+                and self._theme_view() == THEME_VIEW_COLORS
+            ):
+                self._theme_colors_scroll.tick(dt)
             if self.screen_state == Screen.WIFI_MODAL and getattr(self, "_wifi_view", "list") == "list":
                 scroll = getattr(self, "_wifi_scroll", None)
                 if scroll is not None:
