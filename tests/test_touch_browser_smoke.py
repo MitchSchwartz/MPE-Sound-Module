@@ -177,6 +177,10 @@ class TouchBrowserSmokeTests(unittest.TestCase):
             mock.patch.object(TouchPatchBrowser, "_complete_boot_splash"),
             mock.patch.object(TouchPatchBrowser, "_paint_boot_splash_frame"),
             mock.patch.object(TouchPatchBrowser, "_start_evdev_touch_bridge"),
+            mock.patch(
+                "patch_browser.wifi_manager.wifi_settings_row_label",
+                return_value="Wi‑Fi — Not connected",
+            ),
         ]
         for patcher in patches:
             patcher.start()

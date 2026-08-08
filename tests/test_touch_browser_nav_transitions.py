@@ -180,6 +180,10 @@ class TouchBrowserNavTransitionTests(unittest.TestCase):
             mock.patch.object(TouchPatchBrowser, "_paint_boot_splash_frame"),
             mock.patch.object(TouchPatchBrowser, "_start_evdev_touch_bridge"),
             mock.patch.object(TouchPatchBrowser, "_bootstrap_patches"),
+            mock.patch(
+                "patch_browser.wifi_manager.wifi_settings_row_label",
+                return_value="Wi‑Fi — Not connected",
+            ),
         ]
         for patcher in patchers:
             patcher.start()
