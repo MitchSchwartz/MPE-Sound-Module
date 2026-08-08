@@ -419,13 +419,15 @@ Instrument chips UI lands in Phase 4; metadata is attached at scan time now.
 
 Tests: `tests/test_patch_metadata.py`, `tests/test_patch_scanner_metadata.py`
 
-## Instrument chips (Phase 4)
+## Instrument filter (Phase 4)
 
-When browsing a **folder** or **All patches**, a horizontal chip row appears under the nav header:
+When browsing a **folder** or **All patches**, a **Filter** control appears under the nav header:
 
-- **All** clears the instrument filter; other chips (Piano, Pad, Bass, **Other**, …) narrow the list
-- In folder browse, chips reflect instruments in the **current folder subtree**
-- Drag horizontally to scroll chips when they overflow; tap to filter
+- Tap **Filter** to expand/collapse a **wrapped chip panel** (no horizontal scroll)
+- **All** clears the filter (`__all__` sentinel — not confused with instrument ids)
+- Other chips (Piano, Pad, Bass, Percussion, …) narrow the list; panel closes after selection
+- Filter button shows **accent** when a filter is active or the panel is open; label switches to the active instrument name
+- In folder browse, chips reflect instruments in the **current folder subtree** only
 - All-patches row subtitle shows the top-level **category** only; folder browse rows are name-only
 
 Tests: `tests/test_instrument_filter.py`

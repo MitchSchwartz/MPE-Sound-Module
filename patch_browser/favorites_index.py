@@ -11,8 +11,33 @@ from typing import Any
 
 from patch_browser.json_store import atomic_write_json, read_json_dict
 
-DEFAULT_FAVORITES_FOLDER = "Liked"
+QA_ROOT_FOLDER = ""
+LEGACY_LIKED_FOLDER = "Liked"
+DEFAULT_FAVORITES_FOLDER = QA_ROOT_FOLDER
 INDEX_VERSION = 1
+
+
+def qa_folder_segments(folder_key: str) -> tuple[str, ...]:
+    folder_key = folder_key.strip()
+    if not folder_key:
+        return ()
+    return tuple(part for part in folder_key.split("/") if part)
+
+
+def qa_folder_dest_dir(qa_root: Path, folder_key: str) -> Path:
+    segments = qa_folder_segments(folder_key)
+    return qa_root.joinpath(*segments) if segments else qa_root
+
+
+def qa_folder_key_for_library(category: str, inner_segments: tuple[str, ...]) -> str:
+    """Mirror a library browse folder as a Quick Select subfolder path."""
+    from patch_browser.patch_scanner import favorites_folder_matches
+
+    parts: list[str] = []
+    if category and not favorites_folder_matches(category):
+        parts.append(category.lstrip("!"))
+    parts.extend(inner_segments)
+    return "/".join(parts)
 
 
 def default_favorites_index_path() -> Path:
@@ -27,7 +52,7 @@ class MigrationPlanItem:
     source_path: Path
     dest_path: Path
     stable_key: str
-    folder: str = DEFAULT_FAVORITES_FOLDER
+    folder: str = LEGACY_LIKED_FOLDER
 
 
 @dataclass
@@ -50,7 +75,7 @@ class FavoritesIndex:
 
     def __init__(self, path: Path | None = None) -> None:
         self.path = path or default_favorites_index_path()
-        self._folders: list[str] = [DEFAULT_FAVORITES_FOLDER]
+        self._folders: list[str] = []
         self._entries: dict[str, dict[str, Any]] = {}
         self.load()
 
@@ -60,12 +85,9 @@ class FavoritesIndex:
         raw = read_json_dict(self.path, label="favorites index")
         folders = raw.get("folders")
         if isinstance(folders, list):
-            cleaned = [str(f) for f in folders if str(f).strip()]
-            self._folders = cleaned or [DEFAULT_FAVORITES_FOLDER]
+            self._folders = [str(f) for f in folders if str(f).strip()]
         else:
-            self._folders = [DEFAULT_FAVORITES_FOLDER]
-        if DEFAULT_FAVORITES_FOLDER not in self._folders:
-            self._folders.insert(0, DEFAULT_FAVORITES_FOLDER)
+            self._folders = []
         entries = raw.get("entries")
         self._entries = {}
         if isinstance(entries, dict):
@@ -118,8 +140,9 @@ class FavoritesIndex:
         dest_path: str | Path,
         added_at: str | None = None,
     ) -> None:
-        folder_name = folder.strip() or DEFAULT_FAVORITES_FOLDER
-        self.ensure_folder(folder_name)
+        folder_name = folder.strip()
+        if folder_name:
+            self.ensure_folder(folder_name)
         self._entries[stable_key] = {
             "folder": folder_name,
             "dest_path": str(dest_path),
@@ -159,7 +182,7 @@ class FavoritesIndex:
         if not folder:
             raise ValueError("folder name required")
         self.ensure_folder(folder)
-        path = qa_root / folder
+        path = qa_folder_dest_dir(qa_root, folder)
         path.mkdir(parents=True, exist_ok=True)
         return path
 
@@ -168,32 +191,38 @@ class FavoritesIndex:
         new = new_name.strip()
         if not old or not new:
             raise ValueError("folder names required")
-        if old == DEFAULT_FAVORITES_FOLDER and new != DEFAULT_FAVORITES_FOLDER:
-            raise ValueError(f"cannot rename default folder {DEFAULT_FAVORITES_FOLDER!r}")
         if old not in self._folders:
             raise ValueError(f"unknown folder {old!r}")
-        src = qa_root / old
-        dst = qa_root / new
-        if dst.exists() and not src.samefile(dst):
+        src = qa_folder_dest_dir(qa_root, old)
+        dst = qa_folder_dest_dir(qa_root, new)
+        if dst.exists() and src.exists() and not src.samefile(dst):
             raise ValueError(f"destination folder already exists: {new!r}")
         if src.exists():
+            dst.parent.mkdir(parents=True, exist_ok=True)
             src.rename(dst)
         idx = self._folders.index(old)
         self._folders[idx] = new
+        old_prefix = f"{old}/"
         for entry in self._entries.values():
-            if entry.get("folder") == old:
+            entry_folder = str(entry.get("folder") or "")
+            if entry_folder == old:
                 entry["folder"] = new
-                dest = entry.get("dest_path")
-                if isinstance(dest, str) and f"/{old}/" in dest.replace("\\", "/"):
-                    entry["dest_path"] = dest.replace(f"/{old}/", f"/{new}/")
+            elif entry_folder.startswith(old_prefix):
+                entry["folder"] = new + entry_folder[len(old) :]
+            dest = entry.get("dest_path")
+            if isinstance(dest, str):
+                normalized = dest.replace("\\", "/")
+                old_seg = f"/{old}/"
+                if old_seg in normalized:
+                    entry["dest_path"] = normalized.replace(old_seg, f"/{new}/", 1)
 
     def delete_folder(self, name: str, *, qa_root: Path) -> None:
         folder = name.strip()
-        if folder == DEFAULT_FAVORITES_FOLDER:
-            raise ValueError(f"cannot delete default folder {DEFAULT_FAVORITES_FOLDER!r}")
-        if any(entry.get("folder") == folder for entry in self._entries.values()):
+        if not folder:
+            raise ValueError("cannot delete Quick Select root")
+        if any(str(entry.get("folder") or "") == folder for entry in self._entries.values()):
             raise ValueError(f"folder {folder!r} is not empty")
-        path = qa_root / folder
+        path = qa_folder_dest_dir(qa_root, folder)
         if path.exists():
             if any(path.iterdir()):
                 raise ValueError(f"folder {folder!r} is not empty on disk")
@@ -206,7 +235,7 @@ class FavoritesIndex:
         qa_root: Path,
         stem_to_stable_keys: dict[str, list[str]],
         *,
-        target_folder: str = DEFAULT_FAVORITES_FOLDER,
+        target_folder: str = LEGACY_LIKED_FOLDER,
     ) -> MigrationPlan:
         """Plan moving flat Quick Access root copies into target_folder."""
         plan = MigrationPlan()
@@ -265,7 +294,7 @@ class FavoritesIndex:
                 shutil.copy2(self.path, backup_dir / self.path.name)
             if qa_root.is_dir():
                 shutil.copytree(qa_root, backup_dir / qa_root.name, dirs_exist_ok=True)
-        (qa_root / DEFAULT_FAVORITES_FOLDER).mkdir(parents=True, exist_ok=True)
+        (qa_root / LEGACY_LIKED_FOLDER).mkdir(parents=True, exist_ok=True)
         for item in plan.items:
             item.source_path.rename(item.dest_path)
             self.add(

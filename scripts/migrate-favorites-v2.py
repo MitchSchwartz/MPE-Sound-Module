@@ -13,7 +13,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from patch_browser.favorites_index import (  # noqa: E402
-    DEFAULT_FAVORITES_FOLDER,
+    LEGACY_LIKED_FOLDER,
     FavoritesIndex,
 )
 from patch_browser.patch_scanner import (  # noqa: E402
@@ -97,7 +97,7 @@ def main() -> int:
 
     print(f"Quick Access: {qa_root}")
     print(f"Display category: {favorites_display_name()}")
-    print(f"Target folder: {DEFAULT_FAVORITES_FOLDER}/")
+    print(f"Target folder: {LEGACY_LIKED_FOLDER}/")
     print(f"Moves planned: {plan.move_count}")
 
     for item in plan.items:

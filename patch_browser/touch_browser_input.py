@@ -318,6 +318,7 @@ class TouchBrowserInputMixin:
         hit = self._settings_hit_at(pos)
         if hit in ("close", "settings_back", "power"):
             self._settings_pending_hit = hit
+            self._touch_press.set(f"settings:{hit}")
             return
 
         scroll_vp = self._settings_scroll_viewport_screen()
@@ -325,6 +326,12 @@ class TouchBrowserInputMixin:
             self._sync_settings_scroll_viewport()
             self._settings_content_scroll.pointer_down(pos)
             self._settings_swipe_start = pos
+            if hit is not None:
+                self._touch_press.set(f"settings:{hit}")
+            return
+
+        if hit is not None:
+            self._touch_press.set(f"settings:{hit}")
 
     def _handle_settings_pointer_up(self, pos: tuple[int, int]) -> None:
         scrolled = self._settings_content_scroll.pointer_up(pos)
@@ -358,11 +365,13 @@ class TouchBrowserInputMixin:
         self._clear_settings_pointer()
     def _handle_power_menu_pointer_down(self, pos: tuple[int, int]) -> None:
         self._clear_modal_pointer()
-        self._modal_pointer_down_pos = pos
+        power_ids = ("power:shutdown", "power:restart", "power:cancel")
         for i, rect in enumerate(self._power_option_rects):
             if rect.contains(*pos):
+                self._modal_press_hit(pos, power_ids[i])
                 self._modal_pending_index = i
                 return
+
     def _handle_power_menu_pointer_up(self, pos: tuple[int, int]) -> None:
         if (
             self._modal_pending_index is not None
@@ -398,15 +407,19 @@ class TouchBrowserInputMixin:
             return None
 
         if view == THEME_VIEW_COLORS:
-            for delete_rect, color_id in getattr(self, "_theme_color_delete_rects", []):
-                if delete_rect.contains(*pos):
-                    return f"delete:{color_id}"
-            for rect, _rgb, hit_id in getattr(self, "_theme_color_swatch_rects", []):
-                if rect.contains(*pos):
-                    return hit_id
             back = getattr(self, "_theme_colors_back_rect", None)
             if back is not None and back.contains(*pos):
                 return "colors_back"
+            scroll = getattr(self, "_theme_colors_scroll", None)
+            if scroll is not None and scroll.viewport.contains(*pos):
+                lx = pos[0] - scroll.viewport.x
+                ly = pos[1] - scroll.viewport.y + int(scroll.scroll_pixels)
+                for delete_rect, color_id in getattr(self, "_theme_color_delete_rects_content", []):
+                    if delete_rect.contains(lx, ly):
+                        return f"delete:{color_id}"
+                for rect, _rgb, hit_id in getattr(self, "_theme_color_swatch_rects_content", []):
+                    if rect.contains(lx, ly):
+                        return hit_id
             return None
 
         for index, rect in enumerate(getattr(self, "_theme_base_option_rects", [])):
@@ -440,29 +453,7 @@ class TouchBrowserInputMixin:
         else:
             self._set_picker_rgb((current[0], current[1], value))
 
-    def _handle_theme_modal_pointer_down(self, pos: tuple[int, int]) -> None:
-        self._clear_modal_pointer()
-        self._modal_pointer_down_pos = pos
-        hit = self._theme_modal_hit_at(pos)
-        if hit is None:
-            return
-        if hit.startswith("picker_slider:"):
-            self._picker_slider_channel = hit.split(":", 1)[1]
-            self._apply_picker_slider_channel(self._picker_slider_channel, pos)
-            self._modal_pending_key = hit
-            return
-        self._modal_pending_key = hit
-
-    def _handle_theme_modal_pointer_up(self, pos: tuple[int, int]) -> None:
-        if (
-            self._modal_pending_key is None
-            or self._pointer_move_distance(self._modal_pointer_down_pos, pos)
-            > TAP_MOVE_THRESHOLD_PX
-        ):
-            self._clear_modal_pointer()
-            return
-
-        hit = self._modal_pending_key
+    def _apply_theme_modal_hit(self, hit: str) -> None:
         if hit == "choose_colors":
             self._open_theme_color_palette()
         elif hit == "colors_back":
@@ -501,16 +492,61 @@ class TouchBrowserInputMixin:
             self._commit_theme_modal()
         elif hit == "cancel":
             self._cancel_theme_modal()
+
+    def _handle_theme_modal_pointer_down(self, pos: tuple[int, int]) -> None:
+        self._clear_modal_pointer()
+        if self._theme_view() == THEME_VIEW_COLORS:
+            if self._theme_colors_scroll.viewport.contains(*pos):
+                self._theme_colors_scroll.pointer_down(pos)
+            hit = self._theme_modal_hit_at(pos)
+            self._touch_press.set(hit)
+            return
+        hit = self._theme_modal_hit_at(pos)
+        if hit is None:
+            return
+        if hit.startswith("picker_slider:"):
+            self._picker_slider_channel = hit.split(":", 1)[1]
+            self._apply_picker_slider_channel(self._picker_slider_channel, pos)
+        self._modal_press_hit(pos, hit)
+
+    def _handle_theme_modal_pointer_up(self, pos: tuple[int, int]) -> None:
+        if self._theme_view() == THEME_VIEW_COLORS:
+            scrolled = self._theme_colors_scroll.pointer_up(pos)
+            tap_ok = (
+                not scrolled
+                and not self._theme_colors_scroll.is_interacting()
+                and self._pointer_move_distance(self._modal_pointer_down_pos, pos)
+                <= TAP_MOVE_THRESHOLD_PX
+            )
+            if tap_ok:
+                hit = self._theme_modal_hit_at(pos)
+                if hit is not None:
+                    self._apply_theme_modal_hit(hit)
+            self._picker_slider_channel = None
+            self._clear_modal_pointer()
+            return
+
+        if (
+            self._modal_pending_key is None
+            or self._pointer_move_distance(self._modal_pointer_down_pos, pos)
+            > TAP_MOVE_THRESHOLD_PX
+        ):
+            self._clear_modal_pointer()
+            return
+
+        self._apply_theme_modal_hit(self._modal_pending_key)
         self._picker_slider_channel = None
         self._clear_modal_pointer()
 
     def _handle_calibrate_confirm_pointer_down(self, pos: tuple[int, int]) -> None:
         self._clear_modal_pointer()
-        self._modal_pointer_down_pos = pos
         if self._calibrate_confirm_no.contains(*pos):
+            self._modal_press_hit(pos, "cal:cancel")
             self._modal_pending_index = 0
         elif self._calibrate_confirm_yes.contains(*pos):
+            self._modal_press_hit(pos, "cal:start")
             self._modal_pending_index = 1
+
     def _handle_calibrate_confirm_pointer_up(self, pos: tuple[int, int]) -> None:
         if (
             self._modal_pending_index is None
@@ -534,11 +570,13 @@ class TouchBrowserInputMixin:
         self._clear_modal_pointer()
     def _handle_power_confirm_pointer_down(self, pos: tuple[int, int]) -> None:
         self._clear_modal_pointer()
-        self._modal_pointer_down_pos = pos
         if self._confirm_no.contains(*pos):
+            self._modal_press_hit(pos, "confirm:cancel")
             self._modal_pending_index = 0
         elif self._confirm_yes.contains(*pos):
+            self._modal_press_hit(pos, "confirm:yes")
             self._modal_pending_index = 1
+
     def _handle_power_confirm_pointer_up(self, pos: tuple[int, int]) -> None:
         if (
             self._modal_pending_index is not None
@@ -597,7 +635,7 @@ class TouchBrowserInputMixin:
                 pygame.MOUSEWHEEL,
             )
         ):
-            chip_active = self._instrument_chip_drag_start_x is not None
+            chip_active = self._instrument_chip_active()
             if event.type == pygame.MOUSEBUTTONDOWN:
                 if self._handle_instrument_chip_pointer_down(event.pos):
                     chip_active = True
@@ -613,33 +651,31 @@ class TouchBrowserInputMixin:
                     chip_active = True
                 elif self._context_nav_pointer_up():
                     chip_active = True
-            elif event.type == pygame.MOUSEWHEEL:
-                if self.instrument_chip_row_rect.contains(*pygame.mouse.get_pos()):
-                    delta = event.x if event.x else event.y
-                    max_scroll = max(
-                        0.0,
-                        float(
-                            self._instrument_chip_content_width
-                            - self.instrument_chip_row_rect.w
-                        ),
-                    )
-                    self._instrument_chip_scroll_x = max(
-                        0.0,
-                        min(self._instrument_chip_scroll_x - delta * 24, max_scroll),
-                    )
-                    chip_active = True
             if not chip_active:
                 self.nav_list.handle_event(event)
 
+        if self.screen_state == Screen.CONTEXT_MENU and event.type in (
+            pygame.MOUSEBUTTONDOWN,
+            pygame.MOUSEMOTION,
+            pygame.MOUSEBUTTONUP,
+        ):
+            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                self._handle_context_menu_pointer_down(event.pos)
+            elif event.type == pygame.MOUSEMOTION:
+                self._handle_context_menu_pointer_move(event.pos)
+            elif event.type == pygame.MOUSEBUTTONUP and event.button == 1:
+                self._handle_context_menu_pointer_up(event.pos)
+            return
+
         if event.type == pygame.MOUSEBUTTONUP and event.button == 1:
-            if self.screen_state == Screen.CONTEXT_MENU:
-                self._handle_context_menu_tap(event.pos)
-                return
             if self.screen_state == Screen.NAME_PROMPT:
-                self._handle_name_prompt_tap(event.pos)
+                self._handle_name_prompt_pointer_up(event.pos)
                 return
 
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            if self.screen_state == Screen.NAME_PROMPT:
+                self._handle_name_prompt_pointer_down(event.pos)
+                return
             if self.screen_state == Screen.SETTINGS:
                 self._handle_settings_pointer_down(event.pos)
             elif self.screen_state == Screen.POWER_MENU:
@@ -709,9 +745,16 @@ class TouchBrowserInputMixin:
                 pass
             elif self._picker_slider_channel and self.screen_state == Screen.THEME:
                 self._apply_picker_slider_channel(self._picker_slider_channel, event.pos)
+            elif (
+                self.screen_state == Screen.THEME
+                and self._theme_view() == THEME_VIEW_COLORS
+            ):
+                self._theme_colors_scroll.pointer_move(event.pos)
             elif self.screen_state == Screen.SETTINGS:
                 self._sync_settings_scroll_viewport()
                 self._settings_content_scroll.pointer_move(event.pos)
+                if self._settings_content_scroll.scroll_gesture_active:
+                    self._touch_press.clear()
             elif self.screen_state == Screen.WIFI_MODAL:
                 self._handle_wifi_modal_pointer_move(event.pos)
             elif self.screen_state == Screen.BRIGHTNESS_MODAL:

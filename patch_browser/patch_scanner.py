@@ -21,6 +21,7 @@ from patch_browser.patch_metadata import PatchMetadataIndex
 from patch_browser.favorites_index import (
     DEFAULT_FAVORITES_FOLDER,
     FavoritesIndex,
+    qa_folder_dest_dir,
 )
 
 
@@ -545,9 +546,10 @@ class PatchScanner:
             return False
 
         qa_root = self.get_favorites_folder_path()
-        folder_name = folder.strip() or DEFAULT_FAVORITES_FOLDER
-        self.favorites_index.ensure_folder(folder_name)
-        dest_dir = qa_root / folder_name
+        folder_name = folder.strip()
+        if folder_name:
+            self.favorites_index.ensure_folder(folder_name)
+        dest_dir = qa_folder_dest_dir(qa_root, folder_name)
         dest_dir.mkdir(parents=True, exist_ok=True)
         dest_path = dest_dir / source.name
         if dest_path.exists():
@@ -583,10 +585,11 @@ class PatchScanner:
         if not old_dest.exists():
             return False
 
-        folder_name = folder.strip() or DEFAULT_FAVORITES_FOLDER
-        self.favorites_index.ensure_folder(folder_name)
+        folder_name = folder.strip()
+        if folder_name:
+            self.favorites_index.ensure_folder(folder_name)
         qa_root = self.get_favorites_folder_path()
-        dest_dir = qa_root / folder_name
+        dest_dir = qa_folder_dest_dir(qa_root, folder_name)
         dest_dir.mkdir(parents=True, exist_ok=True)
         new_dest = dest_dir / old_dest.name
         if new_dest.exists() and not new_dest.samefile(old_dest):
@@ -629,8 +632,31 @@ class PatchScanner:
             self.rescan_favorites_category()
         return added, skipped
 
+    def remove_patches_from_favorites_bulk(self, patches: list[dict]) -> int:
+        """Remove many indexed favorites copies; rescan once at end."""
+        removed = 0
+        for patch in patches:
+            stable_key = self.favorite_stable_key_for_patch(patch)
+            if not stable_key or not self.favorites_index.is_favorited(stable_key):
+                continue
+            entry = self.favorites_index.remove(stable_key)
+            if not entry:
+                continue
+            dest = entry.get("dest_path")
+            if dest:
+                try:
+                    Path(dest).unlink(missing_ok=True)
+                except OSError as exc:
+                    print(f"Error removing favorites copy: {exc}")
+                    continue
+            removed += 1
+        if removed:
+            self.favorites_index.save()
+            self.rescan_favorites_category()
+        return removed
+
     def copy_patch_to_favorites(self, patch_path, *, folder: str = DEFAULT_FAVORITES_FOLDER):
-        """Copy a patch file into Quick Access (defaults to Liked)."""
+        """Copy a patch file into Quick Access (defaults to root)."""
         entry = self.get_patch_by_path(patch_path)
         if entry:
             return self.add_patch_to_favorites(entry, folder=folder)
