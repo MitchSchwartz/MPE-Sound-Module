@@ -505,14 +505,8 @@ class TouchBrowserDrawMixin:
                 patch = entry["patch"]
                 name_clipped = ellipsize_text(self.font_md, patch["name"], name_max_w)
                 name_s = self.font_md.render(name_clipped, True, text_color)
-                self.screen.blit(name_s, (row_rect.x + 10, row_rect.y + 6))
-                sub_clipped = ellipsize_text(
-                    self.font_sm,
-                    patch_list_subtitle(patch),
-                    name_max_w,
-                )
-                sub_s = self.font_sm.render(sub_clipped, True, self.theme.muted)
-                self.screen.blit(sub_s, (row_rect.x + 10, row_rect.y + 28))
+                ty = row_rect.y + (row_rect.h - name_s.get_height()) // 2
+                self.screen.blit(name_s, (row_rect.x + 10, ty))
 
             if is_loaded:
                 pygame.draw.circle(
