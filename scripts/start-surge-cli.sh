@@ -61,7 +61,9 @@ lsusb 2>&1 | grep -i "midi\|roli\|seaboard" >> "$LOG_FILE" || echo "  No USB MID
 source "$SCRIPT_DIR/lib/unload-snd-aloop.sh"
 
 SURGE_BUFFER_SIZE="${MPE_SURGE_BUFFER_SIZE:-1024}"
+SURGE_SAMPLE_RATE="${MPE_SURGE_SAMPLE_RATE:-48000}"
 echo "$(date): ALSA buffer size: $SURGE_BUFFER_SIZE samples" >> "$LOG_FILE"
+echo "$(date): Sample rate: $SURGE_SAMPLE_RATE Hz" >> "$LOG_FILE"
 
 MPE_PRESSURE_REMAP="${MPE_PRESSURE_REMAP:-1}"
 if [ "$MPE_PRESSURE_REMAP" = "1" ]; then
@@ -91,6 +93,7 @@ fi
   --mpe-pitch-bend-range=48 \
   --audio-interface="$AUDIO_DEVICE" \
   --buffer-size="$SURGE_BUFFER_SIZE" \
+  --sample-rate="$SURGE_SAMPLE_RATE" \
   --osc-in-port=53280 \
   --osc-out-port=53270 \
   --no-stdin \
