@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from typing import Literal
 
 from patch_browser.favorites_index import is_protected_qa_folder
+from patch_browser.patch_metadata import INSTRUMENT_VOCAB
+from patch_browser.patch_scanner import favorites_folder_matches
 
 ContextKind = Literal["library_folder", "patch", "qa_folder"]
 
