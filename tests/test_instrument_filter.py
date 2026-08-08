@@ -37,7 +37,7 @@ class InstrumentFilterTests(unittest.TestCase):
             "inner_segments": ("Sub",),
             "instrument_primary": "bass",
         }
-        self.assertEqual(patch_list_subtitle(patch), "bass · Bass/Sub")
+        self.assertEqual(patch_list_subtitle(patch), "Bass")
 
 
 if __name__ == "__main__":

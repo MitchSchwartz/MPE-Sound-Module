@@ -49,10 +49,8 @@ def patch_browse_subtitle(patch: dict) -> str:
 
 
 def patch_list_subtitle(patch: dict) -> str:
-    """List row subtitle: primary instrument + folder path."""
-    primary = patch.get("instrument_primary") or "other"
-    folder = patch_browse_subtitle(patch)
-    return f"{primary} · {folder}"
+    """List row subtitle for All patches — top-level category only."""
+    return str(patch.get("category") or "")
 
 
 def build_folder_tree(
