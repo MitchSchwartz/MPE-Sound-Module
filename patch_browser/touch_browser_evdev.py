@@ -17,6 +17,8 @@ class TouchBrowserEvdevMixin:
         if not evdev_bridge_enabled():
             return
 
+        self._touch_chip_capture = False
+
         def enqueue(kind: str, pos: tuple[int, int]) -> None:
             self._evdev_touch_queue.put((kind, pos))
 
@@ -53,6 +55,7 @@ class TouchBrowserEvdevMixin:
     def _handle_evdev_browser_touch(self, kind: str, pos: tuple[int, int]) -> None:
         if kind == "down":
             self._touch_list_capture = False
+            self._touch_chip_capture = False
             self._az_rail_capture = False
             if self._handle_az_rail_touch("down", pos):
                 return
@@ -62,14 +65,28 @@ class TouchBrowserEvdevMixin:
             if self.detail_patch and self.favorites_btn.contains(*pos):
                 self._pending_favorites_toggle = True
                 return
-            if not self.left_nav_collapsed and self.nav_list.pointer_down(pos):
-                self._touch_list_capture = True
+            if not self.left_nav_collapsed and self._handle_instrument_chip_pointer_down(pos):
+                self._touch_chip_capture = True
+                return
+            if not self.left_nav_collapsed and self.nav_list.rect.contains(*pos):
+                self._context_nav_pointer_down(pos)
+                if self.nav_list.pointer_down(pos):
+                    self._touch_list_capture = True
             elif self.left_nav_mode != LeftNavMode.ALL_PATCHES:
                 self._handle_mixer_down(pos)
         elif kind == "motion":
             if self._handle_az_rail_touch("motion", pos):
                 return
-            if self._touch_list_capture or self.nav_list.is_dragging():
+            if (
+                self._touch_chip_capture
+                or self._instrument_chip_drag_start_x is not None
+            ):
+                self._handle_instrument_chip_pointer_move(pos)
+            elif self._long_press_pending is not None:
+                self._context_nav_pointer_move(pos)
+                if self._touch_list_capture or self.nav_list.is_dragging():
+                    self.nav_list.pointer_move(pos)
+            elif self._touch_list_capture or self.nav_list.is_dragging():
                 self.nav_list.pointer_move(pos)
             elif self.left_nav_mode != LeftNavMode.ALL_PATCHES:
                 self._handle_mixer_motion(pos)
@@ -96,12 +113,26 @@ class TouchBrowserEvdevMixin:
 
             if self._handle_az_rail_touch("up", pos):
                 self._touch_list_capture = False
+                self._touch_chip_capture = False
+                return
+
+            if self._touch_chip_capture or self._instrument_chip_drag_start_x is not None:
+                self._handle_instrument_chip_pointer_up(pos)
+                self._touch_list_capture = False
+                self._touch_chip_capture = False
+                return
+
+            if self.screen_state == Screen.CONTEXT_MENU:
+                self._cancel_long_press()
+                self.nav_list.cancel_active_pointer()
+                self._touch_list_capture = False
                 return
 
             list_gesture = self._touch_list_capture or self.nav_list.is_dragging()
             if not self.left_nav_collapsed and list_gesture:
+                self._cancel_long_press()
                 idx = self.nav_list.pointer_up(pos)
-                if idx is not None:
+                if idx is not None and self.screen_state == Screen.BROWSER:
                     self._select_nav_index(idx)
             elif not was_mixer:
                 self._handle_browser_tap(pos)

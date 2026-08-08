@@ -50,6 +50,11 @@ class ScrollList:
         self._scroll_anim_elapsed = 0.0
         self._scroll_anim_duration = 0.0
 
+    def cancel_active_pointer(self) -> None:
+        """Drop in-progress tap/scroll gesture without firing a row tap."""
+        self._pending_tap_index = None
+        self._clear_pointer()
+
     def take_tap_index(self) -> int | None:
         idx = self._pending_tap_index
         self._pending_tap_index = None

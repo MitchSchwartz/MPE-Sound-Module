@@ -123,7 +123,7 @@ class TouchBrowserContextMixin:
         if self._pointer_move_distance(pending["origin"], pos) > TAP_MOVE_THRESHOLD_PX:
             self._cancel_long_press()
             return True
-        if self.nav_list.is_dragging() or getattr(self.nav_list, "_pointer_scrolled", False):
+        if getattr(self.nav_list, "_pointer_scrolled", False):
             self._cancel_long_press()
             return True
         return False
@@ -137,7 +137,7 @@ class TouchBrowserContextMixin:
         pending = self._long_press_pending
         if pending is None or self.screen_state != Screen.BROWSER:
             return
-        if self.nav_list.is_dragging() or getattr(self.nav_list, "_pointer_scrolled", False):
+        if getattr(self.nav_list, "_pointer_scrolled", False):
             self._cancel_long_press()
             return
         if time.time() - pending["started"] >= LONG_PRESS_S:
@@ -164,6 +164,7 @@ class TouchBrowserContextMixin:
 
     def _open_context_menu(self, target: ContextTarget) -> None:
         self.nav_list.stop_momentum()
+        self.nav_list.cancel_active_pointer()
         self._context_target = target
         self._context_menu_view = "main"
         favorited = False

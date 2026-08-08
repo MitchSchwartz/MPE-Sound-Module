@@ -76,6 +76,9 @@ class TouchBrowserNavMixin:
 
         self.left_nav_mode = mode
 
+        if prev_mode == LeftNavMode.ALL_PATCHES and mode != LeftNavMode.ALL_PATCHES:
+            self.instrument_filter = None
+
         if mode != LeftNavMode.ALL_PATCHES:
             self._clear_az_rail_nav_state()
 
