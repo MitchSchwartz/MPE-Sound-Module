@@ -50,7 +50,7 @@ class TouchBrowserSettingsMixin:
         return y + SETTINGS_SECTION_HEADER_H + SETTINGS_SECTION_GAP
 
     def _layout_settings_root_content(self, pad: int, inner_w: int) -> int:
-        y = 0
+        y = SETTINGS_ROW_GAP
         self._settings_section_headers = []
 
         y = self._layout_settings_section_header(pad, inner_w, y, "Sound")
@@ -70,8 +70,8 @@ class TouchBrowserSettingsMixin:
         self.wifi_row_rect = Rect(pad, y, inner_w, wifi_h)
         y += wifi_h + SETTINGS_ROW_GAP
 
-        self.settings_advanced_header_rect = Rect(pad, y, inner_w, SETTINGS_SECTION_HEADER_H)
-        y += SETTINGS_SECTION_HEADER_H + SETTINGS_SECTION_GAP
+        self.settings_advanced_header_rect = Rect(pad, y, inner_w, SETTINGS_ROW_H)
+        y += SETTINGS_ROW_H + SETTINGS_ROW_GAP
 
         self.cpu_meter_toggle_rect = Rect(pad, y, 0, 0)
         self.norm_global_toggle_rect = Rect(pad, y, 0, 0)
@@ -84,23 +84,11 @@ class TouchBrowserSettingsMixin:
             self.cpu_meter_toggle_rect = Rect(pad, y, inner_w, cpu_h)
             y += cpu_h + SETTINGS_ROW_GAP
 
-            norm_h = self._settings_row_height("Patch normalization", inner_w, toggle=True)
-            self.norm_global_toggle_rect = Rect(pad, y, inner_w, norm_h)
-            y += norm_h + SETTINGS_ROW_GAP
-
             status = self.surge_monitor.get_status_summary()
             if status.get("can_restart"):
                 restart_h = self._settings_row_height("Restart Surge", inner_w)
                 self._surge_restart_btn = Rect(pad, y, inner_w, restart_h)
                 y += restart_h + SETTINGS_ROW_GAP
-
-            cal_missing_h = self._settings_row_height("Calibrate missing patches", inner_w)
-            self._calibrate_missing_btn = Rect(pad, y, inner_w, cal_missing_h)
-            y += cal_missing_h + SETTINGS_ROW_GAP
-
-            cal_force_h = self._settings_row_height("Force full re-calibration", inner_w)
-            self._calibrate_force_btn = Rect(pad, y, inner_w, cal_force_h)
-            y += cal_force_h + SETTINGS_ROW_GAP
 
         self.audio_profile_toggle_rect = Rect(pad, y, 0, 0)
         self.poly_governor_toggle_rect = Rect(pad, y, 0, 0)
@@ -109,7 +97,7 @@ class TouchBrowserSettingsMixin:
         return y
 
     def _layout_settings_audio_content(self, pad: int, inner_w: int) -> int:
-        y = 0
+        y = SETTINGS_ROW_GAP
         self._settings_section_headers = []
         self.settings_audio_drill_rect = Rect(pad, y, 0, 0)
         self.settings_advanced_header_rect = Rect(pad, y, 0, 0)
@@ -117,10 +105,7 @@ class TouchBrowserSettingsMixin:
         self.theme_btn_rect = Rect(pad, y, 0, 0)
         self.wifi_row_rect = Rect(pad, y, 0, 0)
         self.cpu_meter_toggle_rect = Rect(pad, y, 0, 0)
-        self.norm_global_toggle_rect = Rect(pad, y, 0, 0)
         self._surge_restart_btn = None
-        self._calibrate_missing_btn = Rect(pad, y, 0, 0)
-        self._calibrate_force_btn = Rect(pad, y, 0, 0)
 
         audio_h = self._settings_row_height(audio_profile_display(), inner_w, toggle=True)
         self.audio_profile_toggle_rect = Rect(pad, y, inner_w, audio_h)
@@ -137,6 +122,18 @@ class TouchBrowserSettingsMixin:
         poly_h = self._settings_row_height("Dynamic voice limit", inner_w, toggle=True)
         self.poly_governor_toggle_rect = Rect(pad, y, inner_w, poly_h)
         y += poly_h + SETTINGS_ROW_GAP
+
+        norm_h = self._settings_row_height("Patch normalization", inner_w, toggle=True)
+        self.norm_global_toggle_rect = Rect(pad, y, inner_w, norm_h)
+        y += norm_h + SETTINGS_ROW_GAP
+
+        cal_missing_h = self._settings_row_height("Calibrate missing patches", inner_w)
+        self._calibrate_missing_btn = Rect(pad, y, inner_w, cal_missing_h)
+        y += cal_missing_h + SETTINGS_ROW_GAP
+
+        cal_force_h = self._settings_row_height("Force full re-calibration", inner_w)
+        self._calibrate_force_btn = Rect(pad, y, inner_w, cal_force_h)
+        y += cal_force_h + SETTINGS_ROW_GAP
         return y
 
     def _layout_settings_content(self) -> None:
@@ -207,12 +204,27 @@ class TouchBrowserSettingsMixin:
         chevron_rect = Rect(rect.right - 34, rect.y + (rect.h - 22) // 2, 22, 22)
         draw_chevron(self.screen, chevron_rect, self.theme.muted, direction="right")
         if value:
-            value_surf = self.font_sm.render(value, True, self.theme.muted)
+            value_surf = self.font_md.render(value, True, self.theme.muted)
             value_x = chevron_rect.x - value_surf.get_width() - 10
             self.screen.blit(
                 value_surf,
                 (value_x, rect.y + (rect.h - value_surf.get_height()) // 2),
             )
+
+    def _draw_settings_expand_row(self, rect: Rect, label: str, *, expanded: bool) -> None:
+        """Full-height tappable row for collapsible sections (e.g. Advanced)."""
+        pygame.draw.rect(self.screen, self.theme.surface, rect.pygame_rect, border_radius=10)
+        label_surf = self.font_md.render(label, True, self.theme.text)
+        self.screen.blit(
+            label_surf,
+            (rect.x + 16, rect.y + (rect.h - label_surf.get_height()) // 2),
+        )
+        mark = "▾" if expanded else "▸"
+        mark_surf = self.font_md.render(mark, True, self.theme.muted)
+        self.screen.blit(
+            mark_surf,
+            (rect.right - mark_surf.get_width() - 16, rect.y + (rect.h - mark_surf.get_height()) // 2),
+        )
 
     def _draw_settings_panel(self) -> None:
         panel = self._settings_panel_screen_rect()
@@ -228,22 +240,9 @@ class TouchBrowserSettingsMixin:
             self.screen.blit(shadow, (panel.x - 4, panel.y + 2))
 
         header_rect = Rect(panel.x, panel.y, panel.w, SETTINGS_PANEL_HEADER_H)
-        self._draw_divider_line(
-            header_rect.x + 16,
-            header_rect.bottom - 1,
-            header_rect.right - 16,
-        )
 
         audio_view = getattr(self, "_settings_view", "root") == "audio"
-        title_x = panel.x + 20
-        if audio_view:
-            back_screen = self._panel_local_to_screen(self._settings_back_btn)
-            self._draw_icon_button(back_screen, "←", muted=True)
-            title_x = panel.x + 52
         title = "Audio" if audio_view else "System"
-        self.screen.blit(self.font_md.render(title, True, self.theme.text), (title_x, panel.y + 16))
-        close_screen = self._panel_local_to_screen(self._close_settings_btn)
-        self._draw_icon_button(close_screen, "×", muted=True)
 
         scroll_vp = self._settings_scroll_viewport_screen()
         clip = self.screen.get_clip()
@@ -288,6 +287,24 @@ class TouchBrowserSettingsMixin:
                 has_gain=True,
                 label="Dynamic voice limit",
             )
+
+            norm_toggle = self._panel_local_to_screen(self.norm_global_toggle_rect, scrolled=True)
+            self._draw_normalize_toggle(
+                norm_toggle,
+                self.loader.normalization.is_globally_enabled(),
+                has_gain=True,
+                label="Patch normalization",
+            )
+
+            cal_missing = self._panel_local_to_screen(self._calibrate_missing_btn, scrolled=True)
+            self._draw_settings_action_row(cal_missing, "Calibrate missing patches")
+
+            cal_force = self._panel_local_to_screen(self._calibrate_force_btn, scrolled=True)
+            self._draw_settings_action_row(
+                cal_force,
+                "Force full re-calibration",
+                muted=True,
+            )
         else:
             for section_rect, label, expandable in getattr(self, "_settings_section_headers", []):
                 screen_rect = self._panel_local_to_screen(section_rect, scrolled=True)
@@ -323,14 +340,13 @@ class TouchBrowserSettingsMixin:
                 muted=getattr(self, "_wifi_busy", False),
             )
 
-            advanced_header = self._panel_local_to_screen(
+            advanced_row = self._panel_local_to_screen(
                 self.settings_advanced_header_rect,
                 scrolled=True,
             )
-            self._draw_settings_section_header(
-                advanced_header,
+            self._draw_settings_expand_row(
+                advanced_row,
                 "Advanced",
-                expandable=True,
                 expanded=getattr(self, "_settings_advanced_open", False),
             )
 
@@ -344,32 +360,26 @@ class TouchBrowserSettingsMixin:
                         label="CPU meter",
                     )
 
-                norm_toggle = self._panel_local_to_screen(self.norm_global_toggle_rect, scrolled=True)
-                if norm_toggle.h > 0:
-                    self._draw_normalize_toggle(
-                        norm_toggle,
-                        self.loader.normalization.is_globally_enabled(),
-                        has_gain=True,
-                        label="Patch normalization",
-                    )
-
                 if self._surge_restart_btn and self._surge_restart_btn.h > 0:
                     restart = self._panel_local_to_screen(self._surge_restart_btn, scrolled=True)
                     self._draw_settings_action_row(restart, "Restart Surge")
 
-                cal_missing = self._panel_local_to_screen(self._calibrate_missing_btn, scrolled=True)
-                if cal_missing.h > 0:
-                    self._draw_settings_action_row(cal_missing, "Calibrate missing patches")
-
-                cal_force = self._panel_local_to_screen(self._calibrate_force_btn, scrolled=True)
-                if cal_force.h > 0:
-                    self._draw_settings_action_row(
-                        cal_force,
-                        "Force full re-calibration",
-                        muted=True,
-                    )
-
         self.screen.set_clip(clip)
+
+        pygame.draw.rect(self.screen, self.theme.surface, header_rect.pygame_rect)
+        self._draw_divider_line(
+            header_rect.x + 16,
+            header_rect.bottom - 1,
+            header_rect.right - 16,
+        )
+        title_x = panel.x + 20
+        if audio_view:
+            back_screen = self._panel_local_to_screen(self._settings_back_btn)
+            self._draw_icon_button(back_screen, "←", muted=True)
+            title_x = panel.x + 52
+        self.screen.blit(self.font_md.render(title, True, self.theme.text), (title_x, panel.y + 16))
+        close_screen = self._panel_local_to_screen(self._close_settings_btn)
+        self._draw_icon_button(close_screen, "×", muted=True)
 
         footer_y = panel.y + self.settings_panel_rect.h - SETTINGS_PANEL_FOOTER_H
         self._draw_divider_line(panel.x + 16, footer_y, panel.right - 16)

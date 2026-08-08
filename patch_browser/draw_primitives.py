@@ -71,6 +71,39 @@ def draw_all_patches_icon(
     surface.blit(label, (tx, ty))
 
 
+def draw_toggle_switch(
+    surface: pygame.Surface,
+    rect: Rect,
+    *,
+    on: bool,
+    track_on: tuple[int, int, int],
+    track_off: tuple[int, int, int],
+    knob_color: tuple[int, int, int],
+    border_color: tuple[int, int, int] | None = None,
+) -> None:
+    """Pill track + sliding knob (settings toggles)."""
+    track_color = track_on if on else track_off
+    pygame.draw.rect(surface, track_color, rect.pygame_rect, border_radius=rect.h // 2)
+    if border_color is not None:
+        pygame.draw.rect(
+            surface,
+            border_color,
+            rect.pygame_rect,
+            width=2,
+            border_radius=rect.h // 2,
+        )
+    knob_pad = max(2, min(3, rect.h // 8))
+    knob_size = rect.h - knob_pad * 2
+    knob_x = rect.right - knob_pad - knob_size if on else rect.x + knob_pad
+    knob_y = rect.y + knob_pad
+    pygame.draw.rect(
+        surface,
+        knob_color,
+        pygame.Rect(knob_x, knob_y, knob_size, knob_size),
+        border_radius=knob_size // 2,
+    )
+
+
 def draw_sidebar_panel_icon(
     surface: pygame.Surface,
     rect: Rect,

@@ -241,6 +241,8 @@ Sections are grouped top-to-bottom:
   - **Buffer** — preset picker (32–2048 samples) + approximate latency; restarts Surge ([#44](https://github.com/MitchSchwartz/MPE-Sound-Module/issues/44)).
   - **Sample rate** — **44.1 kHz / 48 kHz** picker; persists to `/etc/mpe/mpe.env` and restarts Surge (+ USB gadget when **usb-host**) ([#39](https://github.com/MitchSchwartz/MPE-Sound-Module/issues/39)).
   - **Dynamic voice limit** — poly governor toggle.
+  - **Patch normalization** — master toggle for all per-patch Norm controls.
+  - **Calibrate missing patches** / **Force full re-calibration** — confirm modal → loader on DSI. See **[PATCH_NORMALIZATION.md](PATCH_NORMALIZATION.md)**.
 
 Tapping the header **Analog/USB** badge opens settings directly on this Audio sub-screen.
 
@@ -253,12 +255,10 @@ Tapping the header **Analog/USB** badge opens settings directly on this Audio su
 
 - **Wi‑Fi** — current SSID subtitle; tap to scan/connect via NetworkManager (venue recovery, no SSH).
 
-### Advanced (expand/collapse)
+### Advanced (expand/collapse — full-row tap target)
 
 - **CPU meter** — toggle header bar meter (default on).
-- **Patch normalization** — master toggle for all per-patch Norm controls.
 - **Restart Surge** — when status is not healthy.
-- **Calibrate missing patches** / **Force full re-calibration** — confirm modal → loader on DSI. See **[PATCH_NORMALIZATION.md](PATCH_NORMALIZATION.md)**.
 
 **Header CPU meter** (when enabled): compact bar left of **⋯**. Polls ~5 Hz on a background thread. Uses **`/proc` CPU time for `surge-xt-cli`** (Surge has no documented CPU OSC). Semantic green → yellow → red even in Monochrome accent style.
 
@@ -421,14 +421,12 @@ Tests: `tests/test_patch_metadata.py`, `tests/test_patch_scanner_metadata.py`
 
 ## Instrument chips (Phase 4)
 
-When browsing a folder or **All patches**, a horizontal chip row appears under the nav header:
+When browsing a **folder** or **All patches**, a horizontal chip row appears under the nav header:
 
-- **All** clears the filter; other chips match `instrument_primary` (Piano, Pad, Bass, …)
-- Only instruments with at least one patch in the **current browse context** are shown
-- Chip row scrolls horizontally when it overflows the nav width
-- Patch rows show subtitle `primary · Category/Sub/...` (e.g. `pad · Bass/Sub`)
-
-Filter persists while drilling into subfolders; chips rebuild from the subtree under the current folder. Leaving patch browse (top-level folder list) hides the chip row.
+- **All** clears the instrument filter; other chips (Piano, Pad, Bass, **Other**, …) narrow the list
+- In folder browse, chips reflect instruments in the **current folder subtree**
+- Drag horizontally to scroll chips when they overflow; tap to filter
+- All-patches row subtitle shows the top-level **category** only; folder browse rows are name-only
 
 Tests: `tests/test_instrument_filter.py`
 
