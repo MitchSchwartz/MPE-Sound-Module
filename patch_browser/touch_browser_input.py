@@ -12,6 +12,7 @@ from patch_browser.shutdown_trace import begin_shutdown_session, log_shutdown_ev
 from patch_browser.touch_ui_constants import (
     DEFAULT_BRIGHTNESS_PERCENT,
     MIXER_DOUBLE_TAP_MS,
+    SETTINGS_PANEL_HEADER_H,
     TAP_MOVE_THRESHOLD_PX,
 )
 from patch_browser.touch_ui_enums import CalibrateMode, LeftNavMode, Screen
@@ -130,8 +131,11 @@ class TouchBrowserInputMixin:
             return
     def _settings_local_pos(self, pos: tuple[int, int]) -> tuple[int, int]:
         local_x = pos[0] - self._settings_panel_x()
-        local_y = pos[1] - self.settings_panel_rect.y + int(
-            self._settings_content_scroll.scroll_pixels
+        local_y = (
+            pos[1]
+            - self.settings_panel_rect.y
+            - SETTINGS_PANEL_HEADER_H
+            + int(self._settings_content_scroll.scroll_pixels)
         )
         return local_x, local_y
 
@@ -160,18 +164,22 @@ class TouchBrowserInputMixin:
                 return "audio_profile"
             if self._settings_rect_hit(self.poly_governor_toggle_rect, local_pos):
                 return "poly_governor"
+            if self._settings_rect_hit(self.norm_global_toggle_rect, local_pos):
+                return "norm_global"
             if self._settings_rect_hit(self.surge_buffer_row_rect, local_pos):
                 return "surge_buffer"
             if self._settings_rect_hit(self.surge_sample_rate_row_rect, local_pos):
                 return "surge_sample_rate"
+            if self._settings_rect_hit(self._calibrate_missing_btn, local_pos):
+                return "cal_missing"
+            if self._settings_rect_hit(self._calibrate_force_btn, local_pos):
+                return "cal_force"
             return None
 
         if self._settings_rect_hit(self.settings_audio_drill_rect, local_pos):
             return "audio_drill"
         if self._settings_rect_hit(self.settings_advanced_header_rect, local_pos):
             return "advanced_toggle"
-        if self._settings_rect_hit(self.norm_global_toggle_rect, local_pos):
-            return "norm_global"
         if self._settings_rect_hit(self.cpu_meter_toggle_rect, local_pos):
             return "cpu_meter"
         if self._settings_rect_hit(self.wifi_row_rect, local_pos):
@@ -180,10 +188,6 @@ class TouchBrowserInputMixin:
             return "theme"
         if self._surge_restart_btn and self._settings_rect_hit(self._surge_restart_btn, local_pos):
             return "surge_restart"
-        if self._settings_rect_hit(self._calibrate_missing_btn, local_pos):
-            return "cal_missing"
-        if self._settings_rect_hit(self._calibrate_force_btn, local_pos):
-            return "cal_force"
         if self._settings_rect_hit(self.brightness_slider_rect, local_pos):
             return "brightness"
         return None
@@ -579,6 +583,21 @@ class TouchBrowserInputMixin:
                     chip_active = True
                 elif self._context_nav_pointer_up():
                     chip_active = True
+            elif event.type == pygame.MOUSEWHEEL:
+                if self.instrument_chip_row_rect.contains(*pygame.mouse.get_pos()):
+                    delta = event.x if event.x else event.y
+                    max_scroll = max(
+                        0.0,
+                        float(
+                            self._instrument_chip_content_width
+                            - self.instrument_chip_row_rect.w
+                        ),
+                    )
+                    self._instrument_chip_scroll_x = max(
+                        0.0,
+                        min(self._instrument_chip_scroll_x - delta * 24, max_scroll),
+                    )
+                    chip_active = True
             if not chip_active:
                 self.nav_list.handle_event(event)
 
@@ -645,7 +664,7 @@ class TouchBrowserInputMixin:
                 if self.screen_state != Screen.BROWSER:
                     return
                 idx = self.nav_list.take_tap_index()
-                if idx is not None:
+                if idx is not None and self.screen_state == Screen.BROWSER:
                     self._select_nav_index(idx)
                 elif not was_mixer:
                     self._handle_browser_tap(event.pos)
