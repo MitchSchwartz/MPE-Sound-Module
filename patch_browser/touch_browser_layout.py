@@ -11,7 +11,6 @@ from patch_browser.touch_ui_constants import (
     AUDIO_BADGE_PAD_X,
     AZ_RAIL_WIDTH,
     BROWSER_BOTTOM_MARGIN,
-    BROWSER_RAIL_GAP,
     CPU_METER_BAR_W,
     CPU_METER_LABEL_GAP,
     DETAIL_HEADER_MIN_H,
@@ -23,7 +22,6 @@ from patch_browser.touch_ui_constants import (
     FADER_TRACK_H,
     FADER_TRACK_W,
     FAVORITES_BTN_SIZE,
-    INSTRUMENT_FILTER_BTN_SIZE,
     LEFT_NAV_COLLAPSED_WIDTH,
     LEFT_NAV_WIDTH,
     MIXER_BOTTOM_GAP,
@@ -58,13 +56,9 @@ class TouchBrowserLayoutMixin:
         return LEFT_NAV_COLLAPSED_WIDTH if self.left_nav_collapsed else LEFT_NAV_WIDTH
 
     def _browser_side_rail_width(self) -> int:
-        """Filter icon column (+ A–Z rail in All patches view)."""
+        """A–Z scrub rail (All patches view only)."""
         if self.left_nav_mode == LeftNavMode.ALL_PATCHES:
-            if self._show_instrument_chips():
-                return INSTRUMENT_FILTER_BTN_SIZE + BROWSER_RAIL_GAP + AZ_RAIL_WIDTH
             return AZ_RAIL_WIDTH
-        if self._show_instrument_chips():
-            return INSTRUMENT_FILTER_BTN_SIZE
         return 0
 
     def _cpu_meter_text_size(self) -> tuple[int, int]:
@@ -136,14 +130,10 @@ class TouchBrowserLayoutMixin:
 
         rail_x = margin + left_w + gap
         rail_w = self._browser_side_rail_width()
-        self._layout_instrument_filter_rail(rail_x=rail_x, content_top=content_top)
 
         if self.left_nav_mode == LeftNavMode.ALL_PATCHES:
-            az_x = rail_x
-            if self._show_instrument_chips():
-                az_x = rail_x + INSTRUMENT_FILTER_BTN_SIZE + BROWSER_RAIL_GAP
             self.az_rail_rect = Rect(
-                az_x,
+                rail_x,
                 content_top,
                 AZ_RAIL_WIDTH,
                 content_bottom - content_top,
@@ -323,6 +313,11 @@ class TouchBrowserLayoutMixin:
         self.nav_current_btn = Rect(x, y, icon_w, btn_h)
         x += icon_w + 6
         self.nav_all_btn = Rect(x, y, all_w, btn_h)
+        x += all_w + 6
+        if self._show_instrument_chips():
+            self.instrument_filter_btn_rect = Rect(x, y, icon_w, btn_h)
+        else:
+            self.instrument_filter_btn_rect = Rect(0, 0, 0, 0)
         if self.left_nav_mode != LeftNavMode.ALL_PATCHES:
             self.nav_collapse_btn = Rect(self.nav_header_rect.right - 38, y, 32, btn_h)
         else:

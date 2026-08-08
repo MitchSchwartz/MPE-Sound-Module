@@ -18,7 +18,6 @@ from patch_browser.touch_ui_constants import (
     INSTRUMENT_CHIP_GAP,
     INSTRUMENT_CHIP_PAD_X,
     INSTRUMENT_CHIP_ROW_H,
-    INSTRUMENT_FILTER_BTN_SIZE,
 )
 from patch_browser.touch_ui_enums import LeftNavMode
 
@@ -144,22 +143,6 @@ class TouchBrowserInstrumentsMixin:
             self.instrument_chip_rects = []
             self._instrument_chip_panel_height = 0
         self._rebuild_all_patches_display_index()
-
-    def _layout_instrument_filter_rail(
-        self,
-        *,
-        rail_x: int,
-        content_top: int,
-    ) -> None:
-        if not self._show_instrument_chips():
-            self.instrument_filter_btn_rect = Rect(0, 0, 0, 0)
-            return
-        self.instrument_filter_btn_rect = Rect(
-            rail_x,
-            content_top,
-            INSTRUMENT_FILTER_BTN_SIZE,
-            INSTRUMENT_FILTER_BTN_SIZE,
-        )
 
     def _layout_instrument_chip_panel(
         self,
