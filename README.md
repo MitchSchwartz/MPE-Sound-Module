@@ -204,6 +204,8 @@ The **3,192 bundled patches** are Surge XT's own stock library, not custom conte
 - **639 factory patches** — created by the Surge Synth Team
 - **2,553 third-party patches** — contributed by the wider Surge community
 
+Optional **CC0 / permissive community packs** (drums and more) curated in the private [MPE-Library](https://github.com/MitchSchwartz/MPE-Library) assets repo — Italo Disco Drum Pack (CC0), ironcross32/Surge-XT-Patches (CC0-1.0), Phasor Space Vol. 1 (CC0), Hefxthoth collection (DWTFYWPL). See that repo's README §Third-party patch credits.
+
 Surge XT itself is licensed **GPL-3.0**. Sounds/patches you make or perform with it are yours to use freely, commercially or otherwise — see the [Surge XT license FAQ](https://github.com/surge-synthesizer/surge) for specifics. This repo's own code (Pi setup, wiring, UI, deploy scripts) is licensed separately below.
 
 ## License

@@ -28,12 +28,10 @@ from patch_browser.touch_ui_constants import (
     SETTINGS_ROW_GAP,
     SETTINGS_ROW_H,
 )
-from patch_browser.audio_profile import header_badge_label, settings_toggle_on
-from patch_browser.surge_audio import buffer_settings_label, sample_rate_settings_label
+from patch_browser.audio_profile import header_badge_label
 from patch_browser.touch_ui_enums import (
     CalibrateMode,
     LeftNavMode,
-    audio_profile_display,
 )
 from patch_browser.ui_text import (
     blit_text_block,
@@ -660,134 +658,6 @@ class TouchBrowserDrawMixin:
             pad_x=16,
             line_spacing=2,
             max_lines=2,
-        )
-    def _draw_settings_panel(self) -> None:
-        panel = self._settings_panel_screen_rect()
-        alpha = self._settings_overlay_alpha()
-        overlay = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
-        overlay.fill((0, 0, 0, alpha))
-        self.screen.blit(overlay, (0, 0))
-
-        self._draw_elevated_panel(panel, border_radius=16)
-        if self.theme.backdrop_alpha is None:
-            shadow = pygame.Surface((panel.w, panel.h), pygame.SRCALPHA)
-            shadow.fill((0, 0, 0, 40))
-            self.screen.blit(shadow, (panel.x - 4, panel.y + 2))
-
-        header_rect = Rect(panel.x, panel.y, panel.w, SETTINGS_PANEL_HEADER_H)
-        self._draw_divider_line(
-            header_rect.x + 16,
-            header_rect.bottom - 1,
-            header_rect.right - 16,
-        )
-        self.screen.blit(
-            self.font_md.render("System", True, self.theme.text),
-            (panel.x + 20, panel.y + 16),
-        )
-        close_screen = self._panel_local_to_screen(self._close_settings_btn)
-        self._draw_icon_button(close_screen, "×", muted=True)
-
-        scroll_vp = self._settings_scroll_viewport_screen()
-        clip = self.screen.get_clip()
-        self.screen.set_clip(scroll_vp.pygame_rect)
-
-        scroll = int(self._settings_content_scroll.scroll_pixels)
-        content_x = panel.x
-
-        slider = self._panel_local_to_screen(self.brightness_slider_rect, scrolled=True)
-        self._draw_slider(
-            slider,
-            self.brightness_percent / 100.0,
-            f"Brightness  {self.brightness_percent}%",
-        )
-
-        cpu_toggle = self._panel_local_to_screen(self.cpu_meter_toggle_rect, scrolled=True)
-        self._draw_normalize_toggle(
-            cpu_toggle,
-            self.show_cpu_meter,
-            has_gain=True,
-            label="CPU meter",
-        )
-
-        poly_toggle = self._panel_local_to_screen(self.poly_governor_toggle_rect, scrolled=True)
-        self._draw_normalize_toggle(
-            poly_toggle,
-            self.poly_governor_enabled,
-            has_gain=True,
-            label="Dynamic voice limit",
-        )
-
-        theme_row = self._panel_local_to_screen(self.theme_btn_rect, scrolled=True)
-        self._draw_settings_action_row(theme_row, "Theme…")
-
-        norm_toggle = self._panel_local_to_screen(self.norm_global_toggle_rect, scrolled=True)
-        self._draw_normalize_toggle(
-            norm_toggle,
-            self.loader.normalization.is_globally_enabled(),
-            has_gain=True,
-            label="Patch normalization",
-        )
-
-        audio_toggle = self._panel_local_to_screen(self.audio_profile_toggle_rect, scrolled=True)
-        service_busy = getattr(self, "_audio_profile_switching", False) or getattr(
-            self, "_surge_audio_switching", False
-        )
-        self._draw_normalize_toggle(
-            audio_toggle,
-            settings_toggle_on(),
-            has_gain=True,
-            disabled=service_busy,
-            label=audio_profile_display(),
-        )
-
-        wifi_row = self._panel_local_to_screen(self.wifi_row_rect, scrolled=True)
-        self._draw_settings_action_row(
-            wifi_row,
-            self.wifi_settings_row_label(),
-            muted=getattr(self, "_wifi_busy", False),
-        )
-
-        buffer_row = self._panel_local_to_screen(self.surge_buffer_row_rect, scrolled=True)
-        self._draw_settings_action_row(
-            buffer_row,
-            buffer_settings_label(),
-            muted=service_busy,
-        )
-
-        rate_row = self._panel_local_to_screen(self.surge_sample_rate_row_rect, scrolled=True)
-        self._draw_settings_action_row(
-            rate_row,
-            sample_rate_settings_label(),
-            muted=service_busy,
-        )
-
-        if self._surge_restart_btn:
-            restart = self._panel_local_to_screen(self._surge_restart_btn, scrolled=True)
-            self._draw_settings_action_row(restart, "Restart Surge")
-
-        cal_missing = self._panel_local_to_screen(self._calibrate_missing_btn, scrolled=True)
-        self._draw_settings_action_row(cal_missing, "Calibrate missing patches")
-
-        cal_force = self._panel_local_to_screen(self._calibrate_force_btn, scrolled=True)
-        self._draw_settings_action_row(cal_force, "Force full re-calibration", muted=True)
-
-        self.screen.set_clip(clip)
-
-        footer_y = panel.y + self.settings_panel_rect.h - SETTINGS_PANEL_FOOTER_H
-        self._draw_divider_line(panel.x + 16, footer_y, panel.right - 16)
-        power = self._panel_local_to_screen(self._power_btn)
-        pygame.draw.rect(self.screen, self.theme.surface_alt, power.pygame_rect, border_radius=10)
-        draw_wrapped_text_in_rect(
-            self.screen,
-            self.font_md,
-            "Power…",
-            power.x,
-            power.y,
-            power.w,
-            power.h,
-            self.theme.text,
-            pad_x=16,
-            max_lines=1,
         )
     def _draw_settings(self) -> None:
         self._draw_browser()

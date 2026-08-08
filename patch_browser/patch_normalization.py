@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from patch_browser.json_store import atomic_write_json, read_json_dict
+from patch_browser.patch_sidecar_store import SidecarKeyMixin
 
 # Integrated LUFS target for relative loudness matching across patches.
 TARGET_LUFS = -18.0
@@ -156,8 +157,10 @@ def _merge_patch_entry(
 _GLOBAL_SETTINGS_KEY = "_global"
 
 
-class PatchNormalizationStore:
-    """Load/save patch_normalization.json keyed by patch name (stem)."""
+class PatchNormalizationStore(SidecarKeyMixin):
+    """Load/save patch_normalization.json keyed by stable_key (path-based) with stem fallback."""
+
+    _reserved_keys = frozenset({"_global"})
 
     def __init__(self, path: Path | None = None):
         self.path = path or default_normalization_path()
@@ -194,13 +197,17 @@ class PatchNormalizationStore:
         payload[_GLOBAL_SETTINGS_KEY] = {"enabled": self._global_enabled}
         atomic_write_json(self.path, payload)
 
-    @staticmethod
-    def patch_key(patch_name: str) -> str:
-        return Path(patch_name).stem
-
-    def get_entry(self, patch_name: str) -> dict[str, Any] | None:
-        entry = self._data.get(self.patch_key(patch_name))
-        return entry if isinstance(entry, dict) else None
+    def get_entry(
+        self,
+        patch_name: str,
+        *,
+        patch_path: str | None = None,
+        stable_key: str | None = None,
+    ) -> dict[str, Any] | None:
+        entry, _key = self._lookup(
+            patch_name, patch_path=patch_path, stable_key=stable_key
+        )
+        return entry
 
     def is_globally_enabled(self) -> bool:
         """Master switch — when False, no patch normalization is applied."""
@@ -211,18 +218,34 @@ class PatchNormalizationStore:
         self._global_enabled = bool(enabled)
         self.save()
 
-    def is_enabled(self, patch_name: str) -> bool:
+    def is_enabled(
+        self,
+        patch_name: str,
+        *,
+        patch_path: str | None = None,
+        stable_key: str | None = None,
+    ) -> bool:
         """Per-patch enabled flag (default True when no entry). Ignores global switch."""
-        entry = self.get_entry(patch_name)
+        entry = self.get_entry(
+            patch_name, patch_path=patch_path, stable_key=stable_key
+        )
         if entry is None:
             return True
         if "enabled" not in entry:
             return True
         return bool(entry["enabled"])
 
-    def is_effectively_enabled(self, patch_name: str) -> bool:
+    def is_effectively_enabled(
+        self,
+        patch_name: str,
+        *,
+        patch_path: str | None = None,
+        stable_key: str | None = None,
+    ) -> bool:
         """Whether normalization applies at runtime (global + per-patch)."""
-        return self.is_globally_enabled() and self.is_enabled(patch_name)
+        return self.is_globally_enabled() and self.is_enabled(
+            patch_name, patch_path=patch_path, stable_key=stable_key
+        )
 
     def _ensure_calibration_fields(self, key: str, entry: dict[str, Any]) -> dict[str, Any]:
         """Keep gain_db from repo starter when persisting enable toggles."""
@@ -236,24 +259,53 @@ class PatchNormalizationStore:
             return _merge_patch_entry(starter_entry, entry)
         return entry
 
-    def set_enabled(self, patch_name: str, enabled: bool) -> None:
+    def set_enabled(
+        self,
+        patch_name: str,
+        enabled: bool,
+        *,
+        patch_path: str | None = None,
+        stable_key: str | None = None,
+    ) -> None:
         """Persist per-patch normalization on/off (issue #5 UI toggle)."""
-        key = self.patch_key(patch_name)
-        entry = self._data.get(key)
+        key = self._storage_key(
+            patch_name, patch_path=patch_path, stable_key=stable_key
+        )
+        entry, matched = self._lookup(
+            patch_name, patch_path=patch_path, stable_key=stable_key
+        )
         if not isinstance(entry, dict):
             entry = {}
-        entry = self._ensure_calibration_fields(key, entry)
+        entry = self._ensure_calibration_fields(matched or key, entry)
         entry["enabled"] = enabled
+        if matched and matched != key:
+            self._data.pop(matched, None)
         self._data[key] = entry
         self.save()
 
-    def get_raw_gain_db(self, patch_name: str) -> float | None:
+    def get_raw_gain_db(
+        self,
+        patch_name: str,
+        *,
+        patch_path: str | None = None,
+        stable_key: str | None = None,
+    ) -> float | None:
         """Calibration gain for a patch, ignoring the enabled flag."""
-        return self.get_calibrated_gain_db(patch_name)
+        return self.get_calibrated_gain_db(
+            patch_name, patch_path=patch_path, stable_key=stable_key
+        )
 
-    def get_calibrated_gain_db(self, patch_name: str) -> float | None:
+    def get_calibrated_gain_db(
+        self,
+        patch_name: str,
+        *,
+        patch_path: str | None = None,
+        stable_key: str | None = None,
+    ) -> float | None:
         """System-calibrated gain_db only (double-tap slider reset target)."""
-        entry = self.get_entry(patch_name)
+        entry = self.get_entry(
+            patch_name, patch_path=patch_path, stable_key=stable_key
+        )
         if not entry:
             return None
         gain = entry.get("gain_db")
@@ -261,55 +313,126 @@ class PatchNormalizationStore:
             return None
         return float(gain)
 
-    def get_effective_gain_db(self, patch_name: str) -> float | None:
+    def get_effective_gain_db(
+        self,
+        patch_name: str,
+        *,
+        patch_path: str | None = None,
+        stable_key: str | None = None,
+    ) -> float | None:
         """Runtime gain: user_gain_db when set, else calibrated gain_db."""
-        entry = self.get_entry(patch_name)
+        entry = self.get_entry(
+            patch_name, patch_path=patch_path, stable_key=stable_key
+        )
         if not entry:
             return None
         if "user_gain_db" in entry:
             return float(entry["user_gain_db"])
-        return self.get_calibrated_gain_db(patch_name)
+        return self.get_calibrated_gain_db(
+            patch_name, patch_path=patch_path, stable_key=stable_key
+        )
 
-    def get_slider_default_gain_db(self, patch_name: str) -> float:
+    def get_slider_default_gain_db(
+        self,
+        patch_name: str,
+        *,
+        patch_path: str | None = None,
+        stable_key: str | None = None,
+    ) -> float:
         """Slider double-tap reset — calibrated gain, or 0 dB when uncalibrated."""
-        calibrated = self.get_calibrated_gain_db(patch_name)
+        calibrated = self.get_calibrated_gain_db(
+            patch_name, patch_path=patch_path, stable_key=stable_key
+        )
         return calibrated if calibrated is not None else 0.0
 
-    def has_user_gain_override(self, patch_name: str) -> bool:
-        entry = self.get_entry(patch_name)
+    def has_user_gain_override(
+        self,
+        patch_name: str,
+        *,
+        patch_path: str | None = None,
+        stable_key: str | None = None,
+    ) -> bool:
+        entry = self.get_entry(
+            patch_name, patch_path=patch_path, stable_key=stable_key
+        )
         return bool(entry and "user_gain_db" in entry)
 
-    def set_user_gain_db(self, patch_name: str, gain_db: float, *, persist: bool = True) -> None:
+    def set_user_gain_db(
+        self,
+        patch_name: str,
+        gain_db: float,
+        *,
+        persist: bool = True,
+        patch_path: str | None = None,
+        stable_key: str | None = None,
+    ) -> None:
         """Set manual per-patch level override (defer persist=False while dragging)."""
-        key = self.patch_key(patch_name)
-        entry = self._data.get(key)
+        key = self._storage_key(
+            patch_name, patch_path=patch_path, stable_key=stable_key
+        )
+        entry, matched = self._lookup(
+            patch_name, patch_path=patch_path, stable_key=stable_key
+        )
         if not isinstance(entry, dict):
             entry = {}
-        entry = self._ensure_calibration_fields(key, entry)
+        entry = self._ensure_calibration_fields(matched or key, entry)
         entry["user_gain_db"] = round(float(gain_db), 3)
+        if matched and matched != key:
+            self._data.pop(matched, None)
         self._data[key] = entry
         if persist:
             self.save()
 
-    def clear_user_gain_db(self, patch_name: str, *, persist: bool = True) -> None:
+    def clear_user_gain_db(
+        self,
+        patch_name: str,
+        *,
+        persist: bool = True,
+        patch_path: str | None = None,
+        stable_key: str | None = None,
+    ) -> None:
         """Remove manual override; runtime reverts to calibrated gain_db."""
-        key = self.patch_key(patch_name)
-        entry = self.get_entry(patch_name)
-        if not entry or "user_gain_db" not in entry:
+        entry, key = self._lookup(
+            patch_name, patch_path=patch_path, stable_key=stable_key
+        )
+        if not entry or "user_gain_db" not in entry or not key:
             return
         updated = dict(entry)
         del updated["user_gain_db"]
-        self._data[key] = updated
+        storage = self._storage_key(
+            patch_name, patch_path=patch_path, stable_key=stable_key
+        )
+        if key != storage:
+            self._data.pop(key, None)
+        self._data[storage] = updated
         if persist:
             self.save()
 
-    def get_gain_db(self, patch_name: str) -> float | None:
-        if not self.is_effectively_enabled(patch_name):
+    def get_gain_db(
+        self,
+        patch_name: str,
+        *,
+        patch_path: str | None = None,
+        stable_key: str | None = None,
+    ) -> float | None:
+        if not self.is_effectively_enabled(
+            patch_name, patch_path=patch_path, stable_key=stable_key
+        ):
             return None
-        return self.get_effective_gain_db(patch_name)
+        return self.get_effective_gain_db(
+            patch_name, patch_path=patch_path, stable_key=stable_key
+        )
 
-    def get_gain_linear(self, patch_name: str) -> float:
-        gain_db = self.get_gain_db(patch_name)
+    def get_gain_linear(
+        self,
+        patch_name: str,
+        *,
+        patch_path: str | None = None,
+        stable_key: str | None = None,
+    ) -> float:
+        gain_db = self.get_gain_db(
+            patch_name, patch_path=patch_path, stable_key=stable_key
+        )
         if gain_db is None:
             return 1.0
         return db_to_linear(gain_db)
@@ -325,9 +448,15 @@ class PatchNormalizationStore:
         true_peak_dbtp: float | None = None,
         strike_lufs: float | None = None,
         sustain_lufs: float | None = None,
+        patch_path: str | None = None,
+        stable_key: str | None = None,
     ) -> None:
-        key = self.patch_key(patch_name)
-        existing = self.get_entry(patch_name)
+        key = self._storage_key(
+            patch_name, patch_path=patch_path, stable_key=stable_key
+        )
+        existing, matched = self._lookup(
+            patch_name, patch_path=patch_path, stable_key=stable_key
+        )
         if enabled is None:
             if existing is None or "enabled" not in existing:
                 enabled_value: bool = True
@@ -350,41 +479,52 @@ class PatchNormalizationStore:
             entry["sustain_lufs"] = round(float(sustain_lufs), 2)
         if existing and "user_gain_db" in existing:
             entry["user_gain_db"] = existing["user_gain_db"]
+        if matched and matched != key:
+            self._data.pop(matched, None)
         self._data[key] = entry
 
-    def list_missing(self, patch_names: list[str]) -> list[str]:
+    def list_missing(self, patches: list[dict]) -> list[str]:
         missing: list[str] = []
         seen: set[str] = set()
-        for name in patch_names:
-            key = self.patch_key(name)
+        for patch in patches:
+            key = self._storage_key(
+                patch["name"],
+                patch_path=patch.get("path"),
+                stable_key=patch.get("stable_key"),
+            )
             if key in seen:
                 continue
             seen.add(key)
-            entry = self._data.get(key)
+            entry = self.get_entry(
+                patch["name"],
+                patch_path=patch.get("path"),
+                stable_key=patch.get("stable_key"),
+            )
             if not entry or entry.get("gain_db") is None:
                 missing.append(key)
         return sorted(missing)
 
-    def count_missing(self, patch_names: list[str]) -> tuple[int, int]:
+    def count_missing(self, patches: list[dict]) -> tuple[int, int]:
         """Return (missing_count, unique_patch_count)."""
-        keys: list[str] = []
+        missing = self.list_missing(patches)
         seen: set[str] = set()
-        for name in patch_names:
-            key = self.patch_key(name)
-            if key not in seen:
-                seen.add(key)
-                keys.append(key)
-        missing = self.list_missing(keys)
-        return len(missing), len(keys)
+        for patch in patches:
+            key = self._storage_key(
+                patch["name"],
+                patch_path=patch.get("path"),
+                stable_key=patch.get("stable_key"),
+            )
+            seen.add(key)
+        return len(missing), len(seen)
 
 
 def log_missing_normalization_summary(
-    patch_names: list[str],
+    patches: list[dict],
     store: PatchNormalizationStore | None = None,
 ) -> None:
     """Lightweight scan-complete log — no rendering."""
     store = store or PatchNormalizationStore()
-    missing_count, total = store.count_missing(patch_names)
+    missing_count, total = store.count_missing(patches)
     if total == 0:
         return
     if missing_count == 0:

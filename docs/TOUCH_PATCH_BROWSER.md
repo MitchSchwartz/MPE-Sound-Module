@@ -232,17 +232,35 @@ Right-side **slide-out panel** (tap **⋯**, tap outside, swipe right, or **×**
 
 UI preferences persist in `~/.patch_browser_ui.json` (see [UI theme](#ui-theme-system-settings--theme)).
 
-- **CPU meter** — toggle show/hide for the header bar (not the numeric overlay; bar-only meter). Default on.
-- **Theme…** — base theme, accent style, accent color (presets + saved custom colors). See [UI theme](#ui-theme-system-settings--theme).
-- **Patch normalization** — master toggle for all per-patch Norm. controls (persists in `~/.patch_browser_normalization.json` under `_global`; per-patch flags unchanged when off).
-- **USB Audio** — toggle in System settings (⋯); header badge shows **Analog** or **USB**. Switches run **in the background** with a “Switching audio…” overlay (UI stays responsive). Requires GPIO split power + one-time boot overlay for desk tether — see **[USB-AUDIO-HOST.md](USB-AUDIO-HOST.md)**.
-- **Wi‑Fi** — shows current SSID (or **Not connected**). Tap to scan nearby networks via NetworkManager (`nmcli`). Saved networks connect in one tap; new secured networks open an on-screen password keyboard. No SSH or ethernet required for venue recovery.
-- **Audio buffer (debug)** — opens a picker with preset sizes (32–2048 samples) and approximate latency; applies on selection and restarts Surge.
-- **Sample rate (debug)** — opens a picker for **44.1 kHz / 48 kHz**; persists and restarts Surge (and USB gadget when bound). Host capture must match when using **usb-host**.
-- **Header CPU meter** — compact bar to the left of the **⋯** settings button when enabled. Polls at ~5 Hz on a background thread (UI stays responsive). Surge XT does **not** document a CPU OSC address (`/q/cpu`, `/cpu`, `/status/cpu` are probed speculatively when OSC out is enabled). The meter therefore uses **`/proc` CPU time for the `surge-xt-cli` process** as a live-play diagnostic — same green → yellow → red thresholds as a DAW meter. Shows **—** when Surge is offline. This approximates audio-engine stress on a dedicated Pi; it is not identical to Surge’s internal VU *Show CPU Usage* ratio (audio callback time ÷ buffer time), which is GUI-only today. **CPU meter colors always use semantic green/yellow/red**, even in Monochrome accent style.
-- **Restart Surge** — shown when status is not healthy; uses the same systemd unit as the encoder build.
-- **Calibrate missing patches** — incremental run over the full scanned library (patches without `gain_db` only).
-- **Force full re-calibration** — re-measures every patch in the scan tree (`--force`). See [Per-patch normalization](#per-patch-normalization).
+Sections are grouped top-to-bottom:
+
+### Sound
+
+- **Audio…** — drill-in sub-screen (chevron shows live summary: profile · buffer · sample rate).
+  - **USB Audio** profile toggle (Analog vs USB host); header badge matches. Background switch with overlay — see **[USB-AUDIO-HOST.md](USB-AUDIO-HOST.md)**.
+  - **Buffer** — preset picker (32–2048 samples) + approximate latency; restarts Surge ([#44](https://github.com/MitchSchwartz/MPE-Sound-Module/issues/44)).
+  - **Sample rate** — **44.1 kHz / 48 kHz** picker; persists to `/etc/mpe/mpe.env` and restarts Surge (+ USB gadget when **usb-host**) ([#39](https://github.com/MitchSchwartz/MPE-Sound-Module/issues/39)).
+  - **Dynamic voice limit** — poly governor toggle.
+
+Tapping the header **Analog/USB** badge opens settings directly on this Audio sub-screen.
+
+### Display
+
+- **Brightness** slider (double-tap resets to default).
+- **Theme…** — base theme, accent style, accent color. See [UI theme](#ui-theme-system-settings--theme).
+
+### Network
+
+- **Wi‑Fi** — current SSID subtitle; tap to scan/connect via NetworkManager (venue recovery, no SSH).
+
+### Advanced (expand/collapse)
+
+- **CPU meter** — toggle header bar meter (default on).
+- **Patch normalization** — master toggle for all per-patch Norm controls.
+- **Restart Surge** — when status is not healthy.
+- **Calibrate missing patches** / **Force full re-calibration** — confirm modal → loader on DSI. See **[PATCH_NORMALIZATION.md](PATCH_NORMALIZATION.md)**.
+
+**Header CPU meter** (when enabled): compact bar left of **⋯**. Polls ~5 Hz on a background thread. Uses **`/proc` CPU time for `surge-xt-cli`** (Surge has no documented CPU OSC). Semantic green → yellow → red even in Monochrome accent style.
 
 ## UI theme (System → Theme…)
 

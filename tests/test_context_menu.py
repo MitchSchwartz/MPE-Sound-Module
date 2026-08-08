@@ -1,0 +1,74 @@
+"""Tests for long-press context menu action building."""
+
+import unittest
+
+from patch_browser.context_menu import (
+    ContextTarget,
+    build_context_actions,
+    folder_picker_actions,
+    instrument_picker_actions,
+)
+
+
+class ContextMenuTests(unittest.TestCase):
+    def test_library_folder_actions(self) -> None:
+        target = ContextTarget(kind="library_folder", category="Bass", inner_segments=())
+        actions = build_context_actions(target, is_favorited=False)
+        ids = [a[0] for a in actions]
+        self.assertEqual(ids, ["add_all_liked", "add_all_pick_folder"])
+
+    def test_patch_unfavorited_actions(self) -> None:
+        target = ContextTarget(kind="patch", patch={"name": "Acid"})
+        actions = build_context_actions(target, is_favorited=False)
+        ids = [a[0] for a in actions]
+        self.assertIn("favorite_liked", ids)
+        self.assertIn("add_pick_folder", ids)
+        self.assertIn("set_instrument_pick", ids)
+
+    def test_patch_favorited_actions(self) -> None:
+        target = ContextTarget(kind="patch", patch={"name": "Acid"})
+        actions = build_context_actions(target, is_favorited=True)
+        ids = [a[0] for a in actions]
+        self.assertIn("unfavorite", ids)
+        self.assertIn("move_pick_folder", ids)
+
+    def test_qa_folder_liked_only_new(self) -> None:
+        target = ContextTarget(
+            kind="qa_folder",
+            category="!Quick Access",
+            inner_segments=("Liked",),
+            folder_name="Liked",
+        )
+        actions = build_context_actions(target, is_favorited=False)
+        self.assertEqual([a[0] for a in actions], ["qa_new_subfolder"])
+
+    def test_qa_folder_user_actions(self) -> None:
+        target = ContextTarget(
+            kind="qa_folder",
+            category="!Quick Access",
+            inner_segments=("Gigs",),
+            folder_name="Gigs",
+        )
+        actions = build_context_actions(target, is_favorited=False)
+        ids = [a[0] for a in actions]
+        self.assertIn("qa_rename", ids)
+        self.assertIn("qa_delete", ids)
+
+    def test_nested_qa_folder_no_rename(self) -> None:
+        target = ContextTarget(
+            kind="qa_folder",
+            category="!Quick Access",
+            inner_segments=("Gigs", "Live"),
+            folder_name="Live",
+        )
+        actions = build_context_actions(target, is_favorited=False)
+        ids = [a[0] for a in actions]
+        self.assertEqual(ids, ["qa_new_subfolder"])
+
+    def test_picker_helpers(self) -> None:
+        self.assertTrue(folder_picker_actions(["Liked", "Gigs"]))
+        self.assertTrue(instrument_picker_actions())
+
+
+if __name__ == "__main__":
+    unittest.main()

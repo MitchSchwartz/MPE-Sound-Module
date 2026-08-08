@@ -41,6 +41,7 @@ from patch_browser.touch_browser_mixer import TouchBrowserMixerMixin
 from patch_browser.touch_browser_normalization import TouchBrowserNormalizationMixin
 from patch_browser.touch_browser_patches import TouchBrowserPatchesMixin
 from patch_browser.touch_browser_prefs import TouchBrowserPrefsMixin
+from patch_browser.touch_browser_settings import TouchBrowserSettingsMixin
 from patch_browser.touch_browser_surge_audio_modal import TouchBrowserSurgeAudioModalMixin
 from patch_browser.touch_browser_wifi_modal import TouchBrowserWifiModalMixin
 from patch_browser.touch_ui_constants import TAP_MOVE_THRESHOLD_PX
@@ -60,6 +61,7 @@ from patch_browser.ui_theme import DEFAULT_ACCENT_RGB, THEME_VIEW_MAIN, reload_t
 class TouchPatchBrowser(
     TouchBrowserEvdevMixin,
     TouchBrowserPrefsMixin,
+    TouchBrowserSettingsMixin,
     TouchBrowserSurgeAudioModalMixin,
     TouchBrowserWifiModalMixin,
     TouchBrowserLayoutMixin,
@@ -179,6 +181,9 @@ class TouchPatchBrowser(
         self._surge_liveness_initialized = False
         self._surge_restart_btn: Rect | None = None
         self._settings_slide = 0.0
+        self._settings_view = "root"
+        self._settings_advanced_open = False
+        self._settings_section_headers: list[tuple[Rect, str, bool]] = []
         self._settings_swipe_start: tuple[int, int] | None = None
         self._settings_pointer_down_pos: tuple[int, int] | None = None
         self._settings_pending_hit: str | None = None
