@@ -42,15 +42,18 @@ Every patch is fully editable and MPE-assignable from your computer, across all 
 - **Runs Surge XT** — free, open-source synth engine, always in MPE mode, full mod matrix across all 5 expression dimensions
 - **3,192 patches included** — 639 factory + 2,553 community
 - **Analog and USB audio out** — 3.5mm jack standalone, or USB to a laptop/PC as a standard audio input
+- **Selectable sample rate** — 44.1 kHz or 48 kHz on-device; persists and restarts Surge with the new rate
+- **Selectable audio buffer** — preset sizes (32–2048 samples) with approximate latency shown; restarts Surge when changed
 - **Per-patch volume normalization** — calibrate once (strike + sustain anchors, peak-safe closed loop); every patch loads at a matched level. The same run sets **Touch** pressure floors for light vs full press on favorites.
 - **Reuse Single on load** — patches are rewritten at load so restrikes on the same key reuse the voice instead of stacking new ones (lighter CPU on dense patches)
 - **Dynamic voice limit** — a background governor watches CPU and steps Surge's poly limit down under sustained load, then recovers when headroom returns; Surge's built-in softkill handles voice stealing (no MIDI panic)
-- **Favorites folder** — curate a quick-access set of patches on your PC, deploy to the device
 
 ### UI
 
 - **Two interface options** — rotary encoder + OLED screen, or fullscreen touch display (SmartiPi 5″)
-- **Full-library browsing** — folder view or a flat, alphabetical searchable list
+- **Full-library browsing** — folder view or a flat, alphabetical list with an A–Z scrub rail
+- **Quick Select** — your personal patch shortlist. Heart a patch on the detail pane to save it; browse saved patches under **Quick Select** like any other category. Add subfolders for gig sets or moods (long-press to create, rename, or organize). Long-press a patch or library folder for shortcuts — add a whole folder at once, move patches between folders, remove from the list. Copies live on the Pi; the originals in the main library stay put.
+- **Filter by instrument** — browsing a deep folder or the full A–Z list? Tap the funnel icon next to the **A–Z** button to narrow by type — bass, pad, keys, and so on. Tap **All** to see everything again.
 - **Per-patch mixer (touch)** — vertical faders on the patch detail pane: **Vol** (level), **Tail** (envelope length; **0** = patch-as-loaded), **Touch** (MPE pressure floor; **cal value** = default handle position on **−50…+50**). See **[docs/TOUCH_PATCH_BROWSER.md](docs/TOUCH_PATCH_BROWSER.md)** §Mixer faders.
 - **Theming** — light/dark base themes with custom accent colors
 - **CPU meter** — live engine headroom while playing
