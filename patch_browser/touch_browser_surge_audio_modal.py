@@ -75,7 +75,7 @@ class TouchBrowserSurgeAudioModalMixin:
             self.height - 32,
         )
         panel = Rect((self.width - panel_w) // 2, (self.height - panel_h) // 2, panel_w, panel_h)
-        self._draw_elevated_panel(panel, border_radius=16)
+        self._draw_modal_shell(panel, border_radius=16)
 
         inner_x = panel.x + inner_pad
         inner_w = panel.w - inner_pad * 2
@@ -124,7 +124,7 @@ class TouchBrowserSurgeAudioModalMixin:
         hint_h = self.font_sm.get_height() + 8
         panel_h = inner_pad + self.font_md.get_height() + 12 + hint_h + option_h + 16 + SETTINGS_ROW_H + inner_pad
         panel = Rect((self.width - panel_w) // 2, (self.height - panel_h) // 2, panel_w, panel_h)
-        self._draw_elevated_panel(panel, border_radius=16)
+        self._draw_modal_shell(panel, border_radius=16)
 
         inner_x = panel.x + inner_pad
         y = panel.y + inner_pad

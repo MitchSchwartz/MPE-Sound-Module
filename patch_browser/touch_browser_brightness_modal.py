@@ -61,7 +61,7 @@ class TouchBrowserBrightnessModalMixin:
             self.height - 32,
         )
         panel = Rect((self.width - panel_w) // 2, (self.height - panel_h) // 2, panel_w, panel_h)
-        self._draw_elevated_panel(panel, border_radius=16)
+        self._draw_modal_shell(panel, border_radius=16)
 
         inner_x = panel.x + inner_pad
         inner_w = panel.w - inner_pad * 2

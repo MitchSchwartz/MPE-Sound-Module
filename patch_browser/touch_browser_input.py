@@ -28,6 +28,58 @@ from patch_browser.ui_theme import (
 class TouchBrowserInputMixin:
     """Mixin — expects TouchPatchBrowser host attributes."""
 
+    _BACKDROP_DISMISS_SCREENS = frozenset(
+        {
+            Screen.THEME,
+            Screen.POWER_MENU,
+            Screen.POWER_CONFIRM,
+            Screen.CALIBRATE_CONFIRM,
+            Screen.SURGE_BUFFER_MODAL,
+            Screen.SURGE_SAMPLE_RATE_MODAL,
+            Screen.BRIGHTNESS_MODAL,
+            Screen.WIFI_MODAL,
+        }
+    )
+
+    def _modal_backdrop_tap(
+        self,
+        start: tuple[int, int] | None,
+        end: tuple[int, int],
+    ) -> bool:
+        panel = getattr(self, "_modal_panel_rect", None)
+        if panel is None or start is None:
+            return False
+        if self._pointer_move_distance(start, end) > TAP_MOVE_THRESHOLD_PX:
+            return False
+        return not panel.contains(*start) and not panel.contains(*end)
+
+    def _dismiss_modal_from_backdrop(self) -> None:
+        state = self.screen_state
+        if state == Screen.THEME:
+            self._cancel_theme_modal()
+        elif state == Screen.POWER_MENU:
+            self.screen_state = Screen.SETTINGS
+        elif state == Screen.POWER_CONFIRM:
+            self.screen_state = Screen.POWER_MENU
+        elif state == Screen.CALIBRATE_CONFIRM:
+            self.screen_state = Screen.SETTINGS
+        elif state in (Screen.SURGE_BUFFER_MODAL, Screen.SURGE_SAMPLE_RATE_MODAL):
+            self._close_surge_audio_modal()
+        elif state == Screen.BRIGHTNESS_MODAL:
+            self._close_brightness_modal()
+        elif state == Screen.WIFI_MODAL:
+            self._close_wifi_modal()
+
+    def _try_dismiss_modal_backdrop(self, pos: tuple[int, int]) -> bool:
+        if self.screen_state not in self._BACKDROP_DISMISS_SCREENS:
+            return False
+        if not self._modal_backdrop_tap(self._modal_pointer_down_pos, pos):
+            return False
+        self._dismiss_modal_from_backdrop()
+        self._clear_modal_pointer()
+        self._picker_slider_channel = None
+        return True
+
     def _draw(self) -> None:
         modal = self.screen_state in (
             Screen.THEME,
@@ -622,7 +674,9 @@ class TouchBrowserInputMixin:
             self._mixer_drag_moved = False
             if self._picker_slider_channel and self.screen_state == Screen.THEME:
                 self._picker_slider_channel = None
-            if self.screen_state == Screen.SETTINGS:
+            if self._try_dismiss_modal_backdrop(event.pos):
+                pass
+            elif self.screen_state == Screen.SETTINGS:
                 self._handle_settings_pointer_up(event.pos)
             elif self.screen_state == Screen.POWER_MENU:
                 self._handle_power_menu_pointer_up(event.pos)

@@ -201,7 +201,7 @@ class TouchBrowserWifiModalMixin:
         panel_w = min(560, self.width - 32)
         panel_h = min(420, self.height - 24)
         panel = Rect((self.width - panel_w) // 2, (self.height - panel_h) // 2, panel_w, panel_h)
-        self._draw_elevated_panel(panel, border_radius=16)
+        self._draw_modal_shell(panel, border_radius=16)
 
         inner_x = panel.x + 20
         inner_w = panel.w - 40
@@ -280,7 +280,7 @@ class TouchBrowserWifiModalMixin:
         panel_w = min(560, self.width - 24)
         panel_h = min(self.height - 16, 430)
         panel = Rect((self.width - panel_w) // 2, (self.height - panel_h) // 2, panel_w, panel_h)
-        self._draw_elevated_panel(panel, border_radius=16)
+        self._draw_modal_shell(panel, border_radius=16)
 
         inner_x = panel.x + 16
         inner_w = panel.w - 32

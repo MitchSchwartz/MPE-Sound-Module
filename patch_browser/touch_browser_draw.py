@@ -136,6 +136,11 @@ class TouchBrowserDrawMixin:
                 (rect.right - inset, rect.y),
                 1,
             )
+
+    def _draw_modal_shell(self, panel: Rect, *, border_radius: int = 16) -> None:
+        """Draw a centered modal panel and track its rect for backdrop dismiss."""
+        self._modal_panel_rect = panel
+        self._draw_elevated_panel(panel, border_radius=border_radius)
     def _nav_icon_colors(
         self,
         *,
@@ -792,7 +797,7 @@ class TouchBrowserDrawMixin:
         panel_w = min(360, self.width - 48)
         panel_h = 280
         panel = Rect((self.width - panel_w) // 2, (self.height - panel_h) // 2, panel_w, panel_h)
-        self._draw_elevated_panel(panel, border_radius=16)
+        self._draw_modal_shell(panel, border_radius=16)
 
         self.screen.blit(self.font_md.render("Power", True, self.theme.text), (panel.x + 24, panel.y + 20))
 
@@ -814,7 +819,7 @@ class TouchBrowserDrawMixin:
         panel_w = min(420, self.width - 48)
         panel_h = 220
         panel = Rect((self.width - panel_w) // 2, (self.height - panel_h) // 2, panel_w, panel_h)
-        self._draw_elevated_panel(panel, border_radius=16)
+        self._draw_modal_shell(panel, border_radius=16)
 
         action = "Shut down?" if self.power_action == "shutdown" else "Restart?"
         self.screen.blit(
@@ -1099,7 +1104,7 @@ class TouchBrowserDrawMixin:
         panel_w = min(520, self.width - 48)
         panel_h = min(456, self.height - 32)
         panel = Rect((self.width - panel_w) // 2, (self.height - panel_h) // 2, panel_w, panel_h)
-        self._draw_elevated_panel(panel, border_radius=16)
+        self._draw_modal_shell(panel, border_radius=16)
 
         if view == THEME_VIEW_PICKER:
             title = "Custom color"
@@ -1147,7 +1152,7 @@ class TouchBrowserDrawMixin:
         btn_gap = 12
         panel_h = 18 + title_surf.get_height() + 16 + body_h + 20 + btn_h + 24
         panel = Rect((self.width - panel_w) // 2, (self.height - panel_h) // 2, panel_w, panel_h)
-        self._draw_elevated_panel(panel, border_radius=16)
+        self._draw_modal_shell(panel, border_radius=16)
 
         self.screen.blit(title_surf, (panel.x + 24, panel.y + 18))
 
