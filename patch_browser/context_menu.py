@@ -57,7 +57,16 @@ def build_context_actions(
 
 
 def folder_picker_actions(folders: list[str]) -> list[tuple[str, str]]:
-    return [(f"pick_folder:{name}", name) for name in folders]
+    """User-created QA folders first, then a Liked section."""
+    user = [name for name in folders if name != DEFAULT_FAVORITES_FOLDER]
+    actions: list[tuple[str, str]] = [(f"pick_folder:{name}", name) for name in user]
+    if DEFAULT_FAVORITES_FOLDER in folders:
+        if user:
+            actions.append(("_section", "Liked"))
+        actions.append(
+            (f"pick_folder:{DEFAULT_FAVORITES_FOLDER}", DEFAULT_FAVORITES_FOLDER)
+        )
+    return actions
 
 
 def instrument_picker_actions() -> list[tuple[str, str]]:

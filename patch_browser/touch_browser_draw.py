@@ -15,7 +15,11 @@ from patch_browser.draw_primitives import (
 )
 from patch_browser.geometry import Rect
 from patch_browser.mixer import MixerChannel
-from patch_browser.patch_identity import patch_browse_subtitle, patch_list_subtitle
+from patch_browser.patch_identity import (
+    patch_browse_instrument_subtitle,
+    patch_browse_subtitle,
+    patch_list_subtitle,
+)
 from patch_browser.dsi_splash import shutdown_animation_phase
 from patch_browser.touch_ui_constants import (
     CPU_METER_BAR_W,
@@ -23,6 +27,7 @@ from patch_browser.touch_ui_constants import (
     DETAIL_TITLE_PAD_X,
     FADER_HANDLE_H,
     FADER_HANDLE_W,
+    LONG_PRESS_S,
     SETTINGS_PANEL_FOOTER_H,
     SETTINGS_PANEL_HEADER_H,
     SETTINGS_ROW_GAP,
@@ -210,6 +215,37 @@ class TouchBrowserDrawMixin:
         clipped = ellipsize_text(self.font_sm, folder_name, max_w)
         label = self.font_sm.render(clipped, True, self.theme.text)
         self.screen.blit(label, (rect.x + 12, rect.y + (rect.h - label.get_height()) // 2))
+
+    def _row_touch_feedback(self, index: int) -> tuple[bool, float]:
+        """Pressed highlight + long-press progress (0–1) for nav list row index."""
+        pending = getattr(self, "_long_press_pending", None)
+        if pending and pending.get("index") == index and not getattr(
+            self.nav_list, "_pointer_scrolled", False
+        ):
+            elapsed = time.time() - pending["started"]
+            return True, min(1.0, elapsed / LONG_PRESS_S)
+        if (
+            self.nav_list.pressed_index == index
+            and not getattr(self.nav_list, "_pointer_scrolled", False)
+        ):
+            return True, 0.0
+        return False, 0.0
+
+    def _draw_row_touch_chrome(self, row_rect: pygame.Rect, index: int) -> None:
+        pressed, progress = self._row_touch_feedback(index)
+        if not pressed:
+            return
+        pygame.draw.rect(self.screen, self.theme.surface_alt, row_rect, border_radius=8)
+        if progress > 0:
+            bar_h = 3
+            bar_w = max(4, int(row_rect.w * progress))
+            pygame.draw.rect(
+                self.screen,
+                self.theme.accent,
+                (row_rect.x, row_rect.bottom - bar_h - 2, bar_w, bar_h),
+                border_radius=2,
+            )
+
     def _draw_button(
         self,
         rect: Rect,
@@ -430,6 +466,7 @@ class TouchBrowserDrawMixin:
                 row_h - 2,
             )
             is_loaded = self.nav_list.loaded_marker_index == index
+            self._draw_row_touch_chrome(row_rect, index)
             if is_loaded:
                 pygame.draw.rect(self.screen, self.theme.surface_alt, row_rect, border_radius=8)
 
@@ -491,6 +528,7 @@ class TouchBrowserDrawMixin:
             )
             is_highlight = self.nav_list.highlight_index == index
             is_loaded = self.nav_list.loaded_marker_index == index
+            self._draw_row_touch_chrome(row_rect, index)
             if is_highlight or is_loaded:
                 pygame.draw.rect(self.screen, self.theme.surface_alt, row_rect, border_radius=8)
 
@@ -505,8 +543,14 @@ class TouchBrowserDrawMixin:
                 patch = entry["patch"]
                 name_clipped = ellipsize_text(self.font_md, patch["name"], name_max_w)
                 name_s = self.font_md.render(name_clipped, True, text_color)
-                ty = row_rect.y + (row_rect.h - name_s.get_height()) // 2
-                self.screen.blit(name_s, (row_rect.x + 10, ty))
+                self.screen.blit(name_s, (row_rect.x + 10, row_rect.y + 6))
+                inst_clipped = ellipsize_text(
+                    self.font_sm,
+                    patch_browse_instrument_subtitle(patch),
+                    name_max_w,
+                )
+                inst_s = self.font_sm.render(inst_clipped, True, self.theme.muted)
+                self.screen.blit(inst_s, (row_rect.x + 10, row_rect.y + 26))
 
             if is_loaded:
                 pygame.draw.circle(
@@ -573,7 +617,9 @@ class TouchBrowserDrawMixin:
             self._draw_browse_patches_list()
         else:
             font = self.font_sm
+            self.nav_list.row_touch_feedback = self._row_touch_feedback
             self.nav_list.draw(self.screen, font, self.theme)
+            self.nav_list.row_touch_feedback = None
     def _draw_main_detail(self) -> None:
         pygame.draw.rect(
             self.screen,

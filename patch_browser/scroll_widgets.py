@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 import time
+from collections.abc import Callable
 
 import pygame
 
@@ -49,6 +50,8 @@ class ScrollList:
         self._scroll_anim_target: float | None = None
         self._scroll_anim_elapsed = 0.0
         self._scroll_anim_duration = 0.0
+        self.pressed_index: int | None = None
+        self.row_touch_feedback: Callable[[int], tuple[bool, float]] | None = None
 
     def cancel_active_pointer(self) -> None:
         """Drop in-progress tap/scroll gesture without firing a row tap."""
@@ -89,6 +92,7 @@ class ScrollList:
         self._last_motion_time = now
         self._drag_start_time = now
         self._scroll_samples = [(now, self._scroll_pixels)]
+        self.pressed_index = self.item_at(pos[0], pos[1])
         return True
 
     def pointer_move(self, pos: tuple[int, int]) -> bool:
@@ -207,6 +211,7 @@ class ScrollList:
         self._pointer_scrolled = False
         self._drag_start_y = None
         self._last_motion_y = None
+        self.pressed_index = None
         self._was_momentum_on_down = False
         self._scroll_samples.clear()
 
@@ -370,6 +375,19 @@ class ScrollList:
             row_rect = pygame.Rect(self.rect.x + 4, y, self.rect.w - 8, self.row_height - 4)
             is_highlight = self.highlight_index == index
             is_loaded = self.loaded_marker_index == index
+            if self.row_touch_feedback:
+                pressed, progress = self.row_touch_feedback(index)
+                if pressed:
+                    pygame.draw.rect(surface, theme.surface_alt, row_rect, border_radius=8)
+                    if progress > 0:
+                        bar_h = 3
+                        bar_w = max(4, int(row_rect.w * progress))
+                        pygame.draw.rect(
+                            surface,
+                            theme.accent,
+                            (row_rect.x, row_rect.bottom - bar_h - 2, bar_w, bar_h),
+                            border_radius=2,
+                        )
             if is_highlight or is_loaded:
                 pygame.draw.rect(surface, theme.surface_alt, row_rect, border_radius=8)
 

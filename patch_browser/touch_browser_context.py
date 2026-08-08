@@ -147,9 +147,13 @@ class TouchBrowserContextMixin:
     def _layout_context_menu(self) -> None:
         margin = 16
         row_h = SETTINGS_ROW_H
+        section_h = 28
         gap = SETTINGS_ROW_GAP
         header_h = 44
-        panel_h = header_h + len(self._context_menu_actions) * (row_h + gap) + 12
+        body_h = 0
+        for action_id, _label in self._context_menu_actions:
+            body_h += (section_h if action_id == "_section" else row_h) + gap
+        panel_h = header_h + body_h + 12
         panel_h = min(panel_h, self.height - margin * 2 - 80)
         panel_y = self.height - panel_h - BROWSER_BOTTOM_MARGIN
         panel_w = self.width - margin * 2
@@ -158,9 +162,10 @@ class TouchBrowserContextMixin:
         y = self._context_menu_panel.y + header_h
         inner_w = self._context_menu_panel.w - 24
         for action_id, label in self._context_menu_actions:
-            rect = Rect(self._context_menu_panel.x + 12, y, inner_w, row_h)
+            h = section_h if action_id == "_section" else row_h
+            rect = Rect(self._context_menu_panel.x + 12, y, inner_w, h)
             self._context_menu_rects.append((action_id, rect))
-            y += row_h + gap
+            y += h + gap
 
     def _open_context_menu(self, target: ContextTarget) -> None:
         self.nav_list.stop_momentum()
@@ -233,6 +238,8 @@ class TouchBrowserContextMixin:
         self._layout_context_menu()
 
     def _execute_context_action(self, action_id: str) -> None:
+        if action_id == "_section":
+            return
         target = self._context_target
         if target is None:
             self._close_context_menu()
@@ -264,6 +271,18 @@ class TouchBrowserContextMixin:
             return
 
         if action_id == "unfavorite":
+            patch = target.patch
+            name = (patch or {}).get("name", "this patch")
+            self._context_menu_view = "unfavorite_confirm"
+            self._context_menu_actions = [
+                ("unfavorite_confirm", f"Remove '{name}'"),
+                ("qa_cancel", "Cancel"),
+            ]
+            self._context_menu_title = "Remove from Quick Access?"
+            self._layout_context_menu()
+            return
+
+        if action_id == "unfavorite_confirm":
             patch = target.patch
             if patch and self.scanner.remove_patch_from_favorites(patch):
                 self._sync_categories_after_favorites_change()
@@ -483,6 +502,8 @@ class TouchBrowserContextMixin:
             self._close_context_menu()
             return
         for action_id, rect in self._context_menu_rects:
+            if action_id == "_section":
+                continue
             if rect.contains(*pos):
                 self._execute_context_action(action_id)
                 return
@@ -494,9 +515,15 @@ class TouchBrowserContextMixin:
         title = self.font_md.render(self._context_menu_title, True, self.theme.text)
         self.screen.blit(title, (panel.x + 16, panel.y + 12))
         for action_id, rect in self._context_menu_rects:
+            if action_id == "_section":
+                label = next(l for aid, l in self._context_menu_actions if aid == action_id)
+                surf = self.font_sm.render(label, True, self.theme.muted)
+                self.screen.blit(surf, (rect.x + 4, rect.y + 6))
+                continue
             pygame.draw.rect(self.screen, self.theme.surface_alt, rect.pygame_rect, border_radius=10)
             label = next(l for aid, l in self._context_menu_actions if aid == action_id)
-            color = self.theme.danger if action_id in ("qa_delete", "qa_delete_confirm") else self.theme.text
+            danger_ids = ("qa_delete", "qa_delete_confirm", "unfavorite_confirm")
+            color = self.theme.danger if action_id in danger_ids else self.theme.text
             surf = self.font_md.render(label, True, color)
             self.screen.blit(
                 surf,
