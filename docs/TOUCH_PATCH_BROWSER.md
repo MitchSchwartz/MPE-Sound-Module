@@ -211,7 +211,7 @@ Per-fader detail:
 - Touch **down + drag** on a fader; release does not trigger nav taps underneath.
 - **Norm.** — label-left / checkbox-right toggle for per-patch loudness normalization (see [`PATCH_NORMALIZATION.md`](PATCH_NORMALIZATION.md)).
 
-Brightness in **System settings** still uses a horizontal slider (one-off control, not live mixing).
+Brightness in **System settings** is a read-only row (current **%**); tap opens a modal with a large slider and presets (not mixed into the scrollable settings list).
 
 ## Touch input (evdev)
 
@@ -248,7 +248,7 @@ Tapping the header **Analog/USB** badge opens settings directly on this Audio su
 
 ### Display
 
-- **Brightness** slider (double-tap resets to default).
+- **Brightness** — shows current **%**; tap opens a modal slider + presets (25/50/75/100, Reset).
 - **Theme…** — base theme, accent style, accent color. See [UI theme](#ui-theme-system-settings--theme).
 
 ### Network

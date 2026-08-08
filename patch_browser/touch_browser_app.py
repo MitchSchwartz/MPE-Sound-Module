@@ -41,6 +41,7 @@ from patch_browser.touch_browser_mixer import TouchBrowserMixerMixin
 from patch_browser.touch_browser_normalization import TouchBrowserNormalizationMixin
 from patch_browser.touch_browser_patches import TouchBrowserPatchesMixin
 from patch_browser.touch_browser_prefs import TouchBrowserPrefsMixin
+from patch_browser.touch_browser_brightness_modal import TouchBrowserBrightnessModalMixin
 from patch_browser.touch_browser_settings import TouchBrowserSettingsMixin
 from patch_browser.touch_browser_surge_audio_modal import TouchBrowserSurgeAudioModalMixin
 from patch_browser.touch_browser_wifi_modal import TouchBrowserWifiModalMixin
@@ -62,6 +63,7 @@ class TouchPatchBrowser(
     TouchBrowserEvdevMixin,
     TouchBrowserPrefsMixin,
     TouchBrowserSettingsMixin,
+    TouchBrowserBrightnessModalMixin,
     TouchBrowserSurgeAudioModalMixin,
     TouchBrowserWifiModalMixin,
     TouchBrowserLayoutMixin,
@@ -169,8 +171,6 @@ class TouchPatchBrowser(
         self._mixer_drag_moved = False
         self._pending_norm_toggle = False
         self._pending_favorites_toggle = False
-        self._brightness_last_tap_time = 0.0
-        self._brightness_drag_moved = False
         self.mixer_channels: list[MixerChannel] = []
         self._scan_dirty = False
         self._pending_last_patch: dict | None = None

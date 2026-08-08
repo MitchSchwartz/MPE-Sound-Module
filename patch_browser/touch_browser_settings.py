@@ -13,7 +13,6 @@ from patch_browser.surge_audio import (
     sample_rate_option_label,
 )
 from patch_browser.touch_ui_constants import (
-    SETTINGS_BRIGHTNESS_ROW_H,
     SETTINGS_DRILL_SUBTITLE_GAP,
     SETTINGS_PANEL_FOOTER_H,
     SETTINGS_PANEL_HEADER_H,
@@ -70,9 +69,9 @@ class TouchBrowserSettingsMixin:
         y += audio_h + SETTINGS_ROW_GAP
 
         y = self._layout_settings_section_header(pad, inner_w, y, "Display")
-        self.brightness_row_rect = Rect(pad, y, inner_w, SETTINGS_BRIGHTNESS_ROW_H)
-        self.brightness_slider_rect = Rect(pad + 16, y + 34, inner_w - 32, 8)
-        y += SETTINGS_BRIGHTNESS_ROW_H + SETTINGS_ROW_GAP
+        brightness_h = self._settings_row_height("Brightness", inner_w)
+        self.brightness_row_rect = Rect(pad, y, inner_w, brightness_h)
+        y += brightness_h + SETTINGS_ROW_GAP
         theme_h = self._settings_row_height("Theme", inner_w)
         self.theme_btn_rect = Rect(pad, y, inner_w, theme_h)
         y += theme_h + SETTINGS_ROW_GAP
@@ -115,7 +114,6 @@ class TouchBrowserSettingsMixin:
         self.settings_audio_drill_rect = Rect(pad, y, 0, 0)
         self.settings_advanced_header_rect = Rect(pad, y, 0, 0)
         self.brightness_row_rect = Rect(pad, y, 0, 0)
-        self.brightness_slider_rect = Rect(pad, y, 0, 0)
         self.theme_btn_rect = Rect(pad, y, 0, 0)
         self.wifi_row_rect = Rect(pad, y, 0, 0)
         self.cpu_meter_toggle_rect = Rect(pad, y, 0, 0)
@@ -195,22 +193,6 @@ class TouchBrowserSettingsMixin:
         self.screen.blit(sub_surf, (rect.x + 16, rect.y + 12 + label_surf.get_height() + SETTINGS_DRILL_SUBTITLE_GAP))
         chevron_rect = Rect(rect.right - 34, rect.y + (rect.h - 22) // 2, 22, 22)
         draw_chevron(self.screen, chevron_rect, self.theme.muted, direction="right")
-
-    def _draw_settings_brightness_row(self, row_rect: Rect, slider_rect: Rect, percent: int) -> None:
-        pygame.draw.rect(self.screen, self.theme.surface, row_rect.pygame_rect, border_radius=10)
-        label_surf = self.font_md.render("Brightness", True, self.theme.text)
-        self.screen.blit(label_surf, (row_rect.x + 16, row_rect.y + 12))
-        value_surf = self.font_md.render(f"{percent}%", True, self.theme.muted)
-        self.screen.blit(
-            value_surf,
-            (row_rect.right - value_surf.get_width() - 16, row_rect.y + 12),
-        )
-        ratio = max(0.0, min(1.0, percent / 100.0))
-        pygame.draw.rect(self.screen, self.theme.surface_alt, slider_rect.pygame_rect, border_radius=4)
-        fill_w = max(0, int(slider_rect.w * ratio))
-        if fill_w > 0:
-            fill_rect = pygame.Rect(slider_rect.x, slider_rect.y, fill_w, slider_rect.h)
-            pygame.draw.rect(self.screen, self.theme.accent, fill_rect, border_radius=4)
 
     def _draw_settings_section_header(
         self,
@@ -371,11 +353,10 @@ class TouchBrowserSettingsMixin:
             )
 
             brightness_row = self._panel_local_to_screen(self.brightness_row_rect, scrolled=True)
-            brightness_slider = self._panel_local_to_screen(self.brightness_slider_rect, scrolled=True)
-            self._draw_settings_brightness_row(
+            self._draw_settings_chevron_row(
                 brightness_row,
-                brightness_slider,
-                self.brightness_percent,
+                "Brightness",
+                f"{self.brightness_percent}%",
             )
 
             theme_row = self._panel_local_to_screen(self.theme_btn_rect, scrolled=True)
