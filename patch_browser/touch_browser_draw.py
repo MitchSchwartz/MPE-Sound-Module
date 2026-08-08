@@ -15,7 +15,7 @@ from patch_browser.draw_primitives import (
 )
 from patch_browser.geometry import Rect
 from patch_browser.mixer import MixerChannel
-from patch_browser.patch_identity import patch_browse_subtitle
+from patch_browser.patch_identity import patch_browse_subtitle, patch_list_subtitle
 from patch_browser.dsi_splash import shutdown_animation_phase
 from patch_browser.touch_ui_constants import (
     CPU_METER_BAR_W,
@@ -29,6 +29,7 @@ from patch_browser.touch_ui_constants import (
     SETTINGS_ROW_H,
 )
 from patch_browser.audio_profile import header_badge_label, settings_toggle_on
+from patch_browser.surge_audio import buffer_settings_label, sample_rate_settings_label
 from patch_browser.touch_ui_enums import (
     CalibrateMode,
     LeftNavMode,
@@ -180,6 +181,7 @@ class TouchBrowserDrawMixin:
             self.left_nav_mode == LeftNavMode.PATCHES
             and self.loaded_patch_info is not None
             and self.browse_folder_index == self.loaded_folder_index
+            and self._browse_inner_segments() == self.loaded_inner_segments
         )
         current_disabled = self.loaded_patch_info is None
         self._draw_nav_current_button(
@@ -202,9 +204,9 @@ class TouchBrowserDrawMixin:
             (rect.right - 10, rect.bottom - 1),
             1,
         )
-        folder_name = self._browse_category_name()
+        folder_name = self._browse_folder_title()
         if self.left_nav_mode == LeftNavMode.ALL_PATCHES:
-            count = len(self.all_patches_flat)
+            count = len(self._all_patches_display_flat)
             folder_name = f"All patches ({count})"
         max_w = max(1, rect.w - 24)
         clipped = ellipsize_text(self.font_sm, folder_name, max_w)
@@ -218,9 +220,13 @@ class TouchBrowserDrawMixin:
         small: bool = False,
         muted: bool = False,
         danger: bool = False,
+        pressed: bool = False,
     ) -> None:
         """Modal/action button. accent=primary commit; danger=destructive; default=dismiss/secondary."""
-        if muted:
+        if pressed:
+            bg = self.theme.accent
+            text_color = self.theme.bg
+        elif muted:
             bg = self.theme.surface
             text_color = self.theme.muted
         elif danger:
@@ -406,7 +412,7 @@ class TouchBrowserDrawMixin:
         clip = self.screen.get_clip()
         self.screen.set_clip(self.nav_list.rect.pygame_rect)
 
-        patches = self.all_patches_flat
+        patches = self._all_patches_display_flat
         if not patches:
             self.screen.set_clip(clip)
             return
@@ -443,7 +449,7 @@ class TouchBrowserDrawMixin:
 
             folder_clipped = ellipsize_text(
                 self.font_sm,
-                patch_browse_subtitle(patch),
+                patch_list_subtitle(patch),
                 name_max_w,
             )
             folder_s = self.font_sm.render(folder_clipped, True, self.theme.muted)
@@ -455,6 +461,67 @@ class TouchBrowserDrawMixin:
                     self.theme.accent,
                     (row_rect.right - 12, row_rect.centery),
                     4,
+                )
+
+            y += row_h
+
+        self.screen.set_clip(clip)
+
+    def _draw_browse_patches_list(self) -> None:
+        pygame.draw.rect(self.screen, self.theme.surface, self.nav_list.rect.pygame_rect, border_radius=10)
+        clip = self.screen.get_clip()
+        self.screen.set_clip(self.nav_list.rect.pygame_rect)
+
+        entries = self._browse_nav_entries
+        if not entries:
+            self.screen.set_clip(clip)
+            return
+
+        row_h = self.nav_list.row_height
+        start = int(self.nav_list._scroll_pixels // row_h)
+        sub_pixel = self.nav_list._scroll_pixels - start * row_h
+        end = min(len(entries), start + self.nav_list.visible_count() + 3)
+        y = self.nav_list.rect.y + self.nav_list.padding - int(sub_pixel)
+
+        for index in range(start, end):
+            entry = entries[index]
+            row_rect = pygame.Rect(
+                self.nav_list.rect.x + 4,
+                y,
+                self.nav_list.rect.w - 8,
+                row_h - 2,
+            )
+            is_highlight = self.nav_list.highlight_index == index
+            is_loaded = self.nav_list.loaded_marker_index == index
+            if is_highlight or is_loaded:
+                pygame.draw.rect(self.screen, self.theme.surface_alt, row_rect, border_radius=8)
+
+            text_color = self.theme.text if is_highlight or is_loaded else self.theme.muted
+            name_max_w = max(1, row_rect.w - 28)
+            if entry["kind"] == "folder":
+                clipped = ellipsize_text(self.font_md, entry["label"], name_max_w)
+                name_s = self.font_md.render(clipped, True, text_color)
+                ty = row_rect.y + (row_rect.h - name_s.get_height()) // 2
+                self.screen.blit(name_s, (row_rect.x + 10, ty))
+            else:
+                patch = entry["patch"]
+                name_clipped = ellipsize_text(self.font_md, patch["name"], name_max_w)
+                name_s = self.font_md.render(name_clipped, True, text_color)
+                self.screen.blit(name_s, (row_rect.x + 10, row_rect.y + 6))
+                sub_clipped = ellipsize_text(
+                    self.font_sm,
+                    patch_list_subtitle(patch),
+                    name_max_w,
+                )
+                sub_s = self.font_sm.render(sub_clipped, True, self.theme.muted)
+                self.screen.blit(sub_s, (row_rect.x + 10, row_rect.y + 28))
+
+            if is_loaded:
+                pygame.draw.circle(
+                    self.screen,
+                    self.theme.accent,
+                    (row_rect.right - 16, row_rect.centery),
+                    5,
                 )
 
             y += row_h
@@ -476,7 +543,7 @@ class TouchBrowserDrawMixin:
         scrub_letter = getattr(self, "_az_rail_scrub_letter", None)
         capturing = getattr(self, "_az_rail_capture", False)
         for letter, rect in self.az_rail_letter_rects:
-            has_patches = letter in self.all_patches_letter_index
+            has_patches = letter in self._all_patches_display_letter_index
             is_active = letter == active_letter and now < active_until
             is_pressed = capturing and letter == scrub_letter
             if is_active or is_pressed:
@@ -504,13 +571,16 @@ class TouchBrowserDrawMixin:
         pygame.draw.rect(self.screen, self.theme.surface, self.left_panel_rect.pygame_rect, border_radius=10)
 
         self._draw_nav_header()
+        self._draw_instrument_chips()
         self._draw_folder_title_bar()
 
         if self.left_nav_mode == LeftNavMode.ALL_PATCHES:
             self._draw_all_patches_list()
             self._draw_az_rail()
+        elif self.left_nav_mode == LeftNavMode.PATCHES:
+            self._draw_browse_patches_list()
         else:
-            font = self.font_md if self.left_nav_mode == LeftNavMode.PATCHES else self.font_sm
+            font = self.font_sm
             self.nav_list.draw(self.screen, font, self.theme)
     def _draw_main_detail(self) -> None:
         pygame.draw.rect(
@@ -659,13 +729,36 @@ class TouchBrowserDrawMixin:
         )
 
         audio_toggle = self._panel_local_to_screen(self.audio_profile_toggle_rect, scrolled=True)
-        switching = getattr(self, "_audio_profile_switching", False)
+        service_busy = getattr(self, "_audio_profile_switching", False) or getattr(
+            self, "_surge_audio_switching", False
+        )
         self._draw_normalize_toggle(
             audio_toggle,
             settings_toggle_on(),
             has_gain=True,
-            disabled=switching,
+            disabled=service_busy,
             label=audio_profile_display(),
+        )
+
+        wifi_row = self._panel_local_to_screen(self.wifi_row_rect, scrolled=True)
+        self._draw_settings_action_row(
+            wifi_row,
+            self.wifi_settings_row_label(),
+            muted=getattr(self, "_wifi_busy", False),
+        )
+
+        buffer_row = self._panel_local_to_screen(self.surge_buffer_row_rect, scrolled=True)
+        self._draw_settings_action_row(
+            buffer_row,
+            buffer_settings_label(),
+            muted=service_busy,
+        )
+
+        rate_row = self._panel_local_to_screen(self.surge_sample_rate_row_rect, scrolled=True)
+        self._draw_settings_action_row(
+            rate_row,
+            sample_rate_settings_label(),
+            muted=service_busy,
         )
 
         if self._surge_restart_btn:
@@ -743,6 +836,46 @@ class TouchBrowserDrawMixin:
             alpha = int(40 + 215 * (i / dot_count))
             color = tuple(min(255, int(c * alpha / 255)) for c in self.theme.accent)
             pygame.draw.circle(self.screen, color, (x, y), 4)
+
+    def _draw_surge_audio_switch_overlay(self) -> None:
+        """Blocking overlay while set-surge-audio.sh runs off the main thread."""
+        self._draw_modal_backdrop(legacy_alpha=170)
+        panel_w = min(420, self.width - 48)
+        panel_h = 160
+        panel = Rect((self.width - panel_w) // 2, (self.height - panel_h) // 2, panel_w, panel_h)
+        self._draw_elevated_panel(panel, border_radius=16)
+
+        elapsed = time.monotonic() - getattr(self, "_surge_audio_switch_started", time.monotonic())
+        title = self.font_md.render("Applying audio settings…", True, self.theme.text)
+        self.screen.blit(title, (panel.x + 24, panel.y + 28))
+
+        hint = getattr(self, "_surge_audio_switch_hint", "") or "Restarting Surge"
+        draw_wrapped_text_in_rect(
+            self.screen,
+            self.font_sm,
+            hint,
+            panel.x + 24,
+            panel.y + 64,
+            panel.w - 48,
+            48,
+            self.theme.muted,
+            max_lines=2,
+        )
+
+        spin_y = panel.y + panel.h - 44
+        phase = shutdown_animation_phase(elapsed)
+        dot_count = 8
+        radius = 14
+        cx = panel.x + panel.w // 2
+        cy = spin_y
+        for i in range(dot_count):
+            angle = (phase + i / dot_count) * 6.28318
+            x = int(cx + radius * math.cos(angle))
+            y = int(cy + radius * math.sin(angle))
+            alpha = int(40 + 215 * (i / dot_count))
+            color = tuple(min(255, int(c * alpha / 255)) for c in self.theme.accent)
+            pygame.draw.circle(self.screen, color, (x, y), 4)
+
     def _draw_power_menu(self) -> None:
         self._draw_modal_backdrop(legacy_alpha=120)
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from patch_browser.geometry import Rect
 from patch_browser.mixer import MixerChannel
+from patch_browser.patch_identity import patch_browse_subtitle
 from patch_browser.scroll_widgets import ScrollList
 from patch_browser.touch_ui_constants import (
     ALL_PATCHES_ROW_HEIGHT,
@@ -29,6 +30,7 @@ from patch_browser.touch_ui_constants import (
     NORM_CHECKBOX_SIZE,
     NORM_ROW_H,
     NORM_ROW_W,
+    PATCHES_ROW_HEIGHT,
     SETTINGS_PANEL_ANIM_SPEED,
     SETTINGS_PANEL_FOOTER_H,
     SETTINGS_PANEL_HEADER_H,
@@ -107,6 +109,17 @@ class TouchBrowserLayoutMixin:
         self.nav_toggle_btn = Rect(margin, content_top, left_w, content_bottom - content_top)
         nav_header_w = left_w if self.left_nav_mode == LeftNavMode.ALL_PATCHES else LEFT_NAV_WIDTH
         self.nav_header_rect = Rect(margin, content_top, nav_header_w, nav_header_h)
+        list_w = (
+            self._left_nav_width()
+            if self.left_nav_mode == LeftNavMode.ALL_PATCHES
+            else LEFT_NAV_WIDTH
+        )
+        self._layout_instrument_chip_row(
+            margin=margin,
+            content_top=content_top,
+            nav_header_h=nav_header_h,
+            list_w=list_w,
+        )
         self._update_nav_list_geometry(content_top, content_bottom, nav_header_h, margin)
 
         if self.left_nav_mode == LeftNavMode.ALL_PATCHES:
@@ -193,6 +206,18 @@ class TouchBrowserLayoutMixin:
         )
         self.audio_profile_toggle_rect = Rect(pad, y, inner_w, audio_h)
         y += audio_h + SETTINGS_ROW_GAP
+
+        wifi_h = self._settings_row_height("Wi‑Fi", inner_w)
+        self.wifi_row_rect = Rect(pad, y, inner_w, wifi_h)
+        y += wifi_h + SETTINGS_ROW_GAP
+
+        buffer_h = self._settings_row_height("Audio buffer", inner_w)
+        self.surge_buffer_row_rect = Rect(pad, y, inner_w, buffer_h)
+        y += buffer_h + SETTINGS_ROW_GAP
+
+        rate_h = self._settings_row_height("Sample rate", inner_w)
+        self.surge_sample_rate_row_rect = Rect(pad, y, inner_w, rate_h)
+        y += rate_h + SETTINGS_ROW_GAP
 
         status = self.surge_monitor.get_status_summary()
         self._surge_restart_btn = None
@@ -284,7 +309,8 @@ class TouchBrowserLayoutMixin:
             and self.left_nav_mode in (LeftNavMode.PATCHES, LeftNavMode.ALL_PATCHES)
         )
         folder_title_h = NAV_FOLDER_TITLE_H if show_folder_title else 0
-        list_top = content_top + nav_header_h + 4 + folder_title_h
+        chip_offset = self._instrument_chip_offset()
+        list_top = content_top + nav_header_h + 4 + chip_offset + folder_title_h
 
         if show_folder_title:
             title_w = (
@@ -294,7 +320,7 @@ class TouchBrowserLayoutMixin:
             )
             self.nav_folder_title_rect = Rect(
                 margin,
-                content_top + nav_header_h + 4,
+                content_top + nav_header_h + 4 + chip_offset,
                 title_w,
                 folder_title_h,
             )
@@ -310,7 +336,7 @@ class TouchBrowserLayoutMixin:
         if self.left_nav_mode == LeftNavMode.ALL_PATCHES:
             row_height = ALL_PATCHES_ROW_HEIGHT
         elif self.left_nav_mode == LeftNavMode.PATCHES:
-            row_height = 50
+            row_height = PATCHES_ROW_HEIGHT
         else:
             row_height = 44
         if not hasattr(self, "nav_list"):
@@ -402,7 +428,9 @@ class TouchBrowserLayoutMixin:
         cat_y = name_y + name_block_h + DETAIL_TITLE_GAP
         cat_lines = wrap_text_lines(
             self.font_sm,
-            self.detail_patch["category"],
+            patch_browse_subtitle(self.detail_patch)
+            if self.detail_patch.get("inner_segments")
+            else self.detail_patch["category"],
             text_w,
             max_lines=2,
         )

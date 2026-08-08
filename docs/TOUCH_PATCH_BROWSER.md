@@ -32,10 +32,10 @@ journalctl -u touch-patch-browser -n 30
 **One-time sudoers** (power menu + start script stopping other services): add to `sudo visudo`:
 
 ```
-your-user ALL=(ALL) NOPASSWD: /sbin/poweroff, /sbin/reboot, /bin/systemctl, /home/your-user/MPE-Module/scripts/set-audio-profile.sh
+your-user ALL=(ALL) NOPASSWD: /sbin/poweroff, /sbin/reboot, /bin/systemctl, /home/your-user/MPE-Module/scripts/set-audio-profile.sh, /home/your-user/MPE-Module/scripts/set-surge-audio.sh
 ```
 
-(`set-audio-profile.sh` is used by the **USB Audio** settings toggle.)
+(`set-audio-profile.sh` is used by the **USB Audio** settings toggle; `set-surge-audio.sh` by **Audio buffer** / **Sample rate** debug rows.)
 
 See [`docs/POWER_BUTTON_SETUP.md`](POWER_BUTTON_SETUP.md) for the encoder Pi pattern.
 
@@ -236,6 +236,9 @@ UI preferences persist in `~/.patch_browser_ui.json` (see [UI theme](#ui-theme-s
 - **Theme…** — base theme, accent style, accent color (presets + saved custom colors). See [UI theme](#ui-theme-system-settings--theme).
 - **Patch normalization** — master toggle for all per-patch Norm. controls (persists in `~/.patch_browser_normalization.json` under `_global`; per-patch flags unchanged when off).
 - **USB Audio** — toggle in System settings (⋯); header badge shows **Analog** or **USB**. Switches run **in the background** with a “Switching audio…” overlay (UI stays responsive). Requires GPIO split power + one-time boot overlay for desk tether — see **[USB-AUDIO-HOST.md](USB-AUDIO-HOST.md)**.
+- **Wi‑Fi** — shows current SSID (or **Not connected**). Tap to scan nearby networks via NetworkManager (`nmcli`). Saved networks connect in one tap; new secured networks open an on-screen password keyboard. No SSH or ethernet required for venue recovery.
+- **Audio buffer (debug)** — opens a picker with preset sizes (32–2048 samples) and approximate latency; applies on selection and restarts Surge.
+- **Sample rate (debug)** — opens a picker for **44.1 kHz / 48 kHz**; persists and restarts Surge (and USB gadget when bound). Host capture must match when using **usb-host**.
 - **Header CPU meter** — compact bar to the left of the **⋯** settings button when enabled. Polls at ~5 Hz on a background thread (UI stays responsive). Surge XT does **not** document a CPU OSC address (`/q/cpu`, `/cpu`, `/status/cpu` are probed speculatively when OSC out is enabled). The meter therefore uses **`/proc` CPU time for the `surge-xt-cli` process** as a live-play diagnostic — same green → yellow → red thresholds as a DAW meter. Shows **—** when Surge is offline. This approximates audio-engine stress on a dedicated Pi; it is not identical to Surge’s internal VU *Show CPU Usage* ratio (audio callback time ÷ buffer time), which is GUI-only today. **CPU meter colors always use semantic green/yellow/red**, even in Monochrome accent style.
 - **Restart Surge** — shown when status is not healthy; uses the same systemd unit as the encoder build.
 - **Calibrate missing patches** — incremental run over the full scanned library (patches without `gain_db` only).
@@ -359,7 +362,9 @@ All left-nav mode changes go through `_enter_nav_mode()` in `patch_browser/touch
 | FOLDERS | Tap folder row | PATCHES | List scroll reset to top |
 | FOLDERS / PATCHES | Tap **All** | ALL_PATCHES | Nav widens; main detail hidden (`main_rect.w = 0`) |
 | ALL_PATCHES | Tap **◀** | FOLDERS | Scroll position saved for next All visit |
-| PATCHES | Tap **◀** | FOLDERS | One step to top-level folders (nested drill-down in a later phase) |
+| PATCHES | Tap **◀** (at category root) | FOLDERS | Top-level folder list |
+| PATCHES | Tap **◀** (inside subfolder) | PATCHES | Back one level (`browse_inner_segments` pop) |
+| PATCHES | Tap subfolder row (`Name  >`) | PATCHES | Drill into subfolder; list scroll reset |
 | ALL_PATCHES | Tap patch row | PATCHES | Load patch; restore normal two-pane layout |
 | ALL_PATCHES | Tap **Current** | PATCHES | Jump to loaded patch's folder |
 | PATCHES | Tap **Current** | PATCHES | Jump browse index to loaded folder |
@@ -376,7 +381,7 @@ Tests: `tests/test_touch_browser_nav_transitions.py`
 | `inner_segments` | Nested folders under top-level category |
 | `relative_path` | Path from patch root |
 
-Nested folder API (for upcoming drill-down): `get_subfolders()`, `get_patches_in_folder()`, `folder_tree`.
+Nested folder API: `get_subfolders()`, `get_patches_in_folder()`, `folder_tree`. Browse state: `browse_folder_index` + `browse_inner_segments` (nav stack within a category).
 
 All-patches row subtitles show `Category/Sub/...` when nested.
 
@@ -395,6 +400,72 @@ Each patch dict also gets `instruments` (list) and `instrument_primary` after sc
 Instrument chips UI lands in Phase 4; metadata is attached at scan time now.
 
 Tests: `tests/test_patch_metadata.py`, `tests/test_patch_scanner_metadata.py`
+
+## Instrument chips (Phase 4)
+
+When browsing a folder or **All patches**, a horizontal chip row appears under the nav header:
+
+- **All** clears the filter; other chips match `instrument_primary` (Piano, Pad, Bass, …)
+- Only instruments with at least one patch in the **current browse context** are shown
+- Chip row scrolls horizontally when it overflows the nav width
+- Patch rows show subtitle `primary · Category/Sub/...` (e.g. `pad · Bass/Sub`)
+
+Filter persists while drilling into subfolders; chips rebuild from the subtree under the current folder. Leaving patch browse (top-level folder list) hides the chip row.
+
+Tests: `tests/test_instrument_filter.py`
+
+## Long-press menus (Phase 5)
+
+Hold a folder or patch row in the left nav for ~600ms (cancel if you scroll first):
+
+| Target | Actions |
+|--------|---------|
+| Library folder | Add all to Liked; Add all to folder… |
+| Patch | Add/remove Quick Access; Move to folder…; Set instrument… |
+| Quick Access subfolder | New subfolder; Rename / Delete (top-level user folders only) |
+
+Folder and instrument pickers are sub-menus. New/rename folder uses the on-screen keyboard (same layout as Wi‑Fi password entry).
+
+Tests: `tests/test_context_menu.py`
+
+## Favorites v2 (Phase 3)
+
+Quick Access favorites use a **copy-based** layout plus a JSON index — not symlinks, never deleting source patches.
+
+| Piece | Location |
+|-------|----------|
+| On-disk copies | `Quick Access/<folder>/` (default **`Liked/`**) |
+| Index | `~/.patch_browser_favorites.json` (override: `MPE_FAVORITES_INDEX_FILE`) |
+| Identity | `stable_key` per patch (see Patch index above) |
+
+**Heart toggle** (patch detail): copies the patch into `Liked/` and writes an index entry keyed by `stable_key`. Unfavorite removes the copy and index row only. After a toggle, the scanner rescans the Quick Access subtree only — not the full library.
+
+**User folders:** the index API supports create/rename/delete folders under Quick Access. UI for folder management is Phase 5 (long-press menus); hearts always land in **Liked** for now.
+
+**All patches view:** ♥ indicates a patch is indexed (any Quick Access folder).
+
+### Migrate flat Quick Access → Liked
+
+Older installs may have `.fxp` copies sitting directly in the Quick Access root. Run on the Pi (or any machine with the library mounted):
+
+```bash
+cd ~/MPE-Module
+python3 scripts/migrate-favorites-v2.py --dry-run
+```
+
+Dry-run lists each root copy, its proposed `Liked/` target, and the resolved `stable_key`. Migration **aborts** if any copy cannot be matched to exactly one library patch (ambiguous stem). Quick Access copies are excluded from the stem map so they do not collide with factory/user sources.
+
+When the plan looks correct:
+
+```bash
+python3 scripts/migrate-favorites-v2.py --apply
+# optional backup before apply:
+python3 scripts/migrate-favorites-v2.py --apply --backup-dir ~/qa-migration-backup
+```
+
+**Rollback:** if you used `--backup-dir`, restore the backed-up Quick Access tree and `~/.patch_browser_favorites.json` from that directory. Without a backup, move files manually from `Quick Access/Liked/` back to the Quick Access root and remove or edit the JSON index.
+
+Tests: `tests/test_favorites_index.py`, `tests/test_migrate_favorites_v2.py`
 
 ## Known gaps (v0)
 

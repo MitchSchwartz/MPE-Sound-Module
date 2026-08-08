@@ -12,6 +12,11 @@ class Screen(Enum):
     CALIBRATE_CONFIRM = auto()
     POWER_MENU = auto()
     POWER_CONFIRM = auto()
+    SURGE_BUFFER_MODAL = auto()
+    SURGE_SAMPLE_RATE_MODAL = auto()
+    WIFI_MODAL = auto()
+    CONTEXT_MENU = auto()
+    NAME_PROMPT = auto()
 
 
 class CalibrateMode(Enum):
