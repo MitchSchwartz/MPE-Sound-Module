@@ -35,7 +35,11 @@ class TouchBrowserInputMixin:
             Screen.POWER_MENU,
             Screen.POWER_CONFIRM,
             Screen.CALIBRATE_CONFIRM,
+            Screen.SURGE_BUFFER_MODAL,
+            Screen.SURGE_SAMPLE_RATE_MODAL,
+            Screen.WIFI_MODAL,
         )
+        overlay_modal = self.screen_state in (Screen.CONTEXT_MENU, Screen.NAME_PROMPT)
         panel_visible = self.screen_state == Screen.SETTINGS or self._settings_slide > 0.004
 
         if modal or panel_visible:
@@ -48,10 +52,26 @@ class TouchBrowserInputMixin:
                 self._draw_theme_modal()
             elif self.screen_state == Screen.CALIBRATE_CONFIRM:
                 self._draw_calibrate_confirm()
+            elif self.screen_state == Screen.SURGE_BUFFER_MODAL:
+                self._draw_surge_buffer_modal()
+            elif self.screen_state == Screen.SURGE_SAMPLE_RATE_MODAL:
+                self._draw_surge_sample_rate_modal()
+            elif self.screen_state == Screen.WIFI_MODAL:
+                self._draw_wifi_modal()
+        elif overlay_modal:
+            self._draw_browser()
+            if self.screen_state == Screen.CONTEXT_MENU:
+                self._draw_context_menu()
+            else:
+                self._draw_name_prompt()
         else:
             self._draw_browser()
         if getattr(self, "_audio_profile_switching", False):
             self._draw_audio_profile_switch_overlay()
+        elif getattr(self, "_surge_audio_switching", False):
+            self._draw_surge_audio_switch_overlay()
+        if getattr(self, "_wifi_busy", False) or getattr(self, "_wifi_connecting", False):
+            self._draw_wifi_busy_overlay()
         self._draw_toast()
         pygame.display.flip()
     def _ignore_sdl_pointer_event(self, event: pygame.event.Event) -> bool:
@@ -131,6 +151,12 @@ class TouchBrowserInputMixin:
             return "poly_governor"
         if self.audio_profile_toggle_rect.contains(*local_pos):
             return "audio_profile"
+        if self.wifi_row_rect.contains(*local_pos):
+            return "wifi"
+        if self.surge_buffer_row_rect.contains(*local_pos):
+            return "surge_buffer"
+        if self.surge_sample_rate_row_rect.contains(*local_pos):
+            return "surge_sample_rate"
         if self.theme_btn_rect.contains(*local_pos):
             return "theme"
         if self._surge_restart_btn and self._surge_restart_btn.contains(*local_pos):
@@ -154,8 +180,23 @@ class TouchBrowserInputMixin:
         elif hit == "poly_governor":
             self._toggle_poly_governor()
         elif hit == "audio_profile":
-            if not getattr(self, "_audio_profile_switching", False):
+            if not getattr(self, "_audio_profile_switching", False) and not getattr(
+                self, "_surge_audio_switching", False
+            ):
                 self._toggle_audio_profile()
+        elif hit == "wifi":
+            if not getattr(self, "_wifi_busy", False):
+                self._open_wifi_modal()
+        elif hit == "surge_buffer":
+            if not getattr(self, "_audio_profile_switching", False) and not getattr(
+                self, "_surge_audio_switching", False
+            ):
+                self._open_surge_buffer_modal()
+        elif hit == "surge_sample_rate":
+            if not getattr(self, "_audio_profile_switching", False) and not getattr(
+                self, "_surge_audio_switching", False
+            ):
+                self._open_surge_sample_rate_modal()
         elif hit == "theme":
             self._open_theme_modal()
         elif hit == "surge_restart":
@@ -456,7 +497,9 @@ class TouchBrowserInputMixin:
                 sys.exit(0)
         self._clear_modal_pointer()
     def _handle_event(self, event: pygame.event.Event) -> None:
-        if getattr(self, "_audio_profile_switching", False):
+        if getattr(self, "_audio_profile_switching", False) or getattr(
+            self, "_surge_audio_switching", False
+        ) or getattr(self, "_wifi_busy", False) or getattr(self, "_wifi_connecting", False):
             return
         if event.type == pygame.QUIT:
             self._running = False
@@ -476,8 +519,43 @@ class TouchBrowserInputMixin:
                     {"pos": pos, "rel": (0, 0), "buttons": (1, 0, 0)},
                 )
 
-        if self.screen_state == Screen.BROWSER and not self.left_nav_collapsed:
-            self.nav_list.handle_event(event)
+        if (
+            self.screen_state == Screen.BROWSER
+            and not self.left_nav_collapsed
+            and event.type
+            in (
+                pygame.MOUSEBUTTONDOWN,
+                pygame.MOUSEBUTTONUP,
+                pygame.MOUSEMOTION,
+                pygame.MOUSEWHEEL,
+            )
+        ):
+            chip_active = self._instrument_chip_drag_start_x is not None
+            if event.type == pygame.MOUSEBUTTONDOWN:
+                if self._handle_instrument_chip_pointer_down(event.pos):
+                    chip_active = True
+                elif not chip_active:
+                    self._context_nav_pointer_down(event.pos)
+            elif event.type == pygame.MOUSEMOTION:
+                if self._handle_instrument_chip_pointer_move(event.pos):
+                    chip_active = True
+                else:
+                    self._context_nav_pointer_move(event.pos)
+            elif event.type == pygame.MOUSEBUTTONUP:
+                if self._handle_instrument_chip_pointer_up(event.pos):
+                    chip_active = True
+                elif self._context_nav_pointer_up():
+                    chip_active = True
+            if not chip_active:
+                self.nav_list.handle_event(event)
+
+        if event.type == pygame.MOUSEBUTTONUP and event.button == 1:
+            if self.screen_state == Screen.CONTEXT_MENU:
+                self._handle_context_menu_tap(event.pos)
+                return
+            if self.screen_state == Screen.NAME_PROMPT:
+                self._handle_name_prompt_tap(event.pos)
+                return
 
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             if self.screen_state == Screen.SETTINGS:
@@ -490,6 +568,12 @@ class TouchBrowserInputMixin:
                 self._handle_theme_modal_pointer_down(event.pos)
             elif self.screen_state == Screen.CALIBRATE_CONFIRM:
                 self._handle_calibrate_confirm_pointer_down(event.pos)
+            elif self.screen_state == Screen.SURGE_BUFFER_MODAL:
+                self._handle_surge_buffer_modal_pointer_down(event.pos)
+            elif self.screen_state == Screen.SURGE_SAMPLE_RATE_MODAL:
+                self._handle_surge_sample_rate_modal_pointer_down(event.pos)
+            elif self.screen_state == Screen.WIFI_MODAL:
+                self._handle_wifi_modal_pointer_down(event.pos)
             elif self.screen_state == Screen.BROWSER:
                 if self._handle_az_rail_touch("down", event.pos):
                     pass
@@ -516,8 +600,16 @@ class TouchBrowserInputMixin:
                 self._handle_theme_modal_pointer_up(event.pos)
             elif self.screen_state == Screen.CALIBRATE_CONFIRM:
                 self._handle_calibrate_confirm_pointer_up(event.pos)
+            elif self.screen_state == Screen.SURGE_BUFFER_MODAL:
+                self._handle_surge_buffer_modal_pointer_up(event.pos)
+            elif self.screen_state == Screen.SURGE_SAMPLE_RATE_MODAL:
+                self._handle_surge_sample_rate_modal_pointer_up(event.pos)
+            elif self.screen_state == Screen.WIFI_MODAL:
+                self._handle_wifi_modal_pointer_up(event.pos)
             elif self.screen_state == Screen.BROWSER:
                 if self._handle_az_rail_touch("up", event.pos):
+                    return
+                if self.screen_state != Screen.BROWSER:
                     return
                 idx = self.nav_list.take_tap_index()
                 if idx is not None:
@@ -540,4 +632,6 @@ class TouchBrowserInputMixin:
             elif self.screen_state == Screen.SETTINGS:
                 self._sync_settings_scroll_viewport()
                 self._settings_content_scroll.pointer_move(event.pos)
+            elif self.screen_state == Screen.WIFI_MODAL:
+                self._handle_wifi_modal_pointer_move(event.pos)
             self._handle_mixer_motion(event.pos)

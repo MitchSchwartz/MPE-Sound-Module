@@ -28,17 +28,21 @@ from patch_browser.scroll_widgets import ContentScrollArea, ScrollList
 from patch_browser.surge_cpu_monitor import SurgeCpuMonitor
 from patch_browser.surge_monitor import SurgeMonitor
 from patch_browser.touch_evdev import TouchEvdevBridge, evdev_bridge_enabled
+from patch_browser.touch_browser_context import TouchBrowserContextMixin
 from patch_browser.touch_browser_draw import TouchBrowserDrawMixin
 from patch_browser.touch_browser_evdev import TouchBrowserEvdevMixin
 from patch_browser.touch_browser_input import TouchBrowserInputMixin
 from patch_browser.touch_browser_layout import TouchBrowserLayoutMixin
 from patch_browser.touch_browser_nav import TouchBrowserNavMixin
 from patch_browser.touch_browser_hold import TouchBrowserHoldMixin
+from patch_browser.touch_browser_instruments import TouchBrowserInstrumentsMixin
 from patch_browser.touch_browser_touch import TouchBrowserTouchMixin
 from patch_browser.touch_browser_mixer import TouchBrowserMixerMixin
 from patch_browser.touch_browser_normalization import TouchBrowserNormalizationMixin
 from patch_browser.touch_browser_patches import TouchBrowserPatchesMixin
 from patch_browser.touch_browser_prefs import TouchBrowserPrefsMixin
+from patch_browser.touch_browser_surge_audio_modal import TouchBrowserSurgeAudioModalMixin
+from patch_browser.touch_browser_wifi_modal import TouchBrowserWifiModalMixin
 from patch_browser.touch_ui_constants import TAP_MOVE_THRESHOLD_PX
 from patch_browser.touch_ui_enums import CalibrateMode, LeftNavMode, Screen
 from patch_browser.dsi_splash import (
@@ -56,8 +60,12 @@ from patch_browser.ui_theme import DEFAULT_ACCENT_RGB, THEME_VIEW_MAIN, reload_t
 class TouchPatchBrowser(
     TouchBrowserEvdevMixin,
     TouchBrowserPrefsMixin,
+    TouchBrowserSurgeAudioModalMixin,
+    TouchBrowserWifiModalMixin,
     TouchBrowserLayoutMixin,
     TouchBrowserNavMixin,
+    TouchBrowserInstrumentsMixin,
+    TouchBrowserContextMixin,
     TouchBrowserPatchesMixin,
     TouchBrowserMixerMixin,
     TouchBrowserHoldMixin,
@@ -115,6 +123,7 @@ class TouchPatchBrowser(
 
         self.scanner = PatchScanner(SURGE_PATCH_DIRS)
         self.loader = PatchLoader()
+        self.scanner.bind_sidecar_loader(self.loader)
         self.surge_monitor = SurgeMonitor()
         self.cpu_monitor = SurgeCpuMonitor(self.surge_monitor)
         self.cpu_monitor.start()
@@ -128,13 +137,18 @@ class TouchPatchBrowser(
         self.nav_current_btn = Rect(0, 0, 0, 0)
         self._all_patches_saved_scroll = 0.0
         self.browse_folder_index = 0
+        self.browse_inner_segments: tuple[str, ...] = ()
         self.loaded_folder_index = 0
+        self.loaded_inner_segments: tuple[str, ...] = ()
+        self._browse_nav_entries: list[dict] = []
         self.detail_patch: dict | None = None
         self.loaded_patch_info: dict | None = None
         self.left_nav_mode = LeftNavMode.PATCHES
         self.left_nav_collapsed = False
         self.screen_state = Screen.BROWSER
         self.nav_folder_title_rect: Rect | None = None
+        self._init_instrument_filter_state()
+        self._init_context_menu_state()
 
         self.volume_level = self._load_volume_level()
         self.show_cpu_meter = self._load_ui_preference("show_cpu_meter", default=True)
@@ -179,6 +193,20 @@ class TouchPatchBrowser(
         self._audio_profile_switch_target: str | None = None
         self._audio_profile_switch_started = 0.0
         self._audio_profile_result_queue: queue.SimpleQueue[tuple[bool, str]] = queue.SimpleQueue()
+        self._surge_audio_switching = False
+        self._surge_audio_switch_hint = ""
+        self._surge_audio_switch_started = 0.0
+        self._surge_audio_result_queue: queue.SimpleQueue[tuple[bool, str]] = queue.SimpleQueue()
+        self._wifi_busy = False
+        self._wifi_connecting = False
+        self._wifi_busy_hint = ""
+        self._wifi_view = "list"
+        self._wifi_networks: list = []
+        self._wifi_scan_error: str | None = None
+        self._wifi_password = ""
+        self._wifi_key_pressed: str | None = None
+        self._wifi_key_flash_key: str | None = None
+        self._wifi_key_flash_until = 0.0
         self._profile_switch_reload_active = False
         self._profile_switch_sent_once = False
         self._evdev_touch_queue: queue.SimpleQueue[tuple[str, tuple[int, int]]] = queue.SimpleQueue()
@@ -283,6 +311,8 @@ class TouchPatchBrowser(
             self._retry_pending_load()
             self._drain_evdev_touch_queue()
             self._poll_audio_profile_switch()
+            self._poll_surge_audio_switch()
+            self._poll_wifi_work()
             for event in pygame.event.get():
                 if self._ignore_sdl_pointer_event(event):
                     continue
@@ -291,8 +321,13 @@ class TouchPatchBrowser(
             self._tick_settings_animation(dt)
             if self.screen_state == Screen.SETTINGS:
                 self._settings_content_scroll.tick(dt)
+            if self.screen_state == Screen.WIFI_MODAL and getattr(self, "_wifi_view", "list") == "list":
+                scroll = getattr(self, "_wifi_scroll", None)
+                if scroll is not None:
+                    scroll.tick(dt)
             if self.screen_state == Screen.BROWSER and not self.left_nav_collapsed:
                 self.nav_list.tick(dt)
+                self._tick_long_press()
             self._draw()
             clock.tick(60)
 
