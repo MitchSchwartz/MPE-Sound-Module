@@ -38,23 +38,35 @@ class ContentScrollHintTests(unittest.TestCase):
         self.assertTrue(scroll.can_scroll_up())
         self.assertFalse(scroll.can_scroll_down())
 
+    def test_edge_hints_ease_in_when_scrollable(self) -> None:
+        scroll = ContentScrollArea(Rect(0, 0, 100, 100))
+        scroll.content_height = 300
+        self.assertEqual(scroll.edge_hint_strength("bottom"), 0.0)
+        scroll.tick_edge_hints(0.1)
+        self.assertGreater(scroll.edge_hint_strength("bottom"), 0.0)
+        self.assertLess(scroll.edge_hint_strength("bottom"), 1.0)
+
+    def test_edge_hints_ease_out_when_not_needed(self) -> None:
+        scroll = ContentScrollArea(Rect(0, 0, 100, 100))
+        scroll.content_height = 300
+        scroll._hint_bottom = 1.0
+        scroll._scroll_pixels = scroll._max_scroll_pixels()
+        scroll.tick_edge_hints(0.1)
+        self.assertLess(scroll.edge_hint_strength("bottom"), 1.0)
+
 
 class ScrollHintStyleTests(unittest.TestCase):
-    def test_oled_style_is_stronger_than_standard(self) -> None:
-        oled_rgb, oled_h, oled_power, oled_line, oled_chevron = _scroll_hint_style(
-            OLED_BLACK_THEME,
-            None,
-        )
-        std_rgb, std_h, std_power, std_line, std_chevron = _scroll_hint_style(
-            STANDARD_THEME,
-            None,
-        )
-        self.assertGreater(sum(oled_rgb), sum(std_rgb))
-        self.assertGreater(oled_h, std_h)
-        self.assertLess(oled_power, std_power)
-        self.assertGreater(oled_line, std_line)
-        self.assertTrue(oled_chevron)
-        self.assertFalse(std_chevron)
+    def test_oled_uses_subtle_fade_and_chevron(self) -> None:
+        rgb, fade_h, _power, max_opacity, chevron = _scroll_hint_style(OLED_BLACK_THEME, None)
+        self.assertTrue(chevron)
+        self.assertLessEqual(fade_h, 20)
+        self.assertLess(max_opacity, 0.2)
+
+    def test_standard_uses_lighter_chevron_off(self) -> None:
+        _rgb, fade_h, _power, max_opacity, chevron = _scroll_hint_style(STANDARD_THEME, None)
+        self.assertFalse(chevron)
+        self.assertLessEqual(fade_h, 20)
+        self.assertLess(max_opacity, 0.35)
 
 
 if __name__ == "__main__":
