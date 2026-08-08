@@ -10,7 +10,7 @@ import pygame
 
 from patch_browser.draw_primitives import draw_lock_icon
 from patch_browser.geometry import Rect
-from patch_browser.scroll_widgets import ContentScrollArea
+from patch_browser.scroll_widgets import ContentScrollArea, draw_vertical_scroll_edge_hints
 from patch_browser.touch_keyboard import TouchKeyboardLayout, wifi_password_char_visible
 from patch_browser.touch_ui_constants import SETTINGS_ROW_GAP, SETTINGS_ROW_H, TAP_MOVE_THRESHOLD_PX
 from patch_browser.touch_ui_enums import Screen
@@ -235,6 +235,14 @@ class TouchBrowserWifiModalMixin:
                     continue
                 self._draw_wifi_network_row(screen_rect, network)
         self.screen.set_clip(clip)
+
+        draw_vertical_scroll_edge_hints(
+            self.screen,
+            scroll_vp,
+            self._wifi_scroll,
+            self.theme,
+            fade_rgb=self.theme.panel_surface(),
+        )
 
         cancel_rect = Rect(inner_x, panel.bottom - footer_h + 4, inner_w, SETTINGS_ROW_H)
         self._wifi_cancel_rect = cancel_rect

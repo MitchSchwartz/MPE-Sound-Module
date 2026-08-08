@@ -7,6 +7,7 @@ import pygame
 from patch_browser.audio_profile import header_badge_label, settings_toggle_on
 from patch_browser.draw_primitives import draw_chevron
 from patch_browser.geometry import Rect
+from patch_browser.scroll_widgets import draw_vertical_scroll_edge_hints
 from patch_browser.surge_audio import (
     current_buffer_size,
     current_sample_rate,
@@ -395,6 +396,14 @@ class TouchBrowserSettingsMixin:
                     self._draw_settings_action_row(restart, "Restart Surge")
 
         self.screen.set_clip(clip)
+
+        draw_vertical_scroll_edge_hints(
+            self.screen,
+            scroll_vp,
+            self._settings_content_scroll,
+            self.theme,
+            fade_rgb=self.theme.panel_surface(),
+        )
 
         pygame.draw.rect(self.screen, self.theme.surface, header_rect.pygame_rect)
         self._draw_divider_line(
