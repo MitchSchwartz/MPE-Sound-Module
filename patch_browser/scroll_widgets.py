@@ -449,6 +449,10 @@ class ContentScrollArea:
     def is_interacting(self) -> bool:
         return self._drag_start_y is not None or self._momentum_active
 
+    @property
+    def scroll_gesture_active(self) -> bool:
+        return self._pointer_scrolled
+
     def pointer_down(self, pos: tuple[int, int]) -> bool:
         if not self.viewport.contains(*pos):
             return False
@@ -519,6 +523,26 @@ class ContentScrollArea:
         return self._scroll_pixels < self._max_scroll_pixels() - 2.0
 
 
+def _scroll_hint_style(
+    theme: Theme,
+    fade_rgb: tuple[int, int, int] | None,
+) -> tuple[tuple[int, int, int], int, float, int, bool]:
+    """Return fade color, band height, alpha curve, hairline width, chevron flag."""
+    if theme.surface_elevated is not None:
+        base = fade_rgb or theme.surface_alt
+        lifted = tuple(min(255, channel + 22) for channel in base)
+        return lifted, 36, 0.62, 2, True
+    return fade_rgb or theme.panel_surface(), 24, 1.0, 1, False
+
+
+def _edge_fade_alpha(row: int, fade_h: int, *, edge: str, alpha_power: float) -> int:
+    if edge == "bottom":
+        t = (row + 1) / fade_h
+    else:
+        t = (fade_h - row) / fade_h
+    return int(255 * (t**alpha_power))
+
+
 def _draw_vertical_edge_fade(
     surface: pygame.Surface,
     viewport: Rect,
@@ -526,17 +550,53 @@ def _draw_vertical_edge_fade(
     *,
     edge: str,
     fade_h: int,
+    alpha_power: float = 1.0,
 ) -> None:
     fade_h = max(4, min(fade_h, max(4, viewport.h // 3)))
     band = pygame.Surface((viewport.w, fade_h), pygame.SRCALPHA)
     for row in range(fade_h):
-        if edge == "bottom":
-            alpha = int(255 * (row + 1) / fade_h)
-        else:
-            alpha = int(255 * (fade_h - row) / fade_h)
+        alpha = _edge_fade_alpha(row, fade_h, edge=edge, alpha_power=alpha_power)
         pygame.draw.line(band, (*rgb, alpha), (0, row), (viewport.w, row))
     y = viewport.bottom - fade_h if edge == "bottom" else viewport.y
     surface.blit(band, (viewport.x, y))
+
+
+def _draw_scroll_edge_hairline(
+    surface: pygame.Surface,
+    viewport: Rect,
+    theme: Theme,
+    *,
+    edge: str,
+    width: int,
+) -> None:
+    inset = 10
+    x0 = viewport.x + inset
+    x1 = viewport.right - inset
+    y = viewport.bottom - 1 if edge == "bottom" else viewport.y
+    if theme.hairline_alpha > 0 and theme.surface_elevated is not None:
+        line = pygame.Surface((x1 - x0, width), pygame.SRCALPHA)
+        accent = theme.accent
+        line.fill((*accent, theme.hairline_alpha))
+        surface.blit(line, (x0, y if edge == "bottom" else y))
+        return
+    pygame.draw.line(surface, theme.muted, (x0, y), (x1, y), width)
+
+
+def _draw_scroll_edge_chevron(
+    surface: pygame.Surface,
+    viewport: Rect,
+    color: tuple[int, int, int],
+    *,
+    edge: str,
+) -> None:
+    cx = viewport.centerx
+    if edge == "bottom":
+        cy = viewport.bottom - 11
+        points = [(cx - 7, cy - 2), (cx + 7, cy - 2), (cx, cy + 5)]
+    else:
+        cy = viewport.y + 11
+        points = [(cx - 7, cy + 2), (cx + 7, cy + 2), (cx, cy - 5)]
+    pygame.draw.polygon(surface, color, points)
 
 
 def draw_vertical_scroll_edge_hints(
@@ -546,16 +606,40 @@ def draw_vertical_scroll_edge_hints(
     theme: Theme,
     *,
     fade_rgb: tuple[int, int, int] | None = None,
-    fade_h: int = 24,
+    fade_h: int | None = None,
 ) -> None:
     """Edge fade overlays when a clipped viewport has off-screen content."""
     if not scroll.is_scrollable():
         return
-    rgb = fade_rgb or theme.panel_surface()
+    rgb, default_fade_h, alpha_power, hairline_w, show_chevron = _scroll_hint_style(
+        theme,
+        fade_rgb,
+    )
+    band_h = fade_h if fade_h is not None else default_fade_h
     if scroll.can_scroll_down():
-        _draw_vertical_edge_fade(surface, viewport, rgb, edge="bottom", fade_h=fade_h)
+        _draw_vertical_edge_fade(
+            surface,
+            viewport,
+            rgb,
+            edge="bottom",
+            fade_h=band_h,
+            alpha_power=alpha_power,
+        )
+        _draw_scroll_edge_hairline(surface, viewport, theme, edge="bottom", width=hairline_w)
+        if show_chevron:
+            _draw_scroll_edge_chevron(surface, viewport, theme.muted, edge="bottom")
     if scroll.can_scroll_up():
-        _draw_vertical_edge_fade(surface, viewport, rgb, edge="top", fade_h=fade_h)
+        _draw_vertical_edge_fade(
+            surface,
+            viewport,
+            rgb,
+            edge="top",
+            fade_h=band_h,
+            alpha_power=alpha_power,
+        )
+        _draw_scroll_edge_hairline(surface, viewport, theme, edge="top", width=hairline_w)
+        if show_chevron:
+            _draw_scroll_edge_chevron(surface, viewport, theme.muted, edge="top")
 
 
 DANGER_ACTION_IDS = frozenset(
@@ -604,6 +688,7 @@ class ScrollableActionList:
         self.scroll_viewport = Rect(0, 0, 0, 0)
         self.scroll = ContentScrollArea(Rect(0, 0, 1, 1))
         self.rows: list[ActionSheetRow] = []
+        self.pressed_action_id: str | None = None
 
     @property
     def is_scrollable(self) -> bool:
@@ -678,15 +763,21 @@ class ScrollableActionList:
         return None
 
     def pointer_down(self, pos: tuple[int, int]) -> bool:
+        self.pressed_action_id = self.action_at(pos)
         if self.scroll_viewport.contains(*pos):
             return self.scroll.pointer_down(pos)
-        return False
+        return self.pressed_action_id is not None
 
     def pointer_move(self, pos: tuple[int, int]) -> bool:
-        return self.scroll.pointer_move(pos)
+        moved = self.scroll.pointer_move(pos)
+        if moved and self.scroll._pointer_scrolled:
+            self.pressed_action_id = None
+        return moved
 
     def pointer_up(self, pos: tuple[int, int]) -> bool:
-        return self.scroll.pointer_up(pos)
+        scrolled = self.scroll.pointer_up(pos)
+        self.pressed_action_id = None
+        return scrolled
 
     def tick(self, dt: float) -> bool:
         return self.scroll.tick(dt)
@@ -730,8 +821,14 @@ class ScrollableActionList:
                 surf = font_sm.render(row.label, True, theme.muted)
                 surface.blit(surf, (screen_rect.x + 4, screen_rect.y + 6))
                 continue
-            pygame.draw.rect(surface, theme.surface_alt, screen_rect.pygame_rect, border_radius=10)
-            color = theme.danger if row.action_id in DANGER_ACTION_IDS else theme.text
+            pressed = row.action_id == self.pressed_action_id
+            if pressed:
+                bg = theme.accent
+                color = theme.bg if row.action_id not in DANGER_ACTION_IDS else theme.bg
+            else:
+                bg = theme.surface_alt
+                color = theme.danger if row.action_id in DANGER_ACTION_IDS else theme.text
+            pygame.draw.rect(surface, bg, screen_rect.pygame_rect, border_radius=10)
             surf = font_md.render(row.label, True, color)
             ty = screen_rect.y + (screen_rect.h - surf.get_height()) // 2
             surface.blit(surf, (screen_rect.x + 14, ty))

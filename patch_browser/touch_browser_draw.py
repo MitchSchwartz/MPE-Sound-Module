@@ -45,6 +45,7 @@ from patch_browser.ui_text import (
     text_block_height,
     wrap_text_lines,
 )
+from patch_browser.scroll_widgets import draw_vertical_scroll_edge_hints
 from patch_browser.ui_theme import (
     ACCENT_PRESETS,
     ACCENT_STYLE_MINIMAL,
@@ -80,15 +81,21 @@ class TouchBrowserDrawMixin:
         *,
         accent: bool = False,
         muted: bool = False,
+        pressed: bool = False,
     ) -> None:
-        if muted:
+        if pressed:
+            color = self.theme.accent
+            icon_color = self.theme.bg
+        elif muted:
             color = self.theme.surface
+            icon_color = self.theme.text
         elif accent:
             color = self.theme.accent
+            icon_color = self.theme.bg
         else:
             color = self.theme.surface_alt
+            icon_color = self.theme.text
         pygame.draw.rect(self.screen, color, rect.pygame_rect, border_radius=8)
-        icon_color = self.theme.bg if accent else self.theme.text
         if icon == "back":
             draw_chevron(self.screen, rect, icon_color, direction="left")
         elif icon == "panel_close":
@@ -687,10 +694,21 @@ class TouchBrowserDrawMixin:
         if self.left_nav_mode != LeftNavMode.ALL_PATCHES:
             self._draw_main_detail()
 
-    def _draw_settings_action_row(self, rect: Rect, label: str, *, muted: bool = False) -> None:
-        bg = self.theme.surface_alt if muted else self.theme.surface
+    def _draw_settings_action_row(
+        self,
+        rect: Rect,
+        label: str,
+        *,
+        muted: bool = False,
+        pressed: bool = False,
+    ) -> None:
+        if pressed:
+            bg = self.theme.accent
+            text_color = self.theme.bg
+        else:
+            bg = self.theme.surface_alt if muted else self.theme.surface
+            text_color = self.theme.muted if muted else self.theme.text
         pygame.draw.rect(self.screen, bg, rect.pygame_rect, border_radius=10)
-        text_color = self.theme.muted if muted else self.theme.text
         draw_wrapped_text_in_rect(
             self.screen,
             self.font_md,
@@ -803,14 +821,15 @@ class TouchBrowserDrawMixin:
 
         self._power_option_rects = []
         y = panel.y + 70
+        power_ids = ("power:shutdown", "power:restart", "power:cancel")
         for i, option in enumerate(["Shutdown", "Restart", "Cancel"]):
             rect = Rect(panel.x + 24, y, panel.w - 48, SETTINGS_ROW_H)
             self._power_option_rects.append(rect)
-            pygame.draw.rect(self.screen, self.theme.surface_alt, rect.pygame_rect, border_radius=10)
-            label_color = self.theme.text if option == "Cancel" else self.theme.danger
-            self.screen.blit(
-                self.font_md.render(option, True, label_color),
-                (rect.x + 16, rect.y + (rect.h - self.font_md.get_height()) // 2),
+            self._draw_touch_row(
+                rect,
+                option,
+                pressed=self._pressed(power_ids[i]),
+                danger=option != "Cancel",
             )
             y += SETTINGS_ROW_H + SETTINGS_ROW_GAP
     def _draw_power_confirm(self) -> None:
@@ -829,11 +848,39 @@ class TouchBrowserDrawMixin:
 
         self._confirm_no = Rect(panel.x + 24, panel.y + 100, (panel.w - 60) // 2, 52)
         self._confirm_yes = Rect(self._confirm_no.x + self._confirm_no.w + 12, panel.y + 100, (panel.w - 60) // 2, 52)
-        self._draw_button(self._confirm_no, "Cancel")
-        self._draw_button(self._confirm_yes, "Confirm", danger=True)
+        self._draw_button(self._confirm_no, "Cancel", pressed=self._pressed("confirm:cancel"))
+        self._draw_button(self._confirm_yes, "Confirm", danger=True, pressed=self._pressed("confirm:yes"))
 
     def _draw_theme_section_label(self, x: int, y: int, label: str) -> None:
         self.screen.blit(self.font_sm.render(label, True, self.theme.muted), (x, y))
+
+    def _draw_touch_row(
+        self,
+        rect: Rect,
+        label: str,
+        *,
+        pressed: bool = False,
+        selected: bool = False,
+        danger: bool = False,
+        muted: bool = False,
+    ) -> None:
+        if pressed:
+            bg = self.theme.accent
+            text_color = self.theme.bg
+        elif muted:
+            bg = self.theme.surface_alt
+            text_color = self.theme.muted
+        else:
+            bg = self.theme.surface_alt
+            text_color = self.theme.danger if danger else self.theme.text
+        pygame.draw.rect(self.screen, bg, rect.pygame_rect, border_radius=10)
+        if selected and not pressed:
+            pygame.draw.rect(self.screen, self.theme.accent, rect.pygame_rect, width=2, border_radius=10)
+            text_color = self.theme.accent
+        self.screen.blit(
+            self.font_md.render(label, True, text_color),
+            (rect.x + 16, rect.y + (rect.h - self.font_md.get_height()) // 2),
+        )
 
     def _draw_theme_choice(
         self,
@@ -841,20 +888,34 @@ class TouchBrowserDrawMixin:
         label: str,
         *,
         selected: bool,
+        pressed: bool = False,
     ) -> None:
-        bg = self.theme.surface_alt
+        if pressed:
+            bg = self.theme.accent
+            label_color = self.theme.bg
+        else:
+            bg = self.theme.surface_alt
+            label_color = self.theme.accent if selected else self.theme.text
         pygame.draw.rect(self.screen, bg, rect.pygame_rect, border_radius=10)
-        if selected:
+        if selected and not pressed:
             pygame.draw.rect(self.screen, self.theme.accent, rect.pygame_rect, width=2, border_radius=10)
-        label_color = self.theme.accent if selected else self.theme.text
         self.screen.blit(
             self.font_sm.render(label, True, label_color),
             (rect.x + 12, rect.y + (rect.h - self.font_sm.get_height()) // 2),
         )
 
-    def _draw_theme_swatch(self, rect: Rect, rgb: tuple[int, int, int], *, selected: bool) -> None:
+    def _draw_theme_swatch(
+        self,
+        rect: Rect,
+        rgb: tuple[int, int, int],
+        *,
+        selected: bool,
+        pressed: bool = False,
+    ) -> None:
         pygame.draw.rect(self.screen, rgb, rect.pygame_rect, border_radius=8)
-        if selected:
+        if pressed:
+            pygame.draw.rect(self.screen, self.theme.accent, rect.pygame_rect, width=3, border_radius=8)
+        elif selected:
             pygame.draw.rect(self.screen, self.theme.text, rect.pygame_rect, width=2, border_radius=8)
 
     def _draw_theme_add_swatch(self, rect: Rect) -> None:
@@ -866,14 +927,12 @@ class TouchBrowserDrawMixin:
             (rect.x + (rect.w - label.get_width()) // 2, rect.y + (rect.h - label.get_height()) // 2),
         )
 
-    def _layout_theme_swatches(
+    def _theme_swatch_grid_layout(
         self,
         *,
-        inner_x: int,
-        inner_w: int,
         y: int,
+        inner_w: int,
         entries: list[tuple[str, tuple[int, int, int], bool]],
-        draft_rgb: tuple[int, int, int],
         swatch_size: int = 40,
         swatch_gap: int = 10,
         cols: int = 4,
@@ -885,7 +944,7 @@ class TouchBrowserDrawMixin:
             row = index // cols
             col = index % cols
             total_row_w = cols * swatch_size + (cols - 1) * swatch_gap
-            row_x = inner_x + max(0, (inner_w - total_row_w) // 2)
+            row_x = max(0, (inner_w - total_row_w) // 2)
             rect = Rect(
                 row_x + col * (swatch_size + swatch_gap),
                 y + row * (swatch_size + swatch_gap),
@@ -893,27 +952,65 @@ class TouchBrowserDrawMixin:
                 swatch_size,
             )
             swatch_rects.append((rect, rgb, hit_id))
-            selected = draft_rgb == rgb
-            if hit_id == "custom_new":
-                self._draw_theme_add_swatch(rect)
-            else:
-                self._draw_theme_swatch(rect, rgb, selected=selected)
             if deletable:
                 delete_rect = Rect(rect.right - delete_size + 4, rect.y - 4, delete_size, delete_size)
                 delete_rects.append((delete_rect, hit_id.removeprefix("custom:")))
-                pygame.draw.rect(self.screen, self.theme.surface, delete_rect.pygame_rect, border_radius=9)
-                pygame.draw.rect(self.screen, self.theme.muted, delete_rect.pygame_rect, width=1, border_radius=9)
-                cross = self.font_sm.render("×", True, self.theme.text)
-                self.screen.blit(
-                    cross,
-                    (
-                        delete_rect.x + (delete_rect.w - cross.get_width()) // 2,
-                        delete_rect.y + (delete_rect.h - cross.get_height()) // 2 - 1,
-                    ),
-                )
         rows = (len(entries) + cols - 1) // cols if entries else 0
         next_y = y + rows * swatch_size + max(0, rows - 1) * swatch_gap
         return next_y, swatch_rects, delete_rects
+
+    def _draw_theme_swatch_grid(
+        self,
+        *,
+        origin_x: int,
+        origin_y: int,
+        scroll: int,
+        swatch_rects: list[tuple[Rect, tuple[int, int, int], str]],
+        delete_rects: list[tuple[Rect, str]],
+        draft_rgb: tuple[int, int, int],
+    ) -> None:
+        for rect, rgb, hit_id in swatch_rects:
+            screen_rect = Rect(origin_x + rect.x, origin_y + rect.y - scroll, rect.w, rect.h)
+            selected = draft_rgb == rgb
+            pressed = self._pressed(hit_id)
+            if hit_id == "custom_new":
+                if pressed:
+                    pygame.draw.rect(self.screen, self.theme.accent, screen_rect.pygame_rect, border_radius=8)
+                    label = self.font_md.render("+", True, self.theme.bg)
+                else:
+                    self._draw_theme_add_swatch(screen_rect)
+                    label = None
+                if label is not None:
+                    self.screen.blit(
+                        label,
+                        (
+                            screen_rect.x + (screen_rect.w - label.get_width()) // 2,
+                            screen_rect.y + (screen_rect.h - label.get_height()) // 2,
+                        ),
+                    )
+            else:
+                self._draw_theme_swatch(screen_rect, rgb, selected=selected, pressed=pressed)
+        for delete_rect, color_id in delete_rects:
+            delete_hit = f"delete:{color_id}"
+            screen_rect = Rect(
+                origin_x + delete_rect.x,
+                origin_y + delete_rect.y - scroll,
+                delete_rect.w,
+                delete_rect.h,
+            )
+            pressed = self._pressed(delete_hit)
+            bg = self.theme.accent if pressed else self.theme.surface
+            text_color = self.theme.bg if pressed else self.theme.text
+            pygame.draw.rect(self.screen, bg, screen_rect.pygame_rect, border_radius=9)
+            pygame.draw.rect(self.screen, self.theme.muted, screen_rect.pygame_rect, width=1, border_radius=9)
+            cross = self.font_sm.render("×", True, text_color)
+            self.screen.blit(
+                cross,
+                (
+                    screen_rect.x + (screen_rect.w - cross.get_width()) // 2,
+                    screen_rect.y + (screen_rect.h - cross.get_height()) // 2 - 1,
+                ),
+            )
 
     def _draw_theme_main_panel(self, panel: Rect) -> None:
         draft = self._theme_draft()
@@ -935,11 +1032,13 @@ class TouchBrowserDrawMixin:
             self._theme_base_option_rects[0],
             "Original dark",
             selected=draft.theme_mode == THEME_MODE_STANDARD,
+            pressed=self._pressed("base:0"),
         )
         self._draw_theme_choice(
             self._theme_base_option_rects[1],
             "OLED dark",
             selected=draft.theme_mode == THEME_MODE_OLED_BLACK,
+            pressed=self._pressed("base:1"),
         )
         y += option_h + gap + 8
 
@@ -953,11 +1052,13 @@ class TouchBrowserDrawMixin:
             self._theme_style_option_rects[0],
             "Monochrome",
             selected=draft.accent_style == ACCENT_STYLE_MONOCHROME,
+            pressed=self._pressed("style:0"),
         )
         self._draw_theme_choice(
             self._theme_style_option_rects[1],
             "Minimal accent",
             selected=draft.accent_style == ACCENT_STYLE_MINIMAL,
+            pressed=self._pressed("style:1"),
         )
         y += option_h + gap + 8
 
@@ -970,7 +1071,11 @@ class TouchBrowserDrawMixin:
         self.screen.blit(hex_label, (self._theme_accent_preview_rect.right + 16, y + 8))
         choose_h = 44
         self._theme_choose_color_btn = Rect(inner_x, y + preview_h + 10, inner_w, choose_h)
-        self._draw_button(self._theme_choose_color_btn, "Choose color…")
+        self._draw_button(
+            self._theme_choose_color_btn,
+            "Choose color…",
+            pressed=self._pressed("choose_colors"),
+        )
 
         self._theme_color_swatch_rects = []
         self._theme_color_delete_rects = []
@@ -985,63 +1090,93 @@ class TouchBrowserDrawMixin:
             (inner_w - btn_gap) // 2,
             btn_h,
         )
-        self._draw_button(self._theme_cancel_rect, "Cancel")
-        self._draw_button(self._theme_done_rect, "Done", accent=True)
+        self._draw_button(self._theme_cancel_rect, "Cancel", pressed=self._pressed("cancel"))
+        self._draw_button(self._theme_done_rect, "Done", accent=True, pressed=self._pressed("done"))
 
     def _draw_theme_colors_panel(self, panel: Rect) -> None:
         draft = self._theme_draft()
         inner_x = panel.x + 24
         inner_w = panel.w - 48
-        y = panel.y + 56
+        label_h = self.font_sm.get_height()
+        section_gap = 8
+        block_gap = 12
 
-        self._draw_theme_section_label(inner_x, y, "Presets")
-        y += self.font_sm.get_height() + 8
+        back_h = 52
+        footer_y = panel.bottom - back_h - 20
+        self._theme_colors_back_rect = Rect(inner_x, footer_y, inner_w, back_h)
+
+        scroll_top = panel.y + 56
+        scroll_h = max(80, footer_y - scroll_top - 8)
+        scroll_vp = Rect(inner_x, scroll_top, inner_w, scroll_h)
+        self._theme_colors_scroll.viewport = scroll_vp
+
+        sections: list[tuple[int, str]] = []
+        cy = 0
+        sections.append((cy, "Presets"))
+        cy += label_h + section_gap
         preset_entries = [(f"preset:{i}", rgb, False) for i, (_name, rgb) in enumerate(ACCENT_PRESETS)]
-        y, preset_rects, _preset_delete = self._layout_theme_swatches(
-            inner_x=inner_x,
+        cy, preset_rects, _preset_delete = self._theme_swatch_grid_layout(
+            y=cy,
             inner_w=inner_w,
-            y=y,
             entries=preset_entries,
-            draft_rgb=draft.accent_rgb,
         )
-        y += 12
+        cy += block_gap
 
         custom_colors = getattr(self, "_custom_accent_colors", [])
+        saved_rects: list[tuple[Rect, tuple[int, int, int], str]] = []
+        saved_delete: list[tuple[Rect, str]] = []
         if custom_colors:
-            self._draw_theme_section_label(inner_x, y, "Saved")
-            y += self.font_sm.get_height() + 8
+            sections.append((cy, "Saved"))
+            cy += label_h + section_gap
             saved_entries = [(f"custom:{color.color_id}", color.rgb, True) for color in custom_colors]
-            y, saved_rects, saved_delete = self._layout_theme_swatches(
-                inner_x=inner_x,
+            cy, saved_rects, saved_delete = self._theme_swatch_grid_layout(
+                y=cy,
                 inner_w=inner_w,
-                y=y,
                 entries=saved_entries,
-                draft_rgb=draft.accent_rgb,
             )
-        else:
-            saved_rects = []
-            saved_delete = []
+            cy += 8
 
-        y += 8
-        self._draw_theme_section_label(inner_x, y, "Custom")
-        y += self.font_sm.get_height() + 8
-        y, custom_rects, custom_delete = self._layout_theme_swatches(
-            inner_x=inner_x,
+        sections.append((cy, "Custom"))
+        cy += label_h + section_gap
+        cy, custom_rects, custom_delete = self._theme_swatch_grid_layout(
+            y=cy,
             inner_w=inner_w,
-            y=y,
             entries=[("custom_new", draft.accent_rgb, False)],
-            draft_rgb=draft.accent_rgb,
             cols=1,
         )
 
-        self._theme_color_swatch_rects = preset_rects + saved_rects + custom_rects
-        self._theme_color_delete_rects = saved_delete + custom_delete
+        self._theme_colors_scroll.content_height = cy
+        self._theme_color_swatch_rects_content = preset_rects + saved_rects + custom_rects
+        self._theme_color_delete_rects_content = saved_delete + custom_delete
+        self._theme_color_swatch_rects = []
+        self._theme_color_delete_rects = []
         self._theme_base_option_rects = []
         self._theme_style_option_rects = []
 
-        back_h = 52
-        self._theme_colors_back_rect = Rect(inner_x, panel.bottom - back_h - 20, inner_w, back_h)
-        self._draw_button(self._theme_colors_back_rect, "Back")
+        scroll = int(self._theme_colors_scroll.scroll_pixels)
+        clip = self.screen.get_clip()
+        self.screen.set_clip(scroll_vp.pygame_rect)
+        for section_y, title in sections:
+            self._draw_theme_section_label(inner_x, scroll_top + section_y - scroll, title)
+        all_swatch_rects = preset_rects + saved_rects + custom_rects
+        all_delete_rects = saved_delete + custom_delete
+        self._draw_theme_swatch_grid(
+            origin_x=inner_x,
+            origin_y=scroll_top,
+            scroll=scroll,
+            swatch_rects=all_swatch_rects,
+            delete_rects=all_delete_rects,
+            draft_rgb=draft.accent_rgb,
+        )
+        self.screen.set_clip(clip)
+
+        draw_vertical_scroll_edge_hints(
+            self.screen,
+            scroll_vp,
+            self._theme_colors_scroll,
+            self.theme,
+        )
+        self._draw_button(self._theme_colors_back_rect, "Back", pressed=self._pressed("colors_back"))
         self._theme_cancel_rect = None
         self._theme_done_rect = None
 
@@ -1084,10 +1219,16 @@ class TouchBrowserDrawMixin:
         self._picker_back_rect = Rect(inner_x, btn_y, btn_w, btn_h)
         self._picker_save_rect = Rect(self._picker_back_rect.right + btn_gap, btn_y, btn_w, btn_h)
         self._picker_delete_rect = Rect(self._picker_save_rect.right + btn_gap, btn_y, btn_w, btn_h)
-        self._draw_button(self._picker_back_rect, "Back")
-        self._draw_button(self._picker_save_rect, "Save", accent=True)
+        self._draw_button(self._picker_back_rect, "Back", pressed=self._pressed("picker_back"))
+        self._draw_button(self._picker_save_rect, "Save", accent=True, pressed=self._pressed("picker_save"))
         can_delete = getattr(self, "_picker_editing_id", None) is not None
-        self._draw_button(self._picker_delete_rect, "Delete", danger=can_delete, muted=not can_delete)
+        self._draw_button(
+            self._picker_delete_rect,
+            "Delete",
+            danger=can_delete,
+            muted=not can_delete,
+            pressed=self._pressed("picker_delete"),
+        )
 
         self._theme_color_swatch_rects = []
         self._theme_color_delete_rects = []
@@ -1176,12 +1317,13 @@ class TouchBrowserDrawMixin:
             btn_h,
         )
         start_disabled = mode == CalibrateMode.MISSING_ONLY and targets == 0
-        self._draw_button(self._calibrate_confirm_no, "Cancel")
+        self._draw_button(self._calibrate_confirm_no, "Cancel", pressed=self._pressed("cal:cancel"))
         self._draw_button(
             self._calibrate_confirm_yes,
             "Start",
             accent=not start_disabled,
             muted=start_disabled,
+            pressed=self._pressed("cal:start"),
         )
     def _draw_toast(self) -> None:
         if time.time() > self.toast_until or not self.toast_message:
