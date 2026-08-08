@@ -90,7 +90,7 @@ cat <<'EOF'
   Linux host — prefer hardware device for capture (plughw often records silence):
     arecord -l
     # Note card N for "USB Audio Passthrough" / "MPE Sound Module"
-    arecord -D hw:N,0 -f S16_LE -r 44100 -c 2 -d 5 /tmp/mpe-host-capture.wav
+    arecord -D hw:N,0 -f S16_LE -r 48000 -c 2 -d 5 /tmp/mpe-host-capture.wav
     # Peak on tone test ~26267 expected; plughw:N,0 may be silent
 
   PulseAudio/PipeWire: pavucontrol → Recording tab → select gadget input.
