@@ -508,3 +508,232 @@ class ContentScrollArea:
         if abs(self._velocity) < SCROLL_MIN_VELOCITY:
             self.stop_momentum()
         return self._scroll_pixels != before or self._momentum_active
+
+    def is_scrollable(self) -> bool:
+        return self._max_scroll_pixels() > 0.5
+
+    def can_scroll_up(self) -> bool:
+        return self._scroll_pixels > 2.0
+
+    def can_scroll_down(self) -> bool:
+        return self._scroll_pixels < self._max_scroll_pixels() - 2.0
+
+
+def _draw_vertical_edge_fade(
+    surface: pygame.Surface,
+    viewport: Rect,
+    rgb: tuple[int, int, int],
+    *,
+    edge: str,
+    fade_h: int,
+) -> None:
+    fade_h = max(4, min(fade_h, max(4, viewport.h // 3)))
+    band = pygame.Surface((viewport.w, fade_h), pygame.SRCALPHA)
+    for row in range(fade_h):
+        if edge == "bottom":
+            alpha = int(255 * (row + 1) / fade_h)
+        else:
+            alpha = int(255 * (fade_h - row) / fade_h)
+        pygame.draw.line(band, (*rgb, alpha), (0, row), (viewport.w, row))
+    y = viewport.bottom - fade_h if edge == "bottom" else viewport.y
+    surface.blit(band, (viewport.x, y))
+
+
+def draw_vertical_scroll_edge_hints(
+    surface: pygame.Surface,
+    viewport: Rect,
+    scroll: ContentScrollArea,
+    theme: Theme,
+    *,
+    fade_rgb: tuple[int, int, int] | None = None,
+    fade_h: int = 24,
+) -> None:
+    """Edge fade overlays when a clipped viewport has off-screen content."""
+    if not scroll.is_scrollable():
+        return
+    rgb = fade_rgb or theme.panel_surface()
+    if scroll.can_scroll_down():
+        _draw_vertical_edge_fade(surface, viewport, rgb, edge="bottom", fade_h=fade_h)
+    if scroll.can_scroll_up():
+        _draw_vertical_edge_fade(surface, viewport, rgb, edge="top", fade_h=fade_h)
+
+
+DANGER_ACTION_IDS = frozenset(
+    {
+        "qa_delete",
+        "qa_delete_confirm",
+        "unfavorite_confirm",
+        "qa_remove_all_confirm",
+    }
+)
+
+
+class ActionSheetRow:
+    """One row in a scrollable bottom-sheet action list (content-local coordinates)."""
+
+    __slots__ = ("action_id", "label", "content_rect", "is_section")
+
+    def __init__(
+        self,
+        action_id: str,
+        label: str,
+        content_rect: Rect,
+        *,
+        is_section: bool = False,
+    ) -> None:
+        self.action_id = action_id
+        self.label = label
+        self.content_rect = content_rect
+        self.is_section = is_section
+
+
+class ScrollableActionList:
+    """
+    Bottom-sheet modal with a fixed title and vertically scrollable action rows.
+
+    Use for context menus, pickers, and any touch list that can exceed viewport height.
+    Pointer routing: pointer_down → pointer_move → pointer_up; call action_at only when
+    pointer_up reports no scroll gesture.
+    """
+
+    HEADER_H = 44
+    BOTTOM_PAD = 12
+
+    def __init__(self) -> None:
+        self.panel = Rect(0, 0, 0, 0)
+        self.scroll_viewport = Rect(0, 0, 0, 0)
+        self.scroll = ContentScrollArea(Rect(0, 0, 1, 1))
+        self.rows: list[ActionSheetRow] = []
+
+    @property
+    def is_scrollable(self) -> bool:
+        return self.scroll._max_scroll_pixels() > 0
+
+    def layout(
+        self,
+        *,
+        screen_w: int,
+        screen_h: int,
+        margin: int,
+        bottom_margin: int,
+        actions: list[tuple[str, str]],
+        row_h: int = 52,
+        section_h: int = 28,
+        gap: int = 8,
+        max_body_ratio: float = 0.55,
+    ) -> None:
+        body_h = 0
+        for index, (action_id, _label) in enumerate(actions):
+            body_h += section_h if action_id == "_section" else row_h
+            if index < len(actions) - 1:
+                body_h += gap
+
+        max_panel_h = max(120, screen_h - margin * 2 - 80)
+        max_body = min(int(screen_h * max_body_ratio), max_panel_h - self.HEADER_H - self.BOTTOM_PAD)
+        visible_body = min(body_h, max(80, max_body))
+
+        panel_h = self.HEADER_H + visible_body + self.BOTTOM_PAD
+        panel_w = screen_w - margin * 2
+        panel_y = screen_h - panel_h - bottom_margin
+        self.panel = Rect(margin, panel_y, panel_w, panel_h)
+
+        inner_w = panel_w - 24
+        scroll_x = self.panel.x + 12
+        scroll_y = self.panel.y + self.HEADER_H
+        self.scroll_viewport = Rect(scroll_x, scroll_y, inner_w, visible_body)
+        self.scroll.viewport = self.scroll_viewport
+        self.scroll.content_height = body_h
+        self.scroll.reset()
+
+        self.rows = []
+        y = 0
+        for index, (action_id, label) in enumerate(actions):
+            h = section_h if action_id == "_section" else row_h
+            self.rows.append(
+                ActionSheetRow(
+                    action_id,
+                    label,
+                    Rect(0, y, inner_w, h),
+                    is_section=action_id == "_section",
+                )
+            )
+            y += h
+            if index < len(actions) - 1:
+                y += gap
+
+    def contains(self, pos: tuple[int, int]) -> bool:
+        return self.panel.contains(*pos)
+
+    def action_at(self, pos: tuple[int, int]) -> str | None:
+        if not self.scroll_viewport.contains(*pos):
+            return None
+        scroll = int(self.scroll.scroll_pixels)
+        local_x = pos[0] - self.scroll_viewport.x
+        local_y = pos[1] - self.scroll_viewport.y + scroll
+        for row in self.rows:
+            if row.is_section:
+                continue
+            if row.content_rect.contains(local_x, local_y):
+                return row.action_id
+        return None
+
+    def pointer_down(self, pos: tuple[int, int]) -> bool:
+        if self.scroll_viewport.contains(*pos):
+            return self.scroll.pointer_down(pos)
+        return False
+
+    def pointer_move(self, pos: tuple[int, int]) -> bool:
+        return self.scroll.pointer_move(pos)
+
+    def pointer_up(self, pos: tuple[int, int]) -> bool:
+        return self.scroll.pointer_up(pos)
+
+    def tick(self, dt: float) -> bool:
+        return self.scroll.tick(dt)
+
+    def _draw_scroll_hints(self, surface: pygame.Surface, theme) -> None:
+        draw_vertical_scroll_edge_hints(
+            surface,
+            self.scroll_viewport,
+            self.scroll,
+            theme,
+        )
+
+    def draw(
+        self,
+        surface: pygame.Surface,
+        *,
+        title: str,
+        font_md: pygame.font.Font,
+        font_sm: pygame.font.Font,
+        theme,
+        draw_elevated_panel,
+    ) -> None:
+        draw_elevated_panel(self.panel, border_radius=16)
+        title_s = font_md.render(title, True, theme.text)
+        surface.blit(title_s, (self.panel.x + 16, self.panel.y + 12))
+
+        clip = surface.get_clip()
+        surface.set_clip(self.scroll_viewport.pygame_rect)
+        scroll = int(self.scroll.scroll_pixels)
+        for row in self.rows:
+            screen_y = self.scroll_viewport.y + row.content_rect.y - scroll
+            screen_rect = Rect(
+                self.scroll_viewport.x,
+                screen_y,
+                row.content_rect.w,
+                row.content_rect.h,
+            )
+            if screen_rect.bottom < self.scroll_viewport.y or screen_rect.y > self.scroll_viewport.bottom:
+                continue
+            if row.is_section:
+                surf = font_sm.render(row.label, True, theme.muted)
+                surface.blit(surf, (screen_rect.x + 4, screen_rect.y + 6))
+                continue
+            pygame.draw.rect(surface, theme.surface_alt, screen_rect.pygame_rect, border_radius=10)
+            color = theme.danger if row.action_id in DANGER_ACTION_IDS else theme.text
+            surf = font_md.render(row.label, True, color)
+            ty = screen_rect.y + (screen_rect.h - surf.get_height()) // 2
+            surface.blit(surf, (screen_rect.x + 14, ty))
+        surface.set_clip(clip)
+        self._draw_scroll_hints(surface, theme)

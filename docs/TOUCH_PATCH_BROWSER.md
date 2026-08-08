@@ -228,7 +228,7 @@ Set `MPE_TOUCH_EVDEV=0` to fall back to SDL-only input (debugging).
 
 ## System settings (⋯)
 
-Right-side **slide-out panel** (tap **⋯**, tap outside the panel, swipe right, or **×** to close). Centered modals (Theme, Wi‑Fi, brightness, audio pickers, power, calibration confirm) also close when you tap the dimmed backdrop outside the panel. Scrollable body; **Power…** fixed at the bottom with a divider. Row buttons and toggles activate on **finger up** (same tap-vs-scroll thresholds as the patch list) so you can scroll without triggering rows under your finger. Confirm modals (calibration, power) use the same up-to-activate pattern.
+Right-side **slide-out panel** (tap **⋯**, tap outside the panel, swipe right, or **×** to close). Centered modals (Theme, Wi‑Fi, brightness, audio pickers, power, calibration confirm) also close when you tap the dimmed backdrop outside the panel. The settings body and Wi‑Fi network list show **edge fades** when more rows are off-screen (standard scroll-overflow cue). Scrollable body; **Power…** fixed at the bottom with a divider. Row buttons and toggles activate on **finger up** (same tap-vs-scroll thresholds as the patch list) so you can scroll without triggering rows under your finger. Confirm modals (calibration, power) use the same up-to-activate pattern.
 
 UI preferences persist in `~/.patch_browser_ui.json` (see [UI theme](#ui-theme-system-settings--theme)).
 
