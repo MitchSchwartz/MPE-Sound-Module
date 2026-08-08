@@ -13,6 +13,8 @@ from patch_browser.surge_audio import (
     sample_rate_option_label,
 )
 from patch_browser.touch_ui_constants import (
+    SETTINGS_BRIGHTNESS_ROW_H,
+    SETTINGS_DRILL_SUBTITLE_GAP,
     SETTINGS_PANEL_FOOTER_H,
     SETTINGS_PANEL_HEADER_H,
     SETTINGS_ROW_GAP,
@@ -21,7 +23,7 @@ from patch_browser.touch_ui_constants import (
     SETTINGS_SECTION_HEADER_H,
 )
 from patch_browser.touch_ui_enums import audio_profile_display
-from patch_browser.ui_text import draw_wrapped_text_in_rect
+from patch_browser.ui_text import draw_wrapped_text_in_rect, wrapped_row_height
 
 
 class TouchBrowserSettingsMixin:
@@ -35,6 +37,14 @@ class TouchBrowserSettingsMixin:
         profile = header_badge_label()
         rate = sample_rate_option_label(current_sample_rate())
         return f"{profile} · {current_buffer_size()} · {rate}"
+
+    def _settings_drill_row_height(self, label: str, subtitle: str, inner_w: int) -> int:
+        label_w = max(1, inner_w - 16 - 34)
+        sub_w = max(1, inner_w - 32)
+        label_h = wrapped_row_height(self.font_md, label, label_w)
+        sub_h = wrapped_row_height(self.font_sm, subtitle, sub_w)
+        content = 12 + label_h + SETTINGS_DRILL_SUBTITLE_GAP + sub_h + 12
+        return max(SETTINGS_ROW_H, content)
 
     def _layout_settings_section_header(
         self,
@@ -54,19 +64,22 @@ class TouchBrowserSettingsMixin:
         self._settings_section_headers = []
 
         y = self._layout_settings_section_header(pad, inner_w, y, "Sound")
-        audio_h = self._settings_row_height("Audio", inner_w)
+        audio_summary = self._audio_settings_summary()
+        audio_h = self._settings_drill_row_height("Audio", audio_summary, inner_w)
         self.settings_audio_drill_rect = Rect(pad, y, inner_w, audio_h)
         y += audio_h + SETTINGS_ROW_GAP
 
         y = self._layout_settings_section_header(pad, inner_w, y, "Display")
-        self.brightness_slider_rect = Rect(pad, y + 28, inner_w, 36)
-        y += 78
+        self.brightness_row_rect = Rect(pad, y, inner_w, SETTINGS_BRIGHTNESS_ROW_H)
+        self.brightness_slider_rect = Rect(pad + 16, y + 34, inner_w - 32, 8)
+        y += SETTINGS_BRIGHTNESS_ROW_H + SETTINGS_ROW_GAP
         theme_h = self._settings_row_height("Theme", inner_w)
         self.theme_btn_rect = Rect(pad, y, inner_w, theme_h)
         y += theme_h + SETTINGS_ROW_GAP
 
         y = self._layout_settings_section_header(pad, inner_w, y, "Network")
-        wifi_h = self._settings_row_height("Wi‑Fi", inner_w)
+        wifi_subtitle = self.wifi_settings_row_label().removeprefix("Wi‑Fi — ")
+        wifi_h = self._settings_drill_row_height("Wi‑Fi", wifi_subtitle, inner_w)
         self.wifi_row_rect = Rect(pad, y, inner_w, wifi_h)
         y += wifi_h + SETTINGS_ROW_GAP
 
@@ -101,6 +114,7 @@ class TouchBrowserSettingsMixin:
         self._settings_section_headers = []
         self.settings_audio_drill_rect = Rect(pad, y, 0, 0)
         self.settings_advanced_header_rect = Rect(pad, y, 0, 0)
+        self.brightness_row_rect = Rect(pad, y, 0, 0)
         self.brightness_slider_rect = Rect(pad, y, 0, 0)
         self.theme_btn_rect = Rect(pad, y, 0, 0)
         self.wifi_row_rect = Rect(pad, y, 0, 0)
@@ -162,7 +176,41 @@ class TouchBrowserSettingsMixin:
 
         self._power_btn = Rect(pad, footer_top + 12, inner_w, SETTINGS_ROW_H)
         self._close_settings_btn = Rect(self.settings_panel_rect.w - 48, 10, 40, 40)
-        self._settings_back_btn = Rect(8, 10, 40, 40)
+        self._settings_back_btn = Rect(0, 0, 120, SETTINGS_PANEL_HEADER_H)
+
+    def _draw_settings_drill_row(
+        self,
+        rect: Rect,
+        label: str,
+        subtitle: str,
+        *,
+        muted: bool = False,
+    ) -> None:
+        bg = self.theme.surface_alt if muted else self.theme.surface
+        pygame.draw.rect(self.screen, bg, rect.pygame_rect, border_radius=10)
+        text_color = self.theme.muted if muted else self.theme.text
+        label_surf = self.font_md.render(label, True, text_color)
+        self.screen.blit(label_surf, (rect.x + 16, rect.y + 12))
+        sub_surf = self.font_sm.render(subtitle, True, self.theme.muted)
+        self.screen.blit(sub_surf, (rect.x + 16, rect.y + 12 + label_surf.get_height() + SETTINGS_DRILL_SUBTITLE_GAP))
+        chevron_rect = Rect(rect.right - 34, rect.y + (rect.h - 22) // 2, 22, 22)
+        draw_chevron(self.screen, chevron_rect, self.theme.muted, direction="right")
+
+    def _draw_settings_brightness_row(self, row_rect: Rect, slider_rect: Rect, percent: int) -> None:
+        pygame.draw.rect(self.screen, self.theme.surface, row_rect.pygame_rect, border_radius=10)
+        label_surf = self.font_md.render("Brightness", True, self.theme.text)
+        self.screen.blit(label_surf, (row_rect.x + 16, row_rect.y + 12))
+        value_surf = self.font_md.render(f"{percent}%", True, self.theme.muted)
+        self.screen.blit(
+            value_surf,
+            (row_rect.right - value_surf.get_width() - 16, row_rect.y + 12),
+        )
+        ratio = max(0.0, min(1.0, percent / 100.0))
+        pygame.draw.rect(self.screen, self.theme.surface_alt, slider_rect.pygame_rect, border_radius=4)
+        fill_w = max(0, int(slider_rect.w * ratio))
+        if fill_w > 0:
+            fill_rect = pygame.Rect(slider_rect.x, slider_rect.y, fill_w, slider_rect.h)
+            pygame.draw.rect(self.screen, self.theme.accent, fill_rect, border_radius=4)
 
     def _draw_settings_section_header(
         self,
@@ -316,24 +364,25 @@ class TouchBrowserSettingsMixin:
                 )
 
             audio_row = self._panel_local_to_screen(self.settings_audio_drill_rect, scrolled=True)
-            self._draw_settings_chevron_row(
+            self._draw_settings_drill_row(
                 audio_row,
                 "Audio",
                 self._audio_settings_summary(),
             )
 
-            slider = self._panel_local_to_screen(self.brightness_slider_rect, scrolled=True)
-            self._draw_slider(
-                slider,
-                self.brightness_percent / 100.0,
-                f"Brightness  {self.brightness_percent}%",
+            brightness_row = self._panel_local_to_screen(self.brightness_row_rect, scrolled=True)
+            brightness_slider = self._panel_local_to_screen(self.brightness_slider_rect, scrolled=True)
+            self._draw_settings_brightness_row(
+                brightness_row,
+                brightness_slider,
+                self.brightness_percent,
             )
 
             theme_row = self._panel_local_to_screen(self.theme_btn_rect, scrolled=True)
             self._draw_settings_chevron_row(theme_row, "Theme")
 
             wifi_row = self._panel_local_to_screen(self.wifi_row_rect, scrolled=True)
-            self._draw_settings_chevron_row(
+            self._draw_settings_drill_row(
                 wifi_row,
                 "Wi‑Fi",
                 self.wifi_settings_row_label().removeprefix("Wi‑Fi — "),
@@ -375,8 +424,14 @@ class TouchBrowserSettingsMixin:
         title_x = panel.x + 20
         if audio_view:
             back_screen = self._panel_local_to_screen(self._settings_back_btn)
-            self._draw_icon_button(back_screen, "←", muted=True)
-            title_x = panel.x + 52
+            chevron_rect = Rect(
+                back_screen.x + 10,
+                back_screen.y + (back_screen.h - 24) // 2,
+                24,
+                24,
+            )
+            draw_chevron(self.screen, chevron_rect, self.theme.text, direction="left")
+            title_x = back_screen.x + 38
         self.screen.blit(self.font_md.render(title, True, self.theme.text), (title_x, panel.y + 16))
         close_screen = self._panel_local_to_screen(self._close_settings_btn)
         self._draw_icon_button(close_screen, "×", muted=True)

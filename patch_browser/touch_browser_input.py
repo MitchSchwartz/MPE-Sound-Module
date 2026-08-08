@@ -188,7 +188,7 @@ class TouchBrowserInputMixin:
             return "theme"
         if self._surge_restart_btn and self._settings_rect_hit(self._surge_restart_btn, local_pos):
             return "surge_restart"
-        if self._settings_rect_hit(self.brightness_slider_rect, local_pos):
+        if self._settings_rect_hit(self.brightness_row_rect, local_pos):
             return "brightness"
         return None
     def _execute_settings_hit(self, hit: str, pos: tuple[int, int]) -> None:
@@ -261,8 +261,7 @@ class TouchBrowserInputMixin:
             )
             now = time.time()
             if (
-                not self._brightness_drag_moved
-                and self._brightness_last_tap_time > 0
+                self._brightness_last_tap_time > 0
                 and (now - self._brightness_last_tap_time) * 1000.0 <= MIXER_DOUBLE_TAP_MS
             ):
                 self._apply_brightness(DEFAULT_BRIGHTNESS_PERCENT)
@@ -274,11 +273,10 @@ class TouchBrowserInputMixin:
     def _handle_settings_pointer_down(self, pos: tuple[int, int]) -> None:
         self._clear_settings_pointer()
         self._settings_pointer_down_pos = pos
+        self._settings_pending_hit = None
 
         hit = self._settings_hit_at(pos)
-        if hit == "brightness":
-            self._brightness_drag_moved = False
-            self._slider_dragging = True
+        if hit in ("close", "settings_back", "power"):
             self._settings_pending_hit = hit
             return
 
@@ -287,32 +285,26 @@ class TouchBrowserInputMixin:
             self._sync_settings_scroll_viewport()
             self._settings_content_scroll.pointer_down(pos)
             self._settings_swipe_start = pos
-            if hit is not None:
-                self._settings_pending_hit = hit
-            return
 
-        if hit is not None:
-            self._settings_pending_hit = hit
     def _handle_settings_pointer_up(self, pos: tuple[int, int]) -> None:
         scrolled = self._settings_content_scroll.pointer_up(pos)
-        slider_moved = self._slider_dragging and self._brightness_drag_moved
         tap_ok = (
             not scrolled
-            and not slider_moved
             and not self._settings_content_scroll.is_interacting()
             and self._pointer_move_distance(self._settings_pointer_down_pos, pos)
             <= TAP_MOVE_THRESHOLD_PX
         )
 
-        if tap_ok and self._settings_pending_hit:
+        if tap_ok:
+            hit = self._settings_hit_at(pos)
             down_hit = self._settings_pending_hit
-            up_hit = self._settings_hit_at(pos)
-            if up_hit == down_hit:
-                self._execute_settings_hit(down_hit, pos)
+            if down_hit in ("close", "settings_back", "power"):
+                hit = down_hit
+            if hit is not None:
+                self._execute_settings_hit(hit, pos)
 
         if (
             not scrolled
-            and not self._slider_dragging
             and not self._settings_content_scroll.is_interacting()
         ):
             if not self._settings_panel_contains(pos):
@@ -323,8 +315,6 @@ class TouchBrowserInputMixin:
                     self._close_settings_panel()
 
         self._settings_swipe_start = None
-        self._slider_dragging = False
-        self._brightness_drag_moved = False
         self._clear_settings_pointer()
     def _handle_power_menu_pointer_down(self, pos: tuple[int, int]) -> None:
         self._clear_modal_pointer()
@@ -673,14 +663,6 @@ class TouchBrowserInputMixin:
                 pass
             elif self._picker_slider_channel and self.screen_state == Screen.THEME:
                 self._apply_picker_slider_channel(self._picker_slider_channel, event.pos)
-            elif self._slider_dragging:
-                if not self._brightness_drag_moved:
-                    self._brightness_drag_moved = True
-                    self._brightness_last_tap_time = 0.0
-                screen_slider = self._panel_local_to_screen(
-                    self.brightness_slider_rect, scrolled=True
-                )
-                self._apply_brightness(self._brightness_from_x(event.pos[0], screen_slider))
             elif self.screen_state == Screen.SETTINGS:
                 self._sync_settings_scroll_viewport()
                 self._settings_content_scroll.pointer_move(event.pos)
