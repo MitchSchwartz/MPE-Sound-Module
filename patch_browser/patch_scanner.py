@@ -9,6 +9,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from patch_browser.patch_normalization import log_missing_normalization_summary
+from patch_browser.patch_identity import (
+    build_folder_tree,
+    category_and_inner_segments,
+    make_patch_entry,
+    patch_root_label,
+    stable_key_for_relative_path,
+)
 
 
 @dataclass
@@ -64,6 +71,9 @@ class PatchScanner:
         self.patch_dirs = patch_dirs
         self.last_patch_file = last_patch_file
         self.patches = {}
+        self.patches_by_stable_key: dict[str, dict] = {}
+        self.patches_by_path: dict[str, dict] = {}
+        self.folder_tree: dict[str, dict] = {}
 
         self.scan_complete = threading.Event()
         self.scan_lock = threading.Lock()
@@ -73,51 +83,48 @@ class PatchScanner:
         """Scan all patch directories and organize by category."""
         print("Scanning Surge patches...")
         total_patches = 0
-
-        with self.scan_lock:
-            self.patches = {}
+        patches_by_key: dict[str, dict] = {}
+        patches_by_path: dict[str, dict] = {}
+        grouped: dict[str, list[dict]] = {}
 
         for patch_dir in self.patch_dirs:
             if not patch_dir.exists():
                 print(f"Warning: Patch directory not found: {patch_dir}")
                 continue
 
-            for root, dirs, files in os.walk(patch_dir):
-                rel_path = Path(root).relative_to(patch_dir)
-                category = str(rel_path.parts[0]) if rel_path.parts else "Uncategorized"
+            root_label = patch_root_label(patch_dir)
 
+            for root, _dirs, files in os.walk(patch_dir):
+                folder_rel = Path(root).relative_to(patch_dir)
+                category, _inner = category_and_inner_segments(folder_rel)
                 if favorites_folder_matches(category):
                     category = favorites_display_name(category)
 
                 fxp_files = [f for f in files if f.lower().endswith(".fxp")]
+                if not fxp_files:
+                    continue
 
-                if fxp_files:
-                    if category not in self.patches:
-                        self.patches[category] = []
+                if category not in grouped:
+                    grouped[category] = []
 
-                    for fxp_file in fxp_files:
-                        patch_path = Path(root) / fxp_file
-                        patch_name = fxp_file.replace(".fxp", "").replace(".FXP", "")
+                for fxp_file in fxp_files:
+                    patch_path = Path(root) / fxp_file
+                    path_key = str(patch_path.resolve())
+                    if path_key in patches_by_path:
+                        continue
 
-                        existing_patch = next(
-                            (p for p in self.patches[category] if p["name"] == patch_name),
-                            None,
-                        )
-                        if existing_patch:
-                            if category == favorites_display_name() and favorites_folder_matches(
-                                str(patch_path)
-                            ):
-                                existing_patch["path"] = str(patch_path)
-                            continue
-
-                        self.patches[category].append(
-                            {
-                                "name": patch_name,
-                                "path": str(patch_path),
-                                "category": category,
-                            }
-                        )
-                        total_patches += 1
+                    patch_name = fxp_file.replace(".fxp", "").replace(".FXP", "")
+                    entry = make_patch_entry(
+                        name=patch_name,
+                        path=patch_path,
+                        patch_dir=patch_dir,
+                        root_label=root_label,
+                        category_override=category,
+                    )
+                    patches_by_path[path_key] = entry
+                    patches_by_key[entry["stable_key"]] = entry
+                    grouped[category].append(entry)
+                    total_patches += 1
 
         def sort_key(item):
             category_name = item[0]
@@ -125,11 +132,17 @@ class PatchScanner:
                 return ("", category_name)
             return (category_name, category_name)
 
+        sorted_patches = {
+            k: sorted(v, key=lambda x: (x["name"].casefold(), x["path"]))
+            for k, v in sorted(grouped.items(), key=sort_key)
+        }
+        folder_tree = build_folder_tree(sorted_patches)
+
         with self.scan_lock:
-            self.patches = {
-                k: sorted(v, key=lambda x: x["name"])
-                for k, v in sorted(self.patches.items(), key=sort_key)
-            }
+            self.patches = sorted_patches
+            self.patches_by_stable_key = patches_by_key
+            self.patches_by_path = patches_by_path
+            self.folder_tree = folder_tree
 
         print(f"Found {total_patches} patches in {len(self.patches)} categories")
         cat_names = list(self.patches.keys())
@@ -170,19 +183,43 @@ class PatchScanner:
         if not category_path.exists():
             return patches
 
-        for fxp_file in category_path.glob("*.fxp"):
+        patch_dir = self._patch_dir_for_path(category_path)
+        root_label = patch_root_label(patch_dir) if patch_dir else "user"
+        folder_rel = (
+            category_path.relative_to(patch_dir)
+            if patch_dir is not None
+            else Path(category_path.name)
+        )
+        category_name, _inner = category_and_inner_segments(folder_rel)
+        if favorites_folder_matches(category_name):
+            category_name = favorites_display_name(category_name)
+
+        for fxp_file in sorted(category_path.rglob("*.fxp")):
             patch_name = fxp_file.stem
-            category_name = category_path.name
-            if favorites_folder_matches(category_name):
-                category_name = favorites_display_name(category_name)
-            patches.append(
-                {
+            if patch_dir is not None:
+                entry = make_patch_entry(
+                    name=patch_name,
+                    path=fxp_file,
+                    patch_dir=patch_dir,
+                    root_label=root_label,
+                    category_override=category_name,
+                )
+            else:
+                entry = {
                     "name": patch_name,
                     "path": str(fxp_file),
                     "category": category_name,
+                    "folder_segments": (),
+                    "inner_segments": (),
+                    "relative_path": fxp_file.name,
+                    "patch_root": root_label,
+                    "stable_key": stable_key_for_relative_path(
+                        root_label, Path(patch_name)
+                    ),
                 }
-            )
-        return sorted(patches, key=lambda x: x["name"])
+            patches.append(entry)
+
+        return sorted(patches, key=lambda x: (x["name"].casefold(), x["path"]))
 
     def save_last_patch(self, category, patch_path):
         try:
@@ -211,7 +248,60 @@ class PatchScanner:
 
     def get_patches_in_category(self, category):
         with self.scan_lock:
-            return self.patches.get(category, [])
+            return list(self.patches.get(category, []))
+
+    def get_patch_by_stable_key(self, stable_key: str) -> dict | None:
+        with self.scan_lock:
+            return self.patches_by_stable_key.get(stable_key)
+
+    def get_patch_by_path(self, path: str | Path) -> dict | None:
+        with self.scan_lock:
+            try:
+                return self.patches_by_path.get(str(Path(path).resolve()))
+            except OSError:
+                return self.patches_by_path.get(str(path))
+
+    def _folder_tree_node(self, category: str, inner_segments: tuple[str, ...] = ()) -> dict | None:
+        with self.scan_lock:
+            node = self.folder_tree.get(category)
+            if node is None:
+                return None
+            for segment in inner_segments:
+                node = node.get("children", {}).get(segment)
+                if node is None:
+                    return None
+            return node
+
+    def get_subfolders(
+        self, category: str, inner_segments: tuple[str, ...] = ()
+    ) -> list[str]:
+        node = self._folder_tree_node(category, inner_segments)
+        if not node:
+            return []
+        return sorted(node.get("children", {}).keys(), key=str.casefold)
+
+    def get_patches_in_folder(
+        self, category: str, inner_segments: tuple[str, ...] = ()
+    ) -> list[dict]:
+        node = self._folder_tree_node(category, inner_segments)
+        if not node:
+            return []
+        return list(node.get("patches", []))
+
+    def _patch_dir_for_path(self, path: Path) -> Path | None:
+        try:
+            resolved = path.resolve()
+        except OSError:
+            resolved = path
+        for patch_dir in self.patch_dirs:
+            if not patch_dir.exists():
+                continue
+            try:
+                resolved.relative_to(patch_dir.resolve())
+                return patch_dir
+            except ValueError:
+                continue
+        return None
 
     def is_in_favorites_folder(self, patch_path):
         patch_path_obj = Path(patch_path)
@@ -291,7 +381,7 @@ class PatchScanner:
         if not favorites_folder.exists():
             return None
         target = patch_name.lower()
-        for fxp_path in favorites_folder.glob("*.fxp"):
+        for fxp_path in favorites_folder.rglob("*.fxp"):
             if fxp_path.stem.lower() == target:
                 return fxp_path
         return None
