@@ -382,6 +382,20 @@ All-patches row subtitles show `Category/Sub/...` when nested.
 
 Tests: `tests/test_patch_scanner.py`, `tests/test_patch_identity.py`
 
+## Instrument metadata (Phase 1)
+
+Each patch dict also gets `instruments` (list) and `instrument_primary` after scan.
+
+| Source | File |
+|--------|------|
+| Shipped baseline | `data/patch_metadata_baseline.json` (regenerate with `scripts/build-patch-metadata-baseline.py` on a machine with the full library) |
+| User overrides | `~/.patch_browser_metadata.json` (`instrument_user` per `stable_key`) |
+| On-device fallback | Heuristic classifier in `patch_browser/patch_metadata.py` when no baseline row exists |
+
+Instrument chips UI lands in Phase 4; metadata is attached at scan time now.
+
+Tests: `tests/test_patch_metadata.py`, `tests/test_patch_scanner_metadata.py`
+
 ## Known gaps (v0)
 
 - Prefix/text search and folder chips not implemented (All patches + A–Z first)
