@@ -7,6 +7,7 @@ from unittest import mock
 
 from patch_browser.wifi_manager import (
     _parse_wifi_list_line,
+    connection_has_usable_profile,
     humanize_connect_error,
     scan_wifi,
 )
@@ -41,9 +42,17 @@ class WifiManagerTests(unittest.TestCase):
         )
         self.assertEqual(msg, "Network not in range — go back, Refresh, and try again")
 
-    @mock.patch("patch_browser.wifi_manager.known_connection_names", return_value={"Potato 2.4"})
+    @mock.patch("patch_browser.wifi_manager.known_connection_names", return_value={"Potato"})
     @mock.patch("patch_browser.wifi_manager._run_nmcli")
-    def test_scan_wifi_parses_bssid_and_dedupes(self, run_mock: mock.Mock, _known: mock.Mock) -> None:
+    def test_usable_saved_profile_requires_psk(self, run_mock: mock.Mock, _known: mock.Mock) -> None:
+        run_mock.return_value = mock.Mock(returncode=0, stdout="\n", stderr="")
+        self.assertFalse(connection_has_usable_profile("Potato", secured=True))
+        run_mock.return_value = mock.Mock(returncode=0, stdout="goodpassword\n", stderr="")
+        self.assertTrue(connection_has_usable_profile("Potato", secured=True))
+
+    @mock.patch("patch_browser.wifi_manager.connection_has_usable_profile", return_value=True)
+    @mock.patch("patch_browser.wifi_manager._run_nmcli")
+    def test_scan_wifi_parses_bssid_and_dedupes(self, run_mock: mock.Mock, _saved: mock.Mock) -> None:
         def side_effect(args, *, timeout, use_sudo=False):
             if args[:2] == ["-t", "-f"] and "--rescan" in args:
                 return mock.Mock(
