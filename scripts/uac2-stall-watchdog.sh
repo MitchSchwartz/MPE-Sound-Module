@@ -2,7 +2,7 @@
 # usb-host audio routing: gate UAC2 output on host capture stream rate.
 #
 # Surge must not hold an open UAC2 PCM unless the host is actively capturing.
-# On capture open (rate 0 → 44100): restart Surge on the gadget.
+# On capture open (rate 0 → active sample rate): restart Surge on the gadget.
 # On capture close (rate → 0): restart Surge on idle output (Sound Blaster or Pi headphone).
 
 set -uo pipefail

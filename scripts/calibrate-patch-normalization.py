@@ -412,7 +412,7 @@ def start_surge_loopback() -> str:
         raise RuntimeError(f"Surge CLI not found: {cli}")
     ensure_snd_aloop()
     interface = resolve_surge_loopback_interface(cli)
-    buffer_size = os.environ.get("MPE_SURGE_BUFFER_SIZE", "1024")
+    buffer_size = os.environ.get("MPE_SURGE_BUFFER_SIZE", "768")
     sample_rate = os.environ.get("MPE_SURGE_SAMPLE_RATE", "48000")
     log_path = Path.home() / "surge-cli-calibration.log"
     with log_path.open("a") as log:
@@ -447,7 +447,7 @@ def start_surge_standalone() -> str:
     if not script.is_file():
         raise RuntimeError(f"detect-audio-device.sh not found: {script}")
     interface = resolve_surge_standalone_interface(cli, detect_script=script)
-    buffer_size = os.environ.get("MPE_SURGE_BUFFER_SIZE", "1024")
+    buffer_size = os.environ.get("MPE_SURGE_BUFFER_SIZE", "768")
     sample_rate = os.environ.get("MPE_SURGE_SAMPLE_RATE", "48000")
     log_path = Path.home() / "surge-cli-calibration.log"
     with log_path.open("a") as log:

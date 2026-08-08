@@ -174,81 +174,17 @@ class TouchBrowserLayoutMixin:
             else self._settings_action_label_width(inner_w)
         )
         return wrapped_row_height(self.font_md, label, max_w)
-    def _layout_settings_content(self) -> None:
-        """Compute scrollable settings rows and fixed footer hit targets (panel-local coords)."""
-        pad = 20
-        inner_w = self.settings_panel_rect.w - pad * 2
-        y = 0
-
-        self.brightness_slider_rect = Rect(pad, y + 28, inner_w, 36)
-        y += 78
-
-        cpu_h = self._settings_row_height("CPU meter", inner_w, toggle=True)
-        self.cpu_meter_toggle_rect = Rect(pad, y, inner_w, cpu_h)
-        y += cpu_h + SETTINGS_ROW_GAP
-
-        poly_h = self._settings_row_height("Dynamic voice limit", inner_w, toggle=True)
-        self.poly_governor_toggle_rect = Rect(pad, y, inner_w, poly_h)
-        y += poly_h + SETTINGS_ROW_GAP
-
-        oled_h = self._settings_row_height("Theme…", inner_w)
-        self.theme_btn_rect = Rect(pad, y, inner_w, oled_h)
-        y += oled_h + SETTINGS_ROW_GAP
-
-        norm_h = self._settings_row_height("Patch normalization", inner_w, toggle=True)
-        self.norm_global_toggle_rect = Rect(pad, y, inner_w, norm_h)
-        y += norm_h + SETTINGS_ROW_GAP
-
-        audio_h = self._settings_row_height(
-            audio_profile_display(),
-            inner_w,
-            toggle=True,
-        )
-        self.audio_profile_toggle_rect = Rect(pad, y, inner_w, audio_h)
-        y += audio_h + SETTINGS_ROW_GAP
-
-        wifi_h = self._settings_row_height("Wi‑Fi", inner_w)
-        self.wifi_row_rect = Rect(pad, y, inner_w, wifi_h)
-        y += wifi_h + SETTINGS_ROW_GAP
-
-        buffer_h = self._settings_row_height("Audio buffer", inner_w)
-        self.surge_buffer_row_rect = Rect(pad, y, inner_w, buffer_h)
-        y += buffer_h + SETTINGS_ROW_GAP
-
-        rate_h = self._settings_row_height("Sample rate", inner_w)
-        self.surge_sample_rate_row_rect = Rect(pad, y, inner_w, rate_h)
-        y += rate_h + SETTINGS_ROW_GAP
-
-        status = self.surge_monitor.get_status_summary()
-        self._surge_restart_btn = None
-        if status.get("can_restart"):
-            restart_h = self._settings_row_height("Restart Surge", inner_w)
-            self._surge_restart_btn = Rect(pad, y, inner_w, restart_h)
-            y += restart_h + SETTINGS_ROW_GAP
-
-        cal_missing_h = self._settings_row_height("Calibrate missing patches", inner_w)
-        self._calibrate_missing_btn = Rect(pad, y, inner_w, cal_missing_h)
-        y += cal_missing_h + SETTINGS_ROW_GAP
-        cal_force_h = self._settings_row_height("Force full re-calibration", inner_w)
-        self._calibrate_force_btn = Rect(pad, y, inner_w, cal_force_h)
-        y += cal_force_h + SETTINGS_ROW_GAP
-
-        self._settings_content_height = y
-
-        header_bottom = SETTINGS_PANEL_HEADER_H
-        footer_top = self.settings_panel_rect.h - SETTINGS_PANEL_FOOTER_H
-        scroll_h = max(80, footer_top - header_bottom)
-        self._settings_scroll_viewport = Rect(0, header_bottom, self.settings_panel_rect.w, scroll_h)
-        self._settings_content_scroll.viewport = Rect(
-            self.settings_panel_rect.x,
-            self.settings_panel_rect.y + header_bottom,
-            self.settings_panel_rect.w,
-            scroll_h,
-        )
-        self._settings_content_scroll.content_height = self._settings_content_height
-
-        self._power_btn = Rect(pad, footer_top + 12, inner_w, SETTINGS_ROW_H)
-        self._close_settings_btn = Rect(self.settings_panel_rect.w - 48, 10, 40, 40)
+    def _open_settings_panel(self, *, focus: str | None = None) -> None:
+        self._reset_settings_navigation()
+        if focus == "audio_profile":
+            self._settings_view = "audio"
+        self._layout_settings_content()
+        self._settings_content_scroll.reset()
+        self._sync_settings_scroll_viewport()
+        self.screen_state = Screen.SETTINGS
+    def _close_settings_panel(self) -> None:
+        self._reset_settings_navigation()
+        self.screen_state = Screen.BROWSER
     def _panel_local_to_screen(self, rect: Rect, *, scrolled: bool = False) -> Rect:
         px = self._settings_panel_x()
         py = self.settings_panel_rect.y
@@ -269,20 +205,6 @@ class TouchBrowserLayoutMixin:
         return self._settings_panel_screen_rect().contains(*pos)
     def _sync_settings_scroll_viewport(self) -> None:
         self._settings_content_scroll.viewport = self._settings_scroll_viewport_screen()
-    def _open_settings_panel(self, *, focus: str | None = None) -> None:
-        self._layout_settings_content()
-        self._settings_content_scroll.reset()
-        if focus == "audio_profile":
-            row = self.audio_profile_toggle_rect
-            target = max(0, row.y - 12)
-            self._settings_content_scroll._scroll_pixels = min(
-                float(target),
-                self._settings_content_scroll._max_scroll_pixels(),
-            )
-        self._sync_settings_scroll_viewport()
-        self.screen_state = Screen.SETTINGS
-    def _close_settings_panel(self) -> None:
-        self.screen_state = Screen.BROWSER
     def _tick_settings_animation(self, dt: float) -> None:
         target = 1.0 if self.screen_state == Screen.SETTINGS else 0.0
         if abs(self._settings_slide - target) < 0.004:

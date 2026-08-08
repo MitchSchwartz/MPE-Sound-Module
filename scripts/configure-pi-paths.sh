@@ -45,9 +45,11 @@ _run_on_pi() {
     sudo mkdir -p /etc/mpe
     _preserved_audio_profile=""
     _preserved_surge_buffer=""
+    _preserved_surge_sample_rate=""
     if [ -f /etc/mpe/mpe.env ]; then
         _preserved_audio_profile="$(mpe_read_appliance_env_var MPE_AUDIO_PROFILE 2>/dev/null || true)"
         _preserved_surge_buffer="$(mpe_read_appliance_env_var MPE_SURGE_BUFFER_SIZE 2>/dev/null || true)"
+        _preserved_surge_sample_rate="$(mpe_read_appliance_env_var MPE_SURGE_SAMPLE_RATE 2>/dev/null || true)"
     fi
     if [ -n "$_preserved_audio_profile" ]; then
         MPE_AUDIO_PROFILE="$_preserved_audio_profile"
@@ -67,6 +69,13 @@ _run_on_pi() {
             echo "MPE_AUDIO_PROFILE=${MPE_AUDIO_PROFILE:-standalone}"
             if [ -n "$_preserved_surge_buffer" ]; then
                 echo "MPE_SURGE_BUFFER_SIZE=$_preserved_surge_buffer"
+            else
+                echo "MPE_SURGE_BUFFER_SIZE=768"
+            fi
+            if [ -n "$_preserved_surge_sample_rate" ]; then
+                echo "MPE_SURGE_SAMPLE_RATE=$_preserved_surge_sample_rate"
+            else
+                echo "MPE_SURGE_SAMPLE_RATE=48000"
             fi
         } | sudo tee /etc/mpe/mpe.env > /dev/null
     else

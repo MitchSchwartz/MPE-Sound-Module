@@ -60,7 +60,7 @@ lsusb 2>&1 | grep -i "midi\|roli\|seaboard" >> "$LOG_FILE" || echo "  No USB MID
 # shellcheck source=lib/unload-snd-aloop.sh
 source "$SCRIPT_DIR/lib/unload-snd-aloop.sh"
 
-SURGE_BUFFER_SIZE="${MPE_SURGE_BUFFER_SIZE:-1024}"
+SURGE_BUFFER_SIZE="${MPE_SURGE_BUFFER_SIZE:-768}"
 SURGE_SAMPLE_RATE="${MPE_SURGE_SAMPLE_RATE:-48000}"
 echo "$(date): ALSA buffer size: $SURGE_BUFFER_SIZE samples" >> "$LOG_FILE"
 echo "$(date): Sample rate: $SURGE_SAMPLE_RATE Hz" >> "$LOG_FILE"

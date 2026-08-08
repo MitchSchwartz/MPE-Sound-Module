@@ -132,6 +132,8 @@ class TouchBrowserNavTransitionTests(unittest.TestCase):
         scanner.load_last_patch.return_value = None
         scanner.get_categories.return_value = categories
         scanner.get_patches_in_category.side_effect = lambda cat: patches.get(cat, [])
+        scanner.get_subfolders.return_value = []
+        scanner.get_patches_in_folder.side_effect = lambda cat, inner=(): patches.get(cat, [])
         scanner.scan_complete.is_set.return_value = True
         scanner.wait_for_scan.return_value = True
         scanner.patches = patches

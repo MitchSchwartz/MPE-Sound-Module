@@ -128,49 +128,82 @@ class TouchBrowserInputMixin:
         if self.nav_current_btn.contains(*pos) and self.loaded_patch_info:
             self._go_to_loaded_folder()
             return
+    def _settings_local_pos(self, pos: tuple[int, int]) -> tuple[int, int]:
+        local_x = pos[0] - self._settings_panel_x()
+        local_y = pos[1] - self.settings_panel_rect.y + int(
+            self._settings_content_scroll.scroll_pixels
+        )
+        return local_x, local_y
+
+    def _settings_rect_hit(self, rect: Rect, local_pos: tuple[int, int]) -> bool:
+        return rect.w > 0 and rect.h > 0 and rect.contains(*local_pos)
+
     def _settings_hit_at(self, pos: tuple[int, int]) -> str | None:
         close = self._panel_local_to_screen(self._close_settings_btn)
         if close.contains(*pos):
             return "close"
 
+        if getattr(self, "_settings_view", "root") == "audio":
+            back = self._panel_local_to_screen(self._settings_back_btn)
+            if back.contains(*pos):
+                return "settings_back"
+
         power = self._panel_local_to_screen(self._power_btn)
         if power.contains(*pos):
             return "power"
 
-        local_x = pos[0] - self._settings_panel_x()
-        local_y = pos[1] - self.settings_panel_rect.y + int(
-            self._settings_content_scroll.scroll_pixels
-        )
-        local_pos = (local_x, local_y)
+        local_pos = self._settings_local_pos(pos)
+        audio_view = getattr(self, "_settings_view", "root") == "audio"
 
-        if self.norm_global_toggle_rect.contains(*local_pos):
+        if audio_view:
+            if self._settings_rect_hit(self.audio_profile_toggle_rect, local_pos):
+                return "audio_profile"
+            if self._settings_rect_hit(self.poly_governor_toggle_rect, local_pos):
+                return "poly_governor"
+            if self._settings_rect_hit(self.surge_buffer_row_rect, local_pos):
+                return "surge_buffer"
+            if self._settings_rect_hit(self.surge_sample_rate_row_rect, local_pos):
+                return "surge_sample_rate"
+            return None
+
+        if self._settings_rect_hit(self.settings_audio_drill_rect, local_pos):
+            return "audio_drill"
+        if self._settings_rect_hit(self.settings_advanced_header_rect, local_pos):
+            return "advanced_toggle"
+        if self._settings_rect_hit(self.norm_global_toggle_rect, local_pos):
             return "norm_global"
-        if self.cpu_meter_toggle_rect.contains(*local_pos):
+        if self._settings_rect_hit(self.cpu_meter_toggle_rect, local_pos):
             return "cpu_meter"
-        if self.poly_governor_toggle_rect.contains(*local_pos):
-            return "poly_governor"
-        if self.audio_profile_toggle_rect.contains(*local_pos):
-            return "audio_profile"
-        if self.wifi_row_rect.contains(*local_pos):
+        if self._settings_rect_hit(self.wifi_row_rect, local_pos):
             return "wifi"
-        if self.surge_buffer_row_rect.contains(*local_pos):
-            return "surge_buffer"
-        if self.surge_sample_rate_row_rect.contains(*local_pos):
-            return "surge_sample_rate"
-        if self.theme_btn_rect.contains(*local_pos):
+        if self._settings_rect_hit(self.theme_btn_rect, local_pos):
             return "theme"
-        if self._surge_restart_btn and self._surge_restart_btn.contains(*local_pos):
+        if self._surge_restart_btn and self._settings_rect_hit(self._surge_restart_btn, local_pos):
             return "surge_restart"
-        if self._calibrate_missing_btn.contains(*local_pos):
+        if self._settings_rect_hit(self._calibrate_missing_btn, local_pos):
             return "cal_missing"
-        if self._calibrate_force_btn.contains(*local_pos):
+        if self._settings_rect_hit(self._calibrate_force_btn, local_pos):
             return "cal_force"
-        if self.brightness_slider_rect.contains(*local_pos):
+        if self._settings_rect_hit(self.brightness_slider_rect, local_pos):
             return "brightness"
         return None
     def _execute_settings_hit(self, hit: str, pos: tuple[int, int]) -> None:
         if hit == "close":
             self._close_settings_panel()
+        elif hit == "settings_back":
+            self._settings_view = "root"
+            self._layout_settings_content()
+            self._settings_content_scroll.reset()
+            self._sync_settings_scroll_viewport()
+        elif hit == "audio_drill":
+            self._settings_view = "audio"
+            self._layout_settings_content()
+            self._settings_content_scroll.reset()
+            self._sync_settings_scroll_viewport()
+        elif hit == "advanced_toggle":
+            self._settings_advanced_open = not getattr(self, "_settings_advanced_open", False)
+            self._layout_settings_content()
+            self._sync_settings_scroll_viewport()
         elif hit == "power":
             self.screen_state = Screen.POWER_MENU
         elif hit == "norm_global":

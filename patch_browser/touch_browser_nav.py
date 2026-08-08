@@ -37,6 +37,7 @@ class TouchBrowserNavMixin:
         mode: LeftNavMode,
         *,
         browse_folder_index: int | None = None,
+        browse_inner_segments: tuple[str, ...] | None = None,
         left_nav_collapsed: bool | None = None,
         scroll_to_selection: bool = False,
         reset_list_scroll: bool = False,
@@ -66,6 +67,9 @@ class TouchBrowserNavMixin:
                 )
             else:
                 self.browse_folder_index = 0
+
+        if browse_inner_segments is not None:
+            self.browse_inner_segments = tuple(browse_inner_segments)
 
         if left_nav_collapsed is not None:
             self.left_nav_collapsed = left_nav_collapsed

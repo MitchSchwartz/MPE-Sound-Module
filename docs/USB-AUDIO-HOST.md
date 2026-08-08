@@ -17,7 +17,7 @@ Full research and phased plan: **[USB-AUDIO-PASSTHROUGH-PLAN.md](USB-AUDIO-PASST
 | **Boot with USB-C tethered** | Four raspberries hang, no SSH | Power on with **USB-C data unplugged** from host; plug in after Pi is up ([PI-BOOT-RECOVERY.md](PI-BOOT-RECOVERY.md)) |
 | **PD power on same USB-C as data** | `udc` stuck `not attached`, host capture silent | **Split power:** GPIO 5V/GND or official PSU — **not** a PD dock on the gadget port ([USB-AUDIO-PASSTHROUGH-SPIKE.md](USB-AUDIO-PASSTHROUGH-SPIKE.md)) |
 | **`[pi4]` overlay under `[all]`** | USB-A host ports dead (Roli, Sound Blaster) | Use **`[pi4]`** section only for `dr_mode=peripheral` |
-| **Host capture left open** | Aux silent while badge still **USB** | Host-gated routing: Surge → UAC2 while host streams @ 44100. **Disarm Reaper**, remove stray PipeWire links (qpwgraph), don't set ALSA **capture default** to the gadget (see §Host quirks) |
+| **Host capture left open** | Aux silent while badge still **USB** | Host-gated routing: Surge → UAC2 while host streams @ 48000. **Disarm Reaper**, remove stray PipeWire links (qpwgraph), don't set ALSA **capture default** to the gadget (see §Host quirks) |
 | **`plughw` on Linux host** | Silent capture | Use **`hw:N,0`** in `arecord` / REAPER ALSA |
 
 **Cable (Pi 4 desk):** prefer **USB-A (host PC) → USB-C (Pi)** data cable. Power the Pi from **GPIO or official PSU**, not from the same USB-C port that carries gadget data.
@@ -90,7 +90,7 @@ Reboot once with **USB-C unplugged from the host**. This enables the USB-C port 
 - Touch settings toggle → `set-audio-profile.sh` updates the file and matching systemd units
 - **`mpe-audio-profile-sync.service`** runs at boot (before Surge) and re-enables gadget + stall watchdog to match the file
 - **`surge-xt-cli.service` `ExecStartPost`** starts the host-route watcher after Surge is up (usb-host only)
-- **`configure-pi-paths.sh --force`** rewrites paths but **preserves** `MPE_AUDIO_PROFILE` and `MPE_SURGE_BUFFER_SIZE` from the existing file
+- **`configure-pi-paths.sh --force`** rewrites paths but **preserves** `MPE_AUDIO_PROFILE`, `MPE_SURGE_BUFFER_SIZE`, and `MPE_SURGE_SAMPLE_RATE` from the existing file
 
 After a git pull on the Pi: `./scripts/configure-pi-paths.sh --local --force` — your audio mode is kept.
 
@@ -105,7 +105,7 @@ arecord -l
 Prefer **hardware** device for capture — `plughw:N,0` has been observed **silent** while `hw:N,0` works (tone test peak ~26267):
 
 ```bash
-arecord -D hw:N,0 -f S16_LE -r 44100 -c 2 -d 5 /tmp/mpe-host-capture.wav
+arecord -D hw:N,0 -f S16_LE -r 48000 -c 2 -d 5 /tmp/mpe-host-capture.wav
 ```
 
 **Root-caused 2026-07-31:** if the Pi is powered through a USB-C PD dock plugged into the *same* port used for gadget data, `dwc2` can get stuck `not attached` (check `cat /sys/class/udc/*/state` on the Pi) even with MIDI/OSC correctly reaching Surge. This is a Pi 4 hardware limitation, not a Surge bug — see **[USB-AUDIO-PASSTHROUGH-SPIKE.md](USB-AUDIO-PASSTHROUGH-SPIKE.md)**. Power the Pi via GPIO 5V/GND, independent of the USB-C data cable, to avoid it.
@@ -144,7 +144,7 @@ sudo ./scripts/setup-usb-audio-gadget.sh destroy
 ```
 
 - **No** `alsaloop`, **no** dual analog+USB mirror.
-- Sample rate: **44100 Hz** stereo (matches Surge tuning — see `PATCH_NORMALIZATION.md`).
+- Sample rate: **48000 Hz** stereo (matches Surge tuning — see `PATCH_NORMALIZATION.md`).
 - Switching profiles **restarts Surge** (same pattern as USB DAC hot-plug).
 
 ### Host-gated routing (usb-host)
@@ -154,7 +154,7 @@ Surge **must not** keep UAC2 PCM open unless the laptop/DAW is **actively captur
 | Host capture | Surge output |
 |--------------|--------------|
 | **Idle** (disarmed, rate 0) | Sound Blaster if plugged, else Pi headphone (inaudible sink) |
-| **Active** (armed, rate 44100) | UAC2 gadget → host |
+| **Active** (armed, rate 48000) | UAC2 gadget → host |
 
 `uac2-stall-watchdog.service` watches host stream rate and **restarts Surge on transitions** (~3–5 s, **Sync** badge). No stall heuristics, no Sound Blaster requirement for Reaper.
 
@@ -170,7 +170,7 @@ On the **host**, use the gadget like any USB audio interface:
 
 1. Plug in the Pi (usb-host profile, cable to USB-C).
 2. Open your DAW.
-3. Select **USB Audio Passthrough** / **MPE Sound Module** as a **capture / input** device (44100 Hz stereo).
+3. Select **USB Audio Passthrough** / **MPE Sound Module** as a **capture / input** device (48000 Hz stereo).
 4. Arm a track and record — or enable input monitoring to hear yourself.
 
 **No host-side install required.** No PipeWire loopback, no per-DAW routing rules.
@@ -195,7 +195,7 @@ Switching **USB → Analog → USB** used to **destroy** the UAC2 gadget, which 
 
 ### Host quirks (Linux desk PC)
 
-**Aux vs USB is one route at a time in `usb-host` profile.** While the host keeps a capture stream open (`Playback Rate` 44100 on the gadget), Surge plays to **UAC2** — the Sound Blaster **aux is silent**. That is expected. To hear aux again: disarm all Reaper tracks using the Pi input, remove persistent **PipeWire** links (e.g. qpwgraph → other inputs), then wait for the host-route watcher to restart Surge onto Sound Blaster (~3–5 s).
+**Aux vs USB is one route at a time in `usb-host` profile.** While the host keeps a capture stream open (`Playback Rate` 48000 on the gadget), Surge plays to **UAC2** — the Sound Blaster **aux is silent**. That is expected. To hear aux again: disarm all Reaper tracks using the Pi input, remove persistent **PipeWire** links (e.g. qpwgraph → other inputs), then wait for the host-route watcher to restart Surge onto Sound Blaster (~3–5 s).
 
 **Do not** set ALSA `pcm.!default` capture to the gadget on the host. That can leave PipeWire holding `/dev/snd/pcm*D0c` open and block aux even when you think the DAW is idle. Use the named device only:
 

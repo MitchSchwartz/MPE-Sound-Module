@@ -107,13 +107,3 @@ class TouchBrowserEvdevMixin:
                 self._handle_browser_tap(pos)
             self._touch_list_capture = False
             self._az_rail_capture = False
-    def _select_nav_index(self, idx: int) -> None:
-        if self.left_nav_mode == LeftNavMode.ALL_PATCHES:
-            if idx < len(self.all_patches_flat):
-                self._select_patch(self.all_patches_flat[idx])
-        elif self.left_nav_mode == LeftNavMode.FOLDERS:
-            self._enter_folder(idx)
-        else:
-            patches = self._patches_in_browse_folder()
-            if idx < len(patches):
-                self._select_patch(patches[idx])
