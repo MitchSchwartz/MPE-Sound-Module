@@ -420,6 +420,8 @@ class ContentScrollArea:
         self._velocity = 0.0
         self._momentum_active = False
         self._scroll_samples: list[tuple[float, float]] = []
+        self._hint_top = 0.0
+        self._hint_bottom = 0.0
 
     @property
     def scroll_pixels(self) -> float:
@@ -429,6 +431,8 @@ class ContentScrollArea:
         self._scroll_pixels = 0.0
         self.stop_momentum()
         self._clear_pointer()
+        self._hint_top = 0.0
+        self._hint_bottom = 0.0
 
     def stop_momentum(self) -> None:
         self._velocity = 0.0
@@ -522,17 +526,48 @@ class ContentScrollArea:
     def can_scroll_down(self) -> bool:
         return self._scroll_pixels < self._max_scroll_pixels() - 2.0
 
+    HINT_FADE_IN_RATE = 2.8
+    HINT_FADE_OUT_RATE = 3.5
+
+    def _ease_hint_strength(self, current: float, target: float, dt: float) -> float:
+        if abs(target - current) < 0.008:
+            return target
+        rate = self.HINT_FADE_IN_RATE if target > current else self.HINT_FADE_OUT_RATE
+        return current + (target - current) * min(1.0, rate * dt)
+
+    def tick_edge_hints(self, dt: float) -> None:
+        """Smoothly animate overflow hint visibility."""
+        dt = max(dt, 1.0 / 120.0)
+        if not self.is_scrollable():
+            top_target = 0.0
+            bottom_target = 0.0
+        else:
+            top_target = 1.0 if self.can_scroll_up() else 0.0
+            bottom_target = 1.0 if self.can_scroll_down() else 0.0
+        self._hint_top = self._ease_hint_strength(self._hint_top, top_target, dt)
+        self._hint_bottom = self._ease_hint_strength(self._hint_bottom, bottom_target, dt)
+
+    def edge_hint_strength(self, edge: str) -> float:
+        raw = self._hint_bottom if edge == "bottom" else self._hint_top
+        raw = max(0.0, min(1.0, raw))
+        # Smoothstep so hints ease in/out visually instead of popping linearly.
+        return raw * raw * (3.0 - 2.0 * raw)
+
 
 def _scroll_hint_style(
     theme: Theme,
     fade_rgb: tuple[int, int, int] | None,
-) -> tuple[tuple[int, int, int], int, float, int, bool]:
-    """Return fade color, band height, alpha curve, hairline width, chevron flag."""
+) -> tuple[tuple[int, int, int], int, float, float, bool]:
+    """Return fade color, band height, alpha curve, max opacity, chevron flag."""
     if theme.surface_elevated is not None:
-        base = fade_rgb or theme.surface_alt
-        lifted = tuple(min(255, channel + 22) for channel in base)
-        return lifted, 36, 0.62, 2, True
-    return fade_rgb or theme.panel_surface(), 24, 1.0, 1, False
+        return (
+            fade_rgb or theme.panel_surface(),
+            18,
+            1.25,
+            0.14,
+            True,
+        )
+    return fade_rgb or theme.panel_surface(), 16, 1.0, 0.28, False
 
 
 def _edge_fade_alpha(row: int, fade_h: int, *, edge: str, alpha_power: float) -> int:
@@ -551,35 +586,21 @@ def _draw_vertical_edge_fade(
     edge: str,
     fade_h: int,
     alpha_power: float = 1.0,
+    strength: float = 1.0,
+    max_opacity: float = 1.0,
 ) -> None:
+    if strength <= 0.008:
+        return
     fade_h = max(4, min(fade_h, max(4, viewport.h // 3)))
     band = pygame.Surface((viewport.w, fade_h), pygame.SRCALPHA)
+    cap = max(0.0, min(1.0, max_opacity)) * max(0.0, min(1.0, strength))
     for row in range(fade_h):
-        alpha = _edge_fade_alpha(row, fade_h, edge=edge, alpha_power=alpha_power)
+        alpha = int(_edge_fade_alpha(row, fade_h, edge=edge, alpha_power=alpha_power) * cap)
+        if alpha <= 0:
+            continue
         pygame.draw.line(band, (*rgb, alpha), (0, row), (viewport.w, row))
     y = viewport.bottom - fade_h if edge == "bottom" else viewport.y
     surface.blit(band, (viewport.x, y))
-
-
-def _draw_scroll_edge_hairline(
-    surface: pygame.Surface,
-    viewport: Rect,
-    theme: Theme,
-    *,
-    edge: str,
-    width: int,
-) -> None:
-    inset = 10
-    x0 = viewport.x + inset
-    x1 = viewport.right - inset
-    y = viewport.bottom - 1 if edge == "bottom" else viewport.y
-    if theme.hairline_alpha > 0 and theme.surface_elevated is not None:
-        line = pygame.Surface((x1 - x0, width), pygame.SRCALPHA)
-        accent = theme.accent
-        line.fill((*accent, theme.hairline_alpha))
-        surface.blit(line, (x0, y if edge == "bottom" else y))
-        return
-    pygame.draw.line(surface, theme.muted, (x0, y), (x1, y), width)
 
 
 def _draw_scroll_edge_chevron(
@@ -588,15 +609,24 @@ def _draw_scroll_edge_chevron(
     color: tuple[int, int, int],
     *,
     edge: str,
+    strength: float = 1.0,
 ) -> None:
+    if strength <= 0.008:
+        return
+    slide = int((1.0 - strength) * 5)
     cx = viewport.centerx
+    w, h = 18, 12
+    patch = pygame.Surface((w, h), pygame.SRCALPHA)
+    pcx = w // 2
     if edge == "bottom":
-        cy = viewport.bottom - 11
-        points = [(cx - 7, cy - 2), (cx + 7, cy - 2), (cx, cy + 5)]
+        points = [(pcx - 7, 2), (pcx + 7, 2), (pcx, 9)]
+        blit_y = viewport.bottom - 11 + slide - 5
     else:
-        cy = viewport.y + 11
-        points = [(cx - 7, cy + 2), (cx + 7, cy + 2), (cx, cy - 5)]
-    pygame.draw.polygon(surface, color, points)
+        points = [(pcx - 7, h - 3), (pcx + 7, h - 3), (pcx, 0)]
+        blit_y = viewport.y + 11 - slide - 5
+    alpha = int(255 * max(0.0, min(1.0, strength)))
+    pygame.draw.polygon(patch, (*color, alpha), points)
+    surface.blit(patch, (cx - w // 2, blit_y))
 
 
 def draw_vertical_scroll_edge_hints(
@@ -609,14 +639,16 @@ def draw_vertical_scroll_edge_hints(
     fade_h: int | None = None,
 ) -> None:
     """Edge fade overlays when a clipped viewport has off-screen content."""
-    if not scroll.is_scrollable():
+    bottom_strength = scroll.edge_hint_strength("bottom")
+    top_strength = scroll.edge_hint_strength("top")
+    if bottom_strength <= 0.008 and top_strength <= 0.008:
         return
-    rgb, default_fade_h, alpha_power, hairline_w, show_chevron = _scroll_hint_style(
+    rgb, default_fade_h, alpha_power, max_opacity, show_chevron = _scroll_hint_style(
         theme,
         fade_rgb,
     )
     band_h = fade_h if fade_h is not None else default_fade_h
-    if scroll.can_scroll_down():
+    if bottom_strength > 0.008:
         _draw_vertical_edge_fade(
             surface,
             viewport,
@@ -624,11 +656,18 @@ def draw_vertical_scroll_edge_hints(
             edge="bottom",
             fade_h=band_h,
             alpha_power=alpha_power,
+            strength=bottom_strength,
+            max_opacity=max_opacity,
         )
-        _draw_scroll_edge_hairline(surface, viewport, theme, edge="bottom", width=hairline_w)
         if show_chevron:
-            _draw_scroll_edge_chevron(surface, viewport, theme.muted, edge="bottom")
-    if scroll.can_scroll_up():
+            _draw_scroll_edge_chevron(
+                surface,
+                viewport,
+                theme.muted,
+                edge="bottom",
+                strength=bottom_strength,
+            )
+    if top_strength > 0.008:
         _draw_vertical_edge_fade(
             surface,
             viewport,
@@ -636,10 +675,17 @@ def draw_vertical_scroll_edge_hints(
             edge="top",
             fade_h=band_h,
             alpha_power=alpha_power,
+            strength=top_strength,
+            max_opacity=max_opacity,
         )
-        _draw_scroll_edge_hairline(surface, viewport, theme, edge="top", width=hairline_w)
         if show_chevron:
-            _draw_scroll_edge_chevron(surface, viewport, theme.muted, edge="top")
+            _draw_scroll_edge_chevron(
+                surface,
+                viewport,
+                theme.muted,
+                edge="top",
+                strength=top_strength,
+            )
 
 
 DANGER_ACTION_IDS = frozenset(
@@ -780,6 +826,7 @@ class ScrollableActionList:
         return scrolled
 
     def tick(self, dt: float) -> bool:
+        self.scroll.tick_edge_hints(dt)
         return self.scroll.tick(dt)
 
     def _draw_scroll_hints(self, surface: pygame.Surface, theme) -> None:

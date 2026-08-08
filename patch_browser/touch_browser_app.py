@@ -339,16 +339,20 @@ class TouchPatchBrowser(
                 self._handle_event(event)
             dt = max(clock.get_time() / 1000.0, 1.0 / 120.0)
             self._tick_settings_animation(dt)
+            if self.screen_state == Screen.SETTINGS or self._settings_slide > 0.004:
+                self._settings_content_scroll.tick_edge_hints(dt)
             if self.screen_state == Screen.SETTINGS:
                 self._settings_content_scroll.tick(dt)
             if (
                 self.screen_state == Screen.THEME
                 and self._theme_view() == THEME_VIEW_COLORS
             ):
+                self._theme_colors_scroll.tick_edge_hints(dt)
                 self._theme_colors_scroll.tick(dt)
             if self.screen_state == Screen.WIFI_MODAL and getattr(self, "_wifi_view", "list") == "list":
                 scroll = getattr(self, "_wifi_scroll", None)
                 if scroll is not None:
+                    scroll.tick_edge_hints(dt)
                     scroll.tick(dt)
             if self.screen_state == Screen.BROWSER and not self.left_nav_collapsed:
                 self.nav_list.tick(dt)
