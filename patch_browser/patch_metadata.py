@@ -102,6 +102,22 @@ FOLDER_INSTRUMENT_MAP: dict[str, tuple[str, ...]] = {
     "seq": ("synth",),
     "sequence": ("synth",),
     "sequencer": ("synth",),
+    "sequences": ("synth",),
+    "basses": ("bass",),
+    "plucks": ("pluck",),
+    "polysynths": ("synth",),
+    "polysynth": ("synth",),
+    "winds": ("woodwind",),
+    "percussion": ("other",),
+    "chords": ("keys",),
+    "vocoder": ("fx",),
+    "mpe": ("synth",),
+    "splits": ("other",),
+    "tutorials": ("other",),
+    "tutorial": ("other",),
+    "drum": ("other",),
+    "drums": ("other",),
+    "rhythmic": ("synth",),
 }
 
 # Token matches in patch names (lower weight than folder)
