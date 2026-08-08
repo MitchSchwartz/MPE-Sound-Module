@@ -16,6 +16,7 @@ from patch_browser.patch_identity import (
     patch_root_label,
     stable_key_for_relative_path,
 )
+from patch_browser.patch_metadata import PatchMetadataIndex
 
 
 @dataclass
@@ -74,6 +75,7 @@ class PatchScanner:
         self.patches_by_stable_key: dict[str, dict] = {}
         self.patches_by_path: dict[str, dict] = {}
         self.folder_tree: dict[str, dict] = {}
+        self.metadata_index = PatchMetadataIndex()
 
         self.scan_complete = threading.Event()
         self.scan_lock = threading.Lock()
@@ -143,6 +145,9 @@ class PatchScanner:
             self.patches_by_stable_key = patches_by_key
             self.patches_by_path = patches_by_path
             self.folder_tree = folder_tree
+
+        self.metadata_index.reload()
+        self.metadata_index.enrich_all(patches_by_key)
 
         print(f"Found {total_patches} patches in {len(self.patches)} categories")
         cat_names = list(self.patches.keys())
@@ -218,6 +223,9 @@ class PatchScanner:
                     ),
                 }
             patches.append(entry)
+
+        for patch in patches:
+            self.metadata_index.enrich_patch(patch)
 
         return sorted(patches, key=lambda x: (x["name"].casefold(), x["path"]))
 
