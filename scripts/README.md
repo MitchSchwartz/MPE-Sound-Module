@@ -25,7 +25,7 @@
 - **diagnose-pi-state.sh** - Complete system diagnostics (services, permissions, processes)
 - **test-audio-detection.sh** - Test 4-tier audio fallback system
 - **check-surge-mode.sh** - Verify CLI/GUI mode state
-- **build-patch-metadata-baseline.py** - Regenerate `data/patch_metadata_baseline.json` from local Surge patch dirs (run on PC/Pi with full library before release)
+- **build-patch-metadata-baseline.py** - Regenerate `data/patch_metadata_baseline.json` from local Surge patch dirs (auto-uses sibling `../MPE-Library` when present; else `~/surge` paths)
 
 ### Setup Scripts
 - **setup-power-button.sh** - Configure GPIO power button (8-second hold to shutdown)

@@ -54,6 +54,64 @@ SURGE_PATCH_DIRS = [
 ]
 
 
+def resolve_personal_repo(module_repo: Path | None = None) -> Path | None:
+    """Sibling MPE-Library / MPE-Personal assets repo, or ``MPE_PERSONAL_REPO`` env."""
+    override = os.environ.get("MPE_PERSONAL_REPO", "").strip()
+    if override:
+        candidate = Path(override)
+        return candidate if candidate.is_dir() else None
+
+    root = module_repo or Path(__file__).resolve().parents[1]
+    for name in ("MPE-Library", "MPE-Personal", "mpe-assets"):
+        candidate = root.parent / name
+        if candidate.is_dir():
+            return candidate
+    return None
+
+
+def resolve_library_patch_dirs(module_repo: Path | None = None) -> list[Path]:
+    """
+    Patch scan roots from the private MPE-Library assets repo (PC / backup layout).
+
+    Includes factory, third-party, user Patches, and CC0 collection folders under
+    ``assets/`` that contain ``.fxp`` files.
+    """
+    personal = resolve_personal_repo(module_repo)
+    if personal is None:
+        return []
+
+    assets = personal / "assets"
+    if not assets.is_dir():
+        return []
+
+    dirs: list[Path] = []
+    for rel in (
+        "patches/patches_factory",
+        "patches/third-party/patches_3rdparty",
+        "user-data/Patches",
+    ):
+        candidate = assets / rel
+        if candidate.is_dir():
+            dirs.append(candidate)
+
+    skip = {"patches", "user-data", "binaries"}
+    for child in sorted(assets.iterdir()):
+        if not child.is_dir() or child.name in skip:
+            continue
+        if any(child.rglob("*.fxp")):
+            dirs.append(child)
+
+    return dirs
+
+
+def resolve_patch_scan_dirs(module_repo: Path | None = None) -> list[Path]:
+    """Library assets repo when present, else live Surge install paths."""
+    library_dirs = resolve_library_patch_dirs(module_repo)
+    if library_dirs:
+        return library_dirs
+    return [p for p in SURGE_PATCH_DIRS if p.exists()]
+
+
 def favorites_display_name(name=None):
     """Browser category label — leading ! sorts first. Idempotent if name already has !."""
     n = name if name is not None else FAVORITES_NAME

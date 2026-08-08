@@ -106,5 +106,17 @@ class PatchScannerTests(unittest.TestCase):
         self.assertEqual(patches[0]["name"], "Loose")
 
 
+    def test_resolve_library_patch_dirs_finds_sibling_repo(self) -> None:
+        from patch_browser.patch_scanner import resolve_library_patch_dirs
+
+        module_repo = Path(__file__).resolve().parents[1]
+        personal = module_repo.parent / "MPE-Library"
+        if not personal.is_dir():
+            self.skipTest("MPE-Library sibling repo not present")
+        dirs = resolve_library_patch_dirs(module_repo)
+        self.assertGreaterEqual(len(dirs), 3)
+        self.assertTrue(any(p.name == "patches_factory" for p in dirs))
+
+
 if __name__ == "__main__":
     unittest.main()
