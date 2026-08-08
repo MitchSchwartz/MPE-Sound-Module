@@ -184,16 +184,23 @@ class TouchBrowserSettingsMixin:
         subtitle: str,
         *,
         muted: bool = False,
+        pressed: bool = False,
     ) -> None:
-        bg = self.theme.surface_alt if muted else self.theme.surface
+        if pressed:
+            bg = self.theme.accent
+            text_color = self.theme.bg
+            sub_color = self.theme.bg
+        else:
+            bg = self.theme.surface_alt if muted else self.theme.surface
+            text_color = self.theme.muted if muted else self.theme.text
+            sub_color = self.theme.muted
         pygame.draw.rect(self.screen, bg, rect.pygame_rect, border_radius=10)
-        text_color = self.theme.muted if muted else self.theme.text
         label_surf = self.font_md.render(label, True, text_color)
         self.screen.blit(label_surf, (rect.x + 16, rect.y + 12))
-        sub_surf = self.font_sm.render(subtitle, True, self.theme.muted)
+        sub_surf = self.font_sm.render(subtitle, True, sub_color)
         self.screen.blit(sub_surf, (rect.x + 16, rect.y + 12 + label_surf.get_height() + SETTINGS_DRILL_SUBTITLE_GAP))
         chevron_rect = Rect(rect.right - 34, rect.y + (rect.h - 22) // 2, 22, 22)
-        draw_chevron(self.screen, chevron_rect, self.theme.muted, direction="right")
+        draw_chevron(self.screen, chevron_rect, sub_color if pressed else self.theme.muted, direction="right")
 
     def _draw_settings_section_header(
         self,
@@ -223,35 +230,59 @@ class TouchBrowserSettingsMixin:
         value: str | None = None,
         *,
         muted: bool = False,
+        pressed: bool = False,
     ) -> None:
-        bg = self.theme.surface_alt if muted else self.theme.surface
+        if pressed:
+            bg = self.theme.accent
+            text_color = self.theme.bg
+            chevron_color = self.theme.bg
+            value_color = self.theme.bg
+        else:
+            bg = self.theme.surface_alt if muted else self.theme.surface
+            text_color = self.theme.muted if muted else self.theme.text
+            chevron_color = self.theme.muted
+            value_color = self.theme.muted
         pygame.draw.rect(self.screen, bg, rect.pygame_rect, border_radius=10)
-        text_color = self.theme.muted if muted else self.theme.text
         label_surf = self.font_md.render(label, True, text_color)
         self.screen.blit(
             label_surf,
             (rect.x + 16, rect.y + (rect.h - label_surf.get_height()) // 2),
         )
         chevron_rect = Rect(rect.right - 34, rect.y + (rect.h - 22) // 2, 22, 22)
-        draw_chevron(self.screen, chevron_rect, self.theme.muted, direction="right")
+        draw_chevron(self.screen, chevron_rect, chevron_color, direction="right")
         if value:
-            value_surf = self.font_md.render(value, True, self.theme.muted)
+            value_surf = self.font_md.render(value, True, value_color)
             value_x = chevron_rect.x - value_surf.get_width() - 10
             self.screen.blit(
                 value_surf,
                 (value_x, rect.y + (rect.h - value_surf.get_height()) // 2),
             )
 
-    def _draw_settings_expand_row(self, rect: Rect, label: str, *, expanded: bool) -> None:
+    def _draw_settings_expand_row(
+        self,
+        rect: Rect,
+        label: str,
+        *,
+        expanded: bool,
+        pressed: bool = False,
+    ) -> None:
         """Full-height tappable row for collapsible sections (e.g. Advanced)."""
-        pygame.draw.rect(self.screen, self.theme.surface, rect.pygame_rect, border_radius=10)
-        label_surf = self.font_md.render(label, True, self.theme.text)
+        if pressed:
+            bg = self.theme.accent
+            text_color = self.theme.bg
+            mark_color = self.theme.bg
+        else:
+            bg = self.theme.surface
+            text_color = self.theme.text
+            mark_color = self.theme.muted
+        pygame.draw.rect(self.screen, bg, rect.pygame_rect, border_radius=10)
+        label_surf = self.font_md.render(label, True, text_color)
         self.screen.blit(
             label_surf,
             (rect.x + 16, rect.y + (rect.h - label_surf.get_height()) // 2),
         )
         mark = "▾" if expanded else "▸"
-        mark_surf = self.font_md.render(mark, True, self.theme.muted)
+        mark_surf = self.font_md.render(mark, True, mark_color)
         self.screen.blit(
             mark_surf,
             (rect.right - mark_surf.get_width() - 16, rect.y + (rect.h - mark_surf.get_height()) // 2),
@@ -301,6 +332,7 @@ class TouchBrowserSettingsMixin:
                 "Buffer",
                 buffer_settings_label().split(" — ", 1)[-1],
                 muted=service_busy,
+                pressed=self._pressed("settings:surge_buffer"),
             )
 
             rate_row = self._panel_local_to_screen(self.surge_sample_rate_row_rect, scrolled=True)
@@ -309,6 +341,7 @@ class TouchBrowserSettingsMixin:
                 "Sample rate",
                 sample_rate_settings_label().split(" — ", 1)[-1],
                 muted=service_busy,
+                pressed=self._pressed("settings:surge_sample_rate"),
             )
 
             poly_toggle = self._panel_local_to_screen(self.poly_governor_toggle_rect, scrolled=True)
@@ -328,13 +361,18 @@ class TouchBrowserSettingsMixin:
             )
 
             cal_missing = self._panel_local_to_screen(self._calibrate_missing_btn, scrolled=True)
-            self._draw_settings_action_row(cal_missing, "Calibrate missing patches")
+            self._draw_settings_action_row(
+                cal_missing,
+                "Calibrate missing patches",
+                pressed=self._pressed("settings:cal_missing"),
+            )
 
             cal_force = self._panel_local_to_screen(self._calibrate_force_btn, scrolled=True)
             self._draw_settings_action_row(
                 cal_force,
                 "Force full re-calibration",
                 muted=True,
+                pressed=self._pressed("settings:cal_force"),
             )
         else:
             for section_rect, label, expandable in getattr(self, "_settings_section_headers", []):
@@ -351,6 +389,7 @@ class TouchBrowserSettingsMixin:
                 audio_row,
                 "Audio",
                 self._audio_settings_summary(),
+                pressed=self._pressed("settings:audio_drill"),
             )
 
             brightness_row = self._panel_local_to_screen(self.brightness_row_rect, scrolled=True)
@@ -358,10 +397,15 @@ class TouchBrowserSettingsMixin:
                 brightness_row,
                 "Brightness",
                 f"{self.brightness_percent}%",
+                pressed=self._pressed("settings:brightness"),
             )
 
             theme_row = self._panel_local_to_screen(self.theme_btn_rect, scrolled=True)
-            self._draw_settings_chevron_row(theme_row, "Theme")
+            self._draw_settings_chevron_row(
+                theme_row,
+                "Theme",
+                pressed=self._pressed("settings:theme"),
+            )
 
             wifi_row = self._panel_local_to_screen(self.wifi_row_rect, scrolled=True)
             self._draw_settings_drill_row(
@@ -369,6 +413,7 @@ class TouchBrowserSettingsMixin:
                 "Wi‑Fi",
                 self.wifi_settings_row_label().removeprefix("Wi‑Fi — "),
                 muted=getattr(self, "_wifi_busy", False),
+                pressed=self._pressed("settings:wifi"),
             )
 
             advanced_row = self._panel_local_to_screen(
@@ -379,6 +424,7 @@ class TouchBrowserSettingsMixin:
                 advanced_row,
                 "Advanced",
                 expanded=getattr(self, "_settings_advanced_open", False),
+                pressed=self._pressed("settings:advanced_toggle"),
             )
 
             if getattr(self, "_settings_advanced_open", False):
@@ -393,7 +439,11 @@ class TouchBrowserSettingsMixin:
 
                 if self._surge_restart_btn and self._surge_restart_btn.h > 0:
                     restart = self._panel_local_to_screen(self._surge_restart_btn, scrolled=True)
-                    self._draw_settings_action_row(restart, "Restart Surge")
+                    self._draw_settings_action_row(
+                        restart,
+                        "Restart Surge",
+                        pressed=self._pressed("settings:surge_restart"),
+                    )
 
         self.screen.set_clip(clip)
 
@@ -402,7 +452,6 @@ class TouchBrowserSettingsMixin:
             scroll_vp,
             self._settings_content_scroll,
             self.theme,
-            fade_rgb=self.theme.panel_surface(),
         )
 
         pygame.draw.rect(self.screen, self.theme.surface, header_rect.pygame_rect)
@@ -414,6 +463,13 @@ class TouchBrowserSettingsMixin:
         title_x = panel.x + 20
         if audio_view:
             back_screen = self._panel_local_to_screen(self._settings_back_btn)
+            if self._pressed("settings:settings_back"):
+                pygame.draw.rect(
+                    self.screen,
+                    self.theme.accent,
+                    back_screen.pygame_rect,
+                    border_radius=8,
+                )
             chevron_rect = Rect(
                 back_screen.x + 10,
                 back_screen.y + (back_screen.h - 24) // 2,
@@ -424,12 +480,20 @@ class TouchBrowserSettingsMixin:
             title_x = back_screen.x + 38
         self.screen.blit(self.font_md.render(title, True, self.theme.text), (title_x, panel.y + 16))
         close_screen = self._panel_local_to_screen(self._close_settings_btn)
-        self._draw_icon_button(close_screen, "×", muted=True)
+        self._draw_icon_button(
+            close_screen,
+            "×",
+            muted=True,
+            pressed=self._pressed("settings:close"),
+        )
 
         footer_y = panel.y + self.settings_panel_rect.h - SETTINGS_PANEL_FOOTER_H
         self._draw_divider_line(panel.x + 16, footer_y, panel.right - 16)
         power = self._panel_local_to_screen(self._power_btn)
-        pygame.draw.rect(self.screen, self.theme.surface_alt, power.pygame_rect, border_radius=10)
+        power_pressed = self._pressed("settings:power")
+        power_bg = self.theme.accent if power_pressed else self.theme.surface_alt
+        power_text = self.theme.bg if power_pressed else self._semantic_color("danger")
+        pygame.draw.rect(self.screen, power_bg, power.pygame_rect, border_radius=10)
         draw_wrapped_text_in_rect(
             self.screen,
             self.font_md,
@@ -438,7 +502,7 @@ class TouchBrowserSettingsMixin:
             power.y,
             power.w,
             power.h,
-            self.theme.text,
+            power_text,
             pad_x=16,
             max_lines=1,
         )

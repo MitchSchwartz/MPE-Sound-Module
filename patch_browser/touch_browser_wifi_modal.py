@@ -241,7 +241,6 @@ class TouchBrowserWifiModalMixin:
             scroll_vp,
             self._wifi_scroll,
             self.theme,
-            fade_rgb=self.theme.panel_surface(),
         )
 
         cancel_rect = Rect(inner_x, panel.bottom - footer_h + 4, inner_w, SETTINGS_ROW_H)
