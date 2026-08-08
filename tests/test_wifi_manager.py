@@ -52,6 +52,28 @@ class WifiManagerTests(unittest.TestCase):
 
     @mock.patch("patch_browser.wifi_manager.connection_has_usable_profile", return_value=True)
     @mock.patch("patch_browser.wifi_manager._run_nmcli")
+    def test_scan_wifi_falls_back_to_sudo(self, run_mock: mock.Mock, _saved: mock.Mock) -> None:
+        scan_stdout = (
+            r"E0\:63\:DA\:EA\:B2\:6D:Potato 2.4:70:WPA2:*" + "\n"
+            r"18\:E8\:29\:51\:70\:52:Potato 2.4:55:WPA2:" + "\n"
+            r"AA\:BB\:CC\:DD\:EE\:FF:Cafe:40:WPA2:" + "\n"
+        )
+
+        def side_effect(args, *, timeout, use_sudo=False):
+            if args[:2] == ["-t", "-f"] and "--rescan" in args:
+                if use_sudo:
+                    return mock.Mock(returncode=0, stdout=scan_stdout, stderr="")
+                return mock.Mock(returncode=0, stdout=r"E0\:63\:DA\:EA\:B2\:6D:Potato 2.4:70:WPA2:*\n", stderr="")
+            return mock.Mock(returncode=1, stdout="", stderr="fail")
+
+        run_mock.side_effect = side_effect
+        networks, error = scan_wifi()
+        self.assertIsNone(error)
+        self.assertEqual(len(networks), 3)
+        self.assertTrue(any(call.kwargs.get("use_sudo") for call in run_mock.call_args_list))
+
+    @mock.patch("patch_browser.wifi_manager.connection_has_usable_profile", return_value=True)
+    @mock.patch("patch_browser.wifi_manager._run_nmcli")
     def test_scan_wifi_parses_bssid_and_dedupes(self, run_mock: mock.Mock, _saved: mock.Mock) -> None:
         def side_effect(args, *, timeout, use_sudo=False):
             if args[:2] == ["-t", "-f"] and "--rescan" in args:

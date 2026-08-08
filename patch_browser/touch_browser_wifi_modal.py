@@ -374,6 +374,7 @@ class TouchBrowserWifiModalMixin:
     def _handle_wifi_modal_pointer_down(self, pos: tuple[int, int]) -> None:
         self._clear_modal_pointer()
         self._modal_pointer_down_pos = pos
+        self._modal_pending_key = None
         if getattr(self, "_wifi_view", WIFI_VIEW_LIST) == WIFI_VIEW_PASSWORD:
             hit = self._wifi_password_hit_at(pos)
             if hit is not None:
@@ -383,14 +384,15 @@ class TouchBrowserWifiModalMixin:
                     self._wifi_key_pressed = "connect"
                 elif hit.startswith("key:"):
                     self._wifi_key_pressed = hit.split(":", 1)[1]
-        else:
-            hit = self._wifi_list_hit_at(pos)
-            if hit is None or not hit.startswith("net:"):
-                scroll_vp = getattr(self, "_wifi_scroll", None)
-                if scroll_vp is not None and scroll_vp.viewport.contains(*pos):
-                    scroll_vp.pointer_down(pos)
-        if hit is not None:
+                self._modal_pending_key = hit
+            return
+
+        hit = self._wifi_list_hit_at(pos)
+        if hit in ("refresh", "cancel"):
             self._modal_pending_key = hit
+        scroll_vp = getattr(self, "_wifi_scroll", None)
+        if scroll_vp is not None and scroll_vp.viewport.contains(*pos):
+            scroll_vp.pointer_down(pos)
 
     def _handle_wifi_modal_pointer_move(self, pos: tuple[int, int]) -> None:
         if getattr(self, "_wifi_view", WIFI_VIEW_LIST) != WIFI_VIEW_LIST:
@@ -406,13 +408,13 @@ class TouchBrowserWifiModalMixin:
             if scrolled:
                 self._clear_modal_pointer()
                 return
-            if (
-                self._modal_pending_key is None
-                or self._pointer_move_distance(self._modal_pointer_down_pos, pos) > TAP_MOVE_THRESHOLD_PX
-            ):
+            if self._pointer_move_distance(self._modal_pointer_down_pos, pos) > TAP_MOVE_THRESHOLD_PX:
                 self._clear_modal_pointer()
                 return
+
             hit = self._modal_pending_key
+            if hit is None and getattr(self, "_wifi_view", WIFI_VIEW_LIST) == WIFI_VIEW_LIST:
+                hit = self._wifi_list_hit_at(pos)
             self._clear_modal_pointer()
             if hit == "cancel":
                 self._close_wifi_modal()

@@ -135,29 +135,9 @@ def resolve_bssid(ssid: str, *, rescan: bool = True) -> str | None:
     return best_bssid
 
 
-def scan_wifi() -> tuple[list[WifiNetwork], str | None]:
-    # `--rescan yes` is required — plain `dev wifi list` only returns cached APs
-    # (often just the connected network). Separate `dev wifi rescan` also fails
-    # polkit for the touch user on Pi OS, but list --rescan yes works in netdev.
-    result = _run_nmcli(
-        [
-            "-t",
-            "-f",
-            "BSSID,SSID,SIGNAL,SECURITY,IN-USE",
-            "dev",
-            "wifi",
-            "list",
-            "--rescan",
-            "yes",
-        ],
-        timeout=SCAN_TIMEOUT_S,
-    )
-    if result.returncode != 0:
-        detail = (result.stderr or result.stdout or "scan failed").strip()
-        return [], detail.splitlines()[0][:80]
-
+def _parse_wifi_scan_output(stdout: str) -> list[WifiNetwork]:
     merged: dict[str, WifiNetwork] = {}
-    for line in result.stdout.splitlines():
+    for line in stdout.splitlines():
         if not line.strip():
             continue
         parsed = _parse_wifi_list_line(line)
@@ -185,11 +165,56 @@ def scan_wifi() -> tuple[list[WifiNetwork], str | None]:
         existing = merged.get(ssid)
         if existing is None or candidate.signal > existing.signal or candidate.in_use:
             merged[ssid] = candidate
-
-    networks = sorted(
+    return sorted(
         merged.values(),
         key=lambda n: (not n.in_use, not n.saved, -n.signal, n.ssid.lower()),
     )
+
+
+def _wifi_list_rescan(*, use_sudo: bool) -> subprocess.CompletedProcess[str]:
+    return _run_nmcli(
+        [
+            "-t",
+            "-f",
+            "BSSID,SSID,SIGNAL,SECURITY,IN-USE",
+            "dev",
+            "wifi",
+            "list",
+            "--rescan",
+            "yes",
+        ],
+        timeout=SCAN_TIMEOUT_S,
+        use_sudo=use_sudo,
+    )
+
+
+def scan_wifi() -> tuple[list[WifiNetwork], str | None]:
+    # `--rescan yes` is required — plain `dev wifi list` only returns cached APs
+    # (often just the connected network). Retry with sudo when the netdev scan
+    # returns one AP or fails (Pi OS / polkit variance).
+    result = _wifi_list_rescan(use_sudo=False)
+    error: str | None = None
+    networks: list[WifiNetwork] = []
+    if result.returncode == 0:
+        networks = _parse_wifi_scan_output(result.stdout)
+    else:
+        detail = (result.stderr or result.stdout or "scan failed").strip()
+        error = detail.splitlines()[0][:80]
+
+    if result.returncode != 0 or len(networks) <= 1:
+        sudo_result = _wifi_list_rescan(use_sudo=True)
+        if sudo_result.returncode == 0:
+            sudo_networks = _parse_wifi_scan_output(sudo_result.stdout)
+            if len(sudo_networks) > len(networks):
+                return sudo_networks, None
+            if sudo_networks:
+                return sudo_networks, None
+        if sudo_result.returncode != 0 and not networks:
+            detail = (sudo_result.stderr or sudo_result.stdout or "scan failed").strip()
+            return [], detail.splitlines()[0][:80]
+
+    if result.returncode != 0:
+        return [], error
     return networks, None
 
 
