@@ -69,7 +69,9 @@ class WifiManagerTests(unittest.TestCase):
         run_mock.side_effect = side_effect
         networks, error = scan_wifi()
         self.assertIsNone(error)
-        self.assertEqual(len(networks), 3)
+        self.assertEqual(len(networks), 2)
+        ssids = {network.ssid for network in networks}
+        self.assertEqual(ssids, {"Potato 2.4", "Cafe"})
         self.assertTrue(any(call.kwargs.get("use_sudo") for call in run_mock.call_args_list))
 
     @mock.patch("patch_browser.wifi_manager.connection_has_usable_profile", return_value=True)
