@@ -88,6 +88,12 @@ class ContextMenuTests(unittest.TestCase):
         self.assertIn("percussion", [a[1].lower() for a in instrument_picker_actions()])
         self.assertIn("sequencer", [a[1].lower() for a in instrument_picker_actions()])
 
+    def test_is_qa_browse_quick_select(self) -> None:
+        from patch_browser.context_menu import is_qa_browse
+
+        self.assertTrue(is_qa_browse("!Quick Access"))
+        self.assertFalse(is_qa_browse("Bass"))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -196,11 +196,16 @@ class TouchBrowserContextMixin:
         return qa_folder_display_name(target)
 
     def _close_context_menu(self) -> None:
+        self._cancel_long_press()
+        self.nav_list.cancel_active_pointer()
+        self._clear_modal_pointer()
+        self._context_action_sheet.pressed_action_id = None
+        self._context_action_sheet.scroll.reset()
         self.screen_state = Screen.BROWSER
         self._context_target = None
         self._context_menu_view = "main"
         self._context_menu_actions = []
-        self._context_action_sheet.scroll.reset()
+        self._context_menu_ignore_next_up = False
 
     def _open_folder_picker(self, action_prefix: str) -> None:
         folders = self.scanner.favorites_index.folders

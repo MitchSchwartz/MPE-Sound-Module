@@ -123,9 +123,9 @@ class TouchBrowserEvdevMixin:
                 return
 
             if self.screen_state == Screen.CONTEXT_MENU:
-                self._cancel_long_press()
-                self.nav_list.cancel_active_pointer()
+                self._handle_context_menu_pointer_up(pos)
                 self._touch_list_capture = False
+                self._touch_chip_capture = False
                 return
 
             list_gesture = self._touch_list_capture or self.nav_list.is_dragging()
