@@ -48,9 +48,23 @@ def patch_browse_subtitle(patch: dict) -> str:
     return category
 
 
+def patch_instrument_label(patch: dict) -> str:
+    """Primary instrument tag for list subtitles (capitalized)."""
+    from patch_browser.instrument_filter import instrument_chip_label, primary_instrument
+
+    return instrument_chip_label(primary_instrument(patch))
+
+
 def patch_list_subtitle(patch: dict) -> str:
-    """List row subtitle for All patches — top-level category only."""
-    return str(patch.get("category") or "")
+    """All patches row subtitle: instrument · category."""
+    inst = patch_instrument_label(patch)
+    cat = str(patch.get("category") or "")
+    return f"{inst} · {cat}" if cat else inst
+
+
+def patch_browse_instrument_subtitle(patch: dict) -> str:
+    """Folder browse row subtitle — instrument tag only."""
+    return patch_instrument_label(patch)
 
 
 def build_folder_tree(

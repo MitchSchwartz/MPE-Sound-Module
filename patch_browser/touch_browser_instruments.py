@@ -34,6 +34,7 @@ class TouchBrowserInstrumentsMixin:
         self._instrument_chip_drag_scroll_start = 0.0
         self._all_patches_display_flat: list[dict] = []
         self._all_patches_display_letter_index: dict[str, int] = {}
+        self._instrument_chip_pressed: str | None = None
 
     def _instrument_chip_offset(self) -> int:
         return INSTRUMENT_CHIP_ROW_H + 4 if self._show_instrument_chips() else 0
@@ -142,6 +143,7 @@ class TouchBrowserInstrumentsMixin:
             return False
         self._instrument_chip_drag_start_x = pos[0]
         self._instrument_chip_drag_scroll_start = self._instrument_chip_scroll_x
+        self._instrument_chip_pressed = self._chip_id_at_pos(pos)
         return True
 
     def _handle_instrument_chip_pointer_move(self, pos: tuple[int, int]) -> bool:
@@ -158,14 +160,20 @@ class TouchBrowserInstrumentsMixin:
         )
         return True
 
-    def _try_select_instrument_chip(self, pos: tuple[int, int]) -> bool:
-        if not self.instrument_chip_row_rect.contains(*pos):
-            return False
+    def _chip_id_at_pos(self, pos: tuple[int, int]) -> str | None:
         local_x = pos[0] + self._instrument_chip_scroll_x
         for chip_id, rect in self.instrument_chip_rects:
             if rect.x <= local_x < rect.right:
-                self._set_instrument_filter(chip_id)
-                return True
+                return chip_id
+        return None
+
+    def _try_select_instrument_chip(self, pos: tuple[int, int]) -> bool:
+        if not self.instrument_chip_row_rect.contains(*pos):
+            return False
+        chip_id = self._chip_id_at_pos(pos)
+        if chip_id is not None:
+            self._set_instrument_filter(chip_id)
+            return True
         return False
 
     def _handle_instrument_chip_pointer_up(self, pos: tuple[int, int]) -> bool:
@@ -173,6 +181,7 @@ class TouchBrowserInstrumentsMixin:
             return False
         moved = abs(pos[0] - self._instrument_chip_drag_start_x) > 8
         self._instrument_chip_drag_start_x = None
+        self._instrument_chip_pressed = None
         if moved:
             return True
         return self._try_select_instrument_chip(pos)
@@ -191,8 +200,16 @@ class TouchBrowserInstrumentsMixin:
             selected = chip_id == self.instrument_filter or (
                 chip_id is None and self.instrument_filter is None
             )
-            bg = self.theme.accent if selected else self.theme.surface_alt
-            text_color = self.theme.bg if selected else self.theme.text
+            pressed = chip_id == self._instrument_chip_pressed
+            if selected:
+                bg = self.theme.accent
+                text_color = self.theme.bg
+            elif pressed:
+                bg = self.theme.surface
+                text_color = self.theme.text
+            else:
+                bg = self.theme.surface_alt
+                text_color = self.theme.text
             pygame.draw.rect(
                 self.screen,
                 bg,

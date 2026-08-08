@@ -57,7 +57,24 @@ class PatchMetadataClassifierTests(unittest.TestCase):
         )
         self.assertEqual(tags, ["other"])
 
-    def test_pad_name_and_ambient_folder(self) -> None:
+    def test_kick_name_classifies_percussion(self) -> None:
+        tags = classify_patch_instruments(self._patch(name="808 Kick", category="Templates"))
+        self.assertEqual(tags[0], "percussion")
+
+    def test_sequencer_folder(self) -> None:
+        tags = classify_patch_instruments(
+            self._patch(
+                name="Run",
+                category="Templates",
+                folder_segments=("Templates", "Sequencer"),
+                inner_segments=("Sequencer",),
+            )
+        )
+        self.assertEqual(tags[0], "sequencer")
+
+    def test_church_organ_name(self) -> None:
+        tags = classify_patch_instruments(self._patch(name="Church Organ", category="Templates"))
+        self.assertEqual(tags[0], "organ")
         tags = classify_patch_instruments(
             self._patch(
                 name="Lush Cloud",

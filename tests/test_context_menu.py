@@ -66,8 +66,17 @@ class ContextMenuTests(unittest.TestCase):
         self.assertEqual(ids, ["qa_new_subfolder"])
 
     def test_picker_helpers(self) -> None:
-        self.assertTrue(folder_picker_actions(["Liked", "Gigs"]))
+        actions = folder_picker_actions(["Liked", "Gigs", "Sunday"])
+        ids = [a[0] for a in actions]
+        labels = [a[1] for a in actions]
+        self.assertEqual(ids[0], "pick_folder:Gigs")
+        self.assertEqual(ids[1], "pick_folder:Sunday")
+        self.assertEqual(ids[2], "_section")
+        self.assertEqual(labels[2], "Liked")
+        self.assertEqual(ids[3], "pick_folder:Liked")
         self.assertTrue(instrument_picker_actions())
+        self.assertIn("percussion", [a[1].lower() for a in instrument_picker_actions()])
+        self.assertIn("sequencer", [a[1].lower() for a in instrument_picker_actions()])
 
 
 if __name__ == "__main__":
