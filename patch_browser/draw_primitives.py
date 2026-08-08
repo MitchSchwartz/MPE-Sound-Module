@@ -106,3 +106,22 @@ def draw_sidebar_panel_icon(
         for dx in (-4, -9):
             points = [(cx + dx, cy - 4), (cx + dx + 4, cy), (cx + dx, cy + 4)]
             pygame.draw.lines(surface, color, False, points, 2)
+
+
+def draw_lock_icon(
+    surface: pygame.Surface,
+    rect: Rect,
+    color: tuple[int, int, int],
+) -> None:
+    """Small padlock — secured Wi‑Fi indicator."""
+    cx, cy = rect.centerx, rect.centery
+    body_w = max(8, min(rect.w - 2, 12))
+    body_h = max(6, min(rect.h // 2, 9))
+    body_x = cx - body_w // 2
+    body_y = cy + 1
+    pygame.draw.rect(surface, color, (body_x, body_y, body_w, body_h), border_radius=2)
+
+    shackle_w = body_w + 4
+    shackle_h = max(7, body_h + 2)
+    shackle_rect = pygame.Rect(cx - shackle_w // 2, body_y - shackle_h + 3, shackle_w, shackle_h * 2)
+    pygame.draw.arc(surface, color, shackle_rect, 3.14159, 0.0, 2)
