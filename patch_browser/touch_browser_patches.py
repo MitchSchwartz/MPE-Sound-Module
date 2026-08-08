@@ -338,46 +338,35 @@ class TouchBrowserPatchesMixin:
     def _enter_folder(self, index: int) -> None:
         if not self.categories:
             return
-        self.browse_folder_index = max(0, min(index, len(self.categories) - 1))
-        self.left_nav_mode = LeftNavMode.PATCHES
-        self._update_nav_list_geometry()
-        self._refresh_lists()
-        self.nav_list._scroll_pixels = 0.0
-        self.nav_list.stop_momentum()
-        self.nav_list._clamp_scroll()
-    def _snapshot_all_patches_scroll(self) -> None:
-        if self.left_nav_mode == LeftNavMode.ALL_PATCHES:
-            self._all_patches_saved_scroll = self.nav_list._scroll_pixels
-
-    def _restore_all_patches_scroll(self) -> None:
-        self.nav_list._scroll_pixels = min(
-            self._all_patches_saved_scroll,
-            self.nav_list._max_scroll_pixels(),
+        self._enter_nav_mode(
+            LeftNavMode.PATCHES,
+            browse_folder_index=index,
+            reset_list_scroll=True,
         )
-        self.nav_list._sync_scroll_offset()
-        self.nav_list.stop_momentum()
 
     def _enter_all_patches(self) -> None:
-        self._rebuild_all_patches_index()
-        self.left_nav_mode = LeftNavMode.ALL_PATCHES
-        self.left_nav_collapsed = False
-        self._relayout()
-        self._refresh_lists()
-        self._restore_all_patches_scroll()
+        self._enter_nav_mode(
+            LeftNavMode.ALL_PATCHES,
+            left_nav_collapsed=False,
+            rebuild_all_patches=True,
+            restore_all_scroll=True,
+        )
 
     def _go_back_from_all_patches(self) -> None:
-        self._snapshot_all_patches_scroll()
-        self.left_nav_mode = LeftNavMode.FOLDERS
-        self._relayout()
-        self._refresh_lists(scroll_to_selection=True)
+        self._enter_nav_mode(
+            LeftNavMode.FOLDERS,
+            snapshot_all_scroll=True,
+            scroll_to_selection=True,
+        )
 
     def _go_up_to_folders(self) -> None:
         if self.left_nav_mode == LeftNavMode.ALL_PATCHES:
             self._go_back_from_all_patches()
             return
-        self.left_nav_mode = LeftNavMode.FOLDERS
-        self._update_nav_list_geometry()
-        self._refresh_lists(scroll_to_selection=True)
+        self._enter_nav_mode(
+            LeftNavMode.FOLDERS,
+            scroll_to_selection=True,
+        )
 
     def _jump_all_patches_to_letter(self, letter: str) -> None:
         index = self.all_patches_letter_index.get(letter)
@@ -423,34 +412,34 @@ class TouchBrowserPatchesMixin:
         if not self.loaded_patch_info:
             return
         from_all = self.left_nav_mode == LeftNavMode.ALL_PATCHES
-        if from_all:
-            self._snapshot_all_patches_scroll()
         try:
             idx = self.categories.index(self.loaded_patch_info["category"])
         except ValueError:
             return
-        self.browse_folder_index = idx
-        self.left_nav_mode = LeftNavMode.PATCHES
+        self._enter_nav_mode(
+            LeftNavMode.PATCHES,
+            browse_folder_index=idx,
+            snapshot_all_scroll=from_all,
+            scroll_to_selection=not from_all,
+            relayout=from_all,
+        )
         if from_all:
-            self._relayout()
-        else:
-            self._update_nav_list_geometry()
-        self._refresh_lists(scroll_to_selection=True)
+            self._refresh_lists(scroll_to_selection=True)
     def _toggle_nav_collapsed(self) -> None:
         self.left_nav_collapsed = not self.left_nav_collapsed
         self._relayout()
     def _select_patch(self, patch: dict) -> None:
         from_all = self.left_nav_mode == LeftNavMode.ALL_PATCHES
-        if from_all:
-            self._snapshot_all_patches_scroll()
-        self.left_nav_mode = LeftNavMode.PATCHES
-        try:
-            self.browse_folder_index = self.categories.index(patch["category"])
-        except ValueError:
-            pass
-        if from_all:
-            self.left_nav_collapsed = False
-            self._relayout()
+        folder_idx = None
+        if patch.get("category") in self.categories:
+            folder_idx = self.categories.index(patch["category"])
+        self._enter_nav_mode(
+            LeftNavMode.PATCHES,
+            browse_folder_index=folder_idx,
+            left_nav_collapsed=False if from_all else None,
+            snapshot_all_scroll=from_all,
+            relayout=from_all,
+        )
         self._load_patch(patch)
         self._refresh_lists(scroll_to_selection=True)
     def _patch_is_favorited(self, patch: dict) -> bool:

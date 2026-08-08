@@ -343,6 +343,29 @@ From the folder list, tap **All** in the left nav header:
 
 Spec: [`Documents/specs/touch-patch-browser-browse-ux-spec.md`](../Documents/specs/touch-patch-browser-browse-ux-spec.md)
 
+Epic (instruments, favorites v2, nested nav): [`Documents/specs/touch-browser-instruments-favorites-spec.md`](../Documents/specs/touch-browser-instruments-favorites-spec.md)
+
+## Browse navigation transitions (#24)
+
+All left-nav mode changes go through `_enter_nav_mode()` in `patch_browser/touch_browser_nav.py`. It owns:
+
+- `left_nav_mode` and optional `browse_folder_index` / `left_nav_collapsed`
+- A–Z rail capture cleanup when leaving All patches
+- All-patches scroll snapshot / restore
+- `_relayout()` when geometry changes (enter/leave All patches); otherwise `_update_nav_list_geometry()` + `_refresh_lists()`
+
+| From | Action | To | Notes |
+|------|--------|-----|-------|
+| FOLDERS | Tap folder row | PATCHES | List scroll reset to top |
+| FOLDERS / PATCHES | Tap **All** | ALL_PATCHES | Nav widens; main detail hidden (`main_rect.w = 0`) |
+| ALL_PATCHES | Tap **◀** | FOLDERS | Scroll position saved for next All visit |
+| PATCHES | Tap **◀** | FOLDERS | One step to top-level folders (nested drill-down in a later phase) |
+| ALL_PATCHES | Tap patch row | PATCHES | Load patch; restore normal two-pane layout |
+| ALL_PATCHES | Tap **Current** | PATCHES | Jump to loaded patch's folder |
+| PATCHES | Tap **Current** | PATCHES | Jump browse index to loaded folder |
+
+Tests: `tests/test_touch_browser_nav_transitions.py`
+
 ## Known gaps (v0)
 
 - Prefix/text search and folder chips not implemented (All patches + A–Z first)
