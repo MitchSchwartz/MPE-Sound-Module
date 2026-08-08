@@ -100,10 +100,11 @@ class FavoritesIndexTests(unittest.TestCase):
             plan = index.plan_flat_root_migration(
                 qa,
                 {"Acid": ["factory:Lead/Acid"]},
+                target_folder="Gig",
             )
             self.assertTrue(plan.ok)
             self.assertEqual(plan.move_count, 1)
-            self.assertEqual(plan.items[0].dest_path, qa / "Acid.fxp")
+            self.assertEqual(plan.items[0].dest_path, qa / "Gig" / "Acid.fxp")
 
 
 class PatchScannerFavoritesTests(unittest.TestCase):
