@@ -190,6 +190,7 @@ class TouchPatchBrowser(
         self._modal_pointer_down_pos: tuple[int, int] | None = None
         self._modal_pending_index: int | None = None
         self._modal_pending_key: str | None = None
+        self._modal_panel_rect: Rect | None = None
         self._settings_content_scroll = ContentScrollArea(Rect(0, 0, 1, 1))
         self._settings_content_height = 0
         self._running = True
