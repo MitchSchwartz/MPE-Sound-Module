@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from patch_browser.patch_normalization import log_missing_normalization_summary
+from patch_browser.patch_sidecar_migrate import migrate_loader_sidecars
 from patch_browser.patch_identity import (
     build_folder_tree,
     category_and_inner_segments,
@@ -17,6 +18,10 @@ from patch_browser.patch_identity import (
     stable_key_for_relative_path,
 )
 from patch_browser.patch_metadata import PatchMetadataIndex
+from patch_browser.favorites_index import (
+    DEFAULT_FAVORITES_FOLDER,
+    FavoritesIndex,
+)
 
 
 @dataclass
@@ -134,6 +139,8 @@ class PatchScanner:
         self.patches_by_path: dict[str, dict] = {}
         self.folder_tree: dict[str, dict] = {}
         self.metadata_index = PatchMetadataIndex()
+        self.favorites_index = FavoritesIndex()
+        self._sidecar_loader = None
 
         self.scan_complete = threading.Event()
         self.scan_lock = threading.Lock()
@@ -212,17 +219,31 @@ class PatchScanner:
         print(f"First 3 categories: {cat_names[:3]}")
         return self.patches
 
+    def bind_sidecar_loader(self, loader) -> None:
+        """Attach loader so post-scan sidecar migration can run."""
+        self._sidecar_loader = loader
+        for store in (loader.normalization, loader.hold, loader.pressure):
+            store.set_patch_dirs(self.patch_dirs)
+
     def scan_patches_background(self):
         """Start background thread to scan patches."""
 
         def _scan_worker():
             try:
                 self.scan_patches()
-                patch_names = []
+                all_patches: list[dict] = []
                 with self.scan_lock:
                     for patches in self.patches.values():
-                        patch_names.extend(p["name"] for p in patches)
-                log_missing_normalization_summary(patch_names)
+                        all_patches.extend(patches)
+                log_missing_normalization_summary(all_patches)
+                if self._sidecar_loader is not None:
+                    warnings = migrate_loader_sidecars(
+                        self._sidecar_loader,
+                        all_patches,
+                        self.patch_dirs,
+                    )
+                    for msg in warnings:
+                        print(f"Sidecar migration: {msg}")
                 self.scan_complete.set()
                 print("Background patch scan complete")
             except Exception as e:
@@ -377,10 +398,39 @@ class PatchScanner:
                 return True
         return False
 
+    def _stable_key_for_path(self, patch_path: str | Path | None) -> str | None:
+        if not patch_path:
+            return None
+        entry = self.get_patch_by_path(patch_path)
+        if entry and entry.get("stable_key"):
+            return str(entry["stable_key"])
+        return None
+
+    def favorite_stable_key_for_patch(self, patch: dict | None) -> str | None:
+        """Resolve source stable_key for a library or Quick Access copy patch dict."""
+        if not patch:
+            return None
+        stable_key = patch.get("stable_key")
+        if stable_key and self.favorites_index.is_favorited(str(stable_key)):
+            return str(stable_key)
+        path = patch.get("path")
+        if path:
+            indexed = self.favorites_index.find_stable_key_by_dest(path)
+            if indexed:
+                return indexed
+            if not self.is_in_favorites_folder(path):
+                resolved = self._stable_key_for_path(path)
+                if resolved:
+                    return resolved
+        return str(stable_key) if stable_key else None
+
     def is_patch_in_favorites(self, patch):
-        """True if patch dict is stored in the Quick Select favorites folder."""
+        """True when patch is indexed in favorites v2 (or legacy copy on disk)."""
         if not patch:
             return False
+        stable_key = self.favorite_stable_key_for_patch(patch)
+        if stable_key and self.favorites_index.is_favorited(stable_key):
+            return True
         patch_path = patch.get("path")
         if patch_path and self.is_in_favorites_folder(patch_path):
             return True
@@ -389,10 +439,57 @@ class PatchScanner:
             return True
         return False
 
+    def rescan_favorites_category(self) -> list[dict]:
+        """Rescan Quick Access subtree only — no full library scan."""
+        qa_path = self.get_favorites_folder_path()
+        patches = self.quick_scan_category(qa_path)
+        label = favorites_display_name()
+        with self.scan_lock:
+            old_patches = list(self.patches.get(label, []))
+            for old in old_patches:
+                old_path = old.get("path")
+                if old_path:
+                    try:
+                        self.patches_by_path.pop(str(Path(old_path).resolve()), None)
+                    except OSError:
+                        self.patches_by_path.pop(str(old_path), None)
+                old_key = old.get("stable_key")
+                if old_key and self.patches_by_stable_key.get(old_key) is old:
+                    self.patches_by_stable_key.pop(old_key, None)
+
+            self.patches[label] = patches
+            for entry in patches:
+                path_key = entry.get("path")
+                if path_key:
+                    try:
+                        self.patches_by_path[str(Path(path_key).resolve())] = entry
+                    except OSError:
+                        self.patches_by_path[str(path_key)] = entry
+                sk = entry.get("stable_key")
+                if sk:
+                    self.patches_by_stable_key[str(sk)] = entry
+            self.folder_tree = build_folder_tree(self.patches)
+        return patches
+
     def remove_patch_from_favorites(self, patch):
-        """Remove patch copy from favorites; returns False if nothing to remove."""
+        """Remove favorites copy + index entry; never deletes source library patch."""
         if not patch:
             return False
+        stable_key = self.favorite_stable_key_for_patch(patch)
+        if stable_key and self.favorites_index.is_favorited(stable_key):
+            entry = self.favorites_index.remove(stable_key)
+            if entry:
+                dest = entry.get("dest_path")
+                if dest:
+                    try:
+                        Path(dest).unlink(missing_ok=True)
+                    except OSError as exc:
+                        print(f"Error removing favorites copy: {exc}")
+                        return False
+            self.favorites_index.save()
+            self.rescan_favorites_category()
+            return True
+
         fav_path = None
         patch_path = patch.get("path")
         if patch_path and self.is_in_favorites_folder(patch_path):
@@ -405,7 +502,7 @@ class PatchScanner:
             return False
         try:
             fav_path.unlink()
-            self.scan_patches()
+            self.rescan_favorites_category()
             return True
         except OSError as exc:
             print(f"Error removing patch from favorites folder: {exc}")
@@ -417,29 +514,135 @@ class PatchScanner:
         favorites_folder.mkdir(parents=True, exist_ok=True)
         return favorites_folder
 
-    def copy_patch_to_favorites(self, patch_path):
-        try:
-            source_path = Path(patch_path)
-            if not source_path.exists():
-                print(f"Error: Source patch not found: {patch_path}")
-                return False
+    def add_patch_to_favorites(
+        self,
+        patch: dict,
+        *,
+        folder: str = DEFAULT_FAVORITES_FOLDER,
+        save_and_rescan: bool = True,
+    ) -> bool:
+        """Copy library patch to Quick Access/<folder>/ and index by stable_key."""
+        import shutil
 
-            favorites_folder = self.get_favorites_folder_path()
-            dest_path = favorites_folder / source_path.name
-
-            if dest_path.exists():
-                print(f"Patch already exists in favorites folder: {source_path.name}")
-                return False
-
-            import shutil
-
-            shutil.copy2(source_path, dest_path)
-            print(f"Copied patch to favorites folder: {source_path.name}")
-            self.scan_patches()
-            return True
-        except Exception as e:
-            print(f"Error copying patch to favorites folder: {e}")
+        if not patch:
             return False
+        source_path = patch.get("path")
+        if not source_path:
+            return False
+        source = Path(source_path)
+        if not source.exists():
+            print(f"Error: Source patch not found: {source_path}")
+            return False
+
+        stable_key = self.favorite_stable_key_for_patch(patch)
+        if not stable_key:
+            stable_key = self._stable_key_for_path(source_path)
+        if not stable_key:
+            print(f"Error: cannot resolve stable_key for {source.name}")
+            return False
+        if self.favorites_index.is_favorited(stable_key):
+            print(f"Patch already in favorites index: {stable_key}")
+            return False
+
+        qa_root = self.get_favorites_folder_path()
+        folder_name = folder.strip() or DEFAULT_FAVORITES_FOLDER
+        self.favorites_index.ensure_folder(folder_name)
+        dest_dir = qa_root / folder_name
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        dest_path = dest_dir / source.name
+        if dest_path.exists():
+            print(f"Patch already exists in favorites folder: {dest_path}")
+            return False
+
+        try:
+            shutil.copy2(source, dest_path)
+        except OSError as exc:
+            print(f"Error copying patch to favorites folder: {exc}")
+            return False
+
+        self.favorites_index.add(
+            stable_key,
+            folder=folder_name,
+            dest_path=dest_path,
+        )
+        if save_and_rescan:
+            self.favorites_index.save()
+            print(f"Copied patch to {folder_name}/{source.name} ({stable_key})")
+            self.rescan_favorites_category()
+        return True
+
+    def move_patch_to_favorites_folder(self, patch: dict, folder: str) -> bool:
+        """Move an indexed Quick Access copy into another QA subfolder."""
+        stable_key = self.favorite_stable_key_for_patch(patch)
+        if not stable_key or not self.favorites_index.is_favorited(stable_key):
+            return False
+        entry = self.favorites_index.get_entry(stable_key)
+        if not entry:
+            return False
+        old_dest = Path(str(entry.get("dest_path", "")))
+        if not old_dest.exists():
+            return False
+
+        folder_name = folder.strip() or DEFAULT_FAVORITES_FOLDER
+        self.favorites_index.ensure_folder(folder_name)
+        qa_root = self.get_favorites_folder_path()
+        dest_dir = qa_root / folder_name
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        new_dest = dest_dir / old_dest.name
+        if new_dest.exists() and not new_dest.samefile(old_dest):
+            print(f"Patch already exists in {folder_name}: {new_dest.name}")
+            return False
+        try:
+            old_dest.rename(new_dest)
+        except OSError as exc:
+            print(f"Error moving favorites copy: {exc}")
+            return False
+
+        self.favorites_index.add(
+            stable_key,
+            folder=folder_name,
+            dest_path=new_dest,
+            added_at=str(entry.get("added_at") or ""),
+        )
+        self.favorites_index.save()
+        self.rescan_favorites_category()
+        return True
+
+    def add_patches_to_favorites(
+        self,
+        patches: list[dict],
+        *,
+        folder: str = DEFAULT_FAVORITES_FOLDER,
+    ) -> tuple[int, int]:
+        """Bulk-copy library patches into Quick Access. Returns (added, skipped)."""
+        added = 0
+        skipped = 0
+        for patch in patches:
+            if self.add_patch_to_favorites(
+                patch, folder=folder, save_and_rescan=False
+            ):
+                added += 1
+            else:
+                skipped += 1
+        if added:
+            self.favorites_index.save()
+            self.rescan_favorites_category()
+        return added, skipped
+
+    def copy_patch_to_favorites(self, patch_path, *, folder: str = DEFAULT_FAVORITES_FOLDER):
+        """Copy a patch file into Quick Access (defaults to Liked)."""
+        entry = self.get_patch_by_path(patch_path)
+        if entry:
+            return self.add_patch_to_favorites(entry, folder=folder)
+        patch = {
+            "name": Path(patch_path).stem,
+            "path": str(patch_path),
+            "category": "",
+        }
+        stable_key = self._stable_key_for_path(patch_path)
+        if stable_key:
+            patch["stable_key"] = stable_key
+        return self.add_patch_to_favorites(patch, folder=folder)
 
     def get_favorites_patch_path(self, patch_name):
         """Return the .fxp path in the favorites folder for a patch name, if present."""

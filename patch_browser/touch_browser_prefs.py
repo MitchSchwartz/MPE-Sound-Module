@@ -310,7 +310,9 @@ class TouchBrowserPrefsMixin:
         self._finish_audio_profile_switch(ok, message)
 
     def _toggle_audio_profile(self) -> None:
-        if getattr(self, "_audio_profile_switching", False):
+        if getattr(self, "_audio_profile_switching", False) or getattr(
+            self, "_surge_audio_switching", False
+        ):
             return
         from patch_browser.audio_profile import apply_profile, current_profile
 
@@ -336,6 +338,66 @@ class TouchBrowserPrefsMixin:
             target=_worker,
             daemon=True,
             name="AudioProfileSwitch",
+        ).start()
+
+    def _finish_surge_audio_switch(self, ok: bool, message: str) -> None:
+        self._surge_audio_switching = False
+        self._surge_audio_switch_hint = ""
+        if ok:
+            self._toast(message, 3.0)
+            patch = self.loaded_patch_info or self._pending_last_patch
+            if patch:
+                self._last_known_surge_pid = None
+                self._surge_was_healthy = False
+                self._surge_liveness_initialized = False
+                self.surge_monitor.last_check_time = 0.0
+                self.surge_monitor._find_surge_process()
+                self._queue_patch_reload(patch, delay_s=4.0)
+            self._layout_settings_content()
+            self._layout()
+        else:
+            self._toast(f"Audio settings: {message}", 4.0)
+
+    def _poll_surge_audio_switch(self) -> None:
+        if not self._surge_audio_switching:
+            return
+        try:
+            ok, message = self._surge_audio_result_queue.get_nowait()
+        except queue.Empty:
+            from patch_browser.surge_audio import AUDIO_SWITCH_TIMEOUT_S
+
+            elapsed = time.monotonic() - self._surge_audio_switch_started
+            if elapsed > AUDIO_SWITCH_TIMEOUT_S + 5.0:
+                self._finish_surge_audio_switch(
+                    False,
+                    f"Switch timed out ({int(AUDIO_SWITCH_TIMEOUT_S)}s)",
+                )
+            return
+        self._finish_surge_audio_switch(ok, message)
+
+    def _begin_surge_audio_switch(self, hint: str, worker) -> None:
+        if getattr(self, "_audio_profile_switching", False) or getattr(
+            self, "_surge_audio_switching", False
+        ):
+            return
+        patch = self.loaded_patch_info
+        if patch:
+            self.scanner.save_last_patch(patch["category"], patch["path"])
+            self._pending_last_patch = dict(patch)
+
+        self._surge_audio_switching = True
+        self._surge_audio_switch_hint = hint
+        self._surge_audio_switch_started = time.monotonic()
+        self._toast(hint, 1.5)
+
+        def _worker_wrapper() -> None:
+            ok, message = worker()
+            self._surge_audio_result_queue.put((ok, message))
+
+        threading.Thread(
+            target=_worker_wrapper,
+            daemon=True,
+            name="SurgeAudioSwitch",
         ).start()
 
     def _apply_volume(self, level: float, persist: bool = True) -> None:

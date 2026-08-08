@@ -35,7 +35,7 @@ uac2_rate_numid() {
         sed -n "s/^numid=\([0-9]*\),iface=PCM,name='Playback Rate'.*/\1/p" | head -1
 }
 
-# 0 when the USB host has no active stream; sample rate (e.g. 44100) while it streams.
+# 0 when the USB host has no active stream; sample rate (e.g. 48000) while it streams.
 # This is the only reliable "host is consuming" signal — the UDC reads `configured`
 # whenever the cable is attached, streaming or not.
 uac2_host_stream_rate() {

@@ -1,0 +1,389 @@
+"""Grouped System settings panel — sections, drill-ins, collapsible Advanced."""
+
+from __future__ import annotations
+
+import pygame
+
+from patch_browser.audio_profile import header_badge_label, settings_toggle_on
+from patch_browser.draw_primitives import draw_chevron
+from patch_browser.geometry import Rect
+from patch_browser.surge_audio import (
+    current_buffer_size,
+    current_sample_rate,
+    sample_rate_option_label,
+)
+from patch_browser.touch_ui_constants import (
+    SETTINGS_PANEL_FOOTER_H,
+    SETTINGS_PANEL_HEADER_H,
+    SETTINGS_ROW_GAP,
+    SETTINGS_ROW_H,
+    SETTINGS_SECTION_GAP,
+    SETTINGS_SECTION_HEADER_H,
+)
+from patch_browser.touch_ui_enums import audio_profile_display
+from patch_browser.ui_text import draw_wrapped_text_in_rect
+
+
+class TouchBrowserSettingsMixin:
+    """Mixin — layout/draw for grouped System settings (Sound first)."""
+
+    def _reset_settings_navigation(self) -> None:
+        self._settings_view = "root"
+        self._settings_advanced_open = False
+
+    def _audio_settings_summary(self) -> str:
+        profile = header_badge_label()
+        rate = sample_rate_option_label(current_sample_rate())
+        return f"{profile} · {current_buffer_size()} · {rate}"
+
+    def _layout_settings_section_header(
+        self,
+        pad: int,
+        inner_w: int,
+        y: int,
+        label: str,
+        *,
+        expandable: bool = False,
+    ) -> int:
+        rect = Rect(pad, y, inner_w, SETTINGS_SECTION_HEADER_H)
+        self._settings_section_headers.append((rect, label, expandable))
+        return y + SETTINGS_SECTION_HEADER_H + SETTINGS_SECTION_GAP
+
+    def _layout_settings_root_content(self, pad: int, inner_w: int) -> int:
+        y = 0
+        self._settings_section_headers = []
+
+        y = self._layout_settings_section_header(pad, inner_w, y, "Sound")
+        audio_h = self._settings_row_height("Audio", inner_w)
+        self.settings_audio_drill_rect = Rect(pad, y, inner_w, audio_h)
+        y += audio_h + SETTINGS_ROW_GAP
+
+        y = self._layout_settings_section_header(pad, inner_w, y, "Display")
+        self.brightness_slider_rect = Rect(pad, y + 28, inner_w, 36)
+        y += 78
+        theme_h = self._settings_row_height("Theme", inner_w)
+        self.theme_btn_rect = Rect(pad, y, inner_w, theme_h)
+        y += theme_h + SETTINGS_ROW_GAP
+
+        y = self._layout_settings_section_header(pad, inner_w, y, "Network")
+        wifi_h = self._settings_row_height("Wi‑Fi", inner_w)
+        self.wifi_row_rect = Rect(pad, y, inner_w, wifi_h)
+        y += wifi_h + SETTINGS_ROW_GAP
+
+        self.settings_advanced_header_rect = Rect(pad, y, inner_w, SETTINGS_SECTION_HEADER_H)
+        y += SETTINGS_SECTION_HEADER_H + SETTINGS_SECTION_GAP
+
+        self.cpu_meter_toggle_rect = Rect(pad, y, 0, 0)
+        self.norm_global_toggle_rect = Rect(pad, y, 0, 0)
+        self._surge_restart_btn = None
+        self._calibrate_missing_btn = Rect(pad, y, 0, 0)
+        self._calibrate_force_btn = Rect(pad, y, 0, 0)
+
+        if getattr(self, "_settings_advanced_open", False):
+            cpu_h = self._settings_row_height("CPU meter", inner_w, toggle=True)
+            self.cpu_meter_toggle_rect = Rect(pad, y, inner_w, cpu_h)
+            y += cpu_h + SETTINGS_ROW_GAP
+
+            norm_h = self._settings_row_height("Patch normalization", inner_w, toggle=True)
+            self.norm_global_toggle_rect = Rect(pad, y, inner_w, norm_h)
+            y += norm_h + SETTINGS_ROW_GAP
+
+            status = self.surge_monitor.get_status_summary()
+            if status.get("can_restart"):
+                restart_h = self._settings_row_height("Restart Surge", inner_w)
+                self._surge_restart_btn = Rect(pad, y, inner_w, restart_h)
+                y += restart_h + SETTINGS_ROW_GAP
+
+            cal_missing_h = self._settings_row_height("Calibrate missing patches", inner_w)
+            self._calibrate_missing_btn = Rect(pad, y, inner_w, cal_missing_h)
+            y += cal_missing_h + SETTINGS_ROW_GAP
+
+            cal_force_h = self._settings_row_height("Force full re-calibration", inner_w)
+            self._calibrate_force_btn = Rect(pad, y, inner_w, cal_force_h)
+            y += cal_force_h + SETTINGS_ROW_GAP
+
+        self.audio_profile_toggle_rect = Rect(pad, y, 0, 0)
+        self.poly_governor_toggle_rect = Rect(pad, y, 0, 0)
+        self.surge_buffer_row_rect = Rect(pad, y, 0, 0)
+        self.surge_sample_rate_row_rect = Rect(pad, y, 0, 0)
+        return y
+
+    def _layout_settings_audio_content(self, pad: int, inner_w: int) -> int:
+        y = 0
+        self._settings_section_headers = []
+        self.settings_audio_drill_rect = Rect(pad, y, 0, 0)
+        self.settings_advanced_header_rect = Rect(pad, y, 0, 0)
+        self.brightness_slider_rect = Rect(pad, y, 0, 0)
+        self.theme_btn_rect = Rect(pad, y, 0, 0)
+        self.wifi_row_rect = Rect(pad, y, 0, 0)
+        self.cpu_meter_toggle_rect = Rect(pad, y, 0, 0)
+        self.norm_global_toggle_rect = Rect(pad, y, 0, 0)
+        self._surge_restart_btn = None
+        self._calibrate_missing_btn = Rect(pad, y, 0, 0)
+        self._calibrate_force_btn = Rect(pad, y, 0, 0)
+
+        audio_h = self._settings_row_height(audio_profile_display(), inner_w, toggle=True)
+        self.audio_profile_toggle_rect = Rect(pad, y, inner_w, audio_h)
+        y += audio_h + SETTINGS_ROW_GAP
+
+        buffer_h = self._settings_row_height("Buffer", inner_w)
+        self.surge_buffer_row_rect = Rect(pad, y, inner_w, buffer_h)
+        y += buffer_h + SETTINGS_ROW_GAP
+
+        rate_h = self._settings_row_height("Sample rate", inner_w)
+        self.surge_sample_rate_row_rect = Rect(pad, y, inner_w, rate_h)
+        y += rate_h + SETTINGS_ROW_GAP
+
+        poly_h = self._settings_row_height("Dynamic voice limit", inner_w, toggle=True)
+        self.poly_governor_toggle_rect = Rect(pad, y, inner_w, poly_h)
+        y += poly_h + SETTINGS_ROW_GAP
+        return y
+
+    def _layout_settings_content(self) -> None:
+        """Compute scrollable settings rows and fixed footer hit targets (panel-local coords)."""
+        pad = 20
+        inner_w = self.settings_panel_rect.w - pad * 2
+
+        if getattr(self, "_settings_view", "root") == "audio":
+            y = self._layout_settings_audio_content(pad, inner_w)
+        else:
+            y = self._layout_settings_root_content(pad, inner_w)
+
+        self._settings_content_height = y
+
+        header_bottom = SETTINGS_PANEL_HEADER_H
+        footer_top = self.settings_panel_rect.h - SETTINGS_PANEL_FOOTER_H
+        scroll_h = max(80, footer_top - header_bottom)
+        self._settings_scroll_viewport = Rect(0, header_bottom, self.settings_panel_rect.w, scroll_h)
+        self._settings_content_scroll.viewport = Rect(
+            self.settings_panel_rect.x,
+            self.settings_panel_rect.y + header_bottom,
+            self.settings_panel_rect.w,
+            scroll_h,
+        )
+        self._settings_content_scroll.content_height = self._settings_content_height
+
+        self._power_btn = Rect(pad, footer_top + 12, inner_w, SETTINGS_ROW_H)
+        self._close_settings_btn = Rect(self.settings_panel_rect.w - 48, 10, 40, 40)
+        self._settings_back_btn = Rect(8, 10, 40, 40)
+
+    def _draw_settings_section_header(
+        self,
+        rect: Rect,
+        label: str,
+        *,
+        expandable: bool = False,
+        expanded: bool = False,
+    ) -> None:
+        surf = self.font_sm.render(label.upper(), True, self.theme.muted)
+        self.screen.blit(
+            surf,
+            (rect.x + 4, rect.y + (rect.h - surf.get_height()) // 2),
+        )
+        if expandable:
+            mark = "▾" if expanded else "▸"
+            mark_surf = self.font_sm.render(mark, True, self.theme.muted)
+            self.screen.blit(
+                mark_surf,
+                (rect.right - mark_surf.get_width() - 8, rect.y + (rect.h - mark_surf.get_height()) // 2),
+            )
+
+    def _draw_settings_chevron_row(
+        self,
+        rect: Rect,
+        label: str,
+        value: str | None = None,
+        *,
+        muted: bool = False,
+    ) -> None:
+        bg = self.theme.surface_alt if muted else self.theme.surface
+        pygame.draw.rect(self.screen, bg, rect.pygame_rect, border_radius=10)
+        text_color = self.theme.muted if muted else self.theme.text
+        label_surf = self.font_md.render(label, True, text_color)
+        self.screen.blit(
+            label_surf,
+            (rect.x + 16, rect.y + (rect.h - label_surf.get_height()) // 2),
+        )
+        chevron_rect = Rect(rect.right - 34, rect.y + (rect.h - 22) // 2, 22, 22)
+        draw_chevron(self.screen, chevron_rect, self.theme.muted, direction="right")
+        if value:
+            value_surf = self.font_sm.render(value, True, self.theme.muted)
+            value_x = chevron_rect.x - value_surf.get_width() - 10
+            self.screen.blit(
+                value_surf,
+                (value_x, rect.y + (rect.h - value_surf.get_height()) // 2),
+            )
+
+    def _draw_settings_panel(self) -> None:
+        panel = self._settings_panel_screen_rect()
+        alpha = self._settings_overlay_alpha()
+        overlay = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, alpha))
+        self.screen.blit(overlay, (0, 0))
+
+        self._draw_elevated_panel(panel, border_radius=16)
+        if self.theme.backdrop_alpha is None:
+            shadow = pygame.Surface((panel.w, panel.h), pygame.SRCALPHA)
+            shadow.fill((0, 0, 0, 40))
+            self.screen.blit(shadow, (panel.x - 4, panel.y + 2))
+
+        header_rect = Rect(panel.x, panel.y, panel.w, SETTINGS_PANEL_HEADER_H)
+        self._draw_divider_line(
+            header_rect.x + 16,
+            header_rect.bottom - 1,
+            header_rect.right - 16,
+        )
+
+        audio_view = getattr(self, "_settings_view", "root") == "audio"
+        title_x = panel.x + 20
+        if audio_view:
+            back_screen = self._panel_local_to_screen(self._settings_back_btn)
+            self._draw_icon_button(back_screen, "←", muted=True)
+            title_x = panel.x + 52
+        title = "Audio" if audio_view else "System"
+        self.screen.blit(self.font_md.render(title, True, self.theme.text), (title_x, panel.y + 16))
+        close_screen = self._panel_local_to_screen(self._close_settings_btn)
+        self._draw_icon_button(close_screen, "×", muted=True)
+
+        scroll_vp = self._settings_scroll_viewport_screen()
+        clip = self.screen.get_clip()
+        self.screen.set_clip(scroll_vp.pygame_rect)
+
+        service_busy = getattr(self, "_audio_profile_switching", False) or getattr(
+            self, "_surge_audio_switching", False
+        )
+
+        if audio_view:
+            audio_toggle = self._panel_local_to_screen(self.audio_profile_toggle_rect, scrolled=True)
+            self._draw_normalize_toggle(
+                audio_toggle,
+                settings_toggle_on(),
+                has_gain=True,
+                disabled=service_busy,
+                label=audio_profile_display(),
+            )
+
+            from patch_browser.surge_audio import buffer_settings_label, sample_rate_settings_label
+
+            buffer_row = self._panel_local_to_screen(self.surge_buffer_row_rect, scrolled=True)
+            self._draw_settings_chevron_row(
+                buffer_row,
+                "Buffer",
+                buffer_settings_label().split(" — ", 1)[-1],
+                muted=service_busy,
+            )
+
+            rate_row = self._panel_local_to_screen(self.surge_sample_rate_row_rect, scrolled=True)
+            self._draw_settings_chevron_row(
+                rate_row,
+                "Sample rate",
+                sample_rate_settings_label().split(" — ", 1)[-1],
+                muted=service_busy,
+            )
+
+            poly_toggle = self._panel_local_to_screen(self.poly_governor_toggle_rect, scrolled=True)
+            self._draw_normalize_toggle(
+                poly_toggle,
+                self.poly_governor_enabled,
+                has_gain=True,
+                label="Dynamic voice limit",
+            )
+        else:
+            for section_rect, label, expandable in getattr(self, "_settings_section_headers", []):
+                screen_rect = self._panel_local_to_screen(section_rect, scrolled=True)
+                self._draw_settings_section_header(
+                    screen_rect,
+                    label,
+                    expandable=expandable,
+                    expanded=False,
+                )
+
+            audio_row = self._panel_local_to_screen(self.settings_audio_drill_rect, scrolled=True)
+            self._draw_settings_chevron_row(
+                audio_row,
+                "Audio",
+                self._audio_settings_summary(),
+            )
+
+            slider = self._panel_local_to_screen(self.brightness_slider_rect, scrolled=True)
+            self._draw_slider(
+                slider,
+                self.brightness_percent / 100.0,
+                f"Brightness  {self.brightness_percent}%",
+            )
+
+            theme_row = self._panel_local_to_screen(self.theme_btn_rect, scrolled=True)
+            self._draw_settings_chevron_row(theme_row, "Theme")
+
+            wifi_row = self._panel_local_to_screen(self.wifi_row_rect, scrolled=True)
+            self._draw_settings_chevron_row(
+                wifi_row,
+                "Wi‑Fi",
+                self.wifi_settings_row_label().removeprefix("Wi‑Fi — "),
+                muted=getattr(self, "_wifi_busy", False),
+            )
+
+            advanced_header = self._panel_local_to_screen(
+                self.settings_advanced_header_rect,
+                scrolled=True,
+            )
+            self._draw_settings_section_header(
+                advanced_header,
+                "Advanced",
+                expandable=True,
+                expanded=getattr(self, "_settings_advanced_open", False),
+            )
+
+            if getattr(self, "_settings_advanced_open", False):
+                cpu_toggle = self._panel_local_to_screen(self.cpu_meter_toggle_rect, scrolled=True)
+                if cpu_toggle.h > 0:
+                    self._draw_normalize_toggle(
+                        cpu_toggle,
+                        self.show_cpu_meter,
+                        has_gain=True,
+                        label="CPU meter",
+                    )
+
+                norm_toggle = self._panel_local_to_screen(self.norm_global_toggle_rect, scrolled=True)
+                if norm_toggle.h > 0:
+                    self._draw_normalize_toggle(
+                        norm_toggle,
+                        self.loader.normalization.is_globally_enabled(),
+                        has_gain=True,
+                        label="Patch normalization",
+                    )
+
+                if self._surge_restart_btn and self._surge_restart_btn.h > 0:
+                    restart = self._panel_local_to_screen(self._surge_restart_btn, scrolled=True)
+                    self._draw_settings_action_row(restart, "Restart Surge")
+
+                cal_missing = self._panel_local_to_screen(self._calibrate_missing_btn, scrolled=True)
+                if cal_missing.h > 0:
+                    self._draw_settings_action_row(cal_missing, "Calibrate missing patches")
+
+                cal_force = self._panel_local_to_screen(self._calibrate_force_btn, scrolled=True)
+                if cal_force.h > 0:
+                    self._draw_settings_action_row(
+                        cal_force,
+                        "Force full re-calibration",
+                        muted=True,
+                    )
+
+        self.screen.set_clip(clip)
+
+        footer_y = panel.y + self.settings_panel_rect.h - SETTINGS_PANEL_FOOTER_H
+        self._draw_divider_line(panel.x + 16, footer_y, panel.right - 16)
+        power = self._panel_local_to_screen(self._power_btn)
+        pygame.draw.rect(self.screen, self.theme.surface_alt, power.pygame_rect, border_radius=10)
+        draw_wrapped_text_in_rect(
+            self.screen,
+            self.font_md,
+            "Power…",
+            power.x,
+            power.y,
+            power.w,
+            power.h,
+            self.theme.text,
+            pad_x=16,
+            max_lines=1,
+        )

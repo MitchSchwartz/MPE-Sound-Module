@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from patch_browser.json_store import atomic_write_json, read_json_dict
+from patch_browser.patch_sidecar_store import SidecarKeyMixin
 
 # Floor at zero pressure: mult(0)=floor, mult(1)=1.0 always.
 PRESSURE_FLOOR_MIN = 0.0
@@ -160,7 +161,7 @@ def remap_pressure_7bit(value: int, floor: float) -> int:
     return max(0, min(127, int(round(out))))
 
 
-class PatchPressureStore:
+class PatchPressureStore(SidecarKeyMixin):
     """Persist per-patch pressure floor overrides."""
 
     def __init__(self, path: Path | None = None) -> None:
@@ -178,13 +179,17 @@ class PatchPressureStore:
     def save(self) -> None:
         atomic_write_json(self.path, self._data)
 
-    @staticmethod
-    def patch_key(patch_name: str) -> str:
-        return Path(patch_name).stem
-
-    def get_user_floor(self, patch_name: str) -> float | None:
+    def get_user_floor(
+        self,
+        patch_name: str,
+        *,
+        patch_path: str | None = None,
+        stable_key: str | None = None,
+    ) -> float | None:
         """Legacy absolute override — prefer get_user_touch_offset()."""
-        entry = self._data.get(self.patch_key(patch_name))
+        entry, _key = self._lookup(
+            patch_name, patch_path=patch_path, stable_key=stable_key
+        )
         if not entry:
             return None
         val = entry.get("user_floor")
@@ -192,10 +197,17 @@ class PatchPressureStore:
             return float(val)
         return None
 
-    def get_user_touch_offset(self, patch_name: str) -> float:
+    def get_user_touch_offset(
+        self,
+        patch_name: str,
+        *,
+        patch_path: str | None = None,
+        stable_key: str | None = None,
+    ) -> float:
         """User trim relative to calibrated baseline; 0 = no override (fader at cal anchor)."""
-        key = self.patch_key(patch_name)
-        entry = self._data.get(key)
+        entry, _key = self._lookup(
+            patch_name, patch_path=patch_path, stable_key=stable_key
+        )
         if not entry:
             return 0.0
         val = entry.get("user_touch_offset")
@@ -203,20 +215,41 @@ class PatchPressureStore:
             return clamp_touch_offset(float(val))
         legacy = entry.get("user_floor")
         if isinstance(legacy, (int, float)):
-            baseline = self.get_calibrated_baseline(patch_name)
+            baseline = self.get_calibrated_baseline(
+                patch_name, patch_path=patch_path, stable_key=stable_key
+            )
             return clamp_touch_offset(float(legacy) - baseline)
         return 0.0
 
-    def has_user_touch_override(self, patch_name: str) -> bool:
-        entry = self._data.get(self.patch_key(patch_name))
+    def has_user_touch_override(
+        self,
+        patch_name: str,
+        *,
+        patch_path: str | None = None,
+        stable_key: str | None = None,
+    ) -> bool:
+        entry, _key = self._lookup(
+            patch_name, patch_path=patch_path, stable_key=stable_key
+        )
         if not entry:
             return False
         if "user_touch_offset" in entry:
-            return abs(clamp_touch_offset(float(entry["user_touch_offset"]))) >= TOUCH_OFFSET_CLEAR_EPSILON
+            return (
+                abs(clamp_touch_offset(float(entry["user_touch_offset"])))
+                >= TOUCH_OFFSET_CLEAR_EPSILON
+            )
         return "user_floor" in entry
 
-    def get_calibrated_floor(self, patch_name: str) -> float | None:
-        entry = self._data.get(self.patch_key(patch_name))
+    def get_calibrated_floor(
+        self,
+        patch_name: str,
+        *,
+        patch_path: str | None = None,
+        stable_key: str | None = None,
+    ) -> float | None:
+        entry, _key = self._lookup(
+            patch_name, patch_path=patch_path, stable_key=stable_key
+        )
         if not entry:
             return None
         val = entry.get("cal_floor")
@@ -224,42 +257,107 @@ class PatchPressureStore:
             return float(val)
         return None
 
-    def get_slider_default_floor(self, patch_name: str) -> float:
-        return self.get_calibrated_baseline(patch_name)
+    def get_slider_default_floor(
+        self,
+        patch_name: str,
+        *,
+        patch_path: str | None = None,
+        stable_key: str | None = None,
+    ) -> float:
+        return self.get_calibrated_baseline(
+            patch_name, patch_path=patch_path, stable_key=stable_key
+        )
 
-    def get_calibrated_baseline(self, patch_name: str) -> float:
-        calibrated = self.get_calibrated_floor(patch_name)
+    def get_calibrated_baseline(
+        self,
+        patch_name: str,
+        *,
+        patch_path: str | None = None,
+        stable_key: str | None = None,
+    ) -> float:
+        calibrated = self.get_calibrated_floor(
+            patch_name, patch_path=patch_path, stable_key=stable_key
+        )
         if calibrated is not None:
             return clamp_effective_floor(calibrated)
         return DEFAULT_PRESSURE_FLOOR
 
-    def has_user_floor_override(self, patch_name: str) -> bool:
-        return self.has_user_touch_override(patch_name)
+    def has_user_floor_override(
+        self,
+        patch_name: str,
+        *,
+        patch_path: str | None = None,
+        stable_key: str | None = None,
+    ) -> bool:
+        return self.has_user_touch_override(
+            patch_name, patch_path=patch_path, stable_key=stable_key
+        )
 
-    def get_effective_floor(self, patch_name: str) -> float:
-        baseline = self.get_calibrated_baseline(patch_name)
-        if not self.has_user_touch_override(patch_name):
+    def get_effective_floor(
+        self,
+        patch_name: str,
+        *,
+        patch_path: str | None = None,
+        stable_key: str | None = None,
+    ) -> float:
+        baseline = self.get_calibrated_baseline(
+            patch_name, patch_path=patch_path, stable_key=stable_key
+        )
+        if not self.has_user_touch_override(
+            patch_name, patch_path=patch_path, stable_key=stable_key
+        ):
             return baseline
-        return effective_floor_from_offset(baseline, self.get_user_touch_offset(patch_name))
+        return effective_floor_from_offset(
+            baseline,
+            self.get_user_touch_offset(
+                patch_name, patch_path=patch_path, stable_key=stable_key
+            ),
+        )
 
     def set_user_touch_offset(
-        self, patch_name: str, offset: float, *, persist: bool = True
+        self,
+        patch_name: str,
+        offset: float,
+        *,
+        persist: bool = True,
+        patch_path: str | None = None,
+        stable_key: str | None = None,
     ) -> None:
-        key = self.patch_key(patch_name)
         clamped = clamp_touch_offset(offset)
         if abs(clamped) < TOUCH_OFFSET_CLEAR_EPSILON:
-            self.clear_user_touch_offset(patch_name, persist=persist)
+            self.clear_user_touch_offset(
+                patch_name,
+                persist=persist,
+                patch_path=patch_path,
+                stable_key=stable_key,
+            )
             return
-        entry = dict(self._data.get(key) or {})
+        key = self._storage_key(
+            patch_name, patch_path=patch_path, stable_key=stable_key
+        )
+        entry, matched = self._lookup(
+            patch_name, patch_path=patch_path, stable_key=stable_key
+        )
+        entry = dict(entry or {})
         entry["user_touch_offset"] = round(clamped, 3)
         entry.pop("user_floor", None)
+        if matched and matched != key:
+            self._data.pop(matched, None)
         self._data[key] = entry
         if persist:
             self.save()
 
-    def clear_user_touch_offset(self, patch_name: str, *, persist: bool = True) -> None:
-        key = self.patch_key(patch_name)
-        entry = self._data.get(key)
+    def clear_user_touch_offset(
+        self,
+        patch_name: str,
+        *,
+        persist: bool = True,
+        patch_path: str | None = None,
+        stable_key: str | None = None,
+    ) -> None:
+        entry, key = self._lookup(
+            patch_name, patch_path=patch_path, stable_key=stable_key
+        )
         if not entry:
             return
         if "user_touch_offset" not in entry and "user_floor" not in entry:
@@ -267,20 +365,53 @@ class PatchPressureStore:
         entry = dict(entry)
         entry.pop("user_touch_offset", None)
         entry.pop("user_floor", None)
-        if entry:
-            self._data[key] = entry
-        else:
+        storage = self._storage_key(
+            patch_name, patch_path=patch_path, stable_key=stable_key
+        )
+        if key and key != storage:
             self._data.pop(key, None)
+        if entry:
+            self._data[storage] = entry
+        else:
+            self._data.pop(storage, None)
         if persist:
             self.save()
 
-    def set_user_floor(self, patch_name: str, floor: float, *, persist: bool = True) -> None:
+    def set_user_floor(
+        self,
+        patch_name: str,
+        floor: float,
+        *,
+        persist: bool = True,
+        patch_path: str | None = None,
+        stable_key: str | None = None,
+    ) -> None:
         """Legacy absolute API — stores as offset from calibrated baseline."""
-        baseline = self.get_calibrated_baseline(patch_name)
-        self.set_user_touch_offset(patch_name, float(floor) - baseline, persist=persist)
+        baseline = self.get_calibrated_baseline(
+            patch_name, patch_path=patch_path, stable_key=stable_key
+        )
+        self.set_user_touch_offset(
+            patch_name,
+            float(floor) - baseline,
+            persist=persist,
+            patch_path=patch_path,
+            stable_key=stable_key,
+        )
 
-    def clear_user_floor(self, patch_name: str, *, persist: bool = True) -> None:
-        self.clear_user_touch_offset(patch_name, persist=persist)
+    def clear_user_floor(
+        self,
+        patch_name: str,
+        *,
+        persist: bool = True,
+        patch_path: str | None = None,
+        stable_key: str | None = None,
+    ) -> None:
+        self.clear_user_touch_offset(
+            patch_name,
+            persist=persist,
+            patch_path=patch_path,
+            stable_key=stable_key,
+        )
 
     def set_calibration(
         self,
@@ -289,12 +420,18 @@ class PatchPressureStore:
         lufs_light: float,
         *,
         calibrated_at: str | None = None,
+        patch_path: str | None = None,
+        stable_key: str | None = None,
     ) -> None:
         """Write system-calibrated floor; preserve user_floor override if present."""
         from datetime import datetime, timezone
 
-        key = self.patch_key(patch_name)
-        existing = self._data.get(key)
+        key = self._storage_key(
+            patch_name, patch_path=patch_path, stable_key=stable_key
+        )
+        existing, matched = self._lookup(
+            patch_name, patch_path=patch_path, stable_key=stable_key
+        )
         clamped = max(PRESSURE_FLOOR_MIN, min(PRESSURE_FLOOR_MAX, float(cal_floor)))
         entry: dict[str, Any] = {
             "cal_floor": round(clamped, 3),
@@ -309,6 +446,8 @@ class PatchPressureStore:
                 clamp_touch_offset(float(existing["user_floor"]) - baseline),
                 3,
             )
+        if matched and matched != key:
+            self._data.pop(matched, None)
         self._data[key] = entry
 
     def format_floor(self, floor: float) -> str:
@@ -329,11 +468,26 @@ class PatchPressureStore:
             return f"+{pts}"
         return str(pts)
 
-    def write_live_state(self, patch_name: str, floor: float | None = None) -> None:
+    def write_live_state(
+        self,
+        patch_name: str,
+        floor: float | None = None,
+        *,
+        patch_path: str | None = None,
+        stable_key: str | None = None,
+    ) -> None:
         """Signal the MIDI remapper daemon (read on each message / mtime)."""
-        eff = self.get_effective_floor(patch_name) if floor is None else clamp_effective_floor(floor)
+        eff = (
+            self.get_effective_floor(
+                patch_name, patch_path=patch_path, stable_key=stable_key
+            )
+            if floor is None
+            else clamp_effective_floor(floor)
+        )
         payload = {
-            "patch": self.patch_key(patch_name),
+            "patch": self._storage_key(
+                patch_name, patch_path=patch_path, stable_key=stable_key
+            ),
             "floor": eff,
         }
         atomic_write_json(LIVE_STATE_FILE, payload)

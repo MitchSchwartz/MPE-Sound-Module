@@ -55,6 +55,6 @@ MPE_AUDIO_PROFILE=usb-host ./scripts/usb-host-verify.sh
 ./scripts/test-audio-detection.sh
 
 # Linux host (after arecord -l shows card N)
-arecord -D hw:N,0 -f S16_LE -r 44100 -c 2 -d 5 /tmp/mpe-capture.wav
+arecord -D hw:N,0 -f S16_LE -r 48000 -c 2 -d 5 /tmp/mpe-capture.wav
 sox /tmp/mpe-capture.wav -n stat  # expect non-zero RMS on tone test
 ```

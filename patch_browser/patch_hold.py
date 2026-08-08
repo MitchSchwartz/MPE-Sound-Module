@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from patch_browser.json_store import atomic_write_json, read_json_dict
+from patch_browser.patch_sidecar_store import SidecarKeyMixin
 
 # Multiplier range for the Hold mixer fader (1.0 = patch-as-loaded).
 HOLD_MULT_MIN = 0.25
@@ -76,7 +77,7 @@ def hold_mult_to_offset(mult: float) -> float:
     return clamp_hold_offset(math.log2(mult) * HOLD_OFFSET_SPAN / 2.0)
 
 
-class PatchHoldStore:
+class PatchHoldStore(SidecarKeyMixin):
     """Persist per-patch AEG baselines and optional user Hold multiplier."""
 
     def __init__(self, path: Path | None = None) -> None:
@@ -94,16 +95,28 @@ class PatchHoldStore:
     def save(self) -> None:
         atomic_write_json(self.path, self._data)
 
-    @staticmethod
-    def patch_key(patch_name: str) -> str:
-        return Path(patch_name).stem
+    def get_entry(
+        self,
+        patch_name: str,
+        *,
+        patch_path: str | None = None,
+        stable_key: str | None = None,
+    ) -> dict[str, Any] | None:
+        entry, _key = self._lookup(
+            patch_name, patch_path=patch_path, stable_key=stable_key
+        )
+        return entry
 
-    def get_entry(self, patch_name: str) -> dict[str, Any] | None:
-        entry = self._data.get(self.patch_key(patch_name))
-        return entry if isinstance(entry, dict) else None
-
-    def get_baseline(self, patch_name: str) -> dict[str, dict[str, float]] | None:
-        entry = self.get_entry(patch_name)
+    def get_baseline(
+        self,
+        patch_name: str,
+        *,
+        patch_path: str | None = None,
+        stable_key: str | None = None,
+    ) -> dict[str, dict[str, float]] | None:
+        entry = self.get_entry(
+            patch_name, patch_path=patch_path, stable_key=stable_key
+        )
         if not entry:
             return None
         raw = entry.get("baseline")
@@ -122,18 +135,40 @@ class PatchHoldStore:
                     ok = True
         return baseline if ok else None
 
-    def set_baseline(self, patch_name: str, baseline: dict[str, dict[str, float]]) -> None:
-        key = self.patch_key(patch_name)
-        entry = dict(self._data.get(key) or {})
+    def set_baseline(
+        self,
+        patch_name: str,
+        baseline: dict[str, dict[str, float]],
+        *,
+        patch_path: str | None = None,
+        stable_key: str | None = None,
+    ) -> None:
+        key = self._storage_key(
+            patch_name, patch_path=patch_path, stable_key=stable_key
+        )
+        entry, matched = self._lookup(
+            patch_name, patch_path=patch_path, stable_key=stable_key
+        )
+        entry = dict(entry or {})
         entry["baseline"] = {
             scene: {stage: float(baseline[scene][stage]) for stage in AEG_HOLD_STAGES}
             for scene in AEG_HOLD_SCENES
         }
+        if matched and matched != key:
+            self._data.pop(matched, None)
         self._data[key] = entry
         self.save()
 
-    def get_user_hold_mult(self, patch_name: str) -> float | None:
-        entry = self.get_entry(patch_name)
+    def get_user_hold_mult(
+        self,
+        patch_name: str,
+        *,
+        patch_path: str | None = None,
+        stable_key: str | None = None,
+    ) -> float | None:
+        entry = self.get_entry(
+            patch_name, patch_path=patch_path, stable_key=stable_key
+        )
         if not entry:
             return None
         val = entry.get("user_hold_mult")
@@ -141,31 +176,67 @@ class PatchHoldStore:
             return float(val)
         return None
 
-    def get_effective_hold_mult(self, patch_name: str) -> float:
-        user = self.get_user_hold_mult(patch_name)
+    def get_effective_hold_mult(
+        self,
+        patch_name: str,
+        *,
+        patch_path: str | None = None,
+        stable_key: str | None = None,
+    ) -> float:
+        user = self.get_user_hold_mult(
+            patch_name, patch_path=patch_path, stable_key=stable_key
+        )
         if user is None:
             return DEFAULT_HOLD_MULT
         return max(HOLD_MULT_MIN, min(HOLD_MULT_MAX, user))
 
-    def set_user_hold_mult(self, patch_name: str, mult: float, *, persist: bool = True) -> None:
-        key = self.patch_key(patch_name)
-        entry = dict(self._data.get(key) or {})
+    def set_user_hold_mult(
+        self,
+        patch_name: str,
+        mult: float,
+        *,
+        persist: bool = True,
+        patch_path: str | None = None,
+        stable_key: str | None = None,
+    ) -> None:
+        key = self._storage_key(
+            patch_name, patch_path=patch_path, stable_key=stable_key
+        )
+        entry, matched = self._lookup(
+            patch_name, patch_path=patch_path, stable_key=stable_key
+        )
+        entry = dict(entry or {})
         entry["user_hold_mult"] = max(HOLD_MULT_MIN, min(HOLD_MULT_MAX, float(mult)))
+        if matched and matched != key:
+            self._data.pop(matched, None)
         self._data[key] = entry
         if persist:
             self.save()
 
-    def clear_user_hold_mult(self, patch_name: str, *, persist: bool = True) -> None:
-        key = self.patch_key(patch_name)
-        entry = self.get_entry(patch_name)
-        if not entry or "user_hold_mult" not in entry:
+    def clear_user_hold_mult(
+        self,
+        patch_name: str,
+        *,
+        persist: bool = True,
+        patch_path: str | None = None,
+        stable_key: str | None = None,
+    ) -> None:
+        entry, key = self._lookup(
+            patch_name, patch_path=patch_path, stable_key=stable_key
+        )
+        if not entry or "user_hold_mult" not in entry or not key:
             return
         entry = dict(entry)
         entry.pop("user_hold_mult", None)
-        if entry:
-            self._data[key] = entry
-        else:
+        storage = self._storage_key(
+            patch_name, patch_path=patch_path, stable_key=stable_key
+        )
+        if key != storage:
             self._data.pop(key, None)
+        if entry:
+            self._data[storage] = entry
+        else:
+            self._data.pop(storage, None)
         if persist:
             self.save()
 

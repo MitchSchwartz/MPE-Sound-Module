@@ -120,10 +120,34 @@ FOLDER_INSTRUMENT_MAP: dict[str, tuple[str, ...]] = {
     "rhythmic": ("synth",),
 }
 
+# Generic factory folders — weak signal vs patch name keywords
+OPAQUE_FOLDER_KEYS: frozenset[str] = frozenset(
+    {
+        "template",
+        "templates",
+        "init",
+        "misc",
+        "other",
+        "experimental",
+        "tutorial",
+        "tutorials",
+        "mpe",
+        "splits",
+        "seq",
+        "sequence",
+        "sequencer",
+        "sequences",
+    }
+)
+
+FOLDER_SEGMENT_WEIGHT = 3.0
+OPAQUE_FOLDER_WEIGHT = 1.0
+
 # Token matches in patch names (lower weight than folder)
 NAME_KEYWORD_MAP: dict[str, tuple[str, ...]] = {
     "piano": ("piano",),
     "grand": ("piano",),
+    "grand piano": ("piano",),
     "upright": ("piano",),
     "rhodes": ("keys",),
     "wurl": ("keys",),
@@ -220,8 +244,11 @@ def _score_instruments(patch: dict) -> dict[str, float]:
 
     for segment in segments:
         key = _normalize_token(segment)
+        weight = (
+            OPAQUE_FOLDER_WEIGHT if key in OPAQUE_FOLDER_KEYS else FOLDER_SEGMENT_WEIGHT
+        )
         for instrument in FOLDER_INSTRUMENT_MAP.get(key, ()):
-            scores[instrument] += 3.0
+            scores[instrument] += weight
 
     name = patch.get("name", "")
     name_lower = name.lower()
