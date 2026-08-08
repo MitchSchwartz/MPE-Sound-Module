@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Migrate flat Quick Access root copies into Liked/ + favorites v2 JSON index."""
+"""Migrate flat Quick Access root copies into indexed Quick Select root layout."""
 
 from __future__ import annotations
 
@@ -13,7 +13,6 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from patch_browser.favorites_index import (  # noqa: E402
-    LEGACY_LIKED_FOLDER,
     FavoritesIndex,
 )
 from patch_browser.patch_scanner import (  # noqa: E402
@@ -97,7 +96,7 @@ def main() -> int:
 
     print(f"Quick Access: {qa_root}")
     print(f"Display category: {favorites_display_name()}")
-    print(f"Target folder: {LEGACY_LIKED_FOLDER}/")
+    print(f"Target folder: Quick Select root")
     print(f"Moves planned: {plan.move_count}")
 
     for item in plan.items:

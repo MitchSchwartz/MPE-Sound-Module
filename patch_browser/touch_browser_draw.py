@@ -624,9 +624,11 @@ class TouchBrowserDrawMixin:
 
         if self.left_nav_mode == LeftNavMode.ALL_PATCHES:
             self._draw_all_patches_list()
+            self._draw_instrument_filter_button()
             self._draw_az_rail()
         elif self.left_nav_mode == LeftNavMode.PATCHES:
             self._draw_browse_patches_list()
+            self._draw_instrument_filter_button()
         else:
             font = self.font_sm
             self.nav_list.row_touch_feedback = self._row_touch_feedback

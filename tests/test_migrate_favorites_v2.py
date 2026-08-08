@@ -45,8 +45,8 @@ class MigrateFavoritesV2Tests(unittest.TestCase):
             )
             self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
             self.assertIn("Acid.fxp", proc.stdout)
-            self.assertIn("Liked", proc.stdout)
-            self.assertFalse((qa / "Liked" / "Acid.fxp").exists())
+            self.assertIn("Quick Access", proc.stdout)
+            self.assertFalse((qa / "Acid.fxp").exists())
 
     def test_apply_moves_and_writes_index(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -81,8 +81,8 @@ class MigrateFavoritesV2Tests(unittest.TestCase):
                 check=False,
             )
             self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
-            self.assertTrue((qa / "Liked" / "Rhodes.fxp").exists())
-            self.assertFalse((qa / "Rhodes.fxp").exists())
+            self.assertTrue((qa / "Rhodes.fxp").exists())
+            self.assertFalse((qa / "Liked" / "Rhodes.fxp").exists())
             self.assertTrue(index_path.exists())
             raw = index_path.read_text()
             self.assertIn("Rhodes", raw)

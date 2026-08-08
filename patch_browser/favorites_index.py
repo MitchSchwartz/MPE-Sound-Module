@@ -17,6 +17,24 @@ DEFAULT_FAVORITES_FOLDER = QA_ROOT_FOLDER
 INDEX_VERSION = 1
 
 
+def is_legacy_liked_folder(name: str) -> bool:
+    """True for the deprecated Liked bucket (Quick Select root replaces it)."""
+    return name.strip().casefold() == LEGACY_LIKED_FOLDER.casefold()
+
+
+def is_protected_qa_folder(folder_key: str) -> bool:
+    """Folders that cannot be renamed or deleted from the touch UI."""
+    key = folder_key.strip()
+    if not key:
+        return True
+    first = key.split("/", 1)[0]
+    return is_legacy_liked_folder(first)
+
+
+def qa_folder_key_from_target_inner(inner_segments: tuple[str, ...]) -> str:
+    return "/".join(inner_segments)
+
+
 def qa_folder_segments(folder_key: str) -> tuple[str, ...]:
     folder_key = folder_key.strip()
     if not folder_key:
@@ -52,7 +70,7 @@ class MigrationPlanItem:
     source_path: Path
     dest_path: Path
     stable_key: str
-    folder: str = LEGACY_LIKED_FOLDER
+    folder: str = DEFAULT_FAVORITES_FOLDER
 
 
 @dataclass
@@ -191,6 +209,8 @@ class FavoritesIndex:
         new = new_name.strip()
         if not old or not new:
             raise ValueError("folder names required")
+        if is_protected_qa_folder(old):
+            raise ValueError(f"cannot rename {LEGACY_LIKED_FOLDER!r} — use Quick Select root")
         if old not in self._folders:
             raise ValueError(f"unknown folder {old!r}")
         src = qa_folder_dest_dir(qa_root, old)
@@ -220,30 +240,96 @@ class FavoritesIndex:
         folder = name.strip()
         if not folder:
             raise ValueError("cannot delete Quick Select root")
+        if is_protected_qa_folder(folder):
+            raise ValueError(
+                f"{LEGACY_LIKED_FOLDER} is legacy — hearts use Quick Select root; "
+                "run migrate-liked-to-root if the folder still appears"
+            )
         if any(str(entry.get("folder") or "") == folder for entry in self._entries.values()):
             raise ValueError(f"folder {folder!r} is not empty")
         path = qa_folder_dest_dir(qa_root, folder)
-        if path.exists():
-            if any(path.iterdir()):
-                raise ValueError(f"folder {folder!r} is not empty on disk")
-            path.rmdir()
+        try:
+            if path.exists():
+                if any(path.iterdir()):
+                    raise ValueError(f"folder {folder!r} is not empty on disk")
+                path.rmdir()
+        except OSError as exc:
+            raise ValueError(f"could not delete {folder!r}: {exc}") from exc
         if folder in self._folders:
             self._folders.remove(folder)
+
+    def migrate_legacy_liked_to_root(self, qa_root: Path) -> int:
+        """Move legacy Liked/ copies into Quick Select root and fix index rows."""
+        liked_dir = qa_root / LEGACY_LIKED_FOLDER
+        moved = 0
+        changed = False
+        liked_prefix = f"{LEGACY_LIKED_FOLDER}/"
+
+        for entry in self._entries.values():
+            folder = str(entry.get("folder") or "")
+            if folder == LEGACY_LIKED_FOLDER:
+                entry["folder"] = QA_ROOT_FOLDER
+                changed = True
+            elif folder.startswith(liked_prefix):
+                entry["folder"] = folder[len(liked_prefix) :]
+                changed = True
+            dest = entry.get("dest_path")
+            if isinstance(dest, str):
+                normalized = dest.replace("\\", "/")
+                liked_seg = f"/{LEGACY_LIKED_FOLDER}/"
+                if liked_seg in normalized:
+                    entry["dest_path"] = normalized.replace(liked_seg, "/", 1)
+                    changed = True
+
+        if LEGACY_LIKED_FOLDER in self._folders:
+            self._folders.remove(LEGACY_LIKED_FOLDER)
+            changed = True
+
+        if liked_dir.is_dir():
+            for fxp in sorted(liked_dir.rglob("*.fxp")):
+                rel = fxp.relative_to(liked_dir)
+                dest = qa_root.joinpath(*rel.parts)
+                if dest.exists() and dest.resolve() != fxp.resolve():
+                    continue
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                if dest.exists():
+                    fxp.unlink(missing_ok=True)
+                else:
+                    fxp.rename(dest)
+                moved += 1
+                changed = True
+            for directory in sorted(
+                (p for p in liked_dir.rglob("*") if p.is_dir()),
+                key=lambda p: len(p.parts),
+                reverse=True,
+            ):
+                try:
+                    directory.rmdir()
+                except OSError:
+                    pass
+            try:
+                liked_dir.rmdir()
+            except OSError:
+                pass
+
+        if changed:
+            self.save()
+        return moved
 
     def plan_flat_root_migration(
         self,
         qa_root: Path,
         stem_to_stable_keys: dict[str, list[str]],
         *,
-        target_folder: str = LEGACY_LIKED_FOLDER,
+        target_folder: str = DEFAULT_FAVORITES_FOLDER,
     ) -> MigrationPlan:
-        """Plan moving flat Quick Access root copies into target_folder."""
+        """Plan moving flat Quick Access root copies into the indexed favorites layout."""
         plan = MigrationPlan()
         if not qa_root.is_dir():
             plan.errors.append(f"Quick Access root not found: {qa_root}")
             return plan
 
-        dest_dir = qa_root / target_folder
+        dest_dir = qa_folder_dest_dir(qa_root, target_folder)
         seen_stems: set[str] = set()
         for fxp in sorted(qa_root.glob("*.fxp")):
             stem = fxp.stem
@@ -294,7 +380,7 @@ class FavoritesIndex:
                 shutil.copy2(self.path, backup_dir / self.path.name)
             if qa_root.is_dir():
                 shutil.copytree(qa_root, backup_dir / qa_root.name, dirs_exist_ok=True)
-        (qa_root / LEGACY_LIKED_FOLDER).mkdir(parents=True, exist_ok=True)
+        (qa_folder_dest_dir(qa_root, target_folder)).mkdir(parents=True, exist_ok=True)
         for item in plan.items:
             item.source_path.rename(item.dest_path)
             self.add(

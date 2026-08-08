@@ -11,6 +11,7 @@ from unittest import mock
 from patch_browser.favorites_index import (
     DEFAULT_FAVORITES_FOLDER,
     FavoritesIndex,
+    LEGACY_LIKED_FOLDER,
 )
 from patch_browser.patch_scanner import PatchScanner, favorites_display_name
 
@@ -46,6 +47,37 @@ class FavoritesIndexTests(unittest.TestCase):
             index.delete_folder("Gig A", qa_root=qa)
             self.assertFalse((qa / "Gig A").exists())
 
+    def test_liked_folder_is_protected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            qa = Path(tmp) / "Quick Access"
+            liked = qa / LEGACY_LIKED_FOLDER
+            liked.mkdir(parents=True)
+            index = FavoritesIndex(Path(tmp) / "fav.json")
+            with self.assertRaises(ValueError):
+                index.delete_folder(LEGACY_LIKED_FOLDER, qa_root=qa)
+
+    def test_migrate_liked_to_root(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            qa = Path(tmp) / "Quick Access"
+            liked = qa / LEGACY_LIKED_FOLDER
+            liked.mkdir(parents=True)
+            (liked / "Acid.fxp").write_bytes(b"x")
+            index = FavoritesIndex(Path(tmp) / "fav.json")
+            index.add(
+                "factory:Bass/Acid",
+                folder=LEGACY_LIKED_FOLDER,
+                dest_path=liked / "Acid.fxp",
+            )
+            index.ensure_folder(LEGACY_LIKED_FOLDER)
+            moved = index.migrate_legacy_liked_to_root(qa)
+            self.assertEqual(moved, 1)
+            self.assertTrue((qa / "Acid.fxp").exists())
+            self.assertFalse(liked.exists())
+            entry = index.get_entry("factory:Bass/Acid")
+            assert entry is not None
+            self.assertEqual(entry["folder"], DEFAULT_FAVORITES_FOLDER)
+            self.assertNotIn(LEGACY_LIKED_FOLDER, index.folders)
+
     def test_migration_plan_requires_unambiguous_stable_key(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             qa = Path(tmp) / "Quick Access"
@@ -71,7 +103,7 @@ class FavoritesIndexTests(unittest.TestCase):
             )
             self.assertTrue(plan.ok)
             self.assertEqual(plan.move_count, 1)
-            self.assertEqual(plan.items[0].dest_path, qa / "Liked" / "Acid.fxp")
+            self.assertEqual(plan.items[0].dest_path, qa / "Acid.fxp")
 
 
 class PatchScannerFavoritesTests(unittest.TestCase):
@@ -159,6 +191,16 @@ class PatchScannerFavoritesTests(unittest.TestCase):
             self.assertTrue(self.scanner.remove_patch_from_favorites(entry))
             full_scan.assert_not_called()
         self.assertFalse(self.scanner.favorites_index.is_favorited(entry["stable_key"]))
+
+    def test_legacy_liked_hidden_from_subfolders(self) -> None:
+        liked = self.qa / "Liked"
+        liked.mkdir()
+        (liked / "Solo.fxp").write_bytes(b"x")
+        self._touch("Lead/Other.fxp")
+        self.scanner.scan_patches()
+        label = favorites_display_name()
+        subs = self.scanner.get_subfolders(label, ())
+        self.assertNotIn("Liked", subs)
 
 
 if __name__ == "__main__":
