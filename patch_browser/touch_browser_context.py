@@ -581,7 +581,7 @@ class TouchBrowserContextMixin:
             self._context_menu_ignore_next_up = False
             return
         scrolled = self._context_action_sheet.pointer_up(pos)
-        if not self._context_action_sheet.contains(*pos):
+        if not self._context_action_sheet.contains(pos):
             self._close_context_menu()
             return
         if scrolled:
