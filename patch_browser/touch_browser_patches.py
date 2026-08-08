@@ -587,7 +587,7 @@ class TouchBrowserPatchesMixin:
 
         if self.scanner.add_patch_to_favorites(patch):
             self._sync_categories_after_favorites_change()
-            self._toast(f"Added to {quick_label} → Liked", 2.0)
+            self._toast("Added to Quick Select", 2.0)
         else:
             if self._patch_is_favorited(patch):
                 self._toast(f"Already in {quick_label}", 2.0)

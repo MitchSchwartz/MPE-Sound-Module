@@ -5,7 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-from patch_browser.favorites_index import DEFAULT_FAVORITES_FOLDER
 from patch_browser.patch_metadata import INSTRUMENT_VOCAB
 from patch_browser.patch_scanner import favorites_folder_matches
 
@@ -25,31 +24,29 @@ def build_context_actions(
     target: ContextTarget,
     *,
     is_favorited: bool,
+    qa_patch_count: int = 0,
 ) -> list[tuple[str, str]]:
     """Return (action_id, label) rows for the primary context menu."""
     if target.kind == "library_folder":
         return [
-            ("add_all_liked", f"Add all to {DEFAULT_FAVORITES_FOLDER}"),
-            ("add_all_pick_folder", "Add all to folder…"),
+            ("add_all_qa", "Add folder to Quick Select"),
         ]
     if target.kind == "patch":
         actions: list[tuple[str, str]] = []
         if is_favorited:
-            actions.append(("unfavorite", "Remove from Quick Access"))
+            actions.append(("unfavorite", "Remove from Quick Select"))
             actions.append(("move_pick_folder", "Move to folder…"))
         else:
-            actions.append(("favorite_liked", f"Add to {DEFAULT_FAVORITES_FOLDER}"))
+            actions.append(("favorite_qa", "Add to Quick Select"))
             actions.append(("add_pick_folder", "Add to folder…"))
         actions.append(("set_instrument_pick", "Set instrument…"))
         return actions
     if target.kind == "qa_folder":
         actions = [("qa_new_subfolder", "New subfolder")]
+        if qa_patch_count > 0:
+            actions.append(("qa_remove_all", "Remove all patches"))
         name = target.folder_name.strip()
-        if (
-            name
-            and name != DEFAULT_FAVORITES_FOLDER
-            and len(target.inner_segments) <= 1
-        ):
+        if name and len(target.inner_segments) <= 1:
             actions.append(("qa_rename", "Rename folder"))
             actions.append(("qa_delete", "Delete folder"))
         return actions
@@ -57,16 +54,9 @@ def build_context_actions(
 
 
 def folder_picker_actions(folders: list[str]) -> list[tuple[str, str]]:
-    """User-created QA folders first, then a Liked section."""
-    user = [name for name in folders if name != DEFAULT_FAVORITES_FOLDER]
-    actions: list[tuple[str, str]] = [(f"pick_folder:{name}", name) for name in user]
-    if DEFAULT_FAVORITES_FOLDER in folders:
-        if user:
-            actions.append(("_section", "Liked"))
-        actions.append(
-            (f"pick_folder:{DEFAULT_FAVORITES_FOLDER}", DEFAULT_FAVORITES_FOLDER)
-        )
-    return actions
+    """User-created Quick Select subfolders (excludes root)."""
+    user = [name for name in folders if name.strip()]
+    return [(f"pick_folder:{name}", name) for name in user]
 
 
 def instrument_picker_actions() -> list[tuple[str, str]]:
@@ -76,7 +66,7 @@ def instrument_picker_actions() -> list[tuple[str, str]]:
 def qa_folder_display_name(target: ContextTarget) -> str:
     if target.folder_name:
         return target.folder_name
-    return "Quick Access"
+    return "Quick Select"
 
 
 def is_qa_browse(category: str) -> bool:

@@ -79,7 +79,7 @@ class TouchBrowserEvdevMixin:
                 return
             if (
                 self._touch_chip_capture
-                or self._instrument_chip_drag_start_x is not None
+                or self._instrument_chip_active()
             ):
                 self._handle_instrument_chip_pointer_move(pos)
             elif self._long_press_pending is not None:
@@ -116,7 +116,7 @@ class TouchBrowserEvdevMixin:
                 self._touch_chip_capture = False
                 return
 
-            if self._touch_chip_capture or self._instrument_chip_drag_start_x is not None:
+            if self._touch_chip_capture or self._instrument_chip_active():
                 self._handle_instrument_chip_pointer_up(pos)
                 self._touch_list_capture = False
                 self._touch_chip_capture = False
