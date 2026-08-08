@@ -14,6 +14,7 @@ class Screen(Enum):
     POWER_CONFIRM = auto()
     SURGE_BUFFER_MODAL = auto()
     SURGE_SAMPLE_RATE_MODAL = auto()
+    BRIGHTNESS_MODAL = auto()
     WIFI_MODAL = auto()
     CONTEXT_MENU = auto()
     NAME_PROMPT = auto()

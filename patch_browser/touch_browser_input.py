@@ -10,8 +10,6 @@ import pygame
 from patch_browser.dsi_splash import release_display_for_shutdown, trigger_user_shutdown
 from patch_browser.shutdown_trace import begin_shutdown_session, log_shutdown_event
 from patch_browser.touch_ui_constants import (
-    DEFAULT_BRIGHTNESS_PERCENT,
-    MIXER_DOUBLE_TAP_MS,
     SETTINGS_PANEL_HEADER_H,
     TAP_MOVE_THRESHOLD_PX,
 )
@@ -38,6 +36,7 @@ class TouchBrowserInputMixin:
             Screen.CALIBRATE_CONFIRM,
             Screen.SURGE_BUFFER_MODAL,
             Screen.SURGE_SAMPLE_RATE_MODAL,
+            Screen.BRIGHTNESS_MODAL,
             Screen.WIFI_MODAL,
         )
         overlay_modal = self.screen_state in (Screen.CONTEXT_MENU, Screen.NAME_PROMPT)
@@ -57,6 +56,8 @@ class TouchBrowserInputMixin:
                 self._draw_surge_buffer_modal()
             elif self.screen_state == Screen.SURGE_SAMPLE_RATE_MODAL:
                 self._draw_surge_sample_rate_modal()
+            elif self.screen_state == Screen.BRIGHTNESS_MODAL:
+                self._draw_brightness_modal()
             elif self.screen_state == Screen.WIFI_MODAL:
                 self._draw_wifi_modal()
         elif overlay_modal:
@@ -256,20 +257,7 @@ class TouchBrowserInputMixin:
             self._pending_calibrate_mode = CalibrateMode.FORCE_FULL
             self.screen_state = Screen.CALIBRATE_CONFIRM
         elif hit == "brightness":
-            screen_slider = self._panel_local_to_screen(
-                self.brightness_slider_rect, scrolled=True
-            )
-            now = time.time()
-            if (
-                self._brightness_last_tap_time > 0
-                and (now - self._brightness_last_tap_time) * 1000.0 <= MIXER_DOUBLE_TAP_MS
-            ):
-                self._apply_brightness(DEFAULT_BRIGHTNESS_PERCENT)
-                self._toast("Brightness reset", 1.2)
-                self._brightness_last_tap_time = 0.0
-            else:
-                self._brightness_last_tap_time = now
-                self._apply_brightness(self._brightness_from_x(pos[0], screen_slider))
+            self._open_brightness_modal()
     def _handle_settings_pointer_down(self, pos: tuple[int, int]) -> None:
         self._clear_settings_pointer()
         self._settings_pointer_down_pos = pos
@@ -614,6 +602,8 @@ class TouchBrowserInputMixin:
                 self._handle_surge_buffer_modal_pointer_down(event.pos)
             elif self.screen_state == Screen.SURGE_SAMPLE_RATE_MODAL:
                 self._handle_surge_sample_rate_modal_pointer_down(event.pos)
+            elif self.screen_state == Screen.BRIGHTNESS_MODAL:
+                self._handle_brightness_modal_pointer_down(event.pos)
             elif self.screen_state == Screen.WIFI_MODAL:
                 self._handle_wifi_modal_pointer_down(event.pos)
             elif self.screen_state == Screen.BROWSER:
@@ -646,6 +636,8 @@ class TouchBrowserInputMixin:
                 self._handle_surge_buffer_modal_pointer_up(event.pos)
             elif self.screen_state == Screen.SURGE_SAMPLE_RATE_MODAL:
                 self._handle_surge_sample_rate_modal_pointer_up(event.pos)
+            elif self.screen_state == Screen.BRIGHTNESS_MODAL:
+                self._handle_brightness_modal_pointer_up(event.pos)
             elif self.screen_state == Screen.WIFI_MODAL:
                 self._handle_wifi_modal_pointer_up(event.pos)
             elif self.screen_state == Screen.BROWSER:
@@ -668,4 +660,6 @@ class TouchBrowserInputMixin:
                 self._settings_content_scroll.pointer_move(event.pos)
             elif self.screen_state == Screen.WIFI_MODAL:
                 self._handle_wifi_modal_pointer_move(event.pos)
+            elif self.screen_state == Screen.BRIGHTNESS_MODAL:
+                self._handle_brightness_modal_pointer_move(event.pos)
             self._handle_mixer_motion(event.pos)
