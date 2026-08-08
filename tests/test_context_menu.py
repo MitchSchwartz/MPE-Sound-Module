@@ -45,7 +45,7 @@ class ContextMenuTests(unittest.TestCase):
             folder_name="Liked",
         )
         actions = build_context_actions(target, is_favorited=False, qa_patch_count=0)
-        self.assertEqual([a[0] for a in actions], ["qa_new_subfolder", "qa_rename", "qa_delete"])
+        self.assertEqual([a[0] for a in actions], ["qa_new_subfolder"])
 
     def test_qa_folder_remove_all_when_populated(self) -> None:
         target = ContextTarget(

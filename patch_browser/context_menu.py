@@ -5,8 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-from patch_browser.patch_metadata import INSTRUMENT_VOCAB
-from patch_browser.patch_scanner import favorites_folder_matches
+from patch_browser.favorites_index import is_protected_qa_folder
 
 ContextKind = Literal["library_folder", "patch", "qa_folder"]
 
@@ -46,7 +45,7 @@ def build_context_actions(
         if qa_patch_count > 0:
             actions.append(("qa_remove_all", "Remove all patches"))
         name = target.folder_name.strip()
-        if name and len(target.inner_segments) <= 1:
+        if name and len(target.inner_segments) <= 1 and not is_protected_qa_folder(name):
             actions.append(("qa_rename", "Rename folder"))
             actions.append(("qa_delete", "Delete folder"))
         return actions
