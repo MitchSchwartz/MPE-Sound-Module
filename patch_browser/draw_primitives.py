@@ -71,6 +71,35 @@ def draw_all_patches_icon(
     surface.blit(label, (tx, ty))
 
 
+def draw_filter_icon(
+    surface: pygame.Surface,
+    rect: Rect,
+    color: tuple[int, int, int],
+) -> None:
+    """Instrument filter — funnel icon (matches other nav rail glyphs)."""
+    pad = max(4, rect.w // 8)
+    cx = rect.centerx
+    top_y = rect.y + pad
+    bottom_y = rect.bottom - pad
+    stem_h = max(4, rect.h // 5)
+    funnel_bottom = bottom_y - stem_h
+    top_half_w = max(6, (rect.w - pad * 2) // 2)
+    neck_half_w = max(2, top_half_w // 3)
+    points = [
+        (cx - top_half_w, top_y),
+        (cx + top_half_w, top_y),
+        (cx + neck_half_w, funnel_bottom),
+        (cx - neck_half_w, funnel_bottom),
+    ]
+    pygame.draw.polygon(surface, color, points)
+    stem_w = max(3, neck_half_w)
+    pygame.draw.rect(
+        surface,
+        color,
+        pygame.Rect(cx - stem_w // 2, funnel_bottom, stem_w, stem_h),
+    )
+
+
 def draw_toggle_switch(
     surface: pygame.Surface,
     rect: Rect,

@@ -571,6 +571,15 @@ class TouchBrowserPatchesMixin:
             self.categories = self.scanner.get_categories()
             self._rebuild_all_patches_index()
         self._refresh_lists()
+
+    def _pop_browse_after_folder_delete(self, folder_key: str) -> None:
+        inner = self._browse_inner_segments()
+        if not inner:
+            return
+        prefix = tuple(part for part in folder_key.split("/") if part)
+        if not prefix or inner[: len(prefix)] != prefix:
+            return
+        self.browse_inner_segments = inner[: max(0, len(prefix) - 1)]
     def _toggle_favorites(self) -> None:
         if not self.detail_patch:
             return

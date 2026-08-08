@@ -423,10 +423,10 @@ Tests: `tests/test_patch_metadata.py`, `tests/test_patch_scanner_metadata.py`
 
 When browsing a **folder** or **All patches**, a **Filter** control appears under the nav header:
 
-- Tap **Filter** to expand/collapse a **wrapped chip panel** (no horizontal scroll)
+- Tap the **filter icon** (funnel, left of the A–Z rail in All patches) to expand/collapse a **wrapped chip panel** in the nav list
 - **All** clears the filter (`__all__` sentinel — not confused with instrument ids)
 - Other chips (Piano, Pad, Bass, Percussion, …) narrow the list; panel closes after selection
-- Filter button shows **accent** when a filter is active or the panel is open; label switches to the active instrument name
+- Filter button shows **accent** when a filter is active, the panel is open, or while pressed
 - In folder browse, chips reflect instruments in the **current folder subtree** only
 - All-patches row subtitle shows the top-level **category** only; folder browse rows are name-only
 
@@ -438,7 +438,7 @@ Hold a folder or patch row in the left nav for ~600ms (cancel if you scroll firs
 
 | Target | Actions |
 |--------|---------|
-| Library folder | Add all to Liked; Add all to folder… |
+| Library folder | Add all to Quick Select; Add all to folder… |
 | Patch | Add/remove Quick Access; Move to folder…; Set instrument… |
 | Quick Access subfolder | New subfolder; Rename / Delete (top-level user folders only) |
 
@@ -452,17 +452,15 @@ Quick Access favorites use a **copy-based** layout plus a JSON index — not sym
 
 | Piece | Location |
 |-------|----------|
-| On-disk copies | `Quick Access/<folder>/` (default **`Liked/`**) |
+| On-disk copies | `Quick Access/` root (hearts) or `Quick Access/<folder>/` for user subfolders |
 | Index | `~/.patch_browser_favorites.json` (override: `MPE_FAVORITES_INDEX_FILE`) |
 | Identity | `stable_key` per patch (see Patch index above) |
 
-**Heart toggle** (patch detail): copies the patch into `Liked/` and writes an index entry keyed by `stable_key`. Unfavorite removes the copy and index row only. After a toggle, the scanner rescans the Quick Access subtree only — not the full library.
+**Heart toggle** (patch detail): copies the patch into **Quick Select root** and writes an index entry keyed by `stable_key`. Unfavorite removes the copy and index row only. After a toggle, the scanner rescans the Quick Access subtree only — not the full library.
 
-**User folders:** the index API supports create/rename/delete folders under Quick Access. UI for folder management is Phase 5 (long-press menus); hearts always land in **Liked** for now.
+**User folders:** the index API supports create/rename/delete user subfolders under Quick Access. Long-press a folder for New subfolder / Rename / Delete. Legacy **`Liked/`** is migrated to root automatically on scan; it cannot be deleted from the UI.
 
-**All patches view:** ♥ indicates a patch is indexed (any Quick Access folder).
-
-### Migrate flat Quick Access → Liked
+### Migrate flat Quick Access root copies
 
 Older installs may have `.fxp` copies sitting directly in the Quick Access root. Run on the Pi (or any machine with the library mounted):
 
@@ -471,7 +469,7 @@ cd ~/MPE-Module
 python3 scripts/migrate-favorites-v2.py --dry-run
 ```
 
-Dry-run lists each root copy, its proposed `Liked/` target, and the resolved `stable_key`. Migration **aborts** if any copy cannot be matched to exactly one library patch (ambiguous stem). Quick Access copies are excluded from the stem map so they do not collide with factory/user sources.
+Dry-run lists each root copy, its proposed Quick Select root target, and the resolved `stable_key`. Migration **aborts** if any copy cannot be matched to exactly one library patch (ambiguous stem). Quick Access copies are excluded from the stem map so they do not collide with factory/user sources.
 
 When the plan looks correct:
 
@@ -481,7 +479,15 @@ python3 scripts/migrate-favorites-v2.py --apply
 python3 scripts/migrate-favorites-v2.py --apply --backup-dir ~/qa-migration-backup
 ```
 
-**Rollback:** if you used `--backup-dir`, restore the backed-up Quick Access tree and `~/.patch_browser_favorites.json` from that directory. Without a backup, move files manually from `Quick Access/Liked/` back to the Quick Access root and remove or edit the JSON index.
+**Rollback:** if you used `--backup-dir`, restore the backed-up Quick Access tree and `~/.patch_browser_favorites.json` from that directory.
+
+### Migrate legacy Liked/ → Quick Select root
+
+If an older install still has `Quick Access/Liked/` (from a prior favorites layout), the browser migrates on startup. To run manually:
+
+```bash
+python3 scripts/migrate-liked-to-root.py
+```
 
 Tests: `tests/test_favorites_index.py`, `tests/test_migrate_favorites_v2.py`
 

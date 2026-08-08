@@ -14,7 +14,7 @@ from patch_browser.context_menu import (
     is_qa_browse,
     qa_folder_display_name,
 )
-from patch_browser.favorites_index import qa_folder_key_for_library
+from patch_browser.favorites_index import qa_folder_key_for_library, qa_folder_key_from_target_inner
 from patch_browser.geometry import Rect
 from patch_browser.instrument_filter import patches_in_browse_subtree
 from patch_browser.scroll_widgets import ScrollableActionList
@@ -422,18 +422,19 @@ class TouchBrowserContextMixin:
         return qa_root.joinpath(*target.inner_segments)
 
     def _delete_qa_folder(self, target: ContextTarget) -> None:
-        name = target.folder_name.strip()
-        if not name:
+        folder_key = qa_folder_key_from_target_inner(target.inner_segments) or target.folder_name.strip()
+        if not folder_key:
             self._toast("Select a subfolder to delete", 2.0)
             return
         try:
             self.scanner.favorites_index.delete_folder(
-                name,
+                folder_key,
                 qa_root=self.scanner.get_favorites_folder_path(),
             )
             self.scanner.favorites_index.save()
+            self._pop_browse_after_folder_delete(folder_key)
             self._sync_categories_after_favorites_change()
-            self._toast(f"Deleted {name}", 2.0)
+            self._toast(f"Deleted {target.folder_name or folder_key}", 2.0)
         except ValueError as exc:
             self._toast(str(exc), 3.0)
 

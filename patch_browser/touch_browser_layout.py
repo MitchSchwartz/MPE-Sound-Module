@@ -11,6 +11,7 @@ from patch_browser.touch_ui_constants import (
     AUDIO_BADGE_PAD_X,
     AZ_RAIL_WIDTH,
     BROWSER_BOTTOM_MARGIN,
+    BROWSER_RAIL_GAP,
     CPU_METER_BAR_W,
     CPU_METER_LABEL_GAP,
     DETAIL_HEADER_MIN_H,
@@ -22,6 +23,7 @@ from patch_browser.touch_ui_constants import (
     FADER_TRACK_H,
     FADER_TRACK_W,
     FAVORITES_BTN_SIZE,
+    INSTRUMENT_FILTER_BTN_SIZE,
     LEFT_NAV_COLLAPSED_WIDTH,
     LEFT_NAV_WIDTH,
     MIXER_BOTTOM_GAP,
@@ -52,8 +54,18 @@ class TouchBrowserLayoutMixin:
         if self.left_nav_mode == LeftNavMode.ALL_PATCHES:
             margin = 16
             gap = 10
-            return self.width - margin * 2 - AZ_RAIL_WIDTH - gap
+            return self.width - margin * 2 - self._browser_side_rail_width() - gap
         return LEFT_NAV_COLLAPSED_WIDTH if self.left_nav_collapsed else LEFT_NAV_WIDTH
+
+    def _browser_side_rail_width(self) -> int:
+        """Filter icon column (+ A–Z rail in All patches view)."""
+        if self.left_nav_mode == LeftNavMode.ALL_PATCHES:
+            if self._show_instrument_chips():
+                return INSTRUMENT_FILTER_BTN_SIZE + BROWSER_RAIL_GAP + AZ_RAIL_WIDTH
+            return AZ_RAIL_WIDTH
+        if self._show_instrument_chips():
+            return INSTRUMENT_FILTER_BTN_SIZE
+        return 0
 
     def _cpu_meter_text_size(self) -> tuple[int, int]:
         return self.font_sm.size("CPU")
@@ -114,7 +126,7 @@ class TouchBrowserLayoutMixin:
             if self.left_nav_mode == LeftNavMode.ALL_PATCHES
             else LEFT_NAV_WIDTH
         )
-        self._layout_instrument_chip_row(
+        self._layout_instrument_chip_panel(
             margin=margin,
             content_top=content_top,
             nav_header_h=nav_header_h,
@@ -122,20 +134,27 @@ class TouchBrowserLayoutMixin:
         )
         self._update_nav_list_geometry(content_top, content_bottom, nav_header_h, margin)
 
+        rail_x = margin + left_w + gap
+        rail_w = self._browser_side_rail_width()
+        self._layout_instrument_filter_rail(rail_x=rail_x, content_top=content_top)
+
         if self.left_nav_mode == LeftNavMode.ALL_PATCHES:
+            az_x = rail_x
+            if self._show_instrument_chips():
+                az_x = rail_x + INSTRUMENT_FILTER_BTN_SIZE + BROWSER_RAIL_GAP
             self.az_rail_rect = Rect(
-                margin + left_w + gap,
+                az_x,
                 content_top,
                 AZ_RAIL_WIDTH,
                 content_bottom - content_top,
             )
             self._layout_az_rail_letters()
-            self.main_rect = Rect(margin + left_w + gap + AZ_RAIL_WIDTH, content_top, 0, 0)
+            self.main_rect = Rect(rail_x + rail_w, content_top, 0, 0)
         else:
             self.az_rail_rect = Rect(0, 0, 0, 0)
             self.az_rail_letter_rects = []
-            main_x = margin + left_w + gap
-            main_w = self.width - margin * 2 - left_w - gap
+            main_x = margin + left_w + gap + rail_w
+            main_w = self.width - margin * 2 - left_w - gap - rail_w
             self.main_rect = Rect(main_x, content_top, main_w, content_bottom - content_top)
         action_row_h = max(NORM_ROW_H, FAVORITES_BTN_SIZE)
         bottom_row_y = self._detail_bottom_row_y()

@@ -21,6 +21,8 @@ from patch_browser.patch_metadata import PatchMetadataIndex
 from patch_browser.favorites_index import (
     DEFAULT_FAVORITES_FOLDER,
     FavoritesIndex,
+    LEGACY_LIKED_FOLDER,
+    is_legacy_liked_folder,
     qa_folder_dest_dir,
 )
 
@@ -215,6 +217,16 @@ class PatchScanner:
         self.metadata_index.reload()
         self.metadata_index.enrich_all(patches_by_key)
 
+        migrated = self.favorites_index.migrate_legacy_liked_to_root(
+            self.get_favorites_folder_path()
+        )
+        if migrated:
+            print(
+                f"Migrated {migrated} patch(es) from legacy {LEGACY_LIKED_FOLDER}/ "
+                "to Quick Select root"
+            )
+            self.rescan_favorites_category()
+
         print(f"Found {total_patches} patches in {len(self.patches)} categories")
         cat_names = list(self.patches.keys())
         print(f"First 3 categories: {cat_names[:3]}")
@@ -366,7 +378,10 @@ class PatchScanner:
         node = self._folder_tree_node(category, inner_segments)
         if not node:
             return []
-        return sorted(node.get("children", {}).keys(), key=str.casefold)
+        subs = sorted(node.get("children", {}).keys(), key=str.casefold)
+        if favorites_folder_matches(category):
+            subs = [name for name in subs if not is_legacy_liked_folder(name)]
+        return subs
 
     def get_patches_in_folder(
         self, category: str, inner_segments: tuple[str, ...] = ()
@@ -443,6 +458,9 @@ class PatchScanner:
     def rescan_favorites_category(self) -> list[dict]:
         """Rescan Quick Access subtree only — no full library scan."""
         qa_path = self.get_favorites_folder_path()
+        migrated = self.favorites_index.migrate_legacy_liked_to_root(qa_path)
+        if migrated:
+            print(f"Migrated {migrated} patch(es) from legacy {LEGACY_LIKED_FOLDER}/ to Quick Select root")
         patches = self.quick_scan_category(qa_path)
         label = favorites_display_name()
         with self.scan_lock:
