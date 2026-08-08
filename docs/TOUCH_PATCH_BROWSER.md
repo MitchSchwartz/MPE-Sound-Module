@@ -366,6 +366,22 @@ All left-nav mode changes go through `_enter_nav_mode()` in `patch_browser/touch
 
 Tests: `tests/test_touch_browser_nav_transitions.py`
 
+## Patch index (Phase 0.5)
+
+`PatchScanner` indexes every `.fxp` by **full path** (no silent same-name collisions). Each patch dict includes:
+
+| Field | Purpose |
+|-------|---------|
+| `stable_key` | `factory:Bass/Sub/Lead 1` — canonical identity |
+| `inner_segments` | Nested folders under top-level category |
+| `relative_path` | Path from patch root |
+
+Nested folder API (for upcoming drill-down): `get_subfolders()`, `get_patches_in_folder()`, `folder_tree`.
+
+All-patches row subtitles show `Category/Sub/...` when nested.
+
+Tests: `tests/test_patch_scanner.py`, `tests/test_patch_identity.py`
+
 ## Known gaps (v0)
 
 - Prefix/text search and folder chips not implemented (All patches + A–Z first)

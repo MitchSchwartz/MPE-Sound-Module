@@ -15,6 +15,7 @@ from patch_browser.draw_primitives import (
 )
 from patch_browser.geometry import Rect
 from patch_browser.mixer import MixerChannel
+from patch_browser.patch_identity import patch_browse_subtitle
 from patch_browser.dsi_splash import shutdown_animation_phase
 from patch_browser.touch_ui_constants import (
     CPU_METER_BAR_W,
@@ -442,7 +443,7 @@ class TouchBrowserDrawMixin:
 
             folder_clipped = ellipsize_text(
                 self.font_sm,
-                patch.get("category", ""),
+                patch_browse_subtitle(patch),
                 name_max_w,
             )
             folder_s = self.font_sm.render(folder_clipped, True, self.theme.muted)
