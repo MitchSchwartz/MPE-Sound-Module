@@ -57,6 +57,13 @@ class ScrollableActionListTests(unittest.TestCase):
         sheet.pointer_up(pos)
         self.assertIsNone(sheet.pressed_action_id)
 
+    def test_contains_accepts_pos_tuple(self) -> None:
+        sheet = self._sheet()
+        inside = (sheet.panel.x + 10, sheet.panel.y + 10)
+        outside = (0, 0)
+        self.assertTrue(sheet.contains(inside))
+        self.assertFalse(sheet.contains(outside))
+
 
 if __name__ == "__main__":
     unittest.main()
