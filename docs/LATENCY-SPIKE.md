@@ -1,6 +1,6 @@
 # Surge latency — can the buffer floor come down?
 
-*Last updated: 2026-08-10 17:23 (America/Toronto)*
+*Last updated: 2026-08-10 17:56 (America/Toronto)*
 
 **The question, in one line:** *Can we run a smaller Surge buffer than 1024 without losing voices — and what's the cheapest change that gets us there?*
 
@@ -8,7 +8,7 @@ Originally scoped as "enable PREEMPT_RT and turn the buffer down." Measured base
 
 **Related:** [#44 Buffer size in settings](https://github.com/MitchSchwartz/MPE-Sound-Module/issues/44) · `FAQ.md` · `docs/PATCH_NORMALIZATION.md`
 
-**Status:** Arm A not started. **Arm B is probably unnecessary** — `mpe sysinfo` shows the cheap scheduling wins were never applied (see §Measured baseline). Repo buffer defaults corrected to 1024 (below).
+**Status:** Arm A not started. **Arm B is probably unnecessary** — cheap scheduling wins were never applied (§Measured baseline), and voice loss at 768 may be CPU throughput, not scheduler jitter (§RT feasibility). Repo buffer defaults corrected to 1024 (below).
 
 > **Headline:** Surge currently runs `SCHED_OTHER` at priority 0 with an `rtprio` hard limit of **0**, on the `ondemand` CPU governor. It has never had realtime scheduling available to it. Chasing an RT *kernel* before fixing that is optimizing the wrong layer.
 
@@ -52,7 +52,7 @@ Either something in that layer buys a smaller buffer, or **1024 is the permanent
 
 ## Independent variable
 
-**One change per arm**, in ascending order of risk: CPU governor → RT scheduling for Surge → RT kernel. Do not bundle them; if governor plus `SCHED_FIFO` land together and 768 starts passing, we won't know which one mattered or whether the kernel arm is needed at all.
+**One change per arm**, in ascending order of risk: diagnose → CPU governor → `threadirqs` → RT scheduling for Surge → RT kernel. Do not bundle them; if governor plus `SCHED_FIFO` land together and 768 starts passing, we won't know which one mattered or whether the kernel arm is needed at all.
 
 **Held constant** — changing any of these invalidates the comparison:
 
@@ -110,6 +110,7 @@ Purpose: put the thing we already believe on the record, so the later arms have 
 | A.2 | Build the rig above — switch profile to **`standalone`** (currently `usb-host`), no pedal, no gadget, Roli only |
 | A.3 | 10 min jam @ **1024** — note voice behavior, grep log for xrun |
 | A.4 | Brief pass @ **768** — **document the failure mode concretely** (which patches, how many voices, how fast it degrades) |
+| A.4b | **Diagnose the failure mode** while reproducing A.4: grep `~/surge-cli.log` for xrun/underrun; check `/proc/asound/card*/pcm*/sub*/status` for `xrun`; run `rtla timerlat top` or `cyclictest` under the same load. If max scheduling latency is **well under 16 ms** and there are **no xruns**, the 768 failure is Surge voice-stealing (CPU throughput), not scheduler jitter — **stop here; RT will not help and may make it worse** |
 | A.5 | Capture `mpe sysinfo` output and the patch list used |
 | A.6 | Validation Log row: control arm result |
 
@@ -137,6 +138,15 @@ This is now the **most promising arm**, and the cheapest: nothing here needs a k
 | A½.5 | If still `SCHED_OTHER`, JUCE isn't asking. Set `MPE_SURGE_RT_PRIORITY=20` to wrap the launch in `chrt --fifo` and re-check |
 | A½.6 | Re-run A.3 @ 1024, then step to 768 |
 
+**Sub-arm 3 — `threadirqs` (stock kernel only, no RT package)**
+
+The stock Raspberry Pi arm64 kernel already supports forced threaded IRQs (`CONFIG_IRQ_FORCED_THREADING`). Adding `threadirqs` to `/boot/firmware/cmdline.txt` is reversible and often cited as removing the need for an RT kernel on less powerful systems — but linuxaudio.org still lists Raspberry Pi as a case where RT *can* matter at very low buffers.
+
+| Step | Action |
+|---|---|
+| A½.7 | Add `threadirqs` to `cmdline.txt`, reboot, confirm with `cat /proc/cmdline` |
+| A½.8 | Re-run A.3 @ 1024, then step to 768 — **only if A.4b showed actual xruns or scheduling latency near one buffer period** |
+
 **Note on `limits.d`:** systemd services bypass PAM, so `/etc/security/limits.d/` has **no effect** on `surge-xt-cli.service` — the unit's `Limit*` directives are the correct mechanism. A `limits.d` file would only matter for Surge launched manually over SSH (e.g. calibration), so it's deliberately not part of this arm.
 
 Everything here is **repo-managed** and deploys through GitHub — no hand-editing on the Pi.
@@ -145,22 +155,32 @@ Everything here is **repo-managed** and deploys through GitHub — no hand-editi
 
 If 768 passes here, **Arm B is cancelled** and the looper question reopens with no kernel risk at all.
 
-### Arm B — RT kernel (1–2 days) — blocked
+### Arm B — RT kernel (~1 hour install + soak) — last resort
 
-**Gates:** feasibility research answered · `tryboot` rehearsed (§Rollback) · Mitch approves the kernel install.
+**Gates:** A.4b shows xruns or scheduling latency near one buffer period (not voice-stealing alone) · A½ exhausted · `tryboot` rehearsed (§Rollback) · Mitch approves.
+
+**Feasibility is resolved:** Raspberry Pi ships **`linux-image-rpi-v8-rt`** in the trixie archive, version-locked to the stock `rpi-v8` kernel and built from the same `raspberrypi/linux` tree with only preemption changed (`bcm2711_rt_defconfig` — six-line diff from stock). `vc4`/DSI, touch panels (`ili9881c`, official 5"/7"), `dwc2`, and UAC2 gadget are all present. **No `linux-image-rpi-2712-rt`** exists — irrelevant here since the live unit is Pi 4 Rev 1.5, where `v8` → `v8-rt` changes exactly one variable.
+
+**Rejected paths:** generic Debian `linux-image-rt-arm64` (breaks downstream dtoverlays and DSI drivers); `preempt=full` boot param (not `PREEMPT_RT`, and `PREEMPT_DYNAMIC` is off on Pi kernels anyway); building from source (only if the packaged RT kernel is close but insufficient).
+
+**Caveats before installing:**
+
+- Labelled **experimental** by Raspberry Pi — not in official docs, but apt-packaged and version-matched.
+- RT trades **throughput for tail latency**. If 768 fails from voice-stealing, RT may lower the voice ceiling further even as jitter improves.
+- **No published measurement** of RT with the `dwc2` UAC2 gadget path — irrelevant for the `standalone` test rig, but matters if you later re-test in `usb-host`.
+- **10.1" Touch Display 2** (`ili79600` overlay) is missing from the RT defconfig; the 5"/7" SmartiPi panels are fine. Confirm `dtoverlay=` in `config.txt` if unsure.
 
 | Step | Action |
 |---|---|
-| B.0 | Re-run `mpe sysinfo` to re-confirm board, kernel, and OS before choosing a kernel |
-| B.1 | Obtain an RT kernel that **keeps** `vc4`/DSI, dtoverlays, and `dwc2` UAC2 gadget working. Install **alongside** the stock kernel, never replacing it |
-| B.2 | Select it via `tryboot.txt` only — not `config.txt` |
-| B.3 | Confirm RT is actually active (`uname -a`) and Surge is actually running at elevated priority — a kernel that boots but doesn't schedule differently proves nothing |
-| B.4 | Re-run the **identical** A.3 protocol @ **1024** — sanity check that RT didn't regress the known-good config |
-| B.5 | Step down: **768**, then **512** — same 10 min protocol, same patches, same pass criteria |
-| B.6 | Reliability soak at the best passing buffer: touch UI, USB hotplug, Wi-Fi scan running |
-| B.7 | Only after a clean soak, promote the RT kernel into `config.txt`. Validation Log: adopted or rejected + lowest buffer that held voices |
-
-B.4 is the step that's easy to skip and shouldn't be — if RT changes behavior at 1024, the step-down results mean something different.
+| B.0 | Re-run `mpe sysinfo`; confirm A.4b outcome justifies continuing |
+| B.1 | `sudo apt install linux-image-rpi-v8-rt` — installs alongside stock kernel as `kernel8_rt.img` |
+| B.2 | Copy `/boot/firmware/config.txt` → `/boot/firmware/tryboot.txt`; add `kernel=kernel8_rt.img` to **tryboot.txt only** |
+| B.3 | Rehearse empty tryboot first (§Rollback), then `sudo reboot '0 tryboot'` |
+| B.4 | Confirm RT active: `uname -a` shows `-rt`; `cat /sys/kernel/realtime` = 1 |
+| B.5 | Re-run A.3 @ **1024** — sanity check RT didn't regress the known-good config |
+| B.6 | Step down: **768**, then **512** — same 10 min protocol, same patches, same pass criteria |
+| B.7 | Reliability soak at the best passing buffer: touch UI, USB hotplug, Wi-Fi scan |
+| B.8 | Only after a clean soak, promote RT kernel into `config.txt`. Validation Log: adopted or rejected + lowest buffer that held voices |
 
 ---
 
@@ -171,6 +191,7 @@ Ordered cheapest-first. Stop at the first arm that passes — there's no prize f
 | Result | Production buffer | Pi software looper |
 |---|---|---|
 | **A0** — under-voltage was the real cause | Retest everything after the PSU fix | Re-ask once the board is stable |
+| **A.4b** — voice-stealing with no xruns, latency ≪ buffer period | Stay **1024** — CPU throughput bound | **Closed** — RT won't help; lighter patches or accept 21 ms |
 | **A½** governor and/or `SCHED_FIFO` holds **512** | Consider 512 (~11 ms), no kernel change | **Reopen** — best case, zero kernel risk |
 | **A½** holds **768** | Consider 768 (~16 ms), no kernel change | **Marginal** — only without a monitored record path |
 | A½ no help, **RT** holds voices @ **512** | Consider 512 (~11 ms) | **Reopen** — architecture spike worth doing |
@@ -219,19 +240,42 @@ Rules for this experiment:
 
 ---
 
+## RT feasibility (research, 2026-08-10)
+
+Web research only — no Pi changes made. Full report from the feasibility pass is linked in [PR #46](https://github.com/MitchSchwartz/MPE-Sound-Module/pull/46#issuecomment-5246232296).
+
+### Resolved
+
+| Question | Answer for this unit |
+|---|---|
+| Is PREEMPT_RT obtainable on trixie? | **Yes** — `sudo apt install linux-image-rpi-v8-rt`, same version stream as stock. Experimental, not documented on raspberrypi.com, but built from the Pi tree. |
+| Generic Debian RT kernel? | **Rejected** — breaks downstream dtoverlays, DSI panel drivers, and Pi 5 isn't mainline-ready anyway. |
+| `preempt=full` without RT? | **Dead end** — not the same as `PREEMPT_RT`; `PREEMPT_DYNAMIC` is off on Pi arm64 kernels, so the boot param is ignored. Stock kernel is already `CONFIG_PREEMPT=y`. |
+| Does RT help Pi audio? | **Mixed.** Academic Pi 4 work shows RT holding 64-sample buffers under load; forum evidence on Pi 5 shows worse tail latency under memory stress. RT compresses scheduling tails but can cost throughput — the wrong trade if voice-stealing is the failure mode. |
+| Pi 4 vs Pi 5 for this test? | **Pi 4 Rev 1.5 confirmed** — `v8` → `v8-rt` is a clean one-variable swap. No `rpi-2712-rt` package exists. |
+
+### Still to check on the live Pi (before Arm B)
+
+| Check | Why |
+|---|---|
+| **A.4b diagnosis** | Distinguish xruns from Surge voice-stealing. If no xruns and scheduling latency ≪ 16 ms, RT is the wrong lever. |
+| **`dtoverlay=` in config.txt** | Only matters if using the 10.1" panel (`ili79600`) — missing from RT defconfig. SmartiPi 5" is `ili9881c`, fine. |
+| **HVS / display load** | Pi engineer note: hardware compositor runs at very high priority and affects latency measurements — continuous touch UI animation during the jam is a confounder RT cannot fix. |
+
+### Cheapest RT test path (if A½ fails and A.4b justifies it)
+
+```bash
+sudo apt install linux-image-rpi-v8-rt
+cp /boot/firmware/config.txt /boot/firmware/tryboot.txt
+# add to tryboot.txt only:  kernel=kernel8_rt.img
+sudo reboot '0 tryboot'    # failed boot → power cycle rolls back to stock
+```
+
+---
+
 ## Open questions
 
-**Resolved** by `mpe sysinfo`: board is Pi 4 Model B Rev 1.5, OS is Debian 13 trixie, kernel 6.18.34 plain `PREEMPT`. `README.md`'s "Pi 5 reference stack" claim does not describe the live unit and should be corrected separately.
-
-Still open, and all of them now gate **Arm B only** — not Arm A0 or A½:
-
-| Question | Why it matters |
-|---|---|
-| **Is PREEMPT_RT obtainable for rpi-6.18 on trixie?** | Raspberry Pi ships no `-rt` flavor. A generic Debian arm64 RT kernel risks breaking `vc4`/DSI, dtoverlays, and the `dwc2` UAC2 gadget — which would take the touch UI and USB audio path with it. If there's no Pi-patched RT kernel, B.1 means *building* one. |
-| **Would enabling `PREEMPT_DYNAMIC` be enough?** | The running kernel is plain `PREEMPT`, so `preempt=full` at boot is not available. Whether an rpt kernel config could enable it more cheaply than full RT is worth knowing — but it is still a kernel rebuild. |
-| **Does RT measurably help Pi audio?** | Need real-world evidence that RT lets people run smaller ALSA periods on Pi 4/5 without xruns, including counter-evidence. Not worth the risk on theory alone. |
-
-Until these are answered, **do not write RT kernel config**. `limits.d` and `SCHED_FIFO` (Arm A½) are explicitly *not* blocked by them — those need no kernel change.
+**None blocking Arm A0, A, or A½.** Arm B is gated on A.4b outcome and A½ exhaustion, not on kernel availability.
 
 ---
 
