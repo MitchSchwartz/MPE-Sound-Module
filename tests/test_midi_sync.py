@@ -18,6 +18,11 @@ class TestMidiSyncConfig(unittest.TestCase):
         self.assertEqual(parse_quantize_grid_ticks("off"), 0)
         self.assertEqual(parse_quantize_grid_ticks("beat"), 24)
 
+    def test_parse_quantize_triplet_modifier(self) -> None:
+        self.assertEqual(parse_quantize_grid_ticks("8th", triplet=True), 8)
+        self.assertEqual(parse_quantize_grid_ticks("16th", triplet=True), 4)
+        self.assertEqual(parse_quantize_grid_ticks("triplet"), 8)
+
     def test_buffer_latency(self) -> None:
         self.assertAlmostEqual(buffer_latency_ms(48000, 48000), 1000.0)
         self.assertAlmostEqual(buffer_latency_ms(1024, 48000), 1000.0 * 1024 / 48000)
@@ -44,6 +49,12 @@ class TestGridTiming(unittest.TestCase):
         snap = {"bpm_raw": 120.0, "transport_ticks": 1, "ticks_in_beat": 1}
         expected = 10.0 + 5 * (0.5 / 24)
         self.assertAlmostEqual(next_grid_monotonic(10.0, snap, 6), expected, places=6)
+
+    def test_next_grid_waits_for_triplet(self) -> None:
+        snap = {"bpm_raw": 120.0, "transport_ticks": 1, "ticks_in_beat": 1}
+        # triplet 8th grid = 8 ticks; at tick 1, wait 7 ticks @ 120 BPM
+        expected = 10.0 + 7 * (0.5 / 24)
+        self.assertAlmostEqual(next_grid_monotonic(10.0, snap, 8), expected, places=6)
 
     def test_plan_fire_at_applies_offset(self) -> None:
         snap = {"synced": False, "running": False}

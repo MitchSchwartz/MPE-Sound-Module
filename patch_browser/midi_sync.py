@@ -21,13 +21,33 @@ QUANTIZE_CHOICES: dict[str, int] = {
 }
 
 
-def parse_quantize_grid_ticks(value: str | None) -> int:
+def triplet_enabled() -> bool:
+    return os.environ.get("MPE_MIDI_QUANTIZE_TRIPLET", "0").strip().lower() in ("1", "true", "yes", "on")
+
+
+def parse_quantize_grid_ticks(value: str | None, *, triplet: bool | None = None) -> int:
     if not value or not str(value).strip():
         return 0
     key = str(value).strip().lower()
     if key in ("0", "false", "no", "none"):
         return 0
-    return QUANTIZE_CHOICES.get(key, QUANTIZE_CHOICES["16th"])
+    # Legacy env: MPE_MIDI_QUANTIZE=triplet → 8th-note triplet grid.
+    if key == "triplet":
+        key = "8th"
+        if triplet is None:
+            triplet = True
+    base = QUANTIZE_CHOICES.get(key, QUANTIZE_CHOICES["16th"])
+    if base <= 0:
+        return 0
+    use_triplet = triplet_enabled() if triplet is None else triplet
+    if use_triplet:
+        return max(1, base * 2 // 3)
+    return base
+
+
+def resolve_quantize_grid_ticks() -> int:
+    """Grid ticks from MPE_MIDI_QUANTIZE + MPE_MIDI_QUANTIZE_TRIPLET."""
+    return parse_quantize_grid_ticks(os.environ.get("MPE_MIDI_QUANTIZE"))
 
 
 def buffer_latency_ms(
