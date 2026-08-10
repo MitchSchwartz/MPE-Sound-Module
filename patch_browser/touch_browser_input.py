@@ -251,10 +251,10 @@ class TouchBrowserInputMixin:
             return "advanced_toggle"
         if self._settings_rect_hit(self.cpu_meter_toggle_rect, local_pos):
             return "cpu_meter"
-        if self._settings_rect_hit(self.looper_hud_toggle_rect, local_pos):
-            return "looper_hud"
         if self._settings_rect_hit(self.looper_sync_row_rect, local_pos):
             return "looper_sync"
+        if self._settings_rect_hit(self.looper_hud_toggle_rect, local_pos):
+            return "looper_hud"
         if self._settings_rect_hit(self.wifi_row_rect, local_pos):
             return "wifi"
         if self._settings_rect_hit(self.theme_btn_rect, local_pos):

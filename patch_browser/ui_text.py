@@ -148,6 +148,33 @@ def blit_text_block(
     return cy - line_spacing if lines else y
 
 
+def settings_detail_lines(*parts: str) -> list[str]:
+    """Stacked subtitle lines for settings drill/chevron rows — one fact per line."""
+    return [str(part).strip() for part in parts if part and str(part).strip()]
+
+
+def settings_detail_height(
+    font: pygame.font.Font,
+    lines: list[str],
+    *,
+    line_spacing: int = 2,
+) -> int:
+    if not lines:
+        return 0
+    return text_block_height(font, len(lines), line_spacing=line_spacing)
+
+
+def normalize_settings_detail(value: str | list[str]) -> list[str]:
+    if isinstance(value, list):
+        return settings_detail_lines(*value)
+    text = str(value).strip()
+    if not text:
+        return []
+    if " · " in text:
+        return settings_detail_lines(*text.split(" · "))
+    return [text]
+
+
 def draw_wrapped_text_in_rect(
     surface: pygame.Surface,
     font: pygame.font.Font,

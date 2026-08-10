@@ -8,8 +8,9 @@ from patch_browser.audio_profile import profile_settings_label
 from patch_browser.draw_primitives import draw_chevron
 from patch_browser.geometry import Rect
 from patch_browser.scroll_widgets import draw_vertical_scroll_edge_hints
-from patch_browser.midi_sync_settings import settings_summary
+from patch_browser.midi_sync_settings import settings_summary_lines
 from patch_browser.surge_audio import (
+    buffer_option_label,
     current_buffer_size,
     current_sample_rate,
     sample_rate_option_label,
@@ -23,7 +24,14 @@ from patch_browser.touch_ui_constants import (
     SETTINGS_SECTION_GAP,
     SETTINGS_SECTION_HEADER_H,
 )
-from patch_browser.ui_text import draw_wrapped_text_in_rect, wrapped_row_height
+from patch_browser.ui_text import (
+    blit_text_block,
+    draw_wrapped_text_in_rect,
+    normalize_settings_detail,
+    settings_detail_height,
+    settings_detail_lines,
+    wrapped_row_height,
+)
 
 
 class TouchBrowserSettingsMixin:
@@ -33,17 +41,19 @@ class TouchBrowserSettingsMixin:
         self._settings_view = "root"
         self._settings_advanced_open = False
 
-    def _audio_settings_summary(self) -> str:
-        profile = profile_settings_label()
-        rate = sample_rate_option_label(current_sample_rate())
-        return f"{profile} · {current_buffer_size()} · {rate}"
+    def _audio_settings_summary_lines(self) -> list[str]:
+        return settings_detail_lines(
+            profile_settings_label(),
+            buffer_option_label(current_buffer_size(), current_sample_rate()),
+            sample_rate_option_label(current_sample_rate()),
+        )
 
-    def _settings_drill_row_height(self, label: str, subtitle: str, inner_w: int) -> int:
+    def _settings_drill_row_height(self, label: str, subtitle: str | list[str], inner_w: int) -> int:
         label_w = max(1, inner_w - 16 - 34)
-        sub_w = max(1, inner_w - 32)
+        detail_lines = normalize_settings_detail(subtitle)
         label_h = wrapped_row_height(self.font_md, label, label_w)
-        sub_h = wrapped_row_height(self.font_sm, subtitle, sub_w)
-        content = 12 + label_h + SETTINGS_DRILL_SUBTITLE_GAP + sub_h + 12
+        sub_h = settings_detail_height(self.font_sm, detail_lines, line_spacing=SETTINGS_DRILL_SUBTITLE_GAP)
+        content = 12 + label_h + (SETTINGS_DRILL_SUBTITLE_GAP if detail_lines else 0) + sub_h + 12
         return max(SETTINGS_ROW_H, content)
 
     def _settings_chevron_row_height(
@@ -74,8 +84,7 @@ class TouchBrowserSettingsMixin:
         self._settings_section_headers = []
 
         y = self._layout_settings_section_header(pad, inner_w, y, "Sound")
-        audio_summary = self._audio_settings_summary()
-        audio_h = self._settings_drill_row_height("Audio", audio_summary, inner_w)
+        audio_h = self._settings_drill_row_height("Audio", self._audio_settings_summary_lines(), inner_w)
         self.settings_audio_drill_rect = Rect(pad, y, inner_w, audio_h)
         y += audio_h + SETTINGS_ROW_GAP
 
@@ -97,12 +106,19 @@ class TouchBrowserSettingsMixin:
         self.wifi_row_rect = Rect(pad, y, inner_w, wifi_h)
         y += wifi_h + SETTINGS_ROW_GAP
 
+        y = self._layout_settings_section_header(pad, inner_w, y, "Looper")
+        sync_h = self._settings_drill_row_height("Sync & timing", settings_summary_lines(), inner_w)
+        self.looper_sync_row_rect = Rect(pad, y, inner_w, sync_h)
+        y += sync_h + SETTINGS_ROW_GAP
+
+        tempo_h = self._settings_row_height("Show tempo badge", inner_w, toggle=True)
+        self.looper_hud_toggle_rect = Rect(pad, y, inner_w, tempo_h)
+        y += tempo_h + SETTINGS_ROW_GAP
+
         self.settings_advanced_header_rect = Rect(pad, y, inner_w, SETTINGS_ROW_H)
         y += SETTINGS_ROW_H + SETTINGS_ROW_GAP
 
         self.cpu_meter_toggle_rect = Rect(pad, y, 0, 0)
-        self.looper_hud_toggle_rect = Rect(pad, y, 0, 0)
-        self.looper_sync_row_rect = Rect(pad, y, 0, 0)
         self.norm_global_toggle_rect = Rect(pad, y, 0, 0)
         self._surge_restart_btn = None
         self._calibrate_missing_btn = Rect(pad, y, 0, 0)
@@ -112,15 +128,6 @@ class TouchBrowserSettingsMixin:
             cpu_h = self._settings_row_height("CPU meter", inner_w, toggle=True)
             self.cpu_meter_toggle_rect = Rect(pad, y, inner_w, cpu_h)
             y += cpu_h + SETTINGS_ROW_GAP
-
-            looper_h = self._settings_row_height("Looper tempo", inner_w, toggle=True)
-            self.looper_hud_toggle_rect = Rect(pad, y, inner_w, looper_h)
-            y += looper_h + SETTINGS_ROW_GAP
-
-            sync_sub = settings_summary()
-            sync_h = self._settings_drill_row_height("Looper sync", sync_sub, inner_w)
-            self.looper_sync_row_rect = Rect(pad, y, inner_w, sync_h)
-            y += sync_h + SETTINGS_ROW_GAP
 
             status = self.surge_monitor.get_status_summary()
             if status.get("can_restart"):
@@ -221,7 +228,7 @@ class TouchBrowserSettingsMixin:
         self,
         rect: Rect,
         label: str,
-        subtitle: str,
+        subtitle: str | list[str],
         *,
         muted: bool = False,
         pressed: bool = False,
@@ -237,8 +244,17 @@ class TouchBrowserSettingsMixin:
         pygame.draw.rect(self.screen, bg, rect.pygame_rect, border_radius=10)
         label_surf = self.font_md.render(label, True, text_color)
         self.screen.blit(label_surf, (rect.x + 16, rect.y + 12))
-        sub_surf = self.font_sm.render(subtitle, True, sub_color)
-        self.screen.blit(sub_surf, (rect.x + 16, rect.y + 12 + label_surf.get_height() + SETTINGS_DRILL_SUBTITLE_GAP))
+        detail_lines = normalize_settings_detail(subtitle)
+        if detail_lines:
+            blit_text_block(
+                self.screen,
+                self.font_sm,
+                detail_lines,
+                rect.x + 16,
+                rect.y + 12 + label_surf.get_height() + SETTINGS_DRILL_SUBTITLE_GAP,
+                sub_color,
+                line_spacing=SETTINGS_DRILL_SUBTITLE_GAP,
+            )
         chevron_rect = Rect(rect.right - 34, rect.y + (rect.h - 22) // 2, 22, 22)
         draw_chevron(self.screen, chevron_rect, sub_color if pressed else self.theme.muted, direction="right")
 
@@ -267,7 +283,7 @@ class TouchBrowserSettingsMixin:
         self,
         rect: Rect,
         label: str,
-        value: str | None = None,
+        value: str | list[str] | None = None,
         *,
         muted: bool = False,
         pressed: bool = False,
@@ -284,21 +300,17 @@ class TouchBrowserSettingsMixin:
             value_color = self.theme.muted
         pygame.draw.rect(self.screen, bg, rect.pygame_rect, border_radius=10)
         label_surf = self.font_md.render(label, True, text_color)
-        if value:
+        detail_lines = normalize_settings_detail(value) if value else []
+        if detail_lines:
             self.screen.blit(label_surf, (rect.x + 16, rect.y + 12))
-            value_y = rect.y + 12 + label_surf.get_height() + SETTINGS_DRILL_SUBTITLE_GAP
-            value_w = max(1, rect.w - 32)
-            value_h = max(1, rect.bottom - 12 - value_y)
-            draw_wrapped_text_in_rect(
+            blit_text_block(
                 self.screen,
                 self.font_sm,
-                value,
+                detail_lines,
                 rect.x + 16,
-                value_y,
-                value_w,
-                value_h,
+                rect.y + 12 + label_surf.get_height() + SETTINGS_DRILL_SUBTITLE_GAP,
                 value_color,
-                max_lines=2,
+                line_spacing=SETTINGS_DRILL_SUBTITLE_GAP,
             )
         else:
             self.screen.blit(
@@ -438,7 +450,7 @@ class TouchBrowserSettingsMixin:
             self._draw_settings_drill_row(
                 audio_row,
                 "Audio",
-                self._audio_settings_summary(),
+                self._audio_settings_summary_lines(),
                 pressed=self._pressed("settings:audio_drill"),
             )
 
@@ -466,6 +478,22 @@ class TouchBrowserSettingsMixin:
                 pressed=self._pressed("settings:wifi"),
             )
 
+            looper_sync_row = self._panel_local_to_screen(self.looper_sync_row_rect, scrolled=True)
+            self._draw_settings_drill_row(
+                looper_sync_row,
+                "Sync & timing",
+                settings_summary_lines(),
+                pressed=self._pressed("settings:looper_sync"),
+            )
+
+            looper_toggle = self._panel_local_to_screen(self.looper_hud_toggle_rect, scrolled=True)
+            self._draw_normalize_toggle(
+                looper_toggle,
+                getattr(self, "show_looper_hud", True),
+                has_gain=True,
+                label="Show tempo badge",
+            )
+
             advanced_row = self._panel_local_to_screen(
                 self.settings_advanced_header_rect,
                 scrolled=True,
@@ -485,28 +513,6 @@ class TouchBrowserSettingsMixin:
                         self.show_cpu_meter,
                         has_gain=True,
                         label="CPU meter",
-                    )
-
-                looper_toggle = self._panel_local_to_screen(
-                    self.looper_hud_toggle_rect, scrolled=True
-                )
-                if looper_toggle.h > 0:
-                    self._draw_normalize_toggle(
-                        looper_toggle,
-                        getattr(self, "show_looper_hud", True),
-                        has_gain=True,
-                        label="Looper tempo",
-                    )
-
-                looper_sync_row = self._panel_local_to_screen(
-                    self.looper_sync_row_rect, scrolled=True
-                )
-                if looper_sync_row.h > 0:
-                    self._draw_settings_drill_row(
-                        looper_sync_row,
-                        "Looper sync",
-                        settings_summary(),
-                        pressed=self._pressed("settings:looper_sync"),
                     )
 
                 if self._surge_restart_btn and self._surge_restart_btn.h > 0:

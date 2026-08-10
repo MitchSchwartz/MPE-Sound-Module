@@ -35,7 +35,7 @@ from patch_browser.touch_ui_constants import (
     SETTINGS_ROW_H,
 )
 from patch_browser.audio_profile import header_badge_label
-from patch_browser.midi_clock import looper_hud_label
+from patch_browser.midi_clock import looper_hud_label, looper_hud_should_show
 from patch_browser.touch_ui_enums import (
     CalibrateMode,
     LeftNavMode,
@@ -392,18 +392,16 @@ class TouchBrowserDrawMixin:
         if rect.w <= 0:
             return
         snap = self.looper_monitor.snapshot()
+        if not looper_hud_should_show(snap, user_enabled=getattr(self, "show_looper_hud", True)):
+            return
         label = looper_hud_label(snap)
         running = bool(snap.get("running"))
-        synced = bool(snap.get("synced"))
-        daemon = bool(snap.get("daemon_online"))
 
         fill = self.theme.surface_alt
         if running:
             text_color = self.theme.accent
-        elif synced or daemon:
-            text_color = self.theme.text
         else:
-            text_color = self.theme.muted
+            text_color = self.theme.text
 
         pygame.draw.rect(self.screen, fill, rect.pygame_rect, border_radius=8)
 
@@ -414,14 +412,15 @@ class TouchBrowserDrawMixin:
             pygame.draw.circle(self.screen, self.theme.accent, (dot_x + 3, dot_y), 4)
             text_x = dot_x + 12
 
-        badge = self.font_sm.render(label, True, text_color)
-        self.screen.blit(
-            badge,
-            (
-                text_x + max(0, (rect.w - (text_x - rect.x) - badge.get_width()) // 2),
-                rect.y + (rect.h - badge.get_height()) // 2,
-            ),
-        )
+        if label:
+            badge = self.font_sm.render(label, True, text_color)
+            self.screen.blit(
+                badge,
+                (
+                    text_x + max(0, (rect.w - (text_x - rect.x) - badge.get_width()) // 2),
+                    rect.y + (rect.h - badge.get_height()) // 2,
+                ),
+            )
 
     def _draw_audio_profile_badge(self, rect: Rect) -> None:
         label = header_badge_label()
@@ -480,7 +479,13 @@ class TouchBrowserDrawMixin:
             self._draw_looper_hud(self.looper_hud_rect)
         if self.show_cpu_meter:
             self._draw_cpu_meter(self.cpu_meter_rect)
-        self._draw_button(self.system_settings_btn, "...", small=True, muted=True)
+        self._draw_button(
+            self.system_settings_btn,
+            "⋯",
+            small=True,
+            muted=True,
+            pressed=self._pressed("header:settings"),
+        )
         self._draw_hairline(
             self.status_rect.bottom - 1,
             self.status_rect.x + 12,

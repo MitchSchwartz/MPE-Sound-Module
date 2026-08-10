@@ -319,12 +319,20 @@ def read_clock_state(
     }
 
 
+def looper_hud_should_show(snapshot: dict, *, user_enabled: bool = True) -> bool:
+    """Header badge only when the pedal is connected and tempo is meaningful."""
+    if not user_enabled:
+        return False
+    if not snapshot.get("connected"):
+        return False
+    if snapshot.get("running") and snapshot.get("bpm") is not None:
+        return True
+    return snapshot.get("bpm") is not None
+
+
 def looper_hud_label(snapshot: dict) -> str:
     """Compact header label for the touch looper HUD."""
-    if not snapshot.get("daemon_online"):
-        return "LOOP"
-    if snapshot.get("bpm") is not None:
-        return str(int(snapshot["bpm"]))
-    if snapshot.get("connected"):
-        return "LOOP"
-    return "LOOP"
+    bpm = snapshot.get("bpm")
+    if bpm is not None:
+        return str(int(bpm))
+    return ""
