@@ -17,7 +17,8 @@ class SurgeAudioTests(unittest.TestCase):
         self.assertEqual(surge_audio.next_buffer_preset(2048), 32)
 
     def test_sample_rate_toggles(self) -> None:
-        self.assertEqual(surge_audio.next_sample_rate(48000), 44100)
+        self.assertEqual(surge_audio.next_sample_rate(48000), 96000)
+        self.assertEqual(surge_audio.next_sample_rate(96000), 44100)
         self.assertEqual(surge_audio.next_sample_rate(44100), 48000)
 
     def test_buffer_latency_ms(self) -> None:
@@ -37,7 +38,9 @@ class SurgeAudioTests(unittest.TestCase):
 
     def test_option_labels(self) -> None:
         self.assertEqual(surge_audio.buffer_option_label(768, 48000), "768 · 16 ms")
+        self.assertEqual(surge_audio.buffer_option_label(1024, 96000), "1024 · 11 ms")
         self.assertEqual(surge_audio.sample_rate_option_label(44100), "44.1 kHz")
+        self.assertEqual(surge_audio.sample_rate_option_label(96000), "96 kHz")
 
     @mock.patch("patch_browser.surge_audio.subprocess.run")
     def test_apply_buffer_success(self, run_mock: mock.Mock) -> None:
