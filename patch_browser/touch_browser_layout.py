@@ -9,6 +9,7 @@ from patch_browser.scroll_widgets import ScrollList
 from patch_browser.touch_ui_constants import (
     ALL_PATCHES_ROW_HEIGHT,
     AUDIO_BADGE_PAD_X,
+    LOOPER_HUD_PAD_X,
     AZ_RAIL_WIDTH,
     BROWSER_BOTTOM_MARGIN,
     CPU_METER_BAR_W,
@@ -76,6 +77,11 @@ class TouchBrowserLayoutMixin:
         label_w = self.font_sm.size(header_badge_label())[0]
         return label_w + AUDIO_BADGE_PAD_X * 2
 
+    def _looper_hud_width(self) -> int:
+        label_w = self.font_sm.size("128")[0]
+        dot_w = 8
+        return label_w + dot_w + LOOPER_HUD_PAD_X * 2 + 4
+
     def _layout(self) -> None:
         margin = 16
         gap = 10
@@ -99,6 +105,18 @@ class TouchBrowserLayoutMixin:
             right_cursor -= STATUS_BAR_ITEM_GAP
         else:
             self.cpu_meter_rect = Rect(right_cursor, self.status_rect.y + 6, 0, 0)
+        if getattr(self, "show_looper_hud", True):
+            looper_w = self._looper_hud_width()
+            right_cursor -= looper_w
+            self.looper_hud_rect = Rect(
+                right_cursor,
+                self.status_rect.y + 10,
+                looper_w,
+                24,
+            )
+            right_cursor -= STATUS_BAR_ITEM_GAP
+        else:
+            self.looper_hud_rect = Rect(right_cursor, self.status_rect.y + 10, 0, 0)
         audio_badge_w = self._audio_badge_width()
         right_cursor -= audio_badge_w
         self.audio_profile_badge_rect = Rect(

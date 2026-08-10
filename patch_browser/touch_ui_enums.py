@@ -14,6 +14,7 @@ class Screen(Enum):
     POWER_CONFIRM = auto()
     SURGE_BUFFER_MODAL = auto()
     SURGE_SAMPLE_RATE_MODAL = auto()
+    AUDIO_PROFILE_MODAL = auto()
     BRIGHTNESS_MODAL = auto()
     WIFI_MODAL = auto()
     CONTEXT_MENU = auto()
@@ -34,6 +35,6 @@ class LeftNavMode(Enum):
 
 
 def audio_profile_display() -> str:
-    from patch_browser.audio_profile import settings_toggle_label
+    from patch_browser.audio_profile import profile_settings_label
 
-    return settings_toggle_label()
+    return profile_settings_label()

@@ -1,0 +1,20 @@
+[Unit]
+Description=Sound Blaster mic to UAC2 gadget (session record to host)
+After=sound.target usb-audio-gadget.service
+PartOf=uac2-stall-watchdog.service
+
+[Service]
+Type=simple
+User=@MPE_PI_USER@
+WorkingDirectory=@MPE_MODULE_REPO@
+EnvironmentFile=-/etc/mpe/mpe.env
+ExecStart=@MPE_MODULE_REPO@/scripts/mic-to-uac2-bridge.sh
+Restart=on-failure
+RestartSec=1
+TimeoutStopSec=3
+KillMode=mixed
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

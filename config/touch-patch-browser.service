@@ -9,6 +9,7 @@ Type=simple
 User=@MPE_PI_USER@
 WorkingDirectory=@MPE_MODULE_REPO@
 EnvironmentFile=-/etc/mpe/mpe.env
+EnvironmentFile=-/tmp/mpe-screen-record.env
 Environment=SDL_VIDEODRIVER=kmsdrm
 Environment=SDL_MOUSE_TOUCH_EVENTS=1
 ExecStartPre=@MPE_MODULE_REPO@/scripts/prepare-dsi-display.sh

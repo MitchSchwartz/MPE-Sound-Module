@@ -846,6 +846,7 @@ class ScrollableActionList:
         font_sm: pygame.font.Font,
         theme,
         draw_elevated_panel,
+        selected_action_id: str | None = None,
     ) -> None:
         draw_elevated_panel(self.panel, border_radius=16)
         title_s = font_md.render(title, True, theme.text)
@@ -869,6 +870,11 @@ class ScrollableActionList:
                 surface.blit(surf, (screen_rect.x + 4, screen_rect.y + 6))
                 continue
             pressed = row.action_id == self.pressed_action_id
+            selected = (
+                not pressed
+                and selected_action_id is not None
+                and row.action_id == selected_action_id
+            )
             if pressed:
                 bg = theme.accent
                 color = theme.bg
@@ -876,6 +882,14 @@ class ScrollableActionList:
                 bg = theme.surface_alt
                 color = theme.danger if row.action_id in DANGER_ACTION_IDS else theme.text
             pygame.draw.rect(surface, bg, screen_rect.pygame_rect, border_radius=10)
+            if selected:
+                pygame.draw.rect(
+                    surface,
+                    theme.accent,
+                    screen_rect.pygame_rect,
+                    width=2,
+                    border_radius=10,
+                )
             surf = font_md.render(row.label, True, color)
             ty = screen_rect.y + (screen_rect.h - surf.get_height()) // 2
             surface.blit(surf, (screen_rect.x + 14, ty))

@@ -46,6 +46,8 @@ assert_persist "" 1
 
 assert_bind usb-host 0 1
 assert_bind usb-host 1 1
+assert_bind usb-host-session 0 1
+assert_bind usb-host-session 1 1
 assert_bind standalone 1 1
 assert_bind standalone 0 0
 

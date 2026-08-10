@@ -31,7 +31,7 @@ usage() {
 
 profile_is_usb_host() {
     case "${MPE_AUDIO_PROFILE:-standalone}" in
-        usb-host) return 0 ;;
+        usb-host | usb-host-session) return 0 ;;
         *) return 1 ;;
     esac
 }

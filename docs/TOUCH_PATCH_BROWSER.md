@@ -96,6 +96,30 @@ journalctl -u touch-patch-browser -n 50
 
 On Trixie (and recent Pi OS releases), your `config.txt` may need the vendor overlay for your specific panel (DSI) or HDMI `config.txt` timings. For sysfs brightness, add `dtoverlay=rpi-backlight` when supported. **HDMI 5" kits** sometimes have no software backlight — the slider will show unavailable; use the panel's physical control if present.
 
+## Screen recording for demos
+
+Camera recording of the panel picks up glare. The touch UI runs on **pygame kmsdrm** (not `/dev/fb0` — that is the Linux text console).
+
+**On the Pi** (one-time: `sudo apt install -y ffmpeg`):
+
+```bash
+cd ~/MPE-Module
+./scripts/record-screen.sh              # → ~/mpe-demo-<timestamp>.mkv
+./scripts/record-screen.sh ~/Videos/x.mkv 24   # custom path + 24fps
+```
+
+Use the touch screen normally. **Ctrl+C** stops recording and restarts the browser without the record hook.
+
+Pull the file (quote the remote glob in zsh):
+
+```bash
+scp 'mitch@raspberrypi.local:~/mpe-demo-*.mkv' ~/Videos/
+```
+
+Convert to mp4 if needed: `ffmpeg -i in.mkv -c copy out.mp4`
+
+Implementation: `record-screen.sh` starts ffmpeg on a named pipe; the browser pipes RGB24 frames after each `display.flip()` when `/tmp/mpe-screen-record.env` is present. Does not capture the physical finger — only pixels on screen.
+
 ## Brightness
 
 Controlled via Linux backlight sysfs:
@@ -480,6 +504,28 @@ python3 scripts/migrate-favorites-v2.py --apply --backup-dir ~/qa-migration-back
 ```
 
 **Rollback:** if you used `--backup-dir`, restore the backed-up Quick Access tree and `~/.patch_browser_favorites.json` from that directory.
+
+### Backup and restore (curated Quick Select)
+
+Favorites are **hours of curation** — never bulk-delete root copies without a snapshot. Prefer restore from backup over destructive cleanup scripts.
+
+| Action | Command |
+|--------|---------|
+| **Snapshot on Pi** (before risky changes) | `python3 scripts/backup-quick-select.py` → `~/.patch_browser_favorites_backups/` |
+| **Pull to assets repo (git)** | `bash scripts/backup-quick-select.sh` → `MPE-Library/assets/user-data/quick-select/snapshots/` |
+| **Restore from snapshot** | `python3 scripts/restore-quick-select.py /path/to/snapshot --rebuild-index` |
+| **Surge folder backup** | e.g. `~/.Surge Synth Team/Surge XT/Patches.backup.*/Quick Select` — pass that path to `restore-quick-select.py` |
+
+Restore always writes a **pre-restore snapshot** of the live tree + index unless you pass `--no-backup`. Bulk “Add all to Quick Select” auto-snapshots before copying.
+
+After `backup-quick-select.sh`, commit in **MPE-Library**:
+
+```bash
+cd ../MPE-Library
+git add assets/user-data/quick-select/
+git commit -m "Quick Select backup YYYY-MM-DD"
+git push
+```
 
 ### Migrate legacy Liked/ → Quick Select root
 
