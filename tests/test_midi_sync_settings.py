@@ -19,7 +19,14 @@ class TestMidiSyncSettings(unittest.TestCase):
         with mock.patch.object(mss, "current_quantize", return_value="16th"):
             with mock.patch.object(mss, "current_offset_auto", return_value=True):
                 with mock.patch.object(mss, "offset_summary", return_value="Auto (−21 ms)"):
-                    self.assertEqual(mss.settings_summary(), "16th note · Auto (−21 ms)")
+                    self.assertEqual(
+                        mss.settings_summary(),
+                        "Quantize: 16th note · Auto (−21 ms)",
+                    )
+                    self.assertEqual(
+                        mss.settings_summary_lines(),
+                        ["Quantize: 16th note", "Auto (−21 ms)"],
+                    )
 
     def test_read_str_from_env_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
