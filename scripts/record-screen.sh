@@ -53,8 +53,17 @@ fi
 cleanup() {
     local code=$?
     stop_browser_recorder
+    sleep 0.3
     if [ -n "$FFPID" ] && kill -0 "$FFPID" 2>/dev/null; then
         kill -INT "$FFPID" 2>/dev/null || true
+        local i=0
+        while kill -0 "$FFPID" 2>/dev/null && [ "$i" -lt 20 ]; do
+            sleep 0.25
+            i=$((i + 1))
+        done
+        if kill -0 "$FFPID" 2>/dev/null; then
+            kill -KILL "$FFPID" 2>/dev/null || true
+        fi
         wait "$FFPID" 2>/dev/null || true
     fi
     rm -f "$ENV_FILE" "$PIPE" 2>/dev/null || true

@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import errno
 import os
+import queue
 import sys
+import threading
 import time
 from typing import TYPE_CHECKING
 
@@ -13,6 +15,8 @@ if TYPE_CHECKING:
 
 DEFAULT_ENV_FILE = "/tmp/mpe-screen-record.env"
 DEFAULT_PIPE = "/tmp/mpe-screen-record.pipe"
+_FRAME_QUEUE_MAX = 2
+_STOP = object()
 
 
 def _env_flag(name: str) -> bool:
@@ -66,6 +70,10 @@ class ScreenRecorder:
         self._last_frame_at = 0.0
         self._fd: int | None = None
         self._disabled_reason: str | None = None
+        self._frame_queue: queue.Queue[bytes | object] = queue.Queue(maxsize=_FRAME_QUEUE_MAX)
+        self._writer_thread = threading.Thread(target=self._writer_loop, name="mpe-screen-record", daemon=True)
+        self._writer_started = False
+        self._writer_lock = threading.Lock()
 
     @classmethod
     def from_env(cls) -> ScreenRecorder | None:
@@ -106,20 +114,34 @@ class ScreenRecorder:
         return self._enabled and self._disabled_reason is None
 
     def close(self) -> None:
-        if self._fd is not None:
+        self._enabled = False
+        if self._writer_started:
             try:
-                os.close(self._fd)
-            except OSError:
-                pass
-            self._fd = None
+                self._frame_queue.put_nowait(_STOP)
+            except queue.Full:
+                try:
+                    self._frame_queue.get_nowait()
+                except queue.Empty:
+                    pass
+                try:
+                    self._frame_queue.put_nowait(_STOP)
+                except queue.Full:
+                    pass
+            self._writer_thread.join(timeout=3.0)
+            self._writer_started = False
+        with self._writer_lock:
+            if self._fd is not None:
+                try:
+                    os.close(self._fd)
+                except OSError:
+                    pass
+                self._fd = None
 
     def write_frame(self, surface: pygame.Surface, *, now: float | None = None) -> None:
         if not self.active:
             return
         ts = time.monotonic() if now is None else now
         if ts - self._last_frame_at < self._frame_interval:
-            return
-        if not self._ensure_open():
             return
         size = surface.get_size()
         if size != (self._width, self._height):
@@ -132,12 +154,39 @@ class ScreenRecorder:
 
         try:
             payload = pygame.image.tostring(surface, "RGB")
-            self._write_all(payload)
+        except pygame.error as exc:
+            self._disable(f"frame capture failed: {exc}")
+            return
+        self._ensure_writer_started()
+        try:
+            self._frame_queue.put_nowait(payload)
             self._last_frame_at = ts
-        except BrokenPipeError:
-            self._disable("ffmpeg reader closed the pipe")
-        except OSError as exc:
-            self._disable(f"pipe write failed: {exc}")
+        except queue.Full:
+            pass
+
+    def _ensure_writer_started(self) -> None:
+        if self._writer_started:
+            return
+        self._writer_thread.start()
+        self._writer_started = True
+
+    def _writer_loop(self) -> None:
+        while True:
+            item = self._frame_queue.get()
+            if item is _STOP:
+                break
+            if not isinstance(item, (bytes, bytearray)):
+                continue
+            if not self._ensure_open():
+                continue
+            try:
+                self._write_all(bytes(item))
+            except BrokenPipeError:
+                self._disable("ffmpeg reader closed the pipe")
+                break
+            except OSError as exc:
+                self._disable(f"pipe write failed: {exc}")
+                break
 
     def _write_all(self, payload: bytes) -> None:
         if self._fd is None:
@@ -156,26 +205,32 @@ class ScreenRecorder:
             view = view[wrote:]
 
     def _ensure_open(self) -> bool:
-        if self._fd is not None:
-            return True
-        try:
-            # Blocking writer — ffmpeg opens the read end before SIGUSR1 enables capture.
-            self._fd = os.open(self._pipe_path, os.O_WRONLY)
-            print(
-                f"Screen record → {self._pipe_path} @ {self._fps}fps "
-                f"({self._width}x{self._height} rgb24)",
-                file=sys.stderr,
-            )
-            return True
-        except OSError as exc:
-            if exc.errno in (errno.ENXIO, errno.ENOENT):
+        with self._writer_lock:
+            if self._fd is not None:
+                return True
+            try:
+                self._fd = os.open(self._pipe_path, os.O_WRONLY)
+                print(
+                    f"Screen record → {self._pipe_path} @ {self._fps}fps "
+                    f"({self._width}x{self._height} rgb24)",
+                    file=sys.stderr,
+                )
+                return True
+            except OSError as exc:
+                if exc.errno in (errno.ENXIO, errno.ENOENT):
+                    return False
+                self._disable(f"cannot open {self._pipe_path}: {exc}")
                 return False
-            self._disable(f"cannot open {self._pipe_path}: {exc}")
-            return False
 
     def _disable(self, reason: str) -> None:
         if self._disabled_reason is None:
             print(f"Screen record stopped: {reason}", file=sys.stderr)
         self._disabled_reason = reason
-        self.close()
         self._enabled = False
+        with self._writer_lock:
+            if self._fd is not None:
+                try:
+                    os.close(self._fd)
+                except OSError:
+                    pass
+                self._fd = None

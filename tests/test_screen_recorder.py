@@ -9,7 +9,7 @@ import threading
 import unittest
 from unittest import mock
 
-from patch_browser.screen_recorder import ScreenRecorder
+from patch_browser.screen_recorder import ScreenRecorder, _FRAME_QUEUE_MAX
 
 
 class _FakeSurface:
@@ -49,17 +49,15 @@ class ScreenRecorderTests(unittest.TestCase):
             width=800,
             height=480,
         )
-        rec._fd = 999
         rec._last_frame_at = -1.0
         surface = _FakeSurface((800, 480))
         with mock.patch.dict(sys.modules, {"pygame": mock.MagicMock()}):
             fake_pygame = sys.modules["pygame"]
             fake_pygame.image.tostring.return_value = b"x" * (800 * 480 * 3)
-            with mock.patch("os.write", return_value=800 * 480 * 3) as write_mock:
-                rec.write_frame(surface, now=0.0)
-                rec.write_frame(surface, now=0.01)
-                self.assertEqual(write_mock.call_count, 1)
-                fake_pygame.image.tostring.assert_called_once()
+            rec.write_frame(surface, now=0.0)
+            rec.write_frame(surface, now=0.01)
+            fake_pygame.image.tostring.assert_called_once()
+            self.assertEqual(rec._frame_queue.qsize(), 1)
 
     def test_write_frame_size_mismatch_disables(self) -> None:
         rec = ScreenRecorder(
@@ -69,7 +67,6 @@ class ScreenRecorderTests(unittest.TestCase):
             width=800,
             height=480,
         )
-        rec._fd = 999
         rec._last_frame_at = -1.0
         rec.write_frame(_FakeSurface((640, 480)), now=0.0)
         self.assertFalse(rec.active)
@@ -152,6 +149,24 @@ class ScreenRecorderTests(unittest.TestCase):
             with mock.patch("time.sleep"):
                 rec._write_all(payload)
         self.assertTrue(rec.active)
+
+    def test_write_frame_does_not_block_on_full_queue(self) -> None:
+        rec = ScreenRecorder(
+            enabled=True,
+            pipe_path="/tmp/nope",
+            fps=30,
+            width=800,
+            height=480,
+        )
+        rec._writer_started = True
+        rec._last_frame_at = -1.0
+        for _ in range(_FRAME_QUEUE_MAX):
+            rec._frame_queue.put_nowait(b"x")
+        surface = _FakeSurface((800, 480))
+        with mock.patch.dict(sys.modules, {"pygame": mock.MagicMock()}):
+            sys.modules["pygame"].image.tostring.return_value = b"y" * 12
+            rec.write_frame(surface, now=0.0)
+        self.assertEqual(rec._frame_queue.qsize(), _FRAME_QUEUE_MAX)
 
 
 if __name__ == "__main__":
