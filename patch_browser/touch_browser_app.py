@@ -399,6 +399,11 @@ class TouchPatchBrowser(
                 if scroll is not None:
                     scroll.tick_edge_hints(dt)
                     scroll.tick(dt)
+            if self.screen_state == Screen.MIDI_SYNC_MODAL:
+                scroll = getattr(self, "_midi_sync_scroll", None)
+                if scroll is not None:
+                    scroll.tick_edge_hints(dt)
+                    scroll.tick(dt)
             if self.screen_state == Screen.BROWSER and not self.left_nav_collapsed:
                 self.nav_list.tick(dt)
                 self._tick_long_press()

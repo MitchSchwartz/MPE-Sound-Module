@@ -792,6 +792,8 @@ class TouchBrowserInputMixin:
                 self._handle_wifi_modal_pointer_move(event.pos)
             elif self.screen_state == Screen.SURGE_BUFFER_MODAL:
                 self._handle_surge_buffer_modal_pointer_move(event.pos)
+            elif self.screen_state == Screen.MIDI_SYNC_MODAL:
+                self._handle_midi_sync_modal_pointer_move(event.pos)
             elif self.screen_state == Screen.BRIGHTNESS_MODAL:
                 self._handle_brightness_modal_pointer_move(event.pos)
             self._handle_mixer_motion(event.pos)
