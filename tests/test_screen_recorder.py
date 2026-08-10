@@ -55,7 +55,7 @@ class ScreenRecorderTests(unittest.TestCase):
         with mock.patch.dict(sys.modules, {"pygame": mock.MagicMock()}):
             fake_pygame = sys.modules["pygame"]
             fake_pygame.image.tostring.return_value = b"x" * (800 * 480 * 3)
-            with mock.patch("os.write") as write_mock:
+            with mock.patch("os.write", return_value=800 * 480 * 3) as write_mock:
                 rec.write_frame(surface, now=0.0)
                 rec.write_frame(surface, now=0.01)
                 self.assertEqual(write_mock.call_count, 1)
@@ -121,6 +121,37 @@ class ScreenRecorderTests(unittest.TestCase):
             with mock.patch("os.open", side_effect=OSError(errno.ENXIO, "no reader")):
                 self.assertFalse(rec._ensure_open())
             self.assertTrue(rec.active)
+
+    def test_from_env_file(self) -> None:
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "mpe-screen-record.env")
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write(
+                    "MPE_SCREEN_RECORD=1\n"
+                    "MPE_SCREEN_RECORD_PIPE=/tmp/x.pipe\n"
+                    "MPE_SCREEN_RECORD_FPS=15\n"
+                )
+            rec = ScreenRecorder.from_env_file(path)
+            self.assertIsNotNone(rec)
+            assert rec is not None
+            self.assertEqual(rec._fps, 15)
+
+    def test_write_all_retries_eagain(self) -> None:
+        rec = ScreenRecorder(
+            enabled=True,
+            pipe_path="/tmp/nope",
+            fps=30,
+            width=800,
+            height=480,
+        )
+        rec._fd = 42
+        payload = b"abc"
+        with mock.patch("os.write", side_effect=[OSError(errno.EAGAIN, "try again"), 3]):
+            with mock.patch("time.sleep"):
+                rec._write_all(payload)
+        self.assertTrue(rec.active)
 
 
 if __name__ == "__main__":
