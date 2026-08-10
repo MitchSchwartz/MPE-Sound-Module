@@ -71,12 +71,15 @@ Use **Pi as master** (`midi-clock-out`) when you want a **fixed BPM before** you
 |----------|---------|---------|
 | `MPE_MIDI_OUTPUT_OFFSET_AUTO` | `1` | Derive offset from `MPE_SURGE_BUFFER_SIZE` / sample rate (negative ms) |
 | `MPE_MIDI_OUTPUT_OFFSET_MS` | *(auto)* | Manual override; negative = advance |
-| `MPE_MIDI_QUANTIZE` | `off` | `beat`, `8th`, `16th`, `32nd`, or `off` |
-| `MPE_MIDI_CLOCK_THROUGH` | `1` | Forward realtime clock bytes to Surge |
+| `MPE_MIDI_QUANTIZE` | `off` | `beat` (quarter note), `8th`, `16th`, `32nd`, or `off` |
+| `MPE_MIDI_QUANTIZE_TRIPLET` | `0` | When `1`, shrink grid to triplet feel (3 notes per 2 beats) |
+| `MPE_MIDI_CLOCK_THROUGH` | `1` | *(Advanced)* Forward Roli realtime clock bytes to Surge — not RC-5 clock |
 
 Requires `midi-clock-in` running and RC-5 sending clock for quantize to engage. When unsynced, notes pass through immediately (offset still applies).
 
-**Touch UI:** System settings → Advanced → **Looper sync** — quantize grid, auto buffer offset, and clock-through toggles. Changes persist in `/etc/mpe/mpe.env` and restart `mpe-pressure-remap.service`.
+**Touch UI:** System settings → **Looper → Sync & timing** — quantize subdivision, triplet toggle, and auto buffer offset. Changes persist in `/etc/mpe/mpe.env` and restart `mpe-pressure-remap.service`.
+
+**Clock direction (receive vs send):** default is **receive** from RC-5 (`midi-clock-in`). **Send clock** (`midi-clock-out`, Pi as master) is env/service only for now — see [#42](https://github.com/MitchSchwartz/MPE-Sound-Module/issues/42).
 
 ## Related
 

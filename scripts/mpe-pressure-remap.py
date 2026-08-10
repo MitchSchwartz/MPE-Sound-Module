@@ -19,10 +19,10 @@ from patch_browser.midi_sync import (  # noqa: E402
     clock_through_enabled,
     is_note_on,
     is_realtime_clock_byte,
-    parse_quantize_grid_ticks,
     plan_fire_at,
     prepare_incoming,
     resolve_output_offset_ms,
+    resolve_quantize_grid_ticks,
     should_schedule,
 )
 from patch_browser.patch_pressure import PatchPressureStore  # noqa: E402
@@ -50,7 +50,7 @@ class PressureRemapDaemon:
         self._scheduled: list[tuple[float, int, list[int]]] = []
         self._schedule_seq = 0
         self._offset_ms = resolve_output_offset_ms()
-        self._grid_ticks = parse_quantize_grid_ticks(os.environ.get("MPE_MIDI_QUANTIZE"))
+        self._grid_ticks = resolve_quantize_grid_ticks()
         self._clock_snap = read_clock_state()
         self._next_clock_refresh = 0.0
         self._pass_clock = clock_through_enabled()
