@@ -39,9 +39,11 @@ from patch_browser.touch_ui_constants import (
     SETTINGS_ROW_H,
     SETTINGS_TOGGLE_W,
     STATUS_BAR_ITEM_GAP,
+    STATUS_SETTINGS_BTN_W,
 )
 from patch_browser.audio_profile import header_badge_label
 from patch_browser.all_patches_index import AZ_RAIL_LETTERS
+from patch_browser.midi_clock import looper_hud_should_show
 from patch_browser.touch_ui_enums import LeftNavMode, Screen, audio_profile_display
 from patch_browser.ui_text import text_block_height, wrap_text_lines, wrapped_row_height
 
@@ -90,7 +92,12 @@ class TouchBrowserLayoutMixin:
 
         self.status_rect = Rect(margin, margin, self.width - margin * 2, status_h)
         self.status_title_x = self.status_rect.x + 12
-        self.system_settings_btn = Rect(self.status_rect.right - 44, self.status_rect.y + 6, 36, 32)
+        self.system_settings_btn = Rect(
+            self.status_rect.right - STATUS_SETTINGS_BTN_W,
+            self.status_rect.y,
+            STATUS_SETTINGS_BTN_W,
+            status_h,
+        )
         right_cursor = self.system_settings_btn.x - STATUS_BAR_ITEM_GAP
         if self.show_cpu_meter:
             meter_w = self._cpu_meter_width()
@@ -106,15 +113,19 @@ class TouchBrowserLayoutMixin:
         else:
             self.cpu_meter_rect = Rect(right_cursor, self.status_rect.y + 6, 0, 0)
         if getattr(self, "show_looper_hud", True):
-            looper_w = self._looper_hud_width()
-            right_cursor -= looper_w
-            self.looper_hud_rect = Rect(
-                right_cursor,
-                self.status_rect.y + 10,
-                looper_w,
-                24,
-            )
-            right_cursor -= STATUS_BAR_ITEM_GAP
+            snap = self.looper_monitor.snapshot() if getattr(self, "looper_monitor", None) else {}
+            if looper_hud_should_show(snap, user_enabled=True):
+                looper_w = self._looper_hud_width()
+                right_cursor -= looper_w
+                self.looper_hud_rect = Rect(
+                    right_cursor,
+                    self.status_rect.y + 10,
+                    looper_w,
+                    24,
+                )
+                right_cursor -= STATUS_BAR_ITEM_GAP
+            else:
+                self.looper_hud_rect = Rect(right_cursor, self.status_rect.y + 10, 0, 0)
         else:
             self.looper_hud_rect = Rect(right_cursor, self.status_rect.y + 10, 0, 0)
         audio_badge_w = self._audio_badge_width()

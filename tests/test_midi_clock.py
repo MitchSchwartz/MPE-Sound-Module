@@ -115,8 +115,16 @@ class TestClockStateFile(unittest.TestCase):
             self.assertEqual(snap["bpm"], 110)
 
     def test_looper_hud_label(self) -> None:
-        self.assertEqual(looper_hud_label({"daemon_online": True, "bpm": 120}), "120")
-        self.assertEqual(looper_hud_label({"daemon_online": False}), "LOOP")
+        self.assertEqual(looper_hud_label({"bpm": 120}), "120")
+        self.assertEqual(looper_hud_label({"connected": True}), "")
+
+    def test_looper_hud_should_show(self) -> None:
+        from patch_browser.midi_clock import looper_hud_should_show
+
+        self.assertFalse(looper_hud_should_show({"connected": False}))
+        self.assertFalse(looper_hud_should_show({"connected": True, "bpm": None, "running": False}))
+        self.assertTrue(looper_hud_should_show({"connected": True, "bpm": 120}))
+        self.assertFalse(looper_hud_should_show({"connected": True, "bpm": 120}, user_enabled=False))
 
 
 if __name__ == "__main__":

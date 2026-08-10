@@ -87,8 +87,16 @@ def offset_summary() -> str:
 
 
 def settings_summary() -> str:
-    q = quantize_option_label(current_quantize())
-    return f"{q} · {offset_summary()}"
+    return " · ".join(settings_summary_lines())
+
+
+def settings_summary_lines() -> list[str]:
+    from patch_browser.ui_text import settings_detail_lines
+
+    return settings_detail_lines(
+        f"Quantize: {quantize_option_label(current_quantize())}",
+        offset_summary(),
+    )
 
 
 def settings_row_label() -> str:
