@@ -7,6 +7,7 @@
     "mpe logs",
     "mpe osc-check",
     "mpe diagnose",
+    "mpe sysinfo",
     "mpe pull-videos",
     "mpe record",
     "mpe restart",
@@ -16,8 +17,8 @@
   ],
   "autoRun": {
     "allow_instructions": [
-      "mpe subcommands (ping, status, logs, osc-check, diagnose, pull-videos, record, restart) are the approved laptop → Pi path for MPE-Module work.",
-      "Read-only mpe ops (ping, status, logs, osc-check, diagnose, pull-videos without --delete-source) are safe without extra approval."
+      "mpe subcommands (ping, status, logs, osc-check, diagnose, sysinfo, pull-videos, record, restart) are the approved laptop → Pi path for MPE-Module work.",
+      "Read-only mpe ops (ping, status, logs, osc-check, diagnose, sysinfo, pull-videos without --delete-source) are safe without extra approval."
     ],
     "block_instructions": [
       "Do not run raw ssh, scp, or rsync to the MPE Pi when an mpe subcommand exists.",

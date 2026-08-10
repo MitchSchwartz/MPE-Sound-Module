@@ -461,6 +461,7 @@ mpe status
 mpe logs touch -n 80
 mpe osc-check
 mpe diagnose
+mpe sysinfo                # board, kernel, governor, Surge RT limits, block latency
 mpe restart surge          # or touch | all
 
 mpe record                  # SSH to Pi, record until Ctrl+C
