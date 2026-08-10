@@ -92,6 +92,7 @@ from patch_browser.patch_pressure import (  # noqa: E402
     resolve_light_touch_target,
 )
 from patch_browser.patch_loader import PatchLoader
+from patch_browser.surge_audio import DEFAULT_BUFFER, DEFAULT_SAMPLE_RATE  # noqa: E402
 from patch_browser.patch_scanner import (
     FAVORITES_NAME,
     PatchScanner,
@@ -412,8 +413,8 @@ def start_surge_loopback() -> str:
         raise RuntimeError(f"Surge CLI not found: {cli}")
     ensure_snd_aloop()
     interface = resolve_surge_loopback_interface(cli)
-    buffer_size = os.environ.get("MPE_SURGE_BUFFER_SIZE", "768")
-    sample_rate = os.environ.get("MPE_SURGE_SAMPLE_RATE", "48000")
+    buffer_size = os.environ.get("MPE_SURGE_BUFFER_SIZE", str(DEFAULT_BUFFER))
+    sample_rate = os.environ.get("MPE_SURGE_SAMPLE_RATE", str(DEFAULT_SAMPLE_RATE))
     log_path = Path.home() / "surge-cli-calibration.log"
     with log_path.open("a") as log:
         log.write(
@@ -447,8 +448,8 @@ def start_surge_standalone() -> str:
     if not script.is_file():
         raise RuntimeError(f"detect-audio-device.sh not found: {script}")
     interface = resolve_surge_standalone_interface(cli, detect_script=script)
-    buffer_size = os.environ.get("MPE_SURGE_BUFFER_SIZE", "768")
-    sample_rate = os.environ.get("MPE_SURGE_SAMPLE_RATE", "48000")
+    buffer_size = os.environ.get("MPE_SURGE_BUFFER_SIZE", str(DEFAULT_BUFFER))
+    sample_rate = os.environ.get("MPE_SURGE_SAMPLE_RATE", str(DEFAULT_SAMPLE_RATE))
     log_path = Path.home() / "surge-cli-calibration.log"
     with log_path.open("a") as log:
         log.write(

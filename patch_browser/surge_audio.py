@@ -13,7 +13,9 @@ SET_SURGE_AUDIO_SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "set-
 BUFFER_PRESETS: tuple[int, ...] = (32, 64, 128, 256, 512, 768, 1024, 2048)
 SAMPLE_RATE_PRESETS: tuple[int, ...] = (44100, 48000)
 
-DEFAULT_BUFFER = 768
+# Must stay in sync with the fallback in scripts/start-surge-cli.sh.
+# 768 drops voices under heavy MPE polyphony on Pi 4; 512 choked outright.
+DEFAULT_BUFFER = 1024
 DEFAULT_SAMPLE_RATE = 48000
 
 AUDIO_SWITCH_TIMEOUT_S = 45.0

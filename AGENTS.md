@@ -19,11 +19,12 @@ Install once: clone `mpe-cli`, run `./install.sh`, edit `~/.config/mpe/mpe.env` 
 | `mpe logs surge\|touch\|watchdog [-n N]` | Recent logs (max 200 lines) |
 | `mpe osc-check` | Surge OSC ports + process |
 | `mpe diagnose` | Full read-only Pi diagnostics |
+| `mpe sysinfo` | Board, kernel/preempt, EEPROM, CPU governor, Surge RT limits, buffer latency |
 | `mpe record [file] [fps]` | Touch UI screen capture |
 | `mpe pull-videos [-o DIR] [--delete-source]` | Download demo videos |
 | `mpe restart surge\|touch\|all` | Restart fixed systemd units |
 
-**Agent-safe (read-only):** `ping`, `status`, `logs`, `osc-check`, `diagnose`, `pull-videos` (skip `--delete-source` for zero writes).
+**Agent-safe (read-only):** `ping`, `status`, `logs`, `osc-check`, `diagnose`, `sysinfo`, `pull-videos` (skip `--delete-source` for zero writes).
 
 **Writes / restarts:** `restart *`, `record`, `pull-videos --delete-source`.
 

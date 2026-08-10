@@ -44,7 +44,7 @@ The MPE Sound Module today outputs audio only through a **Creative Sound Blaster
                               [Sound Blaster Play! 3] ──USB host (Pi USB-A)──► 3.5 mm analog out
 ```
 
-**Key scripts:** `scripts/detect-audio-device.sh` (tiered output selection), `scripts/start-surge-cli.sh` (`--audio-interface`, `MPE_SURGE_BUFFER_SIZE` default 768, `MPE_SURGE_SAMPLE_RATE` default 48000 Hz), `config/99-usb-audio.rules` (restart Surge on USB sound card hot-plug).
+**Key scripts:** `scripts/detect-audio-device.sh` (tiered output selection), `scripts/start-surge-cli.sh` (`--audio-interface`, `MPE_SURGE_BUFFER_SIZE` default 1024, `MPE_SURGE_SAMPLE_RATE` default 48000 Hz), `config/99-usb-audio.rules` (restart Surge on USB sound card hot-plug).
 
 **Sample rate:** Surge/ALSA path tuned for **48 kHz** (see `docs/PATCH_NORMALIZATION.md`). Gadget should advertise **48000** as primary rate to avoid resampling on host or Pi.
 
@@ -125,10 +125,10 @@ When switching profiles, **restart `surge-xt-cli`** (same pattern as `99-usb-aud
 
 | Stage | Approx. contribution @ 48 kHz |
 |-------|----------------------------------|
-| Surge buffer (`MPE_SURGE_BUFFER_SIZE=768`, standalone default) | ~16 ms |
+| Surge buffer (`MPE_SURGE_BUFFER_SIZE=1024`, standalone default) | ~21 ms |
 | ALSA → gadget | Part of Surge callback (same buffer if direct) |
 | USB isochronous + host buffer | ~10–30 ms typical (host-dependent) |
-| **Desk tether total (estimate)** | **~35–60 ms** |
+| **Desk tether total (estimate)** | **~40–65 ms** |
 
 **Implication:** Fine for patch editing, demos, recording, casual listening at desk. **Do not position as low-latency MPE monitor path through laptop speakers** — standalone Sound Blaster remains the performance path.
 
