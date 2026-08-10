@@ -1,36 +1,58 @@
-# Surge latency — RT vs buffer floor experiment
+# Surge latency — can the buffer floor come down?
 
-*Last updated: 2026-08-10 17:12 (America/Toronto)*
+*Last updated: 2026-08-10 17:23 (America/Toronto)*
 
-**The experiment, in one line:** *Does enabling PREEMPT_RT let us run a smaller Surge buffer than 1024 without losing voices?*
+**The question, in one line:** *Can we run a smaller Surge buffer than 1024 without losing voices — and what's the cheapest change that gets us there?*
 
-Everything else in this doc is control-arm bookkeeping for that one question.
+Originally scoped as "enable PREEMPT_RT and turn the buffer down." Measured baseline says start further up the stack: realtime scheduling was never enabled for Surge in the first place.
 
 **Related:** [#44 Buffer size in settings](https://github.com/MitchSchwartz/MPE-Sound-Module/issues/44) · `FAQ.md` · `docs/PATCH_NORMALIZATION.md`
 
-**Status:** Arm A not started. Arm B **blocked** — see §Open questions. Repo buffer defaults corrected to 1024 (below).
+**Status:** Arm A not started. **Arm B is probably unnecessary** — `mpe sysinfo` shows the cheap scheduling wins were never applied (see §Measured baseline). Repo buffer defaults corrected to 1024 (below).
+
+> **Headline:** Surge currently runs `SCHED_OTHER` at priority 0 with an `rtprio` hard limit of **0**, on the `ondemand` CPU governor. It has never had realtime scheduling available to it. Chasing an RT *kernel* before fixing that is optimizing the wrong layer.
 
 ---
 
-## Why this is the only experiment left
-
-Buffer tuning on the stock kernel is **exhausted**:
+## Why buffer tuning alone is exhausted
 
 | Buffer @ 48 kHz | Block latency | Result today |
 |---|---|---|
 | **1024** | ~21 ms | **Production floor** — voices hold under real MPE load |
-| **768** | ~16 ms | **Loses too many voices** (governor/CPU pressure) |
+| **768** | ~16 ms | **Loses too many voices** |
 | **512 and below** | ~11 ms | Historical xrun/crackle on heavy patches |
 
-The binding constraint is **CPU headroom per callback**, not block math. RT changes **scheduling jitter**, which is the plausible mechanism for surviving a shorter callback. Nothing else in the current stack moves this — direct ALSA is already the thin path, and there's no JACK/PipeWire layer to remove.
+The binding constraint is **CPU headroom per callback**, not block math. Direct ALSA is already the thin path and there's no JACK/PipeWire layer to remove, so the remaining levers are all about **when the audio thread gets the CPU** — scheduling policy, priority, and clock speed.
 
-**So:** either RT buys a smaller buffer, or **1024 is the permanent floor** and any Pi-side software looper is dead (looper buffers stack on top of ~21 ms).
+Either something in that layer buys a smaller buffer, or **1024 is the permanent floor** and any Pi-side software looper is dead (looper buffers stack on top of ~21 ms).
+
+---
+
+## Measured baseline (`mpe sysinfo`, 2026-08-10)
+
+| Fact | Value | Consequence |
+|---|---|---|
+| Board | **Pi 4 Model B Rev 1.5** (BCM2711, aarch64) | Not rev 1.0/1.1, so the `tryboot` EEPROM write-protect caveat **does not apply** |
+| OS | **Debian 13 (trixie) 13.5** | Not bookworm — narrows RT kernel options |
+| Kernel | **6.18.34+rpt-rpi-v8**, build string `SMP PREEMPT` | Past 6.12 (where `PREEMPT_RT` mainlined) but built plain `PREEMPT` — **no `PREEMPT_DYNAMIC`**, so `preempt=full` at boot is likely unavailable without a rebuild |
+| CPU governor | **`ondemand`** | ⚠️ Not `performance`. Clock ramps on demand, which is a classic cause of dropouts on transient polyphony spikes |
+| Surge scheduling | **`SCHED_OTHER`, priority 0** | ⚠️ Audio thread runs at *normal* priority — no realtime scheduling at all |
+| `Max realtime priority` | **0** (soft and hard) | ⚠️ Surge **cannot** request RT priority even if it tries; JUCE's attempt fails silently |
+| `Max locked memory` | 8 MB | Default, not raised for audio |
+| `/etc/security/limits.d/` | only `10-coredump-debian.conf` | ⚠️ **No audio limits file exists** |
+| `vcgencmd get_throttled` | **`0x50000`** | ⚠️ Under-voltage **has occurred** and throttling **has occurred** (historic, not active) |
+| Audio profile | **`usb-host`** | Not the `standalone` rig this plan specifies — must be switched before measuring |
+| Buffer / rate | 1024 @ 48000 → **21.33 ms** | Confirms the production floor |
+
+**This changes the plan.** The hypothesis was "the stock kernel's scheduler jitter is the ceiling." But Surge isn't being scheduled as a realtime task *at all*, and the CPU governor isn't pinned. Those are the standard prerequisites for low-latency audio on Linux and neither is in place, so the 768 failure has a much cheaper candidate explanation than kernel preemption model.
+
+**Also a genuine confounder:** under-voltage and throttling have both occurred on this Pi. The repo's own USB-audio notes call out undervoltage as a cause of audio glitches. If the board browns out or thermally throttles during a jam, buffer experiments are measuring a moving target — this needs ruling out *before* Arm A is trusted.
 
 ---
 
 ## Independent variable
 
-**RT kernel: on / off.** That is the *only* thing that changes between arms.
+**One change per arm**, in ascending order of risk: CPU governor → RT scheduling for Surge → RT kernel. Do not bundle them; if governor plus `SCHED_FIFO` land together and 768 starts passing, we won't know which one mattered or whether the kernel arm is needed at all.
 
 **Held constant** — changing any of these invalidates the comparison:
 
@@ -66,26 +88,49 @@ Latency is then simply `buffer × 1000 / 48000` ms — arithmetic, not a measure
 
 ## Procedure
 
-### Arm A — control (stock kernel, ~1 hour)
+Run in order. Stop as soon as an arm passes.
 
-Purpose: put the thing we already believe on the record, so Arm B has something to compare to.
+### Arm A0 — rule out power and thermal (~30 min)
+
+`get_throttled = 0x50000` says this board has browned out **and** throttled at some point. Until that's excluded, every other result is suspect — a Pi that dips below voltage mid-jam will drop voices regardless of buffer size or scheduler.
+
+| Step | Action |
+|---|---|
+| A0.1 | Reboot to clear the sticky bits, run the A.3 jam, then re-read `vcgencmd get_throttled` |
+| A0.2 | If under-voltage recurs: official PSU, powered hub for the Sound Blaster + Roli, re-test. This is a **hardware fix, not a buffer problem** |
+| A0.3 | Log SoC temperature across the jam; confirm no thermal cap under sustained load |
+
+### Arm A — control (stock config, ~1 hour)
+
+Purpose: put the thing we already believe on the record, so the later arms have something to compare against.
 
 | Step | Action |
 |---|---|
 | A.1 | Confirm `MPE_SURGE_BUFFER_SIZE=1024` in `/etc/mpe/mpe.env` and in touch **Audio → Buffer** |
-| A.2 | Build the rig above (no pedal, no gadget, Roli only) |
+| A.2 | Build the rig above — switch profile to **`standalone`** (currently `usb-host`), no pedal, no gadget, Roli only |
 | A.3 | 10 min jam @ **1024** — note voice behavior, grep log for xrun |
 | A.4 | Brief pass @ **768** — **document the failure mode concretely** (which patches, how many voices, how fast it degrades) |
-| A.5 | Record `uname -a`, Pi model, patch list used |
+| A.5 | Capture `mpe sysinfo` output and the patch list used |
 | A.6 | Validation Log row: control arm result |
 
-A.4 matters more than it looks: "loses voices" needs to be specific enough that Arm B can be judged against it rather than against memory.
+A.4 matters more than it looks: "loses voices" needs to be specific enough that later arms can be judged against it rather than against memory.
 
-### Arm A½ — scheduling priority, no kernel change (do this before Arm B)
+### Arm A½ — scheduling and clock, no kernel change (before Arm B)
 
-`SCHED_FIFO` on the audio thread plus `rtprio`/`memlock` limits and a pinned CPU governor address the *same* mechanism as RT — scheduler jitter — at a fraction of the risk, with no kernel swap and no rollback exposure. If this alone buys 768, the RT arm may never be needed.
+This is now the **most promising arm**, and the cheapest: nothing here needs a kernel, a card pull, or a rollback plan. Two independent sub-arms, run separately.
 
-Scope to be set by the feasibility research (see §Open questions) before any config lands. Same 10-minute protocol and same pass criteria as Arm A.
+| Step | Change | Rationale |
+|---|---|---|
+| A½.1 | CPU governor `ondemand` → **`performance`** | Removes clock ramp-up latency on polyphony spikes. Costs power and heat — watch A0.3 |
+| A½.2 | Re-run A.3 @ 1024, then step to 768 | Governor effect in isolation |
+| A½.3 | `limits.d` drop-in: `rtprio` and `memlock` for the audio user | Surge currently has `Max realtime priority 0` — it **cannot** ask for RT |
+| A½.4 | `CPUSchedulingPolicy=fifo` + a modest priority on `surge-xt-cli.service` | Confirm with `chrt -p` that it actually took, then repeat A.3 and the 768 step |
+
+Both sub-arms are **repo-managed** (`config/surge-xt-cli.service` is templated and deployed by `configure-pi-paths.sh`), so they ship as normal PRs through GitHub — no hand-editing on the Pi.
+
+**Do not set an extreme RT priority.** A `SCHED_FIFO` thread that spins can lock up the box; the touch UI and network stack still need to run. Start modest and soak.
+
+If 768 passes here, **Arm B is cancelled** and the looper question reopens without any kernel risk at all.
 
 ### Arm B — RT kernel (1–2 days) — blocked
 
@@ -93,7 +138,7 @@ Scope to be set by the feasibility research (see §Open questions) before any co
 
 | Step | Action |
 |---|---|
-| B.0 | Confirm board revision, kernel, and OS release via `mpe sysinfo` — RT choice depends on all three |
+| B.0 | Re-run `mpe sysinfo` to re-confirm board, kernel, and OS before choosing a kernel |
 | B.1 | Obtain an RT kernel that **keeps** `vc4`/DSI, dtoverlays, and `dwc2` UAC2 gadget working. Install **alongside** the stock kernel, never replacing it |
 | B.2 | Select it via `tryboot.txt` only — not `config.txt` |
 | B.3 | Confirm RT is actually active (`uname -a`) and Surge is actually running at elevated priority — a kernel that boots but doesn't schedule differently proves nothing |
@@ -108,10 +153,15 @@ B.4 is the step that's easy to skip and shouldn't be — if RT changes behavior 
 
 ## Outcomes and what each one decides
 
+Ordered cheapest-first. Stop at the first arm that passes — there's no prize for reaching Arm B.
+
 | Result | Production buffer | Pi software looper |
 |---|---|---|
-| RT holds voices @ **512** | Consider 512 (~11 ms) | **Reopen** — architecture spike worth doing |
-| RT holds voices @ **768** | Consider 768 (~16 ms) | **Marginal** — only without a monitored record path |
+| **A0** — under-voltage was the real cause | Retest everything after the PSU fix | Re-ask once the board is stable |
+| **A½** governor and/or `SCHED_FIFO` holds **512** | Consider 512 (~11 ms), no kernel change | **Reopen** — best case, zero kernel risk |
+| **A½** holds **768** | Consider 768 (~16 ms), no kernel change | **Marginal** — only without a monitored record path |
+| A½ no help, **RT** holds voices @ **512** | Consider 512 (~11 ms) | **Reopen** — architecture spike worth doing |
+| A½ no help, **RT** holds voices @ **768** | Consider 768 (~16 ms) | **Marginal** — only without a monitored record path |
 | RT no better than stock | Stay **1024** (~21 ms) | **Closed** — hardware pedal stays the loop engine |
 | RT hurts reliability | Stay **1024**, stock kernel | **Closed** |
 
@@ -152,19 +202,23 @@ Rules for this experiment:
 1. **Rehearse first.** Run one `tryboot` cycle with a `tryboot.txt` that is just a copy of `config.txt`. Confirm it boots and reverts *before* an RT kernel is involved. Five minutes, zero stakes, and it proves the escape hatch on this specific board.
 2. **Install the RT kernel alongside** the stock one under a distinct filename — never replace it. `config.txt` must always point at a known-good kernel.
 3. **Never put the RT kernel in `config.txt`** until it has survived a full soak via `tryboot`.
-4. **Caveat:** on Pi 4 Model B rev 1.0/1.1 the EEPROM must not be write-protected, since those boards store tryboot state in EEPROM rather than a register. Confirm board revision first.
+4. **Rev caveat — resolved.** On Pi 4 Model B rev 1.0/1.1 the EEPROM must not be write-protected, since those boards store tryboot state in EEPROM rather than a register. This unit is **Rev 1.5**, so the caveat does not apply.
 
 ---
 
-## Open questions blocking Arm B
+## Open questions
 
-| Question | Why it blocks |
+**Resolved** by `mpe sysinfo`: board is Pi 4 Model B Rev 1.5, OS is Debian 13 trixie, kernel 6.18.34 plain `PREEMPT`. `README.md`'s "Pi 5 reference stack" claim does not describe the live unit and should be corrected separately.
+
+Still open, and all of them now gate **Arm B only** — not Arm A0 or A½:
+
+| Question | Why it matters |
 |---|---|
-| **Which board and OS release?** | Diagnostics point to a **Pi 4** (BCM2711 `emmc2bus` path) while `README.md` claims a Pi 5 reference stack; package versions suggest a **trixie**-based OS, not bookworm. RT kernel choice depends on both. `diagnose-pi-state.sh` reports neither — needs an `mpe sysinfo` subcommand. |
-| **Is PREEMPT_RT even obtainable?** | Raspberry Pi ships no `-rt` kernel flavor. A generic Debian arm64 RT kernel risks breaking the things this appliance depends on — DSI panel via `vc4`/kmsdrm, `dwc2` UAC2 gadget, dtoverlays. If so, B.1 means *building a kernel*, not installing one. |
-| **Is RT even the cheapest test of the hypothesis?** | Much of `PREEMPT_RT` landed in mainline 6.12, and `SCHED_FIFO` + `rtprio`/`memlock` limits + CPU governor pinning may deliver most of the jitter reduction **with no kernel change at all**. If so, do that first and RT may never be needed. |
+| **Is PREEMPT_RT obtainable for rpi-6.18 on trixie?** | Raspberry Pi ships no `-rt` flavor. A generic Debian arm64 RT kernel risks breaking `vc4`/DSI, dtoverlays, and the `dwc2` UAC2 gadget — which would take the touch UI and USB audio path with it. If there's no Pi-patched RT kernel, B.1 means *building* one. |
+| **Would enabling `PREEMPT_DYNAMIC` be enough?** | The running kernel is plain `PREEMPT`, so `preempt=full` at boot is not available. Whether an rpt kernel config could enable it more cheaply than full RT is worth knowing — but it is still a kernel rebuild. |
+| **Does RT measurably help Pi audio?** | Need real-world evidence that RT lets people run smaller ALSA periods on Pi 4/5 without xruns, including counter-evidence. Not worth the risk on theory alone. |
 
-Until these are answered, **do not write RT config** into `config/surge-xt-cli.service` or a `limits.d` drop-in.
+Until these are answered, **do not write RT kernel config**. `limits.d` and `SCHED_FIFO` (Arm A½) are explicitly *not* blocked by them — those need no kernel change.
 
 ---
 
@@ -173,7 +227,7 @@ Until these are answered, **do not write RT config** into `config/surge-xt-cli.s
 - **Any kernel install on the gig SD** — Mitch only, and only after `tryboot` is rehearsed
 - **Promoting a kernel into `config.txt`** — Mitch only, and only after a clean soak
 - **Production buffer change** in `/etc/mpe/mpe.env` on the live Pi — Mitch only
-- Reopening the software looper question — only on a written Arm B pass
+- Reopening the software looper question — only on a written Arm A½ or Arm B pass
 
 ## Deploys
 
