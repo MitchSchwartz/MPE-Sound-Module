@@ -8,19 +8,21 @@ Plug a Roli into a Raspberry Pi. Turn it on. Play. That's the whole interaction.
 
 ## Git workflow
 
-**`dev`** is the integration branch for day-to-day development and agent work. **`main`** is the release line — land changes there only via pull request or explicit promotion from `dev`. Pi deploy can keep tracking `main` until you promote.
+`dev` is the integration branch for day-to-day development and agent work. `main` is the release line — land changes there only via pull request or explicit promotion from `dev`. Pi deploy can keep tracking `main` until you promote.
 
 ## Demo
 
 **Touch screen build** (SmartiPi, 5" landscape touch panel)
 
-<!-- TODO: replace with the user-attachments URL for docs/demo-touch.mp4 -->
+
 
 **Encoder + OLED build** (reference hardware)
 
-https://github.com/user-attachments/assets/74652240-74af-48be-9db1-608f54805d25
+[https://github.com/user-attachments/assets/74652240-74af-48be-9db1-608f54805d25](https://github.com/user-attachments/assets/74652240-74af-48be-9db1-608f54805d25)
 
 ---
+
+
 
 ## Why this exists
 
@@ -36,17 +38,22 @@ Every patch is fully editable and MPE-assignable from your computer, across all 
 
 ## What it does
 
+
+
 ### Audio
 
 - **MPE sound module** — compatible with any MPE MIDI controller (Roli Seaboard, LinnStrument, Osmose, etc.)
 - **Runs Surge XT** — free, open-source synth engine, always in MPE mode, full mod matrix across all 5 expression dimensions
 - **3,192 patches included** — 639 factory + 2,553 community
 - **Analog and USB audio out** — 3.5mm jack standalone, or USB to a laptop/PC as a standard audio input
-- **Selectable sample rate** — 44.1 kHz or 48 kHz on-device; persists and restarts Surge with the new rate
+- **MIDI clock in/out** — sync with external gear (e.g. Boss RC-5); quantize to 1/32–1/4 notes with buffer offset compensation
+- **Selectable sample rate** — 44.1, 48, or 96 kHz on-device; persists and restarts Surge with the new rate
 - **Selectable audio buffer** — preset sizes (32–2048 samples) with approximate latency shown; restarts Surge when changed
 - **Per-patch volume normalization** — calibrate once (strike + sustain anchors, peak-safe closed loop); every patch loads at a matched level. The same run sets **Touch** pressure floors for light vs full press on favorites.
 - **Reuse Single on load** — patches are rewritten at load so restrikes on the same key reuse the voice instead of stacking new ones (lighter CPU on dense patches)
 - **Dynamic voice limit** — a background governor watches CPU and steps Surge's poly limit down under sustained load, then recovers when headroom returns; Surge's built-in softkill handles voice stealing (no MIDI panic)
+
+
 
 ### UI
 
@@ -63,7 +70,9 @@ Every patch is fully editable and MPE-assignable from your computer, across all 
 
 - core (boot, audio, MPE) is solid and has been performance-tested for hours at a time. 
 - The **touch UI** is the more polished, actively developed interface.
-- The **encoder/OLED UI** is still rough — scrolling is unreliable (missed and double steps), is usable if you're patient; not gig-polished. 
+- The **encoder/OLED UI** is still rough — scrolling is unreliable (missed and double steps), is usable if you're patient; not gig-polished.
+
+
 
 ## Build one
 
@@ -97,7 +106,7 @@ What actually works today:
 - **Hold 8s+** — power menu
 - **Stop scrolling ~1.25s** — patch loads
 
-Folder name config: **`MPE_FAVORITES_NAME`** in `/etc/mpe/mpe.env` — see **[docs/PATCH_BROWSER_UI.md](docs/PATCH_BROWSER_UI.md)** (controls + configuration table).
+Folder name config: `MPE_FAVORITES_NAME` in `/etc/mpe/mpe.env` — see **[docs/PATCH_BROWSER_UI.md](docs/PATCH_BROWSER_UI.md)** (controls + configuration table).
 
 **Next major UI upgrade needed:** separate reliable **enter (~1s hold)** and **back (~3s hold)** instead of one overloaded toggle; **second encoder** for scroll vs confirm (down the road).
 
@@ -123,6 +132,8 @@ Full walkthrough: **[docs/PATCH-EDITING-WORKFLOW.md](docs/PATCH-EDITING-WORKFLOW
 
 > **Known rough edge:** this workflow currently runs through git, which is fine if you're comfortable with it and clunky if you're not. A simpler sync path (drag-and-drop or a one-click push) is a likely next improvement — not built yet.
 
+
+
 ### Per-patch normalization (touch or SSH)
 
 Calibrate once; every `load_patch()` applies a stored gain baseline (MPE expression untouched). The calibrator measures each patch at **strike** (hard hit, light pressure) and **sustain** (moderate velocity, full pressure), picks the safer of the two gains, then verifies peak level in a short closed loop before saving. When **Norm.** is on, the full calibrated gain reaches Surge — peak safety is baked in at calibration time.
@@ -143,12 +154,14 @@ Toggle **Norm.** on the patch detail pane to bypass normalization for one patch;
 
 On every patch load, **Reuse Single** is applied automatically (XML rewrite — not an OSC toggle). A static poly **ceiling** is applied via Surge OSC; the **dynamic voice limit** governor (`surge-poly-governor.service`) can step that limit down further when CPU stays high.
 
-| Control | Where |
-| -------- | ----- |
-| Dynamic voice limit on/off | Touch UI → System settings |
+
+| Control                          | Where                                                                                                    |
+| -------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| Dynamic voice limit on/off       | Touch UI → System settings                                                                               |
 | Poly ceiling / floor / emergency | `/etc/mpe/mpe.env` — `MPE_POLY_CEILING` (12), `MPE_POLY_FLOOR` (4), `MPE_POLY_EMERGENCY` (3 at ≥90% CPU) |
-| Disable Reuse Single | `MPE_REUSE_SINGLE=0` in `mpe.env` |
-| Disable governor entirely | `MPE_POLY_GOVERNOR=0` or turn off in touch settings |
+| Disable Reuse Single             | `MPE_REUSE_SINGLE=0` in `mpe.env`                                                                        |
+| Disable governor entirely        | `MPE_POLY_GOVERNOR=0` or turn off in touch settings                                                      |
+
 
 Manual OSC smoke test: `python3 scripts/manual/test-poly-governor-osc.py`
 
@@ -175,6 +188,8 @@ Full command reference: **[COMMANDS.md](COMMANDS.md)**
 - **Direct ALSA, not JACK** — simpler, lower latency, one less thing to configure
 - **Not Zynthian** — different category. Zynthian is a multi-engine workstation; getting persistent, always-on MPE through its generalized preset architecture is a known unsolved friction point (confirmed on Zynthian's own forum as recently as 2025). This project sidesteps that by being narrow on purpose.
 
+
+
 ## Documentation map
 
 
@@ -190,6 +205,7 @@ Full command reference: **[COMMANDS.md](COMMANDS.md)**
 | [docs/PATCH-EDITING-WORKFLOW.md](docs/PATCH-EDITING-WORKFLOW.md)     | Editing sounds, pushing to the Pi                    |
 | [docs/FOOT_PEDAL.md](docs/FOOT_PEDAL.md)                             | USB footswitch setup + remapping                     |
 | [docs/MIDI-CLOCK.md](docs/MIDI-CLOCK.md)                             | MIDI clock out for Boss RC-5 / external sync         |
+| [docs/LOOPER-PLAN.md](docs/LOOPER-PLAN.md)                           | On-device looping — architecture plan (not built yet) |
 | [docs/POWER_BUTTON_SETUP.md](docs/POWER_BUTTON_SETUP.md)             | Shutdown/power-on via the encoder button             |
 | [COMMANDS.md](COMMANDS.md)                                           | Backup, deploy, restore, day-to-day ops              |
 | [docs/BACKUP_GUIDE.md](docs/BACKUP_GUIDE.md)                         | Full disaster recovery                               |
@@ -197,6 +213,8 @@ Full command reference: **[COMMANDS.md](COMMANDS.md)**
 | [docs/SURGE_CLI_HEADLESS_SETUP.md](docs/SURGE_CLI_HEADLESS_SETUP.md) | Full technical deep dive                             |
 | [docs/WHATS-NEW.md](docs/WHATS-NEW.md)                               | Recent feature updates, in plain English             |
 | [CHANGELOG.md](CHANGELOG.md)                                         | Full engineering log                                 |
+
+
 
 
 ## Credits

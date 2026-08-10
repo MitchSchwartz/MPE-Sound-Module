@@ -11,7 +11,7 @@ MPE_ENV_PATH = Path("/etc/mpe/mpe.env")
 SET_SURGE_AUDIO_SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "set-surge-audio.sh"
 
 BUFFER_PRESETS: tuple[int, ...] = (32, 64, 128, 256, 512, 768, 1024, 2048)
-SAMPLE_RATE_PRESETS: tuple[int, ...] = (44100, 48000)
+SAMPLE_RATE_PRESETS: tuple[int, ...] = (44100, 48000, 96000)
 
 # Must stay in sync with the fallback in scripts/start-surge-cli.sh.
 # 768 drops voices under heavy MPE polyphony on Pi 4; 512 choked outright.

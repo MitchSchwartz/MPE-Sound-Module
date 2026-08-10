@@ -46,7 +46,7 @@ is_valid_buffer() {
 
 is_valid_sample_rate() {
     case "$1" in
-        44100 | 48000) return 0 ;;
+        44100 | 48000 | 96000) return 0 ;;
         *) return 1 ;;
     esac
 }

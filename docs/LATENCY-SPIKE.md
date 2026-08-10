@@ -1,6 +1,6 @@
 # Surge latency — can the buffer floor come down?
 
-*Last updated: 2026-08-10 17:56 (America/Toronto)*
+*Last updated: 2026-08-10 19:07 (America/Toronto)*
 
 **The question, in one line:** *Can we run a smaller Surge buffer than 1024 without losing voices — and what's the cheapest change that gets us there?*
 
@@ -8,7 +8,7 @@ Originally scoped as "enable PREEMPT_RT and turn the buffer down." Measured base
 
 **Related:** [#44 Buffer size in settings](https://github.com/MitchSchwartz/MPE-Sound-Module/issues/44) · `FAQ.md` · `docs/PATCH_NORMALIZATION.md`
 
-**Status:** Arm A not started. **Arm B is probably unnecessary** — cheap scheduling wins were never applied (§Measured baseline), and voice loss at 768 may be CPU throughput, not scheduler jitter (§RT feasibility). Repo buffer defaults corrected to 1024 (below).
+**Status:** **Arm A0 passed; Arm A ran informally and inverted the premise** — 256 samples (~5.3 ms) played acceptably with no xruns, on stock scheduling (§Validation log). **Arms A½ and B are not started and look unnecessary** — every cheap lever (governor, RT priority, `threadirqs`, RT kernel) is still unspent and there is no xrun to fix. The binding constraint is **CPU / voice count**, not block latency. Repo buffer defaults corrected to 1024 (below); looper question **reopened** → [`LOOPER-PLAN.md`](LOOPER-PLAN.md).
 
 > **Headline:** Surge currently runs `SCHED_OTHER` at priority 0 with an `rtprio` hard limit of **0**, on the `ondemand` CPU governor. It has never had realtime scheduling available to it. Chasing an RT *kernel* before fixing that is optimizing the wrong layer.
 
@@ -200,6 +200,39 @@ Ordered cheapest-first. Stop at the first arm that passes — there's no prize f
 | RT hurts reliability | Stay **1024**, stock kernel | **Closed** |
 
 Reliability outranks latency: a smaller buffer that survives 10 minutes but fails a set is a regression, not a win.
+
+---
+
+## Validation log
+
+### 2026-08-10 — Arm A0 pass, Arm A informal (buffer sweep)
+
+**Rig:** Pi 4 Rev 1.5 · `standalone` → Sound Blaster → headphones · Roli LUMI only · RC-5 absent · `midi-clock-in` stopped · 48 kHz · poly governor active · touch UI running · stock scheduling (`SCHED_OTHER` prio 0, `ondemand`).
+
+| Buffer | Block latency | Subjective | Objective |
+|---|---|---|---|
+| **1024** | 21.3 ms | Good | No xruns |
+| **768** | 16.0 ms | *Maybe* subtly worse — "couldn't call it in a blind test" | No xruns |
+| **512** | 10.7 ms | Good; arguably **best feel** | No xruns |
+| **256** | 5.3 ms | "Shockingly not bad", slightly aggressive | No xruns |
+| **256** (`usb-host`, UAC2 gadget) | 5.3 ms Pi-side | Similar to standalone | No xruns |
+
+**Arm A0 — pass.** `vcgencmd get_throttled` = `0x0` before and after the jam; 12-minute sampler logged `0x0` on every sample; peak SoC temperature **60.3 °C**. The historic `0x50000` (under-voltage + throttling) did **not** recur under load, so power is no longer a confounder.
+
+**Patch findings (not buffer failures):**
+
+- **Attenbourg → drums** — mostly will not voice at **any** buffer. This is a **patch CPU ceiling**, so it is excluded from buffer pass/fail.
+- **Crystal** — crackles past 1–2 notes at every buffer. Suspected patch harmonics/artifact; unconfirmed.
+
+**What this overturns:** the "768 loses voices / 512 is choppy / 1024 is the permanent floor" premise (§Why buffer tuning alone is exhausted) does not reproduce on a clean-power `standalone` rig. The prior finding was likely confounded by under-voltage and/or the `usb-host` gadget path.
+
+**Caveats — this is L1/L2 evidence, not L3:**
+
+- Casual multi-minute jams, **not** the 10-minute worst-case soak this document defines as passing (§Dependent variable).
+- **A.4b was not run** — `rtla` is not installed on the Pi, so scheduling latency under load is still unmeasured. Nothing here distinguishes "plenty of headroom" from "no headroom left but no xrun yet".
+- Production `/etc/mpe/mpe.env` was left at the session's last value, **not** promoted as a validated default.
+
+**Next if this matters again:** install `rtla`, run A.4b, then a structured 10-minute soak at 512 on worst-case *in-scope* patches before changing any production default.
 
 ---
 
