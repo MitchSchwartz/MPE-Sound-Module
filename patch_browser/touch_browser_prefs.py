@@ -413,6 +413,49 @@ class TouchBrowserPrefsMixin:
             name="SurgeAudioSwitch",
         ).start()
 
+    def _finish_midi_sync_switch(self, ok: bool, message: str) -> None:
+        self._midi_sync_switching = False
+        if ok:
+            self._toast(message, 3.0)
+            self._layout_settings_content()
+            self._layout()
+        else:
+            self._toast(f"Looper sync: {message}", 4.0)
+
+    def _poll_midi_sync_switch(self) -> None:
+        if not self._midi_sync_switching:
+            return
+        try:
+            ok, message = self._midi_sync_result_queue.get_nowait()
+        except queue.Empty:
+            from patch_browser.midi_sync_settings import APPLY_TIMEOUT_S
+
+            elapsed = time.monotonic() - self._midi_sync_switch_started
+            if elapsed > APPLY_TIMEOUT_S + 5.0:
+                self._finish_midi_sync_switch(
+                    False,
+                    f"Switch timed out ({int(APPLY_TIMEOUT_S)}s)",
+                )
+            return
+        self._finish_midi_sync_switch(ok, message)
+
+    def _begin_midi_sync_switch(self, hint: str, worker) -> None:
+        if getattr(self, "_midi_sync_switching", False):
+            return
+        self._midi_sync_switching = True
+        self._midi_sync_switch_started = time.monotonic()
+        self._toast(hint, 1.5)
+
+        def _worker_wrapper() -> None:
+            ok, message = worker()
+            self._midi_sync_result_queue.put((ok, message))
+
+        threading.Thread(
+            target=_worker_wrapper,
+            daemon=True,
+            name="MidiSyncSwitch",
+        ).start()
+
     def _apply_volume(self, level: float, persist: bool = True) -> None:
         self.volume_level = max(VOLUME_MIN, min(VOLUME_MAX, level))
         if self.loader.osc_enabled:

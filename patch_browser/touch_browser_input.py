@@ -39,6 +39,7 @@ class TouchBrowserInputMixin:
             Screen.AUDIO_PROFILE_MODAL,
             Screen.BRIGHTNESS_MODAL,
             Screen.WIFI_MODAL,
+            Screen.MIDI_SYNC_MODAL,
         }
     )
 
@@ -72,6 +73,8 @@ class TouchBrowserInputMixin:
             self._close_brightness_modal()
         elif state == Screen.WIFI_MODAL:
             self._close_wifi_modal()
+        elif state == Screen.MIDI_SYNC_MODAL:
+            self._close_midi_sync_modal()
 
     def _try_dismiss_modal_backdrop(self, pos: tuple[int, int]) -> bool:
         if self.screen_state not in self._BACKDROP_DISMISS_SCREENS:
@@ -94,6 +97,7 @@ class TouchBrowserInputMixin:
             Screen.AUDIO_PROFILE_MODAL,
             Screen.BRIGHTNESS_MODAL,
             Screen.WIFI_MODAL,
+            Screen.MIDI_SYNC_MODAL,
         )
         overlay_modal = self.screen_state in (Screen.CONTEXT_MENU, Screen.NAME_PROMPT)
         panel_visible = self.screen_state == Screen.SETTINGS or self._settings_slide > 0.004
@@ -118,6 +122,8 @@ class TouchBrowserInputMixin:
                 self._draw_brightness_modal()
             elif self.screen_state == Screen.WIFI_MODAL:
                 self._draw_wifi_modal()
+            elif self.screen_state == Screen.MIDI_SYNC_MODAL:
+                self._draw_midi_sync_modal()
         elif overlay_modal:
             self._draw_browser()
             if self.screen_state == Screen.CONTEXT_MENU:
@@ -247,6 +253,8 @@ class TouchBrowserInputMixin:
             return "cpu_meter"
         if self._settings_rect_hit(self.looper_hud_toggle_rect, local_pos):
             return "looper_hud"
+        if self._settings_rect_hit(self.looper_sync_row_rect, local_pos):
+            return "looper_sync"
         if self._settings_rect_hit(self.wifi_row_rect, local_pos):
             return "wifi"
         if self._settings_rect_hit(self.theme_btn_rect, local_pos):
@@ -281,6 +289,9 @@ class TouchBrowserInputMixin:
             self._toggle_cpu_meter_visibility()
         elif hit == "looper_hud":
             self._toggle_looper_hud_visibility()
+        elif hit == "looper_sync":
+            if not getattr(self, "_midi_sync_switching", False):
+                self._open_midi_sync_modal()
         elif hit == "poly_governor":
             self._toggle_poly_governor()
         elif hit == "audio_profile":
@@ -710,6 +721,8 @@ class TouchBrowserInputMixin:
                 self._handle_brightness_modal_pointer_down(event.pos)
             elif self.screen_state == Screen.WIFI_MODAL:
                 self._handle_wifi_modal_pointer_down(event.pos)
+            elif self.screen_state == Screen.MIDI_SYNC_MODAL:
+                self._handle_midi_sync_modal_pointer_down(event.pos)
             elif self.screen_state == Screen.BROWSER:
                 if self._handle_az_rail_touch("down", event.pos):
                     pass
@@ -748,6 +761,8 @@ class TouchBrowserInputMixin:
                 self._handle_brightness_modal_pointer_up(event.pos)
             elif self.screen_state == Screen.WIFI_MODAL:
                 self._handle_wifi_modal_pointer_up(event.pos)
+            elif self.screen_state == Screen.MIDI_SYNC_MODAL:
+                self._handle_midi_sync_modal_pointer_up(event.pos)
             elif self.screen_state == Screen.BROWSER:
                 if self._handle_az_rail_touch("up", event.pos):
                     return
