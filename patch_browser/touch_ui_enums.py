@@ -17,6 +17,7 @@ class Screen(Enum):
     AUDIO_PROFILE_MODAL = auto()
     BRIGHTNESS_MODAL = auto()
     WIFI_MODAL = auto()
+    MIDI_SYNC_MODAL = auto()
     CONTEXT_MENU = auto()
     NAME_PROMPT = auto()
 

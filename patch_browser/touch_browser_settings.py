@@ -8,6 +8,7 @@ from patch_browser.audio_profile import profile_settings_label
 from patch_browser.draw_primitives import draw_chevron
 from patch_browser.geometry import Rect
 from patch_browser.scroll_widgets import draw_vertical_scroll_edge_hints
+from patch_browser.midi_sync_settings import settings_summary
 from patch_browser.surge_audio import (
     current_buffer_size,
     current_sample_rate,
@@ -101,6 +102,7 @@ class TouchBrowserSettingsMixin:
 
         self.cpu_meter_toggle_rect = Rect(pad, y, 0, 0)
         self.looper_hud_toggle_rect = Rect(pad, y, 0, 0)
+        self.looper_sync_row_rect = Rect(pad, y, 0, 0)
         self.norm_global_toggle_rect = Rect(pad, y, 0, 0)
         self._surge_restart_btn = None
         self._calibrate_missing_btn = Rect(pad, y, 0, 0)
@@ -114,6 +116,11 @@ class TouchBrowserSettingsMixin:
             looper_h = self._settings_row_height("Looper tempo", inner_w, toggle=True)
             self.looper_hud_toggle_rect = Rect(pad, y, inner_w, looper_h)
             y += looper_h + SETTINGS_ROW_GAP
+
+            sync_sub = settings_summary()
+            sync_h = self._settings_drill_row_height("Looper sync", sync_sub, inner_w)
+            self.looper_sync_row_rect = Rect(pad, y, inner_w, sync_h)
+            y += sync_h + SETTINGS_ROW_GAP
 
             status = self.surge_monitor.get_status_summary()
             if status.get("can_restart"):
@@ -489,6 +496,17 @@ class TouchBrowserSettingsMixin:
                         getattr(self, "show_looper_hud", True),
                         has_gain=True,
                         label="Looper tempo",
+                    )
+
+                looper_sync_row = self._panel_local_to_screen(
+                    self.looper_sync_row_rect, scrolled=True
+                )
+                if looper_sync_row.h > 0:
+                    self._draw_settings_drill_row(
+                        looper_sync_row,
+                        "Looper sync",
+                        settings_summary(),
+                        pressed=self._pressed("settings:looper_sync"),
                     )
 
                 if self._surge_restart_btn and self._surge_restart_btn.h > 0:

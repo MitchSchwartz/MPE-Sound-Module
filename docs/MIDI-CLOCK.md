@@ -76,6 +76,8 @@ Use **Pi as master** (`midi-clock-out`) when you want a **fixed BPM before** you
 
 Requires `midi-clock-in` running and RC-5 sending clock for quantize to engage. When unsynced, notes pass through immediately (offset still applies).
 
+**Touch UI:** System settings → Advanced → **Looper sync** — quantize grid, auto buffer offset, and clock-through toggles. Changes persist in `/etc/mpe/mpe.env` and restart `mpe-pressure-remap.service`.
+
 ## Related
 
 - [#40 MIDI thru/passthrough](https://github.com/MitchSchwartz/MPE-Sound-Module/issues/40)

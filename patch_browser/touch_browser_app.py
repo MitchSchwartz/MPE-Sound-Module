@@ -26,7 +26,7 @@ from patch_browser.patch_loader import PatchLoader
 from patch_browser.patch_scanner import FAVORITES_NAME, SURGE_PATCH_DIRS, PatchScanner, favorites_display_name
 from patch_browser.scroll_widgets import ContentScrollArea, ScrollList
 from patch_browser.looper_clock_monitor import LooperClockMonitor
-from patch_browser.screen_recorder import ScreenRecorder
+from patch_browser.screen_recorder import DEFAULT_ENV_FILE, ScreenRecorder
 from patch_browser.surge_cpu_monitor import SurgeCpuMonitor
 from patch_browser.surge_monitor import SurgeMonitor
 from patch_browser.touch_evdev import TouchEvdevBridge, evdev_bridge_enabled
@@ -47,6 +47,7 @@ from patch_browser.touch_browser_brightness_modal import TouchBrowserBrightnessM
 from patch_browser.touch_browser_settings import TouchBrowserSettingsMixin
 from patch_browser.touch_browser_audio_profile_modal import TouchBrowserAudioProfileModalMixin
 from patch_browser.touch_browser_surge_audio_modal import TouchBrowserSurgeAudioModalMixin
+from patch_browser.touch_browser_midi_sync_modal import TouchBrowserMidiSyncModalMixin
 from patch_browser.touch_browser_wifi_modal import TouchBrowserWifiModalMixin
 from patch_browser.touch_ui_constants import TAP_MOVE_THRESHOLD_PX
 from patch_browser.touch_ui_enums import CalibrateMode, LeftNavMode, Screen
@@ -70,6 +71,7 @@ class TouchPatchBrowser(
     TouchBrowserBrightnessModalMixin,
     TouchBrowserAudioProfileModalMixin,
     TouchBrowserSurgeAudioModalMixin,
+    TouchBrowserMidiSyncModalMixin,
     TouchBrowserWifiModalMixin,
     TouchBrowserLayoutMixin,
     TouchBrowserNavMixin,
@@ -110,6 +112,8 @@ class TouchPatchBrowser(
             pygame.display.set_caption("Pi-Surge-MPE Touch Browser")
         self.width, self.height = self.screen.get_size()
         self._screen_recorder = ScreenRecorder.from_env()
+        self._recorder_reload_requested = False
+        self._recorder_stop_requested = False
         pygame.mouse.set_visible(False)
         prefs = reload_theme_from_prefs()
         self.theme_mode = prefs.theme_mode
@@ -215,6 +219,9 @@ class TouchPatchBrowser(
         self._surge_audio_switch_hint = ""
         self._surge_audio_switch_started = 0.0
         self._surge_audio_result_queue: queue.SimpleQueue[tuple[bool, str]] = queue.SimpleQueue()
+        self._midi_sync_switching = False
+        self._midi_sync_switch_started = 0.0
+        self._midi_sync_result_queue: queue.SimpleQueue[tuple[bool, str]] = queue.SimpleQueue()
         self._wifi_busy = False
         self._wifi_connecting = False
         self._wifi_busy_hint = ""
@@ -307,7 +314,30 @@ class TouchPatchBrowser(
     def _toast(self, message: str, seconds: float = 2.0) -> None:
         self.toast_message = message
         self.toast_until = time.time() + seconds
+    def _handle_screen_recorder_signals(self) -> None:
+        if self._recorder_stop_requested:
+            self._recorder_stop_requested = False
+            if self._screen_recorder is not None:
+                self._screen_recorder.close()
+                self._screen_recorder = None
+                print("Screen record stopped (SIGUSR2)", file=sys.stderr)
+        if self._recorder_reload_requested:
+            self._recorder_reload_requested = False
+            if self._screen_recorder is not None:
+                self._screen_recorder.close()
+            self._screen_recorder = ScreenRecorder.from_env_file(DEFAULT_ENV_FILE)
+            if self._screen_recorder is None:
+                print(f"Screen record: no active config in {DEFAULT_ENV_FILE}", file=sys.stderr)
+
+    def _signal_start_screen_record(self, _signum: int, _frame: object) -> None:
+        self._recorder_reload_requested = True
+
+    def _signal_stop_screen_record(self, _signum: int, _frame: object) -> None:
+        self._recorder_stop_requested = True
+
     def run(self) -> None:
+        signal.signal(signal.SIGUSR1, self._signal_start_screen_record)
+        signal.signal(signal.SIGUSR2, self._signal_stop_screen_record)
         clock = pygame.time.Clock()
         print("Touch patch browser running.")
         print(f"Display: {self.width}x{self.height}")
@@ -340,7 +370,9 @@ class TouchPatchBrowser(
             self._drain_evdev_touch_queue()
             self._poll_audio_profile_switch()
             self._poll_surge_audio_switch()
+            self._poll_midi_sync_switch()
             self._poll_wifi_work()
+            self._handle_screen_recorder_signals()
             for event in pygame.event.get():
                 if self._ignore_sdl_pointer_event(event):
                     continue
