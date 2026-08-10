@@ -84,7 +84,7 @@ Static or crackle under **many held keys** is usually **ALSA buffer underrun (xr
 |--------|--------|
 | **Norm ON** | Quiet patches get large `gain_db` boosts; runtime cap now matches norm-off (**1.5**, was 0.85 — see 2026-08-01 fix below). |
 | **Norm OFF** | Unity baseline; user trim up to **1.5** — more headroom for solo, less for dense chords. |
-| **ALSA buffer** | `surge-xt-cli` starts with **`MPE_SURGE_BUFFER_SIZE`** (default **768** samples @ **48 kHz** ≈ 16 ms). **512** caused choppery/governor on heavy Pi 4 patches; **1024** was the prior default. |
+| **ALSA buffer** | `surge-xt-cli` starts with **`MPE_SURGE_BUFFER_SIZE`** (default **1024** samples @ **48 kHz** ≈ 21 ms). **768** drops voices under heavy MPE polyphony and **512** caused choppery/governor on heavy Pi 4 patches — 1024 is the stability floor (see [LATENCY-SPIKE.md](LATENCY-SPIKE.md)). |
 | **snd-aloop** | Loaded only during calibration loopback. Unloaded on Surge start and after `calibrate-with-loader.sh` if refcount is 0. |
 
 **Calibration capture path (default: loopback):** Stops production Surge, starts a **cal-only** Surge instance routed through `snd-aloop` (`calibration_loopback.py` dynamically resolves the interface/capture device — no hardcoded card index). Headphones/Sound Blaster are silent during cal; that is expected. Launch from **System → Calibrate** (`calibrate-with-loader.sh`).
