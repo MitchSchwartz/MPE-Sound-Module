@@ -7,14 +7,14 @@ import pygame
 from patch_browser.geometry import Rect
 from patch_browser.midi_sync_settings import (
     QUANTIZE_OPTIONS,
-    apply_clock_through,
     apply_offset_auto,
     apply_quantize,
-    current_clock_through,
+    apply_triplet,
     current_offset_auto,
     current_quantize,
+    current_triplet,
     offset_summary,
-    quantize_option_label,
+    quantize_subdivision_label,
 )
 from patch_browser.touch_ui_constants import SETTINGS_ROW_GAP, SETTINGS_ROW_H, TAP_MOVE_THRESHOLD_PX
 from patch_browser.touch_ui_enums import Screen
@@ -26,7 +26,7 @@ class TouchBrowserMidiSyncModalMixin:
     def _open_midi_sync_modal(self) -> None:
         self._midi_sync_option_rects: list[tuple[Rect, str]] = []
         self._midi_sync_offset_toggle_rect = None
-        self._midi_sync_clock_toggle_rect = None
+        self._midi_sync_triplet_toggle_rect = None
         self._midi_sync_cancel_rect = None
         self.screen_state = Screen.MIDI_SYNC_MODAL
 
@@ -38,7 +38,7 @@ class TouchBrowserMidiSyncModalMixin:
             return
         self._close_midi_sync_modal()
         self._begin_midi_sync_switch(
-            f"Setting quantize {quantize_option_label(value)}…",
+            f"Setting quantize {quantize_subdivision_label(value)}…",
             lambda v=value: apply_quantize(v),
         )
 
@@ -50,12 +50,12 @@ class TouchBrowserMidiSyncModalMixin:
             lambda: apply_offset_auto(target),
         )
 
-    def _toggle_midi_clock_through(self) -> None:
-        target = not current_clock_through()
+    def _toggle_midi_triplet(self) -> None:
+        target = not current_triplet()
         self._close_midi_sync_modal()
         self._begin_midi_sync_switch(
-            "Updating clock through…",
-            lambda: apply_clock_through(target),
+            "Updating triplet grid…",
+            lambda: apply_triplet(target),
         )
 
     def _draw_midi_sync_modal(self) -> None:
@@ -108,11 +108,22 @@ class TouchBrowserMidiSyncModalMixin:
             pressed = self._pressed(f"midi_sync:q:{choice}")
             self._draw_theme_choice(
                 rect,
-                quantize_option_label(choice),
+                quantize_subdivision_label(choice),
                 selected=choice == current_q,
                 pressed=pressed,
             )
             y += option_h + SETTINGS_ROW_GAP
+
+        triplet_rect = Rect(inner_x, y, inner_w, toggle_h)
+        self._midi_sync_triplet_toggle_rect = triplet_rect
+        triplet_on = current_triplet() and current_q != "off"
+        self._draw_normalize_toggle(
+            triplet_rect,
+            triplet_on,
+            has_gain=current_q != "off",
+            label="Triplet (3 notes per 2 beats)",
+        )
+        y += toggle_h + SETTINGS_ROW_GAP
 
         offset_rect = Rect(inner_x, y, inner_w, toggle_h)
         self._midi_sync_offset_toggle_rect = offset_rect
@@ -121,16 +132,6 @@ class TouchBrowserMidiSyncModalMixin:
             current_offset_auto(),
             has_gain=True,
             label=f"Auto offset ({offset_summary()})",
-        )
-        y += toggle_h + SETTINGS_ROW_GAP
-
-        clock_rect = Rect(inner_x, y, inner_w, toggle_h)
-        self._midi_sync_clock_toggle_rect = clock_rect
-        self._draw_normalize_toggle(
-            clock_rect,
-            current_clock_through(),
-            has_gain=True,
-            label="Pass looper clock to Surge",
         )
         y += toggle_h + 16
 
@@ -156,8 +157,8 @@ class TouchBrowserMidiSyncModalMixin:
                 return f"q:{choice}"
         if self._midi_sync_offset_toggle_rect and self._midi_sync_offset_toggle_rect.contains(*pos):
             return "offset_auto"
-        if self._midi_sync_clock_toggle_rect and self._midi_sync_clock_toggle_rect.contains(*pos):
-            return "clock_through"
+        if self._midi_sync_triplet_toggle_rect and self._midi_sync_triplet_toggle_rect.contains(*pos):
+            return "triplet"
         return None
 
     def _handle_midi_sync_modal_pointer_down(self, pos: tuple[int, int]) -> None:
@@ -180,8 +181,9 @@ class TouchBrowserMidiSyncModalMixin:
         if hit == "offset_auto":
             self._toggle_midi_offset_auto()
             return
-        if hit == "clock_through":
-            self._toggle_midi_clock_through()
+        if hit == "triplet":
+            if current_quantize() != "off":
+                self._toggle_midi_triplet()
             return
         if hit.startswith("q:"):
             self._select_midi_quantize(hit.split(":", 1)[1])
