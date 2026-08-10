@@ -117,20 +117,33 @@ A.4 matters more than it looks: "loses voices" needs to be specific enough that 
 
 ### Arm A½ — scheduling and clock, no kernel change (before Arm B)
 
-This is now the **most promising arm**, and the cheapest: nothing here needs a kernel, a card pull, or a rollback plan. Two independent sub-arms, run separately.
+This is now the **most promising arm**, and the cheapest: nothing here needs a kernel, a card pull, or a rollback plan. Both knobs ship **off by default** so pulling the branch changes nothing until opted into.
 
-| Step | Change | Rationale |
-|---|---|---|
-| A½.1 | CPU governor `ondemand` → **`performance`** | Removes clock ramp-up latency on polyphony spikes. Costs power and heat — watch A0.3 |
-| A½.2 | Re-run A.3 @ 1024, then step to 768 | Governor effect in isolation |
-| A½.3 | `limits.d` drop-in: `rtprio` and `memlock` for the audio user | Surge currently has `Max realtime priority 0` — it **cannot** ask for RT |
-| A½.4 | `CPUSchedulingPolicy=fifo` + a modest priority on `surge-xt-cli.service` | Confirm with `chrt -p` that it actually took, then repeat A.3 and the 768 step |
+**Sub-arm 1 — CPU governor**
 
-Both sub-arms are **repo-managed** (`config/surge-xt-cli.service` is templated and deployed by `configure-pi-paths.sh`), so they ship as normal PRs through GitHub — no hand-editing on the Pi.
+| Step | Action |
+|---|---|
+| A½.1 | Set `MPE_CPU_GOVERNOR=performance` in `/etc/mpe/mpe.env`, reboot, confirm via `mpe sysinfo` |
+| A½.2 | Re-run A.3 @ 1024, then step to 768 — governor effect in isolation |
+| A½.3 | Re-check `get_throttled` and temperature: `performance` costs power and heat, so it could *worsen* an under-voltage problem |
 
-**Do not set an extreme RT priority.** A `SCHED_FIFO` thread that spins can lock up the box; the touch UI and network stack still need to run. Start modest and soak.
+**Sub-arm 2 — realtime scheduling**
 
-If 768 passes here, **Arm B is cancelled** and the looper question reopens without any kernel risk at all.
+`surge-xt-cli.service` now sets `LimitRTPRIO=95` and `LimitMEMLOCK=infinity`, which **permits** rather than forces RT: JUCE can elevate just its audio callback thread while the rest of the process stays normal. That is safer than making the whole process `SCHED_FIFO`.
+
+| Step | Action |
+|---|---|
+| A½.4 | Restart Surge, then `chrt -p $(pgrep -f surge-xt-cli)`. If it now shows `SCHED_FIFO`, JUCE self-elevated — go to A½.6 |
+| A½.5 | If still `SCHED_OTHER`, JUCE isn't asking. Set `MPE_SURGE_RT_PRIORITY=20` to wrap the launch in `chrt --fifo` and re-check |
+| A½.6 | Re-run A.3 @ 1024, then step to 768 |
+
+**Note on `limits.d`:** systemd services bypass PAM, so `/etc/security/limits.d/` has **no effect** on `surge-xt-cli.service` — the unit's `Limit*` directives are the correct mechanism. A `limits.d` file would only matter for Surge launched manually over SSH (e.g. calibration), so it's deliberately not part of this arm.
+
+Everything here is **repo-managed** and deploys through GitHub — no hand-editing on the Pi.
+
+**Do not raise the RT priority aggressively.** A `SCHED_FIFO` thread that spins can lock up the box; the touch UI and network stack still need to run.
+
+If 768 passes here, **Arm B is cancelled** and the looper question reopens with no kernel risk at all.
 
 ### Arm B — RT kernel (1–2 days) — blocked
 
