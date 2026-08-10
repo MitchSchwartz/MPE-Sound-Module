@@ -27,9 +27,6 @@ class StartUac2WatchdogTests(unittest.TestCase):
 
     def test_skips_when_not_usb_host(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            tmp_path = Path(tmp)
-            env_file = tmp_path / "mpe.env"
-            env_file.write_text("MPE_AUDIO_PROFILE=standalone\n", encoding="utf-8")
             result = subprocess.run(
                 ["bash", str(START_SCRIPT)],
                 capture_output=True,
@@ -41,6 +38,34 @@ class StartUac2WatchdogTests(unittest.TestCase):
                 check=False,
             )
             self.assertEqual(result.returncode, 0, msg=result.stderr)
+
+    def test_starts_for_usb_host_session(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            bin_dir = tmp_path / "bin"
+            bin_dir.mkdir()
+            marker = tmp_path / "watchdog-started"
+            systemctl = bin_dir / "systemctl"
+            systemctl.write_text(
+                f"#!/bin/bash\n"
+                f'if [ "$1" = "is-active" ]; then exit 1; fi\n'
+                f'if [ "$1" = "start" ]; then touch {marker}; fi\n',
+                encoding="utf-8",
+            )
+            systemctl.chmod(systemctl.stat().st_mode | stat.S_IXUSR)
+            result = subprocess.run(
+                ["bash", str(START_SCRIPT)],
+                capture_output=True,
+                text=True,
+                env={
+                    **os.environ,
+                    "MPE_AUDIO_PROFILE": "usb-host-session",
+                    "PATH": f"{bin_dir}:{os.environ.get('PATH', '')}",
+                },
+                check=False,
+            )
+            self.assertEqual(result.returncode, 0, msg=result.stderr)
+            self.assertTrue(marker.exists())
 
     def test_mpe_services_does_not_inline_start_watchdog(self) -> None:
         content = (REPO_ROOT / "scripts" / "lib" / "mpe-services.sh").read_text(

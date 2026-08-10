@@ -20,7 +20,11 @@ class ContextMenuTests(unittest.TestCase):
 
     def test_library_nested_folder_mirror_key(self) -> None:
         key = qa_folder_key_for_library("Bass", ("Sub",))
-        self.assertEqual(key, "Bass/Sub")
+        self.assertEqual(key, "Sub")
+
+    def test_library_top_level_category_mirror_key(self) -> None:
+        key = qa_folder_key_for_library("Bass", ())
+        self.assertEqual(key, "Bass")
 
     def test_patch_unfavorited_actions(self) -> None:
         target = ContextTarget(kind="patch", patch={"name": "Acid"})

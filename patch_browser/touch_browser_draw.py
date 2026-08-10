@@ -28,12 +28,14 @@ from patch_browser.touch_ui_constants import (
     FADER_HANDLE_H,
     FADER_HANDLE_W,
     LONG_PRESS_S,
+    LOOPER_HUD_PAD_X,
     SETTINGS_PANEL_FOOTER_H,
     SETTINGS_PANEL_HEADER_H,
     SETTINGS_ROW_GAP,
     SETTINGS_ROW_H,
 )
 from patch_browser.audio_profile import header_badge_label
+from patch_browser.midi_clock import looper_hud_label
 from patch_browser.touch_ui_enums import (
     CalibrateMode,
     LeftNavMode,
@@ -386,6 +388,41 @@ class TouchBrowserDrawMixin:
             border_radius=3,
         )
 
+    def _draw_looper_hud(self, rect: Rect) -> None:
+        if rect.w <= 0:
+            return
+        snap = self.looper_monitor.snapshot()
+        label = looper_hud_label(snap)
+        running = bool(snap.get("running"))
+        synced = bool(snap.get("synced"))
+        daemon = bool(snap.get("daemon_online"))
+
+        fill = self.theme.surface_alt
+        if running:
+            text_color = self.theme.accent
+        elif synced or daemon:
+            text_color = self.theme.text
+        else:
+            text_color = self.theme.muted
+
+        pygame.draw.rect(self.screen, fill, rect.pygame_rect, border_radius=8)
+
+        dot_x = rect.x + LOOPER_HUD_PAD_X
+        text_x = dot_x
+        if running:
+            dot_y = rect.y + rect.h // 2
+            pygame.draw.circle(self.screen, self.theme.accent, (dot_x + 3, dot_y), 4)
+            text_x = dot_x + 12
+
+        badge = self.font_sm.render(label, True, text_color)
+        self.screen.blit(
+            badge,
+            (
+                text_x + max(0, (rect.w - (text_x - rect.x) - badge.get_width()) // 2),
+                rect.y + (rect.h - badge.get_height()) // 2,
+            ),
+        )
+
     def _draw_audio_profile_badge(self, rect: Rect) -> None:
         label = header_badge_label()
         from patch_browser.usb_audio_recovery import is_recovering
@@ -423,7 +460,9 @@ class TouchBrowserDrawMixin:
             subtitle = recovery_hint
 
         title_x = getattr(self, "status_title_x", self.status_rect.x + 12)
-        widget_left = self.audio_profile_badge_rect.x
+        widget_left = getattr(self, "looper_hud_rect", self.audio_profile_badge_rect).x
+        if widget_left <= title_x:
+            widget_left = self.audio_profile_badge_rect.x
         title_max_w = max(1, widget_left - title_x - 12)
         title_lines = wrap_text_lines(self.font_md, title, title_max_w, max_lines=1)
         self.screen.blit(
@@ -437,6 +476,8 @@ class TouchBrowserDrawMixin:
             (title_x, self.status_rect.y + 26),
         )
         self._draw_audio_profile_badge(self.audio_profile_badge_rect)
+        if getattr(self, "show_looper_hud", True):
+            self._draw_looper_hud(self.looper_hud_rect)
         if self.show_cpu_meter:
             self._draw_cpu_meter(self.cpu_meter_rect)
         self._draw_button(self.system_settings_btn, "...", small=True, muted=True)
@@ -739,12 +780,10 @@ class TouchBrowserDrawMixin:
         title = self.font_md.render("Switching audio…", True, self.theme.text)
         self.screen.blit(title, (panel.x + 24, panel.y + 28))
 
-        hint = "Starting USB gadget and restarting Surge"
+        from patch_browser.audio_profile import profile_switch_overlay_hint
+
         target = getattr(self, "_audio_profile_switch_target", None)
-        if target == "standalone":
-            hint = "Stopping USB gadget and restarting Surge"
-        elif target != "usb-host":
-            hint = "Restarting Surge for new audio route"
+        hint = profile_switch_overlay_hint(target) if target else "Restarting Surge for new audio route"
         draw_wrapped_text_in_rect(
             self.screen,
             self.font_sm,

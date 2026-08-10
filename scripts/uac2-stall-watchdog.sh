@@ -29,10 +29,35 @@ log() {
     echo "$1"
 }
 
-if [ "${MPE_AUDIO_PROFILE:-standalone}" != "usb-host" ]; then
+if [ "${MPE_AUDIO_PROFILE:-standalone}" != "usb-host" ] \
+    && [ "${MPE_AUDIO_PROFILE:-standalone}" != "usb-host-session" ]; then
     log "Profile ${MPE_AUDIO_PROFILE:-standalone} — host-route watcher not needed, exiting"
     exit 0
 fi
+
+SESSION_MODE=false
+if [ "${MPE_AUDIO_PROFILE:-standalone}" = "usb-host-session" ]; then
+    SESSION_MODE=true
+fi
+
+BRIDGE_SERVICE="mic-to-uac2-bridge.service"
+
+start_session_bridge() {
+    if [ "$(id -u)" -eq 0 ]; then
+        systemctl start --no-block "$BRIDGE_SERVICE"
+    else
+        sudo -n systemctl start --no-block "$BRIDGE_SERVICE" 2>/dev/null ||
+            log "WARN: could not start $BRIDGE_SERVICE"
+    fi
+}
+
+stop_session_bridge() {
+    if [ "$(id -u)" -eq 0 ]; then
+        systemctl stop "$BRIDGE_SERVICE" 2>/dev/null || true
+    else
+        sudo -n systemctl stop "$BRIDGE_SERVICE" 2>/dev/null || true
+    fi
+}
 
 restart_surge() {
     uac2_recovery_set recovering
@@ -79,11 +104,19 @@ while true; do
         host_streaming=$streaming
         if [ "$streaming" -eq 1 ] && ! uac2_host_streaming_active; then
             uac2_host_streaming_mark
-            log "Host already capturing @ ${rate}Hz — Surge → UAC2"
-            restart_surge
+            if [ "$SESSION_MODE" = true ]; then
+                log "Host already capturing @ ${rate}Hz — mic → UAC2 (Surge on Sound Blaster)"
+                start_session_bridge
+            else
+                log "Host already capturing @ ${rate}Hz — Surge → UAC2"
+                restart_surge
+            fi
             sleep "$COOLDOWN_SECONDS"
         elif [ "$streaming" -eq 0 ]; then
             uac2_host_streaming_clear
+            if [ "$SESSION_MODE" = true ]; then
+                stop_session_bridge
+            fi
         fi
         continue
     fi
@@ -95,11 +128,24 @@ while true; do
     host_streaming=$streaming
     if [ "$streaming" -eq 1 ]; then
         uac2_host_streaming_mark
-        log "Host capture opened @ ${rate}Hz — Surge → UAC2"
+        if [ "$SESSION_MODE" = true ]; then
+            log "Host capture opened @ ${rate}Hz — mic → UAC2 (Surge on Sound Blaster)"
+            start_session_bridge
+        else
+            log "Host capture opened @ ${rate}Hz — Surge → UAC2"
+            restart_surge
+        fi
     else
         uac2_host_streaming_clear
-        log "Host capture closed — Surge → idle output"
+        if [ "$SESSION_MODE" = true ]; then
+            log "Host capture closed — mic bridge stopped (Surge on Sound Blaster)"
+            stop_session_bridge
+        else
+            log "Host capture closed — Surge → idle output"
+            restart_surge
+        fi
     fi
-    restart_surge
-    sleep "$COOLDOWN_SECONDS"
+    if [ "$SESSION_MODE" = false ]; then
+        sleep "$COOLDOWN_SECONDS"
+    fi
 done

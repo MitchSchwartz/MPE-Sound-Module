@@ -16,7 +16,10 @@ from patch_browser.context_menu import (
 )
 from patch_browser.favorites_index import qa_folder_key_for_library, qa_folder_key_from_target_inner
 from patch_browser.geometry import Rect
-from patch_browser.instrument_filter import patches_in_browse_subtree
+from patch_browser.instrument_filter import (
+    patches_in_browse_subtree,
+    primary_instrument,
+)
 from patch_browser.scroll_widgets import ScrollableActionList
 from patch_browser.touch_keyboard import TouchKeyboardLayout
 from patch_browser.touch_ui_constants import (
@@ -48,6 +51,8 @@ class TouchBrowserContextMixin:
         self._name_prompt_cancel: Rect | None = None
         self._name_prompt_field = Rect(0, 0, 0, 0)
         self._context_menu_ignore_next_up = False
+        self._context_menu_down_outside = False
+        self._context_menu_selected_action_id: str | None = None
 
     def _cancel_long_press(self) -> None:
         self._long_press_pending = None
@@ -206,6 +211,8 @@ class TouchBrowserContextMixin:
         self._context_menu_view = "main"
         self._context_menu_actions = []
         self._context_menu_ignore_next_up = False
+        self._context_menu_down_outside = False
+        self._context_menu_selected_action_id = None
 
     def _open_folder_picker(self, action_prefix: str) -> None:
         folders = self.scanner.favorites_index.folders
@@ -215,6 +222,12 @@ class TouchBrowserContextMixin:
         self._layout_context_menu()
 
     def _open_instrument_picker(self) -> None:
+        target = self._context_target
+        patch = target.patch if target and target.kind == "patch" else None
+        if patch:
+            self._context_menu_selected_action_id = f"pick_instrument:{primary_instrument(patch)}"
+        else:
+            self._context_menu_selected_action_id = None
         self._context_menu_view = "instrument_pick"
         self._context_menu_actions = instrument_picker_actions()
         self._context_menu_title = "Set instrument"
@@ -411,6 +424,9 @@ class TouchBrowserContextMixin:
                         patch=patch,
                     )
                     self.scanner.metadata_index.enrich_patch(patch)
+                    canonical = self.scanner.get_patch_by_stable_key(stable_key)
+                    if canonical is not None and canonical is not patch:
+                        self.scanner.metadata_index.enrich_patch(canonical)
                     if self.detail_patch and self.detail_patch.get("path") == patch.get("path"):
                         self.detail_patch = dict(patch)
                     if self.loaded_patch_info and self.loaded_patch_info.get("path") == patch.get(
@@ -418,6 +434,7 @@ class TouchBrowserContextMixin:
                     ):
                         self.loaded_patch_info = dict(patch)
             self._close_context_menu()
+            self._rebuild_all_patches_index()
             self._refresh_lists()
             self._toast(f"Instrument → {instrument}", 2.0)
             return
@@ -571,6 +588,7 @@ class TouchBrowserContextMixin:
     def _handle_context_menu_pointer_down(self, pos: tuple[int, int]) -> None:
         if self._context_menu_ignore_next_up:
             return
+        self._context_menu_down_outside = not self._context_action_sheet.contains(pos)
         self._context_action_sheet.pointer_down(pos)
 
     def _handle_context_menu_pointer_move(self, pos: tuple[int, int]) -> None:
@@ -581,10 +599,11 @@ class TouchBrowserContextMixin:
             self._context_menu_ignore_next_up = False
             return
         scrolled = self._context_action_sheet.pointer_up(pos)
-        if not self._context_action_sheet.contains(pos):
+        up_outside = not self._context_action_sheet.contains(pos)
+        if self._context_menu_down_outside and up_outside:
             self._close_context_menu()
             return
-        if scrolled:
+        if scrolled or up_outside:
             return
         action_id = self._context_action_sheet.action_at(pos)
         if action_id:
@@ -602,6 +621,7 @@ class TouchBrowserContextMixin:
             font_sm=self.font_sm,
             theme=self.theme,
             draw_elevated_panel=lambda panel, **kw: self._draw_elevated_panel(panel, **kw),
+            selected_action_id=self._context_menu_selected_action_id,
         )
 
     def _draw_name_prompt(self) -> None:

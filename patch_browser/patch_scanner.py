@@ -636,6 +636,14 @@ class PatchScanner:
         folder: str = DEFAULT_FAVORITES_FOLDER,
     ) -> tuple[int, int]:
         """Bulk-copy library patches into Quick Access. Returns (added, skipped)."""
+        if patches:
+            from patch_browser.favorites_backup import snapshot_favorites
+
+            snapshot_favorites(
+                self.get_favorites_folder_path(),
+                self.favorites_index.path,
+                label="pre-bulk-add",
+            )
         added = 0
         skipped = 0
         for patch in patches:

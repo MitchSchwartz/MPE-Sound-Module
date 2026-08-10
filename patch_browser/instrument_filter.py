@@ -49,3 +49,12 @@ def patches_in_browse_subtree(
         for name in scanner.get_subfolders(category, inner):
             stack.append(inner + (name,))
     return collected
+
+
+def patches_in_folder_only(
+    scanner: PatchScanner,
+    category: str,
+    inner_segments: tuple[str, ...],
+) -> list[dict]:
+    """Patches directly in one folder — not parent siblings, not recursive into children."""
+    return list(scanner.get_patches_in_folder(category, inner_segments))

@@ -25,6 +25,8 @@ from patch_browser.mixer import MixerChannel
 from patch_browser.patch_loader import PatchLoader
 from patch_browser.patch_scanner import FAVORITES_NAME, SURGE_PATCH_DIRS, PatchScanner, favorites_display_name
 from patch_browser.scroll_widgets import ContentScrollArea, ScrollList
+from patch_browser.looper_clock_monitor import LooperClockMonitor
+from patch_browser.screen_recorder import ScreenRecorder
 from patch_browser.surge_cpu_monitor import SurgeCpuMonitor
 from patch_browser.surge_monitor import SurgeMonitor
 from patch_browser.touch_evdev import TouchEvdevBridge, evdev_bridge_enabled
@@ -43,6 +45,7 @@ from patch_browser.touch_browser_patches import TouchBrowserPatchesMixin
 from patch_browser.touch_browser_prefs import TouchBrowserPrefsMixin
 from patch_browser.touch_browser_brightness_modal import TouchBrowserBrightnessModalMixin
 from patch_browser.touch_browser_settings import TouchBrowserSettingsMixin
+from patch_browser.touch_browser_audio_profile_modal import TouchBrowserAudioProfileModalMixin
 from patch_browser.touch_browser_surge_audio_modal import TouchBrowserSurgeAudioModalMixin
 from patch_browser.touch_browser_wifi_modal import TouchBrowserWifiModalMixin
 from patch_browser.touch_ui_constants import TAP_MOVE_THRESHOLD_PX
@@ -65,6 +68,7 @@ class TouchPatchBrowser(
     TouchBrowserPrefsMixin,
     TouchBrowserSettingsMixin,
     TouchBrowserBrightnessModalMixin,
+    TouchBrowserAudioProfileModalMixin,
     TouchBrowserSurgeAudioModalMixin,
     TouchBrowserWifiModalMixin,
     TouchBrowserLayoutMixin,
@@ -105,6 +109,7 @@ class TouchPatchBrowser(
                 raise SystemExit(1) from exc
             pygame.display.set_caption("Pi-Surge-MPE Touch Browser")
         self.width, self.height = self.screen.get_size()
+        self._screen_recorder = ScreenRecorder.from_env()
         pygame.mouse.set_visible(False)
         prefs = reload_theme_from_prefs()
         self.theme_mode = prefs.theme_mode
@@ -132,6 +137,8 @@ class TouchPatchBrowser(
         self.surge_monitor = SurgeMonitor()
         self.cpu_monitor = SurgeCpuMonitor(self.surge_monitor)
         self.cpu_monitor.start()
+        self.looper_monitor = LooperClockMonitor()
+        self.looper_monitor.start()
 
         self.categories: list[str] = []
         self.all_patches_flat: list[dict] = []
@@ -157,6 +164,7 @@ class TouchPatchBrowser(
 
         self.volume_level = self._load_volume_level()
         self.show_cpu_meter = self._load_ui_preference("show_cpu_meter", default=True)
+        self.show_looper_hud = self._load_ui_preference("show_looper_hud", default=True)
         self.poly_governor_enabled = self._load_ui_preference("poly_governor_enabled", default=True)
         self.brightness_percent = self.backlight.get_percent()
         self.toast_message = ""
@@ -354,6 +362,11 @@ class TouchPatchBrowser(
                 if scroll is not None:
                     scroll.tick_edge_hints(dt)
                     scroll.tick(dt)
+            if self.screen_state == Screen.SURGE_BUFFER_MODAL:
+                scroll = getattr(self, "_surge_buffer_scroll", None)
+                if scroll is not None:
+                    scroll.tick_edge_hints(dt)
+                    scroll.tick(dt)
             if self.screen_state == Screen.BROWSER and not self.left_nav_collapsed:
                 self.nav_list.tick(dt)
                 self._tick_long_press()
@@ -362,6 +375,8 @@ class TouchPatchBrowser(
 
         if self._evdev_bridge is not None:
             self._evdev_bridge.stop()
+        if self._screen_recorder is not None:
+            self._screen_recorder.close()
         self.cpu_monitor.stop()
         pygame.quit()
 
