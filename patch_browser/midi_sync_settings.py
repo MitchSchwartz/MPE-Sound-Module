@@ -76,7 +76,7 @@ def current_offset_auto() -> bool:
 def quantize_subdivision_label(value: str) -> str:
     labels = {
         "off": "Off",
-        "beat": "Quarter note (1/4)",
+        "beat": "4th note",
         "8th": "8th note",
         "16th": "16th note",
         "32nd": "32nd note",
@@ -91,19 +91,27 @@ def quantize_option_label(value: str) -> str:
     return label
 
 
-def offset_summary() -> str:
+def offset_ms_value() -> str:
     if current_offset_auto():
         from patch_browser.surge_audio import current_buffer_size, current_sample_rate
 
         ms = buffer_latency_ms(current_buffer_size(), current_sample_rate())
-        return f"Auto (−{ms:.0f} ms)"
+        return f"−{ms:.0f} ms"
     raw = read_str_from_env_file("MPE_MIDI_OUTPUT_OFFSET_MS", MPE_ENV_PATH)
     if raw:
         try:
             return f"{float(raw):+.0f} ms"
         except ValueError:
             pass
-    return "Manual (unset)"
+    return "manual"
+
+
+def offset_toggle_label() -> str:
+    return f"Auto offset ({offset_ms_value()})"
+
+
+def offset_summary() -> str:
+    return offset_toggle_label()
 
 
 def settings_summary() -> str:
