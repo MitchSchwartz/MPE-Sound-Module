@@ -13,6 +13,9 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 GOVERNOR_SCRIPT = REPO_ROOT / "scripts" / "set-cpu-governor.sh"
 
 
+CPU0_CPUFREQ = Path("/sys/devices/system/cpu/cpu0/cpufreq")
+
+
 def _run_governor(env_value: str | None) -> subprocess.CompletedProcess[str]:
     env = {"PATH": "/usr/bin:/bin", "HOME": str(Path.home())}
     if env_value is not None:
@@ -38,6 +41,10 @@ class CpuGovernorScriptTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, msg=result.stderr)
         self.assertIn("unset", result.stdout)
 
+    @unittest.skipUnless(
+        CPU0_CPUFREQ.is_dir(),
+        "no cpufreq sysfs on this host (e.g. GitHub Actions)",
+    )
     def test_unavailable_governor_fails_loudly(self) -> None:
         """A typo must not silently leave the governor unchanged."""
         result = _run_governor("no-such-governor")
