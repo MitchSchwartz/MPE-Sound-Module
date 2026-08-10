@@ -1,0 +1,28 @@
+{
+  // Laptop → Pi ops via bounded mpe-cli (see AGENTS.md + OM-Repo Docs/appliance-cli-pattern.md).
+  // Defining terminalAllowlist here overrides the IDE terminal allowlist while this repo is in the workspace.
+  "terminalAllowlist": [
+    "mpe ping",
+    "mpe status",
+    "mpe logs",
+    "mpe osc-check",
+    "mpe diagnose",
+    "mpe pull-videos",
+    "mpe record",
+    "mpe restart",
+    "git",
+    "python3",
+    "gh"
+  ],
+  "autoRun": {
+    "allow_instructions": [
+      "mpe subcommands (ping, status, logs, osc-check, diagnose, pull-videos, record, restart) are the approved laptop → Pi path for MPE-Module work.",
+      "Read-only mpe ops (ping, status, logs, osc-check, diagnose, pull-videos without --delete-source) are safe without extra approval."
+    ],
+    "block_instructions": [
+      "Do not run raw ssh, scp, or rsync to the MPE Pi when an mpe subcommand exists.",
+      "Do not edit ~/.config/mpe/mpe.env or mpe-cli bin/commands/lib without explicit user approval.",
+      "mpe restart, mpe record, and mpe pull-videos --delete-source change device state — prefer read-only mpe ops first."
+    ]
+  }
+}
