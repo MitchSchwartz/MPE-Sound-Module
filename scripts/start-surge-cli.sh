@@ -60,7 +60,7 @@ lsusb 2>&1 | grep -i "midi\|roli\|seaboard" >> "$LOG_FILE" || echo "  No USB MID
 # shellcheck source=lib/unload-snd-aloop.sh
 source "$SCRIPT_DIR/lib/unload-snd-aloop.sh"
 
-SURGE_BUFFER_SIZE="${MPE_SURGE_BUFFER_SIZE:-768}"
+SURGE_BUFFER_SIZE="${MPE_SURGE_BUFFER_SIZE:-1024}"
 SURGE_SAMPLE_RATE="${MPE_SURGE_SAMPLE_RATE:-48000}"
 echo "$(date): ALSA buffer size: $SURGE_BUFFER_SIZE samples" >> "$LOG_FILE"
 echo "$(date): Sample rate: $SURGE_SAMPLE_RATE Hz" >> "$LOG_FILE"
@@ -87,7 +87,27 @@ else
   echo "$(date): Surge MIDI all inputs (remapper disabled)" >> "$LOG_FILE"
 fi
 
-"$SURGE_CLI" \
+# Optional SCHED_FIFO for the whole Surge process. Off by default: LimitRTPRIO in
+# surge-xt-cli.service already lets JUCE elevate just its audio thread, which is
+# safer. Use this only if `chrt -p <pid>` still shows SCHED_OTHER under load.
+# See docs/LATENCY-SPIKE.md (Arm A½).
+SURGE_LAUNCH_PREFIX=()
+case "${MPE_SURGE_RT_PRIORITY:-0}" in
+  '' | 0) ;;
+  *[!0-9]*)
+    echo "$(date): WARNING: MPE_SURGE_RT_PRIORITY not a number — ignoring" >> "$LOG_FILE"
+    ;;
+  *)
+    if command -v chrt > /dev/null 2>&1; then
+      SURGE_LAUNCH_PREFIX=(chrt --fifo "$MPE_SURGE_RT_PRIORITY")
+      echo "$(date): SCHED_FIFO priority $MPE_SURGE_RT_PRIORITY" >> "$LOG_FILE"
+    else
+      echo "$(date): WARNING: chrt not found — staying SCHED_OTHER" >> "$LOG_FILE"
+    fi
+    ;;
+esac
+
+"${SURGE_LAUNCH_PREFIX[@]}" "$SURGE_CLI" \
   "${SURGE_MIDI_ARGS[@]}" \
   --mpe-enable \
   --mpe-pitch-bend-range=48 \

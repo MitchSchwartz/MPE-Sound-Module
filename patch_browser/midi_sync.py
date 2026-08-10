@@ -6,6 +6,7 @@ import os
 from typing import Any
 
 from patch_browser.midi_clock import PPQN, normalize_midi_bytes
+from patch_browser.surge_audio import DEFAULT_BUFFER, DEFAULT_SAMPLE_RATE
 
 MIDI_CLOCK = 0xF8
 MIDI_START = 0xFA
@@ -54,8 +55,10 @@ def buffer_latency_ms(
     buffer: int | None = None,
     sample_rate: int | None = None,
 ) -> float:
-    buf = buffer if buffer is not None else int(os.environ.get("MPE_SURGE_BUFFER_SIZE", "768"))
-    rate = sample_rate if sample_rate is not None else int(os.environ.get("MPE_SURGE_SAMPLE_RATE", "48000"))
+    buf = buffer if buffer is not None else int(os.environ.get("MPE_SURGE_BUFFER_SIZE", str(DEFAULT_BUFFER)))
+    rate = sample_rate if sample_rate is not None else int(
+        os.environ.get("MPE_SURGE_SAMPLE_RATE", str(DEFAULT_SAMPLE_RATE))
+    )
     if rate <= 0:
         return 0.0
     return 1000.0 * buf / rate

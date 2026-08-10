@@ -70,7 +70,7 @@ _run_on_pi() {
             if [ -n "$_preserved_surge_buffer" ]; then
                 echo "MPE_SURGE_BUFFER_SIZE=$_preserved_surge_buffer"
             else
-                echo "MPE_SURGE_BUFFER_SIZE=768"
+                echo "MPE_SURGE_BUFFER_SIZE=1024"
             fi
             if [ -n "$_preserved_surge_sample_rate" ]; then
                 echo "MPE_SURGE_SAMPLE_RATE=$_preserved_surge_sample_rate"

@@ -27,7 +27,7 @@
 - **check-surge-mode.sh** - Verify CLI/GUI mode state
 
 ### Capture Scripts
-- **record-screen.sh** - Record touch UI via in-app RGB pipe to ffmpeg (see [`docs/TOUCH_PATCH_BROWSER.md`](../docs/TOUCH_PATCH_BROWSER.md#screen-recording-for-demos))
+- **record-screen.sh** - On-Pi touch UI capture (laptop: use **`mpe record`** from [mpe-cli](https://github.com/MitchSchwartz/mpe-cli))
 - **build-patch-metadata-baseline.py** - Regenerate `data/patch_metadata_baseline.json` from local Surge patch dirs (auto-uses sibling `../MPE-Library` when present; else `~/surge` paths)
 
 ### Setup Scripts

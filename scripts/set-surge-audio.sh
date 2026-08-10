@@ -69,7 +69,7 @@ fi
 
 mpe_source_appliance_env
 _old_rate="${MPE_SURGE_SAMPLE_RATE:-48000}"
-_old_buffer="${MPE_SURGE_BUFFER_SIZE:-768}"
+_old_buffer="${MPE_SURGE_BUFFER_SIZE:-1024}"
 
 _update_env_var() {
     local key="$1"
