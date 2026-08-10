@@ -97,6 +97,20 @@ class DetectAudioDeviceTests(unittest.TestCase):
         self.assertIn("DEVICE_ID=0.4", result.stdout)
         self.assertIn("TIER=1", result.stdout)
 
+    def test_usb_host_session_always_sound_blaster(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            flag = Path(tmp) / "host-streaming"
+            flag.write_text("", encoding="utf-8")
+            result = _run_detect(
+                MOCK_GADGET_LIST,
+                profile="usb-host-session",
+                extra_env={"MPE_UAC2_HOST_STREAMING_FLAG": str(flag)},
+            )
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+        self.assertIn("DEVICE_ID=0.4", result.stdout)
+        self.assertIn("TIER=1", result.stdout)
+        self.assertIn("usb-host-session", result.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

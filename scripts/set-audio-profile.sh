@@ -1,17 +1,17 @@
 #!/bin/bash
 # Apply MPE_AUDIO_PROFILE on the Pi: update /etc/mpe/mpe.env, gadget service, Surge.
 #
-# Usage: sudo ./scripts/set-audio-profile.sh standalone|usb-host
+# Usage: sudo ./scripts/set-audio-profile.sh standalone|usb-host|usb-host-session
 #
 # Intended for NOPASSWD in sudoers (touch UI toggle). See docs/TOUCH_PATCH_BROWSER.md.
 
 set -euo pipefail
 
-PROFILE="${1:?usage: set-audio-profile.sh standalone|usb-host}"
+PROFILE="${1:?usage: set-audio-profile.sh standalone|usb-host|usb-host-session}"
 case "$PROFILE" in
-    standalone | usb-host) ;;
+    standalone | usb-host | usb-host-session) ;;
     *)
-        echo "ERROR: profile must be standalone or usb-host" >&2
+        echo "ERROR: profile must be standalone, usb-host, or usb-host-session" >&2
         exit 1
         ;;
 esac
@@ -42,7 +42,7 @@ mpe_enable_audio_profile_sync
 
 # shellcheck source=lib/wait-for-uac2-gadget.sh
 source "$SCRIPT_DIR/lib/wait-for-uac2-gadget.sh"
-if [ "$PROFILE" = "usb-host" ]; then
+if [ "$PROFILE" = "usb-host" ] || [ "$PROFILE" = "usb-host-session" ]; then
     wait_for_uac2_gadget 8 || true
 fi
 

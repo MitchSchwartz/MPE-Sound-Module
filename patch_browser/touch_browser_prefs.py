@@ -264,6 +264,15 @@ class TouchBrowserPrefsMixin:
         else:
             self._toast("CPU meter off", 1.2)
 
+    def _toggle_looper_hud_visibility(self) -> None:
+        self.show_looper_hud = not self.show_looper_hud
+        self._save_ui_preference("show_looper_hud", self.show_looper_hud)
+        self._layout()
+        if self.show_looper_hud:
+            self._toast("Looper tempo on", 1.2)
+        else:
+            self._toast("Looper tempo off", 1.2)
+
     def _toggle_poly_governor(self) -> None:
         self.poly_governor_enabled = not self.poly_governor_enabled
         self._save_ui_preference("poly_governor_enabled", self.poly_governor_enabled)
@@ -310,12 +319,16 @@ class TouchBrowserPrefsMixin:
             return
         self._finish_audio_profile_switch(ok, message)
 
-    def _toggle_audio_profile(self) -> None:
+    def _begin_audio_profile_switch(self, profile: str) -> None:
         if getattr(self, "_audio_profile_switching", False) or getattr(
             self, "_surge_audio_switching", False
         ):
             return
-        from patch_browser.audio_profile import apply_profile, current_profile
+        from patch_browser.audio_profile import apply_profile, current_profile, normalize_profile, profile_option_label
+
+        profile = normalize_profile(profile)
+        if profile == current_profile():
+            return
 
         patch = self.loaded_patch_info
         if patch:
@@ -324,15 +337,14 @@ class TouchBrowserPrefsMixin:
         self._profile_switch_reload_active = True
         self._profile_switch_sent_once = False
 
-        target = "usb-host" if current_profile() == "standalone" else "standalone"
         self._audio_profile_switching = True
-        self._audio_profile_switch_target = target
+        self._audio_profile_switch_target = profile
         self._audio_profile_switch_started = time.monotonic()
-        label = "USB host" if target == "usb-host" else "Analog"
+        label = profile_option_label(profile)
         self._toast(f"Switching to {label}…", 1.5)
 
         def _worker() -> None:
-            ok, message = apply_profile(target)
+            ok, message = apply_profile(profile)
             self._audio_profile_result_queue.put((ok, message))
 
         threading.Thread(

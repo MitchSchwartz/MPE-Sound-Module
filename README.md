@@ -189,6 +189,7 @@ Full command reference: **[COMMANDS.md](COMMANDS.md)**
 | [docs/USB-AUDIO-HOST.md](docs/USB-AUDIO-HOST.md)                     | USB desk-tether audio (route to a laptop/PC)         |
 | [docs/PATCH-EDITING-WORKFLOW.md](docs/PATCH-EDITING-WORKFLOW.md)     | Editing sounds, pushing to the Pi                    |
 | [docs/FOOT_PEDAL.md](docs/FOOT_PEDAL.md)                             | USB footswitch setup + remapping                     |
+| [docs/MIDI-CLOCK.md](docs/MIDI-CLOCK.md)                             | MIDI clock out for Boss RC-5 / external sync         |
 | [docs/POWER_BUTTON_SETUP.md](docs/POWER_BUTTON_SETUP.md)             | Shutdown/power-on via the encoder button             |
 | [COMMANDS.md](COMMANDS.md)                                           | Backup, deploy, restore, day-to-day ops              |
 | [docs/BACKUP_GUIDE.md](docs/BACKUP_GUIDE.md)                         | Full disaster recovery                               |

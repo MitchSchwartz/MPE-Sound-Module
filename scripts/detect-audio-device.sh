@@ -5,7 +5,7 @@
 # Usage: detect-audio-device.sh [path-to-surge-xt-cli]
 #
 # Tier 0 (usb-host + host capturing): UAC2 gadget → tethered host PC
-# Tier 1: Sound Blaster Play! 3 (standalone default; usb-host idle)
+# Tier 1: Sound Blaster Play! 3 (standalone default; usb-host idle; usb-host-session always)
 # Tier 2–4: generic USB, Pi headphone, last resort
 #
 # Exit codes:
@@ -73,7 +73,8 @@ try_select_uac2_gadget() {
 }
 
 # ============================================================================
-# TIER 0: UAC2 gadget — only while host capture is active (usb-host profile)
+# TIER 0: UAC2 gadget — only while host capture is active (usb-host profile only)
+# usb-host-session keeps Surge on Sound Blaster; mic bridge feeds the gadget.
 # ============================================================================
 if [ "$AUDIO_PROFILE" = "usb-host" ]; then
     # shellcheck source=lib/uac2-host-route.sh
@@ -86,6 +87,8 @@ if [ "$AUDIO_PROFILE" = "usb-host" ]; then
     else
         echo "REASON=usb-host idle — local output until host opens capture" >&2
     fi
+elif [ "$AUDIO_PROFILE" = "usb-host-session" ]; then
+    echo "REASON=usb-host-session — Surge on Sound Blaster; mic→gadget when host captures" >&2
 fi
 
 # ============================================================================
@@ -122,7 +125,7 @@ fi
 # ============================================================================
 # TIER 2: Any USB audio device (standalone only — skip in usb-host idle)
 # ============================================================================
-if [ "$AUDIO_PROFILE" != "usb-host" ]; then
+if [ "$AUDIO_PROFILE" != "usb-host" ] && [ "$AUDIO_PROFILE" != "usb-host-session" ]; then
 DEVICE=$(echo "$DEVICE_LIST" | \
     grep -i "usb" | \
     grep -v "Surround" | \

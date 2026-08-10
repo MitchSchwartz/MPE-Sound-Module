@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pygame
 
-from patch_browser.audio_profile import header_badge_label, settings_toggle_on
+from patch_browser.audio_profile import profile_settings_label
 from patch_browser.draw_primitives import draw_chevron
 from patch_browser.geometry import Rect
 from patch_browser.scroll_widgets import draw_vertical_scroll_edge_hints
@@ -22,7 +22,6 @@ from patch_browser.touch_ui_constants import (
     SETTINGS_SECTION_GAP,
     SETTINGS_SECTION_HEADER_H,
 )
-from patch_browser.touch_ui_enums import audio_profile_display
 from patch_browser.ui_text import draw_wrapped_text_in_rect, wrapped_row_height
 
 
@@ -34,7 +33,7 @@ class TouchBrowserSettingsMixin:
         self._settings_advanced_open = False
 
     def _audio_settings_summary(self) -> str:
-        profile = header_badge_label()
+        profile = profile_settings_label()
         rate = sample_rate_option_label(current_sample_rate())
         return f"{profile} · {current_buffer_size()} · {rate}"
 
@@ -45,6 +44,16 @@ class TouchBrowserSettingsMixin:
         sub_h = wrapped_row_height(self.font_sm, subtitle, sub_w)
         content = 12 + label_h + SETTINGS_DRILL_SUBTITLE_GAP + sub_h + 12
         return max(SETTINGS_ROW_H, content)
+
+    def _settings_chevron_row_height(
+        self,
+        label: str,
+        value: str | None,
+        inner_w: int,
+    ) -> int:
+        if not value:
+            return self._settings_row_height(label, inner_w)
+        return self._settings_drill_row_height(label, value, inner_w)
 
     def _layout_settings_section_header(
         self,
@@ -70,7 +79,11 @@ class TouchBrowserSettingsMixin:
         y += audio_h + SETTINGS_ROW_GAP
 
         y = self._layout_settings_section_header(pad, inner_w, y, "Display")
-        brightness_h = self._settings_row_height("Brightness", inner_w)
+        brightness_h = self._settings_chevron_row_height(
+            "Brightness",
+            f"{self.brightness_percent}%",
+            inner_w,
+        )
         self.brightness_row_rect = Rect(pad, y, inner_w, brightness_h)
         y += brightness_h + SETTINGS_ROW_GAP
         theme_h = self._settings_row_height("Theme", inner_w)
@@ -87,6 +100,7 @@ class TouchBrowserSettingsMixin:
         y += SETTINGS_ROW_H + SETTINGS_ROW_GAP
 
         self.cpu_meter_toggle_rect = Rect(pad, y, 0, 0)
+        self.looper_hud_toggle_rect = Rect(pad, y, 0, 0)
         self.norm_global_toggle_rect = Rect(pad, y, 0, 0)
         self._surge_restart_btn = None
         self._calibrate_missing_btn = Rect(pad, y, 0, 0)
@@ -97,13 +111,17 @@ class TouchBrowserSettingsMixin:
             self.cpu_meter_toggle_rect = Rect(pad, y, inner_w, cpu_h)
             y += cpu_h + SETTINGS_ROW_GAP
 
+            looper_h = self._settings_row_height("Looper tempo", inner_w, toggle=True)
+            self.looper_hud_toggle_rect = Rect(pad, y, inner_w, looper_h)
+            y += looper_h + SETTINGS_ROW_GAP
+
             status = self.surge_monitor.get_status_summary()
             if status.get("can_restart"):
                 restart_h = self._settings_row_height("Restart Surge", inner_w)
                 self._surge_restart_btn = Rect(pad, y, inner_w, restart_h)
                 y += restart_h + SETTINGS_ROW_GAP
 
-        self.audio_profile_toggle_rect = Rect(pad, y, 0, 0)
+        self.audio_profile_row_rect = Rect(pad, y, 0, 0)
         self.poly_governor_toggle_rect = Rect(pad, y, 0, 0)
         self.surge_buffer_row_rect = Rect(pad, y, 0, 0)
         self.surge_sample_rate_row_rect = Rect(pad, y, 0, 0)
@@ -120,15 +138,30 @@ class TouchBrowserSettingsMixin:
         self.cpu_meter_toggle_rect = Rect(pad, y, 0, 0)
         self._surge_restart_btn = None
 
-        audio_h = self._settings_row_height(audio_profile_display(), inner_w, toggle=True)
-        self.audio_profile_toggle_rect = Rect(pad, y, inner_w, audio_h)
+        from patch_browser.audio_profile import profile_settings_label
+        from patch_browser.surge_audio import buffer_settings_label, sample_rate_settings_label
+
+        audio_h = self._settings_chevron_row_height(
+            "Audio output",
+            profile_settings_label(),
+            inner_w,
+        )
+        self.audio_profile_row_rect = Rect(pad, y, inner_w, audio_h)
         y += audio_h + SETTINGS_ROW_GAP
 
-        buffer_h = self._settings_row_height("Buffer", inner_w)
+        buffer_h = self._settings_chevron_row_height(
+            "Buffer",
+            buffer_settings_label().split(" — ", 1)[-1],
+            inner_w,
+        )
         self.surge_buffer_row_rect = Rect(pad, y, inner_w, buffer_h)
         y += buffer_h + SETTINGS_ROW_GAP
 
-        rate_h = self._settings_row_height("Sample rate", inner_w)
+        rate_h = self._settings_chevron_row_height(
+            "Sample rate",
+            sample_rate_settings_label().split(" — ", 1)[-1],
+            inner_w,
+        )
         self.surge_sample_rate_row_rect = Rect(pad, y, inner_w, rate_h)
         y += rate_h + SETTINGS_ROW_GAP
 
@@ -244,19 +277,29 @@ class TouchBrowserSettingsMixin:
             value_color = self.theme.muted
         pygame.draw.rect(self.screen, bg, rect.pygame_rect, border_radius=10)
         label_surf = self.font_md.render(label, True, text_color)
-        self.screen.blit(
-            label_surf,
-            (rect.x + 16, rect.y + (rect.h - label_surf.get_height()) // 2),
-        )
+        if value:
+            self.screen.blit(label_surf, (rect.x + 16, rect.y + 12))
+            value_y = rect.y + 12 + label_surf.get_height() + SETTINGS_DRILL_SUBTITLE_GAP
+            value_w = max(1, rect.w - 32)
+            value_h = max(1, rect.bottom - 12 - value_y)
+            draw_wrapped_text_in_rect(
+                self.screen,
+                self.font_sm,
+                value,
+                rect.x + 16,
+                value_y,
+                value_w,
+                value_h,
+                value_color,
+                max_lines=2,
+            )
+        else:
+            self.screen.blit(
+                label_surf,
+                (rect.x + 16, rect.y + (rect.h - label_surf.get_height()) // 2),
+            )
         chevron_rect = Rect(rect.right - 34, rect.y + (rect.h - 22) // 2, 22, 22)
         draw_chevron(self.screen, chevron_rect, chevron_color, direction="right")
-        if value:
-            value_surf = self.font_md.render(value, True, value_color)
-            value_x = chevron_rect.x - value_surf.get_width() - 10
-            self.screen.blit(
-                value_surf,
-                (value_x, rect.y + (rect.h - value_surf.get_height()) // 2),
-            )
 
     def _draw_settings_expand_row(
         self,
@@ -315,13 +358,13 @@ class TouchBrowserSettingsMixin:
         )
 
         if audio_view:
-            audio_toggle = self._panel_local_to_screen(self.audio_profile_toggle_rect, scrolled=True)
-            self._draw_normalize_toggle(
-                audio_toggle,
-                settings_toggle_on(),
-                has_gain=True,
-                disabled=service_busy,
-                label=audio_profile_display(),
+            profile_row = self._panel_local_to_screen(self.audio_profile_row_rect, scrolled=True)
+            self._draw_settings_chevron_row(
+                profile_row,
+                "Audio output",
+                profile_settings_label(),
+                muted=service_busy,
+                pressed=self._pressed("settings:audio_profile"),
             )
 
             from patch_browser.surge_audio import buffer_settings_label, sample_rate_settings_label
@@ -435,6 +478,17 @@ class TouchBrowserSettingsMixin:
                         self.show_cpu_meter,
                         has_gain=True,
                         label="CPU meter",
+                    )
+
+                looper_toggle = self._panel_local_to_screen(
+                    self.looper_hud_toggle_rect, scrolled=True
+                )
+                if looper_toggle.h > 0:
+                    self._draw_normalize_toggle(
+                        looper_toggle,
+                        getattr(self, "show_looper_hud", True),
+                        has_gain=True,
+                        label="Looper tempo",
                     )
 
                 if self._surge_restart_btn and self._surge_restart_btn.h > 0:

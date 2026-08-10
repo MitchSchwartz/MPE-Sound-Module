@@ -51,7 +51,10 @@ class Uac2HostRouteWatchdogTests(unittest.TestCase):
 
         systemctl = bin_dir / "systemctl"
         systemctl.write_text(
-            f"#!/bin/bash\nif [ \"$1\" = \"restart\" ]; then touch {restart_marker}; fi\n",
+            f"#!/bin/bash\n"
+            f'if [ "$1" = "restart" ]; then touch {restart_marker}; fi\n'
+            f'if [ "$1" = "start" ]; then touch {tmp_path / "bridge-started"}; fi\n'
+            f'if [ "$1" = "stop" ]; then rm -f {tmp_path / "bridge-started"}; fi\n',
             encoding="utf-8",
         )
         systemctl.chmod(systemctl.stat().st_mode | stat.S_IXUSR)
@@ -95,7 +98,88 @@ class Uac2HostRouteWatchdogTests(unittest.TestCase):
             rate_file.write_text(rate, encoding="utf-8")
 
         proc.wait(timeout=12)
-        return restart_marker, streaming_flag, log_file
+        bridge_marker = tmp_path / "bridge-started"
+        return restart_marker, streaming_flag, log_file, bridge_marker
+
+    def _run_session_watchdog(self, stream_rates: list[str]) -> tuple[Path, Path, Path, Path]:
+        tmp_path = Path(tempfile.mkdtemp())
+        asound = tmp_path / "asound"
+        status = asound / "card4" / "pcm0p" / "sub0" / "status"
+        status.parent.mkdir(parents=True)
+        (asound / "cards").write_text(" 4 [UAC2Gadget]: UAC2_Gadget\n", encoding="utf-8")
+        status.write_text("state: CLOSED\n", encoding="utf-8")
+
+        streaming_flag = tmp_path / "host-streaming"
+        restart_marker = tmp_path / "surge-restarted"
+        recovery_marker = tmp_path / "recovery.state"
+        log_file = tmp_path / "watchdog.log"
+        bridge_marker = tmp_path / "bridge-started"
+
+        rate_file = tmp_path / "rate"
+        rate_file.write_text(stream_rates[0], encoding="utf-8")
+
+        bin_dir = tmp_path / "bin"
+        bin_dir.mkdir()
+
+        amixer = bin_dir / "amixer"
+        amixer.write_text(
+            "#!/bin/bash\n"
+            'if [[ "$*" == *"controls"* ]]; then echo "numid=4,iface=PCM,name='"'"'Playback Rate'"'"'"; fi\n'
+            f'if [[ "$*" == *"cget"* ]]; then echo "  : values=$(cat {rate_file})"; fi\n',
+            encoding="utf-8",
+        )
+        amixer.chmod(amixer.stat().st_mode | stat.S_IXUSR)
+
+        systemctl = bin_dir / "systemctl"
+        systemctl.write_text(
+            f"#!/bin/bash\n"
+            f'if [ "$1" = "restart" ]; then touch {restart_marker}; fi\n'
+            f'if [ "$1" = "start" ]; then touch {bridge_marker}; fi\n'
+            f'if [ "$1" = "stop" ]; then rm -f {bridge_marker}; fi\n',
+            encoding="utf-8",
+        )
+        systemctl.chmod(systemctl.stat().st_mode | stat.S_IXUSR)
+
+        sudo_shim = bin_dir / "sudo"
+        sudo_shim.write_text("#!/bin/bash\nif [ \"$1\" = \"-n\" ]; then shift; fi\nexec \"$@\"\n", encoding="utf-8")
+        sudo_shim.chmod(sudo_shim.stat().st_mode | stat.S_IXUSR)
+
+        scripts_dir = tmp_path / "scripts"
+        shutil.copytree(REPO_ROOT / "scripts" / "lib", scripts_dir / "lib")
+        shutil.copy2(WATCHDOG_SCRIPT, scripts_dir / "uac2-stall-watchdog.sh")
+
+        env = os.environ.copy()
+        env.update(
+            {
+                "MPE_AUDIO_PROFILE": "usb-host-session",
+                "MPE_UAC2_ASOUND_ROOT": str(asound),
+                "MPE_UAC2_WATCHDOG_POLL": "1",
+                "MPE_UAC2_WATCHDOG_COOLDOWN": "0",
+                "MPE_UAC2_HOST_STREAMING_FLAG": str(streaming_flag),
+                "MPE_UAC2_RECOVERY_STATE": str(recovery_marker),
+                "MPE_UAC2_WATCHDOG_LOG": str(log_file),
+                "HOME": str(tmp_path),
+                "PATH": f"{bin_dir}:{env.get('PATH', '')}",
+            }
+        )
+
+        proc = subprocess.Popen(
+            ["timeout", "10", "bash", str(scripts_dir / "uac2-stall-watchdog.sh")],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env=env,
+            cwd=tmp_path,
+        )
+
+        import time
+
+        for rate in stream_rates[1:]:
+            time.sleep(1.1)
+            rate_file.write_text(rate, encoding="utf-8")
+
+        proc.wait(timeout=12)
+        return restart_marker, streaming_flag, log_file, bridge_marker
 
     def tearDown(self) -> None:
         pass
@@ -116,7 +200,7 @@ class Uac2HostRouteWatchdogTests(unittest.TestCase):
         self.assertIn("not needed", result.stdout)
 
     def test_host_capture_open_restarts_surge_on_uac2(self) -> None:
-        restart_marker, streaming_flag, log_file = self._run_watchdog(
+        restart_marker, streaming_flag, log_file, _bridge = self._run_watchdog(
             stream_rates=["0", "48000"],
         )
         self.assertTrue(restart_marker.exists())
@@ -124,12 +208,30 @@ class Uac2HostRouteWatchdogTests(unittest.TestCase):
         self.assertIn("capture opened", log_file.read_text(encoding="utf-8"))
 
     def test_host_capture_close_restarts_surge_to_idle(self) -> None:
-        restart_marker, streaming_flag, log_file = self._run_watchdog(
+        restart_marker, streaming_flag, log_file, _bridge = self._run_watchdog(
             stream_rates=["48000", "0"],
         )
         self.assertTrue(restart_marker.exists())
         self.assertFalse(streaming_flag.exists())
         self.assertIn("capture closed", log_file.read_text(encoding="utf-8"))
+
+    def test_session_mode_starts_bridge_not_surge(self) -> None:
+        restart_marker, streaming_flag, log_file, bridge_marker = self._run_session_watchdog(
+            stream_rates=["0", "48000"],
+        )
+        self.assertFalse(restart_marker.exists())
+        self.assertTrue(bridge_marker.exists())
+        self.assertTrue(streaming_flag.is_file())
+        self.assertIn("mic → UAC2", log_file.read_text(encoding="utf-8"))
+
+    def test_session_mode_stops_bridge_on_close(self) -> None:
+        restart_marker, streaming_flag, log_file, bridge_marker = self._run_session_watchdog(
+            stream_rates=["48000", "0"],
+        )
+        self.assertFalse(restart_marker.exists())
+        self.assertFalse(bridge_marker.exists())
+        self.assertFalse(streaming_flag.exists())
+        self.assertIn("mic bridge stopped", log_file.read_text(encoding="utf-8"))
 
 
 class SetupHostUsbMonitorTests(unittest.TestCase):

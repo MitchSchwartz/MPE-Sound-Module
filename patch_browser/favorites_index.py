@@ -48,14 +48,14 @@ def qa_folder_dest_dir(qa_root: Path, folder_key: str) -> Path:
 
 
 def qa_folder_key_for_library(category: str, inner_segments: tuple[str, ...]) -> str:
-    """Mirror a library browse folder as a Quick Select subfolder path."""
+    """Quick Select folder path for a library long-press target."""
     from patch_browser.patch_scanner import favorites_folder_matches
 
-    parts: list[str] = []
+    if inner_segments:
+        return "/".join(inner_segments)
     if category and not favorites_folder_matches(category):
-        parts.append(category.lstrip("!"))
-    parts.extend(inner_segments)
-    return "/".join(parts)
+        return category.lstrip("!")
+    return ""
 
 
 def default_favorites_index_path() -> Path:

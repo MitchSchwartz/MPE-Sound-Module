@@ -1,4 +1,4 @@
-"""MPE audio output profile — standalone (Sound Blaster) vs usb-host (UAC2 gadget)."""
+"""MPE audio output profile — standalone, usb-host, usb-host-session."""
 
 from __future__ import annotations
 
@@ -7,7 +7,12 @@ import re
 import subprocess
 from pathlib import Path
 
-VALID_PROFILES = frozenset({"standalone", "usb-host"})
+VALID_PROFILES = frozenset({"standalone", "usb-host", "usb-host-session"})
+PROFILE_OPTIONS: tuple[tuple[str, str, str], ...] = (
+    ("standalone", "Analog", "Sound Blaster — headphones and pedal"),
+    ("usb-host", "USB direct", "Surge to PC when recording (analog mutes)"),
+    ("usb-host-session", "USB session", "Analog stays on; mic return to PC"),
+)
 MPE_ENV_PATH = Path("/etc/mpe/mpe.env")
 SET_PROFILE_SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "set-audio-profile.sh"
 # Gadget wait (8s) + Surge restart without MIDI wait (~5–8s) + margin
@@ -21,6 +26,29 @@ def normalize_profile(value: str | None) -> str:
     return profile
 
 
+def profile_option_label(profile: str) -> str:
+    normalized = normalize_profile(profile)
+    for key, label, _hint in PROFILE_OPTIONS:
+        if key == normalized:
+            return label
+    return "Analog"
+
+
+def profile_settings_label() -> str:
+    return profile_option_label(current_profile())
+
+
+def profile_switch_overlay_hint(profile: str) -> str:
+    normalized = normalize_profile(profile)
+    if normalized == "standalone":
+        return "Stopping USB gadget and restarting Surge"
+    if normalized == "usb-host":
+        return "Starting USB gadget and restarting Surge"
+    if normalized == "usb-host-session":
+        return "Session record route — Surge on analog, mic to USB"
+    return "Restarting Surge for new audio route"
+
+
 def current_profile() -> str:
     from_file = read_profile_from_env_file(MPE_ENV_PATH)
     if from_file is not None:
@@ -32,8 +60,12 @@ def is_usb_host() -> bool:
     return current_profile() == "usb-host"
 
 
+def is_usb_tethered() -> bool:
+    return current_profile() in ("usb-host", "usb-host-session")
+
+
 def header_badge_label() -> str:
-    if is_usb_host():
+    if is_usb_tethered():
         from patch_browser.usb_audio_recovery import is_recovering
 
         if is_recovering():
@@ -43,7 +75,7 @@ def header_badge_label() -> str:
 
 
 def settings_toggle_label() -> str:
-    return "USB Audio"
+    return "Audio output"
 
 
 def settings_toggle_on() -> bool:
@@ -78,6 +110,8 @@ def apply_profile(profile: str) -> tuple[bool, str]:
     os.environ["MPE_AUDIO_PROFILE"] = profile
     if profile == "usb-host":
         return True, "USB host audio — plug USB-C to PC"
+    if profile == "usb-host-session":
+        return True, "Session record — mic → USB when PC captures"
     return True, "Analog audio (Sound Blaster)"
 
 
