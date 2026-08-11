@@ -78,7 +78,7 @@ cmd_on() {
     cur_buf="${MPE_SURGE_BUFFER_SIZE:-1024}"
     if [ "$cur_buf" -ne 512 ] 2>/dev/null; then
         _update_env_var MPE_SURGE_BUFFER_SIZE 512
-        echo "  Looper latency: MPE_SURGE_BUFFER_SIZE ${cur_buf} → 512 (restart Surge)"
+        echo "  Looper latency budget: Surge 512 + looper 512 = 1024 samples (~21 ms @ 48 kHz)"
     fi
     _update_env_var MPE_LOOPER_ENABLED 1
     export MPE_LOOPER_ENABLED=1
@@ -87,14 +87,21 @@ cmd_on() {
     source "$SCRIPT_DIR/lib/profile-switch-flag.sh"
     profile_switch_flag_mark
     sudo systemctl restart surge-xt-cli.service
-    echo "Looper route ON — Surge → Loopback; mpe-looper → Sound Blaster."
+    if [ -x "$MPE_MODULE_REPO/scripts/install-mpe-looper-service.sh" ]; then
+        "$MPE_MODULE_REPO/scripts/install-mpe-looper-service.sh"
+        sudo systemctl enable --now mpe-looper.service
+    fi
+    echo "Looper route ON — Surge → Loopback; mpe-looper.service → Sound Blaster."
     _show_loopback_hint
     echo ""
-    echo "Next: python3 $MPE_MODULE_REPO/scripts/mpe-looper.py"
+    echo "Next: looper runs as mpe-looper.service (or: python3 scripts/mpe-looper.py)"
 }
 
 cmd_off() {
     _require_appliance_env
+    sudo systemctl stop mpe-looper.service 2>/dev/null || true
+    sudo systemctl disable mpe-looper.service 2>/dev/null || true
+    pkill -f 'scripts/mpe-looper.py' 2>/dev/null || true
     _update_env_var MPE_LOOPER_ENABLED 0
     export MPE_LOOPER_ENABLED=0
     # shellcheck source=lib/profile-switch-flag.sh

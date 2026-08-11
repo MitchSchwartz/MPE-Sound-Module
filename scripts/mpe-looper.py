@@ -122,6 +122,8 @@ def _poll_apc_grid(midi_in, ctx: ApcMidiContext, matrix: ClipMatrix) -> None:
 
 
 _LOOPER_MIN_PERIOD = 512
+# Latency budget: 512 Surge + 512 looper period ≈ 1024 samples one-way (~21 ms @ 48 kHz).
+# Do not raise either side independently — optimize CPU instead (parallel route, C mixer).
 
 
 def _sync_grid_leds(leds: ApcLedFeedback | None, matrix: ClipMatrix) -> None:
@@ -437,14 +439,16 @@ def main(argv: list[str] | None = None) -> int:
     )
     if period_frames < _LOOPER_MIN_PERIOD:
         print(
-            f"Warning: period {period_frames} < {_LOOPER_MIN_PERIOD} — looper replay often xruns on Pi; "
-            f"use {_LOOPER_MIN_PERIOD}–1024",
+            f"Warning: period {period_frames} < {_LOOPER_MIN_PERIOD} — breaks 512+512 latency budget; "
+            f"expect xruns on Pi",
             file=sys.stderr,
             flush=True,
         )
-    elif period_frames == _LOOPER_MIN_PERIOD:
+    elif period_frames > _LOOPER_MIN_PERIOD:
         print(
-            "Note: multi-clip replay at 512 may stutter — try MPE_SURGE_BUFFER_SIZE=1024 if needed",
+            f"Warning: looper period {period_frames} > Surge {_LOOPER_MIN_PERIOD} — "
+            f"total buffer exceeds 1024-sample target",
+            file=sys.stderr,
             flush=True,
         )
 
