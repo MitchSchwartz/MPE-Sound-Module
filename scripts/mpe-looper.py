@@ -60,7 +60,6 @@ from patch_browser.control_surfaces.apc_session_midi import (  # noqa: E402
 from patch_browser.looper_period_debug import (  # noqa: E402
     LooperPeriodDebug,
     count_playing_layers,
-    looper_debug_enabled,
 )
 from patch_browser.looper_session import LooperMode, LooperSession  # noqa: E402
 from patch_browser.looper_timing_publisher import LooperTimingPublisher  # noqa: E402
@@ -176,7 +175,7 @@ def run_looper_grid(
     _sync_grid_leds(leds, matrix)
 
     period_budget_s = period_frames / sample_rate
-    debug = LooperPeriodDebug(period_budget_s=period_budget_s) if looper_debug_enabled() else None
+    debug = LooperPeriodDebug.create_if_enabled(period_budget_s=period_budget_s)
     if debug is not None:
         print(
             f"[debug] MPE_LOOPER_DEBUG=1 period_budget={period_budget_s * 1000:.2f}ms",
@@ -211,6 +210,8 @@ def run_looper_grid(
                 chunk = chunk + b"\x00" * (period_bytes - len(chunk))
 
             iter_start = time.monotonic() if debug is not None else 0.0
+            if debug is not None:
+                debug.record_arrival(iter_start)
 
             out = matrix.process_period(chunk, period_frames=period_frames)
             play.stdin.write(out)
@@ -232,10 +233,17 @@ def run_looper_grid(
             if rev != last_rev:
                 _sync_grid_leds(leds, matrix)
                 last_rev = rev
+                if debug is not None:
+                    debug.log_clip_transitions(matrix)
 
             active = matrix.is_active
             if active:
-                _publish_timing(timing_pub, matrix)
+                if debug is not None:
+                    publish_start = time.monotonic()
+                    _publish_timing(timing_pub, matrix)
+                    debug.record_publish(time.monotonic() - publish_start)
+                else:
+                    _publish_timing(timing_pub, matrix)
                 transport_active = True
             elif transport_active:
                 matrix.clock.reset()
