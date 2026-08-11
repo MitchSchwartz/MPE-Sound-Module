@@ -19,3 +19,6 @@ python-osc>=1.9.0
 
 # Touch patch browser (5" DSI — optional on encoder-only builds)
 pygame>=2.5.0
+
+# Looper mix (Python 3.13+ removed stdlib audioop)
+audioop-lts>=0.2.1

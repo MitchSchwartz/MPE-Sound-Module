@@ -31,6 +31,11 @@ _deploy_on_pi() {
     git pull origin "$branch"
     chmod +x scripts/mpe-looper.py scripts/mpe-looper-service.sh scripts/looper-deploy.sh 2>/dev/null || true
 
+    if ! python3 -c "import audioop" 2>/dev/null && ! python3 -c "import audioop_lts" 2>/dev/null; then
+        echo "Installing audioop-lts (Python 3.13+ mixer backport) ..."
+        python3 -m pip install --user 'audioop-lts>=0.2.1'
+    fi
+
     if [ ! -f /etc/systemd/system/mpe-looper.service ]; then
         ./scripts/install-mpe-looper-service.sh
     fi

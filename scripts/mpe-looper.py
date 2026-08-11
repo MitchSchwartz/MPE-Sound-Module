@@ -47,6 +47,7 @@ from patch_browser.looper_devices import (  # noqa: E402
 )
 from patch_browser.looper_engine import (  # noqa: E402
     StereoRingBuffer,
+    audio_mix_backend,
     frames_to_bytes,
     loop_length_frames,
 )
@@ -454,6 +455,15 @@ def main(argv: list[str] | None = None) -> int:
         f"Surge buffer: {surge_buf}",
         flush=True,
     )
+    mix_backend = audio_mix_backend()
+    print(f"Mixer backend: {mix_backend}", flush=True)
+    if mix_backend == "python":
+        print(
+            "Warning: no audioop (install audioop-lts on Pi: pip3 install audioop-lts) — "
+            "multi-clip mix uses slow Python path",
+            file=sys.stderr,
+            flush=True,
+        )
     if period_frames < _LOOPER_MIN_PERIOD:
         print(
             f"Warning: period {period_frames} < {_LOOPER_MIN_PERIOD} — breaks 512+512 latency budget; "

@@ -7,8 +7,21 @@ from dataclasses import dataclass
 
 try:
     import audioop
+
+    _AUDIOOP_BACKEND = "stdlib"
 except ImportError:  # pragma: no cover — removed in Python 3.13+
-    audioop = None  # type: ignore[assignment]
+    try:
+        import audioop_lts as audioop  # type: ignore[no-redef]
+
+        _AUDIOOP_BACKEND = "lts"
+    except ImportError:
+        audioop = None  # type: ignore[assignment]
+        _AUDIOOP_BACKEND = "python"
+
+
+def audio_mix_backend() -> str:
+    """Which mixer implementation ``mix_live_and_loops`` uses (for deploy diagnostics)."""
+    return _AUDIOOP_BACKEND
 
 S16_STEREO_FRAME_BYTES = 4
 S16_CLIP = 32767

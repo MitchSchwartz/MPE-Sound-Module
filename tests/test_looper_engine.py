@@ -88,6 +88,11 @@ class LooperEngineTests(unittest.TestCase):
         self.assertEqual(left, 300)
         self.assertEqual(right, 300)
 
+    def test_audio_mix_backend_reported(self) -> None:
+        from patch_browser.looper_engine import audio_mix_backend
+
+        self.assertIn(audio_mix_backend(), ("stdlib", "lts", "python"))
+
     def test_frames_to_bytes_roundtrip(self) -> None:
         self.assertEqual(bytes_to_frames(frames_to_bytes(128)), 128)
 
