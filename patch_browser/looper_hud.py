@@ -63,23 +63,51 @@ def looper_hud_beat_segment_count(snapshot: dict) -> int:
 
 def looper_hud_segment_fill_halves(
     *,
-    beat_in_bar: int,
+    total_frames: int,
+    frames_per_beat: int,
     beats_per_bar: int,
-    beat_phase: float,
     ticks_per_beat: int = 2,
 ) -> list[int]:
-    """Discrete fill per beat segment: 0 empty, 1 half, 2 full (1/8-bar ticks in 4/4)."""
+    """Discrete fill per beat segment from sample clock (0 empty, 1 half, 2 full).
+
+    One tick = 1/8 bar in 4/4 (half box). Uses rounded frame position in bar so
+    each segment completes before the next beat downbeat — not on it.
+    """
     beats = max(1, int(beats_per_bar))
-    beat = max(1, min(beats, int(beat_in_bar)))
-    phase = max(0.0, min(1.0, float(beat_phase)))
+    fpb = max(1, int(frames_per_beat))
     ticks = max(1, int(ticks_per_beat))
-    tick_in_beat = min(ticks, int(phase * ticks))
-    filled = (beat - 1) * ticks + tick_in_beat
+    frames_per_bar = fpb * beats
+    ticks_per_bar = beats * ticks
+    pos_in_bar = int(total_frames) % frames_per_bar
+    filled_ticks = min(
+        ticks_per_bar,
+        (pos_in_bar * ticks_per_bar + frames_per_bar // 2) // frames_per_bar,
+    )
     out: list[int] = []
     for i in range(beats):
         seg_start = i * ticks
-        out.append(max(0, min(ticks, filled - seg_start)))
+        out.append(max(0, min(ticks, filled_ticks - seg_start)))
     return out
+
+
+def looper_hud_bar_tick_index(
+    *,
+    total_frames: int,
+    frames_per_beat: int,
+    beats_per_bar: int,
+    ticks_per_beat: int = 2,
+) -> int:
+    """0-based eighth-note tick index within the current bar (for publish dedupe)."""
+    beats = max(1, int(beats_per_bar))
+    fpb = max(1, int(frames_per_beat))
+    ticks = max(1, int(ticks_per_beat))
+    frames_per_bar = fpb * beats
+    ticks_per_bar = beats * ticks
+    pos_in_bar = int(total_frames) % frames_per_bar
+    return min(
+        ticks_per_bar - 1,
+        (pos_in_bar * ticks_per_bar + frames_per_bar // 2) // frames_per_bar,
+    )
 
 
 def looper_hud_min_width_px(*, frac_label: str = "8/8") -> int:
