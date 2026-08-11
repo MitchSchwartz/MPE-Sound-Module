@@ -5,7 +5,7 @@ Run manually on the Pi (no systemd yet). Surge must output to Loopback; this pro
 captures loopback and plays to the Sound Blaster.
 
 Grid mode (default, see docs/APC-LOOPER-UX.md):
-  Row 0 pads (0,0) and (0,1) — independent clips
+  Row 0 (all 8 pads) — independent clips
   Scene Launch 1 — launch/stop row 0 at bar boundary
   Shift + Scene Launch 8 — stop all clips
 
@@ -180,7 +180,7 @@ def run_looper_grid(
     periods_since_flush = 0
 
     print(
-        f"Grid v1: row 0 cols 0–1 · {bars} bars @ {bpm} BPM "
+        f"Grid v1: row 0 (8 clips) · {bars} bars @ {bpm} BPM "
         f"({matrix.loop_frames} frames)",
         flush=True,
     )
