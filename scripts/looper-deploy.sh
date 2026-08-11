@@ -33,7 +33,7 @@ _deploy_on_pi() {
 
     if ! python3 -c "import audioop" 2>/dev/null && ! python3 -c "import audioop_lts" 2>/dev/null; then
         echo "Installing audioop-lts (Python 3.13+ mixer backport) ..."
-        python3 -m pip install --user 'audioop-lts>=0.2.1'
+        python3 -m pip install --user --break-system-packages 'audioop-lts>=0.2.1'
     fi
 
     if [ ! -f /etc/systemd/system/mpe-looper.service ]; then
