@@ -319,40 +319,28 @@ def read_clock_state(
     }
 
 
+from patch_browser.looper_hud import (
+    looper_hud_bar_fraction,
+    looper_hud_internal,
+    looper_hud_is_visible,
+    looper_hud_width_px,
+)
 from patch_browser.looper_timing_state import read_timing_state
 
 
 def looper_hud_should_show(snapshot: dict, *, user_enabled: bool = True) -> bool:
     """Header badge when external pedal or on-device looper timing is active."""
-    if not user_enabled:
-        return False
-    internal = read_timing_state()
-    if internal.get("active"):
-        return True
-    if not snapshot.get("connected"):
-        return False
-    if snapshot.get("running") and snapshot.get("bpm") is not None:
-        return True
-    return snapshot.get("bpm") is not None
+    return looper_hud_is_visible(snapshot, user_enabled=user_enabled)
 
 
 def looper_hud_label(snapshot: dict) -> str:
-    """Compact header label — prefer on-device bar fraction when active."""
-    internal = read_timing_state()
-    if internal.get("active"):
-        bar = internal.get("bar_in_loop")
-        total = internal.get("bars_per_loop")
-        if bar is not None and total is not None:
-            return f"{bar}/{total}"
-    bpm = snapshot.get("bpm")
-    if bpm is not None:
-        return str(int(bpm))
-    return ""
+    """Compact header label — bar fraction or pedal BPM."""
+    return looper_hud_bar_fraction(snapshot)
 
 
 def looper_hud_beat_in_bar(snapshot: dict | None = None) -> int | None:
     """Current beat for beat-bar widget (1-based)."""
-    internal = read_timing_state()
+    internal = looper_hud_internal(snapshot or {})
     if internal.get("active"):
         beat = internal.get("beat_in_bar")
         return int(beat) if beat is not None else None
@@ -360,7 +348,14 @@ def looper_hud_beat_in_bar(snapshot: dict | None = None) -> int | None:
 
 
 def looper_hud_beats_per_bar(snapshot: dict | None = None) -> int:
-    internal = read_timing_state()
+    internal = looper_hud_internal(snapshot or {})
     if internal.get("active"):
         return int(internal.get("beats_per_bar") or 4)
+    return 4
+
+
+def looper_hud_bars_per_loop(snapshot: dict | None = None) -> int:
+    internal = looper_hud_internal(snapshot or {})
+    if internal.get("active"):
+        return int(internal.get("bars_per_loop") or 4)
     return 4
