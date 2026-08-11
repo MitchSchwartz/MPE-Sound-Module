@@ -20,11 +20,14 @@ Install once: clone `mpe-cli`, run `./install.sh`, edit `~/.config/mpe/mpe.env` 
 | `mpe osc-check` | Surge OSC ports + process |
 | `mpe diagnose` | Full read-only Pi diagnostics |
 | `mpe sysinfo` | Board, kernel/preempt, EEPROM, CPU governor, Surge RT limits, buffer latency |
+| `mpe test` | Run unit tests on laptop (`LOCAL_MPE_MODULE` or default clone) |
+| `mpe test pi` | Run unit tests on the appliance via SSH |
+| `mpe midi-list` | Read-only USB + ALSA MIDI port snapshot |
 | `mpe record [file] [fps]` | Touch UI screen capture |
 | `mpe pull-videos [-o DIR] [--delete-source]` | Download demo videos |
 | `mpe restart surge\|touch\|all` | Restart fixed systemd units |
 
-**Agent-safe (read-only):** `ping`, `status`, `logs`, `osc-check`, `diagnose`, `sysinfo`, `pull-videos` (skip `--delete-source` for zero writes).
+**Agent-safe (read-only):** `ping`, `status`, `logs`, `osc-check`, `diagnose`, `sysinfo`, `test`, `test local`, `test pi`, `midi-list`, `pull-videos` (skip `--delete-source` for zero writes).
 
 **Writes / restarts:** `restart *`, `record`, `pull-videos --delete-source`.
 

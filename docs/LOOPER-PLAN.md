@@ -151,7 +151,7 @@ Touch-first, following existing modal/settings patterns (`touch_ui_enums.py` `Sc
 | **Layer list** | Mute, delete, per-layer gain |
 | **HUD** | Reuse the existing looper badge — bar position, layer count, record state |
 
-Foot pedal is the **second** input, not the first: `pedal-to-osc.py`'s `PEDAL_MAPPING` already supports arbitrary targets, so transport is additive.
+Foot pedal is the **second** input, not the first: `pedal-to-osc.py`'s `PEDAL_MAPPING` already supports arbitrary targets, so transport is additive. **APC mini** Scene Launch → looper transport via `patch_browser/control_surfaces/` (`ControlSurfaceMap` registry; mk1 + mk2 maps). Default **mk1** (`MPE_APC_VARIANT=mk1`): Scene Launch **82–89**; mk2: **112–119** + Session SysEx.
 
 ---
 
