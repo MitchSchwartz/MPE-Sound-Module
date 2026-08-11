@@ -202,13 +202,13 @@ def run_looper_grid(
                 print(f"[soak] {soak_s:.0f}s elapsed — exiting", flush=True)
                 break
 
-            iter_start = time.monotonic() if debug is not None else 0.0
-
             chunk = rec.stdout.read(period_bytes)
             if not chunk:
                 break
             if len(chunk) < period_bytes:
                 chunk = chunk + b"\x00" * (period_bytes - len(chunk))
+
+            iter_start = time.monotonic() if debug is not None else 0.0
 
             out = matrix.process_period(chunk, period_frames=period_frames)
             play.stdin.write(out)
