@@ -51,6 +51,7 @@ def _handle_stop(_signum: int, _frame: object) -> None:
 
 
 def _open_arecord(device: str, *, sample_rate: int, period_frames: int) -> subprocess.Popen[bytes]:
+    buffer_frames = max(period_frames * 2, period_frames + 1)
     return subprocess.Popen(
         [
             "arecord",
@@ -64,7 +65,7 @@ def _open_arecord(device: str, *, sample_rate: int, period_frames: int) -> subpr
             "-r",
             str(sample_rate),
             "--buffer-size",
-            str(period_frames),
+            str(buffer_frames),
             "--period-size",
             str(period_frames),
         ],
@@ -74,6 +75,7 @@ def _open_arecord(device: str, *, sample_rate: int, period_frames: int) -> subpr
 
 
 def _open_aplay(device: str, *, sample_rate: int, period_frames: int) -> subprocess.Popen[bytes]:
+    buffer_frames = max(period_frames * 2, period_frames + 1)
     return subprocess.Popen(
         [
             "aplay",
@@ -87,7 +89,7 @@ def _open_aplay(device: str, *, sample_rate: int, period_frames: int) -> subproc
             "-r",
             str(sample_rate),
             "--buffer-size",
-            str(period_frames),
+            str(buffer_frames),
             "--period-size",
             str(period_frames),
         ],
@@ -105,6 +107,18 @@ def _report_xruns(label: str, baseline: dict[str, int]) -> int:
     return delta
 
 
+def _ensure_audio_procs_started(*procs: tuple[str, subprocess.Popen[object]]) -> int | None:
+    """Return exit code if any ALSA child failed to start; else None."""
+    for label, proc in procs:
+        if proc.poll() is None:
+            continue
+        err = proc.stderr.read() if proc.stderr is not None else b""
+        text = err.decode("utf-8", errors="replace").strip()
+        print(f"Error: {label} failed to start: {text or 'unknown'}", file=sys.stderr)
+        return 2
+    return None
+
+
 def run_passthrough(
     *,
     capture: str,
@@ -120,6 +134,9 @@ def run_passthrough(
     play = _open_aplay(playback, sample_rate=sample_rate, period_frames=period_frames)
     assert rec.stdout is not None
     assert play.stdin is not None
+
+    if (code := _ensure_audio_procs_started(("arecord", rec), ("aplay", play))) is not None:
+        return code
 
     start = time.monotonic()
     last_report = start
@@ -187,6 +204,9 @@ def run_loop(
     play = _open_aplay(playback, sample_rate=sample_rate, period_frames=period_frames)
     assert rec.stdout is not None
     assert play.stdin is not None
+
+    if (code := _ensure_audio_procs_started(("arecord", rec), ("aplay", play))) is not None:
+        return code
 
     start = time.monotonic()
     last_report = start
