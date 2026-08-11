@@ -30,6 +30,8 @@ Install once: clone `mpe-cli`, run `./install.sh`, edit `~/.config/mpe/mpe.env` 
 | `mpe pull-videos [-o DIR] [--delete-source]` | Download demo videos |
 | `mpe restart surge\|touch\|all` | Restart fixed systemd units |
 
+**Looper deploy (yolo branch):** after pushing looper code, run **`./scripts/looper-deploy.sh`** from the laptop (SSH to Pi) — do not wait for Mitch. Installs/restarts `mpe-looper.service` when `MPE_LOOPER_ENABLED=1`. Latency budget: **512 Surge + 512 looper** (~1024 samples); do not recommend 1024+1024.
+
 **Agent-safe (read-only):** `ping`, `status`, `logs`, `osc-check`, `diagnose`, `sysinfo`, `test`, `test local`, `test pi`, `midi-list`, `pull-videos` (skip `--delete-source` for zero writes).
 
 **Writes / restarts:** `restart *`, `record`, `pull-videos --delete-source`.

@@ -1,0 +1,22 @@
+[Unit]
+Description=MPE on-device looper (APC Session View grid)
+After=surge-xt-cli.service sound.target
+Wants=surge-xt-cli.service
+ConditionPathExists=@MPE_MODULE_REPO@/scripts/mpe-looper.py
+
+[Service]
+Type=simple
+User=@MPE_PI_USER@
+WorkingDirectory=@MPE_MODULE_REPO@
+EnvironmentFile=-/etc/mpe/mpe.env
+Environment=PYTHONUNBUFFERED=1
+ExecStart=@MPE_MODULE_REPO@/scripts/mpe-looper-service.sh
+Restart=on-failure
+RestartSec=2
+TimeoutStopSec=5
+KillMode=mixed
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
