@@ -64,8 +64,8 @@ class LooperHudTests(unittest.TestCase):
         self.assertTrue(looper_hud_is_visible(snap))
 
     def test_width_scales_with_bars_and_beats(self) -> None:
-        narrow = looper_hud_width_px(bars_per_loop=2, beats_per_bar=4, show_bpm=False)
-        wide = looper_hud_width_px(bars_per_loop=8, beats_per_bar=4, show_bpm=True)
+        narrow = looper_hud_width_px(bars_per_loop=2, beats_per_bar=4)
+        wide = looper_hud_width_px(bars_per_loop=8, beats_per_bar=4)
         self.assertLess(narrow, wide)
 
 

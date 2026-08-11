@@ -61,8 +61,8 @@ def looper_hud_beat_segment_count(snapshot: dict) -> int:
     return 4
 
 
-def looper_hud_width_px(*, bars_per_loop: int = 4, beats_per_bar: int = 4, show_bpm: bool = True) -> int:
-    """Estimate HUD pill width: beat row + bar fraction text (+ optional BPM)."""
+def looper_hud_width_px(*, bars_per_loop: int = 4, beats_per_bar: int = 4) -> int:
+    """Estimate HUD pill width: beat row + bar n/N text (no BPM — lives elsewhere)."""
     from patch_browser.touch_ui_constants import (
         LOOPER_HUD_BEAT_GAP,
         LOOPER_HUD_BEAT_SEG_W,
@@ -70,8 +70,5 @@ def looper_hud_width_px(*, bars_per_loop: int = 4, beats_per_bar: int = 4, show_
     )
 
     beat_w = beats_per_bar * LOOPER_HUD_BEAT_SEG_W + max(0, beats_per_bar - 1) * LOOPER_HUD_BEAT_GAP
-    # font_md-ish width for "8/8"
     bar_text_w = len(f"{bars_per_loop}/{bars_per_loop}") * 13
-    bpm_w = 30 if show_bpm else 0
-    lower_w = bar_text_w + (8 if show_bpm and bpm_w else 0) + bpm_w
-    return LOOPER_HUD_PAD_X * 2 + max(beat_w, lower_w)
+    return LOOPER_HUD_PAD_X * 2 + max(beat_w, bar_text_w)
