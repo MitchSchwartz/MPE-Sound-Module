@@ -35,6 +35,26 @@ def read_xrun_counts() -> dict[str, int]:
     return counts
 
 
+def read_pcm_states() -> dict[str, str]:
+    """Map status path → state line (RUNNING, XRUN, …)."""
+    states: dict[str, str] = {}
+    for path in list_pcm_status_files():
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        for line in text.splitlines():
+            if line.strip().startswith("state:"):
+                states[str(path)] = line.split(":", 1)[1].strip()
+                break
+    return states
+
+
+def any_pcm_xrun_state(states: dict[str, str] | None = None) -> list[str]:
+    data = states if states is not None else read_pcm_states()
+    return [path for path, state in data.items() if state == "XRUN"]
+
+
 def total_xruns(counts: dict[str, int] | None = None) -> int:
     data = counts if counts is not None else read_xrun_counts()
     return sum(data.values())

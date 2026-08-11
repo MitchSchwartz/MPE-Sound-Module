@@ -74,6 +74,12 @@ cmd_status() {
 cmd_on() {
     _require_appliance_env
     _require_standalone
+    mpe_source_appliance_env
+    cur_buf="${MPE_SURGE_BUFFER_SIZE:-1024}"
+    if [ "$cur_buf" -lt 512 ] 2>/dev/null; then
+        _update_env_var MPE_SURGE_BUFFER_SIZE 512
+        echo "  Looper headroom: MPE_SURGE_BUFFER_SIZE ${cur_buf} → 512 (restart Surge)"
+    fi
     _update_env_var MPE_LOOPER_ENABLED 1
     export MPE_LOOPER_ENABLED=1
     sudo modprobe snd-aloop 2>/dev/null || true

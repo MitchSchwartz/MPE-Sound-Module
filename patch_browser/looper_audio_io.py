@@ -7,7 +7,7 @@ import sys
 
 
 def open_arecord(device: str, *, sample_rate: int, period_frames: int) -> subprocess.Popen[bytes]:
-    buffer_frames = max(period_frames * 2, period_frames + 1)
+    buffer_frames = max(period_frames * 4, period_frames + 1)
     return subprocess.Popen(
         [
             "arecord",
@@ -31,7 +31,8 @@ def open_arecord(device: str, *, sample_rate: int, period_frames: int) -> subpro
 
 
 def open_aplay(device: str, *, sample_rate: int, period_frames: int) -> subprocess.Popen[bytes]:
-    buffer_frames = max(period_frames * 2, period_frames + 1)
+    buffer_frames = max(period_frames * 4, period_frames + 1)
+    period_bytes = period_frames * 4  # stereo S16
     return subprocess.Popen(
         [
             "aplay",
@@ -51,6 +52,7 @@ def open_aplay(device: str, *, sample_rate: int, period_frames: int) -> subproce
         ],
         stdin=subprocess.PIPE,
         stderr=subprocess.PIPE,
+        bufsize=period_bytes * 8,
     )
 
 
