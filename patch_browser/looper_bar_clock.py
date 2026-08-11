@@ -67,6 +67,11 @@ class LooperBarClock:
             self._last_bar_index = after_bar
         return crossed
 
+    def reset(self) -> None:
+        """Reset transport position (e.g. after session clear)."""
+        self._total_frames = 0
+        self._last_bar_index = 0
+
     def snapshot(self) -> dict[str, int | float]:
         return {
             "bpm": self.bpm,

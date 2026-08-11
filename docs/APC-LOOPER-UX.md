@@ -49,7 +49,7 @@ Each clip: fixed length in bars (`MPE_LOOPER_BARS`, default 4) @ tempo (`MPE_LOO
 | Control | Action |
 |---------|--------|
 | **Scene Launch 1…8** | Launch or stop **entire row** (all clips in that scene). Ableton row semantics: if any clip in row is playing, row stop → all stop at bar end; else launch armed/ stopped clips in row. |
-| **Shift + Scene Launch 8** | **Stop all clips** (mk1 label: `stop_all_clips`). Not bare Scene 8 alone. |
+| **Shift + Scene Launch 8** | **Stop all clips** at bar end (tap). **Hold 3 s** → **clear session** (wipe all clips, empty grid). Not bare Scene 8 alone. |
 | **Shift** | Hold `MK1_SHIFT_NOTE` (`0x62`); mk2 `0x7A`. |
 
 ### Deferred (same spec family, later)
