@@ -7,6 +7,8 @@ Measures three things, all diagnostic (no runtime behaviour changes):
   H1  period arrival jitter — interval between consecutive period iterations
   H2  timing-publish cost — wall time spent inside the publish call
   H3  phase origin — clock vs clip phase at each RECORDING/PLAYING transition
+
+Underrun counting is not here — see looper_alsa_stderr.
 """
 
 from __future__ import annotations
@@ -15,7 +17,7 @@ import os
 import time
 
 from patch_browser.clip_matrix import ClipMatrix, ClipState
-from patch_browser.looper_xruns import any_pcm_xrun_state, read_pcm_states, read_xrun_counts
+from patch_browser.looper_xruns import any_pcm_xrun_state, read_pcm_states
 
 # Fixed-edge histogram instead of a reservoir: percentiles stay unbiased over the
 # whole 5s window (a reservoir samples), and add() is an index + increment.
@@ -157,16 +159,11 @@ class LooperPeriodDebug:
             return
         states = read_pcm_states()
         xrun_paths = [_short_pcm_path(p) for p in any_pcm_xrun_state(states)]
-        hot_counts = {
-            _short_pcm_path(path): count
-            for path, count in read_xrun_counts().items()
-            if count > 0
-        }
         print(
             f"[debug] {label} summary overruns={self.window_overruns} "
             f"max_elapsed={self.window_max_ms:.2f}ms budget={self.budget_ms:.2f}ms "
             f"max_layers={self.window_max_layers} total={self.total_overruns} "
-            f"pcm_xrun={xrun_paths or 'none'} xrun_counts={hot_counts or '{}'}",
+            f"pcm_xrun_now={xrun_paths or 'none'}",
             flush=True,
         )
         self.window_overruns = 0
