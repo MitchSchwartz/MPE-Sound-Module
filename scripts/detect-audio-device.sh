@@ -92,6 +92,32 @@ elif [ "$AUDIO_PROFILE" = "usb-host-session" ]; then
 fi
 
 # ============================================================================
+# LOOPER: Surge → snd-aloop (standalone only). mpe-looper captures substream 1 → DAC.
+# Toggle: sudo scripts/looper-audio-route.sh on|off  (sets MPE_LOOPER_ENABLED)
+# ============================================================================
+if [ "${MPE_LOOPER_ENABLED:-0}" = "1" ] && [ "$AUDIO_PROFILE" = "standalone" ]; then
+    sudo modprobe snd-aloop 2>/dev/null || true
+    DEVICE=$(echo "$DEVICE_LIST" | grep -i "Loopback" | grep -v "Direct sample mixing" | head -1 || true)
+    if [ -n "$DEVICE" ]; then
+        DEVICE_ID=$(extract_device_id "$DEVICE")
+    elif [ -f "$SCRIPT_DIR/resolve-surge-loopback.py" ]; then
+        DEVICE_ID=$(python3 "$SCRIPT_DIR/resolve-surge-loopback.py" "$SURGE_CLI" 2>/dev/null || true)
+    else
+        DEVICE_ID=""
+    fi
+    if [ -n "$DEVICE_ID" ]; then
+        DEVICE_NAME=$(get_device_name "$DEVICE_ID")
+        [ -n "$DEVICE_NAME" ] || DEVICE_NAME="Loopback (snd-aloop)"
+        echo "DEVICE_ID=$DEVICE_ID"
+        echo "DEVICE_NAME=$DEVICE_NAME"
+        echo "TIER=looper"
+        echo "REASON=MPE_LOOPER_ENABLED — Surge → Loopback; mpe-looper → Sound Blaster" >&2
+        exit 0
+    fi
+    echo "REASON=MPE_LOOPER_ENABLED but no Loopback device — falling back to Sound Blaster" >&2
+fi
+
+# ============================================================================
 # TIER 1: Preferred USB DAC (Sound Blaster Play! 3)
 # ============================================================================
 DEVICE=$(echo "$DEVICE_LIST" | \

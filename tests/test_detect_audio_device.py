@@ -111,6 +111,23 @@ class DetectAudioDeviceTests(unittest.TestCase):
         self.assertIn("TIER=1", result.stdout)
         self.assertIn("usb-host-session", result.stderr)
 
+    def test_standalone_looper_enabled_selects_loopback(self) -> None:
+        device_list = "\n".join(
+            [
+                "Output Audio Device [7.0] : Direct hardware device on ALSA.Loopback",
+                "Output Audio Device [0.4] : Front output on Sound Blaster Play! 3",
+            ]
+        )
+        result = _run_detect(
+            device_list,
+            profile="standalone",
+            extra_env={"MPE_LOOPER_ENABLED": "1"},
+        )
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+        self.assertIn("DEVICE_ID=7.0", result.stdout)
+        self.assertIn("TIER=looper", result.stdout)
+        self.assertIn("MPE_LOOPER_ENABLED", result.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

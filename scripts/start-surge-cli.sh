@@ -56,9 +56,14 @@ fi
 echo "$(date): USB devices at startup:" >> "$LOG_FILE"
 lsusb 2>&1 | grep -i "midi\|roli\|seaboard" >> "$LOG_FILE" || echo "  No USB MIDI devices found" >> "$LOG_FILE"
 
-# Drop idle ALSA loopback from calibration (extra PCM/timer overhead on the Pi).
-# shellcheck source=lib/unload-snd-aloop.sh
-source "$SCRIPT_DIR/lib/unload-snd-aloop.sh"
+# Drop idle ALSA loopback from calibration — unless looper routing is enabled.
+if [ "${MPE_LOOPER_ENABLED:-0}" != "1" ]; then
+    # shellcheck source=lib/unload-snd-aloop.sh
+    source "$SCRIPT_DIR/lib/unload-snd-aloop.sh"
+else
+    sudo modprobe snd-aloop 2>/dev/null || true
+    echo "$(date): MPE_LOOPER_ENABLED=1 — keeping snd-aloop loaded" >> "$LOG_FILE"
+fi
 
 SURGE_BUFFER_SIZE="${MPE_SURGE_BUFFER_SIZE:-1024}"
 SURGE_SAMPLE_RATE="${MPE_SURGE_SAMPLE_RATE:-48000}"
