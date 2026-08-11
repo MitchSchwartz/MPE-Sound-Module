@@ -23,7 +23,7 @@ class LooperMode(StrEnum):
 @dataclass
 class LooperSession:
     ring: StereoRingBuffer
-    loop_gain: float = 0.85
+    loop_gain: float = 1.0
     mode: LooperMode = LooperMode.IDLE
     playback_frame: int = 0
 

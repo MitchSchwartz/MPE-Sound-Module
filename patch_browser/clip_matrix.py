@@ -50,7 +50,7 @@ class ClipMatrix:
     loop_frames: int
     enabled_slots: frozenset[tuple[int, int]]
     slots: dict[tuple[int, int], ClipSlot] = field(default_factory=dict)
-    loop_gain: float = 0.85
+    loop_gain: float = 1.0
     live_gain: float = 1.0
 
     def slot(self, row: int, col: int) -> ClipSlot | None:
@@ -179,10 +179,23 @@ class ClipMatrix:
             loop_len = clip.loop_frames or clip.ring.capacity_frames
             clip.playback_frame = (clip.playback_frame + period_frames) % loop_len
 
+        recording = any(
+            s.state == ClipState.RECORDING
+            for key in self.enabled_slots
+            if (s := self.slots.get(key)) is not None
+        )
+        if recording:
+            live_gain = self.live_gain
+        elif loop_chunks:
+            # Playback-only: loops at unity; do not stack live monitor (avoids 2× on record→play).
+            live_gain = 0.0
+        else:
+            live_gain = self.live_gain
+
         return mix_live_and_loops(
             live_pcm,
             loop_chunks,
-            live_gain=self.live_gain,
+            live_gain=live_gain,
             loop_gain=self.loop_gain,
         )
 
@@ -193,7 +206,7 @@ class ClipMatrix:
         sample_rate: int,
         bpm: float,
         bars: int,
-        loop_gain: float = 0.85,
+        loop_gain: float = 1.0,
         beats_per_bar: int = 4,
     ) -> ClipMatrix:
         loop_frames = loop_length_frames(bars=bars, bpm=bpm, sample_rate=sample_rate)

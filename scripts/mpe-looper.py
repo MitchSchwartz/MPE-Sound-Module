@@ -412,7 +412,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--bars", type=int, default=int(os.environ.get("MPE_LOOPER_BARS", "4")))
     parser.add_argument("--bpm", type=float, default=float(os.environ.get("MPE_LOOPER_BPM", "120")))
-    parser.add_argument("--loop-gain", type=float, default=0.85)
+    parser.add_argument("--loop-gain", type=float, default=1.0)
     parser.add_argument("--no-apc", action="store_true", help="Disable APC MIDI/LED")
     parser.add_argument(
         "--soak",
