@@ -72,6 +72,11 @@ class ClipMatrix:
             for s in self.slots.values()
         )
 
+    def _start_transport_if_idle(self) -> None:
+        """Zero the transport when the first clip starts, so bar 1 == the loop origin."""
+        if not self.is_active:
+            self.clock.reset()
+
     def _begin_playback(self, clip: ClipSlot) -> None:
         clip.state = ClipState.PLAYING
         clip.playback_frame = 0
@@ -86,6 +91,7 @@ class ClipMatrix:
             )
 
     def on_grid(self, row: int, col: int) -> None:
+        self._start_transport_if_idle()
         clip = self.slot(row, col)
         if clip is None:
             return
@@ -108,6 +114,7 @@ class ClipMatrix:
             clip.playback_frame = 0
 
     def on_scene(self, row: int) -> None:
+        self._start_transport_if_idle()
         row_slots: list[ClipSlot] = []
         for key in self.enabled_slots:
             if key[0] != row:

@@ -5,6 +5,7 @@ from __future__ import annotations
 import unittest
 
 from patch_browser.clip_matrix import ClipMatrix, ClipState
+from patch_browser.looper_bar_clock import LooperBarClock
 from patch_browser.looper_engine import bytes_to_frames, frames_to_bytes, quantize_loop_frames
 
 
@@ -114,6 +115,92 @@ class ClipMatrixTests(unittest.TestCase):
         self.assertEqual(clip_b.state, ClipState.RECORDING)
         out = self.matrix.process_period(live, period_frames=self.period_frames)
         self.assertNotEqual(out, b"\x00" * len(out))
+
+
+class ClipMatrixTransportOriginTests(unittest.TestCase):
+    """Bar 1 beat 1 must coincide with the first recorded frame (idle → active)."""
+
+    def setUp(self) -> None:
+        self.matrix = ClipMatrix.create_v1(sample_rate=48000, bpm=120.0, bars=1, loop_gain=1.0)
+        self.period_frames = 512
+        self.period = bytes(frames_to_bytes(self.period_frames))
+
+    def _idle_for(self, periods: int, matrix: ClipMatrix | None = None) -> None:
+        target = self.matrix if matrix is None else matrix
+        for _ in range(periods):
+            target.process_period(self.period, period_frames=self.period_frames)
+
+    def _record_to_playing(self, matrix: ClipMatrix, row: int, col: int):
+        matrix.on_grid(row, col)
+        clip = matrix.slot(row, col)
+        assert clip is not None
+        while clip.state == ClipState.RECORDING:
+            matrix.process_period(self.period, period_frames=self.period_frames)
+        return clip
+
+    def test_first_grid_press_zeroes_free_running_clock(self) -> None:
+        self._idle_for(324)  # ~1.73 bars of idle drift, as measured on the Pi
+        self.assertGreater(self.matrix.clock.total_frames, 0)
+        self.matrix.on_grid(0, 0)
+        self.assertEqual(self.matrix.clock.total_frames, 0)
+        clip = self.matrix.slot(0, 0)
+        assert clip is not None
+        self.assertEqual(clip.state, ClipState.RECORDING)
+
+    def test_second_clip_does_not_rezero_mid_session(self) -> None:
+        self.matrix.on_grid(0, 0)
+        self._idle_for(4)
+        recording_frames = self.matrix.clock.total_frames
+        self.assertGreater(recording_frames, 0)
+        self.matrix.on_grid(0, 1)
+        self.assertEqual(self.matrix.clock.total_frames, recording_frames)
+
+        clip_a = self.matrix.slot(0, 0)
+        assert clip_a is not None
+        while clip_a.state == ClipState.RECORDING:
+            self.matrix.process_period(self.period, period_frames=self.period_frames)
+        playing_frames = self.matrix.clock.total_frames
+        self.matrix.on_grid(0, 2)
+        self.assertEqual(self.matrix.clock.total_frames, playing_frames)
+
+    def test_stopping_a_playing_clip_does_not_reset(self) -> None:
+        clip = self._record_to_playing(self.matrix, 0, 0)
+        self.assertEqual(clip.state, ClipState.PLAYING)
+        before = self.matrix.clock.total_frames
+        self.matrix.on_grid(0, 0)
+        self.assertEqual(clip.state, ClipState.STOPPED)
+        self.assertEqual(self.matrix.clock.total_frames, before)
+
+    def test_ring_fill_during_process_period_does_not_reset(self) -> None:
+        clip = self._record_to_playing(self.matrix, 0, 0)
+        self.assertEqual(clip.state, ClipState.PLAYING)
+        self.assertGreaterEqual(self.matrix.clock.total_frames, self.matrix.loop_frames)
+
+    def test_scene_launch_resets_only_from_idle(self) -> None:
+        matrix = ClipMatrix(
+            clock=LooperBarClock(sample_rate=48000, bpm=120.0, beats_per_bar=4, bars_per_loop=1),
+            loop_frames=96000,
+            enabled_slots=frozenset({(0, 0), (1, 0)}),
+        )
+        stopped = self._record_to_playing(matrix, 1, 0)
+        matrix.on_grid(1, 0)
+        self.assertEqual(stopped.state, ClipState.STOPPED)
+        self.assertTrue(stopped.has_content)
+
+        self._idle_for(37, matrix)
+        self.assertGreater(matrix.clock.total_frames, 0)
+        matrix.on_scene(1)
+        self.assertEqual(stopped.state, ClipState.PLAYING)
+        self.assertEqual(matrix.clock.total_frames, 0)
+
+        playing = self._record_to_playing(matrix, 0, 0)
+        self.assertEqual(playing.state, ClipState.PLAYING)
+        matrix.on_grid(1, 0)  # park row 1 as STOPPED while row 0 keeps playing
+        self.assertEqual(stopped.state, ClipState.STOPPED)
+        before = matrix.clock.total_frames
+        matrix.on_scene(1)
+        self.assertEqual(stopped.state, ClipState.PLAYING)
+        self.assertEqual(matrix.clock.total_frames, before)
 
 
 if __name__ == "__main__":
