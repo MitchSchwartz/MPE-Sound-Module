@@ -4,7 +4,7 @@
 
 **The question, in one line:** *What is the cheapest architecture that turns this box into a looper good enough to replace the RC-5 — and what do we build first?*
 
-**Status:** Phase 0 spike on Pi — 30s passthrough @ 512 **0 xruns** (silence path; Surge still on Sound Blaster direct). **10 min soak + Surge→loopback routing + latency A/B pending.** PR #48.
+**Status:** Phase 0.2 **pass** — 10 min passthrough @ 512, 0 xruns (silent path). Still need Surge→Loopback, live signal, loop mix, latency A/B. PR #48.
 
 **Related:** [`LATENCY-SPIKE.md`](LATENCY-SPIKE.md) · [`MIDI-CLOCK.md`](MIDI-CLOCK.md) · [`USB-SESSION-RECORD.md`](USB-SESSION-RECORD.md) · [`PATCH_NORMALIZATION.md`](PATCH_NORMALIZATION.md)
 
@@ -308,7 +308,8 @@ There is no ALSA or MIDI in GitHub Actions, so keep every device dependency behi
 |---|---|---|---|
 | 2026-08-10 | 0.0 | Spike code landed | `looper_engine`, `looper_devices`, `looper_xruns`, `scripts/looper-phase0-spike.py` — CI + Pi unit tests green |
 | 2026-08-10 | 0.1 | **L1 pass (partial)** | Pi: 30s passthrough @ 512, **0 xruns**, 2812 periods — loopback capture silent (Surge not on Loopback yet); fixed ALSA buffer=2×period |
-| | 0.2 / 0.3 | | **10 min soak** + Surge→Loopback + live-latency delta — **gating measurement** |
+| 2026-08-10 | 0.2 | **L1 pass** | Pi: **600s** passthrough @ 512, **0 xruns**, 56250 periods, 0 short_reads — silent loopback path |
+| | 0.3 / 0.4 | | Surge→Loopback + live signal + loop mix + latency A/B |
 
 ## Deploys
 
