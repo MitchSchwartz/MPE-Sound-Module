@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import tempfile
-import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -19,6 +18,8 @@ from patch_browser.looper_timing_state import write_timing_state
 
 
 class LooperHudTests(unittest.TestCase):
+    FPB = 24000  # 120 BPM @ 48 kHz
+
     def test_merge_internal_timing_sets_looper_active(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "timing.json"
@@ -69,30 +70,38 @@ class LooperHudTests(unittest.TestCase):
         wide = looper_hud_min_width_px(frac_label="16/16")
         self.assertLess(narrow, wide)
 
-    def test_segment_fill_ticks_in_eighth_notes(self) -> None:
+    def test_segment_fill_from_frame_clock(self) -> None:
+        fpb = self.FPB
         self.assertEqual(
-            looper_hud_segment_fill_halves(beat_in_bar=1, beats_per_bar=4, beat_phase=0.0),
+            looper_hud_segment_fill_halves(
+                total_frames=0, frames_per_beat=fpb, beats_per_bar=4
+            ),
             [0, 0, 0, 0],
         )
         self.assertEqual(
-            looper_hud_segment_fill_halves(beat_in_bar=1, beats_per_bar=4, beat_phase=0.49),
-            [0, 0, 0, 0],
-        )
-        self.assertEqual(
-            looper_hud_segment_fill_halves(beat_in_bar=1, beats_per_bar=4, beat_phase=0.5),
+            looper_hud_segment_fill_halves(
+                total_frames=fpb // 2, frames_per_beat=fpb, beats_per_bar=4
+            ),
             [1, 0, 0, 0],
         )
+        # Last frame of beat 1 — first box full (not deferred to beat 2 downbeat).
         self.assertEqual(
-            looper_hud_segment_fill_halves(beat_in_bar=2, beats_per_bar=4, beat_phase=0.0),
+            looper_hud_segment_fill_halves(
+                total_frames=fpb - 1, frames_per_beat=fpb, beats_per_bar=4
+            ),
             [2, 0, 0, 0],
         )
         self.assertEqual(
-            looper_hud_segment_fill_halves(beat_in_bar=2, beats_per_bar=4, beat_phase=0.5),
-            [2, 1, 0, 0],
+            looper_hud_segment_fill_halves(
+                total_frames=fpb, frames_per_beat=fpb, beats_per_bar=4
+            ),
+            [2, 0, 0, 0],
         )
         self.assertEqual(
-            looper_hud_segment_fill_halves(beat_in_bar=4, beats_per_bar=4, beat_phase=0.99),
-            [2, 2, 2, 1],
+            looper_hud_segment_fill_halves(
+                total_frames=fpb + fpb // 2, frames_per_beat=fpb, beats_per_bar=4
+            ),
+            [2, 1, 0, 0],
         )
 
 

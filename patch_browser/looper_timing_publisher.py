@@ -1,58 +1,51 @@
-"""Throttled timing publisher — HUD reads at ~20 Hz with sub-beat phase."""
+"""Publish HUD timing on discrete bar tick boundaries (sample-clock source)."""
 
 from __future__ import annotations
 
-import time
 from dataclasses import dataclass, field
 
+from patch_browser.looper_hud import looper_hud_bar_tick_index
 from patch_browser.looper_timing_state import clear_timing_state, write_timing_state
 
 
 @dataclass
 class LooperTimingPublisher:
-    """Publish HUD timing for touch UI (~20 Hz + beat/bar edges)."""
+    """Publish when bar or eighth-note tick changes — one source: audio frame clock."""
 
-    min_interval_s: float = 0.05
-    phase_epsilon: float = 0.03
-    _last_publish: float = field(default=0.0, init=False)
-    _last_key: tuple[int, int] | None = field(default=None, init=False)
-    _last_phase: float = field(default=0.0, init=False)
+    _last_key: tuple[int, int, int] | None = field(default=None, init=False)
 
     def publish_from_matrix(self, matrix) -> None:
         if not matrix.is_active:
             clear_timing_state()
             self._last_key = None
-            self._last_phase = 0.0
             return
 
-        snap = matrix.clock.snapshot()
-        beat = int(snap["beat_in_bar"])
+        clock = matrix.clock
+        snap = clock.snapshot()
+        fpb = max(1, clock.frames_per_beat)
+        beats = max(1, clock.beats_per_bar)
         bar = int(snap["bar_in_loop"])
-        key = (beat, bar)
-        fpb = max(1, matrix.clock.frames_per_beat)
-        phase = (int(snap["total_frames"]) % fpb) / fpb
-        now = time.monotonic()
-        if (
-            key == self._last_key
-            and abs(phase - self._last_phase) < self.phase_epsilon
-            and (now - self._last_publish) < self.min_interval_s
-        ):
+        tick = looper_hud_bar_tick_index(
+            total_frames=int(snap["total_frames"]),
+            frames_per_beat=fpb,
+            beats_per_bar=beats,
+        )
+        key = (bar, int(snap["beat_in_bar"]), tick)
+        if key == self._last_key:
             return
 
         self._last_key = key
-        self._last_phase = phase
-        self._last_publish = now
         write_timing_state(
             active=True,
             bpm=float(snap["bpm"]),
-            beat_in_bar=beat,
-            beats_per_bar=int(snap["beats_per_bar"]),
+            beat_in_bar=int(snap["beat_in_bar"]),
+            beats_per_bar=beats,
             bar_in_loop=bar,
             bars_per_loop=int(snap["bars_per_loop"]),
-            beat_phase=phase,
+            total_frames=int(snap["total_frames"]),
+            frames_per_beat=fpb,
         )
 
     def clear(self) -> None:
         clear_timing_state()
         self._last_key = None
-        self._last_phase = 0.0
