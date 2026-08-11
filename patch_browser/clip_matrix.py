@@ -179,6 +179,6 @@ class ClipMatrix:
         return cls(
             clock=clock,
             loop_frames=loop_frames,
-            enabled_slots=frozenset({(0, 0), (0, 1)}),
+            enabled_slots=frozenset((0, col) for col in range(8)),
             loop_gain=loop_gain,
         )

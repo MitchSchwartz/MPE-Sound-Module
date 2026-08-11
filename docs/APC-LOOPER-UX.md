@@ -73,13 +73,13 @@ Prove multi-clip before full 64:
 
 | Scope | Detail |
 |-------|--------|
-| **Active slots** | Row 0 only: **(0,0)** and **(0,1)** — two independent clips. |
+| **Active slots** | **Row 0, all 8 columns** — independent clips. |
 | **Scene Launch 1** | Row 0 launch/stop (Ableton rules + bar-end stop). |
 | **Shift + Scene 8** | Stop all. |
 | **Rest of grid** | Inert (LEDs off). |
 | **Engine** | Replace single `LooperSession` with **clip matrix** — slot → ring buffer + state; one mix bus (live Surge + sum of playing clips). |
 
-Acceptance: record clip A and B independently; play both; Scene 1 stops row at bar; Shift+Scene 8 clears transport.
+Acceptance: record and play multiple clips in row 0; Scene 1 stops row at bar; Shift+Scene 8 clears transport.
 
 ---
 
