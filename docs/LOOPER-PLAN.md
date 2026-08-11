@@ -1,10 +1,10 @@
 # On-device looping — plan
 
-*Last updated: 2026-08-10 19:33 (America/Toronto)*
+*Last updated: 2026-08-10 20:24 (America/Toronto)*
 
 **The question, in one line:** *What is the cheapest architecture that turns this box into a looper good enough to replace the RC-5 — and what do we build first?*
 
-**Status:** Phase 0 spike code in repo (`scripts/looper-phase0-spike.py`); Pi soak not run yet. **Decision made: loop audio, not MIDI** (§The architectural fork). Buffer headroom is resolved enough to proceed (§Evidence).
+**Status:** Phase 0 spike on Pi — 30s passthrough @ 512 **0 xruns** (silence path; Surge still on Sound Blaster direct). **10 min soak + Surge→loopback routing + latency A/B pending.** PR #48.
 
 **Related:** [`LATENCY-SPIKE.md`](LATENCY-SPIKE.md) · [`MIDI-CLOCK.md`](MIDI-CLOCK.md) · [`USB-SESSION-RECORD.md`](USB-SESSION-RECORD.md) · [`PATCH_NORMALIZATION.md`](PATCH_NORMALIZATION.md)
 
@@ -306,8 +306,9 @@ There is no ALSA or MIDI in GitHub Actions, so keep every device dependency behi
 
 | Date | Phase | Result | Notes |
 |---|---|---|---|
-| 2026-08-10 | 0.0 | Spike code landed | `looper_engine`, `looper_devices`, `looper_xruns`, `scripts/looper-phase0-spike.py` — CI unit tests only; Pi soak pending |
-| | 0.2 / 0.3 | | xruns + live-latency delta of the new audio stage — **the gating measurement** |
+| 2026-08-10 | 0.0 | Spike code landed | `looper_engine`, `looper_devices`, `looper_xruns`, `scripts/looper-phase0-spike.py` — CI + Pi unit tests green |
+| 2026-08-10 | 0.1 | **L1 pass (partial)** | Pi: 30s passthrough @ 512, **0 xruns**, 2812 periods — loopback capture silent (Surge not on Loopback yet); fixed ALSA buffer=2×period |
+| | 0.2 / 0.3 | | **10 min soak** + Surge→Loopback + live-latency delta — **gating measurement** |
 
 ## Deploys
 
