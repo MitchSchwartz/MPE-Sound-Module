@@ -61,47 +61,16 @@ def looper_hud_beat_segment_count(snapshot: dict) -> int:
     return 4
 
 
-def looper_hud_filled_ticks_in_bar(
+def looper_hud_segment_full(
     *,
-    total_frames: int,
-    frames_per_beat: int,
+    beat_in_bar: int,
     beats_per_bar: int,
-    ticks_per_beat: int = 2,
-) -> int:
-    """Eighth-note units filled in the current bar: 0 .. beats*ticks_per_beat (full bar)."""
+    segment_index: int,
+) -> bool:
+    """Boss accumulate: segment i (0-based) lit when (i+1) <= beat_in_bar."""
     beats = max(1, int(beats_per_bar))
-    fpb = max(1, int(frames_per_beat))
-    ticks = max(1, int(ticks_per_beat))
-    frames_per_bar = fpb * beats
-    ticks_per_bar = beats * ticks
-    pos_in_bar = int(total_frames) % frames_per_bar
-    return min(
-        ticks_per_bar,
-        (pos_in_bar * ticks_per_bar + frames_per_bar // 2) // frames_per_bar,
-    )
-
-
-def looper_hud_segment_fill_halves(
-    *,
-    total_frames: int,
-    frames_per_beat: int,
-    beats_per_bar: int,
-    ticks_per_beat: int = 2,
-) -> list[int]:
-    """Discrete fill per beat segment from sample clock (0 empty, 1 half, 2 full)."""
-    beats = max(1, int(beats_per_bar))
-    ticks = max(1, int(ticks_per_beat))
-    filled_ticks = looper_hud_filled_ticks_in_bar(
-        total_frames=total_frames,
-        frames_per_beat=frames_per_beat,
-        beats_per_bar=beats_per_bar,
-        ticks_per_beat=ticks,
-    )
-    out: list[int] = []
-    for i in range(beats):
-        seg_start = i * ticks
-        out.append(max(0, min(ticks, filled_ticks - seg_start)))
-    return out
+    beat = max(1, min(beats, int(beat_in_bar)))
+    return (int(segment_index) + 1) <= beat
 
 
 def looper_hud_min_width_px(*, frac_label: str = "8/8") -> int:

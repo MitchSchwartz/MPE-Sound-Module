@@ -41,7 +41,7 @@ from patch_browser.audio_profile import header_badge_label
 from patch_browser.midi_clock import (
     looper_hud_bar_fraction,
     looper_hud_internal,
-    looper_hud_segment_fill_halves,
+    looper_hud_segment_full,
     looper_hud_should_show,
 )
 from patch_browser.touch_ui_enums import (
@@ -411,16 +411,7 @@ class TouchBrowserDrawMixin:
 
         if active_internal:
             beats = max(1, int(internal.get("beats_per_bar") or 4))
-            total_frames = int(internal.get("total_frames") or 0)
-            frames_per_beat = int(internal.get("frames_per_beat") or 0)
-            if frames_per_beat <= 0:
-                bpm = float(internal.get("bpm") or 120.0)
-                frames_per_beat = max(1, int(round(48000 * 60.0 / bpm)))
-            fill_halves = looper_hud_segment_fill_halves(
-                total_frames=total_frames,
-                frames_per_beat=frames_per_beat,
-                beats_per_bar=beats,
-            )
+            beat = max(1, int(internal.get("beat_in_bar") or 1))
             frac = looper_hud_bar_fraction(snap)
 
             pad_x = LOOPER_HUD_PAD_X
@@ -453,11 +444,12 @@ class TouchBrowserDrawMixin:
                 )
                 pygame.draw.rect(self.screen, track, seg, border_radius=3)
                 pygame.draw.rect(self.screen, muted, seg, width=1, border_radius=3)
-                halves = fill_halves[i] if i < len(fill_halves) else 0
-                if halves > 0:
-                    fill_w = max(1, (seg.w * halves) // 2)
-                    fill_rect = pygame.Rect(seg.x, seg.y, fill_w, seg.h)
-                    pygame.draw.rect(self.screen, accent, fill_rect, border_radius=3)
+                if looper_hud_segment_full(
+                    beat_in_bar=beat,
+                    beats_per_bar=beats,
+                    segment_index=i,
+                ):
+                    pygame.draw.rect(self.screen, accent, seg, border_radius=3)
 
             if frac_surf is not None:
                 frac_y = rect.y + (rect.h - frac_surf.get_height()) // 2
