@@ -83,3 +83,22 @@ class ApcLedFeedback:
                 clear_note,
                 ApcLedColor.YELLOW if has_loop else ApcLedColor.OFF,
             )
+
+    def show_clip_matrix(self, matrix, *, surface: ControlSurfaceMap | None = None) -> None:
+        """Update grid pad LEDs from clip matrix slot states."""
+        surf = surface or self._surface
+        from patch_browser.clip_matrix import ClipState
+
+        color_map = {
+            ClipState.EMPTY: ApcLedColor.OFF,
+            ClipState.RECORDING: ApcLedColor.RED_BLINK,
+            ClipState.STOPPED: ApcLedColor.YELLOW,
+            ClipState.PLAYING: ApcLedColor.GREEN,
+            ClipState.STOPPING: ApcLedColor.GREEN,
+        }
+        for key in matrix.enabled_slots:
+            clip = matrix.slots.get(key)
+            if clip is None:
+                continue
+            note = surf.grid_note(key[0], key[1])
+            self.set_note(note, color_map.get(clip.state, ApcLedColor.OFF))

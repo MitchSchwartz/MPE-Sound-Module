@@ -1,19 +1,20 @@
 #!/usr/bin/env python3
-"""Interactive v0 looper — one loop, APC Scene Launch transport, mk1 LED feedback.
+"""Interactive looper — APC Session View grid (default) or legacy Scene transport.
 
 Run manually on the Pi (no systemd yet). Surge must output to Loopback; this process
 captures loopback and plays to the Sound Blaster.
 
-Transport (mk1 default, Scene Launch):
-  Sc1 Record   — tap to start; tap again to close early; auto-closes when loop full
-  Sc5 Play/Stop — toggle loop playback
-  Sc8 Clear    — wipe loop
+Grid mode (default, see docs/APC-LOOPER-UX.md):
+  Row 0 pads (0,0) and (0,1) — independent clips
+  Scene Launch 1 — launch/stop row 0 at bar boundary
+  Shift + Scene Launch 8 — stop all clips
 
 Examples:
   python3 scripts/mpe-looper.py
   python3 scripts/mpe-looper.py --bars 4 --bpm 120 --buffer-size 512
-  python3 scripts/mpe-looper.py --no-apc          # keyboard-less passthrough + state via logs only
-  python3 scripts/mpe-looper.py --soak 60         # exit after 60s (stability check, not 10 min)
+  python3 scripts/mpe-looper.py --legacy-transport   # v0 Sc1/5/8 hack
+  python3 scripts/mpe-looper.py --no-apc
+  python3 scripts/mpe-looper.py --soak 60
 """
 
 from __future__ import annotations
@@ -49,7 +50,13 @@ from patch_browser.looper_engine import (  # noqa: E402
     frames_to_bytes,
     loop_length_frames,
 )
+from patch_browser.clip_matrix import ClipMatrix  # noqa: E402
+from patch_browser.control_surfaces.apc_session_midi import (  # noqa: E402
+    ApcMidiContext,
+    handle_apc_session_message,
+)
 from patch_browser.looper_session import LooperMode, LooperSession  # noqa: E402
+from patch_browser.looper_timing_state import clear_timing_state, write_timing_state  # noqa: E402
 from patch_browser.looper_xruns import read_xrun_counts, total_xruns  # noqa: E402
 
 _STOP = False
@@ -96,6 +103,145 @@ def _open_apc_midi(*, enable: bool) -> tuple[object | None, object | None, ApcLe
     leds = ApcLedFeedback(midi_out, surface)
     leds.all_off()
     return midi_in, leds, leds
+
+
+def _poll_apc_grid(midi_in, ctx: ApcMidiContext, matrix: ClipMatrix) -> None:
+    if midi_in is None:
+        return
+    surface = get_apc_map()
+    while True:
+        msg = midi_in.get_message()
+        if msg is None:
+            break
+        data, _dt = msg
+        label = handle_apc_session_message(surface, data, ctx, matrix)
+        if label:
+            print(f"[apc] {label}", flush=True)
+
+
+def _sync_grid_leds(leds: ApcLedFeedback | None, matrix: ClipMatrix) -> None:
+    if leds is None:
+        return
+    leds.all_off()
+    leds.show_clip_matrix(matrix)
+
+
+def _publish_timing(matrix: ClipMatrix) -> None:
+    snap = matrix.clock.snapshot()
+    if matrix.is_active:
+        write_timing_state(
+            active=True,
+            bpm=float(snap["bpm"]),
+            beat_in_bar=int(snap["beat_in_bar"]),
+            beats_per_bar=int(snap["beats_per_bar"]),
+            bar_in_loop=int(snap["bar_in_loop"]),
+            bars_per_loop=int(snap["bars_per_loop"]),
+        )
+    else:
+        clear_timing_state()
+
+
+def run_looper_grid(
+    *,
+    capture: str,
+    playback: str,
+    sample_rate: int,
+    period_frames: int,
+    bars: int,
+    bpm: float,
+    loop_gain: float,
+    use_apc: bool,
+    soak_s: float | None,
+) -> int:
+    matrix = ClipMatrix.create_v1(
+        sample_rate=sample_rate,
+        bpm=bpm,
+        bars=bars,
+        loop_gain=loop_gain,
+    )
+    period_bytes = frames_to_bytes(period_frames)
+
+    rec = open_arecord(capture, sample_rate=sample_rate, period_frames=period_frames)
+    play = open_aplay(playback, sample_rate=sample_rate, period_frames=period_frames)
+    assert rec.stdout is not None
+    assert play.stdin is not None
+    if (code := ensure_audio_procs_started(("arecord", rec), ("aplay", play))) is not None:
+        return code
+
+    midi_in, leds, _ = _open_apc_midi(enable=use_apc)
+    apc_ctx = ApcMidiContext()
+    _sync_grid_leds(leds, matrix)
+
+    baseline = read_xrun_counts()
+    start = time.monotonic()
+    last_report = start
+    last_rev = 0
+    periods = 0
+    periods_since_flush = 0
+
+    print(
+        f"Grid v1: row 0 cols 0–1 · {bars} bars @ {bpm} BPM "
+        f"({matrix.loop_frames} frames)",
+        flush=True,
+    )
+    print("Pads=clips · Scene 1=row · Shift+Scene 8=stop all", flush=True)
+
+    try:
+        while not _STOP:
+            if soak_s is not None and (time.monotonic() - start) >= soak_s:
+                print(f"[soak] {soak_s:.0f}s elapsed — exiting", flush=True)
+                break
+
+            _poll_apc_grid(midi_in, apc_ctx, matrix)
+            chunk = rec.stdout.read(period_bytes)
+            if not chunk:
+                break
+            if len(chunk) < period_bytes:
+                chunk = chunk + b"\x00" * (period_bytes - len(chunk))
+
+            out = matrix.process_period(chunk, period_frames=period_frames)
+            play.stdin.write(out)
+            periods += 1
+            periods_since_flush += 1
+            if periods_since_flush >= 8:
+                play.stdin.flush()
+                periods_since_flush = 0
+
+            rev = sum(hash(s.state) for s in matrix.slots.values())
+            if rev != last_rev:
+                _sync_grid_leds(leds, matrix)
+                last_rev = rev
+            _publish_timing(matrix)
+
+            now = time.monotonic()
+            if now - last_report >= 5.0:
+                snap = matrix.clock.snapshot()
+                print(
+                    f"[grid] {now - start:.0f}s beat={snap['beat_in_bar']} "
+                    f"bar={snap['bar_in_loop']}/{snap['bars_per_loop']} periods={periods}",
+                    flush=True,
+                )
+                _report_xruns("looper", baseline)
+                last_report = now
+    finally:
+        clear_timing_state()
+        if play.stdin is not None:
+            try:
+                play.stdin.flush()
+            except Exception:
+                pass
+        if leds is not None:
+            leds.all_off()
+        for proc in (rec, play):
+            proc.terminate()
+            try:
+                proc.wait(timeout=2)
+            except Exception:
+                proc.kill()
+
+    xrun_delta = _report_xruns("final", baseline)
+    print(f"Done: periods={periods} xrun_delta={xrun_delta}", flush=True)
+    return 1 if xrun_delta else 0
 
 
 def _poll_apc(midi_in, session: LooperSession) -> None:
@@ -244,6 +390,11 @@ def build_parser() -> argparse.ArgumentParser:
         help=f"Auto-exit after SEC seconds (capped at {_MAX_SOAK_S:.0f} for quick checks)",
     )
     parser.add_argument("--skip-modprobe", action="store_true")
+    parser.add_argument(
+        "--legacy-transport",
+        action="store_true",
+        help="v0 hack: Scene Launch 1/5/8 transport instead of grid Session View",
+    )
     return parser
 
 
@@ -280,7 +431,8 @@ def main(argv: list[str] | None = None) -> int:
         flush=True,
     )
 
-    return run_looper(
+    runner = run_looper if args.legacy_transport else run_looper_grid
+    return runner(
         capture=capture,
         playback=playback,
         sample_rate=args.sample_rate,

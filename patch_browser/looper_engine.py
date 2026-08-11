@@ -80,8 +80,22 @@ class StereoRingBuffer:
             return b""
         if self.filled_frames == 0:
             return b"\x00" * frames_to_bytes(count)
-        effective = min(count, self.filled_frames)
+
         out = bytearray(frames_to_bytes(count))
+        if self.is_full:
+            copied = 0
+            pos = start_frame % self.capacity_frames
+            while copied < count:
+                chunk = min(count - copied, self.capacity_frames - pos)
+                src_off = frames_to_bytes(pos)
+                dst_off = frames_to_bytes(copied)
+                byte_len = frames_to_bytes(chunk)
+                out[dst_off : dst_off + byte_len] = self._data[src_off : src_off + byte_len]
+                pos = (pos + chunk) % self.capacity_frames
+                copied += chunk
+            return bytes(out)
+
+        effective = min(count, max(0, self.filled_frames - start_frame))
         copied = 0
         pos = start_frame % self.capacity_frames
         while copied < effective:
