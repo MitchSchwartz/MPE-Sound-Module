@@ -420,41 +420,36 @@ class TouchBrowserDrawMixin:
         if active_internal:
             beat = max(1, int(internal.get("beat_in_bar") or 1))
             beats = max(1, int(internal.get("beats_per_bar") or 4))
-            bpm = internal.get("bpm")
+            beat_phase = max(0.0, min(1.0, float(internal.get("beat_phase") or 0.0)))
             frac = looper_hud_bar_fraction(snap)
 
-            # Boss upper tier — beat segments within the bar (1..beats)
+            # Boss upper tier — beat segments; current beat fills progressively
             beat_y = rect.y + 5
             for i in range(beats):
-                filled = (i + 1) <= beat
+                seg_num = i + 1
                 seg = pygame.Rect(
                     x + i * (LOOPER_HUD_BEAT_SEG_W + LOOPER_HUD_BEAT_GAP),
                     beat_y,
                     LOOPER_HUD_BEAT_SEG_W,
                     LOOPER_HUD_BEAT_SEG_H,
                 )
-                fill_color = accent if filled else track
-                pygame.draw.rect(self.screen, fill_color, seg, border_radius=2)
-                pygame.draw.rect(
-                    self.screen,
-                    accent if filled else muted,
-                    seg,
-                    width=1,
-                    border_radius=2,
-                )
+                pygame.draw.rect(self.screen, track, seg, border_radius=2)
+                pygame.draw.rect(self.screen, muted, seg, width=1, border_radius=2)
+                if seg_num < beat:
+                    fill_w = seg.w
+                elif seg_num == beat:
+                    fill_w = max(1, int(round(seg.w * beat_phase)))
+                else:
+                    fill_w = 0
+                if fill_w > 0:
+                    fill_rect = pygame.Rect(seg.x, seg.y, fill_w, seg.h)
+                    pygame.draw.rect(self.screen, accent, fill_rect, border_radius=2)
 
-            # Boss lower tier — bar count as n/N (no bar progress bar) + BPM right
+            # Boss lower tier — bar count as n/N only (BPM not shown here)
             bar_y = rect.y + LOOPER_HUD_BEAT_SEG_H + LOOPER_HUD_ROW_GAP + 5
             if frac:
                 frac_surf = self.font_md.render(frac, True, self.theme.text)
                 self.screen.blit(frac_surf, (x, bar_y))
-
-            if bpm is not None:
-                bpm_surf = self.font_sm.render(str(int(bpm)), True, muted)
-                self.screen.blit(
-                    bpm_surf,
-                    (inner_right - bpm_surf.get_width(), bar_y + 2),
-                )
             return
 
         # External pedal — BPM badge only
@@ -508,10 +503,11 @@ class TouchBrowserDrawMixin:
             subtitle = recovery_hint
 
         title_x = getattr(self, "status_title_x", self.status_rect.x + 12)
-        widget_left = getattr(self, "looper_hud_rect", self.audio_profile_badge_rect).x
-        if widget_left <= title_x:
-            widget_left = self.audio_profile_badge_rect.x
-        title_max_w = max(1, widget_left - title_x - 12)
+        if getattr(self, "show_looper_hud", True) and self.looper_hud_rect.w > 0:
+            title_max_x = self.looper_hud_rect.x
+        else:
+            title_max_x = self.audio_profile_badge_rect.x
+        title_max_w = max(1, title_max_x - title_x - 8)
         title_lines = wrap_text_lines(self.font_md, title, title_max_w, max_lines=1)
         self.screen.blit(
             self.font_md.render(title_lines[0], True, self.theme.text),

@@ -8,7 +8,7 @@ import time
 from patch_browser.looper_hud import merge_looper_hud_snapshot
 from patch_browser.midi_clock import read_clock_state, stabilize_display_bpm
 
-POLL_INTERVAL_S = 0.2
+POLL_INTERVAL_S = 0.05
 
 
 class LooperClockMonitor:
