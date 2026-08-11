@@ -21,10 +21,8 @@ class ClipMatrixTests(unittest.TestCase):
         self.assertEqual(clip.state, ClipState.RECORDING)
         while clip.state == ClipState.RECORDING:
             self.matrix.process_period(self.period, period_frames=self.period_frames)
-        self.assertEqual(clip.state, ClipState.STOPPED)
-        self.assertTrue(clip.has_content)
-        self.matrix.on_grid(0, 0)
         self.assertEqual(clip.state, ClipState.PLAYING)
+        self.assertTrue(clip.has_content)
         out = self.matrix.process_period(bytes(frames_to_bytes(self.period_frames)), period_frames=self.period_frames)
         self.assertEqual(len(out), len(self.period))
 
@@ -34,7 +32,7 @@ class ClipMatrixTests(unittest.TestCase):
         assert clip is not None
         while clip.state == ClipState.RECORDING:
             self.matrix.process_period(self.period, period_frames=self.period_frames)
-        self.matrix.on_grid(0, 0)
+        self.assertEqual(clip.state, ClipState.PLAYING)
         self.matrix.on_scene(0)
         self.assertEqual(clip.state, ClipState.STOPPING)
         self.matrix.process_period(self.period, period_frames=self.matrix.clock.frames_per_bar)
@@ -46,7 +44,7 @@ class ClipMatrixTests(unittest.TestCase):
         assert clip is not None
         while clip.state == ClipState.RECORDING:
             self.matrix.process_period(self.period, period_frames=self.period_frames)
-        self.matrix.on_grid(0, 1)
+        self.assertEqual(clip.state, ClipState.PLAYING)
         self.matrix.on_stop_all()
         self.assertEqual(clip.state, ClipState.STOPPING)
 
