@@ -12,6 +12,7 @@ from patch_browser.looper_hud import (
     looper_hud_bar_fraction,
     looper_hud_is_visible,
     looper_hud_min_width_px,
+    looper_hud_segment_fill_halves,
     merge_looper_hud_snapshot,
 )
 from patch_browser.looper_timing_state import write_timing_state
@@ -67,6 +68,32 @@ class LooperHudTests(unittest.TestCase):
         narrow = looper_hud_min_width_px(frac_label="1/4")
         wide = looper_hud_min_width_px(frac_label="16/16")
         self.assertLess(narrow, wide)
+
+    def test_segment_fill_ticks_in_eighth_notes(self) -> None:
+        self.assertEqual(
+            looper_hud_segment_fill_halves(beat_in_bar=1, beats_per_bar=4, beat_phase=0.0),
+            [0, 0, 0, 0],
+        )
+        self.assertEqual(
+            looper_hud_segment_fill_halves(beat_in_bar=1, beats_per_bar=4, beat_phase=0.49),
+            [0, 0, 0, 0],
+        )
+        self.assertEqual(
+            looper_hud_segment_fill_halves(beat_in_bar=1, beats_per_bar=4, beat_phase=0.5),
+            [1, 0, 0, 0],
+        )
+        self.assertEqual(
+            looper_hud_segment_fill_halves(beat_in_bar=2, beats_per_bar=4, beat_phase=0.0),
+            [2, 0, 0, 0],
+        )
+        self.assertEqual(
+            looper_hud_segment_fill_halves(beat_in_bar=2, beats_per_bar=4, beat_phase=0.5),
+            [2, 1, 0, 0],
+        )
+        self.assertEqual(
+            looper_hud_segment_fill_halves(beat_in_bar=4, beats_per_bar=4, beat_phase=0.99),
+            [2, 2, 2, 1],
+        )
 
 
 if __name__ == "__main__":

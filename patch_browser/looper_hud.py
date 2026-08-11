@@ -61,6 +61,27 @@ def looper_hud_beat_segment_count(snapshot: dict) -> int:
     return 4
 
 
+def looper_hud_segment_fill_halves(
+    *,
+    beat_in_bar: int,
+    beats_per_bar: int,
+    beat_phase: float,
+    ticks_per_beat: int = 2,
+) -> list[int]:
+    """Discrete fill per beat segment: 0 empty, 1 half, 2 full (1/8-bar ticks in 4/4)."""
+    beats = max(1, int(beats_per_bar))
+    beat = max(1, min(beats, int(beat_in_bar)))
+    phase = max(0.0, min(1.0, float(beat_phase)))
+    ticks = max(1, int(ticks_per_beat))
+    tick_in_beat = min(ticks, int(phase * ticks))
+    filled = (beat - 1) * ticks + tick_in_beat
+    out: list[int] = []
+    for i in range(beats):
+        seg_start = i * ticks
+        out.append(max(0, min(ticks, filled - seg_start)))
+    return out
+
+
 def looper_hud_min_width_px(*, frac_label: str = "8/8") -> int:
     """Minimum HUD gap width (bar counter + one beat segment)."""
     from patch_browser.touch_ui_constants import (

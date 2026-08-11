@@ -41,6 +41,7 @@ from patch_browser.audio_profile import header_badge_label
 from patch_browser.midi_clock import (
     looper_hud_bar_fraction,
     looper_hud_internal,
+    looper_hud_segment_fill_halves,
     looper_hud_should_show,
 )
 from patch_browser.touch_ui_enums import (
@@ -412,6 +413,11 @@ class TouchBrowserDrawMixin:
             beat = max(1, int(internal.get("beat_in_bar") or 1))
             beats = max(1, int(internal.get("beats_per_bar") or 4))
             beat_phase = max(0.0, min(1.0, float(internal.get("beat_phase") or 0.0)))
+            fill_halves = looper_hud_segment_fill_halves(
+                beat_in_bar=beat,
+                beats_per_bar=beats,
+                beat_phase=beat_phase,
+            )
             frac = looper_hud_bar_fraction(snap)
 
             pad_x = LOOPER_HUD_PAD_X
@@ -436,7 +442,6 @@ class TouchBrowserDrawMixin:
             seg_w = max(4, (beat_w - seg_gap * max(0, beats - 1)) // beats)
 
             for i in range(beats):
-                seg_num = i + 1
                 seg = pygame.Rect(
                     beat_x + i * (seg_w + seg_gap),
                     beat_y,
@@ -445,13 +450,9 @@ class TouchBrowserDrawMixin:
                 )
                 pygame.draw.rect(self.screen, track, seg, border_radius=3)
                 pygame.draw.rect(self.screen, muted, seg, width=1, border_radius=3)
-                if seg_num < beat:
-                    fill_w = seg.w
-                elif seg_num == beat:
-                    fill_w = max(1, int(round(seg.w * beat_phase)))
-                else:
-                    fill_w = 0
-                if fill_w > 0:
+                halves = fill_halves[i] if i < len(fill_halves) else 0
+                if halves > 0:
+                    fill_w = max(1, (seg.w * halves) // 2)
                     fill_rect = pygame.Rect(seg.x, seg.y, fill_w, seg.h)
                     pygame.draw.rect(self.screen, accent, fill_rect, border_radius=3)
 
