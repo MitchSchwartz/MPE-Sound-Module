@@ -28,15 +28,19 @@ Install once: clone `mpe-cli`, run `./install.sh`, edit `~/.config/mpe/mpe.env` 
 | `mpe midi-list` | Read-only USB + ALSA MIDI port snapshot |
 | `mpe record [file] [fps]` | Touch UI screen capture |
 | `mpe pull-videos [-o DIR] [--delete-source]` | Download demo videos |
-| `mpe restart surge\|touch\|all` | Restart fixed systemd units |
+| `mpe restart surge\|touch\|looper\|all` | Restart fixed systemd units |
+| `mpe looper deploy [branch]` | Git pull on Pi + restart `mpe-looper.service` (default: `yolo/looper-phase0`) |
+| `mpe looper restart` | Restart `mpe-looper.service` only |
 
-**Looper deploy (yolo branch):** after pushing looper code, run **`./scripts/looper-deploy.sh`** from the laptop (SSH to Pi) — do not wait for Mitch. Installs/restarts `mpe-looper.service` when `MPE_LOOPER_ENABLED=1`. Latency budget: **512 Surge + 512 looper** (~1024 samples); do not recommend 1024+1024.
+**Looper deploy (yolo branch):** after pushing looper code, run **`mpe looper deploy`** — do not wait for Mitch and do not use raw `ssh` or `./scripts/looper-deploy.sh` from the laptop. Latency budget: **512 Surge + 512 looper** (~1024 samples); do not recommend 1024+1024.
 
-**Agent-safe (read-only):** `ping`, `status`, `logs`, `osc-check`, `diagnose`, `sysinfo`, `test`, `test local`, `test pi`, `midi-list`, `pull-videos` (skip `--delete-source` for zero writes).
+**Unit tests:** always **`mpe test`** (or `mpe test pi looper`, etc.) — not `cd … && python3 -m unittest`. The CLI picks the repo, runs fixed suite enums from `mpe-cli/lib/test_suites.sh`, and matches the Cursor allowlist prefix. Suites: `mpe test list`.
 
-**Writes / restarts:** `restart *`, `record`, `pull-videos --delete-source`.
+**Agent-safe (read-only):** `ping`, `status`, `logs`, `osc-check`, `diagnose`, `sysinfo`, `test`, `midi-list`, `pull-videos` (skip `--delete-source` for zero writes).
 
-**Do not allowlist for agents:** raw `ssh`/`scp`/`rsync`, `deploy-all.sh`, `set-audio-profile.sh`, `set-surge-audio.sh`, `set-midi-sync.sh`, poweroff/reboot.
+**Writes / restarts:** `restart *`, `looper deploy|restart`, `record`, `pull-videos --delete-source`.
+
+**Do not allowlist for agents:** raw `ssh`/`scp`/`rsync`, `./scripts/*.sh` for deploy/audio/profile (use `mpe` subcommands), `scripts/manual/*` hardware smokes unless a dedicated `mpe` wrapper exists, `deploy-all.sh`, `set-audio-profile.sh`, `set-surge-audio.sh`, `set-midi-sync.sh`, poweroff/reboot.
 
 **Suggest new subcommands:** When you would SSH twice for the same fixed task, **propose a new `mpe` subcommand** in `mpe-cli` (name + behavior + allowlist strings) — do not improvise remote shell. **Editing `mpe-cli` or `~/.config/mpe/mpe.env` requires Mitch approval.**
 
