@@ -10,6 +10,7 @@ from patch_browser.looper_engine import (
     StereoRingBuffer,
     loop_length_frames,
     mix_live_and_loops,
+    quantize_loop_frames,
 )
 
 
@@ -28,6 +29,7 @@ class ClipSlot:
     ring: StereoRingBuffer
     state: ClipState = ClipState.EMPTY
     playback_frame: int = 0
+    loop_frames: int = 0
 
     @property
     def has_content(self) -> bool:
@@ -36,6 +38,7 @@ class ClipSlot:
     def clear(self) -> None:
         self.ring.clear()
         self.playback_frame = 0
+        self.loop_frames = 0
         self.state = ClipState.EMPTY
 
 
@@ -72,6 +75,15 @@ class ClipMatrix:
     def _begin_playback(self, clip: ClipSlot) -> None:
         clip.state = ClipState.PLAYING
         clip.playback_frame = 0
+        cap = clip.ring.capacity_frames
+        if clip.ring.is_full:
+            clip.loop_frames = cap
+        else:
+            clip.loop_frames = quantize_loop_frames(
+                clip.ring.filled_frames,
+                frames_per_bar=self.clock.frames_per_bar,
+                capacity_frames=cap,
+            )
 
     def on_grid(self, row: int, col: int) -> None:
         clip = self.slot(row, col)
@@ -148,9 +160,15 @@ class ClipMatrix:
             if clip.state not in (ClipState.PLAYING, ClipState.STOPPING):
                 continue
 
-            loop_chunks.append(clip.ring.read_frames(clip.playback_frame, period_frames))
-            cap = clip.ring.capacity_frames
-            clip.playback_frame = (clip.playback_frame + period_frames) % cap
+            loop_chunks.append(
+                clip.ring.read_frames_for_loop(
+                    clip.playback_frame,
+                    period_frames,
+                    clip.loop_frames or clip.ring.capacity_frames,
+                )
+            )
+            loop_len = clip.loop_frames or clip.ring.capacity_frames
+            clip.playback_frame = (clip.playback_frame + period_frames) % loop_len
 
         return mix_live_and_loops(
             live_pcm,

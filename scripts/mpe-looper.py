@@ -58,6 +58,7 @@ from patch_browser.control_surfaces.apc_session_midi import (  # noqa: E402
 from patch_browser.looper_session import LooperMode, LooperSession  # noqa: E402
 from patch_browser.looper_timing_state import clear_timing_state, write_timing_state  # noqa: E402
 from patch_browser.looper_xruns import read_xrun_counts, total_xruns  # noqa: E402
+from patch_browser.surge_audio import current_buffer_size, current_sample_rate  # noqa: E402
 
 _STOP = False
 _MAX_SOAK_S = 60.0
@@ -376,8 +377,13 @@ def _report_xruns(label: str, baseline: dict[str, int]) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--sample-rate", type=int, default=int(os.environ.get("MPE_SURGE_SAMPLE_RATE", "48000")))
-    parser.add_argument("--buffer-size", type=int, default=int(os.environ.get("MPE_SURGE_BUFFER_SIZE", "512")))
+    parser.add_argument("--sample-rate", type=int, default=None)
+    parser.add_argument(
+        "--buffer-size",
+        type=int,
+        default=None,
+        help="ALSA period frames (default: MPE_SURGE_BUFFER_SIZE from /etc/mpe/mpe.env)",
+    )
     parser.add_argument("--bars", type=int, default=int(os.environ.get("MPE_LOOPER_BARS", "4")))
     parser.add_argument("--bpm", type=float, default=float(os.environ.get("MPE_LOOPER_BPM", "120")))
     parser.add_argument("--loop-gain", type=float, default=0.85)
@@ -408,14 +414,21 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Note: --soak capped at {_MAX_SOAK_S:.0f}s (use spike script for longer)", flush=True)
         soak_s = _MAX_SOAK_S
 
-    surge_buf = int(os.environ.get("MPE_SURGE_BUFFER_SIZE", str(args.buffer_size)))
-    if args.buffer_size != surge_buf:
+    surge_buf = current_buffer_size()
+    sample_rate = args.sample_rate if args.sample_rate is not None else current_sample_rate()
+    period_frames = args.buffer_size if args.buffer_size is not None else surge_buf
+    if args.buffer_size is not None and args.buffer_size != surge_buf:
         print(
             f"Warning: looper period {args.buffer_size} != Surge buffer {surge_buf} "
-            f"— align with --buffer-size {surge_buf} to reduce crackle",
+            f"— omit --buffer-size to match Surge automatically",
             file=sys.stderr,
             flush=True,
         )
+    print(
+        f"Audio period: {period_frames} frames (~{period_frames * 1000.0 / sample_rate:.1f} ms), "
+        f"Surge buffer: {surge_buf}",
+        flush=True,
+    )
 
     try:
         capture, playback = prepare_looper_audio_path(load_loopback=not args.skip_modprobe)
@@ -435,8 +448,8 @@ def main(argv: list[str] | None = None) -> int:
     return runner(
         capture=capture,
         playback=playback,
-        sample_rate=args.sample_rate,
-        period_frames=args.buffer_size,
+        sample_rate=sample_rate,
+        period_frames=period_frames,
         bars=args.bars,
         bpm=args.bpm,
         loop_gain=args.loop_gain,
