@@ -121,10 +121,12 @@ def _poll_apc_grid(midi_in, ctx: ApcMidiContext, matrix: ClipMatrix) -> None:
             print(f"[apc] {label}", flush=True)
 
 
+_LOOPER_MIN_PERIOD = 512
+
+
 def _sync_grid_leds(leds: ApcLedFeedback | None, matrix: ClipMatrix) -> None:
     if leds is None:
         return
-    leds.all_off()
     leds.show_clip_matrix(matrix)
 
 
@@ -433,6 +435,18 @@ def main(argv: list[str] | None = None) -> int:
         f"Surge buffer: {surge_buf}",
         flush=True,
     )
+    if period_frames < _LOOPER_MIN_PERIOD:
+        print(
+            f"Warning: period {period_frames} < {_LOOPER_MIN_PERIOD} — looper replay often xruns on Pi; "
+            f"use {_LOOPER_MIN_PERIOD}–1024",
+            file=sys.stderr,
+            flush=True,
+        )
+    elif period_frames == _LOOPER_MIN_PERIOD:
+        print(
+            "Note: multi-clip replay at 512 may stutter — try MPE_SURGE_BUFFER_SIZE=1024 if needed",
+            flush=True,
+        )
 
     try:
         capture, playback = prepare_looper_audio_path(load_loopback=not args.skip_modprobe)

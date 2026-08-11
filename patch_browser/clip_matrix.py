@@ -104,7 +104,8 @@ class ClipMatrix:
             self._begin_playback(clip)
             return
         if clip.state == ClipState.PLAYING:
-            clip.state = ClipState.STOPPING
+            clip.state = ClipState.STOPPED
+            clip.playback_frame = 0
 
     def on_scene(self, row: int) -> None:
         row_slots: list[ClipSlot] = []
@@ -165,7 +166,7 @@ class ClipMatrix:
                     self._begin_playback(clip)
                 continue
 
-            if clip.state not in (ClipState.PLAYING, ClipState.STOPPING):
+            if clip.state not in (ClipState.PLAYING,):
                 continue
 
             loop_chunks.append(

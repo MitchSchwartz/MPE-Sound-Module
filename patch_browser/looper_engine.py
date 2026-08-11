@@ -144,15 +144,22 @@ class StereoRingBuffer:
         if self.is_full and loop_frames == self.capacity_frames:
             return self.read_frames(start_frame % loop_frames, count)
 
+        filled = self.filled_frames
         out = bytearray(frames_to_bytes(count))
-        frame_bytes = S16_STEREO_FRAME_BYTES
-        for i in range(count):
-            pos = (start_frame + i) % loop_frames
-            if pos >= self.filled_frames:
-                continue
-            src_off = frames_to_bytes(pos)
-            dst_off = frames_to_bytes(i)
-            out[dst_off : dst_off + frame_bytes] = self._data[src_off : src_off + frame_bytes]
+        pos = start_frame % loop_frames
+        copied = 0
+        while copied < count:
+            seg = min(count - copied, loop_frames - pos)
+            if pos < filled:
+                audio_end = min(pos + seg, filled)
+                audio_frames = audio_end - pos
+                if audio_frames > 0:
+                    src_off = frames_to_bytes(pos)
+                    dst_off = frames_to_bytes(copied)
+                    byte_len = frames_to_bytes(audio_frames)
+                    out[dst_off : dst_off + byte_len] = self._data[src_off : src_off + byte_len]
+            copied += seg
+            pos = (pos + seg) % loop_frames
         return bytes(out)
 
 

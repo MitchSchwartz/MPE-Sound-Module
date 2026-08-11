@@ -49,6 +49,17 @@ class ClipMatrixTests(unittest.TestCase):
         clip.playback_frame = (clip.playback_frame + period_frames) % clip.loop_frames
         self.assertEqual(clip.playback_frame, 0)
 
+    def test_grid_playing_stops_immediately(self) -> None:
+        self.matrix.on_grid(0, 0)
+        clip = self.matrix.slot(0, 0)
+        assert clip is not None
+        while clip.state == ClipState.RECORDING:
+            self.matrix.process_period(self.period, period_frames=self.period_frames)
+        self.matrix.on_grid(0, 0)
+        self.assertEqual(clip.state, ClipState.STOPPED)
+        out = self.matrix.process_period(self.period, period_frames=self.period_frames)
+        self.assertEqual(out, self.period)
+
     def test_scene_stops_row_at_bar(self) -> None:
         self.matrix.on_grid(0, 0)
         clip = self.matrix.slot(0, 0)
