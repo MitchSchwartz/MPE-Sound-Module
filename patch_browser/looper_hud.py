@@ -1,4 +1,4 @@
-"""Boss-style looper HUD — eighth-note ticks (half box) + bar counter."""
+"""Boss-style looper HUD — continuous beat fill + bar counter."""
 
 from __future__ import annotations
 
@@ -163,21 +163,21 @@ def looper_hud_tick_from_internal(internal: dict, *, now: float | None = None) -
     return max(0, int(internal.get("tick_in_bar") or 0))
 
 
-def looper_hud_segment_halves(
+def looper_hud_segment_fills(
     *,
-    tick_in_bar: int,
-    beats_per_bar: int = 4,
-    ticks_per_beat: int = 2,
-) -> list[int]:
-    """Half-fill levels per beat segment: 0 empty, 1 half, 2 full (1/8 bar per tick)."""
+    total_frames: int,
+    frames_per_beat: int,
+    beats_per_bar: int,
+) -> list[float]:
+    """Continuous fill per beat segment in 0.0 … 1.0, taken modulo the bar.
+
+    Beats the playhead has passed read 1.0, the beat it is inside reads its
+    fraction, beats ahead read 0.0 — so the display resets at each bar line.
+    """
+    fpb = max(1, int(frames_per_beat))
     beats = max(1, int(beats_per_bar))
-    ticks = max(1, int(ticks_per_beat))
-    filled = max(0, min(beats * ticks, int(tick_in_bar)))
-    out: list[int] = []
-    for i in range(beats):
-        seg_start = i * ticks
-        out.append(max(0, min(ticks, filled - seg_start)))
-    return out
+    pos = max(0, int(total_frames)) % (fpb * beats)
+    return [min(1.0, max(0.0, (pos - i * fpb) / fpb)) for i in range(beats)]
 
 
 def looper_hud_min_width_px(*, frac_label: str = "8/8") -> int:

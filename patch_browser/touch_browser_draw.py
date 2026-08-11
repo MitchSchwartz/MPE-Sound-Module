@@ -38,10 +38,13 @@ from patch_browser.touch_ui_constants import (
     SETTINGS_ROW_H,
 )
 from patch_browser.audio_profile import header_badge_label
-from patch_browser.looper_hud import looper_hud_tick_from_internal
+from patch_browser.looper_hud import (
+    looper_hud_interpolated_frames,
+    looper_hud_segment_fills,
+    looper_hud_tick_from_internal,
+)
 from patch_browser.midi_clock import (
     looper_hud_bar_fraction,
-    looper_hud_segment_halves,
     looper_hud_should_show,
 )
 from patch_browser.touch_ui_enums import (
@@ -412,11 +415,21 @@ class TouchBrowserDrawMixin:
 
         if active_internal:
             beats = max(1, int(internal.get("beats_per_bar") or 4))
-            tick = looper_hud_tick_from_internal(internal)
-            fill_halves = looper_hud_segment_halves(
-                tick_in_bar=tick,
-                beats_per_bar=beats,
-            )
+            fpb = internal.get("frames_per_beat")
+            if fpb:
+                fills = looper_hud_segment_fills(
+                    total_frames=looper_hud_interpolated_frames(internal),
+                    frames_per_beat=int(fpb),
+                    beats_per_bar=beats,
+                )
+            else:
+                # No frame counter in the payload — degrade to discrete eighth ticks,
+                # which are two per beat, so the bar still advances.
+                fills = looper_hud_segment_fills(
+                    total_frames=looper_hud_tick_from_internal(internal),
+                    frames_per_beat=2,
+                    beats_per_bar=beats,
+                )
             frac = looper_hud_bar_fraction(snap)
 
             pad_x = LOOPER_HUD_PAD_X
@@ -449,9 +462,9 @@ class TouchBrowserDrawMixin:
                 )
                 pygame.draw.rect(self.screen, track, seg, border_radius=3)
                 pygame.draw.rect(self.screen, muted, seg, width=1, border_radius=3)
-                halves = fill_halves[i] if i < len(fill_halves) else 0
-                if halves > 0:
-                    fill_w = max(1, (seg.w * halves) // 2)
+                fill = fills[i] if i < len(fills) else 0.0
+                fill_w = int(seg.w * fill)
+                if fill_w > 0:
                     fill_rect = pygame.Rect(seg.x, seg.y, fill_w, seg.h)
                     pygame.draw.rect(self.screen, accent, fill_rect, border_radius=3)
 
