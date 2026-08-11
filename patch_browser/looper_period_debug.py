@@ -1,4 +1,8 @@
-"""Optional real-time period budget instrumentation (MPE_LOOPER_DEBUG=1)."""
+"""Optional real-time period budget instrumentation (MPE_LOOPER_DEBUG=1).
+
+Hot path is allocation-free: only monotonic compare + counters per period.
+/proc/asound reads and journal lines happen on the 5s summary only.
+"""
 
 from __future__ import annotations
 
@@ -22,7 +26,7 @@ def _short_pcm_path(path: str) -> str:
 
 
 class LooperPeriodDebug:
-    """Track audio-loop overruns vs ALSA period budget."""
+    """Track audio-loop overruns vs ALSA period budget (cheap per-period)."""
 
     def __init__(self, *, period_budget_s: float) -> None:
         self.budget_s = period_budget_s
@@ -36,13 +40,15 @@ class LooperPeriodDebug:
         elapsed_ms = elapsed_s * 1000.0
         if elapsed_ms <= self.budget_ms:
             return
-
         self.window_overruns += 1
         self.total_overruns += 1
         if elapsed_ms > self.window_max_ms:
             self.window_max_ms = elapsed_ms
             self.window_max_layers = playing_layers
 
+    def flush_window(self, label: str) -> None:
+        if self.window_overruns == 0:
+            return
         states = read_pcm_states()
         xrun_paths = [_short_pcm_path(p) for p in any_pcm_xrun_state(states)]
         hot_counts = {
@@ -51,19 +57,10 @@ class LooperPeriodDebug:
             if count > 0
         }
         print(
-            f"[debug] period overrun elapsed={elapsed_ms:.2f}ms "
-            f"budget={self.budget_ms:.2f}ms layers={playing_layers} "
-            f"pcm_xrun={xrun_paths or 'none'} xrun_counts={hot_counts or '{}'}",
-            flush=True,
-        )
-
-    def flush_window(self, label: str) -> None:
-        if self.window_overruns == 0:
-            return
-        print(
             f"[debug] {label} summary overruns={self.window_overruns} "
-            f"max_elapsed={self.window_max_ms:.2f}ms "
-            f"max_layers={self.window_max_layers} total={self.total_overruns}",
+            f"max_elapsed={self.window_max_ms:.2f}ms budget={self.budget_ms:.2f}ms "
+            f"max_layers={self.window_max_layers} total={self.total_overruns} "
+            f"pcm_xrun={xrun_paths or 'none'} xrun_counts={hot_counts or '{}'}",
             flush=True,
         )
         self.window_overruns = 0
