@@ -98,6 +98,22 @@ class LooperHudTests(unittest.TestCase):
             0,
         )
 
+    def test_tick_from_internal_prefers_total_frames(self) -> None:
+        from patch_browser.looper_hud import looper_hud_tick_from_internal
+
+        fpb = self.FPB
+        self.assertEqual(
+            looper_hud_tick_from_internal(
+                {
+                    "total_frames": fpb // 2,
+                    "frames_per_beat": fpb,
+                    "beats_per_bar": 4,
+                    "tick_in_bar": 99,
+                }
+            ),
+            1,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

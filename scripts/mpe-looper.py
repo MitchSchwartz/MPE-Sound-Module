@@ -189,6 +189,7 @@ def run_looper_grid(
     last_rev = 0
     periods = 0
     periods_since_flush = 0
+    transport_active = False
 
     print(
         f"Grid v1: row 0 (8 clips) · {bars} bars @ {bpm} BPM "
@@ -224,12 +225,22 @@ def run_looper_grid(
             if check_clear_session_hold(apc_ctx, matrix):
                 print("[apc] clear session", flush=True)
                 _sync_grid_leds(leds, matrix)
+                timing_pub.clear()
+                transport_active = False
 
             rev = sum(hash(s.state) for s in matrix.slots.values())
             if rev != last_rev:
                 _sync_grid_leds(leds, matrix)
                 last_rev = rev
-            _publish_timing(timing_pub, matrix)
+
+            active = matrix.is_active
+            if active:
+                _publish_timing(timing_pub, matrix)
+                transport_active = True
+            elif transport_active:
+                matrix.clock.reset()
+                timing_pub.clear()
+                transport_active = False
 
             if debug is not None:
                 debug.record(time.monotonic() - iter_start, count_playing_layers(matrix))

@@ -94,6 +94,20 @@ def looper_hud_eighth_index(
     return int(total_frames) * ticks // fpbar
 
 
+def looper_hud_tick_from_internal(internal: dict) -> int:
+    """Frame-accurate eighth tick for HUD draw (prefer total_frames over stale tick_in_bar)."""
+    total = internal.get("total_frames")
+    fpb = internal.get("frames_per_beat")
+    beats = max(1, int(internal.get("beats_per_bar") or 4))
+    if total is not None and fpb:
+        return looper_hud_tick_in_bar(
+            total_frames=int(total),
+            frames_per_beat=int(fpb),
+            beats_per_bar=beats,
+        )
+    return max(0, int(internal.get("tick_in_bar") or 0))
+
+
 def looper_hud_segment_halves(
     *,
     tick_in_bar: int,

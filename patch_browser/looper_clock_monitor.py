@@ -8,7 +8,7 @@ import time
 from patch_browser.looper_hud import merge_looper_hud_snapshot
 from patch_browser.midi_clock import read_clock_state, stabilize_display_bpm
 
-POLL_INTERVAL_S = 0.05
+POLL_INTERVAL_S = 0.016  # ~60 Hz — keep HUD in sync with audio transport
 
 
 class LooperClockMonitor:

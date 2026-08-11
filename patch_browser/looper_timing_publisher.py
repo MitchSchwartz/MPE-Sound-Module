@@ -1,4 +1,4 @@
-"""Publish HUD timing on each eighth-note (monotonic index — survives loop wrap)."""
+"""Publish HUD timing each audio period (frame-accurate; touch derives 1/8 ticks)."""
 
 from __future__ import annotations
 
@@ -10,14 +10,12 @@ from patch_browser.looper_timing_state import clear_timing_state, write_timing_s
 
 @dataclass
 class LooperTimingPublisher:
-    """Publish once per global eighth-note; never skip when (bar,beat) repeats."""
+    """Write transport position every period while clips are running."""
 
-    _last_eighth_index: int | None = field(default=None, init=False)
+    _last_total_frames: int | None = field(default=None, init=False)
 
     def publish_from_matrix(self, matrix) -> None:
         if not matrix.is_active:
-            clear_timing_state()
-            self._last_eighth_index = None
             return
 
         clock = matrix.clock
@@ -25,15 +23,10 @@ class LooperTimingPublisher:
         fpb = max(1, clock.frames_per_beat)
         beats = max(1, clock.beats_per_bar)
         total = int(snap["total_frames"])
-        eighth_index = looper_hud_eighth_index(
-            total_frames=total,
-            frames_per_beat=fpb,
-            beats_per_bar=beats,
-        )
-        if eighth_index == self._last_eighth_index:
+        if total == self._last_total_frames:
             return
 
-        self._last_eighth_index = eighth_index
+        self._last_total_frames = total
         tick = looper_hud_tick_in_bar(
             total_frames=total,
             frames_per_beat=fpb,
@@ -48,9 +41,15 @@ class LooperTimingPublisher:
             bars_per_loop=int(snap["bars_per_loop"]),
             beat_index=total // fpb,
             tick_in_bar=tick,
-            eighth_index=eighth_index,
+            eighth_index=looper_hud_eighth_index(
+                total_frames=total,
+                frames_per_beat=fpb,
+                beats_per_bar=beats,
+            ),
+            total_frames=total,
+            frames_per_beat=fpb,
         )
 
     def clear(self) -> None:
         clear_timing_state()
-        self._last_eighth_index = None
+        self._last_total_frames = None

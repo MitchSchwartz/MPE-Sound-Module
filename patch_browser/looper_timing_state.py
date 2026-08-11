@@ -21,6 +21,8 @@ def write_timing_state(
     beat_index: int | None = None,
     tick_in_bar: int | None = None,
     eighth_index: int | None = None,
+    total_frames: int | None = None,
+    frames_per_beat: int | None = None,
     path: Path | None = None,
 ) -> None:
     target = path or TIMING_STATE_FILE
@@ -34,6 +36,8 @@ def write_timing_state(
         "beat_index": beat_index,
         "tick_in_bar": tick_in_bar,
         "eighth_index": eighth_index,
+        "total_frames": total_frames,
+        "frames_per_beat": frames_per_beat,
         "updated_at": time.monotonic(),
     }
     tmp = target.with_suffix(".tmp")
@@ -47,6 +51,11 @@ def clear_timing_state(*, path: Path | None = None) -> None:
         bpm=None,
         beat_in_bar=None,
         bar_in_loop=None,
+        beat_index=None,
+        tick_in_bar=0,
+        eighth_index=None,
+        total_frames=0,
+        frames_per_beat=None,
         path=path,
     )
 
@@ -70,6 +79,8 @@ def read_timing_state(
         "beat_index": None,
         "tick_in_bar": 0,
         "eighth_index": None,
+        "total_frames": 0,
+        "frames_per_beat": None,
     }
     try:
         data = json.loads(target.read_text(encoding="utf-8"))
@@ -89,4 +100,6 @@ def read_timing_state(
         "beat_index": data.get("beat_index") if online else None,
         "tick_in_bar": int(data.get("tick_in_bar") or 0) if online else 0,
         "eighth_index": data.get("eighth_index") if online else None,
+        "total_frames": int(data.get("total_frames") or 0) if online else 0,
+        "frames_per_beat": data.get("frames_per_beat") if online else None,
     }

@@ -105,8 +105,8 @@ When the on-device looper is active (or any clip recording/playing), show in the
 
 | Element | Behavior |
 |---------|----------|
-| **Beat bar** | Horizontal micro-bar, 4 segments. **Eighth-note ticks:** half box per 1/8 bar (2 ticks per beat); empty at tick 0, full beat after 2 ticks. Updates on eighth boundaries. |
-| **Bar fraction** | Text **`n/N`**. Publisher uses monotonic **`eighth_index`** so loop wrap never skips an update. |
+| **Beat bar** | Horizontal micro-bar, 4 segments. **Eighth-note ticks:** half box per 1/8 bar (2 ticks per beat). Touch derives tick from `total_frames` each frame (frame-accurate; no ALSA-period jitter). |
+| **Bar fraction** | Text **`n/N`**. Transport publishes every audio period while clips run; **resets** (clock + HUD) when all clips stop or session clears. |
 | **BPM** | Optional right edge — internal tempo or synced MIDI clock (reuse `LooperClockMonitor` / `~/.mpe_midi_clock_state.json` when clock in enabled). |
 
 **Show when:** Any clip recording or playing; or user toggle (existing **Settings → Looper → show HUD**).
