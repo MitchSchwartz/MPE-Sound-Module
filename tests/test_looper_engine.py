@@ -13,6 +13,7 @@ from patch_browser.looper_engine import (
     loop_length_frames,
     mix_live_and_loops,
     mix_s16_stereo,
+    quantize_loop_frames,
 )
 
 
@@ -41,6 +42,30 @@ class LooperEngineTests(unittest.TestCase):
         self.assertEqual(bytes_to_frames(len(wrapped)), 2)
         self.assertEqual(wrapped[:4], _stereo_frame(3, 3))
         self.assertEqual(wrapped[4:], _stereo_frame(1, 1))
+
+    def test_quantize_loop_frames_rounds_up_to_bar(self) -> None:
+        fpb = 96000
+        self.assertEqual(
+            quantize_loop_frames(1, frames_per_bar=fpb, capacity_frames=384_000),
+            fpb,
+        )
+        self.assertEqual(
+            quantize_loop_frames(fpb // 2, frames_per_bar=fpb, capacity_frames=384_000),
+            fpb,
+        )
+        self.assertEqual(
+            quantize_loop_frames(fpb * 2, frames_per_bar=fpb, capacity_frames=384_000),
+            fpb * 2,
+        )
+
+    def test_read_frames_for_loop_partial_clip(self) -> None:
+        ring = StereoRingBuffer(8)
+        ring.write_frames(_stereo_frame(1, 1) * 3)
+        out = ring.read_frames_for_loop(2, 4, loop_frames=4)
+        self.assertEqual(out[:4], _stereo_frame(1, 1))
+        self.assertEqual(out[4:8], b"\x00\x00\x00\x00")
+        self.assertEqual(out[8:12], _stereo_frame(1, 1))
+        self.assertEqual(out[12:16], _stereo_frame(1, 1))
 
     def test_mix_s16_stereo_clips(self) -> None:
         hot = _stereo_frame(30000, 30000)

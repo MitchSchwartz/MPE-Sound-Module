@@ -36,6 +36,23 @@ def loop_length_frames(*, bars: int, bpm: float, sample_rate: int, beats_per_bar
     return max(1, int(round(seconds * sample_rate)))
 
 
+def quantize_loop_frames(
+    filled_frames: int,
+    *,
+    frames_per_bar: int,
+    capacity_frames: int,
+) -> int:
+    """Round recorded length up to the next bar (minimum one bar, capped at capacity)."""
+    if frames_per_bar <= 0:
+        raise ValueError("frames_per_bar must be positive")
+    if capacity_frames <= 0:
+        raise ValueError("capacity_frames must be positive")
+    if filled_frames <= 0:
+        return min(frames_per_bar, capacity_frames)
+    bars = (filled_frames + frames_per_bar - 1) // frames_per_bar
+    return min(max(bars * frames_per_bar, frames_per_bar), capacity_frames)
+
+
 @dataclass
 class StereoRingBuffer:
     """Fixed-capacity stereo S16_LE ring (interleaved L,R)."""
@@ -113,6 +130,29 @@ class StereoRingBuffer:
             out[dst_off : dst_off + byte_len] = self._data[src_off : src_off + byte_len]
             pos = (pos + chunk) % self.capacity_frames
             copied += chunk
+        return bytes(out)
+
+    def read_frames_for_loop(self, start_frame: int, count: int, loop_frames: int) -> bytes:
+        """Read ``count`` frames wrapping at ``loop_frames`` (bar-quantized clip length)."""
+        if count <= 0:
+            return b""
+        if loop_frames <= 0:
+            loop_frames = self.capacity_frames
+        if self.filled_frames == 0:
+            return b"\x00" * frames_to_bytes(count)
+
+        if self.is_full and loop_frames == self.capacity_frames:
+            return self.read_frames(start_frame % loop_frames, count)
+
+        out = bytearray(frames_to_bytes(count))
+        frame_bytes = S16_STEREO_FRAME_BYTES
+        for i in range(count):
+            pos = (start_frame + i) % loop_frames
+            if pos >= self.filled_frames:
+                continue
+            src_off = frames_to_bytes(pos)
+            dst_off = frames_to_bytes(i)
+            out[dst_off : dst_off + frame_bytes] = self._data[src_off : src_off + frame_bytes]
         return bytes(out)
 
 
