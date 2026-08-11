@@ -11,7 +11,7 @@ from unittest.mock import patch
 from patch_browser.looper_hud import (
     looper_hud_bar_fraction,
     looper_hud_is_visible,
-    looper_hud_width_px,
+    looper_hud_min_width_px,
     merge_looper_hud_snapshot,
 )
 from patch_browser.looper_timing_state import write_timing_state
@@ -63,9 +63,9 @@ class LooperHudTests(unittest.TestCase):
         }
         self.assertTrue(looper_hud_is_visible(snap))
 
-    def test_width_scales_with_bars_and_beats(self) -> None:
-        narrow = looper_hud_width_px(bars_per_loop=2, beats_per_bar=4)
-        wide = looper_hud_width_px(bars_per_loop=8, beats_per_bar=4)
+    def test_min_width_includes_bar_counter(self) -> None:
+        narrow = looper_hud_min_width_px(frac_label="1/4")
+        wide = looper_hud_min_width_px(frac_label="16/16")
         self.assertLess(narrow, wide)
 
 

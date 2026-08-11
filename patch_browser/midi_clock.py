@@ -323,7 +323,6 @@ from patch_browser.looper_hud import (
     looper_hud_bar_fraction,
     looper_hud_internal,
     looper_hud_is_visible,
-    looper_hud_width_px,
 )
 from patch_browser.looper_timing_state import read_timing_state
 
