@@ -48,7 +48,7 @@ def clear_timing_state(*, path: Path | None = None) -> None:
 def read_timing_state(
     *,
     path: Path | None = None,
-    stale_after_s: float = 2.0,
+    stale_after_s: float = 5.0,
     now: float | None = None,
 ) -> dict:
     target = path or TIMING_STATE_FILE

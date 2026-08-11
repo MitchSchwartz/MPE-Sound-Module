@@ -26,6 +26,7 @@ from patch_browser.patch_loader import PatchLoader
 from patch_browser.patch_scanner import FAVORITES_NAME, SURGE_PATCH_DIRS, PatchScanner, favorites_display_name
 from patch_browser.scroll_widgets import ContentScrollArea, ScrollList
 from patch_browser.looper_clock_monitor import LooperClockMonitor
+from patch_browser.looper_hud import looper_hud_is_visible
 from patch_browser.screen_recorder import DEFAULT_ENV_FILE, ScreenRecorder
 from patch_browser.surge_cpu_monitor import SurgeCpuMonitor
 from patch_browser.surge_monitor import SurgeMonitor
@@ -241,6 +242,11 @@ class TouchPatchBrowser(
         self._az_rail_active_letter: str | None = None
         self._az_rail_active_until = 0.0
 
+        self._looper_hud_layout_visible = looper_hud_is_visible(
+            self.looper_monitor.snapshot(),
+            user_enabled=getattr(self, "show_looper_hud", True),
+        )
+
         self._layout()
         self._bootstrap_patches()
         self._start_background_scan()
@@ -372,6 +378,7 @@ class TouchPatchBrowser(
             self._poll_surge_audio_switch()
             self._poll_midi_sync_switch()
             self._poll_wifi_work()
+            self._poll_looper_hud_layout()
             self._handle_screen_recorder_signals()
             for event in pygame.event.get():
                 if self._ignore_sdl_pointer_event(event):
