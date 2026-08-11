@@ -1,6 +1,6 @@
 # MPE-Module — agent orientation
 
-*Last updated: 2026-08-10 (America/Toronto)*
+*Last updated: 2026-08-11 (America/Toronto)*
 
 **Product:** Raspberry Pi MPE sound module (Surge XT headless + patch browser UI).
 
