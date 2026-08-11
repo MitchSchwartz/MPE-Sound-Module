@@ -237,7 +237,14 @@ def mix_live_and_loops(
         return apply_gain_s16_stereo(live_pcm, live_gain) if live_gain != 1.0 else live_pcm
 
     n = len(loop_chunks)
-    per_layer_gain = loop_gain / n
+    headroom = (
+        1.0 / (live_gain + loop_gain)
+        if live_gain > 0.0 and live_gain + loop_gain > 1.0
+        else 1.0
+    )
+    effective_live = live_gain * headroom
+    effective_loop_bus = loop_gain * headroom
+    per_layer_gain = effective_loop_bus / n
 
     if audioop is not None:
         loop_factor = max(0, min(_GAIN_SCALE, int(round(per_layer_gain * _GAIN_SCALE))))
@@ -251,29 +258,20 @@ def mix_live_and_loops(
                 else audioop.mul(chunk, _AUDIOOP_WIDTH, loop_factor)
             )
             loop_sum = audioop.add(loop_sum, scaled, _AUDIOOP_WIDTH)
-        if live_gain != 1.0:
+        if effective_live != 1.0:
             live_pcm = audioop.mul(
                 live_pcm,
                 _AUDIOOP_WIDTH,
-                int(round(live_gain * _GAIN_SCALE)),
+                int(round(effective_live * _GAIN_SCALE)),
             )
-        elif live_gain == 0.0:
+        elif effective_live == 0.0:
             live_pcm = b"\x00" * len(live_pcm)
-        mixed = audioop.add(live_pcm, loop_sum, _AUDIOOP_WIDTH)
-        if live_gain > 0.0 and live_gain + loop_gain > 1.0:
-            scale = max(0, min(_GAIN_SCALE, int(round(_GAIN_SCALE / (live_gain + loop_gain)))))
-            mixed = audioop.mul(mixed, _AUDIOOP_WIDTH, scale)
-        return mixed
+        return audioop.add(live_pcm, loop_sum, _AUDIOOP_WIDTH)
 
     frame_count = bytes_to_frames(len(live_pcm))
     out = bytearray(len(live_pcm))
     streams = [live_pcm, *loop_chunks]
-    gains_list = [live_gain, *([per_layer_gain] * n)]
-    headroom = (
-        1.0 / (live_gain + loop_gain)
-        if live_gain > 0.0 and live_gain + loop_gain > 1.0
-        else 1.0
-    )
+    gains_list = [effective_live, *([per_layer_gain] * n)]
     for frame_idx in range(frame_count):
         base = frame_idx * S16_STEREO_FRAME_BYTES
         left = 0.0
@@ -282,8 +280,6 @@ def mix_live_and_loops(
             l_val, r_val = struct.unpack_from("<hh", stream, base)
             left += l_val * gain
             right += r_val * gain
-        left *= headroom
-        right *= headroom
         struct.pack_into(
             "<hh",
             out,
