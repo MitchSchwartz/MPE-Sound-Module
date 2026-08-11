@@ -41,7 +41,7 @@ from patch_browser.audio_profile import header_badge_label
 from patch_browser.midi_clock import (
     looper_hud_bar_fraction,
     looper_hud_internal,
-    looper_hud_segment_full,
+    looper_hud_segment_lit,
     looper_hud_should_show,
 )
 from patch_browser.touch_ui_enums import (
@@ -444,7 +444,7 @@ class TouchBrowserDrawMixin:
                 )
                 pygame.draw.rect(self.screen, track, seg, border_radius=3)
                 pygame.draw.rect(self.screen, muted, seg, width=1, border_radius=3)
-                if looper_hud_segment_full(
+                if looper_hud_segment_lit(
                     beat_in_bar=beat,
                     beats_per_bar=beats,
                     segment_index=i,

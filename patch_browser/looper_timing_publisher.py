@@ -1,4 +1,4 @@
-"""Publish HUD timing on beat/bar boundaries (Boss-style display)."""
+"""Publish HUD timing on each global beat (monotonic — survives loop wrap)."""
 
 from __future__ import annotations
 
@@ -9,38 +9,34 @@ from patch_browser.looper_timing_state import clear_timing_state, write_timing_s
 
 @dataclass
 class LooperTimingPublisher:
-    """Publish when bar_in_loop or beat_in_bar changes."""
+    """Publish once per global beat index; never skip because (bar,beat) repeats."""
 
-    _last_key: tuple[int, int] | None = field(default=None, init=False)
+    _last_beat_index: int | None = field(default=None, init=False)
 
     def publish_from_matrix(self, matrix) -> None:
         if not matrix.is_active:
             clear_timing_state()
-            self._last_key = None
+            self._last_beat_index = None
             return
 
         clock = matrix.clock
         snap = clock.snapshot()
         fpb = max(1, clock.frames_per_beat)
-        beats = max(1, clock.beats_per_bar)
-        bar = int(snap["bar_in_loop"])
-        beat = int(snap["beat_in_bar"])
-        key = (bar, beat)
-        if key == self._last_key:
+        beat_index = int(snap["total_frames"]) // fpb
+        if beat_index == self._last_beat_index:
             return
 
-        self._last_key = key
+        self._last_beat_index = beat_index
         write_timing_state(
             active=True,
             bpm=float(snap["bpm"]),
-            beat_in_bar=beat,
-            beats_per_bar=beats,
-            bar_in_loop=bar,
+            beat_in_bar=int(snap["beat_in_bar"]),
+            beats_per_bar=int(snap["beats_per_bar"]),
+            bar_in_loop=int(snap["bar_in_loop"]),
             bars_per_loop=int(snap["bars_per_loop"]),
-            total_frames=int(snap["total_frames"]),
-            frames_per_beat=fpb,
+            beat_index=beat_index,
         )
 
     def clear(self) -> None:
         clear_timing_state()
-        self._last_key = None
+        self._last_beat_index = None

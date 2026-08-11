@@ -18,9 +18,7 @@ def write_timing_state(
     beats_per_bar: int = 4,
     bar_in_loop: int | None = None,
     bars_per_loop: int = 4,
-    beat_phase: float | None = None,
-    total_frames: int | None = None,
-    frames_per_beat: int | None = None,
+    beat_index: int | None = None,
     path: Path | None = None,
 ) -> None:
     target = path or TIMING_STATE_FILE
@@ -31,9 +29,7 @@ def write_timing_state(
         "beats_per_bar": beats_per_bar,
         "bar_in_loop": bar_in_loop,
         "bars_per_loop": bars_per_loop,
-        "beat_phase": beat_phase,
-        "total_frames": total_frames,
-        "frames_per_beat": frames_per_beat,
+        "beat_index": beat_index,
         "updated_at": time.monotonic(),
     }
     tmp = target.with_suffix(".tmp")
@@ -67,9 +63,7 @@ def read_timing_state(
         "beats_per_bar": 4,
         "bar_in_loop": None,
         "bars_per_loop": 4,
-        "beat_phase": 0.0,
-        "total_frames": 0,
-        "frames_per_beat": 0,
+        "beat_index": None,
     }
     try:
         data = json.loads(target.read_text(encoding="utf-8"))
@@ -86,7 +80,5 @@ def read_timing_state(
         "beats_per_bar": int(data.get("beats_per_bar") or 4),
         "bar_in_loop": data.get("bar_in_loop") if online else None,
         "bars_per_loop": int(data.get("bars_per_loop") or 4),
-        "beat_phase": float(data.get("beat_phase") or 0.0) if online else 0.0,
-        "total_frames": int(data.get("total_frames") or 0) if online else 0,
-        "frames_per_beat": int(data.get("frames_per_beat") or 0) if online else 0,
+        "beat_index": data.get("beat_index") if online else None,
     }
