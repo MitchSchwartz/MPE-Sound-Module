@@ -1,4 +1,8 @@
-"""Publish on-device looper timing for touch header HUD (~/.mpe_looper_timing.json)."""
+"""Publish on-device looper timing for touch header HUD (/dev/shm/mpe_looper_timing.json).
+
+The state file lives on tmpfs so the audio thread never touches the SD card; it falls
+back to ``~/.mpe_looper_timing.json`` where /dev/shm is unavailable (CI, non-Linux).
+"""
 
 from __future__ import annotations
 
@@ -7,7 +11,17 @@ import os
 import time
 from pathlib import Path
 
-TIMING_STATE_FILE = Path.home() / ".mpe_looper_timing.json"
+_SHM_DIR = Path("/dev/shm")
+
+
+def _resolve_timing_state_file() -> Path:
+    """tmpfs when available, else the legacy home path (CI / non-Linux)."""
+    if _SHM_DIR.is_dir():
+        return _SHM_DIR / "mpe_looper_timing.json"
+    return Path.home() / ".mpe_looper_timing.json"
+
+
+TIMING_STATE_FILE = _resolve_timing_state_file()
 
 
 def write_timing_state(
@@ -23,6 +37,7 @@ def write_timing_state(
     eighth_index: int | None = None,
     total_frames: int | None = None,
     frames_per_beat: int | None = None,
+    sample_rate: int | None = None,
     path: Path | None = None,
 ) -> None:
     target = path or TIMING_STATE_FILE
@@ -38,6 +53,7 @@ def write_timing_state(
         "eighth_index": eighth_index,
         "total_frames": total_frames,
         "frames_per_beat": frames_per_beat,
+        "sample_rate": sample_rate,
         "updated_at": time.monotonic(),
     }
     tmp = target.with_suffix(".tmp")
@@ -56,6 +72,7 @@ def clear_timing_state(*, path: Path | None = None) -> None:
         eighth_index=None,
         total_frames=0,
         frames_per_beat=None,
+        sample_rate=None,
         path=path,
     )
 
@@ -81,6 +98,8 @@ def read_timing_state(
         "eighth_index": None,
         "total_frames": 0,
         "frames_per_beat": None,
+        "sample_rate": None,
+        "updated_at": None,
     }
     try:
         data = json.loads(target.read_text(encoding="utf-8"))
@@ -102,4 +121,6 @@ def read_timing_state(
         "eighth_index": data.get("eighth_index") if online else None,
         "total_frames": int(data.get("total_frames") or 0) if online else 0,
         "frames_per_beat": data.get("frames_per_beat") if online else None,
+        "sample_rate": data.get("sample_rate") if online else None,
+        "updated_at": updated if online else None,
     }
