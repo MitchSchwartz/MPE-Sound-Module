@@ -461,3 +461,18 @@ class TouchBrowserLayoutMixin:
     def _relayout(self) -> None:
         self._layout()
         self._refresh_lists()
+
+    def _poll_looper_hud_layout(self) -> None:
+        """Reserve header space when looper HUD becomes visible (layout is otherwise static)."""
+        if not getattr(self, "show_looper_hud", True):
+            return
+        monitor = getattr(self, "looper_monitor", None)
+        if monitor is None:
+            return
+        snap = monitor.snapshot()
+        visible = looper_hud_is_visible(snap, user_enabled=True)
+        prev = getattr(self, "_looper_hud_layout_visible", False)
+        if visible == prev:
+            return
+        self._looper_hud_layout_visible = visible
+        self._layout()
