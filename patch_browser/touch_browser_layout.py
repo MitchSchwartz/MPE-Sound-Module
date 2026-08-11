@@ -7,10 +7,12 @@ from patch_browser.mixer import MixerChannel
 from patch_browser.patch_identity import patch_browse_subtitle
 from patch_browser.scroll_widgets import ScrollList
 from patch_browser.touch_ui_constants import (
-    ALL_PATCHES_ROW_HEIGHT,
-    AUDIO_BADGE_PAD_X,
-    LOOPER_HUD_H,
+    LOOPER_HUD_BEAT_GAP,
+    LOOPER_HUD_COUNTER_GAP,
+    LOOPER_HUD_MIN_W,
     LOOPER_HUD_PAD_X,
+    LOOPER_HUD_TITLE_GAP,
+    LOOPER_HUD_V_PAD,
     AZ_RAIL_WIDTH,
     BROWSER_BOTTOM_MARGIN,
     CPU_METER_BAR_W,
@@ -44,7 +46,7 @@ from patch_browser.touch_ui_constants import (
 )
 from patch_browser.audio_profile import header_badge_label
 from patch_browser.all_patches_index import AZ_RAIL_LETTERS
-from patch_browser.looper_hud import looper_hud_is_visible, looper_hud_width_px
+from patch_browser.looper_hud import looper_hud_is_visible
 from patch_browser.touch_ui_enums import LeftNavMode, Screen, audio_profile_display
 from patch_browser.ui_text import text_block_height, wrap_text_lines, wrapped_row_height
 
@@ -80,28 +82,36 @@ class TouchBrowserLayoutMixin:
         label_w = self.font_sm.size(header_badge_label())[0]
         return label_w + AUDIO_BADGE_PAD_X * 2
 
-    def _looper_hud_width(self) -> int:
-        snap = self.looper_monitor.snapshot() if getattr(self, "looper_monitor", None) else {}
-        internal = snap.get("internal_timing") or {}
-        bars = int(internal.get("bars_per_loop") or 4)
-        beats = int(internal.get("beats_per_bar") or 4)
-        return looper_hud_width_px(bars_per_loop=bars, beats_per_bar=beats)
+    def _status_title_strings(self) -> tuple[str, str]:
+        if self.loaded_patch_info:
+            return self.loaded_patch_info["name"], self.loaded_patch_info["category"]
+        return "No patch loaded", "Select a patch from the left list"
+
+    def _status_title_block_width(self) -> int:
+        title, subtitle = self._status_title_strings()
+        return max(self.font_md.size(title)[0], self.font_sm.size(subtitle)[0])
 
     def _layout_looper_hud_in_status_bar(self, *, status_h: int) -> None:
-        """Place looper HUD in the gap between patch title and audio profile badge."""
+        """Fill header gap between patch title block and audio profile badge."""
         gap = STATUS_BAR_ITEM_GAP
         badge_left = self.audio_profile_badge_rect.x
+        title_x = getattr(self, "status_title_x", self.status_rect.x + 12)
         if not getattr(self, "show_looper_hud", True):
-            self.looper_hud_rect = Rect(badge_left, self.status_rect.y + 10, 0, 0)
+            self.looper_hud_rect = Rect(badge_left, self.status_rect.y, 0, 0)
+            self.status_title_max_w = max(1, badge_left - title_x - gap)
             return
         snap = self.looper_monitor.snapshot() if getattr(self, "looper_monitor", None) else {}
         if not looper_hud_is_visible(snap, user_enabled=True):
-            self.looper_hud_rect = Rect(badge_left, self.status_rect.y + 10, 0, 0)
+            self.looper_hud_rect = Rect(badge_left, self.status_rect.y, 0, 0)
+            self.status_title_max_w = max(1, badge_left - title_x - gap)
             return
-        looper_w = self._looper_hud_width()
-        hud_y = self.status_rect.y + (status_h - LOOPER_HUD_H) // 2
-        looper_x = badge_left - gap - looper_w
-        self.looper_hud_rect = Rect(looper_x, hud_y, looper_w, LOOPER_HUD_H)
+        natural_title_w = self._status_title_block_width()
+        looper_right = badge_left - gap
+        max_title_w = max(48, looper_right - title_x - LOOPER_HUD_TITLE_GAP - LOOPER_HUD_MIN_W)
+        self.status_title_max_w = min(natural_title_w, max_title_w)
+        looper_x = title_x + self.status_title_max_w + LOOPER_HUD_TITLE_GAP
+        looper_w = max(0, looper_right - looper_x)
+        self.looper_hud_rect = Rect(looper_x, self.status_rect.y, looper_w, status_h)
 
     def _layout(self) -> None:
         margin = 16
