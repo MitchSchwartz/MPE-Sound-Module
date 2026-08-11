@@ -22,6 +22,9 @@ Install once: clone `mpe-cli`, run `./install.sh`, edit `~/.config/mpe/mpe.env` 
 | `mpe sysinfo` | Board, kernel/preempt, EEPROM, CPU governor, Surge RT limits, buffer latency |
 | `mpe test` | Run unit tests on laptop (`LOCAL_MPE_MODULE` or default clone) |
 | `mpe test pi` | Run unit tests on the appliance via SSH |
+| `mpe test list` | Show named test suites (`apc`, `looper`, `midi`, …) |
+| `mpe test <suite>` | Run one suite on laptop (enum — see `mpe test list`) |
+| `mpe test pi <suite>` | Run one suite on the appliance |
 | `mpe midi-list` | Read-only USB + ALSA MIDI port snapshot |
 | `mpe record [file] [fps]` | Touch UI screen capture |
 | `mpe pull-videos [-o DIR] [--delete-source]` | Download demo videos |
