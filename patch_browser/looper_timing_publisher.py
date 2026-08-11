@@ -4,15 +4,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from patch_browser.looper_hud import looper_hud_bar_tick_index
+from patch_browser.looper_hud import looper_hud_filled_ticks_in_bar
 from patch_browser.looper_timing_state import clear_timing_state, write_timing_state
 
 
 @dataclass
 class LooperTimingPublisher:
-    """Publish when bar or eighth-note tick changes — one source: audio frame clock."""
+    """Publish when bar or filled tick count changes (0..8 in 4/4)."""
 
-    _last_key: tuple[int, int, int] | None = field(default=None, init=False)
+    _last_key: tuple[int, int] | None = field(default=None, init=False)
 
     def publish_from_matrix(self, matrix) -> None:
         if not matrix.is_active:
@@ -25,12 +25,12 @@ class LooperTimingPublisher:
         fpb = max(1, clock.frames_per_beat)
         beats = max(1, clock.beats_per_bar)
         bar = int(snap["bar_in_loop"])
-        tick = looper_hud_bar_tick_index(
+        filled = looper_hud_filled_ticks_in_bar(
             total_frames=int(snap["total_frames"]),
             frames_per_beat=fpb,
             beats_per_bar=beats,
         )
-        key = (bar, int(snap["beat_in_bar"]), tick)
+        key = (bar, filled)
         if key == self._last_key:
             return
 
