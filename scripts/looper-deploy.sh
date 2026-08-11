@@ -61,5 +61,5 @@ if _is_pi; then
     _deploy_on_pi "$BRANCH"
 else
     echo "Looper deploy → $PI_USER@$PI_HOST ($BRANCH)"
-    mpe_pi_ssh "cd '${PI_MPE_MODULE:-\$HOME/MPE-Module}' && ./scripts/looper-deploy.sh '$BRANCH'"
+    mpe_pi_ssh "cd ~/MPE-Module && ./scripts/looper-deploy.sh $(printf '%q' "$BRANCH")"
 fi
