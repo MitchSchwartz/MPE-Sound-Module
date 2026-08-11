@@ -85,18 +85,19 @@ class ClipMatrixTests(unittest.TestCase):
     def test_playback_mutes_live_monitor(self) -> None:
         import struct
 
-        live = struct.pack("<hh", 10000, 10000) * self.period_frames
+        record_pcm = struct.pack("<hh", 10000, 10000) * self.period_frames
+        loud_live = struct.pack("<hh", 20000, 20000) * self.period_frames
         silent = bytes(frames_to_bytes(self.period_frames))
         self.matrix.on_grid(0, 0)
         clip = self.matrix.slot(0, 0)
         assert clip is not None
         while clip.state == ClipState.RECORDING:
-            self.matrix.process_period(live, period_frames=self.period_frames)
+            self.matrix.process_period(record_pcm, period_frames=self.period_frames)
         self.assertEqual(clip.state, ClipState.PLAYING)
-        out = self.matrix.process_period(live, period_frames=self.period_frames)
-        self.assertNotEqual(out, live)
         out_silent = self.matrix.process_period(silent, period_frames=self.period_frames)
-        self.assertEqual(out, out_silent)
+        out_loud = self.matrix.process_period(loud_live, period_frames=self.period_frames)
+        self.assertEqual(out_silent, out_loud)
+        self.assertNotEqual(out_loud, loud_live)
 
     def test_overdub_keeps_live_monitor(self) -> None:
         import struct

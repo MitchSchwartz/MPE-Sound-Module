@@ -16,7 +16,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install test dependencies
-        run: pip install python-osc
+        run: pip install python-osc audioop-lts
       - name: Run unit tests
         run: python3 -m unittest discover -s tests
 
