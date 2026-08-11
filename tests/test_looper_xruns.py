@@ -12,18 +12,19 @@ class LooperXrunTests(unittest.TestCase):
     @mock.patch("patch_browser.looper_xruns.list_pcm_status_files")
     def test_read_xrun_counts(self, list_mock: mock.Mock) -> None:
         class FakePath:
-            def __init__(self, text: str) -> None:
+            def __init__(self, text: str, path: str) -> None:
                 self._text = text
+                self._path = path
 
             def read_text(self, encoding: str = "utf-8", errors: str = "replace") -> str:
                 return self._text
 
             def __str__(self) -> str:
-                return "/proc/asound/card0/pcm0p/sub0/status"
+                return self._path
 
         list_mock.return_value = [
-            FakePath("state: RUNNING\nxruns: 3\n"),
-            FakePath("state: RUNNING\n"),
+            FakePath("state: RUNNING\nxruns: 3\n", "/proc/asound/card0/pcm0p/sub0/status"),
+            FakePath("state: RUNNING\n", "/proc/asound/card1/pcm0c/sub0/status"),
         ]
         counts = read_xrun_counts()
         self.assertEqual(counts["/proc/asound/card0/pcm0p/sub0/status"], 3)

@@ -47,7 +47,7 @@ class LooperDeviceTests(unittest.TestCase):
 
         capture, playback = prepare_looper_audio_path(load_loopback=True)
         modprobe_mock.assert_called_once()
-        self.assertIn("Loopback", capture)
+        self.assertEqual(capture, "plughw:2,1,0")
         self.assertEqual(playback, "plughw:CARD=S3,DEV=0")
 
 
