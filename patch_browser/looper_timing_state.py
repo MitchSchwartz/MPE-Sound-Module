@@ -19,6 +19,8 @@ def write_timing_state(
     bar_in_loop: int | None = None,
     bars_per_loop: int = 4,
     beat_index: int | None = None,
+    tick_in_bar: int | None = None,
+    eighth_index: int | None = None,
     path: Path | None = None,
 ) -> None:
     target = path or TIMING_STATE_FILE
@@ -30,6 +32,8 @@ def write_timing_state(
         "bar_in_loop": bar_in_loop,
         "bars_per_loop": bars_per_loop,
         "beat_index": beat_index,
+        "tick_in_bar": tick_in_bar,
+        "eighth_index": eighth_index,
         "updated_at": time.monotonic(),
     }
     tmp = target.with_suffix(".tmp")
@@ -64,6 +68,8 @@ def read_timing_state(
         "bar_in_loop": None,
         "bars_per_loop": 4,
         "beat_index": None,
+        "tick_in_bar": 0,
+        "eighth_index": None,
     }
     try:
         data = json.loads(target.read_text(encoding="utf-8"))
@@ -81,4 +87,6 @@ def read_timing_state(
         "bar_in_loop": data.get("bar_in_loop") if online else None,
         "bars_per_loop": int(data.get("bars_per_loop") or 4),
         "beat_index": data.get("beat_index") if online else None,
+        "tick_in_bar": int(data.get("tick_in_bar") or 0) if online else 0,
+        "eighth_index": data.get("eighth_index") if online else None,
     }
