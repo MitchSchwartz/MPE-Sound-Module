@@ -8,10 +8,11 @@ import sys
 
 def open_arecord(device: str, *, sample_rate: int, period_frames: int) -> subprocess.Popen[bytes]:
     buffer_frames = max(period_frames * 4, period_frames + 1)
+    # No -q: the "overrun!!!" lines on stderr are the only underrun signal ALSA
+    # gives us. Callers must drain stderr (see looper_alsa_stderr).
     return subprocess.Popen(
         [
             "arecord",
-            "-q",
             "-D",
             device,
             "-f",
@@ -33,10 +34,10 @@ def open_arecord(device: str, *, sample_rate: int, period_frames: int) -> subpro
 def open_aplay(device: str, *, sample_rate: int, period_frames: int) -> subprocess.Popen[bytes]:
     buffer_frames = max(period_frames * 4, period_frames + 1)
     period_bytes = period_frames * 4  # stereo S16
+    # No -q — see open_arecord.
     return subprocess.Popen(
         [
             "aplay",
-            "-q",
             "-D",
             device,
             "-f",
@@ -57,6 +58,7 @@ def open_aplay(device: str, *, sample_rate: int, period_frames: int) -> subproce
 
 
 def ensure_audio_procs_started(*procs: tuple[str, subprocess.Popen[object]]) -> int | None:
+    """Report a process that died at start-up. Run before draining stderr."""
     for label, proc in procs:
         if proc.poll() is None:
             continue
