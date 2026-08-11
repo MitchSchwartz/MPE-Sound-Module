@@ -56,6 +56,11 @@ from patch_browser.control_surfaces.apc_session_midi import (  # noqa: E402
     check_clear_session_hold,
     handle_apc_session_message,
 )
+from patch_browser.looper_period_debug import (  # noqa: E402
+    LooperPeriodDebug,
+    count_playing_layers,
+    looper_debug_enabled,
+)
 from patch_browser.looper_session import LooperMode, LooperSession  # noqa: E402
 from patch_browser.looper_timing_publisher import LooperTimingPublisher  # noqa: E402
 from patch_browser.looper_timing_state import clear_timing_state  # noqa: E402
@@ -169,6 +174,14 @@ def run_looper_grid(
     timing_pub = LooperTimingPublisher()
     _sync_grid_leds(leds, matrix)
 
+    period_budget_s = period_frames / sample_rate
+    debug = LooperPeriodDebug(period_budget_s=period_budget_s) if looper_debug_enabled() else None
+    if debug is not None:
+        print(
+            f"[debug] MPE_LOOPER_DEBUG=1 period_budget={period_budget_s * 1000:.2f}ms",
+            flush=True,
+        )
+
     baseline = read_xrun_counts()
     start = time.monotonic()
     last_report = start
@@ -188,6 +201,8 @@ def run_looper_grid(
             if soak_s is not None and (time.monotonic() - start) >= soak_s:
                 print(f"[soak] {soak_s:.0f}s elapsed — exiting", flush=True)
                 break
+
+            iter_start = time.monotonic() if debug is not None else 0.0
 
             chunk = rec.stdout.read(period_bytes)
             if not chunk:
@@ -214,6 +229,9 @@ def run_looper_grid(
                 last_rev = rev
             _publish_timing(timing_pub, matrix)
 
+            if debug is not None:
+                debug.record(time.monotonic() - iter_start, count_playing_layers(matrix))
+
             now = time.monotonic()
             if now - last_report >= 5.0:
                 snap = matrix.clock.snapshot()
@@ -223,6 +241,8 @@ def run_looper_grid(
                     flush=True,
                 )
                 _report_xruns("looper", baseline)
+                if debug is not None:
+                    debug.flush_window("5s")
                 last_report = now
     finally:
         timing_pub.clear()
@@ -242,6 +262,9 @@ def run_looper_grid(
                 proc.kill()
 
     xrun_delta = _report_xruns("final", baseline)
+    if debug is not None:
+        debug.flush_window("final")
+        print(f"[debug] session total_overruns={debug.total_overruns}", flush=True)
     print(f"Done: periods={periods} xrun_delta={xrun_delta}", flush=True)
     return 1 if xrun_delta else 0
 
