@@ -7,12 +7,10 @@ from patch_browser.mixer import MixerChannel
 from patch_browser.patch_identity import patch_browse_subtitle
 from patch_browser.scroll_widgets import ScrollList
 from patch_browser.touch_ui_constants import (
-    LOOPER_HUD_BEAT_GAP,
-    LOOPER_HUD_COUNTER_GAP,
+    ALL_PATCHES_ROW_HEIGHT,
+    AUDIO_BADGE_PAD_X,
     LOOPER_HUD_MIN_W,
-    LOOPER_HUD_PAD_X,
     LOOPER_HUD_TITLE_GAP,
-    LOOPER_HUD_V_PAD,
     AZ_RAIL_WIDTH,
     BROWSER_BOTTOM_MARGIN,
     CPU_METER_BAR_W,
