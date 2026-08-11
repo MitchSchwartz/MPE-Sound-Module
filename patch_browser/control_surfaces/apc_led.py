@@ -103,4 +103,4 @@ class ApcLedFeedback:
             note = surf.grid_note(key[0], key[1])
             clip = matrix.slots.get(key)
             state = clip.state if clip is not None else ClipState.EMPTY
-            self.set_note(note, color_map.get(state, ApcLedColor.OFF), rate_limit=False)
+            self.set_note(note, color_map.get(state, ApcLedColor.OFF), rate_limit=True)
