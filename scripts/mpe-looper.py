@@ -64,7 +64,12 @@ from patch_browser.looper_period_debug import (  # noqa: E402
 from patch_browser.looper_session import LooperMode, LooperSession  # noqa: E402
 from patch_browser.looper_timing_publisher import LooperTimingPublisher  # noqa: E402
 from patch_browser.looper_timing_state import clear_timing_state  # noqa: E402
-from patch_browser.looper_xruns import read_xrun_counts, total_xruns  # noqa: E402
+from patch_browser.looper_alsa_stderr import (  # noqa: E402
+    AlsaStderrMonitor,
+    format_xrun_report,
+    session_xrun_total,
+    start_alsa_stderr_monitors,
+)
 from patch_browser.surge_audio import current_buffer_size, current_sample_rate  # noqa: E402
 
 _STOP = False
@@ -168,6 +173,7 @@ def run_looper_grid(
     assert play.stdin is not None
     if (code := ensure_audio_procs_started(("arecord", rec), ("aplay", play))) is not None:
         return code
+    monitors = start_alsa_stderr_monitors(("arecord", rec), ("aplay", play))
 
     midi_in, leds, _ = _open_apc_midi(enable=use_apc)
     apc_ctx = ApcMidiContext()
@@ -182,7 +188,6 @@ def run_looper_grid(
             flush=True,
         )
 
-    baseline = read_xrun_counts()
     start = time.monotonic()
     last_report = start
     last_rev = 0
@@ -261,7 +266,7 @@ def run_looper_grid(
                     f"bar={snap['bar_in_loop']}/{snap['bars_per_loop']} periods={periods}",
                     flush=True,
                 )
-                _report_xruns("looper", baseline)
+                _report_xruns("looper", monitors)
                 if debug is not None:
                     debug.flush_window("5s")
                 last_report = now
@@ -282,12 +287,13 @@ def run_looper_grid(
             except Exception:
                 proc.kill()
 
-    xrun_delta = _report_xruns("final", baseline)
+    _report_xruns("final", monitors)
+    session_xruns = session_xrun_total(monitors)
     if debug is not None:
         debug.flush_window("final")
         print(f"[debug] session total_overruns={debug.total_overruns}", flush=True)
-    print(f"Done: periods={periods} xrun_delta={xrun_delta}", flush=True)
-    return 1 if xrun_delta else 0
+    print(f"Done: periods={periods} xruns={session_xruns}", flush=True)
+    return 1 if session_xruns else 0
 
 
 def _poll_apc(midi_in, session: LooperSession) -> None:
@@ -339,11 +345,11 @@ def run_looper(
     assert play.stdin is not None
     if (code := ensure_audio_procs_started(("arecord", rec), ("aplay", play))) is not None:
         return code
+    monitors = start_alsa_stderr_monitors(("arecord", rec), ("aplay", play))
 
     midi_in, leds, _ = _open_apc_midi(enable=use_apc)
     _sync_leds(leds, session)
 
-    baseline = read_xrun_counts()
     start = time.monotonic()
     last_report = start
     last_mode = session.mode
@@ -391,7 +397,7 @@ def run_looper(
                     f"filled={session.ring.filled_frames}/{loop_frames}",
                     flush=True,
                 )
-                _report_xruns("looper", baseline)
+                _report_xruns("looper", monitors)
                 last_report = now
     finally:
         if play.stdin is not None:
@@ -408,16 +414,14 @@ def run_looper(
             except Exception:
                 proc.kill()
 
-    xrun_delta = _report_xruns("final", baseline)
-    print(f"Done: periods={periods} xrun_delta={xrun_delta}", flush=True)
-    return 1 if xrun_delta else 0
+    _report_xruns("final", monitors)
+    session_xruns = session_xrun_total(monitors)
+    print(f"Done: periods={periods} xruns={session_xruns}", flush=True)
+    return 1 if session_xruns else 0
 
 
-def _report_xruns(label: str, baseline: dict[str, int]) -> int:
-    current = read_xrun_counts()
-    delta = sum(max(0, current.get(path, 0) - baseline.get(path, 0)) for path in current)
-    print(f"[{label}] xrun delta={delta} total={total_xruns(current)}", flush=True)
-    return delta
+def _report_xruns(label: str, monitors: list[AlsaStderrMonitor]) -> None:
+    print(f"[{label}] xruns {format_xrun_report(monitors)}", flush=True)
 
 
 def build_parser() -> argparse.ArgumentParser:
