@@ -28,8 +28,12 @@ from patch_browser.touch_ui_constants import (
     FADER_HANDLE_H,
     FADER_HANDLE_W,
     LONG_PRESS_S,
+    LOOPER_HUD_BEAT_GAP,
+    LOOPER_HUD_BEAT_SEG_H,
+    LOOPER_HUD_BEAT_SEG_W,
     LOOPER_HUD_H,
     LOOPER_HUD_PAD_X,
+    LOOPER_HUD_ROW_GAP,
     SETTINGS_PANEL_FOOTER_H,
     SETTINGS_PANEL_HEADER_H,
     SETTINGS_ROW_GAP,
@@ -416,46 +420,40 @@ class TouchBrowserDrawMixin:
         if active_internal:
             beat = max(1, int(internal.get("beat_in_bar") or 1))
             beats = max(1, int(internal.get("beats_per_bar") or 4))
-            bar = max(1, int(internal.get("bar_in_loop") or 1))
-            bars = max(1, int(internal.get("bars_per_loop") or 4))
             bpm = internal.get("bpm")
+            frac = looper_hud_bar_fraction(snap)
 
-            # Top row — beats in bar (Boss upper tier)
+            # Boss upper tier — beat segments within the bar (1..beats)
             beat_y = rect.y + 5
-            beat_seg_w = 7
-            beat_gap = 2
             for i in range(beats):
                 filled = (i + 1) <= beat
-                color = accent if filled else track
-                seg = pygame.Rect(x + i * (beat_seg_w + beat_gap), beat_y, beat_seg_w, 5)
-                pygame.draw.rect(self.screen, color, seg, border_radius=2)
-                if filled:
-                    pygame.draw.rect(self.screen, accent, seg, width=1, border_radius=2)
+                seg = pygame.Rect(
+                    x + i * (LOOPER_HUD_BEAT_SEG_W + LOOPER_HUD_BEAT_GAP),
+                    beat_y,
+                    LOOPER_HUD_BEAT_SEG_W,
+                    LOOPER_HUD_BEAT_SEG_H,
+                )
+                fill_color = accent if filled else track
+                pygame.draw.rect(self.screen, fill_color, seg, border_radius=2)
+                pygame.draw.rect(
+                    self.screen,
+                    accent if filled else muted,
+                    seg,
+                    width=1,
+                    border_radius=2,
+                )
 
-            # Bottom row — bars in loop + fraction + BPM
-            bar_y = rect.y + LOOPER_HUD_H - 10
-            bar_seg_w = 8
-            bar_gap = 1
-            bar_x = x
-            for i in range(bars):
-                filled = (i + 1) <= bar
-                color = accent if filled else track
-                seg = pygame.Rect(bar_x + i * (bar_seg_w + bar_gap), bar_y, bar_seg_w, 4)
-                pygame.draw.rect(self.screen, color, seg, border_radius=1)
-
-            frac = looper_hud_bar_fraction(snap)
+            # Boss lower tier — bar count as n/N (no bar progress bar) + BPM right
+            bar_y = rect.y + LOOPER_HUD_BEAT_SEG_H + LOOPER_HUD_ROW_GAP + 5
             if frac:
-                frac_surf = self.font_sm.render(frac, True, self.theme.text)
-                fx = bar_x + bars * (bar_seg_w + bar_gap) + 6
-                fy = rect.y + (LOOPER_HUD_H - frac_surf.get_height()) // 2 + 2
-                self.screen.blit(frac_surf, (fx, fy))
-                inner_right = min(inner_right, fx - 4)
+                frac_surf = self.font_md.render(frac, True, self.theme.text)
+                self.screen.blit(frac_surf, (x, bar_y))
 
             if bpm is not None:
                 bpm_surf = self.font_sm.render(str(int(bpm)), True, muted)
                 self.screen.blit(
                     bpm_surf,
-                    (inner_right - bpm_surf.get_width(), rect.y + (LOOPER_HUD_H - bpm_surf.get_height()) // 2),
+                    (inner_right - bpm_surf.get_width(), bar_y + 2),
                 )
             return
 
