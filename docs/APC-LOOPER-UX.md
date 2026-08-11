@@ -39,7 +39,7 @@ Notes `0x00–0x3F` — row `0` = top scene row in UI terms (see `ControlSurface
 | **Empty** | Start recording this clip immediately (monitor on). |
 | **Recording** | Stop early → **auto-play** if any audio captured. |
 | **Loop full** | **Auto-play** (pad LED green) — no extra tap. |
-| **Playing** | Stop at **next bar boundary** (quantize period). |
+| **Playing** | Stop **immediately** → yellow (stopped), clip kept. |
 | **Stopped** (after bar-end stop) | Tap to **launch** again. |
 
 Each clip: fixed length in bars (`MPE_LOOPER_BARS`, default 4) @ tempo (`MPE_LOOPER_BPM` or MIDI clock when synced).
