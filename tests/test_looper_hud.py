@@ -11,7 +11,7 @@ from patch_browser.looper_hud import (
     looper_hud_bar_fraction,
     looper_hud_is_visible,
     looper_hud_min_width_px,
-    looper_hud_segment_full,
+    looper_hud_segment_lit,
     merge_looper_hud_snapshot,
 )
 from patch_browser.looper_timing_state import write_timing_state
@@ -27,6 +27,7 @@ class LooperHudTests(unittest.TestCase):
                 beat_in_bar=2,
                 bar_in_loop=1,
                 bars_per_loop=4,
+                beat_index=1,
                 path=path,
             )
             with patch("patch_browser.looper_hud.read_timing_state") as read_mock:
@@ -68,22 +69,23 @@ class LooperHudTests(unittest.TestCase):
         wide = looper_hud_min_width_px(frac_label="16/16")
         self.assertLess(narrow, wide)
 
-    def test_boss_accumulate_segments(self) -> None:
+    def test_running_light_one_segment(self) -> None:
         self.assertTrue(
-            looper_hud_segment_full(beat_in_bar=1, beats_per_bar=4, segment_index=0)
+            looper_hud_segment_lit(beat_in_bar=1, beats_per_bar=4, segment_index=0)
         )
         self.assertFalse(
-            looper_hud_segment_full(beat_in_bar=1, beats_per_bar=4, segment_index=1)
+            looper_hud_segment_lit(beat_in_bar=1, beats_per_bar=4, segment_index=1)
         )
         self.assertTrue(
-            looper_hud_segment_full(beat_in_bar=2, beats_per_bar=4, segment_index=1)
+            looper_hud_segment_lit(beat_in_bar=3, beats_per_bar=4, segment_index=2)
         )
         self.assertFalse(
-            looper_hud_segment_full(beat_in_bar=2, beats_per_bar=4, segment_index=2)
+            looper_hud_segment_lit(beat_in_bar=3, beats_per_bar=4, segment_index=3)
         )
         for i in range(4):
-            self.assertTrue(
-                looper_hud_segment_full(beat_in_bar=4, beats_per_bar=4, segment_index=i)
+            self.assertEqual(
+                looper_hud_segment_lit(beat_in_bar=4, beats_per_bar=4, segment_index=i),
+                i == 3,
             )
 
 

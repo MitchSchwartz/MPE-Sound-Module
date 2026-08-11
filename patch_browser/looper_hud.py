@@ -1,4 +1,4 @@
-"""Merged looper HUD state for touch header (pedal clock + on-device timing file)."""
+"""Boss-style looper HUD display — one lit beat segment, bar counter."""
 
 from __future__ import annotations
 
@@ -61,16 +61,16 @@ def looper_hud_beat_segment_count(snapshot: dict) -> int:
     return 4
 
 
-def looper_hud_segment_full(
+def looper_hud_segment_lit(
     *,
     beat_in_bar: int,
     beats_per_bar: int,
     segment_index: int,
 ) -> bool:
-    """Boss accumulate: segment i (0-based) lit when (i+1) <= beat_in_bar."""
+    """Running light: exactly one segment lit — the current beat (1-based)."""
     beats = max(1, int(beats_per_bar))
     beat = max(1, min(beats, int(beat_in_bar)))
-    return (int(segment_index) + 1) <= beat
+    return int(segment_index) + 1 == beat
 
 
 def looper_hud_min_width_px(*, frac_label: str = "8/8") -> int:
