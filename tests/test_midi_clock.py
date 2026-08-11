@@ -125,6 +125,14 @@ class TestClockStateFile(unittest.TestCase):
         self.assertFalse(looper_hud_should_show({"connected": True, "bpm": None, "running": False}))
         self.assertTrue(looper_hud_should_show({"connected": True, "bpm": 120}))
         self.assertFalse(looper_hud_should_show({"connected": True, "bpm": 120}, user_enabled=False))
+        self.assertTrue(
+            looper_hud_should_show(
+                {
+                    "looper_active": True,
+                    "internal_timing": {"active": True, "bpm": 120},
+                }
+            )
+        )
 
 
 if __name__ == "__main__":

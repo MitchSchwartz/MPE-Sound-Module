@@ -9,6 +9,7 @@ from patch_browser.scroll_widgets import ScrollList
 from patch_browser.touch_ui_constants import (
     ALL_PATCHES_ROW_HEIGHT,
     AUDIO_BADGE_PAD_X,
+    LOOPER_HUD_H,
     LOOPER_HUD_PAD_X,
     AZ_RAIL_WIDTH,
     BROWSER_BOTTOM_MARGIN,
@@ -43,7 +44,7 @@ from patch_browser.touch_ui_constants import (
 )
 from patch_browser.audio_profile import header_badge_label
 from patch_browser.all_patches_index import AZ_RAIL_LETTERS
-from patch_browser.midi_clock import looper_hud_should_show
+from patch_browser.looper_hud import looper_hud_is_visible, looper_hud_width_px
 from patch_browser.touch_ui_enums import LeftNavMode, Screen, audio_profile_display
 from patch_browser.ui_text import text_block_height, wrap_text_lines, wrapped_row_height
 
@@ -80,9 +81,19 @@ class TouchBrowserLayoutMixin:
         return label_w + AUDIO_BADGE_PAD_X * 2
 
     def _looper_hud_width(self) -> int:
-        label_w = self.font_sm.size("4/4")[0]
-        beat_bar_w = 36
-        return label_w + beat_bar_w + LOOPER_HUD_PAD_X * 2 + 8
+        snap = self.looper_monitor.snapshot() if getattr(self, "looper_monitor", None) else {}
+        internal = snap.get("internal_timing") or {}
+        bars = int(internal.get("bars_per_loop") or 4)
+        beats = int(internal.get("beats_per_bar") or 4)
+        show_bpm = bool(
+            (internal.get("active") and internal.get("bpm") is not None)
+            or snap.get("bpm") is not None
+        )
+        return looper_hud_width_px(
+            bars_per_loop=bars,
+            beats_per_bar=beats,
+            show_bpm=show_bpm,
+        )
 
     def _layout(self) -> None:
         margin = 16
@@ -114,14 +125,15 @@ class TouchBrowserLayoutMixin:
             self.cpu_meter_rect = Rect(right_cursor, self.status_rect.y + 6, 0, 0)
         if getattr(self, "show_looper_hud", True):
             snap = self.looper_monitor.snapshot() if getattr(self, "looper_monitor", None) else {}
-            if looper_hud_should_show(snap, user_enabled=True):
+            if looper_hud_is_visible(snap, user_enabled=True):
                 looper_w = self._looper_hud_width()
                 right_cursor -= looper_w
+                hud_y = self.status_rect.y + (status_h - LOOPER_HUD_H) // 2
                 self.looper_hud_rect = Rect(
                     right_cursor,
-                    self.status_rect.y + 10,
+                    hud_y,
                     looper_w,
-                    24,
+                    LOOPER_HUD_H,
                 )
                 right_cursor -= STATUS_BAR_ITEM_GAP
             else:

@@ -67,3 +67,4 @@ STATUS_BAR_ITEM_GAP = 12
 STATUS_SETTINGS_BTN_W = 48  # full-height ⋯ tap target (right edge of header)
 AUDIO_BADGE_PAD_X = 10
 LOOPER_HUD_PAD_X = 8
+LOOPER_HUD_H = 28
