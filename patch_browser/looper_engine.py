@@ -265,9 +265,30 @@ def mix_live_and_loops(
             mixed = audioop.mul(mixed, _AUDIOOP_WIDTH, scale)
         return mixed
 
+    frame_count = bytes_to_frames(len(live_pcm))
+    out = bytearray(len(live_pcm))
     streams = [live_pcm, *loop_chunks]
-    gains: list[float] = [live_gain, *([per_layer_gain] * n)]
-    mixed = mix_s16_stereo(*streams, gains=tuple(gains))
-    if live_gain > 0.0 and live_gain + loop_gain > 1.0:
-        return apply_gain_s16_stereo(mixed, 1.0 / (live_gain + loop_gain))
-    return mixed
+    gains_list = [live_gain, *([per_layer_gain] * n)]
+    headroom = (
+        1.0 / (live_gain + loop_gain)
+        if live_gain > 0.0 and live_gain + loop_gain > 1.0
+        else 1.0
+    )
+    for frame_idx in range(frame_count):
+        base = frame_idx * S16_STEREO_FRAME_BYTES
+        left = 0.0
+        right = 0.0
+        for stream, gain in zip(streams, gains_list, strict=True):
+            l_val, r_val = struct.unpack_from("<hh", stream, base)
+            left += l_val * gain
+            right += r_val * gain
+        left *= headroom
+        right *= headroom
+        struct.pack_into(
+            "<hh",
+            out,
+            base,
+            int(max(-S16_CLIP - 1, min(S16_CLIP, round(left)))),
+            int(max(-S16_CLIP - 1, min(S16_CLIP, round(right)))),
+        )
+    return bytes(out)
