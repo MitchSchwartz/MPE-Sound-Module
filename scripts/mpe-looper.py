@@ -199,8 +199,7 @@ def run_looper_grid(
             play.stdin.write(out)
             periods += 1
             periods_since_flush += 1
-            # Match spike/legacy: flush rarely — frequent flush starves aplay (crackle under load).
-            if periods_since_flush >= 8:
+            if periods_since_flush >= 2:
                 play.stdin.flush()
                 periods_since_flush = 0
 

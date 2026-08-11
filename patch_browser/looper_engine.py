@@ -214,20 +214,12 @@ def mix_live_and_loops(
     live_gain: float = 1.0,
     loop_gain: float = 1.0,
 ) -> bytes:
-    """Sum live input plus zero or more loop layers (fast ``audioop`` path on Pi).
-
-    ``loop_gain`` is the loop *bus* ceiling: each playing layer uses ``loop_gain / N``
-    so N layers peaking together stay near ``loop_gain``. When ``live_gain + loop_gain``
-    exceeds 1.0, the final mix is scaled down (one output headroom stage).
-    """
+    """Sum live input plus zero or more loop layers (fast ``audioop`` path on Pi)."""
     if not loop_chunks:
         return apply_gain_s16_stereo(live_pcm, live_gain) if live_gain != 1.0 else live_pcm
 
-    n = len(loop_chunks)
-    per_layer_gain = loop_gain / n
-
     if audioop is not None:
-        loop_factor = max(0, min(_GAIN_SCALE, int(round(per_layer_gain * _GAIN_SCALE))))
+        loop_factor = max(0, min(_GAIN_SCALE, int(round(loop_gain * _GAIN_SCALE))))
         loop_sum = loop_chunks[0]
         if loop_factor != _GAIN_SCALE:
             loop_sum = audioop.mul(loop_sum, _AUDIOOP_WIDTH, loop_factor)
@@ -240,17 +232,8 @@ def mix_live_and_loops(
             loop_sum = audioop.add(loop_sum, scaled, _AUDIOOP_WIDTH)
         if live_gain != 1.0:
             live_pcm = audioop.mul(live_pcm, _AUDIOOP_WIDTH, int(round(live_gain * _GAIN_SCALE)))
-        mixed = audioop.add(live_pcm, loop_sum, _AUDIOOP_WIDTH)
-        headroom = live_gain + loop_gain
-        if headroom > 1.0:
-            scale = max(0, min(_GAIN_SCALE, int(round(_GAIN_SCALE / headroom))))
-            mixed = audioop.mul(mixed, _AUDIOOP_WIDTH, scale)
-        return mixed
+        return audioop.add(live_pcm, loop_sum, _AUDIOOP_WIDTH)
 
     streams = [live_pcm, *loop_chunks]
-    gains: list[float] = [live_gain, *([per_layer_gain] * n)]
-    mixed = mix_s16_stereo(*streams, gains=tuple(gains))
-    headroom = live_gain + loop_gain
-    if headroom > 1.0:
-        return apply_gain_s16_stereo(mixed, 1.0 / headroom)
-    return mixed
+    gains: list[float] = [live_gain, *([loop_gain] * len(loop_chunks))]
+    return mix_s16_stereo(*streams, gains=tuple(gains))

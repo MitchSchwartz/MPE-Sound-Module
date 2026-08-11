@@ -48,7 +48,6 @@ class ApcLedFeedback:
         self._channel = surface.midi_channel
         self._slots = transport_led_notes(surface)
         self._last_send = 0.0
-        self._grid_led_cache: dict[int, ApcLedColor] = {}
 
     def _send(self, message: list[int]) -> None:
         now = time.monotonic()
@@ -89,10 +88,7 @@ class ApcLedFeedback:
             )
 
     def show_clip_matrix(self, matrix, *, surface: ControlSurfaceMap | None = None) -> None:
-        """Update grid pad LEDs from clip matrix slot states (enabled slots only).
-
-        Only sends MIDI when a pad color changes — never sleeps in the audio loop.
-        """
+        """Update grid pad LEDs from clip matrix slot states (enabled slots only)."""
         surf = surface or self._surface
         from patch_browser.clip_matrix import ClipState
 
@@ -107,13 +103,4 @@ class ApcLedFeedback:
             note = surf.grid_note(key[0], key[1])
             clip = matrix.slots.get(key)
             state = clip.state if clip is not None else ClipState.EMPTY
-            color = color_map.get(state, ApcLedColor.OFF)
-            if self._grid_led_cache.get(note) == color:
-                continue
-            self._grid_led_cache[note] = color
-            self._out.send_message(
-                led_note_on_bytes(note=note, color=color, channel=self._channel)
-            )
-
-    def clear_grid_led_cache(self) -> None:
-        self._grid_led_cache.clear()
+            self.set_note(note, color_map.get(state, ApcLedColor.OFF), rate_limit=False)
