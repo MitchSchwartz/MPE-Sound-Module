@@ -156,6 +156,7 @@ def run_looper(
     last_report = start
     last_mode = session.mode
     periods = 0
+    periods_since_flush = 0
 
     print(
         f"Loop capacity: {bars} bars @ {bpm} BPM = {loop_frames} frames "
@@ -180,8 +181,12 @@ def run_looper(
             session.process_period(chunk)
             out = session.output_pcm(chunk, period_frames=period_frames)
             play.stdin.write(out)
-            play.stdin.flush()
             periods += 1
+            periods_since_flush += 1
+            # Flush rarely — per-period flush starves aplay and causes DAC xruns (crackle).
+            if periods_since_flush >= 8:
+                play.stdin.flush()
+                periods_since_flush = 0
 
             if session.mode != last_mode:
                 _sync_leds(leds, session)
@@ -197,6 +202,11 @@ def run_looper(
                 _report_xruns("looper", baseline)
                 last_report = now
     finally:
+        if play.stdin is not None:
+            try:
+                play.stdin.flush()
+            except Exception:
+                pass
         if leds is not None:
             leds.all_off()
         for proc in (rec, play):
@@ -246,6 +256,15 @@ def main(argv: list[str] | None = None) -> int:
     if soak_s is not None and soak_s > _MAX_SOAK_S:
         print(f"Note: --soak capped at {_MAX_SOAK_S:.0f}s (use spike script for longer)", flush=True)
         soak_s = _MAX_SOAK_S
+
+    surge_buf = int(os.environ.get("MPE_SURGE_BUFFER_SIZE", str(args.buffer_size)))
+    if args.buffer_size != surge_buf:
+        print(
+            f"Warning: looper period {args.buffer_size} != Surge buffer {surge_buf} "
+            f"— align with --buffer-size {surge_buf} to reduce crackle",
+            file=sys.stderr,
+            flush=True,
+        )
 
     try:
         capture, playback = prepare_looper_audio_path(load_loopback=not args.skip_modprobe)

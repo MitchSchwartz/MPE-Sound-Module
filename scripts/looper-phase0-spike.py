@@ -87,6 +87,7 @@ def run_passthrough(
     last_report = start
     periods = 0
     short_reads = 0
+    periods_since_flush = 0
 
     try:
         while not _STOP:
@@ -99,8 +100,11 @@ def run_passthrough(
                 short_reads += 1
                 chunk = chunk + b"\x00" * (period_bytes - len(chunk))
             play.stdin.write(chunk)
-            play.stdin.flush()
             periods += 1
+            periods_since_flush += 1
+            if periods_since_flush >= 8:
+                play.stdin.flush()
+                periods_since_flush = 0
             now = time.monotonic()
             if now - last_report >= report_interval_s:
                 elapsed = now - start
@@ -111,6 +115,11 @@ def run_passthrough(
                 _report_xruns("passthrough", baseline)
                 last_report = now
     finally:
+        if play.stdin is not None:
+            try:
+                play.stdin.flush()
+            except Exception:
+                pass
         for proc in (rec, play):
             proc.terminate()
             try:
@@ -158,6 +167,7 @@ def run_loop(
     playback_frame = 0
     recording = True
     periods = 0
+    periods_since_flush = 0
 
     print(
         f"Loop: {bars} bars @ {bpm} BPM = {loop_frames} frames ({loop_frames / sample_rate:.2f}s)",
@@ -190,8 +200,11 @@ def run_loop(
                 playback_frame = (playback_frame + period_frames) % loop_frames
 
             play.stdin.write(out)
-            play.stdin.flush()
             periods += 1
+            periods_since_flush += 1
+            if periods_since_flush >= 8:
+                play.stdin.flush()
+                periods_since_flush = 0
 
             now = time.monotonic()
             if now - last_report >= report_interval_s:
@@ -200,6 +213,11 @@ def run_loop(
                 _report_xruns("loop", baseline)
                 last_report = now
     finally:
+        if play.stdin is not None:
+            try:
+                play.stdin.flush()
+            except Exception:
+                pass
         for proc in (rec, play):
             proc.terminate()
             try:
