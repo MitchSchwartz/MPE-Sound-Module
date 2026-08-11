@@ -12,8 +12,8 @@ Examples:
   # 0.4 record one 4-bar loop at 120 BPM then overdub-free playback mix
   python3 scripts/looper-phase0-spike.py loop --bars 4 --bpm 120 --buffer-size 512
 
-  # 0.2 soak helper — print xrun totals every 5s for 600s
-  python3 scripts/looper-phase0-spike.py passthrough --duration 600 --report-interval 5
+  # 0.2 soak helper — print xrun totals every 5s (use 60s for quick checks, not 600)
+  python3 scripts/looper-phase0-spike.py passthrough --duration 60 --report-interval 5
 """
 
 from __future__ import annotations
@@ -40,6 +40,11 @@ from patch_browser.looper_engine import (  # noqa: E402
     loop_length_frames,
     mix_s16_stereo,
 )
+from patch_browser.looper_audio_io import (  # noqa: E402
+    ensure_audio_procs_started,
+    open_aplay,
+    open_arecord,
+)
 from patch_browser.looper_xruns import read_xrun_counts, total_xruns  # noqa: E402
 
 _STOP = False
@@ -50,54 +55,6 @@ def _handle_stop(_signum: int, _frame: object) -> None:
     _STOP = True
 
 
-def _open_arecord(device: str, *, sample_rate: int, period_frames: int) -> subprocess.Popen[bytes]:
-    buffer_frames = max(period_frames * 2, period_frames + 1)
-    return subprocess.Popen(
-        [
-            "arecord",
-            "-q",
-            "-D",
-            device,
-            "-f",
-            "S16_LE",
-            "-c",
-            "2",
-            "-r",
-            str(sample_rate),
-            "--buffer-size",
-            str(buffer_frames),
-            "--period-size",
-            str(period_frames),
-        ],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-
-
-def _open_aplay(device: str, *, sample_rate: int, period_frames: int) -> subprocess.Popen[bytes]:
-    buffer_frames = max(period_frames * 2, period_frames + 1)
-    return subprocess.Popen(
-        [
-            "aplay",
-            "-q",
-            "-D",
-            device,
-            "-f",
-            "S16_LE",
-            "-c",
-            "2",
-            "-r",
-            str(sample_rate),
-            "--buffer-size",
-            str(buffer_frames),
-            "--period-size",
-            str(period_frames),
-        ],
-        stdin=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-
-
 def _report_xruns(label: str, baseline: dict[str, int]) -> int:
     current = read_xrun_counts()
     delta = 0
@@ -105,18 +62,6 @@ def _report_xruns(label: str, baseline: dict[str, int]) -> int:
         delta += max(0, count - baseline.get(path, 0))
     print(f"[{label}] xrun delta={delta} total={total_xruns(current)}", flush=True)
     return delta
-
-
-def _ensure_audio_procs_started(*procs: tuple[str, subprocess.Popen[object]]) -> int | None:
-    """Return exit code if any ALSA child failed to start; else None."""
-    for label, proc in procs:
-        if proc.poll() is None:
-            continue
-        err = proc.stderr.read() if proc.stderr is not None else b""
-        text = err.decode("utf-8", errors="replace").strip()
-        print(f"Error: {label} failed to start: {text or 'unknown'}", file=sys.stderr)
-        return 2
-    return None
 
 
 def run_passthrough(
@@ -130,12 +75,12 @@ def run_passthrough(
 ) -> int:
     baseline = read_xrun_counts()
     period_bytes = frames_to_bytes(period_frames)
-    rec = _open_arecord(capture, sample_rate=sample_rate, period_frames=period_frames)
-    play = _open_aplay(playback, sample_rate=sample_rate, period_frames=period_frames)
+    rec = open_arecord(capture, sample_rate=sample_rate, period_frames=period_frames)
+    play = open_aplay(playback, sample_rate=sample_rate, period_frames=period_frames)
     assert rec.stdout is not None
     assert play.stdin is not None
 
-    if (code := _ensure_audio_procs_started(("arecord", rec), ("aplay", play))) is not None:
+    if (code := ensure_audio_procs_started(("arecord", rec), ("aplay", play))) is not None:
         return code
 
     start = time.monotonic()
@@ -200,12 +145,12 @@ def run_loop(
     ring = StereoRingBuffer(loop_frames)
     period_bytes = frames_to_bytes(period_frames)
 
-    rec = _open_arecord(capture, sample_rate=sample_rate, period_frames=period_frames)
-    play = _open_aplay(playback, sample_rate=sample_rate, period_frames=period_frames)
+    rec = open_arecord(capture, sample_rate=sample_rate, period_frames=period_frames)
+    play = open_aplay(playback, sample_rate=sample_rate, period_frames=period_frames)
     assert rec.stdout is not None
     assert play.stdin is not None
 
-    if (code := _ensure_audio_procs_started(("arecord", rec), ("aplay", play))) is not None:
+    if (code := ensure_audio_procs_started(("arecord", rec), ("aplay", play))) is not None:
         return code
 
     start = time.monotonic()
