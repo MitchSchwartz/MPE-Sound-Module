@@ -219,19 +219,20 @@ def mix_live_and_loops(
         return apply_gain_s16_stereo(live_pcm, live_gain) if live_gain != 1.0 else live_pcm
 
     if audioop is not None:
-        out = (
-            audioop.mul(live_pcm, _AUDIOOP_WIDTH, int(round(live_gain * _GAIN_SCALE)))
-            if live_gain != 1.0
-            else live_pcm
-        )
         loop_factor = max(0, min(_GAIN_SCALE, int(round(loop_gain * _GAIN_SCALE))))
-        for chunk in loop_chunks:
-            if loop_factor == _GAIN_SCALE:
-                scaled = chunk
-            else:
-                scaled = audioop.mul(chunk, _AUDIOOP_WIDTH, loop_factor)
-            out = audioop.add(out, scaled, _AUDIOOP_WIDTH)
-        return out
+        loop_sum = loop_chunks[0]
+        if loop_factor != _GAIN_SCALE:
+            loop_sum = audioop.mul(loop_sum, _AUDIOOP_WIDTH, loop_factor)
+        for chunk in loop_chunks[1:]:
+            scaled = (
+                chunk
+                if loop_factor == _GAIN_SCALE
+                else audioop.mul(chunk, _AUDIOOP_WIDTH, loop_factor)
+            )
+            loop_sum = audioop.add(loop_sum, scaled, _AUDIOOP_WIDTH)
+        if live_gain != 1.0:
+            live_pcm = audioop.mul(live_pcm, _AUDIOOP_WIDTH, int(round(live_gain * _GAIN_SCALE)))
+        return audioop.add(live_pcm, loop_sum, _AUDIOOP_WIDTH)
 
     streams = [live_pcm, *loop_chunks]
     gains: list[float] = [live_gain, *([loop_gain] * len(loop_chunks))]

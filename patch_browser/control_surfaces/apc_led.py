@@ -57,12 +57,15 @@ class ApcLedFeedback:
         self._out.send_message(message)
         self._last_send = time.monotonic()
 
-    def set_note(self, note: int, color: ApcLedColor) -> None:
-        self._send(led_note_on_bytes(note=note, color=color, channel=self._channel))
+    def set_note(self, note: int, color: ApcLedColor, *, rate_limit: bool = True) -> None:
+        if rate_limit:
+            self._send(led_note_on_bytes(note=note, color=color, channel=self._channel))
+        else:
+            self._out.send_message(led_note_on_bytes(note=note, color=color, channel=self._channel))
 
     def all_off(self) -> None:
         for note in range(100):
-            self.set_note(note, ApcLedColor.OFF)
+            self.set_note(note, ApcLedColor.OFF, rate_limit=True)
 
     def show_looper_state(self, *, recording: bool, playing: bool, has_loop: bool) -> None:
         record_note = self._slots.get("record")
@@ -100,4 +103,4 @@ class ApcLedFeedback:
             note = surf.grid_note(key[0], key[1])
             clip = matrix.slots.get(key)
             state = clip.state if clip is not None else ClipState.EMPTY
-            self.set_note(note, color_map.get(state, ApcLedColor.OFF))
+            self.set_note(note, color_map.get(state, ApcLedColor.OFF), rate_limit=False)

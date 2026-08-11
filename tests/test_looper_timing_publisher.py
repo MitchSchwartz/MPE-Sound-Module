@@ -1,0 +1,30 @@
+"""Tests for throttled looper timing publisher."""
+
+from __future__ import annotations
+
+import tempfile
+import unittest
+from pathlib import Path
+from unittest.mock import patch
+
+from patch_browser.clip_matrix import ClipMatrix
+from patch_browser.looper_timing_publisher import LooperTimingPublisher
+from patch_browser.looper_timing_state import TIMING_STATE_FILE
+
+
+class LooperTimingPublisherTests(unittest.TestCase):
+    def test_throttles_unchanged_beat(self) -> None:
+        matrix = ClipMatrix.create_v1(sample_rate=48000, bpm=120.0, bars=1, loop_gain=1.0)
+        matrix.on_grid(0, 0)
+        pub = LooperTimingPublisher(min_interval_s=1.0)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "timing.json"
+            with patch("patch_browser.looper_timing_state.TIMING_STATE_FILE", path):
+                with patch("patch_browser.looper_timing_publisher.write_timing_state") as write_mock:
+                    pub.publish_from_matrix(matrix)
+                    pub.publish_from_matrix(matrix)
+                    self.assertEqual(write_mock.call_count, 1)
+
+
+if __name__ == "__main__":
+    unittest.main()

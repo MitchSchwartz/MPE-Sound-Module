@@ -57,7 +57,8 @@ from patch_browser.control_surfaces.apc_session_midi import (  # noqa: E402
     handle_apc_session_message,
 )
 from patch_browser.looper_session import LooperMode, LooperSession  # noqa: E402
-from patch_browser.looper_timing_state import clear_timing_state, write_timing_state  # noqa: E402
+from patch_browser.looper_timing_publisher import LooperTimingPublisher  # noqa: E402
+from patch_browser.looper_timing_state import clear_timing_state  # noqa: E402
 from patch_browser.looper_xruns import read_xrun_counts, total_xruns  # noqa: E402
 from patch_browser.surge_audio import current_buffer_size, current_sample_rate  # noqa: E402
 
@@ -132,19 +133,8 @@ def _sync_grid_leds(leds: ApcLedFeedback | None, matrix: ClipMatrix) -> None:
     leds.show_clip_matrix(matrix)
 
 
-def _publish_timing(matrix: ClipMatrix) -> None:
-    snap = matrix.clock.snapshot()
-    if matrix.is_active:
-        write_timing_state(
-            active=True,
-            bpm=float(snap["bpm"]),
-            beat_in_bar=int(snap["beat_in_bar"]),
-            beats_per_bar=int(snap["beats_per_bar"]),
-            bar_in_loop=int(snap["bar_in_loop"]),
-            bars_per_loop=int(snap["bars_per_loop"]),
-        )
-    else:
-        clear_timing_state()
+def _publish_timing(_publisher: LooperTimingPublisher, matrix: ClipMatrix) -> None:
+    _publisher.publish_from_matrix(matrix)
 
 
 def run_looper_grid(
@@ -176,6 +166,7 @@ def run_looper_grid(
 
     midi_in, leds, _ = _open_apc_midi(enable=use_apc)
     apc_ctx = ApcMidiContext()
+    timing_pub = LooperTimingPublisher()
     _sync_grid_leds(leds, matrix)
 
     baseline = read_xrun_counts()
@@ -198,10 +189,6 @@ def run_looper_grid(
                 print(f"[soak] {soak_s:.0f}s elapsed — exiting", flush=True)
                 break
 
-            _poll_apc_grid(midi_in, apc_ctx, matrix)
-            if check_clear_session_hold(apc_ctx, matrix):
-                print("[apc] clear session", flush=True)
-                _sync_grid_leds(leds, matrix)
             chunk = rec.stdout.read(period_bytes)
             if not chunk:
                 break
@@ -212,15 +199,20 @@ def run_looper_grid(
             play.stdin.write(out)
             periods += 1
             periods_since_flush += 1
-            if periods_since_flush >= 8:
+            if periods_since_flush >= 2:
                 play.stdin.flush()
                 periods_since_flush = 0
+
+            _poll_apc_grid(midi_in, apc_ctx, matrix)
+            if check_clear_session_hold(apc_ctx, matrix):
+                print("[apc] clear session", flush=True)
+                _sync_grid_leds(leds, matrix)
 
             rev = sum(hash(s.state) for s in matrix.slots.values())
             if rev != last_rev:
                 _sync_grid_leds(leds, matrix)
                 last_rev = rev
-            _publish_timing(matrix)
+            _publish_timing(timing_pub, matrix)
 
             now = time.monotonic()
             if now - last_report >= 5.0:
@@ -233,6 +225,7 @@ def run_looper_grid(
                 _report_xruns("looper", baseline)
                 last_report = now
     finally:
+        timing_pub.clear()
         clear_timing_state()
         if play.stdin is not None:
             try:
