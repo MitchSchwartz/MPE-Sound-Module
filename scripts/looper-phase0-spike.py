@@ -45,7 +45,12 @@ from patch_browser.looper_audio_io import (  # noqa: E402
     open_aplay,
     open_arecord,
 )
-from patch_browser.looper_xruns import read_xrun_counts, total_xruns  # noqa: E402
+from patch_browser.looper_alsa_stderr import (  # noqa: E402
+    AlsaStderrMonitor,
+    format_xrun_report,
+    session_xrun_total,
+    start_alsa_stderr_monitors,
+)
 
 _STOP = False
 
@@ -55,13 +60,8 @@ def _handle_stop(_signum: int, _frame: object) -> None:
     _STOP = True
 
 
-def _report_xruns(label: str, baseline: dict[str, int]) -> int:
-    current = read_xrun_counts()
-    delta = 0
-    for path, count in current.items():
-        delta += max(0, count - baseline.get(path, 0))
-    print(f"[{label}] xrun delta={delta} total={total_xruns(current)}", flush=True)
-    return delta
+def _report_xruns(label: str, monitors: list[AlsaStderrMonitor]) -> None:
+    print(f"[{label}] xruns {format_xrun_report(monitors)}", flush=True)
 
 
 def run_passthrough(
@@ -73,7 +73,6 @@ def run_passthrough(
     duration_s: float | None,
     report_interval_s: float,
 ) -> int:
-    baseline = read_xrun_counts()
     period_bytes = frames_to_bytes(period_frames)
     rec = open_arecord(capture, sample_rate=sample_rate, period_frames=period_frames)
     play = open_aplay(playback, sample_rate=sample_rate, period_frames=period_frames)
@@ -82,6 +81,7 @@ def run_passthrough(
 
     if (code := ensure_audio_procs_started(("arecord", rec), ("aplay", play))) is not None:
         return code
+    monitors = start_alsa_stderr_monitors(("arecord", rec), ("aplay", play))
 
     start = time.monotonic()
     last_report = start
@@ -112,7 +112,7 @@ def run_passthrough(
                     f"[passthrough] {elapsed:.0f}s periods={periods} short_reads={short_reads}",
                     flush=True,
                 )
-                _report_xruns("passthrough", baseline)
+                _report_xruns("passthrough", monitors)
                 last_report = now
     finally:
         if play.stdin is not None:
@@ -128,12 +128,13 @@ def run_passthrough(
                 proc.kill()
 
     elapsed = time.monotonic() - start
-    xrun_delta = _report_xruns("final", baseline)
+    _report_xruns("final", monitors)
+    session_xruns = session_xrun_total(monitors)
     print(
-        f"Done: {elapsed:.1f}s periods={periods} short_reads={short_reads} xrun_delta={xrun_delta}",
+        f"Done: {elapsed:.1f}s periods={periods} short_reads={short_reads} xruns={session_xruns}",
         flush=True,
     )
-    return 1 if xrun_delta or short_reads else 0
+    return 1 if session_xruns or short_reads else 0
 
 
 def run_loop(
@@ -149,7 +150,6 @@ def run_loop(
     report_interval_s: float,
 ) -> int:
     """Record one loop length, then mix live input with loop playback (wrap)."""
-    baseline = read_xrun_counts()
     loop_frames = loop_length_frames(bars=bars, bpm=bpm, sample_rate=sample_rate)
     ring = StereoRingBuffer(loop_frames)
     period_bytes = frames_to_bytes(period_frames)
@@ -161,6 +161,7 @@ def run_loop(
 
     if (code := ensure_audio_procs_started(("arecord", rec), ("aplay", play))) is not None:
         return code
+    monitors = start_alsa_stderr_monitors(("arecord", rec), ("aplay", play))
 
     start = time.monotonic()
     last_report = start
@@ -210,7 +211,7 @@ def run_loop(
             if now - last_report >= report_interval_s:
                 mode = "record" if recording else "mix"
                 print(f"[loop/{mode}] {now - start:.0f}s periods={periods}", flush=True)
-                _report_xruns("loop", baseline)
+                _report_xruns("loop", monitors)
                 last_report = now
     finally:
         if play.stdin is not None:
@@ -225,9 +226,10 @@ def run_loop(
             except subprocess.TimeoutExpired:
                 proc.kill()
 
-    xrun_delta = _report_xruns("final", baseline)
-    print(f"Done: periods={periods} xrun_delta={xrun_delta}", flush=True)
-    return 1 if xrun_delta else 0
+    _report_xruns("final", monitors)
+    session_xruns = session_xrun_total(monitors)
+    print(f"Done: periods={periods} xruns={session_xruns}", flush=True)
+    return 1 if session_xruns else 0
 
 
 def build_parser() -> argparse.ArgumentParser:
