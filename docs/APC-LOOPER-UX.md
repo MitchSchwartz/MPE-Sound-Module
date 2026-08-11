@@ -98,15 +98,15 @@ When the on-device looper is active (or any clip recording/playing), show in the
 
 ```
 ┌─────────────────────────────────────────────┐
-│  … patches …     [████░░░░] 2/4    128     │  ← status header
-│                   beat bar   bar/total BPM  │
+│  … patches …     [████░░░░]              │  ← beat segments (upper)
+│                      2/4           120     │  ← bar n/N + BPM (lower)
 └─────────────────────────────────────────────┘
 ```
 
 | Element | Behavior |
 |---------|----------|
 | **Beat bar** | Horizontal micro-bar, 4 segments (or `beats_per_bar` from config). Filled segments = current beat (1-based). Updates every beat from looper master clock. |
-| **Bar fraction** | Text `n/N` — e.g. `1/4`, `2/4`, `3/4`, `4/4` for a 4-bar loop. `N` = `MPE_LOOPER_BARS`. |
+| **Bar fraction** | Text **`n/N`** only (e.g. `2/4`) — Boss lower tier as numbers, not a bar progress bar. `N` = `MPE_LOOPER_BARS`. |
 | **BPM** | Optional right edge — internal tempo or synced MIDI clock (reuse `LooperClockMonitor` / `~/.mpe_midi_clock_state.json` when clock in enabled). |
 
 **Show when:** Any clip recording or playing; or user toggle (existing **Settings → Looper → show HUD**).
