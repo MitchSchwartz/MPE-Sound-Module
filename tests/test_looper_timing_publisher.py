@@ -1,4 +1,4 @@
-"""Tests for throttled looper timing publisher."""
+"""Tests for looper timing publisher."""
 
 from __future__ import annotations
 
@@ -9,11 +9,10 @@ from unittest.mock import patch
 
 from patch_browser.clip_matrix import ClipMatrix
 from patch_browser.looper_timing_publisher import LooperTimingPublisher
-from patch_browser.looper_timing_state import TIMING_STATE_FILE
 
 
 class LooperTimingPublisherTests(unittest.TestCase):
-    def test_skips_unchanged_tick(self) -> None:
+    def test_skips_unchanged_beat(self) -> None:
         matrix = ClipMatrix.create_v1(sample_rate=48000, bpm=120.0, bars=1, loop_gain=1.0)
         matrix.on_grid(0, 0)
         pub = LooperTimingPublisher()
@@ -25,7 +24,7 @@ class LooperTimingPublisherTests(unittest.TestCase):
                     pub.publish_from_matrix(matrix)
                     self.assertEqual(write_mock.call_count, 1)
 
-    def test_publishes_on_tick_advance(self) -> None:
+    def test_publishes_on_beat_advance(self) -> None:
         matrix = ClipMatrix.create_v1(sample_rate=48000, bpm=120.0, bars=1, loop_gain=1.0)
         matrix.on_grid(0, 0)
         pub = LooperTimingPublisher()
@@ -35,11 +34,12 @@ class LooperTimingPublisherTests(unittest.TestCase):
             with patch("patch_browser.looper_timing_state.TIMING_STATE_FILE", path):
                 with patch("patch_browser.looper_timing_publisher.write_timing_state") as write_mock:
                     pub.publish_from_matrix(matrix)
-                    matrix.clock.advance(fpb // 2)
+                    matrix.clock.advance(fpb)
                     pub.publish_from_matrix(matrix)
                     self.assertEqual(write_mock.call_count, 2)
+                    self.assertEqual(write_mock.call_args_list[-1].kwargs["beat_in_bar"], 2)
 
-    def test_publishes_full_bar_before_wrap(self) -> None:
+    def test_publishes_on_bar_wrap(self) -> None:
         matrix = ClipMatrix.create_v1(sample_rate=48000, bpm=120.0, bars=4, loop_gain=1.0)
         matrix.on_grid(0, 0)
         pub = LooperTimingPublisher()
@@ -48,16 +48,14 @@ class LooperTimingPublisherTests(unittest.TestCase):
             path = Path(tmp) / "timing.json"
             with patch("patch_browser.looper_timing_state.TIMING_STATE_FILE", path):
                 with patch("patch_browser.looper_timing_publisher.write_timing_state") as write_mock:
-                    matrix.clock.advance(frames_per_bar - 512)
+                    matrix.clock.advance(frames_per_bar - 1)
                     pub.publish_from_matrix(matrix)
-                    matrix.clock.advance(512)
+                    self.assertEqual(write_mock.call_args.kwargs["beat_in_bar"], 4)
+                    self.assertEqual(write_mock.call_args.kwargs["bar_in_loop"], 1)
+                    matrix.clock.advance(1)
                     pub.publish_from_matrix(matrix)
-                    self.assertGreaterEqual(write_mock.call_count, 2)
-                    last = write_mock.call_args_list[-1]
-                    self.assertEqual(
-                        last.kwargs.get("total_frames") or last[1].get("total_frames"),
-                        frames_per_bar,
-                    )
+                    self.assertEqual(write_mock.call_args.kwargs["beat_in_bar"], 1)
+                    self.assertEqual(write_mock.call_args.kwargs["bar_in_loop"], 2)
 
 
 if __name__ == "__main__":

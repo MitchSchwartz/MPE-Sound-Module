@@ -11,15 +11,13 @@ from patch_browser.looper_hud import (
     looper_hud_bar_fraction,
     looper_hud_is_visible,
     looper_hud_min_width_px,
-    looper_hud_segment_fill_halves,
+    looper_hud_segment_full,
     merge_looper_hud_snapshot,
 )
 from patch_browser.looper_timing_state import write_timing_state
 
 
 class LooperHudTests(unittest.TestCase):
-    FPB = 24000  # 120 BPM @ 48 kHz
-
     def test_merge_internal_timing_sets_looper_active(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "timing.json"
@@ -70,42 +68,23 @@ class LooperHudTests(unittest.TestCase):
         wide = looper_hud_min_width_px(frac_label="16/16")
         self.assertLess(narrow, wide)
 
-    def test_segment_fill_from_frame_clock(self) -> None:
-        fpb = self.FPB
-        frames_per_bar = fpb * 4
-        self.assertEqual(
-            looper_hud_segment_fill_halves(
-                total_frames=0, frames_per_beat=fpb, beats_per_bar=4
-            ),
-            [0, 0, 0, 0],
+    def test_boss_accumulate_segments(self) -> None:
+        self.assertTrue(
+            looper_hud_segment_full(beat_in_bar=1, beats_per_bar=4, segment_index=0)
         )
-        self.assertEqual(
-            looper_hud_segment_fill_halves(
-                total_frames=fpb // 2, frames_per_beat=fpb, beats_per_bar=4
-            ),
-            [1, 0, 0, 0],
+        self.assertFalse(
+            looper_hud_segment_full(beat_in_bar=1, beats_per_bar=4, segment_index=1)
         )
-        self.assertEqual(
-            looper_hud_segment_fill_halves(
-                total_frames=fpb - 1, frames_per_beat=fpb, beats_per_bar=4
-            ),
-            [2, 0, 0, 0],
+        self.assertTrue(
+            looper_hud_segment_full(beat_in_bar=2, beats_per_bar=4, segment_index=1)
         )
-        self.assertEqual(
-            looper_hud_segment_fill_halves(
-                total_frames=fpb + fpb // 2, frames_per_beat=fpb, beats_per_bar=4
-            ),
-            [2, 1, 0, 0],
+        self.assertFalse(
+            looper_hud_segment_full(beat_in_bar=2, beats_per_bar=4, segment_index=2)
         )
-        # Last frame of bar — all four beats full before wrap to bar 1.
-        self.assertEqual(
-            looper_hud_segment_fill_halves(
-                total_frames=frames_per_bar - 1,
-                frames_per_beat=fpb,
-                beats_per_bar=4,
-            ),
-            [2, 2, 2, 2],
-        )
+        for i in range(4):
+            self.assertTrue(
+                looper_hud_segment_full(beat_in_bar=4, beats_per_bar=4, segment_index=i)
+            )
 
 
 if __name__ == "__main__":

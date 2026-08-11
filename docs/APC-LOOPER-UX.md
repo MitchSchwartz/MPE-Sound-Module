@@ -105,8 +105,8 @@ When the on-device looper is active (or any clip recording/playing), show in the
 
 | Element | Behavior |
 |---------|----------|
-| **Beat bar** | Horizontal micro-bar, 4 segments (or `beats_per_bar` from config). Filled segments = current beat (1-based). Updates every beat from looper master clock. |
-| **Bar fraction** | Text **`n/N`** only (e.g. `2/4`) — Boss lower tier as numbers, not a bar progress bar. `N` = `MPE_LOOPER_BARS`. |
+| **Beat bar** | Horizontal micro-bar, 4 segments (or `beats_per_bar` from config). **Accumulate:** segments 1…N lit through current beat (beat 4 = all four full). **Binary only** — full or empty per segment; no sub-beat / half fill. Updates on **beat downbeats** from looper master clock. |
+| **Bar fraction** | Text **`n/N`** only (e.g. `2/4`) — Boss lower tier as numbers, not a bar progress bar. `N` = `MPE_LOOPER_BARS`. Updates on **bar downbeat** (same clock as beat-row reset to beat 1). |
 | **BPM** | Optional right edge — internal tempo or synced MIDI clock (reuse `LooperClockMonitor` / `~/.mpe_midi_clock_state.json` when clock in enabled). |
 
 **Show when:** Any clip recording or playing; or user toggle (existing **Settings → Looper → show HUD**).
