@@ -134,6 +134,14 @@ class ClipMatrix:
             if s.state in (ClipState.PLAYING, ClipState.STOPPING):
                 s.state = ClipState.STOPPING
 
+    def clear_session(self) -> None:
+        """Wipe all enabled clips immediately (empty grid, fresh session)."""
+        for key in self.enabled_slots:
+            clip = self.slots.get(key)
+            if clip is not None:
+                clip.clear()
+        self.clock.reset()
+
     def _apply_bar_boundary(self) -> None:
         for s in self.slots.values():
             if s.state == ClipState.STOPPING:

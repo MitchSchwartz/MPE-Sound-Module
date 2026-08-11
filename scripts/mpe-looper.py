@@ -53,6 +53,7 @@ from patch_browser.looper_engine import (  # noqa: E402
 from patch_browser.clip_matrix import ClipMatrix  # noqa: E402
 from patch_browser.control_surfaces.apc_session_midi import (  # noqa: E402
     ApcMidiContext,
+    check_clear_session_hold,
     handle_apc_session_message,
 )
 from patch_browser.looper_session import LooperMode, LooperSession  # noqa: E402
@@ -185,7 +186,7 @@ def run_looper_grid(
         f"({matrix.loop_frames} frames)",
         flush=True,
     )
-    print("Pads=clips · Scene 1=row · Shift+Scene 8=stop all", flush=True)
+    print("Pads=clips · Scene 1=row · Shift+Scene 8=stop all · hold 3s=clear", flush=True)
 
     try:
         while not _STOP:
@@ -194,6 +195,9 @@ def run_looper_grid(
                 break
 
             _poll_apc_grid(midi_in, apc_ctx, matrix)
+            if check_clear_session_hold(apc_ctx, matrix):
+                print("[apc] clear session", flush=True)
+                _sync_grid_leds(leds, matrix)
             chunk = rec.stdout.read(period_bytes)
             if not chunk:
                 break
