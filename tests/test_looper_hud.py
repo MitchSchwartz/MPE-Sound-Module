@@ -15,7 +15,7 @@ from patch_browser.looper_hud import (
     looper_hud_interpolated_frames,
     looper_hud_is_visible,
     looper_hud_min_width_px,
-    looper_hud_segment_halves,
+    looper_hud_segment_fills,
     looper_hud_tick_from_internal,
     looper_hud_tick_in_bar,
     merge_looper_hud_snapshot,
@@ -63,26 +63,54 @@ class LooperHudTests(unittest.TestCase):
         }
         self.assertEqual(looper_hud_bar_fraction(snap), "2/4")
 
-    def test_eighth_ticks_and_halves(self) -> None:
-        fpb = self.FPB
-        fpbar = fpb * 4
+    def _fills(self, total_frames: int, *, beats: int = 4) -> list[float]:
+        return looper_hud_segment_fills(
+            total_frames=total_frames,
+            frames_per_beat=self.FPB,
+            beats_per_bar=beats,
+        )
+
+    def test_eighth_tick_at_bar_start(self) -> None:
         self.assertEqual(
-            looper_hud_tick_in_bar(total_frames=0, frames_per_beat=fpb, beats_per_bar=4),
+            looper_hud_tick_in_bar(
+                total_frames=0, frames_per_beat=self.FPB, beats_per_bar=4
+            ),
             0,
         )
-        self.assertEqual(looper_hud_segment_halves(tick_in_bar=0), [0, 0, 0, 0])
-        self.assertEqual(looper_hud_segment_halves(tick_in_bar=1), [1, 0, 0, 0])
-        self.assertEqual(looper_hud_segment_halves(tick_in_bar=2), [2, 0, 0, 0])
-        self.assertEqual(looper_hud_segment_halves(tick_in_bar=3), [2, 1, 0, 0])
+
+    def test_segment_fills_are_continuous_within_a_beat(self) -> None:
+        fpb = self.FPB
+        self.assertEqual(self._fills(0), [0.0, 0.0, 0.0, 0.0])
+        self.assertEqual(self._fills(fpb // 4), [0.25, 0.0, 0.0, 0.0])
+        self.assertEqual(self._fills(fpb // 2), [0.5, 0.0, 0.0, 0.0])
+        self.assertEqual(self._fills(fpb), [1.0, 0.0, 0.0, 0.0])
+        self.assertEqual(self._fills(fpb + fpb // 2), [1.0, 0.5, 0.0, 0.0])
+
+    def test_segment_fills_advance_smoothly_not_in_half_steps(self) -> None:
+        """Sub-tick frame deltas must move the fill — the HUD wobble regression."""
+        fpb = self.FPB
+        step = fpb // 100
+        seen = [self._fills(step * i)[0] for i in range(1, 20)]
+        self.assertEqual(seen, sorted(seen))
+        self.assertEqual(len(set(seen)), len(seen))
+
+    def test_segment_fills_reset_to_zero_at_each_bar_line(self) -> None:
+        fpb = self.FPB
+        fpbar = fpb * 4
+        last = self._fills(fpbar - 1)
+        self.assertEqual(last[:3], [1.0, 1.0, 1.0])
+        self.assertGreater(last[3], 0.99)
+        self.assertEqual(self._fills(fpbar), [0.0, 0.0, 0.0, 0.0])
+        self.assertEqual(self._fills(fpbar * 3), [0.0, 0.0, 0.0, 0.0])
+
+    def test_segment_fills_clamp_negative_and_odd_meter(self) -> None:
+        self.assertEqual(self._fills(-500), [0.0, 0.0, 0.0, 0.0])
+        self.assertEqual(len(self._fills(0, beats=3)), 3)
         self.assertEqual(
-            looper_hud_segment_halves(
-                tick_in_bar=looper_hud_tick_in_bar(
-                    total_frames=fpbar - 1,
-                    frames_per_beat=fpb,
-                    beats_per_bar=4,
-                )
+            looper_hud_segment_fills(
+                total_frames=10, frames_per_beat=0, beats_per_bar=0
             ),
-            [2, 2, 2, 1],
+            [0.0],
         )
 
     def test_eighth_index_increases_on_loop_wrap(self) -> None:
