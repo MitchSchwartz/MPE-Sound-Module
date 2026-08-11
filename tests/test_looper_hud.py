@@ -8,11 +8,15 @@ from pathlib import Path
 from unittest.mock import patch
 
 from patch_browser.looper_hud import (
+    MAX_EXTRAPOLATION_S,
     looper_hud_bar_fraction,
+    looper_hud_bar_in_loop,
     looper_hud_eighth_index,
+    looper_hud_interpolated_frames,
     looper_hud_is_visible,
     looper_hud_min_width_px,
     looper_hud_segment_halves,
+    looper_hud_tick_from_internal,
     looper_hud_tick_in_bar,
     merge_looper_hud_snapshot,
 )
@@ -145,6 +149,110 @@ class LooperHudTests(unittest.TestCase):
         snap = {"internal_timing": internal}
         self.assertEqual(looper_hud_bar_fraction(snap), "1/4")
         self.assertEqual(looper_hud_tick_from_internal(internal), 0)
+
+
+class LooperHudInterpolationTests(unittest.TestCase):
+    """Draw path estimates forward from the last publish (publishes are ~25 Hz)."""
+
+    FPB = 24000  # 48 kHz @ 120 bpm
+    SR = 48000
+
+    def _internal(self, **over) -> dict:
+        internal = {
+            "active": True,
+            "total_frames": 0,
+            "frames_per_beat": self.FPB,
+            "beats_per_bar": 4,
+            "bars_per_loop": 4,
+            "bar_in_loop": 1,
+            "sample_rate": self.SR,
+            "updated_at": 1000.0,
+        }
+        internal.update(over)
+        return internal
+
+    def test_interpolates_elapsed_seconds_into_frames(self) -> None:
+        internal = self._internal(total_frames=10_000)
+        # 1/16 s is exactly representable, so the expected frame count is exact.
+        self.assertEqual(
+            looper_hud_interpolated_frames(internal, now=1000.0625),
+            10_000 + 3_000,
+        )
+
+    def test_extrapolation_is_clamped(self) -> None:
+        internal = self._internal(total_frames=10_000)
+        clamped = 10_000 + int(MAX_EXTRAPOLATION_S * self.SR)
+        self.assertEqual(looper_hud_interpolated_frames(internal, now=1000.5), clamped)
+        self.assertEqual(looper_hud_interpolated_frames(internal, now=1005.0), clamped)
+
+    def test_negative_elapsed_returns_raw(self) -> None:
+        internal = self._internal(total_frames=10_000)
+        self.assertEqual(looper_hud_interpolated_frames(internal, now=999.9), 10_000)
+        self.assertEqual(looper_hud_interpolated_frames(internal, now=1000.0), 10_000)
+
+    def test_missing_fields_return_raw(self) -> None:
+        raw = 10_000
+        for missing in ("sample_rate", "updated_at"):
+            internal = self._internal(total_frames=raw, **{missing: None})
+            self.assertEqual(
+                looper_hud_interpolated_frames(internal, now=1000.02), raw, missing
+            )
+        self.assertEqual(
+            looper_hud_interpolated_frames(
+                self._internal(total_frames=raw, active=False), now=1000.02
+            ),
+            raw,
+        )
+        self.assertEqual(
+            looper_hud_interpolated_frames(
+                self._internal(total_frames=None), now=1000.02
+            ),
+            0,
+        )
+
+    def test_tick_advances_between_publishes(self) -> None:
+        # Published exactly on an eighth boundary; 40 ms later the next eighth is due
+        # at 120 bpm (an eighth is 250 ms), so the tick must not have moved yet …
+        internal = self._internal(total_frames=self.FPB // 2)
+        self.assertEqual(looper_hud_tick_from_internal(internal, now=1000.04), 1)
+        # … but crossing the boundary inside the publish gap must show through.
+        internal = self._internal(total_frames=self.FPB - 480)  # 10 ms short of beat 2
+        self.assertEqual(looper_hud_tick_from_internal(internal, now=1000.0), 1)
+        self.assertEqual(looper_hud_tick_from_internal(internal, now=1000.02), 2)
+
+    def test_bar_in_loop_helper_wraps(self) -> None:
+        fpbar = self.FPB * 4
+        for frames, expected in ((0, 1), (fpbar, 2), (fpbar * 3, 4), (fpbar * 4, 1)):
+            self.assertEqual(
+                looper_hud_bar_in_loop(
+                    total_frames=frames,
+                    frames_per_beat=self.FPB,
+                    beats_per_bar=4,
+                    bars_per_loop=4,
+                ),
+                expected,
+                frames,
+            )
+
+    def test_bar_fraction_advances_when_interpolation_crosses_a_bar(self) -> None:
+        fpbar = self.FPB * 4
+        internal = self._internal(
+            total_frames=fpbar - 480,  # 10 ms short of bar 2
+            bar_in_loop=1,  # stale published value
+        )
+        snap = {"internal_timing": internal}
+        self.assertEqual(looper_hud_bar_fraction(snap, now=1000.0), "1/4")
+        self.assertEqual(looper_hud_bar_fraction(snap, now=1000.02), "2/4")
+
+    def test_bar_fraction_falls_back_to_published_bar(self) -> None:
+        snap = {
+            "internal_timing": {
+                "active": True,
+                "bar_in_loop": 3,
+                "bars_per_loop": 4,
+            }
+        }
+        self.assertEqual(looper_hud_bar_fraction(snap), "3/4")
 
 
 if __name__ == "__main__":
