@@ -82,9 +82,37 @@ class ClipMatrixTests(unittest.TestCase):
         self.matrix.on_stop_all()
         self.assertEqual(clip.state, ClipState.STOPPING)
 
-    def test_inactive_slot_ignored(self) -> None:
-        self.matrix.on_grid(1, 0)
-        self.assertNotIn((1, 0), self.matrix.slots)
+    def test_playback_mutes_live_monitor(self) -> None:
+        import struct
+
+        live = struct.pack("<hh", 10000, 10000) * self.period_frames
+        silent = bytes(frames_to_bytes(self.period_frames))
+        self.matrix.on_grid(0, 0)
+        clip = self.matrix.slot(0, 0)
+        assert clip is not None
+        while clip.state == ClipState.RECORDING:
+            self.matrix.process_period(live, period_frames=self.period_frames)
+        self.assertEqual(clip.state, ClipState.PLAYING)
+        out = self.matrix.process_period(live, period_frames=self.period_frames)
+        self.assertNotEqual(out, live)
+        out_silent = self.matrix.process_period(silent, period_frames=self.period_frames)
+        self.assertEqual(out, out_silent)
+
+    def test_overdub_keeps_live_monitor(self) -> None:
+        import struct
+
+        live = struct.pack("<hh", 5000, 5000) * self.period_frames
+        self.matrix.on_grid(0, 0)
+        clip_a = self.matrix.slot(0, 0)
+        assert clip_a is not None
+        while clip_a.state == ClipState.RECORDING:
+            self.matrix.process_period(live, period_frames=self.period_frames)
+        self.matrix.on_grid(0, 1)
+        clip_b = self.matrix.slot(0, 1)
+        assert clip_b is not None
+        self.assertEqual(clip_b.state, ClipState.RECORDING)
+        out = self.matrix.process_period(live, period_frames=self.period_frames)
+        self.assertNotEqual(out, b"\x00" * len(out))
 
 
 if __name__ == "__main__":

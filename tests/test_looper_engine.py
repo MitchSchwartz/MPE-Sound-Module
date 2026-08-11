@@ -85,8 +85,14 @@ class LooperEngineTests(unittest.TestCase):
         mixed = mix_live_and_loops(live, [loop_a, loop_b], live_gain=1.0, loop_gain=1.0)
         self.assertEqual(len(mixed), len(live))
         left, right = struct.unpack("<hh", mixed[:4])
-        self.assertEqual(left, 300)
-        self.assertEqual(right, 300)
+        self.assertEqual(left, 100)
+        self.assertEqual(right, 100)
+
+    def test_mix_live_and_loops_playback_only_ignores_live(self) -> None:
+        live = b"".join(_stereo_frame(1000, 1000) for _ in range(4))
+        loop = b"".join(_stereo_frame(200, 100) for _ in range(4))
+        mixed = mix_live_and_loops(live, [loop], live_gain=0.0, loop_gain=1.0)
+        self.assertEqual(mixed, loop)
 
     def test_audio_mix_backend_reported(self) -> None:
         from patch_browser.looper_engine import audio_mix_backend
