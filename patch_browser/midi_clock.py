@@ -319,10 +319,16 @@ def read_clock_state(
     }
 
 
+from patch_browser.looper_timing_state import read_timing_state
+
+
 def looper_hud_should_show(snapshot: dict, *, user_enabled: bool = True) -> bool:
-    """Header badge only when the pedal is connected and tempo is meaningful."""
+    """Header badge when external pedal or on-device looper timing is active."""
     if not user_enabled:
         return False
+    internal = read_timing_state()
+    if internal.get("active"):
+        return True
     if not snapshot.get("connected"):
         return False
     if snapshot.get("running") and snapshot.get("bpm") is not None:
@@ -331,8 +337,30 @@ def looper_hud_should_show(snapshot: dict, *, user_enabled: bool = True) -> bool
 
 
 def looper_hud_label(snapshot: dict) -> str:
-    """Compact header label for the touch looper HUD."""
+    """Compact header label — prefer on-device bar fraction when active."""
+    internal = read_timing_state()
+    if internal.get("active"):
+        bar = internal.get("bar_in_loop")
+        total = internal.get("bars_per_loop")
+        if bar is not None and total is not None:
+            return f"{bar}/{total}"
     bpm = snapshot.get("bpm")
     if bpm is not None:
         return str(int(bpm))
     return ""
+
+
+def looper_hud_beat_in_bar(snapshot: dict | None = None) -> int | None:
+    """Current beat for beat-bar widget (1-based)."""
+    internal = read_timing_state()
+    if internal.get("active"):
+        beat = internal.get("beat_in_bar")
+        return int(beat) if beat is not None else None
+    return None
+
+
+def looper_hud_beats_per_bar(snapshot: dict | None = None) -> int:
+    internal = read_timing_state()
+    if internal.get("active"):
+        return int(internal.get("beats_per_bar") or 4)
+    return 4

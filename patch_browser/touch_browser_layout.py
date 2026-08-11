@@ -80,9 +80,9 @@ class TouchBrowserLayoutMixin:
         return label_w + AUDIO_BADGE_PAD_X * 2
 
     def _looper_hud_width(self) -> int:
-        label_w = self.font_sm.size("128")[0]
-        dot_w = 8
-        return label_w + dot_w + LOOPER_HUD_PAD_X * 2 + 4
+        label_w = self.font_sm.size("4/4")[0]
+        beat_bar_w = 36
+        return label_w + beat_bar_w + LOOPER_HUD_PAD_X * 2 + 8
 
     def _layout(self) -> None:
         margin = 16

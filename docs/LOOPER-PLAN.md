@@ -1,12 +1,12 @@
 # On-device looping — plan
 
-*Last updated: 2026-08-10 20:24 (America/Toronto)*
+*Last updated: 2026-08-11 (America/Toronto)*
 
 **The question, in one line:** *What is the cheapest architecture that turns this box into a looper good enough to replace the RC-5 — and what do we build first?*
 
-**Status:** Phase 0.2 **pass** — 10 min passthrough @ 512, 0 xruns (silent path). Still need Surge→Loopback, live signal, loop mix, latency A/B. PR #48.
+**Status:** Phase 0 **hands-on pass** (Surge→Loopback, 2-clip grid v1 in progress on `yolo/looper-phase0`). UX canon: [`APC-LOOPER-UX.md`](APC-LOOPER-UX.md). PR #48 open — not merging until product-ready.
 
-**Related:** [`LATENCY-SPIKE.md`](LATENCY-SPIKE.md) · [`MIDI-CLOCK.md`](MIDI-CLOCK.md) · [`USB-SESSION-RECORD.md`](USB-SESSION-RECORD.md) · [`PATCH_NORMALIZATION.md`](PATCH_NORMALIZATION.md)
+**Related:** [`APC-LOOPER-UX.md`](APC-LOOPER-UX.md) · [`LATENCY-SPIKE.md`](LATENCY-SPIKE.md) · [`MIDI-CLOCK.md`](MIDI-CLOCK.md) · [`USB-SESSION-RECORD.md`](USB-SESSION-RECORD.md) · [`PATCH_NORMALIZATION.md`](PATCH_NORMALIZATION.md)
 
 ---
 

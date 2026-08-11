@@ -35,7 +35,12 @@ from patch_browser.touch_ui_constants import (
     SETTINGS_ROW_H,
 )
 from patch_browser.audio_profile import header_badge_label
-from patch_browser.midi_clock import looper_hud_label, looper_hud_should_show
+from patch_browser.midi_clock import (
+    looper_hud_beat_in_bar,
+    looper_hud_beats_per_bar,
+    looper_hud_label,
+    looper_hud_should_show,
+)
 from patch_browser.touch_ui_enums import (
     CalibrateMode,
     LeftNavMode,
@@ -396,6 +401,8 @@ class TouchBrowserDrawMixin:
             return
         label = looper_hud_label(snap)
         running = bool(snap.get("running"))
+        beat = looper_hud_beat_in_bar(snap)
+        beats_per_bar = looper_hud_beats_per_bar(snap)
 
         fill = self.theme.surface_alt
         if running:
@@ -405,21 +412,26 @@ class TouchBrowserDrawMixin:
 
         pygame.draw.rect(self.screen, fill, rect.pygame_rect, border_radius=8)
 
-        dot_x = rect.x + LOOPER_HUD_PAD_X
-        text_x = dot_x
-        if running:
-            dot_y = rect.y + rect.h // 2
-            pygame.draw.circle(self.screen, self.theme.accent, (dot_x + 3, dot_y), 4)
-            text_x = dot_x + 12
+        x = rect.x + LOOPER_HUD_PAD_X
+        mid_y = rect.y + rect.h // 2
+
+        if beat is not None and beats_per_bar > 0:
+            seg_w = 6
+            seg_gap = 2
+            total_w = beats_per_bar * seg_w + (beats_per_bar - 1) * seg_gap
+            sx = x
+            sy = mid_y - 2
+            for i in range(beats_per_bar):
+                color = self.theme.accent if (i + 1) <= beat else self.theme.muted
+                seg_rect = pygame.Rect(sx + i * (seg_w + seg_gap), sy, seg_w, 4)
+                pygame.draw.rect(self.screen, color, seg_rect, border_radius=1)
+            x += total_w + 6
 
         if label:
             badge = self.font_sm.render(label, True, text_color)
             self.screen.blit(
                 badge,
-                (
-                    text_x + max(0, (rect.w - (text_x - rect.x) - badge.get_width()) // 2),
-                    rect.y + (rect.h - badge.get_height()) // 2,
-                ),
+                (x, rect.y + (rect.h - badge.get_height()) // 2),
             )
 
     def _draw_audio_profile_badge(self, rect: Rect) -> None:
