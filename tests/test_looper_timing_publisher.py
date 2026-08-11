@@ -12,7 +12,7 @@ from patch_browser.looper_timing_publisher import LooperTimingPublisher
 
 
 class LooperTimingPublisherTests(unittest.TestCase):
-    def test_skips_unchanged_eighth(self) -> None:
+    def test_skips_unchanged_total_frames(self) -> None:
         matrix = ClipMatrix.create_v1(sample_rate=48000, bpm=120.0, bars=1, loop_gain=1.0)
         matrix.on_grid(0, 0)
         pub = LooperTimingPublisher()
@@ -23,6 +23,22 @@ class LooperTimingPublisherTests(unittest.TestCase):
                     pub.publish_from_matrix(matrix)
                     pub.publish_from_matrix(matrix)
                     self.assertEqual(write_mock.call_count, 1)
+
+    def test_publishes_total_frames_each_advance(self) -> None:
+        matrix = ClipMatrix.create_v1(sample_rate=48000, bpm=120.0, bars=1, loop_gain=1.0)
+        matrix.on_grid(0, 0)
+        pub = LooperTimingPublisher()
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "timing.json"
+            with patch("patch_browser.looper_timing_state.TIMING_STATE_FILE", path):
+                with patch("patch_browser.looper_timing_publisher.write_timing_state") as write_mock:
+                    pub.publish_from_matrix(matrix)
+                    matrix.clock.advance(512)
+                    pub.publish_from_matrix(matrix)
+                    self.assertEqual(write_mock.call_count, 2)
+                    last = write_mock.call_args_list[-1].kwargs
+                    self.assertEqual(last["total_frames"], 512)
+                    self.assertEqual(last["frames_per_beat"], matrix.clock.frames_per_beat)
 
     def test_publishes_on_eighth_advance(self) -> None:
         matrix = ClipMatrix.create_v1(sample_rate=48000, bpm=120.0, bars=1, loop_gain=1.0)
@@ -37,8 +53,14 @@ class LooperTimingPublisherTests(unittest.TestCase):
                     pub.publish_from_matrix(matrix)
                     matrix.clock.advance(eighth_frames)
                     pub.publish_from_matrix(matrix)
-                    self.assertEqual(write_mock.call_count, 2)
                     self.assertEqual(write_mock.call_args_list[-1].kwargs["tick_in_bar"], 1)
+
+    def test_inactive_matrix_does_not_publish(self) -> None:
+        matrix = ClipMatrix.create_v1(sample_rate=48000, bpm=120.0, bars=1, loop_gain=1.0)
+        pub = LooperTimingPublisher()
+        with patch("patch_browser.looper_timing_publisher.write_timing_state") as write_mock:
+            pub.publish_from_matrix(matrix)
+            self.assertEqual(write_mock.call_count, 0)
 
     def test_publishes_on_loop_wrap(self) -> None:
         matrix = ClipMatrix.create_v1(sample_rate=48000, bpm=120.0, bars=4, loop_gain=1.0)
@@ -53,7 +75,6 @@ class LooperTimingPublisherTests(unittest.TestCase):
                     first_eighth = write_mock.call_args.kwargs["eighth_index"]
                     matrix.clock.advance(frames_per_loop)
                     pub.publish_from_matrix(matrix)
-                    self.assertEqual(write_mock.call_count, 2)
                     wrap = write_mock.call_args.kwargs
                     self.assertEqual(wrap["beat_in_bar"], 1)
                     self.assertEqual(wrap["bar_in_loop"], 1)

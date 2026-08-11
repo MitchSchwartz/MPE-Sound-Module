@@ -15,13 +15,12 @@
     "mpe restart",
     "mpe looper",
     "git",
-    "python3",
     "gh"
   ],
   "autoRun": {
     "allow_instructions": [
       "mpe subcommands (ping, status, logs, osc-check, diagnose, sysinfo, test, midi-list, pull-videos, record, restart, looper) are the approved laptop → Pi path for MPE-Module work.",
-      "Unit tests: use mpe test [local|pi] [suite] — do not cd && python3 -m unittest (compound commands miss the python3 allowlist prefix). mpe test is read-only and agent-safe.",
+      "Unit tests: use mpe test [local|pi] [suite] only — python3 is globally blocked by ~/.cursor/hooks/block-python.sh.",
       "Read-only mpe ops (ping, status, logs, osc-check, diagnose, sysinfo, test, midi-list, pull-videos without --delete-source) are safe without extra approval."
     ],
     "block_instructions": [

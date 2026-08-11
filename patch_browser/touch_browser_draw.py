@@ -38,9 +38,10 @@ from patch_browser.touch_ui_constants import (
     SETTINGS_ROW_H,
 )
 from patch_browser.audio_profile import header_badge_label
+from patch_browser.looper_hud import looper_hud_tick_from_internal
+from patch_browser.looper_timing_state import read_timing_state
 from patch_browser.midi_clock import (
     looper_hud_bar_fraction,
-    looper_hud_internal,
     looper_hud_segment_halves,
     looper_hud_should_show,
 )
@@ -403,7 +404,7 @@ class TouchBrowserDrawMixin:
         if not looper_hud_should_show(snap, user_enabled=getattr(self, "show_looper_hud", True)):
             return
 
-        internal = looper_hud_internal(snap)
+        internal = read_timing_state()
         active_internal = bool(internal.get("active"))
         accent = self.theme.accent
         muted = self.theme.muted
@@ -411,12 +412,14 @@ class TouchBrowserDrawMixin:
 
         if active_internal:
             beats = max(1, int(internal.get("beats_per_bar") or 4))
-            tick = max(0, int(internal.get("tick_in_bar") or 0))
+            tick = looper_hud_tick_from_internal(internal)
             fill_halves = looper_hud_segment_halves(
                 tick_in_bar=tick,
                 beats_per_bar=beats,
             )
-            frac = looper_hud_bar_fraction(snap)
+            merged = dict(snap)
+            merged["internal_timing"] = internal
+            frac = looper_hud_bar_fraction(merged)
 
             pad_x = LOOPER_HUD_PAD_X
             beat_y = rect.y + LOOPER_HUD_V_PAD
