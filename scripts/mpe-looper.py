@@ -256,6 +256,10 @@ def main(argv: list[str] | None = None) -> int:
     print(f"Capture:  {capture}", flush=True)
     print(f"Playback: {playback}", flush=True)
     print(f"Hint: {surge_loopback_hint()}", flush=True)
+    print(
+        "Route Surge: sudo ./scripts/looper-audio-route.sh on  (then run this script)",
+        flush=True,
+    )
 
     return run_looper(
         capture=capture,
