@@ -114,6 +114,38 @@ class LooperHudTests(unittest.TestCase):
             1,
         )
 
+    def test_bar_fraction_empty_when_inactive(self) -> None:
+        snap = {
+            "internal_timing": {"active": False},
+            "connected": False,
+            "bpm": None,
+        }
+        self.assertEqual(looper_hud_bar_fraction(snap), "")
+
+    def test_is_visible_false_when_timing_cleared(self) -> None:
+        self.assertFalse(
+            looper_hud_is_visible(
+                {"connected": False, "internal_timing": {"active": False}}
+            )
+        )
+
+    def test_bar_counter_and_tick_at_loop_wrap(self) -> None:
+        from patch_browser.looper_hud import looper_hud_tick_from_internal
+
+        fpb = self.FPB
+        fpbar = fpb * 4
+        internal = {
+            "active": True,
+            "bar_in_loop": 1,
+            "bars_per_loop": 4,
+            "total_frames": fpbar * 4,
+            "frames_per_beat": fpb,
+            "beats_per_bar": 4,
+        }
+        snap = {"internal_timing": internal}
+        self.assertEqual(looper_hud_bar_fraction(snap), "1/4")
+        self.assertEqual(looper_hud_tick_from_internal(internal), 0)
+
 
 if __name__ == "__main__":
     unittest.main()
