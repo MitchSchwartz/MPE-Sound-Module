@@ -219,6 +219,12 @@ ssh <pi-user>@<hostname> 'dmesg | tail -50'
 
 Try a different USB port, or a powered hub if you're chaining multiple USB devices off the Pi.
 
+## External resources
+
+| Resource | What it is |
+|---|---|
+| [Audio Freqs MPE Database](https://audiofreqs.co/mpe-database) | Community-maintained catalog of MPE-compatible synths, VSTs, DAWs, and utilities (some poly aftertouch entries too). Filterable table with product links and write-ups. |
+
 ## Contributing
 
 
