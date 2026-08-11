@@ -28,6 +28,8 @@ class LooperPeriodDebugTests(unittest.TestCase):
         self.assertEqual(dbg.total_overruns, 1)
         dbg.record(0.005, 1)
         self.assertEqual(dbg.window_overruns, 1)
+        dbg.flush_window("test")
+        self.assertEqual(dbg.window_overruns, 0)
 
     def test_looper_debug_enabled_parses_env(self) -> None:
         import os
