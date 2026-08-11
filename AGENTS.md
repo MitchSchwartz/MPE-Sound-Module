@@ -29,10 +29,12 @@ Install once: clone `mpe-cli`, run `./install.sh`, edit `~/.config/mpe/mpe.env` 
 | `mpe record [file] [fps]` | Touch UI screen capture |
 | `mpe pull-videos [-o DIR] [--delete-source]` | Download demo videos |
 | `mpe restart surge\|touch\|looper\|all` | Restart fixed systemd units |
-| `mpe looper deploy [branch]` | Git pull on Pi + restart `mpe-looper.service` (default: `yolo/looper-phase0`) |
+| `mpe looper deploy [branch]` | Git pull on Pi + restart `mpe-looper.service`, and the patch browser UI unit when the pull changed `patch_browser/` (default: `yolo/looper-phase0`) |
 | `mpe looper restart` | Restart `mpe-looper.service` only |
 
 **Looper deploy (yolo branch):** after pushing looper code, run **`mpe looper deploy`** — do not wait for Mitch and do not use raw `ssh` or `./scripts/looper-deploy.sh` from the laptop. Latency budget: **512 Surge + 512 looper** (~1024 samples); do not recommend 1024+1024.
+
+**The looper spans two processes.** `mpe-looper.service` runs the transport and writes `/dev/shm/mpe_looper_timing.json`; the **patch browser** unit (`touch-patch-browser.service`, or `patch-browser.service` on OLED builds) reads that file and draws the HUD. A `git pull` cannot change a running Python process, so **anything under `patch_browser/` stays inert until that unit restarts** — `mpe looper deploy` now handles this, but if you change HUD or UI code by any other route, restart the browser (`mpe restart touch`) before judging the result. Several HUD fixes were mistakenly read as ineffective because only the looper had been restarted.
 
 **Unit tests:** always **`mpe test`** (or `mpe test pi looper`, etc.) — not `cd … && python3 -m unittest`. The CLI picks the repo, runs fixed suite enums from `mpe-cli/lib/test_suites.sh`, and matches the Cursor allowlist prefix. Suites: `mpe test list`.
 

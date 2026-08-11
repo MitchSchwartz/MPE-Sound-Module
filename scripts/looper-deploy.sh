@@ -1,5 +1,6 @@
 #!/bin/bash
-# Pull looper branch on the Pi and restart mpe-looper.service.
+# Pull looper branch on the Pi and restart mpe-looper.service, plus the patch
+# browser UI when the pull touched it (the looper HUD is drawn by that process).
 #
 # On Pi:   ./scripts/looper-deploy.sh [branch]
 # Laptop:  ./scripts/looper-deploy.sh [branch]   (SSH to PI_HOST from config/mpe.env)
@@ -18,6 +19,28 @@ _is_pi() {
     [ -f /proc/device-tree/model ] && grep -qi raspberry /proc/device-tree/model 2>/dev/null
 }
 
+# The looper transport and the HUD that displays it are two processes: this
+# script restarts mpe-looper.service, but patch_browser/ code is loaded by the
+# patch browser unit and stays on its old in-memory copy until that restarts.
+_restart_ui_if_changed() {
+    local before="$1"
+    local after browser
+    after="$(git rev-parse HEAD)"
+    if [ "$before" = "$after" ]; then
+        return 0
+    fi
+    if git diff --quiet "$before" "$after" -- patch_browser/ 2>/dev/null; then
+        return 0
+    fi
+    browser="$(mpe_patch_browser_unit)"
+    if systemctl is-active --quiet "$browser" 2>/dev/null; then
+        sudo systemctl restart "$browser"
+        echo "UI restarted: $browser (patch_browser/ changed)"
+    else
+        echo "UI not running: $browser — start it to pick up the patch_browser/ changes"
+    fi
+}
+
 _deploy_on_pi() {
     local branch="$1"
     if [ ! -d "$MPE_MODULE_REPO/.git" ]; then
@@ -26,6 +49,8 @@ _deploy_on_pi() {
     fi
     cd "$MPE_MODULE_REPO"
     echo "Looper deploy: fetch $branch ..."
+    local before
+    before="$(git rev-parse HEAD)"
     git fetch origin "$branch"
     git checkout "$branch"
     git pull origin "$branch"
@@ -50,6 +75,8 @@ _deploy_on_pi() {
         pkill -f 'scripts/mpe-looper.py' 2>/dev/null || true
         echo "Deployed $(git rev-parse --short HEAD) — MPE_LOOPER_ENABLED=0 (run looper-audio-route.sh on)"
     fi
+
+    _restart_ui_if_changed "$before"
 }
 
 if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
@@ -58,6 +85,7 @@ Usage: $0 [branch]
 
 Default branch: yolo/looper-phase0
 Pull on Pi and restart mpe-looper.service when MPE_LOOPER_ENABLED=1.
+Also restarts the patch browser UI unit when the pull changed patch_browser/.
 EOF
     exit 0
 fi
