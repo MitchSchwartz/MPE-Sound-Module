@@ -70,5 +70,7 @@ LOOPER_HUD_PAD_X = 6
 LOOPER_HUD_V_PAD = 4
 LOOPER_HUD_COUNTER_GAP = 8
 LOOPER_HUD_BEAT_GAP = 3
-LOOPER_HUD_MIN_W = 72
+# Wide enough that the bar sweep has pixels to move through — at 72 the four
+# beat boxes floored to 4px each and the motion quantized into visible steps.
+LOOPER_HUD_MIN_W = 160
 LOOPER_HUD_TITLE_GAP = 10

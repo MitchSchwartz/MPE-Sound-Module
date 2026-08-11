@@ -28,7 +28,6 @@ from patch_browser.touch_ui_constants import (
     FADER_HANDLE_H,
     FADER_HANDLE_W,
     LONG_PRESS_S,
-    LOOPER_HUD_BEAT_GAP,
     LOOPER_HUD_COUNTER_GAP,
     LOOPER_HUD_PAD_X,
     LOOPER_HUD_V_PAD,
@@ -39,8 +38,8 @@ from patch_browser.touch_ui_constants import (
 )
 from patch_browser.audio_profile import header_badge_label
 from patch_browser.looper_hud import (
+    looper_hud_bar_progress,
     looper_hud_interpolated_frames,
-    looper_hud_segment_fills,
     looper_hud_tick_from_internal,
 )
 from patch_browser.midi_clock import (
@@ -399,6 +398,30 @@ class TouchBrowserDrawMixin:
             border_radius=3,
         )
 
+    def _draw_looper_sweep(self, track: pygame.Rect, progress: float, color) -> None:
+        """Fill the track, blending the leading edge by its fractional pixel.
+
+        Truncating the fill to whole pixels quantizes the sweep into steps you
+        can see — the header only affords the HUD a few dozen pixels, so at
+        120 BPM a whole-pixel edge moves once every ~30 ms. Carrying the
+        remainder as alpha on the edge pixel restores the motion between them.
+        """
+        span = max(0.0, min(1.0, progress)) * track.w
+        whole = int(span)
+        if whole > 0:
+            pygame.draw.rect(
+                self.screen,
+                color,
+                pygame.Rect(track.x, track.y, whole, track.h),
+                border_radius=3,
+            )
+        remainder = span - whole
+        if remainder > 0.0 and whole < track.w:
+            rgb = pygame.Color(color)
+            edge = pygame.Surface((1, track.h), pygame.SRCALPHA)
+            edge.fill((rgb.r, rgb.g, rgb.b, int(remainder * 255)))
+            self.screen.blit(edge, (track.x + whole, track.y))
+
     def _draw_looper_hud(self, rect: Rect) -> None:
         if rect.w <= 0:
             return
@@ -417,7 +440,7 @@ class TouchBrowserDrawMixin:
             beats = max(1, int(internal.get("beats_per_bar") or 4))
             fpb = internal.get("frames_per_beat")
             if fpb:
-                fills = looper_hud_segment_fills(
+                progress = looper_hud_bar_progress(
                     total_frames=looper_hud_interpolated_frames(internal),
                     frames_per_beat=int(fpb),
                     beats_per_bar=beats,
@@ -425,7 +448,7 @@ class TouchBrowserDrawMixin:
             else:
                 # No frame counter in the payload — degrade to discrete eighth ticks,
                 # which are two per beat, so the bar still advances.
-                fills = looper_hud_segment_fills(
+                progress = looper_hud_bar_progress(
                     total_frames=looper_hud_tick_from_internal(internal),
                     frames_per_beat=2,
                     beats_per_bar=beats,
@@ -450,23 +473,18 @@ class TouchBrowserDrawMixin:
             if beat_w <= 0:
                 return
 
-            seg_gap = LOOPER_HUD_BEAT_GAP
-            seg_w = max(4, (beat_w - seg_gap * max(0, beats - 1)) // beats)
-
-            for i in range(beats):
-                seg = pygame.Rect(
-                    beat_x + i * (seg_w + seg_gap),
-                    beat_y,
-                    seg_w,
-                    beat_h,
+            track_rect = pygame.Rect(beat_x, beat_y, beat_w, beat_h)
+            pygame.draw.rect(self.screen, track, track_rect, border_radius=3)
+            self._draw_looper_sweep(track_rect, progress, accent)
+            for i in range(1, beats):
+                tick_x = beat_x + round(beat_w * i / beats)
+                pygame.draw.line(
+                    self.screen,
+                    muted,
+                    (tick_x, beat_y),
+                    (tick_x, beat_y + beat_h - 1),
                 )
-                pygame.draw.rect(self.screen, track, seg, border_radius=3)
-                pygame.draw.rect(self.screen, muted, seg, width=1, border_radius=3)
-                fill = fills[i] if i < len(fills) else 0.0
-                fill_w = int(seg.w * fill)
-                if fill_w > 0:
-                    fill_rect = pygame.Rect(seg.x, seg.y, fill_w, seg.h)
-                    pygame.draw.rect(self.screen, accent, fill_rect, border_radius=3)
+            pygame.draw.rect(self.screen, muted, track_rect, width=1, border_radius=3)
 
             if frac_surf is not None:
                 frac_y = rect.y + (rect.h - frac_surf.get_height()) // 2

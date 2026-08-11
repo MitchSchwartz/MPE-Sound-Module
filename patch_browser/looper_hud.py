@@ -1,4 +1,4 @@
-"""Boss-style looper HUD — continuous beat fill + bar counter."""
+"""Boss-style looper HUD — continuous bar sweep + bar counter."""
 
 from __future__ import annotations
 
@@ -163,21 +163,23 @@ def looper_hud_tick_from_internal(internal: dict, *, now: float | None = None) -
     return max(0, int(internal.get("tick_in_bar") or 0))
 
 
-def looper_hud_segment_fills(
+def looper_hud_bar_progress(
     *,
     total_frames: int,
     frames_per_beat: int,
     beats_per_bar: int,
-) -> list[float]:
-    """Continuous fill per beat segment in 0.0 … 1.0, taken modulo the bar.
+) -> float:
+    """Continuous 0.0 … 1.0 position within the current bar.
 
-    Beats the playhead has passed read 1.0, the beat it is inside reads its
-    fraction, beats ahead read 0.0 — so the display resets at each bar line.
+    One sweep per bar rather than a fill per beat: the header leaves the HUD
+    only a few dozen pixels, and spending all of them on a single travelling
+    edge gives the motion `beats_per_bar` times more pixels to move through.
+    Wraps to 0.0 on each bar line.
     """
     fpb = max(1, int(frames_per_beat))
     beats = max(1, int(beats_per_bar))
-    pos = max(0, int(total_frames)) % (fpb * beats)
-    return [min(1.0, max(0.0, (pos - i * fpb) / fpb)) for i in range(beats)]
+    fpbar = fpb * beats
+    return (max(0, int(total_frames)) % fpbar) / fpbar
 
 
 def looper_hud_min_width_px(*, frac_label: str = "8/8") -> int:

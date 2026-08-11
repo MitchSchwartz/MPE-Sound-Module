@@ -15,7 +15,7 @@ from patch_browser.looper_hud import (
     looper_hud_interpolated_frames,
     looper_hud_is_visible,
     looper_hud_min_width_px,
-    looper_hud_segment_fills,
+    looper_hud_bar_progress,
     looper_hud_tick_from_internal,
     looper_hud_tick_in_bar,
     merge_looper_hud_snapshot,
@@ -63,8 +63,8 @@ class LooperHudTests(unittest.TestCase):
         }
         self.assertEqual(looper_hud_bar_fraction(snap), "2/4")
 
-    def _fills(self, total_frames: int, *, beats: int = 4) -> list[float]:
-        return looper_hud_segment_fills(
+    def _progress(self, total_frames: int, *, beats: int = 4) -> float:
+        return looper_hud_bar_progress(
             total_frames=total_frames,
             frames_per_beat=self.FPB,
             beats_per_bar=beats,
@@ -78,39 +78,40 @@ class LooperHudTests(unittest.TestCase):
             0,
         )
 
-    def test_segment_fills_are_continuous_within_a_beat(self) -> None:
+    def test_bar_progress_sweeps_once_per_bar(self) -> None:
         fpb = self.FPB
-        self.assertEqual(self._fills(0), [0.0, 0.0, 0.0, 0.0])
-        self.assertEqual(self._fills(fpb // 4), [0.25, 0.0, 0.0, 0.0])
-        self.assertEqual(self._fills(fpb // 2), [0.5, 0.0, 0.0, 0.0])
-        self.assertEqual(self._fills(fpb), [1.0, 0.0, 0.0, 0.0])
-        self.assertEqual(self._fills(fpb + fpb // 2), [1.0, 0.5, 0.0, 0.0])
+        self.assertEqual(self._progress(0), 0.0)
+        self.assertEqual(self._progress(fpb), 0.25)
+        self.assertEqual(self._progress(fpb * 2), 0.5)
+        self.assertEqual(self._progress(fpb * 3), 0.75)
+        self.assertAlmostEqual(self._progress(fpb * 4 - 1), 1.0, places=4)
 
-    def test_segment_fills_advance_smoothly_not_in_half_steps(self) -> None:
-        """Sub-tick frame deltas must move the fill — the HUD wobble regression."""
-        fpb = self.FPB
-        step = fpb // 100
-        seen = [self._fills(step * i)[0] for i in range(1, 20)]
+    def test_bar_progress_advances_on_sub_pixel_frame_deltas(self) -> None:
+        """A 160px HUD sweeping a 2s bar moves <1px per frame — the staccato cause.
+
+        Progress must resolve deltas far finer than one pixel so the renderer
+        has a fractional remainder to blend into the leading edge.
+        """
+        fpbar = self.FPB * 4
+        step = fpbar // 2000
+        seen = [self._progress(step * i) for i in range(1, 40)]
         self.assertEqual(seen, sorted(seen))
         self.assertEqual(len(set(seen)), len(seen))
 
-    def test_segment_fills_reset_to_zero_at_each_bar_line(self) -> None:
-        fpb = self.FPB
-        fpbar = fpb * 4
-        last = self._fills(fpbar - 1)
-        self.assertEqual(last[:3], [1.0, 1.0, 1.0])
-        self.assertGreater(last[3], 0.99)
-        self.assertEqual(self._fills(fpbar), [0.0, 0.0, 0.0, 0.0])
-        self.assertEqual(self._fills(fpbar * 3), [0.0, 0.0, 0.0, 0.0])
+    def test_bar_progress_resets_to_zero_at_each_bar_line(self) -> None:
+        fpbar = self.FPB * 4
+        self.assertEqual(self._progress(fpbar), 0.0)
+        self.assertEqual(self._progress(fpbar * 3), 0.0)
+        self.assertEqual(self._progress(fpbar * 3 + self.FPB), 0.25)
 
-    def test_segment_fills_clamp_negative_and_odd_meter(self) -> None:
-        self.assertEqual(self._fills(-500), [0.0, 0.0, 0.0, 0.0])
-        self.assertEqual(len(self._fills(0, beats=3)), 3)
+    def test_bar_progress_clamps_negative_and_guards_zero_meter(self) -> None:
+        self.assertEqual(self._progress(-500), 0.0)
+        self.assertAlmostEqual(self._progress(self.FPB, beats=3), 1 / 3)
         self.assertEqual(
-            looper_hud_segment_fills(
+            looper_hud_bar_progress(
                 total_frames=10, frames_per_beat=0, beats_per_bar=0
             ),
-            [0.0],
+            0.0,
         )
 
     def test_eighth_index_increases_on_loop_wrap(self) -> None:
