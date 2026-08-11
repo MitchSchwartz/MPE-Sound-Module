@@ -8,9 +8,8 @@ from enum import StrEnum
 from patch_browser.looper_bar_clock import LooperBarClock
 from patch_browser.looper_engine import (
     StereoRingBuffer,
-    apply_gain_s16_stereo,
     loop_length_frames,
-    mix_s16_stereo,
+    mix_live_and_loops,
 )
 
 
@@ -70,6 +69,10 @@ class ClipMatrix:
             for s in self.slots.values()
         )
 
+    def _begin_playback(self, clip: ClipSlot) -> None:
+        clip.state = ClipState.PLAYING
+        clip.playback_frame = 0
+
     def on_grid(self, row: int, col: int) -> None:
         clip = self.slot(row, col)
         if clip is None:
@@ -79,12 +82,14 @@ class ClipMatrix:
             clip.state = ClipState.RECORDING
             return
         if clip.state == ClipState.RECORDING:
-            clip.state = ClipState.STOPPED if clip.has_content else ClipState.EMPTY
-            clip.playback_frame = 0
+            if clip.has_content:
+                self._begin_playback(clip)
+            else:
+                clip.state = ClipState.EMPTY
+                clip.playback_frame = 0
             return
         if clip.state == ClipState.STOPPED and clip.has_content:
-            clip.state = ClipState.PLAYING
-            clip.playback_frame = 0
+            self._begin_playback(clip)
             return
         if clip.state == ClipState.PLAYING:
             clip.state = ClipState.STOPPING
@@ -127,7 +132,7 @@ class ClipMatrix:
         if self.clock.advance(period_frames):
             self._apply_bar_boundary()
 
-        out = apply_gain_s16_stereo(live_pcm, self.live_gain) if self.live_gain != 1.0 else live_pcm
+        loop_chunks: list[bytes] = []
 
         for key in self.enabled_slots:
             clip = self.slots.get(key)
@@ -137,20 +142,22 @@ class ClipMatrix:
             if clip.state == ClipState.RECORDING:
                 clip.ring.write_frames(live_pcm)
                 if clip.ring.is_full:
-                    clip.state = ClipState.STOPPED
-                    clip.playback_frame = 0
+                    self._begin_playback(clip)
                 continue
 
             if clip.state not in (ClipState.PLAYING, ClipState.STOPPING):
                 continue
 
-            loop_pcm = clip.ring.read_frames(clip.playback_frame, period_frames)
-            loop_pcm = apply_gain_s16_stereo(loop_pcm, self.loop_gain)
-            out = mix_s16_stereo(out, loop_pcm, gains=(1.0, 1.0))
+            loop_chunks.append(clip.ring.read_frames(clip.playback_frame, period_frames))
             cap = clip.ring.capacity_frames
             clip.playback_frame = (clip.playback_frame + period_frames) % cap
 
-        return out
+        return mix_live_and_loops(
+            live_pcm,
+            loop_chunks,
+            live_gain=self.live_gain,
+            loop_gain=self.loop_gain,
+        )
 
     @classmethod
     def create_v1(

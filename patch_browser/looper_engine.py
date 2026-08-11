@@ -5,8 +5,15 @@ from __future__ import annotations
 import struct
 from dataclasses import dataclass
 
+try:
+    import audioop
+except ImportError:  # pragma: no cover — removed in Python 3.13+
+    audioop = None  # type: ignore[assignment]
+
 S16_STEREO_FRAME_BYTES = 4
 S16_CLIP = 32767
+_AUDIOOP_WIDTH = 2
+_GAIN_SCALE = 32768
 
 
 def frames_to_bytes(frames: int) -> int:
@@ -147,4 +154,38 @@ def mix_s16_stereo(
 def apply_gain_s16_stereo(pcm: bytes, gain: float) -> bytes:
     if gain == 1.0:
         return pcm
+    if audioop is not None:
+        factor = max(0, min(_GAIN_SCALE, int(round(gain * _GAIN_SCALE))))
+        return audioop.mul(pcm, _AUDIOOP_WIDTH, factor)
     return mix_s16_stereo(pcm, gains=(gain,))
+
+
+def mix_live_and_loops(
+    live_pcm: bytes,
+    loop_chunks: list[bytes],
+    *,
+    live_gain: float = 1.0,
+    loop_gain: float = 1.0,
+) -> bytes:
+    """Sum live input plus zero or more loop layers (fast ``audioop`` path on Pi)."""
+    if not loop_chunks:
+        return apply_gain_s16_stereo(live_pcm, live_gain) if live_gain != 1.0 else live_pcm
+
+    if audioop is not None:
+        out = (
+            audioop.mul(live_pcm, _AUDIOOP_WIDTH, int(round(live_gain * _GAIN_SCALE)))
+            if live_gain != 1.0
+            else live_pcm
+        )
+        loop_factor = max(0, min(_GAIN_SCALE, int(round(loop_gain * _GAIN_SCALE))))
+        for chunk in loop_chunks:
+            if loop_factor == _GAIN_SCALE:
+                scaled = chunk
+            else:
+                scaled = audioop.mul(chunk, _AUDIOOP_WIDTH, loop_factor)
+            out = audioop.add(out, scaled, _AUDIOOP_WIDTH)
+        return out
+
+    streams = [live_pcm, *loop_chunks]
+    gains: list[float] = [live_gain, *([loop_gain] * len(loop_chunks))]
+    return mix_s16_stereo(*streams, gains=tuple(gains))

@@ -11,6 +11,7 @@ from patch_browser.looper_engine import (
     bytes_to_frames,
     frames_to_bytes,
     loop_length_frames,
+    mix_live_and_loops,
     mix_s16_stereo,
 )
 
@@ -51,6 +52,16 @@ class LooperEngineTests(unittest.TestCase):
     def test_apply_gain_identity(self) -> None:
         pcm = _stereo_frame(500, -500) * 2
         self.assertEqual(apply_gain_s16_stereo(pcm, 1.0), pcm)
+
+    def test_mix_live_and_loops_two_layers(self) -> None:
+        live = b"".join(_stereo_frame(100, 100) for _ in range(4))
+        loop_a = b"".join(_stereo_frame(200, 0) for _ in range(4))
+        loop_b = b"".join(_stereo_frame(0, 200) for _ in range(4))
+        mixed = mix_live_and_loops(live, [loop_a, loop_b], live_gain=1.0, loop_gain=1.0)
+        self.assertEqual(len(mixed), len(live))
+        left, right = struct.unpack("<hh", mixed[:4])
+        self.assertEqual(left, 300)
+        self.assertEqual(right, 300)
 
     def test_frames_to_bytes_roundtrip(self) -> None:
         self.assertEqual(bytes_to_frames(frames_to_bytes(128)), 128)
