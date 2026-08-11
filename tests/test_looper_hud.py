@@ -72,6 +72,7 @@ class LooperHudTests(unittest.TestCase):
 
     def test_segment_fill_from_frame_clock(self) -> None:
         fpb = self.FPB
+        frames_per_bar = fpb * 4
         self.assertEqual(
             looper_hud_segment_fill_halves(
                 total_frames=0, frames_per_beat=fpb, beats_per_bar=4
@@ -84,7 +85,6 @@ class LooperHudTests(unittest.TestCase):
             ),
             [1, 0, 0, 0],
         )
-        # Last frame of beat 1 — first box full (not deferred to beat 2 downbeat).
         self.assertEqual(
             looper_hud_segment_fill_halves(
                 total_frames=fpb - 1, frames_per_beat=fpb, beats_per_bar=4
@@ -93,15 +93,18 @@ class LooperHudTests(unittest.TestCase):
         )
         self.assertEqual(
             looper_hud_segment_fill_halves(
-                total_frames=fpb, frames_per_beat=fpb, beats_per_bar=4
-            ),
-            [2, 0, 0, 0],
-        )
-        self.assertEqual(
-            looper_hud_segment_fill_halves(
                 total_frames=fpb + fpb // 2, frames_per_beat=fpb, beats_per_bar=4
             ),
             [2, 1, 0, 0],
+        )
+        # Last frame of bar — all four beats full before wrap to bar 1.
+        self.assertEqual(
+            looper_hud_segment_fill_halves(
+                total_frames=frames_per_bar - 1,
+                frames_per_beat=fpb,
+                beats_per_bar=4,
+            ),
+            [2, 2, 2, 2],
         )
 
 
