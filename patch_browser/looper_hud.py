@@ -1,8 +1,10 @@
-"""Boss-style looper HUD display — one lit beat segment, bar counter."""
+"""Boss-style looper HUD — eighth-note ticks (half box) + bar counter."""
 
 from __future__ import annotations
 
 from patch_browser.looper_timing_state import read_timing_state
+
+TICKS_PER_BAR_DEFAULT = 8
 
 
 def merge_looper_hud_snapshot(pedal_snapshot: dict) -> dict:
@@ -61,16 +63,52 @@ def looper_hud_beat_segment_count(snapshot: dict) -> int:
     return 4
 
 
-def looper_hud_segment_lit(
+def looper_hud_tick_in_bar(
     *,
-    beat_in_bar: int,
+    total_frames: int,
+    frames_per_beat: int,
     beats_per_bar: int,
-    segment_index: int,
-) -> bool:
-    """Running light: exactly one segment lit — the current beat (1-based)."""
+    ticks_per_bar: int = TICKS_PER_BAR_DEFAULT,
+) -> int:
+    """0-based eighth-note index within the current bar (0 .. ticks_per_bar-1)."""
+    fpb = max(1, int(frames_per_beat))
     beats = max(1, int(beats_per_bar))
-    beat = max(1, min(beats, int(beat_in_bar)))
-    return int(segment_index) + 1 == beat
+    fpbar = fpb * beats
+    ticks = max(1, int(ticks_per_bar))
+    pos = int(total_frames) % fpbar
+    return min(ticks - 1, (pos * ticks) // fpbar)
+
+
+def looper_hud_eighth_index(
+    *,
+    total_frames: int,
+    frames_per_beat: int,
+    beats_per_bar: int,
+    ticks_per_bar: int = TICKS_PER_BAR_DEFAULT,
+) -> int:
+    """Monotonic eighth-note counter (publish dedupe — survives loop wrap)."""
+    fpb = max(1, int(frames_per_beat))
+    beats = max(1, int(beats_per_bar))
+    fpbar = fpb * beats
+    ticks = max(1, int(ticks_per_bar))
+    return int(total_frames) * ticks // fpbar
+
+
+def looper_hud_segment_halves(
+    *,
+    tick_in_bar: int,
+    beats_per_bar: int = 4,
+    ticks_per_beat: int = 2,
+) -> list[int]:
+    """Half-fill levels per beat segment: 0 empty, 1 half, 2 full (1/8 bar per tick)."""
+    beats = max(1, int(beats_per_bar))
+    ticks = max(1, int(ticks_per_beat))
+    filled = max(0, min(beats * ticks, int(tick_in_bar)))
+    out: list[int] = []
+    for i in range(beats):
+        seg_start = i * ticks
+        out.append(max(0, min(ticks, filled - seg_start)))
+    return out
 
 
 def looper_hud_min_width_px(*, frac_label: str = "8/8") -> int:

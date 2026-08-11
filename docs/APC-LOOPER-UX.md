@@ -105,8 +105,8 @@ When the on-device looper is active (or any clip recording/playing), show in the
 
 | Element | Behavior |
 |---------|----------|
-| **Beat bar** | Horizontal micro-bar, 4 segments (or `beats_per_bar`). **Running light:** exactly one segment lit — the current beat (1–4). Updates on **beat downbeats** only; no sub-beat fill, no accumulate-all-four. |
-| **Bar fraction** | Text **`n/N`** only (e.g. `2/4`). Updates on **bar downbeat** with beat row. Publisher uses monotonic global `beat_index` so loop wrap never skips an update. |
+| **Beat bar** | Horizontal micro-bar, 4 segments. **Eighth-note ticks:** half box per 1/8 bar (2 ticks per beat); empty at tick 0, full beat after 2 ticks. Updates on eighth boundaries. |
+| **Bar fraction** | Text **`n/N`**. Publisher uses monotonic **`eighth_index`** so loop wrap never skips an update. |
 | **BPM** | Optional right edge — internal tempo or synced MIDI clock (reuse `LooperClockMonitor` / `~/.mpe_midi_clock_state.json` when clock in enabled). |
 
 **Show when:** Any clip recording or playing; or user toggle (existing **Settings → Looper → show HUD**).
