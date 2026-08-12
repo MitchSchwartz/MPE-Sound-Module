@@ -218,6 +218,28 @@ mpe_jack_server_ready() {
     timeout 3 jack_lsp >/dev/null 2>&1
 }
 
+# Soak 2a vs 2d: masked jackd must rest degraded; an unmasked/start-requested unit
+# while Surge holds ALSA needs a Surge restart to release the device for jackd.
+mpe_jackd_unit_masked() {
+    systemctl is-enabled "$MPE_JACKD_SERVICE" 2>/dev/null | grep -qx masked
+}
+
+mpe_jackd_unit_seeking_start() {
+    local state enabled
+    mpe_jackd_unit_masked && return 1
+    state=$(systemctl show -p ActiveState --value "$MPE_JACKD_SERVICE" 2>/dev/null || echo inactive)
+    case "$state" in
+        active | activating | failed) return 0 ;;
+        inactive)
+            enabled=$(systemctl is-enabled "$MPE_JACKD_SERVICE" 2>/dev/null || true)
+            case "$enabled" in
+                enabled | static) return 0 ;;
+            esac
+            ;;
+    esac
+    return 1
+}
+
 # Bounded readiness wait — never a fixed sleep (spec D3 boot ordering).
 mpe_wait_for_jack_server() {
     local timeout="${1:-$(mpe_jack_ready_timeout)}"

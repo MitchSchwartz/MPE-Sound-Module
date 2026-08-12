@@ -456,6 +456,8 @@ pgrep() { return 1; }
 export -f pgrep
 mpe_jack_server_ready() { return 1; }
 mpe_surge_on_jack_graph() { return 1; }
+mpe_jackd_unit_seeking_start() { return 1; }
+mpe_jackd_unit_masked() { return 1; }
 _supervisor_restart_surge() { echo RESTART >&2; return 0; }
 export -f _supervisor_restart_surge
 """
@@ -464,6 +466,22 @@ export -f _supervisor_restart_surge
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(result.stdout.strip(), "degraded:alsa")
             self.assertNotIn("RESTART", result.stderr)
+
+    def test_surge_on_alsa_jackd_seeking_restarts_surge(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            env = _bash_env(tmp, MPE_AUDIO_ENGINE="jack")
+            Path(tmp, "surge.state").write_text("active=alsa\n", encoding="utf-8")
+            stubs = """
+mpe_jack_server_ready() { return 1; }
+mpe_surge_on_jack_graph() { return 1; }
+mpe_jackd_unit_seeking_start() { return 0; }
+mpe_jackd_unit_masked() { return 1; }
+_supervisor_restart_surge() { echo RESTART:release >&2; return 0; }
+export -f _supervisor_restart_surge
+"""
+            result = self._run_reconcile(env=env, stubs=stubs)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("RESTART:release", result.stderr)
 
     def test_surge_on_jack_graph_means_ok(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
