@@ -205,6 +205,26 @@ Reliability outranks latency: a smaller buffer that survives 10 minutes but fail
 
 ## Validation log
 
+### 2026-08-11 — looper mixer fixed; under-voltage is back
+
+**Rig:** Pi 4 Rev 1.5 · `standalone` · 48 kHz · 512-frame period · stock scheduling (`SCHED_OTHER` prio 0, `ondemand`) · Trixie, Python 3.13, `audioop-lts`.
+
+**Mixer.** The looper had been running the per-frame pure-Python mix on every deploy. `audioop.mul` was being passed a fixed-point integer (`gain * 32768`) where it expects a float multiplier, so every gain saturated; that saturation was misread as a `audioop-lts` behaviour difference and the C path was fenced behind `_AUDIOOP_BACKEND == "stdlib"`, which the Pi never satisfies. Measured on the Pi before the fix: gain 0.5 returned **32767** where 8000 was expected.
+
+| Layers | Before | After | Utilization after |
+|---|---|---|---|
+| 1 | — | 0.043 ms | 0.4% |
+| 3 | 13–14.5 ms (136%) | 0.090 ms | 0.8% |
+| 6 | — | 0.158 ms | 1.5% |
+
+Idle service over 20 s: **0 xruns** (`arecord` and `aplay`). Guarded by `MixerPerformanceTests` so the fallback cannot silently return. **Not yet validated by playing** three or six live loops.
+
+**Arm A½ status.** RT scheduling for the looper now exists as `MPE_LOOPER_RT_PRIORITY` (off by default, `chrt --fifo` wrapper mirroring `start-surge-cli.sh`). Governor is still `ondemand`; **not** changed, see below.
+
+**⚠ Under-voltage has returned — this overturns the 2026-08-10 Arm A0 pass.** `mpe sysinfo` reports **`throttled=0x50005`**: under-voltage detected *now* (bit 0), currently throttled *now* (bit 2), plus both since-boot history bits (16, 18). The 2026-08-10 entry below recorded `0x0` and concluded "power is no longer a confounder." That conclusion does not hold as of tonight.
+
+**Consequence for the remaining arms:** every timing measurement taken while the board is voltage-throttled has an uncontrolled variable in it, and pinning the governor to `performance` (Arm A½ sub-arm 1) asks for a clock the supply may not sustain. **Fix power before running further scheduling arms** — check the PSU and whether USB peripherals (Sound Blaster, APC mini, MIDI controller) should move to a powered hub.
+
 ### 2026-08-10 — Arm A0 pass, Arm A informal (buffer sweep)
 
 **Rig:** Pi 4 Rev 1.5 · `standalone` → Sound Blaster → headphones · Roli LUMI only · RC-5 absent · `midi-clock-in` stopped · 48 kHz · poly governor active · touch UI running · stock scheduling (`SCHED_OTHER` prio 0, `ondemand`).
