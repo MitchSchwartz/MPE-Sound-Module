@@ -5,6 +5,12 @@ Description=MPE JACK graph server (jackd2)
 After=sound.target
 Wants=sound.target
 ConditionPathExists=@MPE_MODULE_REPO@/scripts/start-jackd.sh
+# No start rate limit: jackd exits immediately when its card is absent, so the
+# default burst (5 in 10 s) would put the unit in permanent start-limit failure
+# within ~15 s of an unplugged DAC — and then refuse to start when the DAC comes
+# back. Retrying forever is safe because Surge keeps its own ALSA fallback, so a
+# looping jackd never means silence, while a wedged one blocks promotion.
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
