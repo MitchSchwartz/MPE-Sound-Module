@@ -104,6 +104,7 @@ mpe_enable_core_services() {
     mpe_enable_usb_audio_gadget
     mpe_enable_audio_profile_sync
     sudo systemctl enable mpe-cpu-governor.service 2>/dev/null || true
+    sudo systemctl enable --now mpe-jackd.service 2>/dev/null || true
     sudo systemctl enable --now mpe-pressure-remap.service 2>/dev/null || true
     if [ "$(mpe_read_appliance_env_var MPE_MIDI_CLOCK_IN_ENABLED 2>/dev/null || echo 1)" = "1" ]; then
         sudo systemctl enable --now midi-clock-in.service 2>/dev/null || true

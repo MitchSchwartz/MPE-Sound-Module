@@ -1,13 +1,14 @@
 [Unit]
 Description=Surge XT CLI Synthesizer (Headless)
-After=sound.target network.target usb-audio-gadget.service mpe-pressure-remap.service mpe-cpu-governor.service
-Wants=sound.target mpe-pressure-remap.service
+After=sound.target network.target usb-audio-gadget.service mpe-pressure-remap.service mpe-cpu-governor.service mpe-jackd.service
+Wants=sound.target mpe-pressure-remap.service mpe-jackd.service
 
 [Service]
 Type=forking
 User=@MPE_PI_USER@
 WorkingDirectory=@MPE_MODULE_REPO@
 EnvironmentFile=-/etc/mpe/mpe.env
+RuntimeDirectory=mpe
 # Permit (do not force) realtime scheduling for the JUCE audio thread.
 # systemd units bypass PAM, so /etc/security/limits.d does not apply here.
 LimitRTPRIO=95
