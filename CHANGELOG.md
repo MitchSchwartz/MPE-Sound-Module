@@ -3,6 +3,26 @@
 Notable engineering work, grouped by session. Each per-topic doc under `docs/`
 carries the detailed technical narrative; this file is the chronological index.
 
+## 2026-08-12 — JACK audio engine Phase 1 review fixes
+
+Independent code review on `yolo/jack-audio-engine-phase1`. Safety theme: never boot
+silent, never wedge the audio service.
+
+- **Stripped looper cherry-picks** (`mpe-looper.py`, service wrapper, route script,
+  unit) — guard policy retained in `engine-guard.sh` + `patch_browser/audio_engine.py`.
+- **B2:** `RuntimeDirectoryPreserve=yes` on `surge-xt-cli` and `surge-watchdog` so
+  `/run/mpe` cooldown state survives Surge restarts.
+- **B3:** Watchdog publishes `degraded` and takes no action when Surge is already on
+  ALSA and jackd is down (criterion 2a settle, not bounce loop).
+- **B4:** udev `99-usb-audio.rules` → `restart-audio-graph.sh` (engine-aware,
+  `--no-block`).
+- **M1–M4:** Bounded `--list-devices`, removed dead jackd sleep loop, symmetric
+  `jack_lsp` probes, atomic state writes, dead-code removal.
+- **Criterion 13:** Touch HUD engine badge (`patch_browser/audio_engine.py`,
+  `touch_browser_draw.py`).
+- Spec: criterion 10 deferred to `yolo/looper-phase0` merge; criterion 13 marked
+  implemented.
+
 ## 2026-08-01 — KMSDRM/USB engineering pass + calibration regression chain
 
 ### KMSDRM crash loop, boot/shutdown splash handoff

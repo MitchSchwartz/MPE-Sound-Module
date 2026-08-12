@@ -46,7 +46,7 @@ _supervisor_restart_surge() {
     log "RECONCILE restarting Surge ($reason)"
     mpe_engine_reconcile_record_restart
     mpe_engine_state_write "$(mpe_audio_engine)" "$(mpe_engine_state_get active)" recovering "$reason" "$looper_label"
-    sudo systemctl restart "$SURGE_SERVICE"
+    mpe_systemctl restart "$SURGE_SERVICE"
     return 0
 }
 
@@ -67,6 +67,13 @@ _reconcile_engine() {
     fi
 
     if ! mpe_jack_server_ready; then
+        # Surge already running correctly on ALSA — publish degraded, take no action
+        # (criterion 2a: jackd masked must not bounce audio forever).
+        if [ "$(mpe_surge_active_engine)" = alsa ]; then
+            mpe_engine_state_write "$requested" alsa degraded no-server "$looper_label"
+            mpe_engine_reconcile_reset
+            return 0
+        fi
         waited=0
         while [ "$waited" -lt "$RECONCILE_BUDGET" ]; do
             if mpe_jack_server_ready; then

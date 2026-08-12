@@ -1,8 +1,9 @@
-"""Audio engine selection, watchdog cooldown, and looper guard (Phase 1 JACK)."""
+"""Audio engine selection, watchdog cooldown, looper guard, and HUD state reader."""
 
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from typing import Literal
 
 ReconcileAction = Literal["proceed", "skip_cooldown", "skip_jackd_settling", "escalate_failed"]
@@ -13,6 +14,10 @@ LOOPER_GUARD_MESSAGE = (
 
 DEFAULT_ENGINE = "jack"
 VALID_ENGINES = frozenset({"jack", "alsa"})
+VALID_ENGINE_STATES = frozenset({"ok", "degraded", "recovering", "failed"})
+VALID_LOOPER_LABELS = frozenset({"guarded", "enabled", "off"})
+
+ENGINE_STATE_FILE = Path("/run/mpe/engine.state")
 
 COOLDOWN_SEC = 90
 JACKD_SETTLE_SEC = 15
@@ -73,3 +78,65 @@ def reconcile_cooldown_decide(
         return "skip_cooldown", f"last supervisor restart {elapsed}s ago (< {cooldown_sec}s)"
 
     return "proceed", f"cooldown satisfied ({elapsed}s since last restart)"
+
+
+def read_engine_state(path: Path | None = None) -> dict[str, str]:
+    """Parse ``engine.state``; tolerate missing, empty, or partially-written files."""
+    target = path or ENGINE_STATE_FILE
+    result: dict[str, str] = {}
+    try:
+        raw = target.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return result
+    for line in raw.splitlines():
+        if "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip()
+        value = value.strip()
+        if key:
+            result[key] = value
+    return result
+
+
+def engine_hud_should_show(state: dict[str, str] | None) -> bool:
+    """Header badge when runtime state is published or looper is guarded."""
+    if not state:
+        return False
+    if state.get("looper") == "guarded":
+        return True
+    engine = state.get("engine") or state.get("active")
+    status = state.get("state")
+    return bool(engine or status)
+
+
+def engine_hud_label(state: dict[str, str] | None) -> str:
+    """Compact touch HUD label for engine + state + looper guard."""
+    if not state:
+        return ""
+    active = state.get("active") or state.get("engine") or "?"
+    status = state.get("state") or "?"
+    parts: list[str] = []
+    if active in VALID_ENGINES:
+        parts.append(active.upper())
+    else:
+        parts.append(str(active)[:4].upper())
+    if status in VALID_ENGINE_STATES and status != "ok":
+        parts.append(status[:3])
+    if state.get("looper") == "guarded":
+        parts.append("L⛔")
+    return "·".join(parts) if parts else ""
+
+
+def engine_hud_semantic(state: dict[str, str] | None) -> str:
+    """Theme token: accent for degraded/recovering, danger for failed."""
+    if not state:
+        return "muted"
+    status = state.get("state")
+    if status == "failed":
+        return "danger"
+    if status in {"degraded", "recovering"}:
+        return "accent"
+    if state.get("looper") == "guarded":
+        return "accent"
+    return "muted"

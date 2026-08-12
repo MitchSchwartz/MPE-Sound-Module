@@ -9,6 +9,7 @@ User=@MPE_PI_USER@
 WorkingDirectory=@MPE_MODULE_REPO@
 EnvironmentFile=-/etc/mpe/mpe.env
 RuntimeDirectory=mpe
+RuntimeDirectoryPreserve=yes
 # Permit (do not force) realtime scheduling for the JUCE audio thread.
 # systemd units bypass PAM, so /etc/security/limits.d does not apply here.
 LimitRTPRIO=95
