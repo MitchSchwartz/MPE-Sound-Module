@@ -111,6 +111,28 @@ def looper_hud_bar_fraction(snapshot: dict, *, now: float | None = None) -> str:
     return ""
 
 
+def looper_health_badge(internal: dict) -> tuple[str, str] | None:
+    """``(label, severity)`` for the HUD when audio is in trouble, else ``None``.
+
+    Silent while healthy: the bar counter is more useful than a permanent "97%"
+    nobody reads. Xruns outrank utilization because a dropped period is damage
+    already done, where a high percentage is only a warning.
+    """
+    health = internal.get("health") or {}
+    xruns = int(health.get("xruns") or 0)
+    if xruns > 0:
+        return (f"!{xruns}" if xruns < 100 else "!99+", "danger")
+    max_pct = health.get("max_pct")
+    if max_pct is None:
+        return None
+    max_pct = float(max_pct)
+    if max_pct >= 100.0:
+        return (f"{max_pct:.0f}%", "danger")
+    if max_pct >= 75.0:
+        return (f"{max_pct:.0f}%", "warn")
+    return None
+
+
 def looper_hud_beat_segment_count(snapshot: dict) -> int:
     internal = looper_hud_internal(snapshot)
     if internal.get("active"):

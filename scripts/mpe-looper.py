@@ -57,6 +57,7 @@ from patch_browser.control_surfaces.apc_session_midi import (  # noqa: E402
     check_clear_session_hold,
     handle_apc_session_message,
 )
+from patch_browser.looper_health import LooperHealth  # noqa: E402
 from patch_browser.looper_period_debug import (  # noqa: E402
     LooperPeriodDebug,
     count_playing_layers,
@@ -143,8 +144,12 @@ def _sync_grid_leds(leds: ApcLedFeedback | None, matrix: ClipMatrix) -> None:
     leds.show_clip_matrix(matrix)
 
 
-def _publish_timing(_publisher: LooperTimingPublisher, matrix: ClipMatrix) -> None:
-    _publisher.publish_from_matrix(matrix)
+def _publish_timing(
+    _publisher: LooperTimingPublisher,
+    matrix: ClipMatrix,
+    health: dict | None = None,
+) -> None:
+    _publisher.publish_from_matrix(matrix, health=health)
 
 
 def run_looper_grid(
@@ -181,6 +186,7 @@ def run_looper_grid(
     _sync_grid_leds(leds, matrix)
 
     period_budget_s = period_frames / sample_rate
+    health = LooperHealth(period_budget_s=period_budget_s)
     debug = LooperPeriodDebug.create_if_enabled(period_budget_s=period_budget_s)
     if debug is not None:
         print(
@@ -214,7 +220,9 @@ def run_looper_grid(
             if len(chunk) < period_bytes:
                 chunk = chunk + b"\x00" * (period_bytes - len(chunk))
 
-            iter_start = time.monotonic() if debug is not None else 0.0
+            # Always timed: two monotonic reads per 10.67 ms period is noise next
+            # to the mix itself, and without it the HUD has no deadline signal.
+            iter_start = time.monotonic()
             if debug is not None:
                 debug.record_arrival(iter_start)
 
@@ -243,20 +251,23 @@ def run_looper_grid(
 
             active = matrix.is_active
             if active:
+                health_snap = health.snapshot(xruns=session_xrun_total(monitors))
                 if debug is not None:
                     publish_start = time.monotonic()
-                    _publish_timing(timing_pub, matrix)
+                    _publish_timing(timing_pub, matrix, health_snap)
                     debug.record_publish(time.monotonic() - publish_start)
                 else:
-                    _publish_timing(timing_pub, matrix)
+                    _publish_timing(timing_pub, matrix, health_snap)
                 transport_active = True
             elif transport_active:
                 matrix.clock.reset()
                 timing_pub.clear()
                 transport_active = False
 
+            elapsed_s = time.monotonic() - iter_start
+            health.record_period(elapsed_s, iter_start)
             if debug is not None:
-                debug.record(time.monotonic() - iter_start, count_playing_layers(matrix))
+                debug.record(elapsed_s, count_playing_layers(matrix))
 
             now = time.monotonic()
             if now - last_report >= 5.0:

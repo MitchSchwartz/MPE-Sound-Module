@@ -38,10 +38,12 @@ def write_timing_state(
     total_frames: int | None = None,
     frames_per_beat: int | None = None,
     sample_rate: int | None = None,
+    health: dict | None = None,
     path: Path | None = None,
 ) -> None:
     target = path or TIMING_STATE_FILE
     payload = {
+        "health": health,
         "active": active,
         "bpm": bpm,
         "beat_in_bar": beat_in_bar,
@@ -99,6 +101,7 @@ def read_timing_state(
         "total_frames": 0,
         "frames_per_beat": None,
         "sample_rate": None,
+        "health": None,
         "updated_at": None,
     }
     try:
@@ -122,5 +125,6 @@ def read_timing_state(
         "total_frames": int(data.get("total_frames") or 0) if online else 0,
         "frames_per_beat": data.get("frames_per_beat") if online else None,
         "sample_rate": data.get("sample_rate") if online else None,
+        "health": data.get("health") if online else None,
         "updated_at": updated if online else None,
     }
