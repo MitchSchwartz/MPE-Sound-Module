@@ -56,7 +56,9 @@ Full workflow: [`docs/PATCH-EDITING-WORKFLOW.md`](docs/PATCH-EDITING-WORKFLOW.md
 
 ### Q: What's the total latency?
 
-**A:** Not formally benchmarked end-to-end. The signal path is USB MIDI in → Surge XT CLI → direct ALSA → USB audio dongle out, with no JACK layer in between — fewer buffering stages than a JACK-based setup, but treat any specific number as unverified until measured on your own hardware.  
+**A:** Not formally benchmarked end-to-end. Playing the synth on its own, the signal path is USB MIDI in → Surge XT CLI → direct ALSA → USB audio dongle out, with no JACK layer in between. Treat any specific number as unverified until measured on your own hardware.
+
+With the **looper** running, the path is longer, not shorter: Surge → `snd-aloop` → `arecord` → pipe → mixer → pipe → `aplay` → dongle. That is more buffering stages than an equivalent JACK graph, so the no-JACK choice should be read as "simpler to set up and one less daemon on an appliance" rather than "lower latency." See [`docs/AUDIO-ENGINE-FOUNDATION.md`](docs/AUDIO-ENGINE-FOUNDATION.md).  
   
 From experience there's no significant latency when playing.
 

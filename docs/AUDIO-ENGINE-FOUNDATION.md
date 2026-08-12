@@ -1,6 +1,10 @@
 # Audio engine foundation — how it works, what's actually broken, what to build
 
-*Last updated: 2026-08-11 19:34 (America/Toronto)*
+*Last updated: 2026-08-11 23:45 (America/Toronto)*
+
+**Status:** Part A (mixer fix) and Part B2/B3 (realtime opt-in, HUD health) are
+done and measured — see the appendix. B1 (CPU governor) is open, and the board
+turned out to be under-voltage, which matters more (§Appendix).
 
 **Purpose:** this is a teaching document, not a task list. It explains the audio
 fundamentals underneath the looper so you can weigh in on the architecture
@@ -130,42 +134,37 @@ multiplier**. Gain 0.5 means you pass `0.5`.
 
 Our code passes a fixed-point integer instead:
 
-```218:224:patch_browser/looper_engine.py
-def apply_gain_s16_stereo(pcm: bytes, gain: float) -> bytes:
-    if gain == 1.0:
-        return pcm
-    if audioop is not None:
-        factor = max(0, min(_GAIN_SCALE, int(round(gain * _GAIN_SCALE))))
-        return audioop.mul(pcm, _AUDIOOP_WIDTH, factor)
-    return mix_s16_stereo(pcm, gains=(gain,))
+```python
+factor = max(0, min(_GAIN_SCALE, int(round(gain * _GAIN_SCALE))))  # _GAIN_SCALE = 32768
+return audioop.mul(pcm, _AUDIOOP_WIDTH, factor)
 ```
 
-with `_GAIN_SCALE = 32768`. So a requested gain of 0.5 is sent to `audioop` as
-**16384** — it multiplies every sample by sixteen thousand, and everything
-saturates to full scale. Requested gain 1.0 would multiply by 32768.
+So a requested gain of 0.5 was sent to `audioop` as **16384** — it multiplied
+every sample by sixteen thousand, and everything saturated to full scale.
+Requested gain 1.0 would multiply by 32768.
 
-This is almost certainly the real reason the fast path was disabled. Look at the
-comment guarding it:
+This was the real reason the fast path had been disabled. The comment guarding
+it read:
 
-```253:255:patch_browser/looper_engine.py
-    # Fast audioop path only on CPython 3.12 stdlib; 3.13+ backport (CI) clips before headroom.
-    if audioop is not None and _AUDIOOP_BACKEND == "stdlib":
-        loop_factor = max(0, min(_GAIN_SCALE, int(round(per_layer_gain * _GAIN_SCALE))))
+```python
+# Fast audioop path only on CPython 3.12 stdlib; 3.13+ backport (CI) clips before headroom.
+if audioop is not None and _AUDIOOP_BACKEND == "stdlib":
 ```
 
 The observed symptom — "it clips" — was real. The diagnosis — "the 3.13 backport
-behaves differently" — was, I believe, wrong. The clipping is ours: we hand the
-library a multiplier three to four orders of magnitude too large. It would clip
-identically on stdlib `audioop`; it just happened to be noticed on the backport.
+behaves differently" — was wrong. The clipping was ours: we handed the library a
+multiplier three to four orders of magnitude too large, which clips identically
+on stdlib `audioop`; it just happened to be noticed on the backport.
 
-**Inference, not yet measured.** It is one unit test to settle: mix a known
-half-scale signal at gain 0.5 and assert the output is quarter-scale rather than
-saturated. I would want that test to exist and fail before anyone changes a
-line.
+**Now measured, 2026-08-11.** A test that applies gain 0.5 to a half-scale
+signal returned **32767 where 8000 was expected**. Written to fail first, run on
+the Pi, then made to pass by passing the float gain. See
+`tests/test_looper_engine.py`.
 
-The consequence is large: because the fast C path was fenced off behind
-`_AUDIOOP_BACKEND == "stdlib"`, and the Pi reports `lts`, **the Pi has been
-running the pure-Python fallback all along** — which is the crackle.
+The consequence was large: because the C path was fenced off behind
+`_AUDIOOP_BACKEND == "stdlib"`, and the Pi reports `lts`, **the Pi had been
+running the pure-Python fallback all along** — which was the crackle. Both
+faults were one edit: pass the float, drop the fence.
 
 ---
 
@@ -204,9 +203,10 @@ wrote in 1993. **NumPy is the honest long-term answer for a Python mixer.**
 
 ### Why the pure-Python loop is catastrophic, specifically
 
-Here is the fallback that is actually running on the Pi:
+Here is the fallback that was running on the Pi (still present, now only used
+when no `audioop` backend is installed at all):
 
-```280:295:patch_browser/looper_engine.py
+```python
     for frame_idx in range(frame_count):
         base = frame_idx * S16_STEREO_FRAME_BYTES
         left = 0.0
@@ -258,27 +258,33 @@ times per period instead of 4 times.
 ## Part 4 — Why the CPU meter lied
 
 You saw low CPU and crackle at the same time, and correctly found that
-suspicious. Three separate measurement mistakes stack up:
+suspicious.
 
-**1. Aggregate vs per-core.** The Pi has 4 cores. A single thread saturating one
-core shows as roughly 25% "CPU". Our mixer is one thread. At the moment it was
-100% doomed, the meter read a comfortable quarter.
+**Correction to an earlier draft of this document.** I described the header
+meter as an aggregate system CPU reading. Reading
+`patch_browser/surge_cpu_monitor.py`, it is not: it samples `/proc` CPU time for
+the **`surge-xt-cli` process only**, scaled so one core at 100% reads 100. As a
+synth-load meter that is reasonable, and it is worth keeping. The problem is
+narrower than "the meter is wrong":
 
-**2. Per-process vs per-thread.** The work is spread across `surge-xt-cli`,
-`arecord`, the Python looper, `aplay` and the UI. Only one of them has a hard
-deadline. Averaging them together hides which one is in trouble.
+**1. It watches the wrong process.** The meter never looked at the looper. The
+mixer could miss every deadline while the meter showed Surge idling, because
+Surge genuinely was idling — it is the looper that was late.
 
-**3. CPU% is the wrong metric entirely.** The number that matters is **deadline
-utilization**: time spent producing a period divided by the period duration.
-14.5 / 10.67 = **136%**. Above 100% you drop audio, and no amount of idle time
-on the other three cores helps, because the work is serial and pinned to one
-thread.
+**2. CPU% is the wrong unit for a deadline.** The number that matters is
+**deadline utilization**: time spent producing a period divided by the period
+duration. 14.5 / 10.67 = **136%**. Above 100% you drop audio, and idle time on
+the other three cores does not help, because the work is serial and pinned to
+one thread.
 
-So the meter should report, per audio stage: worst-case and 99th-percentile
-period time as a percentage of budget, plus a live xrun count. "136% of budget,
-53 xruns" tells you what's wrong. "22% CPU" actively misleads. This is a real
-change to make to the HUD, and it applies regardless of which architecture we
-pick.
+**3. Mean hides the failure.** A stage averaging 30% of budget but spiking to
+200% once a second is audibly broken. Worst case is what you hear.
+
+So the HUD needs, for the looper: worst-case period cost as a percentage of
+budget, plus a live xrun count. "136% of budget, 53 xruns" tells you what is
+wrong; "22% CPU" says nothing about it either way. Implemented 2026-08-11 in
+`patch_browser/looper_health.py` — the badge stays hidden while healthy, because
+a permanent "3%" is just furniture.
 
 ---
 
@@ -503,3 +509,44 @@ a fraction of the effort.
 threads. This replaced `read_xrun_counts()`, which parsed an `xruns:` field in
 `/proc/asound/.../status` that the kernel does not emit — it had been reporting
 zero xruns for the entire life of the project.
+
+### After the mixer fix (2026-08-11 23:00, Pi 4 Rev 1.5)
+
+Measured by `MixerPerformanceTests` in `tests/test_looper_engine.py`, run on the
+appliance via `mpe test pi looper`. Median of 30 real 512-frame mixes.
+
+| Layers | Mix cost | Deadline utilization | Before |
+|---|---|---|---|
+| 1 | 0.043 ms | 0.4% | — |
+| 3 | 0.090 ms | 0.8% | 13–14.5 ms, 136% |
+| 6 | 0.158 ms | 1.5% | — |
+
+About **160x faster at three layers**, and the cost per added layer is now
+~0.023 ms, so layer count is no longer a meaningful constraint. Idle service
+over 20 s: 0 xruns on both `arecord` and `aplay`.
+
+**Still unverified by a human:** nobody has played three or six loops through it
+yet. The mixer arithmetic is proven; "does it feel right and stay clean while
+playing" is yours to confirm.
+
+### Under-voltage — found while checking the governor
+
+`mpe sysinfo` reports **`throttled=0x50005`**, which decodes as:
+
+| Bit | Meaning | State |
+|---|---|---|
+| 0 | under-voltage detected | **now** |
+| 2 | currently throttled | **now** |
+| 16 | under-voltage has occurred | since boot |
+| 18 | throttling has occurred | since boot |
+
+The board is under-voltage and being clock-throttled **as of this reading**.
+This directly overturns the 2026-08-10 entry in
+[`LATENCY-SPIKE.md`](LATENCY-SPIKE.md) §Validation log, which recorded `0x0` and
+concluded "power is no longer a confounder."
+
+It also outranks B1. Pinning the governor to `performance` asks for a clock the
+supply may not sustain, and every timing measurement taken in this state has an
+uncontrolled variable in it. Fix power first: check the PSU (official 5V/3A or
+better) and consider whether the Sound Blaster, APC mini and MIDI controller
+should be on a powered hub rather than drawing from the Pi.

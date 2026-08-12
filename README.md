@@ -185,7 +185,7 @@ Full command reference: **[COMMANDS.md](COMMANDS.md)**
 ```
 
 - **Surge XT CLI, not GUI** — no X11/VNC overhead, auto MIDI connect, MPE hardcoded on, lower latency
-- **Direct ALSA, not JACK** — simpler, lower latency, one less thing to configure
+- **Direct ALSA, not JACK** — simpler to set up and one less daemon to keep alive on an appliance. Note this buys *simplicity*, not latency: with the looper running, `snd-aloop` plus two pipes plus `arecord`/`aplay` is more buffering than a JACK graph, not less (see [`docs/AUDIO-ENGINE-FOUNDATION.md`](docs/AUDIO-ENGINE-FOUNDATION.md))
 - **Not Zynthian** — different category. Zynthian is a multi-engine workstation; getting persistent, always-on MPE through its generalized preset architecture is a known unsolved friction point (confirmed on Zynthian's own forum as recently as 2025). This project sidesteps that by being narrow on purpose.
 
 
