@@ -217,6 +217,23 @@ if [ -f "{tmp}/systemctl.log" ]; then cat "{tmp}/systemctl.log"; fi
             self.assertIn("skipped", result.stdout)
             self.assertNotIn("mpe-jackd", result.stdout)
 
+    def test_skip_is_distinguishable_from_restart(self) -> None:
+        """restart-audio-graph.sh logged "restarted" on the skip path, which is
+        the one path an operator reads while debugging a degraded appliance."""
+        with tempfile.TemporaryDirectory() as tmp:
+            env = _bash_env(tmp, MPE_AUDIO_ENGINE="jack")
+            Path(tmp, "surge.state").write_text("active=alsa\n", encoding="utf-8")
+            body = f"""
+source {AUDIO_ENGINE_SH}
+mpe_systemctl() {{ return 0; }}
+export -f mpe_systemctl
+mpe_restart_audio_graph
+printf 'action=%s\\n' "$MPE_AUDIO_GRAPH_ACTION"
+"""
+            result = _run_bash_script(body, env=env)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("action=skipped", result.stdout)
+
     def test_graph_restart_resets_failed_state_first(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             env = _bash_env(tmp, MPE_AUDIO_ENGINE="jack")
@@ -262,6 +279,23 @@ grep -q '^looper=guarded$' "$(mpe_engine_state_file)"
 """
             result = _run_bash_script(body, env=env)
             self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_empty_active_engine_does_not_kill_caller(self) -> None:
+        """A status publisher must never exit the shell that called it.
+
+        `${2:?}` here killed surge-watchdog.sh mid-restart when the state file
+        was unreadable, leaving Surge crashed and unsupervised.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            env = _bash_env(tmp)
+            body = f"""
+source {AUDIO_ENGINE_SH}
+mpe_engine_state_write jack "$(cat /nonexistent 2>/dev/null)" recovering surge-failed off
+printf 'SURVIVED'
+"""
+            result = _run_bash_script(body, env=env)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("SURVIVED", result.stdout)
 
 
 class JackLspProbeTests(unittest.TestCase):
