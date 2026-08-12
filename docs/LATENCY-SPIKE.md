@@ -1,6 +1,6 @@
 # Surge latency — can the buffer floor come down?
 
-*Last updated: 2026-08-10 19:07 (America/Toronto)*
+*Last updated: 2026-08-12 00:28 (America/Toronto)*
 
 **The question, in one line:** *Can we run a smaller Surge buffer than 1024 without losing voices — and what's the cheapest change that gets us there?*
 
@@ -8,9 +8,9 @@ Originally scoped as "enable PREEMPT_RT and turn the buffer down." Measured base
 
 **Related:** [#44 Buffer size in settings](https://github.com/MitchSchwartz/MPE-Sound-Module/issues/44) · `FAQ.md` · `docs/PATCH_NORMALIZATION.md`
 
-**Status:** **Arm A0 passed; Arm A ran informally and inverted the premise** — 256 samples (~5.3 ms) played acceptably with no xruns, on stock scheduling (§Validation log). **Arms A½ and B are not started and look unnecessary** — every cheap lever (governor, RT priority, `threadirqs`, RT kernel) is still unspent and there is no xrun to fix. The binding constraint is **CPU / voice count**, not block latency. Repo buffer defaults corrected to 1024 (below); looper question **reopened** → [`LOOPER-PLAN.md`](LOOPER-PLAN.md).
+**Status:** **Arm A0 re-run and root-caused (2026-08-12)** — the board was hard-throttled to **600 MHz of 1800 MHz** by voltage drop across GPIO jumper wires, not by the power supply. Fixed by feeding USB-C; clock and throttle flags now clean. **Arm A½ sub-arm 2 is done** — JUCE does not self-elevate, so `MPE_SURGE_RT_PRIORITY=20` is required and now active, though it showed no benefit while the board was throttled and remains unvalidated. **Every measurement in this document taken before 2026-08-12 was recorded on a board at one-third clock and needs re-running** before Arm A½ sub-arms 1/3 or Arm B are considered.
 
-> **Headline:** Surge currently runs `SCHED_OTHER` at priority 0 with an `rtprio` hard limit of **0**, on the `ondemand` CPU governor. It has never had realtime scheduling available to it. Chasing an RT *kernel* before fixing that is optimizing the wrong layer.
+> **Headline:** Two independent faults were masking each other — Surge never had realtime scheduling available (fixed), and the board was voltage-throttled to a third of its clock (fixed). Neither was a buffer problem, and neither needed a kernel.
 
 ---
 
@@ -204,6 +204,37 @@ Reliability outranks latency: a smaller buffer that survives 10 minutes but fail
 ---
 
 ## Validation log
+
+### 2026-08-12 — under-voltage root-caused: the board was running at 600 MHz
+
+**Rig:** Pi 4 Rev 1.5 · `standalone` · 48 kHz · 512-frame period · Surge `SCHED_FIFO` prio 20 · `ondemand`.
+
+**Root cause: the 5 V feed, not the PSU.** The Pi was powered from an adequate 3 A external supply, but injected through the **GPIO header using prototyping Dupont jumpers**. That path is roughly 0.2 Ω once wire gauge (26–28 AWG) and four Dupont contacts are counted, so at ~2 A the rail lands near 4.6 V — under the Pi 4's ~4.63 V under-voltage trip. The supply was never the problem; the last 20 cm was.
+
+| | GPIO jumper feed | USB-C direct |
+|---|---|---|
+| ARM clock | **600 MHz** | **1800 MHz** |
+| Core voltage | 0.8600 V | 0.9260 V |
+| SoC temp | 48 °C | 56 °C |
+| Throttle flags | `under-volt THROTTLED` continuously | none |
+
+**The board was doing every previous measurement at one third of its rated clock.** Both throttle bits were asserted *at idle*, on a 48 °C board — a healthy Pi 4 reads `throttled=0x0` at rest. Subjectively after the fix: "way better." Remaining failures are the two known patch CPU ceilings (Attenbourg, Crystal — see 2026-08-10), not the general crackle.
+
+**Caveat on the comparison:** the pre-fix sample was taken at idle, so there is no pre-fix under-load clock reading. The evidence is the continuously-asserted throttle bits plus the post-fix result, not a matched A/B.
+
+**Why GPIO injection at all:** the Pi 4's USB-C port is the only gadget-capable port, so the `usb-host` PC tether needs it free. Feeding power via GPIO is the right answer to that conflict — it just needs 18–20 AWG, soldered or screw-terminal, both 5 V pins and several grounds, a 5.1–5.2 V supply, bulk capacitance at the header, and a fuse (GPIO injection bypasses the Pi's input protection). **A powered dock is not the product answer.** Deferred.
+
+**Arm A½ sub-arm 2 — RT scheduling: answered, and negative in isolation.** A½.4 resolved: after restart Surge was still `SCHED_OTHER`, so **JUCE does not self-elevate** on this build and A½.5 is required. `MPE_SURGE_RT_PRIORITY=20` now yields `SCHED_FIFO` prio 20, verified live and persistent across reboot. It did **not** fix the crackle while the board was throttled — expected, since `SCHED_FIFO` reallocates CPU but cannot create it, and the failure was a compute deficit. RT is left enabled but is **unvalidated as a benefit**; it needs re-measuring at full clock.
+
+**Looper RT is still blocked:** the deployed `mpe-looper.service` predates its `LimitRTPRIO=95` line, so the process shows `rtprio limit 0` and `chrt` cannot elevate it. Needs `configure-pi-paths.sh --local --force` on the Pi first.
+
+**⚠ Metric quality — the looper timing numbers do not measure CPU.** `p50=12.00ms, p95=20.67ms, max≈24.4ms, burst_lt25pct≈155` were **identical at 600 MHz and at 1800 MHz**. A metric unchanged by a 3× clock change is not measuring load. It is measuring the ALSA blocking-read cadence: roughly a third of iterations return in bursts and the rest wait ~12 ms, while the loop still completes 469 periods per 5 s — exactly 48000/512. The loop is on schedule and xruns are zero. **Consequence:** the deadline-utilization figure in `looper_health.py` and its HUD badge derive from wall-clock intervals between iterations, so they read >100% on a healthy system and will cry wolf. Fix by timing the work *inside* each period instead of the gap between periods.
+
+**Mixer fix validated by playing:** 8 loops played smoothly — and did so *at 600 MHz*, which makes the 2026-08-11 mix-cost table a conservative floor rather than a best case.
+
+**New diagnostics** (`mpe-cli`): `mpe power [seconds]` samples clock/throttle/volts/temp across a window with a verdict line, `mpe rt status|surge|looper` manages and verifies `SCHED_FIFO`, and `mpe sysinfo` now decodes throttle bits and reports real ARM clock. Note `/sys` `scaling_cur_freq` reported 1800 MHz while the silicon ran 600 — the governor's request, not the truth. Only `vcgencmd measure_clock arm` caught this.
+
+**Next:** re-measure the baseline at full clock. Everything in this log below this entry was recorded on a throttled board.
 
 ### 2026-08-11 — looper mixer fixed; under-voltage is back
 

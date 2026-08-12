@@ -19,7 +19,10 @@ Install once: clone `mpe-cli`, run `./install.sh`, edit `~/.config/mpe/mpe.env` 
 | `mpe logs surge\|touch\|watchdog [-n N]` | Recent logs (max 200 lines) |
 | `mpe osc-check` | Surge OSC ports + process |
 | `mpe diagnose` | Full read-only Pi diagnostics |
-| `mpe sysinfo` | Board, kernel/preempt, EEPROM, CPU governor, Surge RT limits, buffer latency |
+| `mpe sysinfo` | Board, kernel/preempt, EEPROM, CPU governor, Surge RT limits, buffer latency, decoded throttle + real ARM clock |
+| `mpe power [seconds]` | Sample ARM clock / throttle flags / volts / temp over a window — play during it |
+| `mpe rt status` | Configured vs live `SCHED_FIFO` state for Surge and looper |
+| `mpe rt surge\|looper <1-95\|off>` | Set realtime priority in `/etc/mpe/mpe.env`; restarts that service |
 | `mpe test` | Run unit tests on laptop (`LOCAL_MPE_MODULE` or default clone) |
 | `mpe test pi` | Run unit tests on the appliance via SSH |
 | `mpe test list` | Show named test suites (`apc`, `looper`, `midi`, …) |
@@ -38,13 +41,17 @@ Install once: clone `mpe-cli`, run `./install.sh`, edit `~/.config/mpe/mpe.env` 
 
 **Unit tests:** always **`mpe test`** (or `mpe test pi looper`, etc.) — not `cd … && python3 -m unittest`. The CLI picks the repo, runs fixed suite enums from `mpe-cli/lib/test_suites.sh`, and matches the Cursor allowlist prefix. Suites: `mpe test list`.
 
-**Agent-safe (read-only):** `ping`, `status`, `logs`, `osc-check`, `diagnose`, `sysinfo`, `test`, `midi-list`, `pull-videos` (skip `--delete-source` for zero writes).
+**Agent-safe (read-only):** `ping`, `status`, `logs`, `osc-check`, `diagnose`, `sysinfo`, `power`, `rt status`, `test`, `midi-list`, `pull-videos` (skip `--delete-source` for zero writes).
 
-**Writes / restarts:** `restart *`, `looper deploy|restart`, `record`, `pull-videos --delete-source`.
+**Writes / restarts:** `restart *`, `looper deploy|restart`, `rt surge|looper <prio>`, `record`, `pull-videos --delete-source`.
 
 **Do not allowlist for agents:** raw `ssh`/`scp`/`rsync`, `./scripts/*.sh` for deploy/audio/profile (use `mpe` subcommands), `scripts/manual/*` hardware smokes unless a dedicated `mpe` wrapper exists, `deploy-all.sh`, `set-audio-profile.sh`, `set-surge-audio.sh`, `set-midi-sync.sh`, poweroff/reboot.
 
 **Suggest new subcommands:** When you would SSH twice for the same fixed task, **propose a new `mpe` subcommand** in `mpe-cli` (name + behavior + allowlist strings) — do not improvise remote shell. **Editing `mpe-cli` or `~/.config/mpe/mpe.env` requires Mitch approval.**
+
+**Promote to the CLI whenever all three hold** — a command *needs an approval click*, will be *reused*, and can be *abstracted behind fixed arguments*. One-off exploration can stay ad hoc; anything you would run twice belongs in `mpe-cli` with validated enum/range arguments, so it lands on the allowlist once instead of costing a click every session. Prefer generalising an existing noun (`mpe rt looper`) over a new top-level verb.
+
+**Mutating subcommands take real arguments — never smoke-test them with live values.** `mpe rt surge 50` is indistinguishable from a deliberate change; validating argument handling by running the command restarted Surge mid-session on 2026-08-12. Test parsing against `--help` and out-of-range values only, then set the intended value once.
 
 Pattern: [OM-Repo `Docs/appliance-cli-pattern.md`](https://github.com/opsMachine/OM-Repo/blob/main/Docs/appliance-cli-pattern.md) · [`COMMANDS.md`](COMMANDS.md)
 

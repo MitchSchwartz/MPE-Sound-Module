@@ -525,9 +525,14 @@ About **160x faster at three layers**, and the cost per added layer is now
 ~0.023 ms, so layer count is no longer a meaningful constraint. Idle service
 over 20 s: 0 xruns on both `arecord` and `aplay`.
 
-**Still unverified by a human:** nobody has played three or six loops through it
-yet. The mixer arithmetic is proven; "does it feel right and stay clean while
-playing" is yours to confirm.
+**These numbers are a conservative floor, not a best case.** They were recorded
+while the board was voltage-throttled to **600 MHz of 1800 MHz** (discovered
+2026-08-12 — see below and `LATENCY-SPIKE.md`). At full clock the real mix cost
+is roughly a third of the figures above.
+
+**Verified by playing (2026-08-12):** eight loops played smoothly — and did so
+*at one-third clock*, before the power fix. The mixer is no longer the
+constraint at any layer count this product supports.
 
 ### Under-voltage — found while checking the governor
 
@@ -550,3 +555,26 @@ supply may not sustain, and every timing measurement taken in this state has an
 uncontrolled variable in it. Fix power first: check the PSU (official 5V/3A or
 better) and consider whether the Sound Blaster, APC mini and MIDI controller
 should be on a powered hub rather than drawing from the Pi.
+
+### Resolved (2026-08-12): the wiring, not the supply
+
+The supply was already adequate — 3 A external. The loss was in the **GPIO
+jumper wires** used to inject it: 26–28 AWG Dupont leads plus four connector
+contacts total roughly 0.2 Ω, which at ~2 A drops the rail to about 4.6 V,
+just under the Pi 4's ~4.63 V under-voltage trip. Feeding USB-C instead:
+
+| | GPIO jumpers | USB-C |
+|---|---|---|
+| ARM clock | 600 MHz | **1800 MHz** |
+| Core voltage | 0.8600 V | 0.9260 V |
+| Throttle flags | `under-volt THROTTLED` | none |
+
+**A governor change was never going to help.** Linux `cpufreq` reported
+`1800 MHz cur / 1800 MHz max` the whole time — the governor was already asking
+for full speed and firmware was overriding it. Only `vcgencmd measure_clock arm`
+exposed the gap, which is why `mpe power` now samples it directly.
+
+The GPIO feed itself is sound engineering — the Pi 4's USB-C port is the only
+gadget-capable one, so the `usb-host` tether needs it free. It just needs real
+wiring: 18–20 AWG, soldered or screw-terminal, both 5 V pins and several
+grounds, 5.1–5.2 V, bulk capacitance at the header, and a fuse. Deferred.
