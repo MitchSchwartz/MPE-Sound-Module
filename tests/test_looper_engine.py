@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import struct
 import unittest
+from unittest import mock
 
+from patch_browser import looper_engine
 from patch_browser.looper_engine import (
     StereoRingBuffer,
     apply_gain_s16_stereo,
@@ -19,6 +21,18 @@ from patch_browser.looper_engine import (
 
 def _stereo_frame(left: int, right: int) -> bytes:
     return struct.pack("<hh", left, right)
+
+
+def _force_audioop_path():
+    """Exercise the compiled ``audioop`` mixer regardless of the host's backend."""
+    if looper_engine.audioop is None:
+        raise unittest.SkipTest("no audioop backend installed")
+    return mock.patch.object(looper_engine, "_AUDIOOP_BACKEND", "stdlib")
+
+
+def _force_python_path():
+    """Exercise the pure-Python fallback mixer."""
+    return mock.patch.object(looper_engine, "audioop", None)
 
 
 class LooperEngineTests(unittest.TestCase):
@@ -77,6 +91,51 @@ class LooperEngineTests(unittest.TestCase):
     def test_apply_gain_identity(self) -> None:
         pcm = _stereo_frame(500, -500) * 2
         self.assertEqual(apply_gain_s16_stereo(pcm, 1.0), pcm)
+
+    def test_apply_gain_half_scale_audioop_path(self) -> None:
+        with _force_audioop_path():
+            out = apply_gain_s16_stereo(_stereo_frame(16000, -16000) * 4, 0.5)
+        left, right = struct.unpack("<hh", out[:4])
+        self.assertAlmostEqual(left, 8000, delta=2)
+        self.assertAlmostEqual(right, -8000, delta=2)
+
+    def test_apply_gain_half_scale_python_path(self) -> None:
+        with _force_python_path():
+            out = apply_gain_s16_stereo(_stereo_frame(16000, -16000) * 4, 0.5)
+        left, right = struct.unpack("<hh", out[:4])
+        self.assertAlmostEqual(left, 8000, delta=2)
+        self.assertAlmostEqual(right, -8000, delta=2)
+
+    def test_mix_live_and_loops_backends_agree_three_layers(self) -> None:
+        live = b"".join(_stereo_frame(9000, -9000) for _ in range(8))
+        loops = [b"".join(_stereo_frame(v, -v) for _ in range(8)) for v in (12000, -7000, 21000)]
+
+        with _force_python_path():
+            expected = mix_live_and_loops(live, loops, live_gain=1.0, loop_gain=1.0)
+        with _force_audioop_path():
+            actual = mix_live_and_loops(live, loops, live_gain=1.0, loop_gain=1.0)
+
+        self.assertEqual(len(actual), len(expected))
+        for offset in range(0, len(expected), 2):
+            self.assertAlmostEqual(
+                struct.unpack_from("<h", actual, offset)[0],
+                struct.unpack_from("<h", expected, offset)[0],
+                delta=3,
+                msg=f"sample at byte {offset}",
+            )
+
+    def test_mix_live_and_loops_layers_stay_under_ceiling(self) -> None:
+        # Three hot layers pre-scaled by loop_gain/N must sum near the bus ceiling,
+        # not saturate — including on intermediate sums, since audioop.add clips.
+        layer = b"".join(_stereo_frame(30000, 30000) for _ in range(4))
+        silence = b"\x00" * len(layer)
+        for name, force in (("python", _force_python_path), ("audioop", _force_audioop_path)):
+            with self.subTest(path=name), force():
+                mixed = mix_live_and_loops(silence, [layer] * 3, live_gain=0.0, loop_gain=1.0)
+                left, right = struct.unpack("<hh", mixed[:4])
+                self.assertLess(left, 32767, "loop bus saturated")
+                self.assertAlmostEqual(left, 30000, delta=3)
+                self.assertAlmostEqual(right, 30000, delta=3)
 
     def test_mix_live_and_loops_two_layers(self) -> None:
         live = b"".join(_stereo_frame(100, 100) for _ in range(4))
