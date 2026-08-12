@@ -162,7 +162,11 @@ mpe_state_get() {
 #   looper=  guarded | enabled | off
 mpe_engine_state_write() {
     local engine="${1:?engine required}"
-    local active="${2:?active engine required}"
+    # Not ${2:?}: an unreadable or split state file makes callers pass an empty
+    # active engine, and ${2:?} exits the *calling* shell — which killed
+    # surge-watchdog.sh before it could restart a crashed Surge, leaving the
+    # instrument unsupervised. A status publisher must never kill its caller.
+    local active="${2:-unknown}"
     local state="${3:?state required}"
     local reason="${4:-}"
     local looper="${5:-off}"
@@ -335,11 +339,16 @@ mpe_systemctl() {
     sudo -n systemctl "$@"
 }
 
+# Sets MPE_AUDIO_GRAPH_ACTION to `restarted` or `skipped` so callers can report
+# what actually happened — a skip returns 0 and would otherwise be logged as a
+# restart, on the one path an operator debugs a degraded appliance from.
 mpe_restart_audio_graph() {
     local unit
+    MPE_AUDIO_GRAPH_ACTION=restarted
     # Surge holds the tier device on ALSA after a jack→ALSA fallback; restarting
     # jackd would EBUSY forever (Restart=always) without improving sound.
     if mpe_engine_is_jack && [ "$(mpe_surge_active_engine)" = alsa ]; then
+        MPE_AUDIO_GRAPH_ACTION=skipped
         echo "restart-audio-graph: skipping mpe-jackd restart — Surge holds ALSA device (degraded)" >&2
         return 0
     fi
@@ -363,11 +372,19 @@ mpe_restart_audio_graph() {
 # Supervisor cooldown (spec D3)
 # ---------------------------------------------------------------------------
 #
-# The watchdog polls every 5 s while Surge has RestartSec=10, StartLimitBurst=5,
-# StartLimitIntervalSec=300. An uncooled supervisor exhausts the burst budget in
-# ~25 s and leaves Surge dead until manual intervention — worse than the fault it
-# responds to. Hence: first restart immediate, then >= 90 s apart, never while
-# jackd is still settling, and escalate to state=failed after 3 tries.
+# The watchdog polls every 5 s while Surge has RestartSec=10 and StartLimitBurst=5.
+# An uncooled supervisor exhausts the burst budget in ~25 s and leaves Surge dead
+# until manual intervention — worse than the fault it responds to. Hence: first
+# restart immediate, then >= 90 s apart, never while jackd is still settling, and
+# escalate to state=failed after 3 tries.
+#
+# Caveat (pre-existing, not introduced here): surge-xt-cli.service declares
+# StartLimitIntervalSec=300 in [Service], where systemd 229+ ignores it ("Unknown
+# key … in section [Service]"), so the running window is the 10 s default and the
+# burst can never accumulate. The cooldown below is therefore more conservative
+# than the limit it was sized against, and `systemctl is-failed surge-xt-cli` is
+# effectively unreachable — which also disables the watchdog's corrupt-defaults
+# recovery arm. Moving the key to [Unit] is a separate change with its own soak.
 
 MPE_ENGINE_COOLDOWN_DEFAULT=90
 MPE_ENGINE_JACKD_SETTLE_DEFAULT=15
