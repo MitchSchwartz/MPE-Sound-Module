@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import statistics
 import struct
+import time
 import unittest
 from unittest import mock
 
@@ -160,6 +162,52 @@ class LooperEngineTests(unittest.TestCase):
 
     def test_frames_to_bytes_roundtrip(self) -> None:
         self.assertEqual(bytes_to_frames(frames_to_bytes(128)), 128)
+
+
+class MixerPerformanceTests(unittest.TestCase):
+    """Guard the mixer against silently falling back to the per-frame Python path.
+
+    A 512-frame period at 48 kHz must be produced in under 10.67 ms or the DAC
+    starves. The compiled path costs a fraction of that; the pure-Python
+    fallback measured 13-14.5 ms on the Pi, which is why it crackled.
+    """
+
+    PERIOD_FRAMES = 512
+    BUDGET_MS = PERIOD_FRAMES * 1000.0 / 48000
+    # Half the period. Generous enough not to flake on a loaded shared runner,
+    # tight enough that the interpreted fallback cannot pass.
+    LIMIT_MS = BUDGET_MS / 2
+
+    def _period(self, seed: int) -> bytes:
+        return b"".join(
+            _stereo_frame((seed * 137 + i * 31) % 20000 - 10000, (seed * 71 + i * 17) % 20000 - 10000)
+            for i in range(self.PERIOD_FRAMES)
+        )
+
+    def _measure_ms(self, layers: int) -> float:
+        live = self._period(0)
+        loops = [self._period(n + 1) for n in range(layers)]
+        for _ in range(5):  # warm up
+            mix_live_and_loops(live, loops, live_gain=1.0, loop_gain=1.0)
+        samples = []
+        for _ in range(30):
+            start = time.perf_counter()
+            mix_live_and_loops(live, loops, live_gain=1.0, loop_gain=1.0)
+            samples.append((time.perf_counter() - start) * 1000.0)
+        return statistics.median(samples)
+
+    def test_mix_meets_period_budget_up_to_six_layers(self) -> None:
+        with _force_audioop_path():
+            measured = {n: self._measure_ms(n) for n in (1, 3, 6)}
+        report = " ".join(f"{n}layer={ms:.3f}ms" for n, ms in measured.items())
+        print(f"[perf] mixer budget={self.BUDGET_MS:.2f}ms limit={self.LIMIT_MS:.2f}ms {report}")
+        for layers, ms in measured.items():
+            self.assertLess(
+                ms,
+                self.LIMIT_MS,
+                f"{layers}-layer mix took {ms:.3f}ms of a {self.BUDGET_MS:.2f}ms period "
+                "— the compiled audioop path is not being used",
+            )
 
 
 if __name__ == "__main__":
