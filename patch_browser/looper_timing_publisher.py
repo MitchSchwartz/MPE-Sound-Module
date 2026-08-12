@@ -26,7 +26,7 @@ class LooperTimingPublisher:
     _last_total_frames: int | None = field(default=None, init=False)
     _last_publish_at: float | None = field(default=None, init=False)
 
-    def publish_from_matrix(self, matrix) -> None:
+    def publish_from_matrix(self, matrix, *, health: dict | None = None) -> None:
         if not matrix.is_active:
             # Arm the immediate-publish path for whenever clips start again.
             self._last_publish_at = None
@@ -73,6 +73,7 @@ class LooperTimingPublisher:
             total_frames=total,
             frames_per_beat=fpb,
             sample_rate=int(clock.sample_rate),
+            health=health,
         )
 
     def clear(self) -> None:

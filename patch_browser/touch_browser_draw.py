@@ -38,6 +38,7 @@ from patch_browser.touch_ui_constants import (
 )
 from patch_browser.audio_profile import header_badge_label
 from patch_browser.looper_hud import (
+    looper_health_badge,
     looper_hud_bar_progress,
     looper_hud_interpolated_frames,
     looper_hud_tick_from_internal,
@@ -459,10 +460,19 @@ class TouchBrowserDrawMixin:
             beat_y = rect.y + LOOPER_HUD_V_PAD
             beat_h = max(8, rect.h - LOOPER_HUD_V_PAD * 2)
 
+            # Dropped periods outrank the bar counter: the header has room for one
+            # number, and "the audio just broke" is the one worth showing.
+            badge = looper_health_badge(internal)
+            if badge is not None:
+                frac, severity = badge
+                frac_color = self.theme.danger if severity == "danger" else self.theme.playing
+            else:
+                frac_color = self.theme.text
+
             frac_w = 0
             frac_surf = None
             if frac:
-                frac_surf = self.font_md.render(frac, True, self.theme.text)
+                frac_surf = self.font_md.render(frac, True, frac_color)
                 frac_w = frac_surf.get_width()
 
             beat_x = rect.x + pad_x
