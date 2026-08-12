@@ -305,10 +305,18 @@ mpe_systemctl() {
 mpe_restart_audio_graph() {
     local unit
     unit="$(mpe_audio_graph_unit)"
+    # A unit sitting in start-limit failure refuses `restart` ("start request
+    # repeated too quickly") until it is reset. That is exactly the state a DAC
+    # unplug leaves jackd in, and the replug is the event that must recover it.
+    mpe_systemctl reset-failed "$unit" >/dev/null 2>&1 || true
     if ! mpe_systemctl restart --no-block "$unit" 2>/dev/null; then
         echo "WARNING: could not restart $unit (no root / no passwordless sudo)" >&2
         return 1
     fi
+    # A device change or an operator restart is a new situation, so the supervisor
+    # gets its restart budget back — otherwise an appliance that reached
+    # state=failed stays there through the very action meant to fix it.
+    mpe_engine_reconcile_reset
     return 0
 }
 
