@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import contextlib
+import platform
 import statistics
 import struct
 import time
@@ -26,10 +28,18 @@ def _stereo_frame(left: int, right: int) -> bytes:
 
 
 def _force_audioop_path():
-    """Exercise the compiled ``audioop`` mixer regardless of the host's backend."""
+    """Exercise the compiled ``audioop`` mixer.
+
+    Path selection is ``audioop is not None`` — ``_AUDIOOP_BACKEND`` is reporting
+    only — so there is nothing to patch here beyond confirming the module loaded.
+    Parity tests skip without it; ``test_compiled_audioop_backend_available`` is
+    the one that fails, so a missing backend surfaces once and unambiguously.
+    """
     if looper_engine.audioop is None:
-        raise unittest.SkipTest("no audioop backend installed")
-    return mock.patch.object(looper_engine, "_AUDIOOP_BACKEND", "stdlib")
+        raise unittest.SkipTest(
+            "no audioop backend — see test_compiled_audioop_backend_available"
+        )
+    return contextlib.nullcontext()
 
 
 def _force_python_path():
@@ -160,6 +170,32 @@ class LooperEngineTests(unittest.TestCase):
 
         self.assertIn(audio_mix_backend(), ("stdlib", "lts", "python"))
 
+    def test_compiled_audioop_backend_available(self) -> None:
+        """On the appliance a missing backend must FAIL, never skip.
+
+        The interpreted fallback costs 13-14.5 ms against a 10.67 ms period on the
+        Pi and this project shipped it unnoticed for its entire life. requirements.txt
+        pins audioop-lts, so on the appliance its absence is a broken environment.
+
+        Elsewhere this skips: a dev laptop is fast enough that even the pure-Python
+        mixer stays under budget, so MixerPerformanceTests cannot detect the
+        fallback there. Run `mpe test pi looper` for the meaningful check.
+        """
+        from patch_browser.looper_engine import audio_mix_backend
+
+        if looper_engine.audioop is None:
+            if platform.machine() == "aarch64":
+                self.fail(
+                    "no compiled audioop backend on the appliance — the mixer is "
+                    "running the per-frame Python path (13-14.5 ms per 10.67 ms "
+                    "period). Install it: pip3 install -r requirements.txt"
+                )
+            raise unittest.SkipTest(
+                "no audioop backend on this host — mixer performance is unvalidated "
+                "here; run `mpe test pi looper`. Install audioop-lts for full coverage."
+            )
+        self.assertIn(audio_mix_backend(), ("stdlib", "lts"))
+
     def test_frames_to_bytes_roundtrip(self) -> None:
         self.assertEqual(bytes_to_frames(frames_to_bytes(128)), 128)
 
@@ -197,8 +233,11 @@ class MixerPerformanceTests(unittest.TestCase):
         return statistics.median(samples)
 
     def test_mix_meets_period_budget_up_to_six_layers(self) -> None:
-        with _force_audioop_path():
-            measured = {n: self._measure_ms(n) for n in (1, 3, 6)}
+        # Deliberately unguarded: measure whatever path the environment actually
+        # takes. If the compiled backend is missing the mix runs ~14 ms and this
+        # fails, which is the regression this test exists to catch. Skipping here
+        # would turn that exact failure green.
+        measured = {n: self._measure_ms(n) for n in (1, 3, 6)}
         report = " ".join(f"{n}layer={ms:.3f}ms" for n, ms in measured.items())
         print(f"[perf] mixer budget={self.BUDGET_MS:.2f}ms limit={self.LIMIT_MS:.2f}ms {report}")
         for layers, ms in measured.items():
