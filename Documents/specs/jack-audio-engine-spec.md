@@ -1,9 +1,9 @@
 # JACK audio engine — permanent graph server + looper as callback client
 
 **Issue:** untracked
-**Status:** Approved, Phase 1 **written but unverified** — code on `yolo/jack-audio-engine-phase1`, not yet run on hardware. Not "Implemented": 9 of the 17 Phase 1 criteria are hardware-only and none have been executed. Gate B is the Pi soak.
+**Status:** Approved, Phase 1 on `yolo/jack-audio-engine-phase1` @ `f4d18fb`. **Gate B soak in progress** — cold boot, pkill, DAC replug PASS; **2a PASS**, **2d FAIL** (promotion), **2b2 partial** (2026-08-12 agent soak).
 **Created:** 2026-08-12
-**Last updated:** 2026-08-12 11:36 (America/Toronto)
+**Last updated:** 2026-08-12 15:39 (America/Toronto)
 
 **Gate A decisions:** default engine on boot is `jack`. The Phase 1 looper
 regression is **accepted knowingly** — looper off during Phase 1, refused by the
@@ -289,6 +289,24 @@ honest fallback is **Phase 1 only + a HAT**, not pushing through.
 **Pre-gig manual checklist** (this is an instrument; run before relying on it):
 cold boot with no network; unplug/replug the DAC; profile switch mid-set;
 `pkill jackd` while playing; boot once with the looper flag set.
+
+### Gate B soak log (Pi, 2026-08-12, branch `f4d18fb`)
+
+| Test | Result | Notes |
+|------|--------|-------|
+| Cold boot | **PASS** | `engine=jack`, `state=ok`, 0 xruns; jackd + Surge on graph without manual fixes |
+| `pkill -x jackd` | **PASS** | Full graph recovery ~**39 s** (jackd @ ~6 s; 15 s settle ×3 watchdog polls; then Surge promote) |
+| DAC replug from `state=ok` | **PASS** (Mitch confirmed) | Audio restored; subjectively **very slow** — same reconcile path as jackd death |
+| 2a jackd masked @ boot | **PASS** | `mpe engine mask-jackd` 16:07 EDT; cold boot ~17:06 EDT → `active=alsa state=degraded reason=no-server`; `ENGINE-FALLBACK` in surge journal. Also `mpe restart all` while masked 16:34 EDT. mpe-cli must stash unit file before `systemctl mask` (configure-pi-paths tee conflict). |
+| 2d unmask + start jackd | **FAIL** (fix pending) | 16:37 EDT; stayed degraded >6 min — Surge held ALSA (EBUSY), watchdog 2a early-return never released device. Manual `mpe restart surge` → ok ~45 s. **Fix:** `release-alsa-for-jackd` reconcile path when jackd unit seeking start (not masked). Re-test after Pi pull. |
+| 2b2 five × kill-jackd --kill | **PARTIAL** | Kills 1–3 recovered to state=ok; kill 4–5 lost to DNS/reboot. No StartLimitBurst in completed cycles. |
+
+**Backlog — faster crash/replug recovery (post–Phase 1 merge):** The 15 s
+`MPE_ENGINE_JACKD_SETTLE_S` window plus a full Surge restart makes mid-set recovery
+feel unacceptable (~20–45 s). Criterion 2b budgeted 15 s total — **missed in practice**.
+Candidates to evaluate later (not Phase 1 scope): shorten settle when Surge was
+already on JACK and only the server PID changed; in-process JACK reconnect instead
+of `systemctl restart surge-xt-cli`; parallel jackd bring-up + Surge watchdog poll.
 
 ## Security Considerations
 

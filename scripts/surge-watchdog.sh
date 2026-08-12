@@ -75,6 +75,10 @@ _reconcile_engine() {
         # Surge already running correctly on ALSA — publish degraded, take no action
         # (criterion 2a: jackd masked must not bounce audio forever).
         if [ "$(mpe_surge_active_engine)" = alsa ]; then
+            if mpe_jackd_unit_seeking_start; then
+                _supervisor_restart_surge "release-alsa-for-jackd"
+                return 0
+            fi
             mpe_engine_state_write "$requested" alsa degraded no-server "$looper_label"
             mpe_engine_reconcile_reset
             return 0
