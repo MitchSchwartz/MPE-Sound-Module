@@ -52,7 +52,9 @@ source "$SCRIPT_DIR/lib/profile-switch-flag.sh"
 source "$SCRIPT_DIR/lib/uac2-host-route.sh"
 uac2_host_streaming_clear
 profile_switch_flag_mark
-systemctl restart surge-xt-cli.service
+# shellcheck source=lib/audio-engine.sh
+source "$SCRIPT_DIR/lib/audio-engine.sh"
+restart_audio_graph
 # start-surge-cli.sh clears the flag after reading (fast profile restarts skip MIDI wait).
 
 echo "MPE_AUDIO_PROFILE=$PROFILE applied"
