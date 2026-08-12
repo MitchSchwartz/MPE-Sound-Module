@@ -6,9 +6,10 @@
 # so looping cannot work until the Phase 2 callback client ships. MPE_LOOPER_ENABLED
 # is read in nine files; a guard per call site would rot, so the decision lives here.
 #
-# The authoritative guard is in main() of scripts/mpe-looper.py — every path
-# (mpe-looper.service, `mpe restart looper`, a bare `python3 scripts/mpe-looper.py`)
-# crosses it. This shell helper exists for earlier, friendlier refusals.
+# The looper itself lives on yolo/looper-phase0, not on dev, so its authoritative
+# guard — main() of scripts/mpe-looper.py, which every start path crosses — must be
+# added on that branch. This helper and patch_browser/audio_engine.py carry the
+# policy (message, blocked test, exit-code split) so both branches share one answer.
 
 # shellcheck source=audio-engine.sh
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/audio-engine.sh"
@@ -21,8 +22,9 @@ mpe_looper_engine_blocked() {
 }
 
 # Refuse loudly and non-zero — for interactive callers, where a human reads the
-# result. The systemd path needs exit 0 instead (Restart=on-failure would storm),
-# which is why that decision lives in mpe-looper.py rather than here.
+# result. The systemd path needs exit 0 instead (Restart=on-failure would storm);
+# that split is looper_guard_exit_code() in patch_browser/audio_engine.py, applied
+# by mpe-looper.py main() when yolo/looper-phase0 merges (keep for phase0 merge).
 mpe_guard_looper_engine() {
     local context="${1:-looper}"
     if ! mpe_looper_engine_blocked; then
@@ -30,5 +32,6 @@ mpe_guard_looper_engine() {
     fi
     echo "LOOPER-GUARDED: ${context} — ${MPE_LOOPER_GUARD_MESSAGE}" >&2
     echo "  Current engine: $(mpe_audio_engine). Switch with: sudo mpe engine set alsa" >&2
+    echo "  (or set MPE_AUDIO_ENGINE=alsa in /etc/mpe/mpe.env and restart the graph)" >&2
     return 1
 }

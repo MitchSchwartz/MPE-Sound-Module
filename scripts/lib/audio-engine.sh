@@ -105,10 +105,26 @@ mpe_run_dir() {
         mkdir -p "$dir" 2>/dev/null || true
     fi
     if [ ! -w "$dir" ]; then
+        echo "WARNING: $dir not writable — falling back to ${TMPDIR:-/tmp}/mpe (state may split across processes)" >&2
         dir="${TMPDIR:-/tmp}/mpe"
         mkdir -p "$dir" 2>/dev/null || true
     fi
     printf '%s' "$dir"
+}
+
+# Atomic KEY=value file write — three writers touch engine.state.
+mpe_state_write_atomic() {
+    local file="${1:?file required}"
+    shift
+    local tmp="${file}.tmp.$$"
+    {
+        while [ "$#" -gt 0 ]; do
+            printf '%s\n' "$1"
+            shift
+        done
+    } >"$tmp" 2>/dev/null || return 0
+    chmod 0644 "$tmp" 2>/dev/null || true
+    mv -f "$tmp" "$file" 2>/dev/null || rm -f "$tmp" 2>/dev/null || true
 }
 
 mpe_engine_state_file() {
@@ -152,15 +168,13 @@ mpe_engine_state_write() {
     local looper="${5:-off}"
     local file
     file="$(mpe_engine_state_file)"
-    {
-        printf 'engine=%s\n' "$engine"
-        printf 'active=%s\n' "$active"
-        printf 'state=%s\n' "$state"
-        printf 'reason=%s\n' "$reason"
-        printf 'looper=%s\n' "$looper"
-        printf 'updated=%s\n' "$(date +%s)"
-    } >"$file" 2>/dev/null || return 0
-    chmod 0644 "$file" 2>/dev/null || true
+    mpe_state_write_atomic "$file" \
+        "engine=$engine" \
+        "active=$active" \
+        "state=$state" \
+        "reason=$reason" \
+        "looper=$looper" \
+        "updated=$(date +%s)"
 }
 
 mpe_engine_state_get() {
@@ -187,16 +201,16 @@ mpe_jack_server_running() {
     pgrep -x jackd >/dev/null 2>&1
 }
 
-# Running is not the same as accepting clients. jack_lsp ships with
-# jack-example-tools (installed per spec assumptions); when it is missing, fall
-# back to process liveness rather than blocking the boot path.
+# Running is not the same as accepting clients. jack_lsp is a hard prerequisite
+# (spec assumptions: jack-example-tools installed). Both server-ready and graph
+# probes must agree — missing jack_lsp is not "server up".
 mpe_jack_server_ready() {
     mpe_jack_server_running || return 1
-    if command -v jack_lsp >/dev/null 2>&1; then
-        timeout 3 jack_lsp >/dev/null 2>&1
-        return $?
+    if ! command -v jack_lsp >/dev/null 2>&1; then
+        echo "ERROR: jack_lsp not found — install jack-example-tools" >&2
+        return 1
     fi
-    return 0
+    timeout 3 jack_lsp >/dev/null 2>&1
 }
 
 # Bounded readiness wait — never a fixed sleep (spec D3 boot ordering).
@@ -223,14 +237,12 @@ mpe_jack_state_write() {
     local rate="${4:-}"
     local file
     file="$(mpe_jack_state_file)"
-    {
-        printf 'started=%s\n' "$(date +%s)"
-        printf 'device=%s\n' "$device"
-        printf 'period=%s\n' "$period"
-        printf 'periods=%s\n' "$periods"
-        printf 'rate=%s\n' "$rate"
-    } >"$file" 2>/dev/null || return 0
-    chmod 0644 "$file" 2>/dev/null || true
+    mpe_state_write_atomic "$file" \
+        "started=$(date +%s)" \
+        "device=$device" \
+        "period=$period" \
+        "periods=$periods" \
+        "rate=$rate"
 }
 
 # Epoch seconds when jackd last started, or 0 when unknown. Written by
@@ -250,21 +262,10 @@ mpe_surge_state_write() {
     local device="${2:-}"
     local file
     file="$(mpe_surge_state_file)"
-    {
-        printf 'started=%s\n' "$(date +%s)"
-        printf 'active=%s\n' "$active"
-        printf 'device=%s\n' "$device"
-    } >"$file" 2>/dev/null || return 0
-    chmod 0644 "$file" 2>/dev/null || true
-}
-
-mpe_surge_start_epoch() {
-    local value
-    value="$(mpe_state_get "$(mpe_surge_state_file)" started)"
-    case "$value" in
-        '' | *[!0-9]*) printf '0' ;;
-        *) printf '%s' "$value" ;;
-    esac
+    mpe_state_write_atomic "$file" \
+        "started=$(date +%s)" \
+        "active=$active" \
+        "device=$device"
 }
 
 # Which engine Surge is currently running on: jack | alsa | unknown.
@@ -348,7 +349,7 @@ mpe_engine_max_restarts() {
 
 # mpe_engine_reconcile_decision <now> <last_restart_epoch> <restart_count> <jackd_start_epoch>
 #
-# Pure decision function — no I/O, so it is unit testable (tests/test_engine_cooldown.py).
+# Pure decision function — no I/O, so it is unit testable (tests/test_audio_engine.py).
 # Prints exactly one of: restart | jackd-settling | cooldown | failed
 mpe_engine_reconcile_decision() {
     local now="${1:?now required}"
@@ -397,11 +398,9 @@ mpe_engine_reconcile_record_restart() {
     local file count
     file="$(mpe_engine_reconcile_file)"
     count="$(($(mpe_engine_reconcile_count) + 1))"
-    {
-        printf 'last_restart=%s\n' "$(date +%s)"
-        printf 'restarts=%s\n' "$count"
-    } >"$file" 2>/dev/null || return 0
-    chmod 0644 "$file" 2>/dev/null || true
+    mpe_state_write_atomic "$file" \
+        "last_restart=$(date +%s)" \
+        "restarts=$count"
 }
 
 # Called once the engine is observed healthy — the restart budget only exists to
@@ -410,46 +409,12 @@ mpe_engine_reconcile_reset() {
     rm -f "$(mpe_engine_reconcile_file)" 2>/dev/null || true
 }
 
-mpe_device_id_to_hw() {
-    local device_id="${1:?device id required}"
-    local card="${device_id%%.*}"
-    printf 'hw:%s\n' "$card"
-}
-
-mpe_wait_for_alsa_card() {
-    local hw="${1:?hw device required}"
-    local card="${hw#hw:}"
-    local timeout="${2:-15}"
-    local elapsed=0
-    while [ "$elapsed" -lt "$timeout" ]; do
-        if [ -d "/proc/asound/card${card}" ]; then
-            return 0
-        fi
-        sleep 1
-        elapsed=$((elapsed + 1))
-    done
-    return 1
-}
-
-mpe_surge_jack_device_index() {
-    local list idx
-    list=$("$SURGE_CLI" --list-devices 2>&1) || return 1
-    idx=$(printf '%s\n' "$list" \
-        | grep "Output Audio Device" \
-        | grep -i "JACK" \
-        | sed -n 's/.*\[\([0-9][0-9]*\.[0-9][0-9]*\)\].*/\1/p' \
-        | head -1)
-    [ -n "$idx" ] || return 1
-    printf '%s\n' "$idx"
-}
-
 mpe_surge_on_jack_graph() {
     mpe_jack_server_ready || return 1
-    if command -v jack_lsp >/dev/null 2>&1; then
-        jack_lsp 2>/dev/null | grep -qi 'surge'
-        return $?
+    if ! command -v jack_lsp >/dev/null 2>&1; then
+        return 1
     fi
-    return 1
+    jack_lsp 2>/dev/null | grep -qi 'surge'
 }
 
 # Back-compat alias used by udev helper and profile scripts.

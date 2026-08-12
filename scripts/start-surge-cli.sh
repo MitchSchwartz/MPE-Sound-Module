@@ -67,7 +67,9 @@ select_alsa_device() {
 # while a server is up. Anchor on the device-listing prefix — libjack's own
 # diagnostics also mention "Jack".
 resolve_jack_device_index() {
-    "$SURGE_CLI" --list-devices 2>&1 \
+    local list
+    list="$(timeout 5 "$SURGE_CLI" --list-devices 2>&1)" || return 1
+    printf '%s\n' "$list" \
         | grep "Output Audio Device" \
         | grep -i "JACK" \
         | sed -n 's/.*\[\([0-9][0-9]*\.[0-9][0-9]*\)\].*/\1/p' \
@@ -152,7 +154,7 @@ SURGE_AUDIO_ARGS=()
 if [ "$AUDIO_ENGINE" = jack ]; then
     JACK_READY_TIMEOUT="$(mpe_jack_ready_timeout)"
     if mpe_wait_for_jack_server "$JACK_READY_TIMEOUT"; then
-        JACK_INDEX="$(resolve_jack_device_index)"
+        JACK_INDEX="$(resolve_jack_device_index)" || JACK_INDEX=""
         if [ -n "$JACK_INDEX" ]; then
             AUDIO_DEVICE="$JACK_INDEX"
             DEVICE_NAME="JACK graph server"
