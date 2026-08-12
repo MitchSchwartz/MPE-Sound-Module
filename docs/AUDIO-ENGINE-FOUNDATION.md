@@ -411,16 +411,40 @@ clients — which is exactly the thing a looper needs.
 
 ### Two things that make it cheaper than the docs assume
 
-- **Surge is very likely already JACK-capable.** `docs/SURGE_ARM_BUILD.md` lists
-  `libjack-jackd2-dev` in the build dependencies, which means the binary we
-  built probably has JACK output compiled in. If so, adopting JACK removes
-  `snd-aloop` entirely rather than adding a layer. *(Inference — worth
-  confirming with one command on the Pi before it's load-bearing.)*
-- **PipeWire.** Modern Linux ships PipeWire, which implements the JACK API. You
-  can get JACK's graph model without running the classic `jackd` daemon. Whether
-  this helps depends on what the Pi image already runs; on a headless appliance
-  it may be simpler to run `jackd` deliberately than to inherit a desktop audio
-  stack.
+- **Surge is very likely already JACK-capable — measured 2026-08-12.**
+  `mpe sysinfo` §Audio backends reports *"jack symbols present, not dynamically
+  linked"* on `/home/mitch/surge/build/surge_xt_products/surge-xt-cli`. That is
+  exactly how JUCE ships JACK support: the backend is compiled in and `libjack`
+  is `dlopen`ed at runtime. Strong indicator, **not yet proof** — the definitive
+  test is to install `libjack`, start a server, and check that
+  `surge-xt-cli --list-devices` lists a JACK device type.
+- **Nothing is installed yet, and that cuts against PipeWire.** The same check
+  reports no `libjack`, no `jackd`, and **no PipeWire** on the Pi. The common
+  argument for PipeWire — "modern Linux already runs it, use what's there" —
+  does not apply. Either server is a deliberate install onto a bare-ALSA
+  appliance, so PipeWire has to win on merit rather than on incumbency.
+
+### PipeWire vs JACK, for *this* appliance
+
+PipeWire is not a fifth option. It implements the JACK API, so it is a choice of
+engine underneath the same design; Surge connects either way.
+
+| | PipeWire | JACK |
+|---|---|---|
+| Maintenance | Actively developed | JACK2 effectively maintenance-only |
+| USB device churn | Handles hotplug well | Classic weak spot |
+| Headless boot | Wants user session + dbus + WirePlumber; needs `enable-linger` or the discouraged system-wide mode | One daemon, explicit args |
+| Layers to debug | More (server + session manager + JACK shim) | Fewer |
+| Already present here | No | No |
+
+The tension is specific to this rig: it has **more device churn than most**
+(LUMI hotplug rules, USB-audio restart rule, Sound Blaster, UAC2 gadget), which
+favours PipeWire — but it is **a headless appliance that must come up reliably
+when powered on before a set**, which favours `jackd`. Boot reliability is the
+axis to weigh hardest; device churn is the reason not to dismiss PipeWire.
+
+**Unresolved either way:** how the `usb-host` UAC2 gadget path behaves under a
+graph server. It is a shipped feature and no plan currently accounts for it.
 
 ### The honest comparison
 
@@ -449,27 +473,66 @@ scheduling.
 HUD metrics from Part 4. This is the cheapest large improvement in *worst case*,
 which is what you actually hear.
 
-**C. Collapse to one process (a week+).** Replace `arecord`/`aplay`/pipes with a
-single Python process using `sounddevice`/PortAudio and a NumPy mixer in one
-callback. Removes two processes and two buffer stages; gives a real callback
-model. Still Python, still `snd-aloop`, still multiple clocks.
+**C. Collapse to one process (a week+).** ~~Replace `arecord`/`aplay`/pipes with
+a single Python process using `sounddevice`/PortAudio and a NumPy mixer in one
+callback.~~ **Superseded 2026-08-12 — see below.** C's entire pitch was a faster
+mixer in one callback, and the mixer now costs **0.030 ms of a 10.67 ms period**.
+By its own description it leaves `snd-aloop` and the multiple clocks in place, so
+it would spend a week fixing a solved problem and not touch the remaining one.
 
-**D. JACK graph (a week+, plus appliance risk).** Surge and looper as JACK
-clients. Removes `snd-aloop`, the pipes, and the multi-clock problem in one move,
-and gives shared transport. The best architecture on the merits; the most
-integration and boot-reliability work.
+**D. Graph server — JACK or PipeWire (a week+, plus appliance risk).** Surge and
+looper as graph clients. Removes `snd-aloop`, the pipes, and the multi-clock
+problem in one move, and gives shared transport. Engine choice in §Part 7.
 
-**My recommendation: do A now, then B, then re-measure and decide between C and
-D with real numbers in hand.**
+### Revised 2026-08-12: D contains C, it does not compete with it
 
-The reasoning: A and B are cheap, are required no matter which endpoint you pick,
-and will change the measurements enough that a C-vs-D decision made today would
-be based on data that's about to be obsolete. Specifically, if A gets the mixer
-to 1 ms and B bounds the worst case, then the remaining complaint is *latency and
-drift* — and that complaint points squarely at D, not C. If instead A+B leaves
-timing wobble that fast mixing didn't fix, that's the clock problem, which also
-points at D. C is mostly a way to get partway to D while staying in Python; its
-main appeal is avoiding a daemon on an appliance.
+The original framing was wrong. **Installing a graph server changes nothing on
+its own.** If the looper still shells out to `arecord`/`aplay` with pipes between
+them, you have added a server underneath and kept all four buffer stages — the
+~40 ms comes from the handoffs, not from the absence of a server.
+
+The latency win only arrives when the looper stops being a subprocess pipeline
+and becomes a **graph node with a real callback**, processed in the same tick as
+Surge. That refactor *is* option C, pointed at a graph server instead of at
+PortAudio. One project, not a choice between two.
+
+**Two consequences that change earlier advice:**
+
+1. **NumPy moves from optional to prerequisite.** A callback running at one or
+   two periods of latency cannot allocate per period. Preallocated arrays with
+   in-place operations are the only safe way to write it. The "optionally move to
+   NumPy" in option A is now on the critical path.
+2. **The GIL and GC get sharper, not softer.** Today's ~40 ms of buffering is
+   also ~40 ms of cushion quietly absorbing GC pauses. Remove the cushion and a
+   15 ms pause is an audible dropout. Manageable — freeze the GC, preallocate,
+   no allocation or logging inside the callback — but it is the principal
+   technical risk, and it is what eventually argues for a compiled inner loop.
+
+### Where a compiled kernel fits (the "compiled DSP" question)
+
+Not an alternative route — a **later, contained swap** downstream of the callback
+work, which is needed regardless. The reason to compile is not speed (0.030 ms is
+already nothing); it is a **bounded worst case**, which Python cannot offer while
+the GC can pause it.
+
+| Step | Effort | What it buys |
+|---|---|---|
+| Python callback + NumPy + GC discipline | Included in D | Gets latency to 1–2 periods. Unbounded tail risk. |
+| Compiled mix kernel behind the same interface | Days, not weeks | Bounded worst case in the inner loop. The kernel is tiny — sum N int16 stereo buffers with gain, then clip. |
+| Whole engine in C++/Rust, Python only for UI | Months | What a commercial product ships. Not now. |
+
+**Surge compatibility is unaffected.** Surge is a separate process regardless of
+what language the looper is written in; it only needs to reach the graph server.
+The Surge question is entirely about JACK support (§Part 7), never about the
+mixer's language.
+
+**Actionable now:** keep the mix function behind a **clean swappable interface**
+so NumPy today and a compiled kernel later is a drop-in, not a rewrite.
+
+**Revised recommendation: A and B are done. Go to D via a graph server, treating
+the looper's conversion into a callback client as the substance of the work
+rather than the server install. Defer the compiled kernel until the callback
+exists and the GC tail is measured rather than assumed.**
 
 For "would an audio engineer respect this": what they look for is a single
 realtime callback, no allocation inside it, one clock, a lock-free handoff to the
@@ -478,15 +541,27 @@ a fraction of the effort.
 
 ---
 
-## Part 9 — What I need from you
+## Part 9 — Decisions taken (2026-08-12)
 
-1. **Scope for this week** — A only, or A + B?
-2. **Direction of travel** — should I write the C-vs-D comparison as a real
-   decision doc after A+B measurements land, or is JACK (D) settled enough in
-   your mind that we should plan toward it now?
-3. **Latency target** — is there a number you want to hit, or is "no crackle and
-   feels tight when playing" the acceptance test? This determines how hard we
-   push on stage count.
+1. **Scope** — A and B were chosen and are done. A is complete; B is partial
+   (Surge `SCHED_FIFO` 20 live; `performance` governor and looper RT not done,
+   HUD metric built then found wrong). See `LATENCY-SPIKE.md` §Validation log.
+2. **Direction of travel** — **D, leaning PipeWire.** Mitch: *"I feel pretty
+   confident that PipeWire is the way forward, and I would like to reduce the
+   handoffs and layers that give us potential desync and also 40 ms latency."*
+   C is superseded (§Part 8).
+3. **Acceptance test** — *"the playing experience is subpar right now."* Latency
+   is judged by feel while playing, not a millisecond target. This is a stronger
+   input than a drift measurement and removes the need to gate on one.
+
+### Open before D is planned
+
+| Question | Why it is load-bearing |
+|---|---|
+| Does `surge-xt-cli` actually expose a JACK device type? | Symbols suggest yes; unproven. If not, Surge reaches the server over ALSA compat and a conversion stage returns — much of the benefit is lost. Test: install `libjack`, start a server, `surge-xt-cli --list-devices`. |
+| PipeWire or `jackd`? | §Part 7 table. Device churn favours PipeWire; headless boot reliability favours `jackd`. |
+| What happens to the `usb-host` UAC2 gadget? | Shipped feature, no plan accounts for it. |
+| How bad is the GC tail at 1–2 periods? | Determines whether the compiled kernel is optional or required. Measure after the callback exists. |
 
 ---
 
