@@ -1,9 +1,9 @@
 # JACK audio engine — permanent graph server + looper as callback client
 
 **Issue:** untracked
-**Status:** Implemented — Phase 1 repo changes on `yolo/jack-audio-engine-phase1` (2026-08-12). Pi soak pending Gate B.
+**Status:** Approved, Phase 1 **written but unverified** — code on `yolo/jack-audio-engine-phase1`, not yet run on hardware. Not "Implemented": 9 of the 17 Phase 1 criteria are hardware-only and none have been executed. Gate B is the Pi soak.
 **Created:** 2026-08-12
-**Last updated:** 2026-08-12 01:50 (America/Toronto)
+**Last updated:** 2026-08-12 10:45 (America/Toronto)
 
 **Gate A decisions:** default engine on boot is `jack`. The Phase 1 looper
 regression is **accepted knowingly** — looper off during Phase 1, refused by the
@@ -78,9 +78,9 @@ That was a manual bring-up outside systemd. **It does not survive a reboot.**
 | 5a | Profile switch (`standalone` ↔ `usb-host` ↔ `usb-host-session`) restarts **jackd**, and the supervisor reconciles Surge onto the new server within the 15 s budget | `mpe engine status` shows the expected `hw:N` per the D1 tier table; zero xruns after settle |
 | 5b | **UAC2 host capture open/close mid-session** re-points the graph | With `MPE_AUDIO_PROFILE=usb-host`, start/stop capture on the host; jackd restarts on the new device, supervisor reconnects Surge, audio resumes |
 | 6 | Surge's audio **thread** is `SCHED_FIFO` below jackd's; no `chrt` wrapper on the Surge process in JACK mode | `mpe jack status` (reads `/proc/<pid>/task/*`, not process policy) |
-| 10 | With `MPE_LOOPER_ENABLED=1` and `MPE_AUDIO_ENGINE=jack`, every looper entry point refuses with one shared message. Interactive callers exit non-zero; `mpe-looper.service` logs `LOOPER-GUARDED`, exits 0, and **does not restart-loop** | Unit test on the guard in `mpe-looper.py main()`; boot test with both flags, then `journalctl -u mpe-looper` shows one refusal, not a 2 s storm |
+| 10 | **Deferred to `yolo/looper-phase0` merge.** With `MPE_LOOPER_ENABLED=1` and `MPE_AUDIO_ENGINE=jack`, every looper entry point refuses with one shared message; `mpe-looper.service` must not restart-loop. Phase 1 strips looper scripts from this branch — guard policy lives in `engine-guard.sh` + `patch_browser/audio_engine.py` (unit-tested); full criterion verifies when phase0 lands | Unit test on guard helpers now; boot test + `journalctl -u mpe-looper` when phase0 merges |
 | 12 | **Default engine is `jack`** on a fresh install and after upgrade of an appliance with no `MPE_AUDIO_ENGINE` set | Fresh `/etc/mpe/mpe.env` + upgrade path; `mpe engine status` reports `jack` in both |
-| 13 | The looper regression is **surfaced, not discovered** — the touch HUD shows an indicator whenever `looper=guarded` | Boot with both flags; HUD displays the guarded state. (Release notes are a merge checklist item, not an acceptance criterion — it was unfalsifiable as one) |
+| 13 | The looper regression is **surfaced, not discovered** — the touch HUD reads `/run/mpe/engine.state` and shows engine/state/`looper=guarded` via `patch_browser/audio_engine.py` + `touch_browser_draw.py` | Boot with both flags; HUD displays guarded/degraded state |
 | 14 | Direct-ALSA consumers still work with jackd holding the device | Run `calibrate-patch-normalization.py` and `session_capture.py` with jackd up; either they succeed, or the failure is documented and the workflow states "stop jackd first" |
 | 15 | USB DAC **unplug/replug** (`99-usb-audio.rules`) restarts jackd, not just Surge, and the graph returns | Pull and reseat the DAC mid-session; audio resumes; zero xruns after settle |
 | 16 | `MPE_JACK_BUFFER` / `MPE_JACK_PERIODS` drive the server independently of `MPE_SURGE_BUFFER_SIZE` (D6) | Set JACK keys only; `mpe jack status` reports the requested period; Surge key has no effect in JACK mode |
@@ -138,7 +138,7 @@ Callers split by intent — a rule, backed by a verified inventory:
 
 | Intent | Restart | Sites (all verified in repo) |
 |---|---|---|
-| Device may change | `mpe-jackd.service` | `set-audio-profile.sh`; `set-surge-audio.sh`; `uac2-stall-watchdog.sh`; `looper-audio-route.sh`; **`config/99-usb-audio.rules`** (udev, on USB card add/remove); **`mpe restart surge`**; **`mpe looper buffer`** |
+| Device may change | `mpe-jackd.service` | `set-audio-profile.sh`; `set-surge-audio.sh`; `uac2-stall-watchdog.sh`; `looper-audio-route.sh` *(when `yolo/looper-phase0` lands — not on `dev` today)*; **`config/99-usb-audio.rules`** (udev → `restart-audio-graph.sh`); **`mpe restart surge`**; **`mpe looper buffer`** |
 | Device unchanged | `surge-xt-cli.service` | `surge-watchdog.sh`; `deploy-patches.sh`; `setup-pi-symlinks.sh`; `mpe-services.sh`; `patch_browser/surge_monitor.py` (touch UI restart); `mpe rt surge` (`mpe-cli/commands/rt.sh`) |
 
 Three of these were missed in the first draft and are the reason this is a rule

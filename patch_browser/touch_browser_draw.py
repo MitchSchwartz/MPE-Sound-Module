@@ -35,6 +35,7 @@ from patch_browser.touch_ui_constants import (
     SETTINGS_ROW_H,
 )
 from patch_browser.audio_profile import header_badge_label
+from patch_browser.audio_engine import engine_hud_label, engine_hud_semantic, engine_hud_should_show, read_engine_state
 from patch_browser.midi_clock import looper_hud_label, looper_hud_should_show
 from patch_browser.touch_ui_enums import (
     CalibrateMode,
@@ -388,6 +389,28 @@ class TouchBrowserDrawMixin:
             border_radius=3,
         )
 
+    def _draw_engine_hud(self, rect: Rect) -> None:
+        if rect.w <= 0:
+            return
+        state = read_engine_state()
+        if not engine_hud_should_show(state):
+            return
+        label = engine_hud_label(state)
+        if not label:
+            return
+        semantic = engine_hud_semantic(state)
+        fill = self.theme.surface_alt
+        text_color = self._semantic_color(semantic)
+        pygame.draw.rect(self.screen, fill, rect.pygame_rect, border_radius=8)
+        badge = self.font_sm.render(label, True, text_color)
+        self.screen.blit(
+            badge,
+            (
+                rect.x + (rect.w - badge.get_width()) // 2,
+                rect.y + (rect.h - badge.get_height()) // 2,
+            ),
+        )
+
     def _draw_looper_hud(self, rect: Rect) -> None:
         if rect.w <= 0:
             return
@@ -459,7 +482,9 @@ class TouchBrowserDrawMixin:
             subtitle = recovery_hint
 
         title_x = getattr(self, "status_title_x", self.status_rect.x + 12)
-        widget_left = getattr(self, "looper_hud_rect", self.audio_profile_badge_rect).x
+        widget_left = getattr(self, "engine_hud_rect", getattr(self, "looper_hud_rect", self.audio_profile_badge_rect)).x
+        if widget_left <= title_x or getattr(self, "engine_hud_rect", Rect(0, 0, 0, 0)).w <= 0:
+            widget_left = getattr(self, "looper_hud_rect", self.audio_profile_badge_rect).x
         if widget_left <= title_x:
             widget_left = self.audio_profile_badge_rect.x
         title_max_w = max(1, widget_left - title_x - 12)
@@ -475,6 +500,7 @@ class TouchBrowserDrawMixin:
             (title_x, self.status_rect.y + 26),
         )
         self._draw_audio_profile_badge(self.audio_profile_badge_rect)
+        self._draw_engine_hud(getattr(self, "engine_hud_rect", Rect(0, 0, 0, 0)))
         if getattr(self, "show_looper_hud", True):
             self._draw_looper_hud(self.looper_hud_rect)
         if self.show_cpu_meter:

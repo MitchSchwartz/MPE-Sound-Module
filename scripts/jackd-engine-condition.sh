@@ -15,9 +15,15 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")" && pwd)"
 # shellcheck source=lib/paths.sh
-source "$SCRIPT_DIR/lib/paths.sh"
+source "$SCRIPT_DIR/lib/paths.sh" || {
+    echo "ERROR: jackd-engine-condition: failed to source paths.sh — assuming default engine jack (starting jackd)" >&2
+    exit 0
+}
 # shellcheck source=lib/audio-engine.sh
-source "$SCRIPT_DIR/lib/audio-engine.sh"
+source "$SCRIPT_DIR/lib/audio-engine.sh" || {
+    echo "ERROR: jackd-engine-condition: failed to source audio-engine.sh — assuming default engine jack (starting jackd)" >&2
+    exit 0
+}
 
 if mpe_engine_is_jack; then
     echo "mpe-jackd: MPE_AUDIO_ENGINE=$(mpe_audio_engine) — starting graph server"
