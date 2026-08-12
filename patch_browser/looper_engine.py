@@ -30,7 +30,6 @@ def audio_mix_backend() -> str:
 S16_STEREO_FRAME_BYTES = 4
 S16_CLIP = 32767
 _AUDIOOP_WIDTH = 2
-_GAIN_SCALE = 32768
 
 
 def frames_to_bytes(frames: int) -> int:
@@ -219,8 +218,8 @@ def apply_gain_s16_stereo(pcm: bytes, gain: float) -> bytes:
     if gain == 1.0:
         return pcm
     if audioop is not None:
-        factor = max(0, min(_GAIN_SCALE, int(round(gain * _GAIN_SCALE))))
-        return audioop.mul(pcm, _AUDIOOP_WIDTH, factor)
+        # audioop.mul takes a float multiplier, not a fixed-point integer.
+        return audioop.mul(pcm, _AUDIOOP_WIDTH, max(0.0, gain))
     return mix_s16_stereo(pcm, gains=(gain,))
 
 
@@ -250,27 +249,26 @@ def mix_live_and_loops(
     effective_loop_bus = loop_gain * headroom
     per_layer_gain = effective_loop_bus / n
 
-    # Fast audioop path only on CPython 3.12 stdlib; 3.13+ backport (CI) clips before headroom.
-    if audioop is not None and _AUDIOOP_BACKEND == "stdlib":
-        loop_factor = max(0, min(_GAIN_SCALE, int(round(per_layer_gain * _GAIN_SCALE))))
+    # audioop runs the whole buffer in C. The pure-Python fallback below is a
+    # per-frame struct loop that cannot hold a 10.67 ms period on the Pi, so use
+    # this path on every backend that has audioop (stdlib or the lts backport).
+    # Each layer is pre-scaled by loop_gain/N, so the running audioop.add sum
+    # stays under the bus ceiling and never hits audioop's saturation.
+    if audioop is not None:
         loop_sum = loop_chunks[0]
-        if loop_factor != _GAIN_SCALE:
-            loop_sum = audioop.mul(loop_sum, _AUDIOOP_WIDTH, loop_factor)
+        if per_layer_gain != 1.0:
+            loop_sum = audioop.mul(loop_sum, _AUDIOOP_WIDTH, per_layer_gain)
         for chunk in loop_chunks[1:]:
             scaled = (
                 chunk
-                if loop_factor == _GAIN_SCALE
-                else audioop.mul(chunk, _AUDIOOP_WIDTH, loop_factor)
+                if per_layer_gain == 1.0
+                else audioop.mul(chunk, _AUDIOOP_WIDTH, per_layer_gain)
             )
             loop_sum = audioop.add(loop_sum, scaled, _AUDIOOP_WIDTH)
+        if effective_live == 0.0:
+            return loop_sum
         if effective_live != 1.0:
-            live_pcm = audioop.mul(
-                live_pcm,
-                _AUDIOOP_WIDTH,
-                int(round(effective_live * _GAIN_SCALE)),
-            )
-        elif effective_live == 0.0:
-            live_pcm = b"\x00" * len(live_pcm)
+            live_pcm = audioop.mul(live_pcm, _AUDIOOP_WIDTH, effective_live)
         return audioop.add(live_pcm, loop_sum, _AUDIOOP_WIDTH)
 
     frame_count = bytes_to_frames(len(live_pcm))
