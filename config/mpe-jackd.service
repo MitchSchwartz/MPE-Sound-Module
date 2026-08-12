@@ -19,6 +19,9 @@ Type=simple
 User=@MPE_PI_USER@
 WorkingDirectory=@MPE_MODULE_REPO@
 EnvironmentFile=-/etc/mpe/mpe.env
+# PipeWire/pulse hold ALSA via the reservation plugin; without this jackd fails to
+# open the tier device under systemd even when nothing else is playing audio.
+Environment=JACK_NO_AUDIO_RESERVATION=1
 # Permit (do not force) realtime scheduling, mirroring surge-xt-cli.service.
 # systemd units bypass PAM, so /etc/security/limits.d/audio.conf (installed by
 # jackd2) does not apply here.

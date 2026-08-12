@@ -201,6 +201,23 @@ class JackdStartLimitTests(unittest.TestCase):
         self.assertIn("Restart=always", text)
         self.assertIn("StartLimitIntervalSec=0", text)
 
+    def test_jackd_unit_disables_alsa_audio_reservation(self) -> None:
+        text = JACKD_SERVICE.read_text(encoding="utf-8")
+        self.assertIn("JACK_NO_AUDIO_RESERVATION=1", text)
+
+    def test_jackd_engine_condition_is_executable_in_git(self) -> None:
+        import subprocess
+
+        result = subprocess.run(
+            ["git", "ls-files", "-s", "scripts/jackd-engine-condition.sh"],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        mode = result.stdout.split()[0] if result.stdout.strip() else ""
+        self.assertEqual(mode, "100755", msg="ExecCondition must be executable in git")
+
     def test_graph_restart_skips_jackd_when_surge_on_alsa(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             env = _bash_env(tmp, MPE_AUDIO_ENGINE="jack")
