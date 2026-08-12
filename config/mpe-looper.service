@@ -11,6 +11,11 @@ WorkingDirectory=@MPE_MODULE_REPO@
 EnvironmentFile=-/etc/mpe/mpe.env
 Environment=PYTHONUNBUFFERED=1
 ExecStart=@MPE_MODULE_REPO@/scripts/mpe-looper-service.sh
+# Permit (not force) realtime scheduling, matching surge-xt-cli.service. Unlike
+# JUCE, Python never self-elevates, so this only takes effect when
+# MPE_LOOPER_RT_PRIORITY is set — see scripts/mpe-looper-service.sh.
+LimitRTPRIO=95
+LimitMEMLOCK=infinity
 Restart=on-failure
 RestartSec=2
 TimeoutStopSec=5
