@@ -525,14 +525,29 @@ About **160x faster at three layers**, and the cost per added layer is now
 ~0.023 ms, so layer count is no longer a meaningful constraint. Idle service
 over 20 s: 0 xruns on both `arecord` and `aplay`.
 
-**These numbers are a conservative floor, not a best case.** They were recorded
-while the board was voltage-throttled to **600 MHz of 1800 MHz** (discovered
-2026-08-12 — see below and `LATENCY-SPIKE.md`). At full clock the real mix cost
-is roughly a third of the figures above.
+**Those numbers were recorded on a throttled board.** The Pi was capped at
+**600 MHz of 1800 MHz** by voltage drop across the power wiring (discovered
+2026-08-12 — see below and `LATENCY-SPIKE.md`). Re-measured after the fix:
+
+| Layers | At 600 MHz | At 1800 MHz | Deadline utilization |
+|---|---|---|---|
+| 1 | 0.043 ms | **0.014 ms** | 0.13% |
+| 3 | 0.090 ms | **0.030 ms** | 0.28% |
+| 6 | 0.158 ms | **0.053 ms** | 0.50% |
+
+Almost exactly 3x, matching the clock ratio — which independently corroborates
+the power diagnosis. Against the original broken path, three layers went from
+~14.5 ms to 0.030 ms: **roughly 480x**, and from 136% of the period budget to
+under a third of one percent.
 
 **Verified by playing (2026-08-12):** eight loops played smoothly — and did so
-*at one-third clock*, before the power fix. The mixer is no longer the
-constraint at any layer count this product supports.
+*at one-third clock*, before the power fix. The mixer is not the constraint at
+any layer count this product will support.
+
+**Guardrail caveat:** `MixerPerformanceTests` is only meaningful on the
+appliance. A dev laptop runs even the pure-Python fallback in well under budget,
+so it passes there regardless of backend. `test_compiled_audioop_backend_available`
+carries the real signal — it fails hard on `aarch64` and skips loudly elsewhere.
 
 ### Under-voltage — found while checking the governor
 
