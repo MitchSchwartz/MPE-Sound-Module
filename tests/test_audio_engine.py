@@ -29,6 +29,7 @@ AUDIO_ENGINE_SH = REPO_ROOT / "scripts" / "lib" / "audio-engine.sh"
 ENGINE_GUARD_SH = REPO_ROOT / "scripts" / "lib" / "engine-guard.sh"
 SURGE_SERVICE = REPO_ROOT / "config" / "surge-xt-cli.service"
 WATCHDOG_SERVICE = REPO_ROOT / "config" / "surge-watchdog.service"
+JACKD_SERVICE = REPO_ROOT / "config" / "mpe-jackd.service"
 
 
 def _bash_env(run_dir: str | None = None, **extra: str) -> dict[str, str]:
@@ -184,6 +185,33 @@ class RuntimeDirectoryPreserveTests(unittest.TestCase):
         text = WATCHDOG_SERVICE.read_text(encoding="utf-8")
         self.assertIn("RuntimeDirectory=mpe", text)
         self.assertIn("RuntimeDirectoryPreserve=yes", text)
+
+
+class JackdStartLimitTests(unittest.TestCase):
+    """A DAC-less jackd must keep retrying, not wedge in start-limit failure."""
+
+    def test_jackd_unit_disables_start_rate_limit(self) -> None:
+        text = JACKD_SERVICE.read_text(encoding="utf-8")
+        self.assertIn("Restart=always", text)
+        self.assertIn("StartLimitIntervalSec=0", text)
+
+    def test_graph_restart_resets_failed_state_first(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            env = _bash_env(tmp, MPE_AUDIO_ENGINE="jack")
+            body = f"""
+source {AUDIO_ENGINE_SH}
+mpe_systemctl() {{ printf '%s\\n' "$*" >> "{tmp}/systemctl.log"; return 0; }}
+mpe_engine_reconcile_record_restart
+mpe_restart_audio_graph
+printf 'count=%s\\n' "$(mpe_engine_reconcile_count)"
+cat "{tmp}/systemctl.log"
+"""
+            result = _run_bash_script(body, env=env)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            lines = result.stdout.strip().splitlines()
+            self.assertEqual(lines[0], "count=0")
+            self.assertEqual(lines[1], "reset-failed mpe-jackd.service")
+            self.assertEqual(lines[2], "restart --no-block mpe-jackd.service")
 
 
 class StateFileLifecycleTests(unittest.TestCase):
