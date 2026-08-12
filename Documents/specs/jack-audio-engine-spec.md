@@ -3,7 +3,7 @@
 **Issue:** untracked
 **Status:** Approved, Phase 1 **written but unverified** — code on `yolo/jack-audio-engine-phase1`, not yet run on hardware. Not "Implemented": 9 of the 17 Phase 1 criteria are hardware-only and none have been executed. Gate B is the Pi soak.
 **Created:** 2026-08-12
-**Last updated:** 2026-08-12 10:45 (America/Toronto)
+**Last updated:** 2026-08-12 11:36 (America/Toronto)
 
 **Gate A decisions:** default engine on boot is `jack`. The Phase 1 looper
 regression is **accepted knowingly** — looper off during Phase 1, refused by the
@@ -162,7 +162,7 @@ load-bearing: a startup-only check does not cover a jackd crash mid-set. States:
 | State | Entry | Behaviour |
 |---|---|---|
 | `jack` | jackd up, Surge connected | Normal. |
-| `degraded` | `MPE_AUDIO_ENGINE=jack`, no server after `ExecStartPre` wait | `start-surge-cli.sh` logs `ENGINE-FALLBACK` and starts Surge on the ALSA tier device. Sound, worse latency. |
+| `degraded` | `MPE_AUDIO_ENGINE=jack`, no server after `ExecStartPre` wait **or** Surge fell back to ALSA while jackd was running | `start-surge-cli.sh` stops `mpe-jackd.service` (non-blocking) before opening the tier ALSA device, logs `ENGINE-FALLBACK` with `action=stopped-jackd`, and starts Surge on ALSA. jackd stays stopped until reboot or manual start — sound with worse latency, appliance rests degraded. |
 | `recovering` | jackd died while running, or came up after Surge fell back | Supervisor restarts Surge onto the correct engine. Audible gap budget: **≤ 15 s**. |
 | `failed` | No server *and* no usable ALSA device | `start-surge-cli.sh` must **not** `exit 1` silently as it does today — it logs both causes and surfaces `state=failed` to `mpe engine status`. |
 

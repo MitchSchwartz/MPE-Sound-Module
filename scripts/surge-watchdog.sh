@@ -1,7 +1,7 @@
 #!/bin/bash
 # Surge Watchdog: crash recovery + JACK/ALSA engine reconciliation (spec D3).
 
-SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || echo "${BASH_SOURCE[0]}")")" && pwd)"
 # shellcheck source=lib/paths.sh
 source "$SCRIPT_DIR/lib/paths.sh"
 # shellcheck source=lib/audio-engine.sh
@@ -50,6 +50,7 @@ _supervisor_restart_surge() {
     log "RECONCILE restarting Surge ($reason)"
     mpe_engine_reconcile_record_restart
     mpe_engine_state_write "$(mpe_audio_engine)" "$(mpe_engine_state_get active)" recovering "$reason" "$looper_label"
+    mpe_systemctl reset-failed "$SURGE_SERVICE" >/dev/null 2>&1 || true
     mpe_systemctl restart "$SURGE_SERVICE"
     return 0
 }
@@ -97,6 +98,7 @@ _reconcile_engine() {
     fi
 }
 
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
 log "=== Surge Watchdog Started (engine=$(mpe_audio_engine)) ==="
 
 while true; do
@@ -109,14 +111,12 @@ while true; do
             log "Backed up corrupted file to: $BACKUP"
         fi
 
-        sudo systemctl reset-failed "$SURGE_SERVICE"
-        sudo systemctl restart "$SURGE_SERVICE"
-        log "Service restarted"
-
-        sleep 2
-        if [ -f "$USER_DEFAULTS" ]; then
-            chmod 644 "$USER_DEFAULTS" || true
-            log "Set user defaults to writable (644) for OSC patch loading"
+        if _supervisor_restart_surge "surge-failed"; then
+            sleep 2
+            if [ -f "$USER_DEFAULTS" ]; then
+                chmod 644 "$USER_DEFAULTS" || true
+                log "Set user defaults to writable (644) for OSC patch loading"
+            fi
         fi
     fi
 
@@ -124,3 +124,4 @@ while true; do
 
     sleep 5
 done
+fi

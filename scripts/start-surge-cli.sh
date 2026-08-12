@@ -67,13 +67,17 @@ select_alsa_device() {
 # while a server is up. Anchor on the device-listing prefix — libjack's own
 # diagnostics also mention "Jack".
 resolve_jack_device_index() {
-    local list
-    list="$(timeout 5 "$SURGE_CLI" --list-devices 2>&1)" || return 1
-    printf '%s\n' "$list" \
+    local list index
+    # Surge may exit non-zero while still printing a usable device list — do not
+    # treat a noisy exit as "no JACK device" (finding 6).
+    list="$(timeout 5 "$SURGE_CLI" --list-devices 2>&1)" || true
+    index=$(printf '%s\n' "$list" \
         | grep "Output Audio Device" \
         | grep -i "JACK" \
         | sed -n 's/.*\[\([0-9][0-9]*\.[0-9][0-9]*\)\].*/\1/p' \
-        | head -1
+        | head -1)
+    [ -n "$index" ] || return 1
+    printf '%s' "$index"
 }
 
 USER_DEFAULTS_DIR="$(dirname "$MPE_SURGE_USER_DEFAULTS")"
@@ -108,14 +112,11 @@ fi
 echo "$(date): USB devices at startup:" >> "$LOG_FILE"
 lsusb 2>&1 | grep -i "midi\|roli\|seaboard" >> "$LOG_FILE" || echo "  No USB MIDI devices found" >> "$LOG_FILE"
 
-# Drop idle ALSA loopback from calibration — unless looper routing is enabled.
-if [ "${MPE_LOOPER_ENABLED:-0}" != "1" ]; then
-    # shellcheck source=lib/unload-snd-aloop.sh
-    source "$SCRIPT_DIR/lib/unload-snd-aloop.sh"
-else
-    sudo modprobe snd-aloop 2>/dev/null || true
-    echo "$(date): MPE_LOOPER_ENABLED=1 — keeping snd-aloop loaded" >> "$LOG_FILE"
-fi
+# Drop idle ALSA loopback from calibration. snd-aloop loading for looper routing
+# is deferred to yolo/looper-phase0 — loading it here adds a Loopback card that
+# detect-audio-device.sh must filter and has no consumer on this branch.
+# shellcheck source=lib/unload-snd-aloop.sh
+source "$SCRIPT_DIR/lib/unload-snd-aloop.sh"
 
 SURGE_BUFFER_SIZE="${MPE_SURGE_BUFFER_SIZE:-1024}"
 SURGE_SAMPLE_RATE="${MPE_SURGE_SAMPLE_RATE:-48000}"
@@ -183,11 +184,21 @@ if [ "$AUDIO_ENGINE" = jack ]; then
 fi
 
 if [ -z "$ACTIVE_ENGINE" ]; then
+    FALLBACK_ACTION=""
+    if [ "$AUDIO_ENGINE" = jack ] && mpe_jack_server_running; then
+        if mpe_release_audio_device_for_alsa; then
+            FALLBACK_ACTION="stopped-jackd"
+            engine_log "ENGINE-FALLBACK: stopped mpe-jackd.service to release ALSA device — appliance rests degraded until reboot or manual jackd start"
+        else
+            FALLBACK_ACTION="jackd-still-running"
+            engine_log "ENGINE-FALLBACK: jackd still running after stop attempt — ALSA open may fail (action=jackd-still-running)"
+        fi
+    fi
     if select_alsa_device; then
         ACTIVE_ENGINE=alsa
         if [ "$AUDIO_ENGINE" = jack ]; then
             ENGINE_STATE=degraded
-            engine_log "ENGINE-FALLBACK: running on ALSA tier $DEVICE_TIER device $AUDIO_DEVICE ($DEVICE_NAME) — sound with worse latency"
+            engine_log "ENGINE-FALLBACK: running on ALSA tier $DEVICE_TIER device $AUDIO_DEVICE ($DEVICE_NAME) reason=${ENGINE_REASON:-fallback} action=${FALLBACK_ACTION:-n/a} — sound with worse latency"
         else
             ENGINE_STATE=ok
         fi

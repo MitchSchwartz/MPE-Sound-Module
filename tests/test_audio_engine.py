@@ -27,6 +27,7 @@ from patch_browser.audio_engine import (
 REPO_ROOT = Path(__file__).resolve().parents[1]
 AUDIO_ENGINE_SH = REPO_ROOT / "scripts" / "lib" / "audio-engine.sh"
 ENGINE_GUARD_SH = REPO_ROOT / "scripts" / "lib" / "engine-guard.sh"
+SURGE_WATCHDOG_SH = REPO_ROOT / "scripts" / "surge-watchdog.sh"
 SURGE_SERVICE = REPO_ROOT / "config" / "surge-xt-cli.service"
 WATCHDOG_SERVICE = REPO_ROOT / "config" / "surge-watchdog.service"
 JACKD_SERVICE = REPO_ROOT / "config" / "mpe-jackd.service"
@@ -186,14 +187,35 @@ class RuntimeDirectoryPreserveTests(unittest.TestCase):
         self.assertIn("RuntimeDirectory=mpe", text)
         self.assertIn("RuntimeDirectoryPreserve=yes", text)
 
+    def test_jackd_unit_preserves_runtime_dir(self) -> None:
+        text = JACKD_SERVICE.read_text(encoding="utf-8")
+        self.assertIn("RuntimeDirectory=mpe", text)
+        self.assertIn("RuntimeDirectoryPreserve=yes", text)
+
 
 class JackdStartLimitTests(unittest.TestCase):
-    """A DAC-less jackd must keep retrying, not wedge in start-limit failure."""
+    """DAC replug recovery (9258b68/5717d85) + skip jackd when Surge on ALSA (finding 11)."""
 
     def test_jackd_unit_disables_start_rate_limit(self) -> None:
         text = JACKD_SERVICE.read_text(encoding="utf-8")
         self.assertIn("Restart=always", text)
         self.assertIn("StartLimitIntervalSec=0", text)
+
+    def test_graph_restart_skips_jackd_when_surge_on_alsa(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            env = _bash_env(tmp, MPE_AUDIO_ENGINE="jack")
+            Path(tmp, "surge.state").write_text("active=alsa\n", encoding="utf-8")
+            body = f"""
+source {AUDIO_ENGINE_SH}
+mpe_systemctl() {{ printf '%s\\n' "$*" >> "{tmp}/systemctl.log"; return 0; }}
+export -f mpe_systemctl
+if mpe_restart_audio_graph; then echo skipped; else exit 9; fi
+if [ -f "{tmp}/systemctl.log" ]; then cat "{tmp}/systemctl.log"; fi
+"""
+            result = _run_bash_script(body, env=env)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("skipped", result.stdout)
+            self.assertNotIn("mpe-jackd", result.stdout)
 
     def test_graph_restart_resets_failed_state_first(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -201,6 +223,7 @@ class JackdStartLimitTests(unittest.TestCase):
             body = f"""
 source {AUDIO_ENGINE_SH}
 mpe_systemctl() {{ printf '%s\\n' "$*" >> "{tmp}/systemctl.log"; return 0; }}
+export -f mpe_systemctl
 mpe_engine_reconcile_record_restart
 mpe_restart_audio_graph
 printf 'count=%s\\n' "$(mpe_engine_reconcile_count)"
@@ -271,12 +294,101 @@ echo ok
         self.assertEqual(result.stdout.strip(), "ok")
 
 
+class AlsafallbackJackdStopTests(unittest.TestCase):
+    """Finding 7 — stop jackd before ALSA tier selection when jackd holds the device."""
+
+    def test_release_stops_jackd_nonblocking_then_polls(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            env = _bash_env(tmp, MPE_AUDIO_ENGINE="jack")
+            body = f"""
+source {AUDIO_ENGINE_SH}
+_calls=""
+_jackd_gone=0
+pgrep() {{
+    if [ "$2" = jackd ]; then
+        [ "$_jackd_gone" = 1 ] && return 1
+        return 0
+    fi
+    return 1
+}}
+export -f pgrep
+mpe_systemctl() {{
+    _calls="$_calls $*"
+    case "$*" in
+        *stop* ) _jackd_gone=1 ;;
+    esac
+    return 0
+}}
+export -f mpe_systemctl
+mpe_release_audio_device_for_alsa || exit 9
+printf '%s' "$_calls"
+"""
+            result = _run_bash_script(body, env=env)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("stop --no-block mpe-jackd.service", result.stdout)
+
+    def test_start_surge_cli_release_before_alsa_select(self) -> None:
+        """Finding 7 — production chokepoint must call release before select_alsa_device."""
+        text = (REPO_ROOT / "scripts" / "start-surge-cli.sh").read_text(encoding="utf-8")
+        release_pos = text.find("mpe_release_audio_device_for_alsa")
+        select_pos = text.find("if select_alsa_device; then")
+        self.assertGreater(release_pos, 0, "missing mpe_release_audio_device_for_alsa")
+        self.assertGreater(select_pos, release_pos, "release must precede select_alsa_device")
+
+    def test_fallback_junction_stops_jackd_before_device_select(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            env = _bash_env(tmp, MPE_AUDIO_ENGINE="jack")
+            body = f"""
+source {AUDIO_ENGINE_SH}
+_select_called=0
+pgrep() {{ [ "$2" = jackd ] && return 0; return 1; }}
+export -f pgrep
+mpe_systemctl() {{ return 0; }}
+export -f mpe_systemctl
+mpe_jack_server_running() {{ pgrep -x jackd >/dev/null 2>&1; }}
+mpe_release_audio_device_for_alsa() {{
+    mpe_systemctl stop --no-block mpe-jackd.service
+    pgrep() {{ return 1; }}
+    export -f pgrep
+    return 0
+}}
+select_alsa_device() {{ _select_called=1; return 0; }}
+engine_log() {{ :; }}
+AUDIO_ENGINE=jack
+ACTIVE_ENGINE=""
+FALLBACK_ACTION=""
+if [ -z "$ACTIVE_ENGINE" ]; then
+    if [ "$AUDIO_ENGINE" = jack ] && mpe_jack_server_running; then
+        if mpe_release_audio_device_for_alsa; then
+            FALLBACK_ACTION="stopped-jackd"
+        else
+            FALLBACK_ACTION="jackd-still-running"
+        fi
+    fi
+    select_alsa_device
+fi
+printf 'select=%s action=%s' "$_select_called" "$FALLBACK_ACTION"
+"""
+            result = _run_bash_script(body, env=env)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout.strip(), "select=1 action=stopped-jackd")
+
+
 class WatchdogReconcileArmTests(unittest.TestCase):
-    """B3 — reconcile arms: ok, degraded ALSA no-op, promote, engine=alsa ignored."""
+    """B3 — reconcile arms via surge-watchdog.sh _reconcile_engine (finding 8)."""
+
+    def _run_reconcile(self, *, env: dict[str, str], stubs: str) -> subprocess.CompletedProcess[str]:
+        body = f"""
+source {SURGE_WATCHDOG_SH}
+{stubs}
+_reconcile_engine
+printf '%s:%s' "$(mpe_engine_state_get state)" "$(mpe_engine_state_get active)"
+"""
+        return _run_bash_script(body, env=env)
 
     def test_alsa_engine_ignores_jackd(self) -> None:
         body = f"""
-source {AUDIO_ENGINE_SH}
+source {SURGE_WATCHDOG_SH}
 export MPE_AUDIO_ENGINE=alsa
 if mpe_engine_is_jack; then exit 9; fi
 echo ignored
@@ -288,30 +400,28 @@ echo ignored
         with tempfile.TemporaryDirectory() as tmp:
             env = _bash_env(tmp, MPE_AUDIO_ENGINE="jack")
             Path(tmp, "surge.state").write_text("active=alsa\n", encoding="utf-8")
-            body = f"""
-pgrep() {{ return 1; }}
+            stubs = """
+pgrep() { return 1; }
 export -f pgrep
-source {AUDIO_ENGINE_SH}
-if [ "$(mpe_surge_active_engine)" != alsa ]; then exit 9; fi
-mpe_engine_state_write jack alsa degraded no-server "$(mpe_looper_state_label)"
-state="$(mpe_engine_state_get state)"
-active="$(mpe_engine_state_get active)"
-printf '%s:%s' "$state" "$active"
+mpe_jack_server_ready() { return 1; }
+mpe_surge_on_jack_graph() { return 1; }
+_supervisor_restart_surge() { echo RESTART >&2; return 0; }
+export -f _supervisor_restart_surge
 """
             env["PATH"] = "/usr/bin:/bin"
-            result = _run_bash_script(body, env=env)
+            result = self._run_reconcile(env=env, stubs=stubs)
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(result.stdout.strip(), "degraded:alsa")
+            self.assertNotIn("RESTART", result.stderr)
 
     def test_surge_on_jack_graph_means_ok(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             env = _bash_env(tmp, MPE_AUDIO_ENGINE="jack")
-            body = f"""
-source {AUDIO_ENGINE_SH}
-mpe_engine_state_write jack jack ok "" off
-printf '%s:%s' "$(mpe_engine_state_get state)" "$(mpe_engine_state_get active)"
+            stubs = """
+mpe_surge_on_jack_graph() { return 0; }
 """
-            result = _run_bash_script(body, env=env)
+            result = self._run_reconcile(env=env, stubs=stubs)
+            self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(result.stdout.strip(), "ok:jack")
 
 
@@ -385,6 +495,8 @@ class EngineHudReaderTests(unittest.TestCase):
 
 class RunDirFallbackTests(unittest.TestCase):
     def test_unwritable_run_dir_logs_warning(self) -> None:
+        if os.geteuid() == 0:
+            self.skipTest("root can write /root/noaccess-mpe-test — test needs non-root")
         body = f"""
 source {AUDIO_ENGINE_SH}
 export MPE_RUN_DIR=/root/noaccess-mpe-test

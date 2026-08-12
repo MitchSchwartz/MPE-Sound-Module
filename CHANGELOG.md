@@ -3,6 +3,26 @@
 Notable engineering work, grouped by session. Each per-topic doc under `docs/`
 carries the detailed technical narrative; this file is the chronological index.
 
+## 2026-08-12 — JACK Phase 1 review pass 2 (verification fixes)
+
+Independent verification review on `yolo/jack-audio-engine-phase1`. Safety theme:
+never boot silent; never wedge the audio service; stop jackd before ALSA fallback.
+
+- **Blocker:** `mpe_release_audio_device_for_alsa()` — non-blocking
+  `mpe-jackd.service` stop + bounded poll before ALSA tier selection at the single
+  fallback chokepoint in `start-surge-cli.sh`. Appliance rests `degraded` with jackd
+  stopped until reboot or manual start.
+- **Finding 11:** keep `StartLimitIntervalSec=0` (9258b68 — criterion 15 DAC replug);
+  `reset-failed` before graph restart (0cc6763); skip jackd restart when Surge
+  holds ALSA after fallback.
+- **udev:** `scripts/install-udev-rules.sh` — all three installers templated;
+  rules install regardless of UI mode.
+- **Watchdog:** `is-failed` branch routed through `mpe_engine_reconcile_decision`
+  cooldown; B3 tests invoke real `_reconcile_engine`.
+- **Tests:** ALSA-fallback jackd-stop regression (finding 7); jackd
+  `RuntimeDirectoryPreserve`; root skip for run-dir fallback; jack_lsp log-once.
+- **HUD:** cached `EngineStateMonitor`; capped `engine.state` read.
+
 ## 2026-08-12 — JACK audio engine Phase 1 review fixes
 
 Independent code review on `yolo/jack-audio-engine-phase1`. Safety theme: never boot

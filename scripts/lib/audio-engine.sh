@@ -205,9 +205,10 @@ mpe_jack_server_running() {
 # (spec assumptions: jack-example-tools installed). Both server-ready and graph
 # probes must agree — missing jack_lsp is not "server up".
 mpe_jack_server_ready() {
+    local quiet="${1:-0}"
     mpe_jack_server_running || return 1
     if ! command -v jack_lsp >/dev/null 2>&1; then
-        echo "ERROR: jack_lsp not found — install jack-example-tools" >&2
+        [ "$quiet" = 1 ] || echo "ERROR: jack_lsp not found — install jack-example-tools" >&2
         return 1
     fi
     timeout 3 jack_lsp >/dev/null 2>&1
@@ -218,8 +219,12 @@ mpe_wait_for_jack_server() {
     local timeout="${1:-$(mpe_jack_ready_timeout)}"
     local waited=0
     local step_ms=250
+    if mpe_jack_server_running && ! command -v jack_lsp >/dev/null 2>&1; then
+        echo "ERROR: jack_lsp not found — install jack-example-tools" >&2
+        return 1
+    fi
     while :; do
-        if mpe_jack_server_ready; then
+        if mpe_jack_server_ready 1; then
             return 0
         fi
         if [ "$waited" -ge "$((timeout * 1000))" ]; then
@@ -228,6 +233,34 @@ mpe_wait_for_jack_server() {
         sleep 0.25
         waited=$((waited + step_ms))
     done
+}
+
+# Stop jackd before Surge opens the ALSA tier device (spec D3 degraded fallback).
+# Non-blocking stop is required: a blocking stop from inside surge-xt-cli's
+# ExecStart, with After=mpe-jackd.service, can deadlock systemd job ordering.
+MPE_JACK_RELEASE_TIMEOUT_DEFAULT=5
+
+mpe_jack_release_timeout() {
+    case "${MPE_JACK_RELEASE_TIMEOUT_S:-}" in
+        '' | *[!0-9]*) printf '%s' "$MPE_JACK_RELEASE_TIMEOUT_DEFAULT" ;;
+        *) printf '%s' "$MPE_JACK_RELEASE_TIMEOUT_S" ;;
+    esac
+}
+
+mpe_release_audio_device_for_alsa() {
+    mpe_systemctl stop --no-block "$MPE_JACKD_SERVICE" || return 1
+    local timeout waited step_ms
+    timeout="$(mpe_jack_release_timeout)"
+    waited=0
+    step_ms=250
+    while mpe_jack_server_running; do
+        if [ "$waited" -ge "$((timeout * 1000))" ]; then
+            return 1
+        fi
+        sleep 0.25
+        waited=$((waited + step_ms))
+    done
+    return 0
 }
 
 mpe_jack_state_write() {
@@ -304,6 +337,12 @@ mpe_systemctl() {
 
 mpe_restart_audio_graph() {
     local unit
+    # Surge holds the tier device on ALSA after a jack→ALSA fallback; restarting
+    # jackd would EBUSY forever (Restart=always) without improving sound.
+    if mpe_engine_is_jack && [ "$(mpe_surge_active_engine)" = alsa ]; then
+        echo "restart-audio-graph: skipping mpe-jackd restart — Surge holds ALSA device (degraded)" >&2
+        return 0
+    fi
     unit="$(mpe_audio_graph_unit)"
     # A unit sitting in start-limit failure refuses `restart` ("start request
     # repeated too quickly") until it is reset. That is exactly the state a DAC
