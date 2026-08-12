@@ -22,7 +22,11 @@ source "$SCRIPT_DIR/lib/audio-engine.sh"
 UNIT="$(mpe_audio_graph_unit)"
 
 if mpe_restart_audio_graph; then
-    echo "restart-audio-graph: restarted $UNIT (engine=$(mpe_audio_engine))"
+    if [ "${MPE_AUDIO_GRAPH_ACTION:-restarted}" = skipped ]; then
+        echo "restart-audio-graph: no action — degraded on ALSA, $UNIT left stopped (engine=$(mpe_audio_engine))"
+    else
+        echo "restart-audio-graph: restarted $UNIT (engine=$(mpe_audio_engine))"
+    fi
 else
     echo "restart-audio-graph: FAILED to restart $UNIT (engine=$(mpe_audio_engine))" >&2
     exit 1
