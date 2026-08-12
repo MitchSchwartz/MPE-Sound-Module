@@ -127,9 +127,6 @@ case "$TIER" in
         _match="$(printf '%s\n' "$_records" | grep -iE 'Headphones|bcm2835' \
             | grep -vi 'HDMI' | head -1)"
         ;;
-    looper)
-        _match="$(printf '%s\n' "$_records" | grep -iF 'Loopback' | head -1)"
-        ;;
     *)
         _match=""
         ;;

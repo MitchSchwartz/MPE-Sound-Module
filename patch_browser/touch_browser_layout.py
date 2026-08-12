@@ -42,7 +42,7 @@ from patch_browser.touch_ui_constants import (
     STATUS_SETTINGS_BTN_W,
 )
 from patch_browser.audio_profile import header_badge_label
-from patch_browser.audio_engine import engine_hud_label, engine_hud_should_show, read_engine_state
+from patch_browser.audio_engine import engine_hud_label, engine_hud_should_show
 from patch_browser.all_patches_index import AZ_RAIL_LETTERS
 from patch_browser.midi_clock import looper_hud_should_show
 from patch_browser.touch_ui_enums import LeftNavMode, Screen, audio_profile_display
@@ -86,7 +86,7 @@ class TouchBrowserLayoutMixin:
         return label_w + dot_w + LOOPER_HUD_PAD_X * 2 + 4
 
     def _engine_hud_width(self) -> int:
-        state = read_engine_state()
+        state = self.engine_monitor.snapshot()
         label = engine_hud_label(state) or "JACK"
         label_w = self.font_sm.size(label)[0]
         return label_w + AUDIO_BADGE_PAD_X * 2
@@ -135,7 +135,7 @@ class TouchBrowserLayoutMixin:
                 self.looper_hud_rect = Rect(right_cursor, self.status_rect.y + 10, 0, 0)
         else:
             self.looper_hud_rect = Rect(right_cursor, self.status_rect.y + 10, 0, 0)
-        engine_state = read_engine_state()
+        engine_state = self.engine_monitor.snapshot()
         if engine_hud_should_show(engine_state):
             engine_w = self._engine_hud_width()
             right_cursor -= engine_w
