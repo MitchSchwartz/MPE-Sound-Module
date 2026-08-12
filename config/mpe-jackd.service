@@ -10,6 +10,8 @@ ConditionPathExists=@MPE_MODULE_REPO@/scripts/start-jackd.sh
 # within ~15 s of an unplugged DAC — and then refuse to start when the DAC comes
 # back. Retrying forever is safe because Surge keeps its own ALSA fallback, so a
 # looping jackd never means silence, while a wedged one blocks promotion.
+# SD-card churn when Surge holds ALSA after fallback is handled by skipping jackd
+# restart in mpe_restart_audio_graph (finding 11), not by a start limit here.
 StartLimitIntervalSec=0
 
 [Service]

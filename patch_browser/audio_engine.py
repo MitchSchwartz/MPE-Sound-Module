@@ -18,6 +18,7 @@ VALID_ENGINE_STATES = frozenset({"ok", "degraded", "recovering", "failed"})
 VALID_LOOPER_LABELS = frozenset({"guarded", "enabled", "off"})
 
 ENGINE_STATE_FILE = Path("/run/mpe/engine.state")
+ENGINE_STATE_MAX_BYTES = 4096
 
 COOLDOWN_SEC = 90
 JACKD_SETTLE_SEC = 15
@@ -85,7 +86,8 @@ def read_engine_state(path: Path | None = None) -> dict[str, str]:
     target = path or ENGINE_STATE_FILE
     result: dict[str, str] = {}
     try:
-        raw = target.read_text(encoding="utf-8", errors="replace")
+        with target.open(encoding="utf-8", errors="replace") as fh:
+            raw = fh.read(ENGINE_STATE_MAX_BYTES)
     except OSError:
         return result
     for line in raw.splitlines():

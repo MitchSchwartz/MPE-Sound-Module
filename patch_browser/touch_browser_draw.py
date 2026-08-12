@@ -35,7 +35,7 @@ from patch_browser.touch_ui_constants import (
     SETTINGS_ROW_H,
 )
 from patch_browser.audio_profile import header_badge_label
-from patch_browser.audio_engine import engine_hud_label, engine_hud_semantic, engine_hud_should_show, read_engine_state
+from patch_browser.audio_engine import engine_hud_label, engine_hud_semantic, engine_hud_should_show
 from patch_browser.midi_clock import looper_hud_label, looper_hud_should_show
 from patch_browser.touch_ui_enums import (
     CalibrateMode,
@@ -392,7 +392,7 @@ class TouchBrowserDrawMixin:
     def _draw_engine_hud(self, rect: Rect) -> None:
         if rect.w <= 0:
             return
-        state = read_engine_state()
+        state = self.engine_monitor.snapshot()
         if not engine_hud_should_show(state):
             return
         label = engine_hud_label(state)

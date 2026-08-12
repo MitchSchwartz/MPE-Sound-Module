@@ -51,16 +51,7 @@ else
 fi
 
 echo "[3/4] Installing udev rules (backlight, USB audio, Roli)..."
-for rule in "$MPE_MODULE_REPO/config/99-backlight-permissions.rules" \
-            "$MPE_MODULE_REPO/config/99-usb-audio.rules" \
-            "$MPE_MODULE_REPO/config/99-roli-seaboard.rules"; do
-    if [ -f "$rule" ]; then
-        sudo cp "$rule" /etc/udev/rules.d/"$(basename "$rule")"
-        echo "  ✓ $(basename "$rule")"
-    fi
-done
-sudo udevadm control --reload-rules
-sudo udevadm trigger
+"$MPE_MODULE_REPO/scripts/install-udev-rules.sh"
 
 echo "[4/4] Installing systemd units and enabling touch browser..."
 "$MPE_MODULE_REPO/scripts/configure-pi-paths.sh" --local --force
