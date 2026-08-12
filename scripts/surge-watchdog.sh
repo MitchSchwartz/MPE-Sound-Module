@@ -37,8 +37,12 @@ _supervisor_restart_surge() {
             return 1
             ;;
         failed)
-            log "RECONCILE FAILED: $count supervisor restarts without ok — stopping ($reason)"
-            mpe_engine_state_write "$(mpe_audio_engine)" "$(mpe_engine_state_get active)" failed "supervisor-exhausted" "$looper_label"
+            # Poll is every 5 s and this state is terminal until the graph is
+            # restarted, so announce it once rather than filling the log forever.
+            if [ "$(mpe_engine_state_get state)" != failed ]; then
+                log "RECONCILE FAILED: $count supervisor restarts without ok — stopping ($reason)"
+                mpe_engine_state_write "$(mpe_audio_engine)" "$(mpe_engine_state_get active)" failed "supervisor-exhausted" "$looper_label"
+            fi
             return 1
             ;;
     esac
