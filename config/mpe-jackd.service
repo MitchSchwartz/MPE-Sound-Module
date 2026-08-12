@@ -1,0 +1,39 @@
+[Unit]
+Description=MPE JACK graph server (jackd2)
+# sound.target only means the sound subsystem is up, not that the USB DAC has
+# enumerated — jackd-prestart.sh does a bounded wait for the card.
+After=sound.target
+Wants=sound.target
+ConditionPathExists=@MPE_MODULE_REPO@/scripts/start-jackd.sh
+
+[Service]
+Type=simple
+User=@MPE_PI_USER@
+WorkingDirectory=@MPE_MODULE_REPO@
+EnvironmentFile=-/etc/mpe/mpe.env
+# Permit (do not force) realtime scheduling, mirroring surge-xt-cli.service.
+# systemd units bypass PAM, so /etc/security/limits.d/audio.conf (installed by
+# jackd2) does not apply here.
+LimitRTPRIO=95
+LimitMEMLOCK=infinity
+# /run/mpe holds engine + cooldown state, shared with Surge and the supervisor.
+# Preserved so it survives a jackd restart — the supervisor's rate limiting
+# depends on state outliving the process it supervises.
+RuntimeDirectory=mpe
+RuntimeDirectoryMode=0755
+RuntimeDirectoryPreserve=yes
+# Skipped (not failed) when MPE_AUDIO_ENGINE=alsa, so Restart=always cannot loop.
+ExecCondition=@MPE_MODULE_REPO@/scripts/jackd-engine-condition.sh
+# Device selection on every start — same tier logic as Surge (spec D1).
+ExecStartPre=@MPE_MODULE_REPO@/scripts/jackd-prestart.sh
+ExecStart=@MPE_MODULE_REPO@/scripts/start-jackd.sh
+# The instrument must not stay silent because the server died once.
+Restart=always
+RestartSec=3
+TimeoutStopSec=10
+KillMode=control-group
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
