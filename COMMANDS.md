@@ -461,7 +461,10 @@ mpe status
 mpe logs touch -n 80
 mpe osc-check
 mpe diagnose
-mpe sysinfo                # board, kernel, governor, Surge RT limits, block latency
+mpe sysinfo                # board, kernel, governor, RT limits, block latency, throttle + real clock
+mpe power 20               # sample ARM clock/throttle/volts for 20s — play during the window
+mpe rt status              # configured vs live SCHED_FIFO for Surge and looper
+mpe rt surge 20            # set realtime priority (1-95 or off); restarts that service
 mpe restart surge          # or touch | all
 
 mpe record                  # SSH to Pi, record until Ctrl+C
