@@ -484,6 +484,7 @@ the current design.
 |------|--------|-------|
 | 2\* failure half (mask + surge restart) | **PASS** | `state=failed`, `active=none`, `reason=no-server`, silent, watchdog active (no BindsTo) |
 | 2\* promotion (unmask + start) | **PASS** | Fixed by PR #52 (`BindsTo` → `After=`). jackd up ~1s, watchdog promotes Surge; `state=ok` + Surge on graph within ~5s, stable through 60s |
+| 2\* boot (mask → reboot → unmask) | **PASS** | Boot with jackd masked → `state=failed`, `reason=no-server`; unmask + start → auto-promote ~5s, stable 60s |
 | 2b single kill @ 5s settle | **PASS** | Recovery **~21s** (vs ~39s at 15s settle) |
 | 2b2 five × kill @ 5s settle | **PASS** (earlier session) | 5/5 in ~121s, ~4s each |
 | 15 DAC replug from `state=failed` | **NOT RUN** | Needs physical DAC unplug/replug |
