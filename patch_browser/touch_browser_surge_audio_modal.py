@@ -9,10 +9,12 @@ from patch_browser.surge_audio import (
     SAMPLE_RATE_PRESETS,
     apply_buffer,
     apply_sample_rate,
-    buffer_option_label,
-    current_buffer_size,
+    buffer_settings_label,
+    current_jack_period,
     current_sample_rate,
+    graph_buffer_option_label,
     sample_rate_option_label,
+    sample_rate_settings_label,
 )
 from patch_browser.touch_ui_constants import SETTINGS_ROW_GAP, SETTINGS_ROW_H, TAP_MOVE_THRESHOLD_PX
 from patch_browser.touch_ui_enums import Screen
@@ -22,11 +24,10 @@ class TouchBrowserSurgeAudioModalMixin:
     """Mixin — expects TouchPatchBrowser host attributes."""
 
     def buffer_settings_row_label(self) -> str:
-        buf = current_buffer_size()
-        return f"Audio buffer — {buffer_option_label(buf)}"
+        return buffer_settings_label()
 
     def sample_rate_settings_row_label(self) -> str:
-        return f"Sample rate — {sample_rate_option_label(current_sample_rate())}"
+        return sample_rate_settings_label()
 
     def _open_surge_buffer_modal(self) -> None:
         self._surge_buffer_option_rects = []
@@ -45,7 +46,7 @@ class TouchBrowserSurgeAudioModalMixin:
         self.screen_state = Screen.SETTINGS
 
     def _select_surge_buffer(self, buffer: int) -> None:
-        if buffer == current_buffer_size():
+        if buffer == current_jack_period():
             self._close_surge_audio_modal()
             return
         self._close_surge_audio_modal()
@@ -107,7 +108,7 @@ class TouchBrowserSurgeAudioModalMixin:
             inner_w,
         )
 
-        current = current_buffer_size()
+        current = current_jack_period()
         scroll = int(self._surge_buffer_scroll.scroll_pixels)
         clip = self.screen.get_clip()
         self.screen.set_clip(scroll_vp.pygame_rect)
@@ -117,7 +118,7 @@ class TouchBrowserSurgeAudioModalMixin:
                 continue
             self._draw_theme_choice(
                 screen_rect,
-                buffer_option_label(preset),
+                graph_buffer_option_label(preset),
                 selected=preset == current,
                 pressed=self._pressed(f"buffer:{preset}"),
             )

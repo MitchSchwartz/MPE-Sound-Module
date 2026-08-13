@@ -1,17 +1,21 @@
 #!/bin/bash
-# Audio engine (jack | alsa) — shared resolution, JACK server probes, runtime state.
+# JACK audio engine — shared resolution, server probes, runtime state.
 #
-# Engine selection: MPE_AUDIO_ENGINE in /etc/mpe/mpe.env. Default is "jack"
-# (spec Documents/specs/jack-audio-engine-spec.md criterion 12). "alsa" is the
-# full-fidelity regression path — Surge opens the tier device directly, exactly
-# as it did before the graph server existed.
+# JACK is the only audio engine (spec D3 amended 2026-08-13 — ALSA removed
+# entirely as a product audio path, not just its automatic fallback). There is
+# no MPE_AUDIO_ENGINE to select: Surge is always a JACK client, and a jackd
+# that will not start is a hard failure, not a route to an alternate engine.
 #
 # Runtime state lives in /run/mpe (tmpfs). It must NOT live in a shell variable:
-# surge-watchdog.service is BindsTo=surge-xt-cli.service, so the supervisor is
-# itself restarted every time it restarts Surge — in-memory cooldown state would
-# be wiped on exactly the event it rate-limits (spec D3).
+# the watchdog restarts Surge and can itself be restarted (Restart=always) or
+# re-run across Surge restarts — in-memory cooldown state would be wiped on
+# exactly the events it rate-limits (spec D3).
 
-MPE_AUDIO_ENGINE_DEFAULT=jack
+# Published in engine.state's `engine=` field as a static, non-configurable
+# constant — nothing reads MPE_AUDIO_ENGINE anymore, but `mpe engine status`
+# and the touch HUD still parse an `engine=` key, so the key stays and its
+# value stays literally "jack" rather than dropping the key outright.
+MPE_ENGINE_NAME="jack"
 
 # Server-side period, distinct from MPE_SURGE_BUFFER_SIZE (spec D6): under JACK
 # the period belongs to the server, not to Surge. Proven-good on the Sound
@@ -23,29 +27,11 @@ MPE_JACK_RATE_DEFAULT=48000
 # jackd's own audio thread priority. Measured live: jackd 70, Surge client 65.
 MPE_JACK_RT_PRIORITY_DEFAULT=70
 
-# Bounded readiness wait for the server before Surge falls back to ALSA.
+# Bounded readiness wait for the server before Surge gives up and fails loud
+# (no ALSA to fall back to — see start-surge-cli.sh).
 MPE_JACK_READY_TIMEOUT_DEFAULT=10
 
 MPE_JACKD_SERVICE="mpe-jackd.service"
-MPE_SURGE_SERVICE_UNIT="surge-xt-cli.service"
-
-mpe_audio_engine() {
-    case "${MPE_AUDIO_ENGINE:-}" in
-        alsa | ALSA) printf 'alsa' ;;
-        jack | JACK) printf 'jack' ;;
-        '') printf '%s' "$MPE_AUDIO_ENGINE_DEFAULT" ;;
-        *)
-            # Never leave the instrument silent over a typo — fall back to the
-            # default engine and say so.
-            echo "WARNING: MPE_AUDIO_ENGINE='${MPE_AUDIO_ENGINE}' unrecognised — using $MPE_AUDIO_ENGINE_DEFAULT" >&2
-            printf '%s' "$MPE_AUDIO_ENGINE_DEFAULT"
-            ;;
-    esac
-}
-
-mpe_engine_is_jack() {
-    [ "$(mpe_audio_engine)" = jack ]
-}
 
 mpe_jack_period() {
     case "${MPE_JACK_BUFFER:-}" in
@@ -163,10 +149,13 @@ mpe_state_get() {
 }
 
 # Publish engine state for `mpe engine status` and the touch HUD.
-#   engine=  requested engine (jack|alsa)
-#   active=  engine Surge actually started on (jack|alsa|none)
-#   state=   ok | degraded | recovering | failed  (spec D3)
-#   reason=  short machine-readable cause, e.g. no-server, no-alsa-device
+#   engine=  always "jack" (MPE_ENGINE_NAME) — kept as a key for downstream
+#            parsers even though there is nothing left to select (spec D3
+#            amended 2026-08-13 — ALSA removed entirely, not just its fallback)
+#   active=  jack | none — whether Surge actually landed on the graph
+#   state=   ok | recovering | failed  (spec D3; `degraded` retired — there is
+#            no lesser engine to rest on anymore)
+#   reason=  short machine-readable cause, e.g. no-server, no-jack-device
 #   looper=  guarded | enabled | off
 mpe_engine_state_write() {
     local engine="${1:?engine required}"
@@ -194,14 +183,14 @@ mpe_engine_state_get() {
 }
 
 # Looper state for the engine status line: guarded whenever the looper is asked
-# for while the engine is JACK (spec D5).
+# for (spec D5) — JACK is the only engine, so this is no longer conditional on
+# which engine is active. "enabled" remains a valid future label for when the
+# Phase 2 callback client lifts the guard; nothing produces it yet.
 mpe_looper_state_label() {
     if [ "${MPE_LOOPER_ENABLED:-0}" != "1" ]; then
         printf 'off'
-    elif mpe_engine_is_jack; then
-        printf 'guarded'
     else
-        printf 'enabled'
+        printf 'guarded'
     fi
 }
 
@@ -226,28 +215,6 @@ mpe_jack_server_ready() {
     timeout 3 jack_lsp >/dev/null 2>&1
 }
 
-# Soak 2a vs 2d: masked jackd must rest degraded; an unmasked/start-requested unit
-# while Surge holds ALSA needs a Surge restart to release the device for jackd.
-mpe_jackd_unit_masked() {
-    systemctl is-enabled "$MPE_JACKD_SERVICE" 2>/dev/null | grep -qx masked
-}
-
-mpe_jackd_unit_seeking_start() {
-    local state enabled
-    mpe_jackd_unit_masked && return 1
-    state=$(systemctl show -p ActiveState --value "$MPE_JACKD_SERVICE" 2>/dev/null || echo inactive)
-    case "$state" in
-        active | activating | failed) return 0 ;;
-        inactive)
-            enabled=$(systemctl is-enabled "$MPE_JACKD_SERVICE" 2>/dev/null || true)
-            case "$enabled" in
-                enabled | static) return 0 ;;
-            esac
-            ;;
-    esac
-    return 1
-}
-
 # Bounded readiness wait — never a fixed sleep (spec D3 boot ordering).
 mpe_wait_for_jack_server() {
     local timeout="${1:-$(mpe_jack_ready_timeout)}"
@@ -267,34 +234,6 @@ mpe_wait_for_jack_server() {
         sleep 0.25
         waited=$((waited + step_ms))
     done
-}
-
-# Stop jackd before Surge opens the ALSA tier device (spec D3 degraded fallback).
-# Non-blocking stop is required: a blocking stop from inside surge-xt-cli's
-# ExecStart, with After=mpe-jackd.service, can deadlock systemd job ordering.
-MPE_JACK_RELEASE_TIMEOUT_DEFAULT=5
-
-mpe_jack_release_timeout() {
-    case "${MPE_JACK_RELEASE_TIMEOUT_S:-}" in
-        '' | *[!0-9]*) printf '%s' "$MPE_JACK_RELEASE_TIMEOUT_DEFAULT" ;;
-        *) printf '%s' "$MPE_JACK_RELEASE_TIMEOUT_S" ;;
-    esac
-}
-
-mpe_release_audio_device_for_alsa() {
-    mpe_systemctl stop --no-block "$MPE_JACKD_SERVICE" || return 1
-    local timeout waited step_ms
-    timeout="$(mpe_jack_release_timeout)"
-    waited=0
-    step_ms=250
-    while mpe_jack_server_running; do
-        if [ "$waited" -ge "$((timeout * 1000))" ]; then
-            return 1
-        fi
-        sleep 0.25
-        waited=$((waited + step_ms))
-    done
-    return 0
 }
 
 mpe_jack_state_write() {
@@ -335,16 +274,6 @@ mpe_surge_state_write() {
         "device=$device" || true
 }
 
-# Which engine Surge is currently running on: jack | alsa | unknown.
-mpe_surge_active_engine() {
-    local value
-    value="$(mpe_state_get "$(mpe_surge_state_file)" active)"
-    case "$value" in
-        jack | alsa) printf '%s' "$value" ;;
-        *) printf 'unknown' ;;
-    esac
-}
-
 # ---------------------------------------------------------------------------
 # Device changes restart the graph, not Surge (spec D2)
 # ---------------------------------------------------------------------------
@@ -352,13 +281,12 @@ mpe_surge_active_engine() {
 # jackd binds one device at start, so anything that can change the device must
 # restart jackd. Surge is reconciled onto the new server by surge-watchdog.sh —
 # restarting jackd deliberately does not restart Surge (that decoupling is what
-# makes the boot fallback and the promotion case reachable).
+# makes the boot-failure and the promotion case reachable). Single-engine: this
+# is always mpe-jackd.service now — kept as a function (not inlined at call
+# sites) purely so restart-audio-graph.sh and set-audio-profile.sh have one
+# named seam to read rather than a bare constant.
 mpe_audio_graph_unit() {
-    if mpe_engine_is_jack; then
-        printf '%s' "$MPE_JACKD_SERVICE"
-    else
-        printf '%s' "$MPE_SURGE_SERVICE_UNIT"
-    fi
+    printf '%s' "$MPE_JACKD_SERVICE"
 }
 
 mpe_systemctl() {
@@ -369,19 +297,26 @@ mpe_systemctl() {
     sudo -n systemctl "$@"
 }
 
-# Sets MPE_AUDIO_GRAPH_ACTION to `restarted` or `skipped` so callers can report
-# what actually happened — a skip returns 0 and would otherwise be logged as a
-# restart, on the one path an operator debugs a degraded appliance from.
+# Cards whose bind/unbind must not restart the production graph (spec D2).
+# udev remove events cannot match ATTR{id}; restart-audio-graph.sh receives
+# %E{SOUND_CARD_ID} from the udev database instead (see 99-usb-audio.rules).
+mpe_should_skip_graph_restart_for_card() {
+    local card_id="${1:-}"
+    case "$card_id" in
+        vc4hdmi* | UAC2Gadget | UAC2 | Loopback) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+# Criterion 2* failure path — publish state and exit (start-surge-cli.sh).
+mpe_publish_jack_engine_failure() {
+    local reason="${1:?reason required}"
+    mpe_engine_state_write "$MPE_ENGINE_NAME" none failed "$reason" "$(mpe_looper_state_label)"
+    mpe_surge_state_write none ""
+}
+
 mpe_restart_audio_graph() {
     local unit
-    MPE_AUDIO_GRAPH_ACTION=restarted
-    # Surge holds the tier device on ALSA after a jack→ALSA fallback; restarting
-    # jackd would EBUSY forever (Restart=always) without improving sound.
-    if mpe_engine_is_jack && [ "$(mpe_surge_active_engine)" = alsa ]; then
-        MPE_AUDIO_GRAPH_ACTION=skipped
-        echo "restart-audio-graph: skipping mpe-jackd restart — Surge holds ALSA device (degraded)" >&2
-        return 0
-    fi
     unit="$(mpe_audio_graph_unit)"
     # A unit sitting in start-limit failure refuses `restart` ("start request
     # repeated too quickly") until it is reset. That is exactly the state a DAC
@@ -416,7 +351,12 @@ mpe_restart_audio_graph() {
 # on hardware since the interval key lived in [Service] until fixed.
 
 MPE_ENGINE_COOLDOWN_DEFAULT=90
-MPE_ENGINE_JACKD_SETTLE_DEFAULT=15
+# 15s was sized for an ALSA-contention hazard (Surge holding the tier device
+# on the fallback path while jackd tried to reclaim it) that no longer exists
+# — ALSA is not a reachable engine at all now. jackd itself is typically ready
+# in ~6s on the Sound Blaster Play! 3; 5s just clears that plus the watchdog's
+# 5s poll cycle without needlessly serializing recovery behind the old margin.
+MPE_ENGINE_JACKD_SETTLE_DEFAULT=5
 MPE_ENGINE_MAX_RESTARTS_DEFAULT=3
 
 mpe_engine_cooldown_seconds() {
@@ -507,7 +447,7 @@ mpe_surge_on_jack_graph() {
     if ! command -v jack_lsp >/dev/null 2>&1; then
         return 1
     fi
-    jack_lsp 2>/dev/null | grep -qi 'surge'
+    timeout 3 jack_lsp 2>/dev/null | grep -qi 'surge'
 }
 
 # Back-compat alias used by udev helper and profile scripts.

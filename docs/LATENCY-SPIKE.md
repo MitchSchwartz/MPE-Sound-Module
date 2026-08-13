@@ -135,8 +135,17 @@ This is now the **most promising arm**, and the cheapest: nothing here needs a k
 | Step | Action |
 |---|---|
 | A½.4 | Restart Surge, then `chrt -p $(pgrep -f surge-xt-cli)`. If it now shows `SCHED_FIFO`, JUCE self-elevated — go to A½.6 |
-| A½.5 | If still `SCHED_OTHER`, JUCE isn't asking. Set `MPE_SURGE_RT_PRIORITY=20` to wrap the launch in `chrt --fifo` and re-check |
+| A½.5 | **Stale as of 2026-08-13 — see note below.** Historically: if still `SCHED_OTHER`, set `MPE_SURGE_RT_PRIORITY=20` to wrap the launch in `chrt --fifo` and re-check |
 | A½.6 | Re-run A.3 @ 1024, then step to 768 |
+
+> **2026-08-13 note:** this doc predates JACK adoption (Phase 1, 2026-08-12).
+> Under JACK, jackd assigns the Surge client audio thread its own RT priority
+> (`jack-audio-engine-spec.md` D4) — there is no `chrt`-wrapper code path for
+> `MPE_SURGE_RT_PRIORITY` to trigger anymore; that wrapper lived in
+> `start-surge-cli.sh`'s ALSA branch, removed with ALSA entirely. A½.5 as
+> written no longer does anything on this appliance. `MPE_SURGE_RT_PRIORITY`
+> remains a documented knob (`mpe.env.example`) pending a decision on whether
+> this Arm A½ investigation still applies post-JACK — not resolved here.
 
 **Sub-arm 3 — `threadirqs` (stock kernel only, no RT package)**
 

@@ -30,10 +30,22 @@ class SurgeAudioTests(unittest.TestCase):
             self.assertEqual(surge_audio.read_int_from_env_file("MPE_SURGE_BUFFER_SIZE", path), 512)
             self.assertEqual(surge_audio.read_int_from_env_file("MPE_SURGE_SAMPLE_RATE", path), 48000)
 
-    @mock.patch.dict(os.environ, {"MPE_SURGE_BUFFER_SIZE": "768", "MPE_SURGE_SAMPLE_RATE": "48000"}, clear=False)
+    @mock.patch.dict(
+        os.environ,
+        {
+            "MPE_JACK_BUFFER": "256",
+            "MPE_JACK_PERIODS": "3",
+            "MPE_SURGE_SAMPLE_RATE": "48000",
+        },
+        clear=False,
+    )
     def test_settings_labels(self) -> None:
-        self.assertIn("768", surge_audio.buffer_settings_label())
+        self.assertIn("256 × 3", surge_audio.buffer_settings_label())
+        self.assertIn("16 ms", surge_audio.buffer_settings_label())
         self.assertIn("kHz", surge_audio.sample_rate_settings_label())
+
+    def test_graph_latency_ms(self) -> None:
+        self.assertAlmostEqual(surge_audio.graph_latency_ms(256, 3, 48000), 16.0)
 
     def test_option_labels(self) -> None:
         self.assertEqual(surge_audio.buffer_option_label(768, 48000), "768 · 16 ms")

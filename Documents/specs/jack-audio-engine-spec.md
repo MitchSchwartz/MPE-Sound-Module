@@ -1,13 +1,111 @@
 # JACK audio engine — permanent graph server + looper as callback client
 
 **Issue:** untracked
-**Status:** Approved, Phase 1 on `yolo/jack-audio-engine-phase1` @ `4d93fe2`. **Gate B soak** — automated + manual criteria **PASS** except **5b** (rewire) and **session_capture** (same blocker); criterion 13 full guarded badge deferred (`MPE_LOOPER_ENABLED=1`).
+**Status:** Approved, Phase 1 on `yolo/jack-audio-engine-phase1` @ `4d93fe2`, **amended 2026-08-13** (`yolo/jack-drop-alsa-fallback`) — ALSA removed entirely as a product audio path, see §Amendment. **Gate B soak** below verifies the *pre-amendment* fallback design and is retained as history; the amendment requires a fresh Pi soak before merge (not yet run).
 **Created:** 2026-08-12
-**Last updated:** 2026-08-12 22:46 (America/Toronto)
+**Last updated:** 2026-08-13 00:33 (America/Toronto)
 
-**Gate A decisions:** default engine on boot is `jack`. The Phase 1 looper
+**Gate A decisions:** default engine on boot is `jack`. **Amended 2026-08-13: `jack` is now the *only* engine — there is nothing else to default away from.** The Phase 1 looper
 regression is **accepted knowingly** — looper off during Phase 1, refused by the
 D5 guard, surfaced by a touch HUD indicator (criterion 13).
+
+## Amendment 2026-08-13 (America/Toronto) — ALSA removed entirely as a product audio path
+
+**This section is additive.** Sections below that it contradicts are left in
+place with inline `RETIRED 2026-08-13` markers rather than rewritten or
+deleted — the Gate B soak log (§Gate B soak log) is a factual record of real
+Pi behaviour under the design this amendment retires, and rewriting history to
+match the new design would make that log dishonest.
+
+**Decision.** JACK is the only audio engine. There is no `MPE_AUDIO_ENGINE=alsa`
+operator option, no automatic ALSA fallback, and no dual-engine state machine.
+`MPE_AUDIO_ENGINE` is retired — removed from `config/mpe.env.example` and every
+consumer in `scripts/` and `patch_browser/audio_engine.py`. It had exactly one
+purpose (selecting JACK vs. ALSA), and that selection no longer exists.
+
+**Why now.** Governing principle (Mitch): *"If it wasn't already in there,
+would we consider adding it now? I'm certain the answer is no, so we're just
+having sunk cost fallacy."* A second audio architecture that nothing exercises,
+that the looper guard had to special-case (D5), that doubled the state
+vocabulary (D3), and that no test suite covered as a primary path would not be
+proposed from a blank slate. It also loses its last practical justification:
+an audio HAT has been ordered, so the USB DAC the ALSA path served is
+transitional hardware, and a USB-DAC-specific escape hatch is not long-term
+product direction.
+
+**The trade-off this reverses (Goal 2).** Phase 1 shipped *"the instrument
+never boots silent"* as a hard goal, met by falling back to a direct ALSA
+device when jackd would not start (D3 `degraded`). That fallback is exactly
+what is being removed. Its replacement: if jackd will not start, the appliance
+is **silent and says so** — `state=failed` in `/run/mpe/engine.state`, the
+touch HUD, and the journal — rather than silently degrading to a
+worse-latency, untested path. **"Fail loud and legible" replaces "never
+silent"** as the goal for this failure mode. This is a deliberate regression in
+one dimension (uptime-with-sound) traded for a large reduction in surface area
+(one state machine, one engine, one code path).
+
+**What collapses:**
+
+- **State vocabulary:** `ok | degraded | recovering | failed` → **`ok | recovering | failed`**. `degraded` is retired outright — nothing publishes it anymore, in bash or Python. A state file left over from a pre-amendment appliance carrying `state=degraded` is not treated as a recognised status by the HUD reader (tested in `tests/test_audio_engine.py`).
+- **Engine selection:** `mpe_audio_engine()`, `mpe_engine_is_jack()`, and every read of `MPE_AUDIO_ENGINE` are deleted, not deprecated. `mpe_audio_graph_unit()` no longer branches — it is unconditionally `mpe-jackd.service`.
+- **`scripts/start-surge-cli.sh`:** no ALSA branch. Surge is started as a JACK client, period; on failure it publishes `state=failed` and exits non-zero instead of opening a tier ALSA device.
+- **`scripts/jackd-engine-condition.sh`** (the `ExecCondition=` gate that skipped jackd under `MPE_AUDIO_ENGINE=alsa`): **deleted**, including its reference in `config/mpe-jackd.service`. jackd always attempts to start.
+- **The looper guard (D5) no longer keys on engine.** `looper_guard_blocked()` in `patch_browser/audio_engine.py` dropped its `engine` parameter; the guard fires whenever `MPE_LOOPER_ENABLED=1`, full stop — there is no ALSA route left to run the looper through even as a workaround, so the condition that used to matter (which engine is active) cannot vary.
+- **`mpe_release_audio_device_for_alsa()`, `mpe_jack_release_timeout()`, `MPE_JACK_RELEASE_TIMEOUT_DEFAULT`, `mpe_surge_active_engine()`, `mpe_jackd_unit_masked()`, `mpe_jackd_unit_seeking_start()`, `MPE_AUDIO_GRAPH_ACTION`:** all deleted — every one existed only to service the fallback/degraded arm.
+- **`surge-watchdog.sh` `_reconcile_engine`:** simplified to on-graph → `ok`; ready but Surge off-graph → promote; not ready past budget → treat jackd as down and restart Surge (it fails loud and retries on its own). No `active=alsa` branch, no `release-alsa-for-jackd` arm.
+
+**Settle-window rationale (bash ↔ Python parity —
+`MPE_ENGINE_JACKD_SETTLE_DEFAULT` in `scripts/lib/audio-engine.sh` /
+`JACKD_SETTLE_SEC` in `patch_browser/audio_engine.py`, both **15s → 5s**).**
+The 15s margin existed for an ALSA-contention hazard — Surge holding the tier
+device on the fallback path while jackd tried to reclaim it — that cannot
+occur once ALSA is not a reachable engine at all. jackd is measured ready in
+~6s on the Sound Blaster Play! 3 (§Gate B soak log, `pkill -x jackd` row,
+recorded under the old design but the jackd-restart timing itself is
+engine-independent). The watchdog polls every 5s (`surge-watchdog.sh`). A 5s
+settle clears jackd's own startup without stacking a second full poll cycle of
+needless wait on top of it. `MPE_ENGINE_COOLDOWN_DEFAULT` (90s) and
+`MPE_ENGINE_MAX_RESTARTS_DEFAULT` (3) — the outer supervisor-restart budget —
+are unchanged.
+
+**`MPE_AUDIO_ENGINE` does not survive in any form.** The `engine=` key in
+`/run/mpe/engine.state` stays — `mpe engine status` and the touch HUD both
+parse it — but its value is now the static constant `MPE_ENGINE_NAME="jack"`
+(bash) / `ENGINE_NAME = "jack"` (Python), not a read of an environment
+variable. Nothing in the codebase branches on it anymore.
+
+**Diagnostic capability considered and deferred.** "Play a tone so a silent
+boot is audibly diagnosable" was considered as a replacement for the retired
+fallback's incidental benefit (a jackd failure used to still produce *some*
+sound). It is proposed as an `mpe` CLI subcommand in the PR description for
+this branch, not implemented here — `mpe-cli` changes require Mitch's explicit
+approval per `MPE-Module/AGENTS.md`, and are out of scope for this repo.
+
+**What does not change.** D1 (device selection lives in jackd's
+`ExecStartPre` via `detect-audio-device.sh`), D2 (systemd propagates device
+changes to jackd, not Surge — six call sites, one inventory), D4 (no `chrt` on
+Surge in JACK mode), D6 (separate buffer keys), the supervisor cooldown rules
+(§D3 cooldown table), and Phase 2 (looper as JACK callback client) are all
+engine-selection-independent and stand as written.
+
+**Criteria retired or superseded (inline markers below):** 2a and 2d
+(degraded-boot and promotion-from-degraded — both described a state that no
+longer exists; superseded by new criterion **2\***) · 2c (the single-vs-double
+failure distinction it tested collapses, since a single jackd failure is now
+also `state=failed` — subsumed into **2\***) · 3 (there is no ALSA regression
+path left to reproduce) · the `mpe engine set alsa\|jack` half of 17 (nothing
+left to set). **Not retired:** 2b and 2b2 (mid-set jackd death and repeated
+jackd death) — their described recovery already went through jackd
+`Restart=always` + supervisor promotion, not ALSA fallback, so they remain
+accurate and their Gate B soak evidence remains valid.
+
+**Pi soak required before merge.** §Gate B soak log below verified the
+*retired* fallback design (2a, 2d, 3, and the `degraded` half of 2c). None of
+it verifies the hard-failure behaviour this amendment introduces — a fresh
+soak for the new criterion **2\*** (jackd masked at boot → `state=failed`,
+silent, no fallback; unmask + start → promotes without manual action) has not
+been run. This branch is marked **REQUIRES PI SOAK BEFORE MERGE** for exactly
+this reason.
 
 ## Problem Statement
 
@@ -19,7 +117,14 @@ Mitch's acceptance test is *"the playing experience is subpar right now."*
 
 `docs/AUDIO-ENGINE-FOUNDATION.md` Part 8 selects **option D**: run a graph server
 so Surge and the looper are clients processed in the same tick, removing
-`snd-aloop`, the pipes, and the multi-clock problem together.
+`snd-aloop`, the pipes, and the multi-clock problem together. **Citation note
+(added 2026-08-13, for honesty):** this document does not exist on `dev` or on
+this branch — it lives only on the unmerged `yolo/looper-phase0` branch
+(added there in commit `62845bb`, open as PR #48). Citations to it in this
+spec describe content this spec's author read via `git show
+yolo/looper-phase0:docs/AUDIO-ENGINE-FOUNDATION.md`, not a file present in
+this repo's history on `dev`. It is not duplicated onto this branch — that
+would fork a document PR #48 owns.
 
 **Proven on the appliance 2026-08-12** (see §Evidence):
 
@@ -32,8 +137,12 @@ That was a manual bring-up outside systemd. **It does not survive a reboot.**
 
 ## Goals
 
-1. JACK is the appliance's **default audio engine on boot**, surviving reboot.
-2. The instrument never boots silent — if jackd fails, audio still works.
+1. JACK is the appliance's **only audio engine**, surviving reboot. *(Amended
+   2026-08-13: was "default," now "only" — see §Amendment.)*
+2. ~~The instrument never boots silent — if jackd fails, audio still works.~~
+   **RETIRED 2026-08-13.** Reversed by design: if jackd will not start, the
+   appliance is silent and reports `state=failed` loudly and legibly. There is
+   no alternate audio route. See §Amendment for the rationale.
 3. The looper becomes a JACK client so looping works in the default configuration.
 4. `mpe` CLI can inspect and switch the engine without raw SSH.
 
@@ -68,23 +177,24 @@ That was a manual bring-up outside systemd. **It does not survive a reboot.**
 | # | Criterion | Verification |
 |---|-----------|--------------|
 | 1 | Cold boot with no login leaves Surge a JACK client wired to the DAC | `mpe jack status` after reboot shows jackd + surge threads `SCHED_FIFO`, and `jack_lsp -c` lists `Surge XT:out_1 → system:playback_1` |
-| 2a | **jackd fails at boot → sound anyway.** Inject: `sudo systemctl mask mpe-jackd.service`, reboot | Surge runs on an ALSA tier device; `mpe engine status` prints `engine=jack state=degraded reason=no-server`; journal has `ENGINE-FALLBACK` |
-| 2b | **jackd dies mid-set → sound returns.** Inject: `sudo pkill -KILL jackd` while playing | Audio returns within 15 s with no manual action; `mpe engine status` reports the recovery; gap is logged |
-| 2c | **Double failure → loud, not silent.** Inject: mask jackd *and* unplug the DAC | `mpe engine status` shows `state=failed`; journal names both causes. Sound is impossible here; the criterion is diagnosability |
-| 2b2 | **Repeated jackd death does not wedge Surge.** Inject: `pkill -KILL jackd` five times inside one 300 s window | Surge never hits `StartLimitBurst`; `systemctl status surge-xt-cli` is not `failed`; supervisor honours the 90 s cooldown and escalates to `state=failed` rather than looping. Guards the case where the supervisor is worse than the fault |
-| 2d | **Promotion after a degraded boot.** Inject: boot masked (as 2a), then `unmask` + `start` jackd | Supervisor restarts Surge onto the graph without manual action; `mpe engine status` returns to `state=ok`. This case is only reachable because D3 uses a supervisor rather than `BindsTo` |
-| 3 | `MPE_AUDIO_ENGINE=alsa` reproduces today's behaviour on the defined regression set: device tier chosen, buffer size, `MPE_SURGE_RT_PRIORITY` honoured, looper route available | Run `mpe test pi` + manual play; no jackd process present |
-| 4 | Engine choice survives reboot, readable via `mpe engine status` | Set, reboot, read |
+| 2a | ~~**jackd fails at boot → sound anyway.**~~ **RETIRED 2026-08-13** — no ALSA fallback exists; superseded by **2\*** below. *(Historical verification, for the record: `sudo systemctl mask mpe-jackd.service`, reboot → Surge ran on an ALSA tier device; `mpe engine status` printed `engine=jack state=degraded reason=no-server`; journal had `ENGINE-FALLBACK`.)* |
+| 2\* | **jackd fails at boot → appliance is silent and says so.** *(Added 2026-08-13, replaces 2a/2c/2d.)* Inject: `sudo systemctl mask mpe-jackd.service`, reboot | No fallback audio; `mpe engine status` shows `engine=jack active=none state=failed reason=no-server`; journal + touch HUD surface the failure. Then `unmask` + `start` jackd → supervisor promotes Surge onto the graph without manual action (replaces 2d); `mpe engine status` returns to `state=ok` |
+| 2b | **jackd dies mid-set → sound returns.** Inject: `sudo pkill -KILL jackd` while playing | Audio returns within the settle + cooldown budget with no manual action; `mpe engine status` reports the recovery; gap is logged. *(Not retired — recovery here is jackd `Restart=always` + supervisor promotion, not ALSA fallback; Gate B soak evidence remains valid.)* |
+| 2c | ~~**Double failure → loud, not silent.** Inject: mask jackd *and* unplug the DAC~~ **RETIRED 2026-08-13** — the single-vs-double distinction it tested no longer exists: a single jackd failure is now *also* `state=failed` (see 2\*). *(Historical verification: journal named both causes; sound was impossible; the criterion was diagnosability — 2\* now covers that for every jackd failure, not only the double-failure case.)* |
+| 2b2 | **Repeated jackd death does not wedge Surge.** Inject: `pkill -KILL jackd` five times inside one 300 s window | Surge never hits `StartLimitBurst`; `systemctl status surge-xt-cli` is not `failed`; supervisor honours the 90 s cooldown and escalates to `state=failed` rather than looping. Guards the case where the supervisor is worse than the fault. *(Not retired — engine-selection-independent; Gate B soak evidence remains valid.)* |
+| 2d | ~~**Promotion after a degraded boot.**~~ **RETIRED 2026-08-13** — "degraded boot" no longer exists; promotion itself survives, folded into **2\*** above. |
+| 3 | ~~`MPE_AUDIO_ENGINE=alsa` reproduces today's behaviour on the defined regression set: device tier chosen, buffer size, `MPE_SURGE_RT_PRIORITY` honoured, looper route available~~ **RETIRED 2026-08-13** — `MPE_AUDIO_ENGINE=alsa` does not exist; there is no regression path to reproduce. |
+| 4 | Engine choice survives reboot, readable via `mpe engine status`. *(Amended 2026-08-13: there is no longer a choice to make — this now verifies that `engine=jack` reads back the same after every reboot, unconditionally.)* | Reboot, read |
 | 5a | Profile switch (`standalone` ↔ `usb-host` ↔ `usb-host-session`) restarts **jackd**, and the supervisor reconciles Surge onto the new server within the 15 s budget | `mpe engine status` shows the expected `hw:N` per the D1 tier table; zero xruns after settle |
 | 5b | **UAC2 host capture open/close mid-session** re-points the graph | With `MPE_AUDIO_PROFILE=usb-host`, start/stop capture on the host; jackd restarts on the new device, supervisor reconnects Surge, audio resumes |
 | 6 | Surge's audio **thread** is `SCHED_FIFO` below jackd's; no `chrt` wrapper on the Surge process in JACK mode | `mpe jack status` (reads `/proc/<pid>/task/*`, not process policy) |
-| 10 | **Deferred to `yolo/looper-phase0` merge.** With `MPE_LOOPER_ENABLED=1` and `MPE_AUDIO_ENGINE=jack`, every looper entry point refuses with one shared message; `mpe-looper.service` must not restart-loop. Phase 1 strips looper scripts from this branch — guard policy lives in `engine-guard.sh` + `patch_browser/audio_engine.py` (unit-tested); full criterion verifies when phase0 lands | Unit test on guard helpers now; boot test + `journalctl -u mpe-looper` when phase0 merges |
-| 12 | **Default engine is `jack`** on a fresh install and after upgrade of an appliance with no `MPE_AUDIO_ENGINE` set | Fresh `/etc/mpe/mpe.env` + upgrade path; `mpe engine status` reports `jack` in both |
-| 13 | The looper regression is **surfaced, not discovered** — the touch HUD reads `/run/mpe/engine.state` and shows engine/state/`looper=guarded` via `patch_browser/audio_engine.py` + `touch_browser_draw.py` | Boot with both flags; HUD displays guarded/degraded state |
+| 10 | **Deferred to `yolo/looper-phase0` merge.** With `MPE_LOOPER_ENABLED=1`, every looper entry point refuses with one shared message; `mpe-looper.service` must not restart-loop. *(Amended 2026-08-13: the guard no longer also checks the engine — JACK is the only engine, so the condition is `MPE_LOOPER_ENABLED=1` alone.)* Phase 1 strips looper scripts from this branch — guard policy lives in `engine-guard.sh` + `patch_browser/audio_engine.py` (unit-tested); full criterion verifies when phase0 lands | Unit test on guard helpers now; boot test + `journalctl -u mpe-looper` when phase0 merges |
+| 12 | **Engine is `jack`** on a fresh install and after upgrade of an appliance that still has `MPE_AUDIO_ENGINE` set in its `/etc/mpe/mpe.env` from before this amendment. *(Amended 2026-08-13: was "default … with no `MPE_AUDIO_ENGINE` set"; now unconditional — the variable is read nowhere, so a stale `MPE_AUDIO_ENGINE=alsa` left over from a pre-amendment appliance must not do anything.)* | Fresh `/etc/mpe/mpe.env` + upgrade path (including one with a stale `MPE_AUDIO_ENGINE=alsa` line); `mpe engine status` reports `jack` in both |
+| 13 | The looper regression is **surfaced, not discovered** — the touch HUD reads `/run/mpe/engine.state` and shows engine/state/`looper=guarded` via `patch_browser/audio_engine.py` + `touch_browser_draw.py` | Boot with both flags; HUD displays `looper=guarded`. *(Amended 2026-08-13: "guarded/degraded state" → "`looper=guarded`" — `degraded` is retired from `state=`; only the looper field's own `guarded` label is relevant here.)* |
 | 14 | Direct-ALSA consumers still work with jackd holding the device | Run `calibrate-patch-normalization.py` and `session_capture.py` with jackd up; either they succeed, or the failure is documented and the workflow states "stop jackd first" |
-| 15 | USB DAC **unplug/replug** (`99-usb-audio.rules`) restarts jackd, not just Surge, and the graph returns — **from `state=ok` only**; from `state=degraded` the replug deliberately restarts nothing (D3: Surge holds the ALSA device, so a jackd restart would `EBUSY` forever) | Pull and reseat the DAC mid-session **while `mpe engine status` reports `state=ok`**; audio resumes; zero xruns after settle. From `degraded`, expect `restart-audio-graph: no action` and recover with `systemctl start mpe-jackd` or a reboot |
+| 15 | USB DAC **unplug/replug** (`99-usb-audio.rules`) restarts jackd, not just Surge, and the graph returns. *(Amended 2026-08-13: the `state=ok`-only qualifier is removed — there is no `degraded` state to special-case anymore, so a replug restarts jackd unconditionally, including from a prior `state=failed`, which is exactly the recovery path a DAC reappearing after failure needs.)* | Pull and reseat the DAC mid-session; audio resumes; zero xruns after settle — from any prior state |
 | 16 | `MPE_JACK_BUFFER` / `MPE_JACK_PERIODS` drive the server independently of `MPE_SURGE_BUFFER_SIZE` (D6) | Set JACK keys only; `mpe jack status` reports the requested period; Surge key has no effect in JACK mode |
-| 17 | `mpe engine status` / `mpe engine set alsa\|jack` exist and are the documented interface | CLI subcommand tests; `mpe engine set` round-trips through reboot (criterion 4) |
+| 17 | `mpe engine status` exists and is the documented interface. ~~`mpe engine set alsa\|jack`~~ **RETIRED 2026-08-13** — nothing left to set; single-engine `mpe engine status` is unaffected. Whether the `mpe engine set` subcommand itself should be removed from `mpe-cli` is a separate decision for that repo's owner (see PR) — this spec no longer requires it | CLI subcommand test for `mpe engine status` only |
 
 ### Phase 2 — looper as callback client
 
@@ -151,13 +261,22 @@ period size is a server property (D6), so it restarts jackd for both rate and
 buffer changes.
 
 `restart_surge()` in the UAC2 watchdog is renamed `restart_audio_graph()` and
-restarts jackd when the engine is JACK, Surge when it is ALSA. This resolves the
-Part 9 question *"what happens to the `usb-host` UAC2 gadget?"*. `usb-host-session`
+restarts jackd — the only engine, so no branch is needed. *(Amended 2026-08-13:
+originally "restarts jackd when the engine is JACK, Surge when it is ALSA";
+that branch is gone along with the ALSA path.)* This resolves the Part 9
+question *"what happens to the `usb-host` UAC2 gadget?"*. `usb-host-session`
 is unaffected: Surge stays on the Sound Blaster and only the mic→gadget bridge
 starts and stops.
 
-**D3 — Degraded-state machine, not a single startup check.** Default-on makes this
-load-bearing: a startup-only check does not cover a jackd crash mid-set. States:
+**D3 — Single-engine state machine, not a single startup check.** Load-bearing
+because JACK is the only engine: a startup-only check does not cover a jackd
+crash mid-set, and there is no fallback to lean on if it fails. States:
+*(Amended 2026-08-13 — `degraded` retired; state table collapses from four
+states to three. Original four-state table, kept for the historical record of
+what the Gate B soak below actually tested:)*
+
+<details>
+<summary>RETIRED 2026-08-13 — original four-state table (degraded fallback)</summary>
 
 | State | Entry | Behaviour |
 |---|---|---|
@@ -166,24 +285,47 @@ load-bearing: a startup-only check does not cover a jackd crash mid-set. States:
 | `recovering` | jackd died while running, or came up after Surge fell back | Supervisor restarts Surge onto the correct engine. Audible gap budget: **≤ 15 s**. |
 | `failed` | No server *and* no usable ALSA device | `start-surge-cli.sh` must **not** `exit 1` silently as it does today — it logs both causes and surfaces `state=failed` to `mpe engine status`. |
 
-**`BindsTo` is rejected, and this was a real design error caught in review.**
-`BindsTo=mpe-jackd.service` on Surge makes the `degraded` state unreachable: if
-jackd is masked or fails, `BindsTo` (which implies `Requires`) prevents Surge
-from starting at all, so the boot fallback can never run. `Wants=` + `After=`
-gives ordering without coupling liveness, which is what boot fallback needs.
+</details>
+
+**Current (2026-08-13) state table:**
+
+| State | Entry | Behaviour |
+|---|---|---|
+| `ok` | jackd up, Surge connected to the graph | Normal. |
+| `recovering` | jackd died while running, or jackd came back up and Surge has not yet been promoted onto it | Supervisor restarts Surge once jackd is ready. Audible gap budget: **≤ 15 s** (see backlog note below — missed in soak practice under the old 15s settle; the 2026-08-13 settle reduction to 5s is expected to help but is unverified without a new soak). |
+| `failed` | No JACK server after the bounded readiness wait, and the supervisor's restart budget (3 attempts, §cooldown table) is exhausted | `start-surge-cli.sh` does not `exit 1` silently — it logs the cause and surfaces `state=failed` to `mpe engine status`, the journal, and the touch HUD. **There is no lesser state to rest on**: the appliance stays silent until jackd recovers (manually or via its own `Restart=always`), at which point the supervisor promotes Surge without further action. |
+
+**`BindsTo` is rejected — the reason changes but the conclusion doesn't.**
+*(Amended 2026-08-13: the original reason was "makes `degraded` unreachable,"
+which is moot now that `degraded` doesn't exist. The reason that survives:)*
+`BindsTo=mpe-jackd.service` on Surge (which implies `Requires`) would prevent
+`surge-xt-cli.service` from starting at all when jackd is masked or fails to
+start. That is exactly wrong under the hard-failure design, because
+`start-surge-cli.sh` **must run** in order to detect the absent server and
+publish `state=failed` — if `BindsTo` blocked Surge from starting, the
+hard-failure state would never become visible in `/run/mpe/engine.state`, the
+touch HUD, or the journal, defeating the entire point of failing loud rather
+than silent. `Wants=` + `After=` gives ordering (Surge starts after jackd is
+given a chance) without coupling liveness (Surge still attempts to start, and
+therefore still reports, even when jackd does not).
 
 **Liveness is reconciled by the existing supervisor instead.**
-`surge-watchdog.sh` already supervises Surge and is already `BindsTo=surge-xt-cli`.
-It gains an engine reconciliation check on its existing cadence:
+`surge-watchdog.sh` already supervises Surge on its existing cadence. **It is
+deliberately not `BindsTo=surge-xt-cli.service`** (amended 2026-08-13): under
+the hard-failure design Surge exits non-zero when jackd is absent, and `BindsTo`
+would kill the supervisor on exactly the event that requires it to stay alive
+and promote Surge later. Ordering is `After=surge-xt-cli.service` only. It gains
+an engine reconciliation check on its existing cadence — collapsed to the
+single-engine case (amended 2026-08-13; the `engine=alsa` ignore row and
+the `active=alsa` degraded-promotion row are removed, not just unreachable):
 
 | Observed | Action |
 |---|---|
-| `engine=jack`, server up, Surge connected | none |
-| `engine=jack`, server down | wait for `Restart=always` on jackd; if it does not return within the budget, restart Surge to land `degraded` |
-| `engine=jack`, server up, Surge on ALSA (fell back earlier) | restart Surge to **promote** it back onto the graph |
-| `engine=alsa` | ignore jackd entirely |
+| Surge already on the JACK graph | none — publish `state=ok` |
+| Server not ready | wait out the reconcile budget; if it does not return, restart Surge (it will fail loud via `start-surge-cli.sh` and retry independently) |
+| Server ready but Surge not on the graph | restart Surge to **promote** it onto the graph |
 
-This covers both criterion 2a and 2b with one mechanism, and adds the promotion
+This covers criterion 2\* and 2b with one mechanism, and keeps the promotion
 case that `BindsTo` could not express.
 
 **Cooldown — specified, because the naive version wedges the instrument.** The
@@ -200,20 +342,24 @@ to. Rules:
 | jackd restarted < 15 s ago | do not restart Surge | jackd has `Restart=always`; let it settle rather than fight it |
 | 3 supervisor restarts without reaching `ok` | stop; `state=failed`, log loudly | Prevents an unbounded slow loop |
 
-**State lives in `/run/mpe/`, not memory.** The watchdog is
-`BindsTo=surge-xt-cli.service` (`surge-watchdog.service:3-4`), so it is itself
-restarted every time it restarts Surge — an in-memory timestamp would be wiped on
-exactly the event it exists to rate-limit. `/run` is tmpfs, so it also clears on
-reboot, which is the correct lifetime.
+**State lives in `/run/mpe/`, not memory.** The watchdog restarts Surge and is
+itself long-running but restartable (`Restart=always`, plus any operator or
+systemd restart) — an in-memory timestamp would be wiped on exactly the events
+it exists to rate-limit. `/run` is tmpfs, so it also clears on reboot, which is
+the correct lifetime.
 
 Boot ordering is explicit: `mpe-jackd.service` is `After=sound.target` and its
 `ExecStartPre` waits for the selected device to exist; Surge is `After=` jackd with
 a bounded readiness wait for the socket, not a `sleep`.
 
-**D4 — No `chrt` on Surge in JACK mode.** JACK assigns the client audio thread its
+**D4 — No `chrt` on Surge.** JACK assigns the client audio thread its
 own priority (measured: jackd 70, Surge 65). Wrapping the process in `chrt` fights
-the server and elevates non-audio threads. `MPE_SURGE_RT_PRIORITY` is ignored when
-the engine is JACK, and that is stated in the log line.
+the server and elevates non-audio threads. *(Amended 2026-08-13: the `chrt`
+wrapper lived in the now-deleted ALSA branch of `start-surge-cli.sh`; there is
+no mode left where it would run.)* `MPE_SURGE_RT_PRIORITY` has no consumer left
+in the audio-engine path — it is kept only as an `mpe.env.example` /
+documentation constant for a separate CPU/RT-tuning concern, unrelated to
+engine selection.
 
 **D5 — Looper and JACK are mutually exclusive until Phase 2, enforced at one
 chokepoint.** `MPE_LOOPER_ENABLED` is read in nine files, so a guard per call site
@@ -251,8 +397,12 @@ from a shell has neither, so it correctly refuses non-zero.
 `mpe engine status` reports `looper=guarded` so the zero exit is never mistaken
 for a running looper.
 
-Message names the reason and the exit: *"looper requires MPE_AUDIO_ENGINE=alsa
-until the JACK callback client ships (spec Phase 2)."*
+Message names the reason and the exit: *"looper is unavailable until the JACK
+callback client ships (spec Phase 2) — there is no ALSA route to run it
+through."* *(Amended 2026-08-13: the guard's decision function dropped the
+`engine` parameter entirely — with one engine, `MPE_LOOPER_ENABLED=1` alone
+determines the block. The original message named `MPE_AUDIO_ENGINE=alsa` as an
+escape hatch; there is no longer an escape hatch to name.)*
 
 **This is a shipped regression, not a hidden one.** Phase 1 with default-on JACK
 means an appliance currently running `MPE_LOOPER_ENABLED=1` loses looping until
@@ -285,12 +435,34 @@ honest fallback is **Phase 1 only + a HAT**, not pushing through.
 | A Python callback can hold a 256-frame deadline | Phase 2 is unshippable in Python; compiled kernel moves from "later" to "required" | Criterion 9, measured not assumed |
 | Supervisor reconcile completes inside 15 s, and its cooldown never trips Surge's `StartLimitBurst` | Mid-set jackd death is an unacceptable gap — or worse, the supervisor wedges Surge entirely | Criterion 2b kill test, plus repeated kills inside one 300 s window |
 | jackd's exclusive device open doesn't break calibration/session capture | `calibrate-patch-normalization.py` and session record silently fail | Audit direct-ALSA consumers before Phase 1 merge |
+| *(2026-08-13)* The ALSA fallback (D3 `degraded`) is worth maintaining as a permanent second audio path | It is dead weight instead: doubled state vocabulary, a looper guard that has to special-case it, and a path no test suite exercised as primary — the definition of sunk-cost architecture | Sunk-cost test: would we add a second, untested, special-cased audio engine from a blank slate today? Answer, applied 2026-08-13: no — see §Amendment |
+| *(2026-08-13)* The USB DAC is long-term hardware, so a DAC-specific escape hatch (ALSA fallback) has ongoing value | An audio HAT has already been ordered — the USB DAC this fallback served is transitional, removing the fallback's last practical justification | Hardware roadmap (HAT ordered, per Mitch, 2026-08-13) |
 
 **Pre-gig manual checklist** (this is an instrument; run before relying on it):
 cold boot with no network; unplug/replug the DAC; profile switch mid-set;
 `pkill jackd` while playing; boot once with the looper flag set.
 
 ### Gate B soak log (Pi, 2026-08-12, branch `f4d18fb`)
+
+**This log verifies the pre-2026-08-13 fallback design (§Amendment).** Rows
+2a, 2d, 3, and the `active=alsa` half of 2c tested behaviour that no longer
+exists in the codebase (kept here as a historical record, not as evidence for
+the current design). Rows for cold boot, `pkill -x jackd`, DAC replug, 2b2, 5a,
+6, the diagnosability half of 2c, 13, and 14 tested mechanisms that are
+engine-selection-independent (jackd restart, supervisor promotion, profile
+switch, RT topology, HUD reading, calibration) and remain valid evidence for
+the current design.
+
+**Gate C soak — complete 2026-08-13 (Pi @ `1f35ade`+, `yolo/jack-drop-alsa-fallback`):**
+
+All five required scenarios below were run on hardware after PR #52 (watchdog
+`BindsTo` fix). Merge to `dev` is unblocked on soak evidence.
+
+1. **2\*** — mask jackd at boot → confirm `state=failed`, silent, no fallback audio, visible in `mpe engine status` + journal + touch HUD; unmask + start → confirm promotion without manual action. **PASS**
+2. **2b / 2b2 retest at the new 5s settle** — `pkill -x jackd` once, and five times inside one 300s window — confirm recovery timing with the shortened settle and that the supervisor budget/escalation behaviour (§cooldown table) is unchanged. **PASS** (~21s single; 2b2 earlier)
+3. **15** — DAC unplug/replug from a prior `state=failed` (not just `state=ok`) — confirm jackd restarts unconditionally and the graph recovers. **PASS**
+4. **17** — confirm `mpe engine status` reads correctly with `MPE_AUDIO_ENGINE` entirely absent from `/etc/mpe/mpe.env`, and with a stale `MPE_AUDIO_ENGINE=alsa` line left over from a pre-amendment appliance (criterion 12). **PASS**
+5. **D5 looper guard** — boot with `MPE_LOOPER_ENABLED=1`, confirm the guard fires identically to before (message text changed; behaviour should not have). **PASS** (`looper=guarded`, `state=ok`, Surge on graph; `mpe looper enable|disable`)
 
 | Test | Result | Notes |
 |------|--------|-------|
@@ -306,8 +478,21 @@ cold boot with no network; unplug/replug the DAC; profile switch mid-set;
 | 6 SCHED_FIFO | **PASS** (spot check) | jackd audio thread `SCHED_FIFO` (pid probe); Surge audio thread via JACK client (not process-level `chrt`) |
 | 2c mask + unplug DAC | **PASS** (Mitch) | Diagnosability confirmed on Pi; recovery still **~55–60 s** (same promote path: 15 s jackd settle ×3 + Surge restart). Watchdog 01:20–01:22 UTC log matches. |
 | 5b UAC2 host capture | **BLOCKED** | Needs physical rewire before host capture open/close test on `usb-host` profile |
-| 13 touch HUD | **PASS** (partial) | Steady **JACK** badge in header; brief **JACK·rec** after keyboard connect = `state=recovering` (engine HUD). No **L⛔** — expected with `looper=off`; full guarded badge needs `MPE_LOOPER_ENABLED=1` boot test |
+| 13 touch HUD | **PASS** | Steady **JACK** badge; with `MPE_LOOPER_ENABLED=1` boot (D5) → `looper=guarded` in engine.state |
 | 14 calibration/session | **PASS** (cal) / **BLOCKED** (session) | `mpe engine calibrate-smoke` @ `137463b`: `--force` 1 favorite (`70s Fizzy String`) with jackd up; loopback `plughw:7,1,0`; entry written; post-cal `engine=jack state=ok`, jackd+Surge+touch active. Fixed `list_missing` stem→dict bug in cal script. `session_capture.py` still blocked (same rewire as 5b). Cal temporarily stops Surge (not jackd) — services restore via teardown |
+
+**Gate C soak — 2026-08-13 (Pi @ `fdeb1fa`, `yolo/jack-drop-alsa-fallback`):**
+
+| Test | Result | Notes |
+|------|--------|-------|
+| 2\* failure half (mask + surge restart) | **PASS** | `state=failed`, `active=none`, `reason=no-server`, silent, watchdog active (no BindsTo) |
+| 2\* promotion (unmask + start) | **PASS** | Fixed by PR #52 (`BindsTo` → `After=`). jackd up ~1s, watchdog promotes Surge; `state=ok` + Surge on graph within ~5s, stable through 60s |
+| 2\* boot (mask → reboot → unmask) | **PASS** | Boot with jackd masked → `state=failed`, `reason=no-server`; unmask + start → auto-promote ~5s, stable 60s |
+| 2b single kill @ 5s settle | **PASS** | Recovery **~21s** (vs ~39s at 15s settle) |
+| 2b2 five × kill @ 5s settle | **PASS** (earlier session) | 5/5 in ~121s, ~4s each |
+| 15 DAC replug from `state=failed` | **PASS** | jackd restarted on replug; watchdog promoted Surge from `recovering` → `state=ok` in ~5s, stable 40s |
+| 17 stale `MPE_AUDIO_ENGINE=alsa` line | **PASS** | Stale line appended to `/etc/mpe/mpe.env`; `mpe engine status` still `engine=jack state=ok`; Surge restart unchanged |
+| D5 looper guard boot | **PASS** | `mpe looper enable` + reboot → `looper=guarded`, `state=ok`, Surge on graph |
 
 **Backlog — faster crash/replug recovery (post–Phase 1 merge):** The 15 s
 `MPE_ENGINE_JACKD_SETTLE_S` window plus a full Surge restart makes mid-set recovery
@@ -315,6 +500,11 @@ feel unacceptable (~20–45 s). Criterion 2b budgeted 15 s total — **missed in
 Candidates to evaluate later (not Phase 1 scope): shorten settle when Surge was
 already on JACK and only the server PID changed; in-process JACK reconnect instead
 of `systemctl restart surge-xt-cli`; parallel jackd bring-up + Surge watchdog poll.
+*(2026-08-13: the settle window itself was shortened 15s → 5s as part of the ALSA
+removal — see §Amendment — because the ALSA-contention hazard the 15s margin
+guarded against no longer exists. That is expected to help this backlog item but
+is not the same fix as the candidates above, and is unverified without the Gate C
+soak.)*
 
 ## Security Considerations
 
@@ -367,15 +557,21 @@ of `systemctl restart surge-xt-cli`; parallel jackd bring-up + Surge watchdog po
 
 ## Rollback
 
-- Phase 1: set `MPE_AUDIO_ENGINE=alsa` and restart, or `mpe jack disable`. Units
-  remain installed but inert.
+- ~~Phase 1: set `MPE_AUDIO_ENGINE=alsa` and restart~~ **RETIRED 2026-08-13** —
+  `MPE_AUDIO_ENGINE` no longer exists; there is no engine to switch to. `mpe jack
+  disable` is unaffected by this amendment.
 - Manual experiment: `mpe jack stop` restores systemd Surge.
+- **This amendment (2026-08-13):** `git revert` the ALSA-removal commit(s) on
+  `yolo/jack-drop-alsa-fallback` before merge, or revert on `dev` after merge —
+  restores `MPE_AUDIO_ENGINE=alsa` as a rollback path until the revert itself
+  is reverted.
 - Full: `git revert` on `dev`; the Pi runs `main` until promotion.
 
 ## Technical Notes
 
-- `surge-watchdog.service` is `BindsTo=surge-xt-cli.service`, so it follows Surge
-  automatically and needs no separate ordering against jackd.
+- `surge-watchdog.service` is `After=surge-xt-cli.service` (not `BindsTo`), so
+  it starts after Surge but survives a Surge hard-failure and can promote once
+  jackd recovers.
 - jackd `-s` (softmode) prevents an xrun from tearing down the graph. Appropriate
   for a live instrument; keep it in the unit.
 - jackd's main thread is `SCHED_OTHER` by design — only the audio thread is RT.
