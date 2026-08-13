@@ -3,6 +3,22 @@
 Notable engineering work, grouped by session. Each per-topic doc under `docs/`
 carries the detailed technical narrative; this file is the chronological index.
 
+## 2026-08-12 — JACK Phase 1 Gate B soak complete (Pi)
+
+Branch `yolo/jack-audio-engine-phase1` @ `4d93fe2`. Gate A approved; Pi soak on
+`raspberrypi2.local` via `mpe` CLI. Spec: `Documents/specs/jack-audio-engine-spec.md`
+§Gate B soak log.
+
+- **PASS:** cold boot, pkill jackd, DAC replug (slow ~39–60 s), 2a/2d/2b2/2c, 5a,
+  3 ALSA engine, 6 SCHED_FIFO, 13 HUD (partial), 14 calibrate with jackd up, 17 CLI.
+- **BLOCKED:** 5b UAC2 host capture + `session_capture.py` — physical rewire.
+- **DEFER:** criterion 13 full guarded badge (`MPE_LOOPER_ENABLED=1` boot); criterion
+  10 to `yolo/looper-phase0` merge.
+- **Fixes during soak:** `release-alsa-for-jackd` (2d promotion); calibrator
+  `list_missing` dict shape; mpe-cli `engine calibrate-smoke`, stash-aware mask.
+- **Backlog (post-merge):** recovery latency (~30–60 s vs 15 s budget); extract ALSA
+  fallback junction for tests; `surge-xt-cli` StartLimitIntervalSec section bug.
+
 ## 2026-08-12 — JACK Phase 1 review pass 2 (verification fixes)
 
 Independent verification review on `yolo/jack-audio-engine-phase1`. Safety theme:
