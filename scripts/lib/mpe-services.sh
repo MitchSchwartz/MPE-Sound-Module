@@ -26,6 +26,17 @@ mpe_read_appliance_env_var() {
 
 # Reload runtime profile from the appliance env file.
 mpe_source_appliance_env() {
+    if [ -n "${MPE_ENV_FILE+x}" ]; then
+        if [ -n "$MPE_ENV_FILE" ] && [ -f "$MPE_ENV_FILE" ]; then
+            # shellcheck disable=SC1091
+            set -a
+            source "$MPE_ENV_FILE"
+            set +a
+        fi
+        MPE_AUDIO_PROFILE="${MPE_AUDIO_PROFILE:-standalone}"
+        export MPE_AUDIO_PROFILE
+        return 0
+    fi
     if [ ! -f /etc/mpe/mpe.env ]; then
         return 0
     fi
