@@ -1,9 +1,9 @@
 # JACK audio engine — permanent graph server + looper as callback client
 
 **Issue:** untracked
-**Status:** Approved, Phase 1 on `yolo/jack-audio-engine-phase1` @ `137463b`. **Gate B soak** — automated + manual criteria **PASS** except **5b** (rewire) and **session_capture** (same blocker); criterion 13 full guarded badge deferred (`MPE_LOOPER_ENABLED=1`).
+**Status:** Approved, Phase 1 on `yolo/jack-audio-engine-phase1` @ `4d93fe2`. **Gate B soak** — automated + manual criteria **PASS** except **5b** (rewire) and **session_capture** (same blocker); criterion 13 full guarded badge deferred (`MPE_LOOPER_ENABLED=1`).
 **Created:** 2026-08-12
-**Last updated:** 2026-08-12 20:23 (America/Toronto)
+**Last updated:** 2026-08-12 22:46 (America/Toronto)
 
 **Gate A decisions:** default engine on boot is `jack`. The Phase 1 looper
 regression is **accepted knowingly** — looper off during Phase 1, refused by the
