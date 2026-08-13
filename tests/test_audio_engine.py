@@ -194,8 +194,9 @@ class RuntimeDirectoryPreserveTests(unittest.TestCase):
         self.assertIn("RuntimeDirectoryPreserve=yes", text)
 
     def test_surge_unit_wants_watchdog(self) -> None:
-        text = SURGE_SERVICE.read_text(encoding="utf-8")
-        self.assertIn("Wants=surge-watchdog.service", text)
+        sections = _systemd_sections(SURGE_SERVICE.read_text(encoding="utf-8"))
+        wants = _systemd_unit_directives(sections, "Wants")
+        self.assertIn("surge-watchdog.service", wants)
 
 
 def _systemd_sections(text: str) -> dict[str, list[str]]:
@@ -213,6 +214,20 @@ def _systemd_sections(text: str) -> dict[str, list[str]]:
         if current:
             sections.setdefault(current, []).append(line)
     return sections
+
+
+def _systemd_unit_directives(
+    sections: dict[str, list[str]], key: str, *, section: str = "Unit"
+) -> list[str]:
+    """Collect values for a unit directive (space-separated lists and repeated lines)."""
+    values: list[str] = []
+    prefix = f"{key}="
+    for line in sections.get(section, []):
+        if line.startswith(prefix):
+            rest = line[len(prefix) :].strip()
+            if rest:
+                values.extend(rest.split())
+    return values
 
 
 class SurgeStartLimitUnitTests(unittest.TestCase):
@@ -357,8 +372,9 @@ printf 'SURVIVED'
             target = ro_dir / "engine.state"
             body = f"""
 source {AUDIO_ENGINE_SH}
-mpe_state_write_atomic "{target}" "engine=jack" "state=ok"
-printf 'rc=%s' "$?"
+rc=0
+mpe_state_write_atomic "{target}" "engine=jack" "state=ok" || rc=$?
+printf 'rc=%s\\n' "$rc"
 """
             try:
                 result = _run_bash_script(body, env=_bash_env(tmp))
@@ -565,6 +581,29 @@ mpe_surge_on_jack_graph() { return 0; }
             result = self._run_reconcile(env=env, stubs=stubs)
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(result.stdout.strip(), "ok:jack")
+
+    def test_reconcile_survives_unwritable_state_publish(self) -> None:
+        """State publish failure must not abort the supervisor reconcile path."""
+        with tempfile.TemporaryDirectory() as tmp:
+            ro_dir = Path(tmp) / "readonly"
+            ro_dir.mkdir()
+            ro_dir.chmod(0o555)
+            env = _bash_env(tmp, MPE_AUDIO_ENGINE="jack")
+            env["MPE_ENGINE_STATE_FILE"] = str(ro_dir / "engine.state")
+            body = f"""
+source {SURGE_WATCHDOG_SH}
+mpe_surge_on_jack_graph() {{ return 0; }}
+_reconcile_engine
+printf 'SURVIVED'
+"""
+            try:
+                result = _run_bash_script(body, env=env)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn("SURVIVED", result.stdout)
+                self.assertIn("WARNING:", result.stderr)
+                self.assertIn("failed to write", result.stderr)
+            finally:
+                ro_dir.chmod(0o755)
 
 
 class EngineGuardShellTests(unittest.TestCase):
