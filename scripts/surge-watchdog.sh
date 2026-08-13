@@ -73,21 +73,20 @@ _reconcile_engine() {
     if ! mpe_jack_server_ready; then
         waited=0
         while [ "$waited" -lt "$RECONCILE_BUDGET" ]; do
+            sleep 1
+            waited=$((waited + 1))
             if mpe_jack_server_ready; then
                 break
             fi
-            sleep 1
-            waited=$((waited + 1))
         done
-        if ! mpe_jack_server_ready; then
-            _supervisor_restart_surge "jackd-down"
-            return 0
-        fi
     fi
 
-    if mpe_jack_server_ready && ! mpe_surge_on_jack_graph; then
-        _supervisor_restart_surge "promote-to-jack"
+    if ! mpe_jack_server_ready; then
+        _supervisor_restart_surge "jackd-down"
+        return 0
     fi
+
+    _supervisor_restart_surge "promote-to-jack"
 }
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
@@ -95,15 +94,24 @@ log "=== Surge Watchdog Started (engine=jack) ==="
 
 while true; do
     if systemctl is-failed "$SURGE_SERVICE" &>/dev/null; then
-        log "ALERT: Surge service failed, cleaning user defaults"
-
-        if [ -f "$USER_DEFAULTS" ]; then
-            BACKUP="${USER_DEFAULTS}.corrupted_$(date +%Y%m%d_%H%M%S)"
-            mv "$USER_DEFAULTS" "$BACKUP"
-            log "Backed up corrupted file to: $BACKUP"
-        fi
+        engine_reason="$(mpe_engine_state_get reason)"
+        case "$engine_reason" in
+            no-server | no-jack-device)
+                log "ALERT: Surge failed while graph unavailable (reason=$engine_reason) — not treating user defaults as corrupt"
+                ;;
+            *)
+                log "ALERT: Surge service failed, cleaning user defaults"
+                ;;
+        esac
 
         if _supervisor_restart_surge "surge-failed"; then
+            if [ "$engine_reason" != "no-server" ] && [ "$engine_reason" != "no-jack-device" ]; then
+                if [ -f "$USER_DEFAULTS" ]; then
+                    BACKUP="${USER_DEFAULTS}.corrupted_$(date +%Y%m%d_%H%M%S)"
+                    mv "$USER_DEFAULTS" "$BACKUP"
+                    log "Backed up corrupted file to: $BACKUP"
+                fi
+            fi
             sleep 2
             if [ -f "$USER_DEFAULTS" ]; then
                 chmod 644 "$USER_DEFAULTS" || true
