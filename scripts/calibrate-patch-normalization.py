@@ -1002,6 +1002,7 @@ def main() -> int:
         return 1
 
     store = PatchNormalizationStore(output_path)
+    store.set_patch_dirs(SURGE_PATCH_DIRS)
     pressure_path = args.pressure_output or default_pressure_path()
     touch_cal = not args.no_touch_cal
     patch_records = patch_path_records(patch_paths)
