@@ -310,9 +310,13 @@ given a chance) without coupling liveness (Surge still attempts to start, and
 therefore still reports, even when jackd does not).
 
 **Liveness is reconciled by the existing supervisor instead.**
-`surge-watchdog.sh` already supervises Surge and is already `BindsTo=surge-xt-cli`.
-It gains an engine reconciliation check on its existing cadence — collapsed to
-the single-engine case (amended 2026-08-13; the `engine=alsa` ignore row and
+`surge-watchdog.sh` already supervises Surge on its existing cadence. **It is
+deliberately not `BindsTo=surge-xt-cli.service`** (amended 2026-08-13): under
+the hard-failure design Surge exits non-zero when jackd is absent, and `BindsTo`
+would kill the supervisor on exactly the event that requires it to stay alive
+and promote Surge later. Ordering is `After=surge-xt-cli.service` only. It gains
+an engine reconciliation check on its existing cadence — collapsed to the
+single-engine case (amended 2026-08-13; the `engine=alsa` ignore row and
 the `active=alsa` degraded-promotion row are removed, not just unreachable):
 
 | Observed | Action |
@@ -338,11 +342,11 @@ to. Rules:
 | jackd restarted < 15 s ago | do not restart Surge | jackd has `Restart=always`; let it settle rather than fight it |
 | 3 supervisor restarts without reaching `ok` | stop; `state=failed`, log loudly | Prevents an unbounded slow loop |
 
-**State lives in `/run/mpe/`, not memory.** The watchdog is
-`BindsTo=surge-xt-cli.service` (`surge-watchdog.service:3-4`), so it is itself
-restarted every time it restarts Surge — an in-memory timestamp would be wiped on
-exactly the event it exists to rate-limit. `/run` is tmpfs, so it also clears on
-reboot, which is the correct lifetime.
+**State lives in `/run/mpe/`, not memory.** The watchdog restarts Surge and is
+itself long-running but restartable (`Restart=always`, plus any operator or
+systemd restart) — an in-memory timestamp would be wiped on exactly the events
+it exists to rate-limit. `/run` is tmpfs, so it also clears on reboot, which is
+the correct lifetime.
 
 Boot ordering is explicit: `mpe-jackd.service` is `After=sound.target` and its
 `ExecStartPre` waits for the selected device to exist; Surge is `After=` jackd with
@@ -549,8 +553,9 @@ soak.)*
 
 ## Technical Notes
 
-- `surge-watchdog.service` is `BindsTo=surge-xt-cli.service`, so it follows Surge
-  automatically and needs no separate ordering against jackd.
+- `surge-watchdog.service` is `After=surge-xt-cli.service` (not `BindsTo`), so
+  it starts after Surge but survives a Surge hard-failure and can promote once
+  jackd recovers.
 - jackd `-s` (softmode) prevents an xrun from tearing down the graph. Appropriate
   for a live instrument; keep it in the unit.
 - jackd's main thread is `SCHED_OTHER` by design — only the audio thread is RT.

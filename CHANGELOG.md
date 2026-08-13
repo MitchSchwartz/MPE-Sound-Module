@@ -3,6 +3,26 @@
 Notable engineering work, grouped by session. Each per-topic doc under `docs/`
 carries the detailed technical narrative; this file is the chronological index.
 
+## 2026-08-13 — Watchdog survives Surge hard-failure (Gate C 2* fix)
+
+Branch `yolo/watchdog-binds-fix`, based on `yolo/jack-drop-alsa-fallback` @
+`b0266ef`. Gate C soak on the Pi exposed the bug: mask jackd → `state=failed`
+works, but `unmask` + `start` never promoted because `surge-watchdog.service`
+was `BindsTo=surge-xt-cli.service` — systemd stopped the supervisor with the
+service it supervises, leaving nothing to reset and promote Surge once jackd
+returned.
+
+- **`config/surge-watchdog.service`:** `BindsTo=surge-xt-cli.service` removed;
+  `After=surge-xt-cli.service` kept for ordering only. `Restart=always` already
+  present.
+- **Docs updated:** `Documents/specs/jack-audio-engine-spec.md` D3 + Technical
+  Notes; comment in `scripts/lib/audio-engine.sh` now describes tmpfs rationale
+  without the removed coupling.
+- **Tests:** `test_watchdog_not_bound_to_surge` and
+  `test_watchdog_restarts_always` in `tests/test_audio_engine.py`.
+
+**Soak impact:** rerun Gate C 2* promotion after merge to the soak branch.
+
 ## 2026-08-13 — ALSA removed entirely as a product audio path (JACK-only)
 
 Branch `yolo/jack-drop-alsa-fallback`, based on `dev` @ `daac891` (PR #49
