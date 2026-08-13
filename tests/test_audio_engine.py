@@ -192,6 +192,10 @@ class RuntimeDirectoryPreserveTests(unittest.TestCase):
         self.assertIn("RuntimeDirectory=mpe", text)
         self.assertIn("RuntimeDirectoryPreserve=yes", text)
 
+    def test_surge_unit_wants_watchdog(self) -> None:
+        text = SURGE_SERVICE.read_text(encoding="utf-8")
+        self.assertIn("Wants=surge-watchdog.service", text)
+
 
 class JackdStartLimitTests(unittest.TestCase):
     """DAC replug recovery (9258b68/5717d85) + skip jackd when Surge on ALSA (finding 11)."""
