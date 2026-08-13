@@ -143,6 +143,10 @@ class TouchPatchBrowser(
         self.cpu_monitor.start()
         self.looper_monitor = LooperClockMonitor()
         self.looper_monitor.start()
+        from patch_browser.engine_state_monitor import EngineStateMonitor
+
+        self.engine_monitor = EngineStateMonitor()
+        self.engine_monitor.start()
 
         self.categories: list[str] = []
         self.all_patches_flat: list[dict] = []
