@@ -8,10 +8,10 @@ ConditionPathExists=@MPE_MODULE_REPO@/scripts/start-jackd.sh
 # No start rate limit: jackd exits immediately when its card is absent, so the
 # default burst (5 in 10 s) would put the unit in permanent start-limit failure
 # within ~15 s of an unplugged DAC — and then refuse to start when the DAC comes
-# back. Retrying forever is safe because Surge keeps its own ALSA fallback, so a
-# looping jackd never means silence, while a wedged one blocks promotion.
-# SD-card churn when Surge holds ALSA after fallback is handled by skipping jackd
-# restart in mpe_restart_audio_graph (finding 11), not by a start limit here.
+# back. JACK is the only audio engine (ALSA removed 2026-08-13): a looping
+# jackd now DOES mean silence (state=failed, no fallback), which is exactly why
+# it must keep retrying forever rather than wedge in start-limit failure and
+# need a manual `systemctl reset-failed` to recover when the DAC returns.
 StartLimitIntervalSec=0
 
 [Service]
@@ -33,8 +33,6 @@ LimitMEMLOCK=infinity
 RuntimeDirectory=mpe
 RuntimeDirectoryMode=0755
 RuntimeDirectoryPreserve=yes
-# Skipped (not failed) when MPE_AUDIO_ENGINE=alsa, so Restart=always cannot loop.
-ExecCondition=@MPE_MODULE_REPO@/scripts/jackd-engine-condition.sh
 # Device selection on every start — same tier logic as Surge (spec D1).
 ExecStartPre=@MPE_MODULE_REPO@/scripts/jackd-prestart.sh
 ExecStart=@MPE_MODULE_REPO@/scripts/start-jackd.sh

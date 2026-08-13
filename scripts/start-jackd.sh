@@ -30,15 +30,15 @@ fi
 
 echo "Starting jackd on $HW_DEV — ${JACK_BUFFER} x ${JACK_PERIODS} @ ${JACK_RATE} Hz (softmode)"
 mpe_jack_state_write "$HW_DEV" "$JACK_BUFFER" "$JACK_PERIODS" "$JACK_RATE"
-# Do not clobber Surge's degraded/ok — only publish recovering when nothing
-# more specific is already published (e.g. Surge fell back to ALSA at boot).
+# Do not clobber Surge's ok/failed — only publish recovering when nothing more
+# specific is already published.
 current_state="$(mpe_engine_state_get state)"
 case "$current_state" in
-    ok | degraded | failed | recovering) ;;
+    ok | failed | recovering) ;;
     *)
-        mpe_engine_state_write jack none recovering jackd-starting "$(mpe_looper_state_label)"
+        mpe_engine_state_write "$MPE_ENGINE_NAME" none recovering jackd-starting "$(mpe_looper_state_label)"
         ;;
 esac
 
 exec jackd -R -P"$JACK_PRIO" -s \
-    -d alsa -d "$HW_DEV" -r "$JACK_RATE" -p "$JACK_BUFFER" -n "$JACK_PERIODS"
+    -d alsa -P "$HW_DEV" -r "$JACK_RATE" -p "$JACK_BUFFER" -n "$JACK_PERIODS"
