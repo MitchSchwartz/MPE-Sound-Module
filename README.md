@@ -43,7 +43,7 @@ Every patch is fully editable and MPE-assignable from your computer, across all 
 - **3,192 patches included** — 639 factory + 2,553 community
 - **Analog and USB audio out** — 3.5mm jack standalone, or USB to a laptop/PC as a standard audio input
 - **Selectable sample rate** — 44.1 kHz or 48 kHz on-device; persists and restarts Surge with the new rate
-- **Selectable audio buffer** — preset sizes (32–2048 samples) with approximate latency shown; restarts Surge when changed
+- **Selectable audio buffer** — in JACK mode (default): `MPE_JACK_BUFFER` / `MPE_JACK_PERIODS` (defaults 256 × 3); in direct-ALSA mode: `MPE_SURGE_BUFFER_SIZE`. Restarts the audio graph when changed
 - **Per-patch volume normalization** — calibrate once (strike + sustain anchors, peak-safe closed loop); every patch loads at a matched level. The same run sets **Touch** pressure floors for light vs full press on favorites.
 - **Reuse Single on load** — patches are rewritten at load so restrikes on the same key reuse the voice instead of stacking new ones (lighter CPU on dense patches)
 - **Dynamic voice limit** — a background governor watches CPU and steps Surge's poly limit down under sustained load, then recovers when headroom returns; Surge's built-in softkill handles voice stealing (no MIDI panic)
@@ -166,13 +166,13 @@ Full command reference: **[COMMANDS.md](COMMANDS.md)**
 ## How it's built (for the curious)
 
 ```
-[Roli Seaboard] --USB MIDI--> [Surge XT CLI] --ALSA--> [USB audio dongle] --> speakers/headphones
+[Roli Seaboard] --USB MIDI--> [Surge XT CLI] --JACK client--> [jackd graph server] --USB--> [USB audio dongle] --> speakers/headphones
                                      ↑
                             MPE always enabled, headless, auto-starts on boot
 ```
 
 - **Surge XT CLI, not GUI** — no X11/VNC overhead, auto MIDI connect, MPE hardcoded on, lower latency
-- **Direct ALSA, not JACK** — simpler, lower latency, one less thing to configure
+- **JACK graph server (default engine)** — Surge is a JACK client; jackd owns the DAC so everything on the graph shares one clock. Measured keeper on the appliance: 256 frames × 3 periods @ 48 kHz, 24-bit, zero xruns (~16 ms). Server buffer is `MPE_JACK_BUFFER` / `MPE_JACK_PERIODS`; `MPE_SURGE_BUFFER_SIZE` is ignored in JACK mode
 - **Not Zynthian** — different category. Zynthian is a multi-engine workstation; getting persistent, always-on MPE through its generalized preset architecture is a known unsolved friction point (confirmed on Zynthian's own forum as recently as 2025). This project sidesteps that by being narrow on purpose.
 
 ## Documentation map

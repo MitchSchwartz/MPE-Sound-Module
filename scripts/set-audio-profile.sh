@@ -52,7 +52,11 @@ source "$SCRIPT_DIR/lib/profile-switch-flag.sh"
 source "$SCRIPT_DIR/lib/uac2-host-route.sh"
 uac2_host_streaming_clear
 profile_switch_flag_mark
-systemctl restart surge-xt-cli.service
-# start-surge-cli.sh clears the flag after reading (fast profile restarts skip MIDI wait).
+# shellcheck source=lib/audio-engine.sh
+source "$SCRIPT_DIR/lib/audio-engine.sh"
+restart_audio_graph
+# profile_switch_flag_mark: consumed by start-surge-cli.sh on the next Surge start
+# (skips USB MIDI wait). jackd restart alone does not restart Surge, so the flag
+# persists until Surge is next started — e.g. manual restart or supervisor reconcile.
 
-echo "MPE_AUDIO_PROFILE=$PROFILE applied"
+echo "MPE_AUDIO_PROFILE=$PROFILE saved — restarting $(mpe_audio_graph_unit) (audio returns after graph settles)"
