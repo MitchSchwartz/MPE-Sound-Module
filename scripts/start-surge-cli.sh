@@ -148,8 +148,7 @@ if [ -z "$ACTIVE_ENGINE" ]; then
     ENGINE_STATE=failed
     engine_log "CRITICAL: engine=jack state=failed reason=$ENGINE_REASON — no graph server available. No ALSA fallback exists; the appliance stays silent until jackd recovers."
     engine_log "CRITICAL: see $LOG_FILE and 'journalctl -u mpe-jackd' for the cause; check the DAC connection"
-    mpe_engine_state_write "$MPE_ENGINE_NAME" none failed "$ENGINE_REASON" "$(mpe_looper_state_label)"
-    mpe_surge_state_write none ""
+    mpe_publish_jack_engine_failure "$ENGINE_REASON"
     exit 1
 fi
 

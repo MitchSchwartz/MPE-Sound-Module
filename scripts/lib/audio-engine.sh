@@ -297,6 +297,24 @@ mpe_systemctl() {
     sudo -n systemctl "$@"
 }
 
+# Cards whose bind/unbind must not restart the production graph (spec D2).
+# udev remove events cannot match ATTR{id}; restart-audio-graph.sh receives
+# %E{SOUND_CARD_ID} from the udev database instead (see 99-usb-audio.rules).
+mpe_should_skip_graph_restart_for_card() {
+    local card_id="${1:-}"
+    case "$card_id" in
+        vc4hdmi* | UAC2Gadget | UAC2 | Loopback) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+# Criterion 2* failure path — publish state and exit (start-surge-cli.sh).
+mpe_publish_jack_engine_failure() {
+    local reason="${1:?reason required}"
+    mpe_engine_state_write "$MPE_ENGINE_NAME" none failed "$reason" "$(mpe_looper_state_label)"
+    mpe_surge_state_write none ""
+}
+
 mpe_restart_audio_graph() {
     local unit
     unit="$(mpe_audio_graph_unit)"
@@ -429,7 +447,7 @@ mpe_surge_on_jack_graph() {
     if ! command -v jack_lsp >/dev/null 2>&1; then
         return 1
     fi
-    jack_lsp 2>/dev/null | grep -qi 'surge'
+    timeout 3 jack_lsp 2>/dev/null | grep -qi 'surge'
 }
 
 # Back-compat alias used by udev helper and profile scripts.
