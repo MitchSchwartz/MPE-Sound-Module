@@ -197,6 +197,36 @@ class RuntimeDirectoryPreserveTests(unittest.TestCase):
         self.assertIn("Wants=surge-watchdog.service", text)
 
 
+def _systemd_sections(text: str) -> dict[str, list[str]]:
+    """Parse a unit file into section -> non-empty, non-comment lines."""
+    sections: dict[str, list[str]] = {}
+    current = ""
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("[") and line.endswith("]"):
+            current = line[1:-1]
+            sections.setdefault(current, [])
+            continue
+        if current:
+            sections.setdefault(current, []).append(line)
+    return sections
+
+
+class SurgeStartLimitUnitTests(unittest.TestCase):
+    """StartLimit* must live in [Unit] — systemd ignores them under [Service]."""
+
+    def test_start_limit_keys_in_unit_section(self) -> None:
+        sections = _systemd_sections(SURGE_SERVICE.read_text(encoding="utf-8"))
+        unit_lines = sections.get("Unit", [])
+        service_lines = sections.get("Service", [])
+        self.assertIn("StartLimitBurst=5", unit_lines)
+        self.assertIn("StartLimitIntervalSec=300", unit_lines)
+        self.assertNotIn("StartLimitBurst=5", service_lines)
+        self.assertNotIn("StartLimitIntervalSec=300", service_lines)
+
+
 class JackdStartLimitTests(unittest.TestCase):
     """DAC replug recovery (9258b68/5717d85) + skip jackd when Surge on ALSA (finding 11)."""
 

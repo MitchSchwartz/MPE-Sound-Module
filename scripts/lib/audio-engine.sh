@@ -400,13 +400,12 @@ mpe_restart_audio_graph() {
 # restart immediate, then >= 90 s apart, never while jackd is still settling, and
 # escalate to state=failed after 3 tries.
 #
-# Caveat (pre-existing, not introduced here): surge-xt-cli.service declares
-# StartLimitIntervalSec=300 in [Service], where systemd 229+ ignores it ("Unknown
-# key … in section [Service]"), so the running window is the 10 s default and the
-# burst can never accumulate. The cooldown below is therefore more conservative
-# than the limit it was sized against, and `systemctl is-failed surge-xt-cli` is
-# effectively unreachable — which also disables the watchdog's corrupt-defaults
-# recovery arm. Moving the key to [Unit] is a separate change with its own soak.
+# Start-limit window matches surge-xt-cli.service [Unit]: StartLimitBurst=5 over
+# StartLimitIntervalSec=300. The watchdog cooldown below is sized to stay inside
+# that budget (first restart immediate, then >= 90 s apart). When the burst is
+# exhausted, `systemctl is-failed surge-xt-cli` becomes true and the watchdog's
+# corrupt-defaults recovery arm can reset the unit — a path that has not yet run
+# on hardware since the interval key lived in [Service] until fixed.
 
 MPE_ENGINE_COOLDOWN_DEFAULT=90
 MPE_ENGINE_JACKD_SETTLE_DEFAULT=15
