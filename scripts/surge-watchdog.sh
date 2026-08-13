@@ -19,6 +19,9 @@ log() {
 
 _supervisor_restart_surge() {
     local reason="$1"
+    if mpe_planned_promote_flag_set; then
+        return 1
+    fi
     local now decision last count jackd_start looper_label
     now=$(date +%s)
     last=$(mpe_engine_reconcile_last_restart)
