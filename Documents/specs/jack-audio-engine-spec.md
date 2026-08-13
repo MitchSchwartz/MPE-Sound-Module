@@ -305,7 +305,7 @@ cold boot with no network; unplug/replug the DAC; profile switch mid-set;
 | 17 `mpe engine status/set` | **PASS** | Shipped in mpe-cli `85dad3c` |
 | 6 SCHED_FIFO | **PASS** (spot check) | jackd audio thread `SCHED_FIFO` (pid probe); Surge audio thread via JACK client (not process-level `chrt`) |
 | 2c mask + unplug DAC | **PASS** (Mitch) | Diagnosability confirmed on Pi; recovery still **~55–60 s** (same promote path: 15 s jackd settle ×3 + Surge restart). Watchdog 01:20–01:22 UTC log matches. |
-| 5b UAC2 host capture | **MANUAL** | Needs host opening/closing capture on `usb-host` profile |
+| 5b UAC2 host capture | **BLOCKED** | Needs physical rewire before host capture open/close test on `usb-host` profile |
 | 13 touch HUD | **PASS** (partial) | Steady **JACK** badge in header; brief **JACK·rec** after keyboard connect = `state=recovering` (engine HUD). No **L⛔** — expected with `looper=off`; full guarded badge needs `MPE_LOOPER_ENABLED=1` boot test |
 | 14 calibration/session | **DEFER** | Audit with jackd up — post-soak checklist |
 
