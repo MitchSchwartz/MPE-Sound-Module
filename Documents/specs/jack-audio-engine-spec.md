@@ -453,13 +453,16 @@ engine-selection-independent (jackd restart, supervisor promotion, profile
 switch, RT topology, HUD reading, calibration) and remain valid evidence for
 the current design.
 
-**Required before merge — Gate C soak (not yet run):**
+**Gate C soak — complete 2026-08-13 (Pi @ `1f35ade`+, `yolo/jack-drop-alsa-fallback`):**
 
-1. **2\*** — mask jackd at boot → confirm `state=failed`, silent, no fallback audio, visible in `mpe engine status` + journal + touch HUD; unmask + start → confirm promotion without manual action.
-2. **2b / 2b2 retest at the new 5s settle** — `pkill -x jackd` once, and five times inside one 300s window — confirm recovery timing with the shortened settle and that the supervisor budget/escalation behaviour (§cooldown table) is unchanged.
-3. **15** — DAC unplug/replug from a prior `state=failed` (not just `state=ok`) — confirm jackd restarts unconditionally and the graph recovers.
-4. **17** — confirm `mpe engine status` reads correctly with `MPE_AUDIO_ENGINE` entirely absent from `/etc/mpe/mpe.env`, and with a stale `MPE_AUDIO_ENGINE=alsa` line left over from a pre-amendment appliance (criterion 12).
-5. **D5 looper guard** — boot with `MPE_LOOPER_ENABLED=1`, confirm the guard fires identically to before (message text changed; behaviour should not have).
+All five required scenarios below were run on hardware after PR #52 (watchdog
+`BindsTo` fix). Merge to `dev` is unblocked on soak evidence.
+
+1. **2\*** — mask jackd at boot → confirm `state=failed`, silent, no fallback audio, visible in `mpe engine status` + journal + touch HUD; unmask + start → confirm promotion without manual action. **PASS**
+2. **2b / 2b2 retest at the new 5s settle** — `pkill -x jackd` once, and five times inside one 300s window — confirm recovery timing with the shortened settle and that the supervisor budget/escalation behaviour (§cooldown table) is unchanged. **PASS** (~21s single; 2b2 earlier)
+3. **15** — DAC unplug/replug from a prior `state=failed` (not just `state=ok`) — confirm jackd restarts unconditionally and the graph recovers. **PASS**
+4. **17** — confirm `mpe engine status` reads correctly with `MPE_AUDIO_ENGINE` entirely absent from `/etc/mpe/mpe.env`, and with a stale `MPE_AUDIO_ENGINE=alsa` line left over from a pre-amendment appliance (criterion 12). **PASS**
+5. **D5 looper guard** — boot with `MPE_LOOPER_ENABLED=1`, confirm the guard fires identically to before (message text changed; behaviour should not have). **PASS** (`looper=guarded`, `state=ok`, Surge on graph; `mpe looper enable|disable`)
 
 | Test | Result | Notes |
 |------|--------|-------|
@@ -475,7 +478,7 @@ the current design.
 | 6 SCHED_FIFO | **PASS** (spot check) | jackd audio thread `SCHED_FIFO` (pid probe); Surge audio thread via JACK client (not process-level `chrt`) |
 | 2c mask + unplug DAC | **PASS** (Mitch) | Diagnosability confirmed on Pi; recovery still **~55–60 s** (same promote path: 15 s jackd settle ×3 + Surge restart). Watchdog 01:20–01:22 UTC log matches. |
 | 5b UAC2 host capture | **BLOCKED** | Needs physical rewire before host capture open/close test on `usb-host` profile |
-| 13 touch HUD | **PASS** (partial) | Steady **JACK** badge in header; brief **JACK·rec** after keyboard connect = `state=recovering` (engine HUD). No **L⛔** — expected with `looper=off`; full guarded badge needs `MPE_LOOPER_ENABLED=1` boot test |
+| 13 touch HUD | **PASS** | Steady **JACK** badge; with `MPE_LOOPER_ENABLED=1` boot (D5) → `looper=guarded` in engine.state |
 | 14 calibration/session | **PASS** (cal) / **BLOCKED** (session) | `mpe engine calibrate-smoke` @ `137463b`: `--force` 1 favorite (`70s Fizzy String`) with jackd up; loopback `plughw:7,1,0`; entry written; post-cal `engine=jack state=ok`, jackd+Surge+touch active. Fixed `list_missing` stem→dict bug in cal script. `session_capture.py` still blocked (same rewire as 5b). Cal temporarily stops Surge (not jackd) — services restore via teardown |
 
 **Gate C soak — 2026-08-13 (Pi @ `fdeb1fa`, `yolo/jack-drop-alsa-fallback`):**
@@ -488,8 +491,8 @@ the current design.
 | 2b single kill @ 5s settle | **PASS** | Recovery **~21s** (vs ~39s at 15s settle) |
 | 2b2 five × kill @ 5s settle | **PASS** (earlier session) | 5/5 in ~121s, ~4s each |
 | 15 DAC replug from `state=failed` | **PASS** | jackd restarted on replug; watchdog promoted Surge from `recovering` → `state=ok` in ~5s, stable 40s |
-| 17 stale `MPE_AUDIO_ENGINE=alsa` line | **NOT RUN** | Needs manual `/etc/mpe/mpe.env` edit |
-| D5 looper guard boot | **NOT RUN** | Needs `MPE_LOOPER_ENABLED=1` + reboot |
+| 17 stale `MPE_AUDIO_ENGINE=alsa` line | **PASS** | Stale line appended to `/etc/mpe/mpe.env`; `mpe engine status` still `engine=jack state=ok`; Surge restart unchanged |
+| D5 looper guard boot | **PASS** | `mpe looper enable` + reboot → `looper=guarded`, `state=ok`, Surge on graph |
 
 **Backlog — faster crash/replug recovery (post–Phase 1 merge):** The 15 s
 `MPE_ENGINE_JACKD_SETTLE_S` window plus a full Surge restart makes mid-set recovery
