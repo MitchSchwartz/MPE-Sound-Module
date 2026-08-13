@@ -126,7 +126,10 @@ if [ -n "$BUFFER" ]; then
     _update_env_var MPE_JACK_BUFFER "$BUFFER"
     export MPE_JACK_BUFFER="$BUFFER"
 fi
-mpe_restart_audio_graph
+if ! mpe_promote_surge_planned "settings-change"; then
+    echo "ERROR: audio graph change failed — check journalctl -u mpe-jackd -u surge-xt-cli" >&2
+    exit 1
+fi
 
 echo -n "Applied"
 [ -n "$BUFFER" ] && echo -n " buffer=$BUFFER"

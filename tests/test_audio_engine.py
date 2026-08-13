@@ -103,10 +103,10 @@ class ReconcileCooldownTests(unittest.TestCase):
         )
         self.assertEqual(action, "proceed")
 
-    def test_respects_90s_cooldown(self) -> None:
+    def test_respects_cooldown_window(self) -> None:
         action, _ = reconcile_cooldown_decide(
             1000,
-            last_supervisor_restart=950,
+            last_supervisor_restart=980,
             supervisor_restarts_without_ok=1,
             jackd_last_start=800,
         )
@@ -124,8 +124,8 @@ class ReconcileCooldownTests(unittest.TestCase):
         self.assertEqual(action, "skip_jackd_settling")
 
     def test_proceeds_once_settle_window_elapses(self) -> None:
-        # jackd started 10s ago — past the 5s settle window and past the 90s
-        # cooldown (last restart 200s ago), so the supervisor may act.
+        # jackd started 10s ago — past the 5s settle window and past cooldown
+        # (last restart 200s ago), so the supervisor may act.
         action, _ = reconcile_cooldown_decide(
             1000,
             last_supervisor_restart=800,
@@ -144,7 +144,7 @@ class ReconcileCooldownTests(unittest.TestCase):
         self.assertEqual(action, "escalate_failed")
 
     def test_constants_match_spec(self) -> None:
-        self.assertEqual(COOLDOWN_SEC, 90)
+        self.assertEqual(COOLDOWN_SEC, 30)
         self.assertEqual(JACKD_SETTLE_SEC, 5)
         self.assertEqual(MAX_SUPERVISOR_RESTARTS, 3)
 
@@ -178,7 +178,7 @@ class BashReconcileParityTests(unittest.TestCase):
         self.assertEqual(_run_bash_reconcile(1000, 0, 0, 900), "restart")
 
     def test_bash_cooldown(self) -> None:
-        self.assertEqual(_run_bash_reconcile(1000, 950, 1, 800), "cooldown")
+        self.assertEqual(_run_bash_reconcile(1000, 980, 1, 800), "cooldown")
 
     def test_bash_jackd_settling(self) -> None:
         self.assertEqual(_run_bash_reconcile(1000, 800, 0, 997), "jackd-settling")
@@ -321,6 +321,34 @@ mpe_audio_graph_unit
         result = _run_bash_script(body, env=_bash_env())
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.strip(), "mpe-jackd.service")
+
+    def test_planned_promote_sync_path(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            env = _bash_env(tmp)
+            on_graph = Path(tmp) / "on-graph"
+            body = f"""
+source {AUDIO_ENGINE_SH}
+mpe_jack_server_ready() {{ [ "$1" = "1" ] && return 0; return 1; }}
+mpe_surge_on_jack_graph() {{ [ -f "{on_graph}" ]; }}
+mpe_restart_audio_graph() {{ printf 'graph-restart\\n'; return 0; }}
+mpe_systemctl() {{
+  printf '%s\\n' "$*" >> "{tmp}/systemctl.log"
+  case "$*" in
+    restart\ surge-xt-cli.service) touch "{on_graph}" ;;
+  esac
+  return 0
+}}
+export -f mpe_jack_server_ready mpe_surge_on_jack_graph mpe_restart_audio_graph mpe_systemctl
+mpe_promote_surge_planned settings-change
+printf 'state=%s\\n' "$(mpe_engine_state_get state)"
+grep -c 'restart surge-xt-cli.service' "{tmp}/systemctl.log" || true
+"""
+            result = _run_bash_script(body, env=env)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            lines = result.stdout.strip().splitlines()
+            self.assertEqual(lines[0], "graph-restart")
+            self.assertEqual(lines[1], "state=ok")
+            self.assertEqual(lines[2], "1")
 
 
 class StateFileLifecycleTests(unittest.TestCase):
@@ -485,7 +513,7 @@ class NoAlsaPathTests(unittest.TestCase):
         hypothetical. It must unconditionally take the graph-restart path."""
         text = SET_SURGE_AUDIO_SH.read_text(encoding="utf-8")
         self.assertNotIn("mpe_audio_engine", text)
-        self.assertIn("mpe_restart_audio_graph", text)
+        self.assertIn("mpe_promote_surge_planned", text)
         self.assertNotIn("systemctl restart surge-xt-cli.service", text)
 
     def test_set_surge_audio_is_valid_bash(self) -> None:
