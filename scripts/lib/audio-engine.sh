@@ -7,9 +7,9 @@
 # that will not start is a hard failure, not a route to an alternate engine.
 #
 # Runtime state lives in /run/mpe (tmpfs). It must NOT live in a shell variable:
-# surge-watchdog.service is BindsTo=surge-xt-cli.service, so the supervisor is
-# itself restarted every time it restarts Surge — in-memory cooldown state would
-# be wiped on exactly the event it rate-limits (spec D3).
+# the watchdog restarts Surge and can itself be restarted (Restart=always) or
+# re-run across Surge restarts — in-memory cooldown state would be wiped on
+# exactly the events it rate-limits (spec D3).
 
 # Published in engine.state's `engine=` field as a static, non-configurable
 # constant — nothing reads MPE_AUDIO_ENGINE anymore, but `mpe engine status`

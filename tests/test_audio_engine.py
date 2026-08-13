@@ -211,6 +211,18 @@ class RuntimeDirectoryPreserveTests(unittest.TestCase):
         wants = _systemd_unit_directives(sections, "Wants")
         self.assertIn("surge-watchdog.service", wants)
 
+    def test_watchdog_not_bound_to_surge(self) -> None:
+        # Gate C 2*: the watchdog must survive a hard Surge failure to promote
+        # once jackd recovers. BindsTo kills the supervisor with the supervised.
+        sections = _systemd_sections(WATCHDOG_SERVICE.read_text(encoding="utf-8"))
+        self.assertEqual([], _systemd_unit_directives(sections, "BindsTo"))
+        after = _systemd_unit_directives(sections, "After")
+        self.assertIn("surge-xt-cli.service", after)
+
+    def test_watchdog_restarts_always(self) -> None:
+        text = WATCHDOG_SERVICE.read_text(encoding="utf-8")
+        self.assertIn("Restart=always", text)
+
 
 def _systemd_sections(text: str) -> dict[str, list[str]]:
     """Parse a unit file into section -> non-empty, non-comment lines."""
