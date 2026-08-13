@@ -54,9 +54,11 @@ uac2_host_streaming_clear
 profile_switch_flag_mark
 # shellcheck source=lib/audio-engine.sh
 source "$SCRIPT_DIR/lib/audio-engine.sh"
-restart_audio_graph
+if ! mpe_promote_surge_planned "profile-change"; then
+    echo "ERROR: profile graph change failed — check journalctl -u mpe-jackd -u surge-xt-cli" >&2
+    exit 1
+fi
 # profile_switch_flag_mark: consumed by start-surge-cli.sh on the next Surge start
-# (skips USB MIDI wait). jackd restart alone does not restart Surge, so the flag
-# persists until Surge is next started — e.g. manual restart or supervisor reconcile.
+# (skips USB MIDI wait).
 
-echo "MPE_AUDIO_PROFILE=$PROFILE saved — restarting $(mpe_audio_graph_unit) (audio returns after graph settles)"
+echo "MPE_AUDIO_PROFILE=$PROFILE saved — audio graph restored"

@@ -22,9 +22,11 @@ VALID_ENGINE_STATES = frozenset({"ok", "recovering", "failed"})
 VALID_LOOPER_LABELS = frozenset({"guarded", "enabled", "off"})
 
 ENGINE_STATE_FILE = Path("/run/mpe/engine.state")
+RECONCILE_STATE_FILE = Path("/run/mpe/engine-reconcile.state")
+JACK_STATE_FILE = Path("/run/mpe/jack.state")
 ENGINE_STATE_MAX_BYTES = 4096
 
-COOLDOWN_SEC = 90
+COOLDOWN_SEC = 30
 # 15s was sized for an ALSA-contention hazard (Surge holding the tier device on
 # the fallback path) that no longer exists — ALSA is not a reachable engine at
 # all now. jackd is typically ready in ~6s on the Sound Blaster Play! 3; 5s
@@ -74,6 +76,87 @@ def reconcile_cooldown_decide(
         return "skip_cooldown", f"last supervisor restart {elapsed}s ago (< {cooldown_sec}s)"
 
     return "proceed", f"cooldown satisfied ({elapsed}s since last restart)"
+
+
+def read_reconcile_state(path: Path | None = None) -> dict[str, str]:
+    """Parse supervisor reconcile state (cooldown counter)."""
+    target = path or RECONCILE_STATE_FILE
+    return read_engine_state(target)
+
+
+def read_jack_state(path: Path | None = None) -> dict[str, str]:
+    target = path or JACK_STATE_FILE
+    return read_engine_state(target)
+
+
+def _parse_epoch(value: str | None) -> int:
+    if not value:
+        return 0
+    try:
+        parsed = int(value.strip())
+    except ValueError:
+        return 0
+    return parsed if parsed > 0 else 0
+
+
+def audio_switch_progress_message(
+    engine: dict[str, str] | None,
+    reconcile: dict[str, str] | None = None,
+    *,
+    now: int | None = None,
+    jack: dict[str, str] | None = None,
+) -> tuple[str, str | None, float]:
+    """Overlay hint + optional toast while a planned audio switch runs.
+
+    Returns ``(overlay_hint, toast_message_or_none, toast_seconds)``.
+    """
+    import time as _time
+
+    engine = engine or {}
+    reconcile = reconcile or {}
+    jack = jack or {}
+    now_ts = now if now is not None else int(_time.time())
+
+    state = engine.get("state") or ""
+    reason = engine.get("reason") or ""
+    active = engine.get("active") or ""
+
+    if state == "ok" and active == "jack":
+        return "Audio restored", "Audio ready", 2.0
+
+    if state == "failed":
+        if reason == "no-server":
+            return "JACK server failed — check DAC", "Audio failed — check DAC", 4.0
+        if reason == "supervisor-exhausted":
+            return (
+                "Recovery paused — replug DAC or wait",
+                f"Recovery paused — wait {COOLDOWN_SEC}s or replug DAC",
+                5.0,
+            )
+        return "Audio failed", "Audio failed — check connection", 4.0
+
+    last_restart = _parse_epoch(reconcile.get("last_restart"))
+    restart_count = _parse_epoch(reconcile.get("restarts"))
+    if restart_count > 0 and last_restart > 0:
+        since = now_ts - last_restart
+        if since < COOLDOWN_SEC:
+            remaining = COOLDOWN_SEC - since
+            hint = f"Waiting to retry ({remaining}s)…"
+            toast = f"Recovery paused — {remaining}s until retry"
+            return hint, toast, min(float(remaining + 1), 8.0)
+
+    jack_started = _parse_epoch(jack.get("started"))
+    if jack_started > 0 and (now_ts - jack_started) < JACKD_SETTLE_SEC:
+        return "JACK server starting…", "Restarting audio engine…", 3.0
+
+    if reason == "promote-planned":
+        return "Reconnecting Surge…", "Reconnecting Surge to JACK…", 3.0
+    if reason in {"settings-change", "profile-change"}:
+        return "Restarting JACK server…", "Applying audio settings…", 3.0
+    if reason == "promote-timeout":
+        return "Surge reconnect slow — still trying…", "Still reconnecting Surge…", 3.0
+
+    return "Restarting audio…", "Applying audio settings…", 3.0
 
 
 def read_engine_state(path: Path | None = None) -> dict[str, str]:
