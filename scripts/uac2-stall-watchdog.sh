@@ -18,6 +18,8 @@ source "$SCRIPT_DIR/lib/profile-switch-flag.sh"
 source "$SCRIPT_DIR/lib/uac2-host-route.sh"
 # shellcheck source=lib/uac2-recovery-state.sh
 source "$SCRIPT_DIR/lib/uac2-recovery-state.sh"
+# shellcheck source=lib/audio-engine.sh
+source "$SCRIPT_DIR/lib/audio-engine.sh"
 
 SURGE_SERVICE="surge-xt-cli.service"
 POLL_SECONDS="${MPE_UAC2_WATCHDOG_POLL:-1}"
@@ -59,15 +61,10 @@ stop_session_bridge() {
     fi
 }
 
-restart_surge() {
+_uac2_restart_graph() {
     uac2_recovery_set recovering
     profile_switch_flag_mark
-    if [ "$(id -u)" -eq 0 ]; then
-        systemctl restart --no-block "$SURGE_SERVICE"
-    else
-        sudo -n systemctl restart --no-block "$SURGE_SERVICE" 2>/dev/null ||
-            log "WARN: could not restart $SURGE_SERVICE (no root / no passwordless sudo)"
-    fi
+    restart_audio_graph
 }
 
 host_is_streaming() {
@@ -109,7 +106,7 @@ while true; do
                 start_session_bridge
             else
                 log "Host already capturing @ ${rate}Hz — Surge → UAC2"
-                restart_surge
+                _uac2_restart_graph
             fi
             sleep "$COOLDOWN_SECONDS"
         elif [ "$streaming" -eq 0 ]; then
@@ -133,7 +130,7 @@ while true; do
             start_session_bridge
         else
             log "Host capture opened @ ${rate}Hz — Surge → UAC2"
-            restart_surge
+            _uac2_restart_graph
         fi
     else
         uac2_host_streaming_clear
@@ -142,7 +139,7 @@ while true; do
             stop_session_bridge
         else
             log "Host capture closed — Surge → idle output"
-            restart_surge
+            _uac2_restart_graph
         fi
     fi
     if [ "$SESSION_MODE" = false ]; then

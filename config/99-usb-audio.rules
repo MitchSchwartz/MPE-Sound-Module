@@ -20,10 +20,10 @@ ACTION=="add|remove", SUBSYSTEM=="sound", KERNEL=="card[0-9]*", ATTR{id}=="UAC2"
 # Skip snd-aloop (calibration loads/unloads this; must not restart production Surge mid-run)
 ACTION=="add|remove", SUBSYSTEM=="sound", KERNEL=="card[0-9]*", ATTR{id}=="Loopback", GOTO="mpe_usb_audio_end"
 
-# Restart Surge XT CLI when external USB audio devices connect
-ACTION=="add", SUBSYSTEM=="sound", KERNEL=="card[0-9]*", RUN+="/bin/systemctl restart surge-xt-cli.service"
-
-# Restart Surge XT CLI when external USB audio devices disconnect
-ACTION=="remove", SUBSYSTEM=="sound", KERNEL=="card[0-9]*", RUN+="/bin/systemctl restart surge-xt-cli.service"
+# Restart audio graph when external USB audio devices connect/disconnect.
+# restart-audio-graph.sh reads MPE_AUDIO_ENGINE and restarts jackd or Surge
+# accordingly (spec D2, criterion 15). --no-block is inside the script.
+ACTION=="add", SUBSYSTEM=="sound", KERNEL=="card[0-9]*", RUN+="@MPE_MODULE_REPO@/scripts/restart-audio-graph.sh"
+ACTION=="remove", SUBSYSTEM=="sound", KERNEL=="card[0-9]*", RUN+="@MPE_MODULE_REPO@/scripts/restart-audio-graph.sh"
 
 LABEL="mpe_usb_audio_end"

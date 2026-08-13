@@ -116,8 +116,19 @@ fi
 
 # shellcheck source=lib/profile-switch-flag.sh
 source "$SCRIPT_DIR/lib/profile-switch-flag.sh"
+# shellcheck source=lib/audio-engine.sh
+source "$SCRIPT_DIR/lib/audio-engine.sh"
 profile_switch_flag_mark
-systemctl restart surge-xt-cli.service
+
+if [ "$(mpe_audio_engine)" = "jack" ]; then
+    if [ -n "$BUFFER" ]; then
+        _update_env_var MPE_JACK_BUFFER "$BUFFER"
+        export MPE_JACK_BUFFER="$BUFFER"
+    fi
+    mpe_restart_audio_graph
+else
+    systemctl restart surge-xt-cli.service
+fi
 
 echo -n "Applied"
 [ -n "$BUFFER" ] && echo -n " buffer=$BUFFER"

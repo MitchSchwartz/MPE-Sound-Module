@@ -27,7 +27,8 @@ if [ ! -f "$SURGE_CLI" ]; then
     exit 1
 fi
 
-# Get all output devices from surge
+# Get all output devices from surge — ignore a noisy non-zero exit when output
+# is still present (finding 6; same pattern as resolve_jack_device_index).
 DEVICE_LIST=$("$SURGE_CLI" --list-devices 2>&1 | grep "Output Audio Device" || true)
 
 if [ -z "$DEVICE_LIST" ]; then
