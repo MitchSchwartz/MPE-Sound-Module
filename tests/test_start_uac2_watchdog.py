@@ -9,6 +9,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from tests.hermetic_env import hermetic_env_skip_system, hermetic_env_with_profile
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 START_SCRIPT = REPO_ROOT / "scripts" / "start-uac2-watchdog-if-needed.sh"
 SURGE_UNIT = REPO_ROOT / "config" / "surge-xt-cli.service"
@@ -27,14 +29,14 @@ class StartUac2WatchdogTests(unittest.TestCase):
 
     def test_skips_when_not_usb_host(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
+            env = os.environ.copy()
+            env.update(hermetic_env_skip_system())
+            env["MPE_AUDIO_PROFILE"] = "standalone"
             result = subprocess.run(
                 ["bash", str(START_SCRIPT)],
                 capture_output=True,
                 text=True,
-                env={
-                    **os.environ,
-                    "MPE_AUDIO_PROFILE": "standalone",
-                },
+                env=env,
                 check=False,
             )
             self.assertEqual(result.returncode, 0, msg=result.stderr)
@@ -53,15 +55,14 @@ class StartUac2WatchdogTests(unittest.TestCase):
                 encoding="utf-8",
             )
             systemctl.chmod(systemctl.stat().st_mode | stat.S_IXUSR)
+            env = os.environ.copy()
+            env.update(hermetic_env_with_profile(tmp_path, "usb-host-session"))
+            env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
             result = subprocess.run(
                 ["bash", str(START_SCRIPT)],
                 capture_output=True,
                 text=True,
-                env={
-                    **os.environ,
-                    "MPE_AUDIO_PROFILE": "usb-host-session",
-                    "PATH": f"{bin_dir}:{os.environ.get('PATH', '')}",
-                },
+                env=env,
                 check=False,
             )
             self.assertEqual(result.returncode, 0, msg=result.stderr)
