@@ -202,6 +202,45 @@ mpe_jack_server_running() {
     pgrep -x jackd >/dev/null 2>&1
 }
 
+# jackd runs as MPE_PI_USER (systemd User=). set-surge-audio.sh is invoked via
+# sudo for /etc/mpe writes, so graph probes as root cannot see the user's JACK
+# session — run jack_lsp as the graph owner instead.
+mpe_jack_graph_user() {
+    if [ -n "${MPE_PI_USER:-}" ]; then
+        printf '%s' "$MPE_PI_USER"
+        return 0
+    fi
+    if [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != root ]; then
+        printf '%s' "$SUDO_USER"
+        return 0
+    fi
+    if [ -f /etc/mpe/mpe.env ]; then
+        local u
+        u="$(grep -E '^MPE_PI_USER=' /etc/mpe/mpe.env 2>/dev/null | cut -d= -f2- | tr -d '"' | tr -d "'" || true)"
+        if [ -n "$u" ]; then
+            printf '%s' "$u"
+            return 0
+        fi
+    fi
+    id -un 2>/dev/null || printf '%s' "${USER:-root}"
+}
+
+mpe_jack_lsp() {
+    local timeout_s="${MPE_JACK_LSP_TIMEOUT_S:-3}"
+    if ! command -v jack_lsp >/dev/null 2>&1; then
+        return 127
+    fi
+    if [ "$(id -u)" -eq 0 ]; then
+        local owner
+        owner="$(mpe_jack_graph_user)"
+        if [ -n "$owner" ] && [ "$owner" != root ]; then
+            timeout "$timeout_s" sudo -u "$owner" -E jack_lsp "$@"
+            return $?
+        fi
+    fi
+    timeout "$timeout_s" jack_lsp "$@"
+}
+
 # Running is not the same as accepting clients. jack_lsp is a hard prerequisite
 # (spec assumptions: jack-example-tools installed). Both server-ready and graph
 # probes must agree — missing jack_lsp is not "server up".
@@ -212,7 +251,7 @@ mpe_jack_server_ready() {
         [ "$quiet" = 1 ] || echo "ERROR: jack_lsp not found — install jack-example-tools" >&2
         return 1
     fi
-    timeout 3 jack_lsp >/dev/null 2>&1
+    mpe_jack_lsp >/dev/null 2>&1
 }
 
 # Bounded readiness wait — never a fixed sleep (spec D3 boot ordering).
@@ -528,7 +567,7 @@ mpe_surge_on_jack_graph() {
     if ! command -v jack_lsp >/dev/null 2>&1; then
         return 1
     fi
-    timeout 3 jack_lsp 2>/dev/null | grep -qi 'surge'
+    mpe_jack_lsp 2>/dev/null | grep -qi 'surge'
 }
 
 # Back-compat alias used by udev helper and profile scripts.
