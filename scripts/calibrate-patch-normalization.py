@@ -321,6 +321,11 @@ def collect_patch_paths(args: argparse.Namespace) -> list[Path]:
     return result
 
 
+def patch_path_records(paths: list[Path]) -> list[dict]:
+    """Shape expected by PatchNormalizationStore.list_missing."""
+    return [{"name": p.stem, "path": str(p)} for p in paths]
+
+
 def find_surge_midi_port(*, announce: bool = True) -> int | None:
     try:
         import rtmidi
@@ -999,11 +1004,16 @@ def main() -> int:
     store = PatchNormalizationStore(output_path)
     pressure_path = args.pressure_output or default_pressure_path()
     touch_cal = not args.no_touch_cal
+    patch_records = patch_path_records(patch_paths)
     if args.force or args.mock_lufs is not None:
         targets = patch_paths
     else:
-        missing = store.list_missing([p.stem for p in patch_paths])
-        targets = [p for p in patch_paths if p.stem in missing]
+        missing_keys = set(store.list_missing(patch_records))
+        targets = [
+            p
+            for p in patch_paths
+            if store._storage_key(p.stem, patch_path=str(p)) in missing_keys
+        ]
 
     print(f"Output: {output_path}")
     capture_label = audio_device if audio_device else "(resolved after Surge restart)"
@@ -1018,7 +1028,7 @@ def main() -> int:
         print(f"Scope: folder {args.folder!r}")
     else:
         print("Scope: all scanned patches")
-    missing_count = len(store.list_missing([p.stem for p in patch_paths]))
+    missing_count = len(store.list_missing(patch_records))
     print(
         f"Targets: {len(targets)} patch(es) ({len(patch_paths)} in scope, "
         f"{missing_count} missing entries"
