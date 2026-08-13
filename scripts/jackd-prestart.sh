@@ -8,8 +8,9 @@
 # cannot disagree.
 #
 # Exits non-zero when no usable card appears. That fails the unit loudly, which
-# is correct: Restart=always retries, and Surge's ALSA fallback keeps the
-# instrument audible in the meantime (spec D3 `degraded`).
+# is correct: Restart=always retries, and there is no ALSA fallback keeping the
+# instrument audible in the meantime — the appliance stays silent and reports
+# state=failed until a card appears (spec D3, amended 2026-08-13).
 
 set -uo pipefail
 

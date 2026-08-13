@@ -1,5 +1,5 @@
 #!/bin/bash
-# Surge Watchdog: crash recovery + JACK/ALSA engine reconciliation (spec D3).
+# Surge Watchdog: crash recovery + JACK graph reconciliation (spec D3).
 
 SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || echo "${BASH_SOURCE[0]}")")" && pwd)"
 # shellcheck source=lib/paths.sh
@@ -41,7 +41,7 @@ _supervisor_restart_surge() {
             # restarted, so announce it once rather than filling the log forever.
             if [ "$(mpe_engine_state_get state)" != failed ]; then
                 log "RECONCILE FAILED: $count supervisor restarts without ok — stopping ($reason)"
-                mpe_engine_state_write "$(mpe_audio_engine)" "$(mpe_engine_state_get active)" failed "supervisor-exhausted" "$looper_label"
+                mpe_engine_state_write "$MPE_ENGINE_NAME" "$(mpe_engine_state_get active)" failed "supervisor-exhausted" "$looper_label"
             fi
             return 1
             ;;
@@ -49,40 +49,28 @@ _supervisor_restart_surge() {
 
     log "RECONCILE restarting Surge ($reason)"
     mpe_engine_reconcile_record_restart
-    mpe_engine_state_write "$(mpe_audio_engine)" "$(mpe_engine_state_get active)" recovering "$reason" "$looper_label"
+    mpe_engine_state_write "$MPE_ENGINE_NAME" "$(mpe_engine_state_get active)" recovering "$reason" "$looper_label"
     mpe_systemctl reset-failed "$SURGE_SERVICE" >/dev/null 2>&1 || true
     mpe_systemctl restart "$SURGE_SERVICE"
     return 0
 }
 
+# Single-engine reconcile: on the graph → ok; server ready but Surge not on it
+# → promote (restart Surge so it re-joins); server not ready → wait out the
+# budget, then treat jackd as down and restart Surge (it will fail loud and
+# retry on its own until jackd recovers — spec D3 amended 2026-08-13).
 _reconcile_engine() {
-    local waited looper_label requested
-
-    if ! mpe_engine_is_jack; then
-        return 0
-    fi
+    local waited looper_label
 
     looper_label="$(mpe_looper_state_label)"
-    requested="$(mpe_audio_engine)"
 
     if mpe_surge_on_jack_graph; then
-        mpe_engine_state_write "$requested" jack ok "" "$looper_label"
+        mpe_engine_state_write "$MPE_ENGINE_NAME" jack ok "" "$looper_label"
         mpe_engine_reconcile_reset
         return 0
     fi
 
     if ! mpe_jack_server_ready; then
-        # Surge already running correctly on ALSA — publish degraded, take no action
-        # (criterion 2a: jackd masked must not bounce audio forever).
-        if [ "$(mpe_surge_active_engine)" = alsa ]; then
-            if mpe_jackd_unit_seeking_start; then
-                _supervisor_restart_surge "release-alsa-for-jackd"
-                return 0
-            fi
-            mpe_engine_state_write "$requested" alsa degraded no-server "$looper_label"
-            mpe_engine_reconcile_reset
-            return 0
-        fi
         waited=0
         while [ "$waited" -lt "$RECONCILE_BUDGET" ]; do
             if mpe_jack_server_ready; then
@@ -103,7 +91,7 @@ _reconcile_engine() {
 }
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-log "=== Surge Watchdog Started (engine=$(mpe_audio_engine)) ==="
+log "=== Surge Watchdog Started (engine=jack) ==="
 
 while true; do
     if systemctl is-failed "$SURGE_SERVICE" &>/dev/null; then

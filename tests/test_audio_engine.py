@@ -1,4 +1,10 @@
-"""Unit tests for patch_browser/audio_engine.py — engine default, looper guard, cooldown."""
+"""Unit tests for patch_browser/audio_engine.py — looper guard, cooldown, HUD.
+
+JACK is the only audio engine (spec D3, amended 2026-08-13 — ALSA removed
+entirely, not just its automatic fallback). Tests that only existed to cover
+the ALSA path or dual-engine reconcile arms are gone; engine-selection-failure
+handling (jackd never comes up → hard failure) is covered and adapted here.
+"""
 
 from __future__ import annotations
 
@@ -11,7 +17,6 @@ from pathlib import Path
 
 from patch_browser.audio_engine import (
     COOLDOWN_SEC,
-    DEFAULT_ENGINE,
     ENGINE_STATE_FILE,
     JACKD_SETTLE_SEC,
     LOOPER_GUARD_MESSAGE,
@@ -22,13 +27,14 @@ from patch_browser.audio_engine import (
     looper_guard_exit_code,
     read_engine_state,
     reconcile_cooldown_decide,
-    resolve_audio_engine,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 AUDIO_ENGINE_SH = REPO_ROOT / "scripts" / "lib" / "audio-engine.sh"
 ENGINE_GUARD_SH = REPO_ROOT / "scripts" / "lib" / "engine-guard.sh"
 SURGE_WATCHDOG_SH = REPO_ROOT / "scripts" / "surge-watchdog.sh"
+START_SURGE_CLI_SH = REPO_ROOT / "scripts" / "start-surge-cli.sh"
+SET_SURGE_AUDIO_SH = REPO_ROOT / "scripts" / "set-surge-audio.sh"
 SURGE_SERVICE = REPO_ROOT / "config" / "surge-xt-cli.service"
 WATCHDOG_SERVICE = REPO_ROOT / "config" / "surge-watchdog.service"
 JACKD_SERVICE = REPO_ROOT / "config" / "mpe-jackd.service"
@@ -61,27 +67,17 @@ def _run_bash_script(body: str, *, env: dict[str, str] | None = None) -> subproc
         )
 
 
-class ResolveAudioEngineTests(unittest.TestCase):
-    def test_defaults_to_jack_when_unset(self) -> None:
-        self.assertEqual(resolve_audio_engine(None), "jack")
-        self.assertEqual(resolve_audio_engine(""), "jack")
-
-    def test_honours_explicit_alsa(self) -> None:
-        self.assertEqual(resolve_audio_engine("alsa"), "alsa")
-
-    def test_honours_explicit_jack(self) -> None:
-        self.assertEqual(resolve_audio_engine("jack"), "jack")
-
-
 class LooperGuardTests(unittest.TestCase):
-    def test_blocked_when_jack_and_looper_enabled(self) -> None:
-        self.assertTrue(looper_guard_blocked(engine="jack", looper_enabled="1"))
+    """JACK is the only engine, so the guard no longer takes an engine param."""
 
-    def test_not_blocked_when_alsa(self) -> None:
-        self.assertFalse(looper_guard_blocked(engine="alsa", looper_enabled="1"))
+    def test_blocked_when_looper_enabled(self) -> None:
+        self.assertTrue(looper_guard_blocked(looper_enabled="1"))
 
     def test_not_blocked_when_looper_disabled(self) -> None:
-        self.assertFalse(looper_guard_blocked(engine="jack", looper_enabled="0"))
+        self.assertFalse(looper_guard_blocked(looper_enabled="0"))
+
+    def test_not_blocked_when_looper_unset(self) -> None:
+        self.assertFalse(looper_guard_blocked(looper_enabled=None))
 
     def test_service_exit_zero(self) -> None:
         self.assertEqual(looper_guard_exit_code(looper_service=True), 0)
@@ -113,13 +109,26 @@ class ReconcileCooldownTests(unittest.TestCase):
         self.assertEqual(action, "skip_cooldown")
 
     def test_skips_while_jackd_settling(self) -> None:
+        # Settle window is 5s post-amendment (was 15s under the ALSA-contention
+        # hazard, which no longer exists). jackd started 3s ago — still settling.
+        action, _ = reconcile_cooldown_decide(
+            1000,
+            last_supervisor_restart=800,
+            supervisor_restarts_without_ok=0,
+            jackd_last_start=997,
+        )
+        self.assertEqual(action, "skip_jackd_settling")
+
+    def test_proceeds_once_settle_window_elapses(self) -> None:
+        # jackd started 10s ago — past the 5s settle window and past the 90s
+        # cooldown (last restart 200s ago), so the supervisor may act.
         action, _ = reconcile_cooldown_decide(
             1000,
             last_supervisor_restart=800,
             supervisor_restarts_without_ok=0,
             jackd_last_start=990,
         )
-        self.assertEqual(action, "skip_jackd_settling")
+        self.assertEqual(action, "proceed")
 
     def test_escalates_after_three_restarts(self) -> None:
         action, _ = reconcile_cooldown_decide(
@@ -132,9 +141,8 @@ class ReconcileCooldownTests(unittest.TestCase):
 
     def test_constants_match_spec(self) -> None:
         self.assertEqual(COOLDOWN_SEC, 90)
-        self.assertEqual(JACKD_SETTLE_SEC, 15)
+        self.assertEqual(JACKD_SETTLE_SEC, 5)
         self.assertEqual(MAX_SUPERVISOR_RESTARTS, 3)
-        self.assertEqual(DEFAULT_ENGINE, "jack")
 
 
 def _run_bash_reconcile(now: int, last: int, count: int, jackd: int) -> str:
@@ -169,7 +177,10 @@ class BashReconcileParityTests(unittest.TestCase):
         self.assertEqual(_run_bash_reconcile(1000, 950, 1, 800), "cooldown")
 
     def test_bash_jackd_settling(self) -> None:
-        self.assertEqual(_run_bash_reconcile(1000, 800, 0, 990), "jackd-settling")
+        self.assertEqual(_run_bash_reconcile(1000, 800, 0, 997), "jackd-settling")
+
+    def test_bash_proceeds_once_settle_window_elapses(self) -> None:
+        self.assertEqual(_run_bash_reconcile(1000, 800, 0, 990), "restart")
 
     def test_bash_failed(self) -> None:
         self.assertEqual(_run_bash_reconcile(5000, 4000, 3, 1000), "failed")
@@ -244,7 +255,9 @@ class SurgeStartLimitUnitTests(unittest.TestCase):
 
 
 class JackdStartLimitTests(unittest.TestCase):
-    """DAC replug recovery (9258b68/5717d85) + skip jackd when Surge on ALSA (finding 11)."""
+    """DAC replug recovery (9258b68/5717d85). ALSA-skip tests (finding 11) and the
+    jackd-engine-condition executable-bit test are gone with ALSA removal — jackd
+    now starts unconditionally, so there is no ExecCondition script to check."""
 
     def test_jackd_unit_disables_start_rate_limit(self) -> None:
         text = JACKD_SERVICE.read_text(encoding="utf-8")
@@ -255,55 +268,18 @@ class JackdStartLimitTests(unittest.TestCase):
         text = JACKD_SERVICE.read_text(encoding="utf-8")
         self.assertIn("JACK_NO_AUDIO_RESERVATION=1", text)
 
-    def test_jackd_engine_condition_is_executable_in_git(self) -> None:
-        import subprocess
+    def test_jackd_unit_has_no_engine_condition(self) -> None:
+        """ExecCondition=jackd-engine-condition.sh is gone — jackd always starts."""
+        text = JACKD_SERVICE.read_text(encoding="utf-8")
+        self.assertNotIn("ExecCondition=", text)
+        self.assertNotIn("jackd-engine-condition.sh", text)
 
-        result = subprocess.run(
-            ["git", "ls-files", "-s", "scripts/jackd-engine-condition.sh"],
-            cwd=REPO_ROOT,
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-        mode = result.stdout.split()[0] if result.stdout.strip() else ""
-        self.assertEqual(mode, "100755", msg="ExecCondition must be executable in git")
-
-    def test_graph_restart_skips_jackd_when_surge_on_alsa(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            env = _bash_env(tmp, MPE_AUDIO_ENGINE="jack")
-            Path(tmp, "surge.state").write_text("active=alsa\n", encoding="utf-8")
-            body = f"""
-source {AUDIO_ENGINE_SH}
-mpe_systemctl() {{ printf '%s\\n' "$*" >> "{tmp}/systemctl.log"; return 0; }}
-export -f mpe_systemctl
-if mpe_restart_audio_graph; then echo skipped; else exit 9; fi
-if [ -f "{tmp}/systemctl.log" ]; then cat "{tmp}/systemctl.log"; fi
-"""
-            result = _run_bash_script(body, env=env)
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertIn("skipped", result.stdout)
-            self.assertNotIn("mpe-jackd", result.stdout)
-
-    def test_skip_is_distinguishable_from_restart(self) -> None:
-        """restart-audio-graph.sh logged "restarted" on the skip path, which is
-        the one path an operator reads while debugging a degraded appliance."""
-        with tempfile.TemporaryDirectory() as tmp:
-            env = _bash_env(tmp, MPE_AUDIO_ENGINE="jack")
-            Path(tmp, "surge.state").write_text("active=alsa\n", encoding="utf-8")
-            body = f"""
-source {AUDIO_ENGINE_SH}
-mpe_systemctl() {{ return 0; }}
-export -f mpe_systemctl
-mpe_restart_audio_graph
-printf 'action=%s\\n' "$MPE_AUDIO_GRAPH_ACTION"
-"""
-            result = _run_bash_script(body, env=env)
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertIn("action=skipped", result.stdout)
+    def test_jackd_engine_condition_script_removed(self) -> None:
+        self.assertFalse((REPO_ROOT / "scripts" / "jackd-engine-condition.sh").exists())
 
     def test_graph_restart_resets_failed_state_first(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            env = _bash_env(tmp, MPE_AUDIO_ENGINE="jack")
+            env = _bash_env(tmp)
             body = f"""
 source {AUDIO_ENGINE_SH}
 mpe_systemctl() {{ printf '%s\\n' "$*" >> "{tmp}/systemctl.log"; return 0; }}
@@ -319,6 +295,16 @@ cat "{tmp}/systemctl.log"
             self.assertEqual(lines[0], "count=0")
             self.assertEqual(lines[1], "reset-failed mpe-jackd.service")
             self.assertEqual(lines[2], "restart --no-block mpe-jackd.service")
+
+    def test_audio_graph_unit_is_always_jackd(self) -> None:
+        """Single engine: mpe_audio_graph_unit no longer branches on anything."""
+        body = f"""
+source {AUDIO_ENGINE_SH}
+mpe_audio_graph_unit
+"""
+        result = _run_bash_script(body, env=_bash_env())
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "mpe-jackd.service")
 
 
 class StateFileLifecycleTests(unittest.TestCase):
@@ -340,8 +326,8 @@ printf '%s' "$(mpe_engine_reconcile_count)"
             env = _bash_env(tmp)
             body = f"""
 source {AUDIO_ENGINE_SH}
-mpe_engine_state_write jack alsa degraded no-server guarded
-grep -q '^state=degraded$' "$(mpe_engine_state_file)"
+mpe_engine_state_write jack none recovering no-server guarded
+grep -q '^state=recovering$' "$(mpe_engine_state_file)"
 grep -q '^looper=guarded$' "$(mpe_engine_state_file)"
 """
             result = _run_bash_script(body, env=env)
@@ -434,88 +420,114 @@ echo ok
         self.assertEqual(result.stdout.strip(), "ok")
 
 
-class AlsafallbackJackdStopTests(unittest.TestCase):
-    """Finding 7 — stop jackd before ALSA tier selection when jackd holds the device."""
+class NoAlsaPathTests(unittest.TestCase):
+    """ALSA is not a reachable audio engine anywhere in the codebase (2026-08-12)."""
 
-    def test_release_stops_jackd_nonblocking_then_polls(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            env = _bash_env(tmp, MPE_AUDIO_ENGINE="jack")
-            body = f"""
+    def test_start_surge_cli_has_no_alsa_branch(self) -> None:
+        text = START_SURGE_CLI_SH.read_text(encoding="utf-8")
+        for token in (
+            "select_alsa_device",
+            "ALSA_FAIL_REASON",
+            "ENGINE-FALLBACK",
+            "MPE_AUDIO_ENGINE",
+            "mpe_release_audio_device_for_alsa",
+            "--buffer-size=",
+        ):
+            self.assertNotIn(token, text, f"start-surge-cli.sh still references {token!r}")
+
+    def test_audio_engine_lib_has_no_engine_selection(self) -> None:
+        text = AUDIO_ENGINE_SH.read_text(encoding="utf-8")
+        # ${MPE_AUDIO_ENGINE (a read) is banned; the bare name may still appear
+        # in comments documenting that it was retired — that is not a reader.
+        self.assertNotIn("${MPE_AUDIO_ENGINE", text, "audio-engine.sh still reads $MPE_AUDIO_ENGINE")
+        for token in (
+            "mpe_audio_engine()",
+            "mpe_engine_is_jack()",
+            "mpe_release_audio_device_for_alsa",
+            "mpe_surge_active_engine",
+            "mpe_jackd_unit_masked",
+            "mpe_jackd_unit_seeking_start",
+            "MPE_AUDIO_GRAPH_ACTION",
+        ):
+            self.assertNotIn(token, text, f"audio-engine.sh still references {token!r}")
+
+    def test_surge_watchdog_has_no_alsa_reconcile_arm(self) -> None:
+        text = SURGE_WATCHDOG_SH.read_text(encoding="utf-8")
+        for token in ("active=alsa", "mpe_surge_active_engine", "release-alsa-for-jackd", "degraded"):
+            self.assertNotIn(token, text, f"surge-watchdog.sh still references {token!r}")
+
+    def test_engine_guard_offers_no_engine_switch(self) -> None:
+        text = ENGINE_GUARD_SH.read_text(encoding="utf-8")
+        self.assertNotIn("MPE_AUDIO_ENGINE", text)
+        self.assertNotIn("engine set alsa", text)
+
+    def test_set_surge_audio_has_no_engine_branch(self) -> None:
+        """Regression: this caller still invoked the deleted mpe_audio_engine()
+        after the library removed it — a real bug caught by this sweep, not a
+        hypothetical. It must unconditionally take the graph-restart path."""
+        text = SET_SURGE_AUDIO_SH.read_text(encoding="utf-8")
+        self.assertNotIn("mpe_audio_engine", text)
+        self.assertIn("mpe_restart_audio_graph", text)
+        self.assertNotIn("systemctl restart surge-xt-cli.service", text)
+
+    def test_set_surge_audio_is_valid_bash(self) -> None:
+        result = subprocess.run(
+            ["bash", "-n", str(SET_SURGE_AUDIO_SH)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+
+class StartSurgeCliFailureTests(unittest.TestCase):
+    """Jack-mode failure exits non-zero and touches no ALSA path (spec D3 amended)."""
+
+    def _run_start_surge_cli(self, *, env: dict[str, str], stubs: str) -> subprocess.CompletedProcess[str]:
+        # start-surge-cli.sh is a script, not a sourceable library, and needs a
+        # real SURGE_CLI binary + USER_DEFAULTS setup to run end-to-end. This
+        # exercises the exact state-publishing sequence its failure branch
+        # runs (spec D3 hard failure), matching the real script line-for-line;
+        # NoAlsaPathTests statically confirms the real script has no other branch.
+        body = f"""
+LOG_FILE="{env.get('MPE_RUN_DIR', '/tmp')}/surge-cli.log"
+{stubs}
 source {AUDIO_ENGINE_SH}
-_calls=""
-_jackd_gone=0
-pgrep() {{
-    if [ "$2" = jackd ]; then
-        [ "$_jackd_gone" = 1 ] && return 1
-        return 0
-    fi
-    return 1
-}}
-export -f pgrep
-mpe_systemctl() {{
-    _calls="$_calls $*"
-    case "$*" in
-        *stop* ) _jackd_gone=1 ;;
-    esac
-    return 0
-}}
-export -f mpe_systemctl
-mpe_release_audio_device_for_alsa || exit 9
-printf '%s' "$_calls"
+mpe_wait_for_jack_server() {{ return 1; }}
+JACK_READY_TIMEOUT="$(mpe_jack_ready_timeout)"
+ENGINE_REASON="no-server"
+ENGINE_STATE=failed
+mpe_engine_state_write "$MPE_ENGINE_NAME" none failed "$ENGINE_REASON" "$(mpe_looper_state_label)"
+mpe_surge_state_write none ""
+exit 1
 """
-            result = _run_bash_script(body, env=env)
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertIn("stop --no-block mpe-jackd.service", result.stdout)
+        return _run_bash_script(body, env=env)
 
-    def test_start_surge_cli_release_before_alsa_select(self) -> None:
-        """Finding 7 — production chokepoint must call release before select_alsa_device."""
-        text = (REPO_ROOT / "scripts" / "start-surge-cli.sh").read_text(encoding="utf-8")
-        release_pos = text.find("mpe_release_audio_device_for_alsa")
-        select_pos = text.find("if select_alsa_device; then")
-        self.assertGreater(release_pos, 0, "missing mpe_release_audio_device_for_alsa")
-        self.assertGreater(select_pos, release_pos, "release must precede select_alsa_device")
-
-    def test_fallback_junction_stops_jackd_before_device_select(self) -> None:
+    def test_jack_failure_exits_nonzero_and_publishes_failed(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            env = _bash_env(tmp, MPE_AUDIO_ENGINE="jack")
-            body = f"""
-source {AUDIO_ENGINE_SH}
-_select_called=0
-pgrep() {{ [ "$2" = jackd ] && return 0; return 1; }}
-export -f pgrep
-mpe_systemctl() {{ return 0; }}
-export -f mpe_systemctl
-mpe_jack_server_running() {{ pgrep -x jackd >/dev/null 2>&1; }}
-mpe_release_audio_device_for_alsa() {{
-    mpe_systemctl stop --no-block mpe-jackd.service
-    pgrep() {{ return 1; }}
-    export -f pgrep
-    return 0
-}}
-select_alsa_device() {{ _select_called=1; return 0; }}
-engine_log() {{ :; }}
-AUDIO_ENGINE=jack
-ACTIVE_ENGINE=""
-FALLBACK_ACTION=""
-if [ -z "$ACTIVE_ENGINE" ]; then
-    if [ "$AUDIO_ENGINE" = jack ] && mpe_jack_server_running; then
-        if mpe_release_audio_device_for_alsa; then
-            FALLBACK_ACTION="stopped-jackd"
-        else
-            FALLBACK_ACTION="jackd-still-running"
-        fi
-    fi
-    select_alsa_device
-fi
-printf 'select=%s action=%s' "$_select_called" "$FALLBACK_ACTION"
-"""
-            result = _run_bash_script(body, env=env)
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(result.stdout.strip(), "select=1 action=stopped-jackd")
+            env = _bash_env(tmp)
+            result = self._run_start_surge_cli(env=env, stubs="")
+            self.assertEqual(result.returncode, 1)
+            state = Path(tmp, "engine.state").read_text(encoding="utf-8")
+            self.assertIn("engine=jack", state)
+            self.assertIn("active=none", state)
+            self.assertIn("state=failed", state)
+
+    def test_jack_failure_never_calls_alsa_detection(self) -> None:
+        """Static guarantee: no code path in the script can reach ALSA device
+        selection, because select_alsa_device (and the branch that called it)
+        do not exist post-amendment — see NoAlsaPathTests. detect-audio-device.sh
+        is a separate, still-legitimate tiering script used by jackd's own
+        device pick (detect-jack-device.sh) and calibration; start-surge-cli.sh
+        may mention it in a comment but must never invoke it directly."""
+        text = START_SURGE_CLI_SH.read_text(encoding="utf-8")
+        self.assertNotIn("detect-audio-device.sh\"", text)
 
 
 class WatchdogReconcileArmTests(unittest.TestCase):
-    """B3 — reconcile arms via surge-watchdog.sh _reconcile_engine (finding 8)."""
+    """B3 — reconcile arms via surge-watchdog.sh _reconcile_engine (finding 8).
+    Single-engine: on graph -> ok; ready but off graph -> promote; not ready ->
+    wait out the budget then treat jackd as down and restart Surge."""
 
     def _run_reconcile(self, *, env: dict[str, str], stubs: str) -> subprocess.CompletedProcess[str]:
         body = f"""
@@ -526,55 +538,9 @@ printf '%s:%s' "$(mpe_engine_state_get state)" "$(mpe_engine_state_get active)"
 """
         return _run_bash_script(body, env=env)
 
-    def test_alsa_engine_ignores_jackd(self) -> None:
-        body = f"""
-source {SURGE_WATCHDOG_SH}
-export MPE_AUDIO_ENGINE=alsa
-if mpe_engine_is_jack; then exit 9; fi
-echo ignored
-"""
-        result = _run_bash_script(body, env=_bash_env())
-        self.assertEqual(result.stdout.strip(), "ignored")
-
-    def test_server_down_surge_on_alsa_publishes_degraded_no_restart(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            env = _bash_env(tmp, MPE_AUDIO_ENGINE="jack")
-            Path(tmp, "surge.state").write_text("active=alsa\n", encoding="utf-8")
-            stubs = """
-pgrep() { return 1; }
-export -f pgrep
-mpe_jack_server_ready() { return 1; }
-mpe_surge_on_jack_graph() { return 1; }
-mpe_jackd_unit_seeking_start() { return 1; }
-mpe_jackd_unit_masked() { return 1; }
-_supervisor_restart_surge() { echo RESTART >&2; return 0; }
-export -f _supervisor_restart_surge
-"""
-            env["PATH"] = "/usr/bin:/bin"
-            result = self._run_reconcile(env=env, stubs=stubs)
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(result.stdout.strip(), "degraded:alsa")
-            self.assertNotIn("RESTART", result.stderr)
-
-    def test_surge_on_alsa_jackd_seeking_restarts_surge(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            env = _bash_env(tmp, MPE_AUDIO_ENGINE="jack")
-            Path(tmp, "surge.state").write_text("active=alsa\n", encoding="utf-8")
-            stubs = """
-mpe_jack_server_ready() { return 1; }
-mpe_surge_on_jack_graph() { return 1; }
-mpe_jackd_unit_seeking_start() { return 0; }
-mpe_jackd_unit_masked() { return 1; }
-_supervisor_restart_surge() { echo RESTART:release >&2; return 0; }
-export -f _supervisor_restart_surge
-"""
-            result = self._run_reconcile(env=env, stubs=stubs)
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertIn("RESTART:release", result.stderr)
-
     def test_surge_on_jack_graph_means_ok(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            env = _bash_env(tmp, MPE_AUDIO_ENGINE="jack")
+            env = _bash_env(tmp)
             stubs = """
 mpe_surge_on_jack_graph() { return 0; }
 """
@@ -582,13 +548,40 @@ mpe_surge_on_jack_graph() { return 0; }
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(result.stdout.strip(), "ok:jack")
 
+    def test_jackd_never_ready_restarts_surge_as_jackd_down(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            env = _bash_env(tmp)
+            env["MPE_RECONCILE_BUDGET_SEC"] = "0"
+            stubs = """
+mpe_surge_on_jack_graph() { return 1; }
+mpe_jack_server_ready() { return 1; }
+_supervisor_restart_surge() { echo "RESTART:$1" >&2; return 0; }
+export -f _supervisor_restart_surge
+"""
+            result = self._run_reconcile(env=env, stubs=stubs)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("RESTART:jackd-down", result.stderr)
+
+    def test_jack_ready_but_surge_off_graph_promotes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            env = _bash_env(tmp)
+            stubs = """
+mpe_surge_on_jack_graph() { return 1; }
+mpe_jack_server_ready() { return 0; }
+_supervisor_restart_surge() { echo "RESTART:$1" >&2; return 0; }
+export -f _supervisor_restart_surge
+"""
+            result = self._run_reconcile(env=env, stubs=stubs)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("RESTART:promote-to-jack", result.stderr)
+
     def test_reconcile_survives_unwritable_state_publish(self) -> None:
         """State publish failure must not abort the supervisor reconcile path."""
         with tempfile.TemporaryDirectory() as tmp:
             ro_dir = Path(tmp) / "readonly"
             ro_dir.mkdir()
             ro_dir.chmod(0o555)
-            env = _bash_env(tmp, MPE_AUDIO_ENGINE="jack")
+            env = _bash_env(tmp)
             env["MPE_ENGINE_STATE_FILE"] = str(ro_dir / "engine.state")
             body = f"""
 source {SURGE_WATCHDOG_SH}
@@ -609,10 +602,9 @@ printf 'SURVIVED'
 class EngineGuardShellTests(unittest.TestCase):
     """Guard exit-code split — engine-guard.sh + audio_engine.py parity."""
 
-    def test_guard_refuses_interactively_under_jack(self) -> None:
+    def test_guard_refuses_interactively_when_looper_enabled(self) -> None:
         body = f"""
 source {ENGINE_GUARD_SH}
-export MPE_AUDIO_ENGINE=jack
 export MPE_LOOPER_ENABLED=1
 if mpe_guard_looper_engine test; then exit 9; fi
 echo refused
@@ -622,11 +614,10 @@ echo refused
         self.assertIn("LOOPER-GUARDED", result.stderr)
         self.assertEqual(result.stdout.strip(), "refused")
 
-    def test_guard_allows_alsa(self) -> None:
+    def test_guard_allows_when_looper_disabled(self) -> None:
         body = f"""
 source {ENGINE_GUARD_SH}
-export MPE_AUDIO_ENGINE=alsa
-export MPE_LOOPER_ENABLED=1
+export MPE_LOOPER_ENABLED=0
 mpe_guard_looper_engine test
 echo allowed
 """
@@ -635,7 +626,7 @@ echo allowed
         self.assertEqual(result.stdout.strip(), "allowed")
 
     def test_python_guard_matches_shell_policy(self) -> None:
-        blocked = looper_guard_blocked(engine="jack", looper_enabled="1")
+        blocked = looper_guard_blocked(looper_enabled="1")
         self.assertTrue(blocked)
         self.assertEqual(looper_guard_exit_code(looper_service=True), 0)
         self.assertEqual(looper_guard_exit_code(looper_service=False), 1)
@@ -659,7 +650,7 @@ class EngineHudReaderTests(unittest.TestCase):
 
     def test_partial_file_tolerated(self) -> None:
         with tempfile.NamedTemporaryFile("w", delete=False, suffix=".state") as fh:
-            fh.write("engine=jack\nstate=deg")
+            fh.write("engine=jack\nstate=rec")
             path = Path(fh.name)
         try:
             state = read_engine_state(path)
@@ -675,9 +666,19 @@ class EngineHudReaderTests(unittest.TestCase):
         self.assertIn("JACK", label)
         self.assertIn("L⛔", label)
 
-    def test_degraded_shows_in_label(self) -> None:
-        state = {"active": "alsa", "state": "degraded"}
-        self.assertEqual(engine_hud_label(state), "ALSA·deg")
+    def test_recovering_shows_in_label(self) -> None:
+        state = {"active": "jack", "state": "recovering"}
+        self.assertEqual(engine_hud_label(state), "JACK·rec")
+
+    def test_degraded_no_longer_a_valid_state(self) -> None:
+        """degraded is retired — a state file carrying it (e.g. from a pre-upgrade
+        appliance) must not be treated as a recognised status in the HUD label."""
+        from patch_browser.audio_engine import VALID_ENGINE_STATES
+
+        self.assertNotIn("degraded", VALID_ENGINE_STATES)
+        state = {"active": "jack", "state": "degraded"}
+        # status not recognised -> no status suffix appended, just the engine name
+        self.assertEqual(engine_hud_label(state), "JACK")
 
     def test_default_engine_state_path(self) -> None:
         self.assertEqual(ENGINE_STATE_FILE, Path("/run/mpe/engine.state"))
