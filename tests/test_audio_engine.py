@@ -34,6 +34,8 @@ AUDIO_ENGINE_SH = REPO_ROOT / "scripts" / "lib" / "audio-engine.sh"
 ENGINE_GUARD_SH = REPO_ROOT / "scripts" / "lib" / "engine-guard.sh"
 SURGE_WATCHDOG_SH = REPO_ROOT / "scripts" / "surge-watchdog.sh"
 START_SURGE_CLI_SH = REPO_ROOT / "scripts" / "start-surge-cli.sh"
+RESTART_AUDIO_GRAPH_SH = REPO_ROOT / "scripts" / "restart-audio-graph.sh"
+START_JACKD_SH = REPO_ROOT / "scripts" / "start-jackd.sh"
 SET_SURGE_AUDIO_SH = REPO_ROOT / "scripts" / "set-surge-audio.sh"
 SURGE_SERVICE = REPO_ROOT / "config" / "surge-xt-cli.service"
 WATCHDOG_SERVICE = REPO_ROOT / "config" / "surge-watchdog.service"
@@ -494,11 +496,8 @@ LOG_FILE="{env.get('MPE_RUN_DIR', '/tmp')}/surge-cli.log"
 {stubs}
 source {AUDIO_ENGINE_SH}
 mpe_wait_for_jack_server() {{ return 1; }}
-JACK_READY_TIMEOUT="$(mpe_jack_ready_timeout)"
 ENGINE_REASON="no-server"
-ENGINE_STATE=failed
-mpe_engine_state_write "$MPE_ENGINE_NAME" none failed "$ENGINE_REASON" "$(mpe_looper_state_label)"
-mpe_surge_state_write none ""
+mpe_publish_jack_engine_failure "$ENGINE_REASON"
 exit 1
 """
         return _run_bash_script(body, env=env)
@@ -698,6 +697,80 @@ case "$dir" in */mpe) echo fallback ;; *) exit 9 ;; esac
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.strip(), "fallback")
         self.assertIn("WARNING", result.stderr)
+
+
+class GraphRestartSkipTests(unittest.TestCase):
+    def test_skip_loopback_card(self) -> None:
+        body = f"""
+source {AUDIO_ENGINE_SH}
+mpe_should_skip_graph_restart_for_card Loopback && echo skip || echo restart
+"""
+        result = _run_bash_script(body, env=_bash_env())
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "skip")
+
+    def test_external_dac_not_skipped(self) -> None:
+        body = f"""
+source {AUDIO_ENGINE_SH}
+mpe_should_skip_graph_restart_for_card Play3 && echo skip || echo restart
+"""
+        result = _run_bash_script(body, env=_bash_env())
+        self.assertEqual(result.stdout.strip(), "restart")
+
+    def test_restart_script_filters_skip_cards(self) -> None:
+        text = RESTART_AUDIO_GRAPH_SH.read_text(encoding="utf-8")
+        self.assertIn("mpe_should_skip_graph_restart_for_card", text)
+        self.assertIn("skipped", text)
+
+
+class JackEngineFailurePublishTests(unittest.TestCase):
+    def test_publish_writes_failed_state(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            env = _bash_env(tmp)
+            body = f"""
+source {AUDIO_ENGINE_SH}
+mpe_publish_jack_engine_failure no-server
+"""
+            result = _run_bash_script(body, env=env)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            state = Path(tmp, "engine.state").read_text(encoding="utf-8")
+            self.assertIn("state=failed", state)
+            self.assertIn("reason=no-server", state)
+            self.assertIn("active=none", state)
+
+
+class JackEnvValidatorTests(unittest.TestCase):
+    def test_jack_period_defaults(self) -> None:
+        body = f"""
+source {AUDIO_ENGINE_SH}
+printf '%s' "$(mpe_jack_period)"
+"""
+        result = _run_bash_script(body, env=_bash_env())
+        self.assertEqual(result.stdout.strip(), "256")
+
+    def test_invalid_jack_period_falls_back(self) -> None:
+        body = f"""
+source {AUDIO_ENGINE_SH}
+printf '%s' "$(mpe_jack_period)"
+"""
+        result = _run_bash_script(body, env=_bash_env(MPE_JACK_BUFFER="9999"))
+        self.assertEqual(result.stdout.strip(), "256")
+        self.assertIn("WARNING", result.stderr)
+
+    def test_jack_periods_allowlist(self) -> None:
+        body = f"""
+source {AUDIO_ENGINE_SH}
+printf '%s' "$(mpe_jack_periods)"
+"""
+        result = _run_bash_script(body, env=_bash_env(MPE_JACK_PERIODS="4"))
+        self.assertEqual(result.stdout.strip(), "4")
+
+
+class StartJackdPlaybackOnlyTests(unittest.TestCase):
+    def test_alsa_backend_opens_playback_only(self) -> None:
+        text = START_JACKD_SH.read_text(encoding="utf-8")
+        self.assertIn('-d alsa -P "$HW_DEV"', text)
+        self.assertNotIn('-d alsa -d "$HW_DEV"', text)
 
 
 if __name__ == "__main__":
