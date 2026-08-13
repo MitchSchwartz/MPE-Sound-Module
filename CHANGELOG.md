@@ -27,8 +27,8 @@ returned.
 
 Branch `yolo/jack-drop-alsa-fallback`, based on `dev` @ `daac891` (PR #49
 merged). Spec: `Documents/specs/jack-audio-engine-spec.md` §Amendment
-2026-08-13. **REQUIRES PI SOAK BEFORE MERGE** — not yet run; see spec §Gate C
-soak for the required scenario list.
+2026-08-13. **Pi soak complete 2026-08-13** — all five Gate C scenarios PASS on
+`yolo/jack-drop-alsa-fallback` (see spec §Gate C soak).
 
 Supersedes the narrower "remove the automatic ALSA fallback, keep
 `MPE_AUDIO_ENGINE=alsa` as an explicit option" instruction — JACK is now the
