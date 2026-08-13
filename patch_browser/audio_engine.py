@@ -1,46 +1,41 @@
-"""Audio engine selection, watchdog cooldown, looper guard, and HUD state reader."""
+"""Audio engine constants, watchdog cooldown, looper guard, and HUD state reader.
+
+JACK is the only audio engine (spec D3, amended 2026-08-13 — ALSA removed
+entirely as a product audio path, not just its automatic fallback). There is
+no ``MPE_AUDIO_ENGINE`` to resolve and nothing to switch between.
+"""
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 from typing import Literal
 
 ReconcileAction = Literal["proceed", "skip_cooldown", "skip_jackd_settling", "escalate_failed"]
 
 LOOPER_GUARD_MESSAGE = (
-    "looper requires MPE_AUDIO_ENGINE=alsa until the JACK callback client ships (spec Phase 2)."
+    "looper is unavailable until the JACK callback client ships (spec Phase 2)"
+    " — there is no ALSA route to run it through."
 )
 
-DEFAULT_ENGINE = "jack"
-VALID_ENGINES = frozenset({"jack", "alsa"})
-VALID_ENGINE_STATES = frozenset({"ok", "degraded", "recovering", "failed"})
+ENGINE_NAME = "jack"
+VALID_ENGINE_STATES = frozenset({"ok", "recovering", "failed"})
 VALID_LOOPER_LABELS = frozenset({"guarded", "enabled", "off"})
 
 ENGINE_STATE_FILE = Path("/run/mpe/engine.state")
 ENGINE_STATE_MAX_BYTES = 4096
 
 COOLDOWN_SEC = 90
-JACKD_SETTLE_SEC = 15
+# 15s was sized for an ALSA-contention hazard (Surge holding the tier device on
+# the fallback path) that no longer exists — ALSA is not a reachable engine at
+# all now. jackd is typically ready in ~6s on the Sound Blaster Play! 3; 5s
+# clears that plus the watchdog's 5s poll cycle without the old margin.
+JACKD_SETTLE_SEC = 5
 MAX_SUPERVISOR_RESTARTS = 3
 
 
-def resolve_audio_engine(value: str | None = None) -> str:
-    """Return configured engine; default ``jack`` when unset (Gate A)."""
-    raw = (value if value is not None else os.environ.get("MPE_AUDIO_ENGINE", "")).strip().lower()
-    if not raw:
-        return DEFAULT_ENGINE
-    if raw in VALID_ENGINES:
-        return raw
-    return DEFAULT_ENGINE
-
-
-def looper_guard_blocked(
-    *,
-    engine: str | None = None,
-    looper_enabled: str | int | None = None,
-) -> bool:
-    return resolve_audio_engine(engine) == "jack" and str(looper_enabled or "0").strip() == "1"
+def looper_guard_blocked(*, looper_enabled: str | int | None = None) -> bool:
+    """True whenever the looper is asked for — JACK cannot run it until Phase 2."""
+    return str(looper_enabled or "0").strip() == "1"
 
 
 def looper_guard_exit_code(
@@ -119,7 +114,7 @@ def engine_hud_label(state: dict[str, str] | None) -> str:
     active = state.get("active") or state.get("engine") or "?"
     status = state.get("state") or "?"
     parts: list[str] = []
-    if active in VALID_ENGINES:
+    if active == ENGINE_NAME:
         parts.append(active.upper())
     else:
         parts.append(str(active)[:4].upper())
@@ -131,13 +126,13 @@ def engine_hud_label(state: dict[str, str] | None) -> str:
 
 
 def engine_hud_semantic(state: dict[str, str] | None) -> str:
-    """Theme token: accent for degraded/recovering, danger for failed."""
+    """Theme token: accent for recovering, danger for failed."""
     if not state:
         return "muted"
     status = state.get("state")
     if status == "failed":
         return "danger"
-    if status in {"degraded", "recovering"}:
+    if status == "recovering":
         return "accent"
     if state.get("looper") == "guarded":
         return "accent"

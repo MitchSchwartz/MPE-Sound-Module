@@ -21,8 +21,8 @@ ACTION=="add|remove", SUBSYSTEM=="sound", KERNEL=="card[0-9]*", ATTR{id}=="UAC2"
 ACTION=="add|remove", SUBSYSTEM=="sound", KERNEL=="card[0-9]*", ATTR{id}=="Loopback", GOTO="mpe_usb_audio_end"
 
 # Restart audio graph when external USB audio devices connect/disconnect.
-# restart-audio-graph.sh reads MPE_AUDIO_ENGINE and restarts jackd or Surge
-# accordingly (spec D2, criterion 15). --no-block is inside the script.
+# restart-audio-graph.sh restarts mpe-jackd.service — the only audio engine
+# (spec D2, criterion 15). --no-block is inside the script.
 ACTION=="add", SUBSYSTEM=="sound", KERNEL=="card[0-9]*", RUN+="@MPE_MODULE_REPO@/scripts/restart-audio-graph.sh"
 ACTION=="remove", SUBSYSTEM=="sound", KERNEL=="card[0-9]*", RUN+="@MPE_MODULE_REPO@/scripts/restart-audio-graph.sh"
 
