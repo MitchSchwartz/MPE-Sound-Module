@@ -282,9 +282,62 @@ class TouchBrowserPrefsMixin:
         else:
             self._toast("Dynamic voice limit off", 1.8)
 
+    def _refresh_audio_switch_progress(self) -> None:
+        """Update overlay hint + toast while buffer/rate/profile switches run."""
+        monitor = getattr(self, "engine_monitor", None)
+        if monitor is None:
+            return
+        from patch_browser.audio_engine import (
+            audio_switch_progress_message,
+            read_jack_state,
+            read_reconcile_state,
+        )
+
+        hint, toast, toast_sec = audio_switch_progress_message(
+            monitor.snapshot(),
+            read_reconcile_state(),
+            jack=read_jack_state(),
+        )
+        if hint:
+            self._audio_switch_progress_hint = hint
+            if getattr(self, "_surge_audio_switching", False):
+                self._surge_audio_switch_hint = hint
+        if toast:
+            now = time.monotonic()
+            if now - getattr(self, "_last_audio_switch_toast_at", 0.0) >= 2.0:
+                self._toast(toast, toast_sec)
+                self._last_audio_switch_toast_at = now
+
+    def _poll_engine_recovery_toast(self) -> None:
+        """Surface unplanned recovery / cooldown while the user is not in a settings overlay."""
+        if getattr(self, "_surge_audio_switching", False) or getattr(
+            self, "_audio_profile_switching", False
+        ):
+            return
+        monitor = getattr(self, "engine_monitor", None)
+        if monitor is None:
+            return
+        snap = monitor.snapshot()
+        if snap.get("state") not in {"recovering", "failed"}:
+            return
+        from patch_browser.audio_engine import audio_switch_progress_message, read_jack_state, read_reconcile_state
+
+        _, toast, toast_sec = audio_switch_progress_message(
+            snap,
+            read_reconcile_state(),
+            jack=read_jack_state(),
+        )
+        if not toast:
+            return
+        now = time.monotonic()
+        if now - getattr(self, "_last_audio_switch_toast_at", 0.0) >= 2.0:
+            self._toast(toast, toast_sec)
+            self._last_audio_switch_toast_at = now
+
     def _finish_audio_profile_switch(self, ok: bool, message: str) -> None:
         self._audio_profile_switching = False
         self._audio_profile_switch_target = None
+        self._audio_switch_progress_hint = ""
         if ok:
             self._toast(message, 3.0)
             patch = self.loaded_patch_info or self._pending_last_patch
@@ -310,6 +363,7 @@ class TouchBrowserPrefsMixin:
         except queue.Empty:
             from patch_browser.audio_profile import PROFILE_SWITCH_TIMEOUT_S
 
+            self._refresh_audio_switch_progress()
             elapsed = time.monotonic() - self._audio_profile_switch_started
             if elapsed > PROFILE_SWITCH_TIMEOUT_S + 5.0:
                 self._finish_audio_profile_switch(
@@ -340,8 +394,10 @@ class TouchBrowserPrefsMixin:
         self._audio_profile_switching = True
         self._audio_profile_switch_target = profile
         self._audio_profile_switch_started = time.monotonic()
+        self._audio_switch_progress_hint = ""
+        self._last_audio_switch_toast_at = 0.0
         label = profile_option_label(profile)
-        self._toast(f"Switching to {label}…", 1.5)
+        self._toast(f"Switching to {label}…", 2.0)
 
         def _worker() -> None:
             ok, message = apply_profile(profile)
@@ -356,6 +412,7 @@ class TouchBrowserPrefsMixin:
     def _finish_surge_audio_switch(self, ok: bool, message: str) -> None:
         self._surge_audio_switching = False
         self._surge_audio_switch_hint = ""
+        self._audio_switch_progress_hint = ""
         if ok:
             self._toast(message, 3.0)
             patch = self.loaded_patch_info or self._pending_last_patch
@@ -379,6 +436,7 @@ class TouchBrowserPrefsMixin:
         except queue.Empty:
             from patch_browser.surge_audio import AUDIO_SWITCH_TIMEOUT_S
 
+            self._refresh_audio_switch_progress()
             elapsed = time.monotonic() - self._surge_audio_switch_started
             if elapsed > AUDIO_SWITCH_TIMEOUT_S + 5.0:
                 self._finish_surge_audio_switch(
@@ -401,7 +459,9 @@ class TouchBrowserPrefsMixin:
         self._surge_audio_switching = True
         self._surge_audio_switch_hint = hint
         self._surge_audio_switch_started = time.monotonic()
-        self._toast(hint, 1.5)
+        self._audio_switch_progress_hint = hint
+        self._last_audio_switch_toast_at = 0.0
+        self._toast(hint, 2.0)
 
         def _worker_wrapper() -> None:
             ok, message = worker()

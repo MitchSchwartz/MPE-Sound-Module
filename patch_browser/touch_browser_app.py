@@ -223,6 +223,8 @@ class TouchPatchBrowser(
         self._surge_audio_switch_hint = ""
         self._surge_audio_switch_started = 0.0
         self._surge_audio_result_queue: queue.SimpleQueue[tuple[bool, str]] = queue.SimpleQueue()
+        self._audio_switch_progress_hint = ""
+        self._last_audio_switch_toast_at = 0.0
         self._midi_sync_switching = False
         self._midi_sync_switch_started = 0.0
         self._midi_sync_result_queue: queue.SimpleQueue[tuple[bool, str]] = queue.SimpleQueue()
@@ -374,6 +376,7 @@ class TouchPatchBrowser(
             self._drain_evdev_touch_queue()
             self._poll_audio_profile_switch()
             self._poll_surge_audio_switch()
+            self._poll_engine_recovery_toast()
             self._poll_midi_sync_switch()
             self._poll_wifi_work()
             self._handle_screen_recorder_signals()
