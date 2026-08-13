@@ -479,6 +479,8 @@ echo ok
 source {AUDIO_ENGINE_SH}
 id() {{ case "$1" in -u) echo 0 ;; -un) echo root ;; *) command id "$@" ;; esac; }}
 export -f id
+timeout() {{ shift; "$@"; }}
+export -f timeout
 sudo() {{ printf '%s\\n' "$*" >> "{log}"; :; }}
 export -f sudo
 export SUDO_USER=mitch
