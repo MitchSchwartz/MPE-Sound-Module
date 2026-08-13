@@ -64,6 +64,10 @@ _reconcile_engine() {
 
     looper_label="$(mpe_looper_state_label)"
 
+    if mpe_planned_promote_flag_set; then
+        return 0
+    fi
+
     if mpe_surge_on_jack_graph; then
         mpe_engine_state_write "$MPE_ENGINE_NAME" jack ok "" "$looper_label"
         mpe_engine_reconcile_reset
