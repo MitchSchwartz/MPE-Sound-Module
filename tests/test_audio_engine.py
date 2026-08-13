@@ -465,6 +465,33 @@ echo ok
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.strip(), "ok")
 
+    def test_jack_lsp_runs_as_graph_owner_when_root(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "sudo.log"
+            bin_dir = Path(tmp) / "bin"
+            bin_dir.mkdir()
+            jack_stub = bin_dir / "jack_lsp"
+            jack_stub.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            jack_stub.chmod(jack_stub.stat().st_mode | stat.S_IXUSR)
+            env = _bash_env()
+            env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+            body = f"""
+source {AUDIO_ENGINE_SH}
+id() {{ case "$1" in -u) echo 0 ;; -un) echo root ;; *) command id "$@" ;; esac; }}
+export -f id
+timeout() {{ shift; "$@"; }}
+export -f timeout
+sudo() {{ printf '%s\\n' "$*" >> "{log}"; :; }}
+export -f sudo
+export SUDO_USER=mitch
+export MPE_PI_USER=mitch
+mpe_jack_lsp >/dev/null 2>&1 || true
+cat "{log}"
+"""
+            result = _run_bash_script(body, env=env)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("-u mitch", result.stdout)
+
 
 class NoAlsaPathTests(unittest.TestCase):
     """ALSA is not a reachable audio engine anywhere in the codebase (2026-08-12)."""
