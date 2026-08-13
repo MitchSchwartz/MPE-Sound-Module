@@ -41,4 +41,4 @@ case "$current_state" in
 esac
 
 exec jackd -R -P"$JACK_PRIO" -s \
-    -d alsa -d "$HW_DEV" -r "$JACK_RATE" -p "$JACK_BUFFER" -n "$JACK_PERIODS"
+    -d alsa -P "$HW_DEV" -r "$JACK_RATE" -p "$JACK_BUFFER" -n "$JACK_PERIODS"

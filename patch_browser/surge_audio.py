@@ -1,4 +1,4 @@
-"""Surge ALSA buffer size and sample rate — persisted in /etc/mpe/mpe.env."""
+"""Surge audio settings — JACK graph buffer (display) and legacy Surge keys."""
 
 from __future__ import annotations
 
@@ -11,11 +11,13 @@ MPE_ENV_PATH = Path("/etc/mpe/mpe.env")
 SET_SURGE_AUDIO_SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "set-surge-audio.sh"
 
 BUFFER_PRESETS: tuple[int, ...] = (32, 64, 128, 256, 512, 768, 1024, 2048)
+JACK_PERIODS_PRESETS: tuple[int, ...] = (2, 3, 4)
 SAMPLE_RATE_PRESETS: tuple[int, ...] = (44100, 48000)
 
-# Must stay in sync with the fallback in scripts/start-surge-cli.sh.
-# 768 drops voices under heavy MPE polyphony on Pi 4; 512 choked outright.
+# Legacy Surge key — still read by calibration and MIDI offset auto-derivation.
 DEFAULT_BUFFER = 1024
+DEFAULT_JACK_PERIOD = 256
+DEFAULT_JACK_PERIODS = 3
 DEFAULT_SAMPLE_RATE = 48000
 
 AUDIO_SWITCH_TIMEOUT_S = 45.0
@@ -48,10 +50,27 @@ def read_int_from_env_file(key: str, path: Path = MPE_ENV_PATH) -> int | None:
 
 
 def current_buffer_size() -> int:
+    """Legacy Surge buffer key — not the playing JACK period (see current_jack_period)."""
     return _read_env_int(
         "MPE_SURGE_BUFFER_SIZE",
         DEFAULT_BUFFER,
         valid=frozenset(BUFFER_PRESETS),
+    )
+
+
+def current_jack_period() -> int:
+    return _read_env_int(
+        "MPE_JACK_BUFFER",
+        DEFAULT_JACK_PERIOD,
+        valid=frozenset(BUFFER_PRESETS),
+    )
+
+
+def current_jack_periods() -> int:
+    return _read_env_int(
+        "MPE_JACK_PERIODS",
+        DEFAULT_JACK_PERIODS,
+        valid=frozenset(JACK_PERIODS_PRESETS),
     )
 
 
@@ -64,6 +83,7 @@ def current_sample_rate() -> int:
 
 
 def buffer_latency_ms(buffer: int | None = None, sample_rate: int | None = None) -> float:
+    """Single-period latency for a buffer size (legacy helper)."""
     buf = buffer if buffer is not None else current_buffer_size()
     rate = sample_rate if sample_rate is not None else current_sample_rate()
     if rate <= 0:
@@ -71,9 +91,34 @@ def buffer_latency_ms(buffer: int | None = None, sample_rate: int | None = None)
     return buf * 1000.0 / rate
 
 
+def graph_latency_ms(
+    period: int | None = None,
+    periods: int | None = None,
+    sample_rate: int | None = None,
+) -> float:
+    """End-to-end JACK server latency (period × periods)."""
+    jack_period = period if period is not None else current_jack_period()
+    jack_periods = periods if periods is not None else current_jack_periods()
+    rate = sample_rate if sample_rate is not None else current_sample_rate()
+    if rate <= 0:
+        return 0.0
+    return jack_period * jack_periods * 1000.0 / rate
+
+
 def buffer_option_label(buffer: int, sample_rate: int | None = None) -> str:
     ms = buffer_latency_ms(buffer, sample_rate)
     return f"{buffer} · {ms:.0f} ms"
+
+
+def graph_buffer_option_label(
+    period: int | None = None,
+    periods: int | None = None,
+    sample_rate: int | None = None,
+) -> str:
+    jack_period = period if period is not None else current_jack_period()
+    jack_periods = periods if periods is not None else current_jack_periods()
+    ms = graph_latency_ms(jack_period, jack_periods, sample_rate)
+    return f"{jack_period} × {jack_periods} · {ms:.0f} ms"
 
 
 def sample_rate_option_label(sample_rate: int) -> str:
@@ -83,7 +128,7 @@ def sample_rate_option_label(sample_rate: int) -> str:
 
 
 def buffer_settings_label() -> str:
-    return f"Audio buffer — {buffer_option_label(current_buffer_size())}"
+    return f"Audio buffer — {graph_buffer_option_label()}"
 
 
 def sample_rate_settings_label() -> str:

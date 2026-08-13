@@ -10,9 +10,8 @@ from patch_browser.geometry import Rect
 from patch_browser.scroll_widgets import draw_vertical_scroll_edge_hints
 from patch_browser.midi_sync_settings import settings_summary_lines
 from patch_browser.surge_audio import (
-    buffer_option_label,
-    current_buffer_size,
     current_sample_rate,
+    graph_buffer_option_label,
     sample_rate_option_label,
 )
 from patch_browser.touch_ui_constants import (
@@ -44,7 +43,7 @@ class TouchBrowserSettingsMixin:
     def _audio_settings_summary_lines(self) -> list[str]:
         return settings_detail_lines(
             profile_settings_label(),
-            buffer_option_label(current_buffer_size(), current_sample_rate()),
+            graph_buffer_option_label(),
             sample_rate_option_label(current_sample_rate()),
         )
 
