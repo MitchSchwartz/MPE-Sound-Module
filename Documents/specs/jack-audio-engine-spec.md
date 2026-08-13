@@ -478,6 +478,18 @@ the current design.
 | 13 touch HUD | **PASS** (partial) | Steady **JACK** badge in header; brief **JACK·rec** after keyboard connect = `state=recovering` (engine HUD). No **L⛔** — expected with `looper=off`; full guarded badge needs `MPE_LOOPER_ENABLED=1` boot test |
 | 14 calibration/session | **PASS** (cal) / **BLOCKED** (session) | `mpe engine calibrate-smoke` @ `137463b`: `--force` 1 favorite (`70s Fizzy String`) with jackd up; loopback `plughw:7,1,0`; entry written; post-cal `engine=jack state=ok`, jackd+Surge+touch active. Fixed `list_missing` stem→dict bug in cal script. `session_capture.py` still blocked (same rewire as 5b). Cal temporarily stops Surge (not jackd) — services restore via teardown |
 
+**Gate C soak — 2026-08-13 (Pi @ `fdeb1fa`, `yolo/jack-drop-alsa-fallback`):**
+
+| Test | Result | Notes |
+|------|--------|-------|
+| 2\* failure half (mask + surge restart) | **PASS** | `state=failed`, `active=none`, `reason=no-server`, silent, watchdog active (no BindsTo) |
+| 2\* promotion (unmask + start) | **PASS** | Fixed by PR #52 (`BindsTo` → `After=`). jackd up ~1s, watchdog promotes Surge; `state=ok` + Surge on graph within ~5s, stable through 60s |
+| 2b single kill @ 5s settle | **PASS** | Recovery **~21s** (vs ~39s at 15s settle) |
+| 2b2 five × kill @ 5s settle | **PASS** (earlier session) | 5/5 in ~121s, ~4s each |
+| 15 DAC replug from `state=failed` | **NOT RUN** | Needs physical DAC unplug/replug |
+| 17 stale `MPE_AUDIO_ENGINE=alsa` line | **NOT RUN** | Needs manual `/etc/mpe/mpe.env` edit |
+| D5 looper guard boot | **NOT RUN** | Needs `MPE_LOOPER_ENABLED=1` + reboot |
+
 **Backlog — faster crash/replug recovery (post–Phase 1 merge):** The 15 s
 `MPE_ENGINE_JACKD_SETTLE_S` window plus a full Surge restart makes mid-set recovery
 feel unacceptable (~20–45 s). Criterion 2b budgeted 15 s total — **missed in practice**.
