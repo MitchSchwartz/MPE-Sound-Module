@@ -60,6 +60,18 @@ Touch HUD reads `engine.state` via `patch_browser/audio_engine.py`.
 
 Full list: [`config/mpe.env.example`](../config/mpe.env.example).
 
+### `MPE_ENV_FILE` (tests only)
+
+Subprocess unit tests set `MPE_ENV_FILE` so `paths.sh` does not read `/etc/mpe/mpe.env` on a configured Pi:
+
+| Value | Behavior |
+|-------|----------|
+| unset | Appliance default — source `/etc/mpe/mpe.env` when present |
+| empty (`MPE_ENV_FILE=`) | Hermetic — skip all env files; use process environment |
+| path to file | Source that file only (temp profile for subprocess tests) |
+
+Production systemd units never set this variable.
+
 ## Pi setup — reconfigure paths
 
 When you first set up (or move) the Pi, **verify or reconfigure** where repos and Surge paths live:
