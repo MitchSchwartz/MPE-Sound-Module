@@ -487,7 +487,7 @@ the current design.
 | 2\* boot (mask → reboot → unmask) | **PASS** | Boot with jackd masked → `state=failed`, `reason=no-server`; unmask + start → auto-promote ~5s, stable 60s |
 | 2b single kill @ 5s settle | **PASS** | Recovery **~21s** (vs ~39s at 15s settle) |
 | 2b2 five × kill @ 5s settle | **PASS** (earlier session) | 5/5 in ~121s, ~4s each |
-| 15 DAC replug from `state=failed` | **NOT RUN** | Needs physical DAC unplug/replug |
+| 15 DAC replug from `state=failed` | **PASS** | jackd restarted on replug; watchdog promoted Surge from `recovering` → `state=ok` in ~5s, stable 40s |
 | 17 stale `MPE_AUDIO_ENGINE=alsa` line | **NOT RUN** | Needs manual `/etc/mpe/mpe.env` edit |
 | D5 looper guard boot | **NOT RUN** | Needs `MPE_LOOPER_ENABLED=1` + reboot |
 
