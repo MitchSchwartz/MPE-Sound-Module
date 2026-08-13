@@ -8,7 +8,14 @@ else
 fi
 _MPE_MODULE_ROOT="$(cd "$_PATHS_LIB/../.." && pwd)"
 
-if [ -f /etc/mpe/mpe.env ]; then
+# MPE_ENV_FILE: test harness only — when set, skip /etc/mpe/mpe.env entirely.
+# Empty MPE_ENV_FILE = hermetic (process env only). Unset = appliance default.
+if [ -n "${MPE_ENV_FILE+x}" ]; then
+    if [ -n "$MPE_ENV_FILE" ] && [ -f "$MPE_ENV_FILE" ]; then
+        # shellcheck disable=SC1091
+        source "$MPE_ENV_FILE"
+    fi
+elif [ -f /etc/mpe/mpe.env ]; then
     # shellcheck disable=SC1091
     source /etc/mpe/mpe.env
 elif [ -f "${HOME:-/tmp}/.config/mpe/mpe.env" ]; then
