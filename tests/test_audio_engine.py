@@ -15,7 +15,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from tests.hermetic_env import isolated_path_prefix
+from tests.hermetic_env import isolated_path_only
 
 from patch_browser.audio_engine import (
     COOLDOWN_SEC,
@@ -419,7 +419,7 @@ echo ok
 """
         with tempfile.TemporaryDirectory() as tmp:
             env = _bash_env()
-            env["PATH"] = f"{isolated_path_prefix(Path(tmp))}:/usr/bin:/bin"
+            env["PATH"] = isolated_path_only(Path(tmp))
             result = _run_bash_script(body, env=env)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.strip(), "ok")
@@ -432,7 +432,7 @@ echo ok
 """
         with tempfile.TemporaryDirectory() as tmp:
             env = _bash_env()
-            env["PATH"] = f"{isolated_path_prefix(Path(tmp))}:/usr/bin:/bin"
+            env["PATH"] = isolated_path_only(Path(tmp))
             result = _run_bash_script(body, env=env)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.strip(), "ok")

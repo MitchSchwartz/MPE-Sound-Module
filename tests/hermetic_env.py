@@ -30,3 +30,8 @@ def isolated_path_prefix(tmp_dir: Path) -> str:
     empty = tmp_dir / "isolated_bin"
     empty.mkdir(exist_ok=True)
     return str(empty)
+
+
+def isolated_path_only(tmp_dir: Path) -> str:
+    """PATH containing no system binaries — use for missing-tool probe tests."""
+    return isolated_path_prefix(tmp_dir)
