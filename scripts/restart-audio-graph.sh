@@ -17,6 +17,12 @@ source "$SCRIPT_DIR/lib/paths.sh"
 source "$SCRIPT_DIR/lib/audio-engine.sh"
 
 UNIT="$(mpe_audio_graph_unit)"
+CARD_ID="${1:-${SOUND_CARD_ID:-}}"
+
+if [ -n "$CARD_ID" ] && mpe_should_skip_graph_restart_for_card "$CARD_ID"; then
+    echo "restart-audio-graph: skipped (card=$CARD_ID)"
+    exit 0
+fi
 
 if mpe_restart_audio_graph; then
     echo "restart-audio-graph: restarted $UNIT"
