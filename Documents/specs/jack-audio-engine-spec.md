@@ -1,7 +1,7 @@
 # JACK audio engine — permanent graph server + looper as callback client
 
 **Issue:** untracked
-**Status:** Approved, Phase 1 on `yolo/jack-audio-engine-phase1` @ `39c2ac8`. **Gate B soak** — automated criteria largely **PASS**; manual items remain (2c, 5b host capture, 13 HUD, 14 calibration audit).
+**Status:** Approved, Phase 1 on `yolo/jack-audio-engine-phase1` @ `137463b`. **Gate B soak** — automated + manual criteria **PASS** except **5b** (rewire) and **session_capture** (same blocker); criterion 13 full guarded badge deferred (`MPE_LOOPER_ENABLED=1`).
 **Created:** 2026-08-12
 **Last updated:** 2026-08-12 20:23 (America/Toronto)
 
@@ -307,7 +307,7 @@ cold boot with no network; unplug/replug the DAC; profile switch mid-set;
 | 2c mask + unplug DAC | **PASS** (Mitch) | Diagnosability confirmed on Pi; recovery still **~55–60 s** (same promote path: 15 s jackd settle ×3 + Surge restart). Watchdog 01:20–01:22 UTC log matches. |
 | 5b UAC2 host capture | **BLOCKED** | Needs physical rewire before host capture open/close test on `usb-host` profile |
 | 13 touch HUD | **PASS** (partial) | Steady **JACK** badge in header; brief **JACK·rec** after keyboard connect = `state=recovering` (engine HUD). No **L⛔** — expected with `looper=off`; full guarded badge needs `MPE_LOOPER_ENABLED=1` boot test |
-| 14 calibration/session | **DEFER** | Audit with jackd up — post-soak checklist |
+| 14 calibration/session | **PASS** (cal) / **BLOCKED** (session) | `mpe engine calibrate-smoke` @ `137463b`: `--force` 1 favorite (`70s Fizzy String`) with jackd up; loopback `plughw:7,1,0`; entry written; post-cal `engine=jack state=ok`, jackd+Surge+touch active. Fixed `list_missing` stem→dict bug in cal script. `session_capture.py` still blocked (same rewire as 5b). Cal temporarily stops Surge (not jackd) — services restore via teardown |
 
 **Backlog — faster crash/replug recovery (post–Phase 1 merge):** The 15 s
 `MPE_ENGINE_JACKD_SETTLE_S` window plus a full Surge restart makes mid-set recovery
