@@ -13,6 +13,14 @@ PROFILE_OPTIONS: tuple[tuple[str, str, str], ...] = (
     ("usb-host", "USB direct", "Surge to PC when recording (analog mutes)"),
     ("usb-host-session", "USB session", "Analog stays on; mic return to PC"),
 )
+def profile_env_path() -> Path | None:
+    """Appliance canon file, or None when MPE_ENV_FILE='' (hermetic tests)."""
+    if "MPE_ENV_FILE" in os.environ:
+        raw = os.environ["MPE_ENV_FILE"].strip()
+        return Path(raw) if raw else None
+    return Path("/etc/mpe/mpe.env")
+
+
 MPE_ENV_PATH = Path("/etc/mpe/mpe.env")
 SET_PROFILE_SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "set-audio-profile.sh"
 # Gadget wait (8s) + Surge restart without MIDI wait (~5–8s) + margin
@@ -50,7 +58,10 @@ def profile_switch_overlay_hint(profile: str) -> str:
 
 
 def current_profile() -> str:
-    from_file = read_profile_from_env_file(MPE_ENV_PATH)
+    path = profile_env_path()
+    if path is None:
+        return normalize_profile(os.environ.get("MPE_AUDIO_PROFILE"))
+    from_file = read_profile_from_env_file(path)
     if from_file is not None:
         return from_file
     return normalize_profile(os.environ.get("MPE_AUDIO_PROFILE"))

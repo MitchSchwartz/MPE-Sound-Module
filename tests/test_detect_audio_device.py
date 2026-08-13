@@ -10,6 +10,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from tests.hermetic_env import hermetic_env_with_profile
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DETECT_SCRIPT = REPO_ROOT / "scripts" / "detect-audio-device.sh"
 
@@ -43,9 +45,9 @@ def _run_detect(
         fake_surge.chmod(fake_surge.stat().st_mode | stat.S_IXUSR)
 
         env = os.environ.copy()
-        env["MPE_AUDIO_PROFILE"] = profile
         env["HOME"] = tmp
         env["MPE_UAC2_HOST_STREAMING_FLAG"] = str(Path(tmp) / "host-streaming")
+        env.update(hermetic_env_with_profile(Path(tmp), profile))
         if extra_env:
             env.update(extra_env)
         return subprocess.run(
