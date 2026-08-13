@@ -14,6 +14,7 @@ from patch_browser.audio_engine import (
     DEFAULT_ENGINE,
     ENGINE_STATE_FILE,
     JACKD_SETTLE_SEC,
+    LOOPER_GUARD_MESSAGE,
     MAX_SUPERVISOR_RESTARTS,
     engine_hud_label,
     engine_hud_should_show,
@@ -599,6 +600,15 @@ echo allowed
         self.assertTrue(blocked)
         self.assertEqual(looper_guard_exit_code(looper_service=True), 0)
         self.assertEqual(looper_guard_exit_code(looper_service=False), 1)
+
+    def test_looper_guard_message_matches_python(self) -> None:
+        body = f"""
+source {ENGINE_GUARD_SH}
+printf '%s' "$MPE_LOOPER_GUARD_MESSAGE"
+"""
+        result = _run_bash_script(body, env=_bash_env())
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, LOOPER_GUARD_MESSAGE)
 
 
 class EngineHudReaderTests(unittest.TestCase):
