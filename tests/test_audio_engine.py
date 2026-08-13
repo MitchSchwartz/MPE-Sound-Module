@@ -618,6 +618,36 @@ export -f _supervisor_restart_surge
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("RESTART:promote-to-jack", result.stderr)
 
+    def test_reconcile_defers_supervisor_restart_during_planned_promote(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            env = _bash_env(tmp)
+            Path(tmp, "planned-promote").write_text("1\n", encoding="utf-8")
+            stubs = """
+mpe_surge_on_jack_graph() { return 1; }
+mpe_jack_server_ready() { return 0; }
+_supervisor_restart_surge() { echo "RESTART:$1" >&2; return 0; }
+export -f _supervisor_restart_surge
+"""
+            result = self._run_reconcile(env=env, stubs=stubs)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertNotIn("RESTART:", result.stderr)
+
+    def test_supervisor_restart_defers_during_planned_promote(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            env = _bash_env(tmp)
+            Path(tmp, "planned-promote").write_text("1\n", encoding="utf-8")
+            body = f"""
+source {SURGE_WATCHDOG_SH}
+mpe_systemctl() {{ printf '%s\\n' "$*" >> "{tmp}/systemctl.log"; return 0; }}
+export -f mpe_systemctl
+if _supervisor_restart_surge promote-to-jack; then exit 9; fi
+test ! -s "{tmp}/systemctl.log"
+echo deferred
+"""
+            result = _run_bash_script(body, env=env)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout.strip(), "deferred")
+
     def test_reconcile_survives_unwritable_state_publish(self) -> None:
         """State publish failure must not abort the supervisor reconcile path."""
         with tempfile.TemporaryDirectory() as tmp:
