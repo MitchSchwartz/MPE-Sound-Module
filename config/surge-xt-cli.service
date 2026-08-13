@@ -2,6 +2,8 @@
 Description=Surge XT CLI Synthesizer (Headless)
 After=sound.target network.target usb-audio-gadget.service mpe-pressure-remap.service mpe-cpu-governor.service mpe-jackd.service
 Wants=sound.target mpe-pressure-remap.service mpe-jackd.service surge-watchdog.service
+StartLimitBurst=5
+StartLimitIntervalSec=300
 
 [Service]
 Type=forking
@@ -21,8 +23,6 @@ TimeoutStopSec=15
 KillMode=control-group
 Restart=on-failure
 RestartSec=10
-StartLimitBurst=5
-StartLimitIntervalSec=300
 StandardOutput=journal
 StandardError=journal
 
