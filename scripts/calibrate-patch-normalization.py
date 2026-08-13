@@ -92,6 +92,7 @@ from patch_browser.patch_pressure import (  # noqa: E402
     resolve_light_touch_target,
 )
 from patch_browser.patch_loader import PatchLoader
+from patch_browser.patch_sidecar_key import resolve_storage_key
 from patch_browser.surge_audio import DEFAULT_BUFFER, DEFAULT_SAMPLE_RATE  # noqa: E402
 from patch_browser.patch_scanner import (
     FAVORITES_NAME,
@@ -1013,7 +1014,10 @@ def main() -> int:
         targets = [
             p
             for p in patch_paths
-            if store._storage_key(p.stem, patch_path=str(p)) in missing_keys
+            if resolve_storage_key(
+                p.stem, patch_path=str(p), patch_dirs=SURGE_PATCH_DIRS
+            )
+            in missing_keys
         ]
 
     print(f"Output: {output_path}")
