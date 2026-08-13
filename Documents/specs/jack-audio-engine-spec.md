@@ -1,9 +1,9 @@
 # JACK audio engine — permanent graph server + looper as callback client
 
 **Issue:** untracked
-**Status:** Approved, Phase 1 on `yolo/jack-audio-engine-phase1` @ `34085fc`. **Gate B soak in progress** — cold boot, pkill, DAC replug, **2a PASS**, **2d PASS** (retest); **2b2 partial** (2026-08-12).
+**Status:** Approved, Phase 1 on `yolo/jack-audio-engine-phase1` @ `39c2ac8`. **Gate B soak** — automated criteria largely **PASS**; manual items remain (2c, 5b host capture, 13 HUD, 14 calibration audit).
 **Created:** 2026-08-12
-**Last updated:** 2026-08-12 18:05 (America/Toronto)
+**Last updated:** 2026-08-12 20:18 (America/Toronto)
 
 **Gate A decisions:** default engine on boot is `jack`. The Phase 1 looper
 regression is **accepted knowingly** — looper off during Phase 1, refused by the
@@ -299,7 +299,15 @@ cold boot with no network; unplug/replug the DAC; profile switch mid-set;
 | DAC replug from `state=ok` | **PASS** (Mitch confirmed) | Audio restored; subjectively **very slow** — same reconcile path as jackd death |
 | 2a jackd masked @ boot | **PASS** | `mpe engine mask-jackd` 16:07 EDT; cold boot ~17:06 EDT → `active=alsa state=degraded reason=no-server`; `ENGINE-FALLBACK` in surge journal. Also `mpe restart all` while masked 16:34 EDT. mpe-cli must stash unit file before `systemctl mask` (configure-pi-paths tee conflict). |
 | 2d unmask + start jackd | **PASS** (retest @ `34085fc`) | Auto promotion ~**31 s** after unmask+start; no manual Surge restart. Fix: `release-alsa-for-jackd` when jackd unit seeking start. First attempt 16:37 EDT failed (pre-fix). |
-| 2b2 five × kill-jackd --kill | **PARTIAL** | Kills 1–3 recovered to state=ok; kill 4–5 lost to DNS/reboot. No StartLimitBurst in completed cycles. |
+| 2b2 five × kill-jackd --kill | **PASS** | 2026-08-12 ~20:00 EDT; all 5 cycles recovered `state=ok` ~30 s each; 447 s total window; no `surge-xt-cli` failed |
+| 5a profile switch | **PASS** | `standalone` → `usb-host` ~30 s → `standalone` ~32 s; jackd restarted each time; `state=ok` + Surge on graph |
+| 3 `MPE_AUDIO_ENGINE=alsa` | **PASS** (functional) | `mpe engine set alsa` + restart → `active=alsa`, no jackd; restored to jack. `mpe test pi audio`: 12 failures (touch buffer label / env drift — pre-existing on branch, not jack-specific) |
+| 17 `mpe engine status/set` | **PASS** | Shipped in mpe-cli `85dad3c` |
+| 6 SCHED_FIFO | **PASS** (spot check) | jackd audio thread `SCHED_FIFO` (pid probe); Surge audio thread via JACK client (not process-level `chrt`) |
+| 2c mask + unplug DAC | **MANUAL** | Needs masked boot + physical DAC unplug — diagnosability only |
+| 5b UAC2 host capture | **MANUAL** | Needs host opening/closing capture on `usb-host` profile |
+| 13 touch HUD | **MANUAL** | Boot with looper flag; visual confirm guarded/degraded labels |
+| 14 calibration/session | **DEFER** | Audit with jackd up — post-soak checklist |
 
 **Backlog — faster crash/replug recovery (post–Phase 1 merge):** The 15 s
 `MPE_ENGINE_JACKD_SETTLE_S` window plus a full Surge restart makes mid-set recovery
