@@ -122,9 +122,17 @@ mpe_state_write_atomic() {
             printf '%s\n' "$1"
             shift
         done
-    } >"$tmp" 2>/dev/null || return 0
+    } >"$tmp" 2>/dev/null || {
+        echo "WARNING: failed to write state temp file for $file (disk full or unwritable?)" >&2
+        rm -f "$tmp" 2>/dev/null || true
+        return 1
+    }
     chmod 0644 "$tmp" 2>/dev/null || true
-    mv -f "$tmp" "$file" 2>/dev/null || rm -f "$tmp" 2>/dev/null || true
+    mv -f "$tmp" "$file" 2>/dev/null || {
+        echo "WARNING: failed to install state file $file" >&2
+        rm -f "$tmp" 2>/dev/null || true
+        return 1
+    }
 }
 
 mpe_engine_state_file() {
@@ -178,7 +186,7 @@ mpe_engine_state_write() {
         "state=$state" \
         "reason=$reason" \
         "looper=$looper" \
-        "updated=$(date +%s)"
+        "updated=$(date +%s)" || true
 }
 
 mpe_engine_state_get() {
@@ -301,7 +309,7 @@ mpe_jack_state_write() {
         "device=$device" \
         "period=$period" \
         "periods=$periods" \
-        "rate=$rate"
+        "rate=$rate" || true
 }
 
 # Epoch seconds when jackd last started, or 0 when unknown. Written by
@@ -324,7 +332,7 @@ mpe_surge_state_write() {
     mpe_state_write_atomic "$file" \
         "started=$(date +%s)" \
         "active=$active" \
-        "device=$device"
+        "device=$device" || true
 }
 
 # Which engine Surge is currently running on: jack | alsa | unknown.
@@ -485,7 +493,7 @@ mpe_engine_reconcile_record_restart() {
     count="$(($(mpe_engine_reconcile_count) + 1))"
     mpe_state_write_atomic "$file" \
         "last_restart=$(date +%s)" \
-        "restarts=$count"
+        "restarts=$count" || true
 }
 
 # Called once the engine is observed healthy — the restart budget only exists to

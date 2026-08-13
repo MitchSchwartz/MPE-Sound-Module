@@ -348,6 +348,44 @@ printf 'SURVIVED'
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("SURVIVED", result.stdout)
 
+    def test_atomic_write_warns_on_unwritable_target(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            ro_dir = Path(tmp) / "readonly"
+            ro_dir.mkdir()
+            ro_dir.chmod(0o555)
+            target = ro_dir / "engine.state"
+            body = f"""
+source {AUDIO_ENGINE_SH}
+mpe_state_write_atomic "{target}" "engine=jack" "state=ok"
+printf 'rc=%s' "$?"
+"""
+            try:
+                result = _run_bash_script(body, env=_bash_env(tmp))
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn("rc=1", result.stdout)
+                self.assertIn("WARNING:", result.stderr)
+                self.assertIn("failed to write", result.stderr)
+            finally:
+                ro_dir.chmod(0o755)
+
+    def test_engine_state_write_survives_atomic_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            ro_dir = Path(tmp) / "readonly"
+            ro_dir.mkdir()
+            ro_dir.chmod(0o555)
+            body = f"""
+source {AUDIO_ENGINE_SH}
+export MPE_ENGINE_STATE_FILE="{ro_dir}/engine.state"
+mpe_engine_state_write jack jack ok "" off
+printf 'SURVIVED'
+"""
+            try:
+                result = _run_bash_script(body, env=_bash_env(tmp))
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn("SURVIVED", result.stdout)
+            finally:
+                ro_dir.chmod(0o755)
+
 
 class JackLspProbeTests(unittest.TestCase):
     """M4 — both probes treat missing jack_lsp as not-ready."""
