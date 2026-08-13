@@ -212,12 +212,14 @@ class Uac2HostRouteWatchdogTests(unittest.TestCase):
         self.assertIn("Surge → UAC2", log)
 
     def test_host_capture_close_restarts_surge_to_idle(self) -> None:
+        # Hold streaming rate through init so the watchdog sees active capture before close.
         restart_marker, streaming_flag, log_file, _bridge = self._run_watchdog(
-            stream_rates=["48000", "0"],
+            stream_rates=["48000", "48000", "0"],
         )
         self.assertTrue(restart_marker.exists())
         self.assertFalse(streaming_flag.exists())
-        self.assertIn("capture closed", log_file.read_text(encoding="utf-8"))
+        log = log_file.read_text(encoding="utf-8")
+        self.assertIn("Surge → idle", log)
 
     def test_session_mode_starts_bridge_not_surge(self) -> None:
         restart_marker, streaming_flag, log_file, bridge_marker = self._run_session_watchdog(
