@@ -814,7 +814,9 @@ class TouchBrowserDrawMixin:
         from patch_browser.audio_profile import profile_switch_overlay_hint
 
         target = getattr(self, "_audio_profile_switch_target", None)
-        hint = profile_switch_overlay_hint(target) if target else "Restarting Surge for new audio route"
+        progress = getattr(self, "_audio_switch_progress_hint", "") or ""
+        static = profile_switch_overlay_hint(target) if target else "Restarting Surge for new audio route"
+        hint = progress or static
         draw_wrapped_text_in_rect(
             self.screen,
             self.font_sm,

@@ -334,23 +334,104 @@ mpe_restart_audio_graph() {
 }
 
 # ---------------------------------------------------------------------------
+# Planned operator graph changes (touch UI settings / profile switch)
+# ---------------------------------------------------------------------------
+
+mpe_planned_promote_flag_file() {
+    printf '%s' "${MPE_PLANNED_PROMOTE_FLAG:-$(mpe_run_dir)/planned-promote}"
+}
+
+mpe_planned_promote_flag_set() {
+    [ -f "$(mpe_planned_promote_flag_file)" ]
+}
+
+mpe_planned_promote_flag_mark() {
+    local file
+    file="$(mpe_planned_promote_flag_file)"
+    date +%s >"$file" 2>/dev/null || true
+    chmod 0644 "$file" 2>/dev/null || true
+}
+
+mpe_planned_promote_flag_clear() {
+    rm -f "$(mpe_planned_promote_flag_file)" 2>/dev/null || true
+}
+
+mpe_wait_for_surge_on_graph() {
+    local timeout="${1:-30}"
+    local waited=0
+    local step_ms=250
+    while :; do
+        if mpe_surge_on_jack_graph; then
+            return 0
+        fi
+        if [ "$waited" -ge "$((timeout * 1000))" ]; then
+            return 1
+        fi
+        sleep 0.25
+        waited=$((waited + step_ms))
+    done
+}
+
+# Operator-initiated device/buffer/rate/profile changes: restart jackd, sync-wait
+# for the server, promote Surge once, and return only when the graph is ok. The
+# passive watchdog path (settle + 5 s poll) is for unplanned recovery only.
+mpe_promote_surge_planned() {
+    local reason="${1:-planned-graph-change}"
+    local timeout="${MPE_PLANNED_PROMOTE_TIMEOUT:-30}"
+    local looper_label surge_service
+    looper_label="$(mpe_looper_state_label)"
+    surge_service="surge-xt-cli.service"
+
+    mpe_planned_promote_flag_mark
+    mpe_engine_state_write "$MPE_ENGINE_NAME" none recovering "$reason" "$looper_label"
+
+    if ! mpe_restart_audio_graph; then
+        mpe_planned_promote_flag_clear
+        mpe_engine_state_write "$MPE_ENGINE_NAME" none failed "graph-restart" "$looper_label"
+        return 1
+    fi
+
+    if ! mpe_wait_for_jack_server "$timeout"; then
+        mpe_planned_promote_flag_clear
+        mpe_engine_state_write "$MPE_ENGINE_NAME" none failed "no-server" "$looper_label"
+        return 1
+    fi
+
+    mpe_engine_state_write "$MPE_ENGINE_NAME" jack recovering "promote-planned" "$looper_label"
+    mpe_systemctl reset-failed "$surge_service" >/dev/null 2>&1 || true
+    if ! mpe_systemctl restart "$surge_service"; then
+        mpe_planned_promote_flag_clear
+        mpe_engine_state_write "$MPE_ENGINE_NAME" jack failed "promote-failed" "$looper_label"
+        return 1
+    fi
+
+    if ! mpe_wait_for_surge_on_graph "$timeout"; then
+        mpe_planned_promote_flag_clear
+        mpe_engine_state_write "$MPE_ENGINE_NAME" jack recovering "promote-timeout" "$looper_label"
+        return 1
+    fi
+
+    mpe_engine_reconcile_reset
+    mpe_engine_state_write "$MPE_ENGINE_NAME" jack ok "" "$looper_label"
+    mpe_planned_promote_flag_clear
+    return 0
+}
+
+# ---------------------------------------------------------------------------
 # Supervisor cooldown (spec D3)
 # ---------------------------------------------------------------------------
 #
 # The watchdog polls every 5 s while Surge has RestartSec=10 and StartLimitBurst=5.
 # An uncooled supervisor exhausts the burst budget in ~25 s and leaves Surge dead
 # until manual intervention — worse than the fault it responds to. Hence: first
-# restart immediate, then >= 90 s apart, never while jackd is still settling, and
-# escalate to state=failed after 3 tries.
+# restart immediate, then a cooldown between subsequent supervisor restarts, never
+# while jackd is still settling, and escalate to state=failed after 3 tries.
 #
 # Start-limit window matches surge-xt-cli.service [Unit]: StartLimitBurst=5 over
-# StartLimitIntervalSec=300. The watchdog cooldown below is sized to stay inside
-# that budget (first restart immediate, then >= 90 s apart). When the burst is
-# exhausted, `systemctl is-failed surge-xt-cli` becomes true and the watchdog's
-# corrupt-defaults recovery arm can reset the unit — a path that has not yet run
-# on hardware since the interval key lived in [Service] until fixed.
+# StartLimitIntervalSec=300. Cooldown is sized to stay inside that budget while
+# keeping unplanned recovery retries practical for the operator (30 s default).
 
-MPE_ENGINE_COOLDOWN_DEFAULT=90
+MPE_ENGINE_COOLDOWN_DEFAULT=30
 # 15s was sized for an ALSA-contention hazard (Surge holding the tier device
 # on the fallback path while jackd tried to reclaim it) that no longer exists
 # — ALSA is not a reachable engine at all now. jackd itself is typically ready
