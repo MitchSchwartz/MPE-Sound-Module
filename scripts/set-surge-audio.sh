@@ -120,15 +120,13 @@ source "$SCRIPT_DIR/lib/profile-switch-flag.sh"
 source "$SCRIPT_DIR/lib/audio-engine.sh"
 profile_switch_flag_mark
 
-if [ "$(mpe_audio_engine)" = "jack" ]; then
-    if [ -n "$BUFFER" ]; then
-        _update_env_var MPE_JACK_BUFFER "$BUFFER"
-        export MPE_JACK_BUFFER="$BUFFER"
-    fi
-    mpe_restart_audio_graph
-else
-    systemctl restart surge-xt-cli.service
+# JACK is the only engine (spec amended 2026-08-13) — always the graph-restart
+# path below; there is no ALSA-direct branch left to fall through to.
+if [ -n "$BUFFER" ]; then
+    _update_env_var MPE_JACK_BUFFER "$BUFFER"
+    export MPE_JACK_BUFFER="$BUFFER"
 fi
+mpe_restart_audio_graph
 
 echo -n "Applied"
 [ -n "$BUFFER" ] && echo -n " buffer=$BUFFER"
