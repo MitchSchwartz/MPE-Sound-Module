@@ -10,6 +10,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from tests.hermetic_env import hermetic_env_skip_system, hermetic_env_with_profile
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 WATCHDOG_SCRIPT = REPO_ROOT / "scripts" / "uac2-stall-watchdog.sh"
 
@@ -70,7 +72,6 @@ class Uac2HostRouteWatchdogTests(unittest.TestCase):
         env = os.environ.copy()
         env.update(
             {
-                "MPE_AUDIO_PROFILE": "usb-host",
                 "MPE_UAC2_ASOUND_ROOT": str(asound),
                 "MPE_UAC2_WATCHDOG_POLL": poll_seconds,
                 "MPE_UAC2_WATCHDOG_COOLDOWN": cooldown,
@@ -81,6 +82,7 @@ class Uac2HostRouteWatchdogTests(unittest.TestCase):
                 "PATH": f"{bin_dir}:{env.get('PATH', '')}",
             }
         )
+        env.update(hermetic_env_with_profile(tmp_path, "usb-host"))
 
         proc = subprocess.Popen(
             ["timeout", "10", "bash", str(scripts_dir / "uac2-stall-watchdog.sh")],
@@ -151,7 +153,6 @@ class Uac2HostRouteWatchdogTests(unittest.TestCase):
         env = os.environ.copy()
         env.update(
             {
-                "MPE_AUDIO_PROFILE": "usb-host-session",
                 "MPE_UAC2_ASOUND_ROOT": str(asound),
                 "MPE_UAC2_WATCHDOG_POLL": "1",
                 "MPE_UAC2_WATCHDOG_COOLDOWN": "0",
@@ -162,6 +163,7 @@ class Uac2HostRouteWatchdogTests(unittest.TestCase):
                 "PATH": f"{bin_dir}:{env.get('PATH', '')}",
             }
         )
+        env.update(hermetic_env_with_profile(tmp_path, "usb-host-session"))
 
         proc = subprocess.Popen(
             ["timeout", "10", "bash", str(scripts_dir / "uac2-stall-watchdog.sh")],
@@ -187,6 +189,7 @@ class Uac2HostRouteWatchdogTests(unittest.TestCase):
     def test_exits_immediately_on_standalone_profile(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             env = os.environ.copy()
+            env.update(hermetic_env_skip_system())
             env["MPE_AUDIO_PROFILE"] = "standalone"
             env["MPE_UAC2_WATCHDOG_LOG"] = str(Path(tmp) / "log")
             result = subprocess.run(

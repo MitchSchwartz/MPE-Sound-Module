@@ -15,6 +15,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from tests.hermetic_env import isolated_path_prefix
+
 from patch_browser.audio_engine import (
     COOLDOWN_SEC,
     ENGINE_STATE_FILE,
@@ -415,9 +417,10 @@ source {AUDIO_ENGINE_SH}
 if mpe_jack_server_ready; then exit 9; fi
 echo ok
 """
-        env = _bash_env()
-        env["PATH"] = "/usr/bin:/bin"
-        result = _run_bash_script(body, env=env)
+        with tempfile.TemporaryDirectory() as tmp:
+            env = _bash_env()
+            env["PATH"] = f"{isolated_path_prefix(Path(tmp))}:/usr/bin:/bin"
+            result = _run_bash_script(body, env=env)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.strip(), "ok")
 
@@ -427,9 +430,10 @@ source {AUDIO_ENGINE_SH}
 if mpe_surge_on_jack_graph; then exit 9; fi
 echo ok
 """
-        env = _bash_env()
-        env["PATH"] = "/usr/bin:/bin"
-        result = _run_bash_script(body, env=env)
+        with tempfile.TemporaryDirectory() as tmp:
+            env = _bash_env()
+            env["PATH"] = f"{isolated_path_prefix(Path(tmp))}:/usr/bin:/bin"
+            result = _run_bash_script(body, env=env)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.strip(), "ok")
 
