@@ -15,8 +15,10 @@ class SurgeMonitorRestartGateTests(unittest.TestCase):
     @mock.patch("patch_browser.surge_monitor.subprocess.run")
     def test_blocks_restart_when_graph_failed(self, run_mock: mock.Mock, state_mock: mock.Mock) -> None:
         state_mock.return_value = {"state": "failed", "reason": "no-server"}
-        monitor = SurgeMonitor()
-        ok, message = monitor.restart_surge()
+        with mock.patch.object(SurgeMonitor, "_find_surge_process"):
+            monitor = SurgeMonitor()
+            run_mock.reset_mock()
+            ok, message = monitor.restart_surge()
         self.assertFalse(ok)
         self.assertIn("graph", message.lower())
         run_mock.assert_not_called()
