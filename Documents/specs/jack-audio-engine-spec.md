@@ -3,7 +3,7 @@
 **Issue:** untracked
 **Status:** Approved, Phase 1 on `yolo/jack-audio-engine-phase1` @ `39c2ac8`. **Gate B soak** — automated criteria largely **PASS**; manual items remain (2c, 5b host capture, 13 HUD, 14 calibration audit).
 **Created:** 2026-08-12
-**Last updated:** 2026-08-12 20:18 (America/Toronto)
+**Last updated:** 2026-08-12 20:23 (America/Toronto)
 
 **Gate A decisions:** default engine on boot is `jack`. The Phase 1 looper
 regression is **accepted knowingly** — looper off during Phase 1, refused by the
@@ -304,9 +304,9 @@ cold boot with no network; unplug/replug the DAC; profile switch mid-set;
 | 3 `MPE_AUDIO_ENGINE=alsa` | **PASS** (functional) | `mpe engine set alsa` + restart → `active=alsa`, no jackd; restored to jack. `mpe test pi audio`: 12 failures (touch buffer label / env drift — pre-existing on branch, not jack-specific) |
 | 17 `mpe engine status/set` | **PASS** | Shipped in mpe-cli `85dad3c` |
 | 6 SCHED_FIFO | **PASS** (spot check) | jackd audio thread `SCHED_FIFO` (pid probe); Surge audio thread via JACK client (not process-level `chrt`) |
-| 2c mask + unplug DAC | **MANUAL** | Needs masked boot + physical DAC unplug — diagnosability only |
+| 2c mask + unplug DAC | **PASS** (Mitch) | Diagnosability confirmed on Pi; recovery still **~55–60 s** (same promote path: 15 s jackd settle ×3 + Surge restart). Watchdog 01:20–01:22 UTC log matches. |
 | 5b UAC2 host capture | **MANUAL** | Needs host opening/closing capture on `usb-host` profile |
-| 13 touch HUD | **MANUAL** | Boot with looper flag; visual confirm guarded/degraded labels |
+| 13 touch HUD | **PASS** (partial) | Steady **JACK** badge in header; brief **JACK·rec** after keyboard connect = `state=recovering` (engine HUD). No **L⛔** — expected with `looper=off`; full guarded badge needs `MPE_LOOPER_ENABLED=1` boot test |
 | 14 calibration/session | **DEFER** | Audit with jackd up — post-soak checklist |
 
 **Backlog — faster crash/replug recovery (post–Phase 1 merge):** The 15 s
