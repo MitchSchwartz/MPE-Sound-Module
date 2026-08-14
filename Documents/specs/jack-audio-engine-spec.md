@@ -506,6 +506,16 @@ guarded against no longer exists. That is expected to help this backlog item but
 is not the same fix as the candidates above, and is unverified without the Gate C
 soak.)*
 
+**Backlog — post–graph-change patch reload gap (2026-08-13 Pi soak, Mitch):**
+Planned promote now completes in ~5s (PRs #56–#59). The touch UI then re-sends the
+last patch over OSC (`patch_browser/touch_browser_patches.py` `_retry_pending_load`).
+Patch and on-screen state end correct and the **"Patch loaded"** toast fires, but
+operators report a **second audible dropout** during that reload window — distinct
+from the graph-promote silence and not caused by the toast itself. Acceptable for
+current soak; candidates later: defer OSC reload until Surge output is stable,
+avoid redundant reload when the patch path is unchanged, or hold/sustain through
+Surge restart if the engine supports it.
+
 ## Security Considerations
 
 - **Data flow:** Local audio only. No network surface. OSC stays on `127.0.0.1`.
