@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
-"""APC pad (0,0) -> SooperLooper loop 0 footswitch — eval bench only.
+"""APC pad footswitch + Shift/Stop-All track reset — eval bench only.
 
-Tap cycle (short press, release before hold):
+Per clip pad (short tap, release before hold):
   idle            -> record
   recording       -> end record + play
   playing         -> pause (stop, loop stays in RAM)
   stopped (saved) -> trigger (play loop again from top)
-Hold (~1 s, do not release) -> undo_all (clear)
+Hold (~1 s, do not release) -> undo_all (clear that loop)
+
+Shift + Stop All Clips (APC mk2), held 3 s -> pause + undo_all on every loop,
+all clip LEDs off, footswitch state idle (full track reset).
 """
 
 from __future__ import annotations
@@ -17,7 +20,12 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "sooperlooper"))
-from apc_grid import pad_note  # noqa: E402
+from apc_grid import NUM_LOOPS, all_loop_pads, pad_note  # noqa: E402
+from apc_transport import (  # noqa: E402
+    NOTE_SHIFT_MK2,
+    NOTE_STOP_ALL_CLIPS_MK2,
+    ShiftHoldCombo,
+)
 
 STATE_IDLE = "idle"
 STATE_RECORDING = "recording"
@@ -28,6 +36,16 @@ LED_OFF = 0
 LED_GREEN = 1
 LED_RED = 3
 LED_YELLOW = 5
+
+
+def midi_note_down(st: int, vel: int) -> bool | None:
+    """Return True=note on, False=note off, None=not a note message."""
+    cmd = st & 0xF0
+    if cmd == 0x90:
+        return vel > 0
+    if cmd == 0x80:
+        return False
+    return None
 
 
 def pad_event(st: int, n: int, vel: int, note: int) -> bool | None:
@@ -150,6 +168,28 @@ class LoopFootswitch:
         self._clear_loop()
 
 
+def reset_all_loops(
+    osc,
+    midi_out,
+    *,
+    num_loops: int,
+    footswitches: list[LoopFootswitch],
+) -> None:
+    """Stop playback and clear every loop; reset bench LED/state."""
+    for loop in range(num_loops):
+        osc.send_message(f"/sl/{loop}/hit", "pause")
+        osc.send_message(f"/sl/{loop}/hit", "undo_all")
+    for fs in footswitches:
+        fs.state = STATE_IDLE
+        fs._sync_led()
+    for row, col, _loop_i in all_loop_pads():
+        if _loop_i >= num_loops:
+            continue
+        note = pad_note(row, col)
+        midi_out.send_message([0x90, note, LED_OFF])
+    print(f"-> track reset: cleared {num_loops} loops", flush=True)
+
+
 def main() -> int:
     row = int(os.environ.get("MPE_APC_PAD_ROW", "0"))
     col = int(os.environ.get("MPE_APC_PAD_COL", "0"))
@@ -160,6 +200,12 @@ def main() -> int:
     note = int(os.environ.get("MPE_APC_NOTE", str(pad_note(row, col))))
     hold_ms = float(os.environ.get("MPE_APC_HOLD_MS", "1000"))
     debounce_ms = float(os.environ.get("MPE_APC_DEBOUNCE_MS", "200"))
+    num_loops = int(os.environ.get("MPE_SL_LOOPS", str(NUM_LOOPS)))
+    shift_note = int(os.environ.get("MPE_APC_SHIFT_NOTE", str(NOTE_SHIFT_MK2)))
+    stop_all_note = int(
+        os.environ.get("MPE_APC_STOP_ALL_NOTE", str(NOTE_STOP_ALL_CLIPS_MK2))
+    )
+    track_reset_hold_ms = float(os.environ.get("MPE_APC_TRACK_RESET_HOLD_MS", "3000"))
 
     try:
         import rtmidi
@@ -182,27 +228,52 @@ def main() -> int:
     footswitch = LoopFootswitch(loop=loop, hold_ms=hold_ms, debounce_ms=debounce_ms)
     footswitch.bind(osc, midi_out, note)
     footswitch._sync_led()
+    track_reset = ShiftHoldCombo(
+        shift_note=shift_note,
+        target_note=stop_all_note,
+        hold_s=track_reset_hold_ms / 1000.0,
+    )
 
     print(
         f"APC [{idx}] {ports_in[idx]} | pad ({row},{col}) note {note} | "
-        f"OSC {host}:{port} | short tap=cycle hold>={hold_ms:.0f}ms clear",
+        f"OSC {host}:{port} | loops={num_loops} | "
+        f"short tap=cycle hold>={hold_ms:.0f}ms clear | "
+        f"Shift+StopAll held>={track_reset_hold_ms:.0f}ms=track reset",
         flush=True,
     )
+
+    def maybe_track_reset() -> None:
+        if track_reset.poll():
+            reset_all_loops(
+                osc,
+                midi_out,
+                num_loops=num_loops,
+                footswitches=[footswitch],
+            )
 
     while True:
         packet = midi_in.get_message()
         if packet is None:
             footswitch.poll_hold()
+            maybe_track_reset()
             time.sleep(0.002)
             continue
 
         msg, _delta = packet
         if not msg or len(msg) < 2:
             footswitch.poll_hold()
+            maybe_track_reset()
             continue
 
         st, n = msg[0], msg[1]
         vel = msg[2] if len(msg) > 2 else 0
+        down = midi_note_down(st, vel)
+        if down is not None and n in (shift_note, stop_all_note):
+            track_reset.note_event(n, down)
+            maybe_track_reset()
+            footswitch.poll_hold()
+            continue
+
         edge = pad_event(st, n, vel, note)
         if edge is True:
             footswitch.on_pad_down()
@@ -210,6 +281,7 @@ def main() -> int:
             footswitch.on_pad_up()
 
         footswitch.poll_hold()
+        maybe_track_reset()
 
     return 0
 
