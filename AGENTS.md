@@ -34,6 +34,32 @@ Install once: clone `mpe-cli`, run `./install.sh`, edit `~/.config/mpe/mpe.env` 
 
 **Suggest new subcommands:** When you would SSH twice for the same fixed task, **propose a new `mpe` subcommand** in `mpe-cli` (name + behavior + allowlist strings) — do not improvise remote shell. **Editing `mpe-cli` or `~/.config/mpe/mpe.env` requires Mitch approval.**
 
+### Scoped exception — SooperLooper evaluation (opened 2026-08-14, **expires at verdict**)
+
+Building SooperLooper from an upstream tarball has no `mpe` subcommand and
+**should not grow one** — it is an experiment that may be discarded inside
+Session A. Mitch-approved 2026-08-14, raw `ssh` is permitted **for this task
+only**, under these conditions:
+
+| Rule | Why |
+|---|---|
+| Source tree lives at `~/src/sooperlooper-<version>` — **never under `~/MPE-Module`** | An untracked build tree inside a git checkout is the sweep hazard that cost us files on 2026-08-14. Thousands of files, outside any working tree |
+| **Run in place** (`./src/sooperlooper …`). No `make install` during evaluation | Keeps the whole experiment reversible by deleting one directory |
+| **`sudo apt install` remains Mitch-only** (step A1) | Unchanged — appliance package install is still a human gate |
+| Capture the rollback **before** A1 | The reference Pi went green on Gate C on 2026-08-13. Record what A1 adds so removal is mechanical, not archaeological |
+| No changes to systemd units, audio profile, `mpe.env`, or the repo working tree | The experiment adds a process beside a working Phase 1 stack; it does not modify the appliance |
+| Results land on a **doc branch** (`docs/sooperlooper-eval`), not `dev` | A measurement without a verdict attached is a claim waiting to go stale |
+
+**Still not delegated to an agent:** the ear tests. B2 (free-form record feel)
+and **B10** (free-form vs grid-synced A/B) are Mitch's judgment and cannot be
+faked from a terminal. B11/B12 an agent may execute, but "clean seam, no
+audible click" is Mitch's call. Split the handoff by *mechanical vs
+judgment*, not by session number.
+
+**When the verdict lands, delete this block.** If SooperLooper is adopted,
+packaging becomes a real problem (reproducible in CI and in the release
+image) and gets solved properly rather than by extending this exception.
+
 Pattern: [OM-Repo `Docs/appliance-cli-pattern.md`](https://github.com/opsMachine/OM-Repo/blob/main/Docs/appliance-cli-pattern.md) · [`COMMANDS.md`](COMMANDS.md)
 
 ---
