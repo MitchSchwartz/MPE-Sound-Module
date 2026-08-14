@@ -19,6 +19,30 @@ paths**, not the plan.
 
 ---
 
+## Next step — SooperLooper Pi test only
+
+Run on **current `dev`** — the only Phase 2 experiment that does not disturb the
+appliance. Plan: [`looper-vetting.md` §7](https://github.com/opsMachine/OM-Repo/blob/main/internal/projects/mpe-synth-launch/research/looper-vetting.md)
+(~4 h **timebox**; if source build fights past ~4 h, that is the maintenance-cost
+answer).
+
+**Must prove explicitly (do not infer from docs):**
+
+1. **B1 — `dry=0` removes passthrough** — fail-open story rests on this
+2. **B7 — CPU/xruns beside Surge** — not clean in isolation
+3. **B10 — 20-min play** — EDP model vs what you want from the instrument
+
+**Audio input in/out:** during the same session, plug mic/guitar into the
+interface for ~10 min — decide looping-pedal vs output-only by playing, not
+whiteboard-first.
+
+**Dropped:** checking out `yolo/looper-phase0` on the Pi — predates JACK; would
+downgrade to the ALSA stack #50 removed. UX signal is B10 above.
+
+**Do not start:** NumPy mixer Tasks 1–4, whole PR #48 merge, Python callback Tasks 7–11.
+
+---
+
 ## Phase 2 options (simple comparison)
 
 ### A. Adopt SooperLooper — **try first**
@@ -34,7 +58,7 @@ as Surge today). Zynthian ships this on Pi + JACK + Python UI.
 | Full OSC command set for record/overdub/undo/clear | **Unverified on this Pi** — must run test plan |
 
 **Kill if:** won't build in ~4 h, can't fail open, adds xruns beside Surge, or
-20-min play test feels wrong.
+B10 play test feels wrong.
 
 ### B. Build our own (compiled JACK client) — **fallback**
 
@@ -65,6 +89,7 @@ Plugin host + MIT-licensed looper plugin. MOD Devices uses this pattern.
 | Giada | Desktop GUI app, not trixie |
 | Ardour | DAW, not a live looper; no distributed headless binary |
 | Python JACK client (this repo's draft spec) | **Rejected** — see DECISIONS.md |
+| **Play looper-phase0 on Pi** | **Dropped** — ALSA-era branch; unsafe after #50 |
 
 ---
 
@@ -76,14 +101,3 @@ Not the Phase 2 plan — a spike on a path being deleted:
 - **Audio:** five-process `arecord` → Python → `aplay` pipeline (~40 ms)
 - **Worth keeping if split:** APC control surface, clip matrix *UI model*, touch
   HUD, 96 kHz work — **not** `looper_engine.py` / ALSA I/O
-
----
-
-## Before writing Phase 2 code
-
-1. Answer **audio input in/out** (mic/guitar vs output-only pedal).
-2. Run **SooperLooper Pi test** — [`looper-vetting.md` §7](https://github.com/opsMachine/OM-Repo/blob/main/internal/projects/mpe-synth-launch/research/looper-vetting.md).
-3. Optional cheap UX check: play looper-phase0 branch 20 min — does fixed-length
-   + no undo actually ruin it?
-
-**Do not start:** NumPy mixer Tasks 1–4, whole PR #48 merge, Python callback Tasks 7–11.
