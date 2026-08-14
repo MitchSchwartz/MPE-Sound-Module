@@ -31,8 +31,6 @@ from patch_browser.touch_ui_constants import (
     NAV_SCROLL_DRAG_THRESHOLD_PX,
     NAV_SCROLL_FRICTION,
     NAV_SCROLL_MIN_VELOCITY,
-    NAV_SCROLL_RELEASE_SCALE,
-    NAV_SCROLL_VELOCITY_CAP,
     NORM_ROW_H,
     NORM_ROW_W,
     PATCHES_ROW_HEIGHT,
@@ -332,8 +330,7 @@ class TouchBrowserLayoutMixin:
                 drag_threshold_px=NAV_SCROLL_DRAG_THRESHOLD_PX,
                 friction=NAV_SCROLL_FRICTION,
                 min_velocity=NAV_SCROLL_MIN_VELOCITY,
-                velocity_cap=NAV_SCROLL_VELOCITY_CAP,
-                release_scale=NAV_SCROLL_RELEASE_SCALE,
+                release_instant_only=True,
             )
         else:
             self.nav_list.rect = list_rect
