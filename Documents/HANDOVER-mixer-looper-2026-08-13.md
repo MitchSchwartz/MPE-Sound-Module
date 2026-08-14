@@ -1,5 +1,9 @@
 # Handover — mixer & looper work (post Phase 1 soak)
 
+> **⚠ SUPERSEDED 2026-08-13** — TL;DR tracks (Tasks 1–4, whole #48 merge) are
+> **wrong**. Read [`DECISIONS.md`](DECISIONS.md) and [`DIRECTION.md`](DIRECTION.md)
+> instead. Below: useful **Phase 1 landing notes** (#56–#59, Pi smoke) only.
+
 *Last updated: 2026-08-13 (America/Toronto)*
 
 **Audience:** next agent session or Mitch picking up Phase 2 / mixer product work.  
