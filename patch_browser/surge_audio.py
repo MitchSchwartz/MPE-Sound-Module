@@ -10,7 +10,10 @@ from pathlib import Path
 MPE_ENV_PATH = Path("/etc/mpe/mpe.env")
 SET_SURGE_AUDIO_SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "set-surge-audio.sh"
 
+# Legacy Surge ALSA sizes — still valid in mpe.env for MIDI offset / calibration.
 BUFFER_PRESETS: tuple[int, ...] = (32, 64, 128, 256, 512, 768, 1024, 2048)
+# JACK server period sizes the touch UI and jackd accept (see mpe-cli jack buffer).
+JACK_PERIOD_PRESETS: tuple[int, ...] = (64, 128, 256, 512, 1024)
 JACK_PERIODS_PRESETS: tuple[int, ...] = (2, 3, 4)
 SAMPLE_RATE_PRESETS: tuple[int, ...] = (44100, 48000)
 
@@ -62,7 +65,7 @@ def current_jack_period() -> int:
     return _read_env_int(
         "MPE_JACK_BUFFER",
         DEFAULT_JACK_PERIOD,
-        valid=frozenset(BUFFER_PRESETS),
+        valid=frozenset(JACK_PERIOD_PRESETS),
     )
 
 
@@ -136,11 +139,11 @@ def sample_rate_settings_label() -> str:
 
 
 def next_buffer_preset(current: int | None = None) -> int:
-    value = current if current is not None else current_buffer_size()
-    if value not in BUFFER_PRESETS:
-        return DEFAULT_BUFFER
-    index = BUFFER_PRESETS.index(value)
-    return BUFFER_PRESETS[(index + 1) % len(BUFFER_PRESETS)]
+    value = current if current is not None else current_jack_period()
+    if value not in JACK_PERIOD_PRESETS:
+        return DEFAULT_JACK_PERIOD
+    index = JACK_PERIOD_PRESETS.index(value)
+    return JACK_PERIOD_PRESETS[(index + 1) % len(JACK_PERIOD_PRESETS)]
 
 
 def next_sample_rate(current: int | None = None) -> int:
@@ -152,8 +155,8 @@ def next_sample_rate(current: int | None = None) -> int:
 
 
 def apply_buffer(buffer: int) -> tuple[bool, str]:
-    if buffer not in BUFFER_PRESETS:
-        return False, f"Invalid buffer: {buffer}"
+    if buffer not in JACK_PERIOD_PRESETS:
+        return False, f"Invalid JACK period: {buffer}"
     return _run_set_script(["--buffer", str(buffer)], success=f"Buffer {buffer}")
 
 
@@ -191,10 +194,10 @@ def _run_set_script(args: list[str], *, success: str) -> tuple[bool, str]:
     if "--sample-rate" in args:
         os.environ["MPE_SURGE_SAMPLE_RATE"] = args[args.index("--sample-rate") + 1]
 
-    ms = buffer_latency_ms()
     if "--buffer" in args and "--sample-rate" not in args:
         buf = int(args[args.index("--buffer") + 1])
-        return True, f"{success} (~{buffer_latency_ms(buf):.0f} ms)"
+        ms = graph_latency_ms(buf)
+        return True, f"{success} (~{ms:.0f} ms graph latency)"
     if "--sample-rate" in args:
         return True, f"{success} — restart host capture at new rate if USB"
     return True, success

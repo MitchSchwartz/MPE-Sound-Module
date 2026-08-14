@@ -5,7 +5,7 @@ from __future__ import annotations
 from patch_browser.geometry import Rect
 from patch_browser.scroll_widgets import ContentScrollArea, draw_vertical_scroll_edge_hints
 from patch_browser.surge_audio import (
-    BUFFER_PRESETS,
+    JACK_PERIOD_PRESETS,
     SAMPLE_RATE_PRESETS,
     apply_buffer,
     apply_sample_rate,
@@ -68,7 +68,7 @@ class TouchBrowserSurgeAudioModalMixin:
         option_h = 44
         self._surge_buffer_option_rects = []
         y = list_top
-        for preset in BUFFER_PRESETS:
+        for preset in JACK_PERIOD_PRESETS:
             rect = Rect(inner_x, y, inner_w, option_h)
             self._surge_buffer_option_rects.append((rect, preset))
             y += option_h + SETTINGS_ROW_GAP

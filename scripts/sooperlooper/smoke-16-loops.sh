@@ -23,7 +23,9 @@ need_cmd() {
 }
 
 wire_jack_parallel() {
-  bash "${SCRIPT_DIR}/wire-jack-graph.sh"
+  # Fresh engine after pkill: connect-only avoids live disconnect xruns.
+  bash "${SCRIPT_DIR}/wire-jack-graph.sh" connect
+  sleep 0.5
 }
 
 start_engine() {
@@ -79,7 +81,7 @@ sample_stats() {
   log "VmRSS=${rss} kB"
   if command -v timeout >/dev/null 2>&1 && command -v jack_cpu_load >/dev/null 2>&1; then
     local cpu
-    cpu="$(timeout 3 jack_cpu_load 2>/dev/null | tail -1 || echo "n/a")"
+    cpu="$(timeout 3 jack_cpu_load 2>/dev/null | grep -E 'load|DSP' | tail -1 || echo "n/a")"
     log "jack_cpu_load (3s sample): ${cpu}"
   fi
 }
