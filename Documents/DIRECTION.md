@@ -3,7 +3,8 @@
 *Last updated: 2026-08-14 (America/Toronto)*
 
 **Locked decisions:** [`DECISIONS.md`](DECISIONS.md)  
-**Deep canon (branch audit, open questions):** OM-Repo [`GROUNDING.md`](https://github.com/opsMachine/OM-Repo/blob/main/internal/projects/mpe-synth-launch/GROUNDING.md)
+**Deep canon (branch audit, open questions):** OM-Repo [`GROUNDING.md`](https://github.com/opsMachine/OM-Repo/blob/main/internal/projects/mpe-synth-launch/GROUNDING.md)  
+**SooperLooper bench log:** [`docs/measurements/sooperlooper-eval-2026-08-14.md`](../docs/measurements/sooperlooper-eval-2026-08-14.md)
 
 ---
 
@@ -19,12 +20,45 @@ paths**, not the plan.
 
 ---
 
-## Next step — SooperLooper Pi test only
+## SooperLooper Pi test — status (2026-08-14)
+
+Plan: [`looper-vetting.md` §7](https://github.com/opsMachine/OM-Repo/blob/main/internal/projects/mpe-synth-launch/research/looper-vetting.md).  
+**Evidence:** [`docs/measurements/sooperlooper-eval-2026-08-14.md`](../docs/measurements/sooperlooper-eval-2026-08-14.md) on branch `docs/sooperlooper-eval`.
+
+| Session | Verdict | Headline |
+|---|---|---|
+| **A** (~1.5 h) | **continue** | v1.7.9 builds on trixie arm64 with **liblo 0.32 patch**; rubberband yes; engine runs headless on JACK |
+| **B** (~3–4 h) | **partial** | **B1/B2/B9 pass (ear)** · B6 ✓ · **B8 fail (disk save)** · B7/B10 open |
+
+**Still blocks adopt/kill:**
+
+1. **B8 — persistence** — **fail so far** (RAM loop OK; `save_loop`/`save_session` write nothing — needs debug or restart)
+2. **B7 — full 10-min soak** — partial only
+3. **B10 — free-form vs grid feel** — not run
+4. **Mic/guitar ~10 min** — not exercised
+
+**Closed (automation + ear):**
+
+| Item | Result |
+|---|---|
+| **B1 `dry=0`** | **Pass (ear)** — parallel graph sounds like direct Surge; no doubling |
+| **B2 record/play** | **Pass (ear)** — free-form loop + play-over |
+| Build + liblo patch cost | Real but bounded (~1 h to binary on Pi) |
+| B5b memory | 16 idle ~147 MiB · 64 idle ~251 MiB · 16 active ~151 MiB — well under predictions |
+| B6 fail-open | Surge → `system:playback` survives `pkill -KILL sooperlooper` |
+| B13 `pitch_shift` | OSC accepted, no crash (rubberband linked) |
+
+**Next bench step:** debug **B8** (restart looper clean → record → save) or accept B8 fail for adopt verdict; then **B10** + **B7** soak.
+
+**Do not start:** NumPy mixer Tasks 1–4, whole PR #48 merge, Python callback Tasks 7–11.
+
+---
+
+## SooperLooper Pi test — original checklist (reference)
 
 Run on **current `dev`** — the only Phase 2 experiment that does not disturb the
-appliance. Plan: [`looper-vetting.md` §7](https://github.com/opsMachine/OM-Repo/blob/main/internal/projects/mpe-synth-launch/research/looper-vetting.md)
-(**Session A ~1.5 h, Session B ~3-4 h**; if the source build fights past Session
-A's budget, that is the maintenance-cost answer).
+appliance. If the source build fights past Session A's budget, that is the
+maintenance-cost answer.
 
 **Must prove explicitly (do not infer from docs):**
 
@@ -68,17 +102,15 @@ downgrade to the ALSA stack #50 removed. UX signal comes from the B10 A/B above.
 
 | Loops recorded (idle) | `-t` (s) | Predicted `VmRSS` | Measured |
 |---|---|---|---|
-| 16 | 40 | ~246 MB | |
-| 64 | 40 | ~983 MB | |
-| 64 | 20 | ~492 MB | |
+| 16 | 40 | ~246 MB | **~147 MiB** idle; **~151 MiB** with 16 recorded/playing |
+| 64 | 40 | ~983 MB | **~251 MiB** |
+| 64 | 20 | ~492 MB | **~251 MiB** (same as `-t 40` at idle — may allocate on first record) |
 
 Predictions are arithmetic from documented `-t` semantics (stereo float32 ×
 seconds × 48 kHz), not measured. Note: `-t` sets loop memory only — it does
 not bound undo depth the way it would under SooperLooper's native EDP model,
 because Mitch's play style doesn't use the undo stack (clip-clear replaces
 it). Lower `-t` freely if memory is tight.
-
-**Do not start:** NumPy mixer Tasks 1–4, whole PR #48 merge, Python callback Tasks 7–11.
 
 ---
 
@@ -117,13 +149,12 @@ as Surge today). Zynthian ships this on Pi + JACK + Python UI.
 
 | Pros | Cons |
 |---|---|
-| Overdub, undo, multiply, persistence — free | Not in Debian trixie — source build + maybe patch |
+| Overdub, undo, multiply, persistence — free | Not in Debian trixie — source build + **liblo 0.32 patch** required |
 | Free-form **or** tempo-synced loops | EDP model ≠ approved APC clip-grid UX |
-| Fail-open wiring possible (Surge → DAC direct) | Last upstream release 2023; 28 open issues |
-| Full OSC command set for record/overdub/undo/clear | **Unverified on this Pi** — must run test plan |
+| Fail-open wiring possible (Surge → DAC direct) | **B1 pass (ear)** · B6 graph pass ([eval](../docs/measurements/sooperlooper-eval-2026-08-14.md)) |
+| Full OSC command set; 16 loops ~151 MiB / ~15% DSP | Last upstream release 2023; B8/B10/B7 soak not closed |
 
-**Kill if:** won't build inside Session A (~1.5 h), can't fail open, adds xruns beside Surge, or
-B10 play test feels wrong.
+**Kill if:** won't build inside Session A (~1.5 h) — **survived** (with patch), can't fail open — **B6 pass / B1 pass**, adds xruns beside Surge — **partial (~15% DSP)**, or B10 play test feels wrong — **not run**.
 
 ### B. Build our own (compiled JACK client) — **fallback**
 

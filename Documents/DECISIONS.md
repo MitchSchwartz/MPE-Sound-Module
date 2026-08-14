@@ -97,6 +97,30 @@ downgrades to deleted ALSA stack (repriced after PR #50).
 **Supersedes:** `Documents/HANDOVER-mixer-looper-2026-08-13.md` TL;DR (Tasks 1–4,
 whole #48 merge). Handover retained for Phase 1 landing notes only.
 
+**Progress (2026-08-14):** Session A **continue**, Session B **partial** —
+see [`docs/measurements/sooperlooper-eval-2026-08-14.md`](../docs/measurements/sooperlooper-eval-2026-08-14.md).
+Test is **not complete**; implementation gate remains closed until B8/B10/B7
+close on hardware with real audio. **B1/B2/B9 closed 2026-08-14 (ear — pass).**
+
+---
+
+## 2026-08-14 — SooperLooper eval progress (not a final adopt/build verdict)
+
+**Status:** Bench test ran on reference Pi (`d01d9c3`). Source at
+`~/src/sooperlooper-1.7.9` (v1.7.9 + liblo 0.32 handler patch, eval-only on Pi).
+
+| Outcome | Detail |
+|---|---|
+| **Build** | Pass with patch + `libtool-bin`/`autopoint`; rubberband linked |
+| **Fail-open (B6)** | Pass — Surge direct path survives looper `SIGKILL` |
+| **Multi-loop (B5)** | 16 loops driven via OSC; VmRSS ~151 MiB |
+| **CPU (B7 partial)** | ~15% `jack_cpu_load` sample with 16-loop engine |
+| **Blockers** | **B8 save to disk (fail)** · B10 feel · full B7 soak |
+| **B1/B2/B9 (2026-08-14 ear)** | **Pass** — parallel + `dry=0`; free-form record/play; APC pad footswitch (`scripts/sooperlooper-apc-bench.py`) |
+| **Automation gap** | `/mnote` + ffmpeg could not drive audible Surge (noise floor only) — human session required |
+
+**Rollback:** eval adds build deps + `~/src/sooperlooper-1.7.9` only — see eval doc.
+
 ---
 
 ## 2026-08-14 — Loop UX: pad-per-loop, not Zynthian's row-per-loop

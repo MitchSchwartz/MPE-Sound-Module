@@ -31,3 +31,8 @@ design under JACK and reports a false negative on a healthy appliance.
 - [`TEMPLATE-sooperlooper-eval.md`](TEMPLATE-sooperlooper-eval.md) — Session A/B
   of the SooperLooper adoption test. Plan lives in OM-Repo
   `internal/projects/mpe-synth-launch/research/looper-vetting.md` §7.
+
+## Completed runs
+
+- [`sooperlooper-eval-2026-08-14.md`](sooperlooper-eval-2026-08-14.md) — Session A
+  **continue**, Session B **inconclusive** (Pi bench, branch `docs/sooperlooper-eval`).
