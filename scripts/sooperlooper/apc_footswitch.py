@@ -11,6 +11,8 @@ from sl_loop_states import (
     SL_STATE_PAUSED,
     SL_STATE_PLAYING,
     SL_STATE_RECORDING,
+    SL_STATE_WAIT_START,
+    SL_STATE_WAIT_STOP,
 )
 
 STATE_IDLE = "idle"
@@ -71,8 +73,10 @@ class LoopFootswitch:
             self.awaiting_quantize = False
             self.state = STATE_IDLE
         elif sl_state in QUANTIZE_WAIT:
-            self.awaiting_quantize = True
             self.state = STATE_RECORDING
+            # Block further taps only after stop-record sent (WAIT_STOP), not while
+            # waiting to begin (WAIT_START) — otherwise 2nd tap never reaches SL.
+            self.awaiting_quantize = sl_state == SL_STATE_WAIT_STOP
         elif sl_state == SL_STATE_RECORDING:
             self.awaiting_quantize = False
             self.state = STATE_RECORDING
@@ -110,7 +114,8 @@ class LoopFootswitch:
         self._last_action_at = time.monotonic()
 
     def _waiting_for_quantize(self) -> bool:
-        return self.awaiting_quantize or self.sl_state in QUANTIZE_WAIT
+        """True only after stop-record sent — not during WAIT_START arm phase."""
+        return self.awaiting_quantize
 
     def _clear_loop(self) -> None:
         self._hit("undo_all")

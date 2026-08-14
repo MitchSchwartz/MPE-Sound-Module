@@ -4,7 +4,12 @@ import unittest
 from unittest.mock import MagicMock
 
 from scripts.sooperlooper.apc_footswitch import LoopFootswitch, build_footswitches
-from scripts.sooperlooper.sl_loop_states import SL_STATE_PAUSED, SL_STATE_PLAYING, SL_STATE_WAIT_STOP
+from scripts.sooperlooper.sl_loop_states import (
+    SL_STATE_PAUSED,
+    SL_STATE_PLAYING,
+    SL_STATE_WAIT_START,
+    SL_STATE_WAIT_STOP,
+)
 
 
 class ApcFootswitchTests(unittest.TestCase):
@@ -34,6 +39,19 @@ class ApcFootswitchTests(unittest.TestCase):
         fs.sync_from_sl(SL_STATE_WAIT_STOP)
         self.assertEqual(fs.state, "recording")
         self.assertTrue(fs.awaiting_quantize)
+
+    def test_wait_start_does_not_block_second_tap(self) -> None:
+        osc = MagicMock()
+        fs = LoopFootswitch(loop=0, hold_ms=1000.0, debounce_ms=0.0)
+        fs.bind(osc, MagicMock(), 36)
+        fs.on_pad_down()
+        fs.on_pad_up()
+        fs.sync_from_sl(SL_STATE_WAIT_START)
+        self.assertFalse(fs.awaiting_quantize)
+        fs.on_pad_down()
+        fs.on_pad_up()
+        hits = [c.args[1] for c in osc.send_message.call_args_list if c.args[0] == "/sl/0/hit"]
+        self.assertEqual(hits, ["record", "record"])
 
     def test_sync_from_sl_paused_yellow(self) -> None:
         osc = MagicMock()
