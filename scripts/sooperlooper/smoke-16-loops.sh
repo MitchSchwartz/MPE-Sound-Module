@@ -92,7 +92,9 @@ main() {
   load_and_play
   sleep 2
   sample_stats
-  log "PASS — 16 clips loaded and triggered"
+  log "pausing all loops (smoke complete — use sl-stop or APC to control playback)"
+  bash "${SCRIPT_DIR}/stop-all-loops.sh" || true
+  log "PASS — 16 clips loaded, triggered, measured, paused"
 }
 
 main "$@"
