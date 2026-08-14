@@ -31,7 +31,7 @@ class SlGridSyncTests(unittest.TestCase):
 
         apply_freeform(send, num_loops=2)
         self.assertIn(("/set", ["sync_source", 0.0]), sent)
-        self.assertIn(("/sl/0/set", ["quantize", 0.0]), sent)
+        self.assertIn(("/sl/0/set", ["playback_sync", 0.0]), sent)
 
 
 if __name__ == "__main__":

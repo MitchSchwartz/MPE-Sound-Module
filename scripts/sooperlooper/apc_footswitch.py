@@ -239,6 +239,7 @@ def stop_all_loops(
     """Pause every loop without clearing audio; LEDs -> stopped (yellow)."""
     osc.send_message("/sl/-1/hit", "pause")
     for fs in footswitches:
+        fs.awaiting_quantize = False
         if fs.state != STATE_IDLE:
             fs.state = STATE_STOPPED
         fs._sync_led()

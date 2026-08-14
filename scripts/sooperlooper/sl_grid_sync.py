@@ -47,6 +47,7 @@ def apply_freeform(
         send(prefix, ["sync", 0.0])
         send(prefix, ["relative_sync", 0.0])
         send(prefix, ["round", 0.0])
+        send(prefix, ["playback_sync", 0.0])
 
 
 def main() -> int:
