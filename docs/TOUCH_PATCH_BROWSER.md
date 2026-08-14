@@ -539,6 +539,7 @@ Tests: `tests/test_favorites_index.py`, `tests/test_migrate_favorites_v2.py`
 
 ## Known gaps (v0)
 
+- **Post–audio-settings patch reload gap (2026-08-13):** After buffer / sample-rate / profile switch, graph recovery is ~5s and the correct patch reloads (toast: **Patch loaded**), but audio can **cut out again** during the OSC reload window even though state ends correct. Not blocking soak — see `Documents/specs/jack-audio-engine-spec.md` backlog.
 - Prefix/text search and folder chips not implemented (All patches + A–Z first)
 - Portrait panels are unsupported for this rig (yours is landscape)
 - Very large patches (e.g. **Bowed String**, ~8 MB) may need a calibration retry — use `--patch "Bowed String"` or re-run loader with `--force`
