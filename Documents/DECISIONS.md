@@ -6,6 +6,37 @@ Orientation canon: OM-Repo [`GROUNDING.md`](https://github.com/opsMachine/OM-Rep
 
 ---
 
+## 2026-08-14 — The Pi onboard headphone jack is never an audio output
+
+**Decision:** The Pi's onboard PWM headphone jack (`bcm2835 Headphones`) is
+**never** a valid output for this product. Mitch, 2026-08-14: *"never use pi
+output jack, it's poor quality and useless for us."* Not as a fallback, not as
+a last resort, not as an idle sink.
+
+**Answers** GROUNDING §6.2, the last open product question from the 2026-08-13
+audit, and closes the last live false-green (§2.11 / table row 3): today the
+appliance plays through that jack with **no interface attached** and reports
+`state=ok`, across four separate detection paths.
+
+**Consequences — this is the no-device fix (GROUNDING §4 S1a, ~1 day, own PR):**
+
+| Change | Detail |
+|---|---|
+| `standalone`, no interface | New terminal state **`state=no-device`**. Fail loud and legible, consistent with the JACK-only philosophy — never a silent wrong-device success |
+| Remove onboard from detection | Four paths reach it: `detect-audio-device.sh:154` (tier 3 name match) and `:178` (tier 4 last resort), `detect-jack-device.sh:127` (tier-3 card pattern) and `:140` ("first non-virtual card", which excludes only `Loopback\|vc4hdmi\|UAC2`) |
+| `usb-host` profile | Must bind **UAC2**, not the Pi jack. Tier 3 originally existed to give `usb-host` an idle sink; under this decision that role is UAC2's. **Prior art exists** — `yolo/shutdown-timing-fix` (orphan, no PR, 78 behind `dev`) carries `db14367 fix(audio): usb-host without Sound Blaster must use UAC2, not Pi headphone`. Triage that commit before rewriting it from scratch (GROUNDING §2.9 / Q1) |
+| Green test to invert | `test_usb_host_idle_no_sound_blaster_uses_pi_headphone` asserts `TIER=3` on a `bcm2835` device list — it pins the behaviour now banned. Rewrite, don't delete silently |
+| HUD | Badge is under 10 characters, so "No audio interface — plug one into USB" needs a second HUD element and a non-error semantic token. Also fix: a stale `state=degraded` file currently renders as a healthy `JACK` badge, and a Pi 5 (no headphone jack) renders `NONE·fai` |
+
+**Ship before** any demo unit boots without an interface attached — a
+customer's first impression would otherwise form on the worst converter in the
+box while the system reports success.
+
+**Does not block** the SooperLooper Session A/B test; that runs with an
+interface attached.
+
+---
+
 ## 2026-08-13 — No Python on the JACK audio thread
 
 **Decision:** Python must not run on the realtime audio path. No
