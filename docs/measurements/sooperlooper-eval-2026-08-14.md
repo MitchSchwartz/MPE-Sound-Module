@@ -85,7 +85,7 @@ oscsend osc.udp://127.0.0.1:9951 /sl/0/set sf dry 0.0
 | B7 | 10-min soak, 16 loops | **partial** | 90 s proxy + 20 note attempts; **`jack_cpu_load` ~15%** with 16-loop engine up (timeout 3 s sample). Full 10-min + xrun count **not completed** (`jack_cpu_load` blocks without timeout) |
 | B8 | Persistence | **fail (ear + agent)** | Mitch: loop plays from RAM (B2 pass) but **`save_loop` OSC does nothing** — no file after repeated tries with loop audibly playing. Agent: `save_session` also writes nothing; strace shows **no `openat` for `.wav`** on save OSC (nonrt file path never runs). Not “one command away” — **disk persistence broken/stuck on this headless Pi session** |
 | B9 | Footswitch | **pass (ear + agent)** | APC mini pad (0,0) via `scripts/sooperlooper-apc-bench.py` on Pi. Tap cycle: record → play → pause (stop) → trigger (restart). Hold ~1 s → `undo_all`. See §B9 footswitch bench below |
-| B10 | Free-form vs grid A/B | **not run** | Requires Mitch play |
+| B10 | Free-form vs grid A/B | **pass (verbal)** | 2026-08-14: **Both modes should ship eventually.** Mitch's personal default: **grid-synced** (bar/tempo-locked clips under the pad-per-loop UI). Free-form validated in B2 bench is fine for eval, not the v1 preference. See §B10 |
 | B11 | Per-pad clear | **OSC only** | `undo_all` sent |
 | B12 | Multiply | **OSC only** | `multiply` ×2 sent |
 | B13 | `pitch_shift` / rubberband | **pass (no crash)** | OSC 2.0 / 0.0 — engine survived |
@@ -107,7 +107,7 @@ oscsend osc.udp://127.0.0.1:9951 /sl/0/set sf dry 0.0
 | VmRSS (16 loops) | **150736 kB** |
 | xruns / 10 min | **not captured** |
 
-**Verdict B:** **partial** — **B1 pass (ear)** · **B2 pass (ear, reconfirmed APC)** · **B9 pass** · B6 and B5/B13 look fine; **B8 fail** blocks adoption verdict (RAM loop works, disk save does not). CPU headroom at 16 loops (~15% DSP) is encouraging but B7 soak not validated.
+**Verdict B:** **partial** — **B1/B2/B9/B10 pass** · B6 and B5/B13 look fine; **B8 fail** blocks adoption verdict (RAM loop works, disk save does not). CPU headroom at 16 loops (~15% DSP) is encouraging but B7 soak not validated.
 
 ### B9 — APC footswitch bench (2026-08-14 ~15:00 America/Toronto)
 
@@ -141,6 +141,21 @@ oscsend 127.0.0.1 9951 /sl/0/set sf quantize 0.0
 
 **Mitch observation (stop → restart):** After stopping a clip, next press felt like “back to record” with no yellow “stopped but saved” indication. **Verdict:** loop content was still in RAM (audible play worked); gap was **bench LED + OSC mapping**, not SooperLooper forgetting the loop. Yellow + `trigger` added to script after this report.
 
+### B10 — free-form vs grid-synced (2026-08-14 verbal)
+
+**Not a UI vote** — pad-per-loop clip grid is already decided (`DECISIONS.md` 2026-08-14).
+
+**Question:** Under that UI, should the engine default to free-form loops (performance sets length) or grid-synced loops (BPM + bar length)?
+
+| Mode | SooperLooper (eval) | Product fit |
+|---|---|---|
+| **Free-form** | `sync_source=0`, `quantize=0` — used for B2/B9 bench | Keep as **alternate mode** |
+| **Grid-synced** | `tempo` + `quantize=cycle` + fixed cycle length | **Mitch's personal default / v1 target** |
+
+**Mitch (2026-08-14):** *Both modes should be available in the future; I personally want grid.*
+
+**Eval implication:** B10 **pass** for adopt direction — SooperLooper supports both; grid-synced is the preferred v1 engine config. No hardware A/B required. Aligns with existing `MPE_LOOPER_BPM` / bar-length spec in the clip-grid design.
+
 ## Failures, surprises, and anything improvised
 
 - GitHub tag is **`v1.7.9`**, not `1.7.9`. No GitHub Release tarball; cloned from
@@ -171,7 +186,7 @@ oscsend 127.0.0.1 9951 /sl/0/set sf quantize 0.0
 - Memory at 16 loops (~151 MiB active) and 64 idle (~251 MiB) is fine on 8 GiB Pi.
 - **B1 pass (ear, 2026-08-14)** — parallel fail-open wiring validated; `dry=0` does not audibly double the live path.
 - **B9 pass (2026-08-14)** — APC pad footswitch via eval bench script; B2 reconfirmed same session.
-- **Stopped-with-content UX** — pause keeps loop in RAM; product needs yellow + restart (`trigger`), not accidental overdub (`record`). Bench script updated same day.
+- **B10 pass (verbal, 2026-08-14)** — ship both modes eventually; **grid-synced is Mitch's default** for v1.
 - **B8 fail** — in-memory loop works; **`/sl/0/save_loop` and `/save_session` write no files** on Pi (2026-08-14). Likely nonrt OSC/event path not executing file I/O (strace: no wav `openat`). Needs restart/debug or blocks N5 “free persistence” claim.
 - Pi may still have SooperLooper from automation — kill when done: `pkill sooperlooper`.
 - Automation script + log on Pi: `/tmp/session-b.sh`, `/tmp/session-b-results.log`.
