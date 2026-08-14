@@ -20,6 +20,7 @@ from apc_transport import (  # noqa: E402
     NOTE_STOP_ALL_CLIPS_MK2,
     ShiftHoldCombo,
 )
+from sl_bench_listener import SlBenchStateListener  # noqa: E402
 
 
 def midi_note_down(st: int, vel: int) -> bool | None:
@@ -72,6 +73,11 @@ def main() -> int:
     for fs in footswitches:
         fs._sync_led()
 
+    by_loop = {fs.loop: fs for fs in footswitches}
+    state_listener = SlBenchStateListener(by_loop)
+    state_listener.start()
+    state_listener.register(osc, num_loops=num_loops)
+
     track_reset = ShiftHoldCombo(
         shift_note=shift_note,
         target_note=stop_all_note,
@@ -93,6 +99,7 @@ def main() -> int:
 
     def maybe_track_transport() -> None:
         if track_reset.poll_long():
+            print("transport: Shift+StopAll long -> track reset", flush=True)
             reset_all_loops(
                 osc,
                 midi_out,
@@ -100,6 +107,7 @@ def main() -> int:
                 footswitches=footswitches,
             )
         elif track_reset.poll_short():
+            print("transport: Shift+StopAll short -> stop all", flush=True)
             stop_all_loops(
                 osc,
                 num_loops=num_loops,
@@ -124,6 +132,8 @@ def main() -> int:
         vel = msg[2] if len(msg) > 2 else 0
         down = midi_note_down(st, vel)
         if down is not None and n in (shift_note, stop_all_note):
+            label = "Shift" if n == shift_note else "StopAll"
+            print(f"transport: {label} {'down' if down else 'up'}", flush=True)
             track_reset.note_event(n, down)
             maybe_track_transport()
             poll_holds()

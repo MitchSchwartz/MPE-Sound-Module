@@ -16,7 +16,11 @@ Mapping: `apc_grid.py` · 16-pad footswitch: `../sooperlooper-apc-bench.py` (row
 
 **Transport (Shift + Stop All Clips):** quick release = stop all (pause, keep audio); hold **3 s** = clear all. Per-pad hold **2 s** = clear that loop.
 
-**Touch HUD:** `start-sooperlooper-hud-monitor.sh` writes `~/.mpe_sl_hud_state.json` (beat **1/4** from master loop). Header badge shows when playing.
+**Touch HUD:** `scripts/start-sooperlooper-hud-monitor.sh` → `sooperlooper/sl-hud-monitor.py` writes `~/.mpe_sl_hud_state.json` (beat **1/4** when loop 0 is playing). Header badge left of **Analog**.
+
+**APC bench:** `scripts/start-sooperlooper-apc-bench.sh` — OSC state listener on port **9953** keeps pad LEDs in sync during quantize wait.
+
+**Workflow:** Record **loop 0** first (sets grid + enables HUD). Then loops 1–15 quantize to bar boundaries. Slaves blocked until loop 0 exists.
 
 ## Test clips + smoke (no manual recording)
 
