@@ -1,16 +1,29 @@
 # Surge latency — can the buffer floor come down?
 
-*Last updated: 2026-08-10 17:56 (America/Toronto)*
+*Last updated: 2026-08-14 (America/Toronto) — headline corrected post-Phase 1*
 
 **The question, in one line:** *Can we run a smaller Surge buffer than 1024 without losing voices — and what's the cheapest change that gets us there?*
 
-Originally scoped as "enable PREEMPT_RT and turn the buffer down." Measured baseline says start further up the stack: realtime scheduling was never enabled for Surge in the first place.
+Originally scoped as "enable PREEMPT_RT and turn the buffer down." The measured baseline below said to start further up the stack, because realtime scheduling was not enabled for Surge at the time it was taken.
 
 **Related:** [#44 Buffer size in settings](https://github.com/MitchSchwartz/MPE-Sound-Module/issues/44) · `FAQ.md` · `docs/PATCH_NORMALIZATION.md`
 
-**Status:** Arm A not started. **Arm B is probably unnecessary** — cheap scheduling wins were never applied (§Measured baseline), and voice loss at 768 may be CPU throughput, not scheduler jitter (§RT feasibility). Repo buffer defaults corrected to 1024 (below).
+**Status:** Arm A not started. **Arm B is probably unnecessary.** Everything measured below predates the JACK engine and describes the pre-JACK appliance.
 
-> **Headline:** Surge currently runs `SCHED_OTHER` at priority 0 with an `rtprio` hard limit of **0**, on the `ondemand` CPU governor. It has never had realtime scheduling available to it. Chasing an RT *kernel* before fixing that is optimizing the wrong layer.
+> **Headline — CORRECTED 2026-08-14.** The original headline read: *"Surge currently
+> runs `SCHED_OTHER` at priority 0 with an `rtprio` hard limit of 0 … It has never
+> had realtime scheduling available to it."* **That is no longer true.** Phase 1
+> (PR #49, #50) did not lose the RT mechanism — it *replaced* it. Live on the
+> appliance today: `LimitRTPRIO=95`, memlock unlimited, and jackd elevates Surge's
+> audio callback thread to `SCHED_FIFO ~65`. "Never had it" is true of the pre-JACK
+> era only.
+>
+> **Two traps for anyone reading this while chasing crackle.** `mpe sysinfo` reads
+> **process**-level scheduling, which is `SCHED_OTHER` by design under JACK — it
+> reports a false negative for RT on every healthy appliance. Use **`mpe rt status`**,
+> which reads the audio thread. And the old `MPE_SURGE_RT_PRIORITY` knob has no
+> consumer left (see §A½.5 note below and `config/mpe.env.example`); reaching for it
+> is a guaranteed wild-goose chase.
 
 ---
 
