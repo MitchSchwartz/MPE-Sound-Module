@@ -90,6 +90,7 @@ main() {
   need_cmd oscsend
   ensure_clips
   start_engine
+  bash "${SCRIPT_DIR}/configure-grid-sync.sh" || log "WARN: grid-sync configure failed"
   wire_jack_parallel
   load_and_play
   sleep 2

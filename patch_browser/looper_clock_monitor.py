@@ -6,6 +6,7 @@ import threading
 import time
 
 from patch_browser.midi_clock import read_clock_state, stabilize_display_bpm
+from patch_browser.sl_hud_state import read_sl_hud_state
 
 POLL_INTERVAL_S = 0.2
 
@@ -51,5 +52,8 @@ class LooperClockMonitor:
                 self._display_bpm = stabilize_display_bpm(float(raw), self._display_bpm)
             snap = dict(snap)
             snap["bpm"] = self._display_bpm
+            sl = read_sl_hud_state()
+            if sl:
+                snap["sl"] = sl
             with self._lock:
                 self._snapshot = snap

@@ -418,7 +418,8 @@ class TouchBrowserDrawMixin:
         if not looper_hud_should_show(snap, user_enabled=getattr(self, "show_looper_hud", True)):
             return
         label = looper_hud_label(snap)
-        running = bool(snap.get("running"))
+        sl = snap.get("sl") or {}
+        running = bool(snap.get("running")) or bool(sl.get("active"))
 
         fill = self.theme.surface_alt
         if running:

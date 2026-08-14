@@ -170,3 +170,18 @@ def reset_all_loops(
         note = pad_note(row, col)
         midi_out.send_message([0x90, note, LED_OFF])
     print(f"-> track reset: cleared {num_loops} loops", flush=True)
+
+
+def stop_all_loops(
+    osc,
+    *,
+    num_loops: int,
+    footswitches: list[LoopFootswitch],
+) -> None:
+    """Pause every loop without clearing audio; LEDs -> stopped (yellow)."""
+    osc.send_message("/sl/-1/hit", "pause")
+    for fs in footswitches:
+        if fs.state != STATE_IDLE:
+            fs.state = STATE_STOPPED
+        fs._sync_led()
+    print(f"-> stop all: paused {num_loops} loops", flush=True)
