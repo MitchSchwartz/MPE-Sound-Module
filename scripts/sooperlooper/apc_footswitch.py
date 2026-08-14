@@ -61,6 +61,7 @@ class LoopFootswitch:
 
     def sync_from_sl(self, sl_state: int) -> bool:
         """Mirror SooperLooper state → bench LED (all loops incl. 0)."""
+        prev_sl = self.sl_state
         self.sl_state = sl_state
         before = self.state
         if sl_state == SL_STATE_PLAYING:
@@ -80,7 +81,12 @@ class LoopFootswitch:
         elif sl_state == SL_STATE_RECORDING:
             self.awaiting_quantize = False
             self.state = STATE_RECORDING
-        if before != self.state:
+        changed = before != self.state or prev_sl != sl_state
+        if changed:
+            print(
+                f"loop {self.loop}: SL sync sl={sl_state} bench={self.state}",
+                flush=True,
+            )
             self._sync_led()
             return True
         return False
@@ -132,13 +138,25 @@ class LoopFootswitch:
         if self._waiting_for_quantize():
             print(f"loop {self.loop}: -> tap ignored (quantize wait)", flush=True)
             return
+        if self.sl_state == SL_STATE_WAIT_START:
+            print(
+                f"loop {self.loop}: -> tap ignored (SL wait_start — wait for record to begin)",
+                flush=True,
+            )
+            return
 
         if self.state == STATE_IDLE:
             self._hit("record")
             self.state = STATE_RECORDING
         elif self.state == STATE_RECORDING:
+            if self.sl_state not in (SL_STATE_RECORDING, SL_STATE_WAIT_STOP):
+                print(
+                    f"loop {self.loop}: -> tap ignored (SL state={self.sl_state}, not recording yet)",
+                    flush=True,
+                )
+                return
             self._hit("record")
-            self.awaiting_quantize = True
+            self.awaiting_quantize = self.sl_state == SL_STATE_WAIT_STOP
         elif self.state == STATE_PLAYING:
             self._hit("pause")
             self.state = STATE_STOPPED
@@ -151,7 +169,10 @@ class LoopFootswitch:
 
         self._sync_led()
         self._mark_action()
-        print(f"loop {self.loop}: -> tap done (state={self.state})", flush=True)
+        print(
+            f"loop {self.loop}: -> tap done (state={self.state}, sl_state={self.sl_state})",
+            flush=True,
+        )
 
     def on_pad_down(self) -> None:
         self._pad_down = True
