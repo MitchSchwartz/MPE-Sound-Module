@@ -10,7 +10,7 @@
 | **3** | 24–31 | 8–15 | Clip pads |
 | 1, 2, 4–7 | — | — | Per-loop controllers (future) |
 
-Mapping: `apc_grid.py` · single-pad footswitch bench: `../sooperlooper-apc-bench.py`
+Mapping: `apc_grid.py` · 16-pad footswitch: `../sooperlooper-apc-bench.py` (rows 0 + 3)
 
 **Track reset:** hold **Shift + Stop All Clips** (APC mk2 Scene Launch 8) for **3 s** → pause + `undo_all` on all loops, clip LEDs off.
 
