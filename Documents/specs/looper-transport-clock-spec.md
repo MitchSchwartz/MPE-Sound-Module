@@ -1,9 +1,9 @@
 # Looper transport clock — externalise the grid from clip 0
 
 **Issue:** untracked
-**Status:** Implemented — Task 0 automated checks need Pi deploy + Mitch ear test (0.3)
+**Status:** In review — gate fixes; **do not deploy ear test yet**
 **Branch:** `yolo/looper-transport-clock`
-**Last updated:** 2026-08-14 18:50 (America/Toronto)
+**Last updated:** 2026-08-14 (America/Toronto)
 
 **Register:** everything below is a working hypothesis unless labelled
 **measured**. Measured facts carry a source — a file path with line numbers, a
@@ -86,14 +86,38 @@ every fix in this document, and it is one line.
 
 ## §C — The design
 
-**A JACK timebase master owns the grid. SooperLooper syncs to JACK transport
-(`sync_source = -1`). No loop is ever the clock.**
+**No loop is ever the clock.** That invariant is settled. *Where* the clock
+lives is ranked, not settled — canon is `DECISIONS.md` 2026-08-14 "Who owns the
+looper grid clock". Do not build down this list before falsifying up it:
 
-### C.1 Why not the internal-tempo approach we already built
+| # | Option | RT-thread cost | Status |
+|---|---|---|---|
+| 1 | SL internal sync (`sync_source = -3`) + explicit phase anchor | **none** | **Check first — §D.0** |
+| 2 | JACK transport (`sync_source = -1`) + **compiled C** timebase master | none (no DSP) | Fallback — §C.2 |
+| 3 | MIDI clock (`sync_source = -2`) + SPP | none, but jittery | Rejected unless we need to clock outboard gear |
+
+**Correction (2026-08-14):** an earlier revision of this spec declared option 1
+dead and went straight to option 2, and the implementation on
+`yolo/looper-transport-clock` followed it there. §C.1 below is rewritten. §D
+onward is written for option 2 and **executes only if §D.0 falsifies option 1.**
+
+### C.1 Internal sync is not dead — it was never tested properly
 
 `8d7a426` externalised the grid by snapshotting clip 0's `cycle_len`, converting
 it to a BPM float (`sl_master_clock.py:30-35`), and switching `sync_source` to
-`-3` (internal). Two defects, and the second is disqualifying:
+`-3` (internal). It failed, and was read as proving internal sync unusable.
+**It proves no such thing.** It failed because it flipped `sync_source`
+mid-flight and never established phase — a defect of that implementation, not a
+property of internal sync.
+
+If SL exposes any way to say *"the downbeat is now"*, option 1 delivers an
+externalised grid with defined phase, no new process, and nothing on the
+realtime thread. The candidate is `tap_tempo`, which `8d7a426` guessed at and
+never verified (`sl_master_clock.py:127` — `send("/set", ["tap_tempo", 0.0])`,
+commented *"noop pulse — anchors UI if needed"*). §D.0 is that check.
+
+The two defects below are why option 1 needs an explicit phase anchor to work,
+rather than being adoptable as `8d7a426` wrote it:
 
 **Lossy.** A measured cycle length becomes a rounded BPM, then the grid is
 regenerated from that BPM. With `playback_sync = 1`, each slave re-aligns to a
@@ -125,6 +149,27 @@ exactly this): measure the first recorded clip once, set the timebase master's
 BPM from it, and from that moment the transport is authoritative and the clip is
 just audio.
 
+**The timebase master must be compiled, not Python.** It runs on the JACK
+realtime thread. `DECISIONS.md` 2026-08-13 — *"No Python on the JACK audio
+thread"* — is the governing rule. A timebase callback does no DSP and touches no
+audio buffers, so there is a genuine argument it falls outside that rule's
+literal scope; **we are not taking that exception.** It is ~80–120 lines of C
+that fills in a `jack_position_t`; Python sets BPM over OSC and stays the
+control layer. Same reasoning already recorded for the limiter: if nothing
+packaged fits, writing one is small and doubles as a dry run of the
+compiled-JACK-client toolchain.
+
+**Packaged alternatives surveyed 2026-08-14 — none fit.** `jack-midi-clock` and
+`klick` both *consume* JACK transport rather than master it; `jack-tools`'
+transport utility is start/stop control only. **Caveat:** surveyed against the
+laptop archive, not trixie arm64 — needs the same `dak ls` treatment the loopers
+got before this is treated as closed.
+
+`scripts/sooperlooper/jack_timebase.py` (Python, on `yolo/looper-transport-clock`)
+is a **spike instrument only**. It exists so §D.0/0.3 can be answered without
+writing C first. It must not reach the appliance, and its two arithmetic defects
+(§I) must be fixed before it is trusted as a measuring instrument.
+
 ### C.3 What falls out
 
 - `sl_master_clock.py` (155 lines), `~/.mpe_sl_master_clock.json`, and
@@ -150,26 +195,34 @@ correction against a moving reference.
 
 ## §D — Task 0: the gate (do this before anything else)
 
-**The entire design rests on one unverified assumption:** that SooperLooper
-1.7.9 follows JACK transport BBT usefully. Nothing in the repo uses JACK
-transport today (verified: no matches for
-`jack_transport|timebase|jack_position` outside this document), and SL's source
-has not been read.
+**Run in this order** (see `DECISIONS.md` 2026-08-14 looper grid clock):
 
-**Spike (~1 h, no production code):**
+### D.0 — Internal sync + `tap_tempo` (no new code, try first)
+
+Script: `scripts/sooperlooper/spike-internal-sync-phase.py`
+
+| Step | Action |
+|---|---|
+| 0.0a | Apply `sync_source=-3`, set `tempo`, send `tap_tempo` noop |
+| 0.0b | Record loop A → wait ≥30 s → record loop B |
+| **Pass** | Same downbeat (ear) → internal sync may be enough; JACK timebase optional |
+| **Fail** | Proceed to D.1 |
+
+### D.1 — JACK transport spike (Python, not for ship)
+
+Requires fixed `jack_timebase.py` (fractional tick accumulator, relocate `pos.tick`).
+**Do not run 0.3 ear test against an unfixed clock.**
 
 | # | Check | Pass condition |
 |---|---|---|
-| 0.1 | Start a minimal JACK timebase master at a fixed BPM | `jack_transport` reports rolling with BBT advancing |
+| 0.1 | Start minimal JACK timebase master at a fixed BPM | `jack_transport` reports rolling with BBT advancing |
 | 0.2 | Set SL `sync_source = -1`, `quantize = cycle`, record a slave | Record **ends on a bar boundary** of the transport, not on finger release |
 | 0.3 | Does SL honour **bar phase** or only tempo? | Two clips recorded minutes apart start on the **same downbeat** |
 | 0.4 | Behaviour with transport rolling and **no loops recorded** | No crash, no xrun storm; SL idles |
 | 0.5 | Stop/relocate the transport mid-playback | Defined, non-crashing behaviour; note what it is |
 
-**Kill criterion:** if 0.3 fails — SL follows tempo but not bar phase — §C is
-dead as specified and §G executes instead. Record the result in
-`docs/measurements/` either way; a negative result here is worth more than the
-rest of this document.
+**Kill criterion:** if 0.3 fails — SL follows tempo but not bar phase — §G executes
+(or C timebase master if 0.3 passes). Record in `docs/measurements/` either way.
 
 ## §E — Task table (executes only if Task 0 passes)
 

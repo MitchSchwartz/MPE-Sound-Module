@@ -21,7 +21,12 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+SCRIPT_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(SCRIPT_DIR))
+
+from jack_transport_util import transport_label, transport_rolling  # noqa: E402
+
+REPO_ROOT = SCRIPT_DIR.parents[1]
 DEFAULT_OUT = REPO_ROOT / "docs/measurements/task0-jack-transport-spike.md"
 
 SL_HOST = os.environ.get("MPE_SL_OSC_HOST", "127.0.0.1")
@@ -38,34 +43,26 @@ def _osc_send(path: str, args: list) -> None:
     )
 
 
-def _jack_transport_query() -> tuple[str, dict]:
-    import jack
-
-    client = jack.Client("mpe-spike-query", no_start_server=True)
-    try:
-        state, pos = client.transport_query()
-        return state, dict(pos) if pos else {}
-    finally:
-        client.close()
-
-
-def check_01_timebase() -> tuple[bool, str]:
-    try:
-        import jack
-    except ImportError:
-        return False, "python3-jack-client not installed"
-
-    state, pos = _jack_transport_query()
-    bbt = pos.get("bar"), pos.get("beat"), pos.get("tick")
-    if state not in (jack.TRANSPORT_ROLLING, jack.TRANSPORT_STARTING):
-        return False, f"transport state={state!r}, not rolling (start jack_timebase.py first)"
+def check_01_timebase(client) -> tuple[bool, str]:
+    state, pos = client.transport_query()
+    pos_dict = dict(pos) if pos else {}
+    bbt = pos_dict.get("bar"), pos_dict.get("beat"), pos_dict.get("tick")
+    if not transport_rolling(state):
+        return False, (
+            f"transport={transport_label(state)!r}, not rolling "
+            "(start jack_timebase.py first)"
+        )
     if bbt[0] is None:
-        return False, f"no BBT in position: {pos!r}"
+        return False, f"no BBT in position: {pos_dict!r}"
     time.sleep(0.5)
-    _, pos2 = _jack_transport_query()
-    if pos2.get("bar") is None:
+    _, pos2 = client.transport_query()
+    pos2_dict = dict(pos2) if pos2 else {}
+    if pos2_dict.get("bar") is None:
         return False, "BBT did not persist on second query"
-    return True, f"rolling BBT bar={pos2.get('bar')} beat={pos2.get('beat')} tick={pos2.get('tick')}"
+    return True, (
+        f"rolling BBT bar={pos2_dict.get('bar')} beat={pos2_dict.get('beat')} "
+        f"tick={pos2_dict.get('tick')}"
+    )
 
 
 def check_02_sl_jack_sync() -> tuple[bool, str]:
@@ -100,27 +97,15 @@ def check_04_idle() -> tuple[bool, str]:
         return True, "sooperlooper running (journalctl unavailable for xrun count)"
 
 
-def check_05_stop_relocate() -> tuple[bool, str]:
-    try:
-        import jack
-
-        client = jack.Client("mpe-spike-stop", no_start_server=True)
-        try:
-            client.transport_stop()
-            time.sleep(0.2)
-            state, _ = client.transport_query()
-            client.transport_start()
-            time.sleep(0.2)
-            state2, _ = client.transport_query()
-            ok = state != jack.TRANSPORT_ROLLING or state2 in (
-                jack.TRANSPORT_ROLLING,
-                jack.TRANSPORT_STARTING,
-            )
-            return ok, f"stop→{state!r} start→{state2!r} (no crash)"
-        finally:
-            client.close()
-    except Exception as exc:
-        return False, str(exc)
+def check_05_stop_relocate(client) -> tuple[bool, str]:
+    client.transport_stop()
+    time.sleep(0.2)
+    state, _ = client.transport_query()
+    client.transport_start()
+    time.sleep(0.2)
+    state2, _ = client.transport_query()
+    ok = transport_rolling(state2) or transport_label(state) == "STOPPED"
+    return ok, f"stop→{transport_label(state)!r} start→{transport_label(state2)!r} (no crash)"
 
 
 def main() -> int:
@@ -128,25 +113,35 @@ def main() -> int:
     parser.add_argument("--output", type=Path, default=DEFAULT_OUT)
     args = parser.parse_args()
 
-    checks = [
-        ("0.1", "JACK timebase rolling with BBT", check_01_timebase),
-        ("0.2", "SL sync_source=-1 + quantize=cycle (OSC)", check_02_sl_jack_sync),
-        ("0.4", "SL idle with transport rolling", check_04_idle),
-        ("0.5", "Transport stop/start non-crash", check_05_stop_relocate),
-    ]
+    try:
+        import jack
+    except ImportError:
+        print("[FAIL] python3-jack-client not installed", flush=True)
+        return 1
 
-    rows: list[str] = []
-    all_auto_pass = True
-    for num, label, fn in checks:
-        try:
-            ok, detail = fn()
-        except Exception as exc:
-            ok, detail = False, f"exception: {exc}"
-        if not ok:
-            all_auto_pass = False
-        mark = "pass" if ok else "FAIL"
-        rows.append(f"| {num} | {label} | **{mark}** | {detail} |")
-        print(f"[{mark}] {num} {label}: {detail}", flush=True)
+    client = jack.Client("mpe-spike", no_start_server=True)
+    try:
+        checks = [
+            ("0.1", "JACK timebase rolling with BBT", lambda: check_01_timebase(client)),
+            ("0.2", "SL sync_source=-1 + quantize=cycle (OSC)", check_02_sl_jack_sync),
+            ("0.4", "SL idle with transport rolling", check_04_idle),
+            ("0.5", "Transport stop/start non-crash", lambda: check_05_stop_relocate(client)),
+        ]
+
+        rows: list[str] = []
+        all_auto_pass = True
+        for num, label, fn in checks:
+            try:
+                ok, detail = fn()
+            except Exception as exc:
+                ok, detail = False, f"exception: {exc}"
+            if not ok:
+                all_auto_pass = False
+            mark = "pass" if ok else "FAIL"
+            rows.append(f"| {num} | {label} | **{mark}** | {detail} |")
+            print(f"[{mark}] {num} {label}: {detail}", flush=True)
+    finally:
+        client.close()
 
     now = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M %Z")
     body = f"""# Task 0 — JACK transport spike

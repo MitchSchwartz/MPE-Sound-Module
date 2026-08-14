@@ -2,16 +2,13 @@
 
 **Branch:** `yolo/looper-transport-clock` · Pi binary: `~/src/sooperlooper-1.7.9/src/sooperlooper`
 
-## Clock
+## Clock (gate order — see DECISIONS.md 2026-08-14)
 
-**JACK transport** is the grid (`sync_source = -1`). Start the timebase master before SL:
-
-```bash
-bash scripts/start-jack-timebase.sh          # foreground
-# or: python3 scripts/sooperlooper/jack_timebase.py --bpm 120
-```
-
-OSC `/bpm` on port **9960** (env `MPE_JACK_TIMEBASE_OSC_PORT`). Task 0 gate: `python3 scripts/sooperlooper/spike-jack-transport.py`.
+1. **Internal sync phase (try first, no new process):**
+   `python3 scripts/sooperlooper/spike-internal-sync-phase.py` → ear test 0.3
+2. **If that fails — JACK transport spike only (not for ship):**
+   `bash scripts/start-jack-timebase.sh` then `spike-jack-transport.py`
+3. **Production clock:** compiled JACK timebase client (TBD after gate)
 
 ## APC 16-loop clip grid (target layout)
 

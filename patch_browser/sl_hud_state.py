@@ -11,6 +11,7 @@ SL_HUD_STATE_FILE = Path(
     os.environ.get("MPE_SL_HUD_STATE_FILE", str(Path.home() / ".mpe_sl_hud_state.json"))
 )
 STALE_AFTER_S = float(os.environ.get("MPE_SL_HUD_STALE_S", "2.0"))
+TRANSPORT_STALE_AFTER_S = float(os.environ.get("MPE_SL_HUD_TRANSPORT_STALE_S", "5.0"))
 
 
 def read_sl_hud_state(*, now: float | None = None) -> dict:
@@ -25,16 +26,38 @@ def read_sl_hud_state(*, now: float | None = None) -> dict:
         return {}
 
     updated = float(raw.get("updated_at") or 0.0)
-    if updated <= 0 or (now - updated) > STALE_AFTER_S:
+    source = str(raw.get("source") or "")
+    stale_s = TRANSPORT_STALE_AFTER_S if source == "jack_transport" else STALE_AFTER_S
+    if updated <= 0 or (now - updated) > stale_s:
         return {}
+
+    beat = raw.get("beat")
+    bar = raw.get("bar")
+
+    if source == "jack_transport":
+        playing = bool(raw.get("playing"))
+        has_master = bool(raw.get("has_master"))
+        active = bool(raw.get("active"))
+        state = int(raw.get("state") or (4 if playing else 0))
+        return {
+            "active": active,
+            "has_master": has_master,
+            "playing": playing,
+            "state": state,
+            "source": source,
+            "bpm": raw.get("bpm"),
+            "cycle_len": 0.0,
+            "loop_len": 0.0,
+            "loop_pos": 0.0,
+            "beat": int(beat) if beat is not None else None,
+            "bar": int(bar) if bar is not None else None,
+            "updated_at": updated,
+        }
 
     cycle_len = float(raw.get("cycle_len") or 0.0)
     loop_len = float(raw.get("loop_len") or 0.0)
     state = int(raw.get("state") or -1)
-    beat = raw.get("beat")
-    bar = raw.get("bar")
-
-    playing = state in (4, 5)  # Playing, Overdubbing
+    playing = state in (4, 5)
     has_master = loop_len > 0.05
 
     return {
@@ -42,6 +65,7 @@ def read_sl_hud_state(*, now: float | None = None) -> dict:
         "has_master": has_master,
         "playing": playing,
         "state": state,
+        "source": source or "loop",
         "cycle_len": cycle_len,
         "loop_len": loop_len,
         "loop_pos": float(raw.get("loop_pos") or 0.0),
