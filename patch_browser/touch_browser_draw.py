@@ -500,10 +500,10 @@ class TouchBrowserDrawMixin:
             self.font_sm.render(sub_lines[0], True, sub_color),
             (title_x, self.status_rect.y + 26),
         )
-        self._draw_audio_profile_badge(self.audio_profile_badge_rect)
         self._draw_engine_hud(getattr(self, "engine_hud_rect", Rect(0, 0, 0, 0)))
         if getattr(self, "show_looper_hud", True):
             self._draw_looper_hud(self.looper_hud_rect)
+        self._draw_audio_profile_badge(self.audio_profile_badge_rect)
         if self.show_cpu_meter:
             self._draw_cpu_meter(self.cpu_meter_rect)
         self._draw_button(
