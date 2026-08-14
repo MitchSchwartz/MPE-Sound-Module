@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
-import threading
 import time
 
 from apc_grid import all_loop_pads, pad_note
-from sl_grid_sync import apply_grid_sync
-from sl_loop_states import QUANTIZE_WAIT, SL_STATE_PLAYING, SL_STATE_WAIT_STOP
+from sl_loop_states import (
+    QUANTIZE_WAIT,
+    SL_STATE_OFF,
+    SL_STATE_PAUSED,
+    SL_STATE_PLAYING,
+    SL_STATE_RECORDING,
+)
 
 STATE_IDLE = "idle"
 STATE_RECORDING = "recording"
@@ -19,38 +23,9 @@ LED_GREEN = 1
 LED_RED = 3
 LED_YELLOW = 5
 
-_master_loop_established = False
-
-
-def master_loop_established() -> bool:
-    return _master_loop_established
-
 
 def _osc_send(osc, path: str, args: list) -> None:
     osc.send_message(path, args)
-
-
-def _refresh_grid_sync(osc, *, num_loops: int) -> None:
-    apply_grid_sync(lambda path, args: _osc_send(osc, path, args), num_loops=num_loops)
-
-
-def _ensure_master_playing(osc) -> None:
-    """Quantized slaves need loop 0 playing to supply cycle boundaries."""
-    if not _master_loop_established:
-        return
-    osc.send_message("/sl/0/hit", "trigger")
-
-
-def _schedule_grid_sync(osc, *, num_loops: int, delay_s: float = 0.35) -> None:
-    """Re-apply grid sync after loop 0 lands — not inline (avoids smothering playback)."""
-
-    def _run() -> None:
-        time.sleep(delay_s)
-        _refresh_grid_sync(osc, num_loops=num_loops)
-        _ensure_master_playing(osc)
-        print("grid-sync: re-applied after loop 0 landed", flush=True)
-
-    threading.Thread(target=_run, daemon=True, name="sl-grid-sync-delay").start()
 
 
 class LoopFootswitch:
@@ -74,7 +49,7 @@ class LoopFootswitch:
         self._pad_down_at = 0.0
         self._hold_fired = False
         self._last_action_at = 0.0
-        self.sl_state = -1
+        self.sl_state = SL_STATE_OFF
         self.awaiting_quantize = False
 
     def bind(self, osc, midi_out, note: int) -> None:
@@ -83,19 +58,23 @@ class LoopFootswitch:
         self._note = note
 
     def sync_from_sl(self, sl_state: int) -> bool:
-        """Mirror SooperLooper state for quantized slaves only (loop > 0)."""
-        if self.loop == 0:
-            return False
+        """Mirror SooperLooper state → bench LED (all loops incl. 0)."""
         self.sl_state = sl_state
         before = self.state
         if sl_state == SL_STATE_PLAYING:
             self.awaiting_quantize = False
             self.state = STATE_PLAYING
-        elif sl_state == SL_STATE_WAIT_STOP:
-            self.awaiting_quantize = True
-            self.state = STATE_RECORDING
+        elif sl_state == SL_STATE_PAUSED:
+            self.awaiting_quantize = False
+            self.state = STATE_STOPPED
+        elif sl_state == SL_STATE_OFF:
+            self.awaiting_quantize = False
+            self.state = STATE_IDLE
         elif sl_state in QUANTIZE_WAIT:
             self.awaiting_quantize = True
+            self.state = STATE_RECORDING
+        elif sl_state == SL_STATE_RECORDING:
+            self.awaiting_quantize = False
             self.state = STATE_RECORDING
         if before != self.state:
             self._sync_led()
@@ -131,21 +110,17 @@ class LoopFootswitch:
         self._last_action_at = time.monotonic()
 
     def _waiting_for_quantize(self) -> bool:
-        return self.loop > 0 and (self.awaiting_quantize or self.sl_state in QUANTIZE_WAIT)
+        return self.awaiting_quantize or self.sl_state in QUANTIZE_WAIT
 
     def _clear_loop(self) -> None:
-        global _master_loop_established
-        if self.loop == 0:
-            _master_loop_established = False
         self._hit("undo_all")
         self.state = STATE_IDLE
         self.awaiting_quantize = False
-        self.sl_state = -1
+        self.sl_state = SL_STATE_OFF
         self._sync_led()
         self._mark_action()
 
     def _tap(self) -> None:
-        global _master_loop_established
         if self._debounced():
             print(f"loop {self.loop}: -> tap ignored (debounce)", flush=True)
             return
@@ -154,27 +129,15 @@ class LoopFootswitch:
             return
 
         if self.state == STATE_IDLE:
-            if self.loop > 0:
-                _ensure_master_playing(self._osc)
             self._hit("record")
             self.state = STATE_RECORDING
         elif self.state == STATE_RECORDING:
             self._hit("record")
-            if self.loop == 0:
-                _master_loop_established = True
-                self.state = STATE_PLAYING
-                self._hit("trigger")
-                _schedule_grid_sync(self._osc, num_loops=self.num_loops)
-            elif _master_loop_established:
-                self.awaiting_quantize = True
-            else:
-                self.state = STATE_PLAYING
+            self.awaiting_quantize = True
         elif self.state == STATE_PLAYING:
             self._hit("pause")
             self.state = STATE_STOPPED
         elif self.state == STATE_STOPPED:
-            if self.loop > 0:
-                _ensure_master_playing(self._osc)
             self._hit("trigger")
             self.state = STATE_PLAYING
         else:
@@ -239,15 +202,8 @@ def build_footswitches(
     return by_note, footswitches
 
 
-def slave_footswitches(footswitches: list[LoopFootswitch]) -> dict[int, LoopFootswitch]:
-    return {fs.loop: fs for fs in footswitches if fs.loop > 0}
-
-
-def _reset_footswitch_state(fs: LoopFootswitch) -> None:
-    fs.state = STATE_IDLE
-    fs.awaiting_quantize = False
-    fs.sl_state = -1
-    fs._sync_led()
+def footswitches_by_loop(footswitches: list[LoopFootswitch]) -> dict[int, LoopFootswitch]:
+    return {fs.loop: fs for fs in footswitches}
 
 
 def reset_all_loops(
@@ -258,20 +214,20 @@ def reset_all_loops(
     footswitches: list[LoopFootswitch],
 ) -> None:
     """Stop playback and clear every loop; reset bench LED/state."""
-    global _master_loop_established
-    _master_loop_established = False
-    osc.send_message("/sl/-1/hit", "pause")
     for loop in range(num_loops):
+        osc.send_message(f"/sl/{loop}/hit", "pause")
         osc.send_message(f"/sl/{loop}/hit", "undo_all")
     for fs in footswitches:
-        _reset_footswitch_state(fs)
+        fs.state = STATE_IDLE
+        fs.awaiting_quantize = False
+        fs.sl_state = SL_STATE_OFF
+        fs._sync_led()
     for row, col, loop_i in all_loop_pads():
         if loop_i >= num_loops:
             continue
         note = pad_note(row, col)
         midi_out.send_message([0x90, note, LED_OFF])
     print(f"-> track reset: cleared {num_loops} loops", flush=True)
-    _refresh_grid_sync(osc, num_loops=num_loops)
 
 
 def stop_all_loops(
@@ -283,7 +239,6 @@ def stop_all_loops(
     """Pause every loop without clearing audio; LEDs -> stopped (yellow)."""
     osc.send_message("/sl/-1/hit", "pause")
     for fs in footswitches:
-        fs.awaiting_quantize = False
         if fs.state != STATE_IDLE:
             fs.state = STATE_STOPPED
         fs._sync_led()
