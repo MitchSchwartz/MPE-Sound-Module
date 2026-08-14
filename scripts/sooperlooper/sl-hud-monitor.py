@@ -115,6 +115,9 @@ def main() -> int:
 
     client = udp_client.SimpleUDPClient(SL_HOST, SL_PORT)
     monitor.register(client)
+
+    reregister_every_s = float(os.environ.get("MPE_SL_HUD_REREGISTER_S", "15"))
+    last_register = time.monotonic()
     print(
         f"sl-hud-monitor: loop {MASTER_LOOP} → {SL_HUD_STATE_FILE} "
         f"(listen {LISTEN_HOST}:{LISTEN_PORT}, SL {SL_HOST}:{SL_PORT})",
@@ -124,6 +127,9 @@ def main() -> int:
     try:
         while True:
             monitor.maybe_write()
+            if (time.monotonic() - last_register) >= reregister_every_s:
+                monitor.register(client)
+                last_register = time.monotonic()
             time.sleep(0.05)
     except KeyboardInterrupt:
         return 0

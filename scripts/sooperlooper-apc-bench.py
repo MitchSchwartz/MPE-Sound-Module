@@ -13,7 +13,12 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "sooperlooper"))
-from apc_footswitch import build_footswitches, reset_all_loops, stop_all_loops  # noqa: E402
+from apc_footswitch import (
+    build_footswitches,
+    reset_all_loops,
+    slave_footswitches,
+    stop_all_loops,
+)  # noqa: E402
 from apc_grid import NUM_LOOPS, loop_index_for_note  # noqa: E402
 from apc_transport import (  # noqa: E402
     NOTE_SHIFT_MK2,
@@ -73,7 +78,7 @@ def main() -> int:
     for fs in footswitches:
         fs._sync_led()
 
-    by_loop = {fs.loop: fs for fs in footswitches}
+    by_loop = slave_footswitches(footswitches)
     state_listener = SlBenchStateListener(by_loop)
     state_listener.start()
     state_listener.register(osc, num_loops=num_loops)
