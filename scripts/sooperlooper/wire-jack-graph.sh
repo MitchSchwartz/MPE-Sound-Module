@@ -3,7 +3,7 @@
 #
 # Listen path: engine common_out -> playback (internal mix), NOT per-loop outs.
 # Fail-open:   Surge -> playback stays connected.
-# Record path: Surge -> loop0_in (single-pad bench default; extend per product).
+# Record path: Surge -> every loopN_in (16-pad APC clip grid).
 #
 # Usage:
 #   wire-jack-graph.sh [connect|rewire]
@@ -38,8 +38,11 @@ disconnect_loop_outs_from_playback() {
 }
 
 connect_graph() {
-  jack_connect "${SURGE_CLIENT}:out_1" "${JACK_CLIENT}:loop0_in_1" 2>/dev/null || true
-  jack_connect "${SURGE_CLIENT}:out_2" "${JACK_CLIENT}:loop0_in_2" 2>/dev/null || true
+  local i
+  for i in $(seq 0 $((LOOPS - 1))); do
+    jack_connect "${SURGE_CLIENT}:out_1" "${JACK_CLIENT}:loop${i}_in_1" 2>/dev/null || true
+    jack_connect "${SURGE_CLIENT}:out_2" "${JACK_CLIENT}:loop${i}_in_2" 2>/dev/null || true
+  done
   jack_connect "${SURGE_CLIENT}:out_1" "system:playback_1" 2>/dev/null || true
   jack_connect "${SURGE_CLIENT}:out_2" "system:playback_2" 2>/dev/null || true
   jack_connect "${JACK_CLIENT}:common_out_1" "system:playback_1" 2>/dev/null || true
@@ -56,7 +59,7 @@ set_dry_all() {
 wire_connect() {
   need_cmd jack_connect
   need_cmd oscsend
-  log "connect-only (${MODE}): common_out -> playback; Surge parallel fail-open"
+  log "connect-only (${MODE}): Surge -> loop0..$((LOOPS - 1)) in; common_out -> playback"
   connect_graph
   set_dry_all
   log "dry=0 on loops 0..$((LOOPS - 1))"
