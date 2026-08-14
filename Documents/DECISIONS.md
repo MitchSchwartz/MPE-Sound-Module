@@ -44,12 +44,16 @@ SooperLooper Pi test and the audio-input question (see GROUNDING §6.3).
 
 ## 2026-08-13 — Phase 2 path: evaluate before building
 
-**Decision:** Do **not** start Phase 2 implementation code until:
+**Decision:** Do **not** start Phase 2 implementation code until the
+**SooperLooper Pi test** completes (~4 h timebox,
+[`looper-vetting.md` §7](https://github.com/opsMachine/OM-Repo/blob/main/internal/projects/mpe-synth-launch/research/looper-vetting.md)).
 
-1. **SooperLooper Pi test** (~4 h, [`looper-vetting.md` §7](https://github.com/opsMachine/OM-Repo/blob/main/internal/projects/mpe-synth-launch/research/looper-vetting.md))
-   — build, fail-open topology, CPU beside Surge, 20-min play test.
-2. **Audio input in/out** answered — blocks gadget path, powered-hub BOM, looper
-   shape.
+**During the test:** prove B1 (`dry=0`), B7 (xruns beside Surge), B10 (20-min play).
+Try mic/guitar on the interface for ~10 min — audio input in/out is decided by
+playing in the same session, not as a separate prerequisite.
+
+**Dropped:** play `yolo/looper-phase0` on the Pi — branch predates JACK; checkout
+downgrades to deleted ALSA stack (repriced after PR #50).
 
 **Pre-committed rule** (from recipe analysis, not yet executed):
 
