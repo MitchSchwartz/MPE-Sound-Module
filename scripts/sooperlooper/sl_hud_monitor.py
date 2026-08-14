@@ -10,8 +10,11 @@ import time
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(REPO_ROOT))
+sys.path.insert(0, str(SCRIPT_DIR))
 
+from jack_transport_util import transport_rolling  # noqa: E402
 from patch_browser.sl_hud_state import SL_HUD_STATE_FILE  # noqa: E402
 
 WRITE_INTERVAL_S = float(os.environ.get("MPE_SL_HUD_WRITE_INTERVAL_S", "1.0"))
@@ -63,10 +66,7 @@ class TransportHudWriter:
         state, pos = client.transport_query()
         pos_dict = dict(pos) if pos else {}
         beat, bar = beat_and_bar_from_transport(pos_dict)
-        rolling = state in (
-            getattr(self._jack, "TRANSPORT_ROLLING", 1),
-            getattr(self._jack, "TRANSPORT_STARTING", 3),
-        )
+        rolling = transport_rolling(state)
         now = time.time()
         payload = {
             "updated_at": now,

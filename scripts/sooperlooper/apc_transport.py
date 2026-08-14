@@ -40,8 +40,7 @@ class ShiftHoldCombo:
         self._combo_started_at = None
         self._had_both_down = False
         self._long_fired = False
-        self._short_pending = False
-        self._short_consumed = False
+        # _short_pending survives until poll_short() — do not clear on key release.
 
     def note_event(self, note: int, down: bool) -> None:
         if note == self.shift_note:
@@ -54,6 +53,8 @@ class ShiftHoldCombo:
         if self.both_down:
             if self._combo_started_at is None:
                 self._combo_started_at = time.monotonic()
+                self._short_pending = False
+                self._short_consumed = False
             self._had_both_down = True
             return
 
