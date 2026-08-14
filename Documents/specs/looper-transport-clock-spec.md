@@ -8,10 +8,19 @@
 **Register:** everything below is a working hypothesis unless labelled
 **measured**. Measured facts carry a source — a file path with line numbers, a
 git object, or a row from `docs/measurements/sooperlooper-eval-2026-08-14.md`.
-The central architectural choice (§C, JACK transport as grid authority) is a
-**decision taken on incomplete data** — it rests on an unverified assumption
-about SooperLooper 1.7.9 that Task 0 exists to falsify. If Task 0 fails, §G is
-the fallback and this document's task table does not execute.
+
+**One invariant is settled; the clock is not.** *No loop is ever the clock* is
+decided (Problem statement, §C). *Where the clock lives* is a **ranked open
+question** — §C table and `DECISIONS.md` 2026-08-14 "Who owns the looper grid
+clock" — resting on two unverified assumptions about SooperLooper 1.7.9, whose
+source has not been read: whether internal sync can be phase-anchored (§D.0) and
+whether SL honours JACK transport BBT phase (§D.1/0.3). §D onward is written for
+JACK transport and **executes only if §D.0 falsifies the cheaper option.** If
+both fail, §G is the fallback.
+
+**Implementation status:** control layer done and reviewed on
+`yolo/looper-transport-clock` (§I) — it lands regardless of which clock wins.
+The Python timebase is a **spike instrument, not a shippable component**.
 
 ---
 
@@ -129,8 +138,12 @@ recurring artifact, unlike anything else in the regression window.
 tempo and `eighth_per_cycle` and nothing that says *where the downbeat is*.
 Switching `sync_source` mid-flight puts bar 1 wherever the switch happened, not
 where clip 0's downbeat was. Clips recorded before and after the switch land on
-different grids. This is a correctness bug that would survive any pop fix, and
-it cannot be patched — a tempo scalar has no phase to carry.
+different grids. This is a correctness bug that would survive any pop fix.
+
+**What that does and does not prove.** A tempo *scalar* carries no phase — so
+`8d7a426` as written cannot be rescued. It does **not** follow that SL's
+internal sync engine has no phase you can set. That is the open question §D.0
+answers, and it is why option 1 sits above option 2 in the §C table.
 
 ### C.2 Why JACK transport
 
@@ -283,3 +296,105 @@ The product requirement is still met: deleting clip 0 deletes a clip.
 | Reworking the control layer re-breaks free-form (B2 **pass**) | Medium | Free-form becomes `sync_source = 0`, untouched by §C; re-run B2 as a regression check |
 | Scope creep back into a full control-layer rewrite | Medium | Tasks 3–5 are deletions. If a task adds net lines to `apc_footswitch.py`, stop and re-read this line |
 | Pop turns out to have a cause outside the regression window | Low | `fade_samples` (§B) is the first thing to try, and it is one line |
+
+## §I — Implementation review, 2026-08-14 (`yolo/looper-transport-clock`)
+
+Review of `e8ff41a` against this spec. Full review:
+[`../reviews/grumpy-review-looper-2026-08-14.md`](../reviews/grumpy-review-looper-2026-08-14.md).
+
+### What the control layer got right — lands regardless of which clock wins
+
+`_master_loop_established`, `_ensure_master_playing`, `_refresh_grid_sync` and
+**every** `if self.loop == 0` branch are deleted. `sync_from_sl` now covers OFF
+(0), RECORDING (2), PAUSED (14) and the quantize-wait states, for **all** loops
+including 0; the listener subscribes `range(num_loops)` and re-registers every
+15 s. Clip 0 is an ordinary clip in the code, not just in intent — **the product
+requirement is met.** `fade_samples` is set, `--dump-midi` landed, grid config is
+applied once at bench startup, and the HUD monitor is 121 lines lighter.
+
+The spike script is honest: it marks 0.3 — the kill criterion — as a manual ear
+test and does **not** claim it passes.
+
+### Defects found, and their resolution (all closed 2026-08-14)
+
+| # | Defect | Resolution | Verified |
+|---|---|---|---|
+| 1 | Timebase truncated the per-period tick increment — **2.34% slow**, 2.8 beats/min lost at 120 BPM | `advance_tick_remainder()` fractional accumulator | **measured** — 0.0000% drift over 60 s |
+| 2 | `pos.tick` identically zero (`abs_beat_f` used as float in its own remainder) | `int(abs_beat_f)` in `bbt_at_frame()` | **measured** — tick 480 at half-beat, was 0 |
+| 3 | `threading.Lock` acquired on the RT thread; docstring claimed "realtime-safe" | BPM is a plain float (GIL-atomic read); docstring corrected to "Task 0 spike" | code |
+| 4 | Acceptance §F.5 unreachable — writer emitted `loop_len: 0.0`, reader computed `has_master = loop_len > 0.05` and ignored the producer's keys | `sl_hud_state.py` honours `source == "jack_transport"`, trusts producer `has_master`, passes `bpm`/`source`, separate transport staleness | code |
+| 5 | `/bpm` never reached clients — `beats_per_minute` set only in the `new_pos` branch | assigned unconditionally each callback | code |
+| 6 | Two new test files uncollectable (`ModuleNotFoundError: apc_grid`) — 91 lines of new tests had never run | `tests/conftest.py` puts `scripts/sooperlooper` on `sys.path` | **measured** — 500 pass |
+| 7 | `test_apc_transport::test_short_on_release_before_hold` **red**, sitting directly on ship-blocker #3 (Shift+Stop All) | fixed in `apc_transport.py` | **measured** — green |
+| 8 | `apply_freeform` never cleared `playback_sync`, which grid sets to 1.0 on all 16 loops — grid→free-form left every loop aligning to a dead sync source | `playback_sync 0.0` added | code |
+| 9 | `stop_all_loops` dropped the `awaiting_quantize = False` reset | restored | code |
+
+**Unrelated and still red:** `tests/test_scroll_momentum.py` (2 failures). Not
+touched by this branch — `scroll_widgets.py` and its test are unchanged vs
+`e6d8ba6`. Pre-existing, tracked separately, not a looper concern.
+
+### Still open
+
+- **No timeout on `awaiting_quantize`.** Hold-clear recovers the pad, but the
+  latch is unbounded if state updates stop arriving. Low risk now that all loops
+  are subscribed and re-registration runs, but unbounded is unbounded.
+- **The clock question itself** — §C table, `DECISIONS.md` 2026-08-14. §D.0
+  (internal sync + `tap_tempo`) has not been run, and may make §D.1 moot.
+
+### Process note worth keeping
+
+The spec's own tripwire — *"if a task adds net lines to `apc_footswitch.py`,
+stop"* — fired (net **+22**) and was correctly overridden: the additions are
+`sync_from_sl`, which is Task 5 and legitimately additive. A tripwire that fires
+on a good change is working as intended; the check is whether the override is
+argued, not whether it is never used.
+
+## §J — Grid mode must never be applied without a running clock
+
+**Root cause of the 2026-08-14 evening loop** — "switch to grid, second tap
+won't leave record", "clip 0 ends up free-form but clip 2 shouldn't be", "the
+clock HUD never kicks in after saving clip 0". One cause, three faces:
+
+`apply_grid_sync` set `sync_source = -1` (JACK transport) at bench startup.
+**Nothing starts a timebase master.** `scripts/start-jack-timebase.sh` is manual
+and referenced only by the Task 0 spike; there is no unit, no supervisor, no
+call site. With no rolling transport there are **no cycle boundaries at all**, so:
+
+| Symptom | Mechanism |
+|---|---|
+| 2nd tap won't leave record | SL parks in `WaitStart` forever; the bench had three stacked gates that swallow taps in that state |
+| HUD beat never appears | HUD reads transport BBT; transport is stopped, `beat` is `None` |
+| "it's free-form now" | Each attempted fix backed further out of grid — ending at clip 0 free-form, which reintroduces the clip-0-is-special design this spec exists to delete |
+
+**The three gates were the trap.** Each fix for "the pad doesn't respond" added
+another `return` in `_tap` rather than asking *why SL never leaves WaitStart*.
+Three gates, all firing on the same missing clock, each one making the real
+cause harder to see. When a fix adds a guard against a symptom, check the guard
+is not hiding the cause.
+
+**Fixes applied:**
+
+1. **Grid defaults to internal sync** (`sync_source = -3` + explicit `tempo`,
+   `MPE_SL_GRID_CLOCK=internal`). SL owns the pulse, so boundaries exist with no
+   extra process. Grid mode now works standalone. `transport` stays available
+   for the §D.1 spike behind the same env var.
+2. **The bench refuses transport mode without a rolling transport** — probes
+   JACK for a rolling state *and* a non-`None` beat, and falls back to free-form
+   with a message naming the fix. It never silently applies a sync source whose
+   clock is absent.
+3. **The quantize wait is time-bounded** (`QUANTIZE_WAIT_TIMEOUT_S`, default 6 s).
+   No boundary in that time releases the pad and logs why. A dead pad with no
+   explanation is the worst available failure.
+4. **The stacked `_tap` gates are gone.** While armed (`WaitStart`) a second tap
+   reaches SL as cancel, which is what the player means by it.
+
+**Test guard:** `test_grid_default_clock_is_internal_and_self_sufficient` fails
+if the default grid clock goes back to something we don't start, and
+`test_quantize_wait_times_out_instead_of_latching` fails if the latch becomes
+unbounded again. Two tests that asserted the swallowed second tap were deleted —
+they encoded the bug.
+
+**Does not change the §C ranking.** Internal sync being *self-sufficient* is not
+the same as internal sync carrying *phase*: §D.0 is still unrun, and the phase
+question still decides the production clock. This makes grid playable today and
+stops the pad dying silently; it does not close the gate.

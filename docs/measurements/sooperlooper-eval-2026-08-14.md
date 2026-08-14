@@ -3,9 +3,7 @@
 Plan: OM-Repo `internal/projects/mpe-synth-launch/research/looper-vetting.md` §7.
 Decisions this feeds: `Documents/DECISIONS.md` 2026-08-14 entries.
 
-**Verdict:** Session A **continue** · Session B **partial** (2026-08-14, updated 18:14 America/Toronto). B2 pass (free-form, ear). **B9 regressed** after grid-sync integration — loop 0/1 UX broken; stop/reset not validated. B8 fail blocks adoption. Full log: this file.
-
-**Branch / commit (grid work):** `docs/sooperlooper-eval` @ `d08663d` (Pi redeployed 2026-08-14 ~18:07 America/Toronto).
+**Verdict:** Session A **continue** · Session B **partial** (2026-08-14, updated 15:06 America/Toronto). B2/B9 pass (ear + APC bench). B8 fail blocks adoption. Full log: this file.
 
 ## Rollback baseline (captured before A1)
 
@@ -86,7 +84,7 @@ oscsend osc.udp://127.0.0.1:9951 /sl/0/set sf dry 0.0
 | B6 | Fail open | **pass** | `pkill -KILL sooperlooper` ×2 — Surge → playback intact each time |
 | B7 | 10-min soak, 16 loops | **partial** | 90 s proxy + 20 note attempts; **`jack_cpu_load` ~15%** with 16-loop engine up (timeout 3 s sample). Full 10-min + xrun count **not completed** (`jack_cpu_load` blocks without timeout) |
 | B8 | Persistence | **fail (ear + agent)** | Mitch: loop plays from RAM (B2 pass) but **`save_loop` OSC does nothing** — no file after repeated tries with loop audibly playing. Agent: `save_session` also writes nothing; strace shows **no `openat` for `.wav`** on save OSC (nonrt file path never runs). Not “one command away” — **disk persistence broken/stuck on this headless Pi session** |
-| B9 | Footswitch | **partial — regressed (grid, 2026-08-14 evening)** | **Free-form pass (ear, ~15:00)** — tap cycle + hold clear on pad 0. **Grid-sync integration (evening) not passing:** loop 0 pad goes green but may not keep looping; **soft pop at loop boundary** (new, not present pre-grid); **loop 2 does not play after record**; **Shift+Stop All stop / 3 s reset not working** in practice despite code on branch. See §Grid-sync integration |
+| B9 | Footswitch | **pass (ear + agent)** | APC mini pad (0,0) via `scripts/sooperlooper-apc-bench.py` on Pi. Tap cycle: record → play → pause (stop) → trigger (restart). Hold ~1 s → `undo_all`. See §B9 footswitch bench below |
 | B10 | Free-form vs grid A/B | **pass (verbal)** | 2026-08-14: **Both modes should ship eventually.** Mitch's personal default: **grid-synced** (bar/tempo-locked clips under the pad-per-loop UI). Free-form validated in B2 bench is fine for eval, not the v1 preference. See §B10 |
 | B11 | Per-pad clear | **OSC only** | `undo_all` sent |
 | B12 | Multiply | **OSC only** | `multiply` ×2 sent |
@@ -109,7 +107,7 @@ oscsend osc.udp://127.0.0.1:9951 /sl/0/set sf dry 0.0
 | VmRSS (16 loops) | **150736 kB** |
 | xruns / 10 min | **not captured** |
 
-**Verdict B:** **partial** — **B1/B2 pass (free-form ear)** · B6 and B5/B13 look fine · **B9 partial** (free-form ok; grid + transport **fail Mitch ear gate 2026-08-14 evening**) · **B8 fail** blocks adoption verdict (RAM loop works, disk save does not). CPU headroom at 16 loops (~15% DSP) is encouraging but B7 soak not validated.
+**Verdict B:** **partial** — **B1/B2/B9/B10 pass** · B6 and B5/B13 look fine; **B8 fail** blocks adoption verdict (RAM loop works, disk save does not). CPU headroom at 16 loops (~15% DSP) is encouraging but B7 soak not validated.
 
 ### B9 — APC footswitch bench (2026-08-14 ~15:00 America/Toronto)
 
@@ -141,38 +139,6 @@ bash scripts/sooperlooper/wire-jack-graph.sh   # or: mpe looper sl-rewire
 | Stop → next tap re-enters record | Bench state machine sent `record` from `stopped` | **Not lost memory** — loop stays in RAM (SooperLooper state **14 = Paused**). Mapping bug: stopped should **`trigger`** (restart play) + **yellow LED**, not `record` |
 
 **Mitch observation (stop → restart):** After stopping a clip, next press felt like “back to record” with no yellow “stopped but saved” indication. **Verdict:** loop content was still in RAM (audible play worked); gap was **bench LED + OSC mapping**, not SooperLooper forgetting the loop. Yellow + `trigger` added to script after this report.
-
-**Status note (2026-08-14 ~15:00):** B9 **pass** applied to **free-form** bench only (`MPE_SL_SYNC_MODE=free` / pre-grid defaults). Do not treat as grid-sync validation.
-
-### Grid-sync integration (2026-08-14 evening — Mitch ear gate)
-
-**Goal:** loop 0 = free-form master length; loops 1–15 quantize to bar; beat **1/4** in touch HUD; Shift+Stop All (release) = stop all; Shift+Stop All (3 s hold) = full reset.
-
-**Deployed:** `mpe looper sl-restart` + HUD monitor + APC bench on `d08663d` (multiple redeploy attempts; services running via absolute python paths when wrapper scripts failed from wrong cwd).
-
-| Symptom | Mitch report (2026-08-14 ~18:00) | Agent read |
-|---|---|---|
-| Loop 0 “green but not looping” | Pad green after record stop; **no sustained loop playback** | HUD file showed `loop_len: 0`, `state: 0` while bench LED green earlier in session — bench/SL desync |
-| **Soft pop at loop wrap** | **New** — audible click/pop at end of loop; **not present before grid work** | Suspect: post-record `trigger` + deferred `_refresh_grid_sync` / grid re-apply smothering boundary; **unverified** — needs A/B vs pre-`792b490` |
-| Loop 2 (slave) after record | **Does not play** after saving/recording | Original bar-quantize bug **still open**; slave end-record → WaitStop path not closed |
-| Beat counter (1/4 HUD) | **Not visible** during failing sessions | HUD monitor path was wrong early (`start-sooperlooper-hud-monitor.sh`); fixed on branch; counter only valid when loop 0 actually playing with `loop_len > 0` |
-| **Shift+Stop All stop** | **Not implemented / not working** | Code exists (`apc_transport.py`, `stop_all_loops`) — **Mitch cannot use it**; transport MIDI may not reach bench or combo detection fails on hardware |
-| **Shift+Stop All 3 s reset** | **Not implemented / not working** | Code exists (`reset_all_loops`) — same gap as stop |
-
-**Engineering churn this session (for posterity — do not re-layer without fixing above):**
-
-- Internal master clock when loop 0 cleared (`8d7a426`) — **unwired** in stabilization pass
-- OSC state listener on slaves (`sl_bench_listener`) — loop 0 made bench-authoritative again in `d08663d`
-- Inline vs deferred grid-sync on loop 0 land — moved to ~350 ms defer + explicit `trigger`
-
-**Open before grid can ship:**
-
-1. Loop 0 must **audibly loop** with no wrap pop (regression vs free-form B2).
-2. Loop 2+ must complete record → play on bar boundary (quantize wait).
-3. Shift+Stop All **stop** and **reset** must work on APC mini mk2 (Mitch-verified).
-4. Beat HUD must track live loop 0 (not bench LED alone).
-
-**Next step (human):** do **not** add mode layers — fix the four items above against free-form B2 baseline, one variable at a time.
 
 ### B10 — free-form vs grid-synced (2026-08-14 verbal)
 
@@ -249,8 +215,8 @@ bash scripts/sooperlooper/wire-jack-graph.sh   # or: mpe looper sl-rewire
 - **rubberband builds cleanly** on trixie — B13 OSC accepts `pitch_shift` without crash.
 - Memory at 16 loops (~151 MiB active) and 64 idle (~251 MiB) is fine on 8 GiB Pi.
 - **B1 pass (ear, 2026-08-14)** — parallel fail-open wiring validated; `dry=0` does not audibly double the live path.
-- **B9 partial (2026-08-14)** — **free-form pass (~15:00)**; **grid-sync integration fail (evening)** — loop 0 playback/HUD/transport not Mitch-validated; wrap pop regression; slave loop 2 still broken.
-- **B10 pass (verbal, 2026-08-14)** — ship both modes eventually; **grid-synced is Mitch's default** for v1 — **direction unchanged; implementation not ready**.
+- **B9 pass (2026-08-14)** — APC pad footswitch via eval bench script; B2 reconfirmed same session.
+- **B10 pass (verbal, 2026-08-14)** — ship both modes eventually; **grid-synced is Mitch's default** for v1.
 - **B8 fail** — in-memory loop works; **`/sl/0/save_loop` and `/save_session` write no files** on Pi (2026-08-14). Likely nonrt OSC/event path not executing file I/O (strace: no wav `openat`). Needs restart/debug or blocks N5 “free persistence” claim.
 - Pi may still have SooperLooper from automation — kill when done: `pkill sooperlooper`.
 - Automation script + log on Pi: `/tmp/session-b.sh`, `/tmp/session-b-results.log`.

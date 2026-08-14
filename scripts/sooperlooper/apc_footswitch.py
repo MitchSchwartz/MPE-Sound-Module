@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import time
 
 from apc_grid import all_loop_pads, pad_note
@@ -24,6 +25,11 @@ LED_OFF = 0
 LED_GREEN = 1
 LED_RED = 3
 LED_YELLOW = 5
+
+# A quantized action waits for the next cycle boundary. If no boundary arrives
+# within this long, the grid clock is not running — release the pad rather than
+# leaving it dead, and say so. See spec §J: a silent latch here cost an evening.
+QUANTIZE_WAIT_TIMEOUT_S = float(os.environ.get("MPE_SL_QUANTIZE_TIMEOUT_S", "6.0"))
 
 
 def _osc_send(osc, path: str, args: list) -> None:
@@ -53,6 +59,7 @@ class LoopFootswitch:
         self._last_action_at = 0.0
         self.sl_state = SL_STATE_OFF
         self.awaiting_quantize = False
+        self._wait_since = 0.0
 
     def bind(self, osc, midi_out, note: int) -> None:
         self._osc = osc
@@ -75,9 +82,14 @@ class LoopFootswitch:
             self.state = STATE_IDLE
         elif sl_state in QUANTIZE_WAIT:
             self.state = STATE_RECORDING
-            # Block further taps only after stop-record sent (WAIT_STOP), not while
-            # waiting to begin (WAIT_START) — otherwise 2nd tap never reaches SL.
-            self.awaiting_quantize = sl_state == SL_STATE_WAIT_STOP
+            # Hold taps only after stop-record is sent (WAIT_STOP); during the
+            # arm phase (WAIT_START) a tap means cancel and must reach SL. The
+            # hold is time-bounded either way — see _waiting_for_quantize.
+            if sl_state == SL_STATE_WAIT_STOP:
+                if not self.awaiting_quantize:
+                    self._begin_quantize_wait()
+            else:
+                self.awaiting_quantize = False
         elif sl_state == SL_STATE_RECORDING:
             self.awaiting_quantize = False
             self.state = STATE_RECORDING
@@ -120,8 +132,30 @@ class LoopFootswitch:
         self._last_action_at = time.monotonic()
 
     def _waiting_for_quantize(self) -> bool:
-        """True only after stop-record sent — not during WAIT_START arm phase."""
-        return self.awaiting_quantize
+        """True while a quantized action is pending — but never indefinitely.
+
+        If no cycle boundary arrives within QUANTIZE_WAIT_TIMEOUT_S the grid
+        clock is not running. Release the pad and say so; a dead pad with no
+        explanation is the worst possible failure here.
+        """
+        if not self.awaiting_quantize:
+            return False
+        waited = time.monotonic() - self._wait_since
+        if waited < QUANTIZE_WAIT_TIMEOUT_S:
+            return True
+        print(
+            f"loop {self.loop}: !! no sync boundary in {waited:.1f}s — grid clock "
+            f"is not running (sl_state={self.sl_state}). Releasing pad. "
+            f"Check the clock: MPE_SL_GRID_CLOCK=internal needs a tempo; "
+            f"'transport' needs a rolling JACK timebase master.",
+            flush=True,
+        )
+        self.awaiting_quantize = False
+        return False
+
+    def _begin_quantize_wait(self) -> None:
+        self.awaiting_quantize = True
+        self._wait_since = time.monotonic()
 
     def _clear_loop(self) -> None:
         self._hit("undo_all")
@@ -138,25 +172,15 @@ class LoopFootswitch:
         if self._waiting_for_quantize():
             print(f"loop {self.loop}: -> tap ignored (quantize wait)", flush=True)
             return
-        if self.sl_state == SL_STATE_WAIT_START:
-            print(
-                f"loop {self.loop}: -> tap ignored (SL wait_start — wait for record to begin)",
-                flush=True,
-            )
-            return
 
         if self.state == STATE_IDLE:
             self._hit("record")
             self.state = STATE_RECORDING
         elif self.state == STATE_RECORDING:
-            if self.sl_state not in (SL_STATE_RECORDING, SL_STATE_WAIT_STOP):
-                print(
-                    f"loop {self.loop}: -> tap ignored (SL state={self.sl_state}, not recording yet)",
-                    flush=True,
-                )
-                return
+            # Armed but not yet recording (WAIT_START): a second tap means
+            # "cancel". Sending `record` again is what SL expects for both.
             self._hit("record")
-            self.awaiting_quantize = self.sl_state == SL_STATE_WAIT_STOP
+            self._begin_quantize_wait()
         elif self.state == STATE_PLAYING:
             self._hit("pause")
             self.state = STATE_STOPPED
