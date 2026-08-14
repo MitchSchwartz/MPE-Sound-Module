@@ -13,8 +13,12 @@ from patch_browser import surge_audio
 
 class SurgeAudioTests(unittest.TestCase):
     def test_buffer_presets_cycle(self) -> None:
-        self.assertEqual(surge_audio.next_buffer_preset(768), 1024)
-        self.assertEqual(surge_audio.next_buffer_preset(2048), 32)
+        self.assertEqual(surge_audio.next_buffer_preset(512), 1024)
+        self.assertEqual(surge_audio.next_buffer_preset(1024), 64)
+
+    def test_jack_period_presets(self) -> None:
+        self.assertNotIn(768, surge_audio.JACK_PERIOD_PRESETS)
+        self.assertNotIn(32, surge_audio.JACK_PERIOD_PRESETS)
 
     def test_sample_rate_toggles(self) -> None:
         self.assertEqual(surge_audio.next_sample_rate(48000), 44100)
@@ -50,6 +54,13 @@ class SurgeAudioTests(unittest.TestCase):
     def test_option_labels(self) -> None:
         self.assertEqual(surge_audio.buffer_option_label(768, 48000), "768 · 16 ms")
         self.assertEqual(surge_audio.sample_rate_option_label(44100), "44.1 kHz")
+
+    @mock.patch("patch_browser.surge_audio.subprocess.run")
+    def test_apply_buffer_rejects_non_jack_period(self, run_mock: mock.Mock) -> None:
+        ok, message = surge_audio.apply_buffer(768)
+        self.assertFalse(ok)
+        self.assertIn("768", message)
+        run_mock.assert_not_called()
 
     @mock.patch("patch_browser.surge_audio.subprocess.run")
     def test_apply_buffer_success(self, run_mock: mock.Mock) -> None:
