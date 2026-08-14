@@ -20,6 +20,8 @@ LOOPS="${MPE_SL_LOOPS:-16}"
 JACK_CLIENT="${MPE_SL_JACK_CLIENT:-mpe-looper}"
 SURGE_CLIENT="${MPE_SL_SURGE_CLIENT:-Surge XT}"
 
+FAILURES=0
+
 need_cmd() {
   command -v "$1" >/dev/null 2>&1 || {
     echo "wire-jack: missing: $1" >&2
@@ -29,30 +31,46 @@ need_cmd() {
 
 log() { echo "wire-jack: $*"; }
 
+try_jack() {
+  if ! "$@"; then
+    FAILURES=$((FAILURES + 1))
+    log "FAILED: $*"
+    return 1
+  fi
+}
+
+try_oscsend() {
+  if ! oscsend "${OSC_HOST}" "${OSC_PORT}" "$@"; then
+    FAILURES=$((FAILURES + 1))
+    log "FAILED: oscsend $*"
+    return 1
+  fi
+}
+
 disconnect_loop_outs_from_playback() {
   local i
   for i in $(seq 0 $((LOOPS - 1))); do
-    jack_disconnect "${JACK_CLIENT}:loop${i}_out_1" "system:playback_1" 2>/dev/null || true
-    jack_disconnect "${JACK_CLIENT}:loop${i}_out_2" "system:playback_2" 2>/dev/null || true
+    try_jack jack_disconnect "${JACK_CLIENT}:loop${i}_out_1" "system:playback_1" 2>/dev/null || true
+    try_jack jack_disconnect "${JACK_CLIENT}:loop${i}_out_2" "system:playback_2" 2>/dev/null || true
   done
 }
 
 connect_graph() {
   local i
   for i in $(seq 0 $((LOOPS - 1))); do
-    jack_connect "${SURGE_CLIENT}:out_1" "${JACK_CLIENT}:loop${i}_in_1" 2>/dev/null || true
-    jack_connect "${SURGE_CLIENT}:out_2" "${JACK_CLIENT}:loop${i}_in_2" 2>/dev/null || true
+    try_jack jack_connect "${SURGE_CLIENT}:out_1" "${JACK_CLIENT}:loop${i}_in_1"
+    try_jack jack_connect "${SURGE_CLIENT}:out_2" "${JACK_CLIENT}:loop${i}_in_2"
   done
-  jack_connect "${SURGE_CLIENT}:out_1" "system:playback_1" 2>/dev/null || true
-  jack_connect "${SURGE_CLIENT}:out_2" "system:playback_2" 2>/dev/null || true
-  jack_connect "${JACK_CLIENT}:common_out_1" "system:playback_1" 2>/dev/null || true
-  jack_connect "${JACK_CLIENT}:common_out_2" "system:playback_2" 2>/dev/null || true
+  try_jack jack_connect "${SURGE_CLIENT}:out_1" "system:playback_1"
+  try_jack jack_connect "${SURGE_CLIENT}:out_2" "system:playback_2"
+  try_jack jack_connect "${JACK_CLIENT}:common_out_1" "system:playback_1"
+  try_jack jack_connect "${JACK_CLIENT}:common_out_2" "system:playback_2"
 }
 
 set_dry_all() {
   local i
   for i in $(seq 0 $((LOOPS - 1))); do
-    oscsend "${OSC_HOST}" "${OSC_PORT}" "/sl/${i}/set" sf dry 0.0 2>/dev/null || true
+    try_oscsend "/sl/${i}/set" sf dry 0.0
   done
 }
 
@@ -86,3 +104,11 @@ case "${MODE}" in
     exit 1
     ;;
 esac
+
+if [[ "${FAILURES}" -gt 0 ]]; then
+  log "${FAILURES} connection(s) failed — graph may be incomplete"
+  exit 1
+fi
+
+log "graph wiring complete (${FAILURES} failures)"
+exit 0

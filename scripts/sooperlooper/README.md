@@ -1,6 +1,17 @@
 # SooperLooper eval scripts
 
-**Branch:** `docs/sooperlooper-eval` · Pi binary: `~/src/sooperlooper-1.7.9/src/sooperlooper`
+**Branch:** `yolo/looper-transport-clock` · Pi binary: `~/src/sooperlooper-1.7.9/src/sooperlooper`
+
+## Clock
+
+**JACK transport** is the grid (`sync_source = -1`). Start the timebase master before SL:
+
+```bash
+bash scripts/start-jack-timebase.sh          # foreground
+# or: python3 scripts/sooperlooper/jack_timebase.py --bpm 120
+```
+
+OSC `/bpm` on port **9960** (env `MPE_JACK_TIMEBASE_OSC_PORT`). Task 0 gate: `python3 scripts/sooperlooper/spike-jack-transport.py`.
 
 ## APC 16-loop clip grid (target layout)
 
@@ -12,15 +23,13 @@
 
 Mapping: `apc_grid.py` · 16-pad footswitch: `../sooperlooper-apc-bench.py` (rows 0 + 3)
 
-**Grid sync (default):** loop 0 sets master length (free-form); loops 1–15 use `sync` + `quantize=cycle`. On loop 0 clear, grid reference is **saved** (`~/.mpe_sl_master_clock.json`) and sync falls back to **internal tempo** — slaves keep quantizing without loop 0 alive. Full reset (Shift+Stop All 3s) clears the saved clock.
+**Grid sync (default):** all loops `sync` + `quantize=cycle` to JACK transport; `fade_samples` set globally. Applied **once at bench startup**. Free-form: `MPE_SL_SYNC_MODE=freeform`.
 
-**Transport (Shift + Stop All Clips):** quick release = stop all (pause, keep audio); hold **3 s** = clear all. Per-pad hold **2 s** = clear that loop.
+**Transport (Shift + Stop All Clips):** quick release = stop all; hold **3 s** = clear all. Verify note numbers: `sooperlooper-apc-bench.py --dump-midi`.
 
-**Touch HUD:** `scripts/start-sooperlooper-hud-monitor.sh` → `sooperlooper/sl-hud-monitor.py` writes `~/.mpe_sl_hud_state.json` (beat **1/4** when loop 0 is playing). Header badge left of **Analog**.
+**Touch HUD:** `start-sooperlooper-hud-monitor.sh` → bar/beat from JACK transport (`~/.mpe_sl_hud_state.json`), including with **no clips recorded**.
 
-**APC bench:** `scripts/start-sooperlooper-apc-bench.sh` — OSC state listener on port **9953** keeps pad LEDs in sync during quantize wait.
-
-**Workflow:** Record **loop 0** first (sets grid + enables HUD). Then loops 1–15 quantize to bar boundaries. Slaves blocked until loop 0 exists.
+**APC bench:** `start-sooperlooper-apc-bench.sh` — OSC state listener on port **9953** (all loops incl. 0).
 
 ## Test clips + smoke (no manual recording)
 
