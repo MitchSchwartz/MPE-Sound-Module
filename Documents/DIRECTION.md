@@ -93,12 +93,20 @@ Full reasoning: DECISIONS.md 2026-08-14 "Loop UX."
 
 ## Gain staging, if SooperLooper is adopted
 
-Two independent limiter JACK clients — one on the live path, one on the loop
-bus with a sidechain from live — not one shared limiter after the sum.
-Preserves fail-open per path; a shared full-chain limiter would recreate the
-single point of failure the parallel topology exists to avoid. Full
-reasoning and the deferred watchdog-bypass alternative: DECISIONS.md
-2026-08-14 "Master gain."
+**One** limiter JACK client, on the loop bus, **sidechained from live** —
+and **nothing in the live path**. The sidechain is the mechanism, not a
+refinement: it lets the limiter *see* the live signal without *carrying* it,
+so it can hold `live + loops` under 0 dBFS while Surge still runs straight to
+`system:playback` through nothing.
+
+No limiter on the live path — if it died, the instrument would go silent,
+which is the exact failure PR #50's parallel topology exists to prevent.
+Live stays bounded by per-patch normalization to −3 dBFS.
+
+**Build after the verdict, measure first:** Session B measures how far the
+16-loop sum actually overshoots; the limiter is then built to spec against
+real numbers. Full reasoning, the superseded two-limiter version, and the
+deferred watchdog-bypass alternative: DECISIONS.md 2026-08-14 "Master gain."
 
 ## Phase 2 options (simple comparison)
 
