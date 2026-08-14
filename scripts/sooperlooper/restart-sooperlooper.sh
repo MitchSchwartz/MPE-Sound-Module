@@ -75,6 +75,7 @@ main() {
   fi
 
   start_engine
+  bash "${SCRIPT_DIR}/configure-grid-sync.sh" || log "WARN: grid-sync configure failed"
   bash "${SCRIPT_DIR}/wire-jack-graph.sh" connect
   sleep 0.5
 

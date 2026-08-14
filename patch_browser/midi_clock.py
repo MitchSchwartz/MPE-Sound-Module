@@ -320,9 +320,12 @@ def read_clock_state(
 
 
 def looper_hud_should_show(snapshot: dict, *, user_enabled: bool = True) -> bool:
-    """Header badge only when the pedal is connected and tempo is meaningful."""
+    """Header badge when SL grid is playing or pedal tempo is available."""
     if not user_enabled:
         return False
+    sl = snapshot.get("sl") or {}
+    if sl.get("active"):
+        return True
     if not snapshot.get("connected"):
         return False
     if snapshot.get("running") and snapshot.get("bpm") is not None:
@@ -331,8 +334,13 @@ def looper_hud_should_show(snapshot: dict, *, user_enabled: bool = True) -> bool
 
 
 def looper_hud_label(snapshot: dict) -> str:
-    """Compact header label for the touch looper HUD."""
+    """Compact header label — SL beat (1/4) when grid master loop is playing, else BPM."""
+    sl = snapshot.get("sl") or {}
+    if sl.get("active") and sl.get("beat") is not None:
+        return f"{sl['beat']}/4"
     bpm = snapshot.get("bpm")
     if bpm is not None:
         return str(int(bpm))
+    if sl.get("has_master"):
+        return "LOOP"
     return ""
