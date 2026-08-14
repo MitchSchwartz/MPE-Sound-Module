@@ -168,7 +168,7 @@ class ScrollList:
             return None
 
         if self._drag_start_y is not None:
-            release_v = self._release_velocity() * self._release_scale
+            release_v = self._release_velocity(release_y=pos[1]) * self._release_scale
             if self._pointer_scrolled and abs(release_v) >= self._min_velocity:
                 self._velocity = release_v
                 self._momentum_active = True
@@ -239,20 +239,47 @@ class ScrollList:
         cutoff = now - SCROLL_SAMPLE_WINDOW_S
         self._scroll_samples = [(t, s) for t, s in self._scroll_samples if t >= cutoff]
 
-    def _release_velocity(self) -> float:
+    def _clamp_velocity(self, v: float) -> float:
+        return max(-self._velocity_cap, min(self._velocity_cap, v))
+
+    def _release_velocity(self, release_y: int | None = None) -> float:
+        """Velocity at lift-off (px/s). Finger delta preferred; never boosted above drag track."""
+        now = time.time()
+        finger_v: float | None = None
+        if release_y is not None and self._last_motion_y is not None:
+            dt = now - self._last_motion_time
+            if dt > 0.0005:
+                finger_v = -(release_y - self._last_motion_y) / dt
+
         self._record_scroll_sample()
+        sample_v: float | None = None
         if len(self._scroll_samples) >= 2:
-            if self._release_instant_only:
-                t0, s0 = self._scroll_samples[-2]
-                t1, s1 = self._scroll_samples[-1]
-            else:
-                t0, s0 = self._scroll_samples[0]
-                t1, s1 = self._scroll_samples[-1]
+            t0, s0 = self._scroll_samples[-2]
+            t1, s1 = self._scroll_samples[-1]
             dt = t1 - t0
-            if dt > 0.001:
-                v = (s1 - s0) / dt
-                return max(-self._velocity_cap, min(self._velocity_cap, v))
-        return max(-self._velocity_cap, min(self._velocity_cap, self._velocity))
+            if dt > 0.001 and s1 != s0:
+                sample_v = (s1 - s0) / dt
+
+        if self._release_instant_only:
+            # Kinetic scroll: coast at release finger speed, not window average.
+            if finger_v is not None and abs(finger_v) >= 1.0:
+                v = finger_v
+                if abs(self._velocity) > 0 and abs(v) > abs(self._velocity):
+                    v = math.copysign(abs(self._velocity), v)
+                return self._clamp_velocity(v)
+            if abs(self._velocity) >= self._min_velocity:
+                return self._clamp_velocity(self._velocity)
+            if sample_v is not None:
+                return self._clamp_velocity(sample_v)
+            return 0.0
+
+        if len(self._scroll_samples) >= 2:
+            t0, s0 = self._scroll_samples[0]
+            t1, s1 = self._scroll_samples[-1]
+            dt = t1 - t0
+            if dt > 0.008:
+                return self._clamp_velocity((s1 - s0) / dt)
+        return self._clamp_velocity(self._velocity)
 
     def tick(self, dt: float) -> bool:
         """Advance inertial scroll / animated jumps. Returns True if scroll position changed."""
