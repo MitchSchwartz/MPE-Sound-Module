@@ -31,7 +31,7 @@ class SlBenchStateListener:
     def register(self, client, *, num_loops: int) -> None:
         returl = f"{LISTEN_HOST}:{LISTEN_PORT}"
         retpath = "/sl/bench/state"
-        for loop in range(num_loops):
+        for loop in range(1, num_loops):
             client.send_message(
                 f"/sl/{loop}/register_auto_update",
                 ["state", UPDATE_MS, returl, retpath],
