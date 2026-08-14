@@ -76,7 +76,7 @@ SooperLooper Pi test and the audio-input question (see GROUNDING §6.3).
 ## 2026-08-13 — Phase 2 path: evaluate before building
 
 **Decision:** Do **not** start Phase 2 implementation code until the
-**SooperLooper Pi test** completes (~4 h timebox,
+**SooperLooper Pi test** completes (Session A ~1.5 h, Session B ~3-4 h,
 [`looper-vetting.md` §7](https://github.com/opsMachine/OM-Repo/blob/main/internal/projects/mpe-synth-launch/research/looper-vetting.md)).
 
 **During the test:** prove B1 (`dry=0`), B7 (xruns beside Surge), B10 (20-min play).
