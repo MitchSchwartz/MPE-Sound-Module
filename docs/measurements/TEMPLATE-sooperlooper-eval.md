@@ -6,6 +6,27 @@ Decisions this feeds: `Documents/DECISIONS.md` 2026-08-14 entries.
 
 **Verdict:** *(adopt / build our own / inconclusive — fill in last)*
 
+## Preconditions — run BEFORE any measurement
+
+A number taken on an appliance that was not actually realtime, or whose grid
+clock was not running, is not a weaker measurement. It is a **wrong** one, and
+it looks identical to a right one on the page. Record the gate output, not a
+claim that you checked.
+
+| # | Gate | Command | Required | Recorded output |
+|---|---|---|---|---|
+| P1 | **Realtime is live** — every audio client has a SCHED_FIFO *thread*, governor is `performance` | `mpe rt check` | exit **0** | |
+| P2 | Grid clock is running (grid-mode runs only) | `mpe looper sl-bench status` | startup line names the clock: `clock=internal` or a rolling transport | |
+| P3 | JACK graph wired, `dry=0` | `mpe looper sl-rewire` | no `wire-jack:` errors | |
+
+**P1 note.** `mpe rt check` reads the **audio thread**, not the process. A JACK
+client main thread is `SCHED_OTHER priority 0` on a perfectly healthy appliance —
+process-level policy is the answer most likely to mislead, which is why the gate
+exists as an exit code rather than a line a human interprets.
+
+**If any gate fails, stop.** Fix it, then start the session over. Do not record
+results next to a failed precondition and a note explaining it away.
+
 ## Conditions
 
 | Field | Value |
@@ -18,7 +39,9 @@ Decisions this feeds: `Documents/DECISIONS.md` 2026-08-14 entries.
 | Built with rubberband? | yes / no — **if no, B13 matters** |
 | `configure` flags | `--without-gui …` |
 | Buffer / periods / rate | 256 / 3 / 48 kHz 24-bit |
-| Governor | |
+| Governor | *(P1 also checks this)* |
+| RT audio threads | *(from `mpe rt check` — tid + SCHED_FIFO prio, not process policy)* |
+| Grid clock | internal / jack transport / none (free-form) |
 | Interface | |
 | Throttled at start / end | `vcgencmd get_throttled` |
 
