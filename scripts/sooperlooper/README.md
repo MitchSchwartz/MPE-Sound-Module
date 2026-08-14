@@ -12,7 +12,11 @@
 
 Mapping: `apc_grid.py` · 16-pad footswitch: `../sooperlooper-apc-bench.py` (rows 0 + 3)
 
-**Track reset:** hold **Shift + Stop All Clips** (APC mk2 Scene Launch 8) for **3 s** → pause + `undo_all` on all loops, clip LEDs off.
+**Grid sync (default):** loop 0 sets master length; loops 1–15 quantize to cycle multiples (`sl_grid_sync.py` / `configure-grid-sync.sh`). Free-form: `MPE_SL_SYNC_MODE=freeform`.
+
+**Transport (Shift + Stop All Clips):** quick release = stop all (pause, keep audio); hold **3 s** = clear all. Per-pad hold **2 s** = clear that loop.
+
+**Touch HUD:** `start-sooperlooper-hud-monitor.sh` writes `~/.mpe_sl_hud_state.json` (beat **1/4** from master loop). Header badge shows when playing.
 
 ## Test clips + smoke (no manual recording)
 

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""APC mini 16-clip grid + Shift/Stop-All track reset — eval bench.
+"""APC mini 16-clip grid + Shift/Stop-All transport — eval bench.
 
-Rows 0 and 3 (loops 0–15): short tap = footswitch cycle, hold ~1 s = clear loop.
-Shift + Stop All Clips held 3 s = full track reset.
+Rows 0 and 3 (loops 0–15): short tap = footswitch cycle, hold ~2 s = clear loop.
+Shift + Stop All Clips (release) = stop all loops. Shift + Stop All held 3 s = clear all.
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "sooperlooper"))
-from apc_footswitch import build_footswitches, reset_all_loops  # noqa: E402
+from apc_footswitch import build_footswitches, reset_all_loops, stop_all_loops  # noqa: E402
 from apc_grid import NUM_LOOPS, loop_index_for_note  # noqa: E402
 from apc_transport import (  # noqa: E402
     NOTE_SHIFT_MK2,
@@ -35,7 +35,7 @@ def main() -> int:
     port_hint = os.environ.get("MPE_APC_MIDI_PORT", "APC")
     host = os.environ.get("MPE_SL_OSC_HOST", "127.0.0.1")
     port = int(os.environ.get("MPE_SL_OSC_PORT", "9951"))
-    hold_ms = float(os.environ.get("MPE_APC_HOLD_MS", "1000"))
+    hold_ms = float(os.environ.get("MPE_APC_HOLD_MS", "2000"))
     debounce_ms = float(os.environ.get("MPE_APC_DEBOUNCE_MS", "200"))
     num_loops = int(os.environ.get("MPE_SL_LOOPS", str(NUM_LOOPS)))
     shift_note = int(os.environ.get("MPE_APC_SHIFT_NOTE", str(NOTE_SHIFT_MK2)))
@@ -82,7 +82,8 @@ def main() -> int:
         f"APC [{idx}] {ports_in[idx]} | clip pads rows 0+3 -> loops 0..{num_loops - 1} | "
         f"OSC {host}:{port} | {len(by_note)} pads | "
         f"short tap=cycle hold>={hold_ms:.0f}ms clear | "
-        f"Shift+StopAll held>={track_reset_hold_ms:.0f}ms=track reset",
+        f"Shift+StopAll release=stop all | "
+        f"Shift+StopAll held>={track_reset_hold_ms:.0f}ms=clear all",
         flush=True,
     )
 
@@ -90,11 +91,17 @@ def main() -> int:
         for fs in footswitches:
             fs.poll_hold()
 
-    def maybe_track_reset() -> None:
-        if track_reset.poll():
+    def maybe_track_transport() -> None:
+        if track_reset.poll_long():
             reset_all_loops(
                 osc,
                 midi_out,
+                num_loops=num_loops,
+                footswitches=footswitches,
+            )
+        elif track_reset.poll_short():
+            stop_all_loops(
+                osc,
                 num_loops=num_loops,
                 footswitches=footswitches,
             )
@@ -103,14 +110,14 @@ def main() -> int:
         packet = midi_in.get_message()
         if packet is None:
             poll_holds()
-            maybe_track_reset()
+            maybe_track_transport()
             time.sleep(0.002)
             continue
 
         msg, _delta = packet
         if not msg or len(msg) < 2:
             poll_holds()
-            maybe_track_reset()
+            maybe_track_transport()
             continue
 
         st, n = msg[0], msg[1]
@@ -118,7 +125,7 @@ def main() -> int:
         down = midi_note_down(st, vel)
         if down is not None and n in (shift_note, stop_all_note):
             track_reset.note_event(n, down)
-            maybe_track_reset()
+            maybe_track_transport()
             poll_holds()
             continue
 
@@ -131,7 +138,7 @@ def main() -> int:
             print(f"ignored clip pad note {n} (loop {loop_index_for_note(n)} >= {num_loops})", flush=True)
 
         poll_holds()
-        maybe_track_reset()
+        maybe_track_transport()
 
     return 0
 
