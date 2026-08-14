@@ -4,6 +4,8 @@
 
 **Product:** Raspberry Pi MPE sound module (Surge XT headless + patch browser UI).
 
+**Before looper / Phase 2 work:** [`Documents/DIRECTION.md`](Documents/DIRECTION.md) · [`Documents/DECISIONS.md`](Documents/DECISIONS.md) · OM-Repo [`GROUNDING.md`](https://github.com/opsMachine/OM-Repo/blob/main/internal/projects/mpe-synth-launch/GROUNDING.md)
+
 ---
 
 ## Pi CLI (`mpe`)
@@ -65,6 +67,7 @@ Repo path on Pi: `~/MPE-Module` (override via `MPE_MODULE_REPO` in `/etc/mpe/mpe
 
 | Topic | Doc |
 |-------|-----|
+| **Phase 2 direction + locked decisions** | [`Documents/DIRECTION.md`](Documents/DIRECTION.md) · [`Documents/DECISIONS.md`](Documents/DECISIONS.md) |
 | Git branches + Pi testing | [`docs/GIT-WORKFLOW.md`](docs/GIT-WORKFLOW.md) |
 | Paths / env vars | [`docs/PATHS.md`](docs/PATHS.md) |
 | USB desk tether (`usb-host`) | [`docs/USB-AUDIO-HOST.md`](docs/USB-AUDIO-HOST.md) |

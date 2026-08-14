@@ -1,5 +1,11 @@
 # Looper as JACK callback client — swappable mixer, realtime discipline
 
+> **⚠ SUPERSEDED 2026-08-13** — The Python JACK callback path (Tasks 1–11) is
+> **rejected**. Python must not run on the audio thread. See
+> [`DECISIONS.md`](../DECISIONS.md) and [`DIRECTION.md`](../DIRECTION.md).
+> Keep §A.2 and §B.3/criterion 19 as analysis reference only. Do not execute
+> the task table below.
+
 **Issue:** untracked
 **Status:** Draft — design only. Implements **Phase 2** of
 [`jack-audio-engine-spec.md`](jack-audio-engine-spec.md) (criteria 7, 8, 9, 11).
