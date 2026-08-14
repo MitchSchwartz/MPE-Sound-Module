@@ -34,7 +34,7 @@ Plan: [`looper-vetting.md` §7](https://github.com/opsMachine/OM-Repo/blob/main/
 
 1. **B8 — persistence** — **fail so far** (RAM loop OK; `save_loop`/`save_session` write nothing — needs debug or restart)
 2. **B7 — full 10-min soak** — partial only
-3. **B10 — free-form vs grid feel** — not run
+3. **B10 — free-form vs grid feel** — **pass (verbal)** — both modes later; grid default for Mitch
 4. **Mic/guitar ~10 min** — not exercised
 
 **Closed (automation + ear):**
