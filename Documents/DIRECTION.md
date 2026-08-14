@@ -1,6 +1,6 @@
 # Phase 2 direction — read before looper work
 
-*Last updated: 2026-08-13 (America/Toronto)*
+*Last updated: 2026-08-14 (America/Toronto)*
 
 **Locked decisions:** [`DECISIONS.md`](DECISIONS.md)  
 **Deep canon (branch audit, open questions):** OM-Repo [`GROUNDING.md`](https://github.com/opsMachine/OM-Repo/blob/main/internal/projects/mpe-synth-launch/GROUNDING.md)
@@ -23,8 +23,8 @@ paths**, not the plan.
 
 Run on **current `dev`** — the only Phase 2 experiment that does not disturb the
 appliance. Plan: [`looper-vetting.md` §7](https://github.com/opsMachine/OM-Repo/blob/main/internal/projects/mpe-synth-launch/research/looper-vetting.md)
-(~4 h **timebox**; if source build fights past ~4 h, that is the maintenance-cost
-answer).
+(**Session A ~1.5 h, Session B ~3-4 h**; if the source build fights past Session
+A's budget, that is the maintenance-cost answer).
 
 **Must prove explicitly (do not infer from docs):**
 
@@ -50,12 +50,12 @@ answer).
    to get past the trixie packaging gap, confirm whether `pitch_shift` still
    works or silently no-ops. Affects whether rubberband becomes a hard build
    requirement.
-8. **NEW — gain staging.** Build and test the two-limiter topology from
-   DECISIONS.md 2026-08-14 (`limiter_live` + `limiter_loops` with sidechain
-   from live): confirm both stay independently fail-open (kill one, other
-   path keeps playing) and the loop-bus ceiling holds under B7's 16-loop
-   load. **Limiter itself is new build/adopt work, budget it inside the
-   session, not as a follow-on.**
+8. **NEW — gain staging headroom (measure, do not build).** Under B7's 16-loop
+   load plus live playing, capture the peak at `system:playback` and how far
+   it exceeds 0 dBFS, with and without the per-loop `wet` law. **Do not build
+   a limiter during this session** — the loop bus does not exist until the
+   looper is adopted, and the limiter gets specced against these numbers
+   rather than a guessed ceiling. See §Gain staging below.
 
 **Audio input in/out:** during the same session, plug mic/guitar into the
 interface for ~10 min — decide looping-pedal vs output-only by playing, not
@@ -122,7 +122,7 @@ as Surge today). Zynthian ships this on Pi + JACK + Python UI.
 | Fail-open wiring possible (Surge → DAC direct) | Last upstream release 2023; 28 open issues |
 | Full OSC command set for record/overdub/undo/clear | **Unverified on this Pi** — must run test plan |
 
-**Kill if:** won't build in ~4 h, can't fail open, adds xruns beside Surge, or
+**Kill if:** won't build inside Session A (~1.5 h), can't fail open, adds xruns beside Surge, or
 B10 play test feels wrong.
 
 ### B. Build our own (compiled JACK client) — **fallback**
