@@ -6,6 +6,49 @@ Orientation canon: OM-Repo [`GROUNDING.md`](https://github.com/opsMachine/OM-Rep
 
 ---
 
+## 2026-08-14 — Audio input is a jackd reconfiguration, not a cable (raises the cost of GROUNDING §6.3)
+
+**Finding, verified live on the appliance:** jackd runs **playback-only**.
+
+```
+jackd -R -P70 -s -d alsa -P hw:1 -r 48000 -p 512 -n 3
+                          ^^ -P = playback only (not -d duplex)
+
+jack_lsp            → system:playback_1, system:playback_2   (no capture ports)
+jack_lsp -l         → playback latency 1536 frames (32.0 ms) · capture latency 0
+arecord -l          → card 1 Sound Blaster Play! 3 HAS a capture device
+```
+
+The hardware input exists; **jackd is not opening it.**
+
+**Why the looper work did not reveal this:** SooperLooper has been looping
+*Surge's own output*, wired client-to-client inside the graph
+(`Surge XT:out_1 → mpe-looper:loop0_in_1`). That path never touches a hardware
+capture device, so every loop test to date is consistent with playback-only.
+
+**Consequence — the audio-input question is more expensive than it reads.**
+GROUNDING §6.3 and `DIRECTION.md` frame it as "plug a mic/guitar in for ~10 min
+and decide by playing." That is not sufficient. Answering it *yes* requires
+switching jackd from `-P hw:1` to duplex (`-d hw:1`), which:
+
+| Consequence | Detail |
+|---|---|
+| Adds a capture leg | Capture latency goes from 0 to a real number; total round-trip roughly doubles the current 32 ms figure |
+| Invalidates current measurements | B5/B5b/B7 numbers (16 loops ~151 MiB, ~15% DSP, 0 xruns) were all taken **playback-only**. They do not transfer to a duplex graph |
+| Raises xrun risk | Full-duplex on a single USB Audio Class device is materially harder than playback-only on the same hardware |
+| Is a boot-path change | `start-jackd.sh` and the device-detection chain assume playback; this is not a runtime toggle |
+
+**Also unblocks a measurement we currently cannot take:** `jack_iodelay`, the
+standard round-trip latency tool, needs a capture device. Under `-P hw:1` it
+cannot run, so the 32 ms figure is jackd's *declared* latency and has never
+been measured acoustically.
+
+**Not decided here.** Input in/out remains Mitch's call. This entry only
+records that the decision costs a graph reconfiguration plus a re-run of the
+Session B measurements — not ten minutes with a cable.
+
+---
+
 ## 2026-08-14 — The Pi onboard headphone jack is never an audio output
 
 **Decision:** The Pi's onboard PWM headphone jack (`bcm2835 Headphones`) is
