@@ -28,9 +28,6 @@ from patch_browser.touch_ui_constants import (
     MIXER_BOTTOM_GAP,
     MIXER_LABEL_H,
     NAV_FOLDER_TITLE_H,
-    NAV_SCROLL_DRAG_THRESHOLD_PX,
-    NAV_SCROLL_FRICTION,
-    NAV_SCROLL_MIN_VELOCITY,
     NORM_ROW_H,
     NORM_ROW_W,
     PATCHES_ROW_HEIGHT,
@@ -324,14 +321,7 @@ class TouchBrowserLayoutMixin:
         else:
             row_height = 44
         if not hasattr(self, "nav_list"):
-            self.nav_list = ScrollList(
-                list_rect,
-                row_height=row_height,
-                drag_threshold_px=NAV_SCROLL_DRAG_THRESHOLD_PX,
-                friction=NAV_SCROLL_FRICTION,
-                min_velocity=NAV_SCROLL_MIN_VELOCITY,
-                release_instant_only=True,
-            )
+            self.nav_list = ScrollList(list_rect, row_height=row_height)
         else:
             self.nav_list.rect = list_rect
             self.nav_list.row_height = row_height
