@@ -25,10 +25,12 @@ Install once: clone `mpe-cli`, run `./install.sh`, edit `~/.config/mpe/mpe.env` 
 | `mpe record [file] [fps]` | Touch UI screen capture |
 | `mpe pull-videos [-o DIR] [--delete-source]` | Download demo videos |
 | `mpe restart surge\|touch\|all` | Restart fixed systemd units |
+| `mpe looper sl-clips [local\|pi]` | SooperLooper eval: generate 16 fixture WAVs (default: pi) |
+| `mpe looper sl-smoke [local\|pi]` | SooperLooper eval: 16-loop load/trigger smoke (default: pi) |
 
-**Agent-safe (read-only):** `ping`, `status`, `logs`, `osc-check`, `diagnose`, `sysinfo`, `pull-videos` (skip `--delete-source` for zero writes).
+**Agent-safe (read-only):** `ping`, `status`, `logs`, `osc-check`, `diagnose`, `sysinfo`, `pull-videos` (skip `--delete-source` for zero writes), `looper sl-clips local` (fixture generation only).
 
-**Writes / restarts:** `restart *`, `record`, `pull-videos --delete-source`.
+**Writes / restarts:** `restart *`, `record`, `pull-videos --delete-source`, `looper sl-smoke` (restarts SooperLooper on Pi).
 
 **Do not allowlist for agents:** raw `ssh`/`scp`/`rsync`, `deploy-all.sh`, `set-audio-profile.sh`, `set-surge-audio.sh`, `set-midi-sync.sh`, poweroff/reboot.
 
@@ -36,10 +38,10 @@ Install once: clone `mpe-cli`, run `./install.sh`, edit `~/.config/mpe/mpe.env` 
 
 ### Scoped exception — SooperLooper evaluation (opened 2026-08-14, **expires at verdict**)
 
-Building SooperLooper from an upstream tarball has no `mpe` subcommand and
-**should not grow one** — it is an experiment that may be discarded inside
-Session A. Mitch-approved 2026-08-14, raw `ssh` is permitted **for this task
-only**, under these conditions:
+Building SooperLooper from an upstream tarball still has no `mpe` subcommand
+(eval may be discarded). **`mpe looper sl-clips` / `sl-smoke`** wrap fixed repo
+scripts only. Mitch-approved 2026-08-14, raw `ssh` remains permitted **for
+build/eval tasks without a subcommand**, under these conditions:
 
 | Rule | Why |
 |---|---|

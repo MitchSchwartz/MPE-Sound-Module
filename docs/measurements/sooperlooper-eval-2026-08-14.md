@@ -160,7 +160,7 @@ oscsend 127.0.0.1 9951 /sl/0/set sf quantize 0.0
 
 **UI layout (Mitch):** clip pads on **row 0** (loops 0–7) and **row 3** (loops 8–15). Rows 1, 2, 4–7 reserved for per-loop controllers later. Canon: `scripts/sooperlooper/apc_grid.py`.
 
-**Smoke without manual recording:** `scripts/sooperlooper/generate-test-clips.sh` builds 16 distinct sine WAVs; `scripts/sooperlooper/smoke-16-loops.sh` starts `-l 16`, `load_loop` each clip, triggers all loops, samples VmRSS/`jack_cpu_load`. Uses **`load_loop`** (works on eval Pi) — not `save_loop` (B8 fail).
+**Smoke without manual recording:** `mpe looper sl-clips` + `mpe looper sl-smoke` (or `scripts/sooperlooper/*.sh` on the Pi). Builds 16 distinct sine WAVs, starts `-l 16`, `load_loop` each clip, triggers all loops, samples VmRSS/`jack_cpu_load`. Uses **`load_loop`** (works on eval Pi) — not `save_loop` (B8 fail).
 
 ## Failures, surprises, and anything improvised
 
