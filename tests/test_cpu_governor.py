@@ -78,10 +78,17 @@ class GovernorUnitFileTests(unittest.TestCase):
         self.assertIn("EnvironmentFile=-/etc/mpe/mpe.env", unit)
         self.assertIn("Before=surge-xt-cli.service", unit)
 
-    def test_env_example_documents_both_knobs(self) -> None:
+    def test_env_example_documents_governor_knob(self) -> None:
         example = (REPO_ROOT / "config" / "mpe.env.example").read_text(encoding="utf-8")
         self.assertIn("MPE_CPU_GOVERNOR", example)
+
+    def test_env_example_marks_surge_rt_priority_retired(self) -> None:
+        """MPE_SURGE_RT_PRIORITY lost its consumer when PR #50 removed the ALSA
+        launch path. The example must not present it as a live knob again."""
+        example = (REPO_ROOT / "config" / "mpe.env.example").read_text(encoding="utf-8")
         self.assertIn("MPE_SURGE_RT_PRIORITY", example)
+        self.assertIn("RETIRED", example)
+        self.assertNotIn("# MPE_SURGE_RT_PRIORITY=", example)
 
 
 if __name__ == "__main__":
