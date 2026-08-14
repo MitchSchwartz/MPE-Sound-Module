@@ -35,7 +35,7 @@ MPE_JACKD_SERVICE="mpe-jackd.service"
 
 mpe_jack_period() {
     case "${MPE_JACK_BUFFER:-}" in
-        32 | 64 | 128 | 256 | 512 | 768 | 1024 | 2048) printf '%s' "$MPE_JACK_BUFFER" ;;
+        64 | 128 | 256 | 512 | 1024) printf '%s' "$MPE_JACK_BUFFER" ;;
         '') printf '%s' "$MPE_JACK_BUFFER_DEFAULT" ;;
         *)
             echo "WARNING: MPE_JACK_BUFFER='${MPE_JACK_BUFFER}' invalid — using $MPE_JACK_BUFFER_DEFAULT" >&2

@@ -13,14 +13,17 @@ fi
 
 mkdir -p "${OUT_DIR}"
 DUR="${MPE_SL_TEST_CLIP_SEC:-2}"
+# ~1/16 linear so 16 loops on common_out sum near unity, not clip.
+CLIP_DB="${MPE_SL_CLIP_DB:--24}"
 
 for i in $(seq 0 15); do
   freq=$((220 + i * 55))
   out="${OUT_DIR}/loop$(printf '%02d' "${i}").wav"
   ffmpeg -y -loglevel error \
     -f lavfi -i "sine=frequency=${freq}:duration=${DUR}" \
+    -af "volume=${CLIP_DB}dB" \
     -ar 48000 -ac 2 "${out}"
-  echo "  ${out} (${freq} Hz, ${DUR}s)"
+  echo "  ${out} (${freq} Hz, ${DUR}s, ${CLIP_DB} dBFS peak)"
 done
 
 echo "generate-test-clips: 16 clips in ${OUT_DIR}"

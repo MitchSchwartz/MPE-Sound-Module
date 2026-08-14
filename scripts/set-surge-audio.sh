@@ -38,8 +38,9 @@ if [ -z "$BUFFER" ] && [ -z "$SAMPLE_RATE" ]; then
 fi
 
 is_valid_buffer() {
+    # JACK server period — must match jackd / mpe jack buffer (not legacy Surge ALSA sizes).
     case "$1" in
-        32 | 64 | 128 | 256 | 512 | 768 | 1024 | 2048) return 0 ;;
+        64 | 128 | 256 | 512 | 1024) return 0 ;;
         *) return 1 ;;
     esac
 }

@@ -27,10 +27,11 @@ Install once: clone `mpe-cli`, run `./install.sh`, edit `~/.config/mpe/mpe.env` 
 | `mpe restart surge\|touch\|all` | Restart fixed systemd units |
 | `mpe looper sl-clips [local\|pi]` | SooperLooper eval: generate 16 fixture WAVs (default: pi) |
 | `mpe looper sl-smoke [local\|pi]` | SooperLooper eval: 16-loop load/trigger smoke (default: pi) |
+| `mpe looper sl-restart [local\|pi]` | Restart SooperLooper on JACK + wire record path (default: pi) |
 
 **Agent-safe (read-only):** `ping`, `status`, `logs`, `osc-check`, `diagnose`, `sysinfo`, `pull-videos` (skip `--delete-source` for zero writes), `looper sl-clips local` (fixture generation only).
 
-**Writes / restarts:** `restart *`, `record`, `pull-videos --delete-source`, `looper sl-smoke` (restarts SooperLooper on Pi).
+**Writes / restarts:** `restart *`, `record`, `pull-videos --delete-source`, `looper sl-smoke`, `looper sl-restart` (restarts SooperLooper on Pi).
 
 **Do not allowlist for agents:** raw `ssh`/`scp`/`rsync`, `deploy-all.sh`, `set-audio-profile.sh`, `set-surge-audio.sh`, `set-midi-sync.sh`, poweroff/reboot.
 
