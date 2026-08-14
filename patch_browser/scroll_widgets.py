@@ -36,6 +36,7 @@ class ScrollList:
         min_velocity: float = SCROLL_MIN_VELOCITY,
         velocity_cap: float = SCROLL_VELOCITY_CAP,
         release_scale: float = 1.0,
+        release_instant_only: bool = False,
     ):
         self.rect = rect
         self.row_height = row_height
@@ -45,6 +46,7 @@ class ScrollList:
         self._min_velocity = min_velocity
         self._velocity_cap = velocity_cap
         self._release_scale = release_scale
+        self._release_instant_only = release_instant_only
         self.items: list[str] = []
         self.highlight_index: int | None = None
         self.loaded_marker_index: int | None = None
@@ -238,18 +240,19 @@ class ScrollList:
         self._scroll_samples = [(t, s) for t, s in self._scroll_samples if t >= cutoff]
 
     def _release_velocity(self) -> float:
-        now = time.time()
         self._record_scroll_sample()
         if len(self._scroll_samples) >= 2:
-            t0, s0 = self._scroll_samples[0]
-            t1, s1 = self._scroll_samples[-1]
+            if self._release_instant_only:
+                t0, s0 = self._scroll_samples[-2]
+                t1, s1 = self._scroll_samples[-1]
+            else:
+                t0, s0 = self._scroll_samples[0]
+                t1, s1 = self._scroll_samples[-1]
             dt = t1 - t0
-            if dt > 0.008:
-                return max(
-                    -self._velocity_cap,
-                    min(self._velocity_cap, (s1 - s0) / dt),
-                )
-        return self._velocity
+            if dt > 0.001:
+                v = (s1 - s0) / dt
+                return max(-self._velocity_cap, min(self._velocity_cap, v))
+        return max(-self._velocity_cap, min(self._velocity_cap, self._velocity))
 
     def tick(self, dt: float) -> bool:
         """Advance inertial scroll / animated jumps. Returns True if scroll position changed."""
