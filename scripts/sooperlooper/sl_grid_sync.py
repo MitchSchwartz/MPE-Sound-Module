@@ -17,9 +17,9 @@ def apply_grid_sync(
     num_loops: int = 16,
     master_loop: int = 0,
     eighth_per_cycle: int = 8,
-    enable_relative_sync: bool = True,
+    enable_relative_sync: bool = False,
 ) -> None:
-    """Configure SL: first loop free-form; others sync to master cycle boundaries."""
+    """Configure SL: first loop free-form; others quantize to master cycle boundaries."""
     if master_loop < 0 or master_loop >= num_loops:
         raise ValueError(f"master_loop {master_loop} out of range 0..{num_loops - 1}")
 
@@ -37,9 +37,10 @@ def apply_grid_sync(
         else:
             send(prefix, ["quantize", 1.0])  # cycle
             send(prefix, ["sync", 1.0])
-            if enable_relative_sync:
-                send(prefix, ["relative_sync", 1.0])
-            send(prefix, ["round", 1.0])
+            # relative_sync rounds length immediately (EDP SyncRecord) — not bar-wait.
+            send(prefix, ["relative_sync", 0.0])
+            send(prefix, ["round", 0.0])
+            send(prefix, ["playback_sync", 1.0])
 
 
 def apply_freeform(

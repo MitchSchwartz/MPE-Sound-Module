@@ -320,11 +320,11 @@ def read_clock_state(
 
 
 def looper_hud_should_show(snapshot: dict, *, user_enabled: bool = True) -> bool:
-    """Header badge when SL grid is playing or pedal tempo is available."""
+    """Header badge when SL grid is active or pedal tempo is available."""
     if not user_enabled:
         return False
     sl = snapshot.get("sl") or {}
-    if sl.get("active"):
+    if sl.get("active") or sl.get("has_master"):
         return True
     if not snapshot.get("connected"):
         return False

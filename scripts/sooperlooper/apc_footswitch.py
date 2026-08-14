@@ -5,6 +5,7 @@ from __future__ import annotations
 import time
 
 from apc_grid import all_loop_pads, pad_note
+from sl_grid_sync import apply_grid_sync
 
 STATE_IDLE = "idle"
 STATE_RECORDING = "recording"
@@ -16,6 +17,23 @@ LED_GREEN = 1
 LED_RED = 3
 LED_YELLOW = 5
 
+_master_loop_established = False
+
+
+def _osc_send(osc, path: str, args: list) -> None:
+    osc.send_message(path, args)
+
+
+def _refresh_grid_sync(osc, *, num_loops: int) -> None:
+    apply_grid_sync(lambda path, args: _osc_send(osc, path, args), num_loops=num_loops)
+
+
+def _ensure_master_playing(osc) -> None:
+    """Quantized slaves need loop 0 playing to supply cycle boundaries."""
+    if not _master_loop_established:
+        return
+    osc.send_message("/sl/0/hit", "trigger")
+
 
 class LoopFootswitch:
     def __init__(
@@ -24,8 +42,10 @@ class LoopFootswitch:
         loop: int,
         hold_ms: float,
         debounce_ms: float,
+        num_loops: int = 16,
     ) -> None:
         self.loop = loop
+        self.num_loops = num_loops
         self.hold_s = hold_ms / 1000.0
         self.debounce_s = debounce_ms / 1000.0
         self.state = STATE_IDLE
@@ -82,11 +102,19 @@ class LoopFootswitch:
             return
 
         if self.state == STATE_IDLE:
+            if self.loop > 0:
+                _ensure_master_playing(self._osc)
             self._hit("record")
             self.state = STATE_RECORDING
         elif self.state == STATE_RECORDING:
             self._hit("record")
-            self.state = STATE_PLAYING
+            if self.loop == 0:
+                global _master_loop_established
+                _master_loop_established = True
+                _refresh_grid_sync(self._osc, num_loops=self.num_loops)
+            # SL may stay in WaitStop until cycle boundary — keep red until playing.
+            if self.loop == 0 or not _master_loop_established:
+                self.state = STATE_PLAYING
         elif self.state == STATE_PLAYING:
             self._hit("pause")
             self.state = STATE_STOPPED
@@ -143,7 +171,12 @@ def build_footswitches(
         if loop_i >= num_loops:
             continue
         note = pad_note(row, col)
-        fs = LoopFootswitch(loop=loop_i, hold_ms=hold_ms, debounce_ms=debounce_ms)
+        fs = LoopFootswitch(
+            loop=loop_i,
+            hold_ms=hold_ms,
+            debounce_ms=debounce_ms,
+            num_loops=num_loops,
+        )
         fs.bind(osc, midi_out, note)
         by_note[note] = fs
         footswitches.append(fs)
@@ -158,6 +191,8 @@ def reset_all_loops(
     footswitches: list[LoopFootswitch],
 ) -> None:
     """Stop playback and clear every loop; reset bench LED/state."""
+    global _master_loop_established
+    _master_loop_established = False
     for loop in range(num_loops):
         osc.send_message(f"/sl/{loop}/hit", "pause")
         osc.send_message(f"/sl/{loop}/hit", "undo_all")
@@ -170,6 +205,7 @@ def reset_all_loops(
         note = pad_note(row, col)
         midi_out.send_message([0x90, note, LED_OFF])
     print(f"-> track reset: cleared {num_loops} loops", flush=True)
+    _refresh_grid_sync(osc, num_loops=num_loops)
 
 
 def stop_all_loops(

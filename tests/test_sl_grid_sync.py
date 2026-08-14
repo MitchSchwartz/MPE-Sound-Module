@@ -21,7 +21,8 @@ class SlGridSyncTests(unittest.TestCase):
         self.assertIn(("/sl/0/set", ["sync", 0.0]), sent)
         self.assertIn(("/sl/1/set", ["quantize", 1.0]), sent)
         self.assertIn(("/sl/1/set", ["sync", 1.0]), sent)
-        self.assertIn(("/sl/1/set", ["relative_sync", 1.0]), sent)
+        self.assertIn(("/sl/1/set", ["relative_sync", 0.0]), sent)
+        self.assertIn(("/sl/1/set", ["playback_sync", 1.0]), sent)
 
     def test_freeform_disables_sync(self) -> None:
         sent: list[tuple[str, list]] = []
