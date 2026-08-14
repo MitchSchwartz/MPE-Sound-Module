@@ -25,10 +25,26 @@ from patch_browser.ui_theme import Theme
 class ScrollList:
     """Touch-scrollable list with tap vs scroll discrimination and inertial momentum."""
 
-    def __init__(self, rect: Rect, row_height: int = 56, padding: int = 8):
+    def __init__(
+        self,
+        rect: Rect,
+        row_height: int = 56,
+        padding: int = 8,
+        *,
+        drag_threshold_px: float = SCROLL_DRAG_THRESHOLD_PX,
+        friction: float = SCROLL_FRICTION,
+        min_velocity: float = SCROLL_MIN_VELOCITY,
+        velocity_cap: float = SCROLL_VELOCITY_CAP,
+        release_scale: float = 1.0,
+    ):
         self.rect = rect
         self.row_height = row_height
         self.padding = padding
+        self._drag_threshold_px = drag_threshold_px
+        self._friction = friction
+        self._min_velocity = min_velocity
+        self._velocity_cap = velocity_cap
+        self._release_scale = release_scale
         self.items: list[str] = []
         self.highlight_index: int | None = None
         self.loaded_marker_index: int | None = None
@@ -103,7 +119,7 @@ class ScrollList:
             threshold = (
                 SCROLL_DRAG_THRESHOLD_CATCH_PX
                 if self._was_momentum_on_down
-                else SCROLL_DRAG_THRESHOLD_PX
+                else self._drag_threshold_px
             )
             now = time.time()
             velocity_bypass = False
@@ -133,9 +149,9 @@ class ScrollList:
             if motion_dt > 0:
                 instant_v = -(pos[1] - self._last_motion_y) / motion_dt
                 self._velocity = max(
-                    -SCROLL_VELOCITY_CAP,
+                    -self._velocity_cap,
                     min(
-                        SCROLL_VELOCITY_CAP,
+                        self._velocity_cap,
                         self._velocity * 0.55 + instant_v * 0.45,
                     ),
                 )
@@ -150,8 +166,8 @@ class ScrollList:
             return None
 
         if self._drag_start_y is not None:
-            release_v = self._release_velocity()
-            if self._pointer_scrolled and abs(release_v) >= SCROLL_MIN_VELOCITY:
+            release_v = self._release_velocity() * self._release_scale
+            if self._pointer_scrolled and abs(release_v) >= self._min_velocity:
                 self._velocity = release_v
                 self._momentum_active = True
             else:
@@ -230,8 +246,8 @@ class ScrollList:
             dt = t1 - t0
             if dt > 0.008:
                 return max(
-                    -SCROLL_VELOCITY_CAP,
-                    min(SCROLL_VELOCITY_CAP, (s1 - s0) / dt),
+                    -self._velocity_cap,
+                    min(self._velocity_cap, (s1 - s0) / dt),
                 )
         return self._velocity
 
@@ -267,8 +283,8 @@ class ScrollList:
         ):
             self._velocity *= 0.35
 
-        self._velocity *= math.exp(-SCROLL_FRICTION * dt)
-        if abs(self._velocity) < SCROLL_MIN_VELOCITY:
+        self._velocity *= math.exp(-self._friction * dt)
+        if abs(self._velocity) < self._min_velocity:
             self.stop_momentum()
         return self._scroll_pixels != before or self._momentum_active
 
