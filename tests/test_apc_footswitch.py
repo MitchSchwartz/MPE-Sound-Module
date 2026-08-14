@@ -7,6 +7,7 @@ from scripts.sooperlooper.apc_footswitch import LoopFootswitch, build_footswitch
 from scripts.sooperlooper.sl_loop_states import (
     SL_STATE_PAUSED,
     SL_STATE_PLAYING,
+    SL_STATE_RECORDING,
     SL_STATE_WAIT_START,
     SL_STATE_WAIT_STOP,
 )
@@ -48,6 +49,23 @@ class ApcFootswitchTests(unittest.TestCase):
         fs.on_pad_up()
         fs.sync_from_sl(SL_STATE_WAIT_START)
         self.assertFalse(fs.awaiting_quantize)
+        fs.on_pad_down()
+        fs.on_pad_up()
+        hits = [c.args[1] for c in osc.send_message.call_args_list if c.args[0] == "/sl/0/hit"]
+        self.assertEqual(hits, ["record"])
+
+    def test_second_tap_waits_for_sl_recording(self) -> None:
+        osc = MagicMock()
+        fs = LoopFootswitch(loop=0, hold_ms=1000.0, debounce_ms=0.0)
+        fs.bind(osc, MagicMock(), 36)
+        fs.on_pad_down()
+        fs.on_pad_up()
+        fs.sync_from_sl(SL_STATE_WAIT_START)
+        fs.on_pad_down()
+        fs.on_pad_up()
+        hits = [c.args[1] for c in osc.send_message.call_args_list if c.args[0] == "/sl/0/hit"]
+        self.assertEqual(hits, ["record"])
+        fs.sync_from_sl(SL_STATE_RECORDING)
         fs.on_pad_down()
         fs.on_pad_up()
         hits = [c.args[1] for c in osc.send_message.call_args_list if c.args[0] == "/sl/0/hit"]
