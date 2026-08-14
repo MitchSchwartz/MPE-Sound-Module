@@ -14,6 +14,10 @@ from __future__ import annotations
 import os
 import sys
 import time
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent / "sooperlooper"))
+from apc_grid import pad_note  # noqa: E402
 
 STATE_IDLE = "idle"
 STATE_RECORDING = "recording"
@@ -24,11 +28,6 @@ LED_OFF = 0
 LED_GREEN = 1
 LED_RED = 3
 LED_YELLOW = 5
-
-
-def pad_note(row: int, col: int) -> int:
-    """APC mini 8x8 grid: row 0 = bottom row, col 0 = left. Notes 0–63."""
-    return row * 8 + col
 
 
 def pad_event(st: int, n: int, vel: int, note: int) -> bool | None:
