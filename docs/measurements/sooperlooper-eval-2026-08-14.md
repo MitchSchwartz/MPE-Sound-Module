@@ -162,6 +162,29 @@ oscsend 127.0.0.1 9951 /sl/0/set sf quantize 0.0
 
 **Smoke without manual recording:** `mpe looper sl-clips` + `mpe looper sl-smoke` (or `scripts/sooperlooper/*.sh` on the Pi). Builds 16 distinct sine WAVs, starts `-l 16`, `load_loop` each clip, triggers all loops, samples VmRSS/`jack_cpu_load`. Uses **`load_loop`** (works on eval Pi) — not `save_loop` (B8 fail).
 
+### B14 / crackle — 16 loops + Surge playing (2026-08-14 agent)
+
+**Report:** Mitch hears crackle when playing keys with all 16 loops running.
+
+**Mechanical run:** `mpe looper sl-diagnose` — 45 s soak, 16 sine loops triggered, parallel graph (Surge + 16× loop outs → `system:playback`).
+
+| Signal | Result | Interpretation |
+|---|---|---|
+| Playback fan-in | **17 sources** per channel (Surge + loops 0–15) | No bus/limiter — full-scale layers sum at DAC |
+| `jack_cpu_load` | **~28%** start/end | CPU headroom OK at 16 loops |
+| `mpe-jackd` journal `xrun` mentions | **0** over 45 s | Not buffer underrun on this soak |
+| ALSA pcm `xrun:` | *(absent — JACK holds device)* | Use journal + CPU instead |
+| Peak capture | `jack_capture` not installed on Pi | Install `jack-capture` for dBFS proof |
+
+**Working hypothesis:** **gain staging / clipping**, not xruns — same class as B14 headroom concern in `DIRECTION.md`. Sixteen near-full-scale loops plus live Surge on a direct parallel sum will exceed 0 dBFS before the DAC.
+
+**Next checks (human):**
+1. Shift+Stop reset → record **one** loop → add Surge — crackle gone?
+2. Repeat with 16 loops at fixture levels — crackle returns? (isolates count vs sum)
+3. Optional: `sudo apt install jack-capture` on Pi, re-run `mpe looper sl-diagnose` for peak dBFS
+
+**Product note (not eval scope):** Phase 2 spec’s headroom law / mix bus — do not ship 17-way direct fan-in to `system:playback`.
+
 ## Failures, surprises, and anything improvised
 
 - GitHub tag is **`v1.7.9`**, not `1.7.9`. No GitHub Release tarball; cloned from
