@@ -44,7 +44,6 @@ from patch_browser.touch_ui_constants import (
 from patch_browser.audio_profile import header_badge_label
 from patch_browser.audio_engine import engine_hud_label, engine_hud_should_show
 from patch_browser.all_patches_index import AZ_RAIL_LETTERS
-from patch_browser.midi_clock import looper_hud_should_show
 from patch_browser.touch_ui_enums import LeftNavMode, Screen, audio_profile_display
 from patch_browser.ui_text import text_block_height, wrap_text_lines, wrapped_row_height
 
@@ -81,7 +80,7 @@ class TouchBrowserLayoutMixin:
         return label_w + AUDIO_BADGE_PAD_X * 2
 
     def _looper_hud_width(self) -> int:
-        label_w = self.font_sm.size("128")[0]
+        label_w = self.font_sm.size("4/4")[0]
         dot_w = 8
         return label_w + dot_w + LOOPER_HUD_PAD_X * 2 + 4
 
@@ -120,21 +119,26 @@ class TouchBrowserLayoutMixin:
         else:
             self.cpu_meter_rect = Rect(right_cursor, self.status_rect.y + 6, 0, 0)
         if getattr(self, "show_looper_hud", True):
-            snap = self.looper_monitor.snapshot() if getattr(self, "looper_monitor", None) else {}
-            if looper_hud_should_show(snap, user_enabled=True):
-                looper_w = self._looper_hud_width()
-                right_cursor -= looper_w
-                self.looper_hud_rect = Rect(
-                    right_cursor,
-                    self.status_rect.y + 10,
-                    looper_w,
-                    24,
-                )
-                right_cursor -= STATUS_BAR_ITEM_GAP
-            else:
-                self.looper_hud_rect = Rect(right_cursor, self.status_rect.y + 10, 0, 0)
+            looper_w = self._looper_hud_width()
+            right_cursor -= looper_w
+            self.looper_hud_rect = Rect(
+                right_cursor,
+                self.status_rect.y + 10,
+                looper_w,
+                24,
+            )
+            right_cursor -= STATUS_BAR_ITEM_GAP
         else:
             self.looper_hud_rect = Rect(right_cursor, self.status_rect.y + 10, 0, 0)
+        audio_badge_w = self._audio_badge_width()
+        right_cursor -= audio_badge_w
+        self.audio_profile_badge_rect = Rect(
+            right_cursor,
+            self.status_rect.y + 10,
+            audio_badge_w,
+            24,
+        )
+        right_cursor -= STATUS_BAR_ITEM_GAP
         engine_state = self.engine_monitor.snapshot()
         if engine_hud_should_show(engine_state):
             engine_w = self._engine_hud_width()
@@ -148,14 +152,6 @@ class TouchBrowserLayoutMixin:
             right_cursor -= STATUS_BAR_ITEM_GAP
         else:
             self.engine_hud_rect = Rect(right_cursor, self.status_rect.y + 10, 0, 0)
-        audio_badge_w = self._audio_badge_width()
-        right_cursor -= audio_badge_w
-        self.audio_profile_badge_rect = Rect(
-            right_cursor,
-            self.status_rect.y + 10,
-            audio_badge_w,
-            24,
-        )
         content_top = self.status_rect.y + self.status_rect.h + gap
         content_bottom = self.height - BROWSER_BOTTOM_MARGIN
         left_w = self._left_nav_width()
