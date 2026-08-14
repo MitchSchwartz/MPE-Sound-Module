@@ -84,7 +84,7 @@ Static or crackle under **many held keys** is usually **ALSA buffer underrun (xr
 |--------|--------|
 | **Norm ON** | Quiet patches get large `gain_db` boosts; runtime cap now matches norm-off (**1.5**, was 0.85 — see 2026-08-01 fix below). |
 | **Norm OFF** | Unity baseline; user trim up to **1.5** — more headroom for solo, less for dense chords. |
-| **ALSA buffer** | `surge-xt-cli` starts with **`MPE_SURGE_BUFFER_SIZE`** (default **1024** samples @ **48 kHz** ≈ 21 ms). **768** drops voices under heavy MPE polyphony and **512** caused choppery/governor on heavy Pi 4 patches — 1024 is the stability floor (see [LATENCY-SPIKE.md](LATENCY-SPIKE.md)). |
+| **Audio buffer** | **CORRECTED 2026-08-14.** This row read: *"`surge-xt-cli` starts with `MPE_SURGE_BUFFER_SIZE` (default 1024 ≈ 21 ms). 768 drops voices under heavy MPE polyphony and 512 caused choppery/governor on heavy Pi 4 patches — 1024 is the stability floor."* **Falsified on the bench:** the appliance runs **`MPE_JACK_BUFFER=512 × 3 periods @ 48 kHz` with 0 xruns** (`mpe jack status`, 2026-08-14). Those numbers were measured on the pre-JACK **ALSA** path, which PR #50 deleted; under the JACK graph server Surge does not own a buffer at all — **jackd's period governs every client**. The live knob is `MPE_JACK_BUFFER` / `MPE_JACK_PERIODS`, not `MPE_SURGE_BUFFER_SIZE`. |
 | **snd-aloop** | Loaded only during calibration loopback. Unloaded on Surge start and after `calibrate-with-loader.sh` if refcount is 0. |
 
 **Calibration capture path (default: loopback):** Stops production Surge, starts a **cal-only** Surge instance routed through `snd-aloop` (`calibration_loopback.py` dynamically resolves the interface/capture device — no hardcoded card index). Headphones/Sound Blaster are silent during cal; that is expected. Launch from **System → Calibrate** (`calibrate-with-loader.sh`).
@@ -99,7 +99,7 @@ Static or crackle under **many held keys** is usually **ALSA buffer underrun (xr
 
 **Fix:** raised `NORM_MAX_AMP_VOLUME_LINEAR` to match `MAX_AMP_VOLUME_LINEAR` (1.5) — same Surge `amp/volume` ceiling either way, pending the Pi xrun/CPU stress test (dense MPE polyphony) that motivated the lower cap originally. If that test shows real xrun/CPU regression, the next lever is reducing max voice count for heavily-boosted patches rather than re-lowering the global cap.
 
-If crackle persists with Norm off and moderate polyphony, try `MPE_SURGE_BUFFER_SIZE=2048` in `/etc/mpe/mpe.env` and restart `surge-xt-cli`. Tradeoff: higher latency.
+If crackle persists with Norm off and moderate polyphony, raise the **JACK period** — `MPE_JACK_BUFFER=1024` in `/etc/mpe/mpe.env`, then apply via the touch settings or `set-surge-audio.sh --buffer 1024` so jackd actually restarts. Tradeoff: latency scales with `period × MPE_JACK_PERIODS` (512×3 ≈ 32 ms, 1024×3 ≈ 64 ms). *(Corrected 2026-08-14 — this said `MPE_SURGE_BUFFER_SIZE=2048`, which no longer sizes the audio path under JACK.)*
 
 **Live diagnosis:** the touch browser header **CPU** meter (see [`TOUCH_PATCH_BROWSER.md`](TOUCH_PATCH_BROWSER.md)) tracks `surge-xt-cli` process load while you play — use it to see when dense polyphony is pushing the Pi toward xrun territory. Norm on should keep typical Quick Select patches lower on that meter than uncapped gain would.
 
