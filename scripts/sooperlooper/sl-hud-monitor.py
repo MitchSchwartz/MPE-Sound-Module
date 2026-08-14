@@ -15,6 +15,9 @@ sys.path.insert(0, str(REPO_ROOT))
 
 from patch_browser.sl_hud_state import SL_HUD_STATE_FILE  # noqa: E402
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from sl_master_clock import capture_from_hud_snapshot  # noqa: E402
+
 MASTER_LOOP = int(os.environ.get("MPE_SL_HUD_MASTER_LOOP", "0"))
 SL_HOST = os.environ.get("MPE_SL_OSC_HOST", "127.0.0.1")
 SL_PORT = int(os.environ.get("MPE_SL_OSC_PORT", "9951"))
@@ -78,6 +81,8 @@ class SlHudMonitor:
             "bar": bar,
             "playing": state in PLAYING_STATES,
         }
+        if loop_len > 0.05 and cycle_len > 0.0:
+            capture_from_hud_snapshot(payload)
         tmp = SL_HUD_STATE_FILE.with_suffix(".tmp")
         tmp.write_text(json.dumps(payload), encoding="utf-8")
         tmp.replace(SL_HUD_STATE_FILE)

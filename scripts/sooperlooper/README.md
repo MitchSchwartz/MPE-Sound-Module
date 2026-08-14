@@ -12,7 +12,7 @@
 
 Mapping: `apc_grid.py` · 16-pad footswitch: `../sooperlooper-apc-bench.py` (rows 0 + 3)
 
-**Grid sync (default):** loop 0 sets master length (free-form); loops 1–15 use `sync` + `quantize=cycle` (record stop waits for bar end — **not** `relative_sync`, which rounds immediately). Free-form: `MPE_SL_SYNC_MODE=freeform`.
+**Grid sync (default):** loop 0 sets master length (free-form); loops 1–15 use `sync` + `quantize=cycle`. On loop 0 clear, grid reference is **saved** (`~/.mpe_sl_master_clock.json`) and sync falls back to **internal tempo** — slaves keep quantizing without loop 0 alive. Full reset (Shift+Stop All 3s) clears the saved clock.
 
 **Transport (Shift + Stop All Clips):** quick release = stop all (pause, keep audio); hold **3 s** = clear all. Per-pad hold **2 s** = clear that loop.
 
