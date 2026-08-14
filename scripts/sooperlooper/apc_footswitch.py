@@ -187,6 +187,7 @@ class LoopFootswitch:
         self._mark_action()
 
     def _tap(self) -> None:
+        global _master_loop_established, _master_sync_mode
         if self._debounced():
             print(f"loop {self.loop}: -> tap ignored (debounce)", flush=True)
             return
@@ -208,7 +209,6 @@ class LoopFootswitch:
         elif self.state == STATE_RECORDING:
             self._hit("record")
             if self.loop == 0:
-                global _master_loop_established, _master_sync_mode
                 _master_loop_established = True
                 _refresh_grid_sync(self._osc, num_loops=self.num_loops)
                 _capture_master_clock_from_hud()
