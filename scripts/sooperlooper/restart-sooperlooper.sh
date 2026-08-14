@@ -28,7 +28,8 @@ jack_client_visible() {
 }
 
 record_path_ok() {
-  jack_lsp -c "${JACK_CLIENT}:loop0_in_1" 2>/dev/null | grep -Fq "Surge XT:out_1"
+  jack_lsp -c "${JACK_CLIENT}:loop0_in_1" 2>/dev/null | grep -Fq "Surge XT:out_1" \
+    && jack_lsp -c "${JACK_CLIENT}:loop$((LOOPS - 1))_in_1" 2>/dev/null | grep -Fq "Surge XT:out_1"
 }
 
 playback_path_ok() {
