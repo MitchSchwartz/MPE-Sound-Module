@@ -153,8 +153,14 @@ That was a manual bring-up outside systemd. **It does not survive a reboot.**
   hand-rolled system units and carries a documented socket-activation boot race,
   while `jackd` is a single daemon with a plain system unit. The *direction* — one
   clock, one graph — is unchanged. Reversible: `pipewire-jack` also provides
-  `libjack.so.0`, so swapping engines never touches Surge. Part 9 has been updated
-  to record the reversal.
+  `libjack.so.0`, so swapping engines never touches Surge.
+  **Correction (2026-08-14):** an earlier revision of this line claimed "Part 9
+  has been updated to record the reversal." It has not. Part 9 exists only on
+  the unmerged `yolo/looper-phase0` branch, where it still reads *"Direction of
+  travel — D, leaning PipeWire"* and still lists *"PipeWire or `jackd`?"* as an
+  open question. **This spec is the record of the reversal**; Part 9 will be
+  corrected when PR #48 is split (see the citation note above — the file is not
+  duplicated onto this branch).
 - A compiled mix kernel. Deferred until the callback exists and the GC tail is
   measured rather than assumed (Part 8).
 - Latency below 256 frames. Measured as a **hardware** ceiling, not software —
