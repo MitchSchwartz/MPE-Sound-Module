@@ -1,70 +1,58 @@
-"""APC footswitch tap / quantize behavior."""
+"""APC footswitch — no master-loop special cases."""
 
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
-import scripts.sooperlooper.apc_footswitch as footswitch_mod
-from scripts.sooperlooper.apc_footswitch import (
-    LoopFootswitch,
-    STATE_IDLE,
-    STATE_PLAYING,
-    STATE_RECORDING,
-    master_loop_established,
-)
-from scripts.sooperlooper.sl_loop_states import SL_STATE_PLAYING, SL_STATE_WAIT_STOP
+from scripts.sooperlooper.apc_footswitch import LoopFootswitch, build_footswitches
+from scripts.sooperlooper.sl_loop_states import SL_STATE_PAUSED, SL_STATE_PLAYING, SL_STATE_WAIT_STOP
 
 
-class LoopFootswitchTapTests(unittest.TestCase):
-    def setUp(self) -> None:
-        footswitch_mod._master_loop_established = False
-        self.osc = MagicMock()
-        self.midi = MagicMock()
-        self.fs = LoopFootswitch(loop=1, hold_ms=2000.0, debounce_ms=0.0, num_loops=16)
-        self.fs.bind(self.osc, self.midi, note=36)
+class ApcFootswitchTests(unittest.TestCase):
+    def test_loop0_tap_record_does_not_send_trigger(self) -> None:
+        osc = MagicMock()
+        fs = LoopFootswitch(loop=0, hold_ms=1000.0, debounce_ms=0.0)
+        fs.bind(osc, MagicMock(), 36)
+        fs.on_pad_down()
+        fs.on_pad_up()
+        paths = [c.args[0] for c in osc.send_message.call_args_list]
+        self.assertIn("/sl/0/hit", paths)
+        self.assertEqual(paths.count("/sl/0/hit"), 1)
+        self.assertNotIn("trigger", [c.args[1] for c in osc.send_message.call_args_list])
 
-    @patch.object(footswitch_mod, "_schedule_grid_sync")
-    def test_master_triggers_playback_after_record(self, _schedule: MagicMock) -> None:
-        master = LoopFootswitch(loop=0, hold_ms=2000.0, debounce_ms=0.0, num_loops=16)
-        master.bind(self.osc, self.midi, note=0)
-        master._tap()
-        master._tap()
-        self.assertTrue(master_loop_established())
-        self.assertEqual(master.state, STATE_PLAYING)
-        calls = [c.args[1] for c in self.osc.send_message.call_args_list]
-        self.assertEqual(calls.count("record"), 2)
-        self.assertEqual(calls.count("trigger"), 1)
-        _schedule.assert_called_once()
-
-    @patch.object(footswitch_mod, "_ensure_master_playing")
-    def test_slave_end_record_waits_for_quantize(self, _ensure: MagicMock) -> None:
-        footswitch_mod._master_loop_established = True
-        self.fs.state = STATE_RECORDING
-        self.fs._tap()
-        self.assertTrue(self.fs.awaiting_quantize)
-        self.assertEqual(self.fs.state, STATE_RECORDING)
-        self.fs._tap()
-        self.osc.send_message.assert_called_once()
-
-    def test_quantize_wait_blocks_second_tap_on_slave(self) -> None:
-        footswitch_mod._master_loop_established = True
-        self.fs.state = STATE_RECORDING
-        self.fs.awaiting_quantize = True
-        self.fs._tap()
-        self.osc.send_message.assert_not_called()
-
-    def test_sync_from_sl_ignored_on_loop0(self) -> None:
-        master = LoopFootswitch(loop=0, hold_ms=2000.0, debounce_ms=0.0, num_loops=16)
-        master.bind(self.osc, self.midi, note=0)
-        master.state = STATE_PLAYING
-        self.assertFalse(master.sync_from_sl(SL_STATE_WAIT_STOP))
-
-    def test_sync_from_sl_clears_wait_on_playing(self) -> None:
-        self.fs.state = STATE_RECORDING
-        self.fs.awaiting_quantize = True
-        changed = self.fs.sync_from_sl(SL_STATE_PLAYING)
+    def test_sync_from_sl_loop0_playing(self) -> None:
+        osc = MagicMock()
+        fs = LoopFootswitch(loop=0, hold_ms=1000.0, debounce_ms=0.0)
+        fs.bind(osc, MagicMock(), 36)
+        changed = fs.sync_from_sl(SL_STATE_PLAYING)
         self.assertTrue(changed)
-        self.assertFalse(self.fs.awaiting_quantize)
-        self.assertEqual(self.fs.state, STATE_PLAYING)
+        self.assertEqual(fs.state, "playing")
+
+    def test_sync_from_sl_quantize_wait_stays_red(self) -> None:
+        osc = MagicMock()
+        fs = LoopFootswitch(loop=2, hold_ms=1000.0, debounce_ms=0.0)
+        fs.bind(osc, MagicMock(), 38)
+        fs.sync_from_sl(SL_STATE_WAIT_STOP)
+        self.assertEqual(fs.state, "recording")
+        self.assertTrue(fs.awaiting_quantize)
+
+    def test_sync_from_sl_paused_yellow(self) -> None:
+        osc = MagicMock()
+        fs = LoopFootswitch(loop=1, hold_ms=1000.0, debounce_ms=0.0)
+        fs.bind(osc, MagicMock(), 37)
+        fs.sync_from_sl(SL_STATE_PAUSED)
+        self.assertEqual(fs.state, "stopped")
+
+    def test_build_includes_loop0(self) -> None:
+        osc = MagicMock()
+        _, footswitches = build_footswitches(
+            osc=osc,
+            midi_out=MagicMock(),
+            num_loops=16,
+            hold_ms=1000.0,
+            debounce_ms=200.0,
+        )
+        loops = {fs.loop for fs in footswitches}
+        self.assertIn(0, loops)
 
 
 if __name__ == "__main__":

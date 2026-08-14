@@ -1,7 +1,7 @@
-"""Apply SooperLooper grid-sync defaults (loop 0 = master length, others quantize to cycle).
+"""Apply SooperLooper grid-sync defaults — JACK transport is the clock.
 
+All loops quantize to JACK transport cycle boundaries (sync_source = -1).
 Canon: https://sonosaurus.com/sooperlooper/doc_sync.html
-Forum example (sync to loop 1, quantize cycle): viewtopic.php?t=126
 """
 
 from __future__ import annotations
@@ -10,37 +10,28 @@ import os
 import sys
 from typing import Callable
 
+DEFAULT_FADE_SAMPLES = int(os.environ.get("MPE_SL_FADE_SAMPLES", "128"))
+
 
 def apply_grid_sync(
     send: Callable[[str, list], None],
     *,
     num_loops: int = 16,
-    master_loop: int = 0,
     eighth_per_cycle: int = 8,
-    enable_relative_sync: bool = False,
+    fade_samples: int = DEFAULT_FADE_SAMPLES,
 ) -> None:
-    """Configure SL: first loop free-form; others quantize to master cycle boundaries."""
-    if master_loop < 0 or master_loop >= num_loops:
-        raise ValueError(f"master_loop {master_loop} out of range 0..{num_loops - 1}")
-
-    # sync_source is 1-indexed loop number (loop 0 → 1).
-    send("/set", ["sync_source", float(master_loop + 1)])
+    """Configure SL: JACK transport master; every loop quantizes to cycle."""
+    send("/set", ["sync_source", -1.0])
     send("/set", ["eighth_per_cycle", float(eighth_per_cycle)])
+    send("/set", ["fade_samples", float(fade_samples)])
 
     for loop in range(num_loops):
         prefix = f"/sl/{loop}/set"
-        if loop == master_loop:
-            send(prefix, ["quantize", 0.0])
-            send(prefix, ["sync", 0.0])
-            send(prefix, ["relative_sync", 0.0])
-            send(prefix, ["round", 0.0])
-        else:
-            send(prefix, ["quantize", 1.0])  # cycle
-            send(prefix, ["sync", 1.0])
-            # relative_sync rounds length immediately (EDP SyncRecord) — not bar-wait.
-            send(prefix, ["relative_sync", 0.0])
-            send(prefix, ["round", 0.0])
-            send(prefix, ["playback_sync", 1.0])
+        send(prefix, ["quantize", 1.0])  # cycle
+        send(prefix, ["sync", 1.0])
+        send(prefix, ["relative_sync", 0.0])
+        send(prefix, ["round", 0.0])
+        send(prefix, ["playback_sync", 1.0])
 
 
 def apply_freeform(
@@ -81,8 +72,8 @@ def main() -> int:
     else:
         apply_grid_sync(send, num_loops=num_loops)
         print(
-            f"sl-grid-sync: grid — loop 0 master, cycles 4/4 (8 eighths), "
-            f"loops 1..{num_loops - 1} quantize to cycle",
+            f"sl-grid-sync: JACK transport grid — 4/4 ({num_loops} loops quantize to cycle, "
+            f"fade_samples={DEFAULT_FADE_SAMPLES})",
             flush=True,
         )
     return 0
