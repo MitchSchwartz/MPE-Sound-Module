@@ -65,3 +65,91 @@ downgrades to deleted ALSA stack (repriced after PR #50).
 
 **Supersedes:** `Documents/HANDOVER-mixer-looper-2026-08-13.md` TL;DR (Tasks 1–4,
 whole #48 merge). Handover retained for Phase 1 landing notes only.
+
+---
+
+## 2026-08-14 — Loop UX: pad-per-loop, not Zynthian's row-per-loop
+
+**Decision:** If SooperLooper is adopted, the APC grid maps **one pad = one
+SooperLooper loop** — not Zynthian's row-is-a-loop / column-is-a-command
+layout. Commands (multiply, reverse, oneshot, feedback, undo_all-as-clear)
+live on a **held-pad shift layer**, not fixed columns.
+
+**Rationale:** Mitch's actual play style is Ableton Session View — up to 16
+loops playing simultaneously, each independently startable/droppable, played
+as finished takes rather than one loop kept open and overdubbed EDP-style.
+Zynthian's layout was sized for a 5×8 Key 25 (40 pads, 6 loops); our 8×8 APC
+mini has room to keep the clip-grid picture **and** the full command set,
+which `looper-ux-comparison.md` §4 assumed was a forced choice. It isn't —
+the constraint was Zynthian's hardware, not the engine.
+
+**Consequence:** `APC-LOOPER-UX.md`'s pad state machine, LED semantics, and
+Scene Launch rows survive close to as specced. Per-pad clear — missing from
+both the code and the approved spec — is **`undo_all` on that loop**, free
+from adoption. Multiply needs its own UI: hold a clip pad, its row becomes a
+1×/2×/4×/8× multiplier strip.
+
+**Scale target:** design and test for **16 simultaneous loops**, not 64.
+Mitch: "I don't expect that I can play 64 clips at the same time... I'm just
+sort of trying to discuss how I would play." Recorded-but-idle count (up to
+64 across the grid) is a separate, cheaper memory question — see Session B
+additions below.
+
+**Downgraded from the vetting docs:** overdub/undo/substitute are no longer
+the headline argument for adoption — Mitch's model uses clip-clear (random
+access) instead of an undo stack, so build-your-own would not need to
+implement SooperLooper's Echoplex-style overdub engine either. What adoption
+still buys, narrower but intact: a compiled realtime engine we don't have to
+write, the fail-open parallel topology, sync/quantize/latency compensation,
+click-free seams, and persistence.
+
+**Open:** whether `pitch_shift` (rubberband-dependent) matters enough to make
+rubberband a hard build requirement rather than the optional fallback
+`looper-vetting.md` §4 assumed. Verify at the bench (Session A).
+
+---
+
+## 2026-08-14 — Master gain: two independent limiters + sidechain ducking, live now; watchdog bypass deferred
+
+**Decision:** Ship two small limiter JACK clients, not one shared one:
+
+```
+Surge XT → limiter_live  → system:playback
+Surge XT → sooperlooper loop inputs
+sooperlooper outs → limiter_loops → system:playback
+```
+
+`limiter_loops` takes a **sidechain feed from the live signal**, ducking loop
+level as live playing gets louder, on top of a static per-bus ceiling
+(loop bus targets roughly −6 dBFS so live + loops has real headroom before
+the true sum, which nothing else bounds, approaches 0 dBFS).
+
+**Rationale:** jackd has no mixer — it sums client outputs in float32 and
+hands off to ALSA's `S24_3LE` conversion, which is where an unbounded sum
+clips. The parallel fail-open topology (Surge direct to `system:playback`,
+loops fail-open through their own bus) means **no single point in the graph
+sees the true N+1 sum**, so a shared full-chain limiter would have to sit
+after everything — which reintroduces the single point of failure the
+parallel topology exists to avoid. Two independent limiters keep the
+fail-open granularity (lose `limiter_live`, loops are still safe and vice
+versa) while giving both paths a real, if separately-scoped, ceiling.
+Sidechain ducking is a musicality refinement on top — it lowers how often
+the static ceiling is audibly hit, but has attack time and cannot replace
+the hard limiter as the actual guarantee.
+
+**Deferred, revisit after Session B results:** full-chain limiter with the
+same watchdog/`mpe_engine_reconcile_reset()`-style bypass-on-death pattern
+PR #50 already built for jackd itself — would give a real N+1 guarantee
+instead of a statistical one, at the cost of a new failure-visibility
+requirement (limiter death must surface as its own HUD state, or the
+appliance drifts back into the class of unfalsifiable health claim
+`GROUNDING.md` §5.3 item 8 is entirely about). Not built now.
+
+**Build vs adopt for the limiter itself:** check trixie arm64 for a
+packaged, headless LV2/JACK peak limiter first (x42 `dpl.lv2`, Calf,
+`zita-dpl1` — **none verified yet**, same `dak ls` treatment the loopers
+got, not a recommendation). If none is packaged and headless, a peer limiter
+is small enough (gain stage + lookahead peak detection + smoothed gain
+reduction, no allocation in the callback) that writing it doubles as a dry
+run of the compiled-JACK-client toolchain the build-our-own looper fallback
+would need anyway.
