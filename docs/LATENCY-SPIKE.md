@@ -4,6 +4,15 @@
 
 **The question, in one line:** *Can we run a smaller Surge buffer than 1024 without losing voices — and what's the cheapest change that gets us there?*
 
+> **ANSWERED 2026-08-14 — yes, and the question is now obsolete.** The appliance
+> runs **512 × 3 @ 48 kHz with 0 xruns** (`mpe jack status`). More importantly the
+> premise is retired: under the JACK graph server **Surge does not own a buffer**.
+> jackd sets one period for the whole graph and every client processes in that
+> same tick, so "Surge's buffer size" is not a thing that exists any more —
+> `MPE_JACK_BUFFER` × `MPE_JACK_PERIODS` is the only latency knob. Everything
+> measured below predates PR #50 and describes the ALSA path it deleted.
+> Arm A / Arm B were never needed on their original terms.
+
 Originally scoped as "enable PREEMPT_RT and turn the buffer down." The measured baseline below said to start further up the stack, because realtime scheduling was not enabled for Surge at the time it was taken.
 
 **Related:** [#44 Buffer size in settings](https://github.com/MitchSchwartz/MPE-Sound-Module/issues/44) · `FAQ.md` · `docs/PATCH_NORMALIZATION.md`
