@@ -15,6 +15,14 @@ Mapping: `apc_grid.py` · single-pad footswitch bench: `../sooperlooper-apc-benc
 ## Test clips + smoke (no manual recording)
 
 ```bash
+mpe looper sl-clips          # on Pi (default)
+mpe looper sl-clips local    # laptop clone → tests/fixtures/sooperlooper-loops/
+mpe looper sl-smoke          # restart -l 16, load, trigger, VmRSS + jack_cpu_load
+```
+
+Or directly on the appliance:
+
+```bash
 bash scripts/sooperlooper/generate-test-clips.sh
 bash scripts/sooperlooper/smoke-16-loops.sh
 ```
