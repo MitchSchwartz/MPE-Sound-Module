@@ -27,7 +27,7 @@ from apc_transport import (  # noqa: E402
     ShiftHoldCombo,
 )
 from sl_bench_listener import SlBenchStateListener  # noqa: E402
-from sl_grid_sync import apply_grid_sync  # noqa: E402
+from sl_grid_sync import apply_freeform, apply_grid_sync  # noqa: E402
 
 
 def midi_note_down(st: int, vel: int) -> bool | None:
@@ -92,7 +92,10 @@ def main() -> int:
     midi_out.open_port(idx)
     osc = udp_client.SimpleUDPClient(host, port)
 
-    if sync_mode not in ("free", "freeform", "0", "off"):
+    if sync_mode in ("free", "freeform", "0", "off"):
+        apply_freeform(lambda path, a: osc.send_message(path, a), num_loops=num_loops)
+        print("bench: freeform sync applied at startup (no quantize)", flush=True)
+    else:
         apply_grid_sync(lambda path, a: osc.send_message(path, a), num_loops=num_loops)
         print("bench: grid sync applied at startup (JACK transport)", flush=True)
 
