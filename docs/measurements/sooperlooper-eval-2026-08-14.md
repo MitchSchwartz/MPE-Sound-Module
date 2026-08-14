@@ -120,11 +120,10 @@ jack_connect "Surge XT:out_1" "mpe-looper:loop0_in_1"
 jack_connect "Surge XT:out_2" "mpe-looper:loop0_in_2"
 jack_connect "Surge XT:out_1" "system:playback_1"
 jack_connect "Surge XT:out_2" "system:playback_2"
-jack_connect "mpe-looper:loop0_out_1" "system:playback_1"
-jack_connect "mpe-looper:loop0_out_2" "system:playback_2"
-oscsend 127.0.0.1 9951 /sl/0/set sf dry 0.0
-oscsend 127.0.0.1 9951 /sl/0/set sf sync_source 0.0
-oscsend 127.0.0.1 9951 /sl/0/set sf quantize 0.0
+jack_connect "mpe-looper:common_out_1" "system:playback_1"
+jack_connect "mpe-looper:common_out_2" "system:playback_2"
+# Per-loop loopN_out -> playback is WRONG for 16 loops (sums 16× + Surge = clip)
+bash scripts/sooperlooper/wire-jack-graph.sh   # or: mpe looper sl-rewire
 ```
 
 **Tap cycle (short press):** record (red) → end+play (green) → pause/stop (yellow) → trigger/restart play (green). **Hold ~1 s on a clip pad:** `undo_all` (off). **Shift + Stop All Clips, hold 3 s:** pause + clear all loops (track reset).
@@ -176,7 +175,9 @@ oscsend 127.0.0.1 9951 /sl/0/set sf quantize 0.0
 | ALSA pcm `xrun:` | *(absent — JACK holds device)* | Use journal + CPU instead |
 | Peak capture | `jack_capture` not installed on Pi | Install `jack-capture` for dBFS proof |
 
-**Working hypothesis:** **gain staging / clipping**, not xruns — same class as B14 headroom concern in `DIRECTION.md`. Sixteen near-full-scale loops plus live Surge on a direct parallel sum will exceed 0 dBFS before the DAC.
+**Working hypothesis (updated):** smoke script wired **each `loopN_out` + Surge → playback** (17× sum). **`common_out` was not connected.** Fix: `mpe looper sl-rewire` — listen on `common_out`, `dry=0` on all loops, disconnect per-loop outs.
+
+**If crackle persists after rewire:** likely **baseline Surge @ 256×3** (B1 noted same class Surge-only) — try `MPE_SURGE_BUFFER_SIZE=512` in `/etc/mpe/mpe.env` and restart Surge.
 
 **Next checks (human):**
 1. Shift+Stop reset → record **one** loop → add Surge — crackle gone?

@@ -23,16 +23,7 @@ need_cmd() {
 }
 
 wire_jack_parallel() {
-  need_cmd jack_connect
-  jack_connect "Surge XT:out_1" "${JACK_CLIENT}:loop0_in_1" 2>/dev/null || true
-  jack_connect "Surge XT:out_2" "${JACK_CLIENT}:loop0_in_2" 2>/dev/null || true
-  jack_connect "Surge XT:out_1" "system:playback_1" 2>/dev/null || true
-  jack_connect "Surge XT:out_2" "system:playback_2" 2>/dev/null || true
-  for i in $(seq 0 $((LOOPS - 1))); do
-    jack_connect "${JACK_CLIENT}:loop${i}_out_1" "system:playback_1" 2>/dev/null || true
-    jack_connect "${JACK_CLIENT}:loop${i}_out_2" "system:playback_2" 2>/dev/null || true
-  done
-  oscsend "${OSC_HOST}" "${OSC_PORT}" /sl/0/set sf dry 0.0 2>/dev/null || true
+  bash "${SCRIPT_DIR}/wire-jack-graph.sh"
 }
 
 start_engine() {
