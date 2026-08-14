@@ -20,6 +20,7 @@ Mapping: `apc_grid.py` · single-pad footswitch bench: `../sooperlooper-apc-benc
 mpe looper sl-clips          # on Pi (default)
 mpe looper sl-clips local    # laptop clone → tests/fixtures/sooperlooper-loops/
 mpe looper sl-smoke          # restart -l 16, load, trigger, VmRSS + jack_cpu_load
+mpe looper sl-diagnose       # 45s soak: fan-in, xrun/journal, peak (needs jack-capture)
 ```
 
 Or directly on the appliance:

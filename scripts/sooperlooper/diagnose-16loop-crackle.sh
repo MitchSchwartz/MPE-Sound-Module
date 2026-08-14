@@ -41,7 +41,17 @@ read_xrun() {
     echo "n/a"
     return
   fi
-  awk '/^xrun:/ {print $2; exit}' "$path" 2>/dev/null || echo "0"
+  # JACK-held ALSA nodes often omit xrun:; use overrun/underflow if present.
+  local x
+  x="$(awk '/^xrun:/ {print $2; exit}' "$path" 2>/dev/null)"
+  if [ -n "$x" ]; then
+    echo "$x"
+    return
+  fi
+  local u o
+  u="$(awk '/^underflow/ {print $3; exit}' "$path" 2>/dev/null)"
+  o="$(awk '/^overrun/ {print $3; exit}' "$path" 2>/dev/null)"
+  echo "${u:-0}/${o:-0}"
 }
 
 count_playback_inputs() {
@@ -50,9 +60,11 @@ count_playback_inputs() {
     return
   fi
   jack_lsp -c 2>/dev/null | awk '
-    /^system:playback/ { port=$0; next }
-    port != "" && NF { print; port="" }
-  ' | grep -c 'system:playback' || true
+    /^system:playback/ { inblock=1; next }
+    inblock && /^[[:space:]]/ { count++; next }
+    inblock { inblock=0 }
+    END { print count+0 }
+  '
 }
 
 sample_cpu() {
@@ -66,7 +78,10 @@ sample_cpu() {
 capture_peak_db() {
   local label="$1"
   local wav="/tmp/sl-diag-capture-${label}.wav"
-  need_cmd jack_capture
+  if ! command -v jack_capture >/dev/null 2>&1; then
+    echo "jack_capture_not_installed"
+    return
+  fi
   need_cmd ffmpeg
   rm -f "$wav"
   timeout "$((CAP_SEC + 2))" jack_capture -d "$CAP_SEC" -f wav "$wav" >/dev/null 2>&1 || true
