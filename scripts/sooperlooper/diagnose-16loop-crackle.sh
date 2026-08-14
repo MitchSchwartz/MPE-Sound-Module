@@ -149,6 +149,9 @@ main() {
   log "xrun delta: $((x1 - x0)) (if numeric)"
   log "jack_cpu_load (end): $(sample_cpu)"
 
+  bash "${SCRIPT_DIR}/stop-all-loops.sh" 2>/dev/null || true
+  log "paused all loops after diagnostic soak"
+
   if command -v journalctl >/dev/null 2>&1; then
     local jr
     jr="$(journalctl -u mpe-jackd.service --since "${DUR} seconds ago" --no-pager 2>/dev/null \
