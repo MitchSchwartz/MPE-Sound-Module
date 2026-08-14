@@ -140,33 +140,55 @@ rubberband a hard build requirement rather than the optional fallback
 
 ---
 
-## 2026-08-14 — Master gain: two independent limiters + sidechain ducking, live now; watchdog bypass deferred
+## 2026-08-14 — Master gain: ONE sidechained limiter on the loop bus; nothing in the live path
 
-**Decision:** Ship two small limiter JACK clients, not one shared one:
+> **Supersedes the first version of this entry, same day.** That version
+> specified *two* limiters, one of them on Surge's direct path, and claimed it
+> "preserves fail-open per path." **That was wrong**, and wrong about the path
+> that matters — see the correction below. Recorded rather than deleted because
+> the error is instructive: it is the same insert-in-the-signal-path mistake
+> §2.11-class fail-open reasoning exists to catch, made while explicitly
+> reasoning about fail-open.
+
+**Decision:** One limiter JACK client, on the loop bus only. **Nothing sits in
+the live path.**
 
 ```
-Surge XT → limiter_live  → system:playback
+Surge XT → system:playback                      (direct — nothing in the way)
 Surge XT → sooperlooper loop inputs
+Surge XT → limiter_loops  [sidechain input — level detection only, no audio]
 sooperlooper outs → limiter_loops → system:playback
 ```
 
-`limiter_loops` takes a **sidechain feed from the live signal**, ducking loop
-level as live playing gets louder, on top of a static per-bus ceiling
-(loop bus targets roughly −6 dBFS so live + loops has real headroom before
-the true sum, which nothing else bounds, approaches 0 dBFS).
+**Why the sidechain is the mechanism, not a refinement.** jackd has no mixer:
+it sums client outputs in float32 and hands off to ALSA's `S24_3LE`
+conversion, which is where an unbounded sum clips. Under the parallel
+fail-open topology no single point in the graph *carries* the true N+1 sum —
+so the naive fixes are a full-chain limiter (single point of failure for
+everything) or a limiter on each path (single point of failure for each).
 
-**Rationale:** jackd has no mixer — it sums client outputs in float32 and
-hands off to ALSA's `S24_3LE` conversion, which is where an unbounded sum
-clips. The parallel fail-open topology (Surge direct to `system:playback`,
-loops fail-open through their own bus) means **no single point in the graph
-sees the true N+1 sum**, so a shared full-chain limiter would have to sit
-after everything — which reintroduces the single point of failure the
-parallel topology exists to avoid. Two independent limiters keep the
-fail-open granularity (lose `limiter_live`, loops are still safe and vice
-versa) while giving both paths a real, if separately-scoped, ceiling.
-Sidechain ducking is a musicality refinement on top — it lowers how often
-the static ceiling is audibly hit, but has attack time and cannot replace
-the hard limiter as the actual guarantee.
+The sidechain dissolves that: `limiter_loops` **sees** the live signal without
+**carrying** it. It knows both terms of the sum, so it can hold
+`live + loops` under 0 dBFS by moving the only term it controls. Live audio
+passes through no process of ours at all.
+
+**Why no `limiter_live`.** Putting a limiter on `Surge → system:playback`
+means that if it dies, its ports vanish and **the instrument goes silent** —
+the worst available failure, and exactly the property PR #50's parallel
+topology was built to guarantee against. The protection it buys does not
+justify that. Live stays bounded by per-patch normalization to −3 dBFS
+(`PATCH_NORMALIZATION.md`), with the honest caveat that normalization is
+calibrated per patch and a heavy 8-note chord can still exceed it. That
+residual is what the sidechain absorbs on the loop side.
+
+**Failure mode lands the right way round:** kill `limiter_loops` and loops go
+unlimited and may clip, but the instrument keeps playing. There is no
+component whose death silences the instrument.
+
+**Backstop underneath the limiter:** the per-loop `wet` law (`loop_gain/N`
+from `LOOPER-PLAN.md`), applied by our driver over OSC — arithmetic in the
+control layer, not DSP. The limiter is the guarantee; the law is what keeps
+levels predictable as you stack so the limiter is rarely working.
 
 **Deferred, revisit after Session B results:** full-chain limiter with the
 same watchdog/`mpe_engine_reconcile_reset()`-style bypass-on-death pattern
@@ -179,8 +201,17 @@ appliance drifts back into the class of unfalsifiable health claim
 **Build vs adopt for the limiter itself:** check trixie arm64 for a
 packaged, headless LV2/JACK peak limiter first (x42 `dpl.lv2`, Calf,
 `zita-dpl1` — **none verified yet**, same `dak ls` treatment the loopers
-got, not a recommendation). If none is packaged and headless, a peer limiter
-is small enough (gain stage + lookahead peak detection + smoothed gain
-reduction, no allocation in the callback) that writing it doubles as a dry
-run of the compiled-JACK-client toolchain the build-our-own looper fallback
-would need anyway.
+got, not a recommendation). Note the sidechain requirement narrows the field:
+a plain stereo peak limiter will not do, it needs an external sidechain input
+or the equivalent. If nothing packaged fits, writing one is small (gain
+stage + lookahead peak detection + smoothed gain reduction + sidechain level
+follower, no allocation in the callback) and doubles as a dry run of the
+compiled-JACK-client toolchain the build-our-own looper fallback would need.
+
+**Sequencing — measure before building.** The loop bus does not exist until
+the looper does, so this lands *after* the Session A/B verdict. Session B's
+job is therefore **measurement, not construction**: under the 16-loop load,
+capture how far the summed output actually goes over and whether the per-loop
+`wet` law alone holds it. Build the limiter to spec against those numbers
+rather than guessing a ceiling. (`looper-vetting.md` B14 was originally
+written as a build step inside Session B — corrected to a measurement.)
