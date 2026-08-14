@@ -12,6 +12,8 @@
 
 Mapping: `apc_grid.py` · single-pad footswitch bench: `../sooperlooper-apc-bench.py`
 
+**Track reset:** hold **Shift + Stop All Clips** (APC mk2 Scene Launch 8) for **3 s** → pause + `undo_all` on all loops, clip LEDs off.
+
 ## Test clips + smoke (no manual recording)
 
 ```bash

@@ -127,7 +127,7 @@ oscsend 127.0.0.1 9951 /sl/0/set sf sync_source 0.0
 oscsend 127.0.0.1 9951 /sl/0/set sf quantize 0.0
 ```
 
-**Tap cycle (short press):** record (red) → end+play (green) → pause/stop (yellow) → trigger/restart play (green). **Hold ~1 s:** `undo_all` (off).
+**Tap cycle (short press):** record (red) → end+play (green) → pause/stop (yellow) → trigger/restart play (green). **Hold ~1 s on a clip pad:** `undo_all` (off). **Shift + Stop All Clips, hold 3 s:** pause + clear all loops (track reset).
 
 **Fixes applied this session:**
 
