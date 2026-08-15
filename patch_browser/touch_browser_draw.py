@@ -460,7 +460,7 @@ class TouchBrowserDrawMixin:
 
         pad_x = LOOPER_HUD_PAD_X
         bar_y = rect.y + LOOPER_HUD_V_PAD
-        bar_h = max(8, rect.h - LOOPER_HUD_V_PAD * 2)
+        bar_h = max(10, rect.h - LOOPER_HUD_V_PAD * 2)
 
         frac_surf = self.font_sm.render(label, True, accent if running else self.theme.text) if label else None
         frac_w = frac_surf.get_width() if frac_surf else 0
