@@ -51,7 +51,37 @@ read_xrun() {
   local u o
   u="$(awk '/^underflow/ {print $3; exit}' "$path" 2>/dev/null)"
   o="$(awk '/^overrun/ {print $3; exit}' "$path" 2>/dev/null)"
+  # NEVER default a missing counter to 0. This used to print "0/0" when the
+  # node had no xrun, underflow OR overrun line at all — which is the case for
+  # a JACK-held device on this Pi — and "0/0" is indistinguishable on the page
+  # from a genuine zero. A whole 10-minute B7 soak was nearly signed off on that
+  # string (2026-08-15). Absent instrumentation must look absent.
+  if [ -z "$u" ] && [ -z "$o" ]; then
+    echo "n/a"
+    return
+  fi
   echo "${u:-0}/${o:-0}"
+}
+
+# Real xruns on this appliance come from jackd's stderr, which the unit sends to
+# the journal (StandardError=journal). Verified: jackd's startup lines are in
+# the journal, so silence over a window is a genuine zero and not a missing pipe.
+journal_xruns() {
+  local since="$1"
+  if ! command -v journalctl >/dev/null 2>&1; then
+    echo "n/a (no journalctl)"
+    return
+  fi
+  local lines
+  lines="$(journalctl -u mpe-jackd.service --since "$since" --no-pager 2>/dev/null | wc -l)"
+  if [ "${lines:-0}" -eq 0 ]; then
+    # No output at all — including none of jackd's own chatter. Cannot tell
+    # "no xruns" from "not reading the right unit".
+    echo "0 (unit silent over window — treat as unverified)"
+    return
+  fi
+  journalctl -u mpe-jackd.service --since "$since" --no-pager 2>/dev/null \
+    | grep -ciE 'xrun' || true
 }
 
 count_playback_inputs() {
@@ -145,19 +175,25 @@ main() {
   sleep "$DUR"
 
   x1="$(read_xrun "$status_path")"
-  log "xrun after soak: ${x1}"
-  log "xrun delta: $((x1 - x0)) (if numeric)"
+  log "xrun after soak (alsa node): ${x1}"
+  # Guard the arithmetic. `$(( ))` on a non-numeric reading aborts the script,
+  # and on 2026-08-15 it did — killing the run BEFORE the journal check below,
+  # which is the only source that actually works here. The measurement that
+  # mattered was lost to a crash while printing one that never did.
+  if [ "$x0" = "n/a" ] || [ "$x1" = "n/a" ]; then
+    log "xrun delta (alsa node): n/a — this device exposes no xrun counter"
+  elif printf '%s%s' "$x0" "$x1" | grep -qE '^[0-9]+$'; then
+    log "xrun delta (alsa node): $((x1 - x0))"
+  else
+    log "xrun delta (alsa node): n/a (non-numeric: '${x0}' -> '${x1}')"
+  fi
   log "jack_cpu_load (end): $(sample_cpu)"
+
+  # The authoritative one. Runs before stop-all so the window is the soak.
+  log "jackd xruns in journal (last ${DUR}s): $(journal_xruns "${DUR} seconds ago")"
 
   bash "${SCRIPT_DIR}/stop-all-loops.sh" 2>/dev/null || true
   log "paused all loops after diagnostic soak"
-
-  if command -v journalctl >/dev/null 2>&1; then
-    local jr
-    jr="$(journalctl -u mpe-jackd.service --since "${DUR} seconds ago" --no-pager 2>/dev/null \
-      | grep -ciE 'xrun|Xrun' || true)"
-    log "mpe-jackd journal xrun mentions (last ${DUR}s): ${jr}"
-  fi
 
   log "=== graph fan-in detail ==="
   jack_lsp -c 2>/dev/null | awk '
