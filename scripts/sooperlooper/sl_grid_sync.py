@@ -65,6 +65,12 @@ def set_grid_active(
         # made a fresh clip wait for the NEXT boundary after record-stop had
         # already landed on one.
         send(prefix, ["playback_sync", 0.0])
+        # Quantize launch/stop to the cycle. This is what makes a clip start on
+        # the bar: `trigger` cannot be used for launch because it does not lift
+        # a pause (verified — a paused loop stays Paused through trigger), so
+        # clips are stopped by MUTING and launched by unmuting, and SL defers
+        # the unmute to the boundary.
+        send(prefix, ["mute_quantized", 1.0 if active else 0.0])
 
 
 def apply_grid_sync(
