@@ -14,7 +14,7 @@ from __future__ import annotations
 from patch_browser.browse_carousel import BrowseCarousel
 from patch_browser.geometry import Rect
 from patch_browser.gesture_router import BrowseGestureZones, GestureKind, classify_pointer_down
-from patch_browser.touch_ui_constants import BROWSE_EDGE_GRAB_W
+from patch_browser.touch_ui_constants import BROWSE_EDGE_GRAB_W, TAP_MOVE_THRESHOLD_PX
 from patch_browser.touch_ui_enums import LeftNavMode
 
 
@@ -25,6 +25,7 @@ class TouchBrowserBrowseMixin:
         self._browse_carousel = BrowseCarousel()
         self._browse_filter_tap_active = False
         self._browse_filter_tap_tag: str | None = None
+        self._browse_filter_tap_down_pos: tuple[int, int] | None = None
 
     def _browse_carousel_active(self) -> bool:
         """Whether the Home/Filter track applies to the current screen.
@@ -48,18 +49,14 @@ class TouchBrowserBrowseMixin:
 
     def _browse_gesture_zones(self) -> BrowseGestureZones:
         edge = Rect(0, self.left_panel_rect.y, BROWSE_EDGE_GRAB_W, self.left_panel_rect.h)
-        filter_rect = (
-            self.browse_filter_rect
-            if self.browse_filter_rect.w > 0 and self._browse_carousel.stop == "filter"
-            else None
-        )
-        # `mixer`/`nav` zones are intentionally omitted: this router call
-        # only decides between the two *new* gesture kinds (edge pan,
-        # filter tap). Everything else falls through to the existing
-        # mixer/nav/tap handlers unchanged, and the filter pane never
-        # spatially overlaps the patch/mixer pane (opposite sides of
-        # Nav on the track), so omitting them can't misclassify a tap.
-        return BrowseGestureZones(edge=edge, filter=filter_rect)
+        # Filter tags / pane-body pan are handled in `_handle_browse_pointer_down`
+        # so tag hits and swipe-back drags are not conflated in the router.
+        return BrowseGestureZones(edge=edge, filter=None)
+
+    def _browse_repaint_after_drag(self) -> None:
+        """Layout + draw immediately so the track follows the finger."""
+        self._layout()
+        self._draw()
 
     def _handle_browse_pointer_down(self, pos: tuple[int, int]) -> bool:
         """Classify + claim pointer-down for the browse carousel's zones.
@@ -75,16 +72,40 @@ class TouchBrowserBrowseMixin:
         if kind == GestureKind.EDGE_CAROUSEL:
             self._browse_carousel.begin_drag(pos[0])
             return True
-        if kind == GestureKind.FILTER_TAP:
-            self._browse_filter_tap_tag = self._browse_filter_tag_hit(pos)
-            self._browse_filter_tap_active = True
+
+        if (
+            self._browse_carousel.stop == "filter"
+            and self.browse_filter_rect.w > 0
+            and self.browse_filter_rect.contains(*pos)
+        ):
+            tag_id = self._browse_filter_tag_hit(pos)
+            if tag_id is not None:
+                self._browse_filter_tap_tag = tag_id
+                self._browse_filter_tap_active = True
+                self._browse_filter_tap_down_pos = pos
+                return True
+            # Swipe-back: drag anywhere on the filter pane body, not just the edge strip.
+            self._browse_carousel.begin_drag(pos[0])
             return True
+
         return False
 
     def _handle_browse_pointer_move(self, pos: tuple[int, int]) -> bool:
+        if self._browse_filter_tap_active and self._browse_filter_tap_down_pos is not None:
+            down_x, down_y = self._browse_filter_tap_down_pos
+            dx = abs(pos[0] - down_x)
+            dy = abs(pos[1] - down_y)
+            if dx > TAP_MOVE_THRESHOLD_PX and dx >= dy:
+                self._browse_filter_tap_active = False
+                self._browse_filter_tap_tag = None
+                self._browse_filter_tap_down_pos = None
+                self._browse_carousel.begin_drag(down_x)
+                self._browse_carousel.update_drag(pos[0])
+                self._browse_repaint_after_drag()
+            return True
         if self._browse_carousel.state.dragging:
             self._browse_carousel.update_drag(pos[0])
-            self._layout()
+            self._browse_repaint_after_drag()
             return True
         if self._browse_filter_tap_active:
             return True
@@ -93,10 +114,11 @@ class TouchBrowserBrowseMixin:
     def _handle_browse_pointer_up(self, pos: tuple[int, int]) -> bool:
         if self._browse_carousel.state.dragging:
             self._browse_carousel.end_drag()
-            self._layout()
+            self._browse_repaint_after_drag()
             return True
         if self._browse_filter_tap_active:
             self._browse_filter_tap_active = False
+            self._browse_filter_tap_down_pos = None
             tag_id = self._browse_filter_tag_hit(pos)
             pressed_tag = self._browse_filter_tap_tag
             self._browse_filter_tap_tag = None
