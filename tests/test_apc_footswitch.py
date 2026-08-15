@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 import scripts.sooperlooper.apc_footswitch as footswitch_mod
 from scripts.sooperlooper.apc_footswitch import LoopFootswitch, build_footswitches
 from scripts.sooperlooper.sl_loop_states import (
+    SL_STATE_OFF,
     SL_STATE_PAUSED,
     SL_STATE_PLAYING,
     SL_STATE_RECORDING,
@@ -117,7 +118,8 @@ class GridEstablishmentTests(unittest.TestCase):
         self.assertTrue(grid.established)
         self.assertEqual(seen, [(120.0, 1)])
 
-    def test_grid_survives_deleting_the_clip_that_defined_it(self) -> None:
+    def test_hold_clear_drops_grid_when_engine_reports_last_clip_off(self) -> None:
+        """No clips, no grid — driven by SL state, not bench hold-clear alone."""
         from scripts.sooperlooper.sl_grid_state import GridState
 
         grid = GridState()
@@ -129,7 +131,28 @@ class GridEstablishmentTests(unittest.TestCase):
         self.assertTrue(grid.established)
 
         fs._clear_loop()
-        self.assertTrue(grid.established, "deleting the defining clip must not drop the grid")
+        self.assertTrue(
+            grid.established,
+            "hold-clear alone must not drop grid before SL confirms OFF",
+        )
+
+        fs.sync_from_sl(SL_STATE_OFF)
+        self.assertFalse(grid.established)
+        self.assertIsNone(grid.bpm)
+
+    def test_deleting_defining_clip_keeps_grid_while_other_clips_remain(self) -> None:
+        from scripts.sooperlooper.sl_grid_state import GridState
+
+        grid = GridState()
+        fs = self._fs(0, grid)
+        fs.on_pad_down(); fs.on_pad_up()
+        fs.on_pad_up()
+        fs.sync_loop_len(2.0)
+        fs.sync_from_sl(SL_STATE_PLAYING)
+        grid.note_loop_content(1, True)
+
+        fs.sync_from_sl(SL_STATE_OFF)
+        self.assertTrue(grid.established, "grid stays while any clip remains")
         self.assertAlmostEqual(grid.bpm, 120.0)
 
     def test_second_clip_does_wait_for_the_boundary(self) -> None:
