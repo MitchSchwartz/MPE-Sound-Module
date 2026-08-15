@@ -11,6 +11,7 @@ from sl_loop_states import (
     QUANTIZE_WAIT,
     SL_STATE_OFF,
     SL_STATE_PAUSED,
+    SL_STATE_MUTE,
     SL_STATE_PLAYING,
     SL_STATE_RECORDING,
     SL_STATE_WAIT_START,
@@ -100,6 +101,7 @@ class LoopFootswitch:
         self.awaiting_quantize = False
         self._wait_since = 0.0
         self._stop_queued = False
+        self._launch_queued = False
         self._led_transition: tuple[int, int] | None = None
         self._led_last: int | None = None
 
@@ -115,11 +117,13 @@ class LoopFootswitch:
         before = self.state
         if sl_state == SL_STATE_PLAYING:
             self.awaiting_quantize = False
+            self._launch_queued = False
             self.state = STATE_PLAYING
             self._maybe_establish_grid()
-        elif sl_state == SL_STATE_PAUSED:
+        elif sl_state in (SL_STATE_PAUSED, SL_STATE_MUTE):
             self.awaiting_quantize = False
             self.state = STATE_STOPPED
+            self._launch_queued = False
         elif sl_state == SL_STATE_OFF:
             self.awaiting_quantize = False
             self.state = STATE_IDLE
@@ -253,6 +257,7 @@ class LoopFootswitch:
 
     def _clear_loop(self) -> None:
         self._stop_queued = False
+        self._launch_queued = False
         if self.grid is not None:
             self.grid.cancel(self.loop)
         self._hit("undo_all")
@@ -300,18 +305,23 @@ class LoopFootswitch:
             else:
                 self.state = STATE_PLAYING
         elif self.state == STATE_PLAYING:
-            # pause_on/pause_off, not the `pause` TOGGLE. A toggle desyncs the
-            # moment the bench and engine disagree about the current state.
-            self._hit("pause_on")
+            # Mute rather than pause: a muted loop keeps RUNNING, so it stays
+            # locked to the grid and relaunching it is back in phase with
+            # everything else. With mute_quantized this lands on the bar.
+            self._hit("mute_on")
             self.state = STATE_STOPPED
         elif self.state == STATE_STOPPED:
-            # `trigger` alone on a paused loop restarted it while still
-            # paused: the pad went green and nothing was heard, and the next
-            # press resumed from mid-loop. Lift the pause first, then restart
-            # from the top like a clip launcher.
+            # pause_off is immediate but silent while muted, so it cannot leak
+            # audio early; mute_off is the quantized part and starts the clip
+            # on the bar. `trigger` is not usable here — it does not lift a
+            # pause, which is what made the first press silent.
             self._hit("pause_off")
-            self._hit("trigger")
-            self.state = STATE_PLAYING
+            self._hit("mute_off")
+            self._launch_queued = True
+            self._led_transition = (LED_YELLOW, LED_GREEN)
+            log(f"loop {self.loop}: launch queued — starts on the bar")
+            self._mark_action()
+            return
         else:
             self._hit("record")
             self.state = STATE_RECORDING
@@ -437,6 +447,9 @@ def stop_all_loops(
     launched starts from the top of the bar instead of joining a cycle that has
     been running unheard.
     """
+    # Mute as well as pause: a clip relaunched afterwards is unmuted on the
+    # bar, and mute is the state the per-pad launch path expects.
+    osc.send_message("/sl/-1/hit", "mute_on")
     osc.send_message("/sl/-1/hit", "pause_on")
     grid = next((fs.grid for fs in footswitches if fs.grid is not None), None)
     if grid is not None and grid.established and grid.bpm:
