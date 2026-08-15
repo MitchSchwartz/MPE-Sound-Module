@@ -2750,13 +2750,13 @@
         "Leads"
       ]
     },
-    "factory:Leads/\u00b5computer": {
+    "factory:Leads/µcomputer": {
       "instrument_user": null,
       "instruments": [
         "lead"
       ],
-      "name": "\u00b5computer",
-      "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/patches_factory/Leads/\u00b5computer.fxp",
+      "name": "µcomputer",
+      "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/patches_factory/Leads/µcomputer.fxp",
       "path_segments": [
         "Leads"
       ]
@@ -8115,7 +8115,7 @@
     "thirdparty:Argitoth/Rhythms/Edges Rhythm": {
       "instrument_user": null,
       "instruments": [
-        "percussion"
+        "sequencer"
       ],
       "name": "Edges Rhythm",
       "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Argitoth/Rhythms/Edges Rhythm.fxp",
@@ -8127,7 +8127,7 @@
     "thirdparty:Argitoth/Rhythms/Psyence Loop": {
       "instrument_user": null,
       "instruments": [
-        "percussion"
+        "sequencer"
       ],
       "name": "Psyence Loop",
       "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Argitoth/Rhythms/Psyence Loop.fxp",
@@ -8139,7 +8139,7 @@
     "thirdparty:Argitoth/Rhythms/Raindrops": {
       "instrument_user": null,
       "instruments": [
-        "percussion"
+        "sequencer"
       ],
       "name": "Raindrops",
       "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Argitoth/Rhythms/Raindrops.fxp",
@@ -8151,7 +8151,7 @@
     "thirdparty:Argitoth/Rhythms/Scrooz Loop": {
       "instrument_user": null,
       "instruments": [
-        "percussion"
+        "sequencer"
       ],
       "name": "Scrooz Loop",
       "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Argitoth/Rhythms/Scrooz Loop.fxp",
@@ -12099,7 +12099,7 @@
     "thirdparty:Dan Maurer/Rhythms/A Robotic Mind": {
       "instrument_user": null,
       "instruments": [
-        "percussion"
+        "sequencer"
       ],
       "name": "A Robotic Mind",
       "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Dan Maurer/Rhythms/A Robotic Mind.fxp",
@@ -12111,7 +12111,7 @@
     "thirdparty:Dan Maurer/Rhythms/Alternate Solution": {
       "instrument_user": null,
       "instruments": [
-        "percussion"
+        "sequencer"
       ],
       "name": "Alternate Solution",
       "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Dan Maurer/Rhythms/Alternate Solution.fxp",
@@ -12123,7 +12123,7 @@
     "thirdparty:Dan Maurer/Rhythms/Bad Influence": {
       "instrument_user": null,
       "instruments": [
-        "percussion"
+        "sequencer"
       ],
       "name": "Bad Influence",
       "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Dan Maurer/Rhythms/Bad Influence.fxp",
@@ -12135,7 +12135,7 @@
     "thirdparty:Dan Maurer/Rhythms/Boidae": {
       "instrument_user": null,
       "instruments": [
-        "percussion"
+        "sequencer"
       ],
       "name": "Boidae",
       "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Dan Maurer/Rhythms/Boidae.fxp",
@@ -12147,7 +12147,7 @@
     "thirdparty:Dan Maurer/Rhythms/Brave New World": {
       "instrument_user": null,
       "instruments": [
-        "percussion"
+        "sequencer"
       ],
       "name": "Brave New World",
       "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Dan Maurer/Rhythms/Brave New World.fxp",
@@ -12159,7 +12159,7 @@
     "thirdparty:Dan Maurer/Rhythms/Certified": {
       "instrument_user": null,
       "instruments": [
-        "percussion"
+        "sequencer"
       ],
       "name": "Certified",
       "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Dan Maurer/Rhythms/Certified.fxp",
@@ -12171,7 +12171,7 @@
     "thirdparty:Dan Maurer/Rhythms/Chime Charm": {
       "instrument_user": null,
       "instruments": [
-        "percussion"
+        "sequencer"
       ],
       "name": "Chime Charm",
       "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Dan Maurer/Rhythms/Chime Charm.fxp",
@@ -12183,7 +12183,7 @@
     "thirdparty:Dan Maurer/Rhythms/Dancing Strings": {
       "instrument_user": null,
       "instruments": [
-        "percussion"
+        "sequencer"
       ],
       "name": "Dancing Strings",
       "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Dan Maurer/Rhythms/Dancing Strings.fxp",
@@ -12195,7 +12195,7 @@
     "thirdparty:Dan Maurer/Rhythms/Dizzy Busy": {
       "instrument_user": null,
       "instruments": [
-        "percussion"
+        "sequencer"
       ],
       "name": "Dizzy Busy",
       "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Dan Maurer/Rhythms/Dizzy Busy.fxp",
@@ -12207,7 +12207,7 @@
     "thirdparty:Dan Maurer/Rhythms/Dropper": {
       "instrument_user": null,
       "instruments": [
-        "percussion"
+        "sequencer"
       ],
       "name": "Dropper",
       "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Dan Maurer/Rhythms/Dropper.fxp",
@@ -12219,7 +12219,7 @@
     "thirdparty:Dan Maurer/Rhythms/Earfull": {
       "instrument_user": null,
       "instruments": [
-        "percussion"
+        "sequencer"
       ],
       "name": "Earfull",
       "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Dan Maurer/Rhythms/Earfull.fxp",
@@ -12231,7 +12231,7 @@
     "thirdparty:Dan Maurer/Rhythms/FM Waves 01": {
       "instrument_user": null,
       "instruments": [
-        "percussion"
+        "sequencer"
       ],
       "name": "FM Waves 01",
       "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Dan Maurer/Rhythms/FM Waves 01.fxp",
@@ -12243,7 +12243,7 @@
     "thirdparty:Dan Maurer/Rhythms/FM Waves 02": {
       "instrument_user": null,
       "instruments": [
-        "percussion"
+        "sequencer"
       ],
       "name": "FM Waves 02",
       "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Dan Maurer/Rhythms/FM Waves 02.fxp",
@@ -12255,7 +12255,7 @@
     "thirdparty:Dan Maurer/Rhythms/Fire Breather": {
       "instrument_user": null,
       "instruments": [
-        "percussion"
+        "sequencer"
       ],
       "name": "Fire Breather",
       "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Dan Maurer/Rhythms/Fire Breather.fxp",
@@ -12267,7 +12267,7 @@
     "thirdparty:Dan Maurer/Rhythms/Generator": {
       "instrument_user": null,
       "instruments": [
-        "percussion"
+        "sequencer"
       ],
       "name": "Generator",
       "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Dan Maurer/Rhythms/Generator.fxp",
@@ -12279,7 +12279,7 @@
     "thirdparty:Dan Maurer/Rhythms/Hartsfield": {
       "instrument_user": null,
       "instruments": [
-        "percussion"
+        "sequencer"
       ],
       "name": "Hartsfield",
       "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Dan Maurer/Rhythms/Hartsfield.fxp",
@@ -12291,7 +12291,7 @@
     "thirdparty:Dan Maurer/Rhythms/Jambourie": {
       "instrument_user": null,
       "instruments": [
-        "percussion"
+        "sequencer"
       ],
       "name": "Jambourie",
       "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Dan Maurer/Rhythms/Jambourie.fxp",
@@ -12303,7 +12303,7 @@
     "thirdparty:Dan Maurer/Rhythms/Ka$h": {
       "instrument_user": null,
       "instruments": [
-        "percussion"
+        "sequencer"
       ],
       "name": "Ka$h",
       "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Dan Maurer/Rhythms/Ka$h.fxp",
@@ -12315,7 +12315,7 @@
     "thirdparty:Dan Maurer/Rhythms/Lanes": {
       "instrument_user": null,
       "instruments": [
-        "percussion"
+        "sequencer"
       ],
       "name": "Lanes",
       "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Dan Maurer/Rhythms/Lanes.fxp",
@@ -12327,7 +12327,7 @@
     "thirdparty:Dan Maurer/Rhythms/Moving Day": {
       "instrument_user": null,
       "instruments": [
-        "percussion"
+        "sequencer"
       ],
       "name": "Moving Day",
       "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Dan Maurer/Rhythms/Moving Day.fxp",
@@ -12339,7 +12339,7 @@
     "thirdparty:Dan Maurer/Rhythms/Mumford's the Word": {
       "instrument_user": null,
       "instruments": [
-        "percussion"
+        "sequencer"
       ],
       "name": "Mumford's the Word",
       "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Dan Maurer/Rhythms/Mumford's the Word.fxp",
@@ -12351,7 +12351,7 @@
     "thirdparty:Dan Maurer/Rhythms/North Atlantic": {
       "instrument_user": null,
       "instruments": [
-        "percussion"
+        "sequencer"
       ],
       "name": "North Atlantic",
       "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Dan Maurer/Rhythms/North Atlantic.fxp",
@@ -12363,7 +12363,7 @@
     "thirdparty:Dan Maurer/Rhythms/Old Tool Motion": {
       "instrument_user": null,
       "instruments": [
-        "percussion"
+        "sequencer"
       ],
       "name": "Old Tool Motion",
       "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Dan Maurer/Rhythms/Old Tool Motion.fxp",
@@ -12375,7 +12375,7 @@
     "thirdparty:Dan Maurer/Rhythms/Pick Me": {
       "instrument_user": null,
       "instruments": [
-        "percussion"
+        "sequencer"
       ],
       "name": "Pick Me",
       "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Dan Maurer/Rhythms/Pick Me.fxp",
@@ -12387,7 +12387,7 @@
     "thirdparty:Dan Maurer/Rhythms/Pick Me Minor Arp": {
       "instrument_user": null,
       "instruments": [
-        "percussion"
+        "sequencer"
       ],
       "name": "Pick Me Minor Arp",
       "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Dan Maurer/Rhythms/Pick Me Minor Arp.fxp",
@@ -12399,7 +12399,7 @@
     "thirdparty:Dan Maurer/Rhythms/Pipe Dreams": {
       "instrument_user": null,
       "instruments": [
-        "percussion"
+        "sequencer"
       ],
       "name": "Pipe Dreams",
       "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Dan Maurer/Rhythms/Pipe Dreams.fxp",
@@ -12411,7 +12411,7 @@
     "thirdparty:Dan Maurer/Rhythms/Prism": {
       "instrument_user": null,
       "instruments": [
-        "percussion"
+        "sequencer"
       ],
       "name": "Prism",
       "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Dan Maurer/Rhythms/Prism.fxp",
@@ -12423,7 +12423,7 @@
     "thirdparty:Dan Maurer/Rhythms/Pulstronic": {
       "instrument_user": null,
       "instruments": [
-        "percussion"
+        "sequencer"
       ],
       "name": "Pulstronic",
       "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Dan Maurer/Rhythms/Pulstronic.fxp",
@@ -12435,7 +12435,7 @@
     "thirdparty:Dan Maurer/Rhythms/Quinceanera": {
       "instrument_user": null,
       "instruments": [
-        "percussion"
+        "sequencer"
       ],
       "name": "Quinceanera",
       "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Dan Maurer/Rhythms/Quinceanera.fxp",
@@ -12447,7 +12447,7 @@
     "thirdparty:Dan Maurer/Rhythms/Reanimation": {
       "instrument_user": null,
       "instruments": [
-        "percussion"
+        "sequencer"
       ],
       "name": "Reanimation",
       "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Dan Maurer/Rhythms/Reanimation.fxp",
@@ -12459,7 +12459,7 @@
     "thirdparty:Dan Maurer/Rhythms/Rhythm and Lead": {
       "instrument_user": null,
       "instruments": [
-        "percussion"
+        "sequencer"
       ],
       "name": "Rhythm and Lead",
       "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Dan Maurer/Rhythms/Rhythm and Lead.fxp",
@@ -12471,7 +12471,7 @@
     "thirdparty:Dan Maurer/Rhythms/Rice Paper": {
       "instrument_user": null,
       "instruments": [
-        "percussion"
+        "sequencer"
       ],
       "name": "Rice Paper",
       "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Dan Maurer/Rhythms/Rice Paper.fxp",
@@ -12483,7 +12483,7 @@
     "thirdparty:Dan Maurer/Rhythms/Shuddup!": {
       "instrument_user": null,
       "instruments": [
-        "percussion"
+        "sequencer"
       ],
       "name": "Shuddup!",
       "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Dan Maurer/Rhythms/Shuddup!.fxp",
@@ -12495,7 +12495,7 @@
     "thirdparty:Dan Maurer/Rhythms/Six Palms": {
       "instrument_user": null,
       "instruments": [
-        "percussion"
+        "sequencer"
       ],
       "name": "Six Palms",
       "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Dan Maurer/Rhythms/Six Palms.fxp",
@@ -12507,7 +12507,7 @@
     "thirdparty:Dan Maurer/Rhythms/Stepping Out": {
       "instrument_user": null,
       "instruments": [
-        "percussion"
+        "sequencer"
       ],
       "name": "Stepping Out",
       "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Dan Maurer/Rhythms/Stepping Out.fxp",
@@ -12519,7 +12519,7 @@
     "thirdparty:Dan Maurer/Rhythms/Sweet Sixteen": {
       "instrument_user": null,
       "instruments": [
-        "percussion"
+        "sequencer"
       ],
       "name": "Sweet Sixteen",
       "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Dan Maurer/Rhythms/Sweet Sixteen.fxp",
@@ -12531,7 +12531,7 @@
     "thirdparty:Dan Maurer/Rhythms/Syncing Ship": {
       "instrument_user": null,
       "instruments": [
-        "percussion"
+        "sequencer"
       ],
       "name": "Syncing Ship",
       "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Dan Maurer/Rhythms/Syncing Ship.fxp",
@@ -12543,7 +12543,7 @@
     "thirdparty:Dan Maurer/Rhythms/Tin Men": {
       "instrument_user": null,
       "instruments": [
-        "percussion"
+        "sequencer"
       ],
       "name": "Tin Men",
       "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Dan Maurer/Rhythms/Tin Men.fxp",
@@ -12555,7 +12555,7 @@
     "thirdparty:Dan Maurer/Rhythms/Tinker Toys": {
       "instrument_user": null,
       "instruments": [
-        "percussion"
+        "sequencer"
       ],
       "name": "Tinker Toys",
       "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Dan Maurer/Rhythms/Tinker Toys.fxp",
@@ -12567,7 +12567,7 @@
     "thirdparty:Dan Maurer/Rhythms/Twelve Step Layer": {
       "instrument_user": null,
       "instruments": [
-        "percussion"
+        "sequencer"
       ],
       "name": "Twelve Step Layer",
       "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Dan Maurer/Rhythms/Twelve Step Layer.fxp",
@@ -12579,7 +12579,7 @@
     "thirdparty:Dan Maurer/Rhythms/Two Bit": {
       "instrument_user": null,
       "instruments": [
-        "percussion"
+        "sequencer"
       ],
       "name": "Two Bit",
       "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Dan Maurer/Rhythms/Two Bit.fxp",
@@ -12591,7 +12591,7 @@
     "thirdparty:Dan Maurer/Rhythms/What's Your Vector, Victor ": {
       "instrument_user": null,
       "instruments": [
-        "percussion"
+        "sequencer"
       ],
       "name": "What's Your Vector, Victor ",
       "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Dan Maurer/Rhythms/What's Your Vector, Victor .fxp",
@@ -16059,7 +16059,7 @@
     "thirdparty:Giana Brotherz/Rhythms/Alarm Reese": {
       "instrument_user": null,
       "instruments": [
-        "percussion"
+        "sequencer"
       ],
       "name": "Alarm Reese",
       "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Giana Brotherz/Rhythms/Alarm Reese.fxp",
@@ -16071,7 +16071,7 @@
     "thirdparty:Giana Brotherz/Rhythms/Bellchordian": {
       "instrument_user": null,
       "instruments": [
-        "percussion"
+        "sequencer"
       ],
       "name": "Bellchordian",
       "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Giana Brotherz/Rhythms/Bellchordian.fxp",
@@ -16083,7 +16083,7 @@
     "thirdparty:Giana Brotherz/Rhythms/Bellistic": {
       "instrument_user": null,
       "instruments": [
-        "percussion"
+        "sequencer"
       ],
       "name": "Bellistic",
       "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Giana Brotherz/Rhythms/Bellistic.fxp",
@@ -16095,7 +16095,7 @@
     "thirdparty:Giana Brotherz/Rhythms/Hard Hacked": {
       "instrument_user": null,
       "instruments": [
-        "percussion"
+        "sequencer"
       ],
       "name": "Hard Hacked",
       "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Giana Brotherz/Rhythms/Hard Hacked.fxp",
@@ -16107,7 +16107,7 @@
     "thirdparty:Giana Brotherz/Rhythms/Mellow On Sync": {
       "instrument_user": null,
       "instruments": [
-        "percussion"
+        "sequencer"
       ],
       "name": "Mellow On Sync",
       "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Giana Brotherz/Rhythms/Mellow On Sync.fxp",
@@ -16119,7 +16119,7 @@
     "thirdparty:Giana Brotherz/Rhythms/Reeseliner": {
       "instrument_user": null,
       "instruments": [
-        "percussion"
+        "sequencer"
       ],
       "name": "Reeseliner",
       "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Giana Brotherz/Rhythms/Reeseliner.fxp",
@@ -16131,7 +16131,7 @@
     "thirdparty:Giana Brotherz/Rhythms/Sine Hammer": {
       "instrument_user": null,
       "instruments": [
-        "percussion"
+        "sequencer"
       ],
       "name": "Sine Hammer",
       "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Giana Brotherz/Rhythms/Sine Hammer.fxp",
@@ -16143,7 +16143,7 @@
     "thirdparty:Giana Brotherz/Rhythms/Staccato Mellow": {
       "instrument_user": null,
       "instruments": [
-        "percussion"
+        "sequencer"
       ],
       "name": "Staccato Mellow",
       "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Giana Brotherz/Rhythms/Staccato Mellow.fxp",
@@ -16155,7 +16155,7 @@
     "thirdparty:Giana Brotherz/Rhythms/Trance Ground": {
       "instrument_user": null,
       "instruments": [
-        "percussion"
+        "sequencer"
       ],
       "name": "Trance Ground",
       "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Giana Brotherz/Rhythms/Trance Ground.fxp",
@@ -16167,7 +16167,7 @@
     "thirdparty:Giana Brotherz/Rhythms/Tubularity": {
       "instrument_user": null,
       "instruments": [
-        "percussion"
+        "sequencer"
       ],
       "name": "Tubularity",
       "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Giana Brotherz/Rhythms/Tubularity.fxp",
@@ -16179,7 +16179,7 @@
     "thirdparty:Giana Brotherz/Rhythms/Unison Retrigger": {
       "instrument_user": null,
       "instruments": [
-        "percussion"
+        "sequencer"
       ],
       "name": "Unison Retrigger",
       "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Giana Brotherz/Rhythms/Unison Retrigger.fxp",
@@ -18483,7 +18483,7 @@
     "thirdparty:Inigo Kennedy/Rhythms/Arp 1": {
       "instrument_user": null,
       "instruments": [
-        "percussion"
+        "sequencer"
       ],
       "name": "Arp 1",
       "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Inigo Kennedy/Rhythms/Arp 1.fxp",
@@ -18495,7 +18495,7 @@
     "thirdparty:Inigo Kennedy/Rhythms/Arp 2": {
       "instrument_user": null,
       "instruments": [
-        "percussion"
+        "sequencer"
       ],
       "name": "Arp 2",
       "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Inigo Kennedy/Rhythms/Arp 2.fxp",
@@ -18507,7 +18507,7 @@
     "thirdparty:Inigo Kennedy/Rhythms/Arp 3": {
       "instrument_user": null,
       "instruments": [
-        "percussion"
+        "sequencer"
       ],
       "name": "Arp 3",
       "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Inigo Kennedy/Rhythms/Arp 3.fxp",
@@ -18519,7 +18519,7 @@
     "thirdparty:Inigo Kennedy/Rhythms/Arp 4": {
       "instrument_user": null,
       "instruments": [
-        "percussion"
+        "sequencer"
       ],
       "name": "Arp 4",
       "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Inigo Kennedy/Rhythms/Arp 4.fxp",
@@ -18531,7 +18531,7 @@
     "thirdparty:Inigo Kennedy/Rhythms/Arp 5": {
       "instrument_user": null,
       "instruments": [
-        "percussion"
+        "sequencer"
       ],
       "name": "Arp 5",
       "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Inigo Kennedy/Rhythms/Arp 5.fxp",
@@ -18543,7 +18543,7 @@
     "thirdparty:Inigo Kennedy/Rhythms/Arp 6": {
       "instrument_user": null,
       "instruments": [
-        "percussion"
+        "sequencer"
       ],
       "name": "Arp 6",
       "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Inigo Kennedy/Rhythms/Arp 6.fxp",
@@ -18555,7 +18555,7 @@
     "thirdparty:Inigo Kennedy/Rhythms/Arp 7": {
       "instrument_user": null,
       "instruments": [
-        "percussion"
+        "sequencer"
       ],
       "name": "Arp 7",
       "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Inigo Kennedy/Rhythms/Arp 7.fxp",
@@ -18567,7 +18567,7 @@
     "thirdparty:Inigo Kennedy/Rhythms/Arp 8": {
       "instrument_user": null,
       "instruments": [
-        "percussion"
+        "sequencer"
       ],
       "name": "Arp 8",
       "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Inigo Kennedy/Rhythms/Arp 8.fxp",
@@ -18579,7 +18579,7 @@
     "thirdparty:Inigo Kennedy/Rhythms/Ladder 1": {
       "instrument_user": null,
       "instruments": [
-        "percussion"
+        "sequencer"
       ],
       "name": "Ladder 1",
       "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Inigo Kennedy/Rhythms/Ladder 1.fxp",
@@ -18591,7 +18591,7 @@
     "thirdparty:Inigo Kennedy/Rhythms/Ladder 2": {
       "instrument_user": null,
       "instruments": [
-        "percussion"
+        "sequencer"
       ],
       "name": "Ladder 2",
       "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Inigo Kennedy/Rhythms/Ladder 2.fxp",
@@ -18603,7 +18603,7 @@
     "thirdparty:Inigo Kennedy/Rhythms/Ladder 3": {
       "instrument_user": null,
       "instruments": [
-        "percussion"
+        "sequencer"
       ],
       "name": "Ladder 3",
       "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Inigo Kennedy/Rhythms/Ladder 3.fxp",
@@ -18615,7 +18615,7 @@
     "thirdparty:Inigo Kennedy/Rhythms/Shipping": {
       "instrument_user": null,
       "instruments": [
-        "percussion"
+        "sequencer"
       ],
       "name": "Shipping",
       "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Inigo Kennedy/Rhythms/Shipping.fxp",
@@ -18627,7 +18627,7 @@
     "thirdparty:Inigo Kennedy/Rhythms/Six Way 1": {
       "instrument_user": null,
       "instruments": [
-        "percussion"
+        "sequencer"
       ],
       "name": "Six Way 1",
       "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Inigo Kennedy/Rhythms/Six Way 1.fxp",
@@ -18639,7 +18639,7 @@
     "thirdparty:Inigo Kennedy/Rhythms/Three Way 1": {
       "instrument_user": null,
       "instruments": [
-        "percussion"
+        "sequencer"
       ],
       "name": "Three Way 1",
       "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Inigo Kennedy/Rhythms/Three Way 1.fxp",
@@ -18651,7 +18651,7 @@
     "thirdparty:Inigo Kennedy/Rhythms/Three Way 2": {
       "instrument_user": null,
       "instruments": [
-        "percussion"
+        "sequencer"
       ],
       "name": "Three Way 2",
       "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Inigo Kennedy/Rhythms/Three Way 2.fxp",
@@ -18663,7 +18663,7 @@
     "thirdparty:Inigo Kennedy/Rhythms/Three Way 3": {
       "instrument_user": null,
       "instruments": [
-        "percussion"
+        "sequencer"
       ],
       "name": "Three Way 3",
       "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Inigo Kennedy/Rhythms/Three Way 3.fxp",
@@ -23068,13 +23068,13 @@
         "Pads"
       ]
     },
-    "thirdparty:Kinsey Dulcet/Pads/Sunrise Breakfast At The Digital Caf\u00e9": {
+    "thirdparty:Kinsey Dulcet/Pads/Sunrise Breakfast At The Digital Café": {
       "instrument_user": null,
       "instruments": [
         "pad"
       ],
-      "name": "Sunrise Breakfast At The Digital Caf\u00e9",
-      "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Kinsey Dulcet/Pads/Sunrise Breakfast At The Digital Caf\u00e9.fxp",
+      "name": "Sunrise Breakfast At The Digital Café",
+      "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Kinsey Dulcet/Pads/Sunrise Breakfast At The Digital Café.fxp",
       "path_segments": [
         "Kinsey Dulcet",
         "Pads"
@@ -23116,13 +23116,13 @@
         "Pads"
       ]
     },
-    "thirdparty:Kinsey Dulcet/Pads/Wavetextures\u2122 Pro Kit": {
+    "thirdparty:Kinsey Dulcet/Pads/Wavetextures™ Pro Kit": {
       "instrument_user": null,
       "instruments": [
         "pad"
       ],
-      "name": "Wavetextures\u2122 Pro Kit",
-      "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Kinsey Dulcet/Pads/Wavetextures\u2122 Pro Kit.fxp",
+      "name": "Wavetextures™ Pro Kit",
+      "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Kinsey Dulcet/Pads/Wavetextures™ Pro Kit.fxp",
       "path_segments": [
         "Kinsey Dulcet",
         "Pads"
@@ -24139,7 +24139,7 @@
     "thirdparty:Kyurumi/Rhythms/Floating In A Rhythm": {
       "instrument_user": null,
       "instruments": [
-        "percussion"
+        "sequencer"
       ],
       "name": "Floating In A Rhythm",
       "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Kyurumi/Rhythms/Floating In A Rhythm.fxp",
@@ -24151,7 +24151,7 @@
     "thirdparty:Kyurumi/Rhythms/Technological Escapings": {
       "instrument_user": null,
       "instruments": [
-        "percussion"
+        "sequencer"
       ],
       "name": "Technological Escapings",
       "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Kyurumi/Rhythms/Technological Escapings.fxp",
@@ -26503,7 +26503,7 @@
     "thirdparty:Luna/Rhythms/Dejitaru no Yume": {
       "instrument_user": null,
       "instruments": [
-        "percussion"
+        "sequencer"
       ],
       "name": "Dejitaru no Yume",
       "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Luna/Rhythms/Dejitaru no Yume.fxp",
@@ -26515,7 +26515,7 @@
     "thirdparty:Luna/Rhythms/Modern Silk Allpass S&H": {
       "instrument_user": null,
       "instruments": [
-        "percussion"
+        "sequencer"
       ],
       "name": "Modern Silk Allpass S&H",
       "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Luna/Rhythms/Modern Silk Allpass S&H.fxp",
@@ -26527,7 +26527,7 @@
     "thirdparty:Luna/Rhythms/Paraphonic NL Bandpass S&H": {
       "instrument_user": null,
       "instruments": [
-        "percussion"
+        "sequencer"
       ],
       "name": "Paraphonic NL Bandpass S&H",
       "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Luna/Rhythms/Paraphonic NL Bandpass S&H.fxp",
@@ -26539,7 +26539,7 @@
     "thirdparty:Luna/Rhythms/Portal Vibes": {
       "instrument_user": null,
       "instruments": [
-        "percussion"
+        "sequencer"
       ],
       "name": "Portal Vibes",
       "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Luna/Rhythms/Portal Vibes.fxp",
@@ -30535,7 +30535,7 @@
     "thirdparty:Rozzer/Rhythms/Disco!": {
       "instrument_user": null,
       "instruments": [
-        "percussion"
+        "sequencer"
       ],
       "name": "Disco!",
       "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Rozzer/Rhythms/Disco!.fxp",
@@ -30547,7 +30547,7 @@
     "thirdparty:Rozzer/Rhythms/Sync Alarm!": {
       "instrument_user": null,
       "instruments": [
-        "percussion"
+        "sequencer"
       ],
       "name": "Sync Alarm!",
       "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Rozzer/Rhythms/Sync Alarm!.fxp",
@@ -30559,7 +30559,7 @@
     "thirdparty:Rozzer/Rhythms/Twisted": {
       "instrument_user": null,
       "instruments": [
-        "percussion"
+        "sequencer"
       ],
       "name": "Twisted",
       "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Rozzer/Rhythms/Twisted.fxp",
@@ -31855,7 +31855,7 @@
     "thirdparty:Slowboat/Rhythms/Bellish Shape Shimmer": {
       "instrument_user": null,
       "instruments": [
-        "percussion"
+        "sequencer"
       ],
       "name": "Bellish Shape Shimmer",
       "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Slowboat/Rhythms/Bellish Shape Shimmer.fxp",
@@ -31867,7 +31867,7 @@
     "thirdparty:Slowboat/Rhythms/Choir For Tape": {
       "instrument_user": null,
       "instruments": [
-        "percussion"
+        "sequencer"
       ],
       "name": "Choir For Tape",
       "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Slowboat/Rhythms/Choir For Tape.fxp",
@@ -31879,7 +31879,7 @@
     "thirdparty:Slowboat/Rhythms/Choir Pad": {
       "instrument_user": null,
       "instruments": [
-        "percussion"
+        "sequencer"
       ],
       "name": "Choir Pad",
       "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Slowboat/Rhythms/Choir Pad.fxp",
@@ -31891,7 +31891,7 @@
     "thirdparty:Slowboat/Rhythms/Machine Jam": {
       "instrument_user": null,
       "instruments": [
-        "percussion"
+        "sequencer"
       ],
       "name": "Machine Jam",
       "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Slowboat/Rhythms/Machine Jam.fxp",
@@ -31903,7 +31903,7 @@
     "thirdparty:Slowboat/Rhythms/Massive Pad 1": {
       "instrument_user": null,
       "instruments": [
-        "percussion"
+        "sequencer"
       ],
       "name": "Massive Pad 1",
       "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Slowboat/Rhythms/Massive Pad 1.fxp",
@@ -31915,7 +31915,7 @@
     "thirdparty:Slowboat/Rhythms/Massive Pad 2": {
       "instrument_user": null,
       "instruments": [
-        "percussion"
+        "sequencer"
       ],
       "name": "Massive Pad 2",
       "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Slowboat/Rhythms/Massive Pad 2.fxp",
@@ -31927,7 +31927,7 @@
     "thirdparty:Slowboat/Rhythms/Particles For Chords": {
       "instrument_user": null,
       "instruments": [
-        "percussion"
+        "sequencer"
       ],
       "name": "Particles For Chords",
       "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Slowboat/Rhythms/Particles For Chords.fxp",
@@ -35191,7 +35191,7 @@
     "thirdparty:Zoozither/Rhythms/Goose": {
       "instrument_user": null,
       "instruments": [
-        "percussion"
+        "sequencer"
       ],
       "name": "Goose",
       "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Zoozither/Rhythms/Goose.fxp",
@@ -35203,7 +35203,7 @@
     "thirdparty:Zoozither/Rhythms/Intruder": {
       "instrument_user": null,
       "instruments": [
-        "percussion"
+        "sequencer"
       ],
       "name": "Intruder",
       "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Zoozither/Rhythms/Intruder.fxp",
@@ -35215,7 +35215,7 @@
     "thirdparty:Zoozither/Rhythms/Jumper": {
       "instrument_user": null,
       "instruments": [
-        "percussion"
+        "sequencer"
       ],
       "name": "Jumper",
       "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Zoozither/Rhythms/Jumper.fxp",
@@ -35227,7 +35227,7 @@
     "thirdparty:Zoozither/Rhythms/Lazy Motion": {
       "instrument_user": null,
       "instruments": [
-        "percussion"
+        "sequencer"
       ],
       "name": "Lazy Motion",
       "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Zoozither/Rhythms/Lazy Motion.fxp",
@@ -35239,7 +35239,7 @@
     "thirdparty:Zoozither/Rhythms/Nightcrawler": {
       "instrument_user": null,
       "instruments": [
-        "percussion"
+        "sequencer"
       ],
       "name": "Nightcrawler",
       "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Zoozither/Rhythms/Nightcrawler.fxp",
@@ -35251,7 +35251,7 @@
     "thirdparty:Zoozither/Rhythms/Ventricle 1": {
       "instrument_user": null,
       "instruments": [
-        "percussion"
+        "sequencer"
       ],
       "name": "Ventricle 1",
       "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Zoozither/Rhythms/Ventricle 1.fxp",
@@ -35263,7 +35263,7 @@
     "thirdparty:Zoozither/Rhythms/Ventricle 2": {
       "instrument_user": null,
       "instruments": [
-        "percussion"
+        "sequencer"
       ],
       "name": "Ventricle 2",
       "path": "/home/mitch/Documents/GitHub/MPE-Library/assets/patches/third-party/patches_3rdparty/Zoozither/Rhythms/Ventricle 2.fxp",
