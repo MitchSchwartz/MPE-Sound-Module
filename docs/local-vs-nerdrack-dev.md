@@ -123,6 +123,8 @@ ssh claude-yolo-mpe
 
 Bulk drain: `bash scripts/yolo/run-yolo-queue.sh`
 
+**Backpressure on VPS:** full `unittest` may warn (missing Pi/audio/JACK). Set `YOLO_BACKPRESSURE_STRICT=1` on nerdrack once test deps match laptop/CI.
+
 ---
 
 ## Protected branches
