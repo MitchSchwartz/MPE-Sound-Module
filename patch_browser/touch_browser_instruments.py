@@ -18,9 +18,10 @@ from patch_browser.instrument_filter import (
 from patch_browser.touch_ui_constants import (
     BROWSE_EDGE_GRAB_W,
     BROWSE_FILTER_HEADER_H,
-    INSTRUMENT_CHIP_GAP,
-    INSTRUMENT_CHIP_PAD_X,
-    INSTRUMENT_CHIP_ROW_H,
+    BROWSE_FILTER_TAG_GAP,
+    BROWSE_FILTER_TAG_MIN_W,
+    BROWSE_FILTER_TAG_PAD_X,
+    BROWSE_FILTER_TAG_ROW_H,
 )
 from patch_browser.touch_ui_enums import LeftNavMode
 
@@ -140,11 +141,12 @@ class TouchBrowserInstrumentsMixin:
         packed, _content_h = layout_filter_pane_tags(
             tag_ids,
             label_fn=_label,
-            measure_fn=lambda label: self.font_sm.size(label)[0],
+            measure_fn=lambda label: self.font_md.size(label)[0],
             content_rect=content_rect,
-            row_h=INSTRUMENT_CHIP_ROW_H - 8,
-            pad_x=INSTRUMENT_CHIP_PAD_X,
-            gap=INSTRUMENT_CHIP_GAP,
+            row_h=BROWSE_FILTER_TAG_ROW_H,
+            pad_x=BROWSE_FILTER_TAG_PAD_X,
+            gap=BROWSE_FILTER_TAG_GAP,
+            min_chip_w=BROWSE_FILTER_TAG_MIN_W,
         )
         self._browse_filter_packed_tags = packed
         self.browse_filter_tag_rects = [(tag.tag_id, tag.rect) for tag in packed]
@@ -165,17 +167,17 @@ class TouchBrowserInstrumentsMixin:
         if pane.w <= 0:
             return
         pygame.draw.rect(self.screen, self.theme.surface, pane.pygame_rect, border_radius=10)
-        header_x = pane.x + BROWSE_EDGE_GRAB_W + INSTRUMENT_CHIP_PAD_X
+        header_x = pane.x + BROWSE_EDGE_GRAB_W + BROWSE_FILTER_TAG_PAD_X
         header = self.font_sm.render(self._browse_filter_header_label(), True, self.theme.muted)
-        self.screen.blit(header, (header_x, pane.y + 6))
+        self.screen.blit(header, (header_x, pane.y + 8))
         for tag in self._browse_filter_packed_tags:
             selected = tag.tag_id == self.instrument_filter or (
                 tag.tag_id == ALL_INSTRUMENT_CHIP and self.instrument_filter is None
             )
             bg = self.theme.accent if selected else self.theme.surface_alt
             text_color = self.theme.bg if selected else self.theme.text
-            pygame.draw.rect(self.screen, bg, tag.rect.pygame_rect, border_radius=14)
-            surf = self.font_sm.render(tag.label, True, text_color)
+            pygame.draw.rect(self.screen, bg, tag.rect.pygame_rect, border_radius=12)
+            surf = self.font_md.render(tag.label, True, text_color)
             cx = tag.rect.x + (tag.rect.w - surf.get_width()) // 2
             cy = tag.rect.y + (tag.rect.h - surf.get_height()) // 2
             self.screen.blit(surf, (cx, cy))

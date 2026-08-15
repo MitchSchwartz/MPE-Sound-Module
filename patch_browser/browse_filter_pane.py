@@ -31,6 +31,7 @@ def layout_filter_pane_tags(
     row_h: int,
     pad_x: int,
     gap: int,
+    min_chip_w: int = 0,
 ) -> tuple[list[PackedTag], int]:
     """Pack tags left-to-right, wrapping rows — chip width follows label width.
 
@@ -46,7 +47,7 @@ def layout_filter_pane_tags(
     packed: list[PackedTag] = []
     for tag_id in tag_ids:
         label = label_fn(tag_id)
-        chip_w = measure_fn(label) + pad_x * 2
+        chip_w = max(measure_fn(label) + pad_x * 2, min_chip_w)
         if x + chip_w > max_x and x > row_start_x:
             x = row_start_x
             y += row_h + gap
