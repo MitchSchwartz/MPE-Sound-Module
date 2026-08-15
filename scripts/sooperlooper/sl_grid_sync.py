@@ -73,6 +73,24 @@ def set_grid_active(
         send(prefix, ["mute_quantized", 1.0 if active else 0.0])
 
 
+# The control we watch to notice the engine went away and came back.
+#
+# `sync_source` is global, cheap to subscribe to, and — crucially — its value
+# under our config (-3, internal) is not one SooperLooper ever chooses on its
+# own. A fresh engine reports something else, so a mismatch is an unambiguous
+# "this is not the engine we configured".
+#
+# Watching a per-loop control would not do: in the no-grid state we set
+# quantize to 0 deliberately, which is also the engine default, so a restart in
+# that state would be invisible.
+RESTART_SENTINEL = "sync_source"
+
+
+def expected_sentinel(clock: str = DEFAULT_CLOCK) -> float:
+    """What `sync_source` must read back as while our config is in force."""
+    return float(SYNC_SOURCE_JACK if clock == "transport" else SYNC_SOURCE_INTERNAL)
+
+
 def apply_grid_sync(
     send: Callable[[str, list], None],
     *,

@@ -20,11 +20,18 @@ What it will NOT repair (destructive — alarms instead):
     the middle of a set that is far worse than the wedge. It alarms, captures
     diagnostics, and waits for a human to run `mpe looper sl-restart`.
 
-Root cause of the wedge is UNKNOWN as of 2026-08-14. It has recurred at least
-twice: OSC `/get` keeps answering while `/set` and `/hit` are silently ignored
-(they go through push_nonrt_event; `get` reads state directly). On detection
-this dumps per-thread kernel state to the alarm file so the next occurrence
-produces evidence instead of another guess.
+**The "wedge" was solved on 2026-08-15: it was an orphaned JACK client.**
+SooperLooper survived a `jackd` restart as a process but lost its JACK client
+and never re-registered. `push_nonrt_event()` is drained from the JACK process
+callback, so with no callback every `/set` and `/hit` vanished while `/get` read
+state directly and kept answering. Five occurrences, all misdiagnosed as an
+engine fault. Spec §M has the evidence.
+
+That is why the JACK-visibility check runs FIRST here. An orphan is
+indistinguishable from a true wedge to the OSC probe, so probing first names the
+wrong component. If the OSC probe ever does report a wedge on an engine that IS
+on the graph, that is a genuinely new failure — the per-thread kernel dump exists
+for exactly that case.
 """
 
 from __future__ import annotations
@@ -37,6 +44,13 @@ import sys
 import threading
 import time
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from sl_probe import (  # noqa: E402
+    ALIVE,
+    PROBE_LOOP,
+    check_command_path,
+)
 
 SL_HOST = os.environ.get("MPE_SL_OSC_HOST", "127.0.0.1")
 SL_PORT = int(os.environ.get("MPE_SL_OSC_PORT", "9951"))
@@ -238,27 +252,32 @@ def main(argv: list[str] | None = None) -> int:
         elif state is None:
             problems.append("engine not answering OSC")
         else:
-            before = osc.get("dry")
-            target = 0.5 if (before is None or abs(float(before) - 0.5) > 0.01) else 0.75
-            osc.client.send_message("/sl/0/set", ["dry", target])
-            time.sleep(0.4)
-            after = osc.get("dry")
-            if after is None or abs(float(after) - target) > 0.01:
-                problems.append("WEDGED: reads answer, commands ignored")
+            # Shared with sl-health. Both used to write the same control with
+            # the same two alternating values, so a hand-run health check and
+            # this loop could each read the other's write and report WEDGED —
+            # whose remedy destroys every recorded loop. A monitoring race must
+            # never recommend a data-losing action.
+            verdict, detail = check_command_path(
+                lambda ctrl: osc.get(ctrl, loop=PROBE_LOOP),
+                lambda ctrl, val: osc.client.send_message(
+                    f"/sl/{PROBE_LOOP}/set", [ctrl, val]),
+                seed="sl-watchdog",
+            )
+            if verdict == ALIVE:
+                wedged_since = None
+            else:
+                problems.append(f"WEDGED: {detail}")
                 if wedged_since is None:
                     wedged_since = time.time()
                     diag = capture_wedge_diagnostics()
                     write_alarm("wedged", {
-                        "detail": "OSC /set ignored; /get still answers",
+                        "detail": f"OSC /set ignored; /get still answers ({detail})",
                         "action": "mpe looper sl-restart (DESTROYS loops — human call)",
                         "diagnostics": diag,
                     })
                     alarm_written = True
                     log("!! ENGINE WEDGED — not auto-restarting (that would destroy "
                         "your loops). Diagnostics captured. Fix: mpe looper sl-restart")
-            elif before is not None:
-                osc.client.send_message("/sl/0/set", ["dry", float(before)])
-                wedged_since = None
 
         for r in repaired:
             log(f"repaired: {r}")
