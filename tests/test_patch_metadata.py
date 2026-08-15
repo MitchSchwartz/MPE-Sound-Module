@@ -78,6 +78,39 @@ class PatchMetadataClassifierTests(unittest.TestCase):
         )
         self.assertEqual(tags[0], "sequencer")
 
+    def test_rhythms_folder_classifies_sequencer(self) -> None:
+        tags = classify_patch_instruments(
+            self._patch(
+                name="A Robotic Mind",
+                category="Dan Maurer",
+                folder_segments=("Dan Maurer", "Rhythms"),
+                inner_segments=("Rhythms",),
+            )
+        )
+        self.assertEqual(tags[0], "sequencer")
+
+    def test_rhythm_folder_singular_classifies_sequencer(self) -> None:
+        tags = classify_patch_instruments(
+            self._patch(
+                name="Pulse Layer",
+                category="Artist",
+                folder_segments=("Artist", "Rhythm"),
+                inner_segments=("Rhythm",),
+            )
+        )
+        self.assertEqual(tags[0], "sequencer")
+
+    def test_rhythms_folder_drum_name_stays_percussion(self) -> None:
+        tags = classify_patch_instruments(
+            self._patch(
+                name="808 Kick",
+                category="Dan Maurer",
+                folder_segments=("Dan Maurer", "Rhythms"),
+                inner_segments=("Rhythms",),
+            )
+        )
+        self.assertEqual(tags[0], "percussion")
+
     def test_church_organ_name(self) -> None:
         tags = classify_patch_instruments(
             self._patch(
