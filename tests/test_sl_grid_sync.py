@@ -24,7 +24,17 @@ class SlGridSyncTests(unittest.TestCase):
         self.assertIn(("/set", ["tempo", 100.0]), sent)
         for loop in range(4):
             self.assertIn((f"/sl/{loop}/set", ["quantize", 1.0]), sent)
+            # No count-in by default: record starts on the tap, not on the next
+            # boundary, or the player loses everything up to the boundary.
+            self.assertIn((f"/sl/{loop}/set", ["sync", 0.0]), sent)
+            self.assertIn((f"/sl/{loop}/set", ["round", 1.0]), sent)
+
+    def test_count_in_enabled_waits_for_boundary(self) -> None:
+        sent: list[tuple[str, list]] = []
+        apply_grid_sync(lambda p, a: sent.append((p, a)), num_loops=2, count_in=True)
+        for loop in range(2):
             self.assertIn((f"/sl/{loop}/set", ["sync", 1.0]), sent)
+            self.assertIn((f"/sl/{loop}/set", ["round", 0.0]), sent)
 
     def test_grid_sync_jack_transport_all_quantized(self) -> None:
         sent: list[tuple[str, list]] = []
@@ -39,7 +49,6 @@ class SlGridSyncTests(unittest.TestCase):
         self.assertIn(("/set", ["fade_samples", 64.0]), sent)
         for loop in range(4):
             self.assertIn((f"/sl/{loop}/set", ["quantize", 1.0]), sent)
-            self.assertIn((f"/sl/{loop}/set", ["sync", 1.0]), sent)
             self.assertIn((f"/sl/{loop}/set", ["playback_sync", 1.0]), sent)
 
     def test_freeform_disables_sync(self) -> None:
