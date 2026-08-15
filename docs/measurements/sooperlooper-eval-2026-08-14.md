@@ -3,7 +3,7 @@
 Plan: OM-Repo `internal/projects/mpe-synth-launch/research/looper-vetting.md` §7.
 Decisions this feeds: `Documents/DECISIONS.md` 2026-08-14 entries.
 
-**Verdict:** Session A **continue** · Session B **partial** (2026-08-14, updated 15:06 America/Toronto). B2/B9 pass (ear + APC bench). **B8 corrected to PASS 2026-08-15 — adoption no longer blocked.** Grid mode shipped; see `Documents/specs/looper-transport-clock-spec.md` §K. Full log: this file.
+**Verdict:** Session A **continue** · Session B **PASS** (updated 2026-08-15 23:20 BST). B2/B9 pass (ear + APC bench). **B8 corrected to PASS** and **B7 now PASSES** on a full 600 s 16-loop soak — 0 xruns, 22.2% DSP load. **Nothing outstanding could disqualify SooperLooper.** Grid mode shipped; see `Documents/specs/looper-transport-clock-spec.md` §K–§M. Full log: this file.
 
 ## Rollback baseline (captured before A1)
 
@@ -82,7 +82,7 @@ oscsend osc.udp://127.0.0.1:9951 /sl/0/set sf dry 0.0
 | B5 | 16 loops record/play | **pass (OSC)** | `-l 16`; all 16 loops record/play driven; **VmRSS 151564 kB** after |
 | B5b | Recorded-but-idle memory | **pass** | See Session A table + B5 measured 151 MB with 16 active loops |
 | B6 | Fail open | **pass** | `pkill -KILL sooperlooper` ×2 — Surge → playback intact each time |
-| B7 | 10-min soak, 16 loops | **partial** | 90 s proxy + 20 note attempts; **`jack_cpu_load` ~15%** with 16-loop engine up (timeout 3 s sample). Full 10-min + xrun count **not completed** (`jack_cpu_load` blocks without timeout) |
+| B7 | 10-min soak, 16 loops | **PASS (2026-08-15)** | Full 600 s soak, 16 loops playing: **0 xruns** (jackd journal, unit verified talking), **22.2% DSP load**, 256@48k. The ALSA-node `0/0` reading it used to print was a fallback, not a measurement — see §B7 |
 | B8 | Persistence | **PASS (corrected 2026-08-15)** | Wrote a 3 MB WAV first try against a *fresh* engine. The 2026-08-14 "disk persistence broken" reading (no file, no `openat` under strace) was a **wedged engine**, not disk I/O — see §B8 correction. Detect with `mpe looper sl-health` before retesting |
 | B9 | Footswitch | **pass (ear + agent)** | APC mini pad (0,0) via `scripts/sooperlooper-apc-bench.py` on Pi. Tap cycle: record → play → pause (stop) → trigger (restart). Hold ~1 s → `undo_all`. See §B9 footswitch bench below |
 | B10 | Free-form vs grid A/B | **pass (verbal)** | 2026-08-14: **Both modes should ship eventually.** Mitch's personal default: **grid-synced** (bar/tempo-locked clips under the pad-per-loop UI). Free-form validated in B2 bench is fine for eval, not the v1 preference. See §B10 |
@@ -99,15 +99,46 @@ oscsend osc.udp://127.0.0.1:9951 /sl/0/set sf dry 0.0
 | 64 | 40 | ~983 MB | **257460 kB (~251 MiB)** |
 | 64 | 20 | ~492 MB | **257452 kB (~251 MiB)** |
 
-### B7 — load (partial)
+### B7 — load (**PASS — full 10-min soak run 2026-08-15 23:05–23:16 BST**)
 
 | Metric | Value |
 |---|---|
-| `jack_cpu_load` (16-loop instance, ~15 s sample) | **~15%** |
-| VmRSS (16 loops) | **150736 kB** |
-| xruns / 10 min | **not captured** |
+| Soak duration | **600 s**, 16 loops loaded and playing + Surge path active |
+| JACK config | 256 frames @ 48000 Hz (5.3 ms period, 3 periods), playback fan-in 4 |
+| **xruns over 10 min** | **0** — see method below |
+| `jack_cpu_load` (16 loops playing) | **22.2%** |
+| VmRSS (16 loops) | **150736 kB** (2026-08-14) |
+| Peak dBFS | **not measured** — `jack_capture` not installed on the Pi |
 
-**Verdict B (corrected 2026-08-15):** **pass, adoption not blocked.** B1/B2/B9/B10 pass · B5/B6/B13 fine · **B8 PASSES** — the earlier "disk persistence broken" finding was a wedged engine, not disk I/O (see §B8 correction). Remaining gap is B7: the 10-min soak is still not validated, and it is now the *only* open question that could disqualify SooperLooper.
+**How the zero was verified, because two things nearly faked it.**
+
+1. The script's ALSA-node reading printed `0/0`. That was **not a measurement**:
+   this Pi's playback node is JACK-held and carries no `xrun`, `underflow` or
+   `overrun` line at all, so the function's "default to 0" fallback produced a
+   string indistinguishable from a genuine zero. Fixed — it returns `n/a` now.
+2. The first launch of the soak found **zero fixture clips** on the Pi and would
+   have soaked 16 *empty* loops to a clean result. Caught before it ran.
+
+The real source is jackd's stderr, which prints `xrun of at least X msecs`.
+`mpe-jackd` has `StandardError=journal`, and jackd's own startup lines **are**
+in the journal — so the unit demonstrably reaches it. The journal has **no
+entries whatsoever** across 23:04–23:17. Silence from a unit that is known to be
+talking is a real zero.
+
+**Caveat.** The soak used 16 fixture sine loops via `load_loop`, not 16
+performed takes, and Surge was in the graph but not being played. It measures
+the steady-state mixing load, which is what B7 asks; it does not measure
+record-path load under performance.
+
+**Still open from this run:** peak dBFS (B14 clipping) needs `jack_capture`
+installed. Fan-in is 4, well under the >8 heuristic.
+
+**Verdict B (updated 2026-08-15):** **pass, adoption not blocked, and B7 no
+longer open.** B1/B2/B9/B10 pass · B5/B6/B13 fine · **B8 PASSES** (see §B8
+correction) · **B7 PASSES** — 0 xruns and 22% DSP load over a full 10-minute
+16-loop soak. Nothing outstanding could now disqualify SooperLooper; the
+remaining gap is the B14 clipping measurement, which is a gain question rather
+than an engine question.
 
 ### B9 — APC footswitch bench (2026-08-14 ~15:00 America/Toronto)
 
