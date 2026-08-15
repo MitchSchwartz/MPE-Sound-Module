@@ -28,7 +28,7 @@ from sl_grid_sync import (  # noqa: E402
     anchor_phase,
     apply_freeform,
     apply_grid_sync,
-    set_count_in,
+    set_grid_active,
 )
 
 
@@ -156,7 +156,7 @@ def main() -> int:
         instantly. From here clips count in to the bar and quantize.
         """
         osc.send_message("/set", ["tempo", float(bpm)])
-        set_count_in(_send, num_loops=num_loops, count_in=True)
+        set_grid_active(_send, num_loops=num_loops, active=True)
         print(
             f"bench: grid established — {bars} bar(s) @ {bpm:.1f} BPM. "
             f"Later clips count in to the bar.",

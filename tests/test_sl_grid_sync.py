@@ -22,18 +22,38 @@ class SlGridSyncTests(unittest.TestCase):
 
         self.assertIn(("/set", ["sync_source", -3.0]), sent)
         self.assertIn(("/set", ["tempo", 100.0]), sent)
+        # At startup no grid exists yet, so every loop must be free-form: the
+        # take that defines the grid cannot be quantized to a bar that has not
+        # been established.
         for loop in range(4):
-            self.assertIn((f"/sl/{loop}/set", ["quantize", 1.0]), sent)
-            # No count-in by default: record starts on the tap, not on the next
-            # boundary, or the player loses everything up to the boundary.
+            self.assertIn((f"/sl/{loop}/set", ["quantize", 0.0]), sent)
             self.assertIn((f"/sl/{loop}/set", ["sync", 0.0]), sent)
-            self.assertIn((f"/sl/{loop}/set", ["round", 1.0]), sent)
+            self.assertIn((f"/sl/{loop}/set", ["round", 0.0]), sent)
 
-    def test_count_in_enabled_waits_for_boundary(self) -> None:
+    def test_defining_take_is_genuinely_free_form(self) -> None:
+        """Before a grid exists the take must not be quantized OR rounded.
+
+        Leaving these on stretched a short first take up to the end of a cycle
+        derived from the previous session's tempo.
+        """
+        from scripts.sooperlooper.sl_grid_sync import set_grid_active
+
         sent: list[tuple[str, list]] = []
-        apply_grid_sync(lambda p, a: sent.append((p, a)), num_loops=2, count_in=True)
+        set_grid_active(lambda p, a: sent.append((p, a)), num_loops=2, active=False)
         for loop in range(2):
+            self.assertIn((f"/sl/{loop}/set", ["quantize", 0.0]), sent)
+            self.assertIn((f"/sl/{loop}/set", ["sync", 0.0]), sent)
+            self.assertIn((f"/sl/{loop}/set", ["round", 0.0]), sent)
+
+    def test_grid_active_quantizes_but_never_rounds(self) -> None:
+        from scripts.sooperlooper.sl_grid_sync import set_grid_active
+
+        sent: list[tuple[str, list]] = []
+        set_grid_active(lambda p, a: sent.append((p, a)), num_loops=2, active=True)
+        for loop in range(2):
+            self.assertIn((f"/sl/{loop}/set", ["quantize", 1.0]), sent)
             self.assertIn((f"/sl/{loop}/set", ["sync", 1.0]), sent)
+            # round on top of a quantized stop adds another whole cycle
             self.assertIn((f"/sl/{loop}/set", ["round", 0.0]), sent)
 
     def test_grid_sync_jack_transport_all_quantized(self) -> None:
@@ -48,7 +68,7 @@ class SlGridSyncTests(unittest.TestCase):
         self.assertIn(("/set", ["eighth_per_cycle", 8.0]), sent)
         self.assertIn(("/set", ["fade_samples", 64.0]), sent)
         for loop in range(4):
-            self.assertIn((f"/sl/{loop}/set", ["quantize", 1.0]), sent)
+            self.assertIn((f"/sl/{loop}/set", ["quantize", 0.0]), sent)
             # SL's own default; forcing 1 delayed a fresh clip by a whole bar
             self.assertIn((f"/sl/{loop}/set", ["playback_sync", 0.0]), sent)
 
