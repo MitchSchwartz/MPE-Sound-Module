@@ -225,17 +225,13 @@ class PointerDownClaimTests(unittest.TestCase):
         self.assertTrue(claimed)
         self.assertTrue(host._browse_carousel.state.dragging)
 
-    def test_open_filter_button_snaps_to_filter_stop(self) -> None:
+    def test_filter_button_toggles_filter_and_home(self) -> None:
         host = _BrowseHost()
         host.browse_filter_open_btn = Rect(200, 4, 32, 28)
-        host._open_browse_filter()
+        host._toggle_browse_filter()
         self.assertEqual(host._browse_carousel.stop, "filter")
         self.assertEqual(host._browse_carousel.offset_px, BROWSE_OFFSET_FILTER)
-
-    def test_back_button_snaps_to_home_stop(self) -> None:
-        host = _BrowseHost()
-        _goto_filter_stop(host, [])
-        host._close_browse_filter()
+        host._toggle_browse_filter()
         self.assertEqual(host._browse_carousel.stop, "home")
         self.assertEqual(host._browse_carousel.offset_px, BROWSE_OFFSET_HOME)
 
