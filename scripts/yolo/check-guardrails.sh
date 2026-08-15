@@ -22,6 +22,8 @@ result=$(echo "$payload" | bash "$ROOT/scripts/yolo/yolo-shell-guard.sh")
 echo "$result" | grep -qE '"permissionDecision"[[:space:]]*:[[:space:]]*"deny"' || { echo "FAIL: yolo-shell-guard should deny (got: $result)" >&2; exit 1; }
 echo "  yolo-shell-guard deny probe: ok"
 
+bash "$ROOT/scripts/yolo/check-onecli-lockdown.sh"
+
 if [[ -f "$ROOT/.claude/settings.local.json" ]]; then
   echo "  project .claude/settings.local.json: ok"
 elif [[ -f "$ROOT/.yolo/headless" ]]; then

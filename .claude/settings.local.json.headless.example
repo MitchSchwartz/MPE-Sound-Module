@@ -1,5 +1,5 @@
 {
-  "_README": "NERDRACK / Claude YOLO ONLY — copy to .claude/settings.local.json on the headless build box. Do NOT use on laptop. After copy: bash scripts/yolo/check-guardrails.sh. OneCLI agent: IO MPE Module. Secret: github-mpe-module.",
+  "_README": "NERDRACK / Claude YOLO ONLY — copy to .claude/settings.local.json on the headless build box. Do NOT use on laptop. After copy: bash scripts/yolo/check-guardrails.sh. OneCLI agent: MPE Agent. Secret: github-mpe-module. Agents must not use onecli CLI or port 10254 admin API (see yolo-shell-guard.sh).",
   "hooks": {
     "PreToolUse": [
       {
