@@ -139,7 +139,11 @@ _install_fake_pygame()
 from patch_browser.geometry import Rect  # noqa: E402
 from patch_browser.touch_browser_browse import TouchBrowserBrowseMixin  # noqa: E402
 from patch_browser.touch_browser_instruments import TouchBrowserInstrumentsMixin  # noqa: E402
-from patch_browser.touch_ui_constants import BROWSE_EDGE_GRAB_W, BROWSE_OFFSET_FILTER  # noqa: E402
+from patch_browser.touch_ui_constants import (  # noqa: E402
+    BROWSE_EDGE_GRAB_W,
+    BROWSE_OFFSET_FILTER,
+    BROWSE_OFFSET_HOME,
+)
 from patch_browser.touch_ui_enums import LeftNavMode  # noqa: E402
 
 
@@ -149,7 +153,11 @@ class _BrowseHost(TouchBrowserBrowseMixin, TouchBrowserInstrumentsMixin):
         self.left_nav_collapsed = False
         self.left_panel_rect = Rect(BROWSE_OFFSET_FILTER + 532, 40, 268, 400)
         self.all_patches_flat: list[dict] = []
+        self.categories: list[str] = []
         self.nav_list = mock.Mock()
+        self.font_sm = mock.Mock()
+        self.font_sm.size = lambda text: (len(text) * 8, 16)
+        self._context_patches_calls = 0
         self._init_browse_carousel_state()
         self._init_instrument_filter_state()
         self._layout_calls = 0
@@ -160,6 +168,10 @@ class _BrowseHost(TouchBrowserBrowseMixin, TouchBrowserInstrumentsMixin):
     def _set_instrument_filter(self, instrument: str | None) -> None:
         # Skip the real masonry/list refresh plumbing — just record it.
         self.instrument_filter = instrument
+
+    def _patches_for_chip_context(self) -> list[dict]:
+        self._context_patches_calls += 1
+        return super()._patches_for_chip_context()
 
 
 def _goto_filter_stop(host: _BrowseHost, tag_rects: list[tuple[str, Rect]]) -> None:
@@ -280,6 +292,58 @@ class PointerUpTests(unittest.TestCase):
     def test_not_active_returns_false(self) -> None:
         host = _BrowseHost()
         self.assertFalse(host._handle_browse_pointer_up((400, 100)))
+
+
+class FilterPaneContentPositionTests(unittest.TestCase):
+    """Regression: content must move rigidly with the pane, not pin to a
+    floor — a max(pane.x, 48) formula leaves tags on-screen and
+    hit-testable even while the pane itself sits off-screen at Home."""
+
+    def test_home_stop_tags_never_bleed_onscreen(self) -> None:
+        host = _BrowseHost()
+        host.browse_filter_rect = Rect(BROWSE_OFFSET_HOME, 40, 532, 400)
+        host._refresh_instrument_chips()
+        self.assertGreater(len(host._browse_filter_packed_tags), 0)
+        for tag in host._browse_filter_packed_tags:
+            self.assertLessEqual(tag.rect.right, 0)
+
+    def test_filter_stop_tags_start_past_edge_grab_strip(self) -> None:
+        host = _BrowseHost()
+        host.browse_filter_rect = Rect(0, 40, 532, 400)
+        host._refresh_instrument_chips()
+        self.assertGreater(len(host._browse_filter_packed_tags), 0)
+        self.assertEqual(host._browse_filter_packed_tags[0].rect.x, BROWSE_EDGE_GRAB_W)
+
+
+class FilterPaneDragRepackSkipTests(unittest.TestCase):
+    def test_dragging_reuses_cached_tag_ids_without_rewalking_context(self) -> None:
+        host = _BrowseHost()
+        host.browse_filter_rect = Rect(0, 40, 532, 400)
+        host._refresh_instrument_chips()
+        calls_before_drag = host._context_patches_calls
+        self.assertGreater(calls_before_drag, 0)
+
+        host._browse_carousel.state.dragging = True
+        host.browse_filter_rect = Rect(-200, 40, 532, 400)
+        host._refresh_instrument_chips()
+
+        self.assertEqual(host._context_patches_calls, calls_before_drag)  # not re-walked
+        self.assertGreater(len(host._browse_filter_packed_tags), 0)
+        self.assertEqual(host._browse_filter_packed_tags[0].rect.x, -200 + BROWSE_EDGE_GRAB_W)
+
+    def test_drag_end_recomputes_from_fresh_context(self) -> None:
+        host = _BrowseHost()
+        host.browse_filter_rect = Rect(0, 40, 532, 400)
+        host._refresh_instrument_chips()
+        calls_before_drag = host._context_patches_calls
+
+        host._browse_carousel.state.dragging = True
+        host._refresh_instrument_chips()
+        self.assertEqual(host._context_patches_calls, calls_before_drag)
+
+        host._browse_carousel.state.dragging = False
+        host._refresh_instrument_chips()
+        self.assertGreater(host._context_patches_calls, calls_before_drag)
 
 
 if __name__ == "__main__":
