@@ -67,6 +67,12 @@ class TouchBrowserBrowseMixin:
     def _close_browse_filter(self) -> None:
         self._set_browse_stop("home")
 
+    def _toggle_browse_filter(self) -> None:
+        if self._browse_carousel.stop == "filter":
+            self._close_browse_filter()
+        else:
+            self._open_browse_filter()
+
     def _handle_browse_pointer_down(self, pos: tuple[int, int]) -> bool:
         if not self._browse_carousel_active():
             return False
