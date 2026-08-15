@@ -1,6 +1,6 @@
 # MPE-Module — agent orientation
 
-*Last updated: 2026-08-10 (America/Toronto)*
+*Last updated: 2026-08-15 (America/Toronto)*
 
 **Product:** Raspberry Pi MPE sound module (Surge XT headless + patch browser UI).
 
@@ -81,6 +81,24 @@ packaging becomes a real problem (reproducible in CI and in the release
 image) and gets solved properly rather than by extending this exception.
 
 Pattern: [OM-Repo `Docs/appliance-cli-pattern.md`](https://github.com/opsMachine/OM-Repo/blob/main/Docs/appliance-cli-pattern.md) · [`COMMANDS.md`](COMMANDS.md)
+
+---
+
+## Nerdrack YOLO (Claude Code)
+
+**Runner:** `scripts/yolo/claude-yolo.sh` on nerdrack (`claudeLogin` / `claude-yolo-mpe` SSH alias) — **not** Cursor `agent-yolo.sh`.
+
+| Stage | Where | What |
+|---|---|---|
+| Spec / Gate A | **Laptop** (sync with Mitch) | Spec `Status: Approved` |
+| Mitch gates | **Laptop** | `pi_soak`, `systemd_change`, `audio_profile`, `mpe_env` via `enqueue-yolo-task.sh clear-gate` |
+| Enqueue | **Laptop** | `enqueue-yolo-task.sh add` → `approve --id` |
+| Build / PR | **Nerdrack** | `YOLO_TASK_ID=… claude-yolo.sh -p "…"` |
+| Pi soak / deploy | **Laptop / Mitch** | Pi is LAN-only — nerdrack runs **unit tests only** |
+
+Full setup: [`docs/local-vs-nerdrack-dev.md`](docs/local-vs-nerdrack-dev.md). Queue: `.claude/primitives/yolo-queue.json`.
+
+**Nerdrack must not:** `deploy-all.sh`, audio profile scripts, `mpe restart`, Pi SSH/SCP, merge without independent review.
 
 ---
 
