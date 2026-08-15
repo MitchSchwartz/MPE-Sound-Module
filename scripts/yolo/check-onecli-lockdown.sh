@@ -46,6 +46,8 @@ probe_allow() {
 }
 
 echo "== check-onecli-lockdown =="
+probe_deny "racknerd CLI" "racknerd onecli agents"
+probe_deny "nerdrack CLI" "nerdrack onecli agents"
 probe_deny "onecli CLI" "onecli agents list"
 probe_deny "onecli-nerdrack script" "onecli-nerdrack setup-mpe --from-gh"
 probe_deny "OneCLI admin API POST" "curl -sS -X POST http://127.0.0.1:10254/api/agents -d '{}'"
