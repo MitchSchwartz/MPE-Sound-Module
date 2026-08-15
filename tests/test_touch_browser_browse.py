@@ -157,13 +157,19 @@ class _BrowseHost(TouchBrowserBrowseMixin, TouchBrowserInstrumentsMixin):
         self.nav_list = mock.Mock()
         self.font_sm = mock.Mock()
         self.font_sm.size = lambda text: (len(text) * 8, 16)
+        self.font_md = mock.Mock()
+        self.font_md.size = lambda text: (len(text) * 9, 20)
         self._context_patches_calls = 0
         self._init_browse_carousel_state()
         self._init_instrument_filter_state()
         self._layout_calls = 0
+        self._draw_calls = 0
 
-    def _layout(self) -> None:  # stand-in for the real, heavy _layout()
+    def _layout(self) -> None:
         self._layout_calls += 1
+
+    def _draw(self) -> None:
+        self._draw_calls += 1
 
     def _set_instrument_filter(self, instrument: str | None) -> None:
         # Skip the real masonry/list refresh plumbing — just record it.
@@ -196,12 +202,11 @@ class BrowseGestureZonesTests(unittest.TestCase):
         zones = host._browse_gesture_zones()
         self.assertIsNone(zones.filter)
 
-    def test_filter_zone_present_at_filter_stop(self) -> None:
+    def test_filter_zone_not_routed_at_filter_stop(self) -> None:
         host = _BrowseHost()
         _goto_filter_stop(host, [])
         zones = host._browse_gesture_zones()
-        self.assertIsNotNone(zones.filter)
-        self.assertEqual(zones.filter.w, 532)
+        self.assertIsNone(zones.filter)
 
 
 class PointerDownClaimTests(unittest.TestCase):
@@ -225,12 +230,19 @@ class PointerDownClaimTests(unittest.TestCase):
 
     def test_filter_tag_claims_at_filter_stop(self) -> None:
         host = _BrowseHost()
-        tag_rect = Rect(100, 60, 80, 24)
+        tag_rect = Rect(100, 60, 80, 48)
         _goto_filter_stop(host, [("bass", tag_rect)])
-        claimed = host._handle_browse_pointer_down((110, 65))
+        claimed = host._handle_browse_pointer_down((110, 80))
         self.assertTrue(claimed)
         self.assertTrue(host._browse_filter_tap_active)
         self.assertEqual(host._browse_filter_tap_tag, "bass")
+
+    def test_filter_pane_body_begins_drag_at_filter_stop(self) -> None:
+        host = _BrowseHost()
+        _goto_filter_stop(host, [])
+        claimed = host._handle_browse_pointer_down((200, 200))
+        self.assertTrue(claimed)
+        self.assertTrue(host._browse_carousel.state.dragging)
 
 
 class PointerMoveTests(unittest.TestCase):
@@ -242,6 +254,7 @@ class PointerMoveTests(unittest.TestCase):
         self.assertTrue(claimed)
         self.assertEqual(host._browse_carousel.offset_px, start_offset + 50)
         self.assertEqual(host._layout_calls, 1)
+        self.assertEqual(host._draw_calls, 1)
 
     def test_not_active_returns_false(self) -> None:
         host = _BrowseHost()
@@ -259,14 +272,24 @@ class PointerUpTests(unittest.TestCase):
         self.assertFalse(host._browse_carousel.state.dragging)
         self.assertEqual(host._browse_carousel.stop, "filter")
         self.assertEqual(host._layout_calls, 2)  # one on move, one on up
+        self.assertEqual(host._draw_calls, 2)
+
+    def test_filter_pane_swipe_back_to_home(self) -> None:
+        host = _BrowseHost()
+        _goto_filter_stop(host, [])
+        host._handle_browse_pointer_down((300, 200))
+        host._handle_browse_pointer_move((200, 200))
+        host._handle_browse_pointer_up((200, 200))
+        self.assertEqual(host._browse_carousel.stop, "home")
+        self.assertEqual(host._browse_carousel.offset_px, BROWSE_OFFSET_HOME)
 
     def test_tag_release_on_same_tag_sets_filter_keeps_stop(self) -> None:
         # Acceptance criterion 7.
         host = _BrowseHost()
-        tag_rect = Rect(100, 60, 80, 24)
+        tag_rect = Rect(100, 60, 80, 48)
         _goto_filter_stop(host, [("bass", tag_rect)])
-        host._handle_browse_pointer_down((110, 65))
-        claimed = host._handle_browse_pointer_up((115, 68))
+        host._handle_browse_pointer_down((110, 80))
+        claimed = host._handle_browse_pointer_up((115, 82))
         self.assertTrue(claimed)
         self.assertEqual(host.instrument_filter, "bass")
         self.assertEqual(host._browse_carousel.stop, "filter")
