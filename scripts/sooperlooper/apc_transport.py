@@ -1,12 +1,38 @@
-"""APC mini mk2 transport buttons (Communication Protocol v1.0)."""
+"""APC mini transport buttons (Shift + Stop All Clips).
+
+Mk2: Communication Protocol v1.0 — Stop All 0x77, Shift 0x7A.
+Mk1: original APC mini — Stop All 0x59 (scene launch 8), Shift 0x62.
+"""
 
 from __future__ import annotations
 
 import time
 
-# Scene Launch 8 = "Stop All Clips" (used with Shift held).
+# APC mini mk2 (Communication Protocol v1.0)
 NOTE_STOP_ALL_CLIPS_MK2 = 0x77
 NOTE_SHIFT_MK2 = 0x7A
+
+# APC mini mk1 (original — port name is usually "APC MINI" without "mk2")
+NOTE_STOP_ALL_CLIPS_MK1 = 0x59
+NOTE_SHIFT_MK1 = 0x62
+
+
+def resolve_apc_transport_notes(
+    port_name: str,
+    *,
+    variant: str | None = None,
+) -> tuple[int, int, str]:
+    """Return (shift_note, stop_all_note, label) for the connected APC."""
+    explicit = (variant or "").strip().lower()
+    if explicit in ("mk2", "mkii", "2"):
+        return NOTE_SHIFT_MK2, NOTE_STOP_ALL_CLIPS_MK2, "mk2"
+    if explicit in ("mk1", "1", "original", "mini"):
+        return NOTE_SHIFT_MK1, NOTE_STOP_ALL_CLIPS_MK1, "mk1"
+
+    name = port_name.lower()
+    if "mk2" in name or "mkii" in name:
+        return NOTE_SHIFT_MK2, NOTE_STOP_ALL_CLIPS_MK2, "mk2"
+    return NOTE_SHIFT_MK1, NOTE_STOP_ALL_CLIPS_MK1, "mk1"
 
 
 class ShiftHoldCombo:
