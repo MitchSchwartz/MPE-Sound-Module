@@ -116,7 +116,6 @@ FOLDER_INSTRUMENT_MAP: dict[str, tuple[str, ...]] = {
     "perc": ("percussion",),
     "drum": ("percussion",),
     "drums": ("percussion",),
-    "rhythms": ("percussion",),
     "chords": ("keys",),
     "vocoder": ("fx",),
     "mpe": ("synth",),
@@ -229,6 +228,25 @@ NAME_KEYWORD_MAP: dict[str, tuple[str, ...]] = {
 
 _TOKEN_SPLIT = re.compile(r"[^a-z0-9]+")
 
+# Rhythm/Rhythms folders hold sequencers unless the patch name is drum-like.
+RHYTHM_FOLDER_KEYS: frozenset[str] = frozenset({"rhythm", "rhythms"})
+
+DRUM_NAME_KEYWORDS: frozenset[str] = frozenset(
+    {
+        "kick",
+        "snare",
+        "hat",
+        "hihat",
+        "tom",
+        "clap",
+        "cowbell",
+        "cymbal",
+        "perc",
+        "drum",
+        "taiko",
+    }
+)
+
 
 def default_baseline_path() -> Path:
     override = os.environ.get("MPE_PATCH_METADATA_BASELINE", "").strip()
@@ -252,6 +270,15 @@ def _tokenize_name(name: str) -> list[str]:
     return tokens
 
 
+def _name_has_drum_keyword(name: str) -> bool:
+    """True when patch name suggests a drum/percussion hit (kick, snare, tom, …)."""
+    for token in _tokenize_name(name):
+        for keyword in DRUM_NAME_KEYWORDS:
+            if token == keyword or token.startswith(keyword):
+                return True
+    return False
+
+
 def _score_instruments(patch: dict) -> dict[str, float]:
     scores: dict[str, float] = {inst: 0.0 for inst in INSTRUMENT_VOCAB}
 
@@ -264,8 +291,16 @@ def _score_instruments(patch: dict) -> dict[str, float]:
     for seg in patch.get("inner_segments") or ():
         segments.append(_normalize_token(str(seg)))
 
+    patch_name = patch.get("name", "")
+
     for segment in segments:
         key = _normalize_token(segment)
+        if key in RHYTHM_FOLDER_KEYS:
+            if _name_has_drum_keyword(patch_name):
+                scores["percussion"] += FOLDER_SEGMENT_WEIGHT
+            else:
+                scores["sequencer"] += FOLDER_SEGMENT_WEIGHT
+            continue
         weight = (
             OPAQUE_FOLDER_WEIGHT if key in OPAQUE_FOLDER_KEYS else FOLDER_SEGMENT_WEIGHT
         )

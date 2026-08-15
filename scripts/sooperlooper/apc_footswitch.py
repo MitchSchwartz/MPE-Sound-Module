@@ -23,13 +23,29 @@ STATE_STOPPED = "stopped"
 
 LED_OFF = 0
 LED_GREEN = 1
+LED_GREEN_BLINK = 2
 LED_RED = 3
+LED_RED_BLINK = 4
 LED_YELLOW = 5
+LED_YELLOW_BLINK = 6
+
+# Blink = "queued, lands on the next bar" — the clip-launcher idiom.
+#
+# A quantized action does not take effect until the next cycle boundary (up to
+# one full bar later). Without a distinct armed state the pad looks identical
+# before and after the tap, so the player reads it as "my press did nothing",
+# presses again, or holds — and holding clears the loop they just recorded.
+# That cost an evening on 2026-08-14. Solid = it happened. Blink = it is coming.
 
 # A quantized action waits for the next cycle boundary. If no boundary arrives
 # within this long, the grid clock is not running — release the pad rather than
 # leaving it dead, and say so. See spec §J: a silent latch here cost an evening.
 QUANTIZE_WAIT_TIMEOUT_S = float(os.environ.get("MPE_SL_QUANTIZE_TIMEOUT_S", "6.0"))
+
+
+def log(msg: str) -> None:
+    """Timestamped bench log. Untimed lines made a 2 s quantize wait invisible."""
+    print(f"[{time.strftime('%H:%M:%S')}.{int(time.time() % 1 * 1000):03d}] {msg}", flush=True)
 
 
 def _osc_send(osc, path: str, args: list) -> None:
@@ -95,10 +111,7 @@ class LoopFootswitch:
             self.state = STATE_RECORDING
         changed = before != self.state or prev_sl != sl_state
         if changed:
-            print(
-                f"loop {self.loop}: SL sync sl={sl_state} bench={self.state}",
-                flush=True,
-            )
+            log(f"loop {self.loop}: SL sync sl={sl_state} bench={self.state}")
             self._sync_led()
             return True
         return False
@@ -108,7 +121,7 @@ class LoopFootswitch:
 
     def _hit(self, cmd: str) -> None:
         self._osc.send_message(self._path("hit"), cmd)
-        print(f"loop {self.loop}: -> {cmd} (state={self.state})", flush=True)
+        log(f"loop {self.loop}: -> {cmd} (state={self.state})")
 
     def _set_led(self, velocity: int) -> None:
         if self._midi_out is None:
@@ -116,7 +129,14 @@ class LoopFootswitch:
         self._midi_out.send_message([0x90, self._note, max(0, min(127, velocity))])
 
     def _sync_led(self) -> None:
-        if self.state == STATE_RECORDING:
+        # Armed states win: the player needs to see that the tap registered and
+        # is queued for the next bar, or they will press again / hold and lose
+        # the take. Read from SL, not bench state, so the blink reflects truth.
+        if self.sl_state == SL_STATE_WAIT_START:
+            self._set_led(LED_RED_BLINK)  # queued to start recording
+        elif self.sl_state == SL_STATE_WAIT_STOP:
+            self._set_led(LED_GREEN_BLINK)  # queued to stop -> play
+        elif self.state == STATE_RECORDING:
             self._set_led(LED_RED)
         elif self.state == STATE_PLAYING:
             self._set_led(LED_GREEN)
@@ -167,10 +187,10 @@ class LoopFootswitch:
 
     def _tap(self) -> None:
         if self._debounced():
-            print(f"loop {self.loop}: -> tap ignored (debounce)", flush=True)
+            log(f"loop {self.loop}: -> tap ignored (debounce)")
             return
         if self._waiting_for_quantize():
-            print(f"loop {self.loop}: -> tap ignored (quantize wait)", flush=True)
+            log(f"loop {self.loop}: -> tap ignored (quantize wait)")
             return
 
         if self.state == STATE_IDLE:
@@ -193,23 +213,17 @@ class LoopFootswitch:
 
         self._sync_led()
         self._mark_action()
-        print(
-            f"loop {self.loop}: -> tap done (state={self.state}, sl_state={self.sl_state})",
-            flush=True,
-        )
+        log(f"loop {self.loop}: -> tap done (state={self.state}, sl_state={self.sl_state})")
 
     def on_pad_down(self) -> None:
         self._pad_down = True
         self._pad_down_at = time.monotonic()
         self._hold_fired = False
-        print(f"loop {self.loop}: pad down (note {self._note})", flush=True)
+        log(f"loop {self.loop}: pad down (note {self._note})")
 
     def on_pad_up(self) -> None:
         held = time.monotonic() - self._pad_down_at
-        print(
-            f"loop {self.loop}: pad up held={held:.3f}s hold_fired={self._hold_fired}",
-            flush=True,
-        )
+        log(f"loop {self.loop}: pad up held={held:.3f}s hold_fired={self._hold_fired}")
         if self._pad_down and not self._hold_fired:
             self._tap()
         self._pad_down = False
@@ -221,7 +235,7 @@ class LoopFootswitch:
             return
         self._hold_fired = True
         self._pad_down = False
-        print(f"loop {self.loop}: -> hold clear", flush=True)
+        log(f"loop {self.loop}: -> hold clear")
         self._clear_loop()
 
 
