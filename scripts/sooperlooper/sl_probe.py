@@ -35,6 +35,20 @@ UNREACHABLE = "unreachable"
 PROBE_CONTROL = os.environ.get("MPE_SL_PROBE_CONTROL", "dry")
 PROBE_LOOP = int(os.environ.get("MPE_SL_PROBE_LOOP", "0"))
 
+# Restore to the value the control is SUPPOSED to hold, not to whatever it held
+# when we looked.
+#
+# "Put back what was there" sounds obviously correct and is wrong here. With two
+# probers interleaving, A reads 0.0 and writes its target; B reads A's target as
+# its own "before" and restores to that; the control converges on pollution
+# instead of on zero. Found live: loop 0 sat at dry=0.41 while every other loop
+# read 0.0 — Surge passing through the looper at 41% and doubling at the
+# speakers, which is audible and permanent.
+#
+# `dry` has a known-correct value: wire-jack-graph.sh sets dry=0 on every loop,
+# because the looper must not pass its input through. Restore to that.
+PROBE_RESTORE = float(os.environ.get("MPE_SL_PROBE_RESTORE", "0.0"))
+
 
 def probe_target(seed: str, before: float | None) -> float:
     """A value distinct from the current one and from other probers' choices.
@@ -81,9 +95,10 @@ def check_command_path(get, send, *, seed: str, settle_s: float = 0.5,
         detail = (f"{PROBE_CONTROL} did not move (asked {target}, still {after}) "
                   f"on attempt {attempt + 1}")
 
+    _restore(send, before)  # a no-op on a truly wedged engine, correct otherwise
     return WEDGED, detail
 
 
-def _restore(send, before: float | None) -> None:
-    if before is not None:
-        send(PROBE_CONTROL, float(before))
+def _restore(send, _before: float | None) -> None:
+    """Always to the policy value — see PROBE_RESTORE."""
+    send(PROBE_CONTROL, PROBE_RESTORE)
