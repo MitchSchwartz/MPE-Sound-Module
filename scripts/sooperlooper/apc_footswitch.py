@@ -322,12 +322,18 @@ class LoopFootswitch:
             self._hit("mute_on")
             self.state = STATE_STOPPED
         elif self.state == STATE_STOPPED:
-            # pause_off is immediate but silent while muted, so it cannot leak
-            # audio early; mute_off is the quantized part and starts the clip
-            # on the bar. `trigger` is not usable here — it does not lift a
-            # pause, which is what made the first press silent.
-            self._hit("pause_off")
-            self._hit("mute_off")
+            # Start = quantized trigger. Nothing else.
+            #
+            # `trigger` plays the loop FROM ITS START and SL defers it to the
+            # sync boundary (plugin.cc MULTI_TRIGGER: immediate only when
+            # sync is off, or within one eighth of the last sync pulse — a
+            # deliberate grace window for hitting slightly late). It also lifts
+            # a mute, which is why stop uses mute and not pause.
+            #
+            # Because every clip restarts from its own beginning on a boundary,
+            # phase takes care of itself. There is nothing to track.
+            self._hit("pause_off")  # only matters after a global stop-all
+            self._hit("trigger")
             self._launch_queued = True
             # Plain green blink: "it is going to play" is the whole message.
             # Nothing else is happening to the clip meanwhile, so it needs no
