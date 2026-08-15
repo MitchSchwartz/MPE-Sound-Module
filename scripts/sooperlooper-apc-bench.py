@@ -115,7 +115,9 @@ def main() -> int:
     def _send(path: str, a: list) -> None:
         osc.send_message(path, a)
 
+    grid_active = True
     if sync_mode in ("free", "freeform", "0", "off"):
+        grid_active = False
         apply_freeform(_send, num_loops=num_loops)
         print("bench: freeform sync applied at startup (no quantize)", flush=True)
     else:
@@ -130,6 +132,7 @@ def main() -> int:
                 file=sys.stderr,
                 flush=True,
             )
+            grid_active = False
             apply_freeform(_send, num_loops=num_loops)
         else:
             apply_grid_sync(_send, num_loops=num_loops, clock=grid_clock)
@@ -146,6 +149,7 @@ def main() -> int:
         num_loops=num_loops,
         hold_ms=hold_ms,
         debounce_ms=debounce_ms,
+        quantized=grid_active,
     )
     for fs in footswitches:
         fs._sync_led()

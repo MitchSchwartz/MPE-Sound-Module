@@ -25,18 +25,32 @@ DEFAULT_FADE_SAMPLES = int(os.environ.get("MPE_SL_FADE_SAMPLES", "128"))
 DEFAULT_BPM = float(os.environ.get("MPE_LOOPER_BPM", "120"))
 DEFAULT_CLOCK = os.environ.get("MPE_SL_GRID_CLOCK", "internal").strip().lower()
 
+# Count-in: does hitting record wait for the next cycle boundary before it
+# starts capturing? Default OFF.
+#
+# With sync=1 the engine arms and starts on the next boundary, so everything
+# played between the tap and the boundary is LOST — you record a different
+# window than you play, and a short take comes back as a sliver. `round` still
+# rounds the END of the take up to a whole cycle, so the loop stays in time.
+COUNT_IN = os.environ.get("MPE_SL_COUNT_IN", "0").strip().lower() not in ("0", "off", "false", "")
+
 SYNC_SOURCE_INTERNAL = -3.0
 SYNC_SOURCE_JACK = -1.0
 SYNC_SOURCE_NONE = 0.0
 
 
-def _quantize_all(send: Callable[[str, list], None], num_loops: int) -> None:
+def _quantize_all(
+    send: Callable[[str, list], None], num_loops: int, *, count_in: bool = COUNT_IN
+) -> None:
     for loop in range(num_loops):
         prefix = f"/sl/{loop}/set"
         send(prefix, ["quantize", 1.0])  # cycle
-        send(prefix, ["sync", 1.0])
+        # sync=1 makes record WAIT for the boundary (count-in). sync=0 starts
+        # on the tap; round=1 still rounds the take up to a whole cycle so the
+        # loop remains grid-locked.
+        send(prefix, ["sync", 1.0 if count_in else 0.0])
+        send(prefix, ["round", 0.0 if count_in else 1.0])
         send(prefix, ["relative_sync", 0.0])
-        send(prefix, ["round", 0.0])
         send(prefix, ["playback_sync", 1.0])
 
 
@@ -48,6 +62,7 @@ def apply_grid_sync(
     fade_samples: int = DEFAULT_FADE_SAMPLES,
     clock: str = DEFAULT_CLOCK,
     bpm: float = DEFAULT_BPM,
+    count_in: bool = COUNT_IN,
 ) -> None:
     """Configure SL grid. Every loop quantizes to cycle; no loop is the clock."""
     if clock == "transport":
@@ -59,7 +74,7 @@ def apply_grid_sync(
 
     send("/set", ["eighth_per_cycle", float(eighth_per_cycle)])
     send("/set", ["fade_samples", float(fade_samples)])
-    _quantize_all(send, num_loops)
+    _quantize_all(send, num_loops, count_in=count_in)
 
 
 def anchor_phase(send: Callable[[str, list], None]) -> None:
