@@ -16,9 +16,16 @@ if ! pgrep -x sooperlooper >/dev/null 2>&1; then
   exit 0
 fi
 
-# -1 = all loops (SooperLooper OSC convention)
-oscsend "${OSC_HOST}" "${OSC_PORT}" /sl/-1/hit s pause 2>/dev/null || true
+# pause_on, never pause. `pause` is a TOGGLE: this script used to hit /sl/-1
+# (all loops) and then every loop again individually, so each loop was paused
+# and immediately un-paused. "Stop all" left everything running.
+#
+# pause_on is idempotent, which is the whole point of a recovery script.
+#
+# -1 = all loops (SooperLooper OSC convention). The per-loop pass stays as a
+# belt-and-braces fallback and is now safe to repeat.
+oscsend "${OSC_HOST}" "${OSC_PORT}" /sl/-1/hit s pause_on 2>/dev/null || true
 for i in $(seq 0 $((LOOPS - 1))); do
-  oscsend "${OSC_HOST}" "${OSC_PORT}" "/sl/${i}/hit" s pause 2>/dev/null || true
+  oscsend "${OSC_HOST}" "${OSC_PORT}" "/sl/${i}/hit" s pause_on 2>/dev/null || true
 done
 echo "stop-all-loops: paused loops 0..$((LOOPS - 1)) (and /sl/-1)"
