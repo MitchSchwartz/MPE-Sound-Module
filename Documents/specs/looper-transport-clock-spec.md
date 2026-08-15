@@ -1,26 +1,28 @@
-# Looper transport clock — externalise the grid from clip 0
+# Looper grid clock — externalise the grid from clip 0
 
 **Issue:** untracked
-**Status:** In review — gate fixes; **do not deploy ear test yet**
-**Branch:** `yolo/looper-transport-clock`
-**Last updated:** 2026-08-14 (America/Toronto)
+**Status:** **RESOLVED and shipped** on `yolo/looper-transport-clock`.
+Canon is `DECISIONS.md` 2026-08-15 "Looper grid clock: RESOLVED".
+**Last updated:** 2026-08-15 (America/Toronto)
+
+> **⚠ §C.2, §D.1, §E and §G are SUPERSEDED.** They plan a JACK transport
+> timebase master. That was never needed: SL's **internal tempo** provides the
+> grid, and `Engine::set_tempo` provides the phase. Read §K for what was
+> actually built. The task table in §E does **not** execute.
+
+**What shipped (§K has the detail):**
+
+| Concern | Answer |
+|---|---|
+| Clock | SL internal tempo, `sync_source = -3`. No extra process, nothing on the RT thread |
+| Tempo | the first take's length — it *is* one bar, by definition |
+| Unit | the first take; `eighth_per_cycle` sized to it |
+| Phase | `set_tempo` zeroes the phase counters (engine.cpp) — re-sending tempo is the reset |
+| Clip 0 | ordinary. Defines the tempo once, then deletable like any other |
+| Grid lifetime | no clips, no grid — clearing the last clip drops it |
 
 **Register:** everything below is a working hypothesis unless labelled
-**measured**. Measured facts carry a source — a file path with line numbers, a
-git object, or a row from `docs/measurements/sooperlooper-eval-2026-08-14.md`.
-
-**One invariant is settled; the clock is not.** *No loop is ever the clock* is
-decided (Problem statement, §C). *Where the clock lives* is a **ranked open
-question** — §C table and `DECISIONS.md` 2026-08-14 "Who owns the looper grid
-clock" — resting on two unverified assumptions about SooperLooper 1.7.9, whose
-source has not been read: whether internal sync can be phase-anchored (§D.0) and
-whether SL honours JACK transport BBT phase (§D.1/0.3). §D onward is written for
-JACK transport and **executes only if §D.0 falsifies the cheaper option.** If
-both fail, §G is the fallback.
-
-**Implementation status:** control layer done and reviewed on
-`yolo/looper-transport-clock` (§I) — it lands regardless of which clock wins.
-The Python timebase is a **spike instrument, not a shippable component**.
+**measured**. The §B regression analysis and §I review remain accurate history.
 
 ---
 
@@ -398,3 +400,83 @@ they encoded the bug.
 the same as internal sync carrying *phase*: §D.0 is still unrun, and the phase
 question still decides the production clock. This makes grid playable today and
 stops the pad dying silently; it does not close the gate.
+
+## §K — What was actually built (2026-08-15)
+
+Supersedes §C.2, §D.1, §E and §G. Implemented on `yolo/looper-transport-clock`.
+
+### K.1 The grid model
+
+A grid needs **tempo**, a **unit**, and a **phase**. We had been building two of
+the three, and the missing phase was the single cause of clips joining out of
+phase, record-stop landing on the wrong boundary, and position not resetting
+when everything stopped.
+
+| | Source |
+|---|---|
+| tempo | the first take's length. The take **is** one bar, by definition — no guessing, no BPM to set |
+| unit | the first take. `eighth_per_cycle` is sized so one cycle equals it, so clip 2 waits for the end of clip 1 |
+| phase | `Engine::set_tempo` zeroes `_quarter_counter` and `_tempo_counter`, so re-sending the tempo IS the phase reset — **measured in engine.cpp**, not inferred from `tap_tempo` |
+
+Tempo is kept **exact** in the engine and rounded only for display
+(`display_bpm`). Rounding the engine tempo makes the grid bar differ from the
+recorded audio — 39.8672 → 40 shortens the bar by 20 ms, so the defining take
+walks half a second away from later clips inside twenty loops.
+
+### K.2 Two states, not settings
+
+`set_grid_active(active=False)` — no grid: `quantize=0 sync=0 round=0`. The take
+that will define the grid must be genuinely free-form; there is nothing to
+quantize to. `set_grid_active(active=True)` — grid up: `quantize=1` (QUANT_CYCLE)
+`sync=1 round=0`.
+
+Tracking a *setting* (a count-in toggle) rather than the *state* (does a grid
+exist) was the recurring bug shape: the bench skipped its own quantize-wait for
+the defining take while the engine still had `quantize`/`round` on, and stretched
+a short take to a bar belonging to the previous session's tempo.
+
+### K.3 No clips, no grid
+
+Clearing the last clip drops the grid and returns the engine to free-form,
+landing in exactly the state a track reset produces. Driven by engine state
+(`SL_STATE_OFF`), so it holds however the clips were cleared. Before this,
+clearing pads individually left a stale grid and the next "first" take was
+quantized to a tempo whose clips were gone — a 1-in-2 repro that depended only
+on how the previous session had been cleared.
+
+### K.4 Engine facts that cost us a session
+
+All read from SooperLooper source. **Every correct answer this session came from
+`engine.cpp`; none came from reasoning about parameter names.**
+
+| Fact | Consequence when unknown |
+|---|---|
+| `smart_eighths` doubles `_eighth_cycle` below 60 BPM and pushes it to every loop | "First take = one bar" makes a 6 s take 40 BPM, so we tripped it every time — clips waited a bar and a half. **Disabled.** |
+| `ports[PlaybackSync] = 0.0f` is the default | Forcing 1 made a fresh clip wait for the *next* boundary after record-stop had already landed on one |
+| `round` on top of a quantized stop adds another cycle | Takes extended by a whole bar. Always 0 now |
+| `pause`/`trigger` are toggles; `pause_on`/`pause_off` are explicit | A trigger on a paused loop restarts it *while still paused*: pad green, no audio, next press resumed mid-loop |
+| `QUANT_OFF=0 QUANT_CYCLE=1 QUANT_8TH=2 QUANT_LOOP=3` | We used QUANT_CYCLE with an 8-eighth cycle, so clips quantized to one bar of a multi-bar take |
+
+### K.5 Deliberately not built
+
+- **JACK timebase master.** Its only purpose was phase, which `set_tempo`
+  provides. `jack_timebase.py`, `spike-jack-transport.py`,
+  `jack_transport_util.py` and `start-jack-timebase.sh` are dead — delete them.
+- **Control-layer quantization.** Would need sample-accurate timing Python
+  cannot give; the engine already quantizes correctly.
+- **Warping.** Not needed while the take is the truth. It becomes mandatory only
+  for explicit-BPM mode, where the grid is the truth and audio must conform.
+  SL has `stretch_ratio`, `tempo_stretch` and rubberband already built in.
+
+### K.6 Still open
+
+- **Sub-take clips.** Every clip is a 1×, 2×, 3× multiple of the first take.
+  A shorter clip needs `QUANT_8TH`, which with this cycle gives
+  eighth-of-take resolution. Per-clip setting, not a redesign.
+- **Phase anchor latency.** The anchor fires when the OSC state update reports
+  the defining take started — up to ~100 ms late. The retrigger should absorb
+  it. If clips land consistently early or late, this is the suspect.
+- **Mode visibility.** The bench's sync mode comes from an env var and cannot be
+  read back from the engine, so a restart can silently flip grid/free-form.
+- **The wedge.** Unexplained after three occurrences, all during heavy OSC
+  probing. Engine has since run 16 h clean. Needs a soak under normal use.

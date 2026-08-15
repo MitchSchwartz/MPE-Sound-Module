@@ -32,24 +32,6 @@ from sl_grid_sync import (  # noqa: E402
 )
 
 
-def transport_is_rolling() -> bool:
-    """True only if a JACK timebase master is actually publishing BBT."""
-    try:
-        import jack
-
-        from jack_transport_util import transport_rolling
-
-        client = jack.Client("mpe-bench-probe", no_start_server=True)
-        try:
-            state, pos = client.transport_query()
-            return transport_rolling(state) and dict(pos or {}).get("beat") is not None
-        finally:
-            client.close()
-    except Exception as exc:  # jack missing, server down, no transport
-        print(f"bench: transport probe failed ({exc})", file=sys.stderr, flush=True)
-        return False
-
-
 def midi_note_down(st: int, vel: int) -> bool | None:
     cmd = st & 0xF0
     if cmd == 0x90:
@@ -127,25 +109,8 @@ def main() -> int:
         apply_freeform(_send, num_loops=num_loops)
         print("bench: freeform sync applied at startup (no quantize)", flush=True)
     else:
-        grid_clock = os.environ.get("MPE_SL_GRID_CLOCK", "internal").strip().lower()
-        if grid_clock == "transport" and not transport_is_rolling():
-            print(
-                "bench: REFUSING grid — MPE_SL_GRID_CLOCK=transport but no JACK "
-                "timebase master is rolling. SL would park in WaitStart forever "
-                "and every pad would stop responding. Start one "
-                "(scripts/start-jack-timebase.sh) or use MPE_SL_GRID_CLOCK=internal. "
-                "Falling back to free-form.",
-                file=sys.stderr,
-                flush=True,
-            )
-            grid_active = False
-            apply_freeform(_send, num_loops=num_loops)
-        else:
-            apply_grid_sync(_send, num_loops=num_loops, clock=grid_clock)
-            print(
-                f"bench: grid sync applied at startup (clock={grid_clock})",
-                flush=True,
-            )
+        apply_grid_sync(_send, num_loops=num_loops)
+        print("bench: grid sync applied at startup (SL internal tempo)", flush=True)
 
     grid = GridState()
 

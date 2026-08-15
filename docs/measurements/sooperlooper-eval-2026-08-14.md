@@ -3,7 +3,7 @@
 Plan: OM-Repo `internal/projects/mpe-synth-launch/research/looper-vetting.md` §7.
 Decisions this feeds: `Documents/DECISIONS.md` 2026-08-14 entries.
 
-**Verdict:** Session A **continue** · Session B **partial** (2026-08-14, updated 15:06 America/Toronto). B2/B9 pass (ear + APC bench). B8 fail blocks adoption. Full log: this file.
+**Verdict:** Session A **continue** · Session B **partial** (2026-08-14, updated 15:06 America/Toronto). B2/B9 pass (ear + APC bench). **B8 corrected to PASS 2026-08-15 — adoption no longer blocked.** Grid mode shipped; see `Documents/specs/looper-transport-clock-spec.md` §K. Full log: this file.
 
 ## Rollback baseline (captured before A1)
 
@@ -83,7 +83,7 @@ oscsend osc.udp://127.0.0.1:9951 /sl/0/set sf dry 0.0
 | B5b | Recorded-but-idle memory | **pass** | See Session A table + B5 measured 151 MB with 16 active loops |
 | B6 | Fail open | **pass** | `pkill -KILL sooperlooper` ×2 — Surge → playback intact each time |
 | B7 | 10-min soak, 16 loops | **partial** | 90 s proxy + 20 note attempts; **`jack_cpu_load` ~15%** with 16-loop engine up (timeout 3 s sample). Full 10-min + xrun count **not completed** (`jack_cpu_load` blocks without timeout) |
-| B8 | Persistence | **fail (ear + agent)** | Mitch: loop plays from RAM (B2 pass) but **`save_loop` OSC does nothing** — no file after repeated tries with loop audibly playing. Agent: `save_session` also writes nothing; strace shows **no `openat` for `.wav`** on save OSC (nonrt file path never runs). Not “one command away” — **disk persistence broken/stuck on this headless Pi session** |
+| B8 | Persistence | **PASS (corrected 2026-08-15)** | Wrote a 3 MB WAV first try against a *fresh* engine. The 2026-08-14 "disk persistence broken" reading (no file, no `openat` under strace) was a **wedged engine**, not disk I/O — see §B8 correction. Detect with `mpe looper sl-health` before retesting |
 | B9 | Footswitch | **pass (ear + agent)** | APC mini pad (0,0) via `scripts/sooperlooper-apc-bench.py` on Pi. Tap cycle: record → play → pause (stop) → trigger (restart). Hold ~1 s → `undo_all`. See §B9 footswitch bench below |
 | B10 | Free-form vs grid A/B | **pass (verbal)** | 2026-08-14: **Both modes should ship eventually.** Mitch's personal default: **grid-synced** (bar/tempo-locked clips under the pad-per-loop UI). Free-form validated in B2 bench is fine for eval, not the v1 preference. See §B10 |
 | B11 | Per-pad clear | **OSC only** | `undo_all` sent |
@@ -107,7 +107,7 @@ oscsend osc.udp://127.0.0.1:9951 /sl/0/set sf dry 0.0
 | VmRSS (16 loops) | **150736 kB** |
 | xruns / 10 min | **not captured** |
 
-**Verdict B:** **partial** — **B1/B2/B9/B10 pass** · B6 and B5/B13 look fine; **B8 fail** blocks adoption verdict (RAM loop works, disk save does not). CPU headroom at 16 loops (~15% DSP) is encouraging but B7 soak not validated.
+**Verdict B (corrected 2026-08-15):** **pass, adoption not blocked.** B1/B2/B9/B10 pass · B5/B6/B13 fine · **B8 PASSES** — the earlier "disk persistence broken" finding was a wedged engine, not disk I/O (see §B8 correction). Remaining gap is B7: the 10-min soak is still not validated, and it is now the *only* open question that could disqualify SooperLooper.
 
 ### B9 — APC footswitch bench (2026-08-14 ~15:00 America/Toronto)
 
@@ -159,7 +159,7 @@ bash scripts/sooperlooper/wire-jack-graph.sh   # or: mpe looper sl-rewire
 
 **UI layout (Mitch):** clip pads on **row 0** (loops 0–7) and **row 3** (loops 8–15). Rows 1, 2, 4–7 reserved for per-loop controllers later. Canon: `scripts/sooperlooper/apc_grid.py`.
 
-**Smoke without manual recording:** `mpe looper sl-clips` + `mpe looper sl-smoke` (or `scripts/sooperlooper/*.sh` on the Pi). Builds 16 distinct sine WAVs, starts `-l 16`, `load_loop` each clip, triggers all loops, samples VmRSS/`jack_cpu_load`. Uses **`load_loop`** (works on eval Pi) — not `save_loop` (B8 fail).
+**Smoke without manual recording:** `mpe looper sl-clips` + `mpe looper sl-smoke` (or `scripts/sooperlooper/*.sh` on the Pi). Builds 16 distinct sine WAVs, starts `-l 16`, `load_loop` each clip, triggers all loops, samples VmRSS/`jack_cpu_load`. Uses **`load_loop`**; `save_loop` also works (B8 corrected to pass 2026-08-15).
 
 ### B14 / crackle — 16 loops + Surge playing (2026-08-14 agent)
 
@@ -220,3 +220,66 @@ bash scripts/sooperlooper/wire-jack-graph.sh   # or: mpe looper sl-rewire
 - **B8 fail** — in-memory loop works; **`/sl/0/save_loop` and `/save_session` write no files** on Pi (2026-08-14). Likely nonrt OSC/event path not executing file I/O (strace: no wav `openat`). Needs restart/debug or blocks N5 “free persistence” claim.
 - Pi may still have SooperLooper from automation — kill when done: `pkill sooperlooper`.
 - Automation script + log on Pi: `/tmp/session-b.sh`, `/tmp/session-b-results.log`.
+
+
+## §B8 correction — persistence is NOT broken (2026-08-15)
+
+**The 2026-08-14 B8 "fail" verdict was wrong and is withdrawn.**
+
+Recorded as: *"`save_loop` OSC does nothing — no file after repeated tries...
+strace shows no `openat` for `.wav`... disk persistence broken/stuck"*, and it
+was listed as **blocking the adoption verdict**.
+
+**Retested against a freshly started engine: `save_loop` wrote a 3 MB WAV on the
+first attempt.**
+
+**Actual cause — a wedged engine, since named and now detectable.** SooperLooper
+can reach a state where OSC `/get` answers correctly while `/set`, `/hit` and
+`save_loop` are silently ignored: `get` reads state directly, the others go
+through `push_nonrt_event()`. When that non-realtime thread stops draining, every
+read-only check reports healthy and every command does nothing. The missing
+`openat` was the same wedge, not disk I/O.
+
+**Cost of not detecting it:** an evening debugging the Python control layer
+against a dead engine, plus this false verdict sitting in the eval log as an
+adoption blocker.
+
+**Now detectable:** `mpe looper sl-health` round-trips a `set` and fails if it
+does not stick. `mpe looper sl-watchdog` alarms on it (and refuses to
+auto-restart, because a restart destroys every recorded loop).
+
+**Precondition rule** — added to `TEMPLATE-sooperlooper-eval.md`: no measurement
+is recorded without `mpe rt check` and `mpe looper sl-health` passing first. A
+number taken against a wedged engine is not a weaker measurement, it is a wrong
+one, and it looks identical to a right one on the page. This entry is the proof.
+
+## §Technical footprint — measured 2026-08-15
+
+Answering "is SooperLooper efficient, and how does it sit in the audio chain?"
+
+| Measure | Value |
+|---|---|
+| Processes | **1** (16 loops are internal instances, not 16 clients) |
+| Threads | 7, of which **1 is SCHED_FIFO 65** (the audio callback) |
+| RSS | 172 MB at `-l 16 -t 40` (40 s preallocated per loop) |
+| JACK clients in graph | 3 — `Surge XT`, `mpe-looper`, `system` |
+| JACK ports | 68 on `mpe-looper` (16 loops x 2 in + 2 out, plus `common_in/out`) |
+| DSP load | **8.8%** for the whole graph |
+| Uptime at measurement | 16 h continuous, healthy |
+| Mix bus | internal — all loops sum to `common_out`, one stereo pair to playback |
+
+**Read:** SL is already the consolidated single-engine architecture, not a
+process per loop. Building our own would land on the same shape and would not
+simplify the audio chain — it would only move clip-launcher logic from Python
+into C++.
+
+**Real costs, in order:**
+
+1. **64 of the 68 ports are per-loop ins/outs we never use** — we listen on
+   `common_out` only. Graph clutter and traversal overhead. Reducible with a
+   smaller `-l` if 16 clips is more than the product needs.
+2. **Memory is preallocation, not usage.** 172 MB comes from `-t 40`; a shorter
+   max loop time trades headroom for RAM directly.
+3. **The process sprawl is ours, not SL'''s** — three Python control-plane
+   processes (bench, HUD, watchdog) plus two JSON state files and three UDP
+   ports. None touch the audio path, and all of it would survive an engine swap.
