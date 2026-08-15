@@ -34,4 +34,9 @@ config/mpe.env
 logs/shutdown-trace.jsonl
 logs/shutdown-test-marker.json
 
+# Headless nerdrack config (copy from *.headless.example on the build box only)
+.claude/settings.local.json
+.claude/mcp.json
+.yolo/headless
+
 # Everything else (binaries, patches, configs) GOES IN GIT for backup!
