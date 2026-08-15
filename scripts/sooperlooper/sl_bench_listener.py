@@ -25,12 +25,15 @@ class SlBenchStateListener:
         self._num_loops = 16
 
     def on_update(self, _addr: str, loop_index: int, control: str, value: float) -> None:
-        if control != "state":
-            return
         fs = self._by_loop.get(loop_index)
         if fs is None:
             return
-        fs.sync_from_sl(int(value))
+        if control == "state":
+            fs.sync_from_sl(int(value))
+        elif control == "loop_len":
+            # Needed to capture the tempo from the first take, which is what
+            # establishes the grid.
+            fs.sync_loop_len(float(value))
 
     def register(self, client, *, num_loops: int) -> None:
         self._osc_client = client
@@ -38,10 +41,11 @@ class SlBenchStateListener:
         returl = f"{LISTEN_HOST}:{LISTEN_PORT}"
         retpath = "/sl/bench/state"
         for loop in range(num_loops):
-            client.send_message(
-                f"/sl/{loop}/register_auto_update",
-                ["state", UPDATE_MS, returl, retpath],
-            )
+            for ctrl in ("state", "loop_len"):
+                client.send_message(
+                    f"/sl/{loop}/register_auto_update",
+                    [ctrl, UPDATE_MS, returl, retpath],
+                )
         import time
 
         self._last_register = time.monotonic()

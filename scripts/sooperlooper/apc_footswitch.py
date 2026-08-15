@@ -6,6 +6,7 @@ import os
 import time
 
 from apc_grid import all_loop_pads, pad_note
+from sl_grid_state import GridState
 from sl_loop_states import (
     QUANTIZE_WAIT,
     SL_STATE_OFF,
@@ -61,8 +62,13 @@ class LoopFootswitch:
         debounce_ms: float,
         num_loops: int = 16,
         quantized: bool = True,
+        grid: GridState | None = None,
+        on_grid_established=None,
     ) -> None:
         self.loop = loop
+        self.grid = grid
+        self._on_grid_established = on_grid_established
+        self.loop_len = 0.0
         # Is this loop waiting for cycle boundaries? False in free-form, where
         # arming a quantize wait strands the pad on a boundary that never comes.
         self.quantized = quantized
@@ -94,6 +100,7 @@ class LoopFootswitch:
         if sl_state == SL_STATE_PLAYING:
             self.awaiting_quantize = False
             self.state = STATE_PLAYING
+            self._maybe_establish_grid()
         elif sl_state == SL_STATE_PAUSED:
             self.awaiting_quantize = False
             self.state = STATE_STOPPED
@@ -119,6 +126,33 @@ class LoopFootswitch:
             self._sync_led()
             return True
         return False
+
+    def sync_loop_len(self, loop_len: float) -> None:
+        self.loop_len = float(loop_len)
+        if self.state == STATE_PLAYING:
+            self._maybe_establish_grid()
+
+    def _maybe_establish_grid(self) -> None:
+        """The defining take just landed — capture the tempo from its length.
+
+        After this the grid stands alone: this clip has no special status and
+        can be deleted like any other.
+        """
+        if self.grid is None or not self.grid.is_pending(self.loop):
+            return
+        if self.loop_len <= 0.0:
+            return  # length not reported yet; sync_loop_len will retry
+        derived = self.grid.establish(self.loop, self.loop_len)
+        if derived is None:
+            return
+        bpm, bars = derived
+        log(
+            f"loop {self.loop}: grid established from this take — "
+            f"{self.loop_len:.3f}s = {bars} bar(s) @ {bpm:.1f} BPM. "
+            f"Later clips count in and quantize; this clip is now ordinary."
+        )
+        if self._on_grid_established is not None:
+            self._on_grid_established(bpm, bars)
 
     def _path(self, suffix: str) -> str:
         return f"/sl/{self.loop}/{suffix}"
@@ -182,6 +216,8 @@ class LoopFootswitch:
         self._wait_since = time.monotonic()
 
     def _clear_loop(self) -> None:
+        if self.grid is not None:
+            self.grid.cancel(self.loop)
         self._hit("undo_all")
         self.state = STATE_IDLE
         self.awaiting_quantize = False
@@ -198,6 +234,11 @@ class LoopFootswitch:
             return
 
         if self.state == STATE_IDLE:
+            # No grid yet? This take defines it: record free-form and instant,
+            # because there is no bar to count in to. Standard looper workflow.
+            if self.grid is not None and not self.grid.established:
+                self.grid.arm(self.loop)
+                log(f"loop {self.loop}: defining the grid (free-form, no count-in)")
             self._hit("record")
             self.state = STATE_RECORDING
         elif self.state == STATE_RECORDING:
@@ -206,7 +247,8 @@ class LoopFootswitch:
             # In free-form there is no boundary, so arming the wait swallowed
             # the next tap for QUANTIZE_WAIT_TIMEOUT_S and stranded the pad on
             # red while the loop was already playing (2026-08-14).
-            if self.quantized:
+            defining = self.grid is not None and self.grid.is_pending(self.loop)
+            if self.quantized and not defining:
                 self._begin_quantize_wait()
             else:
                 self.state = STATE_PLAYING
@@ -256,6 +298,8 @@ def build_footswitches(
     hold_ms: float,
     debounce_ms: float,
     quantized: bool = True,
+    grid: GridState | None = None,
+    on_grid_established=None,
 ) -> tuple[dict[int, LoopFootswitch], list[LoopFootswitch]]:
     """Map APC clip-pad MIDI notes (rows 0 + 3) -> per-loop footswitch."""
     by_note: dict[int, LoopFootswitch] = {}
@@ -270,6 +314,8 @@ def build_footswitches(
             debounce_ms=debounce_ms,
             num_loops=num_loops,
             quantized=quantized,
+            grid=grid,
+            on_grid_established=on_grid_established,
         )
         fs.bind(osc, midi_out, note)
         by_note[note] = fs
@@ -288,7 +334,15 @@ def reset_all_loops(
     num_loops: int,
     footswitches: list[LoopFootswitch],
 ) -> None:
-    """Stop playback and clear every loop; reset bench LED/state."""
+    """Stop playback and clear every loop; reset bench LED/state.
+
+    Also drops the grid: with no clips left there is no tempo, so the next
+    take defines it again — same as a fresh session.
+    """
+    for fs in footswitches:
+        if fs.grid is not None:
+            fs.grid.reset()
+            break
     for loop in range(num_loops):
         osc.send_message(f"/sl/{loop}/hit", "pause")
         osc.send_message(f"/sl/{loop}/hit", "undo_all")
