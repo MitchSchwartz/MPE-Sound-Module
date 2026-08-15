@@ -4,6 +4,7 @@ import unittest
 
 from patch_browser.instrument_filter import (
     filter_patches_by_instrument,
+    instrument_counts,
     instruments_with_patches,
     primary_instrument,
 )
@@ -30,6 +31,14 @@ class InstrumentFilterTests(unittest.TestCase):
 
     def test_primary_instrument_defaults_to_other(self) -> None:
         self.assertEqual(primary_instrument({}), "other")
+
+    def test_instrument_counts(self) -> None:
+        patches = [
+            {"instrument_primary": "bass"},
+            {"instrument_primary": "bass"},
+            {"instrument_primary": "pad"},
+        ]
+        self.assertEqual(instrument_counts(patches), {"bass": 2, "pad": 1})
 
     def test_patch_list_subtitle(self) -> None:
         patch = {
