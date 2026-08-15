@@ -1,4 +1,11 @@
-"""Read looper MIDI clock state for the touch patch browser header HUD."""
+"""Clock state for the touch patch browser header HUD.
+
+Two sources, not one — the name predates the second. External MIDI clock
+(`~/.mpe_midi_clock_state.json`) drives the tempo readout; the SooperLooper HUD
+state (`~/.mpe_sl_hud_state.json`) drives the bar/beat sweep. The looper's grid
+is SL's own internal tempo, not MIDI clock and not JACK transport — see
+`Documents/specs/looper-transport-clock-spec.md` §K.
+"""
 
 from __future__ import annotations
 

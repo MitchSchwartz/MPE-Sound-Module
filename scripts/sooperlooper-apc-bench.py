@@ -25,9 +25,11 @@ from apc_transport import ShiftHoldCombo, resolve_apc_transport_notes  # noqa: E
 from sl_bench_listener import SlBenchStateListener  # noqa: E402
 from sl_grid_state import GridState, display_bpm  # noqa: E402
 from sl_grid_sync import (  # noqa: E402
+    RESTART_SENTINEL,
     anchor_phase,
     apply_freeform,
     apply_grid_sync,
+    expected_sentinel,
     set_grid_active,
 )
 
@@ -120,7 +122,7 @@ def main() -> int:
         Until now every loop had sync=0 so the defining take could record
         instantly. From here clips count in to the bar and quantize.
         """
-        osc.send_message("/set", ["tempo", float(bpm)])
+        anchor_phase(_send, bpm)  # re-sending tempo IS the phase reset
         set_grid_active(_send, num_loops=num_loops, active=True)
         print(
             f"bench: grid established — {bars} bar(s) @ {bpm:.1f} BPM. "
@@ -147,8 +149,41 @@ def main() -> int:
     for fs in footswitches:
         fs._sync_led()
 
+    def on_engine_settings(control: str, value: float) -> None:
+        """Notice the engine restarted underneath us, and put the grid back.
+
+        `apply_grid_sync` used to run exactly once, at bench startup. Nothing
+        re-applied it — so after `mpe looper sl-restart` the engine came back
+        with SooperLooper's defaults (`smart_eighths` back ON, no internal sync
+        source, default cycle and fade) while the bench carried on believing its
+        configuration was in force. The next take recorded in the wrong mode and
+        nothing anywhere said so. Same shape as the orphan: a component
+        reporting healthy while the thing it configures is gone.
+
+        Reconciling on a *sentinel* rather than on a timer matters. Re-sending
+        `tempo` is the phase reset (Engine::set_tempo zeroes the counters), so a
+        blind periodic re-apply would knock the grid out of phase every cycle.
+        Here it fires only when the engine is demonstrably not the one we set up,
+        where resetting phase is not just safe but correct — its phase is gone
+        anyway.
+        """
+        if not grid_active or control != RESTART_SENTINEL:
+            return
+        if value == expected_sentinel():
+            return
+        print(f"bench: !! engine reset detected ({control}={value}, expected "
+              f"{expected_sentinel()}) — re-applying grid config", flush=True)
+        apply_grid_sync(_send, num_loops=num_loops)
+        if grid.established and grid.bpm:
+            anchor_phase(_send, grid.bpm)
+            set_grid_active(_send, num_loops=num_loops, active=True)
+            print(f"bench: grid restored — {grid.bpm:.1f} BPM, phase re-anchored",
+                  flush=True)
+        else:
+            print("bench: no grid to restore — next take defines one", flush=True)
+
     by_loop = footswitches_by_loop(footswitches)
-    state_listener = SlBenchStateListener(by_loop)
+    state_listener = SlBenchStateListener(by_loop, on_global=on_engine_settings)
     state_listener.start()
     state_listener.register(osc, num_loops=num_loops)
 
