@@ -23,13 +23,14 @@ from loop_model import (
     STATE_STOPPED,
     effective_state,
     pending_resolved,
-    plan_tap,
+    plan_gesture,
 )
 from sl_grid_state import GridState
 from sl_loop_states import (
     SL_STATE_OFF,
     SL_STATE_PLAYING,
     SL_STATE_RECORDING,
+    SL_STATE_WAIT_START,
     SL_STATE_WAIT_STOP,
 )
 
@@ -288,22 +289,25 @@ class LoopFootswitch:
         self._sync_led()
         self._mark_action()
 
-    def _tap(self) -> None:
+    def _gesture(self, edge: str) -> None:
         if self._debounced():
-            log(f"loop {self.loop}: -> tap ignored (debounce)")
+            log(f"loop {self.loop}: -> {edge} ignored (debounce)")
             return
         if self._waiting_for_quantize():
-            log(f"loop {self.loop}: -> tap ignored (quantize wait)")
+            log(f"loop {self.loop}: -> {edge} ignored (quantize wait)")
             return
 
         self._expire_pending()
-        plan = plan_tap(
+        plan = plan_gesture(
+            edge=edge,
             sl_state=self.sl_state,
             pending=self._pending,
             grid_established=self.grid is None or self.grid.established,
             is_defining=self.grid is not None and self.grid.is_pending(self.loop),
             quantized=self.quantized,
         )
+        if not (plan.commands or plan.queue_stop or plan.arm_grid):
+            return
         if plan.note:
             log(f"loop {self.loop}: {plan.note}")
         if plan.arm_grid and self.grid is not None:
@@ -318,19 +322,27 @@ class LoopFootswitch:
 
         self._sync_led()
         self._mark_action()
-        log(f"loop {self.loop}: -> tap done (state={self.state}, sl_state={self.sl_state})")
+        log(f"loop {self.loop}: -> {edge} done (state={self.state}, sl_state={self.sl_state})")
 
     def on_pad_down(self) -> None:
         self._pad_down = True
         self._pad_down_at = time.monotonic()
         self._hold_fired = False
         log(f"loop {self.loop}: pad down (note {self._note})")
+        self._gesture("down")
 
     def on_pad_up(self) -> None:
         held = time.monotonic() - self._pad_down_at
         log(f"loop {self.loop}: pad up held={held:.3f}s hold_fired={self._hold_fired}")
         if self._pad_down and not self._hold_fired:
-            self._tap()
+            # Stop lands on down; release during an active take must not fire
+            # mute/launch — pending may already say "playing" before SL confirms.
+            if self.sl_state not in (
+                SL_STATE_RECORDING,
+                SL_STATE_WAIT_START,
+                SL_STATE_WAIT_STOP,
+            ):
+                self._gesture("up")
         self._pad_down = False
 
     def poll_led(self) -> None:
