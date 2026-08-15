@@ -66,4 +66,8 @@ CPU_METER_BAR_W = 6
 STATUS_BAR_ITEM_GAP = 12
 STATUS_SETTINGS_BTN_W = 48  # full-height ⋯ tap target (right edge of header)
 AUDIO_BADGE_PAD_X = 10
-LOOPER_HUD_PAD_X = 8
+LOOPER_HUD_PAD_X = 6
+LOOPER_HUD_V_PAD = 4
+LOOPER_HUD_COUNTER_GAP = 8
+# The sweep needs pixels to move through; a narrow gap quantizes it visibly.
+LOOPER_HUD_MIN_W = 132
