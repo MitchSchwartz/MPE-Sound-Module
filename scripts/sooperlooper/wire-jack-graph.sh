@@ -42,8 +42,10 @@ log() { echo "wire-jack: $*"; }
 #      errors. Counting them made a healthy graph report failures.
 try_jack() {
   local out status
-  out="$("$@" 2>&1)"
-  status=$?
+  # `out=$(cmd)` is itself a simple command: under `set -e` a non-zero cmd
+  # aborts the script HERE, before any status check below can run. Guard the
+  # assignment. (Third time this file has been bitten by set -e — 2026-08-14.)
+  out="$("$@" 2>&1)" && status=0 || status=$?
   if [ "$status" -eq 0 ]; then
     return 0
   fi
