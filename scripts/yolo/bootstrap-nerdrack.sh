@@ -37,19 +37,29 @@ if [[ ! -f "$HOME/.onecli/mpe-module.env" ]]; then
   cat <<EOF
 
 WARN: missing ~/.onecli/mpe-module.env
-Create on nerdrack (mode 600):
+Create from laptop (not from nerdrack agent sessions):
 
-  ONECLI_AOC_TOKEN=<aoc_* from OneCLI dashboard — IO MPE Module agent>
+  onecli-nerdrack setup-mpe --from-gh
+
+Or manually on nerdrack (mode 600):
+
+  ONECLI_AOC_TOKEN=<aoc_* from: onecli-nerdrack agent-token "MPE Agent">
   GITHUB_MCP_SECRET=github-mpe-module
   YOLO_REPO=${GITHUB_REPO:-MitchSchwartz/MPE-Sound-Module}
   NTFY_TOPIC=<secret topic string>
 
-OneCLI dashboard: add secret github-mpe-module (GitHub PAT, Bearer {value}) scoped to ${GITHUB_REPO:-MitchSchwartz/MPE-Sound-Module}.
+OneCLI admin (create agent/secret/grant) is **laptop only** via onecli-nerdrack.
+YOLO agents are blocked from onecli CLI, port 10254 API, and queue approve/clear-gate.
 
 EOF
 else
   echo "  ~/.onecli/mpe-module.env: ok"
 fi
+
+echo ""
+echo "OneCLI lockdown policy:"
+echo "  - Agents: MCP GitHub proxy (10255) only — no onecli CLI, no 10254 admin API"
+echo "  - Mitch/laptop: onecli-nerdrack setup-mpe | agents | grant-secret | write-env"
 
 echo ""
 echo "Running gate checks..."
