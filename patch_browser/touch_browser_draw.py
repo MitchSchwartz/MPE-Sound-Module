@@ -221,10 +221,13 @@ class TouchBrowserDrawMixin:
         )
         self._draw_nav_all_button(self.nav_all_btn, selected=all_selected)
         if self.browse_filter_open_btn.w > 0:
+            filter_view_open = (
+                self._browse_carousel_active() and self._browse_carousel.stop == "filter"
+            )
             self._draw_icon_button(
                 self.browse_filter_open_btn,
                 "filter",
-                accent=self._instrument_filter_active(),
+                accent=filter_view_open or self._instrument_filter_active(),
             )
         if self.left_nav_mode != LeftNavMode.ALL_PATCHES:
             self._draw_icon_button(self.nav_collapse_btn, "panel_close", muted=True)
@@ -694,9 +697,14 @@ class TouchBrowserDrawMixin:
                 name_clipped = ellipsize_text(self.font_md, patch["name"], name_max_w)
                 name_s = self.font_md.render(name_clipped, True, text_color)
                 self.screen.blit(name_s, (row_rect.x + 10, row_rect.y + 6))
+                subtitle = (
+                    patch_browse_subtitle(patch)
+                    if self._instrument_filter_active()
+                    else patch_browse_instrument_subtitle(patch)
+                )
                 inst_clipped = ellipsize_text(
                     self.font_sm,
-                    patch_browse_instrument_subtitle(patch),
+                    subtitle,
                     name_max_w,
                 )
                 inst_s = self.font_sm.render(inst_clipped, True, self.theme.muted)

@@ -58,12 +58,12 @@ class _NestedBrowseHost(TouchBrowserPatchesMixin):
 
         self._patches = {
             "!Quick Access": {
-                "root": [{"name": "Solo", "path": "/qa/Solo.fxp", "category": "!Quick Access", "inner_segments": ()}],
-                "Gig A": [{"name": "Pad", "path": "/qa/Gig A/Pad.fxp", "category": "!Quick Access", "inner_segments": ("Gig A",)}],
+                "root": [{"name": "Solo", "path": "/qa/Solo.fxp", "category": "!Quick Access", "inner_segments": (), "instrument_primary": "lead"}],
+                "Gig A": [{"name": "Pad", "path": "/qa/Gig A/Pad.fxp", "category": "!Quick Access", "inner_segments": ("Gig A",), "instrument_primary": "pad"}],
             },
             "Bass": {
-                "root": [{"name": "Root", "path": "/factory/Bass/Root.fxp", "category": "Bass", "inner_segments": ()}],
-                "Sub": [{"name": "Deep", "path": "/factory/Bass/Sub/Deep.fxp", "category": "Bass", "inner_segments": ("Sub",)}],
+                "root": [{"name": "Root", "path": "/factory/Bass/Root.fxp", "category": "Bass", "inner_segments": (), "instrument_primary": "bass"}],
+                "Sub": [{"name": "Deep", "path": "/factory/Bass/Sub/Deep.fxp", "category": "Bass", "inner_segments": ("Sub",), "instrument_primary": "bass"}],
             },
         }
 
@@ -94,7 +94,12 @@ class _NestedBrowseHost(TouchBrowserPatchesMixin):
         self.instrument_filter = None
 
     def _patch_passes_instrument_filter(self, patch: dict) -> bool:
-        return True
+        if not self.instrument_filter:
+            return True
+        return patch.get("instrument_primary") == self.instrument_filter
+
+    def _instrument_filter_active(self) -> bool:
+        return self.instrument_filter is not None
 
     def _refresh_instrument_chips(self) -> None:
         pass
@@ -211,6 +216,58 @@ class NestedFolderBrowseTests(unittest.TestCase):
         host.browse_folder_index = 1
         host.browse_inner_segments = ("Sub",)
         self.assertEqual(host._browse_folder_title(), "Bass / Sub")
+
+    def test_instrument_filter_hides_folders_shows_recursive_patches(self) -> None:
+        host = _NestedBrowseHost()
+        host.browse_folder_index = 1
+        host.left_nav_mode = LeftNavMode.PATCHES
+        host.instrument_filter = "bass"
+        host._refresh_lists()
+
+        labels = host.nav_list.set_items.call_args[0][0]
+        self.assertNotIn("Sub  >", labels)
+        self.assertEqual(labels, ["Root", "Deep"])
+
+    def test_instrument_filter_scoped_to_current_subfolder(self) -> None:
+        host = _NestedBrowseHost()
+        host.browse_folder_index = 1
+        host.browse_inner_segments = ("Sub",)
+        host.left_nav_mode = LeftNavMode.PATCHES
+        host.instrument_filter = "bass"
+        host._refresh_lists()
+
+        labels = host.nav_list.set_items.call_args[0][0]
+        self.assertEqual(labels, ["Deep"])
+
+    def test_instrument_filter_highlights_patch_in_subfolder(self) -> None:
+        host = _NestedBrowseHost()
+        host.browse_folder_index = 1
+        host.left_nav_mode = LeftNavMode.PATCHES
+        host.instrument_filter = "bass"
+        host.detail_patch = {
+            "name": "Deep",
+            "category": "Bass",
+            "path": "/factory/Bass/Sub/Deep.fxp",
+            "inner_segments": ("Sub",),
+            "instrument_primary": "bass",
+        }
+        host._refresh_lists()
+
+        highlight = host.nav_list.set_items.call_args[1]["highlight_index"]
+        self.assertEqual(highlight, 1)
+
+    def test_clearing_instrument_filter_restores_folder_rows(self) -> None:
+        host = _NestedBrowseHost()
+        host.browse_folder_index = 1
+        host.left_nav_mode = LeftNavMode.PATCHES
+        host.instrument_filter = "bass"
+        host._refresh_lists()
+        host.instrument_filter = None
+        host._refresh_lists()
+
+        labels = host.nav_list.set_items.call_args[0][0]
+        self.assertEqual(labels[0], "Sub  >")
+        self.assertIn("Root", labels)
 
 
 if __name__ == "__main__":
