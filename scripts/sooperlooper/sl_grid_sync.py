@@ -39,23 +39,31 @@ SYNC_SOURCE_JACK = -1.0
 SYNC_SOURCE_NONE = 0.0
 
 
-def _quantize_all(
-    send: Callable[[str, list], None], num_loops: int, *, count_in: bool = COUNT_IN
+def set_grid_active(
+    send: Callable[[str, list], None], *, num_loops: int = 16, active: bool
 ) -> None:
+    """The two grid states, applied to the engine.
+
+    active=False — NO GRID YET. Every loop is genuinely free-form: the take
+        that will define the grid must not be quantized, rounded or synced to
+        anything, because there is nothing to sync to. Leaving quantize/round
+        on here made SL stretch a short first take up to the end of a cycle
+        derived from the PREVIOUS session's tempo — an imaginary bar.
+
+    active=True — GRID ESTABLISHED. Clips count in to the boundary (sync) and
+        their length snaps to whole cycles (quantize=QUANT_CYCLE, and the cycle
+        is the defining take). round stays off: the stop is already quantized,
+        and rounding on top of it extends the take by another cycle.
+    """
     for loop in range(num_loops):
         prefix = f"/sl/{loop}/set"
-        send(prefix, ["quantize", 1.0])  # cycle
-        # sync=1 makes record WAIT for the boundary (count-in). sync=0 starts
-        # on the tap; round=1 still rounds the take up to a whole cycle so the
-        # loop remains grid-locked.
-        send(prefix, ["sync", 1.0 if count_in else 0.0])
-        send(prefix, ["round", 0.0 if count_in else 1.0])
+        send(prefix, ["quantize", 1.0 if active else 0.0])  # 1 = QUANT_CYCLE
+        send(prefix, ["sync", 1.0 if active else 0.0])
+        send(prefix, ["round", 0.0])
         send(prefix, ["relative_sync", 0.0])
-        # SL's own default is 0 (looper.cpp: ports[PlaybackSync] = 0.0f).
-        # Forcing 1 made a freshly recorded clip wait for the NEXT boundary
-        # even though record-stop had just landed on one — clip 2 came in a
-        # whole bar late. Record-stop is already quantized; this only adds
-        # latency.
+        # SL's own default (looper.cpp ports[PlaybackSync] = 0.0f). Forcing 1
+        # made a fresh clip wait for the NEXT boundary after record-stop had
+        # already landed on one.
         send(prefix, ["playback_sync", 0.0])
 
 
@@ -67,7 +75,6 @@ def apply_grid_sync(
     fade_samples: int = DEFAULT_FADE_SAMPLES,
     clock: str = DEFAULT_CLOCK,
     bpm: float = DEFAULT_BPM,
-    count_in: bool = COUNT_IN,
 ) -> None:
     """Configure SL grid. Every loop quantizes to cycle; no loop is the clock."""
     # SooperLooper rewrites our cycle length behind us when the tempo leaves
@@ -86,21 +93,15 @@ def apply_grid_sync(
 
     send("/set", ["eighth_per_cycle", float(eighth_per_cycle)])
     send("/set", ["fade_samples", float(fade_samples)])
-    _quantize_all(send, num_loops, count_in=count_in)
+    # No grid until a take defines one, so start free-form.
+    set_grid_active(send, num_loops=num_loops, active=False)
 
 
 def set_count_in(
     send: Callable[[str, list], None], *, num_loops: int = 16, count_in: bool
 ) -> None:
-    """Flip count-in on/off for every loop, live.
-
-    Used when the first take establishes the grid: until then loops run with
-    sync=0 so that take records instantly; afterwards they count in to the bar.
-    """
-    for loop in range(num_loops):
-        prefix = f"/sl/{loop}/set"
-        send(prefix, ["sync", 1.0 if count_in else 0.0])
-        send(prefix, ["round", 0.0 if count_in else 1.0])
+    """Deprecated alias — the grid has two states, not a count-in toggle."""
+    set_grid_active(send, num_loops=num_loops, active=count_in)
 
 
 def anchor_phase(send: Callable[[str, list], None], bpm: float) -> None:
