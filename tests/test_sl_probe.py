@@ -11,6 +11,7 @@ import unittest
 
 from scripts.sooperlooper.sl_probe import (
     ALIVE,
+    PROBE_RESTORE,
     PROBE_CONTROL,
     UNREACHABLE,
     WEDGED,
@@ -92,10 +93,22 @@ class CommandPathTests(unittest.TestCase):
         check_command_path(engine.get, engine.send, seed="t", settle_s=0.0, retries=1)
         self.assertGreaterEqual(len(engine.writes), 2)
 
-    def test_the_original_value_is_restored(self) -> None:
-        engine = FakeEngine(0.125)
+    def test_restores_to_the_policy_value_not_to_what_it_found(self) -> None:
+        """Two probers restoring each other's leftovers converge on pollution.
+
+        Found live: loop 0 sat at dry=0.41 while every other loop read 0.0 —
+        Surge passing through the looper and doubling at the speakers.
+        """
+        from scripts.sooperlooper.sl_probe import PROBE_RESTORE
+
+        engine = FakeEngine(0.41)  # already polluted by the other prober
         self._run(engine)
-        self.assertAlmostEqual(engine.value, 0.125, places=3)
+        self.assertAlmostEqual(engine.value, PROBE_RESTORE, places=3)
+
+    def test_a_wedge_verdict_also_leaves_the_policy_value(self) -> None:
+        engine = FakeEngine(0.41, accept=False)
+        self._run(engine)
+        self.assertEqual(engine.writes[-1], PROBE_RESTORE)
 
 
 if __name__ == "__main__":

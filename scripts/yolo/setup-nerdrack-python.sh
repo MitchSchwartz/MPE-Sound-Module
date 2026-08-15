@@ -55,14 +55,13 @@ run_venv() {
     exit 1
   fi
 
-  python3 -m venv "$VENV"
+  if [[ ! -x "$VENV/bin/python" ]]; then
+    python3 -m venv "$VENV"
+  fi
   # shellcheck disable=SC1091
   source "$VENV/bin/activate"
   pip install -q -U pip wheel
   pip install -q -r "$REQ"
-
-  export SDL_VIDEODRIVER="${SDL_VIDEODRIVER:-dummy}"
-  export PYGAME_HIDE_SUPPORT_PROMPT=1
 
   echo "  running backpressure smoke..."
   cd "$ROOT"
