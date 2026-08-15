@@ -35,6 +35,8 @@ class TouchBrowserInstrumentsMixin:
         self.browse_filter_rect = Rect(0, 0, 0, 0)
         self.browse_filter_tag_rects: list[tuple[str, Rect]] = []
         self._browse_filter_packed_tags: list = []
+        self._browse_filter_tag_ids_cache: list[str] = []
+        self._browse_filter_counts_cache: dict[str, int] = {}
         self._all_patches_display_flat: list[dict] = []
         self._all_patches_display_letter_index: dict[str, int] = {}
 
@@ -99,20 +101,36 @@ class TouchBrowserInstrumentsMixin:
             self._browse_filter_packed_tags = []
             return
 
-        context_patches = self._patches_for_chip_context()
-        available = instruments_with_patches(context_patches)
-        if self.instrument_filter and self.instrument_filter not in available:
-            self.instrument_filter = None
+        # Mid-drag, only the pane's x is moving — its content (which
+        # instruments have patches here, their counts) can't change until
+        # the drag ends. Reuse the last full pack instead of re-walking
+        # the folder tree and re-aggregating counts on every motion
+        # sample; the font-measurement repack below still runs (its cost
+        # is bounded by tag count, not patch count).
+        if self._browse_carousel.state.dragging and self._browse_filter_tag_ids_cache:
+            tag_ids = self._browse_filter_tag_ids_cache
+            counts = self._browse_filter_counts_cache
+        else:
+            context_patches = self._patches_for_chip_context()
+            available = instruments_with_patches(context_patches)
+            if self.instrument_filter and self.instrument_filter not in available:
+                self.instrument_filter = None
 
-        counts = instrument_counts(context_patches)
-        counts[ALL_INSTRUMENT_CHIP] = len(context_patches)
-        tag_ids = [ALL_INSTRUMENT_CHIP] + available
+            counts = instrument_counts(context_patches)
+            counts[ALL_INSTRUMENT_CHIP] = len(context_patches)
+            tag_ids = [ALL_INSTRUMENT_CHIP] + available
+            self._browse_filter_tag_ids_cache = tag_ids
+            self._browse_filter_counts_cache = counts
 
         def _label(tag_id: str) -> str:
             name = "All" if tag_id == ALL_INSTRUMENT_CHIP else instrument_chip_label(tag_id)
             return f"{name} ({counts.get(tag_id, 0)})"
 
-        content_x = max(self.browse_filter_rect.x, BROWSE_EDGE_GRAB_W)
+        # Rigid-body offset from the pane's own x — NOT max(pane.x, ...),
+        # which would pin tags to an absolute floor and leave them
+        # visible/hit-testable at x=48 even while the pane itself sits
+        # off-screen at the Home stop (pane.x well below 0).
+        content_x = self.browse_filter_rect.x + BROWSE_EDGE_GRAB_W
         content_rect = Rect(
             content_x,
             self.browse_filter_rect.y + BROWSE_FILTER_HEADER_H,
@@ -147,7 +165,7 @@ class TouchBrowserInstrumentsMixin:
         if pane.w <= 0:
             return
         pygame.draw.rect(self.screen, self.theme.surface, pane.pygame_rect, border_radius=10)
-        header_x = max(pane.x, BROWSE_EDGE_GRAB_W) + INSTRUMENT_CHIP_PAD_X
+        header_x = pane.x + BROWSE_EDGE_GRAB_W + INSTRUMENT_CHIP_PAD_X
         header = self.font_sm.render(self._browse_filter_header_label(), True, self.theme.muted)
         self.screen.blit(header, (header_x, pane.y + 6))
         for tag in self._browse_filter_packed_tags:
