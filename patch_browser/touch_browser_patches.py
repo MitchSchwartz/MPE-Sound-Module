@@ -10,6 +10,10 @@ import pygame
 
 from patch_browser.all_patches_index import build_flat_patch_list
 from patch_browser.dsi_splash import boot_animation_phase
+from patch_browser.instrument_filter import (
+    filter_patches_by_instrument,
+    patches_in_browse_subtree,
+)
 from patch_browser.patch_scanner import favorites_display_name
 from patch_browser.touch_ui_constants import (
     ALL_PATCHES_ROW_HEIGHT,
@@ -251,10 +255,43 @@ class TouchBrowserPatchesMixin:
             return False
         return self._patch_inner_segments(patch) == self._browse_inner_segments()
 
+    def _patch_in_browse_subtree(self, patch: dict | None) -> bool:
+        """True when patch lives at or below the current browse folder."""
+        if not patch:
+            return False
+        if patch.get("category") != self._browse_category_name():
+            return False
+        here = self._browse_inner_segments()
+        there = self._patch_inner_segments(patch)
+        return there[: len(here)] == here
+
+    def _patch_visible_in_browse_list(self, patch: dict | None) -> bool:
+        if not patch:
+            return False
+        if self._instrument_filter_active():
+            return self._patch_in_browse_subtree(patch) and self._patch_passes_instrument_filter(
+                patch
+            )
+        return self._patch_in_browse_location(patch)
+
     def _rebuild_browse_nav_entries(self) -> list[dict]:
         category = self._browse_category_name()
         inner = self._browse_inner_segments()
         entries: list[dict] = []
+        if self._instrument_filter_active():
+            patches = filter_patches_by_instrument(
+                patches_in_browse_subtree(self.scanner, category, inner),
+                self.instrument_filter,
+            )
+            patches.sort(
+                key=lambda patch: (
+                    self._patch_inner_segments(patch),
+                    (patch.get("name") or "").lower(),
+                )
+            )
+            for patch in patches:
+                entries.append({"kind": "patch", "patch": patch, "label": patch["name"]})
+            return entries
         for name in self.scanner.get_subfolders(category, inner):
             entries.append({"kind": "folder", "name": name, "label": f"{name}  >"})
         for patch in self.scanner.get_patches_in_folder(category, inner):
@@ -386,9 +423,11 @@ class TouchBrowserPatchesMixin:
             labels = [entry["label"] for entry in self._browse_nav_entries]
             highlight = None
             loaded_idx = None
-            if self.detail_patch and self._patch_in_browse_location(self.detail_patch):
+            if self.detail_patch and self._patch_visible_in_browse_list(self.detail_patch):
                 highlight = self._browse_entry_index_for_patch(self.detail_patch)
-            if self.loaded_patch_info and self._patch_in_browse_location(self.loaded_patch_info):
+            if self.loaded_patch_info and self._patch_visible_in_browse_list(
+                self.loaded_patch_info
+            ):
                 loaded_idx = self._browse_entry_index_for_patch(self.loaded_patch_info)
             self.nav_list.set_items(labels, highlight_index=highlight, loaded_marker_index=loaded_idx)
             if scroll_to_selection:

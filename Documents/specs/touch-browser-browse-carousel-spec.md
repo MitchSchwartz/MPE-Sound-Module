@@ -1,6 +1,6 @@
 # Touch patch browser — browse carousel + filter pane
 
-**Status:** Draft  
+**Status:** Implemented (v1) — Phases A–D, two scoped deviations (ALL_PATCHES carousel, snap tween) and one deferred item (nav list scroll-edge hints); see 2026-08-15 "Phases A–D implemented" row in `Documents/DECISIONS.md`  
 **Last updated:** 2026-08-15 (America/Toronto)  
 **Supersedes (partial):** inline instrument chip panel behavior in [touch-browser-instruments-favorites-spec.md](touch-browser-instruments-favorites-spec.md) §Chip filter  
 **Depends on:** Instrument metadata + `INSTRUMENT_VOCAB` (`patch_metadata.py`, `instrument_filter.py`) — chips can ship before full metadata epic if heuristic tags exist for current folder context  
@@ -203,50 +203,50 @@ Phase D   Polish (snap animation, scroll edge hints audit, docs)
 
 ### Phase A — Gesture core (gate)
 
-- [ ] `gesture_router.py` with rect priority tests
-- [ ] `browse_carousel.py` with snap + clamp tests
-- [ ] No changes to production browser behavior yet
+- [x] `gesture_router.py` with rect priority tests
+- [x] `browse_carousel.py` with snap + clamp tests
+- [x] No changes to production browser behavior yet
 
 ### Phase B — Layout + draw
 
-- [ ] `_browse_track_offset_px` drives nav/filter/patch x positions
-- [ ] Filter pane masonry draw + tag hit rects
-- [ ] Remove inline chip panel + funnel btn from layout/draw
-- [ ] Nav list uses full nav height
+- [x] `_browse_track_offset_px` drives nav/filter/patch x positions
+- [x] Filter pane masonry draw + tag hit rects
+- [x] Remove inline chip panel + funnel btn from layout/draw
+- [x] Nav list uses full nav height
 
 ### Phase C — Input
 
-- [ ] Pointer-down classification routes to carousel | scroll | mixer | filter_tap
-- [ ] Edge pan wired through evdev browser path (same as SDL)
-- [ ] Tag tap in filter pane sets filter without changing stop
-- [ ] All-patches mode: carousel **enabled** (filter + nav still valid); A–Z rail unchanged
+- [x] Pointer-down classification routes to carousel | filter_tap (mixer/nav_scroll/tap keep their existing, unrerouted handlers — see 2026-08-15 DECISIONS row)
+- [x] Edge pan wired through evdev browser path (same as SDL)
+- [x] Tag tap in filter pane sets filter without changing stop
+- [ ] All-patches mode: carousel **enabled** — **deviated**: carousel stays disabled in ALL_PATCHES (no Patch pane exists there to slide against); `instrument_filter` state still applies. See 2026-08-15 DECISIONS row.
 
 ### Phase D — Polish + docs
 
-- [ ] Snap easing (match `SETTINGS_PANEL_ANIM_SPEED` feel or shared tween)
-- [ ] Update `docs/TOUCH_PATCH_BROWSER.md` browse section
-- [ ] Update `docs/TOUCH_MODAL_INTERACTIONS.md` browser row
-- [ ] Pi smoke on SmartiPi
+- [ ] Snap easing — **deviated**: kept instant snap (spec's own fallback: "instant snap acceptable"). See 2026-08-15 DECISIONS row.
+- [x] Update `docs/TOUCH_PATCH_BROWSER.md` browse section
+- [x] Update `docs/TOUCH_MODAL_INTERACTIONS.md` browser row
+- [ ] Pi smoke on SmartiPi — not run; no Pi/display available in this environment
 
 ---
 
 ## Acceptance criteria
 
-| # | Criterion | Test type |
-|---|-----------|-----------|
-| 1 | Default stop is Home: Nav 268 + Patch 532 visible; filter off-screen left | Unit (layout) |
-| 2 | Edge pan from Home reaches Filter stop when release past 50% or ≥56px | Unit (carousel) |
-| 3 | Edge pan from Filter returns to Home under same thresholds | Unit (carousel) |
-| 4 | Pointer-down at x=30 always classifies `edge_carousel`, never `nav_scroll` | Unit (router) |
-| 5 | Pointer-down at nav x=120 classifies `nav_scroll`, not carousel | Unit (router) |
-| 6 | Pointer-down on fader column classifies `mixer`, not carousel | Unit (router) |
-| 7 | Tag tap in filter pane updates list; stop stays Filter | Integration |
-| 8 | Tag tap does **not** set `instrument_filter_expanded` (field removed or inert) | Unit |
-| 9 | Inline chip row not drawn; nav list gains ≥ chip panel height | Manual (Pi) |
-| 10 | Horizontal drag on Vol fader does not move browse track | Manual (Pi) |
-| 11 | Vertical nav scroll in x∈[48,268) does not move browse track | Manual (Pi) |
-| 12 | Masonry shows All + instruments with count; zero-count hidden | Unit (draw layout) |
-| 13 | `draw_vertical_scroll_edge_hints` still shown when nav list overflows | Manual (Pi) |
+| # | Criterion | Test type | Status |
+|---|-----------|-----------|--------|
+| 1 | Default stop is Home: Nav 268 + Patch 532 visible; filter off-screen left | Unit (layout) | ✅ `test_touch_browser_browse_track.py` |
+| 2 | Edge pan from Home reaches Filter stop when release past 50% or ≥56px | Unit (carousel) | ✅ `test_browse_carousel.py` |
+| 3 | Edge pan from Filter returns to Home under same thresholds | Unit (carousel) | ✅ `test_browse_carousel.py` |
+| 4 | Pointer-down at x=30 always classifies `edge_carousel`, never `nav_scroll` | Unit (router) | ✅ `test_gesture_router.py` |
+| 5 | Pointer-down at nav x=120 classifies `nav_scroll`, not carousel | Unit (router) | ✅ `test_gesture_router.py` |
+| 6 | Pointer-down on fader column classifies `mixer`, not carousel | Unit (router) | ✅ `test_gesture_router.py` |
+| 7 | Tag tap in filter pane updates list; stop stays Filter | Integration | ✅ `test_touch_browser_browse.py` |
+| 8 | Tag tap does **not** set `instrument_filter_expanded` (field removed or inert) | Unit | ✅ field fully removed; `test_touch_browser_browse.py` |
+| 9 | Inline chip row not drawn; nav list gains ≥ chip panel height | Manual (Pi) | ⬜ not run — no Pi/display available |
+| 10 | Horizontal drag on Vol fader does not move browse track | Manual (Pi) | ⬜ not run — no Pi/display available |
+| 11 | Vertical nav scroll in x∈[48,268) does not move browse track | Manual (Pi) | ⬜ not run — no Pi/display available |
+| 12 | Masonry shows All + instruments with count; zero-count hidden | Unit (draw layout) | ✅ `test_browse_filter_pane.py` |
+| 13 | `draw_vertical_scroll_edge_hints` still shown when nav list overflows | Manual (Pi) | ⬜ not implemented — `ScrollList` has no hint-strength tracking; follow-up (see 2026-08-15 DECISIONS row) |
 
 ---
 
