@@ -9,6 +9,8 @@ from patch_browser.scroll_widgets import ScrollList
 from patch_browser.touch_ui_constants import (
     ALL_PATCHES_ROW_HEIGHT,
     AUDIO_BADGE_PAD_X,
+    LOOPER_HUD_COUNTER_GAP,
+    LOOPER_HUD_MIN_W,
     LOOPER_HUD_PAD_X,
     AZ_RAIL_WIDTH,
     BROWSER_BOTTOM_MARGIN,
@@ -80,9 +82,17 @@ class TouchBrowserLayoutMixin:
         return label_w + AUDIO_BADGE_PAD_X * 2
 
     def _looper_hud_width(self) -> int:
+        """Counter plus enough track for the sweep to move through.
+
+        The old width fit only the text badge. A sweep needs pixels: below
+        ~100 px the leading edge quantizes into visible steps, which is the
+        bug f069648 fixed the first time round.
+        """
         label_w = self.font_sm.size("4/4")[0]
-        dot_w = 8
-        return label_w + dot_w + LOOPER_HUD_PAD_X * 2 + 4
+        return max(
+            LOOPER_HUD_MIN_W,
+            label_w + LOOPER_HUD_COUNTER_GAP + LOOPER_HUD_PAD_X * 2 + 72,
+        )
 
     def _engine_hud_width(self) -> int:
         state = self.engine_monitor.snapshot()
@@ -118,6 +128,15 @@ class TouchBrowserLayoutMixin:
             right_cursor -= STATUS_BAR_ITEM_GAP
         else:
             self.cpu_meter_rect = Rect(right_cursor, self.status_rect.y + 6, 0, 0)
+        audio_badge_w = self._audio_badge_width()
+        right_cursor -= audio_badge_w
+        self.audio_profile_badge_rect = Rect(
+            right_cursor,
+            self.status_rect.y + 10,
+            audio_badge_w,
+            24,
+        )
+        right_cursor -= STATUS_BAR_ITEM_GAP
         if getattr(self, "show_looper_hud", True):
             looper_w = self._looper_hud_width()
             right_cursor -= looper_w
@@ -130,28 +149,10 @@ class TouchBrowserLayoutMixin:
             right_cursor -= STATUS_BAR_ITEM_GAP
         else:
             self.looper_hud_rect = Rect(right_cursor, self.status_rect.y + 10, 0, 0)
-        audio_badge_w = self._audio_badge_width()
-        right_cursor -= audio_badge_w
-        self.audio_profile_badge_rect = Rect(
-            right_cursor,
-            self.status_rect.y + 10,
-            audio_badge_w,
-            24,
-        )
         right_cursor -= STATUS_BAR_ITEM_GAP
-        engine_state = self.engine_monitor.snapshot()
-        if engine_hud_should_show(engine_state):
-            engine_w = self._engine_hud_width()
-            right_cursor -= engine_w
-            self.engine_hud_rect = Rect(
-                right_cursor,
-                self.status_rect.y + 10,
-                engine_w,
-                24,
-            )
-            right_cursor -= STATUS_BAR_ITEM_GAP
-        else:
-            self.engine_hud_rect = Rect(right_cursor, self.status_rect.y + 10, 0, 0)
+        # Engine HUD retired: it read "JACK" permanently, which is not news, and
+        # it occupied the space left of Analog where the beat counter belongs.
+        self.engine_hud_rect = Rect(right_cursor, self.status_rect.y + 10, 0, 0)
         content_top = self.status_rect.y + self.status_rect.h + gap
         content_bottom = self.height - BROWSER_BOTTOM_MARGIN
         left_w = self._left_nav_width()
