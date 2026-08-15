@@ -20,81 +20,58 @@ Orientation canon: OM-Repo [`GROUNDING.md`](https://github.com/opsMachine/OM-Rep
 
 ---
 
-## 2026-08-14 — Who owns the looper grid clock (open — ranked, gated)
+## 2026-08-15 — Looper grid clock: RESOLVED — SL internal sync, first take defines it
 
-**Settled:** the grid must not be owned by clip 0. Deleting clip 0 has to be
-deleting a clip like any other — ordinary, indistinguishable from deleting clip
-7, in behaviour and in code (Mitch, 2026-08-14). Every `if self.loop == 0`
-branch in the control layer exists only to serve clip 0's hidden second job as
-the clock. Spec: [`specs/looper-transport-clock-spec.md`](specs/looper-transport-clock-spec.md).
+**Supersedes** the 2026-08-14 "Who owns the looper grid clock (open — ranked,
+gated)" entry, which is removed. Option 1 won on the bench; options 2 and 3
+were never needed.
 
-**Open:** *where the clock lives instead.* Three candidates, ranked by cost.
-Do not build down the list before falsifying up it, and do not run an ear gate
-against an unfixed clock.
+**Decision:** the grid is SooperLooper's **internal tempo** (`sync_source = -3`).
+No JACK timebase master, no MIDI clock, no compiled C client, nothing on the
+realtime thread. The **first take defines the grid** and is then an ordinary
+clip.
 
-**Gate ladder:**
+**The model — a grid needs three things, and we had been building two.**
 
-1. **Internal sync + `tap_tempo` phase** — `scripts/sooperlooper/spike-internal-sync-phase.py`.
-   No new process, no new code paths. Same ear protocol as spec Task 0.3.
-2. **If (1) fails:** JACK transport Task 0, using the **fixed** Python spike
-   (`jack_timebase.py`) as a measuring instrument only. Ear test 0.3.
-3. **If (2) confirms BBT phase:** production clock is a **compiled JACK timebase
-   client**; Python stays the control layer over OSC `/bpm`. No exception to the
-   2026-08-13 no-Python-on-the-audio-thread rule is needed, and none is taken.
+| | Where it comes from |
+|---|---|
+| tempo | the first take's length (it *is* one bar, by definition) |
+| unit  | the first take (`eighth_per_cycle` sized to it) |
+| **phase** | `Engine::set_tempo` zeroes `_quarter_counter`/`_tempo_counter`, so re-sending the tempo IS the phase reset (engine.cpp, verified) |
 
-**Independent of all three:** the control-layer work on
-`yolo/looper-transport-clock` — clip 0 made an ordinary clip, `sync_from_sl`
-covering all loops and all states — **lands regardless of which clock wins.**
+Missing phase was the single cause of clips joining out of phase, stop landing
+on the wrong boundary, and position not resetting. The `tap_tempo` guess carried
+since `8d7a426` was never needed.
 
-| # | Option | RT-thread cost | Status |
-|---|---|---|---|
-| 1 | SL internal sync (`sync_source = -3`) + explicit phase anchor | **none** | **Unverified — check first** |
-| 2 | JACK transport (`sync_source = -1`) + compiled C timebase master | none (C, no DSP) | Fallback if 1 fails |
-| 3 | MIDI clock (`sync_source = -2`) + SPP | none, but jittery | Rejected unless we separately need to clock outboard gear |
+**Two states, not settings.** No grid → every loop free-form (quantize/sync/
+round all 0). Grid established → count in and snap length to the cycle. Written
+down because tracking a *setting* rather than the *state* was the recurring bug
+shape all session.
 
-**Why option 1 is not already dead.** `8d7a426` was read as proving internal
-sync unusable. It does not. That commit failed because it flipped `sync_source`
-mid-flight and **never established phase** — not because internal sync lacks
-phase. If SL exposes any way to say *"the downbeat is now"*, internal sync gives
-an externalised grid with defined phase, no new process, and nothing on the
-realtime thread.
+**No clips, no grid.** Clearing the last clip — by pad hold or track reset —
+drops the grid, driven by engine state, so the next take defines a new one.
 
-The candidate is `tap_tempo`. `8d7a426` itself guessed at this and never checked
-it:
+**Load-bearing engine facts (read from source, not inferred):**
 
-```python
-send("/set", ["tap_tempo", 0.0])  # noop pulse — anchors UI if needed
-```
+- `smart_eighths` **silently doubles the cycle below 60 BPM** and pushes it to
+  every loop. "First take = one bar" makes a 6 s take 40 BPM, so we tripped it
+  every time. **Disabled.**
+- `ports[PlaybackSync] = 0.0f` is SL's default; forcing 1 made a fresh clip
+  wait for the *next* boundary after record-stop had already landed on one.
+- `round` on top of a quantized stop adds another whole cycle. Always 0.
+- `pause`/`trigger` are toggles; `pause_on`/`pause_off` are explicit. Toggles
+  desync the moment bench and engine disagree — same root error as mirroring
+  state instead of reading it.
 
-**This is the highest-leverage unverified assumption in the looper work.**
-Check: `sync_source=-3`, set tempo, send `tap_tempo`, record two clips a minute
-apart, confirm a shared downbeat. Same experiment as spec Task 0.3, against a
-config needing no new code.
+**Rule that came out of this:** every correct answer this session came from
+reading `engine.cpp`. None came from reasoning about parameter names. Read the
+engine before changing a parameter.
 
-**Why option 2 is C and not Python.** A JACK timebase master is on the realtime
-thread. See *2026-08-13 — No Python on the JACK audio thread* below. A timebase
-callback does no DSP and touches no audio buffers, so there is a real argument it
-sits outside that rule's literal scope — but it runs under the GIL on the RT
-thread, which is the hazard the rule was written about. **We are not taking that
-exception.** A timebase callback is ~80–120 lines of C that fills in a struct;
-Python sets BPM over OSC. This mirrors the reasoning already recorded for the
-limiter below: if nothing packaged fits, writing one is small and doubles as a
-dry run of the compiled-JACK-client toolchain.
-
-**Packaged alternatives surveyed 2026-08-14 — none fit.** `jack-midi-clock` and
-`klick` both *consume* JACK transport rather than master it; `jack-tools`'
-transport utility is start/stop control only. **Caveat:** surveyed on the laptop
-archive, not trixie arm64 — give this the same `dak ls` treatment the loopers got
-before treating it as closed.
-
-**`scripts/sooperlooper/jack_timebase.py` is a spike instrument, not a shippable
-component.** It exists so Task 0.3 can be answered without writing C first. It
-must not reach the appliance. Two arithmetic defects found in review
-2026-08-14 — truncated per-period tick accumulation (~2.34% slow, 2.8 beats/min
-at 120 BPM) and a `pos.tick` expression that is identically zero — **must be
-fixed before it is used as a measuring instrument**, because a wrong clock would
-produce exactly the drift and boundary artifacts Task 0.3 is looking for and
-would return a false negative.
+**`scripts/sooperlooper/jack_timebase.py`, `spike-jack-transport.py`,
+`jack_transport_util.py`, `start-jack-timebase.sh`** are now dead — the reason
+they existed (getting phase) is solved. They are a documented "must not ship"
+component still importable and startable. **Delete; git has them** if external
+clock sync ever becomes a real feature, which is a different problem.
 
 ---
 
