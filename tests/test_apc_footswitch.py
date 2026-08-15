@@ -42,23 +42,6 @@ class ApcFootswitchTests(unittest.TestCase):
         self.assertEqual(fs.state, "recording")
         self.assertTrue(fs.awaiting_quantize)
 
-    def test_second_tap_reaches_sl_while_armed(self) -> None:
-        """Armed but not yet recording, a second tap must reach SL as cancel.
-
-        Swallowing it is what made the pad feel dead when the grid clock was
-        not running: SL parks in WAIT_START and the tap goes nowhere.
-        """
-        osc = MagicMock()
-        fs = LoopFootswitch(loop=0, hold_ms=1000.0, debounce_ms=0.0)
-        fs.bind(osc, MagicMock(), 36)
-        fs.on_pad_down()
-        fs.on_pad_up()
-        fs.sync_from_sl(SL_STATE_WAIT_START)
-        self.assertFalse(fs.awaiting_quantize)
-        fs.on_pad_down()
-        fs.on_pad_up()
-        hits = [c.args[1] for c in osc.send_message.call_args_list if c.args[0] == "/sl/0/hit"]
-        self.assertEqual(hits, ["record", "record"])
 
     def test_quantize_wait_times_out_instead_of_latching(self) -> None:
         """No cycle boundary => release the pad, never latch it forever."""
@@ -163,3 +146,46 @@ class GridEstablishmentTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DoubleTapRecordsOneCycleTests(unittest.TestCase):
+    """Double-tap while armed must record exactly one cycle, not cancel."""
+
+    def _fs(self, grid):
+        from scripts.sooperlooper.apc_footswitch import LoopFootswitch
+
+        fs = LoopFootswitch(loop=1, hold_ms=1000.0, debounce_ms=0.0,
+                            quantized=True, grid=grid)
+        fs.bind(MagicMock(), MagicMock(), 37)
+        return fs
+
+    def _grid(self):
+        from scripts.sooperlooper.sl_grid_state import GridState
+
+        g = GridState()
+        g.arm(0)
+        g.establish(0, 2.0)
+        g.note_loop_content(0, True)
+        return g
+
+    def test_second_tap_while_armed_does_not_reach_sl_as_cancel(self) -> None:
+        fs = self._fs(self._grid())
+        fs.on_pad_down(); fs.on_pad_up()            # arm
+        fs.sync_from_sl(SL_STATE_WAIT_START)
+        fs.on_pad_down(); fs.on_pad_up()            # double tap
+        hits = [c.args[1] for c in fs._osc.send_message.call_args_list
+                if c.args[0] == "/sl/1/hit"]
+        self.assertEqual(hits, ["record"], "a 2nd record while armed is CANCEL in SL")
+        self.assertTrue(fs._stop_queued)
+
+    def test_queued_stop_fires_when_recording_actually_begins(self) -> None:
+        fs = self._fs(self._grid())
+        fs.on_pad_down(); fs.on_pad_up()
+        fs.sync_from_sl(SL_STATE_WAIT_START)
+        fs.on_pad_down(); fs.on_pad_up()
+        fs.sync_from_sl(SL_STATE_RECORDING)        # boundary reached
+        hits = [c.args[1] for c in fs._osc.send_message.call_args_list
+                if c.args[0] == "/sl/1/hit"]
+        self.assertEqual(hits, ["record", "record"])
+        self.assertFalse(fs._stop_queued)
+        self.assertTrue(fs.awaiting_quantize)

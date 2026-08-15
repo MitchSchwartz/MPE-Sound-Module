@@ -88,6 +88,7 @@ class LoopFootswitch:
         self.sl_state = SL_STATE_OFF
         self.awaiting_quantize = False
         self._wait_since = 0.0
+        self._stop_queued = False
 
     def bind(self, osc, midi_out, note: int) -> None:
         self._osc = osc
@@ -122,6 +123,12 @@ class LoopFootswitch:
         elif sl_state == SL_STATE_RECORDING:
             self.awaiting_quantize = False
             self.state = STATE_RECORDING
+            if self._stop_queued:
+                # Recording just began. Send the stop now; SL quantizes it to
+                # the next boundary, giving exactly one cycle of audio.
+                self._stop_queued = False
+                self._hit("record")
+                self._begin_quantize_wait()
         if self.grid is not None:
             if self.grid.note_loop_content(self.loop, sl_state != SL_STATE_OFF):
                 log(f"loop {self.loop}: last clip cleared — grid dropped, "
@@ -224,6 +231,7 @@ class LoopFootswitch:
         self._wait_since = time.monotonic()
 
     def _clear_loop(self) -> None:
+        self._stop_queued = False
         if self.grid is not None:
             self.grid.cancel(self.loop)
         self._hit("undo_all")
@@ -250,6 +258,16 @@ class LoopFootswitch:
             self._hit("record")
             self.state = STATE_RECORDING
         elif self.state == STATE_RECORDING:
+            if self.sl_state == SL_STATE_WAIT_START:
+                # Armed but not recording yet. Sending `record` now would reach
+                # SL as CANCEL. Queue the stop instead and fire it the moment
+                # recording actually begins, so a double-tap records exactly
+                # one cycle: starts on the next boundary, ends on the one after.
+                self._stop_queued = True
+                log(f"loop {self.loop}: stop queued — will record exactly one cycle")
+                self._sync_led()
+                self._mark_action()
+                return
             self._hit("record")
             # Only wait for a boundary if this loop is actually quantized.
             # In free-form there is no boundary, so arming the wait swallowed
