@@ -60,8 +60,12 @@ class LoopFootswitch:
         hold_ms: float,
         debounce_ms: float,
         num_loops: int = 16,
+        quantized: bool = True,
     ) -> None:
         self.loop = loop
+        # Is this loop waiting for cycle boundaries? False in free-form, where
+        # arming a quantize wait strands the pad on a boundary that never comes.
+        self.quantized = quantized
         self.num_loops = num_loops
         self.hold_s = hold_ms / 1000.0
         self.debounce_s = debounce_ms / 1000.0
@@ -197,10 +201,15 @@ class LoopFootswitch:
             self._hit("record")
             self.state = STATE_RECORDING
         elif self.state == STATE_RECORDING:
-            # Armed but not yet recording (WAIT_START): a second tap means
-            # "cancel". Sending `record` again is what SL expects for both.
             self._hit("record")
-            self._begin_quantize_wait()
+            # Only wait for a boundary if this loop is actually quantized.
+            # In free-form there is no boundary, so arming the wait swallowed
+            # the next tap for QUANTIZE_WAIT_TIMEOUT_S and stranded the pad on
+            # red while the loop was already playing (2026-08-14).
+            if self.quantized:
+                self._begin_quantize_wait()
+            else:
+                self.state = STATE_PLAYING
         elif self.state == STATE_PLAYING:
             self._hit("pause")
             self.state = STATE_STOPPED
@@ -246,6 +255,7 @@ def build_footswitches(
     num_loops: int,
     hold_ms: float,
     debounce_ms: float,
+    quantized: bool = True,
 ) -> tuple[dict[int, LoopFootswitch], list[LoopFootswitch]]:
     """Map APC clip-pad MIDI notes (rows 0 + 3) -> per-loop footswitch."""
     by_note: dict[int, LoopFootswitch] = {}
@@ -259,6 +269,7 @@ def build_footswitches(
             hold_ms=hold_ms,
             debounce_ms=debounce_ms,
             num_loops=num_loops,
+            quantized=quantized,
         )
         fs.bind(osc, midi_out, note)
         by_note[note] = fs

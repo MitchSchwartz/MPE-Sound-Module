@@ -66,6 +66,20 @@ class SlBenchStateListener:
 
         disp = osc_dispatcher.Dispatcher()
         disp.map("/sl/bench/state", self.on_update)
-        self._server = osc_server.ThreadingOSCUDPServer((LISTEN_HOST, LISTEN_PORT), disp)
+        # Bind failure must be FATAL. A dead listener means sl_state never
+        # updates: no blink, no state, no truth — the bench keeps running and
+        # every symptom looks like a control-layer bug. On 2026-08-14 a stale
+        # bench held this port, this raised, and the session was debugged blind.
+        try:
+            self._server = osc_server.ThreadingOSCUDPServer(
+                (LISTEN_HOST, LISTEN_PORT), disp
+            )
+        except OSError as exc:
+            raise SystemExit(
+                f"sl-bench-listener: cannot bind {LISTEN_HOST}:{LISTEN_PORT} ({exc}).\n"
+                f"  A previous bench is probably still running.\n"
+                f"  Fix: mpe looper sl-bench stop, then start again.\n"
+                f"  Refusing to run blind — without state updates every pad lies."
+            ) from exc
         self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
         self._thread.start()
