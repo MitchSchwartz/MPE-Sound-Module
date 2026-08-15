@@ -1,6 +1,6 @@
 # Touch modal interaction contract
 
-*Last updated: 2026-08-08 (America/Toronto)*
+*Last updated: 2026-08-15 (America/Toronto)*
 
 The Pi browser is **pygame + evdev**, not a toolkit. Basic interactions (scroll, tap vs drag, momentum, off-screen affordances) must be **explicit per surface** — they do not come for free.
 
@@ -37,9 +37,9 @@ This doc is the **contract** for new UI and the **audit checklist** before shipp
 
 | Screen | Scroll primitive | Pointer wired | Momentum tick | Off-screen hint | Notes |
 |--------|------------------|---------------|---------------|-----------------|-------|
-| Browser nav (`ScrollList`) | ScrollList | evdev + SDL | Yes | — | OK |
+| Browser nav (`ScrollList`) | ScrollList | evdev + SDL | Yes | — (gap — see below) | OK |
 | All patches + A–Z rail | ScrollList | evdev + SDL | Yes | Rail feedback | OK |
-| Instrument filter | Collapsible panel | evdev + SDL | — | Wrapped chips | OK |
+| Browse carousel + filter pane | `BrowseCarousel` (own primitive — track offset, not a list scroll) | evdev + SDL | — (instant snap, see below) | — | Edge-pan Home↔Filter; filter tags persist, never auto-close |
 | **Context / instrument / folder picker** | **ScrollableActionList** | SDL + evdev inject | **Yes** | **Hairline hints** | Fixed 2026-08-08 |
 | Name prompt (keyboard) | — | tap keys | — | — | OK (fixed layout) |
 | Settings panel | ContentScrollArea | dedicated handlers | Yes | — | OK |
@@ -48,6 +48,12 @@ This doc is the **contract** for new UI and the **audit checklist** before shipp
 | Brightness modal | Slider | drag | — | — | OK |
 | Theme modal (colors view) | `ContentScrollArea` | tap + swipe | momentum | edge hints | Presets / saved / custom swatches scroll; fixed Back footer |
 | Power / calibrate confirms | Static | tap | — | — | OK |
+
+**Browse carousel notes:**
+
+- **Instant snap, not tweened.** The spec's own open question permits either; tweening the offset would mean `BrowseCarousel.offset_px` is mid-animation when `_layout()` reads it for hit-testing, which conflicts with Phase A/C's tested contract that `end_drag()` leaves `offset_px` at the exact target immediately. Deferred, not forgotten — if this needs a tween later, animate a separate `_browse_visual_offset` used only by draw, not the value `_layout()` positions rects from.
+- **Nav list has no scroll-edge hint** (`draw_vertical_scroll_edge_hints` needs a `ContentScrollArea`-shaped `edge_hint_strength()`; `ScrollList` — what backs `nav_list` — doesn't track that state). This was already true before the carousel (nav list is not new), but the carousel's full-height nav list goal makes it more likely to actually overflow. Adding hint tracking to `ScrollList` is a shared-widget change affecting every `ScrollList` caller, not a browse-carousel-scoped one — left as a follow-up, not implemented here.
+- **Zone priority is classify-once:** pointer-down picks `edge_carousel` / `filter_tap` / "not ours" via `patch_browser/gesture_router.py`; move/up consume the stored result rather than re-hit-testing. Mixer/nav/tap dispatch is untouched — the filter pane and mixer/patch pane never spatially overlap (opposite ends of the track), so this doesn't risk misrouting a mixer drag.
 
 ---
 
@@ -87,3 +93,4 @@ Future: a single `TouchModalHost` mixin that registers `{Screen → scroll + han
 - [`patch_browser/touch_press.py`](../patch_browser/touch_press.py) — pressed-state tracker
 - [`patch_browser/scroll_widgets.py`](../patch_browser/scroll_widgets.py) — scroll + action sheet primitives
 - [`patch_browser/touch_ui_enums.py`](../patch_browser/touch_ui_enums.py) — `Screen` states
+- [`Documents/specs/touch-browser-browse-carousel-spec.md`](../Documents/specs/touch-browser-browse-carousel-spec.md) — browse carousel + filter pane spec
