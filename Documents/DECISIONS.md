@@ -6,6 +6,46 @@ Orientation canon: OM-Repo [`GROUNDING.md`](https://github.com/opsMachine/OM-Rep
 
 ---
 
+## 2026-08-15 — A reading that looks the same whether or not it means anything
+
+Every defect found in the looper stack on 2026-08-14/15 was the same shape, and
+it is worth naming because it is not a coding error and code review does not
+catch it. **A measurement, a status, or a colour that is indistinguishable
+between "fine" and "not instrumented".**
+
+| Instance | What it showed | What it meant |
+|---|---|---|
+| The orphan | `sl-health` green, `/get` answering | Engine had no JACK client; every command discarded |
+| Watchdog audio check | "healthy" | Guarded on `if srcs` — an empty graph reported OK |
+| B7 xruns | `0/0` | The node has no xrun counter at all; that was a fallback |
+| First B7 launch | would have been 0 xruns, 22% DSP | Zero fixture clips — 16 *empty* loops |
+| Pad LED | solid green | A command had been *sent*, not that audio existed |
+| `sl-health` at 23:30 | **WEDGED** | Two probers fighting over one control |
+
+**Rules, each paid for:**
+
+1. **Absent instrumentation must look absent.** Never default a missing counter
+   to 0. Return `n/a`. `0` and "we could not measure" must not render alike.
+2. **Distinguish "could not ask" from "asked, got nothing".** `None` and `""`
+   are different answers; conflating them is how the watchdog called a silent
+   graph healthy.
+3. **A read-only check cannot detect a failure of the write path.** They fail
+   independently. Round-trip a write.
+4. **Before trusting silence, prove the channel is alive.** Zero xruns in the
+   journal counts only because jackd's startup lines are demonstrably in that
+   same journal.
+5. **A monitoring race must never recommend a destructive action.** A false
+   WEDGED points at `sl-restart`, which erases every take. Verdicts whose
+   remedy loses data need corroboration, a retry, and a cheaper check named
+   first.
+6. **Solid means confirmed; blinking means requested.** The one UI rule that
+   makes a control surface trustworthy (§L).
+
+**Test the gap, not the call list.** A `MagicMock` answers instantly and always
+agrees, so it cannot see any of the above. `tests/fake_sl_engine.py` holds
+quantized actions until an explicit `boundary()` and found three real defects on
+first run.
+
 ## 2026-08-15 — The "wedge" was an orphaned JACK client, not an engine fault
 
 **Five occurrences across two evenings were all misdiagnosed.** Root cause,
