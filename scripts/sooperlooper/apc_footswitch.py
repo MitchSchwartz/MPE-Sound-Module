@@ -372,8 +372,17 @@ def stop_all_loops(
     num_loops: int,
     footswitches: list[LoopFootswitch],
 ) -> None:
-    """Pause every loop without clearing audio; LEDs -> stopped (yellow)."""
+    """Pause every loop without clearing audio; LEDs -> stopped (yellow).
+
+    Nothing is playing now, so the grid position resets to zero: the next clip
+    launched starts from the top of the bar instead of joining a cycle that has
+    been running unheard.
+    """
     osc.send_message("/sl/-1/hit", "pause_on")
+    grid = next((fs.grid for fs in footswitches if fs.grid is not None), None)
+    if grid is not None and grid.established and grid.bpm:
+        osc.send_message("/set", ["tempo", float(grid.bpm)])  # zeroes the phase
+        log(f"grid position reset to zero ({grid.bpm:.3f} BPM)")
     for fs in footswitches:
         fs.awaiting_quantize = False
         if fs.state != STATE_IDLE:

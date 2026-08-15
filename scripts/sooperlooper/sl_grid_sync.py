@@ -70,6 +70,13 @@ def apply_grid_sync(
     count_in: bool = COUNT_IN,
 ) -> None:
     """Configure SL grid. Every loop quantizes to cycle; no loop is the clock."""
+    # SooperLooper rewrites our cycle length behind us when the tempo leaves
+    # 60..240 BPM (engine.cpp set_tempo: "_eighth_cycle *= 2" under 60, and it
+    # pushes the new value to every loop). "First take = one bar" means a 6 s
+    # take is 40 BPM and an 8 s take is 30, so we hit this EVERY time and the
+    # cycle silently doubled — clips waited a bar and a half.
+    send("/set", ["smart_eighths", 0.0])
+
     if clock == "transport":
         send("/set", ["sync_source", SYNC_SOURCE_JACK])
     else:
@@ -96,9 +103,18 @@ def set_count_in(
         send(prefix, ["round", 0.0 if count_in else 1.0])
 
 
-def anchor_phase(send: Callable[[str, list], None]) -> None:
-    """Declare 'the downbeat is now' for internal sync (spec §D.0, unverified)."""
-    send("/set", ["tap_tempo", 1.0])
+def anchor_phase(send: Callable[[str, list], None], bpm: float) -> None:
+    """Declare 'the downbeat is NOW'.
+
+    A grid needs three things: tempo, a unit, and a PHASE. We had the first two
+    and never set the third, so SL's free-running internal clock put beat one
+    at an arbitrary offset from the take — clips joined out of phase and
+    record-stop landed on the wrong boundary.
+
+    Engine::set_tempo zeroes _tempo_counter and _quarter_counter, so re-sending
+    the tempo is the phase reset. Verified in engine.cpp, not inferred.
+    """
+    send("/set", ["tempo", float(bpm)])
 
 
 def apply_freeform(
