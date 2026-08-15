@@ -380,15 +380,21 @@ is not hiding the cause.
    `MPE_SL_GRID_CLOCK=internal`). SL owns the pulse, so boundaries exist with no
    extra process. Grid mode now works standalone. `transport` stays available
    for the §D.1 spike behind the same env var.
-2. **The bench refuses transport mode without a rolling transport** — probes
-   JACK for a rolling state *and* a non-`None` beat, and falls back to free-form
-   with a message naming the fix. It never silently applies a sync source whose
-   clock is absent.
+2. ~~**The bench refuses transport mode without a rolling transport**~~ —
+   **withdrawn 2026-08-15.** This probe was deleted with the rest of the dead
+   JACK-transport path in `e279d6f`. Nothing in the bench probes JACK for a
+   rolling transport today, because nothing selects transport mode: internal
+   sync is the only clock that ships. Leaving this claim here described a
+   safety net that does not exist.
 3. **The quantize wait is time-bounded** (`QUANTIZE_WAIT_TIMEOUT_S`, default 6 s).
    No boundary in that time releases the pad and logs why. A dead pad with no
    explanation is the worst available failure.
-4. **The stacked `_tap` gates are gone.** While armed (`WaitStart`) a second tap
-   reaches SL as cancel, which is what the player means by it.
+4. ~~**While armed a second tap reaches SL as cancel**~~ — **superseded
+   2026-08-15.** True when written, and wrong now. A second tap while armed
+   **queues a stop** instead: it fires the moment recording actually begins, so
+   a double tap records exactly one cycle. Sending `record` into an armed loop
+   reaches SL as CANCEL and loses the take, which is the opposite of what the
+   player means. See §L.
 
 **Test guard:** `test_grid_default_clock_is_internal_and_self_sufficient` fails
 if the default grid clock goes back to something we don't start, and
@@ -478,5 +484,101 @@ All read from SooperLooper source. **Every correct answer this session came from
   it. If clips land consistently early or late, this is the suspect.
 - **Mode visibility.** The bench's sync mode comes from an env var and cannot be
   read back from the engine, so a restart can silently flip grid/free-form.
-- **The wedge.** Unexplained after three occurrences, all during heavy OSC
-  probing. Engine has since run 16 h clean. Needs a soak under normal use.
+- ~~**The wedge.** Unexplained after three occurrences.~~ **Explained
+  2026-08-15 — see §M.** It was an orphaned JACK client, not an engine fault.
+
+## §L — The control layer, rebuilt on one source of truth (2026-08-15)
+
+Two independent grumpy reviews plus two audits converged on the same defect:
+the bench kept a parallel `self.state` and wrote to it the instant a command
+was *sent*. It therefore disagreed with the engine for as long as the engine
+took to answer, and any poll landing in that window could clobber it. Every
+"whack-a-mole" symptom was a variation on that one theme.
+
+Both reviews prescribed deleting `self.state`. **That prescription was wrong,**
+and worth recording as wrong. The optimism is load-bearing: a double tap must
+mean "record exactly one cycle" before the engine has acknowledged the first
+tap, and a second tap during a quantized mute must mean "keep playing". Deleting
+it outright regresses both gestures.
+
+The fix is to keep the intent and stop calling it truth:
+
+| | |
+|---|---|
+| `sl_state` | what the engine reports. Authoritative, always |
+| `pending` | what we asked for and have not seen confirmed. Expires |
+
+`state` is now a derived property over the two. **The LED renders `pending` as a
+blink and only ever paints a solid colour from `sl_state`.** A solid green pad
+is now a promise that the engine says there is audio in that loop; it used to be
+a promise that we had *sent* a command, which is how a pad sat solid green over
+silence.
+
+New pure modules, no OSC/MIDI/clock: `loop_model.py` (the gesture vocabulary as
+next-state functions) and `led_table.py` (colour as a function of state and
+intent). `apc_footswitch.py` is now a thin executor over them.
+
+**The three defects a `FakeSlEngine` caught, all invisible to a `MagicMock`,**
+because a mock answers instantly and always agrees. This is the argument for the
+fake: every looper bug that cost an evening was a *timing* bug, and the gap
+between a command and its acknowledgement is where they live.
+
+1. A fast double tap **cancelled its own take**. The armed-loop check read
+   `sl_state`, which between the tap and the next poll is still the *previous*
+   state — so the second tap read the loop as idle and sent `record` into an
+   armed loop. Now any unconfirmed recording queues the stop.
+2. A queued launch **blinked green forever**. When it landed the loop was
+   already Playing, so neither `sl_state` nor the derived state moved, the flag
+   was cleared, and nothing asked the LED to catch up. Repaint now keys off the
+   rendered colour, and the flag is gone: a queued launch is simply an
+   unconfirmed expectation of Playing.
+3. A queued stop **dropped its expectation**, so the pad fell back to idle in
+   the middle of a take.
+
+**New surface state.** A quantized mute now blinks yellow while it waits for the
+bar — the state Ableton has no name for and the old bench never showed at all.
+Tapping again during that blink cancels the stop, mirroring the queued launch.
+
+`_clear_loop` no longer forges an engine report by assigning `sl_state`. It
+expects idle instead: the grid drop hangs off exactly that signal, and "no
+clips, no grid" (§K.3) has to be the engine's verdict, not the bench's.
+
+## §M — The wedge was an orphaned JACK client (2026-08-15)
+
+**Root cause, verified live.** Five occurrences across two evenings, each
+diagnosed as an engine fault. It was not.
+
+```
+sooperlooper -j mpe-looper   started 20:16:09
+jackd                        restarted 20:20:42    <- 4.5 minutes later
+jack_lsp                     no mpe-looper:* ports at all
+```
+
+SooperLooper survived the jackd restart as a *process* but lost its JACK client
+and never re-registered. `/set` and `/hit` go through `push_nonrt_event()`,
+which is drained from the **JACK process callback**. No callback, no drain — so
+every command was silently discarded, while `/get` reads state directly and kept
+answering. Every read-only check reported a healthy engine.
+
+**It explains all three standing symptoms with no race required:** a pad going
+green with no audio (the bench painted optimistically while `record` sat in a
+dead queue), a grid still quantized after a reset (32 `hit` and 96 `set` into
+the same queue), and the watchdog logging PROBLEM every cycle without ever
+repairing (it was connecting a port that did not exist).
+
+**Why it took five occurrences.** `restart-sooperlooper.sh` already had
+`jack_client_visible()` and already logged "orphan detected". The watchdog never
+called it. The condition was named in the codebase the whole time; nothing that
+ran automatically ever checked for it.
+
+**Now:** `sl-watchdog.py` checks JACK visibility **first**, before the OSC probe.
+An orphan and a wedge are indistinguishable to that probe, so diagnosing in the
+other order names the wrong component and sends the next session into the engine
+internals — which is exactly what happened, three times. While orphaned it skips
+both the futile JACK repair and the misleading WEDGED verdict, and alarms with
+per-thread diagnostics.
+
+**Two lessons worth keeping.** A read-only health check cannot detect a failure
+of the write path — that is why `sl-health.py` round-trips a `set`. And a repair
+that fails silently every ten seconds is indistinguishable from no repair at
+all; log the exit code.
