@@ -21,9 +21,8 @@ from __future__ import annotations
 import os
 
 BEATS_PER_BAR = int(os.environ.get("MPE_LOOPER_BEATS_PER_BAR", "4"))
-BPM_MIN = float(os.environ.get("MPE_LOOPER_BPM_MIN", "70"))
-BPM_MAX = float(os.environ.get("MPE_LOOPER_BPM_MAX", "160"))
-BPM_PREFER = float(os.environ.get("MPE_LOOPER_BPM", "120"))
+BPM_MIN = float(os.environ.get("MPE_LOOPER_BPM_MIN", "20"))
+BPM_MAX = float(os.environ.get("MPE_LOOPER_BPM_MAX", "300"))
 MAX_BARS = int(os.environ.get("MPE_LOOPER_MAX_BARS", "8"))
 
 
@@ -33,40 +32,44 @@ def derive_tempo(
     beats_per_bar: int = BEATS_PER_BAR,
     bpm_min: float = BPM_MIN,
     bpm_max: float = BPM_MAX,
-    prefer: float = BPM_PREFER,
     max_bars: int = MAX_BARS,
 ) -> tuple[float, int] | None:
     """(bpm, bars) for a first take of `loop_len` seconds.
 
-    A 3.2 s take is 2 bars at 150 BPM or 4 bars at 75 — both are 'correct'.
-    Resolve it the way hardware loopers do: only whole bars, only a plausible
-    BPM range, and among those pick the one nearest the preferred tempo. That
-    is the difference between feeling tight and feeling like it fights you.
+    **The first take is one bar.** It is the base denomination, by definition
+    rather than by inference — no tempo to set, nothing to guess, and the
+    cycle already equals the take at the default 8 eighths per cycle.
+
+    The returned BPM is EXACT, not rounded. Rounding the engine tempo would
+    make the grid bar differ from the recorded audio: a 39.8672 -> 40 BPM
+    round shortens the bar by 20 ms, so the defining take walks away from
+    every later clip by half a second inside twenty loops. Round it for
+    DISPLAY (see display_bpm); never for the engine.
+
+    The only reason to use more than one bar is an absurd take: a 30 s first
+    loop read as one bar implies ~8 BPM. Then fall back to the smallest bar
+    count that lands in a representable range.
     """
     if loop_len <= 0.0 or beats_per_bar <= 0:
         return None
 
-    best: tuple[float, float, int] | None = None
-    for bars in range(1, max_bars + 1):
+    one_bar_bpm = beats_per_bar * 60.0 / loop_len
+    if bpm_min <= one_bar_bpm <= bpm_max:
+        return one_bar_bpm, 1
+
+    for bars in range(2, max_bars + 1):
         bpm = (bars * beats_per_bar) * 60.0 / loop_len
         if bpm_min <= bpm <= bpm_max:
-            score = abs(bpm - prefer)
-            if best is None or score < best[0]:
-                best = (score, bpm, bars)
-    if best is not None:
-        return best[1], best[2]
+            return bpm, bars
 
-    # Nothing landed in range (very short or very long take). Fall back to the
-    # bar count whose BPM misses the range by least, rather than refusing.
-    fallback: tuple[float, float, int] | None = None
-    for bars in range(1, max_bars + 1):
-        bpm = (bars * beats_per_bar) * 60.0 / loop_len
-        miss = max(bpm_min - bpm, bpm - bpm_max, 0.0)
-        if fallback is None or miss < fallback[0]:
-            fallback = (miss, bpm, bars)
-    if fallback is None:
-        return None
-    return fallback[1], fallback[2]
+    # Still out of range (very short or very long): keep the one-bar reading
+    # rather than refusing. Looping stays correct; only the label is odd.
+    return one_bar_bpm, 1
+
+
+def display_bpm(bpm: float) -> int:
+    """What the HUD shows. Rounding belongs here and nowhere else."""
+    return int(round(bpm))
 
 
 class GridState:
