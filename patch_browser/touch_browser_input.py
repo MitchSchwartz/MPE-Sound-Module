@@ -660,23 +660,23 @@ class TouchBrowserInputMixin:
                 pygame.MOUSEWHEEL,
             )
         ):
-            chip_active = self._instrument_chip_active()
+            browse_active = self._browse_gesture_active()
             if event.type == pygame.MOUSEBUTTONDOWN:
-                if self._handle_instrument_chip_pointer_down(event.pos):
-                    chip_active = True
-                elif not chip_active:
+                if self._handle_browse_pointer_down(event.pos):
+                    browse_active = True
+                elif not browse_active:
                     self._context_nav_pointer_down(event.pos)
             elif event.type == pygame.MOUSEMOTION:
-                if self._handle_instrument_chip_pointer_move(event.pos):
-                    chip_active = True
+                if self._handle_browse_pointer_move(event.pos):
+                    browse_active = True
                 else:
                     self._context_nav_pointer_move(event.pos)
             elif event.type == pygame.MOUSEBUTTONUP:
-                if self._handle_instrument_chip_pointer_up(event.pos):
-                    chip_active = True
+                if self._handle_browse_pointer_up(event.pos):
+                    browse_active = True
                 elif self._context_nav_pointer_up():
-                    chip_active = True
-            if not chip_active:
+                    browse_active = True
+            if not browse_active:
                 self.nav_list.handle_event(event)
 
         if self.screen_state == Screen.CONTEXT_MENU and event.type in (
