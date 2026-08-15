@@ -48,9 +48,15 @@ def read_sl_hud_state(*, now: float | None = None) -> dict:
             "state": state,
             "source": source,
             "bpm": raw.get("bpm"),
-            "cycle_len": 0.0,
-            "loop_len": 0.0,
-            "loop_pos": 0.0,
+            # Pass the live position through. Hardcoding 0.0 here meant the UI
+            # could only accumulate time since the last file write (~0.5 s), so
+            # the sweep filled ~11% of a 4.5 s bar and never completed.
+            "cycle_len": float(raw.get("cycle_len") or 0.0),
+            "loop_len": float(raw.get("loop_len") or 0.0),
+            "loop_pos": float(raw.get("loop_pos") or 0.0),
+            "phrase_len": float(raw.get("phrase_len") or 0.0),
+            "phrase_pos": float(raw.get("phrase_pos") or 0.0),
+            "bars_in_phrase": int(raw.get("bars_in_phrase") or 1),
             "beat": int(beat) if beat is not None else None,
             "bar": int(bar) if bar is not None else None,
             "updated_at": updated,

@@ -37,11 +37,28 @@ def interpolated_pos(sl: dict, *, now: float | None = None) -> float | None:
     return max(0.0, float(pos) + max(0.0, now - float(updated)))
 
 
+def phrase_seconds(sl: dict, *, beats_per_bar: int = DEFAULT_BEATS_PER_BAR) -> float | None:
+    """Length of the display cycle: the longest clip, else one bar.
+
+    A 1-bar clip and a 4-bar clip do not share a display cycle. The sweep spans
+    the PHRASE — the longest loop — so the bar always fills completely and the
+    counter tells you where you are in the music rather than in an arbitrary bar.
+    """
+    phrase = float(sl.get("phrase_len") or 0.0)
+    if phrase > 0.0:
+        return phrase
+    return bar_seconds(sl.get("bpm"), beats_per_bar=beats_per_bar)
+
+
+def bars_in_phrase(sl: dict) -> int:
+    return max(1, int(sl.get("bars_in_phrase") or 1))
+
+
 def bar_progress(sl: dict, *, now: float | None = None,
                  beats_per_bar: int = DEFAULT_BEATS_PER_BAR) -> float | None:
-    """Continuous 0.0 … 1.0 position within the current bar, or None."""
-    span = bar_seconds(sl.get("bpm"), beats_per_bar=beats_per_bar)
-    if span is None:
+    """Continuous 0.0 … 1.0 position within the phrase, or None."""
+    span = phrase_seconds(sl, beats_per_bar=beats_per_bar)
+    if not span:
         return None
     pos = interpolated_pos(sl, now=now)
     if pos is None:
@@ -50,10 +67,31 @@ def bar_progress(sl: dict, *, now: float | None = None,
 
 
 def beat_label(sl: dict, *, beats_per_bar: int = DEFAULT_BEATS_PER_BAR) -> str:
-    beat = sl.get("beat")
-    if beat is None:
+    """Bar within the phrase — '2/4'. A single-bar phrase reads '1/1'."""
+    bar = sl.get("bar")
+    if bar is None:
         return ""
-    return f"{int(beat)}/{beats_per_bar}"
+    return f"{int(bar)}/{bars_in_phrase(sl)}"
+
+
+def current_beat_index(sl: dict, *, now: float | None = None,
+                       beats_per_bar: int = DEFAULT_BEATS_PER_BAR) -> int | None:
+    """Which beat segment of the phrase is live, for the discrete highlight.
+
+    A smooth sweep alone does not tell you the exact moment a beat lands —
+    that is a real cost of continuous motion, not an unavoidable one. Lighting
+    the current segment changes discretely, so the eye gets both.
+    """
+    span = phrase_seconds(sl, beats_per_bar=beats_per_bar)
+    pos = interpolated_pos(sl, now=now)
+    if not span or pos is None:
+        return None
+    segments = max(1, bars_in_phrase(sl) * beats_per_bar)
+    return min(segments - 1, int(((pos % span) / span) * segments))
+
+
+def segment_count(sl: dict, *, beats_per_bar: int = DEFAULT_BEATS_PER_BAR) -> int:
+    return max(1, bars_in_phrase(sl) * beats_per_bar)
 
 
 def should_show(sl: dict, *, user_enabled: bool = True) -> bool:
