@@ -38,6 +38,10 @@ SYNC_SOURCE_INTERNAL = -3.0
 SYNC_SOURCE_JACK = -1.0
 SYNC_SOURCE_NONE = 0.0
 
+# Quantize unit is always one 4/4 bar (8 eighth notes). Fixed deliberately —
+# see DECISIONS.md 2026-08-15 correction. Not sized to multi-bar first takes.
+EIGHTH_PER_CYCLE = int(os.environ.get("MPE_LOOPER_EIGHTH_PER_CYCLE", "8"))
+
 
 def set_grid_active(
     send: Callable[[str, list], None], *, num_loops: int = 16, active: bool
@@ -50,10 +54,10 @@ def set_grid_active(
         on here made SL stretch a short first take up to the end of a cycle
         derived from the PREVIOUS session's tempo — an imaginary bar.
 
-    active=True — GRID ESTABLISHED. Clips count in to the boundary (sync) and
-        their length snaps to whole cycles (quantize=QUANT_CYCLE, and the cycle
-        is the defining take). round stays off: the stop is already quantized,
-        and rounding on top of it extends the take by another cycle.
+    active=True — GRID ESTABLISHED. Clips count in to the next bar (sync) and
+        their length snaps to one cycle (quantize=QUANT_CYCLE). round stays off:
+        the stop is already quantized, and rounding on top extends the take by
+        another cycle.
     """
     for loop in range(num_loops):
         prefix = f"/sl/{loop}/set"
@@ -128,18 +132,26 @@ def set_count_in(
     set_grid_active(send, num_loops=num_loops, active=count_in)
 
 
-def anchor_phase(send: Callable[[str, list], None], bpm: float) -> None:
-    """Declare 'the downbeat is NOW'.
+def establish_grid_clock(send: Callable[[str, list], None], bpm: float) -> None:
+    """Lock cycle length to one bar, disable smart_eighths, reset phase.
 
-    A grid needs three things: tempo, a unit, and a PHASE. We had the first two
-    and never set the third, so SL's free-running internal clock put beat one
-    at an arbitrary offset from the take — clips joined out of phase and
-    record-stop landed on the wrong boundary.
+    A grid needs tempo, unit, and phase. Sending tempo alone was not enough:
+    with `smart_eighths` left at SooperLooper's default (ON), any tempo under
+    60 BPM silently doubles `_eighth_cycle` — sync boundaries arrive every
+    **two** bars while the HUD still counts one-bar bars. Tap near the end of
+    bar 0 then waits through all of bar 1 and arms at bar 2.
 
-    Engine::set_tempo zeroes _tempo_counter and _quarter_counter, so re-sending
-    the tempo is the phase reset. Verified in engine.cpp, not inferred.
+    Order: smart_eighths off, eighth_per_cycle, then tempo (phase reset via
+    Engine::set_tempo — verified in engine.cpp).
     """
+    send("/set", ["smart_eighths", 0.0])
+    send("/set", ["eighth_per_cycle", float(EIGHTH_PER_CYCLE)])
     send("/set", ["tempo", float(bpm)])
+
+
+def anchor_phase(send: Callable[[str, list], None], bpm: float) -> None:
+    """Phase reset only — prefer establish_grid_clock when the grid lands."""
+    establish_grid_clock(send, bpm)
 
 
 def apply_freeform(

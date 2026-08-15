@@ -26,9 +26,9 @@ from sl_bench_listener import SlBenchStateListener  # noqa: E402
 from sl_grid_state import GridState, display_bpm  # noqa: E402
 from sl_grid_sync import (  # noqa: E402
     RESTART_SENTINEL,
-    anchor_phase,
     apply_freeform,
     apply_grid_sync,
+    establish_grid_clock,
     expected_sentinel,
     set_grid_active,
 )
@@ -120,13 +120,13 @@ def main() -> int:
         """First take landed: capture its tempo, then turn the grid on.
 
         Until now every loop had sync=0 so the defining take could record
-        instantly. From here clips count in to the bar and quantize.
+        instantly. From here clips count in to the next bar.
         """
-        anchor_phase(_send, bpm)  # re-sending tempo IS the phase reset
+        establish_grid_clock(_send, bpm)
         set_grid_active(_send, num_loops=num_loops, active=True)
         print(
-            f"bench: grid established — {bars} bar(s) @ {bpm:.1f} BPM. "
-            f"Later clips count in to the bar.",
+            f"bench: grid established — {bars} bar(s) @ {bpm:.1f} BPM, "
+            f"cycle=1 bar (smart_eighths off). Later clips count in to the bar.",
             flush=True,
         )
 
@@ -175,9 +175,9 @@ def main() -> int:
               f"{expected_sentinel()}) — re-applying grid config", flush=True)
         apply_grid_sync(_send, num_loops=num_loops)
         if grid.established and grid.bpm:
-            anchor_phase(_send, grid.bpm)
+            establish_grid_clock(_send, grid.bpm)
             set_grid_active(_send, num_loops=num_loops, active=True)
-            print(f"bench: grid restored — {grid.bpm:.1f} BPM, phase re-anchored",
+            print(f"bench: grid restored — {grid.bpm:.1f} BPM, 1-bar cycle",
                   flush=True)
         else:
             print("bench: no grid to restore — next take defines one", flush=True)
