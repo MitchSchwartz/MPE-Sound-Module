@@ -9,8 +9,17 @@ from unittest import mock
 
 
 def _install_fake_pygame() -> None:
-    if isinstance(sys.modules.get("pygame"), types.ModuleType) and hasattr(
-        sys.modules["pygame"], "display"
+    # Guard on every attribute this module actually uses below — not just
+    # `display`. A leaner, order-earlier pygame stub from another test
+    # module (also valid for its own purposes) can satisfy a partial
+    # guard and get reused here missing something this file needs.
+    existing = sys.modules.get("pygame")
+    if (
+        isinstance(existing, types.ModuleType)
+        and hasattr(existing, "display")
+        and hasattr(existing, "Rect")
+        and hasattr(existing, "font")
+        and hasattr(existing, "draw")
     ):
         return
 
