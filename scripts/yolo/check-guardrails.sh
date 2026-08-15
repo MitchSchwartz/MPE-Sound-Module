@@ -19,7 +19,7 @@ echo "  agentjail try deny probe: ok"
 
 payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"rm -rf '"$ROOT"'"}}'
 result=$(echo "$payload" | bash "$ROOT/scripts/yolo/yolo-shell-guard.sh")
-echo "$result" | grep -q '"permissionDecision":"deny"' || { echo "FAIL: yolo-shell-guard should deny" >&2; exit 1; }
+echo "$result" | grep -qE '"permissionDecision"[[:space:]]*:[[:space:]]*"deny"' || { echo "FAIL: yolo-shell-guard should deny (got: $result)" >&2; exit 1; }
 echo "  yolo-shell-guard deny probe: ok"
 
 if [[ -f "$ROOT/.claude/settings.local.json" ]]; then
