@@ -450,10 +450,40 @@ mpe_promote_surge_planned() {
         return 1
     fi
 
+    mpe_restart_looper_after_graph_change "$reason"
+
     mpe_engine_reconcile_reset
     mpe_engine_state_write "$MPE_ENGINE_NAME" jack ok "" "$looper_label"
     mpe_planned_promote_flag_clear
     return 0
+}
+
+# jackd restart leaves SooperLooper as an orphan: the process survives but its
+# JACK client is gone, so /hit and /set vanish while /get still answers. Buffer
+# and sample-rate changes go through mpe_promote_surge_planned — restart SL here
+# so the looper rejoins the bus instead of failing silently mid-set.
+mpe_restart_looper_after_graph_change() {
+    local reason="${1:-planned-graph-change}"
+    if ! pgrep -x sooperlooper >/dev/null 2>&1; then
+        return 0
+    fi
+
+    # shellcheck source=paths.sh
+    source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/paths.sh"
+    local script="${MPE_MODULE_REPO}/scripts/sooperlooper/restart-sooperlooper.sh"
+    if [ ! -x "$script" ]; then
+        echo "audio-engine: sooperlooper running but ${script} missing — orphan likely after jackd restart ($reason)" >&2
+        return 1
+    fi
+
+    echo "audio-engine: restarting SooperLooper after graph change ($reason) — recorded loops are cleared" >&2
+    local owner
+    owner="$(mpe_jack_graph_user)"
+    if [ "$(id -un)" = "$owner" ]; then
+        bash "$script"
+    else
+        sudo -u "$owner" -E bash "$script"
+    fi
 }
 
 # ---------------------------------------------------------------------------
