@@ -1,27 +1,30 @@
-"""Touch patch browser — instrument chip filter mixin."""
+"""Touch patch browser — browse filter pane (instrument tags) mixin."""
 
 from __future__ import annotations
 
 import pygame
 
 from patch_browser.all_patches_index import first_sort_letter
-from patch_browser.draw_primitives import draw_filter_icon
+from patch_browser.browse_filter_pane import ALL_INSTRUMENT_TAG, layout_filter_pane_tags
 from patch_browser.geometry import Rect
 from patch_browser.instrument_filter import (
     filter_patches_by_instrument,
     instrument_chip_label,
+    instrument_counts,
     instruments_with_patches,
     patches_in_browse_subtree,
     primary_instrument,
 )
 from patch_browser.touch_ui_constants import (
+    BROWSE_EDGE_GRAB_W,
+    BROWSE_FILTER_HEADER_H,
     INSTRUMENT_CHIP_GAP,
     INSTRUMENT_CHIP_PAD_X,
     INSTRUMENT_CHIP_ROW_H,
 )
 from patch_browser.touch_ui_enums import LeftNavMode
 
-ALL_INSTRUMENT_CHIP = "__all__"
+ALL_INSTRUMENT_CHIP = ALL_INSTRUMENT_TAG
 
 
 class TouchBrowserInstrumentsMixin:
@@ -29,27 +32,31 @@ class TouchBrowserInstrumentsMixin:
 
     def _init_instrument_filter_state(self) -> None:
         self.instrument_filter: str | None = None
-        self.instrument_filter_expanded = False
-        self.instrument_filter_btn_rect = Rect(0, 0, 0, 0)
-        self.instrument_chip_panel_rect = Rect(0, 0, 0, 0)
-        self.instrument_chip_rects: list[tuple[str, Rect]] = []
-        self._instrument_chip_panel_height = 0
+        self.browse_filter_rect = Rect(0, 0, 0, 0)
+        self.browse_filter_tag_rects: list[tuple[str, Rect]] = []
+        self._browse_filter_packed_tags: list = []
         self._all_patches_display_flat: list[dict] = []
         self._all_patches_display_letter_index: dict[str, int] = {}
 
     def _instrument_filter_active(self) -> bool:
         return self.instrument_filter is not None
 
-    def _instrument_chip_offset(self) -> int:
-        if not self._show_instrument_chips() or not self.instrument_filter_expanded:
-            return 0
-        return self._instrument_chip_panel_height + 4
+    # -- Instrument chip active/pointer stubs -----------------------------
+    # The inline chip panel these guarded is gone (browse-carousel spec
+    # Phase B). Left as inert stubs so touch_browser_input.py /
+    # touch_browser_evdev.py keep working unchanged until Phase C
+    # replaces these call sites with real filter-pane hit-testing.
+    def _instrument_chip_active(self) -> bool:
+        return False
 
-    def _show_instrument_chips(self) -> bool:
-        return (
-            not self.left_nav_collapsed
-            and self.left_nav_mode in (LeftNavMode.PATCHES, LeftNavMode.ALL_PATCHES)
-        )
+    def _handle_instrument_chip_pointer_down(self, pos: tuple[int, int]) -> bool:
+        return False
+
+    def _handle_instrument_chip_pointer_move(self, pos: tuple[int, int]) -> bool:
+        return False
+
+    def _handle_instrument_chip_pointer_up(self, pos: tuple[int, int]) -> bool:
+        return False
 
     def _patches_for_chip_context(self) -> list[dict]:
         if self.left_nav_mode == LeftNavMode.ALL_PATCHES:
@@ -94,39 +101,19 @@ class TouchBrowserInstrumentsMixin:
         self._refresh_instrument_chips()
         self._refresh_lists()
 
-    def _toggle_instrument_filter_panel(self) -> None:
-        self.instrument_filter_expanded = not self.instrument_filter_expanded
-        self._layout()
-
-    def _layout_wrapped_instrument_chips(
-        self,
-        chip_ids: list[str],
-        *,
-        panel: Rect,
-    ) -> tuple[list[tuple[str, Rect]], int]:
-        chip_h = INSTRUMENT_CHIP_ROW_H - 8
-        x = panel.x + INSTRUMENT_CHIP_PAD_X
-        y = panel.y + 4
-        row_start_x = x
-        max_x = panel.right - INSTRUMENT_CHIP_PAD_X
-        rects: list[tuple[str, Rect]] = []
-        for chip_id in chip_ids:
-            label = "All" if chip_id == ALL_INSTRUMENT_CHIP else instrument_chip_label(chip_id)
-            text_w = self.font_sm.size(label)[0]
-            chip_w = text_w + 20
-            if x + chip_w > max_x and x > row_start_x:
-                x = row_start_x
-                y += chip_h + INSTRUMENT_CHIP_GAP
-            rects.append((chip_id, Rect(x, y, chip_w, chip_h)))
-            x += chip_w + INSTRUMENT_CHIP_GAP
-        panel_height = max(INSTRUMENT_CHIP_ROW_H, y + chip_h + 4 - panel.y)
-        return rects, panel_height
+    def _layout_browse_filter_pane(self, *, pane: Rect) -> None:
+        self.browse_filter_rect = pane
+        self._refresh_instrument_chips()
 
     def _refresh_instrument_chips(self) -> None:
-        if not self._show_instrument_chips():
-            self.instrument_chip_rects = []
-            self._instrument_chip_panel_height = 0
-            self._rebuild_all_patches_display_index()
+        # `_all_patches_display_flat` depends only on `instrument_filter`
+        # and the full patch set — refresh it regardless of whether the
+        # filter pane itself is on-screen right now.
+        self._rebuild_all_patches_display_index()
+
+        if self.browse_filter_rect.w <= 0:
+            self.browse_filter_tag_rects = []
+            self._browse_filter_packed_tags = []
             return
 
         context_patches = self._patches_for_chip_context()
@@ -134,140 +121,60 @@ class TouchBrowserInstrumentsMixin:
         if self.instrument_filter and self.instrument_filter not in available:
             self.instrument_filter = None
 
-        chip_ids: list[str] = [ALL_INSTRUMENT_CHIP] + available
-        if self.instrument_filter_expanded:
-            self.instrument_chip_rects, self._instrument_chip_panel_height = (
-                self._layout_wrapped_instrument_chips(chip_ids, panel=self.instrument_chip_panel_rect)
-            )
-        else:
-            self.instrument_chip_rects = []
-            self._instrument_chip_panel_height = 0
-        self._rebuild_all_patches_display_index()
+        counts = instrument_counts(context_patches)
+        counts[ALL_INSTRUMENT_CHIP] = len(context_patches)
+        tag_ids = [ALL_INSTRUMENT_CHIP] + available
 
-    def _layout_instrument_chip_panel(
-        self,
-        *,
-        margin: int,
-        content_top: int,
-        nav_header_h: int,
-        list_w: int,
-    ) -> None:
-        if not self._show_instrument_chips():
-            self.instrument_chip_panel_rect = Rect(0, 0, 0, 0)
-            return
-        top = content_top + nav_header_h + 4
-        self.instrument_chip_panel_rect = Rect(margin, top, list_w, INSTRUMENT_CHIP_ROW_H)
-        self._refresh_instrument_chips()
-        if self.instrument_filter_expanded:
-            self.instrument_chip_panel_rect.h = self._instrument_chip_panel_height
+        def _label(tag_id: str) -> str:
+            name = "All" if tag_id == ALL_INSTRUMENT_CHIP else instrument_chip_label(tag_id)
+            return f"{name} ({counts.get(tag_id, 0)})"
 
-    def _instrument_filter_hit(self, pos: tuple[int, int]) -> bool:
-        return self.instrument_filter_btn_rect.contains(*pos)
+        content_x = max(self.browse_filter_rect.x, BROWSE_EDGE_GRAB_W)
+        content_rect = Rect(
+            content_x,
+            self.browse_filter_rect.y + BROWSE_FILTER_HEADER_H,
+            max(0, self.browse_filter_rect.right - content_x),
+            max(0, self.browse_filter_rect.h - BROWSE_FILTER_HEADER_H),
+        )
+        packed, _content_h = layout_filter_pane_tags(
+            tag_ids,
+            label_fn=_label,
+            measure_fn=lambda label: self.font_sm.size(label)[0],
+            content_rect=content_rect,
+            row_h=INSTRUMENT_CHIP_ROW_H - 8,
+            pad_x=INSTRUMENT_CHIP_PAD_X,
+            gap=INSTRUMENT_CHIP_GAP,
+        )
+        self._browse_filter_packed_tags = packed
+        self.browse_filter_tag_rects = [(tag.tag_id, tag.rect) for tag in packed]
 
-    def _chip_pressed(self, chip_id: str) -> bool:
-        return self._pressed(f"chip:{chip_id}")
+    def _browse_filter_header_label(self) -> str:
+        count = len(self._patches_for_chip_context())
+        noun = "patch" if count == 1 else "patches"
+        return f"{count} {noun}"
 
-    def _instrument_chip_active(self) -> bool:
-        active = self._touch_press.active_id
-        return active is not None and active.startswith("chip:")
-
-    def _handle_instrument_filter_pointer_down(self, pos: tuple[int, int]) -> bool:
-        if not self._instrument_filter_hit(pos):
-            return False
-        self._touch_press.set("chip:__filter_btn__")
-        return True
-
-    def _handle_instrument_filter_pointer_up(self, pos: tuple[int, int]) -> bool:
-        if not self._chip_pressed("__filter_btn__"):
-            return False
-        self._touch_press.clear()
-        if self._instrument_filter_hit(pos):
-            self._toggle_instrument_filter_panel()
-            return True
-        return False
-
-    def _chip_hit_at_pos(self, pos: tuple[int, int]) -> tuple[bool, str | None]:
-        if not self.instrument_filter_expanded:
-            return False, None
-        for chip_id, rect in self.instrument_chip_rects:
+    def _browse_filter_tag_hit(self, pos: tuple[int, int]) -> str | None:
+        for tag_id, rect in self.browse_filter_tag_rects:
             if rect.contains(*pos):
-                return True, chip_id
-        return False, None
+                return tag_id
+        return None
 
-    def _handle_instrument_chip_pointer_down(self, pos: tuple[int, int]) -> bool:
-        if self._handle_instrument_filter_pointer_down(pos):
-            return True
-        if not self.instrument_filter_expanded:
-            return False
-        if not self.instrument_chip_panel_rect.contains(*pos):
-            return False
-        hit, chip_id = self._chip_hit_at_pos(pos)
-        if hit and chip_id is not None:
-            self._touch_press.set(f"chip:{chip_id}")
-            return True
-        return False
-
-    def _handle_instrument_chip_pointer_move(self, pos: tuple[int, int]) -> bool:
-        return self._instrument_chip_active()
-
-    def _try_select_instrument_chip(self, pos: tuple[int, int]) -> bool:
-        hit, chip_id = self._chip_hit_at_pos(pos)
-        if hit and chip_id is not None:
-            self._set_instrument_filter(self._instrument_from_chip_id(chip_id))
-            self.instrument_filter_expanded = False
-            self._layout()
-            return True
-        return False
-
-    def _handle_instrument_chip_pointer_up(self, pos: tuple[int, int]) -> bool:
-        if self._chip_pressed("__filter_btn__"):
-            return self._handle_instrument_filter_pointer_up(pos)
-        if not self._instrument_chip_active():
-            return False
-        self._touch_press.clear()
-        return self._try_select_instrument_chip(pos)
-
-    def _draw_instrument_filter_button(self) -> None:
-        if not self._show_instrument_chips():
+    def _draw_browse_filter_pane(self) -> None:
+        pane = self.browse_filter_rect
+        if pane.w <= 0:
             return
-        btn = self.instrument_filter_btn_rect
-        if btn.w <= 0:
-            return
-        active = self._instrument_filter_active()
-        expanded = self.instrument_filter_expanded
-        btn_pressed = self._chip_pressed("__filter_btn__")
-        if active or expanded or btn_pressed:
-            btn_bg = self.theme.accent
-            icon_color = self.theme.bg
-        else:
-            btn_bg = self.theme.surface_alt
-            icon_color = self.theme.text
-        pygame.draw.rect(self.screen, btn_bg, btn.pygame_rect, border_radius=8)
-        draw_filter_icon(self.screen, btn, icon_color)
-
-    def _draw_instrument_chip_panel(self) -> None:
-        if not self.instrument_filter_expanded or not self.instrument_chip_rects:
-            return
-        panel = self.instrument_chip_panel_rect
-        pygame.draw.rect(self.screen, self.theme.surface, panel.pygame_rect, border_radius=10)
-        for chip_id, rect in self.instrument_chip_rects:
-            instrument = self._instrument_from_chip_id(chip_id)
-            selected = instrument == self.instrument_filter or (
-                chip_id == ALL_INSTRUMENT_CHIP and self.instrument_filter is None
+        pygame.draw.rect(self.screen, self.theme.surface, pane.pygame_rect, border_radius=10)
+        header_x = max(pane.x, BROWSE_EDGE_GRAB_W) + INSTRUMENT_CHIP_PAD_X
+        header = self.font_sm.render(self._browse_filter_header_label(), True, self.theme.muted)
+        self.screen.blit(header, (header_x, pane.y + 6))
+        for tag in self._browse_filter_packed_tags:
+            selected = tag.tag_id == self.instrument_filter or (
+                tag.tag_id == ALL_INSTRUMENT_CHIP and self.instrument_filter is None
             )
-            pressed = self._chip_pressed(chip_id)
-            if selected or pressed:
-                bg = self.theme.accent
-                text_color = self.theme.bg
-            else:
-                bg = self.theme.surface_alt
-                text_color = self.theme.text
-            pygame.draw.rect(self.screen, bg, rect.pygame_rect, border_radius=14)
-            chip_label = "All" if chip_id == ALL_INSTRUMENT_CHIP else instrument_chip_label(chip_id)
-            chip_surf = self.font_sm.render(chip_label, True, text_color)
-            cx = rect.x + (rect.w - chip_surf.get_width()) // 2
-            cy = rect.y + (rect.h - chip_surf.get_height()) // 2
-            self.screen.blit(chip_surf, (cx, cy))
-
-    def _draw_instrument_chips(self) -> None:
-        self._draw_instrument_chip_panel()
+            bg = self.theme.accent if selected else self.theme.surface_alt
+            text_color = self.theme.bg if selected else self.theme.text
+            pygame.draw.rect(self.screen, bg, tag.rect.pygame_rect, border_radius=14)
+            surf = self.font_sm.render(tag.label, True, text_color)
+            cx = tag.rect.x + (tag.rect.w - surf.get_width()) // 2
+            cy = tag.rect.y + (tag.rect.h - surf.get_height()) // 2
+            self.screen.blit(surf, (cx, cy))

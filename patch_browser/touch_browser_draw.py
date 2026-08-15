@@ -217,7 +217,6 @@ class TouchBrowserDrawMixin:
             disabled=current_disabled,
         )
         self._draw_nav_all_button(self.nav_all_btn, selected=all_selected)
-        self._draw_instrument_filter_button()
         if self.left_nav_mode != LeftNavMode.ALL_PATCHES:
             self._draw_icon_button(self.nav_collapse_btn, "panel_close", muted=True)
     def _draw_folder_title_bar(self) -> None:
@@ -749,7 +748,6 @@ class TouchBrowserDrawMixin:
         pygame.draw.rect(self.screen, self.theme.surface, self.left_panel_rect.pygame_rect, border_radius=10)
 
         self._draw_nav_header()
-        self._draw_instrument_chips()
         self._draw_folder_title_bar()
 
         if self.left_nav_mode == LeftNavMode.ALL_PATCHES:
@@ -815,6 +813,7 @@ class TouchBrowserDrawMixin:
     def _draw_browser(self) -> None:
         self.screen.fill(self.theme.bg)
         self._draw_status_bar()
+        self._draw_browse_filter_pane()
 
         if self.left_nav_collapsed:
             self._draw_left_nav_collapsed()

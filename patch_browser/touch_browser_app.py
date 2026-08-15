@@ -30,6 +30,7 @@ from patch_browser.screen_recorder import DEFAULT_ENV_FILE, ScreenRecorder
 from patch_browser.surge_cpu_monitor import SurgeCpuMonitor
 from patch_browser.surge_monitor import SurgeMonitor
 from patch_browser.touch_evdev import TouchEvdevBridge, evdev_bridge_enabled
+from patch_browser.touch_browser_browse import TouchBrowserBrowseMixin
 from patch_browser.touch_browser_context import TouchBrowserContextMixin
 from patch_browser.touch_browser_draw import TouchBrowserDrawMixin
 from patch_browser.touch_browser_evdev import TouchBrowserEvdevMixin
@@ -74,6 +75,7 @@ class TouchPatchBrowser(
     TouchBrowserMidiSyncModalMixin,
     TouchBrowserWifiModalMixin,
     TouchBrowserLayoutMixin,
+    TouchBrowserBrowseMixin,
     TouchBrowserNavMixin,
     TouchBrowserInstrumentsMixin,
     TouchBrowserContextMixin,
@@ -167,6 +169,7 @@ class TouchPatchBrowser(
         self.left_nav_collapsed = False
         self.screen_state = Screen.BROWSER
         self.nav_folder_title_rect: Rect | None = None
+        self._init_browse_carousel_state()
         self._init_instrument_filter_state()
         self._init_context_menu_state()
 
