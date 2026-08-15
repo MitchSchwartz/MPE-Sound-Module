@@ -41,7 +41,9 @@ from patch_browser.audio_engine import engine_hud_label, engine_hud_semantic, en
 from patch_browser.looper_hud import (
     bar_progress as looper_bar_progress,
     beat_label as looper_beat_label,
+    current_beat_index as looper_beat_index,
     is_running as looper_is_running,
+    segment_count as looper_segment_count,
     should_show as looper_should_show,
 )
 from patch_browser.touch_ui_enums import (
@@ -446,14 +448,15 @@ class TouchBrowserDrawMixin:
         if not looper_should_show(sl, user_enabled=getattr(self, "show_looper_hud", True)):
             return
 
-        beats = 4
         accent = self.theme.accent
         muted = self.theme.muted
         track = self.theme.surface
 
-        progress = looper_bar_progress(sl, beats_per_bar=beats)
-        label = looper_beat_label(sl, beats_per_bar=beats)
+        progress = looper_bar_progress(sl)
+        label = looper_beat_label(sl)
         running = looper_is_running(sl)
+        segments = looper_segment_count(sl)
+        live_seg = looper_beat_index(sl) if running else None
 
         pad_x = LOOPER_HUD_PAD_X
         bar_y = rect.y + LOOPER_HUD_V_PAD
@@ -469,10 +472,27 @@ class TouchBrowserDrawMixin:
             pygame.draw.rect(self.screen, track, track_rect, border_radius=3)
             if running and progress is not None:
                 self._draw_looper_sweep(track_rect, progress, accent)
-            for i in range(1, beats):
-                tick_x = bar_x + round(bar_w * i / beats)
+            # Discrete beat marker. The sweep gives continuous position but not
+            # the exact instant a beat lands; lighting the live segment changes
+            # on the beat, so the eye gets both.
+            if live_seg is not None:
+                seg_x0 = bar_x + round(bar_w * live_seg / segments)
+                seg_x1 = bar_x + round(bar_w * (live_seg + 1) / segments)
+                pulse = pygame.Surface((max(1, seg_x1 - seg_x0), bar_h), pygame.SRCALPHA)
+                c = pygame.Color(self.theme.text)
+                pulse.fill((c.r, c.g, c.b, 60))
+                self.screen.blit(pulse, (seg_x0, bar_y))
+            # Bar lines are heavier than beat lines: the bar is what you count.
+            for i in range(1, segments):
+                tick_x = bar_x + round(bar_w * i / segments)
+                on_bar = i % 4 == 0
+                if not on_bar and segments > 8:
+                    continue  # too dense to read once the phrase is long
                 pygame.draw.line(
-                    self.screen, muted, (tick_x, bar_y), (tick_x, bar_y + bar_h - 1)
+                    self.screen,
+                    muted if on_bar else self.theme.surface_alt,
+                    (tick_x, bar_y),
+                    (tick_x, bar_y + bar_h - 1),
                 )
             pygame.draw.rect(self.screen, muted, track_rect, width=1, border_radius=3)
 

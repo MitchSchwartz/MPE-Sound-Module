@@ -110,6 +110,8 @@ class HudWriter:
         self._jack_client = None
         self._jack = None
         self._sl = SlQuery().start()
+        self._lengths: dict[int, float] = {}
+        self._lengths_scanned_at = 0.0
 
     def _transport(self) -> tuple[bool, dict]:
         try:
@@ -124,28 +126,59 @@ class HudWriter:
         except Exception:
             return False, {}
 
+    def _phrase_reference(self, bar_span: float):
+        """Longest playing loop = the musical phrase the counter should span.
+
+        A 1-bar first clip and a 4-bar third clip do not share a display cycle:
+        counting 1/1 forever while a 4-bar clip runs tells the player nothing
+        about where they are in the phrase. Quantization stays at the bar; only
+        the DISPLAY follows the longest loop.
+
+        Loop lengths are re-scanned about once a second — position is polled at
+        the draw rate, but lengths only change when a clip is recorded.
+        """
+        now = time.monotonic()
+        if now - self._lengths_scanned_at > 1.0:
+            self._lengths_scanned_at = now
+            lengths = {}
+            for loop in range(NUM_LOOPS):
+                state = self._sl.get("state", loop, timeout=0.15)
+                if state is None or int(state) not in PLAYING_STATES:
+                    continue
+                length = self._sl.get("loop_len", loop, timeout=0.15) or 0.0
+                if float(length) > 0.0:
+                    lengths[loop] = float(length)
+            self._lengths = lengths
+        if not self._lengths:
+            return None, 0.0, 1
+        loop = max(self._lengths, key=lambda k: self._lengths[k])
+        phrase_len = self._lengths[loop]
+        bars = max(1, round(phrase_len / bar_span)) if bar_span > 0 else 1
+        return loop, phrase_len, bars
+
     def _from_sl(self) -> dict | None:
         tempo = self._sl.get("tempo", loop=-1)
         if not tempo:
             return None
-        # Phase reference: the lowest-numbered playing loop. All loops share the
-        # same grid, so any of them locates us on it.
-        for loop in range(NUM_LOOPS):
-            state = self._sl.get("state", loop)
-            if state is None:
-                continue
-            if int(state) in PLAYING_STATES:
-                pos = self._sl.get("loop_pos", loop) or 0.0
-                beat, bar = beat_and_bar_from_tempo(float(pos), float(tempo))
-                return {
-                    "source": "sl_internal", "beat": beat, "bar": bar,
-                    "bpm": float(tempo), "playing": True, "has_master": True,
-                    "active": True, "state": int(state),
-                    "loop_pos": float(pos), "ref_loop": loop,
-                }
+        bar_span = 4 * 60.0 / float(tempo)
+        ref, phrase_len, bars = self._phrase_reference(bar_span)
+        if ref is not None:
+            pos = float(self._sl.get("loop_pos", ref) or 0.0)
+            beat, bar = beat_and_bar_from_tempo(pos, float(tempo))
+            return {
+                "source": "sl_internal", "beat": beat,
+                "bar": ((int(bar) - 1) % bars) + 1,
+                "bars_in_phrase": bars,
+                "bpm": float(tempo), "playing": True, "has_master": True,
+                "active": True, "state": 4,
+                "loop_pos": pos, "ref_loop": ref,
+                "phrase_len": phrase_len,
+                "phrase_pos": pos % phrase_len if phrase_len > 0 else 0.0,
+            }
         # Nothing playing: tempo is known, phase is not.
         return {
             "source": "sl_internal", "beat": None, "bar": None,
+            "bars_in_phrase": 1, "phrase_len": 0.0, "phrase_pos": 0.0,
             "bpm": float(tempo), "playing": False, "has_master": False,
             "active": False, "state": 0, "loop_pos": 0.0, "ref_loop": None,
         }
@@ -164,6 +197,9 @@ class HudWriter:
             if payload is None:
                 return False
 
+        payload.setdefault("phrase_len", 0.0)
+        payload.setdefault("phrase_pos", 0.0)
+        payload.setdefault("bars_in_phrase", 1)
         payload.update({"updated_at": time.time(), "cycle_len": 0.0, "loop_len": 0.0})
         key = (payload.get("beat"), payload.get("bar"), payload.get("active"))
         now = time.time()
