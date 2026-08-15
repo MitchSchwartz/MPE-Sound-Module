@@ -31,12 +31,30 @@ need_cmd() {
 
 log() { echo "wire-jack: $*"; }
 
+# Report real failures, but never abort the run.
+#
+# Two traps this has already fallen into:
+#   1. Returning non-zero from a bare call under `set -e` kills the script. On
+#      2026-08-14 that aborted the wiring pass on the FIRST already-connected
+#      port, so common_out never reached playback: loops played silently and
+#      the pad went green with no audio.
+#   2. "already connected" / "not connected" are the DESIRED end state, not
+#      errors. Counting them made a healthy graph report failures.
 try_jack() {
-  if ! "$@"; then
-    FAILURES=$((FAILURES + 1))
-    log "FAILED: $*"
-    return 1
+  local out status
+  out="$("$@" 2>&1)"
+  status=$?
+  if [ "$status" -eq 0 ]; then
+    return 0
   fi
+  case "$out" in
+    *"already connected"* | *"not connected"* | *"cannot connect client, already"*)
+      return 0
+      ;;
+  esac
+  FAILURES=$((FAILURES + 1))
+  log "FAILED: $* -- ${out:-exit $status}"
+  return 0
 }
 
 try_oscsend() {

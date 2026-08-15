@@ -33,7 +33,24 @@ Install once: clone `mpe-cli`, run `./install.sh`, edit `~/.config/mpe/mpe.env` 
 
 **Writes / restarts:** `restart *`, `record`, `pull-videos --delete-source`, `looper sl-smoke`, `looper sl-restart` (restarts SooperLooper on Pi).
 
-**Do not allowlist for agents:** raw `ssh`/`scp`/`rsync`, `deploy-all.sh`, `set-audio-profile.sh`, `set-surge-audio.sh`, `set-midi-sync.sh`, poweroff/reboot.
+**Do not allowlist for agents:** `scp`/`rsync`, `deploy-all.sh`, `set-audio-profile.sh`, `set-surge-audio.sh`, `set-midi-sync.sh`, poweroff/reboot.
+
+**Raw `ssh` — allowlisted since 2026-08-14, and that is not the same as encouraged.**
+This line previously read "do not allowlist raw `ssh`." It was amended because
+`ssh mitch@raspberrypi2.local *` **is** now in the local Claude Code allowlist,
+and a rule the tooling contradicts is worse than no rule — it is the next stale
+claim. Recording what is actually true instead:
+
+| | |
+|---|---|
+| **Permission** | Broad. The wildcard matches any remote command, including destructive ones |
+| **Policy** | Unchanged and narrow. Prefer an `mpe` subcommand every time one exists. `ssh` is for read-only diagnostics and eval/build tasks that have no subcommand |
+| **Still forbidden regardless of the grant** | `deploy-all.sh`, `set-audio-profile.sh`, `set-surge-audio.sh`, `set-midi-sync.sh`, poweroff/reboot, and anything that writes to the appliance outside the SooperLooper eval scope below |
+| **Still the right reflex** | Used `ssh` twice for the same fixed task? **Propose an `mpe` subcommand** (see below). `mpe rt`, `mpe looper sl-*` and friends all started this way |
+
+The grant is a convenience for the SooperLooper evaluation. **Narrow it when the
+eval closes**, alongside deleting the scoped-exception block below — otherwise an
+appliance-wide remote-shell grant outlives the reason it was opened.
 
 **Suggest new subcommands:** When you would SSH twice for the same fixed task, **propose a new `mpe` subcommand** in `mpe-cli` (name + behavior + allowlist strings) — do not improvise remote shell. **Editing `mpe-cli` or `~/.config/mpe/mpe.env` requires Mitch approval.**
 
