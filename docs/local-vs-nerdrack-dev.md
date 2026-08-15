@@ -14,7 +14,8 @@
 | **Runner** | Cursor or interactive Claude | **`claude-yolo.sh`** → `claude --dangerously-skip-permissions` |
 | **Guardrails** | Normal project rules in `AGENTS.md` | agentjail + yolo-shell-guard + project PreToolUse hooks |
 | **`.claude/mcp.json`** | Optional / not required for Pi work | Gitignored; copy from `.claude/mcp.json.headless.example` |
-| **OneCLI agent** | Your laptop agent (if any) | **IO MPE Module** (dashboard name; env on box) |
+| **OneCLI agent** | `onecli-nerdrack` from laptop | **MPE Agent** (`~/.onecli/mpe-module.env`) |
+| **OneCLI admin** | `onecli-nerdrack setup-mpe` (laptop) | **Blocked** — no onecli CLI, no :10254 API, no queue approve |
 | **GitHub MCP secret** | gh CLI / laptop auth | `github-mpe-module` |
 | **Pi access** | `mpe` CLI over LAN | **Blocked** — Pi not reachable from VPS |
 | **Backpressure** | `python3 -m unittest discover -s tests -q` | Same — nerdrack runs unit tests only |
@@ -73,24 +74,27 @@ git checkout dev
 git pull
 ```
 
-### 2. OneCLI env (Mitch gate — once per box)
+### 2. OneCLI env (Mitch gate — laptop CLI, not nerdrack agent)
 
-Create `~/.onecli/mpe-module.env` (mode `600`):
+From **laptop** (creates agent, secret, grant, env file on nerdrack):
 
 ```bash
-ONECLI_AOC_TOKEN=<aoc_* from IO MPE Module agent in OneCLI dashboard>
+onecli-nerdrack setup-mpe --from-gh
+onecli-nerdrack check-github mpe-module github-mpe-module
+```
+
+Manual equivalent — `~/.onecli/mpe-module.env` on nerdrack (mode `600`):
+
+```bash
+ONECLI_AOC_TOKEN=<aoc_* from: onecli-nerdrack agent-token "MPE Agent">
 GITHUB_MCP_SECRET=github-mpe-module
 YOLO_REPO=MitchSchwartz/MPE-Sound-Module
 NTFY_TOPIC=<secret ntfy topic>
 ```
 
-In OneCLI dashboard, secret `github-mpe-module`:
+**YOLO agents must not** run `onecli`, `onecli-nerdrack`, curl to `:10254`, or `enqueue-yolo-task.sh approve/clear-gate`. Enforced by `yolo-shell-guard.sh` + `check-onecli-lockdown.sh` (runs inside `check-guardrails.sh` / bootstrap).
 
-- Host: `api.github.com`
-- Header: `Authorization`
-- Format: `Bearer {value}` (GitHub PAT with repo access to `MPE-Sound-Module`)
-
-Health check:
+Health check (on nerdrack):
 
 ```bash
 bash scripts/check-onecli-github.sh github-mpe-module

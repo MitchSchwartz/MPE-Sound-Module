@@ -84,4 +84,18 @@ if echo "$command" | grep -qE '(^|[;&|[:space:]])(sudo[[:space:]]+)?(poweroff|re
   deny "YOLO guardrail: poweroff/reboot/shutdown blocked"
 fi
 
+# OneCLI vault/admin — Mitch/laptop only. YOLO agents use MCP via 10255 proxy, not 10254 admin API.
+if echo "$command" | grep -qE '(^|[;&|[:space:]])(onecli-nerdrack|onecli-nerdrack\.sh)([[:space:]]|$)'; then
+  deny "YOLO guardrail: onecli-nerdrack admin script blocked on nerdrack"
+fi
+if echo "$command" | grep -qE '(^|[;&|[:space:]])(onecli)([[:space:]]|$|-)'; then
+  deny "YOLO guardrail: onecli CLI blocked — agents cannot modify vault, agents, or grants"
+fi
+if echo "$command" | grep -qE '(curl|wget)[^;|]*(127\.0\.0\.1:10254|localhost:10254|://127\.0\.0\.1:10254)'; then
+  deny "YOLO guardrail: OneCLI admin API (10254) blocked for agents"
+fi
+if echo "$command" | grep -qE 'enqueue-yolo-task\.sh[^;|]*(approve|clear-gate)'; then
+  deny "YOLO guardrail: YOLO queue approve/clear-gate is laptop/Mitch only"
+fi
+
 allow
