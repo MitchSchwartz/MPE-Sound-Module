@@ -256,16 +256,17 @@ class QuantizedLaunchTests(unittest.TestCase):
         fs.on_pad_down(); fs.on_pad_up()
         self.assertEqual(self._hits(fs), ["mute_on"])
 
-    def test_launch_unmutes_and_never_uses_trigger(self) -> None:
-        """trigger does not lift a pause — that is what made launch silent."""
+    def test_launch_is_a_quantized_trigger_from_the_clip_start(self) -> None:
+        """trigger plays from the start, is deferred to the boundary by SL,
+        and lifts a mute (verified on the engine) — so it is the whole launch."""
         import scripts.sooperlooper.apc_footswitch as m
 
         fs = self._fs()
         fs.sync_from_sl(m.SL_STATE_MUTE)
         fs.on_pad_down(); fs.on_pad_up()
         hits = self._hits(fs)
-        self.assertIn("mute_off", hits)
-        self.assertNotIn("trigger", hits)
+        self.assertIn("trigger", hits)
+        self.assertNotIn("mute_off", hits)
         self.assertTrue(fs._launch_queued)
 
     def test_queued_launch_blinks_plain_green(self) -> None:
