@@ -33,6 +33,13 @@ LED_YELLOW_BLINK = 6
 
 # Blink = "queued, lands on the next bar" — the clip-launcher idiom.
 #
+# Recording -> playing gets a four-phase sequence: OFF, RED, OFF, GREEN. The
+# gaps demarcate the two colours; RED, GREEN, RED, GREEN with no break reads as
+# one intense flicker rather than two distinct states. Reserved for this case
+# only — it is visually noisy, and it is earning that noise by confirming
+# recording is STILL RUNNING, which the player needs. Everywhere else a plain
+# blink is enough, because nothing of consequence is happening meanwhile.
+#
 # A quantized action does not take effect until the next cycle boundary (up to
 # one full bar later). Without a distinct armed state the pad looks identical
 # before and after the tap, so the player reads it as "my press did nothing",
@@ -209,8 +216,12 @@ class LoopFootswitch:
         if self.sl_state == SL_STATE_WAIT_STOP:
             # Still recording, playback queued: alternate red -> green so the
             # pad shows both the current state and the destination.
-            self._led_transition = (LED_RED, LED_GREEN)
+            self._led_transition = (LED_OFF, LED_RED, LED_OFF, LED_GREEN)
             return  # poll_led drives it from here
+        if self._launch_queued:
+            self._led_transition = None
+            self._set_led(LED_GREEN_BLINK, force=True)
+            return
         self._led_transition = None
         if self.sl_state == SL_STATE_WAIT_START:
             self._set_led(LED_RED_BLINK, force=True)  # queued to record
@@ -318,7 +329,11 @@ class LoopFootswitch:
             self._hit("pause_off")
             self._hit("mute_off")
             self._launch_queued = True
-            self._led_transition = (LED_YELLOW, LED_GREEN)
+            # Plain green blink: "it is going to play" is the whole message.
+            # Nothing else is happening to the clip meanwhile, so it needs no
+            # second colour.
+            self._led_transition = None
+            self._set_led(LED_GREEN_BLINK, force=True)
             log(f"loop {self.loop}: launch queued — starts on the bar")
             self._mark_action()
             return
@@ -347,9 +362,9 @@ class LoopFootswitch:
         """Drive the transition blink. Cheap no-op unless one is active."""
         if self._led_transition is None:
             return
-        first, second = self._led_transition
-        phase = int(time.monotonic() / TRANSITION_BLINK_S) % 2
-        self._set_led(first if phase == 0 else second)
+        seq = self._led_transition
+        phase = int(time.monotonic() / TRANSITION_BLINK_S) % len(seq)
+        self._set_led(seq[phase])
 
     def poll_hold(self) -> None:
         if not self._pad_down or self._hold_fired:

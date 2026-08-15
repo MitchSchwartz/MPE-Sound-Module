@@ -206,13 +206,14 @@ class TransitionBlinkTests(unittest.TestCase):
 
         fs = self._fs()
         fs.sync_from_sl(m.SL_STATE_WAIT_STOP)
-        seen = set()
+        seq = []
         with patch("scripts.sooperlooper.apc_footswitch.time.monotonic") as clock:
             for i in range(4):
                 clock.return_value = i * m.TRANSITION_BLINK_S
                 fs.poll_led()
-                seen.add(self._sent(fs)[-1])
-        self.assertEqual(seen, {m.LED_RED, m.LED_GREEN})
+                seq.append(self._sent(fs)[-1])
+        # gaps demarcate the colours; without them it reads as one flicker
+        self.assertEqual(seq, [m.LED_OFF, m.LED_RED, m.LED_OFF, m.LED_GREEN])
 
     def test_queued_to_record_stays_ableton_standard_red_blink(self) -> None:
         import scripts.sooperlooper.apc_footswitch as m
@@ -267,15 +268,19 @@ class QuantizedLaunchTests(unittest.TestCase):
         self.assertNotIn("trigger", hits)
         self.assertTrue(fs._launch_queued)
 
-    def test_queued_launch_shows_a_transition_blink(self) -> None:
+    def test_queued_launch_blinks_plain_green(self) -> None:
         import scripts.sooperlooper.apc_footswitch as m
 
         fs = self._fs()
         fs.sync_from_sl(m.SL_STATE_MUTE)
         fs.on_pad_down(); fs.on_pad_up()
-        self.assertEqual(fs._led_transition, (m.LED_YELLOW, m.LED_GREEN))
-        fs.sync_from_sl(m.SL_STATE_PLAYING)
+        # a queued launch is a plain green blink — no second colour needed
         self.assertIsNone(fs._led_transition)
+        self.assertEqual(
+            [c.args[0][2] for c in fs._midi_out.send_message.call_args_list][-1],
+            m.LED_GREEN_BLINK,
+        )
+        fs.sync_from_sl(m.SL_STATE_PLAYING)
         self.assertFalse(fs._launch_queued)
 
 if __name__ == "__main__":
