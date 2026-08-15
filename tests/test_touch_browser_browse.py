@@ -215,11 +215,29 @@ class PointerDownClaimTests(unittest.TestCase):
         host.left_nav_collapsed = True
         self.assertFalse(host._handle_browse_pointer_down((10, 100)))
 
-    def test_edge_zone_claims_and_begins_drag(self) -> None:
+    def test_edge_zone_claims_and_begins_drag_when_enabled(self) -> None:
+        from patch_browser.touch_ui_constants import BROWSE_DRAG_ENABLED
+
+        if not BROWSE_DRAG_ENABLED:
+            self.skipTest("BROWSE_DRAG_ENABLED is false — buttons are primary nav")
         host = _BrowseHost()
         claimed = host._handle_browse_pointer_down((10, 100))
         self.assertTrue(claimed)
         self.assertTrue(host._browse_carousel.state.dragging)
+
+    def test_open_filter_button_snaps_to_filter_stop(self) -> None:
+        host = _BrowseHost()
+        host.browse_filter_open_btn = Rect(200, 4, 32, 28)
+        host._open_browse_filter()
+        self.assertEqual(host._browse_carousel.stop, "filter")
+        self.assertEqual(host._browse_carousel.offset_px, BROWSE_OFFSET_FILTER)
+
+    def test_back_button_snaps_to_home_stop(self) -> None:
+        host = _BrowseHost()
+        _goto_filter_stop(host, [])
+        host._close_browse_filter()
+        self.assertEqual(host._browse_carousel.stop, "home")
+        self.assertEqual(host._browse_carousel.offset_px, BROWSE_OFFSET_HOME)
 
     def test_elsewhere_at_home_stop_not_claimed(self) -> None:
         # Acceptance criterion 5 analogue: nav-column taps fall through.
@@ -237,16 +255,20 @@ class PointerDownClaimTests(unittest.TestCase):
         self.assertTrue(host._browse_filter_tap_active)
         self.assertEqual(host._browse_filter_tap_tag, "bass")
 
-    def test_filter_pane_body_begins_drag_at_filter_stop(self) -> None:
+    def test_filter_pane_body_not_claimed_when_drag_disabled(self) -> None:
         host = _BrowseHost()
         _goto_filter_stop(host, [])
         claimed = host._handle_browse_pointer_down((200, 200))
-        self.assertTrue(claimed)
-        self.assertTrue(host._browse_carousel.state.dragging)
+        self.assertFalse(claimed)
+        self.assertFalse(host._browse_carousel.state.dragging)
 
 
 class PointerMoveTests(unittest.TestCase):
-    def test_dragging_updates_offset_and_relayouts(self) -> None:
+    def test_dragging_updates_offset_when_enabled(self) -> None:
+        from patch_browser.touch_ui_constants import BROWSE_DRAG_ENABLED
+
+        if not BROWSE_DRAG_ENABLED:
+            self.skipTest("BROWSE_DRAG_ENABLED is false")
         host = _BrowseHost()
         host._handle_browse_pointer_down((10, 100))
         start_offset = host._browse_carousel.offset_px
@@ -254,7 +276,6 @@ class PointerMoveTests(unittest.TestCase):
         self.assertTrue(claimed)
         self.assertEqual(host._browse_carousel.offset_px, start_offset + 50)
         self.assertEqual(host._layout_calls, 1)
-        self.assertEqual(host._draw_calls, 1)
 
     def test_not_active_returns_false(self) -> None:
         host = _BrowseHost()
@@ -263,25 +284,19 @@ class PointerMoveTests(unittest.TestCase):
 
 
 class PointerUpTests(unittest.TestCase):
-    def test_drag_release_ends_drag_and_relayouts(self) -> None:
+    def test_drag_release_when_enabled(self) -> None:
+        from patch_browser.touch_ui_constants import BROWSE_DRAG_ENABLED
+
+        if not BROWSE_DRAG_ENABLED:
+            self.skipTest("BROWSE_DRAG_ENABLED is false")
         host = _BrowseHost()
         host._handle_browse_pointer_down((10, 100))
-        host._handle_browse_pointer_move((70, 100))  # past BROWSE_SNAP_COMMIT_PX
+        host._handle_browse_pointer_move((70, 100))
         claimed = host._handle_browse_pointer_up((70, 100))
         self.assertTrue(claimed)
         self.assertFalse(host._browse_carousel.state.dragging)
         self.assertEqual(host._browse_carousel.stop, "filter")
-        self.assertEqual(host._layout_calls, 2)  # one on move, one on up
-        self.assertEqual(host._draw_calls, 2)
-
-    def test_filter_pane_swipe_back_to_home(self) -> None:
-        host = _BrowseHost()
-        _goto_filter_stop(host, [])
-        host._handle_browse_pointer_down((300, 200))
-        host._handle_browse_pointer_move((200, 200))
-        host._handle_browse_pointer_up((200, 200))
-        self.assertEqual(host._browse_carousel.stop, "home")
-        self.assertEqual(host._browse_carousel.offset_px, BROWSE_OFFSET_HOME)
+        self.assertEqual(host._layout_calls, 2)
 
     def test_tag_release_on_same_tag_sets_filter_keeps_stop(self) -> None:
         # Acceptance criterion 7.

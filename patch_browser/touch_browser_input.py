@@ -181,6 +181,20 @@ class TouchBrowserInputMixin:
             self._toggle_nav_collapsed()
             return
         if (
+            getattr(self, "browse_filter_open_btn", None)
+            and self.browse_filter_open_btn.w > 0
+            and self.browse_filter_open_btn.contains(*pos)
+        ):
+            self._open_browse_filter()
+            return
+        if (
+            getattr(self, "browse_filter_back_btn", None)
+            and self.browse_filter_back_btn.w > 0
+            and self.browse_filter_back_btn.contains(*pos)
+        ):
+            self._close_browse_filter()
+            return
+        if (
             self.nav_all_btn.contains(*pos)
             and self.left_nav_mode != LeftNavMode.ALL_PATCHES
         ):
