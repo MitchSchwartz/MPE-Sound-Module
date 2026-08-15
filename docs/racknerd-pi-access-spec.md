@@ -2,13 +2,21 @@
 
 **Status:** Draft — Gate A (Mitch approval) required before implementation  
 **Created:** 2026-08-15 (America/Toronto)  
-**Last updated:** 2026-08-15 (America/Toronto) — rev 2
+**Last updated:** 2026-08-15 (America/Toronto) — rev 3
 
 **Related:** [`local-vs-nerdrack-dev.md`](local-vs-nerdrack-dev.md) · [`AGENTS.md`](../AGENTS.md) · OM-Repo [`Docs/appliance-cli-pattern.md`](https://github.com/opsMachine/OM-Repo/blob/main/Docs/appliance-cli-pattern.md) · [`mpe-cli`](https://github.com/MitchSchwartz/mpe-cli)
 
 **Review audit:** 2026-08-15 — spec revised against code (`yolo-shell-guard.sh`, `check-yolo-gates.sh`, `mpe-cli`). Do **not** approve until Layer 2 ↔ 3 seam (token dispatch) is reflected here and in Phase deliverables.
 
 **Review audit 2:** 2026-08-15 (rev 2) — second pass against the same code closed four self-referential controls: the `MPE_CLI_CONFIG` pointer was agent-settable (making the 0444 config moot), the session gate file was agent-writable (making it a comment, not a gate), the stdin-rejection contract was not implementable, and the token grammar was undefined. See §Layer weight for the reframing those fixes rest on.
+
+**Review audit 3:** 2026-08-15 (rev 3) — third pass **executed** the guard and `mpe-cli` against real payloads rather than reading them. Findings, in order of weight:
+
+1. **`PI_MPE_MODULE` is a live remote command injection** in `mpe-cli` today, on the laptop profile, independent of this spec (§Layer 3 → *Config loading is the vulnerability*). **Fix it before Gate A; it is not gated on this spec.**
+2. **Layer 4 is agent-editable, not merely agent-bypassable.** The guard script is a git-tracked file in the repo the agent is employed to edit, and `check-yolo-gates.sh`'s own nerdrack detector keys off an agent-writable marker. Rev 2's "four layers are really two" understated it (§Layer weight).
+3. Rev 2's root-owned-config check as written **breaks the laptop**, contradicting this spec's own "laptop unchanged" requirement.
+4. Rev 2's session gate file was unforgeable but derived from an **agent-writable queue** — root ownership moved the forgery one hop upstream.
+5. Minor: `MPE_SURGE_LOG` is *not* an injection vector (it expands on the Pi); rev 2's `logs-surge` token description was wrong; the Phase 4/Phase 6 gate-proof assignment contradicted itself.
 
 ---
 
@@ -35,18 +43,30 @@ We want the YOLO agent to **run Pi tests** (Phase A) and optionally **bounded de
 | G5 | Deploy-class actions remain behind **`pi_soak`** (and related) queue gates. |
 | G6 | Defense in depth: Tailscale ACL + Pi SSH + `mpe-cli` + `yolo-shell-guard`. |
 
-**Layer weight (important):** Layers **1–2** (Tailscale ACL, forced-command wrapper) are **containment** — they hold even if Racknerd is compromised. Layers **3–4** (`mpe-cli`, shell guard) are **ergonomics and mistake prevention** on the agent host. Do not treat four layers as equal strength.
+**Layer weight (important): this is not four layers. It is one and a half.**
 
-**This is not a compromise scenario — it is the normal operating state.** The agent runs as `claude-sandbox` and that user *reads the `mpe-yolo` private key*, because `mpe-cli` needs it. `yolo-shell-guard.sh` is a `PreToolUse` hook: it inspects Bash **tool calls**, not `execve`. Any Python script, Makefile, or test module the agent writes can invoke `ssh -i mpe_yolo_ed25519 …` with the guard never consulted. No allowlist regex on Racknerd changes that.
+| Layer | What it actually is |
+|---|---|
+| **1 — Tailscale ACL** | **Containment.** Holds regardless of what runs on Racknerd. |
+| **2 — Pi forced command + token map** | **Containment** — *and today it is untested* (§Layer 2 test harness). Half a layer until it has one. |
+| **3 — `mpe-cli`** | Mistake-prevention. Lives on a host the agent controls. |
+| **4 — `yolo-shell-guard.sh`** | Mistake-prevention, **and the agent can edit the guard itself** (below). |
+
+**None of this is a compromise scenario — it is the normal operating state.** Three independent reasons, each verified by execution:
+
+1. The agent runs as `claude-sandbox` and that user *reads the `mpe-yolo` private key*, because `mpe-cli` needs it.
+2. `yolo-shell-guard.sh` is a `PreToolUse` hook: it inspects Bash **tool calls**, not `execve`. Any Python script, Makefile, or test module the agent writes can invoke `ssh -i mpe_yolo_ed25519 …` with the guard never consulted.
+3. **The guard is a git-tracked file in the repo the agent is employed to edit.** `sed -i s/x/y/ scripts/yolo/yolo-shell-guard.sh` returns `allow`. `claude-yolo.sh` launches with `--setting-sources project,local`, so the hook wiring in `.claude/settings.local.json` — gitignored, inside `$ROOT`, agent-writable — points at that editable script. Rev 2's threat table filed "Racknerd rewrites guard" under *compromise*. It is not a compromise; it is Tuesday.
 
 Therefore:
 
-> **The Pi token map in `mpe-yolo-remote.sh` is the complete definition of what the agent can do to the Pi.** Everything on Racknerd is mistake-prevention for a cooperative agent.
+> **The Pi token map in `mpe-yolo-remote.sh` is the complete definition of what the agent can do to the Pi.** Everything on Racknerd is mistake-prevention for a cooperative agent — and it is mistake-prevention the agent can delete.
 
-Two consequences that drive the rest of this spec:
+Three consequences that drive the rest of this spec:
 
-1. **Gate A review effort belongs on the token map** (§Layer 2), not on guard regexes. A token that is too broad is a real hole; a missing guard regex is an annoyance.
-2. **A control on Racknerd is only real if the agent user cannot forge its input.** Anything the agent can write — a config file it points at, a gate file it owns — is a comment, not a control. Both such holes are closed below (§Layer 3 config pinning, §Layer 4 session gate file); apply the same test to any control added later.
+1. **Gate A review effort belongs on the token map** (§Layer 2), not on guard regexes. A token that is too broad is a real hole; a missing guard regex is an annoyance. Regex *precision* on Racknerd is close to irrelevant given point 3 above — what matters about the guard is **who owns the file**, not what it matches.
+2. **A control on Racknerd is only real if the agent user cannot forge its input *or edit its implementation*.** Rev 2 applied only the first half of that test. Rev 3 applies both: anything the agent can write — a config it points at, a gate file it owns, a queue the gate reads, the guard script, the hook config, or the marker file that decides whether gates run at all — is a comment, not a control.
+3. **The one control that is real is the least tested.** The Pi wrapper is asserted to be the whole boundary and is verified only by manual `ssh` commands a human types once. That inversion is closed in Phase 2 (§Layer 2 test harness) and is a Gate A condition.
 
 ## Non-goals
 
@@ -81,7 +101,11 @@ When this spec and code disagree, **code wins until spec is updated** — never 
 | Agent runs `deploy-all.sh`, audio profile, systemd | Guard deny + forced-command deny + queue gates |
 | Agent runs raw `ssh`/`scp`/`rsync` | Guard deny **any** raw ssh/scp/rsync (not hostname-specific) |
 | YOLO `--dangerously-skip-permissions` | Narrow allowlist; no passthrough args to remote shell |
-| Compromised Racknerd rewrites guard or mpe-cli | **Not containable** at L3/L4 — rely on L1/L2 |
+| **Agent edits `yolo-shell-guard.sh` in the normal course of work** (git-tracked, in-repo; `sed -i` on it returns `allow`) | **Not containable while the guard lives in the repo.** Mitigated by moving guard + hook config to root-owned paths outside `$ROOT` (§Layer 4 guard ownership); until then, L4 is advisory |
+| **Agent deletes `.claude/settings.local.json` so `is_nerdrack()` returns false** — `check-yolo-gates.sh` then exits 0 with "laptop mode: skipped" and *no gate is checked at all* | Root-owned nerdrack marker outside `$ROOT` (§Layer 4 gate state) |
+| **Agent edits `.claude/primitives/yolo-queue.json` or writes `Status: Approved` into this spec file** — both are `mitch`-owned working-tree files that `check-yolo-gates.sh` reads; Gate A self-clears | Queue + approval state moved outside the agent-writable tree (§Layer 4 gate state) |
+| **Agent sets `PI_MPE_MODULE` and gets arbitrary command execution on the Pi as `mitch`** — live today, laptop profile included | Quote + validate in `mpe-cli`; **fix independent of this spec** (§Layer 3) |
+| Compromised Racknerd rewrites mpe-cli | **Not containable** at L3/L4 — rely on L1/L2 |
 | Agent edits `~/.config/mpe/mpe-yolo.env` (source = code exec) | Root-owned env (0444); guard deny writes under `.config/mpe/` |
 | Agent points `MPE_CLI_CONFIG` at a config **it** wrote (retarget host/key; `source` under `set -a` = code exec) | Guard requires the literal blessed path on every `mpe` call; `mpe-cli` rejects a non-root-owned config (§Layer 3) |
 | Agent forges the session gate file to fake a cleared `pi_soak` | Gate file lives in a root-owned directory the agent cannot write (§Layer 4) |
@@ -174,8 +198,8 @@ curl http://mediacenter:8096
 
 # Pi SSH auth (separate from ACL — wrong identity/key)
 ssh mitch@mpe-pi          # must fail (wrong user/key for agent path)
-# After Layer 3:
-MPE_CLI_CONFIG=/home/claude-sandbox/.config/mpe/mpe-yolo.env mpe ping   # must succeed
+# After Layer 3 (run as claude-sandbox; the wrapper supplies the environment):
+mpe-yolo ping             # must succeed
 ```
 
 ---
@@ -194,8 +218,12 @@ MPE_CLI_CONFIG=/home/claude-sandbox/.config/mpe/mpe-yolo.env mpe ping   # must s
 `/home/mpe-yolo/.ssh/authorized_keys` (example):
 
 ```text
-command="/usr/local/sbin/mpe-yolo-remote.sh",no-port-forwarding,no-X11-forwarding,no-agent-forwarding,no-pty,no-user-rc ssh-ed25519 AAAA... racknerd-yolo
+from="100.x.y.z",restrict,command="/usr/local/sbin/mpe-yolo-remote.sh" ssh-ed25519 AAAA... racknerd-yolo-2026-08
 ```
+
+- **`restrict`** (OpenSSH ≥ 7.2) is deny-by-default for all forwarding/PTY/user-rc options and stays correct as OpenSSH adds new ones. It replaces the rev-2 `no-port-forwarding,no-X11-forwarding,no-agent-forwarding,no-pty,no-user-rc` list, which was a hand-maintained allowlist of denials.
+- **`from="<Racknerd tailnet IP>"`** bounds a leaked key to one source. Defense in depth behind the L1 ACL, not a substitute for it — fill in the address at Phase 1 exit.
+- **Date the key comment** (`racknerd-yolo-2026-08`) so age is visible in `authorized_keys` without cross-referencing anything. Rotation remains manual (§Not in v1), and a visible date is what makes "manual" survivable.
 
 ### `mpe-yolo-remote.sh` (root-owned, 755, not writable by `mpe-yolo`)
 
@@ -226,13 +254,40 @@ The token table is a **closed set of literal strings**. A token carries no param
 | Token | Fixed command (intent) |
 |---|---|
 | `ping`, `status`, `sysinfo`, `diagnose`, `osc-check` | Corresponding read-only `mpe-cli` operation |
-| `logs-surge`, `logs-touch`, `logs-looper`, `logs-jackd`, `logs-watchdog` | Journal tail for that unit, **fixed at `MPE_LOG_LINES_MAX` (200) lines** |
+| `logs-touch`, `logs-looper`, `logs-jackd`, `logs-watchdog` | `journalctl -u <unit> -n 200 --no-pager` — **fixed at `MPE_LOG_LINES_MAX` (200) lines** |
+| `logs-surge` | **Not a journal tail.** Surge logs to a *file*: `commands/logs.sh` tails `${MPE_SURGE_LOG:-$HOME/surge-cli.log}`. The wrapper must hard-code that path — it must **not** honour a caller-supplied `MPE_SURGE_LOG`, and must not accept the variable over the wire at all |
 | `test-pi-<suite>` — one per name in `MPE_TEST_SUITE_NAMES` | Fixed suite→module list (§Layer 3) |
 | Phase B only: `deploy-dev`, `deploy-yolo-<slug>` | See Phase B branch enum (§Layer 3) |
 
 **`-n` does not exist in the YOLO profile.** Earlier drafts listed `logs-surge-50` as a token and separately allowed `-n` capped at 200, which implied either ~1000 literal tokens or an argument parser — the second reopening the injection surface the token map exists to close. The agent has no need for a tunable tail: it gets 200 lines or it asks Mitch. `mpe logs <unit> -n N` remains available on the **laptop** profile, where `mpe_cli_clamp_log_lines` handles it.
 
 New tokens require a change in **both** `mpe-yolo-remote.sh` and `mpe-cli`, plus a spec revision. Adding a token is a security change, not a feature.
+
+### Wrapper test harness (required — the boundary cannot be the untested part)
+
+Rev 2 verified the wrapper with a block of manual `ssh` commands a human runs once, while verifying the *guard* — explicitly labelled mistake-prevention — with an automated probe harness. That is exactly backwards.
+
+**Deliverable (Phase 2): `tests/test_mpe_yolo_remote.py`, run on the Pi.** It invokes `/usr/local/sbin/mpe-yolo-remote.sh` directly with `SSH_ORIGINAL_COMMAND` set, so it needs no SSH round trip and can run from cron:
+
+| Case | Assertion |
+|---|---|
+| Each token in the map | exit 0, expected command shape |
+| `ping; id`, `logs-surge -n 5000`, `bash`, `bash -s`, `deploy-all.sh`, `""` | exit 1, **and** the offending token appears verbatim in the log |
+| stdin payload present (`id`) with a valid token | token runs, payload never executes, **process returns promptly** (assert with a timeout — a hang is the failure mode `exec </dev/null` exists to prevent) |
+| Token set as a whole | **golden-file comparison** — any addition or removal fails the test |
+
+The golden-file case is what turns "adding a token is a security change, not a feature" from a sentence into a mechanism. Without it, that sentence is enforced by memory.
+
+### Concurrency lock (required — one YOLO session, enforced)
+
+The wrapper takes an **`flock`** on `/var/lock/mpe-yolo.lock` for the duration of any `test-pi-*` or deploy token, failing fast (non-blocking, exit 1, logged) rather than queueing.
+
+Two problems, one line:
+
+- The "one YOLO session at a time" invariant (§Not in v1) stops being unenforced.
+- An agent in a retry loop cannot pile concurrent `test-pi-all` runs onto hardware Mitch also uses — a self-DoS on the appliance that needs no malice, just a failing test and a stubborn retry.
+
+Read tokens (`ping`, `status`, `logs-*`) do not take the lock; they are cheap and non-mutating.
 
 ### sudoers (Mitch-only gate — specify before Phase 2)
 
@@ -303,29 +358,78 @@ PI_USER=mpe-yolo
 SSH_KEY=/home/claude-sandbox/.ssh/mpe_yolo_ed25519
 ```
 
-**Session wiring:** export `MPE_CLI_CONFIG=/home/claude-sandbox/.config/mpe/mpe-yolo.env` in `claude-yolo.sh` / bootstrap — never overwrite laptop `~/.config/mpe/mpe.env`.
+**Session wiring:** **not** an export in `claude-yolo.sh` — that is an ordinary environment variable in a session the agent controls. The pointer is supplied by the root-owned `/usr/local/bin/mpe-yolo` wrapper via `env -i` (below), which is the only sanctioned entrypoint. Never overwrite laptop `~/.config/mpe/mpe.env`.
 
-#### Pin the pointer, not just the file (required)
+#### Config loading is the vulnerability (required — and partly independent of this spec)
 
-A read-only config is worthless while the *pointer to it* is an ordinary environment variable. In [`lib/config.sh`](https://github.com/MitchSchwartz/mpe-cli/blob/main/lib/config.sh):
+Rev 2 framed this as "pin the pointer as well as the file." That was necessary but not close to sufficient. `mpe_cli_load_config` has three separate defects, and the first one is a live remote-code-execution bug that exists today with or without Racknerd.
 
-```bash
-MPE_CLI_CONFIG="${MPE_CLI_CONFIG:-${HOME}/.config/mpe/mpe.env}"
-```
-
-and the file is sourced under `set -a` — so `source` is code execution, and any writable path the agent chooses retargets `PI_HOST` / `PI_USER` / `SSH_KEY` wholesale:
+##### 🔴 `PI_MPE_MODULE` is remote command injection — fix now, do not wait for Gate A
 
 ```bash
-printf 'PI_HOST=evil\nPI_USER=root\nSSH_KEY=/tmp/k\n' > /tmp/x.env
-MPE_CLI_CONFIG=/tmp/x.env mpe ping     # 0444 blessed config never consulted
+mpe_cli_load_config() {
+    if [ -f "$MPE_CLI_CONFIG" ]; then
+        set -a; source "$MPE_CLI_CONFIG"; set +a
+    fi
+    PI_MPE_MODULE="${PI_MPE_MODULE:-}"      # preserves the caller's env value
+}
 ```
 
-Two independent fixes; **implement both** (belt and braces, and neither is sufficient alone — the guard misses non-Bash callers, the CLI check misses nothing but lives on a host the agent can edit):
+`PI_MPE_MODULE` flows into `mpe_cli_pi_source_line`, which is interpolated **unquoted** into the `bash -s` heredoc in `lib/ssh.sh`. Verified by execution:
 
-1. **`mpe-cli` (Phase 3):** `mpe_cli_load_config` refuses a config that is not **root-owned and non-group/other-writable**, exiting non-zero with a clear message. This is correct behavior for the laptop too — it costs nothing there and closes the retarget path generally.
-2. **`yolo-shell-guard.sh` (Phase 4):** every allowlisted `mpe` invocation must carry the **literal** string `MPE_CLI_CONFIG=/home/claude-sandbox/.config/mpe/mpe-yolo.env`. Any `mpe` call with a different `MPE_CLI_CONFIG=`, or with none, is **denied**.
+```bash
+$ PI_MPE_MODULE='/tmp/pwn; id #'   # → mpe_cli_pi_source_line emits:
+source /tmp/pwn; id #/scripts/lib/paths.sh
+```
 
-Note the existing "deny writes under `.config/mpe/`" rule does **not** cover this — the attack writes somewhere else entirely.
+That runs on the Pi, as `mitch`, in **every** `mpe_cli_remote_bash` call — which is most of `commands/logs.sh`, `commands/test.sh`, and `commands/looper.sh`. It is reachable from the laptop profile today; Racknerd merely adds a second caller. **This is a `mpe-cli` bug, not a spec deliverable.** Fix it on its own schedule: validate `PI_MPE_MODULE` against a path charset (no `;`, no spaces, no `$`, no backticks) and quote the interpolation.
+
+Note for the record: `MPE_SURGE_LOG` is **not** a comparable vector — `commands/logs.sh` escapes it so it expands on the Pi from the Pi's environment. Rev 3 checked; it is clean.
+
+##### 🔴 A missing config file is a silent no-op, so the environment supplies the target
+
+The `[ -f ]` guard has no `else`. If the blessed path is absent, unreadable, or simply renamed, `mpe_cli_require_config` is satisfied by inherited environment variables. Verified by execution:
+
+```bash
+MPE_CLI_CONFIG=/nonexistent PI_USER=evil PI_HOST=evil.host SSH_KEY=/etc/hostname
+# → mpe_cli_require_config passes cleanly; every var is non-empty, SSH_KEY exists
+```
+
+So a command line carrying the blessed literal path — satisfying any guard rule that checks for it — can still target an arbitrary host with an arbitrary key. **Fix:** a config path that does not exist or is not readable is a hard error, not a fallthrough.
+
+##### 🟡 The root-owned-config check as written in rev 2 breaks the laptop
+
+Rev 2 claimed a root-owned requirement "costs nothing" on the laptop. It costs everything: `~/.config/mpe/mpe.env` is `mitch`-owned, and the check bricks every laptop `mpe` command — directly contradicting this spec's own "Laptop: Mitch admin path unchanged" acceptance line.
+
+The obvious repair fails too. "Root-owned **or** owned by the invoking user" is satisfied by `/tmp/x.env`, which `claude-sandbox` owns. **There is no owner-based predicate that is both laptop-safe and agent-proof**, because on the laptop the invoking user *is* the trust anchor and on Racknerd it is the adversary.
+
+**Fix — stop pretending this is containment.** Gate it on the profile, and say plainly what it is worth:
+
+- Root-owned Racknerd wrapper sets `MPE_CLI_REQUIRE_ROOT_CONFIG=1`; `mpe_cli_load_config` enforces root ownership and non-group/other-writability only when that is set.
+- The agent can unset it. Per §Layer weight that is acceptable — this is mistake-prevention, not a boundary. Rev 2's "belt and braces, neither sufficient alone" was wrong: both "braces" live on the host the agent controls.
+
+##### The wrapper, not the regex (replaces rev 2's literal-string guard rule)
+
+Rev 2 required every allowlisted `mpe` call to carry the literal `MPE_CLI_CONFIG=/home/claude-sandbox/.config/mpe/mpe-yolo.env`. The guard is `grep -qE` over the raw command string, so a decoy assignment satisfies it:
+
+```bash
+: MPE_CLI_CONFIG=/home/claude-sandbox/.config/mpe/mpe-yolo.env; MPE_CLI_CONFIG=/tmp/x.env mpe ping
+```
+
+A prior `export` in an earlier tool call works as well. **Required instead:** a root-owned `/usr/local/bin/mpe-yolo` wrapper that the agent cannot edit:
+
+```bash
+#!/bin/bash
+exec /usr/bin/env -i \
+  PATH=/usr/bin:/bin HOME=/home/claude-sandbox \
+  MPE_CLI_CONFIG=/home/claude-sandbox/.config/mpe/mpe-yolo.env \
+  MPE_CLI_REQUIRE_ROOT_CONFIG=1 \
+  /home/claude-sandbox/.local/bin/mpe "$@"
+```
+
+`env -i` clears the environment, which closes `PI_MPE_MODULE`, `PI_HOST`, `SSH_KEY`, and every future variable of the same shape in one move — a property no regex has. The guard then allowlists **one binary name** and denies bare `mpe`, which is a rule that can actually be written; "deny anything not matching an allowlist" over arbitrary shell **cannot** be (see §Layer 4).
+
+Note the existing "deny writes under `.config/mpe/`" rule does **not** cover any of this — the attacks write somewhere else entirely, or nowhere at all.
 
 ### Phase 3 deliverable — token dispatch mode
 
@@ -358,6 +462,8 @@ No free-form remote arguments. New suites require mpe-cli change + spec referenc
 | Subcommand | Gate | Notes |
 |---|---|---|
 | `mpe looper deploy <branch>` | **`pi_soak` cleared** (session gate file) | `<branch>` enum: **`dev`** or **`yolo/*`** only — add `mpe_cli_validate_yolo_branch` in mpe-cli (today `validate_git_branch` is charset-only, not pattern) |
+
+**Also fix the base validator, not just the new enum.** `mpe_cli_validate_git_branch` is `^[a-zA-Z0-9/_.-]+$`, which matches `../../etc/passwd` and `/etc/x` — a traversal primitive anywhere a branch string reaches a path. No Phase A path reaches it, so this is not a Phase A blocker, but fix it in `lib/validate.sh` rather than papering over it one caller at a time.
 | `git checkout` on Pi | **`pi_soak`** | Only via deploy token, not raw git |
 
 **Phase B threat — test after deploy:** Agent can merge code to `yolo/*`, deploy to Pi, then run `mpe test pi` — unittest executes **as `mitch`**. Mitigations (pick before enabling Phase B):
@@ -373,6 +479,7 @@ Document chosen mitigation in DECISIONS.md before Phase 6.
 **Still denied on Racknerd (all phases):**
 
 - `mpe restart *`
+- **`mpe looper` mutating subcommands** — `deploy` (Phase A), `debug`, `enable`, `disable`, `buffer`. These already issue `sudo systemctl restart …` and `sudo bash -c 'sed -i … /etc/mpe/mpe.env'` directly (`commands/looper.sh`). Not reachable in Phase A because the subcommand is not allowlisted, but name them here so nobody widens the allowlist casually
 - `deploy-all.sh`, profile scripts (direct or via SSH)
 - Raw **`ssh`, `scp`, `rsync`** (any host)
 - Edits to **`~/.config/mpe/`** (any file)
@@ -386,25 +493,72 @@ Implement new capability as **mpe-cli subcommands** per appliance-cli pattern �
 
 The guard is **allow-by-default** — `yolo-shell-guard.sh` runs a list of deny rules and ends in `allow`. Pi access requires **new deny rules**, not bolting an allowlist onto the final `allow`.
 
-**Scope reminder:** this layer stops a cooperative agent from making a mistake. It does not stop `ssh -i <key>` called from inside a Python script, because the hook sees Bash tool calls only (§Layer weight). Budget review time accordingly.
+**Scope reminder:** this layer stops a cooperative agent from making a mistake. It does not stop `ssh -i <key>` called from inside a Python script (the hook sees Bash tool calls only), and — until the ownership fix below lands — it does not stop the agent editing the guard itself. Budget review time accordingly: **very little of it belongs here.**
+
+### 🔴 Guard ownership (prerequisite for every other Layer 4 item)
+
+Every change in the next table is a change to `scripts/yolo/yolo-shell-guard.sh` — a git-tracked file inside the repo the agent edits all day. Verified: `sed -i s/x/y/ scripts/yolo/yolo-shell-guard.sh` → `allow`. The hook that invokes it is wired in `.claude/settings.local.json`, gitignored and inside `$ROOT`, loaded via `claude-yolo.sh`'s `--setting-sources project,local`.
+
+Writing better regexes into an agent-editable file is not a security change. Required first:
+
+| Item | Requirement |
+|---|---|
+| Guard script | Root-owned at an absolute path outside `$ROOT` — **`/usr/local/sbin/yolo-shell-guard.sh`**, mode 0755, not writable by `claude-sandbox`. The in-repo copy becomes a *source* artifact that Mitch installs, not the file the hook runs |
+| Hook config | Settings file outside `$ROOT`, root-owned, referencing the absolute guard path. Drop `local` from `--setting-sources` on Racknerd if a project-local settings file can still override the hook |
+| Drift check | `check-guardrails.sh` asserts the installed guard's hash matches the repo copy — otherwise a stale root-owned guard silently diverges from the reviewed one |
+
+Without this, treat every row below as documentation of intent rather than enforcement, and do not count it toward Gate A.
 
 ### Required guard changes
 
 | Change | Rationale |
 |---|---|
 | Deny **all** raw `ssh`, `scp`, `rsync` (any host) | Replace the current `raspberrypi` hostname match — today `ssh mitch@mpe-pi` **allows** |
-| Deny **any** `mpe` invocation not matching Phase A/B allowlist regex | Includes **`/path/to/mpe …`** path-prefix bypass — today `(^|[;&|[:space:]])mpe[[:space:]]+restart` does not match `/home/claude-sandbox/.local/bin/mpe restart` |
-| Deny any `mpe` call whose `MPE_CLI_CONFIG=` is absent or is not the blessed literal path | Closes the config-pointer retarget (§Layer 3) |
+| Allowlist the **`mpe-yolo` wrapper only**; deny bare `mpe` and `/path/to/mpe` | Replaces rev 2's "deny anything not matching an allowlist regex", which is not expressible (see below). Also closes the path-prefix bypass — today `(^|[;&|[:space:]])mpe[[:space:]]+restart` does not match `/home/claude-sandbox/.local/bin/mpe restart` |
+| Deny writes to the **installed guard path and hook config** | Cheap backstop once ownership is fixed; the permissions are the real control |
+| Fix `rm -rf` flag-order gap: `rm -fr /etc/foo` currently returns **allow** | Guard rule requires `r` before `f`. Also unhandled: `rm -r -f /`, `rm --recursive --force /` |
 | Deny writes to **`.config/mpe/`** | Config `source` under `set -a` is code execution + host retarget |
 | Deny **`--allow-partial`** on any `mpe test` invocation | Spec forbids it on Racknerd; nothing enforced it before |
 | Deny **`mpe restart`** (keep existing, fix path-prefix) | Mitch-only |
 | Deny Phase B deploy tokens unless **session gate file** shows `pi_soak` cleared | Per-command enforcement — not session-start-only |
 
-### Session gate file (new — closes pi_soak gap)
+**Why "deny unless allowlisted" is not a rule you can write here.** The guard greps a raw command string with no shell parsing — hence the `[^;|]*` hacks throughout the existing rules. Verified bypasses of the current deny rules, all returning `allow`:
 
-`check-yolo-gates.sh` validates gates once at session start and **exits leaving no artifact**, so nothing at Bash-hook time can know whether `pi_soak` was cleared. The gate file closes that.
+```bash
+bash -c 'mpe restart surge'      # allow — subshell string not decomposed
+m""pe restart surge              # allow — quote splitting defeats the literal
+rm -fr /etc/foo                  # allow — flag-order gap
+echo "onecli agents"             # deny — false positive: matches inside a quoted string
+```
 
-**It must not be forgeable by the agent.** A file at `~/.cache/mpe-yolo/session-gates.json` mode 600 is *owned by `claude-sandbox`* — the agent writes its own permission slip and the gate becomes a comment. Required instead:
+The last line is the same defect pointing the other way, and it means the guard will block an agent merely *writing documentation about* the guard. Raw-string matching produces both failure modes at once; that is the argument for the `env -i` wrapper (§Layer 3), which does not depend on parsing at all.
+
+### Gate state must leave the agent-writable tree (🔴 — supersedes rev 2's gate file design)
+
+`check-yolo-gates.sh` validates gates once at session start and **exits leaving no artifact**, so nothing at Bash-hook time can know whether `pi_soak` was cleared. Rev 2 proposed a root-owned session gate file to close that. The file was unforgeable; **everything it derived from was not.**
+
+Three agent-writable inputs, each sufficient on its own to defeat the gate:
+
+| Input | Path | Effect |
+|---|---|---|
+| **Nerdrack marker** | `$ROOT/.claude/settings.local.json` (gitignored) or `$ROOT/.yolo/headless` | `is_nerdrack()` returns false → `check-yolo-gates.sh` prints "laptop mode: skipped" and **exits 0 without checking any gate**. Delete one file and the entire gate system is off |
+| **Queue** | `$ROOT/.claude/primitives/yolo-queue.json` (`mitch`-owned, in-tree) | Agent writes `status: ready`, `spec_approved: true`, cleared `human_gates`. The rev-2 helper "derives cleared gates itself" — from this file |
+| **Spec approval** | this document, in-tree | `check-yolo-gates.sh` greps `^\*?Status:\*?\s*Approved`. **The agent can approve its own spec** |
+
+The guard denies `enqueue-yolo-task.sh (approve|clear-gate)`, but nothing stops `python3 -c` writing the JSON directly — and per §Layer weight, nothing on Racknerd could.
+
+**Required:** move all three outside the agent's write path before any of this is called a gate.
+
+| Item | Requirement |
+|---|---|
+| Nerdrack marker | Root-owned `/etc/mpe-yolo/headless`, not in `$ROOT` |
+| Queue | Root-owned `/var/lib/mpe-yolo/queue.json`, synced from the laptop by Mitch; `check-yolo-gates.sh` reads that path on Racknerd |
+| Spec approval | Approval recorded in the root-owned queue entry (spec path + content hash), **not** grepped out of a working-tree Markdown file |
+| Task identity | Derived from the root-owned queue, **not** from `YOLO_TASK_ID` — that is agent-set environment, and rev 2's staleness rule compared the gate file against exactly it |
+
+### Session gate file (given the above)
+
+**It must not be forgeable by the agent** — and neither may its inputs. A file at `~/.cache/mpe-yolo/session-gates.json` mode 600 is *owned by `claude-sandbox`*: the agent writes its own permission slip. Required instead:
 
 | Property | Requirement |
 |---|---|
@@ -412,13 +566,19 @@ The guard is **allow-by-default** — `yolo-shell-guard.sh` runs a list of deny 
 | Writer | `check-yolo-gates.sh` via a small root-owned setuid-free helper invoked through a **narrow sudoers entry** (`claude-sandbox` may run *that one script*, nothing else) |
 | Reader | `yolo-shell-guard.sh`, on every Bash hook |
 | Content | Cleared gate names for the **current `YOLO_TASK_ID`**, plus the task id itself |
-| Staleness | Guard denies if the file's task id ≠ current `YOLO_TASK_ID`, or if the file is missing |
+| Staleness | Guard denies if the file's task id ≠ the task id in the **root-owned queue**, or if the file is missing. **Not** `YOLO_TASK_ID` — that is agent-set |
 
-The writer helper takes **no arguments from the agent**: it re-reads `yolo-queue.json` and derives cleared gates itself, exactly as `check-yolo-gates.sh` does today. The agent can trigger a refresh; it cannot dictate the contents.
+The writer helper takes **no arguments from the agent**: it re-reads the **root-owned** queue and derives cleared gates itself. The agent can trigger a refresh; it cannot dictate the contents. (Rev 2 said the same sentence about the *in-tree* queue, where it was false.)
 
-If the sudoers helper is judged not worth it for v1, the honest alternative is to **not ship Phase B at all** — an agent-writable gate file is worse than no gate, because it reads as enforcement in every subsequent review.
+If the sudoers helper and the root-owned queue are judged not worth it for v1, the honest alternative is to **not ship Phase B at all** — an agent-writable gate chain is worse than no gate, because it reads as enforcement in every subsequent review.
 
-**Verification:** Phase 6 exit must prove **denial** with `pi_soak` uncleared, and must prove the agent cannot flip it: `echo '{"pi_soak":true}' > /var/lib/mpe-yolo/session-gates.json` must fail on permissions.
+**Verification (Phase 4 exit — see phase table; rev 2 said "Phase 6" here and "Phase 4" in the table):** prove **denial** with `pi_soak` uncleared, and prove the agent cannot flip it at any link in the chain:
+
+```bash
+echo '{"pi_soak":true}' > /var/lib/mpe-yolo/session-gates.json   # must fail on permissions
+echo '{}' > /var/lib/mpe-yolo/queue.json                         # must fail on permissions
+rm /etc/mpe-yolo/headless                                        # must fail on permissions
+```
 
 ### `scripts/yolo/check-pi-access-lockdown.sh`
 
@@ -432,18 +592,32 @@ Mirror `check-onecli-lockdown.sh` pattern. Include **negative** probes:
 - `/home/claude-sandbox/.local/bin/mpe restart surge` (path-prefix)
 - `bash -c 'mpe restart surge'`
 - `echo x > ~/.config/mpe/mpe-yolo.env`
-- `MPE_CLI_CONFIG=/tmp/x.env mpe ping` — **config-pointer retarget** (§Layer 3)
-- `mpe ping` — bare, no `MPE_CLI_CONFIG` at all
-- `MPE_CLI_CONFIG=/home/claude-sandbox/.config/mpe/mpe-yolo.env mpe test pi audio --allow-partial`
-- `MPE_CLI_CONFIG=/home/claude-sandbox/.config/mpe/mpe-yolo.env mpe logs surge -n 5000` — `-n` not in YOLO profile
+- `mpe ping`, `/home/claude-sandbox/.local/bin/mpe ping` — bare CLI; only the `mpe-yolo` wrapper is allowlisted
+- `mpe-yolo test pi audio --allow-partial`
+- `mpe-yolo logs surge -n 5000` — `-n` not in YOLO profile
+- `bash -c 'mpe restart surge'` and `m""pe restart surge` — **known-failing today**; both return `allow`
+- `rm -fr /etc/foo` — **known-failing today**; flag-order gap
+- `sed -i s/x/y/ /usr/local/sbin/yolo-shell-guard.sh` — guard self-edit
 - Phase B deploy command with session gate file **without** `pi_soak`
-- `echo '{"pi_soak":true}' > /var/lib/mpe-yolo/session-gates.json` — gate-file forgery
+
+**Allow probes that must stay allowed (false-positive regression):**
+
+- `echo "notes about the onecli guard"` — **known-failing today**: returns `deny` because rules match inside quoted strings. Fix or accept explicitly; do not leave it undocumented
+
+**Filesystem probes — `probe_deny` cannot observe these.** `probe_deny` inspects only the guard's JSON verdict, so permission-based controls need a separate assertion helper (`probe_write_fails`) in the same script. Rev 2 listed these among the guard deny probes, where they would have passed vacuously:
+
+- `echo '{"pi_soak":true}' > /var/lib/mpe-yolo/session-gates.json`
+- `echo '{}' > /var/lib/mpe-yolo/queue.json`
+- `rm /etc/mpe-yolo/headless`
+- `sed -i s/x/y/ /usr/local/sbin/yolo-shell-guard.sh` (permission check, distinct from the guard rule above)
+
+**CLI-behaviour probes — also not guard probes.** `MPE_CLI_CONFIG=/tmp/x.env mpe ping` being *refused by `mpe-cli` itself* is a `mpe-cli` unit test, not a hook probe. Assert it there; the acceptance checklist demands both paths and only one of them is observable here.
 
 **Allow probes (Phase A enabled):**
 
-- `MPE_CLI_CONFIG=/home/claude-sandbox/.config/mpe/mpe-yolo.env mpe ping`
-- `MPE_CLI_CONFIG=/home/claude-sandbox/.config/mpe/mpe-yolo.env mpe test pi audio`
-- `MPE_CLI_CONFIG=/home/claude-sandbox/.config/mpe/mpe-yolo.env mpe logs surge`
+- `mpe-yolo ping`
+- `mpe-yolo test pi audio`
+- `mpe-yolo logs surge`
 
 **Known-blind-spot probe (documents the limit; asserts `allow`, does not fix it):**
 
@@ -493,9 +667,9 @@ bash scripts/yolo/enqueue-yolo-task.sh approve --id my-task
 |---|---|---|
 | **0 — Gate A** | This spec approved | Mitch marks **Status: Approved** — **Phase A scope only** (see below) |
 | **1 — Tailscale** | Pi + Racknerd on tailnet; ACL deployed | TCP `:22` OK; other ports/LAN unreachable; `tailscale ping` supplementary |
-| **2 — Pi SSH** | `mpe-yolo` user + `mpe-yolo-remote.sh` (fixed token table, `exec </dev/null`) + narrow sudoers | No interactive shell; **stdin discarded, never hangs**; full-string token match; audit log writes incl. rejected tokens; no `bash -s` path |
-| **3 — mpe-cli** | Racknerd install + root-owned yolo env + **token dispatch** + **root-owned-config check** | Manual: `MPE_CLI_CONFIG=… mpe test pi audio` from Racknerd reaches Pi; **no heredoc stdin** on wire; `MPE_CLI_CONFIG=/tmp/x.env mpe ping` refused by the CLI itself |
-| **4 — Guards** | shell-guard updates + **root-owned** session gate file + `check-pi-access-lockdown.sh` | `check-guardrails.sh` green on Racknerd; all deny probes deny; gate-file forgery fails on permissions |
+| **2 — Pi SSH** | `mpe-yolo` user + `mpe-yolo-remote.sh` (fixed token table, `exec </dev/null`, `from=`/`restrict` key, `flock`) + narrow sudoers + **`tests/test_mpe_yolo_remote.py`** | No interactive shell; **stdin discarded, never hangs**; full-string token match; audit log incl. rejected tokens; no `bash -s` path; **wrapper test suite green, golden token file committed** |
+| **3 — mpe-cli** | `PI_MPE_MODULE` injection fix + hard-error on missing config + Racknerd install + root-owned yolo env + **token dispatch** + profile-gated root-config check | `PI_MPE_MODULE='/tmp/x; id #'` no longer reaches the wire (**unit test**); `MPE_CLI_CONFIG=/nonexistent PI_HOST=evil mpe ping` exits non-zero; `mpe-yolo test pi audio` reaches Pi; **no heredoc stdin** on wire; **laptop `mpe` still works** |
+| **4 — Guards** | **Root-owned guard + hook config + queue + nerdrack marker** (prerequisite), then shell-guard rule updates + session gate file + `check-pi-access-lockdown.sh` | `check-guardrails.sh` green; installed-guard hash matches repo copy; all deny probes deny; **all four forgery writes fail on permissions**; `rm -fr` and `bash -c` gaps closed |
 | **5 — YOLO smoke** | Queued task: run Pi test suite only | YOLO log shows Pi test run; exit ≠ 3; no deploy; **Phase A invariant asserted** — Pi checkout ref is Mitch-controlled and carries no agent-authored commit |
 | **6 — Deploy (opt.)** | `mpe looper deploy` + `pi_soak` session gate | Supervised deploy with gate cleared; **deny probe** with gate uncleared |
 
@@ -513,8 +687,9 @@ YOLO returns to unit-test-only on VPS.
 
 **Not in v1:**
 
-- **Concurrent session locking** (two tasks hitting one Pi). v1 therefore carries an **unenforced invariant: one YOLO session at a time**. This matters most for Phase B, where deploy-then-test is a non-atomic sequence on shared hardware — a second session can deploy between the two steps. Enforce with a lock on the Pi before Phase B ships.
-- **Key rotation on Racknerd rebuild** — the rollback procedure covers revocation; rotation is manual until documented in DECISIONS.
+- ~~**Concurrent session locking**~~ — **moved into v1** as an `flock` in the Pi wrapper (§Layer 2). It also bounds agent retry loops against shared hardware, which made it too cheap to defer.
+- **Key rotation on Racknerd rebuild** — the rollback procedure covers revocation; rotation is manual until documented in DECISIONS. Mitigated slightly by dating the `authorized_keys` comment (§Layer 2) so age is visible. Add a revoke-on-suspicion trigger to the rollback list before Phase B.
+- **False-positive guard matches inside quoted strings** — documented as a known-failing allow probe (§probe list) rather than fixed.
 
 ---
 
@@ -532,6 +707,20 @@ This list is the canonical gate; the per-phase exit criteria above are its worki
 - [ ] Pi: sudoers drop-in reviewed line by line — no open `bash`, `apt`, `systemctl`, `deploy-all.sh`  
 - [ ] Pi: **token table reviewed as the sole boundary** (§Layer weight) — signed off by Mitch  
 - [ ] Pi: `/var/log/mpe-yolo-remote.log` written, logrotate in place  
+- [ ] Pi: **`tests/test_mpe_yolo_remote.py` green**, golden token file committed — the boundary is tested, not just described  
+- [ ] Pi: `authorized_keys` uses `restrict` + `from="<racknerd tailnet IP>"`, key comment carries its creation date  
+- [ ] Pi: `flock` held for `test-pi-*`; second concurrent invocation fails fast and is logged  
+
+**Prerequisite code fix (not gated on this spec)**
+
+- [ ] `mpe-cli`: `PI_MPE_MODULE` injection closed and unit-tested — `PI_MPE_MODULE='/tmp/x; id #'` cannot reach the remote heredoc  
+- [ ] `mpe-cli`: missing/unreadable `MPE_CLI_CONFIG` is a hard error; env-supplied `PI_HOST`/`PI_USER`/`SSH_KEY` cannot stand in for it  
+
+**Ownership (must land before any L3/L4 item counts)**
+
+- [ ] Racknerd: guard installed root-owned at `/usr/local/sbin/`, hook config outside `$ROOT`, installed-vs-repo hash checked  
+- [ ] Racknerd: queue at `/var/lib/mpe-yolo/queue.json`, nerdrack marker at `/etc/mpe-yolo/headless`, both root-owned  
+- [ ] Racknerd: spec approval read from the root-owned queue, **not** grepped from a working-tree file  
 
 **Phase A invariant**
 
@@ -539,17 +728,19 @@ This list is the canonical gate; the per-phase exit criteria above are its worki
 
 **Mistake-prevention (L3–L4) — real, but not containment**
 
-- [ ] Racknerd: `MPE_CLI_CONFIG=/home/claude-sandbox/.config/mpe/mpe-yolo.env mpe ping` → OK  
-- [ ] Racknerd: `mpe test pi audio` → reaches Pi; **exit 0 only if full suite ran** (exit 3 = fail)  
-- [ ] Racknerd: `MPE_CLI_CONFIG=/tmp/x.env mpe ping` → **denied by guard *and* refused by `mpe-cli`** (both paths)  
-- [ ] Racknerd: bare `mpe ping` with no `MPE_CLI_CONFIG` → guard deny  
-- [ ] Racknerd: `mpe test pi audio --allow-partial` → guard deny  
+- [ ] Racknerd: `mpe-yolo ping` → OK (root-owned `env -i` wrapper is the only entrypoint)  
+- [ ] Racknerd: `mpe-yolo test pi audio` → reaches Pi; **exit 0 only if full suite ran** (exit 3 = fail)  
+- [ ] Racknerd: bare `mpe ping` and `/path/to/mpe ping` → guard deny  
+- [ ] Racknerd: `mpe-yolo test pi audio --allow-partial` → guard deny  
+- [ ] `mpe-cli` unit test: `MPE_CLI_CONFIG=/tmp/x.env` refused when `MPE_CLI_REQUIRE_ROOT_CONFIG=1` (**not** a guard probe — see §probe list)  
+- [ ] Laptop regression: profile-gated root-config check does **not** fire on `mitch`-owned `~/.config/mpe/mpe.env`  
 - [ ] Racknerd: `ssh mitch@mpe-pi` **and** `ssh mpe-yolo@mpe-pi ping` → guard deny (before SSH)  
 - [ ] YOLO: `deploy-all.sh` → guard deny  
 - [ ] YOLO: `mpe restart surge` and `/path/mpe restart surge` → guard deny  
 - [ ] YOLO: `racknerd onecli` / raw `ssh` / `scp` / `rsync` → guard deny  
 - [ ] YOLO: write to `~/.config/mpe/` → guard deny  
-- [ ] YOLO: write to `/var/lib/mpe-yolo/session-gates.json` → **fails on permissions**  
+- [ ] YOLO: `bash -c 'mpe restart surge'`, `m""pe restart surge`, `rm -fr /etc/foo` → guard deny (**all three return `allow` today**)  
+- [ ] YOLO: writes to `/var/lib/mpe-yolo/session-gates.json`, `/var/lib/mpe-yolo/queue.json`, `/etc/mpe-yolo/headless`, `/usr/local/sbin/yolo-shell-guard.sh` → **all fail on permissions**  
 - [ ] Harness documents the `ssh`-from-Python blind spot as a passing `allow` probe  
 
 **Unchanged**
@@ -563,7 +754,8 @@ This list is the canonical gate; the per-phase exit criteria above are its worki
 - [`docs/local-vs-nerdrack-dev.md`](local-vs-nerdrack-dev.md) — Pi row, Phase A/B table  
 - [`AGENTS.md`](../AGENTS.md) — Racknerd Pi rules vs laptop  
 - [`Documents/DECISIONS.md`](../Documents/DECISIONS.md) — dated approval row  
-- `mpe-cli` — token dispatch, yolo profile, branch enum, **root-owned-config check in `lib/config.sh`**, AGENTS.md allowlist strings  
+- `mpe-cli` — **`PI_MPE_MODULE` injection fix (ship independently)**, hard-error on missing config, profile-gated root-config check in `lib/config.sh`, `..`/leading-`/` rejection in `mpe_cli_validate_git_branch`, token dispatch, yolo profile, branch enum, AGENTS.md allowlist strings (now `mpe-yolo`, not `MPE_CLI_CONFIG=… mpe`)  
+- `AGENTS.md` / `claude-yolo.sh` — guard and hook config move to root-owned absolute paths; `--setting-sources` reviewed so a project-local file cannot override the hook  
 - OM-Repo `Docs/appliance-cli-pattern.md` — Racknerd yolo profile subsection  
 
 ---
@@ -578,10 +770,13 @@ When approved, change **Status** line at top to `Approved` and record date here.
 
 **Do not approve Phase A+B together** until session gate enforcement (§Layer 4) and Phase B test-after-deploy mitigation (§Layer 3) are implemented and probed.
 
-**What Gate A is actually approving.** Not four layers of defense — two. Approving this means accepting:
+**What Gate A is actually approving.** Rev 1 said four layers of defense. Rev 2 said two. Rev 3, after executing the code rather than reading it, says **one and a half**. Approving this means accepting:
 
-1. The **Pi token table** is correct and minimal, because it is the only thing standing between an agent with a working SSH key and the appliance (§Layer weight).
-2. The **Phase A invariant** holds and is checked: the Pi's checkout carries no agent-authored commit, because `test-pi-*` runs Python as `mitch` (§Layer 2).
-3. Racknerd's guard and CLI are **mistake-prevention**, valuable but bypassable by any non-Bash caller — and the probe harness says so out loud rather than implying otherwise.
+1. The **Tailscale ACL** (L1) is the one control that holds unconditionally.
+2. The **Pi token table** (L2) is the only thing standing between an agent with a working SSH key and the appliance — and it is *half* a layer until `tests/test_mpe_yolo_remote.py` exists, because an untested boundary is an asserted one. Reviewing the token map is the whole of Gate A's security value.
+3. The **Phase A invariant** holds and is checked: the Pi's checkout carries no agent-authored commit, because `test-pi-*` runs Python as `mitch` (§Layer 2).
+4. Racknerd's guard and CLI are **mistake-prevention that the agent can edit**, not merely bypass. Rev 2 conceded bypass-by-non-Bash-caller; rev 3 concedes that the guard script, its hook config, the queue it reads, and the marker that decides whether gates run at all are all files the agent writes in the normal course of its job. The ownership fixes in §Layer 4 change that; **until they land, no L3/L4 item should be counted as a control in any review.**
 
-If any of those three reads as uncomfortable, that discomfort is the accurate one; the earlier four-equal-layers framing was not.
+If any of those reads as uncomfortable, that discomfort is the accurate one. Two framings in this document have already been wrong in the same direction — both overcounted defense — so the prior should be that the remaining count is still generous, not harsh.
+
+**Ordering note.** The `PI_MPE_MODULE` injection (§Layer 3) is a live `mpe-cli` bug reachable from the laptop today. It is listed here for completeness but **must not wait on this gate** — fix and ship it independently.
