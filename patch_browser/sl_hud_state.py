@@ -27,14 +27,16 @@ def read_sl_hud_state(*, now: float | None = None) -> dict:
 
     updated = float(raw.get("updated_at") or 0.0)
     source = str(raw.get("source") or "")
-    stale_s = TRANSPORT_STALE_AFTER_S if source == "jack_transport" else STALE_AFTER_S
+    stale_s = TRANSPORT_STALE_AFTER_S if source in ("jack_transport", "sl_internal") else STALE_AFTER_S
     if updated <= 0 or (now - updated) > stale_s:
         return {}
 
     beat = raw.get("beat")
     bar = raw.get("bar")
 
-    if source == "jack_transport":
+    # Both live-clock producers publish their own truth; trust it rather than
+    # re-deriving from loop_len, which is 0.0 when the clock is not a loop.
+    if source in ("jack_transport", "sl_internal"):
         playing = bool(raw.get("playing"))
         has_master = bool(raw.get("has_master"))
         active = bool(raw.get("active"))
