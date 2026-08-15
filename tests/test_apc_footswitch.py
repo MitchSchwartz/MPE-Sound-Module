@@ -231,5 +231,52 @@ class TransitionBlinkTests(unittest.TestCase):
         self.assertIsNone(fs._led_transition)
         self.assertEqual(self._sent(fs)[-1], m.LED_GREEN)
 
+
+class QuantizedLaunchTests(unittest.TestCase):
+    """Launching a stopped clip lands on the bar, not immediately."""
+
+    def _fs(self):
+        from scripts.sooperlooper.apc_footswitch import LoopFootswitch
+
+        fs = LoopFootswitch(loop=2, hold_ms=1000.0, debounce_ms=0.0, quantized=True)
+        fs.bind(MagicMock(), MagicMock(), 38)
+        return fs
+
+    def _hits(self, fs):
+        return [c.args[1] for c in fs._osc.send_message.call_args_list
+                if c.args[0] == "/sl/2/hit"]
+
+    def test_stop_mutes_rather_than_pauses(self) -> None:
+        """A muted loop keeps running, so relaunch is back in phase."""
+        import scripts.sooperlooper.apc_footswitch as m
+
+        fs = self._fs()
+        fs.sync_from_sl(m.SL_STATE_PLAYING)
+        fs.on_pad_down(); fs.on_pad_up()
+        self.assertEqual(self._hits(fs), ["mute_on"])
+
+    def test_launch_unmutes_and_never_uses_trigger(self) -> None:
+        """trigger does not lift a pause — that is what made launch silent."""
+        import scripts.sooperlooper.apc_footswitch as m
+
+        fs = self._fs()
+        fs.sync_from_sl(m.SL_STATE_MUTE)
+        fs.on_pad_down(); fs.on_pad_up()
+        hits = self._hits(fs)
+        self.assertIn("mute_off", hits)
+        self.assertNotIn("trigger", hits)
+        self.assertTrue(fs._launch_queued)
+
+    def test_queued_launch_shows_a_transition_blink(self) -> None:
+        import scripts.sooperlooper.apc_footswitch as m
+
+        fs = self._fs()
+        fs.sync_from_sl(m.SL_STATE_MUTE)
+        fs.on_pad_down(); fs.on_pad_up()
+        self.assertEqual(fs._led_transition, (m.LED_YELLOW, m.LED_GREEN))
+        fs.sync_from_sl(m.SL_STATE_PLAYING)
+        self.assertIsNone(fs._led_transition)
+        self.assertFalse(fs._launch_queued)
+
 if __name__ == "__main__":
     unittest.main()
