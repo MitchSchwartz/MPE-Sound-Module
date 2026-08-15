@@ -28,7 +28,9 @@ from patch_browser.touch_ui_constants import (
     FADER_HANDLE_H,
     FADER_HANDLE_W,
     LONG_PRESS_S,
+    LOOPER_HUD_COUNTER_GAP,
     LOOPER_HUD_PAD_X,
+    LOOPER_HUD_V_PAD,
     SETTINGS_PANEL_FOOTER_H,
     SETTINGS_PANEL_HEADER_H,
     SETTINGS_ROW_GAP,
@@ -36,7 +38,12 @@ from patch_browser.touch_ui_constants import (
 )
 from patch_browser.audio_profile import header_badge_label
 from patch_browser.audio_engine import engine_hud_label, engine_hud_semantic, engine_hud_should_show
-from patch_browser.midi_clock import looper_hud_label, looper_hud_should_show
+from patch_browser.looper_hud import (
+    bar_progress as looper_bar_progress,
+    beat_label as looper_beat_label,
+    is_running as looper_is_running,
+    should_show as looper_should_show,
+)
 from patch_browser.touch_ui_enums import (
     CalibrateMode,
     LeftNavMode,
@@ -411,39 +418,69 @@ class TouchBrowserDrawMixin:
             ),
         )
 
+    def _draw_looper_sweep(self, track, progress: float, color) -> None:
+        """Fill the track, blending the leading edge by its fractional pixel.
+
+        Truncating to whole pixels quantizes the sweep into steps you can see:
+        the header affords only a few dozen pixels, so the edge would move once
+        every ~30 ms. Carrying the remainder as alpha restores the motion.
+        """
+        span = max(0.0, min(1.0, progress)) * track.w
+        whole = int(span)
+        if whole > 0:
+            pygame.draw.rect(
+                self.screen, color,
+                pygame.Rect(track.x, track.y, whole, track.h), border_radius=3,
+            )
+        remainder = span - whole
+        if remainder > 0.0 and whole < track.w:
+            rgb = pygame.Color(color)
+            edge = pygame.Surface((1, track.h), pygame.SRCALPHA)
+            edge.fill((rgb.r, rgb.g, rgb.b, int(remainder * 255)))
+            self.screen.blit(edge, (track.x + whole, track.y))
+
     def _draw_looper_hud(self, rect: Rect) -> None:
         if rect.w <= 0:
             return
-        snap = self.looper_monitor.snapshot()
-        if not looper_hud_should_show(snap, user_enabled=getattr(self, "show_looper_hud", True)):
+        sl = (self.looper_monitor.snapshot() or {}).get("sl") or {}
+        if not looper_should_show(sl, user_enabled=getattr(self, "show_looper_hud", True)):
             return
-        label = looper_hud_label(snap)
-        sl = snap.get("sl") or {}
-        running = bool(snap.get("running")) or bool(sl.get("active"))
 
-        fill = self.theme.surface_alt
-        if running:
-            text_color = self.theme.accent
-        else:
-            text_color = self.theme.text
+        beats = 4
+        accent = self.theme.accent
+        muted = self.theme.muted
+        track = self.theme.surface
 
-        pygame.draw.rect(self.screen, fill, rect.pygame_rect, border_radius=8)
+        progress = looper_bar_progress(sl, beats_per_bar=beats)
+        label = looper_beat_label(sl, beats_per_bar=beats)
+        running = looper_is_running(sl)
 
-        dot_x = rect.x + LOOPER_HUD_PAD_X
-        text_x = dot_x
-        if running:
-            dot_y = rect.y + rect.h // 2
-            pygame.draw.circle(self.screen, self.theme.accent, (dot_x + 3, dot_y), 4)
-            text_x = dot_x + 12
+        pad_x = LOOPER_HUD_PAD_X
+        bar_y = rect.y + LOOPER_HUD_V_PAD
+        bar_h = max(8, rect.h - LOOPER_HUD_V_PAD * 2)
 
-        if label:
-            badge = self.font_sm.render(label, True, text_color)
+        frac_surf = self.font_sm.render(label, True, accent if running else self.theme.text) if label else None
+        frac_w = frac_surf.get_width() if frac_surf else 0
+
+        bar_x = rect.x + pad_x
+        bar_w = max(0, rect.w - pad_x * 2 - frac_w - (LOOPER_HUD_COUNTER_GAP if frac_w else 0))
+        if bar_w > 0:
+            track_rect = pygame.Rect(bar_x, bar_y, bar_w, bar_h)
+            pygame.draw.rect(self.screen, track, track_rect, border_radius=3)
+            if running and progress is not None:
+                self._draw_looper_sweep(track_rect, progress, accent)
+            for i in range(1, beats):
+                tick_x = bar_x + round(bar_w * i / beats)
+                pygame.draw.line(
+                    self.screen, muted, (tick_x, bar_y), (tick_x, bar_y + bar_h - 1)
+                )
+            pygame.draw.rect(self.screen, muted, track_rect, width=1, border_radius=3)
+
+        if frac_surf is not None:
             self.screen.blit(
-                badge,
-                (
-                    text_x + max(0, (rect.w - (text_x - rect.x) - badge.get_width()) // 2),
-                    rect.y + (rect.h - badge.get_height()) // 2,
-                ),
+                frac_surf,
+                (rect.right - pad_x - frac_w,
+                 rect.y + (rect.h - frac_surf.get_height()) // 2),
             )
 
     def _draw_audio_profile_badge(self, rect: Rect) -> None:
@@ -483,8 +520,8 @@ class TouchBrowserDrawMixin:
             subtitle = recovery_hint
 
         title_x = getattr(self, "status_title_x", self.status_rect.x + 12)
-        widget_left = getattr(self, "engine_hud_rect", getattr(self, "looper_hud_rect", self.audio_profile_badge_rect)).x
-        if widget_left <= title_x or getattr(self, "engine_hud_rect", Rect(0, 0, 0, 0)).w <= 0:
+        widget_left = getattr(self, "looper_hud_rect", self.audio_profile_badge_rect).x
+        if widget_left <= title_x or getattr(self, "looper_hud_rect", Rect(0, 0, 0, 0)).w <= 0:
             widget_left = getattr(self, "looper_hud_rect", self.audio_profile_badge_rect).x
         if widget_left <= title_x:
             widget_left = self.audio_profile_badge_rect.x
@@ -500,7 +537,6 @@ class TouchBrowserDrawMixin:
             self.font_sm.render(sub_lines[0], True, sub_color),
             (title_x, self.status_rect.y + 26),
         )
-        self._draw_engine_hud(getattr(self, "engine_hud_rect", Rect(0, 0, 0, 0)))
         if getattr(self, "show_looper_hud", True):
             self._draw_looper_hud(self.looper_hud_rect)
         self._draw_audio_profile_badge(self.audio_profile_badge_rect)
