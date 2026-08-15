@@ -1,7 +1,7 @@
 """APC footswitch — no master-loop special cases."""
 
 import unittest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import scripts.sooperlooper.apc_footswitch as footswitch_mod
 from scripts.sooperlooper.apc_footswitch import LoopFootswitch, build_footswitches
@@ -144,9 +144,6 @@ class GridEstablishmentTests(unittest.TestCase):
         fs.on_pad_down(); fs.on_pad_up()
         self.assertTrue(fs.awaiting_quantize, "quantized clip must wait for the bar")
 
-if __name__ == "__main__":
-    unittest.main()
-
 
 class DoubleTapRecordsOneCycleTests(unittest.TestCase):
     """Double-tap while armed must record exactly one cycle, not cancel."""
@@ -189,3 +186,50 @@ class DoubleTapRecordsOneCycleTests(unittest.TestCase):
         self.assertEqual(hits, ["record", "record"])
         self.assertFalse(fs._stop_queued)
         self.assertTrue(fs.awaiting_quantize)
+
+
+class TransitionBlinkTests(unittest.TestCase):
+    """Recording -> playing alternates red/green; other states stay standard."""
+
+    def _fs(self):
+        from scripts.sooperlooper.apc_footswitch import LoopFootswitch
+
+        fs = LoopFootswitch(loop=0, hold_ms=1000.0, debounce_ms=0.0)
+        fs.bind(MagicMock(), MagicMock(), 36)
+        return fs
+
+    def _sent(self, fs):
+        return [c.args[0][2] for c in fs._midi_out.send_message.call_args_list]
+
+    def test_recording_queued_to_play_alternates_red_and_green(self) -> None:
+        import scripts.sooperlooper.apc_footswitch as m
+
+        fs = self._fs()
+        fs.sync_from_sl(m.SL_STATE_WAIT_STOP)
+        seen = set()
+        with patch("scripts.sooperlooper.apc_footswitch.time.monotonic") as clock:
+            for i in range(4):
+                clock.return_value = i * m.TRANSITION_BLINK_S
+                fs.poll_led()
+                seen.add(self._sent(fs)[-1])
+        self.assertEqual(seen, {m.LED_RED, m.LED_GREEN})
+
+    def test_queued_to_record_stays_ableton_standard_red_blink(self) -> None:
+        import scripts.sooperlooper.apc_footswitch as m
+
+        fs = self._fs()
+        fs.sync_from_sl(m.SL_STATE_WAIT_START)
+        self.assertEqual(self._sent(fs)[-1], m.LED_RED_BLINK)
+        self.assertIsNone(fs._led_transition, "no animation for an unambiguous state")
+
+    def test_landing_on_playing_ends_the_animation(self) -> None:
+        import scripts.sooperlooper.apc_footswitch as m
+
+        fs = self._fs()
+        fs.sync_from_sl(m.SL_STATE_WAIT_STOP)
+        fs.sync_from_sl(m.SL_STATE_PLAYING)
+        self.assertIsNone(fs._led_transition)
+        self.assertEqual(self._sent(fs)[-1], m.LED_GREEN)
+
+if __name__ == "__main__":
+    unittest.main()

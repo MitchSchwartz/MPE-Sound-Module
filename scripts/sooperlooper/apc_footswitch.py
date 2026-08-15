@@ -43,6 +43,17 @@ LED_YELLOW_BLINK = 6
 # leaving it dead, and say so. See spec §J: a silent latch here cost an evening.
 QUANTIZE_WAIT_TIMEOUT_S = float(os.environ.get("MPE_SL_QUANTIZE_TIMEOUT_S", "6.0"))
 
+# Transition blink: alternate FROM-colour and TO-colour, half a period each.
+#
+# Ableton has no "queued to stop recording" state — it shows triggered_to_play
+# (green blink) and drops the fact that recording is still running. On a looper
+# that matters: you are performing into that bar and need to know to keep
+# playing. Alternating red/green says "recording -> playing" outright.
+#
+# Applied ONLY where the ambiguity is real. Stopped -> playing is already
+# unambiguous as a plain green blink and stays Ableton-standard.
+TRANSITION_BLINK_S = float(os.environ.get("MPE_APC_TRANSITION_BLINK_S", "0.25"))
+
 
 def log(msg: str) -> None:
     """Timestamped bench log. Untimed lines made a 2 s quantize wait invisible."""
@@ -89,6 +100,8 @@ class LoopFootswitch:
         self.awaiting_quantize = False
         self._wait_since = 0.0
         self._stop_queued = False
+        self._led_transition: tuple[int, int] | None = None
+        self._led_last: int | None = None
 
     def bind(self, osc, midi_out, note: int) -> None:
         self._osc = osc
@@ -176,27 +189,35 @@ class LoopFootswitch:
         self._osc.send_message(self._path("hit"), cmd)
         log(f"loop {self.loop}: -> {cmd} (state={self.state})")
 
-    def _set_led(self, velocity: int) -> None:
+    def _set_led(self, velocity: int, *, force: bool = False) -> None:
         if self._midi_out is None:
             return
-        self._midi_out.send_message([0x90, self._note, max(0, min(127, velocity))])
+        velocity = max(0, min(127, velocity))
+        if not force and velocity == self._led_last:
+            return  # do not spam the surface every poll
+        self._led_last = velocity
+        self._midi_out.send_message([0x90, self._note, velocity])
 
     def _sync_led(self) -> None:
         # Armed states win: the player needs to see that the tap registered and
         # is queued for the next bar, or they will press again / hold and lose
         # the take. Read from SL, not bench state, so the blink reflects truth.
+        if self.sl_state == SL_STATE_WAIT_STOP:
+            # Still recording, playback queued: alternate red -> green so the
+            # pad shows both the current state and the destination.
+            self._led_transition = (LED_RED, LED_GREEN)
+            return  # poll_led drives it from here
+        self._led_transition = None
         if self.sl_state == SL_STATE_WAIT_START:
-            self._set_led(LED_RED_BLINK)  # queued to start recording
-        elif self.sl_state == SL_STATE_WAIT_STOP:
-            self._set_led(LED_GREEN_BLINK)  # queued to stop -> play
+            self._set_led(LED_RED_BLINK, force=True)  # queued to record
         elif self.state == STATE_RECORDING:
             self._set_led(LED_RED)
         elif self.state == STATE_PLAYING:
-            self._set_led(LED_GREEN)
+            self._set_led(LED_GREEN, force=True)
         elif self.state == STATE_STOPPED:
-            self._set_led(LED_YELLOW)
+            self._set_led(LED_YELLOW, force=True)
         else:
-            self._set_led(LED_OFF)
+            self._set_led(LED_OFF, force=True)
 
     def _debounced(self) -> bool:
         return (time.monotonic() - self._last_action_at) < self.debounce_s
@@ -311,6 +332,14 @@ class LoopFootswitch:
         if self._pad_down and not self._hold_fired:
             self._tap()
         self._pad_down = False
+
+    def poll_led(self) -> None:
+        """Drive the transition blink. Cheap no-op unless one is active."""
+        if self._led_transition is None:
+            return
+        first, second = self._led_transition
+        phase = int(time.monotonic() / TRANSITION_BLINK_S) % 2
+        self._set_led(first if phase == 0 else second)
 
     def poll_hold(self) -> None:
         if not self._pad_down or self._hold_fired:
