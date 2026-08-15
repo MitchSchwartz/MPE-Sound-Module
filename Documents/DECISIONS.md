@@ -20,6 +20,22 @@ Orientation canon: OM-Repo [`GROUNDING.md`](https://github.com/opsMachine/OM-Rep
 
 ---
 
+## 2026-08-15 — Browse carousel + filter pane: Phases A–D implemented, deviations from spec text
+
+**Spec:** [`specs/touch-browser-browse-carousel-spec.md`](specs/touch-browser-browse-carousel-spec.md) (still Draft status; this row records where the build diverged from its literal text and why)
+
+**Carousel scoped to FOLDERS/PATCHES only, not ALL_PATCHES.** The spec's layout section says "Nav width fixed at LEFT_NAV_WIDTH (268)" without carve-out, and Phase C lists "All-patches mode: carousel enabled." But `_left_nav_width()` in ALL_PATCHES mode is elastic (~726px, fills the screen) and `main_rect` is zero-width there — there is no "Nav 268 + Patch 532" arrangement to slide in that mode; it doesn't exist in the code the spec was written against. Forcing 268px onto ALL_PATCHES would silently redesign a screen the spec never describes and break the A–Z rail's reason for existing. `_browse_carousel_active()` in `touch_browser_browse.py` excludes ALL_PATCHES; that screen keeps its pre-carousel legacy layout untouched. `instrument_filter` state still applies there (set via the Filter pane in FOLDERS/PATCHES, respected when you switch to All patches) — only the picker UI itself is unavailable in that mode.
+
+**Filter pane content is inset to `x ≥ BROWSE_EDGE_GRAB_W` (48px), not drawn to the pane's own left edge.** The router's `edge_carousel` zone (`x ∈ [0, 48)`) outranks `filter_tap` in the priority table, so a chip drawn at the pane's true left edge would be untappable — any touch there is a swipe-back gesture, not a tag tap, regardless of what's drawn on top. Not called out in the spec; implemented as the only correct reading of the router's own stated priority order.
+
+**Instant snap, not tweened**, per the spec's own open-question fallback ("else instant snap acceptable"). Tweening `BrowseCarousel.offset_px` would make it mid-animation when `_layout()` reads it for hit-testing/rect placement — conflicts with the Phase A contract (`end_drag()` leaves `offset_px` at the exact target synchronously), which Phase B/C's layout and dispatch code, and their tests, depend on.
+
+**Nav list scroll-edge hint (goal: "reuse `draw_vertical_scroll_edge_hints`") not implemented.** `draw_vertical_scroll_edge_hints` needs a `ContentScrollArea`-shaped `.edge_hint_strength()`; `ScrollList` (what backs `nav_list`) has no such tracking today and never has. Adding it is a shared-widget change affecting every `ScrollList` caller, not scoped to this feature — left as a follow-up.
+
+**Not verified:** acceptance criteria 9–11 and 13 are marked "Manual (Pi)" in the spec's own testing strategy and require a real touchscreen; not exercised in this sandbox (no pygame, no display, no Pi). Everything else has automated coverage — see the Tests lines in `docs/TOUCH_PATCH_BROWSER.md`'s browse carousel section.
+
+---
+
 ## 2026-08-15 — Looper grid clock: RESOLVED — SL internal sync, first take defines it
 
 **Supersedes** the 2026-08-14 "Who owns the looper grid clock (open — ranked,
