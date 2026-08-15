@@ -1,4 +1,10 @@
-"""Smoke tests for TouchPatchBrowser mixin wiring (mocked pygame, no display)."""
+"""Integration tests for the browse carousel's track layout in `_layout()`.
+
+Uses a real TouchPatchBrowser with pygame fully mocked (no display) —
+same harness shape as test_touch_browser_smoke.py. See
+Documents/specs/touch-browser-browse-carousel-spec.md §Layout — browse
+track and acceptance criterion 1.
+"""
 
 from __future__ import annotations
 
@@ -9,17 +15,8 @@ from unittest import mock
 
 
 def _install_fake_pygame() -> None:
-    # Guard on every attribute this module actually uses below — not just
-    # `display`. A leaner, order-earlier pygame stub from another test
-    # module (also valid for its own purposes) can satisfy a partial
-    # guard and get reused here missing something this file needs.
-    existing = sys.modules.get("pygame")
-    if (
-        isinstance(existing, types.ModuleType)
-        and hasattr(existing, "display")
-        and hasattr(existing, "Rect")
-        and hasattr(existing, "font")
-        and hasattr(existing, "draw")
+    if isinstance(sys.modules.get("pygame"), types.ModuleType) and hasattr(
+        sys.modules["pygame"], "display"
     ):
         return
 
@@ -120,6 +117,8 @@ def _install_fake_pygame() -> None:
         rect=mock.Mock(),
         line=mock.Mock(),
         lines=mock.Mock(),
+        polygon=mock.Mock(),
+        circle=mock.Mock(),
     )
 
     sys.modules["pygame"] = fake
@@ -128,18 +127,21 @@ def _install_fake_pygame() -> None:
 _install_fake_pygame()
 
 from patch_browser.touch_browser_app import TouchPatchBrowser  # noqa: E402
-from patch_browser.touch_ui_enums import Screen  # noqa: E402
+from patch_browser.touch_ui_constants import (  # noqa: E402
+    BROWSE_FILTER_W,
+    BROWSE_OFFSET_FILTER,
+    BROWSE_OFFSET_HOME,
+    BROWSE_PATCH_W,
+    LEFT_NAV_WIDTH,
+)
+from patch_browser.touch_ui_enums import LeftNavMode  # noqa: E402
 
 
 def _default_surge_status() -> dict:
-    return {
-        "status": "Running",
-        "details": "ok",
-        "can_restart": False,
-    }
+    return {"status": "Running", "details": "ok", "can_restart": False}
 
 
-class TouchBrowserSmokeTests(unittest.TestCase):
+class _BrowseTrackLayoutTestCase(unittest.TestCase):
     def _make_browser(self) -> TouchPatchBrowser:
         scanner = mock.Mock()
         scanner.load_last_patch.return_value = None
@@ -197,55 +199,71 @@ class TouchBrowserSmokeTests(unittest.TestCase):
 
         return TouchPatchBrowser()
 
-    def test_handle_event_quit_stops_run_loop(self) -> None:
+
+class HomeStopDefaultTests(_BrowseTrackLayoutTestCase):
+    def test_default_stop_is_home_nav_and_patch_visible(self) -> None:
+        # Acceptance criterion 1.
         browser = self._make_browser()
-        import pygame
+        self.assertEqual(browser.left_nav_mode, LeftNavMode.PATCHES)
+        self.assertEqual(browser._browse_carousel.stop, "home")
+        self.assertEqual(browser.left_panel_rect.x, 0)
+        self.assertEqual(browser.left_panel_rect.w, LEFT_NAV_WIDTH)
+        self.assertEqual(browser.main_rect.x, LEFT_NAV_WIDTH)
+        self.assertEqual(browser.main_rect.w, BROWSE_PATCH_W)
 
-        browser._handle_event(pygame.event.Event(pygame.QUIT))
-        self.assertFalse(browser._running)
-
-    def test_handle_event_mousebuttonup_and_draw_do_not_raise(self) -> None:
+    def test_filter_pane_offscreen_left_at_home(self) -> None:
         browser = self._make_browser()
-        import pygame
+        self.assertEqual(browser.browse_filter_rect.x, BROWSE_OFFSET_HOME)
 
-        browser.screen_state = Screen.BROWSER
+
+class FilterStopTests(_BrowseTrackLayoutTestCase):
+    def test_filter_stop_shows_filter_and_nav(self) -> None:
+        # Acceptance criterion 3 setup (also exercises the Filter stop half
+        # of criterion 1's "off-screen" symmetry).
+        browser = self._make_browser()
+        browser._browse_carousel.state.stop = "filter"
+        browser._browse_carousel.state.offset_px = BROWSE_OFFSET_FILTER
+        browser._layout()
+
+        self.assertEqual(browser.browse_filter_rect.x, 0)
+        self.assertEqual(browser.browse_filter_rect.w, BROWSE_FILTER_W)
+        self.assertEqual(browser.left_panel_rect.x, BROWSE_FILTER_W)
+        self.assertEqual(browser.main_rect.x, BROWSE_FILTER_W + LEFT_NAV_WIDTH)
+
+
+class CarouselDisabledFallbackTests(_BrowseTrackLayoutTestCase):
+    def test_collapsed_nav_falls_back_to_legacy_margin_layout(self) -> None:
+        browser = self._make_browser()
         browser.left_nav_collapsed = True
-        browser.nav_list.items = []
-        browser.nav_list.take_tap_index = mock.Mock(return_value=None)
+        browser._layout()
 
-        event = pygame.event.Event(
-            pygame.MOUSEBUTTONUP,
-            {"pos": (400, 240), "button": 1},
-        )
-        browser._handle_event(event)
-        browser._draw()
+        self.assertFalse(browser._browse_carousel_active())
+        self.assertEqual(browser.left_panel_rect.x, 16)  # legacy margin
+        self.assertEqual(browser.browse_filter_rect.w, 0)
 
-    def test_theme_modal_hit_test_supports_all_views(self) -> None:
+    def test_all_patches_mode_falls_back_to_legacy_layout(self) -> None:
         browser = self._make_browser()
-        from patch_browser.geometry import Rect
-        from patch_browser.ui_theme import THEME_VIEW_COLORS, THEME_VIEW_PICKER
+        browser.left_nav_mode = LeftNavMode.ALL_PATCHES
+        browser._layout()
 
-        browser._theme_view_state = THEME_VIEW_PICKER
-        browser._picker_slider_rects = {}
-        browser._picker_back_rect = None
-        browser._picker_save_rect = None
-        browser._picker_delete_rect = None
-        browser._theme_modal_hit_at((10, 10))
+        self.assertFalse(browser._browse_carousel_active())
+        self.assertEqual(browser.left_panel_rect.x, 16)  # legacy margin
+        self.assertEqual(browser.browse_filter_rect.w, 0)
+        # A-Z rail still gets a slot next to the (now elastic-width) nav.
+        self.assertGreater(browser.az_rail_rect.w, 0)
 
-        browser._theme_view_state = THEME_VIEW_COLORS
-        browser._theme_color_delete_rects = []
-        browser._theme_color_swatch_rects = []
-        browser._theme_colors_back_rect = None
-        browser._theme_modal_hit_at((10, 10))
 
-        browser._theme_view_state = "main"
-        browser._theme_base_option_rects = []
-        browser._theme_style_option_rects = [Rect(0, 0, 100, 44), Rect(110, 0, 100, 44)]
-        browser._theme_choose_color_btn = None
-        browser._theme_done_rect = None
-        browser._theme_cancel_rect = None
-        hit = browser._theme_modal_hit_at((150, 22))
-        self.assertEqual(hit, "style:1")
+class NavListFullHeightTests(_BrowseTrackLayoutTestCase):
+    def test_nav_list_top_has_no_chip_offset(self) -> None:
+        browser = self._make_browser()
+        content_top = browser.status_rect.y + browser.status_rect.h + 10
+        nav_header_h = 36
+        # No inline chip row anymore: list starts right after the header
+        # (+ folder title, when shown) — nothing else eats vertical space.
+        folder_title_h = 34 if not browser.left_nav_collapsed else 0
+        expected_top = content_top + nav_header_h + 4 + folder_title_h
+        self.assertEqual(browser.nav_list.rect.y, expected_top)
+
 
 if __name__ == "__main__":
     unittest.main()
