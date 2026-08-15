@@ -6,60 +6,48 @@ import os
 import time
 
 from apc_grid import all_loop_pads, pad_note
+# LED constants are re-exported: the bench and its tests reach for them here,
+# and the pad surface is this module's job even though the policy is not.
+from led_table import (  # noqa: F401
+    LED_GREEN,
+    LED_GREEN_BLINK,
+    LED_OFF,
+    LED_RED,
+    LED_RED_BLINK,
+    LED_YELLOW,
+    LED_YELLOW_BLINK,
+    led_for,
+)
+from loop_model import (
+    STATE_IDLE,
+    STATE_STOPPED,
+    effective_state,
+    pending_resolved,
+    plan_tap,
+)
 from sl_grid_state import GridState
 from sl_loop_states import (
-    QUANTIZE_WAIT,
     SL_STATE_OFF,
-    SL_STATE_PAUSED,
-    SL_STATE_MUTE,
     SL_STATE_PLAYING,
     SL_STATE_RECORDING,
-    SL_STATE_WAIT_START,
     SL_STATE_WAIT_STOP,
 )
-
-STATE_IDLE = "idle"
-STATE_RECORDING = "recording"
-STATE_PLAYING = "playing"
-STATE_STOPPED = "stopped"
-
-LED_OFF = 0
-LED_GREEN = 1
-LED_GREEN_BLINK = 2
-LED_RED = 3
-LED_RED_BLINK = 4
-LED_YELLOW = 5
-LED_YELLOW_BLINK = 6
-
-# Blink = "queued, lands on the next bar" — the clip-launcher idiom.
-#
-# Recording -> playing gets a four-phase sequence: OFF, RED, OFF, GREEN. The
-# gaps demarcate the two colours; RED, GREEN, RED, GREEN with no break reads as
-# one intense flicker rather than two distinct states. Reserved for this case
-# only — it is visually noisy, and it is earning that noise by confirming
-# recording is STILL RUNNING, which the player needs. Everywhere else a plain
-# blink is enough, because nothing of consequence is happening meanwhile.
-#
-# A quantized action does not take effect until the next cycle boundary (up to
-# one full bar later). Without a distinct armed state the pad looks identical
-# before and after the tap, so the player reads it as "my press did nothing",
-# presses again, or holds — and holding clears the loop they just recorded.
-# That cost an evening on 2026-08-14. Solid = it happened. Blink = it is coming.
 
 # A quantized action waits for the next cycle boundary. If no boundary arrives
 # within this long, the grid clock is not running — release the pad rather than
 # leaving it dead, and say so. See spec §J: a silent latch here cost an evening.
 QUANTIZE_WAIT_TIMEOUT_S = float(os.environ.get("MPE_SL_QUANTIZE_TIMEOUT_S", "6.0"))
 
+# How long to believe an unconfirmed intent before deferring to the engine.
+#
+# Generous on purpose: a quantized mute or trigger legitimately takes until the
+# next bar, which at 60 BPM is four seconds. Expiring early would flip the pad
+# back to its old colour mid-wait — exactly the "did my press register?" doubt
+# the blink exists to remove. If it expires, the engine never acted and the pad
+# should tell the truth about that.
+PENDING_TIMEOUT_S = float(os.environ.get("MPE_SL_PENDING_TIMEOUT_S", "6.0"))
+
 # Transition blink: alternate FROM-colour and TO-colour, half a period each.
-#
-# Ableton has no "queued to stop recording" state — it shows triggered_to_play
-# (green blink) and drops the fact that recording is still running. On a looper
-# that matters: you are performing into that bar and need to know to keep
-# playing. Alternating red/green says "recording -> playing" outright.
-#
-# Applied ONLY where the ambiguity is real. Stopped -> playing is already
-# unambiguous as a plain green blink and stays Ableton-standard.
 TRANSITION_BLINK_S = float(os.environ.get("MPE_APC_TRANSITION_BLINK_S", "0.25"))
 
 
@@ -96,7 +84,8 @@ class LoopFootswitch:
         self.num_loops = num_loops
         self.hold_s = hold_ms / 1000.0
         self.debounce_s = debounce_ms / 1000.0
-        self.state = STATE_IDLE
+        self._pending: str | None = None
+        self._pending_since = 0.0
         self._osc = None
         self._midi_out = None
         self._note = 0
@@ -108,7 +97,6 @@ class LoopFootswitch:
         self.awaiting_quantize = False
         self._wait_since = 0.0
         self._stop_queued = False
-        self._launch_queued = False
         self._led_transition: tuple[int, int] | None = None
         self._led_last: int | None = None
 
@@ -117,49 +105,74 @@ class LoopFootswitch:
         self._midi_out = midi_out
         self._note = note
 
+    @property
+    def state(self) -> str:
+        """The loop's state in the bench's vocabulary — DERIVED, never stored.
+
+        This used to be an assignable field written the instant a command was
+        sent, so it disagreed with the engine for as long as the engine took to
+        answer, and any poll arriving in between could clobber it. Now there is
+        one source of truth (`sl_state`) plus an explicitly unconfirmed intent
+        (`_pending`) that expires on its own.
+        """
+        return effective_state(self.sl_state, self._pending)
+
+    def _expect(self, state: str | None) -> None:
+        self._pending = state
+        self._pending_since = time.monotonic()
+
+    def _expire_pending(self) -> None:
+        """Drop an intent the engine has confirmed, contradicted, or ignored."""
+        if self._pending is None:
+            return
+        if pending_resolved(self.sl_state, self._pending):
+            self._pending = None
+        elif (time.monotonic() - self._pending_since) > PENDING_TIMEOUT_S:
+            log(f"loop {self.loop}: !! '{self._pending}' never confirmed in "
+                f"{PENDING_TIMEOUT_S:.0f}s (sl_state={self.sl_state}) — "
+                f"deferring to the engine")
+            self._pending = None
+
     def sync_from_sl(self, sl_state: int) -> bool:
         """Mirror SooperLooper state → bench LED (all loops incl. 0)."""
         prev_sl = self.sl_state
-        self.sl_state = sl_state
         before = self.state
-        if sl_state == SL_STATE_PLAYING:
-            self.awaiting_quantize = False
-            self._launch_queued = False
-            self.state = STATE_PLAYING
-            self._maybe_establish_grid()
-        elif sl_state in (SL_STATE_PAUSED, SL_STATE_MUTE):
-            self.awaiting_quantize = False
-            self.state = STATE_STOPPED
-            self._launch_queued = False
-        elif sl_state == SL_STATE_OFF:
-            self.awaiting_quantize = False
-            self.state = STATE_IDLE
-        elif sl_state in QUANTIZE_WAIT:
-            self.state = STATE_RECORDING
+        led_before = self._led_target()
+        self.sl_state = sl_state
+        self._expire_pending()
+
+        if sl_state == SL_STATE_WAIT_STOP:
             # Hold taps only after stop-record is sent (WAIT_STOP); during the
             # arm phase (WAIT_START) a tap means cancel and must reach SL. The
             # hold is time-bounded either way — see _waiting_for_quantize.
-            if sl_state == SL_STATE_WAIT_STOP:
-                if not self.awaiting_quantize:
-                    self._begin_quantize_wait()
-            else:
-                self.awaiting_quantize = False
-        elif sl_state == SL_STATE_RECORDING:
-            self.awaiting_quantize = False
-            self.state = STATE_RECORDING
-            if self._stop_queued:
-                # Recording just began. Send the stop now; SL quantizes it to
-                # the next boundary, giving exactly one cycle of audio.
-                self._stop_queued = False
-                self._hit("record")
+            if not self.awaiting_quantize:
                 self._begin_quantize_wait()
+        else:
+            self.awaiting_quantize = False
+
+        if sl_state == SL_STATE_RECORDING and self._stop_queued:
+            # Recording just began. Send the stop now; SL quantizes it to the
+            # next boundary, giving exactly one cycle of audio.
+            self._stop_queued = False
+            self._hit("record")
+            self._begin_quantize_wait()
+
+        if sl_state == SL_STATE_PLAYING:
+            self._maybe_establish_grid()
+
         if self.grid is not None:
             if self.grid.note_loop_content(self.loop, sl_state != SL_STATE_OFF):
                 log(f"loop {self.loop}: last clip cleared — grid dropped, "
                     f"next take defines a new one")
                 if self._on_grid_dropped is not None:
                     self._on_grid_dropped()
-        changed = before != self.state or prev_sl != sl_state
+        # Repaint whenever the *pixel* changes, not just when the state does.
+        # Comparing states alone left a queued launch blinking green forever:
+        # the loop was already Playing when the launch landed, so neither
+        # sl_state nor the derived state moved, and nothing ever asked the LED
+        # to catch up.
+        changed = (before != self.state or prev_sl != sl_state
+                   or led_before != self._led_target())
         if changed:
             log(f"loop {self.loop}: SL sync sl={sl_state} bench={self.state}")
             self._sync_led()
@@ -168,7 +181,9 @@ class LoopFootswitch:
 
     def sync_loop_len(self, loop_len: float) -> None:
         self.loop_len = float(loop_len)
-        if self.state == STATE_PLAYING:
+        # Engine truth only: a length that arrives while we merely *expect*
+        # playback would derive a tempo from a take that never landed.
+        if self.sl_state == SL_STATE_PLAYING:
             self._maybe_establish_grid()
 
     def _maybe_establish_grid(self) -> None:
@@ -209,30 +224,22 @@ class LoopFootswitch:
         self._led_last = velocity
         self._midi_out.send_message([0x90, self._note, velocity])
 
+    def _led_target(self) -> tuple[int, ...]:
+        return led_for(self.sl_state, pending=self._pending)
+
     def _sync_led(self) -> None:
-        # Armed states win: the player needs to see that the tap registered and
-        # is queued for the next bar, or they will press again / hold and lose
-        # the take. Read from SL, not bench state, so the blink reflects truth.
-        if self.sl_state == SL_STATE_WAIT_STOP:
-            # Still recording, playback queued: alternate red -> green so the
-            # pad shows both the current state and the destination.
-            self._led_transition = (LED_OFF, LED_RED, LED_OFF, LED_GREEN)
-            return  # poll_led drives it from here
-        if self._launch_queued:
-            self._led_transition = None
-            self._set_led(LED_GREEN_BLINK, force=True)
+        """Paint the pad from engine truth plus unconfirmed intent.
+
+        All the policy lives in `led_for`; this just applies the result. A
+        one-element sequence is a steady colour, anything longer animates and
+        `poll_led` drives it from here.
+        """
+        seq = self._led_target()
+        if len(seq) > 1:
+            self._led_transition = seq
             return
         self._led_transition = None
-        if self.sl_state == SL_STATE_WAIT_START:
-            self._set_led(LED_RED_BLINK, force=True)  # queued to record
-        elif self.state == STATE_RECORDING:
-            self._set_led(LED_RED)
-        elif self.state == STATE_PLAYING:
-            self._set_led(LED_GREEN, force=True)
-        elif self.state == STATE_STOPPED:
-            self._set_led(LED_YELLOW, force=True)
-        else:
-            self._set_led(LED_OFF, force=True)
+        self._set_led(seq[0], force=True)
 
     def _debounced(self) -> bool:
         return (time.monotonic() - self._last_action_at) < self.debounce_s
@@ -268,13 +275,16 @@ class LoopFootswitch:
 
     def _clear_loop(self) -> None:
         self._stop_queued = False
-        self._launch_queued = False
         if self.grid is not None:
             self.grid.cancel(self.loop)
         self._hit("undo_all")
-        self.state = STATE_IDLE
         self.awaiting_quantize = False
-        self.sl_state = SL_STATE_OFF
+        # Expect idle rather than asserting it. Forcing sl_state here would
+        # forge an engine report, and the grid drop hangs off exactly that
+        # signal — "no clips, no grid" has to be the engine's verdict, not the
+        # bench's. The pad goes dark immediately either way; if the engine never
+        # confirms, the intent expires and the pad tells the truth again.
+        self._expect(STATE_IDLE)
         self._sync_led()
         self._mark_action()
 
@@ -286,66 +296,25 @@ class LoopFootswitch:
             log(f"loop {self.loop}: -> tap ignored (quantize wait)")
             return
 
-        if self.state == STATE_IDLE:
-            # No grid yet? This take defines it: record free-form and instant,
-            # because there is no bar to count in to. Standard looper workflow.
-            if self.grid is not None and not self.grid.established:
-                self.grid.arm(self.loop)
-                log(f"loop {self.loop}: defining the grid (free-form, no count-in)")
-            self._hit("record")
-            self.state = STATE_RECORDING
-        elif self.state == STATE_RECORDING:
-            if self.sl_state == SL_STATE_WAIT_START:
-                # Armed but not recording yet. Sending `record` now would reach
-                # SL as CANCEL. Queue the stop instead and fire it the moment
-                # recording actually begins, so a double-tap records exactly
-                # one cycle: starts on the next boundary, ends on the one after.
-                self._stop_queued = True
-                log(f"loop {self.loop}: stop queued — will record exactly one cycle")
-                self._sync_led()
-                self._mark_action()
-                return
-            self._hit("record")
-            # Only wait for a boundary if this loop is actually quantized.
-            # In free-form there is no boundary, so arming the wait swallowed
-            # the next tap for QUANTIZE_WAIT_TIMEOUT_S and stranded the pad on
-            # red while the loop was already playing (2026-08-14).
-            defining = self.grid is not None and self.grid.is_pending(self.loop)
-            if self.quantized and not defining:
-                self._begin_quantize_wait()
-            else:
-                self.state = STATE_PLAYING
-        elif self.state == STATE_PLAYING:
-            # Mute rather than pause: a muted loop keeps RUNNING, so it stays
-            # locked to the grid and relaunching it is back in phase with
-            # everything else. With mute_quantized this lands on the bar.
-            self._hit("mute_on")
-            self.state = STATE_STOPPED
-        elif self.state == STATE_STOPPED:
-            # Start = quantized trigger. Nothing else.
-            #
-            # `trigger` plays the loop FROM ITS START and SL defers it to the
-            # sync boundary (plugin.cc MULTI_TRIGGER: immediate only when
-            # sync is off, or within one eighth of the last sync pulse — a
-            # deliberate grace window for hitting slightly late). It also lifts
-            # a mute, which is why stop uses mute and not pause.
-            #
-            # Because every clip restarts from its own beginning on a boundary,
-            # phase takes care of itself. There is nothing to track.
-            self._hit("pause_off")  # only matters after a global stop-all
-            self._hit("trigger")
-            self._launch_queued = True
-            # Plain green blink: "it is going to play" is the whole message.
-            # Nothing else is happening to the clip meanwhile, so it needs no
-            # second colour.
-            self._led_transition = None
-            self._set_led(LED_GREEN_BLINK, force=True)
-            log(f"loop {self.loop}: launch queued — starts on the bar")
-            self._mark_action()
-            return
-        else:
-            self._hit("record")
-            self.state = STATE_RECORDING
+        self._expire_pending()
+        plan = plan_tap(
+            sl_state=self.sl_state,
+            pending=self._pending,
+            grid_established=self.grid is None or self.grid.established,
+            is_defining=self.grid is not None and self.grid.is_pending(self.loop),
+            quantized=self.quantized,
+        )
+        if plan.note:
+            log(f"loop {self.loop}: {plan.note}")
+        if plan.arm_grid and self.grid is not None:
+            self.grid.arm(self.loop)
+        for cmd in plan.commands:
+            self._hit(cmd)
+        if plan.queue_stop:
+            self._stop_queued = True
+        if plan.begin_quantize_wait:
+            self._begin_quantize_wait()
+        self._expect(plan.expect)
 
         self._sync_led()
         self._mark_action()
@@ -447,9 +416,9 @@ def reset_all_loops(
         osc.send_message(f"/sl/{loop}/hit", "pause_on")
         osc.send_message(f"/sl/{loop}/hit", "undo_all")
     for fs in footswitches:
-        fs.state = STATE_IDLE
         fs.awaiting_quantize = False
-        fs.sl_state = SL_STATE_OFF
+        fs._stop_queued = False
+        fs._expect(STATE_IDLE)
         fs._sync_led()
     for row, col, loop_i in all_loop_pads():
         if loop_i >= num_loops:
@@ -489,6 +458,6 @@ def stop_all_loops(
     for fs in footswitches:
         fs.awaiting_quantize = False
         if fs.state != STATE_IDLE:
-            fs.state = STATE_STOPPED
+            fs._expect(STATE_STOPPED)
         fs._sync_led()
     print(f"-> stop all: paused {num_loops} loops", flush=True)
