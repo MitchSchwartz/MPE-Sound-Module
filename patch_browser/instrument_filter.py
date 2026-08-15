@@ -23,11 +23,16 @@ def filter_patches_by_instrument(
     return [patch for patch in patches if primary_instrument(patch) == instrument]
 
 
-def instruments_with_patches(patches: list[dict]) -> list[str]:
+def instrument_counts(patches: list[dict]) -> dict[str, int]:
     counts: dict[str, int] = {}
     for patch in patches:
         inst = primary_instrument(patch)
         counts[inst] = counts.get(inst, 0) + 1
+    return counts
+
+
+def instruments_with_patches(patches: list[dict]) -> list[str]:
+    counts = instrument_counts(patches)
     return [name for name in INSTRUMENT_VOCAB if counts.get(name, 0) > 0]
 
 

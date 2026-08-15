@@ -17,7 +17,7 @@ class TouchBrowserEvdevMixin:
         if not evdev_bridge_enabled():
             return
 
-        self._touch_chip_capture = False
+        self._touch_browse_capture = False
 
         def enqueue(kind: str, pos: tuple[int, int]) -> None:
             self._evdev_touch_queue.put((kind, pos))
@@ -55,7 +55,7 @@ class TouchBrowserEvdevMixin:
     def _handle_evdev_browser_touch(self, kind: str, pos: tuple[int, int]) -> None:
         if kind == "down":
             self._touch_list_capture = False
-            self._touch_chip_capture = False
+            self._touch_browse_capture = False
             self._az_rail_capture = False
             if self._handle_az_rail_touch("down", pos):
                 return
@@ -65,8 +65,8 @@ class TouchBrowserEvdevMixin:
             if self.detail_patch and self.favorites_btn.contains(*pos):
                 self._pending_favorites_toggle = True
                 return
-            if not self.left_nav_collapsed and self._handle_instrument_chip_pointer_down(pos):
-                self._touch_chip_capture = True
+            if self._handle_browse_pointer_down(pos):
+                self._touch_browse_capture = True
                 return
             if not self.left_nav_collapsed and self.nav_list.rect.contains(*pos):
                 self._context_nav_pointer_down(pos)
@@ -77,11 +77,8 @@ class TouchBrowserEvdevMixin:
         elif kind == "motion":
             if self._handle_az_rail_touch("motion", pos):
                 return
-            if (
-                self._touch_chip_capture
-                or self._instrument_chip_active()
-            ):
-                self._handle_instrument_chip_pointer_move(pos)
+            if self._touch_browse_capture or self._browse_gesture_active():
+                self._handle_browse_pointer_move(pos)
             elif self._long_press_pending is not None:
                 self._context_nav_pointer_move(pos)
                 if self._touch_list_capture or self.nav_list.is_dragging():
@@ -113,19 +110,19 @@ class TouchBrowserEvdevMixin:
 
             if self._handle_az_rail_touch("up", pos):
                 self._touch_list_capture = False
-                self._touch_chip_capture = False
+                self._touch_browse_capture = False
                 return
 
-            if self._touch_chip_capture or self._instrument_chip_active():
-                self._handle_instrument_chip_pointer_up(pos)
+            if self._touch_browse_capture or self._browse_gesture_active():
+                self._handle_browse_pointer_up(pos)
                 self._touch_list_capture = False
-                self._touch_chip_capture = False
+                self._touch_browse_capture = False
                 return
 
             if self.screen_state == Screen.CONTEXT_MENU:
                 self._handle_context_menu_pointer_up(pos)
                 self._touch_list_capture = False
-                self._touch_chip_capture = False
+                self._touch_browse_capture = False
                 return
 
             list_gesture = self._touch_list_capture or self.nav_list.is_dragging()
