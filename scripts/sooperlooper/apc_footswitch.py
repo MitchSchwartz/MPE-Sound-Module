@@ -441,7 +441,10 @@ def reset_all_loops(
                 fs._on_grid_dropped()
             break
     for loop in range(num_loops):
-        osc.send_message(f"/sl/{loop}/hit", "pause")
+        # pause_on, never pause: `pause` is a TOGGLE, so it *starts* an already
+        # paused loop. Reset would then leave half the grid running — the same
+        # root error DECISIONS records for trigger and mute.
+        osc.send_message(f"/sl/{loop}/hit", "pause_on")
         osc.send_message(f"/sl/{loop}/hit", "undo_all")
     for fs in footswitches:
         fs.state = STATE_IDLE
