@@ -6,6 +6,123 @@ Orientation canon: OM-Repo [`GROUNDING.md`](https://github.com/opsMachine/OM-Rep
 
 ---
 
+## 2026-08-15 — A reading that looks the same whether or not it means anything
+
+Every defect found in the looper stack on 2026-08-14/15 was the same shape, and
+it is worth naming because it is not a coding error and code review does not
+catch it. **A measurement, a status, or a colour that is indistinguishable
+between "fine" and "not instrumented".**
+
+| Instance | What it showed | What it meant |
+|---|---|---|
+| The orphan | `sl-health` green, `/get` answering | Engine had no JACK client; every command discarded |
+| Watchdog audio check | "healthy" | Guarded on `if srcs` — an empty graph reported OK |
+| B7 xruns | `0/0` | The node has no xrun counter at all; that was a fallback |
+| First B7 launch | would have been 0 xruns, 22% DSP | Zero fixture clips — 16 *empty* loops |
+| Pad LED | solid green | A command had been *sent*, not that audio existed |
+| `sl-health` at 23:30 | **WEDGED** | Two probers fighting over one control |
+
+**Rules, each paid for:**
+
+1. **Absent instrumentation must look absent.** Never default a missing counter
+   to 0. Return `n/a`. `0` and "we could not measure" must not render alike.
+2. **Distinguish "could not ask" from "asked, got nothing".** `None` and `""`
+   are different answers; conflating them is how the watchdog called a silent
+   graph healthy.
+3. **A read-only check cannot detect a failure of the write path.** They fail
+   independently. Round-trip a write.
+4. **Before trusting silence, prove the channel is alive.** Zero xruns in the
+   journal counts only because jackd's startup lines are demonstrably in that
+   same journal.
+5. **A monitoring race must never recommend a destructive action.** A false
+   WEDGED points at `sl-restart`, which erases every take. Verdicts whose
+   remedy loses data need corroboration, a retry, and a cheaper check named
+   first.
+6. **Solid means confirmed; blinking means requested.** The one UI rule that
+   makes a control surface trustworthy (§L).
+
+**Test the gap, not the call list.** A `MagicMock` answers instantly and always
+agrees, so it cannot see any of the above. `tests/fake_sl_engine.py` holds
+quantized actions until an explicit `boundary()` and found three real defects on
+first run.
+
+## 2026-08-15 — The "wedge" was an orphaned JACK client, not an engine fault
+
+**Five occurrences across two evenings were all misdiagnosed.** Root cause,
+verified live: `jackd` restarted 4.5 minutes after SooperLooper; SL survived as
+a *process* but lost its JACK client and never re-registered. `jack_lsp` showed
+no `mpe-looper:*` ports at all.
+
+`/set` and `/hit` go through `push_nonrt_event()`, drained from the **JACK
+process callback**. No callback, no drain — every command silently discarded,
+while `/get` reads state directly and keeps answering.
+
+**It explains all three standing symptoms with no race required:** pads green
+with no audio, a grid still quantized after a reset, and the watchdog logging
+PROBLEM every cycle without ever repairing (it was connecting a port that did
+not exist).
+
+`restart-sooperlooper.sh` already had `jack_client_visible()` and already logged
+"orphan detected". **The watchdog never called it.** The condition was named in
+the codebase the whole time; nothing that ran automatically checked for it.
+
+**Rules this earns:**
+
+- **Check JACK visibility before probing OSC.** An orphan and a wedge are
+  indistinguishable to the OSC probe, so diagnosing in the other order names the
+  wrong component — which is what sent three sessions into the engine internals.
+- **A read-only health check cannot detect a failure of the write path.** This
+  is why `sl-health` round-trips a `set`.
+- **A repair that fails silently is indistinguishable from no repair.** Log the
+  exit code and the stderr, always.
+- **`pause` is a toggle.** `stop-all-loops.sh` hit `/sl/-1` and then every loop
+  individually, pausing and un-pausing each one, so "stop all" left everything
+  running. `pause_on` is idempotent; use the explicit form. Third instance of
+  this same error after `trigger` and `mute`.
+
+Detail: spec `looper-transport-clock-spec.md` §M.
+
+## 2026-08-15 — Looper control layer: engine truth plus intent that expires
+
+**Two independent grumpy reviews and two audits converged** on one defect: the
+bench kept a parallel `self.state` written the instant a command was *sent*, so
+it disagreed with the engine for as long as the engine took to answer, and any
+poll landing in that window could clobber it.
+
+**Both reviews prescribed deleting `self.state`. That prescription was wrong**
+and is recorded as wrong. The optimism is load-bearing: a double tap must mean
+"record exactly one cycle" before the engine has acknowledged the first tap, and
+a second tap during a quantized mute must mean "keep playing".
+
+**Decision — keep the intent, stop calling it truth.** `sl_state` is
+authoritative always; `pending` is what we asked for and have not seen
+confirmed, and it expires. `state` is derived from the two.
+
+**The LED renders `pending` as a blink and paints a solid colour only from
+`sl_state`.** A solid green pad is now a promise that the engine says there is
+audio in that loop. It used to be a promise that we had *sent* a command.
+
+**Test the gap, not the call list.** A `MagicMock` answers instantly and always
+agrees, so it cannot see a timing bug — and every looper bug that cost an evening
+was a timing bug. `tests/fake_sl_engine.py` holds quantized actions until an
+explicit `boundary()`. It immediately caught three defects the unit suite could
+not: a fast double tap cancelling its own take, a queued launch blinking green
+forever, and a queued stop dropping its expectation mid-take.
+
+Confirmed on hardware 2026-08-15. Detail: spec §L.
+
+## 2026-08-15 — Racknerd YOLO → Pi access (spec draft, not implemented)
+
+**Spec:** [`docs/racknerd-pi-access-spec.md`](../docs/racknerd-pi-access-spec.md)
+
+**Intent:** Let the Racknerd YOLO agent run **allowlisted** `mpe test pi …` (Phase A) and optionally **bounded deploy** behind `pi_soak` (Phase B) — via **Tailscale ACL** (Pi:22 only, no LAN subnet routes), **forced-command SSH user** `mpe-yolo` on the Pi, **`mpe-cli` yolo profile** on Racknerd, and **`yolo-shell-guard` allowlist**. Mitch admin path (`mitch@pi`, laptop `mpe`) unchanged.
+
+**Status:** Draft — **Gate A not cleared.** Do not install Tailscale agent path or widen guards until Mitch approves spec.
+
+**Non-goals:** LAN pivot, interactive agent shell on Pi, automated ear tests, `dev`→`main` appliance promotion from Racknerd.
+
+---
+
 ## 2026-08-15 — Browse carousel + filter pane (spec locked, not built)
 
 **Spec:** [`specs/touch-browser-browse-carousel-spec.md`](specs/touch-browser-browse-carousel-spec.md)
@@ -52,12 +169,23 @@ clip.
 | | Where it comes from |
 |---|---|
 | tempo | the first take's length (it *is* one bar, by definition) |
-| unit  | the first take (`eighth_per_cycle` sized to it) |
+| unit  | one bar — `eighth_per_cycle = 8`, fixed (see note below) |
 | **phase** | `Engine::set_tempo` zeroes `_quarter_counter`/`_tempo_counter`, so re-sending the tempo IS the phase reset (engine.cpp, verified) |
 
 Missing phase was the single cause of clips joining out of phase, stop landing
 on the wrong boundary, and position not resetting. The `tap_tempo` guess carried
 since `8d7a426` was never needed.
+
+**Correction 2026-08-15 — the unit is fixed at one bar, deliberately.** This
+entry originally claimed `eighth_per_cycle` was "sized to the first take". It is
+not: it is set to 8 once at startup and never changed, so the quantize unit is
+always one bar. That is the *correct* behaviour — clips count in to the next
+**bar**, not to the end of a multi-bar phrase — but it was true by accident
+rather than by decision, and the canon asserted a mechanism that does not exist.
+`derive_tempo` still returns `bars`, and `on_grid_established` still ignores it.
+What is genuinely missing is that nothing records the *phrase length* of a
+multi-bar first take. That is a real gap, but a small one, and it is not what
+this row said.
 
 **Two states, not settings.** No grid → every loop free-form (quantize/sync/
 round all 0). Grid established → count in and snap length to the cycle. Written

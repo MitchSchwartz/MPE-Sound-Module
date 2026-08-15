@@ -17,7 +17,21 @@ if [[ ! -d "$ROOT/tests" ]]; then
 fi
 
 cd "$ROOT"
-if python3 -m unittest discover -s tests -q; then
+
+_yolo_python() {
+  if [[ -x "$ROOT/.venv/bin/python" ]]; then
+    echo "$ROOT/.venv/bin/python"
+  else
+    echo python3
+  fi
+}
+
+PYTHON="$(_yolo_python)"
+if [[ "$PYTHON" == python3 ]] && [[ -f "$ROOT/requirements-yolo.txt" ]]; then
+  echo "  WARN: no $ROOT/.venv — run: bash scripts/yolo/setup-nerdrack-python.sh" >&2
+fi
+
+if "$PYTHON" -m unittest discover -s tests -q; then
   echo "  unittest discover: ok"
   echo "All backpressure gates passed."
   exit 0
