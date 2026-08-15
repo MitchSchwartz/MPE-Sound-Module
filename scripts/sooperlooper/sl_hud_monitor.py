@@ -1,16 +1,19 @@
 #!/usr/bin/env python3
-"""SooperLooper HUD — bar/beat from whichever clock is actually running.
+"""SooperLooper HUD — bar/beat/phrase position for the touch header.
 
-Two clock sources, matching sl_grid_sync:
+Pure Python and non-blocking, deliberately:
 
-  internal   sync_source = -3. SL owns the pulse. Beat comes from SL's global
-             `tempo` plus a phase reference from any playing loop.
-  transport  sync_source = -1. Beat comes from JACK transport BBT.
+* **No JACK client.** The transport clock was retired when internal sync won,
+  so the only C extension here was dead weight — and this process died with
+  `Fatal glibc error: malloc.c: assertion failed` (heap corruption), taking the
+  beat display with it. A pure-Python writer cannot corrupt a heap.
+* **No blocking OSC in the draw path.** State, length and position arrive by
+  `register_auto_update`; the writer only reads its cache. The first cut polled
+  16 loops x 2 controls per frame with blocking round-trips and stalled outright,
+  leaving the HUD file 130 s stale.
 
-**It must follow the clock in use.** Pinning the HUD to JACK transport while the
-engine ran on internal sync produced `beat: null` forever — the beat counter
-never appeared after recording a clip, which reads as "the looper is broken"
-even though the loop was playing correctly (2026-08-14).
+The display cycle is the PHRASE — the longest playing loop — so the sweep always
+completes and the counter reads bar-within-phrase.
 """
 
 from __future__ import annotations
@@ -28,7 +31,6 @@ sys.path.insert(0, str(REPO_ROOT))
 from patch_browser.sl_hud_state import SL_HUD_STATE_FILE  # noqa: E402
 
 WRITE_INTERVAL_S = float(os.environ.get("MPE_SL_HUD_WRITE_INTERVAL_S", "0.5"))
-JACK_CLIENT = os.environ.get("MPE_JACK_HUD_CLIENT", "mpe-sl-hud")
 SL_HOST = os.environ.get("MPE_SL_OSC_HOST", "127.0.0.1")
 SL_PORT = int(os.environ.get("MPE_SL_OSC_PORT", "9951"))
 LISTEN_PORT = int(os.environ.get("MPE_SL_HUD_LISTEN_PORT", "9952"))
@@ -90,6 +92,10 @@ class SlQuery:
         if len(args) >= 3:
             self.last[f"{args[0]}:{args[1]}"] = args[2]
 
+    def cached(self, ctrl: str, loop: int = 0):
+        """Last value delivered by auto-update. Never blocks."""
+        return self.last.get(f"{loop if loop >= 0 else -2}:{ctrl}")
+
     def get(self, ctrl: str, loop: int = 0, timeout: float = 0.4):
         key = f"{loop if loop >= 0 else -2}:{ctrl}"
         self.last.pop(key, None)
@@ -107,24 +113,27 @@ class HudWriter:
     def __init__(self) -> None:
         self._last_write = 0.0
         self._last_key: tuple | None = None
-        self._jack_client = None
-        self._jack = None
         self._sl = SlQuery().start()
         self._lengths: dict[int, float] = {}
-        self._lengths_scanned_at = 0.0
+        self._registered_at = 0.0
 
-    def _transport(self) -> tuple[bool, dict]:
-        try:
-            import jack
+    def register_auto_updates(self) -> None:
+        """Subscribe to state/loop_len/loop_pos rather than polling for them.
 
-            if self._jack_client is None:
-                self._jack_client = jack.Client(JACK_CLIENT, no_start_server=True)
-                self._jack = jack
-            state, pos = self._jack_client.transport_query()
-            rolling = "ROLLING" in repr(state).upper() or "STARTING" in repr(state).upper()
-            return rolling, dict(pos or {})
-        except Exception:
-            return False, {}
+        The first cut queried 16 loops x 2 controls per frame with blocking OSC
+        round-trips. That is ~32 blocking calls at draw rate for data that only
+        changes when a clip is recorded, and it stalled the writer outright.
+        """
+        for loop in range(NUM_LOOPS):
+            for ctrl in ("state", "loop_len", "loop_pos"):
+                self._sl.client.send_message(
+                    f"/sl/{loop}/register_auto_update",
+                    [ctrl, 100, f"{SL_HOST}:{LISTEN_PORT}", "/r"],
+                )
+        self._sl.client.send_message(
+            "/register_auto_update", ["tempo", 200, f"{SL_HOST}:{LISTEN_PORT}", "/r"]
+        )
+        self._registered_at = time.monotonic()
 
     def _phrase_reference(self, bar_span: float):
         """Longest playing loop = the musical phrase the counter should span.
@@ -137,18 +146,15 @@ class HudWriter:
         Loop lengths are re-scanned about once a second — position is polled at
         the draw rate, but lengths only change when a clip is recorded.
         """
-        now = time.monotonic()
-        if now - self._lengths_scanned_at > 1.0:
-            self._lengths_scanned_at = now
-            lengths = {}
-            for loop in range(NUM_LOOPS):
-                state = self._sl.get("state", loop, timeout=0.15)
-                if state is None or int(state) not in PLAYING_STATES:
-                    continue
-                length = self._sl.get("loop_len", loop, timeout=0.15) or 0.0
-                if float(length) > 0.0:
-                    lengths[loop] = float(length)
-            self._lengths = lengths
+        lengths = {}
+        for loop in range(NUM_LOOPS):
+            state = self._sl.cached("state", loop)
+            if state is None or int(state) not in PLAYING_STATES:
+                continue
+            length = self._sl.cached("loop_len", loop) or 0.0
+            if float(length) > 0.0:
+                lengths[loop] = float(length)
+        self._lengths = lengths
         if not self._lengths:
             return None, 0.0, 1
         loop = max(self._lengths, key=lambda k: self._lengths[k])
@@ -157,13 +163,13 @@ class HudWriter:
         return loop, phrase_len, bars
 
     def _from_sl(self) -> dict | None:
-        tempo = self._sl.get("tempo", loop=-1)
+        tempo = self._sl.cached("tempo", -1)
         if not tempo:
             return None
         bar_span = 4 * 60.0 / float(tempo)
         ref, phrase_len, bars = self._phrase_reference(bar_span)
         if ref is not None:
-            pos = float(self._sl.get("loop_pos", ref) or 0.0)
+            pos = float(self._sl.cached("loop_pos", ref) or 0.0)
             beat, bar = beat_and_bar_from_tempo(pos, float(tempo))
             return {
                 "source": "sl_internal", "beat": beat,
@@ -184,18 +190,9 @@ class HudWriter:
         }
 
     def poll(self) -> bool:
-        rolling, pos = self._transport()
-        if rolling and pos.get("beat") is not None:
-            beat, bar = beat_and_bar_from_transport(pos)
-            payload = {
-                "source": "jack_transport", "beat": beat, "bar": bar,
-                "bpm": pos.get("beats_per_minute"), "playing": True,
-                "has_master": True, "active": True, "state": 4, "loop_pos": 0.0,
-            }
-        else:
-            payload = self._from_sl()
-            if payload is None:
-                return False
+        payload = self._from_sl()
+        if payload is None:
+            return False
 
         payload.setdefault("phrase_len", 0.0)
         payload.setdefault("phrase_pos", 0.0)
@@ -215,10 +212,13 @@ class HudWriter:
 
 def main() -> int:
     writer = HudWriter()
+    writer.register_auto_updates()
     print(f"sl-hud-monitor: -> {SL_HUD_STATE_FILE} (follows the live clock)", flush=True)
     try:
         while True:
             writer.poll()
+            if time.monotonic() - writer._registered_at > 15.0:
+                writer.register_auto_updates()  # survive an engine restart
             time.sleep(0.1)
     except KeyboardInterrupt:
         return 0
