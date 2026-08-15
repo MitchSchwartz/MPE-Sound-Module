@@ -6,6 +6,20 @@ Orientation canon: OM-Repo [`GROUNDING.md`](https://github.com/opsMachine/OM-Rep
 
 ---
 
+## 2026-08-15 — Browse carousel + filter pane (spec locked, not built)
+
+**Spec:** [`specs/touch-browser-browse-carousel-spec.md`](specs/touch-browser-browse-carousel-spec.md)
+
+**Layout (concept J):** horizontal track `[Filter 532 | Nav 268 | Patch 532]`. Default **Home** (Nav + Patch); **Filter** stop shows Filter + Nav; patch fully off-screen. Filter pane uses masonry instrument tags (full `INSTRUMENT_VOCAB`); **no** inline chip row in nav; **no** funnel button in nav header.
+
+**Gestures:** **No third-party library** (pygame + evdev — nothing mature to drop in). New in-repo `gesture_router` + `browse_carousel`. **Zone at pointer-down** only — not angle-based scroll/pan lock. **Left screen edge 48px** is the sole carousel grab strip in v1; nav list scrolls in the interior; patch pane is mixer-only. Filter tag tap persists selection and does **not** change stop. No bottom tab bar; nav scroll uses existing edge hints.
+
+**Deferred:** inner seam handles, nav-header swipe, J2 right-pane swap, right-edge global menu (future 12–16px rim).
+
+**Supersedes** inline chip UX in instruments epic Phase 4 for browse UI only — metadata work unchanged.
+
+---
+
 ## 2026-08-14 — Who owns the looper grid clock (open — ranked, gated)
 
 **Settled:** the grid must not be owned by clip 0. Deleting clip 0 has to be
