@@ -9,6 +9,8 @@ from patch_browser.scroll_widgets import ScrollList
 from patch_browser.touch_ui_constants import (
     ALL_PATCHES_ROW_HEIGHT,
     AUDIO_BADGE_PAD_X,
+    BROWSE_FILTER_W,
+    BROWSE_PATCH_W,
     LOOPER_HUD_COUNTER_GAP,
     LOOPER_HUD_H,
     LOOPER_HUD_MIN_W,
@@ -176,24 +178,23 @@ class TouchBrowserLayoutMixin:
         content_bottom = self.height - BROWSER_BOTTOM_MARGIN
         left_w = self._left_nav_width()
 
-        self.left_panel_rect = Rect(margin, content_top, left_w, content_bottom - content_top)
-        self.nav_toggle_btn = Rect(margin, content_top, left_w, content_bottom - content_top)
-        nav_header_w = left_w if self.left_nav_mode == LeftNavMode.ALL_PATCHES else LEFT_NAV_WIDTH
-        self.nav_header_rect = Rect(margin, content_top, nav_header_w, nav_header_h)
-        list_w = (
-            self._left_nav_width()
-            if self.left_nav_mode == LeftNavMode.ALL_PATCHES
-            else LEFT_NAV_WIDTH
-        )
-        self._layout_instrument_chip_panel(
-            margin=margin,
-            content_top=content_top,
-            nav_header_h=nav_header_h,
-            list_w=list_w,
-        )
-        self._update_nav_list_geometry(content_top, content_bottom, nav_header_h, margin)
+        carousel_active = self._browse_carousel_active()
+        if carousel_active:
+            track_x = self._browse_track_offset_px()
+            nav_x = track_x + BROWSE_FILTER_W
+            filter_pane_rect = Rect(track_x, content_top, BROWSE_FILTER_W, content_bottom - content_top)
+        else:
+            nav_x = margin
+            filter_pane_rect = Rect(0, 0, 0, 0)
 
-        rail_x = margin + left_w + gap
+        self.left_panel_rect = Rect(nav_x, content_top, left_w, content_bottom - content_top)
+        self.nav_toggle_btn = Rect(nav_x, content_top, left_w, content_bottom - content_top)
+        nav_header_w = left_w if self.left_nav_mode == LeftNavMode.ALL_PATCHES else LEFT_NAV_WIDTH
+        self.nav_header_rect = Rect(nav_x, content_top, nav_header_w, nav_header_h)
+        self._layout_browse_filter_pane(pane=filter_pane_rect)
+        self._update_nav_list_geometry(content_top, content_bottom, nav_header_h, margin, nav_x=nav_x)
+
+        rail_x = nav_x + left_w + gap
         rail_w = self._browser_side_rail_width()
 
         if self.left_nav_mode == LeftNavMode.ALL_PATCHES:
@@ -208,9 +209,13 @@ class TouchBrowserLayoutMixin:
         else:
             self.az_rail_rect = Rect(0, 0, 0, 0)
             self.az_rail_letter_rects = []
-            main_x = margin + left_w + gap + rail_w
-            main_w = self.width - margin * 2 - left_w - gap - rail_w
-            self.main_rect = Rect(main_x, content_top, main_w, content_bottom - content_top)
+            if carousel_active:
+                main_x = nav_x + left_w
+                self.main_rect = Rect(main_x, content_top, BROWSE_PATCH_W, content_bottom - content_top)
+            else:
+                main_x = margin + left_w + gap + rail_w
+                main_w = self.width - margin * 2 - left_w - gap - rail_w
+                self.main_rect = Rect(main_x, content_top, main_w, content_bottom - content_top)
         action_row_h = max(NORM_ROW_H, FAVORITES_BTN_SIZE)
         bottom_row_y = self._detail_bottom_row_y()
         self._layout_mixer_strip()
@@ -295,19 +300,25 @@ class TouchBrowserLayoutMixin:
         content_bottom: int | None = None,
         nav_header_h: int = 36,
         margin: int = 16,
+        nav_x: int | None = None,
     ) -> None:
         if content_top is None:
             gap = 10
             content_top = self.status_rect.y + self.status_rect.h + gap
             content_bottom = self.height - BROWSER_BOTTOM_MARGIN
+        if nav_x is None:
+            nav_x = (
+                self._browse_track_offset_px() + BROWSE_FILTER_W
+                if self._browse_carousel_active()
+                else margin
+            )
 
         show_folder_title = (
             not self.left_nav_collapsed
             and self.left_nav_mode in (LeftNavMode.PATCHES, LeftNavMode.ALL_PATCHES)
         )
         folder_title_h = NAV_FOLDER_TITLE_H if show_folder_title else 0
-        chip_offset = self._instrument_chip_offset()
-        list_top = content_top + nav_header_h + 4 + chip_offset + folder_title_h
+        list_top = content_top + nav_header_h + 4 + folder_title_h
 
         if show_folder_title:
             title_w = (
@@ -316,8 +327,8 @@ class TouchBrowserLayoutMixin:
                 else LEFT_NAV_WIDTH
             )
             self.nav_folder_title_rect = Rect(
-                margin,
-                content_top + nav_header_h + 4 + chip_offset,
+                nav_x,
+                content_top + nav_header_h + 4,
                 title_w,
                 folder_title_h,
             )
@@ -329,7 +340,7 @@ class TouchBrowserLayoutMixin:
             if self.left_nav_mode == LeftNavMode.ALL_PATCHES
             else LEFT_NAV_WIDTH
         )
-        list_rect = Rect(margin, list_top, list_w, content_bottom - list_top)
+        list_rect = Rect(nav_x, list_top, list_w, content_bottom - list_top)
         if self.left_nav_mode == LeftNavMode.ALL_PATCHES:
             row_height = ALL_PATCHES_ROW_HEIGHT
         elif self.left_nav_mode == LeftNavMode.PATCHES:
@@ -378,11 +389,6 @@ class TouchBrowserLayoutMixin:
         self.nav_current_btn = Rect(x, y, icon_w, btn_h)
         x += icon_w + 6
         self.nav_all_btn = Rect(x, y, all_w, btn_h)
-        x += all_w + 6
-        if self._show_instrument_chips():
-            self.instrument_filter_btn_rect = Rect(x, y, icon_w, btn_h)
-        else:
-            self.instrument_filter_btn_rect = Rect(0, 0, 0, 0)
         if self.left_nav_mode != LeftNavMode.ALL_PATCHES:
             self.nav_collapse_btn = Rect(self.nav_header_rect.right - 38, y, 32, btn_h)
         else:
