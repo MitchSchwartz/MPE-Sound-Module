@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import conftest  # noqa: F401 — bare sooperlooper imports (sl_loop_states, …)
+
 import unittest
 
 from scripts.sooperlooper.led_table import (
@@ -23,6 +25,7 @@ from scripts.sooperlooper.loop_model import (
     derive_state,
     effective_state,
     pending_resolved,
+    plan_gesture,
     plan_tap,
 )
 from scripts.sooperlooper.sl_loop_states import (
@@ -71,6 +74,19 @@ class PlanTapTests(unittest.TestCase):
         kw.setdefault("quantized", True)
         return plan_tap(sl_state=sl_state, **kw)
 
+    def _gesture(self, edge, sl_state, **kw):
+        kw.setdefault("pending", None)
+        kw.setdefault("grid_established", True)
+        kw.setdefault("is_defining", False)
+        kw.setdefault("quantized", True)
+        return plan_gesture(edge=edge, sl_state=sl_state, **kw)
+
+    def test_idle_records_on_pad_down_not_up(self) -> None:
+        down = self._gesture("down", SL_STATE_OFF)
+        up = self._gesture("up", SL_STATE_OFF)
+        self.assertEqual(down.commands, ("record",))
+        self.assertEqual(up.commands, ())
+
     def test_idle_records(self) -> None:
         p = self._plan(SL_STATE_OFF)
         self.assertEqual(p.commands, ("record",))
@@ -84,35 +100,42 @@ class PlanTapTests(unittest.TestCase):
 
     def test_a_second_tap_before_the_engine_answers_queues_the_stop(self) -> None:
         """`record` into an armed loop is a CANCEL — never send it blind."""
-        p = self._plan(SL_STATE_OFF, pending=STATE_RECORDING)
+        p = self._gesture("down", SL_STATE_OFF, pending=STATE_RECORDING)
         self.assertEqual(p.commands, ())
         self.assertTrue(p.queue_stop)
         self.assertEqual(p.expect, STATE_RECORDING, "still recording, as far as the player knows")
 
     def test_a_second_tap_while_armed_queues_the_stop(self) -> None:
-        p = self._plan(SL_STATE_WAIT_START, pending=STATE_RECORDING)
+        p = self._gesture("down", SL_STATE_WAIT_START, pending=STATE_RECORDING)
         self.assertTrue(p.queue_stop)
         self.assertEqual(p.commands, ())
 
     def test_confirmed_recording_stops_and_waits_for_the_bar(self) -> None:
-        p = self._plan(SL_STATE_RECORDING)
+        p = self._gesture("down", SL_STATE_RECORDING)
         self.assertEqual(p.commands, ("record",))
         self.assertTrue(p.begin_quantize_wait)
         self.assertIsNone(p.expect, "the boundary decides, not us")
 
     def test_the_defining_take_does_not_wait_for_a_bar_that_does_not_exist(self) -> None:
-        p = self._plan(SL_STATE_RECORDING, is_defining=True)
+        p = self._gesture("down", SL_STATE_RECORDING, is_defining=True)
         self.assertFalse(p.begin_quantize_wait)
         self.assertEqual(p.expect, STATE_PLAYING)
 
     def test_free_form_loops_never_arm_a_quantize_wait(self) -> None:
-        p = self._plan(SL_STATE_RECORDING, quantized=False)
+        p = self._gesture("down", SL_STATE_RECORDING, quantized=False)
         self.assertFalse(p.begin_quantize_wait)
 
     def test_tapping_after_a_timed_out_stop_keeps_recording(self) -> None:
-        p = self._plan(SL_STATE_WAIT_STOP)
+        p = self._gesture("down", SL_STATE_WAIT_STOP)
         self.assertEqual(p.commands, ("record",))
         self.assertFalse(p.queue_stop)
+
+    def test_playing_mutes_on_pad_up(self) -> None:
+        down = self._gesture("down", SL_STATE_PLAYING)
+        up = self._gesture("up", SL_STATE_PLAYING)
+        self.assertEqual(down.commands, ())
+        self.assertEqual(up.commands, ("mute_on",))
+        self.assertEqual(up.expect, STATE_STOPPED)
 
     def test_playing_mutes_rather_than_pauses(self) -> None:
         p = self._plan(SL_STATE_PLAYING)

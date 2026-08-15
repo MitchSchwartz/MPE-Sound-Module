@@ -99,24 +99,29 @@ class Plan:
     note: str = ""
 
 
-def plan_tap(
+def plan_gesture(
     *,
+    edge: str,
     sl_state: int,
     pending: str | None,
     grid_established: bool,
     is_defining: bool,
     quantized: bool,
 ) -> Plan:
-    """The whole gesture vocabulary, in one place.
+    """The whole gesture vocabulary, split by which physical edge fired.
 
-    idle      -> record
-    recording -> stop (quantized to the bar unless this take defines the grid)
-    playing   -> mute  (keeps running, so it stays locked to the grid)
-    stopped   -> quantized trigger
+    Record **starts on pad down** so the player can touch and play on the same
+    beat. The old release-to-start path ate everything played during the press
+    and until lift — especially painful on the first/defining take.
+
+    Record **stops on pad down** while the engine is actually capturing; launch
+    and mute stay on pad up (musical toggles, not time-critical attacks).
     """
     state = effective_state(sl_state, pending)
 
     if state == STATE_IDLE:
+        if edge != "down":
+            return Plan()
         # No grid yet? This take defines it: record free-form and instant,
         # because there is no bar to count in to. Standard looper workflow.
         if not grid_established:
@@ -129,6 +134,8 @@ def plan_tap(
         return Plan(commands=("record",), expect=STATE_RECORDING)
 
     if state == STATE_RECORDING:
+        if edge != "down":
+            return Plan()
         if sl_state == SL_STATE_WAIT_STOP:
             # A stop is already queued in the engine and the quantize wait has
             # since expired. `record` here cancels that stop and keeps
@@ -140,23 +147,11 @@ def plan_tap(
             # the take outright. Queue the stop and fire it the moment recording
             # actually begins, so a double tap records exactly one cycle:
             # starts on the next boundary, ends on the one after.
-            #
-            # Keying this off WAIT_START alone was not enough — between the tap
-            # that arms and the poll that reports it, `sl_state` is still the
-            # *previous* state, so a fast double tap read as "idle" and
-            # cancelled itself.
             return Plan(
                 queue_stop=True,
-                # Still recording as far as the player is concerned. Dropping
-                # the expectation here let the pad fall back to idle in the
-                # middle of a take.
                 expect=STATE_RECORDING,
                 note="stop queued — will record exactly one cycle",
             )
-        # Only wait for a boundary if this loop is actually quantized. In
-        # free-form there is no boundary, so arming the wait swallowed the next
-        # tap for the whole timeout and stranded the pad on red while the loop
-        # was already playing (2026-08-14).
         wait = quantized and not is_defining
         return Plan(
             commands=("record",),
@@ -165,26 +160,50 @@ def plan_tap(
         )
 
     if state == STATE_PLAYING:
+        if edge != "up":
+            return Plan()
         # Mute rather than pause: a muted loop keeps RUNNING, so it stays locked
         # to the grid and relaunching it is back in phase with everything else.
-        # With mute_quantized this lands on the bar.
         return Plan(commands=("mute_on",), expect=STATE_STOPPED)
 
     if state == STATE_STOPPED:
-        # Start = quantized trigger. Nothing else.
-        #
-        # `trigger` plays the loop FROM ITS START and SL defers it to the sync
-        # boundary (plugin.cc MULTI_TRIGGER: immediate only when sync is off, or
-        # within one eighth of the last sync pulse — a deliberate grace window
-        # for hitting slightly late). It also lifts a mute, which is why stop
-        # uses mute and not pause.
-        #
-        # Because every clip restarts from its own beginning on a boundary,
-        # phase takes care of itself. There is nothing to track.
+        if edge != "up":
+            return Plan()
         return Plan(
-            commands=("pause_off", "trigger"),  # pause_off only matters after stop-all
+            commands=("pause_off", "trigger"),
             expect=STATE_PLAYING,
             note="launch queued — starts on the bar",
         )
 
-    return Plan(commands=("record",), expect=STATE_RECORDING)
+    if edge == "up":
+        return Plan(commands=("record",), expect=STATE_RECORDING)
+    return Plan()
+
+
+def plan_tap(
+    *,
+    sl_state: int,
+    pending: str | None,
+    grid_established: bool,
+    is_defining: bool,
+    quantized: bool,
+) -> Plan:
+    """Legacy entry: both edges on release. Prefer plan_gesture in the bench."""
+    down = plan_gesture(
+        edge="down",
+        sl_state=sl_state,
+        pending=pending,
+        grid_established=grid_established,
+        is_defining=is_defining,
+        quantized=quantized,
+    )
+    if down.commands or down.queue_stop or down.arm_grid:
+        return down
+    return plan_gesture(
+        edge="up",
+        sl_state=sl_state,
+        pending=pending,
+        grid_established=grid_established,
+        is_defining=is_defining,
+        quantized=quantized,
+    )

@@ -1,5 +1,7 @@
 """16-pad APC footswitch bench wiring."""
 
+import conftest  # noqa: F401 — bare sooperlooper imports (apc_grid, …)
+
 import unittest
 from unittest.mock import MagicMock
 
