@@ -49,7 +49,8 @@ class SlGridSyncTests(unittest.TestCase):
         self.assertIn(("/set", ["fade_samples", 64.0]), sent)
         for loop in range(4):
             self.assertIn((f"/sl/{loop}/set", ["quantize", 1.0]), sent)
-            self.assertIn((f"/sl/{loop}/set", ["playback_sync", 1.0]), sent)
+            # SL's own default; forcing 1 delayed a fresh clip by a whole bar
+            self.assertIn((f"/sl/{loop}/set", ["playback_sync", 0.0]), sent)
 
     def test_freeform_disables_sync(self) -> None:
         sent: list[tuple[str, list]] = []
