@@ -18,6 +18,13 @@ fi
 export PATH="${HOME}/.local/bin:${HOME}/.agentjail/bin:${PATH}"
 export YOLO_HOOK_AGENT=claude
 
+if [[ -f "$ROOT/.venv/bin/activate" ]]; then
+  # shellcheck disable=SC1091
+  source "$ROOT/.venv/bin/activate"
+fi
+export SDL_VIDEODRIVER="${SDL_VIDEODRIVER:-dummy}"
+export PYGAME_HIDE_SUPPORT_PROMPT=1
+
 NOTIFY="$ROOT/scripts/yolo/notify.sh"
 LOG_SKILL="$ROOT/scripts/yolo/log-skill-run.sh"
 TASK_LABEL="${*:-<no prompt captured>}"
