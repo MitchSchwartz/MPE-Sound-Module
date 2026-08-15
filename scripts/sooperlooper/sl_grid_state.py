@@ -86,6 +86,7 @@ class GridState:
         self.bars: int | None = None
         self.defined_by: int | None = None
         self._pending: int | None = None
+        self._occupied: set[int] = set()
 
     def arm(self, loop: int) -> bool:
         """Mark `loop` as the take that will define the grid. True if accepted."""
@@ -114,6 +115,26 @@ class GridState:
         self._pending = None
         return derived
 
+    def note_loop_content(self, loop: int, occupied: bool) -> bool:
+        """Track which loops hold audio. Returns True if the grid was dropped.
+
+        **No clips, no grid.** Clearing every pad one at a time has to leave the
+        session exactly where a track reset does, or the next take is treated as
+        a later clip and gets quantized to the tempo of a grid whose clips are
+        all gone — a short take stretched to an imaginary bar.
+
+        Driven by engine state (SL_STATE_OFF), not by bench bookkeeping, so it
+        stays true however the clips were cleared.
+        """
+        if occupied:
+            self._occupied.add(loop)
+        else:
+            self._occupied.discard(loop)
+        if self._occupied or not self.established or self._pending is not None:
+            return False
+        self.reset()
+        return True
+
     def reset(self) -> None:
         """Track reset — back to no grid, so the next take defines it again."""
         self.established = False
@@ -121,3 +142,4 @@ class GridState:
         self.bars = None
         self.defined_by = None
         self._pending = None
+        self._occupied.clear()

@@ -64,10 +64,12 @@ class LoopFootswitch:
         quantized: bool = True,
         grid: GridState | None = None,
         on_grid_established=None,
+        on_grid_dropped=None,
     ) -> None:
         self.loop = loop
         self.grid = grid
         self._on_grid_established = on_grid_established
+        self._on_grid_dropped = on_grid_dropped
         self.loop_len = 0.0
         # Is this loop waiting for cycle boundaries? False in free-form, where
         # arming a quantize wait strands the pad on a boundary that never comes.
@@ -120,6 +122,12 @@ class LoopFootswitch:
         elif sl_state == SL_STATE_RECORDING:
             self.awaiting_quantize = False
             self.state = STATE_RECORDING
+        if self.grid is not None:
+            if self.grid.note_loop_content(self.loop, sl_state != SL_STATE_OFF):
+                log(f"loop {self.loop}: last clip cleared — grid dropped, "
+                    f"next take defines a new one")
+                if self._on_grid_dropped is not None:
+                    self._on_grid_dropped()
         changed = before != self.state or prev_sl != sl_state
         if changed:
             log(f"loop {self.loop}: SL sync sl={sl_state} bench={self.state}")
@@ -307,6 +315,7 @@ def build_footswitches(
     quantized: bool = True,
     grid: GridState | None = None,
     on_grid_established=None,
+    on_grid_dropped=None,
 ) -> tuple[dict[int, LoopFootswitch], list[LoopFootswitch]]:
     """Map APC clip-pad MIDI notes (rows 0 + 3) -> per-loop footswitch."""
     by_note: dict[int, LoopFootswitch] = {}
@@ -323,6 +332,7 @@ def build_footswitches(
             quantized=quantized,
             grid=grid,
             on_grid_established=on_grid_established,
+            on_grid_dropped=on_grid_dropped,
         )
         fs.bind(osc, midi_out, note)
         by_note[note] = fs
@@ -349,6 +359,8 @@ def reset_all_loops(
     for fs in footswitches:
         if fs.grid is not None:
             fs.grid.reset()
+            if fs._on_grid_dropped is not None:
+                fs._on_grid_dropped()
             break
     for loop in range(num_loops):
         osc.send_message(f"/sl/{loop}/hit", "pause")
