@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 import scripts.sooperlooper.apc_footswitch as footswitch_mod
 from scripts.sooperlooper.apc_footswitch import LoopFootswitch, build_footswitches
 from scripts.sooperlooper.sl_loop_states import (
+    SL_STATE_MUTE,
     SL_STATE_OFF,
     SL_STATE_PAUSED,
     SL_STATE_PLAYING,
@@ -164,6 +165,10 @@ class GridEstablishmentTests(unittest.TestCase):
 
         fs = self._fs(1, grid)
         fs.on_pad_down(); fs.on_pad_up()
+        # The engine has to confirm recording before the stop can be sent as a
+        # stop — tapping again before that arrives means the engine may still
+        # be armed, where `record` lands as CANCEL.
+        fs.sync_from_sl(SL_STATE_RECORDING)
         fs.on_pad_down(); fs.on_pad_up()
         self.assertTrue(fs.awaiting_quantize, "quantized clip must wait for the bar")
 
@@ -225,35 +230,29 @@ class TransitionBlinkTests(unittest.TestCase):
         return [c.args[0][2] for c in fs._midi_out.send_message.call_args_list]
 
     def test_recording_queued_to_play_alternates_red_and_green(self) -> None:
-        import scripts.sooperlooper.apc_footswitch as m
-
         fs = self._fs()
-        fs.sync_from_sl(m.SL_STATE_WAIT_STOP)
+        fs.sync_from_sl(SL_STATE_WAIT_STOP)
         seq = []
         with patch("scripts.sooperlooper.apc_footswitch.time.monotonic") as clock:
             for i in range(4):
-                clock.return_value = i * m.TRANSITION_BLINK_S
+                clock.return_value = i * footswitch_mod.TRANSITION_BLINK_S
                 fs.poll_led()
                 seq.append(self._sent(fs)[-1])
         # gaps demarcate the colours; without them it reads as one flicker
-        self.assertEqual(seq, [m.LED_OFF, m.LED_RED, m.LED_OFF, m.LED_GREEN])
+        self.assertEqual(seq, [footswitch_mod.LED_OFF, footswitch_mod.LED_RED, footswitch_mod.LED_OFF, footswitch_mod.LED_GREEN])
 
     def test_queued_to_record_stays_ableton_standard_red_blink(self) -> None:
-        import scripts.sooperlooper.apc_footswitch as m
-
         fs = self._fs()
-        fs.sync_from_sl(m.SL_STATE_WAIT_START)
-        self.assertEqual(self._sent(fs)[-1], m.LED_RED_BLINK)
+        fs.sync_from_sl(SL_STATE_WAIT_START)
+        self.assertEqual(self._sent(fs)[-1], footswitch_mod.LED_RED_BLINK)
         self.assertIsNone(fs._led_transition, "no animation for an unambiguous state")
 
     def test_landing_on_playing_ends_the_animation(self) -> None:
-        import scripts.sooperlooper.apc_footswitch as m
-
         fs = self._fs()
-        fs.sync_from_sl(m.SL_STATE_WAIT_STOP)
-        fs.sync_from_sl(m.SL_STATE_PLAYING)
+        fs.sync_from_sl(SL_STATE_WAIT_STOP)
+        fs.sync_from_sl(SL_STATE_PLAYING)
         self.assertIsNone(fs._led_transition)
-        self.assertEqual(self._sent(fs)[-1], m.LED_GREEN)
+        self.assertEqual(self._sent(fs)[-1], footswitch_mod.LED_GREEN)
 
 
 class QuantizedLaunchTests(unittest.TestCase):
@@ -272,40 +271,40 @@ class QuantizedLaunchTests(unittest.TestCase):
 
     def test_stop_mutes_rather_than_pauses(self) -> None:
         """A muted loop keeps running, so relaunch is back in phase."""
-        import scripts.sooperlooper.apc_footswitch as m
-
         fs = self._fs()
-        fs.sync_from_sl(m.SL_STATE_PLAYING)
+        fs.sync_from_sl(SL_STATE_PLAYING)
         fs.on_pad_down(); fs.on_pad_up()
         self.assertEqual(self._hits(fs), ["mute_on"])
 
     def test_launch_is_a_quantized_trigger_from_the_clip_start(self) -> None:
         """trigger plays from the start, is deferred to the boundary by SL,
         and lifts a mute (verified on the engine) — so it is the whole launch."""
-        import scripts.sooperlooper.apc_footswitch as m
-
         fs = self._fs()
-        fs.sync_from_sl(m.SL_STATE_MUTE)
+        fs.sync_from_sl(SL_STATE_MUTE)
         fs.on_pad_down(); fs.on_pad_up()
         hits = self._hits(fs)
         self.assertIn("trigger", hits)
         self.assertNotIn("mute_off", hits)
-        self.assertTrue(fs._launch_queued)
+        # A queued launch is just an unconfirmed expectation of Playing.
+        self.assertEqual(fs.state, "playing")
+        self.assertEqual(fs.sl_state, SL_STATE_MUTE)
 
     def test_queued_launch_blinks_plain_green(self) -> None:
-        import scripts.sooperlooper.apc_footswitch as m
-
         fs = self._fs()
-        fs.sync_from_sl(m.SL_STATE_MUTE)
+        fs.sync_from_sl(SL_STATE_MUTE)
         fs.on_pad_down(); fs.on_pad_up()
         # a queued launch is a plain green blink — no second colour needed
         self.assertIsNone(fs._led_transition)
         self.assertEqual(
             [c.args[0][2] for c in fs._midi_out.send_message.call_args_list][-1],
-            m.LED_GREEN_BLINK,
+            footswitch_mod.LED_GREEN_BLINK,
         )
-        fs.sync_from_sl(m.SL_STATE_PLAYING)
-        self.assertFalse(fs._launch_queued)
+        fs.sync_from_sl(SL_STATE_PLAYING)
+        self.assertEqual(
+            [c.args[0][2] for c in fs._midi_out.send_message.call_args_list][-1],
+            footswitch_mod.LED_GREEN,
+            "landed — solid green, and only now",
+        )
 
 
 class StopAllIsImmediateTests(unittest.TestCase):
@@ -329,12 +328,11 @@ class StopAllIsImmediateTests(unittest.TestCase):
 
     def test_per_clip_stop_is_still_quantized(self) -> None:
         """Only Stop All is immediate — a single pad stop still waits."""
-        import scripts.sooperlooper.apc_footswitch as m
         from scripts.sooperlooper.apc_footswitch import LoopFootswitch
 
         fs = LoopFootswitch(loop=1, hold_ms=1000.0, debounce_ms=0.0, quantized=True)
         fs.bind(MagicMock(), MagicMock(), 37)
-        fs.sync_from_sl(m.SL_STATE_PLAYING)
+        fs.sync_from_sl(SL_STATE_PLAYING)
         fs.on_pad_down(); fs.on_pad_up()
         paths = [c.args[0] for c in fs._osc.send_message.call_args_list]
         self.assertNotIn("/sl/1/set", paths, "must not touch mute_quantized")
