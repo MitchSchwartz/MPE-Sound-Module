@@ -248,6 +248,18 @@ adoption blocker.
 does not stick. `mpe looper sl-watchdog` alarms on it (and refuses to
 auto-restart, because a restart destroys every recorded loop).
 
+**Root cause found 2026-08-15 — it was an orphaned JACK client.** SooperLooper
+survived a `jackd` restart as a process but lost its JACK client and never
+re-registered. `push_nonrt_event()` is drained from the JACK *process callback*,
+so with no callback the queue never drains and every command vanishes — while
+`/get` reads state directly and keeps answering. Not an engine bug, and not a
+disk bug. The `-j mpe-looper` client simply was not on the graph.
+
+This does not change the B8 verdict, but it changes the precondition: **check
+that `mpe-looper:*` ports exist before trusting any measurement**, not just that
+the engine answers. `sl-watchdog` now checks JACK visibility first. See
+`Documents/DECISIONS.md` 2026-08-15 and spec §M.
+
 **Precondition rule** — added to `TEMPLATE-sooperlooper-eval.md`: no measurement
 is recorded without `mpe rt check` and `mpe looper sl-health` passing first. A
 number taken against a wedged engine is not a weaker measurement, it is a wrong
