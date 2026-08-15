@@ -1,4 +1,17 @@
-"""SooperLooper HUD state from JACK transport (bar/beat)."""
+#!/usr/bin/env python3
+"""SooperLooper HUD — bar/beat from whichever clock is actually running.
+
+Two clock sources, matching sl_grid_sync:
+
+  internal   sync_source = -3. SL owns the pulse. Beat comes from SL's global
+             `tempo` plus a phase reference from any playing loop.
+  transport  sync_source = -1. Beat comes from JACK transport BBT.
+
+**It must follow the clock in use.** Pinning the HUD to JACK transport while the
+engine ran on internal sync produced `beat: null` forever — the beat counter
+never appeared after recording a clip, which reads as "the looper is broken"
+even though the loop was playing correctly (2026-08-14).
+"""
 
 from __future__ import annotations
 
@@ -10,117 +23,169 @@ import time
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(REPO_ROOT))
-sys.path.insert(0, str(SCRIPT_DIR))
 
-from jack_transport_util import transport_rolling  # noqa: E402
 from patch_browser.sl_hud_state import SL_HUD_STATE_FILE  # noqa: E402
 
-WRITE_INTERVAL_S = float(os.environ.get("MPE_SL_HUD_WRITE_INTERVAL_S", "1.0"))
+WRITE_INTERVAL_S = float(os.environ.get("MPE_SL_HUD_WRITE_INTERVAL_S", "0.5"))
 JACK_CLIENT = os.environ.get("MPE_JACK_HUD_CLIENT", "mpe-sl-hud")
+SL_HOST = os.environ.get("MPE_SL_OSC_HOST", "127.0.0.1")
+SL_PORT = int(os.environ.get("MPE_SL_OSC_PORT", "9951"))
+LISTEN_PORT = int(os.environ.get("MPE_SL_HUD_LISTEN_PORT", "9952"))
+NUM_LOOPS = int(os.environ.get("MPE_SL_LOOPS", "16"))
+PLAYING_STATES = frozenset({4, 5})
 
 
 def beat_and_bar_from_transport(pos: dict) -> tuple[int | None, int | None]:
-    """Return (beat, bar) from jack transport_query position dict."""
-    beat = pos.get("beat")
-    bar = pos.get("bar")
+    """(beat, bar) from a jack transport_query position dict."""
+    beat, bar = pos.get("beat"), pos.get("bar")
     if beat is None or bar is None:
         return None, None
     return int(beat), int(bar)
 
 
+def beat_and_bar_from_tempo(
+    loop_pos: float, tempo: float, *, beats_per_bar: int = 4
+) -> tuple[int | None, int | None]:
+    """(beat, bar) from elapsed seconds at a tempo.
+
+    Derived from tempo, not from cycle_len: SL reports cycle_len equal to the
+    recorded loop length, so a 6 s loop yields a 6 s 'cycle' and beats that do
+    not match the BPM the player set.
+    """
+    if tempo <= 0.0:
+        return None, None
+    beat_dur = 60.0 / tempo
+    total = int(loop_pos / beat_dur)
+    return (total % beats_per_bar) + 1, (total // beats_per_bar) + 1
+
+
 def beat_and_bar(loop_pos: float, cycle_len: float) -> tuple[int | None, int | None]:
-    """Legacy helper — quarter-note beat within cycle (tests / fallback)."""
+    """Legacy cycle-relative helper (kept for tests)."""
     if cycle_len <= 0.0:
         return None, None
     pos = loop_pos % cycle_len
-    beat = int((pos / cycle_len) * 4.0) % 4 + 1
-    bar = int(loop_pos / cycle_len) + 1
-    return beat, bar
+    return int((pos / cycle_len) * 4.0) % 4 + 1, int(loop_pos / cycle_len) + 1
 
 
-class TransportHudWriter:
+class SlQuery:
+    """Minimal blocking OSC getter against the SL engine."""
+
     def __init__(self) -> None:
-        self._lock = threading.Lock()
-        self._last_payload: dict | None = None
+        self.last: dict[str, float] = {}
+        self.client = None
+
+    def start(self):
+        from pythonosc import dispatcher as osc_dispatcher
+        from pythonosc import osc_server, udp_client
+
+        disp = osc_dispatcher.Dispatcher()
+        disp.set_default_handler(self._on)
+        self._server = osc_server.ThreadingOSCUDPServer((SL_HOST, LISTEN_PORT), disp)
+        threading.Thread(target=self._server.serve_forever, daemon=True).start()
+        self.client = udp_client.SimpleUDPClient(SL_HOST, SL_PORT)
+        return self
+
+    def _on(self, _addr, *args) -> None:
+        if len(args) >= 3:
+            self.last[f"{args[0]}:{args[1]}"] = args[2]
+
+    def get(self, ctrl: str, loop: int = 0, timeout: float = 0.4):
+        key = f"{loop if loop >= 0 else -2}:{ctrl}"
+        self.last.pop(key, None)
+        path = "/get" if loop < 0 else f"/sl/{loop}/get"
+        self.client.send_message(path, [ctrl, f"{SL_HOST}:{LISTEN_PORT}", "/r"])
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if key in self.last:
+                return self.last[key]
+            time.sleep(0.02)
+        return None
+
+
+class HudWriter:
+    def __init__(self) -> None:
         self._last_write = 0.0
-        self._client = None
+        self._last_key: tuple | None = None
+        self._jack_client = None
+        self._jack = None
+        self._sl = SlQuery().start()
 
-    def _open_client(self):
-        import jack
-
-        if self._client is not None:
-            return self._client
-        self._client = jack.Client(JACK_CLIENT, no_start_server=True)
-        self._jack = jack
-        return self._client
-
-    def poll(self, *, force: bool = False) -> bool:
+    def _transport(self) -> tuple[bool, dict]:
         try:
-            client = self._open_client()
-        except Exception as exc:
-            print(f"sl-hud-monitor: JACK unavailable: {exc}", file=sys.stderr, flush=True)
-            return False
+            import jack
 
-        state, pos = client.transport_query()
-        pos_dict = dict(pos) if pos else {}
-        beat, bar = beat_and_bar_from_transport(pos_dict)
-        rolling = transport_rolling(state)
-        now = time.time()
-        payload = {
-            "updated_at": now,
-            "source": "jack_transport",
-            "transport_state": str(state),
-            "beat": beat,
-            "bar": bar,
-            "bpm": pos_dict.get("beats_per_minute"),
-            "playing": rolling and beat is not None,
-            "has_master": beat is not None,
-            "active": rolling and beat is not None,
-            "state": 4 if rolling else 0,
-            "cycle_len": 0.0,
-            "loop_len": 0.0,
-            "loop_pos": 0.0,
+            if self._jack_client is None:
+                self._jack_client = jack.Client(JACK_CLIENT, no_start_server=True)
+                self._jack = jack
+            state, pos = self._jack_client.transport_query()
+            rolling = "ROLLING" in repr(state).upper() or "STARTING" in repr(state).upper()
+            return rolling, dict(pos or {})
+        except Exception:
+            return False, {}
+
+    def _from_sl(self) -> dict | None:
+        tempo = self._sl.get("tempo", loop=-1)
+        if not tempo:
+            return None
+        # Phase reference: the lowest-numbered playing loop. All loops share the
+        # same grid, so any of them locates us on it.
+        for loop in range(NUM_LOOPS):
+            state = self._sl.get("state", loop)
+            if state is None:
+                continue
+            if int(state) in PLAYING_STATES:
+                pos = self._sl.get("loop_pos", loop) or 0.0
+                beat, bar = beat_and_bar_from_tempo(float(pos), float(tempo))
+                return {
+                    "source": "sl_internal", "beat": beat, "bar": bar,
+                    "bpm": float(tempo), "playing": True, "has_master": True,
+                    "active": True, "state": int(state),
+                    "loop_pos": float(pos), "ref_loop": loop,
+                }
+        # Nothing playing: tempo is known, phase is not.
+        return {
+            "source": "sl_internal", "beat": None, "bar": None,
+            "bpm": float(tempo), "playing": False, "has_master": False,
+            "active": False, "state": 0, "loop_pos": 0.0, "ref_loop": None,
         }
-        with self._lock:
-            unchanged = payload.get("beat") == (self._last_payload or {}).get("beat") and (
-                payload.get("bar") == (self._last_payload or {}).get("bar")
-            )
-            if not force and unchanged and (now - self._last_write) < WRITE_INTERVAL_S:
-                return False
-            self._last_payload = payload
-            self._last_write = now
 
+    def poll(self) -> bool:
+        rolling, pos = self._transport()
+        if rolling and pos.get("beat") is not None:
+            beat, bar = beat_and_bar_from_transport(pos)
+            payload = {
+                "source": "jack_transport", "beat": beat, "bar": bar,
+                "bpm": pos.get("beats_per_minute"), "playing": True,
+                "has_master": True, "active": True, "state": 4, "loop_pos": 0.0,
+            }
+        else:
+            payload = self._from_sl()
+            if payload is None:
+                return False
+
+        payload.update({"updated_at": time.time(), "cycle_len": 0.0, "loop_len": 0.0})
+        key = (payload.get("beat"), payload.get("bar"), payload.get("active"))
+        now = time.time()
+        if key == self._last_key and (now - self._last_write) < WRITE_INTERVAL_S:
+            return False
+        self._last_key = key
+        self._last_write = now
         tmp = SL_HUD_STATE_FILE.with_suffix(".tmp")
         tmp.write_text(json.dumps(payload), encoding="utf-8")
         tmp.replace(SL_HUD_STATE_FILE)
         return True
 
-    def close(self) -> None:
-        if self._client is not None:
-            try:
-                self._client.close()
-            except Exception:
-                pass
-            self._client = None
-
 
 def main() -> int:
-    writer = TransportHudWriter()
-    print(
-        f"sl-hud-monitor: JACK transport → {SL_HUD_STATE_FILE} "
-        f"(interval ≥{WRITE_INTERVAL_S}s)",
-        flush=True,
-    )
+    writer = HudWriter()
+    print(f"sl-hud-monitor: -> {SL_HUD_STATE_FILE} (follows the live clock)", flush=True)
     try:
         while True:
             writer.poll()
             time.sleep(0.1)
     except KeyboardInterrupt:
         return 0
-    finally:
-        writer.close()
 
 
 if __name__ == "__main__":
