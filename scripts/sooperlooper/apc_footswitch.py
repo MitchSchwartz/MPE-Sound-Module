@@ -253,9 +253,16 @@ class LoopFootswitch:
             else:
                 self.state = STATE_PLAYING
         elif self.state == STATE_PLAYING:
-            self._hit("pause")
+            # pause_on/pause_off, not the `pause` TOGGLE. A toggle desyncs the
+            # moment the bench and engine disagree about the current state.
+            self._hit("pause_on")
             self.state = STATE_STOPPED
         elif self.state == STATE_STOPPED:
+            # `trigger` alone on a paused loop restarted it while still
+            # paused: the pad went green and nothing was heard, and the next
+            # press resumed from mid-loop. Lift the pause first, then restart
+            # from the top like a clip launcher.
+            self._hit("pause_off")
             self._hit("trigger")
             self.state = STATE_PLAYING
         else:
@@ -366,7 +373,7 @@ def stop_all_loops(
     footswitches: list[LoopFootswitch],
 ) -> None:
     """Pause every loop without clearing audio; LEDs -> stopped (yellow)."""
-    osc.send_message("/sl/-1/hit", "pause")
+    osc.send_message("/sl/-1/hit", "pause_on")
     for fs in footswitches:
         fs.awaiting_quantize = False
         if fs.state != STATE_IDLE:

@@ -51,7 +51,12 @@ def _quantize_all(
         send(prefix, ["sync", 1.0 if count_in else 0.0])
         send(prefix, ["round", 0.0 if count_in else 1.0])
         send(prefix, ["relative_sync", 0.0])
-        send(prefix, ["playback_sync", 1.0])
+        # SL's own default is 0 (looper.cpp: ports[PlaybackSync] = 0.0f).
+        # Forcing 1 made a freshly recorded clip wait for the NEXT boundary
+        # even though record-stop had just landed on one — clip 2 came in a
+        # whole bar late. Record-stop is already quantized; this only adds
+        # latency.
+        send(prefix, ["playback_sync", 0.0])
 
 
 def apply_grid_sync(
