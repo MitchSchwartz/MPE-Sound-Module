@@ -18,6 +18,22 @@ SETTINGS_PANEL_FOOTER_H = 72
 SETTINGS_PANEL_ANIM_SPEED = 10.0
 LEFT_NAV_WIDTH = 268
 LEFT_NAV_COLLAPSED_WIDTH = 36
+# Browse carousel track (touch-browser-browse-carousel-spec.md).
+BROWSE_EDGE_GRAB_W = 48
+BROWSE_FILTER_W = 532  # 800 - LEFT_NAV_WIDTH
+BROWSE_PATCH_W = 532
+BROWSE_TRACK_W = 1332  # FILTER + NAV + PATCH
+BROWSE_OFFSET_HOME = -532
+BROWSE_OFFSET_FILTER = 0
+BROWSE_SNAP_COMMIT_PX = 56  # match settings panel dismiss feel
+# Live finger-tracking drag is off on Pi until a lightweight tick-based path exists
+# (see DECISIONS 2026-08-15 browse carousel). Navigation uses header buttons.
+BROWSE_DRAG_ENABLED = False
+BROWSE_FILTER_HEADER_H = 28
+BROWSE_FILTER_TAG_ROW_H = 48  # button-sized touch targets (not inline nav chips)
+BROWSE_FILTER_TAG_PAD_X = 16
+BROWSE_FILTER_TAG_GAP = 10
+BROWSE_FILTER_TAG_MIN_W = 72
 AZ_RAIL_WIDTH = 32
 ALL_PATCHES_ROW_HEIGHT = 58
 ALL_PATCHES_SCROLL_ANIM_S = 0.22
