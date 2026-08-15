@@ -76,28 +76,19 @@ def draw_filter_icon(
     rect: Rect,
     color: tuple[int, int, int],
 ) -> None:
-    """Instrument filter — funnel icon (nav header open-filter control)."""
-    pad = max(4, rect.w // 8)
-    cx = rect.centerx
-    top_y = rect.y + pad
-    bottom_y = rect.bottom - pad
-    stem_h = max(4, rect.h // 5)
-    funnel_bottom = bottom_y - stem_h
-    top_half_w = max(6, (rect.w - pad * 2) // 2)
-    neck_half_w = max(2, top_half_w // 3)
-    points = [
-        (cx - top_half_w, top_y),
-        (cx + top_half_w, top_y),
-        (cx + neck_half_w, funnel_bottom),
-        (cx - neck_half_w, funnel_bottom),
-    ]
-    pygame.draw.polygon(surface, color, points)
-    stem_w = max(3, neck_half_w)
-    pygame.draw.rect(
-        surface,
-        color,
-        pygame.Rect(cx - stem_w // 2, funnel_bottom, stem_w, stem_h),
-    )
+    """Instrument filter — three-line filter-list icon (nav header toggle)."""
+    pad_x = max(4, rect.w // 6)
+    pad_y = max(4, rect.h // 6)
+    line_h = max(2, rect.h // 10)
+    usable_h = rect.h - pad_y * 2
+    gap = max(2, (usable_h - line_h * 3) // 2)
+    max_w = max(8, rect.w - pad_x * 2)
+    y = rect.y + pad_y
+    for width_frac in (1.0, 0.72, 0.48):
+        line_w = max(6, int(max_w * width_frac))
+        x = rect.x + (rect.w - line_w) // 2
+        pygame.draw.rect(surface, color, pygame.Rect(x, y, line_w, line_h))
+        y += line_h + gap
 
 
 def draw_toggle_switch(
