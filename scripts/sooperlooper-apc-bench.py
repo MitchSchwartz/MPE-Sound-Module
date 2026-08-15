@@ -21,11 +21,7 @@ from apc_footswitch import (  # noqa: E402
     stop_all_loops,
 )
 from apc_grid import NUM_LOOPS, loop_index_for_note  # noqa: E402
-from apc_transport import (  # noqa: E402
-    NOTE_SHIFT_MK2,
-    NOTE_STOP_ALL_CLIPS_MK2,
-    ShiftHoldCombo,
-)
+from apc_transport import ShiftHoldCombo, resolve_apc_transport_notes  # noqa: E402
 from sl_bench_listener import SlBenchStateListener  # noqa: E402
 from sl_grid_sync import anchor_phase, apply_freeform, apply_grid_sync  # noqa: E402
 
@@ -84,10 +80,9 @@ def main() -> int:
     hold_ms = float(os.environ.get("MPE_APC_HOLD_MS", "2000"))
     debounce_ms = float(os.environ.get("MPE_APC_DEBOUNCE_MS", "200"))
     num_loops = int(os.environ.get("MPE_SL_LOOPS", str(NUM_LOOPS)))
-    shift_note = int(os.environ.get("MPE_APC_SHIFT_NOTE", str(NOTE_SHIFT_MK2)))
-    stop_all_note = int(
-        os.environ.get("MPE_APC_STOP_ALL_NOTE", str(NOTE_STOP_ALL_CLIPS_MK2))
-    )
+    shift_note = int(os.environ.get("MPE_APC_SHIFT_NOTE", "0"))
+    stop_all_note = int(os.environ.get("MPE_APC_STOP_ALL_NOTE", "0"))
+    apc_variant = os.environ.get("MPE_APC_VARIANT", "").strip() or None
     track_reset_hold_ms = float(os.environ.get("MPE_APC_TRACK_RESET_HOLD_MS", "3000"))
     sync_mode = os.environ.get("MPE_SL_SYNC_MODE", "grid").strip().lower()
 
@@ -108,6 +103,13 @@ def main() -> int:
 
     midi_in.open_port(idx)
     midi_out.open_port(idx)
+    port_name = ports_in[idx]
+    if shift_note <= 0 or stop_all_note <= 0:
+        shift_note, stop_all_note, apc_label = resolve_apc_transport_notes(
+            port_name, variant=apc_variant
+        )
+    else:
+        apc_label = apc_variant or "env"
     osc = udp_client.SimpleUDPClient(host, port)
 
     def _send(path: str, a: list) -> None:
@@ -160,7 +162,7 @@ def main() -> int:
     )
 
     print(
-        f"APC [{idx}] {ports_in[idx]} | clip pads rows 0+3 -> loops 0..{num_loops - 1} | "
+        f"APC [{idx}] {port_name} ({apc_label}) | clip pads rows 0+3 -> loops 0..{num_loops - 1} | "
         f"OSC {host}:{port} | {len(by_note)} pads | "
         f"Shift=0x{shift_note:02X} StopAll=0x{stop_all_note:02X} | "
         f"short tap=cycle hold>={hold_ms:.0f}ms clear | "
