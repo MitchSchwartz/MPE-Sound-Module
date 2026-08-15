@@ -26,6 +26,9 @@ BROWSE_TRACK_W = 1332  # FILTER + NAV + PATCH
 BROWSE_OFFSET_HOME = -532
 BROWSE_OFFSET_FILTER = 0
 BROWSE_SNAP_COMMIT_PX = 56  # match settings panel dismiss feel
+# Live finger-tracking drag is off on Pi until a lightweight tick-based path exists
+# (see DECISIONS 2026-08-15 browse carousel). Navigation uses header buttons.
+BROWSE_DRAG_ENABLED = False
 BROWSE_FILTER_HEADER_H = 28
 BROWSE_FILTER_TAG_ROW_H = 48  # button-sized touch targets (not inline nav chips)
 BROWSE_FILTER_TAG_PAD_X = 16

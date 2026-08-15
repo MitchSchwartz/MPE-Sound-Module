@@ -89,6 +89,10 @@ class TouchBrowserInstrumentsMixin:
 
     def _layout_browse_filter_pane(self, *, pane: Rect) -> None:
         self.browse_filter_rect = pane
+        if pane.w > 0 and self._browse_carousel.stop == "filter":
+            self.browse_filter_back_btn = Rect(pane.x + 6, pane.y + 4, 36, 28)
+        else:
+            self.browse_filter_back_btn = Rect(0, 0, 0, 0)
         self._refresh_instrument_chips()
 
     def _refresh_instrument_chips(self) -> None:
@@ -167,6 +171,8 @@ class TouchBrowserInstrumentsMixin:
         if pane.w <= 0:
             return
         pygame.draw.rect(self.screen, self.theme.surface, pane.pygame_rect, border_radius=10)
+        if self.browse_filter_back_btn.w > 0:
+            self._draw_icon_button(self.browse_filter_back_btn, "back", muted=True)
         header_x = pane.x + BROWSE_EDGE_GRAB_W + BROWSE_FILTER_TAG_PAD_X
         header = self.font_sm.render(self._browse_filter_header_label(), True, self.theme.muted)
         self.screen.blit(header, (header_x, pane.y + 8))

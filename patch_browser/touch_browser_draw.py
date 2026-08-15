@@ -11,6 +11,7 @@ from patch_browser.draw_primitives import (
     draw_all_patches_icon,
     draw_chevron,
     draw_current_patch_icon,
+    draw_filter_icon,
     draw_sidebar_panel_icon,
 )
 from patch_browser.geometry import Rect
@@ -114,6 +115,8 @@ class TouchBrowserDrawMixin:
             draw_sidebar_panel_icon(self.screen, rect, icon_color, panel_open=True)
         elif icon == "panel_open":
             draw_sidebar_panel_icon(self.screen, rect, icon_color, panel_open=False)
+        elif icon == "filter":
+            draw_filter_icon(self.screen, rect, icon_color)
     def _draw_modal_backdrop(self, legacy_alpha: int = 150) -> None:
         alpha = self.theme.backdrop_alpha if self.theme.backdrop_alpha is not None else legacy_alpha
         overlay = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
@@ -217,6 +220,12 @@ class TouchBrowserDrawMixin:
             disabled=current_disabled,
         )
         self._draw_nav_all_button(self.nav_all_btn, selected=all_selected)
+        if self.browse_filter_open_btn.w > 0:
+            self._draw_icon_button(
+                self.browse_filter_open_btn,
+                "filter",
+                accent=self._instrument_filter_active(),
+            )
         if self.left_nav_mode != LeftNavMode.ALL_PATCHES:
             self._draw_icon_button(self.nav_collapse_btn, "panel_close", muted=True)
     def _draw_folder_title_bar(self) -> None:
