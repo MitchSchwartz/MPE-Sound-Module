@@ -284,5 +284,37 @@ class QuantizedLaunchTests(unittest.TestCase):
         fs.sync_from_sl(m.SL_STATE_PLAYING)
         self.assertFalse(fs._launch_queued)
 
+
+class StopAllIsImmediateTests(unittest.TestCase):
+    """Stop All is a transport action; per-clip stop stays musical."""
+
+    def test_stop_all_lifts_quantize_then_restores_it(self) -> None:
+        from scripts.sooperlooper.apc_footswitch import build_footswitches, stop_all_loops
+
+        osc, midi = MagicMock(), MagicMock()
+        _, footswitches = build_footswitches(
+            osc=osc, midi_out=midi, num_loops=2, hold_ms=1000.0, debounce_ms=0.0
+        )
+        stop_all_loops(osc, num_loops=2, footswitches=footswitches)
+
+        sent = [(c.args[0], c.args[1]) for c in osc.send_message.call_args_list]
+        quant = [v for path, v in sent if path == "/sl/-1/set"]
+        self.assertEqual(quant, [["mute_quantized", 0.0], ["mute_quantized", 1.0]],
+                         "quantize must be lifted for the stop, then restored")
+        hits = [v for path, v in sent if path == "/sl/-1/hit"]
+        self.assertEqual(hits, ["mute_on", "pause_on"])
+
+    def test_per_clip_stop_is_still_quantized(self) -> None:
+        """Only Stop All is immediate — a single pad stop still waits."""
+        import scripts.sooperlooper.apc_footswitch as m
+        from scripts.sooperlooper.apc_footswitch import LoopFootswitch
+
+        fs = LoopFootswitch(loop=1, hold_ms=1000.0, debounce_ms=0.0, quantized=True)
+        fs.bind(MagicMock(), MagicMock(), 37)
+        fs.sync_from_sl(m.SL_STATE_PLAYING)
+        fs.on_pad_down(); fs.on_pad_up()
+        paths = [c.args[0] for c in fs._osc.send_message.call_args_list]
+        self.assertNotIn("/sl/1/set", paths, "must not touch mute_quantized")
+
 if __name__ == "__main__":
     unittest.main()
