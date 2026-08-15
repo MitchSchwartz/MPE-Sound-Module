@@ -142,8 +142,6 @@ def main() -> int:
             apply_freeform(_send, num_loops=num_loops)
         else:
             apply_grid_sync(_send, num_loops=num_loops, clock=grid_clock)
-            if grid_clock != "transport":
-                anchor_phase(_send)
             print(
                 f"bench: grid sync applied at startup (clock={grid_clock})",
                 flush=True,
