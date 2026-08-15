@@ -71,3 +71,10 @@ LOOPER_HUD_V_PAD = 4
 LOOPER_HUD_COUNTER_GAP = 8
 # The sweep needs pixels to move through; a narrow gap quantizes it visibly.
 LOOPER_HUD_MIN_W = 132
+# Taller than the badges beside it: this one is read at a glance while playing.
+LOOPER_HUD_H = 30
+LOOPER_HUD_TOP_PAD = 7
+LOOPER_HUD_TITLE_GAP = 16
+# Ceiling on how much of the status bar the patch title may claim before it
+# truncates — past this the sweep matters more than the rest of the name.
+LOOPER_HUD_TITLE_MAX_FRAC = 0.42

@@ -10,7 +10,11 @@ from patch_browser.touch_ui_constants import (
     ALL_PATCHES_ROW_HEIGHT,
     AUDIO_BADGE_PAD_X,
     LOOPER_HUD_COUNTER_GAP,
+    LOOPER_HUD_H,
     LOOPER_HUD_MIN_W,
+    LOOPER_HUD_TITLE_GAP,
+    LOOPER_HUD_TITLE_MAX_FRAC,
+    LOOPER_HUD_TOP_PAD,
     LOOPER_HUD_PAD_X,
     AZ_RAIL_WIDTH,
     BROWSER_BOTTOM_MARGIN,
@@ -138,15 +142,30 @@ class TouchBrowserLayoutMixin:
         )
         right_cursor -= STATUS_BAR_ITEM_GAP
         if getattr(self, "show_looper_hud", True):
-            looper_w = self._looper_hud_width()
-            right_cursor -= looper_w
-            self.looper_hud_rect = Rect(
-                right_cursor,
-                self.status_rect.y + 10,
-                looper_w,
-                24,
+            # Elastic: the sweep takes everything between the patch title and
+            # the badge to its right. More pixels is strictly better here — the
+            # leading edge has more room to move, which is the whole reason
+            # f069648 went to a single sweep in the first place.
+            info = getattr(self, "loaded_patch_info", None) or {}
+            title_w = max(
+                self.font_md.size(info.get("name") or "No patch loaded")[0],
+                self.font_sm.size(info.get("category") or "")[0],
             )
-            right_cursor -= STATUS_BAR_ITEM_GAP
+            title_w = min(title_w, int(self.status_rect.w * LOOPER_HUD_TITLE_MAX_FRAC))
+            hud_left = self.status_title_x + title_w + LOOPER_HUD_TITLE_GAP
+            looper_w = max(0, right_cursor - hud_left)
+            if looper_w < LOOPER_HUD_MIN_W:
+                # Long title: fall back to the reserved minimum and let the
+                # title truncate instead of starving the sweep.
+                looper_w = LOOPER_HUD_MIN_W
+                hud_left = right_cursor - looper_w
+            self.looper_hud_rect = Rect(
+                hud_left,
+                self.status_rect.y + LOOPER_HUD_TOP_PAD,
+                looper_w,
+                LOOPER_HUD_H,
+            )
+            right_cursor = hud_left - STATUS_BAR_ITEM_GAP
         else:
             self.looper_hud_rect = Rect(right_cursor, self.status_rect.y + 10, 0, 0)
         right_cursor -= STATUS_BAR_ITEM_GAP
