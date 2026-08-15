@@ -62,6 +62,15 @@ echo "  - Agents: MCP GitHub proxy (10255) only — no onecli CLI, no 10254 admi
 echo "  - Mitch/laptop: onecli-nerdrack setup-mpe | agents | grant-secret | write-env"
 
 echo ""
+echo "Python venv (nerdrack backpressure):"
+if [[ -x "$ROOT/.venv/bin/python" ]]; then
+  echo "  .venv: ok"
+else
+  echo "  .venv: missing — run: bash scripts/yolo/setup-nerdrack-python.sh"
+  echo "  (root once for apt: racknerd ssh --root -- 'bash -s' < scripts/yolo/setup-nerdrack-python.sh --apt-only)"
+fi
+
+echo ""
 echo "Running gate checks..."
 bash "$ROOT/scripts/yolo/check-guardrails.sh"
 bash "$ROOT/scripts/yolo/check-mcps-headless.sh"
