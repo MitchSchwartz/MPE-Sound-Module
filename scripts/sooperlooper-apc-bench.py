@@ -23,7 +23,7 @@ from apc_footswitch import (  # noqa: E402
 from apc_grid import NUM_LOOPS, loop_index_for_note  # noqa: E402
 from apc_transport import ShiftHoldCombo, resolve_apc_transport_notes  # noqa: E402
 from sl_bench_listener import SlBenchStateListener  # noqa: E402
-from sl_grid_state import GridState  # noqa: E402
+from sl_grid_state import GridState, display_bpm  # noqa: E402
 from sl_grid_sync import (  # noqa: E402
     anchor_phase,
     apply_freeform,
