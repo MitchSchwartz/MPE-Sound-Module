@@ -173,6 +173,7 @@ def main() -> int:
     def poll_holds() -> None:
         for fs in footswitches:
             fs.poll_hold()
+            fs.poll_led()
 
     def maybe_track_transport() -> None:
         if track_reset.poll_long():
