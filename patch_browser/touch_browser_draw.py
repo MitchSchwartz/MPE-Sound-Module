@@ -11,6 +11,7 @@ from patch_browser.draw_primitives import (
     draw_all_patches_icon,
     draw_chevron,
     draw_current_patch_icon,
+    draw_filter_icon,
     draw_sidebar_panel_icon,
 )
 from patch_browser.geometry import Rect
@@ -114,6 +115,8 @@ class TouchBrowserDrawMixin:
             draw_sidebar_panel_icon(self.screen, rect, icon_color, panel_open=True)
         elif icon == "panel_open":
             draw_sidebar_panel_icon(self.screen, rect, icon_color, panel_open=False)
+        elif icon == "filter":
+            draw_filter_icon(self.screen, rect, icon_color)
     def _draw_modal_backdrop(self, legacy_alpha: int = 150) -> None:
         alpha = self.theme.backdrop_alpha if self.theme.backdrop_alpha is not None else legacy_alpha
         overlay = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
@@ -217,7 +220,15 @@ class TouchBrowserDrawMixin:
             disabled=current_disabled,
         )
         self._draw_nav_all_button(self.nav_all_btn, selected=all_selected)
-        self._draw_instrument_filter_button()
+        if self.browse_filter_open_btn.w > 0:
+            filter_view_open = (
+                self._browse_carousel_active() and self._browse_carousel.stop == "filter"
+            )
+            self._draw_icon_button(
+                self.browse_filter_open_btn,
+                "filter",
+                accent=filter_view_open or self._instrument_filter_active(),
+            )
         if self.left_nav_mode != LeftNavMode.ALL_PATCHES:
             self._draw_icon_button(self.nav_collapse_btn, "panel_close", muted=True)
     def _draw_folder_title_bar(self) -> None:
@@ -686,9 +697,14 @@ class TouchBrowserDrawMixin:
                 name_clipped = ellipsize_text(self.font_md, patch["name"], name_max_w)
                 name_s = self.font_md.render(name_clipped, True, text_color)
                 self.screen.blit(name_s, (row_rect.x + 10, row_rect.y + 6))
+                subtitle = (
+                    patch_browse_subtitle(patch)
+                    if self._instrument_filter_active()
+                    else patch_browse_instrument_subtitle(patch)
+                )
                 inst_clipped = ellipsize_text(
                     self.font_sm,
-                    patch_browse_instrument_subtitle(patch),
+                    subtitle,
                     name_max_w,
                 )
                 inst_s = self.font_sm.render(inst_clipped, True, self.theme.muted)
@@ -749,7 +765,6 @@ class TouchBrowserDrawMixin:
         pygame.draw.rect(self.screen, self.theme.surface, self.left_panel_rect.pygame_rect, border_radius=10)
 
         self._draw_nav_header()
-        self._draw_instrument_chips()
         self._draw_folder_title_bar()
 
         if self.left_nav_mode == LeftNavMode.ALL_PATCHES:
@@ -815,6 +830,7 @@ class TouchBrowserDrawMixin:
     def _draw_browser(self) -> None:
         self.screen.fill(self.theme.bg)
         self._draw_status_bar()
+        self._draw_browse_filter_pane()
 
         if self.left_nav_collapsed:
             self._draw_left_nav_collapsed()

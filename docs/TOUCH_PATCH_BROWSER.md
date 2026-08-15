@@ -439,22 +439,48 @@ Each patch dict also gets `instruments` (list) and `instrument_primary` after sc
 | User overrides | `~/.patch_browser_metadata.json` (`instrument_user` per `stable_key`) |
 | On-device fallback | Heuristic classifier in `patch_browser/patch_metadata.py` when no baseline row exists |
 
-Instrument chips UI lands in Phase 4; metadata is attached at scan time now.
+Instrument chips UI lives in the browse carousel's filter pane (below); metadata is attached at scan time now.
 
 Tests: `tests/test_patch_metadata.py`, `tests/test_patch_scanner_metadata.py`
 
-## Instrument filter (Phase 4)
+## Browse carousel + filter pane
 
-When browsing a **folder** or **All patches**, a **Filter** control appears under the nav header:
+Superseded the Phase 4 inline chip panel (funnel button, wrapped chips inside
+the nav list) — see
+`Documents/specs/touch-browser-browse-carousel-spec.md` for the full spec.
 
-- Tap the **filter icon** (funnel, in the nav header beside the A–Z button) to expand/collapse a **wrapped chip panel** in the nav list
-- **All** clears the filter (`__all__` sentinel — not confused with instrument ids)
-- Other chips (Piano, Pad, Bass, Percussion, …) narrow the list; panel closes after selection
-- Filter button shows **accent** when a filter is active, the panel is open, or while pressed
-- In folder browse, chips reflect instruments in the **current folder subtree** only
-- All-patches row subtitle shows the top-level **category** only; folder browse rows are name-only
+While browsing a **folder** or **patch list** (not All patches, not with the
+nav collapsed), the browser screen is a three-column horizontal track:
+`[ Filter 532px ][ Nav 268px ][ Patch 532px ]`, 1332px total on an 800px
+viewport. Two stops:
 
-Tests: `tests/test_instrument_filter.py`
+- **Home** (default) — Nav + Patch pane visible, Filter off-screen left
+- **Filter** — Filter pane + Nav visible, Patch pane off-screen right
+
+Swipe from the **left screen edge** (inner 48px strip, `x ∈ [0, 48)`, full
+content height) to pan between stops — drag right from Home to reach Filter,
+left from Filter back to Home. Release commits to the other stop once the
+drag crosses ~56px (or 50% of the track travel, whichever is smaller);
+otherwise it snaps back. The filter pane shows one tappable chip per
+instrument with patches in the current context (plus **All**), each with a
+patch count; tags with zero matches are hidden. **Tapping a tag updates the
+list immediately without leaving the Filter stop or closing the pane** — the
+filter is a persistent search modifier, not a one-shot picker.
+
+`instrument_filter` state is independent of the carousel stop: setting it
+from the Filter pane while browsing a folder still applies if you later
+switch to **All patches** (which has no Patch pane, so the carousel/filter
+pane is disabled there — its own A–Z-rail nav fills the width instead; see
+`_browse_carousel_active()` in `touch_browser_browse.py`).
+
+The gesture is classified once at pointer-down (edge pan vs. filter-pane tap
+vs. everything else falling through to the existing mixer/nav/tap handlers)
+and that classification is consumed by move/up without re-checking — no
+mid-gesture reclassification.
+
+Tests: `tests/test_gesture_router.py`, `tests/test_browse_carousel.py`,
+`tests/test_browse_filter_pane.py`, `tests/test_touch_browser_browse.py`,
+`tests/test_touch_browser_browse_track.py`, `tests/test_instrument_filter.py`
 
 ## Long-press menus (Phase 5)
 
