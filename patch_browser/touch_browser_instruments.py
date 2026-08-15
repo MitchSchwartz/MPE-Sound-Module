@@ -41,23 +41,6 @@ class TouchBrowserInstrumentsMixin:
     def _instrument_filter_active(self) -> bool:
         return self.instrument_filter is not None
 
-    # -- Instrument chip active/pointer stubs -----------------------------
-    # The inline chip panel these guarded is gone (browse-carousel spec
-    # Phase B). Left as inert stubs so touch_browser_input.py /
-    # touch_browser_evdev.py keep working unchanged until Phase C
-    # replaces these call sites with real filter-pane hit-testing.
-    def _instrument_chip_active(self) -> bool:
-        return False
-
-    def _handle_instrument_chip_pointer_down(self, pos: tuple[int, int]) -> bool:
-        return False
-
-    def _handle_instrument_chip_pointer_move(self, pos: tuple[int, int]) -> bool:
-        return False
-
-    def _handle_instrument_chip_pointer_up(self, pos: tuple[int, int]) -> bool:
-        return False
-
     def _patches_for_chip_context(self) -> list[dict]:
         if self.left_nav_mode == LeftNavMode.ALL_PATCHES:
             return list(self.all_patches_flat)
