@@ -22,6 +22,15 @@ import os
 import sys
 import threading
 import time
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from sl_probe import (  # noqa: E402
+    ALIVE,
+    PROBE_LOOP,
+    WEDGED,
+    check_command_path,
+)
 
 SL_HOST = os.environ.get("MPE_SL_OSC_HOST", "127.0.0.1")
 SL_PORT = int(os.environ.get("MPE_SL_OSC_PORT", "9951"))
@@ -94,19 +103,24 @@ def main(argv: list[str] | None = None) -> int:
 
         # 2) Command path — the wedge detector. `set` goes through the nonrt
         #    event queue; if that thread is stuck this never round-trips.
-        before = p.get("dry")
-        target = 0.5 if (before is None or abs(float(before) - 0.5) > 0.01) else 0.75
-        p.client.send_message("/sl/0/set", ["dry", target])
-        time.sleep(0.5)
-        after = p.get("dry")
-        if after is not None and abs(float(after) - target) < 0.01:
-            print(f"PASS  command path /sl/0/set dry {before} -> {after}")
-            if before is not None:
-                p.client.send_message("/sl/0/set", ["dry", float(before)])
+        #
+        #    Shared with sl-watchdog so the two cannot fight over one control
+        #    and manufacture a false WEDGED — whose remedy destroys every loop.
+        verdict, detail = check_command_path(
+            lambda ctrl: p.get(ctrl, loop=PROBE_LOOP),
+            lambda ctrl, val: p.client.send_message(f"/sl/{PROBE_LOOP}/set", [ctrl, val]),
+            seed="sl-health",
+        )
+        if verdict == ALIVE:
+            print(f"PASS  command path {detail}")
         else:
-            print(f"FAIL  command path /sl/0/set dry ignored (asked {target}, still {after})")
-            print("      Engine is WEDGED: reads answer, commands do nothing.")
-            print("      Fix: mpe looper sl-restart")
+            print(f"FAIL  command path {detail}")
+            if verdict == WEDGED:
+                print("      Engine is WEDGED: reads answer, commands do nothing.")
+                print("      FIRST check it is still on JACK — an orphaned client")
+                print("      looks identical from here (spec §M):  jack_lsp | grep mpe-looper")
+                print("      Then, only if it is on JACK: mpe looper sl-restart")
+                print("      (sl-restart DESTROYS every recorded loop.)")
             failures += 1
 
         # 3) Global config readback.

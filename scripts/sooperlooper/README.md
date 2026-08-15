@@ -1,14 +1,26 @@
-# SooperLooper eval scripts
+# SooperLooper looper scripts
 
-**Branch:** `yolo/looper-transport-clock` · Pi binary: `~/src/sooperlooper-1.7.9/src/sooperlooper`
+**Branch:** `dev` · Pi binary: `~/src/sooperlooper-1.7.9/src/sooperlooper`
 
-## Clock (gate order — see DECISIONS.md 2026-08-14)
+## Clock — settled (spec §K, DECISIONS 2026-08-15)
 
-1. **Internal sync phase (try first, no new process):**
-   `python3 scripts/sooperlooper/spike-internal-sync-phase.py` → ear test 0.3
-2. **If that fails — JACK transport spike only (not for ship):**
-   `bash scripts/start-jack-timebase.sh` then `spike-jack-transport.py`
-3. **Production clock:** compiled JACK timebase client (TBD after gate)
+**SooperLooper's own internal sync.** `sync_source = -3` plus an explicit
+`tempo`. No timebase master, no extra process, no JACK transport.
+
+A grid needs three things — tempo, unit, and **phase**. `Engine::set_tempo`
+zeroes `_quarter_counter` and `_tempo_counter`, so **re-sending the tempo is the
+phase reset**. That is why the JACK timebase master was never needed: its only
+job was phase.
+
+**The first take defines the grid.** It records free-form and instant, with no
+bar to count in to; its length yields the tempo. Every later clip counts in and
+quantizes. Standard looper workflow — Boss RC-20, JamMan, Ableton, Loopy Pro all
+work this way. After establishment the defining clip is ordinary and can be
+deleted like any other.
+
+The JACK-transport path is **deleted, not deprecated** (`e279d6f`). Anything
+describing a timebase master, `start-jack-timebase.sh` or `spike-jack-transport.py`
+is stale — those files are gone.
 
 ## APC 16-loop clip grid (target layout)
 
@@ -20,13 +32,39 @@
 
 Mapping: `apc_grid.py` · 16-pad footswitch: `../sooperlooper-apc-bench.py` (rows 0 + 3)
 
-**Grid sync (default):** all loops `sync` + `quantize=cycle` to JACK transport; `fade_samples` set globally. Applied **once at bench startup**. Free-form: `MPE_SL_SYNC_MODE=freeform`.
+**Grid sync:** two states, not a pile of settings — `set_grid_active(active=)`.
+Off until the first take lands (so it records instantly), then on for every clip
+after. Free-form throughout: `MPE_SL_SYNC_MODE=freeform`.
+
+**Pad colours:** a solid colour always comes from the engine; a blink is
+something asked for and not yet confirmed. Red blink = queued to record. Yellow
+blink = queued to stop, waiting for the bar. Green blink = queued to launch.
+Red/green alternating = still recording, playback queued. **Solid green means
+there is audio in that loop** — see spec §L.
 
 **Transport (Shift + Stop All Clips):** quick release = stop all; hold **3 s** = clear all. Verify note numbers: `sooperlooper-apc-bench.py --dump-midi`.
 
-**Touch HUD:** `start-sooperlooper-hud-monitor.sh` → bar/beat from JACK transport (`~/.mpe_sl_hud_state.json`), including with **no clips recorded**.
+**Touch HUD:** `start-sooperlooper-hud-monitor.sh` → bar/beat derived from the
+grid tempo and SL's reported loop position (`~/.mpe_sl_hud_state.json`). Pure
+Python, no JACK client.
 
 **APC bench:** `start-sooperlooper-apc-bench.sh` — OSC state listener on port **9953** (all loops incl. 0).
+
+## Health and recovery
+
+```bash
+mpe looper sl-health      # is the COMMAND path alive, not just the read path?
+mpe looper sl-watchdog    # start|stop|status|once — alarms on orphan/wedge
+mpe looper sl-rewire      # non-destructive: fix the JACK graph
+mpe looper sl-restart     # DESTROYS every recorded loop — human call only
+mpe looper sl-bench restart   # pull + restart the APC bench
+mpe looper deploy dev     # git sync the Pi (does NOT restart the bench)
+```
+
+**If pads go green with no audio, check `sl-health` first.** The engine can
+survive a jackd restart as a process while losing its JACK client, at which
+point every command is silently discarded and every read-only check still says
+healthy. That cost three evenings — spec §M.
 
 ## Test clips + smoke (no manual recording)
 
