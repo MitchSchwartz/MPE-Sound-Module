@@ -1,5 +1,7 @@
 """APC footswitch — no master-loop special cases."""
 
+import conftest  # noqa: F401 — bare sooperlooper imports (apc_grid, …)
+
 import unittest
 from unittest.mock import MagicMock, patch
 
@@ -27,6 +29,18 @@ class ApcFootswitchTests(unittest.TestCase):
         self.assertIn("/sl/0/hit", paths)
         self.assertEqual(paths.count("/sl/0/hit"), 1)
         self.assertNotIn("trigger", [c.args[1] for c in osc.send_message.call_args_list])
+
+    def test_record_starts_on_pad_down_not_release(self) -> None:
+        """First-beat capture: arm on touch, not on lift."""
+        osc = MagicMock()
+        fs = LoopFootswitch(loop=0, hold_ms=1000.0, debounce_ms=0.0)
+        fs.bind(osc, MagicMock(), 36)
+        fs.on_pad_down()
+        hits = [c.args[1] for c in osc.send_message.call_args_list if c.args[0] == "/sl/0/hit"]
+        self.assertEqual(hits, ["record"])
+        osc.reset_mock()
+        fs.on_pad_up()
+        self.assertEqual(osc.send_message.call_args_list, [])
 
     def test_sync_from_sl_loop0_playing(self) -> None:
         osc = MagicMock()
