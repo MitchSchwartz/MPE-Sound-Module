@@ -19,7 +19,13 @@ from patch_browser.touch_ui_enums import CalibrateMode
 
 import sys
 
-if "pygame" not in sys.modules:
+if not isinstance(sys.modules.get("pygame"), mock.MagicMock):
+    # This module's mocks (e.g. `screen = mock.Mock()` in
+    # CalibrationLoaderLaunchTests) rely on MagicMock's magic-method
+    # fallback (__rsub__ etc.) to survive real pygame draw calls. A
+    # plain "not in sys.modules" guard is order-dependent: any test
+    # module that runs first and installs a leaner, non-magic pygame
+    # stub (valid for its own purposes) leaves this one broken.
     sys.modules["pygame"] = mock.MagicMock()
 
 from patch_browser.touch_browser_normalization import TouchBrowserNormalizationMixin

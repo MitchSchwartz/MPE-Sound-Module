@@ -12,11 +12,22 @@ import types
 import unittest
 
 
+class _FakePygameRect:
+    def __init__(self, x, y, w, h):
+        self.x, self.y, self.w, self.h = x, y, w, h
+
+
 def _install_fake_pygame() -> None:
     if isinstance(sys.modules.get("pygame"), types.ModuleType):
         return
     fake = types.ModuleType("pygame")
     fake.error = type("error", (Exception,), {})
+    # patch_browser.geometry does `import pygame` once and the binding is
+    # cached for the process — a later, fuller pygame stub installed by
+    # another test module never reaches it. Since this file may be the
+    # first to import geometry (alphabetically early), the stub must
+    # cover geometry.Rect.pygame_rect's only dependency: Rect itself.
+    fake.Rect = _FakePygameRect
     sys.modules["pygame"] = fake
 
 
