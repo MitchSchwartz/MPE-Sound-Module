@@ -85,8 +85,8 @@ if echo "$command" | grep -qE '(^|[;&|[:space:]])(sudo[[:space:]]+)?(poweroff|re
 fi
 
 # OneCLI vault/admin — Mitch/laptop only. YOLO agents use MCP via 10255 proxy, not 10254 admin API.
-if echo "$command" | grep -qE '(^|[;&|[:space:]])(onecli-nerdrack|onecli-nerdrack\.sh)([[:space:]]|$)'; then
-  deny "YOLO guardrail: onecli-nerdrack admin script blocked on nerdrack"
+if echo "$command" | grep -qE '(^|[;&|[:space:]])(racknerd|nerdrack|onecli-nerdrack|onecli-nerdrack\.sh)([[:space:]]|$)'; then
+  deny "YOLO guardrail: racknerd/onecli-nerdrack laptop admin CLI blocked on racknerd"
 fi
 if echo "$command" | grep -qE '(^|[;&|[:space:]])(onecli)([[:space:]]|$|-)'; then
   deny "YOLO guardrail: onecli CLI blocked — agents cannot modify vault, agents, or grants"
