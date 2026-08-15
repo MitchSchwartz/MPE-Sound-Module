@@ -23,7 +23,13 @@ from apc_footswitch import (  # noqa: E402
 from apc_grid import NUM_LOOPS, loop_index_for_note  # noqa: E402
 from apc_transport import ShiftHoldCombo, resolve_apc_transport_notes  # noqa: E402
 from sl_bench_listener import SlBenchStateListener  # noqa: E402
-from sl_grid_sync import anchor_phase, apply_freeform, apply_grid_sync  # noqa: E402
+from sl_grid_state import GridState  # noqa: E402
+from sl_grid_sync import (  # noqa: E402
+    anchor_phase,
+    apply_freeform,
+    apply_grid_sync,
+    set_count_in,
+)
 
 
 def transport_is_rolling() -> bool:
@@ -143,6 +149,22 @@ def main() -> int:
                 flush=True,
             )
 
+    grid = GridState()
+
+    def on_grid_established(bpm: float, bars: int) -> None:
+        """First take landed: capture its tempo, then turn the grid on.
+
+        Until now every loop had sync=0 so the defining take could record
+        instantly. From here clips count in to the bar and quantize.
+        """
+        osc.send_message("/set", ["tempo", float(bpm)])
+        set_count_in(_send, num_loops=num_loops, count_in=True)
+        print(
+            f"bench: grid established — {bars} bar(s) @ {bpm:.1f} BPM. "
+            f"Later clips count in to the bar.",
+            flush=True,
+        )
+
     by_note, footswitches = build_footswitches(
         osc=osc,
         midi_out=midi_out,
@@ -150,6 +172,8 @@ def main() -> int:
         hold_ms=hold_ms,
         debounce_ms=debounce_ms,
         quantized=grid_active,
+        grid=grid if grid_active else None,
+        on_grid_established=on_grid_established if grid_active else None,
     )
     for fs in footswitches:
         fs._sync_led()

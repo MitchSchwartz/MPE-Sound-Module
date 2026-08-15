@@ -77,6 +77,20 @@ def apply_grid_sync(
     _quantize_all(send, num_loops, count_in=count_in)
 
 
+def set_count_in(
+    send: Callable[[str, list], None], *, num_loops: int = 16, count_in: bool
+) -> None:
+    """Flip count-in on/off for every loop, live.
+
+    Used when the first take establishes the grid: until then loops run with
+    sync=0 so that take records instantly; afterwards they count in to the bar.
+    """
+    for loop in range(num_loops):
+        prefix = f"/sl/{loop}/set"
+        send(prefix, ["sync", 1.0 if count_in else 0.0])
+        send(prefix, ["round", 0.0 if count_in else 1.0])
+
+
 def anchor_phase(send: Callable[[str, list], None]) -> None:
     """Declare 'the downbeat is now' for internal sync (spec §D.0, unverified)."""
     send("/set", ["tap_tempo", 1.0])
