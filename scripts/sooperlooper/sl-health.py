@@ -114,6 +114,36 @@ def main(argv: list[str] | None = None) -> int:
         tempo = p.get("tempo", loop=-1)
         print(f"PASS  sync config  sync_source={src} tempo={tempo}")
 
+        # 4) Audio path out. A loop can be Playing with its output connected to
+        #    nothing — the pad goes green and you hear silence. JACK connections
+        #    do NOT survive a SooperLooper restart, so this breaks every time
+        #    the engine is restarted without a rewire.
+        import subprocess
+
+        client = os.environ.get("MPE_SL_JACK_CLIENT", "mpe-looper")
+        try:
+            graph = subprocess.run(["jack_lsp", "-c"], capture_output=True,
+                                   text=True, timeout=10).stdout
+        except Exception as exc:
+            print(f"FAIL  audio path   jack_lsp unavailable ({exc})")
+            failures += 1
+            graph = ""
+        if graph:
+            connected, current = set(), None
+            for line in graph.splitlines():
+                if not line.startswith((" ", "\t")):
+                    current = line.strip()
+                elif current and current.startswith("system:playback"):
+                    connected.add(line.strip())
+            outs = [c for c in connected if c.startswith(f"{client}:common_out")]
+            if outs:
+                print(f"PASS  audio path   {', '.join(sorted(outs))} -> system:playback")
+            else:
+                print(f"FAIL  audio path   {client}:common_out is NOT connected to "
+                      f"system:playback — loops will play SILENTLY")
+                print("      Fix: mpe looper sl-rewire")
+                failures += 1
+
         if args.record_test and failures == 0:
             print("      --record-test: driving record -> play on loop 0")
             p.client.send_message("/sl/0/hit", ["undo_all"])
