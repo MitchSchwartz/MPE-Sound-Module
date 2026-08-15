@@ -468,10 +468,17 @@ def stop_all_loops(
     launched starts from the top of the bar instead of joining a cycle that has
     been running unheard.
     """
-    # Mute as well as pause: a clip relaunched afterwards is unmuted on the
-    # bar, and mute is the state the per-pad launch path expects.
+    # Stop All is NOT quantized. Per-clip stop waits for the bar because it is
+    # a musical edit; Stop All is a transport action — when you hit it you want
+    # silence now, not at the end of the bar.
+    #
+    # mute_quantized is lifted for the duration, then restored, so the per-clip
+    # behaviour is untouched. SL drains its non-realtime queue in order, so the
+    # restore cannot overtake the mute.
+    osc.send_message("/sl/-1/set", ["mute_quantized", 0.0])
     osc.send_message("/sl/-1/hit", "mute_on")
     osc.send_message("/sl/-1/hit", "pause_on")
+    osc.send_message("/sl/-1/set", ["mute_quantized", 1.0])
     grid = next((fs.grid for fs in footswitches if fs.grid is not None), None)
     if grid is not None and grid.established and grid.bpm:
         osc.send_message("/set", ["tempo", float(grid.bpm)])  # zeroes the phase
