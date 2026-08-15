@@ -1,0 +1,18 @@
+{
+  "_README": "Headless nerdrack: copy to .claude/mcp.json. OneCLI secret github-mpe-module — see ~/.onecli/mpe-module.env",
+  "mcpServers": {
+    "github": {
+      "command": "/home/claude-sandbox/workspace/MPE-Module/scripts/yolo/mcp-github-via-onecli.sh",
+      "args": [
+        "github-mpe-module"
+      ],
+      "env": {
+        "ONECLI_ENV_FILE": "/home/claude-sandbox/.onecli/mpe-module.env"
+      }
+    },
+    "current-time": {
+      "command": "/home/claude-sandbox/workspace/MPE-Module/scripts/yolo/mcp-current-time.sh",
+      "args": []
+    }
+  }
+}
