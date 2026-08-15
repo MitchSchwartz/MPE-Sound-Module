@@ -6,6 +6,18 @@ Orientation canon: OM-Repo [`GROUNDING.md`](https://github.com/opsMachine/OM-Rep
 
 ---
 
+## 2026-08-15 — Racknerd YOLO → Pi access (spec draft, not implemented)
+
+**Spec:** [`docs/racknerd-pi-access-spec.md`](../docs/racknerd-pi-access-spec.md)
+
+**Intent:** Let the Racknerd YOLO agent run **allowlisted** `mpe test pi …` (Phase A) and optionally **bounded deploy** behind `pi_soak` (Phase B) — via **Tailscale ACL** (Pi:22 only, no LAN subnet routes), **forced-command SSH user** `mpe-yolo` on the Pi, **`mpe-cli` yolo profile** on Racknerd, and **`yolo-shell-guard` allowlist**. Mitch admin path (`mitch@pi`, laptop `mpe`) unchanged.
+
+**Status:** Draft — **Gate A not cleared.** Do not install Tailscale agent path or widen guards until Mitch approves spec.
+
+**Non-goals:** LAN pivot, interactive agent shell on Pi, automated ear tests, `dev`→`main` appliance promotion from Racknerd.
+
+---
+
 ## 2026-08-15 — Browse carousel + filter pane (spec locked, not built)
 
 **Spec:** [`specs/touch-browser-browse-carousel-spec.md`](specs/touch-browser-browse-carousel-spec.md)

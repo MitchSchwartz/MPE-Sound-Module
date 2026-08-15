@@ -17,7 +17,7 @@
 | **OneCLI agent** | `onecli-nerdrack` from laptop | **MPE Agent** (`~/.onecli/mpe-module.env`) |
 | **OneCLI admin** | `onecli-nerdrack setup-mpe` (laptop) | **Blocked** — no onecli CLI, no :10254 API, no queue approve |
 | **GitHub MCP secret** | gh CLI / laptop auth | `github-mpe-module` |
-| **Pi access** | `mpe` CLI over LAN | **Blocked** — Pi not reachable from VPS |
+| **Pi access** | `mpe` CLI over LAN | **Blocked** — Pi not reachable from VPS ([`racknerd-pi-access-spec.md`](racknerd-pi-access-spec.md) draft for future Tailscale path) |
 | **Backpressure** | `python3 -m unittest discover -s tests -q` | Same — nerdrack runs unit tests only |
 
 **Rationale:** MPE is an appliance project. Nerdrack can implement and test Python/unit logic; Pi soak, deploy scripts, and audio/systemd changes stay human gates on the laptop.
@@ -151,3 +151,5 @@ Shell guard blocks direct push and force-push to `main` and `dev`.
 - Merge PRs without independent review pass (honor system until branch protection)
 
 Pi validation stays on laptop: `mpe ping`, checkout branch on Pi, ear tests (B2/B10) are Mitch-only.
+
+**Future (spec draft):** [`racknerd-pi-access-spec.md`](racknerd-pi-access-spec.md) — Tailscale + forced-command SSH + `mpe-cli` yolo profile for Pi **tests** from Racknerd; deploy stays gated.
