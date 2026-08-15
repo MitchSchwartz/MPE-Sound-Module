@@ -103,5 +103,63 @@ class ApcFootswitchTests(unittest.TestCase):
         self.assertIn(0, loops)
 
 
+
+class GridEstablishmentTests(unittest.TestCase):
+    """First take defines the tempo, then the grid stands alone."""
+
+    def _fs(self, loop, grid, established_cb=None):
+        from scripts.sooperlooper.apc_footswitch import LoopFootswitch
+
+        fs = LoopFootswitch(
+            loop=loop, hold_ms=1000.0, debounce_ms=0.0,
+            quantized=True, grid=grid, on_grid_established=established_cb,
+        )
+        fs.bind(MagicMock(), MagicMock(), 36 + loop)
+        return fs
+
+    def test_first_take_records_instantly_and_sets_tempo(self) -> None:
+        from scripts.sooperlooper.sl_grid_state import GridState
+
+        seen = []
+        grid = GridState()
+        fs = self._fs(0, grid, lambda bpm, bars: seen.append((bpm, bars)))
+
+        fs.on_pad_down(); fs.on_pad_up()          # start
+        self.assertTrue(grid.is_pending(0))
+        fs.on_pad_down(); fs.on_pad_up()          # stop — must NOT wait
+        self.assertFalse(fs.awaiting_quantize)
+
+        fs.sync_loop_len(2.0)
+        fs.sync_from_sl(SL_STATE_PLAYING)
+        self.assertTrue(grid.established)
+        self.assertEqual(seen, [(120.0, 1)])
+
+    def test_grid_survives_deleting_the_clip_that_defined_it(self) -> None:
+        from scripts.sooperlooper.sl_grid_state import GridState
+
+        grid = GridState()
+        fs = self._fs(0, grid)
+        fs.on_pad_down(); fs.on_pad_up()
+        fs.on_pad_up()
+        fs.sync_loop_len(2.0)
+        fs.sync_from_sl(SL_STATE_PLAYING)
+        self.assertTrue(grid.established)
+
+        fs._clear_loop()
+        self.assertTrue(grid.established, "deleting the defining clip must not drop the grid")
+        self.assertAlmostEqual(grid.bpm, 120.0)
+
+    def test_second_clip_does_wait_for_the_boundary(self) -> None:
+        from scripts.sooperlooper.sl_grid_state import GridState
+
+        grid = GridState()
+        grid.arm(0)
+        grid.establish(0, 2.0)
+
+        fs = self._fs(1, grid)
+        fs.on_pad_down(); fs.on_pad_up()
+        fs.on_pad_down(); fs.on_pad_up()
+        self.assertTrue(fs.awaiting_quantize, "quantized clip must wait for the bar")
+
 if __name__ == "__main__":
     unittest.main()
