@@ -83,3 +83,42 @@ class GridStateTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class GridDroppedWhenEmptyTests(unittest.TestCase):
+    """No clips, no grid — however they were cleared."""
+
+    def _established(self):
+        g = GridState()
+        g.arm(0)
+        g.establish(0, 2.0)
+        g.note_loop_content(0, True)
+        return g
+
+    def test_clearing_the_last_clip_drops_the_grid(self) -> None:
+        g = self._established()
+        self.assertTrue(g.note_loop_content(0, False))
+        self.assertFalse(g.established)
+        self.assertIsNone(g.bpm)
+
+    def test_grid_survives_while_any_clip_remains(self) -> None:
+        g = self._established()
+        g.note_loop_content(1, True)
+        self.assertFalse(g.note_loop_content(0, False))
+        self.assertTrue(g.established)
+
+    def test_clearing_pads_one_by_one_matches_a_track_reset(self) -> None:
+        g = self._established()
+        g.note_loop_content(1, True)
+        g.note_loop_content(2, True)
+        g.note_loop_content(1, False)
+        g.note_loop_content(2, False)
+        self.assertTrue(g.note_loop_content(0, False))
+        self.assertFalse(g.established)
+        self.assertTrue(g.arm(4), "next take must be free to define a new grid")
+
+    def test_does_not_drop_while_a_defining_take_is_pending(self) -> None:
+        g = GridState()
+        g.arm(0)
+        self.assertFalse(g.note_loop_content(0, False))
+        self.assertTrue(g.is_pending(0))

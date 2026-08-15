@@ -163,6 +163,11 @@ def main() -> int:
             flush=True,
         )
 
+    def on_grid_dropped() -> None:
+        """Last clip cleared: back to no grid, exactly as a track reset leaves it."""
+        set_grid_active(_send, num_loops=num_loops, active=False)
+        print("bench: grid dropped — next take defines a new one", flush=True)
+
     by_note, footswitches = build_footswitches(
         osc=osc,
         midi_out=midi_out,
@@ -172,6 +177,7 @@ def main() -> int:
         quantized=grid_active,
         grid=grid if grid_active else None,
         on_grid_established=on_grid_established if grid_active else None,
+        on_grid_dropped=on_grid_dropped if grid_active else None,
     )
     for fs in footswitches:
         fs._sync_led()
