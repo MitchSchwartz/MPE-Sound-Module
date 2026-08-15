@@ -26,9 +26,6 @@ _yolo_python() {
   fi
 }
 
-export SDL_VIDEODRIVER="${SDL_VIDEODRIVER:-dummy}"
-export PYGAME_HIDE_SUPPORT_PROMPT=1
-
 PYTHON="$(_yolo_python)"
 if [[ "$PYTHON" == python3 ]] && [[ -f "$ROOT/requirements-yolo.txt" ]]; then
   echo "  WARN: no $ROOT/.venv — run: bash scripts/yolo/setup-nerdrack-python.sh" >&2
