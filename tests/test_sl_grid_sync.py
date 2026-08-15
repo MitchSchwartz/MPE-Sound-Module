@@ -3,7 +3,11 @@
 import unittest
 from unittest.mock import MagicMock
 
-from scripts.sooperlooper.sl_grid_sync import apply_freeform, apply_grid_sync
+from scripts.sooperlooper.sl_grid_sync import (
+    apply_freeform,
+    apply_grid_sync,
+    establish_grid_clock,
+)
 
 
 class SlGridSyncTests(unittest.TestCase):
@@ -53,8 +57,26 @@ class SlGridSyncTests(unittest.TestCase):
         for loop in range(2):
             self.assertIn((f"/sl/{loop}/set", ["quantize", 1.0]), sent)
             self.assertIn((f"/sl/{loop}/set", ["sync", 1.0]), sent)
+            self.assertIn((f"/sl/{loop}/set", ["relative_sync", 0.0]), sent)
             # round on top of a quantized stop adds another whole cycle
             self.assertIn((f"/sl/{loop}/set", ["round", 0.0]), sent)
+
+    def test_establish_grid_clock_disables_smart_eighths_before_tempo(self) -> None:
+        """Sub-60 BPM first takes must not double the cycle to two bars."""
+        sent: list[tuple[str, list]] = []
+
+        def send(path: str, args: list) -> None:
+            sent.append((path, args))
+
+        establish_grid_clock(send, 30.0)
+        self.assertEqual(
+            sent,
+            [
+                ("/set", ["smart_eighths", 0.0]),
+                ("/set", ["eighth_per_cycle", 8.0]),
+                ("/set", ["tempo", 30.0]),
+            ],
+        )
 
     def test_grid_sync_jack_transport_all_quantized(self) -> None:
         sent: list[tuple[str, list]] = []
