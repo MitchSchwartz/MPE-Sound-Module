@@ -8,6 +8,39 @@
 
 ---
 
+## 🔊 Audio output safety — read before making sound
+
+**Headphones or speakers may be connected, and Mitch may be wearing them.** You cannot tell from the appliance. A loud transient into headphones on someone's head causes permanent hearing damage, and can destroy a driver instantly. This is the one failure on this project that cannot be rolled back.
+
+**The rule:**
+
+1. **Use the quietest level that proves the thing.** Verifying that audio is flowing needs far less level than "sounds good." Default to barely audible and raise only if the test genuinely requires it.
+2. **Above 50% output, stop and ask.** Explicitly check in with Mitch before any test that exceeds it, and say what you intend to run. Do not infer consent from an earlier "go ahead" — his headphones may be on now and were not before.
+3. **Never raise a level to diagnose silence.** If you expect sound and hear none, the cause is almost always routing, a stopped service, or a wrong device — not gain. Turning it up to find out is exactly how the damage happens. Check `mpe-yolo jack-status`, `osc-check`, and the unit states first.
+4. **Restore any level you change**, and say in your summary that you changed it.
+
+**There are three gain stages in series.** A level that is safe at one is not safe end to end:
+
+| Stage | Control |
+|---|---|
+| Surge patch output | OSC `/param/a/amp/volume`, `/param/b/amp/volume` (UDP 53280) |
+| Looper | `MPE_SL_LOOP_GAIN`, `MPE_SL_LOOP_GAIN_LAW` |
+| Hardware mixer | `amixer -c 1 sset Speaker <n>` |
+
+**Hardware output is card 1, `Sound Blaster Play! 3`.** The playback control is **`Speaker`** — there is no `PCM` control on this card (`amixer -c 1 sget PCM` errors). Its scale is **0–88 raw**, and as of 2026-08-16 it sits at **48 (55%, −20 dB)**.
+
+Treat the **dB figure as the real number**, not the percentage — `amixer`'s percentage is not perceived loudness, so "under 50%" is a weaker limit than it sounds. Read the current value before changing it:
+
+```bash
+amixer -c 1 sget Speaker
+```
+
+**Loops sum.** A per-loop gain that is fine alone is not fine with 16 playing at once. Bring level up *after* the loops are running, never before.
+
+**You cannot infer the output device.** Cards 0 (Pi headphone jack), 2 and 3 (HDMI) also exist. Which one reaches Mitch's ears is not visible from the appliance — assume the worst case.
+
+---
+
 ## Pi CLI (`mpe`)
 
 **Use the global `mpe` CLI** (separate [`mpe-cli`](https://github.com/MitchSchwartz/mpe-cli) repo) for laptop → Pi operations. Do not run raw `ssh`, `scp`, or `rsync` when a subcommand exists — Cursor allowlists fixed `mpe` entrypoints instead of open SSH.
