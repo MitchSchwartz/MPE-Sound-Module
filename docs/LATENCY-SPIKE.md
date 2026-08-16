@@ -5,7 +5,8 @@
 **The question, in one line:** *Can we run a smaller Surge buffer than 1024 without losing voices — and what's the cheapest change that gets us there?*
 
 > **ANSWERED 2026-08-14 — yes, and the question is now obsolete.** The appliance
-> runs **512 × 3 @ 48 kHz with 0 xruns** (`mpe jack status`). More importantly the
+> runs **256 × 3 @ 48 kHz with 0 xruns** (`mpe jack status`) — *corrected 2026-08-16; this
+> line read 512 × 3 and was one step behind the appliance.* More importantly the
 > premise is retired: under the JACK graph server **Surge does not own a buffer**.
 > jackd sets one period for the whole graph and every client processes in that
 > same tick, so "Surge's buffer size" is not a thing that exists any more —
