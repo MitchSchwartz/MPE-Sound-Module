@@ -1,0 +1,61 @@
+# Gitleaks config for MPE-Sound-Module.
+# THIS REPOSITORY IS PUBLIC — anything committed is world-readable, permanently,
+# including in history after a later deletion. Treat a gitleaks hit as a blocker.
+# https://github.com/gitleaks/gitleaks
+
+title = "MPE-Sound-Module gitleaks"
+
+[extend]
+useDefault = true
+
+# Appliance-specific rules. The default ruleset already covers ghp_/github_pat_
+# and PEM blocks; these catch the shapes this project has actually produced.
+[[rules]]
+id = "mpe-git-credentials-line"
+description = "git credential-store line with an embedded token"
+regex = '''https://[A-Za-z0-9._-]+:[A-Za-z0-9._-]{16,}@github\.com'''
+tags = ["appliance", "credentials"]
+
+[[rules]]
+id = "mpe-github-env-token"
+description = "GITHUB_TOKEN= with a real value (see /etc/mpe/github.env history)"
+regex = '''(?i)GITHUB_TOKEN\s*=\s*['"]?(gh[pousr]_[A-Za-z0-9]{16,}|github_pat_[A-Za-z0-9_]{20,})'''
+tags = ["appliance", "credentials"]
+
+[[rules]]
+id = "mpe-tailscale-key"
+description = "Tailscale key — auth, api, client, webhook, scim (typed format)"
+regex = '''tskey-(auth|api|client|webhook|scim)-[A-Za-z0-9]{6,}-[A-Za-z0-9]{10,}'''
+keywords = ["tskey"]
+tags = ["tailscale"]
+
+[[rules]]
+id = "mpe-tailscale-key-legacy"
+description = "Tailscale key, legacy/untyped or unknown future type"
+regex = '''tskey-[A-Za-z0-9]{16,}'''
+keywords = ["tskey"]
+tags = ["tailscale"]
+
+[[rules]]
+id = "mpe-tailscale-oauth-secret"
+description = "Tailscale OAuth client secret"
+regex = '''(?i)(tailscale|ts)[_-]?(client[_-]?secret|oauth[_-]?secret)\s*[:=]\s*[\'"]?tskey-[A-Za-z0-9-]{16,}'''
+keywords = ["tskey", "tailscale"]
+tags = ["tailscale"]
+
+[[allowlists]]
+description = "Templates and docs that carry placeholders only"
+paths = [
+  '''(?i)\.example$''',
+  '''(?i)mpe\.env\.example$''',
+  '''(?i)^docs/PI-GITHUB-ACCESS\.md$''',
+  '''(?i)^scripts/setup-pi-github-pat\.sh$''',
+]
+regexes = [
+  '''your-pi-username''',
+  '''your_pi_key''',
+  '''your-token-here''',
+  '''ghp_…''',
+  '''github_pat_…''',
+  '''gitleaks:allow''',
+]
