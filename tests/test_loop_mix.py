@@ -56,13 +56,30 @@ class ColumnMapping(unittest.TestCase):
 
 
 class Master(unittest.TestCase):
-    def test_master_writes_the_engine_global_not_a_loop(self):
-        msgs = LoopMix().messages_for(MASTER, CC_MAX)
-        self.assertEqual(len(msgs), 1)
-        path, args = msgs[0]
-        self.assertEqual(path, "/set")
-        self.assertEqual(args[0], loop_mix.SL_MASTER_CONTROL)
-        self.assertAlmostEqual(args[1], 1.0)
+    def test_master_scales_every_loop_over_per_loop_wet(self):
+        # Not an engine-global /set: nothing in this system has ever written a
+        # level at engine scope, and an OSC message to a control the engine
+        # does not have vanishes silently. Per-loop wet is proven.
+        msgs = LoopMix(num_loops=16).messages_for(MASTER, 100)
+        self.assertEqual([p for p, _ in msgs], [f"/sl/{n}/set" for n in range(16)])
+
+    def test_master_at_full_is_identity(self):
+        # Guards the new factor silently attenuating everything at rest.
+        mix = LoopMix()
+        mix.messages_for(MASTER, CC_MAX)
+        self.assertAlmostEqual(mix.wet_for(0), 1.0)
+
+    def test_master_composes_multiplicatively_with_user_gain(self):
+        mix = _picked_up(LoopMix(), 0)
+        mix.messages_for(0, 100)
+        alone = mix.wet_for(0)
+        mix.messages_for(MASTER, 100)
+        expected = alone * fader_taper(100, floor_db=-40.0, ceil_db=0.0)
+        self.assertAlmostEqual(mix.wet_for(0), expected)
+
+    def test_master_is_not_gated_by_column_pickup(self):
+        # No column owns it, and a fresh mix has picked up nothing.
+        self.assertTrue(LoopMix().messages_for(MASTER, 40))
 
     def test_master_is_exempt_from_pickup(self):
         # There is no per-loop truth to seed it from, so suppressing it would
