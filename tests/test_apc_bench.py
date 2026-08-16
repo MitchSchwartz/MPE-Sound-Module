@@ -101,9 +101,9 @@ class FaderDispatchTests(unittest.TestCase):
         self.feed(self.ccs[2], 64)
         self.assertEqual([p for p, _ in self.sent], ["/sl/2/set", "/sl/10/set"])
 
-    def test_master_drives_the_loop_bus(self) -> None:
+    def test_master_drives_every_loop(self) -> None:
         self.feed(self.master, 64)
-        self.assertEqual([p for p, _ in self.sent], ["/set"])
+        self.assertEqual([p for p, _ in self.sent], [f"/sl/{n}/set" for n in range(16)])
 
     def test_non_fader_cc_is_ignored(self) -> None:
         self.feed(7, 100)
