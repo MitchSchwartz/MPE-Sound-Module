@@ -45,11 +45,6 @@ from enum import Enum
 from apc_faders import CC_MAX, MASTER, FaderId
 from apc_grid import loops_for_column
 
-# The loop-bus master. UNVERIFIED against the engine — SooperLooper source is
-# not available off the Pi. Kept as one named constant so confirming it is a
-# one-line change. Check src/control_osc.cpp on the Pi before trusting it.
-SL_MASTER_CONTROL = os.environ.get("MPE_SL_MASTER_CONTROL", "wet")
-
 # Bottom of fader travel must mean silence. A log taper cannot reach zero, so
 # the bottom of the range is snapped to it explicitly. Without this the fader
 # bottoms out at a quiet-but-audible level, which reads as a bug.
@@ -137,6 +132,9 @@ class LoopMix:
     num_loops: int = 16
     mode: FaderMode = FaderMode.LEVEL
     user_gain: dict[int, int] = field(default_factory=dict)
+    # The master is a factor in the composition below, not a message of its
+    # own. See messages_for() for why it is not an engine-global control.
+    master_gain: int = CC_MAX
     active_loops: int = 0
     _picked_up: set[FaderId] = field(default_factory=set)
     # Where each fader must cross before it may write. Held per fader rather
@@ -192,12 +190,24 @@ class LoopMix:
         """(path, args) to send for this fader movement. [] if suppressed."""
         raw = max(0, min(CC_MAX, int(raw)))
         if fader == MASTER:
-            # Nothing is stored: the master is a bus control, so it cannot take
-            # part in wet_for() composition, and there is no per-loop truth to
-            # seed it from. It is a straight pass-through by design.
-            param = PARAMETERS[FaderMode.LEVEL]
-            value = fader_taper(raw, floor_db=param.floor_db, ceil_db=param.ceil_db)
-            return [("/set", [SL_MASTER_CONTROL, value])]
+            # Arithmetic in the control layer, not a bus control (DECISIONS.md
+            # :468). An engine-global `/set wet` would be the obvious mapping,
+            # but nothing in this system has ever written a *level* at engine
+            # scope — every global we send is a setting (tempo, sync_source,
+            # fade_samples) — so that control is unproven, and an OSC message
+            # to a control SooperLooper does not have is dropped in silence.
+            # Per-loop `wet` is proven live (eval 2026-08-14). Since loops sum
+            # into common_out through plain jack_connect with no gain or
+            # limiter stage, scaling all 16 is exactly equal to scaling the
+            # bus — the same result over a control we know exists.
+            #
+            # Master stays exempt from pickup: there is no engine truth to
+            # seed it from, so gating it would leave it permanently inert.
+            # The cost is chosen, not overlooked — its first move jumps all 16
+            # loops at once. That jump is downward from stored unity, which is
+            # the safe direction, and the alternative is a dead fader.
+            self.master_gain = raw
+            return self._all_loop_messages()
 
         if not isinstance(fader, int) or not 0 <= fader <= 7:
             return []
@@ -233,14 +243,23 @@ class LoopMix:
     # -- composition ------------------------------------------------------
 
     def wet_for(self, loop: int) -> float:
-        """The single point where the user's gain and the automatic law meet."""
+        """The single point where every contribution to a loop's level meets.
+
+        Three factors, one multiply: what the user asked this loop to sit at,
+        the master, and the automatic backstop law. Everything is recomputed
+        in full from state we own, so nothing here compounds and no two
+        writers of `wet` can fight.
+        """
         param = PARAMETERS[self.mode]
         user = fader_taper(
             self.user_gain.get(loop, CC_MAX),
             floor_db=param.floor_db,
             ceil_db=param.ceil_db,
         )
-        return max(0.0, min(1.0, user * auto_law(self.active_loops)))
+        master = fader_taper(
+            self.master_gain, floor_db=param.floor_db, ceil_db=param.ceil_db
+        )
+        return max(0.0, min(1.0, user * master * auto_law(self.active_loops)))
 
 
 def _wet_to_cc(wet: float, param: Parameter) -> int:
