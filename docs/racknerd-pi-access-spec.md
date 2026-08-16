@@ -2,7 +2,7 @@
 
 **Status:** Draft — Gate A (Mitch approval) required before implementation  
 **Created:** 2026-08-15 (America/Toronto)  
-**Last updated:** 2026-08-16 (America/Toronto) — rev 5 (**scope change** — see ⚠️ Revision 5)
+**Last updated:** 2026-08-16 (America/Toronto) — rev 5.1 (**scope change** — see ⚠️ Revision 5)
 
 **Related:** [`local-vs-nerdrack-dev.md`](local-vs-nerdrack-dev.md) · [`AGENTS.md`](../AGENTS.md) · OM-Repo [`Docs/appliance-cli-pattern.md`](https://github.com/opsMachine/OM-Repo/blob/main/Docs/appliance-cli-pattern.md) · [`mpe-cli`](https://github.com/MitchSchwartz/mpe-cli)
 
@@ -44,7 +44,7 @@ That single sentence voids a large part of this spec. Consequences, in order:
 2. **Arbitrary agent code executing on the Pi is a design input, not a threat.** Containment therefore cannot work by controlling *what code arrives*. It must work *below* the code: which user runs it, and what that user can reach.
 3. **Phase B is the product; Phase A was never the deliverable.** The phased rollout below is retained for build order only. Do not read it as a scope boundary.
 4. **This capability already exists on the laptop.** Local agents call `mpe looper deploy` and `mpe test pi` through the CLI, so agent-authored Python already runs on the appliance as `mitch`. Racknerd adds exactly three things: a **network path** (Layer 1 — genuinely new), a **host Mitch does not physically control**, and **no human in the loop** (YOLO runs `--dangerously-skip-permissions` unattended). That third one is an oversight multiplier, not a capability grant — and it is the honest reason for care.
-5. **The load-bearing control is now the unprivileged run-as user** (§Layer 2 → *`mpe-agent`*), formerly filed as "Phase B mitigation option 3." It is the only design that contains agent code rather than restating an invariant — and it reduces exposure the **laptop** agents already carry, which makes it the highest-return item in this document.
+5. **The load-bearing control is now the unprivileged run-as user** (§Layer 2 → *`mpe-agent`*), formerly filed as "Phase B mitigation option 3." It is the only design that contains agent code rather than restating an invariant. **Rev 5.1:** it binds to the **Racknerd entry path only** — Mitch's laptop keeps full admin (kernel, systemd, `apt`) and laptop agents keep running as `mitch`, because oversight is the control when Mitch is present. An earlier draft of this section read as though it constrained the laptop; it must not, per Non-goals line 1.
 6. **New requirement: a performance-mode interlock** (§Layer 2). One Pi, one sound card. The `flock` stops agent-vs-agent collision; nothing stopped an agent starting a test suite while Mitch is playing.
 
 **What survives rev 5 unchanged:** the Tailscale ACL (Layer 1) as the only unconditional containment; the forced-command token map (Layer 2) as the reason a VPS never holds a general shell; the §Layer weight analysis; and the conclusion that Layers 3–4 are mistake-prevention the agent can edit.
@@ -387,22 +387,105 @@ Add a **narrow** sudoers drop-in (not `NOPASSWD: ALL`). Example intent:
 
 Get this wrong and Layer 2 becomes a root shell — review before apply.
 
-### `mpe-agent` — the run-as user (rev 5: this replaces the Phase A invariant)
+### `mpe-agent` — the run-as user (rev 5.1: this replaces the Phase A invariant)
 
 Agent code runs on the appliance by design. Containment therefore happens **below** the code, at the identity that executes it. This is the load-bearing control of the whole document.
 
-| Property | Requirement |
+#### Containment binds to the entry path, not to "agents" in general
+
+**Three actors, not two.** Rev 5's first draft collapsed the middle row and read as though it constrained the laptop. It does not, and must not:
+
+| Actor | Entry point | Runs as on the Pi | Rationale |
+|---|---|---|---|
+| **Mitch, interactively** | `mitch@pi` (SSH key, laptop) | `mitch`, full sudo | Kernel, systemd, `apt`, audio profiles, recovery. **Unchanged — see Non-goals** |
+| **Laptop agents** | `mpe-cli` from the laptop | `mitch` | Mitch is present; **oversight is the control**. Same capability as today — not a regression |
+| **Racknerd YOLO** | `mpe-yolo@pi` forced command | **`mpe-agent`** | Unattended, no human in the loop. The only path that gets contained |
+
+This requires no new mechanism. `mpe-yolo-remote.sh` **is** the forced command on the `mpe-yolo` key, so it knows it is the Racknerd path by construction; it dispatches `sudo -u mpe-agent`. The laptop path never invokes the wrapper and is untouched by everything in this section.
+
+**Accepted risk, stated explicitly:** laptop agents retain the ability to brick the appliance. That is today's risk, consciously kept, because constraining it would add friction to every supervised session in exchange for very little.
+
+#### The deploy-path problem, and the fix (option 1 — group-owned path)
+
+"Agent deploys code the appliance runs" and "`mpe-agent` cannot read `mitch`'s home" are in direct conflict: the services (`jackd`, `surge-xt-cli`, `mpe-looper`) run as `mitch` out of `~/MPE-Module`. The agent's code has to land where those services actually load it.
+
+Rejected: a private `mpe-agent` worktree (the services would not run that code, so hardware tests prove nothing) and separate agent service instances (one sound card, exclusive access).
+
+**🔴 Option 1 (group-owned deploy path) is REJECTED — it is a root escalation.** Measured on the appliance 2026-08-16: **eleven systemd units execute scripts directly out of `/home/mitch/MPE-Module`**, and two of them run as **root**:
+
+| Unit | User | ExecStart |
+|---|---|---|
+| `mpe-audio-profile-sync.service` | **root** | `…/MPE-Module/scripts/sync-audio-profile-on-boot.sh` |
+| `mpe-cpu-governor.service` | **root** | `…/MPE-Module/scripts/set-cpu-governor.sh` |
+| `mpe-jackd`, `surge-xt-cli`, `mpe-looper`, `surge-watchdog`, `surge-poly-governor`, `midi-clock-in`, `midi-clock-out`, `mpe-pressure-remap`, `mpe-shutdown-splash` | `mitch` | all under `…/MPE-Module/scripts/` |
+
+Any user who can write the deploy path can rewrite a script that **systemd runs as root at next boot** — or immediately, given the narrow `systemctl restart` sudoers this design also grants. `mpe-agent` write access to that path is therefore not "contained"; it is root on the appliance by the next reboot. (`/home/mitch` is also `700`, so the design would additionally require opening traversal into Mitch's home.)
+
+This is the same shape the document keeps rediscovering — *a control is only real if the agent cannot edit its implementation* — applied this time to the directory the control's own services execute from.
+
+**The general result, stated plainly:** *if the agent deploys code that the appliance executes, the agent runs as whatever executes it.* Since that set currently includes `root` and `mitch`, no run-as user for the **test** step can contain the **deploy** step. User separation constrains `python3 -m unittest`; it does nothing about the eleven units.
+
+**Therefore the real choice is between:**
+
+| | Approach | Cost | What it actually buys |
+|---|---|---|---|
+| **A** | **Split the tree.** Service/infrastructure scripts (root- and `mitch`-executed, boot-critical) move to a root-owned path the agent cannot write. Only product code under test stays agent-writable — and the services executing *that* run as a dedicated non-`mitch`, non-root user | Real refactor; `scripts/` currently mixes infrastructure (`start-jackd.sh`, `set-cpu-governor.sh`) with product code | Genuine containment: agent-authored code executes only as an unprivileged service user |
+| **C** | **Accept the appliance as expendable.** Agent deploy ⇒ agent root on the Pi. Contain everything *around* it instead: Tailscale ACL (done), no credentials on the box (done), fast reflash/recovery, backups of `/etc/mpe` and patches | Low — mostly already done | Nothing on the Pi; the LAN, the credentials, and the recovery path are what is protected |
+
+### ✅ DECISION: C — the appliance is expendable (Mitch, 2026-08-16)
+
+**Chosen.** Agent deploy ⇒ agent root on the Pi. This is accepted, not mitigated.
+
+The honest summary of this entire document therefore becomes:
+
+> **The Tailscale ACL is the only control. The appliance is handed to the agent. What is protected is the LAN, the credentials, and the ability to rebuild.**
+
+Every remaining reference to "containment on the Pi" is void. Layers 2–4 are **mistake-prevention and blast-radius reduction only** and must not be counted as controls in any future review. The forced-command wrapper is still worth building — not to contain agent code, but so a VPS never holds a general shell on the home network, and so routine agent mistakes are harder.
+
+**Do not build option 1** (group-owned deploy path). `mpe-agent` remains specified for the **test** step only — `sudo -u mpe-agent` running `python3 -m unittest` against a tree it cannot write. Cheap, and still useful.
+
+#### 🔴 C's precondition does not hold yet — "expendable" is currently false
+
+C is only defensible if losing the SD card is an inconvenience. Audited 2026-08-16, it is not. **Recovery is now the load-bearing control of this design** — it has replaced the token map in that role.
+
+| At risk | State | Why it matters |
+|---|---|---|
+| **11 systemd units** | `/etc/systemd/system/*.service`, hand-installed. **No `systemd/` directory in the repo** | The entire service topology — jackd, Surge, looper, watchdog, governors, MIDI clock — exists only on that card |
+| **`MPE-Library` — 279 MB** | `~/MPE-Library` is a plain directory, **not a git checkout** (verified). Upstream repo is private | If the Pi copy has content not in the remote, it is unbacked-up creative work |
+| **Touch calibration** | `~/surge-cli-calibration.log`, `~/.patch_browser_calibration_backups` | Device-specific; not reproducible from source |
+| **Surge build — 238 MB** | `~/surge`, built from source on ARM (`SURGE_ARM_BUILD.md`) | Rebuildable but slow; a reflash means hours before sound |
+| **`/etc/mpe/mpe.env`** | root:root, unversioned | The only place the live buffer/period config exists |
+| **Stray trees** | `~/MPE-Module-tmp-deploy`, `~/MPE-Module-tmp-fix` — divergent copies of `calibration_loader.py` | Deploy scratch that will confuse a restore |
+| **Deploy tree dirty** | 16 untracked entries (sooperlooper `.wav` fixtures) | Appliance state is not reproducible from a ref |
+
+**Required before Racknerd Phase 2 — this is the new Gate:**
+
+1. **Delete `/etc/mpe/github.env`.** It still contains `GITHUB_TOKEN=…` at mode 640 `root:mitch`, written by `setup-pi-github-pat.sh` alongside the credential file. The token is revoked, so it is inert — but the earlier "credentials removed" record in this document checked only `/etc/mpe/git-credentials` and missed this. Remove the file and re-verify.
+2. **Version the systemd units** into the repo with an installer, so service topology is reproducible.
+3. **Establish `MPE-Library`'s source of truth** — confirm the Pi copy holds nothing the private remote lacks, then make it a real checkout or a documented one-way sync.
+4. **Capture calibration** into version control or a documented backup.
+5. **Clean the stray `*-tmp-*` trees** and commit or delete the untracked fixtures.
+6. **Perform an actual restore rehearsal.** An untested recovery path is an asserted one — the same error this document has now made four times about other controls. Until a restore has been done end to end and timed, "expendable" is a hope.
+
+Note that (2), (5) and (6) are the same work as the immutable-release architecture (build → artifact → atomic activation). Doing that properly retires this table rather than maintaining it.
+
+#### `mpe-agent` reach — the whole list
+
+| Gets | Does **not** get |
 |---|---|
-| User | Dedicated **`mpe-agent`**, created for this purpose. Not `mitch`, not `mpe-yolo` (that is the SSH identity; this is the execution identity) |
-| Checkout | Its own clone/worktree, owned by `mpe-agent`. Mitch's `~/MPE-Module` stays free to switch branches — the appliance dev loop is unchanged |
-| sudo | **None**, except a narrow drop-in for specific `systemctl restart <unit>` calls if tests must bounce a service. Never `bash`, `apt`, `sed`, or `systemctl edit` |
-| Reads | **No** access to `mitch`'s home, `/etc/mpe/`, `authorized_keys`, or any key material |
-| Groups | `audio` (and whatever JACK/GPIO access the tests genuinely need). This is the one real grant and it is unavoidable — the point is hardware testing |
-| Wrapper | `mpe-yolo-remote.sh` runs deploy and test tokens as `sudo -u mpe-agent`, **not** `sudo -u mitch` |
+| Write to the deploy path (via `mpe-deploy`) | `mitch`'s home outside the deploy path |
+| `audio` group — JACK/ALSA access. Unavoidable: hardware testing is the point | `/etc/mpe/` (config, credentials, `mpe.env`) |
+| Narrow sudoers: specific `systemctl restart <unit>` only | Any SSH key or `authorized_keys` |
+| | General `sudo`, `bash`, `apt`, `sed`, `systemctl edit` |
+| | A login shell (`/usr/sbin/nologin`; reached only via `sudo -u` from the wrapper) |
 
-**Why this and not the invariant:** options that pin refs or separate worktrees restate "agent code must not run as `mitch`" as a procedure someone has to remember. This removes the condition — agent Python executes as a user that cannot reach Mitch's credentials, keys, or sudoers, no matter what the code does.
+**Why this and not the invariant:** ref pinning and separate worktrees restate "agent code must not run as `mitch`" as a procedure someone has to remember. This removes the condition — agent Python executes as a user that cannot reach Mitch's credentials, keys, or sudoers, whatever the code does.
 
-**It also fixes the laptop.** Local agents currently deploy and test as `mitch` on this appliance. Routing them through `mpe-agent` too reduces exposure that already exists, independent of Racknerd. Best return in this document.
+#### Residual risk that no user separation fixes
+
+The agent pushes to a branch; **Mitch later deploys that branch himself** from the laptop. Agent-authored code then runs as `mitch`, through the admin path, with every control intact and none of them violated.
+
+This is the same hole the Phase A invariant never really closed. It is not designable-away while Mitch retains admin (which he does, deliberately, per the table above). Mitigation is awareness, not mechanism: **know which branches carry agent work before deploying them.** Record in `AGENTS.md`, not in code.
 
 ### Performance-mode interlock (rev 5 — required)
 
