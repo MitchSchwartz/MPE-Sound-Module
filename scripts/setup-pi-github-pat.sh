@@ -5,29 +5,32 @@
 #   printf '%s' "$GITHUB_TOKEN" | ssh mitch@raspberrypi2.local \
 #     'sudo bash -s -- --stdin' < scripts/setup-pi-github-pat.sh
 #
-# On Pi:
-#   printf '%s' "$GITHUB_TOKEN" | sudo ./scripts/setup-pi-github-pat.sh --local --stdin
+# On Pi (from repo):
+#   printf '%s' "$GITHUB_TOKEN" | sudo ./scripts/setup-pi-github-pat.sh --stdin
+#
+# On Pi (standalone copy in /tmp):
+#   printf '%s' "$GITHUB_TOKEN" | sudo bash /tmp/setup-pi-github-pat.sh --stdin
 #
 # Token never belongs in argv, chat, or git. Rotate via GitHub → revoke old → re-run.
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-# shellcheck source=lib/paths.sh
-source "$SCRIPT_DIR/lib/paths.sh"
+if [ -f "$SCRIPT_DIR/lib/paths.sh" ]; then
+    # shellcheck source=lib/paths.sh
+    source "$SCRIPT_DIR/lib/paths.sh"
+elif [ -f /etc/mpe/mpe.env ]; then
+    # Standalone run (e.g. /tmp/setup-pi-github-pat.sh) — load appliance paths only.
+    # shellcheck disable=SC1091
+    source /etc/mpe/mpe.env
+fi
 
-LOCAL=false
 FROM_STDIN=false
-TOKEN=""
-PI_USER="${MPE_PI_USER:-mitch}"
-CRED_FILE="/etc/mpe/git-credentials"
-ENV_FILE="/etc/mpe/github.env"
 
 usage() {
     cat <<'EOF'
-Usage: setup-pi-github-pat.sh [--local] --stdin
+Usage: setup-pi-github-pat.sh --stdin
 
-  --local   Run on the Pi (required when invoked via SSH from laptop).
   --stdin   Read classic PAT from stdin (one line, no echo).
 
 Writes:
@@ -44,13 +47,17 @@ EOF
 
 while [ $# -gt 0 ]; do
     case "$1" in
-        --local) LOCAL=true ;;
         --stdin) FROM_STDIN=true ;;
         -h|--help) usage; exit 0 ;;
         *) echo "Unknown option: $1" >&2; usage >&2; exit 2 ;;
     esac
     shift
 done
+
+PI_USER="${MPE_PI_USER:-mitch}"
+TOKEN=""
+CRED_FILE="/etc/mpe/git-credentials"
+ENV_FILE="/etc/mpe/github.env"
 
 if [ "$EUID" -ne 0 ]; then
     echo "ERROR: run as root (sudo)." >&2
