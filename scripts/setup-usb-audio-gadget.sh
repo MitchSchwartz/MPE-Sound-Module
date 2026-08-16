@@ -1,6 +1,6 @@
 #!/bin/bash
 # USB Audio Class 2 gadget — Surge output to tethered host PC (Approach C).
-# Playback-only stereo @ 44100 Hz; no ALSA loopback.
+# Playback-only stereo @ MPE_SURGE_SAMPLE_RATE (default 48000 Hz); no ALSA loopback.
 #
 # Usage:
 #   setup-usb-audio-gadget.sh start|stop|status|restart [--dry-run]
@@ -31,7 +31,7 @@ usage() {
 
 profile_is_usb_host() {
     case "${MPE_AUDIO_PROFILE:-standalone}" in
-        usb-host) return 0 ;;
+        usb-host | usb-host-session) return 0 ;;
         *) return 1 ;;
     esac
 }
@@ -95,8 +95,10 @@ create_gadget() {
     ensure_configfs
     run_or_echo modprobe libcomposite
 
+    local sample_rate="${MPE_SURGE_SAMPLE_RATE:-48000}"
+
     if [ "$DRY_RUN" = true ]; then
-        log "DRY-RUN: would create gadget $GADGET_NAME on UDC $udc (44100 Hz stereo UAC2)"
+        log "DRY-RUN: would create gadget $GADGET_NAME on UDC $udc (${sample_rate} Hz stereo UAC2)"
         return 0
     fi
 
@@ -127,7 +129,7 @@ create_gadget() {
     echo 250 > "configs/$CONFIG_NAME/MaxPower"
 
     mkdir -p "functions/$FUNCTION_NAME"
-    echo 44100 > "functions/$FUNCTION_NAME/p_srate"
+    echo "$sample_rate" > "functions/$FUNCTION_NAME/p_srate"
     echo 2 > "functions/$FUNCTION_NAME/p_ssize"
     echo 3 > "functions/$FUNCTION_NAME/p_chmask"
     echo 0 > "functions/$FUNCTION_NAME/c_chmask"
@@ -135,7 +137,7 @@ create_gadget() {
     ln -sf "functions/$FUNCTION_NAME" "configs/$CONFIG_NAME/"
 
     echo "$udc" > UDC
-    log "Bound UAC2 gadget on $udc (44100 Hz stereo playback)"
+    log "Bound UAC2 gadget on $udc (${sample_rate} Hz stereo playback)"
 }
 
 destroy_gadget() {

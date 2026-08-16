@@ -51,16 +51,7 @@ else
 fi
 
 echo "[3/4] Installing udev rules (backlight, USB audio, Roli)..."
-for rule in "$MPE_MODULE_REPO/config/99-backlight-permissions.rules" \
-            "$MPE_MODULE_REPO/config/99-usb-audio.rules" \
-            "$MPE_MODULE_REPO/config/99-roli-seaboard.rules"; do
-    if [ -f "$rule" ]; then
-        sudo cp "$rule" /etc/udev/rules.d/"$(basename "$rule")"
-        echo "  ✓ $(basename "$rule")"
-    fi
-done
-sudo udevadm control --reload-rules
-sudo udevadm trigger
+"$MPE_MODULE_REPO/scripts/install-udev-rules.sh"
 
 echo "[4/4] Installing systemd units and enabling touch browser..."
 "$MPE_MODULE_REPO/scripts/configure-pi-paths.sh" --local --force
@@ -72,5 +63,5 @@ echo ""
 echo "Check services:"
 echo "  systemctl status surge-xt-cli touch-patch-browser"
 echo ""
-echo "Power menu needs passwordless sudo (once): see docs/POWER_BUTTON_SETUP.md"
-echo "  sudo visudo  →  $(whoami) ALL=(ALL) NOPASSWD: /sbin/poweroff, /sbin/reboot, /bin/systemctl"
+echo "Touch UI sudoers (once): see docs/TOUCH_PATCH_BROWSER.md"
+echo "  sudo visudo  →  $(whoami) ALL=(ALL) NOPASSWD: /sbin/poweroff, /sbin/reboot, /bin/systemctl, $MPE_MODULE_REPO/scripts/set-audio-profile.sh, $MPE_MODULE_REPO/scripts/set-surge-audio.sh"

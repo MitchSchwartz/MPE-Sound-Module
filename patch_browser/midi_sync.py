@@ -1,0 +1,153 @@
+"""Looper-grid MIDI timing — output offset and quantize for pedal ↔ Pi play path."""
+
+from __future__ import annotations
+
+import os
+from typing import Any
+
+from patch_browser.midi_clock import PPQN, normalize_midi_bytes
+from patch_browser.surge_audio import DEFAULT_BUFFER, DEFAULT_SAMPLE_RATE
+
+MIDI_CLOCK = 0xF8
+MIDI_START = 0xFA
+MIDI_CONTINUE = 0xFB
+MIDI_STOP = 0xFC
+
+QUANTIZE_CHOICES: dict[str, int] = {
+    "off": 0,
+    "beat": PPQN,
+    "8th": PPQN // 2,
+    "16th": PPQN // 4,
+    "32nd": PPQN // 8,
+}
+
+
+def triplet_enabled() -> bool:
+    return os.environ.get("MPE_MIDI_QUANTIZE_TRIPLET", "0").strip().lower() in ("1", "true", "yes", "on")
+
+
+def parse_quantize_grid_ticks(value: str | None, *, triplet: bool | None = None) -> int:
+    if not value or not str(value).strip():
+        return 0
+    key = str(value).strip().lower()
+    if key in ("0", "false", "no", "none"):
+        return 0
+    # Legacy env: MPE_MIDI_QUANTIZE=triplet → 8th-note triplet grid.
+    if key == "triplet":
+        key = "8th"
+        if triplet is None:
+            triplet = True
+    base = QUANTIZE_CHOICES.get(key, QUANTIZE_CHOICES["16th"])
+    if base <= 0:
+        return 0
+    use_triplet = triplet_enabled() if triplet is None else triplet
+    if use_triplet:
+        return max(1, base * 2 // 3)
+    return base
+
+
+def resolve_quantize_grid_ticks() -> int:
+    """Grid ticks from MPE_MIDI_QUANTIZE + MPE_MIDI_QUANTIZE_TRIPLET."""
+    return parse_quantize_grid_ticks(os.environ.get("MPE_MIDI_QUANTIZE"))
+
+
+def buffer_latency_ms(
+    buffer: int | None = None,
+    sample_rate: int | None = None,
+) -> float:
+    buf = buffer if buffer is not None else int(os.environ.get("MPE_SURGE_BUFFER_SIZE", str(DEFAULT_BUFFER)))
+    rate = sample_rate if sample_rate is not None else int(
+        os.environ.get("MPE_SURGE_SAMPLE_RATE", str(DEFAULT_SAMPLE_RATE))
+    )
+    if rate <= 0:
+        return 0.0
+    return 1000.0 * buf / rate
+
+
+def resolve_output_offset_ms() -> float:
+    """Negative ms = fire MIDI earlier so Surge audio aligns with looper grid."""
+    raw = os.environ.get("MPE_MIDI_OUTPUT_OFFSET_MS", "").strip()
+    if raw:
+        return float(raw)
+    if os.environ.get("MPE_MIDI_OUTPUT_OFFSET_AUTO", "1").strip().lower() in ("1", "true", "yes"):
+        return -buffer_latency_ms()
+    return 0.0
+
+
+def clock_through_enabled() -> bool:
+    return os.environ.get("MPE_MIDI_CLOCK_THROUGH", "1").strip().lower() in ("1", "true", "yes")
+
+
+def is_realtime_clock_byte(status: int) -> bool:
+    return status in (MIDI_CLOCK, MIDI_START, MIDI_CONTINUE, MIDI_STOP)
+
+
+def is_note_on(message: list[int]) -> bool:
+    if len(message) < 3 or message[0] < 0x80:
+        return False
+    return (message[0] & 0xF0) == 0x90 and message[2] > 0
+
+
+def is_note_off(message: list[int]) -> bool:
+    if len(message) < 3 or message[0] < 0x80:
+        return False
+    hi = message[0] & 0xF0
+    return hi == 0x80 or (hi == 0x90 and message[2] == 0)
+
+
+def tick_interval_seconds_from_snap(clock_snap: dict[str, Any]) -> float | None:
+    bpm = clock_snap.get("bpm_raw") or clock_snap.get("bpm")
+    if bpm is None:
+        return None
+    try:
+        bpm_f = float(bpm)
+    except (TypeError, ValueError):
+        return None
+    if bpm_f <= 0:
+        return None
+    return 60.0 / bpm_f / PPQN
+
+
+def next_grid_monotonic(
+    now: float,
+    clock_snap: dict[str, Any],
+    grid_ticks: int,
+) -> float:
+    """Monotonic time of the next grid line at or after ``now``."""
+    if grid_ticks <= 0:
+        return now
+    interval = tick_interval_seconds_from_snap(clock_snap)
+    if interval is None:
+        return now
+    transport_ticks = int(clock_snap.get("transport_ticks") or 0)
+    pos = transport_ticks % grid_ticks
+    if pos == 0:
+        return now
+    ticks_wait = grid_ticks - pos
+    return now + ticks_wait * interval
+
+
+def plan_fire_at(
+    now: float,
+    clock_snap: dict[str, Any],
+    *,
+    quantize: bool,
+    grid_ticks: int,
+    offset_ms: float,
+) -> float:
+    base = now
+    if quantize and grid_ticks > 0 and clock_snap.get("synced") and clock_snap.get("running"):
+        base = next_grid_monotonic(now, clock_snap, grid_ticks)
+    return base + offset_ms / 1000.0
+
+
+def should_schedule(message: list[int], *, quantize_note_on: bool) -> bool:
+    if is_note_on(message):
+        return quantize_note_on
+    if is_note_off(message):
+        return True
+    return False
+
+
+def prepare_incoming(message) -> list[int]:
+    return normalize_midi_bytes(message)

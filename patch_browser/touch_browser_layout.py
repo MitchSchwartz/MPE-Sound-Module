@@ -4,10 +4,20 @@ from __future__ import annotations
 
 from patch_browser.geometry import Rect
 from patch_browser.mixer import MixerChannel
+from patch_browser.patch_identity import patch_browse_subtitle
 from patch_browser.scroll_widgets import ScrollList
 from patch_browser.touch_ui_constants import (
     ALL_PATCHES_ROW_HEIGHT,
     AUDIO_BADGE_PAD_X,
+    BROWSE_FILTER_W,
+    BROWSE_PATCH_W,
+    LOOPER_HUD_COUNTER_GAP,
+    LOOPER_HUD_H,
+    LOOPER_HUD_MIN_W,
+    LOOPER_HUD_TITLE_GAP,
+    LOOPER_HUD_TITLE_MAX_FRAC,
+    LOOPER_HUD_TOP_PAD,
+    LOOPER_HUD_PAD_X,
     AZ_RAIL_WIDTH,
     BROWSER_BOTTOM_MARGIN,
     CPU_METER_BAR_W,
@@ -26,18 +36,21 @@ from patch_browser.touch_ui_constants import (
     MIXER_BOTTOM_GAP,
     MIXER_LABEL_H,
     NAV_FOLDER_TITLE_H,
-    NORM_CHECKBOX_SIZE,
     NORM_ROW_H,
     NORM_ROW_W,
+    PATCHES_ROW_HEIGHT,
     SETTINGS_PANEL_ANIM_SPEED,
     SETTINGS_PANEL_FOOTER_H,
     SETTINGS_PANEL_HEADER_H,
     SETTINGS_PANEL_W,
     SETTINGS_ROW_GAP,
     SETTINGS_ROW_H,
+    SETTINGS_TOGGLE_W,
     STATUS_BAR_ITEM_GAP,
+    STATUS_SETTINGS_BTN_W,
 )
 from patch_browser.audio_profile import header_badge_label
+from patch_browser.audio_engine import engine_hud_label, engine_hud_should_show
 from patch_browser.all_patches_index import AZ_RAIL_LETTERS
 from patch_browser.touch_ui_enums import LeftNavMode, Screen, audio_profile_display
 from patch_browser.ui_text import text_block_height, wrap_text_lines, wrapped_row_height
@@ -50,8 +63,14 @@ class TouchBrowserLayoutMixin:
         if self.left_nav_mode == LeftNavMode.ALL_PATCHES:
             margin = 16
             gap = 10
-            return self.width - margin * 2 - AZ_RAIL_WIDTH - gap
+            return self.width - margin * 2 - self._browser_side_rail_width() - gap
         return LEFT_NAV_COLLAPSED_WIDTH if self.left_nav_collapsed else LEFT_NAV_WIDTH
+
+    def _browser_side_rail_width(self) -> int:
+        """A–Z scrub rail (All patches view only)."""
+        if self.left_nav_mode == LeftNavMode.ALL_PATCHES:
+            return AZ_RAIL_WIDTH
+        return 0
 
     def _cpu_meter_text_size(self) -> tuple[int, int]:
         return self.font_sm.size("CPU")
@@ -68,6 +87,25 @@ class TouchBrowserLayoutMixin:
         label_w = self.font_sm.size(header_badge_label())[0]
         return label_w + AUDIO_BADGE_PAD_X * 2
 
+    def _looper_hud_width(self) -> int:
+        """Counter plus enough track for the sweep to move through.
+
+        The old width fit only the text badge. A sweep needs pixels: below
+        ~100 px the leading edge quantizes into visible steps, which is the
+        bug f069648 fixed the first time round.
+        """
+        label_w = self.font_sm.size("4/4")[0]
+        return max(
+            LOOPER_HUD_MIN_W,
+            label_w + LOOPER_HUD_COUNTER_GAP + LOOPER_HUD_PAD_X * 2 + 72,
+        )
+
+    def _engine_hud_width(self) -> int:
+        state = self.engine_monitor.snapshot()
+        label = engine_hud_label(state) or "JACK"
+        label_w = self.font_sm.size(label)[0]
+        return label_w + AUDIO_BADGE_PAD_X * 2
+
     def _layout(self) -> None:
         margin = 16
         gap = 10
@@ -76,7 +114,12 @@ class TouchBrowserLayoutMixin:
 
         self.status_rect = Rect(margin, margin, self.width - margin * 2, status_h)
         self.status_title_x = self.status_rect.x + 12
-        self.system_settings_btn = Rect(self.status_rect.right - 44, self.status_rect.y + 6, 36, 32)
+        self.system_settings_btn = Rect(
+            self.status_rect.right - STATUS_SETTINGS_BTN_W,
+            self.status_rect.y,
+            STATUS_SETTINGS_BTN_W,
+            status_h,
+        )
         right_cursor = self.system_settings_btn.x - STATUS_BAR_ITEM_GAP
         if self.show_cpu_meter:
             meter_w = self._cpu_meter_width()
@@ -99,31 +142,80 @@ class TouchBrowserLayoutMixin:
             audio_badge_w,
             24,
         )
+        right_cursor -= STATUS_BAR_ITEM_GAP
+        if getattr(self, "show_looper_hud", True):
+            # Elastic: the sweep takes everything between the patch title and
+            # the badge to its right. More pixels is strictly better here — the
+            # leading edge has more room to move, which is the whole reason
+            # f069648 went to a single sweep in the first place.
+            info = getattr(self, "loaded_patch_info", None) or {}
+            title_w = max(
+                self.font_md.size(info.get("name") or "No patch loaded")[0],
+                self.font_sm.size(info.get("category") or "")[0],
+            )
+            title_w = min(title_w, int(self.status_rect.w * LOOPER_HUD_TITLE_MAX_FRAC))
+            hud_left = self.status_title_x + title_w + LOOPER_HUD_TITLE_GAP
+            looper_w = max(0, right_cursor - hud_left)
+            if looper_w < LOOPER_HUD_MIN_W:
+                # Long title: fall back to the reserved minimum and let the
+                # title truncate instead of starving the sweep.
+                looper_w = LOOPER_HUD_MIN_W
+                hud_left = right_cursor - looper_w
+            self.looper_hud_rect = Rect(
+                hud_left,
+                self.status_rect.y + LOOPER_HUD_TOP_PAD,
+                looper_w,
+                LOOPER_HUD_H,
+            )
+            right_cursor = hud_left - STATUS_BAR_ITEM_GAP
+        else:
+            self.looper_hud_rect = Rect(right_cursor, self.status_rect.y + 10, 0, 0)
+        right_cursor -= STATUS_BAR_ITEM_GAP
+        # Engine HUD retired: it read "JACK" permanently, which is not news, and
+        # it occupied the space left of Analog where the beat counter belongs.
+        self.engine_hud_rect = Rect(right_cursor, self.status_rect.y + 10, 0, 0)
         content_top = self.status_rect.y + self.status_rect.h + gap
         content_bottom = self.height - BROWSER_BOTTOM_MARGIN
         left_w = self._left_nav_width()
 
-        self.left_panel_rect = Rect(margin, content_top, left_w, content_bottom - content_top)
-        self.nav_toggle_btn = Rect(margin, content_top, left_w, content_bottom - content_top)
+        carousel_active = self._browse_carousel_active()
+        if carousel_active:
+            track_x = self._browse_track_offset_px()
+            nav_x = track_x + BROWSE_FILTER_W
+            filter_pane_rect = Rect(track_x, content_top, BROWSE_FILTER_W, content_bottom - content_top)
+        else:
+            nav_x = margin
+            filter_pane_rect = Rect(0, 0, 0, 0)
+
+        self.left_panel_rect = Rect(nav_x, content_top, left_w, content_bottom - content_top)
+        self.nav_toggle_btn = Rect(nav_x, content_top, left_w, content_bottom - content_top)
         nav_header_w = left_w if self.left_nav_mode == LeftNavMode.ALL_PATCHES else LEFT_NAV_WIDTH
-        self.nav_header_rect = Rect(margin, content_top, nav_header_w, nav_header_h)
-        self._update_nav_list_geometry(content_top, content_bottom, nav_header_h, margin)
+        self.nav_header_rect = Rect(nav_x, content_top, nav_header_w, nav_header_h)
+        self._layout_browse_filter_pane(pane=filter_pane_rect)
+        self._update_nav_list_geometry(content_top, content_bottom, nav_header_h, margin, nav_x=nav_x)
+
+        rail_x = nav_x + left_w + gap
+        rail_w = self._browser_side_rail_width()
 
         if self.left_nav_mode == LeftNavMode.ALL_PATCHES:
             self.az_rail_rect = Rect(
-                margin + left_w + gap,
+                rail_x,
                 content_top,
                 AZ_RAIL_WIDTH,
                 content_bottom - content_top,
             )
             self._layout_az_rail_letters()
-            self.main_rect = Rect(margin + left_w + gap + AZ_RAIL_WIDTH, content_top, 0, 0)
+            self.main_rect = Rect(rail_x + rail_w, content_top, 0, 0)
         else:
             self.az_rail_rect = Rect(0, 0, 0, 0)
             self.az_rail_letter_rects = []
-            main_x = margin + left_w + gap
-            main_w = self.width - margin * 2 - left_w - gap
-            self.main_rect = Rect(main_x, content_top, main_w, content_bottom - content_top)
+            if carousel_active:
+                main_x = nav_x + left_w
+                self.main_rect = Rect(main_x, content_top, BROWSE_PATCH_W, content_bottom - content_top)
+            else:
+                main_x = margin + left_w + gap + rail_w
+                main_w = self.width - margin * 2 - left_w - gap - rail_w
+                self.main_rect = Rect(main_x, content_top, main_w, content_bottom - content_top)
         action_row_h = max(NORM_ROW_H, FAVORITES_BTN_SIZE)
         bottom_row_y = self._detail_bottom_row_y()
         self._layout_mixer_strip()
@@ -151,7 +243,7 @@ class TouchBrowserLayoutMixin:
         shown_x = self.settings_panel_rect.x
         return int(hidden_x + (shown_x - hidden_x) * self._settings_slide)
     def _settings_toggle_label_width(self, inner_w: int) -> int:
-        return max(1, inner_w - 12 - NORM_CHECKBOX_SIZE - 16)
+        return max(1, inner_w - 16 - SETTINGS_TOGGLE_W - 16)
     def _settings_action_label_width(self, inner_w: int) -> int:
         return max(1, inner_w - 32)
     def _settings_row_height(self, label: str, inner_w: int, *, toggle: bool = False) -> int:
@@ -161,74 +253,23 @@ class TouchBrowserLayoutMixin:
             else self._settings_action_label_width(inner_w)
         )
         return wrapped_row_height(self.font_md, label, max_w)
-    def _layout_settings_content(self) -> None:
-        """Compute scrollable settings rows and fixed footer hit targets (panel-local coords)."""
-        pad = 20
-        inner_w = self.settings_panel_rect.w - pad * 2
-        y = 0
-
-        self.brightness_slider_rect = Rect(pad, y + 28, inner_w, 36)
-        y += 78
-
-        cpu_h = self._settings_row_height("CPU meter", inner_w, toggle=True)
-        self.cpu_meter_toggle_rect = Rect(pad, y, inner_w, cpu_h)
-        y += cpu_h + SETTINGS_ROW_GAP
-
-        poly_h = self._settings_row_height("Dynamic voice limit", inner_w, toggle=True)
-        self.poly_governor_toggle_rect = Rect(pad, y, inner_w, poly_h)
-        y += poly_h + SETTINGS_ROW_GAP
-
-        oled_h = self._settings_row_height("Theme…", inner_w)
-        self.theme_btn_rect = Rect(pad, y, inner_w, oled_h)
-        y += oled_h + SETTINGS_ROW_GAP
-
-        norm_h = self._settings_row_height("Patch normalization", inner_w, toggle=True)
-        self.norm_global_toggle_rect = Rect(pad, y, inner_w, norm_h)
-        y += norm_h + SETTINGS_ROW_GAP
-
-        audio_h = self._settings_row_height(
-            audio_profile_display(),
-            inner_w,
-            toggle=True,
-        )
-        self.audio_profile_toggle_rect = Rect(pad, y, inner_w, audio_h)
-        y += audio_h + SETTINGS_ROW_GAP
-
-        status = self.surge_monitor.get_status_summary()
-        self._surge_restart_btn = None
-        if status.get("can_restart"):
-            restart_h = self._settings_row_height("Restart Surge", inner_w)
-            self._surge_restart_btn = Rect(pad, y, inner_w, restart_h)
-            y += restart_h + SETTINGS_ROW_GAP
-
-        cal_missing_h = self._settings_row_height("Calibrate missing patches", inner_w)
-        self._calibrate_missing_btn = Rect(pad, y, inner_w, cal_missing_h)
-        y += cal_missing_h + SETTINGS_ROW_GAP
-        cal_force_h = self._settings_row_height("Force full re-calibration", inner_w)
-        self._calibrate_force_btn = Rect(pad, y, inner_w, cal_force_h)
-        y += cal_force_h + SETTINGS_ROW_GAP
-
-        self._settings_content_height = y
-
-        header_bottom = SETTINGS_PANEL_HEADER_H
-        footer_top = self.settings_panel_rect.h - SETTINGS_PANEL_FOOTER_H
-        scroll_h = max(80, footer_top - header_bottom)
-        self._settings_scroll_viewport = Rect(0, header_bottom, self.settings_panel_rect.w, scroll_h)
-        self._settings_content_scroll.viewport = Rect(
-            self.settings_panel_rect.x,
-            self.settings_panel_rect.y + header_bottom,
-            self.settings_panel_rect.w,
-            scroll_h,
-        )
-        self._settings_content_scroll.content_height = self._settings_content_height
-
-        self._power_btn = Rect(pad, footer_top + 12, inner_w, SETTINGS_ROW_H)
-        self._close_settings_btn = Rect(self.settings_panel_rect.w - 48, 10, 40, 40)
+    def _open_settings_panel(self, *, focus: str | None = None) -> None:
+        self._reset_settings_navigation()
+        if focus == "audio_profile":
+            self._settings_view = "audio"
+        self._layout_settings_content()
+        self._settings_content_scroll.reset()
+        self._sync_settings_scroll_viewport()
+        self.screen_state = Screen.SETTINGS
+    def _close_settings_panel(self) -> None:
+        self._reset_settings_navigation()
+        self.screen_state = Screen.BROWSER
     def _panel_local_to_screen(self, rect: Rect, *, scrolled: bool = False) -> Rect:
         px = self._settings_panel_x()
         py = self.settings_panel_rect.y
         scroll = int(self._settings_content_scroll.scroll_pixels) if scrolled else 0
-        return Rect(rect.x + px, rect.y + py - scroll, rect.w, rect.h)
+        content_top = SETTINGS_PANEL_HEADER_H if scrolled else 0
+        return Rect(rect.x + px, rect.y + py + content_top - scroll, rect.w, rect.h)
     def _settings_scroll_viewport_screen(self) -> Rect:
         px = self._settings_panel_x()
         vp = self._settings_scroll_viewport
@@ -244,20 +285,6 @@ class TouchBrowserLayoutMixin:
         return self._settings_panel_screen_rect().contains(*pos)
     def _sync_settings_scroll_viewport(self) -> None:
         self._settings_content_scroll.viewport = self._settings_scroll_viewport_screen()
-    def _open_settings_panel(self, *, focus: str | None = None) -> None:
-        self._layout_settings_content()
-        self._settings_content_scroll.reset()
-        if focus == "audio_profile":
-            row = self.audio_profile_toggle_rect
-            target = max(0, row.y - 12)
-            self._settings_content_scroll._scroll_pixels = min(
-                float(target),
-                self._settings_content_scroll._max_scroll_pixels(),
-            )
-        self._sync_settings_scroll_viewport()
-        self.screen_state = Screen.SETTINGS
-    def _close_settings_panel(self) -> None:
-        self.screen_state = Screen.BROWSER
     def _tick_settings_animation(self, dt: float) -> None:
         target = 1.0 if self.screen_state == Screen.SETTINGS else 0.0
         if abs(self._settings_slide - target) < 0.004:
@@ -273,11 +300,18 @@ class TouchBrowserLayoutMixin:
         content_bottom: int | None = None,
         nav_header_h: int = 36,
         margin: int = 16,
+        nav_x: int | None = None,
     ) -> None:
         if content_top is None:
             gap = 10
             content_top = self.status_rect.y + self.status_rect.h + gap
             content_bottom = self.height - BROWSER_BOTTOM_MARGIN
+        if nav_x is None:
+            nav_x = (
+                self._browse_track_offset_px() + BROWSE_FILTER_W
+                if self._browse_carousel_active()
+                else margin
+            )
 
         show_folder_title = (
             not self.left_nav_collapsed
@@ -293,7 +327,7 @@ class TouchBrowserLayoutMixin:
                 else LEFT_NAV_WIDTH
             )
             self.nav_folder_title_rect = Rect(
-                margin,
+                nav_x,
                 content_top + nav_header_h + 4,
                 title_w,
                 folder_title_h,
@@ -306,11 +340,11 @@ class TouchBrowserLayoutMixin:
             if self.left_nav_mode == LeftNavMode.ALL_PATCHES
             else LEFT_NAV_WIDTH
         )
-        list_rect = Rect(margin, list_top, list_w, content_bottom - list_top)
+        list_rect = Rect(nav_x, list_top, list_w, content_bottom - list_top)
         if self.left_nav_mode == LeftNavMode.ALL_PATCHES:
             row_height = ALL_PATCHES_ROW_HEIGHT
         elif self.left_nav_mode == LeftNavMode.PATCHES:
-            row_height = 50
+            row_height = PATCHES_ROW_HEIGHT
         else:
             row_height = 44
         if not hasattr(self, "nav_list"):
@@ -355,8 +389,11 @@ class TouchBrowserLayoutMixin:
         self.nav_current_btn = Rect(x, y, icon_w, btn_h)
         x += icon_w + 6
         self.nav_all_btn = Rect(x, y, all_w, btn_h)
+        self.browse_filter_open_btn = Rect(0, 0, 0, 0)
         if self.left_nav_mode != LeftNavMode.ALL_PATCHES:
             self.nav_collapse_btn = Rect(self.nav_header_rect.right - 38, y, 32, btn_h)
+            if self._browse_carousel_active():
+                self.browse_filter_open_btn = Rect(self.nav_header_rect.right - 76, y, 32, btn_h)
         else:
             self.nav_collapse_btn = Rect(0, 0, 0, 0)
 
@@ -402,7 +439,9 @@ class TouchBrowserLayoutMixin:
         cat_y = name_y + name_block_h + DETAIL_TITLE_GAP
         cat_lines = wrap_text_lines(
             self.font_sm,
-            self.detail_patch["category"],
+            patch_browse_subtitle(self.detail_patch)
+            if self.detail_patch.get("inner_segments")
+            else self.detail_patch["category"],
             text_w,
             max_lines=2,
         )

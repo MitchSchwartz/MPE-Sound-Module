@@ -11,6 +11,9 @@ from pathlib import Path
 OSC_PORT = 53280
 
 
+from patch_browser.audio_engine import read_engine_state
+
+
 class SurgeMonitor:
     """Monitors Surge XT CLI process health and provides restart capability."""
 
@@ -160,7 +163,19 @@ class SurgeMonitor:
             print(f"Error reading Surge log: {e}")
             return None
 
+    def _graph_failure_blocks_restart(self) -> tuple[bool, str | None]:
+        state = read_engine_state()
+        if state.get("state") != "failed":
+            return False, None
+        reason = state.get("reason", "")
+        if reason in ("no-server", "no-jack-device"):
+            return True, "Fix DAC / jackd first — audio graph unavailable"
+        return False, None
+
     def restart_surge(self):
+        blocked, message = self._graph_failure_blocks_restart()
+        if blocked:
+            return False, message or "Audio graph unavailable"
         try:
             print("Attempting to restart Surge XT CLI...")
             result = subprocess.run(
@@ -183,6 +198,7 @@ class SurgeMonitor:
 
     def get_status_summary(self):
         is_healthy, error = self.check_health()
+        blocked, block_reason = self._graph_failure_blocks_restart()
         if is_healthy:
             if self.surge_pid:
                 details = f"PID {self.surge_pid}"
@@ -195,6 +211,6 @@ class SurgeMonitor:
             }
         return {
             "status": "Not Running",
-            "details": error or "Unknown error",
-            "can_restart": True,
+            "details": block_reason or error or "Unknown error",
+            "can_restart": not blocked,
         }

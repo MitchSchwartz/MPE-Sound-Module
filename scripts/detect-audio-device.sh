@@ -4,8 +4,8 @@
 #
 # Usage: detect-audio-device.sh [path-to-surge-xt-cli]
 #
-# Tier 0 (usb-host profile): UAC2 gadget → tethered host PC
-# Tier 1: Sound Blaster Play! 3 (standalone default)
+# Tier 0 (usb-host + host capturing): UAC2 gadget → tethered host PC
+# Tier 1: Sound Blaster Play! 3 (standalone default; usb-host idle; usb-host-session always)
 # Tier 2–4: generic USB, Pi headphone, last resort
 #
 # Exit codes:
@@ -27,7 +27,8 @@ if [ ! -f "$SURGE_CLI" ]; then
     exit 1
 fi
 
-# Get all output devices from surge
+# Get all output devices from surge — ignore a noisy non-zero exit when output
+# is still present (finding 6; same pattern as resolve_jack_device_index).
 DEVICE_LIST=$("$SURGE_CLI" --list-devices 2>&1 | grep "Output Audio Device" || true)
 
 if [ -z "$DEVICE_LIST" ]; then
@@ -35,23 +36,18 @@ if [ -z "$DEVICE_LIST" ]; then
     exit 1
 fi
 
-# Function to extract device ID from device list line
 extract_device_id() {
     local line="$1"
     echo "$line" | sed -n 's/.*\[\([0-9][0-9]*\.[0-9][0-9]*\)\].*/\1/p'
 }
 
-# Function to get device name from device list by ID
 get_device_name() {
     local device_id="$1"
-    # Extract everything after the ] and before the first ;
     echo "$DEVICE_LIST" | grep "\[$device_id\]" | sed 's/.*\] : //' | sed 's/;.*//' | head -1 || true
 }
 
-# Surge ALSA gadget lines (card id UAC2Gadget → ALSA.UAC2_Gadget; host USB names vary)
 GADGET_GREP='UAC2[_ ]?Gadget|UAC2Gadget|USB Audio Passthrough|MPE Sound Module|ALSA\.UAC2'
 
-# Filter DEVICE_LIST to lines that look like the configfs UAC2 gadget card
 filter_gadget_devices() {
     echo "$DEVICE_LIST" | grep -iE "$GADGET_GREP" || true
 }
@@ -78,40 +74,32 @@ try_select_uac2_gadget() {
 }
 
 # ============================================================================
-# TIER 0: USB audio gadget (usb-host profile only)
+# TIER 0: UAC2 gadget — only while host capture is active (usb-host profile only)
+# usb-host-session keeps Surge on Sound Blaster; mic bridge feeds the gadget.
 # ============================================================================
 if [ "$AUDIO_PROFILE" = "usb-host" ]; then
-    # shellcheck source=lib/uac2-lazy-route.sh
-    source "$SCRIPT_DIR/lib/uac2-lazy-route.sh"
-
-    use_gadget=0
-    if uac2_force_output_active; then
-        use_gadget=1
-        uac2_force_output_clear
-    elif ! uac2_lazy_route_enabled; then
-        use_gadget=1
-    fi
-
-    if [ "$use_gadget" -eq 1 ]; then
-        if try_select_uac2_gadget "USB audio gadget (host passthrough, usb-host profile)"; then
+    # shellcheck source=lib/uac2-host-route.sh
+    source "$SCRIPT_DIR/lib/uac2-host-route.sh"
+    if uac2_host_streaming_active; then
+        if try_select_uac2_gadget "USB audio gadget (host capture active)"; then
             exit 0
         fi
-        echo "REASON=usb-host profile set but no gadget ALSA device found — falling back" >&2
+        echo "REASON=host capturing but no UAC2 gadget — falling back to idle output" >&2
     else
-        echo "REASON=usb-host lazy route — Sound Blaster until host opens capture" >&2
+        echo "REASON=usb-host idle — local output until host opens capture" >&2
     fi
+elif [ "$AUDIO_PROFILE" = "usb-host-session" ]; then
+    echo "REASON=usb-host-session — Surge on Sound Blaster; mic→gadget when host captures" >&2
 fi
 
 # ============================================================================
 # TIER 1: Preferred USB DAC (Sound Blaster Play! 3)
 # ============================================================================
-# Look for "Front output" specifically, not "Direct hardware device"
 DEVICE=$(echo "$DEVICE_LIST" | \
     grep "Sound Blaster Play! 3" | \
     grep "Front output" | \
     head -1 || true)
 
-# If no "Front output", try excluding problematic variants
 if [ -z "$DEVICE" ]; then
     DEVICE=$(echo "$DEVICE_LIST" | \
         grep "Sound Blaster Play! 3" | \
@@ -135,16 +123,10 @@ if [ -n "$DEVICE" ]; then
     fi
 fi
 
-# usb-host without Sound Blaster: Pi headphone does not reach the host — use UAC2 gadget.
-if [ "$AUDIO_PROFILE" = "usb-host" ]; then
-    if try_select_uac2_gadget "usb-host desk mode (no Sound Blaster — UAC2 gadget)"; then
-        exit 0
-    fi
-fi
-
 # ============================================================================
-# TIER 2: Any USB audio device
+# TIER 2: Any USB audio device (standalone only — skip in usb-host idle)
 # ============================================================================
+if [ "$AUDIO_PROFILE" != "usb-host" ] && [ "$AUDIO_PROFILE" != "usb-host-session" ]; then
 DEVICE=$(echo "$DEVICE_LIST" | \
     grep -i "usb" | \
     grep -v "Surround" | \
@@ -164,12 +146,11 @@ if [ -n "$DEVICE" ]; then
         exit 0
     fi
 fi
+fi
 
 # ============================================================================
-# TIER 3: Raspberry Pi headphone jack (built-in audio) — not used in usb-host
+# TIER 3: Pi headphone jack — idle sink for usb-host without Sound Blaster
 # ============================================================================
-if [ "$AUDIO_PROFILE" != "usb-host" ]; then
-# Look for bcm2835 (Pi's audio chip) or "Headphones" device
 DEVICE=$(echo "$DEVICE_LIST" | \
     grep -E "(Headphones|bcm2835|vc4-hdmi)" | \
     grep -v "HDMI" | \
@@ -182,10 +163,13 @@ if [ -n "$DEVICE" ]; then
         echo "DEVICE_ID=$DEVICE_ID"
         echo "DEVICE_NAME=$DEVICE_NAME"
         echo "TIER=3"
-        echo "REASON=Raspberry Pi headphone jack (fallback)" >&2
+        if [ "$AUDIO_PROFILE" = "usb-host" ]; then
+            echo "REASON=usb-host idle sink (Pi headphone — host capture not active)" >&2
+        else
+            echo "REASON=Raspberry Pi headphone jack (fallback)" >&2
+        fi
         exit 0
     fi
-fi
 fi
 
 # ============================================================================
@@ -205,9 +189,6 @@ if [ -n "$DEVICE" ]; then
     fi
 fi
 
-# ============================================================================
-# ABSOLUTE FAILURE - No valid audio device found
-# ============================================================================
 echo "ERROR: Could not detect any valid audio device" >&2
 echo "Available devices:" >&2
 echo "$DEVICE_LIST" >&2

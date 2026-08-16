@@ -35,6 +35,7 @@ from patch_browser.patch_normalization import (  # noqa: E402
     PatchNormalizationStore,
     db_to_linear,
 )
+from patch_browser.patch_sidecar_key import resolve_storage_key  # noqa: E402
 
 
 def load_cal_module():
@@ -217,6 +218,59 @@ class CalibrationPipelineDoesNotSilentlySaveGarbageTests(unittest.TestCase):
         result, store = self._run_calibrate_patch(-18.0, -6.0)
         self.assertTrue(result.ok)
         self.assertIsNotNone(store.get_raw_gain_db("Fake"))
+
+
+class CalibrateListMissingContractTests(unittest.TestCase):
+    """Real store + patch_path_records shape — mocks cannot catch TypeError regressions."""
+
+    def setUp(self) -> None:
+        self.cal = load_cal_module()
+
+    def test_list_missing_accepts_patch_path_records_and_keys_match(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            patch_root = Path(tmp) / "patches_factory"
+            patch_root.mkdir()
+            calibrated_path = patch_root / "Calibrated.fxp"
+            missing_path = patch_root / "Uncalibrated.fxp"
+            calibrated_path.write_bytes(b"")
+            missing_path.write_bytes(b"")
+
+            patch_dirs = [patch_root]
+            calibrated_key = resolve_storage_key(
+                calibrated_path.stem,
+                patch_path=str(calibrated_path),
+                patch_dirs=patch_dirs,
+            )
+            missing_key = resolve_storage_key(
+                missing_path.stem,
+                patch_path=str(missing_path),
+                patch_dirs=patch_dirs,
+            )
+
+            store_path = Path(tmp) / "normalization.json"
+            store_path.write_text(
+                json.dumps({calibrated_key: {"gain_db": -2.0, "enabled": True}}),
+                encoding="utf-8",
+            )
+            store = PatchNormalizationStore(store_path)
+            store.set_patch_dirs(patch_dirs)
+
+            records = self.cal.patch_path_records([calibrated_path, missing_path])
+            missing_keys = store.list_missing(records)
+
+            for record in records:
+                expected = resolve_storage_key(
+                    record["name"],
+                    patch_path=record.get("path"),
+                    patch_dirs=patch_dirs,
+                )
+                if expected == calibrated_key:
+                    self.assertNotIn(expected, missing_keys)
+                else:
+                    self.assertIn(expected, missing_keys)
+                    self.assertEqual(expected, missing_key)
+
+            self.assertEqual(missing_keys, [missing_key])
 
 
 if __name__ == "__main__":
