@@ -12,6 +12,7 @@ if TYPE_CHECKING:
 LISTEN_HOST = os.environ.get("MPE_SL_BENCH_LISTEN_HOST", "127.0.0.1")
 LISTEN_PORT = int(os.environ.get("MPE_SL_BENCH_LISTEN_PORT", "9953"))
 UPDATE_MS = int(os.environ.get("MPE_SL_BENCH_STATE_MS", "100"))
+WET_UPDATE_MS = int(os.environ.get("MPE_SL_BENCH_WET_MS", "500"))
 REREGISTER_S = float(os.environ.get("MPE_SL_BENCH_REREGISTER_S", "15"))
 
 # The engine-wide control the bench watches to notice a restart. Slow on
@@ -23,9 +24,13 @@ GLOBAL_UPDATE_MS = int(os.environ.get("MPE_SL_BENCH_SENTINEL_MS", "1000"))
 
 class SlBenchStateListener:
     def __init__(self, by_loop: dict[int, LoopFootswitch],
-                 on_global=None) -> None:
+                 on_global=None, on_wet=None) -> None:
         self._by_loop = by_loop
         self._on_global = on_global
+        # Seeds the fader layer from engine truth. Without it the faders have
+        # no idea where the levels actually are, and their first movement is a
+        # jump rather than a pickup.
+        self._on_wet = on_wet
         self._server: object | None = None
         self._thread: threading.Thread | None = None
         self._last_register = 0.0
@@ -33,6 +38,12 @@ class SlBenchStateListener:
         self._num_loops = 16
 
     def on_update(self, _addr: str, loop_index: int, control: str, value: float) -> None:
+        if control == "wet":
+            # Handled before the footswitch lookup: the fader layer wants this
+            # even for loops with no pad bound to them.
+            if self._on_wet is not None:
+                self._on_wet(int(loop_index), float(value))
+            return
         fs = self._by_loop.get(loop_index)
         if fs is None:
             return
@@ -60,6 +71,13 @@ class SlBenchStateListener:
                     f"/sl/{loop}/register_auto_update",
                     [ctrl, UPDATE_MS, returl, retpath],
                 )
+            # Slower than state on purpose. This only has to notice a level
+            # changed by something other than us; polling it at pad-blink rate
+            # would cost a datagram per loop per 100 ms for no benefit.
+            client.send_message(
+                f"/sl/{loop}/register_auto_update",
+                ["wet", WET_UPDATE_MS, returl, retpath],
+            )
         # Global (no /sl/N prefix) — verified against control_osc.cpp:178 and
         # live on the engine: replies carry loop index -2. This is how the bench
         # notices the engine restarted underneath it, which otherwise leaves the
