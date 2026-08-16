@@ -132,6 +132,18 @@ class Pickup(unittest.TestCase):
             mix.seed_from_engine(8, mix.wet_for(8))
         self.assertTrue(mix.messages_for(0, 90))
 
+    def test_master_echo_does_not_corrupt_column_fader_gain(self):
+        # Composed wet echoes must not be inverted into user_gain — that would
+        # treat the master factor as if it were the column fader position.
+        mix = _picked_up(LoopMix(), 0)
+        mix.messages_for(0, 100)
+        before = mix.user_gain[0]
+        mix.messages_for(MASTER, 64)
+        for loop in range(mix.num_loops):
+            mix.seed_from_engine(loop, mix.wet_for(loop))
+        self.assertEqual(mix.user_gain[0], before)
+        self.assertTrue(mix.messages_for(0, 90))
+
     def test_engine_seed_round_trips_through_the_taper(self):
         mix = LoopMix()
         mix.seed_from_engine(0, 0.5)
