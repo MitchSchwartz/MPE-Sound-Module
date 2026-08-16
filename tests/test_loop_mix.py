@@ -106,8 +106,17 @@ class Pickup(unittest.TestCase):
     def test_engine_seed_rearms_pickup_for_that_column(self):
         mix = _picked_up(LoopMix(), 0)
         mix.messages_for(0, 100)
+        mix._pickup_anchor.pop(0, None)  # idle — no hand on fader
         mix.seed_from_engine(8, 0.25)
         self.assertEqual(mix.messages_for(0, 100), [])
+
+    def test_engine_seed_ignored_while_column_fader_is_in_hand(self):
+        mix = _picked_up(LoopMix(), 0)
+        mix.messages_for(0, 100)
+        before = mix.user_gain[0]
+        mix.seed_from_engine(8, 0.25)  # lagging echo must not re-arm pickup
+        self.assertEqual(mix.user_gain[0], before)
+        self.assertTrue(mix.messages_for(0, 90))
 
     def test_engine_echoing_our_own_value_does_not_rearm_pickup(self):
         mix = _picked_up(LoopMix(), 0)
