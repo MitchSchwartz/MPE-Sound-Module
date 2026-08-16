@@ -72,6 +72,8 @@ class PatchLoader:
         self._patch_gain_linear = 1.0
         self._norm_active = False
         self._loaded_patch_name: str | None = None
+        self._loaded_patch_path: str | None = None
+        self._loaded_stable_key: str | None = None
         self._native_poly_limit: int | None = None
         self._effective_poly_limit: int | None = None
 
@@ -106,15 +108,22 @@ class PatchLoader:
             print(f"Error setting volume via OSC: {e}")
             return False
 
+    def _sidecar_kw(self) -> dict[str, str | None]:
+        return {
+            "patch_path": self._loaded_patch_path,
+            "stable_key": self._loaded_stable_key,
+        }
+
     def _apply_patch_normalization(self, patch_name: str) -> None:
         store = self.normalization
-        if not store.is_effectively_enabled(patch_name):
+        kw = self._sidecar_kw()
+        if not store.is_effectively_enabled(patch_name, **kw):
             self._patch_gain_linear = 1.0
             self._norm_active = False
             return
 
         self._norm_active = True
-        gain_db = store.get_effective_gain_db(patch_name)
+        gain_db = store.get_effective_gain_db(patch_name, **kw)
         if gain_db is not None:
             self._patch_gain_linear = db_to_linear(gain_db)
         else:
@@ -201,6 +210,7 @@ class PatchLoader:
 
     def _capture_hold_baseline(self, patch_name: str) -> bool:
         """Read AEG sustain/decay/release from Surge after patch load."""
+        kw = self._sidecar_kw()
         baseline: dict[str, dict[str, float]] = {"a": {}, "b": {}}
         captured = False
         for scene, stage, osc_path in iter_hold_osc_paths():
@@ -213,19 +223,20 @@ class PatchLoader:
             return False
         for scene, stage, _osc_path in iter_hold_osc_paths():
             if stage not in baseline[scene]:
-                stored = self.hold.get_baseline(patch_name)
+                stored = self.hold.get_baseline(patch_name, **kw)
                 if stored and stage in stored.get(scene, {}):
                     baseline[scene][stage] = stored[scene][stage]
                 else:
                     baseline[scene][stage] = 0.0
-        self.hold.set_baseline(patch_name, baseline)
+        self.hold.set_baseline(patch_name, baseline, **kw)
         return True
 
     def _send_hold_osc(self, patch_name: str) -> bool:
-        baseline = self.hold.get_baseline(patch_name)
+        kw = self._sidecar_kw()
+        baseline = self.hold.get_baseline(patch_name, **kw)
         if not baseline:
             return False
-        mult = self.hold.get_effective_hold_mult(patch_name)
+        mult = self.hold.get_effective_hold_mult(patch_name, **kw)
         try:
             for scene, stage, osc_path in iter_hold_osc_paths():
                 base_val = baseline[scene][stage]
@@ -265,7 +276,13 @@ class PatchLoader:
             effective_poly=effective,
             reuse_single=reuse_single_enabled(),
         )
-    def load_patch(self, patch_path, *, apply_normalization: bool = True):
+    def load_patch(
+        self,
+        patch_path,
+        *,
+        apply_normalization: bool = True,
+        stable_key: str | None = None,
+    ):
         if not self.osc_enabled:
             print(f"OSC disabled, cannot load: {patch_path}")
             return False
@@ -278,6 +295,8 @@ class PatchLoader:
 
             self.osc_client.send_message("/patch/load", [path_no_ext])
             patch_name = Path(patch_path).stem
+            self._loaded_patch_path = str(patch_path)
+            self._loaded_stable_key = stable_key
             print(f"Loaded patch: {Path(patch_path).name}")
 
             if apply_normalization:

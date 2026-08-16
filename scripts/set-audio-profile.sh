@@ -1,17 +1,17 @@
 #!/bin/bash
 # Apply MPE_AUDIO_PROFILE on the Pi: update /etc/mpe/mpe.env, gadget service, Surge.
 #
-# Usage: sudo ./scripts/set-audio-profile.sh standalone|usb-host
+# Usage: sudo ./scripts/set-audio-profile.sh standalone|usb-host|usb-host-session
 #
 # Intended for NOPASSWD in sudoers (touch UI toggle). See docs/TOUCH_PATCH_BROWSER.md.
 
 set -euo pipefail
 
-PROFILE="${1:?usage: set-audio-profile.sh standalone|usb-host}"
+PROFILE="${1:?usage: set-audio-profile.sh standalone|usb-host|usb-host-session}"
 case "$PROFILE" in
-    standalone | usb-host) ;;
+    standalone | usb-host | usb-host-session) ;;
     *)
-        echo "ERROR: profile must be standalone or usb-host" >&2
+        echo "ERROR: profile must be standalone, usb-host, or usb-host-session" >&2
         exit 1
         ;;
 esac
@@ -42,17 +42,23 @@ mpe_enable_audio_profile_sync
 
 # shellcheck source=lib/wait-for-uac2-gadget.sh
 source "$SCRIPT_DIR/lib/wait-for-uac2-gadget.sh"
-if [ "$PROFILE" = "usb-host" ]; then
+if [ "$PROFILE" = "usb-host" ] || [ "$PROFILE" = "usb-host-session" ]; then
     wait_for_uac2_gadget 8 || true
 fi
 
 # shellcheck source=lib/profile-switch-flag.sh
 source "$SCRIPT_DIR/lib/profile-switch-flag.sh"
-# shellcheck source=lib/uac2-lazy-route.sh
-source "$SCRIPT_DIR/lib/uac2-lazy-route.sh"
-uac2_force_output_clear
+# shellcheck source=lib/uac2-host-route.sh
+source "$SCRIPT_DIR/lib/uac2-host-route.sh"
+uac2_host_streaming_clear
 profile_switch_flag_mark
-systemctl restart surge-xt-cli.service
-# start-surge-cli.sh clears the flag after reading (fast profile restarts skip MIDI wait).
+# shellcheck source=lib/audio-engine.sh
+source "$SCRIPT_DIR/lib/audio-engine.sh"
+if ! mpe_promote_surge_planned "profile-change"; then
+    echo "ERROR: profile graph change failed — check journalctl -u mpe-jackd -u surge-xt-cli" >&2
+    exit 1
+fi
+# profile_switch_flag_mark: consumed by start-surge-cli.sh on the next Surge start
+# (skips USB MIDI wait).
 
-echo "MPE_AUDIO_PROFILE=$PROFILE applied"
+echo "MPE_AUDIO_PROFILE=$PROFILE saved — audio graph restored"

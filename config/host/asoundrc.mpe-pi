@@ -1,0 +1,23 @@
+# Install to ~/.asoundrc on the Linux host (desk PC).
+# Pi usb-host: Surge mix arrives as ALSA capture CARD=Passthrough.
+#
+#   cp config/host/asoundrc.mpe-pi ~/.asoundrc
+#   ./scripts/setup-host-usb-monitor.sh
+#
+# Do not set pcm.!default capture to mpe_pi — that can keep PipeWire's capture stream
+# open and prevent Pi aux (Sound Blaster) in usb-host idle mode.
+
+# MPE Sound Module — Pi usb-host audio on this PC (capture = Pi Surge mix in)
+# Card: "USB Audio Passthrough" (ALSA CARD=Passthrough)
+# REAPER (ALSA): hw:CARD=Passthrough,DEV=0
+# PipeWire source: "USB Audio Passthrough"
+
+pcm.mpe_pi {
+    type plug
+    slave.pcm "hw:CARD=Passthrough,DEV=0"
+}
+
+ctl.mpe_pi {
+    type hw
+    card Passthrough
+}

@@ -12,6 +12,12 @@ Plug a Roli into a Raspberry Pi. Turn it on. Play. That's the whole interaction.
 
 ## Demo
 
+**Touch screen build** (SmartiPi, 5" landscape touch panel)
+
+<!-- TODO: replace with the user-attachments URL for docs/demo-touch.mp4 -->
+
+**Encoder + OLED build** (reference hardware)
+
 https://github.com/user-attachments/assets/74652240-74af-48be-9db1-608f54805d25
 
 ---
@@ -36,15 +42,18 @@ Every patch is fully editable and MPE-assignable from your computer, across all 
 - **Runs Surge XT** — free, open-source synth engine, always in MPE mode, full mod matrix across all 5 expression dimensions
 - **3,192 patches included** — 639 factory + 2,553 community
 - **Analog and USB audio out** — 3.5mm jack standalone, or USB to a laptop/PC as a standard audio input
+- **Selectable sample rate** — 44.1 kHz or 48 kHz on-device; persists and restarts Surge with the new rate
+- **Selectable audio buffer** — `MPE_JACK_BUFFER` / `MPE_JACK_PERIODS` (defaults 256 × 3), server-side under JACK, the only audio engine. Restarts the audio graph when changed
 - **Per-patch volume normalization** — calibrate once (strike + sustain anchors, peak-safe closed loop); every patch loads at a matched level. The same run sets **Touch** pressure floors for light vs full press on favorites.
 - **Reuse Single on load** — patches are rewritten at load so restrikes on the same key reuse the voice instead of stacking new ones (lighter CPU on dense patches)
 - **Dynamic voice limit** — a background governor watches CPU and steps Surge's poly limit down under sustained load, then recovers when headroom returns; Surge's built-in softkill handles voice stealing (no MIDI panic)
-- **Favorites folder** — curate a quick-access set of patches on your PC, deploy to the device
 
 ### UI
 
 - **Two interface options** — rotary encoder + OLED screen, or fullscreen touch display (SmartiPi 5″)
-- **Full-library browsing** — folder view or a flat, alphabetical searchable list
+- **Full-library browsing** — folder view or a flat, alphabetical list with an A–Z scrub rail
+- **Quick Select** — your personal patch shortlist. Heart a patch on the detail pane to save it; browse saved patches under **Quick Select** like any other category. Add subfolders for gig sets or moods (long-press to create, rename, or organize). Long-press a patch or library folder for shortcuts — add a whole folder at once, move patches between folders, remove from the list. Copies live on the Pi; the originals in the main library stay put.
+- **Filter by instrument** — browsing a deep folder or the full A–Z list? Tap the funnel icon next to the **A–Z** button to narrow by type — bass, pad, keys, and so on. Tap **All** to see everything again.
 - **Per-patch mixer (touch)** — vertical faders on the patch detail pane: **Vol** (level), **Tail** (envelope length; **0** = patch-as-loaded), **Touch** (MPE pressure floor; **cal value** = default handle position on **−50…+50**). See **[docs/TOUCH_PATCH_BROWSER.md](docs/TOUCH_PATCH_BROWSER.md)** §Mixer faders.
 - **Theming** — light/dark base themes with custom accent colors
 - **CPU meter** — live engine headroom while playing
@@ -157,13 +166,13 @@ Full command reference: **[COMMANDS.md](COMMANDS.md)**
 ## How it's built (for the curious)
 
 ```
-[Roli Seaboard] --USB MIDI--> [Surge XT CLI] --ALSA--> [USB audio dongle] --> speakers/headphones
+[Roli Seaboard] --USB MIDI--> [Surge XT CLI] --JACK client--> [jackd graph server] --USB--> [USB audio dongle] --> speakers/headphones
                                      ↑
                             MPE always enabled, headless, auto-starts on boot
 ```
 
 - **Surge XT CLI, not GUI** — no X11/VNC overhead, auto MIDI connect, MPE hardcoded on, lower latency
-- **Direct ALSA, not JACK** — simpler, lower latency, one less thing to configure
+- **JACK graph server (only engine)** — Surge is a JACK client; jackd owns the DAC so everything on the graph shares one clock. Measured keeper on the appliance: 256 frames × 3 periods @ 48 kHz, 24-bit, zero xruns (~16 ms). Server buffer is `MPE_JACK_BUFFER` / `MPE_JACK_PERIODS`. A jackd that will not start is a hard failure — there is no ALSA fallback
 - **Not Zynthian** — different category. Zynthian is a multi-engine workstation; getting persistent, always-on MPE through its generalized preset architecture is a known unsolved friction point (confirmed on Zynthian's own forum as recently as 2025). This project sidesteps that by being narrow on purpose.
 
 ## Documentation map
@@ -180,6 +189,7 @@ Full command reference: **[COMMANDS.md](COMMANDS.md)**
 | [docs/USB-AUDIO-HOST.md](docs/USB-AUDIO-HOST.md)                     | USB desk-tether audio (route to a laptop/PC)         |
 | [docs/PATCH-EDITING-WORKFLOW.md](docs/PATCH-EDITING-WORKFLOW.md)     | Editing sounds, pushing to the Pi                    |
 | [docs/FOOT_PEDAL.md](docs/FOOT_PEDAL.md)                             | USB footswitch setup + remapping                     |
+| [docs/MIDI-CLOCK.md](docs/MIDI-CLOCK.md)                             | MIDI clock out for Boss RC-5 / external sync         |
 | [docs/POWER_BUTTON_SETUP.md](docs/POWER_BUTTON_SETUP.md)             | Shutdown/power-on via the encoder button             |
 | [COMMANDS.md](COMMANDS.md)                                           | Backup, deploy, restore, day-to-day ops              |
 | [docs/BACKUP_GUIDE.md](docs/BACKUP_GUIDE.md)                         | Full disaster recovery                               |
@@ -197,6 +207,8 @@ The **3,192 bundled patches** are Surge XT's own stock library, not custom conte
 
 - **639 factory patches** — created by the Surge Synth Team
 - **2,553 third-party patches** — contributed by the wider Surge community
+
+Optional **CC0 / permissive community packs** (drums and more) curated in the private [MPE-Library](https://github.com/MitchSchwartz/MPE-Library) assets repo — Italo Disco Drum Pack (CC0), ironcross32/Surge-XT-Patches (CC0-1.0), Phasor Space Vol. 1 (CC0), Hefxthoth collection (DWTFYWPL). See that repo's README §Third-party patch credits.
 
 Surge XT itself is licensed **GPL-3.0**. Sounds/patches you make or perform with it are yours to use freely, commercially or otherwise — see the [Surge XT license FAQ](https://github.com/surge-synthesizer/surge) for specifics. This repo's own code (Pi setup, wiring, UI, deploy scripts) is licensed separately below.
 
