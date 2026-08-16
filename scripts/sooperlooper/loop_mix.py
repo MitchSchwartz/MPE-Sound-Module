@@ -332,6 +332,11 @@ class CoalescingSender:
         self._last_sent = float("-inf")
         self._last_tick = float("-inf")
 
+    def seed_current(self, path: str, wet: float) -> None:
+        """Set ramp start to engine truth before the first send on ``path``."""
+        if path not in self._current_wet:
+            self._current_wet[path] = max(0.0, min(1.0, float(wet)))
+
     def submit(self, messages: list[tuple[str, list]], *, now: float) -> None:
         for path, args in messages:
             self._pending_meta[path] = args
@@ -339,6 +344,7 @@ class CoalescingSender:
                 target = float(args[1])
                 self._target_wet[path] = target
                 if path not in self._current_wet:
+                    # Unseeded: assume engine already at target (tests / master).
                     self._current_wet[path] = target
         if self._smooth_tau_s <= 0:
             if (now - self._last_sent) >= self._interval_s:

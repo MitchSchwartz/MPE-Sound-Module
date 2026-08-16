@@ -235,6 +235,21 @@ class Smoothing(unittest.TestCase):
         sender.submit([("/sl/0/set", ["wet", 0.75])], now=0.0)
         self.assertEqual(sent[-1], 0.75)
 
+    def test_first_send_ramps_from_seeded_engine_level(self):
+        sent = []
+        sender = CoalescingSender(
+            lambda path, args: sent.append(args[1]),
+            interval_s=0.0,
+            smooth_tau_s=0.05,
+            smooth_snap=0.001,
+        )
+        sender.seed_current("/sl/0/set", 1.0)
+        sender.submit([("/sl/0/set", ["wet", 0.5])], now=0.0)
+        sender.tick(now=0.01)
+        self.assertTrue(sent)
+        self.assertGreater(sent[-1], 0.5)
+        self.assertLess(sent[-1], 1.0)
+
 
 if __name__ == "__main__":
     unittest.main()
