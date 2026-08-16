@@ -57,6 +57,10 @@ FADER_CEIL_DB = float(os.environ.get("MPE_APC_FADER_CEIL_DB", "0.0"))
 # exact crossing can leave a fader permanently inert.
 PICKUP_TOLERANCE_CC = int(os.environ.get("MPE_APC_FADER_PICKUP_CC", "2"))
 
+# Engine `wet` echoes include master and auto-law — compare composed level,
+# not per-column fader CC, or master moves corrupt user_gain.
+WET_ECHO_TOLERANCE = float(os.environ.get("MPE_APC_FADER_WET_ECHO", "1e-4"))
+
 # Off by default: the backstop law is planned, not yet agreed as always-on.
 # The seam exists from the first commit so that turning it on is a config
 # change rather than a refactor of who writes `wet`.
@@ -162,13 +166,21 @@ class LoopMix:
         permanently inert, since a fader can never cross a target that moves to
         meet it 10 times a second.
 
+        Echo detection compares against ``wet_for(loop)`` — the full composite
+        of column fader, master, and auto-law — not ``user_gain`` CC. Inverting
+        composed wet into CC and comparing to the column fader corrupts
+        ``user_gain`` whenever the master moves.
+
         A value we did *not* ask for is different: something else changed the
         level, our stored gain is stale, and the physical fader is now lying
-        about it. Adopt it and make the fader earn control back.
+        about it. Back out master and law, adopt the implied column fader
+        position, and make the fader earn control back.
         """
         if loop not in self.user_gain:
             return
-        cc = _wet_to_cc(wet, PARAMETERS[self.mode])
+        if abs(wet - self.wet_for(loop)) <= WET_ECHO_TOLERANCE:
+            return
+        cc = self._user_cc_from_composed_wet(loop, wet)
         if abs(cc - self.user_gain[loop]) <= PICKUP_TOLERANCE_CC:
             return
         self.user_gain[loop] = cc
@@ -176,6 +188,17 @@ class LoopMix:
             if loop in loops_for_column(col):
                 self._picked_up.discard(col)
                 self._pickup_ref[col] = cc
+
+    def _user_cc_from_composed_wet(self, loop: int, wet: float) -> int:
+        """Column-fader CC implied by a composed engine ``wet`` level."""
+        param = PARAMETERS[self.mode]
+        master = fader_taper(
+            self.master_gain, floor_db=param.floor_db, ceil_db=param.ceil_db
+        )
+        law = auto_law(self.active_loops)
+        divisor = max(master * law, 1e-9)
+        user_amp = max(0.0, min(1.0, wet / divisor))
+        return _wet_to_cc(user_amp, param)
 
     def note_active_loops(self, count: int) -> list[tuple[str, list]]:
         """Loop count changed → recompute every loop, do not nudge any."""
