@@ -8,7 +8,14 @@ else
 fi
 _MPE_MODULE_ROOT="$(cd "$_PATHS_LIB/../.." && pwd)"
 
-if [ -f /etc/mpe/mpe.env ]; then
+# MPE_ENV_FILE: test harness only — when set, skip /etc/mpe/mpe.env entirely.
+# Empty MPE_ENV_FILE = hermetic (process env only). Unset = appliance default.
+if [ -n "${MPE_ENV_FILE+x}" ]; then
+    if [ -n "$MPE_ENV_FILE" ] && [ -f "$MPE_ENV_FILE" ]; then
+        # shellcheck disable=SC1091
+        source "$MPE_ENV_FILE"
+    fi
+elif [ -f /etc/mpe/mpe.env ]; then
     # shellcheck disable=SC1091
     source /etc/mpe/mpe.env
 elif [ -f "${HOME:-/tmp}/.config/mpe/mpe.env" ]; then
@@ -67,6 +74,7 @@ PI_MPE_PERSONAL="${PI_MPE_PERSONAL:-}"
 MPE_FAVORITES_NAME="${MPE_FAVORITES_NAME:-!Quick Access}"
 MPE_UI_MODE="${MPE_UI_MODE:-oled}"
 MPE_AUDIO_PROFILE="${MPE_AUDIO_PROFILE:-standalone}"
+MPE_SURGE_SAMPLE_RATE="${MPE_SURGE_SAMPLE_RATE:-48000}"
 
 if [ -z "${SURGE_XT_DIR:-}" ]; then
     if [ -n "${USERPROFILE:-}" ] && command -v cygpath >/dev/null 2>&1; then

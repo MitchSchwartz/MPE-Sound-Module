@@ -1,4 +1,4 @@
-"""Tests for async audio profile toggle."""
+"""Tests for async audio profile switch."""
 
 from __future__ import annotations
 
@@ -33,6 +33,7 @@ class _AudioHost(TouchBrowserPrefsMixin):
         self.toast_message = ""
         self.toast_until = 0.0
         self._queued_reload: tuple[dict, float] | None = None
+        self.screen_state = None
 
     def _toast(self, message: str, seconds: float = 2.0) -> None:
         self.toast_message = message
@@ -46,17 +47,20 @@ class _AudioHost(TouchBrowserPrefsMixin):
     def _layout(self) -> None:
         pass
 
+    def _close_audio_profile_modal(self) -> None:
+        pass
+
 
 class AsyncAudioProfileTests(unittest.TestCase):
     @mock.patch("patch_browser.audio_profile.apply_profile")
     @mock.patch("patch_browser.audio_profile.current_profile", return_value="standalone")
-    def test_toggle_starts_background_switch(self, _current: mock.Mock, apply_mock: mock.Mock) -> None:
+    def test_begin_switch_starts_background(self, _current: mock.Mock, apply_mock: mock.Mock) -> None:
         host = _AudioHost()
-        apply_mock.return_value = (True, "USB host audio — plug USB-C to PC")
+        apply_mock.return_value = (True, "Session record — mic → USB when PC captures")
 
-        host._toggle_audio_profile()
+        host._begin_audio_profile_switch("usb-host-session")
         self.assertTrue(host._audio_profile_switching)
-        self.assertEqual(host._audio_profile_switch_target, "usb-host")
+        self.assertEqual(host._audio_profile_switch_target, "usb-host-session")
 
         deadline = time.monotonic() + 2.0
         while time.monotonic() < deadline:
@@ -66,11 +70,11 @@ class AsyncAudioProfileTests(unittest.TestCase):
             time.sleep(0.02)
 
         self.assertFalse(host._audio_profile_switching)
-        apply_mock.assert_called_once_with("usb-host")
+        apply_mock.assert_called_once_with("usb-host-session")
 
     @mock.patch("patch_browser.audio_profile.apply_profile")
     @mock.patch("patch_browser.audio_profile.current_profile", return_value="standalone")
-    def test_double_toggle_ignored_while_busy(self, _current: mock.Mock, apply_mock: mock.Mock) -> None:
+    def test_double_switch_ignored_while_busy(self, _current: mock.Mock, apply_mock: mock.Mock) -> None:
         host = _AudioHost()
         started = threading.Event()
 
@@ -80,9 +84,9 @@ class AsyncAudioProfileTests(unittest.TestCase):
             return True, "ok"
 
         apply_mock.side_effect = slow_apply
-        host._toggle_audio_profile()
+        host._begin_audio_profile_switch("usb-host")
         self.assertTrue(started.wait(timeout=1.0))
-        host._toggle_audio_profile()
+        host._begin_audio_profile_switch("standalone")
         self.assertEqual(apply_mock.call_count, 1)
 
 

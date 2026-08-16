@@ -19,7 +19,14 @@ from patch_browser.calibration_constants import (
 from patch_browser.dsi_splash import SplashMode, draw_splash_frame
 from patch_browser.geometry import Rect
 from patch_browser.patch_normalization import NORM_GAIN_DB_MAX, NORM_GAIN_DB_MIN
-from patch_browser.touch_ui_constants import NORM_CHECKBOX_SIZE
+from patch_browser.patch_sidecar_key import sidecar_kwargs_from_patch
+from patch_browser.draw_primitives import draw_toggle_switch
+from patch_browser.touch_ui_constants import (
+    COMPACT_TOGGLE_H,
+    COMPACT_TOGGLE_W,
+    SETTINGS_TOGGLE_H,
+    SETTINGS_TOGGLE_W,
+)
 from patch_browser.touch_ui_enums import CalibrateMode
 from patch_browser.ui_text import blit_text_block, text_block_height, wrap_text_lines
 
@@ -44,14 +51,22 @@ def _write_calibration_execv_failure_report(message: str, *, script: Path) -> No
 class TouchBrowserNormalizationMixin:
     """Mixin — expects TouchPatchBrowser host attributes."""
 
+    def _detail_sidecar_kw(self) -> dict[str, str | None]:
+        return sidecar_kwargs_from_patch(self.detail_patch)
+
     def _normalization_enabled_for_detail(self) -> bool:
         if not self.detail_patch:
             return True
-        return self.loader.normalization.is_enabled(self.detail_patch["name"])
+        return self.loader.normalization.is_enabled(
+            self.detail_patch["name"], **self._detail_sidecar_kw()
+        )
+
     def _normalization_has_gain(self) -> bool:
         if not self.detail_patch:
             return False
-        entry = self.loader.normalization.get_entry(self.detail_patch["name"])
+        entry = self.loader.normalization.get_entry(
+            self.detail_patch["name"], **self._detail_sidecar_kw()
+        )
         return bool(
             entry
             and (
@@ -66,53 +81,50 @@ class TouchBrowserNormalizationMixin:
         store = self.loader.normalization
         if not store.is_globally_enabled():
             return False
-        return store.is_enabled(self.detail_patch["name"])
+        return store.is_enabled(self.detail_patch["name"], **self._detail_sidecar_kw())
 
     def _norm_gain_db_for_detail(self) -> float:
         if not self.detail_patch:
             return 0.0
         store = self.loader.normalization
+        kw = self._detail_sidecar_kw()
         name = self.detail_patch["name"]
-        effective = store.get_effective_gain_db(name)
+        effective = store.get_effective_gain_db(name, **kw)
         if effective is not None:
             return max(NORM_GAIN_DB_MIN, min(NORM_GAIN_DB_MAX, effective))
-        default = store.get_slider_default_gain_db(name)
+        default = store.get_slider_default_gain_db(name, **kw)
         return max(NORM_GAIN_DB_MIN, min(NORM_GAIN_DB_MAX, default))
 
     def _apply_norm_gain_db(self, gain_db: float, *, persist: bool = True) -> None:
         if not self.detail_patch:
             return
-        name = self.detail_patch["name"]
+        patch = self.detail_patch
+        kw = self._detail_sidecar_kw()
+        name = patch["name"]
         store = self.loader.normalization
-        default = store.get_slider_default_gain_db(name)
+        default = store.get_slider_default_gain_db(name, **kw)
         clamped = max(NORM_GAIN_DB_MIN, min(NORM_GAIN_DB_MAX, float(gain_db)))
         if abs(clamped - default) < 0.05:
-            store.clear_user_gain_db(name, persist=persist)
+            store.clear_user_gain_db(name, persist=persist, **kw)
         else:
-            store.set_user_gain_db(name, clamped, persist=persist)
+            store.set_user_gain_db(name, clamped, persist=persist, **kw)
         loaded = self.loaded_patch_info
-        if (
-            loaded
-            and self.loader.osc_enabled
-            and store.patch_key(loaded["name"]) == store.patch_key(name)
-        ):
+        if loaded and self.loader.osc_enabled and store.refs_match(loaded, patch):
             self.loader.refresh_patch_volume(name)
 
     def _reset_norm_gain_to_calibrated(self) -> None:
         if not self.detail_patch:
             return
-        name = self.detail_patch["name"]
+        patch = self.detail_patch
+        kw = self._detail_sidecar_kw()
+        name = patch["name"]
         store = self.loader.normalization
-        store.clear_user_gain_db(name)
-        default = store.get_slider_default_gain_db(name)
+        store.clear_user_gain_db(name, **kw)
+        default = store.get_slider_default_gain_db(name, **kw)
         loaded = self.loaded_patch_info
-        if (
-            loaded
-            and self.loader.osc_enabled
-            and store.patch_key(loaded["name"]) == store.patch_key(name)
-        ):
+        if loaded and self.loader.osc_enabled and store.refs_match(loaded, patch):
             self.loader.refresh_patch_volume(name)
-        if store.get_calibrated_gain_db(name) is not None:
+        if store.get_calibrated_gain_db(name, **kw) is not None:
             self._toast(f"Level reset to {default:+.1f} dB", 1.5)
         else:
             self._toast("Level reset to 0 dB", 1.5)
@@ -130,18 +142,15 @@ class TouchBrowserNormalizationMixin:
         if not name:
             return
         store = self.loader.normalization
-        new_state = not store.is_enabled(name)
-        store.set_enabled(name, new_state)
+        kw = sidecar_kwargs_from_patch(self.detail_patch)
+        new_state = not store.is_enabled(name, **kw)
+        store.set_enabled(name, new_state, **kw)
         self._layout()
         loaded = self.loaded_patch_info
-        if (
-            loaded
-            and self.loader.osc_enabled
-            and store.patch_key(loaded["name"]) == store.patch_key(name)
-        ):
+        if loaded and self.loader.osc_enabled and store.refs_match(loaded, self.detail_patch):
             self.loader.refresh_patch_volume(loaded["name"])
         if new_state:
-            if store.get_raw_gain_db(name) is not None:
+            if store.get_raw_gain_db(name, **kw) is not None:
                 self._toast("Normalize on", 1.5)
             else:
                 self._toast("Normalize on (no calibration)", 2.0)
@@ -160,14 +169,12 @@ class TouchBrowserNormalizationMixin:
             self._toast("Patch normalization on", 2.0)
         else:
             self._toast("Patch normalization off", 2.0)
-    def _normalize_checkbox_rect(self, row: Rect) -> Rect:
-        pad = (row.h - NORM_CHECKBOX_SIZE) // 2
-        return Rect(
-            row.right - pad - NORM_CHECKBOX_SIZE,
-            row.y + pad,
-            NORM_CHECKBOX_SIZE,
-            NORM_CHECKBOX_SIZE,
-        )
+    def _toggle_switch_rect(self, row: Rect, *, compact: bool = False) -> Rect:
+        tw = COMPACT_TOGGLE_W if compact else SETTINGS_TOGGLE_W
+        th = COMPACT_TOGGLE_H if compact else SETTINGS_TOGGLE_H
+        pad = (row.h - th) // 2
+        return Rect(row.right - pad - tw, row.y + pad, tw, th)
+
     def _draw_normalize_toggle(
         self,
         rect: Rect,
@@ -177,64 +184,77 @@ class TouchBrowserNormalizationMixin:
         disabled: bool = False,
         label: str = "Norm.",
     ) -> None:
-        row_bg = self.theme.surface if disabled else self.theme.surface_alt
-        pygame.draw.rect(self.screen, row_bg, rect.pygame_rect, border_radius=8)
+        compact = rect.w < 180
+        toggle = self._toggle_switch_rect(rect, compact=compact)
+        row_bg = self.theme.surface if disabled else self.theme.surface
+        pygame.draw.rect(self.screen, row_bg, rect.pygame_rect, border_radius=10)
 
         text_color = self.theme.muted if disabled else self.theme.text
-        label_max_w = max(1, rect.w - NORM_CHECKBOX_SIZE - 28)
-        lines = wrap_text_lines(self.font_sm, label, label_max_w, max_lines=2)
-        block_h = text_block_height(self.font_sm, len(lines), line_spacing=2)
+        label_font = self.font_sm if compact else self.font_md
+        toggle_w = toggle.w
+        label_max_w = max(1, rect.w - toggle_w - 28)
+        lines = wrap_text_lines(label_font, label, label_max_w, max_lines=2)
+        block_h = text_block_height(label_font, len(lines), line_spacing=2)
         start_y = rect.y + max(0, (rect.h - block_h) // 2)
         blit_text_block(
             self.screen,
-            self.font_sm,
+            label_font,
             lines,
-            rect.x + 12,
+            rect.x + 16 if not compact else rect.x + 12,
             start_y,
             text_color,
             line_spacing=2,
         )
 
-        box = self._normalize_checkbox_rect(rect)
         if disabled:
-            box_bg = self.theme.surface
+            track_on = self.theme.muted
+            track_off = self.theme.surface_alt
+            knob_color = self.theme.surface
             border_color = self.theme.muted
-            check_color = self.theme.muted if enabled else None
         elif enabled and has_gain:
-            box_bg = self.theme.accent
-            border_color = self.theme.accent
-            check_color = self.theme.bg
+            track_on = self.theme.accent
+            track_off = self.theme.surface_alt
+            knob_color = self.theme.bg
+            border_color = None
         elif enabled:
-            box_bg = self.theme.surface
-            border_color = self.theme.muted
-            check_color = self.theme.muted
+            track_on = self.theme.muted
+            track_off = self.theme.surface_alt
+            knob_color = self.theme.bg
+            border_color = None
         else:
-            box_bg = self.theme.surface
+            track_on = self.theme.accent
+            track_off = self.theme.surface_alt
+            knob_color = self.theme.text
             border_color = self.theme.muted
-            check_color = None
-        pygame.draw.rect(self.screen, box_bg, box.pygame_rect, border_radius=5)
-        pygame.draw.rect(self.screen, border_color, box.pygame_rect, width=2, border_radius=5)
-        if enabled and check_color is not None:
-            check = self.font_sm.render("✓", True, check_color)
-            cx = box.x + (box.w - check.get_width()) // 2
-            cy = box.y + (box.h - check.get_height()) // 2 - 1
-            self.screen.blit(check, (cx, cy))
+        draw_toggle_switch(
+            self.screen,
+            toggle,
+            on=enabled,
+            track_on=track_on,
+            track_off=track_off,
+            knob_color=knob_color,
+            border_color=border_color,
+        )
     def _calibration_scope_stats(self, mode: CalibrateMode) -> tuple[int, int]:
         """Return (target_count, total_in_scope) for confirm modal duration hints."""
         with self._scan_lock:
-            names: list[str] = []
-            seen: set[str] = set()
+            all_patches: list[dict] = []
             for patches in self.scanner.patches.values():
-                for patch in patches:
-                    stem = Path(patch["path"]).stem
-                    if stem not in seen:
-                        seen.add(stem)
-                        names.append(stem)
+                all_patches.extend(patches)
         store = self.loader.normalization
-        total = len(names)
+        total = len(
+            {
+                store._storage_key(
+                    p["name"],
+                    patch_path=p.get("path"),
+                    stable_key=p.get("stable_key"),
+                )
+                for p in all_patches
+            }
+        )
         if mode == CalibrateMode.FORCE_FULL:
             return total, total
-        missing = store.list_missing(names)
+        missing = store.list_missing(all_patches)
         return len(missing), total
     def _calibration_duration_hint(self, targets: int) -> str:
         return format_calibration_duration_hint(targets)
