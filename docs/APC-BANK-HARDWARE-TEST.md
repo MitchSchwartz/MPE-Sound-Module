@@ -5,9 +5,17 @@ it — the clip LED, the pad control, and the fader level — and that nothing i
 left pointing at the track that scrolled away.
 
 **Applies to:** `dev` at or after `f304536` (Ableton-style horizontal track lane).
-**Status of the code under test:** unit-tested only (711 pass). The arrow note
-numbers in `apc_transport.py` are **recalled, not measured** — step 0 exists to
-settle them before anything else is trusted.
+**Status of the code under test:** unit-tested (723 pass on the appliance, same
+2 pre-existing `dev` failures), plus a remote pass on the Pi that confirmed the
+engine, the dump tool and the mk1 variant resolution. The arrow note numbers in
+`apc_transport.py` are **recalled, not measured** — step 0 exists to settle them
+before anything else is trusted.
+
+> ⚠️ **This protocol overwrites loop contents.** Setup loads 16 fixture clips,
+> and steps 2b and 6 clear loops outright. The appliance currently holds real
+> content (14 of 16 loops read non-zero wet). Capture
+> `dump-loop-levels.py --json` first, and do not run this over a take you want
+> to keep.
 
 **Two numbering conventions, stated once:** *track N* is the bench's 1-indexed
 display (`bank: tracks 1-8 of 16`); *loop N* is what `dump-loop-levels.py`
@@ -44,6 +52,23 @@ diff /tmp/before.json /tmp/after.json
 
 ---
 
+## Prerequisites — the surface and port 9953 must be free
+
+A bench started earlier from `/home/mitch/MPE-Module` will still be holding the
+APC and the listener port. A second bench **exits by design** on the 9953 bind
+failure, and even if it started, the LEDs you would be reading are the old
+build's output. This needs Mitch's hands: `mpe-agent` is a different user with
+no sudo for `kill`, and `mpe-looper.service` is inactive so the service path
+does not apply.
+
+```bash
+pgrep -af sooperlooper-apc-bench     # expect nothing
+ss -lunp | grep 9953                 # expect nothing
+```
+
+Kill any bench found, confirm both are clear, *then* start the bench from the
+branch under test.
+
 ## Setup
 
 No human recording needed — load the fixtures:
@@ -67,21 +92,28 @@ Bench startup should print the bank line: `bank: tracks 1-8 of 16`.
 scripts/sooperlooper-apc-bench.py --dump-midi
 ```
 
-Press **Up, Down, Left, Right**. Record the four note numbers.
+Press **Up, Down, Left, Right — and Shift, and Stop All Clips**. Shift and
+Stop-All come from the same recalled-not-measured table as the arrows, and steps
+7b/7c/7e and all of step 8 depend on Shift being right; the same `--dump-midi`
+run captures them for free.
 
-| Arrow | Expected (mk2) | Expected (mk1) | Measured |
+The appliance's APC has already been confirmed to resolve as **mk1** (port name
+`APC MINI MIDI 1` → `ARROW_NOTES_MK1`, transport `(98, 89)`), so the **mk1**
+column is the one to check against.
+
+| Control | Expected (mk1) | Expected (mk2) | Measured |
 |---|---|---|---|
-| Up | `0x70` (112) | `0x40` (64) | |
-| Down | `0x71` (113) | `0x41` (65) | |
-| Left | `0x72` (114) | `0x42` (66) | |
-| Right | `0x73` (115) | `0x43` (67) | |
+| Up | `0x40` (64) | `0x70` (112) | |
+| Down | `0x41` (65) | `0x71` (113) | |
+| Left | `0x42` (66) | `0x72` (114) | |
+| Right | `0x43` (67) | `0x73` (115) | |
+| Shift | `0x62` (98) | `0x7A` (122) | |
+| Stop All Clips | `0x59` (89) | `0x77` (119) | |
 
 If these don't match, banking silently does nothing and **every step below fails
-for that one reason**. Fix `ARROW_NOTES_MK1` / `ARROW_NOTES_MK2` in
-`scripts/sooperlooper/apc_transport.py` first — one tuple, no call sites.
-
-Also confirm the variant resolved correctly: the bench prints the APC label at
-startup. Wrong variant = wrong tuple = same symptom.
+for that one reason**. Fix `ARROW_NOTES_MK1` / `ARROW_NOTES_MK2` (or the
+transport tuple) in `scripts/sooperlooper/apc_transport.py` first — one tuple
+each, no call sites.
 
 ---
 
