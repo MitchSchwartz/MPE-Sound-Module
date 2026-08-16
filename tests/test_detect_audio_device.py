@@ -10,6 +10,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from tests.hermetic_env import hermetic_env_with_profile
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DETECT_SCRIPT = REPO_ROOT / "scripts" / "detect-audio-device.sh"
 
@@ -43,9 +45,9 @@ def _run_detect(
         fake_surge.chmod(fake_surge.stat().st_mode | stat.S_IXUSR)
 
         env = os.environ.copy()
-        env["MPE_AUDIO_PROFILE"] = profile
         env["HOME"] = tmp
-        env["MPE_FORCE_UAC2_FLAG"] = str(Path(tmp) / "force-uac2")
+        env["MPE_UAC2_HOST_STREAMING_FLAG"] = str(Path(tmp) / "host-streaming")
+        env.update(hermetic_env_with_profile(Path(tmp), profile))
         if extra_env:
             env.update(extra_env)
         return subprocess.run(
@@ -58,37 +60,27 @@ def _run_detect(
 
 
 class DetectAudioDeviceTests(unittest.TestCase):
-    def test_usb_host_lazy_route_selects_sound_blaster(self) -> None:
+    def test_usb_host_idle_selects_sound_blaster(self) -> None:
         result = _run_detect(MOCK_GADGET_LIST, profile="usb-host")
         self.assertEqual(result.returncode, 0, msg=result.stderr)
         self.assertIn("DEVICE_ID=0.4", result.stdout)
         self.assertIn("TIER=1", result.stdout)
-        self.assertIn("lazy route", result.stderr)
+        self.assertIn("idle", result.stderr)
 
-    def test_usb_host_force_flag_selects_gadget(self) -> None:
+    def test_usb_host_streaming_selects_gadget(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            force_flag = Path(tmp) / "force-uac2"
-            force_flag.write_text("", encoding="utf-8")
+            flag = Path(tmp) / "host-streaming"
+            flag.write_text("", encoding="utf-8")
             result = _run_detect(
                 MOCK_GADGET_LIST,
                 profile="usb-host",
-                extra_env={"MPE_FORCE_UAC2_FLAG": str(force_flag)},
+                extra_env={"MPE_UAC2_HOST_STREAMING_FLAG": str(flag)},
             )
         self.assertEqual(result.returncode, 0, msg=result.stderr)
         self.assertIn("DEVICE_ID=0.13", result.stdout)
         self.assertIn("TIER=0", result.stdout)
 
-    def test_usb_host_lazy_disabled_selects_gadget(self) -> None:
-        result = _run_detect(
-            MOCK_GADGET_LIST,
-            profile="usb-host",
-            extra_env={"MPE_UAC2_LAZY_ROUTE": "0"},
-        )
-        self.assertEqual(result.returncode, 0, msg=result.stderr)
-        self.assertIn("DEVICE_ID=0.13", result.stdout)
-        self.assertIn("TIER=0", result.stdout)
-
-    def test_usb_host_lazy_no_sound_blaster_uses_gadget(self) -> None:
+    def test_usb_host_idle_no_sound_blaster_uses_pi_headphone(self) -> None:
         device_list = "\n".join(
             [
                 "Output Audio Device [0.9] : Direct hardware device on ALSA.UAC2_Gadget",
@@ -97,35 +89,29 @@ class DetectAudioDeviceTests(unittest.TestCase):
         )
         result = _run_detect(device_list, profile="usb-host")
         self.assertEqual(result.returncode, 0, msg=result.stderr)
-        self.assertIn("DEVICE_ID=0.9", result.stdout)
-        self.assertIn("TIER=0", result.stdout)
-        self.assertIn("no Sound Blaster", result.stderr)
+        self.assertIn("DEVICE_ID=0.1", result.stdout)
+        self.assertIn("TIER=3", result.stdout)
+        self.assertIn("idle sink", result.stderr)
 
-    def test_usb_host_skips_pi_headphone_fallback(self) -> None:
-        device_list = "Output Audio Device [0.1] : ALSA.bcm2835 Headphones, bcm2835 Headphones"
-        result = _run_detect(device_list, profile="usb-host")
-        self.assertNotIn("TIER=3", result.stdout)
-
+    def test_standalone_skips_gadget_tier0(self) -> None:
         result = _run_detect(MOCK_GADGET_LIST, profile="standalone")
         self.assertEqual(result.returncode, 0, msg=result.stderr)
         self.assertIn("DEVICE_ID=0.4", result.stdout)
         self.assertIn("TIER=1", result.stdout)
 
-    def test_usb_host_matches_mpe_sound_module_name_when_forced(self) -> None:
-        device_list = (
-            "Output Audio Device [2.0] : Direct hardware device on ALSA.MPE Sound Module"
-        )
+    def test_usb_host_session_always_sound_blaster(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            force_flag = Path(tmp) / "force-uac2"
-            force_flag.write_text("", encoding="utf-8")
+            flag = Path(tmp) / "host-streaming"
+            flag.write_text("", encoding="utf-8")
             result = _run_detect(
-                device_list,
-                profile="usb-host",
-                extra_env={"MPE_FORCE_UAC2_FLAG": str(force_flag)},
+                MOCK_GADGET_LIST,
+                profile="usb-host-session",
+                extra_env={"MPE_UAC2_HOST_STREAMING_FLAG": str(flag)},
             )
         self.assertEqual(result.returncode, 0, msg=result.stderr)
-        self.assertIn("DEVICE_ID=2.0", result.stdout)
-        self.assertIn("TIER=0", result.stdout)
+        self.assertIn("DEVICE_ID=0.4", result.stdout)
+        self.assertIn("TIER=1", result.stdout)
+        self.assertIn("usb-host-session", result.stderr)
 
 
 if __name__ == "__main__":

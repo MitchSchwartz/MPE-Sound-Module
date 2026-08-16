@@ -1,8 +1,9 @@
 # udev rules for USB audio device hot-plug support
-# Automatically restart Surge XT CLI when USB audio devices are connected/disconnected
+# Automatically restart the JACK graph when external USB audio devices connect/disconnect.
 #
-# This ensures that when you plug in a USB DAC after the system has booted,
-# Surge will restart and detect the newly connected device.
+# Skip-listed cards (HDMI, UAC2 gadget passthrough, snd-aloop) are filtered in
+# restart-audio-graph.sh — ATTR{id} cannot match on remove, so SOUND_CARD_ID is
+# stamped at add time and read from the udev db on remove.
 #
 # Installation:
 #   sudo cp 99-usb-audio.rules /etc/udev/rules.d/
@@ -10,20 +11,14 @@
 #
 # Testing:
 #   1. Plug/unplug USB audio device
-#   2. Check logs: sudo journalctl -u surge-xt-cli -f
-#   3. Verify service restarted: systemctl status surge-xt-cli
+#   2. Check logs: sudo journalctl -u mpe-jackd -f
+#   3. Verify graph restarted: mpe engine status
 
-# Skip HDMI and USB gadget passthrough card (bind/unbind via usb-audio-gadget.service)
-ACTION=="add|remove", SUBSYSTEM=="sound", KERNEL=="card[0-9]*", ATTR{id}=="vc4hdmi*", GOTO="mpe_usb_audio_end"
-ACTION=="add|remove", SUBSYSTEM=="sound", KERNEL=="card[0-9]*", ATTR{id}=="UAC2Gadget", GOTO="mpe_usb_audio_end"
-ACTION=="add|remove", SUBSYSTEM=="sound", KERNEL=="card[0-9]*", ATTR{id}=="UAC2", GOTO="mpe_usb_audio_end"
-# Skip snd-aloop (calibration loads/unloads this; must not restart production Surge mid-run)
-ACTION=="add|remove", SUBSYSTEM=="sound", KERNEL=="card[0-9]*", ATTR{id}=="Loopback", GOTO="mpe_usb_audio_end"
+# Persist card id for remove events (ATTR{} is gone once the card is unlinked).
+ACTION=="add", SUBSYSTEM=="sound", KERNEL=="card[0-9]*", ATTR{id}=="?*", ENV{SOUND_CARD_ID}="%s{id}"
 
-# Restart Surge XT CLI when external USB audio devices connect
-ACTION=="add", SUBSYSTEM=="sound", KERNEL=="card[0-9]*", RUN+="/bin/systemctl restart surge-xt-cli.service"
-
-# Restart Surge XT CLI when external USB audio devices disconnect
-ACTION=="remove", SUBSYSTEM=="sound", KERNEL=="card[0-9]*", RUN+="/bin/systemctl restart surge-xt-cli.service"
-
-LABEL="mpe_usb_audio_end"
+# Restart audio graph when external USB audio devices connect/disconnect.
+# restart-audio-graph.sh restarts mpe-jackd.service — the only audio engine
+# (spec D2, criterion 15). --no-block is inside the script.
+ACTION=="add", SUBSYSTEM=="sound", KERNEL=="card[0-9]*", RUN+="@MPE_MODULE_REPO@/scripts/restart-audio-graph.sh %E{SOUND_CARD_ID}"
+ACTION=="remove", SUBSYSTEM=="sound", KERNEL=="card[0-9]*", RUN+="@MPE_MODULE_REPO@/scripts/restart-audio-graph.sh %E{SOUND_CARD_ID}"

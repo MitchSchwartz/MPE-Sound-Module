@@ -10,8 +10,7 @@ import pygame
 from patch_browser.dsi_splash import release_display_for_shutdown, trigger_user_shutdown
 from patch_browser.shutdown_trace import begin_shutdown_session, log_shutdown_event
 from patch_browser.touch_ui_constants import (
-    DEFAULT_BRIGHTNESS_PERCENT,
-    MIXER_DOUBLE_TAP_MS,
+    SETTINGS_PANEL_HEADER_H,
     TAP_MOVE_THRESHOLD_PX,
 )
 from patch_browser.touch_ui_enums import CalibrateMode, LeftNavMode, Screen
@@ -29,13 +28,78 @@ from patch_browser.ui_theme import (
 class TouchBrowserInputMixin:
     """Mixin — expects TouchPatchBrowser host attributes."""
 
+    _BACKDROP_DISMISS_SCREENS = frozenset(
+        {
+            Screen.THEME,
+            Screen.POWER_MENU,
+            Screen.POWER_CONFIRM,
+            Screen.CALIBRATE_CONFIRM,
+            Screen.SURGE_BUFFER_MODAL,
+            Screen.SURGE_SAMPLE_RATE_MODAL,
+            Screen.AUDIO_PROFILE_MODAL,
+            Screen.BRIGHTNESS_MODAL,
+            Screen.WIFI_MODAL,
+            Screen.MIDI_SYNC_MODAL,
+        }
+    )
+
+    def _modal_backdrop_tap(
+        self,
+        start: tuple[int, int] | None,
+        end: tuple[int, int],
+    ) -> bool:
+        panel = getattr(self, "_modal_panel_rect", None)
+        if panel is None or start is None:
+            return False
+        if self._pointer_move_distance(start, end) > TAP_MOVE_THRESHOLD_PX:
+            return False
+        return not panel.contains(*start) and not panel.contains(*end)
+
+    def _dismiss_modal_from_backdrop(self) -> None:
+        state = self.screen_state
+        if state == Screen.THEME:
+            self._cancel_theme_modal()
+        elif state == Screen.POWER_MENU:
+            self.screen_state = Screen.SETTINGS
+        elif state == Screen.POWER_CONFIRM:
+            self.screen_state = Screen.POWER_MENU
+        elif state == Screen.CALIBRATE_CONFIRM:
+            self.screen_state = Screen.SETTINGS
+        elif state in (Screen.SURGE_BUFFER_MODAL, Screen.SURGE_SAMPLE_RATE_MODAL):
+            self._close_surge_audio_modal()
+        elif state == Screen.AUDIO_PROFILE_MODAL:
+            self._close_audio_profile_modal()
+        elif state == Screen.BRIGHTNESS_MODAL:
+            self._close_brightness_modal()
+        elif state == Screen.WIFI_MODAL:
+            self._close_wifi_modal()
+        elif state == Screen.MIDI_SYNC_MODAL:
+            self._close_midi_sync_modal()
+
+    def _try_dismiss_modal_backdrop(self, pos: tuple[int, int]) -> bool:
+        if self.screen_state not in self._BACKDROP_DISMISS_SCREENS:
+            return False
+        if not self._modal_backdrop_tap(self._modal_pointer_down_pos, pos):
+            return False
+        self._dismiss_modal_from_backdrop()
+        self._clear_modal_pointer()
+        self._picker_slider_channel = None
+        return True
+
     def _draw(self) -> None:
         modal = self.screen_state in (
             Screen.THEME,
             Screen.POWER_MENU,
             Screen.POWER_CONFIRM,
             Screen.CALIBRATE_CONFIRM,
+            Screen.SURGE_BUFFER_MODAL,
+            Screen.SURGE_SAMPLE_RATE_MODAL,
+            Screen.AUDIO_PROFILE_MODAL,
+            Screen.BRIGHTNESS_MODAL,
+            Screen.WIFI_MODAL,
+            Screen.MIDI_SYNC_MODAL,
         )
+        overlay_modal = self.screen_state in (Screen.CONTEXT_MENU, Screen.NAME_PROMPT)
         panel_visible = self.screen_state == Screen.SETTINGS or self._settings_slide > 0.004
 
         if modal or panel_visible:
@@ -48,12 +112,38 @@ class TouchBrowserInputMixin:
                 self._draw_theme_modal()
             elif self.screen_state == Screen.CALIBRATE_CONFIRM:
                 self._draw_calibrate_confirm()
+            elif self.screen_state == Screen.SURGE_BUFFER_MODAL:
+                self._draw_surge_buffer_modal()
+            elif self.screen_state == Screen.SURGE_SAMPLE_RATE_MODAL:
+                self._draw_surge_sample_rate_modal()
+            elif self.screen_state == Screen.AUDIO_PROFILE_MODAL:
+                self._draw_audio_profile_modal()
+            elif self.screen_state == Screen.BRIGHTNESS_MODAL:
+                self._draw_brightness_modal()
+            elif self.screen_state == Screen.WIFI_MODAL:
+                self._draw_wifi_modal()
+            elif self.screen_state == Screen.MIDI_SYNC_MODAL:
+                self._draw_midi_sync_modal()
+        elif overlay_modal:
+            self._draw_browser()
+            if self.screen_state == Screen.CONTEXT_MENU:
+                self._draw_context_menu()
+            else:
+                self._draw_name_prompt()
         else:
             self._draw_browser()
         if getattr(self, "_audio_profile_switching", False):
             self._draw_audio_profile_switch_overlay()
+        elif getattr(self, "_surge_audio_switching", False):
+            self._draw_surge_audio_switch_overlay()
+        if getattr(self, "_wifi_busy", False) or getattr(self, "_wifi_connecting", False):
+            self._draw_wifi_busy_overlay()
         self._draw_toast()
         pygame.display.flip()
+        recorder = getattr(self, "_screen_recorder", None)
+        if recorder is not None:
+            recorder.write_frame(self.screen)
+
     def _ignore_sdl_pointer_event(self, event: pygame.event.Event) -> bool:
         if self._evdev_bridge is None or not self._evdev_bridge.active:
             return False
@@ -91,6 +181,13 @@ class TouchBrowserInputMixin:
             self._toggle_nav_collapsed()
             return
         if (
+            getattr(self, "browse_filter_open_btn", None)
+            and self.browse_filter_open_btn.w > 0
+            and self.browse_filter_open_btn.contains(*pos)
+        ):
+            self._toggle_browse_filter()
+            return
+        if (
             self.nav_all_btn.contains(*pos)
             and self.left_nav_mode != LeftNavMode.ALL_PATCHES
         ):
@@ -108,54 +205,120 @@ class TouchBrowserInputMixin:
         if self.nav_current_btn.contains(*pos) and self.loaded_patch_info:
             self._go_to_loaded_folder()
             return
+    def _settings_local_pos(self, pos: tuple[int, int]) -> tuple[int, int]:
+        local_x = pos[0] - self._settings_panel_x()
+        local_y = (
+            pos[1]
+            - self.settings_panel_rect.y
+            - SETTINGS_PANEL_HEADER_H
+            + int(self._settings_content_scroll.scroll_pixels)
+        )
+        return local_x, local_y
+
+    def _settings_rect_hit(self, rect: Rect, local_pos: tuple[int, int]) -> bool:
+        return rect.w > 0 and rect.h > 0 and rect.contains(*local_pos)
+
     def _settings_hit_at(self, pos: tuple[int, int]) -> str | None:
         close = self._panel_local_to_screen(self._close_settings_btn)
         if close.contains(*pos):
             return "close"
 
+        if getattr(self, "_settings_view", "root") == "audio":
+            back = self._panel_local_to_screen(self._settings_back_btn)
+            if back.contains(*pos):
+                return "settings_back"
+
         power = self._panel_local_to_screen(self._power_btn)
         if power.contains(*pos):
             return "power"
 
-        local_x = pos[0] - self._settings_panel_x()
-        local_y = pos[1] - self.settings_panel_rect.y + int(
-            self._settings_content_scroll.scroll_pixels
-        )
-        local_pos = (local_x, local_y)
+        local_pos = self._settings_local_pos(pos)
+        audio_view = getattr(self, "_settings_view", "root") == "audio"
 
-        if self.norm_global_toggle_rect.contains(*local_pos):
-            return "norm_global"
-        if self.cpu_meter_toggle_rect.contains(*local_pos):
+        if audio_view:
+            if self._settings_rect_hit(self.audio_profile_row_rect, local_pos):
+                return "audio_profile"
+            if self._settings_rect_hit(self.poly_governor_toggle_rect, local_pos):
+                return "poly_governor"
+            if self._settings_rect_hit(self.norm_global_toggle_rect, local_pos):
+                return "norm_global"
+            if self._settings_rect_hit(self.surge_buffer_row_rect, local_pos):
+                return "surge_buffer"
+            if self._settings_rect_hit(self.surge_sample_rate_row_rect, local_pos):
+                return "surge_sample_rate"
+            if self._settings_rect_hit(self._calibrate_missing_btn, local_pos):
+                return "cal_missing"
+            if self._settings_rect_hit(self._calibrate_force_btn, local_pos):
+                return "cal_force"
+            return None
+
+        if self._settings_rect_hit(self.settings_audio_drill_rect, local_pos):
+            return "audio_drill"
+        if self._settings_rect_hit(self.settings_advanced_header_rect, local_pos):
+            return "advanced_toggle"
+        if self._settings_rect_hit(self.cpu_meter_toggle_rect, local_pos):
             return "cpu_meter"
-        if self.poly_governor_toggle_rect.contains(*local_pos):
-            return "poly_governor"
-        if self.audio_profile_toggle_rect.contains(*local_pos):
-            return "audio_profile"
-        if self.theme_btn_rect.contains(*local_pos):
+        if self._settings_rect_hit(self.looper_sync_row_rect, local_pos):
+            return "looper_sync"
+        if self._settings_rect_hit(self.looper_hud_toggle_rect, local_pos):
+            return "looper_hud"
+        if self._settings_rect_hit(self.wifi_row_rect, local_pos):
+            return "wifi"
+        if self._settings_rect_hit(self.theme_btn_rect, local_pos):
             return "theme"
-        if self._surge_restart_btn and self._surge_restart_btn.contains(*local_pos):
+        if self._surge_restart_btn and self._settings_rect_hit(self._surge_restart_btn, local_pos):
             return "surge_restart"
-        if self._calibrate_missing_btn.contains(*local_pos):
-            return "cal_missing"
-        if self._calibrate_force_btn.contains(*local_pos):
-            return "cal_force"
-        if self.brightness_slider_rect.contains(*local_pos):
+        if self._settings_rect_hit(self.brightness_row_rect, local_pos):
             return "brightness"
         return None
     def _execute_settings_hit(self, hit: str, pos: tuple[int, int]) -> None:
         if hit == "close":
             self._close_settings_panel()
+        elif hit == "settings_back":
+            self._settings_view = "root"
+            self._layout_settings_content()
+            self._settings_content_scroll.reset()
+            self._sync_settings_scroll_viewport()
+        elif hit == "audio_drill":
+            self._settings_view = "audio"
+            self._layout_settings_content()
+            self._settings_content_scroll.reset()
+            self._sync_settings_scroll_viewport()
+        elif hit == "advanced_toggle":
+            self._settings_advanced_open = not getattr(self, "_settings_advanced_open", False)
+            self._layout_settings_content()
+            self._sync_settings_scroll_viewport()
         elif hit == "power":
             self.screen_state = Screen.POWER_MENU
         elif hit == "norm_global":
             self._toggle_global_normalization()
         elif hit == "cpu_meter":
             self._toggle_cpu_meter_visibility()
+        elif hit == "looper_hud":
+            self._toggle_looper_hud_visibility()
+        elif hit == "looper_sync":
+            if not getattr(self, "_midi_sync_switching", False):
+                self._open_midi_sync_modal()
         elif hit == "poly_governor":
             self._toggle_poly_governor()
         elif hit == "audio_profile":
-            if not getattr(self, "_audio_profile_switching", False):
-                self._toggle_audio_profile()
+            if not getattr(self, "_audio_profile_switching", False) and not getattr(
+                self, "_surge_audio_switching", False
+            ):
+                self._open_audio_profile_modal()
+        elif hit == "wifi":
+            if not getattr(self, "_wifi_busy", False):
+                self._open_wifi_modal()
+        elif hit == "surge_buffer":
+            if not getattr(self, "_audio_profile_switching", False) and not getattr(
+                self, "_surge_audio_switching", False
+            ):
+                self._open_surge_buffer_modal()
+        elif hit == "surge_sample_rate":
+            if not getattr(self, "_audio_profile_switching", False) and not getattr(
+                self, "_surge_audio_switching", False
+            ):
+                self._open_surge_sample_rate_modal()
         elif hit == "theme":
             self._open_theme_modal()
         elif hit == "surge_restart":
@@ -178,30 +341,16 @@ class TouchBrowserInputMixin:
             self._pending_calibrate_mode = CalibrateMode.FORCE_FULL
             self.screen_state = Screen.CALIBRATE_CONFIRM
         elif hit == "brightness":
-            screen_slider = self._panel_local_to_screen(
-                self.brightness_slider_rect, scrolled=True
-            )
-            now = time.time()
-            if (
-                not self._brightness_drag_moved
-                and self._brightness_last_tap_time > 0
-                and (now - self._brightness_last_tap_time) * 1000.0 <= MIXER_DOUBLE_TAP_MS
-            ):
-                self._apply_brightness(DEFAULT_BRIGHTNESS_PERCENT)
-                self._toast("Brightness reset", 1.2)
-                self._brightness_last_tap_time = 0.0
-            else:
-                self._brightness_last_tap_time = now
-                self._apply_brightness(self._brightness_from_x(pos[0], screen_slider))
+            self._open_brightness_modal()
     def _handle_settings_pointer_down(self, pos: tuple[int, int]) -> None:
         self._clear_settings_pointer()
         self._settings_pointer_down_pos = pos
+        self._settings_pending_hit = None
 
         hit = self._settings_hit_at(pos)
-        if hit == "brightness":
-            self._brightness_drag_moved = False
-            self._slider_dragging = True
+        if hit in ("close", "settings_back", "power"):
             self._settings_pending_hit = hit
+            self._touch_press.set(f"settings:{hit}")
             return
 
         scroll_vp = self._settings_scroll_viewport_screen()
@@ -210,31 +359,31 @@ class TouchBrowserInputMixin:
             self._settings_content_scroll.pointer_down(pos)
             self._settings_swipe_start = pos
             if hit is not None:
-                self._settings_pending_hit = hit
+                self._touch_press.set(f"settings:{hit}")
             return
 
         if hit is not None:
-            self._settings_pending_hit = hit
+            self._touch_press.set(f"settings:{hit}")
+
     def _handle_settings_pointer_up(self, pos: tuple[int, int]) -> None:
         scrolled = self._settings_content_scroll.pointer_up(pos)
-        slider_moved = self._slider_dragging and self._brightness_drag_moved
         tap_ok = (
             not scrolled
-            and not slider_moved
             and not self._settings_content_scroll.is_interacting()
             and self._pointer_move_distance(self._settings_pointer_down_pos, pos)
             <= TAP_MOVE_THRESHOLD_PX
         )
 
-        if tap_ok and self._settings_pending_hit:
+        if tap_ok:
+            hit = self._settings_hit_at(pos)
             down_hit = self._settings_pending_hit
-            up_hit = self._settings_hit_at(pos)
-            if up_hit == down_hit:
-                self._execute_settings_hit(down_hit, pos)
+            if down_hit in ("close", "settings_back", "power"):
+                hit = down_hit
+            if hit is not None:
+                self._execute_settings_hit(hit, pos)
 
         if (
             not scrolled
-            and not self._slider_dragging
             and not self._settings_content_scroll.is_interacting()
         ):
             if not self._settings_panel_contains(pos):
@@ -245,16 +394,16 @@ class TouchBrowserInputMixin:
                     self._close_settings_panel()
 
         self._settings_swipe_start = None
-        self._slider_dragging = False
-        self._brightness_drag_moved = False
         self._clear_settings_pointer()
     def _handle_power_menu_pointer_down(self, pos: tuple[int, int]) -> None:
         self._clear_modal_pointer()
-        self._modal_pointer_down_pos = pos
+        power_ids = ("power:shutdown", "power:restart", "power:cancel")
         for i, rect in enumerate(self._power_option_rects):
             if rect.contains(*pos):
+                self._modal_press_hit(pos, power_ids[i])
                 self._modal_pending_index = i
                 return
+
     def _handle_power_menu_pointer_up(self, pos: tuple[int, int]) -> None:
         if (
             self._modal_pending_index is not None
@@ -290,15 +439,19 @@ class TouchBrowserInputMixin:
             return None
 
         if view == THEME_VIEW_COLORS:
-            for delete_rect, color_id in getattr(self, "_theme_color_delete_rects", []):
-                if delete_rect.contains(*pos):
-                    return f"delete:{color_id}"
-            for rect, _rgb, hit_id in getattr(self, "_theme_color_swatch_rects", []):
-                if rect.contains(*pos):
-                    return hit_id
             back = getattr(self, "_theme_colors_back_rect", None)
             if back is not None and back.contains(*pos):
                 return "colors_back"
+            scroll = getattr(self, "_theme_colors_scroll", None)
+            if scroll is not None and scroll.viewport.contains(*pos):
+                lx = pos[0] - scroll.viewport.x
+                ly = pos[1] - scroll.viewport.y + int(scroll.scroll_pixels)
+                for delete_rect, color_id in getattr(self, "_theme_color_delete_rects_content", []):
+                    if delete_rect.contains(lx, ly):
+                        return f"delete:{color_id}"
+                for rect, _rgb, hit_id in getattr(self, "_theme_color_swatch_rects_content", []):
+                    if rect.contains(lx, ly):
+                        return hit_id
             return None
 
         for index, rect in enumerate(getattr(self, "_theme_base_option_rects", [])):
@@ -332,29 +485,7 @@ class TouchBrowserInputMixin:
         else:
             self._set_picker_rgb((current[0], current[1], value))
 
-    def _handle_theme_modal_pointer_down(self, pos: tuple[int, int]) -> None:
-        self._clear_modal_pointer()
-        self._modal_pointer_down_pos = pos
-        hit = self._theme_modal_hit_at(pos)
-        if hit is None:
-            return
-        if hit.startswith("picker_slider:"):
-            self._picker_slider_channel = hit.split(":", 1)[1]
-            self._apply_picker_slider_channel(self._picker_slider_channel, pos)
-            self._modal_pending_key = hit
-            return
-        self._modal_pending_key = hit
-
-    def _handle_theme_modal_pointer_up(self, pos: tuple[int, int]) -> None:
-        if (
-            self._modal_pending_key is None
-            or self._pointer_move_distance(self._modal_pointer_down_pos, pos)
-            > TAP_MOVE_THRESHOLD_PX
-        ):
-            self._clear_modal_pointer()
-            return
-
-        hit = self._modal_pending_key
+    def _apply_theme_modal_hit(self, hit: str) -> None:
         if hit == "choose_colors":
             self._open_theme_color_palette()
         elif hit == "colors_back":
@@ -393,16 +524,61 @@ class TouchBrowserInputMixin:
             self._commit_theme_modal()
         elif hit == "cancel":
             self._cancel_theme_modal()
+
+    def _handle_theme_modal_pointer_down(self, pos: tuple[int, int]) -> None:
+        self._clear_modal_pointer()
+        if self._theme_view() == THEME_VIEW_COLORS:
+            if self._theme_colors_scroll.viewport.contains(*pos):
+                self._theme_colors_scroll.pointer_down(pos)
+            hit = self._theme_modal_hit_at(pos)
+            self._touch_press.set(hit)
+            return
+        hit = self._theme_modal_hit_at(pos)
+        if hit is None:
+            return
+        if hit.startswith("picker_slider:"):
+            self._picker_slider_channel = hit.split(":", 1)[1]
+            self._apply_picker_slider_channel(self._picker_slider_channel, pos)
+        self._modal_press_hit(pos, hit)
+
+    def _handle_theme_modal_pointer_up(self, pos: tuple[int, int]) -> None:
+        if self._theme_view() == THEME_VIEW_COLORS:
+            scrolled = self._theme_colors_scroll.pointer_up(pos)
+            tap_ok = (
+                not scrolled
+                and not self._theme_colors_scroll.is_interacting()
+                and self._pointer_move_distance(self._modal_pointer_down_pos, pos)
+                <= TAP_MOVE_THRESHOLD_PX
+            )
+            if tap_ok:
+                hit = self._theme_modal_hit_at(pos)
+                if hit is not None:
+                    self._apply_theme_modal_hit(hit)
+            self._picker_slider_channel = None
+            self._clear_modal_pointer()
+            return
+
+        if (
+            self._modal_pending_key is None
+            or self._pointer_move_distance(self._modal_pointer_down_pos, pos)
+            > TAP_MOVE_THRESHOLD_PX
+        ):
+            self._clear_modal_pointer()
+            return
+
+        self._apply_theme_modal_hit(self._modal_pending_key)
         self._picker_slider_channel = None
         self._clear_modal_pointer()
 
     def _handle_calibrate_confirm_pointer_down(self, pos: tuple[int, int]) -> None:
         self._clear_modal_pointer()
-        self._modal_pointer_down_pos = pos
         if self._calibrate_confirm_no.contains(*pos):
+            self._modal_press_hit(pos, "cal:cancel")
             self._modal_pending_index = 0
         elif self._calibrate_confirm_yes.contains(*pos):
+            self._modal_press_hit(pos, "cal:start")
             self._modal_pending_index = 1
+
     def _handle_calibrate_confirm_pointer_up(self, pos: tuple[int, int]) -> None:
         if (
             self._modal_pending_index is None
@@ -426,11 +602,13 @@ class TouchBrowserInputMixin:
         self._clear_modal_pointer()
     def _handle_power_confirm_pointer_down(self, pos: tuple[int, int]) -> None:
         self._clear_modal_pointer()
-        self._modal_pointer_down_pos = pos
         if self._confirm_no.contains(*pos):
+            self._modal_press_hit(pos, "confirm:cancel")
             self._modal_pending_index = 0
         elif self._confirm_yes.contains(*pos):
+            self._modal_press_hit(pos, "confirm:yes")
             self._modal_pending_index = 1
+
     def _handle_power_confirm_pointer_up(self, pos: tuple[int, int]) -> None:
         if (
             self._modal_pending_index is not None
@@ -456,7 +634,9 @@ class TouchBrowserInputMixin:
                 sys.exit(0)
         self._clear_modal_pointer()
     def _handle_event(self, event: pygame.event.Event) -> None:
-        if getattr(self, "_audio_profile_switching", False):
+        if getattr(self, "_audio_profile_switching", False) or getattr(
+            self, "_surge_audio_switching", False
+        ) or getattr(self, "_wifi_busy", False) or getattr(self, "_wifi_connecting", False):
             return
         if event.type == pygame.QUIT:
             self._running = False
@@ -476,10 +656,58 @@ class TouchBrowserInputMixin:
                     {"pos": pos, "rel": (0, 0), "buttons": (1, 0, 0)},
                 )
 
-        if self.screen_state == Screen.BROWSER and not self.left_nav_collapsed:
-            self.nav_list.handle_event(event)
+        if (
+            self.screen_state == Screen.BROWSER
+            and not self.left_nav_collapsed
+            and event.type
+            in (
+                pygame.MOUSEBUTTONDOWN,
+                pygame.MOUSEBUTTONUP,
+                pygame.MOUSEMOTION,
+                pygame.MOUSEWHEEL,
+            )
+        ):
+            browse_active = self._browse_gesture_active()
+            if event.type == pygame.MOUSEBUTTONDOWN:
+                if self._handle_browse_pointer_down(event.pos):
+                    browse_active = True
+                elif not browse_active:
+                    self._context_nav_pointer_down(event.pos)
+            elif event.type == pygame.MOUSEMOTION:
+                if self._handle_browse_pointer_move(event.pos):
+                    browse_active = True
+                else:
+                    self._context_nav_pointer_move(event.pos)
+            elif event.type == pygame.MOUSEBUTTONUP:
+                if self._handle_browse_pointer_up(event.pos):
+                    browse_active = True
+                elif self._context_nav_pointer_up():
+                    browse_active = True
+            if not browse_active:
+                self.nav_list.handle_event(event)
+
+        if self.screen_state == Screen.CONTEXT_MENU and event.type in (
+            pygame.MOUSEBUTTONDOWN,
+            pygame.MOUSEMOTION,
+            pygame.MOUSEBUTTONUP,
+        ):
+            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                self._handle_context_menu_pointer_down(event.pos)
+            elif event.type == pygame.MOUSEMOTION:
+                self._handle_context_menu_pointer_move(event.pos)
+            elif event.type == pygame.MOUSEBUTTONUP and event.button == 1:
+                self._handle_context_menu_pointer_up(event.pos)
+            return
+
+        if event.type == pygame.MOUSEBUTTONUP and event.button == 1:
+            if self.screen_state == Screen.NAME_PROMPT:
+                self._handle_name_prompt_pointer_up(event.pos)
+                return
 
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            if self.screen_state == Screen.NAME_PROMPT:
+                self._handle_name_prompt_pointer_down(event.pos)
+                return
             if self.screen_state == Screen.SETTINGS:
                 self._handle_settings_pointer_down(event.pos)
             elif self.screen_state == Screen.POWER_MENU:
@@ -490,6 +718,18 @@ class TouchBrowserInputMixin:
                 self._handle_theme_modal_pointer_down(event.pos)
             elif self.screen_state == Screen.CALIBRATE_CONFIRM:
                 self._handle_calibrate_confirm_pointer_down(event.pos)
+            elif self.screen_state == Screen.SURGE_BUFFER_MODAL:
+                self._handle_surge_buffer_modal_pointer_down(event.pos)
+            elif self.screen_state == Screen.SURGE_SAMPLE_RATE_MODAL:
+                self._handle_surge_sample_rate_modal_pointer_down(event.pos)
+            elif self.screen_state == Screen.AUDIO_PROFILE_MODAL:
+                self._handle_audio_profile_modal_pointer_down(event.pos)
+            elif self.screen_state == Screen.BRIGHTNESS_MODAL:
+                self._handle_brightness_modal_pointer_down(event.pos)
+            elif self.screen_state == Screen.WIFI_MODAL:
+                self._handle_wifi_modal_pointer_down(event.pos)
+            elif self.screen_state == Screen.MIDI_SYNC_MODAL:
+                self._handle_midi_sync_modal_pointer_down(event.pos)
             elif self.screen_state == Screen.BROWSER:
                 if self._handle_az_rail_touch("down", event.pos):
                     pass
@@ -506,7 +746,9 @@ class TouchBrowserInputMixin:
             self._mixer_drag_moved = False
             if self._picker_slider_channel and self.screen_state == Screen.THEME:
                 self._picker_slider_channel = None
-            if self.screen_state == Screen.SETTINGS:
+            if self._try_dismiss_modal_backdrop(event.pos):
+                pass
+            elif self.screen_state == Screen.SETTINGS:
                 self._handle_settings_pointer_up(event.pos)
             elif self.screen_state == Screen.POWER_MENU:
                 self._handle_power_menu_pointer_up(event.pos)
@@ -516,11 +758,25 @@ class TouchBrowserInputMixin:
                 self._handle_theme_modal_pointer_up(event.pos)
             elif self.screen_state == Screen.CALIBRATE_CONFIRM:
                 self._handle_calibrate_confirm_pointer_up(event.pos)
+            elif self.screen_state == Screen.SURGE_BUFFER_MODAL:
+                self._handle_surge_buffer_modal_pointer_up(event.pos)
+            elif self.screen_state == Screen.SURGE_SAMPLE_RATE_MODAL:
+                self._handle_surge_sample_rate_modal_pointer_up(event.pos)
+            elif self.screen_state == Screen.AUDIO_PROFILE_MODAL:
+                self._handle_audio_profile_modal_pointer_up(event.pos)
+            elif self.screen_state == Screen.BRIGHTNESS_MODAL:
+                self._handle_brightness_modal_pointer_up(event.pos)
+            elif self.screen_state == Screen.WIFI_MODAL:
+                self._handle_wifi_modal_pointer_up(event.pos)
+            elif self.screen_state == Screen.MIDI_SYNC_MODAL:
+                self._handle_midi_sync_modal_pointer_up(event.pos)
             elif self.screen_state == Screen.BROWSER:
                 if self._handle_az_rail_touch("up", event.pos):
                     return
+                if self.screen_state != Screen.BROWSER:
+                    return
                 idx = self.nav_list.take_tap_index()
-                if idx is not None:
+                if idx is not None and self.screen_state == Screen.BROWSER:
                     self._select_nav_index(idx)
                 elif not was_mixer:
                     self._handle_browser_tap(event.pos)
@@ -529,15 +785,22 @@ class TouchBrowserInputMixin:
                 pass
             elif self._picker_slider_channel and self.screen_state == Screen.THEME:
                 self._apply_picker_slider_channel(self._picker_slider_channel, event.pos)
-            elif self._slider_dragging:
-                if not self._brightness_drag_moved:
-                    self._brightness_drag_moved = True
-                    self._brightness_last_tap_time = 0.0
-                screen_slider = self._panel_local_to_screen(
-                    self.brightness_slider_rect, scrolled=True
-                )
-                self._apply_brightness(self._brightness_from_x(event.pos[0], screen_slider))
+            elif (
+                self.screen_state == Screen.THEME
+                and self._theme_view() == THEME_VIEW_COLORS
+            ):
+                self._theme_colors_scroll.pointer_move(event.pos)
             elif self.screen_state == Screen.SETTINGS:
                 self._sync_settings_scroll_viewport()
                 self._settings_content_scroll.pointer_move(event.pos)
+                if self._settings_content_scroll.scroll_gesture_active:
+                    self._touch_press.clear()
+            elif self.screen_state == Screen.WIFI_MODAL:
+                self._handle_wifi_modal_pointer_move(event.pos)
+            elif self.screen_state == Screen.SURGE_BUFFER_MODAL:
+                self._handle_surge_buffer_modal_pointer_move(event.pos)
+            elif self.screen_state == Screen.MIDI_SYNC_MODAL:
+                self._handle_midi_sync_modal_pointer_move(event.pos)
+            elif self.screen_state == Screen.BRIGHTNESS_MODAL:
+                self._handle_brightness_modal_pointer_move(event.pos)
             self._handle_mixer_motion(event.pos)

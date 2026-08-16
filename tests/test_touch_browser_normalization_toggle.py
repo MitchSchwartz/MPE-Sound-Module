@@ -21,7 +21,7 @@ class _NormHost(TouchBrowserPatchesMixin, TouchBrowserNormalizationMixin):
         self.loader.normalization = mock.Mock()
         self.loader.normalization.is_globally_enabled.return_value = True
         self.loader.normalization.is_enabled.return_value = False
-        self.loader.normalization.patch_key.side_effect = lambda name: name
+        self.loader.normalization.refs_match.return_value = True
         self.loader.normalization.get_raw_gain_db.return_value = 6.0
         self.surge_monitor = mock.Mock()
         self.volume_level = 1.0
@@ -56,7 +56,12 @@ class NormToggleReloadTests(unittest.TestCase):
 
         host._toggle_normalization()
 
-        host.loader.normalization.set_enabled.assert_called_once_with("Acid", True)
+        host.loader.normalization.set_enabled.assert_called_once_with(
+            "Acid",
+            True,
+            patch_path="/patches/Bass/Acid.fxp",
+            stable_key=None,
+        )
         host.loader.load_patch.assert_not_called()
         host.loader.refresh_patch_volume.assert_called_once_with("Acid")
         self.assertEqual(host.layout_calls, 1)

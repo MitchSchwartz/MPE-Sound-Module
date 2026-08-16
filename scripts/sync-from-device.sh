@@ -37,6 +37,13 @@ echo ""
 echo "Syncing user data..."
 scp -i "$SSH_KEY" "$PI_USER@$PI_HOST:.local/share/Surge\ XT/SurgeXTUserDefaults.xml" \
     "$ASSETS/user-data/" 2>/dev/null && echo "  ✓ SurgeXTUserDefaults.xml" || echo "  (not found)"
+scp -i "$SSH_KEY" "$PI_USER@$PI_HOST:.patch_browser_favorites.json" \
+    "$ASSETS/user-data/patch_browser_favorites.json" 2>/dev/null \
+    && echo "  ✓ patch_browser_favorites.json" || echo "  (favorites index not found)"
+
+echo ""
+echo "For full Quick Select tree + index snapshots in git, run:"
+echo "  bash scripts/backup-quick-select.sh"
 
 echo ""
 echo "Syncing user-created patches..."
