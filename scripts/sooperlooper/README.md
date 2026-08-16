@@ -29,8 +29,46 @@ is stale — those files are gone.
 | **0** (bottom) | 0–7 | 0–7 | Clip pads |
 | **3** | 24–31 | 8–15 | Clip pads |
 | 1, 2, 4–7 | — | — | Per-loop controllers (future) |
+| **Faders 1–8** | CC 48–55 | column: N *and* N+8 | Loop level |
+| **Master fader** | CC 56 | all 16 | Loop-mix master |
 
 Mapping: `apc_grid.py` · 16-pad footswitch: `../sooperlooper-apc-bench.py` (rows 0 + 3)
+
+**Faders:** one fader per grid *column*, so fader N moves both clips stacked in
+that column (loop N on row 0 and loop N+8 on row 3). Eight faders cover all 16
+loops with no bank button. This is a starting semantic, not the final one —
+per-loop control needs either banking or the reserved controller rows.
+
+⚠️ **CC numbers unverified against hardware.** They are resolved per variant in
+`apc_faders.py` (mirroring how `apc_transport.py` resolves Shift/Stop-All, which
+*do* differ between mk1 and mk2). Confirm with `--dump-midi` and move each fader.
+
+**Master = loops only.** It scales the loop mix, not the live synth: the
+audio graph runs `Surge → system:playback` in parallel with
+`Surge → SooperLooper → common_out → playback`, and the live path must fail open
+(DECISIONS.md). Live level stays on the per-patch Vol fader on the touch screen.
+**The master is arithmetic, not a bus control.** An engine-global `/set wet`
+would be the obvious mapping, but every global this system sends is a *setting*
+(`tempo`, `sync_source`, `fade_samples`) — nothing has ever written a level at
+engine scope, so that control is unproven, and OSC drops a message to a control
+the engine lacks in silence. So the master is a factor in `wet_for()` and moves
+all 16 loops over per-loop `wet`, which is proven live. Loops sum into
+`common_out` through plain `jack_connect` with no gain or limiter stage, so
+scaling all 16 is exactly equal to scaling the bus. One master move is 16 OSC
+messages, capped by the same coalescer as the rest.
+
+**Faders don't move on their own.** They have no motors, so at startup their
+physical positions mean nothing. Levels are seeded from the engine's reported
+`wet`. The first touch **anchors** relative pickup (no jump); movement after
+that applies delta from where you grabbed. Output is smoothed (~45 ms default,
+`MPE_APC_FADER_SMOOTH_MS`) so fast drags track cleanly.
+
+Level composition lives in one place, `loop_mix.wet_for()`:
+`wet = taper(user gain) × taper(master) × auto_law(active loops)`. The three
+contributions meet in one multiply, always recomputed in full from state we own,
+so nothing compounds. The `loop_gain/N` backstop
+(DECISIONS.md) is off by default (`MPE_SL_LOOP_GAIN_LAW=1`); the point of the
+seam is that nothing else ever writes `wet`.
 
 **Grid sync:** two states, not a pile of settings — `set_grid_active(active=)`.
 Off until the first take lands (so it records instantly), then on for every clip
