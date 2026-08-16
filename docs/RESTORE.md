@@ -44,7 +44,13 @@ Public repo, HTTPS, **anonymous** — no credential needed or wanted.
 
 ### 3. Audio stack
 
-Surge XT (see [`SURGE_ARM_BUILD.md`](SURGE_ARM_BUILD.md)) and sooperlooper 1.7.9. Budget hours, not minutes. Consider building on a faster machine and copying the artifacts if the instrument is needed sooner.
+Surge XT (see [`SURGE_ARM_BUILD.md`](SURGE_ARM_BUILD.md)) and sooperlooper 1.7.9. Budget hours, not minutes.
+
+**Shortcut: keep the built binary.** Of the 238 MB under `~/surge`, the hours of compilation produce exactly one artifact — `build/surge_xt_products/surge-xt-cli`, **25 MB**. The other 214 MB is `resources/` (wavetables, factory content), which is *data from the source checkout* and costs no build time. So a restore only needs the 25 MB binary plus an upstream source extract, turning hours into minutes.
+
+> **⚠️ Do not attach that binary to a public GitHub Release.** Surge XT is **GPL-3.0**. Publishing a compiled binary is redistribution and carries the corresponding-source obligation; bolting a GPL binary onto releases of this (differently licensed) repo is sloppy at best.
+>
+> The goal here is *restore speed*, not distribution — so keep the artifact **private**: a copy on the laptop, an external drive, or the spare SD card. Same minutes-instead-of-hours benefit, no licensing question. Record its Surge version and build date alongside it, or you will not know what you are restoring.
 
 ### 4. Config
 
@@ -76,7 +82,23 @@ git clone git@github.com:MitchSchwartz/MPE-Library.git ~/MPE-Library
 
 Private repo — needs a **read-only deploy key** ([`PI-GITHUB-ACCESS.md`](PI-GITHUB-ACCESS.md)), not a PAT.
 
-> **Unresolved:** on the live appliance `~/MPE-Library` is a plain directory, **not a git checkout**, holding 279 MB. Whether it contains anything absent from the private remote is **unknown**. Resolve this before relying on this step — if the Pi copy is authoritative for any asset, that asset currently exists in exactly one place.
+**✅ RESOLVED 2026-08-16 — the library is backed up.** Compared by git blob hash against the private remote (`2572c06`, "Quick Select backup 2026-08-08"):
+
+| Measure | Count |
+|---|---|
+| Paths on the Pi but not the remote | 241 |
+| …after Unicode normalisation | 241 |
+| **…whose *content* is absent from the remote entirely** | **2** |
+| Files differing in content between Pi and remote | **0** |
+
+**239 of the 241 are the same patch data stored under different paths** — the Quick Access set exists upstream, organised differently. Comparing paths gives an alarming number; comparing content gives the truth. Only two are genuinely unique:
+
+- `assets/…/.DS_Store` — noise
+- **`assets/user-data/custom-patches.tar.gz`** — 7 KB, dated 2026-07-18, six entries, containing one real custom patch: `Patches/Mitch/Church - Mod.fxp`
+
+**Action:** commit that tarball (or the patch inside it) to `MPE-Library` and this gap closes completely. Until then it is the only creative work on the appliance that exists nowhere else — and it is 7 KB.
+
+The Pi copy being a plain directory rather than a checkout is therefore a tidiness issue, not a data-loss risk.
 
 ### 7. Calibration
 
