@@ -2,7 +2,7 @@ import unittest
 
 import loop_mix
 from apc_faders import CC_MAX, MASTER
-from loop_mix import CoalescingSender, LoopMix, fader_taper
+from loop_mix import PICKUP_TOLERANCE_CC, CoalescingSender, LoopMix, fader_taper
 
 
 def _picked_up(mix, fader):
@@ -81,6 +81,17 @@ class Pickup(unittest.TestCase):
         self.assertEqual(mix.messages_for(0, 10), [])
         self.assertTrue(mix.messages_for(0, CC_MAX))
         self.assertTrue(mix.messages_for(0, 10))  # now live
+
+    def test_a_fader_resting_at_the_bottom_escapes_by_sweeping_to_the_top(self):
+        # The actual state after every bench restart: gains seeded at CC_MAX
+        # while the physical fader is wherever it was left. With a tolerance of
+        # a couple of CC steps that fader is inert across nearly all of its
+        # travel, and only full travel frees it. Defensible, but it is the
+        # behaviour the README has to describe, so pin it.
+        mix = LoopMix()
+        for raw in range(0, CC_MAX - PICKUP_TOLERANCE_CC):
+            self.assertEqual(mix.messages_for(0, raw), [], f"wrote early at {raw}")
+        self.assertTrue(mix.messages_for(0, CC_MAX))
 
     def test_suppressed_movement_does_not_change_stored_gain(self):
         mix = LoopMix()

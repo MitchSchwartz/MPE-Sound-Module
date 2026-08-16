@@ -47,12 +47,21 @@ per-loop control needs either banking or the reserved controller rows.
 audio graph runs `Surge → system:playback` in parallel with
 `Surge → SooperLooper → common_out → playback`, and the live path must fail open
 (DECISIONS.md). Live level stays on the per-patch Vol fader on the touch screen.
-The engine-side control name is `MPE_SL_MASTER_CONTROL` — also unverified.
+⚠️ **The master fader may be inert until its control name is confirmed.** Every
+other `/set` in this repo is an engine *setting* (`tempo`, `sync_source`,
+`fade_samples`); nothing has ever written a level at engine scope, so a global
+`wet` is assumed, not known. If SooperLooper has no such control the message is
+dropped in silence — no error, no log. The bench therefore prints the path and
+control name the first time the master moves. Override with
+`MPE_SL_MASTER_CONTROL` once the real name is read off the SL source on the Pi.
 
 **Faders don't move on their own.** They have no motors, so at startup their
 physical positions mean nothing. Levels are seeded from the engine's reported
 `wet`, and a fader stays inert until it crosses the value it is supposed to be
-at. A fader that appears dead has not been picked up yet — sweep it.
+at. A fader that appears dead has not been picked up yet — **sweep it all the
+way to the top**, which is where levels sit until something lowers them. Until
+it crosses, a fader is inert across nearly all of its travel; that is pickup
+working, not a fault.
 
 Level composition lives in one place, `loop_mix.wet_for()`:
 `wet = taper(user gain) × auto_law(active loops)`. The `loop_gain/N` backstop
