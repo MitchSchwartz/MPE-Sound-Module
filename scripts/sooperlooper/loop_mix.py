@@ -137,7 +137,6 @@ class LoopMix:
     num_loops: int = 16
     mode: FaderMode = FaderMode.LEVEL
     user_gain: dict[int, int] = field(default_factory=dict)
-    master_gain: int = CC_MAX
     active_loops: int = 0
     _picked_up: set[FaderId] = field(default_factory=set)
     # Where each fader must cross before it may write. Held per fader rather
@@ -159,13 +158,21 @@ class LoopMix:
     def seed_from_engine(self, loop: int, wet: float) -> None:
         """Adopt the engine's reported level as truth for this loop.
 
-        Called from the OSC state listener. Re-arms pickup: the stored value
-        moved, so whatever the physical fader is resting at no longer matches
-        it and must be crossed again before it may write.
+        Called from the OSC state listener, which streams `wet` continuously —
+        so the common case is the engine echoing back a value we just set. That
+        must be a no-op. Re-arming pickup on every echo would leave every fader
+        permanently inert, since a fader can never cross a target that moves to
+        meet it 10 times a second.
+
+        A value we did *not* ask for is different: something else changed the
+        level, our stored gain is stale, and the physical fader is now lying
+        about it. Adopt it and make the fader earn control back.
         """
         if loop not in self.user_gain:
             return
         cc = _wet_to_cc(wet, PARAMETERS[self.mode])
+        if abs(cc - self.user_gain[loop]) <= PICKUP_TOLERANCE_CC:
+            return
         self.user_gain[loop] = cc
         for col in range(8):
             if loop in loops_for_column(col):
@@ -185,7 +192,9 @@ class LoopMix:
         """(path, args) to send for this fader movement. [] if suppressed."""
         raw = max(0, min(CC_MAX, int(raw)))
         if fader == MASTER:
-            self.master_gain = raw
+            # Nothing is stored: the master is a bus control, so it cannot take
+            # part in wet_for() composition, and there is no per-loop truth to
+            # seed it from. It is a straight pass-through by design.
             param = PARAMETERS[FaderMode.LEVEL]
             value = fader_taper(raw, floor_db=param.floor_db, ceil_db=param.ceil_db)
             return [("/set", [SL_MASTER_CONTROL, value])]
