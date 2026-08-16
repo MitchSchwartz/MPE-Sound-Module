@@ -82,7 +82,7 @@ fi
 # `mpe-yolo` is the sanctioned entrypoint: it targets the appliance's forced
 # command, which validates the token itself. Allowed by name here.
 if echo "$command" | grep -qE '(^|[;&|[:space:]])(ssh|scp|rsync|sftp)([[:space:]]|$)'; then
-  deny "YOLO guardrail: raw ssh/scp/rsync/sftp blocked — use 'mpe-yolo <token>' for the appliance"
+  deny "YOLO guardrail: raw ssh/scp/rsync/sftp blocked — use 'mpe-pi <cmd>' or 'mpe-yolo <token>'"
 fi
 if echo "$command" | grep -qE '(^|[;&|[:space:]])sudo[[:space:]]+apt'; then
   deny "YOLO guardrail: sudo apt on appliance/host is Mitch-only"
