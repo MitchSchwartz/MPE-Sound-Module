@@ -20,10 +20,10 @@ from apc_footswitch import (  # noqa: E402
     reset_all_loops,
     stop_all_loops,
 )
-from apc_faders import fader_for_cc, is_control_change, resolve_fader_ccs  # noqa: E402
+from apc_faders import MASTER, fader_for_cc, is_control_change, resolve_fader_ccs  # noqa: E402
 from apc_grid import NUM_LOOPS, loop_index_for_note  # noqa: E402
 from apc_transport import ShiftHoldCombo, resolve_apc_transport_notes  # noqa: E402
-from loop_mix import CoalescingSender, LoopMix  # noqa: E402
+from loop_mix import SL_MASTER_CONTROL, CoalescingSender, LoopMix  # noqa: E402
 from sl_bench_listener import SlBenchStateListener  # noqa: E402
 from sl_grid_state import GridState, display_bpm  # noqa: E402
 from sl_grid_sync import (  # noqa: E402
@@ -240,10 +240,26 @@ def main() -> int:
         """
         faders.flush(now=time.monotonic())
 
+    master_announced = False
+
     def handle_cc(cc: int, value: int) -> None:
+        nonlocal master_announced
         fader = fader_for_cc(cc, loop_fader_ccs=loop_fader_ccs, master_cc=master_cc)
         if fader is None:
             return
+        if fader == MASTER and not master_announced:
+            # UNVERIFIED: every other /set in this repo is an engine setting
+            # (tempo, sync_source, fade_samples) — nothing has ever written a
+            # level at engine scope. If SooperLooper has no global control by
+            # this name the message is dropped in silence, and the symptom is
+            # "the master fader does nothing". Say what we are sending, once,
+            # so that failure is readable instead of mysterious.
+            master_announced = True
+            print(
+                f"faders: master -> /set {SL_MASTER_CONTROL} "
+                f"(control name unverified against the engine)",
+                flush=True,
+            )
         faders.submit(mix.messages_for(fader, value), now=time.monotonic())
 
     def maybe_track_transport() -> None:
