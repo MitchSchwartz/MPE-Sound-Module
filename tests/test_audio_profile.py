@@ -16,15 +16,35 @@ class AudioProfileTests(unittest.TestCase):
         self.assertEqual(audio_profile.normalize_profile(None), "standalone")
         self.assertEqual(audio_profile.normalize_profile("garbage"), "standalone")
 
-    def test_normalize_profile_usb_host(self) -> None:
-        self.assertEqual(audio_profile.normalize_profile("usb-host"), "usb-host")
+    def test_normalize_profile_usb_host_session(self) -> None:
+        self.assertEqual(audio_profile.normalize_profile("usb-host-session"), "usb-host-session")
 
-    @mock.patch.dict(os.environ, {"MPE_AUDIO_PROFILE": "usb-host"}, clear=False)
+    def test_profile_option_labels(self) -> None:
+        self.assertEqual(audio_profile.profile_option_label("standalone"), "Analog")
+        self.assertEqual(audio_profile.profile_option_label("usb-host-session"), "USB session")
+
+    @mock.patch.dict(
+        os.environ,
+        {"MPE_ENV_FILE": "", "MPE_AUDIO_PROFILE": "usb-host-session"},
+        clear=False,
+    )
+    def test_header_badge_usb_session(self) -> None:
+        self.assertEqual(audio_profile.header_badge_label(), "USB")
+
+    @mock.patch.dict(
+        os.environ,
+        {"MPE_ENV_FILE": "", "MPE_AUDIO_PROFILE": "usb-host"},
+        clear=False,
+    )
     def test_header_badge_usb(self) -> None:
         self.assertEqual(audio_profile.header_badge_label(), "USB")
         self.assertTrue(audio_profile.settings_toggle_on())
 
-    @mock.patch.dict(os.environ, {"MPE_AUDIO_PROFILE": "standalone"}, clear=False)
+    @mock.patch.dict(
+        os.environ,
+        {"MPE_ENV_FILE": "", "MPE_AUDIO_PROFILE": "standalone"},
+        clear=False,
+    )
     def test_header_badge_analog(self) -> None:
         self.assertEqual(audio_profile.header_badge_label(), "Analog")
         self.assertFalse(audio_profile.settings_toggle_on())

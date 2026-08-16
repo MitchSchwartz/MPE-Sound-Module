@@ -44,9 +44,9 @@ The MPE Sound Module today outputs audio only through a **Creative Sound Blaster
                               [Sound Blaster Play! 3] ──USB host (Pi USB-A)──► 3.5 mm analog out
 ```
 
-**Key scripts:** `scripts/detect-audio-device.sh` (tiered output selection), `scripts/start-surge-cli.sh` (`--audio-interface`, `MPE_SURGE_BUFFER_SIZE` default 1024 @ 44.1 kHz), `config/99-usb-audio.rules` (restart Surge on USB sound card hot-plug).
+**Key scripts:** `scripts/detect-audio-device.sh` (tiered output selection), `scripts/start-surge-cli.sh` (`--audio-interface`, `MPE_SURGE_BUFFER_SIZE` default 1024, `MPE_SURGE_SAMPLE_RATE` default 48000 Hz), `config/99-usb-audio.rules` (restart Surge on USB sound card hot-plug).
 
-**Sample rate:** Surge/ALSA path tuned for **44.1 kHz** (see `docs/PATCH_NORMALIZATION.md`). Gadget should advertise **44100** as primary rate to avoid resampling on host or Pi.
+**Sample rate:** Surge/ALSA path tuned for **48 kHz** (see `docs/PATCH_NORMALIZATION.md`). Gadget should advertise **48000** as primary rate to avoid resampling on host or Pi.
 
 ---
 
@@ -91,7 +91,7 @@ Official guidance ([RPi OTG app note](https://pip-assets.raspberrypi.com/categor
 
 ### Clock master
 
-In gadget playback (Pi → host), the **USB host typically clocks the isochronous stream** (host is master). Surge/ALSA on the Pi should run at a fixed **44100 Hz** matching gadget `p_srate`. Mismatch causes resampling or periodic underruns. Phase 0 spike must log `dmesg` + `aplay -l` and confirm stable playback without drift over several minutes.
+In gadget playback (Pi → host), the **USB host typically clocks the isochronous stream** (host is master). Surge/ALSA on the Pi should run at a fixed **48000 Hz** matching gadget `p_srate`. Mismatch causes resampling or periodic underruns. Phase 0 spike must log `dmesg` + `aplay -l` and confirm stable playback without drift over several minutes.
 
 ### Composite MIDI + audio?
 
@@ -123,12 +123,12 @@ When switching profiles, **restart `surge-xt-cli`** (same pattern as `99-usb-aud
 
 ## Latency expectations
 
-| Stage | Approx. contribution @ 44.1 kHz |
+| Stage | Approx. contribution @ 48 kHz |
 |-------|----------------------------------|
-| Surge buffer (`MPE_SURGE_BUFFER_SIZE=1024`) | ~23 ms |
+| Surge buffer (`MPE_SURGE_BUFFER_SIZE=1024`, standalone default) | ~21 ms |
 | ALSA → gadget | Part of Surge callback (same buffer if direct) |
 | USB isochronous + host buffer | ~10–30 ms typical (host-dependent) |
-| **Desk tether total (estimate)** | **~35–60 ms** |
+| **Desk tether total (estimate)** | **~40–65 ms** |
 
 **Implication:** Fine for patch editing, demos, recording, casual listening at desk. **Do not position as low-latency MPE monitor path through laptop speakers** — standalone Sound Blaster remains the performance path.
 
@@ -145,7 +145,7 @@ For desk use, document that **headphones on the Sound Blaster** still win for pl
 | Step | Action |
 |------|--------|
 | 0.1 | On reference Pi (Pi 5 preferred if that's primary BOM), enable `dtoverlay=dwc2,dr_mode=peripheral`, `libcomposite` |
-| 0.2 | Deploy configfs script: `uac2.usb0` stereo, `p_srate=44100`, `p_ssize=2` (16-bit) or `4` (32-bit) — match Surge format |
+| 0.2 | Deploy configfs script: `uac2.usb0` stereo, `p_srate=48000`, `p_ssize=2` (16-bit) or `4` (32-bit) — match Surge format |
 | 0.3 | Confirm gadget ALSA card appears: `aplay -l`, `surge-xt-cli --list-devices` |
 | 0.4 | Start Surge manually with `--audio-interface=<gadget-id>` while Roli + touch/OLED UI run — log xruns under typical MPE load |
 | 0.5 | Tether to **one Windows or Linux desk PC** via USB-A→USB-C; confirm host lists playback device and audio is audible |

@@ -26,6 +26,17 @@ mpe_read_appliance_env_var() {
 
 # Reload runtime profile from the appliance env file.
 mpe_source_appliance_env() {
+    if [ -n "${MPE_ENV_FILE+x}" ]; then
+        if [ -n "$MPE_ENV_FILE" ] && [ -f "$MPE_ENV_FILE" ]; then
+            # shellcheck disable=SC1091
+            set -a
+            source "$MPE_ENV_FILE"
+            set +a
+        fi
+        MPE_AUDIO_PROFILE="${MPE_AUDIO_PROFILE:-standalone}"
+        export MPE_AUDIO_PROFILE
+        return 0
+    fi
     if [ ! -f /etc/mpe/mpe.env ]; then
         return 0
     fi
@@ -73,22 +84,19 @@ mpe_enable_patch_browser_ui() {
 mpe_enable_usb_audio_gadget() {
     # shellcheck source=lib/gadget-persist.sh
     source "$SCRIPT_DIR/lib/gadget-persist.sh"
-    # Boot sync must not `start` units that After=surge-xt-cli — deadlock before Surge is up.
-    local start_watchdog=1
-    if [ "${MPE_BOOT_PROFILE_SYNC:-0}" = "1" ]; then
-        start_watchdog=0
-    fi
+    # Host-route watcher starts after Surge via surge-xt-cli.service ExecStartPost
+    # (start-uac2-watchdog-if-needed.sh). Never start it here — boot sync and profile
+    # switches both run before Surge is listening.
 
-    if [ "${MPE_AUDIO_PROFILE:-standalone}" = "usb-host" ]; then
+    if [ "${MPE_AUDIO_PROFILE:-standalone}" = "usb-host" ] \
+        || [ "${MPE_AUDIO_PROFILE:-standalone}" = "usb-host-session" ]; then
         sudo systemctl enable --now usb-audio-gadget.service 2>/dev/null || true
         sudo systemctl enable uac2-stall-watchdog.service 2>/dev/null || true
-        if [ "$start_watchdog" -eq 1 ]; then
-            sudo systemctl start uac2-stall-watchdog.service 2>/dev/null || true
-        fi
-        echo "  USB audio gadget: enabled (MPE_AUDIO_PROFILE=usb-host)"
-        echo "  UAC2 stall watchdog: enabled"
+        echo "  USB audio gadget: enabled (MPE_AUDIO_PROFILE=${MPE_AUDIO_PROFILE})"
+        echo "  UAC2 host-route watcher: enabled (starts after Surge)"
     else
         sudo systemctl disable --now uac2-stall-watchdog.service 2>/dev/null || true
+        sudo systemctl disable --now mic-to-uac2-bridge.service 2>/dev/null || true
         if mpe_gadget_persist_enabled; then
             sudo systemctl enable --now usb-audio-gadget.service 2>/dev/null || true
             echo "  USB audio gadget: kept bound (MPE_USB_GADGET_PERSIST=1; Surge on analog)"
@@ -106,7 +114,12 @@ mpe_enable_audio_profile_sync() {
 mpe_enable_core_services() {
     mpe_enable_usb_audio_gadget
     mpe_enable_audio_profile_sync
+    sudo systemctl enable mpe-cpu-governor.service 2>/dev/null || true
+    sudo systemctl enable --now mpe-jackd.service 2>/dev/null || true
     sudo systemctl enable --now mpe-pressure-remap.service 2>/dev/null || true
+    if [ "$(mpe_read_appliance_env_var MPE_MIDI_CLOCK_IN_ENABLED 2>/dev/null || echo 1)" = "1" ]; then
+        sudo systemctl enable --now midi-clock-in.service 2>/dev/null || true
+    fi
     sudo systemctl enable --now surge-poly-governor.service 2>/dev/null || true
     sudo systemctl enable --now surge-xt-cli.service 2>/dev/null || true
     sudo systemctl enable surge-watchdog.service 2>/dev/null || true

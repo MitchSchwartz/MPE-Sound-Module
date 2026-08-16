@@ -1,0 +1,15 @@
+{
+  // Project autoRun only — do NOT add terminalAllowlist here (locks Auto-review when merged with ~/.cursor/permissions.json).
+  "autoRun": {
+    "allow_instructions": [
+      "mpe subcommands (ping, status, logs, osc-check, diagnose, sysinfo, test, midi-list, pull-videos, record, restart, looper) are the approved laptop → Pi path for MPE-Module work.",
+      "Unit tests: use mpe test [local|pi] [suite] only — python3 is globally blocked by ~/.cursor/hooks/block-python.sh.",
+      "Read-only mpe ops (ping, status, logs, osc-check, diagnose, sysinfo, test, midi-list, pull-videos without --delete-source) are safe without extra approval."
+    ],
+    "block_instructions": [
+      "Do not run raw ssh, scp, or rsync to the MPE Pi when an mpe subcommand exists.",
+      "Do not edit ~/.config/mpe/mpe.env or mpe-cli bin/commands/lib without explicit user approval.",
+      "mpe restart, mpe looper deploy|restart, mpe record, and mpe pull-videos --delete-source change device state — prefer read-only mpe ops first."
+    ]
+  }
+}

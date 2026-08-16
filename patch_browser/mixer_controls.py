@@ -12,6 +12,7 @@ from patch_browser.patch_hold import (
     DEFAULT_HOLD_MULT,
     HOLD_OFFSET_MAX,
     HOLD_OFFSET_MIN,
+    PatchHoldStore,
     clamp_hold_offset,
     hold_mult_to_offset,
     hold_offset_to_mult,
@@ -26,6 +27,7 @@ from patch_browser.patch_pressure import (
     touch_fader_to_offset,
     touch_fader_value,
 )
+from patch_browser.patch_sidecar_key import sidecar_kwargs_from_patch
 from patch_browser.touch_ui_constants import DEFAULT_VOLUME, VOLUME_MAX, VOLUME_MIN
 
 
@@ -59,10 +61,15 @@ class MixerControl(Protocol):
 def sync_pressure_live(browser, floor: float | None = None) -> None:
     if not browser.detail_patch:
         return
-    name = browser.detail_patch["name"]
+    patch = browser.detail_patch
+    kw = sidecar_kwargs_from_patch(patch)
     store = browser.loader.pressure
-    eff = store.get_effective_floor(name) if floor is None else float(floor)
-    store.write_live_state(name, eff)
+    eff = (
+        store.get_effective_floor(patch["name"], **kw)
+        if floor is None
+        else float(floor)
+    )
+    store.write_live_state(patch["name"], eff, **kw)
 
 
 def _format_hold_offset(value: float) -> str:
@@ -116,7 +123,10 @@ class TailControl:
     def read(self, browser) -> float:
         if not browser.detail_patch:
             return 0.0
-        mult = browser.loader.hold.get_effective_hold_mult(browser.detail_patch["name"])
+        kw = sidecar_kwargs_from_patch(browser.detail_patch)
+        mult = browser.loader.hold.get_effective_hold_mult(
+            browser.detail_patch["name"], **kw
+        )
         return hold_mult_to_offset(mult)
 
     def default(self, browser) -> float:
@@ -125,33 +135,29 @@ class TailControl:
     def write(self, browser, value: float, *, persist: bool) -> None:
         if not browser.detail_patch:
             return
-        name = browser.detail_patch["name"]
+        patch = browser.detail_patch
+        kw = sidecar_kwargs_from_patch(patch)
+        name = patch["name"]
         store = browser.loader.hold
         clamped = hold_offset_to_mult(value)
         if abs(clamped - DEFAULT_HOLD_MULT) < 0.02:
-            store.clear_user_hold_mult(name, persist=persist)
+            store.clear_user_hold_mult(name, persist=persist, **kw)
         else:
-            store.set_user_hold_mult(name, clamped, persist=persist)
+            store.set_user_hold_mult(name, clamped, persist=persist, **kw)
         loaded = browser.loaded_patch_info
-        if (
-            loaded
-            and browser.loader.osc_enabled
-            and store.patch_key(loaded["name"]) == store.patch_key(name)
-        ):
+        if loaded and browser.loader.osc_enabled and PatchHoldStore.refs_match(loaded, patch):
             browser.loader.refresh_hold(name)
 
     def reset(self, browser) -> None:
         if not browser.detail_patch:
             return
-        name = browser.detail_patch["name"]
+        patch = browser.detail_patch
+        kw = sidecar_kwargs_from_patch(patch)
+        name = patch["name"]
         store = browser.loader.hold
-        store.clear_user_hold_mult(name)
+        store.clear_user_hold_mult(name, **kw)
         loaded = browser.loaded_patch_info
-        if (
-            loaded
-            and browser.loader.osc_enabled
-            and store.patch_key(loaded["name"]) == store.patch_key(name)
-        ):
+        if loaded and browser.loader.osc_enabled and PatchHoldStore.refs_match(loaded, patch):
             browser.loader.refresh_hold(name)
         browser._toast("Tail reset to 0", 1.5)
 
@@ -173,59 +179,69 @@ class NormControl:
         store = browser.loader.normalization
         if not store.is_globally_enabled():
             return False
-        return store.is_enabled(browser.detail_patch["name"])
+        kw = sidecar_kwargs_from_patch(browser.detail_patch)
+        return store.is_enabled(browser.detail_patch["name"], **kw)
 
     def read(self, browser) -> float:
         if not browser.detail_patch:
             return 0.0
         store = browser.loader.normalization
-        name = browser.detail_patch["name"]
-        effective = store.get_effective_gain_db(name)
+        patch = browser.detail_patch
+        kw = sidecar_kwargs_from_patch(patch)
+        name = patch["name"]
+        effective = store.get_effective_gain_db(name, **kw)
         if effective is not None:
             return max(self.spec.min_value, min(self.spec.max_value, effective))
-        default = store.get_slider_default_gain_db(name)
+        default = store.get_slider_default_gain_db(name, **kw)
         return max(self.spec.min_value, min(self.spec.max_value, default))
 
     def default(self, browser) -> float:
         if not browser.detail_patch:
             return 0.0
-        gain = browser.loader.normalization.get_slider_default_gain_db(browser.detail_patch["name"])
+        kw = sidecar_kwargs_from_patch(browser.detail_patch)
+        gain = browser.loader.normalization.get_slider_default_gain_db(
+            browser.detail_patch["name"], **kw
+        )
         return max(self.spec.min_value, min(self.spec.max_value, gain))
 
     def write(self, browser, value: float, *, persist: bool) -> None:
         if not browser.detail_patch:
             return
-        name = browser.detail_patch["name"]
+        patch = browser.detail_patch
+        kw = sidecar_kwargs_from_patch(patch)
+        name = patch["name"]
         store = browser.loader.normalization
-        default = store.get_slider_default_gain_db(name)
+        default = store.get_slider_default_gain_db(name, **kw)
         clamped = max(self.spec.min_value, min(self.spec.max_value, float(value)))
         if abs(clamped - default) < 0.05:
-            store.clear_user_gain_db(name, persist=persist)
+            store.clear_user_gain_db(name, persist=persist, **kw)
         else:
-            store.set_user_gain_db(name, clamped, persist=persist)
+            store.set_user_gain_db(name, clamped, persist=persist, **kw)
         loaded = browser.loaded_patch_info
         if (
             loaded
             and browser.loader.osc_enabled
-            and store.patch_key(loaded["name"]) == store.patch_key(name)
+            and store.refs_match(loaded, patch)
         ):
             browser.loader.refresh_patch_volume(name)
 
     def reset(self, browser) -> None:
         if not browser.detail_patch:
             return
-        name = browser.detail_patch["name"]
+        patch = browser.detail_patch
+        kw = sidecar_kwargs_from_patch(patch)
+        name = patch["name"]
         store = browser.loader.normalization
-        store.clear_user_gain_db(name)
-        default = store.get_slider_default_gain_db(name)
+        store.clear_user_gain_db(name, **kw)
+        default = store.get_slider_default_gain_db(name, **kw)
         loaded = browser.loaded_patch_info
         if (
             loaded
             and browser.loader.osc_enabled
-            and store.patch_key(loaded["name"]) == store.patch_key(name)
+            and store.refs_match(loaded, patch)
         ):
             browser.loader.refresh_patch_volume(name)
-        if store.get_calibrated_gain_db(name) is not None:
+        if store.get_calibrated_gain_db(name, **kw) is not None:
             browser._toast(f"Level reset to {default:+.1f} dB", 1.5)
         else:
             browser._toast("Level reset to 0 dB", 1.5)
@@ -249,40 +265,49 @@ class TouchControl:
         if not browser.detail_patch:
             return 0.0
         store = browser.loader.pressure
-        name = browser.detail_patch["name"]
-        baseline = store.get_slider_default_floor(name)
-        offset = store.get_user_touch_offset(name)
+        patch = browser.detail_patch
+        kw = sidecar_kwargs_from_patch(patch)
+        name = patch["name"]
+        baseline = store.get_slider_default_floor(name, **kw)
+        offset = store.get_user_touch_offset(name, **kw)
         return touch_fader_value(baseline, offset)
 
     def default(self, browser) -> float:
         if not browser.detail_patch:
             return 0.0
         store = browser.loader.pressure
-        return cal_floor_to_touch_anchor(store.get_slider_default_floor(browser.detail_patch["name"]))
+        kw = sidecar_kwargs_from_patch(browser.detail_patch)
+        return cal_floor_to_touch_anchor(
+            store.get_slider_default_floor(browser.detail_patch["name"], **kw)
+        )
 
     def write(self, browser, value: float, *, persist: bool) -> None:
         if not browser.detail_patch:
             return
-        name = browser.detail_patch["name"]
+        patch = browser.detail_patch
+        kw = sidecar_kwargs_from_patch(patch)
+        name = patch["name"]
         store = browser.loader.pressure
-        baseline = store.get_slider_default_floor(name)
+        baseline = store.get_slider_default_floor(name, **kw)
         offset = touch_fader_to_offset(value, baseline)
         if abs(offset) < TOUCH_OFFSET_CLEAR_EPSILON:
-            store.clear_user_touch_offset(name, persist=persist)
+            store.clear_user_touch_offset(name, persist=persist, **kw)
         else:
-            store.set_user_touch_offset(name, offset, persist=persist)
+            store.set_user_touch_offset(name, offset, persist=persist, **kw)
         sync_pressure_live(browser)
 
     def reset(self, browser) -> None:
         if not browser.detail_patch:
             return
-        name = browser.detail_patch["name"]
+        patch = browser.detail_patch
+        kw = sidecar_kwargs_from_patch(patch)
+        name = patch["name"]
         store = browser.loader.pressure
-        store.clear_user_touch_offset(name)
-        cal_floor = store.get_slider_default_floor(name)
+        store.clear_user_touch_offset(name, **kw)
+        cal_floor = store.get_slider_default_floor(name, **kw)
         sync_pressure_live(browser, cal_floor)
         cal_display = cal_floor_to_touch_anchor(cal_floor)
-        if store.get_calibrated_floor(name) is not None:
+        if store.get_calibrated_floor(name, **kw) is not None:
             browser._toast(f"Touch reset to {_format_touch_display(cal_display)}", 1.2)
         else:
             browser._toast("Touch reset", 1.2)

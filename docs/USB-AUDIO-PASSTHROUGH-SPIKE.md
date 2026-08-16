@@ -1,8 +1,10 @@
 # USB audio passthrough — Phase 0 spike results
 
-*Last updated: 2026-07-31 (America/Toronto)*
+*Last updated: 2026-08-05 (America/Toronto)*
 
 Engineering spike for Pi → host UAC2 passthrough (`MPE_AUDIO_PROFILE=usb-host`). Full plan: **[USB-AUDIO-PASSTHROUGH-PLAN.md](USB-AUDIO-PASSTHROUGH-PLAN.md)**. Operator guide: **[USB-AUDIO-HOST.md](USB-AUDIO-HOST.md)**.
+
+**Reference hardware:** **Pi 4 Model B** (live unit).
 
 Run on Pi: `./scripts/usb-host-verify.sh`
 
@@ -29,6 +31,7 @@ Run on Pi: `./scripts/usb-host-verify.sh`
 
 1. ~~Host capture silent during normal Surge play~~ — **fully root-caused 2026-08-02: a Surge/JUCE ALSA writer stall.** See §Writer stall below. The 2026-07-31 PD-power finding was a *separate, real* fault that masked this one; with the UDC reading `configured`, the stall is what remained.
 2. **Boot with USB-C tethered** — early boot hang if host connected before kernel ready; see [PI-BOOT-RECOVERY.md](PI-BOOT-RECOVERY.md).
+3. **Host capture left open blocks aux (2026-08-05)** — In `usb-host` profile, any open host capture stream (Reaper armed, PipeWire link in qpwgraph, or ALSA capture default → gadget) keeps Surge on UAC2; Sound Blaster aux stays silent until capture fully closes. Fix: disarm DAW, remove stray PipeWire links, use explicit `pcm.mpe_pi` only (`config/host/asoundrc.mpe-pi`). See [USB-AUDIO-HOST.md](USB-AUDIO-HOST.md) §Host quirks.
 
 ---
 
@@ -40,7 +43,7 @@ Run on Pi: `./scripts/usb-host-verify.sh`
 
 **Why:** Raspberry Pi's official OTG app note is explicit about this — power the Pi via GPIO 5V/GND, "leaving the USB-C free" for the host data connection. Pi 4's USB-C port has no real ID-pin dual-role detection; when a PD-negotiating power source and a `dwc2` peripheral-mode data session share the same port, CC-line role negotiation can get stuck and `dwc2` never receives a clean attach event. This is a documented Pi 4 hardware limitation (see community writeups on Pi4 Type-C VBUS/CC conflicts), not a cable, seating, or Surge/ALSA issue — no amount of cable swapping or software config resolves it.
 
-**Fix required (blocked on hardware, as of 2026-07-31):** Power the Pi via GPIO 5V/GND from a dedicated supply, independent of the USB-C cable carrying gadget data to the host. Until then, USB-host passthrough is not usable when the Pi's only power source is a USB-C PD dock on the same port.
+**Fix required (Pi 4):** Power the Pi via **GPIO 5V/GND or official PSU**, independent of the USB-C cable carrying gadget data to the host. Do not rely on a PD dock on the same USB-C port used for gadget data.
 
 ---
 
@@ -52,6 +55,6 @@ MPE_AUDIO_PROFILE=usb-host ./scripts/usb-host-verify.sh
 ./scripts/test-audio-detection.sh
 
 # Linux host (after arecord -l shows card N)
-arecord -D hw:N,0 -f S16_LE -r 44100 -c 2 -d 5 /tmp/mpe-capture.wav
+arecord -D hw:N,0 -f S16_LE -r 48000 -c 2 -d 5 /tmp/mpe-capture.wav
 sox /tmp/mpe-capture.wav -n stat  # expect non-zero RMS on tone test
 ```

@@ -11,7 +11,7 @@ mpe_gadget_persist_enabled() {
 # Start/bind the gadget when routing to the host OR when persist keeps the link up.
 mpe_gadget_should_bind() {
     case "${MPE_AUDIO_PROFILE:-standalone}" in
-        usb-host) return 0 ;;
+        usb-host | usb-host-session) return 0 ;;
     esac
     mpe_gadget_persist_enabled
 }
