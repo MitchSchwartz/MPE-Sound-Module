@@ -1,62 +1,88 @@
-# Pi GitHub access (classic PAT)
+# Pi GitHub access
 
-The Pi pulls **`MPE-Sound-Module`** (and **`MPE-Library`** when cloned) over **HTTPS** with a **classic personal access token** stored root-owned under `/etc/mpe/`. It does **not** use MitchSchwartz SSH keys or the **M-Ferda** machine account.
+**Status:** The appliance holds **no GitHub credential**. This is deliberate and is the correct state.
 
-| Identity | Role |
-|----------|------|
-| **Laptop** | MitchSchwartz — SSH or gh, full owner |
-| **Pi (`mitch`)** | Classic PAT — **pull only** in practice; stored in `/etc/mpe/git-credentials` |
-| **Racknerd (`om-yolo`)** | Separate OneCLI `github-mpe-module` secret — not the Pi PAT |
+*Last updated: 2026-08-16 (America/Toronto) — replaces the classic-PAT procedure.*
 
-## Create the classic token (GitHub UI)
+**Related:** [`racknerd-pi-access-spec.md`](racknerd-pi-access-spec.md) · [`scripts/setup-pi-github-pat.sh`](../scripts/setup-pi-github-pat.sh) (deprecated, refuses to run)
 
-1. GitHub → **Settings** → **Developer settings** → **Personal access tokens** → **Tokens (classic)** → **Generate new token (classic)**.
-2. **Note:** `mpe-pi-git-pull`
-3. **Expiration:** pick one (90d / 1y — calendar reminder to rotate).
-4. **Scopes:** **`repo`** (required for private `git pull` with classic tokens; there is no read-only classic scope for private repos).
-5. Generate and copy the token once (`ghp_…`).
+---
 
-Do **not** paste the token in chat, argv, or git.
+## Current state
 
-## Install on the Pi
+| Identity | GitHub access | How |
+|---|---|---|
+| **Laptop** (MitchSchwartz) | Full owner | SSH / `gh` |
+| **Pi (`mitch`)** | **None** | `MPE-Sound-Module` is public — HTTPS pulls anonymously |
+| **Racknerd** (agent) | Vaulted PAT | OneCLI `github-mpe-module`; the token never lands on disk |
 
-From the laptop (token in env var, not history):
+Verify the Pi needs nothing:
 
 ```bash
-cd ~/Documents/GitHub/MPE-Module
-printf '%s' "$GITHUB_TOKEN" | ssh mitch@raspberrypi2.local \
-  'sudo bash -s -- --stdin' < scripts/setup-pi-github-pat.sh
+ssh mitch@raspberrypi2.local 'git -C ~/MPE-Module fetch origin --dry-run'
 ```
 
-Or on the Pi after pulling this script:
+Appliance git config, as of 2026-08-16:
+
+```
+origin  https://github.com/MitchSchwartz/MPE-Sound-Module.git (fetch)
+origin  DISABLED (push)
+credential.helper: unset (local and global)
+~/.ssh: authorized_keys only — no private keys, known_hosts empty
+```
+
+`push` is deliberately disabled. The appliance is a deploy target; it has no reason to publish. This is mistake-prevention, not a control — `mitch` can reset the URL — but it costs nothing.
+
+---
+
+## What changed and why
+
+The Pi previously held a **classic PAT** at `/etc/mpe/git-credentials` (mode 640, `root:mitch`), installed by `setup-pi-github-pat.sh`. Audited 2026-08-16 and removed. Three reasons, in order of weight:
+
+1. **It was unnecessary.** `MPE-Sound-Module` is public. `git pull` over HTTPS needs no credential, so the token bought nothing.
+2. **It granted write, broadly.** Live scopes were `public_repo, repo:status, repo_deployment`. **`public_repo` is write access to every public repository on the account** — classic tokens cannot be scoped to a single repo. A Pi compromise meant pushing to any public repo Mitch owns.
+3. **It was readable by the wrong user.** Mode 640 `root:mitch` means `mitch` reads it — and agent-authored test code runs as `mitch` on this appliance (see [`racknerd-pi-access-spec.md`](racknerd-pi-access-spec.md)). The credential sat inside the blast radius of the thing it needed protecting from.
+
+Removed rather than scoped down, on the principle applied throughout the Racknerd work: **capability absent beats capability forbidden.** A narrower token still has to be stored, rotated, and kept out of reach. No token has none of those problems.
+
+Actions taken: token revoked in GitHub · `/etc/mpe/git-credentials` deleted · `credential.helper` unset local and global · push URL disabled · `setup-pi-github-pat.sh` changed to refuse to run.
+
+---
+
+## If a private repo is ever needed on the Pi
+
+`MPE-Library` **is private**. As of 2026-08-16 `~/MPE-Library` exists on the appliance as a plain directory — **not a git checkout** — so nothing was broken by the credential removal. If it is ever cloned there:
+
+**Use a read-only deploy key. Not a PAT.**
 
 ```bash
-printf '%s' "$GITHUB_TOKEN" | sudo ./scripts/setup-pi-github-pat.sh --local --stdin
+# On the Pi
+ssh-keygen -t ed25519 -C "mpe-pi-readonly-$(date +%Y-%m)" -f ~/.ssh/mpe_pi_library_ro
+cat ~/.ssh/mpe_pi_library_ro.pub
 ```
 
-Verify:
+GitHub → **MPE-Library** → Settings → **Deploy keys** → Add deploy key. Paste the public key. **Leave "Allow write access" unchecked.** Date the title so age is visible without cross-referencing.
 
-```bash
-ssh mitch@raspberrypi2.local \
-  'GIT_TERMINAL_PROMPT=0 git -C ~/MPE-Module ls-remote origin HEAD'
-```
+Then point that repo — and only that repo — at the SSH URL.
 
-## Retire M-Ferda (manual, after PAT works)
+Why a deploy key rather than a fine-grained PAT:
 
-1. **MPE-Sound-Module** → Settings → Collaborators → remove **M-Ferda**.
-2. **MPE-Library** → same (if that repo is still used on the Pi).
-3. **M-Ferda** account → Settings → SSH keys → delete Pi device keys.
-4. On Pi: remove `~/.ssh/config` `Host github.com` block if present (optional cleanup).
+| | Read-only deploy key | Fine-grained PAT (read-only) |
+|---|---|---|
+| Scope | One repository, by construction | Selected repos, by configuration |
+| Ceiling | Clone/fetch that repo | Whatever the issuing account can reach, narrowed by scope |
+| GitHub API | **None** | Yes, within scope — can enumerate repo, issues, Actions metadata |
+| Revocation | Delete the key on the repo | Revoke the token on the account |
 
-**Keep `om-yolo`** — Racknerd YOLO uses it via OneCLI; that path is unrelated to Pi `git pull`.
+The deploy key's limits are structural; the PAT's are configured. Prefer the structural one.
 
-## Rotation
+Do **not** reuse it for `MPE-Sound-Module`, which needs no credential at all.
 
-1. Generate a new classic token.
-2. Re-run `setup-pi-github-pat.sh`.
-3. Revoke the old token in GitHub.
+---
 
-## Related
+## Anti-patterns — do not reintroduce
 
-- Maintainer history: OM-Repo `internal/projects/mpe-synth-launch/maintainer/PI-GITHUB-ISOLATION.md` (superseded by this doc for Pi auth).
-- Racknerd deploy boundary: `docs/racknerd-pi-access-spec.md` — Pi `git checkout` only via future `mpe-yolo-remote.sh` deploy tokens + `pi_soak` gate.
+- **A classic PAT anywhere on the appliance.** No per-repo scoping exists; `repo` and `public_repo` are both far wider than "pull one repo."
+- **Any credential readable by `mitch`.** Agent code runs as that user. Until the `mpe-agent` split lands (see the spec), assume anything `mitch` can read is agent-reachable.
+- **A credential for a public repo.** Anonymous HTTPS already works.
+- **Blocking outbound SSH from the Pi as a substitute.** It breaks `git pull` in the deploy scripts and is not enforceable anyway — `mitch` has sudo and can flush any local firewall rule. Remove the credential instead; then there is nothing for an egress rule to protect.
