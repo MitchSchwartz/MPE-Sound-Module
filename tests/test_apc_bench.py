@@ -82,7 +82,9 @@ class FaderDispatchTests(unittest.TestCase):
         self.mix = LoopMix(num_loops=16)
         self.sent: list = []
         self.faders = CoalescingSender(
-            lambda path, args: self.sent.append((path, args)), interval_s=0.0
+            lambda path, args: self.sent.append((path, args)),
+            interval_s=0.0,
+            smooth_tau_s=0.0,
         )
         self._fader_for_cc = fader_for_cc
 
@@ -93,12 +95,12 @@ class FaderDispatchTests(unittest.TestCase):
         if fader is None:
             return
         self.faders.submit(self.mix.messages_for(fader, value), now=now)
-        self.faders.flush(now=now)
+        self.faders.tick(now=now)
 
     def test_a_fader_drives_both_loops_of_its_column(self) -> None:
-        self.feed(self.ccs[2], 127)  # cross pickup
+        self.feed(self.ccs[2], 64)  # anchor
         self.sent.clear()
-        self.feed(self.ccs[2], 64)
+        self.feed(self.ccs[2], 50)
         self.assertEqual([p for p, _ in self.sent], ["/sl/2/set", "/sl/10/set"])
 
     def test_master_drives_every_loop(self) -> None:
@@ -110,10 +112,10 @@ class FaderDispatchTests(unittest.TestCase):
         self.assertEqual(self.sent, [])
 
     def test_first_touch_does_not_jump_the_level(self) -> None:
-        # Faders have no motors: at startup their position is unknown, so an
-        # uncrossed fader must not write.
-        self.feed(self.ccs[0], 0)
+        self.feed(self.ccs[0], 40)
         self.assertEqual(self.sent, [])
+        self.feed(self.ccs[0], 30)
+        self.assertTrue(self.sent)
 
 
 if __name__ == "__main__":

@@ -29,10 +29,10 @@ loop is re-emitted rather than nudged.
 **Physical position is not truth.** The faders have no motors, so they send
 nothing until moved and their positions at startup are unknown. Taking the
 first CC at face value means the first touch of a fader mid-jam jumps the level
-— loud, and exactly when you least want it. So gains are seeded from what the
-engine reports, and a fader is ignored until it *crosses* the value it is
-supposed to be at (pickup). Until then it is a lie about a number we already
-know.
+— loud, and exactly when you least want it. So the first CC *anchors* relative
+pickup (no level change); movement after that applies delta from the anchor
+against the stored column level. Output wet is smoothed toward the target so
+fast drags and misaligned surfaces do not step or jump.
 """
 
 from __future__ import annotations
@@ -60,6 +60,10 @@ PICKUP_TOLERANCE_CC = int(os.environ.get("MPE_APC_FADER_PICKUP_CC", "2"))
 # Engine `wet` echoes include master and auto-law — compare composed level,
 # not per-column fader CC, or master moves corrupt user_gain.
 WET_ECHO_TOLERANCE = float(os.environ.get("MPE_APC_FADER_WET_ECHO", "1e-4"))
+
+# Output smoothing — one-pole follow toward target wet (0 = off).
+FADER_SMOOTH_MS = float(os.environ.get("MPE_APC_FADER_SMOOTH_MS", "45"))
+FADER_SMOOTH_SNAP = float(os.environ.get("MPE_APC_FADER_SMOOTH_SNAP", "0.004"))
 
 # Off by default: the backstop law is planned, not yet agreed as always-on.
 # The seam exists from the first commit so that turning it on is a config
@@ -141,12 +145,9 @@ class LoopMix:
     master_gain: int = CC_MAX
     active_loops: int = 0
     _picked_up: set[FaderId] = field(default_factory=set)
-    # Where each fader must cross before it may write. Held per fader rather
-    # than read off one of the column's loops, because the two loops in a
-    # column can legitimately disagree — the engine seeds them independently,
-    # and a single fader has no way to express the difference. Picking one
-    # loop's value arbitrarily would mean a seed on the other loop silently
-    # failed to re-arm anything.
+    # Relative pickup: first CC anchors; later CCs apply delta from here.
+    _pickup_anchor: dict[int, int] = field(default_factory=dict)
+    # Stored column level the relative delta is applied against.
     _pickup_ref: dict[int, int] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -187,6 +188,7 @@ class LoopMix:
         for col in range(8):
             if loop in loops_for_column(col):
                 self._picked_up.discard(col)
+                self._pickup_anchor.pop(col, None)
                 self._pickup_ref[col] = cc
 
     def _user_cc_from_composed_wet(self, loop: int, wet: float) -> int:
@@ -239,22 +241,28 @@ class LoopMix:
         if not loops:
             return []
 
-        if not self._accept(fader, raw, loops):
+        if not self._accept(fader, raw):
             return []
 
+        effective = self._effective_cc(fader, raw)
         for loop in loops:
-            self.user_gain[loop] = raw
-        self._pickup_ref[fader] = raw
+            self.user_gain[loop] = effective
+        self._pickup_ref[fader] = effective
         return [self._message_for_loop(loop) for loop in loops]
 
-    def _accept(self, fader: int, raw: int, loops: list[int]) -> bool:
-        """Pickup: a fader may write once it has crossed where it should be."""
-        if fader in self._picked_up:
+    def _accept(self, fader: int, raw: int) -> bool:
+        """Relative pickup: anchor on first touch, no jump; then delta applies."""
+        if fader in self._pickup_anchor:
             return True
-        if abs(raw - self._pickup_ref.get(fader, CC_MAX)) <= PICKUP_TOLERANCE_CC:
-            self._picked_up.add(fader)
-            return True
+        self._pickup_anchor[fader] = raw
+        self._picked_up.add(fader)
         return False
+
+    def _effective_cc(self, fader: int, raw: int) -> int:
+        """Map physical travel to column level via anchor + stored ref."""
+        anchor = self._pickup_anchor[fader]
+        ref = self._pickup_ref.get(fader, CC_MAX)
+        return max(0, min(CC_MAX, ref + (raw - anchor)))
 
     def _message_for_loop(self, loop: int) -> tuple[str, list]:
         param = PARAMETERS[self.mode]
@@ -296,36 +304,81 @@ def _wet_to_cc(wet: float, param: Parameter) -> int:
 
 
 class CoalescingSender:
-    """Rate-limits a dragging fader without ever losing where it stopped.
+    """Rate-limits OSC sends; optional wet smoothing for fader drags.
 
-    A fast drag produces a CC every few milliseconds; forwarding all of them
-    floods the engine. Dropping the *last* one is far worse than the flood
-    it prevents: the fader ends up physically somewhere the engine never heard
-    about, so the surface is lying about the level until the fader is touched
-    again. So intermediate values are dropped freely and the endpoint is always
-    flushed.
+    Targets update immediately on submit; ``tick`` ramps current wet toward
+    target with a one-pole filter so fast moves and misaligned pickup do not
+    step or jump. ``flush`` snaps to target (end of drag / idle).
     """
 
-    def __init__(self, send, *, interval_s: float = 0.02) -> None:
+    def __init__(
+        self,
+        send,
+        *,
+        interval_s: float = 0.02,
+        smooth_tau_s: float | None = None,
+        smooth_snap: float | None = None,
+    ) -> None:
         self._send = send
         self._interval_s = interval_s
-        self._pending: dict[str, list] = {}
-        # -inf, not 0.0: the caller's clock is monotonic and starts near zero,
-        # so a zero here makes the very first movement of a fader wait out a
-        # full interval. The first touch is exactly the one that must not be
-        # swallowed.
+        tau_ms = FADER_SMOOTH_MS
+        self._smooth_tau_s = (
+            smooth_tau_s if smooth_tau_s is not None else (tau_ms / 1000.0 if tau_ms > 0 else 0.0)
+        )
+        self._smooth_snap = smooth_snap if smooth_snap is not None else FADER_SMOOTH_SNAP
+        self._target_wet: dict[str, float] = {}
+        self._current_wet: dict[str, float] = {}
+        self._pending_meta: dict[str, list] = {}
         self._last_sent = float("-inf")
+        self._last_tick = float("-inf")
 
     def submit(self, messages: list[tuple[str, list]], *, now: float) -> None:
         for path, args in messages:
-            self._pending[path] = args
-        if (now - self._last_sent) >= self._interval_s:
-            self.flush(now=now)
+            self._pending_meta[path] = args
+            if len(args) >= 2 and args[0] == "wet":
+                target = float(args[1])
+                self._target_wet[path] = target
+                if path not in self._current_wet:
+                    self._current_wet[path] = target
+        if self._smooth_tau_s <= 0:
+            if (now - self._last_sent) >= self._interval_s:
+                self.flush(now=now)
+        else:
+            self.tick(now=now)
+
+    def tick(self, *, now: float) -> None:
+        if not self._target_wet or self._smooth_tau_s <= 0:
+            return
+        dt = now - self._last_tick if self._last_tick > float("-inf") else 0.0
+        self._last_tick = now
+        if dt <= 0:
+            return
+        alpha = 1.0 - math.exp(-dt / self._smooth_tau_s)
+        moved = False
+        for path, target in self._target_wet.items():
+            cur = self._current_wet.get(path, target)
+            if abs(target - cur) <= self._smooth_snap:
+                nxt = target
+            else:
+                nxt = cur + alpha * (target - cur)
+            if abs(nxt - cur) > 1e-6:
+                self._current_wet[path] = nxt
+                moved = True
+        if moved and (now - self._last_sent) >= self._interval_s:
+            self._emit_current(now=now)
 
     def flush(self, *, now: float) -> None:
-        if not self._pending:
+        if not self._target_wet and not self._pending_meta:
             return
-        for path, args in self._pending.items():
-            self._send(path, args)
-        self._pending.clear()
+        for path, target in self._target_wet.items():
+            self._current_wet[path] = target
+        self._emit_current(now=now)
+
+    def _emit_current(self, *, now: float) -> None:
+        if not self._current_wet:
+            return
+        for path, wet in self._current_wet.items():
+            meta = self._pending_meta.get(path, ["wet"])
+            control = meta[0] if meta else "wet"
+            self._send(path, [control, wet])
         self._last_sent = now
