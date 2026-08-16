@@ -233,7 +233,7 @@ The Pi is Debian, not Ubuntu — use the `raspbian`/`debian` path for its codena
 | No LAN pivot via Pi | Pi advertises no routes; `tag:racknerd-yolo` appears in no `autoApprovers` and in no grant naming a CIDR | No `192.168.x.x` from the VPS |
 | Mitch laptop → `tag:mpe-pi`:22 | Existing grant, unchanged | Admin unchanged |
 
-### Phase 1 execution log (2026-08-16) — ⚠️ ACL NOT YET ENFORCING
+### Phase 1 execution log (2026-08-16) — ✅ PHASE 1 EXITS CLEAN
 
 | Node | State |
 |---|---|
@@ -245,12 +245,18 @@ Probe results from Racknerd:
 | # | Probe | Required | Actual |
 |---|---|---|---|
 | 1 | `nc -z 100.76.137.72 22` | succeed | ✅ succeeded |
-| 2 | `nc -z 100.76.137.72 8099` **with a live listener** | **fail** | 🔴 **SUCCEEDED — port restriction not in effect** |
+| 2 | `nc -z 100.76.137.72 8099` **with a live listener** | **fail** | ✅ **timed out** — see history below |
 | 3 | `nc -z mpe-pi 22` (MagicDNS) | succeed | ✅ succeeded |
 | 4 | `ping 192.168.1.210` (LAN) | fail | ✅ 100% loss |
 | 5 | `PrimaryRoutes` on Racknerd | `None` | ✅ `None` |
 
-**Probe 2 is the finding.** `grants` and `acls` are **additive** in Tailscale policy. A default policy carries `"acls": [{"action":"accept","src":["*"],"dst":["*:*"]}]`; adding the port-scoped grants alongside it changes nothing, because the wildcard already permits everything. **Delete the `acls` allow-all block** and keep only `tagOwners` + `grants`. Phase 1 does not exit until probe 2 fails.
+**Probe 2 — history, because the first measurement was a real finding.** On the first run probe 2 **succeeded**, i.e. Racknerd reached an arbitrary non-SSH port on the Pi. `grants` and `acls` are **additive** in Tailscale policy: the default `"acls": [{"action":"accept","src":["*"],"dst":["*:*"]}]` was still present, so the port-scoped grants were decorative — the wildcard already permitted everything.
+
+**Fixed 2026-08-16** by deleting the allow-all `acls` block, leaving only `tagOwners` + `grants`. **Re-measured after the fix: probe 2 times out.** A timeout rather than `connection refused` is the signature of a filtered packet — a closed port refuses immediately — so the listener was demonstrably up and the ACL dropped the traffic. All probes above are post-fix values.
+
+> **Why the live listener matters.** Against a closed port, probe 2 would have failed for the wrong reason and been recorded as a pass. The whole point of holding a real listener open is that a blocked port and an unused port are otherwise indistinguishable.
+
+**Phase 1 exit criteria are met.** Layer 1 containment is in force and measured, not asserted.
 
 This is exactly why the negative probe requires a **live listener** (below). Against a closed port, probe 2 would have failed for the wrong reason and been recorded as a pass — a false green indistinguishable from the real thing.
 
