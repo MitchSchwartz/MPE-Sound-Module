@@ -123,7 +123,16 @@ def main() -> int:
             wet = got.get((n, "wet"))
             state = got.get((n, "state"))
             wet_s = "  --  " if wet is None else f"{wet:6.3f}"
-            state_s = "no reply" if state is None else STATE_NAMES.get(int(state), str(state))
+            if state is None:
+                state_s = "no reply"
+            else:
+                # An unmapped code prints as unknown(N), not as a bare float.
+                # Live on the appliance 14 of 16 loops read 20, which is not in
+                # sl_loop_states and which the engine source (unreadable from
+                # the agent account) would have to settle. A guessed label here
+                # is worse than an honest number: the bank protocol asserts on
+                # a state *changing*, and a wrong name reads as a false pass.
+                state_s = STATE_NAMES.get(int(state), f"unknown({int(state)})")
             print(f"loop {n:2d}  wet={wet_s}  state={state_s}")
 
     if missing:
