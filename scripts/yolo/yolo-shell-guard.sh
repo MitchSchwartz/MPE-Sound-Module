@@ -74,8 +74,15 @@ fi
 if echo "$command" | grep -qE '(^|[;&|[:space:]])mpe[[:space:]]+restart'; then
   deny "YOLO guardrail: mpe restart is blocked on nerdrack"
 fi
-if echo "$command" | grep -qE '(^|[;&|[:space:]])(ssh|scp|rsync)[^;|]*raspberrypi'; then
-  deny "YOLO guardrail: direct Pi SSH/SCP/rsync blocked — Pi is LAN-only"
+# Raw ssh/scp/rsync is denied outright, not just to a hostname. The old rule
+# keyed on the literal string "raspberrypi", so `ssh mitch@mpe-pi` — the
+# appliance's tailnet name, which now exists — sailed straight through. Any
+# hostname-specific rule is one rename away from being decorative.
+#
+# `mpe-yolo` is the sanctioned entrypoint: it targets the appliance's forced
+# command, which validates the token itself. Allowed by name here.
+if echo "$command" | grep -qE '(^|[;&|[:space:]])(ssh|scp|rsync|sftp)([[:space:]]|$)'; then
+  deny "YOLO guardrail: raw ssh/scp/rsync/sftp blocked — use 'mpe-yolo <token>' for the appliance"
 fi
 if echo "$command" | grep -qE '(^|[;&|[:space:]])sudo[[:space:]]+apt'; then
   deny "YOLO guardrail: sudo apt on appliance/host is Mitch-only"
