@@ -39,16 +39,31 @@ FAVORITES_NAME = SCANNER_CONFIG.favorites_name
 LAST_PATCH_FILE = Path.home() / ".patch_browser_last_patch.json"
 
 
+def _is_readable_dir(path: Path) -> bool:
+    """Probe a candidate directory without raising.
+
+    Path.is_dir() propagates PermissionError when a parent is unreadable, so a
+    plain `if candidate.is_dir()` crashes for any user who cannot traverse the
+    path — which is every user except the appliance owner. Probing for a
+    directory must treat "cannot tell" as "not there"; only the owner ever saw
+    this work.
+    """
+    try:
+        return path.is_dir()
+    except OSError:
+        return False
+
+
 def resolve_user_patches_dir() -> Path:
     """User patch library — env override, then Documents (PC), then Linux Surge default."""
     surge_docs = os.environ.get("MPE_SURGE_DOCS", "").strip()
     if surge_docs:
         candidate = Path(surge_docs) / "Patches"
-        if candidate.is_dir():
+        if _is_readable_dir(candidate):
             return candidate
 
     documents = Path.home() / "Documents" / "Surge XT" / "Patches"
-    if documents.is_dir():
+    if _is_readable_dir(documents):
         return documents
 
     linux_default = Path.home() / ".Surge Synth Team" / "Surge XT" / "Patches"
