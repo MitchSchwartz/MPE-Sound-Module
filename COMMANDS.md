@@ -451,4 +451,29 @@ backup          # Sync from device
 
 ---
 
+## Demo capture (touch UI)
+
+From your laptop — install **mpe-cli** (`./install.sh`), config in `~/.config/mpe/mpe.env`:
+
+```bash
+mpe ping
+mpe status
+mpe logs touch -n 80
+mpe osc-check
+mpe diagnose
+mpe sysinfo                # board, kernel, governor, Surge RT limits, block latency
+mpe restart surge          # or touch | all
+
+mpe record                  # SSH to Pi, record until Ctrl+C
+mpe record ~/mpe-demo.mkv 15
+mpe pull-videos               # → ./recordings/
+mpe pull-videos -o ~/Videos --delete-source
+```
+
+On the Pi directly: `./scripts/record-screen.sh` (see [docs/TOUCH_PATCH_BROWSER.md](docs/TOUCH_PATCH_BROWSER.md)).
+
+Allowlist / pattern: [OM-Repo appliance-cli-pattern](https://github.com/opsMachine/OM-Repo/blob/main/Docs/appliance-cli-pattern.md) · [MPE-Module AGENTS.md](AGENTS.md) § Pi CLI.
+
+---
+
 See [docs/BACKUP_GUIDE.md](docs/BACKUP_GUIDE.md) for detailed backup procedures and troubleshooting.

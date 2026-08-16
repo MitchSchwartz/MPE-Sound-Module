@@ -92,6 +92,8 @@ from patch_browser.patch_pressure import (  # noqa: E402
     resolve_light_touch_target,
 )
 from patch_browser.patch_loader import PatchLoader
+from patch_browser.patch_sidecar_key import resolve_storage_key
+from patch_browser.surge_audio import DEFAULT_BUFFER, DEFAULT_SAMPLE_RATE  # noqa: E402
 from patch_browser.patch_scanner import (
     FAVORITES_NAME,
     PatchScanner,
@@ -320,6 +322,11 @@ def collect_patch_paths(args: argparse.Namespace) -> list[Path]:
     return result
 
 
+def patch_path_records(paths: list[Path]) -> list[dict]:
+    """Shape expected by PatchNormalizationStore.list_missing."""
+    return [{"name": p.stem, "path": str(p)} for p in paths]
+
+
 def find_surge_midi_port(*, announce: bool = True) -> int | None:
     try:
         import rtmidi
@@ -412,8 +419,8 @@ def start_surge_loopback() -> str:
         raise RuntimeError(f"Surge CLI not found: {cli}")
     ensure_snd_aloop()
     interface = resolve_surge_loopback_interface(cli)
-    buffer_size = os.environ.get("MPE_SURGE_BUFFER_SIZE", "1024")
-    sample_rate = os.environ.get("MPE_SURGE_SAMPLE_RATE", "44100")
+    buffer_size = os.environ.get("MPE_SURGE_BUFFER_SIZE", str(DEFAULT_BUFFER))
+    sample_rate = os.environ.get("MPE_SURGE_SAMPLE_RATE", str(DEFAULT_SAMPLE_RATE))
     log_path = Path.home() / "surge-cli-calibration.log"
     with log_path.open("a") as log:
         log.write(
@@ -447,8 +454,8 @@ def start_surge_standalone() -> str:
     if not script.is_file():
         raise RuntimeError(f"detect-audio-device.sh not found: {script}")
     interface = resolve_surge_standalone_interface(cli, detect_script=script)
-    buffer_size = os.environ.get("MPE_SURGE_BUFFER_SIZE", "1024")
-    sample_rate = os.environ.get("MPE_SURGE_SAMPLE_RATE", "44100")
+    buffer_size = os.environ.get("MPE_SURGE_BUFFER_SIZE", str(DEFAULT_BUFFER))
+    sample_rate = os.environ.get("MPE_SURGE_SAMPLE_RATE", str(DEFAULT_SAMPLE_RATE))
     log_path = Path.home() / "surge-cli-calibration.log"
     with log_path.open("a") as log:
         log.write(
@@ -996,13 +1003,22 @@ def main() -> int:
         return 1
 
     store = PatchNormalizationStore(output_path)
+    store.set_patch_dirs(SURGE_PATCH_DIRS)
     pressure_path = args.pressure_output or default_pressure_path()
     touch_cal = not args.no_touch_cal
+    patch_records = patch_path_records(patch_paths)
     if args.force or args.mock_lufs is not None:
         targets = patch_paths
     else:
-        missing = store.list_missing([p.stem for p in patch_paths])
-        targets = [p for p in patch_paths if p.stem in missing]
+        missing_keys = set(store.list_missing(patch_records))
+        targets = [
+            p
+            for p in patch_paths
+            if resolve_storage_key(
+                p.stem, patch_path=str(p), patch_dirs=SURGE_PATCH_DIRS
+            )
+            in missing_keys
+        ]
 
     print(f"Output: {output_path}")
     capture_label = audio_device if audio_device else "(resolved after Surge restart)"
@@ -1017,7 +1033,7 @@ def main() -> int:
         print(f"Scope: folder {args.folder!r}")
     else:
         print("Scope: all scanned patches")
-    missing_count = len(store.list_missing([p.stem for p in patch_paths]))
+    missing_count = len(store.list_missing(patch_records))
     print(
         f"Targets: {len(targets)} patch(es) ({len(patch_paths)} in scope, "
         f"{missing_count} missing entries"

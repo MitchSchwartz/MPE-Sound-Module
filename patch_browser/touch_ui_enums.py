@@ -12,6 +12,14 @@ class Screen(Enum):
     CALIBRATE_CONFIRM = auto()
     POWER_MENU = auto()
     POWER_CONFIRM = auto()
+    SURGE_BUFFER_MODAL = auto()
+    SURGE_SAMPLE_RATE_MODAL = auto()
+    AUDIO_PROFILE_MODAL = auto()
+    BRIGHTNESS_MODAL = auto()
+    WIFI_MODAL = auto()
+    MIDI_SYNC_MODAL = auto()
+    CONTEXT_MENU = auto()
+    NAME_PROMPT = auto()
 
 
 class CalibrateMode(Enum):
@@ -28,6 +36,6 @@ class LeftNavMode(Enum):
 
 
 def audio_profile_display() -> str:
-    from patch_browser.audio_profile import settings_toggle_label
+    from patch_browser.audio_profile import profile_settings_label
 
-    return settings_toggle_label()
+    return profile_settings_label()

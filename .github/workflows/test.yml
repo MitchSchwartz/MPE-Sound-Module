@@ -24,7 +24,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Install shellcheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+      - name: Shellcheck scripts
+        run: shellcheck -S error -x scripts/*.sh scripts/lib/*.sh
       - name: Run shell tests
         run: |
-          bash tests/test_gadget_persist.sh
-          bash tests/test_prepare_dsi_display.sh
+          for t in tests/test_*.sh; do
+            bash "$t"
+          done

@@ -26,6 +26,10 @@
 - **test-audio-detection.sh** - Test 4-tier audio fallback system
 - **check-surge-mode.sh** - Verify CLI/GUI mode state
 
+### Capture Scripts
+- **record-screen.sh** - On-Pi touch UI capture (laptop: use **`mpe record`** from [mpe-cli](https://github.com/MitchSchwartz/mpe-cli))
+- **build-patch-metadata-baseline.py** - Regenerate `data/patch_metadata_baseline.json` from local Surge patch dirs (auto-uses sibling `../MPE-Library` when present; else `~/surge` paths)
+
 ### Setup Scripts
 - **setup-power-button.sh** - Configure GPIO power button (8-second hold to shutdown)
 - **setup-touch-pi.sh** - SmartiPi touch Pi: apt deps, udev rules, `MPE_UI_MODE=touch` services

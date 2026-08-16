@@ -1,0 +1,66 @@
+"""Clock state for the touch patch browser header HUD.
+
+Two sources, not one — the name predates the second. External MIDI clock
+(`~/.mpe_midi_clock_state.json`) drives the tempo readout; the SooperLooper HUD
+state (`~/.mpe_sl_hud_state.json`) drives the bar/beat sweep. The looper's grid
+is SL's own internal tempo, not MIDI clock and not JACK transport — see
+`Documents/specs/looper-transport-clock-spec.md` §K.
+"""
+
+from __future__ import annotations
+
+import threading
+import time
+
+from patch_browser.midi_clock import read_clock_state, stabilize_display_bpm
+from patch_browser.sl_hud_state import read_sl_hud_state
+
+POLL_INTERVAL_S = 0.2
+
+
+class LooperClockMonitor:
+    """Background reader for ~/.mpe_midi_clock_state.json (midi-clock-in daemon)."""
+
+    def __init__(self, *, poll_interval: float = POLL_INTERVAL_S) -> None:
+        self.poll_interval = poll_interval
+        self._lock = threading.Lock()
+        self._snapshot = read_clock_state()
+        self._display_bpm: int | None = self._snapshot.get("bpm")
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+
+    def start(self) -> None:
+        if self._thread and self._thread.is_alive():
+            return
+        self._stop.clear()
+        self._thread = threading.Thread(
+            target=self._worker,
+            daemon=True,
+            name="LooperClockMonitor",
+        )
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._stop.set()
+        if self._thread:
+            self._thread.join(timeout=1.0)
+
+    def snapshot(self) -> dict:
+        with self._lock:
+            return dict(self._snapshot)
+
+    def _worker(self) -> None:
+        while not self._stop.wait(self.poll_interval):
+            snap = read_clock_state()
+            raw = snap.get("bpm")
+            if raw is None:
+                self._display_bpm = None
+            elif isinstance(raw, (int, float)):
+                self._display_bpm = stabilize_display_bpm(float(raw), self._display_bpm)
+            snap = dict(snap)
+            snap["bpm"] = self._display_bpm
+            sl = read_sl_hud_state()
+            if sl:
+                snap["sl"] = sl
+            with self._lock:
+                self._snapshot = snap

@@ -95,7 +95,7 @@ echo "[2/5] Checking if push to GitHub is needed..."
 if git rev-parse --verify origin/main >/dev/null 2>&1 || git rev-parse --verify origin/master >/dev/null 2>&1; then
     # Check if local is ahead of remote
     LOCAL=$(git rev-parse @ 2>/dev/null)
-    REMOTE=$(git rev-parse @{u} 2>/dev/null 2>/dev/null || echo "")
+    REMOTE=$(git rev-parse @{u} 2>/dev/null || echo "")
     if [ -n "$REMOTE" ] && [ "$LOCAL" != "$REMOTE" ]; then
         echo "  Local branch is ahead of remote - pushing to GitHub..."
         if git push; then
