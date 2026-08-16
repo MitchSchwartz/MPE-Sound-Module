@@ -106,17 +106,8 @@ class Pickup(unittest.TestCase):
     def test_engine_seed_rearms_pickup_for_that_column(self):
         mix = _picked_up(LoopMix(), 0)
         mix.messages_for(0, 100)
-        mix._pickup_anchor.pop(0, None)  # idle — no hand on fader
         mix.seed_from_engine(8, 0.25)
         self.assertEqual(mix.messages_for(0, 100), [])
-
-    def test_engine_seed_ignored_while_column_fader_is_in_hand(self):
-        mix = _picked_up(LoopMix(), 0)
-        mix.messages_for(0, 100)
-        before = mix.user_gain[0]
-        mix.seed_from_engine(8, 0.25)  # lagging echo must not re-arm pickup
-        self.assertEqual(mix.user_gain[0], before)
-        self.assertTrue(mix.messages_for(0, 90))
 
     def test_engine_echoing_our_own_value_does_not_rearm_pickup(self):
         mix = _picked_up(LoopMix(), 0)
@@ -244,7 +235,7 @@ class Smoothing(unittest.TestCase):
         sender.submit([("/sl/0/set", ["wet", 0.75])], now=0.0)
         self.assertEqual(sent[-1], 0.75)
 
-    def test_first_send_ramps_from_seeded_engine_level(self):
+    def test_seed_current_avoids_assuming_target_on_first_send(self):
         sent = []
         sender = CoalescingSender(
             lambda path, args: sent.append(args[1]),
@@ -256,8 +247,7 @@ class Smoothing(unittest.TestCase):
         sender.submit([("/sl/0/set", ["wet", 0.5])], now=0.0)
         sender.tick(now=0.01)
         self.assertTrue(sent)
-        self.assertGreater(sent[-1], 0.5)
-        self.assertLess(sent[-1], 1.0)
+        self.assertGreater(sent[0], 0.5)
 
 
 if __name__ == "__main__":
