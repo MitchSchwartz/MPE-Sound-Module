@@ -8,11 +8,12 @@ integers and assert on the returned messages.
 Three rules hold this together.
 
 **State lives per (loop, parameter), never on the fader.** A fader is a
-write-only *view* onto a set of loops. Fader 0 writes loops 0 and 8 because
-apc_grid.loops_for_column(0) says those share the column — not because the
-fader owns them. This is what keeps the future cheap: banking, per-loop
-deviation, a touch-screen mixer and "this fader means pan now" are all new
-views over the same store rather than a rewrite of it.
+write-only *view* onto a set of loops. Fader 0 writes the track in column 0 because
+the current GridView says that column shows that track — not because the fader
+owns it. This is what keeps banking cheap: moving the viewport rebinds all
+eight faders and touches no stored level. Per-loop deviation, a touch-screen
+mixer and "this fader means pan now" are the same move — new views over one
+store rather than a rewrite of it.
 
 **`wet` is derived, never modified.** SooperLooper's per-loop `wet` has two
 claimants: the user's fader, and the `loop_gain/N` backstop law planned in
@@ -43,7 +44,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 
 from apc_faders import CC_MAX, MASTER, FaderId
-from apc_grid import loops_for_column
+from apc_grid import DEFAULT_VIEW, GridView
 
 # Bottom of fader travel must mean silence. A log taper cannot reach zero, so
 # the bottom of the range is snapped to it explicitly. Without this the fader
@@ -139,6 +140,9 @@ class LoopMix:
 
     num_loops: int = 16
     mode: FaderMode = FaderMode.LEVEL
+    # Which eight tracks the faders currently address. A view, not ownership:
+    # levels are stored per loop and survive every bank change.
+    view: GridView = DEFAULT_VIEW
     user_gain: dict[int, int] = field(default_factory=dict)
     # The master is a factor in the composition below, not a message of its
     # own. See messages_for() for why it is not an engine-global control.
@@ -154,7 +158,38 @@ class LoopMix:
         for loop in range(self.num_loops):
             self.user_gain.setdefault(loop, CC_MAX)
         for col in range(8):
-            self._pickup_ref.setdefault(col, CC_MAX)
+            loops = self.view.loops_for_column(col)
+            self._pickup_ref.setdefault(
+                col, self.user_gain.get(loops[0], CC_MAX) if loops else CC_MAX
+            )
+
+    # -- banking ----------------------------------------------------------
+
+    def set_view(self, view: GridView) -> None:
+        """Rebind the eight faders to a new bank of tracks.
+
+        **Every fader anchor is dropped.** The faders have no motors, so after
+        a bank change fader 0 sits where the *old* track's level put it while
+        now addressing a track that may be somewhere else entirely. Applying
+        the next movement as a delta from the stale anchor would jump the new
+        track's level by the difference — the exact jump relative pickup was
+        built to prevent, and the bank change is precisely the moment the two
+        can disagree most. So the next touch of each fader re-anchors and
+        changes nothing, same as the first touch of the session.
+
+        Stored levels are untouched: tracks scrolled off-screen keep playing at
+        the level they were left at. Only the binding moved.
+        """
+        if view == self.view:
+            return
+        self.view = view
+        self._picked_up.clear()
+        self._pickup_anchor.clear()
+        for col in range(8):
+            loops = self.view.loops_for_column(col)
+            self._pickup_ref[col] = (
+                self.user_gain.get(loops[0], CC_MAX) if loops else CC_MAX
+            )
 
     # -- state seeding ----------------------------------------------------
 
@@ -186,7 +221,7 @@ class LoopMix:
             return
         self.user_gain[loop] = cc
         for col in range(8):
-            if loop in loops_for_column(col):
+            if loop in self.view.loops_for_column(col):
                 self._picked_up.discard(col)
                 self._pickup_anchor.pop(col, None)
                 self._pickup_ref[col] = cc
@@ -237,7 +272,7 @@ class LoopMix:
         if not isinstance(fader, int) or not 0 <= fader <= 7:
             return []
 
-        loops = [n for n in loops_for_column(fader) if n < self.num_loops]
+        loops = [n for n in self.view.loops_for_column(fader) if n < self.num_loops]
         if not loops:
             return []
 
