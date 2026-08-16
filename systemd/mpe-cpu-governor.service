@@ -1,0 +1,19 @@
+[Unit]
+Description=MPE pin CPU frequency governor from /etc/mpe/mpe.env
+Documentation=file:/home/mitch/MPE-Module/docs/LATENCY-SPIKE.md
+DefaultDependencies=no
+After=local-fs.target
+Before=surge-xt-cli.service
+ConditionPathExists=/etc/mpe/mpe.env
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+EnvironmentFile=-/etc/mpe/mpe.env
+ExecStart=/home/mitch/MPE-Module/scripts/set-cpu-governor.sh
+TimeoutStartSec=30
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
