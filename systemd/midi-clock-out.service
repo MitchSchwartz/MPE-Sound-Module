@@ -1,0 +1,21 @@
+[Unit]
+Description=MIDI clock output for external sync (e.g. Boss RC-5)
+After=sound.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=mitch
+WorkingDirectory=/home/mitch/MPE-Module
+EnvironmentFile=-/etc/mpe/mpe.env
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/home/mitch/MPE-Module/scripts/midi-clock-out.py
+Restart=on-failure
+RestartSec=2
+TimeoutStopSec=5
+KillMode=mixed
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
