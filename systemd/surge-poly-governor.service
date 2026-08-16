@@ -1,0 +1,21 @@
+[Unit]
+Description=Surge XT dynamic poly limit governor (CPU headroom)
+After=surge-xt-cli.service
+Wants=surge-xt-cli.service
+
+[Service]
+Type=simple
+User=mitch
+WorkingDirectory=/home/mitch/MPE-Module
+EnvironmentFile=-/etc/mpe/mpe.env
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/home/mitch/MPE-Module/scripts/surge-poly-governor.py
+Restart=on-failure
+RestartSec=2
+TimeoutStopSec=5
+KillMode=mixed
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
