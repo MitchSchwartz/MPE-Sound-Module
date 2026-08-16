@@ -93,6 +93,17 @@ class Pickup(unittest.TestCase):
         mix.seed_from_engine(8, 0.25)  # loop 8 is column 0
         self.assertEqual(mix.messages_for(0, 100), [])
 
+    def test_engine_echoing_our_own_value_does_not_rearm_pickup(self):
+        # `wet` streams continuously, so most updates are the engine repeating
+        # what we just set. Re-arming on those would leave every fader inert
+        # forever: it can never cross a target that keeps moving to meet it.
+        mix = _picked_up(LoopMix(), 0)
+        mix.messages_for(0, 100)
+        for _ in range(20):
+            mix.seed_from_engine(0, mix.wet_for(0))
+            mix.seed_from_engine(8, mix.wet_for(8))
+        self.assertTrue(mix.messages_for(0, 90))
+
     def test_engine_seed_round_trips_through_the_taper(self):
         mix = LoopMix()
         mix.seed_from_engine(0, 0.5)
