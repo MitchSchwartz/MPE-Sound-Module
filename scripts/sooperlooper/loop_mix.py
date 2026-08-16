@@ -181,12 +181,6 @@ class LoopMix:
             return
         if abs(wet - self.wet_for(loop)) <= WET_ECHO_TOLERANCE:
             return
-        # While a column fader is in hand, engine wet often lags our composed
-        # target — we update user_gain before OSC lands. Treat that as in-flight,
-        # not an external change, or pickup re-arms and the fader goes dead.
-        for col in range(8):
-            if loop in loops_for_column(col) and col in self._pickup_anchor:
-                return
         cc = self._user_cc_from_composed_wet(loop, wet)
         if abs(cc - self.user_gain[loop]) <= PICKUP_TOLERANCE_CC:
             return
@@ -339,7 +333,7 @@ class CoalescingSender:
         self._last_tick = float("-inf")
 
     def seed_current(self, path: str, wet: float) -> None:
-        """Set ramp start to engine truth before the first send on ``path``."""
+        """Start the ramp from engine truth — avoids a first-send crackle."""
         if path not in self._current_wet:
             self._current_wet[path] = max(0.0, min(1.0, float(wet)))
 
@@ -350,27 +344,12 @@ class CoalescingSender:
                 target = float(args[1])
                 self._target_wet[path] = target
                 if path not in self._current_wet:
-                    # Unseeded: assume engine already at target (tests / master).
                     self._current_wet[path] = target
         if self._smooth_tau_s <= 0:
             if (now - self._last_sent) >= self._interval_s:
                 self.flush(now=now)
         else:
-            if self._has_pending_motion():
-                self._prime_tick(now)
             self.tick(now=now)
-
-    def _has_pending_motion(self) -> bool:
-        for path, target in self._target_wet.items():
-            cur = self._current_wet.get(path, target)
-            if abs(target - cur) > self._smooth_snap:
-                return True
-        return False
-
-    def _prime_tick(self, now: float) -> None:
-        """Ensure the next tick has elapsed time so the first step emits."""
-        if self._last_tick == float("-inf") or (now - self._last_tick) <= 0:
-            self._last_tick = now - max(self._interval_s, 0.001)
 
     def tick(self, *, now: float) -> None:
         if not self._target_wet or self._smooth_tau_s <= 0:
@@ -391,9 +370,6 @@ class CoalescingSender:
                 self._current_wet[path] = nxt
                 moved = True
         if moved and (now - self._last_sent) >= self._interval_s:
-            self._emit_current(now=now)
-        elif self._has_pending_motion() and (now - self._last_sent) >= self._interval_s:
-            # Snap threshold can leave moved=False while target != current.
             self._emit_current(now=now)
 
     def flush(self, *, now: float) -> None:
