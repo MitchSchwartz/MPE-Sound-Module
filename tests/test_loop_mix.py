@@ -2,6 +2,7 @@ import unittest
 
 import loop_mix
 from apc_faders import CC_MAX, MASTER
+from apc_grid import GridView
 from loop_mix import CoalescingSender, LoopMix, fader_taper
 
 
@@ -34,15 +35,17 @@ class Taper(unittest.TestCase):
 
 
 class ColumnMapping(unittest.TestCase):
-    def test_fader_writes_both_loops_in_its_column(self):
+    def test_fader_writes_the_one_track_in_its_column(self):
         mix = _picked_up(LoopMix(), 3)
         paths = [p for p, _ in mix.messages_for(3, 100)]
-        self.assertEqual(paths, ["/sl/3/set", "/sl/11/set"])
+        self.assertEqual(paths, ["/sl/3/set"])
 
-    def test_fader_zero_writes_loops_zero_and_eight(self):
-        mix = _picked_up(LoopMix(), 0)
+    def test_fader_follows_the_bank(self):
+        mix = LoopMix()
+        mix.set_view(GridView(offset=8))
+        _picked_up(mix, 0)
         paths = [p for p, _ in mix.messages_for(0, 100)]
-        self.assertEqual(paths, ["/sl/0/set", "/sl/8/set"])
+        self.assertEqual(paths, ["/sl/8/set"])
 
     def test_loops_beyond_num_loops_are_not_addressed(self):
         mix = _picked_up(LoopMix(num_loops=8), 2)
@@ -106,8 +109,30 @@ class Pickup(unittest.TestCase):
     def test_engine_seed_rearms_pickup_for_that_column(self):
         mix = _picked_up(LoopMix(), 0)
         mix.messages_for(0, 100)
-        mix.seed_from_engine(8, 0.25)
+        mix.seed_from_engine(0, 0.25)
         self.assertEqual(mix.messages_for(0, 100), [])
+
+    def test_bank_change_rearms_every_fader(self):
+        # The faders have no motors: after a bank change fader 0 still sits
+        # where the old track's level left it, so the next move must re-anchor
+        # rather than apply a delta the new track never asked for.
+        mix = _picked_up(LoopMix(), 0)
+        mix.messages_for(0, 100)
+        mix.set_view(GridView(offset=8))
+        self.assertEqual(mix.messages_for(0, 20), [])  # anchors, no jump
+        self.assertTrue(mix.messages_for(0, 30))
+
+    def test_bank_change_keeps_stored_levels(self):
+        mix = _picked_up(LoopMix(), 0)
+        mix.messages_for(0, 60)
+        quiet = mix.user_gain[0]
+        mix.set_view(GridView(offset=8))
+        mix.set_view(GridView(offset=0))
+        self.assertEqual(mix.user_gain[0], quiet)
+        # ...and the re-armed fader picks up from that stored level, not unity.
+        mix.messages_for(0, 90)
+        self.assertEqual(mix.messages_for(0, 91)[0][0], "/sl/0/set")
+        self.assertEqual(mix.user_gain[0], quiet + 1)
 
     def test_engine_echoing_our_own_value_does_not_rearm_pickup(self):
         mix = _picked_up(LoopMix(), 0)
