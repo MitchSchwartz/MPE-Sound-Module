@@ -21,7 +21,7 @@ from apc_footswitch import (  # noqa: E402
     stop_all_loops,
 )
 from apc_faders import fader_for_cc, is_control_change, resolve_fader_ccs  # noqa: E402
-from apc_grid import NUM_LOOPS, loop_index_for_note  # noqa: E402
+from apc_grid import NUM_LOOPS, loop_index_for_note, loops_for_column  # noqa: E402
 from apc_transport import ShiftHoldCombo, resolve_apc_transport_notes  # noqa: E402
 from loop_mix import CoalescingSender, LoopMix  # noqa: E402
 from sl_bench_listener import SlBenchStateListener  # noqa: E402
@@ -240,6 +240,14 @@ def main() -> int:
         if fader is None:
             return
         now = time.monotonic()
+        if fader == MASTER:
+            affected = range(num_loops)
+        elif isinstance(fader, int):
+            affected = [n for n in loops_for_column(fader) if n < num_loops]
+        else:
+            affected = ()
+        for loop in affected:
+            faders.seed_current(f"/sl/{loop}/set", mix.wet_for(loop))
         faders.submit(mix.messages_for(fader, value), now=now)
         faders.tick(now=now)
 
