@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+# Run a command on the MPE appliance as the unprivileged `mpe-agent` user.
+#
+#   mpe-pi                                  # interactive-ish: prints what you can do
+#   mpe-pi journalctl -u surge-xt-cli -n 50
+#   mpe-pi 'cd ~/MPE-Module && ./.venv/bin/python -m pytest tests/ -q'
+#   mpe-pi sudo systemctl restart mpe-looper.service
+#
+# This is the working entrypoint for appliance tasks: running tests, driving
+# Surge over OSC, controlling sooperlooper, reading logs, restarting appliance
+# services. Use `mpe-yolo <token>` instead when you only need a quick read —
+# it goes through the appliance's forced-command wrapper and is harder to get
+# wrong.
+#
+# WHAT YOU CANNOT DO THROUGH THIS, BY DESIGN
+#
+#   - Reach the home LAN. mpe-agent's outbound traffic to 192.168/16, 10/8,
+#     172.16/12 and 169.254/16 is dropped by an owner-matched nftables rule
+#     (/etc/nftables-mpe-agent.nft). mpe-agent has no sudo to remove it.
+#   - Become root. No sudo except `systemctl {start,stop,restart,status,
+#     is-active}` on named appliance units.
+#   - Write /home/mitch/MPE-Module. Eleven systemd units execute from there,
+#     two as root. mpe-agent has its own checkout at ~/MPE-Module instead.
+#
+# Loopback and the tailnet stay open, so OSC to Surge (127.0.0.1:53280),
+# sooperlooper (127.0.0.1:9951) and JACK all work normally.
+
+set -euo pipefail
+
+PI_HOST="${MPE_PI_HOST:-100.76.137.72}"
+PI_USER="${MPE_PI_USER:-mpe-agent}"
+KEY="${MPE_PI_KEY:-$HOME/.ssh/mpe_yolo_ed25519}"
+
+if [ "$#" -eq 0 ]; then
+    cat <<EOF
+Usage: mpe-pi <command...>
+
+Runs on ${PI_USER}@appliance. Examples:
+
+  mpe-pi whoami
+  mpe-pi journalctl -u surge-xt-cli -n 50 --no-pager
+  mpe-pi 'cd ~/MPE-Module && ./.venv/bin/python -m pytest tests/ -q'
+  mpe-pi 'cd ~/MPE-Module && git pull'
+  mpe-pi sudo systemctl restart mpe-looper.service
+  mpe-pi python3 scripts/sooperlooper/…
+
+Read-only shortcuts (forced command, no shell):  mpe-yolo help
+EOF
+    exit 0
+fi
+
+if [ ! -r "$KEY" ]; then
+    echo "mpe-pi: ssh key not readable: $KEY" >&2
+    exit 1
+fi
+
+exec ssh \
+    -i "$KEY" \
+    -o IdentitiesOnly=yes \
+    -o StrictHostKeyChecking=accept-new \
+    -o ConnectTimeout=15 \
+    -o BatchMode=yes \
+    "${PI_USER}@${PI_HOST}" "$@"
