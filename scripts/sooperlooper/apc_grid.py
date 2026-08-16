@@ -41,6 +41,18 @@ def loop_index_for_note(note: int) -> int | None:
     return loop_index_for_pad(rc[0], rc[1])
 
 
+def loops_for_column(col: int) -> tuple[int, ...]:
+    """Loops sharing grid column `col`, top row first — (col, 8+col).
+
+    Derived from all_loop_pads() rather than computed independently, so the
+    fader layer follows the pad layout by construction. Change LOOP_CLIP_ROWS
+    and the faders move with the pads instead of quietly disagreeing.
+    """
+    if not 0 <= col <= 7:
+        raise ValueError(f"column out of range: {col}")
+    return tuple(loop for _row, c, loop in all_loop_pads() if c == col)
+
+
 def all_loop_pads() -> list[tuple[int, int, int]]:
     """(row, col, loop_index) for all 16 clip pads."""
     out: list[tuple[int, int, int]] = []
