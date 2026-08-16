@@ -20,8 +20,10 @@ from apc_footswitch import (  # noqa: E402
     reset_all_loops,
     stop_all_loops,
 )
+from apc_faders import fader_for_cc, is_control_change, resolve_fader_ccs  # noqa: E402
 from apc_grid import NUM_LOOPS, loop_index_for_note  # noqa: E402
 from apc_transport import ShiftHoldCombo, resolve_apc_transport_notes  # noqa: E402
+from loop_mix import CoalescingSender, LoopMix  # noqa: E402
 from sl_bench_listener import SlBenchStateListener  # noqa: E402
 from sl_grid_state import GridState, display_bpm  # noqa: E402
 from sl_grid_sync import (  # noqa: E402
@@ -52,6 +54,11 @@ def _format_midi(msg: list[int]) -> str:
     if cmd in (0x90, 0x80) and len(msg) >= 3:
         kind = "note_on" if cmd == 0x90 and msg[2] > 0 else "note_off"
         return f"ch={ch} {kind} note=0x{msg[1]:02X}({msg[1]}) vel={msg[2]}"
+    # Faders are CC. Without this branch --dump-midi renders them as raw hex,
+    # which is exactly the tool you reach for to confirm which CC each fader
+    # sends on an unfamiliar APC variant.
+    if cmd == 0xB0 and len(msg) >= 3:
+        return f"ch={ch} cc={msg[1]} value={msg[2]}"
     return " ".join(f"0x{b:02X}" for b in msg)
 
 
@@ -75,6 +82,7 @@ def main() -> int:
     apc_variant = os.environ.get("MPE_APC_VARIANT", "").strip() or None
     track_reset_hold_ms = float(os.environ.get("MPE_APC_TRACK_RESET_HOLD_MS", "3000"))
     sync_mode = os.environ.get("MPE_SL_SYNC_MODE", "grid").strip().lower()
+    fader_interval_ms = float(os.environ.get("MPE_APC_FADER_INTERVAL_MS", "20"))
 
     try:
         import rtmidi
@@ -182,8 +190,19 @@ def main() -> int:
         else:
             print("bench: no grid to restore — next take defines one", flush=True)
 
+    loop_fader_ccs, master_cc, _fader_label = resolve_fader_ccs(
+        port_name, variant=apc_variant
+    )
+    mix = LoopMix(num_loops=num_loops)
+    faders = CoalescingSender(_send, interval_s=fader_interval_ms / 1000.0)
+
+    def on_wet(loop_index: int, value: float) -> None:
+        mix.seed_from_engine(loop_index, value)
+
     by_loop = footswitches_by_loop(footswitches)
-    state_listener = SlBenchStateListener(by_loop, on_global=on_engine_settings)
+    state_listener = SlBenchStateListener(
+        by_loop, on_global=on_engine_settings, on_wet=on_wet
+    )
     state_listener.start()
     state_listener.register(osc, num_loops=num_loops)
 
@@ -199,7 +218,9 @@ def main() -> int:
         f"Shift=0x{shift_note:02X} StopAll=0x{stop_all_note:02X} | "
         f"short tap=cycle hold>={hold_ms:.0f}ms clear | "
         f"Shift+StopAll release=stop all | "
-        f"Shift+StopAll held>={track_reset_hold_ms:.0f}ms=clear all",
+        f"Shift+StopAll held>={track_reset_hold_ms:.0f}ms=clear all | "
+        f"faders CC{loop_fader_ccs[0]}..{loop_fader_ccs[-1]} -> loop columns "
+        f"(N and N+8), CC{master_cc} -> loop bus",
         flush=True,
     )
     if args.dump_midi:
@@ -209,6 +230,21 @@ def main() -> int:
         for fs in footswitches:
             fs.poll_hold()
             fs.poll_led()
+
+    def flush_faders() -> None:
+        """Push whatever the coalescer is holding.
+
+        Called from the idle branch, which is the only place that runs after
+        the last CC of a drag. Without it the value a fader came to rest at
+        stays pending forever and the surface lies about the level.
+        """
+        faders.flush(now=time.monotonic())
+
+    def handle_cc(cc: int, value: int) -> None:
+        fader = fader_for_cc(cc, loop_fader_ccs=loop_fader_ccs, master_cc=master_cc)
+        if fader is None:
+            return
+        faders.submit(mix.messages_for(fader, value), now=time.monotonic())
 
     def maybe_track_transport() -> None:
         if track_reset.poll_long():
@@ -232,6 +268,7 @@ def main() -> int:
         if packet is None:
             poll_holds()
             maybe_track_transport()
+            flush_faders()
             state_listener.maybe_reregister()
             time.sleep(0.002)
             continue
@@ -248,6 +285,14 @@ def main() -> int:
 
         st, n = msg[0], msg[1]
         vel = msg[2] if len(msg) > 2 else 0
+
+        if is_control_change(st) and len(msg) >= 3:
+            handle_cc(n, vel)
+            poll_holds()
+            maybe_track_transport()
+            state_listener.maybe_reregister()
+            continue
+
         down = midi_note_down(st, vel)
         if down is not None and n in (shift_note, stop_all_note):
             label = "Shift" if n == shift_note else "StopAll"
