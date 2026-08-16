@@ -59,11 +59,9 @@ messages, capped by the same coalescer as the rest.
 
 **Faders don't move on their own.** They have no motors, so at startup their
 physical positions mean nothing. Levels are seeded from the engine's reported
-`wet`, and a fader stays inert until it crosses the value it is supposed to be
-at. A fader that appears dead has not been picked up yet — **sweep it all the
-way to the top**, which is where levels sit until something lowers them. Until
-it crosses, a fader is inert across nearly all of its travel; that is pickup
-working, not a fault.
+`wet`. The first touch **anchors** relative pickup (no jump); movement after
+that applies delta from where you grabbed. Output is smoothed (~45 ms default,
+`MPE_APC_FADER_SMOOTH_MS`) so fast drags track cleanly.
 
 Level composition lives in one place, `loop_mix.wet_for()`:
 `wet = taper(user gain) × taper(master) × auto_law(active loops)`. The three
