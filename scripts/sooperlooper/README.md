@@ -29,8 +29,35 @@ is stale — those files are gone.
 | **0** (bottom) | 0–7 | 0–7 | Clip pads |
 | **3** | 24–31 | 8–15 | Clip pads |
 | 1, 2, 4–7 | — | — | Per-loop controllers (future) |
+| **Faders 1–8** | CC 48–55 | column: N *and* N+8 | Loop level |
+| **Master fader** | CC 56 | loop bus | Loop-mix master |
 
 Mapping: `apc_grid.py` · 16-pad footswitch: `../sooperlooper-apc-bench.py` (rows 0 + 3)
+
+**Faders:** one fader per grid *column*, so fader N moves both clips stacked in
+that column (loop N on row 0 and loop N+8 on row 3). Eight faders cover all 16
+loops with no bank button. This is a starting semantic, not the final one —
+per-loop control needs either banking or the reserved controller rows.
+
+⚠️ **CC numbers unverified against hardware.** They are resolved per variant in
+`apc_faders.py` (mirroring how `apc_transport.py` resolves Shift/Stop-All, which
+*do* differ between mk1 and mk2). Confirm with `--dump-midi` and move each fader.
+
+**Master = loop bus only.** It scales `common_out`, not the live synth: the
+audio graph runs `Surge → system:playback` in parallel with
+`Surge → SooperLooper → common_out → playback`, and the live path must fail open
+(DECISIONS.md). Live level stays on the per-patch Vol fader on the touch screen.
+The engine-side control name is `MPE_SL_MASTER_CONTROL` — also unverified.
+
+**Faders don't move on their own.** They have no motors, so at startup their
+physical positions mean nothing. Levels are seeded from the engine's reported
+`wet`, and a fader stays inert until it crosses the value it is supposed to be
+at. A fader that appears dead has not been picked up yet — sweep it.
+
+Level composition lives in one place, `loop_mix.wet_for()`:
+`wet = taper(user gain) × auto_law(active loops)`. The `loop_gain/N` backstop
+(DECISIONS.md) is off by default (`MPE_SL_LOOP_GAIN_LAW=1`); the point of the
+seam is that nothing else ever writes `wet`.
 
 **Grid sync:** two states, not a pile of settings — `set_grid_active(active=)`.
 Off until the first take lands (so it records instantly), then on for every clip
