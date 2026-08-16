@@ -249,7 +249,6 @@ def main() -> int:
         for loop in affected:
             faders.seed_current(f"/sl/{loop}/set", mix.wet_for(loop))
         faders.submit(mix.messages_for(fader, value), now=now)
-        faders.tick(now=now)
 
     def maybe_track_transport() -> None:
         if track_reset.poll_long():
