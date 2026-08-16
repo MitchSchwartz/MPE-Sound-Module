@@ -9,6 +9,11 @@ left pointing at the track that scrolled away.
 numbers in `apc_transport.py` are **recalled, not measured** — step 0 exists to
 settle them before anything else is trusted.
 
+**Two numbering conventions, stated once:** *track N* is the bench's 1-indexed
+display (`bank: tracks 1-8 of 16`); *loop N* is what `dump-loop-levels.py`
+prints, 0-indexed. `track N == loop N-1`. Every assertion below is written as
+**loop N** so it can be checked against the dump without arithmetic.
+
 ---
 
 ## Why this needs hardware and can't be judged by ear
@@ -48,9 +53,9 @@ scripts/sooperlooper/smoke-16-loops.sh    # 16 clips, distinct content
 scripts/sooperlooper-apc-bench.py         # in a second shell
 ```
 
-Give each track a **distinct level before you start**, so a mis-bound fader is
-visible as a wrong number rather than a plausible one. Ramp them: track 0
-quietest through track 15 loudest. Record that baseline as `/tmp/baseline.json`.
+Give each loop a **distinct level before you start**, so a mis-bound fader is
+visible as a wrong number rather than a plausible one. Ramp them: loop 0
+quietest through loop 15 loudest. Record that baseline as `/tmp/baseline.json`.
 
 Bench startup should print the bank line: `bank: tracks 1-8 of 16`.
 
@@ -82,12 +87,12 @@ startup. Wrong variant = wrong tuple = same symptom.
 
 ## Step 1 — LEDs travel
 
-With tracks 1–8 showing, note which pads are lit and in what colour (playing vs
+With loops 0–7 showing (bench prints `tracks 1-8`), note which pads are lit and in what colour (playing vs
 idle vs recording differ — see `led_table.py`).
 
-Press **Down** (pages by 8 → tracks 9–16).
+Press **Down** (pages by 8 → loops 8–15).
 
-- [ ] **1a** The clip row now shows tracks 9–16's states. A track that was
+- [ ] **1a** The clip row now shows loops 8–15's states. A track that was
       playing in the old bank and idle in the new one must go dark.
 - [ ] **1b** **No pad retains its old colour.** The row is cleared before the
       repaint precisely so a stale lit pad can't claim a track is running.
@@ -95,26 +100,26 @@ Press **Down** (pages by 8 → tracks 9–16).
 - [ ] **1c** Rows 1–7 are dark and stay dark. Nothing writes them anymore; the
       bench blanks all 64 pads at startup so leftovers from a previous build or
       a crash are gone.
-- [ ] **1d** Bank back **Up**. Tracks 1–8's LEDs are correct again, including
-      any track whose state changed while it was off screen.
+- [ ] **1d** Bank back **Up**. Loops 0–7's LEDs are correct again, including
+      any loop whose state changed while it was off screen.
 
 ## Step 2 — pad control travels
 
-Still on tracks 9–16:
+Still on loops 8–15:
 
-- [ ] **2a** Tap column 0's pad. `dump-loop-levels.py` shows **track 8**
-      changed state. Track 0 is untouched.
-- [ ] **2b** Hold column 0's pad ~2 s. **Track 8** clears. Track 0 still has
-      its loop.
-- [ ] **2c** Bank Up. Tap column 0. Now **track 0** responds, not track 8.
+- [ ] **2a** Tap column 0's pad. `dump-loop-levels.py` shows **loop 8**
+      changed state. Loop 0 is untouched.
+- [ ] **2b** Hold column 0's pad ~2 s. **Loop 8** clears. Loop 0 still has
+      its recording.
+- [ ] **2c** Bank Up. Tap column 0. Now **loop 0** responds, not loop 8.
 
 ## Step 3 — fader level travels
 
-The core of the change: fader N used to drive tracks N *and* N+8.
+The core of the change: fader N used to drive loops N *and* N+8.
 
-- [ ] **3a** On tracks 1–8, move fader 3. Only **track 2**'s wet changes.
-      Track 10 does not — that pairing is gone.
-- [ ] **3b** Bank Down. Move fader 3. Now only **track 10**'s wet changes.
+- [ ] **3a** On loops 0–7, move fader 3 (the third fader, column 2). Only
+      **loop 2**'s wet changes. Loop 10 does not — that pairing is gone.
+- [ ] **3b** Bank Down. Move fader 3. Now only **loop 10**'s wet changes.
 - [ ] **3c** Master fader still scales **all 16**, on screen and off.
 
 ## Step 4 — the fader must not jump on first touch after banking
@@ -123,42 +128,43 @@ Faders have no motors, so the physical position after a bank change is a lie
 about the new track. Every anchor is dropped on a bank change; the first CC
 re-anchors and changes nothing.
 
-- [ ] **4a** Set fader 3 near the top. Bank Down (track 10 is quiet).
-      **Nudge fader 3 slightly.** Track 10's wet must **not** jump to match the
+- [ ] **4a** Set fader 3 near the top. Bank Down (loop 10 is quiet).
+      **Nudge fader 3 slightly.** Loop 10's wet must **not** jump to match the
       fader's physical position — the first move anchors only.
 - [ ] **4b** Keep moving it. Now it tracks, relative to where you anchored.
-- [ ] **4c** Repeat banking Up. Same behaviour for track 2.
+- [ ] **4c** Repeat banking Up. Same behaviour for loop 2.
 
 A jump here is the most likely regression and the most audible one.
 
 ## Step 5 — off-screen tracks keep their levels and keep playing
 
-- [ ] **5a** Bank Down, wait a few bars, bank Up. Tracks 1–8's wet values are
+- [ ] **5a** Bank Down, wait a few bars, bank Up. Loops 0–7's wet values are
       **unchanged from `/tmp/baseline.json`**. Banking moves bindings, never
       levels.
-- [ ] **5b** Tracks 9–16 keep playing audibly while banked off screen.
+- [ ] **5b** Loops 8–15 keep playing audibly while banked off screen.
 
 ## Step 6 — the held-pad hazard (regression, fixed this branch)
 
 This one destroyed a loop before the fix. Two hands:
 
-- [ ] **6a** **Hold** column 0's pad on tracks 1–8. Keep holding. With the other
+- [ ] **6a** **Hold** column 0's pad on loops 0–7. Keep holding. With the other
       hand press **Down**. Keep holding ~3 s, past the hold threshold, then
       release.
-- [ ] **6b** **Track 0 must still have its loop.** Before the fix the abandoned
+- [ ] **6b** **Loop 0 must still have its recording.** Before the fix the abandoned
       pad-down survived the bank change and `poll_hold()` fired the long-press
       seconds later, `undo_all`-ing a track that wasn't even on screen.
-- [ ] **6c** Track 8 (which took over that pad) is also unaffected — the
+- [ ] **6c** Loop 8 (which took over that pad) is also unaffected — the
       release lands on it but must be a no-op.
 
 ## Step 7 — banking arithmetic
 
-- [ ] **7a** **Up/Down page by 8.** From tracks 1–8, Down → 9–16.
-- [ ] **7b** **Shift+Right nudges by 1.** From offset 0 → tracks 2–9. Column 0
-      is now track 1 (0-indexed: loop 1). Confirm with a fader move.
+- [ ] **7a** **Up/Down page by 8.** From loops 0–7, Down → loops 8–15.
+- [ ] **7b** **Shift+Right nudges by 1.** From offset 0 → loops 1–8 (the bench
+      prints `tracks 2-9`). Column 0 is now **loop 1**. Confirm with a
+      fader move: fader 1 writes loop 1, not loop 0.
 - [ ] **7c** **Bare Left/Right do nothing.** Nudging is gated behind Shift.
-- [ ] **7d** **Clamp, never wrap.** At tracks 1–8 press Up repeatedly: stays at
-      1–8, does not jump to 9–16. At 9–16 press Down repeatedly: stays.
+- [ ] **7d** **Clamp, never wrap.** At loops 0–7 press Up repeatedly: stays at
+      0–7, does not jump to 8–15. At 8–15 press Down repeatedly: stays.
 - [ ] **7e** Shift+Left/Right at both extremes likewise clamps.
 - [ ] **7f** The bench prints `bank: tracks N-M of 16` on every *actual* change
       and stays silent when clamped.
@@ -168,7 +174,7 @@ This one destroyed a loop before the fix. Two hands:
 - [ ] **8a** Shift is used for nudging now. Confirm **Shift + Stop All Clips**
       still stops all loops (tap) and clears all (hold 3 s) — Shift being held
       for banking must not have broken the combo, and vice versa.
-- [ ] **8b** Recording a new take while banked to 9–16 lands on the right track.
+- [ ] **8b** Recording a new take while banked to loops 8–15 lands on the right loop.
 
 ---
 

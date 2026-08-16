@@ -35,11 +35,32 @@ RETPATH = "/dump/reply"
 # command path is wedged (the case sl_probe.py exists to diagnose).
 COLLECT_S = 1.5
 
+# The codes the rest of the codebase reasons about come from the canonical
+# module — a second hand-written copy is how a tester reads "playing" off a
+# wrong number and records a false pass. The remaining labels are engine codes
+# nothing here branches on; they exist so the dump is readable, not asserted on.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from sl_loop_states import (  # noqa: E402
+    SL_STATE_MUTE,
+    SL_STATE_OFF,
+    SL_STATE_PAUSED,
+    SL_STATE_PLAYING,
+    SL_STATE_RECORDING,
+    SL_STATE_WAIT_START,
+    SL_STATE_WAIT_STOP,
+)
+
 STATE_NAMES = {
-    -1: "unknown", 0: "off", 1: "wait_start", 2: "recording", 3: "wait_stop",
-    4: "playing", 5: "overdubbing", 6: "multiplying", 7: "inserting",
-    8: "replacing", 9: "delay", 10: "muted", 11: "scratching", 12: "one_shot",
-    13: "substitute", 14: "paused",
+    SL_STATE_OFF: "off",
+    SL_STATE_WAIT_START: "wait_start",
+    SL_STATE_RECORDING: "recording",
+    SL_STATE_WAIT_STOP: "wait_stop",
+    SL_STATE_PLAYING: "playing",
+    SL_STATE_MUTE: "muted",
+    SL_STATE_PAUSED: "paused",
+    -1: "unknown", 5: "overdubbing", 6: "multiplying", 7: "inserting",
+    8: "replacing", 9: "delay", 11: "scratching", 12: "one_shot",
+    13: "substitute",
 }
 
 
@@ -75,7 +96,11 @@ def main() -> int:
     threading.Thread(target=server.serve_forever, daemon=True).start()
 
     client = udp_client.SimpleUDPClient(host, port)
-    returl = f"osc.udp://{LISTEN_HOST}:{listen_port}"
+    # Bare host:port, not an osc.udp:// URL. This is the one line here that
+    # cannot be tested without an engine, so it copies the form that is known
+    # to work live — sl_bench_listener.register(). Guessing the URL form and
+    # being wrong prints "engine may be wedged" at a perfectly healthy engine.
+    returl = f"{LISTEN_HOST}:{listen_port}"
     for loop in range(args.loops):
         for ctrl in ("wet", "state"):
             client.send_message(f"/sl/{loop}/get", [ctrl, returl, RETPATH])
