@@ -460,8 +460,8 @@ C is only defensible if losing the SD card is an inconvenience. Audited 2026-08-
 
 **Required before Racknerd Phase 2 — this is the new Gate:**
 
-1. **Delete `/etc/mpe/github.env`.** It still contains `GITHUB_TOKEN=…` at mode 640 `root:mitch`, written by `setup-pi-github-pat.sh` alongside the credential file. The token is revoked, so it is inert — but the earlier "credentials removed" record in this document checked only `/etc/mpe/git-credentials` and missed this. Remove the file and re-verify.
-2. **Version the systemd units** into the repo with an installer, so service topology is reproducible.
+1. ✅ **`/etc/mpe/github.env` deleted** (2026-08-16). It held `GITHUB_TOKEN=…` at mode 640 `root:mitch`, written by `setup-pi-github-pat.sh` alongside the credential file — the earlier "credentials removed" record checked only `/etc/mpe/git-credentials` and missed it. `/etc/mpe/` now holds `mpe.env` and `soak-backups` only; re-scanned clean for token/key patterns.
+2. ✅ **systemd units versioned** (2026-08-16). All 14 in [`systemd/`](../systemd/), installed by [`scripts/install-units.sh`](../scripts/install-units.sh), which reproduces **recorded enable state** (10 enabled, 3 deliberately disabled, 1 static) rather than blanket-enabling — the appliance's boot behaviour is not uniform. `--diff` run against the live appliance reports **no drift**; the versioned copies are byte-identical to what is running. Secret-scanned clean.
 3. **Establish `MPE-Library`'s source of truth** — confirm the Pi copy holds nothing the private remote lacks, then make it a real checkout or a documented one-way sync.
 4. **Capture calibration** into version control or a documented backup.
 5. **Clean the stray `*-tmp-*` trees** and commit or delete the untracked fixtures.
