@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import time
 
-from apc_grid import all_loop_pads, pad_note
+from apc_grid import DEFAULT_VIEW, GridView, all_clip_pads, pad_note
 # LED constants are re-exported: the bench and its tests reach for them here,
 # and the pad surface is this module's job even though the policy is not.
 from led_table import (  # noqa: F401
@@ -89,7 +89,7 @@ class LoopFootswitch:
         self._pending_since = 0.0
         self._osc = None
         self._midi_out = None
-        self._note = 0
+        self._note: int | None = None
         self._pad_down = False
         self._pad_down_at = 0.0
         self._hold_fired = False
@@ -101,10 +101,35 @@ class LoopFootswitch:
         self._led_transition: tuple[int, int] | None = None
         self._led_last: int | None = None
 
-    def bind(self, osc, midi_out, note: int) -> None:
+    def bind(self, osc, midi_out, note: int | None) -> None:
         self._osc = osc
         self._midi_out = midi_out
         self._note = note
+
+    def set_note(self, note: int | None) -> None:
+        """Move this track to a different pad, or off-screen (None).
+
+        Banking does not change what a track *is* — only where, or whether, it
+        is drawn. `_led_last` is cleared so the next paint is unconditional:
+        the pad this track lands on was showing some other track a moment ago,
+        and the "same velocity, skip the write" guard would otherwise leave the
+        previous track's colour sitting there.
+        """
+        self._note = note
+        self._led_last = None
+
+    def release_pad(self) -> None:
+        """Abandon an in-flight pad gesture without firing it.
+
+        Banking while a pad is held would otherwise strand `_pad_down` on the
+        track that just left the screen: poll_hold() runs for every track,
+        visible or not, so ~hold_s later it would fire the long-press and clear
+        a loop the player never let go of. The matching note-off, meanwhile,
+        now dispatches to whichever track took over that pad — harmless only
+        because on_pad_up() is guarded by its own `_pad_down`.
+        """
+        self._pad_down = False
+        self._hold_fired = False
 
     @property
     def state(self) -> str:
@@ -217,8 +242,8 @@ class LoopFootswitch:
         log(f"loop {self.loop}: -> {cmd} (state={self.state})")
 
     def _set_led(self, velocity: int, *, force: bool = False) -> None:
-        if self._midi_out is None:
-            return
+        if self._midi_out is None or self._note is None:
+            return  # banked off-screen: this track has no pad to paint
         velocity = max(0, min(127, velocity))
         if not force and velocity == self._led_last:
             return  # do not spam the surface every poll
@@ -373,16 +398,21 @@ def build_footswitches(
     debounce_ms: float,
     quantized: bool = True,
     grid: GridState | None = None,
+    view: GridView | None = None,
     on_grid_established=None,
     on_grid_dropped=None,
 ) -> tuple[dict[int, LoopFootswitch], list[LoopFootswitch]]:
-    """Map APC clip-pad MIDI notes (rows 0 + 3) -> per-loop footswitch."""
-    by_note: dict[int, LoopFootswitch] = {}
+    """One footswitch per track, bound to the pad showing it in `view`.
+
+    A footswitch exists for **every** track, not just the visible eight: a
+    banked-off track keeps playing, keeps receiving engine state, and keeps its
+    pending intent. Only its pad binding goes away (note=None), and comes back
+    on the next bank change. The returned by-note map covers the current bank
+    only and is rebuilt by `apply_view()`.
+    """
+    view = view or DEFAULT_VIEW
     footswitches: list[LoopFootswitch] = []
-    for row, col, loop_i in all_loop_pads():
-        if loop_i >= num_loops:
-            continue
-        note = pad_note(row, col)
+    for loop_i in range(num_loops):
         fs = LoopFootswitch(
             loop=loop_i,
             hold_ms=hold_ms,
@@ -393,10 +423,44 @@ def build_footswitches(
             on_grid_established=on_grid_established,
             on_grid_dropped=on_grid_dropped,
         )
-        fs.bind(osc, midi_out, note)
-        by_note[note] = fs
+        fs.bind(osc, midi_out, view.note_for_loop(loop_i))
         footswitches.append(fs)
-    return by_note, footswitches
+    return notes_for_view(footswitches, view), footswitches
+
+
+def notes_for_view(
+    footswitches: list[LoopFootswitch], view: GridView
+) -> dict[int, LoopFootswitch]:
+    """Pad note -> footswitch, for the tracks visible in `view`."""
+    by_note: dict[int, LoopFootswitch] = {}
+    for fs in footswitches:
+        note = view.note_for_loop(fs.loop)
+        if note is not None:
+            by_note[note] = fs
+    return by_note
+
+
+def apply_view(
+    midi_out,
+    *,
+    footswitches: list[LoopFootswitch],
+    view: GridView,
+) -> dict[int, LoopFootswitch]:
+    """Move the viewport: clear the clip row, rebind pads, repaint. New by-note map.
+
+    Clearing the whole row first — rather than only the pads that changed —
+    is deliberate. Whatever the arithmetic says, a pad left lit by the previous
+    bank is a track the player believes is running and isn't, and that is the
+    one failure of this feature they cannot debug from the surface. One sweep
+    of eight notes costs nothing and makes it impossible.
+    """
+    for row, col in all_clip_pads():
+        midi_out.send_message([0x90, pad_note(row, col), LED_OFF])
+    for fs in footswitches:
+        fs.release_pad()
+        fs.set_note(view.note_for_loop(fs.loop))
+        fs._sync_led()
+    return notes_for_view(footswitches, view)
 
 
 def footswitches_by_loop(footswitches: list[LoopFootswitch]) -> dict[int, LoopFootswitch]:
@@ -432,11 +496,8 @@ def reset_all_loops(
         fs._stop_queued = False
         fs._expect(STATE_IDLE)
         fs._sync_led()
-    for row, col, loop_i in all_loop_pads():
-        if loop_i >= num_loops:
-            continue
-        note = pad_note(row, col)
-        midi_out.send_message([0x90, note, LED_OFF])
+    for row, col in all_clip_pads():
+        midi_out.send_message([0x90, pad_note(row, col), LED_OFF])
     print(f"-> track reset: cleared {num_loops} loops", flush=True)
 
 
