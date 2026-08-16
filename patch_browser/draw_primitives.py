@@ -71,6 +71,59 @@ def draw_all_patches_icon(
     surface.blit(label, (tx, ty))
 
 
+def draw_filter_icon(
+    surface: pygame.Surface,
+    rect: Rect,
+    color: tuple[int, int, int],
+) -> None:
+    """Instrument filter — three-line filter-list icon (nav header toggle)."""
+    pad_x = max(4, rect.w // 6)
+    pad_y = max(4, rect.h // 6)
+    line_h = max(2, rect.h // 10)
+    usable_h = rect.h - pad_y * 2
+    gap = max(2, (usable_h - line_h * 3) // 2)
+    max_w = max(8, rect.w - pad_x * 2)
+    y = rect.y + pad_y
+    for width_frac in (1.0, 0.72, 0.48):
+        line_w = max(6, int(max_w * width_frac))
+        x = rect.x + (rect.w - line_w) // 2
+        pygame.draw.rect(surface, color, pygame.Rect(x, y, line_w, line_h))
+        y += line_h + gap
+
+
+def draw_toggle_switch(
+    surface: pygame.Surface,
+    rect: Rect,
+    *,
+    on: bool,
+    track_on: tuple[int, int, int],
+    track_off: tuple[int, int, int],
+    knob_color: tuple[int, int, int],
+    border_color: tuple[int, int, int] | None = None,
+) -> None:
+    """Pill track + sliding knob (settings toggles)."""
+    track_color = track_on if on else track_off
+    pygame.draw.rect(surface, track_color, rect.pygame_rect, border_radius=rect.h // 2)
+    if border_color is not None:
+        pygame.draw.rect(
+            surface,
+            border_color,
+            rect.pygame_rect,
+            width=2,
+            border_radius=rect.h // 2,
+        )
+    knob_pad = max(2, min(3, rect.h // 8))
+    knob_size = rect.h - knob_pad * 2
+    knob_x = rect.right - knob_pad - knob_size if on else rect.x + knob_pad
+    knob_y = rect.y + knob_pad
+    pygame.draw.rect(
+        surface,
+        knob_color,
+        pygame.Rect(knob_x, knob_y, knob_size, knob_size),
+        border_radius=knob_size // 2,
+    )
+
+
 def draw_sidebar_panel_icon(
     surface: pygame.Surface,
     rect: Rect,
@@ -106,3 +159,22 @@ def draw_sidebar_panel_icon(
         for dx in (-4, -9):
             points = [(cx + dx, cy - 4), (cx + dx + 4, cy), (cx + dx, cy + 4)]
             pygame.draw.lines(surface, color, False, points, 2)
+
+
+def draw_lock_icon(
+    surface: pygame.Surface,
+    rect: Rect,
+    color: tuple[int, int, int],
+) -> None:
+    """Small padlock — secured Wi‑Fi indicator."""
+    cx, cy = rect.centerx, rect.centery
+    body_w = max(8, min(rect.w - 2, 12))
+    body_h = max(6, min(rect.h // 2, 9))
+    body_x = cx - body_w // 2
+    body_y = cy + 1
+    pygame.draw.rect(surface, color, (body_x, body_y, body_w, body_h), border_radius=2)
+
+    shackle_w = body_w + 4
+    shackle_h = max(7, body_h + 2)
+    shackle_rect = pygame.Rect(cx - shackle_w // 2, body_y - shackle_h + 3, shackle_w, shackle_h * 2)
+    pygame.draw.arc(surface, color, shackle_rect, 3.14159, 0.0, 2)

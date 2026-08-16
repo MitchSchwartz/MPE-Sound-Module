@@ -80,8 +80,7 @@ else
 fi
 mpe_pi_ssh 'sudo systemctl enable surge-xt-cli surge-watchdog 2>/dev/null || true'
 mpe_pi_ssh "$(mpe_pi_source_line); source $(mpe_pi_repo_path)/scripts/lib/mpe-services.sh; mpe_enable_core_services"
-scp -i "$SSH_KEY" config/99-*.rules "$PI_USER@$PI_HOST:~/" 2>/dev/null && \
-    mpe_pi_ssh 'sudo cp ~/99-*.rules /etc/udev/rules.d/ 2>/dev/null; sudo udevadm control --reload-rules; sudo udevadm trigger' || true
+mpe_pi_ssh "cd '$(mpe_pi_repo_path)' && ./scripts/install-udev-rules.sh" || true
 echo "✓ Services configured"
 echo ""
 

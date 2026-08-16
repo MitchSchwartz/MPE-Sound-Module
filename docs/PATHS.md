@@ -37,8 +37,40 @@ Deploy/sync scripts resolve `../mpe-assets`, `../MPE-Library`, or `../MPE-Person
 | `MPE_SURGE_ROOT` | `$HOME/surge` | Pi runtime |
 | `MPE_FAVORITES_NAME` | `!Quick Access` | **Patch browser UI** — quick-access folder under `~/Documents/Surge XT/Patches/`; **use leading `!`** to pin first. Curate on PC and deploy. See [`docs/PATCH_BROWSER_UI.md`](PATCH_BROWSER_UI.md). |
 | `MPE_UI_MODE` | `oled` | **Which patch browser boots:** `oled` (encoder/OLED) or `touch` (SmartiPi). Applied by `configure-pi-paths.sh`. |
+| `MPE_JACK_BUFFER` | `256` | JACK period in frames (server-side; distinct from `MPE_SURGE_BUFFER_SIZE`). Valid: 32–2048 (see `audio-engine.sh`). |
+| `MPE_JACK_PERIODS` | `3` | JACK periods per buffer (server-side). Valid: 2, 3, 4. |
+
+`MPE_AUDIO_ENGINE` is **retired** (spec amended 2026-08-13) — JACK is the only audio engine, so there is nothing left to select. A jackd that will not start is a hard failure (`state=failed`), not a route to an alternate engine.
+
+## Runtime state (`/run/mpe`)
+
+Written by jackd, Surge, and the supervisor. tmpfs — cleared on reboot (correct lifetime for cooldown counters).
+
+| File | Writer | Contents |
+|------|--------|----------|
+| `engine.state` | Surge start, jackd start, watchdog | `engine` (always `jack`), `active` (jack/none), `state` (ok/recovering/failed — `degraded` retired), `reason`, `looper`, `updated` |
+| `surge.state` | `start-surge-cli.sh` | `active` (jack/none), `device`, `started` |
+| `jack.state` | `start-jackd.sh` | `device`, `period`, `periods`, `rate`, `started` |
+| `engine-reconcile.state` | watchdog | Supervisor cooldown: `last_restart`, `restarts` |
+| `jack-device` | `jackd-prestart.sh` | Selected `JACK_DEVICE=hw:N` for this start |
+
+Units declare `RuntimeDirectory=mpe` + `RuntimeDirectoryPreserve=yes` on `surge-xt-cli`, `mpe-jackd`, and `surge-watchdog` so sibling restarts do not wipe shared state.
+
+Touch HUD reads `engine.state` via `patch_browser/audio_engine.py`.
 
 Full list: [`config/mpe.env.example`](../config/mpe.env.example).
+
+### `MPE_ENV_FILE` (tests only)
+
+Subprocess unit tests set `MPE_ENV_FILE` so `paths.sh` does not read `/etc/mpe/mpe.env` on a configured Pi:
+
+| Value | Behavior |
+|-------|----------|
+| unset | Appliance default — source `/etc/mpe/mpe.env` when present |
+| empty (`MPE_ENV_FILE=`) | Hermetic — skip all env files; use process environment |
+| path to file | Source that file only (temp profile for subprocess tests) |
+
+Production systemd units never set this variable.
 
 ## Pi setup — reconfigure paths
 

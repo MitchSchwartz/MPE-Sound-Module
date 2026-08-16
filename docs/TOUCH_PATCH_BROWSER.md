@@ -32,10 +32,10 @@ journalctl -u touch-patch-browser -n 30
 **One-time sudoers** (power menu + start script stopping other services): add to `sudo visudo`:
 
 ```
-your-user ALL=(ALL) NOPASSWD: /sbin/poweroff, /sbin/reboot, /bin/systemctl, /home/your-user/MPE-Module/scripts/set-audio-profile.sh
+your-user ALL=(ALL) NOPASSWD: /sbin/poweroff, /sbin/reboot, /bin/systemctl, /home/your-user/MPE-Module/scripts/set-audio-profile.sh, /home/your-user/MPE-Module/scripts/set-surge-audio.sh
 ```
 
-(`set-audio-profile.sh` is used by the **USB Audio** settings toggle.)
+(`set-audio-profile.sh` is used by the **USB Audio** settings toggle; `set-surge-audio.sh` by **Audio buffer** / **Sample rate** debug rows.)
 
 See [`docs/POWER_BUTTON_SETUP.md`](POWER_BUTTON_SETUP.md) for the encoder Pi pattern.
 
@@ -95,6 +95,30 @@ journalctl -u touch-patch-browser -n 50
 ```
 
 On Trixie (and recent Pi OS releases), your `config.txt` may need the vendor overlay for your specific panel (DSI) or HDMI `config.txt` timings. For sysfs brightness, add `dtoverlay=rpi-backlight` when supported. **HDMI 5" kits** sometimes have no software backlight — the slider will show unavailable; use the panel's physical control if present.
+
+## Screen recording for demos
+
+Camera recording of the panel picks up glare. The touch UI runs on **pygame kmsdrm** (not `/dev/fb0` — that is the Linux text console).
+
+**On the Pi** (one-time: `sudo apt install -y ffmpeg`):
+
+```bash
+cd ~/MPE-Module
+./scripts/record-screen.sh              # → ~/mpe-demo-<timestamp>.mkv
+./scripts/record-screen.sh ~/Videos/x.mkv 24   # custom path + 24fps
+```
+
+Use the touch screen normally. **Ctrl+C** stops recording and restarts the browser without the record hook.
+
+Pull the file (quote the remote glob in zsh):
+
+```bash
+scp 'mitch@raspberrypi.local:~/mpe-demo-*.mkv' ~/Videos/
+```
+
+Convert to mp4 if needed: `ffmpeg -i in.mkv -c copy out.mp4`
+
+Implementation: `record-screen.sh` starts ffmpeg on a named pipe; the browser pipes RGB24 frames after each `display.flip()` when `/tmp/mpe-screen-record.env` is present. Does not capture the physical finger — only pixels on screen.
 
 ## Brightness
 
@@ -211,7 +235,7 @@ Per-fader detail:
 - Touch **down + drag** on a fader; release does not trigger nav taps underneath.
 - **Norm.** — label-left / checkbox-right toggle for per-patch loudness normalization (see [`PATCH_NORMALIZATION.md`](PATCH_NORMALIZATION.md)).
 
-Brightness in **System settings** still uses a horizontal slider (one-off control, not live mixing).
+Brightness in **System settings** is a read-only row (current **%**); tap opens a modal with a large slider and presets (not mixed into the scrollable settings list).
 
 ## Touch input (evdev)
 
@@ -228,18 +252,39 @@ Set `MPE_TOUCH_EVDEV=0` to fall back to SDL-only input (debugging).
 
 ## System settings (⋯)
 
-Right-side **slide-out panel** (tap **⋯**, tap outside, swipe right, or **×** to close). Scrollable body; **Power…** fixed at the bottom with a divider. Row buttons and toggles activate on **finger up** (same tap-vs-scroll thresholds as the patch list) so you can scroll without triggering rows under your finger. Confirm modals (calibration, power) use the same up-to-activate pattern.
+Right-side **slide-out panel** (tap **⋯**, tap outside the panel, swipe right, or **×** to close). Centered modals (Theme, Wi‑Fi, brightness, audio pickers, power, calibration confirm) also close when you tap the dimmed backdrop outside the panel. The settings body and Wi‑Fi network list show **edge fades** when more rows are off-screen (standard scroll-overflow cue). Scrollable body; **Power…** fixed at the bottom with a divider. Row buttons and toggles activate on **finger up** (same tap-vs-scroll thresholds as the patch list) so you can scroll without triggering rows under your finger. Confirm modals (calibration, power) use the same up-to-activate pattern.
 
 UI preferences persist in `~/.patch_browser_ui.json` (see [UI theme](#ui-theme-system-settings--theme)).
 
-- **CPU meter** — toggle show/hide for the header bar (not the numeric overlay; bar-only meter). Default on.
-- **Theme…** — base theme, accent style, accent color (presets + saved custom colors). See [UI theme](#ui-theme-system-settings--theme).
-- **Patch normalization** — master toggle for all per-patch Norm. controls (persists in `~/.patch_browser_normalization.json` under `_global`; per-patch flags unchanged when off).
-- **USB Audio** — toggle in System settings (⋯); header badge shows **Analog** or **USB**. Switches run **in the background** with a “Switching audio…” overlay (UI stays responsive). Requires GPIO split power + one-time boot overlay for desk tether — see **[USB-AUDIO-HOST.md](USB-AUDIO-HOST.md)**.
-- **Header CPU meter** — compact bar to the left of the **⋯** settings button when enabled. Polls at ~5 Hz on a background thread (UI stays responsive). Surge XT does **not** document a CPU OSC address (`/q/cpu`, `/cpu`, `/status/cpu` are probed speculatively when OSC out is enabled). The meter therefore uses **`/proc` CPU time for the `surge-xt-cli` process** as a live-play diagnostic — same green → yellow → red thresholds as a DAW meter. Shows **—** when Surge is offline. This approximates audio-engine stress on a dedicated Pi; it is not identical to Surge’s internal VU *Show CPU Usage* ratio (audio callback time ÷ buffer time), which is GUI-only today. **CPU meter colors always use semantic green/yellow/red**, even in Monochrome accent style.
-- **Restart Surge** — shown when status is not healthy; uses the same systemd unit as the encoder build.
-- **Calibrate missing patches** — incremental run over the full scanned library (patches without `gain_db` only).
-- **Force full re-calibration** — re-measures every patch in the scan tree (`--force`). See [Per-patch normalization](#per-patch-normalization).
+Sections are grouped top-to-bottom:
+
+### Sound
+
+- **Audio…** — drill-in sub-screen (chevron shows live summary: profile · buffer · sample rate).
+  - **USB Audio** profile toggle (Analog vs USB host); header badge matches. Background switch with overlay — see **[USB-AUDIO-HOST.md](USB-AUDIO-HOST.md)**.
+  - **Buffer** — preset picker (32–2048 samples) + approximate latency; restarts Surge ([#44](https://github.com/MitchSchwartz/MPE-Sound-Module/issues/44)).
+  - **Sample rate** — **44.1 kHz / 48 kHz** picker; persists to `/etc/mpe/mpe.env` and restarts Surge (+ USB gadget when **usb-host**) ([#39](https://github.com/MitchSchwartz/MPE-Sound-Module/issues/39)).
+  - **Dynamic voice limit** — poly governor toggle.
+  - **Patch normalization** — master toggle for all per-patch Norm controls.
+  - **Calibrate missing patches** / **Force full re-calibration** — confirm modal → loader on DSI. See **[PATCH_NORMALIZATION.md](PATCH_NORMALIZATION.md)**.
+
+Tapping the header **Analog/USB** badge opens settings directly on this Audio sub-screen.
+
+### Display
+
+- **Brightness** — shows current **%**; tap opens a modal slider + presets (25/50/75/100, Reset).
+- **Theme…** — base theme, accent style, accent color. See [UI theme](#ui-theme-system-settings--theme).
+
+### Network
+
+- **Wi‑Fi** — current SSID subtitle; tap to scan/connect via NetworkManager (venue recovery, no SSH).
+
+### Advanced (expand/collapse — full-row tap target)
+
+- **CPU meter** — toggle header bar meter (default on).
+- **Restart Surge** — when status is not healthy.
+
+**Header CPU meter** (when enabled): compact bar left of **⋯**. Polls ~5 Hz on a background thread. Uses **`/proc` CPU time for `surge-xt-cli`** (Surge has no documented CPU OSC). Semantic green → yellow → red even in Monochrome accent style.
 
 ## UI theme (System → Theme…)
 
@@ -343,8 +388,184 @@ From the folder list, tap **All** in the left nav header:
 
 Spec: [`Documents/specs/touch-patch-browser-browse-ux-spec.md`](../Documents/specs/touch-patch-browser-browse-ux-spec.md)
 
+Epic (instruments, favorites v2, nested nav): [`Documents/specs/touch-browser-instruments-favorites-spec.md`](../Documents/specs/touch-browser-instruments-favorites-spec.md)
+
+## Browse navigation transitions (#24)
+
+All left-nav mode changes go through `_enter_nav_mode()` in `patch_browser/touch_browser_nav.py`. It owns:
+
+- `left_nav_mode` and optional `browse_folder_index` / `left_nav_collapsed`
+- A–Z rail capture cleanup when leaving All patches
+- All-patches scroll snapshot / restore
+- `_relayout()` when geometry changes (enter/leave All patches); otherwise `_update_nav_list_geometry()` + `_refresh_lists()`
+
+| From | Action | To | Notes |
+|------|--------|-----|-------|
+| FOLDERS | Tap folder row | PATCHES | List scroll reset to top |
+| FOLDERS / PATCHES | Tap **All** | ALL_PATCHES | Nav widens; main detail hidden (`main_rect.w = 0`) |
+| ALL_PATCHES | Tap **◀** | FOLDERS | Scroll position saved for next All visit |
+| PATCHES | Tap **◀** (at category root) | FOLDERS | Top-level folder list |
+| PATCHES | Tap **◀** (inside subfolder) | PATCHES | Back one level (`browse_inner_segments` pop) |
+| PATCHES | Tap subfolder row (`Name  >`) | PATCHES | Drill into subfolder; list scroll reset |
+| ALL_PATCHES | Tap patch row | PATCHES | Load patch; restore normal two-pane layout |
+| ALL_PATCHES | Tap **Current** | PATCHES | Jump to loaded patch's folder |
+| PATCHES | Tap **Current** | PATCHES | Jump browse index to loaded folder |
+
+Tests: `tests/test_touch_browser_nav_transitions.py`
+
+## Patch index (Phase 0.5)
+
+`PatchScanner` indexes every `.fxp` by **full path** (no silent same-name collisions). Each patch dict includes:
+
+| Field | Purpose |
+|-------|---------|
+| `stable_key` | `factory:Bass/Sub/Lead 1` — canonical identity |
+| `inner_segments` | Nested folders under top-level category |
+| `relative_path` | Path from patch root |
+
+Nested folder API: `get_subfolders()`, `get_patches_in_folder()`, `folder_tree`. Browse state: `browse_folder_index` + `browse_inner_segments` (nav stack within a category).
+
+All-patches row subtitles show `Category/Sub/...` when nested.
+
+Tests: `tests/test_patch_scanner.py`, `tests/test_patch_identity.py`
+
+## Instrument metadata (Phase 1)
+
+Each patch dict also gets `instruments` (list) and `instrument_primary` after scan.
+
+| Source | File |
+|--------|------|
+| Shipped baseline | `data/patch_metadata_baseline.json` (regenerate with `scripts/build-patch-metadata-baseline.py` on a machine with the full library) |
+| User overrides | `~/.patch_browser_metadata.json` (`instrument_user` per `stable_key`) |
+| On-device fallback | Heuristic classifier in `patch_browser/patch_metadata.py` when no baseline row exists |
+
+Instrument chips UI lives in the browse carousel's filter pane (below); metadata is attached at scan time now.
+
+Tests: `tests/test_patch_metadata.py`, `tests/test_patch_scanner_metadata.py`
+
+## Browse carousel + filter pane
+
+Superseded the Phase 4 inline chip panel (funnel button, wrapped chips inside
+the nav list) — see
+`Documents/specs/touch-browser-browse-carousel-spec.md` for the full spec.
+
+While browsing a **folder** or **patch list** (not All patches, not with the
+nav collapsed), the browser screen is a three-column horizontal track:
+`[ Filter 532px ][ Nav 268px ][ Patch 532px ]`, 1332px total on an 800px
+viewport. Two stops:
+
+- **Home** (default) — Nav + Patch pane visible, Filter off-screen left
+- **Filter** — Filter pane + Nav visible, Patch pane off-screen right
+
+Swipe from the **left screen edge** (inner 48px strip, `x ∈ [0, 48)`, full
+content height) to pan between stops — drag right from Home to reach Filter,
+left from Filter back to Home. Release commits to the other stop once the
+drag crosses ~56px (or 50% of the track travel, whichever is smaller);
+otherwise it snaps back. The filter pane shows one tappable chip per
+instrument with patches in the current context (plus **All**), each with a
+patch count; tags with zero matches are hidden. **Tapping a tag updates the
+list immediately without leaving the Filter stop or closing the pane** — the
+filter is a persistent search modifier, not a one-shot picker.
+
+`instrument_filter` state is independent of the carousel stop: setting it
+from the Filter pane while browsing a folder still applies if you later
+switch to **All patches** (which has no Patch pane, so the carousel/filter
+pane is disabled there — its own A–Z-rail nav fills the width instead; see
+`_browse_carousel_active()` in `touch_browser_browse.py`).
+
+The gesture is classified once at pointer-down (edge pan vs. filter-pane tap
+vs. everything else falling through to the existing mixer/nav/tap handlers)
+and that classification is consumed by move/up without re-checking — no
+mid-gesture reclassification.
+
+Tests: `tests/test_gesture_router.py`, `tests/test_browse_carousel.py`,
+`tests/test_browse_filter_pane.py`, `tests/test_touch_browser_browse.py`,
+`tests/test_touch_browser_browse_track.py`, `tests/test_instrument_filter.py`
+
+## Long-press menus (Phase 5)
+
+Hold a folder or patch row in the left nav for ~600ms (cancel if you scroll first):
+
+| Target | Actions |
+|--------|---------|
+| Library folder | Add all to Quick Select; Add all to folder… |
+| Patch | Add/remove Quick Access; Move to folder…; Set instrument… |
+| Quick Access subfolder | New subfolder; Rename / Delete (top-level user folders only) |
+
+Folder and instrument pickers are sub-menus. New/rename folder uses the on-screen keyboard (same layout as Wi‑Fi password entry).
+
+Tests: `tests/test_context_menu.py`
+
+## Favorites v2 (Phase 3)
+
+Quick Access favorites use a **copy-based** layout plus a JSON index — not symlinks, never deleting source patches.
+
+| Piece | Location |
+|-------|----------|
+| On-disk copies | `Quick Access/` root (hearts) or `Quick Access/<folder>/` for user subfolders |
+| Index | `~/.patch_browser_favorites.json` (override: `MPE_FAVORITES_INDEX_FILE`) |
+| Identity | `stable_key` per patch (see Patch index above) |
+
+**Heart toggle** (patch detail): copies the patch into **Quick Select root** and writes an index entry keyed by `stable_key`. Unfavorite removes the copy and index row only. After a toggle, the scanner rescans the Quick Access subtree only — not the full library.
+
+**User folders:** the index API supports create/rename/delete user subfolders under Quick Access. Long-press a folder for New subfolder / Rename / Delete. Legacy **`Liked/`** is migrated to root automatically on scan; it cannot be deleted from the UI.
+
+### Migrate flat Quick Access root copies
+
+Older installs may have `.fxp` copies sitting directly in the Quick Access root. Run on the Pi (or any machine with the library mounted):
+
+```bash
+cd ~/MPE-Module
+python3 scripts/migrate-favorites-v2.py --dry-run
+```
+
+Dry-run lists each root copy, its proposed Quick Select root target, and the resolved `stable_key`. Migration **aborts** if any copy cannot be matched to exactly one library patch (ambiguous stem). Quick Access copies are excluded from the stem map so they do not collide with factory/user sources.
+
+When the plan looks correct:
+
+```bash
+python3 scripts/migrate-favorites-v2.py --apply
+# optional backup before apply:
+python3 scripts/migrate-favorites-v2.py --apply --backup-dir ~/qa-migration-backup
+```
+
+**Rollback:** if you used `--backup-dir`, restore the backed-up Quick Access tree and `~/.patch_browser_favorites.json` from that directory.
+
+### Backup and restore (curated Quick Select)
+
+Favorites are **hours of curation** — never bulk-delete root copies without a snapshot. Prefer restore from backup over destructive cleanup scripts.
+
+| Action | Command |
+|--------|---------|
+| **Snapshot on Pi** (before risky changes) | `python3 scripts/backup-quick-select.py` → `~/.patch_browser_favorites_backups/` |
+| **Pull to assets repo (git)** | `bash scripts/backup-quick-select.sh` → `MPE-Library/assets/user-data/quick-select/snapshots/` |
+| **Restore from snapshot** | `python3 scripts/restore-quick-select.py /path/to/snapshot --rebuild-index` |
+| **Surge folder backup** | e.g. `~/.Surge Synth Team/Surge XT/Patches.backup.*/Quick Select` — pass that path to `restore-quick-select.py` |
+
+Restore always writes a **pre-restore snapshot** of the live tree + index unless you pass `--no-backup`. Bulk “Add all to Quick Select” auto-snapshots before copying.
+
+After `backup-quick-select.sh`, commit in **MPE-Library**:
+
+```bash
+cd ../MPE-Library
+git add assets/user-data/quick-select/
+git commit -m "Quick Select backup YYYY-MM-DD"
+git push
+```
+
+### Migrate legacy Liked/ → Quick Select root
+
+If an older install still has `Quick Access/Liked/` (from a prior favorites layout), the browser migrates on startup. To run manually:
+
+```bash
+python3 scripts/migrate-liked-to-root.py
+```
+
+Tests: `tests/test_favorites_index.py`, `tests/test_migrate_favorites_v2.py`
+
 ## Known gaps (v0)
 
+- **Post–audio-settings patch reload gap (2026-08-13):** After buffer / sample-rate / profile switch, graph recovery is ~5s and the correct patch reloads (toast: **Patch loaded**), but audio can **cut out again** during the OSC reload window even though state ends correct. Not blocking soak — see `Documents/specs/jack-audio-engine-spec.md` backlog.
 - Prefix/text search and folder chips not implemented (All patches + A–Z first)
 - Portrait panels are unsupported for this rig (yours is landscape)
 - Very large patches (e.g. **Bowed String**, ~8 MB) may need a calibration retry — use `--patch "Bowed String"` or re-run loader with `--force`

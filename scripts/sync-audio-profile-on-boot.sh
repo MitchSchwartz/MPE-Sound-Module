@@ -1,6 +1,7 @@
 #!/bin/bash
 # Apply persisted MPE_AUDIO_PROFILE from /etc/mpe/mpe.env at boot — enable/disable
 # gadget + stall watchdog to match, without restarting Surge (surge-xt-cli starts next).
+# Host-route watcher starts after Surge via surge-xt-cli ExecStartPost.
 
 set -euo pipefail
 

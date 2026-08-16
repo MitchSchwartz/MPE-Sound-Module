@@ -1,12 +1,16 @@
 [Unit]
 Description=Surge XT Crash Watchdog
+# Ordering only — NOT BindsTo. The watchdog must survive a hard Surge failure
+# (no-server/no-jack-device) so it can promote Surge once jackd recovers.
+# BindsTo made the supervisor die with the process it supervises (Gate C 2*).
 After=surge-xt-cli.service
-BindsTo=surge-xt-cli.service
 
 [Service]
 Type=simple
 User=@MPE_PI_USER@
 EnvironmentFile=-/etc/mpe/mpe.env
+RuntimeDirectory=mpe
+RuntimeDirectoryPreserve=yes
 ExecStart=@MPE_SCRIPTS_DIR@/surge-watchdog.sh
 TimeoutStopSec=10
 KillMode=control-group

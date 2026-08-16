@@ -9,8 +9,17 @@ from unittest import mock
 
 
 def _install_fake_pygame() -> None:
-    if isinstance(sys.modules.get("pygame"), types.ModuleType) and hasattr(
-        sys.modules["pygame"], "display"
+    # Guard on every attribute this module actually uses below — not just
+    # `display`. A leaner, order-earlier pygame stub from another test
+    # module (also valid for its own purposes) can satisfy a partial
+    # guard and get reused here missing something this file needs.
+    existing = sys.modules.get("pygame")
+    if (
+        isinstance(existing, types.ModuleType)
+        and hasattr(existing, "display")
+        and hasattr(existing, "Rect")
+        and hasattr(existing, "font")
+        and hasattr(existing, "draw")
     ):
         return
 
@@ -135,6 +144,8 @@ class TouchBrowserSmokeTests(unittest.TestCase):
         scanner = mock.Mock()
         scanner.load_last_patch.return_value = None
         scanner.get_categories.return_value = []
+        scanner.get_subfolders.return_value = []
+        scanner.get_patches_in_folder.return_value = []
         scanner.scan_complete.is_set.return_value = True
         scanner.wait_for_scan.return_value = True
         scanner.patches = {}
@@ -175,6 +186,10 @@ class TouchBrowserSmokeTests(unittest.TestCase):
             mock.patch.object(TouchPatchBrowser, "_complete_boot_splash"),
             mock.patch.object(TouchPatchBrowser, "_paint_boot_splash_frame"),
             mock.patch.object(TouchPatchBrowser, "_start_evdev_touch_bridge"),
+            mock.patch(
+                "patch_browser.touch_browser_wifi_modal.wifi_settings_row_label",
+                return_value="Wi‑Fi — Not connected",
+            ),
         ]
         for patcher in patches:
             patcher.start()
