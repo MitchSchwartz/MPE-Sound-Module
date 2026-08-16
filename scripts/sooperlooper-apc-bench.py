@@ -82,7 +82,7 @@ def main() -> int:
     apc_variant = os.environ.get("MPE_APC_VARIANT", "").strip() or None
     track_reset_hold_ms = float(os.environ.get("MPE_APC_TRACK_RESET_HOLD_MS", "3000"))
     sync_mode = os.environ.get("MPE_SL_SYNC_MODE", "grid").strip().lower()
-    fader_interval_ms = float(os.environ.get("MPE_APC_FADER_INTERVAL_MS", "20"))
+    fader_interval_ms = float(os.environ.get("MPE_APC_FADER_INTERVAL_MS", "10"))
 
     try:
         import rtmidi
@@ -231,20 +231,17 @@ def main() -> int:
             fs.poll_hold()
             fs.poll_led()
 
-    def flush_faders() -> None:
-        """Push whatever the coalescer is holding.
-
-        Called from the idle branch, which is the only place that runs after
-        the last CC of a drag. Without it the value a fader came to rest at
-        stays pending forever and the surface lies about the level.
-        """
-        faders.flush(now=time.monotonic())
+    def tick_faders() -> None:
+        """Ramp smoothed wet toward targets between CC events."""
+        faders.tick(now=time.monotonic())
 
     def handle_cc(cc: int, value: int) -> None:
         fader = fader_for_cc(cc, loop_fader_ccs=loop_fader_ccs, master_cc=master_cc)
         if fader is None:
             return
-        faders.submit(mix.messages_for(fader, value), now=time.monotonic())
+        now = time.monotonic()
+        faders.submit(mix.messages_for(fader, value), now=now)
+        faders.tick(now=now)
 
     def maybe_track_transport() -> None:
         if track_reset.poll_long():
@@ -268,7 +265,7 @@ def main() -> int:
         if packet is None:
             poll_holds()
             maybe_track_transport()
-            flush_faders()
+            tick_faders()
             state_listener.maybe_reregister()
             time.sleep(0.002)
             continue

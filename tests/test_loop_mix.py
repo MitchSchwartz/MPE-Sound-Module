@@ -2,19 +2,17 @@ import unittest
 
 import loop_mix
 from apc_faders import CC_MAX, MASTER
-from loop_mix import PICKUP_TOLERANCE_CC, CoalescingSender, LoopMix, fader_taper
+from loop_mix import CoalescingSender, LoopMix, fader_taper
 
 
 def _picked_up(mix, fader):
-    """Move a fader onto its stored value so pickup stops suppressing it."""
-    mix.messages_for(fader, mix.user_gain[fader])
+    """Anchor relative pickup so subsequent moves apply delta."""
+    mix.messages_for(fader, mix._pickup_ref.get(fader, CC_MAX))
     return mix
 
 
 class Taper(unittest.TestCase):
     def test_bottom_of_travel_is_actual_silence(self):
-        # A log law cannot reach zero; without the snap the fader bottoms out
-        # audible, which reads as a bug rather than as a taper.
         self.assertEqual(fader_taper(0, floor_db=-40.0, ceil_db=0.0), 0.0)
 
     def test_top_of_travel_is_unity(self):
@@ -57,14 +55,10 @@ class ColumnMapping(unittest.TestCase):
 
 class Master(unittest.TestCase):
     def test_master_scales_every_loop_over_per_loop_wet(self):
-        # Not an engine-global /set: nothing in this system has ever written a
-        # level at engine scope, and an OSC message to a control the engine
-        # does not have vanishes silently. Per-loop wet is proven.
         msgs = LoopMix(num_loops=16).messages_for(MASTER, 100)
         self.assertEqual([p for p, _ in msgs], [f"/sl/{n}/set" for n in range(16)])
 
     def test_master_at_full_is_identity(self):
-        # Guards the new factor silently attenuating everything at rest.
         mix = LoopMix()
         mix.messages_for(MASTER, CC_MAX)
         self.assertAlmostEqual(mix.wet_for(0), 1.0)
@@ -78,53 +72,44 @@ class Master(unittest.TestCase):
         self.assertAlmostEqual(mix.wet_for(0), expected)
 
     def test_master_is_not_gated_by_column_pickup(self):
-        # No column owns it, and a fresh mix has picked up nothing.
         self.assertTrue(LoopMix().messages_for(MASTER, 40))
 
     def test_master_is_exempt_from_pickup(self):
-        # There is no per-loop truth to seed it from, so suppressing it would
-        # leave the master permanently inert.
         self.assertTrue(LoopMix().messages_for(MASTER, 5))
 
 
 class Pickup(unittest.TestCase):
-    def test_fader_is_ignored_until_it_crosses_the_stored_value(self):
-        mix = LoopMix()  # every loop seeded at CC_MAX
-        self.assertEqual(mix.messages_for(0, 10), [])
-        self.assertEqual(mix.messages_for(0, 60), [])
-
-    def test_fader_writes_once_it_has_crossed(self):
+    def test_first_touch_anchors_without_changing_level(self):
         mix = LoopMix()
-        self.assertEqual(mix.messages_for(0, 10), [])
-        self.assertTrue(mix.messages_for(0, CC_MAX))
-        self.assertTrue(mix.messages_for(0, 10))  # now live
+        self.assertEqual(mix.messages_for(0, 40), [])
+        self.assertEqual(mix.user_gain[0], CC_MAX)
 
-    def test_a_fader_resting_at_the_bottom_escapes_by_sweeping_to_the_top(self):
-        # The actual state after every bench restart: gains seeded at CC_MAX
-        # while the physical fader is wherever it was left. With a tolerance of
-        # a couple of CC steps that fader is inert across nearly all of its
-        # travel, and only full travel frees it. Defensible, but it is the
-        # behaviour the README has to describe, so pin it.
+    def test_relative_movement_after_anchor_applies_delta(self):
         mix = LoopMix()
-        for raw in range(0, CC_MAX - PICKUP_TOLERANCE_CC):
-            self.assertEqual(mix.messages_for(0, raw), [], f"wrote early at {raw}")
-        self.assertTrue(mix.messages_for(0, CC_MAX))
+        mix.messages_for(0, 40)  # anchor at 40, ref 127
+        msgs = mix.messages_for(0, 30)  # delta -10 → effective 117
+        self.assertTrue(msgs)
+        self.assertEqual(mix.user_gain[0], 117)
 
-    def test_suppressed_movement_does_not_change_stored_gain(self):
+    def test_misaligned_fader_does_not_jump_on_grab(self):
+        mix = LoopMix()
+        mix.messages_for(0, 10)
+        self.assertEqual(mix.user_gain[0], CC_MAX)
+        mix.messages_for(0, 5)
+        self.assertEqual(mix.user_gain[0], 122)
+
+    def test_suppressed_anchor_does_not_change_stored_gain(self):
         mix = LoopMix()
         mix.messages_for(0, 10)
         self.assertEqual(mix.user_gain[0], CC_MAX)
 
     def test_engine_seed_rearms_pickup_for_that_column(self):
         mix = _picked_up(LoopMix(), 0)
-        self.assertTrue(mix.messages_for(0, 100))
-        mix.seed_from_engine(8, 0.25)  # loop 8 is column 0
+        mix.messages_for(0, 100)
+        mix.seed_from_engine(8, 0.25)
         self.assertEqual(mix.messages_for(0, 100), [])
 
     def test_engine_echoing_our_own_value_does_not_rearm_pickup(self):
-        # `wet` streams continuously, so most updates are the engine repeating
-        # what we just set. Re-arming on those would leave every fader inert
-        # forever: it can never cross a target that keeps moving to meet it.
         mix = _picked_up(LoopMix(), 0)
         mix.messages_for(0, 100)
         for _ in range(20):
@@ -133,8 +118,6 @@ class Pickup(unittest.TestCase):
         self.assertTrue(mix.messages_for(0, 90))
 
     def test_master_echo_does_not_corrupt_column_fader_gain(self):
-        # Composed wet echoes must not be inverted into user_gain — that would
-        # treat the master factor as if it were the column fader position.
         mix = _picked_up(LoopMix(), 0)
         mix.messages_for(0, 100)
         before = mix.user_gain[0]
@@ -161,7 +144,6 @@ class Composition(unittest.TestCase):
         mix.active_loops = 4
         with _law_enabled():
             self.assertAlmostEqual(mix.wet_for(0), 0.25)
-            # Recomputed from user_gain each time, so it does not compound.
             self.assertAlmostEqual(mix.wet_for(0), 0.25)
 
     def test_loop_count_change_reemits_every_loop(self):
@@ -196,25 +178,25 @@ class Coalescing(unittest.TestCase):
     def setUp(self):
         self.sent = []
         self.sender = CoalescingSender(
-            lambda path, args: self.sent.append((path, args)), interval_s=1.0
+            lambda path, args: self.sent.append((path, args)),
+            interval_s=1.0,
+            smooth_tau_s=0.0,
         )
 
     def test_bursts_are_collapsed_to_one_send_per_path(self):
-        for i, value in enumerate([10, 20, 30, 40]):
+        for i, value in enumerate([0.1, 0.2, 0.3, 0.4]):
             self.sender.submit([("/sl/0/set", ["wet", value])], now=i * 0.01)
         self.assertEqual(len(self.sent), 1)
 
     def test_the_endpoint_value_always_survives(self):
-        # Dropping the last value leaves the fader physically lying about the
-        # level, which is worse than the flood the throttle prevents.
-        for i, value in enumerate([10, 20, 30, 99]):
+        for i, value in enumerate([0.1, 0.2, 0.3, 0.99]):
             self.sender.submit([("/sl/0/set", ["wet", value])], now=i * 0.01)
         self.sender.flush(now=99.0)
-        self.assertEqual(self.sent[-1], ("/sl/0/set", ["wet", 99]))
+        self.assertEqual(self.sent[-1], ("/sl/0/set", ["wet", 0.99]))
 
     def test_distinct_paths_are_not_collapsed_into_each_other(self):
         self.sender.submit(
-            [("/sl/0/set", ["wet", 1]), ("/sl/8/set", ["wet", 1])], now=0.0
+            [("/sl/0/set", ["wet", 1.0]), ("/sl/8/set", ["wet", 1.0])], now=0.0
         )
         self.sender.flush(now=5.0)
         self.assertEqual({p for p, _ in self.sent}, {"/sl/0/set", "/sl/8/set"})
@@ -222,6 +204,36 @@ class Coalescing(unittest.TestCase):
     def test_flush_with_nothing_pending_is_silent(self):
         self.sender.flush(now=1.0)
         self.assertEqual(self.sent, [])
+
+
+class Smoothing(unittest.TestCase):
+    def test_ramps_toward_target_over_ticks(self):
+        sent = []
+        sender = CoalescingSender(
+            lambda path, args: sent.append(args[1]),
+            interval_s=0.0,
+            smooth_tau_s=0.05,
+            smooth_snap=0.001,
+        )
+        sender.submit([("/sl/0/set", ["wet", 0.0])], now=0.0)
+        sent.clear()
+        sender.submit([("/sl/0/set", ["wet", 1.0])], now=0.0)
+        sender.tick(now=0.01)
+        sender.tick(now=0.02)
+        self.assertTrue(sent)
+        self.assertLess(sent[-1], 1.0)
+        sender.flush(now=0.2)
+        self.assertAlmostEqual(sent[-1], 1.0)
+
+    def test_snap_when_disabled(self):
+        sent = []
+        sender = CoalescingSender(
+            lambda path, args: sent.append(args[1]),
+            interval_s=0.0,
+            smooth_tau_s=0.0,
+        )
+        sender.submit([("/sl/0/set", ["wet", 0.75])], now=0.0)
+        self.assertEqual(sent[-1], 0.75)
 
 
 if __name__ == "__main__":
