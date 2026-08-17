@@ -115,6 +115,39 @@ class GovernorTests(unittest.TestCase):
         rep.assert_not_called()
         self.assertNotEqual("ok", alarm["state"])
 
+    def test_repeated_repair_escalates_to_an_alarm(self) -> None:
+        """Repairing forever would hide a fight. Keep repairing, but say so."""
+        graph = f"{sl.JACK_CLIENT}:common_out_1\n   system:playback_1\n" \
+                f"system:playback_1\n   {sl.JACK_CLIENT}:common_out_1\n"
+        # Drive the REAL continuous loop: the counter lives across cycles, so a
+        # per-run --once test could never exercise the escalation at all.
+        cycles = {"n": 0}
+
+        def _stop_after_four(_seconds):
+            cycles["n"] += 1
+            self.gov.write_text("ondemand\n")  # something drifts it right back
+            if cycles["n"] >= 4:
+                raise KeyboardInterrupt
+
+        with mock.patch.object(sl, "GOVERNOR_TARGET", "performance"), \
+             mock.patch.object(sl, "GOVERNOR_FIGHT_LIMIT", 2), \
+             mock.patch.object(sl, "jack_graph", return_value=graph), \
+             mock.patch.object(sl, "engine_running", return_value=True), \
+             mock.patch.object(sl, "repair_governor", return_value=(True, "ok")), \
+             mock.patch.object(sl, "check_command_path",
+                               return_value=(sl.ALIVE, "fine")), \
+             mock.patch.object(sl.time, "sleep", side_effect=_stop_after_four), \
+             mock.patch.object(sl, "Osc") as osc:
+            osc.return_value.start.return_value = mock.MagicMock()
+            with self.assertRaises(KeyboardInterrupt):
+                sl.main([])
+
+        alarm = json.loads(self.alarm.read_text())
+        self.assertGreater(alarm["governor_repairs_in_window"], 2)
+        self.assertNotEqual("ok", alarm["state"],
+                            "a governor being reset repeatedly must not read as ok")
+        self.assertIn("masking a fight", json.dumps(alarm))
+
     def test_metrics_ride_on_a_healthy_alarm_file(self) -> None:
         """The rate must be visible when things are FINE, or it isn't monitoring."""
         alarm, _ = self._run_once(actual="performance")
