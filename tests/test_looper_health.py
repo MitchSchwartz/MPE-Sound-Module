@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from patch_browser.looper_health import (
+    JackCpuLoadReader,
     JackGraphHealth,
+    JournalXrunCounter,
     LooperHealth,
     collect_jack_graph_health,
     jackd_journal_xruns_since,
@@ -60,10 +63,10 @@ class JackGraphHealthTests(unittest.TestCase):
         self.assertEqual(snap["xruns"], 2)
         self.assertAlmostEqual(snap["max_pct"], 85.0, delta=0.1)
 
-    @patch("patch_browser.looper_health.read_jack_cpu_load_pct", return_value=22.5)
-    @patch("patch_browser.looper_health.jackd_journal_xruns_since", return_value=3)
-    def test_collect_jack_graph_health(self, _journal, _cpu) -> None:
+    def test_collect_jack_graph_health(self) -> None:
         tracker = JackGraphHealth(window_s=0.0, started_at=1000.0)
+        tracker.cpu_reader = SimpleNamespace(read=lambda: 22.5, close=lambda: None)
+        tracker.xrun_counter = SimpleNamespace(poll=lambda: 3)
         snap = collect_jack_graph_health(tracker)
         self.assertEqual(snap["xruns"], 3)
 
@@ -76,10 +79,111 @@ class JackProbeTests(unittest.TestCase):
         self.assertAlmostEqual(read_jack_cpu_load_pct(), 40.1)
 
     @patch("patch_browser.looper_health.subprocess.run")
+    def test_read_jack_cpu_load_pct_escalates_to_sigkill(self, run_mock) -> None:
+        """jack_cpu_load ignores SIGTERM; without -k the client leaks onto the graph."""
+        run_mock.return_value.stdout = ""
+        run_mock.return_value.returncode = 0
+        read_jack_cpu_load_pct()
+        argv = run_mock.call_args[0][0]
+        self.assertIn("-k", argv)
+        self.assertLess(argv.index("-k"), argv.index("jack_cpu_load"))
+
+    @patch("patch_browser.looper_health.subprocess.run")
     def test_jackd_journal_xruns_since(self, run_mock) -> None:
         run_mock.return_value.stdout = "jackd: xrun of at least 128 msecs\nok\n"
         run_mock.return_value.returncode = 0
         self.assertEqual(jackd_journal_xruns_since(1_700_000_000.0), 1)
+
+
+class JournalXrunCounterTests(unittest.TestCase):
+    """The old probe rescanned the whole journal every tick; this must not."""
+
+    @patch("patch_browser.looper_health.subprocess.run")
+    def test_follows_cursor_and_accumulates(self, run_mock) -> None:
+        counter = JournalXrunCounter(1_700_000_000.0)
+
+        run_mock.return_value.returncode = 0
+        run_mock.return_value.stdout = (
+            "jackd: xrun of at least 128 msecs\nfine\n-- cursor: s=aaa;i=1\n"
+        )
+        self.assertEqual(counter.poll(), 1)
+
+        run_mock.return_value.stdout = (
+            "jackd: xrun of at least 4 msecs\njackd: xrun\n-- cursor: s=aaa;i=2\n"
+        )
+        self.assertEqual(counter.poll(), 3, "counts must accumulate, not reset")
+
+        first_argv, second_argv = run_mock.call_args_list[0][0][0], run_mock.call_args_list[1][0][0]
+        self.assertIn("--since", first_argv)
+        self.assertNotIn("--since", second_argv)
+        self.assertIn("--after-cursor", second_argv)
+        self.assertIn("s=aaa;i=1", second_argv)
+
+    @patch("patch_browser.looper_health.subprocess.run")
+    def test_quiet_poll_does_not_lose_the_running_total(self, run_mock) -> None:
+        counter = JournalXrunCounter(1_700_000_000.0)
+        run_mock.return_value.returncode = 0
+        run_mock.return_value.stdout = "jackd: xrun\n-- cursor: s=aaa;i=1\n"
+        self.assertEqual(counter.poll(), 1)
+        run_mock.return_value.stdout = "-- cursor: s=aaa;i=2\n"
+        self.assertEqual(counter.poll(), 1)
+
+    @patch("patch_browser.looper_health.subprocess.run")
+    def test_cursor_line_is_not_itself_counted(self, run_mock) -> None:
+        counter = JournalXrunCounter(1_700_000_000.0)
+        run_mock.return_value.returncode = 0
+        run_mock.return_value.stdout = "nothing here\n-- cursor: s=xrun-looking;i=1\n"
+        self.assertEqual(counter.poll(), 0)
+
+
+class JackCpuLoadReaderTests(unittest.TestCase):
+    """One held client, not a fork per sample — each spawn reorders jackd's graph."""
+
+    def test_spawns_once_across_many_reads(self) -> None:
+        spawns: list[list[str]] = []
+
+        class FakeProc:
+            def __init__(self, argv):
+                spawns.append(argv)
+                self.stdout = iter(["jack DSP load 12.5\n", "jack DSP load 19.0\n"])
+                self.killed = False
+                FakeProc.last = self
+
+            def poll(self):
+                return None
+
+            def terminate(self):
+                raise AssertionError("SIGTERM is ignored by jack_cpu_load — must SIGKILL")
+
+            def kill(self):
+                self.killed = True
+
+            def wait(self, timeout=None):
+                return 0
+
+        reader = JackCpuLoadReader()
+        with patch(
+            "patch_browser.looper_health.subprocess.Popen",
+            side_effect=lambda argv, **kw: FakeProc(argv),
+        ):
+            reader.read()
+            for _ in range(20):
+                reader.read()
+            reader.close()
+
+        self.assertEqual(len(spawns), 1, f"respawned {len(spawns)}x — reorders the graph")
+        self.assertTrue(
+            FakeProc.last.killed, "close() must SIGKILL or the client leaks onto the graph"
+        )
+
+    def test_missing_binary_is_never_retried(self) -> None:
+        reader = JackCpuLoadReader()
+        with patch(
+            "patch_browser.looper_health.subprocess.Popen", side_effect=FileNotFoundError
+        ) as popen:
+            for _ in range(5):
+                self.assertIsNone(reader.read())
+        self.assertEqual(popen.call_count, 1)
 
 
 class HealthBadgeTests(unittest.TestCase):
