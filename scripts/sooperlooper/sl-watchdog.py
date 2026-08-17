@@ -93,6 +93,16 @@ XRUN_MARKER = os.environ.get("MPE_SL_XRUN_MARKER", "got xrun")
 XRUN_ALARM_PER_MIN = float(os.environ.get("MPE_SL_XRUN_ALARM_PER_MIN", "30"))
 XRUN_WINDOW_S = float(os.environ.get("MPE_SL_XRUN_WINDOW_S", "60"))
 
+# A drift repaired once is housekeeping. A drift repaired over and over is a
+# fight with something that keeps winning, and quietly re-pinning forever would
+# hide it — the same papering-over this file exists to refuse. Past this many
+# repairs in the window, keep repairing but ALARM as well, so the fight surfaces
+# instead of becoming a permanent background repair. (surge-watchdog carries the
+# same reasoning as its supervisor cooldown.)
+GOVERNOR_FIGHT_LIMIT = int(os.environ.get("MPE_SL_GOVERNOR_FIGHT_LIMIT", "3"))
+GOVERNOR_FIGHT_WINDOW_S = float(
+    os.environ.get("MPE_SL_GOVERNOR_FIGHT_WINDOW_S", "600"))
+
 
 def now() -> str:
     return time.strftime("%H:%M:%S")
@@ -331,6 +341,7 @@ def main(argv: list[str] | None = None) -> int:
     wedged_since: float | None = None
 
     xruns = XrunCounter(ENGINE_LOG)
+    governor_repairs: list[float] = []
 
     while True:
         problems, repaired = [], []
@@ -364,6 +375,17 @@ def main(argv: list[str] | None = None) -> int:
                         f"({detail}). Something reset it; this line is the "
                         f"timestamp to correlate against.")
                     CURRENT_METRICS["governor"] = read_governor()
+                    governor_repairs.append(cycle_t)
+                    governor_repairs[:] = [
+                        t for t in governor_repairs
+                        if t >= cycle_t - GOVERNOR_FIGHT_WINDOW_S]
+                    CURRENT_METRICS["governor_repairs_in_window"] = \
+                        len(governor_repairs)
+                    if len(governor_repairs) > GOVERNOR_FIGHT_LIMIT:
+                        problems.append(
+                            f"governor repaired {len(governor_repairs)}x in the last "
+                            f"{GOVERNOR_FIGHT_WINDOW_S/60:.0f} min — something is "
+                            f"actively resetting it; repairing is masking a fight")
                 else:
                     problems.append(f"governor is {governor}, expected "
                                     f"{GOVERNOR_TARGET}, and repair FAILED: {detail}")
