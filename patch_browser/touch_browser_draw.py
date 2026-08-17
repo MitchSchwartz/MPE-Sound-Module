@@ -46,6 +46,7 @@ from patch_browser.looper_hud import (
     bar_progress as looper_bar_progress,
     beat_label as looper_beat_label,
     current_beat_index as looper_beat_index,
+    health_badge as looper_health_badge,
     is_running as looper_is_running,
     segment_count as looper_segment_count,
     should_show as looper_should_show,
@@ -520,7 +521,15 @@ class TouchBrowserDrawMixin:
         bar_y = rect.y + LOOPER_HUD_V_PAD
         bar_h = max(10, rect.h - LOOPER_HUD_V_PAD * 2)
 
-        frac_surf = self.font_sm.render(label, True, accent if running else self.theme.text) if label else None
+        # Dropped periods outrank the bar counter when the graph is in trouble.
+        badge = looper_health_badge(sl)
+        if badge is not None:
+            label, severity = badge
+            frac_color = self.theme.danger if severity == "danger" else self.theme.playing
+        else:
+            frac_color = accent if running else self.theme.text
+
+        frac_surf = self.font_sm.render(label, True, frac_color) if label else None
         frac_w = frac_surf.get_width() if frac_surf else 0
 
         bar_x = rect.x + pad_x
