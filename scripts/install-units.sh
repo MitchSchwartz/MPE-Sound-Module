@@ -113,15 +113,33 @@ fi
 # `systemctl is-enabled` says enabled, nothing reports failed, and the thing
 # never runs. That is how mpe-looper.service skipped every boot for five days
 # unnoticed. Check before enabling, and say so loudly.
+# Checks EVERY absolute path on the ExecStart line, not just the first token.
+# `ExecStart=/usr/bin/python3 /path/to/script.py` would otherwise only verify the
+# interpreter — which always exists — so a deleted script passed silently. That is
+# the exact failure this guard exists to catch, and sl-watchdog.service is that
+# shape, so the guard was blind on the unit it was written alongside.
 echo "Checking ExecStart targets of units about to be enabled ..."
 missing_exec=0
 for u in "${ENABLED[@]}"; do
-    exec_path="$(sed -n 's/^ExecStart=-\?\([^ ]*\).*/\1/p' "$SRC/$u.service" | head -1)"
-    [ -n "$exec_path" ] || continue
-    if [ ! -e "$exec_path" ]; then
-        echo "  WARNING: $u is enabled but ExecStart is missing: $exec_path" >&2
-        missing_exec=1
-    fi
+    exec_line="$(sed -n 's/^ExecStart=//p' "$SRC/$u.service" | head -1)"
+    [ -n "$exec_line" ] || continue
+    # Strip systemd's leading modifiers (-, @, :, +, !) before the executable.
+    while [ -n "$exec_line" ]; do
+        case "$exec_line" in
+            [-@:+!]*) exec_line="${exec_line#?}" ;;
+            *) break ;;
+        esac
+    done
+    for tok in $exec_line; do
+        case "$tok" in
+            /*) ;;
+            *) continue ;;
+        esac
+        if [ ! -e "$tok" ]; then
+            echo "  WARNING: $u is enabled but ExecStart path is missing: $tok" >&2
+            missing_exec=1
+        fi
+    done
 done
 if [ "$missing_exec" -eq 1 ]; then
     echo "  ^ These units will start-fail or silently skip. Fix before relying on" >&2

@@ -66,6 +66,25 @@ class EngineDownTests(unittest.TestCase):
         alarm = self._run_once(engine_up=True)
         self.assertEqual("orphan", alarm["state"])
 
+    def test_unknown_process_state_alarms_without_asserting_it_is_up(self) -> None:
+        """pgrep failing is not evidence the process is alive.
+
+        Still alarms — loud on the control path — but the detail must not claim
+        a live process we never confirmed.
+        """
+        with mock.patch.object(sl_watchdog, "jack_graph",
+                               return_value=GRAPH_WITHOUT_LOOPER), \
+             mock.patch.object(sl_watchdog, "engine_running", return_value=None), \
+             mock.patch.object(sl_watchdog, "Osc") as osc, \
+             mock.patch.object(sl_watchdog, "capture_wedge_diagnostics",
+                               return_value={}):
+            osc.return_value.start.return_value = mock.MagicMock()
+            sl_watchdog.main(["--once"])
+        alarm = json.loads(self.alarm.read_text())
+        self.assertEqual("orphan", alarm["state"])
+        self.assertIn("UNKNOWN", alarm["detail"])
+        self.assertNotIn("process is up", alarm["detail"])
+
     def test_engine_down_exits_clean(self) -> None:
         """`--once` is a health gate; a deliberately stopped looper isn't a fault."""
         with mock.patch.object(sl_watchdog, "jack_graph",

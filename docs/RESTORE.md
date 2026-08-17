@@ -110,12 +110,21 @@ Restore `~/surge-cli-calibration.log` and `~/.patch_browser_calibration_backups`
 sudo systemctl start mpe-jackd surge-xt-cli sl-watchdog
 ```
 
-`mpe-looper.service` is deliberately **not** in that list. Its ExecStart was
-stripped on 2026-08-12 (8e6759b) and never restored, so the unit only ever logs
-"skipped, unmet condition" — starting it looks like it worked and does nothing.
-The looper in use is the sooperlooper stack; bring it up with
-`mpe looper sl-restart`, then confirm `mpe looper sl-watchdog status` reports
-the unit running.
+`mpe-looper.service` was **deleted** on 2026-08-17, so it is not in that list and
+no longer exists to start. Its ExecStart had been stripped on 2026-08-12
+(8e6759b) and never restored, so the unit only ever logged "skipped, unmet
+condition" — starting it looked like it worked and did nothing.
+
+The looper in use is the sooperlooper stack, which has **no unit of its own**: it
+is started by `mpe looper sl-restart` (or `scripts/sooperlooper/restart-sooperlooper.sh`
+on the appliance) and does not come back automatically after a reboot. Only its
+supervisor, `sl-watchdog.service`, is enabled at boot. After a restore, bring the
+engine up deliberately and confirm the graph:
+
+```bash
+mpe looper sl-restart              # starts the engine + wires the JACK graph
+mpe looper sl-watchdog status      # expect the unit running, alarm state ok
+```
 
 From the laptop:
 

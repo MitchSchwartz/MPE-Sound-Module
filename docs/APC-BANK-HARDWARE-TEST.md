@@ -58,8 +58,9 @@ A bench started earlier from `/home/mitch/MPE-Module` will still be holding the
 APC and the listener port. A second bench **exits by design** on the 9953 bind
 failure, and even if it started, the LEDs you would be reading are the old
 build's output. This needs Mitch's hands: `mpe-agent` is a different user with
-no sudo for `kill`, and `mpe-looper.service` is inactive so the service path
-does not apply.
+no sudo for `kill`, and there is no looper unit to stop — `mpe-looper.service`
+was deleted 2026-08-17, and the sooperlooper engine runs as a bare process — so
+the service path does not apply.
 
 ```bash
 pgrep -af sooperlooper-apc-bench     # expect nothing
