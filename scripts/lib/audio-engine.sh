@@ -500,6 +500,20 @@ mpe_restart_looper_after_graph_change() {
         return 0
     fi
 
+    # Defer to the unit when it is installed. restart-sooperlooper.sh kills the engine
+    # and starts its own; with mpe-sooperlooper.service (Restart=always) systemd would
+    # start one too, and both would race for OSC port 9951 — one wins, the other dies,
+    # and which is which is a coin flip. `systemctl restart` also re-runs the unit's
+    # ExecStartPost, so the record/playback graph is rewired the same way it is at boot.
+    if [ -f /etc/systemd/system/mpe-sooperlooper.service ]; then
+        echo "audio-engine: restarting SooperLooper via mpe-sooperlooper.service ($reason) — recorded loops are cleared" >&2
+        mpe_systemctl restart mpe-sooperlooper.service || {
+            echo "audio-engine: mpe-sooperlooper.service restart failed" >&2
+            return 1
+        }
+        return 0
+    fi
+
     # shellcheck source=paths.sh
     source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/paths.sh"
     local script="${MPE_MODULE_REPO}/scripts/sooperlooper/restart-sooperlooper.sh"
