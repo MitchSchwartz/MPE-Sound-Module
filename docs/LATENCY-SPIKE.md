@@ -129,7 +129,7 @@ Purpose: put the thing we already believe on the record, so the later arms have 
 
 | Step | Action |
 |---|---|
-| A.1 | Confirm `MPE_SURGE_BUFFER_SIZE=1024` in `/etc/mpe/mpe.env` and in touch **Audio → Buffer** |
+| A.1 | Confirm `MPE_JACK_BUFFER` / `MPE_JACK_PERIODS` in `/etc/mpe/mpe.env` and in touch **Audio → Buffer**. *(Corrected 2026-08-17 — this said `MPE_SURGE_BUFFER_SIZE=1024`, which does not size the graph under JACK; following it as written sets nothing and misreports the period.)* |
 | A.2 | Build the rig above — switch profile to **`standalone`** (currently `usb-host`), no pedal, no gadget, Roli only |
 | A.3 | 10 min jam @ **1024** — note voice behavior, grep log for xrun |
 | A.4 | Brief pass @ **768** — **document the failure mode concretely** (which patches, how many voices, how fast it degrades) |
