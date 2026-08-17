@@ -866,12 +866,126 @@ printf '%s' "$(mpe_jack_periods)"
         result = _run_bash_script(body, env=_bash_env(MPE_JACK_PERIODS="4"))
         self.assertEqual(result.stdout.strip(), "4")
 
+    def test_buffer_env_canonical_uses_jack_key_only(self) -> None:
+        body = f"""
+source {AUDIO_ENGINE_SH}
+printf '%s' "$(mpe_buffer_env_canonical)"
+"""
+        result = _run_bash_script(
+            body,
+            env=_bash_env(MPE_JACK_BUFFER="512", MPE_SURGE_BUFFER_SIZE="1024"),
+        )
+        self.assertEqual(result.stdout.strip(), "512")
+
+    def test_legacy_surge_key_never_sets_the_graph_period(self) -> None:
+        """Spec D6: a stale MPE_SURGE_BUFFER_SIZE must not reassign the live period."""
+        body = f"""
+source {AUDIO_ENGINE_SH}
+printf '%s' "$(mpe_buffer_env_canonical)"
+"""
+        result = _run_bash_script(body, env=_bash_env(MPE_SURGE_BUFFER_SIZE="512"))
+        self.assertEqual(result.stdout.strip(), "256")
+
+    def test_export_synced_buffer_env_leaves_surge_key_alone(self) -> None:
+        """Writing the keys equal broke MIDI offset — they measure different things."""
+        body = f"""
+source {AUDIO_ENGINE_SH}
+mpe_export_synced_buffer_env
+printf '%s %s' "$MPE_JACK_BUFFER" "$MPE_SURGE_BUFFER_SIZE"
+"""
+        result = _run_bash_script(
+            body,
+            env=_bash_env(MPE_JACK_BUFFER="512", MPE_SURGE_BUFFER_SIZE="1024"),
+        )
+        self.assertEqual(result.stdout.strip(), "512 1024")
+
+    def test_export_synced_buffer_env_warns_when_only_legacy_key_set(self) -> None:
+        body = f"""
+source {AUDIO_ENGINE_SH}
+mpe_export_synced_buffer_env
+printf '%s' "$MPE_JACK_BUFFER"
+"""
+        result = _run_bash_script(body, env=_bash_env(MPE_SURGE_BUFFER_SIZE="512"))
+        self.assertIn("MPE_JACK_BUFFER is not", result.stderr)
+        self.assertEqual(result.stdout.strip(), "256")
+
 
 class StartJackdPlaybackOnlyTests(unittest.TestCase):
     def test_alsa_backend_opens_playback_only(self) -> None:
         text = START_JACKD_SH.read_text(encoding="utf-8")
         self.assertIn('-d alsa -P "$HW_DEV"', text)
         self.assertNotIn('-d alsa -d "$HW_DEV"', text)
+
+
+class LooperRestartPrefersTheUnitTests(unittest.TestCase):
+    """Two restart paths for one engine is a race for OSC port 9951.
+
+    restart-sooperlooper.sh kills the engine and starts its own. With
+    mpe-sooperlooper.service (Restart=always) installed, systemd starts one too — both
+    bind 9951, one dies, and which one is a coin flip. A buffer change does four graph
+    restarts, so a sweep would roll that dice four times.
+    """
+
+    @staticmethod
+    def _code_lines() -> list[str]:
+        """Function body with comments stripped — comments name both paths."""
+        source = AUDIO_ENGINE_SH.read_text(encoding="utf-8")
+        body = source.split("mpe_restart_looper_after_graph_change()")[1].split("\n}")[0]
+        return [
+            line
+            for line in body.splitlines()
+            if line.strip() and not line.strip().startswith("#")
+        ]
+
+    def test_defers_to_the_unit_before_the_script(self) -> None:
+        code = self._code_lines()
+        unit_check = next(
+            i for i, ln in enumerate(code) if "mpe-sooperlooper.service" in ln
+        )
+        script_use = next(
+            i for i, ln in enumerate(code) if "restart-sooperlooper.sh" in ln
+        )
+        self.assertLess(
+            unit_check,
+            script_use,
+            "the unit branch must come BEFORE falling back to the script",
+        )
+        self.assertTrue(
+            any("restart mpe-sooperlooper.service" in ln for ln in code),
+            "the unit branch must actually restart the unit",
+        )
+
+    def test_script_fallback_survives_for_unsupervised_installs(self) -> None:
+        self.assertTrue(
+            any("restart-sooperlooper.sh" in ln for ln in self._code_lines())
+        )
+
+
+class JackSoftmodeTests(unittest.TestCase):
+    """Softmode ships on; a bench run must be able to turn it off to name a culprit."""
+
+    def _softmode(self, **env) -> int:
+        body = f"""
+source {AUDIO_ENGINE_SH}
+if mpe_jack_softmode_enabled; then printf 'on'; else printf 'off'; fi
+"""
+        return _run_bash_script(body, env=_bash_env(**env)).stdout.strip()
+
+    def test_defaults_to_softmode_on(self) -> None:
+        self.assertEqual(self._softmode(), "on")
+
+    def test_explicit_zero_disables(self) -> None:
+        self.assertEqual(self._softmode(MPE_JACK_SOFTMODE="0"), "off")
+        self.assertEqual(self._softmode(MPE_JACK_SOFTMODE="off"), "off")
+
+    def test_garbage_stays_safe(self) -> None:
+        self.assertEqual(self._softmode(MPE_JACK_SOFTMODE="banana"), "on")
+
+    def test_start_jackd_passes_the_flag_conditionally(self) -> None:
+        text = START_JACKD_SH.read_text(encoding="utf-8")
+        self.assertIn("mpe_jack_softmode_enabled", text)
+        self.assertIn('"${SOFTMODE_ARGS[@]}"', text)
+        self.assertNotIn('jackd -R -P"$JACK_PRIO" -s', text)
 
 
 if __name__ == "__main__":
