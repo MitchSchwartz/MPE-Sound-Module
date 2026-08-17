@@ -24,6 +24,25 @@
 #
 # Loopback and the tailnet stay open, so OSC to Surge (127.0.0.1:53280),
 # sooperlooper (127.0.0.1:9951) and JACK all work normally.
+#
+# RUNNING AN APC HARDWARE TEST
+#
+# The APC mini and the sooperlooper OSC port can only be held by one process.
+# Mitch's bench holds them by default, so take them over first:
+#
+#   mpe-pi sudo systemctl stop mpe-bench.service      # free the APC + OSC port
+#   mpe-pi 'cd ~/MPE-Module && git checkout <branch> && ./scripts/start-sooperlooper-apc-bench.sh'
+#   mpe-pi sudo systemctl start mpe-bench.service     # hand it back when done
+#
+# Note the second line runs YOUR checkout, as mpe-agent. Restarting the unit
+# would relaunch mitch's copy of the code instead — it would look like a deploy
+# and test nothing. Never verify a branch by restarting a unit that executes
+# from /home/mitch.
+#
+# CAVEAT: `systemctl stop` only stops a bench that was STARTED as the unit. A
+# bench hand-started in a shell is invisible to systemd and must be stopped by
+# whoever started it. If the stop reports success and the APC is still busy,
+# that is what happened — say so rather than retrying.
 
 set -euo pipefail
 
