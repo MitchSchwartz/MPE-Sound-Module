@@ -87,4 +87,5 @@ Per the appliance's own measurement habit: the stub run is the experiment, the m
 
 - Does the touch UI have screen space, or does the meter need a mode/overlay?
 - Should it read pre- or post-`amixer`? The tap above is **pre**-hardware-mixer, so it shows what the software graph produces, not what leaves the DAC. Post-mixer level cannot be measured in JACK at all — worth stating on the UI so the reading is not misread as speaker output.
+- **Vol fader vs DAC:** the touch **Vol** fader trims Surge `amp/volume` in software (`~/.patch_browser_volume.json`). **`MPE_DAC_VOLUME_DB`** sets the Sound Blaster **Speaker** step via `scripts/set-dac-volume.sh` — a separate, post-graph stage. Binding Vol to `amixer` would need card/control detection per profile (standalone vs usb-host), persistence, and a clear UX split from per-patch norm; not started.
 - Peak only, or peak + RMS/LUFS? Peak answers "am I clipping"; RMS answers "is this patch as loud as that one". The stated need is both, so probably both bars.

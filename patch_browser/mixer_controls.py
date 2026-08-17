@@ -17,7 +17,7 @@ from patch_browser.patch_hold import (
     hold_mult_to_offset,
     hold_offset_to_mult,
 )
-from patch_browser.patch_normalization import NORM_GAIN_DB_MAX, NORM_GAIN_DB_MIN, volume_fader_display_pct
+from patch_browser.patch_normalization import NORM_GAIN_DB_MAX, NORM_GAIN_DB_MIN, volume_fader_display_db
 from patch_browser.patch_pressure import (
     TOUCH_DISPLAY_CLEAR_EPSILON,
     TOUCH_DISPLAY_MAX,
@@ -108,7 +108,9 @@ class VolumeControl:
         browser._toast("Volume reset", 1.2)
 
     def format(self, value: float) -> str:
-        return f"{volume_fader_display_pct(value, fader_min=VOLUME_MIN, fader_max=VOLUME_MAX)}"
+        return volume_fader_display_db(
+            value, fader_min=VOLUME_MIN, fader_max=VOLUME_MAX
+        )
 
     def persist(self, browser) -> None:
         pass
