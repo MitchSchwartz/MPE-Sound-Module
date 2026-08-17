@@ -107,6 +107,39 @@ class ApcBenchFootswitchTests(unittest.TestCase):
         osc.send_message.assert_not_called()
 
 
+class ViewAgreementTests(unittest.TestCase):
+    """The pad layer and the fader layer must address the same track.
+
+    Every other test here checks one layer alone, so the bench forgetting to
+    call `mix.set_view()` alongside `apply_view()` — the exact bug where the
+    clip travels and the volume doesn't — passes all of them.
+    """
+
+    def test_pads_and_faders_address_the_same_loops_after_banking(self) -> None:
+        from scripts.sooperlooper.loop_mix import LoopMix
+
+        osc = MagicMock()
+        midi_out = MagicMock()
+        _by_note, footswitches = build_footswitches(
+            osc=osc,
+            midi_out=midi_out,
+            num_loops=16,
+            hold_ms=1000.0,
+            debounce_ms=200.0,
+        )
+        mix = LoopMix(num_loops=16)
+        for offset in (0, 8, 1, 7):
+            view = GridView(offset=offset)
+            by_note = apply_view(midi_out, footswitches=footswitches, view=view)
+            mix.set_view(view)
+            for col in range(8):
+                self.assertEqual(
+                    (by_note[pad_note(0, col)].loop,),
+                    mix.view.loops_for_column(col),
+                    f"column {col} disagrees at offset {offset}",
+                )
+
+
 def _bench_module():
     """Load the bench script — its filename has a hyphen, so no plain import."""
     import importlib.util
