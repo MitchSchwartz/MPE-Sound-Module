@@ -41,21 +41,6 @@ DISABLED=(
     mic-to-uac2-bridge
     # An eval bench. Started deliberately for a test, never at boot.
     mpe-bench
-    # The v0 looper. Its ExecStart (scripts/mpe-looper.py, mpe-looper-service.sh)
-    # was stripped as broken on 2026-08-12 by 8e6759b, and the yolo/looper-phase0
-    # branch that was meant to restore it does not exist on origin. The unit came
-    # back into the repo in 923dca9, which captured the live appliance — where the
-    # stale unit was still installed and still enabled.
-    #
-    # It has been enabled-and-skipping on every boot since: ConditionPathExists
-    # means systemd logs "skipped, unmet condition" and reports no failure, so
-    # `is-enabled` says enabled, nothing is wrong, and nothing runs. Verified on
-    # the appliance 2026-08-17 — zero "Started" entries in its entire journal.
-    #
-    # Kept installed (not deleted) because the sooperlooper stack that replaced it
-    # is still on a bench footing. Not enabled, because an enabled unit that can
-    # never start is what made docs/RESTORE.md's start line untrue.
-    mpe-looper
 )
 
 # No [Install] section — cannot be enabled, only pulled in by another unit.
