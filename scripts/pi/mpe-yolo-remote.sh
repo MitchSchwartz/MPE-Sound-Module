@@ -66,7 +66,7 @@ perf_mode_active() { [ -f "$PERF_MARKER" ]; }
 
 emit() { log "OK $CMD"; }
 
-unit_list=(mpe-jackd surge-xt-cli mpe-looper surge-watchdog surge-poly-governor
+unit_list=(mpe-jackd surge-xt-cli sl-watchdog surge-watchdog surge-poly-governor
            mpe-cpu-governor mpe-audio-profile-sync mpe-pressure-remap midi-clock-in)
 
 journal_for() {
@@ -146,7 +146,7 @@ case "$CMD" in
 
     logs-surge)      emit; journal_for surge-xt-cli        "$LOG_LINES_DEFAULT" ;;
     logs-jackd)      emit; journal_for mpe-jackd           "$LOG_LINES_DEFAULT" ;;
-    logs-looper)     emit; journal_for mpe-looper          "$LOG_LINES_DEFAULT" ;;
+    logs-looper)     emit; journal_for sl-watchdog         "$LOG_LINES_DEFAULT" ;;
     logs-watchdog)   emit; journal_for surge-watchdog      "$LOG_LINES_DEFAULT" ;;
     logs-governor)   emit; journal_for surge-poly-governor "$LOG_LINES_DEFAULT" ;;
     logs-midiclock)  emit; journal_for midi-clock-in       "$LOG_LINES_DEFAULT" ;;
