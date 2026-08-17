@@ -1,37 +1,91 @@
-"""APC grid ↔ loop index mapping."""
+"""APC grid ↔ loop index mapping — horizontal track lane with a banked viewport.
+
+Supersedes the row-0/row-3 layout (16 loops stacked two deep). Those
+assertions are gone on purpose, not by accident: a column now holds exactly
+one track, which is what makes per-column state expressible later.
+"""
 
 import unittest
 
 from scripts.sooperlooper.apc_grid import (
-    all_loop_pads,
-    loop_index_for_note,
-    loop_index_for_pad,
+    CONTROLLER_ROWS,
+    MAX_VIEW_OFFSET,
+    GridView,
+    all_clip_pads,
+    is_clip_note,
     pad_note,
 )
 
 
 class ApcGridTests(unittest.TestCase):
-    def test_row0_maps_loops_0_7(self) -> None:
+    def test_bottom_row_is_the_first_eight_tracks(self) -> None:
+        view = GridView()
         for col in range(8):
-            self.assertEqual(loop_index_for_pad(0, col), col)
+            self.assertEqual(view.loop_for_pad(0, col), col)
             self.assertEqual(pad_note(0, col), col)
 
-    def test_row3_maps_loops_8_15(self) -> None:
-        for col in range(8):
-            self.assertEqual(loop_index_for_pad(3, col), 8 + col)
-            self.assertEqual(pad_note(3, col), 24 + col)
-
     def test_controller_rows_unmapped(self) -> None:
-        for row in (1, 2, 4, 5, 6, 7):
-            self.assertIsNone(loop_index_for_pad(row, 0))
+        view = GridView()
+        for row in CONTROLLER_ROWS:
+            self.assertIsNone(view.loop_for_pad(row, 0))
 
-    def test_note_roundtrip(self) -> None:
-        for row, col, loop_i in all_loop_pads():
-            note = pad_note(row, col)
-            self.assertEqual(loop_index_for_note(note), loop_i)
+    def test_row_three_is_no_longer_a_clip_row(self) -> None:
+        self.assertIsNone(GridView().loop_for_note(pad_note(3, 0)))
+        self.assertFalse(is_clip_note(pad_note(3, 0)))
 
-    def test_sixteen_clip_pads(self) -> None:
-        self.assertEqual(len(all_loop_pads()), 16)
+    def test_banking_shifts_which_tracks_are_shown(self) -> None:
+        view = GridView(offset=8)
+        self.assertEqual(view.visible_loops(), tuple(range(8, 16)))
+        self.assertEqual(view.loop_for_pad(0, 0), 8)
+        self.assertEqual(view.note_for_loop(8), pad_note(0, 0))
+        self.assertIsNone(view.note_for_loop(0))
+
+    def test_scroll_clamps_and_never_wraps(self) -> None:
+        self.assertEqual(GridView().scrolled(-8).offset, 0)
+        self.assertEqual(GridView(offset=8).scrolled(8).offset, MAX_VIEW_OFFSET)
+        self.assertEqual(GridView(offset=7).scrolled(1).offset, 8)
+        self.assertFalse(GridView().can_scroll(-1))
+        self.assertTrue(GridView().can_scroll(1))
+
+    def test_note_roundtrip_in_every_bank(self) -> None:
+        for offset in range(MAX_VIEW_OFFSET + 1):
+            view = GridView(offset=offset)
+            for row, col, loop_i in view.visible_pads():
+                self.assertEqual(view.loop_for_note(pad_note(row, col)), loop_i)
+                self.assertEqual(view.note_for_loop(loop_i), pad_note(row, col))
+
+    def test_eight_visible_pads_covering_sixteen_tracks_across_banks(self) -> None:
+        self.assertEqual(len(GridView().visible_pads()), 8)
+        self.assertEqual(len(all_clip_pads()), 8)
+        seen = set(GridView().visible_loops()) | set(GridView(offset=8).visible_loops())
+        self.assertEqual(sorted(seen), list(range(16)))
+
+    def test_column_holds_exactly_one_track(self) -> None:
+        for offset in (0, 3, 8):
+            view = GridView(offset=offset)
+            for col in range(8):
+                self.assertEqual(view.loops_for_column(col), (offset + col,))
+
+    def test_column_agrees_with_the_pad_layout(self) -> None:
+        # The point of deriving from visible_pads(): faders cannot drift away
+        # from the pads by keeping their own copy of the layout.
+        view = GridView(offset=5)
+        for col in range(8):
+            from_pads = tuple(
+                loop for _row, c, loop in view.visible_pads() if c == col
+            )
+            self.assertEqual(view.loops_for_column(col), from_pads)
+
+    def test_column_out_of_range_raises(self) -> None:
+        for col in (-1, 8):
+            with self.assertRaises(ValueError):
+                GridView().loops_for_column(col)
+
+    def test_short_track_count_leaves_trailing_columns_empty(self) -> None:
+        view = GridView(num_loops=5)
+        self.assertEqual(view.visible_loops(), (0, 1, 2, 3, 4))
+        self.assertEqual(view.loops_for_column(6), ())
+        self.assertEqual(view.max_offset, 0)
 
 
 if __name__ == "__main__":

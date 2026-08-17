@@ -264,6 +264,15 @@ class TouchBrowserPrefsMixin:
         else:
             self._toast("CPU meter off", 1.2)
 
+    def _toggle_peak_meter_visibility(self) -> None:
+        self.show_peak_meter = not self.show_peak_meter
+        self._save_ui_preference("show_peak_meter", self.show_peak_meter)
+        self._layout()
+        if self.show_peak_meter:
+            self._toast("Output meter on", 1.2)
+        else:
+            self._toast("Output meter off", 1.2)
+
     def _toggle_looper_hud_visibility(self) -> None:
         self.show_looper_hud = not self.show_looper_hud
         self._save_ui_preference("show_looper_hud", self.show_looper_hud)

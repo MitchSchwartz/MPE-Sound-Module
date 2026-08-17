@@ -43,9 +43,30 @@ rm -rf ~/src/sooperlooper-1.7.9
 | Built with rubberband? | **yes** (`HAVE_RUBBERBAND 1`) |
 | `configure` flags | `--without-gui` |
 | Buffer / periods / rate | 256 / 3 / 48 kHz 24-bit |
-| Governor | **`performance`** (set via `MPE_CPU_GOVERNOR=performance` in `/etc/mpe/mpe.env`, Session B start) |
+| Governor | ⚠️ **UNVERIFIED — recorded as `performance`, cannot be confirmed** (see note below) |
 | Interface | Sound Blaster Play! 3 (card 1) |
 | Throttled at start / end | `0x0` / `0x0` |
+
+> **⚠️ Governor caveat, added 2026-08-17.** This table originally asserted
+> `performance`, set via `MPE_CPU_GOVERNOR=performance` in `/etc/mpe/mpe.env` at
+> Session B start. Writing that variable does not change the governor: it is read
+> by `mpe-cpu-governor.service`, which is `Type=oneshot` and runs at boot. That
+> unit last ran **2026-08-13 22:37:53**, and `uptime -s` says the appliance has not
+> rebooted since **2026-08-13 22:40** — both *before* the variable was written. So
+> unless `set-cpu-governor.sh` was also run by hand on the day (possible; no trace
+> survives), the governor during these measurements was the distro default,
+> `ondemand`.
+>
+> This is not hypothetical drift. On 2026-08-17 the appliance was found on
+> `ondemand` with SooperLooper reporting a steady **15 xruns per 30 s**. Pinning
+> `performance` took that to **0 per 30 s**, same session, nothing else changed.
+> `docs/LATENCY-SPIKE.md:61` already flagged `ondemand` as a classic dropout cause.
+>
+> Treat every timing number below as taken on an unknown governor. The verdicts
+> about *what SooperLooper can do* still stand; the latency and xrun figures need
+> re-taking with `mpe rt check` passing first — which is exactly the precondition
+> rule this document's own §"Precondition rule" adds, and which would have caught
+> it: `mpe rt check` exits 1 on a wrong governor.
 
 ## Session A — does it exist on this hardware? (≈ 1.5 h)
 
