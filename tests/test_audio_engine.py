@@ -917,6 +917,50 @@ class StartJackdPlaybackOnlyTests(unittest.TestCase):
         self.assertNotIn('-d alsa -d "$HW_DEV"', text)
 
 
+class LooperRestartPrefersTheUnitTests(unittest.TestCase):
+    """Two restart paths for one engine is a race for OSC port 9951.
+
+    restart-sooperlooper.sh kills the engine and starts its own. With
+    mpe-sooperlooper.service (Restart=always) installed, systemd starts one too — both
+    bind 9951, one dies, and which one is a coin flip. A buffer change does four graph
+    restarts, so a sweep would roll that dice four times.
+    """
+
+    @staticmethod
+    def _code_lines() -> list[str]:
+        """Function body with comments stripped — comments name both paths."""
+        source = AUDIO_ENGINE_SH.read_text(encoding="utf-8")
+        body = source.split("mpe_restart_looper_after_graph_change()")[1].split("\n}")[0]
+        return [
+            line
+            for line in body.splitlines()
+            if line.strip() and not line.strip().startswith("#")
+        ]
+
+    def test_defers_to_the_unit_before_the_script(self) -> None:
+        code = self._code_lines()
+        unit_check = next(
+            i for i, ln in enumerate(code) if "mpe-sooperlooper.service" in ln
+        )
+        script_use = next(
+            i for i, ln in enumerate(code) if "restart-sooperlooper.sh" in ln
+        )
+        self.assertLess(
+            unit_check,
+            script_use,
+            "the unit branch must come BEFORE falling back to the script",
+        )
+        self.assertTrue(
+            any("restart mpe-sooperlooper.service" in ln for ln in code),
+            "the unit branch must actually restart the unit",
+        )
+
+    def test_script_fallback_survives_for_unsupervised_installs(self) -> None:
+        self.assertTrue(
+            any("restart-sooperlooper.sh" in ln for ln in self._code_lines())
+        )
+
+
 class JackSoftmodeTests(unittest.TestCase):
     """Softmode ships on; a bench run must be able to turn it off to name a culprit."""
 
