@@ -114,6 +114,7 @@ class CalibrationLoaderLaunchTests(unittest.TestCase):
         self.assertEqual(argv[0], sys.executable)
         self.assertEqual(Path(argv[2]), CALIBRATION_LOADER_SCRIPT)
         self.assertNotIn("--force", argv)
+        self.assertIn("--favorites-only", argv)
 
     @mock.patch("patch_browser.touch_browser_normalization.os.execv")
     def test_launch_calibration_loader_force_appends_flag(
@@ -127,6 +128,7 @@ class CalibrationLoaderLaunchTests(unittest.TestCase):
         argv = execv_mock.call_args.args[1]
         self.assertEqual(Path(argv[2]), CALIBRATION_LOADER_SCRIPT)
         self.assertEqual(argv[-1], "--force")
+        self.assertEqual(argv[-2], "--favorites-only")
 
     @mock.patch("patch_browser.touch_browser_normalization.sys.exit")
     @mock.patch("patch_browser.touch_browser_normalization.os.execv")

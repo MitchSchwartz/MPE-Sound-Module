@@ -1,0 +1,41 @@
+[Unit]
+# The APC eval bench, as a unit rather than a hand-started process.
+#
+# Why this exists: the bench holds the APC mini and the sooperlooper OSC port
+# (9951/9953). Any hardware test has to take that hardware over first. When the
+# bench is a bare `./scripts/start-sooperlooper-apc-bench.sh` in someone's shell,
+# the only way to free the hardware is to signal a process owned by another user
+# — which would mean granting `sudo kill`, and sudo-kill can signal any process
+# on the box including root ones. That is a much wider grant than it looks.
+#
+# As a unit, freeing the hardware is `systemctl stop mpe-bench.service`, which
+# fits the existing narrow-sudoers pattern: one named unit, named verbs, no new
+# class of privilege. See scripts/pi/provision-mpe-agent.sh.
+#
+# NOT enabled at boot. This is a bench, started deliberately.
+Description=MPE APC eval bench (sooperlooper 16-track grid)
+After=mpe-jackd.service surge-xt-cli.service sound.target
+Wants=mpe-jackd.service
+# No Conflicts=mpe-looper.service. The two probably cannot share the APC, but
+# that is unverified — and an unverified Conflicts= silently stops the looper
+# whenever the bench starts, which is exactly the kind of surprise that gets
+# blamed on the bench. Stop the looper explicitly instead.
+ConditionPathExists=/home/mitch/MPE-Module/scripts/start-sooperlooper-apc-bench.sh
+
+[Service]
+Type=simple
+User=mitch
+WorkingDirectory=/home/mitch/MPE-Module
+EnvironmentFile=-/etc/mpe/mpe.env
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/home/mitch/MPE-Module/scripts/start-sooperlooper-apc-bench.sh
+# No Restart=. A bench that respawns after `systemctl stop` would hold the APC
+# open again seconds later and make the stop look like it failed.
+Restart=no
+TimeoutStopSec=10
+KillMode=mixed
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
