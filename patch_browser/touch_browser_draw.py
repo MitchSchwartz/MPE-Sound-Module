@@ -26,6 +26,8 @@ from patch_browser.dsi_splash import shutdown_animation_phase
 from patch_browser.touch_ui_constants import (
     CPU_METER_BAR_W,
     CPU_METER_LABEL_GAP,
+    PEAK_METER_ORANGE_RGB,
+    PEAK_METER_YELLOW_RGB,
     DETAIL_TITLE_PAD_X,
     FADER_HANDLE_H,
     FADER_HANDLE_W,
@@ -379,7 +381,9 @@ class TouchBrowserDrawMixin:
         if bucket == "ok":
             return self.theme.ok
         if bucket == "warn":
-            return self.theme.playing
+            return PEAK_METER_YELLOW_RGB
+        if bucket == "orange":
+            return PEAK_METER_ORANGE_RGB
         if bucket == "hot":
             return self.theme.danger
         return self.theme.muted
