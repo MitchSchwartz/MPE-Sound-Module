@@ -201,13 +201,21 @@ class HudWriter:
         payload.setdefault("phrase_pos", 0.0)
         payload.setdefault("bars_in_phrase", 1)
         now_mono = time.monotonic()
+        health_fresh = False
         if now_mono - self._last_health_sample >= WRITE_INTERVAL_S:
             payload["health"] = collect_jack_graph_health(self._graph_health)
             self._last_health_sample = now_mono
+            health_fresh = True
+        else:
+            payload["health"] = self._graph_health.snapshot()
         payload.update({"updated_at": time.time(), "cycle_len": 0.0, "loop_len": 0.0})
         key = (payload.get("beat"), payload.get("bar"), payload.get("active"))
         now = time.time()
-        if key == self._last_key and (now - self._last_write) < WRITE_INTERVAL_S:
+        if (
+            not health_fresh
+            and key == self._last_key
+            and (now - self._last_write) < WRITE_INTERVAL_S
+        ):
             return False
         self._last_key = key
         self._last_write = now
