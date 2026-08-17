@@ -199,8 +199,9 @@ mpe_engine_state_write() {
     local state="${3:?state required}"
     local reason="${4:-}"
     local looper="${5:-off}"
-    local file
+    local file prev_state
     file="$(mpe_engine_state_file)"
+    prev_state="$(mpe_engine_state_get state)"
     mpe_state_write_atomic "$file" \
         "engine=$engine" \
         "active=$active" \
@@ -208,6 +209,7 @@ mpe_engine_state_write() {
         "reason=$reason" \
         "looper=$looper" \
         "updated=$(date +%s)" || true
+    mpe_session_events_on_engine_transition "$prev_state" "$state" "$active" "$reason"
 }
 
 mpe_engine_state_get() {
@@ -312,14 +314,18 @@ mpe_jack_state_write() {
     local period="${2:-}"
     local periods="${3:-}"
     local rate="${4:-}"
-    local file
+    local file prev_period
     file="$(mpe_jack_state_file)"
+    prev_period="$(mpe_state_get "$file" period)"
     mpe_state_write_atomic "$file" \
         "started=$(date +%s)" \
         "device=$device" \
         "period=$period" \
         "periods=$periods" \
         "rate=$rate" || true
+    if [ -n "$period" ] && [ -n "$prev_period" ] && [ "$period" != "$prev_period" ]; then
+        mpe_session_event_emit buffer.changed "period=$period" "from=$prev_period"
+    fi
 }
 
 # Epoch seconds when jackd last started, or 0 when unknown. Written by
@@ -389,6 +395,7 @@ mpe_publish_jack_engine_failure() {
 mpe_restart_audio_graph() {
     local unit
     unit="$(mpe_audio_graph_unit)"
+    mpe_session_event_emit engine.exited "graph-restart"
     # A unit sitting in start-limit failure refuses `restart` ("start request
     # repeated too quickly") until it is reset. That is exactly the state a DAC
     # unplug leaves jackd in, and the replug is the event that must recover it.
@@ -649,4 +656,38 @@ mpe_surge_on_jack_graph() {
 # Back-compat alias used by udev helper and profile scripts.
 restart_audio_graph() {
     mpe_restart_audio_graph
+}
+
+# ---------------------------------------------------------------------------
+# Session control plane — Phase 2 event emit (lazy-loaded)
+# ---------------------------------------------------------------------------
+
+_mpe_session_events_loaded=0
+
+mpe_session_events_ensure() {
+    if [ "$_mpe_session_events_loaded" = 1 ]; then
+        return 0
+    fi
+    # shellcheck source=session-events.sh
+    source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/session-events.sh"
+    _mpe_session_events_loaded=1
+}
+
+mpe_session_event_emit() {
+    mpe_session_events_ensure
+    mpe_session_event_append "$@"
+}
+
+mpe_session_events_on_engine_transition() {
+    local prev_state="${1:-}" new_state="${2:-}" active="${3:-}" reason="${4:-}"
+    mpe_session_events_ensure
+    if [ "$new_state" = ok ] && [ "$prev_state" != ok ]; then
+        mpe_session_event_emit engine.started "$active" "reason=$reason"
+    fi
+    if [ "$new_state" = failed ] && [ "$prev_state" != failed ]; then
+        mpe_session_event_emit engine.exited "$reason"
+    fi
+    if [ "$new_state" = recovering ] && [ "$prev_state" != recovering ]; then
+        mpe_session_event_emit mode.changed "recovering" "reason=$reason"
+    fi
 }
