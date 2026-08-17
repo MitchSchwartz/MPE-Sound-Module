@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import math
+import sys
 import unittest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from patch_browser.peak_meter_math import (
     PEAK_METER_CLIP_DBFS,
@@ -95,10 +96,10 @@ class SurgePeakMonitorOfflineTests(unittest.TestCase):
                     return None
 
         monitor = SurgePeakMonitor(surge)
-        monitor._jack = FakeJackModule
         monitor._jack_available = None
 
-        monitor._poll_once()
+        with patch.dict(sys.modules, {"jack": FakeJackModule}):
+            monitor._poll_once()
         self.assertIsNone(monitor._client)
         self.assertIsNone(monitor._jack_available)
 
@@ -106,8 +107,8 @@ class SurgePeakMonitorOfflineTests(unittest.TestCase):
             def activate(self):
                 return None
 
-        monitor._jack.Client = OkClient
-        monitor._poll_once()
+        with patch.dict(sys.modules, {"jack": type("JackMod", (), {"Client": OkClient})}):
+            monitor._poll_once()
         self.assertIsNotNone(monitor._client)
         self.assertTrue(monitor._jack_available)
 
