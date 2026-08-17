@@ -27,6 +27,7 @@ from patch_browser.touch_ui_constants import (
     SETTINGS_TOGGLE_H,
     SETTINGS_TOGGLE_W,
 )
+from patch_browser.patch_scanner import favorites_display_name
 from patch_browser.touch_ui_enums import CalibrateMode
 from patch_browser.ui_text import blit_text_block, text_block_height, wrap_text_lines
 
@@ -235,12 +236,15 @@ class TouchBrowserNormalizationMixin:
             knob_color=knob_color,
             border_color=border_color,
         )
+    def _favorites_scope_patches(self) -> list[dict]:
+        """Quick Select patches (root + nested subfolders) for cal scope hints."""
+        label = favorites_display_name()
+        with self._scan_lock:
+            return list(self.scanner.patches.get(label, []))
+
     def _calibration_scope_stats(self, mode: CalibrateMode) -> tuple[int, int]:
         """Return (target_count, total_in_scope) for confirm modal duration hints."""
-        with self._scan_lock:
-            all_patches: list[dict] = []
-            for patches in self.scanner.patches.values():
-                all_patches.extend(patches)
+        fav_patches = self._favorites_scope_patches()
         store = self.loader.normalization
         total = len(
             {
@@ -249,12 +253,12 @@ class TouchBrowserNormalizationMixin:
                     patch_path=p.get("path"),
                     stable_key=p.get("stable_key"),
                 )
-                for p in all_patches
+                for p in fav_patches
             }
         )
         if mode == CalibrateMode.FORCE_FULL:
             return total, total
-        missing = store.list_missing(all_patches)
+        missing = store.list_missing(fav_patches)
         return len(missing), total
     def _calibration_duration_hint(self, targets: int) -> str:
         return format_calibration_duration_hint(targets)
@@ -265,17 +269,17 @@ class TouchBrowserNormalizationMixin:
     def _calibration_mode_description(self, mode: CalibrateMode, targets: int, total: int) -> str:
         if mode == CalibrateMode.FORCE_FULL:
             return (
-                f"Re-measure loudness for all {total} patches in the library "
-                "(overwrites existing gain_db entries)."
+                f"Re-measure loudness for all {total} Quick Select patches "
+                "(including subfolders; overwrites existing gain_db entries)."
             )
         if targets == 0:
-            return "Every scanned patch already has a gain_db entry."
+            return "Every Quick Select patch already has a gain_db entry."
         return (
-            f"Calibrate {targets} patch(es) missing gain_db entries "
+            f"Calibrate {targets} Quick Select patch(es) missing gain_db entries "
             f"({total - targets} already done)."
         )
     def _launch_calibration_loader(self) -> None:
-        argv = [sys.executable, "-u", str(CALIBRATION_LOADER_SCRIPT)]
+        argv = [sys.executable, "-u", str(CALIBRATION_LOADER_SCRIPT), "--favorites-only"]
         if self._pending_calibrate_mode == CalibrateMode.FORCE_FULL:
             argv.append("--force")
         if self._evdev_bridge is not None:
