@@ -77,7 +77,7 @@ echo "== narrow sudo: named units, named verbs, nothing else =="
 # can signal ANY process including root ones, so it is a far wider grant than
 # one more named unit. Starting mpe-bench runs mitch's checkout, not the
 # agent's — the agent runs its own branch's bench directly as mpe-agent.
-UNITS="mpe-jackd surge-xt-cli mpe-looper surge-watchdog surge-poly-governor midi-clock-in midi-clock-out mpe-pressure-remap mpe-bench"
+UNITS="mpe-jackd surge-xt-cli sl-watchdog surge-watchdog surge-poly-governor midi-clock-in midi-clock-out mpe-pressure-remap mpe-bench"
 {
     echo "# Remote agent: restart/start/stop/status of appliance units ONLY."
     echo "# Deliberately NOT /bin/systemctl wholesale — that is equivalent to root,"
