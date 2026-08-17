@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Install the appliance's systemd units from systemd/ into /etc/systemd/system.
+# Install the appliance's systemd units from config/ into /etc/systemd/system.
 #
 #   sudo ./scripts/install-units.sh            # install + reproduce enable state
 #   sudo ./scripts/install-units.sh --dry-run  # show what would change
@@ -16,7 +16,13 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SRC="$ROOT/systemd"
+# config/ holds the templates and is the single source of truth. There used to be a
+# second, pre-rendered copy in systemd/ that this script read instead — two committed
+# copies of every unit, and adding to one silently missed the other (2026-08-17: the
+# looper units landed in config/ only and this script failed with "No such file or
+# directory" on the appliance). Rendering here means configure-pi-paths.sh and this
+# script install byte-identical files from one source.
+SRC="$ROOT/config"
 DEST="/etc/systemd/system"
 
 # Units that must be enabled at boot.
@@ -46,8 +52,10 @@ DISABLED=(
     midi-clock-out
     boot-animation
     mic-to-uac2-bridge
-    # An eval bench. Started deliberately for a test, never at boot.
-    mpe-bench
+    # mpe-bench retired 2026-08-17: it existed so a hardware test could free the APC
+    # with `systemctl stop`, but the APC is now held by mpe-apc-bench.service, so
+    # stopping mpe-bench would have freed nothing. The agent's sudoers grant in
+    # scripts/pi/provision-mpe-agent.sh names mpe-apc-bench instead.
 )
 
 # No [Install] section — cannot be enabled, only pulled in by another unit.
@@ -70,24 +78,53 @@ fi
 
 [ -d "$SRC" ] || { echo "ERROR: $SRC not found." >&2; exit 1; }
 
-# The units hardcode /home/mitch. Fail loudly rather than installing units that
-# point at a home directory that does not exist on this machine.
+# Template substitutions, matching configure-pi-paths.sh:_install_service so both
+# installers produce identical files. MPE_MODULE_REPO defaults to the repo this
+# script is running from, which is the only answer that cannot be wrong.
 APPLIANCE_USER="${MPE_PI_USER:-mitch}"
+if [ -z "${MPE_PI_USER:-}" ] && [ -f /etc/mpe/mpe.env ]; then
+    _u="$(grep -E '^MPE_PI_USER=' /etc/mpe/mpe.env 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '"'"'"'' || true)"
+    [ -n "$_u" ] && APPLIANCE_USER="$_u"
+fi
+MODULE_REPO="${MPE_MODULE_REPO:-$ROOT}"
+SCRIPTS_DIR="${MPE_SCRIPTS_DIR:-$MODULE_REPO/scripts}"
+
 if [ ! -d "/home/$APPLIANCE_USER" ]; then
     echo "ERROR: /home/$APPLIANCE_USER does not exist — units reference it in" >&2
     echo "       ExecStart and WorkingDirectory. Set MPE_PI_USER or create the user." >&2
     exit 1
 fi
 
+render_unit() {
+    sed \
+        -e "s|@MPE_PI_USER@|$APPLIANCE_USER|g" \
+        -e "s|@MPE_MODULE_REPO@|$MODULE_REPO|g" \
+        -e "s|@MPE_SCRIPTS_DIR@|$SCRIPTS_DIR|g" \
+        "$1"
+}
+
+RENDER_TMP="$(mktemp -d)"
+trap 'rm -rf "$RENDER_TMP"' EXIT
+
 changed=0
 for f in "$SRC"/*.service; do
     unit="$(basename "$f")"
+    rendered="$RENDER_TMP/$unit"
+    render_unit "$f" > "$rendered"
+    # A placeholder that survives rendering would install a unit pointing at a
+    # literal "@MPE_...@" path — enabled, never running, exactly the ghost-unit
+    # failure this repo already paid for once (a310449).
+    if grep -q '@MPE_[A-Z_]*@' "$rendered"; then
+        echo "ERROR: $unit still has unsubstituted placeholders after rendering:" >&2
+        grep -o '@MPE_[A-Z_]*@' "$rendered" | sort -u | sed 's/^/       /' >&2
+        exit 1
+    fi
     case "$MODE" in
         diff)
             if [ -f "$DEST/$unit" ]; then
-                if ! diff -q "$f" "$DEST/$unit" >/dev/null 2>&1; then
+                if ! diff -q "$rendered" "$DEST/$unit" >/dev/null 2>&1; then
                     echo "--- DRIFT: $unit"
-                    diff -u "$DEST/$unit" "$f" || true
+                    diff -u "$DEST/$unit" "$rendered" || true
                     changed=1
                 fi
             else
@@ -98,14 +135,14 @@ for f in "$SRC"/*.service; do
         dry-run)
             if [ ! -f "$DEST/$unit" ]; then
                 echo "  would install (new):     $unit"
-            elif ! diff -q "$f" "$DEST/$unit" >/dev/null 2>&1; then
+            elif ! diff -q "$rendered" "$DEST/$unit" >/dev/null 2>&1; then
                 echo "  would overwrite (drift): $unit"
             else
                 echo "  unchanged:               $unit"
             fi
             ;;
         install)
-            install -m 0644 -o root -g root "$f" "$DEST/$unit"
+            install -m 0644 -o root -g root "$rendered" "$DEST/$unit"
             echo "  installed: $unit"
             ;;
     esac
@@ -128,7 +165,9 @@ fi
 echo "Checking ExecStart targets of units about to be enabled ..."
 missing_exec=0
 for u in "${ENABLED[@]}"; do
-    exec_line="$(sed -n 's/^ExecStart=//p' "$SRC/$u.service" | head -1)"
+    # The RENDERED copy — the template's @MPE_MODULE_REPO@ is not a path on disk,
+    # so checking the template would warn on every unit and mean nothing.
+    exec_line="$(sed -n 's/^ExecStart=//p' "$RENDER_TMP/$u.service" | head -1)"
     [ -n "$exec_line" ] || continue
     # Strip systemd's leading modifiers (-, @, :, +, !) before the executable.
     while [ -n "$exec_line" ]; do
