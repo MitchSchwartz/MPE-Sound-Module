@@ -72,7 +72,12 @@ else
 fi
 
 echo "== narrow sudo: named units, named verbs, nothing else =="
-UNITS="mpe-jackd surge-xt-cli mpe-looper surge-watchdog surge-poly-governor midi-clock-in midi-clock-out mpe-pressure-remap"
+# mpe-bench is here so the agent can free the APC + sooperlooper OSC port before
+# a hardware test. The alternative asked for was a `sudo kill` rule; sudo-kill
+# can signal ANY process including root ones, so it is a far wider grant than
+# one more named unit. Starting mpe-bench runs mitch's checkout, not the
+# agent's — the agent runs its own branch's bench directly as mpe-agent.
+UNITS="mpe-jackd surge-xt-cli mpe-looper surge-watchdog surge-poly-governor midi-clock-in midi-clock-out mpe-pressure-remap mpe-bench"
 {
     echo "# Remote agent: restart/start/stop/status of appliance units ONLY."
     echo "# Deliberately NOT /bin/systemctl wholesale — that is equivalent to root,"
