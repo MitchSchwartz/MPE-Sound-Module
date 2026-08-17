@@ -5,9 +5,10 @@ from __future__ import annotations
 import math
 
 # Bar scale and color bands — single source for the OUT meter.
-PEAK_METER_FLOOR_DBFS = -48.0   # empty bar
-PEAK_METER_CLIP_DBFS = 0.0        # full bar + red (clip)
-PEAK_METER_YELLOW_DBFS = -6.0     # yellow from here up to clip
+PEAK_METER_FLOOR_DBFS = -48.0    # empty bar
+PEAK_METER_CLIP_DBFS = 0.0         # full bar + red (clip)
+PEAK_METER_YELLOW_DBFS = -6.0      # yellow from here up to orange
+PEAK_METER_ORANGE_DBFS = -3.0      # orange from here up to clip
 
 
 def linear_peak_to_dbfs(peak: float) -> float | None:
@@ -30,11 +31,13 @@ def dbfs_to_meter_ratio(dbfs: float | None) -> float | None:
 
 
 def peak_meter_color_dbfs(dbfs: float | None) -> str:
-    """Semantic bucket for theming: ok | warn | hot."""
+    """Semantic bucket for theming: ok | warn | orange | hot."""
     if dbfs is None:
         return "muted"
     if dbfs >= PEAK_METER_CLIP_DBFS:
         return "hot"
+    if dbfs >= PEAK_METER_ORANGE_DBFS:
+        return "orange"
     if dbfs >= PEAK_METER_YELLOW_DBFS:
         return "warn"
     return "ok"
