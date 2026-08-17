@@ -9,6 +9,7 @@ from unittest.mock import MagicMock
 from patch_browser.peak_meter_math import (
     PEAK_METER_CLIP_DBFS,
     PEAK_METER_FLOOR_DBFS,
+    PEAK_METER_ORANGE_DBFS,
     PEAK_METER_YELLOW_DBFS,
     dbfs_to_meter_ratio,
     linear_peak_to_dbfs,
@@ -41,7 +42,9 @@ class PeakMeterMathTests(unittest.TestCase):
         self.assertEqual(peak_meter_color_dbfs(PEAK_METER_YELLOW_DBFS - 6.0), "ok")
         self.assertEqual(peak_meter_color_dbfs(PEAK_METER_YELLOW_DBFS - 0.1), "ok")
         self.assertEqual(peak_meter_color_dbfs(PEAK_METER_YELLOW_DBFS), "warn")
-        self.assertEqual(peak_meter_color_dbfs(PEAK_METER_YELLOW_DBFS + 3.0), "warn")
+        self.assertEqual(peak_meter_color_dbfs(PEAK_METER_ORANGE_DBFS - 0.1), "warn")
+        self.assertEqual(peak_meter_color_dbfs(PEAK_METER_ORANGE_DBFS), "orange")
+        self.assertEqual(peak_meter_color_dbfs(PEAK_METER_CLIP_DBFS - 0.1), "orange")
         self.assertEqual(peak_meter_color_dbfs(PEAK_METER_CLIP_DBFS), "hot")
 
 
