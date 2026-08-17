@@ -54,10 +54,61 @@ elif [ -z "$BUFFERS" ]; then
     BUFFERS="$ORIGINAL_BUFFER"
 fi
 
+ENV_FILE="/etc/mpe/mpe.env"
+
+# jackd reads its environment from EnvironmentFile=/etc/mpe/mpe.env, NOT from this
+# shell. `export MPE_JACK_SOFTMODE=0` therefore did nothing at all — the flag never
+# reached the server, --strict was a no-op, and softmode stayed on. That matters
+# because softmode is what suppresses jackd's xrun message, so the bench was counting
+# a signal the server had been told not to emit: a reading that looks identical
+# whether the appliance is healthy or on fire.
+_set_env_var() {
+    local key="$1" value="$2" tmp
+    tmp="$(mktemp)"
+    if grep -q "^${key}=" "$ENV_FILE" 2>/dev/null; then
+        sed "s|^${key}=.*|${key}=${value}|" "$ENV_FILE" >"$tmp"
+    else
+        cat "$ENV_FILE" >"$tmp" 2>/dev/null || true
+        printf '\n%s=%s\n' "$key" "$value" >>"$tmp"
+    fi
+    install -m 0644 "$tmp" "$ENV_FILE"
+    rm -f "$tmp"
+}
+
+_restore_softmode() {
+    if [ "${_SOFTMODE_CHANGED:-0}" = 1 ]; then
+        echo "Restoring softmode (MPE_JACK_SOFTMODE=1)..."
+        _set_env_var MPE_JACK_SOFTMODE 1
+        _SOFTMODE_CHANGED=0
+    fi
+}
+trap _restore_softmode EXIT INT TERM
+
 if [ "$STRICT" = true ]; then
-    export MPE_JACK_SOFTMODE=0
-    echo "Strict mode: jackd will zombify a client that misses its deadline."
+    _set_env_var MPE_JACK_SOFTMODE 0
+    _SOFTMODE_CHANGED=1
+    echo "Strict mode: MPE_JACK_SOFTMODE=0 written to $ENV_FILE (restored on exit)."
+    echo "jackd will zombify a client that misses its deadline, and will report xruns."
 fi
+
+# Refuse to report a number the server cannot produce. In softmode jackd suppresses
+# the xrun message, so "0 xruns" is indistinguishable from "not looking".
+_assert_xrun_reporting_live() {
+    local cmdline
+    cmdline="$(ps -o args= -C jackd 2>/dev/null | head -1)"
+    case " $cmdline " in
+        *" -s "*)
+            echo
+            echo "WARNING: jackd is running in SOFTMODE (-s), which suppresses its xrun" >&2
+            echo "         messages. A result of 0 xruns from this run means only that" >&2
+            echo "         nothing was reported — it is NOT evidence of a clean graph." >&2
+            echo "         Re-run with --strict for a number you can trust." >&2
+            echo
+            return 1
+            ;;
+    esac
+    return 0
+}
 
 # Count xruns straight from the journal rather than a HUD file — the HUD is one of the
 # things under test, and a bench must not read its verdict from the code it is judging.
@@ -120,7 +171,12 @@ for buffer in $BUFFERS; do
     xruns="$(_xruns_since "$start_stamp")"
     per_min="$(awk -v x="$xruns" -v s="$SECONDS_PER_RUN" 'BEGIN { printf "%.1f", (s>0)? x*60/s : 0 }')"
 
-    if [ "$xruns" -le "$MAX_XRUNS" ]; then
+    if [ "$xruns" -le "$MAX_XRUNS" ] && ! _assert_xrun_reporting_live; then
+        # Zero, from a server told not to report. Not a pass — an unknown.
+        echo "  UNKNOWN — 0 reported, but xrun reporting is suppressed (softmode)"
+        RESULTS+=("${buffer}: UNKNOWN (softmode — reporting suppressed)")
+        FAILURES=$((FAILURES + 1))
+    elif [ "$xruns" -le "$MAX_XRUNS" ]; then
         echo "  PASS — ${xruns} xruns (${per_min}/min)"
         RESULTS+=("${buffer}: PASS ${xruns} xruns (${per_min}/min)")
     else
