@@ -217,9 +217,15 @@ def main(argv: list[str] | None = None) -> int:
         graph = jack_graph()
         orphan = False
         stopped = False
+        # None means we could not ask (pgrep missing or timed out). That is not
+        # the same as "running", so it must not be reported as one: the orphan
+        # alarm below asserts a live process, and asserting it unverified is the
+        # failure mode this whole file exists to avoid. Alarm anyway — loud on
+        # the control path — but say which of the two we actually established.
+        running = None if graph is None else engine_running()
         if graph is None:
             problems.append("jack_lsp unavailable — JACK down or not reachable")
-        elif not jack_client_visible(graph) and engine_running() is False:
+        elif not jack_client_visible(graph) and running is False:
             # Not a fault. Nothing to repair, nothing to alarm — but say so
             # every cycle, because "watchdog up, engine deliberately down" and
             # "watchdog died" must not produce the same alarm file.
@@ -232,11 +238,13 @@ def main(argv: list[str] | None = None) -> int:
             alarm_written = True
         elif not jack_client_visible(graph):
             orphan = True
-            problems.append(f"ORPHAN: {JACK_CLIENT} process is up but has no JACK "
+            _proc = ("process is up" if running
+                     else "process state UNKNOWN (pgrep failed)")
+            problems.append(f"ORPHAN: {JACK_CLIENT} {_proc} but has no JACK "
                             f"client (jackd restarted under it?)")
             write_alarm("orphan", {
                 "detail": f"no {JACK_CLIENT}:* ports on the graph; commands go "
-                          f"into a queue nothing drains",
+                          f"into a queue nothing drains ({_proc})",
                 "action": "mpe looper sl-restart (DESTROYS loops — human call)",
                 "diagnostics": capture_wedge_diagnostics(),
             })
