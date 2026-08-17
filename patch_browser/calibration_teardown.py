@@ -22,6 +22,26 @@ from patch_browser.calibration_constants import (
     TOUCH_PATCH_BROWSER_SCRIPT,
     calibration_from_browser,
 )
+from patch_browser.session_events import emit_event
+
+# Looper eval stack — Restart=always units (spec Phase 0 / Appendix A).
+# Stop in reverse dependency order; start after Surge is back.
+LOOPER_UNITS_STOP_ORDER = (
+    "mpe-apc-bench",
+    "sl-hud-monitor",
+    "sl-watchdog",
+    "mpe-sooperlooper",
+)
+LOOPER_UNITS_START_ORDER = (
+    "mpe-sooperlooper",
+    "mpe-apc-bench",
+    "sl-hud-monitor",
+    "sl-watchdog",
+)
+
+
+def _systemctl(unit: str, verb: str) -> None:
+    subprocess.run(["sudo", "systemctl", verb, f"{unit}.service"], check=False)
 
 
 def unload_snd_aloop_if_idle() -> None:
@@ -39,13 +59,21 @@ def unload_snd_aloop_if_idle() -> None:
 
 
 def stop_mpe_audio_services() -> None:
-    """Stop production Surge, pressure remapper, and patch browser (unless browser handoff)."""
+    """Stop production Surge, pressure remapper, patch browser, and looper stack."""
     units: list[str] = []
     if not calibration_from_browser():
         units.append("touch-patch-browser")
     units.extend(["mpe-pressure-remap", "surge-poly-governor", "surge-xt-cli"])
+    units.extend(LOOPER_UNITS_STOP_ORDER)
     for unit in units:
-        subprocess.run(["sudo", "systemctl", "stop", f"{unit}.service"], check=False)
+        _systemctl(unit, "stop")
+    emit_event(
+        "looper.units.stopped",
+        detail="calibration",
+        source="calibration_teardown.py",
+        fields={"units": ",".join(LOOPER_UNITS_STOP_ORDER)},
+    )
+    emit_event("mode.changed", detail="calibration-stop", source="calibration_teardown.py")
     time.sleep(1)
     subprocess.run(["sudo", "pkill", "-f", "surge-xt-cli"], check=False)
     time.sleep(0.5)
@@ -67,8 +95,18 @@ def restore_mpe_audio_services(*, restart_browser: bool = True) -> None:
     subprocess.run(["sudo", "pkill", "-f", "surge-xt-cli"], check=False)
     time.sleep(0.5)
     unload_snd_aloop_if_idle()
-    subprocess.run(["sudo", "systemctl", "start", "mpe-pressure-remap.service"], check=False)
-    subprocess.run(["sudo", "systemctl", "start", "surge-poly-governor.service"], check=False)
-    subprocess.run(["sudo", "systemctl", "start", "surge-xt-cli.service"], check=False)
+    _systemctl("mpe-pressure-remap", "start")
+    _systemctl("surge-poly-governor", "start")
+    _systemctl("surge-xt-cli", "start")
+    time.sleep(1)
+    for unit in LOOPER_UNITS_START_ORDER:
+        _systemctl(unit, "start")
+    emit_event(
+        "looper.units.started",
+        detail="calibration-restore",
+        source="calibration_teardown.py",
+        fields={"units": ",".join(LOOPER_UNITS_START_ORDER)},
+    )
+    emit_event("mode.changed", detail="calibration-restore", source="calibration_teardown.py")
     if restart_browser and not calibration_from_browser():
-        subprocess.run(["sudo", "systemctl", "start", "touch-patch-browser"], check=False)
+        _systemctl("touch-patch-browser", "start")
