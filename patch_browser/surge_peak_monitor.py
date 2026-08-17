@@ -9,7 +9,7 @@ import time
 from patch_browser.peak_meter_math import dbfs_to_meter_ratio, linear_peak_to_dbfs
 
 POLL_INTERVAL_S = 0.2  # 5 Hz — UI reads snapshot only
-PEAK_DECAY = 0.86  # per poll tick between peaks
+PEAK_DECAY = 0.92  # per poll tick between peaks — hold peaks long enough to read color
 SURGE_JACK_CLIENT = "Surge XT"
 METER_JACK_CLIENT = "mpe-peak-meter"
 RECONNECT_INTERVAL_S = 2.0
@@ -64,6 +64,7 @@ class SurgePeakMonitor:
         self._inports: list = []
         self._jack_available: bool | None = None
         self._last_connect_attempt = 0.0
+        self._last_jack_error_log = 0.0
         self._wired = False
 
     def start(self) -> None:
@@ -148,6 +149,13 @@ class SurgePeakMonitor:
             self._period_peak = 0.0
             self._source = "none"
 
+    def _log_jack_issue(self, message: str) -> None:
+        now = time.monotonic()
+        if now - self._last_jack_error_log < 30.0:
+            return
+        self._last_jack_error_log = now
+        print(f"Surge peak monitor: {message}", flush=True)
+
     def _ensure_jack_client(self) -> bool:
         if self._client is not None:
             return True
@@ -157,6 +165,10 @@ class SurgePeakMonitor:
             import jack
         except ImportError:
             self._jack_available = False
+            self._log_jack_issue(
+                "python3-jack-client not installed — OUT meter offline "
+                "(sudo apt install python3-jack-client, then restart touch browser)"
+            )
             return False
 
         self._jack = jack
@@ -168,9 +180,10 @@ class SurgePeakMonitor:
             ]
             client.set_process_callback(self._process)
             client.activate()
-        except Exception:
-            self._jack_available = False
+        except Exception as exc:
+            # Surge/jackd may still be coming up — retry instead of giving up forever.
             self._shutdown_jack()
+            self._log_jack_issue(f"JACK client setup failed ({exc}); will retry")
             return False
 
         self._client = client
