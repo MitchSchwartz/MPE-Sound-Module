@@ -1,0 +1,32 @@
+[Unit]
+Description=SooperLooper stack watchdog (JACK graph repair + orphan/wedge alarm)
+# Ordering only — NOT BindsTo, and NOT Requires, for the same reason
+# surge-watchdog.service is not bound to Surge: a supervisor that dies with the
+# thing it supervises is not a supervisor. The failure this watchdog exists to
+# catch is an orphaned SooperLooper after a jackd restart, so it specifically
+# must outlive both jackd and the engine.
+After=mpe-jackd.service
+Wants=mpe-jackd.service
+# No start rate limit, matching mpe-jackd: this unit is worthless exactly when
+# the appliance is unstable, which is when the default burst would retire it.
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=@MPE_PI_USER@
+WorkingDirectory=@MPE_MODULE_REPO@
+EnvironmentFile=-/etc/mpe/mpe.env
+Environment=PYTHONUNBUFFERED=1
+# Binds UDP MPE_SL_WATCHDOG_PORT (default 9961) to receive OSC replies. Only one
+# instance can hold it — `mpe looper sl-watchdog start` defers to this unit when
+# it is installed, rather than racing it for the port.
+ExecStart=/usr/bin/python3 @MPE_MODULE_REPO@/scripts/sooperlooper/sl-watchdog.py
+Restart=always
+RestartSec=10
+TimeoutStopSec=10
+KillMode=control-group
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

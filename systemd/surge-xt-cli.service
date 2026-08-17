@@ -1,0 +1,30 @@
+[Unit]
+Description=Surge XT CLI Synthesizer (Headless)
+After=sound.target network.target usb-audio-gadget.service mpe-pressure-remap.service mpe-cpu-governor.service mpe-jackd.service
+Wants=sound.target mpe-pressure-remap.service mpe-jackd.service surge-watchdog.service
+StartLimitBurst=5
+StartLimitIntervalSec=300
+
+[Service]
+Type=forking
+User=mitch
+WorkingDirectory=/home/mitch/MPE-Module
+EnvironmentFile=-/etc/mpe/mpe.env
+RuntimeDirectory=mpe
+RuntimeDirectoryPreserve=yes
+# Permit (do not force) realtime scheduling for the JUCE audio thread.
+# systemd units bypass PAM, so /etc/security/limits.d does not apply here.
+LimitRTPRIO=95
+LimitMEMLOCK=infinity
+ExecStart=/home/mitch/MPE-Module/scripts/start-surge-cli.sh
+ExecStartPost=+/home/mitch/MPE-Module/scripts/start-uac2-watchdog-if-needed.sh
+ExecStop=/usr/bin/pkill -TERM -f surge-xt-cli
+TimeoutStopSec=15
+KillMode=control-group
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

@@ -6,6 +6,8 @@ When the Pi is tethered to a laptop or desk PC, route Surge output over **USB-C*
 
 Full research and phased plan: **[USB-AUDIO-PASSTHROUGH-PLAN.md](USB-AUDIO-PASSTHROUGH-PLAN.md)**.
 
+**Future (not implemented):** per-clip stems + loop master over one USB cable — **[USB-MULTICHANNEL-STEMS.md](USB-MULTICHANNEL-STEMS.md)**.
+
 **Reference hardware:** **Pi 4 Model B** (live unit). Pi 5 notes in the plan doc are for future/alternate BOM only.
 
 ---

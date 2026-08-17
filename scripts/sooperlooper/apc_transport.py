@@ -1,4 +1,4 @@
-"""APC mini transport buttons (Shift + Stop All Clips).
+"""APC mini transport buttons (Shift, Stop All Clips, bank arrows).
 
 Mk2: Communication Protocol v1.0 — Stop All 0x77, Shift 0x7A.
 Mk1: original APC mini — Stop All 0x59 (scene launch 8), Shift 0x62.
@@ -15,6 +15,63 @@ NOTE_SHIFT_MK2 = 0x7A
 # APC mini mk1 (original — port name is usually "APC MINI" without "mk2")
 NOTE_STOP_ALL_CLIPS_MK1 = 0x59
 NOTE_SHIFT_MK1 = 0x62
+
+# Bank arrows — up, down, left, right.
+#
+# ⚠️ UNVERIFIED against hardware, exactly like the fader CCs in apc_faders.py.
+# They are resolved per variant through the same port-name path as Shift and
+# Stop All (which *do* differ between mk1 and mk2), so if the recalled numbers
+# are wrong, one tuple changes and no call site does. On mk1 the arrows may be
+# shift-functions of the top button row rather than notes of their own — one
+# more reason not to hardcode them at a call site.
+#
+# Confirm with: sooperlooper-apc-bench.py --dump-midi, then press each arrow.
+ARROW_NOTES_MK2 = (0x70, 0x71, 0x72, 0x73)  # up, down, left, right
+ARROW_NOTES_MK1 = (0x40, 0x41, 0x42, 0x43)  # up, down, left, right
+
+
+def resolve_arrow_notes(
+    port_name: str,
+    *,
+    variant: str | None = None,
+) -> dict[int, str]:
+    """Return {note: "up"|"down"|"left"|"right"} for the connected APC.
+
+    Same explicit-variant-then-port-name precedence as
+    resolve_apc_transport_notes(). One surface, one way of asking what it is.
+    """
+    explicit = (variant or "").strip().lower()
+    if explicit in ("mk2", "mkii", "2"):
+        notes = ARROW_NOTES_MK2
+    elif explicit in ("mk1", "1", "original", "mini"):
+        notes = ARROW_NOTES_MK1
+    else:
+        name = port_name.lower()
+        notes = ARROW_NOTES_MK2 if ("mk2" in name or "mkii" in name) else ARROW_NOTES_MK1
+    return dict(zip(notes, ("up", "down", "left", "right")))
+
+
+def bank_delta_for_arrow(direction: str, *, shift_down: bool) -> int:
+    """How far the viewport moves for an arrow press. 0 = do nothing.
+
+    Up/down page by a whole screen — with the tracks on one line there is no
+    vertical axis left for them to mean, so they are the fast way across the
+    16. Left/right nudge by one track and are gated behind Shift, so a bare
+    arrow can still be given a non-banking job later without a relearn.
+    """
+    from apc_grid import NUDGE_STEP, PAGE_STEP
+
+    if direction == "down":
+        return PAGE_STEP
+    if direction == "up":
+        return -PAGE_STEP
+    if not shift_down:
+        return 0
+    if direction == "right":
+        return NUDGE_STEP
+    if direction == "left":
+        return -NUDGE_STEP
+    return 0
 
 
 def resolve_apc_transport_notes(
