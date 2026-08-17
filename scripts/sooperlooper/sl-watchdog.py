@@ -143,6 +143,28 @@ def jack_client_visible(graph: str) -> bool:
     return any(line.startswith(f"{JACK_CLIENT}:") for line in graph.splitlines())
 
 
+def engine_running() -> bool | None:
+    """Is there a SooperLooper process at all? None if we could not ask.
+
+    An orphan and a stopped engine look identical on the JACK graph — neither
+    has a `mpe-looper:*` client. They are opposite situations: an orphan is a
+    live process silently discarding commands and needs a human now; a stopped
+    engine is the normal state on a freshly booted appliance nobody has started
+    the looper on yet. Reporting the second as the first is how a watchdog
+    running at boot alarms ORPHAN every 10 s forever and teaches its operator
+    to ignore it — at which point the alarm that matters is also ignored.
+
+    `pgrep -x` matches restart-sooperlooper.sh's own liveness test, so the two
+    agree on what "running" means.
+    """
+    try:
+        proc = subprocess.run(["pgrep", "-x", "sooperlooper"],
+                              capture_output=True, text=True, timeout=5)
+    except Exception:
+        return None
+    return proc.returncode == 0
+
+
 def capture_wedge_diagnostics() -> dict:
     """Evidence for the unknown wedge: what is each engine thread doing?"""
     info: dict = {"threads": []}
@@ -194,8 +216,20 @@ def main(argv: list[str] | None = None) -> int:
         # diagnosing in the other order names the wrong component.
         graph = jack_graph()
         orphan = False
+        stopped = False
         if graph is None:
             problems.append("jack_lsp unavailable — JACK down or not reachable")
+        elif not jack_client_visible(graph) and engine_running() is False:
+            # Not a fault. Nothing to repair, nothing to alarm — but say so
+            # every cycle, because "watchdog up, engine deliberately down" and
+            # "watchdog died" must not produce the same alarm file.
+            stopped = True
+            write_alarm("engine-down", {
+                "detail": "no sooperlooper process and no JACK client — the "
+                          "looper is not running",
+                "action": "mpe looper sl-restart (safe: there are no loops to lose)",
+            })
+            alarm_written = True
         elif not jack_client_visible(graph):
             orphan = True
             problems.append(f"ORPHAN: {JACK_CLIENT} process is up but has no JACK "
@@ -213,7 +247,7 @@ def main(argv: list[str] | None = None) -> int:
 
         # --- audio path: safe to repair -------------------------------------
         # Pointless while orphaned: the ports being connected do not exist.
-        if graph is not None and not orphan:
+        if graph is not None and not orphan and not stopped:
             srcs = playback_sources(graph)
             if not any(s.startswith(f"{JACK_CLIENT}:common_out") for s in srcs):
                 problems.append("common_out not connected to system:playback")
@@ -246,8 +280,8 @@ def main(argv: list[str] | None = None) -> int:
         # Skipped while orphaned: it would report WEDGED, which is true but
         # names the wrong cause and sends the next debugging session into the
         # engine internals instead of at the JACK graph.
-        state = None if orphan else osc.get("state")
-        if orphan:
+        state = None if (orphan or stopped) else osc.get("state")
+        if orphan or stopped:
             pass
         elif state is None:
             problems.append("engine not answering OSC")
@@ -290,7 +324,10 @@ def main(argv: list[str] | None = None) -> int:
             # nothing downstream can tell "still broken" from "watchdog died".
             if not alarm_written:
                 write_alarm("problem", {"problems": problems})
-        else:
+        elif not alarm_written:
+            # `alarm_written` is already true in the engine-down case; writing
+            # "ok" over it would report a running looper on an appliance that
+            # has none.
             write_alarm("ok", {})
 
         if args.once:
