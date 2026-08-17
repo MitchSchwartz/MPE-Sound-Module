@@ -37,8 +37,10 @@ Deploy/sync scripts resolve `../mpe-assets`, `../MPE-Library`, or `../MPE-Person
 | `MPE_SURGE_ROOT` | `$HOME/surge` | Pi runtime |
 | `MPE_FAVORITES_NAME` | `!Quick Access` | **Patch browser UI** — quick-access folder under `~/Documents/Surge XT/Patches/`; **use leading `!`** to pin first. Curate on PC and deploy. See [`docs/PATCH_BROWSER_UI.md`](PATCH_BROWSER_UI.md). |
 | `MPE_UI_MODE` | `oled` | **Which patch browser boots:** `oled` (encoder/OLED) or `touch` (SmartiPi). Applied by `configure-pi-paths.sh`. |
-| `MPE_JACK_BUFFER` | `256` | JACK period in frames (server-side; distinct from `MPE_SURGE_BUFFER_SIZE`). Valid: 32–2048 (see `audio-engine.sh`). |
-| `MPE_JACK_PERIODS` | `3` | JACK periods per buffer (server-side). Valid: 2, 3, 4. |
+| `MPE_JACK_BUFFER` | `256` | **The only source of the JACK period**, in frames. Valid: 64, 128, 256, 512, 1024 (`mpe_buffer_env_canonical`). Deliberately does *not* fall back to `MPE_SURGE_BUFFER_SIZE` — that key is retired as a period (see [`RESTORE.md`](RESTORE.md)) and aliasing the two let stale config reassign the live period. *(Corrected 2026-08-17 — this said "Valid: 32–2048", which no validator ever accepted.)* |
+| `MPE_JACK_PERIODS` | `3` | JACK periods per buffer (server-side). Valid: 2, 3, 4. Real output latency is `MPE_JACK_BUFFER × MPE_JACK_PERIODS`, which is what the MIDI output offset derives from. |
+| `MPE_JACK_SOFTMODE` | `1` | `jackd -s`. On (default) a client that misses its deadline is tolerated — correct for a gig. Set `0` on the bench so jackd zombifies the offender and names it in the journal. |
+| `MPE_PEAK_METER` | `0` | Live OUT meter (`mpe-peak-meter` JACK tap). **Off by default**: it joins the graph, so jackd blocks on its callback every period. Enable only after `scripts/bench-xruns.sh` passes with it up. Requires `python3-jack-client` **and** `python3-numpy`. |
 
 `MPE_AUDIO_ENGINE` is **retired** (spec amended 2026-08-13) — JACK is the only audio engine, so there is nothing left to select. A jackd that will not start is a hard failure (`state=failed`), not a route to an alternate engine.
 

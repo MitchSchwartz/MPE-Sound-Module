@@ -178,6 +178,7 @@ Repo path on Pi: `~/MPE-Module` (override via `MPE_MODULE_REPO` in `/etc/mpe/mpe
 
 | Topic | Doc |
 |-------|-----|
+| **Code map (function-level, boot/lifecycle)** | [`docs/CODE-MAP.md`](docs/CODE-MAP.md) |
 | **Phase 2 direction + locked decisions** | [`Documents/DIRECTION.md`](Documents/DIRECTION.md) · [`Documents/DECISIONS.md`](Documents/DECISIONS.md) |
 | Git branches + Pi testing | [`docs/GIT-WORKFLOW.md`](docs/GIT-WORKFLOW.md) |
 | Paths / env vars | [`docs/PATHS.md`](docs/PATHS.md) |
