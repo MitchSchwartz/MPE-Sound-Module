@@ -386,7 +386,7 @@ class TouchBrowserDrawMixin:
 
     def _draw_peak_meter(self, rect: Rect) -> None:
         snap = self.peak_monitor.snapshot()
-        label = self.font_sm.render("PK", True, self.theme.muted)
+        label = self.font_sm.render("OUT", True, self.theme.muted)
         label_x = rect.x
         label_y = rect.y + (rect.h - label.get_height()) // 2
         self.screen.blit(label, (label_x, label_y))
@@ -397,14 +397,16 @@ class TouchBrowserDrawMixin:
         bar_rect = pygame.Rect(bar_x, bar_y, CPU_METER_BAR_W, bar_h)
         pygame.draw.rect(self.screen, self.theme.surface_alt, bar_rect, border_radius=3)
 
-        if not snap["online"] or snap["ratio"] is None:
+        if not snap["online"]:
             dash = self.font_sm.render("—", True, self.theme.muted)
             dash_x = bar_rect.x + (bar_rect.w - dash.get_width()) // 2
             dash_y = bar_rect.y + (bar_rect.h - dash.get_height()) // 2
             self.screen.blit(dash, (dash_x, dash_y))
             return
 
-        ratio = max(0.0, min(1.0, float(snap["ratio"])))
+        ratio = max(0.0, min(1.0, float(snap["ratio"] or 0.0)))
+        if ratio <= 0.0:
+            return
         fill_h = max(1, int(bar_rect.h * ratio))
         fill_rect = pygame.Rect(bar_rect.x, bar_rect.bottom - fill_h, bar_rect.w, fill_h)
         pygame.draw.rect(

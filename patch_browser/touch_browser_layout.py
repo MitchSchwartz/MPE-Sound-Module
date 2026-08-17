@@ -84,7 +84,7 @@ class TouchBrowserLayoutMixin:
         return label_h
 
     def _peak_meter_text_size(self) -> tuple[int, int]:
-        return self.font_sm.size("PK")
+        return self.font_sm.size("OUT")
 
     def _peak_meter_width(self) -> int:
         label_w, _label_h = self._peak_meter_text_size()

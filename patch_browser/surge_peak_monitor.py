@@ -85,13 +85,23 @@ class SurgePeakMonitor:
 
     def snapshot(self) -> dict:
         with self._lock:
+            if not self._online:
+                return {
+                    "online": False,
+                    "peak_linear": None,
+                    "dbfs": None,
+                    "ratio": None,
+                    "source": self._source,
+                }
             dbfs = linear_peak_to_dbfs(self._peak_linear)
             ratio = dbfs_to_meter_ratio(dbfs)
+            if ratio is None:
+                ratio = 0.0
             return {
-                "online": self._online,
-                "peak_linear": self._peak_linear if self._online else None,
-                "dbfs": dbfs if self._online else None,
-                "ratio": ratio if self._online else None,
+                "online": True,
+                "peak_linear": self._peak_linear,
+                "dbfs": dbfs,
+                "ratio": ratio,
                 "source": self._source,
             }
 
@@ -172,10 +182,24 @@ class SurgePeakMonitor:
         peak = 0.0
         for port in self._inports:
             try:
-                buf = port.get_buffer()
+                arr = port.get_array()
             except Exception:
+                try:
+                    buf = port.get_buffer()
+                except Exception:
+                    continue
+                peak = max(peak, _buffer_peak(buf, frames))
                 continue
-            peak = max(peak, _buffer_peak(buf, frames))
+            if arr is None or len(arr) == 0:
+                continue
+            count = min(frames, len(arr))
+            for idx in range(count):
+                sample = float(arr[idx])
+                if sample != sample:
+                    continue
+                a = -sample if sample < 0.0 else sample
+                if a > peak:
+                    peak = a
         if peak > self._period_peak:
             self._period_peak = peak
 
@@ -184,20 +208,30 @@ class SurgePeakMonitor:
         if client is None:
             self._wired = False
             return
-        wired = True
-        for ch in (1, 2):
+        for ch, port in enumerate(self._inports, start=1):
             src = f"{self.surge_client}:out_{ch}"
-            dst = f"{client.name}:in_{ch}"
             try:
-                client.connect(src, dst)
-            except Exception as exc:
-                if "already connected" in str(exc).lower():
+                if port.is_connected_to(src):
                     continue
-                wired = False
-        self._wired = wired
+                client.connect(src, port)
+            except Exception as exc:
+                msg = str(exc).lower()
+                if "already connected" in msg or "already exists" in msg:
+                    continue
+                self._wired = False
+                return
+        self._wired = self._surge_outputs_connected()
 
     def _surge_outputs_connected(self) -> bool:
-        return self._wired
+        if not self._inports or len(self._inports) < 2:
+            return False
+        try:
+            return all(
+                port.is_connected_to(f"{self.surge_client}:out_{ch}")
+                for ch, port in enumerate(self._inports, start=1)
+            )
+        except Exception:
+            return self._wired
 
     def _shutdown_jack(self) -> None:
         client = self._client

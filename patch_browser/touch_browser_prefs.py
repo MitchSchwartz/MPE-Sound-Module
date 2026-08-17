@@ -269,9 +269,9 @@ class TouchBrowserPrefsMixin:
         self._save_ui_preference("show_peak_meter", self.show_peak_meter)
         self._layout()
         if self.show_peak_meter:
-            self._toast("Peak meter on", 1.2)
+            self._toast("Output meter on", 1.2)
         else:
-            self._toast("Peak meter off", 1.2)
+            self._toast("Output meter off", 1.2)
 
     def _toggle_looper_hud_visibility(self) -> None:
         self.show_looper_hud = not self.show_looper_hud
