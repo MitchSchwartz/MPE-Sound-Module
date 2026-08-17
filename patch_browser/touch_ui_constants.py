@@ -5,7 +5,7 @@ from pathlib import Path
 TAP_MOVE_THRESHOLD_PX = 14
 VOLUME_STATE_FILE = Path.home() / ".patch_browser_volume.json"
 UI_STATE_FILE = Path.home() / ".patch_browser_ui.json"
-VOLUME_MIN = 0.25
+VOLUME_MIN = 0.0
 VOLUME_MAX = 1.0
 SETTINGS_PANEL_W = 320
 SETTINGS_ROW_H = 52
