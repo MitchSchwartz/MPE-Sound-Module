@@ -101,6 +101,14 @@ Static or crackle under **many held keys** is usually **ALSA buffer underrun (xr
 
 If crackle persists with Norm off and moderate polyphony, raise the **JACK period** — `MPE_JACK_BUFFER=1024` in `/etc/mpe/mpe.env`, then apply via the touch settings or `set-surge-audio.sh --buffer 1024` so jackd actually restarts. Tradeoff: latency scales with `period × MPE_JACK_PERIODS` (512×3 ≈ 32 ms, 1024×3 ≈ 64 ms). *(Corrected 2026-08-14 — this said `MPE_SURGE_BUFFER_SIZE=2048`, which no longer sizes the audio path under JACK.)*
 
+**Before blaming the period, rule out the graph clients (2026-08-17).** A bigger buffer masks a client that is blowing its deadline every period; it does not fix it. Order of elimination:
+
+1. `MPE_PEAK_METER` unset (the default) — the OUT meter is a JACK client, so jackd blocks on its callback. If crackle disappears with it off, it was never the period.
+2. `sudo ./scripts/bench-xruns.sh --strict --seconds 120` — strict mode drops `jackd -s`, so a client that misses its deadline gets zombified and **named** in `journalctl -u mpe-jackd` instead of glitching anonymously.
+3. `sudo ./scripts/bench-xruns.sh --sweep` — measures 128/256/512/1024 in one pass and restores the original period. Play dense MPE throughout; an idle bench proves nothing.
+
+Record the result as a bench command and its output, not a sentence. Every prior entry in this file that had to be marked **CORRECTED** was prose recording a number nobody could re-derive.
+
 **Live diagnosis:** the touch browser header **CPU** meter (see [`TOUCH_PATCH_BROWSER.md`](TOUCH_PATCH_BROWSER.md)) tracks `surge-xt-cli` process load while you play — use it to see when dense polyphony is pushing the Pi toward xrun territory. Norm on should keep typical Quick Select patches lower on that meter than uncapped gain would.
 
 **Quick Select reference (2026-07-30):** calibrated `gain_db` spans about +4 to +18 dB. Without a runtime cap that would map to **~1.6–8.0** linear OSC — too hot for dense MPE on the Pi. With Norm on, combined amp/volume is capped at **1.5** linear (same as norm off).

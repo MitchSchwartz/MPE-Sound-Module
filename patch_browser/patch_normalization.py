@@ -61,6 +61,37 @@ def linear_to_db(linear: float) -> float:
 # Vol fader attenuation display/range: bottom = mute, top = 0 dB (unity vs patch baseline).
 VOLUME_FADER_FLOOR_DB = -60.0
 
+# IEC 60268-17 console fader law, as position(%) -> dB breakpoints. A fader that is
+# linear in dB over a 60 dB span puts everything musically useful (0 to -12 dB) in the
+# top 20% of travel and wastes the bottom half below -30 dB, which reads as a cliff on
+# a short touchscreen column. The console law spends half the travel on the top 20 dB.
+# Segments are (position_fraction, dB_at_that_position), ascending.
+_IEC_FADER_POINTS: tuple[tuple[float, float], ...] = (
+    (0.000, -70.0),
+    (0.025, -60.0),
+    (0.075, -50.0),
+    (0.150, -40.0),
+    (0.300, -30.0),
+    (0.500, -20.0),
+    (1.000, 0.0),
+)
+_IEC_FADER_BOTTOM_DB = _IEC_FADER_POINTS[0][1]
+
+
+def _iec_fader_db(t: float) -> float:
+    """Console-law attenuation in dB for fader travel *t* (0..1), bottoming at -70 dB."""
+    if t <= 0.0:
+        return _IEC_FADER_BOTTOM_DB
+    if t >= 1.0:
+        return 0.0
+    for (t_lo, db_lo), (t_hi, db_hi) in zip(_IEC_FADER_POINTS, _IEC_FADER_POINTS[1:]):
+        if t <= t_hi:
+            span = t_hi - t_lo
+            if span <= 0:
+                return db_hi
+            return db_lo + (db_hi - db_lo) * ((t - t_lo) / span)
+    return 0.0
+
 
 def _volume_fader_t(
     trim: float,
@@ -81,13 +112,18 @@ def volume_fader_trim_to_db(
     fader_max: float,
     floor_db: float = VOLUME_FADER_FLOOR_DB,
 ) -> float | None:
-    """Attenuation in dB relative to full patch level. None when fader is at mute."""
+    """Attenuation in dB relative to full patch level. None when fader is at mute.
+
+    Console (IEC 60268-17) taper, rescaled from the law's -70 dB bottom onto *floor_db*,
+    so the top half of travel covers 0..-20 dB instead of 0..-30 dB. Was
+    ``floor_db * (1 - t)`` — linear in dB, which made the fader fall off a cliff.
+    """
     if trim <= fader_min:
         return None
     t = _volume_fader_t(trim, fader_min=fader_min, fader_max=fader_max)
     if t <= 0.0:
         return None
-    return floor_db * (1.0 - t)
+    return _iec_fader_db(t) * (floor_db / _IEC_FADER_BOTTOM_DB)
 
 
 def volume_fader_display_db(

@@ -1,7 +1,16 @@
-"""Passive JACK peak meter for Surge output (fail-open parallel tap)."""
+"""Passive JACK peak meter for Surge output (fail-open parallel tap).
+
+Realtime discipline (``looper-jack-client-spec.md`` §B): ``_process`` runs on JACK's
+audio thread and holds the GIL for its whole body, so jackd's graph cycle blocks on it.
+It must stay O(1) in Python bytecode — vectorised through numpy, no per-sample loop, no
+allocation, no exception handling. The pure-Python fallback below is a correctness
+path for bench/test use only and is NOT safe to register on a live graph; when numpy
+is missing the meter stays offline rather than crackling the instrument.
+"""
 
 from __future__ import annotations
 
+import os
 import struct
 import threading
 import time
@@ -13,6 +22,16 @@ PEAK_DECAY = 0.92  # per poll tick between peaks — hold peaks long enough to r
 SURGE_JACK_CLIENT = "Surge XT"
 METER_JACK_CLIENT = "mpe-peak-meter"
 RECONNECT_INTERVAL_S = 2.0
+
+# Opt-in. The meter registers a JACK client, so a slow or wedged callback costs xruns on
+# the instrument itself. Default off until a bench run measures zero xruns with it up
+# (docs/PATCH_NORMALIZATION.md §crackle). Set MPE_PEAK_METER=1 to enable.
+PEAK_METER_ENV = "MPE_PEAK_METER"
+
+
+def peak_meter_enabled() -> bool:
+    """True when the operator has opted the JACK tap in."""
+    return os.environ.get(PEAK_METER_ENV, "0").strip().lower() in ("1", "true", "yes", "on")
 
 
 def _buffer_peak(buf, nframes: int) -> float:
@@ -66,6 +85,10 @@ class SurgePeakMonitor:
         self._last_connect_attempt = 0.0
         self._last_jack_error_log = 0.0
         self._wired = False
+        self._np = None
+        # Set from JACK's shutdown callback (non-RT notification thread) when the
+        # server goes away — e.g. every buffer/rate change restarts jackd underneath us.
+        self._server_gone = threading.Event()
 
     def start(self) -> None:
         if self._thread and self._thread.is_alive():
@@ -157,9 +180,19 @@ class SurgePeakMonitor:
         print(f"Surge peak monitor: {message}", flush=True)
 
     def _ensure_jack_client(self) -> bool:
+        # jackd restarts on every buffer/sample-rate change and on every DAC replug.
+        # Without this the client object outlives its server: the meter never rebuilds,
+        # and calls into a dead libjack client can take the whole touch UI down with it.
+        if self._server_gone.is_set():
+            self._log_jack_issue("JACK server went away — rebuilding meter client")
+            self._shutdown_jack()
+            self._server_gone.clear()
+            self._wired = False
         if self._client is not None:
             return True
         if self._jack_available is False:
+            return False
+        if not peak_meter_enabled():
             return False
         try:
             import jack
@@ -170,7 +203,19 @@ class SurgePeakMonitor:
                 "(sudo apt install python3-jack-client, then restart touch browser)"
             )
             return False
+        try:
+            import numpy
+        except ImportError:
+            # Without numpy the only available callback is a per-sample Python loop,
+            # which blows the RT deadline and crackles the instrument. Stay offline.
+            self._jack_available = False
+            self._log_jack_issue(
+                "python3-numpy not installed — OUT meter offline (a non-vectorised "
+                "callback would cost xruns; sudo apt install python3-numpy)"
+            )
+            return False
 
+        self._np = numpy
         self._jack = jack
         try:
             client = jack.Client(METER_JACK_CLIENT, no_start_server=True)
@@ -179,6 +224,7 @@ class SurgePeakMonitor:
                 client.inports.register("in_2"),
             ]
             client.set_process_callback(self._process)
+            client.set_shutdown_callback(self._on_jack_shutdown)
             client.activate()
         except Exception as exc:
             # Surge/jackd may still be coming up — retry instead of giving up forever.
@@ -192,29 +238,28 @@ class SurgePeakMonitor:
         return True
 
     def _process(self, frames: int) -> None:
+        """JACK RT callback — must stay O(1) in Python bytecode. See module docstring.
+
+        No try/except and no per-sample loop: both cost the graph its deadline. Two
+        vectorised numpy reductions per period, then one float compare. `nanmax` so a
+        NaN in the stream cannot poison the meter (the old loop skipped NaNs by hand).
+        `_period_peak` is written unlocked on purpose — taking a lock here would let a
+        UI thread stall the audio thread; a torn float read costs one stale meter tick.
+        """
+        np = self._np
         peak = 0.0
         for port in self._inports:
-            try:
-                arr = port.get_array()
-            except Exception:
-                try:
-                    buf = port.get_buffer()
-                except Exception:
-                    continue
-                peak = max(peak, _buffer_peak(buf, frames))
-                continue
-            if arr is None or len(arr) == 0:
-                continue
-            count = min(frames, len(arr))
-            for idx in range(count):
-                sample = float(arr[idx])
-                if sample != sample:
-                    continue
-                a = -sample if sample < 0.0 else sample
-                if a > peak:
-                    peak = a
+            arr = port.get_array()
+            if arr.size:
+                value = float(np.nanmax(np.abs(arr)))
+                if value > peak:
+                    peak = value
         if peak > self._period_peak:
             self._period_peak = peak
+
+    def _on_jack_shutdown(self, *_args) -> None:
+        """JACK notification thread — flag only, never touch the client from here."""
+        self._server_gone.set()
 
     def _try_connect_surge_outputs(self) -> None:
         client = self._client
@@ -244,7 +289,12 @@ class SurgePeakMonitor:
                 for ch, port in enumerate(self._inports, start=1)
             )
         except Exception:
-            return self._wired
+            # Fail CLOSED. Returning the last-known-good `self._wired` made a dead
+            # client keep reporting online while _peak_linear decayed smoothly to zero
+            # — a needle that looks exactly like a quiet passage. A broken meter must
+            # read "—", never a plausible number.
+            self._server_gone.set()
+            return False
 
     def _shutdown_jack(self) -> None:
         client = self._client
