@@ -8,6 +8,17 @@ from typing import Any
 from patch_browser.midi_clock import PPQN, normalize_midi_bytes
 from patch_browser.surge_audio import DEFAULT_BUFFER, DEFAULT_SAMPLE_RATE
 
+def _env_int(key: str, default: int | None) -> int | None:
+    """Int from env, or *default* when unset/garbage — env files carry stale junk."""
+    raw = os.environ.get(key, "").strip()
+    if not raw:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        return default
+
+
 MIDI_CLOCK = 0xF8
 MIDI_START = 0xFA
 MIDI_CONTINUE = 0xFB
@@ -54,14 +65,28 @@ def resolve_quantize_grid_ticks() -> int:
 def buffer_latency_ms(
     buffer: int | None = None,
     sample_rate: int | None = None,
+    periods: int | None = None,
 ) -> float:
-    buf = buffer if buffer is not None else int(os.environ.get("MPE_SURGE_BUFFER_SIZE", str(DEFAULT_BUFFER)))
-    rate = sample_rate if sample_rate is not None else int(
-        os.environ.get("MPE_SURGE_SAMPLE_RATE", str(DEFAULT_SAMPLE_RATE))
+    """Output latency of the audio path in ms — the JACK period ×  MPE_JACK_PERIODS.
+
+    Under the JACK graph server the period belongs to the server and the real
+    output latency is ``period × periods``, not one period. Reading
+    MPE_SURGE_BUFFER_SIZE and skipping the periods term under-reported latency by 3×
+    at the shipped default, which fires MIDI too late against the looper grid.
+    """
+    if buffer is not None:
+        buf = buffer
+    else:
+        buf = _env_int("MPE_JACK_BUFFER", None) or _env_int(
+            "MPE_SURGE_BUFFER_SIZE", DEFAULT_BUFFER
+        )
+    n_periods = periods if periods is not None else _env_int("MPE_JACK_PERIODS", 3)
+    rate = sample_rate if sample_rate is not None else _env_int(
+        "MPE_SURGE_SAMPLE_RATE", DEFAULT_SAMPLE_RATE
     )
-    if rate <= 0:
+    if rate <= 0 or n_periods <= 0:
         return 0.0
-    return 1000.0 * buf / rate
+    return 1000.0 * buf * n_periods / rate
 
 
 def resolve_output_offset_ms() -> float:
