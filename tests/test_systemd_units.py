@@ -146,6 +146,53 @@ class LooperStackIsSupervisedTests(unittest.TestCase):
         self.assertEqual(_directive(text, "LimitMEMLOCK"), ["infinity"])
 
 
+class RenderedUnitsMatchTemplatesTests(unittest.TestCase):
+    """`config/` holds templates; `systemd/` holds the rendered copies.
+
+    Two committed sources for one unit is a drift trap, and it bit immediately: the
+    looper units were added to config/ only, so install-units.sh — which reads
+    systemd/ — failed with "No such file or directory" on the appliance. Until the
+    duplication is collapsed, assert the two stay in sync.
+    """
+
+    SUBSTITUTIONS = {
+        "@MPE_PI_USER@": "mitch",
+        "@MPE_MODULE_REPO@": "/home/mitch/MPE-Module",
+        "@MPE_SCRIPTS_DIR@": "/home/mitch/MPE-Module/scripts",
+    }
+    SYSTEMD = REPO / "systemd"
+
+    def _render(self, text: str) -> str:
+        for placeholder, value in self.SUBSTITUTIONS.items():
+            text = text.replace(placeholder, value)
+        return text
+
+    def test_every_enabled_unit_has_a_rendered_copy(self) -> None:
+        for name in _enabled_units():
+            self.assertTrue(
+                (self.SYSTEMD / f"{name}.service").is_file(),
+                f"{name} is in ENABLED but systemd/{name}.service is missing — "
+                f"install-units.sh reads systemd/, not config/",
+            )
+
+    def test_rendered_copies_match_their_templates(self) -> None:
+        for path in sorted(self.SYSTEMD.glob("*.service")):
+            template = CONFIG / path.name
+            if not template.is_file():
+                continue  # systemd-only units (e.g. mpe-bench) have no template
+            self.assertEqual(
+                path.read_text(encoding="utf-8"),
+                self._render(template.read_text(encoding="utf-8")),
+                f"systemd/{path.name} has drifted from config/{path.name} — "
+                f"re-render it after editing the template",
+            )
+
+    def test_rendered_copies_have_no_unsubstituted_placeholders(self) -> None:
+        for path in sorted(self.SYSTEMD.glob("*.service")):
+            leftover = re.findall(r"@MPE_[A-Z_]+@", path.read_text(encoding="utf-8"))
+            self.assertEqual(leftover, [], f"systemd/{path.name} still has {leftover}")
+
+
 class EngineLauncherTests(unittest.TestCase):
     def test_exec_start_does_not_background(self) -> None:
         """A wrapper that backgrounds its work makes Restart= watch the wrapper."""
