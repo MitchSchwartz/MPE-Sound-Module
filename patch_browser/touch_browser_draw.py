@@ -14,6 +14,7 @@ from patch_browser.draw_primitives import (
     draw_filter_icon,
     draw_sidebar_panel_icon,
 )
+from patch_browser.peak_meter_math import peak_meter_color_dbfs
 from patch_browser.geometry import Rect
 from patch_browser.mixer import MixerChannel
 from patch_browser.patch_identity import (
@@ -373,6 +374,48 @@ class TouchBrowserDrawMixin:
             pygame.draw.rect(self.screen, self.theme.accent, fill_rect, border_radius=10)
         text = self.font_sm.render(label, True, self.theme.muted)
         self.screen.blit(text, (rect.x, rect.y - 22))
+    def _peak_meter_color(self, dbfs: float | None):
+        bucket = peak_meter_color_dbfs(dbfs)
+        if bucket == "ok":
+            return self.theme.ok
+        if bucket == "warn":
+            return self.theme.playing
+        if bucket == "hot":
+            return self.theme.danger
+        return self.theme.muted
+
+    def _draw_peak_meter(self, rect: Rect) -> None:
+        snap = self.peak_monitor.snapshot()
+        label = self.font_sm.render("OUT", True, self.theme.muted)
+        label_x = rect.x
+        label_y = rect.y + (rect.h - label.get_height()) // 2
+        self.screen.blit(label, (label_x, label_y))
+
+        bar_h = label.get_height()
+        bar_x = rect.x + label.get_width() + CPU_METER_LABEL_GAP
+        bar_y = label_y
+        bar_rect = pygame.Rect(bar_x, bar_y, CPU_METER_BAR_W, bar_h)
+        pygame.draw.rect(self.screen, self.theme.surface_alt, bar_rect, border_radius=3)
+
+        if not snap["online"]:
+            dash = self.font_sm.render("—", True, self.theme.muted)
+            dash_x = bar_rect.x + (bar_rect.w - dash.get_width()) // 2
+            dash_y = bar_rect.y + (bar_rect.h - dash.get_height()) // 2
+            self.screen.blit(dash, (dash_x, dash_y))
+            return
+
+        ratio = max(0.0, min(1.0, float(snap["ratio"] or 0.0)))
+        if ratio <= 0.0:
+            return
+        fill_h = max(1, int(bar_rect.h * ratio))
+        fill_rect = pygame.Rect(bar_rect.x, bar_rect.bottom - fill_h, bar_rect.w, fill_h)
+        pygame.draw.rect(
+            self.screen,
+            self._peak_meter_color(snap["dbfs"]),
+            fill_rect,
+            border_radius=3,
+        )
+
     def _cpu_meter_color(self, percent: float) -> tuple[int, int, int]:
         if percent < 40.0:
             return self.theme.ok
@@ -571,6 +614,8 @@ class TouchBrowserDrawMixin:
         if getattr(self, "show_looper_hud", True):
             self._draw_looper_hud(self.looper_hud_rect)
         self._draw_audio_profile_badge(self.audio_profile_badge_rect)
+        if self.show_peak_meter:
+            self._draw_peak_meter(self.peak_meter_rect)
         if self.show_cpu_meter:
             self._draw_cpu_meter(self.cpu_meter_rect)
         self._draw_button(
