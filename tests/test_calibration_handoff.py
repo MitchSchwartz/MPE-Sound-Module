@@ -52,29 +52,46 @@ class CalibrationHandoffTests(unittest.TestCase):
     def tearDown(self) -> None:
         self._env.stop()
 
+    @mock.patch("patch_browser.calibration_teardown.emit_event")
     @mock.patch("patch_browser.calibration_teardown.time.sleep")
     @mock.patch("patch_browser.calibration_teardown.subprocess.run")
-    def test_stop_skips_touch_browser_when_from_browser(self, run_mock: mock.Mock, _sleep: mock.Mock) -> None:
+    def test_stop_skips_touch_browser_when_from_browser(
+        self, run_mock: mock.Mock, _sleep: mock.Mock, _emit: mock.Mock
+    ) -> None:
         os.environ[MPE_CALIB_FROM_BROWSER] = "1"
         ct.stop_mpe_audio_services()
         stopped = _systemctl_calls(run_mock, "stop")
         self.assertNotIn("touch-patch-browser", stopped)
         self.assertIn("surge-xt-cli", stopped)
 
+    @mock.patch("patch_browser.calibration_teardown.emit_event")
     @mock.patch("patch_browser.calibration_teardown.time.sleep")
     @mock.patch("patch_browser.calibration_teardown.subprocess.run")
-    def test_stop_includes_touch_browser_when_not_from_browser(self, run_mock: mock.Mock, _sleep: mock.Mock) -> None:
+    def test_stop_includes_looper_units(self, run_mock: mock.Mock, _sleep: mock.Mock, _emit: mock.Mock) -> None:
+        ct.stop_mpe_audio_services()
+        stopped = _systemctl_calls(run_mock, "stop")
+        for unit in ct.LOOPER_UNITS_STOP_ORDER:
+            self.assertIn(unit, stopped)
+
+    @mock.patch("patch_browser.calibration_teardown.emit_event")
+    @mock.patch("patch_browser.calibration_teardown.time.sleep")
+    @mock.patch("patch_browser.calibration_teardown.subprocess.run")
+    def test_stop_includes_touch_browser_when_not_from_browser(
+        self, run_mock: mock.Mock, _sleep: mock.Mock, _emit: mock.Mock
+    ) -> None:
         ct.stop_mpe_audio_services()
         stopped = _systemctl_calls(run_mock, "stop")
         self.assertIn("touch-patch-browser", stopped)
         self.assertIn("surge-xt-cli", stopped)
 
+    @mock.patch("patch_browser.calibration_teardown.emit_event")
     @mock.patch("patch_browser.calibration_teardown.time.sleep")
     @mock.patch("patch_browser.calibration_teardown.subprocess.run")
     def test_restore_does_not_systemd_restart_browser_when_from_browser(
         self,
         run_mock: mock.Mock,
         _sleep: mock.Mock,
+        _emit: mock.Mock,
     ) -> None:
         os.environ[MPE_CALIB_FROM_BROWSER] = "1"
         ct.restore_mpe_audio_services(restart_browser=True)
@@ -82,9 +99,25 @@ class CalibrationHandoffTests(unittest.TestCase):
         self.assertNotIn("touch-patch-browser", started)
         self.assertIn("surge-xt-cli", started)
 
+    @mock.patch("patch_browser.calibration_teardown.emit_event")
     @mock.patch("patch_browser.calibration_teardown.time.sleep")
     @mock.patch("patch_browser.calibration_teardown.subprocess.run")
-    def test_restore_sync_starts_browser_when_not_from_browser(self, run_mock: mock.Mock, _sleep: mock.Mock) -> None:
+    def test_restore_starts_looper_units_after_surge(
+        self, run_mock: mock.Mock, _sleep: mock.Mock, _emit: mock.Mock
+    ) -> None:
+        ct.restore_mpe_audio_services(restart_browser=False)
+        started = _systemctl_calls(run_mock, "start")
+        surge_idx = started.index("surge-xt-cli")
+        for unit in ct.LOOPER_UNITS_START_ORDER:
+            self.assertIn(unit, started)
+            self.assertGreater(started.index(unit), surge_idx)
+
+    @mock.patch("patch_browser.calibration_teardown.emit_event")
+    @mock.patch("patch_browser.calibration_teardown.time.sleep")
+    @mock.patch("patch_browser.calibration_teardown.subprocess.run")
+    def test_restore_sync_starts_browser_when_not_from_browser(
+        self, run_mock: mock.Mock, _sleep: mock.Mock, _emit: mock.Mock
+    ) -> None:
         ct.restore_mpe_audio_services(restart_browser=True)
         started = _systemctl_calls(run_mock, "start")
         self.assertIn("touch-patch-browser", started)
