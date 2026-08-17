@@ -33,15 +33,36 @@ MPE_JACK_READY_TIMEOUT_DEFAULT=10
 
 MPE_JACKD_SERVICE="mpe-jackd.service"
 
-mpe_jack_period() {
+# Canonical period (frames). MPE_JACK_BUFFER is the ONLY source (spec D6).
+#
+# Deliberately does NOT fall back to MPE_SURGE_BUFFER_SIZE. That key is dead as a
+# graph period (docs/RESTORE.md) and the value it carries on shipped appliances (512)
+# disagrees with what those servers actually ran (256) — aliasing the two lets stale
+# config silently reassign the live period on any appliance missing the JACK key.
+# The Surge key stays alive for calibration only; nothing here reads it.
+mpe_buffer_env_canonical() {
     case "${MPE_JACK_BUFFER:-}" in
-        64 | 128 | 256 | 512 | 1024) printf '%s' "$MPE_JACK_BUFFER" ;;
-        '') printf '%s' "$MPE_JACK_BUFFER_DEFAULT" ;;
-        *)
-            echo "WARNING: MPE_JACK_BUFFER='${MPE_JACK_BUFFER}' invalid — using $MPE_JACK_BUFFER_DEFAULT" >&2
-            printf '%s' "$MPE_JACK_BUFFER_DEFAULT"
-            ;;
+        64 | 128 | 256 | 512 | 1024) printf '%s' "$MPE_JACK_BUFFER"; return 0 ;;
+        '') printf '%s' "$MPE_JACK_BUFFER_DEFAULT"; return 0 ;;
     esac
+    echo "WARNING: MPE_JACK_BUFFER='${MPE_JACK_BUFFER}' invalid — using $MPE_JACK_BUFFER_DEFAULT" >&2
+    printf '%s' "$MPE_JACK_BUFFER_DEFAULT"
+}
+
+# After sourcing mpe.env: report (do not silently reconcile) a period the operator set
+# on the retired key only. Writing the two keys equal is what broke MIDI offset — the
+# Surge key feeds a single-period latency calc, the JACK key a period × periods graph.
+mpe_export_synced_buffer_env() {
+    local jack="${MPE_JACK_BUFFER:-}" surge="${MPE_SURGE_BUFFER_SIZE:-}" canonical
+    canonical="$(mpe_buffer_env_canonical)"
+    if [ -z "$jack" ] && [ -n "$surge" ]; then
+        echo "WARNING: MPE_SURGE_BUFFER_SIZE=$surge is set but MPE_JACK_BUFFER is not — the graph period is $canonical, not $surge. Set MPE_JACK_BUFFER to change it." >&2
+    fi
+    export MPE_JACK_BUFFER="$canonical"
+}
+
+mpe_jack_period() {
+    printf '%s' "$(mpe_buffer_env_canonical)"
 }
 
 mpe_jack_periods() {
@@ -61,6 +82,17 @@ mpe_jack_rate() {
     case "${MPE_SURGE_SAMPLE_RATE:-}" in
         44100 | 48000 | 96000) printf '%s' "$MPE_SURGE_SAMPLE_RATE" ;;
         *) printf '%s' "$MPE_JACK_RATE_DEFAULT" ;;
+    esac
+}
+
+# Softmode (jackd -s) is correct for shipping: a client that misses one deadline must
+# not be kicked off the graph mid-gig. It is wrong while hunting a crackle, because it
+# turns "this client blows its deadline every period" into a quiet glitch with no named
+# culprit. MPE_JACK_SOFTMODE=0 runs strict so jackd zombifies the offender and says so.
+mpe_jack_softmode_enabled() {
+    case "${MPE_JACK_SOFTMODE:-1}" in
+        0 | false | no | off) return 1 ;;
+        *) return 0 ;;
     esac
 }
 

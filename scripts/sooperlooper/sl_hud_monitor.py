@@ -237,6 +237,9 @@ def main() -> int:
             time.sleep(0.1)
     except KeyboardInterrupt:
         return 0
+    finally:
+        # Release the held jack_cpu_load client rather than leaving it on the graph.
+        writer._graph_health.close()
 
 
 if __name__ == "__main__":
