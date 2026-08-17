@@ -286,7 +286,8 @@ def collect_patch_paths(args: argparse.Namespace) -> list[Path]:
     if args.favorites_only:
         fav_dir = favorites_folder_on_disk()
         if fav_dir.is_dir():
-            paths = sorted(fav_dir.glob("*.fxp"))
+            # Include nested Quick Select folders (e.g. Dan Maurer/Dark Friday.fxp).
+            paths = sorted(fav_dir.rglob("*.fxp"))
     elif args.folder:
         folder_name = args.folder.lstrip("!")
         user_root = scanner.get_favorites_folder_path().parent
@@ -960,6 +961,7 @@ def calibrate_patch(
         true_peak_dbtp=true_peak,
         strike_lufs=lufs_strike,
         sustain_lufs=lufs_sustain,
+        patch_path=str(patch_path),
     )
     store.save()
     touch_note = ""

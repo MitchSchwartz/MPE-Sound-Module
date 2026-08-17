@@ -1,6 +1,6 @@
 # Git workflow — branches, Pi testing, promotion to main
 
-*Last updated: 2026-08-02 (America/Toronto)*
+*Last updated: 2026-08-17 (America/Toronto)*
 
 This repo uses a **three-layer** flow: feature work → **`dev`** (integration + Pi soak) → **`main`** (release line on the device when stable).
 
@@ -89,16 +89,22 @@ Until step 3 completes, **`main` should not receive the change**.
 
 ---
 
+## Pi is not a git workspace (2026-08-17)
+
+The appliance clone holds **`main` only** — no local branches, stashes, or WIP. Push is disabled (`origin` push URL = `DISABLED`). All development happens on the laptop; the Pi **pulls** what you deploy.
+
+If a branch existed only on the Pi SD card, it was not backed up until pushed to origin. Retired work was archived as `archive/yolo-looper-phase0-pi-snapshot`.
+
 ## Agent / automation rules
 
 These apply to Cursor agents, YOLO headless runs, and anyone deploying from a laptop:
 
 | Do | Don't |
 |----|-------|
-| Open PRs **feature → `dev`** | Merge the same change to **`dev` and `main` in one session** while still testing |
-| Deploy to Pi by **checking out the branch under test** | Assume `git pull` on `main` is how you test new work |
+| Open PRs **feature → `dev`** | Commit, stash, or create branches **on the Pi** |
+| Deploy to Pi **from the laptop** (checkout + pull + configure) | SSH in to “finish” or save work on the appliance |
 | Merge **`dev` → `main`** only after Mitch confirms Pi soak (or explicit "promote to main") | Auto-merge to `main` because tests pass locally |
-| Leave Pi on **`main`** when handing back a stable appliance | Leave Pi on a **`yolo/*`** branch after promotion without switching back |
+| Leave Pi on **`main`** with a **clean** working tree | Leave Pi on a **`yolo/*`** branch, dirty tree, or stashes |
 
 From the laptop, remote configure still works — pass the branch explicitly:
 
