@@ -28,6 +28,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT))
 
+from patch_browser.looper_health import JackGraphHealth, collect_jack_graph_health  # noqa: E402
 from patch_browser.sl_hud_state import SL_HUD_STATE_FILE  # noqa: E402
 
 WRITE_INTERVAL_S = float(os.environ.get("MPE_SL_HUD_WRITE_INTERVAL_S", "0.5"))
@@ -116,6 +117,8 @@ class HudWriter:
         self._sl = SlQuery().start()
         self._lengths: dict[int, float] = {}
         self._registered_at = 0.0
+        self._graph_health = JackGraphHealth()
+        self._last_health_sample = 0.0
 
     def register_auto_updates(self) -> None:
         """Subscribe to state/loop_len/loop_pos rather than polling for them.
@@ -197,6 +200,10 @@ class HudWriter:
         payload.setdefault("phrase_len", 0.0)
         payload.setdefault("phrase_pos", 0.0)
         payload.setdefault("bars_in_phrase", 1)
+        now_mono = time.monotonic()
+        if now_mono - self._last_health_sample >= WRITE_INTERVAL_S:
+            payload["health"] = collect_jack_graph_health(self._graph_health)
+            self._last_health_sample = now_mono
         payload.update({"updated_at": time.time(), "cycle_len": 0.0, "loop_len": 0.0})
         key = (payload.get("beat"), payload.get("bar"), payload.get("active"))
         now = time.time()
