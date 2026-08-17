@@ -118,6 +118,7 @@ class TouchBrowserSettingsMixin:
         y += SETTINGS_ROW_H + SETTINGS_ROW_GAP
 
         self.cpu_meter_toggle_rect = Rect(pad, y, 0, 0)
+        self.peak_meter_toggle_rect = Rect(pad, y, 0, 0)
         self.norm_global_toggle_rect = Rect(pad, y, 0, 0)
         self._surge_restart_btn = None
         self._calibrate_missing_btn = Rect(pad, y, 0, 0)
@@ -127,6 +128,10 @@ class TouchBrowserSettingsMixin:
             cpu_h = self._settings_row_height("CPU meter", inner_w, toggle=True)
             self.cpu_meter_toggle_rect = Rect(pad, y, inner_w, cpu_h)
             y += cpu_h + SETTINGS_ROW_GAP
+
+            peak_h = self._settings_row_height("Peak meter", inner_w, toggle=True)
+            self.peak_meter_toggle_rect = Rect(pad, y, inner_w, peak_h)
+            y += peak_h + SETTINGS_ROW_GAP
 
             status = self.surge_monitor.get_status_summary()
             if status.get("can_restart"):
@@ -149,6 +154,7 @@ class TouchBrowserSettingsMixin:
         self.theme_btn_rect = Rect(pad, y, 0, 0)
         self.wifi_row_rect = Rect(pad, y, 0, 0)
         self.cpu_meter_toggle_rect = Rect(pad, y, 0, 0)
+        self.peak_meter_toggle_rect = Rect(pad, y, 0, 0)
         self._surge_restart_btn = None
 
         from patch_browser.audio_profile import profile_settings_label
@@ -512,6 +518,15 @@ class TouchBrowserSettingsMixin:
                         self.show_cpu_meter,
                         has_gain=True,
                         label="CPU meter",
+                    )
+
+                peak_toggle = self._panel_local_to_screen(self.peak_meter_toggle_rect, scrolled=True)
+                if peak_toggle.h > 0:
+                    self._draw_normalize_toggle(
+                        peak_toggle,
+                        self.show_peak_meter,
+                        has_gain=True,
+                        label="Peak meter",
                     )
 
                 if self._surge_restart_btn and self._surge_restart_btn.h > 0:

@@ -258,6 +258,8 @@ class TouchBrowserInputMixin:
             return "advanced_toggle"
         if self._settings_rect_hit(self.cpu_meter_toggle_rect, local_pos):
             return "cpu_meter"
+        if self._settings_rect_hit(self.peak_meter_toggle_rect, local_pos):
+            return "peak_meter"
         if self._settings_rect_hit(self.looper_sync_row_rect, local_pos):
             return "looper_sync"
         if self._settings_rect_hit(self.looper_hud_toggle_rect, local_pos):
@@ -294,6 +296,8 @@ class TouchBrowserInputMixin:
             self._toggle_global_normalization()
         elif hit == "cpu_meter":
             self._toggle_cpu_meter_visibility()
+        elif hit == "peak_meter":
+            self._toggle_peak_meter_visibility()
         elif hit == "looper_hud":
             self._toggle_looper_hud_visibility()
         elif hit == "looper_sync":

@@ -83,6 +83,17 @@ class TouchBrowserLayoutMixin:
         _label_w, label_h = self._cpu_meter_text_size()
         return label_h
 
+    def _peak_meter_text_size(self) -> tuple[int, int]:
+        return self.font_sm.size("PK")
+
+    def _peak_meter_width(self) -> int:
+        label_w, _label_h = self._peak_meter_text_size()
+        return label_w + CPU_METER_LABEL_GAP + CPU_METER_BAR_W
+
+    def _peak_meter_height(self) -> int:
+        _label_w, label_h = self._peak_meter_text_size()
+        return label_h
+
     def _audio_badge_width(self) -> int:
         label_w = self.font_sm.size(header_badge_label())[0]
         return label_w + AUDIO_BADGE_PAD_X * 2
@@ -134,6 +145,19 @@ class TouchBrowserLayoutMixin:
             right_cursor -= STATUS_BAR_ITEM_GAP
         else:
             self.cpu_meter_rect = Rect(right_cursor, self.status_rect.y + 6, 0, 0)
+        if self.show_peak_meter:
+            meter_w = self._peak_meter_width()
+            right_cursor -= meter_w
+            meter_h = self._peak_meter_height()
+            self.peak_meter_rect = Rect(
+                right_cursor,
+                self.status_rect.y + (status_h - meter_h) // 2,
+                meter_w,
+                meter_h,
+            )
+            right_cursor -= STATUS_BAR_ITEM_GAP
+        else:
+            self.peak_meter_rect = Rect(right_cursor, self.status_rect.y + 6, 0, 0)
         audio_badge_w = self._audio_badge_width()
         right_cursor -= audio_badge_w
         self.audio_profile_badge_rect = Rect(

@@ -28,6 +28,7 @@ from patch_browser.scroll_widgets import ContentScrollArea, ScrollList
 from patch_browser.looper_clock_monitor import LooperClockMonitor
 from patch_browser.screen_recorder import DEFAULT_ENV_FILE, ScreenRecorder
 from patch_browser.surge_cpu_monitor import SurgeCpuMonitor
+from patch_browser.surge_peak_monitor import SurgePeakMonitor
 from patch_browser.surge_monitor import SurgeMonitor
 from patch_browser.touch_evdev import TouchEvdevBridge, evdev_bridge_enabled
 from patch_browser.touch_browser_browse import TouchBrowserBrowseMixin
@@ -143,6 +144,8 @@ class TouchPatchBrowser(
         self.surge_monitor = SurgeMonitor()
         self.cpu_monitor = SurgeCpuMonitor(self.surge_monitor)
         self.cpu_monitor.start()
+        self.peak_monitor = SurgePeakMonitor(self.surge_monitor)
+        self.peak_monitor.start()
         self.looper_monitor = LooperClockMonitor()
         self.looper_monitor.start()
         from patch_browser.engine_state_monitor import EngineStateMonitor
@@ -175,6 +178,7 @@ class TouchPatchBrowser(
 
         self.volume_level = self._load_volume_level()
         self.show_cpu_meter = self._load_ui_preference("show_cpu_meter", default=True)
+        self.show_peak_meter = self._load_ui_preference("show_peak_meter", default=True)
         self.show_looper_hud = self._load_ui_preference("show_looper_hud", default=True)
         self.poly_governor_enabled = self._load_ui_preference("poly_governor_enabled", default=True)
         self.brightness_percent = self.backlight.get_percent()
@@ -425,6 +429,7 @@ class TouchPatchBrowser(
         if self._screen_recorder is not None:
             self._screen_recorder.close()
         self.cpu_monitor.stop()
+        self.peak_monitor.stop()
         pygame.quit()
 
 
