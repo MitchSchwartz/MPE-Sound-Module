@@ -13,7 +13,7 @@
 | Component | Where it lives | Restored by |
 |---|---|---|
 | Application + scripts | This repo | `git clone` |
-| **systemd units (14)** | [`systemd/`](../systemd/) | `scripts/install-units.sh` |
+| **systemd units** | [`config/`](../config/) (templates) | `scripts/install-units.sh` |
 | Appliance config | `/etc/mpe/mpe.env` | Step 4 — **two keys only**, see below |
 | Surge XT binary | `~/surge`, built from source | [`SURGE_ARM_BUILD.md`](SURGE_ARM_BUILD.md) — **hours** |
 | sooperlooper | `~/src/sooperlooper-1.7.9` | Built from source |
