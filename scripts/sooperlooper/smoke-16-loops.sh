@@ -81,7 +81,8 @@ sample_stats() {
   log "VmRSS=${rss} kB"
   if command -v timeout >/dev/null 2>&1 && command -v jack_cpu_load >/dev/null 2>&1; then
     local cpu
-    cpu="$(timeout 3 jack_cpu_load 2>/dev/null | grep -E 'load|DSP' | tail -1 || echo "n/a")"
+    # -k is load-bearing: jack_cpu_load ignores SIGTERM (see diagnose-16loop-crackle.sh).
+    cpu="$(timeout -k 0.5 3 jack_cpu_load 2>/dev/null | grep -E 'load|DSP' | tail -1 || echo "n/a")"
     log "jack_cpu_load (3s sample): ${cpu}"
   fi
 }
