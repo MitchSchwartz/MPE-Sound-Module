@@ -46,10 +46,44 @@ _run_on_pi() {
     _preserved_audio_profile=""
     _preserved_surge_buffer=""
     _preserved_surge_sample_rate=""
+    _preserved_dac_volume_db=""
     if [ -f /etc/mpe/mpe.env ]; then
         _preserved_audio_profile="$(mpe_read_appliance_env_var MPE_AUDIO_PROFILE 2>/dev/null || true)"
         _preserved_surge_buffer="$(mpe_read_appliance_env_var MPE_SURGE_BUFFER_SIZE 2>/dev/null || true)"
         _preserved_surge_sample_rate="$(mpe_read_appliance_env_var MPE_SURGE_SAMPLE_RATE 2>/dev/null || true)"
+        _preserved_dac_volume_db="$(mpe_read_appliance_env_var MPE_DAC_VOLUME_DB 2>/dev/null || true)"
+    fi
+
+    # Keys this script OWNS — it regenerates them from the values above, so the
+    # old file's copies are stale by definition. Everything else in the existing
+    # file is a deliberate appliance tuning and is carried forward verbatim.
+    #
+    # This used to be the other way round: a hand-maintained allowlist of four
+    # keys survived and everything else was silently dropped. MPE_CPU_GOVERNOR
+    # was not on that list, so every `--force` un-pinned the CPU governor — and
+    # --force is what deploy-all.sh, deploy-crash-fixes.sh, deploy-boot-animation.sh,
+    # setup-touch-pi.sh, `mpe engine sync-units` and the AGENTS.md "apply branch"
+    # workflow all run. A routine deploy quietly reverted a latency fix, with no
+    # message and nothing to grep for afterwards. MPE_JACK_BUFFER was in the same
+    # position. Preserve-by-default means the next tunable added to mpe.env does
+    # not have to be remembered here to survive.
+    _owned_keys="MPE_PI_USER MPE_HOME MPE_MODULE_REPO MPE_PERSONAL_REPO \
+MPE_SURGE_ROOT MPE_SURGE_DOCS MPE_SURGE_LOG MPE_FAVORITES_NAME MPE_UI_MODE \
+MPE_AUDIO_PROFILE MPE_SURGE_BUFFER_SIZE MPE_SURGE_SAMPLE_RATE MPE_DAC_VOLUME_DB"
+    _carried=""
+    if [ -f /etc/mpe/mpe.env ]; then
+        while IFS= read -r _line; do
+            case "$_line" in
+                ""|\#*) continue ;;
+                *=*) ;;
+                *) continue ;;
+            esac
+            _key="${_line%%=*}"
+            case " $_owned_keys " in
+                *" $_key "*) continue ;;
+            esac
+            _carried="${_carried}${_line}"$'\n'
+        done < /etc/mpe/mpe.env
     fi
     if [ -n "$_preserved_audio_profile" ]; then
         MPE_AUDIO_PROFILE="$_preserved_audio_profile"
@@ -77,7 +111,21 @@ _run_on_pi() {
             else
                 echo "MPE_SURGE_SAMPLE_RATE=48000"
             fi
+            if [ -n "$_preserved_dac_volume_db" ]; then
+                echo "MPE_DAC_VOLUME_DB=$_preserved_dac_volume_db"
+            else
+                echo "MPE_DAC_VOLUME_DB=-6"
+            fi
+            if [ -n "$_carried" ]; then
+                echo ""
+                echo "# Carried forward from the previous /etc/mpe/mpe.env."
+                printf '%s' "$_carried"
+            fi
         } | sudo tee /etc/mpe/mpe.env > /dev/null
+        if [ -n "$_carried" ]; then
+            echo "  preserved appliance tunings:" \
+                 "$(printf '%s' "$_carried" | cut -d= -f1 | tr '\n' ' ')"
+        fi
     else
         echo "Keeping existing /etc/mpe/mpe.env (use --force to rewrite paths; audio profile preserved on --force)"
     fi
@@ -121,6 +169,9 @@ EOF
     echo "Installing udev rules..."
     "$MPE_MODULE_REPO/scripts/install-udev-rules.sh"
     mpe_enable_core_services
+    echo ""
+    echo "Applying DAC output level (MPE_DAC_VOLUME_DB)..."
+    "$MPE_MODULE_REPO/scripts/set-dac-volume.sh" || true
     echo ""
     echo "Done. Restart: sudo systemctl restart surge-xt-cli $(mpe_patch_browser_unit)"
 }
