@@ -107,8 +107,15 @@ Restore `~/surge-cli-calibration.log` and `~/.patch_browser_calibration_backups`
 ### 8. Bring up and verify
 
 ```bash
-sudo systemctl start mpe-jackd surge-xt-cli mpe-looper
+sudo systemctl start mpe-jackd surge-xt-cli sl-watchdog
 ```
+
+`mpe-looper.service` is deliberately **not** in that list. Its ExecStart was
+stripped on 2026-08-12 (8e6759b) and never restored, so the unit only ever logs
+"skipped, unmet condition" — starting it looks like it worked and does nothing.
+The looper in use is the sooperlooper stack; bring it up with
+`mpe looper sl-restart`, then confirm `mpe looper sl-watchdog status` reports
+the unit running.
 
 From the laptop:
 
