@@ -23,8 +23,8 @@ DEST="/etc/systemd/system"
 ENABLED=(
     mpe-jackd
     surge-xt-cli
-    mpe-looper
     surge-watchdog
+    sl-watchdog
     surge-poly-governor
     mpe-cpu-governor
     mpe-audio-profile-sync
@@ -41,6 +41,21 @@ DISABLED=(
     mic-to-uac2-bridge
     # An eval bench. Started deliberately for a test, never at boot.
     mpe-bench
+    # The v0 looper. Its ExecStart (scripts/mpe-looper.py, mpe-looper-service.sh)
+    # was stripped as broken on 2026-08-12 by 8e6759b, and the yolo/looper-phase0
+    # branch that was meant to restore it does not exist on origin. The unit came
+    # back into the repo in 923dca9, which captured the live appliance — where the
+    # stale unit was still installed and still enabled.
+    #
+    # It has been enabled-and-skipping on every boot since: ConditionPathExists
+    # means systemd logs "skipped, unmet condition" and reports no failure, so
+    # `is-enabled` says enabled, nothing is wrong, and nothing runs. Verified on
+    # the appliance 2026-08-17 — zero "Started" entries in its entire journal.
+    #
+    # Kept installed (not deleted) because the sooperlooper stack that replaced it
+    # is still on a bench footing. Not enabled, because an enabled unit that can
+    # never start is what made docs/RESTORE.md's start line untrue.
+    mpe-looper
 )
 
 # No [Install] section — cannot be enabled, only pulled in by another unit.
@@ -109,6 +124,25 @@ if [ "$MODE" != "install" ]; then
     exit 0
 fi
 
+# An enabled unit whose ExecStart does not exist is the worst of both worlds:
+# `systemctl is-enabled` says enabled, nothing reports failed, and the thing
+# never runs. That is how mpe-looper.service skipped every boot for five days
+# unnoticed. Check before enabling, and say so loudly.
+echo "Checking ExecStart targets of units about to be enabled ..."
+missing_exec=0
+for u in "${ENABLED[@]}"; do
+    exec_path="$(sed -n 's/^ExecStart=-\?\([^ ]*\).*/\1/p' "$SRC/$u.service" | head -1)"
+    [ -n "$exec_path" ] || continue
+    if [ ! -e "$exec_path" ]; then
+        echo "  WARNING: $u is enabled but ExecStart is missing: $exec_path" >&2
+        missing_exec=1
+    fi
+done
+if [ "$missing_exec" -eq 1 ]; then
+    echo "  ^ These units will start-fail or silently skip. Fix before relying on" >&2
+    echo "    this appliance being restored." >&2
+fi
+
 echo "Reloading systemd ..."
 systemctl daemon-reload
 
@@ -127,5 +161,5 @@ done
 echo ""
 echo "Done. Units installed but NOT started — this script does not restart audio."
 echo "Start the graph deliberately:"
-echo "  sudo systemctl start mpe-jackd surge-xt-cli mpe-looper"
+echo "  sudo systemctl start mpe-jackd surge-xt-cli sl-watchdog"
 echo "Verify:  mpe jack status   (expect xruns: 0)"
