@@ -146,13 +146,14 @@ class LooperStackIsSupervisedTests(unittest.TestCase):
         self.assertEqual(_directive(text, "LimitMEMLOCK"), ["infinity"])
 
 
-class RenderedUnitsMatchTemplatesTests(unittest.TestCase):
-    """`config/` holds templates; `systemd/` holds the rendered copies.
+class SingleUnitSourceTests(unittest.TestCase):
+    """`config/` is the only source of units. A second copy is a drift trap.
 
-    Two committed sources for one unit is a drift trap, and it bit immediately: the
-    looper units were added to config/ only, so install-units.sh — which reads
-    systemd/ — failed with "No such file or directory" on the appliance. Until the
-    duplication is collapsed, assert the two stay in sync.
+    There used to be a pre-rendered `systemd/` directory that install-units.sh read
+    while configure-pi-paths.sh read `config/` — two committed copies of every unit.
+    Adding to one silently missed the other, which is exactly what happened when the
+    looper units landed (install-units.sh: "No such file or directory"). Collapsed
+    2026-08-17; install-units.sh renders the templates itself.
     """
 
     SUBSTITUTIONS = {
@@ -160,37 +161,59 @@ class RenderedUnitsMatchTemplatesTests(unittest.TestCase):
         "@MPE_MODULE_REPO@": "/home/mitch/MPE-Module",
         "@MPE_SCRIPTS_DIR@": "/home/mitch/MPE-Module/scripts",
     }
-    SYSTEMD = REPO / "systemd"
 
-    def _render(self, text: str) -> str:
-        for placeholder, value in self.SUBSTITUTIONS.items():
-            text = text.replace(placeholder, value)
-        return text
+    def test_there_is_no_second_unit_directory(self) -> None:
+        self.assertFalse(
+            (REPO / "systemd").exists(),
+            "systemd/ is back — one source of truth for units, or they drift",
+        )
 
-    def test_every_enabled_unit_has_a_rendered_copy(self) -> None:
-        for name in _enabled_units():
-            self.assertTrue(
-                (self.SYSTEMD / f"{name}.service").is_file(),
-                f"{name} is in ENABLED but systemd/{name}.service is missing — "
-                f"install-units.sh reads systemd/, not config/",
+    def test_both_installers_read_config(self) -> None:
+        install = INSTALL_UNITS.read_text(encoding="utf-8")
+        self.assertIn('SRC="$ROOT/config"', install)
+        configure = (REPO / "scripts" / "configure-pi-paths.sh").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('"$MPE_MODULE_REPO/config/"*.service', configure)
+
+    def test_installer_substitutes_every_placeholder_the_units_use(self) -> None:
+        """A placeholder no installer substitutes ships a unit pointing at a literal."""
+        install = INSTALL_UNITS.read_text(encoding="utf-8")
+        used: set[str] = set()
+        for path in CONFIG.glob("*.service"):
+            used.update(re.findall(r"@MPE_[A-Z_]+@", path.read_text(encoding="utf-8")))
+        for placeholder in sorted(used):
+            self.assertIn(
+                placeholder,
+                install,
+                f"{placeholder} appears in a unit but install-units.sh never renders it",
             )
 
-    def test_rendered_copies_match_their_templates(self) -> None:
-        for path in sorted(self.SYSTEMD.glob("*.service")):
-            template = CONFIG / path.name
-            if not template.is_file():
-                continue  # systemd-only units (e.g. mpe-bench) have no template
+    def test_installer_refuses_to_ship_unrendered_placeholders(self) -> None:
+        install = INSTALL_UNITS.read_text(encoding="utf-8")
+        self.assertIn("still has unsubstituted placeholders", install)
+
+    def test_templates_render_without_leftovers(self) -> None:
+        for path in sorted(CONFIG.glob("*.service")):
+            text = path.read_text(encoding="utf-8")
+            for placeholder, value in self.SUBSTITUTIONS.items():
+                text = text.replace(placeholder, value)
+            leftover = re.findall(r"@MPE_[A-Z_]+@", text)
             self.assertEqual(
-                path.read_text(encoding="utf-8"),
-                self._render(template.read_text(encoding="utf-8")),
-                f"systemd/{path.name} has drifted from config/{path.name} — "
-                f"re-render it after editing the template",
+                leftover, [], f"config/{path.name} uses unknown placeholder {leftover}"
             )
 
-    def test_rendered_copies_have_no_unsubstituted_placeholders(self) -> None:
-        for path in sorted(self.SYSTEMD.glob("*.service")):
-            leftover = re.findall(r"@MPE_[A-Z_]+@", path.read_text(encoding="utf-8"))
-            self.assertEqual(leftover, [], f"systemd/{path.name} still has {leftover}")
+    def test_retired_mpe_bench_is_gone_everywhere(self) -> None:
+        """It could no longer free the APC — mpe-apc-bench.service holds it now."""
+        self.assertFalse((CONFIG / "mpe-bench.service").exists())
+        provision = (
+            REPO / "scripts" / "pi" / "provision-mpe-agent.sh"
+        ).read_text(encoding="utf-8")
+        units_line = next(
+            line for line in provision.splitlines() if line.startswith("UNITS=")
+        )
+        self.assertNotIn("mpe-bench ", units_line)
+        self.assertIn("mpe-apc-bench", units_line)
 
 
 class EngineLauncherTests(unittest.TestCase):
