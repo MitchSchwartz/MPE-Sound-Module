@@ -58,13 +58,63 @@ def linear_to_db(linear: float) -> float:
     return 20.0 * math.log10(linear)
 
 
+# Vol fader attenuation display/range: bottom = mute, top = 0 dB (unity vs patch baseline).
+VOLUME_FADER_FLOOR_DB = -60.0
+
+
+def _volume_fader_t(
+    trim: float,
+    *,
+    fader_min: float,
+    fader_max: float,
+) -> float:
+    span = fader_max - fader_min
+    if span <= 0:
+        return 1.0
+    return max(0.0, min(1.0, (trim - fader_min) / span))
+
+
+def volume_fader_trim_to_db(
+    trim: float,
+    *,
+    fader_min: float,
+    fader_max: float,
+    floor_db: float = VOLUME_FADER_FLOOR_DB,
+) -> float | None:
+    """Attenuation in dB relative to full patch level. None when fader is at mute."""
+    if trim <= fader_min:
+        return None
+    t = _volume_fader_t(trim, fader_min=fader_min, fader_max=fader_max)
+    if t <= 0.0:
+        return None
+    return floor_db * (1.0 - t)
+
+
+def volume_fader_display_db(
+    trim: float,
+    *,
+    fader_min: float,
+    fader_max: float,
+    floor_db: float = VOLUME_FADER_FLOOR_DB,
+) -> str:
+    """Touch Vol fader label: -∞ at bottom, 0 at top."""
+    db = volume_fader_trim_to_db(
+        trim, fader_min=fader_min, fader_max=fader_max, floor_db=floor_db
+    )
+    if db is None:
+        return "-∞"
+    if abs(db) < 0.05:
+        return "0"
+    return f"{db:.0f}"
+
+
 def volume_fader_display_pct(
     trim: float,
     *,
     fader_min: float,
     fader_max: float,
 ) -> int:
-    """Map fader value to 0–100 for the touch UI label."""
+    """Legacy 0–100 display — prefer volume_fader_display_db for the Vol fader."""
     span = fader_max - fader_min
     if span <= 0:
         return 100
@@ -80,27 +130,25 @@ def volume_fader_to_amp_linear(
     fader_min: float,
     fader_max: float,
     norm_active: bool = False,
+    floor_db: float = VOLUME_FADER_FLOOR_DB,
 ) -> float:
-    """Map Vol fader position to Surge amp/volume with even dB steps across travel."""
+    """Map Vol fader to Surge amp/volume: mute at bottom, 0 dB trim at top."""
+    if trim <= fader_min:
+        return 0.0
     if norm_active:
         # Peak-safe gain_db is computed at calibration — do not re-clamp here (#31 Stage 1).
         eff_max = max(0.0, float(patch_gain_linear))
     else:
         eff_max = min(patch_gain_linear, cap)
-    eff_min = eff_max * fader_min
     if eff_max <= 0:
         return 0.0
-    if eff_min <= 0:
-        eff_min = eff_max * 0.001
 
-    span = fader_max - fader_min
-    if span <= 0:
-        return eff_max
-    t = (trim - fader_min) / span
-    t = max(0.0, min(1.0, t))
-    log_min = math.log(eff_min)
-    log_max = math.log(eff_max)
-    return math.exp(log_min + t * (log_max - log_min))
+    db = volume_fader_trim_to_db(
+        trim, fader_min=fader_min, fader_max=fader_max, floor_db=floor_db
+    )
+    if db is None:
+        return 0.0
+    return eff_max * db_to_linear(db)
 
 
 def compute_gain_db(
@@ -131,14 +179,18 @@ def compute_gain_db_dual_anchor(
     target_lufs: float = TARGET_LUFS,
     safe_peak_dbtp: float = SAFE_PEAK_DBTP,
 ) -> float:
-    """Gain from strike-led and sustain-led anchors — max so both land safely (#31 Stage 2)."""
+    """Gain from strike + sustain anchors — min so neither anchor clips (#31 Stage 2).
+
+    max() was wrong when strike is already hot and sustain is quiet (e.g. A Robotic Mind):
+    boosting for sustain clips the strike. min() is peak-safe for both with one gain_db.
+    """
     strike_gain = compute_gain_db(
         strike_lufs, strike_peak_dbtp, target_lufs=target_lufs, safe_peak_dbtp=safe_peak_dbtp
     )
     sustain_gain = compute_gain_db(
         sustain_lufs, sustain_peak_dbtp, target_lufs=target_lufs, safe_peak_dbtp=safe_peak_dbtp
     )
-    return max(strike_gain, sustain_gain)
+    return min(strike_gain, sustain_gain)
 
 
 def _merge_patch_entry(
