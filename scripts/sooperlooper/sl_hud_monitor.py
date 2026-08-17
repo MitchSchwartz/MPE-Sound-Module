@@ -136,6 +136,18 @@ class HudWriter:
         self._sl.client.send_message(
             "/register_auto_update", ["tempo", 200, f"{SL_HOST}:{LISTEN_PORT}", "/r"]
         )
+        # Seed tempo with a direct query. register_auto_update only delivers on
+        # CHANGE, and the engine's tempo is set once by configure-grid-sync.sh during
+        # its own startup. A writer that comes up after that never hears it, so
+        # `cached("tempo")` stays None, `_from_sl` returns None, and the HUD never
+        # writes — a stale grid with no error anywhere.
+        #
+        # Start order used to hide this: the HUD was hand-started before the engine,
+        # so it was listening when the tempo changed. Giving the stack systemd units
+        # made the engine start first (After=mpe-sooperlooper), which turned a race
+        # we happened to win into one we always lose.
+        if self._sl.cached("tempo", -1) is None:
+            self._sl.get("tempo", -1)
         self._registered_at = time.monotonic()
 
     def _phrase_reference(self, bar_span: float):
