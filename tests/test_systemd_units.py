@@ -242,3 +242,44 @@ class EngineLauncherTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class BenchXrunsIntegrityTests(unittest.TestCase):
+    """The bench must not report a number the server was told not to produce.
+
+    Shipped broken on 2026-08-17: --strict did `export MPE_JACK_SOFTMODE=0`, but jackd
+    reads EnvironmentFile=/etc/mpe/mpe.env, so the flag never reached the server.
+    Softmode suppresses jackd's xrun message, so every run counted a signal that had
+    been switched off — "0 xruns" read identically whether the graph was clean or on
+    fire. That is the exact failure the tool exists to prevent.
+    """
+
+    BENCH = REPO / "scripts" / "bench-xruns.sh"
+
+    def _code(self) -> str:
+        """Comments explain the old broken form by name — check the code only."""
+        return "\n".join(
+            line
+            for line in self.BENCH.read_text(encoding="utf-8").splitlines()
+            if not line.strip().startswith("#")
+        )
+
+    def test_strict_writes_the_env_file_not_just_a_shell_var(self) -> None:
+        code = self._code()
+        self.assertNotIn(
+            "export MPE_JACK_SOFTMODE",
+            code,
+            "exporting does not reach jackd — it reads /etc/mpe/mpe.env",
+        )
+        self.assertIn("_set_env_var MPE_JACK_SOFTMODE 0", code)
+
+    def test_strict_restores_softmode_on_exit(self) -> None:
+        text = self.BENCH.read_text(encoding="utf-8")
+        self.assertIn("trap _restore_softmode EXIT", text)
+        self.assertIn("_set_env_var MPE_JACK_SOFTMODE 1", text)
+
+    def test_zero_in_softmode_is_reported_as_unknown_not_pass(self) -> None:
+        text = self.BENCH.read_text(encoding="utf-8")
+        self.assertIn("_assert_xrun_reporting_live", text)
+        self.assertIn("UNKNOWN", text)
+        self.assertIn("reporting is suppressed", text)
