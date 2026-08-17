@@ -35,6 +35,9 @@ mpe_source_appliance_env() {
         fi
         MPE_AUDIO_PROFILE="${MPE_AUDIO_PROFILE:-standalone}"
         export MPE_AUDIO_PROFILE
+        # shellcheck source=audio-engine.sh
+        source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/audio-engine.sh"
+        mpe_export_synced_buffer_env
         return 0
     fi
     if [ ! -f /etc/mpe/mpe.env ]; then
@@ -46,6 +49,9 @@ mpe_source_appliance_env() {
     set +a
     MPE_AUDIO_PROFILE="${MPE_AUDIO_PROFILE:-standalone}"
     export MPE_AUDIO_PROFILE
+    # shellcheck source=audio-engine.sh
+    source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/audio-engine.sh"
+    mpe_export_synced_buffer_env
 }
 
 mpe_retire_touch_shutdown_animation_unit() {
