@@ -10,6 +10,7 @@ from patch_browser.peak_meter_math import (
     PEAK_METER_CLIP_DBFS,
     PEAK_METER_FLOOR_DBFS,
     PEAK_METER_ORANGE_DBFS,
+    PEAK_METER_RED_DBFS,
     PEAK_METER_YELLOW_DBFS,
     dbfs_to_meter_ratio,
     linear_peak_to_dbfs,
@@ -39,12 +40,12 @@ class PeakMeterMathTests(unittest.TestCase):
         self.assertEqual(dbfs_to_meter_ratio(PEAK_METER_CLIP_DBFS), 1.0)
 
     def test_color_buckets(self) -> None:
-        self.assertEqual(peak_meter_color_dbfs(PEAK_METER_YELLOW_DBFS - 6.0), "ok")
         self.assertEqual(peak_meter_color_dbfs(PEAK_METER_YELLOW_DBFS - 0.1), "ok")
         self.assertEqual(peak_meter_color_dbfs(PEAK_METER_YELLOW_DBFS), "warn")
         self.assertEqual(peak_meter_color_dbfs(PEAK_METER_ORANGE_DBFS - 0.1), "warn")
         self.assertEqual(peak_meter_color_dbfs(PEAK_METER_ORANGE_DBFS), "orange")
-        self.assertEqual(peak_meter_color_dbfs(PEAK_METER_CLIP_DBFS - 0.1), "orange")
+        self.assertEqual(peak_meter_color_dbfs(PEAK_METER_RED_DBFS - 0.1), "orange")
+        self.assertEqual(peak_meter_color_dbfs(PEAK_METER_RED_DBFS), "hot")
         self.assertEqual(peak_meter_color_dbfs(PEAK_METER_CLIP_DBFS), "hot")
 
 
@@ -69,6 +70,46 @@ class SurgePeakMonitorOfflineTests(unittest.TestCase):
         self.assertFalse(snap["online"])
         self.assertIsNone(snap["dbfs"])
         self.assertEqual(snap["source"], "none")
+
+    def test_jack_activate_failure_retries(self) -> None:
+        surge = MagicMock()
+        surge.check_health.return_value = (True, None)
+
+        class FakeJackModule:
+            class Client:
+                inports = MagicMock()
+
+                def __init__(self, *_args, **_kwargs):
+                    self.inports.register.side_effect = [MagicMock(), MagicMock()]
+
+                def set_process_callback(self, _cb):
+                    return None
+
+                def activate(self):
+                    raise RuntimeError("jack not ready")
+
+                def deactivate(self):
+                    return None
+
+                def close(self):
+                    return None
+
+        monitor = SurgePeakMonitor(surge)
+        monitor._jack = FakeJackModule
+        monitor._jack_available = None
+
+        monitor._poll_once()
+        self.assertIsNone(monitor._client)
+        self.assertIsNone(monitor._jack_available)
+
+        class OkClient(FakeJackModule.Client):
+            def activate(self):
+                return None
+
+        monitor._jack.Client = OkClient
+        monitor._poll_once()
+        self.assertIsNotNone(monitor._client)
+        self.assertTrue(monitor._jack_available)
 
 
 if __name__ == "__main__":
