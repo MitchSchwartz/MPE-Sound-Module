@@ -39,6 +39,8 @@ DISABLED=(
     midi-clock-out
     boot-animation
     mic-to-uac2-bridge
+    # An eval bench. Started deliberately for a test, never at boot.
+    mpe-bench
 )
 
 # No [Install] section — cannot be enabled, only pulled in by another unit.
