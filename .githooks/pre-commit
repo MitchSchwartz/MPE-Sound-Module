@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Block commits containing secrets. This repo is PUBLIC.
+set -euo pipefail
+ROOT="$(git rev-parse --show-toplevel)"
+exec "$ROOT/scripts/secret-scan.sh" --staged
