@@ -15,10 +15,16 @@ from __future__ import annotations
 
 import re
 import subprocess
+import threading
 import time
 from datetime import datetime, timezone
 
 _BUCKETS = 128
+
+# jack_cpu_load prints a fresh sample on its own cadence; give up on a reader that has
+# produced nothing for this long and respawn it.
+JACK_CPU_STALE_S = 10.0
+JACK_CPU_RESPAWN_BACKOFF_S = 5.0
 
 
 class MsHistogram:
@@ -116,6 +122,14 @@ class JackGraphHealth:
         self._max_pct: float | None = None
         self._p95_pct: float | None = None
         self._session_xruns = 0
+        # Both probes are stateful and long-lived — one JACK client and one journal
+        # cursor for the life of the monitor, not a fork per sample.
+        self.cpu_reader = JackCpuLoadReader()
+        self.xrun_counter = JournalXrunCounter(self.started_at)
+
+    def close(self) -> None:
+        """Release the held jack_cpu_load client."""
+        self.cpu_reader.close()
 
     def sample(self, *, cpu_load_pct: float | None, xruns_total: int, now_s: float) -> None:
         self._session_xruns = max(self._session_xruns, int(xruns_total))
@@ -144,16 +158,169 @@ class JackGraphHealth:
 
 
 _JACK_CPU_RE = re.compile(r"jack DSP load\s+([\d.]+)", re.I)
+_JOURNAL_CURSOR_RE = re.compile(r"^-- cursor: (\S+)", re.M)
+
+
+class JackCpuLoadReader:
+    """One long-lived ``jack_cpu_load`` client, drained by a background thread.
+
+    Forking ``jack_cpu_load`` per sample registered **and tore down** a JACK client
+    twice a second. Every client registration makes jackd recompute and re-sort the
+    process graph, so the probe that measures glitching was manufacturing it. Holding
+    one client open costs a single reorder for the life of the monitor.
+    """
+
+    def __init__(self, *, argv: list[str] | None = None) -> None:
+        self.argv = argv or ["jack_cpu_load"]
+        self._proc: subprocess.Popen | None = None
+        self._thread: threading.Thread | None = None
+        self._lock = threading.Lock()
+        self._latest: float | None = None
+        self._latest_at = 0.0
+        self._unavailable = False
+        self._last_spawn_attempt = 0.0
+
+    def _spawn(self, now: float) -> bool:
+        if self._unavailable:
+            return False
+        if now - self._last_spawn_attempt < JACK_CPU_RESPAWN_BACKOFF_S:
+            return False
+        self._last_spawn_attempt = now
+        try:
+            proc = subprocess.Popen(
+                self.argv,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                text=True,
+                bufsize=1,
+            )
+        except (FileNotFoundError, OSError):
+            # Binary absent — never retry; jack-example-tools is not installed.
+            self._unavailable = True
+            return False
+        self._proc = proc
+        self._thread = threading.Thread(
+            target=self._drain, args=(proc,), daemon=True, name="JackCpuLoadReader"
+        )
+        self._thread.start()
+        return True
+
+    def _drain(self, proc: subprocess.Popen) -> None:
+        stream = proc.stdout
+        if stream is None:
+            return
+        for line in stream:
+            match = _JACK_CPU_RE.search(line)
+            if not match:
+                continue
+            try:
+                value = float(match.group(1))
+            except ValueError:
+                continue
+            with self._lock:
+                self._latest = value
+                self._latest_at = time.monotonic()
+
+    def _alive(self) -> bool:
+        return self._proc is not None and self._proc.poll() is None
+
+    def read(self) -> float | None:
+        """Most recent DSP load percent, or None when stale/unavailable."""
+        now = time.monotonic()
+        if not self._alive():
+            self.close()
+            self._spawn(now)
+            return None
+        with self._lock:
+            latest, latest_at = self._latest, self._latest_at
+        if latest is None:
+            return None
+        if now - latest_at > JACK_CPU_STALE_S:
+            # Reader wedged (server gone, client zombied) — recycle it.
+            self.close()
+            self._spawn(now)
+            return None
+        return latest
+
+    def close(self) -> None:
+        proc, self._proc = self._proc, None
+        with self._lock:
+            self._latest = None
+            self._latest_at = 0.0
+        if proc is None:
+            return
+        # SIGKILL, not SIGTERM. Measured on the appliance 2026-08-17: jack_cpu_load
+        # does not die on SIGTERM, so a polite terminate leaves it orphaned — still
+        # holding 4 jackd FDs and 13 shm mappings — forever. That is what filled the
+        # JACK client registry with 705 zombie clients.
+        try:
+            proc.kill()
+            proc.wait(timeout=2.0)
+        except (subprocess.TimeoutExpired, OSError):
+            pass
+
+
+class JournalXrunCounter:
+    """Incremental xrun count from the ``mpe-jackd`` journal.
+
+    The old form re-ran ``journalctl --since <jackd start>`` every tick and recounted
+    from scratch, so the work grew without bound with uptime — megabytes forked, piped
+    and scanned twice a second after a few hours. This anchors once at *started_at*,
+    then follows with ``--after-cursor`` and only ever reads what is new.
+    """
+
+    def __init__(self, started_at: float, *, unit: str = "mpe-jackd.service") -> None:
+        self.started_at = started_at
+        self.unit = unit
+        self._cursor: str | None = None
+        self._total = 0
+        self._anchored = False
+
+    def _argv(self) -> list[str]:
+        base = ["journalctl", "-u", self.unit, "--no-pager", "--show-cursor"]
+        if self._cursor is not None:
+            return base + ["--after-cursor", self._cursor]
+        since = datetime.fromtimestamp(self.started_at, tz=timezone.utc).astimezone()
+        return base + ["--since", since.isoformat()]
+
+    def poll(self) -> int | None:
+        """Cumulative xruns since *started_at*, or None if the journal is unreadable."""
+        try:
+            proc = subprocess.run(
+                self._argv(), capture_output=True, text=True, timeout=5.0
+            )
+        except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+            return None
+        if proc.returncode != 0:
+            return None
+        out = proc.stdout
+        cursor_match = _JOURNAL_CURSOR_RE.search(out)
+        if cursor_match:
+            self._cursor = cursor_match.group(1)
+            out = out[: cursor_match.start()]
+        elif not self._anchored and not out.strip():
+            # Never saw the unit at all — indistinguishable from "not readable".
+            return None
+        self._anchored = True
+        self._total += sum(1 for line in out.splitlines() if "xrun" in line.lower())
+        return self._total
 
 
 def read_jack_cpu_load_pct(*, timeout_s: float = 1.0) -> float | None:
-    """Latest ``jack_cpu_load`` sample, or None if unavailable."""
+    """One-shot DSP load — diagnostics only.
+
+    NOT for polling: each call registers and unregisters a JACK client, forcing two
+    graph reorders. Use ``JackCpuLoadReader`` on any repeating path.
+
+    ``-k`` is load-bearing: jack_cpu_load ignores SIGTERM, so a bare ``timeout N``
+    exits and leaves the client orphaned on the graph forever.
+    """
     try:
         proc = subprocess.run(
-            ["timeout", str(max(0.2, timeout_s)), "jack_cpu_load"],
+            ["timeout", "-k", "0.5", str(max(0.2, timeout_s)), "jack_cpu_load"],
             capture_output=True,
             text=True,
-            timeout=timeout_s + 1.0,
+            timeout=timeout_s + 2.0,
         )
     except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
         return None
@@ -166,27 +333,20 @@ def read_jack_cpu_load_pct(*, timeout_s: float = 1.0) -> float | None:
 
 
 def jackd_journal_xruns_since(started_at: float) -> int | None:
-    """Xrun mentions in ``mpe-jackd`` journal since *started_at*, or None if unreadable."""
-    since = datetime.fromtimestamp(started_at, tz=timezone.utc).astimezone().isoformat()
-    try:
-        proc = subprocess.run(
-            ["journalctl", "-u", "mpe-jackd.service", "--since", since, "--no-pager"],
-            capture_output=True,
-            text=True,
-            timeout=5.0,
-        )
-    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
-        return None
-    if not proc.stdout.strip():
-        return None
-    return sum(1 for line in proc.stdout.splitlines() if "xrun" in line.lower())
+    """One-shot journal xrun count — diagnostics only.
+
+    NOT for polling: rescans the whole journal since *started_at* every call. Use
+    ``JournalXrunCounter`` on any repeating path.
+    """
+    counter = JournalXrunCounter(started_at)
+    return counter.poll()
 
 
 def collect_jack_graph_health(tracker: JackGraphHealth) -> dict:
     """Sample JACK and return a health dict for the HUD state file."""
     now = time.monotonic()
-    xruns = jackd_journal_xruns_since(tracker.started_at)
-    cpu = read_jack_cpu_load_pct()
+    xruns = tracker.xrun_counter.poll()
+    cpu = tracker.cpu_reader.read()
     tracker.sample(
         cpu_load_pct=cpu,
         xruns_total=xruns if xruns is not None else tracker._session_xruns,

@@ -45,11 +45,13 @@ _run_on_pi() {
     sudo mkdir -p /etc/mpe
     _preserved_audio_profile=""
     _preserved_surge_buffer=""
+    _preserved_jack_buffer=""
     _preserved_surge_sample_rate=""
     _preserved_dac_volume_db=""
     if [ -f /etc/mpe/mpe.env ]; then
         _preserved_audio_profile="$(mpe_read_appliance_env_var MPE_AUDIO_PROFILE 2>/dev/null || true)"
         _preserved_surge_buffer="$(mpe_read_appliance_env_var MPE_SURGE_BUFFER_SIZE 2>/dev/null || true)"
+        _preserved_jack_buffer="$(mpe_read_appliance_env_var MPE_JACK_BUFFER 2>/dev/null || true)"
         _preserved_surge_sample_rate="$(mpe_read_appliance_env_var MPE_SURGE_SAMPLE_RATE 2>/dev/null || true)"
         _preserved_dac_volume_db="$(mpe_read_appliance_env_var MPE_DAC_VOLUME_DB 2>/dev/null || true)"
     fi
@@ -69,7 +71,7 @@ _run_on_pi() {
     # not have to be remembered here to survive.
     _owned_keys="MPE_PI_USER MPE_HOME MPE_MODULE_REPO MPE_PERSONAL_REPO \
 MPE_SURGE_ROOT MPE_SURGE_DOCS MPE_SURGE_LOG MPE_FAVORITES_NAME MPE_UI_MODE \
-MPE_AUDIO_PROFILE MPE_SURGE_BUFFER_SIZE MPE_SURGE_SAMPLE_RATE MPE_DAC_VOLUME_DB"
+MPE_AUDIO_PROFILE MPE_JACK_BUFFER MPE_SURGE_BUFFER_SIZE MPE_SURGE_SAMPLE_RATE MPE_DAC_VOLUME_DB"
     _carried=""
     if [ -f /etc/mpe/mpe.env ]; then
         while IFS= read -r _line; do
@@ -101,6 +103,14 @@ MPE_AUDIO_PROFILE MPE_SURGE_BUFFER_SIZE MPE_SURGE_SAMPLE_RATE MPE_DAC_VOLUME_DB"
             echo "MPE_FAVORITES_NAME=\"$MPE_FAVORITES_NAME\""
             echo "MPE_UI_MODE=\"$MPE_UI_MODE\""
             echo "MPE_AUDIO_PROFILE=${MPE_AUDIO_PROFILE:-standalone}"
+            # The two keys are deliberately independent (spec D6) and must not be
+            # written equal: MPE_JACK_BUFFER is the graph period, MPE_SURGE_BUFFER_SIZE
+            # only feeds calibration + MIDI offset. Preserve each on its own terms.
+            if [ -n "$_preserved_jack_buffer" ]; then
+                echo "MPE_JACK_BUFFER=$_preserved_jack_buffer"
+            else
+                echo "MPE_JACK_BUFFER=256"
+            fi
             if [ -n "$_preserved_surge_buffer" ]; then
                 echo "MPE_SURGE_BUFFER_SIZE=$_preserved_surge_buffer"
             else
