@@ -988,5 +988,34 @@ if mpe_jack_softmode_enabled; then printf 'on'; else printf 'off'; fi
         self.assertNotIn('jackd -R -P"$JACK_PRIO" -s', text)
 
 
+class SessionEventBashTests(unittest.TestCase):
+    def test_engine_transition_emits_events(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            env = _bash_env(tmp)
+            body = f"""
+source {AUDIO_ENGINE_SH}
+mpe_engine_state_write jack none recovering boot off
+mpe_engine_state_write jack jack ok "" off
+mpe_engine_state_write jack none failed no-server off
+wc -l < "$(mpe_run_dir)/events.jsonl"
+"""
+            result = _run_bash_script(body, env=env)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertGreaterEqual(int(result.stdout.strip()), 2)
+
+    def test_buffer_change_emits_event(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            env = _bash_env(tmp)
+            body = f"""
+source {AUDIO_ENGINE_SH}
+mpe_jack_state_write hw:0 256 3 48000
+mpe_jack_state_write hw:0 128 3 48000
+grep -c buffer.changed "$(mpe_run_dir)/events.jsonl"
+"""
+            result = _run_bash_script(body, env=env)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout.strip(), "1")
+
+
 if __name__ == "__main__":
     unittest.main()
