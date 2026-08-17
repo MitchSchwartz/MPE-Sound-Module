@@ -22,15 +22,84 @@ The JACK-transport path is **deleted, not deprecated** (`e279d6f`). Anything
 describing a timebase master, `start-jack-timebase.sh` or `spike-jack-transport.py`
 is stale — those files are gone.
 
-## APC 16-loop clip grid (target layout)
+## APC 16-track clip row (Ableton-style, banked)
 
-| Row | APC notes | Loops | Role |
+| Row | APC notes | Tracks | Role |
 |---|---|---|---|
-| **0** (bottom) | 0–7 | 0–7 | Clip pads |
-| **3** | 24–31 | 8–15 | Clip pads |
-| 1, 2, 4–7 | — | — | Per-loop controllers (future) |
+| **0** (bottom) | 0–7 | 8 visible of 16 | Clip pads — record/play/stop lives here |
+| 1–7 | — | — | Reserved (per-track controllers, scenes — future) |
+| **Faders 1–8** | CC 48–55 | the 8 visible tracks | Track level |
+| **Master fader** | CC 56 | all 16 | Loop-mix master |
+| **Up / Down** | arrows | — | Page the viewport by 8 |
+| **Shift + Left / Right** | arrows | — | Nudge the viewport by 1 |
 
-Mapping: `apc_grid.py` · 16-pad footswitch: `../sooperlooper-apc-bench.py` (rows 0 + 3)
+Mapping: `apc_grid.py` (`GridView`) · pads: `apc_footswitch.py` · bench: `../sooperlooper-apc-bench.py`
+
+**Tracks run left to right on one line.** The APC is eight columns wide, so it
+is a *viewport* onto sixteen tracks, not a container for them. This replaced
+the row-0/row-3 split (2026-08-16), where fader N drove loops N *and* N+8
+because both sat in the same column. Under the viewport a column holds exactly
+one track, so a fader means one track — which is what makes "one clip at a time
+per column" and per-column patch state expressible at all. Neither is
+expressible while two unrelated loops share a column.
+
+Banking **clamps, never wraps**: running off the end and stopping is something
+a player can feel without looking; a wrap silently teleports the bank mid-jam.
+
+**A bank change drops all eight fader anchors.** The faders have no motors, so
+after banking, fader 0 still sits where the *previous* track's level left it
+while now addressing a different track. Applying the next movement as a delta
+from that stale anchor jumps the new track's level — the exact jump relative
+pickup exists to prevent. So the next touch of each fader re-anchors and
+changes nothing. Stored levels are untouched: tracks scrolled off-screen keep
+playing at the level they were left at, and only the binding moved.
+
+Every track keeps a footswitch whether or not it is on screen — a banked-off
+track keeps playing, keeps receiving engine state and keeps its pending intent;
+only its pad binding goes away (`note=None`) and comes back on the next bank
+change. Banking clears the whole clip row before repainting: a pad left lit by
+the previous bank is a track the player believes is running and isn't, and it
+is the one failure here that can't be debugged from the surface.
+
+⚠️ **The arrow-button notes are UNVERIFIED against hardware**, exactly like the
+fader CCs. They resolve per variant in `apc_transport.py::resolve_arrow_notes`
+through the same port-name path as Shift and Stop-All (which *do* differ
+between mk1 and mk2). On mk1 they may be shift-functions of the top button row
+rather than notes of their own. Confirm with `--dump-midi` and press each arrow.
+
+**No bank indicator yet.** With eight of sixteen showing, nothing on the
+surface says which half you are on — the bench prints it, the hardware does
+not. Row 3 just freed up and the mk2 arrows have LEDs; both are candidates.
+
+⚠️ **Fader CC numbers also unverified.** Resolved per variant in
+`apc_faders.py`. Confirm with `--dump-midi` and move each fader.
+
+**Master = loops only.** It scales the loop mix, not the live synth: the
+audio graph runs `Surge → system:playback` in parallel with
+`Surge → SooperLooper → common_out → playback`, and the live path must fail open
+(DECISIONS.md). Live level stays on the per-patch Vol fader on the touch screen.
+**The master is arithmetic, not a bus control.** An engine-global `/set wet`
+would be the obvious mapping, but every global this system sends is a *setting*
+(`tempo`, `sync_source`, `fade_samples`) — nothing has ever written a level at
+engine scope, so that control is unproven, and OSC drops a message to a control
+the engine lacks in silence. So the master is a factor in `wet_for()` and moves
+all 16 loops over per-loop `wet`, which is proven live. Loops sum into
+`common_out` through plain `jack_connect` with no gain or limiter stage, so
+scaling all 16 is exactly equal to scaling the bus. One master move is 16 OSC
+messages, capped by the same coalescer as the rest.
+
+**Faders don't move on their own.** They have no motors, so at startup their
+physical positions mean nothing. Levels are seeded from the engine's reported
+`wet`. The first touch **anchors** relative pickup (no jump); movement after
+that applies delta from where you grabbed. Output is smoothed (~45 ms default,
+`MPE_APC_FADER_SMOOTH_MS`) so fast drags track cleanly.
+
+Level composition lives in one place, `loop_mix.wet_for()`:
+`wet = taper(user gain) × taper(master) × auto_law(active loops)`. The three
+contributions meet in one multiply, always recomputed in full from state we own,
+so nothing compounds. The `loop_gain/N` backstop
+(DECISIONS.md) is off by default (`MPE_SL_LOOP_GAIN_LAW=1`); the point of the
+seam is that nothing else ever writes `wet`.
 
 **Grid sync:** two states, not a pile of settings — `set_grid_active(active=)`.
 Off until the first take lands (so it records instantly), then on for every clip

@@ -5,7 +5,7 @@ from pathlib import Path
 TAP_MOVE_THRESHOLD_PX = 14
 VOLUME_STATE_FILE = Path.home() / ".patch_browser_volume.json"
 UI_STATE_FILE = Path.home() / ".patch_browser_ui.json"
-VOLUME_MIN = 0.25
+VOLUME_MIN = 0.0
 VOLUME_MAX = 1.0
 SETTINGS_PANEL_W = 320
 SETTINGS_ROW_H = 52
@@ -79,6 +79,9 @@ DEFAULT_VOLUME = 1.0
 DEFAULT_BRIGHTNESS_PERCENT = 100
 CPU_METER_LABEL_GAP = 5
 CPU_METER_BAR_W = 6
+# OUT meter semantic fills (not accent-themed — see ui_theme.py).
+PEAK_METER_YELLOW_RGB = (255, 210, 70)
+PEAK_METER_ORANGE_RGB = (255, 130, 45)
 STATUS_BAR_ITEM_GAP = 12
 STATUS_SETTINGS_BTN_W = 48  # full-height ⋯ tap target (right edge of header)
 AUDIO_BADGE_PAD_X = 10

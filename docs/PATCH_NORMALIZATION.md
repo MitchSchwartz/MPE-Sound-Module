@@ -73,7 +73,7 @@ Surge OSC `/param/a/amp/volume` and `/param/b/amp/volume` use a linear scale (`1
 On load:
 
 1. Normalization sets `_patch_gain_linear` baseline
-2. User volume slider (`set_volume`) maps fader travel **linearly in dB** from `eff_min` to `eff_max` (`eff_max` = capped norm baseline when Norm on, else the **1.5** ceiling). Display shows **0–100** across fader travel (not raw linear trim).
+2. User volume slider (`set_volume`) maps fader travel **linearly in dB** from **mute** (−∞ display) to **0 dB** at the top (`eff_max` = capped norm baseline when Norm on, else the **1.5** ceiling). Display shows **dB attenuation** (−∞…0), not 0–100.
 3. When **Norm.** is on or off, `eff_max` never exceeds **1.5** linear on Surge amp/volume. (The norm-on cap was **0.85** until 2026-08-01 — see below. A 2026-08-02 fix stopped product-then-cap from flattening the Vol fader; a follow-up switched to dB-linear mapping so the top of the fader is not compressed into the last ~20%.)
 
 ### Polyphony and static/crackle (Pi)
@@ -122,7 +122,7 @@ Patch discovery scans all folders under the Surge patch symlink roots (`SURGE_PA
 |------|--------|
 | *(none)* | All scanned patches **missing** a `gain_db` entry |
 | `--force` | Re-calibrate **every** scanned patch (overwrites `gain_db`) |
-| `--favorites-only` | Quick Select folder only (legacy / ad-hoc) |
+| `--favorites-only` | Quick Select folder only — **includes nested subfolders** (e.g. `Dan Maurer/Dark Friday.fxp`); touch UI System → Calibrate uses this scope |
 | `--folder "Name"` | One category folder under user patches |
 | `--patch "Stem"` | Single patch by name |
 | `--dry-run` | List targets; no Surge/ffmpeg |
