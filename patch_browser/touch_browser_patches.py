@@ -15,6 +15,7 @@ from patch_browser.instrument_filter import (
     patches_in_browse_subtree,
 )
 from patch_browser.patch_scanner import favorites_display_name
+from patch_browser.patch_sidecar_key import clear_path_caches
 from patch_browser.touch_ui_constants import (
     ALL_PATCHES_ROW_HEIGHT,
     ALL_PATCHES_SCROLL_ANIM_S,
@@ -185,6 +186,9 @@ class TouchBrowserPatchesMixin:
         )
 
     def _apply_scan_results(self) -> None:
+        # Sidecar key lookup memoises resolved patch paths for the frame loop; a rescan
+        # is the point where those paths may have changed (see patch_sidecar_key).
+        clear_path_caches()
         with self._scan_lock:
             self.categories = self.scanner.get_categories()
             if self.loaded_patch_info:
