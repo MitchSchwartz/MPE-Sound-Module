@@ -5,9 +5,42 @@
 
 ---
 
+## Document map
+
+| Doc | Role |
+|---|---|
+| [`docs/CODE-MAP.md`](../../docs/CODE-MAP.md) | Boot order, systemd units, runtime state inventory, call graph — **source of truth for what exists today** |
+| [`Documents/DIRECTION.md`](../DIRECTION.md) | Phase 2 looper eval verdict (B7/B8 adopt/kill gate) |
+| [`Documents/specs/jack-audio-engine-spec.md`](jack-audio-engine-spec.md) | JACK/Surge engine lifecycle, reconcile cooldown, promote semantics |
+
+---
+
+## Current runtime inventory
+
+Every row is a **fact holder** the control plane must either own, aggregate, or
+retire. Staleness rules describe when a reader must treat a value as unknown — not
+when the writer last touched disk.
+
+| Path | Writers | Readers | Staleness rule |
+|---|---|---|---|
+| `/run/mpe/engine.state` | `start-jackd.sh`, `start-surge-cli.sh`, `surge-watchdog.sh`, `audio-engine.sh` | `patch_browser/audio_engine.py`, `mpe-cli`, Phase 1 snapshot | No reader-side TTL today; snapshot marks **stale** if `updated` age > 1.5 s (D6) |
+| `/run/mpe/jack.state` | `start-jackd.sh` | snapshot, promote/reconcile probes | Same as engine aggregate (D6) |
+| `/run/mpe/surge.state` | `start-surge-cli.sh` | snapshot, watchdog promote probe | Same as engine aggregate (D6) |
+| `/run/mpe/engine-reconcile.state` | `surge-watchdog.sh` | `surge-watchdog.sh`, snapshot | Informational; no independent TTL |
+| `/run/mpe/jack-device` | `jackd-prestart.sh` | `start-jackd.sh`, detection scripts, snapshot | Valid for current boot; cleared on jackd restart |
+| `/run/mpe/planned-promote` | `mpe_promote_surge_planned()` | `surge-watchdog.sh`, promote callers | Ephemeral intent flag; absent = no promote in flight |
+| `~/.mpe_sl_hud_state.json` | `sl-hud-monitor.py` (`HudWriter`, ~2 Hz) | `patch_browser/sl_hud_state.py` → touch looper bar | **2 s** default; **5 s** when `source` is `jack_transport` or `sl_internal` (`MPE_SL_HUD_*_STALE_S`) |
+| `~/.mpe_sl_watchdog.json` | `sl-watchdog.py` (alarm on wedge / xrun rate) | none in production yet (artifact for operators / future snapshot) | Alarm file; treat absent as healthy, present as **alarm active** until cleared |
+| In-process `GridState` (`scripts/sooperlooper/sl_grid_state.py`) | `sooperlooper-apc-bench.py` (main + OSC handler threads) | `apc_footswitch.py`, bench transport/grid paths | **No TTL** — in-process only; desync is the failure mode (D2) |
+
+Source: [`docs/CODE-MAP.md`](../../docs/CODE-MAP.md) §2.3, §4.3.
+
+---
+
 ## Problem Statement
 
-The appliance is a **distributed system** — eleven long-lived processes, shared
+The appliance is a **distributed system** — **14 enabled systemd units** (see
+Appendix A), shared
 mutable state, partial failures, no consensus — implemented as **scripted
 sequences**, each written as though it were the only actor.
 
@@ -151,11 +184,19 @@ This is the existing principle — *"a supervisor that dies with the thing it su
 is not a supervisor"* (`sl-watchdog.service`) — extended one level up. **A design that
 cannot guarantee this is the wrong design and must be rejected at the Phase 3 gate.**
 
-### D5 — systemd is the supervisor; lifecycle is declared once
+### D5a — systemd owns processes
 
 Dependency and restart semantics live in units, not re-decided at each call site. Every
 other entry point *defers* to the unit when installed. The three defer-guards added on
 2026-08-17 are the compatibility shim for installs without units, not the design.
+
+### D5b — reconciler declares desired state
+
+Phase 4 adds a reconcile loop that **invokes `systemctl` to match declared desired
+state** — it does not fight `Restart=` by spawning parallel start paths. systemd
+remains the process supervisor (D5a); the reconciler is the **intent layer** that
+decides *what* should be running and lets units converge. While maintenance mode is
+set (D11), the reconciler publishes but does not invoke corrective `systemctl` actions.
 
 ### D6 — Snapshot in `/run/mpe`, atomically written, versioned two ways
 
@@ -260,6 +301,42 @@ or not at all**, and a test asserts no two entries collide. Ad-hoc probe ports (
 diagnostic binding 9977 to ask a question) must use the ephemeral range, never a fixed
 number that could clash with a service.
 
+### D15 — Looper policy gate (Phase 3+ blocked until adopt/kill)
+
+Phase 3 session ownership and Phase 4 reconciliation for the **looper stack** are
+**blocked** until the SooperLooper eval reaches an adopt/kill verdict
+([`Documents/DIRECTION.md`](../DIRECTION.md) B7 full soak, B8 persistence). Phases 1–2
+(observability, events) and Phase 5 (realtime boundary) are **not** gated on this.
+
+The unified snapshot carries a **`looper.policy`** field:
+
+| Value | Meaning |
+|---|---|
+| `eval` | SooperLooper eval stack supervised; session-owner work for looper deferred |
+| `adopt` | Verdict: keep SooperLooper; Phase 3+ looper ownership may proceed |
+| `disabled` | Verdict: kill eval stack; looper session control retires or migrates |
+
+Until the verdict lands, treat looper session state as **eval-only inventory** (this
+section's table), not as input to a new owner.
+
+### D16 — `MPE_LOOPER_ENABLED` semantics (inverted; guard triple)
+
+**Today `MPE_LOOPER_ENABLED=1` means guarded/blocked**, not enabled — the name is
+inverted relative to behaviour. The guard fires when the value is `"1"`:
+
+| Location | Function | Effect |
+|---|---|---|
+| `scripts/lib/engine-guard.sh` | `mpe_looper_engine_blocked()` | Bash callers refuse looper entry |
+| `scripts/lib/audio-engine.sh` | `mpe_looper_state_label()` | Writes `looper=guarded` into `engine.state` |
+| `patch_browser/audio_engine.py` | `looper_guard_blocked()` | Touch HUD shows guarded badge |
+
+The guard triple predates SooperLooper and encodes a **stale premise** (v0 snd-aloop
+looper impossible on JACK) while the appliance now runs 16 SooperLooper loops under
+systemd. **Product decision required before Phase 3:** rename/invert the env var,
+delete the guard, or remap `=1` to mean enabled. D15 blocks looper ownership work
+until both the adopt/kill verdict **and** this semantics decision land. Q8 tracks guard
+retirement schedule.
+
 ## Acceptance Criteria
 
 ### Phase 1 — Observability by consolidation (no behaviour change)
@@ -292,7 +369,7 @@ number that could clash with a service.
 | 14 | `sync_source` sentinel is deleted | Absent from the tree |
 | 15 | **Owner death does not stop audio** (D4) | `kill -9` the owner mid-playback; audio continues; HUD degrades visibly; owner restarts and re-derives state from the engine |
 | 16 | Owner restart is stateless — re-derives from engines, never from its own last snapshot | Delete the snapshot, restart owner, state matches engine truth |
-| 17 | Intents are the only edge write path | No edge process sends OSC directly to SL/Surge |
+| 17 | Intents are the only edge write path for **looper session control** | No edge process sends session-control OSC to SooperLooper (transport, grid, loop record/clear, quantize). **Carve-out:** Surge patch-load OSC from the touch UI (`PatchLoader` → `/load`, volume) remains allowed — that is synth voice state, not looper session control |
 | 18 | Musical behaviour unchanged | Pad-driven record → clear → grid-establish sequence identical before and after, verified by hand on the APC |
 | 19 | **Cold boot converges** with no operator action, from power-on | Reboot 5×; each time the graph is wired, the grid is freeform, and the snapshot reaches `mode: ok` within 60 s |
 | 20 | The snapshot is honest *during* boot — partial, not wrong | Snapshot during startup reports each not-yet-present source as stale/absent, never as a default value |
@@ -350,8 +427,38 @@ the observability model is wrong and Phase 3 must not be built on top of it.
 Phases 1 and 2 are **unconditional** — pure profit, no behaviour change, immediately
 useful, and prerequisites for diagnosing anything after.
 
+**Sequencing:** Phases 1–2 can proceed now. Phase 3+ for the looper stack is gated on
+the SooperLooper adopt/kill verdict (D15, [`DIRECTION`](../DIRECTION.md) B7/B8) and
+on resolving `MPE_LOOPER_ENABLED` guard semantics (D16). Phase 5 (realtime boundary)
+proceeds in parallel with 1–2 — it is orthogonal to looper ownership.
+
+### Phase 0 (immediate — no reconciler)
+
+Before Phase 1 ships, fix the live calibration regression (Evidence gap review):
+`calibration_teardown.stop_mpe_audio_services()` must **stop and later restart** the
+looper units (`mpe-sooperlooper`, `mpe-apc-bench`, `sl-hud-monitor`, `sl-watchdog`) —
+not only Surge/touch/pressure/governor. This is an **interim D11 shim**: explicit
+`systemctl stop`/`start` in calibration, not maintenance mode and not a reconciler.
+Without it, `Restart=always` on looper units undoes calibration within 5 s.
+
 Phase 3 is **gated**: it requires an explicit decision between the daemon and the
-cheaper alternative below. Phases 4–5 follow whichever is chosen.
+cheaper **Phase 3-merge** alternative below. Phases 4–5 follow whichever is chosen.
+
+### Phase 3-merge (alternative to daemon)
+
+If the Phase 3 gate answers *one instrument, pygame-only* (see Falsification Analysis),
+take the merge path instead of a session-owner daemon:
+
+- Merge `sooperlooper-apc-bench.py`, `sl-hud-monitor.py`, and in-process `GridState`
+  into **one looper session process** with a single grid writer.
+- Acceptance criteria **13–14, 18** still apply; **15–16, 19–22** shrink or defer
+  (no separate owner to kill; cold-boot convergence stays a systemd problem).
+- Phase 3b buffer change remains one declared operation — implemented as a reconciled
+  intent inside the merged process or via existing promote path until Phase 4.
+- Does **not** need D11 maintenance mode at the same scope — fewer supervised units to
+  suppress during calibration.
+
+Outline only; full criteria live in Falsification Analysis until the gate decision.
 
 ---
 
@@ -439,7 +546,7 @@ world-readable and contains no credentials; secrets remain absent from `/run/mpe
   measured post-fix).
 - SooperLooper's OSC contract is fixed and cannot be extended; `register_auto_update`
   delivering only on change is a permanent property to design around (D6, criterion 4).
-- systemd is available and is the supervisor (D5).
+- systemd is available and is the process supervisor (D5a).
 - Changes ship on `dev` and soak on the appliance before `main`, per `AGENTS.md`.
 
 ## Open Questions
@@ -477,9 +584,18 @@ world-readable and contains no credentials; secrets remain absent from `/run/mpe
    the fault cannot be reproduced by driving OSC directly. Reproduction requires the
    hardware and the operator.
 7. **Q7 — Does the reconciler own `mpe-apc-bench` and `sl-hud-monitor` restarts, or
-   does systemd?** D5 says systemd; D11 says the reconciler must be suppressible. The
+   does systemd?** D5a says systemd owns processes; D5b says the reconciler declares
+   desired state via `systemctl`; D11 says the reconciler must be suppressible. The
    two must not both act on the same unit, or maintenance mode suppresses one path and
-   not the other — the same double-ownership this document exists to remove.
+   not the other — the same double-ownership this document exists to remove. See
+   **Appendix A** for which units carry `Restart=always` today and are therefore in
+   scope for this question.
+8. **Q8 — Guard triple retirement schedule.** When does `MPE_LOOPER_ENABLED` /
+   `engine-guard.sh` / `looper_guard_blocked()` get renamed, inverted, or deleted?
+   Blocked on D16 product decision; must land before or with Phase 3 looper ownership.
+9. **Q9 — Home-dir JSON in snapshot or excluded?** Should `~/.mpe_sl_hud_state.json`
+   and `~/.mpe_sl_watchdog.json` appear in the unified snapshot (with provenance and
+   staleness), or stay edge-local artifacts excluded from `/run/mpe` aggregation?
 
 ## Rollback
 
@@ -509,4 +625,34 @@ Each phase is independently revertable.
 - The existing `tests/test_systemd_units.py` guards lifecycle declaration; extend it
   rather than adding a parallel mechanism.
 - `bench-xruns.sh --strict` is the only trustworthy xrun measurement (`d5ac0cc`).
-  Phase 5's criterion 21 depends on it; do not accept a softmode number.
+  Phase 5's criterion **35** depends on it; do not accept a softmode number.
+
+---
+
+## Appendix A — systemd unit matrix
+
+From [`docs/CODE-MAP.md`](../../docs/CODE-MAP.md) §2.2 (`scripts/install-units.sh`).
+**14 enabled units** on a typical touch + looper eval install. Maintenance-mode note:
+units with `Restart=always` will fight calibration (D11) and Phase 0 until looper units
+are included in `stop_mpe_audio_services()`.
+
+| Unit | After / Wants | Restart policy | Maintenance-mode note |
+|---|---|---|---|
+| `mpe-jackd.service` | After `sound.target` | `always` | Stopped by graph restart / promote; reconciler must respect D11 |
+| `surge-xt-cli.service` | After `mpe-jackd`, `usb-audio-gadget`, governors | `on-failure` | Stopped by calibration teardown today |
+| `surge-watchdog.service` | After `surge-xt-cli` (not BindsTo) | `always` | Observes/publishes; corrective restarts subject to D11 |
+| `mpe-sooperlooper.service` | After `mpe-jackd`, `surge-xt-cli` | `always` | **Not stopped by calibration today** — Phase 0 fix required |
+| `mpe-apc-bench.service` | After `mpe-sooperlooper` | `always` | **Not stopped by calibration today** — Phase 0 fix required |
+| `sl-hud-monitor.service` | After `mpe-sooperlooper` | `always` | **Not stopped by calibration today** — Phase 0 fix required |
+| `sl-watchdog.service` | After `mpe-jackd` | `always` | **Not stopped by calibration today** — Phase 0 fix required |
+| `touch-patch-browser.service` | After `surge-xt-cli`, `touch-boot-animation` | `on-failure` | Skipped when `MPE_CALIB_FROM_BROWSER=1` |
+| `surge-poly-governor.service` | — | (unit default) | Stopped by calibration teardown today |
+| `mpe-cpu-governor.service` | — | (unit default) | — |
+| `mpe-audio-profile-sync.service` | — | (unit default) | — |
+| `mpe-pressure-remap.service` | — | (unit default) | Stopped by calibration teardown today |
+| `midi-clock-in.service` | After `sound.target` | `on-failure` | — |
+| `mpe-shutdown-splash.service` | — | (unit default) | — |
+
+**Disabled by default (not in the 14):** `midi-clock-out`, `boot-animation`,
+`mic-to-uac2-bridge`. **Static:** `foot-pedal.service`. **UI mode:** `MPE_UI_MODE=touch`
+→ touch units; `oled` → `patch-browser.service` + OLED animations.
