@@ -4,7 +4,7 @@
 
 Canonical function-level map of the Raspberry Pi MPE sound appliance: boot order, systemd units, shell/Python entrypoints, call relationships, runtime state, and test coverage.
 
-**Orientation:** [`AGENTS.md`](../AGENTS.md) · [`docs/PATHS.md`](PATHS.md) · [`COMMANDS.md`](../COMMANDS.md) · [`Documents/DIRECTION.md`](../Documents/DIRECTION.md) · [`Documents/DECISIONS.md`](../Documents/DECISIONS.md)
+**Orientation:** [`AGENTS.md`](../AGENTS.md) · [`docs/PATHS.md`](PATHS.md) · [`COMMANDS.md`](../COMMANDS.md) · [`Documents/DIRECTION.md`](../Documents/DIRECTION.md) · [`Documents/DECISIONS.md`](../Documents/DECISIONS.md) · [`Documents/specs/session-control-plane-spec.md`](../Documents/specs/session-control-plane-spec.md) (planned control plane — D15/D16 looper gates)
 
 ---
 
@@ -496,6 +496,8 @@ Run: `python3 -m unittest discover -s tests -q`
 | **Function tables** | Doc | Touch mixin methods (100+ draw/hit handlers) collapsed — see `patch_browser/touch_browser_*.py` for full UI surface. |
 
 ### Human input needed
+
+Tracked in [`session-control-plane-spec.md`](../Documents/specs/session-control-plane-spec.md) as **D15** (looper adopt/kill gate) and **D16** (`MPE_LOOPER_ENABLED` semantics):
 
 1. Should `MPE_LOOPER_ENABLED=1` remain, and should it gate anything now that SooperLooper is supervised?
 2. Is SooperLooper **adopt** or **eval-only** for the next release branch (affects whether APC bench units stay in default `ENABLED`)?
