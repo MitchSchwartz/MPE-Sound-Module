@@ -7,7 +7,9 @@ import unittest
 from unittest.mock import MagicMock
 
 from patch_browser.peak_meter_math import (
+    PEAK_METER_CLIP_DBFS,
     PEAK_METER_FLOOR_DBFS,
+    PEAK_METER_YELLOW_DBFS,
     dbfs_to_meter_ratio,
     linear_peak_to_dbfs,
     peak_meter_color_dbfs,
@@ -32,13 +34,15 @@ class PeakMeterMathTests(unittest.TestCase):
     def test_floor_maps_to_zero_ratio(self) -> None:
         self.assertEqual(dbfs_to_meter_ratio(PEAK_METER_FLOOR_DBFS), 0.0)
 
-    def test_zero_dbfs_maps_to_full_bar(self) -> None:
-        self.assertEqual(dbfs_to_meter_ratio(0.0), 1.0)
+    def test_clip_dbfs_maps_to_full_bar(self) -> None:
+        self.assertEqual(dbfs_to_meter_ratio(PEAK_METER_CLIP_DBFS), 1.0)
 
     def test_color_buckets(self) -> None:
-        self.assertEqual(peak_meter_color_dbfs(-24.0), "ok")
-        self.assertEqual(peak_meter_color_dbfs(-12.0), "warn")
-        self.assertEqual(peak_meter_color_dbfs(-3.0), "hot")
+        self.assertEqual(peak_meter_color_dbfs(PEAK_METER_YELLOW_DBFS - 6.0), "ok")
+        self.assertEqual(peak_meter_color_dbfs(PEAK_METER_YELLOW_DBFS - 0.1), "ok")
+        self.assertEqual(peak_meter_color_dbfs(PEAK_METER_YELLOW_DBFS), "warn")
+        self.assertEqual(peak_meter_color_dbfs(PEAK_METER_YELLOW_DBFS + 3.0), "warn")
+        self.assertEqual(peak_meter_color_dbfs(PEAK_METER_CLIP_DBFS), "hot")
 
 
 class BufferPeakTests(unittest.TestCase):
