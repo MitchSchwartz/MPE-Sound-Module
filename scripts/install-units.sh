@@ -25,6 +25,13 @@ ENABLED=(
     surge-xt-cli
     surge-watchdog
     sl-watchdog
+    # The looper stack. These ran as hand-started `setsid nohup` processes until
+    # 2026-08-17, when the engine died at 16:15 and nothing restarted it for six
+    # hours — the controller kept lighting pads from a dead engine, which read as
+    # "looper controls broken". Supervised now, so that failure is self-repairing.
+    mpe-sooperlooper
+    mpe-apc-bench
+    sl-hud-monitor
     surge-poly-governor
     mpe-cpu-governor
     mpe-audio-profile-sync
