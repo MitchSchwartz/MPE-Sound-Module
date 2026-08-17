@@ -28,7 +28,9 @@ from patch_browser.scroll_widgets import ContentScrollArea, ScrollList
 from patch_browser.looper_clock_monitor import LooperClockMonitor
 from patch_browser.screen_recorder import DEFAULT_ENV_FILE, ScreenRecorder
 from patch_browser.surge_cpu_monitor import SurgeCpuMonitor
-from patch_browser.surge_peak_monitor import SurgePeakMonitor
+from patch_browser.font_cache import CachedFont
+from patch_browser.frame_pacing import frame_rate_for
+from patch_browser.surge_peak_monitor import SurgePeakMonitor, peak_meter_enabled
 from patch_browser.surge_monitor import SurgeMonitor
 from patch_browser.touch_evdev import TouchEvdevBridge, evdev_bridge_enabled
 from patch_browser.touch_browser_browse import TouchBrowserBrowseMixin
@@ -145,7 +147,10 @@ class TouchPatchBrowser(
         self.cpu_monitor = SurgeCpuMonitor(self.surge_monitor)
         self.cpu_monitor.start()
         self.peak_monitor = SurgePeakMonitor(self.surge_monitor)
-        self.peak_monitor.start()
+        # Opt-in (MPE_PEAK_METER=1): the meter joins the JACK graph, so jackd blocks on
+        # its callback every period. Off by default until measured xrun-free on the Pi.
+        if peak_meter_enabled():
+            self.peak_monitor.start()
         self.looper_monitor = LooperClockMonitor()
         self.looper_monitor.start()
         from patch_browser.engine_state_monitor import EngineStateMonitor
@@ -177,6 +182,9 @@ class TouchPatchBrowser(
         self._init_context_menu_state()
 
         self.volume_level = self._load_volume_level()
+        # Draw-loop pacing state (see _frame_rate_for). Start "active" so the first
+        # second after boot runs smooth while the UI settles.
+        self._last_active_frame_at = time.monotonic()
         self.show_cpu_meter = self._load_ui_preference("show_cpu_meter", default=True)
         self.show_peak_meter = self._load_ui_preference("show_peak_meter", default=True)
         self.show_looper_hud = self._load_ui_preference("show_looper_hud", default=True)
@@ -261,11 +269,36 @@ class TouchPatchBrowser(
         self._start_evdev_touch_bridge()
 
     def _load_font(self, size: int) -> pygame.font.Font:
+        """Load a UI font, wrapped so identical glyph runs rasterise once, not per frame.
+
+        The draw loop has no damage tracking, so every string on screen was being
+        re-rendered 60x/second. That cost a full core, and jackd's realtime cycle waits
+        on the GIL this loop holds (see font_cache module docstring).
+        """
         for name in ("dejavusans", "dejavusansmono", "liberationsans", "arial"):
             path = pygame.font.match_font(name)
             if path:
-                return pygame.font.Font(path, size)
-        return pygame.font.Font(None, size)
+                return CachedFont(pygame.font.Font(path, size))
+        return CachedFont(pygame.font.Font(None, size))
+
+    def _frame_rate_for(self, busy: bool) -> int:
+        """Frame cap for this frame — see patch_browser.frame_pacing for the reasoning."""
+        fps, self._last_active_frame_at = frame_rate_for(
+            busy=busy,
+            now=time.monotonic(),
+            last_active_at=self._last_active_frame_at,
+        )
+        return fps
+
+    def _clear_font_caches(self) -> None:
+        """Drop cached rasters. Not needed for correctness — colour is part of the cache
+        key, so a theme change simply misses and re-renders. This is for reclaiming the
+        old theme's entries rather than waiting for LRU eviction.
+        """
+        for attr in ("font_lg", "font_md", "font_sm"):
+            font = getattr(self, attr, None)
+            if isinstance(font, CachedFont):
+                font.clear()
     def _clear_display(self) -> None:
         """Paint background immediately so stale DRM frames never show."""
         self.screen.fill(self.theme.bg)
@@ -387,42 +420,47 @@ class TouchPatchBrowser(
             self._poll_midi_sync_switch()
             self._poll_wifi_work()
             self._handle_screen_recorder_signals()
+            busy = False
             for event in pygame.event.get():
                 if self._ignore_sdl_pointer_event(event):
                     continue
+                busy = True
                 self._handle_event(event)
             dt = max(clock.get_time() / 1000.0, 1.0 / 120.0)
             self._tick_settings_animation(dt)
+            if self._settings_slide > 0.004 and self._settings_slide < 0.996:
+                busy = True
             if self.screen_state == Screen.SETTINGS or self._settings_slide > 0.004:
                 self._settings_content_scroll.tick_edge_hints(dt)
             if self.screen_state == Screen.SETTINGS:
-                self._settings_content_scroll.tick(dt)
+                busy |= bool(self._settings_content_scroll.tick(dt))
             if (
                 self.screen_state == Screen.THEME
                 and self._theme_view() == THEME_VIEW_COLORS
             ):
                 self._theme_colors_scroll.tick_edge_hints(dt)
-                self._theme_colors_scroll.tick(dt)
+                busy |= bool(self._theme_colors_scroll.tick(dt))
             if self.screen_state == Screen.WIFI_MODAL and getattr(self, "_wifi_view", "list") == "list":
                 scroll = getattr(self, "_wifi_scroll", None)
                 if scroll is not None:
                     scroll.tick_edge_hints(dt)
-                    scroll.tick(dt)
+                    busy |= bool(scroll.tick(dt))
             if self.screen_state == Screen.SURGE_BUFFER_MODAL:
                 scroll = getattr(self, "_surge_buffer_scroll", None)
                 if scroll is not None:
                     scroll.tick_edge_hints(dt)
-                    scroll.tick(dt)
+                    busy |= bool(scroll.tick(dt))
             if self.screen_state == Screen.MIDI_SYNC_MODAL:
                 scroll = getattr(self, "_midi_sync_scroll", None)
                 if scroll is not None:
                     scroll.tick_edge_hints(dt)
-                    scroll.tick(dt)
+                    busy |= bool(scroll.tick(dt))
             if self.screen_state == Screen.BROWSER and not self.left_nav_collapsed:
-                self.nav_list.tick(dt)
+                busy |= bool(self.nav_list.tick(dt))
+                busy |= bool(self.nav_list.is_interacting())
                 self._tick_long_press()
             self._draw()
-            clock.tick(60)
+            clock.tick(self._frame_rate_for(busy))
 
         if self._evdev_bridge is not None:
             self._evdev_bridge.stop()

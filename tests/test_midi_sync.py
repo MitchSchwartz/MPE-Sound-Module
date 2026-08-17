@@ -24,17 +24,31 @@ class TestMidiSyncConfig(unittest.TestCase):
         self.assertEqual(parse_quantize_grid_ticks("triplet"), 8)
 
     def test_buffer_latency(self) -> None:
-        self.assertAlmostEqual(buffer_latency_ms(48000, 48000), 1000.0)
-        self.assertAlmostEqual(buffer_latency_ms(1024, 48000), 1000.0 * 1024 / 48000)
+        # periods is explicit here; the graph term is covered below.
+        self.assertAlmostEqual(buffer_latency_ms(48000, 48000, periods=1), 1000.0)
+        self.assertAlmostEqual(
+            buffer_latency_ms(1024, 48000, periods=1), 1000.0 * 1024 / 48000
+        )
 
-    def test_auto_offset_negative(self) -> None:
+    def test_buffer_latency_counts_all_jack_periods(self) -> None:
+        """Real output latency is period × periods — one period under-reports by 3×."""
+        self.assertAlmostEqual(
+            buffer_latency_ms(256, 48000, periods=3), 1000.0 * 256 * 3 / 48000
+        )
+
+    def test_auto_offset_uses_jack_period_and_periods(self) -> None:
         env = os.environ.copy()
         try:
             os.environ.pop("MPE_MIDI_OUTPUT_OFFSET_MS", None)
             os.environ["MPE_MIDI_OUTPUT_OFFSET_AUTO"] = "1"
-            os.environ["MPE_SURGE_BUFFER_SIZE"] = "1024"
+            os.environ["MPE_JACK_BUFFER"] = "256"
+            os.environ["MPE_JACK_PERIODS"] = "3"
             os.environ["MPE_SURGE_SAMPLE_RATE"] = "48000"
-            self.assertAlmostEqual(resolve_output_offset_ms(), -1000.0 * 1024 / 48000)
+            # The retired Surge key must not win over the live graph period.
+            os.environ["MPE_SURGE_BUFFER_SIZE"] = "1024"
+            self.assertAlmostEqual(
+                resolve_output_offset_ms(), -1000.0 * 256 * 3 / 48000
+            )
         finally:
             os.environ.clear()
             os.environ.update(env)

@@ -210,32 +210,43 @@ class PatchNormalizationStoreTests(unittest.TestCase):
             self.assertGreater(at_unity, at_half)
             self.assertGreater(at_half, at_mute)
 
-    def test_volume_fader_db_linear_even_steps(self) -> None:
-        import math
+    def test_volume_fader_uses_console_taper_not_linear_db(self) -> None:
+        """Top of travel must be gentler than the bottom (IEC 60268-17 fader law).
 
-        from patch_browser.patch_normalization import volume_fader_to_amp_linear
+        Replaces test_volume_fader_db_linear_even_steps, which asserted equal dB per
+        unit of travel. Linear-in-dB over 60 dB crams everything usable (0..-12 dB)
+        into the top 20% and wastes the bottom half below -30 dB — the steep dropoff
+        reported on the appliance.
+        """
+        from patch_browser.patch_normalization import (
+            VOLUME_FADER_FLOOR_DB,
+            volume_fader_trim_to_db,
+        )
         from patch_browser.touch_ui_constants import VOLUME_MAX, VOLUME_MIN
 
-        cap = 1.5
-
-        def at_pct(pct: float) -> float:
+        def db_at(pct: float) -> float:
             trim = VOLUME_MIN + (pct / 100.0) * (VOLUME_MAX - VOLUME_MIN)
-            return volume_fader_to_amp_linear(
-                trim,
-                patch_gain_linear=8.0,
-                cap=cap,
-                fader_min=VOLUME_MIN,
-                fader_max=VOLUME_MAX,
+            value = volume_fader_trim_to_db(
+                trim, fader_min=VOLUME_MIN, fader_max=VOLUME_MAX
             )
+            return VOLUME_FADER_FLOOR_DB if value is None else value
 
-        def db(linear: float) -> float:
-            if linear <= 0.0:
-                return -120.0
-            return 20.0 * math.log10(linear)
+        top_span = db_at(100.0) - db_at(80.0)
+        bottom_span = db_at(40.0) - db_at(20.0)
+        self.assertLess(
+            top_span,
+            bottom_span,
+            "fader is still linear in dB — the top 20% must cover fewer dB than the bottom",
+        )
 
-        low_span = db(at_pct(60.0)) - db(at_pct(40.0))
-        high_span = db(at_pct(100.0)) - db(at_pct(80.0))
-        self.assertAlmostEqual(low_span, high_span, delta=0.05)
+        # Endpoints unchanged: unity at the top, floor at the bottom.
+        self.assertAlmostEqual(db_at(100.0), 0.0, delta=0.01)
+        self.assertAlmostEqual(db_at(0.0), VOLUME_FADER_FLOOR_DB, delta=0.01)
+
+        # Monotonic, and half travel still leaves a usable level rather than a cliff.
+        values = [db_at(p) for p in range(0, 101, 5)]
+        self.assertEqual(values, sorted(values))
+        self.assertGreater(db_at(50.0), -22.0)
 
     def test_volume_fader_mute_and_db_labels(self) -> None:
         from patch_browser.patch_normalization import (

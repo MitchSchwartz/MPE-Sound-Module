@@ -70,7 +70,6 @@ fi
 
 mpe_source_appliance_env
 _old_rate="${MPE_SURGE_SAMPLE_RATE:-48000}"
-_old_buffer="${MPE_SURGE_BUFFER_SIZE:-1024}"
 
 _update_env_var() {
     local key="$1"
@@ -88,8 +87,11 @@ _update_env_var() {
 }
 
 if [ -n "$BUFFER" ]; then
-    _update_env_var MPE_SURGE_BUFFER_SIZE "$BUFFER"
-    export MPE_SURGE_BUFFER_SIZE="$BUFFER"
+    # --buffer is the JACK graph period. Write it here, before the re-source below,
+    # or mpe_source_appliance_env sees a half-applied file and warns about drift this
+    # script created. MPE_SURGE_BUFFER_SIZE is NOT touched — it is not the period.
+    _update_env_var MPE_JACK_BUFFER "$BUFFER"
+    export MPE_JACK_BUFFER="$BUFFER"
 fi
 
 if [ -n "$SAMPLE_RATE" ]; then
@@ -123,10 +125,6 @@ profile_switch_flag_mark
 
 # JACK is the only engine (spec amended 2026-08-13) — always the graph-restart
 # path below; there is no ALSA-direct branch left to fall through to.
-if [ -n "$BUFFER" ]; then
-    _update_env_var MPE_JACK_BUFFER "$BUFFER"
-    export MPE_JACK_BUFFER="$BUFFER"
-fi
 if ! mpe_promote_surge_planned "settings-change"; then
     echo "ERROR: audio graph change failed — check journalctl -u mpe-jackd -u surge-xt-cli" >&2
     exit 1

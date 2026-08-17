@@ -72,12 +72,17 @@ else
 fi
 
 echo "== narrow sudo: named units, named verbs, nothing else =="
-# mpe-bench is here so the agent can free the APC + sooperlooper OSC port before
-# a hardware test. The alternative asked for was a `sudo kill` rule; sudo-kill
-# can signal ANY process including root ones, so it is a far wider grant than
-# one more named unit. Starting mpe-bench runs mitch's checkout, not the
-# agent's — the agent runs its own branch's bench directly as mpe-agent.
-UNITS="mpe-jackd surge-xt-cli sl-watchdog surge-watchdog surge-poly-governor midi-clock-in midi-clock-out mpe-pressure-remap mpe-bench"
+# mpe-apc-bench is here so the agent can free the APC + sooperlooper OSC port
+# before a hardware test. The alternative asked for was a `sudo kill` rule;
+# sudo-kill can signal ANY process including root ones, so it is a far wider grant
+# than one more named unit. Starting it runs mitch's checkout, not the agent's —
+# the agent runs its own branch's bench directly as mpe-agent.
+#
+# Was mpe-bench, retired 2026-08-17: the APC is now held by mpe-apc-bench.service
+# (Restart=always, enabled at boot), so stopping mpe-bench would have freed
+# nothing. mpe-sooperlooper and sl-hud-monitor join the list for the same reason
+# — a hardware test that cannot stop the engine cannot have the graph to itself.
+UNITS="mpe-jackd surge-xt-cli sl-watchdog surge-watchdog surge-poly-governor midi-clock-in midi-clock-out mpe-pressure-remap mpe-apc-bench mpe-sooperlooper sl-hud-monitor"
 {
     echo "# Remote agent: restart/start/stop/status of appliance units ONLY."
     echo "# Deliberately NOT /bin/systemctl wholesale — that is equivalent to root,"
