@@ -147,6 +147,14 @@ def main() -> int:
             flush=True,
         )
 
+    def on_phase_reanchor(bpm: float) -> None:
+        """Re-send tempo at the defining take's downbeat after a late PLAYING report."""
+        establish_grid_clock(_send, bpm)
+        print(
+            f"bench: phase re-anchored @ {bpm:.1f} BPM (loop wrap)",
+            flush=True,
+        )
+
     def on_grid_dropped() -> None:
         """Last clip cleared: back to no grid, exactly as a track reset leaves it."""
         set_grid_active(_send, num_loops=num_loops, active=False)
@@ -174,6 +182,7 @@ def main() -> int:
         view=view,
         grid=grid if grid_active else None,
         on_grid_established=on_grid_established if grid_active else None,
+        on_phase_reanchor=on_phase_reanchor if grid_active else None,
         on_grid_dropped=on_grid_dropped if grid_active else None,
     )
     for fs in footswitches:
