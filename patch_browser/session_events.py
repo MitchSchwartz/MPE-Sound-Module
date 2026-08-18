@@ -26,6 +26,7 @@ EVENT_NAMES = frozenset(
         "mode.changed",
         "looper.units.stopped",
         "looper.units.started",
+        "looper.engine.started",
     }
 )
 
