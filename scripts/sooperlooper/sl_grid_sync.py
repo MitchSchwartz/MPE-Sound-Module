@@ -25,9 +25,9 @@ DEFAULT_FADE_SAMPLES = int(os.environ.get("MPE_SL_FADE_SAMPLES", "256"))
 DEFAULT_BPM = float(os.environ.get("MPE_LOOPER_BPM", "120"))
 DEFAULT_CLOCK = os.environ.get("MPE_SL_GRID_CLOCK", "internal").strip().lower()
 
-# Phase anchor: defer grid clock until loop_pos is near the defining take's
-# wrap point. set_tempo zeroes phase — firing it late (OSC poll lag) makes
-# later clips land early vs loop 1. See looper-transport-clock-spec §K.6.
+# Phase re-anchor: when PLAYING arrives mid-bar, defer a second set_tempo until
+# loop_pos is near the defining take's wrap (set_tempo zeroes phase). Grid
+# establishment itself is immediate — this only realigns phase for clip 2+.
 GRID_ANCHOR_MAX_S = float(os.environ.get("MPE_SL_GRID_ANCHOR_MAX_S", "0.015"))
 GRID_ANCHOR_WRAP_HIGH_RATIO = float(os.environ.get("MPE_SL_GRID_ANCHOR_WRAP_HIGH", "0.85"))
 GRID_ANCHOR_FALLBACK_CYCLES = float(os.environ.get("MPE_SL_GRID_ANCHOR_FALLBACK_CYCLES", "1.1"))

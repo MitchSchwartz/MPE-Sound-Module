@@ -106,12 +106,14 @@ class ApcFootswitchTests(unittest.TestCase):
 class GridEstablishmentTests(unittest.TestCase):
     """First take defines the tempo, then the grid stands alone."""
 
-    def _fs(self, loop, grid, established_cb=None):
+    def _fs(self, loop, grid, established_cb=None, reanchor_cb=None):
         from scripts.sooperlooper.apc_footswitch import LoopFootswitch
 
         fs = LoopFootswitch(
             loop=loop, hold_ms=1000.0, debounce_ms=0.0,
-            quantized=True, grid=grid, on_grid_established=established_cb,
+            quantized=True, grid=grid,
+            on_grid_established=established_cb,
+            on_phase_reanchor=reanchor_cb,
         )
         fs.bind(MagicMock(), MagicMock(), 36 + loop)
         return fs
@@ -135,25 +137,30 @@ class GridEstablishmentTests(unittest.TestCase):
         self.assertEqual(seen, [(120.0, 1)])
 
     def test_grid_anchor_defers_until_loop_wrap(self) -> None:
-        """Late PLAYING report must not reset phase mid-bar."""
+        """Late PLAYING report: grid now, phase re-anchor at wrap."""
         from scripts.sooperlooper.sl_grid_state import GridState
 
         seen = []
+        reanchored = []
         grid = GridState()
-        fs = self._fs(0, grid, lambda bpm, bars: seen.append((bpm, bars)))
+        fs = self._fs(
+            0, grid,
+            lambda bpm, bars: seen.append((bpm, bars)),
+            lambda bpm: reanchored.append(bpm),
+        )
 
         fs.on_pad_down(); fs.on_pad_up()
         fs.on_pad_up()
         fs.sync_loop_len(2.0)
         fs.sync_loop_pos(0.08)  # late OSC — mid-bar
         fs.sync_from_sl(SL_STATE_PLAYING)
-        self.assertFalse(grid.established)
-        self.assertEqual(seen, [])
+        self.assertTrue(grid.established, "grid must exist as soon as the take saves")
+        self.assertEqual(seen, [(120.0, 1)])
+        self.assertEqual(reanchored, [])
 
         fs.sync_loop_pos(1.85)
         fs.sync_loop_pos(0.01)  # wrap
-        self.assertTrue(grid.established)
-        self.assertEqual(seen, [(120.0, 1)])
+        self.assertEqual(reanchored, [120.0])
 
     def test_hold_clear_drops_grid_when_engine_reports_last_clip_off(self) -> None:
         """No clips, no grid — driven by SL state, not bench hold-clear alone."""
