@@ -157,9 +157,6 @@ class GridEstablishmentTests(unittest.TestCase):
         fs.sync_in_peak(0.0)
         fs._tail_silence_since = TAIL_HOLD_S * -2 + time.monotonic()
         fs.poll_tail_capture()
-        self.assertTrue(fs._tail_overdub_end_pending)
-        fs.sync_loop_pos(1.75)
-        fs.sync_loop_pos(0.01)
         hits = [c.args[1] for c in fs._osc.send_message.call_args_list
                 if c.args[0] == "/sl/0/hit"]
         self.assertEqual(hits.count("overdub"), 2, "seam overdub on + off")
@@ -345,7 +342,7 @@ class TailCaptureTests(unittest.TestCase):
         self.assertFalse(fs._tail_capture)
 
     def test_tail_waits_for_loud_before_silence_close(self) -> None:
-        from scripts.sooperlooper.sl_grid_sync import TAIL_HOLD_S, TAIL_MIN_OVERDUB_S
+        from scripts.sooperlooper.sl_grid_sync import TAIL_HOLD_S
 
         fs = LoopFootswitch(loop=0, hold_ms=1000.0, debounce_ms=0.0)
         fs.bind(MagicMock(), MagicMock(), 36)
@@ -359,17 +356,13 @@ class TailCaptureTests(unittest.TestCase):
         fs.poll_tail_capture()
         self.assertTrue(fs._tail_capture)
         fs.sync_in_peak(0.5)
-        fs._tail_overdub_since = time.monotonic() - TAIL_MIN_OVERDUB_S - 0.01
         fs._start_tail_overdub()
         fs.sync_in_peak(0.0)
         fs.poll_tail_capture()
-        self.assertTrue(fs._tail_overdub_end_pending)
-        fs.sync_loop_pos(1.75)
-        fs.sync_loop_pos(0.01)
         self.assertFalse(fs._tail_capture)
 
     def test_tail_waits_for_first_peak_reading(self) -> None:
-        from scripts.sooperlooper.sl_grid_sync import TAIL_HOLD_S, TAIL_MIN_OVERDUB_S
+        from scripts.sooperlooper.sl_grid_sync import TAIL_HOLD_S
 
         fs = LoopFootswitch(loop=0, hold_ms=1000.0, debounce_ms=0.0)
         fs.bind(MagicMock(), MagicMock(), 36)
@@ -379,15 +372,35 @@ class TailCaptureTests(unittest.TestCase):
         fs.sync_loop_len(2.0)
         fs._tail_capture_since = time.monotonic()
         fs.sync_in_peak(0.5)
-        fs._tail_overdub_since = time.monotonic() - TAIL_MIN_OVERDUB_S - 0.01
         fs._start_tail_overdub()
         fs.sync_in_peak(0.0)
         fs._tail_silence_since = TAIL_HOLD_S * -2 + time.monotonic()
         fs.poll_tail_capture()
-        self.assertTrue(fs._tail_overdub_end_pending)
-        fs.sync_loop_pos(1.75)
-        fs.sync_loop_pos(0.01)
         self.assertFalse(fs._tail_capture)
+
+    def test_grid_clock_deferred_until_tail_weld_finishes(self) -> None:
+        from scripts.sooperlooper.sl_grid_state import GridState
+
+        seen = []
+        grid = GridState()
+        fs = LoopFootswitch(
+            loop=0,
+            hold_ms=1000.0,
+            debounce_ms=0.0,
+            grid=grid,
+            on_grid_established=lambda bpm, bars: seen.append((bpm, bars)),
+        )
+        fs.bind(MagicMock(), MagicMock(), 36)
+        grid.arm(0)
+        fs._tail_capture = True
+        fs._tail_stop_sent = True
+        fs.sync_loop_len(2.0)
+        fs.sync_from_sl(SL_STATE_PLAYING)
+        self.assertTrue(grid.established)
+        self.assertEqual(seen, [])
+        self.assertEqual(fs._deferred_grid_clock, (120.0, 1))
+        fs._finish_tail_capture("test")
+        self.assertEqual(seen, [(120.0, 1)])
 
     def test_stop_all_cancels_tail_and_calls_end_callback(self) -> None:
         from scripts.sooperlooper.apc_footswitch import stop_all_loops
