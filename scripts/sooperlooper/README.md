@@ -113,11 +113,11 @@ there is audio in that loop** — see spec §L.
 
 **Transport (Shift + Stop All Clips):** quick release = stop all; hold **3 s** = clear all. Verify note numbers: `sooperlooper-apc-bench.py --dump-midi`.
 
-**Touch HUD:** `start-sooperlooper-hud-monitor.sh` → bar/beat derived from the
+**Touch HUD:** `mpe-looper-session.service` (HUD thread) → bar/beat derived from the
 grid tempo and SL's reported loop position (`~/.mpe_sl_hud_state.json`). Pure
 Python, no JACK client.
 
-**APC bench:** `start-sooperlooper-apc-bench.sh` — OSC state listener on port **9953** (all loops incl. 0).
+**APC bench:** merged into `mpe-looper-session.service` — OSC state listener on port **9953** (all loops incl. 0). Debug: `looper-session.py --bench-only`.
 
 ## Health and recovery
 

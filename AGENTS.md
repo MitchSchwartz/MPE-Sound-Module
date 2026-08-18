@@ -6,6 +6,11 @@
 
 **Before looper / Phase 2 work:** [`Documents/DIRECTION.md`](Documents/DIRECTION.md) · [`Documents/DECISIONS.md`](Documents/DECISIONS.md) · OM-Repo [`GROUNDING.md`](https://github.com/opsMachine/OM-Repo/blob/main/internal/projects/mpe-synth-launch/GROUNDING.md)
 
+**Before adding any polling loop, watchdog tick, or timer:** CPU is the scarcest resource
+on this appliance — a `python3` fork is ~400 ms on the Pi, so once every 5 s is **9% of a
+core, forever**. Compute cost × cadence and put it in the PR. Rules and measured constants:
+[`Documents/DECISIONS.md`](Documents/DECISIONS.md) § *2026-08-18 — CPU is the scarcest resource*.
+
 ---
 
 ## 🔊 Audio output safety — read before making sound
@@ -188,6 +193,7 @@ Repo path on Pi: `~/MPE-Module` (override via `MPE_MODULE_REPO` in `/etc/mpe/mpe
 | Touch UI demo screen record | [`docs/TOUCH_PATCH_BROWSER.md`](docs/TOUCH_PATCH_BROWSER.md) · `mpe record` (mpe-cli) |
 | Touch UI | [`docs/TOUCH_PATCH_BROWSER.md`](docs/TOUCH_PATCH_BROWSER.md) |
 | Boot recovery | [`docs/PI-BOOT-RECOVERY.md`](docs/PI-BOOT-RECOVERY.md) |
+| **CPU budget / no forks in loops** | [`Documents/DECISIONS.md`](Documents/DECISIONS.md) § *2026-08-18* |
 
 ---
 

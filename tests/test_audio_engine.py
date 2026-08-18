@@ -12,6 +12,7 @@ import os
 import stat
 import subprocess
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -334,7 +335,7 @@ mpe_restart_audio_graph() {{ printf 'graph-restart\\n'; return 0; }}
 mpe_systemctl() {{
   printf '%s\\n' "$*" >> "{tmp}/systemctl.log"
   case "$*" in
-    restart\ surge-xt-cli.service) touch "{on_graph}" ;;
+    restart\\ surge-xt-cli.service) touch "{on_graph}" ;;
   esac
   return 0
 }}
@@ -364,6 +365,19 @@ printf '%s' "$(mpe_engine_reconcile_count)"
             result = _run_bash_script(body, env=env)
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(result.stdout.strip(), "2")
+
+    def test_mpe_state_get_last_match_wins(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            env = _bash_env(tmp)
+            state_file = Path(tmp) / "engine.state"
+            state_file.write_text("state=recovering\nstate=ok\nactive=jack\n", encoding="utf-8")
+            body = f"""
+source {AUDIO_ENGINE_SH}
+printf 'state=%s active=%s\n' "$(mpe_state_get '{state_file}' state)" "$(mpe_state_get '{state_file}' active)"
+"""
+            result = _run_bash_script(body, env=env)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout.strip(), "state=ok active=jack")
 
     def test_atomic_engine_state_roundtrip(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -433,6 +447,68 @@ printf 'SURVIVED'
             finally:
                 ro_dir.chmod(0o755)
 
+    def test_unchanged_republish_does_not_rewrite_the_file(self) -> None:
+        """The supervisor reconciles every 10 s; an identical rewrite is pure churn."""
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp) / "engine.state"
+            body = f"""
+source {AUDIO_ENGINE_SH}
+export MPE_ENGINE_STATE_FILE="{state}"
+mpe_engine_state_write jack jack ok "" off
+stat -c %Y.%i "{state}"
+sleep 1.1
+mpe_engine_state_write jack jack ok "" off
+stat -c %Y.%i "{state}"
+"""
+            result = _run_bash_script(body, env=_bash_env(tmp))
+            self.assertEqual(result.returncode, 0, result.stderr)
+            first, second = result.stdout.split()
+            self.assertEqual(first, second, "identical state was rewritten (mtime/inode moved)")
+
+    def test_changed_state_still_rewrites(self) -> None:
+        """The skip must key on content, not on 'we already wrote once'."""
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp) / "engine.state"
+            body = f"""
+source {AUDIO_ENGINE_SH}
+export MPE_ENGINE_STATE_FILE="{state}"
+mpe_engine_state_write jack jack ok "" off
+mpe_engine_state_write jack none recovering surge-failed off
+mpe_state_get "{state}" state
+mpe_state_get "{state}" reason
+"""
+            result = _run_bash_script(body, env=_bash_env(tmp))
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout.split(), ["recovering", "surge-failed"])
+
+    def test_reason_only_change_still_rewrites(self) -> None:
+        """Same state, new reason — the reason is the whole diagnostic payload."""
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp) / "engine.state"
+            body = f"""
+source {AUDIO_ENGINE_SH}
+export MPE_ENGINE_STATE_FILE="{state}"
+mpe_engine_state_write jack none recovering jackd-down off
+mpe_engine_state_write jack none recovering promote-planned off
+mpe_state_get "{state}" reason
+"""
+            result = _run_bash_script(body, env=_bash_env(tmp))
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout.strip(), "promote-planned")
+
+    def test_missing_state_file_is_always_written(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp) / "engine.state"
+            body = f"""
+source {AUDIO_ENGINE_SH}
+export MPE_ENGINE_STATE_FILE="{state}"
+mpe_engine_state_write jack jack ok "" off
+mpe_state_get "{state}" state
+"""
+            result = _run_bash_script(body, env=_bash_env(tmp))
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout.strip(), "ok")
+
 
 class JackLspProbeTests(unittest.TestCase):
     """M4 — both probes treat missing jack_lsp as not-ready."""
@@ -464,6 +540,105 @@ echo ok
             result = _run_bash_script(body, env=env)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.strip(), "ok")
+
+
+    def test_surge_on_jack_graph_matches_case_insensitively_without_grep(self) -> None:
+        """Replacing `grep -qi` with a bash case must keep the -i, including SURGE."""
+        for client in ("Surge XT:output_1", "surge-xt:out", "SURGE XT:out"):
+            with self.subTest(client=client):
+                with tempfile.TemporaryDirectory() as tmp:
+                    bin_dir = Path(tmp) / "bin"
+                    bin_dir.mkdir()
+                    jack_stub = bin_dir / "jack_lsp"
+                    jack_stub.write_text(f"#!/bin/sh\nprintf '{client}\\n'\n", encoding="utf-8")
+                    jack_stub.chmod(jack_stub.stat().st_mode | stat.S_IXUSR)
+                    body = f"""
+source {AUDIO_ENGINE_SH}
+pgrep() {{ [ "$1" = "-x" ] && [ "$2" = "jackd" ] && return 0; return 1; }}
+export -f pgrep
+timeout() {{ shift; "$@"; }}
+export -f timeout
+export PATH="{bin_dir}:$PATH"
+if mpe_surge_on_jack_graph; then echo yes; else echo no; fi
+"""
+                    result = _run_bash_script(body)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(result.stdout.strip(), "yes")
+
+    def test_surge_on_jack_graph_rejects_a_graph_without_surge(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            bin_dir = Path(tmp) / "bin"
+            bin_dir.mkdir()
+            jack_stub = bin_dir / "jack_lsp"
+            jack_stub.write_text(
+                "#!/bin/sh\nprintf 'system:capture_1\\nmpe-looper:out\\n'\n", encoding="utf-8"
+            )
+            jack_stub.chmod(jack_stub.stat().st_mode | stat.S_IXUSR)
+            body = f"""
+source {AUDIO_ENGINE_SH}
+pgrep() {{ [ "$1" = "-x" ] && [ "$2" = "jackd" ] && return 0; return 1; }}
+export -f pgrep
+timeout() {{ shift; "$@"; }}
+export -f timeout
+export PATH="{bin_dir}:$PATH"
+if mpe_surge_on_jack_graph; then exit 9; fi
+echo ok
+"""
+            result = _run_bash_script(body)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout.strip(), "ok")
+
+    def test_surge_on_jack_graph_calls_jack_lsp_once(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            bin_dir = Path(tmp) / "bin"
+            bin_dir.mkdir()
+            count_file = Path(tmp) / "count"
+            count_file.write_text("0\n", encoding="utf-8")
+            jack_stub = bin_dir / "jack_lsp"
+            jack_stub.write_text(
+                f"""#!/bin/sh
+n=$(cat "{count_file}")
+echo $((n + 1)) > "{count_file}"
+printf 'surge-xt\n'
+""",
+                encoding="utf-8",
+            )
+            jack_stub.chmod(jack_stub.stat().st_mode | stat.S_IXUSR)
+            body = f"""
+source {AUDIO_ENGINE_SH}
+pgrep() {{ [ "$1" = "-x" ] && [ "$2" = "jackd" ] && return 0; return 1; }}
+export -f pgrep
+timeout() {{ shift; "$@"; }}
+export -f timeout
+export PATH="{bin_dir}:$PATH"
+if mpe_surge_on_jack_graph; then echo yes; else echo no; fi
+cat "{count_file}"
+"""
+            result = _run_bash_script(body)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout.strip().splitlines()[0], "yes")
+            self.assertEqual(result.stdout.strip().splitlines()[1], "1")
+
+    def test_surge_on_jack_graph_fails_on_empty_port_list(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            bin_dir = Path(tmp) / "bin"
+            bin_dir.mkdir()
+            jack_stub = bin_dir / "jack_lsp"
+            jack_stub.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            jack_stub.chmod(jack_stub.stat().st_mode | stat.S_IXUSR)
+            body = f"""
+source {AUDIO_ENGINE_SH}
+pgrep() {{ [ "$1" = "-x" ] && [ "$2" = "jackd" ] && return 0; return 1; }}
+export -f pgrep
+timeout() {{ shift; "$@"; }}
+export -f timeout
+export PATH="{bin_dir}:$PATH"
+if mpe_surge_on_jack_graph; then exit 9; fi
+echo ok
+"""
+            result = _run_bash_script(body)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout.strip(), "ok")
 
     def test_jack_lsp_runs_as_graph_owner_when_root(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -528,6 +703,29 @@ class NoAlsaPathTests(unittest.TestCase):
         text = SURGE_WATCHDOG_SH.read_text(encoding="utf-8")
         for token in ("active=alsa", "mpe_surge_active_engine", "release-alsa-for-jackd", "degraded"):
             self.assertNotIn(token, text, f"surge-watchdog.sh still references {token!r}")
+
+    def test_surge_watchdog_uses_epochseconds(self) -> None:
+        text = SURGE_WATCHDOG_SH.read_text(encoding="utf-8")
+        self.assertIn("now=$EPOCHSECONDS", text)
+        self.assertNotIn("now=$(date +%s)", text)
+
+    def test_surge_watchdog_reconcile_short_circuits_on_ok_surge(self) -> None:
+        text = SURGE_WATCHDOG_SH.read_text(encoding="utf-8")
+        self.assertIn('systemctl is-active --quiet "$SURGE_SERVICE"', text)
+        self.assertIn('[ "$state" = ok ] && [ "$active" = jack ]', text)
+        self.assertIn("JACK_PROBE_INTERVAL_S", text)
+        self.assertIn("_last_jack_probe=$EPOCHSECONDS", text)
+        self.assertIn('JACK_PROBE_INTERVAL_S="${MPE_JACK_PROBE_INTERVAL_S:-10}"', text)
+
+    def test_surge_watchdog_looper_reconcile_batched_and_throttled(self) -> None:
+        text = SURGE_WATCHDOG_SH.read_text(encoding="utf-8")
+        self.assertIn("_reconcile_looper_units_if_needed", text)
+        self.assertIn("LOOPER_RECONCILE_INTERVAL_S", text)
+        self.assertIn('systemctl is-active "${units[@]}"', text)
+        self.assertNotIn(
+            "python3 \"$MPE_MODULE_REPO/scripts/ensure-looper-units-running.py\" >/dev/null 2>&1 || true\n    fi\n\n    sleep 5",
+            text,
+        )
 
     def test_engine_guard_offers_no_engine_switch(self) -> None:
         text = ENGINE_GUARD_SH.read_text(encoding="utf-8")
@@ -594,6 +792,67 @@ exit 1
         self.assertNotIn("detect-audio-device.sh\"", text)
 
 
+class SurgeOnGraphViaMeterTests(unittest.TestCase):
+    """The graph probe must not spawn jack_lsp when the meter can answer.
+
+    Measured 2026-08-18: jack_lsp on a 10 s timer produced 35 xruns/min against 6 when
+    rare — it registers a real JACK client, forcing jackd to reorder the graph. It was
+    the largest single xrun source on the appliance. mpe-peak-meter is already a
+    long-lived client and publishes wired= at 5 Hz, so the answer is a file read.
+    """
+
+    def _run(self, state: str | None, *, extra: str = "") -> subprocess.CompletedProcess[str]:
+        with tempfile.TemporaryDirectory() as tmp:
+            env = _bash_env(tmp)
+            if state is not None:
+                (Path(tmp) / "meter.state").write_text(state, encoding="utf-8")
+            body = f"""
+source {AUDIO_ENGINE_SH}
+mpe_jack_server_running() {{ return 0; }}
+mpe_jack_lsp() {{ : > "{tmp}/jack_lsp_was_spawned"; printf 'Surge XT:out_1\n'; }}
+_mpe_jack_lsp_bin() {{ return 0; }}
+{extra}
+if mpe_surge_on_jack_graph; then echo ON_GRAPH; else echo OFF_GRAPH; fi
+"""
+            proc = _run_bash_script(body, env=env)
+            proc.spawned = (Path(tmp) / "jack_lsp_was_spawned").exists()  # type: ignore[attr-defined]
+            return proc
+
+    def test_fresh_wired_state_answers_without_jack_lsp(self) -> None:
+        result = self._run(f"wired=1\nonline=1\nupdated={int(time.time())}\n")
+        self.assertEqual(result.stdout.strip(), "ON_GRAPH", result.stderr)
+        self.assertFalse(result.spawned, "probe must not register a JACK client")
+
+    def test_fresh_unwired_state_reports_off_graph_without_jack_lsp(self) -> None:
+        result = self._run(f"wired=0\nonline=0\nupdated={int(time.time())}\n")
+        self.assertEqual(result.stdout.strip(), "OFF_GRAPH", result.stderr)
+        self.assertFalse(result.spawned, "probe must not register a JACK client")
+
+    def test_stale_state_falls_back_to_jack_lsp(self) -> None:
+        """A stale meter must not be trusted — that is the false-green shape."""
+        result = self._run("wired=1\nonline=1\nupdated=1\n")
+        self.assertEqual(result.stdout.strip(), "ON_GRAPH", result.stderr)
+        self.assertTrue(result.spawned, "stale meter state must fall back to jack_lsp")
+
+    def test_missing_state_falls_back_to_jack_lsp(self) -> None:
+        """Meter disabled (MPE_PEAK_METER=0) must still leave the watchdog working."""
+        result = self._run(None)
+        self.assertEqual(result.stdout.strip(), "ON_GRAPH", result.stderr)
+        self.assertTrue(result.spawned, "must fall back to jack_lsp")
+
+    def test_garbage_state_falls_back_to_jack_lsp(self) -> None:
+        result = self._run("wired=banana\nupdated=nope\n")
+        self.assertTrue(result.spawned, "must fall back to jack_lsp")
+
+
+class JackLspPathTests(unittest.TestCase):
+    def test_jack_lsp_uses_resolved_absolute_path(self) -> None:
+        text = AUDIO_ENGINE_SH.read_text(encoding="utf-8")
+        self.assertIn("_mpe_jack_lsp_bin", text)
+        self.assertIn('"$_MPE_JACK_LSP_BIN"', text)
+        self.assertNotIn('timeout "$timeout_s" jack_lsp "$@"', text)
+
+
 class WatchdogReconcileArmTests(unittest.TestCase):
     """B3 — reconcile arms via surge-watchdog.sh _reconcile_engine (finding 8).
     Single-engine: on graph -> ok; ready but off graph -> promote; not ready ->
@@ -617,6 +876,55 @@ mpe_surge_on_jack_graph() { return 0; }
             result = self._run_reconcile(env=env, stubs=stubs)
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(result.stdout.strip(), "ok:jack")
+
+    def test_reconcile_skips_jack_probe_when_surge_ok(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            env = _bash_env(tmp)
+            engine = Path(tmp) / "engine.state"
+            engine.write_text(
+                "engine=jack\nactive=jack\nstate=ok\nupdated=1\nlooper=off\n",
+                encoding="utf-8",
+            )
+            stubs = """
+_last_jack_probe=$EPOCHSECONDS
+JACK_PROBE_INTERVAL_S=10
+mpe_jack_server_ready() { echo JACK_LSP_PROBE >&2; return 1; }
+mpe_surge_on_jack_graph() { echo GRAPH_PROBE >&2; return 1; }
+export -f mpe_jack_server_ready mpe_surge_on_jack_graph
+systemctl() {
+  case "$*" in
+    is-active*surge-xt-cli*) return 0 ;;
+  esac
+  return 1
+}
+export -f systemctl
+"""
+            result = self._run_reconcile(env=env, stubs=stubs)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout.strip(), "ok:jack")
+            self.assertNotIn("JACK_LSP_PROBE", result.stderr)
+            self.assertNotIn("GRAPH_PROBE", result.stderr)
+
+    def test_reconcile_probes_graph_again_after_the_interval(self) -> None:
+        """A short-circuit that never re-probes cannot see an orphaned JACK client."""
+        with tempfile.TemporaryDirectory() as tmp:
+            env = _bash_env(tmp)
+            engine = Path(tmp) / "engine.state"
+            engine.write_text(
+                "engine=jack\nactive=jack\nstate=ok\nupdated=1\nlooper=off\n",
+                encoding="utf-8",
+            )
+            stubs = """
+_last_jack_probe=0
+JACK_PROBE_INTERVAL_S=10
+mpe_surge_on_jack_graph() { echo GRAPH_PROBE >&2; return 0; }
+export -f mpe_surge_on_jack_graph
+systemctl() { case "$*" in is-active*surge-xt-cli*) return 0 ;; esac; return 1; }
+export -f systemctl
+"""
+            result = self._run_reconcile(env=env, stubs=stubs)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("GRAPH_PROBE", result.stderr, "stale short-circuit never re-probes")
 
     def test_jackd_never_ready_restarts_surge_as_jackd_down(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -986,6 +1294,84 @@ if mpe_jack_softmode_enabled; then printf 'on'; else printf 'off'; fi
         self.assertIn("mpe_jack_softmode_enabled", text)
         self.assertIn('"${SOFTMODE_ARGS[@]}"', text)
         self.assertNotIn('jackd -R -P"$JACK_PRIO" -s', text)
+
+
+class LooperOrphanReconcileTests(unittest.TestCase):
+    def test_looper_on_graph_detects_client_ports(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            env = _bash_env(tmp)
+            body = f"""
+source {AUDIO_ENGINE_SH}
+mpe_jack_server_running() {{ return 0; }}
+_mpe_jack_lsp_bin() {{ return 0; }}
+mpe_jack_lsp() {{ printf '%s\\n' 'Surge XT:out_1' 'mpe-looper:common_out_1'; }}
+export -f mpe_jack_server_running _mpe_jack_lsp_bin mpe_jack_lsp
+if mpe_looper_on_jack_graph; then printf ok; else printf no; fi
+"""
+            result = _run_bash_script(body, env=env)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout.strip(), "ok")
+
+    def test_reconcile_restarts_orphaned_looper(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            env = _bash_env(tmp)
+            body = f"""
+source {AUDIO_ENGINE_SH}
+pgrep() {{ case "$1" in -x) return 0 ;; esac; return 1; }}
+mpe_looper_on_jack_graph() {{ return 1; }}
+mpe_restart_looper_after_graph_change() {{ echo "RESTART:$1" >&2; return 0; }}
+export -f pgrep mpe_looper_on_jack_graph mpe_restart_looper_after_graph_change
+mpe_reconcile_looper_if_orphaned promote-to-jack
+"""
+            result = _run_bash_script(body, env=env)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("RESTART:promote-to-jack", result.stderr)
+
+    def test_surge_watchdog_reconciles_looper_after_promote(self) -> None:
+        text = SURGE_WATCHDOG_SH.read_text(encoding="utf-8")
+        self.assertIn("mpe_reconcile_looper_if_orphaned", text)
+        self.assertIn('"promote-to-jack"', text)
+        self.assertIn('"surge-on-graph"', text)
+
+
+class SessionEventBashTests(unittest.TestCase):
+    def test_engine_transition_emits_events(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            env = _bash_env(tmp)
+            body = f"""
+source {AUDIO_ENGINE_SH}
+mpe_engine_state_write jack none recovering boot off
+mpe_engine_state_write jack jack ok "" off
+mpe_engine_state_write jack none failed no-server off
+wc -l < "$(mpe_run_dir)/events.jsonl"
+"""
+            result = _run_bash_script(body, env=env)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertGreaterEqual(int(result.stdout.strip()), 2)
+
+    def test_buffer_change_emits_event(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            env = _bash_env(tmp)
+            body = f"""
+source {AUDIO_ENGINE_SH}
+mpe_jack_state_write hw:0 256 3 48000
+mpe_jack_state_write hw:0 128 3 48000
+grep -c buffer.changed "$(mpe_run_dir)/events.jsonl"
+"""
+            result = _run_bash_script(body, env=env)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout.strip(), "1")
+
+    def test_engine_exit_reason_with_quotes_survives_jsonl(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            env = _bash_env(tmp)
+            body = f"""
+source {AUDIO_ENGINE_SH}
+mpe_session_event_emit engine.exited 'surge said "no" / path C:\\x' reason='surge said "no"'
+python3 -c "import json; from pathlib import Path; lines=Path('$(mpe_run_dir)/events.jsonl').read_text().splitlines(); obj=json.loads(lines[-1]); assert obj['event']=='engine.exited'; assert 'no' in obj['detail']; assert 'no' in obj['reason']"
+"""
+            result = _run_bash_script(body, env=env)
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
 
 
 if __name__ == "__main__":
