@@ -29,6 +29,7 @@ from loop_model import (
 )
 from sl_grid_state import GridState, derive_tempo
 from sl_grid_sync import (
+    DEFAULT_FADE_SAMPLES,
     GRID_ANCHOR_FALLBACK_CYCLES,
     GRID_ANCHOR_MAX_S,
     TAIL_CAPTURE_ENABLED,
@@ -36,6 +37,9 @@ from sl_grid_sync import (
     TAIL_MAX_S,
     TAIL_ABSOLUTE_MAX_S,
     TAIL_THRESH,
+    TAIL_WELD_FADE_SAMPLES,
+    TAIL_WELD_INPUT_GAIN,
+    TAIL_WELD_RESTORE_INPUT_GAIN,
     detect_loop_wrap,
     should_defer_phase_anchor,
 )
@@ -135,6 +139,7 @@ class LoopFootswitch:
         self._tail_overdub = False
         self._tail_overdub_since = 0.0
         self._deferred_grid_clock: tuple[float, int] | None = None
+        self._tail_weld_restore: dict[str, float] | None = None
 
     def bind(self, osc, midi_out, note: int | None) -> None:
         self._osc = osc
@@ -200,14 +205,40 @@ class LoopFootswitch:
         if self._tail_capture and self._in_peak >= TAIL_THRESH:
             self._tail_saw_loud = True
 
+    def _set_loop(self, control: str, value: float) -> None:
+        self._osc.send_message(self._path("set"), [control, float(value)])
+        log(f"loop {self.loop}: set {control}={float(value):.4g}")
+
+    def _apply_tail_weld_mix(self) -> None:
+        """Soften tail overdub — full input_gain often pops at the seam."""
+        if self._tail_weld_restore is not None:
+            return
+        restore: dict[str, float] = {}
+        if TAIL_WELD_INPUT_GAIN < TAIL_WELD_RESTORE_INPUT_GAIN:
+            self._set_loop("input_gain", TAIL_WELD_INPUT_GAIN)
+            restore["input_gain"] = TAIL_WELD_RESTORE_INPUT_GAIN
+        if TAIL_WELD_FADE_SAMPLES > DEFAULT_FADE_SAMPLES:
+            self._set_loop("fade_samples", float(TAIL_WELD_FADE_SAMPLES))
+            restore["fade_samples"] = float(DEFAULT_FADE_SAMPLES)
+        self._tail_weld_restore = restore or None
+
+    def _restore_tail_weld_mix(self) -> None:
+        if not self._tail_weld_restore:
+            return
+        for control, value in self._tail_weld_restore.items():
+            self._set_loop(control, value)
+        self._tail_weld_restore = None
+
     def _start_tail_overdub(self) -> None:
         if self._tail_overdub:
             return
         self._tail_overdub = True
         self._tail_overdub_since = time.monotonic()
+        self._apply_tail_weld_mix()
         log(
             f"loop {self.loop}: tail seam overdub on "
-            f"(pos={self.loop_pos:.3f}s / {self.loop_len:.3f}s)"
+            f"(pos={self.loop_pos:.3f}s / {self.loop_len:.3f}s, "
+            f"input_gain={TAIL_WELD_INPUT_GAIN})"
         )
         self._hit("overdub")
 
@@ -217,11 +248,13 @@ class LoopFootswitch:
         self._tail_overdub = False
         log(f"loop {self.loop}: tail seam overdub off")
         self._hit("overdub")
+        self._restore_tail_weld_mix()
 
     def _cancel_tail_capture(self) -> None:
         if self._tail_capture and self._on_tail_capture_end is not None:
             self._on_tail_capture_end(self.loop)
         self._stop_tail_overdub()
+        self._restore_tail_weld_mix()
         had_deferred = self._deferred_grid_clock is not None or self._phase_reanchor_at > 0.0
         self._tail_capture = False
         self._tail_capture_since = 0.0
