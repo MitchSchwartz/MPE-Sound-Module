@@ -1,10 +1,10 @@
-"""Tests for live peak meter math and offline monitor behavior."""
+"""Tests for live peak meter math and compiled-meter reader behavior."""
 
 from __future__ import annotations
 
-import math
-import sys
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from patch_browser.peak_meter_math import (
@@ -20,7 +20,6 @@ from patch_browser.peak_meter_math import (
 from patch_browser.surge_peak_monitor import (
     PEAK_METER_ENV,
     SurgePeakMonitor,
-    _buffer_peak,
     peak_meter_enabled,
 )
 
@@ -55,53 +54,10 @@ class PeakMeterMathTests(unittest.TestCase):
         self.assertEqual(peak_meter_color_dbfs(PEAK_METER_CLIP_DBFS), "hot")
 
 
-class BufferPeakTests(unittest.TestCase):
-    def test_empty_buffer(self) -> None:
-        self.assertEqual(_buffer_peak(b"", 0), 0.0)
-
-    def test_finds_max_abs_sample(self) -> None:
-        import struct
-
-        samples = struct.pack("<fff", 0.1, -0.8, 0.3)
-        self.assertAlmostEqual(_buffer_peak(samples, 3), 0.8)
-
-
 def _healthy_surge() -> MagicMock:
     surge = MagicMock()
     surge.check_health.return_value = (True, None)
     return surge
-
-
-class _FakeJackClient:
-    """Minimal stand-in for jack.Client that records its callbacks."""
-
-    activate_error: Exception | None = None
-
-    def __init__(self, *_args, **_kwargs):
-        self.inports = MagicMock()
-        self.inports.register.side_effect = lambda _name: MagicMock()
-        self.shutdown_cb = None
-        self.closed = False
-
-    def set_process_callback(self, _cb):
-        return None
-
-    def set_shutdown_callback(self, cb):
-        self.shutdown_cb = cb
-
-    def activate(self):
-        if self.activate_error is not None:
-            raise self.activate_error
-
-    def deactivate(self):
-        return None
-
-    def close(self):
-        self.closed = True
-
-
-def _jack_module(client_cls) -> type:
-    return type("JackMod", (), {"Client": client_cls})
 
 
 class PeakMeterEnableTests(unittest.TestCase):
@@ -116,70 +72,31 @@ class PeakMeterEnableTests(unittest.TestCase):
         with patch.dict("os.environ", {PEAK_METER_ENV: "1"}):
             self.assertTrue(peak_meter_enabled())
 
-    def test_no_jack_client_registered_when_disabled(self) -> None:
-        """The tap must not join the graph unless opted in — jackd blocks on it."""
+    def test_offline_when_meter_disabled(self) -> None:
         monitor = SurgePeakMonitor(_healthy_surge())
-        monitor._jack_available = None
         with patch.dict("os.environ", {PEAK_METER_ENV: "0"}):
-            with patch.dict(sys.modules, {"jack": _jack_module(_FakeJackClient)}):
+            monitor._poll_once()
+        snap = monitor.snapshot()
+        self.assertFalse(snap["online"])
+        self.assertIsNone(snap["dbfs"])
+
+
+class SurgePeakMonitorStateFileTests(unittest.TestCase):
+    def test_reads_compiled_meter_state(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            state_path = Path(tmp) / "meter.state"
+            state_path.write_text(
+                "peak_linear=0.5\nwired=1\nonline=1\nsource=jack\n",
+                encoding="utf-8",
+            )
+            monitor = SurgePeakMonitor(_healthy_surge(), state_path=state_path)
+            with patch.dict("os.environ", {PEAK_METER_ENV: "1"}):
                 monitor._poll_once()
-        self.assertIsNone(monitor._client)
-        self.assertFalse(monitor.snapshot()["online"])
+            snap = monitor.snapshot()
+            self.assertTrue(snap["online"])
+            self.assertAlmostEqual(snap["peak_linear"], 0.5)
+            self.assertEqual(snap["source"], "jack")
 
-
-class PeakMeterLifecycleTests(unittest.TestCase):
-    """jackd restarts on every buffer/rate change — the client must not outlive it."""
-
-    def _build_online_monitor(self) -> tuple[SurgePeakMonitor, _FakeJackClient]:
-        monitor = SurgePeakMonitor(_healthy_surge())
-        monitor._jack_available = None
-        created: list[_FakeJackClient] = []
-
-        class Recording(_FakeJackClient):
-            def __init__(self, *a, **kw):
-                super().__init__(*a, **kw)
-                created.append(self)
-
-        with patch.dict("os.environ", {PEAK_METER_ENV: "1"}):
-            with patch.dict(sys.modules, {"jack": _jack_module(Recording), "numpy": MagicMock()}):
-                monitor._poll_once()
-        self.assertIsNotNone(monitor._client)
-        return monitor, created[0]
-
-    def test_registers_a_shutdown_callback(self) -> None:
-        _monitor, client = self._build_online_monitor()
-        self.assertIsNotNone(
-            client.shutdown_cb,
-            "no shutdown callback: a jackd restart would strand this client forever",
-        )
-
-    def test_rebuilds_client_after_server_shutdown(self) -> None:
-        monitor, client = self._build_online_monitor()
-        first = monitor._client
-
-        client.shutdown_cb("shutdown", "server died")  # JACK notification thread
-
-        with patch.dict("os.environ", {PEAK_METER_ENV: "1"}):
-            with patch.dict(
-                sys.modules, {"jack": _jack_module(_FakeJackClient), "numpy": MagicMock()}
-            ):
-                monitor._poll_once()
-
-        self.assertTrue(client.closed, "stale client was never closed")
-        self.assertIsNotNone(monitor._client)
-        self.assertIsNot(monitor._client, first, "monitor reused the dead client")
-
-    def test_broken_client_reads_offline_not_a_plausible_number(self) -> None:
-        """Fail closed: a dead meter must show '—', never a decaying needle."""
-        monitor, _client = self._build_online_monitor()
-        for port in monitor._inports:
-            port.is_connected_to.side_effect = RuntimeError("client is dead")
-
-        self.assertFalse(monitor._surge_outputs_connected())
-        self.assertTrue(monitor._server_gone.is_set())
-
-
-class SurgePeakMonitorOfflineTests(unittest.TestCase):
     def test_offline_when_surge_unhealthy(self) -> None:
         surge = MagicMock()
         surge.check_health.return_value = (False, "down")
@@ -190,53 +107,31 @@ class SurgePeakMonitorOfflineTests(unittest.TestCase):
         self.assertIsNone(snap["dbfs"])
         self.assertEqual(snap["source"], "none")
 
-    def test_jack_activate_failure_retries(self) -> None:
-        surge = MagicMock()
-        surge.check_health.return_value = (True, None)
-
-        class FakeJackModule:
-            class Client:
-                inports = MagicMock()
-
-                def __init__(self, *_args, **_kwargs):
-                    self.inports.register.side_effect = [MagicMock(), MagicMock()]
-
-                def set_process_callback(self, _cb):
-                    return None
-
-                def set_shutdown_callback(self, _cb):
-                    return None
-
-                def activate(self):
-                    raise RuntimeError("jack not ready")
-
-                def deactivate(self):
-                    return None
-
-                def close(self):
-                    return None
-
-        monitor = SurgePeakMonitor(surge)
-        monitor._jack_available = None
-
-        with patch.dict("os.environ", {PEAK_METER_ENV: "1"}):
-            with patch.dict(sys.modules, {"jack": FakeJackModule, "numpy": MagicMock()}):
+    def test_unwired_state_reads_offline(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            state_path = Path(tmp) / "meter.state"
+            state_path.write_text("peak_linear=0.1\nwired=0\nonline=0\n", encoding="utf-8")
+            monitor = SurgePeakMonitor(_healthy_surge(), state_path=state_path)
+            with patch.dict("os.environ", {PEAK_METER_ENV: "1"}):
                 monitor._poll_once()
-            self.assertIsNone(monitor._client)
-            self.assertIsNone(monitor._jack_available)
+            snap = monitor.snapshot()
+            self.assertFalse(snap["online"])
 
-            class OkClient(FakeJackModule.Client):
-                def activate(self):
-                    return None
 
-            with patch.dict(
-                sys.modules,
-                {"jack": type("JackMod", (), {"Client": OkClient}), "numpy": MagicMock()},
-            ):
+
+    def test_uses_file_peak_without_extra_decay(self) -> None:
+        """Compiled meter owns hold/decay — UI must not decay again."""
+        with tempfile.TemporaryDirectory() as tmp:
+            state_path = Path(tmp) / "meter.state"
+            state_path.write_text("peak_linear=0.4\nwired=1\nsource=jack\n", encoding="utf-8")
+            monitor = SurgePeakMonitor(_healthy_surge(), state_path=state_path)
+            with patch.dict("os.environ", {PEAK_METER_ENV: "1"}):
                 monitor._poll_once()
-        self.assertIsNotNone(monitor._client)
-        self.assertTrue(monitor._jack_available)
-
+            self.assertAlmostEqual(monitor.snapshot()["peak_linear"], 0.4)
+            state_path.write_text("peak_linear=0.2\nwired=1\nsource=jack\n", encoding="utf-8")
+            with patch.dict("os.environ", {PEAK_METER_ENV: "1"}):
+                monitor._poll_once()
+            self.assertAlmostEqual(monitor.snapshot()["peak_linear"], 0.2)
 
 if __name__ == "__main__":
     unittest.main()
