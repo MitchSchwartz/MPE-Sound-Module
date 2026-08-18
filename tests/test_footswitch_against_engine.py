@@ -180,7 +180,8 @@ class FootswitchOnEngineTests(unittest.TestCase):
 
         self._tap(fs)
         engine.poll(fs)
-        self._tap(fs)                    # free-form: lands immediately
+        self._tap(fs)                    # defining take: tail capture first
+        fs.on_pad_down()                 # immediate close (or wait for silence on Pi)
         engine.poll(fs)
         self.assertTrue(grid.established, "first take defines the grid")
 
