@@ -700,6 +700,32 @@ mpe_surge_on_jack_graph() {
     return 1
 }
 
+mpe_looper_on_jack_graph() {
+    local ports
+    mpe_jack_server_running || return 1
+    _mpe_jack_lsp_bin || return 1
+    ports="$(mpe_jack_lsp 2>/dev/null)" || return 1
+    case "${ports,,}" in
+        *mpe-looper:*) return 0 ;;
+    esac
+    return 1
+}
+
+# jackd restart leaves SooperLooper running but off the bus — /get answers,
+# /hit is discarded. Planned promote restarts the engine; passive Surge reconcile
+# did not, which is the orphan wedge (DECISIONS.md 2026-08-15).
+mpe_reconcile_looper_if_orphaned() {
+    local reason="${1:-graph-reconcile}"
+    if ! pgrep -x sooperlooper >/dev/null 2>&1; then
+        return 0
+    fi
+    if mpe_looper_on_jack_graph; then
+        return 0
+    fi
+    echo "audio-engine: SooperLooper orphaned ($reason) — restarting unit (loops cleared)" >&2
+    mpe_restart_looper_after_graph_change "$reason"
+}
+
 # Back-compat alias used by udev helper and profile scripts.
 restart_audio_graph() {
     mpe_restart_audio_graph
