@@ -2,13 +2,13 @@
 
 Kept out of ``touch_browser_app`` so it is importable (and testable) without pygame.
 
-Why this is an audio module, not a power-saving one: the touch browser hosts a JACK
-client (``surge_peak_monitor``), and jackd's realtime graph cycle waits on that
-client's callback every period. The callback needs the GIL. Measured on the appliance
-2026-08-17, the draw loop redrew unconditionally at 60 fps and held a full core
-(101 jiffies/s while idle), so the callback had to wait out a GIL handoff — default
-switch interval 5 ms — before it could even start. At a 1024-frame period (21.3 ms)
-that survives; at 512 (10.7 ms) it is marginal; at 256 (5.3 ms) it cannot work.
+Why this is an audio module, not a power-saving one: before Phase 5 the touch
+browser hosted a Python JACK client whose callback needed the GIL. Measured on the
+appliance 2026-08-17, the draw loop redrew unconditionally at 60 fps and held a full
+core (101 jiffies/s while idle), so the callback had to wait out a GIL handoff —
+default switch interval 5 ms — before it could even start. The meter now lives in
+compiled ``mpe-peak-meter``; frame pacing still keeps the UI thread from monopolising
+a core and contending with other appliance processes.
 
 The only always-live elements on screen are the CPU and OUT meters, which sample at
 5 Hz, so 60 fps while idle was ~12x more redraws than the content justified.

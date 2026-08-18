@@ -1,0 +1,26 @@
+[Unit]
+Description=MPE compiled OUT peak meter (JACK leaf client)
+After=mpe-jackd.service surge-xt-cli.service
+Wants=mpe-jackd.service
+# Default env keeps this off; enable by setting MPE_PEAK_METER=1 in /etc/mpe/mpe.env
+ConditionEnvironment=MPE_PEAK_METER=1
+
+[Service]
+Type=simple
+User=@MPE_PI_USER@
+WorkingDirectory=@MPE_MODULE_REPO@
+EnvironmentFile=-/etc/mpe/mpe.env
+RuntimeDirectory=mpe
+RuntimeDirectoryPreserve=yes
+# systemd bypasses PAM — RT scheduling for the JACK callback requires these.
+LimitRTPRIO=95
+LimitMEMLOCK=infinity
+ExecStartPre=@MPE_MODULE_REPO@/scripts/build-mpe-peak-meter.sh --required
+ExecStart=@MPE_MODULE_REPO@/scripts/start-mpe-peak-meter.sh
+Restart=on-failure
+RestartSec=3
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
