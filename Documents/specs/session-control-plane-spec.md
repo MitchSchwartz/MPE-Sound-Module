@@ -1,6 +1,6 @@
 # Session control plane — one owner per fact, reconciliation over sequences
 
-**Status:** Phases 0–2 landed on `dev` (PR #66, amended by #68/#70/#71 + `4e81f11`), soaking on the appliance since 2026-08-18. Phase 3 gated on Q1. Phases 4–5 not started.
+**Status:** Phases 0–2 landed on `dev` (PR #66, amended by #68/#70/#71 + `4e81f11`), soaking on the appliance since 2026-08-18. **Q1 answered 2026-08-18: merge (D17) — Phase 3M is ready to implement.** Phase 4 still blocked by D15/D16; Phase 5 not started.
 **Author:** written after the 2026-08-17 stability session; every claim in Evidence is measured on `raspberrypi2`, not reasoned.
 
 **Implementation log (2026-08-18).** What shipped, and what it cost:
@@ -149,8 +149,8 @@ they change the design rather than merely annotating it:**
 - A rewrite. The instrument works; this is incremental and reversible at each phase.
 - Replacing systemd, JACK, OSC, or SooperLooper.
 - Multi-instrument or networked operation. Named as a *future* justification for
-  Phase 3+, not a requirement now (see Falsification).
-- A new IPC protocol before Phase 3. `/run/mpe` files already work and are already
+  Phase 3+, not a requirement now (see Falsification). Phase 3M does not introduce one.
+- A new IPC protocol. Phase 3M removes the need for one. `/run/mpe` files already work and are already
   atomic.
 - Changing musical behaviour. No phase may alter what the instrument sounds like or
   how a pad responds.
@@ -164,7 +164,7 @@ they change the design rather than merely annotating it:**
 | Plane | Members | Rule |
 |---|---|---|
 | **Realtime** | jackd, `surge-xt-cli`, `sooperlooper` | Compiled only. **Nothing else may hold a JACK process callback.** |
-| **Control** | session owner (Phase 3+), `sl-watchdog`, `surge-watchdog` | Owns state, reconciles, never in the audio cycle. |
+| **Control** | looper session process (Phase 3M), `sl-watchdog`, `surge-watchdog` | Owns state, reconciles, never in the audio cycle. |
 | **Edge** | touch UI, APC bench, HUD writer, `mpe-cli` | Stateless. Emits intents, renders snapshots. |
 
 This is kernel space vs user space, and the 2026-08-17 crackle is what putting an
@@ -205,6 +205,7 @@ pad LEDs, coordination. Not lost: audio.
 This is the existing principle — *"a supervisor that dies with the thing it supervises
 is not a supervisor"* (`sl-watchdog.service`) — extended one level up. **A design that
 cannot guarantee this is the wrong design and must be rejected at the Phase 3 gate.**
+*(Gate closed 2026-08-18: merge — D17. D4 applies unchanged to the merged process.)*
 
 ### D5a — systemd owns processes
 
@@ -303,6 +304,7 @@ control plane is a **pure function over an observed-state struct**, following
 
 A control plane testable only on the Pi would be a regression in this project's own
 practice, and would mean the Phase 3 gate is judged by hand on the instrument.
+*(Criterion 48 carries this forward for Phase 3M.)*
 
 ### D14 — Ports and JACK client names are assigned in one registry
 
@@ -323,19 +325,19 @@ or not at all**, and a test asserts no two entries collide. Ad-hoc probe ports (
 diagnostic binding 9977 to ask a question) must use the ephemeral range, never a fixed
 number that could clash with a service.
 
-### D15 — Looper policy gate (Phase 3+ blocked until adopt/kill)
+### D15 — Looper policy gate (Phase 4 blocked until adopt/kill; **amended by D17**)
 
-Phase 3 session ownership and Phase 4 reconciliation for the **looper stack** are
-**blocked** until the SooperLooper eval reaches an adopt/kill verdict
+Phase 4 reconciliation for the **looper stack** is **blocked** until the SooperLooper eval reaches an adopt/kill verdict
 ([`Documents/DIRECTION.md`](../DIRECTION.md) B7 full soak, B8 persistence). Phases 1–2
-(observability, events) and Phase 5 (realtime boundary) are **not** gated on this.
+(observability, events), Phase 3M (the merge — see D17 for why) and Phase 5 (realtime
+boundary) are **not** gated on this.
 
 The unified snapshot carries a **`looper.policy`** field:
 
 | Value | Meaning |
 |---|---|
 | `eval` | SooperLooper eval stack supervised; session-owner work for looper deferred |
-| `adopt` | Verdict: keep SooperLooper; Phase 3+ looper ownership may proceed |
+| `adopt` | Verdict: keep SooperLooper; Phase 4 looper reconciliation may proceed |
 | `disabled` | Verdict: kill eval stack; looper session control retires or migrates |
 
 Until the verdict lands, treat looper session state as **eval-only inventory** (this
@@ -354,10 +356,50 @@ inverted relative to behaviour. The guard fires when the value is `"1"`:
 
 The guard triple predates SooperLooper and encodes a **stale premise** (v0 snd-aloop
 looper impossible on JACK) while the appliance now runs 16 SooperLooper loops under
-systemd. **Product decision required before Phase 3:** rename/invert the env var,
-delete the guard, or remap `=1` to mean enabled. D15 blocks looper ownership work
-until both the adopt/kill verdict **and** this semantics decision land. Q8 tracks guard
+systemd. **Product decision required before Phase 4:** rename/invert the env var,
+delete the guard, or remap `=1` to mean enabled. D15 blocks looper *reconciliation*
+until both the adopt/kill verdict **and** this semantics decision land; Phase 3M only
+preserves existing guard behaviour and is not blocked (D17). Q8 tracks guard
 retirement schedule.
+
+### D17 — Q1 answered: merge, not daemon (2026-08-18)
+
+**Decision (Mitch, 2026-08-18):** take the merge. Phase 3's session-owner daemon is
+deferred, not rejected — it earns its keep against a second instrument, a remote agent,
+or a non-pygame UI, none of which exist.
+
+**Rationale, and why this is a first step rather than a cheaper substitute.** Every
+fault this spec was written for occurred at a boundary between
+`sooperlooper-apc-bench.py`, `sl_hud_monitor.py` and `GridState` — three processes
+holding one domain, ~1536 lines. You cannot design a good protocol around state smeared
+across three processes: doing so encodes the current confusion into an IPC contract,
+which is far harder to undo than a Python refactor. Consolidate the domain model first;
+then decide what interface it needs. If that answer later turns out to be "a daemon",
+nothing is lost — the merged process *is* the session owner, and only its reach changes.
+
+Half the spec's machinery exists solely to make cross-process coordination safe: D6
+snapshot format, D7 intents, D11 maintenance mode at Phase 4 scope, D12's CLI contract,
+and the entire Security section. The merge retires that scope.
+
+**Explicitly not merged:**
+
+| Component | Stays separate because |
+|---|---|
+| `sl-watchdog.py` (535 lines) | D4 — a supervisor that dies with the thing it supervises is not a supervisor |
+| `touch_browser_app.py` | Different concern (patch/normalization/pressure), implicated in zero faults, and it is the process that must never host a JACK client (D1) |
+
+**Amends D15.** D15 blocks *Phase 3+ looper ownership* on the SooperLooper adopt/kill
+verdict. Phase 3M is permitted ahead of that verdict, because it is the one shape of
+this work that is defensible under either outcome: it **deletes processes rather than
+adding an owner**, it is reversible by restoring two unit files (Rollback), and it
+removes the fault modes that made B7/B8/B10 unreliable to run — so it improves the very
+evaluation D15 is waiting on. The daemon, the reconciler (Phase 4) and any new
+authoritative state remain blocked by D15 as written. If the verdict lands `disabled`,
+the merged process retires as one unit instead of three.
+
+**D16 is not a blocker for Phase 3M.** The guard-triple semantics decision is still
+required before anything *changes* looper guard behaviour; a refactor that preserves it
+does not need the answer. Q8 still tracks retirement.
 
 ## Acceptance Criteria
 
@@ -420,7 +462,45 @@ registered or orphaned. Criterion 12's real intent is *no unbounded, unreaped cl
 registration on a repeating path*; that intent is met. Reword it in Phase 4 rather
 than pretending the letter is satisfied.
 
-### Phase 3 — Session owner (gated; see Falsification)
+### Phase 3M — Looper session process (**chosen path**, D17)
+
+**One process owns looper session state.** Merge `scripts/sooperlooper-apc-bench.py`
+(392), `scripts/sooperlooper/sl_hud_monitor.py` (258) and
+`scripts/sooperlooper/sl_grid_state.py` (145) — plus `sl_grid_sync.py` (205) and
+`apc_footswitch.py` (536) as they are already bench-owned — into a single unit,
+`mpe-looper-session.service`. `sl-watchdog` and the touch UI stay separate (D17).
+
+| # | Criterion | Verification |
+|---|---|---|
+| 38 | One unit hosts bench + HUD + grid state | `config/mpe-apc-bench.service` and `config/sl-hud-monitor.service` deleted; `mpe-looper-session.service` present; `install-units.sh` renders it |
+| 39 | Grid state has exactly one writer; nothing else mutates it | Grep: no `GridState` mutation outside the owning module |
+| 40 | The `sync_source` restart sentinel is deleted | Absent from the tree; engine restart detected explicitly |
+| 41 | One OSC connection with one lifecycle | Single client object; `maybe_reregister()` semantics preserved; tempo **seeded** on registration, not awaited (`register_auto_update` delivers on CHANGE — the 2026-08-17 HUD race) |
+| 42 | **HUD work never runs on the MIDI path** | The bench polls at ~2 ms, the HUD writes and shells to `journalctl` at 2 Hz. HUD work on its own thread/timer. Verify worst-case MIDI-in → OSC-out latency is unchanged, measured on the Pi, before and after |
+| 43 | **Loud failure on a held OSC port survives** | Start a second instance while 9953 is held; it refuses to start rather than warning and continuing. This behaviour has already saved a session — it must not soften in the merge |
+| 44 | Musical behaviour unchanged | Pad-driven record → clear → grid-establish sequence identical before and after, verified by hand on the APC |
+| 45 | `sl-watchdog` remains a separate process (D4) | Unit still present and separate; it must be able to restart the merged process |
+| 46 | Crash blast radius is measured, not assumed | `kill -9` the merged process mid-session; `Restart=always` recovers; time to first pad response recorded in `docs/measurements/`. One crash now takes bench **and** HUD — that regression is accepted only with a number attached |
+| 47 | CPU no worse than the two processes it replaces | `/proc/<pid>/stat` fields 14–17 over 60 s idle, before vs after, on the Pi. No new periodic subprocess spawn ([`DECISIONS.md`](../DECISIONS.md) 2026-08-18) |
+| 48 | Grid transitions are unit-testable off-hardware (D13) | Tests run in the laptop suite with no Pi, no JACK, no OSC — extend `tests/fake_sl_engine.py`, which holds quantized actions until an explicit `boundary()` |
+| 49 | State is re-derived from the engine on start, never from a local cache | Restart the process mid-session; grid/loop state matches engine truth with no operator action |
+
+**Sequencing for the implementer.** Land in this order, each its own commit, each
+green on the Pi before the next: (1) new unit + process skeleton that runs the bench
+only, two old units retired; (2) HUD folded in behind criterion 42's threading rule;
+(3) `GridState` folded in, single writer (39); (4) sentinel deleted (40). Criterion 44
+is checked by hand after each step, not once at the end.
+
+**Not in scope:** the touch UI, patch/normalization state, the config-key duplication,
+and the realtime boundary (Phase 5) — which proceeds independently.
+
+### Phase 3 — Session owner daemon (**superseded** by Phase 3M; retained for the record)
+
+> **Not the chosen path (D17, 2026-08-18).** Criteria 13–22 are kept because the daemon
+> becomes live again if a second instrument, a remote agent, or a non-pygame UI appears.
+> Do not implement these without re-opening Q1. Criteria 15–16 and 19–22 have no
+> analogue under Phase 3M (there is no separate owner to kill); 13–14 and 18 carry over
+> as 39, 40 and 44.
 
 | # | Criterion | Verification |
 |---|---|---|
@@ -486,10 +566,11 @@ the observability model is wrong and Phase 3 must not be built on top of it.
 Phases 1 and 2 are **unconditional** — pure profit, no behaviour change, immediately
 useful, and prerequisites for diagnosing anything after.
 
-**Sequencing:** Phases 1–2 can proceed now. Phase 3+ for the looper stack is gated on
-the SooperLooper adopt/kill verdict (D15, [`DIRECTION`](../DIRECTION.md) B7/B8) and
-on resolving `MPE_LOOPER_ENABLED` guard semantics (D16). Phase 5 (realtime boundary)
-proceeds in parallel with 1–2 — it is orthogonal to looper ownership.
+**Sequencing:** Phases 1–2 are **done** and soaking. **Phase 3M is next and unblocked**
+(D17). Phase 4 for the looper stack remains gated on the SooperLooper adopt/kill verdict
+(D15, [`DIRECTION`](../DIRECTION.md) B7/B8) and on resolving `MPE_LOOPER_ENABLED` guard
+semantics (D16). Phase 5 (realtime boundary) proceeds in parallel — it is orthogonal to
+looper ownership.
 
 ### Phase 0 (immediate — no reconciler)
 
@@ -500,24 +581,18 @@ not only Surge/touch/pressure/governor. This is an **interim D11 shim**: explici
 `systemctl stop`/`start` in calibration, not maintenance mode and not a reconciler.
 Without it, `Restart=always` on looper units undoes calibration within 5 s.
 
-Phase 3 is **gated**: it requires an explicit decision between the daemon and the
-cheaper **Phase 3-merge** alternative below. Phases 4–5 follow whichever is chosen.
+**The Phase 3 gate is closed (D17, 2026-08-18): merge.** Phase 3M (criteria 38–49) is
+the implementable path and is **ready to start**. Phase 3 (daemon, criteria 13–22) is
+superseded and retained for the record.
 
-### Phase 3-merge (alternative to daemon)
+Phase 3b (buffer change) remains one declared operation — implemented via the existing
+promote path until Phase 4, not as a new intent bus. Phase 3M does **not** need D11
+maintenance mode at Phase 4 scope: fewer supervised units to suppress during
+calibration, and the flag written in Phase 0 already covers the calibration case.
 
-If the Phase 3 gate answers *one instrument, pygame-only* (see Falsification Analysis),
-take the merge path instead of a session-owner daemon:
-
-- Merge `sooperlooper-apc-bench.py`, `sl-hud-monitor.py`, and in-process `GridState`
-  into **one looper session process** with a single grid writer.
-- Acceptance criteria **13–14, 18** still apply; **15–16, 19–22** shrink or defer
-  (no separate owner to kill; cold-boot convergence stays a systemd problem).
-- Phase 3b buffer change remains one declared operation — implemented as a reconciled
-  intent inside the merged process or via existing promote path until Phase 4.
-- Does **not** need D11 maintenance mode at the same scope — fewer supervised units to
-  suppress during calibration.
-
-Outline only; full criteria live in Falsification Analysis until the gate decision.
+**Phase 4 (reconciler) stays blocked** by D15 until the SooperLooper adopt/kill verdict
+and by D16 until the guard-semantics decision. Phase 3M is permitted ahead of both —
+see D17 for why.
 
 ---
 
@@ -544,6 +619,15 @@ ever run this, and will anything other than pygame ever drive it?"* is **one and
 take the merge. The daemon earns its keep only against a second instrument, a remote
 agent, or a non-pygame UI. That is a product question, and it is the owner's, not this
 spec's.
+
+> ✅ **Gate closed 2026-08-18: one and no — merge.** See D17 and Phase 3M. The
+> falsification below still stands as the argument that was tested, not as an open
+> question.
+>
+> **What would falsify the merge, once built:** if cross-process state bugs keep
+> appearing *after* it, they will be between the merged looper process and the touch UI
+> — patch state, normalization, volume. That is when the daemon earns its keep, with
+> evidence instead of a prediction. Re-open Q1 at that point, not before.
 
 **What would falsify Phases 1–2?** If `mpe state` and the event stream are built and
 the next incident still requires ssh-and-correlate, the observability model is wrong
@@ -610,8 +694,10 @@ world-readable and contains no credentials; secrets remain absent from `/run/mpe
 
 ## Open Questions
 
-1. **Q1 — Daemon or merge?** The Phase 3 gate. Needs a product answer, not a technical
-   one. *(Blocking for Phase 3 only; Phases 1–2 proceed either way.)*
+1. **Q1 — Daemon or merge?** ✅ **ANSWERED 2026-08-18 (Mitch): merge.** See D17 and
+   Phase 3M. The daemon is not rejected forever — it is deferred until a second
+   instrument, a remote agent, or a non-pygame UI exists. Phase 3 (daemon, criteria
+   13–22) is **superseded** by Phase 3M (criteria 38–49).
 2. **Q2 — Snapshot publish interval.** The HUD writes at 2 Hz today. Is that the right
    rate for a general snapshot, or does the meter/transport need a faster lane?
    Measure before choosing.
@@ -662,9 +748,12 @@ Each phase is independently revertable.
 
 - **Phases 1–2:** additive only. Delete the command and the event calls; nothing else
   referenced them.
-- **Phase 3:** the merge variant reverts by restoring two units. The daemon variant
-  reverts by re-enabling the edges' local state — which must therefore be *removed in a
-  separate commit from* the owner landing, so the revert is one commit.
+- **Phase 3M (chosen):** reverts by restoring `mpe-apc-bench.service` and
+  `sl-hud-monitor.service` and reverting the merge commits. Because the sequencing above
+  lands one fold per commit, any single step reverts on its own. Keep the two retired
+  unit files in git history reachable — do not squash the retirement into the merge.
+  *(Superseded daemon variant: would have reverted by re-enabling the edges' local
+  state, which is why that had to land in a separate commit from the owner.)*
 - **Phase 4:** the riskiest to revert, because it *deletes working scripts*. Therefore:
   `restart-sooperlooper.sh`, `surge-watchdog.sh` and the graph-restart sequences are
   **retained as-is** through Phase 4 and only deleted in a separate, later commit once
