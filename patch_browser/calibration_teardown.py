@@ -12,10 +12,12 @@ See ``patch_browser.calibration_constants`` for the env var name and helper.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import subprocess
 import sys
 import time
+from collections.abc import Iterator
 
 from patch_browser.calibration_constants import (
     MPE_CALIB_FROM_BROWSER,
@@ -23,6 +25,7 @@ from patch_browser.calibration_constants import (
     calibration_from_browser,
 )
 from patch_browser.session_events import emit_event
+from patch_browser.session_snapshot import maintenance_flag_path
 
 # Looper eval stack — Restart=always units (spec Phase 0 / Appendix A).
 # Stop in reverse dependency order; start after Surge is back.
@@ -42,6 +45,35 @@ LOOPER_UNITS_START_ORDER = (
 
 def _systemctl(unit: str, verb: str) -> None:
     subprocess.run(["sudo", "systemctl", verb, f"{unit}.service"], check=False)
+
+
+def _safe_emit_event(name: str, **kwargs: object) -> None:
+    try:
+        emit_event(name, **kwargs)  # type: ignore[arg-type]
+    except (OSError, ValueError):
+        pass
+
+
+def _unit_is_active(unit: str) -> bool:
+    try:
+        result = subprocess.run(
+            ["systemctl", "is-active", f"{unit}.service"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError:
+        return False
+    return (result.stdout or "").strip() == "active"
+
+
+def ensure_looper_units_running() -> None:
+    """Start looper units left stopped by an aborted calibration (no maintenance flag)."""
+    if maintenance_flag_path().exists():
+        return
+    for unit in LOOPER_UNITS_START_ORDER:
+        if not _unit_is_active(unit):
+            _systemctl(unit, "start")
 
 
 def unload_snd_aloop_if_idle() -> None:
@@ -67,13 +99,13 @@ def stop_mpe_audio_services() -> None:
     units.extend(LOOPER_UNITS_STOP_ORDER)
     for unit in units:
         _systemctl(unit, "stop")
-    emit_event(
+    _safe_emit_event(
         "looper.units.stopped",
         detail="calibration",
         source="calibration_teardown.py",
         fields={"units": ",".join(LOOPER_UNITS_STOP_ORDER)},
     )
-    emit_event("mode.changed", detail="calibration-stop", source="calibration_teardown.py")
+    _safe_emit_event("mode.changed", detail="calibration-stop", source="calibration_teardown.py")
     time.sleep(1)
     subprocess.run(["sudo", "pkill", "-f", "surge-xt-cli"], check=False)
     time.sleep(0.5)
@@ -101,12 +133,22 @@ def restore_mpe_audio_services(*, restart_browser: bool = True) -> None:
     time.sleep(1)
     for unit in LOOPER_UNITS_START_ORDER:
         _systemctl(unit, "start")
-    emit_event(
+    _safe_emit_event(
         "looper.units.started",
         detail="calibration-restore",
         source="calibration_teardown.py",
         fields={"units": ",".join(LOOPER_UNITS_START_ORDER)},
     )
-    emit_event("mode.changed", detail="calibration-restore", source="calibration_teardown.py")
+    _safe_emit_event("mode.changed", detail="calibration-restore", source="calibration_teardown.py")
     if restart_browser and not calibration_from_browser():
         _systemctl("touch-patch-browser", "start")
+
+
+@contextlib.contextmanager
+def calibration_audio_scope(*, restart_browser: bool = True) -> Iterator[None]:
+    """Stop production stack for calibration; always restore on any exit path."""
+    stop_mpe_audio_services()
+    try:
+        yield
+    finally:
+        restore_mpe_audio_services(restart_browser=restart_browser)
