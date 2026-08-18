@@ -34,6 +34,7 @@ VALID_MODES = frozenset({"ok", "recovering", "failed", "maintenance"})
 
 JACK_UNIT = "mpe-jackd"
 SURGE_UNIT = "surge-xt-cli"
+ENGINE_STATE_WRITER_UNIT = "surge-watchdog"
 
 
 def snapshot_path(*, run: Path | None = None) -> Path:
@@ -110,7 +111,10 @@ def clear_maintenance_flag(*, run: Path | None = None) -> None:
 
 
 def maintenance_mode_active(*, run: Path | None = None, now: float | None = None) -> bool:
-    """True while maintenance flag exists, unexpired, and setter PID is alive."""
+    """True while maintenance flag exists, unexpired, and setter PID is alive.
+
+    Side effect: expired or dead-PID flags are unlinked (self-clearing D11).
+    """
     raw = read_maintenance_flag(run=run)
     if not raw:
         return False
@@ -185,12 +189,16 @@ def engine_field_stale(
     *,
     unit_active: Callable[[str], bool | None],
 ) -> bool:
-    """Engine state is transition-written; trust it only while Surge is confirmed live."""
+    """Engine state freshness follows the writer (surge-watchdog), not Surge itself.
+
+    During recovery Surge is down but watchdog has just published state=recovering;
+    gating on surge-xt-cli would null the field exactly when it carries the reason.
+    """
     if not raw:
         return True
     if _parse_epoch(raw.get("updated")) <= 0:
         return True
-    return unit_active(SURGE_UNIT) is not True
+    return unit_active(ENGINE_STATE_WRITER_UNIT) is not True
 
 
 def reconcile_field_stale(raw: dict[str, str] | None) -> bool:
