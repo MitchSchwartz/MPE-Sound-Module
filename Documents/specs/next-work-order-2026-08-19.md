@@ -135,18 +135,18 @@ returns to `ENABLED` in `install-units.sh` or the opt-in default is restated on 
 `512 × 3` now runs 0 xruns at DSP median 42%. Criterion 35 wants `128 × 3` under playing
 load in strict mode.
 
-**Observed 2026-08-18 (Mitch):** *"512 works for most, some patches seem to need 1024."*
-Two readings, and they are distinguishable:
+**UPDATE 2026-08-19: retried post-fix, and it holds.** Mitch re-tried those patches after
+the graph-probe fix — *"512 works for most, some patches seem to need 1024 still."* So it
+is **not** pre-fix residue; it is genuine per-patch variance, and it is bounded to
+specific presets rather than the appliance.
 
-1. **Pre-fix residue** — those patches were judged while the graph was losing ~35
-   deadlines a minute. They may be fine at 512 now, and should be re-tried first.
-2. **Genuine per-patch DSP variance** — heavier patches have less headroom at any buffer.
-   If so the lever is `surge-poly-governor` (`MPE_SURGE_MAX_VOICES`, the dynamic CPU
-   governor) rather than a global buffer, since a global buffer penalises every patch for
-   the worst one.
+Cause not yet measured, and "tune the poly governor" is not obviously the answer — the
+governor watches Surge *process CPU* (a proxy its own docstring calls a proxy), reacts in
+~14 periods so it cannot prevent a transient, and tuning it harder buys 512 with voice
+stealing. Full analysis, the three failure modes to distinguish, and the ranked levers:
+[`docs/measurements/per-patch-headroom-open-2026-08-19.md`](../../docs/measurements/per-patch-headroom-open-2026-08-19.md).
 
-Establish which before sweeping. Name the specific patches; per-patch DSP is measurable
-with `scripts/xrun-corr.sh` while holding a chord.
+Measure before choosing a lever. Name the specific patches.
 
 ---
 
