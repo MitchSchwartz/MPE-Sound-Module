@@ -9,6 +9,8 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from apc_footswitch import LoopFootswitch
 
+from sl_grid_sync import TAIL_CAPTURE_ENABLED, TAIL_PEAK_UPDATE_MS
+
 LISTEN_HOST = os.environ.get("MPE_SL_BENCH_LISTEN_HOST", "127.0.0.1")
 LISTEN_PORT = int(os.environ.get("MPE_SL_BENCH_LISTEN_PORT", "9953"))
 UPDATE_MS = int(os.environ.get("MPE_SL_BENCH_STATE_MS", "100"))
@@ -37,6 +39,7 @@ class SlBenchStateListener:
         self._last_register = 0.0
         self._osc_client = None
         self._num_loops = 16
+        self._tail_peak_loop: int | None = None
 
     def on_update(self, _addr: str, loop_index: int, control: str, value: float) -> None:
         if control == "wet":
@@ -56,6 +59,10 @@ class SlBenchStateListener:
             fs.sync_loop_len(float(value))
         elif control == "loop_pos":
             fs.sync_loop_pos(float(value))
+        elif control == "in_peak_meter":
+            if loop_index != self._tail_peak_loop:
+                return
+            fs.sync_in_peak(float(value))
 
     def on_global_update(self, _addr: str, _loop_index: int, control: str,
                          value: float) -> None:
@@ -101,6 +108,40 @@ class SlBenchStateListener:
             f"on {LISTEN_HOST}:{LISTEN_PORT}",
             flush=True,
         )
+
+    def register_tail_peak(self, loop: int) -> None:
+        """Subscribe in_peak_meter for one loop during defining-take tail capture."""
+        if not TAIL_CAPTURE_ENABLED or self._osc_client is None:
+            return
+        if self._tail_peak_loop is not None:
+            self.unregister_tail_peak()
+        self._tail_peak_loop = loop
+        returl = f"{LISTEN_HOST}:{LISTEN_PORT}"
+        self._osc_client.send_message(
+            f"/sl/{loop}/register_auto_update",
+            ["in_peak_meter", TAIL_PEAK_UPDATE_MS, returl, "/sl/bench/state"],
+        )
+
+    def unregister_tail_peak(self, _loop: int | None = None) -> None:
+        if self._osc_client is None or self._tail_peak_loop is None:
+            self._tail_peak_loop = None
+            return
+        loop = self._tail_peak_loop
+        self._tail_peak_loop = None
+        returl = f"{LISTEN_HOST}:{LISTEN_PORT}"
+        retpath = "/sl/bench/state"
+        self._osc_client.send_message(
+            f"/sl/{loop}/unregister_auto_update",
+            ["in_peak_meter", returl, retpath],
+        )
+
+    def wire_tail_capture(self, footswitches: list[LoopFootswitch]) -> None:
+        """Bind peak-meter subscribe/unsubscribe to footswitch tail capture."""
+        for fs in footswitches:
+            fs.set_tail_capture_hooks(
+                self.register_tail_peak,
+                self.unregister_tail_peak,
+            )
 
     def maybe_reregister(self) -> None:
         import time
