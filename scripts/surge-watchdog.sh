@@ -96,6 +96,34 @@ _reconcile_engine() {
     _supervisor_restart_surge "promote-to-jack"
 }
 
+
+LOOPER_RECONCILE_INTERVAL_S="${MPE_LOOPER_RECONCILE_INTERVAL_S:-30}"
+_last_looper_reconcile=0
+
+# Batched systemctl pre-filter: fork Python (~400 ms on Pi) only when a looper
+# unit is non-active. Steady state is one systemctl call (~22 ms) every 30 s.
+_reconcile_looper_units_if_needed() {
+    local script need=0 state
+    local -a units=(
+        mpe-sooperlooper.service
+        mpe-apc-bench.service
+        sl-hud-monitor.service
+        sl-watchdog.service
+    )
+    script="${MPE_MODULE_REPO}/scripts/ensure-looper-units-running.py"
+
+    while IFS= read -r state; do
+        if [ "$state" != "active" ]; then
+            need=1
+            break
+        fi
+    done < <(systemctl is-active "${units[@]}" 2>/dev/null)
+
+    [ "$need" = 0 ] && return 0
+    [ -x "$script" ] || return 0
+    python3 "$script" >/dev/null 2>&1 || true
+}
+
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
 log "=== Surge Watchdog Started (engine=jack) ==="
 
@@ -129,8 +157,10 @@ while true; do
 
     _reconcile_engine
 
-    if [ -x "$MPE_MODULE_REPO/scripts/ensure-looper-units-running.py" ]; then
-        python3 "$MPE_MODULE_REPO/scripts/ensure-looper-units-running.py" >/dev/null 2>&1 || true
+    now=$(date +%s)
+    if [ $((now - _last_looper_reconcile)) -ge "$LOOPER_RECONCILE_INTERVAL_S" ]; then
+        _reconcile_looper_units_if_needed
+        _last_looper_reconcile=$now
     fi
 
     sleep 5
