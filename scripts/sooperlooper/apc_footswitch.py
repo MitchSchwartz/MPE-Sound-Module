@@ -451,16 +451,16 @@ class LoopFootswitch:
         self._mark_action()
 
     def _gesture(self, edge: str) -> None:
+        if self._tail_capture:
+            if edge == "down":
+                self._finish_tail_capture("pad down — immediate close")
+                self._mark_action()
+            return
         if self._debounced():
             log(f"loop {self.loop}: -> {edge} ignored (debounce)")
             return
         if self._waiting_for_quantize():
             log(f"loop {self.loop}: -> {edge} ignored (quantize wait)")
-            return
-        if self._tail_capture:
-            if edge == "down":
-                self._finish_tail_capture("pad down — immediate close")
-                self._mark_action()
             return
 
         self._expire_pending()

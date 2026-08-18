@@ -241,10 +241,11 @@ class GridEstablishmentTests(unittest.TestCase):
 
 class TailCaptureTests(unittest.TestCase):
     def test_pad_down_during_tail_immediate_close(self) -> None:
-        fs = LoopFootswitch(loop=0, hold_ms=1000.0, debounce_ms=0.0)
+        fs = LoopFootswitch(loop=0, hold_ms=1000.0, debounce_ms=200.0)
         fs.bind(MagicMock(), MagicMock(), 36)
         fs._tail_capture = True
         fs._tail_capture_since = time.monotonic()
+        fs._last_action_at = time.monotonic()
         fs.on_pad_down()
         hits = [c.args[1] for c in fs._osc.send_message.call_args_list
                 if c.args[0] == "/sl/0/hit"]
