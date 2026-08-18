@@ -45,24 +45,54 @@ def _systemctl_calls(run_mock: mock.Mock, verb: str) -> list[str]:
 
 class LooperReconcileTests(unittest.TestCase):
     @mock.patch("patch_browser.calibration_teardown._systemctl")
-    @mock.patch("patch_browser.calibration_teardown._unit_is_active", return_value=False)
-    @mock.patch("patch_browser.calibration_teardown.maintenance_flag_path")
+    @mock.patch("patch_browser.calibration_teardown.systemd_unit_active", return_value=False)
+    @mock.patch("patch_browser.calibration_teardown.maintenance_mode_active", return_value=False)
     def test_ensure_looper_starts_stopped_units(
-        self, maint_mock: mock.Mock, _active: mock.Mock, systemctl_mock: mock.Mock
+        self, _maint: mock.Mock, _active: mock.Mock, systemctl_mock: mock.Mock
     ) -> None:
-        maint_mock.return_value.exists.return_value = False
         ct.ensure_looper_units_running()
         started = [c.args[0] for c in systemctl_mock.call_args_list if c.args[1] == "start"]
         self.assertEqual(started, list(ct.LOOPER_UNITS_START_ORDER))
 
     @mock.patch("patch_browser.calibration_teardown._systemctl")
-    @mock.patch("patch_browser.calibration_teardown.maintenance_flag_path")
+    @mock.patch("patch_browser.calibration_teardown.maintenance_mode_active", return_value=True)
     def test_ensure_looper_skips_under_maintenance(
-        self, maint_mock: mock.Mock, systemctl_mock: mock.Mock
+        self, _maint: mock.Mock, systemctl_mock: mock.Mock
     ) -> None:
-        maint_mock.return_value.exists.return_value = True
         ct.ensure_looper_units_running()
         systemctl_mock.assert_not_called()
+
+
+class CalibrationMaintenanceFlagTests(unittest.TestCase):
+    @mock.patch("patch_browser.calibration_teardown.clear_maintenance_flag")
+    @mock.patch("patch_browser.calibration_teardown.set_maintenance_flag")
+    @mock.patch("patch_browser.calibration_teardown.emit_event")
+    @mock.patch("patch_browser.calibration_teardown.time.sleep")
+    @mock.patch("patch_browser.calibration_teardown.subprocess.run")
+    def test_stop_sets_maintenance_flag(
+        self,
+        _run: mock.Mock,
+        _sleep: mock.Mock,
+        _emit: mock.Mock,
+        set_flag: mock.Mock,
+        _clear: mock.Mock,
+    ) -> None:
+        ct.stop_mpe_audio_services()
+        set_flag.assert_called_once()
+
+    @mock.patch("patch_browser.calibration_teardown.clear_maintenance_flag")
+    @mock.patch("patch_browser.calibration_teardown.emit_event")
+    @mock.patch("patch_browser.calibration_teardown.time.sleep")
+    @mock.patch("patch_browser.calibration_teardown.subprocess.run")
+    def test_restore_clears_maintenance_flag(
+        self,
+        _run: mock.Mock,
+        _sleep: mock.Mock,
+        _emit: mock.Mock,
+        clear_flag: mock.Mock,
+    ) -> None:
+        ct.restore_mpe_audio_services(restart_browser=False)
+        clear_flag.assert_called_once()
 
 
 class CalibrationHandoffTests(unittest.TestCase):
