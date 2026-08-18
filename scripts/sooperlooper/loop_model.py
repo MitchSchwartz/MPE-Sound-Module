@@ -33,6 +33,7 @@ from dataclasses import dataclass, field
 from sl_loop_states import (
     SL_STATE_MUTE,
     SL_STATE_OFF,
+    SL_STATE_OFF_MUTED,
     SL_STATE_PAUSED,
     SL_STATE_PLAYING,
     SL_STATE_RECORDING,
