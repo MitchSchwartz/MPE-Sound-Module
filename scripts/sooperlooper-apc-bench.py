@@ -34,7 +34,7 @@ from apc_transport import (  # noqa: E402
 from led_table import LED_OFF  # noqa: E402
 from loop_mix import CoalescingSender, LoopMix  # noqa: E402
 from sl_bench_listener import SlBenchStateListener  # noqa: E402
-from sl_grid_state import GridState, display_bpm  # noqa: E402
+from sl_grid_state import GridState  # noqa: E402
 from sl_grid_sync import (  # noqa: E402
     ENGINE_CONFIG_PROBE,
     apply_freeform,
