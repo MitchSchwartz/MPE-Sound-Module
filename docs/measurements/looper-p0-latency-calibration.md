@@ -1,7 +1,10 @@
 # P0 — SooperLooper input latency calibration (defining take seam)
 
-**Spec:** `Documents/specs/looper-loop-seam-spec.md` Tier 1 · **Gate:** Mitch ear S2  
 **Last updated:** 2026-08-18 (America/Toronto)
+
+**Pi result (2026-08-18):** `MPE_SL_INPUT_LATENCY=3072`, `MPE_SL_AUTOSET_LATENCY=0` locked in `/etc/mpe/mpe.env`. Mitch ear: **wrap OK** at defining take close. Crackle during record/play noted separately — not treated as P0 fail; track under xrun/buffer investigation.
+
+**Spec:** `Documents/specs/looper-loop-seam-spec.md` Tier 1 · **Gate:** Mitch ear S2
 
 **Canon:** [SooperLooper sync/latency](https://sonosaurus.com/sooperlooper/doc_sync.html) · [OSC parameters](https://sonosaurus.com/sooperlooper/doc_osc.html)
 
