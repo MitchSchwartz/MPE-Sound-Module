@@ -34,28 +34,25 @@ def _hud_thread_main(stop: threading.Event, writer: HudWriter) -> None:
         f"looper-session: HUD -> {SL_HUD_STATE_FILE} (background thread)",
         flush=True,
     )
-    try:
-        while not stop.is_set():
-            writer.poll()
-            if time.monotonic() - writer._registered_at > 15.0:
-                writer.register_auto_updates()
-            if stop.wait(0.1):
-                break
-    finally:
-        writer._graph_health.close()
+    while not stop.is_set():
+        writer.poll()
+        if writer.should_reregister():
+            writer.register_auto_updates()
+        if stop.wait(0.1):
+            break
 
 
-def start_hud_thread() -> tuple[threading.Thread, threading.Event]:
+def start_hud_thread() -> tuple[threading.Thread, threading.Event, HudWriter]:
     stop = threading.Event()
     writer = HudWriter()
     thread = threading.Thread(
         target=_hud_thread_main,
         args=(stop, writer),
         name="sl-hud-writer",
-        daemon=True,
+        daemon=False,
     )
     thread.start()
-    return thread, stop
+    return thread, stop, writer
 
 
 def run_session(argv: list[str] | None = None) -> int:
@@ -83,8 +80,9 @@ def run_session(argv: list[str] | None = None) -> int:
 
     hud_thread = None
     hud_stop = None
+    hud_writer = None
     if not args.bench_only:
-        hud_thread, hud_stop = start_hud_thread()
+        hud_thread, hud_stop, hud_writer = start_hud_thread()
 
     bench = _load_bench_module()
     try:
@@ -93,6 +91,8 @@ def run_session(argv: list[str] | None = None) -> int:
         if hud_stop is not None and hud_thread is not None:
             hud_stop.set()
             hud_thread.join(timeout=2.0)
+            if hud_writer is not None:
+                hud_writer.close()
 
 
 if __name__ == "__main__":
