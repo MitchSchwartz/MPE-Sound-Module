@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import tempfile
 import time
 import unittest
@@ -15,9 +16,11 @@ from patch_browser.session_snapshot import (
     field_age_stale,
     looper_guard_label,
     looper_policy,
+    next_seq,
     publish_snapshot,
     read_seq,
     read_snapshot,
+    set_maintenance_flag,
     write_snapshot,
 )
 
@@ -76,8 +79,8 @@ class SnapshotBuildTests(unittest.TestCase):
     def test_maintenance_mode(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             run = Path(tmp)
-            (run / "maintenance").write_text("1\n", encoding="utf-8")
-            snap = build_snapshot(now=time.time(), run=run, seq=3)
+            set_maintenance_flag(run=run, source="test", deadline_s=3600.0, pid=os.getpid())
+            snap = build_snapshot(now=time.time(), run=run, seq=3, unit_active=lambda _u: True)
             self.assertEqual(snap["mode"], "maintenance")
 
 
@@ -159,6 +162,33 @@ class DeriveModeTests(unittest.TestCase):
         from patch_browser.session_snapshot import derive_mode
 
         self.assertEqual(derive_mode({"state": "banana"}), "failed")
+
+class SnapshotLivenessUnknownTests(unittest.TestCase):
+    def test_unknown_liveness_marks_fields_stale(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            run = Path(tmp)
+            now = 2_000_000.0
+            (run / "engine.state").write_text(
+                f"engine=jack\nactive=jack\nstate=ok\nupdated={now - 1}\n",
+                encoding="utf-8",
+            )
+            (run / "jack.state").write_text(f"device=hw:0\nstarted={now - 1}\n", encoding="utf-8")
+            (run / "surge.state").write_text(f"engine=jack\nstarted={now - 1}\n", encoding="utf-8")
+            snap = build_snapshot(now=now, run=run, seq=1, unit_active=lambda _u: None)
+            self.assertTrue(snap["engine"]["stale"])
+            self.assertTrue(snap["jack"]["stale"])
+            self.assertTrue(snap["surge"]["stale"])
+
+
+class SnapshotSeqTests(unittest.TestCase):
+    def test_write_snapshot_does_not_regress_seq(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            run = Path(tmp)
+            first = {"schema": SCHEMA_VERSION, "seq": next_seq(run=run), "published_at": 1.0, "mode": "ok"}
+            second = {"schema": SCHEMA_VERSION, "seq": next_seq(run=run), "published_at": 2.0, "mode": "ok"}
+            write_snapshot(first, run=run)
+            write_snapshot(second, run=run)
+            self.assertEqual(read_seq(run=run), 2)
 
 if __name__ == "__main__":
     unittest.main()
