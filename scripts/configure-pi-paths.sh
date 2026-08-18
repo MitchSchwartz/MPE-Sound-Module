@@ -124,7 +124,7 @@ MPE_AUDIO_PROFILE MPE_JACK_BUFFER MPE_SURGE_BUFFER_SIZE MPE_SURGE_SAMPLE_RATE MP
             if [ -n "$_preserved_dac_volume_db" ]; then
                 echo "MPE_DAC_VOLUME_DB=$_preserved_dac_volume_db"
             else
-                echo "MPE_DAC_VOLUME_DB=-6"
+                echo "MPE_DAC_VOLUME_DB=-12"
             fi
             if [ -n "$_carried" ]; then
                 echo ""
