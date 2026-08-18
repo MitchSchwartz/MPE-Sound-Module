@@ -27,7 +27,7 @@
 | Looper | `MPE_SL_LOOP_GAIN`, `MPE_SL_LOOP_GAIN_LAW` |
 | Hardware mixer | `MPE_DAC_VOLUME_DB` in `/etc/mpe/mpe.env` → `scripts/set-dac-volume.sh` (`amixer` on Sound Blaster **Speaker**) |
 
-**Hardware output is the Sound Blaster Play! 3** (card index varies by hotplug — scripts detect by name). The playback control is **`Speaker`** — there is no `PCM` control on this card. Scale **0–88 raw**, dB ≈ `(raw − 88) × 0.5`. Appliance default: **`MPE_DAC_VOLUME_DB=-6`** (raw **76**). Previous default was 48 (−20 dB).
+**Hardware output is the Sound Blaster Play! 3** (card index varies by hotplug — scripts detect by name). The playback control is **`Speaker`** — there is no `PCM` control on this card. Scale **0–88 raw**, dB ≈ `(raw − 88) × 0.5`. Appliance default: **`MPE_DAC_VOLUME_DB=-12`** (raw **64**). Previous defaults: 76 (−6 dB), 48 (−20 dB).
 
 Treat the **dB figure as the real number**, not the percentage — `amixer`'s percentage is not perceived loudness. Read or set via:
 
