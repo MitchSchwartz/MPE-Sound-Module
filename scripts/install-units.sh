@@ -58,6 +58,8 @@ DISABLED=(
     # Phase 3M 2026-08-18: bench + HUD merged into mpe-looper-session.service.
     mpe-apc-bench
     sl-hud-monitor
+    # Phase 5 compiled OUT meter — enabled manually when MPE_PEAK_METER=1
+    mpe-peak-meter
 )
 
 # No [Install] section — cannot be enabled, only pulled in by another unit.

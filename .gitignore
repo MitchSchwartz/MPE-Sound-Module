@@ -40,3 +40,4 @@ logs/shutdown-test-marker.json
 .yolo/headless
 
 # Everything else (binaries, patches, configs) GOES IN GIT for backup!
+native/mpe-peak-meter/mpe-peak-meter
