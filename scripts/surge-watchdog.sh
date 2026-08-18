@@ -23,7 +23,7 @@ _supervisor_restart_surge() {
         return 1
     fi
     local now decision last count jackd_start looper_label
-    now=$(date +%s)
+    now=$EPOCHSECONDS
     last=$(mpe_engine_reconcile_last_restart)
     count=$(mpe_engine_reconcile_count)
     jackd_start=$(mpe_jack_start_epoch)
@@ -63,12 +63,23 @@ _supervisor_restart_surge() {
 # budget, then treat jackd as down and restart Surge (it will fail loud and
 # retry on its own until jackd recovers — spec D3 amended 2026-08-13).
 _reconcile_engine() {
-    local waited looper_label
+    local waited looper_label state active
 
     looper_label="$(mpe_looper_state_label)"
 
     if mpe_planned_promote_flag_set; then
         return 0
+    fi
+
+    # Steady state: unit active and engine already ok — skip jack_lsp (~116 ms/call,
+    # registers an ephemeral JACK client each time). Graph probe only when action
+    # may be needed (same pattern as looper reconcile pre-filter, PR #68).
+    if systemctl is-active --quiet "$SURGE_SERVICE" 2>/dev/null; then
+        state="$(mpe_engine_state_get state)"
+        active="$(mpe_engine_state_get active)"
+        if [ "$state" = ok ] && [ "$active" = jack ]; then
+            return 0
+        fi
     fi
 
     if mpe_surge_on_jack_graph; then
@@ -157,7 +168,7 @@ while true; do
 
     _reconcile_engine
 
-    now=$(date +%s)
+    now=$EPOCHSECONDS
     if [ $((now - _last_looper_reconcile)) -ge "$LOOPER_RECONCILE_INTERVAL_S" ]; then
         _reconcile_looper_units_if_needed
         _last_looper_reconcile=$now
