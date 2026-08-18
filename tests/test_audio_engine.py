@@ -446,6 +446,68 @@ printf 'SURVIVED'
             finally:
                 ro_dir.chmod(0o755)
 
+    def test_unchanged_republish_does_not_rewrite_the_file(self) -> None:
+        """The supervisor reconciles every 10 s; an identical rewrite is pure churn."""
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp) / "engine.state"
+            body = f"""
+source {AUDIO_ENGINE_SH}
+export MPE_ENGINE_STATE_FILE="{state}"
+mpe_engine_state_write jack jack ok "" off
+stat -c %Y.%i "{state}"
+sleep 1.1
+mpe_engine_state_write jack jack ok "" off
+stat -c %Y.%i "{state}"
+"""
+            result = _run_bash_script(body, env=_bash_env(tmp))
+            self.assertEqual(result.returncode, 0, result.stderr)
+            first, second = result.stdout.split()
+            self.assertEqual(first, second, "identical state was rewritten (mtime/inode moved)")
+
+    def test_changed_state_still_rewrites(self) -> None:
+        """The skip must key on content, not on 'we already wrote once'."""
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp) / "engine.state"
+            body = f"""
+source {AUDIO_ENGINE_SH}
+export MPE_ENGINE_STATE_FILE="{state}"
+mpe_engine_state_write jack jack ok "" off
+mpe_engine_state_write jack none recovering surge-failed off
+mpe_state_get "{state}" state
+mpe_state_get "{state}" reason
+"""
+            result = _run_bash_script(body, env=_bash_env(tmp))
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout.split(), ["recovering", "surge-failed"])
+
+    def test_reason_only_change_still_rewrites(self) -> None:
+        """Same state, new reason — the reason is the whole diagnostic payload."""
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp) / "engine.state"
+            body = f"""
+source {AUDIO_ENGINE_SH}
+export MPE_ENGINE_STATE_FILE="{state}"
+mpe_engine_state_write jack none recovering jackd-down off
+mpe_engine_state_write jack none recovering promote-planned off
+mpe_state_get "{state}" reason
+"""
+            result = _run_bash_script(body, env=_bash_env(tmp))
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout.strip(), "promote-planned")
+
+    def test_missing_state_file_is_always_written(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp) / "engine.state"
+            body = f"""
+source {AUDIO_ENGINE_SH}
+export MPE_ENGINE_STATE_FILE="{state}"
+mpe_engine_state_write jack jack ok "" off
+mpe_state_get "{state}" state
+"""
+            result = _run_bash_script(body, env=_bash_env(tmp))
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout.strip(), "ok")
+
 
 class JackLspProbeTests(unittest.TestCase):
     """M4 — both probes treat missing jack_lsp as not-ready."""
@@ -478,6 +540,52 @@ echo ok
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.strip(), "ok")
 
+
+    def test_surge_on_jack_graph_matches_case_insensitively_without_grep(self) -> None:
+        """Replacing `grep -qi` with a bash case must keep the -i, including SURGE."""
+        for client in ("Surge XT:output_1", "surge-xt:out", "SURGE XT:out"):
+            with self.subTest(client=client):
+                with tempfile.TemporaryDirectory() as tmp:
+                    bin_dir = Path(tmp) / "bin"
+                    bin_dir.mkdir()
+                    jack_stub = bin_dir / "jack_lsp"
+                    jack_stub.write_text(f"#!/bin/sh\nprintf '{client}\\n'\n", encoding="utf-8")
+                    jack_stub.chmod(jack_stub.stat().st_mode | stat.S_IXUSR)
+                    body = f"""
+source {AUDIO_ENGINE_SH}
+pgrep() {{ [ "$1" = "-x" ] && [ "$2" = "jackd" ] && return 0; return 1; }}
+export -f pgrep
+timeout() {{ shift; "$@"; }}
+export -f timeout
+export PATH="{bin_dir}:$PATH"
+if mpe_surge_on_jack_graph; then echo yes; else echo no; fi
+"""
+                    result = _run_bash_script(body)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(result.stdout.strip(), "yes")
+
+    def test_surge_on_jack_graph_rejects_a_graph_without_surge(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            bin_dir = Path(tmp) / "bin"
+            bin_dir.mkdir()
+            jack_stub = bin_dir / "jack_lsp"
+            jack_stub.write_text(
+                "#!/bin/sh\nprintf 'system:capture_1\\nmpe-looper:out\\n'\n", encoding="utf-8"
+            )
+            jack_stub.chmod(jack_stub.stat().st_mode | stat.S_IXUSR)
+            body = f"""
+source {AUDIO_ENGINE_SH}
+pgrep() {{ [ "$1" = "-x" ] && [ "$2" = "jackd" ] && return 0; return 1; }}
+export -f pgrep
+timeout() {{ shift; "$@"; }}
+export -f timeout
+export PATH="{bin_dir}:$PATH"
+if mpe_surge_on_jack_graph; then exit 9; fi
+echo ok
+"""
+            result = _run_bash_script(body)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout.strip(), "ok")
 
     def test_surge_on_jack_graph_calls_jack_lsp_once(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
