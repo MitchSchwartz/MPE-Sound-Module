@@ -193,6 +193,12 @@ class LedTableTests(unittest.TestCase):
     def test_queued_to_record_is_ableton_standard(self) -> None:
         self.assertEqual(led_for(SL_STATE_WAIT_START), (LED_RED_BLINK,))
 
+    def test_tail_capture_led_matches_wait_stop(self) -> None:
+        self.assertEqual(
+            led_for(SL_STATE_RECORDING, tail_capture=True),
+            RECORD_TO_PLAY,
+        )
+
     def test_recording_queued_to_play_shows_both_colours(self) -> None:
         """The state Ableton drops: recording is STILL RUNNING into this bar."""
         self.assertEqual(led_for(SL_STATE_WAIT_STOP), RECORD_TO_PLAY)

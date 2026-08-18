@@ -34,6 +34,7 @@ from sl_grid_sync import (
     TAIL_CAPTURE_ENABLED,
     TAIL_HOLD_S,
     TAIL_MAX_S,
+    TAIL_ABSOLUTE_MAX_S,
     TAIL_THRESH,
     detect_loop_wrap,
     should_defer_phase_anchor,
@@ -127,6 +128,7 @@ class LoopFootswitch:
         self._tail_silence_since: float | None = None
         self._in_peak = 0.0
         self._in_peak_seen = False
+        self._tail_saw_loud = False
 
     def bind(self, osc, midi_out, note: int | None) -> None:
         self._osc = osc
@@ -189,6 +191,8 @@ class LoopFootswitch:
     def sync_in_peak(self, peak: float) -> None:
         self._in_peak = max(0.0, float(peak))
         self._in_peak_seen = True
+        if self._tail_capture and self._in_peak >= TAIL_THRESH:
+            self._tail_saw_loud = True
 
     def _cancel_tail_capture(self) -> None:
         if self._tail_capture and self._on_tail_capture_end is not None:
@@ -196,6 +200,7 @@ class LoopFootswitch:
         self._tail_capture = False
         self._tail_capture_since = 0.0
         self._tail_silence_since = None
+        self._tail_saw_loud = False
 
     def _finish_tail_capture(self, reason: str) -> None:
         if not self._tail_capture:
@@ -224,13 +229,23 @@ class LoopFootswitch:
         if not self._tail_capture:
             return
         now = time.monotonic()
-        if (now - self._tail_capture_since) >= TAIL_MAX_S:
-            self._finish_tail_capture(f"max {TAIL_MAX_S:.2f}s")
+        elapsed = now - self._tail_capture_since
+        if elapsed >= TAIL_ABSOLUTE_MAX_S:
+            self._finish_tail_capture(f"absolute max {TAIL_ABSOLUTE_MAX_S:.2f}s")
             return
-        if not self._in_peak_seen:
-            return
-        if self._in_peak >= TAIL_THRESH:
+        if self._in_peak_seen and self._in_peak >= TAIL_THRESH:
+            self._tail_saw_loud = True
             self._tail_silence_since = None
+            return
+        if (
+            elapsed >= TAIL_MAX_S
+            and not self._tail_saw_loud
+        ):
+            self._finish_tail_capture(
+                f"max {TAIL_MAX_S:.2f}s (no peak ≥ {TAIL_THRESH})"
+            )
+            return
+        if not self._in_peak_seen or not self._tail_saw_loud:
             return
         if self._tail_silence_since is None:
             self._tail_silence_since = now
@@ -495,6 +510,7 @@ class LoopFootswitch:
             self._tail_silence_since = None
             self._in_peak = 0.0
             self._in_peak_seen = False
+            self._tail_saw_loud = False
             if self._on_tail_capture_begin is not None:
                 self._on_tail_capture_begin(self.loop)
             self._expect(STATE_RECORDING)
