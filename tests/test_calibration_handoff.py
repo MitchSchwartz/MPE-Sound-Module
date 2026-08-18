@@ -43,6 +43,28 @@ def _systemctl_calls(run_mock: mock.Mock, verb: str) -> list[str]:
     return units
 
 
+class LooperReconcileTests(unittest.TestCase):
+    @mock.patch("patch_browser.calibration_teardown._systemctl")
+    @mock.patch("patch_browser.calibration_teardown._unit_is_active", return_value=False)
+    @mock.patch("patch_browser.calibration_teardown.maintenance_flag_path")
+    def test_ensure_looper_starts_stopped_units(
+        self, maint_mock: mock.Mock, _active: mock.Mock, systemctl_mock: mock.Mock
+    ) -> None:
+        maint_mock.return_value.exists.return_value = False
+        ct.ensure_looper_units_running()
+        started = [c.args[0] for c in systemctl_mock.call_args_list if c.args[1] == "start"]
+        self.assertEqual(started, list(ct.LOOPER_UNITS_START_ORDER))
+
+    @mock.patch("patch_browser.calibration_teardown._systemctl")
+    @mock.patch("patch_browser.calibration_teardown.maintenance_flag_path")
+    def test_ensure_looper_skips_under_maintenance(
+        self, maint_mock: mock.Mock, systemctl_mock: mock.Mock
+    ) -> None:
+        maint_mock.return_value.exists.return_value = True
+        ct.ensure_looper_units_running()
+        systemctl_mock.assert_not_called()
+
+
 class CalibrationHandoffTests(unittest.TestCase):
     def setUp(self) -> None:
         self._env = mock.patch.dict(os.environ, {}, clear=False)

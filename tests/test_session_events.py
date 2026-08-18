@@ -66,5 +66,14 @@ class SessionEventEmitTests(unittest.TestCase):
             self.assertEqual(len(started), 1)
 
 
+
+class SessionEventReadTests(unittest.TestCase):
+    def test_read_events_limit_zero_returns_empty(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            run = Path(tmp)
+            emit_event("engine.started", source="t", ts=1.0, run=run)
+            self.assertEqual(read_events(run=run, limit=0), [])
+
+
 if __name__ == "__main__":
     unittest.main()
