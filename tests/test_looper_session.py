@@ -48,7 +48,7 @@ class LooperSessionPhase3MTests(unittest.TestCase):
         self.assertIn("RETIRED_LOOPER_CLIENTS=(mpe-apc-bench sl-hud-monitor)", text)
         self.assertIn('systemctl stop --now "$u.service"', text)
 
-    def test_sync_source_restart_sentinel_removed(self) -> None:
+    def test_config_drift_sentinel_removed(self) -> None:
         grid_sync = (REPO / "scripts/sooperlooper/sl_grid_sync.py").read_text(
             encoding="utf-8"
         )
@@ -56,9 +56,9 @@ class LooperSessionPhase3MTests(unittest.TestCase):
             encoding="utf-8"
         )
         self.assertNotIn("RESTART_SENTINEL", grid_sync)
-        self.assertNotIn("GLOBAL_SENTINEL", listener)
-        self.assertIn("ENGINE_CONFIG_PROBE", grid_sync)
-        self.assertIn("smart_eighths", grid_sync)
+        self.assertNotIn("ENGINE_CONFIG_PROBE", grid_sync)
+        self.assertNotIn("GLOBAL_CONFIG_PROBE", listener)
+        self.assertIn("looper.engine.started", (REPO / "patch_browser/session_events.py").read_text())
 
     def test_looper_session_entry_exists(self) -> None:
         entry = REPO / "scripts/looper-session.py"
@@ -71,6 +71,7 @@ class LooperSessionPhase3MTests(unittest.TestCase):
         self.assertIn("start_hud_thread", mod)
         self.assertIn("threading.Thread", mod)
         self.assertIn("daemon=False", mod)
+        self.assertIn("os._exit(1)", mod)
         self.assertIn("hud_writer.close()", mod)
 
     def test_run_session_bench_only_skips_hud_thread(self) -> None:

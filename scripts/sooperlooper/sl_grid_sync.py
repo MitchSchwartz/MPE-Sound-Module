@@ -113,18 +113,6 @@ def set_grid_active(
         send(prefix, ["mute_quantized", 1.0 if active else 0.0])
 
 
-# Engine restart detection: we force smart_eighths off; a fresh engine
-# defaults it ON (1.0). Unlike sync_source (which we also set), this is the
-# setting whose mismatch means "grid config was lost" without using sync_source
-# as a restart sentinel (Phase 3M criterion 40).
-ENGINE_CONFIG_PROBE = "smart_eighths"
-
-
-def expected_engine_config() -> float:
-    """What smart_eighths must read while our grid config is in force."""
-    return 0.0
-
-
 def apply_grid_sync(
     send: Callable[[str, list], None],
     *,
