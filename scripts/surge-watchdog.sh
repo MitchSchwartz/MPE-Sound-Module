@@ -129,6 +129,10 @@ while true; do
 
     _reconcile_engine
 
+    if [ -x "$MPE_MODULE_REPO/scripts/ensure-looper-units-running.py" ]; then
+        python3 "$MPE_MODULE_REPO/scripts/ensure-looper-units-running.py" >/dev/null 2>&1 || true
+    fi
+
     sleep 5
 done
 fi

@@ -1,6 +1,6 @@
 # Session control plane — one owner per fact, reconciliation over sequences
 
-**Status:** Implemented — 2026-08-17 (Phases 0–2)
+**Status:** Draft — Phases 0–2 (Pi verification pending)
 **Author:** written after the 2026-08-17 stability session; every claim in Evidence is measured on `raspberrypi2`, not reasoned.
 
 ---
