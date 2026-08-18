@@ -229,5 +229,43 @@ class CalibrationLoaderLaunchTests(unittest.TestCase):
         exit_mock.assert_called_once_with(1)
 
 
+class LooperReconcileRespectsDisabledTests(unittest.TestCase):
+    """`systemctl disable` must actually disable (2026-08-18).
+
+    The looper stack became opt-in after it was measured at 24-35 xruns/min against
+    2-10 without it. But ensure_looper_units_running() started any unit that was not
+    active, regardless of enabled state — so surge-watchdog's 30 s reconcile restarted
+    the whole stack within half a minute of an operator disabling it. Observed live:
+    all three units restarted at the moment surge-watchdog was restarted.
+    """
+
+    @mock.patch("patch_browser.calibration_teardown.maintenance_mode_active", return_value=False)
+    @mock.patch("patch_browser.calibration_teardown.systemd_unit_active", return_value=False)
+    @mock.patch("patch_browser.calibration_teardown.systemd_unit_enabled", return_value=False)
+    @mock.patch("patch_browser.calibration_teardown.subprocess.run")
+    def test_disabled_units_are_not_started(
+        self, run_mock: mock.Mock, _enabled: mock.Mock, _active: mock.Mock, _maint: mock.Mock
+    ) -> None:
+        ct.ensure_looper_units_running()
+        self.assertEqual(
+            _systemctl_calls(run_mock, "start"),
+            [],
+            "a disabled unit must never be auto-started — disable would be a silent no-op",
+        )
+
+    @mock.patch("patch_browser.calibration_teardown.maintenance_mode_active", return_value=False)
+    @mock.patch("patch_browser.calibration_teardown.systemd_unit_active", return_value=False)
+    @mock.patch("patch_browser.calibration_teardown.systemd_unit_enabled", return_value=True)
+    @mock.patch("patch_browser.calibration_teardown.subprocess.run")
+    def test_enabled_but_stopped_units_are_still_recovered(
+        self, run_mock: mock.Mock, _enabled: mock.Mock, _active: mock.Mock, _maint: mock.Mock
+    ) -> None:
+        """The aborted-calibration recovery this function exists for must still work."""
+        ct.ensure_looper_units_running()
+        started = _systemctl_calls(run_mock, "start")
+        for unit in ct.LOOPER_UNITS_START_ORDER:
+            self.assertIn(unit, started)
+
+
 if __name__ == "__main__":
     unittest.main()
