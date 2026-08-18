@@ -34,6 +34,25 @@ def _file_signature(path: Path) -> tuple[int, int, int] | None:
         return None
 
 
+def _ts_from_lines(lines: list[str]) -> float | None:
+    latest: float | None = None
+    for line in lines:
+        parsed = parse_event_line(line)
+        if parsed is None or parsed.get("event") != LOOPER_ENGINE_STARTED:
+            continue
+        latest = float(parsed.get("ts") or 0.0)
+    return latest
+
+
+def _latest_from_full_read(path: Path) -> float | None:
+    """Rare backstop when the target event scrolled past the tail window."""
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return None
+    return _ts_from_lines(lines)
+
+
 def _latest_looper_started_ts(path: Path) -> float | None:
     """Return ts of the newest ``looper.engine.started`` line, reading from the tail."""
     try:
@@ -49,13 +68,10 @@ def _latest_looper_started_ts(path: Path) -> float | None:
             chunk = handle.read().decode("utf-8", errors="replace")
     except OSError:
         return None
-    latest: float | None = None
-    for line in chunk.splitlines():
-        parsed = parse_event_line(line)
-        if parsed is None or parsed.get("event") != LOOPER_ENGINE_STARTED:
-            continue
-        latest = float(parsed.get("ts") or 0.0)
-    return latest
+    ts = _ts_from_lines(chunk.splitlines())
+    if ts is None and size > _TAIL_READ_BYTES:
+        ts = _latest_from_full_read(path)
+    return ts
 
 
 class LooperEngineEventWatch:
