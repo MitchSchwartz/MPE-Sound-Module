@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import importlib.util
+import os
 import sys
 import threading
 import time
@@ -29,17 +30,25 @@ def _load_bench_module():
 
 
 def _hud_thread_main(stop: threading.Event, writer: HudWriter) -> None:
-    writer.register_auto_updates()
-    print(
-        f"looper-session: HUD -> {SL_HUD_STATE_FILE} (background thread)",
-        flush=True,
-    )
-    while not stop.is_set():
-        writer.poll()
-        if writer.should_reregister():
-            writer.register_auto_updates()
-        if stop.wait(0.1):
-            break
+    try:
+        writer.register_auto_updates()
+        print(
+            f"looper-session: HUD -> {SL_HUD_STATE_FILE} (background thread)",
+            flush=True,
+        )
+        while not stop.is_set():
+            writer.poll()
+            if writer.should_reregister():
+                writer.register_auto_updates()
+            if stop.wait(0.1):
+                break
+    except Exception as exc:
+        print(
+            f"looper-session: FATAL HUD thread failure ({exc!r}) — "
+            f"exiting for Restart=always",
+            flush=True,
+        )
+        os._exit(1)
 
 
 def start_hud_thread() -> tuple[threading.Thread, threading.Event, HudWriter]:
