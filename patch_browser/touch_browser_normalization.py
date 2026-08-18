@@ -71,7 +71,9 @@ class TouchBrowserNormalizationMixin:
         return bool(
             entry
             and (
-                entry.get("gain_db") is not None or entry.get("user_gain_db") is not None
+                entry.get("gain_db") is not None
+                or entry.get("user_trim_db") is not None
+                or entry.get("user_gain_db") is not None
             )
         )
 
@@ -90,11 +92,8 @@ class TouchBrowserNormalizationMixin:
         store = self.loader.normalization
         kw = self._detail_sidecar_kw()
         name = self.detail_patch["name"]
-        effective = store.get_effective_gain_db(name, **kw)
-        if effective is not None:
-            return max(NORM_GAIN_DB_MIN, min(NORM_GAIN_DB_MAX, effective))
-        default = store.get_slider_default_gain_db(name, **kw)
-        return max(NORM_GAIN_DB_MIN, min(NORM_GAIN_DB_MAX, default))
+        trim = store.get_user_trim_db(name, **kw)
+        return max(NORM_GAIN_DB_MIN, min(NORM_GAIN_DB_MAX, trim))
 
     def _apply_norm_gain_db(self, gain_db: float, *, persist: bool = True) -> None:
         if not self.detail_patch:
@@ -103,12 +102,11 @@ class TouchBrowserNormalizationMixin:
         kw = self._detail_sidecar_kw()
         name = patch["name"]
         store = self.loader.normalization
-        default = store.get_slider_default_gain_db(name, **kw)
         clamped = max(NORM_GAIN_DB_MIN, min(NORM_GAIN_DB_MAX, float(gain_db)))
-        if abs(clamped - default) < 0.05:
-            store.clear_user_gain_db(name, persist=persist, **kw)
+        if abs(clamped) < 0.05:
+            store.clear_user_trim_db(name, persist=persist, **kw)
         else:
-            store.set_user_gain_db(name, clamped, persist=persist, **kw)
+            store.set_user_trim_db(name, clamped, persist=persist, **kw)
         loaded = self.loaded_patch_info
         if loaded and self.loader.osc_enabled and store.refs_match(loaded, patch):
             self.loader.refresh_patch_volume(name)
@@ -120,13 +118,12 @@ class TouchBrowserNormalizationMixin:
         kw = self._detail_sidecar_kw()
         name = patch["name"]
         store = self.loader.normalization
-        store.clear_user_gain_db(name, **kw)
-        default = store.get_slider_default_gain_db(name, **kw)
+        store.clear_user_trim_db(name, **kw)
         loaded = self.loaded_patch_info
         if loaded and self.loader.osc_enabled and store.refs_match(loaded, patch):
             self.loader.refresh_patch_volume(name)
         if store.get_calibrated_gain_db(name, **kw) is not None:
-            self._toast(f"Level reset to {default:+.1f} dB", 1.5)
+            self._toast("Norm trim reset to calibrated baseline", 1.5)
         else:
             self._toast("Level reset to 0 dB", 1.5)
 

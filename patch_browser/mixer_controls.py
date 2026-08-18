@@ -171,7 +171,7 @@ class TailControl:
 
 
 class NormControl:
-    """Calibrated absolute value on a bipolar scale."""
+    """Per-patch trim offset from calibrated gain (v2 Norm fader)."""
 
     spec = MixerControlSpec("norm", "Norm", NORM_GAIN_DB_MIN, NORM_GAIN_DB_MAX)
 
@@ -191,11 +191,8 @@ class NormControl:
         patch = browser.detail_patch
         kw = sidecar_kwargs_from_patch(patch)
         name = patch["name"]
-        effective = store.get_effective_gain_db(name, **kw)
-        if effective is not None:
-            return max(self.spec.min_value, min(self.spec.max_value, effective))
-        default = store.get_slider_default_gain_db(name, **kw)
-        return max(self.spec.min_value, min(self.spec.max_value, default))
+        trim = store.get_user_trim_db(name, **kw)
+        return max(self.spec.min_value, min(self.spec.max_value, trim))
 
     def default(self, browser) -> float:
         if not browser.detail_patch:
@@ -213,12 +210,11 @@ class NormControl:
         kw = sidecar_kwargs_from_patch(patch)
         name = patch["name"]
         store = browser.loader.normalization
-        default = store.get_slider_default_gain_db(name, **kw)
         clamped = max(self.spec.min_value, min(self.spec.max_value, float(value)))
-        if abs(clamped - default) < 0.05:
-            store.clear_user_gain_db(name, persist=persist, **kw)
+        if abs(clamped) < 0.05:
+            store.clear_user_trim_db(name, persist=persist, **kw)
         else:
-            store.set_user_gain_db(name, clamped, persist=persist, **kw)
+            store.set_user_trim_db(name, clamped, persist=persist, **kw)
         loaded = browser.loaded_patch_info
         if (
             loaded
@@ -234,8 +230,7 @@ class NormControl:
         kw = sidecar_kwargs_from_patch(patch)
         name = patch["name"]
         store = browser.loader.normalization
-        store.clear_user_gain_db(name, **kw)
-        default = store.get_slider_default_gain_db(name, **kw)
+        store.clear_user_trim_db(name, **kw)
         loaded = browser.loaded_patch_info
         if (
             loaded
@@ -243,10 +238,7 @@ class NormControl:
             and store.refs_match(loaded, patch)
         ):
             browser.loader.refresh_patch_volume(name)
-        if store.get_calibrated_gain_db(name, **kw) is not None:
-            browser._toast(f"Level reset to {default:+.1f} dB", 1.5)
-        else:
-            browser._toast("Level reset to 0 dB", 1.5)
+        browser._toast("Norm trim reset to calibrated baseline", 1.5)
 
     def format(self, value: float) -> str:
         return f"{value:+.1f}"
