@@ -98,8 +98,15 @@ class LooperStackIsSupervisedTests(unittest.TestCase):
     def test_looper_units_are_not_started_at_boot(self) -> None:
         """2026-08-18: the looper stack costs 24-31 xruns/min vs 2-6 without it.
 
-        Measured with a deterministic MIDI load at DSP median ~42%, across two
-        baselines and two minimal runs — a 5-10x gap, outside a +/-30% noise floor.
+        NOTE 2026-08-18 (same day): these numbers are VOID. They were taken while
+        surge-watchdog's jack_lsp probe was the dominant xrun source — the run that
+        produced them stopped the looper AND both watchdogs together, and credited the
+        looper. After the probe was fixed the appliance measures 0 xruns/min with the
+        looper off; the looper's own cost has not been re-measured and may be small.
+        See docs/measurements/crackle-root-cause-2026-08-18.md.
+
+        The stack stays opt-in until it is re-measured — that is a deliberate default,
+        not a conclusion. Re-test with scripts/midi-load.py before D15 uses it.
         They stay installed and supervised (Restart=always, so the 2026-08-17
         six-hour outage stays fixed) but must not come up on their own: the
         instrument boots clean and looping is an explicit choice.
