@@ -32,9 +32,9 @@ TAIL_CAPTURE_ENABLED = os.environ.get("MPE_SL_TAIL_CAPTURE", "1").strip().lower(
     "false",
     "",
 )
-# extend = Tier 2 (grow clip 0 until release quiet). seam = Option E (fixed bar +
-# overdub release at wrap — avoids tail stacking louder at N→0).
-TAIL_MODE = os.environ.get("MPE_SL_TAIL_MODE", "seam").strip().lower()
+# extend = Tier 2 (grow clip 0 until release quiet) — default, ear-validated.
+# seam = Option E (fixed bar + seam overdub) — experimental; opt-in only.
+TAIL_MODE = os.environ.get("MPE_SL_TAIL_MODE", "extend").strip().lower()
 TAIL_SEAM_MODE = TAIL_MODE in ("seam", "e", "overdub", "option_e")
 TAIL_THRESH = float(os.environ.get("MPE_SL_TAIL_THRESH", "0.02"))
 TAIL_HOLD_S = float(os.environ.get("MPE_SL_TAIL_HOLD_MS", "80")) / 1000.0
