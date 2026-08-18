@@ -14,6 +14,7 @@ all: $(BIN)
 
 check:
 	@pkg-config --exists jack || (echo "libjack-dev not installed — skip native build" >&2; exit 1)
+	$(MAKE) clean all
 
 $(BIN): $(SRC)
 	$(CC) $(CFLAGS) $(shell pkg-config --cflags jack) -o $@ $< $(LDFLAGS) $(shell pkg-config --libs jack) -lm -lpthread
