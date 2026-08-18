@@ -5,12 +5,12 @@
  * callback. This process runs the RT work; the touch UI reads /run/mpe/meter.state.
  *
  * RT callback: block peak only — no syscalls, locks, or allocation.
- * Writer thread: ~30 Hz atomic read + atomic KEY=value file install.
+ * Writer thread: 5 Hz atomic read + atomic KEY=value file install (matches UI poll).
  */
 
 #define _GNU_SOURCE
+#include <assert.h>
 #include <errno.h>
-#include <fcntl.h>
 #include <jack/jack.h>
 #include <math.h>
 #include <signal.h>
@@ -27,16 +27,21 @@
 #define CLIENT_NAME "mpe-peak-meter"
 #define SURGE_CLIENT_DEFAULT "Surge XT"
 #define LOOPER_CLIENT_DEFAULT "mpe-looper"
-#define WRITER_INTERVAL_US 33333
+/* Match SurgePeakMonitor POLL_INTERVAL_S (0.2 s = 5 Hz). Decay is per write. */
+#define WRITER_INTERVAL_US 200000
 #define CONNECT_INTERVAL_US 2000000
+#define PEAK_DECAY 0.92f
 #define METER_STATE_NAME "meter.state"
+#define RUN_DIR_MAX 480
 
 static jack_client_t *g_client;
 static jack_port_t *g_in_ports[2];
 static volatile sig_atomic_t g_running = 1;
-static atomic_float g_period_peak = 0.0f;
-static atomic_int g_wired = 0;
-static char g_run_dir[512] = "/run/mpe";
+static volatile sig_atomic_t g_jack_shutdown = 0;
+static _Atomic float g_period_peak = 0.0f;
+static atomic_int g_surge_wired = 0;
+static _Atomic unsigned long g_xrun_count = 0;
+static char g_run_dir[RUN_DIR_MAX + 1] = "/run/mpe";
 static char g_surge_client[128];
 static int g_include_looper = 0;
 
@@ -79,9 +84,17 @@ static int process(jack_nframes_t nframes, void *arg)
     return 0;
 }
 
+static int on_xrun(void *arg)
+{
+    (void)arg;
+    atomic_fetch_add_explicit(&g_xrun_count, 1UL, memory_order_relaxed);
+    return 0;
+}
+
 static void on_shutdown(void *arg)
 {
     (void)arg;
+    g_jack_shutdown = 1;
     g_running = 0;
 }
 
@@ -94,21 +107,29 @@ static int env_truthy(const char *value)
             strcasecmp(value, "yes") == 0 || strcasecmp(value, "on") == 0);
 }
 
-static void write_meter_state(float peak_linear, int wired)
+static void write_meter_state(float peak_linear, int surge_wired, unsigned long xruns)
 {
-    char path[640];
-    char tmp[640];
-    snprintf(path, sizeof(path), "%s/%s", g_run_dir, METER_STATE_NAME);
-    snprintf(tmp, sizeof(tmp), "%s.tmp.%d", path, (int)getpid());
+    char path[RUN_DIR_MAX + 32];
+    char tmp[sizeof(path) + 32];
+    int pid = (int)getpid();
+
+    if (snprintf(path, sizeof(path), "%s/%s", g_run_dir, METER_STATE_NAME) >= (int)sizeof(path)) {
+        return;
+    }
+    if (snprintf(tmp, sizeof(tmp), "%s.tmp.%d", path, pid) >= (int)sizeof(tmp)) {
+        return;
+    }
 
     FILE *fh = fopen(tmp, "we");
     if (fh == NULL) {
         return;
     }
     fprintf(fh, "peak_linear=%.9g\n", peak_linear);
-    fprintf(fh, "wired=%d\n", wired ? 1 : 0);
-    fprintf(fh, "online=%d\n", wired ? 1 : 0);
+    /* wired= reflects Surge XT:out_{1,2} only; looper taps are best-effort. */
+    fprintf(fh, "wired=%d\n", surge_wired ? 1 : 0);
+    fprintf(fh, "online=%d\n", surge_wired ? 1 : 0);
     fprintf(fh, "source=jack\n");
+    fprintf(fh, "xruns=%lu\n", xruns);
     fprintf(fh, "updated=%ld\n", (long)time(NULL));
     fclose(fh);
     chmod(tmp, 0644);
@@ -147,11 +168,11 @@ static int connect_source(const char *source, jack_port_t *dest)
 static int ensure_wiring(void)
 {
     char src[256];
-    int ok = 1;
+    int surge_ok = 1;
     for (int ch = 1; ch <= 2; ch++) {
         snprintf(src, sizeof(src), "%s:out_%d", g_surge_client, ch);
         if (connect_source(src, g_in_ports[ch - 1]) != 0) {
-            ok = 0;
+            surge_ok = 0;
         }
     }
     if (g_include_looper) {
@@ -160,8 +181,8 @@ static int ensure_wiring(void)
             (void)connect_source(src, g_in_ports[ch - 1]);
         }
     }
-    atomic_store_explicit(&g_wired, ok, memory_order_relaxed);
-    return ok;
+    atomic_store_explicit(&g_surge_wired, surge_ok, memory_order_relaxed);
+    return surge_ok;
 }
 
 static void *writer_thread(void *arg)
@@ -174,13 +195,14 @@ static void *writer_thread(void *arg)
         if (window_peak > held_peak) {
             held_peak = window_peak;
         } else {
-            held_peak *= 0.92f;
+            held_peak *= PEAK_DECAY;
         }
-        int wired = atomic_load_explicit(&g_wired, memory_order_relaxed);
-        write_meter_state(held_peak, wired);
+        int surge_wired = atomic_load_explicit(&g_surge_wired, memory_order_relaxed);
+        unsigned long xruns = atomic_load_explicit(&g_xrun_count, memory_order_relaxed);
+        write_meter_state(held_peak, surge_wired, xruns);
         usleep(WRITER_INTERVAL_US);
     }
-    write_meter_state(0.0f, 0);
+    write_meter_state(0.0f, 0, atomic_load_explicit(&g_xrun_count, memory_order_relaxed));
     return NULL;
 }
 
@@ -220,6 +242,9 @@ int main(int argc, char **argv)
     (void)argc;
     (void)argv;
 
+    assert(atomic_is_lock_free(&g_period_peak));
+    assert(atomic_is_lock_free(&g_xrun_count));
+
     load_env();
     signal(SIGINT, handle_signal);
     signal(SIGTERM, handle_signal);
@@ -231,6 +256,7 @@ int main(int argc, char **argv)
     }
 
     jack_set_process_callback(g_client, process, NULL);
+    jack_set_xrun_callback(g_client, on_xrun, NULL);
     jack_on_shutdown(g_client, on_shutdown, NULL);
 
     for (int ch = 0; ch < 2; ch++) {
@@ -257,12 +283,14 @@ int main(int argc, char **argv)
     pthread_t connector;
     if (pthread_create(&writer, NULL, writer_thread, NULL) != 0) {
         fprintf(stderr, "mpe-peak-meter: writer thread failed\n");
+        jack_deactivate(g_client);
         jack_client_close(g_client);
         return 1;
     }
     if (pthread_create(&connector, NULL, connect_thread, NULL) != 0) {
         g_running = 0;
         pthread_join(writer, NULL);
+        jack_deactivate(g_client);
         jack_client_close(g_client);
         return 1;
     }
@@ -275,5 +303,6 @@ int main(int argc, char **argv)
     pthread_join(writer, NULL);
     jack_deactivate(g_client);
     jack_client_close(g_client);
-    return 0;
+
+    return g_jack_shutdown ? 1 : 0;
 }
