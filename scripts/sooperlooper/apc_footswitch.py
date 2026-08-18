@@ -213,11 +213,11 @@ class LoopFootswitch:
         """Close a defining take once release falls below threshold (Tier 2)."""
         if not self._tail_capture:
             return
-        if not self._in_peak_seen:
-            return
         now = time.monotonic()
         if (now - self._tail_capture_since) >= TAIL_MAX_S:
             self._finish_tail_capture(f"max {TAIL_MAX_S:.2f}s")
+            return
+        if not self._in_peak_seen:
             return
         if self._in_peak >= TAIL_THRESH:
             self._tail_silence_since = None
