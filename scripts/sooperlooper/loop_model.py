@@ -31,8 +31,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from sl_loop_states import (
+    SL_STATE_INSERTING,
     SL_STATE_MUTE,
+    SL_STATE_MULTIPLYING,
     SL_STATE_OFF,
+    SL_STATE_OFF_MUTED,
+    SL_STATE_OVERDUBBING,
     SL_STATE_PAUSED,
     SL_STATE_PLAYING,
     SL_STATE_RECORDING,
@@ -51,8 +55,12 @@ _FROM_SL = {
     SL_STATE_WAIT_START: STATE_RECORDING,
     SL_STATE_WAIT_STOP: STATE_RECORDING,
     SL_STATE_PLAYING: STATE_PLAYING,
+    SL_STATE_OVERDUBBING: STATE_PLAYING,
+    SL_STATE_MULTIPLYING: STATE_PLAYING,
+    SL_STATE_INSERTING: STATE_PLAYING,
     SL_STATE_PAUSED: STATE_STOPPED,
     SL_STATE_MUTE: STATE_STOPPED,
+    SL_STATE_OFF_MUTED: STATE_IDLE,
 }
 
 
@@ -96,6 +104,7 @@ class Plan:
     arm_grid: bool = False
     queue_stop: bool = False
     begin_quantize_wait: bool = False
+    begin_tail_capture: bool = False
     note: str = ""
 
 
@@ -107,6 +116,8 @@ def plan_gesture(
     grid_established: bool,
     is_defining: bool,
     quantized: bool,
+    tail_capture_enabled: bool = False,
+    tail_seam_mode: bool = False,
 ) -> Plan:
     """The whole gesture vocabulary, split by which physical edge fired.
 
@@ -141,6 +152,23 @@ def plan_gesture(
             # since expired. `record` here cancels that stop and keeps
             # recording, which is what a player tapping again means.
             return Plan(commands=("record",))
+        if is_defining and tail_capture_enabled:
+            # Defining take: always tail-capture on stop, even when OSC lags and
+            # reports OffMuted (20) or WAIT_START instead of Recording (2).
+            # queue_stop here never fires — it waits for sl=2 and strands the
+            # pad on red blink forever (Pi log 2026-08-18).
+            if tail_seam_mode:
+                return Plan(
+                    begin_tail_capture=True,
+                    commands=("record",),
+                    expect=STATE_PLAYING,
+                    note="seam overdub — stop now, weld release at wrap",
+                )
+            return Plan(
+                begin_tail_capture=True,
+                expect=STATE_PLAYING,
+                note="tail capture — record release until quiet, then stop",
+            )
         if sl_state != SL_STATE_RECORDING:
             # Armed, or asked-for-but-unconfirmed. Either way the engine may be
             # sitting in WAIT_START, where `record` arrives as CANCEL and loses
@@ -187,6 +215,8 @@ def plan_tap(
     grid_established: bool,
     is_defining: bool,
     quantized: bool,
+    tail_capture_enabled: bool = False,
+    tail_seam_mode: bool = False,
 ) -> Plan:
     """Legacy entry: both edges on release. Prefer plan_gesture in the bench."""
     down = plan_gesture(
@@ -196,8 +226,10 @@ def plan_tap(
         grid_established=grid_established,
         is_defining=is_defining,
         quantized=quantized,
+        tail_capture_enabled=tail_capture_enabled,
+        tail_seam_mode=tail_seam_mode,
     )
-    if down.commands or down.queue_stop or down.arm_grid:
+    if down.commands or down.queue_stop or down.arm_grid or down.begin_tail_capture:
         return down
     return plan_gesture(
         edge="up",
@@ -206,4 +238,6 @@ def plan_tap(
         grid_established=grid_established,
         is_defining=is_defining,
         quantized=quantized,
+        tail_capture_enabled=tail_capture_enabled,
+        tail_seam_mode=tail_seam_mode,
     )

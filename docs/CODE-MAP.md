@@ -80,7 +80,8 @@ stateDiagram-v2
 | `surge-xt-cli.service` | After `mpe-jackd`, `usb-audio-gadget`, governors | `scripts/start-surge-cli.sh` | on-failure |
 | `surge-watchdog.service` | After `surge-xt-cli` (not BindsTo) | `scripts/surge-watchdog.sh` | always |
 | `mpe-sooperlooper.service` | After `mpe-jackd`, `surge-xt-cli` | `scripts/sooperlooper/run-sooperlooper.sh` + Post `wire-sooperlooper-graph.sh` | always |
-| `mpe-looper-session.service` | After `mpe-sooperlooper` | `scripts/looper-session.py` (bench + HUD) | always |
+| `mpe-apc-bench.service` | After `mpe-sooperlooper` | `scripts/sooperlooper-apc-bench.py` | always |
+| `sl-hud-monitor.service` | After `mpe-sooperlooper` | `scripts/sooperlooper/sl-hud-monitor.py` | always |
 | `sl-watchdog.service` | After `mpe-jackd` | `scripts/sooperlooper/sl-watchdog.py` | always |
 | `touch-patch-browser.service` | After `surge-xt-cli`, `touch-boot-animation` | `scripts/prepare-dsi-display.sh` → `scripts/start-touch-patch-browser.sh` | on-failure |
 | `surge-poly-governor.service` | — | `scripts/surge-poly-governor.py` | — |
@@ -103,7 +104,7 @@ stateDiagram-v2
 | `jack-device` | `jackd-prestart.sh` | `JACK_DEVICE`, `JACK_CARD_ID`, `TIER` |
 | `planned-promote` | `mpe_promote_surge_planned()` | timestamp |
 
-**Python reader:** `patch_browser/audio_engine.py` (`read_engine_state`, HUD helpers). **Touch HUD looper file:** `~/.mpe_sl_hud_state.json` (from `mpe-looper-session` HUD thread).
+**Python reader:** `patch_browser/audio_engine.py` (`read_engine_state`, HUD helpers). **Touch HUD looper file:** `~/.mpe_sl_hud_state.json` (from `sl-hud-monitor.py`).
 
 ### 2.4 Engine state transitions
 
@@ -267,7 +268,7 @@ stateDiagram-v2
 
 ### 3.5 APC / MIDI bench
 
-**Entry point:** `mpe-looper-session.service` → `scripts/looper-session.py`
+**Entry point:** `mpe-apc-bench.service` → `scripts/sooperlooper-apc-bench.py`
 
 **External:** APC mini USB MIDI; OSC to engine; `SlBenchStateListener` on UDP 9953.
 
@@ -407,7 +408,7 @@ flowchart LR
     OSC[SooperLooper OSC :9951]
     ENG[sooperlooper JACK mpe-looper]
     JACK[jackd graph]
-    HUD[looper-session HUD thread]
+    HUD[sl-hud-monitor.py]
     UI[Touch looper bar]
 
     APC --> BENCH
