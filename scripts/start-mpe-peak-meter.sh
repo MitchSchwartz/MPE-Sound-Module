@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Start compiled OUT peak meter — exits cleanly when MPE_PEAK_METER is off.
+# Start compiled OUT peak meter — gates on MPE_PEAK_METER from EnvironmentFile.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")" && pwd)"
@@ -12,8 +12,8 @@ case "${MPE_PEAK_METER:-0}" in
     1 | true | yes | on | TRUE | YES | ON)
         ;;
     *)
-        echo "mpe-peak-meter: disabled (MPE_PEAK_METER=${MPE_PEAK_METER:-0})"
-        exit 0
+        echo "mpe-peak-meter: disabled (MPE_PEAK_METER=${MPE_PEAK_METER:-0}) — enable flag and restart unit" >&2
+        exec sleep infinity
         ;;
 esac
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import subprocess
 import unittest
 from pathlib import Path
 
@@ -98,6 +99,34 @@ class JackRtBoundaryTests(unittest.TestCase):
             "touch-patch-browser must not declare LimitRTPRIO after Phase 5",
         )
 
+
+    def test_mpe_peak_meter_compiles_when_libjack_present(self) -> None:
+        """Criterion 34: the compiled client must build where libjack-dev is installed."""
+        if subprocess.run(["pkg-config", "--exists", "jack"], capture_output=True).returncode != 0:
+            self.skipTest("libjack-dev not installed on this host")
+        native = REPO / "native" / "mpe-peak-meter"
+        proc = subprocess.run(["make", "-C", str(native), "check"], capture_output=True, text=True)
+        self.assertEqual(
+            proc.returncode,
+            0,
+            f"mpe-peak-meter failed to compile:\n{proc.stdout}\n{proc.stderr}",
+        )
+        self.assertTrue((native / "mpe-peak-meter").is_file())
+
+    def test_peak_meter_unit_has_no_condition_environment(self) -> None:
+        """ConditionEnvironment reads the manager env, not EnvironmentFile — ghost skip."""
+        text = (CONFIG / "mpe-peak-meter.service").read_text(encoding="utf-8")
+        self.assertEqual(
+            _directive(text, "ConditionEnvironment"),
+            [],
+            "mpe-peak-meter must gate on MPE_PEAK_METER in start script, not ConditionEnvironment",
+        )
+
+    def test_peak_meter_unit_restarts_always(self) -> None:
+        """JACK graph restarts must bring the meter back (non-zero exit on shutdown)."""
+        text = (CONFIG / "mpe-peak-meter.service").read_text(encoding="utf-8")
+        self.assertEqual(_directive(text, "Restart"), ["always"])
+        self.assertEqual(_directive(text, "ExecStartPre"), [])
 
 if __name__ == "__main__":
     unittest.main()
