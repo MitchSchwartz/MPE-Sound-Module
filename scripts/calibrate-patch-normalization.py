@@ -1080,6 +1080,7 @@ def main() -> int:
         return 1
 
     cal_surge_started = False
+    services_stopped_for_cal = False
     if use_loopback and args.mock_lufs is None:
         try:
             emit_progress(
@@ -1087,6 +1088,7 @@ def main() -> int:
                 {"type": "setup", "message": "Stopping patch browser and Surge…"},
             )
             stop_mpe_audio_services()
+            services_stopped_for_cal = True
             audio_device = detect_capture_device(args.audio_device, use_loopback=True)
             print(f"Capture device: {audio_device}", file=sys.stderr)
             emit_progress(args, {"type": "setup", "message": "Starting Surge for measurement…"})
@@ -1099,7 +1101,7 @@ def main() -> int:
         except Exception as exc:
             print(f"Error: loopback calibration setup failed: {exc}", file=sys.stderr)
             emit_progress(args, {"type": "error", "message": str(exc)})
-            if cal_surge_started:
+            if services_stopped_for_cal:
                 restore_mpe_audio_services()
             emit_progress(args, {"type": "done", "updated": 0, "exit_code": 1})
             return 1
@@ -1110,6 +1112,7 @@ def main() -> int:
                 {"type": "setup", "message": "Stopping production Surge for measurement…"},
             )
             stop_mpe_audio_services()
+            services_stopped_for_cal = True
             emit_progress(args, {"type": "setup", "message": "Starting Surge on Sound Blaster…"})
             standalone_interface = start_surge_standalone()
             cal_surge_started = True
@@ -1122,7 +1125,7 @@ def main() -> int:
         except Exception as exc:
             print(f"Error: standalone calibration setup failed: {exc}", file=sys.stderr)
             emit_progress(args, {"type": "error", "message": str(exc)})
-            if cal_surge_started:
+            if services_stopped_for_cal:
                 restore_mpe_audio_services()
             emit_progress(args, {"type": "done", "updated": 0, "exit_code": 1})
             return 1
@@ -1135,7 +1138,7 @@ def main() -> int:
         msg = "Surge MIDI port not found — is Surge running with MIDI inputs?"
         print(f"Error: {msg}", file=sys.stderr)
         emit_progress(args, {"type": "error", "message": msg})
-        if cal_surge_started:
+        if cal_surge_started or services_stopped_for_cal:
             restore_mpe_audio_services()
         emit_progress(args, {"type": "done", "updated": 0, "exit_code": 1})
         return 1
@@ -1223,7 +1226,7 @@ def main() -> int:
             )
     finally:
         close_midi_out(midi_out)
-        if cal_surge_started and not args.no_restore_services:
+        if (cal_surge_started or services_stopped_for_cal) and not args.no_restore_services:
             emit_progress(
                 args,
                 {"type": "setup", "message": "Restarting patch browser and Surge…"},

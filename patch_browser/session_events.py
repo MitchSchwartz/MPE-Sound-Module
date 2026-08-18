@@ -7,9 +7,12 @@ from __future__ import annotations
 
 import json
 import os
+import tempfile
 import time
 from pathlib import Path
 from typing import Any
+
+from patch_browser.mpe_run_dir import run_dir
 
 EVENT_NAMES = frozenset(
     {
@@ -28,10 +31,6 @@ EVENT_NAMES = frozenset(
 
 EVENTS_FILENAME = "events.jsonl"
 MAX_EVENTS = 2000
-
-
-def run_dir() -> Path:
-    return Path(os.environ.get("MPE_RUN_DIR", "/run/mpe"))
 
 
 def events_path(*, run: Path | None = None) -> Path:
@@ -83,6 +82,27 @@ def trim_ring_buffer(lines: list[str], *, max_events: int = MAX_EVENTS) -> list[
     return lines[-max_events:]
 
 
+def _maybe_rotate_events(path: Path, *, max_events: int) -> None:
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return
+    if len(lines) <= max_events:
+        return
+    trimmed = trim_ring_buffer(lines, max_events=max_events)
+    fd, tmp_path = tempfile.mkstemp(dir=path.parent, prefix=f"{path.name}.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write("\n".join(trimmed) + ("\n" if trimmed else ""))
+        os.chmod(tmp_path, 0o644)
+        os.replace(tmp_path, path)
+    except OSError:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+
+
 def emit_event(
     name: str,
     *,
@@ -98,20 +118,14 @@ def emit_event(
     path = events_path(run=run)
     path.parent.mkdir(parents=True, exist_ok=True)
 
-    existing: list[str] = []
-    if path.exists():
-        try:
-            existing = path.read_text(encoding="utf-8").splitlines()
-        except OSError:
-            existing = []
+    line = event_line(event) + "\n"
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
+    try:
+        os.write(fd, line.encode("utf-8"))
+    finally:
+        os.close(fd)
 
-    existing.append(event_line(event))
-    existing = trim_ring_buffer(existing, max_events=max_events)
-
-    tmp = path.with_suffix(".tmp")
-    tmp.write_text("\n".join(existing) + ("\n" if existing else ""), encoding="utf-8")
-    os.chmod(tmp, 0o644)
-    tmp.replace(path)
+    _maybe_rotate_events(path, max_events=max_events)
     return event
 
 
@@ -135,6 +149,8 @@ def read_events(
         if name is not None and parsed.get("event") != name:
             continue
         out.append(parsed)
-    if limit is not None and limit >= 0:
+    if limit is not None:
+        if limit <= 0:
+            return []
         out = out[-limit:]
     return out
