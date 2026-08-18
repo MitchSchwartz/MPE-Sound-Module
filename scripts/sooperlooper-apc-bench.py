@@ -34,6 +34,7 @@ from apc_transport import (  # noqa: E402
 from led_table import LED_OFF  # noqa: E402
 from loop_mix import CoalescingSender, LoopMix  # noqa: E402
 from sl_bench_listener import SlBenchStateListener  # noqa: E402
+from sl_seam_weld import SCRATCH_LOOP, SEAM_WELD_ENABLED, SeamWeldWorker  # noqa: E402
 from sl_grid_state import GridState, display_bpm  # noqa: E402
 from sl_grid_sync import (  # noqa: E402
     RESTART_SENTINEL,
@@ -238,6 +239,28 @@ def main() -> int:
     state_listener.start()
     state_listener.register(osc, num_loops=num_loops)
     state_listener.wire_tail_capture(footswitches)
+    seam_worker: SeamWeldWorker | None = None
+    if SEAM_WELD_ENABLED and TAIL_CAPTURE_ENABLED:
+        seam_worker = SeamWeldWorker(_send)
+        for fs in footswitches:
+            fs.set_seam_weld_hooks(
+                on_prepare_scratch=lambda loop, w=seam_worker: w.prepare_scratch(
+                    SCRATCH_LOOP
+                ),
+                on_start_scratch=lambda loop, w=seam_worker: w.start_scratch_record(
+                    SCRATCH_LOOP
+                ),
+                on_stop_scratch=lambda loop, w=seam_worker: w.stop_scratch_record(
+                    SCRATCH_LOOP
+                ),
+                on_request_merge=lambda loop, done, w=seam_worker: w.request(
+                    loop, SCRATCH_LOOP, done=done
+                ),
+            )
+        print(
+            f"bench: Tier 3 seam weld on (scratch loop {SCRATCH_LOOP})",
+            flush=True,
+        )
     if not TAIL_CAPTURE_ENABLED:
         print(
             "bench: MPE_SL_TAIL_CAPTURE off — defining-take tail capture disabled",

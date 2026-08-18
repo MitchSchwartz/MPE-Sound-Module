@@ -130,12 +130,35 @@ class GridEstablishmentTests(unittest.TestCase):
         if fs._tail_capture:
             fs._finish_tail_capture("test")
 
+    def _wire_seam_hooks(self, fs, *, merge_immediate: bool = True) -> None:
+        from scripts.sooperlooper.sl_seam_weld import SCRATCH_LOOP
+
+        def start(_loop: int) -> None:
+            fs._osc.send_message(f"/sl/{SCRATCH_LOOP}/hit", ["record"])
+
+        def merge(_loop: int, done) -> None:
+            if merge_immediate:
+                done()
+
+        fs.set_seam_weld_hooks(
+            on_prepare_scratch=lambda _loop: fs._osc.send_message(
+                f"/sl/{SCRATCH_LOOP}/hit", ["undo_all"]
+            ),
+            on_start_scratch=start,
+            on_stop_scratch=lambda _loop: fs._osc.send_message(
+                f"/sl/{SCRATCH_LOOP}/hit", ["record"]
+            ),
+            on_request_merge=merge,
+        )
+
     def test_first_take_records_instantly_and_sets_tempo(self) -> None:
         from scripts.sooperlooper.sl_grid_state import GridState
+        from scripts.sooperlooper.sl_seam_weld import SCRATCH_LOOP
 
         seen = []
         grid = GridState()
         fs = self._fs(0, grid, lambda bpm, bars: seen.append((bpm, bars)))
+        self._wire_seam_hooks(fs)
 
         self._start_defining_take(fs)
         self.assertTrue(grid.is_pending(0))
@@ -152,43 +175,37 @@ class GridEstablishmentTests(unittest.TestCase):
         fs.sync_loop_len(2.0)
         fs.sync_loop_pos(0.0)
         fs.sync_from_sl(SL_STATE_PLAYING)
-        fs._tail_overdub_since = time.monotonic() - 0.2
         fs.sync_in_peak(0.5)
         fs.sync_in_peak(0.0)
         fs._tail_silence_since = TAIL_HOLD_S * -2 + time.monotonic()
         fs.poll_tail_capture()
-        hits = [c.args[1] for c in fs._osc.send_message.call_args_list
-                if c.args[0] == "/sl/0/hit"]
-        self.assertEqual(hits.count("overdub"), 2, "seam overdub on + off")
+        scratch_hits = [
+            c.args[1][0]
+            for c in fs._osc.send_message.call_args_list
+            if c.args[0] == f"/sl/{SCRATCH_LOOP}/hit"
+        ]
+        self.assertGreaterEqual(scratch_hits.count("record"), 1, "scratch loop records parallel tail")
 
         self.assertTrue(grid.established)
         self.assertEqual(seen, [(120.0, 1)])
 
-    def test_tail_overdub_lowers_input_gain(self) -> None:
-        from scripts.sooperlooper.sl_grid_sync import (
-            DEFAULT_FADE_SAMPLES,
-            TAIL_WELD_FADE_SAMPLES,
-            TAIL_WELD_INPUT_GAIN,
-        )
-
+    def test_scratch_starts_when_playback_lands(self) -> None:
         fs = LoopFootswitch(loop=0, hold_ms=1000.0, debounce_ms=0.0)
         fs.bind(MagicMock(), MagicMock(), 36)
-        fs._start_tail_overdub()
-        sets = [
-            (c.args[1][0], c.args[1][1])
-            for c in fs._osc.send_message.call_args_list
-            if c.args[0] == "/sl/0/set"
-        ]
-        self.assertIn(("input_gain", TAIL_WELD_INPUT_GAIN), sets)
-        self.assertIn(("fade_samples", float(TAIL_WELD_FADE_SAMPLES)), sets)
-        fs._stop_tail_overdub()
-        sets = [
-            (c.args[1][0], c.args[1][1])
-            for c in fs._osc.send_message.call_args_list
-            if c.args[0] == "/sl/0/set"
-        ]
-        self.assertIn(("input_gain", 1.0), sets)
-        self.assertIn(("fade_samples", float(DEFAULT_FADE_SAMPLES)), sets)
+        started = []
+        fs.set_seam_weld_hooks(
+            on_prepare_scratch=lambda loop: None,
+            on_start_scratch=lambda loop: started.append(loop),
+            on_stop_scratch=lambda loop: None,
+            on_request_merge=lambda loop, done: done(),
+        )
+        fs._tail_capture = True
+        fs._tail_stop_sent = True
+        fs.sync_from_sl(SL_STATE_PLAYING)
+        fs.sync_loop_len(2.0)
+        fs._maybe_start_scratch()
+        self.assertTrue(fs._scratch_active)
+        self.assertEqual(started, [0])
 
     def test_grid_anchor_defers_until_loop_wrap(self) -> None:
         """Late PLAYING report: grid now, phase re-anchor at wrap."""
@@ -273,19 +290,24 @@ class GridEstablishmentTests(unittest.TestCase):
 
 
 class TailCaptureTests(unittest.TestCase):
-    def test_pad_down_during_tail_immediate_close(self) -> None:
+    def test_pad_down_during_tail_aborts_without_merge(self) -> None:
         fs = LoopFootswitch(loop=0, hold_ms=1000.0, debounce_ms=200.0)
         fs.bind(MagicMock(), MagicMock(), 36)
+        merged = []
+        fs.set_seam_weld_hooks(
+            on_prepare_scratch=lambda loop: None,
+            on_start_scratch=lambda loop: None,
+            on_stop_scratch=lambda loop: None,
+            on_request_merge=lambda loop, done: merged.append(loop),
+        )
         fs._tail_capture = True
         fs._tail_stop_sent = True
-        fs._tail_overdub = True
+        fs._scratch_active = True
         fs._tail_capture_since = time.monotonic()
         fs._last_action_at = time.monotonic()
         fs.on_pad_down()
-        hits = [c.args[1] for c in fs._osc.send_message.call_args_list
-                if c.args[0] == "/sl/0/hit"]
-        self.assertEqual(hits, ["overdub"])
         self.assertFalse(fs._tail_capture)
+        self.assertEqual(merged, [])
 
     def test_tail_led_matches_wait_stop_pattern(self) -> None:
         from scripts.sooperlooper.led_table import RECORD_TO_PLAY, led_for
@@ -302,17 +324,20 @@ class TailCaptureTests(unittest.TestCase):
 
         fs = LoopFootswitch(loop=0, hold_ms=1000.0, debounce_ms=0.0)
         fs.bind(MagicMock(), MagicMock(), 36)
+        fs.set_seam_weld_hooks(
+            on_prepare_scratch=lambda loop: None,
+            on_start_scratch=lambda loop: None,
+            on_stop_scratch=lambda loop: None,
+            on_request_merge=lambda loop, done: done(),
+        )
         fs._tail_capture = True
         fs._tail_stop_sent = True
         fs.sync_from_sl(SL_STATE_PLAYING)
         fs.sync_loop_len(2.0)
-        fs._tail_overdub_since = time.monotonic() - 0.2
+        fs._scratch_active = True
         fs._tail_capture_since = time.monotonic() - TAIL_MAX_S - 0.01
         fs.poll_tail_capture()
         self.assertFalse(fs._tail_capture)
-        hits = [c.args[1] for c in fs._osc.send_message.call_args_list
-                if c.args[0] == "/sl/0/hit"]
-        self.assertEqual(hits, ["overdub", "overdub"])
 
     def test_finish_tail_resets_hold_timer(self) -> None:
         fs = LoopFootswitch(loop=0, hold_ms=1000.0, debounce_ms=0.0)
@@ -356,11 +381,17 @@ class TailCaptureTests(unittest.TestCase):
 
         fs = LoopFootswitch(loop=0, hold_ms=1000.0, debounce_ms=0.0)
         fs.bind(MagicMock(), MagicMock(), 36)
+        fs.set_seam_weld_hooks(
+            on_prepare_scratch=lambda loop: None,
+            on_start_scratch=lambda loop: None,
+            on_stop_scratch=lambda loop: None,
+            on_request_merge=lambda loop, done: done(),
+        )
         fs._tail_capture = True
         fs._tail_stop_sent = True
         fs.sync_from_sl(SL_STATE_PLAYING)
         fs.sync_loop_len(2.0)
-        fs._tail_overdub_since = time.monotonic() - 0.2
+        fs._scratch_active = True
         fs._tail_capture_since = time.monotonic() - TAIL_MAX_S - 0.01
         fs._in_peak_seen = False
         fs._tail_saw_loud = False
@@ -372,18 +403,25 @@ class TailCaptureTests(unittest.TestCase):
 
         fs = LoopFootswitch(loop=0, hold_ms=1000.0, debounce_ms=0.0)
         fs.bind(MagicMock(), MagicMock(), 36)
+        fs.set_seam_weld_hooks(
+            on_prepare_scratch=lambda loop: None,
+            on_start_scratch=lambda loop: None,
+            on_stop_scratch=lambda loop: None,
+            on_request_merge=lambda loop, done: done(),
+        )
         fs._tail_capture = True
         fs._tail_stop_sent = True
         fs.sync_from_sl(SL_STATE_PLAYING)
         fs.sync_loop_len(2.0)
+        fs._scratch_active = True
         fs._tail_capture_since = time.monotonic()
         fs.sync_in_peak(0.0)
         fs._tail_silence_since = TAIL_HOLD_S * -2 + time.monotonic()
         fs.poll_tail_capture()
         self.assertTrue(fs._tail_capture)
         fs.sync_in_peak(0.5)
-        fs._start_tail_overdub()
         fs.sync_in_peak(0.0)
+        fs._tail_silence_since = TAIL_HOLD_S * -2 + time.monotonic()
         fs.poll_tail_capture()
         self.assertFalse(fs._tail_capture)
 
@@ -392,13 +430,19 @@ class TailCaptureTests(unittest.TestCase):
 
         fs = LoopFootswitch(loop=0, hold_ms=1000.0, debounce_ms=0.0)
         fs.bind(MagicMock(), MagicMock(), 36)
+        fs.set_seam_weld_hooks(
+            on_prepare_scratch=lambda loop: None,
+            on_start_scratch=lambda loop: None,
+            on_stop_scratch=lambda loop: None,
+            on_request_merge=lambda loop, done: done(),
+        )
         fs._tail_capture = True
         fs._tail_stop_sent = True
         fs.sync_from_sl(SL_STATE_PLAYING)
         fs.sync_loop_len(2.0)
+        fs._scratch_active = True
         fs._tail_capture_since = time.monotonic()
         fs.sync_in_peak(0.5)
-        fs._start_tail_overdub()
         fs.sync_in_peak(0.0)
         fs._tail_silence_since = TAIL_HOLD_S * -2 + time.monotonic()
         fs.poll_tail_capture()
