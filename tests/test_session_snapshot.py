@@ -50,20 +50,26 @@ class SnapshotBuildTests(unittest.TestCase):
                 looper_policy_env="eval",
                 looper_enabled="1",
                 seq=1,
+                unit_active=lambda _u: True,
             )
             self.assertEqual(snap["schema"], SCHEMA_VERSION)
             self.assertEqual(snap["looper"]["policy"]["value"], "eval")
             self.assertEqual(snap["looper"]["guard"]["value"], "guarded")
             self.assertFalse(snap["engine"]["stale"])
 
-    def test_stale_engine_suppresses_value(self) -> None:
+    def test_stale_engine_when_surge_inactive(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             run = Path(tmp)
             (run / "engine.state").write_text(
                 "engine=jack\nactive=jack\nstate=ok\nupdated=990\n",
                 encoding="utf-8",
             )
-            snap = build_snapshot(now=1000.0, run=run, seq=2)
+            snap = build_snapshot(
+                now=1000.0,
+                run=run,
+                seq=2,
+                unit_active=lambda _u: False,
+            )
             self.assertTrue(snap["engine"]["stale"])
             self.assertIsNone(snap["engine"]["value"])
 
@@ -95,12 +101,13 @@ class SnapshotReadWriteTests(unittest.TestCase):
     def test_publish_writes_monotonic_seq_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             run = Path(tmp)
-            publish_snapshot(run=run, now=100.0, seq=1)
-            publish_snapshot(run=run, now=101.0, seq=2)
-            path = publish_snapshot(run=run, now=102.0, seq=3)
-            loaded = read_snapshot(path, now=102.0)
-            self.assertEqual(loaded["seq"], 3)
-            self.assertEqual(read_seq(run=run), 3)
+            path = publish_snapshot(run=run, now=100.0, unit_active=lambda _u: True)
+            loaded = read_snapshot(path, now=100.0)
+            self.assertEqual(loaded["seq"], 1)
+            path = publish_snapshot(run=run, now=101.0, unit_active=lambda _u: True)
+            loaded = read_snapshot(path, now=101.0)
+            self.assertEqual(loaded["seq"], 2)
+            self.assertEqual(read_seq(run=run), 2)
 
 
 class LooperPolicyTests(unittest.TestCase):
@@ -113,6 +120,45 @@ class LooperPolicyTests(unittest.TestCase):
     def test_guard_blocked_when_enabled(self) -> None:
         self.assertEqual(looper_guard_label(looper_enabled="1"), "guarded")
 
+
+
+class SnapshotRealisticAgeTests(unittest.TestCase):
+    def test_hours_old_started_not_stale_when_units_active(self) -> None:
+        """Pi state files use transition-only timestamps — age must not null values."""
+        with tempfile.TemporaryDirectory() as tmp:
+            run = Path(tmp)
+            started = 1_000_000.0
+            now = started + 16_200.0  # 4.5 hours later
+            (run / "engine.state").write_text(
+                f"engine=jack\nactive=jack\nstate=ok\nupdated={started}\n",
+                encoding="utf-8",
+            )
+            (run / "jack.state").write_text(
+                f"device=hw:0\nstarted={started}\n",
+                encoding="utf-8",
+            )
+            (run / "surge.state").write_text(
+                f"engine=jack\nstarted={started}\n",
+                encoding="utf-8",
+            )
+            (run / "engine-reconcile.state").write_text(
+                "last_restart=0\ncount=0\n",
+                encoding="utf-8",
+            )
+            snap = build_snapshot(now=now, run=run, seq=1, unit_active=lambda _u: True)
+            self.assertFalse(snap["engine"]["stale"])
+            self.assertIsNotNone(snap["engine"]["value"])
+            self.assertFalse(snap["jack"]["stale"])
+            self.assertFalse(snap["surge"]["stale"])
+            self.assertFalse(snap["reconcile"]["stale"])
+            self.assertEqual(snap["mode"], "ok")
+
+
+class DeriveModeTests(unittest.TestCase):
+    def test_unknown_state_becomes_failed(self) -> None:
+        from patch_browser.session_snapshot import derive_mode
+
+        self.assertEqual(derive_mode({"state": "banana"}), "failed")
 
 if __name__ == "__main__":
     unittest.main()
