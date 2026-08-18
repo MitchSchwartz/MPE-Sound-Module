@@ -60,9 +60,16 @@ class SlBenchStateListenerTests(unittest.TestCase):
         listener.unregister_tail_peak()
         self.assertIsNone(listener._tail_peak_loop)
         client.send_message.assert_called_once_with(
-            "/sl/2/register_auto_update",
-            ["in_peak_meter", 0, ANY, "/sl/bench/state"],
+            "/sl/2/unregister_auto_update",
+            ["in_peak_meter", ANY, "/sl/bench/state"],
         )
+
+    def test_wire_tail_capture_sets_hooks(self) -> None:
+        fs = LoopFootswitch(loop=0, hold_ms=1000.0, debounce_ms=0.0)
+        listener = SlBenchStateListener({0: fs})
+        listener.wire_tail_capture([fs])
+        self.assertIs(fs._on_tail_capture_begin, listener.register_tail_peak)
+        self.assertIs(fs._on_tail_capture_end, listener.unregister_tail_peak)
 
 
 if __name__ == "__main__":

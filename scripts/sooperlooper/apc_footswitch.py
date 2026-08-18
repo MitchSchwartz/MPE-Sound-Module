@@ -208,6 +208,16 @@ class LoopFootswitch:
         self._hit("record")
         self._expect(STATE_PLAYING)
         self._sync_led()
+        self._mark_action()
+
+    def set_tail_capture_hooks(
+        self,
+        on_begin,
+        on_end,
+    ) -> None:
+        """Subscribe/unsubscribe in_peak_meter during defining-take tail capture."""
+        self._on_tail_capture_begin = on_begin
+        self._on_tail_capture_end = on_end
 
     def poll_tail_capture(self) -> None:
         """Close a defining take once release falls below threshold (Tier 2)."""
@@ -560,8 +570,6 @@ def build_footswitches(
     on_grid_established=None,
     on_phase_reanchor=None,
     on_grid_dropped=None,
-    on_tail_capture_begin=None,
-    on_tail_capture_end=None,
 ) -> tuple[dict[int, LoopFootswitch], list[LoopFootswitch]]:
     """One footswitch per track, bound to the pad showing it in `view`.
 
@@ -584,8 +592,6 @@ def build_footswitches(
             on_grid_established=on_grid_established,
             on_phase_reanchor=on_phase_reanchor,
             on_grid_dropped=on_grid_dropped,
-            on_tail_capture_begin=on_tail_capture_begin,
-            on_tail_capture_end=on_tail_capture_end,
         )
         fs.bind(osc, midi_out, view.note_for_loop(loop_i))
         footswitches.append(fs)

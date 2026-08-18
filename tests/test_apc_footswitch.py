@@ -285,6 +285,18 @@ class TailCaptureTests(unittest.TestCase):
         self.assertFalse(fs._pad_down)
         self.assertEqual(fs._pad_down_at, 0.0)
 
+    def test_finish_tail_marks_action_for_debounce(self) -> None:
+        fs = LoopFootswitch(loop=0, hold_ms=1000.0, debounce_ms=200.0)
+        fs.bind(MagicMock(), MagicMock(), 36)
+        fs._tail_capture = True
+        fs._last_action_at = 0.0
+        fs._finish_tail_capture("test")
+        fs.on_pad_down()
+        fs.on_pad_up()
+        hits = [c.args[1] for c in fs._osc.send_message.call_args_list
+                if c.args[0] == "/sl/0/hit" and c.args[1] != "record"]
+        self.assertEqual(hits, [], "gesture after auto-close should be debounced")
+
     def test_tail_max_timeout_without_peak_reading(self) -> None:
         from scripts.sooperlooper.sl_grid_sync import TAIL_MAX_S
 

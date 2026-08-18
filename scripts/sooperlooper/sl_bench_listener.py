@@ -128,12 +128,20 @@ class SlBenchStateListener:
             return
         loop = self._tail_peak_loop
         self._tail_peak_loop = None
-        # Interval 0 stops auto-updates for this control on this loop.
         returl = f"{LISTEN_HOST}:{LISTEN_PORT}"
+        retpath = "/sl/bench/state"
         self._osc_client.send_message(
-            f"/sl/{loop}/register_auto_update",
-            ["in_peak_meter", 0, returl, "/sl/bench/state"],
+            f"/sl/{loop}/unregister_auto_update",
+            ["in_peak_meter", returl, retpath],
         )
+
+    def wire_tail_capture(self, footswitches: list[LoopFootswitch]) -> None:
+        """Bind peak-meter subscribe/unsubscribe to footswitch tail capture."""
+        for fs in footswitches:
+            fs.set_tail_capture_hooks(
+                self.register_tail_peak,
+                self.unregister_tail_peak,
+            )
 
     def maybe_reregister(self) -> None:
         import time
