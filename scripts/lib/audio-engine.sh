@@ -686,9 +686,54 @@ mpe_engine_reconcile_reset() {
     rm -f "$(mpe_engine_reconcile_file)" 2>/dev/null || true
 }
 
+# Freshness window for meter.state. The compiled meter writes at 5 Hz, so anything
+# older than this means the meter is dead, stopped, or wedged — fall back rather than
+# trusting a stale answer (DECISIONS.md 2026-08-15: a reading that looks the same
+# whether it is fine or not instrumented).
+MPE_METER_STATE_MAX_AGE_S="${MPE_METER_STATE_MAX_AGE_S:-5}"
+
+# Is Surge on the JACK graph, according to the meter we already run?
+#
+# Returns 0 = on graph, 1 = not on graph, 2 = cannot tell (caller must fall back).
+#
+# mpe-peak-meter is a long-lived compiled client permanently on the graph. Its connect
+# thread re-checks its wiring to "Surge XT:out_{1,2}" every 2 s and publishes the answer
+# as wired= in meter.state. Reading that is a file read: no fork, and crucially no new
+# JACK client registration.
+_mpe_surge_on_graph_via_meter() {
+    local file wired updated age
+    file="$(mpe_run_dir)/meter.state"
+    [ -r "$file" ] || return 2
+    wired="$(mpe_state_get "$file" wired)"
+    updated="$(mpe_state_get "$file" updated)"
+    case "$wired" in 0 | 1) ;; *) return 2 ;; esac
+    case "$updated" in "" | *[!0-9]*) return 2 ;; esac
+    age=$((EPOCHSECONDS - updated))
+    [ "$age" -lt 0 ] && return 2
+    [ "$age" -le "$MPE_METER_STATE_MAX_AGE_S" ] || return 2
+    [ "$wired" = 1 ] && return 0
+    return 1
+}
+
+# Is Surge on the JACK graph?
+#
+# Prefers the meter (free), falls back to jack_lsp (~116 ms AND a client registration
+# that forces jackd to reorder the graph). Measured 2026-08-18: running this on a 10 s
+# timer produced 35 xruns/min against 6 when it was rare — the probe was the single
+# largest xrun source on the appliance, larger than the whole looper stack.
 mpe_surge_on_jack_graph() {
     local ports
     mpe_jack_server_running || return 1
+
+    # `|| rc=$?` so a tri-state return cannot trip `set -e` in a calling script.
+    local rc=0
+    _mpe_surge_on_graph_via_meter || rc=$?
+    case "$rc" in
+        0) return 0 ;;
+        1) return 1 ;;
+    esac
+
+    # Fallback only: meter absent, disabled, or stale.
     _mpe_jack_lsp_bin || return 1
     ports="$(mpe_jack_lsp 2>/dev/null)" || return 1
     [ -n "$ports" ] || return 1
