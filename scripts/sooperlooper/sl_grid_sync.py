@@ -25,9 +25,36 @@ DEFAULT_FADE_SAMPLES = int(os.environ.get("MPE_SL_FADE_SAMPLES", "256"))
 DEFAULT_BPM = float(os.environ.get("MPE_LOOPER_BPM", "120"))
 DEFAULT_CLOCK = os.environ.get("MPE_SL_GRID_CLOCK", "internal").strip().lower()
 
-# Phase anchor: defer grid clock until loop_pos is near the defining take's
-# wrap point. set_tempo zeroes phase — firing it late (OSC poll lag) makes
-# later clips land early vs loop 1. See looper-transport-clock-spec §K.6.
+# Tail capture on defining take close — looper-loop-seam-spec.md Tier 2 / Option E.
+TAIL_CAPTURE_ENABLED = os.environ.get("MPE_SL_TAIL_CAPTURE", "1").strip().lower() not in (
+    "0",
+    "off",
+    "false",
+    "",
+)
+# extend = Tier 2 (grow clip 0 until release quiet) — default, ear-validated.
+# seam = Option E (fixed bar + seam overdub) — experimental; opt-in only.
+TAIL_MODE = os.environ.get("MPE_SL_TAIL_MODE", "extend").strip().lower()
+TAIL_SEAM_MODE = TAIL_MODE in ("seam", "e", "overdub", "option_e")
+TAIL_THRESH = float(os.environ.get("MPE_SL_TAIL_THRESH", "0.02"))
+TAIL_HOLD_S = float(os.environ.get("MPE_SL_TAIL_HOLD_MS", "80")) / 1000.0
+TAIL_MAX_S = float(os.environ.get("MPE_SL_TAIL_MAX_MS", "4000")) / 1000.0
+TAIL_ABSOLUTE_MAX_S = float(os.environ.get("MPE_SL_TAIL_ABSOLUTE_MAX_MS", "15000")) / 1000.0
+TAIL_PEAK_UPDATE_MS = int(os.environ.get("MPE_SL_TAIL_PEAK_MS", "25"))
+# Start seam overdub when playhead enters the last fraction of the loop (wrap weld).
+TAIL_SEAM_RATIO = float(os.environ.get("MPE_SL_TAIL_SEAM_RATIO", "0.85"))
+# After release falls quiet, wait for playhead near the wrap before overdub off (reduces pop).
+TAIL_SEAM_END_MAX_S = float(os.environ.get("MPE_SL_TAIL_SEAM_END_MS", "500")) / 1000.0
+# Minimum time in overdub so a very short peak still reaches the seam on brief loops.
+TAIL_MIN_OVERDUB_S = float(os.environ.get("MPE_SL_TAIL_MIN_OVERDUB_MS", "150")) / 1000.0
+# Tail weld mix — lower incoming gain + longer loop crossfade while overdub is active.
+TAIL_WELD_INPUT_GAIN = float(os.environ.get("MPE_SL_TAIL_INPUT_GAIN", "0.35"))
+TAIL_WELD_FADE_SAMPLES = int(os.environ.get("MPE_SL_TAIL_FADE_SAMPLES", "512"))
+TAIL_WELD_RESTORE_INPUT_GAIN = float(os.environ.get("MPE_SL_TAIL_RESTORE_INPUT_GAIN", "1.0"))
+
+# Phase re-anchor: when PLAYING arrives mid-bar, defer a second set_tempo until
+# loop_pos is near the defining take's wrap (set_tempo zeroes phase). Grid
+# establishment itself is immediate — this only realigns phase for clip 2+.
 GRID_ANCHOR_MAX_S = float(os.environ.get("MPE_SL_GRID_ANCHOR_MAX_S", "0.015"))
 GRID_ANCHOR_WRAP_HIGH_RATIO = float(os.environ.get("MPE_SL_GRID_ANCHOR_WRAP_HIGH", "0.85"))
 GRID_ANCHOR_FALLBACK_CYCLES = float(os.environ.get("MPE_SL_GRID_ANCHOR_FALLBACK_CYCLES", "1.1"))
@@ -113,22 +140,34 @@ def set_grid_active(
         send(prefix, ["mute_quantized", 1.0 if active else 0.0])
 
 
-# The control we watch to notice the engine went away and came back.
-#
-# `sync_source` is global, cheap to subscribe to, and — crucially — its value
-# under our config (-3, internal) is not one SooperLooper ever chooses on its
-# own. A fresh engine reports something else, so a mismatch is an unambiguous
-# "this is not the engine we configured".
-#
-# Watching a per-loop control would not do: in the no-grid state we set
-# quantize to 0 deliberately, which is also the engine default, so a restart in
-# that state would be invisible.
-RESTART_SENTINEL = "sync_source"
 
+def apply_loop_latency(
+    send: Callable[[str, list], None], *, num_loops: int = 16
+) -> None:
+    """Align record/stop boundaries with JACK pipeline delay (Tier 1).
 
-def expected_sentinel(clock: str = DEFAULT_CLOCK) -> float:
-    """What `sync_source` must read back as while our config is in force."""
-    return float(SYNC_SOURCE_JACK if clock == "transport" else SYNC_SOURCE_INTERNAL)
+    Prefer SooperLooper autoset from JACK port latency. Override with
+    MPE_SL_INPUT_LATENCY (samples) when ear calibration needs a fixed value.
+    """
+    override = os.environ.get("MPE_SL_INPUT_LATENCY", "").strip()
+    autoset_disabled = os.environ.get("MPE_SL_AUTOSET_LATENCY", "1").strip().lower() in (
+        "0",
+        "off",
+        "false",
+        "",
+    )
+    if override:
+        val = float(override)
+        for loop in range(num_loops):
+            prefix = f"/sl/{loop}/set"
+            send(prefix, ["autoset_latency", 0.0])
+            send(prefix, ["input_latency", val])
+            send(prefix, ["trigger_latency", 0.0])
+    elif not autoset_disabled:
+        for loop in range(num_loops):
+            prefix = f"/sl/{loop}/set"
+            send(prefix, ["autoset_latency", 1.0])
+            send(prefix, ["trigger_latency", 0.0])
 
 
 def apply_grid_sync(
@@ -157,6 +196,7 @@ def apply_grid_sync(
 
     send("/set", ["eighth_per_cycle", float(eighth_per_cycle)])
     send("/set", ["fade_samples", float(fade_samples)])
+    apply_loop_latency(send, num_loops=num_loops)
     # No grid until a take defines one, so start free-form.
     set_grid_active(send, num_loops=num_loops, active=False)
 
@@ -225,6 +265,7 @@ def main() -> int:
 
     if mode in ("free", "freeform", "0", "off"):
         apply_freeform(send, num_loops=num_loops)
+        apply_loop_latency(send, num_loops=num_loops)
         print(f"sl-grid-sync: free-form ({num_loops} loops)", flush=True)
     else:
         apply_grid_sync(send, num_loops=num_loops)
