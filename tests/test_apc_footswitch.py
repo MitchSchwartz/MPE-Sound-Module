@@ -144,6 +144,7 @@ class GridEstablishmentTests(unittest.TestCase):
         self.assertFalse(fs.awaiting_quantize)
         from scripts.sooperlooper.sl_grid_sync import TAIL_HOLD_S
 
+        fs.sync_in_peak(0.5)
         fs.sync_in_peak(0.0)
         fs._tail_silence_since = TAIL_HOLD_S * -2 + time.monotonic()
         fs.poll_tail_capture()
@@ -252,15 +253,15 @@ class TailCaptureTests(unittest.TestCase):
         self.assertEqual(hits, ["record"])
         self.assertFalse(fs._tail_capture)
 
-    def test_tail_led_is_yellow_blink(self) -> None:
-        from scripts.sooperlooper.led_table import LED_YELLOW_BLINK, led_for
+    def test_tail_led_matches_wait_stop_pattern(self) -> None:
+        from scripts.sooperlooper.led_table import RECORD_TO_PLAY, led_for
 
         fs = LoopFootswitch(loop=0, hold_ms=1000.0, debounce_ms=0.0)
         fs.bind(MagicMock(), MagicMock(), 36)
         fs.sync_from_sl(SL_STATE_RECORDING)
         fs._tail_capture = True
-        self.assertEqual(fs._led_target(), (LED_YELLOW_BLINK,))
-        self.assertEqual(led_for(SL_STATE_RECORDING, tail_capture=True), (LED_YELLOW_BLINK,))
+        self.assertEqual(fs._led_target(), RECORD_TO_PLAY)
+        self.assertEqual(led_for(SL_STATE_RECORDING, tail_capture=True), RECORD_TO_PLAY)
 
     def test_tail_max_timeout_closes_capture(self) -> None:
         from scripts.sooperlooper.sl_grid_sync import TAIL_MAX_S
@@ -305,6 +306,23 @@ class TailCaptureTests(unittest.TestCase):
         fs._tail_capture = True
         fs._tail_capture_since = time.monotonic() - TAIL_MAX_S - 0.01
         fs._in_peak_seen = False
+        fs._tail_saw_loud = False
+        fs.poll_tail_capture()
+        self.assertFalse(fs._tail_capture)
+
+    def test_tail_waits_for_loud_before_silence_close(self) -> None:
+        from scripts.sooperlooper.sl_grid_sync import TAIL_HOLD_S
+
+        fs = LoopFootswitch(loop=0, hold_ms=1000.0, debounce_ms=0.0)
+        fs.bind(MagicMock(), MagicMock(), 36)
+        fs._tail_capture = True
+        fs._tail_capture_since = time.monotonic()
+        fs.sync_in_peak(0.0)
+        fs._tail_silence_since = TAIL_HOLD_S * -2 + time.monotonic()
+        fs.poll_tail_capture()
+        self.assertTrue(fs._tail_capture)
+        fs.sync_in_peak(0.5)
+        fs.sync_in_peak(0.0)
         fs.poll_tail_capture()
         self.assertFalse(fs._tail_capture)
 
@@ -315,10 +333,9 @@ class TailCaptureTests(unittest.TestCase):
         fs.bind(MagicMock(), MagicMock(), 36)
         fs._tail_capture = True
         fs._tail_capture_since = time.monotonic()
-        fs._tail_silence_since = TAIL_HOLD_S * -2 + time.monotonic()
-        fs.poll_tail_capture()
-        self.assertTrue(fs._tail_capture)
+        fs.sync_in_peak(0.5)
         fs.sync_in_peak(0.0)
+        fs._tail_silence_since = TAIL_HOLD_S * -2 + time.monotonic()
         fs.poll_tail_capture()
         self.assertFalse(fs._tail_capture)
 
