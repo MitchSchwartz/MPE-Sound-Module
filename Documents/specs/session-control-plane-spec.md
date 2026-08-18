@@ -1,6 +1,6 @@
 # Session control plane — one owner per fact, reconciliation over sequences
 
-**Status:** Draft — 2026-08-17
+**Status:** Draft — Phases 0–2 (Pi verification pending)
 **Author:** written after the 2026-08-17 stability session; every claim in Evidence is measured on `raspberrypi2`, not reasoned.
 
 ---
@@ -353,6 +353,22 @@ retirement schedule.
 | 8 | A reader on an unknown `schema` major refuses loudly | Bump `schema`, run an old `mpe-cli`; it errors rather than printing nulls |
 
 ### Phase 2 — Event stream
+
+**Event emitter cost constraint (Phase 2 expansion).** Bash callers emit via
+`scripts/mpe-session-event-emit.py`, which forks a Python interpreter per event
+(~360 ms on Pi). That is acceptable for transition-only events (engine start/stop,
+buffer change, calibration stop/restore). It is **not** acceptable for periodic or
+high-rate events — deferred names like `client.registered` during a graph rebuild
+can fire dozens of times per second on the recovery path where jackd is already
+missing deadlines. Before adding chatty events, the emitter must become long-lived
+or move in-process. Criterion 11 assumes events stay rare.
+
+**Snapshot publisher cost (Phase 3).** `build_snapshot()` is ~58 ms in-process on
+the Pi (~36 ms of that is systemctl). At `PUBLISH_INTERVAL_S = 0.5` that is ~12%
+of a core unless unit liveness is batched and cached (~1 s TTL). Batch the three
+distinct units into one `systemctl is-active` call when building the Phase 3
+publisher — not speculative work until that publisher lands.
+
 
 | # | Criterion | Verification |
 |---|---|---|
