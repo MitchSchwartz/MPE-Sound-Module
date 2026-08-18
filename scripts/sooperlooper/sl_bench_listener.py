@@ -16,11 +16,11 @@ LOOP_POS_UPDATE_MS = int(os.environ.get("MPE_SL_BENCH_LOOP_POS_MS", "20"))
 WET_UPDATE_MS = int(os.environ.get("MPE_SL_BENCH_WET_MS", "500"))
 REREGISTER_S = float(os.environ.get("MPE_SL_BENCH_REREGISTER_S", "15"))
 
-# The engine-wide control the bench watches to notice a restart. Slow on
-# purpose: it changes only when something has gone badly wrong, and the reply
-# costs a datagram every interval for the life of the bench.
-GLOBAL_SENTINEL = os.environ.get("MPE_SL_BENCH_SENTINEL", "sync_source")
-GLOBAL_UPDATE_MS = int(os.environ.get("MPE_SL_BENCH_SENTINEL_MS", "1000"))
+from sl_grid_sync import ENGINE_CONFIG_PROBE, expected_engine_config  # noqa: E402
+
+# Global config probe — detects engine restart via smart_eighths drift.
+GLOBAL_CONFIG_PROBE = os.environ.get("MPE_SL_BENCH_CONFIG_PROBE", ENGINE_CONFIG_PROBE)
+GLOBAL_UPDATE_MS = int(os.environ.get("MPE_SL_BENCH_CONFIG_PROBE_MS", "1000"))
 
 
 class SlBenchStateListener:
@@ -91,7 +91,7 @@ class SlBenchStateListener:
         # grid config silently reverted to SooperLooper's defaults.
         client.send_message(
             "/register_auto_update",
-            [GLOBAL_SENTINEL, GLOBAL_UPDATE_MS, returl, "/sl/bench/global"],
+            [GLOBAL_CONFIG_PROBE, GLOBAL_UPDATE_MS, returl, "/sl/bench/global"],
         )
         import time
 

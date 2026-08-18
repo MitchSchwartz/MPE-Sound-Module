@@ -24,7 +24,7 @@ REPO = Path(__file__).resolve().parents[1]
 CONFIG = REPO / "config"
 INSTALL_UNITS = REPO / "scripts" / "install-units.sh"
 
-LOOPER_UNITS = ("mpe-sooperlooper", "mpe-apc-bench", "sl-hud-monitor")
+LOOPER_UNITS = ("mpe-sooperlooper", "mpe-looper-session")
 
 
 def _enabled_units() -> list[str]:
@@ -134,7 +134,7 @@ class LooperStackIsSupervisedTests(unittest.TestCase):
 
     def test_clients_are_not_bound_to_the_engine(self) -> None:
         """Bench and HUD recover on their own; binding kills them on every restart."""
-        for name in ("mpe-apc-bench", "sl-hud-monitor"):
+        for name in ("mpe-looper-session",):
             text = _unit_text(name)
             self.assertEqual(_directive(text, "BindsTo"), [], f"{name} must not BindsTo")
             self.assertEqual(_directive(text, "Requires"), [], f"{name} must not Requires")
@@ -204,7 +204,7 @@ class SingleUnitSourceTests(unittest.TestCase):
             )
 
     def test_retired_mpe_bench_is_gone_everywhere(self) -> None:
-        """It could no longer free the APC — mpe-apc-bench.service holds it now."""
+        """It could no longer free the APC — mpe-looper-session.service holds it now."""
         self.assertFalse((CONFIG / "mpe-bench.service").exists())
         provision = (
             REPO / "scripts" / "pi" / "provision-mpe-agent.sh"
@@ -213,7 +213,7 @@ class SingleUnitSourceTests(unittest.TestCase):
             line for line in provision.splitlines() if line.startswith("UNITS=")
         )
         self.assertNotIn("mpe-bench ", units_line)
-        self.assertIn("mpe-apc-bench", units_line)
+        self.assertIn("mpe-looper-session", units_line)
 
 
 class EngineLauncherTests(unittest.TestCase):

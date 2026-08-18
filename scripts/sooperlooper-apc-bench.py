@@ -36,11 +36,11 @@ from loop_mix import CoalescingSender, LoopMix  # noqa: E402
 from sl_bench_listener import SlBenchStateListener  # noqa: E402
 from sl_grid_state import GridState, display_bpm  # noqa: E402
 from sl_grid_sync import (  # noqa: E402
-    RESTART_SENTINEL,
+    ENGINE_CONFIG_PROBE,
     apply_freeform,
     apply_grid_sync,
     establish_grid_clock,
-    expected_sentinel,
+    expected_engine_config,
     set_grid_active,
 )
 
@@ -71,14 +71,14 @@ def _format_midi(msg: list[int]) -> str:
     return " ".join(f"0x{b:02X}" for b in msg)
 
 
-def main() -> int:
+def run_bench(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--dump-midi",
         action="store_true",
         help="Log every raw MIDI message (hex) — use to verify Shift/Stop All notes",
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     port_hint = os.environ.get("MPE_APC_MIDI_PORT", "APC")
     host = os.environ.get("MPE_SL_OSC_HOST", "127.0.0.1")
@@ -206,12 +206,12 @@ def main() -> int:
         where resetting phase is not just safe but correct — its phase is gone
         anyway.
         """
-        if not grid_active or control != RESTART_SENTINEL:
+        if not grid_active or control != ENGINE_CONFIG_PROBE:
             return
-        if value == expected_sentinel():
+        if value == expected_engine_config():
             return
         print(f"bench: !! engine reset detected ({control}={value}, expected "
-              f"{expected_sentinel()}) — re-applying grid config", flush=True)
+              f"{expected_engine_config()}) — re-applying grid config", flush=True)
         apply_grid_sync(_send, num_loops=num_loops)
         if grid.established and grid.bpm:
             establish_grid_clock(_send, grid.bpm)
@@ -392,6 +392,10 @@ def main() -> int:
         state_listener.maybe_reregister()
 
     return 0
+
+
+def main() -> int:
+    return run_bench()
 
 
 if __name__ == "__main__":
