@@ -68,8 +68,10 @@ class SlBenchStateListenerTests(unittest.TestCase):
         fs = LoopFootswitch(loop=0, hold_ms=1000.0, debounce_ms=0.0)
         listener = SlBenchStateListener({0: fs})
         listener.wire_tail_capture([fs])
-        self.assertIs(fs._on_tail_capture_begin, listener.register_tail_peak)
-        self.assertIs(fs._on_tail_capture_end, listener.unregister_tail_peak)
+        # Bound methods compare equal but are freshly created per attribute
+        # access, so `is` never holds — assertEqual is the correct identity here.
+        self.assertEqual(fs._on_tail_capture_begin, listener.register_tail_peak)
+        self.assertEqual(fs._on_tail_capture_end, listener.unregister_tail_peak)
 
 
 if __name__ == "__main__":
