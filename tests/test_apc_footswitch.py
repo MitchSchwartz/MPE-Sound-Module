@@ -139,22 +139,27 @@ class GridEstablishmentTests(unittest.TestCase):
 
         self._start_defining_take(fs)
         self.assertTrue(grid.is_pending(0))
-        fs.on_pad_down(); fs.on_pad_up()          # stop — tail capture, not instant
+        fs.on_pad_down(); fs.on_pad_up()          # stop — fix length, then seam weld
         self.assertTrue(fs._tail_capture)
+        self.assertTrue(fs._tail_stop_sent)
         self.assertFalse(fs.awaiting_quantize)
         from scripts.sooperlooper.sl_grid_sync import TAIL_HOLD_S
 
+        hits = [c.args[1] for c in fs._osc.send_message.call_args_list
+                if c.args[0] == "/sl/0/hit"]
+        self.assertEqual(hits.count("record"), 2, "start + immediate stop")
+
+        fs.sync_loop_len(2.0)
+        fs.sync_loop_pos(0.0)
+        fs.sync_from_sl(SL_STATE_PLAYING)
         fs.sync_in_peak(0.5)
         fs.sync_in_peak(0.0)
         fs._tail_silence_since = TAIL_HOLD_S * -2 + time.monotonic()
         fs.poll_tail_capture()
         hits = [c.args[1] for c in fs._osc.send_message.call_args_list
                 if c.args[0] == "/sl/0/hit"]
-        self.assertEqual(hits.count("record"), 2)
+        self.assertEqual(hits.count("overdub"), 2, "seam overdub on + off")
 
-        fs.sync_loop_len(2.0)
-        fs.sync_loop_pos(0.0)
-        fs.sync_from_sl(SL_STATE_PLAYING)
         self.assertTrue(grid.established)
         self.assertEqual(seen, [(120.0, 1)])
 
@@ -245,12 +250,14 @@ class TailCaptureTests(unittest.TestCase):
         fs = LoopFootswitch(loop=0, hold_ms=1000.0, debounce_ms=200.0)
         fs.bind(MagicMock(), MagicMock(), 36)
         fs._tail_capture = True
+        fs._tail_stop_sent = True
+        fs._tail_overdub = True
         fs._tail_capture_since = time.monotonic()
         fs._last_action_at = time.monotonic()
         fs.on_pad_down()
         hits = [c.args[1] for c in fs._osc.send_message.call_args_list
                 if c.args[0] == "/sl/0/hit"]
-        self.assertEqual(hits, ["record"])
+        self.assertEqual(hits, ["overdub"])
         self.assertFalse(fs._tail_capture)
 
     def test_tail_led_matches_wait_stop_pattern(self) -> None:
@@ -269,12 +276,15 @@ class TailCaptureTests(unittest.TestCase):
         fs = LoopFootswitch(loop=0, hold_ms=1000.0, debounce_ms=0.0)
         fs.bind(MagicMock(), MagicMock(), 36)
         fs._tail_capture = True
+        fs._tail_stop_sent = True
+        fs.sync_from_sl(SL_STATE_PLAYING)
+        fs.sync_loop_len(2.0)
         fs._tail_capture_since = time.monotonic() - TAIL_MAX_S - 0.01
         fs.poll_tail_capture()
         self.assertFalse(fs._tail_capture)
         hits = [c.args[1] for c in fs._osc.send_message.call_args_list
                 if c.args[0] == "/sl/0/hit"]
-        self.assertEqual(hits, ["record"])
+        self.assertEqual(hits, [])
 
     def test_finish_tail_resets_hold_timer(self) -> None:
         fs = LoopFootswitch(loop=0, hold_ms=1000.0, debounce_ms=0.0)
@@ -290,13 +300,28 @@ class TailCaptureTests(unittest.TestCase):
         fs = LoopFootswitch(loop=0, hold_ms=1000.0, debounce_ms=200.0)
         fs.bind(MagicMock(), MagicMock(), 36)
         fs._tail_capture = True
+        fs._tail_stop_sent = True
         fs._last_action_at = 0.0
         fs._finish_tail_capture("test")
         fs.on_pad_down()
         fs.on_pad_up()
         hits = [c.args[1] for c in fs._osc.send_message.call_args_list
-                if c.args[0] == "/sl/0/hit" and c.args[1] != "record"]
+                if c.args[0] == "/sl/0/hit"]
         self.assertEqual(hits, [], "gesture after auto-close should be debounced")
+
+    def test_defining_stop_sends_record_immediately(self) -> None:
+        from scripts.sooperlooper.sl_grid_state import GridState
+
+        grid = GridState()
+        fs = LoopFootswitch(loop=0, hold_ms=1000.0, debounce_ms=0.0, grid=grid)
+        fs.bind(MagicMock(), MagicMock(), 36)
+        fs.on_pad_down(); fs.on_pad_up()
+        fs.sync_from_sl(SL_STATE_RECORDING)
+        fs.on_pad_down(); fs.on_pad_up()
+        hits = [c.args[1] for c in fs._osc.send_message.call_args_list
+                if c.args[0] == "/sl/0/hit"]
+        self.assertEqual(hits, ["record", "record"])
+        self.assertTrue(fs._tail_stop_sent)
 
     def test_tail_max_timeout_without_peak_reading(self) -> None:
         from scripts.sooperlooper.sl_grid_sync import TAIL_MAX_S
@@ -304,6 +329,9 @@ class TailCaptureTests(unittest.TestCase):
         fs = LoopFootswitch(loop=0, hold_ms=1000.0, debounce_ms=0.0)
         fs.bind(MagicMock(), MagicMock(), 36)
         fs._tail_capture = True
+        fs._tail_stop_sent = True
+        fs.sync_from_sl(SL_STATE_PLAYING)
+        fs.sync_loop_len(2.0)
         fs._tail_capture_since = time.monotonic() - TAIL_MAX_S - 0.01
         fs._in_peak_seen = False
         fs._tail_saw_loud = False
@@ -316,12 +344,16 @@ class TailCaptureTests(unittest.TestCase):
         fs = LoopFootswitch(loop=0, hold_ms=1000.0, debounce_ms=0.0)
         fs.bind(MagicMock(), MagicMock(), 36)
         fs._tail_capture = True
+        fs._tail_stop_sent = True
+        fs.sync_from_sl(SL_STATE_PLAYING)
+        fs.sync_loop_len(2.0)
         fs._tail_capture_since = time.monotonic()
         fs.sync_in_peak(0.0)
         fs._tail_silence_since = TAIL_HOLD_S * -2 + time.monotonic()
         fs.poll_tail_capture()
         self.assertTrue(fs._tail_capture)
         fs.sync_in_peak(0.5)
+        fs._start_tail_overdub()
         fs.sync_in_peak(0.0)
         fs.poll_tail_capture()
         self.assertFalse(fs._tail_capture)
@@ -332,8 +364,12 @@ class TailCaptureTests(unittest.TestCase):
         fs = LoopFootswitch(loop=0, hold_ms=1000.0, debounce_ms=0.0)
         fs.bind(MagicMock(), MagicMock(), 36)
         fs._tail_capture = True
+        fs._tail_stop_sent = True
+        fs.sync_from_sl(SL_STATE_PLAYING)
+        fs.sync_loop_len(2.0)
         fs._tail_capture_since = time.monotonic()
         fs.sync_in_peak(0.5)
+        fs._start_tail_overdub()
         fs.sync_in_peak(0.0)
         fs._tail_silence_since = TAIL_HOLD_S * -2 + time.monotonic()
         fs.poll_tail_capture()
