@@ -334,7 +334,7 @@ mpe_restart_audio_graph() {{ printf 'graph-restart\\n'; return 0; }}
 mpe_systemctl() {{
   printf '%s\\n' "$*" >> "{tmp}/systemctl.log"
   case "$*" in
-    restart\ surge-xt-cli.service) touch "{on_graph}" ;;
+    restart\\ surge-xt-cli.service) touch "{on_graph}" ;;
   esac
   return 0
 }}
@@ -986,6 +986,46 @@ if mpe_jack_softmode_enabled; then printf 'on'; else printf 'off'; fi
         self.assertIn("mpe_jack_softmode_enabled", text)
         self.assertIn('"${SOFTMODE_ARGS[@]}"', text)
         self.assertNotIn('jackd -R -P"$JACK_PRIO" -s', text)
+
+
+class SessionEventBashTests(unittest.TestCase):
+    def test_engine_transition_emits_events(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            env = _bash_env(tmp)
+            body = f"""
+source {AUDIO_ENGINE_SH}
+mpe_engine_state_write jack none recovering boot off
+mpe_engine_state_write jack jack ok "" off
+mpe_engine_state_write jack none failed no-server off
+wc -l < "$(mpe_run_dir)/events.jsonl"
+"""
+            result = _run_bash_script(body, env=env)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertGreaterEqual(int(result.stdout.strip()), 2)
+
+    def test_buffer_change_emits_event(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            env = _bash_env(tmp)
+            body = f"""
+source {AUDIO_ENGINE_SH}
+mpe_jack_state_write hw:0 256 3 48000
+mpe_jack_state_write hw:0 128 3 48000
+grep -c buffer.changed "$(mpe_run_dir)/events.jsonl"
+"""
+            result = _run_bash_script(body, env=env)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout.strip(), "1")
+
+    def test_engine_exit_reason_with_quotes_survives_jsonl(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            env = _bash_env(tmp)
+            body = f"""
+source {AUDIO_ENGINE_SH}
+mpe_session_event_emit engine.exited 'surge said "no" / path C:\\x' reason='surge said "no"'
+python3 -c "import json; from pathlib import Path; lines=Path('$(mpe_run_dir)/events.jsonl').read_text().splitlines(); obj=json.loads(lines[-1]); assert obj['event']=='engine.exited'; assert 'no' in obj['detail']; assert 'no' in obj['reason']"
+"""
+            result = _run_bash_script(body, env=env)
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
 
 
 if __name__ == "__main__":
