@@ -31,6 +31,7 @@ from scripts.sooperlooper.loop_model import (
 from scripts.sooperlooper.sl_loop_states import (
     SL_STATE_MUTE,
     SL_STATE_OFF,
+    SL_STATE_OFF_MUTED,
     SL_STATE_PAUSED,
     SL_STATE_PLAYING,
     SL_STATE_RECORDING,
@@ -48,6 +49,7 @@ class DeriveStateTests(unittest.TestCase):
         self.assertEqual(derive_state(SL_STATE_PLAYING), STATE_PLAYING)
         self.assertEqual(derive_state(SL_STATE_PAUSED), STATE_STOPPED)
         self.assertEqual(derive_state(SL_STATE_MUTE), STATE_STOPPED)
+        self.assertEqual(derive_state(SL_STATE_OFF_MUTED), STATE_IDLE)
 
     def test_an_unknown_code_does_not_take_the_surface_down(self) -> None:
         self.assertEqual(derive_state(99), STATE_IDLE)
@@ -120,6 +122,28 @@ class PlanTapTests(unittest.TestCase):
         p = self._gesture("down", SL_STATE_RECORDING, is_defining=True)
         self.assertFalse(p.begin_quantize_wait)
         self.assertEqual(p.expect, STATE_PLAYING)
+
+    def test_defining_take_stop_uses_tail_capture_when_enabled(self) -> None:
+        p = self._gesture(
+            "down",
+            SL_STATE_RECORDING,
+            is_defining=True,
+            tail_capture_enabled=True,
+        )
+        self.assertTrue(p.begin_tail_capture)
+        self.assertEqual(p.commands, ())
+
+    def test_defining_take_stop_off_muted_enters_tail_not_queue_stop(self) -> None:
+        """Pi reported sl=20 (OffMuted) while pending=recording — was queue_stop deadlock."""
+        p = self._gesture(
+            "down",
+            SL_STATE_OFF_MUTED,
+            pending=STATE_RECORDING,
+            is_defining=True,
+            tail_capture_enabled=True,
+        )
+        self.assertTrue(p.begin_tail_capture)
+        self.assertFalse(p.queue_stop)
 
     def test_free_form_loops_never_arm_a_quantize_wait(self) -> None:
         p = self._gesture("down", SL_STATE_RECORDING, quantized=False)
