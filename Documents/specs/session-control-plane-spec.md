@@ -45,9 +45,9 @@ when the writer last touched disk.
 
 | Path | Writers | Readers | Staleness rule |
 |---|---|---|---|
-| `/run/mpe/engine.state` | `start-jackd.sh`, `start-surge-cli.sh`, `surge-watchdog.sh`, `audio-engine.sh` | `patch_browser/audio_engine.py`, `mpe-cli`, Phase 1 snapshot | No reader-side TTL today; snapshot marks **stale** if `updated` age > 1.5 s (D6) |
-| `/run/mpe/jack.state` | `start-jackd.sh` | snapshot, promote/reconcile probes | Same as engine aggregate (D6) |
-| `/run/mpe/surge.state` | `start-surge-cli.sh` | snapshot, watchdog promote probe | Same as engine aggregate (D6) |
+| `/run/mpe/engine.state` | `start-jackd.sh`, `start-surge-cli.sh`, `surge-watchdog.sh`, `audio-engine.sh` | `patch_browser/audio_engine.py`, `mpe-cli`, Phase 1 snapshot | **Transition-written, not a heartbeat.** Snapshot marks stale unless the *writer* (`surge-watchdog`) is active (D6, amended). No-op republishes are skipped, so `updated` does not advance while nothing changes |
+| `/run/mpe/jack.state` | `start-jackd.sh` | snapshot, promote/reconcile probes | `started` is a process **start epoch**, never refreshed — stale unless `mpe-jackd` is active (D6, amended) |
+| `/run/mpe/surge.state` | `start-surge-cli.sh` | snapshot, watchdog promote probe | Same, keyed on `surge-xt-cli` (D6, amended) |
 | `/run/mpe/engine-reconcile.state` | `surge-watchdog.sh` | `surge-watchdog.sh`, snapshot | Informational; no independent TTL |
 | `/run/mpe/jack-device` | `jackd-prestart.sh` | `start-jackd.sh`, detection scripts, snapshot | Valid for current boot; cleared on jackd restart |
 | `/run/mpe/planned-promote` | `mpe_promote_surge_planned()` | `surge-watchdog.sh`, promote callers | Ephemeral intent flag; absent = no promote in flight |
@@ -235,11 +235,18 @@ not the same thing and were conflated in the first draft:
 another process (touch UI). Without it, a field rename in this repo breaks the CLI at a
 distance, with no error at the point of change.
 
-**Publish interval is fixed at 500 ms** (matching `sl_hud_monitor.WRITE_INTERVAL_S`),
-and **staleness threshold at 1.5 s**. These are stated here rather than deferred to Q2
-because criterion 4 cannot be satisfied against an undecided interval — the first draft
-made staleness depend on an open question and the open question depend on staleness.
-Q2 is now about whether a *faster lane* is needed for transport, not about this value.
+**Publish interval is fixed at 500 ms** (matching `sl_hud_monitor.WRITE_INTERVAL_S`).
+It is stated here rather than deferred to Q2 because the first draft made staleness
+depend on an open question and the open question depend on staleness. Q2 is now about
+whether a *faster lane* is needed for transport, not about this value.
+
+**The 1.5 s staleness threshold is retired (amended 2026-08-18).** It survives only for
+`looper.hud`, whose writer genuinely heartbeats at 2 Hz. It was wrong for every other
+source: `jack.state` and `surge.state` hold a process *start* epoch and `engine.state`
+is transition-written, so against real appliance file ages an age gate reported `null`
+for every field, permanently. Those sources now derive staleness from their **writer
+unit's liveness** — see criterion 4 and the Implementation log. A source whose writer
+heartbeats may use an age gate; a source written on transition must not.
 
 ### D7 — Intents are the only write path from edges
 
@@ -413,7 +420,7 @@ does not need the answer. Q8 still tracks retirement.
 | 4 | A stale sub-source reports **stale**, never a last-known value | ✅ *(amended)* | Per-source **writer liveness**, not a 1.5 s age gate — see Implementation log. Unknown liveness reads as stale |
 | 5 | The 2026-08-17 faults are visible from the snapshot alone | ❌ | Needs the leaked-client and graph-wiring fields from criterion 1 |
 | 6 | **No fifth view.** `mpe status`, `mpe engine status`, `mpe jack status`, `mpe diagnose` are re-pointed at the snapshot; their output shape is unchanged | ❌ deferred | mpe-cli untouched; the snapshot is currently a *fifth* view, which is the thing this criterion exists to prevent. Highest-priority Phase 1 debt |
-| 7 | Snapshot generation costs < 1% of a core at 2 Hz | ❌ | `build_snapshot()` measures **58 ms** in-process ⇒ ~11.6% at 2 Hz. Batch + cache unit liveness before any publisher ships |
+| 7 | Snapshot generation costs < 1% of a core at 2 Hz | ❌ *(diagnosed)* | **57.3 ms** measured ⇒ ~11.5% at 2 Hz. **97% of it is three `systemctl` forks**; everything else is 1.4 ms. Not blocked — fix liveness (D-Bus first, else batch + TTL) before any publisher ships. See the cost table under Phase 2 |
 | 8 | A reader on an unknown `schema` major refuses loudly | ✅ | `read_snapshot` raises on `schema > max_schema` |
 
 ### Phase 2 — Event stream
@@ -427,11 +434,45 @@ can fire dozens of times per second on the recovery path where jackd is already
 missing deadlines. Before adding chatty events, the emitter must become long-lived
 or move in-process. Criterion 11 assumes events stay rare.
 
-**Snapshot publisher cost (Phase 3).** `build_snapshot()` is ~58 ms in-process on
-the Pi (~36 ms of that is systemctl). At `PUBLISH_INTERVAL_S = 0.5` that is ~12%
-of a core unless unit liveness is batched and cached (~1 s TTL). Batch the three
-distinct units into one `systemctl is-active` call when building the Phase 3
-publisher — not speculative work until that publisher lands.
+**Snapshot publisher cost — profiled 2026-08-18, and the number is all one thing.**
+The publisher is **not blocked by any dependency**; it fails criterion 7 as written,
+for a fully diagnosed reason. Measured in-process on `raspberrypi2`:
+
+| | ms |
+|---|---|
+| `build_snapshot()` full | **57.3** |
+| ↳ one `systemd_unit_active` fork | 18.1 |
+| `build_snapshot(unit_active=<stub>)` — everything else | **1.4** |
+| ↳ four `read_engine_state` | 0.4 |
+| ↳ `read_sl_hud_state` | 0.1 |
+| ↳ `next_seq` (flock + fsync) | 0.5 |
+
+**97% of the cost is three `systemctl` forks.** File reads, JSON, locking and fsync
+together are 1.4 ms. This is the [`DECISIONS.md`](../DECISIONS.md) 2026-08-18 failure
+mode inside the snapshot itself, and it is why a publisher must not ship as-is: at
+`PUBLISH_INTERVAL_S = 0.5` it would put ~11.5% of a core on the appliance permanently
+— five times what all of `surge-watchdog` costs.
+
+Cost of the options, at 2 Hz:
+
+| Approach | Cost |
+|---|---|
+| Today — three separate forks per build | 11.5% |
+| Batched into one `systemctl is-active` per build | 3.6% |
+| Batched + 2 s liveness TTL | ~1.1% |
+| Batched + 5 s liveness TTL | ~0.44% ✅ |
+| systemd liveness over **D-Bus** (no fork) | *unmeasured; expected ≪ 1 ms* |
+
+**Try D-Bus first (~20 min to find out).** Querying systemd's `ActiveState` over D-Bus
+spawns no process and would clear criterion 7 at 2 Hz with **no cache and no honesty
+trade**. Only if that fails should a TTL be accepted — and a cached liveness reading is
+a soft form of the last-known-good problem this spec's staleness model exists to
+prevent, so if one is used the snapshot **must carry the age of the cached liveness**
+so a reader can see how stale the judgement is. Batching is worth doing either way.
+
+**Sequencing note (soft, not a block).** The publisher has no consumer until criterion 6
+re-points `mpe-cli` at the snapshot. That is a reason to do criterion 6 first, not a
+reason the publisher cannot be built.
 
 
 | # | Criterion | Status | Verification |
@@ -700,7 +741,11 @@ world-readable and contains no credentials; secrets remain absent from `/run/mpe
    13–22) is **superseded** by Phase 3M (criteria 38–49).
 2. **Q2 — Snapshot publish interval.** The HUD writes at 2 Hz today. Is that the right
    rate for a general snapshot, or does the meter/transport need a faster lane?
-   Measure before choosing.
+   Measure before choosing. *(2026-08-18: partly answered by profiling — the interval is
+   no longer the lever. Snapshot cost is 1.4 ms of real work plus ~56 ms of `systemctl`
+   forks, so fixing liveness matters far more than choosing a rate. Once liveness is
+   fork-free, 2 Hz costs ~0.3% and the question becomes a product one about how fresh
+   the transport needs to look, not a budget one.)*
 3. **Q3 — Does the touch UI join the edge plane in Phase 3, or later?** It holds
    normalization, pressure, hold and favourites state, all file-backed and all
    single-writer today. Lower risk than the looper; also lower value.
