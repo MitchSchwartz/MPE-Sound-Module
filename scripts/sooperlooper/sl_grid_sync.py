@@ -37,6 +37,8 @@ TAIL_HOLD_S = float(os.environ.get("MPE_SL_TAIL_HOLD_MS", "80")) / 1000.0
 TAIL_MAX_S = float(os.environ.get("MPE_SL_TAIL_MAX_MS", "4000")) / 1000.0
 TAIL_ABSOLUTE_MAX_S = float(os.environ.get("MPE_SL_TAIL_ABSOLUTE_MAX_MS", "15000")) / 1000.0
 TAIL_PEAK_UPDATE_MS = int(os.environ.get("MPE_SL_TAIL_PEAK_MS", "100"))
+# Start seam overdub when playhead enters the last fraction of the loop (wrap weld).
+TAIL_SEAM_RATIO = float(os.environ.get("MPE_SL_TAIL_SEAM_RATIO", "0.85"))
 
 # Phase re-anchor: when PLAYING arrives mid-bar, defer a second set_tempo until
 # loop_pos is near the defining take's wrap (set_tempo zeroes phase). Grid
