@@ -129,9 +129,22 @@ class PlanTapTests(unittest.TestCase):
             SL_STATE_RECORDING,
             is_defining=True,
             tail_capture_enabled=True,
+            tail_seam_mode=False,
         )
         self.assertTrue(p.begin_tail_capture)
         self.assertEqual(p.commands, ())
+
+    def test_defining_take_seam_mode_stops_immediately(self) -> None:
+        p = self._gesture(
+            "down",
+            SL_STATE_RECORDING,
+            is_defining=True,
+            tail_capture_enabled=True,
+            tail_seam_mode=True,
+        )
+        self.assertTrue(p.begin_tail_capture)
+        self.assertEqual(p.commands, ("record",))
+        self.assertEqual(p.expect, STATE_PLAYING)
 
     def test_defining_take_stop_off_muted_enters_tail_not_queue_stop(self) -> None:
         """Pi reported sl=20 (OffMuted) while pending=recording — was queue_stop deadlock."""
