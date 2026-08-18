@@ -164,9 +164,7 @@ class NormCapIntegrityTests(unittest.TestCase):
 
 class CalibrationPipelineDoesNotSilentlySaveGarbageTests(unittest.TestCase):
     """End-to-end via the real capture path (mock_lufs intentionally bypasses
-    is_invalid_measurement entirely — it's a write-any-value testing escape
-    hatch, not representative of the real gate). Mock capture_gesture_wav /
-    measure_lufs instead so is_invalid_measurement is actually exercised."""
+    is_invalid_measurement and post-gain verify gates are exercised."""
 
     def setUp(self) -> None:
         self.cal = load_cal_module()
@@ -272,6 +270,29 @@ class CalibrateListMissingContractTests(unittest.TestCase):
 
             self.assertEqual(missing_keys, [missing_key])
 
+
+
+
+
+class MockLufsRefusesSaveTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.cal = load_cal_module()
+
+    def test_mock_lufs_does_not_persist(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            out_path = Path(tmp) / "norm.json"
+            store = self.cal.PatchNormalizationStore(out_path)
+            result = self.cal.calibrate_patch(
+                Path("/tmp/Mock.fxp"),
+                mock.Mock(),
+                store,
+                audio_device="plughw:Loopback,1,0",
+                mock_lufs=-18.0,
+                dry_run=False,
+                midi_out=None,
+            )
+            self.assertFalse(result.ok)
+            self.assertIsNone(store.get_raw_gain_db("Mock"))
 
 
 class ClosedLoopThresholdTests(unittest.TestCase):
