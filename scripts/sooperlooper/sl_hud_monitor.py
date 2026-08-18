@@ -32,6 +32,7 @@ from patch_browser.looper_health import JackGraphHealth, collect_jack_graph_heal
 from patch_browser.sl_hud_state import SL_HUD_STATE_FILE  # noqa: E402
 
 WRITE_INTERVAL_S = float(os.environ.get("MPE_SL_HUD_WRITE_INTERVAL_S", "0.5"))
+REREGISTER_INTERVAL_S = 15.0
 SL_HOST = os.environ.get("MPE_SL_OSC_HOST", "127.0.0.1")
 SL_PORT = int(os.environ.get("MPE_SL_OSC_PORT", "9951"))
 LISTEN_PORT = int(os.environ.get("MPE_SL_HUD_LISTEN_PORT", "9952"))
@@ -151,6 +152,13 @@ class HudWriter:
             self._sl.get("tempo", -1)
         self._registered_at = time.monotonic()
 
+    def should_reregister(self) -> bool:
+        """Re-subscribe after an engine restart (register_auto_update is change-only)."""
+        return time.monotonic() - self._registered_at > REREGISTER_INTERVAL_S
+
+    def close(self) -> None:
+        self._graph_health.close()
+
     def _phrase_reference(self, bar_span: float):
         """Longest playing loop = the musical phrase the counter should span.
 
@@ -247,7 +255,7 @@ def main() -> int:
     try:
         while True:
             writer.poll()
-            if time.monotonic() - writer._registered_at > 15.0:
+            if writer.should_reregister():
                 writer.register_auto_updates()  # survive an engine restart
             time.sleep(0.1)
     except KeyboardInterrupt:
