@@ -478,6 +478,59 @@ echo ok
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.strip(), "ok")
 
+
+    def test_surge_on_jack_graph_calls_jack_lsp_once(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            bin_dir = Path(tmp) / "bin"
+            bin_dir.mkdir()
+            count_file = Path(tmp) / "count"
+            count_file.write_text("0\n", encoding="utf-8")
+            jack_stub = bin_dir / "jack_lsp"
+            jack_stub.write_text(
+                f"""#!/bin/sh
+n=$(cat "{count_file}")
+echo $((n + 1)) > "{count_file}"
+printf 'surge-xt\n'
+""",
+                encoding="utf-8",
+            )
+            jack_stub.chmod(jack_stub.stat().st_mode | stat.S_IXUSR)
+            body = f"""
+source {AUDIO_ENGINE_SH}
+pgrep() {{ [ "$1" = "-x" ] && [ "$2" = "jackd" ] && return 0; return 1; }}
+export -f pgrep
+timeout() {{ shift; "$@"; }}
+export -f timeout
+export PATH="{bin_dir}:$PATH"
+if mpe_surge_on_jack_graph; then echo yes; else echo no; fi
+cat "{count_file}"
+"""
+            result = _run_bash_script(body)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout.strip().splitlines()[0], "yes")
+            self.assertEqual(result.stdout.strip().splitlines()[1], "1")
+
+    def test_surge_on_jack_graph_fails_on_empty_port_list(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            bin_dir = Path(tmp) / "bin"
+            bin_dir.mkdir()
+            jack_stub = bin_dir / "jack_lsp"
+            jack_stub.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            jack_stub.chmod(jack_stub.stat().st_mode | stat.S_IXUSR)
+            body = f"""
+source {AUDIO_ENGINE_SH}
+pgrep() {{ [ "$1" = "-x" ] && [ "$2" = "jackd" ] && return 0; return 1; }}
+export -f pgrep
+timeout() {{ shift; "$@"; }}
+export -f timeout
+export PATH="{bin_dir}:$PATH"
+if mpe_surge_on_jack_graph; then exit 9; fi
+echo ok
+"""
+            result = _run_bash_script(body)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout.strip(), "ok")
+
     def test_jack_lsp_runs_as_graph_owner_when_root(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "sudo.log"
@@ -553,6 +606,7 @@ class NoAlsaPathTests(unittest.TestCase):
         self.assertIn('[ "$state" = ok ] && [ "$active" = jack ]', text)
         self.assertIn("JACK_PROBE_INTERVAL_S", text)
         self.assertIn("_last_jack_probe=$EPOCHSECONDS", text)
+        self.assertIn('JACK_PROBE_INTERVAL_S="${MPE_JACK_PROBE_INTERVAL_S:-10}"', text)
 
     def test_surge_watchdog_looper_reconcile_batched_and_throttled(self) -> None:
         text = SURGE_WATCHDOG_SH.read_text(encoding="utf-8")
@@ -671,7 +725,7 @@ mpe_surge_on_jack_graph() { return 0; }
             )
             stubs = """
 _last_jack_probe=$EPOCHSECONDS
-JACK_PROBE_INTERVAL_S=60
+JACK_PROBE_INTERVAL_S=10
 mpe_jack_server_ready() { echo JACK_LSP_PROBE >&2; return 1; }
 mpe_surge_on_jack_graph() { echo GRAPH_PROBE >&2; return 1; }
 export -f mpe_jack_server_ready mpe_surge_on_jack_graph
@@ -700,7 +754,7 @@ export -f systemctl
             )
             stubs = """
 _last_jack_probe=0
-JACK_PROBE_INTERVAL_S=60
+JACK_PROBE_INTERVAL_S=10
 mpe_surge_on_jack_graph() { echo GRAPH_PROBE >&2; return 0; }
 export -f mpe_surge_on_jack_graph
 systemctl() { case "$*" in is-active*surge-xt-cli*) return 0 ;; esac; return 1; }
