@@ -203,9 +203,38 @@ mpe_engine_state_write() {
     local state="${3:?state required}"
     local reason="${4:-}"
     local looper="${5:-off}"
-    local file prev_state
+    local file k v
+    local prev_engine="" prev_active="" prev_state="" prev_reason="" prev_looper=""
     file="$(mpe_engine_state_file)"
-    prev_state="$(mpe_engine_state_get state)"
+
+    # One pass for every field we compare — mpe_state_get would re-read the file
+    # per key.
+    if [ -r "$file" ]; then
+        while IFS='=' read -r k v; do
+            case "$k" in
+                engine) prev_engine="$v" ;;
+                active) prev_active="$v" ;;
+                state) prev_state="$v" ;;
+                reason) prev_reason="$v" ;;
+                looper) prev_looper="$v" ;;
+            esac
+        done < "$file"
+    fi
+
+    # Unchanged republish: skip the write entirely. The supervisor reconciles the
+    # graph every JACK_PROBE_INTERVAL_S and would otherwise rewrite a byte-identical
+    # file forever — rm/mv/chmod/date forks plus tmpfs churn, for no new information.
+    # `updated=` is not a heartbeat: session_snapshot.engine_field_stale gates engine
+    # freshness on writer liveness (surge-watchdog), not on field age.
+    if [ -r "$file" ] \
+        && [ "$prev_engine" = "$engine" ] \
+        && [ "$prev_active" = "$active" ] \
+        && [ "$prev_state" = "$state" ] \
+        && [ "$prev_reason" = "$reason" ] \
+        && [ "$prev_looper" = "$looper" ]; then
+        return 0
+    fi
+
     mpe_state_write_atomic "$file" \
         "engine=$engine" \
         "active=$active" \
@@ -663,7 +692,12 @@ mpe_surge_on_jack_graph() {
     _mpe_jack_lsp_bin || return 1
     ports="$(mpe_jack_lsp 2>/dev/null)" || return 1
     [ -n "$ports" ] || return 1
-    printf '%s' "$ports" | grep -qi 'surge'
+    # ${ports,,} is a bash expansion, not a fork — preserves grep -qi semantics
+    # without spawning grep on the probe path.
+    case "${ports,,}" in
+        *surge*) return 0 ;;
+    esac
+    return 1
 }
 
 # Back-compat alias used by udev helper and profile scripts.
