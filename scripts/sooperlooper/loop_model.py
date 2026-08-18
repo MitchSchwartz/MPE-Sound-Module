@@ -153,7 +153,7 @@ def plan_gesture(
             return Plan(
                 begin_tail_capture=True,
                 expect=STATE_PLAYING,
-                note="tail weld — stop now, overdub release at seam",
+                note="tail weld — stop now, scratch capture + seam merge",
             )
         if sl_state != SL_STATE_RECORDING:
             # Armed, or asked-for-but-unconfirmed. Either way the engine may be
