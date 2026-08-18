@@ -12,6 +12,7 @@ if TYPE_CHECKING:
 LISTEN_HOST = os.environ.get("MPE_SL_BENCH_LISTEN_HOST", "127.0.0.1")
 LISTEN_PORT = int(os.environ.get("MPE_SL_BENCH_LISTEN_PORT", "9953"))
 UPDATE_MS = int(os.environ.get("MPE_SL_BENCH_STATE_MS", "100"))
+LOOP_POS_UPDATE_MS = int(os.environ.get("MPE_SL_BENCH_LOOP_POS_MS", "20"))
 WET_UPDATE_MS = int(os.environ.get("MPE_SL_BENCH_WET_MS", "500"))
 REREGISTER_S = float(os.environ.get("MPE_SL_BENCH_REREGISTER_S", "15"))
 
@@ -53,6 +54,8 @@ class SlBenchStateListener:
             # Needed to capture the tempo from the first take, which is what
             # establishes the grid.
             fs.sync_loop_len(float(value))
+        elif control == "loop_pos":
+            fs.sync_loop_pos(float(value))
 
     def on_global_update(self, _addr: str, _loop_index: int, control: str,
                          value: float) -> None:
@@ -74,6 +77,10 @@ class SlBenchStateListener:
             # Slower than state on purpose. This only has to notice a level
             # changed by something other than us; polling it at pad-blink rate
             # would cost a datagram per loop per 100 ms for no benefit.
+            client.send_message(
+                f"/sl/{loop}/register_auto_update",
+                ["loop_pos", LOOP_POS_UPDATE_MS, returl, retpath],
+            )
             client.send_message(
                 f"/sl/{loop}/register_auto_update",
                 ["wet", WET_UPDATE_MS, returl, retpath],
