@@ -154,6 +154,10 @@ MPE_AUDIO_PROFILE MPE_JACK_BUFFER MPE_SURGE_BUFFER_SIZE MPE_SURGE_SAMPLE_RATE MP
         echo "  ✓ $name"
     }
 
+    echo "Building compiled peak meter (Phase 5)..."
+    "$MPE_MODULE_REPO/scripts/build-mpe-peak-meter.sh" --required
+    echo ""
+
     echo "Installing systemd units..."
     for svc in "$MPE_MODULE_REPO/config/"*.service; do
         [ -f "$svc" ] || continue
