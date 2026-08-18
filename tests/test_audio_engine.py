@@ -529,6 +529,16 @@ class NoAlsaPathTests(unittest.TestCase):
         for token in ("active=alsa", "mpe_surge_active_engine", "release-alsa-for-jackd", "degraded"):
             self.assertNotIn(token, text, f"surge-watchdog.sh still references {token!r}")
 
+    def test_surge_watchdog_looper_reconcile_batched_and_throttled(self) -> None:
+        text = SURGE_WATCHDOG_SH.read_text(encoding="utf-8")
+        self.assertIn("_reconcile_looper_units_if_needed", text)
+        self.assertIn("LOOPER_RECONCILE_INTERVAL_S", text)
+        self.assertIn('systemctl is-active "${units[@]}"', text)
+        self.assertNotIn(
+            "python3 \"$MPE_MODULE_REPO/scripts/ensure-looper-units-running.py\" >/dev/null 2>&1 || true\n    fi\n\n    sleep 5",
+            text,
+        )
+
     def test_engine_guard_offers_no_engine_switch(self) -> None:
         text = ENGINE_GUARD_SH.read_text(encoding="utf-8")
         self.assertNotIn("MPE_AUDIO_ENGINE", text)
