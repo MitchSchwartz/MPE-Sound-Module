@@ -529,6 +529,16 @@ class NoAlsaPathTests(unittest.TestCase):
         for token in ("active=alsa", "mpe_surge_active_engine", "release-alsa-for-jackd", "degraded"):
             self.assertNotIn(token, text, f"surge-watchdog.sh still references {token!r}")
 
+    def test_surge_watchdog_uses_epochseconds(self) -> None:
+        text = SURGE_WATCHDOG_SH.read_text(encoding="utf-8")
+        self.assertIn("now=$EPOCHSECONDS", text)
+        self.assertNotIn("now=$(date +%s)", text)
+
+    def test_surge_watchdog_reconcile_short_circuits_on_ok_surge(self) -> None:
+        text = SURGE_WATCHDOG_SH.read_text(encoding="utf-8")
+        self.assertIn('systemctl is-active --quiet "$SURGE_SERVICE"', text)
+        self.assertIn('[ "$state" = ok ] && [ "$active" = jack ]', text)
+
     def test_surge_watchdog_looper_reconcile_batched_and_throttled(self) -> None:
         text = SURGE_WATCHDOG_SH.read_text(encoding="utf-8")
         self.assertIn("_reconcile_looper_units_if_needed", text)
@@ -604,6 +614,14 @@ exit 1
         self.assertNotIn("detect-audio-device.sh\"", text)
 
 
+class JackLspPathTests(unittest.TestCase):
+    def test_jack_lsp_uses_resolved_absolute_path(self) -> None:
+        text = AUDIO_ENGINE_SH.read_text(encoding="utf-8")
+        self.assertIn("_mpe_jack_lsp_bin", text)
+        self.assertIn('"$_MPE_JACK_LSP_BIN"', text)
+        self.assertNotIn('timeout "$timeout_s" jack_lsp "$@"', text)
+
+
 class WatchdogReconcileArmTests(unittest.TestCase):
     """B3 — reconcile arms via surge-watchdog.sh _reconcile_engine (finding 8).
     Single-engine: on graph -> ok; ready but off graph -> promote; not ready ->
@@ -627,6 +645,32 @@ mpe_surge_on_jack_graph() { return 0; }
             result = self._run_reconcile(env=env, stubs=stubs)
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(result.stdout.strip(), "ok:jack")
+
+    def test_reconcile_skips_jack_probe_when_surge_ok(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            env = _bash_env(tmp)
+            engine = Path(tmp) / "engine.state"
+            engine.write_text(
+                "engine=jack\nactive=jack\nstate=ok\nupdated=1\nlooper=off\n",
+                encoding="utf-8",
+            )
+            stubs = """
+mpe_jack_server_ready() { echo JACK_LSP_PROBE >&2; return 1; }
+mpe_surge_on_jack_graph() { echo GRAPH_PROBE >&2; return 1; }
+export -f mpe_jack_server_ready mpe_surge_on_jack_graph
+systemctl() {
+  case "$*" in
+    is-active*surge-xt-cli*) return 0 ;;
+  esac
+  return 1
+}
+export -f systemctl
+"""
+            result = self._run_reconcile(env=env, stubs=stubs)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout.strip(), "ok:jack")
+            self.assertNotIn("JACK_LSP_PROBE", result.stderr)
+            self.assertNotIn("GRAPH_PROBE", result.stderr)
 
     def test_jackd_never_ready_restarts_surge_as_jackd_down(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
