@@ -14,8 +14,8 @@ User=@MPE_PI_USER@
 WorkingDirectory=@MPE_MODULE_REPO@
 EnvironmentFile=-/etc/mpe/mpe.env
 Environment=PYTHONUNBUFFERED=1
-# Binds UDP MPE_SL_BENCH_LISTEN_PORT (9953) and MPE_SL_HUD_LISTEN_PORT (9952).
-# Refuses to run if another instance holds either port.
+# Binds UDP 9953 (bench state) and 9952 (HUD auto-update). Both ports fail
+# startup with an actionable message if already held.
 ExecStart=/usr/bin/python3 @MPE_MODULE_REPO@/scripts/looper-session.py
 Restart=always
 RestartSec=10

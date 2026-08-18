@@ -203,6 +203,14 @@ class SingleUnitSourceTests(unittest.TestCase):
                 leftover, [], f"config/{path.name} uses unknown placeholder {leftover}"
             )
 
+
+    def test_retired_looper_client_units_disabled(self) -> None:
+        """Phase 3M: merged units must land in DISABLED so upgrade does not double-run."""
+        install = INSTALL_UNITS.read_text(encoding="utf-8")
+        disabled_block = install.split("DISABLED=(", 1)[1].split(")", 1)[0]
+        for name in ("mpe-apc-bench", "sl-hud-monitor"):
+            self.assertIn(name, disabled_block, f"{name} must be in install-units DISABLED")
+
     def test_retired_mpe_bench_is_gone_everywhere(self) -> None:
         """It could no longer free the APC — mpe-looper-session.service holds it now."""
         self.assertFalse((CONFIG / "mpe-bench.service").exists())
