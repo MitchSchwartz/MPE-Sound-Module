@@ -74,7 +74,9 @@ from patch_browser.calibration_teardown import (  # noqa: E402
     unload_snd_aloop_if_idle,
 )
 from patch_browser.patch_normalization import (  # noqa: E402
+    POST_GAIN_VERIFY_PEAK_MAX_DBTP,
     PatchNormalizationStore,
+    post_gain_verify_passes,
     SAFE_PEAK_DBTP,
     compute_gain_db,
     compute_gain_db_dual_anchor,
@@ -135,9 +137,18 @@ FAILURE_REPORT_PATH = Path("/tmp/calibration-last-failure.json")
 @dataclass
 class CalibrateResult:
     ok: bool
+    verify_failed: bool = False
     lufs_light: float | None = None
     lufs_strike: float | None = None
     lufs_sustain: float | None = None
+
+
+@dataclass
+class VerifyResult:
+    ok: bool
+    skipped: bool = False
+    peak_dbtp: float | None = None
+    reason: str = ""
 
 
 def _handle_interrupt(_signum: int, _frame: object | None) -> None:
@@ -163,6 +174,11 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=None,
         help="Output JSON path (default: MPE_NORMALIZATION_FILE or ~/.patch_browser_normalization.json)",
+    )
+    parser.add_argument(
+        "--verify-only",
+        action="store_true",
+        help="Audit calibrated patches in scope: replay gesture at stored gain_db only",
     )
     parser.add_argument(
         "--dry-run",
@@ -786,13 +802,19 @@ def finalize_gain_with_closed_loop(
     for _ in range(CLOSED_LOOP_VERIFY_PASSES):
         apply_measurement_gain(loader, trial)
         time.sleep(0.35)
-        measured = measure_sustain_anchor_lufs(midi_out, audio_device)
-        if measured is None:
+        strike = measure_strike_anchor_lufs(midi_out, audio_device)
+        sustain = measure_sustain_anchor_lufs(midi_out, audio_device)
+        if strike is None or sustain is None:
             break
-        last_lufs, last_peak = measured
-        if last_peak <= SAFE_PEAK_DBTP + 0.5:
+        lufs_strike, peak_strike = strike
+        lufs_sustain, peak_sustain = sustain
+        last_lufs = lufs_sustain
+        last_peak = max(peak_strike, peak_sustain)
+        if post_gain_verify_passes(last_peak):
             return trial, last_lufs, last_peak
-        trial = compute_gain_db(last_lufs, last_peak)
+        trial = compute_gain_db_dual_anchor(
+            lufs_strike, peak_strike, lufs_sustain, peak_sustain
+        )
     return trial, last_lufs, last_peak
 
 
@@ -865,6 +887,37 @@ def measure_lufs(wav_path: Path) -> tuple[float, float]:
     return lufs, true_peak
 
 
+def verify_patch(
+    patch_path: Path,
+    loader: PatchLoader,
+    store: PatchNormalizationStore,
+    *,
+    audio_device: str,
+    midi_out: object,
+) -> VerifyResult:
+    name = patch_path.stem
+    entry = store.get_entry(name, patch_path=str(patch_path))
+    if not entry or entry.get("gain_db") is None:
+        return VerifyResult(ok=False, skipped=True, reason="not calibrated")
+    gain_db = float(entry["gain_db"])
+    if not loader.load_patch(str(patch_path), apply_normalization=False):
+        print(f"  [fail] OSC load failed: {name}", file=sys.stderr)
+        return VerifyResult(ok=False, reason="OSC load failed")
+    loader.user_volume_trim = 1.0
+    apply_measurement_gain(loader, gain_db)
+    time.sleep(PATCH_LOAD_SETTLE_SECONDS)
+    strike = measure_strike_anchor_lufs(midi_out, audio_device)
+    sustain = measure_sustain_anchor_lufs(midi_out, audio_device)
+    if strike is None or sustain is None:
+        print(f"  [fail] {name}: verify capture inaudible", file=sys.stderr)
+        return VerifyResult(ok=False, reason="verify capture inaudible")
+    _lufs_s, peak_strike = strike
+    _lufs_u, peak_sustain = sustain
+    peak = max(peak_strike, peak_sustain)
+    ok = post_gain_verify_passes(peak)
+    return VerifyResult(ok=ok, peak_dbtp=peak)
+
+
 def calibrate_patch(
     patch_path: Path,
     loader: PatchLoader,
@@ -875,6 +928,7 @@ def calibrate_patch(
     dry_run: bool,
     midi_out: object | None = None,
     touch_cal: bool = True,
+    cal_route: str = "soundblaster",
 ) -> CalibrateResult:
     name = patch_path.stem
     if dry_run:
@@ -946,10 +1000,25 @@ def calibrate_patch(
             file=sys.stderr,
         )
 
+    post_gain_peak: float | None = None
+    if mock_lufs is not None:
+        print(
+            f"  [fail] {name}: --mock-lufs cannot save cal entries (no post-gain verify)",
+            file=sys.stderr,
+        )
+        return CalibrateResult(ok=False)
     if mock_lufs is None and midi_out is not None:
         gain_db, verify_lufs, verify_peak = finalize_gain_with_closed_loop(
             loader, midi_out, audio_device, gain_db
         )
+        post_gain_peak = verify_peak
+        if not post_gain_verify_passes(verify_peak):
+            print(
+                f"  [fail] {name}: post-gain verify peak {verify_peak:.1f} dBTP "
+                f"exceeds {POST_GAIN_VERIFY_PEAK_MAX_DBTP:.1f} — not saved",
+                file=sys.stderr,
+            )
+            return CalibrateResult(ok=False, verify_failed=True)
         if math.isfinite(verify_lufs):
             lufs = verify_lufs
             true_peak = verify_peak
@@ -959,6 +1028,8 @@ def calibrate_patch(
         gain_db,
         lufs,
         true_peak_dbtp=true_peak,
+        post_gain_peak_dbtp=post_gain_peak,
+        cal_route=cal_route,
         strike_lufs=lufs_strike,
         sustain_lufs=lufs_sustain,
         patch_path=str(patch_path),
@@ -967,9 +1038,12 @@ def calibrate_patch(
     touch_note = ""
     if lufs_light is not None:
         touch_note = f", light {lufs_light:.1f} LUFS"
+    post_note = ""
+    if post_gain_peak is not None:
+        post_note = f", post-gain {post_gain_peak:.1f} dBTP"
     print(
         f"  [ok] {name}: strike {lufs_strike:.1f} / sustain {lufs_sustain:.1f} LUFS, "
-        f"peak {true_peak:.1f} dBTP -> gain {gain_db:+.2f} dB{touch_note}"
+        f"peak {true_peak:.1f} dBTP -> gain {gain_db:+.2f} dB{post_note}{touch_note}"
     )
     return CalibrateResult(
         ok=True,
@@ -1009,7 +1083,13 @@ def main() -> int:
     pressure_path = args.pressure_output or default_pressure_path()
     touch_cal = not args.no_touch_cal
     patch_records = patch_path_records(patch_paths)
-    if args.force or args.mock_lufs is not None:
+    if args.verify_only:
+        targets = [
+            p
+            for p in patch_paths
+            if store.get_calibrated_gain_db(p.stem, patch_path=str(p)) is not None
+        ]
+    elif args.force or args.mock_lufs is not None:
         targets = patch_paths
     else:
         missing_keys = set(store.list_missing(patch_records))
@@ -1053,7 +1133,22 @@ def main() -> int:
     )
 
     if not targets:
-        print("No patches need calibration (all entries present). Use --force to re-run.", file=sys.stderr)
+        if args.verify_only:
+            print("No calibrated patches in scope to verify.", file=sys.stderr)
+        else:
+            print(
+                "No patches need calibration (all entries present). Use --force to re-run.",
+                file=sys.stderr,
+            )
+        emit_progress(args, {"type": "done", "updated": 0, "exit_code": 0})
+        return 0
+
+    if args.verify_only and args.dry_run:
+        for path in targets:
+            entry = store.get_entry(path.stem, patch_path=str(path))
+            peak = entry.get("post_gain_peak_dbtp") if entry else None
+            label = f"post_gain_peak={peak}" if peak is not None else "stored cal"
+            print(f"  [would verify] {path.stem} ({label})")
         emit_progress(args, {"type": "done", "updated": 0, "exit_code": 0})
         return 0
 
@@ -1082,6 +1177,10 @@ def main() -> int:
     cal_surge_started = False
     updated = 0
     exit_code = 0
+    peak_verify_failed = 0
+    cal_attempted = 0
+    verify_failed_count = 0
+    cal_route = "loopback" if use_loopback else "soundblaster"
     last_patch_index = 0
     last_patch_name = ""
     needs_service_handoff = (use_loopback and args.mock_lufs is None) or standalone_restart
@@ -1145,6 +1244,54 @@ def main() -> int:
         try:
             if args.mock_lufs is None:
                 midi_out = open_midi_out(midi_port)
+            if args.verify_only:
+                if midi_out is None:
+                    msg = "Surge MIDI required for --verify-only"
+                    print(f"Error: {msg}", file=sys.stderr)
+                    emit_progress(args, {"type": "error", "message": msg})
+                    emit_progress(args, {"type": "done", "updated": 0, "exit_code": 1})
+                    return 1
+                for index, path in enumerate(targets, start=1):
+                    if _interrupted:
+                        break
+                    name = path.stem
+                    print(
+                        f"[{index}/{len(targets)}] verify {name}",
+                        file=sys.stderr if args.progress_json else sys.stdout,
+                    )
+                    result = verify_patch(
+                        path, loader, store, audio_device=audio_device, midi_out=midi_out
+                    )
+                    if result.skipped:
+                        print(f"  [skip] {name}: {result.reason}", file=sys.stderr)
+                        continue
+                    if result.ok:
+                        print(
+                            f"  [pass] {name}: post-gain peak {result.peak_dbtp:.1f} dBTP",
+                        )
+                    else:
+                        verify_failed_count += 1
+                        peak_label = (
+                            f"{result.peak_dbtp:.1f}"
+                            if result.peak_dbtp is not None
+                            else "?"
+                        )
+                        print(
+                            f"  [fail] {name}: post-gain peak {peak_label} dBTP "
+                            f"(max {POST_GAIN_VERIFY_PEAK_MAX_DBTP:.1f})",
+                            file=sys.stderr,
+                        )
+                exit_code = 1 if verify_failed_count else 0
+                emit_progress(
+                    args,
+                    {
+                        "type": "done",
+                        "updated": len(targets) - verify_failed_count,
+                        "exit_code": exit_code,
+                        "verify_failed": verify_failed_count,
+                    },
+                )
+                return exit_code
             for index, path in enumerate(targets, start=1):
                 if _interrupted:
                     print("Calibration interrupted — keeping partial progress.", file=sys.stderr)
@@ -1158,6 +1305,7 @@ def main() -> int:
                     {"type": "patch", "index": index, "total": len(targets), "name": name},
                 )
                 try:
+                    cal_attempted += 1
                     result = calibrate_patch(
                         path,
                         loader,
@@ -1167,7 +1315,10 @@ def main() -> int:
                         dry_run=False,
                         midi_out=midi_out,
                         touch_cal=touch_cal,
+                        cal_route=cal_route,
                     )
+                    if result.verify_failed:
+                        peak_verify_failed += 1
                 except Exception as exc:
                     msg = f"{name}: {exc}"
                     print(f"  [fail] {msg}", file=sys.stderr)
@@ -1226,11 +1377,19 @@ def main() -> int:
                 )
                 print("Restoring surge-xt-cli and touch-patch-browser services...", file=sys.stderr)
 
+    if cal_attempted > 0 and peak_verify_failed / cal_attempted > 0.10:
+        print(
+            f"Error: {peak_verify_failed}/{cal_attempted} patches failed post-gain verify (>10%)",
+            file=sys.stderr,
+        )
+        exit_code = 1
     if updated:
         print(f"Wrote {updated} calibration entries to {output_path}")
-    else:
+    elif cal_attempted == 0:
         print("No entries updated.")
         exit_code = 0
+    else:
+        print("No entries updated.")
     if _interrupted:
         exit_code = 130
         write_failure_report(
