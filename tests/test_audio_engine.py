@@ -334,7 +334,7 @@ mpe_restart_audio_graph() {{ printf 'graph-restart\\n'; return 0; }}
 mpe_systemctl() {{
   printf '%s\\n' "$*" >> "{tmp}/systemctl.log"
   case "$*" in
-    restart\ surge-xt-cli.service) touch "{on_graph}" ;;
+    restart\\ surge-xt-cli.service) touch "{on_graph}" ;;
   esac
   return 0
 }}
