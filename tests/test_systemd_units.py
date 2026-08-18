@@ -95,10 +95,31 @@ class EnabledUnitsExistTests(unittest.TestCase):
 class LooperStackIsSupervisedTests(unittest.TestCase):
     """The looper must not go back to hand-started processes."""
 
-    def test_looper_units_are_enabled(self) -> None:
+    def test_looper_units_are_not_started_at_boot(self) -> None:
+        """2026-08-18: the looper stack costs 24-31 xruns/min vs 2-6 without it.
+
+        Measured with a deterministic MIDI load at DSP median ~42%, across two
+        baselines and two minimal runs — a 5-10x gap, outside a +/-30% noise floor.
+        They stay installed and supervised (Restart=always, so the 2026-08-17
+        six-hour outage stays fixed) but must not come up on their own: the
+        instrument boots clean and looping is an explicit choice.
+        """
         enabled = _enabled_units()
         for name in LOOPER_UNITS:
-            self.assertIn(name, enabled, f"{name} is not in install-units.sh ENABLED")
+            self.assertNotIn(
+                name,
+                enabled,
+                f"{name} must not be in install-units.sh ENABLED — the looper stack is "
+                "opt-in since 2026-08-18 (measured xrun cost). Start it explicitly.",
+            )
+
+    def test_looper_units_are_still_installed(self) -> None:
+        """Opt-in, not deleted — the unit files must still ship and be startable."""
+        for name in LOOPER_UNITS:
+            self.assertTrue(
+                (CONFIG / f"{name}.service").is_file(),
+                f"{name} unit file missing — the looper is opt-in, not removed",
+            )
 
     def test_looper_units_restart_always(self) -> None:
         for name in LOOPER_UNITS:
