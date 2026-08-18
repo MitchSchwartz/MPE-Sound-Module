@@ -36,6 +36,7 @@ SL_HOST = os.environ.get("MPE_SL_OSC_HOST", "127.0.0.1")
 SL_PORT = int(os.environ.get("MPE_SL_OSC_PORT", "9951"))
 LISTEN_PORT = int(os.environ.get("MPE_SL_HUD_LISTEN_PORT", "9952"))
 NUM_LOOPS = int(os.environ.get("MPE_SL_LOOPS", "16"))
+SCRATCH_LOOP = int(os.environ.get("MPE_SL_SCRATCH_LOOP", "15"))
 PLAYING_STATES = frozenset({4, 5})
 
 
@@ -163,6 +164,8 @@ class HudWriter:
         """
         lengths = {}
         for loop in range(NUM_LOOPS):
+            if loop == SCRATCH_LOOP:
+                continue
             state = self._sl.cached("state", loop)
             if state is None or int(state) not in PLAYING_STATES:
                 continue

@@ -154,38 +154,41 @@ class GridEstablishmentTests(unittest.TestCase):
 
     def test_first_take_records_instantly_and_sets_tempo(self) -> None:
         from scripts.sooperlooper.sl_grid_state import GridState
-        from scripts.sooperlooper.sl_seam_weld import SCRATCH_LOOP
+        from scripts.sooperlooper.sl_grid_sync import TAIL_HOLD_S
 
         seen = []
         grid = GridState()
         fs = self._fs(0, grid, lambda bpm, bars: seen.append((bpm, bars)))
-        self._wire_seam_hooks(fs)
 
         self._start_defining_take(fs)
         self.assertTrue(grid.is_pending(0))
-        fs.on_pad_down(); fs.on_pad_up()          # stop — fix length, then seam weld
+        fs.on_pad_down()
+        fs.on_pad_up()  # tail capture — stay recording until release fades
         self.assertTrue(fs._tail_capture)
-        self.assertTrue(fs._tail_stop_sent)
+        self.assertFalse(fs._tail_stop_sent)
         self.assertFalse(fs.awaiting_quantize)
-        from scripts.sooperlooper.sl_grid_sync import TAIL_HOLD_S
 
-        hits = [c.args[1] for c in fs._osc.send_message.call_args_list
-                if c.args[0] == "/sl/0/hit"]
-        self.assertEqual(hits.count("record"), 2, "start + immediate stop")
+        hits = [
+            c.args[1]
+            for c in fs._osc.send_message.call_args_list
+            if c.args[0] == "/sl/0/hit"
+        ]
+        self.assertEqual(hits.count("record"), 1, "start only — stop waits for quiet tail")
 
-        fs.sync_loop_len(2.0)
-        fs.sync_loop_pos(0.0)
-        fs.sync_from_sl(SL_STATE_PLAYING)
         fs.sync_in_peak(0.5)
         fs.sync_in_peak(0.0)
         fs._tail_silence_since = TAIL_HOLD_S * -2 + time.monotonic()
         fs.poll_tail_capture()
-        scratch_hits = [
-            c.args[1][0]
+        hits = [
+            c.args[1]
             for c in fs._osc.send_message.call_args_list
-            if c.args[0] == f"/sl/{SCRATCH_LOOP}/hit"
+            if c.args[0] == "/sl/0/hit"
         ]
-        self.assertGreaterEqual(scratch_hits.count("record"), 1, "scratch loop records parallel tail")
+        self.assertEqual(hits.count("record"), 2, "record stop after release fades")
+
+        fs.sync_loop_len(2.0)
+        fs.sync_loop_pos(0.0)
+        fs.sync_from_sl(SL_STATE_PLAYING)
 
         self.assertTrue(grid.established)
         self.assertEqual(seen, [(120.0, 1)])
@@ -363,19 +366,44 @@ class TailCaptureTests(unittest.TestCase):
                 if c.args[0] == "/sl/0/hit"]
         self.assertEqual(hits, [], "gesture after auto-close should be debounced")
 
-    def test_defining_stop_sends_record_immediately(self) -> None:
+    def test_defining_stop_stays_recording_until_quiet(self) -> None:
         from scripts.sooperlooper.sl_grid_state import GridState
 
         grid = GridState()
         fs = LoopFootswitch(loop=0, hold_ms=1000.0, debounce_ms=0.0, grid=grid)
         fs.bind(MagicMock(), MagicMock(), 36)
-        fs.on_pad_down(); fs.on_pad_up()
+        fs.on_pad_down()
+        fs.on_pad_up()
         fs.sync_from_sl(SL_STATE_RECORDING)
-        fs.on_pad_down(); fs.on_pad_up()
-        hits = [c.args[1] for c in fs._osc.send_message.call_args_list
-                if c.args[0] == "/sl/0/hit"]
-        self.assertEqual(hits, ["record", "record"])
-        self.assertTrue(fs._tail_stop_sent)
+        fs.on_pad_down()
+        fs.on_pad_up()
+        hits = [
+            c.args[1]
+            for c in fs._osc.send_message.call_args_list
+            if c.args[0] == "/sl/0/hit"
+        ]
+        self.assertEqual(hits, ["record"], "no immediate stop — tail extends recording")
+        self.assertFalse(fs._tail_stop_sent)
+        self.assertTrue(fs._tail_capture)
+
+    def test_tier2_tail_max_timeout_sends_stop(self) -> None:
+        from scripts.sooperlooper.sl_grid_sync import TAIL_MAX_S
+
+        fs = LoopFootswitch(loop=0, hold_ms=1000.0, debounce_ms=0.0)
+        fs.bind(MagicMock(), MagicMock(), 36)
+        fs._tail_capture = True
+        fs._tail_stop_sent = False
+        fs.sync_from_sl(SL_STATE_RECORDING)
+        fs._tail_capture_since = time.monotonic() - TAIL_MAX_S - 0.01
+        fs._in_peak_seen = False
+        fs.poll_tail_capture()
+        self.assertFalse(fs._tail_capture)
+        hits = [
+            c.args[1]
+            for c in fs._osc.send_message.call_args_list
+            if c.args[0] == "/sl/0/hit"
+        ]
+        self.assertEqual(hits, ["record"])
 
     def test_tail_max_timeout_without_peak_reading(self) -> None:
         from scripts.sooperlooper.sl_grid_sync import TAIL_MAX_S
