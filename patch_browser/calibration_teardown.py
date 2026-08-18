@@ -35,15 +35,13 @@ from patch_browser.session_snapshot import (
 # Looper eval stack — Restart=always units (spec Phase 0 / Appendix A).
 # Stop in reverse dependency order; start after Surge is back.
 LOOPER_UNITS_STOP_ORDER = (
-    "mpe-apc-bench",
-    "sl-hud-monitor",
+    "mpe-looper-session",
     "sl-watchdog",
     "mpe-sooperlooper",
 )
 LOOPER_UNITS_START_ORDER = (
     "mpe-sooperlooper",
-    "mpe-apc-bench",
-    "sl-hud-monitor",
+    "mpe-looper-session",
     "sl-watchdog",
 )
 
