@@ -29,7 +29,6 @@ from loop_model import (
 )
 from sl_grid_state import GridState, derive_tempo
 from sl_grid_sync import (
-    DEFAULT_FADE_SAMPLES,
     GRID_ANCHOR_FALLBACK_CYCLES,
     GRID_ANCHOR_MAX_S,
     TAIL_CAPTURE_ENABLED,
@@ -37,12 +36,10 @@ from sl_grid_sync import (
     TAIL_MAX_S,
     TAIL_ABSOLUTE_MAX_S,
     TAIL_THRESH,
-    TAIL_WELD_FADE_SAMPLES,
-    TAIL_WELD_INPUT_GAIN,
-    TAIL_WELD_RESTORE_INPUT_GAIN,
     detect_loop_wrap,
     should_defer_phase_anchor,
 )
+from sl_seam_weld import SCRATCH_LOOP, SEAM_WELD_ENABLED
 from sl_loop_states import (
     ACTIVE_RECORD,
     SL_STATE_OFF,
@@ -136,10 +133,12 @@ class LoopFootswitch:
         self._in_peak_seen = False
         self._tail_saw_loud = False
         self._tail_stop_sent = False
-        self._tail_overdub = False
-        self._tail_overdub_since = 0.0
+        self._scratch_active = False
         self._deferred_grid_clock: tuple[float, int] | None = None
-        self._tail_weld_restore: dict[str, float] | None = None
+        self._on_prepare_scratch: callable | None = None
+        self._on_start_scratch: callable | None = None
+        self._on_stop_scratch: callable | None = None
+        self._on_request_seam_merge: callable | None = None
 
     def bind(self, osc, midi_out, note: int | None) -> None:
         self._osc = osc
@@ -205,71 +204,47 @@ class LoopFootswitch:
         if self._tail_capture and self._in_peak >= TAIL_THRESH:
             self._tail_saw_loud = True
 
-    def _set_loop(self, control: str, value: float) -> None:
-        self._osc.send_message(self._path("set"), [control, float(value)])
-        log(f"loop {self.loop}: set {control}={float(value):.4g}")
-
-    def _apply_tail_weld_mix(self) -> None:
-        """Soften tail overdub — full input_gain often pops at the seam."""
-        if self._tail_weld_restore is not None:
+    def _stop_scratch_capture(self) -> None:
+        if not self._scratch_active:
             return
-        restore: dict[str, float] = {}
-        if TAIL_WELD_INPUT_GAIN < TAIL_WELD_RESTORE_INPUT_GAIN:
-            self._set_loop("input_gain", TAIL_WELD_INPUT_GAIN)
-            restore["input_gain"] = TAIL_WELD_RESTORE_INPUT_GAIN
-        if TAIL_WELD_FADE_SAMPLES > DEFAULT_FADE_SAMPLES:
-            self._set_loop("fade_samples", float(TAIL_WELD_FADE_SAMPLES))
-            restore["fade_samples"] = float(DEFAULT_FADE_SAMPLES)
-        self._tail_weld_restore = restore or None
+        self._scratch_active = False
+        if self._on_stop_scratch is not None:
+            self._on_stop_scratch(self.loop)
+        log(f"loop {self.loop}: scratch tail record stopped (loop {SCRATCH_LOOP})")
 
-    def _restore_tail_weld_mix(self) -> None:
-        if not self._tail_weld_restore:
+    def _maybe_start_scratch(self) -> None:
+        """Parallel tail capture on scratch loop while main plays at fixed length."""
+        if self._scratch_active or not self._tail_stop_sent or not self._tail_capture:
             return
-        for control, value in self._tail_weld_restore.items():
-            self._set_loop(control, value)
-        self._tail_weld_restore = None
-
-    def _start_tail_overdub(self) -> None:
-        if self._tail_overdub:
+        if not self._tail_playback_ready():
             return
-        self._tail_overdub = True
-        self._tail_overdub_since = time.monotonic()
-        self._apply_tail_weld_mix()
+        if not SEAM_WELD_ENABLED or self._on_start_scratch is None:
+            return
+        self._scratch_active = True
         log(
-            f"loop {self.loop}: tail seam overdub on "
-            f"(pos={self.loop_pos:.3f}s / {self.loop_len:.3f}s, "
-            f"input_gain={TAIL_WELD_INPUT_GAIN})"
+            f"loop {self.loop}: scratch tail record on loop {SCRATCH_LOOP} "
+            f"(pos={self.loop_pos:.3f}s / {self.loop_len:.3f}s)"
         )
-        self._hit("overdub")
-
-    def _stop_tail_overdub(self) -> None:
-        if not self._tail_overdub:
-            return
-        self._tail_overdub = False
-        log(f"loop {self.loop}: tail seam overdub off")
-        self._hit("overdub")
-        self._restore_tail_weld_mix()
+        self._on_start_scratch(self.loop)
 
     def _cancel_tail_capture(self) -> None:
         if self._tail_capture and self._on_tail_capture_end is not None:
             self._on_tail_capture_end(self.loop)
-        self._stop_tail_overdub()
-        self._restore_tail_weld_mix()
+        self._stop_scratch_capture()
         had_deferred = self._deferred_grid_clock is not None or self._phase_reanchor_at > 0.0
         self._tail_capture = False
         self._tail_capture_since = 0.0
         self._tail_silence_since = None
         self._tail_saw_loud = False
         self._tail_stop_sent = False
-        self._tail_overdub_since = 0.0
         if had_deferred:
             self._flush_deferred_grid_side_effects()
 
     def _flush_deferred_grid_side_effects(self) -> None:
         """Apply grid clock + phase re-anchor after tail weld — not during it.
 
-        establish_grid_clock resets phase; doing that at a wrap while overdub
-        is active bakes a stutter into the loop buffer.
+        establish_grid_clock resets phase; doing that while scratch capture or
+        merge is in flight can bake a stutter into the loop buffer.
         """
         if self._deferred_grid_clock is not None and self._on_grid_established is not None:
             bpm, bars = self._deferred_grid_clock
@@ -285,14 +260,13 @@ class LoopFootswitch:
     def _finish_tail_capture(self, reason: str) -> None:
         if not self._tail_capture:
             return
-        self._stop_tail_overdub()
         self._tail_capture = False
         self._tail_capture_since = 0.0
         self._tail_silence_since = None
         self._tail_saw_loud = False
         stop_sent = self._tail_stop_sent
         self._tail_stop_sent = False
-        self._tail_overdub_since = 0.0
+        self._scratch_active = False
         if self._on_tail_capture_end is not None:
             self._on_tail_capture_end(self.loop)
         self._pad_down = False
@@ -303,10 +277,27 @@ class LoopFootswitch:
             self._hit("record")
             self._expect(STATE_PLAYING)
         else:
-            log(f"loop {self.loop}: tail weld done ({reason})")
+            log(f"loop {self.loop}: seam weld done ({reason})")
         self._flush_deferred_grid_side_effects()
         self._sync_led()
         self._mark_action()
+
+    def _end_tail_capture(self, reason: str) -> None:
+        """Stop scratch capture and optionally run Tier 3 merge before finish."""
+        if self._scratch_active:
+            self._stop_scratch_capture()
+        if (
+            SEAM_WELD_ENABLED
+            and self._tail_stop_sent
+            and self._on_request_seam_merge is not None
+        ):
+            log(f"loop {self.loop}: seam merge queued ({reason})")
+            self._on_request_seam_merge(
+                self.loop,
+                lambda: self._finish_tail_capture(reason),
+            )
+            return
+        self._finish_tail_capture(reason)
 
     def set_tail_capture_hooks(
         self,
@@ -317,52 +308,52 @@ class LoopFootswitch:
         self._on_tail_capture_begin = on_begin
         self._on_tail_capture_end = on_end
 
+    def set_seam_weld_hooks(
+        self,
+        on_prepare_scratch,
+        on_start_scratch,
+        on_stop_scratch,
+        on_request_merge,
+    ) -> None:
+        """Tier 3: scratch loop capture + offline seam merge."""
+        self._on_prepare_scratch = on_prepare_scratch
+        self._on_start_scratch = on_start_scratch
+        self._on_stop_scratch = on_stop_scratch
+        self._on_request_seam_merge = on_request_merge
+
     def _tail_playback_ready(self) -> bool:
         return self.sl_state == SL_STATE_PLAYING
 
-    def _maybe_start_tail_overdub(self) -> None:
-        """Mix release while it is still audible — start as soon as playback lands."""
-        if self._tail_overdub or not self._tail_stop_sent or not self._tail_capture:
-            return
-        if not self._tail_playback_ready():
-            return
-        self._start_tail_overdub()
-
     def poll_tail_capture(self) -> None:
-        """Weld release tail at the loop seam after an immediate record stop."""
+        """Capture release on scratch loop; merge at seam when quiet."""
         if not self._tail_capture:
             return
         now = time.monotonic()
         elapsed = now - self._tail_capture_since
         if elapsed >= TAIL_ABSOLUTE_MAX_S:
-            self._finish_tail_capture(f"absolute max {TAIL_ABSOLUTE_MAX_S:.2f}s")
+            self._end_tail_capture(f"absolute max {TAIL_ABSOLUTE_MAX_S:.2f}s")
             return
         if self._in_peak_seen and self._in_peak >= TAIL_THRESH:
             self._tail_saw_loud = True
             self._tail_silence_since = None
 
-        if not self._tail_overdub:
-            self._maybe_start_tail_overdub()
-            if not self._tail_overdub:
-                if elapsed >= TAIL_MAX_S:
-                    self._finish_tail_capture(
-                        f"max {TAIL_MAX_S:.2f}s (no overdub)"
-                    )
-                return
+        if not self._scratch_active:
+            self._maybe_start_scratch()
+            if not self._scratch_active and elapsed >= TAIL_MAX_S:
+                self._end_tail_capture(f"max {TAIL_MAX_S:.2f}s (no scratch)")
+            return
 
         if self._in_peak_seen and self._in_peak >= TAIL_THRESH:
             return
         if not self._in_peak_seen or not self._tail_saw_loud:
             if elapsed >= TAIL_MAX_S:
-                self._finish_tail_capture(
-                    f"max {TAIL_MAX_S:.2f}s (no release peak)"
-                )
+                self._end_tail_capture(f"max {TAIL_MAX_S:.2f}s (no release peak)")
             return
         if self._tail_silence_since is None:
             self._tail_silence_since = now
             return
         if (now - self._tail_silence_since) >= TAIL_HOLD_S:
-            self._finish_tail_capture(
+            self._end_tail_capture(
                 f"peak<{TAIL_THRESH} for {TAIL_HOLD_S * 1000:.0f}ms"
             )
 
@@ -393,7 +384,7 @@ class LoopFootswitch:
         if sl_state == SL_STATE_PLAYING:
             self._maybe_establish_grid()
             if self._tail_capture and self._tail_stop_sent:
-                self._maybe_start_tail_overdub()
+                self._maybe_start_scratch()
 
         if self.grid is not None:
             if self.grid.note_loop_content(self.loop, sl_state != SL_STATE_OFF):
@@ -423,7 +414,7 @@ class LoopFootswitch:
         elif self._phase_reanchor_at > 0.0:
             self._try_commit_phase_reanchor()
         if self._tail_capture and self._tail_stop_sent:
-            self._maybe_start_tail_overdub()
+            self._maybe_start_scratch()
 
     def sync_loop_pos(self, loop_pos: float) -> None:
         pos = float(loop_pos)
@@ -603,7 +594,7 @@ class LoopFootswitch:
     def _gesture(self, edge: str) -> None:
         if self._tail_capture:
             if edge == "down":
-                self._finish_tail_capture("pad down — immediate close")
+                self._cancel_tail_capture()
                 self._mark_action()
             return
         if self._debounced():
@@ -636,7 +627,9 @@ class LoopFootswitch:
             self._in_peak = 0.0
             self._in_peak_seen = False
             self._tail_saw_loud = False
-            self._tail_overdub = False
+            self._scratch_active = False
+            if self._on_prepare_scratch is not None:
+                self._on_prepare_scratch(self.loop)
             if self.sl_state in ACTIVE_RECORD:
                 log(
                     f"loop {self.loop}: defining take stop — fixing length, "
