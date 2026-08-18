@@ -218,6 +218,14 @@ def scan_wifi() -> tuple[list[WifiNetwork], str | None]:
     return networks, None
 
 
+def connect_failure_needs_password(message: str) -> bool:
+    """True when the UI should prompt for a password after a failed join."""
+    return message in {
+        "Wrong password — check and try again",
+        "Enter the network password",
+    }
+
+
 def humanize_connect_error(detail: str, *, had_password: bool) -> str:
     """Map nmcli/NM noise to touch-friendly messages."""
     text = detail.strip()
@@ -258,9 +266,23 @@ def humanize_connect_error(detail: str, *, had_password: bool) -> str:
 
 
 def _delete_saved_connection(ssid: str) -> None:
+    forget_wifi(ssid)
+
+
+def forget_wifi(ssid: str) -> tuple[bool, str]:
+    """Remove a saved Wi‑Fi profile from NetworkManager."""
+    if not ssid:
+        return False, "Missing network name"
     if ssid not in known_connection_names():
-        return
-    _run_nmcli(["connection", "delete", ssid], timeout=10.0, use_sudo=True)
+        return False, "Network not saved"
+    result = _run_nmcli(["connection", "delete", ssid], timeout=10.0, use_sudo=True)
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or "forget failed").strip()
+        first = detail.splitlines()[0][:80]
+        if first.lower().startswith("error:"):
+            first = first[6:].strip()
+        return False, first or "Could not forget network"
+    return True, f"Forgot {ssid}"
 
 
 def connect_wifi(
