@@ -42,11 +42,14 @@ from scripts.sooperlooper.sl_loop_states import (
 
 class DeriveStateTests(unittest.TestCase):
     def test_every_engine_state_has_a_bench_meaning(self) -> None:
+        from sl_loop_states import SL_STATE_OVERDUBBING
+
         self.assertEqual(derive_state(SL_STATE_OFF), STATE_IDLE)
         self.assertEqual(derive_state(SL_STATE_RECORDING), STATE_RECORDING)
         self.assertEqual(derive_state(SL_STATE_WAIT_START), STATE_RECORDING)
         self.assertEqual(derive_state(SL_STATE_WAIT_STOP), STATE_RECORDING)
         self.assertEqual(derive_state(SL_STATE_PLAYING), STATE_PLAYING)
+        self.assertEqual(derive_state(SL_STATE_OVERDUBBING), STATE_PLAYING)
         self.assertEqual(derive_state(SL_STATE_PAUSED), STATE_STOPPED)
         self.assertEqual(derive_state(SL_STATE_MUTE), STATE_STOPPED)
         self.assertEqual(derive_state(SL_STATE_OFF_MUTED), STATE_IDLE)
