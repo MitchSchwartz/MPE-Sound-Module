@@ -1016,6 +1016,17 @@ grep -c buffer.changed "$(mpe_run_dir)/events.jsonl"
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(result.stdout.strip(), "1")
 
+    def test_engine_exit_reason_with_quotes_survives_jsonl(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            env = _bash_env(tmp)
+            body = f"""
+source {AUDIO_ENGINE_SH}
+mpe_session_event_emit engine.exited 'surge said "no" / path C:\\x' reason='surge said "no"'
+python3 -c "import json; from pathlib import Path; lines=Path('$(mpe_run_dir)/events.jsonl').read_text().splitlines(); obj=json.loads(lines[-1]); assert obj['event']=='engine.exited'; assert 'no' in obj['detail']; assert 'no' in obj['reason']"
+"""
+            result = _run_bash_script(body, env=env)
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()
