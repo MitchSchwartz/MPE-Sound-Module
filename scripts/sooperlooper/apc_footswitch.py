@@ -49,6 +49,7 @@ from sl_grid_sync import (
 )
 from sl_seam_weld import SCRATCH_LOOP, SEAM_WELD_ENABLED
 from sl_loop_states import (
+    ACTIVE_PLAY,
     ACTIVE_RECORD,
     SL_STATE_OFF,
     SL_STATE_OFF_MUTED,
@@ -242,6 +243,12 @@ class LoopFootswitch:
         self._hit("overdub")
         self._seam_overdub_active = True
         self._seam_overdub_started_at = time.monotonic()
+        # Release must be loud *during* the overdub pass — not from the main take.
+        self._tail_saw_loud = False
+        self._in_peak_seen = False
+        self._tail_silence_since = None
+        self._tail_release_quiet = False
+        self._tail_release_quiet_since = None
 
     def _stop_seam_overdub(self) -> None:
         if not self._seam_overdub_active:
@@ -427,7 +434,7 @@ class LoopFootswitch:
         self._on_request_seam_merge = on_request_merge
 
     def _tail_playback_ready(self) -> bool:
-        return self.sl_state == SL_STATE_PLAYING
+        return self.sl_state in ACTIVE_PLAY
 
     def poll_tail_capture(self) -> None:
         """Tier 2: extend recording until release fades. Option E: seam overdub.
@@ -732,6 +739,7 @@ class LoopFootswitch:
             self.sl_state,
             pending=self._pending,
             tail_capture=self._tail_capture,
+            tail_seam_weld=self._tail_seam_mode and self._tail_stop_sent,
         )
 
     def _sync_led(self) -> None:
@@ -1053,6 +1061,8 @@ def stop_all_loops(
     # mute_quantized is lifted for the duration, then restored, so the per-clip
     # behaviour is untouched. SL drains its non-realtime queue in order, so the
     # restore cannot overtake the mute.
+    for fs in footswitches:
+        fs._cancel_tail_capture()
     osc.send_message("/sl/-1/set", ["mute_quantized", 0.0])
     osc.send_message("/sl/-1/hit", "mute_on")
     osc.send_message("/sl/-1/hit", "pause_on")
@@ -1063,8 +1073,7 @@ def stop_all_loops(
         log(f"grid position reset to zero ({grid.bpm:.3f} BPM)")
     for fs in footswitches:
         fs.awaiting_quantize = False
-        if fs.state != STATE_IDLE:
+        if fs.sl_state != SL_STATE_OFF or fs._tail_capture:
             fs._expect(STATE_STOPPED)
-        fs._cancel_tail_capture()
         fs._sync_led()
     print(f"-> stop all: paused {num_loops} loops", flush=True)

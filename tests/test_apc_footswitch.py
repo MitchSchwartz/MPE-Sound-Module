@@ -329,7 +329,7 @@ class TailCaptureTests(unittest.TestCase):
         self.assertEqual(merged, [])
 
     def test_tail_led_matches_wait_stop_pattern(self) -> None:
-        from scripts.sooperlooper.led_table import RECORD_TO_PLAY, led_for
+        from scripts.sooperlooper.led_table import RECORD_TO_PLAY, LED_YELLOW_BLINK, led_for
 
         fs = LoopFootswitch(loop=0, hold_ms=1000.0, debounce_ms=0.0)
         fs.bind(MagicMock(), MagicMock(), 36)
@@ -337,6 +337,9 @@ class TailCaptureTests(unittest.TestCase):
         fs._tail_capture = True
         self.assertEqual(fs._led_target(), RECORD_TO_PLAY)
         self.assertEqual(led_for(SL_STATE_RECORDING, tail_capture=True), RECORD_TO_PLAY)
+        fs._tail_seam_mode = True
+        fs._tail_stop_sent = True
+        self.assertEqual(fs._led_target(), (LED_YELLOW_BLINK,))
 
     def test_tail_max_timeout_closes_capture(self) -> None:
         from scripts.sooperlooper.sl_grid_sync import TAIL_MAX_S
