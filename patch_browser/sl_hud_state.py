@@ -1,4 +1,4 @@
-"""Read SooperLooper HUD state written by mpe-looper-session (HUD thread) or sl-hud-monitor.py."""
+"""Read SooperLooper HUD state written by sl-hud-monitor.py."""
 
 from __future__ import annotations
 

@@ -24,7 +24,7 @@ REPO = Path(__file__).resolve().parents[1]
 CONFIG = REPO / "config"
 INSTALL_UNITS = REPO / "scripts" / "install-units.sh"
 
-LOOPER_UNITS = ("mpe-sooperlooper", "mpe-looper-session")
+LOOPER_UNITS = ("mpe-sooperlooper", "mpe-apc-bench", "sl-hud-monitor")
 
 
 def _enabled_units() -> list[str]:
@@ -134,7 +134,7 @@ class LooperStackIsSupervisedTests(unittest.TestCase):
 
     def test_clients_are_not_bound_to_the_engine(self) -> None:
         """Bench and HUD recover on their own; binding kills them on every restart."""
-        for name in ("mpe-looper-session",):
+        for name in ("mpe-apc-bench", "sl-hud-monitor"):
             text = _unit_text(name)
             self.assertEqual(_directive(text, "BindsTo"), [], f"{name} must not BindsTo")
             self.assertEqual(_directive(text, "Requires"), [], f"{name} must not Requires")
@@ -203,16 +203,8 @@ class SingleUnitSourceTests(unittest.TestCase):
                 leftover, [], f"config/{path.name} uses unknown placeholder {leftover}"
             )
 
-
-    def test_retired_looper_client_units_disabled(self) -> None:
-        """Phase 3M: merged units must land in DISABLED so upgrade does not double-run."""
-        install = INSTALL_UNITS.read_text(encoding="utf-8")
-        disabled_block = install.split("DISABLED=(", 1)[1].split(")", 1)[0]
-        for name in ("mpe-apc-bench", "sl-hud-monitor"):
-            self.assertIn(name, disabled_block, f"{name} must be in install-units DISABLED")
-
     def test_retired_mpe_bench_is_gone_everywhere(self) -> None:
-        """It could no longer free the APC — mpe-looper-session.service holds it now."""
+        """It could no longer free the APC — mpe-apc-bench.service holds it now."""
         self.assertFalse((CONFIG / "mpe-bench.service").exists())
         provision = (
             REPO / "scripts" / "pi" / "provision-mpe-agent.sh"
@@ -221,7 +213,7 @@ class SingleUnitSourceTests(unittest.TestCase):
             line for line in provision.splitlines() if line.startswith("UNITS=")
         )
         self.assertNotIn("mpe-bench ", units_line)
-        self.assertIn("mpe-looper-session", units_line)
+        self.assertIn("mpe-apc-bench", units_line)
 
 
 class EngineLauncherTests(unittest.TestCase):

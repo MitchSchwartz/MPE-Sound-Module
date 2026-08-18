@@ -515,13 +515,12 @@ than pretending the letter is satisfied.
 |---|---|---|
 | 38 | One unit hosts bench + HUD + grid state | `config/mpe-apc-bench.service` and `config/sl-hud-monitor.service` deleted; `mpe-looper-session.service` present; `install-units.sh` renders it |
 | 39 | Grid state has exactly one writer; nothing else mutates it | Grep: no `GridState` mutation outside the owning module |
-| 40 | The `sync_source` restart sentinel is deleted | Absent from the tree; ``looper.engine.started`` event from ``wire-sooperlooper-graph.sh`` (not config-drift inference) |
-| 41 | One OSC connection with one lifecycle | **Deferred** — merged process still uses ports 9952 + 9953; single OSC client is a follow-up |
-| 42 | **HUD work never runs on the MIDI path** | Threading shape landed; **latency unchanged is unverified** until Pi measurement |
+| 40 | The `sync_source` restart sentinel is deleted | Absent from the tree; engine restart detected explicitly |
+| 41 | One OSC connection with one lifecycle | Single client object; `maybe_reregister()` semantics preserved; tempo **seeded** on registration, not awaited (`register_auto_update` delivers on CHANGE — the 2026-08-17 HUD race) |
+| 42 | **HUD work never runs on the MIDI path** | The bench polls at ~2 ms, the HUD writes and shells to `journalctl` at 2 Hz. HUD work on its own thread/timer. Verify worst-case MIDI-in → OSC-out latency is unchanged, measured on the Pi, before and after |
 | 43 | **Loud failure on a held OSC port survives** | Start a second instance while 9953 is held; it refuses to start rather than warning and continuing. This behaviour has already saved a session — it must not soften in the merge |
 | 44 | Musical behaviour unchanged | Pad-driven record → clear → grid-establish sequence identical before and after, verified by hand on the APC |
 | 45 | `sl-watchdog` remains a separate process (D4) | Unit still present and separate; it must be able to restart the merged process |
-| 46a | A HUD thread fault fails the process, not the HUD alone | ``poll()`` raises → thread logs FATAL → ``os._exit(1)`` → ``Restart=always`` recovers (same model as 46, thread-death shape) |
 | 46 | Crash blast radius is measured, not assumed | `kill -9` the merged process mid-session; `Restart=always` recovers; time to first pad response recorded in `docs/measurements/`. One crash now takes bench **and** HUD — that regression is accepted only with a number attached |
 | 47 | CPU no worse than the two processes it replaces | `/proc/<pid>/stat` fields 14–17 over 60 s idle, before vs after, on the Pi. No new periodic subprocess spawn ([`DECISIONS.md`](../DECISIONS.md) 2026-08-18) |
 | 48 | Grid transitions are unit-testable off-hardware (D13) | Tests run in the laptop suite with no Pi, no JACK, no OSC — extend `tests/fake_sl_engine.py`, which holds quantized actions until an explicit `boundary()` |
