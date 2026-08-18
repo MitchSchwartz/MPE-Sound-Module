@@ -581,14 +581,51 @@ test of "reconciliation over sequencing" and gets its own criteria.
 | 31 | **Calibration still works end to end** | Run `calibrate-patch-normalization.py` with the reconciler live; it completes, and the stack is restored afterwards |
 | 32 | A stale maintenance flag self-clears | Set the flag, kill the setter, wait past the deadline; reconciler resumes and the event stream records `mode.changed` |
 
-### Phase 5 — Realtime boundary enforced
+### Phase 5 — Realtime boundary enforced (**promoted 2026-08-18: no longer optional**)
+
+**Measured on the appliance 2026-08-18 — the Python meter costs ~30 points of peak DSP.**
+Three 90 s runs at `512 x 3` while playing, `surge-xt-cli` CPU used as the matched-load
+control. Runs A and C differ in one variable: whether `mpe-peak-meter` is on the graph.
+
+| Run | Meter | surge CPU (control) | DSP median | DSP p90 | DSP max | samples >70% |
+|---|---|---|---|---|---|---|
+| A | **on** | 39% | 59.0 | 81.2 | **91.9** | **26** |
+| B | off | 11% *(light play — confounded, discarded)* | 18.0 | 18.4 | 18.7 | 0 |
+| C | **off** | 39% | 43.5 | 51.1 | **61.2** | **0** |
+
+**The distribution proves the mechanism, not just the cost.** Between A and C the median
+moves 15 points but p90 and max move **30**. A process that merely consumes CPU shifts a
+distribution uniformly; this one barely lifts the floor and collapses the tail. That is
+the signature of *intermittent blocking* — periods where the realtime callback waited on
+the GIL held by the UI's `SCHED_OTHER` draw loop — and it explains why the crackle was
+sporadic rather than constant.
+
+**Consequences:**
+
+- Phase 5 was filed as orthogonal, do-it-whenever. It is now the work standing between
+  this appliance and low-latency operation, with a number attached.
+- `512 x 3` is comfortable **without** the meter (max 61%) and marginal **with** it
+  (max 92%). The buffer was never the fault; it was the margin hiding one.
+- `MPE_PEAK_METER=0` is the live mitigation and is set on the appliance.
+- This is a re-violation of [`DECISIONS.md`](../DECISIONS.md) 2026-08-13, *No Python on
+  the JACK audio thread* — a rule this project wrote, then broke in PR #64. Criterion 33
+  exists so the next violation fails a test instead of a gig.
+
+**Why a ring buffer does not fix it.** The obvious remedy — RT side writes to a lock-free
+ring, reader takes what is there or nothing — does not apply, because the blocking happens
+*before* the callback's first instruction: `port.get_array()` requires acquiring the GIL.
+A Python JACK callback can never be RT-safe, since GIL acquisition is an unbounded wait on
+a lock owned by a non-realtime thread. Criterion 34 must be satisfied by a **compiled**
+client (levels into shared memory, UI reads at its leisure) or by not being a JACK client
+at all — never by making the Python callback cheaper.
 
 | # | Criterion | Verification |
 |---|---|---|
 | 33 | Test fails on `set_process_callback` outside the allowlist | Add a violation; suite goes red |
 | 34 | OUT meter is out-of-process or compiled; allowlist empty | `mpe-peak-meter` no longer a Python client |
 | 35 | 128 × 3 under playing load, strict mode, zero xruns | `bench-xruns.sh --sweep --strict` while playing — softmode numbers are not accepted (`d5ac0cc`) |
-| 36 | Any unit hosting a JACK client declares `LimitRTPRIO` | Test over `config/*.service`, cross-referenced with the allowlist |
+| 36 | Any unit hosting a JACK client declares `LimitRTPRIO` | Test over `config/*.service`, cross-referenced with the allowlist. **Necessary but not sufficient** — on 2026-08-18 the meter callback *was* `SCHED_FIFO 65` under `LimitRTPRIO=95` and still stalled the graph, because RT priority does not grant the GIL |
+| 36a | The meter's replacement is proven by the same A/B, not by inspection | Re-run the matched-load protocol above with the compiled meter on the graph: `surge-xt-cli` within a few points of the control run, DSP max within a few points of run C |
 
 ### Success metric (how we know this worked)
 
@@ -786,6 +823,28 @@ world-readable and contains no credentials; secrets remain absent from `/run/mpe
 9. **Q9 — Home-dir JSON in snapshot or excluded?** Should `~/.mpe_sl_hud_state.json`
    and `~/.mpe_sl_watchdog.json` appear in the unified snapshot (with provenance and
    staleness), or stay edge-local artifacts excluded from `/run/mpe` aggregation?
+10. **Q10 — We cannot count xruns without arming the client-killer.** `jackd -s`
+    (softmode) bundles two behaviours JACK does not let us separate: *do not zombify a
+    client that misses a deadline* — which is correct for shipping, nobody loses a gig to
+    one late period — and *do not report xruns at all*. We chose softmode for the first
+    and inherited the second, so on the shipping configuration **the xrun channel is dead
+    and `0 xruns` is indistinguishable from `not measured`**. This is the
+    [`DECISIONS.md`](../DECISIONS.md) 2026-08-15 failure mode baked into the product
+    default. Consequences and the open question:
+    - Our only in-band evidence today is **DSP headroom sampled at 1 Hz** by
+      `jack_cpu_load`. Crackle happens inside a 10.67 ms period, so a 1 Hz smoothed
+      reading can show comfortable margin while individual periods still overrun.
+      **This is why residual crackle can persist at DSP max 61% and we cannot see it.**
+    - `bench-xruns.sh --strict` remains the only honest counter, and it is unusable while
+      playing for real — strict mode is exactly the client-killer softmode exists to
+      avoid.
+    - **To investigate:** does JACK2 still invoke `jack_set_xrun_callback` under softmode?
+      If it does, a tiny compiled client can count xruns continuously on the shipping
+      configuration without arming strict mode — closing the blindness permanently. That
+      client is the same shape as the Phase 5 compiled meter (criterion 34) and should be
+      built alongside it. If it does not, we need a driver-level or ALSA-level counter, or
+      we accept that the shipping default cannot self-report and say so in the docs rather
+      than letting `0` read as `fine`.
 
 ## Rollback
 
