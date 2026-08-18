@@ -71,17 +71,18 @@ _reconcile_engine() {
         return 0
     fi
 
-    # Steady state: unit active and engine already ok — skip jack_lsp (~116 ms/call,
-    # registers an ephemeral JACK client each time). Graph probe only when action
-    # may be needed (same pattern as looper reconcile pre-filter, PR #68).
+    # Steady state: unit active and engine already ok — skip jack_lsp if a full
+    # graph probe ran recently. Unbounded skip is indistinguishable from stopping
+    # to look (orphaned JACK client, DECISIONS.md 2026-08-15).
     if systemctl is-active --quiet "$SURGE_SERVICE" 2>/dev/null; then
         state="$(mpe_engine_state_get state)"
         active="$(mpe_engine_state_get active)"
-        if [ "$state" = ok ] && [ "$active" = jack ]; then
+        if [ "$state" = ok ] && [ "$active" = jack ]            && [ $((EPOCHSECONDS - _last_jack_probe)) -lt "$JACK_PROBE_INTERVAL_S" ]; then
             return 0
         fi
     fi
 
+    _last_jack_probe=$EPOCHSECONDS
     if mpe_surge_on_jack_graph; then
         mpe_engine_state_write "$MPE_ENGINE_NAME" jack ok "" "$looper_label"
         mpe_engine_reconcile_reset
@@ -110,6 +111,11 @@ _reconcile_engine() {
 
 LOOPER_RECONCILE_INTERVAL_S="${MPE_LOOPER_RECONCILE_INTERVAL_S:-30}"
 _last_looper_reconcile=0
+
+# Bound the healthy-path short-circuit: full graph probe at least once per interval
+# (116 ms / 60 s = 0.19% of a core). _last_jack_probe=0 forces probe on first tick.
+JACK_PROBE_INTERVAL_S="${MPE_JACK_PROBE_INTERVAL_S:-60}"
+_last_jack_probe=0
 
 # Batched systemctl pre-filter: fork Python (~400 ms on Pi) only when a looper
 # unit is non-active. Steady state is one systemctl call (~22 ms) every 30 s.
