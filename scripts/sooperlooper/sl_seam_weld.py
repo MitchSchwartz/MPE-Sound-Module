@@ -136,6 +136,9 @@ class SeamWeldWorker:
             [str(out_wav), "", ""],
         )
         time.sleep(0.15)
+        # load_loop replaces buffer but leaves the loop stopped — resume playback.
+        self._send(f"/sl/{main_loop}/hit", ["pause_off"])
+        self._send(f"/sl/{main_loop}/hit", ["trigger"])
         self._clear_scratch(scratch_loop)
         self._log(f"seam-weld: done loop {main_loop}", flush=True)
         return True
