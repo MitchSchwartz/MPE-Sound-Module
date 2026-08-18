@@ -23,17 +23,12 @@ Overdub-after-immediate-stop writes tail audio at **playhead 0+**, not at `[N−
 **Verdict (2026-08-18 ear, Tier 2):** Release captured but **tail stacks louder at wrap**
 (end-of-buffer tail + loop head) — crossfade is not the fix; geometry is.
 
-**Option E (2026-08-18):** `MPE_SL_TAIL_MODE=seam` (default):
+**Option E (2026-08-18):** `MPE_SL_TAIL_MODE=seam` — **ear-failed on Pi** (hard cut,
+wrong red/green blink during weld, Stop All unreliable while SL overdub state
+was unmapped). **Default reverted to `extend` (Tier 2).** Seam code kept for
+experiments only (`MPE_SL_TAIL_MODE=seam`).
 
-1. Pad-down while Recording: **immediate** `record` stop → fixed `loop_len`.
-2. Wait for `loop_pos ≥ TAIL_SEAM_RATIO × loop_len`.
-3. `overdub` with reduced `input_gain` — release lands at the seam, not sample 0+.
-4. When release quiet, wait for next seam zone → `overdub` off.
-5. Grid establishes on fixed length — no clip growth, no `load_loop`.
-
-Tier 2 (`MPE_SL_TAIL_MODE=extend`) retained for A/B.
-
-## Previous defining-take path — Tier 2 (extend)
+## Previous defining-take path — Tier 2 (extend) — active default
 
 1. Pad-down while Recording: **do not** send record stop.
 2. Peak poll until release quiet (or timeout).
