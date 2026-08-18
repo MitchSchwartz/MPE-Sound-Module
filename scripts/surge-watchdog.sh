@@ -86,6 +86,7 @@ _reconcile_engine() {
     if mpe_surge_on_jack_graph; then
         mpe_engine_state_write "$MPE_ENGINE_NAME" jack ok "" "$looper_label"
         mpe_engine_reconcile_reset
+        mpe_reconcile_looper_if_orphaned "surge-on-graph"
         return 0
     fi
 
@@ -101,11 +102,15 @@ _reconcile_engine() {
     fi
 
     if ! mpe_jack_server_ready; then
-        _supervisor_restart_surge "jackd-down"
+        if _supervisor_restart_surge "jackd-down"; then
+            mpe_reconcile_looper_if_orphaned "jackd-down"
+        fi
         return 0
     fi
 
-    _supervisor_restart_surge "promote-to-jack"
+    if _supervisor_restart_surge "promote-to-jack"; then
+        mpe_reconcile_looper_if_orphaned "promote-to-jack"
+    fi
 }
 
 
