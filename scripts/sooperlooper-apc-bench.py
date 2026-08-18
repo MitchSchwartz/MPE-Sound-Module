@@ -34,13 +34,12 @@ from apc_transport import (  # noqa: E402
 from led_table import LED_OFF  # noqa: E402
 from loop_mix import CoalescingSender, LoopMix  # noqa: E402
 from sl_bench_listener import SlBenchStateListener  # noqa: E402
+from looper_engine_events import LooperEngineEventWatch, poll_interval_s  # noqa: E402
 from sl_grid_state import GridState  # noqa: E402
 from sl_grid_sync import (  # noqa: E402
-    ENGINE_CONFIG_PROBE,
     apply_freeform,
     apply_grid_sync,
     establish_grid_clock,
-    expected_engine_config,
     set_grid_active,
 )
 
@@ -188,30 +187,15 @@ def run_bench(argv: list[str] | None = None) -> int:
     for fs in footswitches:
         fs._sync_led()
 
-    def on_engine_settings(control: str, value: float) -> None:
-        """Notice the engine restarted underneath us, and put the grid back.
+    def on_looper_engine_started() -> None:
+        """Reconcile bench grid state when the looper engine restarts (criterion 40).
 
-        `apply_grid_sync` used to run exactly once, at bench startup. Nothing
-        re-applied it — so after `mpe looper sl-restart` the engine came back
-        with SooperLooper's defaults (`smart_eighths` back ON, no internal sync
-        source, default cycle and fade) while the bench carried on believing its
-        configuration was in force. The next take recorded in the wrong mode and
-        nothing anywhere said so. Same shape as the orphan: a component
-        reporting healthy while the thing it configures is gone.
-
-        Reconciling on a *sentinel* rather than on a timer matters. Re-sending
-        `tempo` is the phase reset (Engine::set_tempo zeroes the counters), so a
-        blind periodic re-apply would knock the grid out of phase every cycle.
-        Here it fires only when the engine is demonstrably not the one we set up,
-        where resetting phase is not just safe but correct — its phase is gone
-        anyway.
+        ``looper.engine.started`` is emitted explicitly by wire-sooperlooper-graph.sh
+        after graph verify — not inferred from config drift.
         """
-        if not grid_active or control != ENGINE_CONFIG_PROBE:
+        if not grid_active:
             return
-        if value == expected_engine_config():
-            return
-        print(f"bench: !! engine reset detected ({control}={value}, expected "
-              f"{expected_engine_config()}) — re-applying grid config", flush=True)
+        print("bench: looper.engine.started — re-applying grid config", flush=True)
         apply_grid_sync(_send, num_loops=num_loops)
         if grid.established and grid.bpm:
             establish_grid_clock(_send, grid.bpm)
@@ -220,6 +204,10 @@ def run_bench(argv: list[str] | None = None) -> int:
                   flush=True)
         else:
             print("bench: no grid to restore — next take defines one", flush=True)
+
+    engine_event_watch = LooperEngineEventWatch(on_looper_engine_started)
+    last_engine_event_poll = 0.0
+    engine_event_poll_s = poll_interval_s()
 
     loop_fader_ccs, master_cc, _fader_label = resolve_fader_ccs(
         port_name, variant=apc_variant
@@ -231,9 +219,7 @@ def run_bench(argv: list[str] | None = None) -> int:
         mix.seed_from_engine(loop_index, value)
 
     by_loop = footswitches_by_loop(footswitches)
-    state_listener = SlBenchStateListener(
-        by_loop, on_global=on_engine_settings, on_wet=on_wet
-    )
+    state_listener = SlBenchStateListener(by_loop, on_wet=on_wet)
     state_listener.start()
     state_listener.register(osc, num_loops=num_loops)
 
@@ -289,6 +275,13 @@ def run_bench(argv: list[str] | None = None) -> int:
     if args.dump_midi:
         print("dump-midi: ON — watch for Shift/Stop All note numbers", flush=True)
 
+
+    def poll_engine_events(now_mono: float) -> None:
+        nonlocal last_engine_event_poll
+        if now_mono - last_engine_event_poll >= engine_event_poll_s:
+            last_engine_event_poll = now_mono
+            engine_event_watch.poll()
+
     def poll_holds() -> None:
         for fs in footswitches:
             fs.poll_hold()
@@ -338,6 +331,8 @@ def run_bench(argv: list[str] | None = None) -> int:
             maybe_track_transport()
             tick_faders()
             state_listener.maybe_reregister()
+
+            poll_engine_events(time.monotonic())
             time.sleep(0.002)
             continue
 
@@ -349,6 +344,8 @@ def run_bench(argv: list[str] | None = None) -> int:
             poll_holds()
             maybe_track_transport()
             state_listener.maybe_reregister()
+
+            poll_engine_events(time.monotonic())
             continue
 
         st, n = msg[0], msg[1]
@@ -359,6 +356,8 @@ def run_bench(argv: list[str] | None = None) -> int:
             poll_holds()
             maybe_track_transport()
             state_listener.maybe_reregister()
+
+            poll_engine_events(time.monotonic())
             continue
 
         down = midi_note_down(st, vel)
@@ -368,6 +367,8 @@ def run_bench(argv: list[str] | None = None) -> int:
             poll_holds()
             maybe_track_transport()
             state_listener.maybe_reregister()
+
+            poll_engine_events(time.monotonic())
             continue
 
         if down is not None and n in (shift_note, stop_all_note):
@@ -377,6 +378,8 @@ def run_bench(argv: list[str] | None = None) -> int:
             maybe_track_transport()
             poll_holds()
             state_listener.maybe_reregister()
+
+            poll_engine_events(time.monotonic())
             continue
 
         if down is not None and n in by_note:
@@ -390,6 +393,8 @@ def run_bench(argv: list[str] | None = None) -> int:
         poll_holds()
         maybe_track_transport()
         state_listener.maybe_reregister()
+
+        poll_engine_events(time.monotonic())
 
     return 0
 
