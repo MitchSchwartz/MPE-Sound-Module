@@ -111,6 +111,7 @@ def plan_gesture(
     is_defining: bool,
     quantized: bool,
     tail_capture_enabled: bool = False,
+    tail_seam_mode: bool = False,
 ) -> Plan:
     """The whole gesture vocabulary, split by which physical edge fired.
 
@@ -150,6 +151,13 @@ def plan_gesture(
             # reports OffMuted (20) or WAIT_START instead of Recording (2).
             # queue_stop here never fires — it waits for sl=2 and strands the
             # pad on red blink forever (Pi log 2026-08-18).
+            if tail_seam_mode:
+                return Plan(
+                    begin_tail_capture=True,
+                    commands=("record",),
+                    expect=STATE_PLAYING,
+                    note="seam overdub — stop now, weld release at wrap",
+                )
             return Plan(
                 begin_tail_capture=True,
                 expect=STATE_PLAYING,
@@ -202,6 +210,7 @@ def plan_tap(
     is_defining: bool,
     quantized: bool,
     tail_capture_enabled: bool = False,
+    tail_seam_mode: bool = False,
 ) -> Plan:
     """Legacy entry: both edges on release. Prefer plan_gesture in the bench."""
     down = plan_gesture(
@@ -212,6 +221,7 @@ def plan_tap(
         is_defining=is_defining,
         quantized=quantized,
         tail_capture_enabled=tail_capture_enabled,
+        tail_seam_mode=tail_seam_mode,
     )
     if down.commands or down.queue_stop or down.arm_grid or down.begin_tail_capture:
         return down
@@ -223,4 +233,5 @@ def plan_tap(
         is_defining=is_defining,
         quantized=quantized,
         tail_capture_enabled=tail_capture_enabled,
+        tail_seam_mode=tail_seam_mode,
     )
