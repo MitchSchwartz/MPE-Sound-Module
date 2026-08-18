@@ -21,9 +21,45 @@ import os
 import sys
 from typing import Callable
 
-DEFAULT_FADE_SAMPLES = int(os.environ.get("MPE_SL_FADE_SAMPLES", "128"))
+DEFAULT_FADE_SAMPLES = int(os.environ.get("MPE_SL_FADE_SAMPLES", "256"))
 DEFAULT_BPM = float(os.environ.get("MPE_LOOPER_BPM", "120"))
 DEFAULT_CLOCK = os.environ.get("MPE_SL_GRID_CLOCK", "internal").strip().lower()
+
+# Phase anchor: defer grid clock until loop_pos is near the defining take's
+# wrap point. set_tempo zeroes phase — firing it late (OSC poll lag) makes
+# later clips land early vs loop 1. See looper-transport-clock-spec §K.6.
+GRID_ANCHOR_MAX_S = float(os.environ.get("MPE_SL_GRID_ANCHOR_MAX_S", "0.015"))
+GRID_ANCHOR_WRAP_HIGH_RATIO = float(os.environ.get("MPE_SL_GRID_ANCHOR_WRAP_HIGH", "0.85"))
+GRID_ANCHOR_FALLBACK_CYCLES = float(os.environ.get("MPE_SL_GRID_ANCHOR_FALLBACK_CYCLES", "1.1"))
+
+
+def should_defer_phase_anchor(
+    loop_pos: float,
+    loop_len: float,
+    *,
+    loop_pos_seen: bool,
+    anchor_max_s: float = GRID_ANCHOR_MAX_S,
+) -> bool:
+    """True while we should wait for a better phase-alignment moment."""
+    if not loop_pos_seen:
+        return True
+    if loop_len <= 0.0:
+        return True
+    return loop_pos > anchor_max_s
+
+
+def detect_loop_wrap(
+    prev_pos: float,
+    loop_pos: float,
+    loop_len: float,
+    *,
+    anchor_max_s: float = GRID_ANCHOR_MAX_S,
+    wrap_high_ratio: float = GRID_ANCHOR_WRAP_HIGH_RATIO,
+) -> bool:
+    """True when playback position jumped from near end back toward start."""
+    if loop_len <= 0.0:
+        return False
+    return prev_pos >= loop_len * wrap_high_ratio and loop_pos <= anchor_max_s * 3.0
 
 # Count-in: does hitting record wait for the next cycle boundary before it
 # starts capturing? Default OFF.

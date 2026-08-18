@@ -129,7 +129,29 @@ class GridEstablishmentTests(unittest.TestCase):
         self.assertFalse(fs.awaiting_quantize)
 
         fs.sync_loop_len(2.0)
+        fs.sync_loop_pos(0.0)
         fs.sync_from_sl(SL_STATE_PLAYING)
+        self.assertTrue(grid.established)
+        self.assertEqual(seen, [(120.0, 1)])
+
+    def test_grid_anchor_defers_until_loop_wrap(self) -> None:
+        """Late PLAYING report must not reset phase mid-bar."""
+        from scripts.sooperlooper.sl_grid_state import GridState
+
+        seen = []
+        grid = GridState()
+        fs = self._fs(0, grid, lambda bpm, bars: seen.append((bpm, bars)))
+
+        fs.on_pad_down(); fs.on_pad_up()
+        fs.on_pad_up()
+        fs.sync_loop_len(2.0)
+        fs.sync_loop_pos(0.08)  # late OSC — mid-bar
+        fs.sync_from_sl(SL_STATE_PLAYING)
+        self.assertFalse(grid.established)
+        self.assertEqual(seen, [])
+
+        fs.sync_loop_pos(1.85)
+        fs.sync_loop_pos(0.01)  # wrap
         self.assertTrue(grid.established)
         self.assertEqual(seen, [(120.0, 1)])
 
@@ -142,6 +164,7 @@ class GridEstablishmentTests(unittest.TestCase):
         fs.on_pad_down(); fs.on_pad_up()
         fs.on_pad_up()
         fs.sync_loop_len(2.0)
+        fs.sync_loop_pos(0.0)
         fs.sync_from_sl(SL_STATE_PLAYING)
         self.assertTrue(grid.established)
 
@@ -163,6 +186,7 @@ class GridEstablishmentTests(unittest.TestCase):
         fs.on_pad_down(); fs.on_pad_up()
         fs.on_pad_up()
         fs.sync_loop_len(2.0)
+        fs.sync_loop_pos(0.0)
         fs.sync_from_sl(SL_STATE_PLAYING)
         grid.note_loop_content(1, True)
 
