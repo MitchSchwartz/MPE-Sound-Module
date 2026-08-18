@@ -35,9 +35,6 @@ from sl_grid_sync import (
     TAIL_HOLD_S,
     TAIL_MAX_S,
     TAIL_ABSOLUTE_MAX_S,
-    TAIL_MIN_OVERDUB_S,
-    TAIL_SEAM_END_MAX_S,
-    TAIL_SEAM_RATIO,
     TAIL_THRESH,
     detect_loop_wrap,
     should_defer_phase_anchor,
@@ -136,9 +133,8 @@ class LoopFootswitch:
         self._tail_saw_loud = False
         self._tail_stop_sent = False
         self._tail_overdub = False
-        self._tail_overdub_end_pending = False
-        self._tail_overdub_end_since = 0.0
         self._tail_overdub_since = 0.0
+        self._deferred_grid_clock: tuple[float, int] | None = None
 
     def bind(self, osc, midi_out, note: int | None) -> None:
         self._osc = osc
@@ -226,14 +222,32 @@ class LoopFootswitch:
         if self._tail_capture and self._on_tail_capture_end is not None:
             self._on_tail_capture_end(self.loop)
         self._stop_tail_overdub()
+        had_deferred = self._deferred_grid_clock is not None or self._phase_reanchor_at > 0.0
         self._tail_capture = False
         self._tail_capture_since = 0.0
         self._tail_silence_since = None
         self._tail_saw_loud = False
         self._tail_stop_sent = False
-        self._tail_overdub_end_pending = False
-        self._tail_overdub_end_since = 0.0
         self._tail_overdub_since = 0.0
+        if had_deferred:
+            self._flush_deferred_grid_side_effects()
+
+    def _flush_deferred_grid_side_effects(self) -> None:
+        """Apply grid clock + phase re-anchor after tail weld — not during it.
+
+        establish_grid_clock resets phase; doing that at a wrap while overdub
+        is active bakes a stutter into the loop buffer.
+        """
+        if self._deferred_grid_clock is not None and self._on_grid_established is not None:
+            bpm, bars = self._deferred_grid_clock
+            self._deferred_grid_clock = None
+            log(
+                f"loop {self.loop}: applying deferred grid clock — "
+                f"{bars} bar(s) @ {bpm:.1f} BPM"
+            )
+            self._on_grid_established(bpm, bars)
+        if self._phase_reanchor_at > 0.0:
+            self._try_commit_phase_reanchor(force_wrap=True)
 
     def _finish_tail_capture(self, reason: str) -> None:
         if not self._tail_capture:
@@ -245,8 +259,6 @@ class LoopFootswitch:
         self._tail_saw_loud = False
         stop_sent = self._tail_stop_sent
         self._tail_stop_sent = False
-        self._tail_overdub_end_pending = False
-        self._tail_overdub_end_since = 0.0
         self._tail_overdub_since = 0.0
         if self._on_tail_capture_end is not None:
             self._on_tail_capture_end(self.loop)
@@ -259,6 +271,7 @@ class LoopFootswitch:
             self._expect(STATE_PLAYING)
         else:
             log(f"loop {self.loop}: tail weld done ({reason})")
+        self._flush_deferred_grid_side_effects()
         self._sync_led()
         self._mark_action()
 
@@ -273,40 +286,6 @@ class LoopFootswitch:
 
     def _tail_playback_ready(self) -> bool:
         return self.sl_state == SL_STATE_PLAYING
-
-    def _at_seam_position(self) -> bool:
-        if self.loop_len <= 0.0 or not self._loop_pos_seen:
-            return False
-        return (
-            self.loop_pos >= self.loop_len * TAIL_SEAM_RATIO
-            or self.loop_pos <= GRID_ANCHOR_MAX_S * 3.0
-            or detect_loop_wrap(self._last_loop_pos, self.loop_pos, self.loop_len)
-        )
-
-    def _request_tail_overdub_end(self) -> None:
-        if self._tail_overdub_end_pending:
-            return
-        self._tail_overdub_end_pending = True
-        self._tail_overdub_end_since = time.monotonic()
-        log(
-            f"loop {self.loop}: tail quiet — will stop overdub at seam "
-            f"(pos={self.loop_pos:.3f}s / {self.loop_len:.3f}s)"
-        )
-
-    def _try_finish_tail_at_seam(self, reason: str) -> bool:
-        if not self._tail_overdub_end_pending:
-            return False
-        waited = time.monotonic() - self._tail_overdub_end_since
-        min_over = (
-            self._tail_overdub
-            and (time.monotonic() - self._tail_overdub_since) < TAIL_MIN_OVERDUB_S
-        )
-        if min_over:
-            return False
-        if self._at_seam_position() or waited >= TAIL_SEAM_END_MAX_S:
-            self._finish_tail_capture(reason)
-            return True
-        return False
 
     def _maybe_start_tail_overdub(self) -> None:
         """Mix release while it is still audible — start as soon as playback lands."""
@@ -325,9 +304,6 @@ class LoopFootswitch:
         if elapsed >= TAIL_ABSOLUTE_MAX_S:
             self._finish_tail_capture(f"absolute max {TAIL_ABSOLUTE_MAX_S:.2f}s")
             return
-        if self._tail_overdub_end_pending:
-            if self._try_finish_tail_at_seam("release quiet at seam"):
-                return
         if self._in_peak_seen and self._in_peak >= TAIL_THRESH:
             self._tail_saw_loud = True
             self._tail_silence_since = None
@@ -353,12 +329,9 @@ class LoopFootswitch:
             self._tail_silence_since = now
             return
         if (now - self._tail_silence_since) >= TAIL_HOLD_S:
-            if self._tail_overdub:
-                self._request_tail_overdub_end()
-            else:
-                self._finish_tail_capture(
-                    f"peak<{TAIL_THRESH} for {TAIL_HOLD_S * 1000:.0f}ms"
-                )
+            self._finish_tail_capture(
+                f"peak<{TAIL_THRESH} for {TAIL_HOLD_S * 1000:.0f}ms"
+            )
 
     def sync_from_sl(self, sl_state: int) -> bool:
         """Mirror SooperLooper state → bench LED (all loops incl. 0)."""
@@ -424,13 +397,12 @@ class LoopFootswitch:
         if self._loop_pos_seen and detect_loop_wrap(
             self._last_loop_pos, pos, self.loop_len
         ):
-            self._try_commit_phase_reanchor(force_wrap=True)
+            if not self._tail_capture:
+                self._try_commit_phase_reanchor(force_wrap=True)
         self._last_loop_pos = self.loop_pos if self._loop_pos_seen else pos
         self.loop_pos = pos
         self._loop_pos_seen = True
-        if self._tail_overdub_end_pending:
-            self._try_finish_tail_at_seam("release quiet at wrap")
-        if self._phase_reanchor_at > 0.0:
+        if self._phase_reanchor_at > 0.0 and not self._tail_capture:
             self._try_commit_phase_reanchor()
 
     def _maybe_establish_grid(self) -> None:
@@ -457,7 +429,13 @@ class LoopFootswitch:
             f"Later clips count in and quantize; this clip is now ordinary."
         )
         if self._on_grid_established is not None:
-            self._on_grid_established(bpm, bars)
+            if self._tail_capture:
+                self._deferred_grid_clock = (bpm, bars)
+                log(
+                    f"loop {self.loop}: grid clock deferred until tail weld completes"
+                )
+            else:
+                self._on_grid_established(bpm, bars)
         if should_defer_phase_anchor(
             self.loop_pos, self.loop_len, loop_pos_seen=self._loop_pos_seen
         ):
@@ -467,9 +445,12 @@ class LoopFootswitch:
                 f"loop_pos={self.loop_pos:.3f}s (wait for wrap or "
                 f"≤{GRID_ANCHOR_MAX_S * 1000:.0f} ms)"
             )
-            self._try_commit_phase_reanchor()
+            if not self._tail_capture:
+                self._try_commit_phase_reanchor()
 
     def _try_commit_phase_reanchor(self, *, force_wrap: bool = False) -> None:
+        if self._tail_capture:
+            return
         if self._phase_reanchor_at <= 0.0:
             return
         if self.grid is None or not self.grid.established:
@@ -623,7 +604,6 @@ class LoopFootswitch:
             self._in_peak_seen = False
             self._tail_saw_loud = False
             self._tail_overdub = False
-            self._tail_overdub_end_pending = False
             if self.sl_state in ACTIVE_RECORD:
                 log(
                     f"loop {self.loop}: defining take stop — fixing length, "
