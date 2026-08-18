@@ -31,12 +31,20 @@ class LooperSessionPhase3MTests(unittest.TestCase):
         self.assertFalse((REPO / "config/mpe-apc-bench.service").exists())
         self.assertFalse((REPO / "config/sl-hud-monitor.service").exists())
 
-    def test_install_units_enables_looper_session(self) -> None:
+    def test_install_units_installs_looper_session_but_does_not_enable_it(self) -> None:
+        """Phase 3M merged the units; 2026-08-18 made the stack opt-in.
+
+        The merge target must still be installed and must still be the only looper
+        client unit — the retired mpe-apc-bench and sl-hud-monitor must not come back.
+        It must NOT be in ENABLED: measured xrun cost, see tests/test_systemd_units.py
+        and Documents/DECISIONS.md 2026-08-18.
+        """
         install = INSTALL_UNITS.read_text(encoding="utf-8")
-        block = install.split("ENABLED=(", 1)[1].split(")", 1)[0]
-        self.assertIn("mpe-looper-session", block)
-        self.assertNotIn("mpe-apc-bench", block)
-        self.assertNotIn("sl-hud-monitor", block)
+        enabled = install.split("ENABLED=(", 1)[1].split(")", 1)[0]
+        self.assertNotIn("mpe-looper-session", enabled)
+        self.assertNotIn("mpe-apc-bench", enabled)
+        self.assertNotIn("sl-hud-monitor", enabled)
+        self.assertTrue((REPO / "config" / "mpe-looper-session.service").is_file())
 
     def test_retired_units_in_disabled_block(self) -> None:
         disabled = _disabled_units()
