@@ -1,7 +1,29 @@
 # Session control plane — one owner per fact, reconciliation over sequences
 
-**Status:** Draft — Phases 0–2 (Pi verification pending)
+**Status:** Phases 0–2 landed on `dev` (PR #66, amended by #68/#70/#71 + `4e81f11`), soaking on the appliance since 2026-08-18. Phase 3 gated on Q1. Phases 4–5 not started.
 **Author:** written after the 2026-08-17 stability session; every claim in Evidence is measured on `raspberrypi2`, not reasoned.
+
+**Implementation log (2026-08-18).** What shipped, and what it cost:
+
+| Landed | Notes |
+|---|---|
+| Phase 0 — calibration stops/restores the looper stack | Guarded by a real D11 maintenance flag (`pid` + 30 min deadline, self-clearing) — the first cut had `surge-watchdog` restarting the units mid-measurement |
+| Phase 1 — `session.snapshot.json` schema v1 | Verified on hardware: all four sources fresh, `mode: ok`, HUD live. **No publisher** — built on demand only |
+| Phase 2 — `events.jsonl` + emits at engine/graph chokepoints | Bash emits through `scripts/mpe-session-event-emit.py` for safe JSON; escaping verified live |
+
+**Staleness model changed during implementation (amends criterion 4).** The spec's
+blanket 1.5 s age threshold was wrong for every source in this system: `jack.state`
+and `surge.state` carry a process *start* epoch, and `engine.state` is written only on
+transition. Measured against the appliance's real file ages, the first implementation
+reported `null` for every field, permanently. Staleness is now per-source **liveness**:
+each field is fresh while its *writer* unit is confirmed active (`engine.state` follows
+`surge-watchdog`, not `surge-xt-cli` — during recovery Surge is down and the engine
+field carries the reason). Unknown or transitional liveness reads as stale. `reconcile`
+treats "never restarted" as valid, not stale.
+
+**CPU cost is a first-class constraint here** — see [`DECISIONS.md`](../DECISIONS.md)
+§ *2026-08-18 — CPU is the scarcest resource*. Adding the Phase 0 reconcile to
+`surge-watchdog` cost 9% of a core before it was measured and brought back to ~2%.
 
 ---
 
@@ -341,16 +363,16 @@ retirement schedule.
 
 ### Phase 1 — Observability by consolidation (no behaviour change)
 
-| # | Criterion | Verification |
-|---|---|---|
-| 1 | One snapshot: engine, graph, grid, loops, buffer/rate, health, per-service liveness, `mode`, `seq`, `schema` | Compare each field against the source of truth it aggregates |
-| 2 | It aggregates *existing* truth only — writes nothing, owns nothing | Review: no writes outside its own output and `/run/mpe` snapshot |
-| 3 | Every field carries provenance (which file/process/probe produced it) | Field-level `source` key present for all |
-| 4 | A stale sub-source reports **stale**, never a last-known value | Kill `sl-hud-monitor`; grid/transport marked stale within 1.5 s (D6), value suppressed |
-| 5 | The 2026-08-17 faults are visible from the snapshot alone | Reproduce a leaked client and a dead engine; both appear without correlating other sources |
-| 6 | **No fifth view.** `mpe status`, `mpe engine status`, `mpe jack status`, `mpe diagnose` are re-pointed at the snapshot; their output shape is unchanged | Diff each command's output before/after; byte-identical or documented delta |
-| 7 | Snapshot generation costs < 1% of a core at 2 Hz | Measure on the Pi with `/proc/<pid>/stat`, as in Evidence |
-| 8 | A reader on an unknown `schema` major refuses loudly | Bump `schema`, run an old `mpe-cli`; it errors rather than printing nulls |
+| # | Criterion | Status | Verification |
+|---|---|---|---|
+| 1 | One snapshot: engine, graph, grid, loops, buffer/rate, health, per-service liveness, `mode`, `seq`, `schema` | 🟡 partial | Has engine, jack (buffer/rate), surge, reconcile, `looper.hud` (grid/transport), `mode`, `seq`, `schema`. **Missing:** graph wiring, per-loop state, health, per-service liveness as fields |
+| 2 | It aggregates *existing* truth only — writes nothing, owns nothing | ✅ | Writes only `session.snapshot.json` + `.seq` |
+| 3 | Every field carries provenance (which file/process/probe produced it) | ✅ | Field-level `source` key present for all |
+| 4 | A stale sub-source reports **stale**, never a last-known value | ✅ *(amended)* | Per-source **writer liveness**, not a 1.5 s age gate — see Implementation log. Unknown liveness reads as stale |
+| 5 | The 2026-08-17 faults are visible from the snapshot alone | ❌ | Needs the leaked-client and graph-wiring fields from criterion 1 |
+| 6 | **No fifth view.** `mpe status`, `mpe engine status`, `mpe jack status`, `mpe diagnose` are re-pointed at the snapshot; their output shape is unchanged | ❌ deferred | mpe-cli untouched; the snapshot is currently a *fifth* view, which is the thing this criterion exists to prevent. Highest-priority Phase 1 debt |
+| 7 | Snapshot generation costs < 1% of a core at 2 Hz | ❌ | `build_snapshot()` measures **58 ms** in-process ⇒ ~11.6% at 2 Hz. Batch + cache unit liveness before any publisher ships |
+| 8 | A reader on an unknown `schema` major refuses loudly | ✅ | `read_snapshot` raises on `schema > max_schema` |
 
 ### Phase 2 — Event stream
 
@@ -370,12 +392,33 @@ distinct units into one `systemctl is-active` call when building the Phase 3
 publisher — not speculative work until that publisher lands.
 
 
-| # | Criterion | Verification |
-|---|---|---|
-| 9 | Discrete events with stable names, one line each, structured | `engine.started`, `engine.exited`, `grid.established`, `grid.dropped`, `buffer.changed`, `client.registered`, `client.leaked`, `mode.changed` |
-| 10 | The client leak is detectable from events alone | Replay 2026-08-17: `client.registered` without matching teardown, rising count |
-| 11 | Events are cheap enough to leave on permanently | Measured CPU cost < 1% of a core at steady state, on the Pi |
-| 12 | No polling probe may register a JACK client (the `jack_cpu_load` lesson) | Test asserts no per-sample process spawn on any repeating path |
+| # | Criterion | Status | Verification |
+|---|---|---|---|
+| 9 | Discrete events with stable names, one line each, structured | 🟡 partial | Emitting: `engine.started`, `engine.exited`, `buffer.changed`, `mode.changed`, `looper.units.*`. **Named but never emitted:** `grid.established`, `grid.dropped`, `client.registered`, `client.leaked` |
+| 10 | The client leak is detectable from events alone | ❌ | Needs a `client.registered`/`client.leaked` emitter — blocked on the cost constraint above |
+| 11 | Events are cheap enough to leave on permanently | ✅ *(conditionally)* | Free at steady state because events are transition-only. Holds **only** while that stays true |
+| 12 | No polling probe may register a JACK client (the `jack_cpu_load` lesson) | ⚠️ **violated** | `mpe_surge_on_jack_graph` runs `jack_lsp` — a real JACK client — every `MPE_JACK_PROBE_INTERVAL_S` (10 s) from `surge-watchdog`. See below |
+
+**Criterion 12 is knowingly violated, and the tension is real.** The supervisor's
+only way to answer *"is Surge on the graph?"* is `jack_lsp`, which registers a client.
+Removing the probe is not an option — a short-circuit that never re-probes is blind to
+the orphaned-client wedge ([`DECISIONS.md`](../DECISIONS.md) 2026-08-15), which is the
+exact fault the supervisor exists to catch. So the criterion was traded down rather
+than met, deliberately:
+
+- **Cadence bounded** at 10 s (was every 5 s, twice per tick), always ≤ the 30 s
+  supervisor cooldown so detection never lags the ability to act.
+- **`timeout -k`** guarantees the client exits, so registrations cannot accumulate —
+  this is what makes the 705-leak of 2026-08-17 non-recurring. Live count: 5 clients.
+- **Cost measured:** ~116 ms/probe ⇒ ~1.16% of a core.
+
+A `/dev/shm/jack_sem.<uid>_default_<client>` existence check was evaluated as a
+fork-free replacement and **rejected**: stale semaphores outlive dead clients
+(`jack_cpu_load` sems were present for clients absent from `jack_lsp`), so it is a
+reliable negative but an unreliable positive — a reading identical whether Surge is
+registered or orphaned. Criterion 12's real intent is *no unbounded, unreaped client
+registration on a repeating path*; that intent is met. Reword it in Phase 4 rather
+than pretending the letter is satisfied.
 
 ### Phase 3 — Session owner (gated; see Falsification)
 
