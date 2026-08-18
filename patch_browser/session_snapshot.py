@@ -22,9 +22,9 @@ from patch_browser.sl_hud_state import read_sl_hud_state
 
 SCHEMA_VERSION = 1
 STALE_THRESHOLD_S = 1.5
-ENGINE_FALLBACK_STALE_S = 86400.0
 PUBLISH_INTERVAL_S = 0.5
 SEQ_STALE_FACTOR = 2
+MAINTENANCE_DEFAULT_DEADLINE_S = float(os.environ.get("MPE_MAINTENANCE_DEADLINE_S", "1800"))
 
 SNAPSHOT_FILENAME = "session.snapshot.json"
 SEQ_FILENAME = "session.snapshot.seq"
@@ -61,6 +61,71 @@ def _parse_epoch(value: str | None) -> float:
     return parsed if parsed > 0 else 0.0
 
 
+def _pid_alive(pid: int) -> bool:
+    if pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    return True
+
+
+def read_maintenance_flag(*, run: Path | None = None) -> dict[str, str]:
+    path = maintenance_flag_path(run=run)
+    return read_engine_state(path)
+
+
+def set_maintenance_flag(
+    *,
+    run: Path | None = None,
+    source: str = "calibration",
+    deadline_s: float | None = None,
+    pid: int | None = None,
+) -> Path:
+    """Write maintenance flag (D11 minimum slice) before suppressing reconciler action."""
+    base = run or run_dir()
+    base.mkdir(parents=True, exist_ok=True)
+    path = maintenance_flag_path(run=base)
+    owner = os.getpid() if pid is None else pid
+    deadline = time.time() + (MAINTENANCE_DEFAULT_DEADLINE_S if deadline_s is None else deadline_s)
+    tmp = path.with_name(f"{path.name}.tmp.{os.getpid()}")
+    tmp.write_text(
+        f"pid={owner}\n"
+        f"deadline={deadline:.3f}\n"
+        f"source={source}\n",
+        encoding="utf-8",
+    )
+    os.chmod(tmp, 0o644)
+    tmp.replace(path)
+    return path
+
+
+def clear_maintenance_flag(*, run: Path | None = None) -> None:
+    path = maintenance_flag_path(run=run)
+    try:
+        path.unlink()
+    except OSError:
+        pass
+
+
+def maintenance_mode_active(*, run: Path | None = None, now: float | None = None) -> bool:
+    """True while maintenance flag exists, unexpired, and setter PID is alive."""
+    raw = read_maintenance_flag(run=run)
+    if not raw:
+        return False
+    now_ts = time.time() if now is None else now
+    deadline = _parse_epoch(raw.get("deadline"))
+    if deadline <= 0 or now_ts >= deadline:
+        clear_maintenance_flag(run=run)
+        return False
+    owner = int(_parse_epoch(raw.get("pid")))
+    if owner > 0 and not _pid_alive(owner):
+        clear_maintenance_flag(run=run)
+        return False
+    return True
+
+
 def field_age_stale(updated: float, *, now: float, threshold: float = STALE_THRESHOLD_S) -> bool:
     if updated <= 0:
         return True
@@ -68,7 +133,7 @@ def field_age_stale(updated: float, *, now: float, threshold: float = STALE_THRE
 
 
 def systemd_unit_active(unit: str) -> bool | None:
-    """Return True/False when systemctl answers; None when unavailable."""
+    """Return True/False when systemctl answers; None when unavailable or transitional."""
     try:
         result = subprocess.run(
             ["systemctl", "is-active", f"{unit}.service"],
@@ -87,6 +152,19 @@ def systemd_unit_active(unit: str) -> bool | None:
     return None
 
 
+def _memoized_unit_active(
+    base: Callable[[str], bool | None],
+) -> Callable[[str], bool | None]:
+    cache: dict[str, bool | None] = {}
+
+    def check(unit: str) -> bool | None:
+        if unit not in cache:
+            cache[unit] = base(unit)
+        return cache[unit]
+
+    return check
+
+
 def process_field_stale(
     raw: dict[str, str] | None,
     *,
@@ -99,31 +177,20 @@ def process_field_stale(
         return True
     if _parse_epoch(raw.get(started_key)) <= 0:
         return True
-    active = unit_active(unit)
-    if active is False:
-        return True
-    return False
+    return unit_active(unit) is not True
 
 
 def engine_field_stale(
     raw: dict[str, str] | None,
     *,
-    now: float,
     unit_active: Callable[[str], bool | None],
 ) -> bool:
-    """Engine state is transition-written; trust it while Surge is live."""
+    """Engine state is transition-written; trust it only while Surge is confirmed live."""
     if not raw:
         return True
-    updated = _parse_epoch(raw.get("updated"))
-    if updated <= 0:
+    if _parse_epoch(raw.get("updated")) <= 0:
         return True
-    engine_active = (raw.get("active") or "").strip()
-    surge_live = unit_active(SURGE_UNIT)
-    if engine_active == "jack" and surge_live is False:
-        return True
-    if surge_live is True:
-        return False
-    return (now - updated) >= ENGINE_FALLBACK_STALE_S
+    return unit_active(SURGE_UNIT) is not True
 
 
 def reconcile_field_stale(raw: dict[str, str] | None) -> bool:
@@ -193,7 +260,7 @@ def build_snapshot(
     """Aggregate existing truth into schema v1 document."""
     base = run or run_dir()
     now_ts = time.time() if now is None else now
-    check_unit = unit_active or systemd_unit_active
+    check_unit = _memoized_unit_active(unit_active or systemd_unit_active)
 
     engine_path = base / "engine.state"
     jack_path = base / "jack.state"
@@ -209,7 +276,7 @@ def build_snapshot(
     jack_updated = _parse_epoch(jack_raw.get("started"))
     surge_updated = _parse_epoch(surge_raw.get("started"))
 
-    maintenance = maintenance_flag_path(run=base).exists()
+    maintenance = maintenance_mode_active(run=base, now=now_ts)
     mode = derive_mode(engine_raw, maintenance=maintenance)
 
     default_hud = Path(os.environ.get("MPE_SL_HUD_STATE_FILE", str(Path.home() / ".mpe_sl_hud_state.json")))
@@ -222,7 +289,7 @@ def build_snapshot(
     policy = looper_policy(looper_policy_env=looper_policy_env)
     guard = looper_guard_label(looper_enabled=looper_enabled)
 
-    engine_stale = engine_field_stale(engine_raw, now=now_ts, unit_active=check_unit)
+    engine_stale = engine_field_stale(engine_raw, unit_active=check_unit)
     jack_stale = process_field_stale(jack_raw, unit=JACK_UNIT, started_key="started", unit_active=check_unit)
     surge_stale = process_field_stale(surge_raw, unit=SURGE_UNIT, started_key="started", unit_active=check_unit)
     reconcile_stale = reconcile_field_stale(reconcile_raw)
@@ -301,26 +368,15 @@ def next_seq(*, run: Path | None = None) -> int:
         return value
 
 
-def write_seq(value: int, *, run: Path | None = None) -> None:
-    path = seq_path(run=run)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(f"{path.name}.tmp.{os.getpid()}")
-    tmp.write_text(f"{value}\n", encoding="utf-8")
-    tmp.replace(path)
-
-
 def write_snapshot(snapshot: dict[str, Any], *, run: Path | None = None) -> Path:
-    """Atomically publish snapshot JSON and bump seq counter."""
+    """Atomically publish snapshot JSON (seq is allocated by ``next_seq`` in ``build_snapshot``)."""
     base = run or run_dir()
     base.mkdir(parents=True, exist_ok=True)
     target = snapshot_path(run=base)
     tmp = target.with_name(f"{target.name}.tmp.{os.getpid()}")
-    seq = int(snapshot.get("seq") or 0)
     tmp.write_text(json.dumps(snapshot, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8")
     os.chmod(tmp, 0o644)
     tmp.replace(target)
-    if seq > 0:
-        write_seq(seq, run=base)
     return target
 
 
