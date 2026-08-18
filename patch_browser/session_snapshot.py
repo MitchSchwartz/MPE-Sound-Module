@@ -160,6 +160,30 @@ def systemd_unit_active(unit: str) -> bool | None:
     return None
 
 
+def systemd_unit_enabled(unit: str) -> bool | None:
+    """True/False when systemctl answers; None when unavailable.
+
+    ``disabled`` is an explicit operator decision. Anything that auto-starts units
+    must respect it, or ``systemctl disable`` silently does nothing.
+    """
+    try:
+        result = subprocess.run(
+            ["systemctl", "is-enabled", f"{unit}.service"],
+            capture_output=True,
+            text=True,
+            timeout=2,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    state = (result.stdout or "").strip()
+    if state in {"enabled", "enabled-runtime", "static", "indirect", "alias"}:
+        return True
+    if state in {"disabled", "masked", "masked-runtime"}:
+        return False
+    return None
+
+
 def _memoized_unit_active(
     base: Callable[[str], bool | None],
 ) -> Callable[[str], bool | None]:
