@@ -4,6 +4,7 @@ import conftest  # noqa: F401 — bare sooperlooper imports (apc_grid, …)
 
 import unittest
 from unittest.mock import MagicMock, patch
+import time
 
 import scripts.sooperlooper.apc_footswitch as footswitch_mod
 from scripts.sooperlooper.apc_footswitch import LoopFootswitch, build_footswitches
@@ -118,6 +119,17 @@ class GridEstablishmentTests(unittest.TestCase):
         fs.bind(MagicMock(), MagicMock(), 36 + loop)
         return fs
 
+    def _start_defining_take(self, fs) -> None:
+        fs.on_pad_down()
+        fs.on_pad_up()
+        fs.sync_from_sl(SL_STATE_RECORDING)
+
+    def _close_defining_take(self, fs) -> None:
+        fs.on_pad_down()
+        fs.on_pad_up()
+        if fs._tail_capture:
+            fs._finish_tail_capture("test")
+
     def test_first_take_records_instantly_and_sets_tempo(self) -> None:
         from scripts.sooperlooper.sl_grid_state import GridState
 
@@ -125,10 +137,19 @@ class GridEstablishmentTests(unittest.TestCase):
         grid = GridState()
         fs = self._fs(0, grid, lambda bpm, bars: seen.append((bpm, bars)))
 
-        fs.on_pad_down(); fs.on_pad_up()          # start
+        self._start_defining_take(fs)
         self.assertTrue(grid.is_pending(0))
-        fs.on_pad_down(); fs.on_pad_up()          # stop — must NOT wait
+        fs.on_pad_down(); fs.on_pad_up()          # stop — tail capture, not instant
+        self.assertTrue(fs._tail_capture)
         self.assertFalse(fs.awaiting_quantize)
+        from scripts.sooperlooper.sl_grid_sync import TAIL_HOLD_S
+
+        fs.sync_in_peak(0.0)
+        fs._tail_silence_since = TAIL_HOLD_S * -2 + time.monotonic()
+        fs.poll_tail_capture()
+        hits = [c.args[1] for c in fs._osc.send_message.call_args_list
+                if c.args[0] == "/sl/0/hit"]
+        self.assertEqual(hits.count("record"), 2)
 
         fs.sync_loop_len(2.0)
         fs.sync_loop_pos(0.0)
@@ -149,8 +170,8 @@ class GridEstablishmentTests(unittest.TestCase):
             lambda bpm: reanchored.append(bpm),
         )
 
-        fs.on_pad_down(); fs.on_pad_up()
-        fs.on_pad_up()
+        self._start_defining_take(fs)
+        self._close_defining_take(fs)
         fs.sync_loop_len(2.0)
         fs.sync_loop_pos(0.08)  # late OSC — mid-bar
         fs.sync_from_sl(SL_STATE_PLAYING)
@@ -168,8 +189,8 @@ class GridEstablishmentTests(unittest.TestCase):
 
         grid = GridState()
         fs = self._fs(0, grid)
-        fs.on_pad_down(); fs.on_pad_up()
-        fs.on_pad_up()
+        self._start_defining_take(fs)
+        self._close_defining_take(fs)
         fs.sync_loop_len(2.0)
         fs.sync_loop_pos(0.0)
         fs.sync_from_sl(SL_STATE_PLAYING)
@@ -190,8 +211,8 @@ class GridEstablishmentTests(unittest.TestCase):
 
         grid = GridState()
         fs = self._fs(0, grid)
-        fs.on_pad_down(); fs.on_pad_up()
-        fs.on_pad_up()
+        self._start_defining_take(fs)
+        self._close_defining_take(fs)
         fs.sync_loop_len(2.0)
         fs.sync_loop_pos(0.0)
         fs.sync_from_sl(SL_STATE_PLAYING)
@@ -216,6 +237,29 @@ class GridEstablishmentTests(unittest.TestCase):
         fs.sync_from_sl(SL_STATE_RECORDING)
         fs.on_pad_down(); fs.on_pad_up()
         self.assertTrue(fs.awaiting_quantize, "quantized clip must wait for the bar")
+
+
+class TailCaptureTests(unittest.TestCase):
+    def test_pad_down_during_tail_immediate_close(self) -> None:
+        fs = LoopFootswitch(loop=0, hold_ms=1000.0, debounce_ms=0.0)
+        fs.bind(MagicMock(), MagicMock(), 36)
+        fs._tail_capture = True
+        fs._tail_capture_since = time.monotonic()
+        fs.on_pad_down()
+        hits = [c.args[1] for c in fs._osc.send_message.call_args_list
+                if c.args[0] == "/sl/0/hit"]
+        self.assertEqual(hits, ["record"])
+        self.assertFalse(fs._tail_capture)
+
+    def test_tail_led_is_yellow_blink(self) -> None:
+        from scripts.sooperlooper.led_table import LED_YELLOW_BLINK, led_for
+
+        fs = LoopFootswitch(loop=0, hold_ms=1000.0, debounce_ms=0.0)
+        fs.bind(MagicMock(), MagicMock(), 36)
+        fs.sync_from_sl(SL_STATE_RECORDING)
+        fs._tail_capture = True
+        self.assertEqual(fs._led_target(), (LED_YELLOW_BLINK,))
+        self.assertEqual(led_for(SL_STATE_RECORDING, tail_capture=True), (LED_YELLOW_BLINK,))
 
 
 class DoubleTapRecordsOneCycleTests(unittest.TestCase):

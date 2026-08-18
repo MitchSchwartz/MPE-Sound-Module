@@ -9,6 +9,8 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from apc_footswitch import LoopFootswitch
 
+from sl_grid_sync import TAIL_CAPTURE_ENABLED, TAIL_PEAK_UPDATE_MS
+
 LISTEN_HOST = os.environ.get("MPE_SL_BENCH_LISTEN_HOST", "127.0.0.1")
 LISTEN_PORT = int(os.environ.get("MPE_SL_BENCH_LISTEN_PORT", "9953"))
 UPDATE_MS = int(os.environ.get("MPE_SL_BENCH_STATE_MS", "100"))
@@ -56,6 +58,8 @@ class SlBenchStateListener:
             fs.sync_loop_len(float(value))
         elif control == "loop_pos":
             fs.sync_loop_pos(float(value))
+        elif control == "in_peak_meter":
+            fs.sync_in_peak(float(value))
 
     def on_global_update(self, _addr: str, _loop_index: int, control: str,
                          value: float) -> None:
@@ -85,6 +89,11 @@ class SlBenchStateListener:
                 f"/sl/{loop}/register_auto_update",
                 ["wet", WET_UPDATE_MS, returl, retpath],
             )
+            if TAIL_CAPTURE_ENABLED:
+                client.send_message(
+                    f"/sl/{loop}/register_auto_update",
+                    ["in_peak_meter", TAIL_PEAK_UPDATE_MS, returl, retpath],
+                )
         # Global (no /sl/N prefix) — verified against control_osc.cpp:178 and
         # live on the engine: replies carry loop index -2. This is how the bench
         # notices the engine restarted underneath it, which otherwise leaves the

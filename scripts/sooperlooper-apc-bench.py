@@ -291,6 +291,7 @@ def main() -> int:
 
     def poll_holds() -> None:
         for fs in footswitches:
+            fs.poll_tail_capture()
             fs.poll_hold()
             fs.poll_led()
 

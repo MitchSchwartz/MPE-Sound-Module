@@ -20,6 +20,8 @@ from led_table import (  # noqa: F401
 )
 from loop_model import (
     STATE_IDLE,
+    STATE_PLAYING,
+    STATE_RECORDING,
     STATE_STOPPED,
     effective_state,
     pending_resolved,
@@ -29,6 +31,10 @@ from sl_grid_state import GridState, derive_tempo
 from sl_grid_sync import (
     GRID_ANCHOR_FALLBACK_CYCLES,
     GRID_ANCHOR_MAX_S,
+    TAIL_CAPTURE_ENABLED,
+    TAIL_HOLD_S,
+    TAIL_MAX_S,
+    TAIL_THRESH,
     detect_loop_wrap,
     should_defer_phase_anchor,
 )
@@ -112,6 +118,10 @@ class LoopFootswitch:
         self._stop_queued = False
         self._led_transition: tuple[int, int] | None = None
         self._led_last: int | None = None
+        self._tail_capture = False
+        self._tail_capture_since = 0.0
+        self._tail_silence_since: float | None = None
+        self._in_peak = 0.0
 
     def bind(self, osc, midi_out, note: int | None) -> None:
         self._osc = osc
@@ -170,6 +180,42 @@ class LoopFootswitch:
                 f"{PENDING_TIMEOUT_S:.0f}s (sl_state={self.sl_state}) — "
                 f"deferring to the engine")
             self._pending = None
+
+    def sync_in_peak(self, peak: float) -> None:
+        self._in_peak = max(0.0, float(peak))
+
+    def _cancel_tail_capture(self) -> None:
+        self._tail_capture = False
+        self._tail_capture_since = 0.0
+        self._tail_silence_since = None
+
+    def _finish_tail_capture(self, reason: str) -> None:
+        if not self._tail_capture:
+            return
+        self._cancel_tail_capture()
+        log(f"loop {self.loop}: tail capture done ({reason}) — sending record stop")
+        self._hit("record")
+        self._expect(STATE_PLAYING)
+        self._sync_led()
+
+    def poll_tail_capture(self) -> None:
+        """Close a defining take once release falls below threshold (Tier 2)."""
+        if not self._tail_capture:
+            return
+        now = time.monotonic()
+        if (now - self._tail_capture_since) >= TAIL_MAX_S:
+            self._finish_tail_capture(f"max {TAIL_MAX_S:.2f}s")
+            return
+        if self._in_peak >= TAIL_THRESH:
+            self._tail_silence_since = None
+            return
+        if self._tail_silence_since is None:
+            self._tail_silence_since = now
+            return
+        if (now - self._tail_silence_since) >= TAIL_HOLD_S:
+            self._finish_tail_capture(
+                f"peak<{TAIL_THRESH} for {TAIL_HOLD_S * 1000:.0f}ms"
+            )
 
     def sync_from_sl(self, sl_state: int) -> bool:
         """Mirror SooperLooper state → bench LED (all loops incl. 0)."""
@@ -323,7 +369,11 @@ class LoopFootswitch:
         self._midi_out.send_message([0x90, self._note, velocity])
 
     def _led_target(self) -> tuple[int, ...]:
-        return led_for(self.sl_state, pending=self._pending)
+        return led_for(
+            self.sl_state,
+            pending=self._pending,
+            tail_capture=self._tail_capture,
+        )
 
     def _sync_led(self) -> None:
         """Paint the pad from engine truth plus unconfirmed intent.
@@ -373,6 +423,7 @@ class LoopFootswitch:
 
     def _clear_loop(self) -> None:
         self._stop_queued = False
+        self._cancel_tail_capture()
         if self.grid is not None:
             self.grid.cancel(self.loop)
         self._hit("undo_all")
@@ -393,6 +444,11 @@ class LoopFootswitch:
         if self._waiting_for_quantize():
             log(f"loop {self.loop}: -> {edge} ignored (quantize wait)")
             return
+        if self._tail_capture:
+            if edge == "down":
+                self._finish_tail_capture("pad down — immediate close")
+                self._mark_action()
+            return
 
         self._expire_pending()
         plan = plan_gesture(
@@ -402,13 +458,26 @@ class LoopFootswitch:
             grid_established=self.grid is None or self.grid.established,
             is_defining=self.grid is not None and self.grid.is_pending(self.loop),
             quantized=self.quantized,
+            tail_capture_enabled=TAIL_CAPTURE_ENABLED,
         )
-        if not (plan.commands or plan.queue_stop or plan.arm_grid):
+        if not (plan.commands or plan.queue_stop or plan.arm_grid or plan.begin_tail_capture):
             return
         if plan.note:
             log(f"loop {self.loop}: {plan.note}")
         if plan.arm_grid and self.grid is not None:
             self.grid.arm(self.loop)
+        if plan.begin_tail_capture:
+            self._tail_capture = True
+            self._tail_capture_since = time.monotonic()
+            self._tail_silence_since = None
+            self._expect(STATE_RECORDING)
+            self._sync_led()
+            self._mark_action()
+            log(
+                f"loop {self.loop}: -> {edge} done (tail capture, "
+                f"state={self.state}, sl_state={self.sl_state})"
+            )
+            return
         for cmd in plan.commands:
             self._hit(cmd)
         if plan.queue_stop:
@@ -568,6 +637,7 @@ def reset_all_loops(
     for fs in footswitches:
         fs.awaiting_quantize = False
         fs._stop_queued = False
+        fs._cancel_tail_capture()
         fs._expect(STATE_IDLE)
         fs._sync_led()
     for row, col in all_clip_pads():
