@@ -3,6 +3,10 @@
 Aggregates existing runtime truth under ``/run/mpe/session.snapshot.json``.
 Does not own engine state; readers treat stale sub-sources as unknown (never
 last-known-good).
+
+Do not run ``python3 -m patch_browser.session_snapshot`` on a systemd
+timer — CLI startup is ~360 ms on the Pi vs ~58 ms in-process. The CLI is
+for debugging; Phase 3 publisher must call ``build_snapshot()`` in-process.
 """
 
 from __future__ import annotations
