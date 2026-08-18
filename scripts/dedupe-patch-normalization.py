@@ -28,7 +28,11 @@ if str(REPO_ROOT) not in sys.path:
 from patch_browser.favorites_index import FavoritesIndex  # noqa: E402
 from patch_browser.json_store import atomic_write_json, read_json_dict  # noqa: E402
 from patch_browser.patch_normalization import default_normalization_path  # noqa: E402
-from patch_browser.patch_scanner import PatchScanner, SURGE_PATCH_DIRS  # noqa: E402
+from patch_browser.patch_scanner import (  # noqa: E402
+    PatchScanner,
+    SURGE_PATCH_DIRS,
+    resolve_patch_scan_dirs,
+)
 from patch_browser.patch_sidecar_key import (  # noqa: E402
     is_stable_key,
     lookup_entry,
@@ -193,7 +197,7 @@ def main() -> int:
     data = read_json_dict(path, label="normalization")
     before = len([k for k in data if k != _GLOBAL])
 
-    scanner = PatchScanner()
+    scanner = PatchScanner(resolve_patch_scan_dirs())
     scanner.scan_patches()
     favorites = FavoritesIndex()
 
