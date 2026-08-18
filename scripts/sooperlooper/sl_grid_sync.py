@@ -25,13 +25,17 @@ DEFAULT_FADE_SAMPLES = int(os.environ.get("MPE_SL_FADE_SAMPLES", "256"))
 DEFAULT_BPM = float(os.environ.get("MPE_LOOPER_BPM", "120"))
 DEFAULT_CLOCK = os.environ.get("MPE_SL_GRID_CLOCK", "internal").strip().lower()
 
-# Tail capture on defining take close — looper-loop-seam-spec.md Tier 2.
+# Tail capture on defining take close — looper-loop-seam-spec.md Tier 2 / Option E.
 TAIL_CAPTURE_ENABLED = os.environ.get("MPE_SL_TAIL_CAPTURE", "1").strip().lower() not in (
     "0",
     "off",
     "false",
     "",
 )
+# extend = Tier 2 (grow clip 0 until release quiet). seam = Option E (fixed bar +
+# overdub release at wrap — avoids tail stacking louder at N→0).
+TAIL_MODE = os.environ.get("MPE_SL_TAIL_MODE", "seam").strip().lower()
+TAIL_SEAM_MODE = TAIL_MODE in ("seam", "e", "overdub", "option_e")
 TAIL_THRESH = float(os.environ.get("MPE_SL_TAIL_THRESH", "0.02"))
 TAIL_HOLD_S = float(os.environ.get("MPE_SL_TAIL_HOLD_MS", "80")) / 1000.0
 TAIL_MAX_S = float(os.environ.get("MPE_SL_TAIL_MAX_MS", "4000")) / 1000.0

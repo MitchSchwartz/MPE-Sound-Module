@@ -111,7 +111,7 @@ def main() -> int:
     returl = f"{LISTEN_HOST}:{listen_port}"
     controls = ("wet", "state")
     if args.detail:
-        controls = ("wet", "state", "input_latency", "fade_samples", "loop_len")
+        controls = ("wet", "state", "input_latency", "autoset_latency", "fade_samples", "loop_len")
     for loop in range(args.loops):
         for ctrl in controls:
             client.send_message(f"/sl/{loop}/get", [ctrl, returl, RETPATH])
@@ -129,6 +129,7 @@ def main() -> int:
             row = {"wet": got.get((n, "wet")), "state": got.get((n, "state"))}
             if args.detail:
                 row["input_latency"] = got.get((n, "input_latency"))
+                row["autoset_latency"] = got.get((n, "autoset_latency"))
                 row["fade_samples"] = got.get((n, "fade_samples"))
                 row["loop_len"] = got.get((n, "loop_len"))
             payload[str(n)] = row
@@ -145,12 +146,14 @@ def main() -> int:
             line = f"loop {n:2d}  wet={wet_s}  state={state_s}"
             if args.detail:
                 il = got.get((n, "input_latency"))
+                au = got.get((n, "autoset_latency"))
                 fs = got.get((n, "fade_samples"))
                 ll = got.get((n, "loop_len"))
                 il_s = "  --" if il is None else f"{il:.0f}"
+                au_s = " -" if au is None else f"{int(au)}"
                 fs_s = " --" if fs is None else f"{fs:.0f}"
                 ll_s = "  --" if ll is None else f"{ll:.3f}s"
-                line += f"  in_lat={il_s}  fade={fs_s}  len={ll_s}"
+                line += f"  in_lat={il_s}  autoset={au_s}  fade={fs_s}  len={ll_s}"
             print(line)
 
     if missing:
