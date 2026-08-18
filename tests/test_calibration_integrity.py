@@ -273,5 +273,63 @@ class CalibrateListMissingContractTests(unittest.TestCase):
             self.assertEqual(missing_keys, [missing_key])
 
 
+
+class ClosedLoopThresholdTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.cal = load_cal_module()
+
+    def test_finalize_loop_uses_same_gate_as_save(self) -> None:
+        from patch_browser.patch_normalization import POST_GAIN_VERIFY_PEAK_MAX_DBTP
+
+        src = Path(self.cal.__file__).read_text()
+        self.assertIn("post_gain_verify_passes(last_peak)", src)
+        self.assertNotIn("SAFE_PEAK_DBTP + 0.5", src.split("def finalize_gain_with_closed_loop")[1].split("def is_invalid_measurement")[0])
+
+
+class PostGainVerifyGateTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.cal = load_cal_module()
+
+    def test_post_gain_verify_rejects_hot_peak(self) -> None:
+        self.assertFalse(self.cal.post_gain_verify_passes(-1.0))
+
+    def test_calibrate_skips_save_on_verify_fail(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            out_path = Path(tmp) / "norm.json"
+            store = self.cal.PatchNormalizationStore(out_path)
+            fake_loader = mock.Mock()
+            fake_loader.load_patch.return_value = True
+            fake_loader.osc_enabled = True
+            fake_loader.osc_client = mock.Mock()
+            with (
+                mock.patch.object(
+                    self.cal, "measure_strike_anchor_lufs", return_value=(-18.0, -6.0)
+                ),
+                mock.patch.object(
+                    self.cal, "measure_sustain_anchor_lufs", return_value=(-18.0, -6.0)
+                ),
+                mock.patch.object(self.cal, "measure_light_touch_lufs", return_value=None),
+                mock.patch.object(
+                    self.cal,
+                    "finalize_gain_with_closed_loop",
+                    return_value=(2.0, -16.0, -1.5),
+                ),
+                mock.patch.object(self.cal.time, "sleep"),
+            ):
+                result = self.cal.calibrate_patch(
+                    Path("/tmp/Hot.fxp"),
+                    fake_loader,
+                    store,
+                    audio_device="plughw:Loopback,1,0",
+                    mock_lufs=None,
+                    dry_run=False,
+                    midi_out=mock.Mock(),
+                )
+            self.assertFalse(result.ok)
+            self.assertTrue(result.verify_failed)
+            self.assertIsNone(store.get_raw_gain_db("Hot"))
+
+
 if __name__ == "__main__":
+
     unittest.main()
