@@ -658,11 +658,12 @@ mpe_engine_reconcile_reset() {
 }
 
 mpe_surge_on_jack_graph() {
-    mpe_jack_server_ready || return 1
-    if ! _mpe_jack_lsp_bin; then
-        return 1
-    fi
-    mpe_jack_lsp 2>/dev/null | grep -qi 'surge'
+    local ports
+    mpe_jack_server_running || return 1
+    _mpe_jack_lsp_bin || return 1
+    ports="$(mpe_jack_lsp 2>/dev/null)" || return 1
+    [ -n "$ports" ] || return 1
+    printf '%s' "$ports" | grep -qi 'surge'
 }
 
 # Back-compat alias used by udev helper and profile scripts.

@@ -112,9 +112,10 @@ _reconcile_engine() {
 LOOPER_RECONCILE_INTERVAL_S="${MPE_LOOPER_RECONCILE_INTERVAL_S:-30}"
 _last_looper_reconcile=0
 
-# Bound the healthy-path short-circuit: full graph probe at least once per interval
-# (116 ms / 60 s = 0.19% of a core). _last_jack_probe=0 forces probe on first tick.
-JACK_PROBE_INTERVAL_S="${MPE_JACK_PROBE_INTERVAL_S:-60}"
+# Bound the healthy-path short-circuit: full graph probe at least once per interval.
+# Default 10 s (116 ms / 10 s ≈ 1.16% of a core); must stay ≤ cooldown (30 s).
+# _last_jack_probe=0 forces probe on first tick.
+JACK_PROBE_INTERVAL_S="${MPE_JACK_PROBE_INTERVAL_S:-10}"
 _last_jack_probe=0
 
 # Batched systemctl pre-filter: fork Python (~400 ms on Pi) only when a looper
