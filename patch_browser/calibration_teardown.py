@@ -30,6 +30,7 @@ from patch_browser.session_snapshot import (
     maintenance_mode_active,
     set_maintenance_flag,
     systemd_unit_active,
+    systemd_unit_enabled,
 )
 
 # Looper eval stack — Restart=always units (spec Phase 0 / Appendix A).
@@ -58,10 +59,18 @@ def _safe_emit_event(name: str, **kwargs: object) -> None:
 
 
 def ensure_looper_units_running() -> None:
-    """Start looper units left stopped by an aborted calibration (no maintenance flag)."""
+    """Start looper units left stopped by an aborted calibration (no maintenance flag).
+
+    Only units that are **enabled**. A disabled unit is an explicit operator decision —
+    since 2026-08-18 the looper stack is opt-in (measured xrun cost), and without this
+    check the reconcile restarted it within 30 s, making ``systemctl disable`` a silent
+    no-op. Recovering an aborted calibration must not override a deliberate off.
+    """
     if maintenance_mode_active():
         return
     for unit in LOOPER_UNITS_START_ORDER:
+        if systemd_unit_enabled(unit) is False:
+            continue
         if systemd_unit_active(unit) is False:
             _systemctl(unit, "start")
 
