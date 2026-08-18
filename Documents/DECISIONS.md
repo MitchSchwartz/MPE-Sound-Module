@@ -6,6 +6,75 @@ Orientation canon: OM-Repo [`GROUNDING.md`](https://github.com/opsMachine/OM-Rep
 
 ---
 
+## 2026-08-18 — CPU is the scarcest resource: no subprocess spawning in periodic loops
+
+**Decision (Mitch, 2026-08-18):** *"We cannot let subprocesses start eroding CPU, it's
+our most precious resource, we need good engineering. If Python is no longer the correct
+tool at times and we need to write C modules then we'll consider it at those points. For
+now bash seems acceptable."*
+
+Every core-second spent forking is a core-second `jackd` may need to hit its deadline.
+This is the cost-side sibling of **No Python on the JACK audio thread** (2026-08-13):
+that rule keeps interpreted code off the RT path; this one keeps the RT path's *budget*
+from being eaten by processes that never touch it.
+
+**Measured on `raspberrypi2`, 2026-08-18** — memorise the order of magnitude, not the digits:
+
+| Spawn | Cost | At a 5 s cadence |
+|---|---|---|
+| `python3 <script>` (interpreter start) | **~360–440 ms** | **~9% of a core** |
+| `python3 -m <module>` CLI vs in-process call | 418 ms vs 58 ms | 360 ms is pure startup |
+| `jack_lsp` (registers a real JACK client) | **~116 ms** | ~2.3% per call per tick |
+| `systemctl is-active a b c d` (batched) | ~22 ms | ~0.4% |
+| `systemctl is-active` ×4 (separate) | ~72 ms | ~1.4% |
+
+**Rules, each paid for:**
+
+1. **Cost × cadence before you add a poll.** A fork that is "only 400 ms" is 9% of a core
+   forever at 5 s. Compute the product; put it in the PR.
+2. **Cheap batched pre-filter, expensive tool only on the exception path.** `surge-watchdog.sh`
+   went 9% → 3% by asking `systemctl is-active` for all four looper units in one call and
+   forking Python only when a line came back non-`active`.
+3. **Throttle to what the fault requires, not to the loop you happen to be in.** Recovering
+   from an aborted calibration does not need 5 s granularity; 30 s is free.
+4. **Batch `systemctl is-active a b c d` — one call, per-unit lines. Never `--quiet` with
+   multiple units: it is an OR, not an AND.** `is-active --quiet live.service missing.service`
+   exits **0**. This looks like the obvious optimisation and is silently wrong.
+5. **Never invoke a Python module CLI on a timer.** Call `build_snapshot()` in-process.
+   `python3 -m patch_browser.session_snapshot` is a debugging command, and is documented
+   as such in its module docstring.
+6. **Prefer bash builtins to forks.** `$EPOCHSECONDS`, not `date +%s`. Absolute paths for
+   hot binaries — a `PATH` search costs extra failed `execve` per call.
+7. **`jack_lsp` is not a cheap liveness probe.** It registers a real client on the graph
+   every call. See *The "wedge" was an orphaned JACK client* (2026-08-15) and the
+   705-leaked-client incident (2026-08-17) for what that costs when it goes wrong.
+8. **Language escalation is deliberate, not incremental.** Bash is the current answer.
+   C is considered only when a specific measured hot path defeats bash — not pre-emptively,
+   and never as a way to make an unnecessary poll cheaper. Deleting the call beats
+   optimising it.
+
+**How to measure — the parent's own jiffies will lie to you.**
+
+`/proc/<pid>/stat` fields 14+15 (`utime`+`stime`) read **0** for a supervisor that is
+burning 9% of a core, because forked children only land in fields 16+17 (`cutime`+`cstime`)
+once reaped. Reading the parent alone shows a process that looks free while it isn't.
+
+```sh
+# cost including reaped children
+awk '{print $14+$15+$16+$17}' /proc/<pid>/stat     # sample, sleep N, sample again
+# jiffies over N seconds ÷ N = % of one core (USER_HZ=100)
+
+# what is actually being spawned, per tick
+sudo strace -f -e trace=execve -p <pid>
+```
+
+**Applied:** PR #68 (`b6355b4`) for the looper reconcile. **Known outstanding:**
+`mpe_jack_server_ready()` runs `jack_lsp` twice per 5 s tick on the healthy path
+(~4.6% of a core) — the supervisor's per-tick question is `systemctl is-failed`, and the
+graph probe is only needed when it is about to act.
+
+---
+
 ## 2026-08-15 — A reading that looks the same whether or not it means anything
 
 Every defect found in the looper stack on 2026-08-14/15 was the same shape, and
