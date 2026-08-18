@@ -30,13 +30,6 @@ ENABLED=(
     mpe-jackd
     surge-xt-cli
     surge-watchdog
-    sl-watchdog
-    # The looper stack. These ran as hand-started `setsid nohup` processes until
-    # 2026-08-17, when the engine died at 16:15 and nothing restarted it for six
-    # hours — the controller kept lighting pads from a dead engine, which read as
-    # "looper controls broken". Supervised now, so that failure is self-repairing.
-    mpe-sooperlooper
-    mpe-looper-session
     surge-poly-governor
     mpe-cpu-governor
     mpe-audio-profile-sync
@@ -65,6 +58,21 @@ DISABLED=(
     # Phase 3M 2026-08-18: bench + HUD merged into mpe-looper-session.service.
     mpe-apc-bench
     sl-hud-monitor
+    # The looper stack — installed, supervised, but NOT started at boot as of
+    # 2026-08-18. Measured on the appliance with a deterministic MIDI load
+    # (scripts/midi-load.py, DSP median ~42%): the full stack produces 24-31 xruns
+    # per minute of playing; with these three stopped it is 2-6. Roughly 5-10x, well
+    # outside a +/-30% run-to-run noise floor. Which of the three carries the cost is
+    # NOT yet isolated — single runs could not separate them.
+    #
+    # They still exist, still have Restart=always, and still self-repair once started
+    # (the 2026-08-17 six-hour outage stays fixed). They simply do not come up on their
+    # own, so the instrument boots clean and looping is an explicit choice:
+    #   mpe looper on   ->  systemctl start mpe-sooperlooper mpe-looper-session sl-watchdog
+    # See Documents/DECISIONS.md 2026-08-18 and DIRECTION.md D15 (adopt/kill verdict).
+    mpe-sooperlooper
+    mpe-looper-session
+    sl-watchdog
 )
 
 # No [Install] section — cannot be enabled, only pulled in by another unit.
