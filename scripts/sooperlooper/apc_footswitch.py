@@ -78,18 +78,19 @@ class LoopFootswitch:
         quantized: bool = True,
         grid: GridState | None = None,
         on_grid_established=None,
+        on_phase_reanchor=None,
         on_grid_dropped=None,
     ) -> None:
         self.loop = loop
         self.grid = grid
         self._on_grid_established = on_grid_established
+        self._on_phase_reanchor = on_phase_reanchor
         self._on_grid_dropped = on_grid_dropped
         self.loop_len = 0.0
         self.loop_pos = 0.0
         self._loop_pos_seen = False
         self._last_loop_pos = 0.0
-        self._anchor_deferred: tuple[float, int] | None = None
-        self._anchor_deferred_at = 0.0
+        self._phase_reanchor_at = 0.0
         # Is this loop waiting for cycle boundaries? False in free-form, where
         # arming a quantize wait strands the pad on a boundary that never comes.
         self.quantized = quantized
@@ -222,88 +223,88 @@ class LoopFootswitch:
         # playback would derive a tempo from a take that never landed.
         if self.sl_state == SL_STATE_PLAYING:
             self._maybe_establish_grid()
-        elif self._anchor_deferred is not None:
-            self._try_commit_phase_anchor()
+        elif self._phase_reanchor_at > 0.0:
+            self._try_commit_phase_reanchor()
 
     def sync_loop_pos(self, loop_pos: float) -> None:
         pos = float(loop_pos)
         if self._loop_pos_seen and detect_loop_wrap(
             self._last_loop_pos, pos, self.loop_len
         ):
-            self._try_commit_phase_anchor(force_wrap=True)
+            self._try_commit_phase_reanchor(force_wrap=True)
         self._last_loop_pos = self.loop_pos if self._loop_pos_seen else pos
         self.loop_pos = pos
         self._loop_pos_seen = True
-        if self._anchor_deferred is not None:
-            self._try_commit_phase_anchor()
+        if self._phase_reanchor_at > 0.0:
+            self._try_commit_phase_reanchor()
 
     def _maybe_establish_grid(self) -> None:
-        """The defining take just landed — capture tempo, anchor phase at wrap.
+        """The defining take just landed — grid immediately, phase maybe at wrap.
 
-        After this the grid stands alone: this clip has no special status and
-        can be deleted like any other.
+        Grid existence (tempo capture, quantize on for later clips) must land
+        the moment the take saves. Only the *phase reset* inside
+        establish_grid_clock may defer: a late PLAYING report mid-bar would
+        otherwise shove clip 2+ early. See looper-transport-clock-spec §K.6.
         """
         if self.grid is None or not self.grid.is_pending(self.loop):
             return
         if self.loop_len <= 0.0:
             return  # length not reported yet; sync_loop_len will retry
-        derived = derive_tempo(self.loop_len)
+        if self.grid.established:
+            return
+        derived = self.grid.establish(self.loop, self.loop_len)
         if derived is None:
             return
         bpm, bars = derived
+        log(
+            f"loop {self.loop}: grid established from this take — "
+            f"{self.loop_len:.3f}s = {bars} bar(s) @ {bpm:.1f} BPM. "
+            f"Later clips count in and quantize; this clip is now ordinary."
+        )
+        if self._on_grid_established is not None:
+            self._on_grid_established(bpm, bars)
         if should_defer_phase_anchor(
             self.loop_pos, self.loop_len, loop_pos_seen=self._loop_pos_seen
         ):
-            if self._anchor_deferred is None:
-                self._anchor_deferred = (bpm, bars)
-                self._anchor_deferred_at = time.monotonic()
-                log(
-                    f"loop {self.loop}: grid anchor deferred — "
-                    f"loop_pos={self.loop_pos:.3f}s (wait for wrap or "
-                    f"≤{GRID_ANCHOR_MAX_S * 1000:.0f} ms)"
-                )
-            self._try_commit_phase_anchor()
-            return
-        self._commit_phase_anchor(bpm, bars)
+            self._phase_reanchor_at = time.monotonic()
+            log(
+                f"loop {self.loop}: phase re-anchor deferred — "
+                f"loop_pos={self.loop_pos:.3f}s (wait for wrap or "
+                f"≤{GRID_ANCHOR_MAX_S * 1000:.0f} ms)"
+            )
+            self._try_commit_phase_reanchor()
 
-    def _try_commit_phase_anchor(self, *, force_wrap: bool = False) -> None:
-        if self._anchor_deferred is None:
+    def _try_commit_phase_reanchor(self, *, force_wrap: bool = False) -> None:
+        if self._phase_reanchor_at <= 0.0:
             return
-        if self.grid is None or not self.grid.is_pending(self.loop):
-            self._anchor_deferred = None
+        if self.grid is None or not self.grid.established:
+            self._phase_reanchor_at = 0.0
             return
-        bpm, bars = self._anchor_deferred
         ready = force_wrap
         if not ready and self._loop_pos_seen:
             ready = self.loop_pos <= GRID_ANCHOR_MAX_S
-        if not ready and self._anchor_deferred_at > 0.0 and self.loop_len > 0.0:
-            waited = time.monotonic() - self._anchor_deferred_at
+        if not ready and self.loop_len > 0.0:
+            waited = time.monotonic() - self._phase_reanchor_at
             if waited >= self.loop_len * GRID_ANCHOR_FALLBACK_CYCLES:
                 log(
-                    f"loop {self.loop}: !! grid anchor fallback after "
+                    f"loop {self.loop}: !! phase re-anchor fallback after "
                     f"{waited:.2f}s — loop_pos={self.loop_pos:.3f}s"
                 )
                 ready = True
         if not ready:
             return
-        self._commit_phase_anchor(bpm, bars)
-
-    def _commit_phase_anchor(self, bpm: float, bars: int) -> None:
-        if self.grid is None:
-            return
-        derived = self.grid.establish(self.loop, self.loop_len)
+        derived = derive_tempo(self.loop_len)
         if derived is None:
+            self._phase_reanchor_at = 0.0
             return
-        self._anchor_deferred = None
-        self._anchor_deferred_at = 0.0
+        bpm, _bars = derived
+        self._phase_reanchor_at = 0.0
         log(
-            f"loop {self.loop}: grid established from this take — "
-            f"{self.loop_len:.3f}s = {bars} bar(s) @ {bpm:.1f} BPM "
-            f"(phase anchor loop_pos={self.loop_pos:.3f}s). "
-            f"Later clips count in and quantize; this clip is now ordinary."
+            f"loop {self.loop}: phase re-anchored at loop_pos="
+            f"{self.loop_pos:.3f}s @ {bpm:.1f} BPM"
         )
-        if self._on_grid_established is not None:
-            self._on_grid_established(bpm, bars)
+        if self._on_phase_reanchor is not None:
+            self._on_phase_reanchor(bpm)
 
     def _path(self, suffix: str) -> str:
         return f"/sl/{self.loop}/{suffix}"
@@ -471,6 +472,7 @@ def build_footswitches(
     grid: GridState | None = None,
     view: GridView | None = None,
     on_grid_established=None,
+    on_phase_reanchor=None,
     on_grid_dropped=None,
 ) -> tuple[dict[int, LoopFootswitch], list[LoopFootswitch]]:
     """One footswitch per track, bound to the pad showing it in `view`.
@@ -492,6 +494,7 @@ def build_footswitches(
             quantized=quantized,
             grid=grid,
             on_grid_established=on_grid_established,
+            on_phase_reanchor=on_phase_reanchor,
             on_grid_dropped=on_grid_dropped,
         )
         fs.bind(osc, midi_out, view.note_for_loop(loop_i))
