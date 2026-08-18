@@ -259,20 +259,28 @@ mpe_jack_graph_user() {
     id -un 2>/dev/null || printf '%s' "${USER:-root}"
 }
 
+_mpe_jack_lsp_bin() {
+    if [ "${_MPE_JACK_LSP_BIN_RESOLVED:-}" != 1 ]; then
+        _MPE_JACK_LSP_BIN="$(command -v jack_lsp 2>/dev/null || true)"
+        _MPE_JACK_LSP_BIN_RESOLVED=1
+    fi
+    [ -n "$_MPE_JACK_LSP_BIN" ]
+}
+
 mpe_jack_lsp() {
     local timeout_s="${MPE_JACK_LSP_TIMEOUT_S:-3}"
-    if ! command -v jack_lsp >/dev/null 2>&1; then
+    if ! _mpe_jack_lsp_bin; then
         return 127
     fi
     if [ "$(id -u)" -eq 0 ]; then
         local owner
         owner="$(mpe_jack_graph_user)"
         if [ -n "$owner" ] && [ "$owner" != root ]; then
-            timeout "$timeout_s" sudo -u "$owner" -E jack_lsp "$@"
+            timeout "$timeout_s" sudo -u "$owner" -E "$_MPE_JACK_LSP_BIN" "$@"
             return $?
         fi
     fi
-    timeout "$timeout_s" jack_lsp "$@"
+    timeout "$timeout_s" "$_MPE_JACK_LSP_BIN" "$@"
 }
 
 # Running is not the same as accepting clients. jack_lsp is a hard prerequisite
@@ -281,7 +289,7 @@ mpe_jack_lsp() {
 mpe_jack_server_ready() {
     local quiet="${1:-0}"
     mpe_jack_server_running || return 1
-    if ! command -v jack_lsp >/dev/null 2>&1; then
+    if ! _mpe_jack_lsp_bin; then
         [ "$quiet" = 1 ] || echo "ERROR: jack_lsp not found — install jack-example-tools" >&2
         return 1
     fi
@@ -293,7 +301,7 @@ mpe_wait_for_jack_server() {
     local timeout="${1:-$(mpe_jack_ready_timeout)}"
     local waited=0
     local step_ms=250
-    if mpe_jack_server_running && ! command -v jack_lsp >/dev/null 2>&1; then
+    if mpe_jack_server_running && ! _mpe_jack_lsp_bin; then
         echo "ERROR: jack_lsp not found — install jack-example-tools" >&2
         return 1
     fi
@@ -647,7 +655,7 @@ mpe_engine_reconcile_reset() {
 
 mpe_surge_on_jack_graph() {
     mpe_jack_server_ready || return 1
-    if ! command -v jack_lsp >/dev/null 2>&1; then
+    if ! _mpe_jack_lsp_bin; then
         return 1
     fi
     mpe_jack_lsp 2>/dev/null | grep -qi 'surge'
