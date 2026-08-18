@@ -12,6 +12,7 @@ import os
 import stat
 import subprocess
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -789,6 +790,59 @@ exit 1
         may mention it in a comment but must never invoke it directly."""
         text = START_SURGE_CLI_SH.read_text(encoding="utf-8")
         self.assertNotIn("detect-audio-device.sh\"", text)
+
+
+class SurgeOnGraphViaMeterTests(unittest.TestCase):
+    """The graph probe must not spawn jack_lsp when the meter can answer.
+
+    Measured 2026-08-18: jack_lsp on a 10 s timer produced 35 xruns/min against 6 when
+    rare — it registers a real JACK client, forcing jackd to reorder the graph. It was
+    the largest single xrun source on the appliance. mpe-peak-meter is already a
+    long-lived client and publishes wired= at 5 Hz, so the answer is a file read.
+    """
+
+    def _run(self, state: str | None, *, extra: str = "") -> subprocess.CompletedProcess[str]:
+        with tempfile.TemporaryDirectory() as tmp:
+            env = _bash_env(tmp)
+            if state is not None:
+                (Path(tmp) / "meter.state").write_text(state, encoding="utf-8")
+            body = f"""
+source {AUDIO_ENGINE_SH}
+mpe_jack_server_running() {{ return 0; }}
+mpe_jack_lsp() {{ : > "{tmp}/jack_lsp_was_spawned"; printf 'Surge XT:out_1\n'; }}
+_mpe_jack_lsp_bin() {{ return 0; }}
+{extra}
+if mpe_surge_on_jack_graph; then echo ON_GRAPH; else echo OFF_GRAPH; fi
+"""
+            proc = _run_bash_script(body, env=env)
+            proc.spawned = (Path(tmp) / "jack_lsp_was_spawned").exists()  # type: ignore[attr-defined]
+            return proc
+
+    def test_fresh_wired_state_answers_without_jack_lsp(self) -> None:
+        result = self._run(f"wired=1\nonline=1\nupdated={int(time.time())}\n")
+        self.assertEqual(result.stdout.strip(), "ON_GRAPH", result.stderr)
+        self.assertFalse(result.spawned, "probe must not register a JACK client")
+
+    def test_fresh_unwired_state_reports_off_graph_without_jack_lsp(self) -> None:
+        result = self._run(f"wired=0\nonline=0\nupdated={int(time.time())}\n")
+        self.assertEqual(result.stdout.strip(), "OFF_GRAPH", result.stderr)
+        self.assertFalse(result.spawned, "probe must not register a JACK client")
+
+    def test_stale_state_falls_back_to_jack_lsp(self) -> None:
+        """A stale meter must not be trusted — that is the false-green shape."""
+        result = self._run("wired=1\nonline=1\nupdated=1\n")
+        self.assertEqual(result.stdout.strip(), "ON_GRAPH", result.stderr)
+        self.assertTrue(result.spawned, "stale meter state must fall back to jack_lsp")
+
+    def test_missing_state_falls_back_to_jack_lsp(self) -> None:
+        """Meter disabled (MPE_PEAK_METER=0) must still leave the watchdog working."""
+        result = self._run(None)
+        self.assertEqual(result.stdout.strip(), "ON_GRAPH", result.stderr)
+        self.assertTrue(result.spawned, "must fall back to jack_lsp")
+
+    def test_garbage_state_falls_back_to_jack_lsp(self) -> None:
+        result = self._run("wired=banana\nupdated=nope\n")
+        self.assertTrue(result.spawned, "must fall back to jack_lsp")
 
 
 class JackLspPathTests(unittest.TestCase):
