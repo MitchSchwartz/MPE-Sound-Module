@@ -5,7 +5,6 @@ from __future__ import annotations
 import struct
 import tempfile
 import unittest
-import wave
 from pathlib import Path
 
 from scripts.sooperlooper.seam_merge import (
@@ -52,13 +51,32 @@ class SeamMergeTests(unittest.TestCase):
     def test_rejects_non_float_wav(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "bad.wav"
-            with wave.open(str(path), "wb") as wf:
-                wf.setnchannels(2)
-                wf.setsampwidth(2)
-                wf.setframerate(48000)
-                wf.writeframes(struct.pack("<hh", 0, 0))
+            # PCM int16 stereo — format tag 1, not IEEE float.
+            fmt = struct.pack("<HHIIHH", 1, 2, 48000, 48000 * 4, 4, 16)
+            data = struct.pack("<hh", 0, 0)
+            body = (
+                b"RIFF"
+                + struct.pack("<I", 36)
+                + b"WAVEfmt "
+                + struct.pack("<I", len(fmt))
+                + fmt
+                + b"data"
+                + struct.pack("<I", len(data))
+                + data
+            )
+            path.write_bytes(body)
             with self.assertRaises(ValueError):
                 read_float32_stereo_wav(path)
+
+    def test_roundtrip_float_wav(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "float.wav"
+            frames = [(0.25, -0.25), (0.5, 0.5)]
+            write_float32_stereo_wav(path, frames, sample_rate=48000)
+            back, rate = read_float32_stereo_wav(path)
+            self.assertEqual(rate, 48000)
+            self.assertEqual(len(back), 2)
+            self.assertAlmostEqual(back[0][0], 0.25, places=5)
 
 
 if __name__ == "__main__":
