@@ -30,14 +30,6 @@ ENABLED=(
     mpe-jackd
     surge-xt-cli
     surge-watchdog
-    sl-watchdog
-    # The looper stack. These ran as hand-started `setsid nohup` processes until
-    # 2026-08-17, when the engine died at 16:15 and nothing restarted it for six
-    # hours — the controller kept lighting pads from a dead engine, which read as
-    # "looper controls broken". Supervised now, so that failure is self-repairing.
-    mpe-sooperlooper
-    mpe-apc-bench
-    sl-hud-monitor
     surge-poly-governor
     mpe-cpu-governor
     mpe-audio-profile-sync
@@ -48,14 +40,39 @@ ENABLED=(
 
 # Installed but deliberately NOT enabled. Present so the file exists for manual
 # start or for a future profile that turns them on.
+#
+# Do NOT add mpe-peak-meter here. It gates on MPE_PEAK_METER inside
+# start-mpe-peak-meter.sh (exit 0 when off), so it is safe to leave enabled — and
+# listing it ran `systemctl disable` on every deploy, silently switching the OUT
+# meter off again with MPE_PEAK_METER=1 still set and nothing in the journal.
+# A unit that disables itself on each provisioning run is the ghost-unit pattern
+# (Documents/DECISIONS.md 2026-08-15: a state that reads the same broken or fine).
 DISABLED=(
     midi-clock-out
     boot-animation
     mic-to-uac2-bridge
     # mpe-bench retired 2026-08-17: it existed so a hardware test could free the APC
-    # with `systemctl stop`, but the APC is now held by mpe-apc-bench.service, so
+    # with `systemctl stop`, but the APC is now held by mpe-looper-session.service, so
     # stopping mpe-bench would have freed nothing. The agent's sudoers grant in
-    # scripts/pi/provision-mpe-agent.sh names mpe-apc-bench instead.
+    # scripts/pi/provision-mpe-agent.sh names mpe-looper-session instead.
+    # Phase 3M 2026-08-18: bench + HUD merged into mpe-looper-session.service.
+    mpe-apc-bench
+    sl-hud-monitor
+    # The looper stack — installed, supervised, but NOT started at boot as of
+    # 2026-08-18. Measured on the appliance with a deterministic MIDI load
+    # (scripts/midi-load.py, DSP median ~42%): the full stack produces 24-31 xruns
+    # per minute of playing; with these three stopped it is 2-6. Roughly 5-10x, well
+    # outside a +/-30% run-to-run noise floor. Which of the three carries the cost is
+    # NOT yet isolated — single runs could not separate them.
+    #
+    # They still exist, still have Restart=always, and still self-repair once started
+    # (the 2026-08-17 six-hour outage stays fixed). They simply do not come up on their
+    # own, so the instrument boots clean and looping is an explicit choice:
+    #   mpe looper on   ->  systemctl start mpe-sooperlooper mpe-looper-session sl-watchdog
+    # See Documents/DECISIONS.md 2026-08-18 and DIRECTION.md D15 (adopt/kill verdict).
+    mpe-sooperlooper
+    mpe-looper-session
+    sl-watchdog
 )
 
 # No [Install] section — cannot be enabled, only pulled in by another unit.
@@ -191,6 +208,16 @@ if [ "$missing_exec" -eq 1 ]; then
     echo "  ^ These units will start-fail or silently skip. Fix before relying on" >&2
     echo "    this appliance being restored." >&2
 fi
+
+# Phase 3M upgrade: stop retired looper client units so they release UDP
+# 9952/9953 and the APC MIDI port before enabling the merged session.
+RETIRED_LOOPER_CLIENTS=(mpe-apc-bench sl-hud-monitor)
+for u in "${RETIRED_LOOPER_CLIENTS[@]}"; do
+    if systemctl is-active --quiet "$u.service" 2>/dev/null; then
+        echo "  stopping retired unit: $u (merged into mpe-looper-session)"
+        systemctl stop --now "$u.service" 2>/dev/null || true
+    fi
+done
 
 echo "Reloading systemd ..."
 systemctl daemon-reload
