@@ -147,8 +147,7 @@ class TouchPatchBrowser(
         self.cpu_monitor = SurgeCpuMonitor(self.surge_monitor)
         self.cpu_monitor.start()
         self.peak_monitor = SurgePeakMonitor(self.surge_monitor)
-        # Opt-in (MPE_PEAK_METER=1): the meter joins the JACK graph, so jackd blocks on
-        # its callback every period. Off by default until measured xrun-free on the Pi.
+        # Opt-in (MPE_PEAK_METER=1): reads /run/mpe/meter.state from mpe-peak-meter.service.
         if peak_meter_enabled():
             self.peak_monitor.start()
         self.looper_monitor = LooperClockMonitor()
