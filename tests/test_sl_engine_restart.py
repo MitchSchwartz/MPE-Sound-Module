@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import tempfile
+import unittest.mock
 import unittest
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -37,6 +38,32 @@ class LooperEngineEventWatchTests(unittest.TestCase):
             watch.poll()
             self.assertEqual(seen, [1])
 
+
+
+    def test_poll_skips_unchanged_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            run = Path(tmp)
+            emit_event(LOOPER_ENGINE_STARTED, source="test", ts=100.0, run=run)
+            seen: list[int] = []
+            watch = LooperEngineEventWatch(lambda: seen.append(1), run=run)
+            watch.poll()
+            with unittest.mock.patch(
+                "scripts.sooperlooper.looper_engine_events._latest_looper_started_ts"
+            ) as mock_tail:
+                watch.poll()
+                mock_tail.assert_not_called()
+            self.assertEqual(seen, [])
+
+    def test_tail_read_finds_latest_event(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            run = Path(tmp)
+            path = run / "events.jsonl"
+            emit_event(LOOPER_ENGINE_STARTED, source="test", ts=10.0, run=run)
+            emit_event("engine.started", source="test", ts=11.0, run=run)
+            emit_event(LOOPER_ENGINE_STARTED, source="test", ts=99.0, run=run)
+            from scripts.sooperlooper.looper_engine_events import _latest_looper_started_ts
+
+            self.assertEqual(_latest_looper_started_ts(path), 99.0)
 
 class SentinelRemovedTests(unittest.TestCase):
     def test_no_global_config_probe_in_listener(self) -> None:
