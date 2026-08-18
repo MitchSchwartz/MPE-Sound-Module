@@ -36,8 +36,7 @@ ENABLED=(
     # hours — the controller kept lighting pads from a dead engine, which read as
     # "looper controls broken". Supervised now, so that failure is self-repairing.
     mpe-sooperlooper
-    mpe-apc-bench
-    sl-hud-monitor
+    mpe-looper-session
     surge-poly-governor
     mpe-cpu-governor
     mpe-audio-profile-sync
@@ -53,9 +52,9 @@ DISABLED=(
     boot-animation
     mic-to-uac2-bridge
     # mpe-bench retired 2026-08-17: it existed so a hardware test could free the APC
-    # with `systemctl stop`, but the APC is now held by mpe-apc-bench.service, so
+    # with `systemctl stop`, but the APC is now held by mpe-looper-session.service, so
     # stopping mpe-bench would have freed nothing. The agent's sudoers grant in
-    # scripts/pi/provision-mpe-agent.sh names mpe-apc-bench instead.
+    # scripts/pi/provision-mpe-agent.sh names mpe-looper-session instead.
 )
 
 # No [Install] section — cannot be enabled, only pulled in by another unit.

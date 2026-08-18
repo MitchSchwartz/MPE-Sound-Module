@@ -124,8 +124,7 @@ _reconcile_looper_units_if_needed() {
     local script need=0 state
     local -a units=(
         mpe-sooperlooper.service
-        mpe-apc-bench.service
-        sl-hud-monitor.service
+        mpe-looper-session.service
         sl-watchdog.service
     )
     script="${MPE_MODULE_REPO}/scripts/ensure-looper-units-running.py"
