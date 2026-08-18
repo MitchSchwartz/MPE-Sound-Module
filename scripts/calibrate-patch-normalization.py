@@ -13,6 +13,7 @@ Surge/ffmpeg.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import math
 import os
@@ -69,8 +70,7 @@ from patch_browser.calibration_constants import (  # noqa: E402
     estimate_calibration_duration_seconds,
 )
 from patch_browser.calibration_teardown import (  # noqa: E402
-    restore_mpe_audio_services,
-    stop_mpe_audio_services,
+    calibration_audio_scope,
     unload_snd_aloop_if_idle,
 )
 from patch_browser.patch_normalization import (  # noqa: E402
@@ -1080,156 +1080,151 @@ def main() -> int:
         return 1
 
     cal_surge_started = False
-    if use_loopback and args.mock_lufs is None:
-        try:
-            emit_progress(
-                args,
-                {"type": "setup", "message": "Stopping patch browser and Surge…"},
-            )
-            stop_mpe_audio_services()
-            audio_device = detect_capture_device(args.audio_device, use_loopback=True)
-            print(f"Capture device: {audio_device}", file=sys.stderr)
-            emit_progress(args, {"type": "setup", "message": "Starting Surge for measurement…"})
-            loopback_interface = start_surge_loopback()
-            cal_surge_started = True
-            print(f"Surge loopback interface: {loopback_interface}", file=sys.stderr)
-            loader = PatchLoader(osc_host=args.osc_host, osc_port=args.osc_port)
-            if not loader.osc_enabled:
-                raise RuntimeError("OSC unavailable after loopback Surge start")
-        except Exception as exc:
-            print(f"Error: loopback calibration setup failed: {exc}", file=sys.stderr)
-            emit_progress(args, {"type": "error", "message": str(exc)})
-            if cal_surge_started:
-                restore_mpe_audio_services()
-            emit_progress(args, {"type": "done", "updated": 0, "exit_code": 1})
-            return 1
-    elif standalone_restart:
-        try:
-            emit_progress(
-                args,
-                {"type": "setup", "message": "Stopping production Surge for measurement…"},
-            )
-            stop_mpe_audio_services()
-            emit_progress(args, {"type": "setup", "message": "Starting Surge on Sound Blaster…"})
-            standalone_interface = start_surge_standalone()
-            cal_surge_started = True
-            audio_device = detect_capture_device(args.audio_device, use_loopback=False)
-            print(f"Capture device: {audio_device}", file=sys.stderr)
-            print(f"Surge standalone interface: {standalone_interface}", file=sys.stderr)
-            loader = PatchLoader(osc_host=args.osc_host, osc_port=args.osc_port)
-            if not loader.osc_enabled:
-                raise RuntimeError("OSC unavailable after standalone Surge start")
-        except Exception as exc:
-            print(f"Error: standalone calibration setup failed: {exc}", file=sys.stderr)
-            emit_progress(args, {"type": "error", "message": str(exc)})
-            if cal_surge_started:
-                restore_mpe_audio_services()
-            emit_progress(args, {"type": "done", "updated": 0, "exit_code": 1})
-            return 1
-
-    signal.signal(signal.SIGTERM, _handle_interrupt)
-    signal.signal(signal.SIGINT, _handle_interrupt)
-
-    midi_port = wait_for_surge_midi_port() if args.mock_lufs is None else None
-    if midi_port is None and args.mock_lufs is None:
-        msg = "Surge MIDI port not found — is Surge running with MIDI inputs?"
-        print(f"Error: {msg}", file=sys.stderr)
-        emit_progress(args, {"type": "error", "message": msg})
-        if cal_surge_started:
-            restore_mpe_audio_services()
-        emit_progress(args, {"type": "done", "updated": 0, "exit_code": 1})
-        return 1
-
     updated = 0
     exit_code = 0
-    midi_out: object | None = None
     last_patch_index = 0
     last_patch_name = ""
-    light_measurements: list[tuple[str, float, float, float]] = []
-    try:
-        if args.mock_lufs is None:
-            midi_out = open_midi_out(midi_port)
-        for index, path in enumerate(targets, start=1):
-            if _interrupted:
-                print("Calibration interrupted — keeping partial progress.", file=sys.stderr)
-                break
-            name = path.stem
-            last_patch_index = index
-            last_patch_name = name
-            print(f"[{index}/{len(targets)}] {name}", file=sys.stderr if args.progress_json else sys.stdout)
-            emit_progress(
-                args,
-                {"type": "patch", "index": index, "total": len(targets), "name": name},
-            )
+    needs_service_handoff = (use_loopback and args.mock_lufs is None) or standalone_restart
+    audio_scope = (
+        calibration_audio_scope(restore=not args.no_restore_services)
+        if needs_service_handoff
+        else contextlib.nullcontext()
+    )
+
+    with audio_scope:
+        if needs_service_handoff:
             try:
-                result = calibrate_patch(
-                    path,
-                    loader,
-                    store,
-                    audio_device=audio_device,
-                    mock_lufs=args.mock_lufs,
-                    dry_run=False,
-                    midi_out=midi_out,
-                    touch_cal=touch_cal,
-                )
-            except Exception as exc:
-                msg = f"{name}: {exc}"
-                print(f"  [fail] {msg}", file=sys.stderr)
-                write_failure_report(
-                    patch_index=index,
-                    patch_name=name,
-                    total=len(targets),
-                    reason=str(exc),
-                    exit_code=1,
-                )
-                emit_progress(args, {"type": "error", "message": msg})
-                exit_code = 1
-                break
-            emit_progress(
-                args,
-                {
-                    "type": "patch_done",
-                    "index": index,
-                    "total": len(targets),
-                    "name": name,
-                    "ok": result.ok,
-                },
-            )
-            if result.ok:
-                updated += 1
-                if (
-                    result.lufs_light is not None
-                    and result.lufs_strike is not None
-                    and result.lufs_sustain is not None
-                ):
-                    light_measurements.append(
-                        (name, result.lufs_light, result.lufs_strike, result.lufs_sustain)
+                if use_loopback and args.mock_lufs is None:
+                    emit_progress(
+                        args,
+                        {"type": "setup", "message": "Stopping patch browser and Surge…"},
                     )
-        if light_measurements and touch_cal and not _interrupted:
-            target_lufs = resolve_light_touch_target([v for _, v, _, _ in light_measurements])
-            pressure_store = PatchPressureStore(pressure_path)
-            touch_updated = 0
-            for name, lufs_light, lufs_strike, lufs_sustain in light_measurements:
-                floor = compute_touch_calibration_floor(
-                    lufs_light, target_lufs, lufs_strike, lufs_sustain
+                    audio_device = detect_capture_device(args.audio_device, use_loopback=True)
+                    print(f"Capture device: {audio_device}", file=sys.stderr)
+                    emit_progress(args, {"type": "setup", "message": "Starting Surge for measurement…"})
+                    loopback_interface = start_surge_loopback()
+                    cal_surge_started = True
+                    print(f"Surge loopback interface: {loopback_interface}", file=sys.stderr)
+                    loader = PatchLoader(osc_host=args.osc_host, osc_port=args.osc_port)
+                    if not loader.osc_enabled:
+                        raise RuntimeError("OSC unavailable after loopback Surge start")
+                elif standalone_restart:
+                    emit_progress(
+                        args,
+                        {"type": "setup", "message": "Stopping production Surge for measurement…"},
+                    )
+                    emit_progress(args, {"type": "setup", "message": "Starting Surge on Sound Blaster…"})
+                    standalone_interface = start_surge_standalone()
+                    cal_surge_started = True
+                    audio_device = detect_capture_device(args.audio_device, use_loopback=False)
+                    print(f"Capture device: {audio_device}", file=sys.stderr)
+                    print(f"Surge standalone interface: {standalone_interface}", file=sys.stderr)
+                    loader = PatchLoader(osc_host=args.osc_host, osc_port=args.osc_port)
+                    if not loader.osc_enabled:
+                        raise RuntimeError("OSC unavailable after standalone Surge start")
+            except Exception as exc:
+                label = "loopback" if use_loopback and args.mock_lufs is None else "standalone"
+                print(f"Error: {label} calibration setup failed: {exc}", file=sys.stderr)
+                emit_progress(args, {"type": "error", "message": str(exc)})
+                emit_progress(args, {"type": "done", "updated": 0, "exit_code": 1})
+                return 1
+
+        signal.signal(signal.SIGTERM, _handle_interrupt)
+        signal.signal(signal.SIGINT, _handle_interrupt)
+
+        midi_port = wait_for_surge_midi_port() if args.mock_lufs is None else None
+        if midi_port is None and args.mock_lufs is None:
+            msg = "Surge MIDI port not found — is Surge running with MIDI inputs?"
+            print(f"Error: {msg}", file=sys.stderr)
+            emit_progress(args, {"type": "error", "message": msg})
+            emit_progress(args, {"type": "done", "updated": 0, "exit_code": 1})
+            return 1
+
+        midi_out: object | None = None
+        light_measurements: list[tuple[str, float, float, float]] = []
+        try:
+            if args.mock_lufs is None:
+                midi_out = open_midi_out(midi_port)
+            for index, path in enumerate(targets, start=1):
+                if _interrupted:
+                    print("Calibration interrupted — keeping partial progress.", file=sys.stderr)
+                    break
+                name = path.stem
+                last_patch_index = index
+                last_patch_name = name
+                print(f"[{index}/{len(targets)}] {name}", file=sys.stderr if args.progress_json else sys.stdout)
+                emit_progress(
+                    args,
+                    {"type": "patch", "index": index, "total": len(targets), "name": name},
                 )
-                pressure_store.set_calibration(name, floor, lufs_light)
-                touch_updated += 1
-            pressure_store.save()
-            print(
-                f"Wrote {touch_updated} touch calibration entries to {pressure_path} "
-                f"(light target {target_lufs:.1f} LUFS)",
-                file=sys.stderr if args.progress_json else sys.stdout,
-            )
-    finally:
-        close_midi_out(midi_out)
-        if cal_surge_started and not args.no_restore_services:
-            emit_progress(
-                args,
-                {"type": "setup", "message": "Restarting patch browser and Surge…"},
-            )
-            print("Restoring surge-xt-cli and touch-patch-browser services...", file=sys.stderr)
-            restore_mpe_audio_services()
+                try:
+                    result = calibrate_patch(
+                        path,
+                        loader,
+                        store,
+                        audio_device=audio_device,
+                        mock_lufs=args.mock_lufs,
+                        dry_run=False,
+                        midi_out=midi_out,
+                        touch_cal=touch_cal,
+                    )
+                except Exception as exc:
+                    msg = f"{name}: {exc}"
+                    print(f"  [fail] {msg}", file=sys.stderr)
+                    write_failure_report(
+                        patch_index=index,
+                        patch_name=name,
+                        total=len(targets),
+                        reason=str(exc),
+                        exit_code=1,
+                    )
+                    emit_progress(args, {"type": "error", "message": msg})
+                    exit_code = 1
+                    break
+                emit_progress(
+                    args,
+                    {
+                        "type": "patch_done",
+                        "index": index,
+                        "total": len(targets),
+                        "name": name,
+                        "ok": result.ok,
+                    },
+                )
+                if result.ok:
+                    updated += 1
+                    if (
+                        result.lufs_light is not None
+                        and result.lufs_strike is not None
+                        and result.lufs_sustain is not None
+                    ):
+                        light_measurements.append(
+                            (name, result.lufs_light, result.lufs_strike, result.lufs_sustain)
+                        )
+            if light_measurements and touch_cal and not _interrupted:
+                target_lufs = resolve_light_touch_target([v for _, v, _, _ in light_measurements])
+                pressure_store = PatchPressureStore(pressure_path)
+                touch_updated = 0
+                for name, lufs_light, lufs_strike, lufs_sustain in light_measurements:
+                    floor = compute_touch_calibration_floor(
+                        lufs_light, target_lufs, lufs_strike, lufs_sustain
+                    )
+                    pressure_store.set_calibration(name, floor, lufs_light)
+                    touch_updated += 1
+                pressure_store.save()
+                print(
+                    f"Wrote {touch_updated} touch calibration entries to {pressure_path} "
+                    f"(light target {target_lufs:.1f} LUFS)",
+                    file=sys.stderr if args.progress_json else sys.stdout,
+                )
+        finally:
+            close_midi_out(midi_out)
+            if needs_service_handoff and cal_surge_started and not args.no_restore_services:
+                emit_progress(
+                    args,
+                    {"type": "setup", "message": "Restarting patch browser and Surge…"},
+                )
+                print("Restoring surge-xt-cli and touch-patch-browser services...", file=sys.stderr)
 
     if updated:
         print(f"Wrote {updated} calibration entries to {output_path}")
