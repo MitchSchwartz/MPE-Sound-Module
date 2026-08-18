@@ -34,5 +34,6 @@ design under JACK and reports a false negative on a healthy appliance.
 
 ## Completed runs
 
+- [`seam-weld-spike-2026-08-18.md`](seam-weld-spike-2026-08-18.md) — Tier 3 Option B (scratch + offline merge); ear pass pending
 - [`sooperlooper-eval-2026-08-14.md`](sooperlooper-eval-2026-08-14.md) — Session A
   **continue**, Session B **inconclusive** (Pi bench, branch `docs/sooperlooper-eval`).
