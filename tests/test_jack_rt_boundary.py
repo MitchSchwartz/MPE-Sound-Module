@@ -67,12 +67,6 @@ class JackRtBoundaryTests(unittest.TestCase):
         finally:
             probe.unlink(missing_ok=True)
 
-    def test_mpe_peak_meter_unit_in_disabled_list(self) -> None:
-        """Opt-in meter: installed but not enabled until operator sets MPE_PEAK_METER=1."""
-        text = (REPO / "scripts" / "install-units.sh").read_text(encoding="utf-8")
-        block = text.split("DISABLED=(", 1)[1].split(")", 1)[0]
-        self.assertIn("mpe-peak-meter", block)
-
     def test_jack_client_units_declare_limit_rtprio(self) -> None:
         """Criterion 36: every unit hosting a JACK client declares LimitRTPRIO."""
         for name, reason in JACK_CLIENT_UNITS.items():
@@ -127,6 +121,72 @@ class JackRtBoundaryTests(unittest.TestCase):
         text = (CONFIG / "mpe-peak-meter.service").read_text(encoding="utf-8")
         self.assertEqual(_directive(text, "Restart"), ["on-failure"])
         self.assertEqual(_directive(text, "ExecStartPre"), [])
+
+    def test_install_units_does_not_disable_the_peak_meter(self) -> None:
+        """Listing it in DISABLED ran `systemctl disable` on every deploy.
+
+        Observed on the appliance 2026-08-18: the unit was enabled by hand, then
+        install-units.sh printed "disabled: mpe-peak-meter (intentional)". Since
+        configure-pi-paths.sh runs install-units.sh, the OUT meter would switch itself
+        off on the next deploy with MPE_PEAK_METER=1 still set and nothing logged.
+        The start script already gates on the flag, so the unit is safe left enabled.
+        """
+        text = (REPO / "scripts" / "install-units.sh").read_text(encoding="utf-8")
+        block = re.search(r"^DISABLED=\((.*?)^\)", text, re.M | re.S)
+        self.assertIsNotNone(block, "DISABLED array not found in install-units.sh")
+        entries = [
+            line.strip()
+            for line in block.group(1).splitlines()
+            if line.strip() and not line.strip().startswith("#")
+        ]
+        self.assertNotIn(
+            "mpe-peak-meter",
+            entries,
+            "mpe-peak-meter must not be in DISABLED — it gates on MPE_PEAK_METER in "
+            "start-mpe-peak-meter.sh, and listing it disables the meter on every deploy",
+        )
+
+    def test_sdl_audio_is_disabled_appliance_wide(self) -> None:
+        """Audio-path entry point 2: nothing may open a PCM but the DAC.
+
+        pygame.init() initialises every subsystem including the mixer, so the touch UI,
+        the boot splash and the calibration loader each held the Pi's onboard headphone
+        jack open, streaming 44.1 kHz silence on a second clock domain. Measured on the
+        appliance 2026-08-18: 41 xruns / 75 s with DSP never above 55%. Nobody wrote a
+        line of audio code — see Documents/DECISIONS.md 2026-08-18.
+        """
+        env_example = REPO / "config" / "mpe.env.example"
+        self.assertTrue(env_example.is_file(), "config/mpe.env.example missing")
+        self.assertIn(
+            "SDL_AUDIODRIVER=dummy",
+            env_example.read_text(encoding="utf-8"),
+            "SDL_AUDIODRIVER=dummy must ship in mpe.env.example — pygame.init() otherwise "
+            "opens the onboard PCM at every call site",
+        )
+
+    def test_no_bare_pygame_init_without_audio_guard(self) -> None:
+        """Every pygame.init() call site inherits the mixer unless SDL is neutered.
+
+        This test does not forbid pygame.init(); it records the call sites so a new one
+        cannot be added silently while the mitigation is an env var rather than code.
+        """
+        sites = []
+        for root in (REPO / "patch_browser", REPO / "scripts", REPO):
+            for path in sorted(root.glob("*.py")) + sorted(root.rglob("*.py") if root != REPO else []):
+                rel = path.relative_to(REPO).as_posix()
+                if rel.startswith("tests/") or rel in [s[0] for s in sites]:
+                    continue
+                text = path.read_text(encoding="utf-8")
+                if "pygame.init()" in text:
+                    sites.append((rel, text.count("pygame.init()")))
+        total = sum(n for _, n in sites)
+        self.assertLessEqual(
+            total,
+            12,
+            "new pygame.init() call site(s) added; each opens an audio device unless "
+            f"SDL_AUDIODRIVER=dummy is set. Sites: {sites}",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
