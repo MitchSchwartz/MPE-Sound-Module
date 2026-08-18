@@ -176,8 +176,12 @@ mpe_surge_state_file() {
 mpe_state_get() {
     local file="${1:?state file required}"
     local key="${2:?key required}"
+    local k v val=""
     [ -r "$file" ] || return 0
-    grep -E "^${key}=" "$file" 2>/dev/null | tail -1 | cut -d= -f2-
+    while IFS='=' read -r k v; do
+        [ "$k" = "$key" ] && val="$v"
+    done < "$file"
+    printf '%s\n' "$val"
 }
 
 # Publish engine state for `mpe engine status` and the touch HUD.
