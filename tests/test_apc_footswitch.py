@@ -164,6 +164,32 @@ class GridEstablishmentTests(unittest.TestCase):
         self.assertTrue(grid.established)
         self.assertEqual(seen, [(120.0, 1)])
 
+    def test_tail_overdub_lowers_input_gain(self) -> None:
+        from scripts.sooperlooper.sl_grid_sync import (
+            DEFAULT_FADE_SAMPLES,
+            TAIL_WELD_FADE_SAMPLES,
+            TAIL_WELD_INPUT_GAIN,
+        )
+
+        fs = LoopFootswitch(loop=0, hold_ms=1000.0, debounce_ms=0.0)
+        fs.bind(MagicMock(), MagicMock(), 36)
+        fs._start_tail_overdub()
+        sets = [
+            (c.args[1][0], c.args[1][1])
+            for c in fs._osc.send_message.call_args_list
+            if c.args[0] == "/sl/0/set"
+        ]
+        self.assertIn(("input_gain", TAIL_WELD_INPUT_GAIN), sets)
+        self.assertIn(("fade_samples", float(TAIL_WELD_FADE_SAMPLES)), sets)
+        fs._stop_tail_overdub()
+        sets = [
+            (c.args[1][0], c.args[1][1])
+            for c in fs._osc.send_message.call_args_list
+            if c.args[0] == "/sl/0/set"
+        ]
+        self.assertIn(("input_gain", 1.0), sets)
+        self.assertIn(("fade_samples", float(DEFAULT_FADE_SAMPLES)), sets)
+
     def test_grid_anchor_defers_until_loop_wrap(self) -> None:
         """Late PLAYING report: grid now, phase re-anchor at wrap."""
         from scripts.sooperlooper.sl_grid_state import GridState
