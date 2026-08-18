@@ -113,22 +113,16 @@ def set_grid_active(
         send(prefix, ["mute_quantized", 1.0 if active else 0.0])
 
 
-# The control we watch to notice the engine went away and came back.
-#
-# `sync_source` is global, cheap to subscribe to, and — crucially — its value
-# under our config (-3, internal) is not one SooperLooper ever chooses on its
-# own. A fresh engine reports something else, so a mismatch is an unambiguous
-# "this is not the engine we configured".
-#
-# Watching a per-loop control would not do: in the no-grid state we set
-# quantize to 0 deliberately, which is also the engine default, so a restart in
-# that state would be invisible.
-RESTART_SENTINEL = "sync_source"
+# Engine restart detection: we force smart_eighths off; a fresh engine
+# defaults it ON (1.0). Unlike sync_source (which we also set), this is the
+# setting whose mismatch means "grid config was lost" without using sync_source
+# as a restart sentinel (Phase 3M criterion 40).
+ENGINE_CONFIG_PROBE = "smart_eighths"
 
 
-def expected_sentinel(clock: str = DEFAULT_CLOCK) -> float:
-    """What `sync_source` must read back as while our config is in force."""
-    return float(SYNC_SOURCE_JACK if clock == "transport" else SYNC_SOURCE_INTERNAL)
+def expected_engine_config() -> float:
+    """What smart_eighths must read while our grid config is in force."""
+    return 0.0
 
 
 def apply_grid_sync(
