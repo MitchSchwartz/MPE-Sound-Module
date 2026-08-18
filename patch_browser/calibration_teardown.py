@@ -25,7 +25,12 @@ from patch_browser.calibration_constants import (
     calibration_from_browser,
 )
 from patch_browser.session_events import emit_event
-from patch_browser.session_snapshot import maintenance_flag_path
+from patch_browser.session_snapshot import (
+    clear_maintenance_flag,
+    maintenance_mode_active,
+    set_maintenance_flag,
+    systemd_unit_active,
+)
 
 # Looper eval stack — Restart=always units (spec Phase 0 / Appendix A).
 # Stop in reverse dependency order; start after Surge is back.
@@ -54,25 +59,12 @@ def _safe_emit_event(name: str, **kwargs: object) -> None:
         pass
 
 
-def _unit_is_active(unit: str) -> bool:
-    try:
-        result = subprocess.run(
-            ["systemctl", "is-active", f"{unit}.service"],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-    except OSError:
-        return False
-    return (result.stdout or "").strip() == "active"
-
-
 def ensure_looper_units_running() -> None:
     """Start looper units left stopped by an aborted calibration (no maintenance flag)."""
-    if maintenance_flag_path().exists():
+    if maintenance_mode_active():
         return
     for unit in LOOPER_UNITS_START_ORDER:
-        if not _unit_is_active(unit):
+        if systemd_unit_active(unit) is False:
             _systemctl(unit, "start")
 
 
@@ -92,6 +84,7 @@ def unload_snd_aloop_if_idle() -> None:
 
 def stop_mpe_audio_services() -> None:
     """Stop production Surge, pressure remapper, patch browser, and looper stack."""
+    set_maintenance_flag(source="calibration")
     units: list[str] = []
     if not calibration_from_browser():
         units.append("touch-patch-browser")
@@ -142,13 +135,17 @@ def restore_mpe_audio_services(*, restart_browser: bool = True) -> None:
     _safe_emit_event("mode.changed", detail="calibration-restore", source="calibration_teardown.py")
     if restart_browser and not calibration_from_browser():
         _systemctl("touch-patch-browser", "start")
+    clear_maintenance_flag()
 
 
 @contextlib.contextmanager
-def calibration_audio_scope(*, restart_browser: bool = True) -> Iterator[None]:
-    """Stop production stack for calibration; always restore on any exit path."""
+def calibration_audio_scope(*, restart_browser: bool = True, restore: bool = True) -> Iterator[None]:
+    """Stop production stack for calibration; always restore or clear maintenance on exit."""
     stop_mpe_audio_services()
     try:
         yield
     finally:
-        restore_mpe_audio_services(restart_browser=restart_browser)
+        if restore:
+            restore_mpe_audio_services(restart_browser=restart_browser)
+        else:
+            clear_maintenance_flag()
