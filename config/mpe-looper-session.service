@@ -1,6 +1,6 @@
 [Unit]
-Description=APC mini clip grid + transport for SooperLooper
-# Ordering only, and deliberately tolerant of the engine being absent: the bench
+Description=Looper session — APC bench + HUD state (Phase 3M merge)
+# Ordering only, and deliberately tolerant of the engine being absent: the session
 # re-registers OSC auto-updates every MPE_SL_BENCH_REREGISTER_S (15 s), so it
 # recovers on its own once the engine returns. Binding it to the engine would
 # instead tear the controller down every time the engine restarted.
@@ -14,11 +14,9 @@ User=@MPE_PI_USER@
 WorkingDirectory=@MPE_MODULE_REPO@
 EnvironmentFile=-/etc/mpe/mpe.env
 Environment=PYTHONUNBUFFERED=1
-# Binds UDP MPE_SL_BENCH_LISTEN_PORT (default 9953) for OSC state replies, and
-# refuses to run if another instance holds it — see sl_bench_listener.start(),
-# which exits rather than run blind with pads that lie. RestartSec is long enough
-# for a stale holder's socket to clear rather than spinning against it.
-ExecStart=/usr/bin/python3 @MPE_MODULE_REPO@/scripts/sooperlooper-apc-bench.py
+# Binds UDP MPE_SL_BENCH_LISTEN_PORT (9953) and MPE_SL_HUD_LISTEN_PORT (9952).
+# Refuses to run if another instance holds either port.
+ExecStart=/usr/bin/python3 @MPE_MODULE_REPO@/scripts/looper-session.py
 Restart=always
 RestartSec=10
 TimeoutStopSec=10
