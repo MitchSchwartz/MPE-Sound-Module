@@ -480,9 +480,34 @@ reason the publisher cannot be built.
 | 9 | Discrete events with stable names, one line each, structured | 🟡 partial | Emitting: `engine.started`, `engine.exited`, `buffer.changed`, `mode.changed`, `looper.units.*`. **Named but never emitted:** `grid.established`, `grid.dropped`, `client.registered`, `client.leaked` |
 | 10 | The client leak is detectable from events alone | ❌ | Needs a `client.registered`/`client.leaked` emitter — blocked on the cost constraint above |
 | 11 | Events are cheap enough to leave on permanently | ✅ *(conditionally)* | Free at steady state because events are transition-only. Holds **only** while that stays true |
-| 12 | No polling probe may register a JACK client (the `jack_cpu_load` lesson) | ⚠️ **violated** | `mpe_surge_on_jack_graph` runs `jack_lsp` — a real JACK client — every `MPE_JACK_PROBE_INTERVAL_S` (10 s) from `surge-watchdog`. See below |
+| 12 | No polling probe may register a JACK client (the `jack_cpu_load` lesson) | ✅ *(2026-08-18)* | Healthy path reads `wired=` from `meter.state` (published by the compiled meter, already on the graph). `jack_lsp` is fallback only. Measured 35 → 0 xruns/min at matched load — see below |
 
-**Criterion 12 is knowingly violated, and the tension is real.** The supervisor's
+**Criterion 12 — RESOLVED 2026-08-18. It is now met, not traded.** The reasoning below
+is kept because the trade it describes was wrong in a way worth remembering.
+
+`mpe_surge_on_jack_graph()` no longer runs `jack_lsp` on the healthy path. It reads
+`wired=` from `/run/mpe/meter.state`, published at 5 Hz by `mpe-peak-meter` — a compiled
+client already permanently on the graph (Phase 5, criterion 34). A file read: no fork,
+no registration, no graph reorder. `jack_lsp` survives only as a fallback when the meter
+is missing, stale (>5 s) or malformed, so a dead meter cannot produce a false green.
+
+**The trade below was priced in the wrong currency and it caused audible crackle.** The
+bounded 10 s probe was called affordable at 1.16% of a core. Measured against the audio
+graph instead of the processor: **35 xruns/min, against 0 after the fix, at identical
+load** — the largest single xrun source on the appliance, larger than the whole looper
+stack. Each `jack_lsp` registration forces jackd to rebuild its processing order, and it
+was doing so six times a minute under a player's hands. Full protocol and the two wrong
+conclusions along the way:
+[`docs/measurements/crackle-root-cause-2026-08-18.md`](../../docs/measurements/crackle-root-cause-2026-08-18.md).
+
+**The general lesson, now `DECISIONS.md` 2026-08-18 rule 9:** a probe has two costs and
+CPU is the cheaper one. And the best probe is an observer already on the graph, not a
+cheaper one added to it.
+
+<details>
+<summary>Superseded reasoning (2026-08-18, earlier the same day)</summary>
+
+**Criterion 12 was knowingly violated, and the tension was real.** The supervisor's
 only way to answer *"is Surge on the graph?"* is `jack_lsp`, which registers a client.
 Removing the probe is not an option — a short-circuit that never re-probes is blind to
 the orphaned-client wedge ([`DECISIONS.md`](../DECISIONS.md) 2026-08-15), which is the
@@ -502,6 +527,8 @@ reliable negative but an unreliable positive — a reading identical whether Sur
 registered or orphaned. Criterion 12's real intent is *no unbounded, unreaped client
 registration on a repeating path*; that intent is met. Reword it in Phase 4 rather
 than pretending the letter is satisfied.
+
+</details>
 
 ### Phase 3M — Looper session process (**chosen path**, D17)
 
