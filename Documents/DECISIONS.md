@@ -124,9 +124,30 @@ awk '{print $14+$15+$16+$17}' /proc/<pid>/stat     # sample, sleep N, sample aga
 sudo strace -f -e trace=execve -p <pid>
 ```
 
-**Applied:** PR #68 (`b6355b4`) for the looper reconcile. **Known outstanding:**
-`mpe_jack_server_ready()` runs `jack_lsp` twice per 5 s tick on the healthy path
-(~4.6% of a core) — the supervisor's per-tick question is `systemctl is-failed`, and the
+**AMENDED SAME DAY — CPU was the wrong currency for one of these.** Rule 7 says
+`jack_lsp` is not a cheap liveness probe *because it registers a client*. This entry
+then priced the fix in **CPU only**: the probe was bounded to 10 s and called affordable
+at 1.16% of a core. That evening it was measured against the audio graph rather than the
+processor: **35 xruns/min against 6 when rare** — the single largest xrun source on the
+appliance, larger than the entire looper stack, and audible as crackle.
+
+**Rule 9 — a probe has two costs, and CPU is the cheaper one.** Anything that touches
+the realtime graph must be priced in *deadlines missed*, not just cycles consumed. A
+1.16% probe that reorders the JACK graph six times a minute is expensive; the CPU figure
+said it was free. Measure with `xruns=` from `meter.state` and a deterministic load
+(`scripts/midi-load.py`), not with `/proc/<pid>/stat` alone.
+
+**Corollary — prefer an observer that is already there.** The fix was not a cheaper
+probe but *no probe*: `mpe-peak-meter` is a long-lived compiled client permanently on
+the graph, already re-checking its wiring every 2 s and publishing `wired=`. Reading
+that file answers the question for nothing. See
+[`docs/measurements/crackle-root-cause-2026-08-18.md`](../docs/measurements/crackle-root-cause-2026-08-18.md).
+
+**Applied:** PR #68 (`b6355b4`) for the looper reconcile; `0f9875c` replaced the
+`jack_lsp` graph probe with a `meter.state` read (35 -> 0 xruns/min at matched load).
+**Historical note:** the line below described `mpe_jack_server_ready()` running
+`jack_lsp` twice per 5 s tick as a ~4.6%-of-a-core problem — it was, but that framing is
+exactly the mispricing above. The supervisor's per-tick question is `systemctl is-failed`, and the
 graph probe is only needed when it is about to act.
 
 ---
