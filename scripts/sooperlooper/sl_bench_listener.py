@@ -18,21 +18,11 @@ LOOP_POS_UPDATE_MS = int(os.environ.get("MPE_SL_BENCH_LOOP_POS_MS", "20"))
 WET_UPDATE_MS = int(os.environ.get("MPE_SL_BENCH_WET_MS", "500"))
 REREGISTER_S = float(os.environ.get("MPE_SL_BENCH_REREGISTER_S", "15"))
 
-# The engine-wide control the bench watches to notice a restart. Slow on
-# purpose: it changes only when something has gone badly wrong, and the reply
-# costs a datagram every interval for the life of the bench.
-GLOBAL_SENTINEL = os.environ.get("MPE_SL_BENCH_SENTINEL", "sync_source")
-GLOBAL_UPDATE_MS = int(os.environ.get("MPE_SL_BENCH_SENTINEL_MS", "1000"))
-
 
 class SlBenchStateListener:
     def __init__(self, by_loop: dict[int, LoopFootswitch],
-                 on_global=None, on_wet=None) -> None:
+                 on_wet=None) -> None:
         self._by_loop = by_loop
-        self._on_global = on_global
-        # Seeds the fader layer from engine truth. Without it the faders have
-        # no idea where the levels actually are, and their first movement is a
-        # jump rather than a pickup.
         self._on_wet = on_wet
         self._server: object | None = None
         self._thread: threading.Thread | None = None
@@ -64,12 +54,6 @@ class SlBenchStateListener:
                 return
             fs.sync_in_peak(float(value))
 
-    def on_global_update(self, _addr: str, _loop_index: int, control: str,
-                         value: float) -> None:
-        """Engine-wide settings. Loop index is -2 and means nothing here."""
-        if self._on_global is not None:
-            self._on_global(str(control), float(value))
-
     def register(self, client, *, num_loops: int) -> None:
         self._osc_client = client
         self._num_loops = num_loops
@@ -92,14 +76,6 @@ class SlBenchStateListener:
                 f"/sl/{loop}/register_auto_update",
                 ["wet", WET_UPDATE_MS, returl, retpath],
             )
-        # Global (no /sl/N prefix) — verified against control_osc.cpp:178 and
-        # live on the engine: replies carry loop index -2. This is how the bench
-        # notices the engine restarted underneath it, which otherwise leaves the
-        # grid config silently reverted to SooperLooper's defaults.
-        client.send_message(
-            "/register_auto_update",
-            [GLOBAL_SENTINEL, GLOBAL_UPDATE_MS, returl, "/sl/bench/global"],
-        )
         import time
 
         self._last_register = time.monotonic()
@@ -158,7 +134,6 @@ class SlBenchStateListener:
 
         disp = osc_dispatcher.Dispatcher()
         disp.map("/sl/bench/state", self.on_update)
-        disp.map("/sl/bench/global", self.on_global_update)
         # Bind failure must be FATAL. A dead listener means sl_state never
         # updates: no blink, no state, no truth — the bench keeps running and
         # every symptom looks like a control-layer bug. On 2026-08-14 a stale
