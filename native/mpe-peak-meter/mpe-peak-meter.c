@@ -9,7 +9,6 @@
  */
 
 #define _GNU_SOURCE
-#include <assert.h>
 #include <errno.h>
 #include <jack/jack.h>
 #include <math.h>
@@ -30,7 +29,8 @@
 /* Match SurgePeakMonitor POLL_INTERVAL_S (0.2 s = 5 Hz). Decay is per write. */
 #define WRITER_INTERVAL_US 200000
 #define CONNECT_INTERVAL_US 2000000
-#define PEAK_DECAY 0.92f
+/* 0.606 per 200 ms write ~= 0.92 per 33 ms (old 30 Hz writer feel). */
+#define PEAK_DECAY 0.606f
 #define METER_STATE_NAME "meter.state"
 #define RUN_DIR_MAX 480
 
@@ -242,8 +242,11 @@ int main(int argc, char **argv)
     (void)argc;
     (void)argv;
 
-    assert(atomic_is_lock_free(&g_period_peak));
-    assert(atomic_is_lock_free(&g_xrun_count));
+    if (!atomic_is_lock_free(&g_period_peak) || !atomic_is_lock_free(&g_xrun_count)) {
+        fprintf(stderr,
+                "mpe-peak-meter: atomics are not lock-free on this platform — refusing to start\n");
+        return 1;
+    }
 
     load_env();
     signal(SIGINT, handle_signal);
