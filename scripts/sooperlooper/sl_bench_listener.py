@@ -122,7 +122,7 @@ class SlBenchStateListener:
             ["in_peak_meter", TAIL_PEAK_UPDATE_MS, returl, "/sl/bench/state"],
         )
 
-    def unregister_tail_peak(self) -> None:
+    def unregister_tail_peak(self, _loop: int | None = None) -> None:
         if self._osc_client is None or self._tail_peak_loop is None:
             self._tail_peak_loop = None
             return

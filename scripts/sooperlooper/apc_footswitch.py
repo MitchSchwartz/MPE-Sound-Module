@@ -126,6 +126,7 @@ class LoopFootswitch:
         self._tail_capture_since = 0.0
         self._tail_silence_since: float | None = None
         self._in_peak = 0.0
+        self._in_peak_seen = False
 
     def bind(self, osc, midi_out, note: int | None) -> None:
         self._osc = osc
@@ -187,6 +188,7 @@ class LoopFootswitch:
 
     def sync_in_peak(self, peak: float) -> None:
         self._in_peak = max(0.0, float(peak))
+        self._in_peak_seen = True
 
     def _cancel_tail_capture(self) -> None:
         if self._tail_capture and self._on_tail_capture_end is not None:
@@ -210,6 +212,8 @@ class LoopFootswitch:
     def poll_tail_capture(self) -> None:
         """Close a defining take once release falls below threshold (Tier 2)."""
         if not self._tail_capture:
+            return
+        if not self._in_peak_seen:
             return
         now = time.monotonic()
         if (now - self._tail_capture_since) >= TAIL_MAX_S:
@@ -479,6 +483,8 @@ class LoopFootswitch:
             self._tail_capture = True
             self._tail_capture_since = time.monotonic()
             self._tail_silence_since = None
+            self._in_peak = 0.0
+            self._in_peak_seen = False
             if self._on_tail_capture_begin is not None:
                 self._on_tail_capture_begin(self.loop)
             self._expect(STATE_RECORDING)

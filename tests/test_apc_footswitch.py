@@ -284,6 +284,20 @@ class TailCaptureTests(unittest.TestCase):
         self.assertFalse(fs._pad_down)
         self.assertEqual(fs._pad_down_at, 0.0)
 
+    def test_tail_waits_for_first_peak_reading(self) -> None:
+        from scripts.sooperlooper.sl_grid_sync import TAIL_HOLD_S
+
+        fs = LoopFootswitch(loop=0, hold_ms=1000.0, debounce_ms=0.0)
+        fs.bind(MagicMock(), MagicMock(), 36)
+        fs._tail_capture = True
+        fs._tail_capture_since = time.monotonic()
+        fs._tail_silence_since = TAIL_HOLD_S * -2 + time.monotonic()
+        fs.poll_tail_capture()
+        self.assertTrue(fs._tail_capture)
+        fs.sync_in_peak(0.0)
+        fs.poll_tail_capture()
+        self.assertFalse(fs._tail_capture)
+
     def test_stop_all_cancels_tail_and_calls_end_callback(self) -> None:
         from scripts.sooperlooper.apc_footswitch import stop_all_loops
 
