@@ -79,7 +79,8 @@ def led_for(
     the pad blinking green forever after it had already landed.
     """
     if tail_capture:
-        return (LED_YELLOW_BLINK,)
+        # Same as WAIT_STOP: recording is still open while the stop is pending.
+        return RECORD_TO_PLAY
     if sl_state == SL_STATE_WAIT_STOP:
         return RECORD_TO_PLAY
     if sl_state == SL_STATE_WAIT_START:
