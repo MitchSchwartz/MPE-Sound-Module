@@ -10,13 +10,13 @@ import threading
 import time
 from pathlib import Path
 
-from patch_browser.sl_hud_state import SL_HUD_STATE_FILE  # noqa: E402
-
-from sl_hud_monitor import HudWriter  # noqa: E402
-
 _REPO = Path(__file__).resolve().parents[2]
 if str(_REPO) not in sys.path:
     sys.path.insert(0, str(_REPO))
+
+from patch_browser.sl_hud_state import SL_HUD_STATE_FILE  # noqa: E402
+
+from sl_hud_monitor import HudWriter  # noqa: E402
 
 
 def _load_bench_module():
