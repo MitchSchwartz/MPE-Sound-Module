@@ -3,7 +3,7 @@
 #
 # Usage:
 #   ./scripts/set-dac-volume.sh              # from /etc/mpe/mpe.env
-#   MPE_DAC_VOLUME_DB=-6 ./scripts/set-dac-volume.sh
+#   MPE_DAC_VOLUME_DB=-12 ./scripts/set-dac-volume.sh
 #   ./scripts/set-dac-volume.sh --show       # read current hardware level
 
 set -euo pipefail
@@ -22,7 +22,7 @@ for arg in "$@"; do
         --show) SHOW=true ;;
         -h|--help)
             echo "Usage: set-dac-volume.sh [--show]"
-            echo "Env: MPE_DAC_VOLUME_DB (default -6) or MPE_DAC_SPEAKER_RAW (0–88)"
+            echo "Env: MPE_DAC_VOLUME_DB (default -12) or MPE_DAC_SPEAKER_RAW (0–88)"
             exit 0
             ;;
     esac

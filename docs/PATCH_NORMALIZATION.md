@@ -4,6 +4,8 @@ Static loudness matching for Surge XT patches on the MPE appliance. Calibrate on
 
 **Issue:** [MPE-Sound-Module #5](https://github.com/MitchSchwartz/MPE-Sound-Module/issues/5)
 
+**v2 spec (cal integrity, Norm trim, meter/fader UX):** [`Documents/specs/patch-normalization-v2-spec.md`](../Documents/specs/patch-normalization-v2-spec.md) — Draft 2026-08-17. **DAC appliance default:** `MPE_DAC_VOLUME_DB=-12` (Speaker raw 64) as of same date.
+
 ## Design
 
 | When | What |
