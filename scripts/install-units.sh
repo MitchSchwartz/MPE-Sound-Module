@@ -47,6 +47,13 @@ ENABLED=(
 
 # Installed but deliberately NOT enabled. Present so the file exists for manual
 # start or for a future profile that turns them on.
+#
+# Do NOT add mpe-peak-meter here. It gates on MPE_PEAK_METER inside
+# start-mpe-peak-meter.sh (exit 0 when off), so it is safe to leave enabled — and
+# listing it ran `systemctl disable` on every deploy, silently switching the OUT
+# meter off again with MPE_PEAK_METER=1 still set and nothing in the journal.
+# A unit that disables itself on each provisioning run is the ghost-unit pattern
+# (Documents/DECISIONS.md 2026-08-15: a state that reads the same broken or fine).
 DISABLED=(
     midi-clock-out
     boot-animation
@@ -58,8 +65,6 @@ DISABLED=(
     # Phase 3M 2026-08-18: bench + HUD merged into mpe-looper-session.service.
     mpe-apc-bench
     sl-hud-monitor
-    # Phase 5 compiled OUT meter — enabled manually when MPE_PEAK_METER=1
-    mpe-peak-meter
 )
 
 # No [Install] section — cannot be enabled, only pulled in by another unit.

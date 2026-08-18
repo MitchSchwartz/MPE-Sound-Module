@@ -6,6 +6,62 @@ Orientation canon: OM-Repo [`GROUNDING.md`](https://github.com/opsMachine/OM-Rep
 
 ---
 
+## 2026-08-18 — Anything that touches the audio path must be declared, including what you did not write
+
+**Three faults in one week, one shape.** Each was a component doing something
+invisible on the realtime path, undeclared anywhere in the design, discoverable only
+by reading `/proc`:
+
+| Looked like | Actually was | Cost |
+|---|---|---|
+| `mpe-peak-meter` — a passive level display | a node **inside** the JACK graph, stalling it on the GIL | 30 points of peak DSP headroom |
+| `jack_cpu_load` — a diagnostic read | a real JACK client registration, unreaped | 705 orphans, registry saturation |
+| `pygame.init()` — drawing a screen | **a second audio device held open**, streaming 44.1 kHz silence to the onboard jack | 41 xruns / 75 s at 45% spare DSP |
+
+The third is the one that proves the rule, because **nobody wrote it**. The repo has no
+audio assets, no `pygame.mixer.init()`, no `Sound()`, no `.play()`. `pygame.init()`
+initialises every subsystem — display, font, **mixer**, joystick — because pygame is a
+game engine and a game wants all of them. We use it as a touchscreen GUI toolkit, so we
+inherited a game-shaped default: grab an audio device at startup. It opened the only
+output it could find and streamed silence into it, at nine call sites (`touch_browser_app`,
+`dsi_splash` ×6, `calibration_loader`, `clear-dsi-framebuffer`) — including during boot
+and **during loudness calibration**, when we are measuring through the real DAC.
+
+That put a second PCM stream on a second clock domain — 44.1 kHz, 512-frame period,
+free-running against jackd's 10.67 ms USB period — driving bcm2835 DMA and interrupts on
+the same silicon as the USB controller feeding the DAC. It also made
+[*The Pi onboard headphone jack is never an audio output*](#2026-08-14--the-pi-onboard-headphone-jack-is-never-an-audio-output)
+(2026-08-14) true in intent only: the jack had been an output the entire time, just never
+playing anything audible.
+
+**Rule — the audio path has three entry points, and all three are declarable:**
+
+1. **Registering a JACK client** (`set_process_callback`). Enforced today by
+   `tests/test_jack_rt_boundary.py` criterion 33, allowlist empty.
+2. **Opening an audio device** (ALSA PCM, SDL, PortAudio, PulseAudio). **Not yet
+   enforced.** `SDL_AUDIODRIVER=dummy` is set appliance-wide in `/etc/mpe/mpe.env`;
+   a test should assert it, and a boot check should assert only the DAC's PCM is open.
+3. **Taking a realtime priority.** Every `SCHED_FIFO` thread should belong to a named
+   audio component. Today: `jackd` 70, `surge-xt-cli` / `sooperlooper` /
+   `mpe-peak-meter` 65 — and nothing else outside kernel threads.
+
+Criterion 33 covers one third. The other two are just as checkable, and either would
+have caught this years before it caused an audible crackle.
+
+**Corollary — "we did not write it" is not a defence.** A dependency's convenience API
+is part of your audio design whether you read its source or not. Audit what the process
+*holds*, not what the code *says*: `fuser -v /dev/snd/*`, `/proc/asound/card*/pcm*p/sub0/status`,
+`jack_lsp`, and `ps -eLo cls,rtprio`.
+
+**Diagnostic note that made this findable.** None of it was visible from load. The
+appliance ran 41 xruns in 75 s with DSP never above 55% — nearly half the deadline
+unused. Xrun counting under shipping softmode (`jack_set_xrun_callback` in the compiled
+meter, see the session-control spec Q10) is what separated "the graph is busy" from
+"the graph is being interrupted". Without it, every reading said `0` and meant
+`not measured`.
+
+---
+
 ## 2026-08-18 — CPU is the scarcest resource: no subprocess spawning in periodic loops
 
 **Decision (Mitch, 2026-08-18):** *"We cannot let subprocesses start eroding CPU, it's
