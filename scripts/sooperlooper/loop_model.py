@@ -96,6 +96,7 @@ class Plan:
     arm_grid: bool = False
     queue_stop: bool = False
     begin_quantize_wait: bool = False
+    begin_tail_capture: bool = False
     note: str = ""
 
 
@@ -107,6 +108,7 @@ def plan_gesture(
     grid_established: bool,
     is_defining: bool,
     quantized: bool,
+    tail_capture_enabled: bool = False,
 ) -> Plan:
     """The whole gesture vocabulary, split by which physical edge fired.
 
@@ -152,6 +154,16 @@ def plan_gesture(
                 expect=STATE_RECORDING,
                 note="stop queued — will record exactly one cycle",
             )
+        if (
+            sl_state == SL_STATE_RECORDING
+            and is_defining
+            and tail_capture_enabled
+        ):
+            return Plan(
+                begin_tail_capture=True,
+                expect=STATE_RECORDING,
+                note="tail capture — close when release falls below threshold",
+            )
         wait = quantized and not is_defining
         return Plan(
             commands=("record",),
@@ -187,6 +199,7 @@ def plan_tap(
     grid_established: bool,
     is_defining: bool,
     quantized: bool,
+    tail_capture_enabled: bool = False,
 ) -> Plan:
     """Legacy entry: both edges on release. Prefer plan_gesture in the bench."""
     down = plan_gesture(
@@ -196,8 +209,9 @@ def plan_tap(
         grid_established=grid_established,
         is_defining=is_defining,
         quantized=quantized,
+        tail_capture_enabled=tail_capture_enabled,
     )
-    if down.commands or down.queue_stop or down.arm_grid:
+    if down.commands or down.queue_stop or down.arm_grid or down.begin_tail_capture:
         return down
     return plan_gesture(
         edge="up",
@@ -206,4 +220,5 @@ def plan_tap(
         grid_established=grid_established,
         is_defining=is_defining,
         quantized=quantized,
+        tail_capture_enabled=tail_capture_enabled,
     )

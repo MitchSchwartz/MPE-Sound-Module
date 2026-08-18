@@ -65,7 +65,9 @@ _BLINK = {
 RECORD_TO_PLAY = (LED_OFF, LED_RED, LED_OFF, LED_GREEN)
 
 
-def led_for(sl_state: int, *, pending: str | None = None) -> tuple[int, ...]:
+def led_for(
+    sl_state: int, *, pending: str | None = None, tail_capture: bool = False
+) -> tuple[int, ...]:
     """Pad colour, as a blink sequence. Length 1 means hold it steady.
 
     Returning one shape for both cases keeps the caller from having to know
@@ -76,6 +78,8 @@ def led_for(sl_state: int, *, pending: str | None = None) -> tuple[int, ...]:
     what let a poll clear the flag while the launch was still pending, leaving
     the pad blinking green forever after it had already landed.
     """
+    if tail_capture:
+        return (LED_YELLOW_BLINK,)
     if sl_state == SL_STATE_WAIT_STOP:
         return RECORD_TO_PLAY
     if sl_state == SL_STATE_WAIT_START:

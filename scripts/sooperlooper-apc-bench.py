@@ -37,6 +37,7 @@ from sl_bench_listener import SlBenchStateListener  # noqa: E402
 from sl_grid_state import GridState, display_bpm  # noqa: E402
 from sl_grid_sync import (  # noqa: E402
     RESTART_SENTINEL,
+    TAIL_CAPTURE_ENABLED,
     apply_freeform,
     apply_grid_sync,
     establish_grid_clock,
@@ -236,6 +237,12 @@ def main() -> int:
     )
     state_listener.start()
     state_listener.register(osc, num_loops=num_loops)
+    state_listener.wire_tail_capture(footswitches)
+    if not TAIL_CAPTURE_ENABLED:
+        print(
+            "bench: MPE_SL_TAIL_CAPTURE off — defining-take tail capture disabled",
+            flush=True,
+        )
 
     arrow_notes = resolve_arrow_notes(port_name, variant=apc_variant)
     # One shift latch for the whole event loop. ShiftHoldCombo keeps its own
@@ -291,6 +298,7 @@ def main() -> int:
 
     def poll_holds() -> None:
         for fs in footswitches:
+            fs.poll_tail_capture()
             fs.poll_hold()
             fs.poll_led()
 
