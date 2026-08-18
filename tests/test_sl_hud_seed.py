@@ -67,6 +67,16 @@ class TempoSeedTests(unittest.TestCase):
         _ctrl, loop = writer._sl.get.call_args.args
         self.assertLess(loop, 0, "tempo must be fetched as a global, not per-loop")
 
+    def test_should_reregister_after_interval(self) -> None:
+        import sl_hud_monitor
+        import time
+
+        writer = _writer_with_stub_sl(cached_tempo=120.0)
+        writer._registered_at = time.monotonic() - (sl_hud_monitor.REREGISTER_INTERVAL_S + 1)
+        self.assertTrue(writer.should_reregister())
+        writer._registered_at = time.monotonic()
+        self.assertFalse(writer.should_reregister())
+
 
 if __name__ == "__main__":
     unittest.main()
