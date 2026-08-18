@@ -124,7 +124,7 @@ class SeamWeldWorker:
                 merge_samples=SEAM_MERGE_SAMPLES,
             )
         except (OSError, ValueError) as exc:
-            self._log(f"seam-weld: merge error: {exc}", flush=True)
+            self._log(f"seam-weld: merge error: {exc!r}", flush=True)
             self._clear_scratch(scratch_loop)
             return False
         self._log(
