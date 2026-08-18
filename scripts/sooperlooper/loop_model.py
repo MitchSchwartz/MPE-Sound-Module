@@ -53,6 +53,7 @@ _FROM_SL = {
     SL_STATE_PLAYING: STATE_PLAYING,
     SL_STATE_PAUSED: STATE_STOPPED,
     SL_STATE_MUTE: STATE_STOPPED,
+    SL_STATE_OFF_MUTED: STATE_IDLE,
 }
 
 
@@ -143,6 +144,16 @@ def plan_gesture(
             # since expired. `record` here cancels that stop and keeps
             # recording, which is what a player tapping again means.
             return Plan(commands=("record",))
+        if is_defining and tail_capture_enabled:
+            # Defining take: always tail-capture on stop, even when OSC lags and
+            # reports OffMuted (20) or WAIT_START instead of Recording (2).
+            # queue_stop here never fires — it waits for sl=2 and strands the
+            # pad on red blink forever (Pi log 2026-08-18).
+            return Plan(
+                begin_tail_capture=True,
+                expect=STATE_RECORDING,
+                note="tail capture — close when release falls below threshold",
+            )
         if sl_state != SL_STATE_RECORDING:
             # Armed, or asked-for-but-unconfirmed. Either way the engine may be
             # sitting in WAIT_START, where `record` arrives as CANCEL and loses
@@ -153,16 +164,6 @@ def plan_gesture(
                 queue_stop=True,
                 expect=STATE_RECORDING,
                 note="stop queued — will record exactly one cycle",
-            )
-        if (
-            sl_state == SL_STATE_RECORDING
-            and is_defining
-            and tail_capture_enabled
-        ):
-            return Plan(
-                begin_tail_capture=True,
-                expect=STATE_RECORDING,
-                note="tail capture — close when release falls below threshold",
             )
         wait = quantized and not is_defining
         return Plan(
