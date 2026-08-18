@@ -10,16 +10,8 @@ User=@MPE_PI_USER@
 WorkingDirectory=@MPE_MODULE_REPO@
 EnvironmentFile=-/etc/mpe/mpe.env
 EnvironmentFile=-/tmp/mpe-screen-record.env
-# The OUT meter (MPE_PEAK_METER=1) registers a JACK client from inside this process,
-# and jackd's realtime cycle then waits on that client's callback every period. Without
-# these, the callback thread cannot be promoted to SCHED_FIFO — measured on the
-# appliance 2026-08-17: `Max realtime priority: 0`, every UI thread SCHED_OTHER, so
-# jackd (FIFO 70) was blocking on a normal-priority Python thread. That is a priority
-# inversion, and it is why small periods crackled. systemd units bypass PAM, so
-# /etc/security/limits.d/audio.conf does not apply here.
-LimitRTPRIO=95
-LimitMEMLOCK=infinity
-Environment=SDL_VIDEODRIVER=kmsdrm
+# Phase 5: OUT meter is mpe-peak-meter.service (compiled JACK client).
+# This pygame process must never register a JACK process callback.
 Environment=SDL_MOUSE_TOUCH_EVENTS=1
 ExecStartPre=@MPE_MODULE_REPO@/scripts/prepare-dsi-display.sh
 ExecStart=@MPE_MODULE_REPO@/scripts/start-touch-patch-browser.sh
