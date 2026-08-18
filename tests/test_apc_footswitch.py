@@ -261,6 +261,43 @@ class TailCaptureTests(unittest.TestCase):
         self.assertEqual(fs._led_target(), (LED_YELLOW_BLINK,))
         self.assertEqual(led_for(SL_STATE_RECORDING, tail_capture=True), (LED_YELLOW_BLINK,))
 
+    def test_tail_max_timeout_closes_capture(self) -> None:
+        from scripts.sooperlooper.sl_grid_sync import TAIL_MAX_S
+
+        fs = LoopFootswitch(loop=0, hold_ms=1000.0, debounce_ms=0.0)
+        fs.bind(MagicMock(), MagicMock(), 36)
+        fs._tail_capture = True
+        fs._tail_capture_since = time.monotonic() - TAIL_MAX_S - 0.01
+        fs.poll_tail_capture()
+        self.assertFalse(fs._tail_capture)
+        hits = [c.args[1] for c in fs._osc.send_message.call_args_list
+                if c.args[0] == "/sl/0/hit"]
+        self.assertEqual(hits, ["record"])
+
+    def test_finish_tail_resets_hold_timer(self) -> None:
+        fs = LoopFootswitch(loop=0, hold_ms=1000.0, debounce_ms=0.0)
+        fs.bind(MagicMock(), MagicMock(), 36)
+        fs._tail_capture = True
+        fs._pad_down = True
+        fs._pad_down_at = time.monotonic() - 5.0
+        fs._finish_tail_capture("test")
+        self.assertFalse(fs._pad_down)
+        self.assertEqual(fs._pad_down_at, 0.0)
+
+    def test_stop_all_cancels_tail_and_calls_end_callback(self) -> None:
+        from scripts.sooperlooper.apc_footswitch import stop_all_loops
+
+        ended = []
+        fs = LoopFootswitch(
+            loop=0, hold_ms=1000.0, debounce_ms=0.0,
+            on_tail_capture_end=lambda loop: ended.append(loop),
+        )
+        fs.bind(MagicMock(), MagicMock(), 36)
+        fs._tail_capture = True
+        stop_all_loops(MagicMock(), num_loops=1, footswitches=[fs])
+        self.assertFalse(fs._tail_capture)
+        self.assertEqual(ended, [0])
+
 
 class DoubleTapRecordsOneCycleTests(unittest.TestCase):
     """Double-tap while armed must record exactly one cycle, not cancel."""

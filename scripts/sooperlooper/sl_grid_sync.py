@@ -152,7 +152,7 @@ def apply_loop_latency(
     MPE_SL_INPUT_LATENCY (samples) when ear calibration needs a fixed value.
     """
     override = os.environ.get("MPE_SL_INPUT_LATENCY", "").strip()
-    autoset_off = os.environ.get("MPE_SL_AUTOSET_LATENCY", "1").strip().lower() in (
+    autoset_disabled = os.environ.get("MPE_SL_AUTOSET_LATENCY", "1").strip().lower() in (
         "0",
         "off",
         "false",
@@ -165,9 +165,11 @@ def apply_loop_latency(
             send(prefix, ["autoset_latency", 0.0])
             send(prefix, ["input_latency", val])
             send(prefix, ["trigger_latency", 0.0])
-    elif not autoset_off:
+    elif not autoset_disabled:
         for loop in range(num_loops):
-            send(f"/sl/{loop}/set", ["autoset_latency", 1.0])
+            prefix = f"/sl/{loop}/set"
+            send(prefix, ["autoset_latency", 1.0])
+            send(prefix, ["trigger_latency", 0.0])
 
 
 def apply_grid_sync(

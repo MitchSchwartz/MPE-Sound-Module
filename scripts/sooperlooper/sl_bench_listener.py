@@ -39,6 +39,7 @@ class SlBenchStateListener:
         self._last_register = 0.0
         self._osc_client = None
         self._num_loops = 16
+        self._tail_peak_loop: int | None = None
 
     def on_update(self, _addr: str, loop_index: int, control: str, value: float) -> None:
         if control == "wet":
@@ -59,6 +60,8 @@ class SlBenchStateListener:
         elif control == "loop_pos":
             fs.sync_loop_pos(float(value))
         elif control == "in_peak_meter":
+            if loop_index != self._tail_peak_loop:
+                return
             fs.sync_in_peak(float(value))
 
     def on_global_update(self, _addr: str, _loop_index: int, control: str,
@@ -89,11 +92,6 @@ class SlBenchStateListener:
                 f"/sl/{loop}/register_auto_update",
                 ["wet", WET_UPDATE_MS, returl, retpath],
             )
-            if TAIL_CAPTURE_ENABLED:
-                client.send_message(
-                    f"/sl/{loop}/register_auto_update",
-                    ["in_peak_meter", TAIL_PEAK_UPDATE_MS, returl, retpath],
-                )
         # Global (no /sl/N prefix) — verified against control_osc.cpp:178 and
         # live on the engine: replies carry loop index -2. This is how the bench
         # notices the engine restarted underneath it, which otherwise leaves the
@@ -109,6 +107,32 @@ class SlBenchStateListener:
             f"sl-bench-listener: state updates for loops 0..{num_loops - 1} "
             f"on {LISTEN_HOST}:{LISTEN_PORT}",
             flush=True,
+        )
+
+    def register_tail_peak(self, loop: int) -> None:
+        """Subscribe in_peak_meter for one loop during defining-take tail capture."""
+        if not TAIL_CAPTURE_ENABLED or self._osc_client is None:
+            return
+        if self._tail_peak_loop is not None:
+            self.unregister_tail_peak()
+        self._tail_peak_loop = loop
+        returl = f"{LISTEN_HOST}:{LISTEN_PORT}"
+        self._osc_client.send_message(
+            f"/sl/{loop}/register_auto_update",
+            ["in_peak_meter", TAIL_PEAK_UPDATE_MS, returl, "/sl/bench/state"],
+        )
+
+    def unregister_tail_peak(self) -> None:
+        if self._osc_client is None or self._tail_peak_loop is None:
+            self._tail_peak_loop = None
+            return
+        loop = self._tail_peak_loop
+        self._tail_peak_loop = None
+        # Interval 0 stops auto-updates for this control on this loop.
+        returl = f"{LISTEN_HOST}:{LISTEN_PORT}"
+        self._osc_client.send_message(
+            f"/sl/{loop}/register_auto_update",
+            ["in_peak_meter", 0, returl, "/sl/bench/state"],
         )
 
     def maybe_reregister(self) -> None:

@@ -86,12 +86,16 @@ class LoopFootswitch:
         on_grid_established=None,
         on_phase_reanchor=None,
         on_grid_dropped=None,
+        on_tail_capture_begin=None,
+        on_tail_capture_end=None,
     ) -> None:
         self.loop = loop
         self.grid = grid
         self._on_grid_established = on_grid_established
         self._on_phase_reanchor = on_phase_reanchor
         self._on_grid_dropped = on_grid_dropped
+        self._on_tail_capture_begin = on_tail_capture_begin
+        self._on_tail_capture_end = on_tail_capture_end
         self.loop_len = 0.0
         self.loop_pos = 0.0
         self._loop_pos_seen = False
@@ -185,6 +189,8 @@ class LoopFootswitch:
         self._in_peak = max(0.0, float(peak))
 
     def _cancel_tail_capture(self) -> None:
+        if self._tail_capture and self._on_tail_capture_end is not None:
+            self._on_tail_capture_end(self.loop)
         self._tail_capture = False
         self._tail_capture_since = 0.0
         self._tail_silence_since = None
@@ -193,6 +199,9 @@ class LoopFootswitch:
         if not self._tail_capture:
             return
         self._cancel_tail_capture()
+        self._pad_down = False
+        self._pad_down_at = 0.0
+        self._hold_fired = False
         log(f"loop {self.loop}: tail capture done ({reason}) — sending record stop")
         self._hit("record")
         self._expect(STATE_PLAYING)
@@ -470,6 +479,8 @@ class LoopFootswitch:
             self._tail_capture = True
             self._tail_capture_since = time.monotonic()
             self._tail_silence_since = None
+            if self._on_tail_capture_begin is not None:
+                self._on_tail_capture_begin(self.loop)
             self._expect(STATE_RECORDING)
             self._sync_led()
             self._mark_action()
@@ -543,6 +554,8 @@ def build_footswitches(
     on_grid_established=None,
     on_phase_reanchor=None,
     on_grid_dropped=None,
+    on_tail_capture_begin=None,
+    on_tail_capture_end=None,
 ) -> tuple[dict[int, LoopFootswitch], list[LoopFootswitch]]:
     """One footswitch per track, bound to the pad showing it in `view`.
 
@@ -565,6 +578,8 @@ def build_footswitches(
             on_grid_established=on_grid_established,
             on_phase_reanchor=on_phase_reanchor,
             on_grid_dropped=on_grid_dropped,
+            on_tail_capture_begin=on_tail_capture_begin,
+            on_tail_capture_end=on_tail_capture_end,
         )
         fs.bind(osc, midi_out, view.note_for_loop(loop_i))
         footswitches.append(fs)
@@ -676,5 +691,6 @@ def stop_all_loops(
         fs.awaiting_quantize = False
         if fs.state != STATE_IDLE:
             fs._expect(STATE_STOPPED)
+        fs._cancel_tail_capture()
         fs._sync_led()
     print(f"-> stop all: paused {num_loops} loops", flush=True)
