@@ -190,5 +190,31 @@ class SnapshotSeqTests(unittest.TestCase):
             write_snapshot(second, run=run)
             self.assertEqual(read_seq(run=run), 2)
 
+class SnapshotEngineRecoveryTests(unittest.TestCase):
+    def test_engine_fresh_when_surge_down_but_watchdog_active(self) -> None:
+        """Surge dead + watchdog publishing recovering — engine.value must carry reason."""
+        with tempfile.TemporaryDirectory() as tmp:
+            run = Path(tmp)
+            now = 3_000_000.0
+            (run / "engine.state").write_text(
+                f"engine=jack\nactive=jack\nstate=recovering\nreason=surge-exited\nupdated={now - 2}\n",
+                encoding="utf-8",
+            )
+
+            def _liveness(unit: str) -> bool | None:
+                if unit == "surge-xt-cli":
+                    return False
+                if unit == "surge-watchdog":
+                    return True
+                return True
+
+            snap = build_snapshot(now=now, run=run, seq=1, unit_active=_liveness)
+            self.assertFalse(snap["engine"]["stale"])
+            self.assertIsNotNone(snap["engine"]["value"])
+            self.assertEqual(snap["engine"]["value"]["state"], "recovering")
+            self.assertEqual(snap["engine"]["value"]["reason"], "surge-exited")
+            self.assertEqual(snap["mode"], "recovering")
+
+
 if __name__ == "__main__":
     unittest.main()
