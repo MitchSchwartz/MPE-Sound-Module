@@ -179,7 +179,7 @@ stateDiagram-v2
 | `set_volume()` / `_send_combined_volume()` | mixer UI | OSC `/param/.../volume` | Level + norm |
 | `_apply_patch_normalization()` | load_patch | `PatchNormalizationStore` | Per-patch gain |
 
-**Monitors (touch process threads):** `SurgeMonitor`, `SurgeCpuMonitor`, `SurgePeakMonitor` (optional JACK tap if `MPE_PEAK_METER=1`).
+**Monitors (touch process threads):** `SurgeMonitor`, `SurgeCpuMonitor`, `SurgePeakMonitor` (reads `/run/mpe/meter.state` from compiled `mpe-peak-meter` when `MPE_PEAK_METER=1`).
 
 ---
 
