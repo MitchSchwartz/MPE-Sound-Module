@@ -26,7 +26,12 @@ from loop_model import (
     STATE_STOPPED,
     derive_state,
 )
-from sl_loop_states import SL_STATE_WAIT_START, SL_STATE_WAIT_STOP
+from sl_loop_states import (
+    SL_STATE_OVERDUBBING,
+    SL_STATE_PLAYING,
+    SL_STATE_WAIT_START,
+    SL_STATE_WAIT_STOP,
+)
 
 LED_OFF = 0
 LED_GREEN = 1
@@ -65,7 +70,13 @@ _BLINK = {
 RECORD_TO_PLAY = (LED_OFF, LED_RED, LED_OFF, LED_GREEN)
 
 
-def led_for(sl_state: int, *, pending: str | None = None) -> tuple[int, ...]:
+def led_for(
+    sl_state: int,
+    *,
+    pending: str | None = None,
+    tail_capture: bool = False,
+    tail_seam_weld: bool = False,
+) -> tuple[int, ...]:
     """Pad colour, as a blink sequence. Length 1 means hold it steady.
 
     Returning one shape for both cases keeps the caller from having to know
@@ -76,6 +87,12 @@ def led_for(sl_state: int, *, pending: str | None = None) -> tuple[int, ...]:
     what let a poll clear the flag while the launch was still pending, leaving
     the pad blinking green forever after it had already landed.
     """
+    if tail_capture and tail_seam_weld:
+        # Option E: loop is Playing/Overdubbing while release is welded at the seam.
+        return (LED_YELLOW_BLINK,)
+    if tail_capture:
+        # Tier 2: SL is still Recording while release is captured in-place.
+        return RECORD_TO_PLAY
     if sl_state == SL_STATE_WAIT_STOP:
         return RECORD_TO_PLAY
     if sl_state == SL_STATE_WAIT_START:
