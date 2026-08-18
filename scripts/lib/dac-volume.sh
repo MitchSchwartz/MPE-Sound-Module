@@ -5,11 +5,11 @@
 # the USB DAC's analog/digital output stage — what actually reaches headphones.
 #
 # Scale (measured on Pi, 2026-08-17): raw 0–88, dB ≈ (raw - 88) * 0.5
-#   48 → -20 dB (old default)   76 → -6 dB (appliance default)
+#   48 → -20 dB (conservative)   64 → -12 dB (appliance default)   76 → -6 dB
 
 MPE_DAC_SPEAKER_CONTROL="${MPE_DAC_SPEAKER_CONTROL:-Speaker}"
 MPE_DAC_SPEAKER_RAW_MAX="${MPE_DAC_SPEAKER_RAW_MAX:-88}"
-MPE_DAC_VOLUME_DB_DEFAULT="${MPE_DAC_VOLUME_DB_DEFAULT:--6}"
+MPE_DAC_VOLUME_DB_DEFAULT="${MPE_DAC_VOLUME_DB_DEFAULT:--12}"
 
 sound_blaster_card_index() {
     local cards_file="${MPE_ASOUND_CARDS:-/proc/asound/cards}"
