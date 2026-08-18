@@ -65,6 +65,21 @@ class LooperEngineEventWatchTests(unittest.TestCase):
 
             self.assertEqual(_latest_looper_started_ts(path), 99.0)
 
+
+    def test_full_read_backstop_when_event_outside_tail_window(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            run = Path(tmp)
+            path = run / "events.jsonl"
+            emit_event(LOOPER_ENGINE_STARTED, source="test", ts=42.0, run=run)
+            filler = '{"ts":1.0,"event":"mode.changed","source":"test"}\n'
+            with path.open("ab") as handle:
+                while path.stat().st_size <= 65536:
+                    handle.write(filler.encode("utf-8"))
+            from scripts.sooperlooper.looper_engine_events import _latest_looper_started_ts
+
+            self.assertGreater(path.stat().st_size, 65536)
+            self.assertEqual(_latest_looper_started_ts(path), 42.0)
+
 class SentinelRemovedTests(unittest.TestCase):
     def test_no_global_config_probe_in_listener(self) -> None:
         text = Path("scripts/sooperlooper/sl_bench_listener.py").read_text(encoding="utf-8")
