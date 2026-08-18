@@ -270,11 +270,18 @@ class LoopFootswitch:
     def _finish_tail_capture(self, reason: str) -> None:
         if not self._tail_capture:
             return
+        peak = self._in_peak
+        saw_loud = self._tail_saw_loud
+        elapsed = (
+            time.monotonic() - self._tail_capture_since
+            if self._tail_capture_since
+            else 0.0
+        )
+        stop_sent = self._tail_stop_sent
         self._tail_capture = False
         self._tail_capture_since = 0.0
         self._tail_silence_since = None
         self._tail_saw_loud = False
-        stop_sent = self._tail_stop_sent
         self._tail_stop_sent = False
         self._scratch_active = False
         self._tail_ending = False
@@ -285,7 +292,11 @@ class LoopFootswitch:
         self._pad_down_at = 0.0
         self._hold_fired = False
         if not stop_sent:
-            log(f"loop {self.loop}: tail capture done ({reason}) — sending record stop")
+            log(
+                f"loop {self.loop}: tail capture done ({reason}) — "
+                f"sending record stop (peak={peak:.4f}, "
+                f"saw_loud={saw_loud}, elapsed={elapsed:.2f}s)"
+            )
             self._hit("record")
             self._expect(STATE_PLAYING)
         else:
@@ -360,18 +371,43 @@ class LoopFootswitch:
         return self.sl_state == SL_STATE_PLAYING
 
     def poll_tail_capture(self) -> None:
-        """Capture release on scratch loop; merge at seam when quiet."""
+        """Tier 2: extend recording until release fades. Tier 3: scratch + merge."""
         if not self._tail_capture:
             return
         now = time.monotonic()
         elapsed = now - self._tail_capture_since
         if elapsed >= TAIL_ABSOLUTE_MAX_S:
-            self._end_tail_capture(f"absolute max {TAIL_ABSOLUTE_MAX_S:.2f}s")
+            if self._tail_stop_sent:
+                self._end_tail_capture(f"absolute max {TAIL_ABSOLUTE_MAX_S:.2f}s")
+            else:
+                self._finish_tail_capture(f"absolute max {TAIL_ABSOLUTE_MAX_S:.2f}s")
             return
         if self._in_peak_seen and self._in_peak >= TAIL_THRESH:
             self._tail_saw_loud = True
             self._tail_silence_since = None
 
+        if not self._tail_stop_sent:
+            # Tier 2 — main loop still recording; release is captured in-place.
+            if self._tail_ending:
+                return
+            if self._in_peak_seen and self._in_peak >= TAIL_THRESH:
+                return
+            if not self._in_peak_seen or not self._tail_saw_loud:
+                if elapsed >= TAIL_MAX_S:
+                    self._finish_tail_capture(
+                        f"max {TAIL_MAX_S:.2f}s (no release peak)"
+                    )
+                return
+            if self._tail_silence_since is None:
+                self._tail_silence_since = now
+                return
+            if (now - self._tail_silence_since) >= TAIL_HOLD_S:
+                self._finish_tail_capture(
+                    f"peak<{TAIL_THRESH} for {TAIL_HOLD_S * 1000:.0f}ms"
+                )
+            return
+
+        # Tier 3 — fixed length + parallel scratch capture + offline merge.
         if not self._scratch_active:
             self._maybe_start_scratch()
             if not self._scratch_active and elapsed >= TAIL_MAX_S:
@@ -666,18 +702,18 @@ class LoopFootswitch:
             self._in_peak_seen = False
             self._tail_saw_loud = False
             self._scratch_active = False
-            if self._on_prepare_scratch is not None:
-                self._on_prepare_scratch(self.loop)
             if self.sl_state in ACTIVE_RECORD:
                 log(
-                    f"loop {self.loop}: defining take stop — fixing length, "
-                    f"then seam weld"
+                    f"loop {self.loop}: defining take — recording release "
+                    f"into loop until quiet"
                 )
-                self._hit("record")
+                self._tail_stop_sent = False
+                self._expect(STATE_RECORDING)
+            elif self.sl_state in (SL_STATE_PLAYING, SL_STATE_OFF_MUTED):
+                if self._on_prepare_scratch is not None:
+                    self._on_prepare_scratch(self.loop)
                 self._tail_stop_sent = True
                 self._expect(STATE_PLAYING)
-            elif self.sl_state in (SL_STATE_PLAYING, SL_STATE_OFF_MUTED):
-                self._tail_stop_sent = True
             else:
                 self._tail_stop_sent = False
             if self._on_tail_capture_begin is not None:
@@ -685,7 +721,7 @@ class LoopFootswitch:
             self._sync_led()
             self._mark_action()
             log(
-                f"loop {self.loop}: -> {edge} done (tail weld, "
+                f"loop {self.loop}: -> {edge} done (tail capture, "
                 f"state={self.state}, sl_state={self.sl_state})"
             )
             return
