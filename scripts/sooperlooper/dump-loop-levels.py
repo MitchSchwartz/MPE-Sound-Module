@@ -14,7 +14,10 @@ and prints one line per loop. Run it before and after a bank change and diff.
 touches nothing. Safe to run against a live take.
 
 Usage:
-    dump-loop-levels.py [--loops 16] [--json]
+    dump-loop-levels.py [--loops 16] [--json] [--detail]
+
+    --detail   Also read input_latency, fade_samples, loop_len per loop (P0 seam
+               calibration — looper-p0-latency-calibration.md).
 
 Env: MPE_SL_OSC_HOST (127.0.0.1), MPE_SL_OSC_PORT (9951), MPE_SL_LOOPS (16).
 """
@@ -68,6 +71,11 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--loops", type=int, default=int(os.environ.get("MPE_SL_LOOPS", "16")))
     parser.add_argument("--json", action="store_true", help="machine-readable, for diffing")
+    parser.add_argument(
+        "--detail",
+        action="store_true",
+        help="also read input_latency, fade_samples, loop_len (P0 calibration)",
+    )
     args = parser.parse_args()
 
     try:
@@ -101,8 +109,11 @@ def main() -> int:
     # to work live — sl_bench_listener.register(). Guessing the URL form and
     # being wrong prints "engine may be wedged" at a perfectly healthy engine.
     returl = f"{LISTEN_HOST}:{listen_port}"
+    controls = ("wet", "state")
+    if args.detail:
+        controls = ("wet", "state", "input_latency", "autoset_latency", "fade_samples", "loop_len")
     for loop in range(args.loops):
-        for ctrl in ("wet", "state"):
+        for ctrl in controls:
             client.send_message(f"/sl/{loop}/get", [ctrl, returl, RETPATH])
 
     time.sleep(COLLECT_S)
@@ -113,11 +124,16 @@ def main() -> int:
 
     missing = [n for n in range(args.loops) if (n, "wet") not in got]
     if args.json:
-        print(json.dumps(
-            {str(n): {"wet": got.get((n, "wet")), "state": got.get((n, "state"))}
-             for n in range(args.loops)},
-            indent=2, sort_keys=True,
-        ))
+        payload = {}
+        for n in range(args.loops):
+            row = {"wet": got.get((n, "wet")), "state": got.get((n, "state"))}
+            if args.detail:
+                row["input_latency"] = got.get((n, "input_latency"))
+                row["autoset_latency"] = got.get((n, "autoset_latency"))
+                row["fade_samples"] = got.get((n, "fade_samples"))
+                row["loop_len"] = got.get((n, "loop_len"))
+            payload[str(n)] = row
+        print(json.dumps(payload, indent=2, sort_keys=True))
     else:
         for n in range(args.loops):
             wet = got.get((n, "wet"))
@@ -126,14 +142,19 @@ def main() -> int:
             if state is None:
                 state_s = "no reply"
             else:
-                # An unmapped code prints as unknown(N), not as a bare float.
-                # Live on the appliance 14 of 16 loops read 20, which is not in
-                # sl_loop_states and which the engine source (unreadable from
-                # the agent account) would have to settle. A guessed label here
-                # is worse than an honest number: the bank protocol asserts on
-                # a state *changing*, and a wrong name reads as a false pass.
                 state_s = STATE_NAMES.get(int(state), f"unknown({int(state)})")
-            print(f"loop {n:2d}  wet={wet_s}  state={state_s}")
+            line = f"loop {n:2d}  wet={wet_s}  state={state_s}"
+            if args.detail:
+                il = got.get((n, "input_latency"))
+                au = got.get((n, "autoset_latency"))
+                fs = got.get((n, "fade_samples"))
+                ll = got.get((n, "loop_len"))
+                il_s = "  --" if il is None else f"{il:.0f}"
+                au_s = " -" if au is None else f"{int(au)}"
+                fs_s = " --" if fs is None else f"{fs:.0f}"
+                ll_s = "  --" if ll is None else f"{ll:.3f}s"
+                line += f"  in_lat={il_s}  autoset={au_s}  fade={fs_s}  len={ll_s}"
+            print(line)
 
     if missing:
         # Silence is the wedge signature, not an empty engine: a loop that

@@ -1,0 +1,24 @@
+[Unit]
+Description=MPE compiled OUT peak meter (JACK leaf client)
+After=mpe-jackd.service surge-xt-cli.service
+Wants=mpe-jackd.service
+# Opt-in: install-units.sh lists this in DISABLED. Enable only after MPE_PEAK_METER=1
+# in /etc/mpe/mpe.env. start-mpe-peak-meter.sh gates on that flag (not ConditionEnvironment).
+
+[Service]
+Type=simple
+User=@MPE_PI_USER@
+WorkingDirectory=@MPE_MODULE_REPO@
+EnvironmentFile=-/etc/mpe/mpe.env
+RuntimeDirectory=mpe
+RuntimeDirectoryPreserve=yes
+LimitRTPRIO=95
+LimitMEMLOCK=infinity
+ExecStart=@MPE_MODULE_REPO@/scripts/start-mpe-peak-meter.sh
+Restart=on-failure
+RestartSec=3
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

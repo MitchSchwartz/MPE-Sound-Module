@@ -1,7 +1,29 @@
 # Session control plane — one owner per fact, reconciliation over sequences
 
-**Status:** Draft — 2026-08-17
+**Status:** Phases 0–2 landed on `dev` (PR #66, amended by #68/#70/#71 + `4e81f11`), soaking on the appliance since 2026-08-18. **Q1 answered 2026-08-18: merge (D17) — Phase 3M is ready to implement.** Phase 4 still blocked by D15/D16; Phase 5 not started.
 **Author:** written after the 2026-08-17 stability session; every claim in Evidence is measured on `raspberrypi2`, not reasoned.
+
+**Implementation log (2026-08-18).** What shipped, and what it cost:
+
+| Landed | Notes |
+|---|---|
+| Phase 0 — calibration stops/restores the looper stack | Guarded by a real D11 maintenance flag (`pid` + 30 min deadline, self-clearing) — the first cut had `surge-watchdog` restarting the units mid-measurement |
+| Phase 1 — `session.snapshot.json` schema v1 | Verified on hardware: all four sources fresh, `mode: ok`, HUD live. **No publisher** — built on demand only |
+| Phase 2 — `events.jsonl` + emits at engine/graph chokepoints | Bash emits through `scripts/mpe-session-event-emit.py` for safe JSON; escaping verified live |
+
+**Staleness model changed during implementation (amends criterion 4).** The spec's
+blanket 1.5 s age threshold was wrong for every source in this system: `jack.state`
+and `surge.state` carry a process *start* epoch, and `engine.state` is written only on
+transition. Measured against the appliance's real file ages, the first implementation
+reported `null` for every field, permanently. Staleness is now per-source **liveness**:
+each field is fresh while its *writer* unit is confirmed active (`engine.state` follows
+`surge-watchdog`, not `surge-xt-cli` — during recovery Surge is down and the engine
+field carries the reason). Unknown or transitional liveness reads as stale. `reconcile`
+treats "never restarted" as valid, not stale.
+
+**CPU cost is a first-class constraint here** — see [`DECISIONS.md`](../DECISIONS.md)
+§ *2026-08-18 — CPU is the scarcest resource*. Adding the Phase 0 reconcile to
+`surge-watchdog` cost 9% of a core before it was measured and brought back to ~2%.
 
 ---
 
@@ -23,9 +45,9 @@ when the writer last touched disk.
 
 | Path | Writers | Readers | Staleness rule |
 |---|---|---|---|
-| `/run/mpe/engine.state` | `start-jackd.sh`, `start-surge-cli.sh`, `surge-watchdog.sh`, `audio-engine.sh` | `patch_browser/audio_engine.py`, `mpe-cli`, Phase 1 snapshot | No reader-side TTL today; snapshot marks **stale** if `updated` age > 1.5 s (D6) |
-| `/run/mpe/jack.state` | `start-jackd.sh` | snapshot, promote/reconcile probes | Same as engine aggregate (D6) |
-| `/run/mpe/surge.state` | `start-surge-cli.sh` | snapshot, watchdog promote probe | Same as engine aggregate (D6) |
+| `/run/mpe/engine.state` | `start-jackd.sh`, `start-surge-cli.sh`, `surge-watchdog.sh`, `audio-engine.sh` | `patch_browser/audio_engine.py`, `mpe-cli`, Phase 1 snapshot | **Transition-written, not a heartbeat.** Snapshot marks stale unless the *writer* (`surge-watchdog`) is active (D6, amended). No-op republishes are skipped, so `updated` does not advance while nothing changes |
+| `/run/mpe/jack.state` | `start-jackd.sh` | snapshot, promote/reconcile probes | `started` is a process **start epoch**, never refreshed — stale unless `mpe-jackd` is active (D6, amended) |
+| `/run/mpe/surge.state` | `start-surge-cli.sh` | snapshot, watchdog promote probe | Same, keyed on `surge-xt-cli` (D6, amended) |
 | `/run/mpe/engine-reconcile.state` | `surge-watchdog.sh` | `surge-watchdog.sh`, snapshot | Informational; no independent TTL |
 | `/run/mpe/jack-device` | `jackd-prestart.sh` | `start-jackd.sh`, detection scripts, snapshot | Valid for current boot; cleared on jackd restart |
 | `/run/mpe/planned-promote` | `mpe_promote_surge_planned()` | `surge-watchdog.sh`, promote callers | Ephemeral intent flag; absent = no promote in flight |
@@ -127,8 +149,8 @@ they change the design rather than merely annotating it:**
 - A rewrite. The instrument works; this is incremental and reversible at each phase.
 - Replacing systemd, JACK, OSC, or SooperLooper.
 - Multi-instrument or networked operation. Named as a *future* justification for
-  Phase 3+, not a requirement now (see Falsification).
-- A new IPC protocol before Phase 3. `/run/mpe` files already work and are already
+  Phase 3+, not a requirement now (see Falsification). Phase 3M does not introduce one.
+- A new IPC protocol. Phase 3M removes the need for one. `/run/mpe` files already work and are already
   atomic.
 - Changing musical behaviour. No phase may alter what the instrument sounds like or
   how a pad responds.
@@ -142,7 +164,7 @@ they change the design rather than merely annotating it:**
 | Plane | Members | Rule |
 |---|---|---|
 | **Realtime** | jackd, `surge-xt-cli`, `sooperlooper` | Compiled only. **Nothing else may hold a JACK process callback.** |
-| **Control** | session owner (Phase 3+), `sl-watchdog`, `surge-watchdog` | Owns state, reconciles, never in the audio cycle. |
+| **Control** | looper session process (Phase 3M), `sl-watchdog`, `surge-watchdog` | Owns state, reconciles, never in the audio cycle. |
 | **Edge** | touch UI, APC bench, HUD writer, `mpe-cli` | Stateless. Emits intents, renders snapshots. |
 
 This is kernel space vs user space, and the 2026-08-17 crackle is what putting an
@@ -183,6 +205,7 @@ pad LEDs, coordination. Not lost: audio.
 This is the existing principle — *"a supervisor that dies with the thing it supervises
 is not a supervisor"* (`sl-watchdog.service`) — extended one level up. **A design that
 cannot guarantee this is the wrong design and must be rejected at the Phase 3 gate.**
+*(Gate closed 2026-08-18: merge — D17. D4 applies unchanged to the merged process.)*
 
 ### D5a — systemd owns processes
 
@@ -212,11 +235,18 @@ not the same thing and were conflated in the first draft:
 another process (touch UI). Without it, a field rename in this repo breaks the CLI at a
 distance, with no error at the point of change.
 
-**Publish interval is fixed at 500 ms** (matching `sl_hud_monitor.WRITE_INTERVAL_S`),
-and **staleness threshold at 1.5 s**. These are stated here rather than deferred to Q2
-because criterion 4 cannot be satisfied against an undecided interval — the first draft
-made staleness depend on an open question and the open question depend on staleness.
-Q2 is now about whether a *faster lane* is needed for transport, not about this value.
+**Publish interval is fixed at 500 ms** (matching `sl_hud_monitor.WRITE_INTERVAL_S`).
+It is stated here rather than deferred to Q2 because the first draft made staleness
+depend on an open question and the open question depend on staleness. Q2 is now about
+whether a *faster lane* is needed for transport, not about this value.
+
+**The 1.5 s staleness threshold is retired (amended 2026-08-18).** It survives only for
+`looper.hud`, whose writer genuinely heartbeats at 2 Hz. It was wrong for every other
+source: `jack.state` and `surge.state` hold a process *start* epoch and `engine.state`
+is transition-written, so against real appliance file ages an age gate reported `null`
+for every field, permanently. Those sources now derive staleness from their **writer
+unit's liveness** — see criterion 4 and the Implementation log. A source whose writer
+heartbeats may use an age gate; a source written on transition must not.
 
 ### D7 — Intents are the only write path from edges
 
@@ -281,6 +311,7 @@ control plane is a **pure function over an observed-state struct**, following
 
 A control plane testable only on the Pi would be a regression in this project's own
 practice, and would mean the Phase 3 gate is judged by hand on the instrument.
+*(Criterion 48 carries this forward for Phase 3M.)*
 
 ### D14 — Ports and JACK client names are assigned in one registry
 
@@ -301,19 +332,19 @@ or not at all**, and a test asserts no two entries collide. Ad-hoc probe ports (
 diagnostic binding 9977 to ask a question) must use the ephemeral range, never a fixed
 number that could clash with a service.
 
-### D15 — Looper policy gate (Phase 3+ blocked until adopt/kill)
+### D15 — Looper policy gate (Phase 4 blocked until adopt/kill; **amended by D17**)
 
-Phase 3 session ownership and Phase 4 reconciliation for the **looper stack** are
-**blocked** until the SooperLooper eval reaches an adopt/kill verdict
+Phase 4 reconciliation for the **looper stack** is **blocked** until the SooperLooper eval reaches an adopt/kill verdict
 ([`Documents/DIRECTION.md`](../DIRECTION.md) B7 full soak, B8 persistence). Phases 1–2
-(observability, events) and Phase 5 (realtime boundary) are **not** gated on this.
+(observability, events), Phase 3M (the merge — see D17 for why) and Phase 5 (realtime
+boundary) are **not** gated on this.
 
 The unified snapshot carries a **`looper.policy`** field:
 
 | Value | Meaning |
 |---|---|
 | `eval` | SooperLooper eval stack supervised; session-owner work for looper deferred |
-| `adopt` | Verdict: keep SooperLooper; Phase 3+ looper ownership may proceed |
+| `adopt` | Verdict: keep SooperLooper; Phase 4 looper reconciliation may proceed |
 | `disabled` | Verdict: kill eval stack; looper session control retires or migrates |
 
 Until the verdict lands, treat looper session state as **eval-only inventory** (this
@@ -332,36 +363,185 @@ inverted relative to behaviour. The guard fires when the value is `"1"`:
 
 The guard triple predates SooperLooper and encodes a **stale premise** (v0 snd-aloop
 looper impossible on JACK) while the appliance now runs 16 SooperLooper loops under
-systemd. **Product decision required before Phase 3:** rename/invert the env var,
-delete the guard, or remap `=1` to mean enabled. D15 blocks looper ownership work
-until both the adopt/kill verdict **and** this semantics decision land. Q8 tracks guard
+systemd. **Product decision required before Phase 4:** rename/invert the env var,
+delete the guard, or remap `=1` to mean enabled. D15 blocks looper *reconciliation*
+until both the adopt/kill verdict **and** this semantics decision land; Phase 3M only
+preserves existing guard behaviour and is not blocked (D17). Q8 tracks guard
 retirement schedule.
+
+### D17 — Q1 answered: merge, not daemon (2026-08-18)
+
+**Decision (Mitch, 2026-08-18):** take the merge. Phase 3's session-owner daemon is
+deferred, not rejected — it earns its keep against a second instrument, a remote agent,
+or a non-pygame UI, none of which exist.
+
+**Rationale, and why this is a first step rather than a cheaper substitute.** Every
+fault this spec was written for occurred at a boundary between
+`sooperlooper-apc-bench.py`, `sl_hud_monitor.py` and `GridState` — three processes
+holding one domain, ~1536 lines. You cannot design a good protocol around state smeared
+across three processes: doing so encodes the current confusion into an IPC contract,
+which is far harder to undo than a Python refactor. Consolidate the domain model first;
+then decide what interface it needs. If that answer later turns out to be "a daemon",
+nothing is lost — the merged process *is* the session owner, and only its reach changes.
+
+Half the spec's machinery exists solely to make cross-process coordination safe: D6
+snapshot format, D7 intents, D11 maintenance mode at Phase 4 scope, D12's CLI contract,
+and the entire Security section. The merge retires that scope.
+
+**Explicitly not merged:**
+
+| Component | Stays separate because |
+|---|---|
+| `sl-watchdog.py` (535 lines) | D4 — a supervisor that dies with the thing it supervises is not a supervisor |
+| `touch_browser_app.py` | Different concern (patch/normalization/pressure), implicated in zero faults, and it is the process that must never host a JACK client (D1) |
+
+**Amends D15.** D15 blocks *Phase 3+ looper ownership* on the SooperLooper adopt/kill
+verdict. Phase 3M is permitted ahead of that verdict, because it is the one shape of
+this work that is defensible under either outcome: it **deletes processes rather than
+adding an owner**, it is reversible by restoring two unit files (Rollback), and it
+removes the fault modes that made B7/B8/B10 unreliable to run — so it improves the very
+evaluation D15 is waiting on. The daemon, the reconciler (Phase 4) and any new
+authoritative state remain blocked by D15 as written. If the verdict lands `disabled`,
+the merged process retires as one unit instead of three.
+
+**D16 is not a blocker for Phase 3M.** The guard-triple semantics decision is still
+required before anything *changes* looper guard behaviour; a refactor that preserves it
+does not need the answer. Q8 still tracks retirement.
 
 ## Acceptance Criteria
 
 ### Phase 1 — Observability by consolidation (no behaviour change)
 
-| # | Criterion | Verification |
-|---|---|---|
-| 1 | One snapshot: engine, graph, grid, loops, buffer/rate, health, per-service liveness, `mode`, `seq`, `schema` | Compare each field against the source of truth it aggregates |
-| 2 | It aggregates *existing* truth only — writes nothing, owns nothing | Review: no writes outside its own output and `/run/mpe` snapshot |
-| 3 | Every field carries provenance (which file/process/probe produced it) | Field-level `source` key present for all |
-| 4 | A stale sub-source reports **stale**, never a last-known value | Kill `sl-hud-monitor`; grid/transport marked stale within 1.5 s (D6), value suppressed |
-| 5 | The 2026-08-17 faults are visible from the snapshot alone | Reproduce a leaked client and a dead engine; both appear without correlating other sources |
-| 6 | **No fifth view.** `mpe status`, `mpe engine status`, `mpe jack status`, `mpe diagnose` are re-pointed at the snapshot; their output shape is unchanged | Diff each command's output before/after; byte-identical or documented delta |
-| 7 | Snapshot generation costs < 1% of a core at 2 Hz | Measure on the Pi with `/proc/<pid>/stat`, as in Evidence |
-| 8 | A reader on an unknown `schema` major refuses loudly | Bump `schema`, run an old `mpe-cli`; it errors rather than printing nulls |
+| # | Criterion | Status | Verification |
+|---|---|---|---|
+| 1 | One snapshot: engine, graph, grid, loops, buffer/rate, health, per-service liveness, `mode`, `seq`, `schema` | 🟡 partial | Has engine, jack (buffer/rate), surge, reconcile, `looper.hud` (grid/transport), `mode`, `seq`, `schema`. **Missing:** graph wiring, per-loop state, health, per-service liveness as fields |
+| 2 | It aggregates *existing* truth only — writes nothing, owns nothing | ✅ | Writes only `session.snapshot.json` + `.seq` |
+| 3 | Every field carries provenance (which file/process/probe produced it) | ✅ | Field-level `source` key present for all |
+| 4 | A stale sub-source reports **stale**, never a last-known value | ✅ *(amended)* | Per-source **writer liveness**, not a 1.5 s age gate — see Implementation log. Unknown liveness reads as stale |
+| 5 | The 2026-08-17 faults are visible from the snapshot alone | ❌ | Needs the leaked-client and graph-wiring fields from criterion 1 |
+| 6 | **No fifth view.** `mpe status`, `mpe engine status`, `mpe jack status`, `mpe diagnose` are re-pointed at the snapshot; their output shape is unchanged | ❌ deferred | mpe-cli untouched; the snapshot is currently a *fifth* view, which is the thing this criterion exists to prevent. Highest-priority Phase 1 debt |
+| 7 | Snapshot generation costs < 1% of a core at 2 Hz | ❌ *(diagnosed)* | **57.3 ms** measured ⇒ ~11.5% at 2 Hz. **97% of it is three `systemctl` forks**; everything else is 1.4 ms. Not blocked — fix liveness (D-Bus first, else batch + TTL) before any publisher ships. See the cost table under Phase 2 |
+| 8 | A reader on an unknown `schema` major refuses loudly | ✅ | `read_snapshot` raises on `schema > max_schema` |
 
 ### Phase 2 — Event stream
 
+**Event emitter cost constraint (Phase 2 expansion).** Bash callers emit via
+`scripts/mpe-session-event-emit.py`, which forks a Python interpreter per event
+(~360 ms on Pi). That is acceptable for transition-only events (engine start/stop,
+buffer change, calibration stop/restore). It is **not** acceptable for periodic or
+high-rate events — deferred names like `client.registered` during a graph rebuild
+can fire dozens of times per second on the recovery path where jackd is already
+missing deadlines. Before adding chatty events, the emitter must become long-lived
+or move in-process. Criterion 11 assumes events stay rare.
+
+**Snapshot publisher cost — profiled 2026-08-18, and the number is all one thing.**
+The publisher is **not blocked by any dependency**; it fails criterion 7 as written,
+for a fully diagnosed reason. Measured in-process on `raspberrypi2`:
+
+| | ms |
+|---|---|
+| `build_snapshot()` full | **57.3** |
+| ↳ one `systemd_unit_active` fork | 18.1 |
+| `build_snapshot(unit_active=<stub>)` — everything else | **1.4** |
+| ↳ four `read_engine_state` | 0.4 |
+| ↳ `read_sl_hud_state` | 0.1 |
+| ↳ `next_seq` (flock + fsync) | 0.5 |
+
+**97% of the cost is three `systemctl` forks.** File reads, JSON, locking and fsync
+together are 1.4 ms. This is the [`DECISIONS.md`](../DECISIONS.md) 2026-08-18 failure
+mode inside the snapshot itself, and it is why a publisher must not ship as-is: at
+`PUBLISH_INTERVAL_S = 0.5` it would put ~11.5% of a core on the appliance permanently
+— five times what all of `surge-watchdog` costs.
+
+Cost of the options, at 2 Hz:
+
+| Approach | Cost |
+|---|---|
+| Today — three separate forks per build | 11.5% |
+| Batched into one `systemctl is-active` per build | 3.6% |
+| Batched + 2 s liveness TTL | ~1.1% |
+| Batched + 5 s liveness TTL | ~0.44% ✅ |
+| systemd liveness over **D-Bus** (no fork) | *unmeasured; expected ≪ 1 ms* |
+
+**Try D-Bus first (~20 min to find out).** Querying systemd's `ActiveState` over D-Bus
+spawns no process and would clear criterion 7 at 2 Hz with **no cache and no honesty
+trade**. Only if that fails should a TTL be accepted — and a cached liveness reading is
+a soft form of the last-known-good problem this spec's staleness model exists to
+prevent, so if one is used the snapshot **must carry the age of the cached liveness**
+so a reader can see how stale the judgement is. Batching is worth doing either way.
+
+**Sequencing note (soft, not a block).** The publisher has no consumer until criterion 6
+re-points `mpe-cli` at the snapshot. That is a reason to do criterion 6 first, not a
+reason the publisher cannot be built.
+
+
+| # | Criterion | Status | Verification |
+|---|---|---|---|
+| 9 | Discrete events with stable names, one line each, structured | 🟡 partial | Emitting: `engine.started`, `engine.exited`, `buffer.changed`, `mode.changed`, `looper.units.*`. **Named but never emitted:** `grid.established`, `grid.dropped`, `client.registered`, `client.leaked` |
+| 10 | The client leak is detectable from events alone | ❌ | Needs a `client.registered`/`client.leaked` emitter — blocked on the cost constraint above |
+| 11 | Events are cheap enough to leave on permanently | ✅ *(conditionally)* | Free at steady state because events are transition-only. Holds **only** while that stays true |
+| 12 | No polling probe may register a JACK client (the `jack_cpu_load` lesson) | ⚠️ **violated** | `mpe_surge_on_jack_graph` runs `jack_lsp` — a real JACK client — every `MPE_JACK_PROBE_INTERVAL_S` (10 s) from `surge-watchdog`. See below |
+
+**Criterion 12 is knowingly violated, and the tension is real.** The supervisor's
+only way to answer *"is Surge on the graph?"* is `jack_lsp`, which registers a client.
+Removing the probe is not an option — a short-circuit that never re-probes is blind to
+the orphaned-client wedge ([`DECISIONS.md`](../DECISIONS.md) 2026-08-15), which is the
+exact fault the supervisor exists to catch. So the criterion was traded down rather
+than met, deliberately:
+
+- **Cadence bounded** at 10 s (was every 5 s, twice per tick), always ≤ the 30 s
+  supervisor cooldown so detection never lags the ability to act.
+- **`timeout -k`** guarantees the client exits, so registrations cannot accumulate —
+  this is what makes the 705-leak of 2026-08-17 non-recurring. Live count: 5 clients.
+- **Cost measured:** ~116 ms/probe ⇒ ~1.16% of a core.
+
+A `/dev/shm/jack_sem.<uid>_default_<client>` existence check was evaluated as a
+fork-free replacement and **rejected**: stale semaphores outlive dead clients
+(`jack_cpu_load` sems were present for clients absent from `jack_lsp`), so it is a
+reliable negative but an unreliable positive — a reading identical whether Surge is
+registered or orphaned. Criterion 12's real intent is *no unbounded, unreaped client
+registration on a repeating path*; that intent is met. Reword it in Phase 4 rather
+than pretending the letter is satisfied.
+
+### Phase 3M — Looper session process (**chosen path**, D17)
+
+**One process owns looper session state.** Merge `scripts/sooperlooper-apc-bench.py`
+(392), `scripts/sooperlooper/sl_hud_monitor.py` (258) and
+`scripts/sooperlooper/sl_grid_state.py` (145) — plus `sl_grid_sync.py` (205) and
+`apc_footswitch.py` (536) as they are already bench-owned — into a single unit,
+`mpe-looper-session.service`. `sl-watchdog` and the touch UI stay separate (D17).
+
 | # | Criterion | Verification |
 |---|---|---|
-| 9 | Discrete events with stable names, one line each, structured | `engine.started`, `engine.exited`, `grid.established`, `grid.dropped`, `buffer.changed`, `client.registered`, `client.leaked`, `mode.changed` |
-| 10 | The client leak is detectable from events alone | Replay 2026-08-17: `client.registered` without matching teardown, rising count |
-| 11 | Events are cheap enough to leave on permanently | Measured CPU cost < 1% of a core at steady state, on the Pi |
-| 12 | No polling probe may register a JACK client (the `jack_cpu_load` lesson) | Test asserts no per-sample process spawn on any repeating path |
+| 38 | One unit hosts bench + HUD + grid state | `config/mpe-apc-bench.service` and `config/sl-hud-monitor.service` deleted; `mpe-looper-session.service` present; `install-units.sh` renders it |
+| 39 | Grid state has exactly one writer; nothing else mutates it | Grep: no `GridState` mutation outside the owning module |
+| 40 | The `sync_source` restart sentinel is deleted | Absent from the tree; engine restart detected explicitly |
+| 41 | One OSC connection with one lifecycle | Single client object; `maybe_reregister()` semantics preserved; tempo **seeded** on registration, not awaited (`register_auto_update` delivers on CHANGE — the 2026-08-17 HUD race) |
+| 42 | **HUD work never runs on the MIDI path** | The bench polls at ~2 ms, the HUD writes and shells to `journalctl` at 2 Hz. HUD work on its own thread/timer. Verify worst-case MIDI-in → OSC-out latency is unchanged, measured on the Pi, before and after |
+| 43 | **Loud failure on a held OSC port survives** | Start a second instance while 9953 is held; it refuses to start rather than warning and continuing. This behaviour has already saved a session — it must not soften in the merge |
+| 44 | Musical behaviour unchanged | Pad-driven record → clear → grid-establish sequence identical before and after, verified by hand on the APC |
+| 45 | `sl-watchdog` remains a separate process (D4) | Unit still present and separate; it must be able to restart the merged process |
+| 46 | Crash blast radius is measured, not assumed | `kill -9` the merged process mid-session; `Restart=always` recovers; time to first pad response recorded in `docs/measurements/`. One crash now takes bench **and** HUD — that regression is accepted only with a number attached |
+| 47 | CPU no worse than the two processes it replaces | `/proc/<pid>/stat` fields 14–17 over 60 s idle, before vs after, on the Pi. No new periodic subprocess spawn ([`DECISIONS.md`](../DECISIONS.md) 2026-08-18) |
+| 48 | Grid transitions are unit-testable off-hardware (D13) | Tests run in the laptop suite with no Pi, no JACK, no OSC — extend `tests/fake_sl_engine.py`, which holds quantized actions until an explicit `boundary()` |
+| 49 | State is re-derived from the engine on start, never from a local cache | Restart the process mid-session; grid/loop state matches engine truth with no operator action |
 
-### Phase 3 — Session owner (gated; see Falsification)
+**Sequencing for the implementer.** Land in this order, each its own commit, each
+green on the Pi before the next: (1) new unit + process skeleton that runs the bench
+only, two old units retired; (2) HUD folded in behind criterion 42's threading rule;
+(3) `GridState` folded in, single writer (39); (4) sentinel deleted (40). Criterion 44
+is checked by hand after each step, not once at the end.
+
+**Not in scope:** the touch UI, patch/normalization state, the config-key duplication,
+and the realtime boundary (Phase 5) — which proceeds independently.
+
+### Phase 3 — Session owner daemon (**superseded** by Phase 3M; retained for the record)
+
+> **Not the chosen path (D17, 2026-08-18).** Criteria 13–22 are kept because the daemon
+> becomes live again if a second instrument, a remote agent, or a non-pygame UI appears.
+> Do not implement these without re-opening Q1. Criteria 15–16 and 19–22 have no
+> analogue under Phase 3M (there is no separate owner to kill); 13–14 and 18 carry over
+> as 39, 40 and 44.
 
 | # | Criterion | Verification |
 |---|---|---|
@@ -401,14 +581,51 @@ test of "reconciliation over sequencing" and gets its own criteria.
 | 31 | **Calibration still works end to end** | Run `calibrate-patch-normalization.py` with the reconciler live; it completes, and the stack is restored afterwards |
 | 32 | A stale maintenance flag self-clears | Set the flag, kill the setter, wait past the deadline; reconciler resumes and the event stream records `mode.changed` |
 
-### Phase 5 — Realtime boundary enforced
+### Phase 5 — Realtime boundary enforced (**promoted 2026-08-18: no longer optional**)
+
+**Measured on the appliance 2026-08-18 — the Python meter costs ~30 points of peak DSP.**
+Three 90 s runs at `512 x 3` while playing, `surge-xt-cli` CPU used as the matched-load
+control. Runs A and C differ in one variable: whether `mpe-peak-meter` is on the graph.
+
+| Run | Meter | surge CPU (control) | DSP median | DSP p90 | DSP max | samples >70% |
+|---|---|---|---|---|---|---|
+| A | **on** | 39% | 59.0 | 81.2 | **91.9** | **26** |
+| B | off | 11% *(light play — confounded, discarded)* | 18.0 | 18.4 | 18.7 | 0 |
+| C | **off** | 39% | 43.5 | 51.1 | **61.2** | **0** |
+
+**The distribution proves the mechanism, not just the cost.** Between A and C the median
+moves 15 points but p90 and max move **30**. A process that merely consumes CPU shifts a
+distribution uniformly; this one barely lifts the floor and collapses the tail. That is
+the signature of *intermittent blocking* — periods where the realtime callback waited on
+the GIL held by the UI's `SCHED_OTHER` draw loop — and it explains why the crackle was
+sporadic rather than constant.
+
+**Consequences:**
+
+- Phase 5 was filed as orthogonal, do-it-whenever. It is now the work standing between
+  this appliance and low-latency operation, with a number attached.
+- `512 x 3` is comfortable **without** the meter (max 61%) and marginal **with** it
+  (max 92%). The buffer was never the fault; it was the margin hiding one.
+- `MPE_PEAK_METER=0` is the live mitigation and is set on the appliance.
+- This is a re-violation of [`DECISIONS.md`](../DECISIONS.md) 2026-08-13, *No Python on
+  the JACK audio thread* — a rule this project wrote, then broke in PR #64. Criterion 33
+  exists so the next violation fails a test instead of a gig.
+
+**Why a ring buffer does not fix it.** The obvious remedy — RT side writes to a lock-free
+ring, reader takes what is there or nothing — does not apply, because the blocking happens
+*before* the callback's first instruction: `port.get_array()` requires acquiring the GIL.
+A Python JACK callback can never be RT-safe, since GIL acquisition is an unbounded wait on
+a lock owned by a non-realtime thread. Criterion 34 must be satisfied by a **compiled**
+client (levels into shared memory, UI reads at its leisure) or by not being a JACK client
+at all — never by making the Python callback cheaper.
 
 | # | Criterion | Verification |
 |---|---|---|
 | 33 | Test fails on `set_process_callback` outside the allowlist | Add a violation; suite goes red |
 | 34 | OUT meter is out-of-process or compiled; allowlist empty | `mpe-peak-meter` no longer a Python client |
 | 35 | 128 × 3 under playing load, strict mode, zero xruns | `bench-xruns.sh --sweep --strict` while playing — softmode numbers are not accepted (`d5ac0cc`) |
-| 36 | Any unit hosting a JACK client declares `LimitRTPRIO` | Test over `config/*.service`, cross-referenced with the allowlist |
+| 36 | Any unit hosting a JACK client declares `LimitRTPRIO` | Test over `config/*.service`, cross-referenced with the allowlist. **Necessary but not sufficient** — on 2026-08-18 the meter callback *was* `SCHED_FIFO 65` under `LimitRTPRIO=95` and still stalled the graph, because RT priority does not grant the GIL |
+| 36a | The meter's replacement is proven by the same A/B, not by inspection | Re-run the matched-load protocol above with the compiled meter on the graph: `surge-xt-cli` within a few points of the control run, DSP max within a few points of run C |
 
 ### Success metric (how we know this worked)
 
@@ -427,10 +644,11 @@ the observability model is wrong and Phase 3 must not be built on top of it.
 Phases 1 and 2 are **unconditional** — pure profit, no behaviour change, immediately
 useful, and prerequisites for diagnosing anything after.
 
-**Sequencing:** Phases 1–2 can proceed now. Phase 3+ for the looper stack is gated on
-the SooperLooper adopt/kill verdict (D15, [`DIRECTION`](../DIRECTION.md) B7/B8) and
-on resolving `MPE_LOOPER_ENABLED` guard semantics (D16). Phase 5 (realtime boundary)
-proceeds in parallel with 1–2 — it is orthogonal to looper ownership.
+**Sequencing:** Phases 1–2 are **done** and soaking. **Phase 3M is next and unblocked**
+(D17). Phase 4 for the looper stack remains gated on the SooperLooper adopt/kill verdict
+(D15, [`DIRECTION`](../DIRECTION.md) B7/B8) and on resolving `MPE_LOOPER_ENABLED` guard
+semantics (D16). Phase 5 (realtime boundary) proceeds in parallel — it is orthogonal to
+looper ownership.
 
 ### Phase 0 (immediate — no reconciler)
 
@@ -441,24 +659,18 @@ not only Surge/touch/pressure/governor. This is an **interim D11 shim**: explici
 `systemctl stop`/`start` in calibration, not maintenance mode and not a reconciler.
 Without it, `Restart=always` on looper units undoes calibration within 5 s.
 
-Phase 3 is **gated**: it requires an explicit decision between the daemon and the
-cheaper **Phase 3-merge** alternative below. Phases 4–5 follow whichever is chosen.
+**The Phase 3 gate is closed (D17, 2026-08-18): merge.** Phase 3M (criteria 38–49) is
+the implementable path and is **ready to start**. Phase 3 (daemon, criteria 13–22) is
+superseded and retained for the record.
 
-### Phase 3-merge (alternative to daemon)
+Phase 3b (buffer change) remains one declared operation — implemented via the existing
+promote path until Phase 4, not as a new intent bus. Phase 3M does **not** need D11
+maintenance mode at Phase 4 scope: fewer supervised units to suppress during
+calibration, and the flag written in Phase 0 already covers the calibration case.
 
-If the Phase 3 gate answers *one instrument, pygame-only* (see Falsification Analysis),
-take the merge path instead of a session-owner daemon:
-
-- Merge `sooperlooper-apc-bench.py`, `sl-hud-monitor.py`, and in-process `GridState`
-  into **one looper session process** with a single grid writer.
-- Acceptance criteria **13–14, 18** still apply; **15–16, 19–22** shrink or defer
-  (no separate owner to kill; cold-boot convergence stays a systemd problem).
-- Phase 3b buffer change remains one declared operation — implemented as a reconciled
-  intent inside the merged process or via existing promote path until Phase 4.
-- Does **not** need D11 maintenance mode at the same scope — fewer supervised units to
-  suppress during calibration.
-
-Outline only; full criteria live in Falsification Analysis until the gate decision.
+**Phase 4 (reconciler) stays blocked** by D15 until the SooperLooper adopt/kill verdict
+and by D16 until the guard-semantics decision. Phase 3M is permitted ahead of both —
+see D17 for why.
 
 ---
 
@@ -485,6 +697,15 @@ ever run this, and will anything other than pygame ever drive it?"* is **one and
 take the merge. The daemon earns its keep only against a second instrument, a remote
 agent, or a non-pygame UI. That is a product question, and it is the owner's, not this
 spec's.
+
+> ✅ **Gate closed 2026-08-18: one and no — merge.** See D17 and Phase 3M. The
+> falsification below still stands as the argument that was tested, not as an open
+> question.
+>
+> **What would falsify the merge, once built:** if cross-process state bugs keep
+> appearing *after* it, they will be between the merged looper process and the touch UI
+> — patch state, normalization, volume. That is when the daemon earns its keep, with
+> evidence instead of a prediction. Re-open Q1 at that point, not before.
 
 **What would falsify Phases 1–2?** If `mpe state` and the event stream are built and
 the next incident still requires ssh-and-correlate, the observability model is wrong
@@ -551,11 +772,17 @@ world-readable and contains no credentials; secrets remain absent from `/run/mpe
 
 ## Open Questions
 
-1. **Q1 — Daemon or merge?** The Phase 3 gate. Needs a product answer, not a technical
-   one. *(Blocking for Phase 3 only; Phases 1–2 proceed either way.)*
+1. **Q1 — Daemon or merge?** ✅ **ANSWERED 2026-08-18 (Mitch): merge.** See D17 and
+   Phase 3M. The daemon is not rejected forever — it is deferred until a second
+   instrument, a remote agent, or a non-pygame UI exists. Phase 3 (daemon, criteria
+   13–22) is **superseded** by Phase 3M (criteria 38–49).
 2. **Q2 — Snapshot publish interval.** The HUD writes at 2 Hz today. Is that the right
    rate for a general snapshot, or does the meter/transport need a faster lane?
-   Measure before choosing.
+   Measure before choosing. *(2026-08-18: partly answered by profiling — the interval is
+   no longer the lever. Snapshot cost is 1.4 ms of real work plus ~56 ms of `systemctl`
+   forks, so fixing liveness matters far more than choosing a rate. Once liveness is
+   fork-free, 2 Hz costs ~0.3% and the question becomes a product one about how fresh
+   the transport needs to look, not a budget one.)*
 3. **Q3 — Does the touch UI join the edge plane in Phase 3, or later?** It holds
    normalization, pressure, hold and favourites state, all file-backed and all
    single-writer today. Lower risk than the looper; also lower value.
@@ -596,6 +823,28 @@ world-readable and contains no credentials; secrets remain absent from `/run/mpe
 9. **Q9 — Home-dir JSON in snapshot or excluded?** Should `~/.mpe_sl_hud_state.json`
    and `~/.mpe_sl_watchdog.json` appear in the unified snapshot (with provenance and
    staleness), or stay edge-local artifacts excluded from `/run/mpe` aggregation?
+10. **Q10 — We cannot count xruns without arming the client-killer.** `jackd -s`
+    (softmode) bundles two behaviours JACK does not let us separate: *do not zombify a
+    client that misses a deadline* — which is correct for shipping, nobody loses a gig to
+    one late period — and *do not report xruns at all*. We chose softmode for the first
+    and inherited the second, so on the shipping configuration **the xrun channel is dead
+    and `0 xruns` is indistinguishable from `not measured`**. This is the
+    [`DECISIONS.md`](../DECISIONS.md) 2026-08-15 failure mode baked into the product
+    default. Consequences and the open question:
+    - Our only in-band evidence today is **DSP headroom sampled at 1 Hz** by
+      `jack_cpu_load`. Crackle happens inside a 10.67 ms period, so a 1 Hz smoothed
+      reading can show comfortable margin while individual periods still overrun.
+      **This is why residual crackle can persist at DSP max 61% and we cannot see it.**
+    - `bench-xruns.sh --strict` remains the only honest counter, and it is unusable while
+      playing for real — strict mode is exactly the client-killer softmode exists to
+      avoid.
+    - **To investigate:** does JACK2 still invoke `jack_set_xrun_callback` under softmode?
+      If it does, a tiny compiled client can count xruns continuously on the shipping
+      configuration without arming strict mode — closing the blindness permanently. That
+      client is the same shape as the Phase 5 compiled meter (criterion 34) and should be
+      built alongside it. If it does not, we need a driver-level or ALSA-level counter, or
+      we accept that the shipping default cannot self-report and say so in the docs rather
+      than letting `0` read as `fine`.
 
 ## Rollback
 
@@ -603,9 +852,12 @@ Each phase is independently revertable.
 
 - **Phases 1–2:** additive only. Delete the command and the event calls; nothing else
   referenced them.
-- **Phase 3:** the merge variant reverts by restoring two units. The daemon variant
-  reverts by re-enabling the edges' local state — which must therefore be *removed in a
-  separate commit from* the owner landing, so the revert is one commit.
+- **Phase 3M (chosen):** reverts by restoring `mpe-apc-bench.service` and
+  `sl-hud-monitor.service` and reverting the merge commits. Because the sequencing above
+  lands one fold per commit, any single step reverts on its own. Keep the two retired
+  unit files in git history reachable — do not squash the retirement into the merge.
+  *(Superseded daemon variant: would have reverted by re-enabling the edges' local
+  state, which is why that had to land in a separate commit from the owner.)*
 - **Phase 4:** the riskiest to revert, because it *deletes working scripts*. Therefore:
   `restart-sooperlooper.sh`, `surge-watchdog.sh` and the graph-restart sequences are
   **retained as-is** through Phase 4 and only deleted in a separate, later commit once
