@@ -136,9 +136,10 @@ class GridEstablishmentTests(unittest.TestCase):
         def start(_loop: int) -> None:
             fs._osc.send_message(f"/sl/{SCRATCH_LOOP}/hit", ["record"])
 
-        def merge(_loop: int, done) -> None:
+        def merge(_loop: int, done) -> bool:
             if merge_immediate:
                 done()
+            return True
 
         fs.set_seam_weld_hooks(
             on_prepare_scratch=lambda _loop: fs._osc.send_message(
@@ -197,7 +198,7 @@ class GridEstablishmentTests(unittest.TestCase):
             on_prepare_scratch=lambda loop: None,
             on_start_scratch=lambda loop: started.append(loop),
             on_stop_scratch=lambda loop: None,
-            on_request_merge=lambda loop, done: done(),
+            on_request_merge=lambda loop, done: (done(), True)[1],
         )
         fs._tail_capture = True
         fs._tail_stop_sent = True
@@ -298,7 +299,7 @@ class TailCaptureTests(unittest.TestCase):
             on_prepare_scratch=lambda loop: None,
             on_start_scratch=lambda loop: None,
             on_stop_scratch=lambda loop: None,
-            on_request_merge=lambda loop, done: merged.append(loop),
+            on_request_merge=lambda loop, done: (merged.append(loop) or False),
         )
         fs._tail_capture = True
         fs._tail_stop_sent = True
@@ -328,7 +329,7 @@ class TailCaptureTests(unittest.TestCase):
             on_prepare_scratch=lambda loop: None,
             on_start_scratch=lambda loop: None,
             on_stop_scratch=lambda loop: None,
-            on_request_merge=lambda loop, done: done(),
+            on_request_merge=lambda loop, done: (done(), True)[1],
         )
         fs._tail_capture = True
         fs._tail_stop_sent = True
@@ -385,7 +386,7 @@ class TailCaptureTests(unittest.TestCase):
             on_prepare_scratch=lambda loop: None,
             on_start_scratch=lambda loop: None,
             on_stop_scratch=lambda loop: None,
-            on_request_merge=lambda loop, done: done(),
+            on_request_merge=lambda loop, done: (done(), True)[1],
         )
         fs._tail_capture = True
         fs._tail_stop_sent = True
@@ -407,7 +408,7 @@ class TailCaptureTests(unittest.TestCase):
             on_prepare_scratch=lambda loop: None,
             on_start_scratch=lambda loop: None,
             on_stop_scratch=lambda loop: None,
-            on_request_merge=lambda loop, done: done(),
+            on_request_merge=lambda loop, done: (done(), True)[1],
         )
         fs._tail_capture = True
         fs._tail_stop_sent = True
@@ -434,7 +435,7 @@ class TailCaptureTests(unittest.TestCase):
             on_prepare_scratch=lambda loop: None,
             on_start_scratch=lambda loop: None,
             on_stop_scratch=lambda loop: None,
-            on_request_merge=lambda loop, done: done(),
+            on_request_merge=lambda loop, done: (done(), True)[1],
         )
         fs._tail_capture = True
         fs._tail_stop_sent = True
@@ -447,6 +448,29 @@ class TailCaptureTests(unittest.TestCase):
         fs._tail_silence_since = TAIL_HOLD_S * -2 + time.monotonic()
         fs.poll_tail_capture()
         self.assertFalse(fs._tail_capture)
+
+    def test_no_merge_without_release_peak(self) -> None:
+        from scripts.sooperlooper.sl_grid_sync import TAIL_MAX_S
+
+        fs = LoopFootswitch(loop=0, hold_ms=1000.0, debounce_ms=0.0)
+        fs.bind(MagicMock(), MagicMock(), 36)
+        merged = []
+        fs.set_seam_weld_hooks(
+            on_prepare_scratch=lambda loop: None,
+            on_start_scratch=lambda loop: None,
+            on_stop_scratch=lambda loop: None,
+            on_request_merge=lambda loop, done: (merged.append(loop), True)[1],
+        )
+        fs._tail_capture = True
+        fs._tail_stop_sent = True
+        fs.sync_from_sl(SL_STATE_PLAYING)
+        fs.sync_loop_len(2.0)
+        fs._scratch_active = True
+        fs._tail_saw_loud = False
+        fs._tail_capture_since = time.monotonic() - TAIL_MAX_S - 0.01
+        fs.poll_tail_capture()
+        self.assertFalse(fs._tail_capture)
+        self.assertEqual(merged, [])
 
     def test_grid_clock_deferred_until_tail_weld_finishes(self) -> None:
         from scripts.sooperlooper.sl_grid_state import GridState
