@@ -43,6 +43,10 @@ TAIL_SEAM_RATIO = float(os.environ.get("MPE_SL_TAIL_SEAM_RATIO", "0.85"))
 TAIL_SEAM_END_MAX_S = float(os.environ.get("MPE_SL_TAIL_SEAM_END_MS", "500")) / 1000.0
 # Minimum time in overdub so a very short peak still reaches the seam on brief loops.
 TAIL_MIN_OVERDUB_S = float(os.environ.get("MPE_SL_TAIL_MIN_OVERDUB_MS", "150")) / 1000.0
+# Tail weld mix — lower incoming gain + longer loop crossfade while overdub is active.
+TAIL_WELD_INPUT_GAIN = float(os.environ.get("MPE_SL_TAIL_INPUT_GAIN", "0.35"))
+TAIL_WELD_FADE_SAMPLES = int(os.environ.get("MPE_SL_TAIL_FADE_SAMPLES", "512"))
+TAIL_WELD_RESTORE_INPUT_GAIN = float(os.environ.get("MPE_SL_TAIL_RESTORE_INPUT_GAIN", "1.0"))
 
 # Phase re-anchor: when PLAYING arrives mid-bar, defer a second set_tempo until
 # loop_pos is near the defining take's wrap (set_tempo zeroes phase). Grid
