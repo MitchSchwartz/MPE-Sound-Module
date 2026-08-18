@@ -365,6 +365,19 @@ printf '%s' "$(mpe_engine_reconcile_count)"
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(result.stdout.strip(), "2")
 
+    def test_mpe_state_get_last_match_wins(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            env = _bash_env(tmp)
+            state_file = Path(tmp) / "engine.state"
+            state_file.write_text("state=recovering\nstate=ok\nactive=jack\n", encoding="utf-8")
+            body = f"""
+source {AUDIO_ENGINE_SH}
+printf 'state=%s active=%s\n' "$(mpe_state_get '{state_file}' state)" "$(mpe_state_get '{state_file}' active)"
+"""
+            result = _run_bash_script(body, env=env)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout.strip(), "state=ok active=jack")
+
     def test_atomic_engine_state_roundtrip(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             env = _bash_env(tmp)
@@ -538,6 +551,8 @@ class NoAlsaPathTests(unittest.TestCase):
         text = SURGE_WATCHDOG_SH.read_text(encoding="utf-8")
         self.assertIn('systemctl is-active --quiet "$SURGE_SERVICE"', text)
         self.assertIn('[ "$state" = ok ] && [ "$active" = jack ]', text)
+        self.assertIn("JACK_PROBE_INTERVAL_S", text)
+        self.assertIn("_last_jack_probe=$EPOCHSECONDS", text)
 
     def test_surge_watchdog_looper_reconcile_batched_and_throttled(self) -> None:
         text = SURGE_WATCHDOG_SH.read_text(encoding="utf-8")
@@ -655,6 +670,8 @@ mpe_surge_on_jack_graph() { return 0; }
                 encoding="utf-8",
             )
             stubs = """
+_last_jack_probe=$EPOCHSECONDS
+JACK_PROBE_INTERVAL_S=60
 mpe_jack_server_ready() { echo JACK_LSP_PROBE >&2; return 1; }
 mpe_surge_on_jack_graph() { echo GRAPH_PROBE >&2; return 1; }
 export -f mpe_jack_server_ready mpe_surge_on_jack_graph
@@ -671,6 +688,27 @@ export -f systemctl
             self.assertEqual(result.stdout.strip(), "ok:jack")
             self.assertNotIn("JACK_LSP_PROBE", result.stderr)
             self.assertNotIn("GRAPH_PROBE", result.stderr)
+
+    def test_reconcile_probes_graph_again_after_the_interval(self) -> None:
+        """A short-circuit that never re-probes cannot see an orphaned JACK client."""
+        with tempfile.TemporaryDirectory() as tmp:
+            env = _bash_env(tmp)
+            engine = Path(tmp) / "engine.state"
+            engine.write_text(
+                "engine=jack\nactive=jack\nstate=ok\nupdated=1\nlooper=off\n",
+                encoding="utf-8",
+            )
+            stubs = """
+_last_jack_probe=0
+JACK_PROBE_INTERVAL_S=60
+mpe_surge_on_jack_graph() { echo GRAPH_PROBE >&2; return 0; }
+export -f mpe_surge_on_jack_graph
+systemctl() { case "$*" in is-active*surge-xt-cli*) return 0 ;; esac; return 1; }
+export -f systemctl
+"""
+            result = self._run_reconcile(env=env, stubs=stubs)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("GRAPH_PROBE", result.stderr, "stale short-circuit never re-probes")
 
     def test_jackd_never_ready_restarts_surge_as_jackd_down(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
