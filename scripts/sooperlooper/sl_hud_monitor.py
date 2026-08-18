@@ -84,7 +84,15 @@ class SlQuery:
 
         disp = osc_dispatcher.Dispatcher()
         disp.set_default_handler(self._on)
-        self._server = osc_server.ThreadingOSCUDPServer((SL_HOST, LISTEN_PORT), disp)
+        try:
+            self._server = osc_server.ThreadingOSCUDPServer((SL_HOST, LISTEN_PORT), disp)
+        except OSError as exc:
+            raise SystemExit(
+                f"sl-hud-monitor: cannot bind {SL_HOST}:{LISTEN_PORT} ({exc}).\n"
+                f"  A previous HUD listener is probably still running.\n"
+                f"  Fix: systemctl stop sl-hud-monitor mpe-apc-bench mpe-looper-session\n"
+                f"  Refusing to run blind — HUD state would never update."
+            ) from exc
         threading.Thread(target=self._server.serve_forever, daemon=True).start()
         self.client = udp_client.SimpleUDPClient(SL_HOST, SL_PORT)
         return self
@@ -119,6 +127,12 @@ class HudWriter:
         self._registered_at = 0.0
         self._graph_health = JackGraphHealth()
         self._last_health_sample = 0.0
+
+    def should_reregister(self) -> bool:
+        return time.monotonic() - self._registered_at > 15.0
+
+    def close(self) -> None:
+        self._graph_health.close()
 
     def register_auto_updates(self) -> None:
         """Subscribe to state/loop_len/loop_pos rather than polling for them.
@@ -244,14 +258,14 @@ def main() -> int:
     try:
         while True:
             writer.poll()
-            if time.monotonic() - writer._registered_at > 15.0:
+            if writer.should_reregister():
                 writer.register_auto_updates()  # survive an engine restart
             time.sleep(0.1)
     except KeyboardInterrupt:
         return 0
     finally:
         # Release the held jack_cpu_load client rather than leaving it on the graph.
-        writer._graph_health.close()
+        writer.close()
 
 
 if __name__ == "__main__":
