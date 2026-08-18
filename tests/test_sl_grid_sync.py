@@ -78,6 +78,23 @@ class SlGridSyncTests(unittest.TestCase):
             ],
         )
 
+    def test_phase_anchor_helpers(self) -> None:
+        from scripts.sooperlooper.sl_grid_sync import (
+            detect_loop_wrap,
+            should_defer_phase_anchor,
+        )
+
+        self.assertTrue(should_defer_phase_anchor(0.08, 2.0, loop_pos_seen=True))
+        self.assertFalse(should_defer_phase_anchor(0.01, 2.0, loop_pos_seen=True))
+        self.assertTrue(should_defer_phase_anchor(0.0, 2.0, loop_pos_seen=False))
+        self.assertTrue(detect_loop_wrap(1.9, 0.01, 2.0))
+        self.assertFalse(detect_loop_wrap(0.5, 0.6, 2.0))
+
+    def test_default_fade_samples_is_256(self) -> None:
+        from scripts.sooperlooper import sl_grid_sync
+
+        self.assertEqual(sl_grid_sync.DEFAULT_FADE_SAMPLES, 256)
+
     def test_grid_sync_jack_transport_all_quantized(self) -> None:
         sent: list[tuple[str, list]] = []
 
