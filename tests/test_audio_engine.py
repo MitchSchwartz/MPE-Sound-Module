@@ -1242,6 +1242,44 @@ if mpe_jack_softmode_enabled; then printf 'on'; else printf 'off'; fi
         self.assertNotIn('jackd -R -P"$JACK_PRIO" -s', text)
 
 
+class LooperOrphanReconcileTests(unittest.TestCase):
+    def test_looper_on_graph_detects_client_ports(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            env = _bash_env(tmp)
+            body = f"""
+source {AUDIO_ENGINE_SH}
+mpe_jack_server_running() {{ return 0; }}
+_mpe_jack_lsp_bin() {{ return 0; }}
+mpe_jack_lsp() {{ printf '%s\\n' 'Surge XT:out_1' 'mpe-looper:common_out_1'; }}
+export -f mpe_jack_server_running _mpe_jack_lsp_bin mpe_jack_lsp
+if mpe_looper_on_jack_graph; then printf ok; else printf no; fi
+"""
+            result = _run_bash_script(body, env=env)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout.strip(), "ok")
+
+    def test_reconcile_restarts_orphaned_looper(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            env = _bash_env(tmp)
+            body = f"""
+source {AUDIO_ENGINE_SH}
+pgrep() {{ case "$1" in -x) return 0 ;; esac; return 1; }}
+mpe_looper_on_jack_graph() {{ return 1; }}
+mpe_restart_looper_after_graph_change() {{ echo "RESTART:$1" >&2; return 0; }}
+export -f pgrep mpe_looper_on_jack_graph mpe_restart_looper_after_graph_change
+mpe_reconcile_looper_if_orphaned promote-to-jack
+"""
+            result = _run_bash_script(body, env=env)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("RESTART:promote-to-jack", result.stderr)
+
+    def test_surge_watchdog_reconciles_looper_after_promote(self) -> None:
+        text = SURGE_WATCHDOG_SH.read_text(encoding="utf-8")
+        self.assertIn("mpe_reconcile_looper_if_orphaned", text)
+        self.assertIn('"promote-to-jack"', text)
+        self.assertIn('"surge-on-graph"', text)
+
+
 class SessionEventBashTests(unittest.TestCase):
     def test_engine_transition_emits_events(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
