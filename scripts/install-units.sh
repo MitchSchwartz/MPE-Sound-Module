@@ -55,6 +55,9 @@ DISABLED=(
     # with `systemctl stop`, but the APC is now held by mpe-looper-session.service, so
     # stopping mpe-bench would have freed nothing. The agent's sudoers grant in
     # scripts/pi/provision-mpe-agent.sh names mpe-looper-session instead.
+    # Phase 3M 2026-08-18: bench + HUD merged into mpe-looper-session.service.
+    mpe-apc-bench
+    sl-hud-monitor
 )
 
 # No [Install] section — cannot be enabled, only pulled in by another unit.
@@ -190,6 +193,16 @@ if [ "$missing_exec" -eq 1 ]; then
     echo "  ^ These units will start-fail or silently skip. Fix before relying on" >&2
     echo "    this appliance being restored." >&2
 fi
+
+# Phase 3M upgrade: stop retired looper client units so they release UDP
+# 9952/9953 and the APC MIDI port before enabling the merged session.
+RETIRED_LOOPER_CLIENTS=(mpe-apc-bench sl-hud-monitor)
+for u in "${RETIRED_LOOPER_CLIENTS[@]}"; do
+    if systemctl is-active --quiet "$u.service" 2>/dev/null; then
+        echo "  stopping retired unit: $u (merged into mpe-looper-session)"
+        systemctl stop --now "$u.service" 2>/dev/null || true
+    fi
+done
 
 echo "Reloading systemd ..."
 systemctl daemon-reload
