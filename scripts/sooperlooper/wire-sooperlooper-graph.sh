@@ -51,6 +51,10 @@ sleep 0.5
 
 if record_path_ok && playback_path_ok; then
     log "PASS — ${SURGE_CLIENT} -> loop0..$((LOOPS - 1))_in, common_out -> playback"
+    # shellcheck source=../lib/audio-engine.sh
+    source "${SCRIPT_DIR}/../lib/audio-engine.sh"
+    mpe_session_event_emit looper.engine.started "graph-wired" || \
+        log "WARN: could not emit looper.engine.started"
     exit 0
 fi
 
