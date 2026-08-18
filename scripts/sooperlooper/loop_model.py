@@ -152,8 +152,8 @@ def plan_gesture(
             # pad on red blink forever (Pi log 2026-08-18).
             return Plan(
                 begin_tail_capture=True,
-                expect=STATE_RECORDING,
-                note="tail capture — close when release falls below threshold",
+                expect=STATE_PLAYING,
+                note="tail weld — stop now, overdub release at seam",
             )
         if sl_state != SL_STATE_RECORDING:
             # Armed, or asked-for-but-unconfirmed. Either way the engine may be
