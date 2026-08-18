@@ -12,8 +12,8 @@ case "${MPE_PEAK_METER:-0}" in
     1 | true | yes | on | TRUE | YES | ON)
         ;;
     *)
-        echo "mpe-peak-meter: disabled (MPE_PEAK_METER=${MPE_PEAK_METER:-0}) — enable flag and restart unit" >&2
-        exec sleep infinity
+        echo "mpe-peak-meter: disabled (MPE_PEAK_METER=${MPE_PEAK_METER:-0})" >&2
+        exit 0
         ;;
 esac
 

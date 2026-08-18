@@ -122,10 +122,10 @@ class JackRtBoundaryTests(unittest.TestCase):
             "mpe-peak-meter must gate on MPE_PEAK_METER in start script, not ConditionEnvironment",
         )
 
-    def test_peak_meter_unit_restarts_always(self) -> None:
-        """JACK graph restarts must bring the meter back (non-zero exit on shutdown)."""
+    def test_peak_meter_unit_restarts_on_failure(self) -> None:
+        """JACK drop exits 1 → restart; disabled exits 0 → stays inactive."""
         text = (CONFIG / "mpe-peak-meter.service").read_text(encoding="utf-8")
-        self.assertEqual(_directive(text, "Restart"), ["always"])
+        self.assertEqual(_directive(text, "Restart"), ["on-failure"])
         self.assertEqual(_directive(text, "ExecStartPre"), [])
 
 if __name__ == "__main__":
