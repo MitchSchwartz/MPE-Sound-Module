@@ -40,7 +40,7 @@ Deploy/sync scripts resolve `../mpe-assets`, `../MPE-Library`, or `../MPE-Person
 | `MPE_JACK_BUFFER` | `256` | **The only source of the JACK period**, in frames. Valid: 64, 128, 256, 512, 1024 (`mpe_buffer_env_canonical`). Deliberately does *not* fall back to `MPE_SURGE_BUFFER_SIZE` — that key is retired as a period (see [`RESTORE.md`](RESTORE.md)) and aliasing the two let stale config reassign the live period. *(Corrected 2026-08-17 — this said "Valid: 32–2048", which no validator ever accepted.)* |
 | `MPE_JACK_PERIODS` | `3` | JACK periods per buffer (server-side). Valid: 2, 3, 4. Real output latency is `MPE_JACK_BUFFER × MPE_JACK_PERIODS`, which is what the MIDI output offset derives from. |
 | `MPE_JACK_SOFTMODE` | `1` | `jackd -s`. On (default) a client that misses its deadline is tolerated — correct for a gig. Set `0` on the bench so jackd zombifies the offender and names it in the journal. |
-| `MPE_PEAK_METER` | `0` | Live OUT meter via compiled `mpe-peak-meter` service (Phase 5). **Off by default** — enable only after `scripts/bench-xruns.sh --strict` passes with it on the graph. Build: `scripts/build-mpe-peak-meter.sh` (needs libjack-jackd2-dev package). |
+| `MPE_PEAK_METER` | `0` | Live OUT meter via compiled `mpe-peak-meter` service (Phase 5). **Off by default** — set to `1`, then `systemctl enable --now mpe-peak-meter`. Enable only after `scripts/bench-xruns.sh --strict` passes. Build: `scripts/build-mpe-peak-meter.sh --required` (needs libjack-jackd2-dev). State includes `xruns=` (Q10 softmode counter). |
 
 `MPE_AUDIO_ENGINE` is **retired** (spec amended 2026-08-13) — JACK is the only audio engine, so there is nothing left to select. A jackd that will not start is a hard failure (`state=failed`), not a route to an alternate engine.
 
