@@ -134,6 +134,8 @@ class LoopFootswitch:
         self._tail_saw_loud = False
         self._tail_stop_sent = False
         self._scratch_active = False
+        self._tail_ending = False
+        self._merge_pending = False
         self._deferred_grid_clock: tuple[float, int] | None = None
         self._on_prepare_scratch: callable | None = None
         self._on_start_scratch: callable | None = None
@@ -214,7 +216,13 @@ class LoopFootswitch:
 
     def _maybe_start_scratch(self) -> None:
         """Parallel tail capture on scratch loop while main plays at fixed length."""
-        if self._scratch_active or not self._tail_stop_sent or not self._tail_capture:
+        if (
+            self._scratch_active
+            or self._tail_ending
+            or self._merge_pending
+            or not self._tail_stop_sent
+            or not self._tail_capture
+        ):
             return
         if not self._tail_playback_ready():
             return
@@ -231,6 +239,8 @@ class LoopFootswitch:
         if self._tail_capture and self._on_tail_capture_end is not None:
             self._on_tail_capture_end(self.loop)
         self._stop_scratch_capture()
+        self._tail_ending = False
+        self._merge_pending = False
         had_deferred = self._deferred_grid_clock is not None or self._phase_reanchor_at > 0.0
         self._tail_capture = False
         self._tail_capture_since = 0.0
@@ -267,6 +277,8 @@ class LoopFootswitch:
         stop_sent = self._tail_stop_sent
         self._tail_stop_sent = False
         self._scratch_active = False
+        self._tail_ending = False
+        self._merge_pending = False
         if self._on_tail_capture_end is not None:
             self._on_tail_capture_end(self.loop)
         self._pad_down = False
@@ -282,21 +294,44 @@ class LoopFootswitch:
         self._sync_led()
         self._mark_action()
 
+    def _should_seam_merge(self) -> bool:
+        """Only merge when release was audible — empty scratch has nothing to weld."""
+        if not SEAM_WELD_ENABLED or not self._tail_stop_sent:
+            return False
+        if not self._tail_saw_loud:
+            return False
+        return self._on_request_seam_merge is not None
+
     def _end_tail_capture(self, reason: str) -> None:
         """Stop scratch capture and optionally run Tier 3 merge before finish."""
+        if self._tail_ending or not self._tail_capture:
+            return
+        self._tail_ending = True
         if self._scratch_active:
             self._stop_scratch_capture()
-        if (
-            SEAM_WELD_ENABLED
-            and self._tail_stop_sent
-            and self._on_request_seam_merge is not None
-        ):
+        if self._should_seam_merge():
             log(f"loop {self.loop}: seam merge queued ({reason})")
-            self._on_request_seam_merge(
+            self._merge_pending = True
+            accepted = self._on_request_seam_merge(
                 self.loop,
-                lambda: self._finish_tail_capture(reason),
+                lambda: self._after_seam_merge(reason),
             )
+            if not accepted:
+                log(
+                    f"loop {self.loop}: seam merge declined — finishing without reload"
+                )
+                self._merge_pending = False
+                self._finish_tail_capture(reason)
             return
+        if self._tail_saw_loud:
+            log(
+                f"loop {self.loop}: seam merge skipped ({reason}) — "
+                f"no merge hook or SEAM_WELD off"
+            )
+        self._finish_tail_capture(reason)
+
+    def _after_seam_merge(self, reason: str) -> None:
+        self._merge_pending = False
         self._finish_tail_capture(reason)
 
     def set_tail_capture_hooks(
@@ -341,6 +376,9 @@ class LoopFootswitch:
             self._maybe_start_scratch()
             if not self._scratch_active and elapsed >= TAIL_MAX_S:
                 self._end_tail_capture(f"max {TAIL_MAX_S:.2f}s (no scratch)")
+            return
+
+        if self._tail_ending or self._merge_pending:
             return
 
         if self._in_peak_seen and self._in_peak >= TAIL_THRESH:
