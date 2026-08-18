@@ -107,6 +107,13 @@ class ApcFootswitchTests(unittest.TestCase):
 class GridEstablishmentTests(unittest.TestCase):
     """First take defines the tempo, then the grid stands alone."""
 
+    def setUp(self) -> None:
+        self._tail_mode_patch = patch.object(footswitch_mod, "TAIL_SEAM_MODE", False)
+        self._tail_mode_patch.start()
+
+    def tearDown(self) -> None:
+        self._tail_mode_patch.stop()
+
     def _fs(self, loop, grid, established_cb=None, reanchor_cb=None):
         from scripts.sooperlooper.apc_footswitch import LoopFootswitch
 
@@ -194,22 +201,23 @@ class GridEstablishmentTests(unittest.TestCase):
         self.assertEqual(seen, [(120.0, 1)])
 
     def test_scratch_starts_when_playback_lands(self) -> None:
-        fs = LoopFootswitch(loop=0, hold_ms=1000.0, debounce_ms=0.0)
-        fs.bind(MagicMock(), MagicMock(), 36)
-        started = []
-        fs.set_seam_weld_hooks(
-            on_prepare_scratch=lambda loop: None,
-            on_start_scratch=lambda loop: started.append(loop),
-            on_stop_scratch=lambda loop: None,
-            on_request_merge=lambda loop, done: (done(), True)[1],
-        )
-        fs._tail_capture = True
-        fs._tail_stop_sent = True
-        fs.sync_from_sl(SL_STATE_PLAYING)
-        fs.sync_loop_len(2.0)
-        fs._maybe_start_scratch()
-        self.assertTrue(fs._scratch_active)
-        self.assertEqual(started, [0])
+        with patch.object(footswitch_mod, "SEAM_WELD_ENABLED", True):
+            fs = LoopFootswitch(loop=0, hold_ms=1000.0, debounce_ms=0.0)
+            fs.bind(MagicMock(), MagicMock(), 36)
+            started = []
+            fs.set_seam_weld_hooks(
+                on_prepare_scratch=lambda loop: None,
+                on_start_scratch=lambda loop: started.append(loop),
+                on_stop_scratch=lambda loop: None,
+                on_request_merge=lambda loop, done: (done(), True)[1],
+            )
+            fs._tail_capture = True
+            fs._tail_stop_sent = True
+            fs.sync_from_sl(SL_STATE_PLAYING)
+            fs.sync_loop_len(2.0)
+            fs._maybe_start_scratch()
+            self.assertTrue(fs._scratch_active)
+            self.assertEqual(started, [0])
 
     def test_grid_anchor_defers_until_loop_wrap(self) -> None:
         """Late PLAYING report: grid now, phase re-anchor at wrap."""
@@ -294,6 +302,13 @@ class GridEstablishmentTests(unittest.TestCase):
 
 
 class TailCaptureTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self._tail_mode_patch = patch.object(footswitch_mod, "TAIL_SEAM_MODE", False)
+        self._tail_mode_patch.start()
+
+    def tearDown(self) -> None:
+        self._tail_mode_patch.stop()
+
     def test_pad_down_during_tail_aborts_without_merge(self) -> None:
         fs = LoopFootswitch(loop=0, hold_ms=1000.0, debounce_ms=200.0)
         fs.bind(MagicMock(), MagicMock(), 36)
@@ -537,6 +552,86 @@ class TailCaptureTests(unittest.TestCase):
         stop_all_loops(MagicMock(), num_loops=1, footswitches=[fs])
         self.assertFalse(fs._tail_capture)
         self.assertEqual(ended, [0])
+
+
+class SeamTailTests(unittest.TestCase):
+    """Option E — fixed bar + seam-position overdub."""
+
+    def setUp(self) -> None:
+        self._tail_mode_patch = patch.object(footswitch_mod, "TAIL_SEAM_MODE", True)
+        self._tail_mode_patch.start()
+
+    def tearDown(self) -> None:
+        self._tail_mode_patch.stop()
+
+    def test_defining_close_sends_immediate_stop(self) -> None:
+        from scripts.sooperlooper.sl_grid_state import GridState
+
+        grid = GridState()
+        fs = LoopFootswitch(loop=0, hold_ms=1000.0, debounce_ms=0.0, grid=grid)
+        fs.bind(MagicMock(), MagicMock(), 36)
+        fs.on_pad_down()
+        fs.on_pad_up()
+        fs.sync_from_sl(SL_STATE_RECORDING)
+        fs.on_pad_down()
+        fs.on_pad_up()
+        hits = [
+            c.args[1]
+            for c in fs._osc.send_message.call_args_list
+            if c.args[0] == "/sl/0/hit"
+        ]
+        self.assertEqual(hits, ["record", "record"], "start then immediate stop")
+        self.assertTrue(fs._tail_capture)
+        self.assertTrue(fs._tail_seam_mode)
+        self.assertTrue(fs._tail_stop_sent)
+
+    def test_seam_overdub_starts_in_seam_zone(self) -> None:
+        fs = LoopFootswitch(loop=0, hold_ms=1000.0, debounce_ms=0.0)
+        fs.bind(MagicMock(), MagicMock(), 36)
+        fs._tail_capture = True
+        fs._tail_seam_mode = True
+        fs._tail_stop_sent = True
+        fs._tail_capture_since = time.monotonic()
+        fs.sync_from_sl(SL_STATE_PLAYING)
+        fs.sync_loop_len(2.0)
+        fs.sync_loop_pos(1.75)
+        fs.poll_tail_capture()
+        hits = [
+            c.args[1]
+            for c in fs._osc.send_message.call_args_list
+            if c.args[0] == "/sl/0/hit"
+        ]
+        self.assertIn("overdub", hits)
+        self.assertTrue(fs._seam_overdub_active)
+
+    def test_seam_overdub_ends_at_wrap_after_quiet(self) -> None:
+        from scripts.sooperlooper.sl_grid_sync import TAIL_HOLD_S, TAIL_MIN_OVERDUB_S
+
+        fs = LoopFootswitch(loop=0, hold_ms=1000.0, debounce_ms=0.0)
+        fs.bind(MagicMock(), MagicMock(), 36)
+        fs._tail_capture = True
+        fs._tail_seam_mode = True
+        fs._tail_stop_sent = True
+        fs._tail_capture_since = time.monotonic()
+        fs.sync_from_sl(SL_STATE_PLAYING)
+        fs.sync_loop_len(2.0)
+        fs.sync_loop_pos(1.75)
+        fs._start_seam_overdub()
+        fs._seam_overdub_started_at = time.monotonic() - TAIL_MIN_OVERDUB_S - 0.01
+        fs._tail_saw_loud = True
+        fs._in_peak_seen = True
+        fs.sync_in_peak(0.0)
+        fs._tail_silence_since = TAIL_HOLD_S * -2 + time.monotonic()
+        fs.poll_tail_capture()
+        self.assertTrue(fs._tail_release_quiet)
+        fs.poll_tail_capture()
+        self.assertFalse(fs._tail_capture)
+        hits = [
+            c.args[1]
+            for c in fs._osc.send_message.call_args_list
+            if c.args[0] == "/sl/0/hit"
+        ]
+        self.assertEqual(hits.count("overdub"), 2, "on then off")
 
 
 class DoubleTapRecordsOneCycleTests(unittest.TestCase):
