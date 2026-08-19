@@ -235,6 +235,26 @@ class SnapshotServicesTests(unittest.TestCase):
             self.assertEqual(snap["services"]["mpe-jackd"]["enabled"], "enabled")
             self.assertFalse(snap["services"]["mpe-jackd"]["stale"])
 
+    def test_skips_not_installed_units(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            run = Path(tmp)
+            (run / "engine.state").write_text(
+                "engine=jack\nactive=jack\nstate=ok\nupdated=999\n",
+                encoding="utf-8",
+            )
+
+            def _enabled(unit: str) -> str | None:
+                return "not-found" if unit == "usb-audio-gadget" else "enabled"
+
+            snap = build_snapshot(
+                now=1000.0,
+                run=run,
+                seq=1,
+                unit_active=lambda _u: True,
+                unit_enabled=_enabled,
+            )
+            self.assertNotIn("usb-audio-gadget", snap["services"])
+
 
 if __name__ == "__main__":
     unittest.main()
