@@ -144,3 +144,57 @@ raise SystemExit(ls.run_session(["--bench-only"]))
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LatencyTapTests(unittest.TestCase):
+    """Criterion 42 — the instrument must see the sends a pad actually makes."""
+
+    @staticmethod
+    def _tap_module():
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location(
+            "latency_tap_for_test", REPO / "scripts" / "sooperlooper" / "latency_tap.py"
+        )
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+
+    def test_tap_pairs_a_pending_pad_with_the_next_hit(self) -> None:
+        import time as _time
+
+        mod = self._tap_module()
+
+        class _Inner:
+            def __init__(self) -> None:
+                self.sent: list[str] = []
+
+            def send_message(self, path: str, args) -> None:
+                self.sent.append(path)
+
+        inner = _Inner()
+        pending: list[float] = [_time.monotonic()]
+        out: list[float] = []
+        client = mod.LatencyTapClient(inner, pending, out)
+        client.send_message("/sl/0/hit", ["trigger"])
+        self.assertEqual(len(out), 1)
+        self.assertGreaterEqual(out[0], 0.0)
+        self.assertEqual(inner.sent, ["/sl/0/hit"])
+        client.send_message("/sl/0/set", ["x"])
+        self.assertEqual(len(out), 1, "non-/hit sends must not consume a sample")
+
+    def test_footswitches_are_handed_the_tapped_client(self) -> None:
+        """The bug this exists for: hooking _send measured nothing.
+
+        build_footswitches(osc=...) hands the raw client to every footswitch, which
+        sends /hit through it directly. A hook in the bench's _send helper never sees
+        a pad. Measured on the appliance 2026-08-19: 267 presses, zero samples.
+        """
+        text = (REPO / "scripts" / "sooperlooper-apc-bench.py").read_text(encoding="utf-8")
+        tap = text.index("LatencyTapClient(osc,")
+        build = text.index("by_note, footswitches = build_footswitches(")
+        self.assertLess(tap, build, "the client must be wrapped before footswitches bind it")
+        send_body = text.split("def _send(path: str, a: list) -> None:", 1)[1].split("\n\n", 1)[0]
+        self.assertNotIn(
+            "midi_osc_pending", send_body, "pairing belongs on the client, not in _send"
+        )
