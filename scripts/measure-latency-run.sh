@@ -295,7 +295,7 @@ _run_window() {
 
     : >"$run_file"
     : >"$dsp_raw"
-    : >"$xrun_events"
+    rm -f "$xrun_events"
 
     if ! _start_xrun_probe "$xrun_events"; then
         return 1
