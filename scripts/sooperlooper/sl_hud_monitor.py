@@ -197,14 +197,18 @@ class HudWriter:
 
 
 def main() -> int:
-    writer = HudWriter()
+    from sl_osc_session import SlOscSession
+
+    session = SlOscSession().start()
+    session.register_hud_loops()
+    writer = HudWriter(session)
     writer.register_auto_updates()
     print(f"sl-hud-monitor: -> {SL_HUD_STATE_FILE} (follows the live clock)", flush=True)
     try:
         while True:
             writer.poll()
             if writer.should_reregister():
-                writer.register_auto_updates()  # survive an engine restart
+                writer.maybe_reregister_session()  # survive an engine restart
             time.sleep(0.1)
     except KeyboardInterrupt:
         return 0
