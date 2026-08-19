@@ -15,11 +15,20 @@ INSTALL_UNITS = REPO / "scripts" / "install-units.sh"
 
 
 def _disabled_units() -> list[str]:
+    """Entries in install-units.sh DISABLED.
+
+    Strip comments BEFORE finding the closing paren. Splitting the raw text on the
+    first ")" truncates at any parenthesis inside a comment — on 2026-08-19 a commit
+    hash in a caveat comment silently cut the list short, so every entry after it
+    stopped being checked and the tests still passed.
+    """
     text = INSTALL_UNITS.read_text(encoding="utf-8")
-    block = text.split("DISABLED=(", 1)[1].split(")", 1)[0]
+    body = text.split("DISABLED=(", 1)[1]
     names = []
-    for raw in block.splitlines():
+    for raw in body.splitlines():
         line = raw.split("#", 1)[0].strip()
+        if line.startswith(")"):
+            break
         if line:
             names.append(line)
     return names
