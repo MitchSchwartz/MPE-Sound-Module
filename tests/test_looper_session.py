@@ -15,11 +15,20 @@ INSTALL_UNITS = REPO / "scripts" / "install-units.sh"
 
 
 def _disabled_units() -> list[str]:
+    """Entries in install-units.sh DISABLED.
+
+    Strip comments BEFORE finding the closing paren. Splitting the raw text on the
+    first ")" truncates at any parenthesis inside a comment — on 2026-08-19 a commit
+    hash in a caveat comment silently cut the list short, so every entry after it
+    stopped being checked and the tests still passed.
+    """
     text = INSTALL_UNITS.read_text(encoding="utf-8")
-    block = text.split("DISABLED=(", 1)[1].split(")", 1)[0]
+    body = text.split("DISABLED=(", 1)[1]
     names = []
-    for raw in block.splitlines():
+    for raw in body.splitlines():
         line = raw.split("#", 1)[0].strip()
+        if line.startswith(")"):
+            break
         if line:
             names.append(line)
     return names
@@ -135,3 +144,97 @@ raise SystemExit(ls.run_session(["--bench-only"]))
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LatencyTapTests(unittest.TestCase):
+    """Criterion 42 — the instrument must see the sends a pad actually makes."""
+
+    @staticmethod
+    def _tap_module():
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location(
+            "latency_tap_for_test", REPO / "scripts" / "sooperlooper" / "latency_tap.py"
+        )
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+
+    def test_tap_pairs_a_pending_pad_with_the_next_hit(self) -> None:
+        import time as _time
+
+        mod = self._tap_module()
+
+        class _Inner:
+            def __init__(self) -> None:
+                self.sent: list[str] = []
+
+            def send_message(self, path: str, args) -> None:
+                self.sent.append(path)
+
+        inner = _Inner()
+        pending: list[float] = [_time.monotonic()]
+        out: list[float] = []
+        client = mod.LatencyTapClient(inner, pending, out)
+        client.send_message("/sl/0/hit", ["trigger"])
+        self.assertEqual(len(out), 1)
+        self.assertGreaterEqual(out[0], 0.0)
+        self.assertEqual(inner.sent, ["/sl/0/hit"])
+        client.send_message("/sl/0/set", ["x"])
+        self.assertEqual(len(out), 1, "non-/hit sends must not consume a sample")
+
+    def test_footswitches_are_handed_the_tapped_client(self) -> None:
+        """The bug this exists for: hooking _send measured nothing.
+
+        build_footswitches(osc=...) hands the raw client to every footswitch, which
+        sends /hit through it directly. A hook in the bench's _send helper never sees
+        a pad. Measured on the appliance 2026-08-19: 267 presses, zero samples.
+        """
+        text = (REPO / "scripts" / "sooperlooper-apc-bench.py").read_text(encoding="utf-8")
+        tap = text.index("LatencyTapClient(osc,")
+        build = text.index("by_note, footswitches = build_footswitches(")
+        self.assertLess(tap, build, "the client must be wrapped before footswitches bind it")
+        send_body = text.split("def _send(path: str, a: list) -> None:", 1)[1].split("\n\n", 1)[0]
+        self.assertNotIn(
+            "midi_osc_pending", send_body, "pairing belongs on the client, not in _send"
+        )
+
+
+class BenchArgvPassthroughTests(unittest.TestCase):
+    def test_empty_passthrough_is_a_list_not_none(self) -> None:
+        """argparse falls back to sys.argv on None, so the bench re-parsed our flags.
+
+        `--bench-only` with no other argument exited 2 with
+        "unrecognized arguments: --bench-only" on the appliance 2026-08-19.
+        """
+        text = LOOPER_SESSION.read_text(encoding="utf-8")
+        self.assertIn("run_bench(bench_argv, osc_session=session)", text)
+        self.assertNotIn("bench_argv or None", text)
+
+    def test_bench_only_reaches_the_bench_with_empty_argv(self) -> None:
+        sooper = REPO / "scripts" / "sooperlooper"
+        body = f"""
+import sys
+sys.path.insert(0, "{sooper}")
+sys.path.insert(0, "{REPO}")
+sys.argv = ["looper-session.py", "--bench-only"]
+import looper_session as ls
+ls.start_hud_thread = lambda *a, **k: (_ for _ in ()).throw(AssertionError("hud started"))
+class _FakeBench:
+    @staticmethod
+    def run_bench(argv=None, *, osc_session=None):
+        assert argv == [], f"bench got {{argv!r}}, expected []"
+        print("argv-ok")
+        return 0
+ls._load_bench_module = lambda: _FakeBench
+class _FakeSession:
+    def start(self):
+        return self
+ls.SlOscSession = _FakeSession
+raise SystemExit(ls.run_session(["--bench-only"]))
+"""
+        result = subprocess.run(
+            [sys.executable, "-c", body], capture_output=True, text=True, cwd=REPO
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("argv-ok", result.stdout)

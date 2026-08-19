@@ -1,0 +1,25 @@
+[Unit]
+Description=MPE session snapshot publisher (Phase 1)
+After=mpe-jackd.service
+PartOf=mpe-jackd.service
+
+[Service]
+Type=simple
+User=@MPE_PI_USER@
+WorkingDirectory=@MPE_MODULE_REPO@
+EnvironmentFile=-/etc/mpe/mpe.env
+Environment=PYTHONUNBUFFERED=1
+# Measured 2026-08-19 on raspberrypi2: 0.39% of a core at 1 Hz, 0.53% at 2 Hz.
+# `active` liveness is batched over D-Bus on a 5 s TTL, `enabled` on 30 s, and every
+# cached field publishes its own age. See
+# docs/measurements/systemd-liveness-cost-2026-08-19.md before changing the interval.
+ExecStart=/usr/bin/python3 @MPE_MODULE_REPO@/scripts/session-snapshot-publisher.py
+Restart=on-failure
+RestartSec=5
+Nice=10
+# Observability must never compete with audio. This unit reads files and talks to
+# systemd; it has no business near the realtime plane.
+CPUSchedulingPolicy=other
+
+[Install]
+WantedBy=multi-user.target
