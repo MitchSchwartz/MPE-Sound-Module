@@ -8,6 +8,11 @@ from __future__ import annotations
 
 import time
 
+# A pad press that causes an OSC send causes it immediately — the bench is a poll loop,
+# not a scheduler. Anything later is a coincidence: a quantised launch firing on the
+# bar, a fader flush, an auto-update reply. Pair inside the window, count outside it.
+PAIR_WINDOW_S = 0.1
+
 
 class LatencyTapClient:
     """Wraps the OSC client so every send is seen, whoever makes it.
@@ -29,10 +34,18 @@ class LatencyTapClient:
         self._inner = inner
         self._pending = pending
         self._out = out
+        self.dropped = 0
 
     def send_message(self, path: str, args) -> None:
         if self._pending and "/hit" in path:
-            self._out.append((time.monotonic() - self._pending.pop(0)) * 1000.0)
+            delta = time.monotonic() - self._pending.pop(0)
+            if delta <= PAIR_WINDOW_S:
+                self._out.append(delta * 1000.0)
+            else:
+                # The MIDI event that armed this slot did not cause this send — a
+                # quantised launch firing on the bar, or a grid action. Pairing them
+                # would report the grid as latency.
+                self.dropped += 1
         self._inner.send_message(path, args)
 
     def __getattr__(self, name):
