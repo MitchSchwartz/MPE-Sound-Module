@@ -40,6 +40,364 @@ JACK_UNIT = "mpe-jackd"
 SURGE_UNIT = "surge-xt-cli"
 ENGINE_STATE_WRITER_UNIT = "surge-watchdog"
 
+STATUS_SERVICE_UNITS = (
+    "mpe-jackd",
+    "surge-xt-cli",
+    "surge-watchdog",
+    "touch-patch-browser",
+    "patch-browser",
+    "usb-audio-gadget",
+    "uac2-stall-watchdog",
+    "mpe-pressure-remap",
+    "mpe-looper-session",
+    "mpe-sooperlooper",
+    "sl-watchdog",
+)
+
+MPE_ENV_PATH = Path("/etc/mpe/mpe.env")
+MPE_ENV_STATUS_KEYS = ("MPE_UI_MODE", "MPE_AUDIO_PROFILE")
+
+# Liveness probe cadence. `active` is a runtime fact and is sampled every build;
+# `enabled` is a CONFIGURATION fact that changes only on `systemctl enable/disable`
+# or a deploy, so sampling it at publish rate was the original mistake — measured at
+# 31-43 ms for 11 units no matter the transport, because systemd walks the enablement
+# symlink tree on disk. See docs/measurements/systemd-liveness-cost-2026-08-19.md.
+SERVICES_PROBE_TTL_S = float(os.environ.get("MPE_SNAPSHOT_SERVICES_TTL_S", "5"))
+ENABLED_PROBE_TTL_S = float(os.environ.get("MPE_SNAPSHOT_ENABLED_TTL_S", "30"))
+
+_services_probe_cache: dict[str, tuple[float, object]] = {}
+
+
+def _ttl_probe(key: str, probe: Callable[[], object], ttl: float | None = None) -> object:
+    """Cache a systemd probe result. Callers must surface the age (see _probe_age_s)."""
+    now = time.monotonic()
+    limit = SERVICES_PROBE_TTL_S if ttl is None else ttl
+    cached = _services_probe_cache.get(key)
+    if cached is not None and (now - cached[0]) < limit:
+        return cached[1]
+    value = probe()
+    _services_probe_cache[key] = (now, value)
+    return value
+
+
+def _probe_age_s(key: str) -> float | None:
+    """Seconds since the cached probe behind `key` was actually taken.
+
+    A cached judgement is the last-known-good problem wearing a different hat. Every
+    cached field in the snapshot must be able to say how old it is, or a reader cannot
+    tell a live reading from a memory.
+    """
+    cached = _services_probe_cache.get(key)
+    if cached is None:
+        return None
+    return round(max(0.0, time.monotonic() - cached[0]), 3)
+
+
+def _reset_probe_cache() -> None:
+    """Test seam — the cache is process-global and must not leak between cases."""
+    _services_probe_cache.clear()
+
+
+# --- batched liveness -------------------------------------------------------------
+#
+# Measured on the appliance, 11 units: 202 ms as one fork per unit, 46 ms as a single
+# batched fork, 7.0 ms over D-Bus. The publisher runs at 1-2 Hz, so the transport is
+# the difference between 40% of a core and 1.4%.
+
+_DBUS_MANAGER: Any = None
+_DBUS_UNAVAILABLE = False
+
+
+def _dbus_manager() -> Any:
+    global _DBUS_MANAGER, _DBUS_UNAVAILABLE
+    if _DBUS_MANAGER is not None or _DBUS_UNAVAILABLE:
+        return _DBUS_MANAGER
+    try:
+        import dbus  # type: ignore[import-not-found]
+
+        bus = dbus.SystemBus()
+        _DBUS_MANAGER = dbus.Interface(
+            bus.get_object("org.freedesktop.systemd1", "/org/freedesktop/systemd1"),
+            "org.freedesktop.systemd1.Manager",
+        )
+    except Exception:
+        _DBUS_UNAVAILABLE = True
+        _DBUS_MANAGER = None
+    return _DBUS_MANAGER
+
+
+def _dbus_active_states(units: tuple[str, ...]) -> dict[str, bool | None] | None:
+    """ActiveState for every unit in one round trip. None when D-Bus is unusable."""
+    mgr = _dbus_manager()
+    if mgr is None:
+        return None
+    try:
+        rows = mgr.ListUnitsByNames([f"{u}.service" for u in units])
+    except Exception:
+        return None
+    out: dict[str, bool | None] = {}
+    for row in rows:
+        name = str(row[0])
+        if not name.endswith(".service"):
+            continue
+        state = str(row[3])
+        if state == "active":
+            out[name[: -len(".service")]] = True
+        elif state in {"inactive", "failed"}:
+            out[name[: -len(".service")]] = False
+        else:
+            out[name[: -len(".service")]] = None
+    return out
+
+
+def _fork_active_states(units: tuple[str, ...]) -> dict[str, bool | None]:
+    """Fallback: ONE fork for all units, never one per unit (202 ms -> 46 ms)."""
+    names = [f"{u}.service" for u in units]
+    try:
+        result = subprocess.run(
+            ["systemctl", "is-active", *names],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return {u: None for u in units}
+    lines = (result.stdout or "").strip().splitlines()
+    if len(lines) != len(units):
+        return {u: None for u in units}
+    out: dict[str, bool | None] = {}
+    for unit, line in zip(units, lines):
+        state = line.strip()
+        if state == "active":
+            out[unit] = True
+        elif state in {"inactive", "failed"}:
+            out[unit] = False
+        else:
+            out[unit] = None
+    return out
+
+
+def batched_active_states(units: tuple[str, ...]) -> tuple[dict[str, bool | None], str]:
+    """Return (states, source). Source is recorded so the cost stays visible."""
+    states = _dbus_active_states(units)
+    if states is not None:
+        return {u: states.get(u) for u in units}, "dbus"
+    return _fork_active_states(units), "fork"
+
+
+def _dbus_enabled_states(units: tuple[str, ...]) -> dict[str, str | None] | None:
+    """UnitFileState for every unit in one round trip.
+
+    A unit with no unit file simply does not appear in the reply, which is the same
+    signal `systemctl is-enabled` gives as "not-found" — build_services skips those
+    rather than rendering a phantom inactive row.
+    """
+    mgr = _dbus_manager()
+    if mgr is None:
+        return None
+    names = [f"{u}.service" for u in units]
+    try:
+        rows = mgr.ListUnitFilesByPatterns([], names)
+    except Exception:
+        return None
+    found: dict[str, str | None] = {}
+    for row in rows:
+        leaf = str(row[0]).rsplit("/", 1)[-1]
+        if leaf.endswith(".service"):
+            found[leaf[: -len(".service")]] = str(row[1])
+    return {u: found.get(u, "not-found") for u in units}
+
+
+def _fork_enabled_states(units: tuple[str, ...]) -> dict[str, str | None]:
+    """Fallback: ONE fork for all units (220 ms -> 46 ms)."""
+    names = [f"{u}.service" for u in units]
+    try:
+        result = subprocess.run(
+            ["systemctl", "is-enabled", *names],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return {u: None for u in units}
+    lines = (result.stdout or "").strip().splitlines()
+    if len(lines) != len(units):
+        return {u: None for u in units}
+    return {u: (line.strip() or None) for u, line in zip(units, lines)}
+
+
+def batched_enabled_states(units: tuple[str, ...]) -> tuple[dict[str, str | None], str]:
+    states = _dbus_enabled_states(units)
+    if states is not None:
+        return states, "dbus"
+    return _fork_enabled_states(units), "fork"
+
+
+
+def _tri_state_label(value: bool | None, *, true_label: str, false_label: str) -> str:
+    if value is True:
+        return true_label
+    if value is False:
+        return false_label
+    return "unknown"
+
+
+def _memoized_unit_enabled_raw(
+    base: Callable[[str], str | None],
+) -> Callable[[str], str | None]:
+    cache: dict[str, str | None] = {}
+
+    def check(unit: str) -> str | None:
+        if unit not in cache:
+            cache[unit] = base(unit)
+        return cache[unit]
+
+    return check
+
+
+def _read_mpe_env_keys(path: Path = MPE_ENV_PATH, keys: tuple[str, ...] = MPE_ENV_STATUS_KEYS) -> dict[str, str]:
+    out: dict[str, str] = {}
+    try:
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if "=" not in line or line.strip().startswith("#"):
+                continue
+            key, _, value = line.partition("=")
+            key = key.strip()
+            if key in keys:
+                out[key] = value.strip()
+    except OSError:
+        pass
+    return out
+
+
+def _probe_process_pid(*, exe: str) -> tuple[int | None, bool]:
+    """Return (pid, probe_ok). probe_ok is False on subprocess failure."""
+    try:
+        result = subprocess.run(
+            ["pgrep", "-x", exe],
+            capture_output=True,
+            text=True,
+            timeout=2,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None, False
+    line = (result.stdout or "").strip().splitlines()
+    if not line:
+        return None, True
+    try:
+        return int(line[0]), True
+    except ValueError:
+        return None, True
+
+
+METER_STATE_MAX_AGE_S = float(os.environ.get("MPE_METER_STATE_MAX_AGE_S", "5"))
+
+
+def _surge_on_jack_graph(*, jackd_pid: int | None = None, now: float | None = None) -> bool | None:
+    """Read wired= from meter.state — same contract as mpe_surge_on_jack_graph()."""
+    if jackd_pid is None:
+        return None
+    from patch_browser.audio_engine import METER_STATE_FILE, read_meter_state
+
+    raw = read_meter_state(METER_STATE_FILE)
+    wired = raw.get("wired")
+    updated = raw.get("updated")
+    if wired not in {"0", "1"} or not updated:
+        return None
+    try:
+        age = (time.time() if now is None else now) - float(updated)
+    except ValueError:
+        return None
+    if age < 0 or age > METER_STATE_MAX_AGE_S:
+        return None
+    return wired == "1"
+
+
+def _enabled_label(raw_enabled: str | None) -> str:
+    if raw_enabled in {"masked", "masked-runtime"}:
+        return "masked"
+    if raw_enabled in {"enabled", "enabled-runtime", "static", "indirect", "alias"}:
+        return "enabled"
+    if raw_enabled == "disabled":
+        return "disabled"
+    return "unknown"
+
+
+def build_services(
+    *,
+    unit_active: Callable[[str], bool | None] | None = None,
+    unit_enabled: Callable[[str], str | None] | None = None,
+) -> dict[str, Any]:
+    """Per-unit liveness. Every cached field carries the age of what it cached.
+
+    `active` comes from one batched probe (D-Bus where available, otherwise a single
+    fork); `enabled` is per-unit on a long TTL because it is configuration, not
+    runtime. See docs/measurements/systemd-liveness-cost-2026-08-19.md.
+    """
+    if unit_enabled is None:
+        enabled_batch = _batched_enabled_cache()
+        enabled_source = _services_probe_cache["enabled:batch"][1][1]  # type: ignore[index]
+        enabled_age = _probe_age_s("enabled:batch")
+        check_enabled_raw: Callable[[str], str | None] = lambda u: enabled_batch.get(u)
+    else:
+        check_enabled_raw = _memoized_unit_enabled_raw(unit_enabled)
+        enabled_source = "injected"
+        enabled_age = None
+
+    batch: dict[str, bool | None] | None = None
+    active_source = "injected"
+    active_age: float | None = None
+    if unit_active is None:
+        batch = _batched_active_cache()
+        active_source = _services_probe_cache["active:batch"][1][1]  # type: ignore[index]
+        active_age = _probe_age_s("active:batch")
+        check_active: Callable[[str], bool | None] = lambda u: batch.get(u)  # type: ignore[union-attr]
+    else:
+        check_active = _memoized_unit_active(unit_active)
+
+    services: dict[str, Any] = {}
+    for unit in STATUS_SERVICE_UNITS:
+        raw_enabled = check_enabled_raw(unit)
+        if raw_enabled == "not-found":
+            continue
+        active = check_active(unit)
+        entry: dict[str, Any] = {
+            "active": _tri_state_label(active, true_label="active", false_label="inactive"),
+            "enabled": _enabled_label(raw_enabled),
+            "stale": active is None and raw_enabled is None,
+            "active_source": active_source,
+            "enabled_source": enabled_source,
+        }
+        if active_age is not None:
+            entry["active_age_s"] = active_age
+        if enabled_age is not None:
+            entry["enabled_age_s"] = enabled_age
+        services[unit] = entry
+    return services
+
+
+
+def build_processes() -> dict[str, Any]:
+    jackd_pid, jackd_ok = _probe_process_pid(exe="jackd")
+    surge_pid, surge_ok = _probe_process_pid(exe="surge-xt-cli")
+    return {
+        "jackd_pid": jackd_pid,
+        "surge_pid": surge_pid,
+        "stale": not (jackd_ok and surge_ok),
+    }
+
+
+def build_graph_probe(*, jackd_pid: int | None = None) -> dict[str, Any]:
+    on_graph = _surge_on_jack_graph(jackd_pid=jackd_pid, now=time.time())
+    return {
+        "surge_on_graph": on_graph,
+        "stale": on_graph is None,
+    }
+
+
 
 def snapshot_path(*, run: Path | None = None) -> Path:
     base = run or run_dir()
@@ -140,7 +498,7 @@ def field_age_stale(updated: float, *, now: float, threshold: float = STALE_THRE
     return (now - updated) >= threshold
 
 
-def systemd_unit_active(unit: str) -> bool | None:
+def _systemd_unit_active_raw(unit: str) -> bool | None:
     """Return True/False when systemctl answers; None when unavailable or transitional."""
     try:
         result = subprocess.run(
@@ -158,6 +516,62 @@ def systemd_unit_active(unit: str) -> bool | None:
     if state in {"inactive", "failed", "deactivating"}:
         return False
     return None
+
+
+def _batched_active_cache() -> dict[str, bool | None]:
+    states, _source = _ttl_probe(  # type: ignore[misc]
+        "active:batch",
+        lambda: batched_active_states(STATUS_SERVICE_UNITS),
+    )
+    return states
+
+
+def systemd_unit_active(unit: str) -> bool | None:
+    """Liveness for one unit, served from the batch when the unit is in it.
+
+    build_snapshot() asks about three units and build_services() about eleven. Answering
+    each with its own probe was 22 forks per snapshot; the batch answers all of them in
+    one round trip, so the per-unit entry point must consult it rather than reimplement
+    it. A unit outside STATUS_SERVICE_UNITS still gets its own probe.
+    """
+    if unit in STATUS_SERVICE_UNITS:
+        return _batched_active_cache().get(unit)
+    return _ttl_probe(f"active:{unit}", lambda: _systemd_unit_active_raw(unit))  # type: ignore[return-value]
+
+
+def _systemd_unit_enabled_raw(unit: str) -> str | None:
+    try:
+        result = subprocess.run(
+            ["systemctl", "is-enabled", f"{unit}.service"],
+            capture_output=True,
+            text=True,
+            timeout=2,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    state = (result.stdout or "").strip()
+    return state or None
+
+
+def _batched_enabled_cache() -> dict[str, str | None]:
+    states, _source = _ttl_probe(  # type: ignore[misc]
+        "enabled:batch",
+        lambda: batched_enabled_states(STATUS_SERVICE_UNITS),
+        ttl=ENABLED_PROBE_TTL_S,
+    )
+    return states
+
+
+def systemd_unit_enabled_raw(unit: str) -> str | None:
+    # Configuration, not runtime — long TTL, and build_services reports its age.
+    if unit in STATUS_SERVICE_UNITS:
+        return _batched_enabled_cache().get(unit)
+    return _ttl_probe(  # type: ignore[return-value]
+        f"enabled:{unit}",
+        lambda: _systemd_unit_enabled_raw(unit),
+        ttl=ENABLED_PROBE_TTL_S,
+    )
 
 
 def systemd_unit_enabled(unit: str) -> bool | None:
@@ -292,11 +706,15 @@ def build_snapshot(
     looper_enabled: str | None = None,
     seq: int | None = None,
     unit_active: Callable[[str], bool | None] | None = None,
+    unit_enabled: Callable[[str], str | None] | None = None,
+    include_services: bool = True,
+    include_runtime_probes: bool = False,
 ) -> dict[str, Any]:
     """Aggregate existing truth into schema v1 document."""
     base = run or run_dir()
     now_ts = time.time() if now is None else now
     check_unit = _memoized_unit_active(unit_active or systemd_unit_active)
+    check_enabled_raw = _memoized_unit_enabled_raw(unit_enabled or systemd_unit_enabled_raw)
 
     engine_path = base / "engine.state"
     jack_path = base / "jack.state"
@@ -330,7 +748,7 @@ def build_snapshot(
     surge_stale = process_field_stale(surge_raw, unit=SURGE_UNIT, started_key="started", unit_active=check_unit)
     reconcile_stale = reconcile_field_stale(reconcile_raw)
 
-    return {
+    snap = {
         "schema": SCHEMA_VERSION,
         "seq": seq,
         "published_at": now_ts,
@@ -373,7 +791,23 @@ def build_snapshot(
                 stale=field_age_stale(float(hud.get("updated_at") or 0.0), now=now_ts) if hud else True,
             ),
         },
+        "config": {
+            "mpe_env": _read_mpe_env_keys(),
+            "source": str(MPE_ENV_PATH),
+            "stale": not MPE_ENV_PATH.is_file(),
+        },
     }
+    if include_services:
+        # Pass the caller's injections through, never our own defaults — injecting
+        # the per-unit defaults here bypassed the batch and cost 22 forks per build.
+        snap["services"] = build_services(
+            unit_active=check_unit if unit_active is not None else None,
+            unit_enabled=check_enabled_raw if unit_enabled is not None else None,
+        )
+    if include_runtime_probes:
+        snap["processes"] = build_processes()
+        snap["graph"] = build_graph_probe(jackd_pid=snap["processes"].get("jackd_pid"))
+    return snap
 
 
 def read_seq(*, run: Path | None = None) -> int:

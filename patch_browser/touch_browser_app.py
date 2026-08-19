@@ -444,6 +444,9 @@ class TouchPatchBrowser(
                 if scroll is not None:
                     scroll.tick_edge_hints(dt)
                     busy |= bool(scroll.tick(dt))
+                self._tick_wifi_long_press()
+                if getattr(self, "_wifi_long_press_pending", None) is not None:
+                    busy = True
             if self.screen_state == Screen.SURGE_BUFFER_MODAL:
                 scroll = getattr(self, "_surge_buffer_scroll", None)
                 if scroll is not None:

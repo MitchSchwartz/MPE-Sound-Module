@@ -59,11 +59,18 @@ DISABLED=(
     mpe-apc-bench
     sl-hud-monitor
     # The looper stack — installed, supervised, but NOT started at boot as of
-    # 2026-08-18. Measured on the appliance with a deterministic MIDI load
-    # (scripts/midi-load.py, DSP median ~42%): the full stack produces 24-31 xruns
-    # per minute of playing; with these three stopped it is 2-6. Roughly 5-10x, well
-    # outside a +/-30% run-to-run noise floor. Which of the three carries the cost is
-    # NOT yet isolated — single runs could not separate them.
+    # 2026-08-18.
+    #
+    # CAVEAT: the measurement that motivated this is VOID. It was taken while
+    # surge-watchdog's jack_lsp probe was the real xrun source (35/min); the run that
+    # blamed the looper had stopped the looper AND both watchdogs together. With the
+    # probe fixed (0f9875c) the appliance measures 0 xruns/min. The looper's own cost
+    # has NOT been re-measured and may be negligible.
+    #
+    # Left opt-in deliberately: it is the state Mitch gigged on, and re-enabling it is
+    # one command. Re-measure with scripts/midi-load.py before this counts against the
+    # SooperLooper adopt/kill verdict (D15).
+    # See docs/measurements/crackle-root-cause-2026-08-18.md.
     #
     # They still exist, still have Restart=always, and still self-repair once started
     # (the 2026-08-17 six-hour outage stays fixed). They simply do not come up on their
@@ -73,6 +80,13 @@ DISABLED=(
     mpe-sooperlooper
     mpe-looper-session
     sl-watchdog
+    # Phase 1 snapshot publisher. Installed, not started: measured at 0.39% of a
+    # core at 1 Hz — see docs/measurements/systemd-liveness-cost-2026-08-19.md —
+    # which clears criterion 7 comfortably. But it is a new always-on poll on an
+    # instrument whose scarcest resource is CPU, so switching it on is an operator
+    # decision, not a deploy side effect. Enable with:
+    #   sudo systemctl enable --now mpe-session-publisher
+    mpe-session-publisher
 )
 
 # No [Install] section — cannot be enabled, only pulled in by another unit.
@@ -210,7 +224,7 @@ if [ "$missing_exec" -eq 1 ]; then
 fi
 
 # Phase 3M upgrade: stop retired looper client units so they release UDP
-# 9952/9953 and the APC MIDI port before enabling the merged session.
+# 9953 and the APC MIDI port before enabling the merged session.
 RETIRED_LOOPER_CLIENTS=(mpe-apc-bench sl-hud-monitor)
 for u in "${RETIRED_LOOPER_CLIENTS[@]}"; do
     if systemctl is-active --quiet "$u.service" 2>/dev/null; then
