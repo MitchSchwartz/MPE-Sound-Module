@@ -127,11 +127,11 @@ raise SystemExit(ls.run_session(["--bench-only"]))
         self.assertIn("SlOscSession", mod)
         self.assertIn("osc_session=session", mod)
 
-    def test_looper_session_wires_shared_session(self) -> None:
+    def test_hud_only_registers_loop_subscriptions(self) -> None:
         mod = LOOPER_SESSION.read_text(encoding="utf-8")
-        self.assertIn("SlOscSession", mod)
-        self.assertIn("osc_session=session", mod)
-
+        hud_only = mod.split("if args.hud_only:", 1)[1].split("hud_thread = None", 1)[0]
+        self.assertIn("register_hud_loops()", hud_only)
+        self.assertIn("register_auto_updates()", hud_only)
 
 if __name__ == "__main__":
     unittest.main()
