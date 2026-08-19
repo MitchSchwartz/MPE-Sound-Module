@@ -12,7 +12,7 @@ from seam_merge import merge_tail_at_seam
 
 SCRATCH_LOOP = int(os.environ.get("MPE_SL_SCRATCH_LOOP", "15"))
 SEAM_MERGE_SAMPLES = int(os.environ.get("MPE_SL_SEAM_MERGE_SAMPLES", "2048"))
-SEAM_WELD_ENABLED = os.environ.get("MPE_SL_SEAM_WELD", "0").strip().lower() not in (
+SEAM_WELD_ENABLED = os.environ.get("MPE_SL_SEAM_WELD", "1").strip().lower() not in (
     "",
     "0",
     "off",
