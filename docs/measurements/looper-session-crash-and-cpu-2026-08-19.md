@@ -1,19 +1,12 @@
 # Phase 3M criteria 46 and 47 — crash blast radius and CPU — 2026-08-19
 
-> **Provenance — read before quoting these numbers.** Measured on `raspberrypi2` while
-> its checkout was on `yolo/looper-poll-tail-fix` (`c006fa8`), **not** on `dev`. The Pi's
-> reflog shows it left `dev` at 2026-08-19 19:14:35; these runs started after that. That
-> branch adds `poll_tail_capture()` per footswitch per idle tick — to the same poll loop
-> both criteria measure.
->
-> **Comparisons hold**: every condition below ran identical code, so the deltas are
-> sound. **Absolutes are upper bounds** for `dev`, which does not carry that extra
-> per-tick work. Re-take them against the merged branch before treating any single
-> figure as the appliance's cost.
+> **Provenance.** Measured on `raspberrypi2` at commit **`b9bf98e`** (`main`, promoted
+> 2026-08-19). Tree clean before and after. Buffer **1024 × 3**. Re-take replaces the
+> earlier run on `c006fa8` (`yolo/looper-poll-tail-fix`), which had false branch
+> attribution.
 
-`raspberrypi2`, `1024 x 3`, plus the `--bench-only` fix below. 60 s idle windows,
-`/proc/<pid>/stat` fields 14–17 so forked children are counted
-([`DECISIONS.md`](../../Documents/DECISIONS.md) 2026-08-18).
+`raspberrypi2`, `1024 x 3`. 60 s idle windows, `/proc/<pid>/stat` fields 14–17 so forked
+children are counted ([`DECISIONS.md`](../../Documents/DECISIONS.md) 2026-08-18).
 
 ## Criterion 47 — CPU no worse than the two processes it replaces
 
@@ -23,18 +16,19 @@ reconstructed: `--bench-only` and `--hud-only` as two processes on two ports
 
 | condition | CPU, % of one core |
 |---|---:|
-| **before** — bench process | 30.000 |
-| **before** — HUD process | 8.767 |
-| **before, total** | **38.767** |
-| **after** — merged session | **32.983** |
-| | **−5.784 points** |
+| **before** — bench process | 39.417 |
+| **before** — HUD process | 10.867 |
+| **before, total** | **50.284** |
+| **after** — merged session | **42.900** |
+| | **−7.384 points** |
 
-**Criterion 47 passes.** The merge is 5.8 points cheaper, which is roughly the second
-interpreter, its OSC server thread and its second listen port. Consistent with the task 6
-finding that the merged session adds +0.15 points of DSP over SooperLooper alone — i.e.
-nothing measurable at the audio graph.
+**Criterion 47 passes.** The merge is 7.4 points cheaper than the two-process topology.
+Both absolutes are **higher** than the `c006fa8` re-take (38.767 / 32.983 before/after
+there) — `main` carries stop-then-weld seam logic the poll-tail branch did not — but the
+comparison this criterion cares about (merged vs two processes on identical code) still
+shows a clear win.
 
-**Worth stating separately: 33% of a core is a lot.** It is the largest single Python CPU
+**Worth stating separately: 43% of a core is a lot.** It is the largest single Python CPU
 consumer on the appliance, and it is the ~2 ms bench poll loop, not the HUD. The merge
 improved it and the criterion is satisfied, but if CPU is ever the binding constraint
 again this is where it is, and the fix is the poll loop rather than anything the merge
@@ -42,16 +36,21 @@ introduced.
 
 ## Criterion 46 — crash blast radius
 
-`kill -9` the merged process mid-session, `Restart=always` recovers.
+`kill -9` the merged process mid-session, `Restart=always` recovers. Two runs after
+`systemctl restart mpe-looper-session` on `b9bf98e`.
 
 | run | OSC 9953 rebound | APC re-bound | audio |
 |---|---:|---:|---|
-| 1 | 10.72 s | 10.87 s | survived, `wired=1`, +2 xruns |
-| 2 | 10.58 s | 10.73 s | survived, `wired=1`, +1 xrun |
+| 1 | 10.67 s | ~10.7 s * | survived, `wired=1`, +1 xrun |
+| 2 | 10.56 s | ~10.7 s * | survived, `wired=1`, +0 xruns |
+
+\* The APC kernel client keeps a stale `Connecting To` line while the bench process is
+dead, so wall-clock APC recovery aligns with OSC rebound (~10.6 s), not the ~0.1 s the
+`aconnect` line appears to show if you grep it naïvely during `RestartSec`.
 
 **Audio never stopped.** `mpe-jackd` and `surge-xt-cli` are separate units and the graph
-stayed wired throughout — D4 holds under a real kill, not just on paper. The cost is one
-or two xruns around the crash, which is a click, not a dropout.
+stayed wired throughout — D4 holds under a real kill, not just on paper. The cost is zero
+to one xrun around the crash, which is a click, not a dropout.
 
 **The control surface is dead for ~10.7 seconds**, and one crash now takes bench *and*
 HUD together — that is the regression Phase 3M accepted, and this is the number the spec
