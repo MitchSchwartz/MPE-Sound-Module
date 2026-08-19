@@ -461,9 +461,14 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
             continue
 
         if down is not None and n in by_note:
+            if args.measure_latency:
+                # Stamp BOTH edges. A short tap sends its OSC on pad-up, so timing from
+                # pad-down measures how long the finger was held, not how long the code
+                # took: an 80 ms synthetic hold produced an 80 ms "latency" on
+                # 2026-08-19. The slot holds the most recent MIDI event, which is the
+                # one that caused whatever send comes next.
+                midi_osc_pending[:] = [time.monotonic()]
             if down:
-                if args.measure_latency:
-                    midi_osc_pending.append(time.monotonic())
                 by_note[n].on_pad_down()
             else:
                 by_note[n].on_pad_up()
