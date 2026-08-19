@@ -126,28 +126,30 @@ class PlanTapTests(unittest.TestCase):
         self.assertFalse(p.begin_quantize_wait)
         self.assertEqual(p.expect, STATE_PLAYING)
 
-    def test_defining_take_stop_uses_tail_capture_when_enabled(self) -> None:
+    def test_defining_take_stop_uses_stop_then_weld_when_enabled(self) -> None:
         p = self._gesture(
             "down",
             SL_STATE_RECORDING,
             is_defining=True,
             tail_capture_enabled=True,
-            tail_seam_mode=False,
-        )
-        self.assertTrue(p.begin_tail_capture)
-        self.assertEqual(p.commands, ())
-
-    def test_defining_take_seam_mode_stops_immediately(self) -> None:
-        p = self._gesture(
-            "down",
-            SL_STATE_RECORDING,
-            is_defining=True,
-            tail_capture_enabled=True,
-            tail_seam_mode=True,
         )
         self.assertTrue(p.begin_tail_capture)
         self.assertEqual(p.commands, ("record",))
         self.assertEqual(p.expect, STATE_PLAYING)
+        self.assertFalse(p.tail_deferred)
+
+    def test_grid_clip_stop_arms_deferred_tail_weld(self) -> None:
+        p = self._gesture(
+            "down",
+            SL_STATE_RECORDING,
+            grid_established=True,
+            is_defining=False,
+            tail_capture_enabled=True,
+        )
+        self.assertTrue(p.begin_tail_capture)
+        self.assertTrue(p.begin_quantize_wait)
+        self.assertTrue(p.tail_deferred)
+        self.assertEqual(p.commands, ("record",))
 
     def test_defining_take_stop_off_muted_enters_tail_not_queue_stop(self) -> None:
         """Pi reported sl=20 (OffMuted) while pending=recording — was queue_stop deadlock."""
@@ -209,10 +211,12 @@ class LedTableTests(unittest.TestCase):
     def test_queued_to_record_is_ableton_standard(self) -> None:
         self.assertEqual(led_for(SL_STATE_WAIT_START), (LED_RED_BLINK,))
 
-    def test_tail_capture_led_matches_wait_stop(self) -> None:
+    def test_tail_capture_led_is_amber_while_weld_pending(self) -> None:
+        from scripts.sooperlooper.led_table import LED_YELLOW_BLINK
+
         self.assertEqual(
-            led_for(SL_STATE_RECORDING, tail_capture=True),
-            RECORD_TO_PLAY,
+            led_for(SL_STATE_PLAYING, tail_capture=True),
+            (LED_YELLOW_BLINK,),
         )
 
     def test_recording_queued_to_play_shows_both_colours(self) -> None:
