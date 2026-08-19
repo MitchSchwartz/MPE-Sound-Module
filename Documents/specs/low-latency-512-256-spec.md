@@ -129,8 +129,11 @@ records per run:
 Also land `cyclictest` as a hardware floor:
 
 ```sh
-cyclictest -m -t1 -p 80 -n -i 200 -l 300000
+cyclictest -m -t1 -p 80 -i 200 -l 300000
 ```
+
+(`-n` was removed in rt-tests 2.6 — `clock_nanosleep` is now the default and `-x` opts out
+to POSIX timers. Passing it makes cyclictest print usage and exit non-zero.)
 
 Worst-case wakeup latency bounds everything. If it is 3 ms, then 256 frames (5.3 ms
 period) is arithmetically impossible on this kernel and Step 5 becomes mandatory rather
