@@ -1,8 +1,15 @@
 # Tier 3 seam weld spike — 2026-08-18
 
-**Verdict (2026-08-18 ear):** **Option B failed defining take** — tail often missing, HUD showed bar 2 from scratch loop, `load_loop` jumped to loop start. **Defining take reverted to Tier 2** (stay Recording until release quiet, then stop). Tier 3 code remains behind `MPE_SL_SEAM_WELD=1` for future grid-clip experiments; **default is now `0`.**
+**Verdict (superseded 2026-08-19):** Option B + Option E + Tier 2 extend were all rejected.
+**Product path:** stop-then-weld on `yolo/looper-poll-tail-fix` — pad fixes length,
+scratch loop 15 + offline merge (`MPE_SL_SEAM_WELD=1` default). See
+`Documents/DECISIONS.md` §2026-08-19.
 
-**Spec:** `Documents/specs/looper-loop-seam-spec.md` Tier 3 spike (P2).
+**Historical (2026-08-18 ear):** Option B failed defining take; Tier 2 was tried as
+default and also rejected (double tail, clip does not end on pad). Details below
+are kept for archaeology only.
+
+**Spec:** `Documents/specs/looper-loop-seam-spec.md` stop-then-weld.
 
 ---
 
