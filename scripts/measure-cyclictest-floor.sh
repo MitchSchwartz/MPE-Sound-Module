@@ -55,13 +55,18 @@ fi
 
 # A real run reports per-thread "T: 0 (...) P:80 ... Min: N Act: N Avg: N Max: N".
 # Usage text, a permissions failure, or a truncated run will not match.
-if ! printf '%s' "$RAW" | grep -qE 'Min:[[:space:]]*[0-9]+.*Max:[[:space:]]*[0-9]+'; then
+# NOTE: a here-string, not `printf ... | grep -q`. With pipefail set, grep -q exits on
+# the first match, the writer takes SIGPIPE (141), and pipefail reports that as the
+# pipeline's status -- so a SUCCESSFUL match reads as failure. It only bites once the
+# output is big enough that the writer has not finished first: a 44 KB run passed, the
+# real 875 KB run did not.
+if ! grep -qE 'Min:[[:space:]]*[0-9]+.*Max:[[:space:]]*[0-9]+' <<<"$RAW"; then
     echo "ERROR: cyclictest produced no Min/Max latency line — nothing logged" >&2
     printf '%s\n' "$RAW" | head -5 >&2
     exit 1
 fi
 
-MAXUS="$(printf '%s' "$RAW" | grep -oE 'Max:[[:space:]]*[0-9]+' | grep -oE '[0-9]+' | sort -n | tail -1)"
+MAXUS="$(grep -oE 'Max:[[:space:]]*[0-9]+' <<<"$RAW" | grep -oE '[0-9]+' | sort -n | tail -1)"
 
 {
     echo "=== cyclictest floor label=${LABEL} $(date -Is) ==="
