@@ -64,12 +64,16 @@ class FootswitchOnEngineTests(unittest.TestCase):
         engine.poll(fs)
         self.assertEqual(self._led(midi), LED_RED)
 
-        self._tap(fs)                    # stop-record: queued to the bar
+        fs.on_pad_down()                 # stop on pad down; weld tail still running
         engine.poll(fs)
         self.assertNotEqual(self._led(midi), LED_GREEN,
                             "nothing has landed yet — green would be a lie")
 
-        engine.boundary()                # the take lands
+        engine.boundary()                # the take lands; weld still running
+        engine.poll(fs)
+        self.assertNotEqual(self._led(midi), LED_GREEN,
+                            "stop-then-weld: amber until the tail merge finishes")
+        fs._finish_tail_capture("test")
         engine.poll(fs)
         self.assertEqual(self._led(midi), LED_GREEN)
         self.assertEqual(engine.state[0], SL_STATE_PLAYING)
