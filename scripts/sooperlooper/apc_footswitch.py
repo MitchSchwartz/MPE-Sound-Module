@@ -29,21 +29,13 @@ from loop_model import (
 )
 from sl_grid_state import GridState, derive_tempo
 from sl_grid_sync import (
-    DEFAULT_FADE_SAMPLES,
     GRID_ANCHOR_FALLBACK_CYCLES,
     GRID_ANCHOR_MAX_S,
     TAIL_CAPTURE_ENABLED,
     TAIL_HOLD_S,
     TAIL_MAX_S,
     TAIL_ABSOLUTE_MAX_S,
-    TAIL_MIN_OVERDUB_S,
-    TAIL_SEAM_END_MAX_S,
-    TAIL_SEAM_RATIO,
-    TAIL_SEAM_MODE,
     TAIL_THRESH,
-    TAIL_WELD_FADE_SAMPLES,
-    TAIL_WELD_INPUT_GAIN,
-    TAIL_WELD_RESTORE_INPUT_GAIN,
     detect_loop_wrap,
     should_defer_phase_anchor,
 )
@@ -155,11 +147,7 @@ class LoopFootswitch:
         self._in_peak_seen = False
         self._tail_saw_loud = False
         self._tail_stop_sent = False
-        self._tail_seam_mode = False
-        self._seam_overdub_active = False
-        self._seam_overdub_started_at = 0.0
-        self._tail_release_quiet = False
-        self._tail_release_quiet_since: float | None = None
+        self._tail_deferred = False
         self._scratch_active = False
         self._tail_ending = False
         self._merge_pending = False
@@ -233,51 +221,6 @@ class LoopFootswitch:
         if self._tail_capture and self._in_peak >= TAIL_THRESH:
             self._tail_saw_loud = True
 
-    def _in_seam_zone(self) -> bool:
-        if self.loop_len <= 0.0 or not self._loop_pos_seen:
-            return False
-        return self.loop_pos >= self.loop_len * TAIL_SEAM_RATIO
-
-    def _set_loop_control(self, name: str, value: float) -> None:
-        if self._osc is None:
-            return
-        self._osc.send_message(self._path("set"), [name, float(value)])
-
-    def _start_seam_overdub(self) -> None:
-        if self._seam_overdub_active:
-            return
-        log(
-            f"loop {self.loop}: seam overdub on "
-            f"(pos={self.loop_pos:.3f}s / {self.loop_len:.3f}s, "
-            f"gain={TAIL_WELD_INPUT_GAIN})"
-        )
-        self._set_loop_control("input_gain", TAIL_WELD_INPUT_GAIN)
-        self._set_loop_control("fade_samples", float(TAIL_WELD_FADE_SAMPLES))
-        self._hit("overdub")
-        self._seam_overdub_active = True
-        self._seam_overdub_started_at = time.monotonic()
-        # Release must be loud *during* the overdub pass — not from the main take.
-        self._tail_saw_loud = False
-        self._in_peak_seen = False
-        self._tail_silence_since = None
-        self._tail_release_quiet = False
-        self._tail_release_quiet_since = None
-
-    def _stop_seam_overdub(self) -> None:
-        if not self._seam_overdub_active:
-            return
-        self._hit("overdub")
-        self._set_loop_control("input_gain", TAIL_WELD_RESTORE_INPUT_GAIN)
-        self._set_loop_control("fade_samples", float(DEFAULT_FADE_SAMPLES))
-        self._seam_overdub_active = False
-        log(f"loop {self.loop}: seam overdub off")
-
-    def _reset_seam_overdub_state(self) -> None:
-        self._seam_overdub_active = False
-        self._seam_overdub_started_at = 0.0
-        self._tail_release_quiet = False
-        self._tail_release_quiet_since = None
-
     def _stop_scratch_capture(self) -> None:
         if not self._scratch_active:
             return
@@ -310,7 +253,6 @@ class LoopFootswitch:
     def _cancel_tail_capture(self) -> None:
         if self._tail_capture and self._on_tail_capture_end is not None:
             self._on_tail_capture_end(self.loop)
-        self._stop_seam_overdub()
         self._stop_scratch_capture()
         self._tail_ending = False
         self._merge_pending = False
@@ -320,8 +262,7 @@ class LoopFootswitch:
         self._tail_silence_since = None
         self._tail_saw_loud = False
         self._tail_stop_sent = False
-        self._tail_seam_mode = False
-        self._reset_seam_overdub_state()
+        self._tail_deferred = False
         if had_deferred:
             self._flush_deferred_grid_side_effects()
 
@@ -345,23 +286,12 @@ class LoopFootswitch:
     def _finish_tail_capture(self, reason: str) -> None:
         if not self._tail_capture:
             return
-        peak = self._in_peak
-        saw_loud = self._tail_saw_loud
-        elapsed = (
-            time.monotonic() - self._tail_capture_since
-            if self._tail_capture_since
-            else 0.0
-        )
-        stop_sent = self._tail_stop_sent
-        seam_mode = self._tail_seam_mode
         self._tail_capture = False
         self._tail_capture_since = 0.0
         self._tail_silence_since = None
         self._tail_saw_loud = False
         self._tail_stop_sent = False
-        self._tail_seam_mode = False
-        self._stop_seam_overdub()
-        self._reset_seam_overdub_state()
+        self._tail_deferred = False
         self._scratch_active = False
         self._tail_ending = False
         self._merge_pending = False
@@ -370,16 +300,7 @@ class LoopFootswitch:
         self._pad_down = False
         self._pad_down_at = 0.0
         self._hold_fired = False
-        if not stop_sent:
-            log(
-                f"loop {self.loop}: tail capture done ({reason}) — "
-                f"sending record stop (peak={peak:.4f}, "
-                f"saw_loud={saw_loud}, elapsed={elapsed:.2f}s)"
-            )
-            self._hit("record")
-            self._expect(STATE_PLAYING)
-        else:
-            log(f"loop {self.loop}: seam weld done ({reason})")
+        log(f"loop {self.loop}: seam weld done ({reason})")
         self._flush_deferred_grid_side_effects()
         self._sync_led()
         self._mark_action()
@@ -450,54 +371,21 @@ class LoopFootswitch:
         return self.sl_state in ACTIVE_PLAY
 
     def poll_tail_capture(self) -> None:
-        """Tier 2: extend recording until release fades. Option E: seam overdub.
-        Tier 3: scratch + merge."""
+        """Stop-then-weld: fixed loop length + parallel scratch + offline merge."""
         if not self._tail_capture:
             return
         now = time.monotonic()
         elapsed = now - self._tail_capture_since
         if elapsed >= TAIL_ABSOLUTE_MAX_S:
-            if self._tail_stop_sent:
-                if self._tail_seam_mode:
-                    self._stop_seam_overdub()
-                    self._finish_tail_capture(f"absolute max {TAIL_ABSOLUTE_MAX_S:.2f}s")
-                else:
-                    self._end_tail_capture(f"absolute max {TAIL_ABSOLUTE_MAX_S:.2f}s")
-            else:
-                self._finish_tail_capture(f"absolute max {TAIL_ABSOLUTE_MAX_S:.2f}s")
+            self._end_tail_capture(f"absolute max {TAIL_ABSOLUTE_MAX_S:.2f}s")
             return
         if self._in_peak_seen and self._in_peak >= TAIL_THRESH:
             self._tail_saw_loud = True
             self._tail_silence_since = None
-            self._tail_release_quiet = False
-            self._tail_release_quiet_since = None
 
-        if self._tail_seam_mode and self._tail_stop_sent:
-            self._poll_seam_tail(now, elapsed)
+        if self._tail_deferred and not self._tail_playback_ready():
             return
 
-        if not self._tail_stop_sent:
-            # Tier 2 — main loop still recording; release is captured in-place.
-            if self._tail_ending:
-                return
-            if self._in_peak_seen and self._in_peak >= TAIL_THRESH:
-                return
-            if not self._in_peak_seen or not self._tail_saw_loud:
-                if elapsed >= TAIL_MAX_S:
-                    self._finish_tail_capture(
-                        f"max {TAIL_MAX_S:.2f}s (no release peak)"
-                    )
-                return
-            if self._tail_silence_since is None:
-                self._tail_silence_since = now
-                return
-            if (now - self._tail_silence_since) >= TAIL_HOLD_S:
-                self._finish_tail_capture(
-                    f"peak<{TAIL_THRESH} for {TAIL_HOLD_S * 1000:.0f}ms"
-                )
-            return
-
-        # Tier 3 — fixed length + parallel scratch capture + offline merge.
         if not self._scratch_active:
             self._maybe_start_scratch()
             if not self._scratch_active and elapsed >= TAIL_MAX_S:
@@ -519,67 +407,6 @@ class LoopFootswitch:
         if (now - self._tail_silence_since) >= TAIL_HOLD_S:
             self._end_tail_capture(
                 f"peak<{TAIL_THRESH} for {TAIL_HOLD_S * 1000:.0f}ms"
-            )
-
-    def _poll_seam_tail(self, now: float, elapsed: float) -> None:
-        """Option E — fixed bar; overdub release only near the wrap seam."""
-        if self._tail_ending or self._merge_pending:
-            return
-        if not self._tail_playback_ready():
-            return
-        if self.loop_len <= 0.0:
-            return
-
-        if not self._seam_overdub_active:
-            if elapsed >= TAIL_MAX_S:
-                self._finish_tail_capture(f"max {TAIL_MAX_S:.2f}s (no seam overdub)")
-                return
-            if self._in_seam_zone():
-                self._start_seam_overdub()
-            return
-
-        overdub_elapsed = now - self._seam_overdub_started_at
-        if self._in_peak_seen and self._in_peak >= TAIL_THRESH:
-            return
-        if not self._in_peak_seen or not self._tail_saw_loud:
-            if elapsed >= TAIL_MAX_S:
-                self._stop_seam_overdub()
-                self._finish_tail_capture(f"max {TAIL_MAX_S:.2f}s (no release peak)")
-            return
-
-        if not self._tail_release_quiet:
-            if self._tail_silence_since is None:
-                self._tail_silence_since = now
-                return
-            if (now - self._tail_silence_since) >= TAIL_HOLD_S:
-                self._tail_release_quiet = True
-                self._tail_release_quiet_since = now
-                log(
-                    f"loop {self.loop}: release quiet — waiting for wrap "
-                    f"(pos={self.loop_pos:.3f}s)"
-                )
-            return
-
-        quiet_wait = (
-            now - self._tail_release_quiet_since
-            if self._tail_release_quiet_since is not None
-            else 0.0
-        )
-        ready_to_stop = (
-            self._in_seam_zone()
-            and overdub_elapsed >= TAIL_MIN_OVERDUB_S
-        )
-        if ready_to_stop:
-            self._stop_seam_overdub()
-            self._finish_tail_capture(
-                f"seam weld at wrap (peak<{TAIL_THRESH}, "
-                f"overdub={overdub_elapsed * 1000:.0f}ms)"
-            )
-            return
-        if quiet_wait >= TAIL_SEAM_END_MAX_S:
-            self._stop_seam_overdub()
-            self._finish_tail_capture(
-                f"seam end timeout {TAIL_SEAM_END_MAX_S * 1000:.0f}ms"
             )
 
     def sync_from_sl(self, sl_state: int) -> bool:
@@ -752,7 +579,6 @@ class LoopFootswitch:
             self.sl_state,
             pending=self._pending,
             tail_capture=self._tail_capture,
-            tail_seam_weld=self._tail_seam_mode and self._tail_stop_sent,
         )
 
     def _sync_led(self) -> None:
@@ -839,7 +665,6 @@ class LoopFootswitch:
             is_defining=self.grid is not None and self.grid.is_pending(self.loop),
             quantized=self.quantized,
             tail_capture_enabled=TAIL_CAPTURE_ENABLED,
-            tail_seam_mode=TAIL_SEAM_MODE,
         )
         if not (plan.commands or plan.queue_stop or plan.arm_grid or plan.begin_tail_capture):
             return
@@ -855,36 +680,22 @@ class LoopFootswitch:
             self._in_peak_seen = False
             self._tail_saw_loud = False
             self._scratch_active = False
-            self._tail_seam_mode = TAIL_SEAM_MODE and bool(plan.commands)
-            if self._tail_seam_mode:
-                log(
-                    f"loop {self.loop}: defining take — stop at bar, "
-                    f"seam overdub release at wrap"
-                )
+            self._tail_deferred = plan.tail_deferred
+            self._tail_stop_sent = True
+            if plan.commands:
                 for cmd in plan.commands:
                     self._hit(cmd)
-                self._tail_stop_sent = True
-                self._expect(STATE_PLAYING)
             elif self.sl_state in ACTIVE_RECORD:
-                log(
-                    f"loop {self.loop}: defining take — recording release "
-                    f"into loop until quiet"
-                )
-                self._tail_stop_sent = False
-                self._expect(STATE_RECORDING)
-            elif self.sl_state in (SL_STATE_PLAYING, SL_STATE_OFF_MUTED):
-                if self._on_prepare_scratch is not None:
-                    self._on_prepare_scratch(self.loop)
-                self._tail_stop_sent = True
-                self._expect(STATE_PLAYING)
-            else:
-                self._tail_stop_sent = False
+                self._hit("record")
+            if self._on_prepare_scratch is not None:
+                self._on_prepare_scratch(self.loop)
+            self._expect(STATE_PLAYING)
             if self._on_tail_capture_begin is not None:
                 self._on_tail_capture_begin(self.loop)
             self._sync_led()
             self._mark_action()
             log(
-                f"loop {self.loop}: -> {edge} done (tail capture, "
+                f"loop {self.loop}: -> {edge} done (stop-then-weld, "
                 f"state={self.state}, sl_state={self.sl_state})"
             )
             return
