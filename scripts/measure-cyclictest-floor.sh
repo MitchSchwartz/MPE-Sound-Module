@@ -8,7 +8,10 @@
 #   ./scripts/measure-cyclictest-floor.sh [--output FILE] [--label TAG]
 #
 # Default command (from spec):
-#   cyclictest -m -t1 -p 80 -n -i 200 -l 300000
+#   cyclictest -m -t1 -p 80 -i 200 -l 300000
+#
+# NOTE: rt-tests 2.6 removed -n (clock_nanosleep is the default; -x opts out to
+# POSIX timers). Passing -n makes cyclictest print usage and exit non-zero.
 
 set -uo pipefail
 
@@ -36,6 +39,30 @@ if ! command -v cyclictest >/dev/null 2>&1; then
     exit 1
 fi
 
+# Run FIRST, validate, and only then append. A previous version piped cyclictest
+# straight into the log: when -n became invalid in rt-tests 2.6, it wrote the
+# tool's usage text into the measurement file, printed a success message and
+# exited 0. Per docs/measurements/README.md, a reading must not look the same
+# broken or fine.
+RAW="$(cyclictest -m -t1 -p 80 -i 200 -l 300000 2>&1)"
+RC=$?
+
+if [ "$RC" -ne 0 ]; then
+    echo "ERROR: cyclictest exited $RC — nothing logged" >&2
+    printf '%s\n' "$RAW" | head -5 >&2
+    exit 1
+fi
+
+# A real run reports per-thread "T: 0 (...) P:80 ... Min: N Act: N Avg: N Max: N".
+# Usage text, a permissions failure, or a truncated run will not match.
+if ! printf '%s' "$RAW" | grep -qE 'Min:[[:space:]]*[0-9]+.*Max:[[:space:]]*[0-9]+'; then
+    echo "ERROR: cyclictest produced no Min/Max latency line — nothing logged" >&2
+    printf '%s\n' "$RAW" | head -5 >&2
+    exit 1
+fi
+
+MAXUS="$(printf '%s' "$RAW" | grep -oE 'Max:[[:space:]]*[0-9]+' | grep -oE '[0-9]+' | sort -n | tail -1)"
+
 {
     echo "=== cyclictest floor label=${LABEL} $(date -Is) ==="
     echo "SENTINEL cyclictest-start"
@@ -46,10 +73,11 @@ fi
     uname -r
     tr '\0' ' ' < /proc/cmdline 2>/dev/null || true
     echo
-    cyclictest -m -t1 -p 80 -n -i 200 -l 300000
+    printf '%s\n' "$RAW"
+    echo "WORST_CASE_USEC=${MAXUS}"
     echo "SENTINEL cyclictest-end"
     echo
 } >>"$OUTPUT"
 
-echo "Appended cyclictest floor to $OUTPUT"
+echo "Appended cyclictest floor to $OUTPUT (worst case ${MAXUS} us)"
 echo "SENTINEL cyclictest-logged"
