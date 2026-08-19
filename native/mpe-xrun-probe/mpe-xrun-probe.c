@@ -11,6 +11,7 @@
 #define _GNU_SOURCE
 #include <errno.h>
 #include <jack/jack.h>
+#include <jack/statistics.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -46,11 +47,11 @@ static void wall_iso8601(char *buf, size_t buflen)
 static int on_xrun(void *arg)
 {
     jack_client_t *client = (jack_client_t *)arg;
-    jack_time_t delay = jack_get_xrun_delayed_usecs(client);
+    float delay = jack_get_xrun_delayed_usecs(client);
     char wall[48];
     wall_iso8601(wall, sizeof(wall));
     if (g_log != NULL) {
-        fprintf(g_log, "XRUN wall=%s delay_usec=%lld\n", wall, (long long)delay);
+        fprintf(g_log, "XRUN wall=%s delay_usec=%.0f\n", wall, delay);
         fflush(g_log);
     }
     return 0;
