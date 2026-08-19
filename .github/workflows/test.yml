@@ -10,25 +10,45 @@ on:
       - dev
       - main
 
+# Rapid merges to dev were spawning parallel runs that all hung on apt-get.
+# Cancel superseded runs on the same ref instead of leaving zombies burning minutes.
+concurrency:
+  group: tests-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   unittest:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - name: Install test dependencies
+        timeout-minutes: 3
         run: pip install python-osc
       - name: Run unit tests
+        timeout-minutes: 10
         run: python3 -m unittest discover -s tests
 
   shell-tests:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - name: Install shellcheck
-        run: sudo apt-get update && sudo apt-get install -y shellcheck
+        timeout-minutes: 2
+        run: |
+          set -euo pipefail
+          ver=v0.10.0
+          curl -fsSL \
+            "https://github.com/koalaman/shellcheck/releases/download/${ver}/shellcheck-${ver}.linux.x86_64.tar.xz" \
+            | tar -xJ
+          sudo install "shellcheck-${ver}/shellcheck" /usr/local/bin/shellcheck
+          shellcheck --version
       - name: Shellcheck scripts
+        timeout-minutes: 3
         run: shellcheck -S error -x scripts/*.sh scripts/lib/*.sh
       - name: Run shell tests
+        timeout-minutes: 5
         run: |
           for t in tests/test_*.sh; do
             bash "$t"

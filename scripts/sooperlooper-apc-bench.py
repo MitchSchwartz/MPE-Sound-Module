@@ -72,14 +72,25 @@ def _format_midi(msg: list[int]) -> str:
     return " ".join(f"0x{b:02X}" for b in msg)
 
 
-def run_bench(argv: list[str] | None = None) -> int:
+def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--measure-latency",
+        type=int,
+        metavar="N",
+        help="Collect N MIDI-in→OSC-out samples and exit (criterion 42)",
+    )
     parser.add_argument(
         "--dump-midi",
         action="store_true",
         help="Log every raw MIDI message (hex) — use to verify Shift/Stop All notes",
     )
     args = parser.parse_args(argv)
+
+    if osc_session is None:
+        from sl_osc_session import SlOscSession
+
+        osc_session = SlOscSession().start()
 
     port_hint = os.environ.get("MPE_APC_MIDI_PORT", "APC")
     host = os.environ.get("MPE_SL_OSC_HOST", "127.0.0.1")
@@ -118,7 +129,23 @@ def run_bench(argv: list[str] | None = None) -> int:
         )
     else:
         apc_label = apc_variant or "env"
-    osc = udp_client.SimpleUDPClient(host, port)
+    osc = osc_session.client
+    midi_osc_latencies: list[float] = []
+    midi_osc_pending: list[float] = []
+    if args.measure_latency:
+        # Tap the CLIENT, not the bench's _send helper. Footswitches are handed the raw
+        # client by build_footswitches(osc=...) and send /hit through it directly, so a
+        # hook in _send sees nothing a pad ever does. Measured on the appliance
+        # 2026-08-19: 267 pad presses, zero samples, no result printed.
+        from latency_tap import LatencyTapClient
+
+        osc = LatencyTapClient(osc, midi_osc_pending, midi_osc_latencies)
+    measure_deadline = (
+        time.monotonic()
+        + float(os.environ.get("MPE_MEASURE_LATENCY_DEADLINE_S", "300"))
+        if args.measure_latency
+        else None
+    )
 
     def _send(path: str, a: list) -> None:
         osc.send_message(path, a)
@@ -221,7 +248,7 @@ def run_bench(argv: list[str] | None = None) -> int:
         mix.seed_from_engine(loop_index, value)
 
     by_loop = footswitches_by_loop(footswitches)
-    state_listener = SlBenchStateListener(by_loop, on_wet=on_wet)
+    state_listener = SlBenchStateListener(by_loop, on_wet=on_wet, session=osc_session)
     state_listener.start()
     state_listener.register(osc, num_loops=num_loops)
     state_listener.wire_tail_capture(footswitches)
@@ -355,6 +382,27 @@ def run_bench(argv: list[str] | None = None) -> int:
             )
 
     while True:
+        if (
+            args.measure_latency
+            and measure_deadline is not None
+            and time.monotonic() >= measure_deadline
+        ):
+            print(
+                f"measure-latency: deadline expired with n={len(midi_osc_latencies)} "
+                f"(need {args.measure_latency})",
+                file=sys.stderr,
+                flush=True,
+            )
+            return 1
+        if args.measure_latency and len(midi_osc_latencies) >= args.measure_latency:
+            ordered = sorted(midi_osc_latencies)
+            p50 = ordered[len(ordered) // 2]
+            p99 = ordered[int(round(0.99 * (len(ordered) - 1)))]
+            print(
+                f"live: n={len(ordered)} p50={p50:.3f}ms p99={p99:.3f}ms max={ordered[-1]:.3f}ms",
+                flush=True,
+            )
+            return 0
         packet = midi_in.get_message()
         if packet is None:
             poll_holds()
@@ -413,6 +461,13 @@ def run_bench(argv: list[str] | None = None) -> int:
             continue
 
         if down is not None and n in by_note:
+            if args.measure_latency:
+                # Stamp BOTH edges. A short tap sends its OSC on pad-up, so timing from
+                # pad-down measures how long the finger was held, not how long the code
+                # took: an 80 ms synthetic hold produced an 80 ms "latency" on
+                # 2026-08-19. The slot holds the most recent MIDI event, which is the
+                # one that caused whatever send comes next.
+                midi_osc_pending[:] = [time.monotonic()]
             if down:
                 by_note[n].on_pad_down()
             else:

@@ -204,3 +204,44 @@ python3 -m unittest discover -s tests -q
 ```
 
 Run before opening PRs to `dev`.
+
+### Never ask Mitch to run a test you could have run yourself
+
+If a check does not require his hands or his ears, run it. Do not stage it, describe
+it, or ask him to trigger it — run it, read the result, and report the number.
+
+He is needed for exactly three things:
+
+- **playing the instrument** — feel, per-patch behaviour, anything musical (B10, criterion 44);
+- **hearing it** — crackle, timbre, whether a change sounds right;
+- **decisions** — enabling a unit by default, accepting a tradeoff, scope.
+
+Everything else is yours: unit tests, xrun runs, CPU sampling, DSP load, latency
+harnesses, crash-recovery timing, snapshot cost. MIDI input is **not** a reason to
+involve him — `scripts/midi-load.py` drives Surge, and a virtual ALSA port connected to
+the bench's input drives pads (see `docs/measurements/looper-midi-osc-latency-2026-08-19.md`).
+
+### Self-test the instrument before it costs him anything
+
+On 2026-08-19 Mitch tapped pads **382 times across two sessions** and both produced zero
+samples, because the harness was hooking a code path pads never touch. Four separate
+measurements in that work order exited cleanly having recorded nothing:
+
+| instrument | failure | looked like |
+|---|---|---|
+| `xrun-corr.sh` | writes to `~/xrun-corr.out`, not stdout | 12 runs, exit 0, empty file |
+| `set-surge-audio.sh` | fails without `sudo`, then continues | a run labelled 512 executed at 1024 |
+| latency tap v1 | hooked `_send`; footswitches use the raw client | 267 presses, `n=0` |
+| latency tap v2 | paired only with `/hit`; most gestures emit none | 115 presses, `n=0` |
+
+Same shape every time: **the failure is indistinguishable from the success.** So before
+any measurement involves him:
+
+1. **Drive it synthetically first** and confirm it produces non-zero output.
+2. **Assert the instrument is the one you think it is** — `grep` the deployed file for
+   the fix, print the real `jackd` command line, check the sample count. A deploy step
+   that prints nothing has not necessarily succeeded.
+3. **Count what you discarded.** A measurement that silently drops its input reports the
+   same thing whether it worked or not.
+
+A remote command that returns no output is not evidence that it ran.
