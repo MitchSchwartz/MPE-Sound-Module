@@ -3,11 +3,11 @@
 #
 # Given buffer size and stack condition, runs N windows (default 60 s) with
 # deterministic midi-load, recording provenance, verified JACK period, asserted
-# sample count, per-xrun delay from the jackd journal, and DSP median/p99.
-# Appends to the output file — never truncates.
+# sample count, per-xrun delay_usec from mpe-xrun-probe (jack_get_xrun_delayed_usecs),
+# and DSP median/p99. Appends to the output file — never truncates.
 #
 # Usage:
-#   sudo ./scripts/measure-latency-run.sh --buffer 512 --condition D --runs 5
+#   sudo ./scripts/measure-latency-run.sh --buffer 512 --condition D --runs 10 --restart-between 5
 #   sudo ./scripts/measure-latency-run.sh --buffer 512 --condition A --runs 1 --seconds 10 --self-test
 #
 # Conditions (cumulative stack):
@@ -33,9 +33,12 @@ SECONDS_PER_RUN=60
 OUTPUT="${MPE_LATENCY_LOG:-$HOME/latency-measure.log}"
 SELF_TEST=false
 RESTORE_BUFFER=""
+RESTART_BETWEEN=""
 MIDI_LOAD_VOICES=75
 _SOFTMODE_CHANGED=0
 _LOAD_PID=""
+_PROBE_PID=""
+PROBE_BIN="${MPE_MODULE_REPO}/native/mpe-xrun-probe/mpe-xrun-probe"
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -45,6 +48,7 @@ while [ $# -gt 0 ]; do
         --seconds) SECONDS_PER_RUN="${2:?--seconds requires a value}"; shift 2 ;;
         --output) OUTPUT="${2:?--output requires a path}"; shift 2 ;;
         --self-test) SELF_TEST=true; SECONDS_PER_RUN=10; RUNS=1; shift ;;
+        --restart-between) RESTART_BETWEEN="${2:?--restart-between requires a run index}"; shift 2 ;;
         -h | --help) sed -n '2,20p' "$0"; exit 0 ;;
         *) echo "Unknown argument: $1 (try --help)" >&2; exit 2 ;;
     esac
@@ -105,8 +109,17 @@ _stop_midi_load() {
     _LOAD_PID=""
 }
 
+_stop_xrun_probe() {
+    if [ -n "$_PROBE_PID" ] && kill -0 "$_PROBE_PID" 2>/dev/null; then
+        kill -TERM "$_PROBE_PID" 2>/dev/null || true
+        wait "$_PROBE_PID" 2>/dev/null || true
+    fi
+    _PROBE_PID=""
+}
+
 _restore_all() {
     _stop_midi_load
+    _stop_xrun_probe
     _restore_softmode
     if [ -n "$RESTORE_BUFFER" ] && [ "$RESTORE_BUFFER" != "$(mpe_jack_period 2>/dev/null || echo "$RESTORE_BUFFER")" ]; then
         "$SCRIPT_DIR/set-surge-audio.sh" --buffer "$RESTORE_BUFFER" >/dev/null 2>&1 || true
@@ -184,6 +197,80 @@ _set_condition() {
 
 _ensure_peak_meter() {
     if [ "$(mpe_read_appliance_env_var MPE_PEAK_METER 2>/dev/null || echo 0)" != "1" ]; then
+        echo "WARNING: MPE_PEAK_METER is not 1 — xrun count uses meter.state only if enabled" >&2
+        return 0
+    fi
+    if ! systemctl is-active --quiet mpe-peak-meter.service 2>/dev/null; then
+        systemctl start mpe-peak-meter.service 2>/dev/null || true
+        sleep 2
+    fi
+}
+
+_ensure_xrun_probe() {
+    if [ ! -x "$PROBE_BIN" ]; then
+        echo "Building mpe-xrun-probe..."
+        "$SCRIPT_DIR/build-mpe-xrun-probe.sh" --required
+    fi
+    [ -x "$PROBE_BIN" ] || {
+        echo "ERROR: mpe-xrun-probe missing at $PROBE_BIN" >&2
+        return 1
+    }
+}
+
+_start_xrun_probe() {
+    local logpath="$1"
+    _stop_xrun_probe
+    _as_user "$PROBE_BIN" "$logpath" &
+    _PROBE_PID=$!
+    sleep 1
+    if ! kill -0 "$_PROBE_PID" 2>/dev/null; then
+        echo "ERROR: mpe-xrun-probe failed to start" >&2
+        return 1
+    fi
+}
+
+_restart_condition_stack() {
+    echo "=== restart full stack between blocks ==="
+    case "$CONDITION" in
+        A) _set_condition A ;;
+        B)
+            systemctl restart mpe-sooperlooper.service
+            sleep 10
+            ;;
+        C)
+            systemctl restart mpe-sooperlooper.service mpe-looper-session.service
+            sleep 12
+            ;;
+        D)
+            systemctl restart mpe-sooperlooper.service mpe-looper-session.service sl-watchdog.service
+            sleep 14
+            ;;
+    esac
+    systemctl is-active mpe-sooperlooper.service mpe-looper-session.service sl-watchdog.service 2>/dev/null \
+        | paste - - - | awk '{print "  after restart: sooperlooper="$1" session="$2" watchdog="$3}'
+}
+
+_delay_stats() {
+    local f="$1"
+    awk '
+        /^XRUN wall=/ {
+            split($0, parts, "delay_usec=")
+            v = parts[2] + 0
+            if (v > 0) { a[++n] = v }
+        }
+        END {
+            if (n == 0) { print "0 0 0 0"; exit }
+            for (i = 1; i <= n; i++)
+                for (j = i + 1; j <= n; j++)
+                    if (a[i] > a[j]) { t = a[i]; a[i] = a[j]; a[j] = t }
+            med = a[int((n + 1) / 2)]
+            p99i = int(n * 0.99); if (p99i < 1) p99i = 1; if (p99i > n) p99i = n
+            printf "%d %d %d %d\n", n, med, a[p99i], a[n]
+        }
+    ' "$f" 2>/dev/null || echo "0 0 0 0"
+}
+
+    if [ "$(mpe_read_appliance_env_var MPE_PEAK_METER 2>/dev/null || echo 0)" != "1" ]; then
         echo "WARNING: MPE_PEAK_METER is not 1 — xrun count falls back to journal only" >&2
         return 0
     fi
@@ -209,41 +296,6 @@ _meter_xruns() {
     grep -oP '(?<=^xruns=)[0-9]+' /run/mpe/meter.state 2>/dev/null || echo 0
 }
 
-_journal_xrun_cursor=""
-_journal_xrun_total=0
-
-_init_journal_cursor() {
-    _journal_xrun_cursor=""
-    _journal_xrun_total=0
-    local out
-    out="$(journalctl -u mpe-jackd.service --no-pager --show-cursor --since "1 second ago" 2>/dev/null || true)"
-    _journal_xrun_cursor="$(printf '%s\n' "$out" | grep '^-- cursor:' | tail -1 | sed 's/^-- cursor: //')"
-}
-
-_poll_journal_xruns() {
-    local argv out new_cursor line delay_usec wall
-    if [ -n "$_journal_xrun_cursor" ]; then
-        argv=(journalctl -u mpe-jackd.service --no-pager --show-cursor --after-cursor "$_journal_xrun_cursor")
-    else
-        argv=(journalctl -u mpe-jackd.service --no-pager --show-cursor --since "2 seconds ago")
-    fi
-    out="$("${argv[@]}" 2>/dev/null || true)"
-    new_cursor="$(printf '%s\n' "$out" | grep '^-- cursor:' | tail -1 | sed 's/^-- cursor: //')"
-    [ -n "$new_cursor" ] && _journal_xrun_cursor="$new_cursor"
-    while IFS= read -r line; do
-        if echo "$line" | grep -qi xrun; then
-            _journal_xrun_total=$((_journal_xrun_total + 1))
-            wall="$(date -Is)"
-            if [[ "$line" =~ [Xx]run\ of\ at\ least\ ([0-9]+)\ msecs ]]; then
-                delay_usec=$((BASH_REMATCH[1] * 1000))
-            else
-                delay_usec=-1
-            fi
-            printf 'XRUN_EVENT wall=%s delay_usec=%s line=%s\n' "$wall" "$delay_usec" "$line"
-        fi
-    done < <(printf '%s\n' "$out" | grep -vi '^-- cursor:')
-}
-
 _run_window() {
     local tag="$1"
     local run_file="$2"
@@ -255,7 +307,10 @@ _run_window() {
     : >"$dsp_raw"
     : >"$xrun_events"
 
-    _init_journal_cursor
+    if ! _start_xrun_probe "$xrun_events"; then
+        return 1
+    fi
+
     _as_user stdbuf -oL jack_cpu_load >"$dsp_raw" 2>/dev/null &
     local jcl=$!
     _kill_jcl() { kill -9 "$jcl" 2>/dev/null || true; wait "$jcl" 2>/dev/null || true; }
@@ -274,11 +329,11 @@ _run_window() {
         mark=""
         [ "$delta" -gt 0 ] && mark=" <<< XRUN x$delta"
         printf '  %4d %8s %8s %7d%s\n' "$i" "${dsp:-?}" "$cur_xr" "$delta" >>"$run_file"
-        _poll_journal_xruns >>"$xrun_events"
         prev_xr="$cur_xr"
     done
 
     _kill_jcl
+    _stop_xrun_probe
 
     if [ "$samples" -ne "$SECONDS_PER_RUN" ]; then
         echo "ERROR: sample count $samples != expected $SECONDS_PER_RUN (trap 3)" >&2
@@ -306,13 +361,15 @@ _run_window() {
         ' "$run_file"
     )
 
-    local temp throttle
+    local temp throttle delay_n delay_med delay_p99 delay_max
+    read -r delay_n delay_med delay_p99 delay_max < <(_delay_stats "$xrun_events")
     temp="$(vcgencmd measure_temp 2>/dev/null || echo 'temp=unknown')"
     throttle="$(vcgencmd get_throttled 2>/dev/null || echo 'throttled=unknown')"
 
     {
         echo "RESULT tag=${tag} xruns=${total_xr} dsp_median=${dsp_median} dsp_p99=${dsp_p99} dsp_max=${dsp_max}"
-        echo "RESULT tag=${tag} samples=${samples} journal_xruns=${_journal_xrun_total} ${temp} ${throttle}"
+        echo "RESULT tag=${tag} delay_count=${delay_n} delay_median_usec=${delay_med} delay_p99_usec=${delay_p99} delay_max_usec=${delay_max}"
+        echo "RESULT tag=${tag} samples=${samples} ${temp} ${throttle}"
         echo "RESULT tag=${tag} file=${run_file} xrun_events=${xrun_events}"
     }
 
@@ -325,6 +382,7 @@ _run_window() {
     echo "=== measure-latency-run buffer=${BUFFER} condition=${CONDITION} runs=${RUNS} seconds=${SECONDS_PER_RUN} $(date -Is) ==="
     echo "SENTINEL harness-start"
     _ensure_peak_meter
+    _ensure_xrun_probe || exit 1
 
     if ! "$SCRIPT_DIR/set-surge-audio.sh" --buffer "$BUFFER"; then
         echo "ERROR: set-surge-audio.sh --buffer $BUFFER failed" >&2
@@ -367,7 +425,11 @@ _run_window() {
             exit 1
         fi
         cat "$run_file"
-        [ -s "$xev" ] && { echo "--- xrun events ---"; cat "$xev"; }
+        [ -s "$xev" ] && { echo "--- xrun delays (probe) ---"; cat "$xev"; }
+
+        if [ -n "$RESTART_BETWEEN" ] && [ "$run_idx" -eq "$RESTART_BETWEEN" ] && [ "$run_idx" -lt "$RUNS" ]; then
+            _restart_condition_stack
+        fi
 
         run_idx=$((run_idx + 1))
         [ "$run_idx" -le "$RUNS" ] && sleep 5
