@@ -20,6 +20,7 @@ from apc_footswitch import (  # noqa: E402
     apply_view,
     build_footswitches,
     footswitches_by_loop,
+    poll_footswitches,
     reset_all_loops,
     stop_all_loops,
 )
@@ -337,9 +338,7 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
             engine_event_watch.poll()
 
     def poll_holds() -> None:
-        for fs in footswitches:
-            fs.poll_hold()
-            fs.poll_led()
+        poll_footswitches(footswitches)
 
     def tick_faders() -> None:
         """Ramp smoothed wet toward targets between CC events."""
