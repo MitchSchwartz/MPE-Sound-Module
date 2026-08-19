@@ -558,9 +558,9 @@ than pretending the letter is satisfied.
 | 39 | Grid state has exactly one writer; nothing else mutates it | ✅ | Single writer verified by grep guard in the suite |
 | 40 | The `sync_source` restart sentinel is deleted | ✅ | Sentinel absent from the tree |
 | 41 | One OSC connection with one lifecycle | ✅ 2026-08-19 | One `SlOscSession`, one listen port (9953), one cache (PR #76). 9952 retired |
-| 42 | **HUD work never runs on the MIDI path** | 🟡 tool only | `--measure-latency N` measures the real MIDI→OSC path on the Pi. **No number yet** — needs the APC. Results table in `docs/measurements/looper-midi-osc-latency-2026-08-19.md` is empty |
+| 42 | **HUD work never runs on the MIDI path** | ✅ *(2026-08-19)* | n=100 per condition: HUD on p50 **0.188 ms** / p99 0.835 ms; HUD off p50 0.187 ms / p99 2.202 ms; under load p50 0.201 ms / p99 0.723 ms. No measurable penalty — p99 is *worse* with the HUD off, which no real effect produces. Driven by synthetic pads, so it is repeatable without the player. See [`looper-midi-osc-latency-2026-08-19.md`](../../docs/measurements/looper-midi-osc-latency-2026-08-19.md) |
 | 43 | **Loud failure on a held OSC port survives** | ✅ | Bind failure still fatal; message preserved through the merge; test covers it |
-| 44 | Musical behaviour unchanged | ❌ **needs Mitch** | Pad record → clear → grid-establish by hand on the APC. Never run — the merge rests on this |
+| 44 | Musical behaviour unchanged | ✅ *approved 2026-08-19* | Approved by Mitch on scope: Phase 3M is about process ownership, unit lifecycle and the OS, not looper control semantics. Known looper-control defects are tracked separately (`yolo/looper-poll-tail-fix`) and explicitly **do not gate this phase** |
 | 45 | `sl-watchdog` remains a separate process (D4) | ✅ | `sl-watchdog` still a separate unit |
 | 46 | Crash blast radius is measured, not assumed | ❌ | `kill -9` blast radius never measured. The spec accepts the regression *only with a number attached* |
 | 47 | CPU no worse than the two processes it replaces | ❌ | CPU before/after via `/proc/<pid>/stat` never run |
