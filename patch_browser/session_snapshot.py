@@ -147,8 +147,10 @@ def build_services(
     check_enabled_raw = _memoized_unit_enabled_raw(unit_enabled or systemd_unit_enabled_raw)
     services: dict[str, Any] = {}
     for unit in STATUS_SERVICE_UNITS:
-        active = check_active(unit)
         raw_enabled = check_enabled_raw(unit)
+        if raw_enabled == "not-found":
+            continue
+        active = check_active(unit)
         if raw_enabled in {"masked", "masked-runtime"}:
             enabled_label = "masked"
         elif raw_enabled in {"enabled", "enabled-runtime", "static", "indirect", "alias"}:
