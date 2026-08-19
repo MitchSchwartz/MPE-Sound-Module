@@ -6,6 +6,27 @@ Orientation canon: OM-Repo [`GROUNDING.md`](https://github.com/opsMachine/OM-Rep
 
 ---
 
+## 2026-08-19 — Tier 2 rejected; stop-then-weld is the only tail model
+
+**Decision:** Remove “extend Recording until release quiet” (Tier 2) and Option E
+(seam overdub) from product design. Every clip close — defining take and grid clips —
+uses the same **stop-then-weld** path:
+
+1. **Stop** — pad sends `record` stop; length fixes immediately (clip 0) or at the
+   quantised bar (grid clips).
+2. **Tail pass** — parallel record on scratch loop 15 while main loop plays at fixed N.
+3. **Weld once** — offline merge at wrap seam; no second copy of release already in the buffer.
+
+**Why:** Tier 2 duplicated release, did not stop on the pad, and was an AI compromise —
+not Mitch’s model. Ear-failed on Pi 2026-08-18–19.
+
+**Defaults:** `MPE_SL_TAIL_CAPTURE=1`, `MPE_SL_SEAM_WELD=1`. Set `MPE_SL_SEAM_WELD=0`
+for stop-only (no reload merge) while tuning latency.
+
+**Canon:** `Documents/specs/looper-loop-seam-spec.md` §Stop-then-weld.
+
+---
+
 ## 2026-08-18 — Anything that touches the audio path must be declared, including what you did not write
 
 **Three faults in one week, one shape.** Each was a component doing something
