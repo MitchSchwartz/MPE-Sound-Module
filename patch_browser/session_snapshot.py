@@ -40,6 +40,165 @@ JACK_UNIT = "mpe-jackd"
 SURGE_UNIT = "surge-xt-cli"
 ENGINE_STATE_WRITER_UNIT = "surge-watchdog"
 
+STATUS_SERVICE_UNITS = (
+    "mpe-jackd",
+    "surge-xt-cli",
+    "surge-watchdog",
+    "touch-patch-browser",
+    "patch-browser",
+    "usb-audio-gadget",
+    "uac2-stall-watchdog",
+    "mpe-pressure-remap",
+    "mpe-looper-session",
+    "mpe-sooperlooper",
+    "sl-watchdog",
+)
+
+MPE_ENV_PATH = Path("/etc/mpe/mpe.env")
+MPE_ENV_STATUS_KEYS = ("MPE_UI_MODE", "MPE_AUDIO_PROFILE")
+
+SERVICES_PROBE_TTL_S = float(os.environ.get("MPE_SNAPSHOT_SERVICES_TTL_S", "5"))
+_services_probe_cache: dict[str, tuple[float, object]] = {}
+def _ttl_probe(key: str, probe: Callable[[], object]) -> object:
+    """Cache systemd probe results briefly — publisher builds at 2 Hz."""
+    now = time.monotonic()
+    cached = _services_probe_cache.get(key)
+    if cached is not None and (now - cached[0]) < SERVICES_PROBE_TTL_S:
+        return cached[1]
+    value = probe()
+    _services_probe_cache[key] = (now, value)
+    return value
+
+
+
+def _tri_state_label(value: bool | None, *, true_label: str, false_label: str) -> str:
+    if value is True:
+        return true_label
+    if value is False:
+        return false_label
+    return "unknown"
+
+
+def _memoized_unit_enabled_raw(
+    base: Callable[[str], str | None],
+) -> Callable[[str], str | None]:
+    cache: dict[str, str | None] = {}
+
+    def check(unit: str) -> str | None:
+        if unit not in cache:
+            cache[unit] = base(unit)
+        return cache[unit]
+
+    return check
+
+
+def _read_mpe_env_keys(path: Path = MPE_ENV_PATH, keys: tuple[str, ...] = MPE_ENV_STATUS_KEYS) -> dict[str, str]:
+    out: dict[str, str] = {}
+    try:
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if "=" not in line or line.strip().startswith("#"):
+                continue
+            key, _, value = line.partition("=")
+            key = key.strip()
+            if key in keys:
+                out[key] = value.strip()
+    except OSError:
+        pass
+    return out
+
+
+def _probe_process_pid(*, exe: str) -> tuple[int | None, bool]:
+    """Return (pid, probe_ok). probe_ok is False on subprocess failure."""
+    try:
+        result = subprocess.run(
+            ["pgrep", "-x", exe],
+            capture_output=True,
+            text=True,
+            timeout=2,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None, False
+    line = (result.stdout or "").strip().splitlines()
+    if not line:
+        return None, True
+    try:
+        return int(line[0]), True
+    except ValueError:
+        return None, True
+
+
+METER_STATE_MAX_AGE_S = float(os.environ.get("MPE_METER_STATE_MAX_AGE_S", "5"))
+
+
+def _surge_on_jack_graph(*, jackd_pid: int | None = None, now: float | None = None) -> bool | None:
+    """Read wired= from meter.state — same contract as mpe_surge_on_jack_graph()."""
+    if jackd_pid is None:
+        return None
+    from patch_browser.audio_engine import METER_STATE_FILE, read_meter_state
+
+    raw = read_meter_state(METER_STATE_FILE)
+    wired = raw.get("wired")
+    updated = raw.get("updated")
+    if wired not in {"0", "1"} or not updated:
+        return None
+    try:
+        age = (time.time() if now is None else now) - float(updated)
+    except ValueError:
+        return None
+    if age < 0 or age > METER_STATE_MAX_AGE_S:
+        return None
+    return wired == "1"
+
+
+def build_services(
+    *,
+    unit_active: Callable[[str], bool | None] | None = None,
+    unit_enabled: Callable[[str], str | None] | None = None,
+) -> dict[str, Any]:
+    check_active = _memoized_unit_active(unit_active or systemd_unit_active)
+    check_enabled_raw = _memoized_unit_enabled_raw(unit_enabled or systemd_unit_enabled_raw)
+    services: dict[str, Any] = {}
+    for unit in STATUS_SERVICE_UNITS:
+        raw_enabled = check_enabled_raw(unit)
+        if raw_enabled == "not-found":
+            continue
+        active = check_active(unit)
+        if raw_enabled in {"masked", "masked-runtime"}:
+            enabled_label = "masked"
+        elif raw_enabled in {"enabled", "enabled-runtime", "static", "indirect", "alias"}:
+            enabled_label = "enabled"
+        elif raw_enabled in {"disabled"}:
+            enabled_label = "disabled"
+        else:
+            enabled_label = "unknown"
+        services[unit] = {
+            "active": _tri_state_label(active, true_label="active", false_label="inactive"),
+            "enabled": enabled_label,
+            "stale": active is None and raw_enabled is None,
+        }
+    return services
+
+
+
+def build_processes() -> dict[str, Any]:
+    jackd_pid, jackd_ok = _probe_process_pid(exe="jackd")
+    surge_pid, surge_ok = _probe_process_pid(exe="surge-xt-cli")
+    return {
+        "jackd_pid": jackd_pid,
+        "surge_pid": surge_pid,
+        "stale": not (jackd_ok and surge_ok),
+    }
+
+
+def build_graph_probe(*, jackd_pid: int | None = None) -> dict[str, Any]:
+    on_graph = _surge_on_jack_graph(jackd_pid=jackd_pid, now=time.time())
+    return {
+        "surge_on_graph": on_graph,
+        "stale": on_graph is None,
+    }
+
+
 
 def snapshot_path(*, run: Path | None = None) -> Path:
     base = run or run_dir()
@@ -140,7 +299,7 @@ def field_age_stale(updated: float, *, now: float, threshold: float = STALE_THRE
     return (now - updated) >= threshold
 
 
-def systemd_unit_active(unit: str) -> bool | None:
+def _systemd_unit_active_raw(unit: str) -> bool | None:
     """Return True/False when systemctl answers; None when unavailable or transitional."""
     try:
         result = subprocess.run(
@@ -158,6 +317,29 @@ def systemd_unit_active(unit: str) -> bool | None:
     if state in {"inactive", "failed", "deactivating"}:
         return False
     return None
+
+
+def systemd_unit_active(unit: str) -> bool | None:
+    return _ttl_probe(f"active:{unit}", lambda: _systemd_unit_active_raw(unit))  # type: ignore[return-value]
+
+
+def _systemd_unit_enabled_raw(unit: str) -> str | None:
+    try:
+        result = subprocess.run(
+            ["systemctl", "is-enabled", f"{unit}.service"],
+            capture_output=True,
+            text=True,
+            timeout=2,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    state = (result.stdout or "").strip()
+    return state or None
+
+
+def systemd_unit_enabled_raw(unit: str) -> str | None:
+    return _ttl_probe(f"enabled:{unit}", lambda: _systemd_unit_enabled_raw(unit))  # type: ignore[return-value]
 
 
 def systemd_unit_enabled(unit: str) -> bool | None:
@@ -292,11 +474,15 @@ def build_snapshot(
     looper_enabled: str | None = None,
     seq: int | None = None,
     unit_active: Callable[[str], bool | None] | None = None,
+    unit_enabled: Callable[[str], str | None] | None = None,
+    include_services: bool = True,
+    include_runtime_probes: bool = False,
 ) -> dict[str, Any]:
     """Aggregate existing truth into schema v1 document."""
     base = run or run_dir()
     now_ts = time.time() if now is None else now
     check_unit = _memoized_unit_active(unit_active or systemd_unit_active)
+    check_enabled_raw = _memoized_unit_enabled_raw(unit_enabled or systemd_unit_enabled_raw)
 
     engine_path = base / "engine.state"
     jack_path = base / "jack.state"
@@ -330,7 +516,7 @@ def build_snapshot(
     surge_stale = process_field_stale(surge_raw, unit=SURGE_UNIT, started_key="started", unit_active=check_unit)
     reconcile_stale = reconcile_field_stale(reconcile_raw)
 
-    return {
+    snap = {
         "schema": SCHEMA_VERSION,
         "seq": seq,
         "published_at": now_ts,
@@ -373,7 +559,21 @@ def build_snapshot(
                 stale=field_age_stale(float(hud.get("updated_at") or 0.0), now=now_ts) if hud else True,
             ),
         },
+        "config": {
+            "mpe_env": _read_mpe_env_keys(),
+            "source": str(MPE_ENV_PATH),
+            "stale": not MPE_ENV_PATH.is_file(),
+        },
     }
+    if include_services:
+        snap["services"] = build_services(
+            unit_active=check_unit,
+            unit_enabled=check_enabled_raw,
+        )
+    if include_runtime_probes:
+        snap["processes"] = build_processes()
+        snap["graph"] = build_graph_probe(jackd_pid=snap["processes"].get("jackd_pid"))
+    return snap
 
 
 def read_seq(*, run: Path | None = None) -> int:
