@@ -218,3 +218,22 @@ class SnapshotEngineRecoveryTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SnapshotServicesTests(unittest.TestCase):
+    def test_build_includes_services(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            run = Path(tmp)
+            (run / "engine.state").write_text(
+                "engine=jack\nactive=jack\nstate=ok\nupdated=999\n",
+                encoding="utf-8",
+            )
+            snap = build_snapshot(
+                now=1000.0,
+                run=run,
+                seq=1,
+                unit_active=lambda u: u == "mpe-jackd",
+                unit_enabled=lambda u: True,
+            )
+            self.assertIn("mpe-jackd", snap["services"])
+            self.assertEqual(snap["services"]["mpe-jackd"]["active"], "active")
