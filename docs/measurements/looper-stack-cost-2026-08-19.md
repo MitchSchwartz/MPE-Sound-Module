@@ -49,20 +49,8 @@ condition has not tested anything.
 
 ## What this does not settle
 
-**The 512 x 3 comparison is still missing**, and it is the one that matters — 512 is the
-buffer the instrument is played at, and crackle at 512 is what caused the stack to be
-switched off. That run was attempted and is **void by operator error**: two measurement
-scripts overlapped, and the first one's cleanup trap stopped the looper units partway
-through the second one's condition D. The resulting file has 259 samples in one condition
-and 111 in another against an expected 180, which is how it was caught.
-
-It needs a clean re-run:
-
-```sh
-sudo ./scripts/set-surge-audio.sh --buffer 512     # needs sudo — writes /etc/mpe/mpe.env
-# then A (all off) vs D (full stack), 3 x 60 s each, one script at a time
-sudo ./scripts/set-surge-audio.sh --buffer 1024    # restore
-```
+~~**The 512 x 3 comparison is still missing**~~ **Done 2026-08-19 on `b9bf98e`** — see
+below. B10 (feel) still cannot be delegated.
 
 Two further traps worth recording, both of which produced a clean exit code and no data:
 
@@ -70,16 +58,37 @@ Two further traps worth recording, both of which produced a clean exit code and 
   The first attempt redirected its stdout: twelve runs, zero readings, exit 0. Every run
   is now copied out immediately and asserted non-empty.
 - `set-surge-audio.sh` without `sudo` fails on `/etc/mpe/mpe.env` and **carries on**, so a
-  run labelled 512 executed entirely at 1024. Caught only because the script prints the
   real `jackd` command line into its own output. Assert the period; do not assume it.
+
+## Results — 512 x 3 (A vs D, re-taken 2026-08-19)
+
+`b9bf98e` on `raspberrypi2`. Same load protocol as above (`midi-load.py` 75, 8 s warm-up,
+`xrun-corr.sh 60`, n = 3). Only **A (all off)** vs **D (full stack)** — the comparison
+that gates whether the stack is safe at the buffer the instrument is played at.
+
+| condition | runs | xruns/60 s | DSP median | p90 | max |
+|---|---:|---:|---:|---:|---:|
+| A — all off (baseline) | 3 | **2, 0, 0** | 38.52% | 39.45 | 48.85 |
+| D — full stack | 3 | **7, 24, 29** | 38.70% | 41.81 | 69.64 |
+
+**Cost is unchanged at 512** — DSP medians sit in the same ~39% band with or without the
+stack. **Safety is not:** baseline is clean (one blip in run 1), full stack produces
+material xruns in all three runs under the same deterministic load. That matches why the
+stack stayed opt-in: the problem was never the 30-point cost fiction from the void run, it
+was crackle at this buffer under playing load.
+
+Buffer restored to **1024 × 3** after the run. Log: `/tmp/d15-512x3-20260819-223937.log`
+on the Pi.
 
 ## Bearing on D15 and on `install-units.sh`
 
-D15 (the SooperLooper adopt/kill gate) must no longer inherit the void numbers. On cost
+D15 (the SooperLooper adopt/kill gate) must no longer inherit the void numbers. On **cost**
 grounds the stack is affordable: 5.5 points of DSP at 1024 x 3, all of it the engine, with
-the Phase 3M merge and the watchdog free.
+the Phase 3M merge and the watchdog free. At **512 x 3 under load**, the same cost holds but
+the **full stack is not xrun-clean** (7 / 24 / 29 xruns per 60 s vs 2 / 0 / 0 baseline).
 
-**Recommendation held, not acted on.** Returning the stack to `ENABLED` needs the 512 run
-above plus B10 (feel), which cannot be delegated. The opt-in default stays until then —
-but it now stands on "not yet re-measured at the buffer that matters", not on a number
-that was wrong.
+**Recommendation held, not acted on.** Returning the stack to `ENABLED` still needs B10
+(feel), which cannot be delegated — and the 512 safety numbers above are a reason to keep
+the opt-in default even after B10 passes, until whatever drives those xruns is understood.
+The opt-in default now stands on measured evidence at both buffers, not on a number that
+was wrong.
