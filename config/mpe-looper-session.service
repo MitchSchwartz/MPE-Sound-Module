@@ -14,8 +14,7 @@ User=@MPE_PI_USER@
 WorkingDirectory=@MPE_MODULE_REPO@
 EnvironmentFile=-/etc/mpe/mpe.env
 Environment=PYTHONUNBUFFERED=1
-# Binds UDP 9953 (bench state) and 9952 (HUD auto-update). Both ports fail
-# startup with an actionable message if already held.
+# Binds UDP 9953 (shared bench + HUD auto-update). Startup fails loudly if held.
 ExecStart=/usr/bin/python3 @MPE_MODULE_REPO@/scripts/looper-session.py
 Restart=always
 RestartSec=10
