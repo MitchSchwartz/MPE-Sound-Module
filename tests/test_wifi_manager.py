@@ -7,7 +7,9 @@ from unittest import mock
 
 from patch_browser.wifi_manager import (
     _parse_wifi_list_line,
+    connect_failure_needs_password,
     connection_has_usable_profile,
+    forget_wifi,
     humanize_connect_error,
     scan_wifi,
 )
@@ -29,6 +31,33 @@ class WifiManagerTests(unittest.TestCase):
             had_password=True,
         )
         self.assertEqual(msg, "Wrong password — check and try again")
+
+    @mock.patch("patch_browser.wifi_manager.known_connection_names", return_value={"Cafe"})
+    @mock.patch("patch_browser.wifi_manager._run_nmcli")
+    def test_forget_wifi_deletes_profile(self, run_mock: mock.Mock, _known: mock.Mock) -> None:
+        run_mock.return_value = mock.Mock(returncode=0, stdout="", stderr="")
+        ok, message = forget_wifi("Cafe")
+        self.assertTrue(ok)
+        self.assertEqual(message, "Forgot Cafe")
+        run_mock.assert_called_once()
+        self.assertEqual(run_mock.call_args.args[0][:2], ["connection", "delete"])
+
+    @mock.patch("patch_browser.wifi_manager.known_connection_names", return_value=set())
+    def test_forget_wifi_requires_saved_profile(self, _known: mock.Mock) -> None:
+        ok, message = forget_wifi("Cafe")
+        self.assertFalse(ok)
+        self.assertEqual(message, "Network not saved")
+
+    def test_connect_failure_needs_password(self) -> None:
+        self.assertTrue(
+            connect_failure_needs_password("Wrong password — check and try again")
+        )
+        self.assertTrue(connect_failure_needs_password("Enter the network password"))
+        self.assertFalse(
+            connect_failure_needs_password(
+                "Network not in range — go back, Refresh, and try again"
+            )
+        )
 
     def test_humanize_saved_profile_needs_password(self) -> None:
         msg = humanize_connect_error(
