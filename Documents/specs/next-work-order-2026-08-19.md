@@ -6,7 +6,7 @@ needs Mitch at the instrument — see the summary table below. Original text fol
 | # | Task | State |
 |---|---|---|
 | 1 | Criterion 41 — one OSC session | ✅ PR #76 |
-| 2 | Criterion 42 — MIDI→OSC latency | 🟡 tool works, **no number — needs the APC** |
+| 2 | Criterion 42 — MIDI→OSC latency | ✅ p50 0.19 ms, no HUD penalty; harness is synthetic and repeatable |
 | 3 | Criterion 6 — CLI on the snapshot | ✅ mpe-cli #6/#7 |
 | 4 | Liveness spike | ✅ D-Bus batched; 11.5% → 0.53% of a core |
 | 5 | Snapshot publisher | ✅ 1 Hz, installed, **not enabled** — your call |
