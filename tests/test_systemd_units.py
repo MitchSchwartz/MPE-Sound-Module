@@ -234,10 +234,20 @@ class SingleUnitSourceTests(unittest.TestCase):
 
     def test_retired_looper_client_units_disabled(self) -> None:
         """Phase 3M: merged units must land in DISABLED so upgrade does not double-run."""
+        # Comments are stripped before the closing paren is found: a ")" inside a
+        # comment used to truncate this list, so entries after it went unchecked.
         install = INSTALL_UNITS.read_text(encoding="utf-8")
-        disabled_block = install.split("DISABLED=(", 1)[1].split(")", 1)[0]
-        for name in ("mpe-apc-bench", "sl-hud-monitor"):
-            self.assertIn(name, disabled_block, f"{name} must be in install-units DISABLED")
+        body = install.split("DISABLED=(", 1)[1]
+        entries = []
+        for raw in body.splitlines():
+            line = raw.split("#", 1)[0].strip()
+            if line.startswith(")"):
+                break
+            if line:
+                entries.append(line)
+        for name in ("mpe-apc-bench", "sl-hud-monitor", "mpe-sooperlooper",
+                     "mpe-looper-session", "sl-watchdog", "mpe-session-publisher"):
+            self.assertIn(name, entries, f"{name} must be in install-units DISABLED")
 
     def test_retired_mpe_bench_is_gone_everywhere(self) -> None:
         """It could no longer free the APC — mpe-looper-session.service holds it now."""
