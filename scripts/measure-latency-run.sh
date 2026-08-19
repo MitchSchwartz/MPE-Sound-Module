@@ -270,16 +270,6 @@ _delay_stats() {
     ' "$f" 2>/dev/null || echo "0 0 0 0"
 }
 
-    if [ "$(mpe_read_appliance_env_var MPE_PEAK_METER 2>/dev/null || echo 0)" != "1" ]; then
-        echo "WARNING: MPE_PEAK_METER is not 1 — xrun count falls back to journal only" >&2
-        return 0
-    fi
-    if ! systemctl is-active --quiet mpe-peak-meter.service 2>/dev/null; then
-        systemctl start mpe-peak-meter.service 2>/dev/null || true
-        sleep 2
-    fi
-}
-
 _enable_strict_xrun_reporting() {
     _set_env_var MPE_JACK_SOFTMODE 0
     _SOFTMODE_CHANGED=1
