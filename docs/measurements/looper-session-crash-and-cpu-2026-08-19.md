@@ -1,8 +1,19 @@
 # Phase 3M criteria 46 and 47 — crash blast radius and CPU — 2026-08-19
 
-`raspberrypi2`, `1024 x 3`, code as shipped on `dev` (84c10ea) plus the `--bench-only`
-fix below. 60 s idle windows, `/proc/<pid>/stat` fields 14–17 so forked children are
-counted ([`DECISIONS.md`](../../Documents/DECISIONS.md) 2026-08-18).
+> **Provenance — read before quoting these numbers.** Measured on `raspberrypi2` while
+> its checkout was on `yolo/looper-poll-tail-fix` (`c006fa8`), **not** on `dev`. The Pi's
+> reflog shows it left `dev` at 2026-08-19 19:14:35; these runs started after that. That
+> branch adds `poll_tail_capture()` per footswitch per idle tick — to the same poll loop
+> both criteria measure.
+>
+> **Comparisons hold**: every condition below ran identical code, so the deltas are
+> sound. **Absolutes are upper bounds** for `dev`, which does not carry that extra
+> per-tick work. Re-take them against the merged branch before treating any single
+> figure as the appliance's cost.
+
+`raspberrypi2`, `1024 x 3`, plus the `--bench-only` fix below. 60 s idle windows,
+`/proc/<pid>/stat` fields 14–17 so forked children are counted
+([`DECISIONS.md`](../../Documents/DECISIONS.md) 2026-08-18).
 
 ## Criterion 47 — CPU no worse than the two processes it replaces
 
