@@ -75,7 +75,6 @@ def led_for(
     *,
     pending: str | None = None,
     tail_capture: bool = False,
-    tail_seam_weld: bool = False,
 ) -> tuple[int, ...]:
     """Pad colour, as a blink sequence. Length 1 means hold it steady.
 
@@ -87,12 +86,9 @@ def led_for(
     what let a poll clear the flag while the launch was still pending, leaving
     the pad blinking green forever after it had already landed.
     """
-    if tail_capture and tail_seam_weld:
-        # Option E: loop is Playing/Overdubbing while release is welded at the seam.
-        return (LED_YELLOW_BLINK,)
     if tail_capture:
-        # Tier 2: SL is still Recording while release is captured in-place.
-        return RECORD_TO_PLAY
+        # Stop-then-weld: loop length fixed; scratch tail + merge still running.
+        return (LED_YELLOW_BLINK,)
     if sl_state == SL_STATE_WAIT_STOP:
         return RECORD_TO_PLAY
     if sl_state == SL_STATE_WAIT_START:

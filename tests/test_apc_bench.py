@@ -3,9 +3,10 @@
 import conftest  # noqa: F401 — bare sooperlooper imports (apc_grid, …)
 
 import unittest
+from pathlib import Path
 from unittest.mock import MagicMock
 
-from scripts.sooperlooper.apc_footswitch import apply_view, build_footswitches
+from scripts.sooperlooper.apc_footswitch import apply_view, build_footswitches, poll_footswitches
 from scripts.sooperlooper.apc_grid import GridView, pad_note
 
 
@@ -105,6 +106,21 @@ class ApcBenchFootswitchTests(unittest.TestCase):
         osc.reset_mock()
         took_over.on_pad_up()
         osc.send_message.assert_not_called()
+
+    def test_poll_footswitches_is_wired_in_bench_idle_loop(self) -> None:
+        """Tail capture must be polled from the live bench, not only in unit tests."""
+        source = (
+            Path(__file__).resolve().parent.parent / "scripts" / "sooperlooper-apc-bench.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn("poll_footswitches(footswitches)", source)
+        self.assertNotIn("fs.poll_tail_capture()", source)
+
+    def test_poll_footswitches_delegates_to_tail_capture(self) -> None:
+        fs = MagicMock()
+        poll_footswitches([fs])
+        fs.poll_hold.assert_called_once()
+        fs.poll_led.assert_called_once()
+        fs.poll_tail_capture.assert_called_once()
 
 
 class ViewAgreementTests(unittest.TestCase):
