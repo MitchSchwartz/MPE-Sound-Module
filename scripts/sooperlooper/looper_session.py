@@ -87,6 +87,7 @@ def run_session(argv: list[str] | None = None) -> int:
 
     if args.hud_only:
         writer = HudWriter(session)
+        session.register_hud_loops()
         writer.register_auto_updates()
         print(
             f"looper-session: HUD -> {SL_HUD_STATE_FILE} (hud-only)",
