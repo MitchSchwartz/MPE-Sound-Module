@@ -16,8 +16,9 @@ The harness runs the APC bench with `--measure-latency N`. It timestamps each
 pad-down and records the delta to the next footswitch ``/hit`` OSC send — the
 actual MIDI→OSC path, not a synthetic timer loop.
 
-For HUD-on vs HUD-off comparison, run the measurement twice with the merged
-session normally running vs `--hud-only` / session stopped (manual A/B).
+For HUD-thread overhead comparison, run with the merged session normally
+running vs `--bench-only` (HUD thread off). Do not use `--hud-only` for latency
+A/B — that mode is HUD writer without bench, not "HUD disabled."
 
 ## Results
 

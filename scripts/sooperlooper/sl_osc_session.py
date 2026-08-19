@@ -53,6 +53,7 @@ class SlOscSession:
         self._bench_listener: SlBenchStateListener | None = None
         self._bench_num_loops = NUM_LOOPS
         self._hud_registered = False
+        self._hud_loops_registered = False
         self._bench_registered = False
 
     @property
@@ -133,12 +134,23 @@ class SlOscSession:
         return None
 
     def register_hud(self) -> None:
-        """Tempo only — loop state/len/pos come from bench subscriptions."""
+        """Tempo only in merged mode — loop state comes from bench subscriptions."""
         returl = self.returl()
         self.client.send_message(
             "/register_auto_update", ["tempo", 200, returl, "/r"]
         )
         self._hud_registered = True
+
+    def register_hud_loops(self) -> None:
+        """Loop state/len/pos for --hud-only when bench is not running."""
+        returl = self.returl()
+        for loop in range(NUM_LOOPS):
+            for ctrl in ("state", "loop_len", "loop_pos"):
+                self.client.send_message(
+                    f"/sl/{loop}/register_auto_update",
+                    [ctrl, HUD_UPDATE_MS, returl, "/r"],
+                )
+        self._hud_loops_registered = True
 
     def register_bench(self, *, num_loops: int) -> None:
         self._bench_num_loops = num_loops
@@ -192,6 +204,8 @@ class SlOscSession:
             return
         if self._hud_registered:
             self.register_hud()
+        if self._hud_loops_registered:
+            self.register_hud_loops()
         if self._bench_registered:
             self.register_bench(num_loops=self._bench_num_loops)
         self.seed_tempo()
