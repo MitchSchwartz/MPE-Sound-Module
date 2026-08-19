@@ -1,6 +1,19 @@
 # Work order — agent-ready tasks after the 2026-08-18 crackle fix
 
-**Status:** ready to hand to an agent. Each task below is self-contained, has acceptance
+**Status 2026-08-19:** tasks 1, 3, 4 and 5 are done; task 6 is half done. What remains
+needs Mitch at the instrument — see the summary table below. Original text follows.
+
+| # | Task | State |
+|---|---|---|
+| 1 | Criterion 41 — one OSC session | ✅ PR #76 |
+| 2 | Criterion 42 — MIDI→OSC latency | ✅ p50 0.19 ms, no HUD penalty; harness is synthetic and repeatable |
+| 3 | Criterion 6 — CLI on the snapshot | ✅ mpe-cli #6/#7 |
+| 4 | Liveness spike | ✅ D-Bus batched; 11.5% → 0.53% of a core |
+| 5 | Snapshot publisher | ✅ 1 Hz, installed, **not enabled** — your call |
+| 6 | Re-measure the looper stack | 🟡 done at 1024, **512 run void — needs a clean re-run** |
+| 7 | Buffer floor / per-patch headroom | ❌ **needs Mitch playing** |
+
+**Original status:** ready to hand to an agent. Each task below is self-contained, has acceptance
 criteria, and states its dependencies. Tasks 1–3 depend on **no** pending measurement.
 Task 4 is a spike whose result decides task 5.
 
@@ -14,7 +27,7 @@ be declared. Verify on the Pi, not by inspection.
 
 ---
 
-## 1. Phase 3M criterion 41 — one OSC connection, one lifecycle
+## 1. ~~Phase 3M criterion 41 — one OSC connection, one lifecycle~~ — **DONE, PR #76**
 
 **Independent of any measurement. Highest-value remaining Phase 3M work.**
 
@@ -63,7 +76,7 @@ work off the poll path entirely.
 
 ---
 
-## 3. Phase 1 criterion 6 — re-point `mpe-cli` at the snapshot
+## 3. ~~Phase 1 criterion 6 — re-point `mpe-cli` at the snapshot~~ — **DONE, mpe-cli #6/#7**
 
 **Independent. Currently the snapshot is a net negative.**
 
@@ -83,7 +96,7 @@ to prevent.
 
 ---
 
-## 4. Spike — fork-free systemd liveness (~20 min, decides task 5)
+## 4. ~~Spike — fork-free systemd liveness~~ — **DONE 2026-08-19**
 
 `build_snapshot()` is **57.3 ms**, of which **55.9 ms is three `systemctl` forks**;
 everything else is 1.4 ms. At the spec's 0.5 s publish interval that is ~11.5% of a core.
@@ -98,7 +111,7 @@ a cached judgement is the last-known-good problem wearing a different hat.
 
 ---
 
-## 5. Snapshot publisher — **blocked on task 4**
+## 5. ~~Snapshot publisher~~ — **DONE 2026-08-19, installed opt-in**
 
 Build only after task 4 gives a liveness cost that clears criterion 7 (<1% of a core at
 2 Hz). Call `build_snapshot()` in-process; never invoke the module CLI on a timer
@@ -106,7 +119,7 @@ Build only after task 4 gives a liveness cost that clears criterion 7 (<1% of a 
 
 ---
 
-## 6. Re-measure the looper stack — **needs the Pi, not a person**
+## 6. Re-measure the looper stack — **PARTLY DONE 2026-08-19**
 
 The numbers that made the looper opt-in are **void**: they were taken while
 `surge-watchdog`'s `jack_lsp` probe was the dominant xrun source, and the run that blamed

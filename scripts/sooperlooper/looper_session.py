@@ -112,7 +112,12 @@ def run_session(argv: list[str] | None = None) -> int:
 
     bench = _load_bench_module()
     try:
-        return bench.run_bench(bench_argv or None, osc_session=session)
+        # Pass the list even when empty. Coercing an empty list to None handed
+        # argparse a None argv, and argparse falls back to sys.argv in that case — so
+        # the bench re-parsed the session's own flags and died on them. `--bench-only`
+        # with no other argument was broken outright; it only appeared to work when a
+        # passthrough flag made the list non-empty. Found on the appliance 2026-08-19.
+        return bench.run_bench(bench_argv, osc_session=session)
     finally:
         if hud_stop is not None and hud_thread is not None:
             hud_stop.set()
