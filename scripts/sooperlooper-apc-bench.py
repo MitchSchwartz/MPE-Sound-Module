@@ -250,8 +250,7 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
     state_listener.start()
     state_listener.register(osc, num_loops=num_loops)
     state_listener.wire_tail_capture(footswitches)
-    seam_worker: SeamWeldWorker | None = None
-    if SEAM_WELD_ENABLED and TAIL_CAPTURE_ENABLED:
+    if TAIL_CAPTURE_ENABLED:
         seam_worker = SeamWeldWorker(_send)
         for fs in footswitches:
             fs.set_seam_weld_hooks(
@@ -268,13 +267,18 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
                     loop, SCRATCH_LOOP, done=done
                 ),
             )
+        weld_note = (
+            "on"
+            if SEAM_WELD_ENABLED
+            else "off (MPE_SL_SEAM_WELD=0 — stop only, no merge reload)"
+        )
         print(
-            f"bench: Tier 3 seam weld on (scratch loop {SCRATCH_LOOP})",
+            f"bench: stop-then-weld {weld_note} (scratch loop {SCRATCH_LOOP})",
             flush=True,
         )
-    if not TAIL_CAPTURE_ENABLED:
+    else:
         print(
-            "bench: MPE_SL_TAIL_CAPTURE off — defining-take tail capture disabled",
+            "bench: MPE_SL_TAIL_CAPTURE off — tail weld disabled",
             flush=True,
         )
 
