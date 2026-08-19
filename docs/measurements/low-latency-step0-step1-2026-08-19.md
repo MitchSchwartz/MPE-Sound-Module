@@ -1,48 +1,46 @@
-# Low-latency work order — Step 0 harness + Step 1 escalation check
+# Low-latency work order — Step 0 harness + Step 1 escalation
 
-**Pi:** `raspberrypi2` · **commit:** `5d43991` (verified on Pi before run) · **2026-08-19**
+**Pi:** `raspberrypi2` · **2026-08-19**
 
-## Step 0 — harness
+## Step 1 — first block (commit `5d43991`, before delay probe)
 
-Scripts landed on `dev`:
+512×3, condition **D**, strict jackd, `midi-load.py`, 5×60 s back-to-back.
 
-- `scripts/measure-latency-run.sh` — append-only runs with provenance, verified JACK
-  period, 60-sample assertion, DSP median/p99, meter xrun count, journal client lines
-- `scripts/measure-cyclictest-floor.sh` — wraps spec `cyclictest` command
+| run | xruns / 60 s | DSP median | DSP p99 | temp |
+|---:|---:|---:|---:|---|
+| 1 | 13 | 39.64% | 45.53% | 55.0°C |
+| 2 | 5 | 39.28% | 43.08% | 55.5°C |
+| 3 | 15 | 39.22% | 67.89% | 55.5°C |
+| 4 | 16 | 39.17% | 42.94% | 56.0°C |
+| 5 | 26 | 39.52% | 43.18% | 55.5°C |
 
-Self-test (`--self-test`, 10 s, condition A, 512×3): **PASS** — DSP median ~31%,
-sample count 10, strict jackd (no `-s`).
+**Trend:** ranked by time → 2, 1, 3, 4, 5. One low outlier at run 2, then strictly
+increasing. Spearman ρ = 0.90, exact one-tailed p = 0.042 at n = 5 — significant monotone
+increase, same shape as D15's 7 → 24 → 29.
 
-**cyclictest:** not installed on Pi (`rt-tests` package missing). Floor not recorded yet —
-needs `sudo apt install rt-tests` before Step 2 kernel changes.
+**Thermal ruled out:** temp flat 55–56 °C, `throttled=0x0` all runs. Something accumulates
+over ~5 minutes at 512 with no heat component.
 
-**Known gap:** JACK2 on this kernel logs `JackEngine::XRun: client = …` without the
-`xrun of at least N msecs` delay line the spec cites. Harness records the client line with
-`delay_usec=-1` after case-fix (`5d43991+`). Sub-microsecond delay may require a small
-JACK xrun callback probe later.
+**Run 3 p99:** 67.89% vs ~43% in the other four — single large DSP transient, not aligned
+with peak xrun count. Watch once delay distribution exists.
 
-## Step 1 — is escalation real?
+Pi log: `~/latency-step1-512-D.log`
 
-**Protocol:** 512×3, condition **D** (full stack), strict jackd, `midi-load.py` load,
-5×60 s back-to-back, temp + throttle each run.
+## Step 0 gaps (fixed before Step 2)
 
-| run | xruns / 60 s | DSP median | DSP p99 | temp | throttled |
-|---:|---:|---:|---:|---|---|
-| 1 | 13 | 39.64% | 45.53% | 55.0°C | 0x0 |
-| 2 | 5 | 39.28% | 43.08% | 55.5°C | 0x0 |
-| 3 | 15 | 39.22% | 67.89% | 55.5°C | 0x0 |
-| 4 | 16 | 39.17% | 42.94% | 56.0°C | 0x0 |
-| 5 | 26 | 39.52% | 43.18% | 55.5°C | 0x0 |
+1. **delay_usec** — journal `JackEngine::XRun` lines carry no delay. Harness now uses
+   `native/mpe-xrun-probe` (`jack_set_xrun_callback` + `jack_get_xrun_delayed_usecs`).
+2. **Accumulation disambiguation** — second 5×60 s block with full-stack restart between
+   blocks; run 6 is the tell (stack-scoped vs session-scoped vs noise).
 
-DSP flat ~39% (matches D15: jitter not load). Temperature flat; no throttling.
+Self-test ~31% at condition A is **not** comparable to D15's 38.6% baseline (10 s, no
+midi-load) — do not quote as baseline.
 
-**Verdict:** not the monotonic **7 → 24 → 29** climb from D15. Run 2 dropped to 5; run 5
-spiked to 26 but without a rising temp or run-to-run trend. **Treat escalation as
-unproved — proceed to Step 2** (IRQ affinity), not blocked on accumulation hunt.
+## Step 1b — accumulation test (pending)
 
-Pi log: `~/latency-step1-512-D.log`. Buffer restored to **1024×3** after run.
+`--runs 10 --restart-between 5` at 512×3 condition D with delay probe. Results → append
+below after run completes.
 
-## Next (needs Mitch at reboot)
+---
 
-- Install `rt-tests`, record cyclictest floor
-- Step 2: `irqaffinity=0,1` in `/boot/firmware/cmdline.txt` + pin `xhci_hcd` — reboot gate
+*Step 2 (IRQ affinity) waits on: delay probe verified + accumulation test interpreted.*
