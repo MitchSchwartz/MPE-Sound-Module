@@ -11,6 +11,7 @@ from scripts.sooperlooper.apc_footswitch import LoopFootswitch, build_footswitch
 from scripts.sooperlooper.sl_loop_states import (
     SL_STATE_MUTE,
     SL_STATE_OFF,
+    SL_STATE_OFF_MUTED,
     SL_STATE_PAUSED,
     SL_STATE_PLAYING,
     SL_STATE_RECORDING,
@@ -790,6 +791,19 @@ class StopAllIsImmediateTests(unittest.TestCase):
         hits = [v for path, v in sent if path == "/sl/-1/hit"]
         self.assertEqual(hits, ["mute_on", "pause_on"])
 
+    def test_stop_all_skips_pending_on_off_muted_empty_loops(self) -> None:
+        """Global mute leaves empties at sl=20; must not get pending=stopped."""
+        from scripts.sooperlooper.apc_footswitch import stop_all_loops
+        from scripts.sooperlooper.led_table import led_for
+
+        osc = MagicMock()
+        empty = LoopFootswitch(loop=1, hold_ms=1000.0, debounce_ms=0.0)
+        empty.bind(MagicMock(), MagicMock(), 37)
+        empty.sync_from_sl(SL_STATE_OFF_MUTED)
+        stop_all_loops(osc, num_loops=2, footswitches=[empty])
+        self.assertIsNone(empty._pending)
+        self.assertEqual(led_for(SL_STATE_OFF_MUTED), (0,))
+
     def test_per_clip_stop_is_still_quantized(self) -> None:
         """Only Stop All is immediate — a single pad stop still waits."""
         from scripts.sooperlooper.apc_footswitch import LoopFootswitch
@@ -800,6 +814,21 @@ class StopAllIsImmediateTests(unittest.TestCase):
         fs.on_pad_down(); fs.on_pad_up()
         paths = [c.args[0] for c in fs._osc.send_message.call_args_list]
         self.assertNotIn("/sl/1/set", paths, "must not touch mute_quantized")
+
+
+class PollFootswitchesTests(unittest.TestCase):
+    def test_poll_footswitches_runs_tail_capture(self) -> None:
+        from scripts.sooperlooper.apc_footswitch import poll_footswitches
+        from scripts.sooperlooper.sl_grid_sync import TAIL_MAX_S
+
+        fs = LoopFootswitch(loop=0, hold_ms=1000.0, debounce_ms=0.0)
+        fs.bind(MagicMock(), MagicMock(), 36)
+        fs._tail_capture = True
+        fs._tail_capture_since = time.monotonic() - TAIL_MAX_S - 0.01
+        fs.sync_from_sl(SL_STATE_RECORDING)
+        poll_footswitches([fs])
+        self.assertFalse(fs._tail_capture)
+
 
 if __name__ == "__main__":
     unittest.main()

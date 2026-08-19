@@ -82,6 +82,19 @@ def log(msg: str) -> None:
     print(f"[{time.strftime('%H:%M:%S')}.{int(time.time() % 1 * 1000):03d}] {msg}", flush=True)
 
 
+def poll_footswitches(footswitches: list[LoopFootswitch]) -> None:
+    """Periodic bench poll — holds, LED transitions, tail capture completion.
+
+    Tail capture only finishes inside ``poll_tail_capture()`` (peak quiet / max
+    timeouts). If this is not called every idle tick, defining-take stop leaves
+    ``_tail_capture`` set forever and the pad keeps the green/red animation.
+    """
+    for fs in footswitches:
+        fs.poll_hold()
+        fs.poll_led()
+        fs.poll_tail_capture()
+
+
 def _osc_send(osc, path: str, args: list) -> None:
     osc.send_message(path, args)
 
@@ -1035,6 +1048,7 @@ def reset_all_loops(
         fs.awaiting_quantize = False
         fs._stop_queued = False
         fs._cancel_tail_capture()
+        fs._led_transition = None
         fs._expect(STATE_IDLE)
         fs._sync_led()
     for row, col in all_clip_pads():
@@ -1073,7 +1087,10 @@ def stop_all_loops(
         log(f"grid position reset to zero ({grid.bpm:.3f} BPM)")
     for fs in footswitches:
         fs.awaiting_quantize = False
-        if fs.sl_state != SL_STATE_OFF or fs._tail_capture:
+        # OFF_MUTED (20) is idle/empty after global mute — not a clip to stop.
+        # Treating it like active set pending=stopped on every empty pad (yellow
+        # blink storm on the second Stop All in a session). Pi log 2026-08-19.
+        if fs.sl_state not in (SL_STATE_OFF, SL_STATE_OFF_MUTED) or fs._tail_capture:
             fs._expect(STATE_STOPPED)
         fs._sync_led()
     print(f"-> stop all: paused {num_loops} loops", flush=True)
