@@ -75,6 +75,12 @@ def _format_midi(msg: list[int]) -> str:
 def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
+        "--measure-latency",
+        type=int,
+        metavar="N",
+        help="Collect N MIDI-in→OSC-out samples and exit (criterion 42)",
+    )
+    parser.add_argument(
         "--dump-midi",
         action="store_true",
         help="Log every raw MIDI message (hex) — use to verify Shift/Stop All notes",
@@ -124,8 +130,13 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
     else:
         apc_label = apc_variant or "env"
     osc = osc_session.client
+    midi_osc_latencies: list[float] = []
+    midi_osc_pending: list[float] = []
 
     def _send(path: str, a: list) -> None:
+        if midi_osc_pending and "/hit" in path:
+            t0 = midi_osc_pending.pop(0)
+            midi_osc_latencies.append((time.monotonic() - t0) * 1000.0)
         osc.send_message(path, a)
 
     grid_active = True
@@ -360,6 +371,15 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
             )
 
     while True:
+        if args.measure_latency and len(midi_osc_latencies) >= args.measure_latency:
+            ordered = sorted(midi_osc_latencies)
+            p50 = ordered[len(ordered) // 2]
+            p99 = ordered[int(round(0.99 * (len(ordered) - 1)))]
+            print(
+                f"live: n={len(ordered)} p50={p50:.3f}ms p99={p99:.3f}ms max={ordered[-1]:.3f}ms",
+                flush=True,
+            )
+            return 0
         packet = midi_in.get_message()
         if packet is None:
             poll_holds()
@@ -419,6 +439,8 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
 
         if down is not None and n in by_note:
             if down:
+                if args.measure_latency:
+                    midi_osc_pending.append(time.monotonic())
                 by_note[n].on_pad_down()
             else:
                 by_note[n].on_pad_up()
