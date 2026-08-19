@@ -133,13 +133,8 @@ class SlOscSession:
         return None
 
     def register_hud(self) -> None:
+        """Tempo only — loop state/len/pos come from bench subscriptions."""
         returl = self.returl()
-        for loop in range(NUM_LOOPS):
-            for ctrl in ("state", "loop_len", "loop_pos"):
-                self.client.send_message(
-                    f"/sl/{loop}/register_auto_update",
-                    [ctrl, HUD_UPDATE_MS, returl, "/r"],
-                )
         self.client.send_message(
             "/register_auto_update", ["tempo", 200, returl, "/r"]
         )

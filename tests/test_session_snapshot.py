@@ -215,13 +215,8 @@ class SnapshotEngineRecoveryTests(unittest.TestCase):
             self.assertEqual(snap["engine"]["value"]["reason"], "surge-exited")
             self.assertEqual(snap["mode"], "recovering")
 
-
-if __name__ == "__main__":
-    unittest.main()
-
-
 class SnapshotServicesTests(unittest.TestCase):
-    def test_build_includes_services(self) -> None:
+    def test_build_includes_services_with_enabled(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             run = Path(tmp)
             (run / "engine.state").write_text(
@@ -233,7 +228,13 @@ class SnapshotServicesTests(unittest.TestCase):
                 run=run,
                 seq=1,
                 unit_active=lambda u: u == "mpe-jackd",
-                unit_enabled=lambda u: True,
+                unit_enabled=lambda u: "enabled",
             )
             self.assertIn("mpe-jackd", snap["services"])
             self.assertEqual(snap["services"]["mpe-jackd"]["active"], "active")
+            self.assertEqual(snap["services"]["mpe-jackd"]["enabled"], "enabled")
+            self.assertFalse(snap["services"]["mpe-jackd"]["stale"])
+
+
+if __name__ == "__main__":
+    unittest.main()
