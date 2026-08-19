@@ -87,52 +87,37 @@ unchanged (not worse). No change to loop length or grid BPM.
 
 ---
 
-### Tier 2 — Envelope-following close (clip 0 / defining take only)
+### ~~Tier 2~~ — REJECTED (do not ship)
 
-**Intent:** free-form first take **may grow** to include natural release; tempo
-is derived from final length anyway (`sl_grid_state.py`).
-
-**Behavior on pad-down while recording (defining take only):**
-
-1. Enter **`TAIL_CAPTURE`** bench state — **do not** send `record` stop yet.
-2. Continue **Recording** in SL (still `SL_STATE_RECORDING`).
-3. Poll `in_peak_meter` (OSC `/sl/{n}/get`) until peak &lt; `MPE_SL_TAIL_THRESH`
-   for `MPE_SL_TAIL_HOLD_MS` consecutive, or `MPE_SL_TAIL_MAX_MS` elapses.
-4. Send `record` stop → Playing; proceed with existing grid establish +
-   phase re-anchor.
-
-**Guardrails:**
-
-- Only when `grid.is_pending(loop)` / defining take (`loop_model.plan_gesture`
-  `arm_grid` path).
-- **Block** other gestures on **this** loop until capture ends or aborts.
-- Bank switch / pad release on **other** loops unaffected.
-- Long-press clear still cancels (existing hold path).
-
-**Acceptance (B2 / Mitch ear):** one-bar synth phrase, stop on downbeat —
-release audible through wrap; clip 0 `cycle_len` includes tail; derived BPM stable.
+**Status:** **Rejected 2026-08-19.** “Stay Recording until peak quiet” was an AI backup
+plan, not product design. It grew the clip after pad-down, duplicated release in the
+buffer, and did not stop on the pad. **No code path may reintroduce it.**
 
 ---
 
-### Tier 3 — Fixed-bar seam weld (grid clips 1+)
+### Stop-then-weld (all clips — defining + grid)
 
-**Intent:** loop length stays **one quantised cycle**; tail after the nominal
-stop is captured in parallel and merged at the seam only.
+**Intent:** pad fixes loop length **now**; release after the stop is captured **once**
+in parallel and merged at the wrap seam only.
 
-**Behavior on pad-down while recording (grid established, not defining):**
+**Behavior on pad-down while recording:**
 
-1. If quantised: wait for existing **WAIT_STOP / boundary** behaviour (unchanged).
-2. On transition to **Playing** (loop length fixed at N):
-   - Enter **`SEAM_WELD`** on this loop only.
-   - Start **parallel tail capture** (see spike below).
-3. While welding: loop plays; tail buffer fills from loop input (or SL overdub
-   scoped to seam — see spike).
-4. When envelope quiet or max ms: apply **seam merge** on `[N−M, N)` and
-   `[0, M)`; exit weld mode; SL returns to normal Playing.
+| Context | Stop timing | Tail pass |
+|---------|-------------|-----------|
+| **Defining take** (`grid.is_pending`) | Immediate `record` stop | Scratch + merge when PLAYING |
+| **Grid clip** (grid established) | Quantised boundary (existing WAIT_STOP) | Same, after PLAYING lands |
+
+**Steps (both contexts):**
+
+1. Send `record` stop (immediate or quantised — unchanged grid stop path).
+2. On **Playing** (length fixed at N): enter **`SEAM_WELD`** bench state on this loop.
+3. Record tail on **scratch loop 15** in parallel; poll `in_peak_meter` until quiet or max ms.
+4. If release was audible: **offline seam merge** on `[N−M, N)` ↔ `[0, M)`; reload main loop.
+5. Exit weld; apply deferred grid clock / phase re-anchor if any.
 
 **Guardrails (required — Mitch concern):**
 
-- **Single-loop lock:** while loop *i* is in `SEAM_WELD` or `TAIL_CAPTURE`, ignore
+- **Single-loop lock:** while loop *i* is in `SEAM_WELD`, ignore
   record/overdub/mute on *i* except explicit cancel (long-press clear).
 - **No overdub leak:** before any command on loop *j≠i*, ensure loop *i* is not
   in SL overdub/recording for tail — force `overdub` off or `undo` tail pass if
@@ -154,8 +139,8 @@ SooperLooper has **no** “weld tail here” OSC. Candidates to prove on bench:
 | **C. JACK-side tail tap** (`mpe-looper` or tap port) + offline merge | Full control | New audio path; CPU; not Phase 1. |
 | **D. SL substitute** at end of first playback cycle | One cycle replace | Playhead timing; tail may be gone before playhead reaches N. |
 
-**Decision rule:** Tier 3 code starts only after spike documents **one** viable
-path with ear pass on 1-bar grid clip. Until then, ship Tier 1 + Tier 2.
+**Implementation (2026-08-19):** Option B — scratch loop slot + offline merge
+(`sl_seam_weld.py`, `seam_merge.py`). Option E (seam overdub) rejected with Tier 2.
 
 ---
 
@@ -166,25 +151,20 @@ New states in `apc_footswitch.py` (per loop, orthogonal to `sl_state`):
 ```
 IDLE / RECORDING / PLAYING / …  (existing derive_state)
 
-TAIL_CAPTURE   — Tier 2; SL still Recording; waiting for silence
-SEAM_WELD      — Tier 3; SL Playing; tail scratch + merge pending
+SEAM_WELD      — fixed length; scratch tail + merge pending
 ```
 
 ```mermaid
 stateDiagram-v2
     [*] --> Recording: pad down (defining)
-    Recording --> TailCapture: pad down close (defining)
-    TailCapture --> Playing: silence or max ms → record stop
-    Recording --> WaitStop: pad down close (grid)
-    WaitStop --> Playing: quantize boundary
-    Playing --> SeamWeld: weld armed (grid, Tier 3)
+    Recording --> SeamWeld: pad down close (stop sent)
     SeamWeld --> Playing: merge done or abort
-    TailCapture --> Idle: long-press clear
-    SeamWeld --> Idle: long-press clear
+    Recording --> WaitStop: pad down close (grid, quantize)
+    WaitStop --> SeamWeld: boundary → Playing
+    SeamWeld --> Playing: merge done or abort
 ```
 
-LED hint (hypothesis): blink **amber** during `TAIL_CAPTURE` / `SEAM_WELD` so
-“still finishing take” is visible and fast switching is discouraged.
+LED hint: blink **amber** during `SEAM_WELD` (“still finishing take”).
 
 ---
 
@@ -196,8 +176,8 @@ LED hint (hypothesis): blink **amber** during `TAIL_CAPTURE` / `SEAM_WELD` so
 | `MPE_SL_TAIL_HOLD_MS` | `80` | Consecutive silence before close |
 | `MPE_SL_TAIL_MAX_MS` | `750` | Force close / abort weld |
 | `MPE_SL_SEAM_MERGE_SAMPLES` | `2048` | Crossfade width M at seam (Tier 3) |
-| `MPE_SL_TAIL_CAPTURE` | `1` | Master enable Tier 2; `0` = Tier 1 only |
-| `MPE_SL_SEAM_WELD` | `0` | Tier 3 off until spike passes |
+| `MPE_SL_TAIL_CAPTURE` | `1` | Master enable stop-then-weld; `0` = Tier 1 only |
+| `MPE_SL_SEAM_WELD` | `1` | Offline merge reload; `0` = stop + scratch poll, no merge |
 | `MPE_SL_INPUT_LATENCY` | *(unset)* | Override; else JACK autoset |
 | `MPE_SL_FADE_SAMPLES` | `256` | Existing global crossfade |
 
