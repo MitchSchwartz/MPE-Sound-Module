@@ -57,7 +57,23 @@ Probed read-only while the audio stack was stopped.
 | `threadirqs` | not set | `xhci_hcd` is an unschedulable hard IRQ |
 | `xhci_hcd` (IRQ 30) | 4,915,801 interrupts, **100% on CPU0** | prime suspect |
 | Other threaded IRQs | mmc0, codec, HDMI CEC, 6× CRTC — all CPU0 | contending on CPU0 |
+| IRQ 30/41/44 `smp_affinity_list` | `0-3` — permissive | nothing is pinned |
+| IRQ 41/44 `effective_affinity_list` | `0` | GICv2 picked lowest core in mask |
+| IRQ 30 `effective_affinity_list` | **empty** | MSI ctrl may ignore `set_affinity` |
+| `irqbalance` | not installed, not running | nothing has ever spread them |
 | Cores | 4 | enough to isolate one |
+
+### Why everything is on CPU0
+
+Nobody pinned it. The BCM2711 uses a **GIC-400 (GICv2)**, which has no usable 1-of-N
+interrupt distribution under Linux — the driver must name exactly one target CPU, and
+given a mask it takes the **lowest-numbered core in that mask**. `default_smp_affinity` is
+`f`, so every interrupt on the system resolves to CPU0. `irqbalance`, which would normally
+redistribute them, is not installed and is not shipped by Raspberry Pi OS.
+
+This matters for sequencing: **the affinity masks are already permissive**, so moving an
+IRQ does not require a cmdline change or a reboot. It is a runtime write with instant
+rollback.
 
 The USB sound card's data path shares a single core with SD-card I/O and HDMI hotplug, as
 a hard IRQ that cannot be preempted or prioritized. At 1024 (21 ms) that is invisible. At
@@ -136,19 +152,40 @@ and `get_throttled` per run alongside the xrun counts.
 
 ## Step 2 — get the USB audio IRQ off CPU0
 
-Cheapest change with the highest prior probability of mattering. One cmdline line,
-reversible, no code.
+Cheapest change with the highest prior probability of mattering. **Runtime only — no
+cmdline edit, no reboot, and therefore this step does not need Mitch.**
 
-Add to `/boot/firmware/cmdline.txt`: `irqaffinity=0,1`
+The masks are already `0-3`; the effective CPU is 0 only because GICv2 takes the lowest
+core in the mask. So move it directly:
 
-That confines housekeeping IRQs to cores 0–1 and leaves 2–3 clear. Then pin `xhci_hcd`
-(IRQ 30) to a core the audio thread does not run on, and record its `/proc/interrupts`
-distribution per core afterwards to prove the pin took.
+```sh
+cat /proc/irq/30/smp_affinity_list        # record the original first
+echo 2 > /proc/irq/30/smp_affinity_list   # move USB audio to core 2
+```
+
+**Then prove it took.** IRQ 30 is `BRCM-PCI-MSI`, not a plain GIC line, and its
+`effective_affinity_list` reads empty — some MSI controllers ignore `set_affinity`
+silently. This is exactly the appliance's recurring bug shape: a reading that looks the
+same whether it worked or not.
+
+```sh
+grep -E "^ *30:" /proc/interrupts   # before, then after N seconds of audio
+```
+
+The per-core counts must show the delta landing on core 2. A changed
+`smp_affinity_list` is **not** evidence — only moved counts are.
+
+**If the write is ignored**, fall back to `irqaffinity=0,1` in
+`/boot/firmware/cmdline.txt`, which narrows the default mask so "lowest core in mask" can
+no longer resolve to a core you want kept clear. That path does need a reboot and does
+need Mitch. Copy the original `cmdline.txt` aside before editing.
+
+While here, consider moving the other CPU0 squatters off as well — mmc0 (41) and the
+codec (44) are on the same core for the same reason.
 
 Measure: 5×60 s, conditions A and D, 512.
 
-**Rollback:** revert the one line, reboot. Keep a copy of the original `cmdline.txt`
-alongside it before the first edit.
+**Rollback:** write the original value back. No reboot involved.
 
 ## Step 3 — thread and prioritize the USB IRQ
 
@@ -201,9 +238,10 @@ Per `AGENTS.md`, run everything you can without him.
 **Does not need him** — the harness, `cyclictest`, all measurement runs, IRQ affinity and
 priority changes, the ladder, every doc update.
 
-**Needs him** — the first reboot after each cmdline change (Steps 2, 3, 4), in case the Pi
-comes back wrong; any PREEMPT_RT work; and every judgement about *feel* at the new
-latency, which no measurement in this document addresses.
+**Needs him** — the first reboot after each cmdline change (Steps 3 and 4, and Step 2
+*only* if the runtime affinity write turns out to be ignored), in case the Pi comes back
+wrong; any PREEMPT_RT work; and every judgement about *feel* at the new latency, which no
+measurement in this document addresses.
 
 ## Definition of done
 
