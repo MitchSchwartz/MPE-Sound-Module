@@ -217,7 +217,7 @@ if [ "$missing_exec" -eq 1 ]; then
 fi
 
 # Phase 3M upgrade: stop retired looper client units so they release UDP
-# 9952/9953 and the APC MIDI port before enabling the merged session.
+# 9953 and the APC MIDI port before enabling the merged session.
 RETIRED_LOOPER_CLIENTS=(mpe-apc-bench sl-hud-monitor)
 for u in "${RETIRED_LOOPER_CLIENTS[@]}"; do
     if systemctl is-active --quiet "$u.service" 2>/dev/null; then

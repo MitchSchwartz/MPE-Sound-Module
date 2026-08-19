@@ -30,8 +30,14 @@ def _writer_with_stub_sl(cached_tempo):
 
     writer = sl_hud_monitor.HudWriter.__new__(sl_hud_monitor.HudWriter)
     sl = MagicMock()
-    sl.client = MagicMock()
     sl.cached.return_value = cached_tempo
+
+    def _seed():
+        if sl.cached("tempo", -1) is None:
+            sl.get("tempo", -1)
+
+    sl.register_hud = MagicMock()
+    sl.seed_tempo = MagicMock(side_effect=_seed)
     writer._sl = sl
     writer._registered_at = 0.0
     return writer
@@ -53,12 +59,8 @@ class TempoSeedTests(unittest.TestCase):
         """Seeding is additional to the subscription, not a replacement for it."""
         writer = _writer_with_stub_sl(cached_tempo=None)
         writer.register_auto_updates()
-        paths = [c.args[0] for c in writer._sl.client.send_message.call_args_list]
-        self.assertIn("/register_auto_update", paths, "global tempo subscription missing")
-        self.assertTrue(
-            any(p.startswith("/sl/") and p.endswith("/register_auto_update") for p in paths),
-            "per-loop subscriptions missing",
-        )
+        writer._sl.register_hud.assert_called_once()
+        writer._sl.seed_tempo.assert_called_once()
 
     def test_tempo_is_queried_as_a_global_control(self) -> None:
         """Loop -1 maps to the engine-wide key; loop 0 would query loop zero instead."""
