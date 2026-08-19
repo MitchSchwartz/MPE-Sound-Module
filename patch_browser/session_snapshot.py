@@ -57,6 +57,19 @@ STATUS_SERVICE_UNITS = (
 MPE_ENV_PATH = Path("/etc/mpe/mpe.env")
 MPE_ENV_STATUS_KEYS = ("MPE_UI_MODE", "MPE_AUDIO_PROFILE")
 
+SERVICES_PROBE_TTL_S = float(os.environ.get("MPE_SNAPSHOT_SERVICES_TTL_S", "5"))
+_services_probe_cache: dict[str, tuple[float, object]] = {}
+def _ttl_probe(key: str, probe: Callable[[], object]) -> object:
+    """Cache systemd probe results briefly — publisher builds at 2 Hz."""
+    now = time.monotonic()
+    cached = _services_probe_cache.get(key)
+    if cached is not None and (now - cached[0]) < SERVICES_PROBE_TTL_S:
+        return cached[1]
+    value = probe()
+    _services_probe_cache[key] = (now, value)
+    return value
+
+
 
 def _tri_state_label(value: bool | None, *, true_label: str, false_label: str) -> str:
     if value is True:
@@ -71,7 +84,7 @@ def _memoized_unit_enabled_raw(
 ) -> Callable[[str], str | None]:
     cache: dict[str, str | None] = {}
 
-    def check(unit: str) -> bool | None:
+    def check(unit: str) -> str | None:
         if unit not in cache:
             cache[unit] = base(unit)
         return cache[unit]
@@ -286,7 +299,7 @@ def field_age_stale(updated: float, *, now: float, threshold: float = STALE_THRE
     return (now - updated) >= threshold
 
 
-def systemd_unit_active(unit: str) -> bool | None:
+def _systemd_unit_active_raw(unit: str) -> bool | None:
     """Return True/False when systemctl answers; None when unavailable or transitional."""
     try:
         result = subprocess.run(
@@ -306,7 +319,11 @@ def systemd_unit_active(unit: str) -> bool | None:
     return None
 
 
-def systemd_unit_enabled_raw(unit: str) -> str | None:
+def systemd_unit_active(unit: str) -> bool | None:
+    return _ttl_probe(f"active:{unit}", lambda: _systemd_unit_active_raw(unit))  # type: ignore[return-value]
+
+
+def _systemd_unit_enabled_raw(unit: str) -> str | None:
     try:
         result = subprocess.run(
             ["systemctl", "is-enabled", f"{unit}.service"],
@@ -319,6 +336,10 @@ def systemd_unit_enabled_raw(unit: str) -> str | None:
         return None
     state = (result.stdout or "").strip()
     return state or None
+
+
+def systemd_unit_enabled_raw(unit: str) -> str | None:
+    return _ttl_probe(f"enabled:{unit}", lambda: _systemd_unit_enabled_raw(unit))  # type: ignore[return-value]
 
 
 def systemd_unit_enabled(unit: str) -> bool | None:
@@ -453,7 +474,8 @@ def build_snapshot(
     looper_enabled: str | None = None,
     seq: int | None = None,
     unit_active: Callable[[str], bool | None] | None = None,
-    unit_enabled: Callable[[str], bool | None] | None = None,
+    unit_enabled: Callable[[str], str | None] | None = None,
+    include_services: bool = True,
     include_runtime_probes: bool = False,
 ) -> dict[str, Any]:
     """Aggregate existing truth into schema v1 document."""
@@ -537,13 +559,17 @@ def build_snapshot(
                 stale=field_age_stale(float(hud.get("updated_at") or 0.0), now=now_ts) if hud else True,
             ),
         },
-        "services": build_services(unit_active=check_unit, unit_enabled=check_enabled_raw),
         "config": {
             "mpe_env": _read_mpe_env_keys(),
             "source": str(MPE_ENV_PATH),
             "stale": not MPE_ENV_PATH.is_file(),
         },
     }
+    if include_services:
+        snap["services"] = build_services(
+            unit_active=check_unit,
+            unit_enabled=check_enabled_raw,
+        )
     if include_runtime_probes:
         snap["processes"] = build_processes()
         snap["graph"] = build_graph_probe(jackd_pid=snap["processes"].get("jackd_pid"))
