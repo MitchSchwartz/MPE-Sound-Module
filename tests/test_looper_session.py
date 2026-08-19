@@ -198,3 +198,43 @@ class LatencyTapTests(unittest.TestCase):
         self.assertNotIn(
             "midi_osc_pending", send_body, "pairing belongs on the client, not in _send"
         )
+
+
+class BenchArgvPassthroughTests(unittest.TestCase):
+    def test_empty_passthrough_is_a_list_not_none(self) -> None:
+        """argparse falls back to sys.argv on None, so the bench re-parsed our flags.
+
+        `--bench-only` with no other argument exited 2 with
+        "unrecognized arguments: --bench-only" on the appliance 2026-08-19.
+        """
+        text = LOOPER_SESSION.read_text(encoding="utf-8")
+        self.assertIn("run_bench(bench_argv, osc_session=session)", text)
+        self.assertNotIn("bench_argv or None", text)
+
+    def test_bench_only_reaches_the_bench_with_empty_argv(self) -> None:
+        sooper = REPO / "scripts" / "sooperlooper"
+        body = f"""
+import sys
+sys.path.insert(0, "{sooper}")
+sys.path.insert(0, "{REPO}")
+sys.argv = ["looper-session.py", "--bench-only"]
+import looper_session as ls
+ls.start_hud_thread = lambda *a, **k: (_ for _ in ()).throw(AssertionError("hud started"))
+class _FakeBench:
+    @staticmethod
+    def run_bench(argv=None, *, osc_session=None):
+        assert argv == [], f"bench got {{argv!r}}, expected []"
+        print("argv-ok")
+        return 0
+ls._load_bench_module = lambda: _FakeBench
+class _FakeSession:
+    def start(self):
+        return self
+ls.SlOscSession = _FakeSession
+raise SystemExit(ls.run_session(["--bench-only"]))
+"""
+        result = subprocess.run(
+            [sys.executable, "-c", body], capture_output=True, text=True, cwd=REPO
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("argv-ok", result.stdout)
