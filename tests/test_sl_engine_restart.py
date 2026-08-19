@@ -85,13 +85,10 @@ class SentinelRemovedTests(unittest.TestCase):
         text = Path("scripts/sooperlooper/sl_bench_listener.py").read_text(encoding="utf-8")
         self.assertNotIn("GLOBAL_CONFIG_PROBE", text)
         self.assertNotIn("ENGINE_CONFIG_PROBE", text)
-        client = MagicMock()
-        listener = SlBenchStateListener({})
-        listener.register(client, num_loops=1)
-        global_regs = [
-            c for c in client.send_message.call_args_list if c.args[0] == "/register_auto_update"
-        ]
-        self.assertEqual(global_regs, [])
+        session = MagicMock()
+        listener = SlBenchStateListener({}, session=session)
+        listener.register(MagicMock(), num_loops=1)
+        session.register_bench.assert_called_once_with(num_loops=1)
 
     def test_grid_sync_has_no_restart_sentinel(self) -> None:
         text = Path("scripts/sooperlooper/sl_grid_sync.py").read_text(encoding="utf-8")
