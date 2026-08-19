@@ -1,8 +1,7 @@
 # Session control plane — one owner per fact, reconciliation over sequences
 
-**Status (2026-08-19).** Phases 0, 1, 2, 3M and 5 have all landed on `dev`. Phase 3M is
-**code complete but unverified** — criteria 44, 46 and 47 have never been run, and 42 has a
-working tool and no number. Phase 5 is complete except criterion 35 (`128 x 3`), which is the
+**Status (2026-08-19).** Phases 0, 1, 2, 3M and 5 have all landed on `dev`. **Phase 3M is
+complete** — all twelve criteria met as of 2026-08-19 (42, 44, 46 and 47 closed last). Phase 5 is complete except criterion 35 (`128 x 3`), which is the
 furthest-away target in the spec: the appliance currently runs `1024 x 3`. Phases 3b and 4 are
 not started; Phase 4 remains blocked by D15, whose numbers are void pending the task 6
 re-measure. Criterion 7 **passes as of 2026-08-19** (0.53% of a core at 2 Hz) — see
@@ -562,8 +561,8 @@ than pretending the letter is satisfied.
 | 43 | **Loud failure on a held OSC port survives** | ✅ | Bind failure still fatal; message preserved through the merge; test covers it |
 | 44 | Musical behaviour unchanged | ✅ *approved 2026-08-19* | Approved by Mitch on scope: Phase 3M is about process ownership, unit lifecycle and the OS, not looper control semantics. Known looper-control defects are tracked separately (`yolo/looper-poll-tail-fix`) and explicitly **do not gate this phase** |
 | 45 | `sl-watchdog` remains a separate process (D4) | ✅ | `sl-watchdog` still a separate unit |
-| 46 | Crash blast radius is measured, not assumed | ❌ | `kill -9` blast radius never measured. The spec accepts the regression *only with a number attached* |
-| 47 | CPU no worse than the two processes it replaces | ❌ | CPU before/after via `/proc/<pid>/stat` never run |
+| 46 | Crash blast radius is measured, not assumed | ✅ *(2026-08-19)* | 2 runs: OSC rebound **10.6 / 10.7 s**, APC re-bound 10.7 / 10.9 s. **Audio never stopped** — graph stayed wired, cost was 1–2 xruns. ~10 s of that is `RestartSec=10`; process startup is ~0.6 s. See [`looper-session-crash-and-cpu-2026-08-19.md`](../../docs/measurements/looper-session-crash-and-cpu-2026-08-19.md) |
+| 47 | CPU no worse than the two processes it replaces | ✅ *(2026-08-19)* | Merged **32.98%** of a core vs bench 30.00% + HUD 8.77% = 38.77% before. **−5.78 points.** Separately worth knowing: 33% is the largest Python CPU consumer on the appliance, and it is the ~2 ms bench poll, not the HUD |
 | 48 | Grid transitions are unit-testable off-hardware (D13) | ✅ | Grid transitions covered off-hardware in the laptop suite |
 | 49 | State is re-derived from the engine on start, never from a local cache | ✅ | State re-derived from the engine on start; no local cache |
 
