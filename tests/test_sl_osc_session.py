@@ -62,5 +62,13 @@ class SlOscSessionTests(unittest.TestCase):
         self.assertIn("Refusing to run blind", str(msg))
 
 
+    def test_register_hud_tempo_only(self) -> None:
+        session = SlOscSession()
+        session._client = MagicMock()
+        session.register_hud()
+        paths = [c.args[0] for c in session._client.send_message.call_args_list]
+        self.assertEqual(paths, ["/register_auto_update"])
+        self.assertFalse(any(p.startswith("/sl/") for p in paths))
+
 if __name__ == "__main__":
     unittest.main()
