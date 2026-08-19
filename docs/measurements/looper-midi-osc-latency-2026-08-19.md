@@ -7,6 +7,11 @@ thread running and stopped. Produces numbers; asserts no threshold.
 
 `raspberrypi2`, `1024 x 3`, merged `looper-session`, n = 100 samples per condition.
 
+Measured on `c006fa8` (`yolo/looper-poll-tail-fix`), not `dev` — see the provenance
+note in [`looper-session-crash-and-cpu-2026-08-19.md`](looper-session-crash-and-cpu-2026-08-19.md).
+Both conditions ran identical code, so the HUD on/off finding holds; the absolute p50
+is an upper bound for `dev`.
+
 | condition | n | p50 | p99 | max |
 |---|---:|---:|---:|---:|
 | HUD thread **on** (merged session) | 100 | 0.188 ms | 0.835 ms | 5.575 ms |
