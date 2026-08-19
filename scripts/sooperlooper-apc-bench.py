@@ -72,7 +72,7 @@ def _format_midi(msg: list[int]) -> str:
     return " ".join(f"0x{b:02X}" for b in msg)
 
 
-def run_bench(argv: list[str] | None = None) -> int:
+def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--dump-midi",
@@ -80,6 +80,11 @@ def run_bench(argv: list[str] | None = None) -> int:
         help="Log every raw MIDI message (hex) — use to verify Shift/Stop All notes",
     )
     args = parser.parse_args(argv)
+
+    if osc_session is None:
+        from sl_osc_session import SlOscSession
+
+        osc_session = SlOscSession().start()
 
     port_hint = os.environ.get("MPE_APC_MIDI_PORT", "APC")
     host = os.environ.get("MPE_SL_OSC_HOST", "127.0.0.1")
@@ -118,7 +123,7 @@ def run_bench(argv: list[str] | None = None) -> int:
         )
     else:
         apc_label = apc_variant or "env"
-    osc = udp_client.SimpleUDPClient(host, port)
+    osc = osc_session.client
 
     def _send(path: str, a: list) -> None:
         osc.send_message(path, a)
@@ -221,7 +226,7 @@ def run_bench(argv: list[str] | None = None) -> int:
         mix.seed_from_engine(loop_index, value)
 
     by_loop = footswitches_by_loop(footswitches)
-    state_listener = SlBenchStateListener(by_loop, on_wet=on_wet)
+    state_listener = SlBenchStateListener(by_loop, on_wet=on_wet, session=osc_session)
     state_listener.start()
     state_listener.register(osc, num_loops=num_loops)
     state_listener.wire_tail_capture(footswitches)
