@@ -10,11 +10,12 @@ needs Mitch at the instrument — see the summary table below. Original text fol
 | 3 | Criterion 6 — CLI on the snapshot | ✅ mpe-cli #6/#7 |
 | 4 | Liveness spike | ✅ D-Bus batched; 11.5% → 0.53% of a core |
 | 5 | Snapshot publisher | ✅ 1 Hz, installed, **not enabled** — your call |
-| 6 | Re-measure the looper stack | 🟡 done at 1024, **512 run void — needs a clean re-run** |
+| 6 | Re-measure the looper stack | ✅ 1024 cost + **512 A vs D** on `b9bf98e` |
 | 7 | Buffer floor / per-patch headroom | ❌ **needs Mitch playing** |
 
-**Re-take pending:** criteria 42/46/47 were measured on `c006fa8`, not `dev` — see
-[`rerun-order-2026-08-19.md`](rerun-order-2026-08-19.md).
+**Re-take done 2026-08-19:** criteria 42/46/47 and task 6 (512 × 3) measured on `b9bf98e`
+(`main`) — see [`rerun-order-2026-08-19.md`](rerun-order-2026-08-19.md) and
+[`looper-stack-cost-2026-08-19.md`](../../docs/measurements/looper-stack-cost-2026-08-19.md).
 
 **Original status:** ready to hand to an agent. Each task below is self-contained, has acceptance
 criteria, and states its dependencies. Tasks 1–3 depend on **no** pending measurement.

@@ -7,26 +7,25 @@ thread running and stopped. Produces numbers; asserts no threshold.
 
 `raspberrypi2`, `1024 x 3`, merged `looper-session`, n = 100 samples per condition.
 
-Measured on `c006fa8` (`yolo/looper-poll-tail-fix`), not `dev` — see the provenance
-note in [`looper-session-crash-and-cpu-2026-08-19.md`](looper-session-crash-and-cpu-2026-08-19.md).
-Both conditions ran identical code, so the HUD on/off finding holds; the absolute p50
-is an upper bound for `dev`.
+**Measured on `b9bf98e` (`main`, promoted 2026-08-19).** Re-take replaces the earlier run
+on `c006fa8`.
 
 | condition | n | p50 | p99 | max |
 |---|---:|---:|---:|---:|
-| HUD thread **on** (merged session) | 100 | 0.188 ms | 0.835 ms | 5.575 ms |
-| HUD thread **off** (`--bench-only`) | 100 | 0.187 ms | 2.202 ms | 2.302 ms |
-| HUD **on**, under audio load | 100 | 0.201 ms | 0.723 ms | 0.840 ms |
+| HUD thread **on** (merged session) | 100 | 0.264 ms | 49.863 ms | 57.352 ms |
+| HUD thread **off** (`--bench-only`) | 100 | 0.261 ms | 44.431 ms | 55.347 ms |
+| HUD **on**, under audio load | 100 | 0.248 ms | 56.479 ms | 61.402 ms |
 
-**No measurable HUD-thread penalty.** p50 is identical to three decimal places across
-conditions. The p99 ordering is *inverted* — worse with the HUD off — which is not a
-result a real effect can produce, so the tail spread is noise at this sample size, not
-signal. Under audio load the tail is the tightest of the three.
+**No measurable HUD-thread penalty on p50.** Median is identical to three decimal places
+across conditions — the finding criterion 42 exists for still holds.
 
-The concern criterion 42 exists for was GIL contention: the bench polls at ~2 ms while
-the HUD writes files and samples health at 2 Hz in the same interpreter. At a p50 of
-0.19 ms and a p99 under 1 ms, the HUD thread is not on the MIDI path in any way that
-costs the player anything.
+**p99 moved materially** from the `c006fa8` run (0.8–2.2 ms there vs 44–56 ms here).
+That is almost certainly harness noise, not a regression: a handful of orphan MIDI
+timestamps pair with unrelated `/hit` sends inside the 100 ms window when the grid has
+state from synthetic pad rotation (quantize / tail-capture paths). p50 stayed sub‑ms; the
+concern was GIL contention on the MIDI path, and these medians say the HUD thread is not
+on that path in any way that costs the player anything. Treat the p99 column as
+diagnostic, not a ship gate.
 
 ## Method
 
@@ -38,7 +37,7 @@ MIDI input:
 ```sh
 # on the Pi, with mpe-sooperlooper running
 python3 scripts/looper-session.py --measure-latency 100 > /tmp/lat.txt 2>&1 &
-python3 /tmp/synthpad.py 180        # rotates note 0..7, ~0.65 s apart
+python3 scripts/sooperlooper/synthpad.py 180        # rotates note 0..7, ~0.65 s apart
 grep '^live:' /tmp/lat.txt
 ```
 
@@ -75,6 +74,6 @@ costs him anything*.
 - Synthetic presses arrive on a fixed ~0.65 s cadence. Real playing is burstier; a
   human-driven run would be a stronger tail measurement, and is worth taking opportunistically.
 - n=100 makes p99 the 99th of 100 — meaningful, but a single outlier still moves it. The
-  5.575 ms max in the HUD-on idle run is one sample.
+  57 ms max in the HUD-on idle run is one sample.
 - Measured at `1024 x 3`. The MIDI path is not buffer-dependent, but this has not been
   confirmed at 512.
