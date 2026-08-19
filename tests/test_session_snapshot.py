@@ -12,6 +12,7 @@ from pathlib import Path
 from patch_browser.session_snapshot import (
     SCHEMA_VERSION,
     STALE_THRESHOLD_S,
+    build_services,
     build_snapshot,
     field_age_stale,
     looper_guard_label,
@@ -214,6 +215,76 @@ class SnapshotEngineRecoveryTests(unittest.TestCase):
             self.assertEqual(snap["engine"]["value"]["state"], "recovering")
             self.assertEqual(snap["engine"]["value"]["reason"], "surge-exited")
             self.assertEqual(snap["mode"], "recovering")
+
+class SnapshotServicesTests(unittest.TestCase):
+    def test_build_includes_services_with_enabled(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            run = Path(tmp)
+            (run / "engine.state").write_text(
+                "engine=jack\nactive=jack\nstate=ok\nupdated=999\n",
+                encoding="utf-8",
+            )
+            snap = build_snapshot(
+                now=1000.0,
+                run=run,
+                seq=1,
+                unit_active=lambda u: u == "mpe-jackd",
+                unit_enabled=lambda u: "enabled",
+            )
+            self.assertIn("mpe-jackd", snap["services"])
+            self.assertEqual(snap["services"]["mpe-jackd"]["active"], "active")
+            self.assertEqual(snap["services"]["mpe-jackd"]["enabled"], "enabled")
+            self.assertFalse(snap["services"]["mpe-jackd"]["stale"])
+
+    def test_skips_not_installed_units(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            run = Path(tmp)
+            (run / "engine.state").write_text(
+                "engine=jack\nactive=jack\nstate=ok\nupdated=999\n",
+                encoding="utf-8",
+            )
+
+            def _enabled(unit: str) -> str | None:
+                return "not-found" if unit == "usb-audio-gadget" else "enabled"
+
+            snap = build_snapshot(
+                now=1000.0,
+                run=run,
+                seq=1,
+                unit_active=lambda _u: True,
+                unit_enabled=_enabled,
+            )
+            self.assertNotIn("usb-audio-gadget", snap["services"])
+
+    def test_skips_not_found_before_is_active(self) -> None:
+        calls: list[str] = []
+
+        def _active(unit: str) -> bool | None:
+            calls.append(unit)
+            return False
+
+        services = build_services(
+            unit_active=_active,
+            unit_enabled=lambda u: "not-found" if u == "patch-browser" else "enabled",
+        )
+        self.assertNotIn("patch-browser", services)
+        self.assertNotIn("patch-browser", calls)
+
+    def test_omit_services_when_include_services_false(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            run = Path(tmp)
+            (run / "engine.state").write_text(
+                "engine=jack\nactive=jack\nstate=ok\nupdated=999\n",
+                encoding="utf-8",
+            )
+            snap = build_snapshot(
+                now=1000.0,
+                run=run,
+                seq=1,
+                include_services=False,
+                unit_active=lambda _u: True,
+            )
+            self.assertNotIn("services", snap)
 
 
 if __name__ == "__main__":
