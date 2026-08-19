@@ -89,10 +89,14 @@ import sys
 sys.path.insert(0, "{sooper}")
 sys.path.insert(0, "{REPO}")
 import looper_session as ls
-ls.start_hud_thread = lambda: (_ for _ in ()).throw(AssertionError("hud started"))
+ls.start_hud_thread = lambda _s: (_ for _ in ()).throw(AssertionError("hud started"))
+class _FakeSession:
+    def start(self):
+        return self
+ls.SlOscSession = _FakeSession
 class _FakeBench:
     @staticmethod
-    def run_bench(argv=None):
+    def run_bench(argv=None, osc_session=None):
         return 0
 ls._load_bench_module = lambda: _FakeBench
 print("bench-only-ok")
@@ -106,6 +110,27 @@ raise SystemExit(ls.run_session(["--bench-only"]))
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("bench-only-ok", result.stdout)
+
+
+
+
+    def test_single_osc_session_module_present(self) -> None:
+        path = REPO / "scripts" / "sooperlooper" / "sl_osc_session.py"
+        self.assertTrue(path.is_file())
+        body = path.read_text(encoding="utf-8")
+        self.assertIn("class SlOscSession", body)
+        self.assertIn("Refusing to run blind", body)
+        self.assertNotIn("MPE_SL_HUD_LISTEN_PORT", body)
+
+    def test_looper_session_wires_shared_session(self) -> None:
+        mod = LOOPER_SESSION.read_text(encoding="utf-8")
+        self.assertIn("SlOscSession", mod)
+        self.assertIn("osc_session=session", mod)
+
+    def test_looper_session_wires_shared_session(self) -> None:
+        mod = LOOPER_SESSION.read_text(encoding="utf-8")
+        self.assertIn("SlOscSession", mod)
+        self.assertIn("osc_session=session", mod)
 
 
 if __name__ == "__main__":
