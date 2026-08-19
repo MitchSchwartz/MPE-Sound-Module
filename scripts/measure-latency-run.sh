@@ -68,6 +68,13 @@ fi
 mpe_source_appliance_env
 RESTORE_BUFFER="$(mpe_jack_period)"
 
+RUN_AS_USER="${MPE_PI_USER:-mitch}"
+if [ "$(id -u)" -eq 0 ] && id "$RUN_AS_USER" >/dev/null 2>&1; then
+    _as_user() { sudo -u "$RUN_AS_USER" -- "$@"; }
+else
+    _as_user() { "$@"; }
+fi
+
 ENV_FILE="/etc/mpe/mpe.env"
 
 _set_env_var() {
@@ -251,7 +258,7 @@ _run_window() {
     : >"$xrun_events"
 
     _init_journal_cursor
-    stdbuf -oL jack_cpu_load >"$dsp_raw" 2>/dev/null &
+    _as_user stdbuf -oL jack_cpu_load >"$dsp_raw" 2>/dev/null &
     local jcl=$!
     _kill_jcl() { kill -9 "$jcl" 2>/dev/null || true; wait "$jcl" 2>/dev/null || true; }
 
@@ -289,9 +296,12 @@ _run_window() {
             }
             END {
                 if (n==0) { print "0 0 0"; exit }
-                asort(a)
+                for (i=1;i<=n;i++) {
+                    for (j=i+1;j<=n;j++) if (a[i]>a[j]) { t=a[i]; a[i]=a[j]; a[j]=t }
+                }
                 med=a[int((n+1)/2)]
-                p99=a[int(n*0.99)+1]; if (p99=="") p99=a[n]
+                p99i=int(n*0.99); if (p99i<1) p99i=1; if (p99i>n) p99i=n
+                p99=a[p99i]
                 max=a[n]
                 printf "%.6f %.6f %.6f\n", med, p99, max
             }
@@ -316,7 +326,6 @@ _run_window() {
     echo
     echo "=== measure-latency-run buffer=${BUFFER} condition=${CONDITION} runs=${RUNS} seconds=${SECONDS_PER_RUN} $(date -Is) ==="
     echo "SENTINEL harness-start"
-    _record_provenance
     _ensure_peak_meter
 
     if ! "$SCRIPT_DIR/set-surge-audio.sh" --buffer "$BUFFER"; then
@@ -332,6 +341,8 @@ _run_window() {
         exit 1
     fi
     _assert_jack_period "$BUFFER" || exit 1
+    echo "=== provenance after strict restart ==="
+    _record_provenance
 
     run_idx=1
     while [ "$run_idx" -le "$RUNS" ]; do
@@ -342,7 +353,8 @@ _run_window() {
         dsp_raw="/tmp/latency-${tag}-${stamp}.dsp"
         xev="/tmp/latency-${tag}-${stamp}.xruns"
 
-        python3 "$SCRIPT_DIR/midi-load.py" "$((SECONDS_PER_RUN + 20))" >/tmp/midi-load.log 2>&1 &
+        _as_user python3 "$SCRIPT_DIR/midi-load.py" "$((SECONDS_PER_RUN + 20))" \
+            >"/tmp/latency-midi-load-${stamp}.log" 2>&1 &
         _LOAD_PID=$!
         sleep 8
 
