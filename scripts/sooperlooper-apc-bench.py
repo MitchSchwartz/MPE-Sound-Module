@@ -132,6 +132,14 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
     osc = osc_session.client
     midi_osc_latencies: list[float] = []
     midi_osc_pending: list[float] = []
+    if args.measure_latency:
+        # Tap the CLIENT, not the bench's _send helper. Footswitches are handed the raw
+        # client by build_footswitches(osc=...) and send /hit through it directly, so a
+        # hook in _send sees nothing a pad ever does. Measured on the appliance
+        # 2026-08-19: 267 pad presses, zero samples, no result printed.
+        from latency_tap import LatencyTapClient
+
+        osc = LatencyTapClient(osc, midi_osc_pending, midi_osc_latencies)
     measure_deadline = (
         time.monotonic()
         + float(os.environ.get("MPE_MEASURE_LATENCY_DEADLINE_S", "300"))
@@ -140,11 +148,6 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
     )
 
     def _send(path: str, a: list) -> None:
-        # Pad-downs routed to fader/mute without /hit leave orphan timestamps;
-        # the next /hit pairs with that stale sample (diagnostic-only inflation).
-        if midi_osc_pending and "/hit" in path:
-            t0 = midi_osc_pending.pop(0)
-            midi_osc_latencies.append((time.monotonic() - t0) * 1000.0)
         osc.send_message(path, a)
 
     grid_active = True
