@@ -231,18 +231,16 @@ _poll_journal_xruns() {
     new_cursor="$(printf '%s\n' "$out" | grep '^-- cursor:' | tail -1 | sed 's/^-- cursor: //')"
     [ -n "$new_cursor" ] && _journal_xrun_cursor="$new_cursor"
     while IFS= read -r line; do
-        case "$line" in
-            *xrun*)
-                _journal_xrun_total=$((_journal_xrun_total + 1))
-                wall="$(date -Is)"
-                if [[ "$line" =~ xrun\ of\ at\ least\ ([0-9]+)\ msecs ]]; then
-                    delay_usec=$((BASH_REMATCH[1] * 1000))
-                else
-                    delay_usec=-1
-                fi
-                printf 'XRUN_EVENT wall=%s delay_usec=%s line=%s\n' "$wall" "$delay_usec" "$line"
-                ;;
-        esac
+        if echo "$line" | grep -qi xrun; then
+            _journal_xrun_total=$((_journal_xrun_total + 1))
+            wall="$(date -Is)"
+            if [[ "$line" =~ [Xx]run\ of\ at\ least\ ([0-9]+)\ msecs ]]; then
+                delay_usec=$((BASH_REMATCH[1] * 1000))
+            else
+                delay_usec=-1
+            fi
+            printf 'XRUN_EVENT wall=%s delay_usec=%s line=%s\n' "$wall" "$delay_usec" "$line"
+        fi
     done < <(printf '%s\n' "$out" | grep -vi '^-- cursor:')
 }
 
