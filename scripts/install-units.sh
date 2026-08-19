@@ -80,6 +80,13 @@ DISABLED=(
     mpe-sooperlooper
     mpe-looper-session
     sl-watchdog
+    # Phase 1 snapshot publisher. Installed, not started: measured at 0.39% of a
+    # core at 1 Hz — see docs/measurements/systemd-liveness-cost-2026-08-19.md —
+    # which clears criterion 7 comfortably. But it is a new always-on poll on an
+    # instrument whose scarcest resource is CPU, so switching it on is an operator
+    # decision, not a deploy side effect. Enable with:
+    #   sudo systemctl enable --now mpe-session-publisher
+    mpe-session-publisher
 )
 
 # No [Install] section — cannot be enabled, only pulled in by another unit.
