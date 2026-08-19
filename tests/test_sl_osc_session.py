@@ -70,5 +70,20 @@ class SlOscSessionTests(unittest.TestCase):
         self.assertEqual(paths, ["/register_auto_update"])
         self.assertFalse(any(p.startswith("/sl/") for p in paths))
 
+    def test_register_hud_loops_subscribes_loop_state(self) -> None:
+        from sl_osc_session import NUM_LOOPS
+
+        session = SlOscSession()
+        session._client = MagicMock()
+        session.register_hud_loops()
+        paths = [c.args[0] for c in session._client.send_message.call_args_list]
+        expected = {
+            f"/sl/{loop}/register_auto_update"
+            for loop in range(NUM_LOOPS)
+            for _ctrl in ("state", "loop_len", "loop_pos")
+        }
+        self.assertEqual(set(paths), expected)
+        self.assertTrue(session._hud_loops_registered)
+
 if __name__ == "__main__":
     unittest.main()

@@ -5,10 +5,7 @@ merged looper session and APC connected::
 
     python3 scripts/sooperlooper/measure_midi_osc_latency.py --samples 200
 
-With HUD thread comparison (stop session, restart without HUD is manual A/B)::
-
-    python3 scripts/looper-session.py   # normal merged session
-    python3 scripts/sooperlooper/measure_midi_osc_latency.py --samples 200
+For HUD-thread A/B, compare merged session vs ``--bench-only`` (not ``--hud-only``).
 
 The measurement hooks the bench ``_send`` path: timestamp at pad-down, delta at
 the next ``/hit`` OSC message.
