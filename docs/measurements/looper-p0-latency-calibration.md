@@ -25,8 +25,8 @@ That applies to **record stop** as well as record start. Tier 2 (stay Recording 
 | Check | Command |
 |-------|---------|
 | Bench + engine up | `mpe looper sl-bench status` · `mpe status` |
-| Tier 2 deployed | Bench log on defining close: `recording release into loop until quiet` |
-| Seam weld off | `MPE_SL_SEAM_WELD=0` (default) |
+| Tier 2 deployed | Bench log on defining close: `stop now — weld release at seam` |
+| Seam weld | `MPE_SL_SEAM_WELD=1` (default) |
 | Quiet room / headphones | Normal playing level — see `AGENTS.md` audio safety |
 
 Read current engine values:
