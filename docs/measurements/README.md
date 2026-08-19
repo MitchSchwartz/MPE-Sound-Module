@@ -35,6 +35,6 @@ design under JACK and reports a false negative on a healthy appliance.
 ## Completed runs
 
 - [`looper-p0-latency-calibration.md`](looper-p0-latency-calibration.md) — P0 input_latency ear procedure (do before seam tuning)
-- [`seam-weld-spike-2026-08-18.md`](seam-weld-spike-2026-08-18.md) — Tier 3 Option B ear-failed; defining take reverted to Tier 2
+- [`seam-weld-spike-2026-08-18.md`](seam-weld-spike-2026-08-18.md) — Option B/E/Tier 2 archaeology; stop-then-weld is current (2026-08-19)
 - [`sooperlooper-eval-2026-08-14.md`](sooperlooper-eval-2026-08-14.md) — Session A
   **continue**, Session B **inconclusive** (Pi bench, branch `docs/sooperlooper-eval`).
