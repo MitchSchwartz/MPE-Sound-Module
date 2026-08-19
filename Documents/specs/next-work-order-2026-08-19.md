@@ -152,6 +152,17 @@ returns to `ENABLED` in `install-units.sh` or the opt-in default is restated on 
 `512 × 3` now runs 0 xruns at DSP median 42%. Criterion 35 wants `128 × 3` under playing
 load in strict mode.
 
+> **Superseded in part, 2026-08-19 (D15).** The "0 xruns at 512" reading above did not
+> hold under a 3×60 s A/D comparison at `b9bf98e`: baseline produced 2, 0, 0 and the full
+> stack produced 7, 24, 29, at an unchanged DSP median (~38.6 vs ~38.7). Identical DSP
+> with a 10× xrun difference means the 512 blocker is **scheduling jitter, not CPU cost** —
+> so it is not a per-patch-headroom question and does not belong in this section. The
+> Pi is restored to 1024×3. Full analysis, measured Pi config, and the ordered plan:
+> [`low-latency-512-256-spec.md`](low-latency-512-256-spec.md).
+>
+> Per-patch variance below remains open and is a separate axis — it is about DSP cost on
+> specific presets, which jitter work will not address.
+
 **UPDATE 2026-08-19: retried post-fix, and it holds.** Mitch re-tried those patches after
 the graph-probe fix — *"512 works for most, some patches seem to need 1024 still."* So it
 is **not** pre-fix residue; it is genuine per-patch variance, and it is bounded to
