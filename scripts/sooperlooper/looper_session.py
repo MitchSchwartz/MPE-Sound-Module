@@ -17,6 +17,7 @@ if str(_REPO) not in sys.path:
 from patch_browser.sl_hud_state import SL_HUD_STATE_FILE  # noqa: E402
 
 from sl_hud_monitor import HudWriter  # noqa: E402
+from sl_osc_session import SlOscSession  # noqa: E402
 
 
 def _load_bench_module():
@@ -39,7 +40,7 @@ def _hud_thread_main(stop: threading.Event, writer: HudWriter) -> None:
         while not stop.is_set():
             writer.poll()
             if writer.should_reregister():
-                writer.register_auto_updates()
+                writer.maybe_reregister_session()
             if stop.wait(0.1):
                 break
     except Exception as exc:
@@ -51,9 +52,9 @@ def _hud_thread_main(stop: threading.Event, writer: HudWriter) -> None:
         os._exit(1)
 
 
-def start_hud_thread() -> tuple[threading.Thread, threading.Event, HudWriter]:
+def start_hud_thread(session: SlOscSession) -> tuple[threading.Thread, threading.Event, HudWriter]:
     stop = threading.Event()
-    writer = HudWriter()
+    writer = HudWriter(session)
     thread = threading.Thread(
         target=_hud_thread_main,
         args=(stop, writer),
@@ -82,20 +83,41 @@ def run_session(argv: list[str] | None = None) -> int:
         print("Error: --bench-only and --hud-only are mutually exclusive", file=sys.stderr)
         return 2
 
-    if args.hud_only:
-        from sl_hud_monitor import main as hud_main
+    session = SlOscSession().start()
 
-        return hud_main()
+    if args.hud_only:
+        writer = HudWriter(session)
+        session.register_hud_loops()
+        writer.register_auto_updates()
+        print(
+            f"looper-session: HUD -> {SL_HUD_STATE_FILE} (hud-only)",
+            flush=True,
+        )
+        try:
+            while True:
+                writer.poll()
+                if writer.should_reregister():
+                    writer.maybe_reregister_session()
+                time.sleep(0.1)
+        except KeyboardInterrupt:
+            return 0
+        finally:
+            writer.close()
 
     hud_thread = None
     hud_stop = None
     hud_writer = None
     if not args.bench_only:
-        hud_thread, hud_stop, hud_writer = start_hud_thread()
+        hud_thread, hud_stop, hud_writer = start_hud_thread(session)
 
     bench = _load_bench_module()
     try:
-        return bench.run_bench(bench_argv or None)
+        # Pass the list even when empty. Coercing an empty list to None handed
+        # argparse a None argv, and argparse falls back to sys.argv in that case — so
+        # the bench re-parsed the session's own flags and died on them. `--bench-only`
+        # with no other argument was broken outright; it only appeared to work when a
+        # passthrough flag made the list non-empty. Found on the appliance 2026-08-19.
+        return bench.run_bench(bench_argv, osc_session=session)
     finally:
         if hud_stop is not None and hud_thread is not None:
             hud_stop.set()

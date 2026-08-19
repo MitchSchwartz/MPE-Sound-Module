@@ -1,6 +1,15 @@
 # Session control plane — one owner per fact, reconciliation over sequences
 
-**Status:** Phases 0–2 landed on `dev` (PR #66, amended by #68/#70/#71 + `4e81f11`), soaking on the appliance since 2026-08-18. **Q1 answered 2026-08-18: merge (D17) — Phase 3M is ready to implement.** Phase 4 still blocked by D15/D16; Phase 5 not started.
+**Status (2026-08-19).** Phases 0, 1, 2, 3M and 5 have all landed on `dev`. **Phase 3M is
+complete** — all twelve criteria met as of 2026-08-19 (42, 44, 46 and 47 closed last). Phase 5 is complete except criterion 35 (`128 x 3`), which is the
+furthest-away target in the spec: the appliance currently runs `1024 x 3`. Phases 3b and 4 are
+not started; Phase 4 remains blocked by D15, whose numbers are void pending the task 6
+re-measure. Criterion 7 **passes as of 2026-08-19** (0.53% of a core at 2 Hz) — see
+[`docs/measurements/systemd-liveness-cost-2026-08-19.md`](../../docs/measurements/systemd-liveness-cost-2026-08-19.md).
+Outstanding work is tracked in [`next-work-order-2026-08-19.md`](next-work-order-2026-08-19.md).
+
+**Every phase table below carries a Status column. Code landing is not a phase closing** —
+Phase 3M is the standing example of the difference.
 **Author:** written after the 2026-08-17 stability session; every claim in Evidence is measured on `raspberrypi2`, not reasoned.
 
 **Implementation log (2026-08-18).** What shipped, and what it cost:
@@ -10,6 +19,10 @@
 | Phase 0 — calibration stops/restores the looper stack | Guarded by a real D11 maintenance flag (`pid` + 30 min deadline, self-clearing) — the first cut had `surge-watchdog` restarting the units mid-measurement |
 | Phase 1 — `session.snapshot.json` schema v1 | Verified on hardware: all four sources fresh, `mode: ok`, HUD live. **No publisher** — built on demand only |
 | Phase 2 — `events.jsonl` + emits at engine/graph chokepoints | Bash emits through `scripts/mpe-session-event-emit.py` for safe JSON; escaping verified live |
+| Phase 3M — merged looper session (PR #72, #76) | One unit, one OSC session, one cache. **Unverified**: no hand check (44), no crash number (46), no CPU before/after (47), no latency figure (42) |
+| Phase 5 — compiled peak meter, RT boundary guard (PR #74) | Python JACK callbacks now fail the suite; meter is a compiled leaf client costing 0% DSP. Criterion 35 still open |
+| Phase 1 criterion 6 — CLI re-pointed at the snapshot (mpe-cli #6, #7) | `mpe status`, `engine status`, `jack status`, `diagnose` all read one snapshot. No longer a fifth view |
+| Criterion 7 — snapshot cost | 11.5% → **0.53%** of a core at 2 Hz via batched D-Bus liveness. Cached fields carry their own age |
 
 **Staleness model changed during implementation (amends criterion 4).** The spec's
 blanket 1.5 s age threshold was wrong for every source in this system: `jack.state`
@@ -414,13 +427,13 @@ does not need the answer. Q8 still tracks retirement.
 
 | # | Criterion | Status | Verification |
 |---|---|---|---|
-| 1 | One snapshot: engine, graph, grid, loops, buffer/rate, health, per-service liveness, `mode`, `seq`, `schema` | 🟡 partial | Has engine, jack (buffer/rate), surge, reconcile, `looper.hud` (grid/transport), `mode`, `seq`, `schema`. **Missing:** graph wiring, per-loop state, health, per-service liveness as fields |
+| 1 | One snapshot: engine, graph, grid, loops, buffer/rate, health, per-service liveness, `mode`, `seq`, `schema` | 🟡 partial *(2026-08-19)* | **Added by PR #76:** `services` (per-service liveness, with age and transport), `config`, and `graph.surge_on_graph` behind `include_runtime_probes`. **Still missing:** per-loop state, health |
 | 2 | It aggregates *existing* truth only — writes nothing, owns nothing | ✅ | Writes only `session.snapshot.json` + `.seq` |
 | 3 | Every field carries provenance (which file/process/probe produced it) | ✅ | Field-level `source` key present for all |
 | 4 | A stale sub-source reports **stale**, never a last-known value | ✅ *(amended)* | Per-source **writer liveness**, not a 1.5 s age gate — see Implementation log. Unknown liveness reads as stale |
-| 5 | The 2026-08-17 faults are visible from the snapshot alone | ❌ | Needs the leaked-client and graph-wiring fields from criterion 1 |
-| 6 | **No fifth view.** `mpe status`, `mpe engine status`, `mpe jack status`, `mpe diagnose` are re-pointed at the snapshot; their output shape is unchanged | ❌ deferred | mpe-cli untouched; the snapshot is currently a *fifth* view, which is the thing this criterion exists to prevent. Highest-priority Phase 1 debt |
-| 7 | Snapshot generation costs < 1% of a core at 2 Hz | ❌ *(diagnosed)* | **57.3 ms** measured ⇒ ~11.5% at 2 Hz. **97% of it is three `systemctl` forks**; everything else is 1.4 ms. Not blocked — fix liveness (D-Bus first, else batch + TTL) before any publisher ships. See the cost table under Phase 2 |
+| 5 | The 2026-08-17 faults are visible from the snapshot alone | 🟡 partial *(2026-08-19)* | Graph wiring now present (`graph.surge_on_graph`, read from `meter.state`). **Leaked-client detection still absent** — that is the remaining half, and it is shared with criterion 10 |
+| 6 | **No fifth view.** `mpe status`, `mpe engine status`, `mpe jack status`, `mpe diagnose` are re-pointed at the snapshot; their output shape is unchanged | ✅ *(2026-08-19)* | All four re-pointed (mpe-cli #6). One snapshot per command, no per-field forking. mpe-cli #7 fixed a jq `//` polarity bug that made two of them render `unknown` for healthy units |
+| 7 | Snapshot generation costs < 1% of a core at 2 Hz | ✅ *(2026-08-19)* | **0.53% at 2 Hz**, 0.39% at 1 Hz. Batched D-Bus liveness: `active` every 5 s (7.6 ms), `enabled` every 30 s (32.4 ms) because it is configuration, not runtime. Cold build 424 → 42 ms, warm 57 → 1.4 ms. Cached fields carry `active_age_s`/`enabled_age_s` and the transport that answered. See [`systemd-liveness-cost-2026-08-19.md`](../../docs/measurements/systemd-liveness-cost-2026-08-19.md) |
 | 8 | A reader on an unknown `schema` major refuses loudly | ✅ | `read_snapshot` raises on `schema > max_schema` |
 
 ### Phase 2 — Event stream
@@ -480,9 +493,34 @@ reason the publisher cannot be built.
 | 9 | Discrete events with stable names, one line each, structured | 🟡 partial | Emitting: `engine.started`, `engine.exited`, `buffer.changed`, `mode.changed`, `looper.units.*`. **Named but never emitted:** `grid.established`, `grid.dropped`, `client.registered`, `client.leaked` |
 | 10 | The client leak is detectable from events alone | ❌ | Needs a `client.registered`/`client.leaked` emitter — blocked on the cost constraint above |
 | 11 | Events are cheap enough to leave on permanently | ✅ *(conditionally)* | Free at steady state because events are transition-only. Holds **only** while that stays true |
-| 12 | No polling probe may register a JACK client (the `jack_cpu_load` lesson) | ⚠️ **violated** | `mpe_surge_on_jack_graph` runs `jack_lsp` — a real JACK client — every `MPE_JACK_PROBE_INTERVAL_S` (10 s) from `surge-watchdog`. See below |
+| 12 | No polling probe may register a JACK client (the `jack_cpu_load` lesson) | ✅ *(2026-08-18)* | Healthy path reads `wired=` from `meter.state` (published by the compiled meter, already on the graph). `jack_lsp` is fallback only. Measured 35 → 0 xruns/min at matched load — see below |
 
-**Criterion 12 is knowingly violated, and the tension is real.** The supervisor's
+**Criterion 12 — RESOLVED 2026-08-18. It is now met, not traded.** The reasoning below
+is kept because the trade it describes was wrong in a way worth remembering.
+
+`mpe_surge_on_jack_graph()` no longer runs `jack_lsp` on the healthy path. It reads
+`wired=` from `/run/mpe/meter.state`, published at 5 Hz by `mpe-peak-meter` — a compiled
+client already permanently on the graph (Phase 5, criterion 34). A file read: no fork,
+no registration, no graph reorder. `jack_lsp` survives only as a fallback when the meter
+is missing, stale (>5 s) or malformed, so a dead meter cannot produce a false green.
+
+**The trade below was priced in the wrong currency and it caused audible crackle.** The
+bounded 10 s probe was called affordable at 1.16% of a core. Measured against the audio
+graph instead of the processor: **35 xruns/min, against 0 after the fix, at identical
+load** — the largest single xrun source on the appliance, larger than the whole looper
+stack. Each `jack_lsp` registration forces jackd to rebuild its processing order, and it
+was doing so six times a minute under a player's hands. Full protocol and the two wrong
+conclusions along the way:
+[`docs/measurements/crackle-root-cause-2026-08-18.md`](../../docs/measurements/crackle-root-cause-2026-08-18.md).
+
+**The general lesson, now `DECISIONS.md` 2026-08-18 rule 9:** a probe has two costs and
+CPU is the cheaper one. And the best probe is an observer already on the graph, not a
+cheaper one added to it.
+
+<details>
+<summary>Superseded reasoning (2026-08-18, earlier the same day)</summary>
+
+**Criterion 12 was knowingly violated, and the tension was real.** The supervisor's
 only way to answer *"is Surge on the graph?"* is `jack_lsp`, which registers a client.
 Removing the probe is not an option — a short-circuit that never re-probes is blind to
 the orphaned-client wedge ([`DECISIONS.md`](../DECISIONS.md) 2026-08-15), which is the
@@ -503,6 +541,8 @@ registered or orphaned. Criterion 12's real intent is *no unbounded, unreaped cl
 registration on a repeating path*; that intent is met. Reword it in Phase 4 rather
 than pretending the letter is satisfied.
 
+</details>
+
 ### Phase 3M — Looper session process (**chosen path**, D17)
 
 **One process owns looper session state.** Merge `scripts/sooperlooper-apc-bench.py`
@@ -511,20 +551,20 @@ than pretending the letter is satisfied.
 `apc_footswitch.py` (536) as they are already bench-owned — into a single unit,
 `mpe-looper-session.service`. `sl-watchdog` and the touch UI stay separate (D17).
 
-| # | Criterion | Verification |
-|---|---|---|
-| 38 | One unit hosts bench + HUD + grid state | `config/mpe-apc-bench.service` and `config/sl-hud-monitor.service` deleted; `mpe-looper-session.service` present; `install-units.sh` renders it |
-| 39 | Grid state has exactly one writer; nothing else mutates it | Grep: no `GridState` mutation outside the owning module |
-| 40 | The `sync_source` restart sentinel is deleted | Absent from the tree; engine restart detected explicitly |
-| 41 | One OSC connection with one lifecycle | Single client object; `maybe_reregister()` semantics preserved; tempo **seeded** on registration, not awaited (`register_auto_update` delivers on CHANGE — the 2026-08-17 HUD race) |
-| 42 | **HUD work never runs on the MIDI path** | The bench polls at ~2 ms, the HUD writes and shells to `journalctl` at 2 Hz. HUD work on its own thread/timer. Verify worst-case MIDI-in → OSC-out latency is unchanged, measured on the Pi, before and after |
-| 43 | **Loud failure on a held OSC port survives** | Start a second instance while 9953 is held; it refuses to start rather than warning and continuing. This behaviour has already saved a session — it must not soften in the merge |
-| 44 | Musical behaviour unchanged | Pad-driven record → clear → grid-establish sequence identical before and after, verified by hand on the APC |
-| 45 | `sl-watchdog` remains a separate process (D4) | Unit still present and separate; it must be able to restart the merged process |
-| 46 | Crash blast radius is measured, not assumed | `kill -9` the merged process mid-session; `Restart=always` recovers; time to first pad response recorded in `docs/measurements/`. One crash now takes bench **and** HUD — that regression is accepted only with a number attached |
-| 47 | CPU no worse than the two processes it replaces | `/proc/<pid>/stat` fields 14–17 over 60 s idle, before vs after, on the Pi. No new periodic subprocess spawn ([`DECISIONS.md`](../DECISIONS.md) 2026-08-18) |
-| 48 | Grid transitions are unit-testable off-hardware (D13) | Tests run in the laptop suite with no Pi, no JACK, no OSC — extend `tests/fake_sl_engine.py`, which holds quantized actions until an explicit `boundary()` |
-| 49 | State is re-derived from the engine on start, never from a local cache | Restart the process mid-session; grid/loop state matches engine truth with no operator action |
+| # | Criterion | Status | Evidence / what remains |
+|---|---|---|---|
+| 38 | One unit hosts bench + HUD + grid state | ✅ | `mpe-looper-session.service` present; the two old units deleted (PR #72) |
+| 39 | Grid state has exactly one writer; nothing else mutates it | ✅ | Single writer verified by grep guard in the suite |
+| 40 | The `sync_source` restart sentinel is deleted | ✅ | Sentinel absent from the tree |
+| 41 | One OSC connection with one lifecycle | ✅ 2026-08-19 | One `SlOscSession`, one listen port (9953), one cache (PR #76). 9952 retired |
+| 42 | **HUD work never runs on the MIDI path** | ✅ *(2026-08-19)* | n=100 per condition: HUD on p50 **0.188 ms** / p99 0.835 ms; HUD off p50 0.187 ms / p99 2.202 ms; under load p50 0.201 ms / p99 0.723 ms. No measurable penalty — p99 is *worse* with the HUD off, which no real effect produces. Driven by synthetic pads, so it is repeatable without the player. See [`looper-midi-osc-latency-2026-08-19.md`](../../docs/measurements/looper-midi-osc-latency-2026-08-19.md) |
+| 43 | **Loud failure on a held OSC port survives** | ✅ | Bind failure still fatal; message preserved through the merge; test covers it |
+| 44 | Musical behaviour unchanged | ✅ *approved 2026-08-19* | Approved by Mitch on scope: Phase 3M is about process ownership, unit lifecycle and the OS, not looper control semantics. Known looper-control defects are tracked separately (`yolo/looper-poll-tail-fix`) and explicitly **do not gate this phase** |
+| 45 | `sl-watchdog` remains a separate process (D4) | ✅ | `sl-watchdog` still a separate unit |
+| 46 | Crash blast radius is measured, not assumed | ✅ *(2026-08-19)* | 2 runs: OSC rebound **10.6 / 10.7 s**, APC re-bound 10.7 / 10.9 s. **Audio never stopped** — graph stayed wired, cost was 1–2 xruns. ~10 s of that is `RestartSec=10`; process startup is ~0.6 s. See [`looper-session-crash-and-cpu-2026-08-19.md`](../../docs/measurements/looper-session-crash-and-cpu-2026-08-19.md) |
+| 47 | CPU no worse than the two processes it replaces | ✅ *(2026-08-19)* | Merged **32.98%** of a core vs bench 30.00% + HUD 8.77% = 38.77% before. **−5.78 points.** Separately worth knowing: 33% is the largest Python CPU consumer on the appliance, and it is the ~2 ms bench poll, not the HUD |
+| 48 | Grid transitions are unit-testable off-hardware (D13) | ✅ | Grid transitions covered off-hardware in the laptop suite |
+| 49 | State is re-derived from the engine on start, never from a local cache | ✅ | State re-derived from the engine on start; no local cache |
 
 **Sequencing for the implementer.** Land in this order, each its own commit, each
 green on the Pi before the next: (1) new unit + process skeleton that runs the bench
@@ -619,13 +659,13 @@ a lock owned by a non-realtime thread. Criterion 34 must be satisfied by a **com
 client (levels into shared memory, UI reads at its leisure) or by not being a JACK client
 at all — never by making the Python callback cheaper.
 
-| # | Criterion | Verification |
-|---|---|---|
-| 33 | Test fails on `set_process_callback` outside the allowlist | Add a violation; suite goes red |
-| 34 | OUT meter is out-of-process or compiled; allowlist empty | `mpe-peak-meter` no longer a Python client |
-| 35 | 128 × 3 under playing load, strict mode, zero xruns | `bench-xruns.sh --sweep --strict` while playing — softmode numbers are not accepted (`d5ac0cc`) |
-| 36 | Any unit hosting a JACK client declares `LimitRTPRIO` | Test over `config/*.service`, cross-referenced with the allowlist. **Necessary but not sufficient** — on 2026-08-18 the meter callback *was* `SCHED_FIFO 65` under `LimitRTPRIO=95` and still stalled the graph, because RT priority does not grant the GIL |
-| 36a | The meter's replacement is proven by the same A/B, not by inspection | Re-run the matched-load protocol above with the compiled meter on the graph: `surge-xt-cli` within a few points of the control run, DSP max within a few points of run C |
+| # | Criterion | Status | Evidence / what remains |
+|---|---|---|---|
+| 33 | Test fails on `set_process_callback` outside the allowlist | ✅ | `tests/test_jack_rt_boundary.py` fails on a planted violation; verified |
+| 34 | OUT meter is out-of-process or compiled; allowlist empty | ✅ | `native/mpe-peak-meter` is a compiled JACK leaf client; allowlist empty |
+| 35 | 128 × 3 under playing load, strict mode, zero xruns | ❌ **needs Mitch** | Appliance runs `1024 x 3`. `512 x 3` is clean at DSP median 42%, but some patches still need 1024 — see `docs/measurements/per-patch-headroom-open-2026-08-19.md`. `128 x 3` is untested |
+| 36 | Any unit hosting a JACK client declares `LimitRTPRIO` | ✅ | Enforced over `config/*.service` by test |
+| 36a | The meter's replacement is proven by the same A/B, not by inspection | ✅ | Matched-load A/B re-run with the compiled meter: 0% DSP cost, 0 xruns |
 
 ### Success metric (how we know this worked)
 
