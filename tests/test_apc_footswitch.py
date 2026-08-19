@@ -66,21 +66,22 @@ class ApcFootswitchTests(unittest.TestCase):
         osc = MagicMock()
         fs = LoopFootswitch(loop=0, hold_ms=1000.0, debounce_ms=0.0)
         fs.bind(osc, MagicMock(), 36)
-        fs.on_pad_down()
-        fs.on_pad_up()
-        fs.sync_from_sl(SL_STATE_RECORDING)
-        fs.on_pad_down()
-        fs.on_pad_up()  # stop-record -> waits for a boundary
-        fs.sync_from_sl(SL_STATE_WAIT_STOP)
-        self.assertTrue(fs.awaiting_quantize)
-        self.assertTrue(fs._waiting_for_quantize())
+        with patch.object(footswitch_mod, "TAIL_CAPTURE_ENABLED", False):
+            fs.on_pad_down()
+            fs.on_pad_up()
+            fs.sync_from_sl(SL_STATE_RECORDING)
+            fs.on_pad_down()
+            fs.on_pad_up()  # stop on pad down -> waits for a boundary
+            fs.sync_from_sl(SL_STATE_WAIT_STOP)
+            self.assertTrue(fs.awaiting_quantize)
+            self.assertTrue(fs._waiting_for_quantize())
 
-        fs._wait_since -= footswitch_mod.QUANTIZE_WAIT_TIMEOUT_S + 1.0
-        self.assertFalse(fs._waiting_for_quantize())
-        self.assertFalse(fs.awaiting_quantize)
+            fs._wait_since -= footswitch_mod.QUANTIZE_WAIT_TIMEOUT_S + 1.0
+            self.assertFalse(fs._waiting_for_quantize())
+            self.assertFalse(fs.awaiting_quantize)
 
-        fs.on_pad_down()
-        fs.on_pad_up()
+            fs.on_pad_down()
+            fs.on_pad_up()
         hits = [c.args[1] for c in osc.send_message.call_args_list if c.args[0] == "/sl/0/hit"]
         self.assertEqual(len(hits), 3)
 
@@ -286,6 +287,7 @@ class GridEstablishmentTests(unittest.TestCase):
         # be armed, where `record` lands as CANCEL.
         fs.sync_from_sl(SL_STATE_RECORDING)
         fs.on_pad_down()
+        fs.sync_from_sl(SL_STATE_WAIT_STOP)
         self.assertTrue(fs.awaiting_quantize, "quantized clip must wait for the bar")
         self.assertTrue(fs._tail_capture)
         self.assertTrue(fs._tail_deferred)
