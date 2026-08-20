@@ -61,7 +61,7 @@ class XrunCounterTests(unittest.TestCase):
     def test_missing_meter_is_reported_not_crashed(self) -> None:
         c = sl.XrunCounter(self.tmp / "absent.state")
         count, err = c.poll(100.0)
-        self.assertEqual(0, count)
+        self.assertIsNone(count)
         self.assertIsNotNone(err, "a missing meter must not read as clean")
 
     def test_stale_meter_is_an_error_not_a_clean_reading(self) -> None:
@@ -69,7 +69,7 @@ class XrunCounterTests(unittest.TestCase):
         self._write(3, age_s=120.0)
         c = sl.XrunCounter(self.state)
         count, err = c.poll(100.0)
-        self.assertEqual(0, count)
+        self.assertIsNone(count)
         self.assertIsNotNone(err)
         self.assertIn("stale", err)
 
@@ -99,8 +99,11 @@ class GovernorTests(unittest.TestCase):
         self.tmp = Path(self.enterContext(tempfile.TemporaryDirectory()))
         self.alarm = self.tmp / "alarm.json"
         self.gov = self.tmp / "scaling_governor"
+        self.meter = self.tmp / "meter.state"
+        self.meter.write_text(f"xruns=0\nupdated={int(time.time())}\n", encoding="utf-8")
         for name, val in (("ALARM_FILE", self.alarm), ("GOVERNOR_PATH", self.gov),
-                          ("ENGINE_LOG", self.tmp / "engine.log")):
+                          ("ENGINE_LOG", self.tmp / "engine.log"),
+                          ("METER_STATE_FILE", self.meter)):
             p = mock.patch.object(sl, name, val)
             p.start()
             self.addCleanup(p.stop)
@@ -121,7 +124,7 @@ class GovernorTests(unittest.TestCase):
             osc.return_value.start.return_value = engine
             with mock.patch.object(sl, "check_command_path",
                                    return_value=(sl.ALIVE, "fine")):
-                sl.main(["--once", *extra_argv])
+                sl.main(["--once", "--skip-source-check", *extra_argv])
         return json.loads(self.alarm.read_text()), rep
 
     def test_drift_is_repaired(self) -> None:
@@ -174,7 +177,7 @@ class GovernorTests(unittest.TestCase):
              mock.patch.object(sl, "Osc") as osc:
             osc.return_value.start.return_value = mock.MagicMock()
             with self.assertRaises(KeyboardInterrupt):
-                sl.main([])
+                sl.main(["--skip-source-check"])
 
         alarm = json.loads(self.alarm.read_text())
         self.assertGreater(alarm["governor_repairs_in_window"], 2)

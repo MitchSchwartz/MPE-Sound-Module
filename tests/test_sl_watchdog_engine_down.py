@@ -34,11 +34,18 @@ system:playback_1
 
 class EngineDownTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.alarm = Path(self.enterContext(
-            __import__("tempfile").TemporaryDirectory())) / "alarm.json"
+        self.tmp = Path(self.enterContext(
+            __import__("tempfile").TemporaryDirectory()))
+        self.alarm = self.tmp / "alarm.json"
+        self.meter = self.tmp / "meter.state"
+        self.meter.write_text(
+            f"xruns=0\nupdated={int(__import__('time').time())}\n", encoding="utf-8")
         patcher = mock.patch.object(sl_watchdog, "ALARM_FILE", self.alarm)
         patcher.start()
         self.addCleanup(patcher.stop)
+        meter_patch = mock.patch.object(sl_watchdog, "METER_STATE_FILE", self.meter)
+        meter_patch.start()
+        self.addCleanup(meter_patch.stop)
 
     def _run_once(self, *, engine_up: bool) -> dict:
         snap = sl_watchdog.GraphSnapshot(True, False, False, "meter")
@@ -50,7 +57,7 @@ class EngineDownTests(unittest.TestCase):
              mock.patch.object(sl_watchdog, "capture_wedge_diagnostics",
                                return_value={}):
             osc.return_value.start.return_value = mock.MagicMock()
-            sl_watchdog.main(["--once"])
+            sl_watchdog.main(["--once", "--skip-source-check"])
         return json.loads(self.alarm.read_text())
 
     def test_no_process_reports_engine_down_not_orphan(self) -> None:
@@ -81,7 +88,7 @@ class EngineDownTests(unittest.TestCase):
              mock.patch.object(sl_watchdog, "capture_wedge_diagnostics",
                                return_value={}):
             osc.return_value.start.return_value = mock.MagicMock()
-            sl_watchdog.main(["--once"])
+            sl_watchdog.main(["--once", "--skip-source-check"])
         alarm = json.loads(self.alarm.read_text())
         self.assertEqual("orphan", alarm["state"])
         self.assertIn("UNKNOWN", alarm["detail"])
@@ -95,7 +102,7 @@ class EngineDownTests(unittest.TestCase):
              mock.patch.object(sl_watchdog, "engine_running", return_value=False), \
              mock.patch.object(sl_watchdog, "Osc") as osc:
             osc.return_value.start.return_value = mock.MagicMock()
-            self.assertEqual(0, sl_watchdog.main(["--once"]))
+            self.assertEqual(0, sl_watchdog.main(["--once", "--skip-source-check"]))
 
 
 if __name__ == "__main__":

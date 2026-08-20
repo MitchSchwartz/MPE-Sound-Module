@@ -40,7 +40,7 @@ class MeterGraphSnapshotTests(unittest.TestCase):
             engine = mock.MagicMock()
             engine.get.return_value = "play"
             osc.return_value.start.return_value = engine
-            sl.main(["--once"])
+            sl.main(["--once", "--skip-source-check"])
         jg.assert_not_called()
 
     def test_read_graph_snapshot_prefers_meter(self) -> None:
@@ -66,8 +66,12 @@ class MeterGraphSnapshotTests(unittest.TestCase):
 
 class MeterMainLoopTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.alarm = Path(self.enterContext(tempfile.TemporaryDirectory())) / "alarm.json"
+        self.tmp = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        self.alarm = self.tmp / "alarm.json"
+        self.meter = self.tmp / "meter.state"
+        self.meter.write_text(f"xruns=0\nupdated={int(time.time())}\n", encoding="utf-8")
         mock.patch.object(sl, "ALARM_FILE", self.alarm).start()
+        mock.patch.object(sl, "METER_STATE_FILE", self.meter).start()
         self.addCleanup(mock.patch.stopall)
 
     def test_engine_down_via_meter_without_jack_lsp(self) -> None:
@@ -77,7 +81,7 @@ class MeterMainLoopTests(unittest.TestCase):
              mock.patch.object(sl, "engine_running", return_value=False), \
              mock.patch.object(sl, "Osc") as osc:
             osc.return_value.start.return_value = mock.MagicMock()
-            rc = sl.main(["--once"])
+            rc = sl.main(["--once", "--skip-source-check"])
         jg.assert_not_called()
         alarm = json.loads(self.alarm.read_text())
         self.assertEqual("engine-down", alarm["state"])

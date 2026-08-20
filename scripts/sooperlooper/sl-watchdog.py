@@ -315,15 +315,18 @@ class XrunCounter:
             return None
         return xruns, updated
 
-    def poll(self, when: float) -> tuple[int, str | None]:
-        """New xruns since the last cycle. Returns (count, error_or_None)."""
+    def poll(self, when: float) -> tuple[int | None, str | None]:
+        """New xruns since the last cycle. Returns (count, error_or_None).
+
+        count is None when the meter cannot be read — never 0 for "cannot see".
+        """
         sample = self._read()
         if sample is None:
-            return 0, f"no usable meter state at {self.path}"
+            return None, f"no usable meter state at {self.path}"
         total, updated = sample
         age = time.time() - updated
         if age > METER_STALE_AFTER_S:
-            return 0, f"meter state stale ({age:.1f}s) — peak meter stopped?"
+            return None, f"meter state stale ({age:.1f}s) — peak meter stopped?"
         if self._baseline is None or total < self._baseline:
             # First cycle, or the meter restarted and its counter went backwards.
             self._baseline = total
@@ -419,7 +422,13 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--once", action="store_true", help="single pass, then exit")
     ap.add_argument("--no-repair", action="store_true",
                     help="detect and alarm only; never touch the JACK graph")
+    ap.add_argument("--skip-source-check", action="store_true",
+                    help="skip boot-time health-source liveness (tests only)")
     args = ap.parse_args(argv)
+
+    if not args.skip_source_check:
+        from patch_browser.health_source_liveness import verify_or_exit
+        verify_or_exit("sl-watchdog")
 
     osc = Osc().start()
     log(f"watching every {INTERVAL_S:.0f}s — repairs JACK graph, alarms on wedge")
@@ -445,6 +454,7 @@ def main(argv: list[str] | None = None) -> int:
         CURRENT_METRICS["governor"] = governor
         if xrun_err:
             CURRENT_METRICS["xrun_source"] = xrun_err
+            problems.append(f"xrun counter blind: {xrun_err}")
 
         # Safe to repair: re-pinning the governor cannot destroy a take, so it
         # belongs with the JACK reconnect below, not with the alarm-and-wait
