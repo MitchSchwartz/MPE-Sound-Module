@@ -128,8 +128,9 @@ class JackGraphHealth:
         self.xrun_counter = JournalXrunCounter(self.started_at)
 
     def close(self) -> None:
-        """Release the held jack_cpu_load client."""
+        """Release held JACK and journal follower processes."""
         self.cpu_reader.close()
+        self.xrun_counter.close()
 
     def sample(self, *, cpu_load_pct: float | None, xruns_total: int, now_s: float) -> None:
         self._session_xruns = max(self._session_xruns, int(xruns_total))
@@ -158,7 +159,6 @@ class JackGraphHealth:
 
 
 _JACK_CPU_RE = re.compile(r"jack DSP load\s+([\d.]+)", re.I)
-_JOURNAL_CURSOR_RE = re.compile(r"^-- cursor: (\S+)", re.M)
 
 
 class JackCpuLoadReader:
@@ -263,47 +263,105 @@ class JackCpuLoadReader:
 class JournalXrunCounter:
     """Incremental xrun count from the ``mpe-jackd`` journal.
 
-    The old form re-ran ``journalctl --since <jackd start>`` every tick and recounted
-    from scratch, so the work grew without bound with uptime — megabytes forked, piped
-    and scanned twice a second after a few hours. This anchors once at *started_at*,
-    then follows with ``--after-cursor`` and only ever reads what is new.
+    Holds one ``journalctl -f`` process for the life of the monitor. ``poll()`` reads
+    an in-memory total — no fork per HUD tick. The old form forked ``journalctl`` every
+    0.5 s (even with ``--after-cursor``), hitting SD-backed journal I/O on CPU0.
     """
 
     def __init__(self, started_at: float, *, unit: str = "mpe-jackd.service") -> None:
         self.started_at = started_at
         self.unit = unit
-        self._cursor: str | None = None
+        self._lock = threading.Lock()
         self._total = 0
+        self._unavailable = False
         self._anchored = False
+        self._proc: subprocess.Popen | None = None
+        self._thread: threading.Thread | None = None
+        self._last_spawn_attempt = 0.0
+        self._spawn()
 
-    def _argv(self) -> list[str]:
-        base = ["journalctl", "-u", self.unit, "--no-pager", "--show-cursor"]
-        if self._cursor is not None:
-            return base + ["--after-cursor", self._cursor]
+    def _since_argv(self) -> list[str]:
         since = datetime.fromtimestamp(self.started_at, tz=timezone.utc).astimezone()
-        return base + ["--since", since.isoformat()]
+        return [
+            "journalctl",
+            "-u",
+            self.unit,
+            "-f",
+            "--since",
+            since.isoformat(),
+            "--no-pager",
+        ]
+
+    def _spawn(self, now: float | None = None) -> bool:
+        if self._unavailable:
+            return False
+        if now is None:
+            now = time.monotonic()
+        if now - self._last_spawn_attempt < JACK_CPU_RESPAWN_BACKOFF_S:
+            return False
+        self._last_spawn_attempt = now
+        try:
+            proc = subprocess.Popen(
+                self._since_argv(),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                text=True,
+                bufsize=1,
+            )
+        except (FileNotFoundError, OSError):
+            self._unavailable = True
+            return False
+        self._proc = proc
+        self._thread = threading.Thread(
+            target=self._drain,
+            args=(proc,),
+            daemon=True,
+            name="JournalXrunFollower",
+        )
+        self._thread.start()
+        return True
+
+    def _count_line(self, line: str) -> None:
+        if "xrun" not in line.lower():
+            return
+        with self._lock:
+            self._total += 1
+
+    def _drain(self, proc: subprocess.Popen) -> None:
+        stream = proc.stdout
+        if stream is None:
+            return
+        for line in stream:
+            self._anchored = True
+            self._count_line(line)
+
+    def _alive(self) -> bool:
+        return self._proc is not None and self._proc.poll() is None
 
     def poll(self) -> int | None:
         """Cumulative xruns since *started_at*, or None if the journal is unreadable."""
+        if self._unavailable:
+            return None
+        if not self._alive():
+            self.close()
+            self._spawn()
+            if not self._alive():
+                return None
+        if not self._anchored:
+            # Follower running but no lines yet — journal empty or still catching up.
+            return 0
+        with self._lock:
+            return self._total
+
+    def close(self) -> None:
+        proc, self._proc = self._proc, None
+        if proc is None:
+            return
         try:
-            proc = subprocess.run(
-                self._argv(), capture_output=True, text=True, timeout=5.0
-            )
-        except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
-            return None
-        if proc.returncode != 0:
-            return None
-        out = proc.stdout
-        cursor_match = _JOURNAL_CURSOR_RE.search(out)
-        if cursor_match:
-            self._cursor = cursor_match.group(1)
-            out = out[: cursor_match.start()]
-        elif not self._anchored and not out.strip():
-            # Never saw the unit at all — indistinguishable from "not readable".
-            return None
-        self._anchored = True
-        self._total += sum(1 for line in out.splitlines() if "xrun" in line.lower())
-        return self._total
+            proc.kill()
+            proc.wait(timeout=2.0)
+        except (subprocess.TimeoutExpired, OSError):
+            pass
 
 
 def read_jack_cpu_load_pct(*, timeout_s: float = 1.0) -> float | None:
@@ -335,11 +393,28 @@ def read_jack_cpu_load_pct(*, timeout_s: float = 1.0) -> float | None:
 def jackd_journal_xruns_since(started_at: float) -> int | None:
     """One-shot journal xrun count — diagnostics only.
 
-    NOT for polling: rescans the whole journal since *started_at* every call. Use
-    ``JournalXrunCounter`` on any repeating path.
+    NOT for polling: one fork per call. Use ``JournalXrunCounter`` on any repeating path.
     """
-    counter = JournalXrunCounter(started_at)
-    return counter.poll()
+    since = datetime.fromtimestamp(started_at, tz=timezone.utc).astimezone()
+    try:
+        proc = subprocess.run(
+            [
+                "journalctl",
+                "-u",
+                "mpe-jackd.service",
+                "--since",
+                since.isoformat(),
+                "--no-pager",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=5.0,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        return None
+    if proc.returncode != 0:
+        return None
+    return sum(1 for line in proc.stdout.splitlines() if "xrun" in line.lower())
 
 
 def collect_jack_graph_health(tracker: JackGraphHealth) -> dict:
