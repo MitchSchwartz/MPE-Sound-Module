@@ -121,6 +121,50 @@ interest, and it is backend-independent.
 
 ---
 
-*Step 2 (IRQ affinity) waits on: the period-jitter histogram + a baseline run at 512.
-It does **not** wait on Mitch — the affinity masks are already `0-3`, so Step 2 is a
-runtime write with instant rollback and no reboot. Only Steps 3 and 4 need him.*
+## Step B — baseline jitter at 512×3 (commit `74faa00`, 2026-08-20)
+
+5×60 s, strict jackd, `midi-load.py`, conditions **A** and **D**. Pi logs:
+`~/latency-stepB-512-A.log`, `~/latency-stepB-512-D.log`.
+
+### Condition A (baseline)
+
+| run | xruns | jitter p99 µs | jitter max µs | frames_late p99 µs | DSP median |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 17 | 726 | 914 | 271 | 42.1% |
+| 2 | 21 | 744 | 872 | 271 | 41.8% |
+| 3 | *(meter reset)* | 708 | 885 | 271 | 41.6% |
+| 4 | 9 | 716 | 912 | 271 | 37.2% |
+| 5 | 4 | 729 | 884 | 271 | 37.4% |
+
+### Condition D (full stack)
+
+| run | xruns | jitter p99 µs | jitter max µs | frames_late p99 µs | DSP median |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 18 | 720 | 902 | 271 | 38.9% |
+| 2 | 15 | 746 | 918 | 271 | 38.4% |
+| 3 | 15 | 725 | 874 | 271 | 38.8% |
+| 4 | 5 | 745 | 829 | 271 | 38.3% |
+| 5 | 23 | 718 | 905 | 271 | 38.4% |
+
+~5,100–6,300 jitter samples per run (expected ~5,600). `frames_late` p99 flat at 271 µs
+(~1.3 frames) — backend-independent entry-latency signal is stable.
+
+### Variance comparison — jitter passes, xrun count does not
+
+| metric | condition | run-to-run spread | CV (approx) |
+|---|---|---:|---:|
+| xrun count | A (excl. reset run) | 4–21 | **0.53** |
+| xrun count | D | 5–23 | **0.41** |
+| jitter p99 µs | A | 708–744 | **0.02** |
+| jitter p99 µs | D | 718–746 | **0.02** |
+
+Period-error p99 is **~25× tighter** run-to-run than xrun counts on the same data.
+An IRQ fix that moves p99 from ~730 µs to ~400 µs should be visible at n ≈ 5,600 even
+when xruns barely move. **Step 2 is unblocked.**
+
+Pi left at **512×3** after run (strict mode, no `-s`). Restore to 1024 when done testing
+feel, or before Mitch plays.
+
+---
+
+*Step 2 (IRQ affinity) is next — runtime write, no reboot. Only Steps 3 and 4 need Mitch.*
