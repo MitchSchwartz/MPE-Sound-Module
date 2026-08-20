@@ -78,8 +78,9 @@ class GovernorTests(unittest.TestCase):
         self.gov.write_text(actual + "\n")
         graph = f"{sl.JACK_CLIENT}:common_out_1\n   system:playback_1\n" \
                 f"system:playback_1\n   {sl.JACK_CLIENT}:common_out_1\n"
+        snap = sl.GraphSnapshot(True, True, True, "meter")
         with mock.patch.object(sl, "GOVERNOR_TARGET", target), \
-             mock.patch.object(sl, "jack_graph", return_value=graph), \
+             mock.patch.object(sl, "read_graph_snapshot", return_value=snap), \
              mock.patch.object(sl, "engine_running", return_value=True), \
              mock.patch.object(sl, "repair_governor", return_value=repair) as rep, \
              mock.patch.object(sl, "Osc") as osc:
@@ -129,9 +130,10 @@ class GovernorTests(unittest.TestCase):
             if cycles["n"] >= 4:
                 raise KeyboardInterrupt
 
+        snap = sl.GraphSnapshot(True, True, True, "meter")
         with mock.patch.object(sl, "GOVERNOR_TARGET", "performance"), \
              mock.patch.object(sl, "GOVERNOR_FIGHT_LIMIT", 2), \
-             mock.patch.object(sl, "jack_graph", return_value=graph), \
+             mock.patch.object(sl, "read_graph_snapshot", return_value=snap), \
              mock.patch.object(sl, "engine_running", return_value=True), \
              mock.patch.object(sl, "repair_governor", return_value=(True, "ok")), \
              mock.patch.object(sl, "check_command_path",

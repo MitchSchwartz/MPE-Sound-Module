@@ -44,6 +44,14 @@ import sys
 import threading
 import time
 from pathlib import Path
+from typing import NamedTuple
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from patch_browser.audio_engine import (  # noqa: E402
+    jack_reachable_via_meter,
+    looper_client_via_meter,
+    looper_playback_via_meter,
+)
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from sl_probe import (  # noqa: E402
@@ -144,10 +152,9 @@ class Osc:
 def jack_graph() -> str | None:
     """Raw `jack_lsp -c` output, or None if JACK itself is unreachable.
 
-    None and "" are different answers and must not be conflated: None means we
-    could not ask, "" means we asked and the graph is empty. Treating the
-    second as the first is how this watchdog reported a healthy appliance with
-    nothing connected to the speakers.
+    Fallback only: registers a JACK client and can reorder the graph. The hot
+    path reads ``/run/mpe/meter.state`` from the long-lived ``mpe-peak-meter``
+    process instead (E2, 2026-08-20).
     """
     try:
         proc = subprocess.run(["jack_lsp", "-c"], capture_output=True,
@@ -155,6 +162,50 @@ def jack_graph() -> str | None:
     except Exception:
         return None
     return proc.stdout if proc.returncode == 0 else None
+
+
+class GraphSnapshot(NamedTuple):
+    """Graph visibility without spawning jack_lsp on the healthy path."""
+
+    jack_reachable: bool | None
+    looper_client: bool | None
+    looper_playback: bool | None
+    source: str
+
+
+def read_graph_snapshot(*, now: float | None = None) -> GraphSnapshot:
+    """Prefer meter.state; fall back to jack_lsp when the meter is off or stale."""
+    t = time.time() if now is None else now
+    jack = jack_reachable_via_meter(now=t)
+    looper = looper_client_via_meter(now=t)
+    playback = looper_playback_via_meter(now=t)
+    if jack is not None and looper is not None and playback is not None:
+        return GraphSnapshot(jack, looper, playback, "meter")
+
+    graph = jack_graph()
+    if graph is None:
+        return GraphSnapshot(None, None, None, "none")
+    return GraphSnapshot(
+        True,
+        jack_client_visible(graph),
+        any(s.startswith(f"{JACK_CLIENT}:common_out") for s in playback_sources(graph)),
+        "jack_lsp",
+    )
+
+
+def wait_for_playback_via_meter(*, timeout_s: float = 4.0,
+                                poll_s: float = 0.2) -> bool | None:
+    """After wire-jack-graph.sh, poll meter.state instead of jack_lsp."""
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        wired = looper_playback_via_meter()
+        if wired is True:
+            return True
+        if wired is False:
+            time.sleep(poll_s)
+            continue
+        return None
+    return looper_playback_via_meter() is True
 
 
 def playback_sources(graph: str) -> set[str]:
@@ -282,15 +333,22 @@ def engine_running() -> bool | None:
     running at boot alarms ORPHAN every 10 s forever and teaches its operator
     to ignore it — at which point the alarm that matters is also ignored.
 
-    `pgrep -x` matches restart-sooperlooper.sh's own liveness test, so the two
-    agree on what "running" means.
+    Scans ``/proc/*/comm`` — no fork, unlike ``pgrep``.
     """
     try:
-        proc = subprocess.run(["pgrep", "-x", "sooperlooper"],
-                              capture_output=True, text=True, timeout=5)
-    except Exception:
+        proc_root = Path("/proc")
+        for entry in proc_root.iterdir():
+            if not entry.name.isdigit():
+                continue
+            try:
+                comm = (entry / "comm").read_text(errors="replace").strip()
+            except OSError:
+                continue
+            if comm == "sooperlooper":
+                return True
+        return False
+    except OSError:
         return None
-    return proc.returncode == 0
 
 
 def capture_wedge_diagnostics() -> dict:
@@ -399,7 +457,8 @@ def main(argv: list[str] | None = None) -> int:
         # Check this FIRST. An orphan looks exactly like a wedge to the OSC
         # probe below, and every JACK repair against it is futile — so
         # diagnosing in the other order names the wrong component.
-        graph = jack_graph()
+        snap = read_graph_snapshot(now=cycle_t)
+        CURRENT_METRICS["graph_source"] = snap.source
         orphan = False
         stopped = False
         # None means we could not ask (pgrep missing or timed out). That is not
@@ -407,10 +466,10 @@ def main(argv: list[str] | None = None) -> int:
         # alarm below asserts a live process, and asserting it unverified is the
         # failure mode this whole file exists to avoid. Alarm anyway — loud on
         # the control path — but say which of the two we actually established.
-        running = None if graph is None else engine_running()
-        if graph is None:
-            problems.append("jack_lsp unavailable — JACK down or not reachable")
-        elif not jack_client_visible(graph) and running is False:
+        running = None if snap.jack_reachable is None else engine_running()
+        if snap.jack_reachable is None:
+            problems.append("JACK down or not reachable (meter stale and jack_lsp failed)")
+        elif snap.looper_client is False and running is False:
             # Not a fault. Nothing to repair, nothing to alarm — but say so
             # every cycle, because "watchdog up, engine deliberately down" and
             # "watchdog died" must not produce the same alarm file.
@@ -421,10 +480,10 @@ def main(argv: list[str] | None = None) -> int:
                 "action": "mpe looper sl-restart (safe: there are no loops to lose)",
             })
             alarm_written = True
-        elif not jack_client_visible(graph):
+        elif snap.looper_client is False:
             orphan = True
             _proc = ("process is up" if running
-                     else "process state UNKNOWN (pgrep failed)")
+                     else "process state UNKNOWN (proc scan failed)")
             problems.append(f"ORPHAN: {JACK_CLIENT} {_proc} but has no JACK "
                             f"client (jackd restarted under it?)")
             write_alarm("orphan", {
@@ -440,9 +499,9 @@ def main(argv: list[str] | None = None) -> int:
 
         # --- audio path: safe to repair -------------------------------------
         # Pointless while orphaned: the ports being connected do not exist.
-        if graph is not None and not orphan and not stopped:
-            srcs = playback_sources(graph)
-            if not any(s.startswith(f"{JACK_CLIENT}:common_out") for s in srcs):
+        if snap.jack_reachable and not orphan and not stopped:
+            playback_ok = snap.looper_playback is True
+            if snap.looper_playback is False:
                 problems.append("common_out not connected to system:playback")
                 if not args.no_repair:
                     script = REPO_ROOT / "scripts/sooperlooper/wire-jack-graph.sh"
@@ -450,10 +509,7 @@ def main(argv: list[str] | None = None) -> int:
                         proc = subprocess.run(["bash", str(script), "connect"],
                                               capture_output=True, text=True,
                                               timeout=60)
-                        after = jack_graph()
-                        if after is not None and any(
-                                s.startswith(f"{JACK_CLIENT}:common_out")
-                                for s in playback_sources(after)):
+                        if wait_for_playback_via_meter():
                             repaired.append("reconnected common_out -> playback")
                             problems.pop()
                         else:
@@ -468,6 +524,8 @@ def main(argv: list[str] | None = None) -> int:
                                     log(f"  wire-jack {stream}: {line}")
                     except Exception as exc:
                         log(f"repair failed: {exc}")
+            elif snap.looper_playback is None and not playback_ok:
+                problems.append("common_out playback wiring unknown (meter stale)")
 
         # --- control path: NEVER auto-repair (restart destroys takes) --------
         # Skipped while orphaned: it would report WEDGED, which is true but

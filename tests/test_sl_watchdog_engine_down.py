@@ -41,8 +41,9 @@ class EngineDownTests(unittest.TestCase):
         self.addCleanup(patcher.stop)
 
     def _run_once(self, *, engine_up: bool) -> dict:
-        with mock.patch.object(sl_watchdog, "jack_graph",
-                               return_value=GRAPH_WITHOUT_LOOPER), \
+        snap = sl_watchdog.GraphSnapshot(True, False, False, "meter")
+        with mock.patch.object(sl_watchdog, "read_graph_snapshot",
+                               return_value=snap), \
              mock.patch.object(sl_watchdog, "engine_running",
                                return_value=engine_up), \
              mock.patch.object(sl_watchdog, "Osc") as osc, \
@@ -67,13 +68,14 @@ class EngineDownTests(unittest.TestCase):
         self.assertEqual("orphan", alarm["state"])
 
     def test_unknown_process_state_alarms_without_asserting_it_is_up(self) -> None:
-        """pgrep failing is not evidence the process is alive.
+        """proc scan failing is not evidence the process is alive.
 
         Still alarms — loud on the control path — but the detail must not claim
         a live process we never confirmed.
         """
-        with mock.patch.object(sl_watchdog, "jack_graph",
-                               return_value=GRAPH_WITHOUT_LOOPER), \
+        snap = sl_watchdog.GraphSnapshot(True, False, False, "meter")
+        with mock.patch.object(sl_watchdog, "read_graph_snapshot",
+                               return_value=snap), \
              mock.patch.object(sl_watchdog, "engine_running", return_value=None), \
              mock.patch.object(sl_watchdog, "Osc") as osc, \
              mock.patch.object(sl_watchdog, "capture_wedge_diagnostics",
@@ -87,8 +89,9 @@ class EngineDownTests(unittest.TestCase):
 
     def test_engine_down_exits_clean(self) -> None:
         """`--once` is a health gate; a deliberately stopped looper isn't a fault."""
-        with mock.patch.object(sl_watchdog, "jack_graph",
-                               return_value=GRAPH_WITHOUT_LOOPER), \
+        snap = sl_watchdog.GraphSnapshot(True, False, False, "meter")
+        with mock.patch.object(sl_watchdog, "read_graph_snapshot",
+                               return_value=snap), \
              mock.patch.object(sl_watchdog, "engine_running", return_value=False), \
              mock.patch.object(sl_watchdog, "Osc") as osc:
             osc.return_value.start.return_value = mock.MagicMock()
