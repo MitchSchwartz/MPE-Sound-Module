@@ -48,10 +48,12 @@ static int on_xrun(void *arg)
 {
     jack_client_t *client = (jack_client_t *)arg;
     float delay = jack_get_xrun_delayed_usecs(client);
+    float delay_max = jack_get_max_delayed_usecs(client);
     char wall[48];
     wall_iso8601(wall, sizeof(wall));
     if (g_log != NULL) {
-        fprintf(g_log, "XRUN wall=%s delay_usec=%.0f\n", wall, delay);
+        fprintf(g_log, "XRUN wall=%s delay_usec=%.3f delay_max_usec=%.3f\n",
+                wall, delay, delay_max);
         fflush(g_log);
     }
     return 0;
