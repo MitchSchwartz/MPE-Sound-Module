@@ -65,9 +65,6 @@ A 0.13 · B 2.27 · C 2.53 · D 3.13
 
 ## T2 — Sweep for the two bug classes we keep rediscovering
 
-**Status: done (2026-08-20).** Artifact: `docs/measurements/t2-bug-class-sweep-2026-08-20.md`.
-Findings only — no fixes in that commit.
-
 **Why:** four instances of two patterns, found serially, each costing a measurement cycle.
 Both are mechanically searchable. Do this once, properly, instead of a fifth time.
 
@@ -117,12 +114,7 @@ then verify each on `raspberrypi2`.
 
 ## T3 — Make the doctrine enforceable
 
-**Status: done (2026-08-20).** `656b081` on `plan/next-tasks`. T3a:
-`scripts/lib/periodic_loop_lint.py` + `tests/test_periodic_loop_lint.py`. T3b:
-`patch_browser/health_source_liveness.py` wired into `sl-watchdog` and `looper_session`;
-Pi demo output in `docs/measurements/t2-bug-class-sweep-2026-08-20.md` §T3.
-
-**Was blocked by:** T2 (now complete).
+**Blocked by:** T2 (so it is written against real instances, not imagined ones).
 
 Two guards, both small:
 
@@ -196,78 +188,3 @@ whether 512 without the looper is genuinely clean or merely quiet.
 
 **512 is usable without the looper and not shippable with it. 1024 remains the default.**
 Ship criterion for 512 is 0 xruns across all runs in condition D.
-
----
-
-## T6 — Apply the doctrine to the measurement rig itself
-
-**Do this before T5, and before quoting any number from the harness again.**
-
-**Why this is its own task.** T2 swept the appliance and T3 guards the appliance. Nobody
-has ever swept the thing that measures it — and the harness has now produced **three**
-silent-failure bugs on its own:
-
-| | bug | what it did |
-|---|---|---|
-| 1 | `measure-cyclictest-floor.sh` piped cyclictest straight into the log | wrote the tool's **usage text** as a measurement, printed success, exited 0 |
-| 2 | the guard added to fix (1) used `pipefail` + `grep -q` | SIGPIPE made a **successful match read as failure**; passed at 44 KB, failed at 875 KB |
-| 3 | `measure-latency-run.sh` `_meter_xruns()` ends `\|\| echo 0` | a missing or stale `meter.state` reports **zero xruns** — identical to a perfect run |
-
-Three instances of the same category in one component. It has never been held to the
-standard it exists to enforce.
-
-**It matters more than the appliance.** A lying appliance is caught by a measurement. A
-lying measurement is caught by nothing, and silently poisons every decision downstream —
-including the ones already made in this work order.
-
-### Scope
-
-Everything under `scripts/measure-*`, `scripts/lib/`, `native/mpe-xrun-probe/`, and any
-script that produces a number a human will act on.
-
-1. **Sweep for Class B** (readings that cannot fail loudly) exactly as T2 did for the
-   appliance. Every `|| echo 0`, `|| true`, `2>/dev/null` that swallows a failure,
-   `except: return 0`, and every `{ ... } >> log` block that writes regardless of exit
-   status.
-2. **Extend T3b's liveness check to the rig.** Before a run starts and after it ends,
-   every source the harness reads must be asserted present and fresh, and the run must
-   **abort** — not warn — if it is not. `MPE_PEAK_METER != 1` is currently a warning; it
-   should be fatal.
-3. **Record provenance of the measurement, not just of the code.** Each RESULT line should
-   carry whether the meter was live for that window. A number whose source cannot be shown
-   to have been alive is not a measurement.
-4. **Prove each guard by making it fail**, on the Pi, with output pasted. A guard
-   demonstrated only in its passing state is exactly what bugs 1 and 3 were.
-
-**Acceptance**
-- Table of findings in `scripts/measure-*` and `scripts/lib/`, same format as T2.
-- Every fix demonstrated failing and passing on `raspberrypi2`.
-- `mpe test local all` green.
-- A one-line statement in `docs/measurements/README.md`: the rig is held to the same
-  standard as the appliance, and here is what enforces it.
-
----
-
-## Immediate queue (in order)
-
-**I1 — commit and push the local doc/status updates.** T2/T3 status is marked done in an
-uncommitted tree; `859d6d7` (E1 measurement doc) is local-only. Done work that exists on
-one machine is not done.
-
-**I2 — fix `_meter_xruns` (T2's own P0).** Fail loudly instead of returning 0; assert
-`updated=` freshness per window with the same 3 s rule the counters use. **Gates T5.**
-
-**I3 — verify the E1 revert by measurement.** 5x60 s, condition A, 512x3. The reboot
-landed and the config reads correctly, but **no measurement has been taken since the
-revert** — and E1 just demonstrated that a config which looks right can be 6x worse.
-Expect ~0.13; anything near 0.80 means it did not take. This also exercises the I2 fix.
-
-**Then T4** (loop-count curve) on a verified baseline with a harness that cannot lie,
-**then T6**, then T5.
-
-### Note for T3a
-
-Check whether the periodic-loop lint walks **called functions** or only literal loop
-bodies. The session's `journalctl` fork was not in the loop — it was two calls deep
-(`collect_jack_graph_health` -> `XrunCounter.poll()`). A lint that inspects only loop
-bodies would miss the exact bug it was written for.

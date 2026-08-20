@@ -692,6 +692,61 @@ mpe_engine_reconcile_reset() {
 # whether it is fine or not instrumented).
 MPE_METER_STATE_MAX_AGE_S="${MPE_METER_STATE_MAX_AGE_S:-5}"
 
+# Harness and health counters use a tighter window (health_source_liveness.py).
+MPE_METER_HARNESS_MAX_AGE_S="${MPE_METER_HARNESS_MAX_AGE_S:-3}"
+
+mpe_meter_state_file() {
+    printf '%s' "${MPE_METER_STATE_FILE:-$(mpe_run_dir)/meter.state}"
+}
+
+# Assert meter.state is present, parseable, and fresh. Sets MPE_METER_LAST_XRUNS and
+# MPE_METER_LAST_AGE_S on success. Fails loudly — never returns 0 xruns when blind.
+mpe_meter_assert_live() {
+    local file="${1:-$(mpe_meter_state_file)}"
+    local max_age="${MPE_METER_HARNESS_MAX_AGE_S:-3}"
+    local xruns updated age
+    if [ ! -r "$file" ]; then
+        echo "ERROR: meter.state missing or unreadable: $file" >&2
+        return 1
+    fi
+    xruns="$(mpe_state_get "$file" xruns)"
+    updated="$(mpe_state_get "$file" updated)"
+    if [ -z "$xruns" ] || [ -z "$updated" ]; then
+        echo "ERROR: meter.state missing xruns= or updated= in $file" >&2
+        return 1
+    fi
+    case "$xruns" in
+        *[!0-9]*)
+            echo "ERROR: meter.state xruns= not numeric: $xruns" >&2
+            return 1
+            ;;
+    esac
+    case "$updated" in
+        *[!0-9]*)
+            echo "ERROR: meter.state updated= not numeric: $updated" >&2
+            return 1
+            ;;
+    esac
+    age=$((EPOCHSECONDS - updated))
+    if [ "$age" -lt 0 ]; then
+        echo "ERROR: meter.state updated= in the future (age=${age}s)" >&2
+        return 1
+    fi
+    if [ "$age" -gt "$max_age" ]; then
+        echo "ERROR: meter.state stale (age=${age}s > ${max_age}s)" >&2
+        return 1
+    fi
+    MPE_METER_LAST_XRUNS="$xruns"
+    MPE_METER_LAST_AGE_S="$age"
+    return 0
+}
+
+# Read xruns from a live meter.state. Prints the count; exit 1 when blind.
+mpe_meter_xruns_read() {
+    mpe_meter_assert_live || return 1
+    printf '%s\n' "$MPE_METER_LAST_XRUNS"
+}
+
 # Is Surge on the JACK graph, according to the meter we already run?
 #
 # Returns 0 = on graph, 1 = not on graph, 2 = cannot tell (caller must fall back).

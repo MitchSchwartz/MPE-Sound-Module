@@ -60,33 +60,9 @@ journalctl -u mpe-jackd --since 1h | grep -ci xrun → 5
 
 ---
 
-## T3 — doctrine guards (2026-08-20, commit `656b081`)
+## T3 follow-on (separate from this sweep)
 
-### T3a — periodic-loop lint
-
-- **Module:** `scripts/lib/periodic_loop_lint.py` · **tests:** `tests/test_periodic_loop_lint.py`
-- **Laptop:** `mpe test local all` → 1021 tests OK (includes deliberate `jack_lsp`/`journalctl` snippet failures + production modules pass)
-- **Pi:** not required — AST walk is repo-local; production modules linted on laptop match Pi checkout
-
-### T3b — boot-time source liveness (`patch_browser/health_source_liveness.py`)
-
-Wired into `sl-watchdog.py` (startup) and `looper_session.py` (HUD thread). Demonstrated on `raspberrypi2` via `sl-watchdog.service` (uses `/usr/bin/python3` in unit — not a blind counter path).
-
-**Pass** — meter live, service starts:
-
-```
-Aug 20 22:42:28 raspberrypi2 python3[34098]: health-source-liveness: sl-watchdog ok
-Aug 20 22:42:28 raspberrypi2 python3[34098]: [22:42:28] sl-watchdog: watching every 10s — repairs JACK graph, alarms on wedge
-```
-
-**Fail** — `mpe-peak-meter` stopped, `/run/mpe/meter.state` removed, service start:
-
-```
-Aug 20 22:43:01 raspberrypi2 python3[34540]: HEALTH_SOURCE_FAIL: meter.state: missing (/run/mpe/meter.state)
-Aug 20 22:43:01 raspberrypi2 systemd[1]: sl-watchdog.service: Main process exited, code=exited, status=1/FAILURE
-Aug 20 22:43:01 raspberrypi2 systemd[1]: sl-watchdog.service: Failed with result 'exit-code'.
-```
-
-Restored: `mpe-peak-meter` + `sl-watchdog` both **active** after meter.state returned.
+- **T3a:** `scripts/lib/periodic_loop_lint.py` + `tests/test_periodic_loop_lint.py`
+- **T3b:** `patch_browser/health_source_liveness.py` — boot check wired into sl-watchdog + looper-session
 
 *Last updated: 2026-08-20 (America/Toronto)*

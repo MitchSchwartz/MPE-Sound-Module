@@ -211,12 +211,19 @@ _set_condition() {
 
 _ensure_peak_meter() {
     if [ "$(mpe_read_appliance_env_var MPE_PEAK_METER 2>/dev/null || echo 0)" != "1" ]; then
-        echo "WARNING: MPE_PEAK_METER is not 1 — xrun count uses meter.state only if enabled" >&2
-        return 0
+        echo "ERROR: MPE_PEAK_METER is not 1 — xrun count requires meter.state (/etc/mpe/mpe.env)" >&2
+        exit 1
     fi
     if ! systemctl is-active --quiet mpe-peak-meter.service 2>/dev/null; then
-        systemctl start mpe-peak-meter.service 2>/dev/null || true
+        if ! systemctl start mpe-peak-meter.service 2>/dev/null; then
+            echo "ERROR: mpe-peak-meter.service failed to start" >&2
+            exit 1
+        fi
         sleep 2
+    fi
+    if ! mpe_meter_assert_live; then
+        echo "ERROR: peak meter active but meter.state is not live" >&2
+        exit 1
     fi
 }
 
@@ -333,8 +340,15 @@ _enable_strict_xrun_reporting() {
     return 0
 }
 
+_meter_max_age_s=0
+
 _meter_xruns() {
-    grep -oP '(?<=^xruns=)[0-9]+' /run/mpe/meter.state 2>/dev/null || echo 0
+    local xr
+    xr="$(mpe_meter_xruns_read)" || return 1
+    if [ "${MPE_METER_LAST_AGE_S:-0}" -gt "$_meter_max_age_s" ]; then
+        _meter_max_age_s="$MPE_METER_LAST_AGE_S"
+    fi
+    printf '%s\n' "$xr"
 }
 
 _run_window() {
@@ -343,6 +357,8 @@ _run_window() {
     local dsp_raw="$3"
     local xrun_events="$4"
     local i dsp prev_xr start_xr cur_xr delta samples=0
+
+    _meter_max_age_s=0
 
     : >"$run_file"
     : >"$dsp_raw"
@@ -356,7 +372,11 @@ _run_window() {
     local jcl=$!
     _kill_jcl() { kill -9 "$jcl" 2>/dev/null || true; wait "$jcl" 2>/dev/null || true; }
 
-    prev_xr="$(_meter_xruns)"
+    if ! prev_xr="$(_meter_xruns)"; then
+        _kill_jcl
+        _stop_xrun_probe "$xrun_events"
+        return 1
+    fi
     start_xr="$prev_xr"
 
     printf '  %4s %8s %8s %7s\n' "t" "dsp%" "xruns" "delta" >>"$run_file"
@@ -365,7 +385,11 @@ _run_window() {
         sleep 1
         samples=$((samples + 1))
         dsp="$(tail -1 "$dsp_raw" 2>/dev/null | grep -oP '[0-9]+\.[0-9]+' | head -1 || echo '?')"
-        cur_xr="$(_meter_xruns)"
+        if ! cur_xr="$(_meter_xruns)"; then
+            _kill_jcl
+            _stop_xrun_probe "$xrun_events"
+            return 1
+        fi
         if [ "$cur_xr" -lt "$prev_xr" ]; then
             start_xr="$cur_xr"
             prev_xr="$cur_xr"
@@ -421,8 +445,13 @@ _run_window() {
     temp="$(vcgencmd measure_temp 2>/dev/null || echo 'temp=unknown')"
     throttle="$(vcgencmd get_throttled 2>/dev/null || echo 'throttled=unknown')"
 
+    if ! mpe_meter_assert_live; then
+        echo "ERROR: meter.state not live at end of window ${tag}" >&2
+        return 1
+    fi
+
     {
-        echo "RESULT tag=${tag} xruns=${total_xr} dsp_median=${dsp_median} dsp_p99=${dsp_p99} dsp_max=${dsp_max}"
+        echo "RESULT tag=${tag} xruns=${total_xr} meter_live=1 meter_max_age_s=${_meter_max_age_s} dsp_median=${dsp_median} dsp_p99=${dsp_p99} dsp_max=${dsp_max}"
         echo "RESULT tag=${tag} jitter_n=${jitter_n} jitter_median_usec=${jitter_med} jitter_p99_usec=${jitter_p99} jitter_p99_9_usec=${jitter_p999} jitter_max_usec=${jitter_max}"
         echo "RESULT tag=${tag} frames_late_p99_usec=${late_p99} frames_late_max_usec=${late_max}"
         echo "RESULT tag=${tag} delay_events=${delay_n} delay_nonzero=${delay_nz} (legacy, ignore)"
