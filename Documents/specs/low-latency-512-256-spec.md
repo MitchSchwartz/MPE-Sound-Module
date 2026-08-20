@@ -121,10 +121,33 @@ records per run:
 - **Provenance** — Pi commit, `git status --porcelain` clean, kernel, cmdline, governor.
 - **Verified buffer size read back from JACK**, not from the arg (trap 5).
 - **Sample count asserted** against expected (trap 3).
-- **Each xrun with a wall-clock timestamp and its delay in µs.** JACK reports the delay;
-  it is the single most informative number available and it is currently being discarded.
+- **Per-callback period jitter** — see the box below. This replaces the "xrun delay in µs"
+  requirement in the original revision of this spec, which is a dead end.
 - DSP load median and p99.
 - Appends, never truncates (trap 4).
+
+### Do not use `jack_get_xrun_delayed_usecs` — measure period jitter instead
+
+**Resolved 2026-08-19.** The original spec required per-xrun delay in µs. A probe was
+built; the callback fires, but the call returns `0.000` on JACK 1.9.22 / ALSA. JACK2's
+ALSA backend never populates that field — it is filled on some driver paths and not that
+one. No flag, no build option. **Do not spend time in the JACK2 source.**
+
+It would not have been enough regardless: one sample per xrun is ~12 samples per run,
+which does not address the variance documented under Step 1.
+
+Record instead, in the probe's process callback: `clock_gettime(CLOCK_MONOTONIC)` and the
+delta from the previous callback. Expected period at 512/48 kHz is **10,667 µs**; the
+deviation from it is the jitter.
+
+- ~94 callbacks/s at 512 → **~5,600 samples per 60 s run**, against ~12 xruns.
+- Report median, p99, p99.9, max — a distribution, not a count.
+- An IRQ fix that tightens p99 from 3 ms to 400 µs is unmistakable at n = 5,600 even when
+  the xrun count does not move.
+- An xrun becomes the visible tail of a distribution instead of the only observable.
+
+`jack_frames_since_cycle_start()` at callback entry is a useful second signal — how late
+the callback entered its period, backend-independent.
 
 Also land `cyclictest` as a hardware floor:
 
@@ -135,9 +158,22 @@ cyclictest -m -t1 -p 80 -i 200 -l 300000
 (`-n` was removed in rt-tests 2.6 — `clock_nanosleep` is now the default and `-x` opts out
 to POSIX timers. Passing it makes cyclictest print usage and exit non-zero.)
 
-Worst-case wakeup latency bounds everything. If it is 3 ms, then 256 frames (5.3 ms
-period) is arithmetically impossible on this kernel and Step 5 becomes mandatory rather
-than optional. Record it before and after every kernel-level change.
+Worst-case wakeup latency bounds everything. Record it before and after every
+kernel-level change.
+
+**Measured 2026-08-19, stock kernel, idle: worst case 209–320 µs across runs.** A
+256-frame period is 5,333 µs, so scheduler wakeup latency is ~5% of the budget.
+**256 is not blocked by scheduler jitter on the stock kernel**, which substantially
+weakens the case for Step 6 (PREEMPT_RT) — expect it to buy nothing. The 256 wall is
+likely the projected ~77% DSP instead. Caveat: this is an idle floor; re-take under audio
+load before relying on it.
+
+Two wrapper bugs were found taking this measurement and are worth knowing about, since
+both are the shape this project keeps hitting (PR #82): `rt-tests` 2.6 removed `-n`, and
+the wrapper logged the tool's **usage text** as if it were a measurement, exiting 0. The
+fix then rejected valid output because `set -o pipefail` plus `grep -q` turns a
+successful match into SIGPIPE on the writer — length-dependent, so it passed at 44 KB and
+failed at 875 KB.
 
 ## Step 1 — is the escalation real?
 
@@ -146,12 +182,45 @@ around a mean. If something accumulates across runs — a growing OSC subscripti
 leaked registration, thermal ramp, an unrotated log — then **every measurement after it is
 contaminated**, and Steps 2–4 will appear to help when they did not.
 
-Run 5×60 s at 512, full stack, no changes, back to back. Record `vcgencmd measure_temp`
-and `get_throttled` per run alongside the xrun counts.
+### RESOLVED 2026-08-19 — no accumulation, but the variance is the real problem
 
-- Flat across five runs → it was noise, proceed.
-- Still climbing → **stop and find it.** This is now the top priority and the rest of the
-  work order waits.
+Run in two blocks totalling 15×60 s. Findings, in full at
+[`docs/measurements/low-latency-step0-step1-2026-08-19.md`](../../docs/measurements/low-latency-step0-step1-2026-08-19.md):
+
+- **Escalation disproved.** The original block gave ρ = 0.90, p = 0.042 — but it failed to
+  replicate (ρ = 0.50, p = 0.225, then ρ = 0.20). A false positive.
+- **No restart effect.** Post-restart run sits at z = −0.75 against all ten runs; two runs
+  hit the same value with no restart at all. An earlier "stack-scoped accumulation"
+  verdict was withdrawn — do **not** hunt a leak on this evidence.
+- **Thermal ruled out** — 54–56 °C flat, `throttled` 0x0 throughout.
+
+**What replaces it as the blocker:** xrun counts span 4–24, sd 7.1 on mean 12.3
+(CV 0.58). Detecting a genuine 50% improvement at n = 5 per arm gives **~25% power** — a
+real halving would be missed three times in four. **Counting xruns cannot evaluate
+Step 2.** Hence the period-jitter metric in Step 0.
+
+## Next steps, in order — as of 2026-08-19
+
+Steps 0 and 1 are done. What remains, in dependency order:
+
+| # | task | needs Mitch? | gates |
+|---|---|---|---|
+| A | Period-jitter metric in `mpe-xrun-probe` (median/p99/p99.9/max per run) | no | everything below |
+| B | Baseline 5×60 s at 512, conditions A and D, jitter histogram recorded | no | Step 2 readout |
+| C | **Step 2** — IRQ 30 affinity, runtime write | no | Step 3 |
+| D | Re-take cyclictest floor **under audio load** | no | Step 6 decision |
+| E | **Step 3** — `threadirqs` + RT priority on `irq/30` | reboot | Step 4 |
+| F | **Step 4** — core isolation | reboot | Step 5 |
+| G | **Step 5** — full A/B/C/D ladder at 512 | no | 512 default |
+| H | **Step 6** — PREEMPT_RT | reboot + image backup | probably unnecessary |
+
+**A is the only thing standing between you and Step 2.** It is a small change to a probe
+that already exists and already fires. Do it first; nothing else is blocked on anything
+else.
+
+Note the gate on Step 2 changed: it is **not** "Mitch at reboot" and **not** "non-zero
+`delay_usec`". Both were wrong in earlier revisions. It is the jitter histogram plus a
+baseline, and the affinity write itself needs no reboot.
 
 ## Step 2 — get the USB audio IRQ off CPU0
 
