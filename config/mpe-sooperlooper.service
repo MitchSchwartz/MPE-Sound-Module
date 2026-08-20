@@ -33,5 +33,31 @@ KillMode=control-group
 StandardOutput=journal
 StandardError=journal
 
+# --- Audio cores (measured 2026-08-20) ---------------------------------------
+# Pin the audio path to cores 2-3, which take no interrupts.
+#
+# The BCM2711's GIC-400 (GICv2) has no usable 1-of-N interrupt distribution, so
+# Linux targets the lowest core in each IRQ's mask -- and with the default mask
+# that is CPU0 for EVERY interrupt on the system. irqbalance is not installed
+# and Raspberry Pi OS does not ship it, so nothing had ever moved them. The USB
+# sound card's xhci IRQ, mmc0, the codec and HDMI all landed on CPU0, and JACK's
+# RT thread was running there too.
+#
+# `irqaffinity=0,1` on the kernel cmdline confines interrupts to cores 0-1;
+# this line puts the audio path on the cores that are left. IRQ 30 itself
+# cannot be moved -- BRCM-PCI-MSI does not implement set_affinity (EPERM) --
+# but that does not matter once audio never runs on CPU0.
+#
+# Measured at 512x3, n=15 per condition, condition A (synth only):
+#   before: mean 4.20 xruns/60s, 0/5 runs clean
+#   after:  mean 0.13 xruns/60s, 14/15 runs clean   (t = -4.47)
+#
+# sooperlooper is included because it is a JACK graph client -- its callback
+# runs in the process chain, so leaving it on cores 0-1 puts graph work back
+# next to the interrupts.
+#
+# docs/measurements/low-latency-step0-step1-2026-08-19.md
+CPUAffinity=2 3
+
 [Install]
 WantedBy=multi-user.target
