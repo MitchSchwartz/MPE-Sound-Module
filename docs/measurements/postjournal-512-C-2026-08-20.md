@@ -35,11 +35,21 @@ burst source.
 | sooperlooper (A→B) | +2.13 (t≈4.7) | +2.13 — unchanged |
 | session (B→C) | +1.93 (t≈2.0) | **+0.27 (t≈0.45)** — not distinguishable from zero |
 
-Session contribution collapsed; **remaining gap at 512 is sooperlooper** (+2.13, steady,
-not bursty). Next suspect: SL processing all eight loops every period regardless of
-recording state.
+Session contribution collapsed. **Do not merge on D yet** — the post-reboot D number
+(5.4) does not reconcile with C (2.53): implied watchdog step is +2.87, not the ladder's
++0.33. Burst signature returned (sd 1.55→3.5, max 6→14) — same shape as the session fork.
 
-512 exit criterion (D = 0×n) unchanged.
+**Finding:** `sl-watchdog.py` forks ~4 subprocesses per 10 s cycle, including `jack_lsp -c`
+(two graph reorders per call). ~6 cycles per 60 s run. Same doctrine violation as session
+`journalctl` and the old `jack_lsp` probe (35/min). Ladder called watchdog "negligible"
+while session noise drowned it — see spec § ladder warning.
+
+**Remaining after E2 (watchdog fix):** sooperlooper +2.13 (A→B, zero loops recorded — not
+per-loop work). E1 (three cores) separates crowding vs serial-chain cost. Hold off on
+eight-loop hypothesis until E2 clears the watchdog layer.
+
+512 exit criterion (D = 0×n) unchanged. **Merge `feat/audio-core-affinity` after E2** so D
+is not quoted while measuring a known bug.
 
 ---
 
@@ -57,10 +67,7 @@ Log: `~/latency-postreboot-512-D.log`
 
 **Mean 5.4** · sd ~3.5 · **0/15 clean** · max 14.
 
-Higher than the ~2.6–2.9 estimate (B + session + watchdog); run 10 (14 xruns) is the
-main outlier. Still ~half pre-fix ladder D (10.0). **512 not shippable** — remaining
-stack cost is sooperlooper-dominated (+2.13 A→B, steady).
-
-*Last updated: 2026-08-20 (America/Toronto)*
+This run is **contaminated by the watchdog fork loop** (see above) — not the merge-candidate
+full-stack number. Still ~half pre-fix ladder D (10.0).
 
 *Last updated: 2026-08-20 (America/Toronto)*
