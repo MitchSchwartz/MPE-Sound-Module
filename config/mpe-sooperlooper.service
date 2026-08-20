@@ -34,7 +34,7 @@ StandardOutput=journal
 StandardError=journal
 
 # --- Audio cores (measured 2026-08-20) ---------------------------------------
-# Pin the audio path to cores 1-3, which take no interrupts.
+# Pin the audio path to cores 2-3, which take no interrupts.
 #
 # The BCM2711's GIC-400 (GICv2) has no usable 1-of-N interrupt distribution, so
 # Linux targets the lowest core in each IRQ's mask -- and with the default mask
@@ -43,7 +43,7 @@ StandardError=journal
 # sound card's xhci IRQ, mmc0, the codec and HDMI all landed on CPU0, and JACK's
 # RT thread was running there too.
 #
-# `irqaffinity=0` on the kernel cmdline confines interrupts to core 0;
+# `irqaffinity=0,1` on the kernel cmdline confines interrupts to cores 0-1;
 # this line puts the audio path on the cores that are left. IRQ 30 itself
 # cannot be moved -- BRCM-PCI-MSI does not implement set_affinity (EPERM) --
 # but that does not matter once audio never runs on CPU0.
@@ -52,19 +52,29 @@ StandardError=journal
 #   before: mean 4.20 xruns/60s, 0/5 runs clean
 #   after:  mean 0.13 xruns/60s, 14/15 runs clean   (t = -4.47)
 #
-# E1 2026-08-20: widened from `2 3` to `1 2 3`. With two cores, condition A ran
-# two processes (jackd, surge) and B/C/D ran three (+ sooperlooper) -- and the
-# ONLY significant step in the whole ladder was exactly that 2->3 transition
-# (+2.13, t=4.73). Crowding by our own pinning is therefore the leading
-# explanation for sooperlooper's cost, ahead of anything in its code. Paired
-# with irqaffinity=0 so cores 1-3 stay interrupt-free.
+# E1 2026-08-20 was REVERTED. It widened this to `1 2 3` and paired that with
+# `irqaffinity=0`, to test whether sooperlooper's ladder step was crowding by
+# our own pinning. Measured n=15 at 512x3, every condition got worse:
+#   A 0.13 -> 0.80 (6.2x)   B 2.27 -> 6.20   D 3.13 -> 6.47
+# Condition A contains no sooperlooper, so its 6.2x degradation cannot be
+# crowding: for A the only change was putting EVERY interrupt on core 0 alone.
+# xhci (USB audio, unmovable) lives there, and xruns on this appliance originate
+# below JACK in the USB path -- the audio thread has 91% margin at its worst
+# recorded moment. So E1 delayed the one handler that was actually failing, to
+# give the audio thread a third core it never needed.
+#
+# The experiment changed two variables and so cannot cleanly answer the crowding
+# question -- it refuted the CONFIGURATION, not the hypothesis. But on four cores
+# no arrangement gives audio three interrupt-free cores, and this was the only
+# alternative split, so 2 IRQ cores + 2 audio cores stands as the best available.
+# docs/measurements/e1-three-cores-T1-2026-08-20.md
 #
 # sooperlooper is included because it is a JACK graph client -- its callback
 # runs in the process chain, so leaving it on cores 0-1 puts graph work back
 # next to the interrupts.
 #
 # docs/measurements/low-latency-step0-step1-2026-08-19.md
-CPUAffinity=1 2 3
+CPUAffinity=2 3
 
 [Install]
 WantedBy=multi-user.target
