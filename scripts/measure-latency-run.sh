@@ -366,6 +366,10 @@ _run_window() {
         samples=$((samples + 1))
         dsp="$(tail -1 "$dsp_raw" 2>/dev/null | grep -oP '[0-9]+\.[0-9]+' | head -1 || echo '?')"
         cur_xr="$(_meter_xruns)"
+        if [ "$cur_xr" -lt "$prev_xr" ]; then
+            start_xr="$cur_xr"
+            prev_xr="$cur_xr"
+        fi
         delta=$((cur_xr - prev_xr))
         mark=""
         [ "$delta" -gt 0 ] && mark=" <<< XRUN x$delta"
