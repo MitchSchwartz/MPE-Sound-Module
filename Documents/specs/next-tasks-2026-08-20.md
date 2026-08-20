@@ -19,12 +19,19 @@ Mitch except T1's reboot, which is already staged.
    explicitly and record why, in the doc where the original claim lives.
 6. Read `Documents/specs/low-latency-512-256-spec.md` first — it carries six traps that
    have already voided runs on this hardware.
+7. **One variable per measured comparison.** State the single knob explicitly in the work
+   order. Changing two things (E1 changed both `irqaffinity` and `CPUAffinity`) voids the
+   answer — not just the code path, the experiment design. T3 guards should eventually
+   cover this too; the failure mode here was design, not a silent counter.
 
 ---
 
 ## T1 — E1: three cores instead of two
 
-**Status: staged, blocked on one reboot by Mitch.** Everything else is ready.
+**Status: done (2026-08-20). Reverted.** Artifact:
+`docs/measurements/e1-three-cores-T1-2026-08-20.md`. E1 refuted the **configuration** (A
+6.2× worse with no looper); crowding hypothesis **not** isolated. Best split on this
+hardware: `irqaffinity=0,1` + `CPUAffinity=2 3`.
 
 **Hypothesis (experiment, not measured):** sooperlooper's +2.13 xruns/60 s is crowding
 caused by our own `CPUAffinity=2 3`, not by anything in its code. Condition A runs two
