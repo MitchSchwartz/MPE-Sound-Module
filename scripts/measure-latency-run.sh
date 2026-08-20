@@ -115,6 +115,7 @@ _stop_xrun_probe() {
         wait "$_PROBE_PID" 2>/dev/null || true
     fi
     _PROBE_PID=""
+    pkill -x mpe-xrun-probe 2>/dev/null || true
 }
 
 _restore_all() {
@@ -255,19 +256,22 @@ _delay_stats() {
     awk '
         /^XRUN wall=/ {
             split($0, parts, "delay_usec=")
-            v = parts[2] + 0
-            if (v > 0) { a[++n] = v }
+            split(parts[2], rest, " ")
+            v = rest[1] + 0
+            a[++n] = v
         }
         END {
-            if (n == 0) { print "0 0 0 0"; exit }
+            if (n == 0) { print "0 0 0 0 0"; exit }
+            nz = 0
             for (i = 1; i <= n; i++)
                 for (j = i + 1; j <= n; j++)
                     if (a[i] > a[j]) { t = a[i]; a[i] = a[j]; a[j] = t }
+            for (i = 1; i <= n; i++) if (a[i] > 0) nz++
             med = a[int((n + 1) / 2)]
             p99i = int(n * 0.99); if (p99i < 1) p99i = 1; if (p99i > n) p99i = n
-            printf "%d %d %d %d\n", n, med, a[p99i], a[n]
+            printf "%d %d %.0f %.0f %.0f\n", n, nz, med, a[p99i], a[n]
         }
-    ' "$f" 2>/dev/null || echo "0 0 0 0"
+    ' "$f" 2>/dev/null || echo "0 0 0 0 0"
 }
 
 _enable_strict_xrun_reporting() {
@@ -332,6 +336,7 @@ _run_window() {
 
     local total_xr=$((prev_xr - start_xr))
     local dsp_median dsp_p99 dsp_max
+    local delay_n delay_nz delay_med delay_p99 delay_max
     read -r dsp_median dsp_p99 dsp_max < <(
         awk '
             /^[[:space:]]+[0-9]+/ {
@@ -352,13 +357,13 @@ _run_window() {
     )
 
     local temp throttle delay_n delay_med delay_p99 delay_max
-    read -r delay_n delay_med delay_p99 delay_max < <(_delay_stats "$xrun_events")
+    read -r delay_n delay_nz delay_med delay_p99 delay_max < <(_delay_stats "$xrun_events")
     temp="$(vcgencmd measure_temp 2>/dev/null || echo 'temp=unknown')"
     throttle="$(vcgencmd get_throttled 2>/dev/null || echo 'throttled=unknown')"
 
     {
         echo "RESULT tag=${tag} xruns=${total_xr} dsp_median=${dsp_median} dsp_p99=${dsp_p99} dsp_max=${dsp_max}"
-        echo "RESULT tag=${tag} delay_count=${delay_n} delay_median_usec=${delay_med} delay_p99_usec=${delay_p99} delay_max_usec=${delay_max}"
+        echo "RESULT tag=${tag} delay_events=${delay_n} delay_nonzero=${delay_nz} delay_median_usec=${delay_med} delay_p99_usec=${delay_p99} delay_max_usec=${delay_max}"
         echo "RESULT tag=${tag} samples=${samples} ${temp} ${throttle}"
         echo "RESULT tag=${tag} file=${run_file} xrun_events=${xrun_events}"
     }
