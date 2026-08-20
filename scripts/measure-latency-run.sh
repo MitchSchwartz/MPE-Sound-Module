@@ -34,6 +34,7 @@ SELF_TEST=false
 RESTORE_BUFFER=""
 RESTART_BETWEEN=""
 MIDI_LOAD_VOICES=75
+PLAYING_LOOPS=0
 _SOFTMODE_CHANGED=0
 _LOAD_PID=""
 _PROBE_PID=""
@@ -48,6 +49,7 @@ while [ $# -gt 0 ]; do
         --output) OUTPUT="${2:?--output requires a path}"; shift 2 ;;
         --self-test) SELF_TEST=true; SECONDS_PER_RUN=10; RUNS=1; shift ;;
         --restart-between) RESTART_BETWEEN="${2:?--restart-between requires a run index}"; shift 2 ;;
+        --playing-loops) PLAYING_LOOPS="${2:?--playing-loops requires 0|4|8|16}"; shift 2 ;;
         -h | --help) sed -n '2,20p' "$0"; exit 0 ;;
         *) echo "Unknown argument: $1 (try --help)" >&2; exit 2 ;;
     esac
@@ -485,6 +487,28 @@ _run_window() {
     _assert_jack_period "$BUFFER" || exit 1
     echo "=== provenance after strict restart ==="
     _record_provenance
+
+    if [ "$PLAYING_LOOPS" -gt 0 ]; then
+        case "$PLAYING_LOOPS" in
+            4 | 8 | 16) ;;
+            *)
+                echo "ERROR: --playing-loops must be 0, 4, 8, or 16" >&2
+                exit 2
+                ;;
+        esac
+        if ! grep -q "^MPE_SL_LOOPS=" "$ENV_FILE" 2>/dev/null; then
+            printf '\nMPE_SL_LOOPS=%s\n' "$PLAYING_LOOPS" >>"$ENV_FILE"
+        else
+            sed -i "s/^MPE_SL_LOOPS=.*/MPE_SL_LOOPS=${PLAYING_LOOPS}/" "$ENV_FILE"
+        fi
+        systemctl restart mpe-sooperlooper.service
+        sleep 8
+        if ! bash "${SCRIPT_DIR}/sooperlooper/load-n-loops.sh" "$PLAYING_LOOPS"; then
+            echo "ERROR: load-n-loops ${PLAYING_LOOPS} failed" >&2
+            exit 1
+        fi
+        echo "=== playing-loops=${PLAYING_LOOPS} loaded ==="
+    fi
 
     run_idx=1
     while [ "$run_idx" -le "$RUNS" ]; do

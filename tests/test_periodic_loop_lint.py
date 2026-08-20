@@ -38,6 +38,24 @@ while not stop.is_set():
         findings = lint_source(bad, path="bad.py")
         self.assertTrue(findings)
 
+    def test_deliberate_journalctl_two_calls_deep_fails(self) -> None:
+        bad = """
+def poll_xruns():
+    journalctl("-u", "mpe-jackd.service")
+
+def collect_health():
+    poll_xruns()
+
+while not stop.is_set():
+    collect_health()
+"""
+        findings = lint_source(bad, path="bad_nested.py")
+        self.assertTrue(
+            findings,
+            "journalctl two calls deep from periodic loop must be flagged",
+        )
+        self.assertIn("journalctl", findings[0].detail)
+
     def test_meter_file_read_in_loop_passes(self) -> None:
         ok = """
 while True:

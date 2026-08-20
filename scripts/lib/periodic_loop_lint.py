@@ -108,7 +108,61 @@ def _collect_loops(tree: ast.AST) -> list[ast.For | ast.While]:
     return loops
 
 
+def _build_function_map(tree: ast.AST) -> dict[str, ast.FunctionDef | ast.AsyncFunctionDef]:
+    funcs: dict[str, ast.FunctionDef | ast.AsyncFunctionDef] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            funcs[node.name] = node
+    return funcs
+
+
+def _callees_from_node(node: ast.AST) -> set[str]:
+    names: set[str] = set()
+    for child in ast.walk(node):
+        if not isinstance(child, ast.Call):
+            continue
+        func = child.func
+        if isinstance(func, ast.Name):
+            names.add(func.id)
+        elif isinstance(func, ast.Attribute):
+            names.add(func.attr)
+    return names
+
+
+def _reachable_from_loop(
+    loop: ast.For | ast.While,
+    func_map: dict[str, ast.FunctionDef | ast.AsyncFunctionDef],
+) -> list[ast.AST]:
+    """Loop body plus bodies of module functions reachable from it (T3a inter-procedural)."""
+    bodies: list[ast.AST] = [loop]
+    queue = list(_callees_from_node(loop))
+    visited: set[str] = set()
+    while queue:
+        name = queue.pop()
+        if name in visited:
+            continue
+        visited.add(name)
+        fn = func_map.get(name)
+        if fn is None:
+            continue
+        bodies.append(fn)
+        queue.extend(_callees_from_node(fn))
+    return bodies
+
+
 def lint_source(source: str, *, path: str = "<string>") -> list[LintFinding]:
+    tree = ast.parse(source, filename=path)
+    func_map = _build_function_map(tree)
+    findings: list[LintFinding] = []
+    for loop in _collect_loops(tree):
+        for body in _reachable_from_loop(loop, func_map):
+            for lineno, detail in _subprocess_in_node(body):
+                findings.append(LintFinding(path, lineno, "fork-in-periodic-loop", detail))
+    return findings
+
+
+def _lint_source_loop_body_only(source: str, *, path: str = "<string>") -> list[LintFinding]:
+    """Legacy: loop literal bodies only (for regression tests)."""
     tree = ast.parse(source, filename=path)
     findings: list[LintFinding] = []
     for loop in _collect_loops(tree):

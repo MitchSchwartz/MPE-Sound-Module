@@ -38,3 +38,18 @@ design under JACK and reports a false negative on a healthy appliance.
 - [`seam-weld-spike-2026-08-18.md`](seam-weld-spike-2026-08-18.md) — Option B/E/Tier 2 archaeology; stop-then-weld is current (2026-08-19)
 - [`sooperlooper-eval-2026-08-14.md`](sooperlooper-eval-2026-08-14.md) — Session A
   **continue**, Session B **inconclusive** (Pi bench, branch `docs/sooperlooper-eval`).
+
+## Rig enforcement (T6)
+
+The appliance is guarded by T3 (`periodic_loop_lint.py`, `health_source_liveness.py`).
+The **measurement rig** is held to the same standard:
+
+- `mpe_meter_assert_live` / `mpe_meter_xruns_read` in `scripts/lib/audio-engine.sh` — 3 s
+  freshness; never `|| echo 0`
+- `tests/test_meter_harness.sh` — missing/stale paths fail loudly
+- `measure-latency-run.sh` — `MPE_PEAK_METER != 1` is fatal; RESULT lines carry
+  `meter_live=1` and `meter_max_age_s`
+- `measure-cyclictest-floor.sh` — validate cyclictest output before append
+- `scripts/xrun-corr.sh` — same meter rules as the latency harness
+
+Sweep: [`t6-harness-sweep-2026-08-20.md`](t6-harness-sweep-2026-08-20.md).
