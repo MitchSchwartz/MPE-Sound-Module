@@ -109,12 +109,26 @@ _stop_midi_load() {
 }
 
 _stop_xrun_probe() {
+    local logpath="${1:-}"
     if [ -n "$_PROBE_PID" ] && kill -0 "$_PROBE_PID" 2>/dev/null; then
         kill -TERM "$_PROBE_PID" 2>/dev/null || true
+    fi
+    if [ -n "$logpath" ]; then
+        local w=0
+        while [ "$w" -lt 50 ]; do
+            grep -q '^PROBE_END' "$logpath" 2>/dev/null && break
+            sleep 0.1
+            w=$((w + 1))
+        done
+    else
+        sleep 0.5
+    fi
+    if [ -n "$_PROBE_PID" ]; then
         wait "$_PROBE_PID" 2>/dev/null || true
     fi
     _PROBE_PID=""
     pkill -x mpe-xrun-probe 2>/dev/null || true
+    sleep 0.2
 }
 
 _restore_all() {
@@ -219,11 +233,11 @@ _ensure_xrun_probe() {
 
 _start_xrun_probe() {
     local logpath="$1"
-    _stop_xrun_probe
+    _stop_xrun_probe "$logpath"
     _as_user "$PROBE_BIN" "$logpath" &
     _PROBE_PID=$!
     sleep 1
-    if ! kill -0 "$_PROBE_PID" 2>/dev/null; then
+    if ! pgrep -x mpe-xrun-probe >/dev/null 2>&1; then
         echo "ERROR: mpe-xrun-probe failed to start" >&2
         return 1
     fi
@@ -360,7 +374,7 @@ _run_window() {
     done
 
     _kill_jcl
-    _stop_xrun_probe
+    _stop_xrun_probe "$xrun_events"
 
     if [ "$samples" -ne "$SECONDS_PER_RUN" ]; then
         echo "ERROR: sample count $samples != expected $SECONDS_PER_RUN (trap 3)" >&2
