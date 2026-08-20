@@ -45,16 +45,43 @@ period (~10.7 ms); 256×3 (~5.3 ms) is arithmetically feasible on scheduler floo
 | 9 | 2 | 10 | 38.23% | 54.5°C |
 | 10 | 2 | 9 | 38.64% | 54.0°C |
 
-**Run 6 = 7** after stack restart vs **run 5 = 21** — reset toward block-1 baseline (~4–24
-band), not continuation at 26+. Block 2 does not re-climb monotonically (7, 5, 14, 10, 9).
+### CORRECTED VERDICT — no accumulation, and no trend
 
-**Verdict:** accumulation is **stack-scoped** — lives in sooperlooper / session /
-watchdog state and clears on unit restart. Not session-scoped (would stay high at run 6).
-Not pure noise across n = 10 (block 1 still climbs; restart resets it).
+An earlier revision of this section concluded "accumulation is stack-scoped … clears on
+unit restart" and dispatched a parallel leak hunt. **That conclusion is withdrawn.** It
+does not survive the arithmetic, and it would have sent someone hunting a leak that this
+data gives no evidence for.
 
-**Proceed to Step 2** (IRQ affinity), but **parallel hunt:** find what grows in the looper
-stack over ~5 min (OSC subscriptions, buffers, registrations). Step 2–4 measurements remain
-valid if stack is restarted before each block until leak is fixed.
+**1. The trend did not replicate.** Spearman ρ on runs by time:
+
+| block | values | ρ | exact one-tailed p |
+|---|---|---:|---:|
+| Step 1 original | 13, 5, 15, 16, 26 | 0.90 | **0.042** |
+| Step 1b block 1 | 4, 20, 24, 9, 21 | 0.50 | 0.225 |
+| Step 1b block 2 | 5, 14, 10, 9 | 0.20 | 0.458 |
+
+The single significant result failed to reproduce on the next attempt. D15's monotone
+7 → 24 → 29 has a 1-in-6 chance of arising by luck at n = 3. Taken together this is a
+false positive, not a replicated effect. **Escalation is disproved.**
+
+**2. The restart effect is not distinguishable from noise.** Over all ten runs,
+mean 12.3, sd 7.1.
+
+- Run 6 (post-restart) = 7 sits at **z = −0.75**. Unremarkable.
+- Runs 1 and 4 produced **4 and 9 with no restart at all** — at or below the post-restart
+  value.
+
+A drop to 7 after a restart is the same size as the drop to 9 that happened
+spontaneously one run earlier. There is no restart effect here.
+
+**3. What the data does show — and it is the real blocker.** Spread is **6×** (4 to 24),
+sd 7.1 on mean 12.3, CV 0.58. Power on that: detecting a genuine **50% improvement**
+(12.3 → 6.2) with n = 5 per arm gives roughly **25% power**. A real halving of xruns
+would be missed three times in four.
+
+**Counting xruns cannot evaluate Step 2.** IRQ affinity could work perfectly and the
+measurement would very likely report nothing. This — not `delay_usec` — is what gates
+Step 2.
 
 Pi log: `~/latency-step1b-accumulation.log`
 
@@ -62,9 +89,29 @@ Pi log: `~/latency-step1b-accumulation.log`
 
 `mpe-xrun-probe` fires (hundreds of callbacks per run) but **`jack_get_xrun_delayed_usecs`
 returns 0.000 on JACK 1.9.22 / ALSA backend** — also logged `delay_max_usec`. Harness now
-reports `delay_events` / `delay_nonzero`; first accumulation run had probe lifecycle bug
-(fixed: `pkill -x mpe-xrun-probe` per window). **Step 2 gate:** need non-zero delay or an
-alternate backend metric before trusting IRQ fixes by count alone.
+reports `delay_events` / `delay_nonzero`; first accumulation run had a probe lifecycle bug
+(fixed: `pkill -x mpe-xrun-probe` per window, `713cc9c`).
+
+**Abandon this metric.** JACK2's ALSA backend never populates the field — it is filled on
+some driver paths and not that one. There is no flag and no build option. Do not spend
+further time in the JACK2 source.
+
+It would not have been sufficient anyway: one delay sample per xrun is ~12 samples per
+run, which does not solve the variance problem above.
+
+**Replacement metric — per-callback period jitter.** In the probe's process callback,
+take `clock_gettime(CLOCK_MONOTONIC)` and record the delta from the previous callback.
+Expected period at 512/48 kHz is **10,667 µs**; deviation from it *is* the jitter.
+
+- ~94 callbacks/s at 512 → **~5,600 samples per 60 s run**, against ~12 xruns.
+- Yields a distribution — median, p99, p99.9, max — on continuous data.
+- An IRQ fix that tightens p99 from 3 ms to 400 µs is unmistakable at n = 5,600 even if
+  the xrun count barely moves.
+- An xrun becomes the visible tail of a distribution rather than the only observable.
+
+`jack_frames_since_cycle_start()` at callback entry is a useful second signal: it reports
+how late the callback entered its period, which is closer still to the quantity of
+interest, and it is backend-independent.
 
 ## Notes
 
@@ -74,4 +121,6 @@ alternate backend metric before trusting IRQ fixes by count alone.
 
 ---
 
-*Step 2 (IRQ affinity) waits on: Mitch at reboot + delay metric unblocked.*
+*Step 2 (IRQ affinity) waits on: the period-jitter histogram + a baseline run at 512.
+It does **not** wait on Mitch — the affinity masks are already `0-3`, so Step 2 is a
+runtime write with instant rollback and no reboot. Only Steps 3 and 4 need him.*
