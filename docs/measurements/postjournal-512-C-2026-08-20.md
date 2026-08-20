@@ -53,21 +53,33 @@ is not quoted while measuring a known bug.
 
 ---
 
-## Post-reboot — affinity persistence + D @ n=15 (2026-08-20)
+## Post-E2 — watchdog meter probe + D @ n=15 (2026-08-20)
 
-**Reboot test passed:** `irqaffinity=0,1` in cmdline; `CPUAffinity=2-3` on
-`mpe-jackd`, `surge-xt-cli`, `mpe-sooperlooper`; live `taskset` on jackd/surge
-**2,3**; no `repin-audio` loop.
+**Fix (commit `d203089`):** `sl-watchdog.py` reads `looper_client=` / `looper_playback=`
+from `/run/mpe/meter.state` (5 Hz, no fork). `mpe-peak-meter` publishes those fields.
+`jack_lsp` is fallback only when the meter is off or stale. `engine_running()` scans
+`/proc/*/comm` instead of `pgrep`.
 
-Log: `~/latency-postreboot-512-D.log`
+Log: `~/latency-measure.log` (harness) · per-run probes `/tmp/latency-D-run*-178725*.xruns`
 
 | run | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 |
 |---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| xruns | 5 | 9 | 3 | 7 | 5 | 7 | 1 | 3 | 1 | 14 | 3 | 5 | 6 | 3 | 9 |
+| xruns | 3 | **0** | 3 | 2 | 6 | 6 | **0** | 1 | 4 | 1 | 7 | **0** | 5 | 6 | 3 |
 
-**Mean 5.4** · sd ~3.5 · **0/15 clean** · max 14.
+**Mean 3.13** · sd ~2.4 · **3/15 clean** · max 7.
 
-This run is **contaminated by the watchdog fork loop** (see above) — not the merge-candidate
-full-stack number. Still ~half pre-fix ladder D (10.0).
+### vs post-reboot D (watchdog fork loop, same affinity)
+
+| | mean | max | clean |
+|---|---:|---:|---:|
+| post-reboot (pre-E2) | 5.4 | 14 | 0/15 |
+| post-E2 watchdog fix | **3.13** | **7** | 3/15 |
+
+Watchdog layer cost drops from implied **+2.87** (5.4 − 2.53) to **+0.60** (3.13 − 2.53).
+Burst tail largely gone (max 14→7). **E2 merge gate cleared** — D is no longer measuring a
+known periodic fork in the watchdog.
+
+512×3 exit criterion (0 xruns × 5×60 s in D) still not met; next steps per spec: **E1**
+(three cores), **E3** (loop-count curve).
 
 *Last updated: 2026-08-20 (America/Toronto)*
