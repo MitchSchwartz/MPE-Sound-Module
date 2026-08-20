@@ -3,8 +3,7 @@
 #
 # Given buffer size and stack condition, runs N windows (default 60 s) with
 # deterministic midi-load, recording provenance, verified JACK period, asserted
-# sample count, per-xrun delay_usec from mpe-xrun-probe (jack_get_xrun_delayed_usecs),
-# and DSP median/p99. Appends to the output file — never truncates.
+# sample count, period-jitter histogram from mpe-xrun-probe, and DSP median/p99. Appends to the output file — never truncates.
 #
 # Usage:
 #   sudo ./scripts/measure-latency-run.sh --buffer 512 --condition D --runs 10 --restart-between 5
@@ -254,6 +253,40 @@ _restart_condition_stack() {
 _delay_stats() {
     local f="$1"
     awk '
+        /^JITTER_SUMMARY / {
+            for (i = 1; i <= NF; i++) {
+                split($i, kv, "=")
+                if (kv[1] == "n") n = kv[2] + 0
+                if (kv[1] == "median_usec") med = kv[2] + 0
+                if (kv[1] == "p99_usec") p99 = kv[2] + 0
+                if (kv[1] == "p99_9_usec") p999 = kv[2] + 0
+                if (kv[1] == "max_usec") max = kv[2] + 0
+            }
+        }
+        END {
+            if (n == 0) { print "0 0 0 0 0"; exit }
+            printf "%d %.0f %.0f %.0f %.0f\n", n, med, p99, p999, max
+        }
+    ' "$f" 2>/dev/null || echo "0 0 0 0 0"
+}
+
+_frames_late_stats() {
+    local f="$1"
+    awk '
+        /^FRAMES_LATE_SUMMARY / {
+            for (i = 1; i <= NF; i++) {
+                split($i, kv, "=")
+                if (kv[1] == "p99_usec") p99 = kv[2] + 0
+                if (kv[1] == "max_usec") max = kv[2] + 0
+            }
+        }
+        END { printf "%.0f %.0f\n", p99 + 0, max + 0 }
+    ' "$f" 2>/dev/null || echo "0 0"
+}
+
+_delay_stats_legacy() {
+    local f="$1"
+    awk '
         /^XRUN wall=/ {
             split($0, parts, "delay_usec=")
             split(parts[2], rest, " ")
@@ -337,6 +370,8 @@ _run_window() {
     local total_xr=$((prev_xr - start_xr))
     local dsp_median dsp_p99 dsp_max
     local delay_n delay_nz delay_med delay_p99 delay_max
+    local jitter_n jitter_med jitter_p99 jitter_p999 jitter_max
+    local late_p99 late_max
     read -r dsp_median dsp_p99 dsp_max < <(
         awk '
             /^[[:space:]]+[0-9]+/ {
@@ -356,14 +391,23 @@ _run_window() {
         ' "$run_file"
     )
 
-    local temp throttle delay_n delay_med delay_p99 delay_max
-    read -r delay_n delay_nz delay_med delay_p99 delay_max < <(_delay_stats "$xrun_events")
+    local temp throttle
+    read -r jitter_n jitter_med jitter_p99 jitter_p999 jitter_max < <(_delay_stats "$xrun_events")
+    read -r late_p99 late_max < <(_frames_late_stats "$xrun_events")
+    read -r delay_n delay_nz delay_med delay_p99 delay_max < <(_delay_stats_legacy "$xrun_events")
+
+    if [ "$SECONDS_PER_RUN" -ge 30 ] && [ "$jitter_n" -lt 100 ]; then
+        echo "ERROR: jitter_n=${jitter_n} — probe process callback produced too few samples" >&2
+        return 1
+    fi
     temp="$(vcgencmd measure_temp 2>/dev/null || echo 'temp=unknown')"
     throttle="$(vcgencmd get_throttled 2>/dev/null || echo 'throttled=unknown')"
 
     {
         echo "RESULT tag=${tag} xruns=${total_xr} dsp_median=${dsp_median} dsp_p99=${dsp_p99} dsp_max=${dsp_max}"
-        echo "RESULT tag=${tag} delay_events=${delay_n} delay_nonzero=${delay_nz} delay_median_usec=${delay_med} delay_p99_usec=${delay_p99} delay_max_usec=${delay_max}"
+        echo "RESULT tag=${tag} jitter_n=${jitter_n} jitter_median_usec=${jitter_med} jitter_p99_usec=${jitter_p99} jitter_p99_9_usec=${jitter_p999} jitter_max_usec=${jitter_max}"
+        echo "RESULT tag=${tag} frames_late_p99_usec=${late_p99} frames_late_max_usec=${late_max}"
+        echo "RESULT tag=${tag} delay_events=${delay_n} delay_nonzero=${delay_nz} (legacy, ignore)"
         echo "RESULT tag=${tag} samples=${samples} ${temp} ${throttle}"
         echo "RESULT tag=${tag} file=${run_file} xrun_events=${xrun_events}"
     }
