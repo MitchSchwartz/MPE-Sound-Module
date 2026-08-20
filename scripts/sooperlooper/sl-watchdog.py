@@ -97,7 +97,10 @@ GOVERNOR_UNIT = os.environ.get("MPE_CPU_GOVERNOR_UNIT", "mpe-cpu-governor.servic
 # RATE IS ALWAYS REPORTED in the alarm file regardless of the threshold — a
 # number you can watch is the point; the alarm is only for the loud case.
 ENGINE_LOG = Path(os.environ.get("MPE_SL_ENGINE_LOG", "/tmp/sooperlooper.log"))
-XRUN_MARKER = os.environ.get("MPE_SL_XRUN_MARKER", "got xrun")
+METER_STATE_FILE = Path(os.environ.get("MPE_METER_STATE", "/run/mpe/meter.state"))
+# The meter writes at 5 Hz; three missed writes is generous and still catches a
+# dead meter well inside one watchdog cycle.
+METER_STALE_AFTER_S = float(os.environ.get("MPE_METER_STALE_AFTER_S", "3.0"))
 XRUN_ALARM_PER_MIN = float(os.environ.get("MPE_SL_XRUN_ALARM_PER_MIN", "30"))
 XRUN_WINDOW_S = float(os.environ.get("MPE_SL_XRUN_WINDOW_S", "60"))
 
@@ -268,45 +271,69 @@ def repair_governor() -> tuple[bool, str]:
 
 
 class XrunCounter:
-    """Counts new xrun markers in the engine log without re-reading it.
+    """Xruns per minute, read from the peak meter's state file.
 
-    The log grows without bound while the engine runs (161 KB and climbing when
-    this was written), and this polls every 10 s on the same box that is trying
-    to make audio — so it tracks a byte offset and reads only what is new.
+    Was: tail /tmp/sooperlooper.log for the marker "got xrun". **That file does
+    not exist on the appliance** (2026-08-20), so this counter reported 0 every
+    cycle regardless of what the audio path was doing -- while measured runs in
+    the same period were producing 3-7 xruns/min. The health monitor's central
+    metric read identically whether the instrument was clean or faulting, which
+    is precisely the failure shape docs/measurements/README.md exists to
+    prevent. patch_browser.looper_health had the same hole from the journal side.
 
-    Handles the log being rotated, truncated or replaced (inode change or a
-    shrink): that resets the offset rather than reporting a wild negative delta.
+    ``/run/mpe/meter.state`` carries the real count, written by mpe-peak-meter
+    from JACK's xrun callback -- the same source scripts/measure-latency-run.sh
+    has always used. tmpfs, so this is a small read: no fork, consistent with
+    the no-forks-in-periodic-loops doctrine in Documents/DECISIONS.md.
+
+    A missing or stale meter returns an error string rather than 0, so "cannot
+    see" is never reported as "clean".
     """
 
     def __init__(self, path: Path) -> None:
         self.path = path
-        self._offset = 0
-        self._inode: int | None = None
+        self._baseline: int | None = None
+        self._last_total: int | None = None
         self._events: list[tuple[float, int]] = []
 
-    def poll(self, when: float) -> tuple[int, str | None]:
-        """Read new bytes. Returns (new_marker_count, error_or_None)."""
+    def _read(self) -> tuple[int, float] | None:
         try:
-            st = self.path.stat()
-        except OSError as exc:
-            return 0, f"no engine log at {self.path} ({exc.__class__.__name__})"
-        if self._inode is not None and (st.st_ino != self._inode
-                                        or st.st_size < self._offset):
-            self._offset = 0
-        self._inode = st.st_ino
-        if st.st_size == self._offset:
+            raw = self.path.read_text(encoding="utf-8")
+        except OSError:
+            return None
+        xruns = updated = None
+        for line in raw.splitlines():
+            key, _, value = line.partition("=")
+            try:
+                if key == "xruns":
+                    xruns = int(value)
+                elif key == "updated":
+                    updated = float(value)
+            except ValueError:
+                return None
+        if xruns is None or updated is None:
+            return None
+        return xruns, updated
+
+    def poll(self, when: float) -> tuple[int, str | None]:
+        """New xruns since the last cycle. Returns (count, error_or_None)."""
+        sample = self._read()
+        if sample is None:
+            return 0, f"no usable meter state at {self.path}"
+        total, updated = sample
+        age = time.time() - updated
+        if age > METER_STALE_AFTER_S:
+            return 0, f"meter state stale ({age:.1f}s) — peak meter stopped?"
+        if self._baseline is None or total < self._baseline:
+            # First cycle, or the meter restarted and its counter went backwards.
+            self._baseline = total
+            self._last_total = total
             self._events.append((when, 0))
             return 0, None
-        try:
-            with self.path.open("r", errors="replace") as fh:
-                fh.seek(self._offset)
-                chunk = fh.read()
-                self._offset = fh.tell()
-        except OSError as exc:
-            return 0, f"cannot read engine log ({exc.__class__.__name__})"
-        count = chunk.count(XRUN_MARKER)
-        self._events.append((when, count))
-        return count, None
+        new = total - (self._last_total if self._last_total is not None else total)
+        self._last_total = total
+        self._events.append((when, max(0, new)))
+        return max(0, new), None
 
     def rate_per_min(self, when: float) -> float | None:
         """Xruns/min over the trailing window, or None until it has a span."""
@@ -398,7 +425,7 @@ def main(argv: list[str] | None = None) -> int:
     log(f"watching every {INTERVAL_S:.0f}s — repairs JACK graph, alarms on wedge")
     wedged_since: float | None = None
 
-    xruns = XrunCounter(ENGINE_LOG)
+    xruns = XrunCounter(METER_STATE_FILE)
     governor_repairs: list[float] = []
 
     while True:
