@@ -4,9 +4,19 @@ Static loudness matching for Surge XT patches on the MPE appliance. Calibrate on
 
 **Issue:** [MPE-Sound-Module #5](https://github.com/MitchSchwartz/MPE-Sound-Module/issues/5)
 
-**v2 spec (cal integrity, Norm trim, meter/fader UX):** [`Documents/specs/patch-normalization-v2-spec.md`](../Documents/specs/patch-normalization-v2-spec.md) — Draft 2026-08-17. **DAC appliance default:** `MPE_DAC_VOLUME_DB=-12` (Speaker raw 64) as of same date.
+**v2 spec (cal integrity, Norm trim, meter/fader UX):** [`Documents/specs/patch-normalization-v2-spec.md`](../Documents/specs/patch-normalization-v2-spec.md) — Implemented 2026-08-18 (pending Pi soak). **DAC appliance default:** `MPE_DAC_VOLUME_DB=-12` (Speaker raw 64) as of same date.
 
 ## Design
+
+### v2 Norm trim (2026-08-18)
+
+- **Norm fader** adjusts `user_trim_db` — an offset from calibrated `gain_db` (−24…+12 dB). **0** = calibrated baseline; double-tap clears trim.
+- **Legacy `user_gain_db`** rows migrate on store load to `user_trim_db` (absolute → offset) and persist.
+- **Cal save gate:** post-gain closed-loop verify must report peak ≤ −2.8 dBTP or the patch is **not saved**.
+- **Audit:** `scripts/calibrate-patch-normalization.py --verify-only --favorites-only` replays at stored `gain_db` only.
+- **OUT meter** floor: −24 dBFS (was −48).
+- **Vol fader law:** `MPE_VOL_FADER_LAW=console|linear` in `/etc/mpe/mpe.env` (default **console**).
+
 
 | When | What |
 |------|------|
