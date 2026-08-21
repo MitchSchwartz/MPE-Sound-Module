@@ -518,7 +518,22 @@ _run_window() {
 
     run_idx=1
     while [ "$run_idx" -le "$RUNS" ]; do
-        tag="${CONDITION}-run${run_idx}"
+        # Tag carries buffer and loop count, not just condition. Two blocks that
+        # share a condition -- e.g. the 1024 loop curve, where loops8 and loops16
+        # are both condition B -- previously both emitted B-run1..15 into one
+        # append-only log. Any analysis that deduped or grepped by tag would have
+        # silently merged them (2026-08-20; the split was done by block marker
+        # instead, so no result was corrupted -- but nothing prevented it).
+        tag="${CONDITION}-b${BUFFER}-l${PLAYING_LOOPS}-run${run_idx}"
+
+        # Belt and braces: whatever the cause, a repeated tag in one output file
+        # makes that file ambiguous. Fail loudly rather than append a second run
+        # under a name that already means something else.
+        if [ -f "$OUTPUT" ] && grep -q "^RESULT tag=${tag} xruns=" "$OUTPUT"; then
+            echo "ERROR: tag ${tag} already present in ${OUTPUT} — refusing to append" >&2
+            echo "       a duplicate tag makes the log ambiguous; use a fresh --output" >&2
+            return 1
+        fi
         echo "=== run ${tag} ==="
         stamp="$(date +%s)"
         run_file="/tmp/latency-${tag}-${stamp}.out"
