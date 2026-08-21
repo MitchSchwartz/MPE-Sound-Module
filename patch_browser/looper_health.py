@@ -333,9 +333,12 @@ class MeterXrunCounter:
         # not: report None so the caller raises a problem instead of "healthy".
         if self.stale_after_s > 0 and (time.time() - updated) > self.stale_after_s:
             return None
-        if self._baseline is None or xruns < self._baseline:
-            # First read, or the meter restarted and its counter went backwards.
+        if self._baseline is None:
             self._baseline = xruns
+        elif xruns < self._baseline:
+            # Mid-run meter restart — counter went backwards. Re-baselining would
+            # silently drop xruns; report None so the caller voids the window.
+            return None
         self._total = xruns - self._baseline
         return self._total
 
