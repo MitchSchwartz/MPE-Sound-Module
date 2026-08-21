@@ -534,30 +534,36 @@ Two consequences, and they reorder the queue:
    to recover. T7a can still settle cushion vs deadline, but a win there does not remove
    this.
 
-## Queue as of 2026-08-21 10:05
+## Queue as of 2026-08-21 11:40
 
-| # | task | Pi time | gates |
+**T11 changed the picture.** Condition A falls off a cliff below 512 (0.13 -> 12.1 -> 678
+-> 2776), while **callbacks never miss their deadline** -- worst case 917 us against 1333 us
+at 64 frames, with 6% of periods underrunning anyway. The drain is below JACK, in the USB
+transport. Full detail: `docs/measurements/t11-condA-ladder-2026-08-21.md`.
+
+| # | task | Pi time | why |
 |---|---|---|---|
-| ~~--~~ | ~~T9 -- 8 loops @ 1024x3 cond D~~ **done: 0.00, 15/15** | -- | -- |
-| **1** | **T11 -- condition A ladder: 256, 128, 64** | ~45 min | nothing |
-| 2 | **T10 -- wakeup delay vs callback duration** | ~20 min | nothing |
-| 3 | **T7a -- 256x6 vs 512x3, plus 256x8** | ~45 min | nothing |
-| 4 | T7b -- 512x4 and 1024x2 | ~30 min | only if T7a says cushion |
-| 5 | T12 -- USB-frame-aligned periods 96 / 48 | ~30 min | only if T11's 64 fails but 128 passes |
-| 6 | decide whether the shipping default changes | -- | 1-3 |
-| 7 | re-confirm the winner at n=15 | ~15 min | only if 6 changes the default |
+| ~~--~~ | ~~T9, T11~~ **done** | -- | -- |
+| **1** | **T13 -- total-buffer test, condition A: 128x6 vs 256x3, plus 64x8** | ~45 min | decisive on transport model |
+| **2** | **T12 -- USB-aligned periods, condition A: 192x3 vs 256x3, 96x3 vs 128x3** | ~30 min | whole ladder may be on the wrong grid |
+| 3 | T7a -- 256x6 vs 512x3, plus 256x8, condition D | ~45 min | the looper case; subsumed by T13 if T13 is decisive |
+| 4 | **Scarlett** -- now critical path, not optional | -- | only lever acting on the binding term |
+| 5 | T10 -- wakeup delay | ~20 min | **largely answered by T11 for condition A**; only worth running for condition B/D |
+| 6 | decide the shipping default | -- | -- |
 
-**Order rationale.** T11 first because it answers the actual product goal -- lowest latency
-for a live instrument -- and nothing else gates it. T10 second because it is cheap and its
-answer reframes T7a: if the structural term is scheduling delay, cushion is a workaround; if
-it is the USB path, no JACK-side knob helps. T7a third for that reason.
+**T13 is the sharp one.** 128x6 and 256x3 have **identical total buffer** (16 ms, 16 USB
+frames) and different periods. Same rate => total buffer is the whole story, period size is
+irrelevant, and small periods are reachable by raising the period count. Different rate =>
+period size matters independently. Either answer is worth having and it is one comparison.
 
-**Do not run a second 8 h soak.** See below.
+**T12's original gate was wrong** ("64 fails while 128 passes" -- both fail). Rewritten: no
+power-of-two period aligns to the device's 1 ms frame, so every cell measured so far
+straddles frame boundaries. If a *smaller, aligned* period beats a larger misaligned one,
+the ladder has been on the wrong grid all along.
 
-**Pi timezone changed 2026-08-21** from Europe/London (+01:00) to America/Toronto (-04:00),
-matching the laptop. New logs are EDT. Anything older is BST and 5 h ahead -- see
-`docs/measurements/README.md`. Scripts that print an `expected_finish` compute it at start,
-so a run spanning a future timezone change would print a wrong ETA; none currently do.
+**T10 is demoted.** T11 measured callback lateness directly across three buffer sizes and
+it never binds. For condition A the wakeup-delay question is answered. It stays on the list
+only for the looper conditions, where the structural term is still unexplained.
 
 ## What the soak ruled out
 
