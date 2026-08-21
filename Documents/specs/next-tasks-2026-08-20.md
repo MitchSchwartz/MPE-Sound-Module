@@ -309,6 +309,61 @@ against a baseline we cannot reproduce would certify a number we do not trust.
 
 ---
 
+# T5-pre — remove the jack_lsp fallback. **Blocks the soak.**
+
+The T3a lint fails on `scripts/sooperlooper/sl-watchdog.py:188`,
+`fork-in-periodic-loop / jack_graph`. It is a true positive.
+
+`read_graph_snapshot()` prefers `meter.state` but falls back to `jack_graph()` — which
+forks `jack_lsp -c`, registering a JACK client and forcing two graph reorders — **whenever
+the meter is off or stale.** So a stale meter silently reinstates the exact bug E2 removed,
+at six forks a minute, *precisely when something is already wrong*. The fallback makes the
+problem worse exactly when the problem is happening.
+
+**Why it blocks T5 specifically.** An 8 h unattended overnight run is where a stale meter
+is most likely and least likely to be noticed. If it trips at hour three, the remaining
+five hours measure a machine being actively degraded by its own monitor, with nobody
+watching — and the soak's whole purpose is to characterise rare events over long spans.
+
+Note the lint found this at line 188, inside `read_graph_snapshot()`, **called from** the
+loop rather than sitting in the loop body. A lint that only inspected loop bodies would
+have missed it. The call-graph upgrade earned its keep on first contact.
+
+## Decision: remove the fallback, and recover the diagnosis without forking
+
+Not a suppression, and not a rate-limit. Removal loses nothing, because the only thing the
+fallback buys is distinguishing *"the meter is dead"* from *"JACK is dead"* — and that
+distinction is available fork-free:
+
+| meter stale | `jackd` in `/proc` | conclusion |
+|---|---|---|
+| yes | present | **meter/peak-meter problem** — JACK is fine |
+| yes | absent | **JACK is down** |
+
+`engine_running()` already scans `/proc/*/comm` without forking; use the same technique for
+`jackd`. Same information, no subprocess, no graph reorder.
+
+The alarm path already exists and needs no new wiring — the caller handles
+`snap.jack_reachable is None` and raises a problem. Only the message changes, and it
+becomes more accurate: today it reads *"JACK down or not reachable (meter stale and
+jack_lsp failed)"*, which conflates the two cases it is now able to tell apart.
+
+`jack_graph()` itself may stay if a non-periodic caller needs it. Nothing on a timer may
+call it.
+
+## Acceptance
+
+- `read_graph_snapshot()` makes no subprocess call on any path.
+- The stale-meter case distinguishes meter-fault from JACK-down, via `/proc`, and the
+  alarm text says which.
+- T3a lint passes; full suite green.
+- **Demonstrated on the Pi**: stop `mpe-peak-meter` with `jackd` running and show the
+  alarm names the meter; stop `jackd` too and show it names JACK. Paste both.
+- Confirm with `ps`/`/proc` that **no `jack_lsp` process is spawned** during either
+  demonstration — the point is the absence, so prove the absence.
+
+---
+
 # T5 — the soak. Unblocked 2026-08-20.
 
 Both prerequisites are met: I3 cleared at n=15 (A = 0.13, 14/15 — the n=5 read of 0.80 was
