@@ -24,15 +24,19 @@ Per-run xruns: 0,0,0,0,0,0,0,0,0,0,0,0,0,0,**2**
 
 Per-run xruns: 16,4,6,10,4,4,12,4,12,10,6,6,8,6,9
 
-### 256 × 3 discrepancy — still open
+### 256 × 3 — three streams, three rates (not noise)
 
-| run | mean xruns/60 s | clean |
-|---|---:|---:|
-| T11 (pre-hygiene) | 12.10 | 0/15 |
-| T13 (pre-hygiene) | 1.53 | 6/15 |
-| **Step 3 (post-hygiene)** | **7.80** | **0/15** |
+Per-run arrays — full analysis in [`stream-start-variance-2026-08-21.md`](stream-start-variance-2026-08-21.md):
 
-Separate invocations removed run-order as an explanation, but the spread **12.10 → 1.53 → 7.80** is still not a single stable number. **Do not quote an absolute 256×3 rate.** Relative claims within one harness invocation remain valid (T13 128×6 vs 256×3 refutation unchanged).
+```
+T11  256   10 16  8 15 20 12  8  6 12 20  4 10 14 12 14
+T13  256    4  0  2  2  0  0  1  0  0  2  2  4  2  4  0
+hyg  256   16  4  6 10  4  4 12  4 12 10  6  6  8  6  9
+```
+
+T13 never exceeds 4; post-hygiene never drops below 4; **no overlap**. Each row is one
+jackd stream × 15 correlated windows. **Do not quote any 256×3 mean as a population rate.**
+T13's 128×6 vs 256×3 refutation (within one invocation) still stands.
 
 ## 1024 × 3, condition D, 8 loops playing — shipping claim re-take
 
