@@ -12,13 +12,26 @@ from patch_browser.draw_primitives import draw_lock_icon
 from patch_browser.geometry import Rect
 from patch_browser.scroll_widgets import ContentScrollArea, draw_vertical_scroll_edge_hints
 from patch_browser.touch_keyboard import TouchKeyboardLayout, wifi_password_char_visible
-from patch_browser.touch_ui_constants import SETTINGS_ROW_GAP, SETTINGS_ROW_H, TAP_MOVE_THRESHOLD_PX
+from patch_browser.touch_ui_constants import (
+    LONG_PRESS_S,
+    SETTINGS_ROW_GAP,
+    SETTINGS_ROW_H,
+    TAP_MOVE_THRESHOLD_PX,
+)
 from patch_browser.touch_ui_enums import Screen
-from patch_browser.wifi_manager import WifiNetwork, connect_wifi, scan_wifi, wifi_settings_row_label
+from patch_browser.wifi_manager import (
+    WifiNetwork,
+    connect_failure_needs_password,
+    connect_wifi,
+    forget_wifi,
+    scan_wifi,
+    wifi_settings_row_label,
+)
 
 
 WIFI_VIEW_LIST = "list"
 WIFI_VIEW_PASSWORD = "password"
+WIFI_VIEW_FORGET = "forget"
 WIFI_KEY_FLASH_S = 0.15
 
 
@@ -42,6 +55,7 @@ class TouchBrowserWifiModalMixin:
         self._wifi_selected_bssid: str | None = None
         self._wifi_selected_saved = False
         self._wifi_password = ""
+        self._wifi_password_prompt = False
         self._wifi_network_rows: list[tuple[Rect, WifiNetwork]] = []
         self._wifi_scroll = ContentScrollArea(Rect(0, 0, 1, 1))
         self._wifi_scroll.reset()
@@ -49,6 +63,10 @@ class TouchBrowserWifiModalMixin:
             tuple[list[WifiNetwork], str | None]
         ] = queue.SimpleQueue()
         self._wifi_connect_queue: queue.SimpleQueue[tuple[bool, str]] = queue.SimpleQueue()
+        self._wifi_forget_queue: queue.SimpleQueue[tuple[bool, str]] = queue.SimpleQueue()
+        self._wifi_long_press_pending: dict | None = None
+        self._wifi_long_press_suppress_tap = False
+        self._wifi_forget_ssid: str | None = None
         self.screen_state = Screen.WIFI_MODAL
         self._wifi_busy_started = time.monotonic()
         self._start_wifi_scan()
@@ -60,6 +78,12 @@ class TouchBrowserWifiModalMixin:
         self._wifi_selected_bssid = None
         self._wifi_selected_saved = False
         self._wifi_password = ""
+        self._wifi_password_prompt = False
+        self._wifi_forget_ssid = None
+        self._cancel_wifi_long_press()
+
+    def _cancel_wifi_long_press(self) -> None:
+        self._wifi_long_press_pending = None
 
     def _start_wifi_scan(self) -> None:
         self._wifi_busy = True
@@ -72,6 +96,16 @@ class TouchBrowserWifiModalMixin:
         threading.Thread(target=_worker, daemon=True, name="WifiScan").start()
 
     def _poll_wifi_work(self) -> None:
+        if getattr(self, "_wifi_forgetting", False):
+            try:
+                ok, message = self._wifi_forget_queue.get_nowait()
+            except queue.Empty:
+                if time.monotonic() - getattr(self, "_wifi_forget_started", 0.0) > 30.0:
+                    self._finish_wifi_forget(False, "Forget timed out")
+                return
+            self._finish_wifi_forget(ok, message)
+            return
+
         if getattr(self, "_wifi_connecting", False):
             try:
                 ok, message = self._wifi_connect_queue.get_nowait()
@@ -107,6 +141,76 @@ class TouchBrowserWifiModalMixin:
             self._layout()
         else:
             self._toast(f"Wi‑Fi: {message}", 4.0)
+            if (
+                connect_failure_needs_password(message)
+                and getattr(self, "_wifi_selected_ssid", None)
+            ):
+                self._wifi_password_prompt = True
+                self._wifi_password = ""
+                self._wifi_view = WIFI_VIEW_PASSWORD
+                self._layout_settings_content()
+
+    def _open_wifi_forget_confirm(self, ssid: str) -> None:
+        self._wifi_forget_ssid = ssid
+        self._wifi_view = WIFI_VIEW_FORGET
+        self._touch_press.clear()
+
+    def _begin_wifi_forget(self, ssid: str) -> None:
+        self._wifi_forgetting = True
+        self._wifi_forget_started = time.monotonic()
+        self._wifi_busy = True
+        self._wifi_busy_hint = f"Forgetting {ssid}…"
+
+        def _worker() -> None:
+            ok, message = forget_wifi(ssid)
+            self._wifi_forget_queue.put((ok, message))
+
+        threading.Thread(target=_worker, daemon=True, name="WifiForget").start()
+
+    def _finish_wifi_forget(self, ok: bool, message: str) -> None:
+        self._wifi_forgetting = False
+        self._wifi_busy = False
+        self._wifi_view = WIFI_VIEW_LIST
+        self._wifi_forget_ssid = None
+        if ok:
+            self._toast(message, 3.0)
+            self._wifi_busy_started = time.monotonic()
+            self._start_wifi_scan()
+        else:
+            self._toast(f"Wi‑Fi: {message}", 4.0)
+        self._layout_settings_content()
+
+    def _tick_wifi_long_press(self) -> None:
+        if getattr(self, "_wifi_view", WIFI_VIEW_LIST) != WIFI_VIEW_LIST:
+            return
+        if getattr(self, "_wifi_busy", False):
+            self._cancel_wifi_long_press()
+            return
+        pending = getattr(self, "_wifi_long_press_pending", None)
+        if pending is None:
+            return
+        scroll_vp = getattr(self, "_wifi_scroll", None)
+        if scroll_vp is not None and scroll_vp.scroll_gesture_active:
+            self._cancel_wifi_long_press()
+            return
+        index = pending.get("index")
+        if index is None or index < 0 or index >= len(self._wifi_networks):
+            self._cancel_wifi_long_press()
+            return
+        network = self._wifi_networks[index]
+        if not network.saved:
+            self._cancel_wifi_long_press()
+            return
+        if time.time() - pending["started"] >= LONG_PRESS_S:
+            self._wifi_long_press_suppress_tap = True
+            self._open_wifi_forget_confirm(network.ssid)
+            self._cancel_wifi_long_press()
+
+    def _wifi_row_long_press_progress(self, index: int) -> float:
+        pending = getattr(self, "_wifi_long_press_pending", None)
+        if pending is None or pending.get("index") != index:
+            return 0.0
+        return min(1.0, (time.time() - pending["started"]) / LONG_PRESS_S)
 
     def _begin_wifi_connect(
         self,
@@ -130,11 +234,16 @@ class TouchBrowserWifiModalMixin:
         if network.in_use:
             self._close_wifi_modal()
             return
+        self._wifi_selected_ssid = network.ssid
+        self._wifi_selected_bssid = network.bssid
+        self._wifi_selected_saved = network.saved
+        self._wifi_password = ""
+        if network.secured and network.saved:
+            self._wifi_password_prompt = False
+            self._begin_wifi_connect(network.ssid, None, bssid=network.bssid)
+            return
         if network.secured:
-            self._wifi_selected_ssid = network.ssid
-            self._wifi_selected_bssid = network.bssid
-            self._wifi_selected_saved = network.saved
-            self._wifi_password = ""
+            self._wifi_password_prompt = True
             self._touch_press.clear()
             self._wifi_view = WIFI_VIEW_PASSWORD
             return
@@ -183,8 +292,11 @@ class TouchBrowserWifiModalMixin:
         self.screen.blit(last_surf, (pad_x + masked_surf.get_width(), text_y))
 
     def _draw_wifi_modal(self) -> None:
-        if getattr(self, "_wifi_view", WIFI_VIEW_LIST) == WIFI_VIEW_PASSWORD:
+        view = getattr(self, "_wifi_view", WIFI_VIEW_LIST)
+        if view == WIFI_VIEW_PASSWORD:
             self._draw_wifi_password_modal()
+        elif view == WIFI_VIEW_FORGET:
+            self._draw_wifi_forget_modal()
         else:
             self._draw_wifi_list_modal()
 
@@ -223,7 +335,10 @@ class TouchBrowserWifiModalMixin:
         self._wifi_refresh_rect = refresh_rect
         self._draw_button(refresh_rect, "Refresh", small=True, pressed=self._wifi_pressed("refresh"))
 
-        list_top = y + self.font_md.get_height() + 12
+        list_top = y + self.font_md.get_height() + 4
+        hint = self.font_sm.render("Hold saved (*) to forget", True, self.theme.muted)
+        self.screen.blit(hint, (inner_x, list_top))
+        list_top += hint.get_height() + 8
         footer_h = SETTINGS_ROW_H + 16
         list_h = panel.bottom - footer_h - list_top
         scroll_vp = Rect(inner_x, list_top, inner_w, max(80, list_h))
@@ -244,10 +359,12 @@ class TouchBrowserWifiModalMixin:
                 screen_rect = Rect(rect.x, rect.y - scroll, rect.w, rect.h)
                 if screen_rect.bottom < scroll_vp.y or screen_rect.y > scroll_vp.bottom:
                     continue
+                progress = self._wifi_row_long_press_progress(index)
                 self._draw_wifi_network_row(
                     screen_rect,
                     network,
                     pressed=self._wifi_pressed(f"net:{index}"),
+                    long_press_progress=progress,
                 )
         self.screen.set_clip(clip)
 
@@ -271,7 +388,14 @@ class TouchBrowserWifiModalMixin:
             y += SETTINGS_ROW_H + SETTINGS_ROW_GAP
         return max(0, y - list_top)
 
-    def _draw_wifi_network_row(self, rect: Rect, network: WifiNetwork, *, pressed: bool = False) -> None:
+    def _draw_wifi_network_row(
+        self,
+        rect: Rect,
+        network: WifiNetwork,
+        *,
+        pressed: bool = False,
+        long_press_progress: float = 0.0,
+    ) -> None:
         if pressed:
             bg = self.theme.accent
             text_color = self.theme.bg
@@ -300,6 +424,49 @@ class TouchBrowserWifiModalMixin:
             suffix_surf,
             (rect.right - suffix_surf.get_width() - 14, rect.y + (rect.h - suffix_surf.get_height()) // 2),
         )
+        if long_press_progress > 0:
+            bar_h = 3
+            bar_w = max(4, int(rect.w * long_press_progress))
+            pygame.draw.rect(
+                self.screen,
+                self.theme.accent,
+                (rect.x, rect.bottom - bar_h - 2, bar_w, bar_h),
+                border_radius=2,
+            )
+
+    def _draw_wifi_forget_modal(self) -> None:
+        self._draw_modal_backdrop(legacy_alpha=150)
+        panel_w = min(420, self.width - 48)
+        panel_h = 180
+        panel = Rect((self.width - panel_w) // 2, (self.height - panel_h) // 2, panel_w, panel_h)
+        self._draw_modal_shell(panel, border_radius=16)
+
+        inner_x = panel.x + 24
+        inner_w = panel.w - 48
+        ssid = getattr(self, "_wifi_forget_ssid", None) or "Network"
+        y = panel.y + 20
+        self.screen.blit(self.font_md.render("Forget network?", True, self.theme.text), (inner_x, y))
+        y += self.font_md.get_height() + 8
+        body = self.font_sm.render(f"Remove saved profile for {ssid}", True, self.theme.muted)
+        self.screen.blit(body, (inner_x, y))
+
+        btn_h = 48
+        btn_gap = 12
+        btn_w = (inner_w - btn_gap) // 2
+        btn_y = panel.bottom - 20 - btn_h
+        self._wifi_forget_cancel_rect = Rect(inner_x, btn_y, btn_w, btn_h)
+        self._wifi_forget_confirm_rect = Rect(inner_x + btn_w + btn_gap, btn_y, btn_w, btn_h)
+        self._draw_button(
+            self._wifi_forget_cancel_rect,
+            "Cancel",
+            pressed=self._wifi_pressed("forget:cancel"),
+        )
+        self._draw_button(
+            self._wifi_forget_confirm_rect,
+            "Forget",
+            danger=True,
+            pressed=self._wifi_pressed("forget:confirm"),
+        )
 
     def _draw_wifi_password_modal(self) -> None:
         self._draw_modal_backdrop(legacy_alpha=150)
@@ -313,13 +480,9 @@ class TouchBrowserWifiModalMixin:
         ssid = self._wifi_selected_ssid or "Network"
         y = panel.y + 14
         self.screen.blit(self.font_md.render(ssid, True, self.theme.text), (inner_x, y))
-        if getattr(self, "_wifi_selected_saved", False):
+        if getattr(self, "_wifi_password_prompt", False):
             y += self.font_md.get_height() + 2
-            hint = self.font_sm.render(
-                "Saved — tap Connect to retry, or enter password",
-                True,
-                self.theme.muted,
-            )
+            hint = self.font_sm.render("Enter the network password", True, self.theme.muted)
             self.screen.blit(hint, (inner_x, y))
         y += self.font_md.get_height() + 8
 
@@ -381,6 +544,15 @@ class TouchBrowserWifiModalMixin:
                 return f"net:{index}"
         return None
 
+    def _wifi_forget_hit_at(self, pos: tuple[int, int]) -> str | None:
+        cancel = getattr(self, "_wifi_forget_cancel_rect", None)
+        if cancel is not None and cancel.contains(*pos):
+            return "forget:cancel"
+        confirm = getattr(self, "_wifi_forget_confirm_rect", None)
+        if confirm is not None and confirm.contains(*pos):
+            return "forget:confirm"
+        return None
+
     def _wifi_password_hit_at(self, pos: tuple[int, int]) -> str | None:
         back = getattr(self, "_wifi_password_back_rect", None)
         if back is not None and back.contains(*pos):
@@ -397,7 +569,15 @@ class TouchBrowserWifiModalMixin:
 
     def _handle_wifi_modal_pointer_down(self, pos: tuple[int, int]) -> None:
         self._clear_modal_pointer()
-        if getattr(self, "_wifi_view", WIFI_VIEW_LIST) == WIFI_VIEW_PASSWORD:
+        view = getattr(self, "_wifi_view", WIFI_VIEW_LIST)
+        if view == WIFI_VIEW_FORGET:
+            hit = self._wifi_forget_hit_at(pos)
+            if hit == "forget:cancel":
+                self._modal_press_hit(pos, "wifi:forget:cancel")
+            elif hit == "forget:confirm":
+                self._modal_press_hit(pos, "wifi:forget:confirm")
+            return
+        if view == WIFI_VIEW_PASSWORD:
             hit = self._wifi_password_hit_at(pos)
             if hit == "back":
                 self._modal_press_hit(pos, "wifi:back")
@@ -409,36 +589,74 @@ class TouchBrowserWifiModalMixin:
 
         hit = self._wifi_list_hit_at(pos)
         if hit is not None:
+            if hit.startswith("net:"):
+                try:
+                    index = int(hit.split(":", 1)[1])
+                except ValueError:
+                    index = -1
+                if (
+                    0 <= index < len(self._wifi_networks)
+                    and self._wifi_networks[index].saved
+                ):
+                    self._wifi_long_press_pending = {
+                        "started": time.time(),
+                        "origin": pos,
+                        "index": index,
+                    }
             self._modal_press_hit(pos, f"wifi:{hit}")
         scroll_vp = getattr(self, "_wifi_scroll", None)
         if scroll_vp is not None and scroll_vp.viewport.contains(*pos):
             scroll_vp.pointer_down(pos)
 
     def _handle_wifi_modal_pointer_move(self, pos: tuple[int, int]) -> None:
-        if getattr(self, "_wifi_view", WIFI_VIEW_LIST) != WIFI_VIEW_LIST:
+        view = getattr(self, "_wifi_view", WIFI_VIEW_LIST)
+        if view != WIFI_VIEW_LIST:
             return
+        pending = getattr(self, "_wifi_long_press_pending", None)
+        if pending is not None:
+            if self._pointer_move_distance(pending["origin"], pos) > TAP_MOVE_THRESHOLD_PX:
+                self._cancel_wifi_long_press()
         scroll_vp = getattr(self, "_wifi_scroll", None)
         if scroll_vp is not None:
             scroll_vp.pointer_move(pos)
             if scroll_vp.scroll_gesture_active:
                 self._touch_press.clear()
+                self._cancel_wifi_long_press()
 
     def _handle_wifi_modal_pointer_up(self, pos: tuple[int, int]) -> None:
         try:
+            view = getattr(self, "_wifi_view", WIFI_VIEW_LIST)
+            if getattr(self, "_wifi_long_press_suppress_tap", False):
+                self._wifi_long_press_suppress_tap = False
+                self._cancel_wifi_long_press()
+                self._clear_modal_pointer()
+                return
             scroll_vp = getattr(self, "_wifi_scroll", None)
             scrolled = scroll_vp.pointer_up(pos) if scroll_vp is not None else False
             if scrolled:
+                self._cancel_wifi_long_press()
                 self._clear_modal_pointer()
                 return
             if self._pointer_move_distance(self._modal_pointer_down_pos, pos) > TAP_MOVE_THRESHOLD_PX:
+                self._cancel_wifi_long_press()
                 self._clear_modal_pointer()
                 return
 
             hit = self._modal_pending_key
-            if hit is None and getattr(self, "_wifi_view", WIFI_VIEW_LIST) == WIFI_VIEW_LIST:
+            if hit is None and view == WIFI_VIEW_LIST:
                 list_hit = self._wifi_list_hit_at(pos)
                 hit = f"wifi:{list_hit}" if list_hit else None
+            self._cancel_wifi_long_press()
             self._clear_modal_pointer()
+            if hit == "wifi:forget:cancel":
+                self._wifi_view = WIFI_VIEW_LIST
+                self._wifi_forget_ssid = None
+                return
+            if hit == "wifi:forget:confirm":
+                ssid = getattr(self, "_wifi_forget_ssid", None)
+                if ssid and not getattr(self, "_wifi_busy", False):
+                    self._begin_wifi_forget(ssid)
+                return
             if hit == "wifi:cancel":
                 self._close_wifi_modal()
                 return
@@ -461,6 +679,7 @@ class TouchBrowserWifiModalMixin:
                 self._wifi_selected_ssid = None
                 self._wifi_selected_bssid = None
                 self._wifi_password = ""
+                self._wifi_password_prompt = False
                 return
             if hit == "wifi:connect":
                 self._wifi_key_flash_key = "connect"

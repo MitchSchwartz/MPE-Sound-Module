@@ -1,0 +1,63 @@
+[Unit]
+Description=SooperLooper engine (16 loops on the JACK graph)
+# Ordering only. Not Requires/BindsTo on mpe-jackd: a jackd restart must not tear
+# the engine down, because sl-watchdog's whole job is repairing the orphan that
+# leaves behind — and it cannot repair a unit systemd has stopped underneath it.
+# run-sooperlooper.sh does its own bounded wait for the server accepting clients,
+# since After= only sequences activation, not readiness.
+After=mpe-jackd.service surge-xt-cli.service
+Wants=mpe-jackd.service
+# No start rate limit, matching mpe-jackd. The engine is worth retrying exactly
+# when the appliance is unstable, which is when the default burst would retire it
+# and leave the looper silently dead — the 2026-08-17 failure, where the engine
+# died at 16:15 and nothing restarted it for six hours.
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=@MPE_PI_USER@
+WorkingDirectory=@MPE_MODULE_REPO@
+EnvironmentFile=-/etc/mpe/mpe.env
+Environment=PYTHONUNBUFFERED=1
+# The engine is a JACK client; jackd assigns its audio thread priority. systemd
+# units bypass PAM, so /etc/security/limits.d/audio.conf does not apply here.
+LimitRTPRIO=95
+LimitMEMLOCK=infinity
+ExecStart=@MPE_MODULE_REPO@/scripts/sooperlooper/run-sooperlooper.sh
+# Grid sync + record/playback wiring, after the client is actually on the bus.
+ExecStartPost=@MPE_MODULE_REPO@/scripts/sooperlooper/wire-sooperlooper-graph.sh
+Restart=always
+RestartSec=5
+TimeoutStopSec=10
+KillMode=control-group
+StandardOutput=journal
+StandardError=journal
+
+# --- Audio cores (measured 2026-08-20) ---------------------------------------
+# Pin the audio path to cores 2-3, which take no interrupts.
+#
+# The BCM2711's GIC-400 (GICv2) has no usable 1-of-N interrupt distribution, so
+# Linux targets the lowest core in each IRQ's mask -- and with the default mask
+# that is CPU0 for EVERY interrupt on the system. irqbalance is not installed
+# and Raspberry Pi OS does not ship it, so nothing had ever moved them. The USB
+# sound card's xhci IRQ, mmc0, the codec and HDMI all landed on CPU0, and JACK's
+# RT thread was running there too.
+#
+# `irqaffinity=0,1` on the kernel cmdline confines interrupts to cores 0-1;
+# this line puts the audio path on the cores that are left. IRQ 30 itself
+# cannot be moved -- BRCM-PCI-MSI does not implement set_affinity (EPERM) --
+# but that does not matter once audio never runs on CPU0.
+#
+# Measured at 512x3, n=15 per condition, condition A (synth only):
+#   before: mean 4.20 xruns/60s, 0/5 runs clean
+#   after:  mean 0.13 xruns/60s, 14/15 runs clean   (t = -4.47)
+#
+# sooperlooper is included because it is a JACK graph client -- its callback
+# runs in the process chain, so leaving it on cores 0-1 puts graph work back
+# next to the interrupts.
+#
+# docs/measurements/low-latency-step0-step1-2026-08-19.md
+CPUAffinity=2 3
+
+[Install]
+WantedBy=multi-user.target

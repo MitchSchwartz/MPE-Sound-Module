@@ -39,16 +39,31 @@ FAVORITES_NAME = SCANNER_CONFIG.favorites_name
 LAST_PATCH_FILE = Path.home() / ".patch_browser_last_patch.json"
 
 
+def _is_readable_dir(path: Path) -> bool:
+    """Probe a candidate directory without raising.
+
+    Path.is_dir() propagates PermissionError when a parent is unreadable, so a
+    plain `if candidate.is_dir()` crashes for any user who cannot traverse the
+    path — which is every user except the appliance owner. Probing for a
+    directory must treat "cannot tell" as "not there"; only the owner ever saw
+    this work.
+    """
+    try:
+        return path.is_dir()
+    except OSError:
+        return False
+
+
 def resolve_user_patches_dir() -> Path:
     """User patch library — env override, then Documents (PC), then Linux Surge default."""
     surge_docs = os.environ.get("MPE_SURGE_DOCS", "").strip()
     if surge_docs:
         candidate = Path(surge_docs) / "Patches"
-        if candidate.is_dir():
+        if _is_readable_dir(candidate):
             return candidate
 
     documents = Path.home() / "Documents" / "Surge XT" / "Patches"
-    if documents.is_dir():
+    if _is_readable_dir(documents):
         return documents
 
     linux_default = Path.home() / ".Surge Synth Team" / "Surge XT" / "Patches"
@@ -144,6 +159,13 @@ class PatchScanner:
         self.metadata_index = PatchMetadataIndex()
         self.favorites_index = FavoritesIndex()
         self._sidecar_loader = None
+        # is_patch_in_favorites draws the heart on every visible row, every frame, and
+        # resolving it walks the filesystem: O(favorites) Path.resolve() in
+        # find_stable_key_by_dest plus O(patch_dirs) exists() in is_in_favorites_folder.
+        # Measured on the appliance 2026-08-17 at ~19,000 newfstatat/s — a full core in
+        # the UI process, which is also the process hosting a JACK client. Favourites
+        # change only on explicit user action or a rescan, both of which invalidate.
+        self._favorite_cache: dict[str, bool] = {}
 
         self.scan_complete = threading.Event()
         self.scan_lock = threading.Lock()
@@ -440,10 +462,33 @@ class PatchScanner:
                     return resolved
         return str(stable_key) if stable_key else None
 
+    def invalidate_favorite_cache(self) -> None:
+        """Drop memoised heart state — any favourites mutation or rescan must call this."""
+        self._favorite_cache.clear()
+
+    def _favorite_cache_key(self, patch) -> str | None:
+        key = patch.get("stable_key") or patch.get("path") or patch.get("name")
+        return str(key) if key else None
+
     def is_patch_in_favorites(self, patch):
-        """True when patch is indexed in favorites v2 (or legacy copy on disk)."""
+        """True when patch is indexed in favorites v2 (or legacy copy on disk).
+
+        Memoised: this is called per visible row per frame to draw the heart, and the
+        uncached path walks the filesystem (see _favorite_cache in __init__).
+        """
         if not patch:
             return False
+        cache_key = self._favorite_cache_key(patch)
+        if cache_key is not None:
+            cached = self._favorite_cache.get(cache_key)
+            if cached is not None:
+                return cached
+        result = self._compute_patch_in_favorites(patch)
+        if cache_key is not None:
+            self._favorite_cache[cache_key] = result
+        return result
+
+    def _compute_patch_in_favorites(self, patch) -> bool:
         stable_key = self.favorite_stable_key_for_patch(patch)
         if stable_key and self.favorites_index.is_favorited(stable_key):
             return True
@@ -457,6 +502,7 @@ class PatchScanner:
 
     def rescan_favorites_category(self) -> list[dict]:
         """Rescan Quick Access subtree only — no full library scan."""
+        self.invalidate_favorite_cache()
         qa_path = self.get_favorites_folder_path()
         migrated = self.favorites_index.migrate_legacy_liked_to_root(qa_path)
         if migrated:
@@ -506,6 +552,7 @@ class PatchScanner:
                         print(f"Error removing favorites copy: {exc}")
                         return False
             self.favorites_index.save()
+            self.invalidate_favorite_cache()
             self.rescan_favorites_category()
             return True
 
@@ -587,6 +634,7 @@ class PatchScanner:
         )
         if save_and_rescan:
             self.favorites_index.save()
+            self.invalidate_favorite_cache()
             print(f"Copied patch to {folder_name}/{source.name} ({stable_key})")
             self.rescan_favorites_category()
         return True
@@ -626,6 +674,7 @@ class PatchScanner:
             added_at=str(entry.get("added_at") or ""),
         )
         self.favorites_index.save()
+        self.invalidate_favorite_cache()
         self.rescan_favorites_category()
         return True
 
@@ -655,6 +704,7 @@ class PatchScanner:
                 skipped += 1
         if added:
             self.favorites_index.save()
+            self.invalidate_favorite_cache()
             self.rescan_favorites_category()
         return added, skipped
 
@@ -678,6 +728,7 @@ class PatchScanner:
             removed += 1
         if removed:
             self.favorites_index.save()
+            self.invalidate_favorite_cache()
             self.rescan_favorites_category()
         return removed
 

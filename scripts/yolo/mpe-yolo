@@ -1,0 +1,75 @@
+#!/usr/bin/env bash
+# Racknerd-side entrypoint for talking to the MPE appliance.
+#
+# Installed on Racknerd's PATH. The ONLY sanctioned way for a YOLO agent to
+# reach the Pi — the shell guard denies raw ssh/scp/rsync and allows this.
+#
+#   mpe-yolo ping
+#   mpe-yolo status
+#   mpe-yolo logs-surge
+#   mpe-yolo help          # list tokens the appliance accepts
+#
+# This is mistake-prevention, not containment. It runs on a host the agent
+# controls and the agent can edit or bypass it (see the access spec's
+# §Layer weight). The real boundary is /usr/local/sbin/mpe-yolo-remote.sh on
+# the appliance, which validates the token itself and ignores everything else.
+#
+# Note it deliberately does NOT use mpe-cli: mpe-cli's remote path ships a
+# heredoc into `bash -s`, which the appliance's forced command rejects by
+# design. Token dispatch in mpe-cli is a separate piece of work.
+
+set -euo pipefail
+
+PI_HOST="${MPE_YOLO_PI_HOST:-100.76.137.72}"
+PI_USER="${MPE_YOLO_PI_USER:-mpe-yolo}"
+KEY="${MPE_YOLO_KEY:-$HOME/.ssh/mpe_yolo_ed25519}"
+
+usage() {
+    cat <<'EOF'
+Usage: mpe-yolo <token>
+
+Read-only tokens:
+  ping version status sysinfo diagnose jack-status osc-check
+  logs-surge logs-jackd logs-looper logs-watchdog logs-governor logs-midiclock
+  help
+
+Deploy and test tokens are not available yet — the appliance rejects them.
+The appliance's token map is authoritative; this list is a convenience.
+EOF
+}
+
+if [ "$#" -eq 0 ] || [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
+    usage
+    exit 0
+fi
+
+if [ "$#" -gt 1 ]; then
+    echo "mpe-yolo: tokens take no arguments (got: $*)" >&2
+    echo "The appliance matches full strings; '$*' would be rejected there anyway." >&2
+    exit 2
+fi
+
+TOKEN="$1"
+
+# Local sanity only. The appliance re-validates; never rely on this.
+case "$TOKEN" in
+    *[!a-z0-9-]*)
+        echo "mpe-yolo: tokens are lowercase letters, digits and hyphens only" >&2
+        exit 2
+        ;;
+esac
+
+if [ ! -r "$KEY" ]; then
+    echo "mpe-yolo: ssh key not readable: $KEY" >&2
+    echo "Generate with: ssh-keygen -t ed25519 -f $KEY -C mpe-yolo@racknerd -N ''" >&2
+    exit 1
+fi
+
+exec ssh \
+    -i "$KEY" \
+    -o IdentitiesOnly=yes \
+    -o StrictHostKeyChecking=accept-new \
+    -o ConnectTimeout=15 \
+    -o BatchMode=yes \
+    -o RequestTTY=no \
+    "${PI_USER}@${PI_HOST}" "$TOKEN"

@@ -72,6 +72,12 @@ fi
 
 echo ""
 echo "Running gate checks..."
+# Secret-scanning pre-commit hook. core.hooksPath lives in .git/config, which is
+# NOT cloned — a fresh clone (this one) has no hook until it is installed here.
+# Server-side push protection is the real control; this is the earlier, broader
+# net, since gitleaks matches on pattern where GitHub validates checksums.
+bash "$ROOT/scripts/install-git-hooks.sh"
+
 bash "$ROOT/scripts/yolo/check-guardrails.sh"
 bash "$ROOT/scripts/yolo/check-mcps-headless.sh"
 bash "$ROOT/scripts/yolo/check-backpressure.sh"
