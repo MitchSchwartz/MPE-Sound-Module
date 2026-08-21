@@ -44,7 +44,9 @@ Separate invocations removed run-order as an explanation, but the spread **12.10
 
 Runs with xruns: run2=1, run8=1, run11=1.
 
-**Prior claim (0.00, 15/15) does not replicate** on the cleaned appliance. Improved vs dirty baseline is plausible, but the new measured claim is **0.20/min, 12/15 clean** until a further soak certifies otherwise.
+**Prior claim (0.00, 15/15) does not replicate** on the cleaned appliance — but both old
+and new numbers are **single-stream draws** and are **not shippable claims**. See
+[`stream-start-variance-2026-08-21.md`](stream-start-variance-2026-08-21.md).
 
 ## Confidence split (updates spec)
 
@@ -54,10 +56,10 @@ Runs with xruns: run2=1, run8=1, run11=1.
 - Drain below JACK; Poisson xruns (T5)
 - 512 × 3 not shippable with full stack at low latency (this run: 14/15 clean at A only — looper not in A)
 
-**Provisional (absolute rates — use Step 3 numbers only):**
+**Provisional (absolute rates — do not quote until stream sampling):**
 
-- 512 × 3 A: **0.13/min**, 14/15
-- 256 × 3 A: **7.80/min**, 0/15 — **discrepancy unresolved**
-- 1024 × 3 D8: **0.20/min**, 12/15 — replaces 0.00/15/15 claim
+- All Step 3 means are **within-stream only** — see [`stream-start-variance-2026-08-21.md`](stream-start-variance-2026-08-21.md)
+- Phase 0 **delta unevaluated**; defects fixed, benefit not yet measured on the right axis
+- Shipping claim **withdrawn** (was one stream; so was re-take)
 
 *All windows meter_live=1; trap-5 passed on buffer cells.*
