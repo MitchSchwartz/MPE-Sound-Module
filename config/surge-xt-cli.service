@@ -45,6 +45,23 @@ StandardError=journal
 #   before: mean 4.20 xruns/60s, 0/5 runs clean
 #   after:  mean 0.13 xruns/60s, 14/15 runs clean   (t = -4.47)
 #
+# E1 2026-08-20 was REVERTED. It widened this to `1 2 3` and paired that with
+# `irqaffinity=0`, to test whether sooperlooper's ladder step was crowding by
+# our own pinning. Measured n=15 at 512x3, every condition got worse:
+#   A 0.13 -> 0.80 (6.2x)   B 2.27 -> 6.20   D 3.13 -> 6.47
+# Condition A contains no sooperlooper, so its 6.2x degradation cannot be
+# crowding: for A the only change was putting EVERY interrupt on core 0 alone.
+# xhci (USB audio, unmovable) lives there, and xruns on this appliance originate
+# below JACK in the USB path -- the audio thread has 91% margin at its worst
+# recorded moment. So E1 delayed the one handler that was actually failing, to
+# give the audio thread a third core it never needed.
+#
+# The experiment changed two variables and so cannot cleanly answer the crowding
+# question -- it refuted the CONFIGURATION, not the hypothesis. But on four cores
+# no arrangement gives audio three interrupt-free cores, and this was the only
+# alternative split, so 2 IRQ cores + 2 audio cores stands as the best available.
+# docs/measurements/e1-three-cores-T1-2026-08-20.md
+#
 # sooperlooper is included because it is a JACK graph client -- its callback
 # runs in the process chain, so leaving it on cores 0-1 puts graph work back
 # next to the interrupts.

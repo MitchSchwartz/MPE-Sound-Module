@@ -14,6 +14,7 @@ source "$SCRIPT_DIR/lib/mpe-services.sh"
 
 BUFFER=""
 SAMPLE_RATE=""
+PERIODS=""
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -25,22 +26,26 @@ while [ $# -gt 0 ]; do
             SAMPLE_RATE="${2:?--sample-rate requires a value}"
             shift 2
             ;;
+        --periods)
+            PERIODS="${2:?--periods requires a value}"
+            shift 2
+            ;;
         *)
-            echo "Usage: $0 --buffer N | --sample-rate R (at least one required)" >&2
+            echo "Usage: $0 --buffer N | --sample-rate R | --periods P (at least one required)" >&2
             exit 1
             ;;
     esac
 done
 
-if [ -z "$BUFFER" ] && [ -z "$SAMPLE_RATE" ]; then
-    echo "ERROR: specify --buffer and/or --sample-rate" >&2
+if [ -z "$BUFFER" ] && [ -z "$SAMPLE_RATE" ] && [ -z "$PERIODS" ]; then
+    echo "ERROR: specify --buffer, --sample-rate, and/or --periods" >&2
     exit 1
 fi
 
 is_valid_buffer() {
     # JACK server period — must match jackd / mpe jack buffer (not legacy Surge ALSA sizes).
     case "$1" in
-        64 | 128 | 256 | 512 | 1024) return 0 ;;
+        64 | 96 | 128 | 192 | 256 | 512 | 1024) return 0 ;;
         *) return 1 ;;
     esac
 }
@@ -48,6 +53,13 @@ is_valid_buffer() {
 is_valid_sample_rate() {
     case "$1" in
         44100 | 48000) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+is_valid_periods() {
+    case "$1" in
+        2 | 3 | 4 | 6 | 8) return 0 ;;
         *) return 1 ;;
     esac
 }
@@ -65,6 +77,11 @@ fi
 
 if [ -n "$SAMPLE_RATE" ] && ! is_valid_sample_rate "$SAMPLE_RATE"; then
     echo "ERROR: invalid sample rate: $SAMPLE_RATE" >&2
+    exit 1
+fi
+
+if [ -n "$PERIODS" ] && ! is_valid_periods "$PERIODS"; then
+    echo "ERROR: invalid periods: $PERIODS (allowed: 2, 3, 4, 6, 8)" >&2
     exit 1
 fi
 
@@ -97,6 +114,11 @@ fi
 if [ -n "$SAMPLE_RATE" ]; then
     _update_env_var MPE_SURGE_SAMPLE_RATE "$SAMPLE_RATE"
     export MPE_SURGE_SAMPLE_RATE="$SAMPLE_RATE"
+fi
+
+if [ -n "$PERIODS" ]; then
+    _update_env_var MPE_JACK_PERIODS "$PERIODS"
+    export MPE_JACK_PERIODS="$PERIODS"
 fi
 
 mpe_source_appliance_env
@@ -132,5 +154,6 @@ fi
 
 echo -n "Applied"
 [ -n "$BUFFER" ] && echo -n " buffer=$BUFFER"
+[ -n "$PERIODS" ] && echo -n " periods=$PERIODS"
 [ -n "$SAMPLE_RATE" ] && echo -n " sample_rate=$SAMPLE_RATE"
 echo

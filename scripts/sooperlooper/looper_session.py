@@ -32,6 +32,8 @@ def _load_bench_module():
 
 def _hud_thread_main(stop: threading.Event, writer: HudWriter) -> None:
     try:
+        from patch_browser.health_source_liveness import verify_or_exit
+        verify_or_exit("looper-session")
         writer.register_auto_updates()
         print(
             f"looper-session: HUD -> {SL_HUD_STATE_FILE} (background thread)",
