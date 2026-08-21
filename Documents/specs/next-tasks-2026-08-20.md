@@ -534,36 +534,28 @@ Two consequences, and they reorder the queue:
    to recover. T7a can still settle cushion vs deadline, but a win there does not remove
    this.
 
-## Queue as of 2026-08-21 11:40
+## Queue as of 2026-08-21 12:35
 
-**T11 changed the picture.** Condition A falls off a cliff below 512 (0.13 -> 12.1 -> 678
--> 2776), while **callbacks never miss their deadline** -- worst case 917 us against 1333 us
-at 64 frames, with 6% of periods underrunning anyway. The drain is below JACK, in the USB
-transport. Full detail: `docs/measurements/t11-condA-ladder-2026-08-21.md`.
+**T13 refuted the runway model.** 128x6 and 256x3 have identical total buffer and differ by
+466x. **Period size binds, not runway.** And **256x3 did not reproduce** between T11 (12.10)
+and T13 (1.53). See `docs/measurements/t13-runway-refuted-2026-08-21.md`.
 
-| # | task | Pi time | why |
+| # | task | Pi time | notes |
 |---|---|---|---|
-| ~~--~~ | ~~T9, T11~~ **done** | -- | -- |
-| **1** | **T13 -- total-buffer test, condition A: 128x6 vs 256x3, plus 64x8** | ~45 min | decisive on transport model |
-| **2** | **T12 -- USB-aligned periods, condition A: 192x3 vs 256x3, 96x3 vs 128x3** | ~30 min | whole ladder may be on the wrong grid |
-| 3 | T7a -- 256x6 vs 512x3, plus 256x8, condition D | ~45 min | the looper case; subsumed by T13 if T13 is decisive |
-| 4 | **Scarlett** -- now critical path, not optional | -- | only lever acting on the binding term |
-| 5 | T10 -- wakeup delay | ~20 min | **largely answered by T11 for condition A**; only worth running for condition B/D |
-| 6 | decide the shipping default | -- | -- |
+| ~~--~~ | ~~T9, T11, T13~~ **done** | -- | T13's 64x8 cell still finishing |
+| **1** | **IRQ consolidation** -- movable IRQs off CPU0 | 1 min | largest single change available |
+| **2** | **Re-baseline 512x3 and 256x3, n=15, separate invocations** | ~30 min | new baseline *and* settles the 256x3 discrepancy |
+| **3** | **Scarlett baseline** -- T11 ladder at defaults | ~45 min | hardware gate; MSD mode, Tier-1 unplug, 480M check |
+| 4 | T12 -- USB-aligned periods 192x3 vs 256x3, 96x3 vs 128x3 | ~30 min | **more** interesting now: if servicing rate binds, frame alignment is a live mechanism |
+| 5 | `threadirqs` | reboot | on whichever device ships |
+| 6 | `lowlatency=N` | ~15 min | **demoted** -- acts on runway, which T13 says is not the term |
+| ~~--~~ | ~~T7b, cushion half of T7a~~ **answered by T13** | -- | more periods at smaller size is badly worse at equal latency |
 
-**T13 is the sharp one.** 128x6 and 256x3 have **identical total buffer** (16 ms, 16 USB
-frames) and different periods. Same rate => total buffer is the whole story, period size is
-irrelevant, and small periods are reachable by raising the period count. Different rate =>
-period size matters independently. Either answer is worth having and it is one comparison.
+**Re-baseline runs must be separate harness invocations, not a `--no-restore-buffer`
+chain**, so run order cannot explain the result.
 
-**T12's original gate was wrong** ("64 fails while 128 passes" -- both fail). Rewritten: no
-power-of-two period aligns to the device's 1 ms frame, so every cell measured so far
-straddles frame boundaries. If a *smaller, aligned* period beats a larger misaligned one,
-the ladder has been on the wrong grid all along.
-
-**T10 is demoted.** T11 measured callback lateness directly across three buffer sizes and
-it never binds. For condition A the wakeup-delay question is answered. It stays on the list
-only for the looper conditions, where the structural term is still unexplained.
+**Do not trust any absolute number from 2026-08-21** until the 256x3 discrepancy is
+explained. Relative comparisons within one invocation are still sound.
 
 ## What the soak ruled out
 

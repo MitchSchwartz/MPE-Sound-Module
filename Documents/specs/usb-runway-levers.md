@@ -16,6 +16,11 @@ BRCM-PCI-MSI implements no `set_affinity`, so the *hardware* affinity is unmovab
 established previously and re-confirmed. See the `threadirqs` entry for why this is less
 final than it sounds.
 
+> **DEMOTED 2026-08-21 by T13.** This lever acts on URB queue depth -- the runway. T13
+> showed 128 x 6 and 256 x 3, which have **identical** runway, differ by **466x**. Runway
+> is not the binding term; period size is. Keep this on the list but run it after the IRQ
+> work, and expect less from it.
+
 ## Lever 1 -- `snd_usb_audio.lowlatency=N`
 
 **Currently `lowlatency=Y`** (read from `/sys/module/snd_usb_audio/parameters/`).
@@ -105,7 +110,7 @@ A full device x setting grid is not warranted.
 
 | test | device | why |
 |---|---|---|
-| **L1 -- `lowlatency=N`** | **dongle** | The dongle is runway-starved; this is where the parameter bites. Decides whether 256 is reachable on cheap hardware -- i.e. whether the Scarlett is *necessary* or merely *better*. A product decision, not just a tuning one. |
+| **L1 -- `lowlatency=N`** *(demoted, see above)* | **dongle** | The dongle is runway-starved; this is where the parameter bites. Decides whether 256 is reachable on cheap hardware -- i.e. whether the Scarlett is *necessary* or merely *better*. A product decision, not just a tuning one. |
 | **L2 -- WiFi down, ethernet up** | **dongle** | Removes 1.68 M interrupts from CPU0 *and* a standing confound. Cheapest of the three. |
 | L3 -- `threadirqs` | **whichever device ships** | Device-independent in mechanism but the win size differs. Defer until the device is settled; no point tuning hardware that may be replaced. |
 | -- | Scarlett | **Baseline at defaults first.** Only tune if it does not already clear the bar. If the Scarlett needs `lowlatency=N` too, that says something worrying about the Pi rather than about the device. |
@@ -113,4 +118,36 @@ A full device x setting grid is not warranted.
 **One variable per test.** E1 is the cautionary tale -- two variables at once, every
 condition regressed, nothing learned about either.
 
-**Run order:** L2 (free, removes a confound) -> L1 -> Scarlett baseline -> L3 on the winner.
+**Run order (revised after T13):** IRQ consolidation -> re-baseline 512x3 and 256x3 ->
+Scarlett baseline -> `threadirqs` on the winner. `lowlatency=N` and T12 alignment after
+that, in that order.
+
+## Lever 3 revised -- IRQ consolidation, not the ethernet cable
+
+Measured on 2026-08-21. Every heavy interrupt source lands on CPU0 because `irqaffinity=0,1`
+makes CPU0 the lowest core in the mask:
+
+| IRQ | count | source | movable |
+|---:|---:|---|---|
+| 11 | 4.19 M | arch_timer | no -- per-CPU |
+| **30** | **3.29 M** | **xhci_hcd** | **no** -- `effective_affinity` is empty, the signature of a chip with no `set_affinity` |
+| 41 | 1.71 M | mmc0/mmc1 (SD card + SDIO WiFi) | **yes** |
+| 42 | 878 k | fe205000.i2c | **yes** |
+| 43 | 857 k | v3d (3D graphics, on a headless appliance) | **yes** |
+
+CPU0 carries ~6.7 M interrupts beyond the timer and **only one of them has to be there.**
+
+```bash
+for i in 41 42 43 28; do echo 2 | sudo tee /proc/irq/$i/smp_affinity_list; done
+```
+
+Leaves CPU0 with xhci and the timer. Strictly better than swapping WiFi for an ethernet
+cable -- the cable addresses only IRQ 41; this addresses four times as much and needs no
+cable and no loss of connectivity.
+
+**Does not persist across reboot** -- wants a systemd unit or udev rule once proven.
+**Do not apply while a measurement is running.**
+
+Worth chasing separately: **v3d at 857 k on a headless appliance** -- if nothing needs 3D,
+remove the driver rather than relocate its interrupt. And **i2c at 878 k** is high enough
+that something is being polled hard; worth identifying.
