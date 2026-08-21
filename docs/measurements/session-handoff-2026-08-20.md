@@ -1,92 +1,72 @@
 # Session handoff — 2026-08-20 (consolidated)
 
-**Branch:** `plan/t6-harness` @ `f543f38` · **Status: paused**
+**Branch:** `plan/post-t4-adjust` · **Status: active — I3 blocker first**
 
-Single rollup. Detail lives in linked artifacts; don't re-read the full work order unless
-resuming a specific task.
-
----
-
-## What landed (code + docs)
-
-| Item | Commit | One line |
-|---|---|---|
-| T2 sweep | `656b081` | Class A/B/B-live table — findings only |
-| T3 guards | `656b081` | periodic-loop lint + meter liveness on appliance |
-| E1 measurement | `ee73fb0` | Config refuted (A 6.2×); crowding not isolated |
-| I2 harness fix | `e4c32fe` | `_meter_xruns` fails loud; RESULT `meter_live=1` |
-| T6 rig sweep | `f543f38` | xrun-corr fixed; lint walks call graph; README §rig |
-| T4/T5 scripts | `f543f38` | `measure-loop-curve.sh`, `measure-soak.sh` (not run to completion) |
+Single rollup. Superseded queue in [`next-tasks-2026-08-20.md`](../../Documents/specs/next-tasks-2026-08-20.md) §Adjustments.
 
 ---
 
-## Measurements (confidence labelled)
+## BLOCKER — baseline moved and stayed moved
 
-### Baseline ladder (pre-E1, n=15, 512×3) — **measured**
+| measurement | A @ 512×3, xruns/60 s | clean |
+|---|---:|---|
+| baseline, n=15, pre-E1 | **0.13** | 14/15 |
+| E1 three-core, n=15 | 0.80 | |
+| I3 after revert, n=5 | **0.80** | 2,0,0,0,2 |
+| **I3 revised, n=15** | *pending* | |
 
-| cond | xruns/60 s mean |
+The revert restored **config**, not the **number**. Everything quoting A = 0.13 — including
+"512 usable without the looper" — is blocked until I3@n=15 lands.
+
+**Named hypothesis (guess):** I2 fixed `_meter_xruns` (`|| echo 0`). Old harness may have
+under-counted; **0.13 may be partly a measurement artifact.** If I3 → 0.80, baseline is
+0.80 and docs revise (honest reading: IRQ work **4.20 → 0.80**, not → 0.13).
+
+Config diff: [`i3-config-diff-2026-08-20.md`](i3-config-diff-2026-08-20.md).
+
+---
+
+## T4a @ 512 — answered, do not re-run
+
+[`t4a-512-loop-curve-2026-08-20.md`](t4a-512-loop-curve-2026-08-20.md) — non-monotonic,
+no tier. **Cancelled:** remaining 512 runs.
+
+## T4c @ 1024 — product claim (pending)
+
+| loops | mean (n=15) |
 |---|---:|
-| A | 0.13 |
-| B | 2.27 |
-| C | 2.53 |
-| D | 3.13 |
+| 0 | **0.00** |
+| 4 | **0.00** |
+| 8 | *pending* |
+| 16 | *pending* |
 
-512 usable without looper; not shippable with it. 1024 remains default.
+30 consecutive zeros with loops playing — strongest result in the investigation. Finish
+loops8 + loops16 only (`measure-loop-curve-1024-finish.sh`).
 
-### E1 three-core experiment — **experiment, refuted**
+## T5 — blocked
 
-Two variables (`irqaffinity` + `CPUAffinity`). A went to **0.80** (6.2× worse, no looper).
-Reverted to `irqaffinity=0,1` + `CPUAffinity=2 3`. Artifact:
-[`e1-three-cores-T1-2026-08-20.md`](e1-three-cores-T1-2026-08-20.md).
-
-### I3 revert check (n=5, 512×3, condition A) — **measured**
-
-Config verified on Pi. Runs: 2,0,0,0,2 → **mean 0.80**. Harness showed `meter_live=1` every
-window. Config reverted; **numbers do not match baseline 0.13** (n=5 underpowered, but
-two events in five runs). Artifact:
-[`i3-e1-revert-verify-2026-08-20.md`](i3-e1-revert-verify-2026-08-20.md).
-
-### T4 loop curve — **partial, paused**
-
-Stopped mid `buf1024-loops8` (90/120 runs). Raw log on Pi: `/tmp/t4-loop-curve.log`.
-
-| block | n | mean xruns/60 s |
-|---|---:|---:|
-| buf512-loops0 | 15 | 3.00 |
-| buf512-loops4 | 15 | 1.33 |
-| buf512-loops8 | 15 | 2.67 |
-| buf512-loops16 | 15 | 3.40 |
-| buf1024-loops0 | 15 | 0.00 |
-| buf1024-loops4 | 15 | 0.00 |
-| buf1024-loops8 | — | *interrupted* |
-
-**Guess:** idle 512 curve is flat/noisy at this n; 1024 looks clean so far. Not enough to
-pick a loop-count tier spec — do not quote as product truth.
-
-### T5 soak — **not started**
-
-Script ready: `scripts/measure-soak.sh --hours 8`. Blocked on: I3 baseline ambiguity +
-user pause.
+Soak waits on I3 + decided shipping config.
 
 ---
 
-## Harness guards (T6) — proven on Pi
+## Revised queue (~70 min)
 
-- Missing/stale meter → exit 1 (not 0). `tests/test_meter_harness.sh` on Pi.
-- `MPE_PEAK_METER=0` → harness exit 1.
-- RESULT lines carry `meter_live=1` when a number is recorded.
-
-Sweep: [`t6-harness-sweep-2026-08-20.md`](t6-harness-sweep-2026-08-20.md).
+| # | task | status |
+|---|---|---|
+| 1 | I3 n=15 + config diff | **blocker** |
+| 2 | T4c 1024 loops8 + loops16 | after I3 |
+| — | T4 512 remainder | **cancelled** |
+| 3 | T5 | blocked |
 
 ---
 
-## Pause — resume here
+## Code landed (reference)
 
-1. **I3:** n=15 condition A @ 512 — confirm revert vs baseline before trusting any soak.
-2. **T4:** optional — finish last 30 runs if loop-count curve still wanted; else discard partial.
-3. **T5:** 8 h soak only after I3 clears.
-4. **Merge:** PR #85 → experiment-plan → feat/audio-core-affinity → `dev` (unchanged).
-
-Do not merge D numbers measured before named bugs were fixed (gate still applies).
+| Item | Commit |
+|---|---|
+| I2 harness fix | `e4c32fe` |
+| T6 rig sweep | `f543f38` |
+| T4/T5 scripts | `f543f38` |
+| post-t4-adjust plan | `e6e373f` |
 
 *Last updated: 2026-08-20 (America/Toronto)*

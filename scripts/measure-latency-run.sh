@@ -40,6 +40,8 @@ _LOAD_PID=""
 _PROBE_PID=""
 PROBE_BIN="${MPE_MODULE_REPO}/native/mpe-xrun-probe/mpe-xrun-probe"
 
+SKIP_BUFFER_RESTORE=false
+
 while [ $# -gt 0 ]; do
     case "$1" in
         --buffer) BUFFER="${2:?--buffer requires a value}"; shift 2 ;;
@@ -50,6 +52,7 @@ while [ $# -gt 0 ]; do
         --self-test) SELF_TEST=true; SECONDS_PER_RUN=10; RUNS=1; shift ;;
         --restart-between) RESTART_BETWEEN="${2:?--restart-between requires a run index}"; shift 2 ;;
         --playing-loops) PLAYING_LOOPS="${2:?--playing-loops requires 0|4|8|16}"; shift 2 ;;
+        --no-restore-buffer) SKIP_BUFFER_RESTORE=true; shift ;;
         -h | --help) sed -n '2,20p' "$0"; exit 0 ;;
         *) echo "Unknown argument: $1 (try --help)" >&2; exit 2 ;;
     esac
@@ -137,6 +140,9 @@ _restore_all() {
     _stop_midi_load
     _stop_xrun_probe
     _restore_softmode
+    if [ "$SKIP_BUFFER_RESTORE" = true ]; then
+        return 0
+    fi
     if [ -n "$RESTORE_BUFFER" ] && [ "$RESTORE_BUFFER" != "$(mpe_jack_period 2>/dev/null || echo "$RESTORE_BUFFER")" ]; then
         "$SCRIPT_DIR/set-surge-audio.sh" --buffer "$RESTORE_BUFFER" >/dev/null 2>&1 || true
     fi
@@ -546,9 +552,13 @@ _run_window() {
     done
 
     echo "=== restore buffer ${RESTORE_BUFFER} ==="
-    "$SCRIPT_DIR/set-surge-audio.sh" --buffer "$RESTORE_BUFFER" || true
-    sleep 6
-    _assert_jack_period "$RESTORE_BUFFER" || echo "WARNING: restore period check failed" >&2
+    if [ "$SKIP_BUFFER_RESTORE" != true ]; then
+        "$SCRIPT_DIR/set-surge-audio.sh" --buffer "$RESTORE_BUFFER" || true
+        sleep 6
+        _assert_jack_period "$RESTORE_BUFFER" || echo "WARNING: restore period check failed" >&2
+    else
+        echo "skip restore (--no-restore-buffer)"
+    fi
     echo "done commit=$(git -C "$MPE_MODULE_REPO" rev-parse --short HEAD 2>/dev/null || echo unknown) log=$OUTPUT"
     echo "SENTINEL harness-end"
     echo
