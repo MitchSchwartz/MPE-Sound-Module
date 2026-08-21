@@ -28,13 +28,15 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT))
 
+from patch_browser.looper_health import JackGraphHealth, collect_jack_graph_health  # noqa: E402
 from patch_browser.sl_hud_state import SL_HUD_STATE_FILE  # noqa: E402
 
 WRITE_INTERVAL_S = float(os.environ.get("MPE_SL_HUD_WRITE_INTERVAL_S", "0.5"))
+REREGISTER_INTERVAL_S = 15.0
 SL_HOST = os.environ.get("MPE_SL_OSC_HOST", "127.0.0.1")
 SL_PORT = int(os.environ.get("MPE_SL_OSC_PORT", "9951"))
-LISTEN_PORT = int(os.environ.get("MPE_SL_HUD_LISTEN_PORT", "9952"))
 NUM_LOOPS = int(os.environ.get("MPE_SL_LOOPS", "16"))
+SCRATCH_LOOP = int(os.environ.get("MPE_SL_SCRATCH_LOOP", "15"))
 PLAYING_STATES = frozenset({4, 5})
 
 
@@ -70,70 +72,40 @@ def beat_and_bar(loop_pos: float, cycle_len: float) -> tuple[int | None, int | N
     return int((pos / cycle_len) * 4.0) % 4 + 1, int(loop_pos / cycle_len) + 1
 
 
-class SlQuery:
-    """Minimal blocking OSC getter against the SL engine."""
-
-    def __init__(self) -> None:
-        self.last: dict[str, float] = {}
-        self.client = None
-
-    def start(self):
-        from pythonosc import dispatcher as osc_dispatcher
-        from pythonosc import osc_server, udp_client
-
-        disp = osc_dispatcher.Dispatcher()
-        disp.set_default_handler(self._on)
-        self._server = osc_server.ThreadingOSCUDPServer((SL_HOST, LISTEN_PORT), disp)
-        threading.Thread(target=self._server.serve_forever, daemon=True).start()
-        self.client = udp_client.SimpleUDPClient(SL_HOST, SL_PORT)
-        return self
-
-    def _on(self, _addr, *args) -> None:
-        if len(args) >= 3:
-            self.last[f"{args[0]}:{args[1]}"] = args[2]
-
-    def cached(self, ctrl: str, loop: int = 0):
-        """Last value delivered by auto-update. Never blocks."""
-        return self.last.get(f"{loop if loop >= 0 else -2}:{ctrl}")
-
-    def get(self, ctrl: str, loop: int = 0, timeout: float = 0.4):
-        key = f"{loop if loop >= 0 else -2}:{ctrl}"
-        self.last.pop(key, None)
-        path = "/get" if loop < 0 else f"/sl/{loop}/get"
-        self.client.send_message(path, [ctrl, f"{SL_HOST}:{LISTEN_PORT}", "/r"])
-        deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
-            if key in self.last:
-                return self.last[key]
-            time.sleep(0.02)
-        return None
-
-
 class HudWriter:
-    def __init__(self) -> None:
+    def __init__(self, session=None) -> None:
         self._last_write = 0.0
         self._last_key: tuple | None = None
-        self._sl = SlQuery().start()
+        if session is None:
+            from sl_osc_session import SlOscSession
+
+            session = SlOscSession().start()
+        self._sl = session
         self._lengths: dict[int, float] = {}
         self._registered_at = 0.0
+        self._graph_health = JackGraphHealth()
+        self._last_health_sample = 0.0
 
     def register_auto_updates(self) -> None:
-        """Subscribe to state/loop_len/loop_pos rather than polling for them.
+        """Subscribe HUD controls on the shared session and seed tempo.
 
-        The first cut queried 16 loops x 2 controls per frame with blocking OSC
-        round-trips. That is ~32 blocking calls at draw rate for data that only
-        changes when a clip is recorded, and it stalled the writer outright.
+        register_auto_update delivers on CHANGE only — see module docstring and
+        tests/test_sl_hud_seed.py.
         """
-        for loop in range(NUM_LOOPS):
-            for ctrl in ("state", "loop_len", "loop_pos"):
-                self._sl.client.send_message(
-                    f"/sl/{loop}/register_auto_update",
-                    [ctrl, 100, f"{SL_HOST}:{LISTEN_PORT}", "/r"],
-                )
-        self._sl.client.send_message(
-            "/register_auto_update", ["tempo", 200, f"{SL_HOST}:{LISTEN_PORT}", "/r"]
-        )
+        self._sl.register_hud()
+        self._sl.seed_tempo()
         self._registered_at = time.monotonic()
+
+    def should_reregister(self) -> bool:
+        """Re-subscribe after an engine restart (register_auto_update is change-only)."""
+        return time.monotonic() - self._registered_at > REREGISTER_INTERVAL_S
+
+    def maybe_reregister_session(self) -> None:
+        self._sl.maybe_reregister()
+        self._registered_at = time.monotonic()
+
+    def close(self) -> None:
+        self._graph_health.close()
 
     def _phrase_reference(self, bar_span: float):
         """Longest playing loop = the musical phrase the counter should span.
@@ -148,6 +120,8 @@ class HudWriter:
         """
         lengths = {}
         for loop in range(NUM_LOOPS):
+            if loop == SCRATCH_LOOP:
+                continue
             state = self._sl.cached("state", loop)
             if state is None or int(state) not in PLAYING_STATES:
                 continue
@@ -197,10 +171,22 @@ class HudWriter:
         payload.setdefault("phrase_len", 0.0)
         payload.setdefault("phrase_pos", 0.0)
         payload.setdefault("bars_in_phrase", 1)
+        now_mono = time.monotonic()
+        health_fresh = False
+        if now_mono - self._last_health_sample >= WRITE_INTERVAL_S:
+            payload["health"] = collect_jack_graph_health(self._graph_health)
+            self._last_health_sample = now_mono
+            health_fresh = True
+        else:
+            payload["health"] = self._graph_health.snapshot()
         payload.update({"updated_at": time.time(), "cycle_len": 0.0, "loop_len": 0.0})
         key = (payload.get("beat"), payload.get("bar"), payload.get("active"))
         now = time.time()
-        if key == self._last_key and (now - self._last_write) < WRITE_INTERVAL_S:
+        if (
+            not health_fresh
+            and key == self._last_key
+            and (now - self._last_write) < WRITE_INTERVAL_S
+        ):
             return False
         self._last_key = key
         self._last_write = now
@@ -211,17 +197,24 @@ class HudWriter:
 
 
 def main() -> int:
-    writer = HudWriter()
+    from sl_osc_session import SlOscSession
+
+    session = SlOscSession().start()
+    session.register_hud_loops()
+    writer = HudWriter(session)
     writer.register_auto_updates()
     print(f"sl-hud-monitor: -> {SL_HUD_STATE_FILE} (follows the live clock)", flush=True)
     try:
         while True:
             writer.poll()
-            if time.monotonic() - writer._registered_at > 15.0:
-                writer.register_auto_updates()  # survive an engine restart
+            if writer.should_reregister():
+                writer.maybe_reregister_session()  # survive an engine restart
             time.sleep(0.1)
     except KeyboardInterrupt:
         return 0
+    finally:
+        # Release the held jack_cpu_load client rather than leaving it on the graph.
+        writer._graph_health.close()
 
 
 if __name__ == "__main__":

@@ -1,4 +1,4 @@
-"""Read SooperLooper HUD state written by sl-hud-monitor.py."""
+"""Read SooperLooper HUD state written by mpe-looper-session (HUD thread) or sl-hud-monitor.py."""
 
 from __future__ import annotations
 
@@ -14,11 +14,12 @@ STALE_AFTER_S = float(os.environ.get("MPE_SL_HUD_STALE_S", "2.0"))
 TRANSPORT_STALE_AFTER_S = float(os.environ.get("MPE_SL_HUD_TRANSPORT_STALE_S", "5.0"))
 
 
-def read_sl_hud_state(*, now: float | None = None) -> dict:
+def read_sl_hud_state(*, path: Path | None = None, now: float | None = None) -> dict:
     """Return normalized SL HUD snapshot (empty dict if missing/stale)."""
     now = time.time() if now is None else now
+    hud_file = path if path is not None else SL_HUD_STATE_FILE
     try:
-        raw = json.loads(SL_HUD_STATE_FILE.read_text(encoding="utf-8"))
+        raw = json.loads(hud_file.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return {}
 

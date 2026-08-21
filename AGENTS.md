@@ -1,10 +1,49 @@
 # MPE-Module — agent orientation
 
-*Last updated: 2026-08-15 (America/Toronto)*
+*Last updated: 2026-08-17 (America/Toronto)*
 
 **Product:** Raspberry Pi MPE sound module (Surge XT headless + patch browser UI).
 
 **Before looper / Phase 2 work:** [`Documents/DIRECTION.md`](Documents/DIRECTION.md) · [`Documents/DECISIONS.md`](Documents/DECISIONS.md) · OM-Repo [`GROUNDING.md`](https://github.com/opsMachine/OM-Repo/blob/main/internal/projects/mpe-synth-launch/GROUNDING.md)
+
+**Before adding any polling loop, watchdog tick, or timer:** CPU is the scarcest resource
+on this appliance — a `python3` fork is ~400 ms on the Pi, so once every 5 s is **9% of a
+core, forever**. Compute cost × cadence and put it in the PR. Rules and measured constants:
+[`Documents/DECISIONS.md`](Documents/DECISIONS.md) § *2026-08-18 — CPU is the scarcest resource*.
+
+---
+
+## 🔊 Audio output safety — read before making sound
+
+**Headphones or speakers may be connected, and Mitch may be wearing them.** You cannot tell from the appliance. A loud transient into headphones on someone's head causes permanent hearing damage, and can destroy a driver instantly. This is the one failure on this project that cannot be rolled back.
+
+**The rule:**
+
+1. **Use the quietest level that proves the thing.** Verifying that audio is flowing needs far less level than "sounds good." Default to barely audible and raise only if the test genuinely requires it.
+2. **Above 50% output, stop and ask.** Explicitly check in with Mitch before any test that exceeds it, and say what you intend to run. Do not infer consent from an earlier "go ahead" — his headphones may be on now and were not before.
+3. **Never raise a level to diagnose silence.** If you expect sound and hear none, the cause is almost always routing, a stopped service, or a wrong device — not gain. Turning it up to find out is exactly how the damage happens. Check `mpe-yolo jack-status`, `osc-check`, and the unit states first.
+4. **Restore any level you change**, and say in your summary that you changed it.
+
+**There are three gain stages in series.** A level that is safe at one is not safe end to end:
+
+| Stage | Control |
+|---|---|
+| Surge patch output | OSC `/param/a/amp/volume`, `/param/b/amp/volume` (UDP 53280) |
+| Looper | `MPE_SL_LOOP_GAIN`, `MPE_SL_LOOP_GAIN_LAW` |
+| Hardware mixer | `MPE_DAC_VOLUME_DB` in `/etc/mpe/mpe.env` → `scripts/set-dac-volume.sh` (`amixer` on Sound Blaster **Speaker**) |
+
+**Hardware output is the Sound Blaster Play! 3** (card index varies by hotplug — scripts detect by name). The playback control is **`Speaker`** — there is no `PCM` control on this card. Scale **0–88 raw**, dB ≈ `(raw − 88) × 0.5`. Appliance default: **`MPE_DAC_VOLUME_DB=-12`** (raw **64**). Previous defaults: 76 (−6 dB), 48 (−20 dB).
+
+Treat the **dB figure as the real number**, not the percentage — `amixer`'s percentage is not perceived loudness. Read or set via:
+
+```bash
+./scripts/set-dac-volume.sh --show
+./scripts/set-dac-volume.sh   # applies /etc/mpe/mpe.env
+```
+
+**Loops sum.** A per-loop gain that is fine alone is not fine with 16 playing at once. Bring level up *after* the loops are running, never before.
+
+**You cannot infer the output device.** Cards 0 (Pi headphone jack), 2 and 3 (HDMI) also exist. Which one reaches Mitch's ears is not visible from the appliance — assume the worst case.
 
 ---
 
@@ -116,14 +155,27 @@ Hard rules for agents:
 
 ---
 
-## Pi deploy
+## Pi deploy — appliance only, never a dev workspace
 
-| Action | Command (on Pi) |
-|--------|------------------|
-| Apply branch | `git fetch && git checkout <branch> && git pull && ./scripts/configure-pi-paths.sh --local --force` |
-| Remote from PC | `scripts/configure-pi-paths.sh [--force]` (uses `PI_HOST` from `config/mpe.env`) |
+**Hard rule (2026-08-17):** The Pi is a **read-only deploy target**. All commits, branches, stashes, and WIP live on the **laptop** (or nerdrack). Do not SSH in to edit, commit, stash, or create branches on the appliance.
+
+| Pi state | Expected |
+|----------|----------|
+| Branch | **`main` only** — no local feature/`yolo/*` branches |
+| Push | **`origin` push URL = `DISABLED`** — pulls only |
+| GitHub auth | **None** — public repo pulls anonymously ([`docs/PI-GITHUB-ACCESS.md`](docs/PI-GITHUB-ACCESS.md)) |
+| Working tree | **Clean** — no uncommitted changes, no stashes |
+
+**Deploy from the laptop** — never “finish work on the Pi”:
+
+| Action | Command |
+|--------|---------|
+| Apply `main` on Pi | `scripts/configure-pi-paths.sh [--force]` (uses `PI_HOST` from `config/mpe.env`) |
+| Soak a feature branch | Laptop: merge to `dev`, then `ssh … 'cd ~/MPE-Module && git fetch && git checkout dev && git pull && ./scripts/configure-pi-paths.sh --local --force'` — **return Pi to `main` after soak** |
 
 Repo path on Pi: `~/MPE-Module` (override via `MPE_MODULE_REPO` in `/etc/mpe/mpe.env`).
+
+**Archived Pi-only work:** `archive/yolo-looper-phase0-pi-snapshot` on origin (73 commits from retired `yolo/looper-phase0`; SooperLooper superseded it).
 
 ---
 
@@ -131,14 +183,17 @@ Repo path on Pi: `~/MPE-Module` (override via `MPE_MODULE_REPO` in `/etc/mpe/mpe
 
 | Topic | Doc |
 |-------|-----|
+| **Code map (function-level, boot/lifecycle)** | [`docs/CODE-MAP.md`](docs/CODE-MAP.md) |
 | **Phase 2 direction + locked decisions** | [`Documents/DIRECTION.md`](Documents/DIRECTION.md) · [`Documents/DECISIONS.md`](Documents/DECISIONS.md) |
 | Git branches + Pi testing | [`docs/GIT-WORKFLOW.md`](docs/GIT-WORKFLOW.md) |
 | Paths / env vars | [`docs/PATHS.md`](docs/PATHS.md) |
 | USB desk tether (`usb-host`) | [`docs/USB-AUDIO-HOST.md`](docs/USB-AUDIO-HOST.md) |
+| USB multichannel stems (design) | [`docs/USB-MULTICHANNEL-STEMS.md`](docs/USB-MULTICHANNEL-STEMS.md) |
 | USB session record (`usb-host-session`) | [`docs/USB-SESSION-RECORD.md`](docs/USB-SESSION-RECORD.md) |
 | Touch UI demo screen record | [`docs/TOUCH_PATCH_BROWSER.md`](docs/TOUCH_PATCH_BROWSER.md) · `mpe record` (mpe-cli) |
 | Touch UI | [`docs/TOUCH_PATCH_BROWSER.md`](docs/TOUCH_PATCH_BROWSER.md) |
 | Boot recovery | [`docs/PI-BOOT-RECOVERY.md`](docs/PI-BOOT-RECOVERY.md) |
+| **CPU budget / no forks in loops** | [`Documents/DECISIONS.md`](Documents/DECISIONS.md) § *2026-08-18* |
 
 ---
 
@@ -149,3 +204,44 @@ python3 -m unittest discover -s tests -q
 ```
 
 Run before opening PRs to `dev`.
+
+### Never ask Mitch to run a test you could have run yourself
+
+If a check does not require his hands or his ears, run it. Do not stage it, describe
+it, or ask him to trigger it — run it, read the result, and report the number.
+
+He is needed for exactly three things:
+
+- **playing the instrument** — feel, per-patch behaviour, anything musical (B10, criterion 44);
+- **hearing it** — crackle, timbre, whether a change sounds right;
+- **decisions** — enabling a unit by default, accepting a tradeoff, scope.
+
+Everything else is yours: unit tests, xrun runs, CPU sampling, DSP load, latency
+harnesses, crash-recovery timing, snapshot cost. MIDI input is **not** a reason to
+involve him — `scripts/midi-load.py` drives Surge, and a virtual ALSA port connected to
+the bench's input drives pads (see `docs/measurements/looper-midi-osc-latency-2026-08-19.md`).
+
+### Self-test the instrument before it costs him anything
+
+On 2026-08-19 Mitch tapped pads **382 times across two sessions** and both produced zero
+samples, because the harness was hooking a code path pads never touch. Four separate
+measurements in that work order exited cleanly having recorded nothing:
+
+| instrument | failure | looked like |
+|---|---|---|
+| `xrun-corr.sh` | writes to `~/xrun-corr.out`, not stdout | 12 runs, exit 0, empty file |
+| `set-surge-audio.sh` | fails without `sudo`, then continues | a run labelled 512 executed at 1024 |
+| latency tap v1 | hooked `_send`; footswitches use the raw client | 267 presses, `n=0` |
+| latency tap v2 | paired only with `/hit`; most gestures emit none | 115 presses, `n=0` |
+
+Same shape every time: **the failure is indistinguishable from the success.** So before
+any measurement involves him:
+
+1. **Drive it synthetically first** and confirm it produces non-zero output.
+2. **Assert the instrument is the one you think it is** — `grep` the deployed file for
+   the fix, print the real `jackd` command line, check the sample count. A deploy step
+   that prints nothing has not necessarily succeeded.
+3. **Count what you discarded.** A measurement that silently drops its input reports the
+   same thing whether it worked or not.
+
+A remote command that returns no output is not evidence that it ran.

@@ -1,7 +1,7 @@
 """SooperLooper grid-sync OSC configuration."""
 
 import unittest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from scripts.sooperlooper.sl_grid_sync import (
     apply_freeform,
@@ -77,6 +77,60 @@ class SlGridSyncTests(unittest.TestCase):
                 ("/set", ["tempo", 30.0]),
             ],
         )
+
+    def test_phase_anchor_helpers(self) -> None:
+        from scripts.sooperlooper.sl_grid_sync import (
+            detect_loop_wrap,
+            should_defer_phase_anchor,
+        )
+
+        self.assertTrue(should_defer_phase_anchor(0.08, 2.0, loop_pos_seen=True))
+        self.assertFalse(should_defer_phase_anchor(0.01, 2.0, loop_pos_seen=True))
+        self.assertTrue(should_defer_phase_anchor(0.0, 2.0, loop_pos_seen=False))
+        self.assertTrue(detect_loop_wrap(1.9, 0.01, 2.0))
+        self.assertFalse(detect_loop_wrap(0.5, 0.6, 2.0))
+
+    def test_apply_loop_latency_autoset(self) -> None:
+        from scripts.sooperlooper.sl_grid_sync import apply_loop_latency
+
+        sent: list[tuple[str, list]] = []
+
+        def send(path: str, args: list) -> None:
+            sent.append((path, args))
+
+        apply_loop_latency(send, num_loops=2)
+        self.assertIn(("/sl/0/set", ["autoset_latency", 1.0]), sent)
+        self.assertIn(("/sl/1/set", ["autoset_latency", 1.0]), sent)
+
+    def test_apply_loop_latency_override(self) -> None:
+        from scripts.sooperlooper.sl_grid_sync import apply_loop_latency
+
+        sent: list[tuple[str, list]] = []
+
+        def send(path: str, args: list) -> None:
+            sent.append((path, args))
+
+        with unittest.mock.patch.dict(
+            "os.environ", {"MPE_SL_INPUT_LATENCY": "2048"}, clear=False
+        ):
+            apply_loop_latency(send, num_loops=1)
+        self.assertIn(("/sl/0/set", ["autoset_latency", 0.0]), sent)
+        self.assertIn(("/sl/0/set", ["input_latency", 2048.0]), sent)
+        self.assertIn(("/sl/0/set", ["trigger_latency", 0.0]), sent)
+
+    def test_grid_sync_applies_loop_latency(self) -> None:
+        sent: list[tuple[str, list]] = []
+
+        def send(path: str, args: list) -> None:
+            sent.append((path, args))
+
+        apply_grid_sync(send, num_loops=2, fade_samples=64, bpm=100.0)
+        self.assertIn(("/sl/0/set", ["autoset_latency", 1.0]), sent)
+
+    def test_default_fade_samples_is_256(self) -> None:
+        from scripts.sooperlooper import sl_grid_sync
+
+        self.assertEqual(sl_grid_sync.DEFAULT_FADE_SAMPLES, 256)
 
     def test_grid_sync_jack_transport_all_quantized(self) -> None:
         sent: list[tuple[str, list]] = []
