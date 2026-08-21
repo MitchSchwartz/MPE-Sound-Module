@@ -35,15 +35,15 @@ _run_once() {
 _log "T5-pre demo $(date -Is)"
 _log "commit: $(git -C "$REPO" rev-parse --short HEAD 2>/dev/null || echo unknown)"
 
-# Case 1: meter stopped, jackd running
+# Case 1: meter stopped, jackd running (wait for stale)
 sudo systemctl stop mpe-peak-meter.service
-sleep 2
+sleep 4
 if ! pgrep -x jackd >/dev/null; then
     _log "ERROR: jackd not running — start audio stack first" >&2
     exit 1
 fi
 _run_once "meter stopped, jackd running" || exit 1
-grep -q "meter fault" "$OUT" || grep -q "peak-meter stale" "$OUT" || {
+grep -qE "meter fault|peak-meter stale" "$OUT" || {
     _log "FAIL: expected meter-fault alarm text"
     exit 1
 }
