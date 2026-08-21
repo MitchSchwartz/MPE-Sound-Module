@@ -162,8 +162,20 @@ Branch: `yolo/system-hygiene-baseline`
 |---|---|---|
 | 0 | [`step0-restore-jack-2026-08-21.md`](../docs/measurements/step0-restore-jack-2026-08-21.md) | done — 1024×3 read back |
 | 1 | [`step1-unknowns-2026-08-21.md`](../docs/measurements/step1-unknowns-2026-08-21.md) | done |
-| 2 | code + `apply-appliance-hygiene.sh` | deployed on Pi (see step2 doc) |
-| 3 | re-baseline | pending / in progress |
+| 2 | [`step2-hygiene-applied-2026-08-21.md`](../docs/measurements/step2-hygiene-applied-2026-08-21.md) | done — reboot + verify |
+| 3 | [`step3-rebaseline-2026-08-21.md`](../docs/measurements/step3-rebaseline-2026-08-21.md) | done |
+
+### Re-baseline numbers (Step 3, post-hygiene)
+
+| config | mean xruns/60 s | clean /15 | notes |
+|---|---:|---:|---|
+| 512×3 A | **0.13** | 14/15 | separate invocation |
+| 256×3 A | **7.80** | 0/15 | T11/T13 spread **not settled** |
+| 1024×3 D8 | **0.20** | 12/15 | **replaces** 0.00/15/15 shipping claim |
+
+**Survives:** structural conclusions in §What Phase 0 does to existing conclusions (period binds, below-JACK drain, Poisson).
+
+**Provisional:** every absolute xruns/min figure above; old 0.00 shipping claim **withdrawn** pending longer soak if needed.
 
 ### What Phase 0 changed (code)
 
