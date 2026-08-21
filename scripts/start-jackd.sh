@@ -28,7 +28,14 @@ if ! command -v jackd >/dev/null 2>&1; then
     exit 1
 fi
 
-echo "Starting jackd on $HW_DEV — ${JACK_BUFFER} x ${JACK_PERIODS} @ ${JACK_RATE} Hz (softmode)"
+SOFTMODE_ARGS=()
+SOFTMODE_LABEL="strict — clients that miss the deadline get zombified"
+if mpe_jack_softmode_enabled; then
+    SOFTMODE_ARGS=(-s)
+    SOFTMODE_LABEL="softmode"
+fi
+
+echo "Starting jackd on $HW_DEV — ${JACK_BUFFER} x ${JACK_PERIODS} @ ${JACK_RATE} Hz (${SOFTMODE_LABEL})"
 mpe_jack_state_write "$HW_DEV" "$JACK_BUFFER" "$JACK_PERIODS" "$JACK_RATE"
 # Do not clobber Surge's ok/failed — only publish recovering when nothing more
 # specific is already published.
@@ -40,5 +47,5 @@ case "$current_state" in
         ;;
 esac
 
-exec jackd -R -P"$JACK_PRIO" -s \
+exec jackd -R -P"$JACK_PRIO" "${SOFTMODE_ARGS[@]}" \
     -d alsa -P "$HW_DEV" -r "$JACK_RATE" -p "$JACK_BUFFER" -n "$JACK_PERIODS"

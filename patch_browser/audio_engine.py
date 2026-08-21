@@ -24,6 +24,7 @@ VALID_LOOPER_LABELS = frozenset({"guarded", "enabled", "off"})
 ENGINE_STATE_FILE = Path("/run/mpe/engine.state")
 RECONCILE_STATE_FILE = Path("/run/mpe/engine-reconcile.state")
 JACK_STATE_FILE = Path("/run/mpe/jack.state")
+METER_STATE_FILE = Path("/run/mpe/meter.state")
 ENGINE_STATE_MAX_BYTES = 4096
 
 COOLDOWN_SEC = 30
@@ -177,6 +178,11 @@ def read_engine_state(path: Path | None = None) -> dict[str, str]:
         if key:
             result[key] = value
     return result
+
+
+def read_meter_state(path: Path | None = None) -> dict[str, str]:
+    """Parse ``meter.state`` from the compiled peak meter process."""
+    return read_engine_state(path or METER_STATE_FILE)
 
 
 def engine_hud_should_show(state: dict[str, str] | None) -> bool:
