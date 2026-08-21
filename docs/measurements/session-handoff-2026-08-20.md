@@ -12,17 +12,18 @@ Single rollup. Superseded queue in [`next-tasks-2026-08-20.md`](../../Documents/
 |---|---:|---|
 | baseline, n=15, pre-E1 | **0.13** | 14/15 |
 | E1 three-core, n=15 | 0.80 | |
-| I3 after revert, n=5 | **0.80** | 2,0,0,0,2 |
-| **I3 revised, n=15** | *pending* | |
+| I3 after revert, n=5 | 0.80 | 2,0,0,0,2 |
+| **I3 revised, n=15** | **0.13** | 14/15 clean — **blocker cleared** |
 
 The revert restored **config**, not the **number**. Everything quoting A = 0.13 — including
 "512 usable without the looper" — is blocked until I3@n=15 lands.
 
 **Named hypothesis (guess):** I2 fixed `_meter_xruns` (`|| echo 0`). Old harness may have
-under-counted; **0.13 may be partly a measurement artifact.** If I3 → 0.80, baseline is
-0.80 and docs revise (honest reading: IRQ work **4.20 → 0.80**, not → 0.13).
+under-counted; not disproved in theory, but **I3@n=15 = 0.13** under the fixed harness.
+Baseline stands; no doc revision for IRQ win (4.20 → 0.13).
 
-Config diff: [`i3-config-diff-2026-08-20.md`](i3-config-diff-2026-08-20.md).
+Config diff: [`i3-config-diff-2026-08-20.md`](i3-config-diff-2026-08-20.md). Result:
+[`i3-n15-e1-revert-2026-08-20.md`](i3-n15-e1-revert-2026-08-20.md).
 
 ---
 
@@ -33,15 +34,15 @@ no tier. **Cancelled:** remaining 512 runs.
 
 ## T4c @ 1024 — product claim (pending)
 
-| loops | mean (n=15) |
-|---|---:|
-| 0 | **0.00** |
-| 4 | **0.00** |
-| 8 | *pending* |
-| 16 | *pending* |
+| loops | mean (n=15) | clean |
+|---|---:|---|
+| 0 | **0.00** | 15/15 |
+| 4 | **0.00** | 15/15 |
+| 8 | **0.00** | 15/15 |
+| 16 | **0.13** | 13/15 |
 
-30 consecutive zeros with loops playing — strongest result in the investigation. Finish
-loops8 + loops16 only (`measure-loop-curve-1024-finish.sh`).
+**Product claim holds.** 60 runs @ 1024, loops playing: 58/60 clean, 2 xruns total (loops16
+only). See [`t4c-1024-loop-curve-finish-2026-08-20.md`](t4c-1024-loop-curve-finish-2026-08-20.md).
 
 ## T5 — blocked
 
@@ -53,10 +54,9 @@ Soak waits on I3 + decided shipping config.
 
 | # | task | status |
 |---|---|---|
-| 1 | I3 n=15 + config diff | **blocker** |
-| 2 | T4c 1024 loops8 + loops16 | after I3 |
-| — | T4 512 remainder | **cancelled** |
-| 3 | T5 | blocked |
+| 1 | I3 n=15 + config diff | **done** — 0.13, 14/15 |
+| 2 | T4c 1024 loops8 + loops16 | **done** — loops8 0.00, loops16 0.13 |
+| 3 | T5 | unblocked on I3; still needs decided shipping config |
 
 ---
 

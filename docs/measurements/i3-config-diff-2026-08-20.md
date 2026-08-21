@@ -49,10 +49,26 @@ meter — revise claim rather than hunt a silent regression.
 
 ---
 
-## Snapshot (Pi)
+## Snapshot (Pi) — 2026-08-21T01:47:23+01:00
 
 ```
-(paste measure-config-snapshot.sh output after I3 run)
+repo: 4067b45
+kernel: 6.18.34+rpt-rpi-v8
+cmdline: ... irqaffinity=0,1
+MPE_PEAK_METER=1
+MPE_JACK_SOFTMODE=1          # harness sets 0 during measure (strict)
+MPE_SURGE_BUFFER_SIZE=1024   # appliance default; run at 512 via --buffer
+MPE_JACK_BUFFER=512          # left from T4 partial
+MPE_SL_LOOPS=4
+CPUAffinity: jackd/surge/looper = 2-3
+jackd: -p 512 -n 3, taskset 2,3
+governor: performance
+peak meter: active, meter.state present
 ```
+
+**Diff vs 0.13 era:** IRQ/core pinning matches post-IRQ baseline. **Behavioural**
+differences only: I2 meter read, E2 watchdog meter probe, strict softmode during harness.
+Appliance env shows **512** buffer on disk from interrupted T4; I3 passes `--buffer 512`
+explicitly.
 
 *Last updated: 2026-08-20 (America/Toronto)*
