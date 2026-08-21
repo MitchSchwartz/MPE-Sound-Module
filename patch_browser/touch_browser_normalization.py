@@ -18,7 +18,6 @@ from patch_browser.calibration_constants import (
 )
 from patch_browser.dsi_splash import SplashMode, draw_splash_frame
 from patch_browser.geometry import Rect
-from patch_browser.patch_normalization import NORM_GAIN_DB_MAX, NORM_GAIN_DB_MIN
 from patch_browser.patch_sidecar_key import sidecar_kwargs_from_patch
 from patch_browser.draw_primitives import draw_toggle_switch
 from patch_browser.touch_ui_constants import (
@@ -71,64 +70,11 @@ class TouchBrowserNormalizationMixin:
         return bool(
             entry
             and (
-                entry.get("gain_db") is not None or entry.get("user_gain_db") is not None
+                entry.get("gain_db") is not None
+                or entry.get("user_trim_db") is not None
+                or entry.get("user_gain_db") is not None
             )
         )
-
-    def _show_norm_level_fader(self) -> bool:
-        """Second mixer column — only when Norm. is checked for this patch."""
-        if not self.detail_patch:
-            return False
-        store = self.loader.normalization
-        if not store.is_globally_enabled():
-            return False
-        return store.is_enabled(self.detail_patch["name"], **self._detail_sidecar_kw())
-
-    def _norm_gain_db_for_detail(self) -> float:
-        if not self.detail_patch:
-            return 0.0
-        store = self.loader.normalization
-        kw = self._detail_sidecar_kw()
-        name = self.detail_patch["name"]
-        effective = store.get_effective_gain_db(name, **kw)
-        if effective is not None:
-            return max(NORM_GAIN_DB_MIN, min(NORM_GAIN_DB_MAX, effective))
-        default = store.get_slider_default_gain_db(name, **kw)
-        return max(NORM_GAIN_DB_MIN, min(NORM_GAIN_DB_MAX, default))
-
-    def _apply_norm_gain_db(self, gain_db: float, *, persist: bool = True) -> None:
-        if not self.detail_patch:
-            return
-        patch = self.detail_patch
-        kw = self._detail_sidecar_kw()
-        name = patch["name"]
-        store = self.loader.normalization
-        default = store.get_slider_default_gain_db(name, **kw)
-        clamped = max(NORM_GAIN_DB_MIN, min(NORM_GAIN_DB_MAX, float(gain_db)))
-        if abs(clamped - default) < 0.05:
-            store.clear_user_gain_db(name, persist=persist, **kw)
-        else:
-            store.set_user_gain_db(name, clamped, persist=persist, **kw)
-        loaded = self.loaded_patch_info
-        if loaded and self.loader.osc_enabled and store.refs_match(loaded, patch):
-            self.loader.refresh_patch_volume(name)
-
-    def _reset_norm_gain_to_calibrated(self) -> None:
-        if not self.detail_patch:
-            return
-        patch = self.detail_patch
-        kw = self._detail_sidecar_kw()
-        name = patch["name"]
-        store = self.loader.normalization
-        store.clear_user_gain_db(name, **kw)
-        default = store.get_slider_default_gain_db(name, **kw)
-        loaded = self.loaded_patch_info
-        if loaded and self.loader.osc_enabled and store.refs_match(loaded, patch):
-            self.loader.refresh_patch_volume(name)
-        if store.get_calibrated_gain_db(name, **kw) is not None:
-            self._toast(f"Level reset to {default:+.1f} dB", 1.5)
-        else:
-            self._toast("Level reset to 0 dB", 1.5)
 
     def _normalization_patch_name(self) -> str | None:
         if not self.detail_patch:
