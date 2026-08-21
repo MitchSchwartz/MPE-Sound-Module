@@ -137,3 +137,61 @@ the new zero. The one-variable rule applies to Phase 3, where we are testing hyp
 
 The shipping claim is likely to **improve**, not degrade — the crash loop and the timers
 were noise added to it. But it needs re-taking before it is quoted.
+
+---
+
+## Corrections and resolutions from the 2026-08-21 top-down review
+
+These override earlier suggestions in this doc and in the census:
+
+| earlier suggestion | resolution |
+|---|---|
+| Remove vc4 / display stack | **WRONG** — DSI-1 drives the touch panel. Keep vc4 + DSI overlay. |
+| Blacklist v3d immediately | **Defer** — pygame touch UI does not use GL; disable **HDMI outputs only** first (`video=HDMI-A-1:d video=HDMI-A-2:d`). |
+| Poll i2c 878k — delete driver | **Partial** — IRQ 42 is **touchscreen** (edt_ft5x06). Move IRQ, do not remove bus. |
+| pressure-remap crash = no Roli | **Detection bug** — USB can enumerate before ALSA MIDI port; wait for both. |
+| Meter restart re-baseline in harness | **VOID the run** — backwards xrun count mid-window invalidates the window. |
+
+---
+
+## Phase 0 execution log (2026-08-21)
+
+Branch: `yolo/system-hygiene-baseline`
+
+| step | artifact | status |
+|---|---|---|
+| 0 | [`step0-restore-jack-2026-08-21.md`](../docs/measurements/step0-restore-jack-2026-08-21.md) | done — 1024×3 read back |
+| 1 | [`step1-unknowns-2026-08-21.md`](../docs/measurements/step1-unknowns-2026-08-21.md) | done |
+| 2 | [`step2-hygiene-applied-2026-08-21.md`](../docs/measurements/step2-hygiene-applied-2026-08-21.md) | done — reboot + verify |
+| 3 | [`step3-rebaseline-2026-08-21.md`](../docs/measurements/step3-rebaseline-2026-08-21.md) | done |
+
+### Re-baseline numbers (Step 3 — within-stream only)
+
+| config | mean xruns/60 s | clean /15 | notes |
+|---|---:|---:|---|
+| 512×3 A | **0.13** | 14/15 | 1 stream — delta vs pre-hygiene **not interpretable** |
+| 256×3 A | **7.80** | 0/15 | 1 stream — T11/T13/hyg are **3 different streams** |
+| 1024×3 D8 | **0.20** | 12/15 | 1 stream — **not** a shipping claim |
+
+**Stream-start variance:** [`stream-start-variance-2026-08-21.md`](../docs/measurements/stream-start-variance-2026-08-21.md)
+
+**Phase 0:** defects fixed (measured on device). **Delta vs baseline unevaluated** until
+`measure-stream-sample.sh` (N streams × k runs). **T12** (192×3 vs 256×3, 10 streams) is
+the primary next experiment.
+
+**Survives:** structural conclusions in §What Phase 0 does to existing conclusions (period binds, below-JACK drain, Poisson).
+
+**Withdrawn:** every absolute xruns/min figure and all shipping claims until stream sampling.
+
+### What Phase 0 changed (code)
+
+- `mpe-peak-meter`: exit 0 on jack shutdown; `CPUAffinity=2 3`
+- `measure-latency-run.sh`: VOID window if meter xruns go backwards; probe on 2–3
+- `MeterXrunCounter`: `None` on mid-run restart (not silent re-baseline)
+- `mpe-pressure-remap`: wait USB **and** ALSA MIDI; `Restart=no`; udev hot-plug restart
+- `mpe-irq-affinity.service` + movable IRQs → CPU1
+- `boot-assert-cmdline.sh` on jackd prestart
+- `apply-appliance-hygiene.sh`: timers masked, services pruned, USB PM on, WiFi PS off, HDMI disabled in cmdline
+
+*Last updated: 2026-08-21 (America/Toronto)*
+

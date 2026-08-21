@@ -27,6 +27,7 @@ DEST="/etc/systemd/system"
 
 # Units that must be enabled at boot.
 ENABLED=(
+    mpe-irq-affinity
     mpe-jackd
     surge-xt-cli
     surge-watchdog
