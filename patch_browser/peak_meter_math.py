@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 
 # Bar scale and color bands — single source for the OUT meter.
-PEAK_METER_FLOOR_DBFS = -48.0  # empty bar
+PEAK_METER_FLOOR_DBFS = -24.0  # empty bar
 PEAK_METER_CLIP_DBFS = 0.0  # full bar (digital clip / headroom reference)
 
 # Color bands tuned for normalized Surge output (SAFE_PEAK_DBTP = -3 in patch_normalization).
