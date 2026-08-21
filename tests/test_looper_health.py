@@ -96,44 +96,75 @@ class JackProbeTests(unittest.TestCase):
 
 
 class JournalXrunCounterTests(unittest.TestCase):
-    """The old probe rescanned the whole journal every tick; this must not."""
+    """One ``journalctl -f`` for the life of the monitor — no fork per poll."""
 
-    @patch("patch_browser.looper_health.subprocess.run")
-    def test_follows_cursor_and_accumulates(self, run_mock) -> None:
+    def test_spawns_follow_once_across_many_polls(self) -> None:
+        import io
+        import time
+
+        spawns: list[list[str]] = []
+
+        class FakeProc:
+            def __init__(self, argv: list[str]) -> None:
+                spawns.append(argv)
+                self.stdout = io.StringIO("jackd: xrun of at least 128 msecs\nfine\n")
+                self.killed = False
+
+            def poll(self):
+                return None
+
+            def kill(self) -> None:
+                self.killed = True
+
+            def wait(self, timeout=None):
+                return 0
+
         counter = JournalXrunCounter(1_700_000_000.0)
+        with patch(
+            "patch_browser.looper_health.subprocess.Popen",
+            side_effect=lambda argv, **kw: FakeProc(argv),
+        ):
+            time.sleep(0.05)
+            self.assertEqual(counter.poll(), 1)
+            for _ in range(20):
+                self.assertEqual(counter.poll(), 1)
+            counter.close()
 
-        run_mock.return_value.returncode = 0
-        run_mock.return_value.stdout = (
-            "jackd: xrun of at least 128 msecs\nfine\n-- cursor: s=aaa;i=1\n"
-        )
-        self.assertEqual(counter.poll(), 1)
+        self.assertEqual(len(spawns), 1, f"respawned {len(spawns)}x — forks per tick")
+        self.assertIn("-f", spawns[0])
+        self.assertIn("--since", spawns[0])
 
-        run_mock.return_value.stdout = (
-            "jackd: xrun of at least 4 msecs\njackd: xrun\n-- cursor: s=aaa;i=2\n"
-        )
-        self.assertEqual(counter.poll(), 3, "counts must accumulate, not reset")
+    def test_quiet_poll_keeps_running_total(self) -> None:
+        import io
+        import time
 
-        first_argv, second_argv = run_mock.call_args_list[0][0][0], run_mock.call_args_list[1][0][0]
-        self.assertIn("--since", first_argv)
-        self.assertNotIn("--since", second_argv)
-        self.assertIn("--after-cursor", second_argv)
-        self.assertIn("s=aaa;i=1", second_argv)
-
-    @patch("patch_browser.looper_health.subprocess.run")
-    def test_quiet_poll_does_not_lose_the_running_total(self, run_mock) -> None:
         counter = JournalXrunCounter(1_700_000_000.0)
-        run_mock.return_value.returncode = 0
-        run_mock.return_value.stdout = "jackd: xrun\n-- cursor: s=aaa;i=1\n"
-        self.assertEqual(counter.poll(), 1)
-        run_mock.return_value.stdout = "-- cursor: s=aaa;i=2\n"
-        self.assertEqual(counter.poll(), 1)
+        with patch(
+            "patch_browser.looper_health.subprocess.Popen",
+            side_effect=lambda argv, **kw: type(
+                "FakeProc",
+                (),
+                {
+                    "stdout": io.StringIO("jackd: xrun\n"),
+                    "poll": lambda self: None,
+                    "kill": lambda self: None,
+                    "wait": lambda self, timeout=None: 0,
+                },
+            )(),
+        ):
+            time.sleep(0.05)
+            self.assertEqual(counter.poll(), 1)
+            self.assertEqual(counter.poll(), 1)
+            counter.close()
 
-    @patch("patch_browser.looper_health.subprocess.run")
-    def test_cursor_line_is_not_itself_counted(self, run_mock) -> None:
+    def test_missing_journalctl_is_never_retried(self) -> None:
         counter = JournalXrunCounter(1_700_000_000.0)
-        run_mock.return_value.returncode = 0
-        run_mock.return_value.stdout = "nothing here\n-- cursor: s=xrun-looking;i=1\n"
-        self.assertEqual(counter.poll(), 0)
+        with patch(
+            "patch_browser.looper_health.subprocess.Popen", side_effect=FileNotFoundError
+        ) as popen:
+            self.assertIsNone(counter.poll())
+            self.assertIsNone(counter.poll())
+        self.assertEqual(popen.call_count, 1)
 
 
 class JackCpuLoadReaderTests(unittest.TestCase):
