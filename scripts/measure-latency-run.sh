@@ -27,27 +27,35 @@ source "$SCRIPT_DIR/lib/audio-engine.sh"
 
 BUFFER=""
 CONDITION=""
+PERIODS=""
 RUNS=3
 SECONDS_PER_RUN=60
 OUTPUT="${MPE_LATENCY_LOG:-$HOME/latency-measure.log}"
 SELF_TEST=false
 RESTORE_BUFFER=""
+RESTORE_PERIODS=""
 RESTART_BETWEEN=""
 MIDI_LOAD_VOICES=75
+PLAYING_LOOPS=0
 _SOFTMODE_CHANGED=0
 _LOAD_PID=""
 _PROBE_PID=""
 PROBE_BIN="${MPE_MODULE_REPO}/native/mpe-xrun-probe/mpe-xrun-probe"
 
+SKIP_BUFFER_RESTORE=false
+
 while [ $# -gt 0 ]; do
     case "$1" in
         --buffer) BUFFER="${2:?--buffer requires a value}"; shift 2 ;;
+        --periods) PERIODS="${2:?--periods requires a value}"; shift 2 ;;
         --condition) CONDITION="${2:?--condition requires a value}"; shift 2 ;;
         --runs) RUNS="${2:?--runs requires a value}"; shift 2 ;;
         --seconds) SECONDS_PER_RUN="${2:?--seconds requires a value}"; shift 2 ;;
         --output) OUTPUT="${2:?--output requires a path}"; shift 2 ;;
         --self-test) SELF_TEST=true; SECONDS_PER_RUN=10; RUNS=1; shift ;;
         --restart-between) RESTART_BETWEEN="${2:?--restart-between requires a run index}"; shift 2 ;;
+        --playing-loops) PLAYING_LOOPS="${2:?--playing-loops requires 0|4|8|16}"; shift 2 ;;
+        --no-restore-buffer) SKIP_BUFFER_RESTORE=true; shift ;;
         -h | --help) sed -n '2,20p' "$0"; exit 0 ;;
         *) echo "Unknown argument: $1 (try --help)" >&2; exit 2 ;;
     esac
@@ -70,6 +78,7 @@ fi
 
 mpe_source_appliance_env
 RESTORE_BUFFER="$(mpe_jack_period)"
+RESTORE_PERIODS="$(mpe_jack_periods)"
 
 RUN_AS_USER="${MPE_PI_USER:-mitch}"
 if [ "$(id -u)" -eq 0 ] && id "$RUN_AS_USER" >/dev/null 2>&1; then
@@ -135,6 +144,9 @@ _restore_all() {
     _stop_midi_load
     _stop_xrun_probe
     _restore_softmode
+    if [ "$SKIP_BUFFER_RESTORE" = true ]; then
+        return 0
+    fi
     if [ -n "$RESTORE_BUFFER" ] && [ "$RESTORE_BUFFER" != "$(mpe_jack_period 2>/dev/null || echo "$RESTORE_BUFFER")" ]; then
         "$SCRIPT_DIR/set-surge-audio.sh" --buffer "$RESTORE_BUFFER" >/dev/null 2>&1 || true
     fi
@@ -145,6 +157,26 @@ _jack_period_from_proc() {
     local pid
     pid="$(pgrep -x jackd | head -1)" || return 1
     tr '\0' '\n' < "/proc/$pid/cmdline" | awk '/^-p$/{getline; print; exit}'
+}
+
+_jack_periods_from_proc() {
+    local pid
+    pid="$(pgrep -x jackd | head -1)" || return 1
+    tr '\0' '\n' < "/proc/$pid/cmdline" | awk '/^-n$/{getline; print; exit}'
+}
+
+_assert_jack_periods() {
+    local want="$1" got
+    got="$(_jack_periods_from_proc)" || {
+        echo "ERROR: jackd not running — cannot verify period count" >&2
+        return 1
+    }
+    if [ "$got" != "$want" ]; then
+        echo "ERROR: JACK period count is $got, expected $want (trap 5 — env write may have failed)" >&2
+        return 1
+    fi
+    echo "jackd periods=$got ok"
+    return 0
 }
 
 _assert_jack_period() {
@@ -211,12 +243,19 @@ _set_condition() {
 
 _ensure_peak_meter() {
     if [ "$(mpe_read_appliance_env_var MPE_PEAK_METER 2>/dev/null || echo 0)" != "1" ]; then
-        echo "WARNING: MPE_PEAK_METER is not 1 — xrun count uses meter.state only if enabled" >&2
-        return 0
+        echo "ERROR: MPE_PEAK_METER is not 1 — xrun count requires meter.state (/etc/mpe/mpe.env)" >&2
+        exit 1
     fi
     if ! systemctl is-active --quiet mpe-peak-meter.service 2>/dev/null; then
-        systemctl start mpe-peak-meter.service 2>/dev/null || true
+        if ! systemctl start mpe-peak-meter.service 2>/dev/null; then
+            echo "ERROR: mpe-peak-meter.service failed to start" >&2
+            exit 1
+        fi
         sleep 2
+    fi
+    if ! mpe_meter_assert_live; then
+        echo "ERROR: peak meter active but meter.state is not live" >&2
+        exit 1
     fi
 }
 
@@ -333,8 +372,15 @@ _enable_strict_xrun_reporting() {
     return 0
 }
 
+_meter_max_age_s=0
+
 _meter_xruns() {
-    grep -oP '(?<=^xruns=)[0-9]+' /run/mpe/meter.state 2>/dev/null || echo 0
+    local xr
+    xr="$(mpe_meter_xruns_read)" || return 1
+    if [ "${MPE_METER_LAST_AGE_S:-0}" -gt "$_meter_max_age_s" ]; then
+        _meter_max_age_s="$MPE_METER_LAST_AGE_S"
+    fi
+    printf '%s\n' "$xr"
 }
 
 _run_window() {
@@ -343,6 +389,8 @@ _run_window() {
     local dsp_raw="$3"
     local xrun_events="$4"
     local i dsp prev_xr start_xr cur_xr delta samples=0
+
+    _meter_max_age_s=0
 
     : >"$run_file"
     : >"$dsp_raw"
@@ -356,7 +404,11 @@ _run_window() {
     local jcl=$!
     _kill_jcl() { kill -9 "$jcl" 2>/dev/null || true; wait "$jcl" 2>/dev/null || true; }
 
-    prev_xr="$(_meter_xruns)"
+    if ! prev_xr="$(_meter_xruns)"; then
+        _kill_jcl
+        _stop_xrun_probe "$xrun_events"
+        return 1
+    fi
     start_xr="$prev_xr"
 
     printf '  %4s %8s %8s %7s\n' "t" "dsp%" "xruns" "delta" >>"$run_file"
@@ -365,7 +417,11 @@ _run_window() {
         sleep 1
         samples=$((samples + 1))
         dsp="$(tail -1 "$dsp_raw" 2>/dev/null | grep -oP '[0-9]+\.[0-9]+' | head -1 || echo '?')"
-        cur_xr="$(_meter_xruns)"
+        if ! cur_xr="$(_meter_xruns)"; then
+            _kill_jcl
+            _stop_xrun_probe "$xrun_events"
+            return 1
+        fi
         if [ "$cur_xr" -lt "$prev_xr" ]; then
             start_xr="$cur_xr"
             prev_xr="$cur_xr"
@@ -421,8 +477,13 @@ _run_window() {
     temp="$(vcgencmd measure_temp 2>/dev/null || echo 'temp=unknown')"
     throttle="$(vcgencmd get_throttled 2>/dev/null || echo 'throttled=unknown')"
 
+    if ! mpe_meter_assert_live; then
+        echo "ERROR: meter.state not live at end of window ${tag}" >&2
+        return 1
+    fi
+
     {
-        echo "RESULT tag=${tag} xruns=${total_xr} dsp_median=${dsp_median} dsp_p99=${dsp_p99} dsp_max=${dsp_max}"
+        echo "RESULT tag=${tag} xruns=${total_xr} meter_live=1 meter_max_age_s=${_meter_max_age_s} dsp_median=${dsp_median} dsp_p99=${dsp_p99} dsp_max=${dsp_max}"
         echo "RESULT tag=${tag} jitter_n=${jitter_n} jitter_median_usec=${jitter_med} jitter_p99_usec=${jitter_p99} jitter_p99_9_usec=${jitter_p999} jitter_max_usec=${jitter_max}"
         echo "RESULT tag=${tag} frames_late_p99_usec=${late_p99} frames_late_max_usec=${late_max}"
         echo "RESULT tag=${tag} delay_events=${delay_n} delay_nonzero=${delay_nz} (legacy, ignore)"
@@ -436,30 +497,77 @@ _run_window() {
 
 {
     echo
-    echo "=== measure-latency-run buffer=${BUFFER} condition=${CONDITION} runs=${RUNS} seconds=${SECONDS_PER_RUN} $(date -Is) ==="
+    echo "=== measure-latency-run buffer=${BUFFER} periods=${PERIODS:-$(mpe_jack_periods 2>/dev/null || echo ?)} condition=${CONDITION} runs=${RUNS} seconds=${SECONDS_PER_RUN} $(date -Is) ==="
     echo "SENTINEL harness-start"
     _ensure_peak_meter
     _ensure_xrun_probe || exit 1
 
-    if ! "$SCRIPT_DIR/set-surge-audio.sh" --buffer "$BUFFER"; then
-        echo "ERROR: set-surge-audio.sh --buffer $BUFFER failed" >&2
+    _audio_args=( )
+    [ -n "$BUFFER" ] && _audio_args+=(--buffer "$BUFFER")
+    [ -n "$PERIODS" ] && _audio_args+=(--periods "$PERIODS")
+    if [ "${#_audio_args[@]}" -eq 0 ]; then
+        echo "ERROR: --buffer is required" >&2
+        exit 2
+    fi
+    if ! "$SCRIPT_DIR/set-surge-audio.sh" "${_audio_args[@]}"; then
+        echo "ERROR: set-surge-audio.sh ${_audio_args[*]} failed" >&2
         exit 1
     fi
     mpe_source_appliance_env
+    PERIODS_EFFECTIVE="$(mpe_jack_periods)"
     sleep 8
     _assert_jack_period "$BUFFER" || exit 1
+    _assert_jack_periods "$PERIODS_EFFECTIVE" || exit 1
 
     if ! _enable_strict_xrun_reporting; then
         echo "ERROR: could not restart jackd for strict xrun reporting" >&2
         exit 1
     fi
     _assert_jack_period "$BUFFER" || exit 1
+    _assert_jack_periods "$PERIODS_EFFECTIVE" || exit 1
     echo "=== provenance after strict restart ==="
     _record_provenance
 
+    if [ "$PLAYING_LOOPS" -gt 0 ]; then
+        case "$PLAYING_LOOPS" in
+            4 | 8 | 16) ;;
+            *)
+                echo "ERROR: --playing-loops must be 0, 4, 8, or 16" >&2
+                exit 2
+                ;;
+        esac
+        if ! grep -q "^MPE_SL_LOOPS=" "$ENV_FILE" 2>/dev/null; then
+            printf '\nMPE_SL_LOOPS=%s\n' "$PLAYING_LOOPS" >>"$ENV_FILE"
+        else
+            sed -i "s/^MPE_SL_LOOPS=.*/MPE_SL_LOOPS=${PLAYING_LOOPS}/" "$ENV_FILE"
+        fi
+        systemctl restart mpe-sooperlooper.service
+        sleep 8
+        if ! bash "${SCRIPT_DIR}/sooperlooper/load-n-loops.sh" "$PLAYING_LOOPS"; then
+            echo "ERROR: load-n-loops ${PLAYING_LOOPS} failed" >&2
+            exit 1
+        fi
+        echo "=== playing-loops=${PLAYING_LOOPS} loaded ==="
+    fi
+
     run_idx=1
     while [ "$run_idx" -le "$RUNS" ]; do
-        tag="${CONDITION}-run${run_idx}"
+        # Tag carries buffer and loop count, not just condition. Two blocks that
+        # share a condition -- e.g. the 1024 loop curve, where loops8 and loops16
+        # are both condition B -- previously both emitted B-run1..15 into one
+        # append-only log. Any analysis that deduped or grepped by tag would have
+        # silently merged them (2026-08-20; the split was done by block marker
+        # instead, so no result was corrupted -- but nothing prevented it).
+        tag="${CONDITION}-b${BUFFER}-p${PERIODS_EFFECTIVE}-l${PLAYING_LOOPS}-run${run_idx}"
+
+        # Belt and braces: whatever the cause, a repeated tag in one output file
+        # makes that file ambiguous. Fail loudly rather than append a second run
+        # under a name that already means something else.
+        if [ -f "$OUTPUT" ] && grep -q "^RESULT tag=${tag} xruns=" "$OUTPUT"; then
+            echo "ERROR: tag ${tag} already present in ${OUTPUT} — refusing to append" >&2
+            echo "       a duplicate tag makes the log ambiguous; use a fresh --output" >&2
+            return 1
+        fi
         echo "=== run ${tag} ==="
         stamp="$(date +%s)"
         run_file="/tmp/latency-${tag}-${stamp}.out"
@@ -492,10 +600,15 @@ _run_window() {
         [ "$run_idx" -le "$RUNS" ] && sleep 5
     done
 
-    echo "=== restore buffer ${RESTORE_BUFFER} ==="
-    "$SCRIPT_DIR/set-surge-audio.sh" --buffer "$RESTORE_BUFFER" || true
-    sleep 6
-    _assert_jack_period "$RESTORE_BUFFER" || echo "WARNING: restore period check failed" >&2
+    echo "=== restore buffer ${RESTORE_BUFFER} periods ${RESTORE_PERIODS} ==="
+    if [ "$SKIP_BUFFER_RESTORE" != true ]; then
+        "$SCRIPT_DIR/set-surge-audio.sh" --buffer "$RESTORE_BUFFER" --periods "$RESTORE_PERIODS" || true
+        sleep 6
+        _assert_jack_period "$RESTORE_BUFFER" || echo "WARNING: restore period check failed" >&2
+        _assert_jack_periods "$RESTORE_PERIODS" || echo "WARNING: restore periods check failed" >&2
+    else
+        echo "skip restore (--no-restore-buffer)"
+    fi
     echo "done commit=$(git -C "$MPE_MODULE_REPO" rev-parse --short HEAD 2>/dev/null || echo unknown) log=$OUTPUT"
     echo "SENTINEL harness-end"
     echo

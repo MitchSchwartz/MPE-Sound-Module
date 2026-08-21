@@ -326,3 +326,134 @@ measurement in this document addresses.
   line without checking and it was false.
 - `Documents/specs/session-control-plane-spec.md` updated if the default buffer size
   changes.
+
+---
+
+# Status and experiment plan — 2026-08-20
+
+## Where the appliance is
+
+**Shipped and verified.** `irqaffinity=0,1` on the kernel cmdline; `CPUAffinity=2 3` on
+`mpe-jackd`, `surge-xt-cli`, `mpe-sooperlooper`. Survives reboot; no helper loop. All
+three processes confirmed on cores 2-3 after a cold boot.
+
+**Measured at 512x3, n=15 per condition, xruns per 60 s:**
+
+| condition | before any of this | now | clean runs |
+|---|---:|---:|---|
+| A — synth only | 4.20 | **0.13** | 14/15 |
+| B — + sooperlooper | — | 2.27 | 2/15 |
+| C — + session (post journal fix) | 4.20 | **2.53** | 1/15 |
+| D — + watchdog (post reboot) | 10.00 | **5.40** | 0/15 |
+
+**512 is usable without the looper and not shippable with it.** 1024 remains the default.
+
+## What has actually been fixed, and the pattern
+
+Three causes found so far, each hidden behind the one before it:
+
+1. **Interrupt pile-up on CPU0.** GICv2 targets the lowest core in each IRQ's mask and
+   nothing had ever moved them. Fixed by cmdline + `CPUAffinity`. A: 4.20 -> 0.13.
+2. **The session forking `journalctl` twice a second** to count xruns for the HUD.
+   Fixed in `221cd39`. C: 4.20 -> 2.53, and the burst signature vanished (sd 3.47 -> 1.55).
+3. **`sl-watchdog` forking on a 10 s loop** — found 2026-08-20, **not yet fixed**.
+
+**The pattern is the finding.** Every fix makes the next layer visible, and every layer so
+far has been the same bug: a fork in a periodic loop. The ladder measured the watchdog at
++0.33 ("negligible") while the session's fork was still making everything noisy; with that
+gone, the watchdog is +2.87 and the burst signature is back (D sd 3.5, max 14).
+
+Do not trust a small ladder step measured while a noisier layer is still present.
+
+## Open cause: sl-watchdog's fork loop
+
+`scripts/sooperlooper/sl-watchdog.py`, `INTERVAL_S = 10`, forks per cycle:
+
+- `jack_lsp -c` — **registers and unregisters a JACK client, forcing two graph reorders**
+- a second `subprocess.run`
+- `pgrep -x sooperlooper` and `pgrep -f src/sooperlooper`
+- conditionally `bash <script> connect`
+
+Six cycles per 60 s run. This is the same probe previously identified as the real xrun
+source at 35/min (`docs/measurements/crackle-root-cause-2026-08-18.md`), and the same
+doctrine violation as causes 2 and 3: **no forks in periodic loops on the appliance**
+(`Documents/DECISIONS.md`).
+
+**Do not chase "does sooperlooper process all sixteen loops every period" yet.** Condition
+B is sooperlooper with *zero loops recorded*, so its +2.13 cannot be per-loop work, and
+DSP does not move between conditions. The likelier explanations are (a) crowding — three
+audio processes shoehorned onto two cores by our own `CPUAffinity` — and (b) the fixed
+cost of one more client in JACK's serial process chain. E1 tested (a) and was **refuted**
+(two variables changed at once); (b) remains open and is **512-specific** — at 1024×3
+with 8 loops the stack costs 0.00 (T9).
+
+## Audio device — measured constraints
+
+```
+Sound Blaster Play! 3   12M (full speed)   Endpoint 0x01 OUT (ADAPTIVE)
+APC MINI                12M (full speed)   same internal hub
+```
+
+- **Full speed = 1 ms USB frames**, against 125 us microframes on a high-speed device.
+  At 256 frames (5.33 ms) that is ~5 USB frames per audio period. Near the floor of what
+  the transport can express, and set by the dongle, not the Pi.
+- **ADAPTIVE sync**: no feedback endpoint. The device slaves to whatever rate the host
+  delivers and absorbs clock drift internally. Every serious interface is asynchronous.
+- **The APC shares the bus.** Both are full-speed behind the same internal hub. **This
+  cannot be separated on a Pi 4** — all four ports feed one USB 2 hub, and Bus 002 carries
+  only SuperSpeed. Do not spend an experiment on port arrangement.
+
+**`nrpacks` is not available and needs no experiment.** It was removed from
+`snd-usb-audio` around kernel 5.17 and replaced by `lowlatency`, which is already `Y`.
+
+**256 is unlikely on this device** regardless of software. If the audio interface changes,
+every measurement above must be retaken — so make that decision before tuning further.
+
+An I2S **codec** HAT (not a bare DAC — the Sound Blaster carries the mic in as well as aux
+out) removes the host controller entirely and is cheaper than a USB interface.
+
+## Experiment plan, ranked by information per unit of cost
+
+### E0 — hygiene and IRQ consolidation. **Do first (Phase 0).**
+
+Ship-critical settings (`irqaffinity=0,1`, unit affinities) must be under repo management
+before any further measurement. Movable IRQs off CPU0. See
+`Documents/specs/system-hygiene-baseline.md` and the live queue in
+`Documents/specs/next-tasks-2026-08-20.md`.
+
+### E1 — three cores instead of two. **CLOSED — refuted 2026-08-20.**
+
+Ran with two variables at once (`irqaffinity=0` + `CPUAffinity=1 2 3`). Every condition
+regressed at n=15, 512×3. Configuration refuted — not a clean crowding test. Reverted to
+`irqaffinity=0,1` + `CPUAffinity=2 3`. See `docs/measurements/e1-three-cores-T1-2026-08-20.md`.
+Do not re-run on this hardware without a one-variable design or more cores.
+
+### E2 — fix the sl-watchdog fork loop, then re-measure D.
+
+Same fix shape as `221cd39`: persistent readers instead of per-cycle forks, and nothing
+that registers a JACK client on a timer. Expect D to fall toward C. Needs no reboot.
+
+### E3 — the loop-count curve. **Highest product value.**
+
+0, 4, 8, 16 loops recorded and playing, at 512 and 1024. **Every measurement in this
+entire investigation has used an idle looper**; the instrument under real use is
+unmeasured. Answers directly whether a latency/loop-count tier is a real spec or whether
+there is one number. Needs no reboot.
+
+### E4 — long soak, 512 condition A.
+
+0.13/min is one event every ~8 minutes, so 15 one-minute runs cannot distinguish it from
+zero. One 8 h unattended run turns "very good" into a number that can go on a spec sheet.
+
+### E5 — the audio-device decision.
+
+A choice, not an experiment, but it gates 256 and invalidates every number above.
+
+### Dropped
+
+- **Step 3** (`threadirqs` + RT priority on `irq/30`) and **Step 4** (full core isolation):
+  they target scheduler jitter, and the audio thread has **91% margin at its worst
+  recorded moment** (max period deviation 917 us against a 10,667 us period).
+- **Step 6 (PREEMPT_RT):** dead. Floor is 209-320 us against 5,333 us at 256.
+- **USB port rearrangement:** impossible on Pi 4, see above.
+- **`nrpacks`:** does not exist on this kernel.
