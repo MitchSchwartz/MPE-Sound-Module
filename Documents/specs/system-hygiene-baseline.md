@@ -165,17 +165,23 @@ Branch: `yolo/system-hygiene-baseline`
 | 2 | [`step2-hygiene-applied-2026-08-21.md`](../docs/measurements/step2-hygiene-applied-2026-08-21.md) | done — reboot + verify |
 | 3 | [`step3-rebaseline-2026-08-21.md`](../docs/measurements/step3-rebaseline-2026-08-21.md) | done |
 
-### Re-baseline numbers (Step 3, post-hygiene)
+### Re-baseline numbers (Step 3 — within-stream only)
 
 | config | mean xruns/60 s | clean /15 | notes |
 |---|---:|---:|---|
-| 512×3 A | **0.13** | 14/15 | separate invocation |
-| 256×3 A | **7.80** | 0/15 | T11/T13 spread **not settled** |
-| 1024×3 D8 | **0.20** | 12/15 | **replaces** 0.00/15/15 shipping claim |
+| 512×3 A | **0.13** | 14/15 | 1 stream — delta vs pre-hygiene **not interpretable** |
+| 256×3 A | **7.80** | 0/15 | 1 stream — T11/T13/hyg are **3 different streams** |
+| 1024×3 D8 | **0.20** | 12/15 | 1 stream — **not** a shipping claim |
+
+**Stream-start variance:** [`stream-start-variance-2026-08-21.md`](../docs/measurements/stream-start-variance-2026-08-21.md)
+
+**Phase 0:** defects fixed (measured on device). **Delta vs baseline unevaluated** until
+`measure-stream-sample.sh` (N streams × k runs). **T12** (192×3 vs 256×3, 10 streams) is
+the primary next experiment.
 
 **Survives:** structural conclusions in §What Phase 0 does to existing conclusions (period binds, below-JACK drain, Poisson).
 
-**Provisional:** every absolute xruns/min figure above; old 0.00 shipping claim **withdrawn** pending longer soak if needed.
+**Withdrawn:** every absolute xruns/min figure and all shipping claims until stream sampling.
 
 ### What Phase 0 changed (code)
 
