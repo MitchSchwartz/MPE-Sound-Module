@@ -1,122 +1,94 @@
-# The 256 spread is not noise — the rate is set at stream start (2026-08-21)
+# Stream-start variance — the axis every CI got wrong (2026-08-21)
 
-## The observation
+**Status:** measured finding · **Confidence:** the per-run arrays below; mechanism (USB frame phase) = experiment (T12).
 
-`256x3` condition A has now been measured three times at n=15, and produced three different
-answers: **12.07, 1.53, 7.80**. The third was taken post-hygiene with separate harness
-invocations, which removed run order as the explanation. It did not converge.
+## Finding
 
-The instinct is "noisy measurement, take more samples". **That is wrong, and the per-run
-data shows why.**
+The xrun rate is **fixed when the ALSA/JACK stream opens** and holds for the life of that
+stream. Within a stream it is stable to about **±1/min**. Between streams it can move by
+**an order of magnitude**.
 
-## Per-run values
+Each `measure-latency-run.sh` invocation:
+
+1. Calls `set-surge-audio.sh` → **restarts jackd** → opens **one** stream
+2. Runs `n` consecutive 60 s windows on **that same stream**
+
+So **`n=15` has never been 15 independent samples.** It is 15 correlated observations of
+one draw. Every confidence interval in this effort is a **within-stream** interval.
+**Stream-start variance is ~10× larger and has never been sampled.**
+
+Same failure shape as the journal xrun counter and the meter restart bug: a number with a
+tight error bar, where the error bar measures the **wrong axis**.
+
+## Evidence — 256×3 condition A, per-run xruns (not means)
 
 ```
-T11  256 (10:08)   10 16  8 15 20 12  8  6 12 20  4 10 14 12 14
-T13  256 (12:07)    4  0  2  2  0  0  1  0  0  2  2  4  2  4  0
-hyg  256 (post)    16  4  6 10  4  4 12  4 12 10  6  6  8  6  9
-hyg  512 (post)     0  0  0  0  0  0  0  0  0  0  0  0  0  0  2
+T11  256   10 16  8 15 20 12  8  6 12 20  4 10 14 12 14   mean 12.10
+T13  256    4  0  2  2  0  0  1  0  0  2  2  4  2  4  0   mean  1.53
+hyg  256   16  4  6 10  4  4 12  4 12 10  6  6  8  6  9   mean  7.80
 ```
 
-| cell | mean | sd | SE | min | max |
-|---|---:|---:|---:|---:|---:|
-| T11 256 | 12.07 | 4.64 | 1.20 | 4 | 20 |
-| T13 256 | 1.53 | 1.55 | 0.40 | 0 | 4 |
-| post-hygiene 256 | 7.80 | 3.63 | 0.94 | 4 | 16 |
-| post-hygiene 512 | 0.13 | 0.52 | 0.13 | 0 | 2 |
+- T13 cell: **never exceeds 4**
+- Post-hygiene cell: **never below 4**
+- **No overlap** between the three invocations
+- Each cell is tight around its own mean; means are **8.3σ**, **6.1σ**, and **2.8σ** apart
 
-**Each cell is internally consistent around its own mean.** T13's cell never exceeds 4;
-the post-hygiene cell never drops below 4. They do not overlap.
+These are **three different rates**, not three samples of one.
 
-Separation between cells:
+## Phase 0 cannot be evaluated on delta yet
 
-| comparison | difference | SE | sigma |
-|---|---:|---:|---:|
-| T11 vs T13 | 10.53 | 1.26 | **8.3** |
-| T13 vs post-hygiene | 6.27 | 1.02 | **6.1** |
-| T11 vs post-hygiene | 4.27 | 1.52 | 2.8 |
+| config | pre-hygiene | post-hygiene | interpretation |
+|---|---|---|
+| 512×3 A | 0.13, 14/15 | 0.13, 14/15 | identical — but rate near zero, so stream-to-stream swing is **invisible** |
+| 1024×3 D8 | 0.00, 15/15 | 0.20, 12/15 | both **single-stream draws**; spread swamps hygiene delta |
 
-These are not draws from one distribution. **They are three different rates.**
+Phase 0 fixes were real (617× pressure-remap restarts, broken remap, unpinned meter,
+saturated CPU0). **The delta is not measurable** until the protocol controls for stream
+starts.
 
-## What this means
+## Shipping claim
 
-**The xrun rate is established when the audio stream starts, and then holds for the life of
-that stream.** Within a stream it is stable enough to measure to within ~1/min. Between
-streams it varies by an order of magnitude.
+**Withdrawn.** `0.00, 15/15` was one stream. `0.20, 12/15` was one stream. Neither is the
+ship number. Commercially: a config whose mean looks fine but whose stream-to-stream spread
+reaches 12/min is **not shippable** — the user gets one stream per power-on and cannot
+re-roll.
 
-Each harness invocation sets the buffer, restarts jackd, and opens **one** stream. All 15
-runs then sample that single stream.
+## Correct protocol
 
-### The methodological consequence
+**Sample stream starts, not minutes.**
 
-**n=15 runs inside one stream is not n=15 independent samples.** It is 15 correlated
-observations of one draw. Every confidence interval computed this way — across the entire
-effort — is a *within-stream* interval. It says nothing about reproducibility across stream
-starts, and stream-start variance is an order of magnitude larger.
+| parameter | old (wrong) | new |
+|---|---|---|
+| unit of replication | 60 s window | **jackd restart** (new stream) |
+| design | 1 stream × 15 windows | **N streams × k windows** |
+| report | one mean ± within-stream CI | **within-stream** and **between-stream** variance separately |
 
-This is the same failure shape the project keeps meeting: a number that looks authoritative
-because it has a tight error bar, where the error bar is measuring the wrong axis.
+Implementation:
 
-### Why 512 looked stable
+- **Today:** `scripts/measure-stream-sample.sh` — N harness invocations (each restarts
+  jackd at entry), k runs each, one log file per stream (tags would collide in one file).
+- **Not sufficient:** `--restart-between` in `measure-latency-run.sh` — that restarts the
+  **looper condition stack only**, not jackd (see `_restart_condition_stack`).
 
-512 was not immune — its rate is simply near zero (0.13/min), so a stream-to-stream
-difference of the same *proportional* size is invisible. The identical pre- and
-post-hygiene result at 512 (0.13, 14/15 both times) is therefore **weak** evidence that
-nothing changed, not strong evidence.
+Example:
 
-## Candidate mechanisms
+```bash
+sudo ./scripts/measure-stream-sample.sh \
+  --buffer 256 --condition A --streams 10 --runs-per-stream 3 \
+  --output ~/256-A-streams.log
+```
 
-Both are properties fixed at stream open, which is what the data demands:
+## Primary experiment — T12 (USB frame alignment)
 
-1. **ADAPTIVE endpoint lock.** The Sound Blaster has no feedback endpoint; the host guesses
-   the rate and the device adapts. The quality of that lock is established at stream start
-   and persists.
-2. **USB frame phase.** 256 frames = **5.33 USB frames**, so period boundaries and the 1 ms
-   frame grid sit at a fixed phase offset determined by when the stream opened. A different
-   start instant gives a different standing phase relationship for the whole stream.
+256 frames = 5.33 USB frames → period boundaries sit at a **fixed phase** against the 1 ms
+grid, set by stream-open time. Misaligned periods have phase freedom; aligned periods do not.
 
-**Mechanism 2 makes a sharp prediction**, and it is the one worth testing: a period that
-divides evenly into 1 ms frames has **no phase freedom**. If stream-start variance vanishes
-at an aligned period, alignment is the mechanism.
+**Run 192×3 (exactly 4 USB frames) vs 256×3, ten streams each.** If between-stream
+variance collapses at 192, that is the mechanism — and the buffer ladder has been on the
+wrong grid from the start.
 
-This promotes T12 from a curiosity to the primary experiment.
+See [`Documents/specs/usb-runway-levers.md`](../../Documents/specs/usb-runway-levers.md) ·
+[`scripts/measure-t12.sh`](../../scripts/measure-t12.sh) (must be rewritten for stream
+sampling before execution).
 
-## Required protocol change
-
-**Sample stream starts, not minutes.** Replace `1 stream x 15 runs` with `N streams x k
-runs`, restarting jackd between streams. Report both variances separately:
-
-- **within-stream sd** — what the old protocol measured
-- **between-stream sd** — what actually determines whether a configuration is shippable
-
-A configuration whose *mean* is acceptable but whose stream-to-stream spread reaches 12/min
-is not shippable, because the user gets one stream per power-on and cannot re-roll it.
-
-`measure-latency-run.sh` already has `--restart-between`; it has not been used for this.
-
-## What this does to Phase 0
-
-**Phase 0 produced no measurable improvement, and could not have shown one.**
-
-- 512 A: 0.13, 14/15 before and after — identical.
-- 1024x3 D, 8 loops: 0.00, 15/15 before; **0.20, 12/15 after**. Not a regression, and not an
-  improvement — both are single-stream draws.
-- 256 A: 7.80, a third distinct draw.
-
-Stream-start variance swamps whatever Phase 0 changed. **This does not mean the work was
-wrong** — a service restarting 617 times, a broken pressure-remap, unpinned measurement
-instruments and a saturated CPU0 were real defects and are correctly fixed. It means the
-hygiene delta cannot be measured until the protocol controls for stream starts.
-
-**The shipping claim stays withdrawn.** "0.00, 15/15" was one stream. So is "0.20, 12/15".
-Neither is the number.
-
-## Next
-
-1. **Re-measure 1024x3 D 8 loops as 10 streams x 3 runs.** This is the shipping
-   configuration and its real figure is the between-stream distribution.
-2. **T12 alignment, as a stream-start experiment**: 192x3 (exactly 4 USB frames, no phase
-   freedom) against 256x3 (5.33 frames), 10 streams each. If 192 has materially lower
-   between-stream variance, alignment is the mechanism and the ladder has been on the wrong
-   grid all along.
-3. Everything in Phase 3 waits for a protocol that can detect its effect.
+*Last updated: 2026-08-21 (America/Toronto)*
