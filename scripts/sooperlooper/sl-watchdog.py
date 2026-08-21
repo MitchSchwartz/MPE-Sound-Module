@@ -176,8 +176,26 @@ class GraphSnapshot(NamedTuple):
     source: str
 
 
+def jackd_running() -> bool | None:
+    """Is jackd running? Scans ``/proc/*/comm`` — no fork."""
+    try:
+        proc_root = Path("/proc")
+        for entry in proc_root.iterdir():
+            if not entry.name.isdigit():
+                continue
+            try:
+                comm = (entry / "comm").read_text(errors="replace").strip()
+            except OSError:
+                continue
+            if comm == "jackd":
+                return True
+        return False
+    except OSError:
+        return None
+
+
 def read_graph_snapshot(*, now: float | None = None) -> GraphSnapshot:
-    """Prefer meter.state; fall back to jack_lsp when the meter is off or stale."""
+    """Prefer meter.state. When the meter is off or stale, do not fork jack_lsp."""
     t = time.time() if now is None else now
     jack = jack_reachable_via_meter(now=t)
     looper = looper_client_via_meter(now=t)
@@ -185,15 +203,7 @@ def read_graph_snapshot(*, now: float | None = None) -> GraphSnapshot:
     if jack is not None and looper is not None and playback is not None:
         return GraphSnapshot(jack, looper, playback, "meter")
 
-    graph = jack_graph()
-    if graph is None:
-        return GraphSnapshot(None, None, None, "none")
-    return GraphSnapshot(
-        True,
-        jack_client_visible(graph),
-        any(s.startswith(f"{JACK_CLIENT}:common_out") for s in playback_sources(graph)),
-        "jack_lsp",
-    )
+    return GraphSnapshot(None, None, None, "meter_stale")
 
 
 def wait_for_playback_via_meter(*, timeout_s: float = 4.0,
@@ -385,11 +395,20 @@ def capture_wedge_diagnostics() -> dict:
     """Evidence for the unknown wedge: what is each engine thread doing?"""
     info: dict = {"threads": []}
     try:
-        pid = subprocess.run(["pgrep", "-f", "src/sooperlooper"],
-                             capture_output=True, text=True, timeout=5).stdout.split()
+        pid: str | None = None
+        proc_root = Path("/proc")
+        for entry in proc_root.iterdir():
+            if not entry.name.isdigit():
+                continue
+            try:
+                comm = (entry / "comm").read_text(errors="replace").strip()
+            except OSError:
+                continue
+            if comm == "sooperlooper":
+                pid = entry.name
+                break
         if not pid:
             return {"error": "no sooperlooper process"}
-        pid = pid[0]
         info["pid"] = pid
         for t in Path(f"/proc/{pid}/task").iterdir():
             entry = {"tid": t.name}
@@ -505,7 +524,15 @@ def main(argv: list[str] | None = None) -> int:
         # the control path — but say which of the two we actually established.
         running = None if snap.jack_reachable is None else engine_running()
         if snap.jack_reachable is None:
-            problems.append("JACK down or not reachable (meter stale and jack_lsp failed)")
+            jackd = jackd_running()
+            if jackd is True:
+                problems.append(
+                    "peak-meter stale or unavailable (jackd running — meter fault)")
+            elif jackd is False:
+                problems.append("JACK down (jackd not running)")
+            else:
+                problems.append(
+                    "JACK/meter state unknown (meter stale and jackd proc scan failed)")
         elif snap.looper_client is False and running is False:
             # Not a fault. Nothing to repair, nothing to alarm — but say so
             # every cycle, because "watchdog up, engine deliberately down" and
