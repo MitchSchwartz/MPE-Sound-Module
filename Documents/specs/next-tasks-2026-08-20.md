@@ -17,7 +17,20 @@ Mitch except T1's reboot, which is already staged.
 4. **No forks in periodic loops** (`Documents/DECISIONS.md`).
 5. **Do not withdraw a conclusion silently.** If a prior finding is wrong, say so
    explicitly and record why, in the doc where the original claim lives.
-6. Read `Documents/specs/low-latency-512-256-spec.md` first — it carries six traps that
+6. **Bisect before you grid.** Run the cheapest test that could falsify the hypothesis,
+   and elaborate only if it survives. A four-point curve at two buffer sizes is 120 runs
+   and three hours; the endpoints alone are 30 runs and 45 minutes, and if they match, the
+   other 90 runs measure nothing. State the decisive comparison first, then decide whether
+   the shape is worth buying.
+7. **Certification comes last.** Long soaks prove a configuration is sound. Running one
+   before the configuration is decided spends hours certifying something that may not
+   ship. Defer soaks until the config is final.
+8. **Announce the block.** Before starting anything over ~15 minutes, say which task it is
+   and its expected runtime, so a long run is never indistinguishable from a hung one.
+9. **One variable per measured comparison.** E1 changed `CPUAffinity` and `irqaffinity`
+   together and so could not answer its own question -- 68 minutes and a reboot for a
+   confounded result.
+10. Read `Documents/specs/low-latency-512-256-spec.md` first — it carries six traps that
    have already voided runs on this hardware.
 7. **One variable per measured comparison.** State the single knob explicitly in the work
    order. Changing two things (E1 changed both `irqaffinity` and `CPUAffinity`) voids the
@@ -137,37 +150,56 @@ appliance itself.
 
 ---
 
-## T4 — E3: the loop-count curve
+## T4 — E3: does cost scale with active loops?
 
-**Highest product value. Needs no reboot and no Mitch.**
+**Needs no reboot and no Mitch. Bisect first — see standing rule 6.**
 
-**Every measurement in this entire investigation has used an idle looper.** The instrument
-under real use is unmeasured.
+**Every measurement in this investigation has used an idle looper.** The instrument under
+real use is unmeasured. Note condition B is sooperlooper with **zero** loops recorded, so
+its +2.13 cannot be per-loop DSP work — do not assume the curve rises.
 
-Record 0, 4, 8 and 16 loops and leave them playing. Measure at 512 and 1024, n=15 each.
+### T4a — the decisive comparison. ~30 runs, ~45 min.
 
-This answers directly whether a latency/loop-count tier is a real spec ("16 loops at 64 ms,
-8 at 32 ms") or whether the structural cost dominates and there is one number.
+**0 loops vs 16 loops, recorded and playing, at 512 only.** n=15 each.
 
-**Note:** condition B is sooperlooper with **zero** loops recorded, so its +2.13 cannot be
-per-loop DSP work. Do not assume the curve rises; measure it.
+That is the whole question in one comparison. 1024 is already known-good and is the less
+interesting end; the shape between 0 and 16 is worth nothing until the endpoints differ.
+
+**Then stop and report.** Two outcomes:
+
+- **Indistinguishable** — the structural cost dominates, there is one number, and there is
+  no tier to sell. **T4b is cancelled**, and 90 runs are not spent measuring a flat line.
+- **They differ** — the tier is real. Proceed to T4b for the shape.
+
+### T4b — the shape. **Only if T4a shows an effect.** ~90 runs, ~2.5 h.
+
+Fill in 4 and 8 loops at 512, then repeat the whole set at 1024. That yields the
+latency-vs-loop-count curve, which is what a spec claim like "16 loops at 64 ms, 8 at
+32 ms" would rest on.
 
 **Acceptance**
-- A curve: xruns/60 s vs loop count, at both buffer sizes, with sds.
-- An explicit statement of which of the two worlds we are in.
+- T4a: 30 values, means and sds, a significance test, and an explicit statement of which
+  of the two worlds we are in.
+- T4b, if run: the curve at both buffer sizes with sds.
 
----
+## T5 — long soak. **Deferred. Do not queue yet.**
 
-## T5 — E4: long soak
+**Blocked by:** a decided shipping configuration.
 
-**Needs no Mitch.** 0.13 xruns/min is one event every ~8 minutes, so fifteen one-minute
-runs cannot distinguish it from zero. Run **8 hours unattended** at 512, condition A, and
-count. Also record temperature and `throttled` throughout.
+0.13 xruns/min is one event every ~8 minutes, so fifteen one-minute runs cannot
+distinguish it from zero. Only a multi-hour run can. When it happens: 8 hours unattended
+at the shipping buffer size and condition, recording temperature and `throttled`
+throughout, plus per-hour xrun counts.
 
-**Acceptance:** total xruns over 8 h, with the per-hour breakdown, and a statement of
-whether 512 without the looper is genuinely clean or merely quiet.
+**Why it is deferred rather than queued.** A soak certifies that a configuration is sound.
+Running one now would spend eight hours certifying 512/condition-A — which is synth-only,
+while 512 is not shippable with the looper. That is hours spent on something that may not
+be the product. Soak once, on the configuration that ships.
 
----
+**Trigger:** the buffer size and stack composition are settled, and T6 has landed so the
+harness cannot report a silent zero across an unattended overnight run. Without T6 a meter
+death ten minutes in yields a flawless fake "0 xruns in 8 hours" — the exact claim the
+soak exists to make.
 
 ## Merge sequencing
 
