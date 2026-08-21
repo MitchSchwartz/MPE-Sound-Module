@@ -306,3 +306,64 @@ against a baseline we cannot reproduce would certify a number we do not trust.
 | 2 | **T4c** — 1024 loops8 + loops16 | ~45 min | no |
 | — | ~~remaining 512 runs~~ — answered, cancelled | — | — |
 | 3 | T5 — blocked on 1 and a decided config | — | — |
+
+---
+
+# T5 — the soak. Unblocked 2026-08-20.
+
+Both prerequisites are met: I3 cleared at n=15 (A = 0.13, 14/15 — the n=5 read of 0.80 was
+underpowered, the baseline stands), and T6 landed so the harness cannot report a silent
+zero across an unattended overnight run.
+
+## What to soak, and why it is not the comfortable case
+
+**1024 x 3, full stack, 16 loops recorded and playing. 8 hours.**
+
+The measured 1024 curve:
+
+| loops | xruns/60 s, n=15 | clean | DSP median |
+|---|---:|---|---:|
+| 0 | 0.00 | 15/15 | 34.8% |
+| 4 | 0.00 | 15/15 | 32.9% |
+| 8 | 0.00 | 15/15 | 35.8% |
+| **16** | **0.13** | **13/15** | **41.8%** |
+
+**Sixteen loops is the only 1024 configuration that has ever produced an xrun.** Soaking
+`loops8` would certify the easy case and leave the interesting one untested. If 16 holds
+for eight hours, everything below it holds by implication.
+
+It is also the only place an 8 h run tells you something 15 minutes cannot: 0.13/min is one
+event every ~8 minutes, so n=15 genuinely cannot distinguish **rare** from **clustered**.
+Two isolated singles and one burst of two look identical at this sample size and mean very
+different things for a live instrument.
+
+## Protocol
+
+- `scripts/measure-soak.sh --hours 8`, 1024x3, full stack, **16 loops recorded and
+  playing** before the soak starts. Verify the loops are actually playing, not just armed.
+- Record per-hour xrun counts, not just a total. **When** they occur matters as much as
+  how many.
+- `vcgencmd measure_temp` and `get_throttled` throughout — 8 h is the first run long
+  enough for thermal drift to appear at all.
+- Every window must carry `meter_live=1`. **A window without it invalidates that window,
+  not the run** — record which, do not silently drop them.
+- Announce start and expected finish (standing rule 8).
+
+## Acceptance
+
+- Total xruns over 8 h **and** the per-hour breakdown.
+- Explicit statement of the distribution: isolated singles, or clusters?
+- Temperature range and whether `throttled` was ever non-zero.
+- Count of windows where `meter_live` was not 1.
+- A one-sentence verdict on whether **"64 ms, 16 loops"** is a claim that survives eight
+  hours, or whether the honest claim is **"64 ms, up to 8 loops"** with 16 footnoted.
+
+## What the result feeds
+
+The spec sentence. Current best-supported claim from 60 measured runs:
+**"64 ms, up to 8 loops, clean"** (45/45 across loops 0/4/8), with 16 loops available and
+honestly footnoted. The soak either promotes 16 into the headline claim or confirms the
+footnote.
+
+**512 is not part of this.** It is unusable with the looper at every loop count measured
+(2.87 / 1.33 / 2.13 / 3.93) and no soak changes that.
