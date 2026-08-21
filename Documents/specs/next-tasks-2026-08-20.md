@@ -530,9 +530,9 @@ Two consequences, and they reorder the queue:
    0/4/8-loop cells, all 0.00 -- at condition B, without the full stack running. The
    8-loop cell under **D**, which is what the appliance actually runs, has never been
    measured. That cell is the claim.
-2. **+0.80/min is now the largest single term** -- larger than buffer geometry is likely
-   to recover. T7a can still settle cushion vs deadline, but a win there does not remove
-   this.
+2. **+0.80/min at 16 loops was the soak reading** — T9 refuted a fixed stack-cost model:
+   at 1024×3 with 8 loops, condition D is 0.00/15 clean. The stack cost is an
+   **interaction** (load × period × stack), not a constant per-minute term.
 
 ## Queue as of 2026-08-21 12:35
 
@@ -594,16 +594,19 @@ recent work has been pointing:
 | C | + session | 2.53 | +0.26 |
 | D | + sl-watchdog | 3.13 | +0.60 |
 
-**Sooperlooper is 71% of the cost.** Session and watchdog together are under a third of
-what sooperlooper alone costs -- and this is already post-`jack_lsp`-removal, so it is not
-a fork.
+**At 512×3, sooperlooper is 71% of the A→D ladder delta** (+2.14 of +3.00/min). Session
+and watchdog together are under a third of what sooperlooper alone costs — and this is
+already post-`jack_lsp`-removal, so it is not a fork. **That split is 512-specific:** at
+1024×3 with 8 loops, condition D is 0.00/min (T9) — the structural term vanishes when the
+deadline is loose enough.
 
 Sooperlooper is not CPU-heavy at these loop counts. What it does is **add a node to JACK's
 serial process chain**: surge completes, hands off, sooperlooper runs, hands off. Each
 handoff is a context switch between processes and a fresh chance not to be scheduled
-promptly. Adding a client adds a scheduling hop, not compute. That fits every observation
--- fast callbacks, no compute correlation, Poisson arrivals (each hop an independent
-chance to miss), and a cost roughly fixed per minute regardless of period.
+promptly. Adding a client adds a scheduling hop, not compute. That fits the 512 ladder —
+fast callbacks, no compute correlation, Poisson arrivals — but T9 shows the cost is not
+fixed per minute across periods; it is dominated by deadline tightness at 512 and by loop
+load at 16.
 
 **Run all four cells at 1024x3 with 8 loops, n=15, `--no-restore-buffer` between cells.**
 Verify loops are *playing*, not armed. Require `meter_live=1` per run; a run without it is
@@ -703,6 +706,6 @@ or rare storms exist. We looked for all three and found none.
 ## Scarlett
 
 Unchanged: a different interface invalidates every Sound Blaster latency number, T9's and
-T7a's included. The *mechanism* findings transfer -- cushion vs deadline, the fixed stack
-cost -- the *winning configuration* does not. If the Scarlett test is imminent, run it
-before T7a; if it is weeks out, run T9 and T7a now.
+T7a's included. The *mechanism* findings transfer — cushion vs deadline, period-specific
+structural cost — the *winning configuration* does not. T9 refuted a fixed stack-cost
+reading at 1024; carry the interaction model, not a single +0.80/min constant.

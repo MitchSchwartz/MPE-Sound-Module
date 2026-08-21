@@ -383,8 +383,9 @@ doctrine violation as causes 2 and 3: **no forks in periodic loops on the applia
 B is sooperlooper with *zero loops recorded*, so its +2.13 cannot be per-loop work, and
 DSP does not move between conditions. The likelier explanations are (a) crowding — three
 audio processes shoehorned onto two cores by our own `CPUAffinity` — and (b) the fixed
-cost of one more client in JACK's serial process chain. E1 below distinguishes them for
-the price of one reboot.
+cost of one more client in JACK's serial process chain. E1 tested (a) and was **refuted**
+(two variables changed at once); (b) remains open and is **512-specific** — at 1024×3
+with 8 loops the stack costs 0.00 (T9).
 
 ## Audio device — measured constraints
 
@@ -413,16 +414,19 @@ out) removes the host controller entirely and is cheaper than a USB interface.
 
 ## Experiment plan, ranked by information per unit of cost
 
-### E1 — three cores instead of two. **Do first.**
+### E0 — hygiene and IRQ consolidation. **Do first (Phase 0).**
 
-Our own `CPUAffinity=2 3` puts `jackd`, `surge-xt-cli` and `sooperlooper` on two cores.
-Two processes on two cores was comfortable; three may simply be crowding — which would
-mean sooperlooper's +2.13 is our configuration, not its code.
+Ship-critical settings (`irqaffinity=0,1`, unit affinities) must be under repo management
+before any further measurement. Movable IRQs off CPU0. See
+`Documents/specs/system-hygiene-baseline.md` and the live queue in
+`Documents/specs/next-tasks-2026-08-20.md`.
 
-`irqaffinity=0` on the cmdline, audio pinned to cores 1-3. Measure A and D, n=15, 512.
+### E1 — three cores instead of two. **CLOSED — refuted 2026-08-20.**
 
-If the gap collapses, 512 ships with the looper on. One line, one reboot, one hour.
-Needs Mitch for the reboot.
+Ran with two variables at once (`irqaffinity=0` + `CPUAffinity=1 2 3`). Every condition
+regressed at n=15, 512×3. Configuration refuted — not a clean crowding test. Reverted to
+`irqaffinity=0,1` + `CPUAffinity=2 3`. See `docs/measurements/e1-three-cores-T1-2026-08-20.md`.
+Do not re-run on this hardware without a one-variable design or more cores.
 
 ### E2 — fix the sl-watchdog fork loop, then re-measure D.
 
