@@ -26,6 +26,9 @@ fi
 
 if mpe_restart_audio_graph; then
     echo "restart-audio-graph: restarted $UNIT"
+    # shellcheck source=lib/dac-volume.sh
+    source "$SCRIPT_DIR/lib/dac-volume.sh"
+    mpe_apply_dac_volume || true
 else
     echo "restart-audio-graph: FAILED to restart $UNIT" >&2
     exit 1

@@ -14,6 +14,7 @@ from patch_browser.draw_primitives import (
     draw_filter_icon,
     draw_sidebar_panel_icon,
 )
+from patch_browser.peak_meter_math import peak_meter_color_dbfs
 from patch_browser.geometry import Rect
 from patch_browser.mixer import MixerChannel
 from patch_browser.patch_identity import (
@@ -25,6 +26,8 @@ from patch_browser.dsi_splash import shutdown_animation_phase
 from patch_browser.touch_ui_constants import (
     CPU_METER_BAR_W,
     CPU_METER_LABEL_GAP,
+    PEAK_METER_ORANGE_RGB,
+    PEAK_METER_YELLOW_RGB,
     DETAIL_TITLE_PAD_X,
     FADER_HANDLE_H,
     FADER_HANDLE_W,
@@ -43,6 +46,7 @@ from patch_browser.looper_hud import (
     bar_progress as looper_bar_progress,
     beat_label as looper_beat_label,
     current_beat_index as looper_beat_index,
+    health_badge as looper_health_badge,
     is_running as looper_is_running,
     segment_count as looper_segment_count,
     should_show as looper_should_show,
@@ -373,6 +377,50 @@ class TouchBrowserDrawMixin:
             pygame.draw.rect(self.screen, self.theme.accent, fill_rect, border_radius=10)
         text = self.font_sm.render(label, True, self.theme.muted)
         self.screen.blit(text, (rect.x, rect.y - 22))
+    def _peak_meter_color(self, dbfs: float | None):
+        bucket = peak_meter_color_dbfs(dbfs)
+        if bucket == "ok":
+            return self.theme.ok
+        if bucket == "warn":
+            return PEAK_METER_YELLOW_RGB
+        if bucket == "orange":
+            return PEAK_METER_ORANGE_RGB
+        if bucket == "hot":
+            return self.theme.danger
+        return self.theme.muted
+
+    def _draw_peak_meter(self, rect: Rect) -> None:
+        snap = self.peak_monitor.snapshot()
+        label = self.font_sm.render("OUT", True, self.theme.muted)
+        label_x = rect.x
+        label_y = rect.y + (rect.h - label.get_height()) // 2
+        self.screen.blit(label, (label_x, label_y))
+
+        bar_h = label.get_height()
+        bar_x = rect.x + label.get_width() + CPU_METER_LABEL_GAP
+        bar_y = label_y
+        bar_rect = pygame.Rect(bar_x, bar_y, CPU_METER_BAR_W, bar_h)
+        pygame.draw.rect(self.screen, self.theme.surface_alt, bar_rect, border_radius=3)
+
+        if not snap["online"]:
+            dash = self.font_sm.render("—", True, self.theme.muted)
+            dash_x = bar_rect.x + (bar_rect.w - dash.get_width()) // 2
+            dash_y = bar_rect.y + (bar_rect.h - dash.get_height()) // 2
+            self.screen.blit(dash, (dash_x, dash_y))
+            return
+
+        ratio = max(0.0, min(1.0, float(snap["ratio"] or 0.0)))
+        if ratio <= 0.0:
+            return
+        fill_h = max(1, int(bar_rect.h * ratio))
+        fill_rect = pygame.Rect(bar_rect.x, bar_rect.bottom - fill_h, bar_rect.w, fill_h)
+        pygame.draw.rect(
+            self.screen,
+            self._peak_meter_color(snap["dbfs"]),
+            fill_rect,
+            border_radius=3,
+        )
+
     def _cpu_meter_color(self, percent: float) -> tuple[int, int, int]:
         if percent < 40.0:
             return self.theme.ok
@@ -473,7 +521,15 @@ class TouchBrowserDrawMixin:
         bar_y = rect.y + LOOPER_HUD_V_PAD
         bar_h = max(10, rect.h - LOOPER_HUD_V_PAD * 2)
 
-        frac_surf = self.font_sm.render(label, True, accent if running else self.theme.text) if label else None
+        # Dropped periods outrank the bar counter when the graph is in trouble.
+        badge = looper_health_badge(sl)
+        if badge is not None:
+            label, severity = badge
+            frac_color = self.theme.danger if severity == "danger" else self.theme.playing
+        else:
+            frac_color = accent if running else self.theme.text
+
+        frac_surf = self.font_sm.render(label, True, frac_color) if label else None
         frac_w = frac_surf.get_width() if frac_surf else 0
 
         bar_x = rect.x + pad_x
@@ -571,6 +627,8 @@ class TouchBrowserDrawMixin:
         if getattr(self, "show_looper_hud", True):
             self._draw_looper_hud(self.looper_hud_rect)
         self._draw_audio_profile_badge(self.audio_profile_badge_rect)
+        if self.show_peak_meter:
+            self._draw_peak_meter(self.peak_meter_rect)
         if self.show_cpu_meter:
             self._draw_cpu_meter(self.cpu_meter_rect)
         self._draw_button(

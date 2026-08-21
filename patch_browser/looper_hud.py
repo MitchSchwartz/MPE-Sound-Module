@@ -103,3 +103,25 @@ def should_show(sl: dict, *, user_enabled: bool = True) -> bool:
 
 def is_running(sl: dict) -> bool:
     return bool(sl.get("active") or sl.get("playing"))
+
+
+def health_badge(sl: dict) -> tuple[str, str] | None:
+    """``(label, severity)`` when the graph is in trouble, else ``None``.
+
+    Salvaged from ``yolo/looper-phase0`` f39d0a6. Silent while healthy — the bar
+    counter is more useful than a permanent load readout. Xruns outrank utilization
+    because a dropped period is damage already done.
+    """
+    health = sl.get("health") or {}
+    xruns = int(health.get("xruns") or 0)
+    if xruns > 0:
+        return (f"!{xruns}" if xruns < 100 else "!99+", "danger")
+    max_pct = health.get("max_pct")
+    if max_pct is None:
+        return None
+    max_pct = float(max_pct)
+    if max_pct >= 100.0:
+        return (f"{max_pct:.0f}%", "danger")
+    if max_pct >= 75.0:
+        return (f"{max_pct:.0f}%", "warn")
+    return None

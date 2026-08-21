@@ -1,0 +1,89 @@
+{
+  "Analog Foundation": {
+    "user_touch_offset": 0.367
+  },
+  "Bass Ocarina": {
+    "cal_floor": 0.0,
+    "calibrated_at": "2026-08-03T00:43:58.317189+00:00",
+    "lufs_light": -24.7
+  },
+  "Bell Piano": {
+    "cal_floor": 0.052,
+    "calibrated_at": "2026-08-03T00:43:58.317288+00:00",
+    "lufs_light": -25.88
+  },
+  "Bowed String": {
+    "cal_floor": 0.0,
+    "calibrated_at": "2026-08-03T00:43:58.317347+00:00",
+    "lufs_light": -13.28
+  },
+  "Church - Mod": {
+    "cal_floor": 0.0,
+    "calibrated_at": "2026-08-03T00:43:58.317391+00:00",
+    "lufs_light": -14.73
+  },
+  "Cyber Pad": {
+    "cal_floor": 0.049,
+    "calibrated_at": "2026-08-03T00:43:58.317439+00:00",
+    "lufs_light": -25.83
+  },
+  "Dark Cello": {
+    "cal_floor": 0.171,
+    "calibrated_at": "2026-08-03T00:43:58.317482+00:00",
+    "lufs_light": -28.02
+  },
+  "Duduk": {
+    "cal_floor": 0.527,
+    "calibrated_at": "2026-08-03T00:43:58.317534+00:00",
+    "lufs_light": -34.44,
+    "user_touch_offset": -0.38
+  },
+  "Ensemble Strings": {
+    "user_touch_offset": 0.224
+  },
+  "Koala 1": {
+    "cal_floor": 0.0,
+    "calibrated_at": "2026-08-03T00:43:58.317607+00:00",
+    "lufs_light": -15.3
+  },
+  "Legato Bass": {
+    "cal_floor": 0.0,
+    "calibrated_at": "2026-08-03T00:43:58.317669+00:00",
+    "lufs_light": -20.51
+  },
+  "Minor 7": {
+    "cal_floor": 0.075,
+    "calibrated_at": "2026-08-03T00:43:58.317734+00:00",
+    "lufs_light": -26.29
+  },
+  "Oberheim Dreams": {
+    "cal_floor": 0.0,
+    "calibrated_at": "2026-08-03T00:43:58.317839+00:00",
+    "lufs_light": -25.19
+  },
+  "Overdriven Guitar + Wah": {
+    "cal_floor": 0.0,
+    "calibrated_at": "2026-08-03T00:43:58.317932+00:00",
+    "lufs_light": -17.02
+  },
+  "Qealchee": {
+    "cal_floor": 0.0,
+    "calibrated_at": "2026-08-03T00:43:58.318181+00:00",
+    "lufs_light": -11.61
+  },
+  "Res Wave Shift": {
+    "cal_floor": 0.394,
+    "calibrated_at": "2026-08-03T00:43:58.318313+00:00",
+    "lufs_light": -32.03
+  },
+  "Reso Brassy": {
+    "cal_floor": 0.264,
+    "calibrated_at": "2026-08-03T00:43:58.318398+00:00",
+    "lufs_light": -29.69
+  },
+  "Rhody EP": {
+    "cal_floor": 0.0,
+    "calibrated_at": "2026-08-03T00:43:58.318454+00:00",
+    "lufs_light": -16.32
+  }
+}
