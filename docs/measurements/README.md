@@ -106,3 +106,14 @@ The **measurement rig** is held to the same standard:
 - `scripts/xrun-corr.sh` — same meter rules as the latency harness
 
 Sweep: [`t6-harness-sweep-2026-08-20.md`](t6-harness-sweep-2026-08-20.md).
+
+### Parsing harness logs
+
+`measure-latency-run.sh` writes `RESULT tag=A-runN xruns=…` lines. When aggregating
+from a log, use word boundaries so run 1 does not match run 10:
+
+```bash
+grep -oE 'tag=A-run[0-9]+ xruns=[0-9]+' ~/latency-measure.log | sort -u
+```
+
+Bare `grep A-run1` also matches `A-run10`…`A-run15` and silently doubles counts.
