@@ -1,0 +1,123 @@
+# System hygiene baseline — go wide before going deep (2026-08-21)
+
+**Why this exists.** Two days of measurement went depth-first on a machine nobody had
+surveyed. A three-minute wide pass found a service crash-looping 617 times, a 3D graphics
+driver generating 857 k interrupts on a headless appliance, and seven maintenance timers
+armed on a realtime audio box. **None of this was known while every latency conclusion was
+being drawn.** This doc is the survey, the prune list, and the rule that comes out of it.
+
+**Standing rule (new).** Before measuring a system, enumerate it. Services, timers,
+interrupts, modules. A wide pass is minutes; a wrong conclusion from a dirty baseline costs
+days.
+
+---
+
+## Finding 1 — `mpe-pressure-remap` has restarted 617 times
+
+**192 restarts in the last hour alone**, continuously, through every measurement taken
+today.
+
+```
+Error: no physical MIDI inputs opened
+mpe-pressure-remap.service: Main process exited, code=exited, status=1/FAILURE
+Scheduled restart job, restart counter is at 617.
+```
+
+Root cause: the Roli is not connected. The unit waits 15 s for it, gives up, exits 1, and
+`Restart=on-failure` restarts it. Forever.
+
+**Cost per cycle:** ~1.19 s CPU (systemd's own accounting), a process spawn, journald
+writes, and — most relevant — **MIDI device enumeration, which issues USB control transfers
+on the same bus as the audio device.** Every 19 seconds. Roughly 6% of a core continuously,
+plus a direct interference path into the transport under investigation.
+
+**Fix:** the unit should not run when its hardware is absent. Either gate it on device
+presence (udev, or a `ConditionPathExists` on the MIDI node) or set `Restart=no` with the
+udev rule bringing it up on plug. **A service that cannot succeed must not retry forever** —
+this is the systemd-level form of the no-forks-in-periodic-loops doctrine.
+
+Also flagged: **`mpe-peak-meter.service` NRestarts=16.** That is the meter the entire
+measurement rig trusts. Not a loop, but not clean either. Investigate.
+
+## Finding 2 — seven maintenance timers armed on a realtime appliance
+
+`apt-daily`, `apt-daily-upgrade`, `dpkg-db-backup`, `logrotate`, `man-db`, `e2scrub_all`,
+`fstrim`, `systemd-tmpfiles-clean`, `rpi-zram-writeback`.
+
+`apt-daily-upgrade`, `dpkg-db-backup`, `logrotate` and `e2scrub_all` all fired at
+**10:03:39 today**. T11's 256x3 cell started at **10:08:06** — four minutes later, so this
+particular burst is *not* the explanation for T11's 12.10 vs T13's 1.53. **But it is luck,
+not design.** `apt-daily` carries a randomised delay of up to 12 hours; `fstrim` issues
+TRIM to the SD card; `man-db` rebuilds an index. Any of them landing inside a 60 s window
+corrupts that run silently.
+
+**Fix:** mask them on the appliance. This is not a measurement-only concern — a stage
+instrument should not run `apt` while someone is playing.
+
+## Finding 3 — CPU0 is doing everything
+
+`irqaffinity=0,1` makes CPU0 the lowest core in the mask, so every movable interrupt lands
+there alongside the one that cannot move.
+
+| IRQ | count | source | movable |
+|---:|---:|---|---|
+| 11 | 4.19 M | arch_timer | no — per-CPU |
+| **30** | **3.29 M** | **xhci_hcd** | **no** — empty `effective_affinity`, the signature of a chip with no `set_affinity` |
+| 41 | 1.71 M | mmc0/mmc1 (SD + SDIO WiFi) | yes |
+| 42 | 878 k | fe205000.i2c | yes |
+| 43 | 857 k | **v3d — 3D graphics, on a headless audio appliance** | yes |
+
+~6.7 M interrupts beyond the timer, **one of which has to be there.**
+
+**Fix:** move the movable ones to CPU1; leave CPU0 for xhci and the timer. And for v3d,
+prefer removing the driver over relocating its interrupt — an interrupt that does not exist
+costs nothing. Identify what is polling i2c at 878 k.
+
+## Finding 4 — services running that an appliance does not need
+
+Running now: `bluetooth`, `avahi-daemon`, `cron`, `udisks2` (enabled), `polkit`,
+`usb-audio-gadget`, plus **four `cloud-init` units enabled** on a Raspberry Pi.
+
+Each is a scheduler entry, a wakeup source, and in the case of avahi and bluetooth a
+periodic network/radio activity generator feeding the very IRQ line identified above.
+
+**Keep:** ssh, NetworkManager/wpa_supplicant (needed for remote work), tailscaled (user's
+call), journald, udevd, the `mpe-*` / `surge-*` stack.
+**Prune:** bluetooth, avahi-daemon, cloud-init (all four), udisks2, cron, console-setup,
+keyboard-setup, `usb-audio-gadget` **if the usb-host profile is not in use** (it currently
+registers ALSA card 5).
+
+---
+
+## The clean path
+
+Everything above is **Phase 0**, and it comes before any further measurement. Numbers taken
+before it are not wrong so much as **taken on a different machine than the one that will
+ship**.
+
+| phase | work | why it is in this order |
+|---|---|---|
+| **0. Hygiene** | Fix the crash loop · mask the timers · IRQ consolidation · prune services · investigate v3d and i2c | Cheap, high-impact, and every later number depends on it. One commit, one reboot. |
+| **1. Re-baseline** | 512x3 and 256x3, condition A, n=15, **separate harness invocations** | Establishes the real baseline *and* settles the 256x3 discrepancy (12.10 vs 1.53). Separate invocations so run order cannot explain the result. |
+| **2. Scarlett** | T11 ladder at defaults | Gated on hardware. MSD mode off, Sound Blaster unplugged (Tier 1 outranks it), confirm 480M enumeration before trusting a number. |
+| **3. Deep levers** | T12 alignment · `threadirqs` · `lowlatency=N` | Only meaningful against a clean baseline on the device that ships. |
+
+**Phase 0 changes one thing at a time is not required** — these are not competing
+hypotheses, they are defects. Fix them together, re-baseline once, and treat the result as
+the new zero. The one-variable rule applies to Phase 3, where we are testing hypotheses.
+
+## What Phase 0 does to existing conclusions
+
+**Survives** — it is structural or relative-within-one-run:
+- Callbacks never miss their deadline; the drain is below JACK (T11)
+- Period size binds, not total buffer — 466x at identical runway (T13)
+- Xrun arrivals are Poisson; clock drift is ruled out (T5)
+- 512 is not shippable with the looper; loop count is irrelevant there (T4a)
+
+**Provisional** — absolute rates that a dirty baseline could have moved:
+- Every xruns/min figure from 2026-08-18 to 2026-08-21, including the shipping claim
+  (1024x3, cond D, 8 loops, 0.00) and the soak's 0.93/min
+- The 512 A/B/C/D ladder
+
+The shipping claim is likely to **improve**, not degrade — the crash loop and the timers
+were noise added to it. But it needs re-taking before it is quoted.
