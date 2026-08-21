@@ -152,21 +152,6 @@ class Osc:
         return None
 
 
-def jack_graph() -> str | None:
-    """Raw `jack_lsp -c` output, or None if JACK itself is unreachable.
-
-    Fallback only: registers a JACK client and can reorder the graph. The hot
-    path reads ``/run/mpe/meter.state`` from the long-lived ``mpe-peak-meter``
-    process instead (E2, 2026-08-20).
-    """
-    try:
-        proc = subprocess.run(["jack_lsp", "-c"], capture_output=True,
-                              text=True, timeout=10)
-    except Exception:
-        return None
-    return proc.stdout if proc.returncode == 0 else None
-
-
 class GraphSnapshot(NamedTuple):
     """Graph visibility without spawning jack_lsp on the healthy path."""
 
@@ -219,34 +204,6 @@ def wait_for_playback_via_meter(*, timeout_s: float = 4.0,
             continue
         return None
     return looper_playback_via_meter() is True
-
-
-def playback_sources(graph: str) -> set[str]:
-    found, cur = set(), None
-    for line in graph.splitlines():
-        if not line.startswith((" ", "\t")):
-            cur = line.strip()
-        elif cur and cur.startswith("system:playback"):
-            found.add(line.strip())
-    return found
-
-
-def jack_client_visible(graph: str) -> bool:
-    """Is SooperLooper actually ON the JACK graph?
-
-    The failure this exists to catch (verified live 2026-08-15): jackd
-    restarts, SooperLooper survives as a process but loses its JACK client and
-    never re-registers. `/set` and `/hit` go through push_nonrt_event(), which
-    is drained from the JACK *process callback* — no callback, no drain, so
-    commands vanish silently while `/get` reads state directly and keeps
-    answering. That is indistinguishable from the "unknown wedge" unless
-    something looks at the graph, which nothing here used to do.
-
-    Symptoms it explains: pads go green with no audio, the grid stays
-    quantized after a reset, and the JACK repair below fails forever because
-    it is connecting a port that does not exist.
-    """
-    return any(line.startswith(f"{JACK_CLIENT}:") for line in graph.splitlines())
 
 
 def read_governor() -> str | None:

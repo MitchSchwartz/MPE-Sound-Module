@@ -27,11 +27,13 @@ source "$SCRIPT_DIR/lib/audio-engine.sh"
 
 BUFFER=""
 CONDITION=""
+PERIODS=""
 RUNS=3
 SECONDS_PER_RUN=60
 OUTPUT="${MPE_LATENCY_LOG:-$HOME/latency-measure.log}"
 SELF_TEST=false
 RESTORE_BUFFER=""
+RESTORE_PERIODS=""
 RESTART_BETWEEN=""
 MIDI_LOAD_VOICES=75
 PLAYING_LOOPS=0
@@ -45,6 +47,7 @@ SKIP_BUFFER_RESTORE=false
 while [ $# -gt 0 ]; do
     case "$1" in
         --buffer) BUFFER="${2:?--buffer requires a value}"; shift 2 ;;
+        --periods) PERIODS="${2:?--periods requires a value}"; shift 2 ;;
         --condition) CONDITION="${2:?--condition requires a value}"; shift 2 ;;
         --runs) RUNS="${2:?--runs requires a value}"; shift 2 ;;
         --seconds) SECONDS_PER_RUN="${2:?--seconds requires a value}"; shift 2 ;;
@@ -75,6 +78,7 @@ fi
 
 mpe_source_appliance_env
 RESTORE_BUFFER="$(mpe_jack_period)"
+RESTORE_PERIODS="$(mpe_jack_periods)"
 
 RUN_AS_USER="${MPE_PI_USER:-mitch}"
 if [ "$(id -u)" -eq 0 ] && id "$RUN_AS_USER" >/dev/null 2>&1; then
@@ -153,6 +157,26 @@ _jack_period_from_proc() {
     local pid
     pid="$(pgrep -x jackd | head -1)" || return 1
     tr '\0' '\n' < "/proc/$pid/cmdline" | awk '/^-p$/{getline; print; exit}'
+}
+
+_jack_periods_from_proc() {
+    local pid
+    pid="$(pgrep -x jackd | head -1)" || return 1
+    tr '\0' '\n' < "/proc/$pid/cmdline" | awk '/^-n$/{getline; print; exit}'
+}
+
+_assert_jack_periods() {
+    local want="$1" got
+    got="$(_jack_periods_from_proc)" || {
+        echo "ERROR: jackd not running — cannot verify period count" >&2
+        return 1
+    }
+    if [ "$got" != "$want" ]; then
+        echo "ERROR: JACK period count is $got, expected $want (trap 5 — env write may have failed)" >&2
+        return 1
+    fi
+    echo "jackd periods=$got ok"
+    return 0
 }
 
 _assert_jack_period() {
@@ -473,24 +497,34 @@ _run_window() {
 
 {
     echo
-    echo "=== measure-latency-run buffer=${BUFFER} condition=${CONDITION} runs=${RUNS} seconds=${SECONDS_PER_RUN} $(date -Is) ==="
+    echo "=== measure-latency-run buffer=${BUFFER} periods=${PERIODS:-$(mpe_jack_periods 2>/dev/null || echo ?)} condition=${CONDITION} runs=${RUNS} seconds=${SECONDS_PER_RUN} $(date -Is) ==="
     echo "SENTINEL harness-start"
     _ensure_peak_meter
     _ensure_xrun_probe || exit 1
 
-    if ! "$SCRIPT_DIR/set-surge-audio.sh" --buffer "$BUFFER"; then
-        echo "ERROR: set-surge-audio.sh --buffer $BUFFER failed" >&2
+    _audio_args=( )
+    [ -n "$BUFFER" ] && _audio_args+=(--buffer "$BUFFER")
+    [ -n "$PERIODS" ] && _audio_args+=(--periods "$PERIODS")
+    if [ "${#_audio_args[@]}" -eq 0 ]; then
+        echo "ERROR: --buffer is required" >&2
+        exit 2
+    fi
+    if ! "$SCRIPT_DIR/set-surge-audio.sh" "${_audio_args[@]}"; then
+        echo "ERROR: set-surge-audio.sh ${_audio_args[*]} failed" >&2
         exit 1
     fi
     mpe_source_appliance_env
+    PERIODS_EFFECTIVE="$(mpe_jack_periods)"
     sleep 8
     _assert_jack_period "$BUFFER" || exit 1
+    _assert_jack_periods "$PERIODS_EFFECTIVE" || exit 1
 
     if ! _enable_strict_xrun_reporting; then
         echo "ERROR: could not restart jackd for strict xrun reporting" >&2
         exit 1
     fi
     _assert_jack_period "$BUFFER" || exit 1
+    _assert_jack_periods "$PERIODS_EFFECTIVE" || exit 1
     echo "=== provenance after strict restart ==="
     _record_provenance
 
@@ -524,7 +558,7 @@ _run_window() {
         # append-only log. Any analysis that deduped or grepped by tag would have
         # silently merged them (2026-08-20; the split was done by block marker
         # instead, so no result was corrupted -- but nothing prevented it).
-        tag="${CONDITION}-b${BUFFER}-l${PLAYING_LOOPS}-run${run_idx}"
+        tag="${CONDITION}-b${BUFFER}-p${PERIODS_EFFECTIVE}-l${PLAYING_LOOPS}-run${run_idx}"
 
         # Belt and braces: whatever the cause, a repeated tag in one output file
         # makes that file ambiguous. Fail loudly rather than append a second run
@@ -566,11 +600,12 @@ _run_window() {
         [ "$run_idx" -le "$RUNS" ] && sleep 5
     done
 
-    echo "=== restore buffer ${RESTORE_BUFFER} ==="
+    echo "=== restore buffer ${RESTORE_BUFFER} periods ${RESTORE_PERIODS} ==="
     if [ "$SKIP_BUFFER_RESTORE" != true ]; then
-        "$SCRIPT_DIR/set-surge-audio.sh" --buffer "$RESTORE_BUFFER" || true
+        "$SCRIPT_DIR/set-surge-audio.sh" --buffer "$RESTORE_BUFFER" --periods "$RESTORE_PERIODS" || true
         sleep 6
         _assert_jack_period "$RESTORE_BUFFER" || echo "WARNING: restore period check failed" >&2
+        _assert_jack_periods "$RESTORE_PERIODS" || echo "WARNING: restore periods check failed" >&2
     else
         echo "skip restore (--no-restore-buffer)"
     fi

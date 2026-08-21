@@ -67,7 +67,7 @@ mpe_jack_period() {
 
 mpe_jack_periods() {
     case "${MPE_JACK_PERIODS:-}" in
-        2 | 3 | 4) printf '%s' "$MPE_JACK_PERIODS" ;;
+        2 | 3 | 4 | 6 | 8) printf '%s' "$MPE_JACK_PERIODS" ;;
         '') printf '%s' "$MPE_JACK_PERIODS_DEFAULT" ;;
         *)
             echo "WARNING: MPE_JACK_PERIODS='${MPE_JACK_PERIODS}' invalid — using $MPE_JACK_PERIODS_DEFAULT" >&2

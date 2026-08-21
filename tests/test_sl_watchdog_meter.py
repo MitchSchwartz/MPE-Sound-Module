@@ -43,7 +43,6 @@ class MeterGraphSnapshotTests(unittest.TestCase):
         with mock.patch.object(sl, "GOVERNOR_TARGET", ""), \
              mock.patch.object(sl, "read_graph_snapshot", return_value=snap), \
              mock.patch.object(sl, "jackd_running", return_value=jackd), \
-             mock.patch.object(sl, "jack_graph") as jg, \
              mock.patch.object(sl, "engine_running", return_value=None), \
              mock.patch.object(sl, "check_command_path", return_value=(sl.ALIVE, "ok")), \
              mock.patch.object(sl, "Osc") as osc:
@@ -51,7 +50,6 @@ class MeterGraphSnapshotTests(unittest.TestCase):
             engine.get.return_value = "play"
             osc.return_value.start.return_value = engine
             sl.main(["--once", "--skip-source-check"])
-        jg.assert_not_called()
         if not self.alarm.exists():
             return []
         return json.loads(self.alarm.read_text()).get("problems", [])
@@ -60,7 +58,6 @@ class MeterGraphSnapshotTests(unittest.TestCase):
         snap = sl.GraphSnapshot(True, True, True, "meter")
         with mock.patch.object(sl, "GOVERNOR_TARGET", ""), \
              mock.patch.object(sl, "read_graph_snapshot", return_value=snap), \
-             mock.patch.object(sl, "jack_graph") as jg, \
              mock.patch.object(sl, "engine_running", return_value=True), \
              mock.patch.object(sl, "check_command_path", return_value=(sl.ALIVE, "ok")), \
              mock.patch.object(sl, "Osc") as osc:
@@ -68,27 +65,22 @@ class MeterGraphSnapshotTests(unittest.TestCase):
             engine.get.return_value = "play"
             osc.return_value.start.return_value = engine
             sl.main(["--once", "--skip-source-check"])
-        jg.assert_not_called()
 
     def test_read_graph_snapshot_prefers_meter(self) -> None:
         now = time.time()
         with mock.patch.object(sl, "jack_reachable_via_meter", return_value=True), \
              mock.patch.object(sl, "looper_client_via_meter", return_value=True), \
-             mock.patch.object(sl, "looper_playback_via_meter", return_value=True), \
-             mock.patch.object(sl, "jack_graph") as jg:
+             mock.patch.object(sl, "looper_playback_via_meter", return_value=True):
             snap = sl.read_graph_snapshot(now=now)
         self.assertEqual("meter", snap.source)
-        jg.assert_not_called()
 
     def test_stale_meter_jackd_up_reports_meter_stale(self) -> None:
         with mock.patch.object(sl, "jack_reachable_via_meter", return_value=None), \
              mock.patch.object(sl, "looper_client_via_meter", return_value=None), \
-             mock.patch.object(sl, "looper_playback_via_meter", return_value=None), \
-             mock.patch.object(sl, "jack_graph") as jg:
+             mock.patch.object(sl, "looper_playback_via_meter", return_value=None):
             snap = sl.read_graph_snapshot()
         self.assertEqual("meter_stale", snap.source)
         self.assertIsNone(snap.jack_reachable)
-        jg.assert_not_called()
 
     def test_stale_meter_alarm_names_meter_when_jackd_up(self) -> None:
         problems = self._run_stale_once(jackd=True)
@@ -112,12 +104,10 @@ class MeterMainLoopTests(unittest.TestCase):
     def test_engine_down_via_meter_without_jack_lsp(self) -> None:
         snap = sl.GraphSnapshot(True, False, False, "meter")
         with mock.patch.object(sl, "read_graph_snapshot", return_value=snap), \
-             mock.patch.object(sl, "jack_graph") as jg, \
              mock.patch.object(sl, "engine_running", return_value=False), \
              mock.patch.object(sl, "Osc") as osc:
             osc.return_value.start.return_value = mock.MagicMock()
             rc = sl.main(["--once", "--skip-source-check"])
-        jg.assert_not_called()
         alarm = json.loads(self.alarm.read_text())
         self.assertEqual("engine-down", alarm["state"])
         self.assertEqual(0, rc)
