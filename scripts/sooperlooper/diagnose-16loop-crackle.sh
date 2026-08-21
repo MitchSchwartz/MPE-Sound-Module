@@ -99,7 +99,9 @@ count_playback_inputs() {
 
 sample_cpu() {
   if command -v timeout >/dev/null 2>&1 && command -v jack_cpu_load >/dev/null 2>&1; then
-    timeout 3 jack_cpu_load 2>/dev/null | tail -1 || echo "n/a"
+    # -k is load-bearing: jack_cpu_load ignores SIGTERM, so a bare `timeout 3` exits
+    # and orphans the client on the graph permanently (705 leaked, 2026-08-17).
+    timeout -k 0.5 3 jack_cpu_load 2>/dev/null | tail -1 || echo "n/a"
   else
     echo "n/a"
   fi

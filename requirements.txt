@@ -19,3 +19,6 @@ python-osc>=1.9.0
 
 # Touch patch browser (5" DSI — optional on encoder-only builds)
 pygame>=2.5.0
+
+# Live peak meter (optional — parallel JACK tap; on Pi: sudo apt install python3-jack-client)
+# JACK-Client>=0.5.3

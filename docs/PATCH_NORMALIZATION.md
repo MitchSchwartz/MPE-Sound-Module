@@ -4,6 +4,8 @@ Static loudness matching for Surge XT patches on the MPE appliance. Calibrate on
 
 **Issue:** [MPE-Sound-Module #5](https://github.com/MitchSchwartz/MPE-Sound-Module/issues/5)
 
+**v2 spec (cal integrity, Norm trim, meter/fader UX):** [`Documents/specs/patch-normalization-v2-spec.md`](../Documents/specs/patch-normalization-v2-spec.md) — Draft 2026-08-17. **DAC appliance default:** `MPE_DAC_VOLUME_DB=-12` (Speaker raw 64) as of same date.
+
 ## Design
 
 | When | What |
@@ -73,7 +75,7 @@ Surge OSC `/param/a/amp/volume` and `/param/b/amp/volume` use a linear scale (`1
 On load:
 
 1. Normalization sets `_patch_gain_linear` baseline
-2. User volume slider (`set_volume`) maps fader travel **linearly in dB** from `eff_min` to `eff_max` (`eff_max` = capped norm baseline when Norm on, else the **1.5** ceiling). Display shows **0–100** across fader travel (not raw linear trim).
+2. User volume slider (`set_volume`) maps fader travel **linearly in dB** from **mute** (−∞ display) to **0 dB** at the top (`eff_max` = capped norm baseline when Norm on, else the **1.5** ceiling). Display shows **dB attenuation** (−∞…0), not 0–100.
 3. When **Norm.** is on or off, `eff_max` never exceeds **1.5** linear on Surge amp/volume. (The norm-on cap was **0.85** until 2026-08-01 — see below. A 2026-08-02 fix stopped product-then-cap from flattening the Vol fader; a follow-up switched to dB-linear mapping so the top of the fader is not compressed into the last ~20%.)
 
 ### Polyphony and static/crackle (Pi)
@@ -101,6 +103,14 @@ Static or crackle under **many held keys** is usually **ALSA buffer underrun (xr
 
 If crackle persists with Norm off and moderate polyphony, raise the **JACK period** — `MPE_JACK_BUFFER=1024` in `/etc/mpe/mpe.env`, then apply via the touch settings or `set-surge-audio.sh --buffer 1024` so jackd actually restarts. Tradeoff: latency scales with `period × MPE_JACK_PERIODS` (512×3 ≈ 32 ms, 1024×3 ≈ 64 ms). *(Corrected 2026-08-14 — this said `MPE_SURGE_BUFFER_SIZE=2048`, which no longer sizes the audio path under JACK.)*
 
+**Before blaming the period, rule out the graph clients (2026-08-17).** A bigger buffer masks a client that is blowing its deadline every period; it does not fix it. Order of elimination:
+
+1. `MPE_PEAK_METER` unset (the default) — the OUT meter is a JACK client, so jackd blocks on its callback. If crackle disappears with it off, it was never the period.
+2. `sudo ./scripts/bench-xruns.sh --strict --seconds 120` — strict mode drops `jackd -s`, so a client that misses its deadline gets zombified and **named** in `journalctl -u mpe-jackd` instead of glitching anonymously.
+3. `sudo ./scripts/bench-xruns.sh --sweep` — measures 128/256/512/1024 in one pass and restores the original period. Play dense MPE throughout; an idle bench proves nothing.
+
+Record the result as a bench command and its output, not a sentence. Every prior entry in this file that had to be marked **CORRECTED** was prose recording a number nobody could re-derive.
+
 **Live diagnosis:** the touch browser header **CPU** meter (see [`TOUCH_PATCH_BROWSER.md`](TOUCH_PATCH_BROWSER.md)) tracks `surge-xt-cli` process load while you play — use it to see when dense polyphony is pushing the Pi toward xrun territory. Norm on should keep typical Quick Select patches lower on that meter than uncapped gain would.
 
 **Quick Select reference (2026-07-30):** calibrated `gain_db` spans about +4 to +18 dB. Without a runtime cap that would map to **~1.6–8.0** linear OSC — too hot for dense MPE on the Pi. With Norm on, combined amp/volume is capped at **1.5** linear (same as norm off).
@@ -122,7 +132,7 @@ Patch discovery scans all folders under the Surge patch symlink roots (`SURGE_PA
 |------|--------|
 | *(none)* | All scanned patches **missing** a `gain_db` entry |
 | `--force` | Re-calibrate **every** scanned patch (overwrites `gain_db`) |
-| `--favorites-only` | Quick Select folder only (legacy / ad-hoc) |
+| `--favorites-only` | Quick Select folder only — **includes nested subfolders** (e.g. `Dan Maurer/Dark Friday.fxp`); touch UI System → Calibrate uses this scope |
 | `--folder "Name"` | One category folder under user patches |
 | `--patch "Stem"` | Single patch by name |
 | `--dry-run` | List targets; no Surge/ffmpeg |

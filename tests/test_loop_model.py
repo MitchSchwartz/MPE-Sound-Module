@@ -31,6 +31,7 @@ from scripts.sooperlooper.loop_model import (
 from scripts.sooperlooper.sl_loop_states import (
     SL_STATE_MUTE,
     SL_STATE_OFF,
+    SL_STATE_OFF_MUTED,
     SL_STATE_PAUSED,
     SL_STATE_PLAYING,
     SL_STATE_RECORDING,
@@ -41,13 +42,17 @@ from scripts.sooperlooper.sl_loop_states import (
 
 class DeriveStateTests(unittest.TestCase):
     def test_every_engine_state_has_a_bench_meaning(self) -> None:
+        from sl_loop_states import SL_STATE_OVERDUBBING
+
         self.assertEqual(derive_state(SL_STATE_OFF), STATE_IDLE)
         self.assertEqual(derive_state(SL_STATE_RECORDING), STATE_RECORDING)
         self.assertEqual(derive_state(SL_STATE_WAIT_START), STATE_RECORDING)
         self.assertEqual(derive_state(SL_STATE_WAIT_STOP), STATE_RECORDING)
         self.assertEqual(derive_state(SL_STATE_PLAYING), STATE_PLAYING)
+        self.assertEqual(derive_state(SL_STATE_OVERDUBBING), STATE_PLAYING)
         self.assertEqual(derive_state(SL_STATE_PAUSED), STATE_STOPPED)
         self.assertEqual(derive_state(SL_STATE_MUTE), STATE_STOPPED)
+        self.assertEqual(derive_state(SL_STATE_OFF_MUTED), STATE_IDLE)
 
     def test_an_unknown_code_does_not_take_the_surface_down(self) -> None:
         self.assertEqual(derive_state(99), STATE_IDLE)
@@ -121,6 +126,43 @@ class PlanTapTests(unittest.TestCase):
         self.assertFalse(p.begin_quantize_wait)
         self.assertEqual(p.expect, STATE_PLAYING)
 
+    def test_defining_take_stop_uses_stop_then_weld_when_enabled(self) -> None:
+        p = self._gesture(
+            "down",
+            SL_STATE_RECORDING,
+            is_defining=True,
+            tail_capture_enabled=True,
+        )
+        self.assertTrue(p.begin_tail_capture)
+        self.assertEqual(p.commands, ("record",))
+        self.assertEqual(p.expect, STATE_PLAYING)
+        self.assertFalse(p.tail_deferred)
+
+    def test_grid_clip_stop_arms_deferred_tail_weld(self) -> None:
+        p = self._gesture(
+            "down",
+            SL_STATE_RECORDING,
+            grid_established=True,
+            is_defining=False,
+            tail_capture_enabled=True,
+        )
+        self.assertTrue(p.begin_tail_capture)
+        self.assertTrue(p.begin_quantize_wait)
+        self.assertTrue(p.tail_deferred)
+        self.assertEqual(p.commands, ("record",))
+
+    def test_defining_take_stop_off_muted_enters_tail_not_queue_stop(self) -> None:
+        """Pi reported sl=20 (OffMuted) while pending=recording — was queue_stop deadlock."""
+        p = self._gesture(
+            "down",
+            SL_STATE_OFF_MUTED,
+            pending=STATE_RECORDING,
+            is_defining=True,
+            tail_capture_enabled=True,
+        )
+        self.assertTrue(p.begin_tail_capture)
+        self.assertFalse(p.queue_stop)
+
     def test_free_form_loops_never_arm_a_quantize_wait(self) -> None:
         p = self._gesture("down", SL_STATE_RECORDING, quantized=False)
         self.assertFalse(p.begin_quantize_wait)
@@ -168,6 +210,14 @@ class LedTableTests(unittest.TestCase):
 
     def test_queued_to_record_is_ableton_standard(self) -> None:
         self.assertEqual(led_for(SL_STATE_WAIT_START), (LED_RED_BLINK,))
+
+    def test_tail_capture_led_is_amber_while_weld_pending(self) -> None:
+        from scripts.sooperlooper.led_table import LED_YELLOW_BLINK
+
+        self.assertEqual(
+            led_for(SL_STATE_PLAYING, tail_capture=True),
+            (LED_YELLOW_BLINK,),
+        )
 
     def test_recording_queued_to_play_shows_both_colours(self) -> None:
         """The state Ableton drops: recording is STILL RUNNING into this bar."""
