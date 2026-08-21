@@ -63,6 +63,7 @@ INDEX="${OUTPUT_PREFIX}-index.log"
 stream=1
 while [ "$stream" -le "$STREAMS" ]; do
     stream_log="${OUTPUT_PREFIX}-stream-$(printf '%02d' "$stream").log"
+    rm -f "$stream_log"
     echo "=== stream ${stream}/${STREAMS} -> ${stream_log} $(date -Is) ===" | tee -a "$INDEX"
     args=(
         --buffer "$BUFFER"
