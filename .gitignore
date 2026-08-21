@@ -41,3 +41,9 @@ logs/shutdown-test-marker.json
 
 # Everything else (binaries, patches, configs) GOES IN GIT for backup!
 native/mpe-peak-meter/mpe-peak-meter
+
+# Compiled probe — build with `make` in native/mpe-xrun-probe.
+# An x86-64 laptop build was committed here and shipped to the aarch64 Pi,
+# where a fresh checkout produced "Syntax error: Unterminated quoted string"
+# because the shell tried to execute a foreign-architecture ELF (2026-08-20).
+native/mpe-xrun-probe/mpe-xrun-probe

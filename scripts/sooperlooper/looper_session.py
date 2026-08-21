@@ -50,6 +50,8 @@ def _hud_thread_main(stop: threading.Event, writer: HudWriter) -> None:
             flush=True,
         )
         os._exit(1)
+    finally:
+        writer.close()
 
 
 def start_hud_thread(session: SlOscSession) -> tuple[threading.Thread, threading.Event, HudWriter]:
@@ -121,7 +123,7 @@ def run_session(argv: list[str] | None = None) -> int:
     finally:
         if hud_stop is not None and hud_thread is not None:
             hud_stop.set()
-            hud_thread.join(timeout=2.0)
+            hud_thread.join(timeout=5.0)
             if hud_writer is not None:
                 hud_writer.close()
 
