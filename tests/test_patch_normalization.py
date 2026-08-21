@@ -382,7 +382,8 @@ class PatchNormalizationStoreTests(unittest.TestCase):
             store = PatchNormalizationStore(user_path)
             self.assertEqual(store.get_effective_gain_db("Lead"), 3.0)
             self.assertEqual(store.get_calibrated_gain_db("Lead"), 6.0)
-            self.assertTrue(store.has_user_gain_override("Lead"))
+            self.assertEqual(store.get_user_trim_db("Lead"), -3.0)
+            self.assertTrue(store.has_user_trim_override("Lead"))
 
             loader = PatchLoader(normalization_store=store)
             loader.osc_client = FakeOscClient()
@@ -392,7 +393,7 @@ class PatchNormalizationStoreTests(unittest.TestCase):
             from patch_browser.patch_normalization import db_to_linear, NORM_MAX_AMP_VOLUME_LINEAR
 
             sent = loader.osc_client.messages[-1][1]
-            expected = min(db_to_linear(3.0), NORM_MAX_AMP_VOLUME_LINEAR)
+            expected = min(db_to_linear(3.0), NORM_MAX_AMP_VOLUME_LINEAR)  # 6 + (-3) trim
             self.assertAlmostEqual(sent, expected)
 
     def test_clear_user_gain_reverts_to_calibrated(self) -> None:
@@ -402,8 +403,8 @@ class PatchNormalizationStoreTests(unittest.TestCase):
                 json.dumps({"Lead": {"gain_db": 6.0, "user_gain_db": 2.0, "enabled": True}})
             )
             store = PatchNormalizationStore(user_path)
-            store.clear_user_gain_db("Lead")
-            self.assertFalse(store.has_user_gain_override("Lead"))
+            store.clear_user_trim_db("Lead")
+            self.assertFalse(store.has_user_trim_override("Lead"))
             self.assertEqual(store.get_effective_gain_db("Lead"), 6.0)
 
     def test_set_calibration_preserves_user_gain_override(self) -> None:
@@ -413,11 +414,12 @@ class PatchNormalizationStoreTests(unittest.TestCase):
             store = PatchNormalizationStore(user_path)
             store.set_calibration("Lead", 5.0, -20.0, true_peak_dbtp=-4.0)
             self.assertEqual(store.get_calibrated_gain_db("Lead"), 5.0)
-            self.assertEqual(store.get_effective_gain_db("Lead"), 8.0)
+            self.assertEqual(store.get_effective_gain_db("Lead"), 9.0)  # trim +4 preserved on re-cal
             store.save()
             saved = json.loads(user_path.read_text())
             self.assertEqual(saved["Lead"]["gain_db"], 5.0)
-            self.assertEqual(saved["Lead"]["user_gain_db"], 8.0)
+            self.assertEqual(saved["Lead"]["user_trim_db"], 4.0)
+            self.assertNotIn("user_gain_db", saved["Lead"])
 
 
 if __name__ == "__main__":
