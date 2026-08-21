@@ -42,7 +42,7 @@ MPE_JACKD_SERVICE="mpe-jackd.service"
 # The Surge key stays alive for calibration only; nothing here reads it.
 mpe_buffer_env_canonical() {
     case "${MPE_JACK_BUFFER:-}" in
-        64 | 128 | 256 | 512 | 1024) printf '%s' "$MPE_JACK_BUFFER"; return 0 ;;
+        64 | 96 | 128 | 192 | 256 | 512 | 1024) printf '%s' "$MPE_JACK_BUFFER"; return 0 ;;
         '') printf '%s' "$MPE_JACK_BUFFER_DEFAULT"; return 0 ;;
     esac
     echo "WARNING: MPE_JACK_BUFFER='${MPE_JACK_BUFFER}' invalid — using $MPE_JACK_BUFFER_DEFAULT" >&2
