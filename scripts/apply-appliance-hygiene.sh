@@ -133,4 +133,25 @@ else
     bash "$SCRIPT_DIR/apply-movable-irq-affinity.sh"
 fi
 
+echo "=== systemd manager stop timeout (DefaultTimeoutStopSec=10s) ==="
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+MANAGER_SRC="$REPO_ROOT/config/systemd/mpe-appliance.conf"
+MANAGER_DST="/etc/systemd/system.conf.d/mpe-appliance.conf"
+if [ -f "$MANAGER_SRC" ]; then
+    if [ "$DRY" = true ]; then
+        echo "would: install $MANAGER_SRC -> $MANAGER_DST"
+    else
+        _run mkdir -p /etc/systemd/system.conf.d
+        if [ ! -f "$MANAGER_DST" ] || ! cmp -s "$MANAGER_SRC" "$MANAGER_DST"; then
+            _run cp "$MANAGER_SRC" "$MANAGER_DST"
+            echo "installed $MANAGER_DST (DefaultTimeoutStopSec=10s)"
+            _run systemctl daemon-reexec
+        else
+            echo "systemd manager conf already current"
+        fi
+    fi
+else
+    echo "warn: missing $MANAGER_SRC" >&2
+fi
+
 echo "apply-appliance-hygiene: done"
