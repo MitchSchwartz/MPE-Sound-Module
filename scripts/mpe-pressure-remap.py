@@ -38,6 +38,20 @@ RECONNECT_POLL_S = 1.0
 CLOCK_REFRESH_S = 0.05
 
 
+def lsusb_has_roli() -> bool:
+    try:
+        out = subprocess.run(
+            ["lsusb"],
+            capture_output=True,
+            text=True,
+            timeout=2.0,
+            check=False,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        return False
+    return "2af4:" in out.stdout.lower()
+
+
 class PressureRemapDaemon:
     def __init__(self) -> None:
         self._floor = PatchPressureStore.read_live_floor()
@@ -198,7 +212,11 @@ class PressureRemapDaemon:
             flush=True,
         )
         self._close_inputs()
-        opened = self._open_inputs(probe)
+        try:
+            opened = self._open_inputs(probe)
+        except Exception as exc:
+            print(f"Warning: ROLI reopen failed ({exc!r}) — will retry", flush=True)
+            return
         if opened == 0:
             print("Warning: ROLI seen on bus but no MIDI inputs opened", flush=True)
 
@@ -234,7 +252,15 @@ class PressureRemapDaemon:
 
         probe = rtmidi.MidiIn()
         if self._open_inputs(probe) == 0:
-            print("Error: no physical MIDI inputs opened", file=sys.stderr, flush=True)
+            if lsusb_has_roli():
+                print(
+                    "Error: Roli USB present but no ALSA MIDI input opened — "
+                    "ALSA port not ready",
+                    file=sys.stderr,
+                    flush=True,
+                )
+            else:
+                print("Error: no physical MIDI inputs opened", file=sys.stderr, flush=True)
             return 1
 
         try:

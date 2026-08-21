@@ -2,6 +2,7 @@
 Description=MPE compiled OUT peak meter (JACK leaf client)
 After=mpe-jackd.service surge-xt-cli.service
 Wants=mpe-jackd.service
+PartOf=mpe-jackd.service
 # Opt-in: install-units.sh lists this in DISABLED. Enable only after MPE_PEAK_METER=1
 # in /etc/mpe/mpe.env. start-mpe-peak-meter.sh gates on that flag (not ConditionEnvironment).
 
@@ -19,6 +20,15 @@ Restart=on-failure
 RestartSec=3
 StandardOutput=journal
 StandardError=journal
+
+# --- Audio cores (2026-08-21 hygiene baseline) --------------------------------
+# The meter is the xrun counter every measurement trusts. Leaving it unpinned
+# landed it on CPU1 beside watchdogd, or on CPU0 beside the xhci IRQ the probe
+# is trying to measure around. Pin with jackd/surge on 2-3.
+#
+# mpe-xrun-probe is harness-spawned (no unit); measure-latency-run.sh should
+# taskset it to 2-3 before each window when that becomes necessary.
+CPUAffinity=2 3
 
 [Install]
 WantedBy=multi-user.target
