@@ -521,8 +521,8 @@ audio interface does (see the device decision), so T7 may find a wall that is no
 **445 is not a regression against T4c's 0.13/min.** T4c ran **condition B**; the soak ran
 **condition D**. Both used `SECONDS_PER_RUN=60`, so the windows compare directly -- the
 conditions do not. B->D costs +0.80/min here (0.13 -> 0.93), matching the +0.86/min the
-ladder measured at 512 (2.27 -> 3.13). The stack looks like a **fixed per-minute cost,
-independent of period**.
+ladder measured at 512 (2.27 -> 3.13). **This fixed-cost reading was refuted by T9** --
+at 8 loops the stack costs 0.00. See `docs/measurements/t9-loops8-d-2026-08-21.md`.
 
 Two consequences, and they reorder the queue:
 
@@ -538,7 +538,7 @@ Two consequences, and they reorder the queue:
 
 | order | task | needs the Pi |
 |---|---|---|
-| **1** | **T9 -- A/B/C/D ladder at 1024x3, 8 loops**, n=15 per cell | ~60 min |
+| ~~1~~ | ~~T9 -- 8 loops at 1024x3, condition D~~ **done: 0.00, 15/15 clean** | -- |
 | **2** | **T11 -- condition A ladder: 256, 128, 64**, n=15 per cell | ~45 min |
 | 3 | **T10 -- wakeup delay vs callback duration**, one instrumented run | ~20 min |
 | 4 | **T7a** -- 256x6 vs 512x3, plus 256x8, n=15 each | ~45 min |
