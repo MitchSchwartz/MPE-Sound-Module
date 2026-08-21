@@ -13,11 +13,13 @@ count from ``mpe-jackd`` journal lines.
 
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 import threading
 import time
 from datetime import datetime, timezone
+from pathlib import Path
 
 _BUCKETS = 128
 
@@ -125,7 +127,7 @@ class JackGraphHealth:
         # Both probes are stateful and long-lived — one JACK client and one journal
         # cursor for the life of the monitor, not a fork per sample.
         self.cpu_reader = JackCpuLoadReader()
-        self.xrun_counter = JournalXrunCounter(self.started_at)
+        self.xrun_counter = MeterXrunCounter(self.started_at)
 
     def close(self) -> None:
         """Release held JACK and journal follower processes."""
@@ -260,108 +262,85 @@ class JackCpuLoadReader:
             pass
 
 
-class JournalXrunCounter:
-    """Incremental xrun count from the ``mpe-jackd`` journal.
+METER_STATE_FILE = Path(os.environ.get("MPE_METER_STATE", "/run/mpe/meter.state"))
+# The meter writes at 5 Hz; three missed writes is generous and still catches a
+# dead meter well inside one measurement window.
+METER_STALE_AFTER_S = float(os.environ.get("MPE_METER_STALE_AFTER_S", "3.0"))
 
-    Holds one ``journalctl -f`` process for the life of the monitor. ``poll()`` reads
-    an in-memory total — no fork per HUD tick. The old form forked ``journalctl`` every
-    0.5 s (even with ``--after-cursor``), hitting SD-backed journal I/O on CPU0.
+
+class MeterXrunCounter:
+    """Cumulative xrun count read from the peak meter's state file.
+
+    Replaces JournalXrunCounter (2026-08-20). That class followed the
+    ``mpe-jackd`` journal and counted lines containing "xrun" -- but that journal
+    carries **no xrun lines at all** on this appliance: three hours of it during
+    runs that measured 3-7 xruns/min contained zero. It therefore reported 0
+    forever, in the component whose entire job is to notice. sl-watchdog had the
+    same hole from the other side, tailing /tmp/sooperlooper.log for "got xrun"
+    when that file does not exist.
+
+    ``/run/mpe/meter.state`` is where the real count lives -- written by
+    mpe-peak-meter from JACK's xrun callback, and the same source
+    scripts/measure-latency-run.sh has always used for its RESULT lines.
+
+    tmpfs, so poll() is a small read with no fork and no thread.
+
+    Returns None -- never a silently wrong 0 -- when the file is missing,
+    unparseable, or stale, so callers can tell "no xruns" from "cannot see".
     """
 
-    def __init__(self, started_at: float, *, unit: str = "mpe-jackd.service") -> None:
+    def __init__(
+        self,
+        started_at: float,
+        *,
+        path: Path | None = None,
+        stale_after_s: float = METER_STALE_AFTER_S,
+    ) -> None:
         self.started_at = started_at
-        self.unit = unit
-        self._lock = threading.Lock()
+        self.path = Path(path) if path is not None else METER_STATE_FILE
+        self.stale_after_s = stale_after_s
+        self._baseline: int | None = None
         self._total = 0
-        self._unavailable = False
-        self._anchored = False
-        self._proc: subprocess.Popen | None = None
-        self._thread: threading.Thread | None = None
-        self._last_spawn_attempt = 0.0
-        self._spawn()
 
-    def _since_argv(self) -> list[str]:
-        since = datetime.fromtimestamp(self.started_at, tz=timezone.utc).astimezone()
-        return [
-            "journalctl",
-            "-u",
-            self.unit,
-            "-f",
-            "--since",
-            since.isoformat(),
-            "--no-pager",
-        ]
-
-    def _spawn(self, now: float | None = None) -> bool:
-        if self._unavailable:
-            return False
-        if now is None:
-            now = time.monotonic()
-        if now - self._last_spawn_attempt < JACK_CPU_RESPAWN_BACKOFF_S:
-            return False
-        self._last_spawn_attempt = now
+    def _read(self) -> tuple[int, float] | None:
+        """(xruns, updated_epoch) from the meter file, or None if unusable."""
         try:
-            proc = subprocess.Popen(
-                self._since_argv(),
-                stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL,
-                text=True,
-                bufsize=1,
-            )
-        except (FileNotFoundError, OSError):
-            self._unavailable = True
-            return False
-        self._proc = proc
-        self._thread = threading.Thread(
-            target=self._drain,
-            args=(proc,),
-            daemon=True,
-            name="JournalXrunFollower",
-        )
-        self._thread.start()
-        return True
-
-    def _count_line(self, line: str) -> None:
-        if "xrun" not in line.lower():
-            return
-        with self._lock:
-            self._total += 1
-
-    def _drain(self, proc: subprocess.Popen) -> None:
-        stream = proc.stdout
-        if stream is None:
-            return
-        for line in stream:
-            self._anchored = True
-            self._count_line(line)
-
-    def _alive(self) -> bool:
-        return self._proc is not None and self._proc.poll() is None
+            raw = self.path.read_text(encoding="utf-8")
+        except (FileNotFoundError, PermissionError, OSError):
+            return None
+        xruns: int | None = None
+        updated: float | None = None
+        for line in raw.splitlines():
+            key, _, value = line.partition("=")
+            try:
+                if key == "xruns":
+                    xruns = int(value)
+                elif key == "updated":
+                    updated = float(value)
+            except ValueError:
+                return None
+        if xruns is None or updated is None:
+            return None
+        return xruns, updated
 
     def poll(self) -> int | None:
-        """Cumulative xruns since *started_at*, or None if the journal is unreadable."""
-        if self._unavailable:
+        """Cumulative xruns since the first successful read, or None if unseeable."""
+        sample = self._read()
+        if sample is None:
             return None
-        if not self._alive():
-            self.close()
-            self._spawn()
-            if not self._alive():
-                return None
-        if not self._anchored:
-            # Follower running but no lines yet — journal empty or still catching up.
-            return 0
-        with self._lock:
-            return self._total
+        xruns, updated = sample
+        # A meter that has stopped writing looks identical to a quiet one. It is
+        # not: report None so the caller raises a problem instead of "healthy".
+        if self.stale_after_s > 0 and (time.time() - updated) > self.stale_after_s:
+            return None
+        if self._baseline is None or xruns < self._baseline:
+            # First read, or the meter restarted and its counter went backwards.
+            self._baseline = xruns
+        self._total = xruns - self._baseline
+        return self._total
 
     def close(self) -> None:
-        proc, self._proc = self._proc, None
-        if proc is None:
-            return
-        try:
-            proc.kill()
-            proc.wait(timeout=2.0)
-        except (subprocess.TimeoutExpired, OSError):
-            pass
+        """No-op. Kept so callers need not care which counter they hold."""
 
 
 def read_jack_cpu_load_pct(*, timeout_s: float = 1.0) -> float | None:
@@ -393,7 +372,7 @@ def read_jack_cpu_load_pct(*, timeout_s: float = 1.0) -> float | None:
 def jackd_journal_xruns_since(started_at: float) -> int | None:
     """One-shot journal xrun count — diagnostics only.
 
-    NOT for polling: one fork per call. Use ``JournalXrunCounter`` on any repeating path.
+    NOT for polling: one fork per call. Use ``MeterXrunCounter`` on any repeating path.
     """
     since = datetime.fromtimestamp(started_at, tz=timezone.utc).astimezone()
     try:

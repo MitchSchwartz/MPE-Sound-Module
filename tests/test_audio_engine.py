@@ -1174,6 +1174,25 @@ printf '%s' "$(mpe_jack_periods)"
         result = _run_bash_script(body, env=_bash_env(MPE_JACK_PERIODS="4"))
         self.assertEqual(result.stdout.strip(), "4")
 
+    def test_jack_periods_accepts_six_and_eight(self) -> None:
+        body = f"""
+source {AUDIO_ENGINE_SH}
+printf '%s' "$(mpe_jack_periods)"
+"""
+        for n in ("6", "8"):
+            with self.subTest(periods=n):
+                result = _run_bash_script(body, env=_bash_env(MPE_JACK_PERIODS=n))
+                self.assertEqual(result.stdout.strip(), n)
+
+    def test_jack_periods_rejects_seven(self) -> None:
+        body = f"""
+source {AUDIO_ENGINE_SH}
+printf '%s' "$(mpe_jack_periods)"
+"""
+        result = _run_bash_script(body, env=_bash_env(MPE_JACK_PERIODS="7"))
+        self.assertEqual(result.stdout.strip(), "3")
+        self.assertIn("WARNING", result.stderr)
+
     def test_buffer_env_canonical_uses_jack_key_only(self) -> None:
         body = f"""
 source {AUDIO_ENGINE_SH}
