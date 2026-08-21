@@ -536,29 +536,92 @@ Two consequences, and they reorder the queue:
 
 ## Queue
 
-Under 90 minutes of Pi time total. No overnight slot needed.
-
 | order | task | needs the Pi |
 |---|---|---|
-| **1** | **T9 -- 8-loop cell at 1024x3, condition D**, n=15 | ~15 min |
-| 2 | **T7a** -- 256x6 vs 512x3, plus 256x8, n=15 each | ~45 min |
-| 3 | decide whether the shipping default changes | -- |
-| 4, only if it changes | re-confirm the winner at n=15 | ~15 min |
+| **1** | **T9 -- A/B/C/D ladder at 1024x3, 8 loops**, n=15 per cell | ~60 min |
+| 2 | **T10 -- wakeup delay vs callback duration**, one instrumented run | ~20 min |
+| 3 | **T7a** -- 256x6 vs 512x3, plus 256x8, n=15 each | ~45 min |
+| 4 | decide whether the shipping default changes | -- |
+| 5, only if it changes | re-confirm the winner at n=15 | ~15 min |
 
-**T9 goes first** because it is the configuration you would ship and the only one whose
-number is currently borrowed from a different condition. If it comes back near 0.93/min,
-the headline claim needs restating before any latency work matters; if it comes back near
-0.00, the cost is loop-count-dependent rather than fixed and that changes what T7a means.
-Either way it is 15 minutes and it gates the interpretation of everything after it.
+T9 localises **which component**. T10 localises **which mechanism**. Instrumenting before
+the ladder means instrumenting without knowing where to point the instrument.
 
-## T9 -- 8-loop cell at 1024x3 under condition D
+## What the soak ruled out
 
-`scripts/measure-latency-run.sh --buffer 1024 --condition D --playing-loops 8 --runs 15`.
-Verify the loops are **playing**, not merely armed -- the soak's `looper_playback=1` check
-is the pattern. Require `meter_live=1` on every run; a run without it is void, not zero.
+Arrivals are **Poisson** -- index of dispersion 1.091, chi-square ~4.0 (full table in the
+soak doc). Random independent events, not a steady drain.
 
-Report the mean, the clean-run count out of 15, and DSP. State plainly whether the
-"up to 8 loops" claim survives at condition D, and if it does not, what the honest claim is.
+That kills clock drift as the cause. The Sound Blaster is full-speed **adaptive** with no
+feedback endpoint, so the host guesses the sample rate and drift is plausible a priori --
+but drift underruns on a metronome and produces **underdispersed** arrivals, index well
+below 1. We measured 1.09.
+
+**So do not spend on:** `zita-ajbridge` / `alsa_out` adaptive resampling with a DLL
+(exists to hold ring depth against drift; costs a resampler on the hot path, against the
+CPU doctrine, to fix a problem we do not have), or PipeWire's dynamic quantum (same
+reason, and it adds latency under exactly the load where it would be noticed).
+
+## The callback is not the problem
+
+Max callback lateness ever recorded is **917 us against a 10.7 ms deadline** -- 8.6%.
+Lateness does not correlate with xruns (r = -0.07). Nothing is running long.
+
+That is a localisation, not a null. Either the audio thread is **not being scheduled** when
+the period interrupt fires -- the cycle is late although the work is fast -- or the drain is
+below JACK in the USB path. **Those two are indistinguishable if you only measure callback
+duration, which is what has been measured so far.**
+
+## T9 -- A/B/C/D ladder at 1024x3, 8 loops
+
+The 512 ladder is already a clean single-variable bisect, and it does not point where the
+recent work has been pointing:
+
+| condition | adds | xruns/min @ 512 | delta |
+|---|---|---|---|
+| A | synth only | 0.13 | -- |
+| B | + sooperlooper | 2.27 | **+2.14** |
+| C | + session | 2.53 | +0.26 |
+| D | + sl-watchdog | 3.13 | +0.60 |
+
+**Sooperlooper is 71% of the cost.** Session and watchdog together are under a third of
+what sooperlooper alone costs -- and this is already post-`jack_lsp`-removal, so it is not
+a fork.
+
+Sooperlooper is not CPU-heavy at these loop counts. What it does is **add a node to JACK's
+serial process chain**: surge completes, hands off, sooperlooper runs, hands off. Each
+handoff is a context switch between processes and a fresh chance not to be scheduled
+promptly. Adding a client adds a scheduling hop, not compute. That fits every observation
+-- fast callbacks, no compute correlation, Poisson arrivals (each hop an independent
+chance to miss), and a cost roughly fixed per minute regardless of period.
+
+**Run all four cells at 1024x3 with 8 loops, n=15, `--no-restore-buffer` between cells.**
+Verify loops are *playing*, not armed. Require `meter_live=1` per run; a run without it is
+void, not zero.
+
+This **subsumes the earlier T9** (8-loop cell at condition D) -- that cell falls out of the
+ladder as the D row, and the ladder additionally says where the cost sits at the buffer
+that actually ships. Report per-cell mean, clean-run count out of 15, and DSP.
+
+## T10 -- wakeup delay vs callback duration
+
+The measurement that separates "work took too long" from "we were not scheduled".
+
+Record, per cycle, the interval from **period interrupt to audio thread running**, not the
+callback's own duration. `jack_get_cycle_times()` exposes nominal cycle start against
+actual; `native/mpe-xrun-probe` already has the hook point.
+
+**Verdict to produce:** if wakeup delay has a fat tail while callback duration does not,
+the cause is scheduling and the remaining work is scheduling work. If neither has a tail,
+the drain is below JACK in the USB path and no amount of JACK-side tuning will touch it.
+
+Two follow-ons, only if T9 implicates sooperlooper and T10 implicates scheduling:
+
+- **Which client was last to complete at xrun time.** If it is consistently the handoff
+  into or out of sooperlooper, the chain hypothesis is confirmed exactly.
+- **`sched_switch` ftrace armed by the probe** -- do not leave it running; have the probe
+  snapshot the last few hundred events when an xrun fires and read what preempted the
+  audio thread. This names the culprit rather than the layer.
 
 ## Status of the code tasks
 
