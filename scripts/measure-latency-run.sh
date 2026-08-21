@@ -273,7 +273,7 @@ _ensure_xrun_probe() {
 _start_xrun_probe() {
     local logpath="$1"
     _stop_xrun_probe "$logpath"
-    _as_user "$PROBE_BIN" "$logpath" &
+    _as_user taskset -c 2-3 "$PROBE_BIN" "$logpath" &
     _PROBE_PID=$!
     sleep 1
     if ! pgrep -x mpe-xrun-probe >/dev/null 2>&1; then
@@ -423,8 +423,10 @@ _run_window() {
             return 1
         fi
         if [ "$cur_xr" -lt "$prev_xr" ]; then
-            start_xr="$cur_xr"
-            prev_xr="$cur_xr"
+            echo "ERROR: meter restarted mid-run (xruns ${prev_xr} -> ${cur_xr}) — window VOID" >&2
+            _kill_jcl
+            _stop_xrun_probe "$xrun_events"
+            return 1
         fi
         delta=$((cur_xr - prev_xr))
         mark=""
@@ -566,7 +568,7 @@ _run_window() {
         if [ -f "$OUTPUT" ] && grep -q "^RESULT tag=${tag} xruns=" "$OUTPUT"; then
             echo "ERROR: tag ${tag} already present in ${OUTPUT} — refusing to append" >&2
             echo "       a duplicate tag makes the log ambiguous; use a fresh --output" >&2
-            return 1
+            exit 1
         fi
         echo "=== run ${tag} ==="
         stamp="$(date +%s)"
