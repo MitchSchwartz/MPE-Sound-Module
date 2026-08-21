@@ -71,3 +71,31 @@ class ShiftHoldComboTests(unittest.TestCase):
         self.assertFalse(combo.both_down)
         combo.note_event(119, False)
         self.assertFalse(combo.poll_long())
+
+
+class ArrowBankingTests(unittest.TestCase):
+    def test_variant_resolution_matches_the_transport_notes_path(self) -> None:
+        from scripts.sooperlooper.apc_transport import (
+            ARROW_NOTES_MK1,
+            ARROW_NOTES_MK2,
+            resolve_arrow_notes,
+        )
+
+        mk2 = resolve_arrow_notes("APC mini mk2 MIDI 1")
+        self.assertEqual(sorted(mk2), sorted(ARROW_NOTES_MK2))
+        self.assertEqual(mk2[ARROW_NOTES_MK2[0]], "up")
+        self.assertEqual(sorted(resolve_arrow_notes("APC MINI")), sorted(ARROW_NOTES_MK1))
+        # Explicit variant beats the port name, same as Shift/Stop-All.
+        self.assertEqual(
+            sorted(resolve_arrow_notes("APC MINI", variant="mk2")),
+            sorted(ARROW_NOTES_MK2),
+        )
+
+    def test_up_down_page_by_eight_arrows_nudge_only_with_shift(self) -> None:
+        from scripts.sooperlooper.apc_transport import bank_delta_for_arrow
+
+        self.assertEqual(bank_delta_for_arrow("down", shift_down=False), 8)
+        self.assertEqual(bank_delta_for_arrow("up", shift_down=False), -8)
+        self.assertEqual(bank_delta_for_arrow("right", shift_down=False), 0)
+        self.assertEqual(bank_delta_for_arrow("right", shift_down=True), 1)
+        self.assertEqual(bank_delta_for_arrow("left", shift_down=True), -1)

@@ -4,12 +4,14 @@ import conftest  # noqa: F401 — bare sooperlooper imports (apc_grid, …)
 
 import unittest
 from unittest.mock import MagicMock, patch
+import time
 
 import scripts.sooperlooper.apc_footswitch as footswitch_mod
 from scripts.sooperlooper.apc_footswitch import LoopFootswitch, build_footswitches
 from scripts.sooperlooper.sl_loop_states import (
     SL_STATE_MUTE,
     SL_STATE_OFF,
+    SL_STATE_OFF_MUTED,
     SL_STATE_PAUSED,
     SL_STATE_PLAYING,
     SL_STATE_RECORDING,
@@ -64,21 +66,22 @@ class ApcFootswitchTests(unittest.TestCase):
         osc = MagicMock()
         fs = LoopFootswitch(loop=0, hold_ms=1000.0, debounce_ms=0.0)
         fs.bind(osc, MagicMock(), 36)
-        fs.on_pad_down()
-        fs.on_pad_up()
-        fs.sync_from_sl(SL_STATE_RECORDING)
-        fs.on_pad_down()
-        fs.on_pad_up()  # stop-record -> waits for a boundary
-        fs.sync_from_sl(SL_STATE_WAIT_STOP)
-        self.assertTrue(fs.awaiting_quantize)
-        self.assertTrue(fs._waiting_for_quantize())
+        with patch.object(footswitch_mod, "TAIL_CAPTURE_ENABLED", False):
+            fs.on_pad_down()
+            fs.on_pad_up()
+            fs.sync_from_sl(SL_STATE_RECORDING)
+            fs.on_pad_down()
+            fs.on_pad_up()  # stop on pad down -> waits for a boundary
+            fs.sync_from_sl(SL_STATE_WAIT_STOP)
+            self.assertTrue(fs.awaiting_quantize)
+            self.assertTrue(fs._waiting_for_quantize())
 
-        fs._wait_since -= footswitch_mod.QUANTIZE_WAIT_TIMEOUT_S + 1.0
-        self.assertFalse(fs._waiting_for_quantize())
-        self.assertFalse(fs.awaiting_quantize)
+            fs._wait_since -= footswitch_mod.QUANTIZE_WAIT_TIMEOUT_S + 1.0
+            self.assertFalse(fs._waiting_for_quantize())
+            self.assertFalse(fs.awaiting_quantize)
 
-        fs.on_pad_down()
-        fs.on_pad_up()
+            fs.on_pad_down()
+            fs.on_pad_up()
         hits = [c.args[1] for c in osc.send_message.call_args_list if c.args[0] == "/sl/0/hit"]
         self.assertEqual(len(hits), 3)
 
@@ -106,32 +109,130 @@ class ApcFootswitchTests(unittest.TestCase):
 class GridEstablishmentTests(unittest.TestCase):
     """First take defines the tempo, then the grid stands alone."""
 
-    def _fs(self, loop, grid, established_cb=None):
+    def _fs(self, loop, grid, established_cb=None, reanchor_cb=None):
         from scripts.sooperlooper.apc_footswitch import LoopFootswitch
 
         fs = LoopFootswitch(
             loop=loop, hold_ms=1000.0, debounce_ms=0.0,
-            quantized=True, grid=grid, on_grid_established=established_cb,
+            quantized=True, grid=grid,
+            on_grid_established=established_cb,
+            on_phase_reanchor=reanchor_cb,
         )
         fs.bind(MagicMock(), MagicMock(), 36 + loop)
         return fs
 
+    def _start_defining_take(self, fs) -> None:
+        fs.on_pad_down()
+        fs.on_pad_up()
+        fs.sync_from_sl(SL_STATE_RECORDING)
+
+    def _close_defining_take(self, fs) -> None:
+        fs.on_pad_down()
+        fs.on_pad_up()
+        if fs._tail_capture:
+            fs._finish_tail_capture("test")
+
+    def _wire_seam_hooks(self, fs, *, merge_immediate: bool = True) -> None:
+        from scripts.sooperlooper.sl_seam_weld import SCRATCH_LOOP
+
+        def start(_loop: int) -> None:
+            fs._osc.send_message(f"/sl/{SCRATCH_LOOP}/hit", ["record"])
+
+        def merge(_loop: int, done) -> bool:
+            if merge_immediate:
+                done()
+            return True
+
+        fs.set_seam_weld_hooks(
+            on_prepare_scratch=lambda _loop: fs._osc.send_message(
+                f"/sl/{SCRATCH_LOOP}/hit", ["undo_all"]
+            ),
+            on_start_scratch=start,
+            on_stop_scratch=lambda _loop: fs._osc.send_message(
+                f"/sl/{SCRATCH_LOOP}/hit", ["record"]
+            ),
+            on_request_merge=merge,
+        )
+
     def test_first_take_records_instantly_and_sets_tempo(self) -> None:
         from scripts.sooperlooper.sl_grid_state import GridState
+        from scripts.sooperlooper.sl_grid_sync import TAIL_HOLD_S
 
         seen = []
         grid = GridState()
         fs = self._fs(0, grid, lambda bpm, bars: seen.append((bpm, bars)))
+        self._wire_seam_hooks(fs)
 
-        fs.on_pad_down(); fs.on_pad_up()          # start
+        self._start_defining_take(fs)
         self.assertTrue(grid.is_pending(0))
-        fs.on_pad_down(); fs.on_pad_up()          # stop — must NOT wait
+        fs.on_pad_down()
+        self.assertTrue(fs._tail_capture)
+        self.assertTrue(fs._tail_stop_sent)
         self.assertFalse(fs.awaiting_quantize)
 
-        fs.sync_loop_len(2.0)
+        hits = [
+            c.args[1]
+            for c in fs._osc.send_message.call_args_list
+            if c.args[0] == "/sl/0/hit"
+        ]
+        self.assertEqual(hits, ["record", "record"], "start then immediate stop")
+
         fs.sync_from_sl(SL_STATE_PLAYING)
+        fs.sync_loop_len(2.0)
+        fs.sync_loop_pos(0.0)
+        fs._maybe_start_scratch()
+        fs.sync_in_peak(0.5)
+        fs.sync_in_peak(0.0)
+        fs._tail_silence_since = TAIL_HOLD_S * -2 + time.monotonic()
+        fs.poll_tail_capture()
+
         self.assertTrue(grid.established)
         self.assertEqual(seen, [(120.0, 1)])
+
+    def test_scratch_starts_when_playback_lands(self) -> None:
+        with patch.object(footswitch_mod, "SEAM_WELD_ENABLED", True):
+            fs = LoopFootswitch(loop=0, hold_ms=1000.0, debounce_ms=0.0)
+            fs.bind(MagicMock(), MagicMock(), 36)
+            started = []
+            fs.set_seam_weld_hooks(
+                on_prepare_scratch=lambda loop: None,
+                on_start_scratch=lambda loop: started.append(loop),
+                on_stop_scratch=lambda loop: None,
+                on_request_merge=lambda loop, done: (done(), True)[1],
+            )
+            fs._tail_capture = True
+            fs._tail_stop_sent = True
+            fs.sync_from_sl(SL_STATE_PLAYING)
+            fs.sync_loop_len(2.0)
+            fs._maybe_start_scratch()
+            self.assertTrue(fs._scratch_active)
+            self.assertEqual(started, [0])
+
+    def test_grid_anchor_defers_until_loop_wrap(self) -> None:
+        """Late PLAYING report: grid now, phase re-anchor at wrap."""
+        from scripts.sooperlooper.sl_grid_state import GridState
+
+        seen = []
+        reanchored = []
+        grid = GridState()
+        fs = self._fs(
+            0, grid,
+            lambda bpm, bars: seen.append((bpm, bars)),
+            lambda bpm: reanchored.append(bpm),
+        )
+
+        self._start_defining_take(fs)
+        self._close_defining_take(fs)
+        fs.sync_loop_len(2.0)
+        fs.sync_loop_pos(0.08)  # late OSC — mid-bar
+        fs.sync_from_sl(SL_STATE_PLAYING)
+        self.assertTrue(grid.established, "grid must exist as soon as the take saves")
+        self.assertEqual(seen, [(120.0, 1)])
+        self.assertEqual(reanchored, [])
+
+        fs.sync_loop_pos(1.85)
+        fs.sync_loop_pos(0.01)  # wrap
+        self.assertEqual(reanchored, [120.0])
 
     def test_hold_clear_drops_grid_when_engine_reports_last_clip_off(self) -> None:
         """No clips, no grid — driven by SL state, not bench hold-clear alone."""
@@ -139,9 +240,10 @@ class GridEstablishmentTests(unittest.TestCase):
 
         grid = GridState()
         fs = self._fs(0, grid)
-        fs.on_pad_down(); fs.on_pad_up()
-        fs.on_pad_up()
+        self._start_defining_take(fs)
+        self._close_defining_take(fs)
         fs.sync_loop_len(2.0)
+        fs.sync_loop_pos(0.0)
         fs.sync_from_sl(SL_STATE_PLAYING)
         self.assertTrue(grid.established)
 
@@ -160,9 +262,10 @@ class GridEstablishmentTests(unittest.TestCase):
 
         grid = GridState()
         fs = self._fs(0, grid)
-        fs.on_pad_down(); fs.on_pad_up()
-        fs.on_pad_up()
+        self._start_defining_take(fs)
+        self._close_defining_take(fs)
         fs.sync_loop_len(2.0)
+        fs.sync_loop_pos(0.0)
         fs.sync_from_sl(SL_STATE_PLAYING)
         grid.note_loop_content(1, True)
 
@@ -183,8 +286,237 @@ class GridEstablishmentTests(unittest.TestCase):
         # stop — tapping again before that arrives means the engine may still
         # be armed, where `record` lands as CANCEL.
         fs.sync_from_sl(SL_STATE_RECORDING)
-        fs.on_pad_down(); fs.on_pad_up()
+        fs.on_pad_down()
+        fs.sync_from_sl(SL_STATE_WAIT_STOP)
         self.assertTrue(fs.awaiting_quantize, "quantized clip must wait for the bar")
+        self.assertTrue(fs._tail_capture)
+        self.assertTrue(fs._tail_deferred)
+
+
+class TailCaptureTests(unittest.TestCase):
+    def test_pad_down_during_tail_aborts_without_merge(self) -> None:
+        fs = LoopFootswitch(loop=0, hold_ms=1000.0, debounce_ms=200.0)
+        fs.bind(MagicMock(), MagicMock(), 36)
+        merged = []
+        fs.set_seam_weld_hooks(
+            on_prepare_scratch=lambda loop: None,
+            on_start_scratch=lambda loop: None,
+            on_stop_scratch=lambda loop: None,
+            on_request_merge=lambda loop, done: (merged.append(loop) or False),
+        )
+        fs._tail_capture = True
+        fs._tail_stop_sent = True
+        fs._scratch_active = True
+        fs._tail_capture_since = time.monotonic()
+        fs._last_action_at = time.monotonic()
+        fs.on_pad_down()
+        self.assertFalse(fs._tail_capture)
+        self.assertEqual(merged, [])
+
+    def test_tail_led_amber_during_weld(self) -> None:
+        from scripts.sooperlooper.led_table import LED_YELLOW_BLINK, led_for
+
+        fs = LoopFootswitch(loop=0, hold_ms=1000.0, debounce_ms=0.0)
+        fs.bind(MagicMock(), MagicMock(), 36)
+        fs.sync_from_sl(SL_STATE_PLAYING)
+        fs._tail_capture = True
+        self.assertEqual(fs._led_target(), (LED_YELLOW_BLINK,))
+        self.assertEqual(led_for(SL_STATE_PLAYING, tail_capture=True), (LED_YELLOW_BLINK,))
+
+    def test_tail_max_timeout_closes_capture(self) -> None:
+        from scripts.sooperlooper.sl_grid_sync import TAIL_MAX_S
+
+        fs = LoopFootswitch(loop=0, hold_ms=1000.0, debounce_ms=0.0)
+        fs.bind(MagicMock(), MagicMock(), 36)
+        fs.set_seam_weld_hooks(
+            on_prepare_scratch=lambda loop: None,
+            on_start_scratch=lambda loop: None,
+            on_stop_scratch=lambda loop: None,
+            on_request_merge=lambda loop, done: (done(), True)[1],
+        )
+        fs._tail_capture = True
+        fs._tail_stop_sent = True
+        fs.sync_from_sl(SL_STATE_PLAYING)
+        fs.sync_loop_len(2.0)
+        fs._scratch_active = True
+        fs._tail_capture_since = time.monotonic() - TAIL_MAX_S - 0.01
+        fs.poll_tail_capture()
+        self.assertFalse(fs._tail_capture)
+
+    def test_finish_tail_resets_hold_timer(self) -> None:
+        fs = LoopFootswitch(loop=0, hold_ms=1000.0, debounce_ms=0.0)
+        fs.bind(MagicMock(), MagicMock(), 36)
+        fs._tail_capture = True
+        fs._pad_down = True
+        fs._pad_down_at = time.monotonic() - 5.0
+        fs._finish_tail_capture("test")
+        self.assertFalse(fs._pad_down)
+        self.assertEqual(fs._pad_down_at, 0.0)
+
+    def test_finish_tail_marks_action_for_debounce(self) -> None:
+        fs = LoopFootswitch(loop=0, hold_ms=1000.0, debounce_ms=200.0)
+        fs.bind(MagicMock(), MagicMock(), 36)
+        fs._tail_capture = True
+        fs._tail_stop_sent = True
+        fs._last_action_at = 0.0
+        fs._finish_tail_capture("test")
+        fs.on_pad_down()
+        fs.on_pad_up()
+        hits = [c.args[1] for c in fs._osc.send_message.call_args_list
+                if c.args[0] == "/sl/0/hit"]
+        self.assertEqual(hits, [], "gesture after auto-close should be debounced")
+
+    def test_defining_stop_sends_immediate_record_stop(self) -> None:
+        from scripts.sooperlooper.sl_grid_state import GridState
+
+        grid = GridState()
+        fs = LoopFootswitch(loop=0, hold_ms=1000.0, debounce_ms=0.0, grid=grid)
+        fs.bind(MagicMock(), MagicMock(), 36)
+        fs.on_pad_down()
+        fs.on_pad_up()
+        fs.sync_from_sl(SL_STATE_RECORDING)
+        fs.on_pad_down()
+        hits = [
+            c.args[1]
+            for c in fs._osc.send_message.call_args_list
+            if c.args[0] == "/sl/0/hit"
+        ]
+        self.assertEqual(hits, ["record", "record"], "stop on pad — length fixed now")
+        self.assertTrue(fs._tail_stop_sent)
+        self.assertTrue(fs._tail_capture)
+
+    def test_tail_max_timeout_without_peak_reading(self) -> None:
+        from scripts.sooperlooper.sl_grid_sync import TAIL_MAX_S
+
+        fs = LoopFootswitch(loop=0, hold_ms=1000.0, debounce_ms=0.0)
+        fs.bind(MagicMock(), MagicMock(), 36)
+        fs.set_seam_weld_hooks(
+            on_prepare_scratch=lambda loop: None,
+            on_start_scratch=lambda loop: None,
+            on_stop_scratch=lambda loop: None,
+            on_request_merge=lambda loop, done: (done(), True)[1],
+        )
+        fs._tail_capture = True
+        fs._tail_stop_sent = True
+        fs.sync_from_sl(SL_STATE_PLAYING)
+        fs.sync_loop_len(2.0)
+        fs._scratch_active = True
+        fs._tail_capture_since = time.monotonic() - TAIL_MAX_S - 0.01
+        fs._in_peak_seen = False
+        fs._tail_saw_loud = False
+        fs.poll_tail_capture()
+        self.assertFalse(fs._tail_capture)
+
+    def test_tail_waits_for_loud_before_silence_close(self) -> None:
+        from scripts.sooperlooper.sl_grid_sync import TAIL_HOLD_S
+
+        fs = LoopFootswitch(loop=0, hold_ms=1000.0, debounce_ms=0.0)
+        fs.bind(MagicMock(), MagicMock(), 36)
+        fs.set_seam_weld_hooks(
+            on_prepare_scratch=lambda loop: None,
+            on_start_scratch=lambda loop: None,
+            on_stop_scratch=lambda loop: None,
+            on_request_merge=lambda loop, done: (done(), True)[1],
+        )
+        fs._tail_capture = True
+        fs._tail_stop_sent = True
+        fs.sync_from_sl(SL_STATE_PLAYING)
+        fs.sync_loop_len(2.0)
+        fs._scratch_active = True
+        fs._tail_capture_since = time.monotonic()
+        fs.sync_in_peak(0.0)
+        fs._tail_silence_since = TAIL_HOLD_S * -2 + time.monotonic()
+        fs.poll_tail_capture()
+        self.assertTrue(fs._tail_capture)
+        fs.sync_in_peak(0.5)
+        fs.sync_in_peak(0.0)
+        fs._tail_silence_since = TAIL_HOLD_S * -2 + time.monotonic()
+        fs.poll_tail_capture()
+        self.assertFalse(fs._tail_capture)
+
+    def test_tail_waits_for_first_peak_reading(self) -> None:
+        from scripts.sooperlooper.sl_grid_sync import TAIL_HOLD_S
+
+        fs = LoopFootswitch(loop=0, hold_ms=1000.0, debounce_ms=0.0)
+        fs.bind(MagicMock(), MagicMock(), 36)
+        fs.set_seam_weld_hooks(
+            on_prepare_scratch=lambda loop: None,
+            on_start_scratch=lambda loop: None,
+            on_stop_scratch=lambda loop: None,
+            on_request_merge=lambda loop, done: (done(), True)[1],
+        )
+        fs._tail_capture = True
+        fs._tail_stop_sent = True
+        fs.sync_from_sl(SL_STATE_PLAYING)
+        fs.sync_loop_len(2.0)
+        fs._scratch_active = True
+        fs._tail_capture_since = time.monotonic()
+        fs.sync_in_peak(0.5)
+        fs.sync_in_peak(0.0)
+        fs._tail_silence_since = TAIL_HOLD_S * -2 + time.monotonic()
+        fs.poll_tail_capture()
+        self.assertFalse(fs._tail_capture)
+
+    def test_no_merge_without_release_peak(self) -> None:
+        from scripts.sooperlooper.sl_grid_sync import TAIL_MAX_S
+
+        fs = LoopFootswitch(loop=0, hold_ms=1000.0, debounce_ms=0.0)
+        fs.bind(MagicMock(), MagicMock(), 36)
+        merged = []
+        fs.set_seam_weld_hooks(
+            on_prepare_scratch=lambda loop: None,
+            on_start_scratch=lambda loop: None,
+            on_stop_scratch=lambda loop: None,
+            on_request_merge=lambda loop, done: (merged.append(loop), True)[1],
+        )
+        fs._tail_capture = True
+        fs._tail_stop_sent = True
+        fs.sync_from_sl(SL_STATE_PLAYING)
+        fs.sync_loop_len(2.0)
+        fs._scratch_active = True
+        fs._tail_saw_loud = False
+        fs._tail_capture_since = time.monotonic() - TAIL_MAX_S - 0.01
+        fs.poll_tail_capture()
+        self.assertFalse(fs._tail_capture)
+        self.assertEqual(merged, [])
+
+    def test_grid_clock_deferred_until_tail_weld_finishes(self) -> None:
+        from scripts.sooperlooper.sl_grid_state import GridState
+
+        seen = []
+        grid = GridState()
+        fs = LoopFootswitch(
+            loop=0,
+            hold_ms=1000.0,
+            debounce_ms=0.0,
+            grid=grid,
+            on_grid_established=lambda bpm, bars: seen.append((bpm, bars)),
+        )
+        fs.bind(MagicMock(), MagicMock(), 36)
+        grid.arm(0)
+        fs._tail_capture = True
+        fs._tail_stop_sent = True
+        fs.sync_loop_len(2.0)
+        fs.sync_from_sl(SL_STATE_PLAYING)
+        self.assertTrue(grid.established)
+        self.assertEqual(seen, [])
+        self.assertEqual(fs._deferred_grid_clock, (120.0, 1))
+        fs._finish_tail_capture("test")
+        self.assertEqual(seen, [(120.0, 1)])
+
+    def test_stop_all_cancels_tail_and_calls_end_callback(self) -> None:
+        from scripts.sooperlooper.apc_footswitch import stop_all_loops
+
+        ended = []
+        fs = LoopFootswitch(
+            loop=0, hold_ms=1000.0, debounce_ms=0.0,
+            on_tail_capture_end=lambda loop: ended.append(loop),
+        )
+        fs.bind(MagicMock(), MagicMock(), 36)
+        fs._tail_capture = True
+        stop_all_loops(MagicMock(), num_loops=1, footswitches=[fs])
+        self.assertFalse(fs._tail_capture)
+        self.assertEqual(ended, [0])
 
 
 class DoubleTapRecordsOneCycleTests(unittest.TestCase):
@@ -340,6 +672,19 @@ class StopAllIsImmediateTests(unittest.TestCase):
         hits = [v for path, v in sent if path == "/sl/-1/hit"]
         self.assertEqual(hits, ["mute_on", "pause_on"])
 
+    def test_stop_all_skips_pending_on_off_muted_empty_loops(self) -> None:
+        """Global mute leaves empties at sl=20; must not get pending=stopped."""
+        from scripts.sooperlooper.apc_footswitch import stop_all_loops
+        from scripts.sooperlooper.led_table import led_for
+
+        osc = MagicMock()
+        empty = LoopFootswitch(loop=1, hold_ms=1000.0, debounce_ms=0.0)
+        empty.bind(MagicMock(), MagicMock(), 37)
+        empty.sync_from_sl(SL_STATE_OFF_MUTED)
+        stop_all_loops(osc, num_loops=2, footswitches=[empty])
+        self.assertIsNone(empty._pending)
+        self.assertEqual(led_for(SL_STATE_OFF_MUTED), (0,))
+
     def test_per_clip_stop_is_still_quantized(self) -> None:
         """Only Stop All is immediate — a single pad stop still waits."""
         from scripts.sooperlooper.apc_footswitch import LoopFootswitch
@@ -350,6 +695,21 @@ class StopAllIsImmediateTests(unittest.TestCase):
         fs.on_pad_down(); fs.on_pad_up()
         paths = [c.args[0] for c in fs._osc.send_message.call_args_list]
         self.assertNotIn("/sl/1/set", paths, "must not touch mute_quantized")
+
+
+class PollFootswitchesTests(unittest.TestCase):
+    def test_poll_footswitches_runs_tail_capture(self) -> None:
+        from scripts.sooperlooper.apc_footswitch import poll_footswitches
+        from scripts.sooperlooper.sl_grid_sync import TAIL_MAX_S
+
+        fs = LoopFootswitch(loop=0, hold_ms=1000.0, debounce_ms=0.0)
+        fs.bind(MagicMock(), MagicMock(), 36)
+        fs._tail_capture = True
+        fs._tail_capture_since = time.monotonic() - TAIL_MAX_S - 0.01
+        fs.sync_from_sl(SL_STATE_RECORDING)
+        poll_footswitches([fs])
+        self.assertFalse(fs._tail_capture)
+
 
 if __name__ == "__main__":
     unittest.main()

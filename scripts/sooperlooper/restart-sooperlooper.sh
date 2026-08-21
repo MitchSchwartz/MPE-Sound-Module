@@ -13,6 +13,7 @@ OSC_PORT="${MPE_SL_OSC_PORT:-9951}"
 LOOPS="${MPE_SL_LOOPS:-16}"
 TIME_MAX="${MPE_SL_TIME_MAX:-40}"
 JACK_CLIENT="${MPE_SL_JACK_CLIENT:-mpe-looper}"
+ENGINE_LOG="${MPE_SL_ENGINE_LOG:-/tmp/sooperlooper.log}"
 
 log() { echo "sl-restart: $*"; }
 
@@ -46,8 +47,16 @@ start_engine() {
     echo "sl-restart: SooperLooper binary not found: ${SOOP_BIN}" >&2
     exit 1
   fi
-  log "starting ${LOOPS} loops, -t ${TIME_MAX}, port ${OSC_PORT}"
-  "${SOOP_BIN}" -q -D yes -l "${LOOPS}" -c 2 -t "${TIME_MAX}" -p "${OSC_PORT}" -j "${JACK_CLIENT}" &
+  log "starting ${LOOPS} loops, -t ${TIME_MAX}, port ${OSC_PORT} (log: ${ENGINE_LOG})"
+  # setsid + redirect, not a bare `&`. A backgrounded child that inherits stdout
+  # holds the SSH channel open for as long as it lives, so `mpe looper
+  # sl-restart` — the documented remedy for an orphan, and the thing you reach
+  # for mid-session — never returns. It also leaves the engine in the session's
+  # process group, where a SIGHUP on disconnect can take it down with the very
+  # terminal you used to rescue it.
+  setsid nohup "${SOOP_BIN}" -q -D yes -l "${LOOPS}" -c 2 -t "${TIME_MAX}" \
+    -p "${OSC_PORT}" -j "${JACK_CLIENT}" >> "${ENGINE_LOG}" 2>&1 < /dev/null &
+  disown 2>/dev/null || true
   sleep 2
   if ! pgrep -x sooperlooper >/dev/null; then
     echo "sl-restart: engine failed to start" >&2

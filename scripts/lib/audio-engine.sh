@@ -33,15 +33,36 @@ MPE_JACK_READY_TIMEOUT_DEFAULT=10
 
 MPE_JACKD_SERVICE="mpe-jackd.service"
 
-mpe_jack_period() {
+# Canonical period (frames). MPE_JACK_BUFFER is the ONLY source (spec D6).
+#
+# Deliberately does NOT fall back to MPE_SURGE_BUFFER_SIZE. That key is dead as a
+# graph period (docs/RESTORE.md) and the value it carries on shipped appliances (512)
+# disagrees with what those servers actually ran (256) — aliasing the two lets stale
+# config silently reassign the live period on any appliance missing the JACK key.
+# The Surge key stays alive for calibration only; nothing here reads it.
+mpe_buffer_env_canonical() {
     case "${MPE_JACK_BUFFER:-}" in
-        64 | 128 | 256 | 512 | 1024) printf '%s' "$MPE_JACK_BUFFER" ;;
-        '') printf '%s' "$MPE_JACK_BUFFER_DEFAULT" ;;
-        *)
-            echo "WARNING: MPE_JACK_BUFFER='${MPE_JACK_BUFFER}' invalid — using $MPE_JACK_BUFFER_DEFAULT" >&2
-            printf '%s' "$MPE_JACK_BUFFER_DEFAULT"
-            ;;
+        64 | 128 | 256 | 512 | 1024) printf '%s' "$MPE_JACK_BUFFER"; return 0 ;;
+        '') printf '%s' "$MPE_JACK_BUFFER_DEFAULT"; return 0 ;;
     esac
+    echo "WARNING: MPE_JACK_BUFFER='${MPE_JACK_BUFFER}' invalid — using $MPE_JACK_BUFFER_DEFAULT" >&2
+    printf '%s' "$MPE_JACK_BUFFER_DEFAULT"
+}
+
+# After sourcing mpe.env: report (do not silently reconcile) a period the operator set
+# on the retired key only. Writing the two keys equal is what broke MIDI offset — the
+# Surge key feeds a single-period latency calc, the JACK key a period × periods graph.
+mpe_export_synced_buffer_env() {
+    local jack="${MPE_JACK_BUFFER:-}" surge="${MPE_SURGE_BUFFER_SIZE:-}" canonical
+    canonical="$(mpe_buffer_env_canonical)"
+    if [ -z "$jack" ] && [ -n "$surge" ]; then
+        echo "WARNING: MPE_SURGE_BUFFER_SIZE=$surge is set but MPE_JACK_BUFFER is not — the graph period is $canonical, not $surge. Set MPE_JACK_BUFFER to change it." >&2
+    fi
+    export MPE_JACK_BUFFER="$canonical"
+}
+
+mpe_jack_period() {
+    printf '%s' "$(mpe_buffer_env_canonical)"
 }
 
 mpe_jack_periods() {
@@ -61,6 +82,17 @@ mpe_jack_rate() {
     case "${MPE_SURGE_SAMPLE_RATE:-}" in
         44100 | 48000 | 96000) printf '%s' "$MPE_SURGE_SAMPLE_RATE" ;;
         *) printf '%s' "$MPE_JACK_RATE_DEFAULT" ;;
+    esac
+}
+
+# Softmode (jackd -s) is correct for shipping: a client that misses one deadline must
+# not be kicked off the graph mid-gig. It is wrong while hunting a crackle, because it
+# turns "this client blows its deadline every period" into a quiet glitch with no named
+# culprit. MPE_JACK_SOFTMODE=0 runs strict so jackd zombifies the offender and says so.
+mpe_jack_softmode_enabled() {
+    case "${MPE_JACK_SOFTMODE:-1}" in
+        0 | false | no | off) return 1 ;;
+        *) return 0 ;;
     esac
 }
 
@@ -144,8 +176,12 @@ mpe_surge_state_file() {
 mpe_state_get() {
     local file="${1:?state file required}"
     local key="${2:?key required}"
+    local k v val=""
     [ -r "$file" ] || return 0
-    grep -E "^${key}=" "$file" 2>/dev/null | tail -1 | cut -d= -f2-
+    while IFS='=' read -r k v; do
+        [ "$k" = "$key" ] && val="$v"
+    done < "$file"
+    printf '%s\n' "$val"
 }
 
 # Publish engine state for `mpe engine status` and the touch HUD.
@@ -167,8 +203,38 @@ mpe_engine_state_write() {
     local state="${3:?state required}"
     local reason="${4:-}"
     local looper="${5:-off}"
-    local file
+    local file k v
+    local prev_engine="" prev_active="" prev_state="" prev_reason="" prev_looper=""
     file="$(mpe_engine_state_file)"
+
+    # One pass for every field we compare — mpe_state_get would re-read the file
+    # per key.
+    if [ -r "$file" ]; then
+        while IFS='=' read -r k v; do
+            case "$k" in
+                engine) prev_engine="$v" ;;
+                active) prev_active="$v" ;;
+                state) prev_state="$v" ;;
+                reason) prev_reason="$v" ;;
+                looper) prev_looper="$v" ;;
+            esac
+        done < "$file"
+    fi
+
+    # Unchanged republish: skip the write entirely. The supervisor reconciles the
+    # graph every JACK_PROBE_INTERVAL_S and would otherwise rewrite a byte-identical
+    # file forever — rm/mv/chmod/date forks plus tmpfs churn, for no new information.
+    # `updated=` is not a heartbeat: session_snapshot.engine_field_stale gates engine
+    # freshness on writer liveness (surge-watchdog), not on field age.
+    if [ -r "$file" ] \
+        && [ "$prev_engine" = "$engine" ] \
+        && [ "$prev_active" = "$active" ] \
+        && [ "$prev_state" = "$state" ] \
+        && [ "$prev_reason" = "$reason" ] \
+        && [ "$prev_looper" = "$looper" ]; then
+        return 0
+    fi
+
     mpe_state_write_atomic "$file" \
         "engine=$engine" \
         "active=$active" \
@@ -176,6 +242,7 @@ mpe_engine_state_write() {
         "reason=$reason" \
         "looper=$looper" \
         "updated=$(date +%s)" || true
+    mpe_session_events_on_engine_transition "$prev_state" "$state" "$active" "$reason"
 }
 
 mpe_engine_state_get() {
@@ -225,20 +292,28 @@ mpe_jack_graph_user() {
     id -un 2>/dev/null || printf '%s' "${USER:-root}"
 }
 
+_mpe_jack_lsp_bin() {
+    if [ "${_MPE_JACK_LSP_BIN_RESOLVED:-}" != 1 ]; then
+        _MPE_JACK_LSP_BIN="$(command -v jack_lsp 2>/dev/null || true)"
+        _MPE_JACK_LSP_BIN_RESOLVED=1
+    fi
+    [ -n "$_MPE_JACK_LSP_BIN" ]
+}
+
 mpe_jack_lsp() {
     local timeout_s="${MPE_JACK_LSP_TIMEOUT_S:-3}"
-    if ! command -v jack_lsp >/dev/null 2>&1; then
+    if ! _mpe_jack_lsp_bin; then
         return 127
     fi
     if [ "$(id -u)" -eq 0 ]; then
         local owner
         owner="$(mpe_jack_graph_user)"
         if [ -n "$owner" ] && [ "$owner" != root ]; then
-            timeout "$timeout_s" sudo -u "$owner" -E jack_lsp "$@"
+            timeout "$timeout_s" sudo -u "$owner" -E "$_MPE_JACK_LSP_BIN" "$@"
             return $?
         fi
     fi
-    timeout "$timeout_s" jack_lsp "$@"
+    timeout "$timeout_s" "$_MPE_JACK_LSP_BIN" "$@"
 }
 
 # Running is not the same as accepting clients. jack_lsp is a hard prerequisite
@@ -247,7 +322,7 @@ mpe_jack_lsp() {
 mpe_jack_server_ready() {
     local quiet="${1:-0}"
     mpe_jack_server_running || return 1
-    if ! command -v jack_lsp >/dev/null 2>&1; then
+    if ! _mpe_jack_lsp_bin; then
         [ "$quiet" = 1 ] || echo "ERROR: jack_lsp not found — install jack-example-tools" >&2
         return 1
     fi
@@ -259,7 +334,7 @@ mpe_wait_for_jack_server() {
     local timeout="${1:-$(mpe_jack_ready_timeout)}"
     local waited=0
     local step_ms=250
-    if mpe_jack_server_running && ! command -v jack_lsp >/dev/null 2>&1; then
+    if mpe_jack_server_running && ! _mpe_jack_lsp_bin; then
         echo "ERROR: jack_lsp not found — install jack-example-tools" >&2
         return 1
     fi
@@ -280,14 +355,18 @@ mpe_jack_state_write() {
     local period="${2:-}"
     local periods="${3:-}"
     local rate="${4:-}"
-    local file
+    local file prev_period
     file="$(mpe_jack_state_file)"
+    prev_period="$(mpe_state_get "$file" period)"
     mpe_state_write_atomic "$file" \
         "started=$(date +%s)" \
         "device=$device" \
         "period=$period" \
         "periods=$periods" \
         "rate=$rate" || true
+    if [ -n "$period" ] && [ -n "$prev_period" ] && [ "$period" != "$prev_period" ]; then
+        mpe_session_event_emit buffer.changed "period=$period" "from=$prev_period"
+    fi
 }
 
 # Epoch seconds when jackd last started, or 0 when unknown. Written by
@@ -357,6 +436,7 @@ mpe_publish_jack_engine_failure() {
 mpe_restart_audio_graph() {
     local unit
     unit="$(mpe_audio_graph_unit)"
+    mpe_session_event_emit engine.exited "graph-restart"
     # A unit sitting in start-limit failure refuses `restart` ("start request
     # repeated too quickly") until it is reset. That is exactly the state a DAC
     # unplug leaves jackd in, and the replug is the event that must recover it.
@@ -465,6 +545,20 @@ mpe_promote_surge_planned() {
 mpe_restart_looper_after_graph_change() {
     local reason="${1:-planned-graph-change}"
     if ! pgrep -x sooperlooper >/dev/null 2>&1; then
+        return 0
+    fi
+
+    # Defer to the unit when it is installed. restart-sooperlooper.sh kills the engine
+    # and starts its own; with mpe-sooperlooper.service (Restart=always) systemd would
+    # start one too, and both would race for OSC port 9951 — one wins, the other dies,
+    # and which is which is a coin flip. `systemctl restart` also re-runs the unit's
+    # ExecStartPost, so the record/playback graph is rewired the same way it is at boot.
+    if [ -f /etc/systemd/system/mpe-sooperlooper.service ]; then
+        echo "audio-engine: restarting SooperLooper via mpe-sooperlooper.service ($reason) — recorded loops are cleared" >&2
+        mpe_systemctl restart mpe-sooperlooper.service || {
+            echo "audio-engine: mpe-sooperlooper.service restart failed" >&2
+            return 1
+        }
         return 0
     fi
 
@@ -592,15 +686,126 @@ mpe_engine_reconcile_reset() {
     rm -f "$(mpe_engine_reconcile_file)" 2>/dev/null || true
 }
 
+# Freshness window for meter.state. The compiled meter writes at 5 Hz, so anything
+# older than this means the meter is dead, stopped, or wedged — fall back rather than
+# trusting a stale answer (DECISIONS.md 2026-08-15: a reading that looks the same
+# whether it is fine or not instrumented).
+MPE_METER_STATE_MAX_AGE_S="${MPE_METER_STATE_MAX_AGE_S:-5}"
+
+# Is Surge on the JACK graph, according to the meter we already run?
+#
+# Returns 0 = on graph, 1 = not on graph, 2 = cannot tell (caller must fall back).
+#
+# mpe-peak-meter is a long-lived compiled client permanently on the graph. Its connect
+# thread re-checks its wiring to "Surge XT:out_{1,2}" every 2 s and publishes the answer
+# as wired= in meter.state. Reading that is a file read: no fork, and crucially no new
+# JACK client registration.
+_mpe_surge_on_graph_via_meter() {
+    local file wired updated age
+    file="$(mpe_run_dir)/meter.state"
+    [ -r "$file" ] || return 2
+    wired="$(mpe_state_get "$file" wired)"
+    updated="$(mpe_state_get "$file" updated)"
+    case "$wired" in 0 | 1) ;; *) return 2 ;; esac
+    case "$updated" in "" | *[!0-9]*) return 2 ;; esac
+    age=$((EPOCHSECONDS - updated))
+    [ "$age" -lt 0 ] && return 2
+    [ "$age" -le "$MPE_METER_STATE_MAX_AGE_S" ] || return 2
+    [ "$wired" = 1 ] && return 0
+    return 1
+}
+
+# Is Surge on the JACK graph?
+#
+# Prefers the meter (free), falls back to jack_lsp (~116 ms AND a client registration
+# that forces jackd to reorder the graph). Measured 2026-08-18: running this on a 10 s
+# timer produced 35 xruns/min against 6 when it was rare — the probe was the single
+# largest xrun source on the appliance, larger than the whole looper stack.
 mpe_surge_on_jack_graph() {
-    mpe_jack_server_ready || return 1
-    if ! command -v jack_lsp >/dev/null 2>&1; then
-        return 1
+    local ports
+    mpe_jack_server_running || return 1
+
+    # `|| rc=$?` so a tri-state return cannot trip `set -e` in a calling script.
+    local rc=0
+    _mpe_surge_on_graph_via_meter || rc=$?
+    case "$rc" in
+        0) return 0 ;;
+        1) return 1 ;;
+    esac
+
+    # Fallback only: meter absent, disabled, or stale.
+    _mpe_jack_lsp_bin || return 1
+    ports="$(mpe_jack_lsp 2>/dev/null)" || return 1
+    [ -n "$ports" ] || return 1
+    # ${ports,,} is a bash expansion, not a fork — preserves grep -qi semantics
+    # without spawning grep on the probe path.
+    case "${ports,,}" in
+        *surge*) return 0 ;;
+    esac
+    return 1
+}
+
+mpe_looper_on_jack_graph() {
+    local ports
+    mpe_jack_server_running || return 1
+    _mpe_jack_lsp_bin || return 1
+    ports="$(mpe_jack_lsp 2>/dev/null)" || return 1
+    case "${ports,,}" in
+        *mpe-looper:*) return 0 ;;
+    esac
+    return 1
+}
+
+# jackd restart leaves SooperLooper running but off the bus — /get answers,
+# /hit is discarded. Planned promote restarts the engine; passive Surge reconcile
+# did not, which is the orphan wedge (DECISIONS.md 2026-08-15).
+mpe_reconcile_looper_if_orphaned() {
+    local reason="${1:-graph-reconcile}"
+    if ! pgrep -x sooperlooper >/dev/null 2>&1; then
+        return 0
     fi
-    mpe_jack_lsp 2>/dev/null | grep -qi 'surge'
+    if mpe_looper_on_jack_graph; then
+        return 0
+    fi
+    echo "audio-engine: SooperLooper orphaned ($reason) — restarting unit (loops cleared)" >&2
+    mpe_restart_looper_after_graph_change "$reason"
 }
 
 # Back-compat alias used by udev helper and profile scripts.
 restart_audio_graph() {
     mpe_restart_audio_graph
+}
+
+# ---------------------------------------------------------------------------
+# Session control plane — Phase 2 event emit (lazy-loaded)
+# ---------------------------------------------------------------------------
+
+_mpe_session_events_loaded=0
+
+mpe_session_events_ensure() {
+    if [ "$_mpe_session_events_loaded" = 1 ]; then
+        return 0
+    fi
+    # shellcheck source=session-events.sh
+    source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/session-events.sh"
+    _mpe_session_events_loaded=1
+}
+
+mpe_session_event_emit() {
+    mpe_session_events_ensure
+    mpe_session_event_append "$@"
+}
+
+mpe_session_events_on_engine_transition() {
+    local prev_state="${1:-}" new_state="${2:-}" active="${3:-}" reason="${4:-}"
+    mpe_session_events_ensure
+    if [ "$new_state" = ok ] && [ "$prev_state" != ok ]; then
+        mpe_session_event_emit engine.started "$active" "reason=$reason"
+    fi
+    if [ "$new_state" = failed ] && [ "$prev_state" != failed ]; then
+        mpe_session_event_emit engine.exited "$reason"
+    fi
+    if [ "$new_state" = recovering ] && [ "$prev_state" != recovering ]; then
+        mpe_session_event_emit mode.changed "recovering" "reason=$reason"
+    fi
 }

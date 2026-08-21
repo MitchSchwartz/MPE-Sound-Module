@@ -23,7 +23,7 @@ _supervisor_restart_surge() {
         return 1
     fi
     local now decision last count jackd_start looper_label
-    now=$(date +%s)
+    now=$EPOCHSECONDS
     last=$(mpe_engine_reconcile_last_restart)
     count=$(mpe_engine_reconcile_count)
     jackd_start=$(mpe_jack_start_epoch)
@@ -63,7 +63,7 @@ _supervisor_restart_surge() {
 # budget, then treat jackd as down and restart Surge (it will fail loud and
 # retry on its own until jackd recovers — spec D3 amended 2026-08-13).
 _reconcile_engine() {
-    local waited looper_label
+    local waited looper_label state active
 
     looper_label="$(mpe_looper_state_label)"
 
@@ -71,9 +71,22 @@ _reconcile_engine() {
         return 0
     fi
 
+    # Steady state: unit active and engine already ok — skip jack_lsp if a full
+    # graph probe ran recently. Unbounded skip is indistinguishable from stopping
+    # to look (orphaned JACK client, DECISIONS.md 2026-08-15).
+    if systemctl is-active --quiet "$SURGE_SERVICE" 2>/dev/null; then
+        state="$(mpe_engine_state_get state)"
+        active="$(mpe_engine_state_get active)"
+        if [ "$state" = ok ] && [ "$active" = jack ]            && [ $((EPOCHSECONDS - _last_jack_probe)) -lt "$JACK_PROBE_INTERVAL_S" ]; then
+            return 0
+        fi
+    fi
+
+    _last_jack_probe=$EPOCHSECONDS
     if mpe_surge_on_jack_graph; then
         mpe_engine_state_write "$MPE_ENGINE_NAME" jack ok "" "$looper_label"
         mpe_engine_reconcile_reset
+        mpe_reconcile_looper_if_orphaned "surge-on-graph"
         return 0
     fi
 
@@ -89,11 +102,48 @@ _reconcile_engine() {
     fi
 
     if ! mpe_jack_server_ready; then
-        _supervisor_restart_surge "jackd-down"
+        if _supervisor_restart_surge "jackd-down"; then
+            mpe_reconcile_looper_if_orphaned "jackd-down"
+        fi
         return 0
     fi
 
-    _supervisor_restart_surge "promote-to-jack"
+    if _supervisor_restart_surge "promote-to-jack"; then
+        mpe_reconcile_looper_if_orphaned "promote-to-jack"
+    fi
+}
+
+
+LOOPER_RECONCILE_INTERVAL_S="${MPE_LOOPER_RECONCILE_INTERVAL_S:-30}"
+_last_looper_reconcile=0
+
+# Bound the healthy-path short-circuit: full graph probe at least once per interval.
+# Default 10 s (116 ms / 10 s ≈ 1.16% of a core); must stay ≤ cooldown (30 s).
+# _last_jack_probe=0 forces probe on first tick.
+JACK_PROBE_INTERVAL_S="${MPE_JACK_PROBE_INTERVAL_S:-10}"
+_last_jack_probe=0
+
+# Batched systemctl pre-filter: fork Python (~400 ms on Pi) only when a looper
+# unit is non-active. Steady state is one systemctl call (~22 ms) every 30 s.
+_reconcile_looper_units_if_needed() {
+    local script need=0 state
+    local -a units=(
+        mpe-sooperlooper.service
+        mpe-looper-session.service
+        sl-watchdog.service
+    )
+    script="${MPE_MODULE_REPO}/scripts/ensure-looper-units-running.py"
+
+    while IFS= read -r state; do
+        if [ "$state" != "active" ]; then
+            need=1
+            break
+        fi
+    done < <(systemctl is-active "${units[@]}" 2>/dev/null)
+
+    [ "$need" = 0 ] && return 0
+    [ -x "$script" ] || return 0
+    python3 "$script" >/dev/null 2>&1 || true
 }
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
@@ -128,6 +178,12 @@ while true; do
     fi
 
     _reconcile_engine
+
+    now=$EPOCHSECONDS
+    if [ $((now - _last_looper_reconcile)) -ge "$LOOPER_RECONCILE_INTERVAL_S" ]; then
+        _reconcile_looper_units_if_needed
+        _last_looper_reconcile=$now
+    fi
 
     sleep 5
 done

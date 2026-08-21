@@ -194,7 +194,7 @@ That was a manual bring-up outside systemd. **It does not survive a reboot.**
 | 5a | Profile switch (`standalone` ↔ `usb-host` ↔ `usb-host-session`) restarts **jackd**, and the supervisor reconciles Surge onto the new server within the 15 s budget | `mpe engine status` shows the expected `hw:N` per the D1 tier table; zero xruns after settle |
 | 5b | **UAC2 host capture open/close mid-session** re-points the graph | With `MPE_AUDIO_PROFILE=usb-host`, start/stop capture on the host; jackd restarts on the new device, supervisor reconnects Surge, audio resumes |
 | 6 | Surge's audio **thread** is `SCHED_FIFO` below jackd's; no `chrt` wrapper on the Surge process in JACK mode | `mpe jack status` (reads `/proc/<pid>/task/*`, not process policy) |
-| 10 | **Deferred to `yolo/looper-phase0` merge.** With `MPE_LOOPER_ENABLED=1`, every looper entry point refuses with one shared message; `mpe-looper.service` must not restart-loop. *(Amended 2026-08-13: the guard no longer also checks the engine — JACK is the only engine, so the condition is `MPE_LOOPER_ENABLED=1` alone.)* Phase 1 strips looper scripts from this branch — guard policy lives in `engine-guard.sh` + `patch_browser/audio_engine.py` (unit-tested); full criterion verifies when phase0 lands | Unit test on guard helpers now; boot test + `journalctl -u mpe-looper` when phase0 merges |
+| 10 | **VOID 2026-08-17 — cannot ever verify.** The branch it defers to does not exist on origin and `mpe-looper.service` has been deleted; there is no restart-loop left to test. Guard helpers stay unit-tested. Original text: **Deferred to `yolo/looper-phase0` merge.** With `MPE_LOOPER_ENABLED=1`, every looper entry point refuses with one shared message; `mpe-looper.service` must not restart-loop. *(Amended 2026-08-13: the guard no longer also checks the engine — JACK is the only engine, so the condition is `MPE_LOOPER_ENABLED=1` alone.)* Phase 1 strips looper scripts from this branch — guard policy lives in `engine-guard.sh` + `patch_browser/audio_engine.py` (unit-tested); full criterion verifies when phase0 lands | Unit test on guard helpers now; boot test + `journalctl -u mpe-looper` when phase0 merges |
 | 12 | **Engine is `jack`** on a fresh install and after upgrade of an appliance that still has `MPE_AUDIO_ENGINE` set in its `/etc/mpe/mpe.env` from before this amendment. *(Amended 2026-08-13: was "default … with no `MPE_AUDIO_ENGINE` set"; now unconditional — the variable is read nowhere, so a stale `MPE_AUDIO_ENGINE=alsa` left over from a pre-amendment appliance must not do anything.)* | Fresh `/etc/mpe/mpe.env` + upgrade path (including one with a stale `MPE_AUDIO_ENGINE=alsa` line); `mpe engine status` reports `jack` in both |
 | 13 | The looper regression is **surfaced, not discovered** — the touch HUD reads `/run/mpe/engine.state` and shows engine/state/`looper=guarded` via `patch_browser/audio_engine.py` + `touch_browser_draw.py` | Boot with both flags; HUD displays `looper=guarded`. *(Amended 2026-08-13: "guarded/degraded state" → "`looper=guarded`" — `degraded` is retired from `state=`; only the looper field's own `guarded` label is relevant here.)* |
 | 14 | Direct-ALSA consumers still work with jackd holding the device | Run `calibrate-patch-normalization.py` and `session_capture.py` with jackd up; either they succeed, or the failure is documented and the workflow states "stop jackd first" |
@@ -366,6 +366,24 @@ no mode left where it would run.)* `MPE_SURGE_RT_PRIORITY` has no consumer left
 in the audio-engine path — it is kept only as an `mpe.env.example` /
 documentation constant for a separate CPU/RT-tuning concern, unrelated to
 engine selection.
+
+> **SUPERSEDED 2026-08-17 — D5 describes a looper that no longer exists.**
+> Everything below is written around the v0 ALSA/snd-aloop looper
+> (`scripts/mpe-looper.py`, `mpe-looper-service.sh`, `looper-audio-route.sh`),
+> all stripped on 2026-08-12 by 8e6759b. `yolo/looper-phase0`, the branch this
+> section defers its chokepoint to, does not exist on origin. `mpe-looper.service`
+> was deleted 2026-08-17 after it was found enabled-and-skipping on every boot
+> since installation — zero `Started` entries in its whole journal.
+>
+> What actually loops today is SooperLooper: a JACK callback client, 16 loops,
+> JACK client name `mpe-looper`, started by
+> `scripts/sooperlooper/restart-sooperlooper.sh` and supervised for orphan/wedge
+> by `sl-watchdog.service`. The "mutually exclusive until Phase 2" premise is
+> false — JACK and looping coexist now.
+>
+> `scripts/lib/engine-guard.sh` and `looper_guard_exit_code()` remain live and
+> unit-tested; only the narrative below is stale. Retained as the design record
+> for why the guard exists at all.
 
 **D5 — Looper and JACK are mutually exclusive until Phase 2, enforced at one
 chokepoint.** `MPE_LOOPER_ENABLED` is read in nine files, so a guard per call site
