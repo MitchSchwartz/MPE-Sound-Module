@@ -526,13 +526,22 @@ parallel and nothing waits.
 | **now, in parallel** | **T7 prep** (below) + **T8 dead-code removal** | **no** |
 | 12:16 | **T7a** — 256x6 vs 512x3, plus 256x8, n=15 each | ~45 min |
 | after | decide whether the shipping default changes | — |
-| only if it changes | re-soak the winner | 8 h |
+| only if it changes | re-confirm the winner, 15 min | ~15 min |
 
 **Why the soak was not stopped for T7.** Standing rule 7 puts certification last, and T7
 may replace the default — so on principle T7 goes first. But the overnight slot cannot be
 recovered, T7 needs its code prep regardless, and **1024 x 3 remains the fallback default
 whatever T7 finds.** If T7 wins, the soak has certified what you fall back to; if it finds
 nothing, the soak has certified what you ship.
+
+**No second 8 h soak.** Superseded by the soak's own result
+(`docs/measurements/t5-soak-2026-08-21.md`). The deferral rule assumed 0.13/min, where a
+15 min window cannot separate rare from zero. Condition D actually runs at 0.93/min --
+~14 events per 15 min, which is ample to rank configurations. And the failure mode is
+**stationary**: flat hourly, no drift over 480 minutes, isolated singles rather than
+clusters, 55-59 C with `throttled=0x0` throughout. A long soak only earns its cost if
+accumulation, thermal creep, or rare storms exist. We looked for all three and found none.
+If the default changes, re-confirm at n=15 (15 min) instead.
 
 ## T8 — delete `jack_graph()` (dead code)
 
