@@ -89,6 +89,22 @@ registers ALSA card 5).
 
 ---
 
+## Finding 5 — ship-critical kernel config lives only on the appliance
+
+`irqaffinity=0,1` is on the Pi's cmdline and **is not tracked in this repo**. It is
+referenced in unit-file comments and measurement docs, but no file in git sets it, and
+`/boot/firmware/cmdline.txt` is not under version control. E1 changed it to `0` outside git;
+the partial revert left the machine at `0,1` while `plan/t7-sequence` still encoded E1's
+`CPUAffinity=1 2 3` in the service units until 2026-08-21.
+
+**A setting that is required for the product to hit its numbers, that exists on exactly one
+SD card, is not a configuration — it is a liability.** Reflashing loses it silently, and
+the loss looks like a performance regression with no cause.
+
+Fix: bring the cmdline under management (a script that asserts the required flags and fails
+loudly if they are absent, in the manner of `jackd-prestart.sh`). The IRQ affinity work in
+Phase 0 will add more of these — do not repeat the pattern.
+
 ## The clean path
 
 Everything above is **Phase 0**, and it comes before any further measurement. Numbers taken
