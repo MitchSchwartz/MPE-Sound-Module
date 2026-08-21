@@ -539,10 +539,11 @@ Two consequences, and they reorder the queue:
 | order | task | needs the Pi |
 |---|---|---|
 | **1** | **T9 -- A/B/C/D ladder at 1024x3, 8 loops**, n=15 per cell | ~60 min |
-| 2 | **T10 -- wakeup delay vs callback duration**, one instrumented run | ~20 min |
-| 3 | **T7a** -- 256x6 vs 512x3, plus 256x8, n=15 each | ~45 min |
-| 4 | decide whether the shipping default changes | -- |
-| 5, only if it changes | re-confirm the winner at n=15 | ~15 min |
+| **2** | **T11 -- condition A ladder: 256, 128, 64**, n=15 per cell | ~45 min |
+| 3 | **T10 -- wakeup delay vs callback duration**, one instrumented run | ~20 min |
+| 4 | **T7a** -- 256x6 vs 512x3, plus 256x8, n=15 each | ~45 min |
+| 5 | decide whether the shipping default changes | -- |
+| 6, only if it changes | re-confirm the winner at n=15 | ~15 min |
 
 T9 localises **which component**. T10 localises **which mechanism**. Instrumenting before
 the ladder means instrumenting without knowing where to point the instrument.
@@ -602,6 +603,56 @@ void, not zero.
 This **subsumes the earlier T9** (8-loop cell at condition D) -- that cell falls out of the
 ladder as the D row, and the ladder additionally says where the cost sits at the buffer
 that actually ships. Report per-cell mean, clean-run count out of 15, and DSP.
+
+## T11 -- condition A buffer ladder: 256, 128, 64. **The instrument-only number.**
+
+**Why this exists.** Every 256 measurement to date has been taken with sooperlooper in the
+graph. "512 is unshippable" is a *looper* verdict, not an instrument verdict -- condition A
+at 512 is 0.13/min, 14/15 clean, and has been sitting there unremarked while every task
+since has been about B, C and D. The stated goal is a low-latency **live instrument**. That
+is condition A, and its low end has never been measured.
+
+At condition A there is no sooperlooper: the process chain is jackd -> surge, **one hop
+instead of three**, and the +2.14/min sooperlooper term does not exist. The cyclictest
+floor (209-320 us idle, 257 us under load) is 16-24% of a 64-frame deadline, so the
+scheduler does not block any of these on paper.
+
+**512 is not re-run** -- already measured at n=15.
+
+| period | deadline | total @ n3 | cushion |
+|---|---|---|---|
+| 256 | 5.33 ms | 16 ms | 10.7 ms |
+| 128 | 2.67 ms | 8 ms | 5.3 ms |
+| 64 | 1.33 ms | 4 ms | 2.7 ms |
+
+`--condition A --runs 15`, `--no-restore-buffer` between cells. Nothing else running:
+no sooperlooper, no session, no watchdog. Require `meter_live=1` per run; a run without it
+is void, not zero. Report mean, clean-run count out of 15, and DSP per cell.
+
+### The transport floor, and a possible confound at the low end
+
+The Sound Blaster is **full speed**: one USB frame per 1 ms, which at 48 kHz is **48
+samples per frame**. 64 frames is the last power of two above that quantum, so it is the
+right place to stop -- below ~48 frames the period is smaller than the transport's own
+granularity and JACK cannot win regardless of scheduling.
+
+Note that **no power-of-two period aligns to the 1 ms frame.** 64 frames = 1.33 frames,
+128 = 2.67, 256 = 5.33. Each period straddles USB frame boundaries. This is evidently
+harmless at 1024 (21.3 frames, misalignment ~1.5%), but at 64 the misalignment is a third
+of a frame -- a much larger fraction of the budget.
+
+**If 64 fails while 128 passes, add USB-aligned cells before concluding the deadline is the
+limit:** 96 frames (2 ms, exactly 2 frames) and 48 frames (1 ms, exactly 1 frame). If 96
+beats 128 despite being the smaller period, alignment is the mechanism, not deadline --
+and that is a finding that transfers to any full-speed device.
+
+### What a clean result means
+
+If 256 or below runs clean at condition A, **you have a shippable low-latency instrument
+mode today**, independent of every open architectural question about sooperlooper. That
+also reframes the single-client work: it stops being "how do we reach low latency" and
+becomes "how do we extend the low-latency mode to cover looping" -- a better position to
+decide from, and a reason to run this before committing to that architecture.
 
 ## T10 -- wakeup delay vs callback duration
 
