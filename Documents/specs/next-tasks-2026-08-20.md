@@ -534,19 +534,25 @@ Two consequences, and they reorder the queue:
    to recover. T7a can still settle cushion vs deadline, but a win there does not remove
    this.
 
-## Queue
+## Queue as of 2026-08-21 10:05
 
-| order | task | needs the Pi |
-|---|---|---|
-| ~~1~~ | ~~T9 -- 8 loops at 1024x3, condition D~~ **done: 0.00, 15/15 clean** | -- |
-| **2** | **T11 -- condition A ladder: 256, 128, 64**, n=15 per cell | ~45 min |
-| 3 | **T10 -- wakeup delay vs callback duration**, one instrumented run | ~20 min |
-| 4 | **T7a** -- 256x6 vs 512x3, plus 256x8, n=15 each | ~45 min |
-| 5 | decide whether the shipping default changes | -- |
-| 6, only if it changes | re-confirm the winner at n=15 | ~15 min |
+| # | task | Pi time | gates |
+|---|---|---|---|
+| ~~--~~ | ~~T9 -- 8 loops @ 1024x3 cond D~~ **done: 0.00, 15/15** | -- | -- |
+| **1** | **T11 -- condition A ladder: 256, 128, 64** | ~45 min | nothing |
+| 2 | **T10 -- wakeup delay vs callback duration** | ~20 min | nothing |
+| 3 | **T7a -- 256x6 vs 512x3, plus 256x8** | ~45 min | nothing |
+| 4 | T7b -- 512x4 and 1024x2 | ~30 min | only if T7a says cushion |
+| 5 | T12 -- USB-frame-aligned periods 96 / 48 | ~30 min | only if T11's 64 fails but 128 passes |
+| 6 | decide whether the shipping default changes | -- | 1-3 |
+| 7 | re-confirm the winner at n=15 | ~15 min | only if 6 changes the default |
 
-T9 localises **which component**. T10 localises **which mechanism**. Instrumenting before
-the ladder means instrumenting without knowing where to point the instrument.
+**Order rationale.** T11 first because it answers the actual product goal -- lowest latency
+for a live instrument -- and nothing else gates it. T10 second because it is cheap and its
+answer reframes T7a: if the structural term is scheduling delay, cushion is a workaround; if
+it is the USB path, no JACK-side knob helps. T7a third for that reason.
+
+**Do not run a second 8 h soak.** See below.
 
 ## What the soak ruled out
 
