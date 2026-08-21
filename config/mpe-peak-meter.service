@@ -18,6 +18,9 @@ LimitMEMLOCK=infinity
 ExecStart=@MPE_MODULE_REPO@/scripts/start-mpe-peak-meter.sh
 Restart=on-failure
 RestartSec=3
+# JACK leaf client — must not inherit 90s default when jackd tears down first.
+TimeoutStopSec=5
+KillMode=mixed
 StandardOutput=journal
 StandardError=journal
 
