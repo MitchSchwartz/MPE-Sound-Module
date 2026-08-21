@@ -568,7 +568,7 @@ _run_window() {
         if [ -f "$OUTPUT" ] && grep -q "^RESULT tag=${tag} xruns=" "$OUTPUT"; then
             echo "ERROR: tag ${tag} already present in ${OUTPUT} — refusing to append" >&2
             echo "       a duplicate tag makes the log ambiguous; use a fresh --output" >&2
-            return 1
+            exit 1
         fi
         echo "=== run ${tag} ==="
         stamp="$(date +%s)"
