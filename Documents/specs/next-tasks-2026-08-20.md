@@ -4,6 +4,10 @@
 Tasks are independent unless a "Blocked by" line says otherwise. Nothing here needs
 Mitch except T1's reboot, which is already staged.
 
+**PAUSED 2026-08-20.** Session rollup:
+[`docs/measurements/session-handoff-2026-08-20.md`](../docs/measurements/session-handoff-2026-08-20.md).
+I1–I3 and T6 done; T4 partial (stopped); T5 not started. Resume at I3 n=15 if continuing.
+
 ## Standing rules for every task
 
 1. **Label confidence.** Every claim is one of **measured** / **experiment** / **guess**.
