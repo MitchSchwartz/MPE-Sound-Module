@@ -507,3 +507,59 @@ audio interface does (see the device decision), so T7 may find a wall that is no
 - DSP reported per config, with a statement on whether headroom became the limit.
 - If a config beats 1024 x 3 on latency while matching it on xruns, say so plainly —
   that is a shipping-default change and should be called out, not buried in a table.
+
+---
+
+# Sequence as of 2026-08-21 04:20
+
+**The T5 soak is running.** Started 04:18, expected finish **12:16**, 1024x3 + 16 loops,
+T5-pre landed correctly (`read_graph_snapshot()` returns `"meter_stale"` and no longer
+falls back; `jack_graph()` has no callers). 16 loops verified *playing*, `meter_live=1`,
+58.9 C, `throttled=0x0`.
+
+The Pi is therefore occupied until ~12:16. **T7's blockers are pure code**, so they run in
+parallel and nothing waits.
+
+| when | task | needs the Pi |
+|---|---|---|
+| now -> 12:16 | soak runs | occupied |
+| **now, in parallel** | **T7 prep** (below) + **T8 dead-code removal** | **no** |
+| 12:16 | **T7a** — 256x6 vs 512x3, plus 256x8, n=15 each | ~45 min |
+| after | decide whether the shipping default changes | — |
+| only if it changes | re-soak the winner | 8 h |
+
+**Why the soak was not stopped for T7.** Standing rule 7 puts certification last, and T7
+may replace the default — so on principle T7 goes first. But the overnight slot cannot be
+recovered, T7 needs its code prep regardless, and **1024 x 3 remains the fallback default
+whatever T7 finds.** If T7 wins, the soak has certified what you fall back to; if it finds
+nothing, the soak has certified what you ship.
+
+## T8 — delete `jack_graph()` (dead code)
+
+`scripts/sooperlooper/sl-watchdog.py:155`. T5-pre removed its last caller. It is now a
+function that forks `jack_lsp -c` and forces two graph reorders, sitting in the watchdog
+with nothing calling it.
+
+**Delete it.** Do not leave it as "a manual diagnostic" — that is precisely how it gets
+wired back into a loop in six months and rediscovered as instance five. If a
+graph dump is ever genuinely needed, `jack_lsp -c` is one command at a prompt and needs no
+resident copy inside the watchdog.
+
+Check for other callers first (`grep -rn jack_graph`), including tests. Then confirm the
+T3a lint still passes and the full suite is green.
+
+**Acceptance:** function gone, no references anywhere, `mpe test local all` green.
+
+## Scarlett — pending, and it reorders this
+
+Mitch will test a class-compliant high-speed asynchronous interface at some point.
+**When that happens it invalidates every latency number taken on the Sound Blaster**,
+including T7's.
+
+- T7's **mechanism** finding — is the limit cushion or deadline? — transfers.
+- T7's **winning configuration** does not.
+
+So if the Scarlett test is imminent, run it **before** T7 and re-derive the configs
+against the device being kept. If it is weeks away, T7 is worth running now: it is 45
+minutes, it may make a lower-latency default shippable on hardware you already have, and
+the mechanism it establishes survives the hardware change.
