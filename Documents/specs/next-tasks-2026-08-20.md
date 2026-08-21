@@ -554,6 +554,11 @@ it is the USB path, no JACK-side knob helps. T7a third for that reason.
 
 **Do not run a second 8 h soak.** See below.
 
+**Pi timezone changed 2026-08-21** from Europe/London (+01:00) to America/Toronto (-04:00),
+matching the laptop. New logs are EDT. Anything older is BST and 5 h ahead -- see
+`docs/measurements/README.md`. Scripts that print an `expected_finish` compute it at start,
+so a run spanning a future timezone change would print a wrong ETA; none currently do.
+
 ## What the soak ruled out
 
 Arrivals are **Poisson** -- index of dispersion 1.091, chi-square ~4.0 (full table in the

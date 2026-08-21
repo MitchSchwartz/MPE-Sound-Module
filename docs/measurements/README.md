@@ -32,6 +32,20 @@ design under JACK and reports a false negative on a healthy appliance.
   of the SooperLooper adoption test. Plan lives in OM-Repo
   `internal/projects/mpe-synth-launch/research/looper-vetting.md` §7.
 
+## Timestamps — timezone changed 2026-08-21
+
+The Pi ran **Europe/London (+01:00 BST)** until 2026-08-21, then was set to
+**America/Toronto (EDT, -04:00)** to match the laptop. Both are NTP-synced and now agree.
+
+**Consequence for reading logs.** Timestamps in any measurement predating the change are
+BST and sit **5 hours ahead** of the laptop's clock. The T5 soak is the one that bites:
+its `expected_finish=2026-08-21T12:16:48+01:00` is **07:16 Toronto**, not 12:16 — the run
+had already been finished for two hours when it looked overdue.
+
+Read the offset in the timestamp; do not assume the Pi and the laptop shared a clock
+before 2026-08-21. Durations *within* a single pre-change log are unaffected — only
+cross-machine and cross-date comparisons are.
+
 ## Low-latency arc (2026-08-18 -> 2026-08-21)
 
 Read in order. Later docs correct earlier ones; where they disagree, the later one wins.
