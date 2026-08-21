@@ -422,3 +422,88 @@ footnote.
 
 **512 is not part of this.** It is unusable with the looper at every loop count measured
 (2.87 / 1.33 / 2.13 / 3.93) and no soak changes that.
+
+---
+
+# T7 — periods per buffer. Never varied; the biggest free lever left.
+
+**Every measurement in this investigation has run at `-n 3`.** `-p 512 -n 3`,
+`-p 1024 -n 3`. The period *size* has been swept repeatedly; the period *count* has never
+been touched once.
+
+## Why it matters, and why it is not obvious
+
+Total latency is `period x nperiods`. The **deadline** is the period alone. The **cushion**
+— how much lateness the sound card can absorb before it runs dry — is `(nperiods - 1) x
+period`. Three separable quantities, and we have only ever moved one.
+
+| setup | total delay | deadline | **cushion** | wakeups/s |
+|---|---:|---:|---:|---:|
+| 1024 x 3 — today's default | 64 ms | 21.3 ms | 42.7 ms | 47 |
+| 512 x 3 — unshippable with looper | 32 ms | 10.7 ms | 21.3 ms | 94 |
+| **256 x 6** | **32 ms** | 5.3 ms | **26.7 ms** | 188 |
+| 512 x 4 | 42.7 ms | 10.7 ms | 32 ms | 94 |
+| **256 x 8** | **42.7 ms** | 5.3 ms | **37.3 ms** | 188 |
+| 1024 x 2 | 42.7 ms | 21.3 ms | 21.3 ms | 47 |
+| 256 x 4 | 21.3 ms | 5.3 ms | 16 ms | 188 |
+
+**At equal total latency, a smaller period buys MORE cushion.** 256x6 and 512x3 are both
+32 ms to the ear, but 256x6 absorbs 26.7 ms of lateness against 21.3 ms. Strictly more
+robust at identical latency.
+
+That is counter-intuitive — smaller buffers are supposed to be harder — and it is only
+true here because of what we measured: **the audio thread finishes with 91% of its time
+spare** (max period deviation 917 us against 10,667 us) and the xruns originate below JACK,
+in the USB path, as the card running dry. **Cushion is what we are short of. CPU is what we
+have spare.** The knob nobody turned is the one aimed at the actual failure.
+
+## Implementation blockers — fix these first
+
+1. **`mpe_jack_periods()` in `scripts/lib/audio-engine.sh:68` accepts only `2 | 3 | 4`.**
+   6 and 8 hit the `*)` branch, print a warning and **silently fall back to the default** —
+   so a naive T7 run would measure `-n 3` three times and report it as three configs.
+   Widen the allowlist (2,3,4,6,8) and keep the warning for genuinely invalid values.
+2. **The harness has no `--periods` flag.** Add one, thread it to `MPE_JACK_PERIODS`, and
+   put the value in the tag and in the provenance block.
+3. **Verify the period count from JACK, not from the argument** — trap 5. The harness
+   already reads back the period size; read back the count the same way and assert it.
+   `mpe_jack_state_write` records it, and `jackd`'s own startup line prints
+   `period = N frames ... buffer = M periods`.
+
+## Configs to measure — bisect, per standing rule 6
+
+Condition **D** (full stack), 1024-equivalent loop load, n=15 each.
+
+**T7a — the sharp test. 2 configs, 30 runs, ~45 min.**
+
+- **256 x 6** (32 ms) against the known-failing **512 x 3** (32 ms). Identical latency,
+  25% more cushion. Clean means the mechanism is cushion, not deadline, and it is a direct
+  win over a config we know fails.
+- **256 x 8** (42.7 ms) as the safe variant — still a third better than today's 64 ms.
+
+**T7b — only if T7a shows cushion is the mechanism.** Fill in 512 x 4 and 1024 x 2, both
+42.7 ms, to separate cushion from wakeup cost at constant latency. 1024 x 2 has the same
+cushion as 512 x 3 with a quarter of the wakeups; if it also fails, cushion is confirmed as
+the driver.
+
+**Skip 256 x 4.** 16 ms of cushion, *less* than the 512x3 that already fails.
+
+## What to watch besides xruns
+
+**DSP.** At 256 the Pi wakes 188 times a second against 47 — four times the per-wakeup
+overhead. Measured DSP is 35-38% at 512 with loops; 256 could reach the 50s. Record
+`dsp_median` and `dsp_p99` per config, and say explicitly whether headroom is the new
+constraint.
+
+**The 1 ms USB frame floor still applies underneath all of this.** At a 5.3 ms period you
+have roughly five USB frames per chunk — coarse. That constraint does not move until the
+audio interface does (see the device decision), so T7 may find a wall that is not JACK's.
+
+## Acceptance
+
+- The three blockers above fixed, with the period count **read back from JACK** and
+  asserted per run.
+- T7a: 30 values, means and sds, and an explicit verdict on cushion vs deadline.
+- DSP reported per config, with a statement on whether headroom became the limit.
+- If a config beats 1024 x 3 on latency while matching it on xruns, say so plainly —
+  that is a shipping-default change and should be called out, not buried in a table.
