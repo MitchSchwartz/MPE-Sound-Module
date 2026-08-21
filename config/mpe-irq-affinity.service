@@ -1,0 +1,13 @@
+[Unit]
+Description=Move movable IRQs off CPU0 (hygiene baseline)
+After=local-fs.target
+Before=mpe-jackd.service
+DefaultDependencies=no
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=@MPE_MODULE_REPO@/scripts/apply-movable-irq-affinity.sh
+
+[Install]
+WantedBy=multi-user.target
