@@ -61,12 +61,13 @@ _meter_field() {
 }
 
 _read_xruns_or_blind() {
+    METER_LIVE=0
     if mpe_meter_xruns_read; then
         METER_LIVE=1
+        REPLY="$MPE_METER_LAST_XRUNS"
         return 0
     fi
-    METER_LIVE=0
-    echo "BLIND"
+    REPLY="BLIND"
     return 0
 }
 
@@ -133,7 +134,9 @@ _as_user python3 "$SCRIPT_DIR/midi-load.py" "$SOAK_SEC" \
 MIDI_PID=$!
 sleep 5
 
-START_XR="$(_read_xruns_or_blind)"
+METER_LIVE=0
+_read_xruns_or_blind
+START_XR="$REPLY"
 if [ "$METER_LIVE" != 1 ]; then
     echo "ERROR: meter blind at soak start" >&2
     exit 1
@@ -147,7 +150,8 @@ prev_xr="$START_XR"
 while [ "$minute" -lt "$TOTAL_MIN" ]; do
     sleep 60
     minute=$((minute + 1))
-    cur="$(_read_xruns_or_blind)"
+    _read_xruns_or_blind
+    cur="$REPLY"
     temp="$(vcgencmd measure_temp 2>/dev/null || echo 'temp=unknown')"
     throttle="$(vcgencmd get_throttled 2>/dev/null || echo 'throttled=unknown')"
 
