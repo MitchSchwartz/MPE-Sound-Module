@@ -12,16 +12,67 @@ See ``patch_browser.calibration_constants`` for the env var name and helper.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import subprocess
 import sys
 import time
+from collections.abc import Iterator
 
 from patch_browser.calibration_constants import (
     MPE_CALIB_FROM_BROWSER,
     TOUCH_PATCH_BROWSER_SCRIPT,
     calibration_from_browser,
 )
+from patch_browser.session_events import emit_event
+from patch_browser.session_snapshot import (
+    clear_maintenance_flag,
+    maintenance_mode_active,
+    set_maintenance_flag,
+    systemd_unit_active,
+    systemd_unit_enabled,
+)
+
+# Looper eval stack — Restart=always units (spec Phase 0 / Appendix A).
+# Stop in reverse dependency order; start after Surge is back.
+LOOPER_UNITS_STOP_ORDER = (
+    "mpe-looper-session",
+    "sl-watchdog",
+    "mpe-sooperlooper",
+)
+LOOPER_UNITS_START_ORDER = (
+    "mpe-sooperlooper",
+    "mpe-looper-session",
+    "sl-watchdog",
+)
+
+
+def _systemctl(unit: str, verb: str) -> None:
+    subprocess.run(["sudo", "systemctl", verb, f"{unit}.service"], check=False)
+
+
+def _safe_emit_event(name: str, **kwargs: object) -> None:
+    try:
+        emit_event(name, **kwargs)  # type: ignore[arg-type]
+    except (OSError, ValueError):
+        pass
+
+
+def ensure_looper_units_running() -> None:
+    """Start looper units left stopped by an aborted calibration (no maintenance flag).
+
+    Only units that are **enabled**. A disabled unit is an explicit operator decision —
+    since 2026-08-18 the looper stack is opt-in (measured xrun cost), and without this
+    check the reconcile restarted it within 30 s, making ``systemctl disable`` a silent
+    no-op. Recovering an aborted calibration must not override a deliberate off.
+    """
+    if maintenance_mode_active():
+        return
+    for unit in LOOPER_UNITS_START_ORDER:
+        if systemd_unit_enabled(unit) is False:
+            continue
+        if systemd_unit_active(unit) is False:
+            _systemctl(unit, "start")
 
 
 def unload_snd_aloop_if_idle() -> None:
@@ -39,13 +90,22 @@ def unload_snd_aloop_if_idle() -> None:
 
 
 def stop_mpe_audio_services() -> None:
-    """Stop production Surge, pressure remapper, and patch browser (unless browser handoff)."""
+    """Stop production Surge, pressure remapper, patch browser, and looper stack."""
+    set_maintenance_flag(source="calibration")
     units: list[str] = []
     if not calibration_from_browser():
         units.append("touch-patch-browser")
     units.extend(["mpe-pressure-remap", "surge-poly-governor", "surge-xt-cli"])
+    units.extend(LOOPER_UNITS_STOP_ORDER)
     for unit in units:
-        subprocess.run(["sudo", "systemctl", "stop", f"{unit}.service"], check=False)
+        _systemctl(unit, "stop")
+    _safe_emit_event(
+        "looper.units.stopped",
+        detail="calibration",
+        source="calibration_teardown.py",
+        fields={"units": ",".join(LOOPER_UNITS_STOP_ORDER)},
+    )
+    _safe_emit_event("mode.changed", detail="calibration-stop", source="calibration_teardown.py")
     time.sleep(1)
     subprocess.run(["sudo", "pkill", "-f", "surge-xt-cli"], check=False)
     time.sleep(0.5)
@@ -67,8 +127,32 @@ def restore_mpe_audio_services(*, restart_browser: bool = True) -> None:
     subprocess.run(["sudo", "pkill", "-f", "surge-xt-cli"], check=False)
     time.sleep(0.5)
     unload_snd_aloop_if_idle()
-    subprocess.run(["sudo", "systemctl", "start", "mpe-pressure-remap.service"], check=False)
-    subprocess.run(["sudo", "systemctl", "start", "surge-poly-governor.service"], check=False)
-    subprocess.run(["sudo", "systemctl", "start", "surge-xt-cli.service"], check=False)
+    _systemctl("mpe-pressure-remap", "start")
+    _systemctl("surge-poly-governor", "start")
+    _systemctl("surge-xt-cli", "start")
+    time.sleep(1)
+    for unit in LOOPER_UNITS_START_ORDER:
+        _systemctl(unit, "start")
+    _safe_emit_event(
+        "looper.units.started",
+        detail="calibration-restore",
+        source="calibration_teardown.py",
+        fields={"units": ",".join(LOOPER_UNITS_START_ORDER)},
+    )
+    _safe_emit_event("mode.changed", detail="calibration-restore", source="calibration_teardown.py")
     if restart_browser and not calibration_from_browser():
-        subprocess.run(["sudo", "systemctl", "start", "touch-patch-browser"], check=False)
+        _systemctl("touch-patch-browser", "start")
+    clear_maintenance_flag()
+
+
+@contextlib.contextmanager
+def calibration_audio_scope(*, restart_browser: bool = True, restore: bool = True) -> Iterator[None]:
+    """Stop production stack for calibration; always restore or clear maintenance on exit."""
+    stop_mpe_audio_services()
+    try:
+        yield
+    finally:
+        if restore:
+            restore_mpe_audio_services(restart_browser=restart_browser)
+        else:
+            clear_maintenance_flag()

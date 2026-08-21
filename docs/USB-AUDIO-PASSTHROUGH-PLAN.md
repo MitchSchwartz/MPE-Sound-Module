@@ -7,6 +7,8 @@
 
 **Status:** Phase 1 scripts landed — Pi spike pending.
 
+**Related (future):** multichannel per-clip stems + loop master — **[USB-MULTICHANNEL-STEMS.md](USB-MULTICHANNEL-STEMS.md)** (design only; stereo `usb-host` unchanged).
+
 ---
 
 ## Problem statement

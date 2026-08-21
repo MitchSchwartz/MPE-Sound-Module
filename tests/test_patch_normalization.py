@@ -43,13 +43,27 @@ class PatchNormalizationStoreTests(unittest.TestCase):
 
             loader.refresh_patch_volume("Lead")
             on_volume = loader.osc_client.messages[-1][1]
-            self.assertGreater(on_volume, 0.8)
+            from patch_browser.patch_normalization import (
+                NORM_MAX_AMP_VOLUME_LINEAR,
+                db_to_linear,
+                volume_fader_to_amp_linear,
+            )
+            from patch_browser.touch_ui_constants import VOLUME_MAX, VOLUME_MIN
+
+            gain_linear = db_to_linear(6.0)
+            expected_on = volume_fader_to_amp_linear(
+                0.8,
+                patch_gain_linear=gain_linear,
+                cap=NORM_MAX_AMP_VOLUME_LINEAR,
+                fader_min=VOLUME_MIN,
+                fader_max=VOLUME_MAX,
+                norm_active=True,
+            )
+            self.assertAlmostEqual(on_volume, expected_on)
 
             store.set_enabled("Lead", False)
             loader.refresh_patch_volume("Lead")
             off_volume = loader.osc_client.messages[-1][1]
-            from patch_browser.patch_normalization import volume_fader_to_amp_linear
-            from patch_browser.touch_ui_constants import VOLUME_MAX, VOLUME_MIN
 
             expected_off = volume_fader_to_amp_linear(
                 0.8,
@@ -154,11 +168,11 @@ class PatchNormalizationStoreTests(unittest.TestCase):
             loader.set_volume(1.0)
             at_unity = loader.osc_client.messages[-1][1]
 
-            loader.set_volume(0.625)
+            loader.set_volume(0.5)
             at_half = loader.osc_client.messages[-1][1]
 
-            loader.set_volume(0.25)
-            at_quarter = loader.osc_client.messages[-1][1]
+            loader.set_volume(0.0)
+            at_mute = loader.osc_client.messages[-1][1]
 
             from patch_browser.patch_normalization import db_to_linear, volume_fader_to_amp_linear
             from patch_browser.touch_ui_constants import VOLUME_MAX, VOLUME_MIN
@@ -173,15 +187,15 @@ class PatchNormalizationStoreTests(unittest.TestCase):
                 norm_active=True,
             )
             expected_half = volume_fader_to_amp_linear(
-                0.625,
+                0.5,
                 patch_gain_linear=gain_linear,
                 cap=1.5,
                 fader_min=VOLUME_MIN,
                 fader_max=VOLUME_MAX,
                 norm_active=True,
             )
-            expected_quarter = volume_fader_to_amp_linear(
-                0.25,
+            expected_mute = volume_fader_to_amp_linear(
+                0.0,
                 patch_gain_linear=gain_linear,
                 cap=1.5,
                 fader_min=VOLUME_MIN,
@@ -191,34 +205,74 @@ class PatchNormalizationStoreTests(unittest.TestCase):
 
             self.assertAlmostEqual(at_unity, expected_unity)
             self.assertAlmostEqual(at_half, expected_half)
-            self.assertAlmostEqual(at_quarter, expected_quarter)
+            self.assertAlmostEqual(at_mute, expected_mute)
+            self.assertEqual(at_mute, 0.0)
             self.assertGreater(at_unity, at_half)
-            self.assertGreater(at_half, at_quarter)
+            self.assertGreater(at_half, at_mute)
 
-    def test_volume_fader_db_linear_even_steps(self) -> None:
-        import math
+    def test_volume_fader_uses_console_taper_not_linear_db(self) -> None:
+        """Top of travel must be gentler than the bottom (IEC 60268-17 fader law).
 
-        from patch_browser.patch_normalization import volume_fader_to_amp_linear
+        Replaces test_volume_fader_db_linear_even_steps, which asserted equal dB per
+        unit of travel. Linear-in-dB over 60 dB crams everything usable (0..-12 dB)
+        into the top 20% and wastes the bottom half below -30 dB — the steep dropoff
+        reported on the appliance.
+        """
+        from patch_browser.patch_normalization import (
+            VOLUME_FADER_FLOOR_DB,
+            volume_fader_trim_to_db,
+        )
+        from patch_browser.touch_ui_constants import VOLUME_MAX, VOLUME_MIN
 
-        fader_min, fader_max = 0.25, 1.0
-        cap = 1.5
-
-        def at_pct(pct: float) -> float:
-            trim = fader_min + (pct / 100.0) * (fader_max - fader_min)
-            return volume_fader_to_amp_linear(
-                trim,
-                patch_gain_linear=8.0,
-                cap=cap,
-                fader_min=fader_min,
-                fader_max=fader_max,
+        def db_at(pct: float) -> float:
+            trim = VOLUME_MIN + (pct / 100.0) * (VOLUME_MAX - VOLUME_MIN)
+            value = volume_fader_trim_to_db(
+                trim, fader_min=VOLUME_MIN, fader_max=VOLUME_MAX
             )
+            return VOLUME_FADER_FLOOR_DB if value is None else value
 
-        def db(linear: float) -> float:
-            return 20.0 * math.log10(linear)
+        top_span = db_at(100.0) - db_at(80.0)
+        bottom_span = db_at(40.0) - db_at(20.0)
+        self.assertLess(
+            top_span,
+            bottom_span,
+            "fader is still linear in dB — the top 20% must cover fewer dB than the bottom",
+        )
 
-        low_span = db(at_pct(60.0)) - db(at_pct(40.0))
-        high_span = db(at_pct(100.0)) - db(at_pct(80.0))
-        self.assertAlmostEqual(low_span, high_span, delta=0.05)
+        # Endpoints unchanged: unity at the top, floor at the bottom.
+        self.assertAlmostEqual(db_at(100.0), 0.0, delta=0.01)
+        self.assertAlmostEqual(db_at(0.0), VOLUME_FADER_FLOOR_DB, delta=0.01)
+
+        # Monotonic, and half travel still leaves a usable level rather than a cliff.
+        values = [db_at(p) for p in range(0, 101, 5)]
+        self.assertEqual(values, sorted(values))
+        self.assertGreater(db_at(50.0), -22.0)
+
+    def test_volume_fader_mute_and_db_labels(self) -> None:
+        from patch_browser.patch_normalization import (
+            volume_fader_display_db,
+            volume_fader_to_amp_linear,
+        )
+        from patch_browser.touch_ui_constants import VOLUME_MAX, VOLUME_MIN
+
+        self.assertEqual(
+            volume_fader_display_db(0.0, fader_min=VOLUME_MIN, fader_max=VOLUME_MAX),
+            "-∞",
+        )
+        self.assertEqual(
+            volume_fader_display_db(1.0, fader_min=VOLUME_MIN, fader_max=VOLUME_MAX),
+            "0",
+        )
+        self.assertEqual(
+            volume_fader_to_amp_linear(
+                0.0,
+                patch_gain_linear=2.0,
+                cap=1.5,
+                fader_min=VOLUME_MIN,
+                fader_max=VOLUME_MAX,
+            ),
+            0.0,
+        )
 
     def test_combined_volume_sends_full_norm_gain_when_active(self) -> None:
         """Norm-on applies full calibrated linear gain (#31 Stage 1)."""

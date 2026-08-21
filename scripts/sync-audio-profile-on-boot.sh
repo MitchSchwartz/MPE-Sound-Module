@@ -14,3 +14,7 @@ source "$SCRIPT_DIR/lib/mpe-services.sh"
 mpe_source_appliance_env
 
 mpe_enable_usb_audio_gadget
+
+# shellcheck source=lib/dac-volume.sh
+source "$SCRIPT_DIR/lib/dac-volume.sh"
+mpe_apply_dac_volume || true
