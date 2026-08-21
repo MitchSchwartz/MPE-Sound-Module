@@ -1,6 +1,6 @@
 # Shutdown splash (touch DSI)
 
-*Last updated: 2026-07-31 (America/Toronto)*
+*Last updated: 2026-08-21 (America/Toronto)*
 
 Touch-panel shutdown follows the **Plymouth pattern**: a dedicated systemd unit paints the splash **before** `systemd-poweroff.service` runs, not an in-process pygame hold inside `touch-patch-browser`.
 
@@ -92,6 +92,8 @@ Compare stop durations across tests. A unit gap near its `TimeoutStopSec` (e.g. 
 
 **Common slow culprit:** `mpe-pressure-remap.service` and `surge-poly-governor.service` used to inherit systemd’s default **90s** stop timeout. They now ship with `TimeoutStopSec=5` — run `configure-pi-paths.sh --local --force` after pulling.
 
+**Global default (2026-08-21):** `config/systemd/mpe-appliance.conf` sets `DefaultTimeoutStopSec=10s` under `/etc/systemd/system.conf.d/` via `apply-appliance-hygiene.sh`. Stops `user@1000` and other unpinned units from waiting 90s. **`mpe-peak-meter.service`** was the missed MPE unit — now `TimeoutStopSec=5` plus interruptible SIGTERM in the binary (JACK leaf client on jackd shutdown).
+
 ## Diagnostic mode (skip splash, step trace)
 
 When shutdown feels stuck (~1 minute on the spinner):
@@ -133,4 +135,3 @@ Touch mode enables `mpe-shutdown-splash.service` via `scripts/lib/mpe-services.s
 ## Migration from `touch-shutdown-animation.service`
 
 Older touch images enabled `touch-shutdown-animation.service` (in-browser / legacy unit). That unit is **not** shipped in `config/` anymore. `configure-pi-paths.sh` disables it, removes a stale `/etc/systemd/system/touch-shutdown-animation.service` if present, and enables `mpe-shutdown-splash.service` in touch mode.
-
