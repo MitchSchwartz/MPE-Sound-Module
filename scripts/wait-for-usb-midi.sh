@@ -1,21 +1,31 @@
 #!/bin/bash
-# Wait for Roli controller (Seaboard BLOCK or LUMI Keys) to enumerate and stabilize
-# Non-blocking - allows Surge to start even if Roli not found
-# Waits for device to be stable (seen multiple times) before proceeding
+# Wait for Roli controller USB + ALSA MIDI port before opening RtMidi.
+#
+# lsusb alone is insufficient: the LUMI can enumerate on USB while the ALSA
+# client (card 6 / client 40) is still absent — that mismatch caused hundreds
+# of mpe-pressure-remap restart cycles reporting "Roli not detected".
 
-TIMEOUT=15  # Increased timeout for slower USB enumeration
+TIMEOUT=15
 ROLI_VID="2af4"
 MAX_CHECKS=30  # 30 * 0.5s = 15s
-STABLE_REQUIRED=3  # Device must be seen 3 times in a row to be considered stable
+STABLE_REQUIRED=3
 
-roli_present() {
-    lsusb | grep -qi "${ROLI_VID}:"
+roli_usb_present() {
+    lsusb 2>/dev/null | grep -qi "${ROLI_VID}:"
 }
 
-# Fast path: if Roli already detected and stable, exit immediately
+roli_midi_port_present() {
+    aconnect -l 2>/dev/null | grep -qiE 'lumi|seaboard|roli'
+}
+
+roli_ready() {
+    roli_usb_present && roli_midi_port_present
+}
+
+# Fast path: USB + ALSA MIDI stable
 stable_count=0
-for i in $(seq 1 3); do
-    if roli_present; then
+for _ in $(seq 1 3); do
+    if roli_ready; then
         stable_count=$((stable_count + 1))
     else
         stable_count=0
@@ -23,27 +33,29 @@ for i in $(seq 1 3); do
     sleep 0.2
 done
 
-if [ $stable_count -ge $STABLE_REQUIRED ]; then
-    echo "$(date): Roli controller already detected and stable"
+if [ "$stable_count" -ge "$STABLE_REQUIRED" ]; then
+    echo "$(date): Roli controller + ALSA MIDI port already stable"
     exit 0
 fi
 
-# Poll for Roli enumeration and wait for stability
 stable_count=0
 for i in $(seq 1 $MAX_CHECKS); do
-    if roli_present; then
+    if roli_ready; then
         stable_count=$((stable_count + 1))
-        if [ $stable_count -ge $STABLE_REQUIRED ]; then
-            echo "$(date): Roli controller detected and stable after $((i * 500))ms"
-            # Give it one more moment to fully initialize
+        if [ "$stable_count" -ge "$STABLE_REQUIRED" ]; then
+            echo "$(date): Roli USB + ALSA MIDI stable after $((i * 500))ms"
             sleep 0.5
             exit 0
         fi
     else
-        stable_count=0  # Reset if device disappears
+        stable_count=0
     fi
     sleep 0.5
 done
 
-echo "$(date): WARNING - Roli not detected/stabilized after ${TIMEOUT}s, proceeding anyway (udev will handle connection later)"
-exit 0  # Non-blocking
+if roli_usb_present && ! roli_midi_port_present; then
+    echo "$(date): WARNING - Roli USB present but no ALSA MIDI port after ${TIMEOUT}s"
+else
+    echo "$(date): WARNING - Roli not detected after ${TIMEOUT}s"
+fi
+exit 0  # Non-blocking for callers that proceed anyway; gate script uses --required
