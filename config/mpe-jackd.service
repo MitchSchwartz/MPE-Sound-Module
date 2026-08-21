@@ -34,6 +34,7 @@ RuntimeDirectory=mpe
 RuntimeDirectoryMode=0755
 RuntimeDirectoryPreserve=yes
 # Device selection on every start — same tier logic as Surge (spec D1).
+ExecStartPre=@MPE_MODULE_REPO@/scripts/boot-assert-cmdline.sh
 ExecStartPre=@MPE_MODULE_REPO@/scripts/jackd-prestart.sh
 ExecStart=@MPE_MODULE_REPO@/scripts/start-jackd.sh
 # The instrument must not stay silent because the server died once.

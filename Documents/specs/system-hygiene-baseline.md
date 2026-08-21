@@ -137,3 +137,43 @@ the new zero. The one-variable rule applies to Phase 3, where we are testing hyp
 
 The shipping claim is likely to **improve**, not degrade — the crash loop and the timers
 were noise added to it. But it needs re-taking before it is quoted.
+
+---
+
+## Corrections and resolutions from the 2026-08-21 top-down review
+
+These override earlier suggestions in this doc and in the census:
+
+| earlier suggestion | resolution |
+|---|---|
+| Remove vc4 / display stack | **WRONG** — DSI-1 drives the touch panel. Keep vc4 + DSI overlay. |
+| Blacklist v3d immediately | **Defer** — pygame touch UI does not use GL; disable **HDMI outputs only** first (`video=HDMI-A-1:d video=HDMI-A-2:d`). |
+| Poll i2c 878k — delete driver | **Partial** — IRQ 42 is **touchscreen** (edt_ft5x06). Move IRQ, do not remove bus. |
+| pressure-remap crash = no Roli | **Detection bug** — USB can enumerate before ALSA MIDI port; wait for both. |
+| Meter restart re-baseline in harness | **VOID the run** — backwards xrun count mid-window invalidates the window. |
+
+---
+
+## Phase 0 execution log (2026-08-21)
+
+Branch: `yolo/system-hygiene-baseline`
+
+| step | artifact | status |
+|---|---|---|
+| 0 | [`step0-restore-jack-2026-08-21.md`](../docs/measurements/step0-restore-jack-2026-08-21.md) | done — 1024×3 read back |
+| 1 | [`step1-unknowns-2026-08-21.md`](../docs/measurements/step1-unknowns-2026-08-21.md) | done |
+| 2 | code + `apply-appliance-hygiene.sh` | deployed on Pi (see step2 doc) |
+| 3 | re-baseline | pending / in progress |
+
+### What Phase 0 changed (code)
+
+- `mpe-peak-meter`: exit 0 on jack shutdown; `CPUAffinity=2 3`
+- `measure-latency-run.sh`: VOID window if meter xruns go backwards; probe on 2–3
+- `MeterXrunCounter`: `None` on mid-run restart (not silent re-baseline)
+- `mpe-pressure-remap`: wait USB **and** ALSA MIDI; `Restart=no`; udev hot-plug restart
+- `mpe-irq-affinity.service` + movable IRQs → CPU1
+- `boot-assert-cmdline.sh` on jackd prestart
+- `apply-appliance-hygiene.sh`: timers masked, services pruned, USB PM on, WiFi PS off, HDMI disabled in cmdline
+
+*Last updated: 2026-08-21 (America/Toronto)*
+
