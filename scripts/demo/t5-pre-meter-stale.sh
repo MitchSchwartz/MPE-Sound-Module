@@ -21,7 +21,7 @@ _run_once() {
     _log "=== ${label} ==="
     local before after
     before="$(_count_jack_lsp)"
-    python3 "$WATCHDOG" --once --skip-source-check 2>&1 | tee -a "$OUT" || true
+    sudo -u mitch python3 "$WATCHDOG" --once --skip-source-check 2>&1 | tee -a "$OUT" || true
     sleep 0.5
     after="$(_count_jack_lsp)"
     _log "jack_lsp processes before=${before} after=${after}"
