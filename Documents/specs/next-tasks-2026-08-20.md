@@ -510,65 +510,76 @@ audio interface does (see the device decision), so T7 may find a wall that is no
 
 ---
 
-# Sequence as of 2026-08-21 04:20
+# Sequence as of 2026-08-21 09:20
 
-**The T5 soak is running.** Started 04:18, expected finish **12:16**, 1024x3 + 16 loops,
-T5-pre landed correctly (`read_graph_snapshot()` returns `"meter_stale"` and no longer
-falls back; `jack_graph()` has no callers). 16 loops verified *playing*, `meter_live=1`,
-58.9 C, `throttled=0x0`.
+**The T5 soak is done.** 445 xruns over 8 h at 1024x3, condition D, 16 loops playing.
+`invalid_windows=0`, `meter_live=1` on all 480 samples. Full verdict in
+`docs/measurements/t5-soak-2026-08-21.md`. The Pi has been idle since ~12:17 Pi time.
 
-The Pi is therefore occupied until ~12:16. **T7's blockers are pure code**, so they run in
-parallel and nothing waits.
+## What the soak changed
 
-| when | task | needs the Pi |
+**445 is not a regression against T4c's 0.13/min.** T4c ran **condition B**; the soak ran
+**condition D**. Both used `SECONDS_PER_RUN=60`, so the windows compare directly -- the
+conditions do not. B->D costs +0.80/min here (0.13 -> 0.93), matching the +0.86/min the
+ladder measured at 512 (2.27 -> 3.13). The stack looks like a **fixed per-minute cost,
+independent of period**.
+
+Two consequences, and they reorder the queue:
+
+1. **The shipping claim is unmeasured.** "64 ms, up to 8 loops, clean" came from T4c's
+   0/4/8-loop cells, all 0.00 -- at condition B, without the full stack running. The
+   8-loop cell under **D**, which is what the appliance actually runs, has never been
+   measured. That cell is the claim.
+2. **+0.80/min is now the largest single term** -- larger than buffer geometry is likely
+   to recover. T7a can still settle cushion vs deadline, but a win there does not remove
+   this.
+
+## Queue
+
+Under 90 minutes of Pi time total. No overnight slot needed.
+
+| order | task | needs the Pi |
 |---|---|---|
-| now -> 12:16 | soak runs | occupied |
-| **now, in parallel** | **T7 prep** (below) + **T8 dead-code removal** | **no** |
-| 12:16 | **T7a** — 256x6 vs 512x3, plus 256x8, n=15 each | ~45 min |
-| after | decide whether the shipping default changes | — |
-| only if it changes | re-confirm the winner, 15 min | ~15 min |
+| **1** | **T9 -- 8-loop cell at 1024x3, condition D**, n=15 | ~15 min |
+| 2 | **T7a** -- 256x6 vs 512x3, plus 256x8, n=15 each | ~45 min |
+| 3 | decide whether the shipping default changes | -- |
+| 4, only if it changes | re-confirm the winner at n=15 | ~15 min |
 
-**Why the soak was not stopped for T7.** Standing rule 7 puts certification last, and T7
-may replace the default — so on principle T7 goes first. But the overnight slot cannot be
-recovered, T7 needs its code prep regardless, and **1024 x 3 remains the fallback default
-whatever T7 finds.** If T7 wins, the soak has certified what you fall back to; if it finds
-nothing, the soak has certified what you ship.
+**T9 goes first** because it is the configuration you would ship and the only one whose
+number is currently borrowed from a different condition. If it comes back near 0.93/min,
+the headline claim needs restating before any latency work matters; if it comes back near
+0.00, the cost is loop-count-dependent rather than fixed and that changes what T7a means.
+Either way it is 15 minutes and it gates the interpretation of everything after it.
 
-**No second 8 h soak.** Superseded by the soak's own result
-(`docs/measurements/t5-soak-2026-08-21.md`). The deferral rule assumed 0.13/min, where a
-15 min window cannot separate rare from zero. Condition D actually runs at 0.93/min --
-~14 events per 15 min, which is ample to rank configurations. And the failure mode is
-**stationary**: flat hourly, no drift over 480 minutes, isolated singles rather than
-clusters, 55-59 C with `throttled=0x0` throughout. A long soak only earns its cost if
-accumulation, thermal creep, or rare storms exist. We looked for all three and found none.
-If the default changes, re-confirm at n=15 (15 min) instead.
+## T9 -- 8-loop cell at 1024x3 under condition D
 
-## T8 — delete `jack_graph()` (dead code)
+`scripts/measure-latency-run.sh --buffer 1024 --condition D --playing-loops 8 --runs 15`.
+Verify the loops are **playing**, not merely armed -- the soak's `looper_playback=1` check
+is the pattern. Require `meter_live=1` on every run; a run without it is void, not zero.
 
-`scripts/sooperlooper/sl-watchdog.py:155`. T5-pre removed its last caller. It is now a
-function that forks `jack_lsp -c` and forces two graph reorders, sitting in the watchdog
-with nothing calling it.
+Report the mean, the clean-run count out of 15, and DSP. State plainly whether the
+"up to 8 loops" claim survives at condition D, and if it does not, what the honest claim is.
 
-**Delete it.** Do not leave it as "a manual diagnostic" — that is precisely how it gets
-wired back into a loop in six months and rediscovered as instance five. If a
-graph dump is ever genuinely needed, `jack_lsp -c` is one command at a prompt and needs no
-resident copy inside the watchdog.
+## Status of the code tasks
 
-Check for other callers first (`grep -rn jack_graph`), including tests. Then confirm the
-T3a lint still passes and the full suite is green.
+**T8 (delete `jack_graph()`) and the T7 prep are done locally and uncommitted** on
+`plan/t7-sequence`: periods 6/8 accepted, `--periods` threaded through the harness, the
+trap-5 read-back assert added, `scripts/measure-t7a.sh` written, `tests/test_sl_watchdog.py`
+deleted. These need staging and a test run before T7a can be trusted -- the periods widening
+in particular, since without it T7a measures `-n 3` three times and reports it as three
+configs.
 
-**Acceptance:** function gone, no references anywhere, `mpe test local all` green.
+**No second 8 h soak.** Superseded by the soak's own result. The deferral rule assumed
+0.13/min, where a 15 min window cannot separate rare from zero. Condition D actually runs
+at 0.93/min -- ~14 events per 15 min, ample to rank configurations. And the failure mode is
+**stationary**: flat hourly (44/51/64/72/52/47/58/57), first-half 231 vs second-half 214,
+isolated singles rather than clusters (199 clean minutes, worst minute 6), 55-59 C with
+`throttled=0x0` throughout. A long soak only earns its cost if accumulation, thermal creep,
+or rare storms exist. We looked for all three and found none.
 
-## Scarlett — pending, and it reorders this
+## Scarlett
 
-Mitch will test a class-compliant high-speed asynchronous interface at some point.
-**When that happens it invalidates every latency number taken on the Sound Blaster**,
-including T7's.
-
-- T7's **mechanism** finding — is the limit cushion or deadline? — transfers.
-- T7's **winning configuration** does not.
-
-So if the Scarlett test is imminent, run it **before** T7 and re-derive the configs
-against the device being kept. If it is weeks away, T7 is worth running now: it is 45
-minutes, it may make a lower-latency default shippable on hardware you already have, and
-the mechanism it establishes survives the hardware change.
+Unchanged: a different interface invalidates every Sound Blaster latency number, T9's and
+T7a's included. The *mechanism* findings transfer -- cushion vs deadline, the fixed stack
+cost -- the *winning configuration* does not. If the Scarlett test is imminent, run it
+before T7a; if it is weeks out, run T9 and T7a now.
