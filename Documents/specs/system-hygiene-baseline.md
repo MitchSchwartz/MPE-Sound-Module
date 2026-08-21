@@ -191,7 +191,8 @@ the primary next experiment.
 - `mpe-pressure-remap`: wait USB **and** ALSA MIDI; `Restart=no`; udev hot-plug restart
 - `mpe-irq-affinity.service` + movable IRQs → CPU1
 - `boot-assert-cmdline.sh` on jackd prestart
-- `apply-appliance-hygiene.sh`: timers masked, services pruned, USB PM on, WiFi PS off, HDMI disabled in cmdline
+- `apply-appliance-hygiene.sh`: timers masked, services pruned, USB PM on, WiFi PS off, HDMI disabled in cmdline; **DefaultTimeoutStopSec=10s** via `config/systemd/mpe-appliance.conf`
+- Shutdown: [`shutdown-timeout-fix-2026-08-21.md`](../docs/measurements/shutdown-timeout-fix-2026-08-21.md) — peak-meter `TimeoutStopSec=5`, interruptible SIGTERM
 
 *Last updated: 2026-08-21 (America/Toronto)*
 
