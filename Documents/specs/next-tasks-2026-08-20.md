@@ -224,3 +224,85 @@ soak exists to make.
 
 **512 is usable without the looper and not shippable with it. 1024 remains the default.**
 Ship criterion for 512 is 0 xruns across all runs in condition D.
+
+---
+
+# Adjustments after the 2026-08-20 partial run
+
+Supersedes I3, T4 and T5 above. Source:
+[`session-handoff-2026-08-20.md`](../../docs/measurements/session-handoff-2026-08-20.md).
+
+## BLOCKER — the baseline moved and stayed moved
+
+| measurement | condition A, 512x3 | |
+|---|---:|---|
+| baseline, n=15, pre-E1 | **0.13** | 14/15 clean |
+| E1 three-core, n=15 | 0.80 | |
+| **I3 after full revert, n=5** | **0.80** | 2,0,0,0,2 |
+
+The revert restored the configuration but **not the number**. Everything downstream of
+"A = 0.13" rests on that figure, including the claim that 512 is usable without the looper.
+
+**Named hypothesis (guess, must be tested):** the harness changed between those two
+measurements. I2 fixed `_meter_xruns`, which previously returned **0** on an unreadable
+meter. If that ever fired mid-run, the old harness under-counted — and the original 0.13
+is partly an artifact of the bug we later fixed. *512-without-the-looper may never have
+been as clean as recorded.*
+
+### I3 (revised) — n=15, blocker
+
+Re-run condition A at 512x3, **n=15**, on the reverted config with the fixed harness.
+
+- Lands near **0.13** -> the n=5 was underpowered; baseline stands.
+- Lands near **0.80** -> **the baseline is 0.80.** Revise the claim in every doc that
+  quotes 0.13. Do not hunt a regression that is not there.
+
+**Also required:** diff the running configuration against what was live when A = 0.13 was
+measured — the watchdog fix, the counter fix and T6 all landed in between. None should
+touch the audio path, but "should" is what E1 taught us to distrust. State explicitly what
+differs.
+
+**Nothing that quotes an absolute xrun number merges until this resolves.**
+
+## T4 — the partial grid already answered T4a. Do not finish 512.
+
+```
+512:   loops0 3.00   loops4 1.33   loops8 2.67   loops16 3.40
+```
+
+Endpoints 3.00 vs 3.40, **non-monotonic in between**, spread inside this measurement's
+known noise. **Loop count does not drive xruns at 512.** That is the "indistinguishable"
+branch of T4a: the structural cost dominates and **there is no latency-vs-loop-count tier
+to sell.**
+
+The interrupted grid produced the bisect answer by accident. **Keep it — it is the
+result.** Cancel the remaining 512 runs.
+
+### T4c — finish 1024 only. ~30 runs, ~45 min. Worth buying.
+
+```
+1024:  loops0 0.00 (n=15)   loops4 0.00 (n=15)   loops8 interrupted
+```
+
+**Thirty consecutive runs at zero xruns, with loops recorded and playing.** The strongest
+result in this investigation, and the only one that supports a spec sentence a customer
+would read: *"16 loops at 64 ms."*
+
+Run `loops8` and `loops16` at 1024, n=15. Either the claim completes or it breaks — both
+are worth knowing. This is the one remaining measurement with product value.
+
+**Acceptance:** 30 values, and an explicit statement of whether "16 loops at 1024" holds.
+
+## T5 — still deferred
+
+Now blocked on **both** the I3 resolution and a decided shipping configuration. A soak
+against a baseline we cannot reproduce would certify a number we do not trust.
+
+## Revised queue
+
+| # | task | time | needs Mitch |
+|---|---|---:|---|
+| 1 | **I3 at n=15** — is the baseline 0.13 or 0.80? | ~25 min | no |
+| 2 | **T4c** — 1024 loops8 + loops16 | ~45 min | no |
+| — | ~~remaining 512 runs~~ — answered, cancelled | — | — |
+| 3 | T5 — blocked on 1 and a decided config | — | — |
