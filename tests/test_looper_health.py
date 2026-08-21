@@ -127,14 +127,14 @@ class MeterXrunCounterTests(unittest.TestCase):
         self._write(11)
         self.assertEqual(counter.poll(), 4)
 
-    def test_meter_restart_rebaselines_instead_of_going_negative(self) -> None:
+    def test_meter_restart_mid_run_reports_none_not_rebaseline(self) -> None:
         self._write(40)
         counter = MeterXrunCounter(0.0, path=self.state)
         counter.poll()
         self._write(2)  # meter restarted, counter reset
-        self.assertEqual(counter.poll(), 0)
+        self.assertIsNone(counter.poll())
         self._write(5)
-        self.assertEqual(counter.poll(), 3)
+        self.assertIsNone(counter.poll())
 
     def test_stale_meter_reports_none_not_zero(self) -> None:
         """A stopped meter and a clean instrument must not read the same."""

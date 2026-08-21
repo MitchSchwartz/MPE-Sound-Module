@@ -356,5 +356,8 @@ int main(int argc, char **argv)
     jack_deactivate(g_client);
     jack_client_close(g_client);
 
-    return g_jack_shutdown ? 1 : 0;
+    /* jack_on_shutdown is expected when jackd restarts (buffer change). Exit 0 so
+     * Restart=on-failure does not treat a normal graph teardown as a failure. */
+    (void)g_jack_shutdown;
+    return 0;
 }
