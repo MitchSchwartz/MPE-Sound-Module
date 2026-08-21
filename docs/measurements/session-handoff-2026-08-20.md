@@ -1,6 +1,11 @@
 # Session handoff — 2026-08-20 (consolidated)
 
-**Branch:** `plan/post-t4-adjust` · **Status: active — I3 blocker first**
+**Status: SUPERSEDED (2026-08-21). Do not cite.** Frozen at I3/T4c; its branch and queue
+are both stale, and it predates the T5 soak and T9. Current state lives in
+[`README.md`](README.md) -- Low-latency arc, and the queue in
+[`next-tasks-2026-08-20.md`](../../Documents/specs/next-tasks-2026-08-20.md).
+
+**Branch:** `plan/post-t4-adjust` (historical)
 
 Single rollup. Superseded queue in [`next-tasks-2026-08-20.md`](../../Documents/specs/next-tasks-2026-08-20.md) §Adjustments.
 
