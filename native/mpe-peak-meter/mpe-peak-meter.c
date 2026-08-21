@@ -100,6 +100,24 @@ static void on_shutdown(void *arg)
     g_running = 0;
 }
 
+/* Poll g_running in 100 ms slices so SIGTERM/jack shutdown is not delayed by sleep(1). */
+static void wait_running(void)
+{
+    while (g_running) {
+        struct timespec ts = { .tv_sec = 0, .tv_nsec = 100000000L };
+        (void)nanosleep(&ts, NULL);
+    }
+}
+
+static void interruptible_usleep(useconds_t us)
+{
+    while (us > 0 && g_running) {
+        useconds_t chunk = us > 100000U ? 100000U : us;
+        usleep(chunk);
+        us -= chunk;
+    }
+}
+
 static int env_truthy(const char *value)
 {
     if (value == NULL || *value == '\0') {
@@ -249,7 +267,7 @@ static void *writer_thread(void *arg)
         int looper_playback = atomic_load_explicit(&g_looper_playback, memory_order_relaxed);
         unsigned long xruns = atomic_load_explicit(&g_xrun_count, memory_order_relaxed);
         write_meter_state(held_peak, surge_wired, looper_client, looper_playback, xruns);
-        usleep(WRITER_INTERVAL_US);
+        interruptible_usleep(WRITER_INTERVAL_US);
     }
     write_meter_state(0.0f, 0, 0, 0, atomic_load_explicit(&g_xrun_count, memory_order_relaxed));
     return NULL;
@@ -260,7 +278,7 @@ static void *connect_thread(void *arg)
     (void)arg;
     while (g_running) {
         ensure_wiring();
-        usleep(CONNECT_INTERVAL_US);
+        interruptible_usleep(CONNECT_INTERVAL_US);
     }
     return NULL;
 }
@@ -347,9 +365,7 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    while (g_running) {
-        sleep(1);
-    }
+    wait_running();
 
     pthread_join(connector, NULL);
     pthread_join(writer, NULL);
