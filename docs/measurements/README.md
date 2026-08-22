@@ -48,6 +48,10 @@ Queued prompts: [`PROMPT-P7`](PROMPT-P7-overclock-diagnostic.md),
 [`PROMPT-P8`](PROMPT-P8-mcpu-cortex-a72.md),
 [`HANDOVER-census-unison-fix`](HANDOVER-census-unison-fix.md).
 
+Evidence-record tasks (offline, not measurements): [`PROMPT-G1`](PROMPT-G1-effort-reconstruction.md)
+effort reconstruction, [`PROMPT-G3`](PROMPT-G3-archive-raw-logs.md) raw-log archival — both
+from [`SRED-EVIDENCE-2026.md`](../SRED-EVIDENCE-2026.md).
+
 ## Archive
 
 **53 files** moved to [`archive/`](archive/) on 2026-08-22 — refuted lines (600 µs hunt,
