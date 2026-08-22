@@ -128,3 +128,21 @@ be re-argued.
 6. Write both configs side by side before calling it one variable.
 7. Say when something is a bundle.
 8. List what is dead at the top of every prompt.
+
+---
+
+## Relationship to AGENTS.md
+
+`AGENTS.md` has carried **"Self-test the instrument before it costs him anything"** since
+2026-08-19, written after 382 pad taps produced zero samples. That rule catches an instrument
+returning **nothing**.
+
+**We fell into the trap again on 2026-08-21 anyway**, because the new failures were the other
+half: instruments returning **confident, plausible numbers that meant something else.** The
+xrun counter self-tested clean and passed every existing check — it simply counted a
+different thing. A 10-20 Hz fill poller would have produced a smooth, legible trace with the
+answer aliased out.
+
+That is why Rule 2 above adds **semantics** and **resolution** to the existing checks, rather
+than restating them. The two documents are one doctrine: AGENTS.md holds the short form at
+the point of use; this file holds the reasoning and the per-cell mechanics.
