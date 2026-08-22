@@ -58,13 +58,19 @@ Full plan: [`docs/measurements/PROMPT-PI4-CLOSEOUT.md`](docs/measurements/PROMPT
 |---|---|---|---|
 | **A0** | **Instrument pre-flight** — prove the counter moves before trusting it | closeout §A0 | ~5 min |
 | **A1** | **V11 — 512x2 / 256x3 at confirmed counts** | `PROMPT-V11-512-256-confirm.md` | ~15 min |
-| A2 | Freeze `measure-reference-suite.sh` — must run unmodified on a Pi 5 | closeout §A2 | ~30 min |
-| A3 | Run reference suite **twice** (noise floor) | closeout §A3 | 2 × 30 min |
-| A4 | Full appliance state capture — the control condition | closeout §A4 | ~10 min |
-| A5 | Archive raw logs off the SD card | `PROMPT-G3-archive-raw-logs.md` | ~30 min |
-| A6 | `build-surge.sh --arch {a72\|a76}` — build only, no install | `PROMPT-P8-mcpu-cortex-a72.md` | ~1 h |
-| A7 | Platform-stamp the live docs | closeout §A7 | ~20 min |
-| A8 | **Predictions table — commit before the Pi 5 boots** | transition plan §5 | ~20 min |
+| **A2** | **Settle a72 — measure the built binary, keep or revert. Freezes the control.** | closeout §A2 | ~20 min |
+| A3 | Freeze `measure-reference-suite.sh` — must run unmodified on a Pi 5 | closeout §A3 | ~30 min |
+| A4 | Run reference suite **twice** on the frozen binary (noise floor) | closeout §A4 | 2 × 30 min |
+| A5 | Full appliance state capture — the control condition | closeout §A5 | ~10 min |
+| A6 | Archive raw logs off the SD card | `PROMPT-G3-archive-raw-logs.md` | ~30 min |
+| A7 | `build-surge.sh --arch {a72\|a76\|generic}` as reusable infrastructure | closeout §A7 | ~30 min |
+| A8 | Platform-stamp the live docs | closeout §A8 | ~20 min |
+| A9 | **Predictions table — commit before the Pi 5 boots** | transition plan §5 | ~20 min |
+
+**A2 must precede A4.** If a72 is installed after the reference passes, the two passes ran on
+different binaries and the noise floor is worthless. And the Pi 5 will run `-mcpu=cortex-a76` —
+if the Pi 4 control is untuned, the platform comparison measures *hardware plus a compiler flag*
+and reports it as hardware.
 
 ### Track B — needs Mitch (one window, ~45 min + soak)
 
