@@ -12,7 +12,7 @@ This is **third in the queue**, not first. Ahead of it:
 1. **P7 overclock diagnostic** (~15 min) — tells you whether the ceiling scales with clock
    at all, which is what makes a 5-15% compute win worth a 45-minute build. If DSP does not
    scale with clock, **this task may not be worth doing** — check the P7 result first.
-2. **8 h instrument soak at 1024x2** — scheduled for tonight (Cloud Horn @ 5, condition A).
+2. **8 h instrument soak at 1024x2** — after P7 revert to stock 1800. **Do not run P7 while soak is in flight.**
 
 **Run NO command against `raspberrypi2` while the soak is in flight — including read-only
 ones.** Not `ssh pi uptime`, not `cat /proc/cpuinfo`. Every SSH command forks processes and
