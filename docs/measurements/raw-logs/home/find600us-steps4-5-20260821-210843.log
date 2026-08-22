@@ -1,0 +1,25 @@
+=== Steps 4 / 4b / 5 2026-08-21T21:08:43-04:00 log=/home/mitch/find600us-steps4-5-20260821-210843.log ===
+jackd: 2485 jackd -R -P70 -s -d alsa -P hw:2 -r 48000 -p 1024 -n 3
+JACK_DEVICE=hw:2
+JACK_CARD_ID=USB
+TIER=2
+REASON=tier 2 device name match (Scarlett 4i4 USB)
+
+========== STEP 4 — bundle spot-check ==========
+=== stream 1/3 -> /home/mitch/step4-bundle-256-A-stream-01.log 2026-08-21T21:08:44-04:00 ===
+Appended measurement to /home/mitch/step4-bundle-256-A-stream-01.log
+SENTINEL harness-logged
+=== stream 2/3 -> /home/mitch/step4-bundle-256-A-stream-02.log 2026-08-21T21:13:37-04:00 ===
+Appended measurement to /home/mitch/step4-bundle-256-A-stream-02.log
+SENTINEL harness-logged
+=== stream 3/3 -> /home/mitch/step4-bundle-256-A-stream-03.log 2026-08-21T21:18:34-04:00 ===
+Appended measurement to /home/mitch/step4-bundle-256-A-stream-03.log
+SENTINEL harness-logged
+=== restore shipping buffer 1024×3 ===
+Applied buffer=1024 periods=3
+SENTINEL stream-sample-complete 2026-08-21T21:23:33-04:00
+
+========== STEP 4b — irq/30 at FF 90 ==========
+irq pid=93 before:  FF     50 irq/30-xhci_hcd
+irq after chrt:  FF     90 irq/30-xhci_hcd
+=== stream 1/3 -> /home/mitch/step4b-irq90-256-A-stream-01.log 2026-08-21T21:23:33-04:00 ===

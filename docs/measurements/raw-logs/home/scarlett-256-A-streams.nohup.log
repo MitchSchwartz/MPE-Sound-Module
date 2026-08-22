@@ -1,0 +1,33 @@
+=== stream 1/10 -> /home/mitch/scarlett-256-A-streams-stream-01.log 2026-08-21T19:43:56-04:00 ===
+Appended measurement to /home/mitch/scarlett-256-A-streams-stream-01.log
+SENTINEL harness-logged
+=== stream 2/10 -> /home/mitch/scarlett-256-A-streams-stream-02.log 2026-08-21T19:47:26-04:00 ===
+Appended measurement to /home/mitch/scarlett-256-A-streams-stream-02.log
+SENTINEL harness-logged
+=== stream 3/10 -> /home/mitch/scarlett-256-A-streams-stream-03.log 2026-08-21T19:50:55-04:00 ===
+Appended measurement to /home/mitch/scarlett-256-A-streams-stream-03.log
+SENTINEL harness-logged
+=== stream 4/10 -> /home/mitch/scarlett-256-A-streams-stream-04.log 2026-08-21T19:54:22-04:00 ===
+Appended measurement to /home/mitch/scarlett-256-A-streams-stream-04.log
+SENTINEL harness-logged
+=== stream 5/10 -> /home/mitch/scarlett-256-A-streams-stream-05.log 2026-08-21T19:57:49-04:00 ===
+Appended measurement to /home/mitch/scarlett-256-A-streams-stream-05.log
+SENTINEL harness-logged
+=== stream 6/10 -> /home/mitch/scarlett-256-A-streams-stream-06.log 2026-08-21T20:01:17-04:00 ===
+Appended measurement to /home/mitch/scarlett-256-A-streams-stream-06.log
+SENTINEL harness-logged
+=== stream 7/10 -> /home/mitch/scarlett-256-A-streams-stream-07.log 2026-08-21T20:04:44-04:00 ===
+Appended measurement to /home/mitch/scarlett-256-A-streams-stream-07.log
+SENTINEL harness-logged
+=== stream 8/10 -> /home/mitch/scarlett-256-A-streams-stream-08.log 2026-08-21T20:08:12-04:00 ===
+Appended measurement to /home/mitch/scarlett-256-A-streams-stream-08.log
+SENTINEL harness-logged
+=== stream 9/10 -> /home/mitch/scarlett-256-A-streams-stream-09.log 2026-08-21T20:11:39-04:00 ===
+Appended measurement to /home/mitch/scarlett-256-A-streams-stream-09.log
+SENTINEL harness-logged
+=== stream 10/10 -> /home/mitch/scarlett-256-A-streams-stream-10.log 2026-08-21T20:15:07-04:00 ===
+Appended measurement to /home/mitch/scarlett-256-A-streams-stream-10.log
+SENTINEL harness-logged
+=== restore shipping buffer 1024×3 ===
+Applied buffer=1024 periods=3
+SENTINEL stream-sample-complete 2026-08-21T20:18:36-04:00

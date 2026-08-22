@@ -1,0 +1,116 @@
+
+=== measure-latency-run buffer=1024 periods=3 condition=A runs=1 seconds=60 2026-08-21T21:31:14-04:00 ===
+SENTINEL harness-start
+Applied buffer=1024
+jackd period=1024 ok
+jackd periods=3 ok
+condition A units:
+  sooperlooper=inactive session=inactive watchdog=inactive
+jackd period=1024 ok
+jackd periods=3 ok
+=== provenance after strict restart ===
+=== provenance 2026-08-21T21:31:45-04:00 ===
+e0d8574 Merge pull request #91 from MitchSchwartz/yolo/shutdown-timeout-fix
+ M scripts/detect-jack-device.sh
+?? native/mpe-xrun-probe/--help
+?? tests/fixtures/sooperlooper-loops/loop00.wav
+?? tests/fixtures/sooperlooper-loops/loop01.wav
+?? tests/fixtures/sooperlooper-loops/loop02.wav
+?? tests/fixtures/sooperlooper-loops/loop03.wav
+?? tests/fixtures/sooperlooper-loops/loop04.wav
+?? tests/fixtures/sooperlooper-loops/loop05.wav
+?? tests/fixtures/sooperlooper-loops/loop06.wav
+?? tests/fixtures/sooperlooper-loops/loop07.wav
+?? tests/fixtures/sooperlooper-loops/loop08.wav
+?? tests/fixtures/sooperlooper-loops/loop09.wav
+?? tests/fixtures/sooperlooper-loops/loop10.wav
+?? tests/fixtures/sooperlooper-loops/loop11.wav
+?? tests/fixtures/sooperlooper-loops/loop12.wav
+?? tests/fixtures/sooperlooper-loops/loop13.wav
+?? tests/fixtures/sooperlooper-loops/loop14.wav
+?? tests/fixtures/sooperlooper-loops/loop15.wav
+6.18.34+rpt-rpi-v8
+coherent_pool=1M 8250.nr_uarts=0 snd_bcm2835.enable_headphones=0 cgroup_disable=memory numa_policy=interleave nvme.max_host_mem_size_mb=32 snd_bcm2835.enable_headphones=1 snd_bcm2835.enable_hdmi=1 snd_bcm2835.enable_hdmi=0  numa=fake=2 system_heap.max_order=0 iommu_dma_numa_policy=interleave smsc95xx.macaddr=2C:CF:67:59:7C:41 vc_mem.mem_base=0x3ec00000 vc_mem.mem_size=0x40000000  console=ttyS0,115200 console=tty1 root=PARTUUID=ed7e095b-02 rootfstype=ext4 fsck.repair=yes rootwait cfg80211.ieee80211_regdom=CA irqaffinity=0,1 video=HDMI-A-1:d video=HDMI-A-2:d threadirqs
+
+governor cpufreq=performance
+jackd -R -P70 -d alsa -P hw:2 -r 48000 -p 1024 -n 3
+=== run A-b1024-p3-l0-run1 ===
+RESULT tag=A-b1024-p3-l0-run1 xruns=6 meter_live=1 meter_max_age_s=0 dsp_median=34.767361 dsp_p99=73.217178 dsp_max=76.001350
+RESULT tag=A-b1024-p3-l0-run1 jitter_n=3183 jitter_median_usec=-303 jitter_p99_usec=795 jitter_p99_9_usec=965 jitter_max_usec=1026
+RESULT tag=A-b1024-p3-l0-run1 frames_late_p99_usec=292 frames_late_max_usec=417
+RESULT tag=A-b1024-p3-l0-run1 delay_events=0 delay_nonzero=0 (legacy, ignore)
+RESULT tag=A-b1024-p3-l0-run1 samples=60 temp=61.8'C throttled=0x0
+RESULT tag=A-b1024-p3-l0-run1 file=/tmp/latency-A-b1024-p3-l0-run1-1787362305.out xrun_events=/tmp/latency-A-b1024-p3-l0-run1-1787362305.xruns
+SENTINEL run-complete tag=A-b1024-p3-l0-run1 xruns=6
+     t     dsp%    xruns   delta
+     1 29.486979        4       2
+     2 37.096180        4       0
+     3 31.899790        4       0
+     4 29.881363        4       0
+     5 46.669239        4       0
+     6 51.213963        4       0
+     7 76.001350        4       0
+     8 61.026035        4       0
+     9 34.767361        4       0
+    10 32.433136        4       0
+    11 19.468618        4       0
+    12 21.003235        4       0
+    13 22.973351        4       0
+    14 27.867399        4       0
+    15 46.011990        4       0
+    16 53.620537        6       2
+    17 50.602203        6       0
+    18 39.738827        6       0
+    19 36.285294        6       0
+    20 45.220715        6       0
+    21 44.834145        6       0
+    22 35.123363        6       0
+    23 24.925859        6       0
+    24 28.407202        6       0
+    25 32.700764        6       0
+    26 31.480633        6       0
+    27 29.976477        6       0
+    28 32.202316        6       0
+    29 40.792950        6       0
+    30 49.054707        6       0
+    31 73.217178        6       0
+    32 60.475368        6       0
+    33 37.610989        6       0
+    34 31.813511        6       0
+    35 20.755140        6       0
+    36 19.523027        6       0
+    37 21.460703        6       0
+    38 24.336033        6       0
+    39 40.370090        8       2
+    40 48.242512        8       0
+    41 51.083504        8       0
+    42 42.278732        8       0
+    43 35.693905        8       0
+    44 40.640278        8       0
+    45 37.665115        8       0
+    46 26.845964        8       0
+    47 24.869978        8       0
+    48 31.208721        8       0
+    49 33.262733        8       0
+    50 29.147186        8       0
+    51 30.291061        8       0
+    52 37.622444        8       0
+    53 48.980450        8       0
+    54 49.894527        8       0
+    55 44.984295        8       0
+    56 36.285332        8       0
+    57 28.391167        8       0
+    58 21.613667        8       0
+    59 20.625139        8       0
+    60 20.876015        8       0
+--- xrun delays (probe) ---
+PROBE_START client=mpe-xrun-probe buffer_frames=1024 sample_rate=48000 expected_period_us=21333
+JITTER_SUMMARY expected_period_us=21333 n=3183 median_usec=-303 p99_usec=795 p99_9_usec=965 max_usec=1026
+FRAMES_LATE_SUMMARY expected_period_us=21333 n=3183 median_usec=104 p99_usec=292 p99_9_usec=371 max_usec=417
+XRUN_COUNT 8
+PROBE_END
+=== restore buffer 1024 periods 3 ===
+skip restore (--no-restore-buffer)
+done commit=e0d8574 log=/home/mitch/da-ladder.log
+SENTINEL harness-end
+
