@@ -1,0 +1,10 @@
+=== Plan V8 2026-08-21T22:59:12-04:00 artifacts=/root/plan-v8-20260821-225912 ===
+quick_select=/root/Documents/Surge XT/Patches/Quick Select
+git=4892fb0
+find: '/root/Documents/Surge XT/Patches/Quick Select': No such file or directory
+patch_count=0
+
+=== V8-b: pick mid-weight patch from survey ===
+awk: line 2: syntax error at or near ,
+awk: line 7: syntax error at or near ,
+awk: line 8: syntax error at or near ,

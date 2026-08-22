@@ -1,0 +1,22 @@
+=== capacity-ramp tag=V7-1024 buffer=1024x3 patch=Crystals 2026-08-21T22:34:12-04:00 ===
+CARD=2
+PROBE voices=2 sec=12 xruns_delta=0
+PROBE voices=4 sec=12 xruns_delta=0
+PROBE voices=6 sec=12 xruns_delta=86
+RESULT tag=V7-1024 first_overrun=6 sustained_clean=4
+RESULT tag=V7-1024 confirm_voices=4 dsp_n=20 dsp_ms_median=10.0751 dsp_ms_p999= dsp_p999=97.9269 dsp_max=99.4817
+SENTINEL capacity-ramp-end tag=V7-1024
+=== capacity-ramp tag=V7-512 buffer=512x3 patch=Crystals 2026-08-21T22:35:45-04:00 ===
+CARD=2
+PROBE voices=2 sec=12 xruns_delta=0
+PROBE voices=4 sec=12 xruns_delta=2
+RESULT tag=V7-512 first_overrun=4 sustained_clean=2
+RESULT tag=V7-512 confirm_voices=2 dsp_n=21 dsp_ms_median=3.2835 dsp_ms_p999= dsp_p999=66.1040 dsp_max=73.3996
+SENTINEL capacity-ramp-end tag=V7-512
+=== capacity-ramp tag=V7-256 buffer=256x3 patch=Crystals 2026-08-21T22:37:08-04:00 ===
+CARD=2
+PROBE voices=2 sec=12 xruns_delta=0
+PROBE voices=4 sec=12 xruns_delta=14
+RESULT tag=V7-256 first_overrun=4 sustained_clean=2
+RESULT tag=V7-256 confirm_voices=2 dsp_n=21 dsp_ms_median=1.7348 dsp_ms_p999= dsp_p999=91.8258 dsp_max=91.9964
+SENTINEL capacity-ramp-end tag=V7-256
