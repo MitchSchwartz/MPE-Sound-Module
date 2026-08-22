@@ -7,6 +7,16 @@ set -uo pipefail
 
 MPE_RESULT_STRICT="${MPE_RESULT_STRICT:-1}"
 
+# Plausibility floors: 20% of minimum confirmed *loaded* dsp_median (V9/W1).
+# Same absolute work → higher % as buffer shrinks → floors increase 1024 < 512 < 256.
+#   1024: V9 Duduk @3 — 38.0% (docs/measurements/v9-probe-duration-2026-08-22.md)
+#   512:  W1-b 512×3 — 62.4% (docs/measurements/w1-instrumented-window-2026-08-21.md)
+#   256:  W1-c 256×3 — 76.1% (docs/measurements/w1-instrumented-window-2026-08-21.md)
+# V11 idle/mistimed signatures (0.9%, 1.6%) sit far below these floors.
+readonly MPE_DSP_FLOOR_1024="7.6"
+readonly MPE_DSP_FLOOR_512="12.5"
+readonly MPE_DSP_FLOOR_256="15.2"
+
 _mpe_result_die() {
     echo "ERROR: measurement-result: $*" >&2
     return 1
@@ -19,7 +29,6 @@ mpe_result_reset() {
     done
 }
 
-# Derive JACK buffer period from a harness tag (e.g. A-b512-p3-l0-run1 → 512).
 mpe_result_buffer_from_tag() {
     local tag="${1:-${MPE_R_tag-}}"
     if [[ "$tag" =~ -b([0-9]+)- ]]; then
@@ -29,25 +38,39 @@ mpe_result_buffer_from_tag() {
     return 1
 }
 
-# Minimum plausible dsp_median for a loaded window at this buffer (rejects mistimed/idle reads).
 mpe_result_dsp_plausibility_floor() {
     local buf="${1:-}"
     case "$buf" in
-        256) echo "3.0" ;;
-        512) echo "5.0" ;;
-        1024) echo "2.0" ;;
-        *) echo "3.0" ;;
+        1024) echo "$MPE_DSP_FLOOR_1024" ;;
+        512) echo "$MPE_DSP_FLOOR_512" ;;
+        256) echo "$MPE_DSP_FLOOR_256" ;;
+        *)
+            _mpe_result_die "unknown buffer ${buf} for plausibility floor"
+            return 1
+            ;;
     esac
 }
 
-# Max DSP considered impossibly low when material xruns are present (per buffer).
+# Assert floor(1024) < floor(512) < floor(256). Called from offline tests.
+mpe_result_assert_floor_monotonic() {
+    awk -v a="$MPE_DSP_FLOOR_1024" -v b="$MPE_DSP_FLOOR_512" -v c="$MPE_DSP_FLOOR_256" \
+        'BEGIN { if (a+0 < b+0 && b+0 < c+0) exit 0; exit 1 }' || {
+        _mpe_result_die "plausibility floors not monotonic: 1024=${MPE_DSP_FLOOR_1024} 512=${MPE_DSP_FLOOR_512} 256=${MPE_DSP_FLOOR_256}"
+        return 1
+    }
+    return 0
+}
+
 _mpe_result_physics_low_dsp_ceiling() {
     local buf="${1:-}"
     case "$buf" in
-        256) echo "20" ;;
-        512) echo "15" ;;
         1024) echo "10" ;;
-        *) echo "15" ;;
+        512) echo "15" ;;
+        256) echo "20" ;;
+        *)
+            _mpe_result_die "unknown buffer ${buf} for physics ceiling"
+            return 1
+            ;;
     esac
 }
 
@@ -60,7 +83,24 @@ _mpe_result_resolve_buffer() {
     mpe_result_buffer_from_tag "${MPE_R_tag-}"
 }
 
-# Parse "key=value" tokens from a RESULT line into env vars MPE_R_<KEY>.
+# Median of jack_cpu_load samples in a capture file (same awk as measure-latency-run.sh).
+mpe_result_jack_cpu_load_median() {
+    local run_file="$1"
+    awk '
+        /^[[:space:]]+[0-9]+/ {
+            v=$2; if (v != "?") { a[++n]=v+0 }
+        }
+        END {
+            if (n==0) { exit 1 }
+            for (i=1;i<=n;i++) {
+                for (j=i+1;j<=n;j++) if (a[i]>a[j]) { t=a[i]; a[i]=a[j]; a[j]=t }
+            }
+            med=a[int((n+1)/2)]
+            printf "%.6f\n", med
+        }
+    ' "$run_file"
+}
+
 mpe_result_parse_line() {
     local line="$1"
     local tok key val
@@ -89,7 +129,6 @@ mpe_result_parse_line() {
     return 0
 }
 
-# Require named fields on the last parsed line (MPE_R_*).
 mpe_result_require_fields() {
     local f
     for f in "$@"; do
@@ -120,7 +159,7 @@ mpe_result_require_fields() {
                 _mpe_result_die "dsp plausibility: samples=${MPE_R_samples} too short for loaded window"
                 return 1
             fi
-            floor="$(mpe_result_dsp_plausibility_floor "$buf")"
+            floor="$(mpe_result_dsp_plausibility_floor "$buf")" || return 1
             if awk -v v="${!var}" -v fl="$floor" 'BEGIN{exit !(v+0 < fl+0)}'; then
                 _mpe_result_die "field dsp_median=${!var}% below plausibility floor ${floor}% at buffer ${buf}"
                 return 1
@@ -130,8 +169,6 @@ mpe_result_require_fields() {
     return 0
 }
 
-# Physics assertions on parsed primary row (MPE_R_*).
-# Args: buffer_period — may be empty if tag carries -bNNN-
 mpe_result_physics_assert() {
     local buf="${1:-}"
     local xr="${MPE_R_xruns-}"
@@ -173,7 +210,7 @@ mpe_result_physics_assert() {
             return 1
         fi
         local ceiling
-        ceiling="$(_mpe_result_physics_low_dsp_ceiling "$buf")"
+        ceiling="$(_mpe_result_physics_low_dsp_ceiling "$buf")" || return 1
         if awk -v d="$dsp" -v x="$xr" -v c="$ceiling" 'BEGIN { exit !(x+0 > 5 && d+0 < c+0) }'; then
             _mpe_result_die "physics: dsp_median=${dsp}% with xruns=${xr} at buffer=${buf} impossible (low DSP + material xruns)"
             return 1
@@ -198,7 +235,6 @@ mpe_result_physics_buffer_halving() {
     return 0
 }
 
-# Harness path: load tag from log, require fields, physics (buffer from tag).
 mpe_result_assert_tag() {
     local file="$1"
     local tag="$2"

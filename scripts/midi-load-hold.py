@@ -14,8 +14,8 @@ import rtmidi
 
 SECS = float(sys.argv[1]) if len(sys.argv) > 1 else 15.0
 VOICES = int(sys.argv[2]) if len(sys.argv) > 2 else 8
-if VOICES < 1 or VOICES > 15:
-    print(f"VOICES must be 1..15 (got {VOICES})", file=sys.stderr)
+if VOICES < 1 or VOICES > 24:
+    print(f"VOICES must be 1..24 (got {VOICES})", file=sys.stderr)
     sys.exit(1)
 
 BASE_NOTE = 48
