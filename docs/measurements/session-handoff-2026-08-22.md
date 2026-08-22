@@ -18,7 +18,8 @@
 - [x] V10-b `_xruns_delta` rewrite (blind abort, per-second, lead-in)
 - [x] `measure-soak-instrument.sh` for Gate 1 soak
 - [x] `measure-v10b-validate.sh` (Closed Hat @ 15 must be non-zero)
-- [ ] Pi: run V10-b validate + start overnight soak (unattended)
+- [x] Pi: V10-b validate **PASS** (Closed Hat @15 → 266 xruns)
+- [ ] Pi: overnight soak running (`~/instrument-soak-1024x2.log`, finish ~08:00 Toronto)
 
 ## Pi
 
