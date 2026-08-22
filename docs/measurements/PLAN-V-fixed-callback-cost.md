@@ -86,6 +86,51 @@ percent, since percent-of-deadline hides that the fixed cost is constant.
 **Revert `-s softmode`** before any counting run; the Pi came back with it after the W1
 restore.
 
+## V5 / V6 — clock, and the under-voltage record
+
+**The historical `get_throttled = 0x50000` in `docs/LATENCY-SPIKE.md` is explained and is
+not evidence of a marginal board.** Cause (Mitch, 2026-08-21): powering external devices
+without a powered hub, and jumpers in the GPIO power chain. **Both resolved. Not a live
+constraint** — treat under-voltage as a runtime check to monitor, not a reason to avoid
+raising power draw.
+
+Recent readings are `throttled=0x0` at 55.5 C. Clock work is therefore on the table.
+
+| # | arm | status |
+|---|---|---|
+| **V5** | CPU governor `ondemand` -> `performance` | **a documented lever that was never pulled** — see below |
+| **V6** | `arm_boost=1` (1.5 -> 1.8 GHz) | **diagnostic only** in this pass |
+
+**V5 is not a new idea.** `docs/LATENCY-SPIKE.md` recorded the governor as `ondemand`, called
+it *"a classic cause of dropouts on transient polyphony spikes"*, and named the governor arm
+**"the most promising, and the cheapest."** The mechanism was built (`14da2ca`) but ships
+**off by default**; its sibling knob (Surge RT scheduling) was completed — Surge runs FF 65
+today — and the governor apparently was not. It only became *meaningful* once the problem was
+shown to be compute-bound: `ondemand`'s ramp acts on the **tail**, which is where the
+overruns live.
+
+**V6 uses `arm_boost=1`, not manual `arm_freq`/`over_voltage`.** It is Raspberry Pi's own
+validated 1.8 GHz configuration for the Pi 4 — the same silicon and clock the Pi 400 ships
+at. Manual overclocking beyond that is out of scope.
+
+### Why clock is still second to the software fix
+
+1.5 -> 1.8 GHz is **+20%**, moving 256 from 76% to ~63% of deadline. Removing the 1.1 ms
+fixed cost — if real and removable — recovers a comparable amount, but **permanently, on
+every customer unit, with no heat, no PSU requirement and no throttling risk.** Same prize,
+better terms.
+
+### The shipping gate is thermal, not performance
+
+**For an instrument, a clock that occasionally throttles is worse than a lower clock that
+never does.** Throttling is a sudden step *down* mid-performance; on a compute-bound callback
+that is exactly the tail excursion that produces `Surge XT was not finished`. A 15-minute
+measurement **cannot** clear this — it requires a sustained soak in the real enclosure at the
+hottest ambient the instrument will see, ending at `throttled=0x0`.
+
+**V6 in this pass measures the effect only. Shipping an overclock is a separate decision,
+Mitch's, with soak data.**
+
 ## Order and cost
 
 | # | cell | Pi time | gates |
@@ -94,6 +139,8 @@ restore.
 | **V2** | client-count test | ~10 min | the single-client refactor |
 | **V3** | `1024 x 2` at n >= 3 | ~15 min | independent — run regardless |
 | **V4** | profile the callback | ~30 min | only if V1 confirms |
+| **V5** | governor `performance` at `256 x 3` | ~15 min | free; long-identified lever |
+| **V6** | `arm_boost=1` at `256 x 3`, diagnostic | ~15 min | calibrates the compute prize |
 
 **~35 minutes decides whether a refactor is worth building and whether we can ship a third
 off our latency.**
