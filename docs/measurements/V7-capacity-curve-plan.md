@@ -30,21 +30,26 @@ Both configurations fail audibly:
 The controller's *goal* (protect the deadline) is correct. Its *actuation* (kill voices that
 are currently sounding) is what is audible.
 
-### Fix 1 — never truncate a sounding voice
+### Fix 1 — steal by a sensible policy (NOT "never steal")
 
-Apply a reduced ceiling to **new** voices only: refuse note-ons above the ceiling rather than
-stealing from those already sounding. **A note that never starts is far less audible than a
-note that stops.** This removes the pops while keeping overload protection.
+**Corrected 2026-08-21 (Mitch).** An earlier draft proposed refusing note-ons instead of
+stealing sounding voices. **That is wrong for a performance instrument:** the player presses a
+key and gets silence, which reads as broken. Voice stealing is standard and expected, and a
+quiet old note disappearing is not noticed.
+
+**The problem is the hard cut, not the stealing.** Steal in priority order — **released/in-
+release first, then quietest, then oldest** — and always with Fix 2 applied.
 
 Implementation note: the governor sets Surge's poly limit over OSC. When that limit drops
 below the currently-sounding count, Surge decides what dies. **Check what Surge actually does
 in that case** before assuming the fix belongs in our governor — it may belong in how we
 drive the limit (monotonic-down only at note-off boundaries) rather than in Surge.
 
-### Fix 2 — fade, do not cut
+### Fix 2 — fade, do not cut  **(the actual fix)**
 
 If a sounding voice must be removed, ramp it out over a few milliseconds. **A hard cut is a
-step discontinuity — that is the pop.** Standard voice-stealing practice.
+step discontinuity — that *is* the pop.** This is the change that removes the artefact;
+Fix 1 only decides which voice is least missed.
 
 ### Fix 3 — hysteresis
 
