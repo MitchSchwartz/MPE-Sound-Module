@@ -66,3 +66,6 @@ for ((i = 1; i <= SECS; i++)); do
 done
 printf "TOTAL %d xruns in %ds meter_live=1\n" "$((PREV - START))" "$SECS" >> "$OUT"
 kill -9 $JCL 2>/dev/null
+# Occurrence #1 fix: value and failure on stdout
+cat "$OUT"
+
