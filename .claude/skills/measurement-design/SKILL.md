@@ -120,7 +120,7 @@ Post-hoc capture (journal, log parsing) costs nothing during the window. Prefer 
 | **ranking** ("A beats B") | intervals reported, not just means |
 
 Stream-start variance is large and real on this box
-(`docs/measurements/stream-start-variance-2026-08-21.md`). Report **within-stream sd and
+(`docs/measurements/archive/stream-start-variance-2026-08-21.md`). Report **within-stream sd and
 between-stream sd separately.** Small-n shape claims have already produced two contradictory
 conclusions in one session.
 
