@@ -196,3 +196,47 @@ Step 4's own read stands as recorded: mean below baseline but shape unstable at 
 **`threadirqs` cost is neither confirmed nor ruled out.** Do not re-run it to settle that —
 under the cushion model and the counter audit, xruns/min may not be the right term at all.
 Settle the term first (D+A), then decide whether the question is worth re-asking.
+
+---
+
+## Naming reconciliation + the instrumented window (definitive)
+
+**Phase labels collided.** This doc's original Phases A/B/C/D were re-lettered in a later
+status report (its "A" meant fill telemetry, this doc's Phase B). **Use the table below as
+the single source of truth. Ignore bare letters in older messages.**
+
+### The instrumented window — run all four together, not separately
+
+The next measurement window must carry **four** instruments simultaneously. Each alone
+leaves the exact ambiguity this session has been stuck in.
+
+| # | instrument | status | answers |
+|---|---|---|---|
+| 1 | probe `XRUN_COUNT` (`jack_set_xrun_callback`) | existing | how many events |
+| 2 | **`journalctl -u mpe-jackd` -> `ALSA: xrun of at least N msecs`** | **MISSING — add** | **how many were genuine ALSA underruns, and their magnitude** |
+| 3 | **fill level `appl_ptr - hw_ptr` @ 10-20 Hz** from `/proc/asound/card<N>/pcm0p/sub0/status` | **MISSING — add** | did the buffer drain, and in what shape |
+| 4 | `dsp_p99` | existing | was the compute deadline the binding term |
+
+**Instrument 2 is free** — jackd already emits those lines; the harness has simply never
+captured its stderr or journal. **Add it to the harness permanently, not just for this run.**
+Resolve the card index live for instrument 3 (it moved 6 -> 2 after the Step 3 reboot).
+
+### Joint readings
+
+| pattern | conclusion |
+|---|---|
+| #1 = N, **#2 = 0** | all **graph overruns** — the cushion was never in play; compute problem |
+| #2 non-zero **with magnitudes**, #3 shows matching drain | genuine underruns — drain model applies |
+| #2 non-zero but **#3 flat** | contradiction — chase hard, something is misreporting |
+| **#3 flat + #4 ~89%** | **P3 and compute-bound together** — retires the ~600 us line as a wrong-term pursuit |
+
+### Cells
+
+| # | cell | Pi time |
+|---|---|---|
+| **W1** | Instrumented window at **1024 / 512 / 256**, identical load, cond A (DSP ladder + all four instruments) | ~20 min |
+| **W2** | nperiods sweep **2/3/4/6** at period 1024, same four instruments | ~30 min |
+| **W0** | `1024 x 2` open-check — does ALSA accept it at all? | ~30 s, any idle moment |
+
+Run **W1** first. It can settle the metric question and the compute question in one pass, and
+either outcome changes whether W2 is worth running.

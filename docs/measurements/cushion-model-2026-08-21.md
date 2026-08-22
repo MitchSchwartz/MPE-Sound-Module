@@ -106,15 +106,15 @@ includes anything other than a genuine playback underrun (delay reports, softmod
 callback-overrun flags), **P3 is confirmed at zero cost** and a large part of this session's
 data needs reinterpreting.
 
-## Revised priority
+## Revised priority (post Step 4 amendment)
 
 | # | test | cost | decides |
 |---|---|---|---|
-| **C** | audit xrun counter semantics (offline) | 0 | P3 outright — **partial:** counter is real JACK engine events; underrun vs mismatch **not** separated ([`xrun-counter-audit-2026-08-21.md`](xrun-counter-audit-2026-08-21.md)) |
-| **A** | fill-level telemetry at `1024 x 3` | ~15 min | all four models, directly |
-| **B** | nperiods sweep 2/3/4/6 at period 1024 | ~30 min | P2 vs P2' vs P3 by curve shape |
-| — | ~~cell 4b (`irq/30` FF 90)~~ | — | **deprioritised** — tunes producer lateness, which the arithmetic above says is not the binding term |
-| — | DSP p99 ladder at fixed load | ~15 min | still needed; separate question about 256 |
+| **D+A** | DSP p99 **and** fill telemetry at 1024 / 512 / 256, identical load, cond A | ~20 min | compute-bound vs cushion models; flat fill + high p99 ⇒ P3 + graph overrun |
+| **B** | nperiods sweep 2/3/4/6 at period 1024 | ~30 min | P2 vs P2′ vs P3 by curve |
+| **—** | `1024×2` open-check | ~30 s | 21 ms off shipping latency if ALSA accepts |
+| ~~4b~~ | irq/30 FF 90 | — | **parked** — producer lateness not binding term until D+A says otherwise |
+| ~~alignment~~ | frame-phase tables | — | **unsupported, unpromising** — do not spend Pi time |
 
 **Note on `n=2`:** it is both a diagnostic and, if it holds, **21.3 ms off the shipping
 latency for free** — 64.0 ms to 42.7 ms with no change to the compute deadline. It may
