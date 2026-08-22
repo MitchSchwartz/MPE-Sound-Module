@@ -1,0 +1,6 @@
+Appended measurement to /home/mitch/latency-postirq-512-A.log
+SENTINEL harness-logged
+audio-engine: restarting SooperLooper via mpe-sooperlooper.service (settings-change) — recorded loops are cleared
+Appended measurement to /home/mitch/latency-postirq-512-D.log
+SENTINEL harness-logged
+ALL_DONE

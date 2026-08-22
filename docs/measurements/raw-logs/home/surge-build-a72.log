@@ -1,0 +1,1809 @@
+=== build-surge-a72 2026-08-22T12:29:29-04:00 ===
+=== build-surge-a72 2026-08-22T12:29:29-04:00 ===
+PROVENANCE commit=253f8d86 flag=-mcpu=cortex-a72 jobs=4
+PROVENANCE commit=253f8d86 flag=-mcpu=cortex-a72 jobs=4
+disk_before: /dev/mmcblk0p2   29G  6.9G   21G  26% /
+disk_before: /dev/mmcblk0p2   29G  6.9G   21G  26% /
+temp_start: temp=49.6'C
+temp_start: temp=49.6'C
+throttle_start: throttled=0x0
+throttle_start: throttled=0x0
+Cloning Surge source to /home/mitch/surge-src...
+Cloning Surge source to /home/mitch/surge-src...
+Cloning into '/home/mitch/surge-src'...
+Cloning into '/home/mitch/surge-src'...
+Updating files:  18% (1336/7095)Updating files:  18% (1336/7095)Updating files:  19% (1349/7095)Updating files:  19% (1349/7095)Updating files:  20% (1419/7095)Updating files:  20% (1419/7095)Updating files:  21% (1490/7095)Updating files:  21% (1490/7095)Updating files:  22% (1561/7095)Updating files:  22% (1561/7095)Updating files:  23% (1632/7095)Updating files:  23% (1632/7095)Updating files:  24% (1703/7095)Updating files:  24% (1703/7095)Updating files:  25% (1774/7095)Updating files:  25% (1774/7095)Updating files:  26% (1845/7095)Updating files:  26% (1845/7095)Updating files:  27% (1916/7095)Updating files:  27% (1916/7095)Updating files:  28% (1987/7095)Updating files:  28% (1987/7095)Updating files:  28% (2050/7095)Updating files:  28% (2050/7095)Updating files:  29% (2058/7095)Updating files:  29% (2058/7095)Updating files:  30% (2129/7095)Updating files:  30% (2129/7095)Updating files:  31% (2200/7095)Updating files:  31% (2200/7095)Updating files:  32% (2271/7095)Updating files:  32% (2271/7095)Updating files:  33% (2342/7095)Updating files:  33% (2342/7095)Updating files:  34% (2413/7095)Updating files:  34% (2413/7095)Updating files:  35% (2484/7095)Updating files:  35% (2484/7095)Updating files:  36% (2555/7095)Updating files:  36% (2555/7095)Updating files:  37% (2626/7095)Updating files:  37% (2626/7095)Updating files:  38% (2697/7095)Updating files:  38% (2697/7095)Updating files:  39% (2768/7095)Updating files:  39% (2768/7095)Updating files:  40% (2838/7095)Updating files:  40% (2838/7095)Updating files:  41% (2909/7095)Updating files:  41% (2909/7095)Updating files:  42% (2980/7095)Updating files:  42% (2980/7095)Updating files:  43% (3051/7095)Updating files:  43% (3051/7095)Updating files:  44% (3122/7095)Updating files:  44% (3122/7095)Updating files:  45% (3193/7095)Updating files:  45% (3193/7095)Updating files:  45% (3226/7095)Updating files:  45% (3226/7095)Updating files:  46% (3264/7095)Updating files:  46% (3264/7095)Updating files:  47% (3335/7095)Updating files:  47% (3335/7095)Updating files:  48% (3406/7095)Updating files:  48% (3406/7095)Updating files:  49% (3477/7095)Updating files:  49% (3477/7095)Updating files:  50% (3548/7095)Updating files:  50% (3548/7095)Updating files:  51% (3619/7095)Updating files:  51% (3619/7095)Updating files:  52% (3690/7095)Updating files:  52% (3690/7095)Updating files:  53% (3761/7095)Updating files:  53% (3761/7095)Updating files:  54% (3832/7095)Updating files:  54% (3832/7095)Updating files:  55% (3903/7095)Updating files:  55% (3903/7095)Updating files:  56% (3974/7095)Updating files:  56% (3974/7095)Updating files:  57% (4045/7095)Updating files:  57% (4045/7095)Updating files:  58% (4116/7095)Updating files:  58% (4116/7095)Updating files:  59% (4187/7095)Updating files:  59% (4187/7095)Updating files:  60% (4257/7095)Updating files:  60% (4257/7095)Updating files:  61% (4328/7095)Updating files:  61% (4328/7095)Updating files:  62% (4399/7095)Updating files:  62% (4399/7095)Updating files:  63% (4470/7095)Updating files:  63% (4470/7095)Updating files:  64% (4541/7095)Updating files:  64% (4541/7095)Updating files:  65% (4612/7095)Updating files:  65% (4612/7095)Updating files:  66% (4683/7095)Updating files:  66% (4683/7095)Updating files:  67% (4754/7095)Updating files:  67% (4754/7095)Updating files:  68% (4825/7095)Updating files:  68% (4825/7095)Updating files:  69% (4896/7095)Updating files:  69% (4896/7095)Updating files:  69% (4909/7095)Updating files:  69% (4909/7095)Updating files:  70% (4967/7095)Updating files:  70% (4967/7095)Updating files:  71% (5038/7095)Updating files:  71% (5038/7095)Updating files:  72% (5109/7095)Updating files:  72% (5109/7095)Updating files:  73% (5180/7095)Updating files:  73% (5180/7095)Updating files:  74% (5251/7095)Updating files:  74% (5251/7095)Updating files:  75% (5322/7095)Updating files:  75% (5322/7095)Updating files:  76% (5393/7095)Updating files:  76% (5393/7095)Updating files:  77% (5464/7095)Updating files:  77% (5464/7095)Updating files:  78% (5535/7095)Updating files:  78% (5535/7095)Updating files:  79% (5606/7095)Updating files:  79% (5606/7095)Updating files:  80% (5676/7095)Updating files:  80% (5676/7095)Updating files:  81% (5747/7095)Updating files:  81% (5747/7095)Updating files:  82% (5818/7095)Updating files:  82% (5818/7095)Updating files:  83% (5889/7095)Updating files:  83% (5889/7095)Updating files:  84% (5960/7095)Updating files:  84% (5960/7095)Updating files:  84% (6015/7095)Updating files:  84% (6015/7095)Updating files:  85% (6031/7095)Updating files:  85% (6031/7095)Updating files:  86% (6102/7095)Updating files:  86% (6102/7095)Updating files:  87% (6173/7095)Updating files:  87% (6173/7095)Updating files:  87% (6203/7095)Updating files:  87% (6203/7095)Updating files:  88% (6244/7095)Updating files:  88% (6244/7095)Updating files:  89% (6315/7095)Updating files:  89% (6315/7095)Updating files:  90% (6386/7095)Updating files:  90% (6386/7095)Updating files:  91% (6457/7095)Updating files:  91% (6457/7095)Updating files:  92% (6528/7095)Updating files:  92% (6528/7095)Updating files:  93% (6599/7095)Updating files:  93% (6599/7095)Updating files:  94% (6670/7095)Updating files:  94% (6670/7095)Updating files:  95% (6741/7095)Updating files:  95% (6741/7095)Updating files:  96% (6812/7095)Updating files:  96% (6812/7095)Updating files:  97% (6883/7095)Updating files:  97% (6883/7095)Updating files:  98% (6954/7095)Updating files:  98% (6954/7095)Updating files:  99% (7025/7095)Updating files:  99% (7025/7095)Updating files: 100% (7095/7095)Updating files: 100% (7095/7095), done.
+Updating files: 100% (7095/7095)Updating files: 100% (7095/7095), done.
+Note: switching to '253f8d86'.
+
+You are in 'detached HEAD' state. You can look around, make experimental
+changes and commit them, and you can discard any commits you make in this
+state without impacting any branches by switching back to a branch.
+
+If you want to create a new branch to retain commits you create, you may
+do so (now or later) by using -c with the switch command. Example:
+
+  git switch -c <new-branch-name>
+
+Or undo this operation with:
+
+  git switch -
+
+Turn off this advice by setting config variable advice.detachedHead to false
+
+Note: switching to '253f8d86'.
+
+You are in 'detached HEAD' state. You can look around, make experimental
+changes and commit them, and you can discard any commits you make in this
+state without impacting any branches by switching back to a branch.
+
+If you want to create a new branch to retain commits you create, you may
+do so (now or later) by using -c with the switch command. Example:
+
+  git switch -c <new-branch-name>
+
+Or undo this operation with:
+
+  git switch -
+
+Turn off this advice by setting config variable advice.detachedHead to false
+
+HEAD is now at 253f8d86 Fix Visual Studio 2026 build, update sst-plugininfra & FindVCVars script (#8239)
+HEAD is now at 253f8d86 Fix Visual Studio 2026 build, update sst-plugininfra & FindVCVars script (#8239)
+Source at last_cpp17-86-g253f8d86 (253f8d8634625246b8f3baff3796173b321736a0)
+Source at last_cpp17-86-g253f8d86 (253f8d8634625246b8f3baff3796173b321736a0)
+./scripts/build-surge-a72.sh: line 47: cmake: command not found
+./scripts/build-surge-a72.sh: line 47: cmake: command not found
+=== build-surge-a72 2026-08-22T12:48:36-04:00 attempt=1 ===
+PROVENANCE commit=253f8d86 flag=-mcpu=cortex-a72 jobs=4
+disk_before: /dev/mmcblk0p2   29G  8.0G   19G  30% /
+temp_start: temp=51.6'C
+throttle_start: throttled=0x0
+Source at last_cpp17-86-g253f8d86 (253f8d8634625246b8f3baff3796173b321736a0)
+=== build-surge-a72 2026-08-22T12:49:18-04:00 attempt=2 ===
+PROVENANCE commit=253f8d86 flag=-mcpu=cortex-a72 jobs=4
+disk_before: /dev/mmcblk0p2   29G  8.0G   19G  30% /
+temp_start: temp=48.2'C
+throttle_start: throttled=0x0
+Source at last_cpp17-86-g253f8d86 (253f8d8634625246b8f3baff3796173b321736a0)
+=== build-surge-a72 2026-08-22T12:49:49-04:00 attempt=3 ===
+PROVENANCE commit=253f8d86 flag=-mcpu=cortex-a72 jobs=2
+disk_before: /dev/mmcblk0p2   29G  8.0G   19G  30% /
+temp_start: temp=47.7'C
+throttle_start: throttled=0x0
+Source at last_cpp17-86-g253f8d86 (253f8d8634625246b8f3baff3796173b321736a0)
+=== build-surge-a72 2026-08-22T12:50:20-04:00 attempt=4 ===
+PROVENANCE commit=253f8d86 flag=-mcpu=cortex-a72 jobs=2
+disk_before: /dev/mmcblk0p2   29G  8.0G   19G  30% /
+temp_start: temp=48.7'C
+throttle_start: throttled=0x0
+Source at last_cpp17-86-g253f8d86 (253f8d8634625246b8f3baff3796173b321736a0)
+=== build-surge-a72 2026-08-22T12:51:18-04:00 attempt=1 ===
+PROVENANCE commit=253f8d86 flag=-mcpu=cortex-a72 jobs=4
+disk_before: /dev/mmcblk0p2   29G  8.0G   19G  30% /
+temp_start: temp=48.7'C
+throttle_start: throttled=0x0
+Source at last_cpp17-86-g253f8d86 (253f8d8634625246b8f3baff3796173b321736a0)
+nohup: failed to run command '/home/mitch/MPE-Module/scripts/build-surge-a72.sh': Permission denied
+=== build-surge-a72 2026-08-22T13:00:00-04:00 attempt=1 ===
+PROVENANCE commit=253f8d86 flag=-mcpu=cortex-a72 jobs=4
+disk_before: /dev/mmcblk0p2   29G  8.8G   19G  33% /
+temp_start: temp=50.1'C
+throttle_start: throttled=0x0
+HEAD is now at 253f8d86 Fix Visual Studio 2026 build, update sst-plugininfra & FindVCVars script (#8239)
+Source at last_cpp17-86-g253f8d86 (253f8d8634625246b8f3baff3796173b321736a0)
+Source at last_cpp17-86-g253f8d86 (253f8d8634625246b8f3baff3796173b321736a0)
+Initializing submodules...
+Initializing submodules...
+-- The C compiler identification is GNU 14.2.0
+-- The C compiler identification is GNU 14.2.0
+-- The CXX compiler identification is GNU 14.2.0
+-- The CXX compiler identification is GNU 14.2.0
+-- Detecting C compiler ABI info
+-- Detecting C compiler ABI info
+-- Detecting C compiler ABI info - done
+-- Detecting C compiler ABI info - done
+-- Check for working C compiler: /usr/bin/cc - skipped
+-- Check for working C compiler: /usr/bin/cc - skipped
+-- Detecting C compile features
+-- Detecting C compile features
+-- Detecting C compile features - done
+-- Detecting C compile features - done
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: /usr/bin/c++ - skipped
+-- Detecting CXX compile features
+-- Check for working CXX compiler: /usr/bin/c++ - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- Detecting CXX compile features - done
+-- It's Surge XT, folks! Version is 1.4.0.
+-- It's Surge XT, folks! Version is 1.4.0.
+-- CMAKE_BUILD_TYPE is Release.
+-- CMake version is 3.31.6.
+-- Compiler version is 14.2.0.
+-- CMAKE_BUILD_TYPE is Release.
+-- CMake version is 3.31.6.
+-- Compiler version is 14.2.0.
+-- Targeting 64-bit configuration.
+-- Targeting 64-bit configuration.
+-- Enabling link-time optimization for release builds.
+-- Enabling link-time optimization for release builds.
+-- Setting -no-pie on EXE flags; use SURGE_SKIP_PIE_CHANGE=TRUE to avoid.
+-- Setting -no-pie on EXE flags; use SURGE_SKIP_PIE_CHANGE=TRUE to avoid.
+-- Performing Test COMPILER_HAS_AVX_OR_IS_ARM
+-- Performing Test COMPILER_HAS_AVX_OR_IS_ARM
+-- Performing Test COMPILER_HAS_AVX_OR_IS_ARM - Success
+-- Performing Test COMPILER_HAS_AVX_OR_IS_ARM - Success
+-- Using JUCE from /home/mitch/surge-src/src/../libs/JUCE
+-- Using JUCE from /home/mitch/surge-src/src/../libs/JUCE
+-- Found PkgConfig: /usr/bin/pkg-config (found version "1.8.1")
+-- Found PkgConfig: /usr/bin/pkg-config (found version "1.8.1")
+-- Checking for module 'alsa'
+-- Checking for module 'alsa'
+--   Found alsa, version 1.2.14
+--   Found alsa, version 1.2.14
+-- Checking for modules 'freetype2;fontconfig'
+-- Checking for modules 'freetype2;fontconfig'
+--   Package 'freetype2', required by 'virtual:world', not found
+--   Package 'freetype2', required by 'virtual:world', not found
+--   Package 'fontconfig', required by 'virtual:world', not found
+--   Package 'fontconfig', required by 'virtual:world', not found
+-- Checking for module 'gl'
+-- Checking for module 'gl'
+--   Found gl, version 1.2
+--   Found gl, version 1.2
+-- Checking for module 'libcurl'
+-- Checking for module 'libcurl'
+--   Package 'libcurl', required by 'virtual:world', not found
+--   Package 'libcurl', required by 'virtual:world', not found
+-- Checking for modules 'webkit2gtk-4.0;gtk+-x11-3.0'
+-- Checking for modules 'webkit2gtk-4.0;gtk+-x11-3.0'
+--   Package 'webkit2gtk-4.0', required by 'virtual:world', not found
+--   Package 'webkit2gtk-4.0', required by 'virtual:world', not found
+--   Package 'gtk+-x11-3.0', required by 'virtual:world', not found
+--   Package 'gtk+-x11-3.0', required by 'virtual:world', not found
+-- Configuring juceaide
+-- Configuring juceaide
+-- Building juceaide
+-- Building juceaide
+CMake Error at libs/JUCE/extras/Build/juceaide/CMakeLists.txt:157 (message):
+  Failed to build juceaide
+
+  [ 9%] Building CXX object
+  extras/Build/juceaide/CMakeFiles/juceaide.dir/Main.cpp.o
+
+  [ 18%] Building CXX object
+  extras/Build/juceaide/CMakeFiles/juceaide.dir/__/juce_build_tools/juce_build_tools.cpp.o
+
+
+  [ 27%] Building CXX object
+  extras/Build/juceaide/CMakeFiles/juceaide.dir/__/__/__/modules/juce_gui_basics/juce_gui_basics.cpp.o
+
+
+  In file included from
+  /home/mitch/surge-src/libs/JUCE/modules/juce_gui_basics/juce_gui_basics.cpp:55:
+
+
+
+  /home/mitch/surge-src/libs/JUCE/modules/juce_gui_basics/juce_gui_basics.h:361:13:
+  fatal error: X11/extensions/Xrandr.h: No such file or directory
+
+    361 |    #include <X11/extensions/Xrandr.h>
+        |             ^~~~~~~~~~~~~~~~~~~~~~~~~
+
+  compilation terminated.
+
+  gmake[2]: ***
+  [extras/Build/juceaide/CMakeFiles/juceaide.dir/build.make:107:
+  extras/Build/juceaide/CMakeFiles/juceaide.dir/__/__/__/modules/juce_gui_basics/juce_gui_basics.cpp.o]
+  Error 1
+
+  gmake[1]: *** [CMakeFiles/Makefile2:148:
+  extras/Build/juceaide/CMakeFiles/juceaide.dir/all] Error 2
+
+  gmake: *** [Makefile:136: all] Error 2
+
+
+CMake Error at libs/JUCE/extras/Build/juceaide/CMakeLists.txt:157 (message):
+  Failed to build juceaide
+
+  [ 9%] Building CXX object
+  extras/Build/juceaide/CMakeFiles/juceaide.dir/Main.cpp.o
+
+  [ 18%] Building CXX object
+  extras/Build/juceaide/CMakeFiles/juceaide.dir/__/juce_build_tools/juce_build_tools.cpp.o
+
+
+  [ 27%] Building CXX object
+  extras/Build/juceaide/CMakeFiles/juceaide.dir/__/__/__/modules/juce_gui_basics/juce_gui_basics.cpp.o
+
+
+  In file included from
+  /home/mitch/surge-src/libs/JUCE/modules/juce_gui_basics/juce_gui_basics.cpp:55:
+
+
+
+  /home/mitch/surge-src/libs/JUCE/modules/juce_gui_basics/juce_gui_basics.h:361:13:
+  fatal error: X11/extensions/Xrandr.h: No such file or directory
+
+    361 |    #include <X11/extensions/Xrandr.h>
+        |             ^~~~~~~~~~~~~~~~~~~~~~~~~
+
+  compilation terminated.
+
+  gmake[2]: ***
+  [extras/Build/juceaide/CMakeFiles/juceaide.dir/build.make:107:
+  extras/Build/juceaide/CMakeFiles/juceaide.dir/__/__/__/modules/juce_gui_basics/juce_gui_basics.cpp.o]
+  Error 1
+
+  gmake[1]: *** [CMakeFiles/Makefile2:148:
+  extras/Build/juceaide/CMakeFiles/juceaide.dir/all] Error 2
+
+  gmake: *** [Makefile:136: all] Error 2
+
+
+
+
+-- Configuring incomplete, errors occurred!
+-- Configuring incomplete, errors occurred!
+=== build-surge-a72 2026-08-22T13:02:22-04:00 attempt=1 ===
+PROVENANCE commit=253f8d86 flag=-mcpu=cortex-a72 jobs=4
+disk_before: /dev/mmcblk0p2   29G  8.8G   19G  33% /
+temp_start: temp=52.1'C
+throttle_start: throttled=0x0
+HEAD is now at 253f8d86 Fix Visual Studio 2026 build, update sst-plugininfra & FindVCVars script (#8239)
+Source at last_cpp17-86-g253f8d86 (253f8d8634625246b8f3baff3796173b321736a0)
+Source at last_cpp17-86-g253f8d86 (253f8d8634625246b8f3baff3796173b321736a0)
+Initializing submodules...
+Initializing submodules...
+-- The C compiler identification is GNU 14.2.0
+-- The C compiler identification is GNU 14.2.0
+-- The CXX compiler identification is GNU 14.2.0
+-- The CXX compiler identification is GNU 14.2.0
+-- Detecting C compiler ABI info
+-- Detecting C compiler ABI info
+-- Detecting C compiler ABI info - done
+-- Detecting C compiler ABI info - done
+-- Check for working C compiler: /usr/bin/cc - skipped
+-- Check for working C compiler: /usr/bin/cc - skipped
+-- Detecting C compile features
+-- Detecting C compile features
+-- Detecting C compile features - done
+-- Detecting C compile features - done
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: /usr/bin/c++ - skipped
+-- Check for working CXX compiler: /usr/bin/c++ - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- Detecting CXX compile features - done
+-- It's Surge XT, folks! Version is 1.4.0.
+-- CMAKE_BUILD_TYPE is Release.
+-- CMake version is 3.31.6.
+-- It's Surge XT, folks! Version is 1.4.0.
+-- CMAKE_BUILD_TYPE is Release.
+-- CMake version is 3.31.6.
+-- Compiler version is 14.2.0.
+-- Compiler version is 14.2.0.
+-- Targeting 64-bit configuration.
+-- Targeting 64-bit configuration.
+-- Enabling link-time optimization for release builds.
+-- Enabling link-time optimization for release builds.
+-- Setting -no-pie on EXE flags; use SURGE_SKIP_PIE_CHANGE=TRUE to avoid.
+-- Setting -no-pie on EXE flags; use SURGE_SKIP_PIE_CHANGE=TRUE to avoid.
+-- Performing Test COMPILER_HAS_AVX_OR_IS_ARM
+-- Performing Test COMPILER_HAS_AVX_OR_IS_ARM
+-- Performing Test COMPILER_HAS_AVX_OR_IS_ARM - Success
+-- Performing Test COMPILER_HAS_AVX_OR_IS_ARM - Success
+-- Using JUCE from /home/mitch/surge-src/src/../libs/JUCE
+-- Using JUCE from /home/mitch/surge-src/src/../libs/JUCE
+-- Found PkgConfig: /usr/bin/pkg-config (found version "1.8.1")
+-- Found PkgConfig: /usr/bin/pkg-config (found version "1.8.1")
+-- Checking for module 'alsa'
+-- Checking for module 'alsa'
+--   Found alsa, version 1.2.14
+--   Found alsa, version 1.2.14
+-- Checking for modules 'freetype2;fontconfig'
+-- Checking for modules 'freetype2;fontconfig'
+--   Found freetype2, version 26.2.20
+--   Found freetype2, version 26.2.20
+--   Found fontconfig, version 2.15.0
+--   Found fontconfig, version 2.15.0
+-- Checking for module 'gl'
+-- Checking for module 'gl'
+--   Found gl, version 1.2
+--   Found gl, version 1.2
+-- Checking for module 'libcurl'
+-- Checking for module 'libcurl'
+--   Package 'libcurl', required by 'virtual:world', not found
+--   Package 'libcurl', required by 'virtual:world', not found
+-- Checking for modules 'webkit2gtk-4.0;gtk+-x11-3.0'
+-- Checking for modules 'webkit2gtk-4.0;gtk+-x11-3.0'
+--   Package 'webkit2gtk-4.0', required by 'virtual:world', not found
+--   Package 'webkit2gtk-4.0', required by 'virtual:world', not found
+--   Package 'gtk+-x11-3.0', required by 'virtual:world', not found
+--   Package 'gtk+-x11-3.0', required by 'virtual:world', not found
+-- Configuring juceaide
+-- Configuring juceaide
+-- Building juceaide
+-- Building juceaide
+-- Exporting juceaide
+-- Exporting juceaide
+-- Testing juceaide
+-- Testing juceaide
+-- Finished setting up juceaide
+-- Finished setting up juceaide
+-- CMake version 3.31.6 allows CLAP build
+-- CMake version 3.31.6 allows CLAP build
+-- ALSA/JACK : ALSA=TRUE  JACK=TRUE
+-- ALSA/JACK : ALSA=TRUE  JACK=TRUE
+-- Building Surge XT using the following JUCE wrappers: VST3;Standalone
+-- Building Surge XT using the following JUCE wrappers: VST3;Standalone
+-- Will build all of airwindows
+-- Will build all of airwindows
+-- Including local pffft
+-- Including local pffft
+-- Version: 10.2.0
+-- Version: 10.2.0
+-- Build type: Release
+-- Build type: Release
+-- Including local sqlite
+-- Including local sqlite
+-- ZSTD VERSION: 1.5.8
+-- ZSTD VERSION: 1.5.8
+-- CMAKE_INSTALL_PREFIX: /usr/local
+-- CMAKE_INSTALL_PREFIX: /usr/local
+-- CMAKE_INSTALL_LIBDIR: lib
+-- CMAKE_INSTALL_LIBDIR: lib
+-- ZSTD_LEGACY_SUPPORT enabled
+-- ZSTD_LEGACY_SUPPORT enabled
+-- Multi-threading support enabled
+-- Multi-threading support enabled
+-- Performing Test C_FLAG_WALL
+-- Performing Test C_FLAG_WALL
+-- Performing Test C_FLAG_WALL - Success
+-- Performing Test C_FLAG_WALL - Success
+-- Performing Test CXX_FLAG_WALL
+-- Performing Test CXX_FLAG_WALL
+-- Performing Test CXX_FLAG_WALL - Success
+-- Performing Test CXX_FLAG_WALL - Success
+-- Performing Test C_FLAG_WEXTRA
+-- Performing Test C_FLAG_WEXTRA
+-- Performing Test C_FLAG_WEXTRA - Success
+-- Performing Test C_FLAG_WEXTRA - Success
+-- Performing Test CXX_FLAG_WEXTRA
+-- Performing Test CXX_FLAG_WEXTRA
+-- Performing Test CXX_FLAG_WEXTRA - Success
+-- Performing Test CXX_FLAG_WEXTRA - Success
+-- Performing Test C_FLAG_WUNDEF
+-- Performing Test C_FLAG_WUNDEF
+-- Performing Test C_FLAG_WUNDEF - Success
+-- Performing Test C_FLAG_WUNDEF - Success
+-- Performing Test CXX_FLAG_WUNDEF
+-- Performing Test CXX_FLAG_WUNDEF
+-- Performing Test CXX_FLAG_WUNDEF - Success
+-- Performing Test CXX_FLAG_WUNDEF - Success
+-- Performing Test C_FLAG_WSHADOW
+-- Performing Test C_FLAG_WSHADOW
+-- Performing Test C_FLAG_WSHADOW - Success
+-- Performing Test C_FLAG_WSHADOW - Success
+-- Performing Test CXX_FLAG_WSHADOW
+-- Performing Test CXX_FLAG_WSHADOW
+-- Performing Test CXX_FLAG_WSHADOW - Success
+-- Performing Test CXX_FLAG_WSHADOW - Success
+-- Performing Test C_FLAG_WCAST_ALIGN
+-- Performing Test C_FLAG_WCAST_ALIGN
+-- Performing Test C_FLAG_WCAST_ALIGN - Success
+-- Performing Test C_FLAG_WCAST_ALIGN - Success
+-- Performing Test CXX_FLAG_WCAST_ALIGN
+-- Performing Test CXX_FLAG_WCAST_ALIGN
+-- Performing Test CXX_FLAG_WCAST_ALIGN - Success
+-- Performing Test CXX_FLAG_WCAST_ALIGN - Success
+-- Performing Test C_FLAG_WCAST_QUAL
+-- Performing Test C_FLAG_WCAST_QUAL
+-- Performing Test C_FLAG_WCAST_QUAL - Success
+-- Performing Test C_FLAG_WCAST_QUAL - Success
+-- Performing Test CXX_FLAG_WCAST_QUAL
+-- Performing Test CXX_FLAG_WCAST_QUAL
+-- Performing Test CXX_FLAG_WCAST_QUAL - Success
+-- Performing Test CXX_FLAG_WCAST_QUAL - Success
+-- Performing Test C_FLAG_WSTRICT_PROTOTYPES
+-- Performing Test C_FLAG_WSTRICT_PROTOTYPES
+-- Performing Test C_FLAG_WSTRICT_PROTOTYPES - Success
+-- Performing Test C_FLAG_WSTRICT_PROTOTYPES - Success
+-- Performing Test LD_FLAG_WL_Z_NOEXECSTACK
+-- Performing Test LD_FLAG_WL_Z_NOEXECSTACK
+-- Performing Test LD_FLAG_WL_Z_NOEXECSTACK - Success
+-- Performing Test LD_FLAG_WL_Z_NOEXECSTACK - Success
+-- Performing Test C_FLAG_QUNUSED_ARGUMENTS
+-- Performing Test C_FLAG_QUNUSED_ARGUMENTS
+-- Performing Test C_FLAG_QUNUSED_ARGUMENTS - Failed
+-- Performing Test C_FLAG_QUNUSED_ARGUMENTS - Failed
+-- Performing Test CXX_FLAG_QUNUSED_ARGUMENTS
+-- Performing Test CXX_FLAG_QUNUSED_ARGUMENTS
+-- Performing Test CXX_FLAG_QUNUSED_ARGUMENTS - Failed
+-- Performing Test CXX_FLAG_QUNUSED_ARGUMENTS - Failed
+-- Performing Test C_FLAG_WA_NOEXECSTACK
+-- Performing Test C_FLAG_WA_NOEXECSTACK
+-- Performing Test C_FLAG_WA_NOEXECSTACK - Success
+-- Performing Test C_FLAG_WA_NOEXECSTACK - Success
+-- Performing Test CXX_FLAG_WA_NOEXECSTACK
+-- Performing Test CXX_FLAG_WA_NOEXECSTACK
+-- Performing Test CXX_FLAG_WA_NOEXECSTACK - Success
+-- Performing Test CXX_FLAG_WA_NOEXECSTACK - Success
+-- Performing Test CMAKE_HAVE_LIBC_PTHREAD
+-- Performing Test CMAKE_HAVE_LIBC_PTHREAD
+-- Performing Test CMAKE_HAVE_LIBC_PTHREAD - Success
+-- Performing Test CMAKE_HAVE_LIBC_PTHREAD - Success
+-- Found Threads: TRUE
+-- Found Threads: TRUE
+CMake Warning (dev) at libs/zstd/build/cmake/lib/CMakeLists.txt:13 (option):
+  Policy CMP0077 is not set: option() honors normal variables.  Run "cmake
+  --help-policy CMP0077" for policy details.  Use the cmake_policy command to
+  set the policy and suppress this warning.
+
+  For compatibility with older versions of CMake, option is clearing the
+  normal variable 'ZSTD_BUILD_STATIC'.
+This warning is for project developers.  Use -Wno-dev to suppress it.
+CMake Warning (dev) at libs/zstd/build/cmake/lib/CMakeLists.txt:13 (option):
+  Policy CMP0077 is not set: option() honors normal variables.  Run "cmake
+  --help-policy CMP0077" for policy details.  Use the cmake_policy command to
+  set the policy and suppress this warning.
+
+  For compatibility with older versions of CMake, option is clearing the
+  normal variable 'ZSTD_BUILD_STATIC'.
+This warning is for project developers.  Use -Wno-dev to suppress it.
+
+CMake Warning (dev) at libs/zstd/build/cmake/lib/CMakeLists.txt:14 (option):
+  Policy CMP0077 is not set: option() honors normal variables.  Run "cmake
+  --help-policy CMP0077" for policy details.  Use the cmake_policy command to
+  set the policy and suppress this warning.
+
+  For compatibility with older versions of CMake, option is clearing the
+  normal variable 'ZSTD_BUILD_SHARED'.
+This warning is for project developers.  Use -Wno-dev to suppress it.
+
+
+CMake Warning (dev) at libs/zstd/build/cmake/lib/CMakeLists.txt:14 (option):
+  Policy CMP0077 is not set: option() honors normal variables.  Run "cmake
+  --help-policy CMP0077" for policy details.  Use the cmake_policy command to
+  set the policy and suppress this warning.
+
+  For compatibility with older versions of CMake, option is clearing the
+  normal variable 'ZSTD_BUILD_SHARED'.
+This warning is for project developers.  Use -Wno-dev to suppress it.
+
+-- The ASM compiler identification is GNU
+-- The ASM compiler identification is GNU
+-- Found assembler: /usr/bin/cc
+-- Found assembler: /usr/bin/cc
+-- Building LuaJIT at CMake time right now; configure with -DSURGE_SKIP_LUA=TRUE to disable
+-- Running ./build-linux-luajit.sh "/home/mitch/surge-src/build-a72/libs/luajitlib/LuaJIT" in /home/mitch/surge-src/libs/luajitlib
+-- Building LuaJIT at CMake time right now; configure with -DSURGE_SKIP_LUA=TRUE to disable
+-- Running ./build-linux-luajit.sh "/home/mitch/surge-src/build-a72/libs/luajitlib/LuaJIT" in /home/mitch/surge-src/libs/luajitlib
+-- Successfully built LuaJIT: /home/mitch/surge-src/build-a72/libs/luajitlib/LuaJIT/bin/libluajit.a
+-- Successfully built LuaJIT: /home/mitch/surge-src/build-a72/libs/luajitlib/LuaJIT/bin/libluajit.a
+-- CMake Omitting Native Aliases
+-- CMake Omitting Native Aliases
+-- Forcing filesystem to GHC
+-- Forcing filesystem to GHC
+-- filesystem: Using ghc::filesystem from "filesystem/ghc-filesystem.h" with SST_PLUGINFRA_GHC_FS
+-- filesystem: Using ghc::filesystem from "filesystem/ghc-filesystem.h" with SST_PLUGINFRA_GHC_FS
+-- Creating fs import via '/home/mitch/surge-src/build-a72/libs/sst/sst-plugininfra/libs/filesystem/include/filesystem/import.h'
+-- Creating fs import via '/home/mitch/surge-src/build-a72/libs/sst/sst-plugininfra/libs/filesystem/include/filesystem/import.h'
+CMake Deprecation Warning at libs/PEGTL/CMakeLists.txt:1 (cmake_minimum_required):
+  Compatibility with CMake < 3.10 will be remCMake Deprecation Warning at libs/PEGTL/CMakeLists.txt:1 (cmake_minimum_required):
+  Compatibility with CMake < 3.10 will be removed from a future version of
+  CMake.
+
+  Update the VERSION argument <min> value.  Or, use the <min>...<max> syntax
+  to tell CMake that the project requires at least <min> but has been updated
+  to work with policies introduced by <max> or earlier.
+
+
+oved from a future version of
+  CMake.
+
+  Update the VERSION argument <min> value.  Or, use the <min>...<max> syntax
+  to tell CMake that the project requires at least <min> but has been updated
+  to work with policies introduced by <max> or earlier.
+
+
+-- SST_JUCEGUI_SKIP_AUDIO is set to TRUE. Audio flags are skipped.
+-- SST_JUCEGUI_SKIP_AUDIO is set to TRUE. Audio flags are skipped.
+-- Including JUCE VST3 host-side context menu support...
+-- Including JUCE VST3 host-side context menu support...
+-- Including JUCE VST3 client extensions...
+-- Including JUCE VST3 client extensions...
+-- Adding surge-xt-cli to surge-xt_Packaged
+-- Adding surge-xt-cli to surge-xt_Packaged
+-- Installer Surge Version is LOCAL
+-- Installer Surge Version is LOCAL
+-- Validate me! Please!
+-- Validate me! Please!
+-- Creating pluginval target for plugin: Surge XT.vst3
+-- Creating pluginval target for plugin: Surge XT.vst3
+-- Creating pluginval target for plugin: Surge XT Effects.vst3
+-- Creating pluginval target for plugin: Surge XT Effects.vst3
+-- Found Git: /usr/bin/git (found version "2.47.3")
+-- Found Git: /usr/bin/git (found version "2.47.3")
+-- Adding download-extra-content target from https://github.com/surge-synthesizer/surge-extra-content.git
+-- Adding download-extra-content target from https://github.com/surge-synthesizer/surge-extra-content.git
+-- Configuring done (432.8s)
+-- Configuring done (432.8s)
+-- Generating done (0.8s)
+-- Generating done (0.8s)
+CMake Warning:
+  Manually-specified variables were not used by the project:
+
+    LINUX_ON_ARM
+    SURGE_BUILD_STANDALONE
+    SURGE_BUILD_VST3
+
+
+CMake Warning:
+  Manually-specified variables were not used by the project:
+
+    LINUX_ON_ARM
+    SURGE_BUILD_STANDALONE
+    SURGE_BUILD_VST3
+
+
+-- Build files have been written to: /home/mitch/surge-src/build-a72
+-- Build files have been written to: /home/mitch/surge-src/build-a72
+[  0%] Generating LuaSources.cpp, include/lua/LuaSources.h
+[  0%] Generating LuaSources.cpp, include/lua/LuaSources.h
+[  0%] Generating juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData1.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData2.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData3.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData4.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData5.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData6.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData7.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData8.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData9.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData10.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData11.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData12.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData13.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData14.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData15.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData16.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData17.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData18.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData19.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData20.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData21.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData22.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData23.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData24.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData25.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData26.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData27.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData28.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData29.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData30.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData31.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData32.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData33.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData34.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData35.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData36.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData37.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData38.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData39.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData40.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData41.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData42.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData43.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData44.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData45.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData46.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData47.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData48.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData49.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData50.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData51.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData52.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData53.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData54.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData55.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData56.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData57.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData58.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData59.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData60.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData61.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData62.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData63.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData64.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData65.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData66.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData67.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData68.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData69.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData70.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData71.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData72.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData73.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData74.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData75.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData76.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData77.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData78.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData79.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData80.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData81.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData82.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData83.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData84.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData85.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData86.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData87.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData88.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData89.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData90.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData91.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData92.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData93.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData94.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData95.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData96.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData97.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData98.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData99.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData100.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData101.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData102.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData103.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData104.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData105.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData106.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData107.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData108.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData109.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData110.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData111.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData112.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData113.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData114.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData115.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData116.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData117.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData118.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData119.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData120.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData121.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData122.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData123.cpp, juce_binarydata_surge-xt-binary/JuceLibra[  0%] Generating juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData1.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData2.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData3.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData4.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData5.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData6.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData7.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData8.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData9.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData10.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData11.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData12.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData13.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData14.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData15.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData16.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData17.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData18.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData19.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData20.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData21.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData22.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData23.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData24.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData25.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData26.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData27.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData28.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData29.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData30.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData31.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData32.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData33.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData34.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData35.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData36.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData37.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData38.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData39.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData40.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData41.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData42.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData43.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData44.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData45.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData46.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData47.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData48.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData49.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData50.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData51.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData52.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData53.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData54.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData55.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData56.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData57.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData58.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData59.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData60.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData61.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData62.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData63.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData64.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData65.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData66.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData67.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData68.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData69.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData70.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData71.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData72.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData73.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData74.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData75.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData76.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData77.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData78.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData79.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData80.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData81.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData82.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData83.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData84.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData85.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData86.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData87.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData88.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData89.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData90.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData91.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData92.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData93.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData94.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData95.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData96.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData97.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData98.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData99.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData100.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData101.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData102.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData103.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData104.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData105.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData106.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData107.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData108.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData109.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData110.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData111.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData112.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData113.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData114.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData115.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData116.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData117.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData118.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData119.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData120.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData121.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData122.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData123.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData124.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData125.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData126.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData127.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData128.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData129.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData130.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData131.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData132.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData133.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData134.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData135.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData136.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData137.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData138.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData139.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData140.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData141.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData142.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData143.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData144.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData145.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData146.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData147.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData148.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData149.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData150.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData151.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData152.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/SurgeXTBinary.h
+ryCode/BinaryData124.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData125.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData126.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData127.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData128.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData129.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData130.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData131.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData132.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData133.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData134.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData135.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData136.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData137.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData138.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData139.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData140.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData141.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData142.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData143.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData144.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData145.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData146.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData147.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData148.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData149.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData150.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData151.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData152.cpp, juce_binarydata_surge-xt-binary/JuceLibraryCode/SurgeXTBinary.h
+[  0%] Generating juce_binarydata_surge-common-binary/JuceLibraryCode/BinaryData1.cpp, juce_binarydata_surge-common-binary/JuceLibraryCode/BinaryData2.cpp, juce_binarydata_surge-common-binary/JuceLibraryCode/BinaryData3.cpp, juce_binarydata_surge-common-binary/JuceLibraryCode/BinaryData4.cpp, juce_binarydata_surge-common-binary/JuceLibraryCode/BinaryData5.cpp, juce_binarydata_surge-common-binary/JuceLibraryCode/BinaryData6.cpp, juce_binarydata_surge-common-binary/JuceLibraryCode/SurgeSharedBinary.h
+[  0%] Generating juce_binarydata_surge-common-binary/JuceLibraryCode/BinaryData1.cpp, juce_binarydata_surge-common-binary/JuceLibraryCode/BinaryData2.cpp, juce_binarydata_surge-common-binary/JuceLibraryCode/BinaryData3.cpp, juce_binarydata_surge-common-binary/JuceLibraryCode/BinaryData4.cpp, juce_binarydata_surge-common-binary/JuceLibraryCode/BinaryData5.cpp, juce_binarydata_surge-common-binary/JuceLibraryCode/BinaryData6.cpp, juce_binarydata_surge-common-binary/JuceLibraryCode/SurgeSharedBinary.h
+-- Found Git: /usr/bin/git (found version "2.47.3")
+-- Found Git: /usr/bin/git (found version "2.47.3")
+[  0%] Building CXX object src/lua/CMakeFiles/surge-lua-src.dir/LuaSources.cpp.o
+[  0%] Building CXX object src/lua/CMakeFiles/surge-lua-src.dir/LuaSources.cpp.o
+[  0%] Building CXX object src/common/CMakeFiles/surge-common-binary.dir/juce_binarydata_surge-common-binary/JuceLibraryCode/BinaryData1.cpp.o
+[  0%] Building CXX object src/common/CMakeFiles/surge-common-binary.dir/juce_binarydata_surge-common-binary/JuceLibraryCode/BinaryData1.cpp.o
+-- Setting up surge version
+--   git hash is 253f8d86 and branch is HEAD
+--   buildhost is raspberrypi2
+--   buildarch is aarch64
+-- Developer Local Build
+-- Using SURGE_VERSION=1.4.HEAD.253f8d86
+-- Configuring /home/mitch/surge-src/build-a72/geninclude/version.cpp
+-- Setting up surge version
+--   git hash is 253f8d86 and branch is HEAD
+--   buildhost is raspberrypi2
+--   buildarch is aarch64
+-- Developer Local Build
+-- Using SURGE_VERSION=1.4.HEAD.253f8d86
+-- Configuring /home/mitch/surge-src/build-a72/geninclude/version.cpp
+[  0%] Building CXX object src/common/CMakeFiles/surge-common-binary.dir/juce_binarydata_surge-common-binary/JuceLibraryCode/BinaryData2.cpp.o
+[  0%] Building CXX object src/common/CMakeFiles/surge-common-binary.dir/juce_binarydata_surge-common-binary/JuceLibraryCode/BinaryData2.cpp.o
+[  0%] Built target version-info
+[  0%] Built target version-info
+[  0%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/AirWinBaseClass_pluginRegistry.cpp.o
+[  0%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/AirWinBaseClass_pluginRegistry.cpp.o
+[  1%] Building CXX object src/common/CMakeFiles/surge-common-binary.dir/juce_binarydata_surge-common-binary/JuceLibraryCode/BinaryData3.cpp.o
+[  1%] Building CXX object src/common/CMakeFiles/surge-common-binary.dir/juce_binarydata_surge-common-binary/JuceLibraryCode/BinaryData3.cpp.o
+[  1%] Building CXX object src/common/CMakeFiles/surge-common-binary.dir/juce_binarydata_surge-common-binary/JuceLibraryCode/BinaryData4.cpp.o
+[  1%] Building CXX object src/common/CMakeFiles/surge-common-binary.dir/juce_binarydata_surge-common-binary/JuceLibraryCode/BinaryData4.cpp.o
+[  1%] Building CXX object src/common/CMakeFiles/surge-common-binary.dir/juce_binarydata_surge-common-binary/JuceLibraryCode/BinaryData5.cpp.o
+[  1%] Building CXX object src/common/CMakeFiles/surge-common-binary.dir/juce_binarydata_surge-common-binary/JuceLibraryCode/BinaryData5.cpp.o
+[  1%] Building CXX object src/common/CMakeFiles/surge-common-binary.dir/juce_binarydata_surge-common-binary/JuceLibraryCode/BinaryData6.cpp.o
+[  1%] Building CXX object src/common/CMakeFiles/surge-common-binary.dir/juce_binarydata_surge-common-binary/JuceLibraryCode/BinaryData6.cpp.o
+[  1%] Linking CXX static library libsurge-common-binary.a
+[  1%] Linking CXX static library libsurge-common-binary.a
+[  1%] Built target surge-common-binary
+[  1%] Built target surge-common-binary
+[  1%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/ADClip7.cpp.o
+[  1%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/ADClip7.cpp.o
+[  1%] Linking CXX static library libsurge-lua-src.a
+[  1%] Linking CXX static library libsurge-lua-src.a
+[  1%] Built target surge-lua-src
+[  1%] Built target surge-lua-src
+[  1%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/ADClip7Proc.cpp.o
+[  1%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/ADClip7Proc.cpp.o
+[  2%] Building C object libs/binn/CMakeFiles/binn.dir/binn.c.o
+[  2%] Building C object libs/binn/CMakeFiles/binn.dir/binn.c.o
+[  2%] Building CXX object libs/eurorack/CMakeFiles/eurorack.dir/eurorack/clouds/dsp/correlator.cc.o
+[  2%] Building CXX object libs/eurorack/CMakeFiles/eurorack.dir/eurorack/clouds/dsp/correlator.cc.o
+[  2%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData1.cpp.o
+[  2%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData1.cpp.o
+[  2%] Linking C static library libbinn.a
+[  2%] Linking C static library libbinn.a
+[  2%] Built target binn
+[  2%] Built target binn
+[  2%] Building C object libs/pffft/CMakeFiles/pffft.dir/pffft.c.o
+[  2%] Building C object libs/pffft/CMakeFiles/pffft.dir/pffft.c.o
+[  2%] Building CXX object libs/eurorack/CMakeFiles/eurorack.dir/eurorack/clouds/dsp/granular_processor.cc.o
+[  2%] Building CXX object libs/eurorack/CMakeFiles/eurorack.dir/eurorack/clouds/dsp/granular_processor.cc.o
+[  4%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData2.cpp.o
+[  4%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData2.cpp.o
+[  4%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData3.cpp.o
+[  4%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData3.cpp.o
+[  4%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData4.cpp.o
+[  4%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData4.cpp.o
+[  4%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData5.cpp.o
+[  4%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData5.cpp.o
+[  4%] Building CXX object libs/pffft/CMakeFiles/pffft.dir/fft_convolve.cpp.o
+[  4%] Building CXX object libs/pffft/CMakeFiles/pffft.dir/fft_convolve.cpp.o
+[  4%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData6.cpp.o
+[  4%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData6.cpp.o
+[  4%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData7.cpp.o
+[  4%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData7.cpp.o
+[  4%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData8.cpp.o
+[  4%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData8.cpp.o
+[  4%] Building CXX object libs/eurorack/CMakeFiles/eurorack.dir/eurorack/clouds/dsp/mu_law.cc.o
+[  4%] Building CXX object libs/eurorack/CMakeFiles/eurorack.dir/eurorack/clouds/dsp/mu_law.cc.o
+[  4%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData9.cpp.o
+[  4%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData9.cpp.o
+[  4%] Building CXX object libs/eurorack/CMakeFiles/eurorack.dir/eurorack/clouds/dsp/pvoc/frame_transformation.cc.o
+[  4%] Building CXX object libs/eurorack/CMakeFiles/eurorack.dir/eurorack/clouds/dsp/pvoc/frame_transformation.cc.o
+[  5%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData10.cpp.o
+[  5%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData10.cpp.o
+[  5%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData11.cpp.o
+[  5%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData11.cpp.o
+[  5%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData12.cpp.o
+[  5%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData12.cpp.o
+[  5%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData13.cpp.o
+[  5%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData13.cpp.o
+[  5%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData14.cpp.o
+[  5%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData14.cpp.o
+[  5%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData15.cpp.o
+[  5%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData15.cpp.o
+[  5%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData16.cpp.o
+[  5%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData16.cpp.o
+[  5%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData17.cpp.o
+[  5%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData17.cpp.o
+[  5%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/Air.cpp.o
+[  5%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/Air.cpp.o
+[  5%] Building CXX object libs/eurorack/CMakeFiles/eurorack.dir/eurorack/clouds/dsp/pvoc/phase_vocoder.cc.o
+[  5%] Building CXX object libs/eurorack/CMakeFiles/eurorack.dir/eurorack/clouds/dsp/pvoc/phase_vocoder.cc.o
+[  5%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData18.cpp.o
+[  5%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData18.cpp.o
+[  7%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData19.cpp.o
+[  7%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData19.cpp.o
+[  7%] Building CXX object libs/eurorack/CMakeFiles/eurorack.dir/eurorack/clouds/dsp/pvoc/stft.cc.o
+[  7%] Building CXX object libs/eurorack/CMakeFiles/eurorack.dir/eurorack/clouds/dsp/pvoc/stft.cc.o
+[  7%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData20.cpp.o
+[  7%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData20.cpp.o
+[  7%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData21.cpp.o
+[  7%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData21.cpp.o
+[  7%] Linking CXX static library libpffft.a
+[  7%] Linking CXX static library libpffft.a
+[  7%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData22.cpp.o
+[  7%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData22.cpp.o
+[  7%] Built target pffft
+[  7%] Built target pffft
+[  7%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/AirProc.cpp.o
+[  7%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/AirProc.cpp.o
+[  7%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData23.cpp.o
+[  7%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData23.cpp.o
+[  7%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData24.cpp.o
+[  7%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData24.cpp.o
+[  7%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData25.cpp.o
+[  7%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData25.cpp.o
+[  7%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData26.cpp.o
+[  7%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData26.cpp.o
+[  7%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData27.cpp.o
+[  7%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData27.cpp.o
+[  8%] Building CXX object libs/eurorack/CMakeFiles/eurorack.dir/eurorack/clouds/resources.cc.o
+[  8%] Building CXX object libs/eurorack/CMakeFiles/eurorack.dir/eurorack/clouds/resources.cc.o
+[ 10%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData28.cpp.o
+[ 10%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData28.cpp.o
+[ 10%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData29.cpp.o
+[ 10%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData29.cpp.o
+[ 10%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData30.cpp.o
+[ 10%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData30.cpp.o
+[ 10%] Building CXX object libs/eurorack/CMakeFiles/eurorack.dir/eurorack/plaits/dsp/voice.cc.o
+[ 10%] Building CXX object libs/eurorack/CMakeFiles/eurorack.dir/eurorack/plaits/dsp/voice.cc.o
+[ 10%] Building CXX object libs/eurorack/CMakeFiles/eurorack.dir/eurorack/plaits/dsp/speech/lpc_speech_synth_phonemes.cc.o
+[ 10%] Building CXX object libs/eurorack/CMakeFiles/eurorack.dir/eurorack/plaits/dsp/speech/lpc_speech_synth_phonemes.cc.o
+[ 10%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData31.cpp.o
+[ 10%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData31.cpp.o
+[ 10%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData32.cpp.o
+[ 10%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData32.cpp.o
+[ 10%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData33.cpp.o
+[ 10%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData33.cpp.o
+[ 10%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData34.cpp.o
+[ 10%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData34.cpp.o
+[ 10%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData35.cpp.o
+[ 10%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData35.cpp.o
+[ 11%] Building CXX object libs/fmt/CMakeFiles/fmt.dir/src/format.cc.o
+[ 11%] Building CXX object libs/fmt/CMakeFiles/fmt.dir/src/format.cc.o
+[ 13%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData36.cpp.o
+[ 13%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData36.cpp.o
+[ 13%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/Apicolypse.cpp.o
+[ 13%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/Apicolypse.cpp.o
+[ 13%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData37.cpp.o
+[ 13%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData37.cpp.o
+[ 13%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData38.cpp.o
+[ 13%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData38.cpp.o
+[ 13%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData39.cpp.o
+[ 13%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData39.cpp.o
+[ 13%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData40.cpp.o
+[ 13%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData40.cpp.o
+[ 13%] Building CXX object libs/eurorack/CMakeFiles/eurorack.dir/eurorack/plaits/dsp/speech/lpc_speech_synth_controller.cc.o
+[ 13%] Building CXX object libs/eurorack/CMakeFiles/eurorack.dir/eurorack/plaits/dsp/speech/lpc_speech_synth_controller.cc.o
+[ 13%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData41.cpp.o
+[ 13%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData41.cpp.o
+[ 13%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData42.cpp.o
+[ 13%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData42.cpp.o
+[ 13%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData43.cpp.o
+[ 13%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData43.cpp.o
+[ 13%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData44.cpp.o
+[ 13%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData44.cpp.o
+[ 14%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData45.cpp.o
+[ 14%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData45.cpp.o
+[ 14%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData46.cpp.o
+[ 14%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData46.cpp.o
+[ 14%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData47.cpp.o
+[ 14%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData47.cpp.o
+[ 14%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData48.cpp.o
+[ 14%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData48.cpp.o
+[ 14%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData49.cpp.o
+[ 14%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData49.cpp.o
+[ 14%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData50.cpp.o
+[ 14%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData50.cpp.o
+[ 14%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData51.cpp.o
+[ 14%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData51.cpp.o
+[ 14%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/ApicolypseProc.cpp.o
+[ 14%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/ApicolypseProc.cpp.o
+[ 14%] Building CXX object libs/eurorack/CMakeFiles/eurorack.dir/eurorack/plaits/dsp/speech/lpc_speech_synth.cc.o
+[ 14%] Building CXX object libs/eurorack/CMakeFiles/eurorack.dir/eurorack/plaits/dsp/speech/lpc_speech_synth.cc.o
+[ 14%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData52.cpp.o
+[ 14%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData52.cpp.o
+[ 14%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData53.cpp.o
+[ 14%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData53.cpp.o
+[ 16%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData54.cpp.o
+[ 16%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData54.cpp.o
+[ 16%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData55.cpp.o
+[ 16%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData55.cpp.o
+[ 16%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData56.cpp.o
+[ 16%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData56.cpp.o
+[ 16%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData57.cpp.o
+[ 16%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData57.cpp.o
+[ 16%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData58.cpp.o
+[ 16%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData58.cpp.o
+[ 16%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData59.cpp.o
+[ 16%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData59.cpp.o
+[ 16%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData60.cpp.o
+[ 16%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData60.cpp.o
+[ 16%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData61.cpp.o
+[ 16%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData61.cpp.o
+[ 17%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData62.cpp.o
+[ 17%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData62.cpp.o
+[ 17%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData63.cpp.o
+[ 17%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData63.cpp.o
+[ 17%] Building CXX object libs/eurorack/CMakeFiles/eurorack.dir/eurorack/plaits/dsp/speech/naive_speech_synth.cc.o
+[ 17%] Building CXX object libs/eurorack/CMakeFiles/eurorack.dir/eurorack/plaits/dsp/speech/naive_speech_synth.cc.o
+[ 17%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData64.cpp.o
+[ 17%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData64.cpp.o
+[ 17%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData65.cpp.o
+[ 17%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData65.cpp.o
+[ 17%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData66.cpp.o
+[ 17%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData66.cpp.o
+[ 17%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData67.cpp.o
+[ 17%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData67.cpp.o
+[ 17%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData68.cpp.o
+[ 17%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData68.cpp.o
+[ 17%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData69.cpp.o
+[ 17%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData69.cpp.o
+[ 17%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData70.cpp.o
+[ 17%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData70.cpp.o
+[ 19%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData71.cpp.o
+[ 19%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData71.cpp.o
+[ 19%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData72.cpp.o
+[ 19%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData72.cpp.o
+[ 19%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData73.cpp.o
+[ 19%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData73.cpp.o
+[ 19%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData74.cpp.o
+[ 19%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData74.cpp.o
+[ 19%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData75.cpp.o
+[ 19%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData75.cpp.o
+[ 19%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData76.cpp.o
+[ 19%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData76.cpp.o
+[ 19%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData77.cpp.o
+[ 19%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData77.cpp.o
+[ 19%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData78.cpp.o
+[ 19%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData78.cpp.o
+[ 20%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData79.cpp.o
+[ 20%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData79.cpp.o
+[ 20%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData80.cpp.o
+[ 20%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData80.cpp.o
+[ 20%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/BassDrive.cpp.o
+[ 20%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/BassDrive.cpp.o
+[ 20%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData81.cpp.o
+[ 20%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData81.cpp.o
+[ 20%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData82.cpp.o
+[ 20%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData82.cpp.o
+[ 20%] Building CXX object libs/eurorack/CMakeFiles/eurorack.dir/eurorack/plaits/dsp/speech/lpc_speech_synth_words.cc.o
+[ 20%] Building CXX object libs/eurorack/CMakeFiles/eurorack.dir/eurorack/plaits/dsp/speech/lpc_speech_synth_words.cc.o
+[ 20%] Building CXX object libs/fmt/CMakeFiles/fmt.dir/src/os.cc.o
+[ 20%] Building CXX object libs/fmt/CMakeFiles/fmt.dir/src/os.cc.o
+[ 20%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData83.cpp.o
+[ 20%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData83.cpp.o
+[ 20%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData84.cpp.o
+[ 20%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData84.cpp.o
+[ 20%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData85.cpp.o
+[ 20%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData85.cpp.o
+[ 20%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData86.cpp.o
+[ 20%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData86.cpp.o
+[ 20%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData87.cpp.o
+[ 20%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData87.cpp.o
+[ 22%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData88.cpp.o
+[ 22%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData88.cpp.o
+[ 22%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData89.cpp.o
+[ 22%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData89.cpp.o
+[ 22%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData90.cpp.o
+[ 22%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData90.cpp.o
+[ 22%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData91.cpp.o
+[ 22%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData91.cpp.o
+[ 22%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData92.cpp.o
+[ 22%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData92.cpp.o
+[ 22%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData93.cpp.o
+[ 22%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData93.cpp.o
+[ 22%] Building CXX object libs/eurorack/CMakeFiles/eurorack.dir/eurorack/plaits/dsp/speech/sam_speech_synth.cc.o
+[ 22%] Building CXX object libs/eurorack/CMakeFiles/eurorack.dir/eurorack/plaits/dsp/speech/sam_speech_synth.cc.o
+[ 22%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData94.cpp.o
+[ 22%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData94.cpp.o
+[ 22%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData95.cpp.o
+[ 22%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData95.cpp.o
+[ 22%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData96.cpp.o
+[ 22%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData96.cpp.o
+[ 23%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData97.cpp.o
+[ 23%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData97.cpp.o
+[ 23%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData98.cpp.o
+[ 23%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData98.cpp.o
+[ 23%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData99.cpp.o
+[ 23%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData99.cpp.o
+[ 23%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData100.cpp.o
+[ 23%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData100.cpp.o
+[ 23%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData101.cpp.o
+[ 23%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData101.cpp.o
+[ 23%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData102.cpp.o
+[ 23%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData102.cpp.o
+[ 23%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData103.cpp.o
+[ 23%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData103.cpp.o
+[ 23%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData104.cpp.o
+[ 23%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData104.cpp.o
+[ 23%] Building CXX object libs/eurorack/CMakeFiles/eurorack.dir/eurorack/plaits/dsp/physical_modelling/string.cc.o
+[ 23%] Building CXX object libs/eurorack/CMakeFiles/eurorack.dir/eurorack/plaits/dsp/physical_modelling/string.cc.o
+[ 25%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData105.cpp.o
+[ 25%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData105.cpp.o
+[ 25%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData106.cpp.o
+[ 25%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData106.cpp.o
+[ 25%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData107.cpp.o
+[ 25%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData107.cpp.o
+[ 25%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData108.cpp.o
+[ 25%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData108.cpp.o
+[ 25%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData109.cpp.o
+[ 25%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData109.cpp.o
+[ 25%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData110.cpp.o
+[ 25%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData110.cpp.o
+[ 26%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/BassDriveProc.cpp.o
+[ 26%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/BassDriveProc.cpp.o
+[ 26%] Linking CXX static library libfmt.a
+[ 26%] Linking CXX static library libfmt.a
+[ 26%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData111.cpp.o
+[ 26%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData111.cpp.o
+[ 26%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData112.cpp.o
+[ 26%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData112.cpp.o
+[ 26%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData113.cpp.o
+[ 26%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData113.cpp.o
+[ 27%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData114.cpp.o
+[ 27%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData114.cpp.o
+[ 27%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData115.cpp.o
+[ 27%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData115.cpp.o
+[ 27%] Built target fmt
+[ 27%] Built target fmt
+[ 27%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData116.cpp.o
+[ 27%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData116.cpp.o
+[ 27%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/BitGlitter.cpp.o
+[ 27%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/BitGlitter.cpp.o
+[ 29%] Building CXX object libs/eurorack/CMakeFiles/eurorack.dir/eurorack/plaits/dsp/physical_modelling/resonator.cc.o
+[ 29%] Building CXX object libs/eurorack/CMakeFiles/eurorack.dir/eurorack/plaits/dsp/physical_modelling/resonator.cc.o
+[ 29%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData117.cpp.o
+[ 29%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData117.cpp.o
+[ 29%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData118.cpp.o
+[ 29%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData118.cpp.o
+[ 29%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData119.cpp.o
+[ 29%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData119.cpp.o
+[ 29%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData120.cpp.o
+[ 29%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData120.cpp.o
+[ 29%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData121.cpp.o
+[ 29%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData121.cpp.o
+[ 30%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData122.cpp.o
+[ 30%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData122.cpp.o
+[ 30%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData123.cpp.o
+[ 30%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData123.cpp.o
+[ 30%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData124.cpp.o
+[ 30%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData124.cpp.o
+[ 30%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData125.cpp.o
+[ 30%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData125.cpp.o
+[ 30%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData126.cpp.o
+[ 30%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData126.cpp.o
+[ 30%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData127.cpp.o
+[ 30%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData127.cpp.o
+[ 30%] Building CXX object libs/eurorack/CMakeFiles/eurorack.dir/eurorack/plaits/dsp/physical_modelling/string_voice.cc.o
+[ 30%] Building CXX object libs/eurorack/CMakeFiles/eurorack.dir/eurorack/plaits/dsp/physical_modelling/string_voice.cc.o
+[ 30%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData128.cpp.o
+[ 30%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData128.cpp.o
+[ 30%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData129.cpp.o
+[ 30%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData129.cpp.o
+[ 30%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData130.cpp.o
+[ 30%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData130.cpp.o
+[ 32%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData131.cpp.o
+[ 32%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData131.cpp.o
+[ 32%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData132.cpp.o
+[ 32%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData132.cpp.o
+[ 32%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData133.cpp.o
+[ 32%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData133.cpp.o
+[ 32%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData134.cpp.o
+[ 32%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData134.cpp.o
+[ 32%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData135.cpp.o
+[ 32%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData135.cpp.o
+[ 32%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData136.cpp.o
+[ 32%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData136.cpp.o
+[ 32%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData137.cpp.o
+[ 32%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData137.cpp.o
+[ 32%] Building CXX object libs/oddsound-mts/CMakeFiles/oddsound-mts.dir/MTS-ESP/Client/libMTSClient.cpp.o
+[ 32%] Building CXX object libs/oddsound-mts/CMakeFiles/oddsound-mts.dir/MTS-ESP/Client/libMTSClient.cpp.o
+[ 32%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData138.cpp.o
+[ 32%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData138.cpp.o
+[ 32%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData139.cpp.o
+[ 32%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData139.cpp.o
+[ 33%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData140.cpp.o
+[ 33%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData140.cpp.o
+[ 33%] Building CXX object libs/eurorack/CMakeFiles/eurorack.dir/eurorack/plaits/dsp/physical_modelling/modal_voice.cc.o
+[ 33%] Building CXX object libs/eurorack/CMakeFiles/eurorack.dir/eurorack/plaits/dsp/physical_modelling/modal_voice.cc.o
+[ 33%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData141.cpp.o
+[ 33%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData141.cpp.o
+[ 33%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData142.cpp.o
+[ 33%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData142.cpp.o
+[ 33%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData143.cpp.o
+[ 33%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData143.cpp.o
+[ 33%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/BitGlitterProc.cpp.o
+[ 33%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/BitGlitterProc.cpp.o
+[ 33%] Building CXX object libs/oddsound-mts/CMakeFiles/oddsound-mts.dir/MTS-ESP/Master/libMTSMaster.cpp.o
+[ 33%] Building CXX object libs/oddsound-mts/CMakeFiles/oddsound-mts.dir/MTS-ESP/Master/libMTSMaster.cpp.o
+[ 33%] Linking CXX static library liboddsound-mts.a
+[ 33%] Linking CXX static library liboddsound-mts.a
+[ 33%] Built target oddsound-mts
+[ 33%] Built target oddsound-mts
+[ 33%] Building C object libs/sqlite-3.23.3/CMakeFiles/sqlite.dir/sqlite3.c.o
+[ 33%] Building C object libs/sqlite-3.23.3/CMakeFiles/sqlite.dir/sqlite3.c.o
+[ 33%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData144.cpp.o
+[ 33%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData144.cpp.o
+[ 33%] Building CXX object libs/eurorack/CMakeFiles/eurorack.dir/eurorack/plaits/dsp/engine/fm_engine.cc.o
+[ 33%] Building CXX object libs/eurorack/CMakeFiles/eurorack.dir/eurorack/plaits/dsp/engine/fm_engine.cc.o
+[ 33%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData145.cpp.o
+[ 33%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData145.cpp.o
+[ 33%] Building CXX object libs/eurorack/CMakeFiles/eurorack.dir/eurorack/plaits/dsp/engine/swarm_engine.cc.o
+[ 33%] Building CXX object libs/eurorack/CMakeFiles/eurorack.dir/eurorack/plaits/dsp/engine/swarm_engine.cc.o
+[ 33%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/BlockParty.cpp.o
+[ 33%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/BlockParty.cpp.o
+[ 33%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData146.cpp.o
+[ 33%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData146.cpp.o
+[ 33%] Building CXX object libs/eurorack/CMakeFiles/eurorack.dir/eurorack/plaits/dsp/engine/wavetable_engine.cc.o
+[ 33%] Building CXX object libs/eurorack/CMakeFiles/eurorack.dir/eurorack/plaits/dsp/engine/wavetable_engine.cc.o
+[ 33%] Building CXX object libs/eurorack/CMakeFiles/eurorack.dir/eurorack/plaits/dsp/engine/particle_engine.cc.o
+[ 33%] Building CXX object libs/eurorack/CMakeFiles/eurorack.dir/eurorack/plaits/dsp/engine/particle_engine.cc.o
+[ 33%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData147.cpp.o
+[ 33%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData147.cpp.o
+[ 33%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/BlockPartyProc.cpp.o
+[ 33%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/BlockPartyProc.cpp.o
+[ 33%] Building CXX object libs/eurorack/CMakeFiles/eurorack.dir/eurorack/plaits/dsp/engine/noise_engine.cc.o
+[ 33%] Building CXX object libs/eurorack/CMakeFiles/eurorack.dir/eurorack/plaits/dsp/engine/noise_engine.cc.o
+[ 35%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData148.cpp.o
+[ 35%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData148.cpp.o
+[ 36%] Building CXX object libs/eurorack/CMakeFiles/eurorack.dir/eurorack/plaits/dsp/engine/hi_hat_engine.cc.o
+[ 36%] Building CXX object libs/eurorack/CMakeFiles/eurorack.dir/eurorack/plaits/dsp/engine/hi_hat_engine.cc.o
+[ 36%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/BrightAmbience2.cpp.o
+[ 36%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/BrightAmbience2.cpp.o
+[ 36%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData149.cpp.o
+[ 36%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData149.cpp.o
+[ 36%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData150.cpp.o
+[ 36%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData150.cpp.o
+[ 36%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData151.cpp.o
+[ 36%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData151.cpp.o
+[ 36%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData152.cpp.o
+[ 36%] Building CXX object src/surge-xt/CMakeFiles/surge-xt-binary.dir/juce_binarydata_surge-xt-binary/JuceLibraryCode/BinaryData152.cpp.o
+[ 36%] Linking CXX static library libsurge-xt-binary.a
+[ 36%] Linking CXX static library libsurge-xt-binary.a
+[ 36%] Building CXX object libs/eurorack/CMakeFiles/eurorack.dir/eurorack/plaits/dsp/engine/chord_engine.cc.o
+[ 36%] Building CXX object libs/eurorack/CMakeFiles/eurorack.dir/eurorack/plaits/dsp/engine/chord_engine.cc.o
+[ 36%] Built target surge-xt-binary
+[ 36%] Built target surge-xt-binary
+[ 36%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/BrightAmbience2Proc.cpp.o
+[ 36%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/BrightAmbience2Proc.cpp.o
+[ 36%] Building CXX object libs/eurorack/CMakeFiles/eurorack.dir/eurorack/plaits/dsp/engine/waveshaping_engine.cc.o
+[ 36%] Building CXX object libs/eurorack/CMakeFiles/eurorack.dir/eurorack/plaits/dsp/engine/waveshaping_engine.cc.o
+[ 36%] Building C object libs/zstd/build/cmake/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/common/debug.c.o
+[ 36%] Building C object libs/zstd/build/cmake/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/common/debug.c.o
+[ 36%] Building C object libs/zstd/build/cmake/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/common/entropy_common.c.o
+[ 36%] Building C object libs/zstd/build/cmake/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/common/entropy_common.c.o
+[ 38%] Linking C static library libsqlite.a
+[ 38%] Linking C static library libsqlite.a
+[ 38%] Built target sqlite
+[ 38%] Built target sqlite
+[ 38%] Building CXX object libs/sst/sst-plugininfra/libs/strnatcmp/CMakeFiles/strnatcmp.dir/strnatcmp.cpp.o
+[ 38%] Building CXX object libs/sst/sst-plugininfra/libs/strnatcmp/CMakeFiles/strnatcmp.dir/strnatcmp.cpp.o
+[ 38%] Linking CXX static library libstrnatcmp.a
+[ 38%] Linking CXX static library libstrnatcmp.a
+[ 38%] Built target strnatcmp
+[ 38%] Built target strnatcmp
+[ 38%] Building CXX object libs/eurorack/CMakeFiles/eurorack.dir/eurorack/plaits/dsp/engine/string_engine.cc.o
+[ 38%] Building CXX object libs/eurorack/CMakeFiles/eurorack.dir/eurorack/plaits/dsp/engine/string_engine.cc.o
+[ 38%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/BussColors4.cpp.o
+[ 38%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/BussColors4.cpp.o
+[ 39%] Building C object libs/zstd/build/cmake/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/common/error_private.c.o
+[ 39%] Building C object libs/zstd/build/cmake/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/common/error_private.c.o
+[ 39%] Building CXX object libs/eurorack/CMakeFiles/eurorack.dir/eurorack/plaits/dsp/engine/modal_engine.cc.o
+[ 39%] Building CXX object libs/eurorack/CMakeFiles/eurorack.dir/eurorack/plaits/dsp/engine/modal_engine.cc.o
+[ 39%] Building C object libs/zstd/build/cmake/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/common/fse_decompress.c.o
+[ 39%] Building C object libs/zstd/build/cmake/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/common/fse_decompress.c.o
+[ 39%] Building CXX object libs/eurorack/CMakeFiles/eurorack.dir/eurorack/plaits/dsp/engine/grain_engine.cc.o
+[ 39%] Building CXX object libs/eurorack/CMakeFiles/eurorack.dir/eurorack/plaits/dsp/engine/grain_engine.cc.o
+[ 39%] Building CXX object libs/eurorack/CMakeFiles/eurorack.dir/eurorack/plaits/dsp/engine/bass_drum_engine.cc.o
+[ 39%] Building CXX object libs/eurorack/CMakeFiles/eurorack.dir/eurorack/plaits/dsp/engine/bass_drum_engine.cc.o
+[ 39%] Building C object libs/zstd/build/cmake/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/common/pool.c.o
+[ 39%] Building C object libs/zstd/build/cmake/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/common/pool.c.o
+[ 39%] Building C object libs/zstd/build/cmake/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/common/threading.c.o
+[ 39%] Building C object libs/zstd/build/cmake/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/common/threading.c.o
+[ 39%] Building CXX object libs/eurorack/CMakeFiles/eurorack.dir/eurorack/plaits/dsp/engine/speech_engine.cc.o
+[ 39%] Building CXX object libs/eurorack/CMakeFiles/eurorack.dir/eurorack/plaits/dsp/engine/speech_engine.cc.o
+[ 39%] Building C object libs/zstd/build/cmake/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/common/xxhash.c.o
+[ 39%] Building C object libs/zstd/build/cmake/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/common/xxhash.c.o
+[ 39%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/BussColors4Proc.cpp.o
+[ 39%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/BussColors4Proc.cpp.o
+[ 39%] Building C object libs/zstd/build/cmake/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/common/zstd_common.c.o
+[ 39%] Building C object libs/zstd/build/cmake/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/common/zstd_common.c.o
+[ 39%] Building CXX object libs/sst/sst-plugininfra/libs/filesystem/CMakeFiles/filesystem.dir/src/ghc-filesystem.cpp.o
+[ 39%] Building CXX object libs/sst/sst-plugininfra/libs/filesystem/CMakeFiles/filesystem.dir/src/ghc-filesystem.cpp.o
+[ 39%] Building CXX object libs/eurorack/CMakeFiles/eurorack.dir/eurorack/plaits/dsp/engine/additive_engine.cc.o
+[ 39%] Building CXX object libs/eurorack/CMakeFiles/eurorack.dir/eurorack/plaits/dsp/engine/additive_engine.cc.o
+[ 39%] Building C object libs/zstd/build/cmake/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/compress/fse_compress.c.o
+[ 39%] Building C object libs/zstd/build/cmake/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/compress/fse_compress.c.o
+[ 41%] Building CXX object libs/eurorack/CMakeFiles/eurorack.dir/eurorack/plaits/dsp/engine/virtual_analog_engine.cc.o
+[ 41%] Building CXX object libs/eurorack/CMakeFiles/eurorack.dir/eurorack/plaits/dsp/engine/virtual_analog_engine.cc.o
+[ 42%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/ButterComp2.cpp.o
+[ 42%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/ButterComp2.cpp.o
+[ 42%] Building C object libs/zstd/build/cmake/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/compress/hist.c.o
+[ 42%] Building C object libs/zstd/build/cmake/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/compress/hist.c.o
+[ 42%] Building CXX object libs/eurorack/CMakeFiles/eurorack.dir/eurorack/plaits/dsp/engine/snare_drum_engine.cc.o
+[ 42%] Building CXX object libs/eurorack/CMakeFiles/eurorack.dir/eurorack/plaits/dsp/engine/snare_drum_engine.cc.o
+[ 44%] Building C object libs/zstd/build/cmake/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/compress/huf_compress.c.o
+[ 44%] Building C object libs/zstd/build/cmake/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/compress/huf_compress.c.o
+[ 44%] Building CXX object libs/eurorack/CMakeFiles/eurorack.dir/eurorack/plaits/resources.cc.o
+[ 44%] Building CXX object libs/eurorack/CMakeFiles/eurorack.dir/eurorack/plaits/resources.cc.o
+[ 44%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/ButterComp2Proc.cpp.o
+[ 44%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/ButterComp2Proc.cpp.o
+[ 44%] Building CXX object libs/eurorack/CMakeFiles/eurorack.dir/eurorack/stmlib/dsp/units.cc.o
+[ 44%] Building CXX object libs/eurorack/CMakeFiles/eurorack.dir/eurorack/stmlib/dsp/units.cc.o
+[ 44%] Building C object libs/zstd/build/cmake/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/compress/zstd_compress.c.o
+[ 44%] Building C object libs/zstd/build/cmake/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/compress/zstd_compress.c.o
+[ 44%] Building CXX object libs/eurorack/CMakeFiles/eurorack.dir/eurorack/stmlib/dsp/atan.cc.o
+[ 44%] Building CXX object libs/eurorack/CMakeFiles/eurorack.dir/eurorack/stmlib/dsp/atan.cc.o
+[ 44%] Building CXX object libs/eurorack/CMakeFiles/eurorack.dir/eurorack/stmlib/utils/random.cc.o
+[ 44%] Building CXX object libs/eurorack/CMakeFiles/eurorack.dir/eurorack/stmlib/utils/random.cc.o
+[ 44%] Linking CXX static library libeurorack.a
+[ 44%] Linking CXX static library libeurorack.a
+[ 44%] Built target eurorack
+[ 44%] Built target eurorack
+[ 44%] Building C object libs/zstd/build/cmake/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/compress/zstd_compress_literals.c.o
+[ 44%] Building C object libs/zstd/build/cmake/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/compress/zstd_compress_literals.c.o
+[ 44%] Building C object libs/zstd/build/cmake/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/compress/zstd_compress_sequences.c.o
+[ 44%] Building C object libs/zstd/build/cmake/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/compress/zstd_compress_sequences.c.o
+[ 44%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/Cabs.cpp.o
+[ 44%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/Cabs.cpp.o
+[ 44%] Linking CXX static library libfilesystem.a
+[ 44%] Linking CXX static library libfilesystem.a
+[ 44%] Built target filesystem
+[ 44%] Built target filesystem
+[ 44%] Building C object libs/zstd/build/cmake/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/compress/zstd_compress_superblock.c.o
+[ 44%] Building C object libs/zstd/build/cmake/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/compress/zstd_compress_superblock.c.o
+[ 44%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/CabsProc.cpp.o
+[ 44%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/CabsProc.cpp.o
+[ 44%] Building CXX object libs/sst/sst-plugininfra/CMakeFiles/sst-plugininfra.dir/__/__/__/gen/paths_subst.cpp.o
+[ 44%] Building CXX object libs/sst/sst-plugininfra/CMakeFiles/sst-plugininfra.dir/__/__/__/gen/paths_subst.cpp.o
+[ 44%] Building C object libs/zstd/build/cmake/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/compress/zstd_double_fast.c.o
+[ 44%] Building C object libs/zstd/build/cmake/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/compress/zstd_double_fast.c.o
+[ 44%] Building C object libs/zstd/build/cmake/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/compress/zstd_fast.c.o
+[ 44%] Building C object libs/zstd/build/cmake/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/compress/zstd_fast.c.o
+[ 44%] Building CXX object libs/sst/sst-plugininfra/libs/tinyxml/CMakeFiles/tinyxml.dir/src/tinystr.cpp.o
+[ 44%] Building CXX object libs/sst/sst-plugininfra/libs/tinyxml/CMakeFiles/tinyxml.dir/src/tinystr.cpp.o
+[ 44%] Building CXX object libs/sst/sst-plugininfra/libs/tinyxml/CMakeFiles/tinyxml.dir/src/tinyxml.cpp.o
+[ 44%] Building CXX object libs/sst/sst-plugininfra/libs/tinyxml/CMakeFiles/tinyxml.dir/src/tinyxml.cpp.o
+[ 44%] Building C object libs/zstd/build/cmake/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/compress/zstd_lazy.c.o
+[ 44%] Building C object libs/zstd/build/cmake/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/compress/zstd_lazy.c.o
+[ 44%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/Capacitor.cpp.o
+[ 44%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/Capacitor.cpp.o
+[ 44%] Building CXX object libs/sst/sst-plugininfra/CMakeFiles/sst-plugininfra.dir/src/cpufeatures.cpp.o
+[ 44%] Building CXX object libs/sst/sst-plugininfra/CMakeFiles/sst-plugininfra.dir/src/cpufeatures.cpp.o
+[ 44%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/CapacitorProc.cpp.o
+[ 44%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/CapacitorProc.cpp.o
+[ 44%] Building C object libs/zstd/build/cmake/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/compress/zstd_ldm.c.o
+[ 44%] Building C object libs/zstd/build/cmake/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/compress/zstd_ldm.c.o
+[ 44%] Building CXX object libs/sst/sst-plugininfra/CMakeFiles/sst-plugininfra.dir/src/paths_linux.cpp.o
+[ 44%] Building CXX object libs/sst/sst-plugininfra/CMakeFiles/sst-plugininfra.dir/src/paths_linux.cpp.o
+[ 45%] Building C object libs/zstd/build/cmake/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/compress/zstd_opt.c.o
+[ 45%] Building C object libs/zstd/build/cmake/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/compress/zstd_opt.c.o
+[ 45%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/Chamber.cpp.o
+[ 45%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/Chamber.cpp.o
+[ 45%] Building CXX object libs/sst/sst-plugininfra/libs/tinyxml/CMakeFiles/tinyxml.dir/src/tinyxmlerror.cpp.o
+[ 45%] Building CXX object libs/sst/sst-plugininfra/libs/tinyxml/CMakeFiles/tinyxml.dir/src/tinyxmlerror.cpp.o
+[ 45%] Building C object libs/zstd/build/cmake/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/compress/zstd_preSplit.c.o
+[ 45%] Building C object libs/zstd/build/cmake/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/compress/zstd_preSplit.c.o
+[ 45%] Building C object libs/zstd/build/cmake/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/compress/zstdmt_compress.c.o
+[ 45%] Building C object libs/zstd/build/cmake/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/compress/zstdmt_compress.c.o
+[ 45%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/ChamberProc.cpp.o
+[ 45%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/ChamberProc.cpp.o
+[ 45%] Building CXX object libs/sst/sst-plugininfra/CMakeFiles/sst-plugininfra.dir/src/misc_linux.cpp.o
+[ 45%] Building CXX object libs/sst/sst-plugininfra/CMakeFiles/sst-plugininfra.dir/src/misc_linux.cpp.o
+[ 45%] Building C object libs/zstd/build/cmake/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/decompress/huf_decompress.c.o
+[ 45%] Building C object libs/zstd/build/cmake/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/decompress/huf_decompress.c.o
+[ 45%] Building CXX object libs/sst/sst-plugininfra/libs/tinyxml/CMakeFiles/tinyxml.dir/src/tinyxmlparser.cpp.o
+[ 45%] Building CXX object libs/sst/sst-plugininfra/libs/tinyxml/CMakeFiles/tinyxml.dir/src/tinyxmlparser.cpp.o
+[ 45%] Linking CXX static library libsst-plugininfra.a
+[ 45%] Linking CXX static library libsst-plugininfra.a
+[ 45%] Building C object libs/zstd/build/cmake/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/decompress/zstd_ddict.c.o
+[ 45%] Building C object libs/zstd/build/cmake/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/decompress/zstd_ddict.c.o
+[ 47%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/ChromeOxide.cpp.o
+[ 47%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/ChromeOxide.cpp.o
+[ 47%] Built target sst-plugininfra
+[ 47%] Built target sst-plugininfra
+[ 47%] Building C object libs/zstd/build/cmake/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/decompress/zstd_decompress.c.o
+[ 47%] Building C object libs/zstd/build/cmake/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/decompress/zstd_decompress.c.o
+[ 47%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/ChromeOxideProc.cpp.o
+[ 47%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/ChromeOxideProc.cpp.o
+[ 47%] Building C object libs/zstd/build/cmake/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/decompress/zstd_decompress_block.c.o
+[ 47%] Building C object libs/zstd/build/cmake/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/decompress/zstd_decompress_block.c.o
+[ 47%] Building C object libs/zstd/build/cmake/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/dictBuilder/cover.c.o
+[ 47%] Building C object libs/zstd/build/cmake/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/dictBuilder/cover.c.o
+[ 47%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/Cojones.cpp.o
+[ 47%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/Cojones.cpp.o
+[ 47%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/CojonesProc.cpp.o
+[ 47%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/CojonesProc.cpp.o
+[ 48%] Building C object libs/zstd/build/cmake/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/dictBuilder/divsufsort.c.o
+[ 48%] Building C object libs/zstd/build/cmake/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/dictBuilder/divsufsort.c.o
+[ 48%] Linking CXX static library libtinyxml.a
+[ 48%] Linking CXX static library libtinyxml.a
+[ 48%] Built target tinyxml
+[ 48%] Built target tinyxml
+[ 48%] Building C object libs/zstd/build/cmake/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/dictBuilder/fastcover.c.o
+[ 48%] Building C object libs/zstd/build/cmake/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/dictBuilder/fastcover.c.o
+[ 48%] Building C object libs/zstd/build/cmake/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/dictBuilder/zdict.c.o
+[ 48%] Building C object libs/zstd/build/cmake/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/dictBuilder/zdict.c.o
+[ 48%] Building C object libs/zstd/build/cmake/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/legacy/zstd_v01.c.o
+[ 48%] Building C object libs/zstd/build/cmake/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/legacy/zstd_v01.c.o
+[ 48%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/Compresaturator.cpp.o
+[ 48%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/Compresaturator.cpp.o
+[ 48%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/CompresaturatorProc.cpp.o
+[ 48%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/CompresaturatorProc.cpp.o
+[ 48%] Building C object libs/zstd/build/cmake/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/legacy/zstd_v02.c.o
+[ 48%] Building C object libs/zstd/build/cmake/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/legacy/zstd_v02.c.o
+[ 48%] Building C object libs/zstd/build/cmake/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/legacy/zstd_v03.c.o
+[ 48%] Building C object libs/zstd/build/cmake/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/legacy/zstd_v03.c.o
+[ 48%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/CrunchyGrooveWear.cpp.o
+[ 48%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/CrunchyGrooveWear.cpp.o
+[ 48%] Building C object libs/zstd/build/cmake/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/legacy/zstd_v04.c.o
+[ 48%] Building C object libs/zstd/build/cmake/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/legacy/zstd_v04.c.o
+[ 48%] Building C object libs/zstd/build/cmake/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/legacy/zstd_v05.c.o
+[ 48%] Building C object libs/zstd/build/cmake/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/legacy/zstd_v05.c.o
+[ 48%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/CrunchyGrooveWearProc.cpp.o
+[ 48%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/CrunchyGrooveWearProc.cpp.o
+[ 48%] Building C object libs/zstd/build/cmake/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/legacy/zstd_v06.c.o
+[ 48%] Building C object libs/zstd/build/cmake/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/legacy/zstd_v06.c.o
+[ 48%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/DeBess.cpp.o
+[ 48%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/DeBess.cpp.o
+[ 50%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/DeBessProc.cpp.o
+[ 50%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/DeBessProc.cpp.o
+[ 51%] Building C object libs/zstd/build/cmake/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/legacy/zstd_v07.c.o
+[ 51%] Building C object libs/zstd/build/cmake/lib/CMakeFiles/libzstd_static.dir/__/__/__/lib/legacy/zstd_v07.c.o
+[ 51%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/DeEss.cpp.o
+[ 51%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/DeEss.cpp.o
+[ 51%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/DeEssProc.cpp.o
+[ 51%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/DeEssProc.cpp.o
+[ 51%] Linking C static library libzstd.a
+[ 51%] Linking C static library libzstd.a
+[ 51%] Built target libzstd_static
+[ 51%] Built target libzstd_static
+[ 51%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/DeRez2.cpp.o
+[ 51%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/DeRez2.cpp.o
+[ 51%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/DeRez2Proc.cpp.o
+[ 51%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/DeRez2Proc.cpp.o
+[ 51%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/DeckWrecka.cpp.o
+[ 51%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/DeckWrecka.cpp.o
+[ 51%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/DeckWreckaProc.cpp.o
+[ 51%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/DeckWreckaProc.cpp.o
+[ 51%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/Density.cpp.o
+[ 51%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/Density.cpp.o
+[ 51%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/DensityProc.cpp.o
+[ 51%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/DensityProc.cpp.o
+[ 52%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/Drive.cpp.o
+[ 52%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/Drive.cpp.o
+[ 52%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/DriveProc.cpp.o
+[ 52%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/DriveProc.cpp.o
+[ 52%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/DrumSlam.cpp.o
+[ 52%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/DrumSlam.cpp.o
+[ 52%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/DrumSlamProc.cpp.o
+[ 52%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/DrumSlamProc.cpp.o
+[ 52%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/DubSub.cpp.o
+[ 52%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/DubSub.cpp.o
+[ 52%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/DubSubProc.cpp.o
+[ 52%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/DubSubProc.cpp.o
+[ 52%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/DubCenter.cpp.o
+[ 52%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/DubCenter.cpp.o
+[ 52%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/DubCenterProc.cpp.o
+[ 52%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/DubCenterProc.cpp.o
+[ 54%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/DustBunny.cpp.o
+[ 54%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/DustBunny.cpp.o
+[ 54%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/DustBunnyProc.cpp.o
+[ 54%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/DustBunnyProc.cpp.o
+[ 54%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/FireAmp.cpp.o
+[ 54%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/FireAmp.cpp.o
+[ 54%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/FireAmpProc.cpp.o
+[ 54%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/FireAmpProc.cpp.o
+[ 54%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/Focus.cpp.o
+[ 54%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/Focus.cpp.o
+[ 54%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/FocusProc.cpp.o
+[ 54%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/FocusProc.cpp.o
+[ 54%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/Fracture.cpp.o
+[ 54%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/Fracture.cpp.o
+[ 54%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/FractureProc.cpp.o
+[ 54%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/FractureProc.cpp.o
+[ 54%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/Galactic.cpp.o
+[ 54%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/Galactic.cpp.o
+[ 55%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/GalacticProc.cpp.o
+[ 55%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/GalacticProc.cpp.o
+[ 55%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/GlitchShifter.cpp.o
+[ 55%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/GlitchShifter.cpp.o
+[ 55%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/GlitchShifterProc.cpp.o
+[ 55%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/GlitchShifterProc.cpp.o
+[ 55%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/GrooveWear.cpp.o
+[ 55%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/GrooveWear.cpp.o
+[ 55%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/GrooveWearProc.cpp.o
+[ 55%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/GrooveWearProc.cpp.o
+[ 55%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/HardVacuum.cpp.o
+[ 55%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/HardVacuum.cpp.o
+[ 55%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/HardVacuumProc.cpp.o
+[ 55%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/HardVacuumProc.cpp.o
+[ 55%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/Hombre.cpp.o
+[ 55%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/Hombre.cpp.o
+[ 57%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/HombreProc.cpp.o
+[ 57%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/HombreProc.cpp.o
+[ 57%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/Infinity.cpp.o
+[ 57%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/Infinity.cpp.o
+[ 57%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/InfinityProc.cpp.o
+[ 57%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/InfinityProc.cpp.o
+[ 57%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/IronOxide5.cpp.o
+[ 57%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/IronOxide5.cpp.o
+[ 57%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/IronOxide5Proc.cpp.o
+[ 57%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/IronOxide5Proc.cpp.o
+[ 57%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/Logical4.cpp.o
+[ 57%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/Logical4.cpp.o
+[ 57%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/Logical4Proc.cpp.o
+[ 57%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/Logical4Proc.cpp.o
+[ 57%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/Loud.cpp.o
+[ 57%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/Loud.cpp.o
+[ 57%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/LoudProc.cpp.o
+[ 57%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/LoudProc.cpp.o
+[ 58%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/Mackity.cpp.o
+[ 58%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/Mackity.cpp.o
+[ 58%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/MackityProc.cpp.o
+[ 58%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/MackityProc.cpp.o
+[ 58%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/MackEQ.cpp.o
+[ 58%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/MackEQ.cpp.o
+[ 58%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/MackEQProc.cpp.o
+[ 58%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/MackEQProc.cpp.o
+[ 58%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/MatrixVerb.cpp.o
+[ 58%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/MatrixVerb.cpp.o
+[ 58%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/MatrixVerbProc.cpp.o
+[ 58%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/MatrixVerbProc.cpp.o
+[ 58%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/Melt.cpp.o
+[ 58%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/Melt.cpp.o
+[ 58%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/MeltProc.cpp.o
+[ 58%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/MeltProc.cpp.o
+[ 58%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/Mojo.cpp.o
+[ 58%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/Mojo.cpp.o
+[ 60%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/MojoProc.cpp.o
+[ 60%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/MojoProc.cpp.o
+[ 60%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/NCSeventeen.cpp.o
+[ 60%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/NCSeventeen.cpp.o
+[ 60%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/NCSeventeenProc.cpp.o
+[ 60%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/NCSeventeenProc.cpp.o
+[ 60%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/Noise.cpp.o
+[ 60%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/Noise.cpp.o
+[ 60%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/NoiseProc.cpp.o
+[ 60%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/NoiseProc.cpp.o
+[ 60%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/NonlinearSpace.cpp.o
+[ 60%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/NonlinearSpace.cpp.o
+[ 60%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/NonlinearSpaceProc.cpp.o
+[ 60%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/NonlinearSpaceProc.cpp.o
+[ 60%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/OneCornerClip.cpp.o
+[ 60%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/OneCornerClip.cpp.o
+[ 61%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/OneCornerClipProc.cpp.o
+[ 61%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/OneCornerClipProc.cpp.o
+[ 61%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/Pafnuty.cpp.o
+[ 61%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/Pafnuty.cpp.o
+[ 61%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/PafnutyProc.cpp.o
+[ 61%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/PafnutyProc.cpp.o
+[ 61%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/PocketVerbs.cpp.o
+[ 61%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/PocketVerbs.cpp.o
+[ 61%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/PocketVerbsProc.cpp.o
+[ 61%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/PocketVerbsProc.cpp.o
+[ 61%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/Point.cpp.o
+[ 61%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/Point.cpp.o
+[ 61%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/PointProc.cpp.o
+[ 61%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/PointProc.cpp.o
+[ 61%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/Pop.cpp.o
+[ 61%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/Pop.cpp.o
+[ 61%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/PopProc.cpp.o
+[ 61%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/PopProc.cpp.o
+[ 63%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/PowerSag.cpp.o
+[ 63%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/PowerSag.cpp.o
+[ 63%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/PowerSagProc.cpp.o
+[ 63%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/PowerSagProc.cpp.o
+[ 63%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/Pressure4.cpp.o
+[ 63%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/Pressure4.cpp.o
+[ 63%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/Pressure4Proc.cpp.o
+[ 63%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/Pressure4Proc.cpp.o
+[ 63%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/PyeWacket.cpp.o
+[ 63%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/PyeWacket.cpp.o
+[ 63%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/PyeWacketProc.cpp.o
+[ 63%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/PyeWacketProc.cpp.o
+[ 63%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/SingleEndedTriode.cpp.o
+[ 63%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/SingleEndedTriode.cpp.o
+[ 63%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/SingleEndedTriodeProc.cpp.o
+[ 63%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/SingleEndedTriodeProc.cpp.o
+[ 64%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/Slew.cpp.o
+[ 64%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/Slew.cpp.o
+[ 64%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/Slew2.cpp.o
+[ 64%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/Slew2.cpp.o
+[ 64%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/Slew2Proc.cpp.o
+[ 64%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/Slew2Proc.cpp.o
+[ 64%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/SlewProc.cpp.o
+[ 64%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/SlewProc.cpp.o
+[ 64%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/Spiral2.cpp.o
+[ 64%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/Spiral2.cpp.o
+[ 64%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/Spiral2Proc.cpp.o
+[ 64%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/Spiral2Proc.cpp.o
+[ 64%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/StarChild.cpp.o
+[ 64%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/StarChild.cpp.o
+[ 64%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/StarChildProc.cpp.o
+[ 64%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/StarChildProc.cpp.o
+[ 64%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/Surge.cpp.o
+[ 64%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/Surge.cpp.o
+[ 66%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/SurgeProc.cpp.o
+[ 66%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/SurgeProc.cpp.o
+[ 66%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/TapeDust.cpp.o
+[ 66%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/TapeDust.cpp.o
+[ 66%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/TapeDustProc.cpp.o
+[ 66%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/TapeDustProc.cpp.o
+[ 66%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/ToTape6.cpp.o
+[ 66%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/ToTape6.cpp.o
+[ 66%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/ToTape6Proc.cpp.o
+[ 66%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/ToTape6Proc.cpp.o
+[ 66%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/ToVinyl4.cpp.o
+[ 66%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/ToVinyl4.cpp.o
+[ 66%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/ToVinyl4Proc.cpp.o
+[ 66%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/ToVinyl4Proc.cpp.o
+[ 66%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/TripleSpread.cpp.o
+[ 66%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/TripleSpread.cpp.o
+[ 66%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/TripleSpreadProc.cpp.o
+[ 66%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/TripleSpreadProc.cpp.o
+[ 67%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/UnBox.cpp.o
+[ 67%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/UnBox.cpp.o
+[ 67%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/UnBoxProc.cpp.o
+[ 67%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/UnBoxProc.cpp.o
+[ 67%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/Verbity.cpp.o
+[ 67%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/Verbity.cpp.o
+[ 67%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/VerbityProc.cpp.o
+[ 67%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/VerbityProc.cpp.o
+[ 67%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/VariMu.cpp.o
+[ 67%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/VariMu.cpp.o
+[ 67%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/VariMuProc.cpp.o
+[ 67%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/VariMuProc.cpp.o
+[ 67%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/VoiceOfTheStarship.cpp.o
+[ 67%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/VoiceOfTheStarship.cpp.o
+[ 67%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/VoiceOfTheStarshipProc.cpp.o
+[ 67%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/VoiceOfTheStarshipProc.cpp.o
+[ 69%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/YBandpass.cpp.o
+[ 69%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/YBandpass.cpp.o
+[ 69%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/YBandpassProc.cpp.o
+[ 69%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/YBandpassProc.cpp.o
+[ 69%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/YHighpass.cpp.o
+[ 69%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/YHighpass.cpp.o
+[ 69%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/YHighpassProc.cpp.o
+[ 69%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/YHighpassProc.cpp.o
+[ 69%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/YLowpass.cpp.o
+[ 69%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/YLowpass.cpp.o
+[ 69%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/YLowpassProc.cpp.o
+[ 69%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/YLowpassProc.cpp.o
+[ 69%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/YNotch.cpp.o
+[ 69%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/YNotch.cpp.o
+[ 69%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/YNotchProc.cpp.o
+[ 69%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/YNotchProc.cpp.o
+[ 69%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/ZBandpass2.cpp.o
+[ 69%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/ZBandpass2.cpp.o
+[ 70%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/ZBandpass2Proc.cpp.o
+[ 70%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/ZBandpass2Proc.cpp.o
+[ 70%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/ZHighpass2.cpp.o
+[ 70%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/ZHighpass2.cpp.o
+[ 70%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/ZHighpass2Proc.cpp.o
+[ 70%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/ZHighpass2Proc.cpp.o
+[ 70%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/ZLowpass2.cpp.o
+[ 70%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/ZLowpass2.cpp.o
+[ 70%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/ZLowpass2Proc.cpp.o
+[ 70%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/ZLowpass2Proc.cpp.o
+[ 70%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/ZNotch2.cpp.o
+[ 70%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/ZNotch2.cpp.o
+[ 70%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/ZNotch2Proc.cpp.o
+[ 70%] Building CXX object libs/airwindows/CMakeFiles/airwindows.dir/src/ZNotch2Proc.cpp.o
+[ 70%] Linking CXX static library libairwindows.a
+[ 70%] Linking CXX static library libairwindows.a
+[ 70%] Built target airwindows
+[ 70%] Built target airwindows
+[ 70%] Building CXX object src/common/CMakeFiles/surge-common.dir/LuaSupport.cpp.o
+[ 70%] Building CXX object src/common/CMakeFiles/surge-common.dir/LuaSupport.cpp.o
+[ 70%] Building CXX object src/common/CMakeFiles/surge-common.dir/DebugHelpers.cpp.o
+[ 70%] Building CXX object src/common/CMakeFiles/surge-common.dir/DebugHelpers.cpp.o
+[ 72%] Building CXX object src/common/CMakeFiles/surge-common.dir/FxPresetAndClipboardManager.cpp.o
+[ 72%] Building CXX object src/common/CMakeFiles/surge-common.dir/ModulationSource.cpp.o
+[ 72%] Building CXX object src/common/CMakeFiles/surge-common.dir/FxPresetAndClipboardManager.cpp.o
+[ 72%] Building CXX object src/common/CMakeFiles/surge-common.dir/ModulationSource.cpp.o
+[ 72%] Building CXX object src/common/CMakeFiles/surge-common.dir/ModulatorPresetManager.cpp.o
+[ 72%] Building CXX object src/common/CMakeFiles/surge-common.dir/ModulatorPresetManager.cpp.o
+[ 72%] Building CXX object src/common/CMakeFiles/surge-common.dir/Parameter.cpp.o
+[ 72%] Building CXX object src/common/CMakeFiles/surge-common.dir/Parameter.cpp.o
+[ 72%] Building CXX object src/common/CMakeFiles/surge-common.dir/PatchDB.cpp.o
+[ 72%] Building CXX object src/common/CMakeFiles/surge-common.dir/PatchDB.cpp.o
+[ 72%] Building CXX object src/common/CMakeFiles/surge-common.dir/PatchDBQueryParser.cpp.o
+[ 72%] Building CXX object src/common/CMakeFiles/surge-common.dir/PatchDBQueryParser.cpp.o
+[ 72%] Building CXX object src/common/CMakeFiles/surge-common.dir/SkinColors.cpp.o
+[ 72%] Building CXX object src/common/CMakeFiles/surge-common.dir/SkinColors.cpp.o
+[ 72%] Building CXX object src/common/CMakeFiles/surge-common.dir/SkinFonts.cpp.o
+[ 72%] Building CXX object src/common/CMakeFiles/surge-common.dir/SkinFonts.cpp.o
+[ 73%] Building CXX object src/common/CMakeFiles/surge-common.dir/SkinModel.cpp.o
+[ 73%] Building CXX object src/common/CMakeFiles/surge-common.dir/SkinModel.cpp.o
+[ 73%] Building CXX object src/common/CMakeFiles/surge-common.dir/SkinModelImpl.cpp.o
+[ 73%] Building CXX object src/common/CMakeFiles/surge-common.dir/SkinModelImpl.cpp.o
+[ 73%] Building CXX object src/common/CMakeFiles/surge-common.dir/SurgePatch.cpp.o
+[ 73%] Building CXX object src/common/CMakeFiles/surge-common.dir/SurgePatch.cpp.o
+[ 73%] Building CXX object src/common/CMakeFiles/surge-common.dir/SurgeStorage.cpp.o
+[ 73%] Building CXX object src/common/CMakeFiles/surge-common.dir/SurgeStorage.cpp.o
+[ 73%] Building CXX object src/common/CMakeFiles/surge-common.dir/SurgeSynthesizer.cpp.o
+[ 73%] Building CXX object src/common/CMakeFiles/surge-common.dir/SurgeSynthesizer.cpp.o
+[ 73%] Building CXX object src/common/CMakeFiles/surge-common.dir/SurgeSynthesizerIO.cpp.o
+[ 73%] Building CXX object src/common/CMakeFiles/surge-common.dir/SurgeSynthesizerIO.cpp.o
+[ 73%] Building CXX object src/common/CMakeFiles/surge-common.dir/UserDefaults.cpp.o
+[ 73%] Building CXX object src/common/CMakeFiles/surge-common.dir/UserDefaults.cpp.o
+[ 73%] Building CXX object src/common/CMakeFiles/surge-common.dir/WAVFileSupport.cpp.o
+[ 73%] Building CXX object src/common/CMakeFiles/surge-common.dir/WAVFileSupport.cpp.o
+[ 75%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/Effect.cpp.o
+[ 75%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/Effect.cpp.o
+[ 75%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/Oscillator.cpp.o
+[ 75%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/Oscillator.cpp.o
+[ 75%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/QuadFilterChain.cpp.o
+[ 75%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/QuadFilterChain.cpp.o
+[ 75%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/SurgeVoice.cpp.o
+[ 75%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/SurgeVoice.cpp.o
+[ 75%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/TiltNoiseAdapter.cpp.o
+[ 75%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/TiltNoiseAdapter.cpp.o
+[ 75%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/Wavetable.cpp.o
+[ 75%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/Wavetable.cpp.o
+[ 75%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/WavetableScriptEvaluator.cpp.o
+[ 75%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/WavetableScriptEvaluator.cpp.o
+[ 75%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/effects/BBDEnsembleEffect.cpp.o
+[ 75%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/effects/BBDEnsembleEffect.cpp.o
+[ 75%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/effects/BonsaiEffect.cpp.o
+[ 75%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/effects/BonsaiEffect.cpp.o
+[ 76%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/effects/CombulatorEffect.cpp.o
+[ 76%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/effects/CombulatorEffect.cpp.o
+[ 76%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/effects/ConditionerEffect.cpp.o
+[ 76%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/effects/ConditionerEffect.cpp.o
+[ 76%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/effects/ConvolutionEffect.cpp.o
+[ 76%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/effects/ConvolutionEffect.cpp.o
+[ 76%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/effects/DelayEffect.cpp.o
+[ 76%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/effects/DelayEffect.cpp.o
+[ 76%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/effects/DistortionEffect.cpp.o
+[ 76%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/effects/DistortionEffect.cpp.o
+[ 76%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/effects/FlangerEffect.cpp.o
+[ 76%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/effects/FlangerEffect.cpp.o
+[ 76%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/effects/FloatyDelayEffect.cpp.o
+[ 76%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/effects/FloatyDelayEffect.cpp.o
+[ 76%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/effects/FrequencyShifterEffect.cpp.o
+[ 76%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/effects/FrequencyShifterEffect.cpp.o
+[ 77%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/effects/GraphicEQ11BandEffect.cpp.o
+[ 77%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/effects/GraphicEQ11BandEffect.cpp.o
+[ 77%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/effects/MSToolEffect.cpp.o
+[ 77%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/effects/MSToolEffect.cpp.o
+[ 77%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/effects/NimbusEffect.cpp.o
+[ 77%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/effects/NimbusEffect.cpp.o
+[ 77%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/effects/ParametricEQ3BandEffect.cpp.o
+[ 77%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/effects/ParametricEQ3BandEffect.cpp.o
+[ 77%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/effects/PhaserEffect.cpp.o
+[ 77%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/effects/PhaserEffect.cpp.o
+[ 77%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/effects/ResonatorEffect.cpp.o
+[ 77%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/effects/ResonatorEffect.cpp.o
+[ 77%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/effects/Reverb1Effect.cpp.o
+[ 77%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/effects/Reverb1Effect.cpp.o
+[ 77%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/effects/Reverb2Effect.cpp.o
+[ 77%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/effects/Reverb2Effect.cpp.o
+[ 77%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/effects/RingModulatorEffect.cpp.o
+[ 77%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/effects/RingModulatorEffect.cpp.o
+[ 79%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/effects/RotarySpeakerEffect.cpp.o
+[ 79%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/effects/RotarySpeakerEffect.cpp.o
+[ 79%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/effects/TreemonsterEffect.cpp.o
+[ 79%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/effects/TreemonsterEffect.cpp.o
+[ 79%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/effects/VocoderEffect.cpp.o
+[ 79%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/effects/VocoderEffect.cpp.o
+[ 79%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/effects/WaveShaperEffect.cpp.o
+[ 79%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/effects/WaveShaperEffect.cpp.o
+[ 79%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/effects/airwindows/AirWindowsEffect.cpp.o
+[ 79%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/effects/airwindows/AirWindowsEffect.cpp.o
+[ 79%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/effects/chowdsp/CHOWEffect.cpp.o
+[ 79%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/effects/chowdsp/CHOWEffect.cpp.o
+[ 79%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/effects/chowdsp/ExciterEffect.cpp.o
+[ 79%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/effects/chowdsp/ExciterEffect.cpp.o
+[ 79%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/effects/chowdsp/NeuronEffect.cpp.o
+[ 79%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/effects/chowdsp/NeuronEffect.cpp.o
+[ 79%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/effects/chowdsp/SpringReverbEffect.cpp.o
+[ 79%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/effects/chowdsp/SpringReverbEffect.cpp.o
+[ 80%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/effects/chowdsp/TapeEffect.cpp.o
+[ 80%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/effects/chowdsp/TapeEffect.cpp.o
+[ 80%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/effects/chowdsp/bbd_utils/BBDDelayLine.cpp.o
+[ 80%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/effects/chowdsp/bbd_utils/BBDDelayLine.cpp.o
+[ 80%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/effects/chowdsp/exciter/LevelDetector.cpp.o
+[ 80%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/effects/chowdsp/exciter/LevelDetector.cpp.o
+[ 80%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/effects/chowdsp/shared/StateVariableFilter.cpp.o
+[ 80%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/effects/chowdsp/shared/StateVariableFilter.cpp.o
+[ 80%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/effects/chowdsp/spring_reverb/SpringReverbProc.cpp.o
+[ 80%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/effects/chowdsp/spring_reverb/SpringReverbProc.cpp.o
+[ 80%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/effects/chowdsp/tape/ChewProcessor.cpp.o
+[ 80%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/effects/chowdsp/tape/ChewProcessor.cpp.o
+[ 80%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/effects/chowdsp/tape/DegradeProcessor.cpp.o
+[ 80%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/effects/chowdsp/tape/DegradeProcessor.cpp.o
+[ 80%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/effects/chowdsp/tape/HysteresisProcessing.cpp.o
+[ 80%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/effects/chowdsp/tape/HysteresisProcessing.cpp.o
+[ 82%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/effects/chowdsp/tape/HysteresisProcessor.cpp.o
+[ 82%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/effects/chowdsp/tape/HysteresisProcessor.cpp.o
+[ 82%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/effects/chowdsp/tape/LossFilter.cpp.o
+[ 82%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/effects/chowdsp/tape/LossFilter.cpp.o
+[ 82%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/effects/chowdsp/tape/ToneControl.cpp.o
+[ 82%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/effects/chowdsp/tape/ToneControl.cpp.o
+[ 82%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/effects/AudioInputEffect.cpp.o
+[ 82%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/effects/AudioInputEffect.cpp.o
+[ 82%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/filters/VectorizedSVFilter.cpp.o
+[ 82%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/filters/VectorizedSVFilter.cpp.o
+[ 82%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/modulators/FormulaModulationHelper.cpp.o
+[ 82%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/modulators/FormulaModulationHelper.cpp.o
+[ 82%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/modulators/LFOModulationSource.cpp.o
+[ 82%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/modulators/LFOModulationSource.cpp.o
+[ 82%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/modulators/MSEGModulationHelper.cpp.o
+[ 82%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/modulators/MSEGModulationHelper.cpp.o
+[ 82%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/oscillators/AliasOscillator.cpp.o
+[ 82%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/oscillators/AliasOscillator.cpp.o
+[ 83%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/oscillators/AudioInputOscillator.cpp.o
+[ 83%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/oscillators/AudioInputOscillator.cpp.o
+[ 83%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/oscillators/ClassicOscillator.cpp.o
+[ 83%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/oscillators/ClassicOscillator.cpp.o
+[ 83%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/oscillators/FM2Oscillator.cpp.o
+[ 83%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/oscillators/FM2Oscillator.cpp.o
+[ 83%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/oscillators/FM3Oscillator.cpp.o
+[ 83%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/oscillators/FM3Oscillator.cpp.o
+[ 83%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/oscillators/ModernOscillator.cpp.o
+[ 83%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/oscillators/ModernOscillator.cpp.o
+[ 83%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/oscillators/SampleAndHoldOscillator.cpp.o
+[ 83%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/oscillators/SampleAndHoldOscillator.cpp.o
+[ 83%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/oscillators/SineOscillator.cpp.o
+[ 83%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/oscillators/SineOscillator.cpp.o
+[ 83%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/oscillators/StringOscillator.cpp.o
+[ 83%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/oscillators/StringOscillator.cpp.o
+[ 85%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/oscillators/TwistOscillator.cpp.o
+[ 85%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/oscillators/TwistOscillator.cpp.o
+[ 85%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/oscillators/WavetableOscillator.cpp.o
+[ 85%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/oscillators/WavetableOscillator.cpp.o
+[ 85%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/oscillators/WindowOscillator.cpp.o
+[ 85%] Building CXX object src/common/CMakeFiles/surge-common.dir/dsp/oscillators/WindowOscillator.cpp.o
+[ 85%] Building CXX object src/common/CMakeFiles/surge-common.dir/__/__/geninclude/version.cpp.o
+[ 85%] Building CXX object src/common/CMakeFiles/surge-common.dir/__/__/geninclude/version.cpp.o
+[ 85%] Building CXX object src/common/CMakeFiles/surge-common.dir/__/__/libs/r8brain-free-src/r8bbase.cpp.o
+[ 85%] Building CXX object src/common/CMakeFiles/surge-common.dir/__/__/libs/r8brain-free-src/r8bbase.cpp.o
+[ 85%] Linking CXX static library libsurge-common.a
+[ 85%] Linking CXX static library libsurge-common.a
+[ 85%] Built target surge-common
+[ 85%] Built target surge-common
+[ 85%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/util/LuaTokeniserSurge.cpp.o
+[ 85%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/util/LuaTokeniserSurge.cpp.o
+[ 86%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/SurgeSynthEditor.cpp.o
+[ 86%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/SurgeSynthEditor.cpp.o
+[ 86%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/SurgeCLAPPresetDiscovery.cpp.o
+[ 86%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/SurgeCLAPPresetDiscovery.cpp.o
+[ 86%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/SurgeSynthProcessor.cpp.o
+[ 86%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/SurgeSynthProcessor.cpp.o
+[ 86%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/RuntimeFont.cpp.o
+[ 86%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/RuntimeFont.cpp.o
+[ 86%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/SkinFontLoader.cpp.o
+[ 86%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/SkinFontLoader.cpp.o
+[ 86%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/SkinSupport.cpp.o
+[ 86%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/SkinSupport.cpp.o
+[ 86%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/SurgeGUIEditor.cpp.o
+[ 86%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/SurgeGUIEditor.cpp.o
+[ 86%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/SurgeGUIEditorHtmlGenerators.cpp.o
+[ 86%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/SurgeGUIEditorHtmlGenerators.cpp.o
+[ 88%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/SurgeGUIEditorInfowindow.cpp.o
+[ 88%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/SurgeGUIEditorInfowindow.cpp.o
+[ 88%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/SurgeGUIEditorOverlays.cpp.o
+[ 88%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/SurgeGUIEditorOverlays.cpp.o
+[ 88%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/SurgeGUIEditorValueCallbacks.cpp.o
+[ 88%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/SurgeGUIEditorValueCallbacks.cpp.o
+[ 88%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/SurgeGUIEditorMenuStructures.cpp.o
+[ 88%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/SurgeGUIEditorMenuStructures.cpp.o
+[ 88%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/SurgeGUIUtils.cpp.o
+[ 88%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/SurgeGUIUtils.cpp.o
+[ 88%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/SurgeImage.cpp.o
+[ 88%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/SurgeImage.cpp.o
+[ 88%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/SurgeImageStore.cpp.o
+[ 88%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/SurgeImageStore.cpp.o
+[ 88%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/SurgeJUCELookAndFeel.cpp.o
+[ 88%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/SurgeJUCELookAndFeel.cpp.o
+[ 88%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/UndoManager.cpp.o
+[ 88%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/UndoManager.cpp.o
+[ 89%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/overlays/AboutScreen.cpp.o
+[ 89%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/overlays/AboutScreen.cpp.o
+[ 89%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/overlays/FilterAnalysis.cpp.o
+[ 89%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/overlays/FilterAnalysis.cpp.o
+[ 89%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/overlays/KeyBindingsOverlay.cpp.o
+[ 89%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/overlays/KeyBindingsOverlay.cpp.o
+[ 89%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/overlays/LuaEditors.cpp.o
+[ 89%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/overlays/LuaEditors.cpp.o
+[ 89%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/overlays/MSEGEditor.cpp.o
+[ 89%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/overlays/MSEGEditor.cpp.o
+[ 89%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/overlays/MiniEdit.cpp.o
+[ 89%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/overlays/MiniEdit.cpp.o
+[ 89%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/overlays/Alert.cpp.o
+[ 89%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/overlays/Alert.cpp.o
+[ 89%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/overlays/OverlayUtils.cpp.o
+[ 89%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/overlays/OverlayUtils.cpp.o
+[ 91%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/overlays/ModulationEditor.cpp.o
+[ 91%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/overlays/ModulationEditor.cpp.o
+[ 91%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/overlays/Oscilloscope.cpp.o
+[ 91%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/overlays/Oscilloscope.cpp.o
+[ 91%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/overlays/OverlayWrapper.cpp.o
+[ 91%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/overlays/OverlayWrapper.cpp.o
+[ 91%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/overlays/PatchDBViewer.cpp.o
+[ 91%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/overlays/PatchDBViewer.cpp.o
+[ 91%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/overlays/PatchStoreDialog.cpp.o
+[ 91%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/overlays/PatchStoreDialog.cpp.o
+[ 91%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/overlays/TuningOverlays.cpp.o
+[ 91%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/overlays/TuningOverlays.cpp.o
+[ 91%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/overlays/TypeinParamEditor.cpp.o
+[ 91%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/overlays/TypeinParamEditor.cpp.o
+[ 91%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/overlays/WaveShaperAnalysis.cpp.o
+[ 91%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/overlays/WaveShaperAnalysis.cpp.o
+[ 91%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/overlays/OpenSoundControlSettings.cpp.o
+[ 91%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/overlays/OpenSoundControlSettings.cpp.o
+[ 92%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/widgets/CurrentFxDisplay.cpp.o
+[ 92%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/widgets/CurrentFxDisplay.cpp.o
+[ 92%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/widgets/EffectChooser.cpp.o
+[ 92%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/widgets/EffectChooser.cpp.o
+[ 92%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/widgets/LFOAndStepDisplay.cpp.o
+[ 92%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/widgets/LFOAndStepDisplay.cpp.o
+[ 92%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/widgets/MainFrame.cpp.o
+[ 92%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/widgets/MainFrame.cpp.o
+[ 92%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/widgets/MenuButtonFromIcon.cpp.o
+[ 92%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/widgets/MenuButtonFromIcon.cpp.o
+[ 92%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/widgets/MenuCustomComponents.cpp.o
+[ 92%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/widgets/MenuCustomComponents.cpp.o
+[ 92%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/widgets/MenuForDiscreteParams.cpp.o
+[ 92%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/widgets/MenuForDiscreteParams.cpp.o
+[ 92%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/widgets/ModulatableSlider.cpp.o
+[ 92%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/widgets/ModulatableSlider.cpp.o
+[ 94%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/widgets/ModulationSourceButton.cpp.o
+[ 94%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/widgets/ModulationSourceButton.cpp.o
+[ 94%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/widgets/MultiSwitch.cpp.o
+[ 94%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/widgets/MultiSwitch.cpp.o
+[ 94%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/widgets/NumberField.cpp.o
+[ 94%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/widgets/NumberField.cpp.o
+[ 94%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/widgets/OscillatorWaveformDisplay.cpp.o
+[ 94%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/widgets/OscillatorWaveformDisplay.cpp.o
+[ 94%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/widgets/ParameterInfowindow.cpp.o
+[ 94%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/widgets/ParameterInfowindow.cpp.o
+[ 94%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/widgets/PatchSelector.cpp.o
+[ 94%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/widgets/PatchSelector.cpp.o
+[ 94%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/widgets/Switch.cpp.o
+[ 94%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/widgets/Switch.cpp.o
+[ 94%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/widgets/SurgeTextButton.cpp.o
+[ 94%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/widgets/SurgeTextButton.cpp.o
+[ 94%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/widgets/TypeAheadTextEditor.cpp.o
+[ 94%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/widgets/TypeAheadTextEditor.cpp.o
+[ 95%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/widgets/VerticalLabel.cpp.o
+[ 95%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/widgets/VerticalLabel.cpp.o
+[ 95%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/widgets/VuMeter.cpp.o
+[ 95%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/widgets/VuMeter.cpp.o
+[ 95%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/widgets/WaveShaperSelector.cpp.o
+[ 95%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/widgets/WaveShaperSelector.cpp.o
+[ 95%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/widgets/XMLConfiguredMenus.cpp.o
+[ 95%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/gui/widgets/XMLConfiguredMenus.cpp.o
+[ 95%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/osc/OpenSoundControl.cpp.o
+[ 95%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/osc/OpenSoundControl.cpp.o
+[ 95%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/__/__/libs/JUCE/modules/juce_audio_processors/juce_audio_processors.cpp.o
+[ 95%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/__/__/libs/JUCE/modules/juce_audio_processors/juce_audio_processors.cpp.o
+[ 95%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/__/__/libs/JUCE/modules/juce_audio_processors/juce_audio_processors_ara.cpp.o
+[ 95%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/__/__/libs/JUCE/modules/juce_audio_processors/juce_audio_processors_ara.cpp.o
+[ 95%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/__/__/libs/JUCE/modules/juce_audio_processors/juce_audio_processors_lv2_libs.cpp.o
+[ 95%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/__/__/libs/JUCE/modules/juce_audio_processors/juce_audio_processors_lv2_libs.cpp.o
+[ 95%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/__/__/libs/JUCE/modules/juce_gui_extra/juce_gui_extra.cpp.o
+[ 95%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/__/__/libs/JUCE/modules/juce_gui_extra/juce_gui_extra.cpp.o
+[ 97%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/__/__/libs/JUCE/modules/juce_gui_basics/juce_gui_basics.cpp.o
+[ 97%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/__/__/libs/JUCE/modules/juce_gui_basics/juce_gui_basics.cpp.o
+[ 97%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/__/__/libs/JUCE/modules/juce_graphics/juce_graphics.cpp.o
+[ 97%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/__/__/libs/JUCE/modules/juce_graphics/juce_graphics.cpp.o
+[ 97%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/__/__/libs/JUCE/modules/juce_graphics/juce_graphics_Harfbuzz.cpp.o
+[ 97%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/__/__/libs/JUCE/modules/juce_graphics/juce_graphics_Harfbuzz.cpp.o
+[ 97%] Building C object src/surge-xt/CMakeFiles/surge-xt.dir/__/__/libs/JUCE/modules/juce_graphics/juce_graphics_Sheenbidi.c.o
+[ 97%] Building C object src/surge-xt/CMakeFiles/surge-xt.dir/__/__/libs/JUCE/modules/juce_graphics/juce_graphics_Sheenbidi.c.o
+[ 97%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/__/__/libs/JUCE/modules/juce_events/juce_events.cpp.o
+[ 97%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/__/__/libs/JUCE/modules/juce_events/juce_events.cpp.o
+[ 97%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/__/__/libs/JUCE/modules/juce_core/juce_core.cpp.o
+[ 97%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/__/__/libs/JUCE/modules/juce_core/juce_core.cpp.o
+[ 97%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/__/__/libs/JUCE/modules/juce_core/juce_core_CompilationTime.cpp.o
+[ 97%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/__/__/libs/JUCE/modules/juce_core/juce_core_CompilationTime.cpp.o
+[ 97%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/__/__/libs/JUCE/modules/juce_data_structures/juce_data_structures.cpp.o
+[ 97%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/__/__/libs/JUCE/modules/juce_data_structures/juce_data_structures.cpp.o
+[ 98%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/__/__/libs/JUCE/modules/juce_audio_basics/juce_audio_basics.cpp.o
+[ 98%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/__/__/libs/JUCE/modules/juce_audio_basics/juce_audio_basics.cpp.o
+[ 98%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/__/__/libs/JUCE/modules/juce_audio_utils/juce_audio_utils.cpp.o
+[ 98%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/__/__/libs/JUCE/modules/juce_audio_utils/juce_audio_utils.cpp.o
+[ 98%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/__/__/libs/JUCE/modules/juce_audio_formats/juce_audio_formats.cpp.o
+[ 98%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/__/__/libs/JUCE/modules/juce_audio_formats/juce_audio_formats.cpp.o
+[ 98%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/__/__/libs/JUCE/modules/juce_audio_devices/juce_audio_devices.cpp.o
+[ 98%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/__/__/libs/JUCE/modules/juce_audio_devices/juce_audio_devices.cpp.o
+[ 98%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/__/__/libs/JUCE/modules/juce_osc/juce_osc.cpp.o
+[ 98%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/__/__/libs/JUCE/modules/juce_osc/juce_osc.cpp.o
+[ 98%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/__/__/libs/JUCE/modules/juce_dsp/juce_dsp.cpp.o
+[ 98%] Building CXX object src/surge-xt/CMakeFiles/surge-xt.dir/__/__/libs/JUCE/modules/juce_dsp/juce_dsp.cpp.o
+[ 98%] Linking CXX static library "surge-xt_artefacts/Release/libSurge XT_SharedCode.a"
+[ 98%] Linking CXX static library "surge-xt_artefacts/Release/libSurge XT_SharedCode.a"
+[ 98%] Built target surge-xt
+[ 98%] Built target surge-xt
+[ 98%] Building CXX object src/surge-xt/cli/CMakeFiles/surge-xt-cli.dir/cli-main.cpp.o
+[ 98%] Building CXX object src/surge-xt/cli/CMakeFiles/surge-xt-cli.dir/cli-main.cpp.o
+[ 98%] Building CXX object src/surge-xt/cli/CMakeFiles/surge-xt-cli.dir/__/__/__/libs/JUCE/modules/juce_core/juce_core.cpp.o
+[ 98%] Building CXX object src/surge-xt/cli/CMakeFiles/surge-xt-cli.dir/__/__/__/libs/JUCE/modules/juce_core/juce_core_CompilationTime.cpp.o
+[ 98%] Building CXX object src/surge-xt/cli/CMakeFiles/surge-xt-cli.dir/__/__/__/libs/JUCE/modules/juce_core/juce_core.cpp.o
+[ 98%] Building CXX object src/surge-xt/cli/CMakeFiles/surge-xt-cli.dir/__/__/__/libs/JUCE/modules/juce_core/juce_core_CompilationTime.cpp.o
+[100%] Linking CXX executable ../surge-xt_artefacts/Release/CLI/surge-xt-cli
+[100%] Linking CXX executable ../surge-xt_artefacts/Release/CLI/surge-xt-cli
+lto-wrapper: warning: Extra option to ‘-Xassembler’: --noexecstack, dropping all ‘-Xassembler’ and ‘-Wa’ options.
+lto-wrapper: warning: Extra option to ‘-Xassembler’: --noexecstack, dropping all ‘-Xassembler’ and ‘-Wa’ options.
+/home/mitch/surge-src/libs/sqlite-3.23.3/sqlite3.c: In function ‘sqlite3SelectNew’:
+/home/mitch/surge-src/libs/sqlite-3.23.3/sqlite3.c: In function ‘sqlite3SelectNew’:
+/home/mitch/surge-src/libs/sqlite-3.23.3/sqlite3.c:129137: warning: function may return address of local variable [-Wreturn-local-addr]
+129137 |   return pNew;
+/home/mitch/surge-src/libs/sqlite-3.23.3/sqlite3.c:129137: warning: function may return address of local variable [-Wreturn-local-addr]
+129137 |   return pNew;
+/home/mitch/surge-src/libs/sqlite-3.23.3/sqlite3.c:129097: note: declared here
+129097 |   Select standin;
+/home/mitch/surge-src/libs/sqlite-3.23.3/sqlite3.c:129097: note: declared here
+129097 |   Select standin;
+[100%] Built target surge-xt-cli
+[100%] Built target surge-xt-cli
+ERROR: missing artifact /home/mitch/surge-src/build-a72/surge_xt_products/surge-xt-cli
+ERROR: missing artifact /home/mitch/surge-src/build-a72/surge_xt_products/surge-xt-cli
+=== build complete 2026-08-22T14:40:42-04:00 (manual handback — path fix) ===
+artifact=/home/mitch/surge-src/build-a72/src/surge-xt/surge-xt_artefacts/Release/CLI/surge-xt-cli
+version=1.4.HEAD.253f8d86
+sha256=556cc6f00a2dd85385e2cf0fe041906f7057dbbcd4e948fbc51780c10355df74
+disk_after: /dev/mmcblk0p2   29G  9.3G   18G  35% /
+temp_end: temp=49.1'C
+throttle_end: throttled=0x0
+SENTINEL build-a72-complete

@@ -1,0 +1,12 @@
+=== Plan V7 + V3 2026-08-21T22:31:54-04:00 artifacts=/root/plan-v7-20260821-223154 patch=Crystals ===
+poly_state={
+  "ceiling_poly": 12,
+  "effective_poly": 9,
+  "native_poly": 16,
+  "patch": "Crystals",
+  "reuse_single": true
+}
+
+=== V7 capacity curve ===
+Applied buffer=1024 periods=3
+/home/mitch/MPE-Module/scripts/measure-capacity-ramp.sh: line 94: voices: unbound variable
