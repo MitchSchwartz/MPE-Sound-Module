@@ -12,8 +12,55 @@ _mpe_result_die() {
     return 1
 }
 
+mpe_result_reset() {
+    local v
+    for v in $(compgen -v MPE_R_ 2>/dev/null || true); do
+        unset "$v"
+    done
+}
+
+# Derive JACK buffer period from a harness tag (e.g. A-b512-p3-l0-run1 → 512).
+mpe_result_buffer_from_tag() {
+    local tag="${1:-${MPE_R_tag-}}"
+    if [[ "$tag" =~ -b([0-9]+)- ]]; then
+        echo "${BASH_REMATCH[1]}"
+        return 0
+    fi
+    return 1
+}
+
+# Minimum plausible dsp_median for a loaded window at this buffer (rejects mistimed/idle reads).
+mpe_result_dsp_plausibility_floor() {
+    local buf="${1:-}"
+    case "$buf" in
+        256) echo "3.0" ;;
+        512) echo "5.0" ;;
+        1024) echo "2.0" ;;
+        *) echo "3.0" ;;
+    esac
+}
+
+# Max DSP considered impossibly low when material xruns are present (per buffer).
+_mpe_result_physics_low_dsp_ceiling() {
+    local buf="${1:-}"
+    case "$buf" in
+        256) echo "20" ;;
+        512) echo "15" ;;
+        1024) echo "10" ;;
+        *) echo "15" ;;
+    esac
+}
+
+_mpe_result_resolve_buffer() {
+    local buf="${1:-}"
+    if [ -n "$buf" ]; then
+        echo "$buf"
+        return 0
+    fi
+    mpe_result_buffer_from_tag "${MPE_R_tag-}"
+}
+
 # Parse "key=value" tokens from a RESULT line into env vars MPE_R_<KEY>.
-# Usage: mpe_result_parse_line "RESULT tag=foo xruns=3 dsp_median=19.5 ..."
 mpe_result_parse_line() {
     local line="$1"
     local tok key val
@@ -55,16 +102,36 @@ mpe_result_require_fields() {
             _mpe_result_die "field ${f}= is not a value (${!var})"
             return 1
         fi
-        if [ "$f" = "dsp_median" ] && awk -v v="${!var}" "BEGIN{exit !(v+0==0)}"; then
-            _mpe_result_die "field dsp_median=0 is not a measurement (sampler dead)"
-            return 1
+        if [ "$f" = "dsp_median" ]; then
+            if awk -v v="${!var}" "BEGIN{exit !(v+0==0)}"; then
+                _mpe_result_die "field dsp_median=0 is not a measurement (sampler dead)"
+                return 1
+            fi
+            local buf floor
+            if ! buf="$(_mpe_result_resolve_buffer "")"; then
+                _mpe_result_die "dsp plausibility: cannot resolve buffer from tag"
+                return 1
+            fi
+            if [ -z "${MPE_R_samples-}" ] || ! [[ "${MPE_R_samples}" =~ ^[0-9]+$ ]]; then
+                _mpe_result_die "dsp plausibility: missing or non-numeric samples="
+                return 1
+            fi
+            if [ "${MPE_R_samples}" -lt 30 ]; then
+                _mpe_result_die "dsp plausibility: samples=${MPE_R_samples} too short for loaded window"
+                return 1
+            fi
+            floor="$(mpe_result_dsp_plausibility_floor "$buf")"
+            if awk -v v="${!var}" -v fl="$floor" 'BEGIN{exit !(v+0 < fl+0)}'; then
+                _mpe_result_die "field dsp_median=${!var}% below plausibility floor ${floor}% at buffer ${buf}"
+                return 1
+            fi
         fi
     done
     return 0
 }
 
 # Physics assertions on parsed primary row (MPE_R_*).
-# Args: buffer_period [condition_label]
+# Args: buffer_period — may be empty if tag carries -bNNN-
 mpe_result_physics_assert() {
     local buf="${1:-}"
     local xr="${MPE_R_xruns-}"
@@ -85,26 +152,36 @@ mpe_result_physics_assert() {
         fi
     fi
 
-    if [ -n "$jitter_n" ] && [ -n "${MPE_EXPECT_SAMPLES-}" ] && [ "$MPE_EXPECT_SAMPLES" -ge 30 ]; then
-        if [ "$jitter_n" -lt 100 ] 2>/dev/null; then
+    if [ -n "$jitter_n" ]; then
+        if ! [[ "$jitter_n" =~ ^[0-9]+$ ]]; then
+            _mpe_result_die "jitter_n=${jitter_n} is not numeric"
+            return 1
+        fi
+        if [ -n "${MPE_EXPECT_SAMPLES-}" ] && [ "$MPE_EXPECT_SAMPLES" -ge 30 ] && [ "$jitter_n" -lt 100 ]; then
             _mpe_result_die "jitter_n=${jitter_n} too low for ${MPE_EXPECT_SAMPLES}s window"
             return 1
         fi
     fi
 
     if [ -n "$xr" ] && [ -n "$dsp" ]; then
-        # 10% DSP with material xruns at 512 is impossible (baseline ~38%)
-        if [ "$buf" = "512" ] || [ "${MPE_R_tag-}" = *"-b512-"* ]; then
-            if awk -v d="$dsp" -v x="$xr" 'BEGIN { exit !(d+0 < 15 && x+0 > 5) }'; then
-                _mpe_result_die "physics: dsp_median=${dsp}% with xruns=${xr} at 512 impossible"
-                return 1
-            fi
+        if ! [[ "$xr" =~ ^[0-9]+$ ]]; then
+            _mpe_result_die "xruns=${xr} is not numeric"
+            return 1
+        fi
+        if ! buf="$(_mpe_result_resolve_buffer "$buf")"; then
+            _mpe_result_die "physics: cannot resolve buffer from tag or argument"
+            return 1
+        fi
+        local ceiling
+        ceiling="$(_mpe_result_physics_low_dsp_ceiling "$buf")"
+        if awk -v d="$dsp" -v x="$xr" -v c="$ceiling" 'BEGIN { exit !(x+0 > 5 && d+0 < c+0) }'; then
+            _mpe_result_die "physics: dsp_median=${dsp}% with xruns=${xr} at buffer=${buf} impossible (low DSP + material xruns)"
+            return 1
         fi
     fi
     return 0
 }
 
-# Compare two dsp_median values across buffer halving — >50% drop is impossible.
 mpe_result_physics_buffer_halving() {
     local dsp_large="$1"
     local dsp_small="$2"
@@ -121,14 +198,22 @@ mpe_result_physics_buffer_halving() {
     return 0
 }
 
-# Parse all RESULT rows for a tag from a log file (fields span multiple lines).
+# Harness path: load tag from log, require fields, physics (buffer from tag).
+mpe_result_assert_tag() {
+    local file="$1"
+    local tag="$2"
+    local buf
+    mpe_result_load_tag "$file" "$tag" || return 1
+    buf="$(_mpe_result_resolve_buffer "")" || return 1
+    mpe_result_physics_assert "$buf" || return 1
+    return 0
+}
+
 mpe_result_load_tag() {
     local file="$1"
     local tag="$2"
     local line
-    unset MPE_R_tag MPE_R_xruns MPE_R_dsp_median MPE_R_dsp_p99 MPE_R_dsp_max
-    unset MPE_R_meter_live MPE_R_meter_max_age_s MPE_R_samples MPE_R_jitter_n
-    unset MPE_R_window_align
+    mpe_result_reset
     if ! grep -qE "^RESULT tag=${tag} " "$file"; then
         _mpe_result_die "no RESULT for tag=${tag} in ${file}"
         return 1
@@ -150,7 +235,6 @@ mpe_result_load_tag() {
     return 0
 }
 
-# Attempt V11-style recovery: emit xruns table; withhold DSP when dsp_med or missing median.
 mpe_result_v11_recover() {
     local file="$1"
     local out="${2:-}"
