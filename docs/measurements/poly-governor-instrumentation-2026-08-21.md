@@ -28,7 +28,7 @@ If more than `spam_threshold_per_s(poll_interval)` transitions land in one secon
 single summary is emitted on the next window roll:
 
 ```
-poly-governor: log-spam summary suppressed=12 transitions in 1.0s
+poly-governor: log-spam summary suppressed=12 events in 1.0s
 ```
 
 This prevents a miscalibrated threshold (below baseline load) from turning a tuning bug into
