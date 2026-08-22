@@ -8,6 +8,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 # shellcheck source=../scripts/lib/paths.sh
 source "${ROOT}/scripts/lib/paths.sh"
+# shellcheck source=../scripts/lib/mpe-services.sh
+source "${ROOT}/scripts/lib/mpe-services.sh"
 # shellcheck source=../scripts/lib/audio-engine.sh
 source "${ROOT}/scripts/lib/audio-engine.sh"
 
@@ -61,6 +63,7 @@ ok "negative: meter removed mid-cell halts"
 
 # --- 2a positive: live appliance meter (Pi only) ---
 REAL_METER="/run/mpe/meter.state"
+MPE_METER_STATE_FILE="$REAL_METER"
 if [ ! -r "$REAL_METER" ] || ! mpe_meter_assert_live 2>/dev/null; then
     echo "LIVE SKIP: no live meter at ${REAL_METER} — Pi positive controls run via measure-instrument-conformance-live.sh" >&2
     echo "test_instrument_conformance_live.sh: negative controls passed (Pi deferred)"
