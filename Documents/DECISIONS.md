@@ -6,23 +6,33 @@ Orientation canon: OM-Repo [`GROUNDING.md`](https://github.com/opsMachine/OM-Rep
 
 ---
 
-## 2026-08-22 — Instrument path: 1024×2 shippable; ramp is screening only
+## 2026-08-22 — Gates: ship 1024×2 after soak; governor waits on fade
 
-**Decision (measured, instrument-only condition A):** At verified-clean voice counts,
-**1024×2** produces **0 xruns** matching **1024×3** (Cloud Horn @ 5, Duduk @ 3, Brave New
-World @ 3, Crystals @ 3 over 60 s). Total latency **64.0 ms → 42.7 ms** with no measured DSP
-cost. **Looper shipping config remains 1024×3 condition D** until a separate cell says otherwise.
+**Gate 1 (Mitch):** Ship **1024×2** for instrument profile after **one overnight soak**
+(`scripts/measure-soak-instrument.sh` — default Cloud Horn @ 5 voices, 8 h). Looper stack
+stays **1024×3 condition D**. Measured cells (V9-b/d) used confirm harness only — ramp bug
+did not contaminate ×2 evidence.
 
-**Decision (process):** `measure-capacity-ramp.sh` `_xruns_delta` **must not** set policy.
-Closed Hat @ 15 × 8 s: ramp **0**, confirm harness **275** (same load, same window). Use
-`measure-confirm-at-voices.sh` for ceilings. Fix ramp counting (V10-b) before another survey.
+**Gate 2 (Mitch):** **Do not re-enable poly governor** until fade + steal order
+(released → quietest → oldest) and **CPU_HIGH_THRESHOLD** re-calibrated (50.0 is below
+~58.9% baseline @ 1024 — governor permanently “high”). Confirm-based floors are correct
+floors but fix the wrong failure mode (hard voice cut, not ceiling value).
 
-**Confirmed floors @ 1024×3 (60 s confirm):** Crystals **3**, Cloud Horn **5**, Closed Hat **5**
-(not 15). V8-a censored **≥15** rows remain unknown.
+**Gate 3:** Percussive **voice-count metric deferred**. Rate metric (notes/sec roll) is the
+musically real question; Attenborough load fault stays separate.
+
+**V10-b (agent):** Ramp `_xruns_delta` fixed — blind reads abort; per-second sampling.
+See `docs/measurements/V10-b-ramp-probe-fix-2026-08-22.md`.
+
+**Measured (instrument-only):** **1024×2** matches **×3** at verified-clean counts (Cloud Horn
+5, Duduk 3, Brave New World 3, Crystals 3). **64.0 → 42.7 ms** total latency, no DSP cost in
+measured cells. Confirm floors @ 1024×3: Crystals **3**, Cloud Horn **5**, Closed Hat **5**.
 
 **Canon:** `docs/measurements/V9-REVIEW-2026-08-22.md`, `docs/measurements/session-handoff-2026-08-22.md`.
 
 ---
+
+## 2026-08-19 — Tier 2 rejected; stop-then-weld is the only tail model
 
 **Decision:** Remove “extend Recording until release quiet” (Tier 2) and Option E
 (seam overdub) from product design. Every clip close — defining take and grid clips —

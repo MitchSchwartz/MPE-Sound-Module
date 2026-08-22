@@ -1,8 +1,10 @@
 #!/bin/bash
 # Ramp voice count to first graph overrun at one buffer size (V7/V8 cell).
 #
-# WARNING: _xruns_delta under-counts vs measure-latency-run at high load (V9-c Closed Hat).
-# Use for screening only. Policy ceilings → measure-confirm-at-voices.sh.
+# Probe counting: V10-b — per-second meter samples, 2 s load lead-in, blind reads abort
+# (same discipline as measure-latency-run _run_window). Policy ceilings still need
+# measure-confirm-at-voices.sh for 60 s confirm.
+#
 # Usage: sudo ./scripts/measure-capacity-ramp.sh --buffer 1024 --periods 3 \
 #            --patch-name Crystals --output /path/log --tag V7-a
 
@@ -45,6 +47,7 @@ while [ $# -gt 0 ]; do
         --skip-confirm) SKIP_CONFIRM=1; shift ;;
         --skip-setup) SKIP_SETUP=1; shift ;;
         --start-voice) START_VOICE="${2:?}"; shift 2 ;;
+        --max-voices) MAX_VOICES="${2:?}"; shift 2 ;;
         -h | --help) sed -n '2,12p' "$0"; exit 0 ;;
         *) echo "Unknown: $1" >&2; exit 2 ;;
     esac
@@ -84,21 +87,68 @@ _enable_strict() {
     sleep 6
 }
 
-_xruns_delta() {
-    local voices="$1" secs="$2"
-    local start end
+_ensure_peak_meter() {
+    if [ "$(mpe_read_appliance_env_var MPE_PEAK_METER 2>/dev/null || echo 0)" != "1" ]; then
+        echo "ERROR: MPE_PEAK_METER is not 1 — xrun count requires meter.state" >&2
+        return 1
+    fi
     if ! systemctl is-active --quiet mpe-peak-meter.service 2>/dev/null; then
-        systemctl start mpe-peak-meter.service
+        if ! systemctl start mpe-peak-meter.service 2>/dev/null; then
+            echo "ERROR: mpe-peak-meter.service failed to start" >&2
+            return 1
+        fi
         sleep 2
     fi
-    start="$(mpe_meter_xruns_read)" || start=0
-    _as_user python3 "$SCRIPT_DIR/midi-load-hold.py" "$secs" "$voices" \
+    mpe_meter_assert_live
+}
+
+# Per-second meter delta with load lead-in (matches measure-latency-run hold path).
+# Eliminated as root cause (V10-b): softmode (both harnesses set 0), meter source
+# (both use mpe_meter_xruns_read). Fixed: || start/end=0 blind fallbacks; two-sample
+# delta without lead-in; no mid-window liveness checks.
+_xruns_delta() {
+    local voices="$1" secs="$2"
+    local start_xr prev_xr cur_xr i
+
+    _ensure_peak_meter || return 1
+
+    _as_user python3 "$SCRIPT_DIR/midi-load-hold.py" "$((secs + 5))" "$voices" \
         >/tmp/midi-load-hold-$$.log 2>&1 &
     local pid=$!
-    sleep "$secs"
+    sleep 2
+
+    if ! start_xr="$(mpe_meter_xruns_read)"; then
+        kill "$pid" 2>/dev/null || true
+        wait "$pid" 2>/dev/null || true
+        echo "ERROR: meter blind at probe start voices=${voices}" >&2
+        return 1
+    fi
+    prev_xr="$start_xr"
+
+    for ((i = 1; i <= secs; i++)); do
+        sleep 1
+        if ! cur_xr="$(mpe_meter_xruns_read)"; then
+            kill "$pid" 2>/dev/null || true
+            wait "$pid" 2>/dev/null || true
+            echo "ERROR: meter blind mid-probe t=${i}s voices=${voices}" >&2
+            return 1
+        fi
+        if [ "$cur_xr" -lt "$prev_xr" ]; then
+            kill "$pid" 2>/dev/null || true
+            wait "$pid" 2>/dev/null || true
+            echo "ERROR: meter restarted mid-probe (${prev_xr} -> ${cur_xr}) voices=${voices}" >&2
+            return 1
+        fi
+        prev_xr="$cur_xr"
+    done
+
     wait "$pid" 2>/dev/null || true
-    end="$(mpe_meter_xruns_read)" || end=0
-    echo $((end - start))
+    mpe_meter_assert_live || {
+        echo "ERROR: meter blind at probe end voices=${voices}" >&2
+        return 1
+    }
+
+    echo $((prev_xr - start_xr))
 }
 
 _confirm_window() {
@@ -149,7 +199,7 @@ if [ -n "$PATCH_PATH" ]; then
 fi
 
 {
-    echo "=== capacity-ramp tag=${TAG} buffer=${BUFFER}x${PERIODS} patch=${PATCH_NAME:-unknown} $(date -Is) ==="
+    echo "=== capacity-ramp tag=${TAG} buffer=${BUFFER}x${PERIODS} patch=${PATCH_NAME:-unknown} probe=v10b $(date -Is) ==="
     echo "CARD=$("$SCRIPT_DIR/resolve-alsa-playback-status.sh" 2>/dev/null | awk -F= '/^CARD=/{print $2}')"
     if [ -n "$PATCH_PATH" ] && [ -f "$PATCH_PATH" ]; then
         _as_user python3 "$SCRIPT_DIR/parse-fxp-metadata.py" "$PATCH_PATH" || true
@@ -162,7 +212,11 @@ fi
         v=1
     fi
     while [ "$v" -le "$MAX_VOICES" ]; do
-        xr="$(_xruns_delta "$v" "$PROBE_SEC")"
+        if ! xr="$(_xruns_delta "$v" "$PROBE_SEC")"; then
+            echo "RESULT tag=${TAG} error=probe_failed voices=${v} sustained_clean=UNKNOWN"
+            echo "SENTINEL capacity-ramp-abort tag=${TAG}"
+            exit 1
+        fi
         echo "PROBE voices=${v} sec=${PROBE_SEC} xruns_delta=${xr}"
         if [ "$xr" -gt 0 ]; then
             first_overrun=$v
