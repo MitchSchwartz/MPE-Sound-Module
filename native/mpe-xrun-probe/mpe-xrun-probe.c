@@ -196,6 +196,9 @@ int main(int argc, char **argv)
         return 1;
     }
 
+    fprintf(g_log, "PROBE_ACTIVE\n");
+    fflush(g_log);
+
     while (g_running) {
         pause();
     }
