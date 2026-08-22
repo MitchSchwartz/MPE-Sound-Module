@@ -52,6 +52,18 @@ PATCH_PATH="${QUICK_SELECT}/${PATCH_NAME}.fxp"
 
 _as_user() { sudo -u "$RUN_AS_USER" -- "$@"; }
 
+STAGE=init
+SOAK_COMPLETE=0
+
+_cleanup() {
+    local rc=$?
+    [ -n "${LOAD_PID:-}" ] && kill "$LOAD_PID" 2>/dev/null || true
+    if [ "${SOAK_COMPLETE:-0}" -eq 0 ] && [ -n "${OUTPUT:-}" ]; then
+        echo "SENTINEL soak-aborted stage=${STAGE:-unknown} rc=${rc}" >>"$OUTPUT" 2>/dev/null || true
+    fi
+}
+trap _cleanup EXIT INT TERM
+
 _set_env_var() {
     local key="$1" value="$2" tmp
     tmp="$(mktemp)"
@@ -65,11 +77,6 @@ _set_env_var() {
     rm -f "$tmp"
 }
 
-_cleanup() {
-    [ -n "$LOAD_PID" ] && kill "$LOAD_PID" 2>/dev/null || true
-}
-trap _cleanup EXIT INT TERM
-
 TOTAL_MIN=$((HOURS * 60))
 FINISH_EPOCH=$(( $(date +%s) + TOTAL_MIN * 60 ))
 FINISH_ISO="$(date -d "@${FINISH_EPOCH}" -Is 2>/dev/null || date -r "$FINISH_EPOCH" -Is 2>/dev/null || echo "in ${HOURS}h")"
@@ -79,6 +86,7 @@ echo "Started: $(date -Is)"
 echo "Expected finish: ${FINISH_ISO}"
 echo "Log: ${OUTPUT}"
 
+STAGE=header
 {
     echo
     echo "=== measure-soak-instrument buffer=${BUFFER} periods=${PERIODS} patch=${PATCH_NAME} voices=${VOICES} hours=${HOURS} $(date -Is) ==="
@@ -87,38 +95,54 @@ echo "Log: ${OUTPUT}"
     echo "expected_finish=${FINISH_ISO}"
 } >>"$OUTPUT"
 
+# Rule −1: stderr must land in the log — header-only silence is indistinguishable from "still warming up".
+exec 2> >(tee -a "$OUTPUT" >&2)
+
+STAGE=env-config
 _set_env_var MPE_POLY_GOVERNOR 0
 _set_env_var MPE_JACK_SOFTMODE 0
+STAGE=services-stop
 systemctl stop surge-poly-governor.service 2>/dev/null || true
 systemctl stop mpe-looper-session.service sl-watchdog.service mpe-sooperlooper.service 2>/dev/null || true
 
+STAGE=set-surge-audio
 if ! "$SCRIPT_DIR/set-surge-audio.sh" --buffer "$BUFFER" --periods "$PERIODS"; then
     echo "ERROR: set-surge-audio failed" >&2
     exit 1
 fi
 sleep 8
 
+STAGE=jack-restart
 systemctl restart mpe-jackd.service
 sleep 4
+STAGE=jack-wait
 mpe_wait_for_jack_server 30
+STAGE=surge-restart
 systemctl restart surge-xt-cli.service
 sleep 6
+STAGE=meter-start
 systemctl start mpe-peak-meter.service 2>/dev/null || true
 sleep 2
 
+STAGE=load-patch
 _as_user python3 "$SCRIPT_DIR/load-patch-osc.py" "$PATCH_PATH"
 sleep 1
 
+STAGE=start-hold-load
 SOAK_SEC=$((HOURS * 3600 + 120))
 _as_user python3 "$SCRIPT_DIR/midi-load-hold.py" "$SOAK_SEC" "$VOICES" \
     >"/tmp/instrument-soak-midi.log" 2>&1 &
 LOAD_PID=$!
 sleep 2
 
+STAGE=meter-baseline
 if ! START_XR="$(mpe_meter_xruns_read)"; then
     echo "ERROR: meter blind at soak start" >&2
     exit 1
 fi
+
+STAGE=soak-loop
+echo "SENTINEL soak-loop-entered" >>"$OUTPUT"
 
 hour=1
 minute=0
@@ -127,6 +151,7 @@ prev_xr="$START_XR"
 HOUR_START="$START_XR"
 
 while [ "$minute" -lt "$TOTAL_MIN" ]; do
+    STAGE=soak-loop-minute
     sleep 60
     minute=$((minute + 1))
     if ! cur="$(mpe_meter_xruns_read)"; then
@@ -137,6 +162,7 @@ while [ "$minute" -lt "$TOTAL_MIN" ]; do
         continue
     fi
     if [ "$cur" -lt "$prev_xr" ]; then
+        STAGE=soak-loop-meter-reset
         echo "ERROR: meter restarted mid-soak" >&2
         exit 1
     fi
@@ -160,6 +186,8 @@ while [ "$minute" -lt "$TOTAL_MIN" ]; do
 done
 
 FINAL=$((prev_xr - START_XR))
+STAGE=soak-complete
+SOAK_COMPLETE=1
 {
     echo "RESULT soak_hours=${HOURS} buffer=${BUFFER} periods=${PERIODS} patch=${PATCH_NAME} voices=${VOICES} xruns_total=${FINAL} invalid_windows=${invalid_windows}"
     echo "SENTINEL soak-complete"
