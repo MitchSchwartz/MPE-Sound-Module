@@ -6,7 +6,23 @@ Orientation canon: OM-Repo [`GROUNDING.md`](https://github.com/opsMachine/OM-Rep
 
 ---
 
-## 2026-08-19 — Tier 2 rejected; stop-then-weld is the only tail model
+## 2026-08-22 — Instrument path: 1024×2 shippable; ramp is screening only
+
+**Decision (measured, instrument-only condition A):** At verified-clean voice counts,
+**1024×2** produces **0 xruns** matching **1024×3** (Cloud Horn @ 5, Duduk @ 3, Brave New
+World @ 3, Crystals @ 3 over 60 s). Total latency **64.0 ms → 42.7 ms** with no measured DSP
+cost. **Looper shipping config remains 1024×3 condition D** until a separate cell says otherwise.
+
+**Decision (process):** `measure-capacity-ramp.sh` `_xruns_delta` **must not** set policy.
+Closed Hat @ 15 × 8 s: ramp **0**, confirm harness **275** (same load, same window). Use
+`measure-confirm-at-voices.sh` for ceilings. Fix ramp counting (V10-b) before another survey.
+
+**Confirmed floors @ 1024×3 (60 s confirm):** Crystals **3**, Cloud Horn **5**, Closed Hat **5**
+(not 15). V8-a censored **≥15** rows remain unknown.
+
+**Canon:** `docs/measurements/V9-REVIEW-2026-08-22.md`, `docs/measurements/session-handoff-2026-08-22.md`.
+
+---
 
 **Decision:** Remove “extend Recording until release quiet” (Tier 2) and Option E
 (seam overdub) from product design. Every clip close — defining take and grid clips —
