@@ -1,88 +1,104 @@
-# V8 review — the ceiling table is probably optimistic
+# V8 review — ceiling is optimistic
 
-**2026-08-22.** Reading of `v8-patch-capacity-2026-08-21.md` (branch `docs/v8-patch-capacity`
-@ `64ab87d`).
+*Review: 2026-08-22 (America/Toronto)*  
+*Supersedes actionable use of [`v8-patch-capacity-2026-08-21.md`](v8-patch-capacity-2026-08-21.md) until V9 completes.*
 
-## The internal contradiction
+## Bottom line
 
-**V8-a** ramped Cloud Horn and reported it clean at **7 voices**.
-**V8-b** ran Cloud Horn at **7 voices** for 3 x 45 s and measured **18 / 28 / 18 xruns**,
-DSP median **~78-81%**, on *both* `1024 x 2` and `1024 x 3`.
+**Do not tune the poly governor from V8-a's ceiling table yet.** V8-b showed a patch the ramp called clean at 7 voices **overrunning at 7 voices** when held for 45 seconds. Until probe duration at the knee is characterized, reported ceilings are **upper estimates**, not policy inputs.
 
-**A patch the ramp called clean overruns at that same voice count when measured for longer.**
+---
 
-### Why — and it is a familiar shape
+## V8-a vs V8-b — internal contradiction
 
-The ramp's confirm window is short; V8-b's is 45 s. **At the knee the xrun rate is low**
-(~20-28 per 45 s = ~30/min), so a short probe reads zero by chance. This is the
-`MEASUREMENT-DISCIPLINE.md` rule about **sizing the window from the expected event rate**
-rather than convention — the same error class as the 10 Hz fill poller and `dsp_p99`.
+**Cloud Horn** was V8-b's mid-weight pick because V8-a ramp reported **sustained clean = 7** (first overrun @ 9).
 
-Corroboration: **Crystals moved 4 -> 3** between V7 (12 s probe + confirm) and V8-a (shorter
-probe). The agent reported this as "same knee, shorter probe"; it is more likely evidence
-that **the knee position is probe-duration dependent.**
+V8-b redo at **7 voices × 45 s** (n=3, strict mode):
 
-**Consequence: every "sustained clean" figure in V8-a is an upper estimate, and the numbers we
-would act on are the ones most likely wrong.** Do not set any ceiling from this table until
-the duration sensitivity is measured.
+| config | xruns per run | DSP median |
+|---|---|---|
+| 1024×2 | 20 / 28 / 18 | ~78–81% |
+| 1024×3 | 18 / 24 / 28 | ~77–81% |
 
-## Right-censoring
+The ramp's "sustained clean" **did not reproduce** under longer hold. Same failure mode as elsewhere in this campaign: **window sized by convention, not by expected event rate.** At the knee, overrun rate is low (~tens per minute); an **8 s probe** can read zero by chance.
 
-**38 of 53 patches never failed before the 15-voice probe cap.** Their ceilings are unknown —
-`>= 15`, not 15.
+**Crystals 4 → 3** between V7 (12 s probe + confirm) and V8-a (8 s probe only) points the same way.
 
-The reported "5:1 governor spread (3 -> 15+)" is therefore a **lower bound**. The true spread
-could be 13:1 or more. This does not change what binds (the bottom of the range does), but it
-must not be quoted as a measured range.
+**Implication:** The limited-patch table is probably **optimistic across the board**. The numbers we'd act on (the low end) are the ones most likely wrong.
 
-## Zero unplayable — contradicts the user
+---
 
-V8-a found **no patch failing at 1 voice**. Mitch has stated some patches "don't work at all."
+## 38 of 53 are censored
 
-Candidate reconciliations, in order of likelihood:
+Patches that never failed before the **15-voice probe cap** have unknown true ceilings — **≥15**, not **15**.
 
-1. They are **outside the Quick Select set** that was surveyed.
-2. They fail at **512 / 256**, not 1024 — **V8 tested 1024 only.**
-3. "Don't work" means something other than xruns — bad sound, failure to load, voice
-   allocation issues.
+The "3 → 15 spread" in the V8 deliverable is a **lower bound** on bounded patches only. Real spread could be **3 → 28+** (13:1 or wider). That matters less for setting a floor (the bottom binds) but **must not be quoted as a measured range**.
 
-**Resolve by naming one specific patch and checking it directly.** Do not infer.
+---
 
-## What is solidly established
+## Zero unplayable vs prior expectations
 
-**At ~80% DSP, `nperiods` makes no difference:** 20/28/18 (`x2`) vs 18/24/28 (`x3`).
-Exactly as the model predicts — `nperiods` changes the cushion, not the deadline, and the
-deadline is what binds. Good confirmation.
+V8-a found **no patch failing @ 1 voice** at **1024×3** in **Quick Select only**.
 
-**No ALSA underrun lines anywhere.** Graph overruns only, consistent with W1.
+That does not contradict ear reports that some patches "don't work." Likely gaps:
 
-**Zero unplayable patches at 1024** is genuinely good news for the product, subject to the
-reconciliation above.
+| hypothesis | check |
+|---|---|
+| Patch outside Quick Select (factory library, nested favorites) | Name one candidate; survey that path |
+| Fails at **512/256**, not 1024 | V8 tested 1024 only; V7 Crystals @ 512 clean = 2 |
+| "Don't work" = bad sound, load failure, governor steal — not xrun count | Separate repro |
 
-## Still open — and V8 did not close it
+**Named candidate to check:** **Crystals @ 512×3** — V7 already showed clean **2**, overrun @ 4; ear crackle on heavy content at 512 may be this class of failure, not "unplayable @ 1."
 
-**The `1024 x 2` question.** It has now been compared against `x3` **twice under overload**
-(V3 at 100% DSP, V8-b at ~80% DSP with both arms overrunning) and **never once at a load where
-`x3` is verified clean.** That is the cell that decides whether 64.0 ms -> 42.7 ms is free.
+---
 
-## Next — two short cells, no new ground
+## What is solid
 
-| # | cell | Pi time | decides |
-|---|---|---|---|
-| **V9-a** | **Duration sensitivity**: 3 patches (one from each tier, incl. Crystals), ramp-derived clean count vs a **60 s** confirm at that count | ~15 min | whether V8-a's table is usable at all |
-| **V9-b** | **`1024 x 2` at a verified-clean load**: find a count where `x3` is clean over 60 s, then compare `x2` at n >= 3 | ~15 min | the free 21 ms |
+1. **53 patches surveyed** at 1024×3 with metadata — first map of the shipped set.
+2. **Zero unplayable @ 1 voice** at 1024 in Quick Select (within probe limits).
+3. **Zero ALSA underruns** in V8-b windows — still graph overruns only.
+4. **At ~80% DSP, nperiods does not matter** — 1024×2 vs ×3 xrun counts overlap (20/28/18 vs 18/24/28). Model prediction: nperiods changes **cushion/latency**, not Surge's **21.3 ms deadline**. Clean confirmation.
 
-**Run V9-a first.** If the table shifts down, V8-a needs re-running with a longer confirm
-before any ceiling is derived from it, and V9-b's "clean load" must be chosen from the
-corrected numbers.
+---
 
-**Do not tune the governor from V8-a's table** until V9-a says whether it holds.
+## 1024×2 is still open
 
-## Process note
+Both V3 and V8-b compared ×2 vs ×3 **under overload** (~100% or ~80% DSP). We have **never** compared them at a load where **×3 is verified clean**.
 
-The V8-b auto-pick initially mis-parsed a patch name containing spaces and silently ran a
-3-voice test instead of 7, producing 0 xruns. It was caught and redone. **Worth recording:
-that failure produced a clean-looking result that was simply wrong** — the exact
-"indistinguishable from success" shape `AGENTS.md` warns about. The redo was correct; the
-lesson is that the harness should echo the resolved patch **and** voice count into the result
-file so the mismatch is visible without re-reading logs.
+That cell decides whether **42.7 ms total latency** is free in normal playing — not whether it saves you when you're already past the compute ceiling.
+
+---
+
+## Harness incident (caught)
+
+First V8-b auto-pick **mis-parsed a patch name with spaces** → resolved patch `"A"`, **3 voices**, **0 xruns** — clean-looking, wrong.
+
+Caught on review; Cloud Horn redo superseded it. Same **"failure indistinguishable from success"** shape as `AGENTS.md` measurement doctrine.
+
+**Fix (committed with V9 prompt):** stamp `PROVENANCE patch=… hold_voices=…` into every V8-b/V9 latency log header; fail if `--patch-path` missing.
+
+---
+
+## V9 — two short cells (~30 min total)
+
+**V9-a first** (~15 min) — duration sensitivity, **3 patches**:
+
+- Crystals (heavy knee), Cloud Horn (mid), one light cap-hit (e.g. Closed Hat)
+- For each: ramp sustained-clean count → **60 s confirm** at that count
+- **Question:** how far does the knee move with probe duration?
+
+If the table shifts down materially → V8-a needs longer confirm; ceilings lower than reported.
+
+**V9-b second** (~15 min) — **1024×2 at genuinely clean load**:
+
+- Pick voice count where **×3 is verified clean over 60 s** (from V9-a or conservative margin)
+- Compare ×2 vs ×3, n≥3, same hold pattern
+- **Question:** is ×2 clean when ×3 is?
+
+Stop after V9-a + V9-b. Prompt: [`PROMPT-V9-probe-duration-and-clean-x2.md`](PROMPT-V9-probe-duration-and-clean-x2.md).
+
+---
+
+## Governor
+
+**V8 before governor tuning** stands. V9 before governor tuning too, unless V9-a shows ramp+60s confirm matches within one voice.

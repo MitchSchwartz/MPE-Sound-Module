@@ -48,11 +48,13 @@ sleep 1
 V8B_X2="${ARTIFACT_DIR}/v8b-1024x2-redo.log"
 "$SCRIPT_DIR/measure-latency-run.sh" \
     --buffer 1024 --periods 2 --condition A --runs 3 --seconds 45 \
-    --hold-voices "$VOICES" --output "$V8B_X2" --no-restore-buffer
+    --hold-voices "$VOICES" --provenance-patch "$PATCH_NAME" --provenance-voices "$VOICES" \
+    --output "$V8B_X2" --no-restore-buffer
 
 V8B_X3="${ARTIFACT_DIR}/v8b-1024x3-redo.log"
 "$SCRIPT_DIR/measure-latency-run.sh" \
     --buffer 1024 --periods 3 --condition A --runs 3 --seconds 45 \
-    --hold-voices "$VOICES" --output "$V8B_X3"
+    --hold-voices "$VOICES" --provenance-patch "$PATCH_NAME" --provenance-voices "$VOICES" \
+    --output "$V8B_X3"
 
 echo "SENTINEL v8b-redo-complete patch=${PATCH_NAME} voices=${VOICES}"
