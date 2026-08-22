@@ -86,17 +86,21 @@ session.
 
 **Then** revert softmode.
 
-### Poly governor — measure BOTH conditions, and label them
+### Poly governor — OFF for this entire pass (Mitch, 2026-08-21)
 
-Do **not** simply disable it. It is the **actual playing condition**; a fixed-cost number
-measured without it is cleaner science describing a machine nobody plays.
+**Disable `surge-poly-governor` and pin poly to a fixed value for every cell in Plan V.**
 
-| condition | used for | why |
-|---|---|---|
-| **poly governor OFF, poly pinned** | **V1, V2** | isolates the fixed cost; load must be constant to fit `a` |
-| **poly governor ON (shipping config)** | **V3, V5** | what a player actually experiences |
+**Why:** the poly governor is a **feedback loop that reacts to CPU load** — the exact quantity
+being measured. Left on, it partially absorbs the fixed cost we are trying to isolate: load
+rises, poly drops, load falls. The controller fights the measurement.
 
-State which condition every cell ran under. Never compare across conditions.
+**Understand the raw machine first, then re-enable the controller and measure what it does to
+a system we understand.** That second pass is deliberately deferred, not forgotten.
+
+**Consequence to state in the deliverable:** these numbers describe the appliance with its
+polyphony controller disabled. They are **not** the shipping configuration, and the shipping
+xrun rate may differ. Record the pinned poly value used, and use the **same value in every
+cell**.
 
 ## V1 — silence test (~10 min): does the fixed cost exist?
 
@@ -153,8 +157,8 @@ It is only *meaningful* now: while this looked like an IRQ/latency problem, cloc
 irrelevant. For a compute-bound problem it is directly proportional, and `ondemand`'s ramp
 acts precisely on the **tail**, which is where the overruns live.
 
-Run `256 x 3` under **both** governors, poly governor **ON** (shipping condition), as a
-single-variable comparison. Report DSP p99.9/max in **ms** and xruns/min for each.
+Run `256 x 3` under **both** governors, poly governor **OFF** with poly pinned (as with every
+cell in this pass), as a single-variable comparison. Report DSP p99.9/max in **ms** and xruns/min for each.
 
 **Add a transient cell that reproduces Mitch's observation**: from **silence**, trigger a
 full chord on a heavy patch, and capture `max` callback time across the transient — under
@@ -224,7 +228,8 @@ off the audio thread?"**
 ## Rules
 
 1. **One variable per cell.** Write both configs side by side before calling it a comparison.
-2. **Load must be identical and constant across cells** — fixed poly, poly governor disabled.
+2. **Load must be identical and constant across cells** — poly governor **disabled**, poly
+   pinned to the same value everywhere, and the same patch set in the same order.
 3. **No commands against the Pi while a window is open**, including read-only ones.
 4. **Resolve the card index live** (it moved 6 -> 2 after the Step 3 reboot).
 5. **Report n and the claim class it supports.** Shape claims need n >= 10 streams; W1's
