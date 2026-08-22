@@ -20,6 +20,7 @@ is merely interesting. Everything else is recorded and continues.
 | Predictions table committed | Must precede the first boot to count as a prediction |
 | `measure-reference-suite.sh` runs unmodified on a new platform | If it needs edits, it was not frozen |
 | `build-surge.sh --arch a76` exists | Same Surge revision is the whole ballgame — see §3.1 |
+| Pi 4 control binary decided (a72 or stock) and frozen | Pi 5 build must match its tuning posture |
 
 **Do not cannibalise the Pi 4.** Separate SD card, separate PSU, separate everything. It is the
 control and the fallback.
@@ -80,6 +81,10 @@ until Suite 1 has run.
    on one network with one name is a genuinely dangerous ambiguity.
 2. Install the appliance per `BUILD-FROM-ZERO.md`.
 3. Build Surge with `build-surge.sh --arch a76` at **the same source revision the Pi 4 runs.**
+   The Pi 4 control is arch-tuned too (closeout §A2), so this compares best-achievable to
+   best-achievable rather than hardware-plus-a-flag. If closeout §A2 found a72 within noise and
+   reverted to stock, build the Pi 5 **generic** as well — match the control, whatever it is,
+   and state which in the result file.
 4. Same USB audio device, same patch library, same JACK settings.
 5. **Stock clock. Governor `performance`. Poly governor OFF.** No overclock, no core pinning
    yet, no `irqaffinity` — the Pi 4 values are meaningless here and guessing new ones before
