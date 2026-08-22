@@ -12,18 +12,27 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")/.." && pwd)"
 START=$SECONDS
 MODE="${1:-all}"
+RUN_AS_USER="${MPE_PI_USER:-mitch}"
+
+_run_unittests() {
+    local py=python3
+    if [ -x "${ROOT}/.venv/bin/python" ]; then
+        py="${ROOT}/.venv/bin/python"
+    fi
+    # chmod-based write tests are meaningless as root (root bypasses 0555).
+    if [ "$(id -u)" -eq 0 ] && id "$RUN_AS_USER" >/dev/null 2>&1; then
+        sudo -u "$RUN_AS_USER" env MPE_MODULE_REPO="$ROOT" "$py" -m unittest \
+            tests.test_audio_engine tests.test_periodic_loop_lint -q
+    else
+        "$py" -m unittest tests.test_audio_engine tests.test_periodic_loop_lint -q
+    fi
+}
 
 run_offline() {
     echo "=== instrument-conformance OFFLINE $(date -Is) ==="
     bash "${ROOT}/tests/test_instrument_conformance_offline.sh"
     bash "${ROOT}/tests/test_meter_harness.sh"
-
-    if [ -x "${ROOT}/.venv/bin/python" ]; then
-        "${ROOT}/.venv/bin/python" -m unittest tests.test_audio_engine tests.test_periodic_loop_lint -q 2>/dev/null \
-            || python3 -m unittest tests.test_audio_engine tests.test_periodic_loop_lint -q
-    else
-        python3 -m unittest tests.test_audio_engine tests.test_periodic_loop_lint -q
-    fi
+    _run_unittests
 }
 
 run_live() {
