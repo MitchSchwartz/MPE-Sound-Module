@@ -40,6 +40,8 @@ static volatile sig_atomic_t g_running = 1;
 static volatile sig_atomic_t g_jack_shutdown = 0;
 static _Atomic float g_period_peak = 0.0f;
 static atomic_int g_surge_wired = 0;
+static atomic_int g_looper_client = 0;
+static atomic_int g_looper_playback = 0;
 static _Atomic unsigned long g_xrun_count = 0;
 static char g_run_dir[RUN_DIR_MAX + 1] = "/run/mpe";
 static char g_surge_client[128];
@@ -98,6 +100,24 @@ static void on_shutdown(void *arg)
     g_running = 0;
 }
 
+/* Poll g_running in 100 ms slices so SIGTERM/jack shutdown is not delayed by sleep(1). */
+static void wait_running(void)
+{
+    while (g_running) {
+        struct timespec ts = { .tv_sec = 0, .tv_nsec = 100000000L };
+        (void)nanosleep(&ts, NULL);
+    }
+}
+
+static void interruptible_usleep(useconds_t us)
+{
+    while (us > 0 && g_running) {
+        useconds_t chunk = us > 100000U ? 100000U : us;
+        usleep(chunk);
+        us -= chunk;
+    }
+}
+
 static int env_truthy(const char *value)
 {
     if (value == NULL || *value == '\0') {
@@ -107,7 +127,46 @@ static int env_truthy(const char *value)
             strcasecmp(value, "yes") == 0 || strcasecmp(value, "on") == 0);
 }
 
-static void write_meter_state(float peak_linear, int surge_wired, unsigned long xruns)
+static int looper_client_visible(void)
+{
+    const char **ports = jack_get_ports(g_client, "mpe-looper:*", NULL, 0);
+    if (ports == NULL) {
+        return 0;
+    }
+    int found = 0;
+    for (int i = 0; ports[i] != NULL; i++) {
+        if (strncmp(ports[i], "mpe-looper:", 11) == 0) {
+            found = 1;
+            break;
+        }
+    }
+    jack_free(ports);
+    return found;
+}
+
+static int looper_playback_wired(void)
+{
+    jack_port_t *pb = jack_port_by_name(g_client, "system:playback_1");
+    if (pb == NULL) {
+        return 0;
+    }
+    const char **connections = jack_port_get_all_connections(g_client, pb);
+    if (connections == NULL) {
+        return 0;
+    }
+    int ok = 0;
+    for (int i = 0; connections[i] != NULL; i++) {
+        if (strncmp(connections[i], "mpe-looper:common_out", 21) == 0) {
+            ok = 1;
+            break;
+        }
+    }
+    jack_free(connections);
+    return ok;
+}
+
+static void write_meter_state(float peak_linear, int surge_wired, int looper_client,
+                              int looper_playback, unsigned long xruns)
 {
     char path[RUN_DIR_MAX + 32];
     char tmp[sizeof(path) + 32];
@@ -127,7 +186,11 @@ static void write_meter_state(float peak_linear, int surge_wired, unsigned long 
     fprintf(fh, "peak_linear=%.9g\n", peak_linear);
     /* wired= reflects Surge XT:out_{1,2} only; looper taps are best-effort. */
     fprintf(fh, "wired=%d\n", surge_wired ? 1 : 0);
+    /* jack_online=1 whenever this process is on the graph (watchdog graph probe). */
+    fprintf(fh, "jack_online=%d\n", 1);
     fprintf(fh, "online=%d\n", surge_wired ? 1 : 0);
+    fprintf(fh, "looper_client=%d\n", looper_client ? 1 : 0);
+    fprintf(fh, "looper_playback=%d\n", looper_playback ? 1 : 0);
     fprintf(fh, "source=jack\n");
     fprintf(fh, "xruns=%lu\n", xruns);
     fprintf(fh, "updated=%ld\n", (long)time(NULL));
@@ -182,6 +245,8 @@ static int ensure_wiring(void)
         }
     }
     atomic_store_explicit(&g_surge_wired, surge_ok, memory_order_relaxed);
+    atomic_store_explicit(&g_looper_client, looper_client_visible(), memory_order_relaxed);
+    atomic_store_explicit(&g_looper_playback, looper_playback_wired(), memory_order_relaxed);
     return surge_ok;
 }
 
@@ -198,11 +263,13 @@ static void *writer_thread(void *arg)
             held_peak *= PEAK_DECAY;
         }
         int surge_wired = atomic_load_explicit(&g_surge_wired, memory_order_relaxed);
+        int looper_client = atomic_load_explicit(&g_looper_client, memory_order_relaxed);
+        int looper_playback = atomic_load_explicit(&g_looper_playback, memory_order_relaxed);
         unsigned long xruns = atomic_load_explicit(&g_xrun_count, memory_order_relaxed);
-        write_meter_state(held_peak, surge_wired, xruns);
-        usleep(WRITER_INTERVAL_US);
+        write_meter_state(held_peak, surge_wired, looper_client, looper_playback, xruns);
+        interruptible_usleep(WRITER_INTERVAL_US);
     }
-    write_meter_state(0.0f, 0, atomic_load_explicit(&g_xrun_count, memory_order_relaxed));
+    write_meter_state(0.0f, 0, 0, 0, atomic_load_explicit(&g_xrun_count, memory_order_relaxed));
     return NULL;
 }
 
@@ -211,7 +278,7 @@ static void *connect_thread(void *arg)
     (void)arg;
     while (g_running) {
         ensure_wiring();
-        usleep(CONNECT_INTERVAL_US);
+        interruptible_usleep(CONNECT_INTERVAL_US);
     }
     return NULL;
 }
@@ -298,14 +365,15 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    while (g_running) {
-        sleep(1);
-    }
+    wait_running();
 
     pthread_join(connector, NULL);
     pthread_join(writer, NULL);
     jack_deactivate(g_client);
     jack_client_close(g_client);
 
-    return g_jack_shutdown ? 1 : 0;
+    /* jack_on_shutdown is expected when jackd restarts (buffer change). Exit 0 so
+     * Restart=on-failure does not treat a normal graph teardown as a failure. */
+    (void)g_jack_shutdown;
+    return 0;
 }

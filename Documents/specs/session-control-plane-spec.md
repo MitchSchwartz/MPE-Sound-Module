@@ -1,10 +1,13 @@
 # Session control plane — one owner per fact, reconciliation over sequences
 
-**Status (2026-08-19).** Phases 0, 1, 2, 3M and 5 have all landed on `dev`. **Phase 3M is
-complete** — all twelve criteria met as of 2026-08-19 (42, 44, 46 and 47 closed last). Phase 5 is complete except criterion 35 (`128 x 3`), which is the
-furthest-away target in the spec: the appliance currently runs `1024 x 3`. Phases 3b and 4 are
-not started; Phase 4 remains blocked by D15, whose numbers are void pending the task 6
-re-measure. Criterion 7 **passes as of 2026-08-19** (0.53% of a core at 2 Hz) — see
+**Status (2026-08-19).** Phases 0, 1, 2, 3M and 5 have all landed on `dev` and **`main`**
+(`b9bf98e`). **Phase 3M is complete** — all twelve criteria met; criteria 42, 46 and 47
+were re-taken on `main` 2026-08-19 with verified provenance. Phase 5 is complete except
+criterion 35 (`128 x 3`), which is the furthest-away target in the spec: the appliance
+currently runs `1024 x 3`. Phases 3b and 4 are not started; Phase 4 remains blocked by
+D15. The 512 × 3 looper stack comparison is **done** (full stack not xrun-clean under
+load — see [`looper-stack-cost-2026-08-19.md`](../../docs/measurements/looper-stack-cost-2026-08-19.md)).
+Criterion 7 **passes as of 2026-08-19** (0.53% of a core at 2 Hz) — see
 [`docs/measurements/systemd-liveness-cost-2026-08-19.md`](../../docs/measurements/systemd-liveness-cost-2026-08-19.md).
 Outstanding work is tracked in [`next-work-order-2026-08-19.md`](next-work-order-2026-08-19.md).
 
@@ -557,12 +560,12 @@ than pretending the letter is satisfied.
 | 39 | Grid state has exactly one writer; nothing else mutates it | ✅ | Single writer verified by grep guard in the suite |
 | 40 | The `sync_source` restart sentinel is deleted | ✅ | Sentinel absent from the tree |
 | 41 | One OSC connection with one lifecycle | ✅ 2026-08-19 | One `SlOscSession`, one listen port (9953), one cache (PR #76). 9952 retired |
-| 42 | **HUD work never runs on the MIDI path** | ✅ *(2026-08-19, absolutes pending re-take)* | Measured on `c006fa8`, not `dev` — comparison holds, absolutes are upper bounds. n=100 per condition: HUD on p50 **0.188 ms** / p99 0.835 ms; HUD off p50 0.187 ms / p99 2.202 ms; under load p50 0.201 ms / p99 0.723 ms. No measurable penalty — p99 is *worse* with the HUD off, which no real effect produces. Driven by synthetic pads, so it is repeatable without the player. See [`looper-midi-osc-latency-2026-08-19.md`](../../docs/measurements/looper-midi-osc-latency-2026-08-19.md) |
+| 42 | **HUD work never runs on the MIDI path** | ✅ *(2026-08-19, re-taken on `main`)* | `b9bf98e`. n=100 per condition: HUD on p50 **0.264 ms** / p99 49.9 ms; HUD off p50 0.261 ms / p99 44.4 ms; under load p50 0.248 ms / p99 56.5 ms. **No measurable HUD penalty on p50** — medians identical to three decimals. p99 spread is harness/grid-state noise, not GIL contention (see measurement doc). Driven by synthetic pads. See [`looper-midi-osc-latency-2026-08-19.md`](../../docs/measurements/looper-midi-osc-latency-2026-08-19.md) |
 | 43 | **Loud failure on a held OSC port survives** | ✅ | Bind failure still fatal; message preserved through the merge; test covers it |
 | 44 | Musical behaviour unchanged | ✅ *approved 2026-08-19* | Approved by Mitch on scope: Phase 3M is about process ownership, unit lifecycle and the OS, not looper control semantics. Known looper-control defects are tracked separately (`yolo/looper-poll-tail-fix`) and explicitly **do not gate this phase** |
 | 45 | `sl-watchdog` remains a separate process (D4) | ✅ | `sl-watchdog` still a separate unit |
-| 46 | Crash blast radius is measured, not assumed | ✅ *(2026-08-19)* | Measured on `c006fa8`; `RestartSec` dominates, so unaffected. 2 runs: OSC rebound **10.6 / 10.7 s**, APC re-bound 10.7 / 10.9 s. **Audio never stopped** — graph stayed wired, cost was 1–2 xruns. ~10 s of that is `RestartSec=10`; process startup is ~0.6 s. See [`looper-session-crash-and-cpu-2026-08-19.md`](../../docs/measurements/looper-session-crash-and-cpu-2026-08-19.md) |
-| 47 | CPU no worse than the two processes it replaces | ✅ *(2026-08-19, absolutes pending re-take)* | Measured on `c006fa8`, not `dev` — the −5.78 delta holds, the absolute is an upper bound. Merged **32.98%** of a core vs bench 30.00% + HUD 8.77% = 38.77% before. **−5.78 points.** Separately worth knowing: 33% is the largest Python CPU consumer on the appliance, and it is the ~2 ms bench poll, not the HUD |
+| 46 | Crash blast radius is measured, not assumed | ✅ *(2026-08-19, re-taken on `main`)* | `b9bf98e`. 2 runs: OSC rebound **10.56 / 10.67 s**; APC usable again with session (~10.7 s). **Audio never stopped** — graph stayed wired, cost was 0–1 xrun per kill. ~10 s of that is `RestartSec=10`; process startup is ~0.6 s. See [`looper-session-crash-and-cpu-2026-08-19.md`](../../docs/measurements/looper-session-crash-and-cpu-2026-08-19.md) |
+| 47 | CPU no worse than the two processes it replaces | ✅ *(2026-08-19, re-taken on `main`)* | `b9bf98e`. Merged **42.90%** of a core vs bench 39.42% + HUD 10.87% = 50.28% before. **−7.38 points.** Absolutes are higher than the `c006fa8` run (stop-then-weld on `main`); the merge still wins. ~43% is the largest Python CPU consumer on the appliance — the ~2 ms bench poll, not the HUD |
 | 48 | Grid transitions are unit-testable off-hardware (D13) | ✅ | Grid transitions covered off-hardware in the laptop suite |
 | 49 | State is re-derived from the engine on start, never from a local cache | ✅ | State re-derived from the engine on start; no local cache |
 

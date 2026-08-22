@@ -44,6 +44,14 @@ import sys
 import threading
 import time
 from pathlib import Path
+from typing import NamedTuple
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from patch_browser.audio_engine import (  # noqa: E402
+    jack_reachable_via_meter,
+    looper_client_via_meter,
+    looper_playback_via_meter,
+)
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from sl_probe import (  # noqa: E402
@@ -89,7 +97,10 @@ GOVERNOR_UNIT = os.environ.get("MPE_CPU_GOVERNOR_UNIT", "mpe-cpu-governor.servic
 # RATE IS ALWAYS REPORTED in the alarm file regardless of the threshold — a
 # number you can watch is the point; the alarm is only for the loud case.
 ENGINE_LOG = Path(os.environ.get("MPE_SL_ENGINE_LOG", "/tmp/sooperlooper.log"))
-XRUN_MARKER = os.environ.get("MPE_SL_XRUN_MARKER", "got xrun")
+METER_STATE_FILE = Path(os.environ.get("MPE_METER_STATE", "/run/mpe/meter.state"))
+# The meter writes at 5 Hz; three missed writes is generous and still catches a
+# dead meter well inside one watchdog cycle.
+METER_STALE_AFTER_S = float(os.environ.get("MPE_METER_STALE_AFTER_S", "3.0"))
 XRUN_ALARM_PER_MIN = float(os.environ.get("MPE_SL_XRUN_ALARM_PER_MIN", "30"))
 XRUN_WINDOW_S = float(os.environ.get("MPE_SL_XRUN_WINDOW_S", "60"))
 
@@ -141,48 +152,58 @@ class Osc:
         return None
 
 
-def jack_graph() -> str | None:
-    """Raw `jack_lsp -c` output, or None if JACK itself is unreachable.
+class GraphSnapshot(NamedTuple):
+    """Graph visibility without spawning jack_lsp on the healthy path."""
 
-    None and "" are different answers and must not be conflated: None means we
-    could not ask, "" means we asked and the graph is empty. Treating the
-    second as the first is how this watchdog reported a healthy appliance with
-    nothing connected to the speakers.
-    """
+    jack_reachable: bool | None
+    looper_client: bool | None
+    looper_playback: bool | None
+    source: str
+
+
+def jackd_running() -> bool | None:
+    """Is jackd running? Scans ``/proc/*/comm`` — no fork."""
     try:
-        proc = subprocess.run(["jack_lsp", "-c"], capture_output=True,
-                              text=True, timeout=10)
-    except Exception:
+        proc_root = Path("/proc")
+        for entry in proc_root.iterdir():
+            if not entry.name.isdigit():
+                continue
+            try:
+                comm = (entry / "comm").read_text(errors="replace").strip()
+            except OSError:
+                continue
+            if comm == "jackd":
+                return True
+        return False
+    except OSError:
         return None
-    return proc.stdout if proc.returncode == 0 else None
 
 
-def playback_sources(graph: str) -> set[str]:
-    found, cur = set(), None
-    for line in graph.splitlines():
-        if not line.startswith((" ", "\t")):
-            cur = line.strip()
-        elif cur and cur.startswith("system:playback"):
-            found.add(line.strip())
-    return found
+def read_graph_snapshot(*, now: float | None = None) -> GraphSnapshot:
+    """Prefer meter.state. When the meter is off or stale, do not fork jack_lsp."""
+    t = time.time() if now is None else now
+    jack = jack_reachable_via_meter(now=t)
+    looper = looper_client_via_meter(now=t)
+    playback = looper_playback_via_meter(now=t)
+    if jack is not None and looper is not None and playback is not None:
+        return GraphSnapshot(jack, looper, playback, "meter")
+
+    return GraphSnapshot(None, None, None, "meter_stale")
 
 
-def jack_client_visible(graph: str) -> bool:
-    """Is SooperLooper actually ON the JACK graph?
-
-    The failure this exists to catch (verified live 2026-08-15): jackd
-    restarts, SooperLooper survives as a process but loses its JACK client and
-    never re-registers. `/set` and `/hit` go through push_nonrt_event(), which
-    is drained from the JACK *process callback* — no callback, no drain, so
-    commands vanish silently while `/get` reads state directly and keeps
-    answering. That is indistinguishable from the "unknown wedge" unless
-    something looks at the graph, which nothing here used to do.
-
-    Symptoms it explains: pads go green with no audio, the grid stays
-    quantized after a reset, and the JACK repair below fails forever because
-    it is connecting a port that does not exist.
-    """
-    return any(line.startswith(f"{JACK_CLIENT}:") for line in graph.splitlines())
+def wait_for_playback_via_meter(*, timeout_s: float = 4.0,
+                                poll_s: float = 0.2) -> bool | None:
+    """After wire-jack-graph.sh, poll meter.state instead of jack_lsp."""
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        wired = looper_playback_via_meter()
+        if wired is True:
+            return True
+        if wired is False:
+            time.sleep(poll_s)
+            continue
+        return None
+    return looper_playback_via_meter() is True
 
 
 def read_governor() -> str | None:
@@ -217,45 +238,72 @@ def repair_governor() -> tuple[bool, str]:
 
 
 class XrunCounter:
-    """Counts new xrun markers in the engine log without re-reading it.
+    """Xruns per minute, read from the peak meter's state file.
 
-    The log grows without bound while the engine runs (161 KB and climbing when
-    this was written), and this polls every 10 s on the same box that is trying
-    to make audio — so it tracks a byte offset and reads only what is new.
+    Was: tail /tmp/sooperlooper.log for the marker "got xrun". **That file does
+    not exist on the appliance** (2026-08-20), so this counter reported 0 every
+    cycle regardless of what the audio path was doing -- while measured runs in
+    the same period were producing 3-7 xruns/min. The health monitor's central
+    metric read identically whether the instrument was clean or faulting, which
+    is precisely the failure shape docs/measurements/README.md exists to
+    prevent. patch_browser.looper_health had the same hole from the journal side.
 
-    Handles the log being rotated, truncated or replaced (inode change or a
-    shrink): that resets the offset rather than reporting a wild negative delta.
+    ``/run/mpe/meter.state`` carries the real count, written by mpe-peak-meter
+    from JACK's xrun callback -- the same source scripts/measure-latency-run.sh
+    has always used. tmpfs, so this is a small read: no fork, consistent with
+    the no-forks-in-periodic-loops doctrine in Documents/DECISIONS.md.
+
+    A missing or stale meter returns an error string rather than 0, so "cannot
+    see" is never reported as "clean".
     """
 
     def __init__(self, path: Path) -> None:
         self.path = path
-        self._offset = 0
-        self._inode: int | None = None
+        self._baseline: int | None = None
+        self._last_total: int | None = None
         self._events: list[tuple[float, int]] = []
 
-    def poll(self, when: float) -> tuple[int, str | None]:
-        """Read new bytes. Returns (new_marker_count, error_or_None)."""
+    def _read(self) -> tuple[int, float] | None:
         try:
-            st = self.path.stat()
-        except OSError as exc:
-            return 0, f"no engine log at {self.path} ({exc.__class__.__name__})"
-        if self._inode is not None and (st.st_ino != self._inode
-                                        or st.st_size < self._offset):
-            self._offset = 0
-        self._inode = st.st_ino
-        if st.st_size == self._offset:
+            raw = self.path.read_text(encoding="utf-8")
+        except OSError:
+            return None
+        xruns = updated = None
+        for line in raw.splitlines():
+            key, _, value = line.partition("=")
+            try:
+                if key == "xruns":
+                    xruns = int(value)
+                elif key == "updated":
+                    updated = float(value)
+            except ValueError:
+                return None
+        if xruns is None or updated is None:
+            return None
+        return xruns, updated
+
+    def poll(self, when: float) -> tuple[int | None, str | None]:
+        """New xruns since the last cycle. Returns (count, error_or_None).
+
+        count is None when the meter cannot be read — never 0 for "cannot see".
+        """
+        sample = self._read()
+        if sample is None:
+            return None, f"no usable meter state at {self.path}"
+        total, updated = sample
+        age = time.time() - updated
+        if age > METER_STALE_AFTER_S:
+            return None, f"meter state stale ({age:.1f}s) — peak meter stopped?"
+        if self._baseline is None or total < self._baseline:
+            # First cycle, or the meter restarted and its counter went backwards.
+            self._baseline = total
+            self._last_total = total
             self._events.append((when, 0))
             return 0, None
-        try:
-            with self.path.open("r", errors="replace") as fh:
-                fh.seek(self._offset)
-                chunk = fh.read()
-                self._offset = fh.tell()
-        except OSError as exc:
-            return 0, f"cannot read engine log ({exc.__class__.__name__})"
-        count = chunk.count(XRUN_MARKER)
-        self._events.append((when, count))
-        return count, None
+        new = total - (self._last_total if self._last_total is not None else total)
+        self._last_total = total
+        self._events.append((when, max(0, new)))
+        return max(0, new), None
 
     def rate_per_min(self, when: float) -> float | None:
         """Xruns/min over the trailing window, or None until it has a span."""
@@ -282,26 +330,42 @@ def engine_running() -> bool | None:
     running at boot alarms ORPHAN every 10 s forever and teaches its operator
     to ignore it — at which point the alarm that matters is also ignored.
 
-    `pgrep -x` matches restart-sooperlooper.sh's own liveness test, so the two
-    agree on what "running" means.
+    Scans ``/proc/*/comm`` — no fork, unlike ``pgrep``.
     """
     try:
-        proc = subprocess.run(["pgrep", "-x", "sooperlooper"],
-                              capture_output=True, text=True, timeout=5)
-    except Exception:
+        proc_root = Path("/proc")
+        for entry in proc_root.iterdir():
+            if not entry.name.isdigit():
+                continue
+            try:
+                comm = (entry / "comm").read_text(errors="replace").strip()
+            except OSError:
+                continue
+            if comm == "sooperlooper":
+                return True
+        return False
+    except OSError:
         return None
-    return proc.returncode == 0
 
 
 def capture_wedge_diagnostics() -> dict:
     """Evidence for the unknown wedge: what is each engine thread doing?"""
     info: dict = {"threads": []}
     try:
-        pid = subprocess.run(["pgrep", "-f", "src/sooperlooper"],
-                             capture_output=True, text=True, timeout=5).stdout.split()
+        pid: str | None = None
+        proc_root = Path("/proc")
+        for entry in proc_root.iterdir():
+            if not entry.name.isdigit():
+                continue
+            try:
+                comm = (entry / "comm").read_text(errors="replace").strip()
+            except OSError:
+                continue
+            if comm == "sooperlooper":
+                pid = entry.name
+                break
         if not pid:
             return {"error": "no sooperlooper process"}
-        pid = pid[0]
         info["pid"] = pid
         for t in Path(f"/proc/{pid}/task").iterdir():
             entry = {"tid": t.name}
@@ -334,13 +398,19 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--once", action="store_true", help="single pass, then exit")
     ap.add_argument("--no-repair", action="store_true",
                     help="detect and alarm only; never touch the JACK graph")
+    ap.add_argument("--skip-source-check", action="store_true",
+                    help="skip boot-time health-source liveness (tests only)")
     args = ap.parse_args(argv)
+
+    if not args.skip_source_check:
+        from patch_browser.health_source_liveness import verify_or_exit
+        verify_or_exit("sl-watchdog")
 
     osc = Osc().start()
     log(f"watching every {INTERVAL_S:.0f}s — repairs JACK graph, alarms on wedge")
     wedged_since: float | None = None
 
-    xruns = XrunCounter(ENGINE_LOG)
+    xruns = XrunCounter(METER_STATE_FILE)
     governor_repairs: list[float] = []
 
     while True:
@@ -360,6 +430,7 @@ def main(argv: list[str] | None = None) -> int:
         CURRENT_METRICS["governor"] = governor
         if xrun_err:
             CURRENT_METRICS["xrun_source"] = xrun_err
+            problems.append(f"xrun counter blind: {xrun_err}")
 
         # Safe to repair: re-pinning the governor cannot destroy a take, so it
         # belongs with the JACK reconnect below, not with the alarm-and-wait
@@ -399,7 +470,8 @@ def main(argv: list[str] | None = None) -> int:
         # Check this FIRST. An orphan looks exactly like a wedge to the OSC
         # probe below, and every JACK repair against it is futile — so
         # diagnosing in the other order names the wrong component.
-        graph = jack_graph()
+        snap = read_graph_snapshot(now=cycle_t)
+        CURRENT_METRICS["graph_source"] = snap.source
         orphan = False
         stopped = False
         # None means we could not ask (pgrep missing or timed out). That is not
@@ -407,10 +479,18 @@ def main(argv: list[str] | None = None) -> int:
         # alarm below asserts a live process, and asserting it unverified is the
         # failure mode this whole file exists to avoid. Alarm anyway — loud on
         # the control path — but say which of the two we actually established.
-        running = None if graph is None else engine_running()
-        if graph is None:
-            problems.append("jack_lsp unavailable — JACK down or not reachable")
-        elif not jack_client_visible(graph) and running is False:
+        running = None if snap.jack_reachable is None else engine_running()
+        if snap.jack_reachable is None:
+            jackd = jackd_running()
+            if jackd is True:
+                problems.append(
+                    "peak-meter stale or unavailable (jackd running — meter fault)")
+            elif jackd is False:
+                problems.append("JACK down (jackd not running)")
+            else:
+                problems.append(
+                    "JACK/meter state unknown (meter stale and jackd proc scan failed)")
+        elif snap.looper_client is False and running is False:
             # Not a fault. Nothing to repair, nothing to alarm — but say so
             # every cycle, because "watchdog up, engine deliberately down" and
             # "watchdog died" must not produce the same alarm file.
@@ -421,10 +501,10 @@ def main(argv: list[str] | None = None) -> int:
                 "action": "mpe looper sl-restart (safe: there are no loops to lose)",
             })
             alarm_written = True
-        elif not jack_client_visible(graph):
+        elif snap.looper_client is False:
             orphan = True
             _proc = ("process is up" if running
-                     else "process state UNKNOWN (pgrep failed)")
+                     else "process state UNKNOWN (proc scan failed)")
             problems.append(f"ORPHAN: {JACK_CLIENT} {_proc} but has no JACK "
                             f"client (jackd restarted under it?)")
             write_alarm("orphan", {
@@ -440,9 +520,9 @@ def main(argv: list[str] | None = None) -> int:
 
         # --- audio path: safe to repair -------------------------------------
         # Pointless while orphaned: the ports being connected do not exist.
-        if graph is not None and not orphan and not stopped:
-            srcs = playback_sources(graph)
-            if not any(s.startswith(f"{JACK_CLIENT}:common_out") for s in srcs):
+        if snap.jack_reachable and not orphan and not stopped:
+            playback_ok = snap.looper_playback is True
+            if snap.looper_playback is False:
                 problems.append("common_out not connected to system:playback")
                 if not args.no_repair:
                     script = REPO_ROOT / "scripts/sooperlooper/wire-jack-graph.sh"
@@ -450,10 +530,7 @@ def main(argv: list[str] | None = None) -> int:
                         proc = subprocess.run(["bash", str(script), "connect"],
                                               capture_output=True, text=True,
                                               timeout=60)
-                        after = jack_graph()
-                        if after is not None and any(
-                                s.startswith(f"{JACK_CLIENT}:common_out")
-                                for s in playback_sources(after)):
+                        if wait_for_playback_via_meter():
                             repaired.append("reconnected common_out -> playback")
                             problems.pop()
                         else:
@@ -468,6 +545,8 @@ def main(argv: list[str] | None = None) -> int:
                                     log(f"  wire-jack {stream}: {line}")
                     except Exception as exc:
                         log(f"repair failed: {exc}")
+            elif snap.looper_playback is None and not playback_ok:
+                problems.append("common_out playback wiring unknown (meter stale)")
 
         # --- control path: NEVER auto-repair (restart destroys takes) --------
         # Skipped while orphaned: it would report WEDGED, which is true but

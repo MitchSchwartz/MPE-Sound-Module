@@ -2,14 +2,18 @@
 
 from __future__ import annotations
 
+import tempfile
+import shutil
+import time
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
 from patch_browser.looper_health import (
     JackCpuLoadReader,
     JackGraphHealth,
-    JournalXrunCounter,
+    MeterXrunCounter,
     LooperHealth,
     collect_jack_graph_health,
     jackd_journal_xruns_since,
@@ -95,45 +99,69 @@ class JackProbeTests(unittest.TestCase):
         self.assertEqual(jackd_journal_xruns_since(1_700_000_000.0), 1)
 
 
-class JournalXrunCounterTests(unittest.TestCase):
-    """The old probe rescanned the whole journal every tick; this must not."""
+class MeterXrunCounterTests(unittest.TestCase):
+    """Reads the meter's real count, and says None rather than a confident 0.
 
-    @patch("patch_browser.looper_health.subprocess.run")
-    def test_follows_cursor_and_accumulates(self, run_mock) -> None:
-        counter = JournalXrunCounter(1_700_000_000.0)
+    Replaced JournalXrunCounter, which followed the mpe-jackd journal for lines
+    containing "xrun". That journal carries none on this appliance, so it
+    reported 0 forever while runs measured 3-7 xruns/min.
+    """
 
-        run_mock.return_value.returncode = 0
-        run_mock.return_value.stdout = (
-            "jackd: xrun of at least 128 msecs\nfine\n-- cursor: s=aaa;i=1\n"
+    def setUp(self) -> None:
+        self.tmp = Path(tempfile.mkdtemp())
+        self.state = self.tmp / "meter.state"
+
+    def tearDown(self) -> None:
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _write(self, xruns: int, *, age_s: float = 0.0) -> None:
+        self.state.write_text(
+            f"peak_linear=0\nxruns={xruns}\nupdated={time.time() - age_s:.0f}\n",
+            encoding="utf-8",
         )
-        self.assertEqual(counter.poll(), 1)
 
-        run_mock.return_value.stdout = (
-            "jackd: xrun of at least 4 msecs\njackd: xrun\n-- cursor: s=aaa;i=2\n"
-        )
-        self.assertEqual(counter.poll(), 3, "counts must accumulate, not reset")
+    def test_counts_from_a_baseline_so_prior_xruns_are_not_replayed(self) -> None:
+        self._write(7)
+        counter = MeterXrunCounter(0.0, path=self.state)
+        self.assertEqual(counter.poll(), 0, "first read establishes the baseline")
+        self._write(11)
+        self.assertEqual(counter.poll(), 4)
 
-        first_argv, second_argv = run_mock.call_args_list[0][0][0], run_mock.call_args_list[1][0][0]
-        self.assertIn("--since", first_argv)
-        self.assertNotIn("--since", second_argv)
-        self.assertIn("--after-cursor", second_argv)
-        self.assertIn("s=aaa;i=1", second_argv)
+    def test_meter_restart_mid_run_reports_none_not_rebaseline(self) -> None:
+        self._write(40)
+        counter = MeterXrunCounter(0.0, path=self.state)
+        counter.poll()
+        self._write(2)  # meter restarted, counter reset
+        self.assertIsNone(counter.poll())
+        self._write(5)
+        self.assertIsNone(counter.poll())
 
-    @patch("patch_browser.looper_health.subprocess.run")
-    def test_quiet_poll_does_not_lose_the_running_total(self, run_mock) -> None:
-        counter = JournalXrunCounter(1_700_000_000.0)
-        run_mock.return_value.returncode = 0
-        run_mock.return_value.stdout = "jackd: xrun\n-- cursor: s=aaa;i=1\n"
-        self.assertEqual(counter.poll(), 1)
-        run_mock.return_value.stdout = "-- cursor: s=aaa;i=2\n"
-        self.assertEqual(counter.poll(), 1)
+    def test_stale_meter_reports_none_not_zero(self) -> None:
+        """A stopped meter and a clean instrument must not read the same."""
+        self._write(3, age_s=120.0)
+        counter = MeterXrunCounter(0.0, path=self.state)
+        self.assertIsNone(counter.poll())
 
-    @patch("patch_browser.looper_health.subprocess.run")
-    def test_cursor_line_is_not_itself_counted(self, run_mock) -> None:
-        counter = JournalXrunCounter(1_700_000_000.0)
-        run_mock.return_value.returncode = 0
-        run_mock.return_value.stdout = "nothing here\n-- cursor: s=xrun-looking;i=1\n"
-        self.assertEqual(counter.poll(), 0)
+    def test_missing_file_reports_none_not_zero(self) -> None:
+        counter = MeterXrunCounter(0.0, path=self.tmp / "absent.state")
+        self.assertIsNone(counter.poll())
+
+    def test_unparseable_file_reports_none_not_zero(self) -> None:
+        self.state.write_text("xruns=not-a-number\nupdated=1\n", encoding="utf-8")
+        counter = MeterXrunCounter(0.0, path=self.state)
+        self.assertIsNone(counter.poll())
+
+    def test_poll_does_not_fork(self) -> None:
+        """The whole point: no subprocess on a periodic path."""
+        self._write(1)
+        counter = MeterXrunCounter(0.0, path=self.state)
+        with patch("patch_browser.looper_health.subprocess.Popen") as popen, patch(
+            "patch_browser.looper_health.subprocess.run"
+        ) as run:
+            for _ in range(20):
+                counter.poll()
+        self.assertEqual(popen.call_count, 0)
+        self.assertEqual(run.call_count, 0)
 
 
 class JackCpuLoadReaderTests(unittest.TestCase):

@@ -1,0 +1,625 @@
+=== capacity-ramp tag=V8a-001-70s_Fizzy_String buffer=1024x3 patch=70s Fizzy String 2026-08-21T23:00:24-04:00 ===
+CARD=2
+{"name":"70s fizzy string","path":"/home/mitch/Documents/Surge XT/Patches/Quick Select/70s Fizzy String.fxp","osc_count":1,"osc_types":[8],"unison_voices":-1,"fx_count":2,"fx_types":[6,20],"filter1_type":11,"filter2_type":10,"patch_polylimit":12}
+PROBE voices=1 sec=8 xruns_delta=0
+PROBE voices=3 sec=8 xruns_delta=0
+PROBE voices=5 sec=8 xruns_delta=0
+PROBE voices=7 sec=8 xruns_delta=0
+PROBE voices=9 sec=8 xruns_delta=0
+PROBE voices=11 sec=8 xruns_delta=0
+PROBE voices=13 sec=8 xruns_delta=0
+PROBE voices=15 sec=8 xruns_delta=0
+RESULT tag=V8a-001-70s_Fizzy_String first_overrun=none_below_15 sustained_clean=15
+SENTINEL capacity-ramp-end tag=V8a-001-70s_Fizzy_String
+=== capacity-ramp tag=V8a-002-A_Robotic_Mind buffer=1024x3 patch=A Robotic Mind 2026-08-21T23:01:34-04:00 ===
+CARD=2
+{"name": "A Robotic Mind", "path": "/home/mitch/Documents/Surge XT/Patches/Quick Select/A Robotic Mind.fxp", "error": "not well-formed (invalid token): line 1, column 38359"}
+PROBE voices=1 sec=8 xruns_delta=0
+PROBE voices=3 sec=8 xruns_delta=0
+PROBE voices=5 sec=8 xruns_delta=4
+RESULT tag=V8a-002-A_Robotic_Mind first_overrun=5 sustained_clean=3
+SENTINEL capacity-ramp-end tag=V8a-002-A_Robotic_Mind
+=== capacity-ramp tag=V8a-003-Acid_Seq_3 buffer=1024x3 patch=Acid Seq 3 2026-08-21T23:02:03-04:00 ===
+CARD=2
+{"name":"Acid Seq 3","path":"/home/mitch/Documents/Surge XT/Patches/Quick Select/Acid Seq 3.fxp","osc_count":0,"osc_types":[],"unison_voices":0,"fx_count":1,"fx_types":[1],"filter1_type":2,"filter2_type":5,"patch_polylimit":8}
+PROBE voices=1 sec=8 xruns_delta=0
+PROBE voices=3 sec=8 xruns_delta=0
+PROBE voices=5 sec=8 xruns_delta=0
+PROBE voices=7 sec=8 xruns_delta=0
+PROBE voices=9 sec=8 xruns_delta=0
+PROBE voices=11 sec=8 xruns_delta=0
+PROBE voices=13 sec=8 xruns_delta=0
+PROBE voices=15 sec=8 xruns_delta=0
+RESULT tag=V8a-003-Acid_Seq_3 first_overrun=none_below_15 sustained_clean=15
+SENTINEL capacity-ramp-end tag=V8a-003-Acid_Seq_3
+=== capacity-ramp tag=V8a-004-Analog_Foundation buffer=1024x3 patch=Analog Foundation 2026-08-21T23:03:13-04:00 ===
+CARD=2
+{"name":"Analog Foundation","path":"/home/mitch/Documents/Surge XT/Patches/Quick Select/Analog Foundation.fxp","osc_count":0,"osc_types":[],"unison_voices":0,"fx_count":2,"fx_types":[14,6],"filter1_type":14,"filter2_type":10,"patch_polylimit":16}
+PROBE voices=1 sec=8 xruns_delta=0
+PROBE voices=3 sec=8 xruns_delta=0
+PROBE voices=5 sec=8 xruns_delta=0
+PROBE voices=7 sec=8 xruns_delta=0
+PROBE voices=9 sec=8 xruns_delta=0
+PROBE voices=11 sec=8 xruns_delta=0
+PROBE voices=13 sec=8 xruns_delta=0
+PROBE voices=15 sec=8 xruns_delta=0
+RESULT tag=V8a-004-Analog_Foundation first_overrun=none_below_15 sustained_clean=15
+SENTINEL capacity-ramp-end tag=V8a-004-Analog_Foundation
+=== capacity-ramp tag=V8a-005-Another_Warm buffer=1024x3 patch=Another Warm 2026-08-21T23:04:22-04:00 ===
+CARD=2
+{"name":"Pad Another warm","path":"/home/mitch/Documents/Surge XT/Patches/Quick Select/Another Warm.fxp","osc_count":0,"osc_types":[],"unison_voices":0,"fx_count":2,"fx_types":[1,6],"filter1_type":1,"filter2_type":8,"patch_polylimit":8}
+PROBE voices=1 sec=8 xruns_delta=0
+PROBE voices=3 sec=8 xruns_delta=0
+PROBE voices=5 sec=8 xruns_delta=0
+PROBE voices=7 sec=8 xruns_delta=0
+PROBE voices=9 sec=8 xruns_delta=0
+PROBE voices=11 sec=8 xruns_delta=0
+PROBE voices=13 sec=8 xruns_delta=0
+PROBE voices=15 sec=8 xruns_delta=0
+RESULT tag=V8a-005-Another_Warm first_overrun=none_below_15 sustained_clean=15
+SENTINEL capacity-ramp-end tag=V8a-005-Another_Warm
+=== capacity-ramp tag=V8a-006-Axel's_Brassy_Pad buffer=1024x3 patch=Axel's Brassy Pad 2026-08-21T23:05:32-04:00 ===
+CARD=2
+{"name":"AF Brassy Pad","path":"/home/mitch/Documents/Surge XT/Patches/Quick Select/Axel's Brassy Pad.fxp","osc_count":2,"osc_types":[8,8],"unison_voices":2,"fx_count":1,"fx_types":[2],"filter1_type":13,"filter2_type":12,"patch_polylimit":16}
+PROBE voices=1 sec=8 xruns_delta=0
+PROBE voices=3 sec=8 xruns_delta=0
+PROBE voices=5 sec=8 xruns_delta=0
+PROBE voices=7 sec=8 xruns_delta=0
+PROBE voices=9 sec=8 xruns_delta=0
+PROBE voices=11 sec=8 xruns_delta=0
+PROBE voices=13 sec=8 xruns_delta=0
+PROBE voices=15 sec=8 xruns_delta=0
+RESULT tag=V8a-006-Axel's_Brassy_Pad first_overrun=none_below_15 sustained_clean=15
+SENTINEL capacity-ramp-end tag=V8a-006-Axel's_Brassy_Pad
+=== capacity-ramp tag=V8a-007-Bass_Ocarina buffer=1024x3 patch=Bass Ocarina 2026-08-21T23:06:42-04:00 ===
+CARD=2
+{"name": "Bass Ocarina", "path": "/home/mitch/Documents/Surge XT/Patches/Quick Select/Bass Ocarina.fxp", "error": "not well-formed (invalid token): line 1, column 34959"}
+PROBE voices=1 sec=8 xruns_delta=0
+PROBE voices=3 sec=8 xruns_delta=0
+PROBE voices=5 sec=8 xruns_delta=0
+PROBE voices=7 sec=8 xruns_delta=0
+PROBE voices=9 sec=8 xruns_delta=0
+PROBE voices=11 sec=8 xruns_delta=0
+PROBE voices=13 sec=8 xruns_delta=0
+PROBE voices=15 sec=8 xruns_delta=0
+RESULT tag=V8a-007-Bass_Ocarina first_overrun=none_below_15 sustained_clean=15
+SENTINEL capacity-ramp-end tag=V8a-007-Bass_Ocarina
+=== capacity-ramp tag=V8a-008-Block buffer=1024x3 patch=Block 2026-08-21T23:07:52-04:00 ===
+CARD=2
+{"name":"Block","path":"/home/mitch/Documents/Surge XT/Patches/Quick Select/Block.fxp","osc_count":0,"osc_types":[],"unison_voices":0,"fx_count":1,"fx_types":[1],"filter1_type":1,"filter2_type":0,"patch_polylimit":8}
+PROBE voices=1 sec=8 xruns_delta=0
+PROBE voices=3 sec=8 xruns_delta=0
+PROBE voices=5 sec=8 xruns_delta=0
+PROBE voices=7 sec=8 xruns_delta=0
+PROBE voices=9 sec=8 xruns_delta=0
+PROBE voices=11 sec=8 xruns_delta=0
+PROBE voices=13 sec=8 xruns_delta=0
+PROBE voices=15 sec=8 xruns_delta=0
+RESULT tag=V8a-008-Block first_overrun=none_below_15 sustained_clean=15
+SENTINEL capacity-ramp-end tag=V8a-008-Block
+=== capacity-ramp tag=V8a-009-Blue_Pad buffer=1024x3 patch=Blue Pad 2026-08-21T23:09:01-04:00 ===
+CARD=2
+{"name": "Blue Pad", "path": "/home/mitch/Documents/Surge XT/Patches/Quick Select/Blue Pad.fxp", "error": "not well-formed (invalid token): line 1, column 23707"}
+PROBE voices=1 sec=8 xruns_delta=0
+PROBE voices=3 sec=8 xruns_delta=0
+PROBE voices=5 sec=8 xruns_delta=0
+PROBE voices=7 sec=8 xruns_delta=0
+PROBE voices=9 sec=8 xruns_delta=0
+PROBE voices=11 sec=8 xruns_delta=0
+PROBE voices=13 sec=8 xruns_delta=0
+PROBE voices=15 sec=8 xruns_delta=0
+RESULT tag=V8a-009-Blue_Pad first_overrun=none_below_15 sustained_clean=15
+SENTINEL capacity-ramp-end tag=V8a-009-Blue_Pad
+=== capacity-ramp tag=V8a-010-Bonita_Keys buffer=1024x3 patch=Bonita Keys 2026-08-21T23:10:11-04:00 ===
+CARD=2
+{"name": "Bonita Keys", "path": "/home/mitch/Documents/Surge XT/Patches/Quick Select/Bonita Keys.fxp", "error": "not well-formed (invalid token): line 1, column 26338"}
+PROBE voices=1 sec=8 xruns_delta=0
+PROBE voices=3 sec=8 xruns_delta=0
+PROBE voices=5 sec=8 xruns_delta=0
+PROBE voices=7 sec=8 xruns_delta=0
+PROBE voices=9 sec=8 xruns_delta=0
+PROBE voices=11 sec=8 xruns_delta=0
+PROBE voices=13 sec=8 xruns_delta=2
+RESULT tag=V8a-010-Bonita_Keys first_overrun=13 sustained_clean=11
+SENTINEL capacity-ramp-end tag=V8a-010-Bonita_Keys
+=== capacity-ramp tag=V8a-011-Bowed_String buffer=1024x3 patch=Bowed String 2026-08-21T23:11:13-04:00 ===
+CARD=2
+{"name": "Bowed String", "path": "/home/mitch/Documents/Surge XT/Patches/Quick Select/Bowed String.fxp", "error": "not well-formed (invalid token): line 1, column 36992"}
+PROBE voices=1 sec=8 xruns_delta=0
+PROBE voices=3 sec=8 xruns_delta=0
+PROBE voices=5 sec=8 xruns_delta=0
+PROBE voices=7 sec=8 xruns_delta=0
+PROBE voices=9 sec=8 xruns_delta=0
+PROBE voices=11 sec=8 xruns_delta=0
+PROBE voices=13 sec=8 xruns_delta=0
+PROBE voices=15 sec=8 xruns_delta=0
+RESULT tag=V8a-011-Bowed_String first_overrun=none_below_15 sustained_clean=15
+SENTINEL capacity-ramp-end tag=V8a-011-Bowed_String
+=== capacity-ramp tag=V8a-012-Brave_New_World buffer=1024x3 patch=Brave New World 2026-08-21T23:12:23-04:00 ===
+CARD=2
+{"name": "Brave New World", "path": "/home/mitch/Documents/Surge XT/Patches/Quick Select/Brave New World.fxp", "error": "not well-formed (invalid token): line 1, column 27461"}
+PROBE voices=1 sec=8 xruns_delta=0
+PROBE voices=3 sec=8 xruns_delta=0
+PROBE voices=5 sec=8 xruns_delta=12
+RESULT tag=V8a-012-Brave_New_World first_overrun=5 sustained_clean=3
+SENTINEL capacity-ramp-end tag=V8a-012-Brave_New_World
+=== capacity-ramp tag=V8a-013-Church_-_Mod buffer=1024x3 patch=Church - Mod 2026-08-21T23:12:52-04:00 ===
+CARD=2
+{"name": "Church - Mod", "path": "/home/mitch/Documents/Surge XT/Patches/Quick Select/Church - Mod.fxp", "error": "not well-formed (invalid token): line 1, column 32009"}
+PROBE voices=1 sec=8 xruns_delta=0
+PROBE voices=3 sec=8 xruns_delta=0
+PROBE voices=5 sec=8 xruns_delta=0
+PROBE voices=7 sec=8 xruns_delta=0
+PROBE voices=9 sec=8 xruns_delta=0
+PROBE voices=11 sec=8 xruns_delta=0
+PROBE voices=13 sec=8 xruns_delta=0
+PROBE voices=15 sec=8 xruns_delta=0
+RESULT tag=V8a-013-Church_-_Mod first_overrun=none_below_15 sustained_clean=15
+SENTINEL capacity-ramp-end tag=V8a-013-Church_-_Mod
+=== capacity-ramp tag=V8a-014-Classic_Strings buffer=1024x3 patch=Classic Strings 2026-08-21T23:14:02-04:00 ===
+CARD=2
+{"name":"Classic Strings","path":"/home/mitch/Documents/Surge XT/Patches/Quick Select/Classic Strings.fxp","osc_count":0,"osc_types":[],"unison_voices":0,"fx_count":2,"fx_types":[9,6],"filter1_type":3,"filter2_type":3,"patch_polylimit":8}
+PROBE voices=1 sec=8 xruns_delta=0
+PROBE voices=3 sec=8 xruns_delta=0
+PROBE voices=5 sec=8 xruns_delta=0
+PROBE voices=7 sec=8 xruns_delta=0
+PROBE voices=9 sec=8 xruns_delta=0
+PROBE voices=11 sec=8 xruns_delta=0
+PROBE voices=13 sec=8 xruns_delta=0
+PROBE voices=15 sec=8 xruns_delta=0
+RESULT tag=V8a-014-Classic_Strings first_overrun=none_below_15 sustained_clean=15
+SENTINEL capacity-ramp-end tag=V8a-014-Classic_Strings
+=== capacity-ramp tag=V8a-015-Closed_Hat buffer=1024x3 patch=Closed Hat 2026-08-21T23:15:12-04:00 ===
+CARD=2
+{"name":"CH","path":"/home/mitch/Documents/Surge XT/Patches/Quick Select/Closed Hat.fxp","osc_count":3,"osc_types":[1,6,6],"unison_voices":1,"fx_count":0,"fx_types":[],"filter1_type":5,"filter2_type":1,"patch_polylimit":16}
+PROBE voices=1 sec=8 xruns_delta=0
+PROBE voices=3 sec=8 xruns_delta=0
+PROBE voices=5 sec=8 xruns_delta=0
+PROBE voices=7 sec=8 xruns_delta=0
+PROBE voices=9 sec=8 xruns_delta=0
+PROBE voices=11 sec=8 xruns_delta=0
+PROBE voices=13 sec=8 xruns_delta=0
+PROBE voices=15 sec=8 xruns_delta=0
+RESULT tag=V8a-015-Closed_Hat first_overrun=none_below_15 sustained_clean=15
+SENTINEL capacity-ramp-end tag=V8a-015-Closed_Hat
+=== capacity-ramp tag=V8a-016-Cloud_Horn buffer=1024x3 patch=Cloud Horn 2026-08-21T23:16:21-04:00 ===
+CARD=2
+{"name":"Cloud horn","path":"/home/mitch/Documents/Surge XT/Patches/Quick Select/Cloud Horn.fxp","osc_count":2,"osc_types":[9,9],"unison_voices":16,"fx_count":2,"fx_types":[3,14],"filter1_type":1,"filter2_type":0,"patch_polylimit":16}
+PROBE voices=1 sec=8 xruns_delta=0
+PROBE voices=3 sec=8 xruns_delta=0
+PROBE voices=5 sec=8 xruns_delta=0
+PROBE voices=7 sec=8 xruns_delta=0
+PROBE voices=9 sec=8 xruns_delta=2
+RESULT tag=V8a-016-Cloud_Horn first_overrun=9 sustained_clean=7
+SENTINEL capacity-ramp-end tag=V8a-016-Cloud_Horn
+=== capacity-ramp tag=V8a-017-Crystals buffer=1024x3 patch=Crystals 2026-08-21T23:17:07-04:00 ===
+CARD=2
+{"name":"Crystals","path":"/home/mitch/Documents/Surge XT/Patches/Quick Select/Crystals.fxp","osc_count":3,"osc_types":[10,10,10],"unison_voices":14,"fx_count":3,"fx_types":[9,3,14],"filter1_type":1,"filter2_type":0,"patch_polylimit":16}
+PROBE voices=1 sec=8 xruns_delta=0
+PROBE voices=3 sec=8 xruns_delta=0
+PROBE voices=5 sec=8 xruns_delta=16
+RESULT tag=V8a-017-Crystals first_overrun=5 sustained_clean=3
+SENTINEL capacity-ramp-end tag=V8a-017-Crystals
+=== capacity-ramp tag=V8a-018-Cyber_Pad buffer=1024x3 patch=Cyber Pad 2026-08-21T23:17:36-04:00 ===
+CARD=2
+{"name": "Cyber Pad", "path": "/home/mitch/Documents/Surge XT/Patches/Quick Select/Cyber Pad.fxp", "error": "not well-formed (invalid token): line 1, column 33440"}
+PROBE voices=1 sec=8 xruns_delta=0
+PROBE voices=3 sec=8 xruns_delta=0
+PROBE voices=5 sec=8 xruns_delta=6
+RESULT tag=V8a-018-Cyber_Pad first_overrun=5 sustained_clean=3
+SENTINEL capacity-ramp-end tag=V8a-018-Cyber_Pad
+=== capacity-ramp tag=V8a-019-Dark_Cello buffer=1024x3 patch=Dark Cello 2026-08-21T23:18:05-04:00 ===
+CARD=2
+{"name": "Dark Cello", "path": "/home/mitch/Documents/Surge XT/Patches/Quick Select/Dark Cello.fxp", "error": "not well-formed (invalid token): line 1, column 36225"}
+PROBE voices=1 sec=8 xruns_delta=0
+PROBE voices=3 sec=8 xruns_delta=0
+PROBE voices=5 sec=8 xruns_delta=0
+PROBE voices=7 sec=8 xruns_delta=0
+PROBE voices=9 sec=8 xruns_delta=0
+PROBE voices=11 sec=8 xruns_delta=0
+PROBE voices=13 sec=8 xruns_delta=2
+RESULT tag=V8a-019-Dark_Cello first_overrun=13 sustained_clean=11
+SENTINEL capacity-ramp-end tag=V8a-019-Dark_Cello
+=== capacity-ramp tag=V8a-020-Dark_Strange buffer=1024x3 patch=Dark Strange 2026-08-21T23:19:06-04:00 ===
+CARD=2
+{"name":"Dark Strange","path":"/home/mitch/Documents/Surge XT/Patches/Quick Select/Dark Strange.fxp","osc_count":3,"osc_types":[1,6,3],"unison_voices":2,"fx_count":0,"fx_types":[],"filter1_type":2,"filter2_type":2,"patch_polylimit":16}
+PROBE voices=1 sec=8 xruns_delta=0
+PROBE voices=3 sec=8 xruns_delta=0
+PROBE voices=5 sec=8 xruns_delta=0
+PROBE voices=7 sec=8 xruns_delta=0
+PROBE voices=9 sec=8 xruns_delta=0
+PROBE voices=11 sec=8 xruns_delta=0
+PROBE voices=13 sec=8 xruns_delta=0
+PROBE voices=15 sec=8 xruns_delta=0
+RESULT tag=V8a-020-Dark_Strange first_overrun=none_below_15 sustained_clean=15
+SENTINEL capacity-ramp-end tag=V8a-020-Dark_Strange
+=== capacity-ramp tag=V8a-021-Digi_Harpsi buffer=1024x3 patch=Digi Harpsi 2026-08-21T23:20:16-04:00 ===
+CARD=2
+{"name":"Sawteeth","path":"/home/mitch/Documents/Surge XT/Patches/Quick Select/Digi Harpsi.fxp","osc_count":0,"osc_types":[],"unison_voices":0,"fx_count":1,"fx_types":[1],"filter1_type":1,"filter2_type":1,"patch_polylimit":16}
+PROBE voices=1 sec=8 xruns_delta=0
+PROBE voices=3 sec=8 xruns_delta=0
+PROBE voices=5 sec=8 xruns_delta=0
+PROBE voices=7 sec=8 xruns_delta=0
+PROBE voices=9 sec=8 xruns_delta=0
+PROBE voices=11 sec=8 xruns_delta=0
+PROBE voices=13 sec=8 xruns_delta=0
+PROBE voices=15 sec=8 xruns_delta=0
+RESULT tag=V8a-021-Digi_Harpsi first_overrun=none_below_15 sustained_clean=15
+SENTINEL capacity-ramp-end tag=V8a-021-Digi_Harpsi
+=== capacity-ramp tag=V8a-022-Dreamscape buffer=1024x3 patch=Dreamscape 2026-08-21T23:21:26-04:00 ===
+CARD=2
+{"name": "Dreamscape", "path": "/home/mitch/Documents/Surge XT/Patches/Quick Select/Dreamscape.fxp", "error": "not well-formed (invalid token): line 1, column 28875"}
+PROBE voices=1 sec=8 xruns_delta=0
+PROBE voices=3 sec=8 xruns_delta=0
+PROBE voices=5 sec=8 xruns_delta=0
+PROBE voices=7 sec=8 xruns_delta=0
+PROBE voices=9 sec=8 xruns_delta=14
+RESULT tag=V8a-022-Dreamscape first_overrun=9 sustained_clean=7
+SENTINEL capacity-ramp-end tag=V8a-022-Dreamscape
+=== capacity-ramp tag=V8a-023-Dreamy_Flute buffer=1024x3 patch=Dreamy Flute 2026-08-21T23:22:11-04:00 ===
+CARD=2
+{"name": "Dreamy Flute", "path": "/home/mitch/Documents/Surge XT/Patches/Quick Select/Dreamy Flute.fxp", "error": "not well-formed (invalid token): line 1, column 31670"}
+PROBE voices=1 sec=8 xruns_delta=0
+PROBE voices=3 sec=8 xruns_delta=0
+PROBE voices=5 sec=8 xruns_delta=0
+PROBE voices=7 sec=8 xruns_delta=0
+PROBE voices=9 sec=8 xruns_delta=0
+PROBE voices=11 sec=8 xruns_delta=0
+PROBE voices=13 sec=8 xruns_delta=0
+PROBE voices=15 sec=8 xruns_delta=0
+RESULT tag=V8a-023-Dreamy_Flute first_overrun=none_below_15 sustained_clean=15
+SENTINEL capacity-ramp-end tag=V8a-023-Dreamy_Flute
+=== capacity-ramp tag=V8a-024-Duduk buffer=1024x3 patch=Duduk 2026-08-21T23:23:21-04:00 ===
+CARD=2
+{"name": "Duduk", "path": "/home/mitch/Documents/Surge XT/Patches/Quick Select/Duduk.fxp", "error": "not well-formed (invalid token): line 1, column 34597"}
+PROBE voices=1 sec=8 xruns_delta=0
+PROBE voices=3 sec=8 xruns_delta=0
+PROBE voices=5 sec=8 xruns_delta=9
+RESULT tag=V8a-024-Duduk first_overrun=5 sustained_clean=3
+SENTINEL capacity-ramp-end tag=V8a-024-Duduk
+=== capacity-ramp tag=V8a-025-Fake_Ethno buffer=1024x3 patch=Fake Ethno 2026-08-21T23:23:50-04:00 ===
+CARD=2
+{"name":"Fake ethno","path":"/home/mitch/Documents/Surge XT/Patches/Quick Select/Fake Ethno.fxp","osc_count":2,"osc_types":[1,1],"unison_voices":2,"fx_count":1,"fx_types":[1],"filter1_type":9,"filter2_type":6,"patch_polylimit":16}
+PROBE voices=1 sec=8 xruns_delta=0
+PROBE voices=3 sec=8 xruns_delta=0
+PROBE voices=5 sec=8 xruns_delta=0
+PROBE voices=7 sec=8 xruns_delta=0
+PROBE voices=9 sec=8 xruns_delta=0
+PROBE voices=11 sec=8 xruns_delta=0
+PROBE voices=13 sec=8 xruns_delta=0
+PROBE voices=15 sec=8 xruns_delta=0
+RESULT tag=V8a-025-Fake_Ethno first_overrun=none_below_15 sustained_clean=15
+SENTINEL capacity-ramp-end tag=V8a-025-Fake_Ethno
+=== capacity-ramp tag=V8a-026-Fifth_Seq buffer=1024x3 patch=Fifth Seq 2026-08-21T23:24:59-04:00 ===
+CARD=2
+{"name": "Fifth Seq", "path": "/home/mitch/Documents/Surge XT/Patches/Quick Select/Fifth Seq.fxp", "error": "not well-formed (invalid token): line 1, column 23977"}
+PROBE voices=1 sec=8 xruns_delta=0
+PROBE voices=3 sec=8 xruns_delta=0
+PROBE voices=5 sec=8 xruns_delta=0
+PROBE voices=7 sec=8 xruns_delta=0
+PROBE voices=9 sec=8 xruns_delta=0
+PROBE voices=11 sec=8 xruns_delta=0
+PROBE voices=13 sec=8 xruns_delta=0
+PROBE voices=15 sec=8 xruns_delta=0
+RESULT tag=V8a-026-Fifth_Seq first_overrun=none_below_15 sustained_clean=15
+SENTINEL capacity-ramp-end tag=V8a-026-Fifth_Seq
+=== capacity-ramp tag=V8a-027-Fireflies buffer=1024x3 patch=Fireflies 2026-08-21T23:26:09-04:00 ===
+CARD=2
+{"name":"Fireflies","path":"/home/mitch/Documents/Surge XT/Patches/Quick Select/Fireflies.fxp","osc_count":0,"osc_types":[],"unison_voices":0,"fx_count":2,"fx_types":[3,22],"filter1_type":10,"filter2_type":0,"patch_polylimit":64}
+PROBE voices=1 sec=8 xruns_delta=0
+PROBE voices=3 sec=8 xruns_delta=0
+PROBE voices=5 sec=8 xruns_delta=0
+PROBE voices=7 sec=8 xruns_delta=0
+PROBE voices=9 sec=8 xruns_delta=0
+PROBE voices=11 sec=8 xruns_delta=0
+PROBE voices=13 sec=8 xruns_delta=0
+PROBE voices=15 sec=8 xruns_delta=8
+RESULT tag=V8a-027-Fireflies first_overrun=15 sustained_clean=13
+SENTINEL capacity-ramp-end tag=V8a-027-Fireflies
+=== capacity-ramp tag=V8a-028-Forte_Piano buffer=1024x3 patch=Forte Piano 2026-08-21T23:27:19-04:00 ===
+CARD=2
+{"name": "Forte Piano", "path": "/home/mitch/Documents/Surge XT/Patches/Quick Select/Forte Piano.fxp", "error": "not well-formed (invalid token): line 1, column 26585"}
+PROBE voices=1 sec=8 xruns_delta=0
+PROBE voices=3 sec=8 xruns_delta=0
+PROBE voices=5 sec=8 xruns_delta=0
+PROBE voices=7 sec=8 xruns_delta=0
+PROBE voices=9 sec=8 xruns_delta=2
+RESULT tag=V8a-028-Forte_Piano first_overrun=9 sustained_clean=7
+SENTINEL capacity-ramp-end tag=V8a-028-Forte_Piano
+=== capacity-ramp tag=V8a-029-Gate_Chord buffer=1024x3 patch=Gate Chord 2026-08-21T23:28:04-04:00 ===
+CARD=2
+{"name":"Gatechord","path":"/home/mitch/Documents/Surge XT/Patches/Quick Select/Gate Chord.fxp","osc_count":0,"osc_types":[],"unison_voices":0,"fx_count":1,"fx_types":[1],"filter1_type":3,"filter2_type":0,"patch_polylimit":8}
+PROBE voices=1 sec=8 xruns_delta=0
+PROBE voices=3 sec=8 xruns_delta=0
+PROBE voices=5 sec=8 xruns_delta=0
+PROBE voices=7 sec=8 xruns_delta=0
+PROBE voices=9 sec=8 xruns_delta=0
+PROBE voices=11 sec=8 xruns_delta=0
+PROBE voices=13 sec=8 xruns_delta=0
+PROBE voices=15 sec=8 xruns_delta=0
+RESULT tag=V8a-029-Gate_Chord first_overrun=none_below_15 sustained_clean=15
+SENTINEL capacity-ramp-end tag=V8a-029-Gate_Chord
+=== capacity-ramp tag=V8a-030-Gods buffer=1024x3 patch=Gods 2026-08-21T23:29:14-04:00 ===
+CARD=2
+{"name": "Gods", "path": "/home/mitch/Documents/Surge XT/Patches/Quick Select/Gods.fxp", "error": "not well-formed (invalid token): line 1, column 95"}
+PROBE voices=1 sec=8 xruns_delta=0
+PROBE voices=3 sec=8 xruns_delta=0
+PROBE voices=5 sec=8 xruns_delta=0
+PROBE voices=7 sec=8 xruns_delta=0
+PROBE voices=9 sec=8 xruns_delta=0
+PROBE voices=11 sec=8 xruns_delta=0
+PROBE voices=13 sec=8 xruns_delta=0
+PROBE voices=15 sec=8 xruns_delta=0
+RESULT tag=V8a-030-Gods first_overrun=none_below_15 sustained_clean=15
+SENTINEL capacity-ramp-end tag=V8a-030-Gods
+=== capacity-ramp tag=V8a-031-House_Organ buffer=1024x3 patch=House Organ 2026-08-21T23:30:24-04:00 ===
+CARD=2
+{"name":"House Organ","path":"/home/mitch/Documents/Surge XT/Patches/Quick Select/House Organ.fxp","osc_count":3,"osc_types":[1,1,1],"unison_voices":6,"fx_count":3,"fx_types":[6,6,1],"filter1_type":0,"filter2_type":0,"patch_polylimit":16}
+PROBE voices=1 sec=8 xruns_delta=0
+PROBE voices=3 sec=8 xruns_delta=0
+PROBE voices=5 sec=8 xruns_delta=0
+PROBE voices=7 sec=8 xruns_delta=3
+RESULT tag=V8a-031-House_Organ first_overrun=7 sustained_clean=5
+SENTINEL capacity-ramp-end tag=V8a-031-House_Organ
+=== capacity-ramp tag=V8a-032-Irrelevant_Number buffer=1024x3 patch=Irrelevant Number 2026-08-21T23:31:01-04:00 ===
+CARD=2
+{"name": "Irrelevant Number", "path": "/home/mitch/Documents/Surge XT/Patches/Quick Select/Irrelevant Number.fxp", "error": "not well-formed (invalid token): line 1, column 37747"}
+PROBE voices=1 sec=8 xruns_delta=0
+PROBE voices=3 sec=8 xruns_delta=0
+PROBE voices=5 sec=8 xruns_delta=0
+PROBE voices=7 sec=8 xruns_delta=0
+PROBE voices=9 sec=8 xruns_delta=6
+RESULT tag=V8a-032-Irrelevant_Number first_overrun=9 sustained_clean=7
+SENTINEL capacity-ramp-end tag=V8a-032-Irrelevant_Number
+=== capacity-ramp tag=V8a-033-Kick buffer=1024x3 patch=Kick 2026-08-21T23:31:46-04:00 ===
+CARD=2
+{"name": "Kick", "path": "/home/mitch/Documents/Surge XT/Patches/Quick Select/Kick.fxp", "error": "not well-formed (invalid token): line 1, column 30480"}
+PROBE voices=1 sec=8 xruns_delta=0
+PROBE voices=3 sec=8 xruns_delta=0
+PROBE voices=5 sec=8 xruns_delta=4
+RESULT tag=V8a-033-Kick first_overrun=5 sustained_clean=3
+SENTINEL capacity-ramp-end tag=V8a-033-Kick
+=== capacity-ramp tag=V8a-034-Koala_1 buffer=1024x3 patch=Koala 1 2026-08-21T23:32:15-04:00 ===
+CARD=2
+{"name":"Koala 1","path":"/home/mitch/Documents/Surge XT/Patches/Quick Select/Koala 1.fxp","osc_count":0,"osc_types":[],"unison_voices":0,"fx_count":1,"fx_types":[1],"filter1_type":2,"filter2_type":0,"patch_polylimit":16}
+PROBE voices=1 sec=8 xruns_delta=0
+PROBE voices=3 sec=8 xruns_delta=0
+PROBE voices=5 sec=8 xruns_delta=0
+PROBE voices=7 sec=8 xruns_delta=0
+PROBE voices=9 sec=8 xruns_delta=0
+PROBE voices=11 sec=8 xruns_delta=0
+PROBE voices=13 sec=8 xruns_delta=0
+PROBE voices=15 sec=8 xruns_delta=0
+RESULT tag=V8a-034-Koala_1 first_overrun=none_below_15 sustained_clean=15
+SENTINEL capacity-ramp-end tag=V8a-034-Koala_1
+=== capacity-ramp tag=V8a-035-Legato_Bass buffer=1024x3 patch=Legato Bass 2026-08-21T23:33:25-04:00 ===
+CARD=2
+{"name":"Legato Bass","path":"/home/mitch/Documents/Surge XT/Patches/Quick Select/Legato Bass.fxp","osc_count":3,"osc_types":[9,9,8],"unison_voices":1,"fx_count":1,"fx_types":[15],"filter1_type":11,"filter2_type":26,"patch_polylimit":16}
+PROBE voices=1 sec=8 xruns_delta=0
+PROBE voices=3 sec=8 xruns_delta=0
+PROBE voices=5 sec=8 xruns_delta=0
+PROBE voices=7 sec=8 xruns_delta=0
+PROBE voices=9 sec=8 xruns_delta=0
+PROBE voices=11 sec=8 xruns_delta=0
+PROBE voices=13 sec=8 xruns_delta=0
+PROBE voices=15 sec=8 xruns_delta=0
+RESULT tag=V8a-035-Legato_Bass first_overrun=none_below_15 sustained_clean=15
+SENTINEL capacity-ramp-end tag=V8a-035-Legato_Bass
+=== capacity-ramp tag=V8a-036-Major_7_MkII buffer=1024x3 patch=Major 7 MkII 2026-08-21T23:34:34-04:00 ===
+CARD=2
+{"name":"Major 7 mk2","path":"/home/mitch/Documents/Surge XT/Patches/Quick Select/Major 7 MkII.fxp","osc_count":0,"osc_types":[],"unison_voices":0,"fx_count":1,"fx_types":[1],"filter1_type":1,"filter2_type":0,"patch_polylimit":16}
+PROBE voices=1 sec=8 xruns_delta=0
+PROBE voices=3 sec=8 xruns_delta=0
+PROBE voices=5 sec=8 xruns_delta=0
+PROBE voices=7 sec=8 xruns_delta=0
+PROBE voices=9 sec=8 xruns_delta=0
+PROBE voices=11 sec=8 xruns_delta=0
+PROBE voices=13 sec=8 xruns_delta=0
+PROBE voices=15 sec=8 xruns_delta=0
+RESULT tag=V8a-036-Major_7_MkII first_overrun=none_below_15 sustained_clean=15
+SENTINEL capacity-ramp-end tag=V8a-036-Major_7_MkII
+=== capacity-ramp tag=V8a-037-Metallic_Arp buffer=1024x3 patch=Metallic Arp 2026-08-21T23:35:44-04:00 ===
+CARD=2
+{"name": "Metallic Arp", "path": "/home/mitch/Documents/Surge XT/Patches/Quick Select/Metallic Arp.fxp", "error": "not well-formed (invalid token): line 1, column 26553"}
+PROBE voices=1 sec=8 xruns_delta=0
+PROBE voices=3 sec=8 xruns_delta=0
+PROBE voices=5 sec=8 xruns_delta=0
+PROBE voices=7 sec=8 xruns_delta=0
+PROBE voices=9 sec=8 xruns_delta=0
+PROBE voices=11 sec=8 xruns_delta=0
+PROBE voices=13 sec=8 xruns_delta=0
+PROBE voices=15 sec=8 xruns_delta=0
+RESULT tag=V8a-037-Metallic_Arp first_overrun=none_below_15 sustained_clean=15
+SENTINEL capacity-ramp-end tag=V8a-037-Metallic_Arp
+=== capacity-ramp tag=V8a-038-Minor_7 buffer=1024x3 patch=Minor 7 2026-08-21T23:36:54-04:00 ===
+CARD=2
+{"name":"Minor 7","path":"/home/mitch/Documents/Surge XT/Patches/Quick Select/Minor 7.fxp","osc_count":0,"osc_types":[],"unison_voices":0,"fx_count":1,"fx_types":[1],"filter1_type":1,"filter2_type":0,"patch_polylimit":16}
+PROBE voices=1 sec=8 xruns_delta=0
+PROBE voices=3 sec=8 xruns_delta=0
+PROBE voices=5 sec=8 xruns_delta=6
+RESULT tag=V8a-038-Minor_7 first_overrun=5 sustained_clean=3
+SENTINEL capacity-ramp-end tag=V8a-038-Minor_7
+=== capacity-ramp tag=V8a-039-Minor_Chord_Retro_Stab buffer=1024x3 patch=Minor Chord Retro Stab 2026-08-21T23:37:23-04:00 ===
+CARD=2
+{"name": "Minor Chord Retro Stab", "path": "/home/mitch/Documents/Surge XT/Patches/Quick Select/Minor Chord Retro Stab.fxp", "error": "not well-formed (invalid token): line 1, column 23222"}
+PROBE voices=1 sec=8 xruns_delta=0
+PROBE voices=3 sec=8 xruns_delta=0
+PROBE voices=5 sec=8 xruns_delta=0
+PROBE voices=7 sec=8 xruns_delta=0
+PROBE voices=9 sec=8 xruns_delta=0
+PROBE voices=11 sec=8 xruns_delta=0
+PROBE voices=13 sec=8 xruns_delta=0
+PROBE voices=15 sec=8 xruns_delta=0
+RESULT tag=V8a-039-Minor_Chord_Retro_Stab first_overrun=none_below_15 sustained_clean=15
+SENTINEL capacity-ramp-end tag=V8a-039-Minor_Chord_Retro_Stab
+=== capacity-ramp tag=V8a-040-Moogaroo buffer=1024x3 patch=Moogaroo 2026-08-21T23:38:33-04:00 ===
+CARD=2
+{"name":"Moogaroo","path":"/home/mitch/Documents/Surge XT/Patches/Quick Select/Moogaroo.fxp","osc_count":0,"osc_types":[],"unison_voices":0,"fx_count":2,"fx_types":[9,11],"filter1_type":15,"filter2_type":13,"patch_polylimit":16}
+PROBE voices=1 sec=8 xruns_delta=0
+PROBE voices=3 sec=8 xruns_delta=0
+PROBE voices=5 sec=8 xruns_delta=0
+PROBE voices=7 sec=8 xruns_delta=0
+PROBE voices=9 sec=8 xruns_delta=0
+PROBE voices=11 sec=8 xruns_delta=0
+PROBE voices=13 sec=8 xruns_delta=0
+PROBE voices=15 sec=8 xruns_delta=0
+RESULT tag=V8a-040-Moogaroo first_overrun=none_below_15 sustained_clean=15
+SENTINEL capacity-ramp-end tag=V8a-040-Moogaroo
+=== capacity-ramp tag=V8a-041-Oberheim_Dreams buffer=1024x3 patch=Oberheim Dreams 2026-08-21T23:39:42-04:00 ===
+CARD=2
+{"name":"Buggy Brass","path":"/home/mitch/Documents/Surge XT/Patches/Quick Select/Oberheim Dreams.fxp","osc_count":0,"osc_types":[],"unison_voices":0,"fx_count":2,"fx_types":[1,2],"filter1_type":2,"filter2_type":0,"patch_polylimit":64}
+PROBE voices=1 sec=8 xruns_delta=0
+PROBE voices=3 sec=8 xruns_delta=0
+PROBE voices=5 sec=8 xruns_delta=0
+PROBE voices=7 sec=8 xruns_delta=0
+PROBE voices=9 sec=8 xruns_delta=0
+PROBE voices=11 sec=8 xruns_delta=0
+PROBE voices=13 sec=8 xruns_delta=0
+PROBE voices=15 sec=8 xruns_delta=0
+RESULT tag=V8a-041-Oberheim_Dreams first_overrun=none_below_15 sustained_clean=15
+SENTINEL capacity-ramp-end tag=V8a-041-Oberheim_Dreams
+=== capacity-ramp tag=V8a-042-Orbit_and_Sub buffer=1024x3 patch=Orbit and Sub 2026-08-21T23:40:52-04:00 ===
+CARD=2
+{"name": "Orbit and Sub", "path": "/home/mitch/Documents/Surge XT/Patches/Quick Select/Orbit and Sub.fxp", "error": "not well-formed (invalid token): line 1, column 24314"}
+PROBE voices=1 sec=8 xruns_delta=0
+PROBE voices=3 sec=8 xruns_delta=0
+PROBE voices=5 sec=8 xruns_delta=0
+PROBE voices=7 sec=8 xruns_delta=0
+PROBE voices=9 sec=8 xruns_delta=0
+PROBE voices=11 sec=8 xruns_delta=0
+PROBE voices=13 sec=8 xruns_delta=0
+PROBE voices=15 sec=8 xruns_delta=0
+RESULT tag=V8a-042-Orbit_and_Sub first_overrun=none_below_15 sustained_clean=15
+SENTINEL capacity-ramp-end tag=V8a-042-Orbit_and_Sub
+=== capacity-ramp tag=V8a-043-Overdriven_Guitar_+_Wah buffer=1024x3 patch=Overdriven Guitar + Wah 2026-08-21T23:42:02-04:00 ===
+CARD=2
+{"name": "Overdriven Guitar + Wah", "path": "/home/mitch/Documents/Surge XT/Patches/Quick Select/Overdriven Guitar + Wah.fxp", "error": "not well-formed (invalid token): line 1, column 32920"}
+PROBE voices=1 sec=8 xruns_delta=0
+PROBE voices=3 sec=8 xruns_delta=0
+PROBE voices=5 sec=8 xruns_delta=0
+PROBE voices=7 sec=8 xruns_delta=0
+PROBE voices=9 sec=8 xruns_delta=0
+PROBE voices=11 sec=8 xruns_delta=0
+PROBE voices=13 sec=8 xruns_delta=0
+PROBE voices=15 sec=8 xruns_delta=0
+RESULT tag=V8a-043-Overdriven_Guitar_+_Wah first_overrun=none_below_15 sustained_clean=15
+SENTINEL capacity-ramp-end tag=V8a-043-Overdriven_Guitar_+_Wah
+=== capacity-ramp tag=V8a-044-Planar_Device buffer=1024x3 patch=Planar Device 2026-08-21T23:43:12-04:00 ===
+CARD=2
+{"name":"Planar device","path":"/home/mitch/Documents/Surge XT/Patches/Quick Select/Planar Device.fxp","osc_count":3,"osc_types":[10,10,11],"unison_voices":25,"fx_count":2,"fx_types":[9,22],"filter1_type":11,"filter2_type":0,"patch_polylimit":16}
+PROBE voices=1 sec=8 xruns_delta=0
+PROBE voices=3 sec=8 xruns_delta=0
+PROBE voices=5 sec=8 xruns_delta=0
+PROBE voices=7 sec=8 xruns_delta=18
+RESULT tag=V8a-044-Planar_Device first_overrun=7 sustained_clean=5
+SENTINEL capacity-ramp-end tag=V8a-044-Planar_Device
+=== capacity-ramp tag=V8a-045-Qealchee buffer=1024x3 patch=Qealchee 2026-08-21T23:43:49-04:00 ===
+CARD=2
+{"name":"Qealchee","path":"/home/mitch/Documents/Surge XT/Patches/Quick Select/Qealchee.fxp","osc_count":0,"osc_types":[],"unison_voices":0,"fx_count":1,"fx_types":[1],"filter1_type":2,"filter2_type":0,"patch_polylimit":16}
+PROBE voices=1 sec=8 xruns_delta=0
+PROBE voices=3 sec=8 xruns_delta=0
+PROBE voices=5 sec=8 xruns_delta=0
+PROBE voices=7 sec=8 xruns_delta=0
+PROBE voices=9 sec=8 xruns_delta=0
+PROBE voices=11 sec=8 xruns_delta=0
+PROBE voices=13 sec=8 xruns_delta=0
+PROBE voices=15 sec=8 xruns_delta=0
+RESULT tag=V8a-045-Qealchee first_overrun=none_below_15 sustained_clean=15
+SENTINEL capacity-ramp-end tag=V8a-045-Qealchee
+=== capacity-ramp tag=V8a-046-Res_Wave_Shift buffer=1024x3 patch=Res Wave Shift 2026-08-21T23:44:58-04:00 ===
+CARD=2
+{"name": "Res Wave Shift", "path": "/home/mitch/Documents/Surge XT/Patches/Quick Select/Res Wave Shift.fxp", "error": "not well-formed (invalid token): line 1, column 33129"}
+PROBE voices=1 sec=8 xruns_delta=-120
+PROBE voices=3 sec=8 xruns_delta=0
+PROBE voices=5 sec=8 xruns_delta=0
+PROBE voices=7 sec=8 xruns_delta=2
+RESULT tag=V8a-046-Res_Wave_Shift first_overrun=7 sustained_clean=5
+SENTINEL capacity-ramp-end tag=V8a-046-Res_Wave_Shift
+=== capacity-ramp tag=V8a-047-Reso_Brassy buffer=1024x3 patch=Reso Brassy 2026-08-21T23:45:38-04:00 ===
+CARD=2
+{"name":"Reso Brassy","path":"/home/mitch/Documents/Surge XT/Patches/Quick Select/Reso Brassy.fxp","osc_count":0,"osc_types":[],"unison_voices":0,"fx_count":1,"fx_types":[1],"filter1_type":1,"filter2_type":1,"patch_polylimit":64}
+PROBE voices=1 sec=8 xruns_delta=0
+PROBE voices=3 sec=8 xruns_delta=0
+PROBE voices=5 sec=8 xruns_delta=0
+PROBE voices=7 sec=8 xruns_delta=0
+PROBE voices=9 sec=8 xruns_delta=0
+PROBE voices=11 sec=8 xruns_delta=0
+PROBE voices=13 sec=8 xruns_delta=0
+PROBE voices=15 sec=8 xruns_delta=0
+RESULT tag=V8a-047-Reso_Brassy first_overrun=none_below_15 sustained_clean=15
+SENTINEL capacity-ramp-end tag=V8a-047-Reso_Brassy
+=== capacity-ramp tag=V8a-048-Rhody_EP buffer=1024x3 patch=Rhody EP 2026-08-21T23:46:47-04:00 ===
+CARD=2
+{"name":"Rhody EP","path":"/home/mitch/Documents/Surge XT/Patches/Quick Select/Rhody EP.fxp","osc_count":3,"osc_types":[6,6,6],"unison_voices":0,"fx_count":0,"fx_types":[],"filter1_type":0,"filter2_type":0,"patch_polylimit":16}
+PROBE voices=1 sec=8 xruns_delta=0
+PROBE voices=3 sec=8 xruns_delta=0
+PROBE voices=5 sec=8 xruns_delta=0
+PROBE voices=7 sec=8 xruns_delta=0
+PROBE voices=9 sec=8 xruns_delta=0
+PROBE voices=11 sec=8 xruns_delta=0
+PROBE voices=13 sec=8 xruns_delta=0
+PROBE voices=15 sec=8 xruns_delta=0
+RESULT tag=V8a-048-Rhody_EP first_overrun=none_below_15 sustained_clean=15
+SENTINEL capacity-ramp-end tag=V8a-048-Rhody_EP
+=== capacity-ramp tag=V8a-049-Scratched_Arp buffer=1024x3 patch=Scratched Arp 2026-08-21T23:47:57-04:00 ===
+CARD=2
+{"name": "Scratched Arp", "path": "/home/mitch/Documents/Surge XT/Patches/Quick Select/Scratched Arp.fxp", "error": "not well-formed (invalid token): line 1, column 35579"}
+PROBE voices=1 sec=8 xruns_delta=0
+PROBE voices=3 sec=8 xruns_delta=0
+PROBE voices=5 sec=8 xruns_delta=0
+PROBE voices=7 sec=8 xruns_delta=0
+PROBE voices=9 sec=8 xruns_delta=0
+PROBE voices=11 sec=8 xruns_delta=0
+PROBE voices=13 sec=8 xruns_delta=0
+PROBE voices=15 sec=8 xruns_delta=2
+RESULT tag=V8a-049-Scratched_Arp first_overrun=15 sustained_clean=13
+SENTINEL capacity-ramp-end tag=V8a-049-Scratched_Arp
+=== capacity-ramp tag=V8a-050-Snare buffer=1024x3 patch=Snare 2026-08-21T23:49:07-04:00 ===
+CARD=2
+{"name":"Snare","path":"/home/mitch/Documents/Surge XT/Patches/Quick Select/Snare.fxp","osc_count":2,"osc_types":[1,1],"unison_voices":2,"fx_count":1,"fx_types":[6],"filter1_type":3,"filter2_type":0,"patch_polylimit":16}
+PROBE voices=1 sec=8 xruns_delta=0
+PROBE voices=3 sec=8 xruns_delta=0
+PROBE voices=5 sec=8 xruns_delta=0
+PROBE voices=7 sec=8 xruns_delta=0
+PROBE voices=9 sec=8 xruns_delta=0
+PROBE voices=11 sec=8 xruns_delta=0
+PROBE voices=13 sec=8 xruns_delta=0
+PROBE voices=15 sec=8 xruns_delta=0
+RESULT tag=V8a-050-Snare first_overrun=none_below_15 sustained_clean=15
+SENTINEL capacity-ramp-end tag=V8a-050-Snare
+=== capacity-ramp tag=V8a-051-String_Quartet buffer=1024x3 patch=String Quartet 2026-08-21T23:50:16-04:00 ===
+CARD=2
+{"name": "String Quartet", "path": "/home/mitch/Documents/Surge XT/Patches/Quick Select/String Quartet.fxp", "error": "not well-formed (invalid token): line 1, column 25733"}
+PROBE voices=1 sec=8 xruns_delta=0
+PROBE voices=3 sec=8 xruns_delta=0
+PROBE voices=5 sec=8 xruns_delta=0
+PROBE voices=7 sec=8 xruns_delta=0
+PROBE voices=9 sec=8 xruns_delta=0
+PROBE voices=11 sec=8 xruns_delta=0
+PROBE voices=13 sec=8 xruns_delta=0
+PROBE voices=15 sec=8 xruns_delta=0
+RESULT tag=V8a-051-String_Quartet first_overrun=none_below_15 sustained_clean=15
+SENTINEL capacity-ramp-end tag=V8a-051-String_Quartet
+=== capacity-ramp tag=V8a-052-Tom_L buffer=1024x3 patch=Tom L 2026-08-21T23:51:26-04:00 ===
+CARD=2
+{"name":"Tom L","path":"/home/mitch/Documents/Surge XT/Patches/Quick Select/Tom L.fxp","osc_count":2,"osc_types":[1,1],"unison_voices":2,"fx_count":1,"fx_types":[6],"filter1_type":4,"filter2_type":10,"patch_polylimit":16}
+PROBE voices=1 sec=8 xruns_delta=0
+PROBE voices=3 sec=8 xruns_delta=0
+PROBE voices=5 sec=8 xruns_delta=0
+PROBE voices=7 sec=8 xruns_delta=0
+PROBE voices=9 sec=8 xruns_delta=0
+PROBE voices=11 sec=8 xruns_delta=0
+PROBE voices=13 sec=8 xruns_delta=0
+PROBE voices=15 sec=8 xruns_delta=0
+RESULT tag=V8a-052-Tom_L first_overrun=none_below_15 sustained_clean=15
+SENTINEL capacity-ramp-end tag=V8a-052-Tom_L
+=== capacity-ramp tag=V8a-053-Warm_Reception buffer=1024x3 patch=Warm Reception 2026-08-21T23:52:36-04:00 ===
+CARD=2
+{"name": "Warm Reception", "path": "/home/mitch/Documents/Surge XT/Patches/Quick Select/Warm Reception.fxp", "error": "not well-formed (invalid token): line 1, column 25937"}
+PROBE voices=1 sec=8 xruns_delta=0
+PROBE voices=3 sec=8 xruns_delta=0
+PROBE voices=5 sec=8 xruns_delta=0
+PROBE voices=7 sec=8 xruns_delta=0
+PROBE voices=9 sec=8 xruns_delta=16
+RESULT tag=V8a-053-Warm_Reception first_overrun=9 sustained_clean=7
+SENTINEL capacity-ramp-end tag=V8a-053-Warm_Reception

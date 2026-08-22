@@ -29,9 +29,25 @@ MAX_AMP_VOLUME_LINEAR = 1.5
 # (2026-08-01, see PATCH_NORMALIZATION.md).
 NORM_MAX_AMP_VOLUME_LINEAR = MAX_AMP_VOLUME_LINEAR
 
-# Per-patch manual level slider range (dB gain sent to Surge amp/volume).
-NORM_GAIN_DB_MIN = -12.0
-NORM_GAIN_DB_MAX = 24.0
+# v2 Norm fader: trim offset from calibrated gain_db (-24..+12 dB; 0 = cal baseline).
+NORM_TRIM_DB_MIN = -24.0
+NORM_TRIM_DB_MAX = 12.0
+
+# Legacy aliases -- NormControl uses trim range; keep names for import stability.
+NORM_GAIN_DB_MIN = NORM_TRIM_DB_MIN
+NORM_GAIN_DB_MAX = NORM_TRIM_DB_MAX
+
+# Closed-loop cal verify: post-gain peak must land at or below SAFE_PEAK + tolerance.
+POST_GAIN_VERIFY_PEAK_MAX_DBTP = SAFE_PEAK_DBTP + 0.2
+
+VOL_FADER_LAW_CONSOLE = "console"
+VOL_FADER_LAW_LINEAR = "linear"
+
+
+def post_gain_verify_passes(peak_dbtp: float) -> bool:
+    """True when closed-loop post-gain peak is finite and within v2 save gate."""
+    return math.isfinite(peak_dbtp) and peak_dbtp <= POST_GAIN_VERIFY_PEAK_MAX_DBTP
+
 
 
 def default_normalization_path() -> Path:
@@ -105,24 +121,34 @@ def _volume_fader_t(
     return max(0.0, min(1.0, (trim - fader_min) / span))
 
 
+def volume_fader_law() -> str:
+    """Vol fader taper — env ``MPE_VOL_FADER_LAW`` (``console`` default, or ``linear``)."""
+    raw = os.environ.get("MPE_VOL_FADER_LAW", VOL_FADER_LAW_CONSOLE).strip().lower()
+    if raw == VOL_FADER_LAW_LINEAR:
+        return VOL_FADER_LAW_LINEAR
+    return VOL_FADER_LAW_CONSOLE
+
+
 def volume_fader_trim_to_db(
     trim: float,
     *,
     fader_min: float,
     fader_max: float,
     floor_db: float = VOLUME_FADER_FLOOR_DB,
+    law: str | None = None,
 ) -> float | None:
     """Attenuation in dB relative to full patch level. None when fader is at mute.
 
-    Console (IEC 60268-17) taper, rescaled from the law's -70 dB bottom onto *floor_db*,
-    so the top half of travel covers 0..-20 dB instead of 0..-30 dB. Was
-    ``floor_db * (1 - t)`` — linear in dB, which made the fader fall off a cliff.
+    Console (IEC 60268-17) taper by default; ``linear`` spreads dB evenly over travel
+    (``MPE_VOL_FADER_LAW=linear``).
     """
     if trim <= fader_min:
         return None
     t = _volume_fader_t(trim, fader_min=fader_min, fader_max=fader_max)
     if t <= 0.0:
         return None
+    if (law or volume_fader_law()) == VOL_FADER_LAW_LINEAR:
+        return floor_db * (1.0 - t)
     return _iec_fader_db(t) * (floor_db / _IEC_FADER_BOTTOM_DB)
 
 
@@ -241,6 +267,29 @@ def _merge_patch_entry(
     return merged
 
 
+def clamp_user_trim_db(trim_db: float) -> float:
+    """Clamp Norm trim offset to the v2 fader range."""
+    return max(NORM_TRIM_DB_MIN, min(NORM_TRIM_DB_MAX, float(trim_db)))
+
+
+def _migrate_legacy_user_gain(entry: dict[str, Any]) -> dict[str, Any]:
+    """v1 ``user_gain_db`` (absolute) -> v2 ``user_trim_db`` (offset from gain_db)."""
+    if "user_gain_db" not in entry:
+        return entry
+    updated = dict(entry)
+    if "user_trim_db" not in updated:
+        user_gain = float(updated.pop("user_gain_db"))
+        gain_db = updated.get("gain_db")
+        if gain_db is not None:
+            trim = clamp_user_trim_db(user_gain - float(gain_db))
+        else:
+            trim = clamp_user_trim_db(user_gain)
+        updated["user_trim_db"] = round(trim, 3)
+    else:
+        updated.pop("user_gain_db", None)
+    return updated
+
+
 # Reserved key in user normalization JSON — master switch, not a patch stem.
 _GLOBAL_SETTINGS_KEY = "_global"
 
@@ -277,7 +326,15 @@ class PatchNormalizationStore(SidecarKeyMixin):
                 if isinstance(entry, dict):
                     merged[key] = _merge_patch_entry(merged.get(key), entry)
 
+        migrated = False
+        for key in list(merged.keys()):
+            new_entry = _migrate_legacy_user_gain(merged[key])
+            if new_entry != merged[key]:
+                merged[key] = new_entry
+                migrated = True
         self._data = merged
+        if migrated and self.path.exists():
+            self.save()
 
     def save(self) -> None:
         """Persist store atomically so cancel/interrupt mid-write cannot truncate JSON."""
@@ -401,6 +458,20 @@ class PatchNormalizationStore(SidecarKeyMixin):
             return None
         return float(gain)
 
+    def get_user_trim_db(
+        self,
+        patch_name: str,
+        *,
+        patch_path: str | None = None,
+        stable_key: str | None = None,
+    ) -> float:
+        entry = self.get_entry(
+            patch_name, patch_path=patch_path, stable_key=stable_key
+        )
+        if not entry or "user_trim_db" not in entry:
+            return 0.0
+        return float(entry["user_trim_db"])
+
     def get_effective_gain_db(
         self,
         patch_name: str,
@@ -408,17 +479,19 @@ class PatchNormalizationStore(SidecarKeyMixin):
         patch_path: str | None = None,
         stable_key: str | None = None,
     ) -> float | None:
-        """Runtime gain: user_gain_db when set, else calibrated gain_db."""
+        """Runtime gain: calibrated gain_db + user_trim_db offset (v2)."""
         entry = self.get_entry(
             patch_name, patch_path=patch_path, stable_key=stable_key
         )
         if not entry:
             return None
-        if "user_gain_db" in entry:
-            return float(entry["user_gain_db"])
-        return self.get_calibrated_gain_db(
-            patch_name, patch_path=patch_path, stable_key=stable_key
-        )
+        calibrated = entry.get("gain_db")
+        trim = entry.get("user_trim_db")
+        if calibrated is None and trim is None:
+            return None
+        base = float(calibrated) if calibrated is not None else 0.0
+        offset = float(trim) if trim is not None else 0.0
+        return base + offset
 
     def get_slider_default_gain_db(
         self,
@@ -427,13 +500,10 @@ class PatchNormalizationStore(SidecarKeyMixin):
         patch_path: str | None = None,
         stable_key: str | None = None,
     ) -> float:
-        """Slider double-tap reset — calibrated gain, or 0 dB when uncalibrated."""
-        calibrated = self.get_calibrated_gain_db(
-            patch_name, patch_path=patch_path, stable_key=stable_key
-        )
-        return calibrated if calibrated is not None else 0.0
+        """Norm fader double-tap reset — 0 dB trim (calibrated baseline)."""
+        return 0.0
 
-    def has_user_gain_override(
+    def has_user_trim_override(
         self,
         patch_name: str,
         *,
@@ -443,7 +513,45 @@ class PatchNormalizationStore(SidecarKeyMixin):
         entry = self.get_entry(
             patch_name, patch_path=patch_path, stable_key=stable_key
         )
-        return bool(entry and "user_gain_db" in entry)
+        return bool(entry and "user_trim_db" in entry)
+
+    def has_user_gain_override(
+        self,
+        patch_name: str,
+        *,
+        patch_path: str | None = None,
+        stable_key: str | None = None,
+    ) -> bool:
+        return self.has_user_trim_override(
+            patch_name, patch_path=patch_path, stable_key=stable_key
+        )
+
+    def set_user_trim_db(
+        self,
+        patch_name: str,
+        trim_db: float,
+        *,
+        persist: bool = True,
+        patch_path: str | None = None,
+        stable_key: str | None = None,
+    ) -> None:
+        """Set Norm trim offset from calibrated gain (defer persist=False while dragging)."""
+        key = self._storage_key(
+            patch_name, patch_path=patch_path, stable_key=stable_key
+        )
+        entry, matched = self._lookup(
+            patch_name, patch_path=patch_path, stable_key=stable_key
+        )
+        if not isinstance(entry, dict):
+            entry = {}
+        entry = self._ensure_calibration_fields(matched or key, entry)
+        entry["user_trim_db"] = round(clamp_user_trim_db(trim_db), 3)
+        entry.pop("user_gain_db", None)
+        if matched and matched != key:
+            self._data.pop(matched, None)
+        self._data[key] = entry
+        if persist:
+            self.save()
 
     def set_user_gain_db(
         self,
@@ -454,20 +562,48 @@ class PatchNormalizationStore(SidecarKeyMixin):
         patch_path: str | None = None,
         stable_key: str | None = None,
     ) -> None:
-        """Set manual per-patch level override (defer persist=False while dragging)."""
-        key = self._storage_key(
+        """Legacy v1 API — absolute gain_db converted to trim offset when calibrated."""
+        entry = self.get_entry(
             patch_name, patch_path=patch_path, stable_key=stable_key
         )
-        entry, matched = self._lookup(
+        calibrated = entry.get("gain_db") if entry else None
+        if calibrated is not None:
+            trim = float(gain_db) - float(calibrated)
+        else:
+            trim = float(gain_db)
+        self.set_user_trim_db(
+            patch_name,
+            trim,
+            persist=persist,
+            patch_path=patch_path,
+            stable_key=stable_key,
+        )
+
+    def clear_user_trim_db(
+        self,
+        patch_name: str,
+        *,
+        persist: bool = True,
+        patch_path: str | None = None,
+        stable_key: str | None = None,
+    ) -> None:
+        """Remove trim override; runtime reverts to calibrated gain_db only."""
+        entry, key = self._lookup(
             patch_name, patch_path=patch_path, stable_key=stable_key
         )
-        if not isinstance(entry, dict):
-            entry = {}
-        entry = self._ensure_calibration_fields(matched or key, entry)
-        entry["user_gain_db"] = round(float(gain_db), 3)
-        if matched and matched != key:
-            self._data.pop(matched, None)
-        self._data[key] = entry
+        if not entry or not key:
+            return
+        if "user_trim_db" not in entry and "user_gain_db" not in entry:
+            return
+        updated = dict(entry)
+        updated.pop("user_trim_db", None)
+        updated.pop("user_gain_db", None)
+        storage = self._storage_key(
+            patch_name, patch_path=patch_path, stable_key=stable_key
+        )
+        if key != storage:
+            self._data.pop(key, None)
+        self._data[storage] = updated
         if persist:
             self.save()
 
@@ -479,22 +615,12 @@ class PatchNormalizationStore(SidecarKeyMixin):
         patch_path: str | None = None,
         stable_key: str | None = None,
     ) -> None:
-        """Remove manual override; runtime reverts to calibrated gain_db."""
-        entry, key = self._lookup(
-            patch_name, patch_path=patch_path, stable_key=stable_key
+        self.clear_user_trim_db(
+            patch_name,
+            persist=persist,
+            patch_path=patch_path,
+            stable_key=stable_key,
         )
-        if not entry or "user_gain_db" not in entry or not key:
-            return
-        updated = dict(entry)
-        del updated["user_gain_db"]
-        storage = self._storage_key(
-            patch_name, patch_path=patch_path, stable_key=stable_key
-        )
-        if key != storage:
-            self._data.pop(key, None)
-        self._data[storage] = updated
-        if persist:
-            self.save()
 
     def get_gain_db(
         self,
@@ -534,6 +660,8 @@ class PatchNormalizationStore(SidecarKeyMixin):
         enabled: bool | None = None,
         calibrated_at: str | None = None,
         true_peak_dbtp: float | None = None,
+        post_gain_peak_dbtp: float | None = None,
+        cal_route: str | None = None,
         strike_lufs: float | None = None,
         sustain_lufs: float | None = None,
         patch_path: str | None = None,
@@ -561,12 +689,21 @@ class PatchNormalizationStore(SidecarKeyMixin):
         }
         if true_peak_dbtp is not None:
             entry["true_peak_dbtp"] = round(float(true_peak_dbtp), 2)
+        if post_gain_peak_dbtp is not None:
+            entry["post_gain_peak_dbtp"] = round(float(post_gain_peak_dbtp), 2)
+        if cal_route is not None:
+            entry["cal_route"] = cal_route
         if strike_lufs is not None:
             entry["strike_lufs"] = round(float(strike_lufs), 2)
         if sustain_lufs is not None:
             entry["sustain_lufs"] = round(float(sustain_lufs), 2)
-        if existing and "user_gain_db" in existing:
-            entry["user_gain_db"] = existing["user_gain_db"]
+        if existing:
+            if "user_trim_db" in existing:
+                entry["user_trim_db"] = existing["user_trim_db"]
+            elif "user_gain_db" in existing:
+                entry = _migrate_legacy_user_gain(
+                    {**entry, "user_gain_db": existing["user_gain_db"]}
+                )
         if matched and matched != key:
             self._data.pop(matched, None)
         self._data[key] = entry

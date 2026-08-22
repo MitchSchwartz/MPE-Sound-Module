@@ -26,6 +26,7 @@ RECONCILE_STATE_FILE = Path("/run/mpe/engine-reconcile.state")
 JACK_STATE_FILE = Path("/run/mpe/jack.state")
 METER_STATE_FILE = Path("/run/mpe/meter.state")
 ENGINE_STATE_MAX_BYTES = 4096
+METER_STATE_MAX_AGE_S = float(__import__("os").environ.get("MPE_METER_STATE_MAX_AGE_S", "5"))
 
 COOLDOWN_SEC = 30
 # 15s was sized for an ALSA-contention hazard (Surge holding the tier device on
@@ -183,6 +184,66 @@ def read_engine_state(path: Path | None = None) -> dict[str, str]:
 def read_meter_state(path: Path | None = None) -> dict[str, str]:
     """Parse ``meter.state`` from the compiled peak meter process."""
     return read_engine_state(path or METER_STATE_FILE)
+
+
+def meter_state_age_s(state: dict[str, str], *, now: float | None = None) -> float | None:
+    """Seconds since meter.state ``updated=`` epoch, or None if unusable."""
+    updated = state.get("updated")
+    if not updated:
+        return None
+    try:
+        ts = float(updated)
+    except ValueError:
+        return None
+    anchor = __import__("time").time() if now is None else now
+    age = anchor - ts
+    if age < 0:
+        return None
+    return age
+
+
+def meter_state_fresh(state: dict[str, str], *, now: float | None = None,
+                      max_age_s: float = METER_STATE_MAX_AGE_S) -> bool:
+    age = meter_state_age_s(state, now=now)
+    return age is not None and age <= max_age_s
+
+
+def _meter_flag(state: dict[str, str], key: str) -> bool | None:
+    value = state.get(key)
+    if value in {"0", "1"}:
+        return value == "1"
+    return None
+
+
+def jack_reachable_via_meter(*, path: Path | None = None,
+                             now: float | None = None) -> bool | None:
+    """True when the peak meter is on a live JACK graph. None → caller must fall back."""
+    state = read_meter_state(path)
+    if not meter_state_fresh(state, now=now):
+        return None
+    online = _meter_flag(state, "jack_online")
+    if online is not None:
+        return online
+    # Older meters only published online= tied to Surge wiring.
+    return _meter_flag(state, "online")
+
+
+def looper_client_via_meter(*, path: Path | None = None,
+                            now: float | None = None) -> bool | None:
+    """True when ``mpe-looper:*`` ports are on the graph. None → fall back."""
+    state = read_meter_state(path)
+    if not meter_state_fresh(state, now=now):
+        return None
+    return _meter_flag(state, "looper_client")
+
+
+def looper_playback_via_meter(*, path: Path | None = None,
+                              now: float | None = None) -> bool | None:
+    """True when ``common_out`` feeds ``system:playback``. None → fall back."""
+    state = read_meter_state(path)
+    if not meter_state_fresh(state, now=now):
+        return None
+    return _meter_flag(state, "looper_playback")
 
 
 def engine_hud_should_show(state: dict[str, str] | None) -> bool:

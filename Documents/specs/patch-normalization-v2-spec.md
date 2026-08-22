@@ -1,9 +1,9 @@
 # Patch normalization v2 — calibration integrity + level UX
 
 **Issue:** [MPE-Sound-Module #5](https://github.com/MitchSchwartz/MPE-Sound-Module/issues/5) (follow-on)
-**Status:** Draft
+**Status:** Implemented (pending Pi soak)
 **Created:** 2026-08-17
-**Last updated:** 2026-08-17 (America/Toronto)
+**Last updated:** 2026-08-18 (America/Toronto)
 
 **Related:** [`docs/PATCH_NORMALIZATION.md`](../../docs/PATCH_NORMALIZATION.md) · [`docs/OUTPUT-METER.md`](../../docs/OUTPUT-METER.md) · [`docs/TOUCH_PATCH_BROWSER.md`](../../docs/TOUCH_PATCH_BROWSER.md) §Mixer faders
 

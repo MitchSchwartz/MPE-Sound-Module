@@ -1,0 +1,31 @@
+=== ceiling search patch=Closed Hat lo=1 hi=12 sec=60 2026-08-22T03:33:22-04:00 ===
+--- probe voices=6 ---
+/home/mitch/MPE-Module/scripts/measure-ceiling-search.sh: line 66: [: Appended measurement to /home/mitch/plan-v9c-20260822-033058/closed-hat-ceiling/confirm-v6.log
+SENTINEL harness-logged
+RESULT tag=ceil-Closed_Hat-v6 patch=Closed Hat voices=6 sec=60 xruns=6 clean=no
+6: integer expression expected
+--- probe voices=3 ---
+/home/mitch/MPE-Module/scripts/measure-ceiling-search.sh: line 66: [: Appended measurement to /home/mitch/plan-v9c-20260822-033058/closed-hat-ceiling/confirm-v3.log
+SENTINEL harness-logged
+RESULT tag=ceil-Closed_Hat-v3 patch=Closed Hat voices=3 sec=60 xruns=0 clean=yes
+0: integer expression expected
+--- probe voices=1 ---
+/home/mitch/MPE-Module/scripts/measure-ceiling-search.sh: line 66: [: Appended measurement to /home/mitch/plan-v9c-20260822-033058/closed-hat-ceiling/confirm-v1.log
+SENTINEL harness-logged
+RESULT tag=ceil-Closed_Hat-v1 patch=Closed Hat voices=1 sec=60 xruns=0 clean=yes
+0: integer expression expected
+RESULT ceiling_search patch=Closed Hat max_clean_60s=0 hi_bound=12
+SENTINEL ceiling-search-complete patch=Closed Hat max_clean=0
+voices                                                                            xruns                                                                                           clean
+6                                                                                 Appended measurement to /home/mitch/plan-v9c-20260822-033058/closed-hat-ceiling/confirm-v6.log  
+SENTINEL harness-logged                                                                                                                                                           
+RESULT tag=ceil-Closed_Hat-v6 patch=Closed Hat voices=6 sec=60 xruns=6 clean=no                                                                                                   
+6                                                                                 no                                                                                              
+3                                                                                 Appended measurement to /home/mitch/plan-v9c-20260822-033058/closed-hat-ceiling/confirm-v3.log  
+SENTINEL harness-logged                                                                                                                                                           
+RESULT tag=ceil-Closed_Hat-v3 patch=Closed Hat voices=3 sec=60 xruns=0 clean=yes                                                                                                  
+0                                                                                 no                                                                                              
+1                                                                                 Appended measurement to /home/mitch/plan-v9c-20260822-033058/closed-hat-ceiling/confirm-v1.log  
+SENTINEL harness-logged                                                                                                                                                           
+RESULT tag=ceil-Closed_Hat-v1 patch=Closed Hat voices=1 sec=60 xruns=0 clean=yes                                                                                                  
+0                                                                                 no                                                                                              

@@ -513,6 +513,23 @@ mpe_state_get "{state}" state
 class JackLspProbeTests(unittest.TestCase):
     """M4 — both probes treat missing jack_lsp as not-ready."""
 
+    @staticmethod
+    def _jack_lsp_env(tmp: str, *, bin_dir: Path | None = None) -> dict[str, str]:
+        env = _bash_env(tmp)
+        if bin_dir is not None:
+            env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+        else:
+            env["PATH"] = isolated_path_only(Path(tmp))
+        return env
+
+    @staticmethod
+    def _force_jack_lsp_fallback() -> str:
+        """Hermetic run dir has no meter.state; still force the jack_lsp path under test."""
+        return """
+_mpe_surge_on_graph_via_meter() { return 2; }
+export -f _mpe_surge_on_graph_via_meter
+"""
+
     def test_server_ready_fails_without_jack_lsp_even_if_jackd_running(self) -> None:
         body = f"""
 pgrep() {{ [ "$2" = jackd ] && return 0; return 1; }}
@@ -522,8 +539,7 @@ if mpe_jack_server_ready; then exit 9; fi
 echo ok
 """
         with tempfile.TemporaryDirectory() as tmp:
-            env = _bash_env()
-            env["PATH"] = isolated_path_only(Path(tmp))
+            env = self._jack_lsp_env(tmp)
             result = _run_bash_script(body, env=env)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.strip(), "ok")
@@ -531,12 +547,12 @@ echo ok
     def test_surge_on_graph_fails_without_jack_lsp(self) -> None:
         body = f"""
 source {AUDIO_ENGINE_SH}
+{self._force_jack_lsp_fallback()}
 if mpe_surge_on_jack_graph; then exit 9; fi
 echo ok
 """
         with tempfile.TemporaryDirectory() as tmp:
-            env = _bash_env()
-            env["PATH"] = isolated_path_only(Path(tmp))
+            env = self._jack_lsp_env(tmp)
             result = _run_bash_script(body, env=env)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.strip(), "ok")
@@ -554,6 +570,7 @@ echo ok
                     jack_stub.chmod(jack_stub.stat().st_mode | stat.S_IXUSR)
                     body = f"""
 source {AUDIO_ENGINE_SH}
+{self._force_jack_lsp_fallback()}
 pgrep() {{ [ "$1" = "-x" ] && [ "$2" = "jackd" ] && return 0; return 1; }}
 export -f pgrep
 timeout() {{ shift; "$@"; }}
@@ -561,7 +578,7 @@ export -f timeout
 export PATH="{bin_dir}:$PATH"
 if mpe_surge_on_jack_graph; then echo yes; else echo no; fi
 """
-                    result = _run_bash_script(body)
+                    result = _run_bash_script(body, env=self._jack_lsp_env(tmp, bin_dir=bin_dir))
                     self.assertEqual(result.returncode, 0, result.stderr)
                     self.assertEqual(result.stdout.strip(), "yes")
 
@@ -576,6 +593,7 @@ if mpe_surge_on_jack_graph; then echo yes; else echo no; fi
             jack_stub.chmod(jack_stub.stat().st_mode | stat.S_IXUSR)
             body = f"""
 source {AUDIO_ENGINE_SH}
+{self._force_jack_lsp_fallback()}
 pgrep() {{ [ "$1" = "-x" ] && [ "$2" = "jackd" ] && return 0; return 1; }}
 export -f pgrep
 timeout() {{ shift; "$@"; }}
@@ -584,7 +602,7 @@ export PATH="{bin_dir}:$PATH"
 if mpe_surge_on_jack_graph; then exit 9; fi
 echo ok
 """
-            result = _run_bash_script(body)
+            result = _run_bash_script(body, env=self._jack_lsp_env(tmp, bin_dir=bin_dir))
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(result.stdout.strip(), "ok")
 
@@ -606,6 +624,7 @@ printf 'surge-xt\n'
             jack_stub.chmod(jack_stub.stat().st_mode | stat.S_IXUSR)
             body = f"""
 source {AUDIO_ENGINE_SH}
+{self._force_jack_lsp_fallback()}
 pgrep() {{ [ "$1" = "-x" ] && [ "$2" = "jackd" ] && return 0; return 1; }}
 export -f pgrep
 timeout() {{ shift; "$@"; }}
@@ -614,7 +633,7 @@ export PATH="{bin_dir}:$PATH"
 if mpe_surge_on_jack_graph; then echo yes; else echo no; fi
 cat "{count_file}"
 """
-            result = _run_bash_script(body)
+            result = _run_bash_script(body, env=self._jack_lsp_env(tmp, bin_dir=bin_dir))
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(result.stdout.strip().splitlines()[0], "yes")
             self.assertEqual(result.stdout.strip().splitlines()[1], "1")
@@ -628,6 +647,7 @@ cat "{count_file}"
             jack_stub.chmod(jack_stub.stat().st_mode | stat.S_IXUSR)
             body = f"""
 source {AUDIO_ENGINE_SH}
+{self._force_jack_lsp_fallback()}
 pgrep() {{ [ "$1" = "-x" ] && [ "$2" = "jackd" ] && return 0; return 1; }}
 export -f pgrep
 timeout() {{ shift; "$@"; }}
@@ -636,7 +656,7 @@ export PATH="{bin_dir}:$PATH"
 if mpe_surge_on_jack_graph; then exit 9; fi
 echo ok
 """
-            result = _run_bash_script(body)
+            result = _run_bash_script(body, env=self._jack_lsp_env(tmp, bin_dir=bin_dir))
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(result.stdout.strip(), "ok")
 
@@ -1173,6 +1193,25 @@ printf '%s' "$(mpe_jack_periods)"
 """
         result = _run_bash_script(body, env=_bash_env(MPE_JACK_PERIODS="4"))
         self.assertEqual(result.stdout.strip(), "4")
+
+    def test_jack_periods_accepts_six_and_eight(self) -> None:
+        body = f"""
+source {AUDIO_ENGINE_SH}
+printf '%s' "$(mpe_jack_periods)"
+"""
+        for n in ("6", "8"):
+            with self.subTest(periods=n):
+                result = _run_bash_script(body, env=_bash_env(MPE_JACK_PERIODS=n))
+                self.assertEqual(result.stdout.strip(), n)
+
+    def test_jack_periods_rejects_seven(self) -> None:
+        body = f"""
+source {AUDIO_ENGINE_SH}
+printf '%s' "$(mpe_jack_periods)"
+"""
+        result = _run_bash_script(body, env=_bash_env(MPE_JACK_PERIODS="7"))
+        self.assertEqual(result.stdout.strip(), "3")
+        self.assertIn("WARNING", result.stderr)
 
     def test_buffer_env_canonical_uses_jack_key_only(self) -> None:
         body = f"""

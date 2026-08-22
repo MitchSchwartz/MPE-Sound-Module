@@ -10,11 +10,12 @@ needs Mitch at the instrument — see the summary table below. Original text fol
 | 3 | Criterion 6 — CLI on the snapshot | ✅ mpe-cli #6/#7 |
 | 4 | Liveness spike | ✅ D-Bus batched; 11.5% → 0.53% of a core |
 | 5 | Snapshot publisher | ✅ 1 Hz, installed, **not enabled** — your call |
-| 6 | Re-measure the looper stack | 🟡 done at 1024, **512 run void — needs a clean re-run** |
+| 6 | Re-measure the looper stack | ✅ 1024 cost + **512 A vs D** on `b9bf98e` |
 | 7 | Buffer floor / per-patch headroom | ❌ **needs Mitch playing** |
 
-**Re-take pending:** criteria 42/46/47 were measured on `c006fa8`, not `dev` — see
-[`rerun-order-2026-08-19.md`](rerun-order-2026-08-19.md).
+**Re-take done 2026-08-19:** criteria 42/46/47 and task 6 (512 × 3) measured on `b9bf98e`
+(`main`) — see [`rerun-order-2026-08-19.md`](rerun-order-2026-08-19.md) and
+[`looper-stack-cost-2026-08-19.md`](../../docs/measurements/looper-stack-cost-2026-08-19.md).
 
 **Original status:** ready to hand to an agent. Each task below is self-contained, has acceptance
 criteria, and states its dependencies. Tasks 1–3 depend on **no** pending measurement.
@@ -150,6 +151,17 @@ returns to `ENABLED` in `install-units.sh` or the opt-in default is restated on 
 
 `512 × 3` now runs 0 xruns at DSP median 42%. Criterion 35 wants `128 × 3` under playing
 load in strict mode.
+
+> **Superseded in part, 2026-08-19 (D15).** The "0 xruns at 512" reading above did not
+> hold under a 3×60 s A/D comparison at `b9bf98e`: baseline produced 2, 0, 0 and the full
+> stack produced 7, 24, 29, at an unchanged DSP median (~38.6 vs ~38.7). Identical DSP
+> with a 10× xrun difference means the 512 blocker is **scheduling jitter, not CPU cost** —
+> so it is not a per-patch-headroom question and does not belong in this section. The
+> Pi is restored to 1024×3. Full analysis, measured Pi config, and the ordered plan:
+> [`low-latency-512-256-spec.md`](low-latency-512-256-spec.md).
+>
+> Per-patch variance below remains open and is a separate axis — it is about DSP cost on
+> specific presets, which jitter work will not address.
 
 **UPDATE 2026-08-19: retried post-fix, and it holds.** Mitch re-tried those patches after
 the graph-probe fix — *"512 works for most, some patches seem to need 1024 still."* So it

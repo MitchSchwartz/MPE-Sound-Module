@@ -152,7 +152,7 @@ def dedupe(
         merged = dict(data[winner])
         losers = [k for k in unique if k != winner]
         for loser in losers:
-            for field in ("user_gain_db", "enabled"):
+            for field in ("user_trim_db", "enabled"):
                 if field in data.get(loser, {}) and field not in merged:
                     merged[field] = data[loser][field]
             merged_keys.add(loser)

@@ -3,6 +3,11 @@
 **Hand this to a fresh agent after `dev` is promoted to `main`.** Self-contained; assumes
 no prior context.
 
+**Conformance:** `./scripts/instrument-conformance.sh` must exit 0 before any Pi step.
+
+**Impossible if:** halving buffer drops `dsp_median` by >50%; `dsp_median` < 15 with
+xruns > 5 at 512×3; `samples` ≠ window length; parser accepts `dsp_med=` (hard error).
+
 ## Why
 
 Four Phase 3M criteria were closed on 2026-08-19 with measurements taken on

@@ -1,0 +1,33 @@
+=== Plan P7 2026-08-22T12:11:04-04:00 artifacts=/home/mitch/plan-p7-20260822-121104 phase=full ===
+git=cb6f4af
+buffer=1024 periods=2 confirm_sec=45 runs=3
+PREDICTION clock_gain_pct=11.1 expect_dsp_p99_drop_pct=~10 if_compute_bound
+PREDICTION falsifier=dsp_p99_within_baseline_spread -> clock_not_binding
+PREDICTION alarm=dsp_p99_drop_much_gt_11pct -> comparison_broken
+
+=== P7 baseline @ ~1800 MHz ===
+CLOCK label=baseline-phase-start measure_clock_arm=frequency(48)=1800404352 arm_mhz=1800 scaling_cur_khz=1800000 scaling_mhz=1800 throttled=0x0 temp=48.7'C
+
+=== P7-baseline-Crystals-run1 patch=Crystals voices=3 expect_mhz=1800 ===
+CLOCK label=before-P7-baseline-Crystals-run1 measure_clock_arm=frequency(48)=1800404352 arm_mhz=1800 scaling_cur_khz=1800000 scaling_mhz=1800 throttled=0x0 temp=48.7'C
+RESULT tag=P7-baseline-Crystals-run1 patch=Crystals voices=3 sec=45 xruns=0 clean=yes
+0
+CLOCK label=after-P7-baseline-Crystals-run1 measure_clock_arm=frequency(48)=1800457088 arm_mhz=1800 scaling_cur_khz=1800000 scaling_mhz=1800 throttled=0x0 temp=49.6'C
+SUMMARY tag=P7-baseline-Crystals-run1 xruns=0 dsp_p99=39.361 dsp_max=39.5421
+
+=== P7-baseline-Crystals-run2 patch=Crystals voices=3 expect_mhz=1800 ===
+CLOCK label=before-P7-baseline-Crystals-run2 measure_clock_arm=frequency(48)=1800457088 arm_mhz=1800 scaling_cur_khz=1800000 scaling_mhz=1800 throttled=0x0 temp=49.6'C
+RESULT tag=P7-baseline-Crystals-run2 patch=Crystals voices=3 sec=45 xruns=0 clean=yes
+0
+CLOCK label=after-P7-baseline-Crystals-run2 measure_clock_arm=frequency(48)=1800457088 arm_mhz=1800 scaling_cur_khz=1800000 scaling_mhz=1800 throttled=0x0 temp=49.1'C
+SUMMARY tag=P7-baseline-Crystals-run2 xruns=0 dsp_p99=39.4194 dsp_max=40.682
+
+=== P7-baseline-Crystals-run3 patch=Crystals voices=3 expect_mhz=1800 ===
+CLOCK label=before-P7-baseline-Crystals-run3 measure_clock_arm=frequency(48)=1800457088 arm_mhz=1800 scaling_cur_khz=1800000 scaling_mhz=1800 throttled=0x0 temp=49.1'C
+RESULT tag=P7-baseline-Crystals-run3 patch=Crystals voices=3 sec=45 xruns=0 clean=yes
+0
+CLOCK label=after-P7-baseline-Crystals-run3 measure_clock_arm=frequency(48)=1800404352 arm_mhz=1800 scaling_cur_khz=1800000 scaling_mhz=1800 throttled=0x0 temp=50.1'C
+SUMMARY tag=P7-baseline-Crystals-run3 xruns=0 dsp_p99=39.1351 dsp_max=39.5057
+
+=== P7-baseline-Cloud_Horn-run1 patch=Cloud Horn voices=5 expect_mhz=1800 ===
+CLOCK label=before-P7-baseline-Cloud_Horn-run1 measure_clock_arm=frequency(48)=1800404352 arm_mhz=1800 scaling_cur_khz=1800000 scaling_mhz=1800 throttled=0x0 temp=49.6'C
