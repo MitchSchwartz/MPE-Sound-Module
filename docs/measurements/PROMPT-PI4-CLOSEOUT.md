@@ -41,7 +41,41 @@ stock 1800.
 latency floor, which is what the Pi 5 gets measured against. Comparing a Pi 5 to 1024×2 — a
 config already known not to be the floor — would overstate the gain.
 
-### A2. Freeze the reference suite (~30 min to write, ~30 min to run)
+### A2. Settle the a72 question — **before the control is frozen** (~20 min measure)
+
+**Sequencing matters here and it is easy to get wrong.** The a72 binary is already built. If it
+wins and gets installed *after* the reference passes, those passes were taken on two different
+binaries and the noise floor is worthless. **Decide first, then freeze.**
+
+1. Baseline the **current** binary on the A3 cells (this doubles as reference pass 1 — do not
+   pay for it twice).
+2. Back up the running binary to `~/surge-xt-cli.pre-a72` with a checksum (`PROMPT-P8` §A3).
+3. Install the a72 build, re-measure the same cells.
+4. **Report Crystals, Cloud Horn and Duduk separately, not averaged** — `-mcpu` tunes
+   instruction selection, and there is no reason oscillator inner loops and filter inner loops
+   benefit equally. A split result is a finding.
+
+**Decision rule, pre-registered:** if a72 beats stock beyond the run-to-run spread on any of the
+three, **keep it and make it the control binary.** If it is within noise or worse, **revert to
+stock and say so plainly** — a null result closes a lever and is worth recording.
+
+**Why the control should be arch-tuned.** The Pi 5 will run `-mcpu=cortex-a76`. If the Pi 4
+control is untuned, the Pi 5 comparison measures *hardware plus a compiler flag* and reports it
+as hardware. Tuning both to their own architecture compares best-achievable to
+best-achievable — which is also what actually ships. **Whichever binary wins here is frozen for
+the entire closeout.** Record its revision and flags in A5.
+
+**One caveat on autonomy.** A2 installs a binary, and `PROMPT-P8` requires an ear test before a
+binary change *ships* — this is the first change to the audio binary in the whole arc. Resolve it
+this way: the **install and measurement are autonomous** (revert path exists, it is one command),
+but a72 does not become the **shipping default** until B3's ear test passes. It can be the
+measurement control before it is the shipping binary. If the ear test later fails, revert and
+re-run the reference passes — cheap, because the suite is frozen.
+
+This does **not** need P7 first. P7 gated whether spending 45 minutes on the build was
+worthwhile; the build already exists, so measuring it is 20 minutes and the gate is moot.
+
+### A3. Freeze the reference suite (~30 min to write, ~30 min to run)
 
 Write `scripts/measure-reference-suite.sh`. **It must run unmodified on a Pi 5.** No
 hardcoded core lists, clocks, IRQ numbers, or `-mcpu` values — read them from a platform
@@ -68,15 +102,15 @@ are oscillator-bound; **Duduk is filter-bound** — the finding that oscillator 
 predict cost — and Brave New World is multi-oscillator but simply constructed. Three buffer
 configs span the ladder without re-measuring what V9 already settled.
 
-### A3. Run the reference suite twice, on separate days (~30 min each)
+### A4. Run the reference suite twice, on separate days (~30 min each)
 
-Two passes give the **run-to-run noise floor**. Without it, a Pi 5 "improvement" cannot be
+Two passes give the **run-to-run noise floor** — both on the binary A2 froze. Without it, a Pi 5 "improvement" cannot be
 distinguished from spread and the §5 predictions in the transition plan cannot be scored.
 
 **Report the spread explicitly.** If cells disagree by more than a few percent between passes,
 that number is the threshold below which no future result means anything — say so.
 
-### A4. Full state capture (~10 min)
+### A5. Full state capture (~10 min)
 
 Run `scripts/backup-appliance-state.sh`, commit the output, and add anything it misses:
 `/boot/firmware/config.txt`, kernel cmdline, every `CPUAffinity` value, `irqaffinity`,
@@ -85,26 +119,29 @@ device and its URB configuration.
 
 This is the control condition. Without it, "the Pi 5 is faster" is unfalsifiable.
 
-### A5. G3 — archive the raw logs (~30 min)
+### A6. G3 — archive the raw logs (~30 min)
 
 `PROMPT-G3-archive-raw-logs.md`. Do it now, while the Pi 4's SD card is still the machine you
 care about. Once attention moves to the Pi 5 it becomes a neglected object holding the only
 copy of every number in 74 documents.
 
-### A6. P8 reframed — parameterised build (~1 h build, offline)
+### A7. Finish `build-surge.sh --arch` as infrastructure (~30 min, offline)
 
-`PROMPT-P8-mcpu-cortex-a72.md`, with the deliverable changed: not "measure a flag" but
-**`scripts/build-surge.sh --arch {a72|a76|generic}`**, one build path, measurement as a side
-effect. The Pi 5 needs `-mcpu=cortex-a76`, so this infrastructure is now required regardless
-of whether the flag helps. Build only — **do not install unattended.**
+A2 answered whether a72 helps. This step makes the build path **parameterised and reusable**:
+`scripts/build-surge.sh --arch {a72|a76|generic}`, one script, same source revision, arch as the
+only variable.
 
-### A7. Platform-stamp the docs (~20 min, offline)
+**Required regardless of A2's outcome** — the Pi 5 needs `-mcpu=cortex-a76` and must build from
+the **same Surge revision** the Pi 4 runs, or the platform comparison measures hardware plus a
+version bump. This is the piece that makes §3.1 of the bring-up runbook possible.
+
+### A8. Platform-stamp the docs (~20 min, offline)
 
 Add a platform line to the first two lines of every live measurement doc. Add the stamp to
 `archive/README` collectively rather than editing 53 files. The standard-conditions table in
 `docs/measurements/README.md` already has its Platform row.
 
-### A8. Write the predictions table (~20 min, offline — **do before the Pi 5 boots**)
+### A9. Write the predictions table (~20 min, offline — **do before the Pi 5 boots**)
 
 Per §5 of the transition plan: for every reference-suite cell, what the Pi 4 model predicts for
 the Pi 5, with the reasoning, committed **before** the board is powered on. Include the
