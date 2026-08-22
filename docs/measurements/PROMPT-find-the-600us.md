@@ -25,6 +25,10 @@ Read these first. Do not re-litigate their conclusions.
 ~900 us. **~600 us is unexplained.** It is device-independent — two interfaces with
 opposite transport characteristics both fail at small buffers. Find where it lives.
 
+**Already done, do not repeat:** Step 2 hygiene pruned `bluetooth`, `avahi-daemon`,
+`cron`, `udisks2`, `cloud-init` and masked the maintenance timers; movable IRQs (41/42/43/
+28/57) are relocated to CPU1 at boot by `mpe-irq-affinity.service`.
+
 ## Rules
 
 1. **One variable per step.** If a step would change two things, stop and say so.
@@ -36,6 +40,49 @@ opposite transport characteristics both fail at small buffers. Find where it liv
    reported inconsistently. Resolve it live from `/proc/asound/cards` and echo what you
    found before using it.
 5. Report **withdrawn** claims explicitly if a step refutes something in the docs above.
+
+---
+
+## Step 0 — storage and log-write audit (~5 min, no reboot, read-only)
+
+**Do this first. It is read-only and may change what the later steps mean.**
+
+Context: `docs/STORAGE-ROBUSTNESS.md:7` states the appliance still runs a **full mutable
+Raspberry Pi OS on ext4**, and volatile journal storage is listed there as **proposed, not
+implemented**. Neither swap nor journald persistence has ever been audited on this box.
+
+This matters because **IRQ 41 is `mmc0/mmc1` — the SD card and the SDIO WiFi share one
+interrupt line** (1.90 M counts, currently relocated to CPU1 by `mpe-irq-affinity.service`).
+Every SD write and every WiFi packet lands on the same handler. Disk tuning and WiFi tuning
+are therefore the same problem here, not two.
+
+Report, changing nothing:
+
+| # | check | command |
+|---|---|---|
+| 0a | swap enabled? size? backing device? | `swapon --show`, `free -h`, `systemctl is-enabled dphys-swapfile` |
+| 0b | if swap is on: has it been touched? | `vmstat -s \| grep -i swap`, `/proc/vmstat` `pswpin`/`pswpout` |
+| 0c | major faults by the audio processes | `ps -o pid,comm,maj_flt -p $(pgrep -d, 'jackd\|surge')` |
+| 0d | journald storage mode + on-disk size | `journalctl --disk-usage`, `grep -r Storage= /etc/systemd/journald.conf*` |
+| 0e | SD write rate at idle vs during a stream | `/proc/diskstats` for `mmcblk0`, 60 s delta, both states |
+| 0f | does the measurement harness itself write to SD during a window? | inspect harness paths — `/run/mpe` is tmpfs and fine; anything under `/var` or `/home` is not |
+| 0g | `vm.swappiness`, and whether jackd/surge use `MemoryLock` / `mlockall` | `sysctl vm.swappiness`; check unit files |
+
+**Why this could matter to the 600 us.** If swap is enabled on the SD card, a cold page
+touched inside the audio callback takes an **SD-backed major fault**. That is
+device-independent, load-correlated, and would fit "512 crackles with heavy patches"
+precisely. It would also **not** show up the way we have been measuring: a major fault
+stalls the callback without necessarily registering as callback lateness in the harness.
+
+**Do not treat this as a confirmed cause.** It is an unexamined candidate that is cheap to
+rule in or out. Report `pswpin`/`pswpout` and `maj_flt` as the deciding numbers:
+
+- **`pswpin` > 0 or audio-process `maj_flt` growing during play** → swap is live in the
+  audio path. Escalate immediately; this outranks Steps 1-2.
+- **both flat and swap off** → ruled out. Say so and move on. Do not keep it on the list.
+
+If 0e shows meaningful SD writes during a stream, name **what** is writing before proposing
+any change.
 
 ---
 
@@ -100,8 +147,9 @@ Assemble a **single** cmdline/config change containing only what Steps 1-2 justi
 
 - **v3d removal** — hygiene, always included. It is on CPU1, outside the audio path, so
   **expect no measurable effect**; we are removing 957k interrupts from the picture, not
-  fixing anything. **Gate:** confirm `touch_patch_browser.py` does not use GL before
-  removing the driver. If it does, relocate rather than remove.
+  fixing anything. **Gate is already cleared** —
+  `docs/measurements/step2-hygiene-applied-2026-08-21.md:29` records that pygame does not
+  use GL; the blacklist was deferred, not blocked. Do not re-litigate this.
 - **Whatever Step 2's branch implies** — most likely `threadirqs`.
 - **`snd_usb_audio.lowlatency=N`** — **only if Step 1 supported it.**
 
