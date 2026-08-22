@@ -65,6 +65,22 @@ mpe_jack_period() {
     printf '%s' "$(mpe_buffer_env_canonical)"
 }
 
+# Read back the buffer jackd is actually running (not the env echo).
+mpe_jack_applied_period() {
+    local cur
+    if ! command -v jack_bufsize >/dev/null 2>&1; then
+        return 1
+    fi
+    if ! pgrep -x jackd >/dev/null 2>&1; then
+        return 1
+    fi
+    cur="$(jack_bufsize 2>/dev/null | tail -1 | tr -d '[:space:]')"
+    if ! [[ "$cur" =~ ^[0-9]+$ ]]; then
+        return 1
+    fi
+    printf '%s' "$cur"
+}
+
 mpe_jack_periods() {
     case "${MPE_JACK_PERIODS:-}" in
         2 | 3 | 4 | 6 | 8) printf '%s' "$MPE_JACK_PERIODS" ;;
