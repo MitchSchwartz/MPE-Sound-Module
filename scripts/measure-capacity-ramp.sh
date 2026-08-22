@@ -1,6 +1,8 @@
 #!/bin/bash
-# Ramp voice count to first graph overrun at one buffer size (V7 cell).
+# Ramp voice count to first graph overrun at one buffer size (V7/V8 cell).
 #
+# WARNING: _xruns_delta under-counts vs measure-latency-run at high load (V9-c Closed Hat).
+# Use for screening only. Policy ceilings → measure-confirm-at-voices.sh.
 # Usage: sudo ./scripts/measure-capacity-ramp.sh --buffer 1024 --periods 3 \
 #            --patch-name Crystals --output /path/log --tag V7-a
 
