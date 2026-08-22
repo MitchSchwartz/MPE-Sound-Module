@@ -215,7 +215,7 @@ so it costs nothing the discipline does not already demand. **Start with V11.**
 | Measurement harnesses | 34 scripts in `scripts/` | Reproducible; conditions parameterised |
 | Raw run logs | [`docs/measurements/raw-logs/`](measurements/raw-logs/MANIFEST.md) (G3 archive) + appliance | Manifest + SHA256SUMS in-repo |
 | **Daily labour (contemporaneous)** | [`docs/SRED-DAILY-LOG.md`](SRED-DAILY-LOG.md) | **From 2026-08-22 onward** — skill `sred-daily-capture` |
-| Reconstructed labour (G1) | [`docs/SRED-EFFORT-LOG.md`](SRED-EFFORT-LOG.md) | Through 2026-08-22 backfill only |
+| Reconstructed labour (G1) | [`docs/SRED-EFFORT-LOG.md`](SRED-EFFORT-LOG.md) | **Closed 2026-08-22** — reconstruction baseline only |
 | Chronology | Git history, ~770 commits, dated | Commit messages state the finding, not just the change |
 | Peer review | PRs #86, #88, #90–#95 | Review comments are contemporaneous critique |
 
@@ -225,7 +225,7 @@ so it costs nothing the discipline does not already demand. **Start with V11.**
 
 | # | gap | why it matters | effort |
 |---|---|---|---|
-| **G1** | **Person-hours are not recorded.** Git timestamps show *when* commits landed, not effort expended. Claims are computed from labour. | Highest-value gap | **Backfill done** — [`SRED-EFFORT-LOG.md`](SRED-EFFORT-LOG.md). **Ongoing:** [`SRED-DAILY-LOG.md`](SRED-DAILY-LOG.md) + skill **`sred-daily-capture`** |
+| **G1** | **Person-hours are not recorded.** Git timestamps show *when* commits landed, not effort expended. Claims are computed from labour. | Highest-value gap | **Closed** — [`SRED-EFFORT-LOG.md`](SRED-EFFORT-LOG.md) (reconstruction). **Ongoing:** [`SRED-DAILY-LOG.md`](SRED-DAILY-LOG.md) + **`sred-daily-capture`** |
 | **G2** | **Prior-art searches are undocumented.** §5 is reconstructed after the fact, not contemporaneous. | Directly answers the reviewer's first question | Adopt the prompt paragraph going forward; §5 covers the past |
 | **G3** | **Raw logs live on the appliance**, referenced by path but not archived in-repo. An SD card failure destroys the underlying data behind every number. | Evidence durability, and this is an audio appliance whose SD card shares IRQ 41 with WiFi | **Archive done** — [`docs/measurements/raw-logs/`](measurements/raw-logs/MANIFEST.md) (627 files, MANIFEST + SHA256SUMS). Re-run [`PROMPT-G3`](measurements/PROMPT-G3-archive-raw-logs.md) after major measurement pushes when Pi idle. |
 | **G4** | **Uncertainties were never stated as such at the time.** They are inferred here from what the experiments tested. | Reviewers look for uncertainty stated up front | This document establishes them; carry the framing forward into new prompts |

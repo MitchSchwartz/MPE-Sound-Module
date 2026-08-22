@@ -5,7 +5,7 @@ description: Append contemporaneous SR&ED labour evidence to docs/SRED-DAILY-LOG
 
 # SR&ED daily capture (MPE-Module)
 
-**Goal:** One append per **work session** so labour evidence exists when the claim is filed. G1 proved git timestamps and memory are not enough.
+**Do not estimate hands-on from session wall time** — see effort log §Method. Sessions stop midnight double-count only; hours are Mitch's recall (3–4 h per session worked), not gap-subtracted wall clock.
 
 **Canon:** [`docs/SRED-EVIDENCE-2026.md`](../../docs/SRED-EVIDENCE-2026.md) (phases §4, uncertainties) · [`docs/SRED-EFFORT-LOG.md`](../../docs/SRED-EFFORT-LOG.md) (reconstruction baseline only — do not append there).
 
