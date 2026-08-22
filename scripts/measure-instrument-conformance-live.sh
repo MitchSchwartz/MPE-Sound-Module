@@ -8,6 +8,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")/.." && pwd)"
 # shellcheck source=lib/paths.sh
 source "$ROOT/scripts/lib/paths.sh"
+# shellcheck source=lib/mpe-services.sh
+source "$ROOT/scripts/lib/mpe-services.sh"
 # shellcheck source=lib/audio-engine.sh
 source "$ROOT/scripts/lib/audio-engine.sh"
 # shellcheck source=lib/measurement-result.sh
@@ -28,6 +30,9 @@ if [ ! -r /run/mpe/meter.state ]; then
     echo "ERROR: measure-instrument-conformance-live: no /run/mpe/meter.state (not on Pi?)" >&2
     exit 1
 fi
+
+MPE_METER_STATE_FILE="/run/mpe/meter.state"
+export MPE_METER_STATE_FILE
 
 if ! mpe_meter_assert_live; then
     echo "ERROR: measure-instrument-conformance-live: meter not live" >&2
