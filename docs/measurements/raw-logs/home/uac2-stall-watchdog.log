@@ -1,0 +1,109 @@
+2026-08-02 18:28:33: === UAC2 stall watchdog started (poll=1s, stall=3 polls) ===
+2026-08-02 18:28:37: Surge write wedged (appl_ptr stuck at 4096 for 3s, host streaming @ 44100Hz) — restarting surge-xt-cli.service
+2026-08-02 18:31:01: === UAC2 stall watchdog started (poll=1s, stall=4 polls) ===
+2026-08-02 18:39:59: Surge write wedged (appl_ptr stuck at 21923495 for 4s, host streaming @ 44100Hz) — restarting surge-xt-cli.service
+2026-08-02 18:40:28: Surge write wedged (appl_ptr stuck at 638455 for 4s, host streaming @ 44100Hz) — restarting surge-xt-cli.service
+2026-08-02 18:43:32: Surge write wedged (appl_ptr stuck at 281597 for 4s, host streaming @ 44100Hz) — restarting surge-xt-cli.service
+2026-08-02 18:53:47: Profile standalone — UAC2 stall watchdog not needed, exiting
+2026-08-02 19:56:35: Profile standalone — UAC2 stall watchdog not needed, exiting
+2026-08-02 19:57:21: === UAC2 stall watchdog started (poll=1s, stall=4 polls) ===
+2026-08-02 19:59:30: Surge write wedged (appl_ptr stuck at 4096 for 4s, host streaming @ 44100Hz) — restarting surge-xt-cli.service
+2026-08-02 22:58:12: === UAC2 stall watchdog started (poll=1s, stall=4 polls) ===
+2026-08-02 22:59:53: Surge write wedged (appl_ptr stuck at 4096 for 4s, host streaming @ 44100Hz) — restarting surge-xt-cli.service
+2026-08-03 00:06:18: === UAC2 stall watchdog started (poll=1s, stall=4 polls) ===
+2026-08-03 00:18:18: Surge write wedged (appl_ptr stuck at 4096 for 4s, host streaming @ 44100Hz) — restarting surge-xt-cli.service
+2026-08-03 00:27:31: === UAC2 stall watchdog started (poll=1s, stall=4 polls) ===
+2026-08-03 00:59:38: === UAC2 stall watchdog started (poll=1s, stall=4 polls) ===
+2026-08-03 18:29:46: Surge write wedged (appl_ptr stuck at 4096 for 4s, host streaming @ 44100Hz) — restarting surge-xt-cli.service
+2026-08-03 19:54:34: Surge write wedged (appl_ptr stuck at 110861749 for 4s, host streaming @ 44100Hz) — restarting surge-xt-cli.service
+2026-08-03 21:47:48: === UAC2 stall watchdog started (poll=1s, stall=4 polls) ===
+2026-08-03 21:50:42: === UAC2 stall watchdog started (poll=1s, stall=4 polls) ===
+2026-08-03 21:51:47: Surge write wedged (appl_ptr stuck at 4096 for 4s, host streaming @ 44100Hz) — restarting surge-xt-cli.service
+2026-08-03 21:52:12: Surge write wedged (appl_ptr stuck at 265035 for 4s, host streaming @ 44100Hz) — restarting surge-xt-cli.service
+2026-08-03 21:52:37: Surge write wedged (appl_ptr stuck at 33863 for 4s, host streaming @ 44100Hz) — restarting surge-xt-cli.service
+2026-08-03 21:53:32: Surge write wedged (appl_ptr stuck at 73288 for 4s, host streaming @ 44100Hz) — restarting surge-xt-cli.service
+2026-08-03 21:54:25: Surge write wedged (appl_ptr stuck at 186978 for 4s, host streaming @ 44100Hz) — restarting surge-xt-cli.service
+2026-08-03 22:47:04: === UAC2 stall watchdog started (poll=1s, stall=4 polls) ===
+2026-08-03 22:55:33: Surge write wedged (appl_ptr stuck at 4096 for 4s, host streaming @ 44100Hz) — restarting surge-xt-cli.service
+2026-08-03 22:56:00: Surge write wedged (appl_ptr stuck at 264638 for 4s, host streaming @ 44100Hz) — restarting surge-xt-cli.service
+2026-08-03 22:58:41: Surge write wedged (appl_ptr stuck at 4096 for 4s, host streaming @ 44100Hz) — restarting surge-xt-cli.service
+2026-08-03 22:59:01: === UAC2 stall watchdog started (poll=1s, stall=4 polls) ===
+2026-08-03 22:59:02: Host stream opened @ 44100Hz — stall grace 25s
+2026-08-03 22:59:03: UAC2 owner PID 38491 — stall grace 25s
+2026-08-03 23:00:15: Host stream opened @ 44100Hz — stall grace 25s
+2026-08-03 23:00:36: Host stream opened @ 44100Hz — stall grace 25s
+2026-08-03 23:01:06: Surge write wedged (appl_ptr stuck at 2402296 for 4s, host streaming @ 44100Hz) — restarting surge-xt-cli.service
+2026-08-03 23:01:27: UAC2 owner PID 39640 — stall grace 25s
+2026-08-03 23:12:35: Host stream opened @ 44100Hz — stall grace 25s
+2026-08-03 23:13:04: Surge write wedged (appl_ptr stuck at 8669569 for 4s, host streaming @ 44100Hz) — restarting surge-xt-cli.service
+2026-08-03 23:13:25: UAC2 owner PID 44623 — stall grace 25s
+2026-08-03 23:16:29: Host stream opened @ 44100Hz — stall grace 25s
+2026-08-03 23:17:57: Host stream opened @ 44100Hz — stall grace 25s
+2026-08-03 23:18:26: Surge write wedged (appl_ptr stuck at 6538039 for 4s, host streaming @ 44100Hz) — restarting surge-xt-cli.service
+2026-08-03 23:18:47: UAC2 owner PID 47059 — stall grace 25s
+2026-08-04 03:16:54: UAC2 owner PID 186754 — stall grace 25s
+2026-08-04 14:57:30: UAC2 owner PID 597116 — stall grace 25s
+2026-08-04 14:58:07: UAC2 owner PID 597592 — stall grace 25s
+2026-08-04 14:58:12: UAC2 owner PID 597746 — stall grace 25s
+2026-08-04 14:58:35: UAC2 owner PID 598093 — stall grace 25s
+2026-08-04 14:58:39: UAC2 owner PID 598246 — stall grace 25s
+2026-08-04 14:59:47: UAC2 owner PID 599147 — stall grace 25s
+2026-08-04 15:07:57: Host stream opened @ 44100Hz — stall grace 25s
+2026-08-04 15:07:57: UAC2 owner PID 603274 — stall grace 25s
+2026-08-04 15:08:26: Surge write wedged (appl_ptr stuck at 4096 for 4s, host streaming @ 44100Hz) — restarting surge-xt-cli.service
+2026-08-04 15:08:48: UAC2 owner PID 603720 — stall grace 25s
+2026-08-04 16:16:46: UAC2 owner PID 643636 — stall grace 25s
+2026-08-04 16:16:50: UAC2 owner PID 643785 — stall grace 25s
+2026-08-04 16:18:00: UAC2 owner PID 644755 — stall grace 25s
+2026-08-04 16:19:15: UAC2 owner PID 647113 — stall grace 25s
+2026-08-04 16:19:52: UAC2 owner PID 648922 — stall grace 25s
+2026-08-04 16:19:56: UAC2 owner PID 649171 — stall grace 25s
+2026-08-04 16:25:08: UAC2 owner PID 652400 — stall grace 25s
+2026-08-04 16:25:13: UAC2 owner PID 652605 — stall grace 25s
+2026-08-04 19:18:06: === UAC2 stall watchdog started (poll=1s, stall=4 polls) ===
+2026-08-04 19:27:41: Host stream opened @ 44100Hz — stall grace 25s
+2026-08-04 19:27:41: UAC2 owner PID 2863 — stall grace 25s
+2026-08-04 19:28:11: Surge write wedged (appl_ptr stuck at 4096 for 4s, host streaming @ 44100Hz) — restarting surge-xt-cli.service
+2026-08-04 19:28:32: UAC2 owner PID 13979 — stall grace 25s
+2026-08-04 19:30:44: === UAC2 stall watchdog started (poll=1s, stall=4 polls) ===
+2026-08-04 19:30:46: Host stream opened @ 44100Hz — checking writer (no boot grace)
+2026-08-04 19:53:36: === UAC2 watchdog started (lazy=1, poll=1s) ===
+2026-08-04 19:53:37: Host stream opened @ 44100Hz — lazy route: switching Surge to UAC2
+2026-08-04 19:53:57: === UAC2 watchdog started (lazy=1, poll=1s) ===
+2026-08-04 19:53:58: Host stream opened @ 44100Hz — lazy route: switching Surge to UAC2
+2026-08-04 20:25:32: === UAC2 watchdog started (lazy=1, poll=1s) ===
+2026-08-04 20:27:01: === UAC2 host-route watcher started (poll=1s) ===
+2026-08-04 20:28:42: Host capture opened @ 44100Hz — Surge → UAC2
+2026-08-04 22:13:10: Host capture closed — Surge → idle output
+2026-08-04 22:13:14: Host capture opened @ 44100Hz — Surge → UAC2
+2026-08-04 22:48:03: Host capture closed — Surge → idle output
+2026-08-05 03:44:55: Host capture opened @ 44100Hz — Surge → UAC2
+2026-08-05 03:46:10: Host capture closed — Surge → idle output
+2026-08-05 03:46:47: Host capture opened @ 44100Hz — Surge → UAC2
+2026-08-05 04:38:10: Host capture closed — Surge → idle output
+2026-08-05 04:47:18: Host capture opened @ 44100Hz — Surge → UAC2
+2026-08-05 16:27:26: === UAC2 host-route watcher started (poll=1s) ===
+2026-08-05 16:27:28: Host already capturing @ 44100Hz — Surge → UAC2
+2026-08-05 16:31:53: === UAC2 host-route watcher started (poll=1s) ===
+2026-08-05 16:31:54: Host already capturing @ 44100Hz — Surge → UAC2
+2026-08-05 16:32:13: Host capture closed — Surge → idle output
+2026-08-05 16:32:18: Host capture opened @ 44100Hz — Surge → UAC2
+2026-08-05 16:42:28: === UAC2 host-route watcher started (poll=1s) ===
+2026-08-05 16:42:29: Host already capturing @ 44100Hz — Surge → UAC2
+2026-08-05 18:52:33: === UAC2 host-route watcher started (poll=1s) ===
+2026-08-05 21:29:45: === UAC2 host-route watcher started (poll=1s) ===
+2026-08-08 01:10:19: Host capture opened @ 44100Hz — Surge → UAC2
+2026-08-08 17:09:56: Host capture closed — Surge → idle output
+2026-08-08 17:11:03: Host capture opened @ 48000Hz — Surge → UAC2
+2026-08-08 18:17:54: === UAC2 host-route watcher started (poll=1s) ===
+2026-08-08 18:17:55: Host already capturing @ 48000Hz — Surge → UAC2
+2026-08-09 21:48:16: === UAC2 host-route watcher started (poll=1s) ===
+2026-08-09 21:48:17: Host already capturing @ 48000Hz — mic → UAC2 (Surge on Sound Blaster)
+2026-08-10 18:42:28: Host capture closed — mic bridge stopped (Surge on Sound Blaster)
+2026-08-10 19:06:56: Host capture opened @ 48000Hz — mic → UAC2 (Surge on Sound Blaster)
+2026-08-10 23:04:27: === UAC2 host-route watcher started (poll=1s) ===
+2026-08-10 23:07:37: Host capture opened @ 48000Hz — Surge → UAC2
+2026-08-10 23:47:12: === UAC2 host-route watcher started (poll=1s) ===
+2026-08-10 23:47:13: Host already capturing @ 48000Hz — Surge → UAC2
+2026-08-13 01:07:50: === UAC2 host-route watcher started (poll=1s) ===
+2026-08-13 01:22:33: === UAC2 host-route watcher started (poll=1s) ===
