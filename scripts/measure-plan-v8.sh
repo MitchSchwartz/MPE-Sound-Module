@@ -82,12 +82,9 @@ V8B_TABLE="${ARTIFACT_DIR}/v8b-pick.tsv"
 awk '
     /^=== capacity-ramp/ {
         patch=""
-        for (i = 1; i <= NF; i++) {
-            if ($i ~ /^patch=/) {
-                split($i, a, "=")
-                patch=a[2]
-            }
-        }
+        sub(/^.* patch=/, "")
+        sub(/ [0-9]{4}-.*$/, "")
+        patch=$0
     }
     /^\{/ { meta=$0 }
     /RESULT tag=V8a-.* first_overrun=/ {
