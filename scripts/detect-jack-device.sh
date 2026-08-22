@@ -79,6 +79,8 @@ _device_name_hint() {
         *" on "*) name="${name##* on }" ;;
     esac
     name="${name#ALSA.}"
+    name="${name%%, USB Audio*}"
+    name="${name%%;*}"
     printf '%s' "$name"
 }
 
