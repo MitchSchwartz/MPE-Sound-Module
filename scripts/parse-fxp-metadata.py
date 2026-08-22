@@ -3,8 +3,18 @@
 
 Usage: parse-fxp-metadata.py /path/to/Patch.fxp
 
-Outputs one JSON object on stdout. Unison is best-effort: Modern/Wavetable osc types
-use integer param0 as voice count; other types use integer param6 when present.
+Outputs one JSON object on stdout.
+
+Unison: per-unmuted-osc list in ``unison_per_osc`` (never summed). String (9) and
+Twist/Plaits (10) have no unison — always 1; their ``param0`` engine indices are in
+``osc_engines``. All other types read integer ``param6`` when >= 1 (default 1).
+
+Verified against Quick Select (2026-08-22): types 8/11 use param6 for unison (param0 is
+not voice count). Types 12–15 not present in the census set — not inferred here.
+
+Surge .fxp files embed XML then append binary wavetable/sample tail; parse only through
+the closing </patch> tag. Oscillator type 0 is Classic (not "off"). Muted mixer slots
+(`a_mute_oN` = 1) are excluded from osc_count.
 """
 from __future__ import annotations
 
@@ -14,21 +24,33 @@ import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-# Surge osc types where param0 (type=0) is typically unison voice count.
-_UNISON_PARAM0_TYPES = frozenset({8, 9, 10, 11, 12, 13, 14, 15})
+# String / Twist: param0 is engine selector, not unison (engines have no unison voices).
+_ENGINE_PARAM0_TYPES = frozenset({9, 10})
+
+_PARAM_VALUE_RE = re.compile(
+    rb'<(?:(?:\w+:)?)(?P<name>[a-zA-Z0-9_]+)\b[^>]*\bvalue="(?P<value>[^"]*)"',
+)
 
 
 def _extract_xml_blob(raw: bytes) -> bytes:
     idx = raw.find(b"<?xml")
     if idx < 0:
         raise ValueError("no XML patch blob in fxp")
-    return raw[idx:]
+    xml = raw[idx:]
+    end = xml.find(b"</patch>")
+    if end >= 0:
+        xml = xml[: end + len(b"</patch>")]
+    return xml
 
 
-def _int_val(elem: ET.Element | None) -> int | None:
-    if elem is None:
-        return None
-    raw = elem.get("value")
+def _params_from_regex(xml_bytes: bytes) -> dict[str, str]:
+    out: dict[str, str] = {}
+    for match in _PARAM_VALUE_RE.finditer(xml_bytes):
+        out[match.group("name").decode("ascii")] = match.group("value").decode("ascii")
+    return out
+
+
+def _parse_int(raw: str | None) -> int | None:
     if raw is None:
         return None
     try:
@@ -37,75 +59,94 @@ def _int_val(elem: ET.Element | None) -> int | None:
         return None
 
 
-def _float_val(elem: ET.Element | None) -> float | None:
-    if elem is None:
-        return None
-    raw = elem.get("value")
-    if raw is None:
-        return None
-    try:
-        return float(raw)
-    except ValueError:
-        return None
+def _unison_for_osc(osc_type: int, by_name: dict[str, str], slot: int) -> int:
+    if osc_type in _ENGINE_PARAM0_TYPES:
+        return 1
+    voices = _parse_int(by_name.get(f"a_osc{slot}_param6"))
+    if voices is None or voices < 1:
+        return 1
+    return voices
 
 
-def parse_fxp_metadata(path: Path) -> dict:
-    raw = path.read_bytes()
-    xml_bytes = _extract_xml_blob(raw)
-    root = ET.fromstring(xml_bytes)
-    params = root.find("parameters")
-    if params is None:
-        raise ValueError("patch has no <parameters>")
-
-    by_name: dict[str, ET.Element] = {}
-    for child in params:
-        tag = child.tag
-        if tag and not tag.startswith("{"):
-            by_name[tag] = child
-
+def _metadata_from_param_map(by_name: dict[str, str], path: Path, display_name: str | None) -> dict:
     osc_types: list[int] = []
-    unison_voices = 0
+    unison_per_osc: list[int] = []
+    osc_engines: list[int] = []
     for n in (1, 2, 3):
-        type_elem = by_name.get(f"a_osc{n}_type")
-        osc_type = _int_val(type_elem) or 0
-        if osc_type == 0:
+        mute = _parse_int(by_name.get(f"a_mute_o{n}"))
+        if mute == 1:
+            continue
+        osc_type = _parse_int(by_name.get(f"a_osc{n}_type"))
+        if osc_type is None:
             continue
         osc_types.append(osc_type)
-        p0 = by_name.get(f"a_osc{n}_param0")
-        p6 = by_name.get(f"a_osc{n}_param6")
-        if osc_type in _UNISON_PARAM0_TYPES:
-            unison_voices += _int_val(p0) or 0
-        else:
-            unison_voices += _int_val(p6) or 0
+        unison_per_osc.append(_unison_for_osc(osc_type, by_name, n))
+        if osc_type in _ENGINE_PARAM0_TYPES:
+            engine = _parse_int(by_name.get(f"a_osc{n}_param0"))
+            if engine is not None:
+                osc_engines.append(engine)
 
     fx_slots: list[int] = []
     for slot in (1, 2, 3, 4, 5):
-        elem = by_name.get(f"fx{slot}_type")
-        fx_type = _int_val(elem) or 0
+        fx_type = _parse_int(by_name.get(f"fx{slot}_type")) or 0
         if fx_type != 0:
             fx_slots.append(fx_type)
 
-    f1 = _int_val(by_name.get("a_filter1_type")) or 0
-    f2 = _int_val(by_name.get("a_filter2_type")) or 0
-    polylimit = _int_val(by_name.get("polylimit"))
+    f1 = _parse_int(by_name.get("a_filter1_type")) or 0
+    f2 = _parse_int(by_name.get("a_filter2_type")) or 0
+    polylimit = _parse_int(by_name.get("polylimit"))
 
-    name = path.stem
-    meta = root.find("meta")
-    if meta is not None and meta.get("name"):
-        name = meta.get("name") or name
+    name = display_name or path.stem
 
-    return {
+    out: dict = {
         "name": name,
         "path": str(path),
         "osc_count": len(osc_types),
         "osc_types": osc_types,
-        "unison_voices": unison_voices,
+        "unison_per_osc": unison_per_osc,
         "fx_count": len(fx_slots),
         "fx_types": fx_slots,
         "filter1_type": f1,
         "filter2_type": f2,
         "patch_polylimit": polylimit,
     }
+    if osc_engines:
+        out["osc_engines"] = osc_engines
+    return out
+
+
+def parse_fxp_metadata(path: Path) -> dict:
+    raw = path.read_bytes()
+    xml_bytes = _extract_xml_blob(raw)
+    display_name: str | None = None
+    by_name: dict[str, str] = {}
+
+    try:
+        root = ET.fromstring(xml_bytes)
+    except ET.ParseError:
+        by_name = _params_from_regex(xml_bytes)
+        if not by_name:
+            raise
+    else:
+        params = root.find("parameters")
+        if params is None:
+            raise ValueError("patch has no <parameters>")
+        for child in params:
+            tag = child.tag
+            if tag and not tag.startswith("{"):
+                val = child.get("value")
+                if val is not None:
+                    by_name[tag] = val
+        meta = root.find("meta")
+        if meta is not None and meta.get("name"):
+            display_name = meta.get("name")
+
+    if not by_name:
+        by_name = _params_from_regex(xml_bytes)
+    if not by_name:
+        raise ValueError("patch has no readable parameters")
+
+    return _metadata_from_param_map(by_name, path, display_name)
 
 
 def main() -> None:
