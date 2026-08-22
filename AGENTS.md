@@ -264,6 +264,16 @@ So two more checks, before an instrument informs any decision:
    reading, it is not an instrument.
 5. **Check its resolution against the signal.** A sampler below the Nyquist rate of the
    thing it measures yields an authoritative-looking trace with the answer removed.
+6. **Ask what the shortest useful version of the test is**, and justify anything longer in
+   writing. Size windows from the **expected event rate**, not convention — ~30 events takes
+   ~1 s at 2776/min but ~4 hours at 0.13/min. When the shortest useful version comes out
+   implausibly long, **the metric is wrong for the question**, not a reason to run a soak.
+
+**Before designing any measurement, invoke the `measurement-design` skill**
+(`.claude/skills/measurement-design/SKILL.md`). It carries the checklist, the audited
+instrument facts, and the rules for writing a measurement prompt for another agent — use it
+before opening a Pi window, before handing a prompt to an agent, and when interpreting
+results.
 
 **Full doctrine: [`docs/measurements/MEASUREMENT-DISCIPLINE.md`](docs/measurements/MEASUREMENT-DISCIPLINE.md)**
 — cheap-check-first ordering, per-cell pre-registration (prediction **and** falsifier written
