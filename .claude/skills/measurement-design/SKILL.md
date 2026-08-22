@@ -18,7 +18,7 @@ Instrument self-test history: `AGENTS.md` -> "Self-test the instrument before it
 confirming check is nearly always an order of magnitude cheaper than the test that eventually
 exposes the error. Six occurrences.
 
-**B. An instrument reads clean while blind.** **Nine occurrences — the most expensive pattern
+**B. An instrument reads clean while blind.** **Ten occurrences — the most expensive pattern
 in this project's history.** See Step 0; it outranks everything else here.
 
 ## Step 0 — the instrument and its failure must not share a channel
@@ -41,7 +41,7 @@ arithmetically impossible).
 
 **Do not treat these as nine bugs to avoid individually. It is one missing convention.**
 
-### The four mechanisms — required, not optional
+### The five mechanisms — required, not optional
 
 1. **No in-band failures.** No `|| x=0`, no `unknown`, no continue-on-error. Invalid or missing
    **halts the cell** naming the instrument. A default value is a lie with a number attached.
@@ -52,6 +52,13 @@ arithmetically impossible).
 4. **Physics assertions in the harness.** DSP% must not fall when the buffer halves. A cell with
    xruns cannot report low DSP. Parts sum to the whole. **The harness rejects impossible
    results**; a human noticing at review time is not a mechanism.
+5. **A terminal sentinel on every exit path** for anything long-running. Not only on success —
+   otherwise **"no result yet" and "died" share a channel**. A reader must tell running /
+   completed / aborted from the artifact alone. Track a stage marker, write
+   `SENTINEL <name>-aborted stage=... rc=...` from the EXIT trap, route stderr into the log,
+   and emit a sentinel on entering the loop. *(Occurrence ten: the Gate 1 soak log, 253 bytes,
+   header only, four hours in — setup died under `set -e` and every failure path wrote to
+   stderr or nowhere.)*
 
 ### The standing requirement
 
