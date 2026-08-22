@@ -61,8 +61,41 @@ Also log **once at startup**: enabled/disabled, every threshold and step constan
 and the resolved floor/ceiling. **The governor's configuration must be discoverable from the
 journal without reading source.**
 
-**Cost constraint:** this runs at `POLL_INTERVAL_S = 0.15`. **Log on state change only, never
-per tick.** No subprocess forks. No string formatting in the hot path when nothing changed.
+### Cost constraints — read before writing any logging code
+
+This daemon runs at `POLL_INTERVAL_S = 0.15` and its unit sets **`PYTHONUNBUFFERED=1`** with
+**`StandardOutput=journal`**. That means **every `print()` is an immediate `write()` syscall
+with no batching**, and journald then writes to the SD card — which lands on **IRQ 41, shared
+with the SDIO WiFi**.
+
+| logging rate | consequence |
+|---|---|
+| per-tick @ 0.15 s | ~400 lines/min, 400 unbuffered syscalls, continuous journald -> SD churn |
+| **state-change only** | a handful of lines/min — noise against the ~16 MiB/60 s of SD writes already present |
+
+**Requirements:**
+
+- **Log on state change only. Never per tick.** Guard the call so an unchanged state does no
+  work at all — no string formatting, no f-string evaluation, no allocation.
+- **No subprocess forks** (CPU doctrine).
+- If anything higher-rate is ever wanted for diagnostics, write it to **`/run/mpe` (tmpfs,
+  RAM-backed, zero SD writes)** via `RuntimeDirectory=mpe`, as `mpe-peak-meter.service`
+  already does — **not** to the journal. Journal is for state changes only.
+- Add a **spam guard**: if transitions exceed a sane rate (say 10/s), collapse to a single
+  summary line rather than emitting each. A miscalibrated threshold can make this oscillate,
+  and the logging must not amplify that.
+
+### Task A2 — pin the service (pre-existing defect, fix it here)
+
+**`surge-poly-governor.service` declares no `CPUAffinity`.** It floats across all four cores,
+**including CPU2 and CPU3 where jackd (FF 70) and Surge (FF 65) run.** It is `SCHED_OTHER` so
+it cannot preempt them, but it pollutes their cache and competes between callbacks.
+`mpe-jackd` and `surge-xt-cli` both declare `CPUAffinity=2 3`; this one declares nothing.
+
+**Add `CPUAffinity=1`** — off the audio cores, and off CPU0 which carries the unmovable xhci
+IRQ. Note in the deliverable that this is a **pre-existing gap unrelated to the logging work**,
+and check whether `midi-clock-in`, `surge-watchdog`, `sl-watchdog` and `touch-patch-browser`
+have the same omission — report, do not fix them in this pass.
 
 ## Task B — make thresholds configurable, keep defaults identical
 
