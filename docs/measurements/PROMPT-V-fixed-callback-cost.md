@@ -123,28 +123,38 @@ If V0-a confirms `ondemand`, test `performance` as a **single-variable** change 
 `256 x 3` — the cell with least headroom. Report DSP p99.9/max in **ms**, xruns/min, against
 the current baseline.
 
-**Mandatory safety check.** `LATENCY-SPIKE.md` records `get_throttled = 0x50000` on this
-board: **under-voltage and throttling have both occurred historically.** `performance` raises
-power draw. Record `vcgencmd measure_temp` **and** `vcgencmd get_throttled` before, during
-and after. **If `get_throttled` becomes non-zero, stop and revert** — the measurement is
-invalid and the board is the constraint.
+**Safety check — monitor, do not avoid.** Record `vcgencmd measure_temp` and
+`vcgencmd get_throttled` before, during and after. **If `get_throttled` becomes non-zero,
+stop and revert** — the measurement is invalid.
 
-### Overclocking — diagnostic only, and not in this pass
+**The historical `0x50000` in `LATENCY-SPIKE.md` is explained and is NOT a reason to avoid
+this test.** Cause (Mitch, 2026-08-21): powering external devices without a powered hub, and
+jumpers in the GPIO power chain. **Both resolved; recent readings are `0x0` at 55.5 C.**
+Treat under-voltage as a live check, not as evidence of a marginal board. Do not cite the
+historical value as a constraint.
 
-**Do not set `arm_freq`, `over_voltage` or `force_turbo`.**
+## V6 — `arm_boost=1` (~15 min): diagnostic only
 
-Rationale, so it is not re-litigated: overclocking would be informative (a 20% clock bump
-yielding ~20% less callback time confirms pure compute-bound and calibrates the prize), but
+**Use `arm_boost=1` in `config.txt` — Raspberry Pi's own validated 1.8 GHz configuration for
+the Pi 4, the same clock the Pi 400 ships at on identical silicon.**
 
-1. it **masks** the software problem — removing 1.1 ms of fixed cost recovers ~20% of the
-   256 deadline permanently, on every unit, without heat or power margin;
-2. this board has a **documented under-voltage history**, so it is the worst candidate for
-   raising draw;
-3. shipping an overclocked appliance is a product decision — enclosure thermals, PSU
-   headroom, silicon variation across customer units, long-term reliability — **and it is
-   Mitch's call, not a measurement outcome.**
+**Do not set `arm_freq`, `over_voltage` or `force_turbo` manually.** Manual overclocking
+beyond `arm_boost` is out of scope for this pass.
 
-Revisit only after V1/V2/V4 have said how much fixed cost is removable.
+Single-variable change at `256 x 3`, after V5. Report DSP p99.9/max in **ms**, xruns/min,
+temperature and `get_throttled` throughout, against the V5 baseline.
+
+**What this buys:** +20% clock should yield roughly -20% callback time. That both confirms
+pure compute-bound and **calibrates how much the fixed cost is worth chasing** — if 20% moves
+256 from 76% to ~63%, it tells us what removing 1.1 ms would be worth.
+
+**This measures the effect. It does not ship it.** For an instrument, a clock that
+occasionally throttles is **worse** than a lower clock that never does: throttling is a sudden
+step down mid-performance, and on a compute-bound callback that is precisely the tail
+excursion that produces `Surge XT was not finished`. **A 15-minute cell cannot clear that** —
+it needs a sustained soak in the real enclosure at the hottest ambient the instrument will
+see, ending at `throttled=0x0`. **Shipping an overclock is Mitch's decision with soak data,
+not a measurement outcome. Revert `arm_boost` after the cell unless told otherwise.**
 
 ## V4 — profile (~30 min) — ONLY if V1 confirms
 
@@ -184,6 +194,20 @@ off the audio thread?"**
 6. **Ask the shortest useful version of each cell** and justify anything longer.
 7. If a result refutes something above, **name the doc and say so plainly.**
 
+## Order
+
+| # | cell | Pi time | gate |
+|---|---|---|---|
+| V0 | pre-checks: governor, poly governor, softmode | ~5 min, read-only | everything |
+| **V1** | silence test 1024/512/256 | ~10 min | V2, V4 |
+| **V2** | client-count test | ~10 min | the single-client refactor |
+| **V3** | `1024 x 2` at n >= 3 | ~15 min | independent — run regardless |
+| **V5** | governor `performance` at `256 x 3` | ~15 min | V6 |
+| **V6** | `arm_boost=1` at `256 x 3`, diagnostic | ~15 min | revert after |
+| V4 | profile the callback | ~30 min | **only if V1 confirms** |
+
+**V1 + V2 = 20 minutes and decide whether a refactor is worth building.** Run them first.
+
 ## Deliverable
 
 `docs/measurements/v1-fixed-cost-2026-08-21.md` on a branch off `dev`:
@@ -193,7 +217,8 @@ off the audio thread?"**
 - V2 split: engine cost vs Surge cost, and the **explicit verdict on the single-client
   refactor**
 - V3 result vs the `1024 x 3` baseline, with n stated
-- V5 result if run, with thermals
+- V5 (governor) and V6 (`arm_boost`) results with temperature and `get_throttled` throughout
+- an explicit statement that `arm_boost` was reverted
 - a **"what this retires"** section
 - anything you could not measure, and why
 
