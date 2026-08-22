@@ -168,3 +168,67 @@ whether it opens; do not measure it yet. That is W2.
 **Do not propose next steps beyond stating what W1's outcome implies.** The plan is in
 `PLAN-2026-08-21-evening.md`; W1's job is to decide between its branches, not to add new
 ones.
+
+---
+
+## AMENDMENT — observer effect of the instruments themselves
+
+Do not assume the instruments are free. One is; one is not.
+
+### Instrument 2 (jackd magnitudes) — genuinely zero cost
+
+`journalctl` runs **after the window closes**, never during. And jackd has been writing those
+`xrun of at least N msecs` lines on every run already — we simply never read them. **No new
+load during the window. Do not run journalctl while a window is open.**
+
+### Instrument 3 (fill polling) — NOT free; treat it as a perturbation
+
+Reading `/proc/asound/card<N>/pcm0p/sub0/status` **takes the PCM substream lock and invokes
+the driver's `pointer()` callback** — the same lock the URB completion path uses. The poller
+therefore contends with the interrupt handler it is meant to observe. At 10 Hz against
+~2000 URB completions/sec this is small, **but it is not zero and must be quantified, not
+assumed.**
+
+**Constraints on the poller:**
+
+| requirement | why |
+|---|---|
+| **one persistent process**, opening/reading/closing the proc file in a loop | no per-sample forks (CPU doctrine) |
+| **10 Hz**, not 20 | halves lock contention; sufficient for the slow question (below) |
+| **pinned to CPU1** (`taskset -c 1`) | off the audio cores 2-3; CPU0 carries the unmovable xhci IRQ |
+| **`SCHED_OTHER`, `nice 19`** | must never preempt anything in the audio path |
+| no formatting, arithmetic or conversion inside the loop | log raw `appl_ptr`/`hw_ptr`; convert in post-processing |
+
+### What 10 Hz can and cannot answer — state this in the deliverable
+
+The period rate is **47 Hz at 1024** and **188 Hz at 256**. **10 Hz cannot see per-period
+behaviour.** The sawtooth is invisible at this sampling rate, and a single-cycle cliff would
+be caught only by luck.
+
+| question | instrument | resolved? |
+|---|---|---|
+| is the fill level **drifting down over seconds/minutes**? (P2 / P2' vs P3) | #3 at 10 Hz | **yes** |
+| did a **genuine ALSA underrun** occur, and how large? | **#2** (free, post-hoc) | **yes** |
+| what does the fill level do **within a single period**? | neither | **no — out of scope for W1** |
+
+**Do not raise the poll rate to chase the per-period question.** Resolving it at 256 needs
+~400 Hz, and that rate of lock acquisition would perturb the measurement more than it
+informs. Instrument 2 answers the question that actually matters without touching the
+running system.
+
+### Required control cell — quantify the perturbation
+
+**Run `1024 x 3` cond A twice: once with the poller running, once without.** Same load, same
+duration, everything else identical.
+
+| result | reading |
+|---|---|
+| xrun rates statistically indistinguishable | poller is transparent; W1's other cells stand as measured |
+| **poller-on materially worse** | **the poller is perturbing the measurement.** Report the magnitude, treat every polled cell as biased, and fall back to instrument 2 alone |
+
+Run this control **first**, before the ladder. If the poller is not transparent, the rest of
+W1 must be interpreted through that bias — and it is better to know before spending the
+windows than after.
+
+**Report the control result in the deliverable regardless of outcome.** "We checked and it
+was clean" is a finding worth recording.
