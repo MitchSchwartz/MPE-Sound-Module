@@ -223,6 +223,16 @@ the bench's input drives pads (see `docs/measurements/archive/looper-midi-osc-la
 
 ### Self-test the instrument before it costs him anything
 
+> **Doctrine, 2026-08-22 — nine occurrences, one root cause.** Every instrument here returns
+> its value and its failure *through the same channel*, so a broken instrument is
+> indistinguishable from a working one at the reading site and blindness arrives as a
+> **result**. Required in every harness: **no in-band failures** (no `|| x=0`, no `unknown`,
+> no continue-on-error — halt the cell); **a positive control** (force a known answer, assert
+> the reading matches); **a negative control** (break it deliberately, assert the harness
+> halts); **physics assertions** rejecting impossible results in-harness. Full rule:
+> `docs/measurements/MEASUREMENT-DISCIPLINE.md` **Rule -1**.
+
+
 On 2026-08-19 Mitch tapped pads **382 times across two sessions** and both produced zero
 samples, because the harness was hooking a code path pads never touch. Four separate
 measurements in that work order exited cleanly having recorded nothing:
