@@ -113,7 +113,8 @@ _conformance_dsp_median_under_load() {
     _as_user stdbuf -oL jack_cpu_load >"$dsp_raw" 2>/dev/null &
     dsp_pid=$!
     sleep "$secs"
-    kill "$dsp_pid" 2>/dev/null || true
+    # jack_cpu_load ignores SIGTERM (see measure-latency-run _kill_jcl).
+    kill -9 "$dsp_pid" 2>/dev/null || true
     wait "$dsp_pid" 2>/dev/null || true
     kill "$load_pid" 2>/dev/null || true
     wait "$load_pid" 2>/dev/null || true
