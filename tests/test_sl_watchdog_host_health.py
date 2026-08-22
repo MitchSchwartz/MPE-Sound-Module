@@ -11,7 +11,9 @@ from __future__ import annotations
 import importlib.util
 import json
 import tempfile
+import time
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 from unittest import mock
 
@@ -23,43 +25,73 @@ _spec.loader.exec_module(sl)
 
 
 class XrunCounterTests(unittest.TestCase):
+    """Reads /run/mpe/meter.state, the only place the real count lives.
+
+    Was: tail /tmp/sooperlooper.log for "got xrun". That file does not exist on
+    the appliance, so the watchdog's central metric read 0 every cycle while
+    measured runs produced 3-7 xruns/min — clean and faulting looked identical.
+    """
+
     def setUp(self) -> None:
         self.tmp = Path(self.enterContext(tempfile.TemporaryDirectory()))
-        self.log = self.tmp / "engine.log"
+        self.state = self.tmp / "meter.state"
 
-    def test_counts_only_new_bytes(self) -> None:
-        """A growing log must not be re-counted from the top every 10s."""
-        self.log.write_text("got xrun\ngot xrun\n")
-        c = sl.XrunCounter(self.log)
-        self.assertEqual((2, None), c.poll(100.0))
-        self.assertEqual((0, None), c.poll(110.0), "re-counted unchanged file")
-        with self.log.open("a") as fh:
-            fh.write("got xrun\n")
-        self.assertEqual((1, None), c.poll(120.0))
+    def _write(self, xruns: int, *, age_s: float = 0.0) -> None:
+        self.state.write_text(
+            f"xruns={xruns}\nupdated={time.time() - age_s:.0f}\n", encoding="utf-8"
+        )
 
-    def test_truncation_resets_offset(self) -> None:
-        """A rotated or truncated log must not report a negative/garbage delta."""
-        self.log.write_text("got xrun\n" * 5)
-        c = sl.XrunCounter(self.log)
+    def test_reports_new_xruns_per_cycle(self) -> None:
+        self._write(7)
+        c = sl.XrunCounter(self.state)
+        self.assertEqual((0, None), c.poll(100.0), "first cycle sets the baseline")
+        self._write(9)
+        self.assertEqual((2, None), c.poll(110.0))
+        self.assertEqual((0, None), c.poll(120.0), "unchanged meter is not re-counted")
+
+    def test_meter_restart_does_not_report_a_negative_delta(self) -> None:
+        self._write(40)
+        c = sl.XrunCounter(self.state)
         c.poll(100.0)
-        self.log.write_text("got xrun\n")  # truncate + one fresh event
-        self.assertEqual((1, None), c.poll(110.0))
+        self._write(2)  # meter restarted, counter reset
+        self.assertEqual((0, None), c.poll(110.0))
+        self._write(5)
+        self.assertEqual((3, None), c.poll(120.0))
 
-    def test_missing_log_is_reported_not_crashed(self) -> None:
-        c = sl.XrunCounter(self.tmp / "absent.log")
+    def test_missing_meter_is_reported_not_crashed(self) -> None:
+        c = sl.XrunCounter(self.tmp / "absent.state")
         count, err = c.poll(100.0)
-        self.assertEqual(0, count)
+        self.assertIsNone(count)
+        self.assertIsNotNone(err, "a missing meter must not read as clean")
+
+    def test_stale_meter_is_an_error_not_a_clean_reading(self) -> None:
+        """A peak meter that has stopped writing must not look like silence."""
+        self._write(3, age_s=120.0)
+        c = sl.XrunCounter(self.state)
+        count, err = c.poll(100.0)
+        self.assertIsNone(count)
         self.assertIsNotNone(err)
+        self.assertIn("stale", err)
 
     def test_rate_needs_a_span_then_reports_per_minute(self) -> None:
-        self.log.write_text("")
-        c = sl.XrunCounter(self.log)
+        self._write(0)
+        c = sl.XrunCounter(self.state)
         c.poll(0.0)
         self.assertIsNone(c.rate_per_min(0.0), "no rate from a single sample")
-        with self.log.open("a") as fh:
-            fh.write("got xrun\n" * 10)
+        self._write(10)
         c.poll(30.0)
         self.assertEqual(20.0, c.rate_per_min(30.0))  # 10 in 30s -> 20/min
+
+    def test_poll_does_not_fork(self) -> None:
+        self._write(1)
+        c = sl.XrunCounter(self.state)
+        with patch.object(sl.subprocess, "run") as run, patch.object(
+            sl.subprocess, "Popen"
+        ) as popen:
+            for _ in range(20):
+                c.poll(100.0)
+        self.assertEqual(run.call_count, 0)
+        self.assertEqual(popen.call_count, 0)
 
 
 class GovernorTests(unittest.TestCase):
@@ -67,8 +99,11 @@ class GovernorTests(unittest.TestCase):
         self.tmp = Path(self.enterContext(tempfile.TemporaryDirectory()))
         self.alarm = self.tmp / "alarm.json"
         self.gov = self.tmp / "scaling_governor"
+        self.meter = self.tmp / "meter.state"
+        self.meter.write_text(f"xruns=0\nupdated={int(time.time())}\n", encoding="utf-8")
         for name, val in (("ALARM_FILE", self.alarm), ("GOVERNOR_PATH", self.gov),
-                          ("ENGINE_LOG", self.tmp / "engine.log")):
+                          ("ENGINE_LOG", self.tmp / "engine.log"),
+                          ("METER_STATE_FILE", self.meter)):
             p = mock.patch.object(sl, name, val)
             p.start()
             self.addCleanup(p.stop)
@@ -78,8 +113,9 @@ class GovernorTests(unittest.TestCase):
         self.gov.write_text(actual + "\n")
         graph = f"{sl.JACK_CLIENT}:common_out_1\n   system:playback_1\n" \
                 f"system:playback_1\n   {sl.JACK_CLIENT}:common_out_1\n"
+        snap = sl.GraphSnapshot(True, True, True, "meter")
         with mock.patch.object(sl, "GOVERNOR_TARGET", target), \
-             mock.patch.object(sl, "jack_graph", return_value=graph), \
+             mock.patch.object(sl, "read_graph_snapshot", return_value=snap), \
              mock.patch.object(sl, "engine_running", return_value=True), \
              mock.patch.object(sl, "repair_governor", return_value=repair) as rep, \
              mock.patch.object(sl, "Osc") as osc:
@@ -88,7 +124,7 @@ class GovernorTests(unittest.TestCase):
             osc.return_value.start.return_value = engine
             with mock.patch.object(sl, "check_command_path",
                                    return_value=(sl.ALIVE, "fine")):
-                sl.main(["--once", *extra_argv])
+                sl.main(["--once", "--skip-source-check", *extra_argv])
         return json.loads(self.alarm.read_text()), rep
 
     def test_drift_is_repaired(self) -> None:
@@ -129,9 +165,10 @@ class GovernorTests(unittest.TestCase):
             if cycles["n"] >= 4:
                 raise KeyboardInterrupt
 
+        snap = sl.GraphSnapshot(True, True, True, "meter")
         with mock.patch.object(sl, "GOVERNOR_TARGET", "performance"), \
              mock.patch.object(sl, "GOVERNOR_FIGHT_LIMIT", 2), \
-             mock.patch.object(sl, "jack_graph", return_value=graph), \
+             mock.patch.object(sl, "read_graph_snapshot", return_value=snap), \
              mock.patch.object(sl, "engine_running", return_value=True), \
              mock.patch.object(sl, "repair_governor", return_value=(True, "ok")), \
              mock.patch.object(sl, "check_command_path",
@@ -140,7 +177,7 @@ class GovernorTests(unittest.TestCase):
              mock.patch.object(sl, "Osc") as osc:
             osc.return_value.start.return_value = mock.MagicMock()
             with self.assertRaises(KeyboardInterrupt):
-                sl.main([])
+                sl.main(["--skip-source-check"])
 
         alarm = json.loads(self.alarm.read_text())
         self.assertGreater(alarm["governor_repairs_in_window"], 2)

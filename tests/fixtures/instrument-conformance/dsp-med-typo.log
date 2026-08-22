@@ -1,0 +1,2 @@
+RESULT tag=bad-b512-p3-l0-run1 xruns=23 meter_live=1 meter_max_age_s=1 dsp_med=10.000000 dsp_p99=11.000000 dsp_max=12.000000
+RESULT tag=bad-b512-p3-l0-run1 samples=60
