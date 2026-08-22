@@ -30,10 +30,12 @@ echo "=== Plan V9-d $(date -Is) artifacts=$ARTIFACT_DIR ==="
 
 _run_pair() {
     local name="$1" voices="$2"
+    local slug="${name// /_}"
     echo ""
     echo "=== V9-d patch=${name} voices=${voices} ==="
     "$SCRIPT_DIR/measure-v8b-playable.sh" \
-        --patch-name "$name" --voices "$voices" --artifact-dir "$ARTIFACT_DIR"
+        --patch-name "$name" --voices "$voices" --artifact-dir "$ARTIFACT_DIR" \
+        --log-slug "$slug"
 }
 
 # V8-a bounded @ 1024, confirmed stable class (clean=3)
