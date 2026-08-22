@@ -172,3 +172,63 @@ re-baseline and must not be described as one.
 tables, the branch you landed in at each interpretation point, and a short **"what is now
 ruled out"** section. If a step refutes something in the context docs above, say so
 directly and name the doc.
+
+---
+
+## AMENDMENT (post Step 1) — URB-rate hypothesis inverted; Step 2 confound
+
+**Step 1 result.** Scarlett cond A, IRQ 30 (`xhci_hcd`, BRCM-PCI-MSI, CPU0 only):
+
+| cell | IRQ30/s | xruns/min |
+|---|---|---|
+| 1024 x 3 | **1999** | **0** |
+| 256 x 3 | ~1000 (approx, per agent) | fails badly |
+| 1c Sound Blaster | skipped — unplugged | — |
+
+**The hypothesis is not merely refuted, it is inverted:** the config with double the
+interrupt rate has zero xruns, and the failing config has half the rate. Skipping 1c does
+not weaken this — 1a vs 1b inverts it on its own.
+
+**It is stronger than the counts suggest.** The byte rate is *identical* at both buffer
+sizes — same sample rate, same channels, same bytes/second. Only the **chunking** differs.
+The failing config therefore does the same total USB work in fewer, larger URBs.
+**Interrupt volume and throughput are off the table as causes.**
+
+**Consequences:**
+- `snd_usb_audio.lowlatency=N` is **struck from Step 3**, per Step 1's stated kill condition.
+- Every surviving candidate is a **latency** mechanism (how long one wakeup takes), not a
+  **volume** one (how many wakeups there are). Steps 0 and 2 measure exactly that.
+
+### Confound on the Step 2 run — read before interpreting
+
+`kernel.sched_rt_runtime_us` defaults to **950000** against a period of 1000000: RT tasks
+are throttled at 95% of every period. Step 2 adds `cyclictest` at **FIFO 70** on top of
+jackd (FIFO 70) and surge (FIFO 65).
+
+**If the throttle is at its default, the combined RT utilization can trip it, and cyclictest
+will be measuring RT throttling rather than scheduler latency** — producing a large max
+unrelated to the 600 us.
+
+Do **not** stop a run in flight for this. Instead:
+
+1. Let the run finish.
+2. Read `sysctl -n kernel.sched_rt_runtime_us kernel.sched_rt_period_us`.
+3. **If it is 950000 / 1000000, the Step 2 max is uninterpretable as scheduler latency.**
+   Say so, then re-run 2a/2b with `kernel.sched_rt_runtime_us = -1` (throttling disabled)
+   and compare. That is a one-variable change and needs no reboot (`sysctl -w`).
+4. If throttling is already disabled (-1), the Step 2 numbers stand as measured.
+
+Report the throttle values in the deliverable **regardless of outcome** — they are not
+currently tracked anywhere in the repo.
+
+### Step 0 is now the priority
+
+Run `scripts/audit-storage-rt.sh` (read-only, in the repo, changes nothing). It carries
+three live candidates, all latency mechanisms consistent with the Step 1 inversion:
+
+1. **Swap-backed major faults** — `pswpin`/`pswpout`, audio-process `maj_flt` during play
+2. **RT throttling** — `kernel.sched_rt_runtime_us` (also gates Step 2 above)
+3. **journald SD writes** — persistent journal on the shared `mmc`/SDIO-WiFi IRQ 41 line
+
+Run it **once idle** and **once with a stream up**, the latter in its own window, not inside
+a counted one. Use `--delta 60` for the streaming pass.
