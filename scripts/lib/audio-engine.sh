@@ -67,14 +67,18 @@ mpe_jack_period() {
 
 # Read back the buffer jackd is actually running (not the env echo).
 mpe_jack_applied_period() {
-    local cur
+    local cur run_user="${MPE_PI_USER:-mitch}"
     if ! command -v jack_bufsize >/dev/null 2>&1; then
         return 1
     fi
     if ! pgrep -x jackd >/dev/null 2>&1; then
         return 1
     fi
-    cur="$(jack_bufsize 2>/dev/null | tail -1 | tr -d '[:space:]')"
+    if [ "$(id -u)" -eq 0 ] && id "$run_user" >/dev/null 2>&1; then
+        cur="$(sudo -u "$run_user" jack_bufsize 2>/dev/null | tail -1 | tr -d '[:space:]')"
+    else
+        cur="$(jack_bufsize 2>/dev/null | tail -1 | tr -d '[:space:]')"
+    fi
     if ! [[ "$cur" =~ ^[0-9]+$ ]]; then
         return 1
     fi
