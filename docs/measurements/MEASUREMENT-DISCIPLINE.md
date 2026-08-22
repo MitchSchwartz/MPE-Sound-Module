@@ -114,6 +114,69 @@ the counter audit (offline), the service survey (3 min), the per-run stream re-a
 If an offline check exists and has not been done, **do it first.** Not as a courtesy — the
 expensive test keeps discovering what the cheap check would have.
 
+## Rule 0.5 — pilot the test before you run it at length
+
+**Conformance (Rule -1) asks "is the instrument trustworthy?" This asks a different question:
+"will this specific test, as designed, produce output I can interpret?"** A conformant
+instrument wired into a badly-shaped run still yields nothing.
+
+**Never run a measurement at full length before running it once at minimum length and reading
+the output.**
+
+### The rule
+
+Before any run longer than ~5 minutes:
+
+1. Run **one cell, shortest possible window, n=1.**
+2. **Read the actual output** — every field the full run will report.
+3. Confirm each field is **present, numeric, and physically plausible**.
+4. Only then scale to full length.
+
+Step 3 is the whole rule. **Exit code 0 is not the check.** Every silent-instrument failure in
+this project exited 0.
+
+### What it costs and what it buys
+
+V11 ran 24.5 minutes and produced a DSP column that was unusable. **A single 2-minute cell,
+read before scaling, would have shown `dsp_med=unknown` immediately** — the parser bug was
+visible in the first cell's output. Cost: 2 minutes. Saved: 24.5 minutes and a
+re-run.
+
+The same is true of most of the nine: the failure was visible in the **first** cell of every
+one of them. Nobody looked before the run had finished.
+
+### Pilot every *new* thing, not every run
+
+A pilot is required when anything is new or changed:
+
+- a new harness or plan script
+- a new metric, field, or parser
+- a changed instrument, or a changed platform (**mandatory on the Pi 5**)
+- a new patch, buffer config, or voice count never measured before
+- **any run following a fix** — the fix is the new thing
+
+A re-run of an unchanged cell on an unchanged platform does not need one.
+
+### What the pilot must show
+
+| check | fails if |
+|---|---|
+| every reported field present | any `unknown`, `?`, `n/a`, or missing key |
+| every field numeric and in range | a percentage outside 0-100, a negative count |
+| physically plausible | idle DSP under load; xruns with low DSP; a value identical across unrelated cells |
+| the window actually opened | no `PROBE_ACTIVE` / alignment signal |
+| n as expected | sample count far below the window x rate |
+
+**Any failure stops the scale-up.** Fix, re-pilot, then run.
+
+### Applies to harness changes too
+
+A harness edit is not verified by the harness running. **Pilot it against a cell whose answer
+is already known** and confirm it reproduces it. A "fix" that changes a known-good number is a
+regression, and that is only visible if the pilot targets known ground.
+
+---
+
 ## Rule 1 — pre-register every cell
 
 Fill this in **before** running. It is short on purpose; a checklist nobody completes is
@@ -129,6 +192,7 @@ Premises:          <what must be true for the result to mean anything>
 Instruments:       <what each one actually counts, and when that was last audited>
 Conformance:       <positive + negative control run THIS session? PASS/FAIL per metric — required>
 Impossible if:     <what reading would be arithmetically impossible; assert it in the harness>
+Pilot:             <one cell at minimum length run and output READ? PASS/FAIL — required if anything is new>
 Prediction:        <expected value, written down before the run>
 Falsifier:         <what result would make me abandon the hypothesis>
 Cheaper check:     <what free/offline check was considered and why it is insufficient>
