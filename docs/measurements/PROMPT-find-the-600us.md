@@ -205,21 +205,32 @@ The failing config therefore does the same total USB work in fewer, larger URBs.
 are throttled at 95% of every period. Step 2 adds `cyclictest` at **FIFO 70** on top of
 jackd (FIFO 70) and surge (FIFO 65).
 
-**If the throttle is at its default, the combined RT utilization can trip it, and cyclictest
-will be measuring RT throttling rather than scheduler latency** — producing a large max
-unrelated to the 600 us.
+**Calibration (corrected).** cyclictest *sleeps* between samples — it arms a timer, blocks,
+wakes, measures the wakeup error. Its own CPU consumption is a few percent, not saturating.
+Against a measured DSP load of 35-40%, total RT utilization is nowhere near 95%, so **the
+throttle almost certainly will not fire.** The earlier framing of this as a likely confound
+was too strong.
 
-Do **not** stop a run in flight for this. Instead:
+**More importantly: throttling was never a candidate for the 600 us.** It operates at tens
+of milliseconds (up to the 50 ms reserved slice). It is a candidate for an occasional
+enormous outlier, not for a steady sub-millisecond gap.
 
-1. Let the run finish.
-2. Read `sysctl -n kernel.sched_rt_runtime_us kernel.sched_rt_period_us`.
-3. **If it is 950000 / 1000000, the Step 2 max is uninterpretable as scheduler latency.**
-   Say so, then re-run 2a/2b with `kernel.sched_rt_runtime_us = -1` (throttling disabled)
-   and compare. That is a one-variable change and needs no reboot (`sysctl -w`).
-4. If throttling is already disabled (-1), the Step 2 numbers stand as measured.
+**How to tell from the output:**
 
-Report the throttle values in the deliverable **regardless of outcome** — they are not
-currently tracked anywhere in the repo.
+| cyclictest max | reading |
+|---|---|
+| tens of **milliseconds** | consistent with RT throttling — investigate |
+| ~1 ms or below | throttling is not involved; the numbers stand as scheduler latency |
+
+**Therefore:**
+
+1. **Read** `sysctl -n kernel.sched_rt_runtime_us kernel.sched_rt_period_us` and report both
+   values. They are free to obtain and are **not tracked anywhere in the repo** — that is
+   their own defect regardless of this test.
+2. **Do not re-run Step 2 on account of throttling** unless the max actually lands in the
+   tens-of-ms range. If it does, re-run 2a/2b with `sysctl -w kernel.sched_rt_runtime_us=-1`
+   (one variable, no reboot) and compare.
+3. Do not stop a run in flight for any of this.
 
 ### Step 0 is now the priority
 
