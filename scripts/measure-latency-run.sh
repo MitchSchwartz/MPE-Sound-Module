@@ -472,9 +472,24 @@ _run_window() {
     : >"$dsp_raw"
     rm -f "$xrun_events"
 
+    local _window_align=0
+
     if ! _start_xrun_probe "$xrun_events"; then
         return 1
     fi
+
+    local w=0
+    while [ "$w" -lt 50 ]; do
+        grep -q '^PROBE_ACTIVE' "$xrun_events" 2>/dev/null && break
+        sleep 0.1
+        w=$((w + 1))
+    done
+    if ! grep -q '^PROBE_ACTIVE' "$xrun_events" 2>/dev/null; then
+        echo "ERROR: probe never signalled PROBE_ACTIVE — window VOID" >&2
+        _stop_xrun_probe "$xrun_events"
+        return 1
+    fi
+    _window_align=1
 
     if [ -n "$fill_log" ] && [ -n "$status_file" ]; then
         if ! _start_fill_poller "$fill_log" "$status_file" "$SECONDS_PER_RUN"; then
@@ -483,18 +498,17 @@ _run_window() {
         fi
     fi
 
-    _as_user stdbuf -oL jack_cpu_load >"$dsp_raw" 2>/dev/null &
-    local jcl=$!
-    _kill_jcl() { kill -9 "$jcl" 2>/dev/null || true; wait "$jcl" 2>/dev/null || true; }
-
-    if ! prev_xr="$(_meter_xruns)"; then
-        _kill_jcl
+    if ! start_xr="$(_meter_xruns)"; then
         _stop_fill_poller
         _stop_xrun_probe "$xrun_events"
         return 1
     fi
-    start_xr="$prev_xr"
+    prev_xr="$start_xr"
     window_since="$(date -Is)"
+
+    _as_user stdbuf -oL jack_cpu_load >"$dsp_raw" 2>/dev/null &
+    local jcl=$!
+    _kill_jcl() { kill -9 "$jcl" 2>/dev/null || true; wait "$jcl" 2>/dev/null || true; }
 
     printf '  %4s %8s %8s %7s\n' "t" "dsp%" "xruns" "delta" >>"$run_file"
 
@@ -543,7 +557,7 @@ _run_window() {
                 v=$2; if (v != "?") { a[++n]=v+0 }
             }
             END {
-                if (n==0) { print "0 0 0"; exit }
+                if (n==0) { exit 1 }
                 for (i=1;i<=n;i++) {
                     for (j=i+1;j<=n;j++) if (a[i]>a[j]) { t=a[i]; a[i]=a[j]; a[j]=t }
                 }
@@ -554,7 +568,10 @@ _run_window() {
                 printf "%.6f %.6f %.6f\n", med, p99, max
             }
         ' "$run_file"
-    )
+    ) || {
+        echo "ERROR: no DSP samples in run file (dead jack_cpu_load path)" >&2
+        return 1
+    }
 
     local temp throttle
     read -r jitter_n jitter_med jitter_p99 jitter_p999 jitter_max < <(_delay_stats "$xrun_events")
@@ -578,8 +595,21 @@ _run_window() {
     )
     probe_xrun_n="$(grep '^XRUN_COUNT ' "$xrun_events" 2>/dev/null | awk '{print $2}' || echo 0)"
 
+    # shellcheck source=lib/measurement-result.sh
+    source "$SCRIPT_DIR/lib/measurement-result.sh"
+    MPE_R_xruns=$total_xr
+    MPE_R_dsp_median=$dsp_median
+    MPE_R_samples=$samples
+    MPE_R_jitter_n=$jitter_n
+    MPE_R_tag=$tag
+    MPE_EXPECT_SAMPLES=$SECONDS_PER_RUN
+    if ! mpe_result_physics_assert "$BUFFER"; then
+        echo "ERROR: physics assertion failed for ${tag}" >&2
+        return 1
+    fi
+
     {
-        echo "RESULT tag=${tag} xruns=${total_xr} meter_live=1 meter_max_age_s=${_meter_max_age_s} dsp_median=${dsp_median} dsp_p99=${dsp_p99} dsp_max=${dsp_max}"
+        echo "RESULT tag=${tag} xruns=${total_xr} meter_live=1 meter_max_age_s=${_meter_max_age_s} dsp_median=${dsp_median} dsp_p99=${dsp_p99} dsp_max=${dsp_max} window_align=${_window_align}"
         echo "RESULT tag=${tag} jitter_n=${jitter_n} jitter_median_usec=${jitter_med} jitter_p99_usec=${jitter_p99} jitter_p99_9_usec=${jitter_p999} jitter_max_usec=${jitter_max}"
         echo "RESULT tag=${tag} frames_late_p99_usec=${late_p99} frames_late_max_usec=${late_max}"
         echo "RESULT tag=${tag} delay_events=${delay_n} delay_nonzero=${delay_nz} (legacy, ignore)"
