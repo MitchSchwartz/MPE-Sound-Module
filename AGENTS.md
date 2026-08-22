@@ -223,9 +223,20 @@ the bench's input drives pads (see `docs/measurements/looper-midi-osc-latency-20
 
 ### Self-test the instrument before it costs him anything
 
+**Doctrine (Rule −1):** Every instrument returns its value and its failure through the
+**same channel**. A broken instrument is indistinguishable from a working one at the reading
+site — not nine bugs, one missing convention. Before any measurement involving Mitch or a
+shipping claim, run **`./scripts/instrument-conformance.sh`** (≤ 15 min, offline). Four
+mechanisms: no in-band failures (`|| echo 0`, `unknown`, continue-on-error → halt);
+positive control (reading is *right*, not merely present); negative control (broken
+instrument must halt the harness); physics assertions (impossible results rejected
+in-harness). **Do not weaken an assertion to make a test pass.** Full spec:
+[`docs/measurements/MEASUREMENT-DISCIPLINE.md`](docs/measurements/MEASUREMENT-DISCIPLINE.md).
+
 On 2026-08-19 Mitch tapped pads **382 times across two sessions** and both produced zero
 samples, because the harness was hooking a code path pads never touch. Four separate
-measurements in that work order exited cleanly having recorded nothing:
+measurements in that work order exited cleanly having recorded nothing (nine instances
+project-wide — see MEASUREMENT-DISCIPLINE Rule −1):
 
 | instrument | failure | looked like |
 |---|---|---|

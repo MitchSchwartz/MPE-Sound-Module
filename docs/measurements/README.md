@@ -8,6 +8,9 @@ reproducible, and an unreproducible number becomes a claim that outlives what
 it described. Record the conditions even when they seem obvious — especially
 governor, buffer/periods, power source, and the exact software versions.
 
+**Rule −1:** run `./scripts/instrument-conformance.sh` before any Pi measurement or
+shipping claim. See [`MEASUREMENT-DISCIPLINE.md`](MEASUREMENT-DISCIPLINE.md).
+
 ## Standard conditions
 
 Unless a run says otherwise, use the fixed conditions Phase 1 was measured
