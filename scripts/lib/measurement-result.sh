@@ -83,12 +83,19 @@ _mpe_result_resolve_buffer() {
     mpe_result_buffer_from_tag "${MPE_R_tag-}"
 }
 
-# Median of jack_cpu_load samples in a capture file (same awk as measure-latency-run.sh).
+# Median of jack_cpu_load samples in a capture file.
+# Accepts formatted run rows (measure-latency-run) or raw "jack DSP load N.NNNNNN" lines.
 mpe_result_jack_cpu_load_median() {
     local run_file="$1"
     awk '
+        function take(v) {
+            if (v != "?" && v+0 > 0 && v+0 <= 200) { a[++n]=v+0 }
+        }
         /^[[:space:]]+[0-9]+/ {
-            v=$2; if (v != "?") { a[++n]=v+0 }
+            take($2)
+        }
+        /^jack DSP load / {
+            take($NF)
         }
         END {
             if (n==0) { exit 1 }

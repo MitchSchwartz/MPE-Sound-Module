@@ -153,4 +153,15 @@ if mpe_result_physics_assert 512 2>/dev/null; then
 fi
 ok "jitter_n numeric guard without EXPECT (S8)"
 
+# --- jack_cpu_load raw capture (Pi stdbuf path) ---
+tmp="$(mktemp)"
+printf '%s\n' \
+    'jack DSP load 9.729879' \
+    'jack DSP load 9.711891' \
+    'jack DSP load 9.640977' >"$tmp"
+med="$(mpe_result_jack_cpu_load_median "$tmp")"
+rm -f "$tmp"
+[ "$med" = "9.711891" ] || fail "raw jack_cpu_load median got ${med}"
+ok "jack_cpu_load median parses raw DSP load lines"
+
 echo "test_instrument_conformance_offline.sh: all checks passed"
