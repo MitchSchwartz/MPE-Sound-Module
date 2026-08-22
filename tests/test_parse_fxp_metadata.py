@@ -90,6 +90,14 @@ class ParseFxpMetadataTests(unittest.TestCase):
         self.assertEqual(meta["osc_types"], [8, 8])
         self.assertEqual(meta["unison_per_osc"], [4, 5])
 
+    def test_no_fabricated_unison_voices_scalar(self):
+        path = QS_ROOT / "Crystals.fxp"
+        if not path.is_file():
+            self.skipTest("MPE-Library Quick Select snapshot not on disk")
+        meta = self.parser.parse_fxp_metadata(path)
+        self.assertNotIn("unison_voices", meta)
+        self.assertIn("unison_per_osc", meta)
+
 
 if __name__ == "__main__":
     unittest.main()
