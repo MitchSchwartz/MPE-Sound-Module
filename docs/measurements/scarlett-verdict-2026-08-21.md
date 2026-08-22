@@ -1,75 +1,69 @@
 # The Scarlett is not the answer — the bottleneck is the Pi (2026-08-21)
 
+*Amended 2026-08-21 (late): Step 1 alignment closure **withdrawn** — see §Amendment below.*
+
 Reading of `scarlett-step1-256x3-condA-2026-08-21.md`.
 
 ## Two results, one good and one bad
 
-| 256x3, condition A | Scarlett 4i4 (async, 480M) | Sound Blaster (adaptive, 12M) |
+| 256×3, condition A | Scarlett 4i4 (async, 480M) | Sound Blaster (adaptive, 12M) |
 |---|---|---|
-| shape | **unimodal**, 40.0-85.5/min | **bimodal**, ~2-5 vs ~18-22/min |
+| shape (Step 1, n=10) | **unimodal**, 40.0–85.5/min | **bimodal**, ~2–5 vs ~18–22/min |
 | mean | **69.7/min** | 7.1/min |
 | worst stream | 85.5/min | ~22/min |
 
-**Good: the mechanism question is closed.** Bimodality disappeared on a device with an
-asynchronous endpoint and a feedback channel. The stream-start lottery was the Sound
-Blaster's **adaptive clock lock**, not frame phase. The alignment hypothesis is not
-supported, and the aligned-period drop-in table (240/480/1008) can be dropped.
+**Good (partially withdrawn — see Amendment):** Step 1 read unimodal Scarlett vs bimodal
+Sound Blaster as closing the adaptive-clock-lock vs frame-phase question.
 
-**Bad: the Scarlett is roughly 10x worse at 256.** Better interface, worse result. It
+**Bad: the Scarlett is roughly 10× worse at 256.** Better interface, worse result. It
 matches the ear test — 256 crackles badly — and it means the transport swap did not move
 the cliff.
 
-## What this rules out
+## Amendment — Step 1 alignment closure withdrawn (post Step 4)
 
-The problem is **not** the dongle's clock mode, not its full-speed transport, and not
-frame alignment. Those were the three leading candidates and all three are now excluded
-by a device that fixes all of them and performs worse.
+Step 4 on the **same async Scarlett** (post-bundle, n=3 streams): stream 01 **105/min**,
+streams 02–03 **26–34/min**. The unimodal shape Step 1 relied on is **not stable** — but
+**n=3 cannot establish bimodal vs wide unimodal either**, and the 55.0/min mean is not a
+reliable estimate.
 
-**The bottleneck is on the Pi.** That is consistent with everything else measured:
-callbacks never miss their deadline at any buffer size, yet the buffer empties anyway,
-and callback lateness sits at a fixed ~900 us that does not scale with period.
+**Withdraw:** *"bimodality vanished → Sound Blaster lottery was adaptive clock lock, not
+frame phase."* The evidence for that closure is gone.
 
-## Leading hypothesis for why *worse*, not merely *not better*
+**Alignment status:** **unsupported, still unpromising** — not reopened for Pi time. At HS,
+125 µs microframes = **6 samples**; 256/6, 512/6, **1024/6 = 170.67** are all misaligned,
+**including 1024×3 with zero xruns**. Frame phase cannot explain clean 1024 if it drives 256.
 
-**High speed trades delivery granularity for servicing rate.** Full speed delivers once
-per 1 ms; high speed uses 125 us microframes — **eight times as many transfer opportunities
-per second**. `snd-usb-audio` packs packets into URBs, and the smaller the period, the fewer
-packets per URB and the more URB completions the host controller must service.
+**Do not spend Pi time on alignment tables (240/480/1008).** Fill telemetry (Phase D+A) shows
+mechanism directly.
 
-Every one of those completions is work for **xhci IRQ 30 — which is unmovable and pinned to
-CPU0.** If the binding term is the Pi's capacity to service that interrupt promptly, then a
-high-speed device at a small period demands far more of exactly the resource that is
-already scarce.
+## What this rules out (updated)
 
-Two aggravating factors on this specific device:
+The problem is **not** the dongle's clock mode or full-speed transport alone. **URB completion
+rate at 256 vs 1024 is refuted** (Step 1 inverted: 1024 had *higher* IRQ30/s, zero xruns).
+Frame alignment is **unsupported**, not closed.
 
-- **4 playback channels at 24-bit** (S32_LE, 144-byte packets) against the Sound Blaster's
-  2. Roughly double the payload for a stereo synth that uses two of them.
-- **`snd_usb_audio.lowlatency=Y`** submits URBs on demand rather than deep-queuing. On a
-  high-speed device that means many more small submissions — more completions, more
-  interrupt servicing.
+**The bottleneck is on the Pi** — term still under audit (cushion model, xrun counter, D+A).
 
-**Status: hypothesis, not measurement.** It fits every observation but has not been tested.
+## Leading hypotheses (status as of post–Step 4)
+
+| hypothesis | status |
+|---|---|
+| URB submission *rate* / `lowlatency=N` | **Refuted** (Step 1 inverted 256 vs 1024 IRQ) |
+| Frame-phase alignment | **Unsupported, unpromising** — closure withdrawn |
+| Producer lateness ~600 µs empties cushion | **Arithmetic weak** — see [`cushion-model-2026-08-21.md`](cushion-model-2026-08-21.md) |
+| **Compute-bound at 256** (fixed per-callback cost) | **Strengthened** — dsp_p99 **63–89%** at 256 cond A vs **34.8%** at 1024; see [`PLAN-2026-08-21-evening.md`](PLAN-2026-08-21-evening.md) |
 
 ## Consequences for the plan
 
-**`lowlatency=N` is un-demoted, for the Scarlett specifically.** It was demoted after T13
-because it acts on URB queue *depth*, and T13 showed depth is not the binding term. But if
-the problem here is submission *rate*, batching more packets per URB reduces completions
-directly. Different mechanism, same knob. **15 minutes, and it is now the cheapest test on
-the list.**
+**`lowlatency=N` remains dropped** (Step 1 kill condition — inverted IRQ, not depth).
 
-**Channel count is worth checking.** If jackd is opening 4 playback channels to use 2, the
-device may be configurable to a 2-channel altsetting — halving payload for free.
+**Step 2 cyclictest** still refutes generic scheduler ceiling under load (~429 µs max).
 
-**Step 2 (cyclictest under real conditions) is now the most important measurement in the
-project.** The ~900 us versus the 209-320 us floor is ~600 us unexplained, it is
-device-independent, and two devices with opposite transport characteristics have now both
-failed at small buffers. If that gap is generic scheduler latency, the remaining levers are
-`threadirqs`, `isolcpus`/`nohz_full`, and PREEMPT_RT — all Pi-side, none device-side.
+**Next (revised):** **D+A** — DSP p99 ladder + fill telemetry at 1024/512/256, identical
+cond A load; then **B** (nperiods sweep at period 1024). **`1024×2` open-check** (~30 s)
+whenever Pi is idle.
 
-**The alignment line of work is closed.** T15, T16, T17 and the aligned drop-in table are
-withdrawn. No further Pi time on frame phase.
+**Alignment line withdrawn.** T15–T17 and aligned drop-in table stay off the list.
 
 ## Product reading
 

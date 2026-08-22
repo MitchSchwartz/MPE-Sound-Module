@@ -68,4 +68,8 @@ That gap is exactly why fill-level telemetry (`appl_ptr − hw_ptr` from `/proc/
 
 ## Verdict for gate C
 
-**P3 not eliminated.** Counter semantics are understood and are not a no-op, but they do **not** prove “playback underrun from producer lateness.” Next: **fill telemetry (A)** and **nperiods sweep at fixed period (B)** per cushion model.
+**P3 not eliminated.** Counter semantics are understood and are not a no-op, but they do **not** prove “playback underrun from producer lateness.”
+
+**Type (b) — graph / callback overrun:** Under strict mode, JACK engine xrun events can correlate with **clients exceeding the period budget** (`jack_cpu_load` p99), not ALSA buffer drain. At dsp_p99 **63–89%** at 256 cond A (Step 4), **11% headroom at p99** — graph overruns are **expected**, not hypothetical. D+A (flat fill trace + high dsp_p99) would show **P3 counter semantics + compute-bound** in one picture.
+
+Next: **D+A** (fill telemetry folded into DSP ladder), then **B** per [`PLAN-2026-08-21-evening.md`](PLAN-2026-08-21-evening.md).
