@@ -13,12 +13,14 @@ QUICK_SELECT="${USER_HOME}/Documents/Surge XT/Patches/Quick Select"
 PATCH_NAME=""
 VOICES=""
 ARTIFACT_DIR=""
+LOG_SLUG="redo"
 
 while [ $# -gt 0 ]; do
     case "$1" in
         --patch-name) PATCH_NAME="${2:?}"; shift 2 ;;
         --voices) VOICES="${2:?}"; shift 2 ;;
         --artifact-dir) ARTIFACT_DIR="${2:?}"; shift 2 ;;
+        --log-slug) LOG_SLUG="${2:?}"; shift 2 ;;
         -h | --help) sed -n '2,6p' "$0"; exit 0 ;;
         *) echo "Unknown: $1" >&2; exit 2 ;;
     esac
@@ -45,13 +47,13 @@ echo "=== V8-b redo patch=${PATCH_NAME} voices=${VOICES} $(date -Is) ==="
 sudo -u "$RUN_AS_USER" python3 "$SCRIPT_DIR/load-patch-osc.py" "$PATCH_PATH"
 sleep 1
 
-V8B_X2="${ARTIFACT_DIR}/v8b-1024x2-redo.log"
+V8B_X2="${ARTIFACT_DIR}/v8b-1024x2-${LOG_SLUG}.log"
 "$SCRIPT_DIR/measure-latency-run.sh" \
     --buffer 1024 --periods 2 --condition A --runs 3 --seconds 45 \
     --hold-voices "$VOICES" --provenance-patch "$PATCH_NAME" --provenance-voices "$VOICES" \
     --output "$V8B_X2" --no-restore-buffer
 
-V8B_X3="${ARTIFACT_DIR}/v8b-1024x3-redo.log"
+V8B_X3="${ARTIFACT_DIR}/v8b-1024x3-${LOG_SLUG}.log"
 "$SCRIPT_DIR/measure-latency-run.sh" \
     --buffer 1024 --periods 3 --condition A --runs 3 --seconds 45 \
     --hold-voices "$VOICES" --provenance-patch "$PATCH_NAME" --provenance-voices "$VOICES" \
