@@ -9,8 +9,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")" && pwd)"
-# shellcheck source=lib/mpe-services.sh
-source "$SCRIPT_DIR/lib/mpe-services.sh"
+# shellcheck source=lib/audio-engine.sh
+source "$SCRIPT_DIR/lib/audio-engine.sh"
 RUN_AS_USER="${MPE_PI_USER:-mitch}"
 USER_HOME="$(getent passwd "$RUN_AS_USER" | cut -d: -f6)"
 QUICK_SELECT="${USER_HOME}/Documents/Surge XT/Patches/Quick Select"
@@ -53,17 +53,16 @@ echo "PROVENANCE governor=off clock=1800 cells=512x2,256x3 patches=Crystals@3,Cl
 
 _set_env_var MPE_POLY_GOVERNOR 0
 systemctl stop surge-poly-governor.service 2>/dev/null || true
-systemctl start mpe-peak-meter.service 2>/dev/null || true
-sleep 2
 if ! mpe_meter_xruns_read >/dev/null 2>&1; then
     echo "Peak meter blind — restarting audio graph"
     systemctl restart mpe-jackd.service
     sleep 4
+    mpe_wait_for_jack_server 30
     systemctl restart surge-xt-cli.service
     sleep 6
-    systemctl start mpe-peak-meter.service 2>/dev/null || true
-    sleep 2
-    mpe_meter_xruns_read >/dev/null 2>&1 || {
+    systemctl restart mpe-peak-meter.service 2>/dev/null || true
+    sleep 3
+    mpe_meter_assert_live || {
         echo "ERROR: peak meter still blind after graph restart" >&2
         exit 1
     }
