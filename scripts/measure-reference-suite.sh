@@ -149,7 +149,7 @@ _parse_last_run() {
                 for (i = 1; i <= NF; i++) {
                     if ($i ~ /^xruns=/) xr = substr($i, 7)
                     if ($i ~ /^dsp_median=/) dm = substr($i, 12)
-                    if ($i ~ /^dsp_p99=/) dp = substr($i, 8)
+                    if ($i ~ /^dsp_p99=/) dp = substr($i, 9)
                     if ($i ~ /^dsp_max=/) dx = substr($i, 9)
                     if ($i ~ /^samples=/) sm = substr($i, 9)
                     if ($i ~ /^temp=/) tp = $i
@@ -199,7 +199,7 @@ _run_cell() {
 
     IFS=$'\t' read -r xr dsp_med dsp_p99 dsp_max samples temp thr < <(_parse_last_run "$log" "$relaxed")
 
-    printf '%s\t%s\t%s\t%d\t%d\t%d\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+    printf '%s\t%s\t%s\t%s\t%d\t%d\t%d\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
         "$PLATFORM" "$PASS" "$cell_id" "${patch:-silence}" "$voices" "$buffer" "$periods" \
         "$xr" "$dsp_med" "$dsp_p99" "$dsp_max" "$samples" "$temp" "$thr" "$log" \
         >>"$TSV_OUT"
@@ -255,6 +255,11 @@ echo "artifacts=${ARTIFACT_DIR}"
 if [ "$RUN_CONFORMANCE" -eq 1 ]; then
     echo "=== C0 preflight (full gate) ==="
     "$SCRIPT_DIR/instrument-conformance.sh"
+fi
+
+if [ ! -x "${MPE_MODULE_REPO}/native/mpe-xrun-probe/mpe-xrun-probe" ]; then
+    echo "=== building mpe-xrun-probe ==="
+    "$SCRIPT_DIR/build-mpe-xrun-probe.sh" --required
 fi
 
 _set_env_var MPE_POLY_GOVERNOR 0
