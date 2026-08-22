@@ -79,7 +79,15 @@ fi
 
 make surge-xt-cli -j"$JOBS" 2>&1 | tee -a "$LOG"
 
-artifact="$BUILD_DIR/surge_xt_products/surge-xt-cli"
+artifact=""
+for candidate in \
+    "$BUILD_DIR/surge_xt_products/surge-xt-cli" \
+    "$BUILD_DIR/src/surge-xt/surge-xt_artefacts/Release/CLI/surge-xt-cli"; do
+    if [ -x "$candidate" ]; then
+        artifact="$candidate"
+        break
+    fi
+done
 if [ ! -x "$artifact" ]; then
     log "ERROR: missing artifact $artifact"
     exit 1
