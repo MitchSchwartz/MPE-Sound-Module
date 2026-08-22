@@ -245,3 +245,38 @@ any measurement involves him:
    same thing whether it worked or not.
 
 A remote command that returns no output is not evidence that it ran.
+
+### And a working instrument can still be the wrong one
+
+The rule above catches an instrument that returns **nothing**. On 2026-08-21 we hit the
+other half: instruments that return **confident, plausible numbers that do not mean what we
+assumed.** Both would have passed every check in the previous section.
+
+| instrument | produced | actually meant |
+|---|---|---|
+| `mpe-xrun-probe` xrun count | non-zero every run, self-tests clean | an **event count with no magnitude**, conflating ALSA underruns with JACK graph overruns — see `docs/measurements/xrun-counter-audit-2026-08-21.md` |
+| proposed 10-20 Hz fill poller | a smooth, legible trace | **sub-Nyquist** against period rates of 47/94/188 Hz — a confident trace of nothing |
+
+So two more checks, before an instrument informs any decision:
+
+4. **Audit what it actually counts**, in writing, dated. One-time cost per instrument.
+   Ask: *what reading would this produce if it were broken?* If that matches a healthy
+   reading, it is not an instrument.
+5. **Check its resolution against the signal.** A sampler below the Nyquist rate of the
+   thing it measures yields an authoritative-looking trace with the answer removed.
+6. **Ask what the shortest useful version of the test is**, and justify anything longer in
+   writing. Size windows from the **expected event rate**, not convention — ~30 events takes
+   ~1 s at 2776/min but ~4 hours at 0.13/min. When the shortest useful version comes out
+   implausibly long, **the metric is wrong for the question**, not a reason to run a soak.
+
+**Before designing any measurement, invoke the `measurement-design` skill**
+(`.claude/skills/measurement-design/SKILL.md`). It carries the checklist, the audited
+instrument facts, and the rules for writing a measurement prompt for another agent — use it
+before opening a Pi window, before handing a prompt to an agent, and when interpreting
+results.
+
+**Full doctrine: [`docs/measurements/MEASUREMENT-DISCIPLINE.md`](docs/measurements/MEASUREMENT-DISCIPLINE.md)**
+— cheap-check-first ordering, per-cell pre-registration (prediction **and** falsifier written
+before the run), claim classes and minimum n, and the requirement that the harness stamp
+**actual** state into every result rather than intended state. Read it before designing a
+measurement.
