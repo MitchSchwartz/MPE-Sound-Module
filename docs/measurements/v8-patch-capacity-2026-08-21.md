@@ -69,7 +69,7 @@
 | House Organ | 5 | 7 | — | — | — |
 | Planar Device | 5 | 7 | — | — | — |
 | Res Wave Shift | 5 | 7 | — | — | — |
-| Cloud Horn | 7 | 9 | 2 | [1,1,1] engines [8,8] | 2 |
+| Cloud Horn | 7 | 9 | 2 | [1,1] engines [8,8] | 2 |
 | Dreamscape | 7 | 9 | — | — | — |
 | Forte Piano | 7 | 9 | — | — | — |
 | Irrelevant Number | 7 | 9 | — | — | — |
@@ -95,7 +95,7 @@
 
 ### Unison vs capacity (retracted)
 
-Prior pass cited summed `unison_voices` (Crystals 14, Cloud Horn 16) from a parser bug — param0 engine/mode selectors were summed. Corrected 2026-08-22: both patches are `[1,1,1]` per osc. **Do not use unison as a cost driver from that column.** Osc count, engine choice, FX, and filters remain the useful metadata.
+Prior pass cited summed `unison_voices` (Crystals 14, Cloud Horn 16) from a parser bug — param0 engine/mode selectors were summed. Corrected 2026-08-22: Crystals is `[1,1,1]` per osc; Cloud Horn is `[1,1]` on two String oscs. **Do not use unison as a cost driver from that column.** Osc count, engine choice, FX, and filters remain the useful metadata.
 
 ---
 
