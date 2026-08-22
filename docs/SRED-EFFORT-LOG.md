@@ -16,12 +16,13 @@ Commit data: local repo, author dates as committed. Invisible-work categories pe
 
 | why | detail |
 |---|---|
-| **Defensible to a reviewer** | "You worked 08-17 and 08-18?" → one overnight session, not two independent days |
-| **Stops boundary double-count** | 08-14 ends 21:49, 08-15 starts 03:00 — same push, not two days |
-| **Stops under-counting pushes** | 08-16 23:55 → 08-17 00:13 (18 min) and 08-17 23:52 → 08-18 00:02 (10 min) are continuations |
-| **Supporting evidence** | Calendar-day commit tables remain below for git anchoring; **hours attach to sessions** |
+| **Defensible to a reviewer** | "You worked 08-17 and 08-18?" → answer in **sessions**, not two independent calendar days |
+| **Stops boundary double-count** | 08-14 ends 21:49, 08-15 starts 03:00 — not two full days of labour |
+| **Supporting evidence** | Calendar-day commit tables remain below for git anchoring |
 
-Six of seven Phase 2 calendar days start before 06:00 or end after 23:00 — calendar shape alone misstates labour.
+**Do not estimate hands-on from session wall time.** A "session" can span 25 h wall clock with multi-hour gaps inside (Phase 2 P2-S4a). Wall time **overstates** as badly as calendar days **understated** overnight pushes. Sessions exist only to **stop double-counting midnight boundaries**; **hours come from recall** (e.g. 3–4 h per session worked), not from subtracting gap timestamps.
+
+Six of seven Phase 2 calendar days start before 06:00 or end after 23:00 — calendar shape alone misstates labour. Phase 2 work in 08-16→18 was **fragmented bursts** with 2–4 h gaps between them, not sustained marathons.
 
 **Going forward:** [`SRED-DAILY-LOG.md`](SRED-DAILY-LOG.md) rows are per session (wall-clock span in `session` column; note calendar split when relevant).
 
@@ -41,15 +42,23 @@ Separate from "running measurements." Commits **undercount** category 1 (a C ins
 
 Concrete artifacts for the **instrument-building** column (not incidental — strongest defensible category in the claim):
 
-| artifact | lines / scope | git | note |
-|---|---|---|---|
-| **`mpe-peak-meter.c`** | 379 lines C, RT-safe JACK client | `2607286` 08-18 | Exists because `0dc9e5b` 08-17 found **Python stalling jackd's RT cycle** — rewrite in C to stop perturbing what it measures |
-| **`mpe-xrun-probe.c`** | 213 lines C, µs xrun delays + period-jitter histogram | `d6d0fa4`, `63aa2b7` 08-19 | |
-| **Native tree** | 11 commits touching `native/` since 08-17 | — | Plus two Makefiles and two build scripts |
-| **Latency tap** | Built and diagnosed **twice** | `c33b52e` | "Tap the OSC client, not the bench's `_send`" — Rule −1 #3 |
-| **Total RT-safe C on target** | **~592 lines** | — | Debugged on a live Pi audio graph |
+| artifact | date | phase / session | git | note |
+|---|---|---|---|---|
+| Python→C driver (RT stall diagnosis) | 08-17 | **P2-S4c** | `0dc9e5b` | Python stalling jackd's RT cycle — observer effect |
+| **`mpe-peak-meter.c`** + Makefile + build script | 08-18 | **P2-S4d** | `2607286` | 379 lines C, RT-safe JACK client — rewrite forced by measured observer effect (**design work**, not transcription) |
+| **`mpe-xrun-probe.c`** + jitter histogram | 08-19 | **Ph. 3/4** | `d6d0fa4`, `63aa2b7` | 213 lines C, µs xrun delays |
+| Latency taps v1/v2 + **`measure-latency-run.sh`** | 08-19 | **Ph. 3/4** | `c33b52e`, `e2ae996` | Tap OSC client not `_send`; harness everything since depends on |
+| **Native tree** | 08-17+ | — | 11 commits `native/` | Plus two Makefiles and two build scripts |
+| **Total RT-safe C on target** | — | — | **~592 lines** | Debugged on a live Pi audio graph |
 
-**Instrument-building estimate (08-17 → 08-19):** **10+ h** (medium confidence). Mitch: *would be surprised if under 10 h across those three days.* **Your number** — adjust the range if recall differs; do not fold into measurement hours.
+**Instrument-building estimate (08-17 → 08-19):** **10–16 h, medium confidence.**
+
+| split | range | artifacts |
+|---|---|---|
+| **Phase 2** (peak meter, Python→C) | **~5–8 h** | `0dc9e5b`, `2607286` — roughly **half** |
+| **Phase 3/4** (08-19) | **~5–8 h** | probe, harness, taps — roughly **half** |
+
+Mitch floor: *would be surprised if under 10 h total.* Upper bound uncertain (C velocity unknown); both programs are RT-safe JACK clients debugged on target. **Do not fold into measurement hours.**
 
 ---
 
@@ -58,8 +67,8 @@ Concrete artifacts for the **instrument-building** column (not incidental — st
 | phase (§4) | span (sessions / git) | commits | hands-on (range) | instrument-building (range) | confidence | notes |
 |---|---|---:|---|---|---|---|
 | 1. Build-out | 07-18 → ongoing | ~200 (07-18→08-09) + continuing | **40–60** | — | medium | Continues through today. ~**20% routine**. |
-| 2. First fault isolation | **08-12 → 08-18** (7 cal. days, **4 sessions**) | **296** | **3–4 h per session worked** → **~12–16** if 4 sessions | **10+ h** (08-17→19 block; see §Inst.) | medium | **`jack_lsp` enters 08-12** — crackle thread starts **two days before** the window previously assigned. Self-inflicted fault; heavy AI review. |
-| 3. Looper cost | 08-18 → 08-19 | ~50 themed | **~4.5–6 h/day** | Overlaps inst. column | medium | Step 0 harness, xrun-probe, tap v1. G5: admissibility pending. |
+| 2. First fault isolation | **08-12 → 08-18** (7 cal. days, **7 sessions**) | **296** | **20–28 h** (7 × 3–4 h/session) | **~5–8 h** (inst.; see §Inst.) | medium | **`jack_lsp` enters 08-12.** Fragmented bursts 08-16→18, not one marathon. Self-inflicted fault; heavy AI review. |
+| 3. Looper cost | 08-18 → 08-19 | ~50 themed | **~4.5–6 h/day** | **~5–8 h** (08-19 inst.; see §Inst.) | medium | xrun-probe, harness, tap v1 land 08-19. G5: admissibility pending. |
 | 4. Jitter hunt (refuted) | 08-19 → 08-21 | 39+5+part of 71 | **~4.5–6 h/day** | Low–med | medium | Scarlett ~30 min. Blind-instrument drag 08-20/21. |
 | 5. E1 (refuted) | 08-20 12:52–14:12 | 5 | **1–2** | — | medium | **Separate row.** 68 min monitored run. `#86`. |
 | 6–8. W1 / V0–V2 / V7–V8 | **08-21→22 push** | part of 71 | **(push — see below)** | — | medium | Start 13:16 08-21. |
@@ -92,21 +101,39 @@ Concrete artifacts for the **instrument-building** column (not incidental — st
 
 | gap | interpretation |
 |---|---|
-| 08-13 23:39 → 08-14 10:31 (~11 h) | **New session** |
-| 08-14 21:49 → 08-15 03:00 (~5 h) | **New session** (>4 h) |
-| 08-16 23:55 → 08-17 00:13 (18 min) | **Same session** |
-| 08-17 23:52 → 08-18 00:02 (10 min) | **Same session** |
+| 08-13 23:39 → 08-14 10:31 (~11 h) | **New session** (P2-S2) |
+| 08-14 21:49 → 08-15 03:00 (~5 h) | **New session** (P2-S3) |
+| 08-16 23:55 → 08-17 00:13 (18 min) | **Same session** (within P2-S4a wall span) |
+| 08-17 00:49 → 10:11 (~9 h) | **New session** — sleep; ends P2-S4a, starts P2-S4b |
 
-### Sessions (primary labour unit)
+### Sessions (primary boundary unit — **7 sessions**)
 
-| session | span | commits | notes |
+| session | span | wall | notes |
 |---|---|---:|---|
-| **P2-S1** | 08-12 00:32 → 08-13 23:39 | 65 | `jack_lsp` enters; fault introduced 08-13 |
-| **P2-S2** | 08-14 10:31 → 21:49 | 45 | Crackle diagnostic lands |
-| **P2-S3** | 08-15 03:00 → 23:08 | 53 | |
-| **P2-S4** | 08-16 05:30 → 08-18 21:13 | 133 | Overnight 08-16/17/18; resolution `dd130a5`; **`mpe-peak-meter`** `2607286` |
+| **P2-S1** | 08-12 00:32 → 08-13 23:39 | ~47 h | 65 commits. `jack_lsp` enters; fault introduced 08-13 |
+| **P2-S2** | 08-14 10:31 → 21:49 | ~11 h | 45 commits. Crackle diagnostic lands |
+| **P2-S3** | 08-15 03:00 → 23:08 | ~20 h | 53 commits |
+| **P2-S4a** | 08-16 00:02 → 08-17 00:49 | ~25 h | Part of 08-16→18 block; **not** one marathon — see gaps below |
+| **P2-S4b** | 08-17 10:11 → 12:06 | ~2 h | After ~9 h sleep gap |
+| **P2-S4c** | 08-17 16:35 → 08-18 06:13 | ~14 h | `0dc9e5b` Python RT stall |
+| **P2-S4d** | 08-18 10:33 → 21:13 | ~11 h | Resolution `dd130a5`; **`mpe-peak-meter`** `2607286` |
 
-**Hands-on (Mitch):** **3–4 h per session worked** — apply to **sessions**, not calendar days. Four sessions → **~12–16 h** investigation labour if all four were full work sessions (medium confidence; confirm).
+*P2-S4 is four sessions (S4a–d), not one overnight block. Short gaps (<4 h) inside S4a do not split further at this reconstruction pass.*
+
+**Internal gaps ≥2 h inside 08-16 → 08-18** (why S4a is not a marathon):
+
+| gap | from → to |
+|---|---|
+| 3 h 16 | 08-16 05:40 → 08:56 |
+| 2 h 05 | 08-16 11:33 → 13:38 |
+| 3 h 42 | 08-16 13:38 → 17:20 |
+| **9 h 22** | **08-17 00:49 → 10:11 (sleep)** |
+| 4 h 29 | 08-17 12:06 → 16:35 |
+| 3 h 50 | 08-17 19:04 → 22:54 |
+| 3 h 14 | 08-18 00:52 → 04:06 |
+| 4 h 20 | 08-18 06:13 → 10:33 |
+
+**Hands-on (Mitch):** **3–4 h per session worked** — count **sessions**, not calendar days; **do not** derive from wall spans above. **Seven sessions → 20–28 h**, medium confidence.
 
 **SR&ED narrative:** Defect **introduced by the same work that hunted it** — `jack_lsp` as graph owner (08-12/13) → crackle diagnostic (08-14) → resolution (08-18).
 
@@ -231,26 +258,28 @@ Evening 08-21 (13:16→22:59). End burst 21:32–22:09 ≠ 37 min of work. Conti
 | bucket | range | confidence |
 |---|---|---|
 | Phase 1 build-out | 40–60 h | medium |
-| Phase 2 investigation (sessions) | ~12–16 h (4 sessions × 3–4 h) | medium — **confirm session count / per-session hours** |
-| Phase 2 instrument-building (08-17→19) | **10+ h** | medium — Mitch floor |
-| 08-21→22 push (Ph.6–11) | **18–23 h** | medium |
-| Phases 3–4 (daily rates) | not rolled up | |
+| Phase 2 investigation | **20–28 h** (7 sessions × 3–4 h) | medium |
+| Instrument-building (08-17→19 total) | **10–16 h** | medium |
+| — Phase 2 share | ~5–8 h | medium |
+| — Phase 3/4 share (08-19) | ~5–8 h | medium |
+| 08-21→22 push (Ph.6–11) | **18–23 h** | medium — **confirmed** |
+| Phases 3–4 (daily rates, excl. inst.) | not rolled up | |
 
 ---
 
 ## Open questions
 
 - Phase 1: 08-06/07 off or partial?
-- Phase 2: Confirm **12–16 h** from 4 sessions × 3–4 h — or revise per-session recall
-- Phase 2 instrument-building: Mitch's **10+ h floor** — upper bound / split across P2-S4 vs 08-19?
 - `26f940c`: confirm x86 probe never measured on Pi
 
 ---
 
-## Ongoing capture
+## Ongoing capture (G1 closed)
 
-**Implemented 2026-08-22.** Append per **session** to [`SRED-DAILY-LOG.md`](SRED-DAILY-LOG.md). Skill: [`.claude/skills/sred-daily-capture/SKILL.md`](../.claude/skills/sred-daily-capture/SKILL.md). CLI: `scripts/sred-log-append.sh`. See `AGENTS.md` §SR&ED daily labour capture.
+**G1 reconstruction complete 2026-08-22** — this file is historical baseline only. **Do not backfill again.**
+
+Append per **session** to [`SRED-DAILY-LOG.md`](SRED-DAILY-LOG.md). Skill: [`.claude/skills/sred-daily-capture/SKILL.md`](../.claude/skills/sred-daily-capture/SKILL.md). CLI: `scripts/sred-log-append.sh`. See `AGENTS.md` §SR&ED daily labour capture.
 
 ---
 
-*Last updated: 2026-08-22 (America/Toronto) — session model; Phase 2 span + instrument evidence; push 18–23 h*
+*Last updated: 2026-08-22 (America/Toronto) — Phase 2 seven sessions (S4a–d); 20–28 h; inst. 10–16 h split; G1 closed*
