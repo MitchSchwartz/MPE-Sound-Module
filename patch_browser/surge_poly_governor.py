@@ -155,6 +155,22 @@ class PolyGovernorJournal:
         patch: str | None,
         held_s: float,
     ) -> None:
+        patch_name = patch if patch else ""
+        raw_part = f" raw={raw_cpu:.1f}" if raw_cpu is not None else ""
+        line = (
+            f"poly-governor: {old_limit} -> {new_limit} "
+            f"reason={reason} cpu={cpu:.1f}{raw_part} "
+            f'patch="{patch_name}" held={held_s:.2f}s'
+        )
+        self._emit(line)
+
+    def log_error(self, message: str) -> None:
+        self._emit(f"poly-governor: tick error {message}")
+
+    def flush_pending(self) -> None:
+        self._flush_suppressed()
+
+    def _emit(self, line: str) -> None:
         now = time.monotonic()
         if now - self._window_start >= 1.0:
             self._flush_suppressed()
@@ -166,23 +182,18 @@ class PolyGovernorJournal:
             return
 
         self._window_count += 1
-        patch_name = patch if patch else ""
-        raw_part = f" raw={raw_cpu:.1f}" if raw_cpu is not None else ""
-        print(
-            f"poly-governor: {old_limit} -> {new_limit} "
-            f"reason={reason} cpu={cpu:.1f}{raw_part} "
-            f'patch="{patch_name}" held={held_s:.2f}s',
-            flush=True,
-        )
+        print(line, flush=True)
+        append_verbose_trace(line)
 
     def _flush_suppressed(self) -> None:
         if self._suppressed < 1:
             return
-        print(
+        line = (
             f"poly-governor: log-spam summary suppressed={self._suppressed} "
-            "transitions in 1.0s",
-            flush=True,
+            "transitions in 1.0s"
         )
+        print(line, flush=True)
+        append_verbose_trace(line)
         self._suppressed = 0
 
 
@@ -266,6 +277,7 @@ class SurgePolyGovernor:
         self._stop.set()
         if self._thread:
             self._thread.join(timeout=1.0)
+        self._journal.flush_pending()
 
     def snapshot(self) -> dict:
         return {
@@ -274,6 +286,12 @@ class SurgePolyGovernor:
             "ceiling_poly": self._ceiling_poly,
             "floor_poly": self._floor_poly,
         }
+
+    def _limits_ready(self) -> bool:
+        return (
+            isinstance(self._effective_poly, int)
+            and isinstance(self._ceiling_poly, int)
+        )
 
     def _refresh_patch_state(self) -> None:
         try:
@@ -335,6 +353,7 @@ class SurgePolyGovernor:
                 smoothed = snap.get("percent")
                 raw_f = float(raw) if isinstance(raw, (int, float)) else None
                 if raw_f is not None:
+                    # Prefer raw proc/OSC sample — smoothed meter lags on rising load.
                     return raw_f, raw_f
                 if isinstance(smoothed, (int, float)):
                     return float(smoothed), raw_f
@@ -373,7 +392,7 @@ class SurgePolyGovernor:
             try:
                 self._tick()
             except Exception as exc:
-                print(f"Surge poly governor tick error: {exc}", flush=True)
+                self._journal.log_error(str(exc))
 
     def _tick(self) -> None:
         self._pref_check_counter += 1
@@ -386,7 +405,7 @@ class SurgePolyGovernor:
             self._low_since = None
             return
 
-        if self._effective_poly is None or self._ceiling_poly is None:
+        if not self._limits_ready():
             return
 
         healthy, _ = self.surge_monitor.check_health()
