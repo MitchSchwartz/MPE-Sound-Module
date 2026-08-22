@@ -36,6 +36,11 @@ Five minutes saved half a 25-minute run. **Generalise that, do not invent someth
 
 ---
 
+> **Status 2026-08-22:** first pass merged as #96. **Offline/parser half is good; the live half
+> does not exist and four defects block the gate** — see
+> [`REVIEW-C0-conformance-2026-08-22.md`](REVIEW-C0-conformance-2026-08-22.md). The queue stays
+> halted. `instrument-conformance.sh` must split into `--offline` and `--live` and require both.
+
 ## Deliverable
 
 `scripts/measure-instrument-conformance.sh`
