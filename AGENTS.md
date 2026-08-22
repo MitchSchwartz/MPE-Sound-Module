@@ -219,7 +219,7 @@ He is needed for exactly three things:
 Everything else is yours: unit tests, xrun runs, CPU sampling, DSP load, latency
 harnesses, crash-recovery timing, snapshot cost. MIDI input is **not** a reason to
 involve him — `scripts/midi-load.py` drives Surge, and a virtual ALSA port connected to
-the bench's input drives pads (see `docs/measurements/looper-midi-osc-latency-2026-08-19.md`).
+the bench's input drives pads (see `docs/measurements/archive/looper-midi-osc-latency-2026-08-19.md`).
 
 ### Self-test the instrument before it costs him anything
 
