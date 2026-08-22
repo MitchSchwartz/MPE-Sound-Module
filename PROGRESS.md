@@ -1,6 +1,6 @@
 # PROGRESS — canonical thread
 
-**Updated 2026-08-22.** This is the top-level index. An agent picking up work starts here,
+**Updated 2026-08-22 (America/Toronto).** This is the top-level index. An agent picking up work starts here,
 then opens the prompt file for its task. Everything else in `docs/measurements/` is either a
 result or history.
 
@@ -33,7 +33,7 @@ See [`docs/PI5-TRANSITION-PLAN.md`](docs/PI5-TRANSITION-PLAN.md).
 | Clock | 1800 MHz, `arm_boost=1`, `performance` |
 | Cores | `irqaffinity=0,1`; jackd/surge/looper `CPUAffinity=2 3` |
 | Confirmed floors | Crystals 3, Cloud Horn 5, Duduk 3, Brave New World 3 (all 1024) |
-| **V11 (2026-08-22)** | **512x2 = 21.3 ms clean for Crystals @3 and Duduk @3** (0/0/0 x3). Cloud Horn @5 marginal (0/0/8). 256x3: Duduk clean, Crystals marginal (0/2/2), Cloud Horn overloaded. **DSP column withheld — instrument failure, see C0.** Artifacts `~/plan-v11-20260822-144259/` |
+| **V11 (2026-08-22)** | **512x2 = 21.3 ms clean for Crystals @3 and Duduk @3** (0/0/0 x3). Cloud Horn @5 marginal (0/0/8). 256x3: Duduk clean, Crystals marginal (0/2/2), Cloud Horn overloaded. **Xrun column stands.** DSP column withheld (pre-C0 instruments); re-derive after Pi conformance pass. Artifacts `~/plan-v11-20260822-144259/` |
 
 **Settled and not to be relitigated:** every xrun on this appliance is a **JACK graph
 overrun**, not an ALSA underrun — the ring has never drained (`W1-VERDICT`). Fixed
@@ -53,19 +53,19 @@ transport work **un-retires**. Check, do not assume.
 **Track A runs without Mitch.** Track B needs him reachable and is batched into one window.
 Full plan: [`docs/measurements/PROMPT-PI4-CLOSEOUT.md`](docs/measurements/PROMPT-PI4-CLOSEOUT.md).
 
-> **HALTED 2026-08-22.** Nothing below runs until **C0** passes. V11 produced a DSP column that
-> was arithmetically impossible (~1% at 256x3 across three patches; 10% in a cell with 23
-> xruns) — the ninth blind-instrument failure. V11's **xrun** column stands (a positive control
-> ran on that path); its DSP column is withheld. Mitch's call, and the right one.
+> **C0 merged to `dev` 2026-08-22** (#96 offline gate + #97 live gate / F1–F5 fixes; CI green).
+> **Track A next:** run `./scripts/instrument-conformance.sh` on the Pi (offline + live), then
+> resume at **A2**. V11 **xrun** results stand; DSP column withheld until instruments are
+> certified on-appliance (pre-C0 readings were arithmetically impossible — Mitch's call).
 
 ### Track A — autonomous (no reboot, no gate)
 
 | # | Task | Prompt | Time |
 |---|---|---|---|
-| **C0** | **INSTRUMENT CONFORMANCE — blocks everything.** Positive + negative control per metric, physics assertions, in-band-failure sweep | `PROMPT-C0-instrument-conformance.md` | ~half day to build, ≤15 min to run |
-| A0 | *(replaced by C0)* — per-session conformance pass | `PROMPT-C0-instrument-conformance.md` | ≤15 min |
-| **A1** | **V11 — 512x2 / 256x3 at confirmed counts** | `PROMPT-V11-512-256-confirm.md` | ~15 min |
-| A2 | Write `measure-reference-suite.sh` (offline) — must run unmodified on a Pi 5 | closeout §A2 | ~30 min |
+| ~~**C0**~~ | ~~**INSTRUMENT CONFORMANCE**~~ — **DONE.** Merged #96 + #97 to `dev`. Offline green in CI; Pi must pass full gate before further measurements | `PROMPT-C0-instrument-conformance.md` · `REVIEW-C0-conformance-2026-08-22.md` | ≤15 min to run on Pi |
+| A0 | Per-session conformance pass (same gate as C0) | `PROMPT-C0-instrument-conformance.md` | ≤15 min |
+| ~~**A1**~~ | ~~**V11 — 512x2 / 256x3 at confirmed counts**~~ — **DONE (xrun column).** 3/6 cells pass. ~25 min wall time | `PROMPT-V11-512-256-confirm.md` | ~25 min |
+| **A2** | **NEXT** — Write `measure-reference-suite.sh` (offline) — must run unmodified on a Pi 5 | closeout §A2 | ~30 min |
 | **A3** | **Settle a72 — run the suite stock, then a72; keep or revert. Freezes the control.** Pass 1. | closeout §A3 | ~60 min |
 | A4 | Reference pass 2, different day (noise floor) | closeout §A4 | ~30 min |
 | A5 | Full appliance state capture — the control condition | closeout §A5 | ~10 min |
@@ -94,11 +94,9 @@ Suite 1 (like-for-like reference, scores the predictions) → Suite 2 (latency l
 objective**) → Suite 3 (NVMe delta) → Suite 4 (thermal). Designed to run overnight and wake
 Mitch only on a defined fork.
 
-**Why V11 is still first:** fixed cost is 0.6% of the deadline at 1024 and 1.2% at 512, so the
-voice ceiling is close to buffer-independent — Crystals is clean at 3 on *both* 1024 and
-512. **512x2 = 21.3 ms, half of what 1024x2 gives.** It also defines the floor the Pi 5 gets
-compared against; measuring the Pi 5 against 1024x2 would overstate the gain. Full argument:
-**`docs/measurements/REVIEW-line-of-thought-2026-08-22.md`**.
+**V11 xrun result (done):** 512x2 is clean for Crystals and Duduk at confirm counts; Cloud Horn
+@5 fails at both 512x2 and 256x3. 256x3 only fully clean for Duduk. No blanket floor promotion.
+Full argument: **`docs/measurements/REVIEW-line-of-thought-2026-08-22.md`**.
 
 **Why P7 moved up rather than being dropped:** as a performance lever ~11% is marginal against a
 new board. As an **instrument** it forecasts whether the Pi 5's 2.4 GHz will convert at all — and
@@ -151,6 +149,8 @@ percussive rate metric.
 | File | What it is |
 |---|---|
 | `docs/measurements/REVIEW-line-of-thought-2026-08-22.md` | **Current roadmap argument.** Read this second. |
+| `docs/measurements/REVIEW-C0-conformance-2026-08-22.md` | C0 review; blocking findings through #97 |
+| `Documents/reviews/review-loop-index-c0-conformance-live-2026-08-22.md` | C0 review loop (#96 + #97) |
 | `docs/measurements/MEASUREMENT-DISCIPLINE.md` | Doctrine. Rules 0-7. |
 | `docs/measurements/session-handoff-2026-08-22.md` | Last session state |
 | `docs/measurements/V9-REVIEW-2026-08-22.md` | V9 a/b/c/d results |
