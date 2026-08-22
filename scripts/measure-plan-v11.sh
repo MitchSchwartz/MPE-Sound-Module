@@ -92,8 +92,8 @@ _run_config() {
 
     local xr dsp
     xr="$(awk '/^RESULT tag=.* xruns=/ { sub(/^.* xruns=/, ""); sub(/ .*/, ""); last=$0 } END { print last+0 }' "$out")"
-    dsp="$(awk '/^RESULT tag=.* dsp_med=/ { match($0, /dsp_med=[0-9.]+/); if (RSTART) print substr($0, RSTART+8, RLENGTH-8) }' "$out" | tail -1)"
-    echo "V11_SUMMARY patch=${name} voices=${voices} ${buffer}x${periods} xruns=${xr} dsp_med=${dsp:-unknown} log=${out}"
+    dsp="$(awk '/^RESULT tag=.* dsp_median=/ { match($0, /dsp_median=[0-9.]+/); if (RSTART) print substr($0, RSTART+12, RLENGTH-12) }' "$out" | tail -1)"
+    echo "V11_SUMMARY patch=${name} voices=${voices} ${buffer}x${periods} xruns=${xr} dsp_median=${dsp:-unknown} log=${out}"
     if [ "${xr:-1}" -ne 0 ]; then
         echo "WARN: non-zero xruns at confirm count — treat cell as failed"
     fi
