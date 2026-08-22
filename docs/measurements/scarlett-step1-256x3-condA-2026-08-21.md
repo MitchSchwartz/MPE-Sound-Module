@@ -39,19 +39,24 @@ same band — no within-stream lottery like the old bad/good mode flip.
 
 ## Mechanism verdict (Step 1 question)
 
-**Bimodality vanished on the Scarlett.**
+**~~Bimodality vanished on the Scarlett.~~ — WITHDRAWN post Step 4 (2026-08-21 late)**
 
-Sound Blaster post-hygiene at 256×3 cond A was **bimodal** (six streams ~2–5/min, two
-streams ~18–22/min, mean 7.1). Scarlett ASYNC + feedback endpoint shows **one mode only**,
-all high.
+Step 4 (same async Scarlett, n=3): stream 01 **105/min**, streams 02–03 **26–34/min**. The
+Step 1 unimodal read is **not stable**. **n=3 cannot establish shape** — one-high/two-low
+is unremarkable from bimodal or wide unimodal. **Do not re-read Step 4 as confirming
+bimodality back.**
 
-→ **The start-phase lottery on the Sound Blaster was the ADAPTIVE clock-lock draw**, not a
-universal frame-phase effect. Async clocking removed the two-product power-on problem.
+Original Step 1 observation (n=10): all streams 40–86/min, no 2–5/min cluster. That session
+data stands; the **inference** (adaptive clock lock closed frame phase) is withdrawn.
 
-→ **Frame-phase misalignment (256 = 42.67 HS microframes) did NOT produce bimodality here.**
-That hypothesis is **not supported** for between-stream variance on this device.
+→ **Frame-phase alignment:** **unsupported, still unpromising.** HS microframe = 6 samples;
+1024/6 = 170.67 misaligned yet clean at 1024×3. No Pi time on alignment tables.
 
-Do not soften: this is a **null on frame-phase lottery**, not a win on rate.
+→ **Sound Blaster bimodal vs Scarlett unimodal:** inconclusive as a mechanism proof; device
+swap still shows Scarlett ~10× worse mean at 256.
+
+Do not soften: Step 1 was a **null on frame-phase lottery for that n=10 sample**, not a
+permanent closure.
 
 ## Rate verdict (plain)
 
