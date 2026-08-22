@@ -5,21 +5,25 @@ not worth breaking anything for.
 
 ---
 
-## HARD GATE — read this before touching the Pi
+## HARD GATE — sequencing
 
-**An 8-hour soak is running right now** (Cloud Horn @ 5, 1024x2, condition A,
-`~/instrument-soak-1024x2.log`, finishing ~19:05 Toronto 2026-08-22).
+This is **third in the queue**, not first. Ahead of it:
 
-**Run NO command against `raspberrypi2` until it finishes — including read-only ones.**
-Not `ssh pi uptime`, not `cat /proc/cpuinfo`, not `surge-xt-cli --version`. Every SSH
-command forks processes and adds scheduler load to a box whose entire measurement is about
-scheduling. An 8-hour soak invalidated at hour 6 costs far more than you save.
+1. **P7 overclock diagnostic** (~15 min) — tells you whether the ceiling scales with clock
+   at all, which is what makes a 5-15% compute win worth a 45-minute build. If DSP does not
+   scale with clock, **this task may not be worth doing** — check the P7 result first.
+2. **8 h instrument soak at 1024x2** — scheduled for tonight (Cloud Horn @ 5, condition A).
 
-`make -j4` would take all four cores for ~40 minutes. **It would not perturb the soak, it
-would end it.**
+**Run NO command against `raspberrypi2` while the soak is in flight — including read-only
+ones.** Not `ssh pi uptime`, not `cat /proc/cpuinfo`. Every SSH command forks processes and
+adds scheduler load to a box whose entire measurement is about scheduling. An 8-hour soak
+invalidated at hour 6 costs far more than you save.
 
-Phase A below is all offline. Do that now. Do not start Phase B until you have seen
-`SENTINEL soak-complete` in the soak log — checked **once**, after 19:05, not polled.
+`make -j4` takes all four cores for ~40 minutes. During a soak it would not perturb the
+measurement, it would **end** it.
+
+Phase A below is entirely offline — do it whenever. Start Phase B only when the Pi is
+confirmed idle and `SENTINEL soak-complete` is in the soak log, checked **once**, not polled.
 
 ---
 
