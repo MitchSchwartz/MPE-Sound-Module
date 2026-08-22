@@ -39,7 +39,7 @@ single-client refactor, and the unison cost theory (twice).
 
 | # | Task | Prompt | Time | Gate |
 |---|---|---|---|---|
-| **1** | **V11 — 512x2 / 256x3 at confirmed counts** | *needs writing* | ~15 min | none |
+| **1** | **V11 — 512x2 / 256x3 at confirmed counts** | `PROMPT-V11-512-256-confirm.md` | ~15 min | none |
 | 2 | 8 h soak at whatever V11 leaves as best config | — | overnight | none |
 | 3 | P7 overclock diagnostic | `PROMPT-P7-overclock-diagnostic.md` | ~13 min | needs Mitch present (reboot) |
 | 4 | P8 `-mcpu=cortex-a72` | `PROMPT-P8-mcpu-cortex-a72.md` | build 40 min + 20 min measure | **conditional on P7** |
