@@ -1,0 +1,1 @@
+RESULT tag=A-b256-p3-l0-run1 xruns=23 meter_live=1 meter_max_age_s=1 dsp_median=10.000000 dsp_p99=11.000000 dsp_max=12.000000 samples=60 window_align=1
