@@ -40,9 +40,9 @@ clock_stamp() {
 }
 
 clock_assert_idle() {
-    if pgrep -f 'measure-soak-instrument|measure-plan-p7|measure-latency-run|midi-load-hold' >/dev/null 2>&1; then
+    if pgrep -f 'measure-soak-instrument|measure-latency-run|midi-load-hold\.py' >/dev/null 2>&1; then
         echo "ERROR: measurement process still running — Pi not idle" >&2
-        pgrep -af 'measure-soak|measure-plan|measure-latency|midi-load-hold' >&2 || true
+        pgrep -af 'measure-soak-instrument|measure-latency-run|midi-load-hold' >&2 || true
         return 1
     fi
     return 0
