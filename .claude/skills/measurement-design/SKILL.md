@@ -78,6 +78,35 @@ byte rate).
 
 If such a check exists and has not been done, **stop and do it.**
 
+## Step 1.5 — pilot before you run at length
+
+**Rule -1/Step 0 asks whether the instrument is trustworthy. This asks whether *this test, as
+designed*, will produce interpretable output.** A conformant instrument in a badly-shaped run
+still yields nothing.
+
+**Never run a measurement at full length before running one cell at minimum length and reading
+the output.**
+
+1. One cell, shortest window, n=1.
+2. **Read every field the full run will report.**
+3. Confirm each is present, numeric, and physically plausible.
+4. Only then scale.
+
+**Step 3 is the rule. Exit code 0 is not the check** — every silent-instrument failure in this
+project exited 0.
+
+**V11 ran 24.5 min and produced an unusable DSP column. A 2-minute pilot would have shown
+`dsp_med=unknown` in the first cell.** The same was true of all nine failures: visible in cell
+one, noticed only after the run finished.
+
+**Pilot whenever something is new or changed** — new harness, new metric or field, changed
+instrument, changed platform (**mandatory on the Pi 5**), a config never measured before, or
+**any run following a fix**. An unchanged cell on an unchanged platform does not need one.
+
+**Harness changes get piloted against a cell whose answer is already known**, to confirm they
+reproduce it. A fix that moves a known-good number is a regression, visible only if the pilot
+targets known ground.
+
 ## Step 2 — pre-register the cell
 
 Write this into the measurement doc **before** running:
@@ -91,6 +120,7 @@ Premises:       | premise | verified how | when |
 Instruments:    <what each counts; when last audited>
 Conformance:    <positive + negative control run this session? PASS/FAIL per metric — required>
 Impossible if:  <what reading would be arithmetically impossible; assert it in the harness>
+Pilot:          <one cell at minimum length run and output READ? PASS/FAIL — required if anything is new>
 Prediction:     <expected value, written before the run>
 Falsifier:      <what result would make me abandon the hypothesis>
 Cheaper check:  <what free check was considered, and why it is insufficient>
@@ -224,6 +254,9 @@ Standing constraints to restate in every prompt:
 | "this is read-only so it is free" | reading `/proc/asound` takes a driver lock; SSH forks processes |
 | a 60 s window because the last one was 60 s | size it from the expected event rate (Step 2) |
 | a soak to measure a 0.13/min rate | the metric is wrong for the question — find one with a higher event rate |
+| running the full plan first, reading output after | pilot one cell and read it (Step 1.5); V11 cost 24.5 min for a 2-min lesson |
+| "it exited 0, so it worked" | every silent-instrument failure here exited 0 |
+| testing a fix by running the full suite | pilot against a cell whose answer is already known |
 | `\|\| value=0` / `// 0` / `except: pass` on a reading | **in-band failure** — the instrument can now report blindness as data (Step 0) |
 | "unknown" / "n/a" / empty in a results field | same defect wearing a different mask; halt instead |
 | a number that looks plausible, accepted because it looks plausible | plausibility is what all nine failures had in common |
