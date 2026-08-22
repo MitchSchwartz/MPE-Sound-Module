@@ -1,0 +1,13 @@
+=== measure-latency-run buffer=512 periods=3 condition=A runs=1 seconds=60 2026-08-22T12:00:00-04:00 ===
+SENTINEL harness-start
+=== provenance after strict restart ===
+jackd period=512 ok
+=== run A-b512-p3-l0-run1 ===
+RESULT tag=A-b512-p3-l0-run1 xruns=2 meter_live=1 meter_max_age_s=1 dsp_median=38.520000 dsp_p99=41.000000 dsp_max=48.850000 window_align=1
+RESULT tag=A-b512-p3-l0-run1 jitter_n=5640 jitter_median_usec=120 jitter_p99_usec=400 jitter_p99_9_usec=800 jitter_max_usec=917
+RESULT tag=A-b512-p3-l0-run1 frames_late_p99_usec=230 frames_late_max_usec=562
+RESULT tag=A-b512-p3-l0-run1 delay_events=0 delay_nonzero=0 (legacy, ignore)
+RESULT tag=A-b512-p3-l0-run1 samples=60 temp=temp=54.0'C throttled=throttled=0x0
+RESULT tag=A-b512-p3-l0-run1 file=/tmp/latency-A-b512-p3-l0-run1.out xrun_events=/tmp/latency-A-b512-p3-l0-run1.xruns
+SENTINEL run-complete tag=A-b512-p3-l0-run1 xruns=2
+SENTINEL harness-end
