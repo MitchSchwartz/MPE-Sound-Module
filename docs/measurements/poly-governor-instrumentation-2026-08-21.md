@@ -24,7 +24,7 @@ blended `cpu`, `raw_percent`, patch name, hold time before acting.
 
 ### Spam guard (oscillating controller)
 
-If more than 10 transitions land in one second, individual lines are suppressed and a
+If more than `spam_threshold_per_s(poll_interval)` transitions land in one second (5 at the shipped 0.15 s poll — below the 6.67 ticks/s ceiling), individual lines are suppressed and a
 single summary is emitted on the next window roll:
 
 ```
@@ -63,6 +63,8 @@ Existing vars unchanged: `MPE_POLY_GOVERNOR`, `MPE_POLY_CEILING`, `MPE_POLY_FLOO
 `MPE_POLY_EMERGENCY`, `MPE_POLY_GOVERNOR_HEADROOM`.
 
 **With no env vars set, behaviour matches pre-instrumentation constants exactly.**
+
+Spam threshold is derived as `max(2, int(1.0 / poll_interval_s) - 1)` so the guard engages at shipped cadence.
 
 ## Task A2 — CPU affinity (fixed)
 
