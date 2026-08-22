@@ -35,7 +35,7 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 PATCH_PATH="$QUICK_SELECT/${PATCH_NAME}.fxp"
-[ -f "$PATCH_PATH" ] || { echo "ERROR: missing $PATCH_PATH" >&2; exit 1 }
+[ -f "$PATCH_PATH" ] || { echo "ERROR: missing $PATCH_PATH" >&2; exit 1; }
 
 mkdir -p "$ARTIFACT_DIR"
 exec >>"${ARTIFACT_DIR}/plan-v8.log" 2>&1
