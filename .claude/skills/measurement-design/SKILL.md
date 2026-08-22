@@ -269,3 +269,9 @@ Standing constraints to restate in every prompt:
 | a number that looks plausible, accepted because it looks plausible | plausibility is what all nine failures had in common |
 | "the instrument worked last week" | a new kernel/JACK/build changes this; conformance is per-session |
 | a result that violates arithmetic, explained rather than rejected | check the instrument **first**; V11's 1% DSP with 23 xruns was impossible, not interesting |
+
+---
+
+## After the session (labour evidence)
+
+Invoke **`sred-daily-capture`** (`.claude/skills/sred-daily-capture/SKILL.md`) and append to [`docs/SRED-DAILY-LOG.md`](../../docs/SRED-DAILY-LOG.md). Conditions before the run; labour after — same session, not Friday.
