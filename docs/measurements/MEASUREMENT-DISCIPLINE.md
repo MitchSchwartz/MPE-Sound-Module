@@ -49,7 +49,20 @@ Instruments:       <what each one actually counts, and when that was last audite
 Prediction:        <expected value, written down before the run>
 Falsifier:         <what result would make me abandon the hypothesis>
 Cheaper check:     <what free/offline check was considered and why it is insufficient>
+Shortest form:     <shortest version that would still change the decision>
+Why not that:      <justification for running anything longer>
 ```
+
+**Always ask what the shortest useful version of this test is.** The shortest is not
+necessarily optimal — but it must be asked, answered, and any gap justified in writing.
+Test bloat is the default: windows get sized by habit, not by what they must resolve.
+
+Size the window from the **expected event rate**, not convention. To see ~30 events at
+2776/min takes ~1 second; at 112/min ~15 s; at 12/min ~2.5 min; **at 0.13/min ~4 hours.**
+When the shortest useful version comes out implausibly long, that is evidence **the metric is
+wrong for the question** — not a reason to run a soak. Switch to a metric with a higher event
+rate (fill level, DSP p99, ALSA magnitudes) or to a comparison that does not require counting
+rare events.
 
 **"Prediction" is the load-bearing line.** If you cannot say what would surprise you, the
 cell is not designed yet. **"Falsifier" is second** — a hypothesis with no disconfirming
@@ -120,6 +133,7 @@ be re-argued.
 
 ## The half-page version
 
+0. Ask the shortest useful version of the test. Justify anything longer.
 1. Cheap check before expensive window. Always.
 2. Write the prediction and the falsifier before the run.
 3. Audit the instrument before its first decision.
