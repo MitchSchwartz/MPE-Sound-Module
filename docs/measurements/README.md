@@ -17,6 +17,7 @@ under, so numbers stay comparable:
 
 | Setting | Value |
 |---|---|
+| **Platform** | **Raspberry Pi 4B / BCM2711 / Cortex-A72 @ 1800 MHz (`arm_boost=1`)** — *state this in every doc; a Pi 5 is incoming, see [`PI5-TRANSITION-PLAN.md`](../PI5-TRANSITION-PLAN.md)* |
 | Profile | `standalone` |
 | `MPE_JACK_BUFFER` | 256 |
 | `MPE_JACK_PERIODS` | 3 |
