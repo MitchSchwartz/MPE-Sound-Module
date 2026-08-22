@@ -94,7 +94,7 @@ mpe_result_physics_assert() {
 
     if [ -n "$xr" ] && [ -n "$dsp" ]; then
         # 10% DSP with material xruns at 512 is impossible (baseline ~38%)
-        if [ "$buf" = "512" ] || [ "${MPE_R_tag-}" = *"-b512-"* ]; then
+        if [ "$buf" = "512" ] || [[ "${MPE_R_tag-}" = *"-b512-"* ]]; then
             if awk -v d="$dsp" -v x="$xr" 'BEGIN { exit !(d+0 < 15 && x+0 > 5) }'; then
                 _mpe_result_die "physics: dsp_median=${dsp}% with xruns=${xr} at 512 impossible"
                 return 1
