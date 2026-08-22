@@ -13,9 +13,12 @@ MPE_RESULT_STRICT="${MPE_RESULT_STRICT:-1}"
 #   512:  W1-b 512×3 — 62.4% (docs/measurements/w1-instrumented-window-2026-08-21.md)
 #   256:  W1-c 256×3 — 76.1% (docs/measurements/w1-instrumented-window-2026-08-21.md)
 # V11 idle/mistimed signatures (0.9%, 1.6%) sit far below these floors.
-readonly MPE_DSP_FLOOR_1024="7.6"
-readonly MPE_DSP_FLOOR_512="12.5"
-readonly MPE_DSP_FLOOR_256="15.2"
+if [ -z "${_MPE_MEASUREMENT_RESULT_SOURCED:-}" ]; then
+    readonly MPE_DSP_FLOOR_1024="7.6"
+    readonly MPE_DSP_FLOOR_512="12.5"
+    readonly MPE_DSP_FLOOR_256="15.2"
+    _MPE_MEASUREMENT_RESULT_SOURCED=1
+fi
 
 _mpe_result_die() {
     echo "ERROR: measurement-result: $*" >&2
