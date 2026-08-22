@@ -37,10 +37,10 @@ def main() -> int:
     cpu_monitor = SurgeCpuMonitor(monitor)
     cpu_monitor.start()
     osc = udp_client.SimpleUDPClient("127.0.0.1", 53280)
+    stop = _Stop()
     governor = SurgePolyGovernor(osc, surge_monitor=monitor, cpu_monitor=cpu_monitor)
     governor.start()
     print("Surge poly governor running.", flush=True)
-    stop = _Stop()
     try:
         while not stop.flag:
             # Sleep in slices so SIGTERM is honoured promptly rather than at interval edge.
