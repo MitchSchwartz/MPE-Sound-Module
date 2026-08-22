@@ -223,9 +223,9 @@ so it costs nothing the discipline does not already demand. **Start with V11.**
 
 | # | gap | why it matters | effort |
 |---|---|---|---|
-| **G1** | **Person-hours are not recorded.** Git timestamps show *when* commits landed, not effort expended. Claims are computed from labour. | Highest-value gap | Reconstruct per-phase estimates from the §4 table while memory is fresh |
+| **G1** | **Person-hours are not recorded.** Git timestamps show *when* commits landed, not effort expended. Claims are computed from labour. | Highest-value gap | [`PROMPT-G1-effort-reconstruction.md`](measurements/PROMPT-G1-effort-reconstruction.md) — interactive walkthrough with Mitch, phase by phase |
 | **G2** | **Prior-art searches are undocumented.** §5 is reconstructed after the fact, not contemporaneous. | Directly answers the reviewer's first question | Adopt the prompt paragraph going forward; §5 covers the past |
-| **G3** | **Raw logs live on the appliance**, referenced by path but not archived in-repo. An SD card failure destroys the underlying data behind every number. | Evidence durability, and this is an audio appliance whose SD card shares IRQ 41 with WiFi | Copy `~/*.log` into the repo or an archive — **do this when the Pi is idle** |
+| **G3** | **Raw logs live on the appliance**, referenced by path but not archived in-repo. An SD card failure destroys the underlying data behind every number. | Evidence durability, and this is an audio appliance whose SD card shares IRQ 41 with WiFi | [`PROMPT-G3-archive-raw-logs.md`](measurements/PROMPT-G3-archive-raw-logs.md) — **only when the Pi is idle** |
 | **G4** | **Uncertainties were never stated as such at the time.** They are inferred here from what the experiments tested. | Reviewers look for uncertainty stated up front | This document establishes them; carry the framing forward into new prompts |
 | **G5** | **No separation of eligible from routine work.** Packaging, docs, CLI ergonomics, and deploy tooling are interleaved in the same history. | Overclaiming weakens the whole submission | Tag or list the routine commits |
 
