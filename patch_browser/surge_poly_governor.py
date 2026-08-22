@@ -36,8 +36,14 @@ DEFAULT_STEP_DOWN = 2
 DEFAULT_STEP_DOWN_SPIKE = 4
 DEFAULT_STEP_DOWN_WARM = 2
 DEFAULT_STEP_UP = 1
-LOG_SPAM_THRESHOLD_PER_S = 10
 VERBOSE_TRACE_FILE = "poly-governor.trace"
+
+
+def spam_threshold_per_s(poll_interval_s: float) -> int:
+    """Must sit below max emits/sec (1/poll_interval) to engage at shipped cadence."""
+    if poll_interval_s <= 0:
+        return 2
+    return max(2, int(1.0 / poll_interval_s) - 1)
 
 
 def _env_float(key: str, default: float) -> float:
@@ -119,7 +125,8 @@ def verbose_trace_enabled() -> bool:
 class PolyGovernorJournal:
     """State-change journal logging with spam guard (never per-tick)."""
 
-    def __init__(self) -> None:
+    def __init__(self, poll_interval_s: float = DEFAULT_POLL_INTERVAL_S) -> None:
+        self._spam_threshold = spam_threshold_per_s(poll_interval_s)
         self._window_start = time.monotonic()
         self._window_count = 0
         self._suppressed = 0
@@ -140,7 +147,9 @@ class PolyGovernorJournal:
             f"step_down={config.step_down} "
             f"step_down_spike={config.step_down_spike} "
             f"step_down_warm={config.step_down_warm} "
-            f"step_up={config.step_up}",
+            f"step_up={config.step_up} "
+            f"warm_window={config.patch_warm_window_s} "
+            f"emergency_poly={poly_emergency()}",
             flush=True,
         )
 
@@ -167,23 +176,37 @@ class PolyGovernorJournal:
     def log_error(self, message: str) -> None:
         self._emit(f"poly-governor: tick error {message}")
 
+    def log_send_failed(
+        self,
+        *,
+        old_limit: int,
+        new_limit: int,
+        reason: Reason,
+    ) -> None:
+        self._emit(
+            f"poly-governor: send failed {old_limit} -> {new_limit} reason={reason}"
+        )
+
+    def log_enabled_change(self, *, was: bool, now: bool) -> None:
+        self._emit(f"poly-governor: enabled {int(was)} -> {int(now)}")
+
     def flush_pending(self) -> None:
         self._flush_suppressed()
 
     def _emit(self, line: str) -> None:
+        append_verbose_trace(line)
         now = time.monotonic()
         if now - self._window_start >= 1.0:
             self._flush_suppressed()
             self._window_start = now
             self._window_count = 0
 
-        if self._window_count >= LOG_SPAM_THRESHOLD_PER_S:
+        if self._window_count >= self._spam_threshold:
             self._suppressed += 1
             return
 
         self._window_count += 1
         print(line, flush=True)
-        append_verbose_trace(line)
 
     def _flush_suppressed(self) -> None:
         if self._suppressed < 1:
@@ -239,7 +262,8 @@ class SurgePolyGovernor:
         self.poll_interval = (
             self.config.poll_interval_s if poll_interval is None else poll_interval
         )
-        self._journal = journal or PolyGovernorJournal()
+        self._journal = journal or PolyGovernorJournal(self.config.poll_interval_s)
+        self._last_send_fail: tuple[int, int, Reason] | None = None
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._effective_poly: int | None = None
@@ -333,8 +357,10 @@ class SurgePolyGovernor:
         old_limit = self._effective_poly
         if old_limit is None or old_limit == new_limit:
             return
+        fail_key = (old_limit, new_limit, reason)
         if send_polylimit(self.osc_client, new_limit):
             self._effective_poly = new_limit
+            self._last_send_fail = None
             self._journal.log_transition(
                 old_limit=old_limit,
                 new_limit=new_limit,
@@ -343,6 +369,13 @@ class SurgePolyGovernor:
                 raw_cpu=raw_cpu,
                 patch=self._last_patch,
                 held_s=held_s,
+            )
+        elif self._last_send_fail != fail_key:
+            self._last_send_fail = fail_key
+            self._journal.log_send_failed(
+                old_limit=old_limit,
+                new_limit=new_limit,
+                reason=reason,
             )
 
     def _cpu_sample(self) -> tuple[float | None, float | None]:
@@ -397,7 +430,10 @@ class SurgePolyGovernor:
     def _tick(self) -> None:
         self._pref_check_counter += 1
         if self._pref_check_counter % 4 == 0:
-            self._enabled = governor_active()
+            enabled = governor_active()
+            if enabled != self._enabled:
+                self._journal.log_enabled_change(was=self._enabled, now=enabled)
+            self._enabled = enabled
 
         self._refresh_patch_state()
         if not self._enabled:
