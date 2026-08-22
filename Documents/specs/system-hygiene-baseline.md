@@ -160,10 +160,10 @@ Branch: `yolo/system-hygiene-baseline`
 
 | step | artifact | status |
 |---|---|---|
-| 0 | [`step0-restore-jack-2026-08-21.md`](../docs/measurements/step0-restore-jack-2026-08-21.md) | done — 1024×3 read back |
-| 1 | [`step1-unknowns-2026-08-21.md`](../docs/measurements/step1-unknowns-2026-08-21.md) | done |
-| 2 | [`step2-hygiene-applied-2026-08-21.md`](../docs/measurements/step2-hygiene-applied-2026-08-21.md) | done — reboot + verify |
-| 3 | [`step3-rebaseline-2026-08-21.md`](../docs/measurements/step3-rebaseline-2026-08-21.md) | done |
+| 0 | [`step0-restore-jack-2026-08-21.md`](../docs/measurements/archive/step0-restore-jack-2026-08-21.md) | done — 1024×3 read back |
+| 1 | [`step1-unknowns-2026-08-21.md`](../docs/measurements/archive/step1-unknowns-2026-08-21.md) | done |
+| 2 | [`step2-hygiene-applied-2026-08-21.md`](../docs/measurements/archive/step2-hygiene-applied-2026-08-21.md) | done — reboot + verify |
+| 3 | [`step3-rebaseline-2026-08-21.md`](../docs/measurements/archive/step3-rebaseline-2026-08-21.md) | done |
 
 ### Re-baseline numbers (Step 3 — within-stream only)
 
@@ -173,7 +173,7 @@ Branch: `yolo/system-hygiene-baseline`
 | 256×3 A | **7.80** | 0/15 | 1 stream — T11/T13/hyg are **3 different streams** |
 | 1024×3 D8 | **0.20** | 12/15 | 1 stream — **not** a shipping claim |
 
-**Stream-start variance:** [`stream-start-variance-2026-08-21.md`](../docs/measurements/stream-start-variance-2026-08-21.md)
+**Stream-start variance:** [`stream-start-variance-2026-08-21.md`](../docs/measurements/archive/stream-start-variance-2026-08-21.md)
 
 **Phase 0:** defects fixed (measured on device). **Delta vs baseline unevaluated** until
 `measure-stream-sample.sh` (N streams × k runs). **T12** (192×3 vs 256×3, 10 streams) is
@@ -192,7 +192,7 @@ the primary next experiment.
 - `mpe-irq-affinity.service` + movable IRQs → CPU1
 - `boot-assert-cmdline.sh` on jackd prestart
 - `apply-appliance-hygiene.sh`: timers masked, services pruned, USB PM on, WiFi PS off, HDMI disabled in cmdline; **DefaultTimeoutStopSec=10s** via `config/systemd/mpe-appliance.conf`
-- Shutdown: [`shutdown-timeout-fix-2026-08-21.md`](../docs/measurements/shutdown-timeout-fix-2026-08-21.md) — peak-meter `TimeoutStopSec=5`, interruptible SIGTERM
+- Shutdown: [`shutdown-timeout-fix-2026-08-21.md`](../docs/measurements/archive/shutdown-timeout-fix-2026-08-21.md) — peak-meter `TimeoutStopSec=5`, interruptible SIGTERM
 
 *Last updated: 2026-08-21 (America/Toronto)*
 

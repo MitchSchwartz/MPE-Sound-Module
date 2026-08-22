@@ -1,0 +1,9 @@
+Instrument soak: 8h @ 1024×2, patch=Cloud Horn voices=5, condition A
+Started: 2026-08-22T11:05:36-04:00
+Expected finish: 2026-08-22T19:05:36-04:00
+Log: /home/mitch/instrument-soak-1024x2.log
+Applied buffer=1024 periods=2
+OSC client initialized: 127.0.0.1:53280
+Loaded patch: Cloud Horn.fxp
+loaded Cloud Horn.fxp
+./scripts/measure-soak-instrument.sh: line 148: MPE_METER_LAST_AGE_S: unbound variable

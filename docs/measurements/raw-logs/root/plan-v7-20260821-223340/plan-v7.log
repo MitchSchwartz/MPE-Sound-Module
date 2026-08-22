@@ -1,0 +1,27 @@
+=== Plan V7 + V3 2026-08-21T22:33:40-04:00 artifacts=/root/plan-v7-20260821-223340 patch=Crystals ===
+poly_state={
+  "ceiling_poly": 12,
+  "effective_poly": 9,
+  "native_poly": 16,
+  "patch": "Crystals",
+  "reuse_single": true
+}
+
+=== V7 capacity curve ===
+Applied buffer=1024 periods=3
+Appended capacity ramp to /root/plan-v7-20260821-223340/v7-capacity.log
+Applied buffer=512 periods=3
+Appended capacity ramp to /root/plan-v7-20260821-223340/v7-capacity.log
+Applied buffer=256 periods=3
+Appended capacity ramp to /root/plan-v7-20260821-223340/v7-capacity.log
+
+=== V3 1024x2 (n=3, cond A, 60s) ===
+Appended measurement to /root/plan-v7-20260821-223340/v3-1024x2.log
+SENTINEL harness-logged
+
+=== V3 baseline 1024x3 (n=3, same session) ===
+Appended measurement to /root/plan-v7-20260821-223340/v3-baseline-1024x3.log
+SENTINEL harness-logged
+
+=== restore shipping softmode ===
+SENTINEL plan-v7-complete 2026-08-21T22:48:14-04:00

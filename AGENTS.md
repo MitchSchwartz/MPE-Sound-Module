@@ -219,19 +219,20 @@ He is needed for exactly three things:
 Everything else is yours: unit tests, xrun runs, CPU sampling, DSP load, latency
 harnesses, crash-recovery timing, snapshot cost. MIDI input is **not** a reason to
 involve him — `scripts/midi-load.py` drives Surge, and a virtual ALSA port connected to
-the bench's input drives pads (see `docs/measurements/looper-midi-osc-latency-2026-08-19.md`).
+the bench's input drives pads (see `docs/measurements/archive/looper-midi-osc-latency-2026-08-19.md`).
 
 ### Self-test the instrument before it costs him anything
 
-**Doctrine (Rule −1):** Every instrument returns its value and its failure through the
-**same channel**. A broken instrument is indistinguishable from a working one at the reading
-site — not nine bugs, one missing convention. Before any measurement involving Mitch or a
-shipping claim, run **`./scripts/instrument-conformance.sh`** (≤ 15 min, offline). Four
-mechanisms: no in-band failures (`|| echo 0`, `unknown`, continue-on-error → halt);
-positive control (reading is *right*, not merely present); negative control (broken
-instrument must halt the harness); physics assertions (impossible results rejected
-in-harness). **Do not weaken an assertion to make a test pass.** Full spec:
-[`docs/measurements/MEASUREMENT-DISCIPLINE.md`](docs/measurements/MEASUREMENT-DISCIPLINE.md).
+> **Doctrine, 2026-08-22 — nine occurrences, one root cause.** Every instrument here returns
+> its value and its failure *through the same channel*, so a broken instrument is
+> indistinguishable from a working one at the reading site and blindness arrives as a
+> **result**. Required in every harness: **no in-band failures** (no `|| x=0`, no `unknown`,
+> no continue-on-error — halt the cell); **a positive control** (force a known answer, assert
+> the reading matches); **a negative control** (break it deliberately, assert the harness
+> halts); **physics assertions** rejecting impossible results in-harness. Run
+> **`./scripts/instrument-conformance.sh`** (≤ 15 min, offline) before any Pi measurement or
+> shipping claim. Full rule: `docs/measurements/MEASUREMENT-DISCIPLINE.md` **Rule -1**. **Do not
+> weaken an assertion to make a test pass.**
 
 On 2026-08-19 Mitch tapped pads **382 times across two sessions** and both produced zero
 samples, because the harness was hooking a code path pads never touch. Four separate
@@ -256,3 +257,38 @@ any measurement involves him:
    same thing whether it worked or not.
 
 A remote command that returns no output is not evidence that it ran.
+
+### And a working instrument can still be the wrong one
+
+The rule above catches an instrument that returns **nothing**. On 2026-08-21 we hit the
+other half: instruments that return **confident, plausible numbers that do not mean what we
+assumed.** Both would have passed every check in the previous section.
+
+| instrument | produced | actually meant |
+|---|---|---|
+| `mpe-xrun-probe` xrun count | non-zero every run, self-tests clean | an **event count with no magnitude**, conflating ALSA underruns with JACK graph overruns — see `docs/measurements/xrun-counter-audit-2026-08-21.md` |
+| proposed 10-20 Hz fill poller | a smooth, legible trace | **sub-Nyquist** against period rates of 47/94/188 Hz — a confident trace of nothing |
+
+So two more checks, before an instrument informs any decision:
+
+4. **Audit what it actually counts**, in writing, dated. One-time cost per instrument.
+   Ask: *what reading would this produce if it were broken?* If that matches a healthy
+   reading, it is not an instrument.
+5. **Check its resolution against the signal.** A sampler below the Nyquist rate of the
+   thing it measures yields an authoritative-looking trace with the answer removed.
+6. **Ask what the shortest useful version of the test is**, and justify anything longer in
+   writing. Size windows from the **expected event rate**, not convention — ~30 events takes
+   ~1 s at 2776/min but ~4 hours at 0.13/min. When the shortest useful version comes out
+   implausibly long, **the metric is wrong for the question**, not a reason to run a soak.
+
+**Before designing any measurement, invoke the `measurement-design` skill**
+(`.claude/skills/measurement-design/SKILL.md`). It carries the checklist, the audited
+instrument facts, and the rules for writing a measurement prompt for another agent — use it
+before opening a Pi window, before handing a prompt to an agent, and when interpreting
+results.
+
+**Full doctrine: [`docs/measurements/MEASUREMENT-DISCIPLINE.md`](docs/measurements/MEASUREMENT-DISCIPLINE.md)**
+— cheap-check-first ordering, per-cell pre-registration (prediction **and** falsifier written
+before the run), claim classes and minimum n, and the requirement that the harness stamp
+**actual** state into every result rather than intended state. Read it before designing a
+measurement.

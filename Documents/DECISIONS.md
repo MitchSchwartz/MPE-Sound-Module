@@ -6,6 +6,32 @@ Orientation canon: OM-Repo [`GROUNDING.md`](https://github.com/opsMachine/OM-Rep
 
 ---
 
+## 2026-08-22 — Gates: ship 1024×2 after soak; governor waits on fade
+
+**Gate 1 (Mitch):** Ship **1024×2** for instrument profile after **one overnight soak**
+(`scripts/measure-soak-instrument.sh` — default Cloud Horn @ 5 voices, 8 h). Looper stack
+stays **1024×3 condition D**. Measured cells (V9-b/d) used confirm harness only — ramp bug
+did not contaminate ×2 evidence.
+
+**Gate 2 (Mitch):** **Do not re-enable poly governor** until fade + steal order
+(released → quietest → oldest) and **CPU_HIGH_THRESHOLD** re-calibrated (50.0 is below
+~58.9% baseline @ 1024 — governor permanently “high”). Confirm-based floors are correct
+floors but fix the wrong failure mode (hard voice cut, not ceiling value).
+
+**Gate 3:** Percussive **voice-count metric deferred**. Rate metric (notes/sec roll) is the
+musically real question; Attenborough load fault stays separate.
+
+**V10-b (agent):** Ramp `_xruns_delta` fixed — blind reads abort; per-second sampling.
+See `docs/measurements/V10-b-ramp-probe-fix-2026-08-22.md`.
+
+**Measured (instrument-only):** **1024×2** matches **×3** at verified-clean counts (Cloud Horn
+5, Duduk 3, Brave New World 3, Crystals 3). **64.0 → 42.7 ms** total latency, no DSP cost in
+measured cells. Confirm floors @ 1024×3: Crystals **3**, Cloud Horn **5**, Closed Hat **5**.
+
+**Canon:** `docs/measurements/V9-REVIEW-2026-08-22.md`, `docs/measurements/session-handoff-2026-08-22.md`.
+
+---
+
 ## 2026-08-19 — Tier 2 rejected; stop-then-weld is the only tail model
 
 **Decision:** Remove “extend Recording until release quiet” (Tier 2) and Option E
@@ -162,7 +188,7 @@ said it was free. Measure with `xruns=` from `meter.state` and a deterministic l
 probe but *no probe*: `mpe-peak-meter` is a long-lived compiled client permanently on
 the graph, already re-checking its wiring every 2 s and publishing `wired=`. Reading
 that file answers the question for nothing. See
-[`docs/measurements/crackle-root-cause-2026-08-18.md`](../docs/measurements/crackle-root-cause-2026-08-18.md).
+[`docs/measurements/archive/crackle-root-cause-2026-08-18.md`](../docs/measurements/archive/crackle-root-cause-2026-08-18.md).
 
 **Applied:** PR #68 (`b6355b4`) for the looper reconcile; `0f9875c` replaced the
 `jack_lsp` graph probe with a `meter.state` read (35 -> 0 xruns/min at matched load).
@@ -521,7 +547,7 @@ downgrades to deleted ALSA stack (repriced after PR #50).
 whole #48 merge). Handover retained for Phase 1 landing notes only.
 
 **Progress (2026-08-14):** Session A **continue**, Session B **partial** —
-see [`docs/measurements/sooperlooper-eval-2026-08-14.md`](../docs/measurements/sooperlooper-eval-2026-08-14.md).
+see [`docs/measurements/archive/sooperlooper-eval-2026-08-14.md`](../docs/measurements/archive/sooperlooper-eval-2026-08-14.md).
 Test is **not complete**; implementation gate remains closed until **B8/B7**
 close on hardware with real audio. **B1/B2/B9/B10 closed 2026-08-14.**
 
