@@ -22,7 +22,11 @@ PATCH_NAME=""
 PROBE_SEC=12
 CONFIRM_SEC=20
 STEP=2
-MAX_VOICES=32
+START_VOICE=2
+MAX_VOICES=15
+SKIP_CONFIRM=0
+SKIP_SETUP=0
+PATCH_PATH=""
 RATE=48000
 ENV_FILE="/etc/mpe/mpe.env"
 RUN_AS_USER="${MPE_PI_USER:-mitch}"
@@ -34,7 +38,12 @@ while [ $# -gt 0 ]; do
         --tag) TAG="${2:?}"; shift 2 ;;
         --output) OUTPUT="${2:?}"; shift 2 ;;
         --patch-name) PATCH_NAME="${2:?}"; shift 2 ;;
-        -h | --help) sed -n '2,8p' "$0"; exit 0 ;;
+        --patch-path) PATCH_PATH="${2:?}"; shift 2 ;;
+        --probe-sec) PROBE_SEC="${2:?}"; shift 2 ;;
+        --skip-confirm) SKIP_CONFIRM=1; shift ;;
+        --skip-setup) SKIP_SETUP=1; shift ;;
+        --start-voice) START_VOICE="${2:?}"; shift 2 ;;
+        -h | --help) sed -n '2,12p' "$0"; exit 0 ;;
         *) echo "Unknown: $1" >&2; exit 2 ;;
     esac
 done
@@ -124,17 +133,32 @@ _set_env_var MPE_POLY_GOVERNOR 0
 _set_env_var MPE_POLY_CEILING 64
 _set_env_var MPE_POLY_FLOOR 64
 systemctl stop surge-poly-governor.service 2>/dev/null || true
-_enable_strict
-"$SCRIPT_DIR/set-surge-audio.sh" --buffer "$BUFFER" --periods "$PERIODS"
-sleep 6
+if [ "$SKIP_SETUP" -eq 0 ]; then
+    _enable_strict
+    "$SCRIPT_DIR/set-surge-audio.sh" --buffer "$BUFFER" --periods "$PERIODS"
+    sleep 6
+fi
+
+if [ -n "$PATCH_PATH" ]; then
+    [ -f "$PATCH_PATH" ] || { echo "ERROR: patch not found: $PATCH_PATH" >&2; exit 1; }
+    PATCH_NAME="${PATCH_NAME:-$(basename "$PATCH_PATH" .fxp)}"
+    _as_user python3 "$SCRIPT_DIR/load-patch-osc.py" "$PATCH_PATH" || exit 1
+    sleep 1
+fi
 
 {
     echo "=== capacity-ramp tag=${TAG} buffer=${BUFFER}x${PERIODS} patch=${PATCH_NAME:-unknown} $(date -Is) ==="
     echo "CARD=$("$SCRIPT_DIR/resolve-alsa-playback-status.sh" 2>/dev/null | awk -F= '/^CARD=/{print $2}')"
+    if [ -n "$PATCH_PATH" ] && [ -f "$PATCH_PATH" ]; then
+        _as_user python3 "$SCRIPT_DIR/parse-fxp-metadata.py" "$PATCH_PATH" || true
+    fi
 
     last_clean=0
     first_overrun=""
-    v=$STEP
+    v=$START_VOICE
+    if [ "$v" -lt 1 ]; then
+        v=1
+    fi
     while [ "$v" -le "$MAX_VOICES" ]; do
         xr="$(_xruns_delta "$v" "$PROBE_SEC")"
         echo "PROBE voices=${v} sec=${PROBE_SEC} xruns_delta=${xr}"
@@ -152,7 +176,7 @@ sleep 6
         echo "RESULT tag=${TAG} first_overrun=${first_overrun} sustained_clean=${last_clean}"
     fi
 
-    if [ "$last_clean" -gt 0 ]; then
+    if [ "$last_clean" -gt 0 ] && [ "$SKIP_CONFIRM" -eq 0 ]; then
         read -r cn cmed cp99 cp999 cp9999 cmax cms_med cms_p999 < <(_confirm_window "$last_clean")
         echo "RESULT tag=${TAG} confirm_voices=${last_clean} dsp_n=${cn} dsp_ms_median=${cms_med} dsp_ms_p999=${cms_p999} dsp_p999=${cp999} dsp_max=${cmax}"
     fi
