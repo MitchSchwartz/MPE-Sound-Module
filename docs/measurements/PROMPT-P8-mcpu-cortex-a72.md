@@ -38,6 +38,19 @@ If you cannot establish the installed revision offline, **say so and stop** — 
 tag. A rebuild from a different Surge version measures version + flag together and the number
 is worthless. Resolving it is the first thing to do in Phase B, before building.
 
+**A1b. Read the P7 result first and decide whether this is still worth doing.**
+P7 measures whether DSP cost scales inversely with clock, on both an oscillator-dominated
+patch and a filter-dominated one.
+
+- Both scale ~10% with a +11% clock -> uniformly compute-bound. Proceed; a 5-15% compute win
+  converts to headroom 1:1.
+- Neither scales -> **clock is not the binding constraint. Say so and stop.** A compiler flag
+  is a smaller version of the same lever P7 just showed does not move. Report it rather than
+  spending 45 minutes confirming it.
+- **They diverge** (osc-bound scales, filter-bound does not, or vice versa) -> proceed, but
+  this is the most interesting case: the two cost centres have different constraints, and P8
+  should report them separately rather than as one aggregate percentage.
+
 **A2. Write the build script** (`scripts/build-surge-a72.sh`), based on
 `docs/SURGE_ARM_BUILD.md:45-105`. Current build is `-DCMAKE_BUILD_TYPE=Release` and nothing
 else — no `-mcpu`. Add exactly one thing:
@@ -59,7 +72,17 @@ before the new binary is in place.
 
 - **Confirm harness only** — `measure-confirm-at-voices.sh` or `measure-latency-run.sh`.
   **Never `measure-capacity-ramp.sh`**, even post-V10-b, for a before/after comparison.
-- Patches and counts: **Crystals @ 3** and **Cloud Horn @ 5** — both confirm-verified floors.
+- Patches and counts, all confirm-verified, chosen to span both cost centres:
+  - **Crystals @ 3** — 3x Twist/Plaits, oscillator-dominated
+  - **Cloud Horn @ 5** — 2x String, oscillator-dominated
+  - **Duduk @ 3** — **1** unmuted Wavetable oscillator, filters 11/20: **filter-dominated**
+  The 53-patch census found `filter1 >= 10` on 12/53 patches (23%) versus any Twist on 2/53
+  (4%). Expensive filters are ~5x more common than exotic oscillators, and Duduk is floor-3
+  class on a single oscillator — **oscillator count does not predict cost on this library.**
+  A patch set that is entirely oscillator-dominated would not generalise.
+- **Report the three patches separately, not as one averaged percentage.** `-mcpu` tunes
+  scheduling and instruction selection; there is no reason oscillator inner loops and filter
+  inner loops must benefit equally. A split result is a finding, not noise.
 - Same buffer/periods for before and after. Use whatever the soak establishes as default.
 - **Hold clock constant at stock 1800 MHz for both halves.** The 2000 MHz test is a separate
   experiment; do not let the two overlap. One variable.
@@ -81,13 +104,19 @@ counts as no-effect — including the noise floor from repeated runs of the same
 3. Baseline measurement on the **current** binary, per A4. Do this even if older numbers
    exist — they were taken under different conditions.
 4. Back up the binary (A3).
-5. Build. ~40 min, all four cores, nothing else running.
-6. **Thermals.** The build heats the SoC hard. Check `vcgencmd get_throttled` and let the
+5. **Check free disk before building.** A Surge build tree is multiple GB. Running the SD
+   card to full mid-build is a bad failure on the box that also holds the audio binary — and
+   IRQ 41 is shared between the SD card and SDIO WiFi, so heavy writes are not free.
+6. Build. ~40 min, all four cores, nothing else running.
+7. **Thermals.** The build heats the SoC hard. Check `vcgencmd get_throttled` and let the
    board return to idle temperature **before measuring**. Measuring a hot Pi against a cold
    baseline invents a regression. `0x0` expected — anything else, report it and wait.
-7. Install, verify the binary changed, measure per A4.
-8. If the result is no-effect or negative, **revert** and say so plainly. A null result here
+8. Install, verify the binary changed, measure per A4.
+9. If the result is no-effect or negative, **revert** and say so plainly. A null result here
    is a real finding and closes a lever.
+10. **Ear test before keeping it.** This is the first binary change in the arc. Numbers
+   improving is necessary but not sufficient — confirm the instrument still sounds correct
+   at the patches above before the new binary stays installed.
 
 ---
 
@@ -100,3 +129,8 @@ counts as no-effect — including the noise floor from repeated runs of the same
   instrument before trusting the reading. That failure has now happened three times on this
   appliance (V8-b auto-pick, peak-meter shutdown, V10-b ramp probe).
 - Do not bundle other changes into this branch. `-mcpu` alone.
+- **`-mcpu=cortex-a72` is correct for this Pi 4 and wrong for a Pi 5** (Cortex-A76). If the
+  binary is ever meant to be portable across appliance hardware, that is a build-variant
+  decision to record now, not a flag to set once and forget.
+- Keep `~/surge-xt-cli.pre-a72` until the change has survived a soak. Do not clean it up as
+  tidiness.
