@@ -1,6 +1,6 @@
 # MPE-Module — agent orientation
 
-*Last updated: 2026-08-17 (America/Toronto)*
+*Last updated: 2026-08-22 (America/Toronto)*
 
 **Product:** Raspberry Pi MPE sound module (Surge XT headless + patch browser UI).
 
@@ -292,3 +292,20 @@ results.
 before the run), claim classes and minimum n, and the requirement that the harness stamp
 **actual** state into every result rather than intended state. Read it before designing a
 measurement.
+
+---
+
+## SR&ED daily labour capture (mandatory going forward)
+
+Historical labour through 2026-08-22 lives in [`docs/SRED-EFFORT-LOG.md`](docs/SRED-EFFORT-LOG.md) (G1 reconstruction). **Do not backfill that way again.**
+
+| when | do |
+|---|---|
+| End of investigation / measurement / instrument session | Invoke **`sred-daily-capture`** (`.claude/skills/sred-daily-capture/SKILL.md`) |
+| Append row | [`docs/SRED-DAILY-LOG.md`](docs/SRED-DAILY-LOG.md) via `scripts/sred-log-append.sh` |
+| Phase names | [`docs/SRED-EVIDENCE-2026.md`](docs/SRED-EVIDENCE-2026.md) §4 only |
+| Hours | Mitch's ranges only — never invent; use `?` if session ends without answer |
+
+**Log instrumentation work explicitly** (build / discover wrong / derive rule — see effort log §Instrumentation). Unattended soaks are normal; note monitoring fraction and mechanism references in the daily row.
+
+**Pair with `measurement-design`:** conditions before the Pi run; **labour after the session**.
