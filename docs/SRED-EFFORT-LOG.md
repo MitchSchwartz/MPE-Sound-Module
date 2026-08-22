@@ -66,7 +66,7 @@ Mitch floor: *would be surprised if under 10 h total.* Upper bound uncertain (C 
 
 | phase (§4) | span (sessions / git) | commits | hands-on (range) | instrument-building (range) | confidence | notes |
 |---|---|---:|---|---|---|---|
-| 1. Build-out | 07-18 → ongoing | ~200 (07-18→08-09) + continuing | **40–60** | — | medium | Continues through today. ~**20% routine**. |
+| 1. Build-out | 07-18 → ongoing | ~200 (07-18→08-09) + continuing | **40–60** | — | medium | Continues through today. ~**20% routine**. **08-06/07 unresolved** — possibly days off (see §Open). |
 | 2. First fault isolation | **08-12 → 08-18** (7 cal. days, **7 sessions**) | **296** | **20–28 h** (7 × 3–4 h/session) | **~5–8 h** (inst.; see §Inst.) | medium | **`jack_lsp` enters 08-12.** Fragmented bursts 08-16→18, not one marathon. Self-inflicted fault; heavy AI review. |
 | 3. Looper cost | 08-18 → 08-19 | ~50 themed | **~4.5–6 h/day** | **~5–8 h** (08-19 inst.; see §Inst.) | medium | xrun-probe, harness, tap v1 land 08-19. G5: admissibility pending. |
 | 4. Jitter hunt (refuted) | 08-19 → 08-21 | 39+5+part of 71 | **~4.5–6 h/day** | Low–med | medium | Scarlett ~30 min. Blind-instrument drag 08-20/21. |
@@ -184,7 +184,7 @@ Mitch floor: *would be surprised if under 10 h total.* Upper bound uncertain (C 
 |---|---|
 | Physical bench | A couple of hours |
 | Listening / live playing | Yes — live playing sessions |
-| **08-06 / 08-07** | Unsure — could have been mostly off |
+| **08-06 / 08-07** | **Unresolved — possibly days off** (low confidence; not filled in) |
 
 ### Phase 2 — additional recall
 
@@ -215,7 +215,31 @@ Mitch floor: *would be surprised if under 10 h total.* Upper bound uncertain (C 
 
 ### Phase 5 — E1 (refuted)
 
-See table row. `26f940c`: x86 probe binary removed — **repo hygiene** unless confirmed run on Pi.
+See table row. Instrument diligence for the 08-19 probe window: §Instrument diligence below.
+
+### Instrument diligence — 08-19 probe window (not Rule −1 #11)
+
+#### `26f940c` — x86 ELF in repo (**closed**)
+
+**Not occurrence eleven.** No Pi confirmation needed.
+
+| point | detail |
+|---|---|
+| **Failure class** | **Fail-loud** — x86-64 ELF on aarch64 cannot execute; garbled error, not a plausible number. Rule −1 is instruments that return a **believable wrong reading**; this returns nothing. |
+| **Timeline** | ARM probe tracked **08-19 18:46** (`d6d0fa4`, source + local build) → **08-20 12:59** removal (~18 h). Same window produced real data: `713cc9c` (delay stats), `63aa2b7` (jitter histogram), `fcf8507` (Task B baseline at 512). x86 artifact sat in git **without overwriting** the working ARM build. |
+| **Verdict** | Deployment hazard caught before it bit — **diligence line**, not a failure. Repo hygiene removal. |
+
+#### `223f31d` — accumulation verdict withdrawn (**reasoning correction**, not Rule −1)
+
+**08-19 20:33** — withdraw Step 1b accumulation verdict; re-gate Step 2 on jitter.
+
+Archive [`low-latency-step0-step1-2026-08-19.md`](measurements/archive/low-latency-step0-step1-2026-08-19.md): trend **did not replicate** (Step 1 ρ=0.90 p=0.042 → Step 1b block 1 ρ=0.50 p=0.225); restart effect **indistinguishable from noise** (run 6 post-restart z=−0.75). Conclusion withdrawn on **arithmetic**, not because an instrument lied. Pattern: **inference promoted to premise** — same family as other retracted conclusions, not blind-instrument Rule −1.
+
+#### `74faa00` — wait for PROBE_END (**development catch**, same family as V11)
+
+**08-19 21:44** — read jitter stats only after `PROBE_END` between runs. Same family as V11's DSP-window misalignment (read before instrument finished writing).
+
+Post-fix Step B in the same archive doc (`74faa00`, 08-20): jitter p99 CV **~0.02** vs xrun count CV **~0.41–0.53** on identical runs — stable readings after fix. Probe lifecycle bug separately fixed in `713cc9c` (`pkill -x mpe-xrun-probe` per window). **Caught during development**; no evidence a believed-wrong jitter number shipped as a verdict.
 
 ### Phases 6–8 — start of 08-21→22 push
 
@@ -269,8 +293,7 @@ Evening 08-21 (13:16→22:59). End burst 21:32–22:09 ≠ 37 min of work. Conti
 
 ## Open questions
 
-- Phase 1: 08-06/07 off or partial?
-- `26f940c`: confirm x86 probe never measured on Pi
+- Phase 1: **08-06/07 unresolved — possibly days off** (low confidence). Left open intentionally; honest gap reads better than a filled one.
 
 ---
 
@@ -282,4 +305,4 @@ Append per **session** to [`SRED-DAILY-LOG.md`](SRED-DAILY-LOG.md). Skill: [`.cl
 
 ---
 
-*Last updated: 2026-08-22 (America/Toronto) — Phase 2 seven sessions (S4a–d); 20–28 h; inst. 10–16 h split; G1 closed*
+*Last updated: 2026-08-22 (America/Toronto) — G1 closed; 26f940c diligence; 08-19 probe window triaged*
