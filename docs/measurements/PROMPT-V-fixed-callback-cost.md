@@ -64,9 +64,39 @@ Two live confounds. Both are cheap and both may have contaminated **every prior 
 | V0-b | is `surge-poly-governor` active? `MPE_POLY_CEILING` / `MPE_POLY_FLOOR` / `MPE_POLY_EMERGENCY` values | it **dynamically reduces polyphony under CPU load**. If it ran during measurements, the load was **not constant across the window** — a confound possibly present in every cell to date |
 | V0-c | is `-s softmode` still on jackd? | the Pi came back with it after the W1 restore; it changes xrun handling |
 
-**Actions:** revert softmode. **Disable the poly governor and pin poly to a fixed value for
-all V cells** — load must be constant and identical. Report the governor findings; **do not
-change the CPU governor yet**, that is V5.
+### V0-d — PIN THE CPU GOVERNOR FIRST. This is a precondition, not an experiment.
+
+**If the box is on `ondemand`, CPU clock has been an uncontrolled variable in every
+measurement this project has ever taken.** Every `dsp_p99` figure was recorded at whatever
+clock the governor happened to select — and it selects based on the very load we vary. Per
+the one-variable rule, **the clock must be pinned before any fixed-cost measurement means
+anything.**
+
+**Corroborating evidence (Mitch, by ear, 2026-08-21):** *quick pops when hitting chords on
+heavy patches **from silence**.* That is the textbook `ondemand` signature — idle means the
+clock has ramped **down**; a chord on a heavy patch is a near-instant load step; the governor
+only reacts on its next sampling interval (tens of ms on Pi); during that window Surge
+computes a heavy block at a low clock and overruns. Then the clock catches up, which is why
+the pops are brief and do not sustain.
+
+**Action:** set `MPE_CPU_GOVERNOR=performance`, apply, and **verify the actual value and
+current MHz in `/sys/.../scaling_governor` and `scaling_cur_freq`** before running any cell.
+Record what it was before. Monitor `vcgencmd measure_temp` and `get_throttled` throughout the
+session.
+
+**Then** revert softmode.
+
+### Poly governor — measure BOTH conditions, and label them
+
+Do **not** simply disable it. It is the **actual playing condition**; a fixed-cost number
+measured without it is cleaner science describing a machine nobody plays.
+
+| condition | used for | why |
+|---|---|---|
+| **poly governor OFF, poly pinned** | **V1, V2** | isolates the fixed cost; load must be constant to fit `a` |
+| **poly governor ON (shipping config)** | **V3, V5** | what a player actually experiences |
+
+State which condition every cell ran under. Never compare across conditions.
 
 ## V1 — silence test (~10 min): does the fixed cost exist?
 
@@ -106,7 +136,11 @@ third off shipping latency with **no change to the compute deadline** (Surge sti
 Confirm at **n >= 3 streams**, strict mode, fixed poly. Report xruns/min and DSP against the
 `1024 x 3` baseline. **Run this regardless of how V1 and V2 turn out.**
 
-## V5 — CPU governor (~15 min): a known lever that was never pulled
+## V5 — `ondemand` vs `performance` as a shipping question (~15 min)
+
+**Note: the governor is already pinned to `performance` by V0-d as a precondition.** V5 is
+the separate question of *how much it is worth*, measured deliberately — not the act of
+setting it.
 
 **This is not a new idea. It is a documented, prioritised lever that got lost.**
 `docs/LATENCY-SPIKE.md` recorded the governor as **`ondemand`**, flagged it as *"a classic
@@ -119,9 +153,13 @@ It is only *meaningful* now: while this looked like an IRQ/latency problem, cloc
 irrelevant. For a compute-bound problem it is directly proportional, and `ondemand`'s ramp
 acts precisely on the **tail**, which is where the overruns live.
 
-If V0-a confirms `ondemand`, test `performance` as a **single-variable** change at
-`256 x 3` — the cell with least headroom. Report DSP p99.9/max in **ms**, xruns/min, against
-the current baseline.
+Run `256 x 3` under **both** governors, poly governor **ON** (shipping condition), as a
+single-variable comparison. Report DSP p99.9/max in **ms** and xruns/min for each.
+
+**Add a transient cell that reproduces Mitch's observation**: from **silence**, trigger a
+full chord on a heavy patch, and capture `max` callback time across the transient — under
+each governor. The steady-state figures may barely differ while the **transient** is the
+whole effect. A steady-state-only comparison would miss it entirely.
 
 **Safety check — monitor, do not avoid.** Record `vcgencmd measure_temp` and
 `vcgencmd get_throttled` before, during and after. **If `get_throttled` becomes non-zero,
@@ -198,15 +236,16 @@ off the audio thread?"**
 
 | # | cell | Pi time | gate |
 |---|---|---|---|
-| V0 | pre-checks: governor, poly governor, softmode | ~5 min, read-only | everything |
+| **V0** | pre-checks **and pin `performance`** + revert softmode | ~10 min | **everything — clock must be pinned first** |
 | **V1** | silence test 1024/512/256 | ~10 min | V2, V4 |
 | **V2** | client-count test | ~10 min | the single-client refactor |
 | **V3** | `1024 x 2` at n >= 3 | ~15 min | independent — run regardless |
-| **V5** | governor `performance` at `256 x 3` | ~15 min | V6 |
+| **V5** | `ondemand` vs `performance`, incl. **silence->chord transient** | ~15 min | V6 |
 | **V6** | `arm_boost=1` at `256 x 3`, diagnostic | ~15 min | revert after |
 | V4 | profile the callback | ~30 min | **only if V1 confirms** |
 
-**V1 + V2 = 20 minutes and decide whether a refactor is worth building.** Run them first.
+**V0 first — the clock must be pinned before anything else is measured.** Then **V1 + V2 =
+20 minutes and decide whether a refactor is worth building.**
 
 ## Deliverable
 
