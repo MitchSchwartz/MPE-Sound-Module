@@ -71,10 +71,21 @@ If `get_throttled` is non-zero at any point, **report it and stop.** Do not aver
 **Confirm harness only** — `measure-confirm-at-voices.sh` or `measure-latency-run.sh`.
 **Never `measure-capacity-ramp.sh`** for a before/after comparison, even post-V10-b.
 
-Patches and counts, both confirm-verified floors:
+Patches and counts, all confirm-verified floors:
 
-- **Crystals @ 3**
-- **Cloud Horn @ 5**
+- **Crystals @ 3** — 3× Twist/Plaits, oscillator-dominated
+- **Cloud Horn @ 5** — 2× String, oscillator-dominated
+- **Duduk @ 3** — **1** unmuted Wavetable oscillator, filters 11/20: **filter-dominated**
+  floor-3 class. The 53-patch census found `filter1 >= 10` on 12/53 (23%) versus any Twist
+  on 2/53 (4%). Oscillator count does not predict cost on this library; a patch set that is
+  entirely oscillator-dominated would not tell you whether filter-bound work responds to
+  clock at all.
+
+**Report the three patches separately, not as one averaged percentage.** If filter-bound
+and oscillator-bound work scale together, the appliance is uniformly compute-bound and the
+result generalises. **If they diverge, that is a more valuable finding than the 11%** — it
+means one cost centre is bound by something other than clock, which changes what P8 and the
+multithreading assessment are worth.
 
 **Primary reading is `dsp_p99` and `dsp_max` at a fixed voice count** — continuous and
 sensitive. Voice ceiling is quantised at these small integers: +11% will very likely not add
@@ -91,10 +102,14 @@ changing anything.
 Write this down **before rebooting**, and record whether it held:
 
 - 1800 -> 2000 MHz is **+11.1% clock**
-- If purely compute-bound, `dsp_p99` should fall by **~10%**
-- **Within noise** (compare against the baseline spread measured above) -> clock is not the
-  binding constraint; report it, because it changes the whole compute roadmap
-- **Falls by much more than 11%** -> something is wrong with the comparison, not a windfall
+- If purely compute-bound, `dsp_p99` should fall by **~10%** on **each** patch (Crystals,
+  Cloud Horn, Duduk) — compare against baseline spread, not against each other
+- **Within noise** on all three (compare against the baseline spread measured above) -> clock
+  is not the binding constraint; report it, because it changes the whole compute roadmap
+- **Divergence across patches** (e.g. Crystals improves, Duduk flat) -> report the split;
+  do not average it away
+- **Falls by much more than 11%** on any patch -> something is wrong with the comparison,
+  not a windfall
 
 ---
 
