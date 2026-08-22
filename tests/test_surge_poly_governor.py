@@ -28,6 +28,7 @@ from patch_browser.surge_poly_governor import (
     PolyGovernorJournal,
     SurgePolyGovernor,
     load_governor_config,
+    spam_threshold_per_s,
 )
 
 
@@ -75,6 +76,10 @@ class SurgePolyGovernorTests(unittest.TestCase):
             ),
             encoding="utf-8",
         )
+
+    def test_spam_threshold_below_tick_rate(self) -> None:
+        threshold = spam_threshold_per_s(DEFAULT_POLL_INTERVAL_S)
+        self.assertLess(threshold, 1.0 / DEFAULT_POLL_INTERVAL_S)
 
     def test_load_governor_config_defaults(self) -> None:
         with mock.patch.dict(os.environ, {}, clear=True):
@@ -134,7 +139,8 @@ class SurgePolyGovernorTests(unittest.TestCase):
                     governor._last_patch = "Lead"
                     governor._warm_preempt_done = True
                     governor._refresh_patch_state()
-                    governor._tick()
+                    with mock.patch("builtins.print"):
+                        governor._tick()
             self.assertTrue(osc.messages)
             self.assertEqual(osc.messages[-1][1], 3.0)
 
@@ -151,7 +157,8 @@ class SurgePolyGovernorTests(unittest.TestCase):
                     governor._last_patch = "Lead"
                     governor._refresh_patch_state()
                     governor._warm_preempt_done = True
-                    governor._tick()
+                    with mock.patch("builtins.print"):
+                        governor._tick()
             self.assertTrue(osc.messages)
             self.assertEqual(osc.messages[-1][1], 8.0)
 
@@ -230,8 +237,8 @@ class SurgePolyGovernorTests(unittest.TestCase):
                 )
         lines = [str(c.args[0]) for c in mock_print.call_args_list if c.args]
         transition_lines = [line for line in lines if "->" in line and "reason=" in line]
-        self.assertEqual(len(transition_lines), 10)
-        self.assertEqual(journal._suppressed, 2)
+        self.assertEqual(len(transition_lines), journal._spam_threshold)
+        self.assertEqual(journal._suppressed, 12 - journal._spam_threshold)
 
     def test_spam_guard_emits_summary_on_window_roll(self) -> None:
         journal = PolyGovernorJournal()
@@ -243,18 +250,45 @@ class SurgePolyGovernorTests(unittest.TestCase):
         self.assertIn("suppressed=7", str(mock_print.call_args))
 
     def test_startup_log_once(self) -> None:
-        osc = FakeOscClient()
-        monitor = mock.Mock()
-        journal = PolyGovernorJournal()
-        governor = SurgePolyGovernor(osc, surge_monitor=monitor, journal=journal)
-        with mock.patch("builtins.print") as mock_print:
-            governor.start()
-            governor.start()
-        startup_calls = [
-            c for c in mock_print.call_args_list if c.args and str(c.args[0]).startswith("poly-governor: startup")
-        ]
-        self.assertEqual(len(startup_calls), 1)
+        with tempfile.TemporaryDirectory() as tmp:
+            state_path = Path(tmp) / "poly.json"
+            osc = FakeOscClient()
+            monitor = mock.Mock()
+            journal = PolyGovernorJournal()
+            governor = SurgePolyGovernor(osc, surge_monitor=monitor, journal=journal)
+            with self._patch_state_file(state_path):
+                self.addCleanup(governor.stop)
+                with mock.patch("builtins.print") as mock_print:
+                    governor.start()
+                    governor.start()
+            startup_calls = [
+                c
+                for c in mock_print.call_args_list
+                if c.args and str(c.args[0]).startswith("poly-governor: startup")
+            ]
+            self.assertEqual(len(startup_calls), 1)
 
+
+
+    def test_send_failure_logged_once(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            state_path = Path(tmp) / "poly.json"
+            self._write_state(state_path, effective=12, ceiling=12)
+            osc = FakeOscClient()
+            monitor = mock.Mock()
+            monitor.check_health.return_value = (True, None)
+            governor = SurgePolyGovernor(osc, surge_monitor=monitor, cpu_monitor=FakeCpuMonitor(92.0))
+            with self._patch_state_file(state_path):
+                with mock.patch("patch_browser.surge_poly_governor.governor_active", return_value=True):
+                    with mock.patch("patch_browser.surge_poly_governor.send_polylimit", return_value=False):
+                        with mock.patch("builtins.print") as mock_print:
+                            governor._last_patch = "Lead"
+                            governor._warm_preempt_done = True
+                            governor._refresh_patch_state()
+                            governor._tick()
+                            governor._tick()
+            logged = " ".join(str(c) for c in mock_print.call_args_list)
+            self.assertEqual(logged.count("send failed"), 1)
 
     def test_tick_without_poly_state_is_silent(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -280,8 +314,8 @@ class SurgePolyGovernorTests(unittest.TestCase):
                 journal.log_error(f"boom-{i}")
         lines = [str(c.args[0]) for c in mock_print.call_args_list if c.args]
         error_lines = [line for line in lines if "tick error" in line]
-        self.assertEqual(len(error_lines), 10)
-        self.assertEqual(journal._suppressed, 2)
+        self.assertEqual(len(error_lines), journal._spam_threshold)
+        self.assertEqual(journal._suppressed, 12 - journal._spam_threshold)
 
     def test_stop_flushes_suppressed_summary(self) -> None:
         osc = FakeOscClient()
