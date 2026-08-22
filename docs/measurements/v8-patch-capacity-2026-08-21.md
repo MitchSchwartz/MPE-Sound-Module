@@ -4,6 +4,8 @@
 *Pi artifacts: `/home/mitch/plan-v8-20260821-225953`*  
 *Harness: `docs/v8-patch-capacity` @ `47166e8`*
 
+**Review (2026-08-22):** Do not use ceiling table for governor tuning until V9 — see [`V8-REVIEW-ceiling-is-optimistic.md`](V8-REVIEW-ceiling-is-optimistic.md).
+
 ## Pre-registration
 
 | field | value |
@@ -41,7 +43,7 @@
 |---|---|
 | **Minimum (bounded)** | **3** — Crystals and six others |
 | **Maximum (bounded)** | **13** — Fireflies, Scratched Arp |
-| **Probe ceiling** | **15** — 38 patches never overran (true capacity may be higher) |
+| **Probe ceiling** | **15** — 38 patches never overran (**≥15**, censored — not measured at 15) |
 | **Unplayable @ 1 voice** | **none** |
 
 ### Tiers

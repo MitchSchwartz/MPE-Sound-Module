@@ -37,6 +37,8 @@ RESTORE_PERIODS=""
 RESTART_BETWEEN=""
 MIDI_LOAD_VOICES=75
 HOLD_VOICES=0
+PROVENANCE_PATCH=""
+PROVENANCE_VOICES=""
 PLAYING_LOOPS=0
 _SOFTMODE_CHANGED=0
 _LOAD_PID=""
@@ -60,6 +62,8 @@ while [ $# -gt 0 ]; do
         --restart-between) RESTART_BETWEEN="${2:?--restart-between requires a run index}"; shift 2 ;;
         --playing-loops) PLAYING_LOOPS="${2:?--playing-loops requires 0|4|8|16}"; shift 2 ;;
         --hold-voices) HOLD_VOICES="${2:?--hold-voices requires N}"; shift 2 ;;
+        --provenance-patch) PROVENANCE_PATCH="${2:?}"; shift 2 ;;
+        --provenance-voices) PROVENANCE_VOICES="${2:?}"; shift 2 ;;
         --no-restore-buffer) SKIP_BUFFER_RESTORE=true; shift ;;
         -h | --help) sed -n '2,20p' "$0"; exit 0 ;;
         *) echo "Unknown argument: $1 (try --help)" >&2; exit 2 ;;
@@ -623,6 +627,12 @@ _run_window() {
     _assert_jack_periods "$PERIODS_EFFECTIVE" || exit 1
     echo "=== provenance after strict restart ==="
     _record_provenance
+
+    if [ -n "$PROVENANCE_PATCH" ] || [ "$HOLD_VOICES" -gt 0 ]; then
+        {
+            echo "PROVENANCE patch=${PROVENANCE_PATCH:-unknown} hold_voices=${PROVENANCE_VOICES:-$HOLD_VOICES} buffer=${BUFFER} periods=${PERIODS_EFFECTIVE} condition=${CONDITION} $(date -Is)"
+        } >>"$OUTPUT"
+    fi
 
     ALSA_STATUS=""
     if [ -n "$FILL_LOG" ]; then
