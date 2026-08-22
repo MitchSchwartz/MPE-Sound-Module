@@ -213,7 +213,7 @@ class PolyGovernorJournal:
             return
         line = (
             f"poly-governor: log-spam summary suppressed={self._suppressed} "
-            "transitions in 1.0s"
+            "events in 1.0s"
         )
         print(line, flush=True)
         append_verbose_trace(line)
