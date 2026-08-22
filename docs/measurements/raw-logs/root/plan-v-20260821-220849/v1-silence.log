@@ -1,0 +1,3 @@
+=== measure-dsp-sample tag=V1-silence-1024 buffer=1024 periods=3 surge=on runs=3 seconds=30 2026-08-21T22:09:14-04:00 ===
+STATE period=1024 nperiods=3 rate=48000 card=2 governor=performance mhz=1800 softmode=0 poly_governor=0 poly_ceiling=16 surge=active sha=82060f9 throttled=throttled=0x0 temp=temp=57.9'C
+period_deadline_ms=21.333333

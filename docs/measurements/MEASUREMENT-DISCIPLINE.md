@@ -21,6 +21,87 @@ error** — usually by an order of magnitude.
 The last one was written *while* documenting the others. **Naming the pattern does not stop
 it. A mechanism does.**
 
+**There is a second pattern, and it is worse — see Rule -1.** It has nine occurrences to this
+one's six, and unlike this one it does not announce itself: a promoted inference eventually
+contradicts something, but an instrument that reads clean while blind never does.
+
+## Rule -1 — an instrument must never be able to fail silently
+
+**Numbered below Rule 0 because it outranks it.** This is the most expensive pattern in the
+project's history: **nine documented occurrences**, more than every other failure mode combined.
+
+### The single root cause
+
+**Every instrument here returns its value and its failure through the same channel.** At the
+reading site there is no way to distinguish *"here is a measurement"* from *"I could not
+measure."* A broken instrument and a working one are indistinguishable, so the failure arrives
+as a **result** instead of as an **error** — and gets believed, written up, and acted on.
+
+That is not nine bugs. It is one missing convention, replicated everywhere because nothing
+enforced it.
+
+| date | instrument | returned | should have returned |
+|---|---|---|---|
+| 08-19 | `xrun-corr.sh` | exit 0, empty file (12 runs) | write failure |
+| 08-19 | `set-surge-audio.sh` | continued without `sudo` — a run labelled 512 ran at 1024 | hard stop |
+| 08-19 | latency tap v1 | `n=0` after 267 presses (wrong code path) | no-events error |
+| 08-19 | latency tap v2 | `n=0` after 115 presses | no-events error |
+| 08-21 | V8-b auto-pick | a plausible patch name — the wrong one | selection failure |
+| 08-21 | `mpe-peak-meter` shutdown | looked stopped; wasn't | shutdown failure |
+| 08-22 | V10-b ramp probe | `0` xruns, via `\|\| start=0` swallowing a blind meter | blind-meter error |
+| 08-22 | census `unison_voices` | a plausible integer (summed engine selectors) | unsupported-field error |
+| 08-22 | V11 `dsp_med` | `unknown`, plus idle readings presented as measurements | field + alignment error |
+
+**The V11 case is the clearest.** `dsp_med` read ~1% at 256x3 across three unrelated patches,
+including a cell with 23 xruns. A cell missing its deadline is at ~100% by definition. The
+number was not merely wrong, it was **arithmetically impossible** — and it still reached a
+results table, because nothing in the path was obliged to notice.
+
+### The four mechanisms — all of them, not a menu
+
+**1. No in-band failures. Anywhere.**
+Kill every `|| x=0` default, every `unknown` string, every "continue on error". A missing or
+invalid reading **halts the cell** and says which instrument and why. A default value is a
+lie with a number attached.
+
+**2. Positive control — force a known answer, assert the reading matches.**
+Not *"did it return something"* — **"did it return the right something."** Force an overrun and
+assert the counter moves. Run a known load and assert DSP lands in the expected band. V11's
+0.9% would have failed this instantly.
+
+**3. Negative control — break it deliberately, assert the harness halts.**
+Kill the meter, stale the state file, rename the field. If the harness still prints a number,
+the instrument is not trustworthy no matter what it reads. **All nine failures above would have
+been caught by this one check.**
+
+**4. Physics assertions on results, automatic and in-harness.**
+Not something a human notices at review time:
+- DSP% must not *fall* when the buffer halves (deadline halves, cost barely moves).
+- A cell reporting xruns cannot report low DSP.
+- Parts must sum to the whole; counts must be monotone where the physics is monotone.
+
+A result violating arithmetic is **rejected by the harness**, not published for someone to
+catch later.
+
+### Why this works — it is already proven
+
+**V11's xrun column is trustworthy and its DSP column is not, and the only difference is that
+A0 ran a positive control on the xrun path that morning.** Five minutes of forced-overrun check
+is the entire reason half that run survived. The mechanism is not theoretical; it needs
+generalising to every metric, not inventing.
+
+### Standing requirement
+
+**No suite runs until an instrument conformance pass has run in the same session and passed.**
+Positive and negative control for every metric the suite will emit. It replaces the ad-hoc
+per-prompt "check the instrument" step, which depended on whoever wrote the prompt remembering.
+
+This matters most at a **platform change**: a new kernel, a new JACK, a new IRQ topology are
+exactly the conditions that break instruments silently — and on new hardware there is no
+baseline to catch the impossible reading against.
+
+---
+
 ## Rule 0 — cheap-first, always
 
 **Before opening any measurement window, ask: is there a free or offline check that could
@@ -46,6 +127,8 @@ n:                 <streams x runs>   (shape claims need n >= 10 streams)
 Premises:          <what must be true for the result to mean anything>
                    | premise | verified how | when |
 Instruments:       <what each one actually counts, and when that was last audited>
+Conformance:       <positive + negative control run THIS session? PASS/FAIL per metric — required>
+Impossible if:     <what reading would be arithmetically impossible; assert it in the harness>
 Prediction:        <expected value, written down before the run>
 Falsifier:         <what result would make me abandon the hypothesis>
 Cheaper check:     <what free/offline check was considered and why it is insufficient>
@@ -63,6 +146,9 @@ When the shortest useful version comes out implausibly long, that is evidence **
 wrong for the question** — not a reason to run a soak. Switch to a metric with a higher event
 rate (fill level, DSP p99, ALSA magnitudes) or to a comparison that does not require counting
 rare events.
+
+**"Conformance" is a hard gate** — a cell whose instruments have not passed positive and
+negative control **this session** does not run. See Rule -1.
 
 **"Prediction" is the load-bearing line.** If you cannot say what would surprise you, the
 cell is not designed yet. **"Falsifier" is second** — a hypothesis with no disconfirming
