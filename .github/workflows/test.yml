@@ -46,7 +46,9 @@ jobs:
           shellcheck --version
       - name: Shellcheck scripts
         timeout-minutes: 3
-        run: shellcheck -S error -x scripts/*.sh scripts/lib/*.sh
+        run: |
+          mapfile -t _sh < <(find scripts -name '*.sh' -type f | sort)
+          shellcheck -S error -x "${_sh[@]}"
       - name: Run shell tests
         timeout-minutes: 5
         run: |
