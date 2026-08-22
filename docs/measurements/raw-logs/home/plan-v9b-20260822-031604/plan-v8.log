@@ -1,0 +1,10 @@
+
+=== V8-b redo patch=Cloud Horn voices=5 2026-08-22T03:16:04-04:00 ===
+OSC client initialized: 127.0.0.1:53280
+Loaded patch: Cloud Horn.fxp
+loaded Cloud Horn.fxp
+Appended measurement to /home/mitch/plan-v9b-20260822-031604/v8b-1024x2-redo.log
+SENTINEL harness-logged
+Appended measurement to /home/mitch/plan-v9b-20260822-031604/v8b-1024x3-redo.log
+SENTINEL harness-logged
+SENTINEL v8b-redo-complete patch=Cloud Horn voices=5

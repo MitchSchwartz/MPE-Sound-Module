@@ -1,0 +1,5 @@
+
+=== measure-soak buffer=1024 loops=16 hours=8 2026-08-21T04:13:59+01:00 ===
+SENTINEL soak-start
+expected_finish=2026-08-21T12:13:59+01:00
+verified: looper_playback=1 (16 loops playing)

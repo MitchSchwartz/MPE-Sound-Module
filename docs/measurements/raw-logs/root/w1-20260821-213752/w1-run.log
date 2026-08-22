@@ -1,0 +1,15 @@
+=== W1 instrumented window 2026-08-21T21:37:52-04:00 artifacts=/root/w1-20260821-213752 ===
+load=condition_A midi_load_voices=75 (measure-latency-run default)
+resolved CARD=2 STATUS=/proc/asound/card2/pcm0p/sub0/status
+
+=== poller sanity (10 s idle stream) ===
+FILL_SUMMARY n=82 buf=3072 min=2081 p1=2081 p50=2477 p99=3052 max=3060 mean=2517 sanity_over_buf=0
+sanity ok period=1024 nperiods=3
+
+=== W0 (report only — prior run) ===
+W0: 1024x2 opened on Pi 2026-08-21 (jackd -p 1024 -n 2 UP). Not re-run.
+
+=== control: 1024x3 poller OFF ===
+--- cell control-no-fill buffer=1024 periods=3 fill=0 ---
+awk: line 3: syntax error at or near ,
+awk: line 11: syntax error at or near }

@@ -1,0 +1,6 @@
+=== measure-stream-sample 2026-08-21T21:23:33-04:00 ===
+buffer=256 periods=default condition=A
+streams=3 runs_per_stream=3 seconds=60
+playing_loops=0
+SENTINEL stream-sample-start
+=== stream 1/3 -> /home/mitch/step4b-irq90-256-A-stream-01.log 2026-08-21T21:23:33-04:00 ===
