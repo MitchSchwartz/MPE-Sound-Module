@@ -94,18 +94,23 @@ _dsp_stats() {
         }
         END {
             if (n == 0) { print "0 0 0 0 0 0 0 0 0 0"; exit }
-            for (i = 1; i <= n; i++) for (j = i + 1; j <= n; j++)
-                if (a[i] > a[j]) { t = a[i]; a[i] = a[j]; a[j] = t }
-            function pct(p,   i) {
-                i = int(n * p); if (i < 1) i = 1; if (i > n) i = n; return a[i]
+            for (i = 1; i <= n; i++) {
+                for (j = i + 1; j <= n; j++) {
+                    if (a[i] > a[j]) { t = a[i]; a[i] = a[j]; a[j] = t }
+                }
             }
-            med = pct(0.50)
-            p999 = pct(0.999)
-            p9999 = pct(0.9999)
+            med_i = int((n + 1) / 2)
+            p99_i = int(n * 0.99); if (p99_i < 1) p99_i = 1
+            p999_i = int(n * 0.999); if (p999_i < 1) p999_i = 1
+            p9999_i = int(n * 0.9999); if (p9999_i < 1) p9999_i = 1
+            med = a[med_i]
+            p99 = a[p99_i]
+            p999 = a[p999_i]
+            p9999 = a[p9999_i]
             mx = a[n]
             printf "%d %.4f %.4f %.4f %.4f %.4f %.4f %.4f %.4f %.4f\n", \
-                n, med, pct(0.99), p999, p9999, mx, \
-                med * pms / 100, pct(0.99) * pms / 100, p999 * pms / 100, mx * pms / 100
+                n, med, p99, p999, p9999, mx, \
+                med * pms / 100, p99 * pms / 100, p999 * pms / 100, mx * pms / 100
         }
     ' "$raw"
 }
