@@ -9,6 +9,9 @@ User=@MPE_PI_USER@
 WorkingDirectory=@MPE_MODULE_REPO@
 EnvironmentFile=-/etc/mpe/mpe.env
 Environment=PYTHONUNBUFFERED=1
+CPUAffinity=0 1
+RuntimeDirectory=mpe
+RuntimeDirectoryPreserve=yes
 ExecStart=@MPE_MODULE_REPO@/scripts/surge-poly-governor.py
 Restart=on-failure
 RestartSec=2
