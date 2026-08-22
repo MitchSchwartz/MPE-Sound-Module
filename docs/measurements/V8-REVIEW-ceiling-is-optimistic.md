@@ -1,7 +1,9 @@
 # V8 review — ceiling is optimistic
 
 *Review: 2026-08-22 (America/Toronto)*  
-*Supersedes actionable use of [`v8-patch-capacity-2026-08-21.md`](v8-patch-capacity-2026-08-21.md) until V9 completes.*
+*Supersedes actionable use of [`v8-patch-capacity-2026-08-21.md`](v8-patch-capacity-2026-08-21.md) for governor tuning.*
+
+**After V9:** [`V9-REVIEW-2026-08-22.md`](V9-REVIEW-2026-08-22.md) — duration hypothesis retracted for knee patches; ramp `_xruns_delta` under-counts at high load; **`1024×2` confirmed** at clean load across four patches. This doc keeps the V8-b @ 7 voices record.
 
 ## Bottom line
 
