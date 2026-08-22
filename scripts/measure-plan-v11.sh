@@ -53,6 +53,21 @@ echo "PROVENANCE governor=off clock=1800 cells=512x2,256x3 patches=Crystals@3,Cl
 
 _set_env_var MPE_POLY_GOVERNOR 0
 systemctl stop surge-poly-governor.service 2>/dev/null || true
+systemctl start mpe-peak-meter.service 2>/dev/null || true
+sleep 2
+if ! mpe_meter_xruns_read >/dev/null 2>&1; then
+    echo "Peak meter blind — restarting audio graph"
+    systemctl restart mpe-jackd.service
+    sleep 4
+    systemctl restart surge-xt-cli.service
+    sleep 6
+    systemctl start mpe-peak-meter.service 2>/dev/null || true
+    sleep 2
+    mpe_meter_xruns_read >/dev/null 2>&1 || {
+        echo "ERROR: peak meter still blind after graph restart" >&2
+        exit 1
+    }
+fi
 
 _run_config() {
     local name="$1" voices="$2" buffer="$3" periods="$4"
@@ -65,11 +80,6 @@ _run_config() {
 
     echo ""
     echo "=== V11 patch=${name} voices=${voices} buffer=${buffer} periods=${periods} ==="
-
-    if ! mpe_meter_xruns_read >/dev/null 2>&1; then
-        echo "ERROR: peak meter blind before ${tag}" >&2
-        exit 1
-    fi
 
     sudo -u "$RUN_AS_USER" python3 "$SCRIPT_DIR/load-patch-osc.py" "$patch_path"
     sleep 1
