@@ -52,6 +52,8 @@ sudo ./scripts/measure-v10b-validate.sh
 
 **Pass criterion:** Closed Hat @ 15 × 8 s → **xruns_delta > 0** (V9-c confirm reference: 275 @ 8 s).
 
+**Pi 2026-08-22:** **PASS** — `xruns_delta=266` @ validate run `v10b-validate-20260822-110346`.
+
 ## Policy
 
 - **×2 ship evidence** unchanged — V9-b/d used confirm harness only, never ramp.
