@@ -106,20 +106,45 @@ third off shipping latency with **no change to the compute deadline** (Surge sti
 Confirm at **n >= 3 streams**, strict mode, fixed poly. Report xruns/min and DSP against the
 `1024 x 3` baseline. **Run this regardless of how V1 and V2 turn out.**
 
-## V5 — CPU governor / clock (~15 min, only after V0 reports)
+## V5 — CPU governor (~15 min): a known lever that was never pulled
 
-**New lever, and only meaningful now that the problem is compute-bound.** While this looked
-like an IRQ/latency problem, clock speed was irrelevant. For compute it is directly
-proportional.
+**This is not a new idea. It is a documented, prioritised lever that got lost.**
+`docs/LATENCY-SPIKE.md` recorded the governor as **`ondemand`**, flagged it as *"a classic
+cause of dropouts on transient polyphony spikes"*, and called the governor arm **"the most
+promising, and the cheapest."** The mechanism was built (`14da2ca`) but **ships off by
+default** and the example file has it commented out. Its sibling knob (Surge RT scheduling)
+was completed — Surge runs FF 65 today. **The governor apparently was not.**
 
-If V0-a shows `ondemand`: test `performance` as a **single-variable** change at `256 x 3`
-(the cell with least headroom). Report DSP p99.9/max and xruns/min against the current
-baseline. Note the thermal cost — record `vcgencmd measure_temp` and `throttled` before and
-after.
+It is only *meaningful* now: while this looked like an IRQ/latency problem, clock speed was
+irrelevant. For a compute-bound problem it is directly proportional, and `ondemand`'s ramp
+acts precisely on the **tail**, which is where the overruns live.
 
-**Do not overclock (`arm_freq`, `over_voltage`) in this pass.** Report only whether the
-governor change helps; overclocking is a separate decision with hardware-lifetime
-implications and is Mitch's call.
+If V0-a confirms `ondemand`, test `performance` as a **single-variable** change at
+`256 x 3` — the cell with least headroom. Report DSP p99.9/max in **ms**, xruns/min, against
+the current baseline.
+
+**Mandatory safety check.** `LATENCY-SPIKE.md` records `get_throttled = 0x50000` on this
+board: **under-voltage and throttling have both occurred historically.** `performance` raises
+power draw. Record `vcgencmd measure_temp` **and** `vcgencmd get_throttled` before, during
+and after. **If `get_throttled` becomes non-zero, stop and revert** — the measurement is
+invalid and the board is the constraint.
+
+### Overclocking — diagnostic only, and not in this pass
+
+**Do not set `arm_freq`, `over_voltage` or `force_turbo`.**
+
+Rationale, so it is not re-litigated: overclocking would be informative (a 20% clock bump
+yielding ~20% less callback time confirms pure compute-bound and calibrates the prize), but
+
+1. it **masks** the software problem — removing 1.1 ms of fixed cost recovers ~20% of the
+   256 deadline permanently, on every unit, without heat or power margin;
+2. this board has a **documented under-voltage history**, so it is the worst candidate for
+   raising draw;
+3. shipping an overclocked appliance is a product decision — enclosure thermals, PSU
+   headroom, silicon variation across customer units, long-term reliability — **and it is
+   Mitch's call, not a measurement outcome.**
+
+Revisit only after V1/V2/V4 have said how much fixed cost is removable.
 
 ## V4 — profile (~30 min) — ONLY if V1 confirms
 
