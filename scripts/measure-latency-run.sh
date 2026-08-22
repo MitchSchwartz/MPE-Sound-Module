@@ -179,8 +179,8 @@ _jackd_alsa_xrun_stats() {
     journalctl -u mpe-jackd.service --since "$since" --until "$until" --no-pager 2>/dev/null \
         | awk '
             /xrun of at least/ {
-                if (match($0, /at least ([0-9.]+) msecs/, m)) {
-                    v = m[1] + 0
+                if (match($0, /at least [0-9.]+ msecs/)) {
+                    v = substr($0, RSTART + 9, RLENGTH - 15) + 0
                     n++
                     s += v
                     vals[n] = v
