@@ -172,9 +172,9 @@ Written on `docs/v9-review`; merged **`2b78339` 12:37**. Sits in **07:56–12:37
 
 ---
 
-## Ongoing capture (proposal)
+## Ongoing capture
 
-One dated line per work session: calendar date, phase, **measurement h**, **instrument-building h**, **review h**, one-line note. Same habit as recording measurement conditions. Prevents reconstructing G1 from memory again.
+**Implemented 2026-08-22.** Append per session to [`SRED-DAILY-LOG.md`](SRED-DAILY-LOG.md). Skill: [`.claude/skills/sred-daily-capture/SKILL.md`](../.claude/skills/sred-daily-capture/SKILL.md). CLI: `scripts/sred-log-append.sh`. See `AGENTS.md` §SR&ED daily labour capture.
 
 ---
 
