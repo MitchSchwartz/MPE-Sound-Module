@@ -1,0 +1,6 @@
+=== capacity-ramp tag=V7-1024 buffer=1024x3 patch=Crystals 2026-08-21T22:32:28-04:00 ===
+CARD=2
+PROBE voices=2 sec=12 xruns_delta=0
+PROBE voices=4 sec=12 xruns_delta=0
+PROBE voices=6 sec=12 xruns_delta=81
+RESULT tag=V7-1024 first_overrun=6 sustained_clean=4

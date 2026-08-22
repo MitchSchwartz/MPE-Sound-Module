@@ -1,135 +1,168 @@
-# C0 — instrument conformance gate
+# C0 — instrument conformance suite
 
-**Hand to a fresh agent.** Self-contained. **Must complete in ≤ 15 minutes** (offline).
+**This is now the first thing that runs, before any measurement, in every session.** Nothing
+else in the queue proceeds until it exists and passes.
 
-**Conformance:** `./scripts/instrument-conformance.sh` must exit 0 before Track A (A1+) or
-any Pi measurement affecting the shipping claim.
-
-**Impossible if:** halving buffer drops `dsp_median` by >50% without condition change;
-`dsp_median` < 15 with xruns > 5 at 512×3; `samples` != window length; any metric is 0 /
-empty / unknown without a prior ERROR halt.
+Doctrine: [`MEASUREMENT-DISCIPLINE.md`](MEASUREMENT-DISCIPLINE.md) **Rule -1**. Skill:
+`.claude/skills/measurement-design/` **Step 0**.
 
 ---
 
-## Why this exists
+## Why this exists — read before designing anything
 
-Nine occurrences, one root cause: **every instrument returns value and failure through the
-same channel**, so a broken one is indistinguishable from a working one at the reading
-site. AGENTS.md lists four from 2026-08-19 (382 pad presses, n=0; 512 labelled at 1024).
-T2/T6 add five more. Five months of void runs.
+**Nine measurements on this appliance have produced confident wrong numbers from blind
+instruments.** They have one root cause, not nine:
 
-Four mechanisms (all required): no in-band failures; positive control; negative control;
-physics assertions in-harness.
+> **Every instrument returns its value and its failure through the same channel.** At the
+> reading site there is no way to distinguish *"here is a measurement"* from *"I could not
+> measure."* So a broken instrument and a working one are indistinguishable, and the failure
+> arrives as a **result** — believed, written up, acted on.
 
-**Do not weaken an assertion to make a test pass.**
+| date | instrument | returned | should have returned |
+|---|---|---|---|
+| 08-19 | `xrun-corr.sh` | exit 0, empty file, 12 runs | write failure |
+| 08-19 | `set-surge-audio.sh` | continued without `sudo`; a run labelled 512 ran at 1024 | hard stop |
+| 08-19 | latency tap v1 | `n=0` after 267 presses | no-events error |
+| 08-19 | latency tap v2 | `n=0` after 115 presses | no-events error |
+| 08-21 | V8-b auto-pick | a plausible patch name — the wrong one | selection failure |
+| 08-21 | peak-meter shutdown | looked stopped; wasn't | shutdown failure |
+| 08-22 | V10-b ramp probe | `0` xruns via `\|\| start=0` swallowing a blind meter | blind-meter error |
+| 08-22 | census `unison_voices` | plausible integer, summed engine selectors | unsupported-field error |
+| 08-22 | V11 `dsp_med` | `unknown`, plus idle readings as measurements | field + alignment error |
 
----
-
-## Doctrine lives in six places (do not skip any)
-
-| # | Location |
-|---|---|
-| 1 | `docs/measurements/MEASUREMENT-DISCIPLINE.md` — Rule −1 |
-| 2 | `.claude/skills/mpe-measurement/SKILL.md` — Step 0 + six anti-patterns |
-| 3 | Pre-registration in `Documents/specs/low-latency-512-256-spec.md` |
-| 4 | Pre-registration in `Documents/specs/rerun-order-2026-08-19.md` |
-| 5 | `AGENTS.md` — doctrine on self-test section |
-| 6 | `Documents/PROGRESS.md` — standing rule 4 + Track A HALTED banner |
-
-Skill Step 8: every prompt for another agent opens with Conformance + Impossible if lines.
-
----
-
-## Task 1 — Inventory metrics → three tests each
-
-For every metric the harnesses emit, implement in `tests/test_instrument_conformance.sh`:
-
-| Source | Metrics |
-|---|---|
-| `measure-latency-run.sh` | `xruns`, `meter_live`, `meter_max_age_s`, `dsp_median`, `dsp_p99`, `dsp_max`, `jitter_n`, `jitter_*`, `frames_late_*`, `samples` |
-| `xrun-corr.sh` | per-second `dsp%`, `peak`, `xrun`; `TOTAL` line |
-| `measure-soak.sh` | `xruns_total`, `invalid_windows` |
-| `bench-xruns.sh` | per-buffer xrun count |
-
-Per metric:
-
-1. **Positive control** — fixture with known-good value parses correctly
-2. **Negative control** — broken fixture halts (missing file, stale meter, wrong field)
-3. **Physics assertion** — impossible combo rejected (see MEASUREMENT-DISCIPLINE.md)
-
-Parser: `scripts/lib/measurement-result.sh` — **hard error on `dsp_med`**; require
-`dsp_median`.
-
----
-
-## Task 2 — Known defects in scope
-
-### dsp_med / dsp_median
-
-Rename alone hides the next bug. Parser must:
-
-- Accept only `dsp_median=`
-- **Halt** on `dsp_med=` with explicit ERROR
-- Halt on missing `dsp_median` when parsing a primary RESULT row
-
-### Sampler window alignment
-
-V10-b suspect: per-probe activity before meter baseline misaligns the 60 s window.
-
-Fix in `measure-latency-run.sh`:
-
-- Capture meter baseline **before** starting xrun probe
-- Wait for `PROBE_START` in probe log before sample loop
-- Emit `window_align=1` on RESULT when alignment checks pass
-
-Do **not** restart jackd per probe window — strict restart once per harness invocation only.
-
----
-
-## Task 3 — Gate script
-
-`scripts/instrument-conformance.sh`:
-
-- Runs `tests/test_instrument_conformance.sh`
-- Runs `tests/test_meter_harness.sh` (offline meter fixtures)
-- Runs unit tests touching measurement parsers
-- Prints `SENTINEL conformance-pass` on success
-- **Wall clock ≤ 15 min** on nerdrack (document actual time in deliverable)
-
----
-
-## Task 4 — V11 recovery (offline)
-
-Attempt to re-parse existing V11-class logs with strict parser:
-
-- **xrun column:** keep if `meter_live=1` and fields parse
-- **DSP column:** withhold where `dsp_med` was used or field missing
-- Record in `docs/measurements/instrument-conformance-c0-2026-08-22.md`
-
-Use fixtures under `tests/fixtures/instrument-conformance/` if Pi logs unavailable.
+**The proof that this is fixable cheaply:** V11's xrun column is trustworthy and its DSP column
+is not, and the *only* difference is that a positive control ran on the xrun path that morning.
+Five minutes saved half a 25-minute run. **Generalise that, do not invent something new.**
 
 ---
 
 ## Deliverable
 
-- All six doctrine locations updated
-- `scripts/lib/measurement-result.sh` + conformance tests
-- `scripts/instrument-conformance.sh`
-- Harness fixes (dsp field, window alignment)
-- `docs/measurements/instrument-conformance-c0-2026-08-22.md` — inventory, test matrix, V11
-  recovery outcome, wall time
-- `./scripts/instrument-conformance.sh` exit 0
+`scripts/measure-instrument-conformance.sh`
+
+- Runs in **≤ 15 minutes**. It runs before every suite; if it is slow it will be skipped, and a
+  gate that gets skipped is not a gate.
+- Tests **every metric any harness reports**, not only the ones in today's plan.
+- Emits a structured result plus a one-line verdict: `CONFORMANCE PASS` / `CONFORMANCE FAIL`.
+- **Exit non-zero on any failure.** Callers must be unable to proceed by accident.
+- Takes a platform label and records kernel, JACK version, Surge revision, buffer/periods.
 
 ---
 
-## Explicit non-goals
+## Part 1 — inventory every reported metric (offline, first)
 
-- No Pi soak until C0 passes on `dev`
-- No weakening physics thresholds
-- No Track A tasks (A1+) until PROGRESS HALTED banner cleared
+Before writing any test, enumerate what the harnesses actually emit. At minimum:
+
+`xruns` · `dsp_med` · `dsp_p99` · `dsp_max` · `frames_late` · buffer fill level ·
+achieved clock · temperature · `get_throttled` · voice count · patch identity ·
+applied buffer/periods · applied governor
+
+For each, in a table: **what increments it, where it is read, what it returns when broken,
+and what reading would be arithmetically impossible.**
+
+The last two columns are the point. *If "what it returns when broken" matches a healthy
+reading, it is not an instrument* — fix that before testing it.
 
 ---
 
-## After C0
+## Part 2 — three tests per metric
 
-Run `/review-loop` scope `instrument-conformance-c0`. Then enqueue A1.
+### 2a. Positive control — force a known answer, assert the reading matches
+
+Not *"did it return something."* **"Did it return the right something."**
+
+| metric | forced condition | assertion |
+|---|---|---|
+| `xruns` | load well above a known floor, 8 s | count **> 0** |
+| `xruns` | known-clean config at a confirmed floor | count **== 0** |
+| `dsp_*` | silence, no voices | reading **low but non-zero**, and *present* |
+| `dsp_*` | load at a confirmed floor | reading in the **band V9/V11 established** — V11's 0.9% at 256×3 fails this instantly |
+| `dsp_*` | load near overload | reading **high** (approaching the deadline) |
+| applied buffer | set 512, read back | reports **512**, not the requested value echoed |
+| clock / temp | compare two known-different states | both **move in the right direction** |
+
+**Both ends matter.** A counter stuck at zero passes a "must be 0 when clean" test. A counter
+stuck high passes "must be > 0 when loaded." Only both together constrain it.
+
+### 2b. Negative control — break it, assert the harness HALTS
+
+**This is the test that would have caught all nine.** For each metric, deliberately induce the
+failure and assert the harness **stops and names the instrument** — not that it returns a
+default, not `unknown`, not zero.
+
+- Stop the peak meter mid-cell → xrun read must **fail**, not return 0.
+- Stale/delete `meter.state` → `mpe_meter_assert_live` must fail **and propagate**.
+- Rename a field the parser expects (`dsp_med`/`dsp_median`) → **hard error**, not `unknown`.
+- Point the harness at a non-existent patch → **halt**, not silent substitution.
+- Kill jackd mid-window → the cell must be **marked invalid**, not reported.
+- Sample DSP with no load running → must be **detectably wrong**, not published.
+
+**Any case where the harness produces a number instead of an error is a defect to fix now**,
+in this task, not to record for later.
+
+### 2c. Physics assertions — in the harness, permanently
+
+These run on **every result, forever**, not just during conformance. A human noticing at review
+time is not a mechanism.
+
+- **DSP% must not fall when the buffer halves.** Deadline halves; per-callback cost barely moves
+  (`a = 0.13 ms`). V11 reported 39.6% → 1.6% and 9.7% → 0.9%. **Impossible; must be rejected.**
+- **A cell reporting xruns cannot report low DSP.** At the deadline, DSP is ~100% by definition.
+  V11 reported 10.0% with 23 xruns. **Impossible.**
+- **Unrelated patches must not converge on the same DSP value.** ~1% across three different
+  patches is a signature of an idle read, not a measurement.
+- Counts monotone where physics is monotone; parts sum to the whole.
+
+Each violation names the assertion and the values. **Rejected, not annotated.**
+
+---
+
+## Part 3 — fix what Part 2 finds
+
+Expect real defects. Two are already known and in scope:
+
+1. **`dsp_med` / `dsp_median` field mismatch** — fix the name **and** make a missing field a hard
+   error. The rename alone just hides the next one.
+2. **DSP sampler window alignment** — V11's readings look like idle samples. Determine whether
+   the sampler is provably running *during* the load window; the V10-b per-probe jackd restart
+   is the prime suspect. **A correct instrument sampling at the wrong time is indistinguishable
+   from a broken one.**
+
+Then sweep the harness for in-band failures — every `|| x=0`, `// 0`, `except: pass`,
+`unknown`, `n/a`, and continue-on-error on a reading path. **Each becomes a halt.**
+
+---
+
+## Part 4 — recover V11 if possible (offline first)
+
+Raw artifacts are in `~/plan-v11-20260822-144259/`. Once the sampler is understood, re-read
+those logs offline and determine whether the DSP samples are recoverable or were never valid.
+
+- Recoverable → publish corrected values, note the correction.
+- Not recoverable → mark the DSP column **withheld**, with the reason.
+
+**Do not re-run V11 for the DSP numbers until conformance passes.** The xrun column is sound;
+re-running now would just buy more bad readings.
+
+---
+
+## Constraints
+
+- **Offline work first.** Parts 1 and 3's source sweep need no Pi time. Establish the Pi is idle
+  before Part 2.
+- **No forks in polling loops** — the conformance harness is subject to the same CPU doctrine as
+  everything else, and a DSP sampler that perturbs DSP is its own instrument bug.
+- **Do not weaken an assertion to make a test pass.** If a physics assertion fires on real data,
+  the instrument is wrong or the physics model is wrong — **both are findings; neither is a
+  reason to lower the threshold.**
+- Do not bundle unrelated harness improvements into this.
+
+---
+
+## Hand back
+
+The metric inventory table, PASS/FAIL per metric for positive and negative control, every defect
+found and whether it is fixed, the in-band-failure sweep results, the V11 DSP disposition
+(recovered or withheld), and the runtime.
+
+**Then, and only then, the queue resumes at A1.**
