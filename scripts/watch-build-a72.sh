@@ -80,6 +80,11 @@ while [ "$attempt" -le "$MAX_ATTEMPTS" ]; do
     fi
 
     # CMake missing libs — one-shot install of Surge ARM build deps
+    if grep -q "Configuring incomplete, errors occurred!" "$LOG" 2>/dev/null; then
+        log "Clearing failed cmake cache"
+        rm -rf "$HOME/surge-src/build-a72/CMakeCache.txt" "$HOME/surge-src/build-a72/CMakeFiles"
+    fi
+
     if grep -qiE "Could NOT find|Package .* required|missing dependency" "$LOG" 2>/dev/null; then
         log "Installing Surge build dependencies (cmake reported missing libs)"
         sudo apt-get install -y \
@@ -97,3 +102,6 @@ done
 
 log "FAILED after $MAX_ATTEMPTS attempts"
 exit 1
+
+# To restart manually after script fix:
+#   rm -f ~/surge-src/build-a72/CMakeCache.txt && nohup ~/MPE-Module/scripts/watch-build-a72.sh >> ~/surge-build-a72-watch.log 2>&1 &

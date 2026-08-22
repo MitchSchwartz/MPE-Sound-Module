@@ -10,6 +10,7 @@
 # Pre-registration: >5% dsp_med headroom gain on any cell = win; <3% = no-effect.
 
 set -euo pipefail
+set -o pipefail
 
 export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
@@ -56,10 +57,14 @@ if [ "$actual" != "${SURGE_COMMIT:0:8}" ]; then
 fi
 log "Source at $(git describe --tags --always) ($(git rev-parse HEAD))"
 
+log "Initializing submodules..."
+git submodule update --init --recursive
+
 mkdir -p "$BUILD_DIR"
 cd "$BUILD_DIR"
 
-if [ ! -f CMakeCache.txt ]; then
+if [ ! -f CMakeCache.txt ] || ! grep -q "mcpu=cortex-a72" CMakeCache.txt 2>/dev/null; then
+    rm -rf CMakeCache.txt CMakeFiles
     cmake "$SURGE_SRC" \
         -DCMAKE_BUILD_TYPE=Release \
         -DLINUX_ON_ARM=TRUE \
@@ -69,10 +74,10 @@ if [ ! -f CMakeCache.txt ]; then
         -DSURGE_BUILD_STANDALONE=TRUE \
         -DSURGE_BUILD_TESTRUNNER=FALSE \
         -DCMAKE_CXX_FLAGS="-mcpu=cortex-a72" \
-        -DCMAKE_C_FLAGS="-mcpu=cortex-a72"
+        -DCMAKE_C_FLAGS="-mcpu=cortex-a72" 2>&1 | tee -a "$LOG"
 fi
 
-make surge-xt-cli -j"$JOBS"
+make surge-xt-cli -j"$JOBS" 2>&1 | tee -a "$LOG"
 
 artifact="$BUILD_DIR/surge_xt_products/surge-xt-cli"
 if [ ! -x "$artifact" ]; then
