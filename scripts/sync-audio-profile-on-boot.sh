@@ -5,6 +5,8 @@
 
 set -euo pipefail
 
+export MPE_BOOT_PROFILE_SYNC=1
+
 SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")" && pwd)"
 # shellcheck source=lib/mpe-services.sh
 source "$SCRIPT_DIR/lib/mpe-services.sh"
