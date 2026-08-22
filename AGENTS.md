@@ -229,13 +229,15 @@ the bench's input drives pads (see `docs/measurements/archive/looper-midi-osc-la
 > **result**. Required in every harness: **no in-band failures** (no `|| x=0`, no `unknown`,
 > no continue-on-error — halt the cell); **a positive control** (force a known answer, assert
 > the reading matches); **a negative control** (break it deliberately, assert the harness
-> halts); **physics assertions** rejecting impossible results in-harness. Full rule:
-> `docs/measurements/MEASUREMENT-DISCIPLINE.md` **Rule -1**.
-
+> halts); **physics assertions** rejecting impossible results in-harness. Run
+> **`./scripts/instrument-conformance.sh`** (≤ 15 min, offline) before any Pi measurement or
+> shipping claim. Full rule: `docs/measurements/MEASUREMENT-DISCIPLINE.md` **Rule -1**. **Do not
+> weaken an assertion to make a test pass.**
 
 On 2026-08-19 Mitch tapped pads **382 times across two sessions** and both produced zero
 samples, because the harness was hooking a code path pads never touch. Four separate
-measurements in that work order exited cleanly having recorded nothing:
+measurements in that work order exited cleanly having recorded nothing (nine instances
+project-wide — see MEASUREMENT-DISCIPLINE Rule −1):
 
 | instrument | failure | looked like |
 |---|---|---|
