@@ -91,7 +91,8 @@ _xruns_delta() {
 }
 
 _confirm_window() {
-    local voices="$1" raw="/tmp/capacity-confirm-${TAG}-${voices}.raw"
+    local voices="$1"
+    local raw="/tmp/capacity-confirm-${TAG}-${voices}.raw"
     local period_ms jcl
     period_ms="$(awk -v b="$BUFFER" -v r="$RATE" 'BEGIN { printf "%.6f", b * 1000 / r }')"
     : >"$raw"
