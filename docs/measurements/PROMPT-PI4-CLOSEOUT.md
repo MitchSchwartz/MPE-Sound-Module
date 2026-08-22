@@ -41,43 +41,11 @@ stock 1800.
 latency floor, which is what the Pi 5 gets measured against. Comparing a Pi 5 to 1024×2 — a
 config already known not to be the floor — would overstate the gain.
 
-### A2. Settle the a72 question — **before the control is frozen** (~20 min measure)
+### A2. Freeze the reference suite — **offline, write it first** (~30 min)
 
-**Sequencing matters here and it is easy to get wrong.** The a72 binary is already built. If it
-wins and gets installed *after* the reference passes, those passes were taken on two different
-binaries and the noise floor is worthless. **Decide first, then freeze.**
-
-1. Baseline the **current** binary on the A3 cells (this doubles as reference pass 1 — do not
-   pay for it twice).
-2. Back up the running binary to `~/surge-xt-cli.pre-a72` with a checksum (`PROMPT-P8` §A3).
-3. Install the a72 build, re-measure the same cells.
-4. **Report Crystals, Cloud Horn and Duduk separately, not averaged** — `-mcpu` tunes
-   instruction selection, and there is no reason oscillator inner loops and filter inner loops
-   benefit equally. A split result is a finding.
-
-**Decision rule, pre-registered:** if a72 beats stock beyond the run-to-run spread on any of the
-three, **keep it and make it the control binary.** If it is within noise or worse, **revert to
-stock and say so plainly** — a null result closes a lever and is worth recording.
-
-**Why the control should be arch-tuned.** The Pi 5 will run `-mcpu=cortex-a76`. If the Pi 4
-control is untuned, the Pi 5 comparison measures *hardware plus a compiler flag* and reports it
-as hardware. Tuning both to their own architecture compares best-achievable to
-best-achievable — which is also what actually ships. **Whichever binary wins here is frozen for
-the entire closeout.** Record its revision and flags in A5.
-
-**One caveat on autonomy.** A2 installs a binary, and `PROMPT-P8` requires an ear test before a
-binary change *ships* — this is the first change to the audio binary in the whole arc. Resolve it
-this way: the **install and measurement are autonomous** (revert path exists, it is one command),
-but a72 does not become the **shipping default** until B3's ear test passes. It can be the
-measurement control before it is the shipping binary. If the ear test later fails, revert and
-re-run the reference passes — cheap, because the suite is frozen.
-
-This does **not** need P7 first. P7 gated whether spending 45 minutes on the build was
-worthwhile; the build already exists, so measuring it is 20 minutes and the gate is moot.
-
-### A3. Freeze the reference suite (~30 min to write, ~30 min to run)
-
-Write `scripts/measure-reference-suite.sh`. **It must run unmodified on a Pi 5.** No
+Write `scripts/measure-reference-suite.sh`. **This is authoring, not Pi time** — it comes
+before A3 because A3's baseline *is* the first suite pass, and you cannot run a suite that does
+not exist yet. **It must run unmodified on a Pi 5.** No
 hardcoded core lists, clocks, IRQ numbers, or `-mcpu` values — read them from a platform
 profile or detect them.
 
@@ -102,9 +70,44 @@ are oscillator-bound; **Duduk is filter-bound** — the finding that oscillator 
 predict cost — and Brave New World is multi-oscillator but simply constructed. Three buffer
 configs span the ladder without re-measuring what V9 already settled.
 
-### A4. Run the reference suite twice, on separate days (~30 min each)
+### A3. Settle the a72 question — **before the control is frozen** (~60 min)
 
-Two passes give the **run-to-run noise floor** — both on the binary A2 froze. Without it, a Pi 5 "improvement" cannot be
+**Sequencing matters here and it is easy to get wrong.** The a72 binary is already built. If it
+wins and gets installed *after* the reference passes, those passes were taken on two different
+binaries and the noise floor is worthless. **Decide first, then freeze.**
+
+1. Run the A2 suite on the **current** binary. **This is reference pass 1** — do not pay for
+   it twice.
+2. Back up the running binary to `~/surge-xt-cli.pre-a72` with a checksum (`PROMPT-P8` §A3).
+3. Install the a72 build, re-run the same suite.
+4. **Report Crystals, Cloud Horn and Duduk separately, not averaged** — `-mcpu` tunes
+   instruction selection, and there is no reason oscillator inner loops and filter inner loops
+   benefit equally. A split result is a finding.
+
+**Decision rule, pre-registered:** if a72 beats stock beyond the run-to-run spread on any of the
+three, **keep it and make it the control binary.** If it is within noise or worse, **revert to
+stock and say so plainly** — a null result closes a lever and is worth recording.
+
+**Why the control should be arch-tuned.** The Pi 5 will run `-mcpu=cortex-a76`. If the Pi 4
+control is untuned, the Pi 5 comparison measures *hardware plus a compiler flag* and reports it
+as hardware. Tuning both to their own architecture compares best-achievable to
+best-achievable — which is also what actually ships. **Whichever binary wins here is frozen for
+the entire closeout.** Record its revision and flags in A5.
+
+**One caveat on autonomy.** A2 installs a binary, and `PROMPT-P8` requires an ear test before a
+binary change *ships* — this is the first change to the audio binary in the whole arc. Resolve it
+this way: the **install and measurement are autonomous** (revert path exists, it is one command),
+but a72 does not become the **shipping default** until B3's ear test passes. It can be the
+measurement control before it is the shipping binary. If the ear test later fails, revert and
+re-run the reference passes — cheap, because the suite is frozen.
+
+This does **not** need P7 first. P7 gated whether spending 45 minutes on the build was
+worthwhile; the build already exists, so measuring it is 20 minutes and the gate is moot.
+
+### A4. Second reference pass, on a separate day (~30 min)
+
+A3 produced pass 1 on the frozen binary. This is pass 2, on a different day. Together they
+give the **run-to-run noise floor**. Without it, a Pi 5 "improvement" cannot be
 distinguished from spread and the §5 predictions in the transition plan cannot be scored.
 
 **Report the spread explicitly.** If cells disagree by more than a few percent between passes,
