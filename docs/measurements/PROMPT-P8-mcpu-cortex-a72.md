@@ -27,6 +27,47 @@ confirmed idle and `SENTINEL soak-complete` is in the soak log, checked **once**
 
 ---
 
+## RUN NOW — build-only pass (unattended, ~1 h, 2026-08-22)
+
+**Mitch is out for about an hour. The Pi is idle. Use it to compile — nothing else.**
+
+This is not out of order. The A1b gate below governs whether to **install and measure**, not
+whether to **compile**. A build is reversible and costs only disk and otherwise-idle cores.
+If P7 later shows clock does not move DSP, the artifact gets thrown away and no attention
+was spent on it.
+
+**Do, in this order:**
+
+1. **A1 — establish the installed Surge revision.** The Pi is idle, so query it directly.
+   **If you cannot establish it, stop and report — do not guess a tag.** A build from a
+   different revision measures version + flag together and is worthless. This gates
+   everything else in this pass.
+2. **Check free disk.** A Surge build tree is multiple GB on the SD card.
+3. A2 build script, A3 revert path, A4 measurement plan, A5 pre-registration.
+4. **Run the build.** ~40 min, all four cores.
+
+**Do NOT, while unattended:**
+
+- **Do not install the new binary.** Building and installing are separate steps and only
+  the build is safe to do unsupervised.
+- **Do not measure anything.** Baseline and after-measurement both belong in Phase B.
+- **Do not run P7.** It needs all-cores-quiet, and it needs a *cool* board — see below.
+- **Do not edit `config.txt` and do not reboot.** If the Pi does not come back up, recovery
+  means physically pulling the SD card and editing it on another machine. That requires
+  someone in the room. This is the one genuinely hard-to-reverse action in the queue.
+
+**Thermal interaction — this is the part that is easy to get wrong.** The build heats the
+SoC hard for 40 minutes. Running P7 during or shortly after means measuring 2000 MHz on a
+hot board: it throttles, DSP shows no gain, and the run reads as *"clock does not help"* —
+the exact false negative P7 exists to avoid. **Leave the board to cool. Record
+`vcgencmd measure_temp` and `get_throttled` when the build finishes so the next task knows
+what state it inherited.**
+
+**Hand back:** the revision you built, whether the build succeeded, free disk before/after,
+final temperature and `get_throttled`, and the path to the uninstalled artifact. Then stop.
+
+---
+
 ## Phase A — offline prep (do this now, no Pi contact)
 
 **A1. Establish which Surge revision is installed.** From the repo, `docs/SURGE_ARM_BUILD.md`,
