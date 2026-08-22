@@ -43,6 +43,8 @@ _PROBE_PID=""
 PROBE_BIN="${MPE_MODULE_REPO}/native/mpe-xrun-probe/mpe-xrun-probe"
 
 SKIP_BUFFER_RESTORE=false
+FILL_LOG=""
+_FILL_PID=""
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -52,6 +54,7 @@ while [ $# -gt 0 ]; do
         --runs) RUNS="${2:?--runs requires a value}"; shift 2 ;;
         --seconds) SECONDS_PER_RUN="${2:?--seconds requires a value}"; shift 2 ;;
         --output) OUTPUT="${2:?--output requires a path}"; shift 2 ;;
+        --fill-log) FILL_LOG="${2:?--fill-log requires a path}"; shift 2 ;;
         --self-test) SELF_TEST=true; SECONDS_PER_RUN=10; RUNS=1; shift ;;
         --restart-between) RESTART_BETWEEN="${2:?--restart-between requires a run index}"; shift 2 ;;
         --playing-loops) PLAYING_LOOPS="${2:?--playing-loops requires 0|4|8|16}"; shift 2 ;;
@@ -140,8 +143,70 @@ _stop_xrun_probe() {
     sleep 0.2
 }
 
+_stop_fill_poller() {
+    if [ -n "$_FILL_PID" ] && kill -0 "$_FILL_PID" 2>/dev/null; then
+        kill -TERM "$_FILL_PID" 2>/dev/null || true
+        wait "$_FILL_PID" 2>/dev/null || true
+    fi
+    _FILL_PID=""
+}
+
+_start_fill_poller() {
+    local logpath="$1"
+    local status_file="$2"
+    local seconds="$3"
+    _stop_fill_poller
+    rm -f "$logpath"
+    taskset -c 1 nice -n 19 "$SCRIPT_DIR/mpe-fill-poller.sh" \
+        "$status_file" "$logpath" "$seconds" &
+    _FILL_PID=$!
+    sleep 0.2
+    if ! kill -0 "$_FILL_PID" 2>/dev/null; then
+        echo "ERROR: mpe-fill-poller failed to start" >&2
+        return 1
+    fi
+    return 0
+}
+
+# Instrument 2 — jackd ALSA xrun magnitudes (post-window journal only).
+_jackd_alsa_xrun_stats() {
+    local since="$1"
+    local until="$2"
+    if ! command -v journalctl >/dev/null 2>&1; then
+        echo "0 0 0 0 0"
+        return 0
+    fi
+    journalctl -u mpe-jackd.service --since "$since" --until "$until" --no-pager 2>/dev/null \
+        | awk '
+            /xrun of at least/ {
+                if (match($0, /at least ([0-9.]+) msecs/, m)) {
+                    v = m[1] + 0
+                    n++
+                    s += v
+                    vals[n] = v
+                    if (n == 1 || v < min) min = v
+                    if (n == 1 || v > max) max = v
+                }
+            }
+            END {
+                if (n == 0) {
+                    printf "0 0 0 0 0\n"
+                    exit
+                }
+                for (i = 1; i <= n; i++) {
+                    for (j = i + 1; j <= n; j++) {
+                        if (vals[i] > vals[j]) { t = vals[i]; vals[i] = vals[j]; vals[j] = t }
+                    }
+                }
+                med = vals[int((n + 1) / 2)]
+                printf "%d %.6f %.6f %.6f %.6f\n", n, min, med, max, s / n
+            }
+        '
+}
+
 _restore_all() {
     _stop_midi_load
+    _stop_fill_poller
     _stop_xrun_probe
     _restore_softmode
     if [ "$SKIP_BUFFER_RESTORE" = true ]; then
@@ -388,7 +453,12 @@ _run_window() {
     local run_file="$2"
     local dsp_raw="$3"
     local xrun_events="$4"
+    local fill_log="${5:-}"
+    local status_file="${6:-}"
     local i dsp prev_xr start_xr cur_xr delta samples=0
+    local window_since window_until
+    local jackd_alsa_n jackd_alsa_min jackd_alsa_med jackd_alsa_max jackd_alsa_mean
+    local probe_xrun_n
 
     _meter_max_age_s=0
 
@@ -400,16 +470,25 @@ _run_window() {
         return 1
     fi
 
+    if [ -n "$fill_log" ] && [ -n "$status_file" ]; then
+        if ! _start_fill_poller "$fill_log" "$status_file" "$SECONDS_PER_RUN"; then
+            _stop_xrun_probe "$xrun_events"
+            return 1
+        fi
+    fi
+
     _as_user stdbuf -oL jack_cpu_load >"$dsp_raw" 2>/dev/null &
     local jcl=$!
     _kill_jcl() { kill -9 "$jcl" 2>/dev/null || true; wait "$jcl" 2>/dev/null || true; }
 
     if ! prev_xr="$(_meter_xruns)"; then
         _kill_jcl
+        _stop_fill_poller
         _stop_xrun_probe "$xrun_events"
         return 1
     fi
     start_xr="$prev_xr"
+    window_since="$(date -Is)"
 
     printf '  %4s %8s %8s %7s\n' "t" "dsp%" "xruns" "delta" >>"$run_file"
 
@@ -419,12 +498,14 @@ _run_window() {
         dsp="$(tail -1 "$dsp_raw" 2>/dev/null | grep -oP '[0-9]+\.[0-9]+' | head -1 || echo '?')"
         if ! cur_xr="$(_meter_xruns)"; then
             _kill_jcl
+            _stop_fill_poller
             _stop_xrun_probe "$xrun_events"
             return 1
         fi
         if [ "$cur_xr" -lt "$prev_xr" ]; then
             echo "ERROR: meter restarted mid-run (xruns ${prev_xr} -> ${cur_xr}) — window VOID" >&2
             _kill_jcl
+            _stop_fill_poller
             _stop_xrun_probe "$xrun_events"
             return 1
         fi
@@ -435,7 +516,9 @@ _run_window() {
         prev_xr="$cur_xr"
     done
 
+    window_until="$(date -Is)"
     _kill_jcl
+    _stop_fill_poller
     _stop_xrun_probe "$xrun_events"
 
     if [ "$samples" -ne "$SECONDS_PER_RUN" ]; then
@@ -484,6 +567,11 @@ _run_window() {
         return 1
     fi
 
+    read -r jackd_alsa_n jackd_alsa_min jackd_alsa_med jackd_alsa_max jackd_alsa_mean < <(
+        _jackd_alsa_xrun_stats "$window_since" "$window_until"
+    )
+    probe_xrun_n="$(grep '^XRUN_COUNT ' "$xrun_events" 2>/dev/null | awk '{print $2}' || echo 0)"
+
     {
         echo "RESULT tag=${tag} xruns=${total_xr} meter_live=1 meter_max_age_s=${_meter_max_age_s} dsp_median=${dsp_median} dsp_p99=${dsp_p99} dsp_max=${dsp_max}"
         echo "RESULT tag=${tag} jitter_n=${jitter_n} jitter_median_usec=${jitter_med} jitter_p99_usec=${jitter_p99} jitter_p99_9_usec=${jitter_p999} jitter_max_usec=${jitter_max}"
@@ -491,6 +579,10 @@ _run_window() {
         echo "RESULT tag=${tag} delay_events=${delay_n} delay_nonzero=${delay_nz} (legacy, ignore)"
         echo "RESULT tag=${tag} samples=${samples} ${temp} ${throttle}"
         echo "RESULT tag=${tag} file=${run_file} xrun_events=${xrun_events}"
+        echo "RESULT tag=${tag} probe_xrun_count=${probe_xrun_n} jackd_alsa_xrun_count=${jackd_alsa_n} jackd_alsa_msec_min=${jackd_alsa_min} jackd_alsa_msec_median=${jackd_alsa_med} jackd_alsa_msec_max=${jackd_alsa_max} jackd_alsa_msec_mean=${jackd_alsa_mean} window_since=${window_since} window_until=${window_until}"
+        if [ -n "$fill_log" ]; then
+            echo "RESULT tag=${tag} fill_log=${fill_log}"
+        fi
     }
 
     echo "SENTINEL run-complete tag=${tag} xruns=${total_xr}"
@@ -529,6 +621,16 @@ _run_window() {
     _assert_jack_periods "$PERIODS_EFFECTIVE" || exit 1
     echo "=== provenance after strict restart ==="
     _record_provenance
+
+    ALSA_STATUS=""
+    if [ -n "$FILL_LOG" ]; then
+        if ! RESOLVE="$("$SCRIPT_DIR/resolve-alsa-playback-status.sh")"; then
+            echo "ERROR: resolve-alsa-playback-status failed (fill-log requested)" >&2
+            exit 1
+        fi
+        ALSA_STATUS="$(printf '%s\n' "$RESOLVE" | awk -F= '/^STATUS=/{print $2}')"
+        echo "=== fill telemetry card $(printf '%s\n' "$RESOLVE" | awk -F= '/^CARD=/{print $2}') status=${ALSA_STATUS} ==="
+    fi
 
     if [ "$PLAYING_LOOPS" -gt 0 ]; then
         case "$PLAYING_LOOPS" in
@@ -575,17 +677,28 @@ _run_window() {
         run_file="/tmp/latency-${tag}-${stamp}.out"
         dsp_raw="/tmp/latency-${tag}-${stamp}.dsp"
         xev="/tmp/latency-${tag}-${stamp}.xruns"
+        fill_file=""
+        if [ -n "$FILL_LOG" ]; then
+            fill_file="${FILL_LOG}-${tag}.log"
+        fi
 
         _as_user python3 "$SCRIPT_DIR/midi-load.py" "$((SECONDS_PER_RUN + 20))" \
             >"/tmp/latency-midi-load-${stamp}.log" 2>&1 &
         _LOAD_PID=$!
         sleep 8
 
-        if ! _run_window "$tag" "$run_file" "$dsp_raw" "$xev"; then
+        if ! _run_window "$tag" "$run_file" "$dsp_raw" "$xev" "$fill_file" "$ALSA_STATUS"; then
             _stop_midi_load
             exit 1
         fi
         _stop_midi_load
+
+        if [ -n "$fill_file" ] && [ -s "$fill_file" ]; then
+            if ! "$SCRIPT_DIR/summarize-fill-trace.sh" "$fill_file" "$BUFFER" "$PERIODS_EFFECTIVE" >>"$OUTPUT"; then
+                echo "ERROR: fill trace sanity check failed for ${fill_file}" >&2
+                exit 1
+            fi
+        fi
 
         if [ ! -s "$run_file" ]; then
             echo "ERROR: empty run file $run_file" >&2
