@@ -122,25 +122,26 @@ fi
 
 V8B_PATH="$QUICK_SELECT/${V8B_PICK}.fxp"
 echo "V8-b patch=${V8B_PICK} voices=${V8B_VOICES} path=${V8B_PATH}"
+[ -f "$V8B_PATH" ] || { echo "ERROR: V8-b patch file missing: ${V8B_PATH}" >&2; exit 1; }
 
-if [ -f "$V8B_PATH" ]; then
-    sudo -u "$RUN_AS_USER" python3 "$SCRIPT_DIR/load-patch-osc.py" "$V8B_PATH"
-    sleep 1
-fi
+sudo -u "$RUN_AS_USER" python3 "$SCRIPT_DIR/load-patch-osc.py" "$V8B_PATH"
+sleep 1
 
 echo ""
 echo "=== V8-b 1024×2 @ playable voices (n=3, 45s) ==="
 V8B_X2="${ARTIFACT_DIR}/v8b-1024x2.log"
 "$SCRIPT_DIR/measure-latency-run.sh" \
     --buffer 1024 --periods 2 --condition A --runs 3 --seconds 45 \
-    --hold-voices "$V8B_VOICES" --output "$V8B_X2" --no-restore-buffer
+    --hold-voices "$V8B_VOICES" --provenance-patch "$V8B_PICK" --provenance-voices "$V8B_VOICES" \
+    --output "$V8B_X2" --no-restore-buffer
 
 echo ""
 echo "=== V8-b baseline 1024×3 (same patch/voices) ==="
 V8B_X3="${ARTIFACT_DIR}/v8b-1024x3.log"
 "$SCRIPT_DIR/measure-latency-run.sh" \
     --buffer 1024 --periods 3 --condition A --runs 3 --seconds 45 \
-    --hold-voices "$V8B_VOICES" --output "$V8B_X3"
+    --hold-voices "$V8B_VOICES" --provenance-patch "$V8B_PICK" --provenance-voices "$V8B_VOICES" \
+    --output "$V8B_X3"
 
 echo ""
 echo "=== restore shipping softmode ==="
