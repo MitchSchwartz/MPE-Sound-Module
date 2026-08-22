@@ -1,0 +1,54 @@
+=== Plan V11 2026-08-22T14:42:59-04:00 artifacts=/home/mitch/plan-v11-20260822-144259 ===
+PROVENANCE governor=off clock=1800 cells=512x2,256x3 patches=Crystals@3,CloudHorn@5,Duduk@3
+
+=== V11 patch=Crystals voices=3 buffer=512 periods=2 ===
+OSC client initialized: 127.0.0.1:53280
+Loaded patch: Crystals.fxp
+loaded Crystals.fxp
+Appended measurement to /home/mitch/plan-v11-20260822-144259/v11-512x2-Crystals-v3.log
+SENTINEL harness-logged
+V11_SUMMARY patch=Crystals voices=3 512x2 xruns=0 dsp_med=unknown log=/home/mitch/plan-v11-20260822-144259/v11-512x2-Crystals-v3.log
+
+=== V11 patch=Crystals voices=3 buffer=256 periods=3 ===
+OSC client initialized: 127.0.0.1:53280
+Loaded patch: Crystals.fxp
+loaded Crystals.fxp
+Appended measurement to /home/mitch/plan-v11-20260822-144259/v11-256x3-Crystals-v3.log
+SENTINEL harness-logged
+V11_SUMMARY patch=Crystals voices=3 256x3 xruns=2 dsp_med=unknown log=/home/mitch/plan-v11-20260822-144259/v11-256x3-Crystals-v3.log
+WARN: non-zero xruns at confirm count — treat cell as failed
+
+=== V11 patch=Cloud Horn voices=5 buffer=512 periods=2 ===
+OSC client initialized: 127.0.0.1:53280
+Loaded patch: Cloud Horn.fxp
+loaded Cloud Horn.fxp
+Appended measurement to /home/mitch/plan-v11-20260822-144259/v11-512x2-Cloud_Horn-v5.log
+SENTINEL harness-logged
+V11_SUMMARY patch=Cloud Horn voices=5 512x2 xruns=8 dsp_med=unknown log=/home/mitch/plan-v11-20260822-144259/v11-512x2-Cloud_Horn-v5.log
+WARN: non-zero xruns at confirm count — treat cell as failed
+
+=== V11 patch=Cloud Horn voices=5 buffer=256 periods=3 ===
+OSC client initialized: 127.0.0.1:53280
+Loaded patch: Cloud Horn.fxp
+loaded Cloud Horn.fxp
+Appended measurement to /home/mitch/plan-v11-20260822-144259/v11-256x3-Cloud_Horn-v5.log
+SENTINEL harness-logged
+V11_SUMMARY patch=Cloud Horn voices=5 256x3 xruns=23 dsp_med=unknown log=/home/mitch/plan-v11-20260822-144259/v11-256x3-Cloud_Horn-v5.log
+WARN: non-zero xruns at confirm count — treat cell as failed
+
+=== V11 patch=Duduk voices=3 buffer=512 periods=2 ===
+OSC client initialized: 127.0.0.1:53280
+Loaded patch: Duduk.fxp
+loaded Duduk.fxp
+Appended measurement to /home/mitch/plan-v11-20260822-144259/v11-512x2-Duduk-v3.log
+SENTINEL harness-logged
+V11_SUMMARY patch=Duduk voices=3 512x2 xruns=0 dsp_med=unknown log=/home/mitch/plan-v11-20260822-144259/v11-512x2-Duduk-v3.log
+
+=== V11 patch=Duduk voices=3 buffer=256 periods=3 ===
+OSC client initialized: 127.0.0.1:53280
+Loaded patch: Duduk.fxp
+loaded Duduk.fxp
+Appended measurement to /home/mitch/plan-v11-20260822-144259/v11-256x3-Duduk-v3.log
+SENTINEL harness-logged
+V11_SUMMARY patch=Duduk voices=3 256x3 xruns=0 dsp_med=unknown log=/home/mitch/plan-v11-20260822-144259/v11-256x3-Duduk-v3.log
+SENTINEL v11-complete artifacts=/home/mitch/plan-v11-20260822-144259

@@ -1,0 +1,5 @@
+PROBE_START client=mpe-xrun-probe buffer_frames=256 sample_rate=48000 expected_period_us=5333
+JITTER_SUMMARY expected_period_us=5333 n=9890 median_usec=-318 p99_usec=817 p99_9_usec=968 max_usec=1073
+FRAMES_LATE_SUMMARY expected_period_us=5333 n=9890 median_usec=62 p99_usec=250 p99_9_usec=312 max_usec=396
+XRUN_COUNT 2
+PROBE_END

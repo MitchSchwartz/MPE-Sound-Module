@@ -1,0 +1,168 @@
+nohup: failed to run command './scripts/watch-build-a72.sh': No such file or directory
+2026-08-22T12:47:52-04:00 Installing cmake (missing — prior build failed here)
+2026-08-22T12:47:52-04:00 Installing cmake (missing — prior build failed here)
+Reading package lists...
+Building dependency tree...
+Reading state information...
+The following additional packages will be installed:
+  cmake-data libarchive13t64 libjsoncpp26 librhash1 libuv1t64
+Suggested packages:
+  cmake-doc cmake-format elpa-cmake-mode ninja-build lrzip
+The following NEW packages will be installed:
+  cmake cmake-data libarchive13t64 libjsoncpp26 librhash1 libuv1t64
+0 upgraded, 6 newly installed, 0 to remove and 114 not upgraded.
+Need to get 12.8 MB of archives.
+After this operation, 50.1 MB of additional disk space will be used.
+Get:1 http://deb.debian.org/debian trixie/main arm64 cmake-data all 3.31.6-2 [2268 kB]
+Get:2 http://deb.debian.org/debian trixie/main arm64 libarchive13t64 arm64 3.7.4-4+deb13u1 [324 kB]
+Get:3 http://deb.debian.org/debian trixie/main arm64 libjsoncpp26 arm64 1.9.6-3 [72.9 kB]
+Get:4 http://deb.debian.org/debian trixie/main arm64 librhash1 arm64 1.4.5-1 [129 kB]
+Get:5 http://deb.debian.org/debian trixie/main arm64 libuv1t64 arm64 1.50.0-2 [148 kB]
+Get:6 http://deb.debian.org/debian trixie/main arm64 cmake arm64 3.31.6-2 [9906 kB]
+apt-listchanges: Can't set locale; make sure $LC_* and $LANG are correct!
+perl: warning: Setting locale failed.
+perl: warning: Please check that your locale settings:
+	LANGUAGE = (unset),
+	LC_ALL = (unset),
+	LC_CTYPE = (unset),
+	LC_NUMERIC = "en_GB.UTF-8",
+	LC_COLLATE = (unset),
+	LC_TIME = "en_CA.UTF-8",
+	LC_MESSAGES = (unset),
+	LC_MONETARY = "en_CA.UTF-8",
+	LC_ADDRESS = "en_CA.UTF-8",
+	LC_IDENTIFICATION = "en_GB.UTF-8",
+	LC_MEASUREMENT = "en_GB.UTF-8",
+	LC_PAPER = "en_CA.UTF-8",
+	LC_TELEPHONE = "en_CA.UTF-8",
+	LC_NAME = "en_CA.UTF-8",
+	LANG = "en_GB.UTF-8"
+    are supported and installed on your system.
+perl: warning: Falling back to a fallback locale ("en_GB.UTF-8").
+locale: Cannot set LC_ALL to default locale: No such file or directory
+debconf: unable to initialize frontend: Dialog
+debconf: (Dialog frontend will not work on a dumb terminal, an emacs shell buffer, or without a controlling terminal.)
+debconf: falling back to frontend: Readline
+debconf: unable to initialize frontend: Readline
+debconf: (This frontend requires a controlling tty.)
+debconf: falling back to frontend: Teletype
+debconf: unable to initialize frontend: Teletype
+debconf: (This frontend requires a controlling tty.)
+debconf: falling back to frontend: Noninteractive
+Fetched 12.8 MB in 11s (1200 kB/s)
+Selecting previously unselected package cmake-data.
+(Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 82388 files and directories currently installed.)
+Preparing to unpack .../0-cmake-data_3.31.6-2_all.deb ...
+Unpacking cmake-data (3.31.6-2) ...
+Selecting previously unselected package libarchive13t64:arm64.
+Preparing to unpack .../1-libarchive13t64_3.7.4-4+deb13u1_arm64.deb ...
+Unpacking libarchive13t64:arm64 (3.7.4-4+deb13u1) ...
+Selecting previously unselected package libjsoncpp26:arm64.
+Preparing to unpack .../2-libjsoncpp26_1.9.6-3_arm64.deb ...
+Unpacking libjsoncpp26:arm64 (1.9.6-3) ...
+Selecting previously unselected package librhash1:arm64.
+Preparing to unpack .../3-librhash1_1.4.5-1_arm64.deb ...
+Unpacking librhash1:arm64 (1.4.5-1) ...
+Selecting previously unselected package libuv1t64:arm64.
+Preparing to unpack .../4-libuv1t64_1.50.0-2_arm64.deb ...
+Unpacking libuv1t64:arm64 (1.50.0-2) ...
+Selecting previously unselected package cmake.
+Preparing to unpack .../5-cmake_3.31.6-2_arm64.deb ...
+Unpacking cmake (3.31.6-2) ...
+Setting up libuv1t64:arm64 (1.50.0-2) ...
+Setting up libjsoncpp26:arm64 (1.9.6-3) ...
+Setting up cmake-data (3.31.6-2) ...
+Setting up librhash1:arm64 (1.4.5-1) ...
+Setting up libarchive13t64:arm64 (3.7.4-4+deb13u1) ...
+Setting up cmake (3.31.6-2) ...
+Processing triggers for man-db (2.13.1-1) ...
+Processing triggers for libc-bin (2.41-12+rpt1+deb13u3) ...
+2026-08-22T12:48:36-04:00 Attempt 1/4 starting (jobs=4)
+2026-08-22T12:48:36-04:00 Attempt 1/4 starting (jobs=4)
+HEAD is now at 253f8d86 Fix Visual Studio 2026 build, update sst-plugininfra & FindVCVars script (#8239)
+Source at last_cpp17-86-g253f8d86 (253f8d8634625246b8f3baff3796173b321736a0)
+-- The C compiler identification is GNU 14.2.0
+-- The CXX compiler identification is GNU 14.2.0
+-- Detecting C compiler ABI info
+-- Detecting C compiler ABI info - done
+-- Check for working C compiler: /usr/bin/cc - skipped
+-- Detecting C compile features
+-- Detecting C compile features - done
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: /usr/bin/c++ - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- It's Surge XT, folks! Version is 1.4.0.
+-- CMAKE_BUILD_TYPE is Release.
+-- CMake version is 3.31.6.
+-- Compiler version is 14.2.0.
+-- Targeting 64-bit configuration.
+CMake Error at CMakeLists.txt:41 (message):
+  Cannot find the contents of the tuning-library submodule.  This usually
+  means that you haven't done a submodule update, so the repository will not
+  build properly.  To resolve this, please run git submodule update --init
+  --recursive and re-run CMake!
+
+
+-- Configuring incomplete, errors occurred!
+2026-08-22T12:48:48-04:00 Attempt 1 failed
+2026-08-22T12:48:48-04:00 Attempt 1 failed
+2026-08-22T12:49:18-04:00 Attempt 2/4 starting (jobs=4)
+2026-08-22T12:49:18-04:00 Attempt 2/4 starting (jobs=4)
+HEAD is now at 253f8d86 Fix Visual Studio 2026 build, update sst-plugininfra & FindVCVars script (#8239)
+Source at last_cpp17-86-g253f8d86 (253f8d8634625246b8f3baff3796173b321736a0)
+make: *** No rule to make target 'surge-xt-cli'.  Stop.
+2026-08-22T12:49:19-04:00 Attempt 2 failed
+2026-08-22T12:49:19-04:00 Attempt 2 failed
+2026-08-22T12:49:49-04:00 Attempt 3: reducing parallel jobs to 2 (prior failures)
+2026-08-22T12:49:49-04:00 Attempt 3: reducing parallel jobs to 2 (prior failures)
+2026-08-22T12:49:49-04:00 Attempt 3/4 starting (jobs=2)
+2026-08-22T12:49:49-04:00 Attempt 3/4 starting (jobs=2)
+HEAD is now at 253f8d86 Fix Visual Studio 2026 build, update sst-plugininfra & FindVCVars script (#8239)
+Source at last_cpp17-86-g253f8d86 (253f8d8634625246b8f3baff3796173b321736a0)
+make: *** No rule to make target 'surge-xt-cli'.  Stop.
+2026-08-22T12:49:50-04:00 Attempt 3 failed
+2026-08-22T12:49:50-04:00 Attempt 3 failed
+2026-08-22T12:50:20-04:00 Attempt 4: reducing parallel jobs to 2 (prior failures)
+2026-08-22T12:50:20-04:00 Attempt 4: reducing parallel jobs to 2 (prior failures)
+2026-08-22T12:50:20-04:00 Attempt 4/4 starting (jobs=2)
+2026-08-22T12:50:20-04:00 Attempt 4/4 starting (jobs=2)
+HEAD is now at 253f8d86 Fix Visual Studio 2026 build, update sst-plugininfra & FindVCVars script (#8239)
+Source at last_cpp17-86-g253f8d86 (253f8d8634625246b8f3baff3796173b321736a0)
+make: *** No rule to make target 'surge-xt-cli'.  Stop.
+2026-08-22T12:50:21-04:00 Attempt 4 failed
+2026-08-22T12:50:21-04:00 Attempt 4 failed
+2026-08-22T12:50:51-04:00 FAILED after 4 attempts
+2026-08-22T12:50:51-04:00 FAILED after 4 attempts
+2026-08-22T12:51:18-04:00 Attempt 1/4 starting (jobs=4)
+2026-08-22T12:51:18-04:00 Attempt 1/4 starting (jobs=4)
+HEAD is now at 253f8d86 Fix Visual Studio 2026 build, update sst-plugininfra & FindVCVars script (#8239)
+Source at last_cpp17-86-g253f8d86 (253f8d8634625246b8f3baff3796173b321736a0)
+-- The C compiler identification is GNU 14.2.0
+-- The CXX compiler identification is GNU 14.2.0
+-- Detecting C compiler ABI info
+-- Detecting C compiler ABI info - done
+-- Check for working C compiler: /usr/bin/cc - skipped
+-- Detecting C compile features
+-- Detecting C compile features - done
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: /usr/bin/c++ - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- It's Surge XT, folks! Version is 1.4.0.
+-- CMAKE_BUILD_TYPE is Release.
+-- CMake version is 3.31.6.
+-- Compiler version is 14.2.0.
+-- Targeting 64-bit configuration.
+CMake Error at CMakeLists.txt:41 (message):
+  Cannot find the contents of the tuning-library submodule.  This usually
+  means that you haven't done a submodule update, so the repository will not
+  build properly.  To resolve this, please run git submodule update --init
+  --recursive and re-run CMake!
+
+
+-- Configuring incomplete, errors occurred!
+2026-08-22T12:51:20-04:00 Attempt 1 failed
+2026-08-22T12:51:20-04:00 Attempt 1 failed

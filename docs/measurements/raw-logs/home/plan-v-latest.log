@@ -1,0 +1,45 @@
+=== Plan V V0+V1+V2 2026-08-21T22:10:11-04:00 artifacts=/root/plan-v-20260821-221011 ===
+
+=== V0-a governor ===
+MPE_CPU_GOVERNOR=MPE_CPU_GOVERNOR=performance
+cpu0 governor=performance mhz=1800
+cpu1 governor=performance mhz=1800
+cpu2 governor=performance mhz=1800
+cpu3 governor=performance mhz=1800
+config.txt: arm_boost=1 already set (V6 baseline may already be active)
+
+=== V0-b poly governor ===
+surge-poly-governor: inactive
+inactive
+MPE_POLY_GOVERNOR=MPE_POLY_GOVERNOR=0
+MPE_POLY_CEILING=MPE_POLY_CEILING=16
+MPE_POLY_FLOOR=MPE_POLY_FLOOR=16
+
+=== V0-c softmode ===
+MPE_JACK_SOFTMODE=MPE_JACK_SOFTMODE=1
+58276 jackd -R -P70 -d alsa -P hw:2 -r 48000 -p 1024 -n 3
+
+=== V0 actions: disable poly governor, pin poly, stop governor unit ===
+poly governor stopped; MPE_POLY_GOVERNOR=0 MPE_POLY_CEILING=16 MPE_POLY_FLOOR=16
+NOTE: CPU governor unchanged for V0 (V5 is separate). softmode reverted by measure-dsp-sample strict restart.
+
+=== V1 silence test (Surge on, zero notes, n=3 x 30s per buffer) ===
+Applied buffer=1024 periods=3
+Appended to /root/plan-v-20260821-221011/v1-silence.log
+Applied buffer=512 periods=3
+Appended to /root/plan-v-20260821-221011/v1-silence.log
+Applied buffer=256 periods=3
+Appended to /root/plan-v-20260821-221011/v1-silence.log
+
+=== V2 client-count @ 1024x3 (n=3 x 30s) ===
+--- surge OFF (engine baseline) ---
+Applied buffer=1024 periods=3
+Appended to /root/plan-v-20260821-221011/v2-client-count.log
+--- surge ON (Surge alone) ---
+Applied buffer=1024 periods=3
+Appended to /root/plan-v-20260821-221011/v2-client-count.log
+Applied buffer=1024 periods=3
+
+=== restore softmode for shipping ===
+SENTINEL plan-v-v0-v1-v2-complete 2026-08-21T22:20:41-04:00
+artifacts=/root/plan-v-20260821-221011

@@ -1,0 +1,5 @@
+=== Plan V11 2026-08-22T14:41:09-04:00 artifacts=/home/mitch/plan-v11-20260822-144109 ===
+PROVENANCE governor=off clock=1800 cells=512x2,256x3 patches=Crystals@3,CloudHorn@5,Duduk@3
+
+=== V11 patch=Crystals voices=3 buffer=512 periods=2 ===
+ERROR: peak meter blind before v11-512x2-Crystals-v3

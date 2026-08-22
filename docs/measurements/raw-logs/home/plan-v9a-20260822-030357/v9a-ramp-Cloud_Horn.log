@@ -1,0 +1,9 @@
+=== capacity-ramp tag=V9a-02-Cloud_Horn buffer=1024x3 patch=Cloud Horn 2026-08-22T03:07:23-04:00 ===
+CARD=2
+{"name":"Cloud horn","path":"/home/mitch/Documents/Surge XT/Patches/Quick Select/Cloud Horn.fxp","osc_count":2,"osc_types":[9,9],"unison_voices":16,"fx_count":2,"fx_types":[3,14],"filter1_type":1,"filter2_type":0,"patch_polylimit":16}
+PROBE voices=1 sec=8 xruns_delta=0
+PROBE voices=3 sec=8 xruns_delta=0
+PROBE voices=5 sec=8 xruns_delta=0
+PROBE voices=7 sec=8 xruns_delta=2
+RESULT tag=V9a-02-Cloud_Horn first_overrun=7 sustained_clean=5
+SENTINEL capacity-ramp-end tag=V9a-02-Cloud_Horn

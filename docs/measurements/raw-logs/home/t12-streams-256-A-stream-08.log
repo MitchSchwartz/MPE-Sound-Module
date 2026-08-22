@@ -1,0 +1,274 @@
+
+=== measure-latency-run buffer=256 periods=3 condition=A runs=3 seconds=60 2026-08-21T16:57:23-04:00 ===
+SENTINEL harness-start
+Applied buffer=256 periods=3
+jackd period=256 ok
+jackd periods=3 ok
+condition A units:
+  sooperlooper=inactive session=inactive watchdog=inactive
+jackd period=256 ok
+jackd periods=3 ok
+=== provenance after strict restart ===
+=== provenance 2026-08-21T16:58:12-04:00 ===
+bf559c2 Fix step3 256 section: three streams not noise
+ M scripts/check-midi-devices.sh
+ M scripts/install-foot-pedal-service.sh
+ M scripts/install-git-hooks.sh
+ M scripts/set-surge-volume.sh
+ M scripts/setup-encoder.sh
+ M scripts/setup-pi-symlinks.sh
+ M scripts/setup-usb-power-management.sh
+ M scripts/test-surge-sustain.sh
+ M scripts/wait-for-usb-midi.sh
+?? native/mpe-xrun-probe/--help
+?? tests/fixtures/sooperlooper-loops/loop00.wav
+?? tests/fixtures/sooperlooper-loops/loop01.wav
+?? tests/fixtures/sooperlooper-loops/loop02.wav
+?? tests/fixtures/sooperlooper-loops/loop03.wav
+?? tests/fixtures/sooperlooper-loops/loop04.wav
+?? tests/fixtures/sooperlooper-loops/loop05.wav
+?? tests/fixtures/sooperlooper-loops/loop06.wav
+?? tests/fixtures/sooperlooper-loops/loop07.wav
+?? tests/fixtures/sooperlooper-loops/loop08.wav
+?? tests/fixtures/sooperlooper-loops/loop09.wav
+?? tests/fixtures/sooperlooper-loops/loop10.wav
+?? tests/fixtures/sooperlooper-loops/loop11.wav
+?? tests/fixtures/sooperlooper-loops/loop12.wav
+?? tests/fixtures/sooperlooper-loops/loop13.wav
+?? tests/fixtures/sooperlooper-loops/loop14.wav
+?? tests/fixtures/sooperlooper-loops/loop15.wav
+6.18.34+rpt-rpi-v8
+coherent_pool=1M 8250.nr_uarts=0 snd_bcm2835.enable_headphones=0 cgroup_disable=memory numa_policy=interleave nvme.max_host_mem_size_mb=32 snd_bcm2835.enable_headphones=1 snd_bcm2835.enable_hdmi=1 snd_bcm2835.enable_hdmi=0  numa=fake=2 system_heap.max_order=0 iommu_dma_numa_policy=interleave smsc95xx.macaddr=2C:CF:67:59:7C:41 vc_mem.mem_base=0x3ec00000 vc_mem.mem_size=0x40000000  console=ttyS0,115200 console=tty1 root=PARTUUID=ed7e095b-02 rootfstype=ext4 fsck.repair=yes rootwait cfg80211.ieee80211_regdom=CA irqaffinity=0,1 video=HDMI-A-1:d video=HDMI-A-2:d
+
+governor cpufreq=performance
+jackd -R -P70 -d alsa -P hw:1 -r 48000 -p 256 -n 3
+=== run A-b256-p3-l0-run1 ===
+RESULT tag=A-b256-p3-l0-run1 xruns=7 meter_live=1 meter_max_age_s=0 dsp_median=38.674656 dsp_p99=45.313358 dsp_max=51.342281
+RESULT tag=A-b256-p3-l0-run1 jitter_n=12716 jitter_median_usec=-309 jitter_p99_usec=874 jitter_p99_9_usec=1049 jitter_max_usec=1170
+RESULT tag=A-b256-p3-l0-run1 frames_late_p99_usec=312 frames_late_max_usec=396
+RESULT tag=A-b256-p3-l0-run1 delay_events=0 delay_nonzero=0 (legacy, ignore)
+RESULT tag=A-b256-p3-l0-run1 samples=60 temp=52.1'C throttled=0x0
+RESULT tag=A-b256-p3-l0-run1 file=/tmp/latency-A-b256-p3-l0-run1-1787345892.out xrun_events=/tmp/latency-A-b256-p3-l0-run1-1787345892.xruns
+SENTINEL run-complete tag=A-b256-p3-l0-run1 xruns=7
+     t     dsp%    xruns   delta
+     1 42.438766       21       1
+     2 32.168880       21       0
+     3 29.774261       21       0
+     4 28.402126       21       0
+     5 32.758324       21       0
+     6 31.268753       21       0
+     7 34.703018       21       0
+     8 34.037689       21       0
+     9 34.905441       21       0
+    10 36.431625       21       0
+    11 40.494007       21       0
+    12 28.735743       21       0
+    13 29.857866       21       0
+    14 28.670343       21       0
+    15 31.270214       21       0
+    16 31.717983       21       0
+    17 28.794334       21       0
+    18 34.360527       21       0
+    19 37.088776       21       0
+    20 37.152504       21       0
+    21 37.931671       21       0
+    22 34.193024       21       0
+    23 35.224377       21       0
+    24 36.534176       21       0
+    25 35.630264       21       0
+    26 40.186443       21       0
+    27 34.777020       21       0
+    28 35.200241       21       0
+    29 38.674656       21       0
+    30 37.731766       21       0
+    31 34.126911       21       0
+    32 35.320755       21       0
+    33 39.190434       21       0
+    34 39.469761       21       0
+    35 41.167297       21       0
+    36 41.743465       21       0
+    37 37.935726       21       0
+    38 41.122555       21       0
+    39 41.680649       21       0
+    40 40.397301       21       0
+    41 40.565639       23       2
+    42 51.342281       23       0
+    43 39.337639       23       0
+    44 42.573326       23       0
+    45 41.245800       23       0
+    46 43.559326       23       0
+    47 39.843903       23       0
+    48 40.961605       23       0
+    49 40.439678       25       2
+    50 39.131248       25       0
+    51 42.102165       25       0
+    52 41.882885       25       0
+    53 42.274403       25       0
+    54 42.978416       25       0
+    55 39.245041       25       0
+    56 45.313358       27       2
+    57 40.061165       27       0
+    58 41.066509       27       0
+    59 39.248569       27       0
+    60 40.199913       27       0
+--- xrun delays (probe) ---
+PROBE_START client=mpe-xrun-probe buffer_frames=256 sample_rate=48000 expected_period_us=5333
+JITTER_SUMMARY expected_period_us=5333 n=12716 median_usec=-309 p99_usec=874 p99_9_usec=1049 max_usec=1170
+FRAMES_LATE_SUMMARY expected_period_us=5333 n=12716 median_usec=62 p99_usec=312 p99_9_usec=354 max_usec=396
+XRUN_COUNT 11
+PROBE_END
+=== run A-b256-p3-l0-run2 ===
+RESULT tag=A-b256-p3-l0-run2 xruns=26 meter_live=1 meter_max_age_s=0 dsp_median=37.556786 dsp_p99=66.387772 dsp_max=74.885361
+RESULT tag=A-b256-p3-l0-run2 jitter_n=12761 jitter_median_usec=-309 jitter_p99_usec=897 jitter_p99_9_usec=1075 jitter_max_usec=1120
+RESULT tag=A-b256-p3-l0-run2 frames_late_p99_usec=292 frames_late_max_usec=542
+RESULT tag=A-b256-p3-l0-run2 delay_events=0 delay_nonzero=0 (legacy, ignore)
+RESULT tag=A-b256-p3-l0-run2 samples=60 temp=52.5'C throttled=0x0
+RESULT tag=A-b256-p3-l0-run2 file=/tmp/latency-A-b256-p3-l0-run2-1787345979.out xrun_events=/tmp/latency-A-b256-p3-l0-run2-1787345979.xruns
+SENTINEL run-complete tag=A-b256-p3-l0-run2 xruns=26
+     t     dsp%    xruns   delta
+     1 38.569641       37       4
+     2 38.138687       37       0
+     3 35.898495       37       0
+     4 35.026253       37       0
+     5 37.691597       37       0
+     6 36.344776       37       0
+     7 36.151165       37       0
+     8 33.314957       37       0
+     9 39.684914       37       0
+    10 39.767250       37       0
+    11 41.428307       37       0
+    12 42.617714       39       2
+    13 39.003551       39       0
+    14 39.217506       41       2
+    15 41.832539       41       0
+    16 39.934681       41       0
+    17 74.885361       49       8
+    18 30.764414       49       0
+    19 29.718750       49       0
+    20 30.632648       49       0
+    21 30.378843       49       0
+    22 28.382566       49       0
+    23 29.335413       49       0
+    24 35.932068       49       0
+    25 36.904724       49       0
+    26 36.221737       49       0
+    27 35.974915       49       0
+    28 34.937691       49       0
+    29 37.689632       49       0
+    30 39.056927       49       0
+    31 35.043278       49       0
+    32 35.105667       49       0
+    33 37.182751       49       0
+    34 35.110092       51       2
+    35 66.387772       51       0
+    36 40.380489       51       0
+    37 37.880001       51       0
+    38 39.785046       51       0
+    39 41.644810       51       0
+    40 39.943993       51       0
+    41 38.815575       51       0
+    42 45.633331       53       2
+    43 40.209141       53       0
+    44 48.331352       53       0
+    45 39.013428       53       0
+    46 38.746540       53       0
+    47 61.558735       57       4
+    48 41.254608       57       0
+    49 29.472185       57       0
+    50 29.087391       57       0
+    51 29.124220       57       0
+    52 31.225151       57       0
+    53 30.609308       57       0
+    54 29.254581       57       0
+    55 34.515381       57       0
+    56 35.609856       57       0
+    57 36.581802       57       0
+    58 37.556786       57       0
+    59 37.599003       57       0
+    60 39.210800       59       2
+--- xrun delays (probe) ---
+PROBE_START client=mpe-xrun-probe buffer_frames=256 sample_rate=48000 expected_period_us=5333
+JITTER_SUMMARY expected_period_us=5333 n=12761 median_usec=-309 p99_usec=897 p99_9_usec=1075 max_usec=1120
+FRAMES_LATE_SUMMARY expected_period_us=5333 n=12761 median_usec=62 p99_usec=292 p99_9_usec=354 max_usec=542
+XRUN_COUNT 30
+PROBE_END
+=== run A-b256-p3-l0-run3 ===
+RESULT tag=A-b256-p3-l0-run3 xruns=33 meter_live=1 meter_max_age_s=0 dsp_median=39.972908 dsp_p99=53.851833 dsp_max=67.997559
+RESULT tag=A-b256-p3-l0-run3 jitter_n=12774 jitter_median_usec=-308 jitter_p99_usec=901 jitter_p99_9_usec=1068 jitter_max_usec=1101
+RESULT tag=A-b256-p3-l0-run3 frames_late_p99_usec=312 frames_late_max_usec=562
+RESULT tag=A-b256-p3-l0-run3 delay_events=0 delay_nonzero=0 (legacy, ignore)
+RESULT tag=A-b256-p3-l0-run3 samples=60 temp=51.6'C throttled=0x0
+RESULT tag=A-b256-p3-l0-run3 file=/tmp/latency-A-b256-p3-l0-run3-1787346066.out xrun_events=/tmp/latency-A-b256-p3-l0-run3-1787346066.xruns
+SENTINEL run-complete tag=A-b256-p3-l0-run3 xruns=33
+     t     dsp%    xruns   delta
+     1 45.371941       83       4
+     2 32.077305       83       0
+     3 28.891882       83       0
+     4 29.075392       83       0
+     5 29.830650       83       0
+     6 31.035789       83       0
+     7 33.516003       83       0
+     8 34.521908       83       0
+     9 35.114532       83       0
+    10 35.886127       83       0
+    11 35.219040       83       0
+    12 39.525486       83       0
+    13 38.575233       83       0
+    14 42.319992       83       0
+    15 41.686176       83       0
+    16 40.568233       83       0
+    17 38.890076       83       0
+    18 41.727512       85       2
+    19 39.972908       85       0
+    20 41.529675       88       3
+    21 40.524734       88       0
+    22 39.486214       88       0
+    23 45.673050       92       4
+    24 43.106819       92       0
+    25 41.762051       92       0
+    26 40.397694       92       0
+    27 52.349289       92       0
+    28 39.098476       92       0
+    29 41.903339       92       0
+    30 43.213661       92       0
+    31 40.029823       92       0
+    32 40.855518       92       0
+    33 67.997559       92       0
+    34 42.202240       92       0
+    35 42.313087       92       0
+    36 40.503574       92       0
+    37 36.571850       92       0
+    38 49.020218       92       0
+    39 39.347061       94       2
+    40 39.306965       94       0
+    41 39.995148       96       2
+    42 37.748436       96       0
+    43 42.884003       96       0
+    44 40.836830       96       0
+    45 39.503105       98       2
+    46 38.518921       98       0
+    47 41.329407       98       0
+    48 42.752113      100       2
+    49 41.126587      102       2
+    50 38.257828      102       0
+    51 39.445225      102       0
+    52 40.254551      104       2
+    53 53.851833      112       8
+    54 45.753422      112       0
+    55 28.856010      112       0
+    56 28.688089      112       0
+    57 29.848898      112       0
+    58 30.068338      112       0
+    59 29.766472      112       0
+    60 28.766773      112       0
+--- xrun delays (probe) ---
+PROBE_START client=mpe-xrun-probe buffer_frames=256 sample_rate=48000 expected_period_us=5333
+JITTER_SUMMARY expected_period_us=5333 n=12774 median_usec=-308 p99_usec=901 p99_9_usec=1068 max_usec=1101
+FRAMES_LATE_SUMMARY expected_period_us=5333 n=12774 median_usec=62 p99_usec=312 p99_9_usec=354 max_usec=562
+XRUN_COUNT 39
+PROBE_END
+=== restore buffer 256 periods 3 ===
+skip restore (--no-restore-buffer)
+done commit=bf559c2 log=/home/mitch/t12-streams-256-A-stream-08.log
+SENTINEL harness-end
+
