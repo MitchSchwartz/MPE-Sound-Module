@@ -1,6 +1,8 @@
 #!/bin/bash
 # C0 gate — offline parser conformance + live instrument checks (target ≤ 15 min).
 #
+# Rule 0.5: pilot --live on one cell; read output before trusting CONFORMANCE PASS.
+#
 # Usage:
 #   instrument-conformance.sh           # both halves (full gate; requires Pi for live)
 #   instrument-conformance.sh --offline # parser/fixture suite only
