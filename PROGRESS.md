@@ -14,12 +14,19 @@ instrument. Polyphony matters because a patch that drops voices is unplayable �
 compiler flags, multithreading) buy polyphony *headroom*, which becomes latency only if it
 is then spent on a smaller buffer.
 
+**A Pi 5 is on order.** That does not change the goal — it changes what the Pi 4 work is *for*.
+The Pi 4 is now a **control**: its job is to produce a frozen reference suite, a known latency
+floor, and a clock-scaling forecast, so the Pi 5's gain is measurable rather than assumed.
+Governing rule for the transition: **replication before optimisation.**
+See [`docs/PI5-TRANSITION-PLAN.md`](docs/PI5-TRANSITION-PLAN.md).
+
 ---
 
 ## Where the appliance stands
 
 | | |
 |---|---|
+| **Platform** | **Pi 4B / BCM2711 / Cortex-A72**, Pi OS Lite 64-bit (trixie). Pi 5 on order — see Track C |
 | Shipping | 1024x3 = **64.0 ms** |
 | Measured free at clean load | 1024x2 = **42.7 ms** (Cloud Horn, Duduk, Brave New World, Crystals) |
 | Governor | **OFF** (left off from V9; re-enable blocked on fade) |
@@ -33,25 +40,61 @@ per-callback cost is **a = 0.13 ms** (`V1-VERDICT`). Retired: the 600 us gap, cu
 model, URB depth/rate, frame alignment, `threadirqs`, `isolcpus`, PREEMPT_RT, the
 single-client refactor, and the unison cost theory (twice).
 
+**Scope caveat:** every number above is a **Pi 4 fact**. Absolute costs, core allocation, and
+the whole IRQ census are void on a Pi 5 (RP1 moves USB behind PCIe). Retired lines were retired
+on a platform where *compute* bound first — if the Pi 5 clears the compute wall, the jitter and
+transport work **un-retires**. Check, do not assume.
+
 ---
 
-## Queue — do these in this order
+## Queue — two tracks
 
-| # | Task | Prompt | Time | Gate |
-|---|---|---|---|---|
-| **1** | **V11 — 512x2 / 256x3 at confirmed counts** | `PROMPT-V11-512-256-confirm.md` | ~15 min | none |
-| 2 | 8 h soak at whatever V11 leaves as best config | — | overnight | none |
-| 3 | P7 overclock diagnostic | `PROMPT-P7-overclock-diagnostic.md` | ~13 min | needs Mitch present (reboot) |
-| 4 | P8 `-mcpu=cortex-a72` | `PROMPT-P8-mcpu-cortex-a72.md` | build 40 min + 20 min measure | **conditional on P7** |
-| 5 | Governor fade, then re-enable | — | offline | Mitch ear-test |
-| — | Census parser `unison_voices` fix | `HANDOVER-census-unison-fix.md` | offline | none |
+**Track A runs without Mitch.** Track B needs him reachable and is batched into one window.
+Full plan: [`docs/measurements/PROMPT-PI4-CLOSEOUT.md`](docs/measurements/PROMPT-PI4-CLOSEOUT.md).
 
-**Why V11 is first:** fixed cost is 0.6% of the deadline at 1024 and 1.2% at 512, so the
+### Track A — autonomous (no reboot, no gate)
+
+| # | Task | Prompt | Time |
+|---|---|---|---|
+| **A0** | **Instrument pre-flight** — prove the counter moves before trusting it | closeout §A0 | ~5 min |
+| **A1** | **V11 — 512x2 / 256x3 at confirmed counts** | `PROMPT-V11-512-256-confirm.md` | ~15 min |
+| A2 | Freeze `measure-reference-suite.sh` — must run unmodified on a Pi 5 | closeout §A2 | ~30 min |
+| A3 | Run reference suite **twice** (noise floor) | closeout §A3 | 2 × 30 min |
+| A4 | Full appliance state capture — the control condition | closeout §A4 | ~10 min |
+| A5 | Archive raw logs off the SD card | `PROMPT-G3-archive-raw-logs.md` | ~30 min |
+| A6 | `build-surge.sh --arch {a72\|a76}` — build only, no install | `PROMPT-P8-mcpu-cortex-a72.md` | ~1 h |
+| A7 | Platform-stamp the live docs | closeout §A7 | ~20 min |
+| A8 | **Predictions table — commit before the Pi 5 boots** | transition plan §5 | ~20 min |
+
+### Track B — needs Mitch (one window, ~45 min + soak)
+
+| # | Task | Prompt | Time |
+|---|---|---|---|
+| B1 | **P7 clock-scaling diagnostic** — now a Pi 5 *forecast*, not a lever | `PROMPT-P7-overclock-diagnostic.md` | ~13 min |
+| B2 | 8 h soak at the V11 winner | — | overnight |
+| B3 | Ear test before shipping the new default | — | ~10 min |
+
+### Track C — Pi 5, on arrival
+
+[`docs/PI5-BRINGUP-RUNBOOK.md`](docs/PI5-BRINGUP-RUNBOOK.md). Suite 0 (instruments, hard gate) →
+Suite 1 (like-for-like reference, scores the predictions) → Suite 2 (latency ladder — **the
+objective**) → Suite 3 (NVMe delta) → Suite 4 (thermal). Designed to run overnight and wake
+Mitch only on a defined fork.
+
+**Why V11 is still first:** fixed cost is 0.6% of the deadline at 1024 and 1.2% at 512, so the
 voice ceiling is close to buffer-independent — Crystals is clean at 3 on *both* 1024 and
-512. **512x2 = 21.3 ms, half of what 1024x2 gives**, for a config change. P7 buys ~11% of
-compute; this buys ~50% of the latency. The reason 512 was abandoned ("crackle") was the
-poly governor stealing voices, which is refuted and has never been re-tested. Full argument
-and caveats: **`docs/measurements/REVIEW-line-of-thought-2026-08-22.md`**.
+512. **512x2 = 21.3 ms, half of what 1024x2 gives.** It also defines the floor the Pi 5 gets
+compared against; measuring the Pi 5 against 1024x2 would overstate the gain. Full argument:
+**`docs/measurements/REVIEW-line-of-thought-2026-08-22.md`**.
+
+**Why P7 moved up rather than being dropped:** as a performance lever ~11% is marginal against a
+new board. As an **instrument** it forecasts whether the Pi 5's 2.4 GHz will convert at all — and
+if DSP does *not* scale with clock, the Pi 5's memory advantage is the operative one and the
+optimisation order changes. 13 minutes either way.
+
+**Deferred:** multithreading (re-score after the Pi 5 baseline), governor fade and threshold
+recalibration (Pi 4-absolute thresholds will be wrong on the Pi 5 — do it once, there),
+percussive rate metric.
 
 ### Open gates (Mitch only)
 
@@ -77,7 +120,10 @@ and caveats: **`docs/measurements/REVIEW-line-of-thought-2026-08-22.md`**.
    shutdown, V10-b ramp probe, census `unison_voices`. **Four occurrences.**
 5. **Ask the shortest useful version of a test** before running it. Doctrine:
    `docs/measurements/MEASUREMENT-DISCIPLINE.md`, skill: `.claude/skills/measurement-design/`.
-6. **One variable.** Overclock and rebuild do not overlap. Neither overlaps a soak.
+6. **One variable.** Overclock and rebuild do not overlap. Neither overlaps a soak. This
+   applies hardest during the Pi 5 transition, where a dozen things change at once.
+7. **Name the platform in every measurement doc.** Two boards, one repo: an unstamped number is
+   ambiguous the moment the Pi 5 boots. Standard conditions table carries the current default.
 
 ---
 
@@ -96,6 +142,10 @@ and caveats: **`docs/measurements/REVIEW-line-of-thought-2026-08-22.md`**.
 | `docs/measurements/CEILING-ANALYSIS-what-maxed-out-means.md` | Assumption stack A1–A6, levers 1–7 |
 | `docs/measurements/PATCH-COST-what-makes-them-heavy.md` | Unison retraction; real cost centres |
 | `docs/measurements/MULTITHREADING-ASSESSMENT.md` | ~3× prize, multi-week cost; do not start yet |
+| `docs/PI5-TRANSITION-PLAN.md` | **Why the transition is structured this way.** What survives, what is void |
+| `docs/PI5-BRINGUP-RUNBOOK.md` | Pi 5 setup + overnight suites with gates |
+| `docs/measurements/PROMPT-PI4-CLOSEOUT.md` | Ordered Pi 4 closeout, Track A/B |
+| `docs/SRED-EVIDENCE-2026.md` | Uncertainties, chronology, prior-art position, gaps G1–G5 |
 
 **History:** superseded and refuted runs live in [`docs/measurements/archive/`](docs/measurements/archive/)
 (53 files, 2026-08-22 compaction). Keep for provenance — not decision inputs.
