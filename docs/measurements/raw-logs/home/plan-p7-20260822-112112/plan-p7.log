@@ -1,0 +1,17 @@
+=== Plan P7 2026-08-22T11:21:12-04:00 artifacts=/home/mitch/plan-p7-20260822-112112 phase=full ===
+git=5f23472
+buffer=1024 periods=2 confirm_sec=45 runs=3
+PREDICTION clock_gain_pct=11.1 expect_dsp_p99_drop_pct=~10 if_compute_bound
+PREDICTION falsifier=dsp_p99_within_baseline_spread -> clock_not_binding
+PREDICTION alarm=dsp_p99_drop_much_gt_11pct -> comparison_broken
+
+=== P7 baseline @ ~1800 MHz ===
+CLOCK label=baseline-phase-start measure_clock_arm=frequency(48)=1800404352 arm_mhz=1800 scaling_cur_khz=1800000 scaling_mhz=1800 throttled=0x0 temp=56.9'C
+
+=== P7-baseline-Crystals-run1 patch=Crystals voices=3 expect_mhz=1800 ===
+RESULT tag=P7-baseline-Crystals-run1 patch=Crystals voices=3 sec=45 xruns=0 clean=yes
+SUMMARY tag=P7-baseline-Crystals-run1 xruns=0 dsp_p99=39.4178 dsp_max=39.9193
+
+=== P7-baseline-Crystals-run2 patch=Crystals voices=3 expect_mhz=1800 ===
+ERROR: tag A-b1024-p2-l0-run1 already present in /home/mitch/plan-p7-20260822-112112/p7-baseline-Crystals.log — refusing to append
+       a duplicate tag makes the log ambiguous; use a fresh --output

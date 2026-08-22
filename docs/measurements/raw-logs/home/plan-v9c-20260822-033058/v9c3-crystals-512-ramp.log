@@ -1,0 +1,8 @@
+=== capacity-ramp tag=V9c3-Crystals-512 buffer=512x3 patch=Crystals 2026-08-22T03:41:16-04:00 ===
+CARD=2
+{"name":"Crystals","path":"/home/mitch/Documents/Surge XT/Patches/Quick Select/Crystals.fxp","osc_count":3,"osc_types":[10,10,10],"unison_voices":14,"fx_count":3,"fx_types":[9,3,14],"filter1_type":1,"filter2_type":0,"patch_polylimit":16}
+PROBE voices=1 sec=8 xruns_delta=0
+PROBE voices=3 sec=8 xruns_delta=0
+PROBE voices=5 sec=8 xruns_delta=80
+RESULT tag=V9c3-Crystals-512 first_overrun=5 sustained_clean=3
+SENTINEL capacity-ramp-end tag=V9c3-Crystals-512

@@ -1,0 +1,4 @@
+patch	ramp_sustained_clean	confirm_voices	confirm_sec	xruns	dsp_median	dsp_p99	dsp_max	confirm_clean	step_down
+Crystals	3	3	60	0	38.4403	40.2987	41.7562	yes	0
+Cloud Horn	5	5	60	0	57.0124	68.1332	77.2265	yes	0
+Closed Hat	15	13	60	1523	80.8843	97.5034	97.906	no	1

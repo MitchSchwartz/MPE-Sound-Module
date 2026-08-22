@@ -1,0 +1,91 @@
+=== measure-confirm-at-voices tag=P7-baseline-Crystals-run3 patch=Crystals voices=3 sec=45 2026-08-22T12:15:24-04:00 ===
+OSC client initialized: 127.0.0.1:53280
+Loaded patch: Crystals.fxp
+loaded Crystals.fxp
+
+=== measure-latency-run buffer=1024 periods=2 condition=A runs=1 seconds=45 2026-08-22T12:15:26-04:00 ===
+SENTINEL harness-start
+Applied buffer=1024 periods=2
+jackd period=1024 ok
+jackd periods=2 ok
+condition A units:
+  sooperlooper=inactive session=inactive watchdog=inactive
+jackd period=1024 ok
+jackd periods=2 ok
+=== provenance after strict restart ===
+=== provenance 2026-08-22T12:16:14-04:00 ===
+cb6f4af P7: separate confirm log per run (avoid duplicate latency tags).
+6.18.34+rpt-rpi-v8
+coherent_pool=1M 8250.nr_uarts=0 snd_bcm2835.enable_headphones=0 cgroup_disable=memory numa_policy=interleave nvme.max_host_mem_size_mb=32 snd_bcm2835.enable_headphones=1 snd_bcm2835.enable_hdmi=1 snd_bcm2835.enable_hdmi=0  numa=fake=2 system_heap.max_order=0 iommu_dma_numa_policy=interleave smsc95xx.macaddr=2C:CF:67:59:7C:41 vc_mem.mem_base=0x3ec00000 vc_mem.mem_size=0x40000000  console=ttyS0,115200 console=tty1 root=PARTUUID=ed7e095b-02 rootfstype=ext4 fsck.repair=yes rootwait cfg80211.ieee80211_regdom=CA irqaffinity=0,1 video=HDMI-A-1:d video=HDMI-A-2:d threadirqs
+
+governor cpufreq=performance
+jackd -R -P70 -d alsa -P hw:2 -r 48000 -p 1024 -n 2
+PROVENANCE patch=Crystals hold_voices=3 buffer=1024 periods=2 condition=A 2026-08-22T12:16:14-04:00
+=== run A-b1024-p2-l0-run1 ===
+RESULT tag=A-b1024-p2-l0-run1 xruns=0 meter_live=1 meter_max_age_s=0 dsp_median=38.022034 dsp_p99=39.135094 dsp_max=39.505730
+RESULT tag=A-b1024-p2-l0-run1 jitter_n=2458 jitter_median_usec=-300 jitter_p99_usec=835 jitter_p99_9_usec=1056 jitter_max_usec=1151
+RESULT tag=A-b1024-p2-l0-run1 frames_late_p99_usec=271 frames_late_max_usec=354
+RESULT tag=A-b1024-p2-l0-run1 delay_events=0 delay_nonzero=0 (legacy, ignore)
+RESULT tag=A-b1024-p2-l0-run1 samples=45 temp=49.6'C throttled=0x0
+RESULT tag=A-b1024-p2-l0-run1 file=/tmp/latency-A-b1024-p2-l0-run1-1787415374.out xrun_events=/tmp/latency-A-b1024-p2-l0-run1-1787415374.xruns
+RESULT tag=A-b1024-p2-l0-run1 probe_xrun_count=0 jackd_alsa_xrun_count=0 jackd_alsa_msec_min=0 jackd_alsa_msec_median=0 jackd_alsa_msec_max=0 jackd_alsa_msec_mean=0 window_since=2026-08-22T12:16:23-04:00 window_until=2026-08-22T12:17:09-04:00
+SENTINEL run-complete tag=A-b1024-p2-l0-run1 xruns=0
+     t     dsp%    xruns   delta
+     1 38.817314        0       0
+     2 38.306606        0       0
+     3 38.470856        0       0
+     4 38.079472        0       0
+     5 38.019722        0       0
+     6 37.967438        0       0
+     7 38.095432        0       0
+     8 37.760509        0       0
+     9 37.656975        0       0
+    10 37.599873        0       0
+    11 37.866428        0       0
+    12 38.391331        0       0
+    13 38.017418        0       0
+    14 38.007442        0       0
+    15 37.599174        0       0
+    16 37.648319        0       0
+    17 39.505730        0       0
+    18 39.135094        0       0
+    19 38.423309        0       0
+    20 37.958614        0       0
+    21 38.060074        0       0
+    22 38.512344        0       0
+    23 38.578350        0       0
+    24 37.812214        0       0
+    25 38.022034        0       0
+    26 37.918064        0       0
+    27 38.058552        0       0
+    28 38.139305        0       0
+    29 38.070732        0       0
+    30 37.802498        0       0
+    31 38.146080        0       0
+    32 37.921772        0       0
+    33 38.541054        0       0
+    34 38.133324        0       0
+    35 38.254093        0       0
+    36 37.903122        0       0
+    37 38.156696        0       0
+    38 38.084114        0       0
+    39 38.094131        0       0
+    40 37.921581        0       0
+    41 37.873028        0       0
+    42 37.806339        0       0
+    43 37.421162        0       0
+    44 37.130402        0       0
+    45 37.022488        0       0
+--- xrun delays (probe) ---
+PROBE_START client=mpe-xrun-probe buffer_frames=1024 sample_rate=48000 expected_period_us=21333
+JITTER_SUMMARY expected_period_us=21333 n=2458 median_usec=-300 p99_usec=835 p99_9_usec=1056 max_usec=1151
+FRAMES_LATE_SUMMARY expected_period_us=21333 n=2458 median_usec=83 p99_usec=271 p99_9_usec=312 max_usec=354
+XRUN_COUNT 0
+PROBE_END
+=== restore buffer 1024 periods 2 ===
+Applied buffer=1024 periods=2
+jackd period=1024 ok
+jackd periods=2 ok
+done commit=cb6f4af log=/home/mitch/plan-p7-20260822-121104/p7-baseline-Crystals-run3.log
+SENTINEL harness-end
+

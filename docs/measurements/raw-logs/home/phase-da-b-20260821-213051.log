@@ -1,0 +1,11 @@
+=== D+A / B / 1024x2 2026-08-21T21:30:51-04:00 master=/home/mitch/phase-da-b-20260821-213051.log ===
+fill_status=/proc/asound/card2/pcm0p/sub0/status
+
+========== 1024x2 OPEN-CHECK ==========
+Applied buffer=1024 periods=2
+OPEN_CHECK 1024x2: jackd UP 24304 jackd -R -P70 -s -d alsa -P hw:2 -r 48000 -p 1024 -n 2
+Applied buffer=1024 periods=3
+OPEN_CHECK result=1 restored=1024x3
+
+========== D+A — DSP + fill @ 1024/512/256 cond A ==========
+--- D+A buffer=1024x3 2026-08-21T21:31:13-04:00 ---

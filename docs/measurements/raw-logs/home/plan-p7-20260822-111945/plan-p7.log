@@ -1,0 +1,6 @@
+=== Plan P7 2026-08-22T11:19:45-04:00 artifacts=/home/mitch/plan-p7-20260822-111945 phase=full ===
+git=6fe382e
+buffer=1024 periods=2 confirm_sec=45 runs=3
+ERROR: measurement process still running — Pi not idle
+355226 sudo ./scripts/measure-plan-p7.sh --phase full
+355241 /bin/bash ./scripts/measure-plan-p7.sh --phase full

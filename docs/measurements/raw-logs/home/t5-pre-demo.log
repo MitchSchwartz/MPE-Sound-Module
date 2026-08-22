@@ -1,0 +1,17 @@
+T5-pre demo 2026-08-21T04:13:23+01:00
+commit: 3949c39
+
+=== meter stopped, jackd running ===
+[04:13:28] sl-watchdog: watching every 10s — repairs JACK graph, alarms on wedge
+[04:13:28] sl-watchdog: PROBLEM: xrun counter blind: meter state stale (5.4s) — peak meter stopped?; peak-meter stale or unavailable (jackd running — meter fault)
+jack_lsp processes before=0 after=0
+PASS: no jack_lsp spawned
+
+=== meter stopped, jackd stopped ===
+[04:13:32] sl-watchdog: watching every 10s — repairs JACK graph, alarms on wedge
+[04:13:33] sl-watchdog: !! ENGINE WEDGED — not auto-restarting (that would destroy your loops). Diagnostics captured. Fix: mpe looper sl-restart
+[04:13:33] sl-watchdog: PROBLEM: xrun counter blind: meter state stale (9.2s) — peak meter stopped?; JACK down (jackd not running); WEDGED: dry did not move (asked 0.4, still 0.0) on attempt 2
+jack_lsp processes before=0 after=0
+PASS: no jack_lsp spawned
+
+T5-pre demo complete → /home/mitch/t5-pre-demo.log

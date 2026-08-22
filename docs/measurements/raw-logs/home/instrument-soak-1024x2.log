@@ -1,0 +1,5 @@
+
+=== measure-soak-instrument buffer=1024 periods=2 patch=Cloud Horn voices=5 hours=8 2026-08-22T11:05:36-04:00 ===
+PROVENANCE patch=Cloud Horn hold_voices=5 buffer=1024 periods=2 condition=A
+SENTINEL soak-start
+expected_finish=2026-08-22T19:05:36-04:00
