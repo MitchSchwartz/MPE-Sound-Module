@@ -75,7 +75,8 @@ systemctl stop surge-poly-governor.service 2>/dev/null || true
     --buffer "$BUFFER" --periods "$PERIODS" --condition A --runs 1 --seconds "$SECONDS_HOLD" \
     --hold-voices "$VOICES" \
     --provenance-patch "$PATCH_NAME" --provenance-voices "$VOICES" \
-    --output "$OUTPUT"
+    --output "$OUTPUT" >/dev/null
 
 xr="$(awk '/^RESULT tag=.* xruns=/ { sub(/^.* xruns=/, ""); sub(/ .*/, ""); last=$0 } END { print last+0 }' "$OUTPUT")"
-echo "RESULT tag=${TAG} patch=${PATCH_NAME} voices=${VOICES} sec=${SECONDS_HOLD} xruns=${xr} clean=$([ "$xr" -eq 0 ] && echo yes || echo no)"
+echo "RESULT tag=${TAG} patch=${PATCH_NAME} voices=${VOICES} sec=${SECONDS_HOLD} xruns=${xr} clean=$([ "$xr" -eq 0 ] && echo yes || echo no)" >&2
+echo "$xr"

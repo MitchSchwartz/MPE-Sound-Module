@@ -47,10 +47,10 @@ _try() {
     local v="$1"
     local log="${ARTIFACT_DIR}/confirm-v${v}.log"
     : >"$log"
-    "$SCRIPT_DIR/measure-confirm-at-voices.sh" \
+    xr="$("$SCRIPT_DIR/measure-confirm-at-voices.sh" \
         --patch-name "$PATCH_NAME" --voices "$v" --seconds "$SECONDS_HOLD" \
-        --output "$log" --tag "ceil-${safe}-v${v}"
-    awk '/^RESULT tag=.* xruns=/ { sub(/^.* xruns=/, ""); sub(/ .*/, ""); last=$0 } END { print last+0 }' "$log"
+        --output "$log" --tag "ceil-${safe}-v${v}")"
+    echo "$xr"
 }
 
 echo "=== ceiling search patch=${PATCH_NAME} lo=${LO} hi=${HI} sec=${SECONDS_HOLD} $(date -Is) ==="
