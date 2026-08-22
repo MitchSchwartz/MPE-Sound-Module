@@ -28,7 +28,7 @@ contradicts something, but an instrument that reads clean while blind never does
 ## Rule -1 — an instrument must never be able to fail silently
 
 **Numbered below Rule 0 because it outranks it.** This is the most expensive pattern in the
-project's history: **nine documented occurrences**, more than every other failure mode combined.
+project's history: **ten documented occurrences**, more than every other failure mode combined.
 
 ### The single root cause
 
@@ -57,7 +57,7 @@ including a cell with 23 xruns. A cell missing its deadline is at ~100% by defin
 number was not merely wrong, it was **arithmetically impossible** — and it still reached a
 results table, because nothing in the path was obliged to notice.
 
-### The four mechanisms — all of them, not a menu
+### The five mechanisms — all of them, not a menu
 
 **1. No in-band failures. Anywhere.**
 Kill every `|| x=0` default, every `unknown` string, every "continue on error". A missing or
@@ -82,6 +82,31 @@ Not something a human notices at review time:
 
 A result violating arithmetic is **rejected by the harness**, not published for someone to
 catch later.
+
+**5. A long-running measurement must write a terminal sentinel on every exit path.**
+Not only on success. Otherwise **"no result yet" and "died" share a channel** — for anything
+longer than the poll interval, that is the same defect as a blind counter wearing a different
+mask, and it is not caught by controls on the instrument, because the *instrument* is fine.
+The **run** died.
+
+**The tenth occurrence, 2026-08-22:** the Gate 1 soak log
+(`~/instrument-soak-1024x2.log`) is **253 bytes — header only**, four hours after
+`SENTINEL soak-start`. `measure-soak-instrument.sh` appends a `SOAK minute=N` line every 60 s,
+so ~240 lines should exist. It died during setup, between the start sentinel and the loop:
+`systemctl restart mpe-jackd`, `mpe_wait_for_jack_server`, `systemctl restart surge-xt-cli`,
+and `load-patch-osc.py` all run under `set -e` **with no guard**, and every failure path writes
+to stderr or nowhere — never to the log. Under `trap _cleanup EXIT` the process kills its load
+and exits **silently**. The resulting file is byte-identical to a healthy run whose first
+minute has not yet elapsed. **Gate 1 was never certified, and nothing said so.**
+
+Requirements:
+- Track a stage marker through setup; on EXIT, if the success sentinel was never written,
+  append `SENTINEL <name>-aborted stage=<X> rc=<n>` **to the log**.
+- **Route stderr into the log**, not only the console — nobody is watching a terminal at 03:00.
+- Emit a sentinel on **entering** the measurement loop, so setup failure and loop failure are
+  distinguishable at a glance.
+- A reader must be able to tell **running / completed / aborted** from the artifact alone,
+  without inspecting process state.
 
 ### Why this works — it is already proven
 

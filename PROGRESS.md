@@ -110,7 +110,10 @@ percussive rate metric.
 ### Open gates (Mitch only)
 
 - **Gate 1** — ship 1024x2 (or better, if V11 lands) as instrument profile default, after a
-  clean soak. Looper stack stays 1024x3/D.
+  clean soak. Looper stack stays 1024x3/D. **NOT SATISFIED — the soak never ran.**
+  `~/instrument-soak-1024x2.log` is 253 bytes, header only (occurrence ten). V9's 1024x2
+  result stands — it came from the confirm harness — but **the soak certification never
+  happened and nothing reported that.** Patch passed to composer; re-run after it lands.
 - **Gate 2** — governor re-enable: **blocked** until the fade lands *and*
   `CPU_HIGH_THRESHOLD=50.0` is recalibrated (it sits *below* the ~58.9% baseline DSP).
 - **Gate 3** — percussive metric: deferred. Reframed as a **rate** question (does a fast roll
@@ -126,12 +129,13 @@ percussive rate metric.
    any before/after. **Never `measure-capacity-ramp.sh`** — ramp ceilings are screening-grade.
 3. **Read `dsp_med` for compute questions**, `dsp_p99`/`dsp_max` for tail questions. Do not
    use a tail statistic to answer a central-tendency question.
-4. **An instrument must never be able to fail silently.** **Nine occurrences** — the most
+4. **An instrument must never be able to fail silently.** **Ten occurrences** — the most
    expensive pattern here, one root cause: value and failure share a channel, so blindness
    arrives as a result. Required everywhere: no in-band failures (`|| x=0`, `unknown`,
    continue-on-error), a positive control, a negative control, and physics assertions that
-   reject impossible readings in-harness. **No suite runs without a conformance pass in the
-   same session.** Doctrine: `MEASUREMENT-DISCIPLINE.md` **Rule -1**.
+   reject impossible readings in-harness, and **a terminal sentinel on every exit path** for
+   anything long-running. **No suite runs without a conformance pass in the same session.**
+   Doctrine: `MEASUREMENT-DISCIPLINE.md` **Rule -1**.
 5. **Pilot before running at length.** One cell, minimum window, **read every field** — exit 0
    is not the check. Required whenever anything is new or changed, including after a fix and on
    a new platform. V11 spent 24.5 min to learn what a 2-min pilot would have shown.
