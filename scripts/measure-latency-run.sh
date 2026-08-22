@@ -36,6 +36,7 @@ RESTORE_BUFFER=""
 RESTORE_PERIODS=""
 RESTART_BETWEEN=""
 MIDI_LOAD_VOICES=75
+HOLD_VOICES=0
 PLAYING_LOOPS=0
 _SOFTMODE_CHANGED=0
 _LOAD_PID=""
@@ -58,6 +59,7 @@ while [ $# -gt 0 ]; do
         --self-test) SELF_TEST=true; SECONDS_PER_RUN=10; RUNS=1; shift ;;
         --restart-between) RESTART_BETWEEN="${2:?--restart-between requires a run index}"; shift 2 ;;
         --playing-loops) PLAYING_LOOPS="${2:?--playing-loops requires 0|4|8|16}"; shift 2 ;;
+        --hold-voices) HOLD_VOICES="${2:?--hold-voices requires N}"; shift 2 ;;
         --no-restore-buffer) SKIP_BUFFER_RESTORE=true; shift ;;
         -h | --help) sed -n '2,20p' "$0"; exit 0 ;;
         *) echo "Unknown argument: $1 (try --help)" >&2; exit 2 ;;
@@ -682,10 +684,17 @@ _run_window() {
             fill_file="${FILL_LOG}-${tag}.log"
         fi
 
-        _as_user python3 "$SCRIPT_DIR/midi-load.py" "$((SECONDS_PER_RUN + 20))" \
-            >"/tmp/latency-midi-load-${stamp}.log" 2>&1 &
-        _LOAD_PID=$!
-        sleep 8
+        if [ "$HOLD_VOICES" -gt 0 ]; then
+            _as_user python3 "$SCRIPT_DIR/midi-load-hold.py" "$((SECONDS_PER_RUN + 5))" "$HOLD_VOICES" \
+                >"/tmp/latency-midi-load-${stamp}.log" 2>&1 &
+            _LOAD_PID=$!
+            sleep 2
+        else
+            _as_user python3 "$SCRIPT_DIR/midi-load.py" "$((SECONDS_PER_RUN + 20))" \
+                >"/tmp/latency-midi-load-${stamp}.log" 2>&1 &
+            _LOAD_PID=$!
+            sleep 8
+        fi
 
         if ! _run_window "$tag" "$run_file" "$dsp_raw" "$xev" "$fill_file" "$ALSA_STATUS"; then
             _stop_midi_load
