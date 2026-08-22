@@ -57,11 +57,11 @@
 
 ### Limited patches (sustained clean ≤ 7)
 
-| patch | clean | first overrun | osc | unison* | fx |
+| patch | clean | first overrun | osc | unison (per osc) | fx |
 |---|---|---|---|---|---|
 | A Robotic Mind | 3 | 5 | — | — | — |
 | Brave New World | 3 | 5 | — | — | — |
-| **Crystals** | **3** | **5** | **3** | **14** | **3** |
+| **Crystals** | **3** | **5** | **3** | **[1,1,1]** engines [4,4,6] | **3** |
 | Cyber Pad | 3 | 5 | — | — | — |
 | Duduk | 3 | 5 | — | — | — |
 | Kick | 3 | 5 | — | — | — |
@@ -69,13 +69,13 @@
 | House Organ | 5 | 7 | — | — | — |
 | Planar Device | 5 | 7 | — | — | — |
 | Res Wave Shift | 5 | 7 | — | — | — |
-| Cloud Horn | 7 | 9 | 2 | 16 | 2 |
+| Cloud Horn | 7 | 9 | 2 | [1,1,1] engines [8,8] | 2 |
 | Dreamscape | 7 | 9 | — | — | — |
 | Forte Piano | 7 | 9 | — | — | — |
 | Irrelevant Number | 7 | 9 | — | — | — |
 | Warm Reception | 7 | 9 | — | — | — |
 
-\*Unison from embedded fxp XML (`parse-fxp-metadata.py`); best-effort per osc type.
+\*Unison from `parse-fxp-metadata.py` → `unison_per_osc` (list, not summed). Earlier `unison_voices` scalar was wrong (engine selectors summed); retracted 2026-08-22.
 
 ### Anchor — Crystals
 
@@ -83,7 +83,7 @@
 |---|---|---|
 | Sustained clean | **3** | **4** |
 | First overrun | 5 | 6 |
-| Metadata | 3× Modern osc, unison sum 14, 3 FX, filter1=LP | same patch |
+| Metadata | 3× Twist osc, engines [4,4,6], unison [1,1,1], 3 FX, filter1=LP | same patch |
 
 **Gods** (prior guess at “heavy”) sustained **≥15** — not representative of worst case.
 
@@ -93,9 +93,9 @@
 - **`MPE_POLY_CEILING=12`** is still wrong for heavy content — use **per-patch or tier policy**, not one global guess.
 - **V8 before governor tuning** — these numbers are the input.
 
-### Unison vs capacity (hypothesis check)
+### Unison vs capacity (retracted)
 
-High unison does not map 1:1 to low capacity: **Cloud Horn** (unison 16, clean 7) vs **Crystals** (unison 14, clean 3). Both osc count and FX/load matter. No separate unison study warranted from this pass.
+Prior pass cited summed `unison_voices` (Crystals 14, Cloud Horn 16) from a parser bug — param0 engine/mode selectors were summed. Corrected 2026-08-22: both patches are `[1,1,1]` per osc. **Do not use unison as a cost driver from that column.** Osc count, engine choice, FX, and filters remain the useful metadata.
 
 ---
 
