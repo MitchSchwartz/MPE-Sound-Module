@@ -44,11 +44,40 @@ Instruments:    <what each counts; when last audited>
 Prediction:     <expected value, written before the run>
 Falsifier:      <what result would make me abandon the hypothesis>
 Cheaper check:  <what free check was considered, and why it is insufficient>
+Shortest form:  <the shortest version of this test that would still change the decision>
+Why not that:   <justification for anything longer — required if the two differ>
 ```
 
 **Prediction and Falsifier are load-bearing.** If you cannot say what would surprise you,
 the cell is not designed. A hypothesis with no disconfirming outcome is being illustrated,
 not tested.
+
+### Always ask: what is the shortest useful version of this test?
+
+**The shortest version is not necessarily the right one — but it must be asked and answered,
+and any gap between it and what you run must be justified in writing.** This is a standing
+requirement from Mitch, added after a run of tests that were longer than their conclusions
+needed.
+
+Test bloat is the default failure: a window gets sized by habit rather than by what it has
+to resolve. The 8-hour soaks were cut for exactly this reason and nothing was lost.
+
+**Size the window from the expected event rate, not from convention.** To observe ~30 events:
+
+| expected rate | window needed |
+|---|---|
+| 2776/min (64 frames) | **~1 second** |
+| 112/min | ~15 s |
+| 12/min | ~2.5 min |
+| 0.13/min (512 cond A) | **~4 hours** — or change the metric, because this is not a rate you can measure in a window |
+
+That last row is the important one: when the shortest useful version is implausibly long,
+**that is a signal the metric is wrong for the question**, not a reason to run a soak. Look
+for a metric with a higher event rate — fill level, DSP p99, magnitudes — or a comparison
+that does not require counting rare events.
+
+Ask the same of **n**: three streams cannot establish shape, but ten runs inside one stream
+will not either. Spend the samples where the variance actually is.
 
 ## Step 3 — audit every instrument before it informs a decision
 
@@ -137,3 +166,5 @@ Standing constraints to restate in every prompt:
 | "the metric went down, so it worked" | check n and claim class first — three streams cannot establish shape |
 | "we applied that earlier" | verify at measurement time (Step 7) |
 | "this is read-only so it is free" | reading `/proc/asound` takes a driver lock; SSH forks processes |
+| a 60 s window because the last one was 60 s | size it from the expected event rate (Step 2) |
+| a soak to measure a 0.13/min rate | the metric is wrong for the question — find one with a higher event rate |
