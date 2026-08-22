@@ -92,10 +92,31 @@ with the SDIO WiFi**.
 it cannot preempt them, but it pollutes their cache and competes between callbacks.
 `mpe-jackd` and `surge-xt-cli` both declare `CPUAffinity=2 3`; this one declares nothing.
 
-**Add `CPUAffinity=1`** — off the audio cores, and off CPU0 which carries the unmovable xhci
-IRQ. Note in the deliverable that this is a **pre-existing gap unrelated to the logging work**,
-and check whether `midi-clock-in`, `surge-watchdog`, `sl-watchdog` and `touch-patch-browser`
-have the same omission — report, do not fix them in this pass.
+**Add `CPUAffinity=0 1`** — both non-audio cores.
+
+**Use `0 1`, not a single core.** The requirement is *exclusion* (keep it off 2-3), not
+*placement*; two cores lets the scheduler balance. Do not pin to CPU1 alone — CPU1 is now the
+interrupt sink (relocated IRQs 41/42/43/28/57, `watchdogd`, the peak meter). Do not pin to
+CPU0 alone — it carries the unmovable xhci IRQ at ~4.14 M counts. Either is fine as one of
+two; neither is right as the only one.
+
+Note in the deliverable that this is a **pre-existing gap unrelated to the logging work.**
+
+### Report only — do not fix in this pass
+
+**systemd's global `CPUAffinity` in `system.conf` is unset**, so *every* unit defaults to all
+four cores; only `mpe-jackd` and `surge-xt-cli` declare anything. Pinning services one at a
+time is whack-a-mole — `midi-clock-in`, `surge-watchdog`, `sl-watchdog`,
+`touch-patch-browser`, `mpe-session-publisher` and anything added later are all still free to
+land on the audio cores.
+
+**The structural fix is to set the global default to `0 1` and let the audio units override
+to `2 3`** — one line, declarative, covers every present and future service.
+
+**Do not do it in this pass.** It constrains *everything* to two cores, including the touch
+UI and patch loading, which is user-visible. It needs its own change with a before/after check
+on touch-browser responsiveness. **Enumerate which units currently declare no affinity and
+record the list**; that is the input to that decision.
 
 ## Task B — make thresholds configurable, keep defaults identical
 
