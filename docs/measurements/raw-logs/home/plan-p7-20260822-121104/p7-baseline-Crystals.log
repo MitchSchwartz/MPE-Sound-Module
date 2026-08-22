@@ -1,0 +1,9 @@
+CLOCK label=before-P7-baseline-Crystals-run1 measure_clock_arm=frequency(48)=1800404352 arm_mhz=1800 scaling_cur_khz=1800000 scaling_mhz=1800 throttled=0x0 temp=48.7'C
+CLOCK label=after-P7-baseline-Crystals-run1 measure_clock_arm=frequency(48)=1800457088 arm_mhz=1800 scaling_cur_khz=1800000 scaling_mhz=1800 throttled=0x0 temp=49.6'C
+SUMMARY tag=P7-baseline-Crystals-run1 xruns=0 dsp_p99=39.361 dsp_max=39.5421
+CLOCK label=before-P7-baseline-Crystals-run2 measure_clock_arm=frequency(48)=1800457088 arm_mhz=1800 scaling_cur_khz=1800000 scaling_mhz=1800 throttled=0x0 temp=49.6'C
+CLOCK label=after-P7-baseline-Crystals-run2 measure_clock_arm=frequency(48)=1800457088 arm_mhz=1800 scaling_cur_khz=1800000 scaling_mhz=1800 throttled=0x0 temp=49.1'C
+SUMMARY tag=P7-baseline-Crystals-run2 xruns=0 dsp_p99=39.4194 dsp_max=40.682
+CLOCK label=before-P7-baseline-Crystals-run3 measure_clock_arm=frequency(48)=1800457088 arm_mhz=1800 scaling_cur_khz=1800000 scaling_mhz=1800 throttled=0x0 temp=49.1'C
+CLOCK label=after-P7-baseline-Crystals-run3 measure_clock_arm=frequency(48)=1800404352 arm_mhz=1800 scaling_cur_khz=1800000 scaling_mhz=1800 throttled=0x0 temp=50.1'C
+SUMMARY tag=P7-baseline-Crystals-run3 xruns=0 dsp_p99=39.1351 dsp_max=39.5057

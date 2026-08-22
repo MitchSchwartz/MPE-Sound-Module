@@ -1,0 +1,59 @@
+=== Plan V9-a 2026-08-22T03:03:57-04:00 artifacts=/home/mitch/plan-v9a-20260822-030357 ===
+quick_select=/home/mitch/Documents/Surge XT/Patches/Quick Select
+git=091d63b
+
+=== V9-a ramp patch=Crystals tag=V9a-01-Crystals ===
+Applied buffer=1024 periods=3
+OSC client initialized: 127.0.0.1:53280
+Loaded patch: Crystals.fxp
+loaded Crystals.fxp
+Appended capacity ramp to /home/mitch/plan-v9a-20260822-030357/v9a-ramp-Crystals.log
+PARSED ramp_sustained_clean=3 patch=Crystals
+OSC client initialized: 127.0.0.1:53280
+Loaded patch: Crystals.fxp
+loaded Crystals.fxp
+=== V9-a confirm patch=Crystals voices=3 sec=60 ===
+Appended measurement to /home/mitch/plan-v9a-20260822-030357/v9a-confirm-Crystals.log
+SENTINEL harness-logged
+RESULT v9a patch=Crystals ramp_clean=3 confirm_voices=3 xruns=0 confirm_clean=yes
+
+=== V9-a ramp patch=Cloud Horn tag=V9a-02-Cloud_Horn ===
+OSC client initialized: 127.0.0.1:53280
+Loaded patch: Cloud Horn.fxp
+loaded Cloud Horn.fxp
+Appended capacity ramp to /home/mitch/plan-v9a-20260822-030357/v9a-ramp-Cloud_Horn.log
+PARSED ramp_sustained_clean=5 patch=Cloud Horn
+OSC client initialized: 127.0.0.1:53280
+Loaded patch: Cloud Horn.fxp
+loaded Cloud Horn.fxp
+=== V9-a confirm patch=Cloud Horn voices=5 sec=60 ===
+Appended measurement to /home/mitch/plan-v9a-20260822-030357/v9a-confirm-Cloud_Horn.log
+SENTINEL harness-logged
+RESULT v9a patch=Cloud Horn ramp_clean=5 confirm_voices=5 xruns=0 confirm_clean=yes
+
+=== V9-a ramp patch=Closed Hat tag=V9a-03-Closed_Hat ===
+OSC client initialized: 127.0.0.1:53280
+Loaded patch: Closed Hat.fxp
+loaded Closed Hat.fxp
+Appended capacity ramp to /home/mitch/plan-v9a-20260822-030357/v9a-ramp-Closed_Hat.log
+PARSED ramp_sustained_clean=15 patch=Closed Hat
+OSC client initialized: 127.0.0.1:53280
+Loaded patch: Closed Hat.fxp
+loaded Closed Hat.fxp
+=== V9-a confirm patch=Closed Hat voices=15 sec=60 ===
+Appended measurement to /home/mitch/plan-v9a-20260822-030357/v9a-confirm-Closed_Hat.log
+SENTINEL harness-logged
+=== V9-a step-down patch=Closed Hat voices=13 (ramp was 15) ===
+OSC client initialized: 127.0.0.1:53280
+Loaded patch: Closed Hat.fxp
+loaded Closed Hat.fxp
+Appended measurement to /home/mitch/plan-v9a-20260822-030357/v9a-confirm-stepdown-Closed_Hat.log
+SENTINEL harness-logged
+RESULT v9a patch=Closed Hat ramp_clean=15 confirm_voices=13 xruns=1523 confirm_clean=no
+
+=== V9-a summary ===
+patch       ramp_sustained_clean  confirm_voices  confirm_sec  xruns  dsp_median  dsp_p99  dsp_max  confirm_clean  step_down
+Crystals    3                     3               60           0      38.4403     40.2987  41.7562  yes            0
+Cloud Horn  5                     5               60           0      57.0124     68.1332  77.2265  yes            0
+Closed Hat  15                    13              60           1523   80.8843     97.5034  97.906   no             1
+SENTINEL v9a-complete artifacts=/home/mitch/plan-v9a-20260822-030357

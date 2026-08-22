@@ -1,0 +1,3 @@
+PREDICTION clock_gain_pct=11.1 expect_dsp_p99_drop_pct=~10 if_compute_bound
+PREDICTION falsifier=dsp_p99_within_baseline_spread -> clock_not_binding
+PREDICTION alarm=dsp_p99_drop_much_gt_11pct -> comparison_broken
