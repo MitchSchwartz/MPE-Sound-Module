@@ -6,8 +6,10 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")" && pwd)"
-ARTIFACT_DIR="${HOME}/plan-v8-$(date +%Y%m%d-%H%M%S)"
-QUICK_SELECT="${HOME}/Documents/Surge XT/Patches/Quick Select"
+RUN_AS_USER="${MPE_PI_USER:-mitch}"
+USER_HOME="$(getent passwd "$RUN_AS_USER" | cut -d: -f6)"
+ARTIFACT_DIR="${USER_HOME}/plan-v8-$(date +%Y%m%d-%H%M%S)"
+QUICK_SELECT="${USER_HOME}/Documents/Surge XT/Patches/Quick Select"
 ENV_FILE="/etc/mpe/mpe.env"
 PROBE_SEC=8
 
@@ -78,15 +80,32 @@ echo ""
 echo "=== V8-b: pick mid-weight patch from survey ==="
 V8B_TABLE="${ARTIFACT_DIR}/v8b-pick.tsv"
 awk '
-    /^=== capacity-ramp/ { patch=""; for (i=1;i<=NF;i++) if ($i ~ /^patch=/) split($i,a,"="), patch=a[2] }
+    /^=== capacity-ramp/ {
+        patch=""
+        for (i = 1; i <= NF; i++) {
+            if ($i ~ /^patch=/) {
+                split($i, a, "=")
+                patch=a[2]
+            }
+        }
+    }
     /^\{/ { meta=$0 }
     /RESULT tag=V8a-.* first_overrun=/ {
-        fo=""; sc=0
-        for (i=1;i<=NF;i++) {
-            if ($i ~ /^first_overrun=/) split($i,a,"="), fo=a[2]
-            if ($i ~ /^sustained_clean=/) split($i,b,"="), sc=b[2]+0
+        fo=""
+        sc=0
+        for (i = 1; i <= NF; i++) {
+            if ($i ~ /^first_overrun=/) {
+                split($i, a, "=")
+                fo=a[2]
+            }
+            if ($i ~ /^sustained_clean=/) {
+                split($i, b, "=")
+                sc=b[2]+0
+            }
         }
-        if (patch != "") print patch "\t" sc "\t" fo "\t" meta
+        if (patch != "") {
+            print patch "\t" sc "\t" fo "\t" meta
+        }
     }
 ' "$V8A_LOG" >"$V8B_TABLE"
 
@@ -108,7 +127,7 @@ V8B_PATH="$QUICK_SELECT/${V8B_PICK}.fxp"
 echo "V8-b patch=${V8B_PICK} voices=${V8B_VOICES} path=${V8B_PATH}"
 
 if [ -f "$V8B_PATH" ]; then
-    sudo -u mitch python3 "$SCRIPT_DIR/load-patch-osc.py" "$V8B_PATH"
+    sudo -u "$RUN_AS_USER" python3 "$SCRIPT_DIR/load-patch-osc.py" "$V8B_PATH"
     sleep 1
 fi
 
