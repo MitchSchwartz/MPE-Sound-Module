@@ -112,6 +112,10 @@ _xruns_delta() {
 
     _ensure_peak_meter || return 1
 
+    # Match measure-latency-run: strict jackd restart immediately before the window.
+    _enable_strict
+    sleep 2
+
     _as_user python3 "$SCRIPT_DIR/midi-load-hold.py" "$((secs + 5))" "$voices" \
         >/tmp/midi-load-hold-$$.log 2>&1 &
     local pid=$!

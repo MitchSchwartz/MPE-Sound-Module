@@ -28,11 +28,16 @@ Two defects in legacy `_xruns_delta`:
    per-second liveness. `measure-latency-run` samples every second for the full window after
    lead-in; the ramp did not.
 
+3. **No strict restart per probe** — confirm harness restarts jackd (softmode 0) immediately
+   before each window; legacy ramp restarted once at survey start. V10-b validation @ Closed Hat
+   15 still read 0 until per-probe `_enable_strict` was added.
+
 ## Fix
 
 `_xruns_delta` now:
 
 - Requires `MPE_PEAK_METER=1` and live `meter.state`
+- **`_enable_strict` per probe** (jackd + Surge restart, softmode 0)
 - Starts `midi-load-hold`, **2 s lead-in**, then `start_xr`
 - **Per-second** `mpe_meter_xruns_read` for `PROBE_SEC` (abort on blind or meter restart)
 - Aborts entire ramp on probe failure — **no `sustained_clean` emitted**
