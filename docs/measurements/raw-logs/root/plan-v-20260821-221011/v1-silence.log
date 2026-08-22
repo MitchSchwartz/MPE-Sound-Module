@@ -1,0 +1,30 @@
+=== measure-dsp-sample tag=V1-silence-1024 buffer=1024 periods=3 surge=on runs=3 seconds=30 2026-08-21T22:10:36-04:00 ===
+STATE period=1024 nperiods=3 rate=48000 card=2 governor=performance mhz=1800 softmode=0 poly_governor=0 poly_ceiling=16 surge=active sha=1d051e3 throttled=throttled=0x0 temp=temp=58.9'C
+period_deadline_ms=21.333333
+RESULT tag=V1-silence-1024-run1 dsp_n=30 dsp_median=6.0604 dsp_p99=6.1800 dsp_p999=6.1800 dsp_p9999=6.1800 dsp_max=6.2169
+RESULT tag=V1-silence-1024-run1 dsp_ms_median=1.2929 dsp_ms_p99=1.3184 dsp_ms_p999=1.3184 dsp_ms_max=1.3263 period_ms=21.333333 temp=56.4'C throttled=0x0
+RESULT tag=V1-silence-1024-run2 dsp_n=30 dsp_median=6.0674 dsp_p99=6.1580 dsp_p999=6.1580 dsp_p9999=6.1580 dsp_max=6.1732
+RESULT tag=V1-silence-1024-run2 dsp_ms_median=1.2944 dsp_ms_p99=1.3137 dsp_ms_p999=1.3137 dsp_ms_max=1.3169 period_ms=21.333333 temp=57.9'C throttled=0x0
+RESULT tag=V1-silence-1024-run3 dsp_n=30 dsp_median=6.0282 dsp_p99=6.1010 dsp_p999=6.1010 dsp_p9999=6.1010 dsp_max=6.1174
+RESULT tag=V1-silence-1024-run3 dsp_ms_median=1.2860 dsp_ms_p99=1.3016 dsp_ms_p999=1.3016 dsp_ms_max=1.3050 period_ms=21.333333 temp=57.4'C throttled=0x0
+SENTINEL dsp-sample-end tag=V1-silence-1024
+=== measure-dsp-sample tag=V1-silence-512 buffer=512 periods=3 surge=on runs=3 seconds=30 2026-08-21T22:12:38-04:00 ===
+STATE period=512 nperiods=3 rate=48000 card=2 governor=performance mhz=1800 softmode=0 poly_governor=0 poly_ceiling=16 surge=active sha=1d051e3 throttled=throttled=0x0 temp=temp=58.4'C
+period_deadline_ms=10.666667
+RESULT tag=V1-silence-512-run1 dsp_n=30 dsp_median=7.0280 dsp_p99=7.3557 dsp_p999=7.3557 dsp_p9999=7.3557 dsp_max=7.5627
+RESULT tag=V1-silence-512-run1 dsp_ms_median=0.7497 dsp_ms_p99=0.7846 dsp_ms_p999=0.7846 dsp_ms_max=0.8067 period_ms=10.666667 temp=56.4'C throttled=0x0
+RESULT tag=V1-silence-512-run2 dsp_n=30 dsp_median=6.9786 dsp_p99=7.1296 dsp_p999=7.1296 dsp_p9999=7.1296 dsp_max=7.6747
+RESULT tag=V1-silence-512-run2 dsp_ms_median=0.7444 dsp_ms_p99=0.7605 dsp_ms_p999=0.7605 dsp_ms_max=0.8186 period_ms=10.666667 temp=56.9'C throttled=0x0
+RESULT tag=V1-silence-512-run3 dsp_n=30 dsp_median=6.9671 dsp_p99=7.1350 dsp_p999=7.1350 dsp_p9999=7.1350 dsp_max=7.6951
+RESULT tag=V1-silence-512-run3 dsp_ms_median=0.7432 dsp_ms_p99=0.7611 dsp_ms_p999=0.7611 dsp_ms_max=0.8208 period_ms=10.666667 temp=56.9'C throttled=0x0
+SENTINEL dsp-sample-end tag=V1-silence-512
+=== measure-dsp-sample tag=V1-silence-256 buffer=256 periods=3 surge=on runs=3 seconds=30 2026-08-21T22:14:39-04:00 ===
+STATE period=256 nperiods=3 rate=48000 card=2 governor=performance mhz=1800 softmode=0 poly_governor=0 poly_ceiling=16 surge=active sha=1d051e3 throttled=throttled=0x0 temp=temp=58.9'C
+period_deadline_ms=5.333333
+RESULT tag=V1-silence-256-run1 dsp_n=30 dsp_median=7.8170 dsp_p99=9.9670 dsp_p999=9.9670 dsp_p9999=9.9670 dsp_max=10.3143
+RESULT tag=V1-silence-256-run1 dsp_ms_median=0.4169 dsp_ms_p99=0.5316 dsp_ms_p999=0.5316 dsp_ms_max=0.5501 period_ms=5.333333 temp=56.9'C throttled=0x0
+RESULT tag=V1-silence-256-run2 dsp_n=30 dsp_median=7.9207 dsp_p99=8.2814 dsp_p999=8.2814 dsp_p9999=8.2814 dsp_max=9.5927
+RESULT tag=V1-silence-256-run2 dsp_ms_median=0.4224 dsp_ms_p99=0.4417 dsp_ms_p999=0.4417 dsp_ms_max=0.5116 period_ms=5.333333 temp=56.4'C throttled=0x0
+RESULT tag=V1-silence-256-run3 dsp_n=30 dsp_median=7.8984 dsp_p99=8.4058 dsp_p999=8.4058 dsp_p9999=8.4058 dsp_max=9.2815
+RESULT tag=V1-silence-256-run3 dsp_ms_median=0.4212 dsp_ms_p99=0.4483 dsp_ms_p999=0.4483 dsp_ms_max=0.4950 period_ms=5.333333 temp=57.4'C throttled=0x0
+SENTINEL dsp-sample-end tag=V1-silence-256
