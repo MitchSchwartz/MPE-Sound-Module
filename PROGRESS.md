@@ -1,8 +1,6 @@
 # PROGRESS — canonical thread
 
-**Updated 2026-08-22 (America/Toronto).** This is the top-level index. An agent picking up work starts here,
-then opens the prompt file for its task. Everything else in `docs/measurements/` is either a
-result or history.
+**Updated 2026-08-22 (America/Toronto).** This is the top-level index.
 
 ---
 
@@ -33,7 +31,7 @@ See [`docs/PI5-TRANSITION-PLAN.md`](docs/PI5-TRANSITION-PLAN.md).
 | Clock | 1800 MHz, `arm_boost=1`, `performance` |
 | Cores | `irqaffinity=0,1`; jackd/surge/looper `CPUAffinity=2 3` |
 | Confirmed floors | Crystals 3, Cloud Horn 5, Duduk 3, Brave New World 3 (all 1024) |
-| **V11 (2026-08-22)** | **512x2 = 21.3 ms clean for Crystals @3 and Duduk @3** (0/0/0 x3). Cloud Horn @5 marginal (0/0/8). 256x3: Duduk clean, Crystals marginal (0/2/2), Cloud Horn overloaded. **Xrun column stands.** DSP column withheld (pre-C0 instruments); re-derive after Pi conformance pass. Artifacts `~/plan-v11-20260822-144259/` |
+| **V11 (2026-08-22)** | **512x2 clean for Crystals @3 and Duduk @3** (0/0/0 x3). Cloud Horn @5 marginal. 256x3: Duduk clean, Crystals marginal, Cloud Horn overloaded. **Xrun column stands.** Post-C0 DSP certified — A2 pass 1 re-derives reference column. Artifacts `~/plan-v11-20260822-144259/` |
 
 **Settled and not to be relitigated:** every xrun on this appliance is a **JACK graph
 overrun**, not an ALSA underrun — the ring has never drained (`W1-VERDICT`). Fixed
@@ -53,20 +51,19 @@ transport work **un-retires**. Check, do not assume.
 **Track A runs without Mitch.** Track B needs him reachable and is batched into one window.
 Full plan: [`docs/measurements/PROMPT-PI4-CLOSEOUT.md`](docs/measurements/PROMPT-PI4-CLOSEOUT.md).
 
-> **C0 merged to `dev` 2026-08-22** (#96 offline gate + #97 live gate / F1–F5 fixes; CI green).
-> **Track A next:** run `./scripts/instrument-conformance.sh` on the Pi (offline + live), then
-> resume at **A2**. V11 **xrun** results stand; DSP column withheld until instruments are
-> certified on-appliance (pre-C0 readings were arithmetically impossible — Mitch's call).
+> **C0 done on Pi 2026-08-22** — full gate green (`~/conformance-full-green.log`, #96–#101).
+> **A2 pass 1 in flight** on Pi (`reference-suite-pi4-20260822-181310`). Post-C0 DSP is
+> instrument-certified; A2 is the frozen reference capture for Track A3/A4.
 
 ### Track A — autonomous (no reboot, no gate)
 
 | # | Task | Prompt | Time |
 |---|---|---|---|
-| ~~**C0**~~ | ~~**INSTRUMENT CONFORMANCE**~~ — **DONE.** Merged #96 + #97 to `dev`. Offline green in CI; Pi must pass full gate before further measurements | `PROMPT-C0-instrument-conformance.md` · `REVIEW-C0-conformance-2026-08-22.md` | ≤15 min to run on Pi |
+| ~~**C0**~~ | ~~**INSTRUMENT CONFORMANCE**~~ — **DONE.** Pi full gate green 2026-08-22 | `PROMPT-C0-instrument-conformance.md` | ≤15 min |
 | A0 | Per-session conformance pass (same gate as C0) | `PROMPT-C0-instrument-conformance.md` | ≤15 min |
-| ~~**A1**~~ | ~~**V11 — 512x2 / 256x3 at confirmed counts**~~ — **DONE (xrun column).** 3/6 cells pass. ~25 min wall time | `PROMPT-V11-512-256-confirm.md` | ~25 min |
-| **A2** | **NEXT** — Write `measure-reference-suite.sh` (offline) — must run unmodified on a Pi 5 | closeout §A2 | ~30 min |
-| **A3** | **Settle a72 — run the suite stock, then a72; keep or revert. Freezes the control.** Pass 1. | closeout §A3 | ~60 min |
+| ~~**A1**~~ | ~~**V11**~~ — **DONE (xrun column).** 3/6 cells pass | `PROMPT-V11-512-256-confirm.md` | ~25 min |
+| **A2** | **IN FLIGHT** — reference suite pass 1 (`measure-reference-suite.sh`, #98) | closeout §A2 | ~30 min |
+| **A3** | **Settle a72** — pass 1 = stock binary (this run); then a72 A/B | closeout §A3 | ~60 min |
 | A4 | Reference pass 2, different day (noise floor) | closeout §A4 | ~30 min |
 | A5 | Full appliance state capture — the control condition | closeout §A5 | ~10 min |
 | A6 | Archive raw logs off the SD card | `PROMPT-G3-archive-raw-logs.md` | ~30 min |
@@ -110,10 +107,9 @@ percussive rate metric.
 ### Open gates (Mitch only)
 
 - **Gate 1** — ship 1024x2 (or better, if V11 lands) as instrument profile default, after a
-  clean soak. Looper stack stays 1024x3/D. **NOT SATISFIED — the soak never ran.**
-  `~/instrument-soak-1024x2.log` is 253 bytes, header only (occurrence ten). V9's 1024x2
-  result stands — it came from the confirm harness — but **the soak certification never
-  happened and nothing reported that.** Patch passed to composer; re-run after it lands.
+  clean soak. Looper stack stays 1024x3/D. **NOT SATISFIED — prior soak died silently** (header-only
+  log, occurrence ten). Soak harness fix merged #102 (`soak-aborted` sentinel + stderr in log);
+  **re-run overnight** after A2 pass 1 lands.
 - **Gate 2** — governor re-enable: **blocked** until the fade lands *and*
   `CPU_HIGH_THRESHOLD=50.0` is recalibrated (it sits *below* the ~58.9% baseline DSP).
 - **Gate 3** — percussive metric: deferred. Reframed as a **rate** question (does a fast roll
