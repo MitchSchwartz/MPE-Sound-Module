@@ -64,11 +64,14 @@ Read in order. Later docs correct earlier ones; where they disagree, the later o
 | [`t4c-1024-loop-curve-finish-2026-08-20.md`](t4c-1024-loop-curve-finish-2026-08-20.md) | 1024 condition B: 0/4/8 loops all 0.00 |
 | [`t5-pre-jack-lsp-removal-2026-08-20.md`](t5-pre-jack-lsp-removal-2026-08-20.md) | fork-free watchdog path |
 | [`t5-soak-2026-08-21.md`](t5-soak-2026-08-21.md) | 8 h @ 16 loops: 445 xruns, **Poisson** -- drift ruled out |
-| [`t9-loops8-d-2026-08-21.md`](t9-loops8-d-2026-08-21.md) | **8 loops @ 1024x3 condition D: 0.00, 15/15.** Shipping config |
+| [`t9-loops8-d-2026-08-21.md`](t9-loops8-d-2026-08-21.md) | **8 loops @ 1024x3 condition D: 0.00, 15/15.** Looper shipping config |
+| [`v8-patch-capacity-2026-08-21.md`](v8-patch-capacity-2026-08-21.md) | 53-patch @ 1024 ramp; bounded spread 3–7; 38 censored @ 15 |
+| [`V9-REVIEW-2026-08-22.md`](V9-REVIEW-2026-08-22.md) | **1024×2 free** at clean load; ramp screening-only; confirm floors |
 
 ### Standing conclusions
 
-- **Ship 1024x3, condition D, up to 8 loops.** Measured clean at n=15.
+- **Looper: ship 1024×3, condition D, up to 8 loops.** Measured clean at n=15.
+- **Instrument-only @ verified-clean load: 1024×2 shippable** (V9-b/d). 42.7 ms total latency, 0 xrun cost vs ×3 in measured cells. Mitch gate for profile default.
 - 16 loops costs 0.93/min -- needs *both* high loop load and the full stack.
 - 512 is not shippable with the looper: ~3/min regardless of loop count.
 - Two independent cost terms. **Structural** (extra process hop in JACK's serial chain)
