@@ -1,6 +1,6 @@
 ---
 name: measurement-design
-description: Design or review a measurement on the MPE appliance (xrun runs, latency ladders, DSP load, soaks, cyclictest, IRQ census). Use before opening any Pi measurement window, before writing a measurement prompt for another agent, and when interpreting results. Enforces cheap-check-first ordering, per-cell pre-registration, and instrument audits.
+description: Design or review a measurement on the MPE appliance (xrun runs, latency ladders, DSP load, soaks, cyclictest, IRQ census). Use before opening any Pi measurement window, before writing a measurement prompt for another agent, and when interpreting results. Enforces conformance-tested instruments, cheap-check-first ordering, per-cell pre-registration, and physics assertions on results.
 ---
 
 # Measurement design (MPE appliance)
@@ -12,11 +12,59 @@ cells is not more rigour.
 Full reasoning: [`docs/measurements/MEASUREMENT-DISCIPLINE.md`](../../../docs/measurements/MEASUREMENT-DISCIPLINE.md).
 Instrument self-test history: `AGENTS.md` -> "Self-test the instrument before it costs him anything".
 
-## The failure this prevents
+## The two failures this prevents
 
-**An inference gets promoted to a premise without anyone paying to confirm it.** The
-confirming check is nearly always an order of magnitude cheaper than the test that
-eventually exposes the error.
+**A. An inference gets promoted to a premise** without anyone paying to confirm it. The
+confirming check is nearly always an order of magnitude cheaper than the test that eventually
+exposes the error. Six occurrences.
+
+**B. An instrument reads clean while blind.** **Nine occurrences — the most expensive pattern
+in this project's history.** See Step 0; it outranks everything else here.
+
+## Step 0 — the instrument and its failure must not share a channel
+
+**Do this before anything else. A suite that completes on a blind instrument is worse than one
+that halts, because it produces confident wrong numbers instead of no numbers.**
+
+### The root cause, stated once
+
+Every instrument on this appliance returns its value and its failure **through the same
+channel**. At the reading site you cannot distinguish *"here is a measurement"* from *"I could
+not measure."* So the failure arrives as a **result**, not an error — and gets believed.
+
+Nine instances: `xrun-corr.sh` (empty file, exit 0), `set-surge-audio.sh` (a run labelled 512
+that ran at 1024), latency taps v1 and v2 (`n=0` after 382 pad taps), V8-b auto-pick (plausible
+wrong patch), peak-meter shutdown (looked stopped), V10-b ramp probe (`|| start=0` swallowing a
+blind meter), census `unison_voices` (summed engine selectors into a plausible integer), V11
+`dsp_med` (`unknown` plus idle readings — including ~1% DSP in a cell with 23 xruns, which is
+arithmetically impossible).
+
+**Do not treat these as nine bugs to avoid individually. It is one missing convention.**
+
+### The four mechanisms — required, not optional
+
+1. **No in-band failures.** No `|| x=0`, no `unknown`, no continue-on-error. Invalid or missing
+   **halts the cell** naming the instrument. A default value is a lie with a number attached.
+2. **Positive control.** Force a known condition, assert the reading *matches*. Not "did it
+   return something" — "did it return the **right** something."
+3. **Negative control.** Break it deliberately — kill the meter, stale the state file, rename
+   the field — and assert the harness **halts**. All nine failures would have been caught here.
+4. **Physics assertions in the harness.** DSP% must not fall when the buffer halves. A cell with
+   xruns cannot report low DSP. Parts sum to the whole. **The harness rejects impossible
+   results**; a human noticing at review time is not a mechanism.
+
+### The standing requirement
+
+**No suite runs until an instrument conformance pass has run in this session and passed** —
+positive and negative control for every metric the suite will emit.
+
+**This is proven, not theoretical.** V11's xrun column is trustworthy and its DSP column is not,
+and the only difference is that a positive control ran on the xrun path that morning. Five
+minutes saved half the run.
+
+Strongest at a **platform change** (new kernel, new JACK, new IRQ topology): those break
+instruments silently, and on new hardware there is no baseline to catch an impossible reading
+against.
 
 ## Step 1 — cheap check first (do not skip)
 
@@ -41,6 +89,8 @@ Claim class:    rate | shape | ranking
 n:              <streams x runs>
 Premises:       | premise | verified how | when |
 Instruments:    <what each counts; when last audited>
+Conformance:    <positive + negative control run this session? PASS/FAIL per metric — required>
+Impossible if:  <what reading would be arithmetically impossible; assert it in the harness>
 Prediction:     <expected value, written before the run>
 Falsifier:      <what result would make me abandon the hypothesis>
 Cheaper check:  <what free check was considered, and why it is insufficient>
@@ -81,12 +131,15 @@ will not either. Spend the samples where the variance actually is.
 
 ## Step 3 — audit every instrument before it informs a decision
 
-Two questions, both in writing, dated:
+Three questions, all in writing, dated. Step 0 is the mechanism; this is the reasoning behind it.
 
 1. **What exactly increments it?** Read the source. *What reading would this produce if it
    were broken?* If that matches a healthy reading, it is not an instrument.
 2. **Is its resolution sufficient?** A sampler below the Nyquist rate of its signal produces
    an authoritative-looking trace with the answer removed.
+3. **Is the sample window aligned to the load window?** V11's DSP read idle values because the
+   sampler was not provably measuring while the load was running. **A correct instrument
+   sampling at the wrong time is indistinguishable from a broken one.**
 
 **Period rates on this box:** 47 Hz at 1024, 94 Hz at 512, 188 Hz at 256.
 
@@ -120,7 +173,7 @@ Post-hoc capture (journal, log parsing) costs nothing during the window. Prefer 
 | **ranking** ("A beats B") | intervals reported, not just means |
 
 Stream-start variance is large and real on this box
-(`docs/measurements/stream-start-variance-2026-08-21.md`). Report **within-stream sd and
+(`docs/measurements/archive/stream-start-variance-2026-08-21.md`). Report **within-stream sd and
 between-stream sd separately.** Small-n shape claims have already produced two contradictory
 conclusions in one session.
 
@@ -152,6 +205,9 @@ Then: read-first docs, the pre-registration block, explicit interpretation branc
 which row you landed in"), and a **hard stop** before anything that changes config.
 
 Standing constraints to restate in every prompt:
+- **Open with an instrument conformance gate** (Step 0) — positive and negative control for
+  every metric the prompt will report. **Halt the whole run on failure**, do not degrade.
+- **State what reading would be impossible** for each metric, and assert it in the harness.
 - Never run commands against the Pi while a window is open — including read-only ones.
 - Resolve the card index live; never hardcode it.
 - No forks in periodic loops.
@@ -168,3 +224,8 @@ Standing constraints to restate in every prompt:
 | "this is read-only so it is free" | reading `/proc/asound` takes a driver lock; SSH forks processes |
 | a 60 s window because the last one was 60 s | size it from the expected event rate (Step 2) |
 | a soak to measure a 0.13/min rate | the metric is wrong for the question — find one with a higher event rate |
+| `\|\| value=0` / `// 0` / `except: pass` on a reading | **in-band failure** — the instrument can now report blindness as data (Step 0) |
+| "unknown" / "n/a" / empty in a results field | same defect wearing a different mask; halt instead |
+| a number that looks plausible, accepted because it looks plausible | plausibility is what all nine failures had in common |
+| "the instrument worked last week" | a new kernel/JACK/build changes this; conformance is per-session |
+| a result that violates arithmetic, explained rather than rejected | check the instrument **first**; V11's 1% DSP with 23 xruns was impossible, not interesting |

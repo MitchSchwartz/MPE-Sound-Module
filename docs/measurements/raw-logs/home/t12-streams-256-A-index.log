@@ -1,0 +1,27 @@
+=== measure-stream-sample 2026-08-21T16:20:59-04:00 ===
+buffer=256 periods=3 condition=A
+streams=10 runs_per_stream=3 seconds=60
+playing_loops=0
+SENTINEL stream-sample-start
+=== stream 1/10 -> /home/mitch/t12-streams-256-A-stream-01.log 2026-08-21T16:20:59-04:00 ===
+stream=1 log=/home/mitch/t12-streams-256-A-stream-01.log
+=== stream 2/10 -> /home/mitch/t12-streams-256-A-stream-02.log 2026-08-21T16:26:13-04:00 ===
+stream=2 log=/home/mitch/t12-streams-256-A-stream-02.log
+=== stream 3/10 -> /home/mitch/t12-streams-256-A-stream-03.log 2026-08-21T16:31:24-04:00 ===
+stream=3 log=/home/mitch/t12-streams-256-A-stream-03.log
+=== stream 4/10 -> /home/mitch/t12-streams-256-A-stream-04.log 2026-08-21T16:36:35-04:00 ===
+stream=4 log=/home/mitch/t12-streams-256-A-stream-04.log
+=== stream 5/10 -> /home/mitch/t12-streams-256-A-stream-05.log 2026-08-21T16:41:51-04:00 ===
+stream=5 log=/home/mitch/t12-streams-256-A-stream-05.log
+=== stream 6/10 -> /home/mitch/t12-streams-256-A-stream-06.log 2026-08-21T16:47:01-04:00 ===
+stream=6 log=/home/mitch/t12-streams-256-A-stream-06.log
+=== stream 7/10 -> /home/mitch/t12-streams-256-A-stream-07.log 2026-08-21T16:52:12-04:00 ===
+stream=7 log=/home/mitch/t12-streams-256-A-stream-07.log
+=== stream 8/10 -> /home/mitch/t12-streams-256-A-stream-08.log 2026-08-21T16:57:23-04:00 ===
+stream=8 log=/home/mitch/t12-streams-256-A-stream-08.log
+=== stream 9/10 -> /home/mitch/t12-streams-256-A-stream-09.log 2026-08-21T17:02:34-04:00 ===
+stream=9 log=/home/mitch/t12-streams-256-A-stream-09.log
+=== stream 10/10 -> /home/mitch/t12-streams-256-A-stream-10.log 2026-08-21T17:07:50-04:00 ===
+stream=10 log=/home/mitch/t12-streams-256-A-stream-10.log
+=== restore shipping buffer 1024×3 ===
+SENTINEL stream-sample-complete 2026-08-21T17:13:02-04:00

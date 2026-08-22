@@ -1,0 +1,1062 @@
+FILL_POLL_START 2026-08-21T21:31:13-04:00 status=/proc/asound/card2/pcm0p/sub0/status duration=70s hz=10
+2026-08-21T21:31:14-04:00 state=RUNNING appl=408576 hw=406663 fill=1913 avail=327
+327 xruns=?
+2026-08-21T21:31:14-04:00 state=RUNNING appl=415744 hw=413240 fill=2504 avail=808
+808 xruns=?
+2026-08-21T21:31:14-04:00 state=RUNNING appl=421888 hw=419481 fill=2407 avail=73
+1049 xruns=?
+2026-08-21T21:31:14-04:00 state=RUNNING appl=428032 hw=425770 fill=2262 avail=26
+1050 xruns=?
+2026-08-21T21:31:14-04:00 state=RUNNING appl=434176 hw=432203 fill=1973 avail=363
+363 xruns=?
+2026-08-21T21:31:14-04:00 state=RUNNING appl=441344 hw=438924 fill=2420 avail=940
+940 xruns=?
+2026-08-21T21:31:14-04:00 state=RUNNING appl=447488 hw=445069 fill=2419 avail=893
+893 xruns=?
+2026-08-21T21:31:14-04:00 state=RUNNING appl=453632 hw=451789 fill=1843 avail=733
+733 xruns=?
+2026-08-21T21:31:15-04:00 state=RUNNING appl=460800 hw=458654 fill=2146 avail=286
+1070 xruns=?
+2026-08-21T21:31:15-04:00 state= appl= hw= fill= avail= xruns=?
+2026-08-21T21:31:15-04:00 state= appl= hw= fill= avail= xruns=?
+2026-08-21T21:31:15-04:00 state= appl= hw= fill= avail= xruns=?
+2026-08-21T21:31:15-04:00 state= appl= hw= fill= avail= xruns=?
+2026-08-21T21:31:15-04:00 state= appl= hw= fill= avail= xruns=?
+2026-08-21T21:31:15-04:00 state= appl= hw= fill= avail= xruns=?
+2026-08-21T21:31:16-04:00 state= appl= hw= fill= avail= xruns=?
+2026-08-21T21:31:16-04:00 state= appl= hw= fill= avail= xruns=?
+2026-08-21T21:31:16-04:00 state=SETUP appl=0 hw=0 fill=0 avail=3072
+0 xruns=?
+2026-08-21T21:31:16-04:00 state=SETUP appl=0 hw=0 fill=0 avail=3072
+0 xruns=?
+2026-08-21T21:31:16-04:00 state=SETUP appl=0 hw=0 fill=0 avail=3072
+0 xruns=?
+2026-08-21T21:31:16-04:00 state=RUNNING appl=7168 hw=4656 fill=2512 avail=752
+752 xruns=?
+2026-08-21T21:31:16-04:00 state=RUNNING appl=13312 hw=10513 fill=2799 avail=465
+465 xruns=?
+2026-08-21T21:31:16-04:00 state=RUNNING appl=19456 hw=16898 fill=2558 avail=18
+1042 xruns=?
+2026-08-21T21:31:17-04:00 state=RUNNING appl=25600 hw=23283 fill=2317 avail=899
+899 xruns=?
+2026-08-21T21:31:17-04:00 state=RUNNING appl=31744 hw=29524 fill=2220 avail=20
+1044 xruns=?
+2026-08-21T21:31:17-04:00 state=RUNNING appl=37888 hw=35764 fill=2124 avail=405
+1045 xruns=?
+2026-08-21T21:31:17-04:00 state=RUNNING appl=44032 hw=42149 fill=1883 avail=357
+357 xruns=?
+2026-08-21T21:31:17-04:00 state=RUNNING appl=50176 hw=48390 fill=1786 avail=550
+550 xruns=?
+2026-08-21T21:31:17-04:00 state=RUNNING appl=57344 hw=54631 fill=2713 avail=647
+647 xruns=?
+2026-08-21T21:31:17-04:00 state=RUNNING appl=63488 hw=61112 fill=2376 avail=936
+936 xruns=?
+2026-08-21T21:31:17-04:00 state=RUNNING appl=69632 hw=67401 fill=2231 avail=105
+1033 xruns=?
+2026-08-21T21:31:18-04:00 state=RUNNING appl=75776 hw=73786 fill=1990 avail=298
+298 xruns=?
+2026-08-21T21:31:18-04:00 state=RUNNING appl=82944 hw=80219 fill=2725 avail=539
+539 xruns=?
+2026-08-21T21:31:18-04:00 state=RUNNING appl=89088 hw=86411 fill=2677 avail=827
+827 xruns=?
+2026-08-21T21:31:18-04:00 state=RUNNING appl=95232 hw=92892 fill=2340 avail=972
+972 xruns=?
+2026-08-21T21:31:18-04:00 state=RUNNING appl=101376 hw=99517 fill=1859 avail=429
+429 xruns=?
+2026-08-21T21:31:18-04:00 state=RUNNING appl=108544 hw=105998 fill=2546 avail=958
+958 xruns=?
+2026-08-21T21:31:18-04:00 state=RUNNING appl=114688 hw=113007 fill=1681 avail=751
+751 xruns=?
+2026-08-21T21:31:19-04:00 state=RUNNING appl=121856 hw=119968 fill=1888 avail=352
+352 xruns=?
+2026-08-21T21:31:19-04:00 state=RUNNING appl=128000 hw=125873 fill=2127 avail=113
+1041 xruns=?
+2026-08-21T21:31:19-04:00 state=RUNNING appl=134144 hw=131922 fill=2222 avail=18
+1042 xruns=?
+2026-08-21T21:31:19-04:00 state=RUNNING appl=140288 hw=137778 fill=2510 avail=754
+754 xruns=?
+2026-08-21T21:31:19-04:00 state=RUNNING appl=146432 hw=143827 fill=2605 avail=659
+659 xruns=?
+2026-08-21T21:31:19-04:00 state=RUNNING appl=151552 hw=149684 fill=1868 avail=372
+372 xruns=?
+2026-08-21T21:31:19-04:00 state=RUNNING appl=157696 hw=155781 fill=1915 avail=325
+325 xruns=?
+2026-08-21T21:31:19-04:00 state=RUNNING appl=163840 hw=161638 fill=2202 avail=38
+1062 xruns=?
+2026-08-21T21:31:20-04:00 state=RUNNING appl=169984 hw=167638 fill=2346 avail=38
+1062 xruns=?
+2026-08-21T21:31:20-04:00 state=RUNNING appl=176128 hw=173639 fill=2489 avail=775
+775 xruns=?
+2026-08-21T21:31:20-04:00 state=RUNNING appl=182272 hw=179880 fill=2392 avail=872
+872 xruns=?
+2026-08-21T21:31:20-04:00 state=RUNNING appl=188416 hw=185785 fill=2631 avail=633
+633 xruns=?
+2026-08-21T21:31:20-04:00 state=RUNNING appl=194560 hw=192314 fill=2246 avail=1018
+1018 xruns=?
+2026-08-21T21:31:20-04:00 state=RUNNING appl=200704 hw=198218 fill=2486 avail=827
+827 xruns=?
+2026-08-21T21:31:20-04:00 state=RUNNING appl=206848 hw=204411 fill=2437 avail=827
+827 xruns=?
+2026-08-21T21:31:20-04:00 state=RUNNING appl=212992 hw=211036 fill=1956 avail=428
+428 xruns=?
+2026-08-21T21:31:21-04:00 state=RUNNING appl=220160 hw=217997 fill=2163 avail=77
+1053 xruns=?
+2026-08-21T21:31:21-04:00 state=RUNNING appl=226304 hw=224094 fill=2210 avail=30
+1054 xruns=?
+2026-08-21T21:31:21-04:00 state=RUNNING appl=232448 hw=230047 fill=2401 avail=863
+863 xruns=?
+2026-08-21T21:31:21-04:00 state=RUNNING appl=238592 hw=236288 fill=2304 avail=960
+960 xruns=?
+2026-08-21T21:31:21-04:00 state=RUNNING appl=244736 hw=242144 fill=2592 avail=672
+672 xruns=?
+2026-08-21T21:31:21-04:00 state=RUNNING appl=250880 hw=248289 fill=2591 avail=673
+673 xruns=?
+2026-08-21T21:31:21-04:00 state=RUNNING appl=257024 hw=254194 fill=2830 avail=434
+434 xruns=?
+2026-08-21T21:31:21-04:00 state=RUNNING appl=262144 hw=260243 fill=1901 avail=339
+339 xruns=?
+2026-08-21T21:31:22-04:00 state=RUNNING appl=268288 hw=266100 fill=2188 avail=100
+1028 xruns=?
+2026-08-21T21:31:22-04:00 state=RUNNING appl=274432 hw=272245 fill=2187 avail=53
+1029 xruns=?
+2026-08-21T21:31:22-04:00 state=RUNNING appl=280576 hw=278101 fill=2475 avail=789
+789 xruns=?
+2026-08-21T21:31:22-04:00 state=RUNNING appl=286720 hw=284294 fill=2426 avail=838
+838 xruns=?
+2026-08-21T21:31:22-04:00 state=RUNNING appl=292864 hw=290151 fill=2713 avail=551
+551 xruns=?
+2026-08-21T21:31:22-04:00 state=RUNNING appl=299008 hw=296392 fill=2616 avail=648
+648 xruns=?
+2026-08-21T21:31:22-04:00 state=RUNNING appl=304128 hw=302345 fill=1783 avail=457
+457 xruns=?
+2026-08-21T21:31:22-04:00 state=RUNNING appl=311296 hw=308537 fill=2759 avail=457
+457 xruns=?
+2026-08-21T21:31:23-04:00 state=RUNNING appl=316416 hw=314346 fill=2070 avail=218
+1050 xruns=?
+2026-08-21T21:31:23-04:00 state=RUNNING appl=322560 hw=320491 fill=2069 avail=171
+1051 xruns=?
+2026-08-21T21:31:23-04:00 state=RUNNING appl=328704 hw=326348 fill=2356 avail=908
+908 xruns=?
+2026-08-21T21:31:23-04:00 state=RUNNING appl=334848 hw=332541 fill=2307 avail=1005
+1005 xruns=?
+2026-08-21T21:31:23-04:00 state=RUNNING appl=340992 hw=338541 fill=2451 avail=813
+813 xruns=?
+2026-08-21T21:31:23-04:00 state=RUNNING appl=347136 hw=344590 fill=2546 avail=718
+718 xruns=?
+2026-08-21T21:31:23-04:00 state=RUNNING appl=353280 hw=350495 fill=2785 avail=479
+479 xruns=?
+2026-08-21T21:31:23-04:00 state=RUNNING appl=359424 hw=356544 fill=2880 avail=384
+384 xruns=?
+2026-08-21T21:31:24-04:00 state=RUNNING appl=364544 hw=362401 fill=2143 avail=97
+1025 xruns=?
+2026-08-21T21:31:24-04:00 state=RUNNING appl=370688 hw=368546 fill=2142 avail=98
+1026 xruns=?
+2026-08-21T21:31:24-04:00 state=RUNNING appl=376832 hw=374402 fill=2430 avail=834
+834 xruns=?
+2026-08-21T21:31:24-04:00 state=RUNNING appl=382976 hw=380499 fill=2477 avail=787
+787 xruns=?
+2026-08-21T21:31:24-04:00 state=RUNNING appl=389120 hw=386404 fill=2716 avail=500
+500 xruns=?
+2026-08-21T21:31:24-04:00 state=RUNNING appl=394240 hw=392405 fill=1835 avail=405
+405 xruns=?
+2026-08-21T21:31:24-04:00 state=RUNNING appl=400384 hw=398262 fill=2122 avail=166
+1046 xruns=?
+2026-08-21T21:31:24-04:00 state=RUNNING appl=406528 hw=404454 fill=2074 avail=166
+1046 xruns=?
+2026-08-21T21:31:25-04:00 state=RUNNING appl=412672 hw=410359 fill=2313 avail=903
+903 xruns=?
+2026-08-21T21:31:25-04:00 state=RUNNING appl=418816 hw=416504 fill=2312 avail=952
+952 xruns=?
+2026-08-21T21:31:25-04:00 state=RUNNING appl=424960 hw=422361 fill=2599 avail=665
+665 xruns=?
+2026-08-21T21:31:25-04:00 state=RUNNING appl=431104 hw=428554 fill=2550 avail=714
+714 xruns=?
+2026-08-21T21:31:25-04:00 state=RUNNING appl=437248 hw=434458 fill=2790 avail=474
+474 xruns=?
+2026-08-21T21:31:25-04:00 state=RUNNING appl=443392 hw=440555 fill=2837 avail=427
+427 xruns=?
+2026-08-21T21:31:25-04:00 state=RUNNING appl=448512 hw=446412 fill=2100 avail=188
+1068 xruns=?
+2026-08-21T21:31:25-04:00 state=RUNNING appl=454656 hw=452509 fill=2147 avail=93
+1069 xruns=?
+2026-08-21T21:31:26-04:00 state=RUNNING appl=460800 hw=458366 fill=2434 avail=830
+830 xruns=?
+2026-08-21T21:31:26-04:00 state=RUNNING appl=466944 hw=464415 fill=2529 avail=735
+735 xruns=?
+2026-08-21T21:31:26-04:00 state=RUNNING appl=473088 hw=470319 fill=2769 avail=495
+495 xruns=?
+2026-08-21T21:31:26-04:00 state=RUNNING appl=478208 hw=476416 fill=1792 avail=448
+448 xruns=?
+2026-08-21T21:31:26-04:00 state=RUNNING appl=484352 hw=482273 fill=2079 avail=209
+1041 xruns=?
+2026-08-21T21:31:26-04:00 state=RUNNING appl=490496 hw=488466 fill=2030 avail=210
+210 xruns=?
+2026-08-21T21:31:26-04:00 state=RUNNING appl=496640 hw=494323 fill=2317 avail=947
+947 xruns=?
+2026-08-21T21:31:26-04:00 state=RUNNING appl=502784 hw=500323 fill=2461 avail=947
+947 xruns=?
+2026-08-21T21:31:27-04:00 state=RUNNING appl=508928 hw=506372 fill=2556 avail=660
+660 xruns=?
+2026-08-21T21:31:27-04:00 state=RUNNING appl=515072 hw=512421 fill=2651 avail=709
+709 xruns=?
+2026-08-21T21:31:27-04:00 state=RUNNING appl=521216 hw=518470 fill=2746 avail=518
+518 xruns=?
+2026-08-21T21:31:27-04:00 state=RUNNING appl=527360 hw=524663 fill=2697 avail=567
+567 xruns=?
+2026-08-21T21:31:27-04:00 state=RUNNING appl=532480 hw=530567 fill=1913 avail=327
+327 xruns=?
+2026-08-21T21:31:27-04:00 state=RUNNING appl=538624 hw=536712 fill=1912 avail=328
+328 xruns=?
+2026-08-21T21:31:27-04:00 state=RUNNING appl=544768 hw=542569 fill=2199 avail=41
+1065 xruns=?
+2026-08-21T21:31:27-04:00 state=RUNNING appl=550912 hw=548762 fill=2150 avail=90
+1066 xruns=?
+2026-08-21T21:31:28-04:00 state=RUNNING appl=557056 hw=554619 fill=2437 avail=827
+827 xruns=?
+2026-08-21T21:31:28-04:00 state=RUNNING appl=563200 hw=560716 fill=2484 avail=780
+780 xruns=?
+2026-08-21T21:31:28-04:00 state=RUNNING appl=569344 hw=566572 fill=2772 avail=492
+492 xruns=?
+2026-08-21T21:31:28-04:00 state=RUNNING appl=574464 hw=572621 fill=1843 avail=397
+397 xruns=?
+2026-08-21T21:31:28-04:00 state=RUNNING appl=580608 hw=578622 fill=1986 avail=302
+302 xruns=?
+2026-08-21T21:31:28-04:00 state=RUNNING appl=587776 hw=585055 fill=2721 avail=591
+591 xruns=?
+2026-08-21T21:31:28-04:00 state=RUNNING appl=593920 hw=591344 fill=2576 avail=784
+784 xruns=?
+2026-08-21T21:31:29-04:00 state=RUNNING appl=600064 hw=598113 fill=1951 avail=433
+433 xruns=?
+2026-08-21T21:31:29-04:00 state=RUNNING appl=607232 hw=604737 fill=2495 avail=770
+770 xruns=?
+2026-08-21T21:31:29-04:00 state=RUNNING appl=613376 hw=610594 fill=2782 avail=482
+482 xruns=?
+2026-08-21T21:31:29-04:00 state=RUNNING appl=619520 hw=616787 fill=2733 avail=627
+627 xruns=?
+2026-08-21T21:31:29-04:00 state=RUNNING appl=625664 hw=622884 fill=2780 avail=484
+484 xruns=?
+2026-08-21T21:31:29-04:00 state=RUNNING appl=631808 hw=629269 fill=2539 avail=773
+773 xruns=?
+2026-08-21T21:31:29-04:00 state= appl= hw= fill= avail= xruns=?
+2026-08-21T21:31:29-04:00 state= appl= hw= fill= avail= xruns=?
+2026-08-21T21:31:30-04:00 state= appl= hw= fill= avail= xruns=?
+2026-08-21T21:31:30-04:00 state= appl= hw= fill= avail= xruns=?
+2026-08-21T21:31:30-04:00 state= appl= hw= fill= avail= xruns=?
+2026-08-21T21:31:30-04:00 state= appl= hw= fill= avail= xruns=?
+2026-08-21T21:31:30-04:00 state= appl= hw= fill= avail= xruns=?
+2026-08-21T21:31:30-04:00 state= appl= hw= fill= avail= xruns=?
+2026-08-21T21:31:30-04:00 state=SETUP appl=0 hw=0 fill=0 avail=3072
+0 xruns=?
+2026-08-21T21:31:30-04:00 state=SETUP appl=0 hw=0 fill=0 avail=3072
+0 xruns=?
+2026-08-21T21:31:31-04:00 state=RUNNING appl=3072 hw=1008 fill=2064 avail=176
+1056 xruns=?
+2026-08-21T21:31:31-04:00 state=RUNNING appl=9216 hw=6913 fill=2303 avail=1009
+1009 xruns=?
+2026-08-21T21:31:31-04:00 state=RUNNING appl=15360 hw=12914 fill=2446 avail=818
+818 xruns=?
+2026-08-21T21:31:31-04:00 state=RUNNING appl=21504 hw=18770 fill=2734 avail=530
+530 xruns=?
+2026-08-21T21:31:31-04:00 state=RUNNING appl=27648 hw=24867 fill=2781 avail=483
+483 xruns=?
+2026-08-21T21:31:31-04:00 state=RUNNING appl=32768 hw=30676 fill=2092 avail=148
+1028 xruns=?
+2026-08-21T21:31:31-04:00 state=RUNNING appl=38912 hw=36725 fill=2187 avail=53
+1029 xruns=?
+2026-08-21T21:31:31-04:00 state=RUNNING appl=45056 hw=42582 fill=2474 avail=790
+790 xruns=?
+2026-08-21T21:31:32-04:00 state=RUNNING appl=51200 hw=48582 fill=2618 avail=647
+647 xruns=?
+2026-08-21T21:31:32-04:00 state=RUNNING appl=56320 hw=54439 fill=1881 avail=359
+359 xruns=?
+2026-08-21T21:31:32-04:00 state=RUNNING appl=62464 hw=60488 fill=1976 avail=264
+264 xruns=?
+2026-08-21T21:31:32-04:00 state=RUNNING appl=68608 hw=66393 fill=2215 avail=73
+1049 xruns=?
+2026-08-21T21:31:32-04:00 state=RUNNING appl=74752 hw=72586 fill=2166 avail=74
+1050 xruns=?
+2026-08-21T21:31:32-04:00 state=RUNNING appl=80896 hw=78443 fill=2453 avail=811
+811 xruns=?
+2026-08-21T21:31:32-04:00 state=RUNNING appl=87040 hw=84491 fill=2549 avail=667
+667 xruns=?
+2026-08-21T21:31:32-04:00 state=RUNNING appl=93184 hw=90300 fill=2884 avail=380
+380 xruns=?
+2026-08-21T21:31:33-04:00 state=RUNNING appl=98304 hw=96397 fill=1907 avail=333
+333 xruns=?
+2026-08-21T21:31:33-04:00 state=RUNNING appl=104448 hw=102206 fill=2242 avail=1022
+1022 xruns=?
+2026-08-21T21:31:33-04:00 state=RUNNING appl=110592 hw=108255 fill=2337 avail=1023
+1023 xruns=?
+2026-08-21T21:31:33-04:00 state=RUNNING appl=116736 hw=114255 fill=2481 avail=735
+735 xruns=?
+2026-08-21T21:31:33-04:00 state=RUNNING appl=122880 hw=120448 fill=2432 avail=976
+976 xruns=?
+2026-08-21T21:31:33-04:00 state=RUNNING appl=129024 hw=126785 fill=2239 avail=1
+1025 xruns=?
+2026-08-21T21:31:33-04:00 state=RUNNING appl=135168 hw=132882 fill=2286 avail=978
+978 xruns=?
+2026-08-21T21:31:33-04:00 state=RUNNING appl=141312 hw=138739 fill=2573 avail=691
+691 xruns=?
+2026-08-21T21:31:34-04:00 state=RUNNING appl=147456 hw=144836 fill=2620 avail=644
+644 xruns=?
+2026-08-21T21:31:34-04:00 state=RUNNING appl=153600 hw=150884 fill=2716 avail=548
+548 xruns=?
+2026-08-21T21:31:34-04:00 state=RUNNING appl=159744 hw=157461 fill=2283 avail=981
+981 xruns=?
+2026-08-21T21:31:34-04:00 state=RUNNING appl=165888 hw=163894 fill=1994 avail=534
+534 xruns=?
+2026-08-21T21:31:34-04:00 state=RUNNING appl=173056 hw=170999 fill=2057 avail=423
+1063 xruns=?
+2026-08-21T21:31:34-04:00 state=RUNNING appl=179200 hw=177240 fill=1960 avail=424
+424 xruns=?
+2026-08-21T21:31:34-04:00 state=RUNNING appl=186368 hw=183673 fill=2695 avail=665
+665 xruns=?
+2026-08-21T21:31:35-04:00 state=RUNNING appl=192512 hw=189914 fill=2598 avail=714
+714 xruns=?
+2026-08-21T21:31:35-04:00 state=RUNNING appl=198656 hw=195914 fill=2742 avail=474
+474 xruns=?
+2026-08-21T21:31:35-04:00 state=RUNNING appl=204800 hw=202011 fill=2789 avail=475
+475 xruns=?
+2026-08-21T21:31:35-04:00 state=RUNNING appl=209920 hw=207868 fill=2052 avail=236
+1068 xruns=?
+2026-08-21T21:31:35-04:00 state=RUNNING appl=216064 hw=214205 fill=1859 avail=333
+333 xruns=?
+2026-08-21T21:31:35-04:00 state=RUNNING appl=222208 hw=220062 fill=2146 avail=94
+1070 xruns=?
+2026-08-21T21:31:35-04:00 state=RUNNING appl=228352 hw=226543 fill=1809 avail=527
+527 xruns=?
+2026-08-21T21:31:35-04:00 state=RUNNING appl=235520 hw=233792 fill=1728 avail=608
+608 xruns=?
+2026-08-21T21:31:36-04:00 state=RUNNING appl=242688 hw=240608 fill=2080 avail=209
+1040 xruns=?
+2026-08-21T21:31:36-04:00 state=RUNNING appl=248832 hw=246561 fill=2271 avail=993
+993 xruns=?
+2026-08-21T21:31:36-04:00 state=RUNNING appl=254976 hw=252946 fill=2030 avail=258
+258 xruns=?
+2026-08-21T21:31:36-04:00 state=RUNNING appl=261120 hw=258995 fill=2125 avail=211
+1043 xruns=?
+2026-08-21T21:31:36-04:00 state=RUNNING appl=267264 hw=265332 fill=1932 avail=356
+356 xruns=?
+2026-08-21T21:31:36-04:00 state=RUNNING appl=274432 hw=271765 fill=2667 avail=549
+549 xruns=?
+2026-08-21T21:31:36-04:00 state=RUNNING appl=279552 hw=277669 fill=1883 avail=406
+406 xruns=?
+2026-08-21T21:31:36-04:00 state=RUNNING appl=285696 hw=283862 fill=1834 avail=358
+358 xruns=?
+2026-08-21T21:31:37-04:00 state=RUNNING appl=291840 hw=289863 fill=1977 avail=263
+263 xruns=?
+2026-08-21T21:31:37-04:00 state=RUNNING appl=297984 hw=296056 fill=1928 avail=360
+360 xruns=?
+2026-08-21T21:31:37-04:00 state=RUNNING appl=305152 hw=302729 fill=2423 avail=985
+985 xruns=?
+2026-08-21T21:31:37-04:00 state=RUNNING appl=311296 hw=308730 fill=2566 avail=698
+698 xruns=?
+2026-08-21T21:31:37-04:00 state=RUNNING appl=317440 hw=314875 fill=2565 avail=699
+699 xruns=?
+2026-08-21T21:31:37-04:00 state=RUNNING appl=323584 hw=320779 fill=2805 avail=411
+411 xruns=?
+2026-08-21T21:31:37-04:00 state=RUNNING appl=329728 hw=326924 fill=2804 avail=460
+460 xruns=?
+2026-08-21T21:31:37-04:00 state=RUNNING appl=334848 hw=333069 fill=1779 avail=509
+509 xruns=?
+2026-08-21T21:31:38-04:00 state=RUNNING appl=342016 hw=339406 fill=2610 avail=750
+750 xruns=?
+2026-08-21T21:31:38-04:00 state=RUNNING appl=348160 hw=345647 fill=2513 avail=751
+751 xruns=?
+2026-08-21T21:31:38-04:00 state=RUNNING appl=354304 hw=351599 fill=2705 avail=656
+656 xruns=?
+2026-08-21T21:31:38-04:00 state=RUNNING appl=360448 hw=357840 fill=2608 avail=656
+656 xruns=?
+2026-08-21T21:31:38-04:00 state=RUNNING appl=366592 hw=363889 fill=2703 avail=705
+705 xruns=?
+2026-08-21T21:31:38-04:00 state=RUNNING appl=372736 hw=369986 fill=2750 avail=514
+514 xruns=?
+2026-08-21T21:31:38-04:00 state=RUNNING appl=377856 hw=376035 fill=1821 avail=851
+851 xruns=?
+2026-08-21T21:31:39-04:00 state=RUNNING appl=385024 hw=382420 fill=2604 avail=756
+756 xruns=?
+2026-08-21T21:31:39-04:00 state=RUNNING appl=391168 hw=388757 fill=2411 avail=805
+805 xruns=?
+2026-08-21T21:31:39-04:00 state=RUNNING appl=397312 hw=394613 fill=2699 avail=565
+565 xruns=?
+2026-08-21T21:31:39-04:00 state=RUNNING appl=402432 hw=400758 fill=1674 avail=566
+566 xruns=?
+2026-08-21T21:31:39-04:00 state=RUNNING appl=408576 hw=406663 fill=1913 avail=327
+327 xruns=?
+2026-08-21T21:31:39-04:00 state=RUNNING appl=414720 hw=412856 fill=1864 avail=328
+328 xruns=?
+2026-08-21T21:31:39-04:00 state=RUNNING appl=420864 hw=418665 fill=2199 avail=89
+1065 xruns=?
+2026-08-21T21:31:39-04:00 state=RUNNING appl=427008 hw=424713 fill=2295 avail=969
+969 xruns=?
+2026-08-21T21:31:40-04:00 state=RUNNING appl=433152 hw=430618 fill=2534 avail=730
+730 xruns=?
+2026-08-21T21:31:40-04:00 state=RUNNING appl=439296 hw=436763 fill=2533 avail=731
+731 xruns=?
+2026-08-21T21:31:40-04:00 state=RUNNING appl=445440 hw=442620 fill=2820 avail=444
+444 xruns=?
+2026-08-21T21:31:40-04:00 state=RUNNING appl=450560 hw=448669 fill=1891 avail=349
+349 xruns=?
+2026-08-21T21:31:40-04:00 state=RUNNING appl=456704 hw=454573 fill=2131 avail=157
+1037 xruns=?
+2026-08-21T21:31:40-04:00 state=RUNNING appl=462848 hw=460814 fill=2034 avail=206
+206 xruns=?
+2026-08-21T21:31:40-04:00 state=RUNNING appl=468992 hw=466671 fill=2321 avail=943
+943 xruns=?
+2026-08-21T21:31:40-04:00 state=RUNNING appl=475136 hw=472816 fill=2320 avail=944
+944 xruns=?
+2026-08-21T21:31:41-04:00 state=RUNNING appl=481280 hw=478817 fill=2463 avail=897
+897 xruns=?
+2026-08-21T21:31:41-04:00 state=RUNNING appl=487424 hw=485010 fill=2414 avail=850
+850 xruns=?
+2026-08-21T21:31:41-04:00 state=RUNNING appl=493568 hw=490866 fill=2702 avail=562
+562 xruns=?
+2026-08-21T21:31:41-04:00 state=RUNNING appl=499712 hw=496963 fill=2749 avail=515
+515 xruns=?
+2026-08-21T21:31:41-04:00 state=RUNNING appl=504832 hw=502964 fill=1868 avail=324
+324 xruns=?
+2026-08-21T21:31:41-04:00 state=RUNNING appl=512000 hw=509157 fill=2843 avail=421
+421 xruns=?
+2026-08-21T21:31:41-04:00 state=RUNNING appl=517120 hw=515014 fill=2106 avail=182
+1062 xruns=?
+2026-08-21T21:31:41-04:00 state=RUNNING appl=523264 hw=521254 fill=2010 avail=230
+1062 xruns=?
+2026-08-21T21:31:42-04:00 state=RUNNING appl=529408 hw=527111 fill=2297 avail=967
+967 xruns=?
+2026-08-21T21:31:42-04:00 state=RUNNING appl=535552 hw=533256 fill=2296 avail=920
+920 xruns=?
+2026-08-21T21:31:42-04:00 state=RUNNING appl=541696 hw=539113 fill=2583 avail=633
+633 xruns=?
+2026-08-21T21:31:42-04:00 state=RUNNING appl=547840 hw=545162 fill=2678 avail=538
+538 xruns=?
+2026-08-21T21:31:42-04:00 state=RUNNING appl=552960 hw=551018 fill=1942 avail=250
+250 xruns=?
+2026-08-21T21:31:42-04:00 state=RUNNING appl=559104 hw=557019 fill=2085 avail=155
+1035 xruns=?
+2026-08-21T21:31:42-04:00 state=RUNNING appl=565248 hw=563116 fill=2132 avail=108
+1036 xruns=?
+2026-08-21T21:31:42-04:00 state=RUNNING appl=571392 hw=569165 fill=2227 avail=61
+1037 xruns=?
+2026-08-21T21:31:43-04:00 state=RUNNING appl=577536 hw=575214 fill=2322 avail=158
+1038 xruns=?
+2026-08-21T21:31:43-04:00 state=RUNNING appl=583680 hw=581599 fill=2081 avail=159
+1039 xruns=?
+2026-08-21T21:31:43-04:00 state=RUNNING appl=589824 hw=587455 fill=2369 avail=991
+991 xruns=?
+2026-08-21T21:31:43-04:00 state=RUNNING appl=595968 hw=593696 fill=2272 avail=992
+992 xruns=?
+2026-08-21T21:31:43-04:00 state=RUNNING appl=602112 hw=599553 fill=2559 avail=801
+801 xruns=?
+2026-08-21T21:31:43-04:00 state=RUNNING appl=608256 hw=605698 fill=2558 avail=658
+658 xruns=?
+2026-08-21T21:31:43-04:00 state=RUNNING appl=614400 hw=611555 fill=2845 avail=467
+467 xruns=?
+2026-08-21T21:31:43-04:00 state=RUNNING appl=620544 hw=617699 fill=2845 avail=420
+420 xruns=?
+2026-08-21T21:31:44-04:00 state=RUNNING appl=625664 hw=623556 fill=2108 avail=228
+1060 xruns=?
+2026-08-21T21:31:44-04:00 state=RUNNING appl=631808 hw=629701 fill=2107 avail=133
+1061 xruns=?
+2026-08-21T21:31:44-04:00 state=RUNNING appl=637952 hw=635558 fill=2394 avail=918
+918 xruns=?
+2026-08-21T21:31:44-04:00 state=RUNNING appl=644096 hw=641703 fill=2393 avail=871
+871 xruns=?
+2026-08-21T21:31:44-04:00 state=RUNNING appl=650240 hw=647656 fill=2584 avail=968
+968 xruns=?
+2026-08-21T21:31:44-04:00 state=RUNNING appl=656384 hw=654184 fill=2200 avail=40
+1064 xruns=?
+2026-08-21T21:31:44-04:00 state=RUNNING appl=662528 hw=660233 fill=2295 avail=969
+969 xruns=?
+2026-08-21T21:31:44-04:00 state=RUNNING appl=668672 hw=666138 fill=2534 avail=778
+778 xruns=?
+2026-08-21T21:31:45-04:00 state=RUNNING appl=674816 hw=672331 fill=2485 avail=875
+875 xruns=?
+2026-08-21T21:31:45-04:00 state=RUNNING appl=680960 hw=679100 fill=1860 avail=476
+476 xruns=?
+2026-08-21T21:31:45-04:00 state=RUNNING appl=687104 hw=685197 fill=1907 avail=333
+333 xruns=?
+2026-08-21T21:31:45-04:00 state=RUNNING appl=693248 hw=691197 fill=2051 avail=189
+1069 xruns=?
+2026-08-21T21:31:45-04:00 state=RUNNING appl=699392 hw=697054 fill=2338 avail=926
+926 xruns=?
+2026-08-21T21:31:45-04:00 state=RUNNING appl=705536 hw=703199 fill=2337 avail=927
+927 xruns=?
+2026-08-21T21:31:45-04:00 state=RUNNING appl=711680 hw=709104 fill=2576 avail=688
+688 xruns=?
+2026-08-21T21:31:45-04:00 state=RUNNING appl=717824 hw=715201 fill=2623 avail=641
+641 xruns=?
+2026-08-21T21:31:46-04:00 state=RUNNING appl=723968 hw=721105 fill=2863 avail=402
+402 xruns=?
+2026-08-21T21:31:46-04:00 state=RUNNING appl=729088 hw=727202 fill=1886 avail=354
+354 xruns=?
+2026-08-21T21:31:46-04:00 state=RUNNING appl=735232 hw=733011 fill=2221 avail=19
+1043 xruns=?
+2026-08-21T21:31:46-04:00 state=RUNNING appl=741376 hw=739156 fill=2220 avail=996
+996 xruns=?
+2026-08-21T21:31:46-04:00 state=RUNNING appl=747520 hw=745013 fill=2507 avail=757
+757 xruns=?
+2026-08-21T21:31:46-04:00 state=RUNNING appl=753664 hw=751110 fill=2554 avail=662
+662 xruns=?
+2026-08-21T21:31:46-04:00 state=RUNNING appl=759808 hw=757014 fill=2794 avail=470
+470 xruns=?
+2026-08-21T21:31:46-04:00 state=RUNNING appl=765952 hw=763255 fill=2697 avail=663
+663 xruns=?
+2026-08-21T21:31:47-04:00 state=RUNNING appl=772096 hw=769544 fill=2552 avail=904
+904 xruns=?
+2026-08-21T21:31:47-04:00 state=RUNNING appl=778240 hw=775929 fill=2311 avail=905
+905 xruns=?
+2026-08-21T21:31:47-04:00 state=RUNNING appl=784384 hw=781834 fill=2550 avail=762
+762 xruns=?
+2026-08-21T21:31:47-04:00 state=RUNNING appl=790528 hw=788075 fill=2453 avail=811
+811 xruns=?
+2026-08-21T21:31:47-04:00 state=RUNNING appl=796672 hw=794123 fill=2549 avail=859
+859 xruns=?
+2026-08-21T21:31:47-04:00 state=RUNNING appl=802816 hw=800220 fill=2596 avail=668
+668 xruns=?
+2026-08-21T21:31:47-04:00 state=RUNNING appl=808960 hw=806365 fill=2595 avail=813
+813 xruns=?
+2026-08-21T21:31:47-04:00 state=RUNNING appl=815104 hw=813038 fill=2066 avail=318
+1054 xruns=?
+2026-08-21T21:31:48-04:00 state=RUNNING appl=821248 hw=819279 fill=1969 avail=319
+319 xruns=?
+2026-08-21T21:31:48-04:00 state=RUNNING appl=827392 hw=825232 fill=2160 avail=224
+1056 xruns=?
+2026-08-21T21:31:48-04:00 state=RUNNING appl=833536 hw=831376 fill=2160 avail=80
+1056 xruns=?
+2026-08-21T21:31:48-04:00 state=RUNNING appl=839680 hw=837377 fill=2303 avail=33
+1057 xruns=?
+2026-08-21T21:31:48-04:00 state=RUNNING appl=845824 hw=843474 fill=2350 avail=914
+914 xruns=?
+2026-08-21T21:31:48-04:00 state=RUNNING appl=851968 hw=849667 fill=2301 avail=83
+1059 xruns=?
+2026-08-21T21:31:48-04:00 state=RUNNING appl=858112 hw=855716 fill=2396 avail=868
+868 xruns=?
+2026-08-21T21:31:49-04:00 state=RUNNING appl=864256 hw=862053 fill=2203 avail=37
+1061 xruns=?
+2026-08-21T21:31:49-04:00 state=RUNNING appl=870400 hw=868005 fill=2395 avail=821
+821 xruns=?
+2026-08-21T21:31:49-04:00 state=RUNNING appl=876544 hw=874246 fill=2298 avail=918
+918 xruns=?
+2026-08-21T21:31:49-04:00 state=RUNNING appl=882688 hw=880247 fill=2441 avail=823
+823 xruns=?
+2026-08-21T21:31:49-04:00 state=RUNNING appl=888832 hw=886584 fill=2248 avail=1016
+1016 xruns=?
+2026-08-21T21:31:49-04:00 state=RUNNING appl=894976 hw=892489 fill=2487 avail=825
+825 xruns=?
+2026-08-21T21:31:49-04:00 state=RUNNING appl=901120 hw=898730 fill=2390 avail=874
+874 xruns=?
+2026-08-21T21:31:49-04:00 state=RUNNING appl=907264 hw=904778 fill=2486 avail=826
+826 xruns=?
+2026-08-21T21:31:50-04:00 state=RUNNING appl=913408 hw=910923 fill=2485 avail=779
+779 xruns=?
+2026-08-21T21:31:50-04:00 state=RUNNING appl=919552 hw=917068 fill=2484 avail=924
+924 xruns=?
+2026-08-21T21:31:50-04:00 state=RUNNING appl=925696 hw=923261 fill=2435 avail=829
+829 xruns=?
+2026-08-21T21:31:50-04:00 state=RUNNING appl=931840 hw=929550 fill=2290 avail=926
+926 xruns=?
+2026-08-21T21:31:50-04:00 state=RUNNING appl=937984 hw=935502 fill=2482 avail=783
+783 xruns=?
+2026-08-21T21:31:50-04:00 state=RUNNING appl=944128 hw=941791 fill=2337 avail=879
+879 xruns=?
+2026-08-21T21:31:50-04:00 state=RUNNING appl=950272 hw=947984 fill=2288 avail=96
+1024 xruns=?
+2026-08-21T21:31:50-04:00 state=RUNNING appl=956416 hw=954177 fill=2239 avail=49
+1025 xruns=?
+2026-08-21T21:31:51-04:00 state=RUNNING appl=962560 hw=960274 fill=2286 avail=2
+1026 xruns=?
+2026-08-21T21:31:51-04:00 state=RUNNING appl=968704 hw=966419 fill=2285 avail=979
+979 xruns=?
+2026-08-21T21:31:51-04:00 state=RUNNING appl=975872 hw=973044 fill=2828 avail=484
+484 xruns=?
+2026-08-21T21:31:51-04:00 state=RUNNING appl=980992 hw=978996 fill=1996 avail=244
+244 xruns=?
+2026-08-21T21:31:51-04:00 state=RUNNING appl=987136 hw=985285 fill=1851 avail=437
+437 xruns=?
+2026-08-21T21:31:51-04:00 state=RUNNING appl=993280 hw=991238 fill=2042 avail=294
+294 xruns=?
+2026-08-21T21:31:51-04:00 state=RUNNING appl=999424 hw=997479 fill=1945 avail=343
+343 xruns=?
+2026-08-21T21:31:51-04:00 state=RUNNING appl=1005568 hw=1003432 fill=2136 avail=248
+1032 xruns=?
+2026-08-21T21:31:52-04:00 state=RUNNING appl=1011712 hw=1009673 fill=2039 avail=249
+249 xruns=?
+2026-08-21T21:31:52-04:00 state=RUNNING appl=1017856 hw=1015673 fill=2183 avail=585
+1033 xruns=?
+2026-08-21T21:31:52-04:00 state=RUNNING appl=1024000 hw=1022154 fill=1846 avail=394
+394 xruns=?
+2026-08-21T21:31:52-04:00 state=RUNNING appl=1031168 hw=1028347 fill=2821 avail=443
+443 xruns=?
+2026-08-21T21:31:52-04:00 state=RUNNING appl=1036288 hw=1034252 fill=2036 avail=204
+204 xruns=?
+2026-08-21T21:31:52-04:00 state=RUNNING appl=1042432 hw=1040445 fill=1987 avail=349
+349 xruns=?
+2026-08-21T21:31:52-04:00 state=RUNNING appl=1049600 hw=1046830 fill=2770 avail=638
+638 xruns=?
+2026-08-21T21:31:52-04:00 state=RUNNING appl=1055744 hw=1053118 fill=2626 avail=590
+590 xruns=?
+2026-08-21T21:31:53-04:00 state=RUNNING appl=1061888 hw=1059407 fill=2481 avail=975
+975 xruns=?
+2026-08-21T21:31:53-04:00 state=RUNNING appl=1068032 hw=1065600 fill=2432 avail=832
+832 xruns=?
+2026-08-21T21:31:53-04:00 state=RUNNING appl=1074176 hw=1071745 fill=2431 avail=833
+833 xruns=?
+2026-08-21T21:31:53-04:00 state=RUNNING appl=1080320 hw=1077698 fill=2622 avail=642
+642 xruns=?
+2026-08-21T21:31:53-04:00 state=RUNNING appl=1086464 hw=1083891 fill=2573 avail=691
+691 xruns=?
+2026-08-21T21:31:53-04:00 state=RUNNING appl=1092608 hw=1089939 fill=2669 avail=643
+643 xruns=?
+2026-08-21T21:31:53-04:00 state=RUNNING appl=1098752 hw=1096372 fill=2380 avail=884
+884 xruns=?
+2026-08-21T21:31:54-04:00 state=RUNNING appl=1104896 hw=1102421 fill=2475 avail=885
+885 xruns=?
+2026-08-21T21:31:54-04:00 state=RUNNING appl=1111040 hw=1108470 fill=2570 avail=694
+694 xruns=?
+2026-08-21T21:31:54-04:00 state=RUNNING appl=1117184 hw=1114663 fill=2521 avail=887
+887 xruns=?
+2026-08-21T21:31:54-04:00 state=RUNNING appl=1123328 hw=1120808 fill=2520 avail=744
+744 xruns=?
+2026-08-21T21:31:54-04:00 state=RUNNING appl=1129472 hw=1127288 fill=2184 avail=56
+1032 xruns=?
+2026-08-21T21:31:54-04:00 state=RUNNING appl=1135616 hw=1133241 fill=2375 avail=841
+841 xruns=?
+2026-08-21T21:31:54-04:00 state=RUNNING appl=1141760 hw=1140106 fill=1654 avail=730
+730 xruns=?
+2026-08-21T21:31:54-04:00 state=RUNNING appl=1148928 hw=1146683 fill=2245 avail=1019
+1019 xruns=?
+2026-08-21T21:31:55-04:00 state=RUNNING appl=1155072 hw=1152780 fill=2292 avail=1020
+1020 xruns=?
+2026-08-21T21:31:55-04:00 state=RUNNING appl=1161216 hw=1159021 fill=2195 avail=45
+1069 xruns=?
+2026-08-21T21:31:55-04:00 state=RUNNING appl=1167360 hw=1165118 fill=2242 avail=1070
+1070 xruns=?
+2026-08-21T21:31:55-04:00 state=RUNNING appl=1173504 hw=1171358 fill=2146 avail=94
+1070 xruns=?
+2026-08-21T21:31:55-04:00 state=RUNNING appl=1179648 hw=1177407 fill=2241 avail=143
+1071 xruns=?
+2026-08-21T21:31:55-04:00 state=RUNNING appl=1185792 hw=1183888 fill=1904 avail=336
+336 xruns=?
+2026-08-21T21:31:55-04:00 state=RUNNING appl=1191936 hw=1190177 fill=1759 avail=481
+481 xruns=?
+2026-08-21T21:31:55-04:00 state=RUNNING appl=1198080 hw=1196226 fill=1854 avail=386
+386 xruns=?
+2026-08-21T21:31:56-04:00 state=RUNNING appl=1205248 hw=1202563 fill=2685 avail=579
+579 xruns=?
+2026-08-21T21:31:56-04:00 state=RUNNING appl=1211392 hw=1208851 fill=2541 avail=36
+1060 xruns=?
+2026-08-21T21:31:56-04:00 state=RUNNING appl=1217536 hw=1215140 fill=2396 avail=820
+820 xruns=?
+2026-08-21T21:31:56-04:00 state=RUNNING appl=1223680 hw=1221285 fill=2395 avail=85
+1061 xruns=?
+2026-08-21T21:31:56-04:00 state=RUNNING appl=1229824 hw=1227478 fill=2346 avail=918
+918 xruns=?
+2026-08-21T21:31:56-04:00 state=RUNNING appl=1235968 hw=1233671 fill=2297 avail=919
+919 xruns=?
+2026-08-21T21:31:56-04:00 state=RUNNING appl=1242112 hw=1239624 fill=2488 avail=776
+776 xruns=?
+2026-08-21T21:31:57-04:00 state=RUNNING appl=1248256 hw=1245864 fill=2392 avail=873
+873 xruns=?
+2026-08-21T21:31:57-04:00 state=RUNNING appl=1254400 hw=1252105 fill=2295 avail=41
+1065 xruns=?
+2026-08-21T21:31:57-04:00 state=RUNNING appl=1260544 hw=1258298 fill=2246 avail=1018
+1018 xruns=?
+2026-08-21T21:31:57-04:00 state=RUNNING appl=1266688 hw=1264779 fill=1909 avail=475
+475 xruns=?
+2026-08-21T21:31:57-04:00 state=RUNNING appl=1272832 hw=1270876 fill=1956 avail=284
+284 xruns=?
+2026-08-21T21:31:57-04:00 state=RUNNING appl=1278976 hw=1277069 fill=1907 avail=333
+333 xruns=?
+2026-08-21T21:31:57-04:00 state=RUNNING appl=1285120 hw=1282926 fill=2194 avail=46
+1070 xruns=?
+2026-08-21T21:31:57-04:00 state=RUNNING appl=1291264 hw=1289166 fill=2098 avail=190
+1070 xruns=?
+2026-08-21T21:31:58-04:00 state=RUNNING appl=1297408 hw=1295023 fill=2385 avail=879
+879 xruns=?
+2026-08-21T21:31:58-04:00 state=RUNNING appl=1303552 hw=1301216 fill=2336 avail=976
+976 xruns=?
+2026-08-21T21:31:58-04:00 state=RUNNING appl=1309696 hw=1307121 fill=2575 avail=641
+641 xruns=?
+2026-08-21T21:31:58-04:00 state=RUNNING appl=1315840 hw=1313410 fill=2430 avail=786
+786 xruns=?
+2026-08-21T21:31:58-04:00 state=RUNNING appl=1321984 hw=1319266 fill=2718 avail=546
+546 xruns=?
+2026-08-21T21:31:58-04:00 state=RUNNING appl=1328128 hw=1325507 fill=2621 avail=643
+643 xruns=?
+2026-08-21T21:31:58-04:00 state=RUNNING appl=1333248 hw=1331412 fill=1836 avail=452
+452 xruns=?
+2026-08-21T21:31:58-04:00 state=RUNNING appl=1340416 hw=1337941 fill=2475 avail=789
+789 xruns=?
+2026-08-21T21:31:59-04:00 state=RUNNING appl=1346560 hw=1344182 fill=2378 avail=982
+982 xruns=?
+2026-08-21T21:31:59-04:00 state=RUNNING appl=1352704 hw=1350231 fill=2473 avail=791
+791 xruns=?
+2026-08-21T21:31:59-04:00 state=RUNNING appl=1358848 hw=1356567 fill=2281 avail=935
+935 xruns=?
+2026-08-21T21:31:59-04:00 state=RUNNING appl=1364992 hw=1362520 fill=2472 avail=792
+792 xruns=?
+2026-08-21T21:31:59-04:00 state=RUNNING appl=1371136 hw=1368713 fill=2423 avail=841
+841 xruns=?
+2026-08-21T21:31:59-04:00 state=RUNNING appl=1377280 hw=1374714 fill=2566 avail=746
+746 xruns=?
+2026-08-21T21:31:59-04:00 state=RUNNING appl=1383424 hw=1381051 fill=2373 avail=939
+939 xruns=?
+2026-08-21T21:31:59-04:00 state=RUNNING appl=1390592 hw=1388204 fill=2388 avail=140
+1068 xruns=?
+2026-08-21T21:32:00-04:00 state=RUNNING appl=1396736 hw=1395117 fill=1619 avail=669
+669 xruns=?
+2026-08-21T21:32:00-04:00 state=RUNNING appl=1403904 hw=1401646 fill=2258 avail=174
+1054 xruns=?
+2026-08-21T21:32:00-04:00 state=RUNNING appl=1411072 hw=1408559 fill=2513 avail=847
+847 xruns=?
+2026-08-21T21:32:00-04:00 state=RUNNING appl=1418240 hw=1415615 fill=2625 avail=639
+639 xruns=?
+2026-08-21T21:32:00-04:00 state=RUNNING appl=1424384 hw=1421952 fill=2432 avail=832
+832 xruns=?
+2026-08-21T21:32:00-04:00 state=RUNNING appl=1430528 hw=1428001 fill=2527 avail=785
+785 xruns=?
+2026-08-21T21:32:00-04:00 state=RUNNING appl=1436672 hw=1434386 fill=2286 avail=978
+978 xruns=?
+2026-08-21T21:32:01-04:00 state=RUNNING appl=1442816 hw=1440387 fill=2429 avail=931
+931 xruns=?
+2026-08-21T21:32:01-04:00 state=RUNNING appl=1448960 hw=1446532 fill=2428 avail=836
+836 xruns=?
+2026-08-21T21:32:01-04:00 state=RUNNING appl=1455104 hw=1452676 fill=2428 avail=981
+981 xruns=?
+2026-08-21T21:32:01-04:00 state=RUNNING appl=1461248 hw=1458821 fill=2427 avail=789
+789 xruns=?
+2026-08-21T21:32:01-04:00 state=RUNNING appl=1467392 hw=1465014 fill=2378 avail=886
+886 xruns=?
+2026-08-21T21:32:01-04:00 state=RUNNING appl=1473536 hw=1470967 fill=2569 avail=695
+695 xruns=?
+2026-08-21T21:32:01-04:00 state=RUNNING appl=1479680 hw=1477208 fill=2472 avail=792
+792 xruns=?
+2026-08-21T21:32:01-04:00 state=RUNNING appl=1485824 hw=1483353 fill=2471 avail=9
+1033 xruns=?
+2026-08-21T21:32:02-04:00 state=RUNNING appl=1491968 hw=1489978 fill=1990 avail=250
+250 xruns=?
+2026-08-21T21:32:02-04:00 state=RUNNING appl=1498112 hw=1496122 fill=1990 avail=298
+298 xruns=?
+2026-08-21T21:32:02-04:00 state=RUNNING appl=1504256 hw=1502027 fill=2229 avail=59
+1035 xruns=?
+2026-08-21T21:32:02-04:00 state=RUNNING appl=1510400 hw=1508172 fill=2228 avail=12
+1036 xruns=?
+2026-08-21T21:32:02-04:00 state=RUNNING appl=1516544 hw=1514077 fill=2467 avail=797
+797 xruns=?
+2026-08-21T21:32:02-04:00 state=RUNNING appl=1522688 hw=1520366 fill=2322 avail=942
+942 xruns=?
+2026-08-21T21:32:02-04:00 state=RUNNING appl=1528832 hw=1526318 fill=2514 avail=750
+750 xruns=?
+2026-08-21T21:32:02-04:00 state=RUNNING appl=1534976 hw=1532511 fill=2465 avail=895
+895 xruns=?
+2026-08-21T21:32:03-04:00 state=RUNNING appl=1541120 hw=1538752 fill=2368 avail=944
+944 xruns=?
+2026-08-21T21:32:03-04:00 state=RUNNING appl=1547264 hw=1544993 fill=2271 avail=993
+993 xruns=?
+2026-08-21T21:32:03-04:00 state=RUNNING appl=1553408 hw=1550946 fill=2462 avail=802
+802 xruns=?
+2026-08-21T21:32:03-04:00 state=RUNNING appl=1559552 hw=1557139 fill=2413 avail=803
+803 xruns=?
+2026-08-21T21:32:03-04:00 state=RUNNING appl=1565696 hw=1563091 fill=2605 avail=659
+659 xruns=?
+2026-08-21T21:32:03-04:00 state=RUNNING appl=1571840 hw=1569380 fill=2460 avail=804
+804 xruns=?
+2026-08-21T21:32:03-04:00 state=RUNNING appl=1577984 hw=1575381 fill=2603 avail=757
+757 xruns=?
+2026-08-21T21:32:04-04:00 state=RUNNING appl=1584128 hw=1581670 fill=2458 avail=902
+902 xruns=?
+2026-08-21T21:32:04-04:00 state=RUNNING appl=1591296 hw=1588775 fill=2521 avail=743
+743 xruns=?
+2026-08-21T21:32:04-04:00 state=RUNNING appl=1597440 hw=1594920 fill=2520 avail=840
+840 xruns=?
+2026-08-21T21:32:04-04:00 state=RUNNING appl=1603584 hw=1601113 fill=2471 avail=793
+793 xruns=?
+2026-08-21T21:32:04-04:00 state=RUNNING appl=1609728 hw=1607497 fill=2231 avail=57
+1033 xruns=?
+2026-08-21T21:32:04-04:00 state=RUNNING appl=1615872 hw=1613546 fill=2326 avail=938
+938 xruns=?
+2026-08-21T21:32:04-04:00 state=RUNNING appl=1622016 hw=1619883 fill=2133 avail=107
+1035 xruns=?
+2026-08-21T21:32:04-04:00 state=RUNNING appl=1628160 hw=1625932 fill=2228 avail=108
+1036 xruns=?
+2026-08-21T21:32:05-04:00 state=RUNNING appl=1634304 hw=1632221 fill=2083 avail=157
+1037 xruns=?
+2026-08-21T21:32:05-04:00 state=RUNNING appl=1640448 hw=1638366 fill=2082 avail=302
+1038 xruns=?
+2026-08-21T21:32:05-04:00 state=RUNNING appl=1646592 hw=1644606 fill=1986 avail=254
+254 xruns=?
+2026-08-21T21:32:05-04:00 state=RUNNING appl=1652736 hw=1650703 fill=2033 avail=303
+303 xruns=?
+2026-08-21T21:32:05-04:00 state=RUNNING appl=1658880 hw=1656944 fill=1936 avail=400
+400 xruns=?
+2026-08-21T21:32:05-04:00 state=RUNNING appl=1666048 hw=1663473 fill=2575 avail=689
+689 xruns=?
+2026-08-21T21:32:05-04:00 state=RUNNING appl=1672192 hw=1669666 fill=2526 avail=978
+978 xruns=?
+2026-08-21T21:32:05-04:00 state=RUNNING appl=1678336 hw=1675955 fill=2381 avail=835
+835 xruns=?
+2026-08-21T21:32:06-04:00 state=RUNNING appl=1684480 hw=1682196 fill=2284 avail=100
+1028 xruns=?
+2026-08-21T21:32:06-04:00 state=RUNNING appl=1690624 hw=1688292 fill=2332 avail=932
+932 xruns=?
+2026-08-21T21:32:06-04:00 state=RUNNING appl=1696768 hw=1694533 fill=2235 avail=101
+1029 xruns=?
+2026-08-21T21:32:06-04:00 state=RUNNING appl=1702912 hw=1700630 fill=2282 avail=54
+1030 xruns=?
+2026-08-21T21:32:06-04:00 state=RUNNING appl=1709056 hw=1707063 fill=1993 avail=247
+247 xruns=?
+2026-08-21T21:32:06-04:00 state=RUNNING appl=1715200 hw=1713112 fill=2088 avail=488
+1032 xruns=?
+2026-08-21T21:32:06-04:00 state=RUNNING appl=1721344 hw=1719449 fill=1895 avail=393
+393 xruns=?
+2026-08-21T21:32:07-04:00 state=RUNNING appl=1728512 hw=1725977 fill=2535 avail=729
+729 xruns=?
+2026-08-21T21:32:07-04:00 state=RUNNING appl=1734656 hw=1731978 fill=2678 avail=634
+634 xruns=?
+2026-08-21T21:32:07-04:00 state=RUNNING appl=1740800 hw=1738123 fill=2677 avail=635
+635 xruns=?
+2026-08-21T21:32:07-04:00 state=RUNNING appl=1745920 hw=1744076 fill=1844 avail=444
+444 xruns=?
+2026-08-21T21:32:07-04:00 state=RUNNING appl=1753088 hw=1750269 fill=2819 avail=445
+445 xruns=?
+2026-08-21T21:32:07-04:00 state=RUNNING appl=1758208 hw=1756126 fill=2082 avail=254
+1038 xruns=?
+2026-08-21T21:32:07-04:00 state=RUNNING appl=1765376 hw=1762606 fill=2770 avail=542
+542 xruns=?
+2026-08-21T21:32:07-04:00 state=RUNNING appl=1770496 hw=1768607 fill=1889 avail=495
+495 xruns=?
+2026-08-21T21:32:08-04:00 state=RUNNING appl=1776640 hw=1774800 fill=1840 avail=400
+400 xruns=?
+2026-08-21T21:32:08-04:00 state=RUNNING appl=1782784 hw=1780945 fill=1839 avail=449
+449 xruns=?
+2026-08-21T21:32:08-04:00 state=RUNNING appl=1788928 hw=1786850 fill=2078 avail=162
+1042 xruns=?
+2026-08-21T21:32:08-04:00 state=RUNNING appl=1795072 hw=1792995 fill=2077 avail=211
+1043 xruns=?
+2026-08-21T21:32:08-04:00 state=RUNNING appl=1801216 hw=1798899 fill=2317 avail=947
+947 xruns=?
+2026-08-21T21:32:08-04:00 state=RUNNING appl=1807360 hw=1805188 fill=2172 avail=116
+1044 xruns=?
+2026-08-21T21:32:08-04:00 state=RUNNING appl=1813504 hw=1811093 fill=2411 avail=853
+853 xruns=?
+2026-08-21T21:32:08-04:00 state=RUNNING appl=1819648 hw=1817334 fill=2314 avail=950
+950 xruns=?
+2026-08-21T21:32:09-04:00 state=RUNNING appl=1825792 hw=1823335 fill=2457 avail=807
+807 xruns=?
+2026-08-21T21:32:09-04:00 state=RUNNING appl=1831936 hw=1829575 fill=2361 avail=952
+952 xruns=?
+2026-08-21T21:32:09-04:00 state=RUNNING appl=1838080 hw=1835672 fill=2408 avail=904
+904 xruns=?
+2026-08-21T21:32:09-04:00 state=RUNNING appl=1844224 hw=1841817 fill=2407 avail=857
+857 xruns=?
+2026-08-21T21:32:09-04:00 state=RUNNING appl=1850368 hw=1847722 fill=2646 avail=666
+666 xruns=?
+2026-08-21T21:32:09-04:00 state=RUNNING appl=1856512 hw=1853867 fill=2645 avail=619
+619 xruns=?
+2026-08-21T21:32:09-04:00 state=RUNNING appl=1861632 hw=1859820 fill=1812 avail=524
+524 xruns=?
+2026-08-21T21:32:09-04:00 state=RUNNING appl=1869824 hw=1867021 fill=2803 avail=557
+557 xruns=?
+2026-08-21T21:32:10-04:00 state=RUNNING appl=1875968 hw=1873213 fill=2755 avail=461
+461 xruns=?
+2026-08-21T21:32:10-04:00 state=RUNNING appl=1881088 hw=1879070 fill=2018 avail=366
+366 xruns=?
+2026-08-21T21:32:10-04:00 state=RUNNING appl=1887232 hw=1885359 fill=1873 avail=367
+367 xruns=?
+2026-08-21T21:32:10-04:00 state=RUNNING appl=1893376 hw=1891216 fill=2160 avail=320
+1056 xruns=?
+2026-08-21T21:32:10-04:00 state=RUNNING appl=1899520 hw=1897361 fill=2159 avail=129
+1057 xruns=?
+2026-08-21T21:32:10-04:00 state=RUNNING appl=1905664 hw=1903553 fill=2111 avail=274
+1058 xruns=?
+2026-08-21T21:32:10-04:00 state=RUNNING appl=1911808 hw=1909746 fill=2062 avail=178
+1058 xruns=?
+2026-08-21T21:32:10-04:00 state=RUNNING appl=1917952 hw=1915843 fill=2109 avail=179
+1059 xruns=?
+2026-08-21T21:32:11-04:00 state=RUNNING appl=1924096 hw=1921748 fill=2348 avail=916
+916 xruns=?
+2026-08-21T21:32:11-04:00 state=RUNNING appl=1930240 hw=1928037 fill=2203 avail=85
+1061 xruns=?
+2026-08-21T21:32:11-04:00 state=RUNNING appl=1936384 hw=1934134 fill=2250 avail=1014
+1014 xruns=?
+2026-08-21T21:32:11-04:00 state=RUNNING appl=1942528 hw=1940374 fill=2154 avail=86
+1062 xruns=?
+2026-08-21T21:32:11-04:00 state=RUNNING appl=1948672 hw=1946375 fill=2297 avail=967
+967 xruns=?
+2026-08-21T21:32:11-04:00 state=RUNNING appl=1954816 hw=1952616 fill=2200 avail=88
+1064 xruns=?
+2026-08-21T21:32:11-04:00 state=RUNNING appl=1960960 hw=1958569 fill=2391 avail=873
+873 xruns=?
+2026-08-21T21:32:11-04:00 state=RUNNING appl=1967104 hw=1964762 fill=2342 avail=874
+874 xruns=?
+2026-08-21T21:32:12-04:00 state=RUNNING appl=1973248 hw=1970667 fill=2581 avail=683
+683 xruns=?
+2026-08-21T21:32:12-04:00 state=RUNNING appl=1979392 hw=1976811 fill=2581 avail=683
+683 xruns=?
+2026-08-21T21:32:12-04:00 state=RUNNING appl=1985536 hw=1982812 fill=2724 avail=588
+588 xruns=?
+2026-08-21T21:32:12-04:00 state=RUNNING appl=1991680 hw=1989053 fill=2627 avail=637
+637 xruns=?
+2026-08-21T21:32:12-04:00 state=RUNNING appl=1997824 hw=1995150 fill=2674 avail=686
+686 xruns=?
+2026-08-21T21:32:12-04:00 state=RUNNING appl=2003968 hw=2001295 fill=2673 avail=543
+543 xruns=?
+2026-08-21T21:32:12-04:00 state=RUNNING appl=2009088 hw=2007488 fill=1600 avail=736
+736 xruns=?
+2026-08-21T21:32:12-04:00 state=RUNNING appl=2016256 hw=2013584 fill=2672 avail=592
+592 xruns=?
+2026-08-21T21:32:13-04:00 state=RUNNING appl=2022400 hw=2019873 fill=2527 avail=689
+689 xruns=?
+2026-08-21T21:32:13-04:00 state=RUNNING appl=2028544 hw=2025826 fill=2718 avail=546
+546 xruns=?
+2026-08-21T21:32:13-04:00 state=RUNNING appl=2034688 hw=2032019 fill=2669 avail=643
+643 xruns=?
+2026-08-21T21:32:13-04:00 state=RUNNING appl=2039808 hw=2038020 fill=1788 avail=452
+452 xruns=?
+2026-08-21T21:32:13-04:00 state=RUNNING appl=2046976 hw=2044165 fill=2811 avail=453
+453 xruns=?
+2026-08-21T21:32:13-04:00 state=RUNNING appl=2052096 hw=2050021 fill=2075 avail=213
+1045 xruns=?
+2026-08-21T21:32:13-04:00 state=RUNNING appl=2058240 hw=2056166 fill=2074 avail=214
+1046 xruns=?
+2026-08-21T21:32:14-04:00 state=RUNNING appl=2064384 hw=2062167 fill=2217 avail=23
+1047 xruns=?
+2026-08-21T21:32:14-04:00 state=RUNNING appl=2070528 hw=2068312 fill=2216 avail=72
+1048 xruns=?
+2026-08-21T21:32:14-04:00 state=RUNNING appl=2076672 hw=2074409 fill=2263 avail=73
+1049 xruns=?
+2026-08-21T21:32:14-04:00 state=RUNNING appl=2082816 hw=2081274 fill=1542 avail=698
+698 xruns=?
+2026-08-21T21:32:14-04:00 state=RUNNING appl=2089984 hw=2087610 fill=2374 avail=890
+890 xruns=?
+2026-08-21T21:32:14-04:00 state=RUNNING appl=2096128 hw=2093659 fill=2469 avail=843
+843 xruns=?
+2026-08-21T21:32:14-04:00 state=RUNNING appl=2102272 hw=2099948 fill=2324 avail=892
+892 xruns=?
+2026-08-21T21:32:14-04:00 state=RUNNING appl=2108416 hw=2106045 fill=2371 avail=941
+941 xruns=?
+2026-08-21T21:32:15-04:00 state=RUNNING appl=2114560 hw=2112286 fill=2274 avail=990
+990 xruns=?
+2026-08-21T21:32:15-04:00 state=RUNNING appl=2121728 hw=2119439 fill=2289 avail=975
+975 xruns=?
+2026-08-21T21:32:15-04:00 state=RUNNING appl=2127872 hw=2125584 fill=2288 avail=48
+1024 xruns=?
+2026-08-21T21:32:15-04:00 state=RUNNING appl=2134016 hw=2131776 fill=2240 avail=0
+1024 xruns=?
+2026-08-21T21:32:15-04:00 state=RUNNING appl=2140160 hw=2137921 fill=2239 avail=97
+1025 xruns=?
+2026-08-21T21:32:15-04:00 state=RUNNING appl=2146304 hw=2144210 fill=2094 avail=194
+1026 xruns=?
+2026-08-21T21:32:15-04:00 state=RUNNING appl=2153472 hw=2150787 fill=2685 avail=627
+627 xruns=?
+2026-08-21T21:32:15-04:00 state=RUNNING appl=2159616 hw=2157508 fill=2108 avail=228
+1060 xruns=?
+2026-08-21T21:32:16-04:00 state=RUNNING appl=2165760 hw=2163509 fill=2251 avail=1013
+1013 xruns=?
+2026-08-21T21:32:16-04:00 state=RUNNING appl=2171904 hw=2169702 fill=2202 avail=38
+1062 xruns=?
+2026-08-21T21:32:16-04:00 state=RUNNING appl=2178048 hw=2175654 fill=2394 avail=870
+870 xruns=?
+2026-08-21T21:32:16-04:00 state=RUNNING appl=2184192 hw=2181895 fill=2297 avail=967
+967 xruns=?
+2026-08-21T21:32:16-04:00 state=RUNNING appl=2190336 hw=2187896 fill=2440 avail=776
+776 xruns=?
+2026-08-21T21:32:16-04:00 state=RUNNING appl=2196480 hw=2194185 fill=2295 avail=969
+969 xruns=?
+2026-08-21T21:32:16-04:00 state=RUNNING appl=2202624 hw=2200282 fill=2342 avail=970
+970 xruns=?
+2026-08-21T21:32:17-04:00 state=RUNNING appl=2208768 hw=2206522 fill=2246 avail=1019
+1019 xruns=?
+2026-08-21T21:32:17-04:00 state=RUNNING appl=2214912 hw=2212571 fill=2341 avail=971
+971 xruns=?
+2026-08-21T21:32:17-04:00 state=RUNNING appl=2221056 hw=2218716 fill=2340 avail=924
+924 xruns=?
+2026-08-21T21:32:17-04:00 state=RUNNING appl=2227200 hw=2224813 fill=2387 avail=1021
+1021 xruns=?
+2026-08-21T21:32:17-04:00 state=RUNNING appl=2233344 hw=2230862 fill=2482 avail=830
+830 xruns=?
+2026-08-21T21:32:17-04:00 state=RUNNING appl=2239488 hw=2237151 fill=2337 avail=927
+927 xruns=?
+2026-08-21T21:32:17-04:00 state=RUNNING appl=2245632 hw=2243199 fill=2433 avail=831
+831 xruns=?
+2026-08-21T21:32:17-04:00 state=RUNNING appl=2251776 hw=2249344 fill=2432 avail=832
+832 xruns=?
+2026-08-21T21:32:18-04:00 state=RUNNING appl=2257920 hw=2255345 fill=2575 avail=689
+689 xruns=?
+2026-08-21T21:32:18-04:00 state=RUNNING appl=2264064 hw=2261490 fill=2574 avail=690
+690 xruns=?
+2026-08-21T21:32:18-04:00 state=RUNNING appl=2270208 hw=2267491 fill=2717 avail=547
+547 xruns=?
+2026-08-21T21:32:18-04:00 state=RUNNING appl=2276352 hw=2273828 fill=2524 avail=740
+740 xruns=?
+2026-08-21T21:32:18-04:00 state=RUNNING appl=2282496 hw=2279876 fill=2620 avail=740
+740 xruns=?
+2026-08-21T21:32:18-04:00 state=RUNNING appl=2288640 hw=2286069 fill=2571 avail=693
+693 xruns=?
+2026-08-21T21:32:18-04:00 state=RUNNING appl=2294784 hw=2292262 fill=2522 avail=934
+934 xruns=?
+2026-08-21T21:32:18-04:00 state=RUNNING appl=2300928 hw=2298455 fill=2473 avail=791
+791 xruns=?
+2026-08-21T21:32:19-04:00 state=RUNNING appl=2307072 hw=2304696 fill=2376 avail=888
+888 xruns=?
+2026-08-21T21:32:19-04:00 state=RUNNING appl=2313216 hw=2310793 fill=2423 avail=889
+889 xruns=?
+2026-08-21T21:32:19-04:00 state=RUNNING appl=2319360 hw=2317225 fill=2135 avail=105
+1033 xruns=?
+2026-08-21T21:32:19-04:00 state=RUNNING appl=2325504 hw=2323418 fill=2086 avail=298
+1034 xruns=?
+2026-08-21T21:32:19-04:00 state=RUNNING appl=2332672 hw=2329851 fill=2821 avail=443
+443 xruns=?
+2026-08-21T21:32:19-04:00 state=RUNNING appl=2338816 hw=2336044 fill=2772 avail=540
+540 xruns=?
+2026-08-21T21:32:19-04:00 state=RUNNING appl=2344960 hw=2342093 fill=2867 avail=445
+445 xruns=?
+2026-08-21T21:32:19-04:00 state=RUNNING appl=2351104 hw=2348766 fill=2338 avail=878
+878 xruns=?
+2026-08-21T21:32:20-04:00 state=RUNNING appl=2357248 hw=2354767 fill=2481 avail=879
+879 xruns=?
+2026-08-21T21:32:20-04:00 state=RUNNING appl=2363392 hw=2360959 fill=2433 avail=831
+831 xruns=?
+2026-08-21T21:32:20-04:00 state=RUNNING appl=2369536 hw=2367248 fill=2288 avail=976
+976 xruns=?
+2026-08-21T21:32:20-04:00 state=RUNNING appl=2375680 hw=2373201 fill=2479 avail=737
+737 xruns=?
+2026-08-21T21:32:20-04:00 state=RUNNING appl=2381824 hw=2379586 fill=2238 avail=978
+978 xruns=?
+2026-08-21T21:32:20-04:00 state=RUNNING appl=2387968 hw=2385491 fill=2477 avail=787
+787 xruns=?
+2026-08-21T21:32:20-04:00 state=RUNNING appl=2394112 hw=2391588 fill=2524 avail=740
+740 xruns=?
+2026-08-21T21:32:21-04:00 state=RUNNING appl=2400256 hw=2397684 fill=2572 avail=740
+740 xruns=?
+2026-08-21T21:32:21-04:00 state=RUNNING appl=2406400 hw=2403973 fill=2427 avail=837
+837 xruns=?
+2026-08-21T21:32:21-04:00 state=RUNNING appl=2412544 hw=2410262 fill=2282 avail=150
+1030 xruns=?
+2026-08-21T21:32:21-04:00 state=RUNNING appl=2418688 hw=2416359 fill=2329 avail=935
+935 xruns=?
+2026-08-21T21:32:21-04:00 state=RUNNING appl=2424832 hw=2422696 fill=2136 avail=152
+1032 xruns=?
+2026-08-21T21:32:21-04:00 state=RUNNING appl=2430976 hw=2428649 fill=2327 avail=937
+937 xruns=?
+2026-08-21T21:32:21-04:00 state=RUNNING appl=2437120 hw=2434793 fill=2327 avail=937
+937 xruns=?
+2026-08-21T21:32:21-04:00 state=RUNNING appl=2443264 hw=2440650 fill=2614 avail=650
+650 xruns=?
+2026-08-21T21:32:22-04:00 state=RUNNING appl=2449408 hw=2446843 fill=2565 avail=699
+699 xruns=?
+2026-08-21T21:32:22-04:00 state=RUNNING appl=2455552 hw=2452892 fill=2660 avail=604
+604 xruns=?
+2026-08-21T21:32:22-04:00 state=RUNNING appl=2461696 hw=2459037 fill=2659 avail=557
+557 xruns=?
+2026-08-21T21:32:22-04:00 state=RUNNING appl=2466816 hw=2464893 fill=1923 avail=317
+317 xruns=?
+2026-08-21T21:32:22-04:00 state=RUNNING appl=2472960 hw=2470894 fill=2066 avail=222
+1054 xruns=?
+2026-08-21T21:32:22-04:00 state=RUNNING appl=2479104 hw=2476799 fill=2305 avail=911
+911 xruns=?
+2026-08-21T21:32:22-04:00 state=RUNNING appl=2485248 hw=2482944 fill=2304 avail=960
+960 xruns=?
+2026-08-21T21:32:22-04:00 state=RUNNING appl=2491392 hw=2488801 fill=2591 avail=673
+673 xruns=?
+FILL_POLL_END 2026-08-21T21:32:23-04:00

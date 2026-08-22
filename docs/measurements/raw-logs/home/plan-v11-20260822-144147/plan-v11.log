@@ -1,0 +1,4 @@
+=== Plan V11 2026-08-22T14:41:47-04:00 artifacts=/home/mitch/plan-v11-20260822-144147 ===
+PROVENANCE governor=off clock=1800 cells=512x2,256x3 patches=Crystals@3,CloudHorn@5,Duduk@3
+Peak meter blind — restarting audio graph
+ERROR: peak meter still blind after graph restart

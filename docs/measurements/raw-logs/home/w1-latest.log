@@ -1,0 +1,81 @@
+=== W1 instrumented window 2026-08-21T21:40:44-04:00 artifacts=/root/w1-20260821-214044 ===
+load=condition_A midi_load_voices=75 (measure-latency-run default)
+resolved CARD=2 STATUS=/proc/asound/card2/pcm0p/sub0/status
+
+=== poller sanity (10 s idle stream) ===
+FILL_SUMMARY n=81 buf=3072 min=2050 p1=2050 p50=2534 p99=3066 max=3066 mean=2534 sanity_over_buf=0
+sanity ok period=1024 nperiods=3
+
+=== W0 (report only — prior run) ===
+W0: 1024x2 opened on Pi 2026-08-21 (jackd -p 1024 -n 2 UP). Not re-run.
+
+=== control: 1024x3 poller OFF ===
+--- cell control-no-fill buffer=1024 periods=3 fill=0 ---
+awk: line 3: syntax error at or near ,
+awk: line 11: syntax error at or near }
+Appended measurement to /root/w1-20260821-214044/control-no-fill.log
+SENTINEL harness-logged
+RESULT tag=A-b1024-p3-l0-run1 jitter_n=3181 jitter_median_usec=-306 jitter_p99_usec=780 jitter_p99_9_usec=975 jitter_max_usec=1037
+RESULT tag=A-b1024-p3-l0-run1 frames_late_p99_usec=271 frames_late_max_usec=375
+RESULT tag=A-b1024-p3-l0-run1 delay_events=0 delay_nonzero=0 (legacy, ignore)
+RESULT tag=A-b1024-p3-l0-run1 samples=60 temp=58.9'C throttled=0x0
+RESULT tag=A-b1024-p3-l0-run1 file=/tmp/latency-A-b1024-p3-l0-run1-1787362884.out xrun_events=/tmp/latency-A-b1024-p3-l0-run1-1787362884.xruns
+RESULT tag=A-b1024-p3-l0-run1 probe_xrun_count=8 jackd_alsa_xrun_count= jackd_alsa_msec_min= jackd_alsa_msec_median= jackd_alsa_msec_max= jackd_alsa_msec_mean= window_since=2026-08-21T21:41:39-04:00 window_until=2026-08-21T21:42:41-04:00
+
+=== control: 1024x3 poller ON ===
+--- cell control-fill buffer=1024 periods=3 fill=1 ---
+awk: line 3: syntax error at or near ,
+awk: line 11: syntax error at or near }
+Appended measurement to /root/w1-20260821-214044/control-fill.log
+SENTINEL harness-logged
+RESULT tag=A-b1024-p3-l0-run1 frames_late_p99_usec=271 frames_late_max_usec=396
+RESULT tag=A-b1024-p3-l0-run1 delay_events=0 delay_nonzero=0 (legacy, ignore)
+RESULT tag=A-b1024-p3-l0-run1 samples=60 temp=59.9'C throttled=0x0
+RESULT tag=A-b1024-p3-l0-run1 file=/tmp/latency-A-b1024-p3-l0-run1-1787363000.out xrun_events=/tmp/latency-A-b1024-p3-l0-run1-1787363000.xruns
+RESULT tag=A-b1024-p3-l0-run1 probe_xrun_count=4 jackd_alsa_xrun_count= jackd_alsa_msec_min= jackd_alsa_msec_median= jackd_alsa_msec_max= jackd_alsa_msec_mean= window_since=2026-08-21T21:43:35-04:00 window_until=2026-08-21T21:44:37-04:00
+RESULT tag=A-b1024-p3-l0-run1 fill_log=/root/w1-20260821-214044/control-fill-fill-A-b1024-p3-l0-run1.log
+FILL_SUMMARY n=536 buf=3072 min=2049 p1=2057 p50=2583 p99=3054 max=3069 mean=2569 sanity_over_buf=0
+control xruns: no_fill=6 fill_on=2
+
+=== W1 ladder (poller ON) ===
+--- cell W1-a buffer=1024 periods=3 fill=1 ---
+awk: line 3: syntax error at or near ,
+awk: line 11: syntax error at or near }
+Appended measurement to /root/w1-20260821-214044/W1-a.log
+SENTINEL harness-logged
+RESULT tag=A-b1024-p3-l0-run1 frames_late_p99_usec=271 frames_late_max_usec=375
+RESULT tag=A-b1024-p3-l0-run1 delay_events=0 delay_nonzero=0 (legacy, ignore)
+RESULT tag=A-b1024-p3-l0-run1 samples=60 temp=60.8'C throttled=0x0
+RESULT tag=A-b1024-p3-l0-run1 file=/tmp/latency-A-b1024-p3-l0-run1-1787363114.out xrun_events=/tmp/latency-A-b1024-p3-l0-run1-1787363114.xruns
+RESULT tag=A-b1024-p3-l0-run1 probe_xrun_count=6 jackd_alsa_xrun_count= jackd_alsa_msec_min= jackd_alsa_msec_median= jackd_alsa_msec_max= jackd_alsa_msec_mean= window_since=2026-08-21T21:45:29-04:00 window_until=2026-08-21T21:46:31-04:00
+RESULT tag=A-b1024-p3-l0-run1 fill_log=/root/w1-20260821-214044/W1-a-fill-A-b1024-p3-l0-run1.log
+FILL_SUMMARY n=550 buf=3072 min=0 p1=2060 p50=2547 p99=3057 max=3071 mean=2553 sanity_over_buf=0
+--- cell W1-b buffer=512 periods=3 fill=1 ---
+awk: line 3: syntax error at or near ,
+awk: line 11: syntax error at or near }
+Appended measurement to /root/w1-20260821-214044/W1-b.log
+SENTINEL harness-logged
+RESULT tag=A-b512-p3-l0-run1 frames_late_p99_usec=250 frames_late_max_usec=354
+RESULT tag=A-b512-p3-l0-run1 delay_events=0 delay_nonzero=0 (legacy, ignore)
+RESULT tag=A-b512-p3-l0-run1 samples=60 temp=60.8'C throttled=0x0
+RESULT tag=A-b512-p3-l0-run1 file=/tmp/latency-A-b512-p3-l0-run1-1787363229.out xrun_events=/tmp/latency-A-b512-p3-l0-run1-1787363229.xruns
+RESULT tag=A-b512-p3-l0-run1 probe_xrun_count=2 jackd_alsa_xrun_count= jackd_alsa_msec_min= jackd_alsa_msec_median= jackd_alsa_msec_max= jackd_alsa_msec_mean= window_since=2026-08-21T21:47:24-04:00 window_until=2026-08-21T21:48:25-04:00
+RESULT tag=A-b512-p3-l0-run1 fill_log=/root/w1-20260821-214044/W1-b-fill-A-b512-p3-l0-run1.log
+FILL_SUMMARY n=545 buf=1536 min=0 p1=1027 p50=1279 p99=1529 max=1534 mean=1276 sanity_over_buf=0
+--- cell W1-c buffer=256 periods=3 fill=1 ---
+awk: line 3: syntax error at or near ,
+awk: line 11: syntax error at or near }
+Appended measurement to /root/w1-20260821-214044/W1-c.log
+SENTINEL harness-logged
+RESULT tag=A-b256-p3-l0-run1 frames_late_p99_usec=250 frames_late_max_usec=375
+RESULT tag=A-b256-p3-l0-run1 delay_events=0 delay_nonzero=0 (legacy, ignore)
+RESULT tag=A-b256-p3-l0-run1 samples=60 temp=60.8'C throttled=0x0
+RESULT tag=A-b256-p3-l0-run1 file=/tmp/latency-A-b256-p3-l0-run1-1787363343.out xrun_events=/tmp/latency-A-b256-p3-l0-run1-1787363343.xruns
+RESULT tag=A-b256-p3-l0-run1 probe_xrun_count=32 jackd_alsa_xrun_count= jackd_alsa_msec_min= jackd_alsa_msec_median= jackd_alsa_msec_max= jackd_alsa_msec_mean= window_since=2026-08-21T21:49:18-04:00 window_until=2026-08-21T21:50:20-04:00
+RESULT tag=A-b256-p3-l0-run1 fill_log=/root/w1-20260821-214044/W1-c-fill-A-b256-p3-l0-run1.log
+FILL_SUMMARY n=524 buf=768 min=513 p1=515 p50=635 p99=764 max=767 mean=634 sanity_over_buf=0
+
+=== restore shipping 1024x3 ===
+Applied buffer=1024 periods=3
+52241 jackd -R -P70 -s -d alsa -P hw:2 -r 48000 -p 1024 -n 3
+SENTINEL w1-complete 2026-08-21T21:50:37-04:00 artifacts=/root/w1-20260821-214044

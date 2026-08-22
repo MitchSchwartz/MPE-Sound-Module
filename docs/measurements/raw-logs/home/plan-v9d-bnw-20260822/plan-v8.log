@@ -1,0 +1,10 @@
+
+=== V8-b redo patch=Brave New World voices=3 2026-08-22T04:06:01-04:00 ===
+OSC client initialized: 127.0.0.1:53280
+Loaded patch: Brave New World.fxp
+loaded Brave New World.fxp
+Appended measurement to /home/mitch/plan-v9d-bnw-20260822/v8b-1024x2-Brave_New_World.log
+SENTINEL harness-logged
+Appended measurement to /home/mitch/plan-v9d-bnw-20260822/v8b-1024x3-Brave_New_World.log
+SENTINEL harness-logged
+SENTINEL v8b-redo-complete patch=Brave New World voices=3
