@@ -53,8 +53,10 @@ Queued prompts: [`PROMPT-P7`](PROMPT-P7-overclock-diagnostic.md),
 [`HANDOVER-census-unison-fix`](HANDOVER-census-unison-fix.md).
 
 Evidence-record tasks (offline, not measurements): [`PROMPT-G1`](PROMPT-G1-effort-reconstruction.md)
-effort reconstruction, [`PROMPT-G3`](PROMPT-G3-archive-raw-logs.md) raw-log archival — both
-from [`SRED-EVIDENCE-2026.md`](../SRED-EVIDENCE-2026.md).
+effort reconstruction (historical — see [`SRED-EFFORT-LOG.md`](../SRED-EFFORT-LOG.md)),
+[`PROMPT-G3`](PROMPT-G3-archive-raw-logs.md) raw-log archival, and ongoing
+[`SRED-DAILY-LOG.md`](../SRED-DAILY-LOG.md) via skill `sred-daily-capture` — all from
+[`SRED-EVIDENCE-2026.md`](../SRED-EVIDENCE-2026.md).
 
 ## Archive
 
