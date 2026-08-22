@@ -33,6 +33,7 @@ See [`docs/PI5-TRANSITION-PLAN.md`](docs/PI5-TRANSITION-PLAN.md).
 | Clock | 1800 MHz, `arm_boost=1`, `performance` |
 | Cores | `irqaffinity=0,1`; jackd/surge/looper `CPUAffinity=2 3` |
 | Confirmed floors | Crystals 3, Cloud Horn 5, Duduk 3, Brave New World 3 (all 1024) |
+| **V11 (2026-08-22)** | **512x2 = 21.3 ms clean for Crystals @3 and Duduk @3** (0/0/0 x3). Cloud Horn @5 marginal (0/0/8). 256x3: Duduk clean, Crystals marginal (0/2/2), Cloud Horn overloaded. **DSP column withheld — instrument failure, see C0.** Artifacts `~/plan-v11-20260822-144259/` |
 
 **Settled and not to be relitigated:** every xrun on this appliance is a **JACK graph
 overrun**, not an ALSA underrun — the ring has never drained (`W1-VERDICT`). Fixed
@@ -52,11 +53,17 @@ transport work **un-retires**. Check, do not assume.
 **Track A runs without Mitch.** Track B needs him reachable and is batched into one window.
 Full plan: [`docs/measurements/PROMPT-PI4-CLOSEOUT.md`](docs/measurements/PROMPT-PI4-CLOSEOUT.md).
 
+> **HALTED 2026-08-22.** Nothing below runs until **C0** passes. V11 produced a DSP column that
+> was arithmetically impossible (~1% at 256x3 across three patches; 10% in a cell with 23
+> xruns) — the ninth blind-instrument failure. V11's **xrun** column stands (a positive control
+> ran on that path); its DSP column is withheld. Mitch's call, and the right one.
+
 ### Track A — autonomous (no reboot, no gate)
 
 | # | Task | Prompt | Time |
 |---|---|---|---|
-| **A0** | **Instrument pre-flight** — prove the counter moves before trusting it | closeout §A0 | ~5 min |
+| **C0** | **INSTRUMENT CONFORMANCE — blocks everything.** Positive + negative control per metric, physics assertions, in-band-failure sweep | `PROMPT-C0-instrument-conformance.md` | ~half day to build, ≤15 min to run |
+| A0 | *(replaced by C0)* — per-session conformance pass | `PROMPT-C0-instrument-conformance.md` | ≤15 min |
 | **A1** | **V11 — 512x2 / 256x3 at confirmed counts** | `PROMPT-V11-512-256-confirm.md` | ~15 min |
 | A2 | Write `measure-reference-suite.sh` (offline) — must run unmodified on a Pi 5 | closeout §A2 | ~30 min |
 | **A3** | **Settle a72 — run the suite stock, then a72; keep or revert. Freezes the control.** Pass 1. | closeout §A3 | ~60 min |
@@ -121,9 +128,12 @@ percussive rate metric.
    any before/after. **Never `measure-capacity-ramp.sh`** — ramp ceilings are screening-grade.
 3. **Read `dsp_med` for compute questions**, `dsp_p99`/`dsp_max` for tail questions. Do not
    use a tail statistic to answer a central-tendency question.
-4. **Check the instrument before trusting the reading.** The recurring failure on this
-   appliance is an instrument that reads clean when it is blind — V8-b auto-pick, peak-meter
-   shutdown, V10-b ramp probe, census `unison_voices`. **Four occurrences.**
+4. **An instrument must never be able to fail silently.** **Nine occurrences** — the most
+   expensive pattern here, one root cause: value and failure share a channel, so blindness
+   arrives as a result. Required everywhere: no in-band failures (`|| x=0`, `unknown`,
+   continue-on-error), a positive control, a negative control, and physics assertions that
+   reject impossible readings in-harness. **No suite runs without a conformance pass in the
+   same session.** Doctrine: `MEASUREMENT-DISCIPLINE.md` **Rule -1**.
 5. **Ask the shortest useful version of a test** before running it. Doctrine:
    `docs/measurements/MEASUREMENT-DISCIPLINE.md`, skill: `.claude/skills/measurement-design/`.
 6. **One variable.** Overclock and rebuild do not overlap. Neither overlaps a soak. This
