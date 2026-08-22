@@ -256,5 +256,62 @@ class SurgePolyGovernorTests(unittest.TestCase):
         self.assertEqual(len(startup_calls), 1)
 
 
+    def test_tick_without_poly_state_is_silent(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            missing = Path(tmp) / "missing-poly.json"
+            osc = FakeOscClient()
+            monitor = mock.Mock()
+            monitor.check_health.return_value = (True, None)
+            governor = SurgePolyGovernor(osc, surge_monitor=monitor, cpu_monitor=FakeCpuMonitor(55.0))
+            with self._patch_state_file(missing):
+                with mock.patch("patch_browser.surge_poly_governor.governor_active", return_value=True):
+                    with mock.patch("builtins.print") as mock_print:
+                        governor._tick()
+            self.assertEqual(osc.messages, [])
+            mock_print.assert_not_called()
+
+    def test_error_log_uses_spam_guard(self) -> None:
+        journal = PolyGovernorJournal()
+        journal._window_start = 0.0
+        with mock.patch("builtins.print") as mock_print, mock.patch(
+            "patch_browser.surge_poly_governor.time.monotonic", return_value=0.5
+        ):
+            for i in range(12):
+                journal.log_error(f"boom-{i}")
+        lines = [str(c.args[0]) for c in mock_print.call_args_list if c.args]
+        error_lines = [line for line in lines if "tick error" in line]
+        self.assertEqual(len(error_lines), 10)
+        self.assertEqual(journal._suppressed, 2)
+
+    def test_stop_flushes_suppressed_summary(self) -> None:
+        osc = FakeOscClient()
+        monitor = mock.Mock()
+        journal = PolyGovernorJournal()
+        journal._suppressed = 4
+        governor = SurgePolyGovernor(osc, surge_monitor=monitor, journal=journal)
+        with mock.patch("builtins.print") as mock_print:
+            governor.stop()
+        self.assertTrue(any("suppressed=4" in str(c) for c in mock_print.call_args_list))
+
+    def test_verbose_trace_written_on_transition(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            trace = Path(tmp) / "poly-governor.trace"
+            journal = PolyGovernorJournal()
+            with mock.patch.dict(os.environ, {"MPE_POLY_GOVERNOR_VERBOSE": "1"}):
+                with mock.patch("patch_browser.surge_poly_governor.run_dir", return_value=Path(tmp)):
+                    with mock.patch("builtins.print"):
+                        journal.log_transition(
+                            old_limit=12,
+                            new_limit=10,
+                            reason="high",
+                            cpu=55.0,
+                            raw_cpu=55.0,
+                            patch="Lead",
+                            held_s=0.2,
+                        )
+            self.assertTrue(trace.is_file())
+            self.assertIn("12 -> 10", trace.read_text(encoding="utf-8"))
+
+
 if __name__ == "__main__":
     unittest.main()
