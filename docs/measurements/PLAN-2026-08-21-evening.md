@@ -140,3 +140,59 @@ without touching the period, which is the variable that has failed every time it
 | D | ~15 min |
 | step 4 (in flight) | ~12 min |
 | **total** | **~1 h 40 min**, gated — A can cancel B and C entirely |
+
+---
+
+## Amendment after Step 4 (2026-08-21, late)
+
+### Withdrawn: the Step 1 alignment closure
+
+`scarlett-verdict-2026-08-21.md` closed the alignment question on *"bimodality vanished on
+the async Scarlett, therefore the Sound Blaster's stream-start lottery was adaptive clock
+lock, not frame phase."*
+
+**Step 4 shows bimodality on that same async Scarlett** — stream 01 at 105/min against
+streams 02-03 at 26-34/min. **The evidence that closure rested on is gone. Withdraw it.**
+
+Two things stop this from reopening the line:
+
+1. **n=3 streams cannot establish distribution shape.** One-high/two-low out of three draws
+   is unremarkable from a bimodal *or* a wide unimodal distribution. Step 4 supports neither
+   claim, and its 55.0/min mean is not a reliable estimate from three streams.
+2. **The arithmetic argues against alignment regardless.** At high speed a microframe is
+   125 us = **6 samples**. On the Scarlett: 256/6 = 42.67, 512/6 = 85.33,
+   **1024/6 = 170.67** — *every* buffer we run is misaligned, **including the one with zero
+   xruns**. If frame phase were the driver, 1024 would not be clean.
+
+**Status: alignment moves from "closed" to "unsupported, still unpromising."** Do not spend
+Pi time on it. Phase B telemetry shows the mechanism directly instead of by inference.
+
+### Strengthened: the compute-bound hypothesis
+
+`dsp_p99` at **256 x 3 cond A** (no `midi-load`): **63-89%**.
+Prior at **1024 x 3 cond A**: **34.8%**.
+
+**This is the matched-condition comparison Phase D was meant to obtain — and two of its
+three points already exist.** A 2-2.5x efficiency loss from 1024 -> 256 is what fixed
+per-callback costs predict: graph traversal, parameter smoothing and block setup do not
+shrink with the buffer, so they amortise over fewer samples.
+
+At p99 = 89% there is **11% headroom**. Type-(b) graph overruns (see
+`xrun-counter-audit-2026-08-21.md`) are not a hypothesis at that point — they are expected.
+
+### Revised order
+
+**Fold Phase A into Phase D's window.** One pass gives the DSP ladder *and* the
+`appl_ptr - hw_ptr` trace at each buffer size — strictly more informative than either alone.
+A flat fill trace alongside p99 = 89% is **P3 and compute-bound in the same picture**.
+
+| # | cell | Pi time |
+|---|---|---|
+| **D+A** | DSP p99 **and** fill telemetry at 1024 / 512 / 256, identical load, cond A | ~20 min |
+| **B** | nperiods sweep 2/3/4/6 at period 1024 | ~30 min |
+| **—** | `1024 x 2` open-check: does ALSA accept it at all? | **~30 s**, any idle moment |
+
+Step 4's own read stands as recorded: mean below baseline but shape unstable at n=3, so
+**`threadirqs` cost is neither confirmed nor ruled out.** Do not re-run it to settle that —
+under the cushion model and the counter audit, xruns/min may not be the right term at all.
+Settle the term first (D+A), then decide whether the question is worth re-asking.

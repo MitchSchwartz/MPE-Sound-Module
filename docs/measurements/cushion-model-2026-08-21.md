@@ -110,7 +110,7 @@ data needs reinterpreting.
 
 | # | test | cost | decides |
 |---|---|---|---|
-| **C** | audit xrun counter semantics (offline) | 0 | P3 outright |
+| **C** | audit xrun counter semantics (offline) | 0 | P3 outright — **partial:** counter is real JACK engine events; underrun vs mismatch **not** separated ([`xrun-counter-audit-2026-08-21.md`](xrun-counter-audit-2026-08-21.md)) |
 | **A** | fill-level telemetry at `1024 x 3` | ~15 min | all four models, directly |
 | **B** | nperiods sweep 2/3/4/6 at period 1024 | ~30 min | P2 vs P2' vs P3 by curve shape |
 | — | ~~cell 4b (`irq/30` FF 90)~~ | — | **deprioritised** — tunes producer lateness, which the arithmetic above says is not the binding term |

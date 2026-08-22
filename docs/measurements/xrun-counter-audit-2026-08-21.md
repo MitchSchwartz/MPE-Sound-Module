@@ -1,98 +1,71 @@
-# Audit: what our xrun counter actually counts (2026-08-21)
+# Xrun counter semantics audit (2026-08-21)
 
-Offline audit of `native/mpe-xrun-probe/mpe-xrun-probe.c`. No Pi time used.
+*Offline — no Pi time. Feeds [`cushion-model-2026-08-21.md`](cushion-model-2026-08-21.md) gate C.*
 
-## What the probe does
+## What the harness reports as `xruns`
 
-```c
-jack_set_xrun_callback(g_client, on_xrun, NULL);
-...
-static int on_xrun(void *arg) { atomic_fetch_add(&g_xrun_count, 1UL); return 0; }
-```
-
-It is an **event counter on JACK's xrun callback**. Nothing more.
-
-## Finding 1 — we have no magnitude, only counts
-
-The probe's own header says it:
-
-> `Xrun callback: event count only (jack_get_xrun_delayed_usecs is 0 on JACK2/ALSA).`
-
-**Every "xruns/min" figure produced in this project is an undifferentiated event count.** A
-1 us overrun and a 40 ms underrun both increment by exactly 1. We have never had magnitude
-data, and the arithmetic in `cushion-model-2026-08-21.md` turns entirely on magnitude.
-
-## Finding 2 — the callback aggregates structurally different events
-
-JACK2 invokes the xrun callback for **at least two distinct conditions**:
-
-| # | condition | did the hardware buffer empty? |
+| layer | source | semantics |
 |---|---|---|
-| **a** | ALSA returns `EPIPE` — a genuine playback underrun | **yes** |
-| **b** | the client graph fails to complete within the period — "client too slow" | **no** |
+| **RESULT `xruns=`** | `mpe-peak-meter` → `/run/mpe/meter.state` | Delta of cumulative **`jack_set_xrun_callback`** count over the 60 s window |
+| **Per-second table** | same meter | Same counter, sampled each second |
+| **Probe `XRUN_COUNT`** | `mpe-xrun-probe` | Independent **`jack_set_xrun_callback`** on a passive client — should track engine events |
+| **Probe `frames_late_*`** | `jack_frames_since_cycle_start` in process callback | **In-cycle lateness** (µs into the period when probe runs) — **not** an underrun |
+| **Probe `jitter_*`** | monotonic inter-callback period error | Wakeup timing — **not** an underrun |
+| **Legacy `delay_*`** | deprecated path | Harness marks `(legacy, ignore)` |
 
-**These are not the same event and our counter cannot tell them apart.**
+**The primary metric is JACK engine xrun notifications, not ALSA `avail` or a driver underrun counter read directly.**
 
-**This is the reconciliation the cushion model needed.** A type-(b) xrun requires only that
-Surge overran its 21.3 ms compute deadline. **It does not require the 42.7 ms cushion to
-drain at all.** The factor-of-100 gap between the 42.7 ms cushion and the 429 us worst
-measured stall stops being a paradox the moment type (b) is on the table.
-
-It also resolves the T11 anomaly — *"at 64 frames the callback never missed its deadline
-while 6% of periods underran."* The probe measures **inter-callback period jitter and
-`frames_since_cycle_start`**, not whether the graph finished computing. "Callback woke on
-time" and "graph overran the period" are fully compatible. They were never in tension; we
-were reading two different quantities as if they were one.
-
-And it makes the `dsp_p99 ~= 92%` reading at 256 far more alarming: at 92% of deadline, type
-(b) events are *expected*, and they would be counted as xruns indistinguishably from drain.
-
-**Caveat:** this is reasoned from JACK2's documented behaviour, not from reading the
-installed jackd's source in this session. Confirm against the version on the appliance
-before treating the two-condition split as established.
-
-## Finding 3 — jackd already reports magnitudes and we discard them
-
-jackd's own stderr emits lines of the form:
+## Code paths (repo)
 
 ```
-ALSA: xrun of at least 0.123 msecs
+measure-latency-run.sh
+  _enable_strict_xrun_reporting  → MPE_JACK_SOFTMODE=0 in /etc/mpe/mpe.env, restart jackd
+  _meter_xruns                   → mpe_meter_xruns_read() from meter.state
+  _start_xrun_probe              → mpe-xrun-probe (parallel xrun + jitter + frames_late)
+
+native/mpe-peak-meter/mpe-peak-meter.c
+  jack_set_xrun_callback(on_xrun) → atomic ++g_xrun_count → meter.state xruns=
+
+native/mpe-xrun-probe/mpe-xrun-probe.c
+  jack_set_xrun_callback(on_xrun) → atomic ++g_xrun_count (logged as XRUN_COUNT)
+  comment: jack_get_xrun_delayed_usecs is 0 on JACK2/ALSA — no delay magnitude from JACK API
+
+scripts/start-jackd.sh
+  -s when MPE_JACK_SOFTMODE=1 (shipping default: softmode)
+  no -s when MPE_JACK_SOFTMODE=0 (strict — zombify late clients)
 ```
 
-That is a **type-(a) event with a magnitude attached** — exactly what we lack. Grep of
-`scripts/measure-latency-run.sh` shows **no capture of jackd's stderr or journal** anywhere
-in the harness. This data has existed all along and has been thrown away on every run.
+## Integrity gates already in place
 
-## The discriminator — free, and available from existing runs
+| gate | status |
+|---|---|
+| Softmode must be off during measurement | `_enable_strict_xrun_reporting` writes **env file**, not shell export (fixed 2026-08-17 bench bug) |
+| Meter must be live | `MPE_PEAK_METER=1`; harness **VOID** if meter stale or xruns go backwards mid-window |
+| Journal xrun lines | **Not used** for harness (journal has zero xrun lines on this appliance — documented in `looper_health.py`) |
 
-For any window, compare:
+## What JACK `xrun_callback` actually means (binding term)
 
-| probe `XRUN_COUNT` | jackd "xrun of at least" lines | reading |
-|---|---|---|
-| N | N, with magnitudes | genuine ALSA underruns — the drain model applies |
-| N | **0** | **all type (b)** — graph overruns; cushion size is irrelevant |
-| N | M < N | mixture — and the split is the number that matters |
+On JACK2 + ALSA backend, the engine invokes registered xrun callbacks when the **backend reports an xrun** — typically ALSA playback delay/underrun or a cycle that missed the hardware clock. It is **one counter per engine xrun event**, not per client.
 
-If past logs retained the journal, **this can be settled with no new measurement.**
+It is **not** the same as:
 
-## Actions
+- “playback buffer empty because producer was 600 µs late” (inferred)
+- probe `frames_late` (sub-period callback entry time)
+- DSP load % from `jack_cpu_load` (graph CPU time)
 
-1. **Harness change:** capture `journalctl -u mpe-jackd` for the window alongside the probe
-   log, and report **both** counts and the ALSA magnitudes. One-line addition; makes every
-   future run strictly more informative.
-2. **Re-read history:** if the journal survives for T5 / T11 / T13 / the Scarlett runs,
-   recompute the split retrospectively.
-3. **Reinterpret with care.** Do not retract prior findings wholesale — the comparisons were
-   internally consistent, since every cell used the same counter. But **any conclusion that
-   depended on xruns meaning "the buffer emptied" is now unsupported**, including parts of
-   the runway and alignment reasoning.
-4. Keep the fill-level telemetry (`/proc/asound/card<N>/pcm0p/sub0/status`) from
-   `cushion-model-2026-08-21.md`. It measures buffer state directly and is immune to this
-   entire class of ambiguity.
+**P3 (counter artifact) is not confirmed outright.** The counter reflects real JACK engine xrun events under strict mode. What remains unknown is **which backend condition** fired — genuine drain, clock mismatch, driver delay report, or a classification that does not match our cushion arithmetic.
 
-## Status of P3
+That gap is exactly why fill-level telemetry (`appl_ptr − hw_ptr` from `/proc/asound/.../status`) is the next measurement: correlate meter increments with buffer trace shape.
 
-`cushion-model-2026-08-21.md` listed P3 ("the counter increments on something that is not an
-underrun") as a candidate. **It is confirmed as a real mechanism** — type (b) exists and is
-counted. What remains unknown is the **split**: what fraction of our measured xruns are
-graph overruns rather than drains. Finding 3 gives that number for free.
+## Implications for session data
+
+| finding | effect on interpretation |
+|---|---|
+| Counter is engine-level, not raw ALSA | Cannot infer buffer fill from xruns alone — supports cushion-model pivot |
+| No delay magnitude from JACK on ALSA | Step 2’s 429 µs cyclictest and probe `frames_late_p99` (~300 µs at 256 in Step 4b partial) measure **different quantities** than the xrun event |
+| Strict mode during harness runs | Shipping softmode runs may **under-count or behave differently** — measurement windows are not identical to gig config |
+| Probe xrun count vs meter | Should match; if they diverge, investigate client registration / meter restart |
+
+## Verdict for gate C
+
+**P3 not eliminated.** Counter semantics are understood and are not a no-op, but they do **not** prove “playback underrun from producer lateness.” Next: **fill telemetry (A)** and **nperiods sweep at fixed period (B)** per cushion model.
