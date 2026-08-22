@@ -10,6 +10,15 @@ source "${ROOT}/scripts/lib/measurement-result.sh"
 fail() { echo "FAIL: $*" >&2; exit 1; }
 ok() { echo "OK: $*"; }
 
+
+# --- Derived floors: monotonic 1024 < 512 < 256 (V9/W1 anchors) ---
+mpe_result_assert_floor_monotonic || fail "plausibility floors not monotonic"
+[ "$(mpe_result_dsp_plausibility_floor 1024)" = "7.6" ] || fail "1024 floor from V9 38.0%"
+[ "$(mpe_result_dsp_plausibility_floor 512)" = "12.5" ] || fail "512 floor from W1 62.4%"
+[ "$(mpe_result_dsp_plausibility_floor 256)" = "15.2" ] || fail "256 floor from W1 76.1%"
+awk -v a="$(mpe_result_dsp_plausibility_floor 1024)" -v b="$(mpe_result_dsp_plausibility_floor 512)" -v c="$(mpe_result_dsp_plausibility_floor 256)"     'BEGIN{exit !(a+0 < b+0 && b+0 < c+0)}' || fail "floor ordering 1024<512<256"
+ok "plausibility floors monotonic and V9/W1-derived"
+
 # --- Positive: full harness path (load_tag + physics, tag-derived buffer) ---
 MPE_EXPECT_SAMPLES=60
 mpe_result_assert_tag "${FIX}/good-512-a.log" "A-b512-p3-l0-run1" || fail "harness path good 512"
