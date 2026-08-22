@@ -61,16 +61,17 @@ _run_patch_triple() {
     : >"$out"
     while [ "$run" -le "$BASELINE_RUNS" ]; do
         local tag="P7-${phase}-${slug}-run${run}"
+        local run_out="${ARTIFACT_DIR}/p7-${phase}-${slug}-run${run}.log"
         echo ""
         echo "=== ${tag} patch=${name} voices=${voices} expect_mhz=${expect_mhz} ==="
-        clock_stamp "before-${tag}" "$expect_mhz" >>"$out"
+        clock_stamp "before-${tag}" "$expect_mhz" | tee -a "$out"
         "$SCRIPT_DIR/measure-confirm-at-voices.sh" \
             --patch-name "$name" --voices "$voices" --seconds "$CONFIRM_SEC" \
             --buffer "$BUFFER" --periods "$PERIODS" \
-            --output "$out" --tag "$tag" >/dev/null
-        clock_stamp "after-${tag}" "$expect_mhz" >>"$out"
+            --output "$run_out" --tag "$tag"
+        clock_stamp "after-${tag}" "$expect_mhz" | tee -a "$out"
         awk -v t="$tag" '
-            $0 ~ ("RESULT tag=.* xruns=") {
+            $0 ~ /^RESULT tag=.* xruns=/ {
                 for (i = 1; i <= NF; i++) {
                     if ($i ~ /^xruns=/) { split($i, a, "="); xr=a[2] }
                     if ($i ~ /^dsp_p99=/) { split($i, b, "="); p99=b[2] }
@@ -78,7 +79,7 @@ _run_patch_triple() {
                 }
             }
             END { printf "SUMMARY tag=%s xruns=%s dsp_p99=%s dsp_max=%s\n", t, xr+0, p99+0, mx+0 }
-        ' "$out"
+        ' "$run_out" | tee -a "$out"
         run=$((run + 1))
         sleep 5
     done
