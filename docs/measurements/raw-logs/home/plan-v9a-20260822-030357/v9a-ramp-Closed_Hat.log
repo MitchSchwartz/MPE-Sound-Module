@@ -1,0 +1,13 @@
+=== capacity-ramp tag=V9a-03-Closed_Hat buffer=1024x3 patch=Closed Hat 2026-08-22T03:10:09-04:00 ===
+CARD=2
+{"name":"CH","path":"/home/mitch/Documents/Surge XT/Patches/Quick Select/Closed Hat.fxp","osc_count":3,"osc_types":[1,6,6],"unison_voices":1,"fx_count":0,"fx_types":[],"filter1_type":5,"filter2_type":1,"patch_polylimit":16}
+PROBE voices=1 sec=8 xruns_delta=0
+PROBE voices=3 sec=8 xruns_delta=0
+PROBE voices=5 sec=8 xruns_delta=0
+PROBE voices=7 sec=8 xruns_delta=0
+PROBE voices=9 sec=8 xruns_delta=0
+PROBE voices=11 sec=8 xruns_delta=0
+PROBE voices=13 sec=8 xruns_delta=0
+PROBE voices=15 sec=8 xruns_delta=0
+RESULT tag=V9a-03-Closed_Hat first_overrun=none_below_15 sustained_clean=15
+SENTINEL capacity-ramp-end tag=V9a-03-Closed_Hat

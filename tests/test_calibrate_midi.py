@@ -73,6 +73,7 @@ class CalibrateMidiReuseTests(unittest.TestCase):
                 folder=None,
                 limit=0,
                 force=False,
+                verify_only=False,
                 no_touch_cal=False,
                 patch=None,
                 mock_lufs=None,

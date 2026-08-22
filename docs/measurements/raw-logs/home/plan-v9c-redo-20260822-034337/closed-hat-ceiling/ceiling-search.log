@@ -1,0 +1,16 @@
+=== ceiling search patch=Closed Hat lo=1 hi=12 sec=60 2026-08-22T03:43:37-04:00 ===
+--- probe voices=6 ---
+RESULT tag=ceil-Closed_Hat-v6 patch=Closed Hat voices=6 sec=60 xruns=4 clean=no
+--- probe voices=3 ---
+RESULT tag=ceil-Closed_Hat-v3 patch=Closed Hat voices=3 sec=60 xruns=0 clean=yes
+--- probe voices=4 ---
+RESULT tag=ceil-Closed_Hat-v4 patch=Closed Hat voices=4 sec=60 xruns=0 clean=yes
+--- probe voices=5 ---
+RESULT tag=ceil-Closed_Hat-v5 patch=Closed Hat voices=5 sec=60 xruns=0 clean=yes
+RESULT ceiling_search patch=Closed Hat max_clean_60s=5 hi_bound=12
+SENTINEL ceiling-search-complete patch=Closed Hat max_clean=5
+voices  xruns  clean
+6       4      no
+3       0      yes
+4       0      yes
+5       0      yes

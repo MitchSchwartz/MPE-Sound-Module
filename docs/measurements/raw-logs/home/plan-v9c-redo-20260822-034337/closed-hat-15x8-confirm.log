@@ -1,0 +1,54 @@
+=== measure-confirm-at-voices tag=diag-15x8 patch=Closed Hat voices=15 sec=8 2026-08-22T03:53:38-04:00 ===
+OSC client initialized: 127.0.0.1:53280
+Loaded patch: Closed Hat.fxp
+loaded Closed Hat.fxp
+
+=== measure-latency-run buffer=1024 periods=3 condition=A runs=1 seconds=8 2026-08-22T03:53:40-04:00 ===
+SENTINEL harness-start
+Applied buffer=1024 periods=3
+jackd period=1024 ok
+jackd periods=3 ok
+condition A units:
+  sooperlooper=inactive session=inactive watchdog=inactive
+jackd period=1024 ok
+jackd periods=3 ok
+=== provenance after strict restart ===
+=== provenance 2026-08-22T03:54:29-04:00 ===
+37819a9 Add V9-d multi-patch 1024×2 vs ×3 confirmation plan.
+6.18.34+rpt-rpi-v8
+coherent_pool=1M 8250.nr_uarts=0 snd_bcm2835.enable_headphones=0 cgroup_disable=memory numa_policy=interleave nvme.max_host_mem_size_mb=32 snd_bcm2835.enable_headphones=1 snd_bcm2835.enable_hdmi=1 snd_bcm2835.enable_hdmi=0  numa=fake=2 system_heap.max_order=0 iommu_dma_numa_policy=interleave smsc95xx.macaddr=2C:CF:67:59:7C:41 vc_mem.mem_base=0x3ec00000 vc_mem.mem_size=0x40000000  console=ttyS0,115200 console=tty1 root=PARTUUID=ed7e095b-02 rootfstype=ext4 fsck.repair=yes rootwait cfg80211.ieee80211_regdom=CA irqaffinity=0,1 video=HDMI-A-1:d video=HDMI-A-2:d threadirqs
+
+governor cpufreq=performance
+jackd -R -P70 -d alsa -P hw:2 -r 48000 -p 1024 -n 3
+PROVENANCE patch=Closed Hat hold_voices=15 buffer=1024 periods=3 condition=A 2026-08-22T03:54:29-04:00
+=== run A-b1024-p3-l0-run1 ===
+RESULT tag=A-b1024-p3-l0-run1 xruns=275 meter_live=1 meter_max_age_s=0 dsp_median=72.809822 dsp_p99=92.755966 dsp_max=96.377983
+RESULT tag=A-b1024-p3-l0-run1 jitter_n=683 jitter_median_usec=-277 jitter_p99_usec=815 jitter_p99_9_usec=1011 jitter_max_usec=1048
+RESULT tag=A-b1024-p3-l0-run1 frames_late_p99_usec=358 frames_late_max_usec=542
+RESULT tag=A-b1024-p3-l0-run1 delay_events=0 delay_nonzero=0 (legacy, ignore)
+RESULT tag=A-b1024-p3-l0-run1 samples=8 temp=59.4'C throttled=0x0
+RESULT tag=A-b1024-p3-l0-run1 file=/tmp/latency-A-b1024-p3-l0-run1-1787385269.out xrun_events=/tmp/latency-A-b1024-p3-l0-run1-1787385269.xruns
+RESULT tag=A-b1024-p3-l0-run1 probe_xrun_count=384 jackd_alsa_xrun_count=0 jackd_alsa_msec_min=0 jackd_alsa_msec_median=0 jackd_alsa_msec_max=0 jackd_alsa_msec_mean=0 window_since=2026-08-22T03:54:38-04:00 window_until=2026-08-22T03:54:46-04:00
+SENTINEL run-complete tag=A-b1024-p3-l0-run1 xruns=275
+     t     dsp%    xruns   delta
+     1 89.981644      329      38
+     2 58.198059      362      33
+     3 71.633614      398      36
+     4 84.105843      430      32
+     5 48.614998      464      34
+     6 72.809822      496      32
+     7 92.755966      528      32
+     8 96.377983      566      38
+--- xrun delays (probe) ---
+PROBE_START client=mpe-xrun-probe buffer_frames=1024 sample_rate=48000 expected_period_us=21333
+JITTER_SUMMARY expected_period_us=21333 n=683 median_usec=-277 p99_usec=815 p99_9_usec=1011 max_usec=1048
+FRAMES_LATE_SUMMARY expected_period_us=21333 n=683 median_usec=125 p99_usec=358 p99_9_usec=542 max_usec=542
+XRUN_COUNT 384
+PROBE_END
+=== restore buffer 512 periods 3 ===
+Applied buffer=512 periods=3
+jackd period=512 ok
+jackd periods=3 ok
+done commit=37819a9 log=/home/mitch/plan-v9c-redo-20260822-034337/closed-hat-15x8-confirm.log
+SENTINEL harness-end
+

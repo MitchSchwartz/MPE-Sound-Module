@@ -1,0 +1,350 @@
+=== Plan V8 2026-08-21T22:59:53-04:00 artifacts=/home/mitch/plan-v8-20260821-225953 ===
+quick_select=/home/mitch/Documents/Surge XT/Patches/Quick Select
+git=9ea39eb
+patch_count=53
+
+=== V8-a patch 1/53: 70s Fizzy String ===
+Applied buffer=1024 periods=3
+OSC client initialized: 127.0.0.1:53280
+Loaded patch: 70s Fizzy String.fxp
+loaded 70s Fizzy String.fxp
+Appended capacity ramp to /home/mitch/plan-v8-20260821-225953/v8a-survey.log
+
+=== V8-a patch 2/53: A Robotic Mind ===
+OSC client initialized: 127.0.0.1:53280
+Loaded patch: A Robotic Mind.fxp
+loaded A Robotic Mind.fxp
+Appended capacity ramp to /home/mitch/plan-v8-20260821-225953/v8a-survey.log
+
+=== V8-a patch 3/53: Acid Seq 3 ===
+OSC client initialized: 127.0.0.1:53280
+Loaded patch: Acid Seq 3.fxp
+loaded Acid Seq 3.fxp
+Appended capacity ramp to /home/mitch/plan-v8-20260821-225953/v8a-survey.log
+
+=== V8-a patch 4/53: Analog Foundation ===
+OSC client initialized: 127.0.0.1:53280
+Loaded patch: Analog Foundation.fxp
+loaded Analog Foundation.fxp
+Appended capacity ramp to /home/mitch/plan-v8-20260821-225953/v8a-survey.log
+
+=== V8-a patch 5/53: Another Warm ===
+OSC client initialized: 127.0.0.1:53280
+Loaded patch: Another Warm.fxp
+loaded Another Warm.fxp
+Appended capacity ramp to /home/mitch/plan-v8-20260821-225953/v8a-survey.log
+
+=== V8-a patch 6/53: Axel's Brassy Pad ===
+OSC client initialized: 127.0.0.1:53280
+Loaded patch: Axel's Brassy Pad.fxp
+loaded Axel's Brassy Pad.fxp
+Appended capacity ramp to /home/mitch/plan-v8-20260821-225953/v8a-survey.log
+
+=== V8-a patch 7/53: Bass Ocarina ===
+OSC client initialized: 127.0.0.1:53280
+Loaded patch: Bass Ocarina.fxp
+loaded Bass Ocarina.fxp
+Appended capacity ramp to /home/mitch/plan-v8-20260821-225953/v8a-survey.log
+
+=== V8-a patch 8/53: Block ===
+OSC client initialized: 127.0.0.1:53280
+Loaded patch: Block.fxp
+loaded Block.fxp
+Appended capacity ramp to /home/mitch/plan-v8-20260821-225953/v8a-survey.log
+
+=== V8-a patch 9/53: Blue Pad ===
+OSC client initialized: 127.0.0.1:53280
+Loaded patch: Blue Pad.fxp
+loaded Blue Pad.fxp
+Appended capacity ramp to /home/mitch/plan-v8-20260821-225953/v8a-survey.log
+
+=== V8-a patch 10/53: Bonita Keys ===
+OSC client initialized: 127.0.0.1:53280
+Loaded patch: Bonita Keys.fxp
+loaded Bonita Keys.fxp
+Appended capacity ramp to /home/mitch/plan-v8-20260821-225953/v8a-survey.log
+
+=== V8-a patch 11/53: Bowed String ===
+OSC client initialized: 127.0.0.1:53280
+Loaded patch: Bowed String.fxp
+loaded Bowed String.fxp
+Appended capacity ramp to /home/mitch/plan-v8-20260821-225953/v8a-survey.log
+
+=== V8-a patch 12/53: Brave New World ===
+OSC client initialized: 127.0.0.1:53280
+Loaded patch: Brave New World.fxp
+loaded Brave New World.fxp
+Appended capacity ramp to /home/mitch/plan-v8-20260821-225953/v8a-survey.log
+
+=== V8-a patch 13/53: Church - Mod ===
+OSC client initialized: 127.0.0.1:53280
+Loaded patch: Church - Mod.fxp
+loaded Church - Mod.fxp
+Appended capacity ramp to /home/mitch/plan-v8-20260821-225953/v8a-survey.log
+
+=== V8-a patch 14/53: Classic Strings ===
+OSC client initialized: 127.0.0.1:53280
+Loaded patch: Classic Strings.fxp
+loaded Classic Strings.fxp
+Appended capacity ramp to /home/mitch/plan-v8-20260821-225953/v8a-survey.log
+
+=== V8-a patch 15/53: Closed Hat ===
+OSC client initialized: 127.0.0.1:53280
+Loaded patch: Closed Hat.fxp
+loaded Closed Hat.fxp
+Appended capacity ramp to /home/mitch/plan-v8-20260821-225953/v8a-survey.log
+
+=== V8-a patch 16/53: Cloud Horn ===
+OSC client initialized: 127.0.0.1:53280
+Loaded patch: Cloud Horn.fxp
+loaded Cloud Horn.fxp
+Appended capacity ramp to /home/mitch/plan-v8-20260821-225953/v8a-survey.log
+
+=== V8-a patch 17/53: Crystals ===
+OSC client initialized: 127.0.0.1:53280
+Loaded patch: Crystals.fxp
+loaded Crystals.fxp
+Appended capacity ramp to /home/mitch/plan-v8-20260821-225953/v8a-survey.log
+
+=== V8-a patch 18/53: Cyber Pad ===
+OSC client initialized: 127.0.0.1:53280
+Loaded patch: Cyber Pad.fxp
+loaded Cyber Pad.fxp
+Appended capacity ramp to /home/mitch/plan-v8-20260821-225953/v8a-survey.log
+
+=== V8-a patch 19/53: Dark Cello ===
+OSC client initialized: 127.0.0.1:53280
+Loaded patch: Dark Cello.fxp
+loaded Dark Cello.fxp
+Appended capacity ramp to /home/mitch/plan-v8-20260821-225953/v8a-survey.log
+
+=== V8-a patch 20/53: Dark Strange ===
+OSC client initialized: 127.0.0.1:53280
+Loaded patch: Dark Strange.fxp
+loaded Dark Strange.fxp
+Appended capacity ramp to /home/mitch/plan-v8-20260821-225953/v8a-survey.log
+
+=== V8-a patch 21/53: Digi Harpsi ===
+OSC client initialized: 127.0.0.1:53280
+Loaded patch: Digi Harpsi.fxp
+loaded Digi Harpsi.fxp
+Appended capacity ramp to /home/mitch/plan-v8-20260821-225953/v8a-survey.log
+
+=== V8-a patch 22/53: Dreamscape ===
+OSC client initialized: 127.0.0.1:53280
+Loaded patch: Dreamscape.fxp
+loaded Dreamscape.fxp
+Appended capacity ramp to /home/mitch/plan-v8-20260821-225953/v8a-survey.log
+
+=== V8-a patch 23/53: Dreamy Flute ===
+OSC client initialized: 127.0.0.1:53280
+Loaded patch: Dreamy Flute.fxp
+loaded Dreamy Flute.fxp
+Appended capacity ramp to /home/mitch/plan-v8-20260821-225953/v8a-survey.log
+
+=== V8-a patch 24/53: Duduk ===
+OSC client initialized: 127.0.0.1:53280
+Loaded patch: Duduk.fxp
+loaded Duduk.fxp
+Appended capacity ramp to /home/mitch/plan-v8-20260821-225953/v8a-survey.log
+
+=== V8-a patch 25/53: Fake Ethno ===
+OSC client initialized: 127.0.0.1:53280
+Loaded patch: Fake Ethno.fxp
+loaded Fake Ethno.fxp
+Appended capacity ramp to /home/mitch/plan-v8-20260821-225953/v8a-survey.log
+
+=== V8-a patch 26/53: Fifth Seq ===
+OSC client initialized: 127.0.0.1:53280
+Loaded patch: Fifth Seq.fxp
+loaded Fifth Seq.fxp
+Appended capacity ramp to /home/mitch/plan-v8-20260821-225953/v8a-survey.log
+
+=== V8-a patch 27/53: Fireflies ===
+OSC client initialized: 127.0.0.1:53280
+Loaded patch: Fireflies.fxp
+loaded Fireflies.fxp
+Appended capacity ramp to /home/mitch/plan-v8-20260821-225953/v8a-survey.log
+
+=== V8-a patch 28/53: Forte Piano ===
+OSC client initialized: 127.0.0.1:53280
+Loaded patch: Forte Piano.fxp
+loaded Forte Piano.fxp
+Appended capacity ramp to /home/mitch/plan-v8-20260821-225953/v8a-survey.log
+
+=== V8-a patch 29/53: Gate Chord ===
+OSC client initialized: 127.0.0.1:53280
+Loaded patch: Gate Chord.fxp
+loaded Gate Chord.fxp
+Appended capacity ramp to /home/mitch/plan-v8-20260821-225953/v8a-survey.log
+
+=== V8-a patch 30/53: Gods ===
+OSC client initialized: 127.0.0.1:53280
+Loaded patch: Gods.fxp
+loaded Gods.fxp
+Appended capacity ramp to /home/mitch/plan-v8-20260821-225953/v8a-survey.log
+
+=== V8-a patch 31/53: House Organ ===
+OSC client initialized: 127.0.0.1:53280
+Loaded patch: House Organ.fxp
+loaded House Organ.fxp
+Appended capacity ramp to /home/mitch/plan-v8-20260821-225953/v8a-survey.log
+
+=== V8-a patch 32/53: Irrelevant Number ===
+OSC client initialized: 127.0.0.1:53280
+Loaded patch: Irrelevant Number.fxp
+loaded Irrelevant Number.fxp
+Appended capacity ramp to /home/mitch/plan-v8-20260821-225953/v8a-survey.log
+
+=== V8-a patch 33/53: Kick ===
+OSC client initialized: 127.0.0.1:53280
+Loaded patch: Kick.fxp
+loaded Kick.fxp
+Appended capacity ramp to /home/mitch/plan-v8-20260821-225953/v8a-survey.log
+
+=== V8-a patch 34/53: Koala 1 ===
+OSC client initialized: 127.0.0.1:53280
+Loaded patch: Koala 1.fxp
+loaded Koala 1.fxp
+Appended capacity ramp to /home/mitch/plan-v8-20260821-225953/v8a-survey.log
+
+=== V8-a patch 35/53: Legato Bass ===
+OSC client initialized: 127.0.0.1:53280
+Loaded patch: Legato Bass.fxp
+loaded Legato Bass.fxp
+Appended capacity ramp to /home/mitch/plan-v8-20260821-225953/v8a-survey.log
+
+=== V8-a patch 36/53: Major 7 MkII ===
+OSC client initialized: 127.0.0.1:53280
+Loaded patch: Major 7 MkII.fxp
+loaded Major 7 MkII.fxp
+Appended capacity ramp to /home/mitch/plan-v8-20260821-225953/v8a-survey.log
+
+=== V8-a patch 37/53: Metallic Arp ===
+OSC client initialized: 127.0.0.1:53280
+Loaded patch: Metallic Arp.fxp
+loaded Metallic Arp.fxp
+Appended capacity ramp to /home/mitch/plan-v8-20260821-225953/v8a-survey.log
+
+=== V8-a patch 38/53: Minor 7 ===
+OSC client initialized: 127.0.0.1:53280
+Loaded patch: Minor 7.fxp
+loaded Minor 7.fxp
+Appended capacity ramp to /home/mitch/plan-v8-20260821-225953/v8a-survey.log
+
+=== V8-a patch 39/53: Minor Chord Retro Stab ===
+OSC client initialized: 127.0.0.1:53280
+Loaded patch: Minor Chord Retro Stab.fxp
+loaded Minor Chord Retro Stab.fxp
+Appended capacity ramp to /home/mitch/plan-v8-20260821-225953/v8a-survey.log
+
+=== V8-a patch 40/53: Moogaroo ===
+OSC client initialized: 127.0.0.1:53280
+Loaded patch: Moogaroo.fxp
+loaded Moogaroo.fxp
+Appended capacity ramp to /home/mitch/plan-v8-20260821-225953/v8a-survey.log
+
+=== V8-a patch 41/53: Oberheim Dreams ===
+OSC client initialized: 127.0.0.1:53280
+Loaded patch: Oberheim Dreams.fxp
+loaded Oberheim Dreams.fxp
+Appended capacity ramp to /home/mitch/plan-v8-20260821-225953/v8a-survey.log
+
+=== V8-a patch 42/53: Orbit and Sub ===
+OSC client initialized: 127.0.0.1:53280
+Loaded patch: Orbit and Sub.fxp
+loaded Orbit and Sub.fxp
+Appended capacity ramp to /home/mitch/plan-v8-20260821-225953/v8a-survey.log
+
+=== V8-a patch 43/53: Overdriven Guitar + Wah ===
+OSC client initialized: 127.0.0.1:53280
+Loaded patch: Overdriven Guitar + Wah.fxp
+loaded Overdriven Guitar + Wah.fxp
+Appended capacity ramp to /home/mitch/plan-v8-20260821-225953/v8a-survey.log
+
+=== V8-a patch 44/53: Planar Device ===
+OSC client initialized: 127.0.0.1:53280
+Loaded patch: Planar Device.fxp
+loaded Planar Device.fxp
+Appended capacity ramp to /home/mitch/plan-v8-20260821-225953/v8a-survey.log
+
+=== V8-a patch 45/53: Qealchee ===
+OSC client initialized: 127.0.0.1:53280
+Loaded patch: Qealchee.fxp
+loaded Qealchee.fxp
+Appended capacity ramp to /home/mitch/plan-v8-20260821-225953/v8a-survey.log
+
+=== V8-a patch 46/53: Res Wave Shift ===
+OSC client initialized: 127.0.0.1:53280
+Loaded patch: Res Wave Shift.fxp
+loaded Res Wave Shift.fxp
+Appended capacity ramp to /home/mitch/plan-v8-20260821-225953/v8a-survey.log
+
+=== V8-a patch 47/53: Reso Brassy ===
+OSC client initialized: 127.0.0.1:53280
+Loaded patch: Reso Brassy.fxp
+loaded Reso Brassy.fxp
+Appended capacity ramp to /home/mitch/plan-v8-20260821-225953/v8a-survey.log
+
+=== V8-a patch 48/53: Rhody EP ===
+OSC client initialized: 127.0.0.1:53280
+Loaded patch: Rhody EP.fxp
+loaded Rhody EP.fxp
+Appended capacity ramp to /home/mitch/plan-v8-20260821-225953/v8a-survey.log
+
+=== V8-a patch 49/53: Scratched Arp ===
+OSC client initialized: 127.0.0.1:53280
+Loaded patch: Scratched Arp.fxp
+loaded Scratched Arp.fxp
+Appended capacity ramp to /home/mitch/plan-v8-20260821-225953/v8a-survey.log
+
+=== V8-a patch 50/53: Snare ===
+OSC client initialized: 127.0.0.1:53280
+Loaded patch: Snare.fxp
+loaded Snare.fxp
+Appended capacity ramp to /home/mitch/plan-v8-20260821-225953/v8a-survey.log
+
+=== V8-a patch 51/53: String Quartet ===
+OSC client initialized: 127.0.0.1:53280
+Loaded patch: String Quartet.fxp
+loaded String Quartet.fxp
+Appended capacity ramp to /home/mitch/plan-v8-20260821-225953/v8a-survey.log
+
+=== V8-a patch 52/53: Tom L ===
+OSC client initialized: 127.0.0.1:53280
+Loaded patch: Tom L.fxp
+loaded Tom L.fxp
+Appended capacity ramp to /home/mitch/plan-v8-20260821-225953/v8a-survey.log
+
+=== V8-a patch 53/53: Warm Reception ===
+OSC client initialized: 127.0.0.1:53280
+Loaded patch: Warm Reception.fxp
+loaded Warm Reception.fxp
+Appended capacity ramp to /home/mitch/plan-v8-20260821-225953/v8a-survey.log
+
+=== V8-b: pick mid-weight patch from survey ===
+V8-b patch=A voices=3 path=/home/mitch/Documents/Surge XT/Patches/Quick Select/A.fxp
+
+=== V8-b 1024×2 @ playable voices (n=3, 45s) ===
+Appended measurement to /home/mitch/plan-v8-20260821-225953/v8b-1024x2.log
+SENTINEL harness-logged
+
+=== V8-b baseline 1024×3 (same patch/voices) ===
+Appended measurement to /home/mitch/plan-v8-20260821-225953/v8b-1024x3.log
+SENTINEL harness-logged
+
+=== restore shipping softmode ===
+SENTINEL plan-v8-complete 2026-08-22T00:02:07-04:00
+v8a_log=/home/mitch/plan-v8-20260821-225953/v8a-survey.log
+v8b_patch=A
+v8b_voices=3
+
+=== V8-b redo patch=Cloud Horn voices=7 2026-08-22T00:05:06-04:00 ===
+OSC client initialized: 127.0.0.1:53280
+Loaded patch: Cloud Horn.fxp
+loaded Cloud Horn.fxp
+Appended measurement to /home/mitch/plan-v8-20260821-225953/v8b-1024x2-redo.log
+SENTINEL harness-logged
+Appended measurement to /home/mitch/plan-v8-20260821-225953/v8b-1024x3-redo.log
+SENTINEL harness-logged
+SENTINEL v8b-redo-complete patch=Cloud Horn voices=7
