@@ -188,7 +188,7 @@ said it was free. Measure with `xruns=` from `meter.state` and a deterministic l
 probe but *no probe*: `mpe-peak-meter` is a long-lived compiled client permanently on
 the graph, already re-checking its wiring every 2 s and publishing `wired=`. Reading
 that file answers the question for nothing. See
-[`docs/measurements/crackle-root-cause-2026-08-18.md`](../docs/measurements/crackle-root-cause-2026-08-18.md).
+[`docs/measurements/archive/crackle-root-cause-2026-08-18.md`](../docs/measurements/archive/crackle-root-cause-2026-08-18.md).
 
 **Applied:** PR #68 (`b6355b4`) for the looper reconcile; `0f9875c` replaced the
 `jack_lsp` graph probe with a `meter.state` read (35 -> 0 xruns/min at matched load).
@@ -547,7 +547,7 @@ downgrades to deleted ALSA stack (repriced after PR #50).
 whole #48 merge). Handover retained for Phase 1 landing notes only.
 
 **Progress (2026-08-14):** Session A **continue**, Session B **partial** —
-see [`docs/measurements/sooperlooper-eval-2026-08-14.md`](../docs/measurements/sooperlooper-eval-2026-08-14.md).
+see [`docs/measurements/archive/sooperlooper-eval-2026-08-14.md`](../docs/measurements/archive/sooperlooper-eval-2026-08-14.md).
 Test is **not complete**; implementation gate remains closed until **B8/B7**
 close on hardware with real audio. **B1/B2/B9/B10 closed 2026-08-14.**
 
