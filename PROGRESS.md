@@ -110,8 +110,13 @@ percussive rate metric.
 
 - **Gate 1** — ship 1024x2 as instrument profile default. **Soak PASS** (991 xruns, 2.06/min,
   `invalid_windows=0`) — see `b2-soak-gate1-2026-08-23.md`. **Ship blocked on B3 ear test.**
-- **Gate 2** — governor re-enable: **blocked** until the fade lands *and*
-  `CPU_HIGH_THRESHOLD=50.0` is recalibrated (it sits *below* the ~58.9% baseline DSP).
+- **Gate 2** — governor re-enable: **now blocks Gate 1.** The governor has been OFF since V9, so
+  the appliance as played has no voice limiting and heavy patches insta-crackle — expected, not a
+  regression. B3's ear test cannot certify a shipping default that excludes the governor.
+  `MPE_POLY_CPU_HIGH=50.0` sits *below* Cloud Horn's measured clean 56.9-59.4%, and
+  `CPU_LOW=40.0` is below every clean point so the governor would latch and never release.
+  Prompt: `PROMPT-G2-governor-recalibration.md`. Depends on the fade landing and on X1's
+  governor check.
 - **Gate 3** — percussive metric: deferred. Reframed as a **rate** question (does a fast roll
   drop notes), not a voice-count question.
 - **B3 ear test** — required before any binary or buffer default ships to production.
