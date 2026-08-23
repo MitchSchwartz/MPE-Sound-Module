@@ -1,6 +1,6 @@
 # PROGRESS — canonical thread
 
-**Updated 2026-08-23 10:43 (America/Toronto).** This is the top-level index.
+**Updated 2026-08-23 12:30 (America/Toronto).** This is the top-level index.
 
 ---
 
@@ -32,7 +32,7 @@ See [`docs/PI5-TRANSITION-PLAN.md`](docs/PI5-TRANSITION-PLAN.md).
 | Clock | 1800 MHz, `arm_boost=1`, `performance` |
 | Cores | `irqaffinity=0,1`; jackd/surge/looper `CPUAffinity=2 3` |
 | Confirmed floors | Crystals 3, Cloud Horn 5, Duduk 3, Brave New World 3 (all 1024) |
-| **V11 (2026-08-22)** | **512x2 clean for Crystals @3 and Duduk @3** (0/0/0 x3). Cloud Horn @5 marginal. 256x3: Duduk clean, Crystals marginal, Cloud Horn overloaded. **Xrun column stands.** Post-C0 DSP certified. Artifacts `~/plan-v11-20260822-144259/` |
+| **V11 (2026-08-22)** | Confirm windows only (75 s) — **screening, not certification** post-X1. Cells read 0/0/0 where bursts missed the window; **not evidence of "clean."** Cloud Horn @5 failed at 512×2 and 256×3 in-window. **V12 re-measures rate.** Artifacts `~/plan-v11-20260822-144259/` |
 | **A2 pass 1 (2026-08-22)** | **DONE** — stock binary. JSON `~/reference-suite-pi4-20260822-204559/reference-suite-pi4-pass1.json` (`110977a`). Re-validated offline at `a1e80e3`: 12/12 loaded cells PASS. |
 | **A3 (2026-08-22)** | **DONE — NULL (pre-reg &lt;3%).** a72 suite `~/reference-suite-pi4-a72-20260822-231637/`. Same Surge `253f8d86`; no win on any cell. **Stock kept as control.** Doc: `reference-suite-pi4-a3-a72-comparison-2026-08-22.md` |
 | **A4 (2026-08-23)** | **DONE — noise floor.** Pass 2 `~/reference-suite-pi4-20260823-000348/`. Re-validated 12/12 at `e51856e`. **Max run-to-run spread 1.70%** (median 0.47%). Duduk a72 retro: **noise.** Doc: `reference-suite-pi4-a4-spread-2026-08-23.md` |
@@ -60,8 +60,8 @@ Full plan: [`docs/measurements/PROMPT-PI4-CLOSEOUT.md`](docs/measurements/PROMPT
 > **C0 done on Pi 2026-08-22** — full gate green (`~/conformance-full-green.log`, #96–#101).
 > **A2 + A3 + A4 done** — stock control calibrated with noise floor.
 > **B2 PASS** — Gate 1 soak complete 08:54; A5–A9 unblocked (closeout in progress).
-> **G2 blocks Gate 1 ship** — governor recalibration + re-enable before B3; ear test with
-> governor off does not certify the shipping default.
+> **Gate 1 ship stack:** **G2 → V12 → B3** (~70 min Pi time after G2, Mitch approval). Governor
+> off or short-window confirm cannot certify the shipping default.
 
 ### Track A — autonomous (no reboot, no gate)
 
@@ -85,8 +85,9 @@ Full plan: [`docs/measurements/PROMPT-PI4-CLOSEOUT.md`](docs/measurements/PROMPT
 |---|---|---|---|
 | B1 | **P7 clock-scaling diagnostic** — now a Pi 5 *forecast*, not a lever | `PROMPT-P7-overclock-diagnostic.md` | ~13 min |
 | ~~**B2**~~ | ~~**8 h soak @ 1024×2**~~ — **PASS** (991 xruns, 2.06/min) | — | overnight |
-| **G2** | **Governor recalibration + re-enable** — blocks B3 / Gate 1 ship | `PROMPT-G2-governor-recalibration.md` | ~30 min + Mitch ear |
-| B3 | Ear test at 1024×2 **with governor on** — Gate 1 ship | — | ~10 min |
+| **G2** | **Governor recalibration + re-enable** | `PROMPT-G2-governor-recalibration.md` | ~30 min |
+| **V12** | **512×2 vs 1024×2 rate comparison** — needs Mitch approval | `PROMPT-V12-certify-buffer.md` · `measure-v12-buffer-compare.sh` | ~70 min |
+| B3 | Ear test (audibility) — **Gate 1 ship** | — | ~10 min |
 
 ### Track C — Pi 5, on arrival
 
@@ -95,9 +96,10 @@ Suite 1 (like-for-like reference, scores the predictions) → Suite 2 (latency l
 objective**) → Suite 3 (NVMe delta) → Suite 4 (thermal). Designed to run overnight and wake
 Mitch only on a defined fork.
 
-**V11 xrun result (done):** 512x2 is clean for Crystals and Duduk at confirm counts; Cloud Horn
-@5 fails at both 512x2 and 256x3. 256x3 only fully clean for Duduk. No blanket floor promotion.
-Full argument: **`docs/measurements/REVIEW-line-of-thought-2026-08-22.md`**.
+**V11 xrun result (2026-08-22, superseded by X1 for certification):** confirm windows only —
+post-X1, short-window 0/0/0 is screening, not proof of clean. **V12 re-measures `512×2` vs
+`1024×2` at 30 min/arm.** Full argument: **`docs/measurements/REVIEW-line-of-thought-2026-08-22.md`**,
+**`X1-RESULT-burstiness-2026-08-23.md`**.
 
 **Why P7 moved up rather than being dropped:** as a performance lever ~11% is marginal against a
 new board. As an **instrument** it forecasts whether the Pi 5's 2.4 GHz will convert at all — and
@@ -109,9 +111,9 @@ Governor thresholds are Pi 4-absolute and will need a Pi 5 pass after G2 closes 
 
 ### Open gates (Mitch only)
 
-- **Gate 1** — ship 1024x2 as instrument profile default. **Soak PASS** (991 xruns, 2.06/min,
-  `invalid_windows=0`) — see `b2-soak-gate1-2026-08-23.md`. **Ship blocked on G2 then B3**
-  (governor must be on and calibrated before the ear test counts).
+- **Gate 1** — ship instrument profile default (1024×2 or 512×2 per V12). **Soak PASS** at
+  1024×2 (991 xruns, 2.06/min) — see `b2-soak-gate1-2026-08-23.md`. **Ship blocked on G2 → V12 →
+  B3.** No config is "clean"; audibility decides.
 - **Gate 2** — governor re-enable: **now blocks Gate 1.** The governor has been OFF since V9, so
   the appliance as played has no voice limiting and heavy patches insta-crackle — expected, not a
   regression. B3's ear test cannot certify a shipping default that excludes the governor.
@@ -121,8 +123,9 @@ Governor thresholds are Pi 4-absolute and will need a Pi 5 pass after G2 closes 
   governor check.
 - **Gate 3** — percussive metric: deferred. Reframed as a **rate** question (does a fast roll
   drop notes), not a voice-count question.
-- **B3 ear test** — required before any binary or buffer default ships to production; **invalid
-  until G2 closes** (shipping default includes the governor).
+- **V12** — long-window buffer comparison, governor on. Prompt:
+  `PROMPT-V12-certify-buffer.md`. Requires Mitch approval (~70 min).
+- **B3 ear test** — audibility acceptance; **invalid until G2 and V12 close.**
 
 ---
 
@@ -160,7 +163,9 @@ Governor thresholds are Pi 4-absolute and will need a Pi 5 pass after G2 closes 
 | File | What it is |
 |---|---|
 | `docs/measurements/b2-soak-gate1-2026-08-23.md` | **B2 PASS** — Gate 1 soak (991 xruns, 2.06/min) |
-| `docs/measurements/PROMPT-G2-governor-recalibration.md` | **G2** — 78/68 proposal, empirical verify, blocks Gate 1 |
+| `docs/measurements/PROMPT-G2-governor-recalibration.md` | **G2** — 78/68 proposal, empirical verify |
+| `docs/measurements/PROMPT-V12-certify-buffer.md` | **V12** — 512×2 vs 1024×2 rate; no PASS/FAIL |
+| `docs/measurements/X1-RESULT-burstiness-2026-08-23.md` | **X1 closed** — Fano 4.32; confirm = screening |
 | `docs/measurements/pi5-predictions-2026-08-23.md` | **A9** — pre-registered Pi 5 predictions |
 | `docs/measurements/reference-suite-pi4-a4-spread-2026-08-23.md` | **A4 noise floor** — spread table, Duduk retro, Pi 5 threshold |
 | `docs/measurements/reference-suite-pi4-pass1-revalidation-2026-08-22.md` | A2 pass 1 offline re-validation at a1e80e3 |
