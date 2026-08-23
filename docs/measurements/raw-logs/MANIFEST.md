@@ -17,7 +17,7 @@
 | `/home/mitch/hygiene-rebaseline-256-A.log` | `home/hygiene-rebaseline-256-A.log` | 49680 | 2026-08-21 14:59:09 | 1180 | (uncited) |
 | `/home/mitch/hygiene-rebaseline-512-A.log` | `home/hygiene-rebaseline-512-A.log` | 49574 | 2026-08-21 14:35:45 | 1180 | (uncited) |
 | `/home/mitch/i3-n15.log` | `home/i3-n15.log` | 47307 | 2026-08-20 21:10:19 | 1164 | (uncited) |
-| `/home/mitch/instrument-soak-1024x2.log` | `home/instrument-soak-1024x2.log` | 253 | 2026-08-22 11:05:36 | 5 | (uncited) |
+| `/home/mitch/instrument-soak-1024x2.log` | `home/instrument-soak-1024x2.log` | 49980 | 2026-08-23 08:54:00 | 512 | b2-soak-gate1-2026-08-23.md, MEASUREMENT-DISCIPLINE.md |
 | `/home/mitch/instrument-soak.nohup.log` | `home/instrument-soak.nohup.log` | 400 | 2026-08-22 11:07:35 | 9 | (uncited) |
 | `/home/mitch/iso-all_running_(baseline).out` | `home/iso-all_running_(baseline).out` | 2191 | 2026-08-18 18:12:05 | 62 | (uncited) |
 | `/home/mitch/iso-sl-watchdog+surge-watchdog_OFF.out` | `home/iso-sl-watchdog+surge-watchdog_OFF.out` | 2130 | 2026-08-18 18:14:15 | 62 | (uncited) |
