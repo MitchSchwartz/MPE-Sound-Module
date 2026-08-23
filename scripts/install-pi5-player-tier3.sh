@@ -15,7 +15,12 @@ sudo apt install -y \
     libsdl2-2.0-0 libsdl2-image-2.0-0 libsdl2-mixer-2.0-0 libsdl2-ttf-2.0-0 \
     libegl1 libegl-mesa0 libgles2 libgl1-mesa-dri mesa-vulkan-drivers
 
-# Pi 4 uses apt python3-rtmidi — do not pip-install python-rtmidi (different backend defaults).
+# Pi 4 uses apt python3-rtmidi — remove pip shadow copy if present (Trixie PEP 668).
+if pip3 show python-rtmidi >/dev/null 2>&1; then
+    pip3 uninstall --break-system-packages -y python-rtmidi 2>/dev/null \
+        || pip3 uninstall -y python-rtmidi 2>/dev/null || true
+fi
+
 echo "=== pip (requirements minus python-rtmidi) ==="
 grep -v '^python-rtmidi' "$REPO_ROOT/requirements.txt" | grep -v '^#' | grep -v '^$' > /tmp/mpe-requirements-no-rtmidi.txt || true
 if [ -s /tmp/mpe-requirements-no-rtmidi.txt ]; then
