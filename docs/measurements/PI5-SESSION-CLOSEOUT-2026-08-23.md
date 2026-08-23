@@ -126,7 +126,7 @@ Human: patches load, OUT meter moves, LUMI plays, no crackle at 128×2.
 |------|-----|---------|
 | Reference suite / Suite 1 | Thermal + PSU; predictions unscored | Cooler mounted + 27 W PSU |
 | Loaded census @ **64** voices | Same | After cooler/PSU |
-| Poly governor Pi 5 tuning | Fundamentals first; floor=ceiling=64 today | After baseline suite |
+| Poly governor Pi 5 tuning | **Preliminary Gate B pass** — `always_on` + jack baseline 96; see [`poly-governor-v2-always-on-pi5-2026-08-23.md`](poly-governor-v2-always-on-pi5-2026-08-23.md) | Full Gate B + parity env promote |
 | cmdline experiments (`isolcpus`, `irqaffinity=0`) | E1 rule; one variable per reboot | Phase 3 plan only |
 | Pi 5 `-mcpu=cortex-a76` Surge build | Player uses Pi 4 binary for smoke; build is measurement track | When suite needs matched revision |
 
@@ -138,7 +138,7 @@ Human: patches load, OUT meter moves, LUMI plays, no crackle at 128×2.
 2. **Hardware** — mount ordered cooler; swap to 27 W PSU.
 3. **64-voice loaded census** — repeat `capture-pi5-irq-loaded.sh` with throttle series.
 4. **Frozen reference suite** — `measure-reference-suite.sh` unchanged from Pi 4; fill [`pi5-predictions-2026-08-23.md`](pi5-predictions-2026-08-23.md) **Pi 5 actual** column.
-5. **Poly governor** — widen floor/ceiling; retune CPU thresholds for A76 (separate track).
+5. **Poly governor** — daily play at baseline 96; complete Gate B B3/B4; promote to parity env if stable.
 
 ---
 
@@ -151,7 +151,9 @@ Human: patches load, OUT meter moves, LUMI plays, no crackle at 128×2.
 | `d99d6db` | Loaded IRQ census + Phase 1 verdict |
 | `b5b61c0` | Investigation plan checkboxes |
 
-Docs: [`PI5-HYGIENE-AND-CONFIG-PLAN.md`](PI5-HYGIENE-AND-CONFIG-PLAN.md) · [`PI5-IRQ-INVESTIGATION-PLAN.md`](PI5-IRQ-INVESTIGATION-PLAN.md) · [`pi5-irq-phase1-2026-08-23.md`](pi5-irq-phase1-2026-08-23.md)
+| `e66260e` | Poly governor always-on jack + linear baseline (Pi 5 ear tune) |
+
+Docs: [`poly-governor-v2-always-on-pi5-2026-08-23.md`](poly-governor-v2-always-on-pi5-2026-08-23.md) · [`PI5-HYGIENE-AND-CONFIG-PLAN.md`](PI5-HYGIENE-AND-CONFIG-PLAN.md) · [`PI5-IRQ-INVESTIGATION-PLAN.md`](PI5-IRQ-INVESTIGATION-PLAN.md) · [`pi5-irq-phase1-2026-08-23.md`](pi5-irq-phase1-2026-08-23.md)
 
 ---
 
