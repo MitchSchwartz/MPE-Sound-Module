@@ -5,6 +5,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SCRIPT="$ROOT/scripts/measure-soak-instrument.sh"
+V12="$ROOT/scripts/measure-v12-buffer-compare.sh"
 
 fail() {
     echo "FAIL: $*" >&2
@@ -16,6 +17,7 @@ ok() {
 }
 
 [ -f "$SCRIPT" ] || fail "missing $SCRIPT"
+[ -f "$V12" ] || fail "missing $V12"
 
 grep -q '_read_meter_xruns()' "$SCRIPT" || fail "missing _read_meter_xruns helper"
 
@@ -27,5 +29,15 @@ if grep -q 'MPE_METER_LAST_AGE_S' "$SCRIPT" && ! grep -q 'METER_AGE_S' "$SCRIPT"
     fail "log line references MPE_METER_LAST_AGE_S without local METER_AGE_S capture"
 fi
 
-ok "measure-soak-instrument subshell guard intact"
+grep -q '\-\-minutes' "$SCRIPT" || fail "missing --minutes flag"
+grep -q '\-\-governor' "$SCRIPT" || fail "missing --governor flag"
+grep -q '_provenance_line' "$SCRIPT" || fail "missing _provenance_line"
+grep -q 'governor_engagements=' "$SCRIPT" || fail "missing governor_engagements per minute"
+grep -q 'dsp_median=' "$SCRIPT" || fail "missing dsp_median in RESULT"
+
+grep -q 'measure-soak-instrument.sh' "$V12" || fail "V12 must delegate to soak script"
+grep -q 'NOTE: no PASS/FAIL' "$V12" || fail "V12 must not emit PASS/FAIL verdicts"
+grep -q 'fano=' "$V12" || fail "V12 summary must compute fano"
+
+ok "measure-soak-instrument subshell guard + V12 flags intact"
 echo "test_measure_soak_instrument.sh: all checks passed"
