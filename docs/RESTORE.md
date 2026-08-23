@@ -2,7 +2,7 @@
 
 **Purpose:** rebuild the instrument from a blank SD card. This document is the reason the appliance can be treated as expendable — see the decision recorded in [`racknerd-pi-access-spec.md`](racknerd-pi-access-spec.md) (§Decision C). If this procedure does not work, that decision is not valid.
 
-*Last updated: 2026-08-16 (America/Toronto).*
+*Last updated: 2026-08-23 (America/Toronto).*
 
 > **⚠️ UNREHEARSED.** This procedure has been written from the live appliance's actual state but has **never been executed end to end**. An untested recovery path is an asserted one. Until someone reflashes and gets sound out, treat every time estimate below as a guess and the whole document as a draft.
 
@@ -150,6 +150,8 @@ sudo ./scripts/install-units.sh --diff
 ---
 
 ## Rehearsal log
+
+**Golden-image path:** [`PI4-CLONE-SD.md`](PI4-CLONE-SD.md) — master `dd` → write SD → boot (no Imager setup). Build-from-assets: [`PI4-GOLDEN-IMAGE.md`](PI4-GOLDEN-IMAGE.md) Workflow D.
 
 | Date | Outcome | Wall-clock | Notes |
 |---|---|---|---|

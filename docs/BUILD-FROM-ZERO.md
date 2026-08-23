@@ -22,6 +22,8 @@ This build is **newer than stable 1.3.4** (pre-1.4 nightly), not an old pinned r
 
 These would lower the bar for less technical builders — tracked as follow-ups, not launch blockers:
 
+- **Golden Pi 4 clone SD** — [`docs/PI4-CLONE-SD.md`](PI4-CLONE-SD.md) (configured card, no Imager setup)
+- **Golden Pi 4 / build matrix** — [`docs/PI4-GOLDEN-IMAGE.md`](PI4-GOLDEN-IMAGE.md) (scripts shipped; first rehearsal pending)
 - **Prebuilt `surge-xt-cli` for aarch64** — GitHub Release tarball + install script (~2–4 hrs to package from a known-good build); skips the 30–45 min Pi compile
 - **Patch library bundle or shallow clone script** — factory + third-party data without a full Surge build
 - **Non-git patch sync** — drag-and-drop or one-command push from PC (today: git + SSH scripts)
