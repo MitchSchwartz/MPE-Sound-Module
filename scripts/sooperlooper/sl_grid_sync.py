@@ -35,7 +35,7 @@ TAIL_CAPTURE_ENABLED = os.environ.get("MPE_SL_TAIL_CAPTURE", "1").strip().lower(
 )
 TAIL_THRESH = float(os.environ.get("MPE_SL_TAIL_THRESH", "0.02"))
 TAIL_HOLD_S = float(os.environ.get("MPE_SL_TAIL_HOLD_MS", "80")) / 1000.0
-TAIL_MAX_S = float(os.environ.get("MPE_SL_TAIL_MAX_MS", "4000")) / 1000.0
+TAIL_MAX_S = float(os.environ.get("MPE_SL_TAIL_MAX_MS", "750")) / 1000.0
 TAIL_ABSOLUTE_MAX_S = float(os.environ.get("MPE_SL_TAIL_ABSOLUTE_MAX_MS", "15000")) / 1000.0
 TAIL_PEAK_UPDATE_MS = int(os.environ.get("MPE_SL_TAIL_PEAK_MS", "25"))
 # Start seam overdub when playhead enters the last fraction of the loop (wrap weld).
