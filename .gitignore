@@ -30,6 +30,10 @@ id_ed25519*
 /test_*.py
 config.local.ini
 config/mpe.env
+state/
+artifacts/golden-pi4/
+*.img
+*.img.xz
 *.local.*
 logs/shutdown-trace.jsonl
 logs/shutdown-test-marker.json
