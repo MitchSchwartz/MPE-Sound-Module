@@ -49,10 +49,11 @@ DEFAULT_STEP_DOWN_SPIKE = 4
 DEFAULT_STEP_DOWN_WARM = 2
 DEFAULT_STEP_UP = 1
 DEFAULT_GOVERNOR_V2 = False
-DEFAULT_LIMIT_SOFT_START = 58.0
-DEFAULT_LIMIT_HARD = 82.0
-DEFAULT_RISE_FULL_RATE = 40.0
-DEFAULT_RISE_BIAS_MAX = 12.0
+DEFAULT_LIMIT_SOFT_START = 68.0
+DEFAULT_LIMIT_HARD = 86.0
+DEFAULT_RISE_FULL_RATE = 65.0
+DEFAULT_RISE_BIAS_MAX = 8.0
+DEFAULT_RISE_MIN_RATE = 20.0
 DEFAULT_LIMIT_MAX_STEP_DOWN = 1
 DEFAULT_LIMIT_STEP_INTERVAL_S = 0.25
 DEFAULT_LIMIT_RECOVER_HOLD_S = 5.0
@@ -123,6 +124,7 @@ class GovernorConfig:
     rise_enable: bool
     rise_full_rate: float
     rise_bias_max: float
+    rise_min_rate: float
     limit_max_step_down: int
     limit_step_interval_s: float
     limit_recover_hold_s: float
@@ -157,6 +159,7 @@ def load_governor_config() -> GovernorConfig:
         rise_enable=_env_bool("MPE_POLY_RISE_ENABLE", True),
         rise_full_rate=_env_float("MPE_POLY_RISE_FULL_RATE", DEFAULT_RISE_FULL_RATE),
         rise_bias_max=_env_float("MPE_POLY_RISE_BIAS_MAX", DEFAULT_RISE_BIAS_MAX),
+        rise_min_rate=_env_float("MPE_POLY_RISE_MIN_RATE", DEFAULT_RISE_MIN_RATE),
         limit_max_step_down=_env_int(
             "MPE_POLY_LIMIT_MAX_STEP_DOWN", DEFAULT_LIMIT_MAX_STEP_DOWN
         ),
@@ -226,7 +229,9 @@ class PolyGovernorJournal:
             f"mode={'legacy' if limit_mode_legacy() else 'progressive'} "
             f"soft={config.limit_soft_start} "
             f"hard={config.limit_hard} "
-            f"rise={int(config.rise_enable)}",
+            f"rise={int(config.rise_enable)} "
+            f"rise_full={config.rise_full_rate} "
+            f"rise_min={config.rise_min_rate}",
             flush=True,
         )
 
@@ -744,6 +749,7 @@ class SurgePolyGovernor:
             sample.dload_dt or 0.0,
             full_rate=cfg.rise_full_rate,
             max_bias=cfg.rise_bias_max,
+            min_rate=cfg.rise_min_rate,
             enabled=cfg.rise_enable,
         )
         effective_load = sample.load + bias
