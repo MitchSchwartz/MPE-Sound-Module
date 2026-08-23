@@ -87,8 +87,10 @@ def led_for(
     the pad blinking green forever after it had already landed.
     """
     if tail_capture:
-        # Stop-then-weld: loop length fixed; scratch tail + merge still running.
-        return (LED_YELLOW_BLINK,)
+        # Stop-then-weld: length fixed; scratch tail + merge still running.
+        # Same idiom as WAIT_STOP — recording is done but the take is not finished;
+        # player must keep performing through the release tail.
+        return RECORD_TO_PLAY
     if sl_state == SL_STATE_WAIT_STOP:
         return RECORD_TO_PLAY
     if sl_state == SL_STATE_WAIT_START:

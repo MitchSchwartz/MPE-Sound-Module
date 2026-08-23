@@ -32,24 +32,29 @@ class SlBenchStateListenerTests(unittest.TestCase):
         listener.on_update("/sl/bench/state", 3, "state", 4.0)
         self.assertEqual(fs.state, "playing")
 
-    def test_register_tail_peak_scoped_to_one_loop(self) -> None:
+    def test_register_tail_peak_meters_scratch_when_seam_weld(self) -> None:
+        from scripts.sooperlooper.sl_seam_weld import SCRATCH_LOOP
+
         by_loop = {0: LoopFootswitch(loop=0, hold_ms=1000.0, debounce_ms=0.0)}
         session = MagicMock()
         listener = SlBenchStateListener(by_loop, session=session)
         listener.register(MagicMock(), num_loops=1)
         listener.register_tail_peak(0)
-        self.assertEqual(listener._tail_peak_loop, 0)
-        session.register_tail_peak.assert_called_once()
+        self.assertEqual(listener._tail_peak_owner, 0)
+        self.assertEqual(listener._tail_peak_loop, SCRATCH_LOOP)
+        session.register_tail_peak.assert_called_once_with(
+            SCRATCH_LOOP, update_ms=ANY
+        )
 
-    def test_in_peak_ignored_for_other_loops(self) -> None:
+    def test_in_peak_from_scratch_routes_to_owner_loop(self) -> None:
+        from scripts.sooperlooper.sl_seam_weld import SCRATCH_LOOP
+
         fs0 = LoopFootswitch(loop=0, hold_ms=1000.0, debounce_ms=0.0)
         fs1 = LoopFootswitch(loop=1, hold_ms=1000.0, debounce_ms=0.0)
         listener = SlBenchStateListener({0: fs0, 1: fs1}, session=_session())
-        listener._tail_peak_loop = 0
-        listener.on_update("/sl/bench/state", 1, "in_peak_meter", 0.5)
-        self.assertEqual(fs0._in_peak, 0.0)
-        self.assertEqual(fs1._in_peak, 0.0)
-        listener.on_update("/sl/bench/state", 0, "in_peak_meter", 0.5)
+        listener._tail_peak_loop = SCRATCH_LOOP
+        listener._tail_peak_owner = 0
+        listener.on_update("/sl/bench/state", SCRATCH_LOOP, "in_peak_meter", 0.5)
         self.assertEqual(fs0._in_peak, 0.5)
         self.assertEqual(fs1._in_peak, 0.0)
 
