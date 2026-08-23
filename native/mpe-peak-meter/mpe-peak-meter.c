@@ -166,7 +166,7 @@ static int looper_playback_wired(void)
 }
 
 static void write_meter_state(float peak_linear, int surge_wired, int looper_client,
-                              int looper_playback, unsigned long xruns)
+                              int looper_playback, unsigned long xruns, float dsp_percent)
 {
     char path[RUN_DIR_MAX + 32];
     char tmp[sizeof(path) + 32];
@@ -193,6 +193,7 @@ static void write_meter_state(float peak_linear, int surge_wired, int looper_cli
     fprintf(fh, "looper_playback=%d\n", looper_playback ? 1 : 0);
     fprintf(fh, "source=jack\n");
     fprintf(fh, "xruns=%lu\n", xruns);
+    fprintf(fh, "dsp_percent=%.3f\n", dsp_percent);
     fprintf(fh, "updated=%ld\n", (long)time(NULL));
     fclose(fh);
     chmod(tmp, 0644);
@@ -266,10 +267,21 @@ static void *writer_thread(void *arg)
         int looper_client = atomic_load_explicit(&g_looper_client, memory_order_relaxed);
         int looper_playback = atomic_load_explicit(&g_looper_playback, memory_order_relaxed);
         unsigned long xruns = atomic_load_explicit(&g_xrun_count, memory_order_relaxed);
-        write_meter_state(held_peak, surge_wired, looper_client, looper_playback, xruns);
+        float dsp_percent = 0.0f;
+        if (g_client != NULL) {
+            dsp_percent = (float)(jack_cpu_load(g_client) * 100.0);
+            if (!isfinite(dsp_percent) || dsp_percent < 0.0f) {
+                dsp_percent = 0.0f;
+            } else if (dsp_percent > 100.0f) {
+                dsp_percent = 100.0f;
+            }
+        }
+        write_meter_state(held_peak, surge_wired, looper_client, looper_playback, xruns,
+                          dsp_percent);
         interruptible_usleep(WRITER_INTERVAL_US);
     }
-    write_meter_state(0.0f, 0, 0, 0, atomic_load_explicit(&g_xrun_count, memory_order_relaxed));
+    write_meter_state(0.0f, 0, 0, 0, atomic_load_explicit(&g_xrun_count, memory_order_relaxed),
+                      0.0f);
     return NULL;
 }
 
