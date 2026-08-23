@@ -33,6 +33,8 @@ grep -q '\-\-minutes' "$SCRIPT" || fail "missing --minutes flag"
 grep -q '\-\-governor' "$SCRIPT" || fail "missing --governor flag"
 grep -q '_provenance_line' "$SCRIPT" || fail "missing _provenance_line"
 grep -q 'governor_engagements=' "$SCRIPT" || fail "missing governor_engagements per minute"
+grep -q '_count_governor_engagements_since' "$SCRIPT" || fail "missing engagement-only governor counter"
+grep -q 'touch-patch-browser.service' "$SCRIPT" || fail "missing touch-patch-browser stop during soak"
 grep -q 'dsp_median=' "$SCRIPT" || fail "missing dsp_median in RESULT"
 
 grep -q 'measure-soak-instrument.sh' "$V12" || fail "V12 must delegate to soak script"
