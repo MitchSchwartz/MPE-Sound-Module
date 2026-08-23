@@ -465,6 +465,10 @@ _run_window() {
     local window_since window_until
     local jackd_alsa_n jackd_alsa_min jackd_alsa_med jackd_alsa_max jackd_alsa_mean
     local probe_xrun_n
+    local jitter_floor
+
+    # shellcheck source=lib/measurement-result.sh
+    source "$SCRIPT_DIR/lib/measurement-result.sh"
 
     _meter_max_age_s=0
 
@@ -578,8 +582,13 @@ _run_window() {
     read -r late_p99 late_max < <(_frames_late_stats "$xrun_events")
     read -r delay_n delay_nz delay_med delay_p99 delay_max < <(_delay_stats_legacy "$xrun_events")
 
-    if [ "$SECONDS_PER_RUN" -ge 30 ] && [ "$jitter_n" -lt 100 ]; then
-        echo "ERROR: jitter_n=${jitter_n} — probe process callback produced too few samples" >&2
+    if [ "$SECONDS_PER_RUN" -lt 1 ]; then
+        echo "ERROR: SECONDS_PER_RUN must be >= 1" >&2
+        return 1
+    fi
+    jitter_floor="$(mpe_result_jitter_n_floor "$SECONDS_PER_RUN")" || return 1
+    if [ "$jitter_n" -lt "$jitter_floor" ]; then
+        echo "ERROR: jitter_n=${jitter_n} below floor ${jitter_floor} for ${SECONDS_PER_RUN}s window — probe process callback produced too few samples" >&2
         return 1
     fi
     temp="$(vcgencmd measure_temp 2>/dev/null || echo 'temp=unknown')"
@@ -595,14 +604,13 @@ _run_window() {
     )
     probe_xrun_n="$(grep '^XRUN_COUNT ' "$xrun_events" 2>/dev/null | awk '{print $2}' || echo 0)"
 
-    # shellcheck source=lib/measurement-result.sh
-    source "$SCRIPT_DIR/lib/measurement-result.sh"
     MPE_R_xruns=$total_xr
     MPE_R_dsp_median=$dsp_median
     MPE_R_samples=$samples
     MPE_R_jitter_n=$jitter_n
     MPE_R_tag=$tag
     MPE_EXPECT_SAMPLES=$SECONDS_PER_RUN
+    export MPE_EXPECT_SAMPLES
     if ! mpe_result_physics_assert "$BUFFER"; then
         echo "ERROR: physics assertion failed for ${tag}" >&2
         return 1
