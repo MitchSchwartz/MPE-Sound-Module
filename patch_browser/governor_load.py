@@ -121,19 +121,21 @@ class LoadTracker:
 
         # auto — prefer jack unless pegged while proc disagrees (Pi 5 @ 128×2 common)
         if jack_load is not None:
-            if (
-                proc_load is not None
-                and jack_load >= 95.0
-                and proc_load + 15.0 < jack_load
-            ):
-                if not self._jack_proc_disagreement_logged:
-                    print(
-                        "poly-governor: jack dsp pegged "
-                        f"({jack_load:.0f}%) vs proc ({proc_load:.0f}%) — using proc",
-                        flush=True,
-                    )
-                    self._jack_proc_disagreement_logged = True
-                return proc_load, proc_load, "proc"
+            if jack_load >= 95.0:
+                if proc_load is None:
+                    proc_load = self._read_proc_cpu()
+                if proc_load is not None and proc_load + 15.0 < jack_load:
+                    if not self._jack_proc_disagreement_logged:
+                        print(
+                            "poly-governor: jack dsp pegged "
+                            f"({jack_load:.0f}%) vs proc ({proc_load:.0f}%) — using proc",
+                            flush=True,
+                        )
+                        self._jack_proc_disagreement_logged = True
+                    return proc_load, proc_load, "proc"
+                if proc_load is None:
+                    # Never act on pegged jack without a proc witness (first tick).
+                    return None, None, "none"
             return jack_load, jack_raw, "jack"
 
         if proc_load is not None:
