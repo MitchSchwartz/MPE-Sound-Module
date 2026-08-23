@@ -24,6 +24,8 @@ source "$SCRIPT_DIR/lib/paths.sh"
 source "$SCRIPT_DIR/lib/mpe-services.sh"
 # shellcheck source=lib/audio-engine.sh
 source "$SCRIPT_DIR/lib/audio-engine.sh"
+# shellcheck source=lib/measure-run-as-user.sh
+source "$SCRIPT_DIR/lib/measure-run-as-user.sh"
 
 BUFFER=""
 CONDITION=""
@@ -90,11 +92,30 @@ RESTORE_BUFFER="$(mpe_jack_period)"
 RESTORE_PERIODS="$(mpe_jack_periods)"
 
 RUN_AS_USER="${MPE_PI_USER:-mitch}"
+USER_HOME="$(getent passwd "$RUN_AS_USER" | cut -d: -f6)"
+QUICK_SELECT="${USER_HOME}/Documents/Surge XT/Patches/Quick Select"
+MPE_RUN_AS_USER="$RUN_AS_USER"
+MPE_RUN_AS_USER_HOME="$USER_HOME"
 if [ "$(id -u)" -eq 0 ] && id "$RUN_AS_USER" >/dev/null 2>&1; then
-    _as_user() { sudo -u "$RUN_AS_USER" -- "$@"; }
+    _as_user() { mpe_as_user "$@"; }
 else
-    _as_user() { "$@"; }
+    _as_user() { mpe_as_user "$@"; }
 fi
+
+_reload_provenance_patch() {
+    local patch_path
+    [ -n "$PROVENANCE_PATCH" ] || return 0
+    [ "$PROVENANCE_PATCH" != "silence" ] || return 0
+    patch_path="${QUICK_SELECT}/${PROVENANCE_PATCH}.fxp"
+    [ -f "$patch_path" ] || {
+        echo "ERROR: missing provenance patch ${patch_path}" >&2
+        return 1
+    }
+    echo "=== reload patch after strict restart: ${PROVENANCE_PATCH} ==="
+    mpe_load_patch_osc "$patch_path" "$SCRIPT_DIR" || return 1
+    sleep 1
+    return 0
+}
 
 ENV_FILE="/etc/mpe/mpe.env"
 
@@ -669,6 +690,7 @@ _run_window() {
     _assert_jack_periods "$PERIODS_EFFECTIVE" || exit 1
     echo "=== provenance after strict restart ==="
     _record_provenance
+    _reload_provenance_patch || exit 1
 
     if [ -n "$PROVENANCE_PATCH" ] || [ "$HOLD_VOICES" -gt 0 ]; then
         {
