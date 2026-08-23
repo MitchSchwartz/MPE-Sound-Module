@@ -55,7 +55,7 @@ while [ $# -gt 0 ]; do
         --preflight-only) PREFLIGHT_ONLY=1; shift ;;
         -h | --help)
             sed -n '2,14p' "$0"
-            echo "  --governor on|off   default off (B2); V12 uses on"
+            echo "  --governor on|off   default off (B2, V12 Pi4 canonical); on for G2/B3"
             echo "  --minutes N         short certification window (mutually preferred over --hours)"
             echo "  --label TAG         optional tag in log header / RESULT"
             exit 0
