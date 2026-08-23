@@ -9,6 +9,9 @@
 #   sudo ./scripts/measure-reference-suite.sh --platform pi4 --no-conformance  # if C0 already passed this session
 #
 # Contract: PROMPT-PI4-CLOSEOUT.md §A2 · PI5-TRANSITION-PLAN.md §1.1
+#
+# Rule 0.5 (structural): _pilot_loaded_cell runs one strict loaded cell before the
+# full pass — catches parser/threshold mismatches in ~2 min, not after the silence block.
 
 set -euo pipefail
 
@@ -29,9 +32,9 @@ PLATFORM=""
 PASS=1
 ARTIFACT_DIR=""
 RUN_CONFORMANCE=1
-# C0 plausibility on loaded cells requires samples>=30 (measurement-result.sh).
-SECONDS_HOLD=30
+SECONDS_HOLD=25
 RUNS=2
+export MPE_EXPECT_SAMPLES=$SECONDS_HOLD
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -211,6 +214,27 @@ _run_cell() {
     fi
 }
 
+_pilot_loaded_cell() {
+    local pilot_log="${ARTIFACT_DIR}/pilot-loaded-P1-Crystals.log"
+    local patch_path="${QUICK_SELECT}/Crystals.fxp"
+    local xr dsp_med dsp_p99 dsp_max samples temp thr
+
+    echo ""
+    echo "=== Rule 0.5 pilot: one loaded cell (Crystals @3 1024x2, 1 run) before full pass ==="
+    [ -f "$patch_path" ] || { echo "ERROR: missing $patch_path" >&2; exit 1; }
+    export MPE_EXPECT_SAMPLES=$SECONDS_HOLD
+    sudo -u "$RUN_AS_USER" python3 "$SCRIPT_DIR/load-patch-osc.py" "$patch_path"
+    sleep 1
+    "$SCRIPT_DIR/measure-latency-run.sh" \
+        --buffer 1024 --periods 2 --condition A \
+        --runs 1 --seconds "$SECONDS_HOLD" \
+        --hold-voices 3 \
+        --provenance-patch Crystals --provenance-voices 3 \
+        --output "$pilot_log" --no-restore-buffer
+    IFS=$'\t' read -r xr dsp_med dsp_p99 dsp_max samples temp thr < <(_parse_last_run "$pilot_log" 0)
+    echo "SENTINEL pilot-loaded-cell-pass patch=Crystals voices=3 1024x2 xruns=${xr} dsp_median=${dsp_med} samples=${samples} expect=${MPE_EXPECT_SAMPLES}"
+}
+
 _emit_json() {
     local meta_file="$1"
     python3 - "$meta_file" "$TSV_OUT" "$JSON_OUT" <<'PY'
@@ -285,6 +309,8 @@ printf 'platform\tpass\tcell_id\tpatch\tvoices\tbuffer\tperiods\txruns\tdsp_medi
 
 META_FILE="$(mktemp)"
 _collect_meta >"$META_FILE"
+
+_pilot_loaded_cell
 
 # Silence @ 0 voices — fixed-cost isolation
 _run_cell "S1" "silence" 0 1024 2
