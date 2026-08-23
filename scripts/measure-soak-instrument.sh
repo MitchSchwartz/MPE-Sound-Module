@@ -52,6 +52,17 @@ PATCH_PATH="${QUICK_SELECT}/${PATCH_NAME}.fxp"
 
 _as_user() { sudo -u "$RUN_AS_USER" -- "$@"; }
 
+# Command substitution runs mpe_meter_xruns_read in a subshell, so MPE_METER_LAST_AGE_S
+# is lost before the log line — set -u then aborts (occurrence eleven, 2026-08-23).
+_read_meter_xruns() {
+    if mpe_meter_xruns_read >/dev/null; then
+        REPLY="$MPE_METER_LAST_XRUNS"
+        METER_AGE_S="$MPE_METER_LAST_AGE_S"
+        return 0
+    fi
+    return 1
+}
+
 STAGE=init
 SOAK_COMPLETE=0
 
@@ -136,10 +147,11 @@ LOAD_PID=$!
 sleep 2
 
 STAGE=meter-baseline
-if ! START_XR="$(mpe_meter_xruns_read)"; then
+if ! _read_meter_xruns; then
     echo "ERROR: meter blind at soak start" >&2
     exit 1
 fi
+START_XR="$REPLY"
 
 STAGE=soak-loop
 echo "SENTINEL soak-loop-entered" >>"$OUTPUT"
@@ -154,13 +166,14 @@ while [ "$minute" -lt "$TOTAL_MIN" ]; do
     STAGE=soak-loop-minute
     sleep 60
     minute=$((minute + 1))
-    if ! cur="$(mpe_meter_xruns_read)"; then
+    if ! _read_meter_xruns; then
         invalid_windows=$((invalid_windows + 1))
         temp="$(vcgencmd measure_temp 2>/dev/null || echo 'temp=unknown')"
         echo "SOAK minute=${minute} meter_live=0 INVALID_WINDOW ${temp}" >>"$OUTPUT"
         echo "WARN minute ${minute}: meter blind"
         continue
     fi
+    cur="$REPLY"
     if [ "$cur" -lt "$prev_xr" ]; then
         STAGE=soak-loop-meter-reset
         echo "ERROR: meter restarted mid-soak" >&2
@@ -171,7 +184,7 @@ while [ "$minute" -lt "$TOTAL_MIN" ]; do
     temp="$(vcgencmd measure_temp 2>/dev/null || echo 'temp=unknown')"
     throttle="$(vcgencmd get_throttled 2>/dev/null || echo 'throttled=unknown')"
     {
-        echo "SOAK minute=${minute} xruns_minute=${delta} xruns_total=$((cur - START_XR)) meter_live=1 meter_age_s=${MPE_METER_LAST_AGE_S} ${temp} ${throttle}"
+        echo "SOAK minute=${minute} xruns_minute=${delta} xruns_total=$((cur - START_XR)) meter_live=1 meter_age_s=${METER_AGE_S} ${temp} ${throttle}"
     } >>"$OUTPUT"
 
     if [ $((minute % 60)) -eq 0 ]; then
