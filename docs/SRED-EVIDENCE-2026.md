@@ -68,19 +68,19 @@ Recorded so the claim shows what was *established*, not only what was attempted.
 | finding | evidence | status |
 |---|---|---|
 | All xruns here are JACK graph overruns; the ring has never drained | W1 journal instrumentation | settled |
-| Fixed per-callback cost `a = 0.13 ms` (0.6% of deadline at 1024, 1.2% at 512) | V1 silence test | settled; **retracted W1's own 1.10 ms by 8x** |
+| Fixed per-callback cost `a = 0.13 ms` (0.6% of deadline at 1024, 1.2% at 512) | V1 silence test; **cross-validated** by A2 loaded cells (+2.1–2.5 pp `dsp_med` rise 1024×2→256×3 vs ~1.83 pp predicted) | settled; **retracted W1's own 1.10 ms by 8x** |
 | `1024x2` = 42.7 ms is free at clean load | V9-d, four patches, 3 x 45 s | settled |
 | **`512x2` = 21.3 ms is clean for Crystals @3 and Duduk @3** | V11 xrun column, 0/0/0 x3 | **settled — a 3x reduction on the 64.0 ms shipping config, not yet shipped** |
 | The latency floor is **patch-dependent** | V11: Cloud Horn @5 marginal (0/0/8) at the same config | settled (U9) |
 | Filter choice predicts cost better than oscillator count | 53-patch census + capacity survey | settled (U4) |
 | Live DSP at 256 under load ~80% | C0 live gate, 2026-08-22 | settled; refutes V11's 0.9-1.6% by ~50-80x |
 | Instrument failure has **one** root cause across ten instances | Rule -1 analysis | settled (U3) |
+| `-mcpu=cortex-a72` does not help | A3 null: all cells &lt;3% by pre-registration; same revision `253f8d86` | settled — **U7 `-mcpu` branch closed** |
 
 ### Not established — open
 
 | question | why it is open |
 |---|---|
-| Does `-mcpu=cortex-a72` help? | A3 not run |
 | Does DSP scale inversely with clock? | P7 not run — and it is the cheapest available Pi 5 forecast |
 | Is Cloud Horn genuinely unable to hold `512x2`? | 0/0/8 on three runs is a variance signal, not a verdict |
 | The entire DSP picture at 512/256 | V11's column void; re-run pending |
@@ -148,6 +148,10 @@ direct silence test refuted it: **a = 0.13 ms**, roughly 8x smaller.
 **Consequence.** 0.13 ms is 0.6% of the deadline at 1024, 1.2% at 512, 2.5% at 256. This is
 the single number the current roadmap rests on. It also killed a planned single-client
 refactor (measured benefit: 35 µs).
+
+**Independent corroboration (2026-08-22, A2 pass 1 loaded cells).** On stock binary, `dsp_med`
+rises **+2.34 / +2.11 / +2.48 pp** (Crystals / Duduk / Cloud Horn) from 1024×2 to 256×3 —
+against **~1.83 pp** predicted from the fixed-cost fraction alone (`reference-suite-pi4-a3-a72-comparison-2026-08-22.md` §V1). Loaded-cell evidence, not the silence test.
 
 ### U3 — Is the measurement instrument itself trustworthy?
 **Uncertainty.** Recurring, and by a wide margin the most expensive class encountered. An
@@ -243,8 +247,14 @@ deadline binds identically regardless of cushion — so they could not answer th
 ### U7 — Is the platform compute-bound, and which levers remain?
 **Open in part.** `CEILING-ANALYSIS` audited the "the Pi is maxed out" claim and found it
 false as stated: one core of four, 83% of maximum clock. `MULTITHREADING-ASSESSMENT` scoped
-the parallelism lever (~3x polyphony, multi-week upstream C++). P7 (clock scaling diagnostic)
-and P8 (`-mcpu=cortex-a72`) remain unrun.
+the parallelism lever (~3x polyphony, multi-week upstream C++).
+
+**`-mcpu=cortex-a72` branch closed (2026-08-22, A3).** Same Surge revision (`253f8d86`), flag-only
+delta. All nine comparison cells **&lt;3%** dsp_med delta — pre-registered **no-effect**. Stock
+binary kept as control; a72 artifact retained uninstalled. A clean negative on a compiler lever is
+as valuable as a win for scoping what remains.
+
+**Still open under U7:** P7 (clock scaling diagnostic — Pi 5 forecast instrument).
 
 ---
 
@@ -308,6 +318,7 @@ follows hypothesis → experiment → analysis → revised hypothesis.
 | 08-22 | Gate 1 soak | 8 h certification at `1024x2` | **Never ran.** Died in setup, logged nothing — occurrence ten. Certification outstanding |
 | 08-22 | Rule -1 / Rule 0.5 / C0 | Root-cause analysis of ten instrument failures; conformance suite built, reviewed (F1-F5), fixed, and run live on Pi | **U8 partially resolved.** Gate green on Pi 2026-08-22; live DSP 80.2% @ 256 corroborates the V11 refutation |
 | 08-22 | A2 reference suite | Frozen 15-cell suite, pass 1 at 25 s windows | Control established; revalidated offline against the later parser (`494e8b4`) — **control stands** |
+| 08-22 | A3 `-mcpu=cortex-a72` | Same revision (`253f8d86`), flag-only rebuild vs stock on reference suite | **NULL — no-effect** (&lt;3% all cells). **U7 `-mcpu` branch closed.** V1 model cross-validated on loaded cells (+2.1–2.5 pp rise vs ~1.83 pp predicted). Duduk filter path: possible regression, pending A4 noise floor |
 
 **Documented retractions** (evidence of genuine iteration, not post-hoc narrative):
 W1's `a = 1.10 ms`; the E1 core-allocation config; the unison cost theory; the probe-duration
