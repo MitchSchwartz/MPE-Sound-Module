@@ -6,6 +6,29 @@ Orientation canon: OM-Repo [`GROUNDING.md`](https://github.com/opsMachine/OM-Rep
 
 ---
 
+## 2026-08-23 — V12 buffer comparison; "clean" criterion retired
+
+**Stack:** **G2 → V12 → B3 → Gate 1 ship.**
+
+**Finding (X1):** xrun arrivals are bursty (Fano 4.32, 33% silent minutes). **"0 xruns at
+confirmed voice counts" was never achievable** — B2 measured 2.06/min at `1024×2`; V9/V11 "clean"
+cells sampled windows too short to see bursts.
+
+**V12 asks:** (1) how much worse is `512×2` (21.3 ms) than `1024×2` (42.7 ms)? (2) audibility
+is **B3 only**. **Prohibition:** no PASS/FAIL or "clean" for a buffer in V12 reporting.
+
+**Design:** two 30-minute arms, governor on (G2 thresholds), buffer only variable, Cloud Horn @5;
+alternate/randomise order (rate decays in first ~30 min). Fano-corrected window ~130 raw events ≈
+33 min at 3.87/min. Reuse `measure-soak-instrument.sh` with `--minutes`; confirm harness =
+screening only. Stamp governor state in every log (X1 provenance gap).
+
+**Fallback:** if `512×2` is materially worse, `1024×2` at 42.7 ms is still 1.5× better than
+shipping 64.0 ms and is soak-tested.
+
+**Prompt:** `docs/measurements/PROMPT-V12-certify-buffer.md`
+
+---
+
 ## 2026-08-23 — G2 recalibration spec; Gate 2 now blocks Gate 1
 
 **Ordering change:** **Gate 2 (governor) must close before Gate 1 ship or B3 ear test.** The
