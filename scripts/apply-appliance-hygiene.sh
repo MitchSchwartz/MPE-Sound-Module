@@ -125,6 +125,21 @@ if [ -f "$CMDLINE_FILE" ]; then
     fi
 fi
 
+echo "=== kernel module blacklist (v3d) ==="
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+V3D_SRC="$REPO_ROOT/config/modprobe.d/blacklist-v3d-mpe.conf"
+V3D_DST="/etc/modprobe.d/blacklist-v3d-mpe.conf"
+if [ -f "$V3D_SRC" ]; then
+    if [ "$DRY" = true ]; then
+        echo "would: install $V3D_SRC -> $V3D_DST (reboot to unload v3d)"
+    else
+        _run cp "$V3D_SRC" "$V3D_DST"
+        echo "installed $V3D_DST — reboot required to unload v3d"
+    fi
+else
+    echo "warn: missing $V3D_SRC" >&2
+fi
+
 echo "=== movable IRQ affinity ==="
 if [ "$DRY" = true ]; then
     echo "would: apply-movable-irq-affinity.sh"
@@ -134,7 +149,6 @@ else
 fi
 
 echo "=== systemd manager stop timeout (DefaultTimeoutStopSec=10s) ==="
-REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 MANAGER_SRC="$REPO_ROOT/config/systemd/mpe-appliance.conf"
 MANAGER_DST="/etc/systemd/system.conf.d/mpe-appliance.conf"
 if [ -f "$MANAGER_SRC" ]; then
