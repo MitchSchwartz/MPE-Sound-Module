@@ -57,6 +57,7 @@ class SeamWeldWorker:
         scratch_loop: int,
         *,
         done: Callable[[], None],
+        resume_pos: float | None = None,
     ) -> bool:
         with self._lock:
             if self._busy:
@@ -69,17 +70,19 @@ class SeamWeldWorker:
             self._done_cb = done
         thread = threading.Thread(
             target=self._run,
-            args=(main_loop, scratch_loop),
+            args=(main_loop, scratch_loop, resume_pos),
             daemon=True,
             name="seam-weld",
         )
         thread.start()
         return True
 
-    def _run(self, main_loop: int, scratch_loop: int) -> None:
+    def _run(
+        self, main_loop: int, scratch_loop: int, resume_pos: float | None
+    ) -> None:
         ok = False
         try:
-            ok = self._merge(main_loop, scratch_loop)
+            ok = self._merge(main_loop, scratch_loop, resume_pos)
         finally:
             cb = None
             with self._lock:
@@ -96,7 +99,9 @@ class SeamWeldWorker:
                 flush=True,
             )
 
-    def _merge(self, main_loop: int, scratch_loop: int) -> bool:
+    def _merge(
+        self, main_loop: int, scratch_loop: int, resume_pos: float | None
+    ) -> bool:
         tag = f"{main_loop}-{int(time.time() * 1000)}"
         main_wav = SEAM_TMP_DIR / f"main-{tag}.wav"
         tail_wav = SEAM_TMP_DIR / f"tail-{tag}.wav"
@@ -136,7 +141,10 @@ class SeamWeldWorker:
             [str(out_wav), "", ""],
         )
         time.sleep(0.15)
-        # load_loop replaces buffer but leaves the loop stopped — resume playback.
+        # load_loop replaces buffer and stops playback — restore playhead near seam.
+        if resume_pos is not None and resume_pos >= 0.0:
+            self._send(f"/sl/{main_loop}/set", ["loop_pos", float(resume_pos)])
+            time.sleep(0.05)
         self._send(f"/sl/{main_loop}/hit", ["pause_off"])
         self._send(f"/sl/{main_loop}/hit", ["trigger"])
         self._clear_scratch(scratch_loop)

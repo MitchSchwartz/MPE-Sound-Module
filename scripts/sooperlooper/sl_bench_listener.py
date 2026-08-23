@@ -8,6 +8,7 @@ if TYPE_CHECKING:
     from apc_footswitch import LoopFootswitch
 
 from sl_grid_sync import TAIL_CAPTURE_ENABLED, TAIL_PEAK_UPDATE_MS
+from sl_seam_weld import SCRATCH_LOOP, SEAM_WELD_ENABLED
 
 
 class SlBenchStateListener:
@@ -25,6 +26,7 @@ class SlBenchStateListener:
         self._session = session
         self._num_loops = 16
         self._tail_peak_loop: int | None = None
+        self._tail_peak_owner: int | None = None
 
     def on_update(self, _addr: str, loop_index: int, control: str, value: float) -> None:
         if control == "wet":
@@ -43,7 +45,12 @@ class SlBenchStateListener:
         elif control == "in_peak_meter":
             if loop_index != self._tail_peak_loop:
                 return
-            fs.sync_in_peak(float(value))
+            owner = self._tail_peak_owner
+            if owner is None:
+                return
+            owner_fs = self._by_loop.get(owner)
+            if owner_fs is not None:
+                owner_fs.sync_in_peak(float(value))
 
     def register(self, _client, *, num_loops: int) -> None:
         """Register bench subscriptions on the shared session."""
@@ -53,20 +60,24 @@ class SlBenchStateListener:
         self._session.attach_bench_listener(self)
         self._session.register_bench(num_loops=num_loops)
 
-    def register_tail_peak(self, loop: int) -> None:
+    def register_tail_peak(self, owner_loop: int) -> None:
         if not TAIL_CAPTURE_ENABLED or self._session is None:
             return
         if self._tail_peak_loop is not None:
             self.unregister_tail_peak()
-        self._tail_peak_loop = loop
-        self._session.register_tail_peak(loop, update_ms=TAIL_PEAK_UPDATE_MS)
+        meter_loop = SCRATCH_LOOP if SEAM_WELD_ENABLED else owner_loop
+        self._tail_peak_owner = owner_loop
+        self._tail_peak_loop = meter_loop
+        self._session.register_tail_peak(meter_loop, update_ms=TAIL_PEAK_UPDATE_MS)
 
     def unregister_tail_peak(self, _loop: int | None = None) -> None:
         if self._session is None or self._tail_peak_loop is None:
             self._tail_peak_loop = None
+            self._tail_peak_owner = None
             return
         loop = self._tail_peak_loop
         self._tail_peak_loop = None
+        self._tail_peak_owner = None
         self._session.unregister_tail_peak(loop)
 
     def wire_tail_capture(self, footswitches: list[LoopFootswitch]) -> None:
