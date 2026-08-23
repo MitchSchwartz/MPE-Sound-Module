@@ -54,6 +54,27 @@ mpe_result_dsp_plausibility_floor() {
     esac
 }
 
+# O1b — loaded-cell floor without a full RESULT tag (soak minute-1, direct harness checks).
+mpe_result_assert_loaded_dsp() {
+    local buf="$1"
+    local dsp="$2"
+    local floor
+    if [ -z "$buf" ] || [ -z "$dsp" ]; then
+        _mpe_result_die "assert_loaded_dsp: need buffer and dsp_median"
+        return 1
+    fi
+    if awk -v v="$dsp" 'BEGIN{exit !(v+0==0)}'; then
+        _mpe_result_die "assert_loaded_dsp: dsp_median=0 (sampler dead)"
+        return 1
+    fi
+    floor="$(mpe_result_dsp_plausibility_floor "$buf")" || return 1
+    if awk -v v="$dsp" -v fl="$floor" 'BEGIN{exit !(v+0 < fl+0)}'; then
+        _mpe_result_die "loaded-cell dsp_median=${dsp}% below plausibility floor ${floor}% at buffer ${buf} (voice hold likely not applied)"
+        return 1
+    fi
+    return 0
+}
+
 # Assert floor(1024) < floor(512) < floor(256). Called from offline tests.
 mpe_result_assert_floor_monotonic() {
     awk -v a="$MPE_DSP_FLOOR_1024" -v b="$MPE_DSP_FLOOR_512" -v c="$MPE_DSP_FLOOR_256" \
