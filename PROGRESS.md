@@ -1,6 +1,6 @@
 # PROGRESS — canonical thread
 
-**Updated 2026-08-23 08:55 (America/Toronto).** This is the top-level index.
+**Updated 2026-08-23 10:43 (America/Toronto).** This is the top-level index.
 
 ---
 
@@ -60,7 +60,8 @@ Full plan: [`docs/measurements/PROMPT-PI4-CLOSEOUT.md`](docs/measurements/PROMPT
 > **C0 done on Pi 2026-08-22** — full gate green (`~/conformance-full-green.log`, #96–#101).
 > **A2 + A3 + A4 done** — stock control calibrated with noise floor.
 > **B2 PASS** — Gate 1 soak complete 08:54; A5–A9 unblocked (closeout in progress).
-> **B3 + Gate 1 ship** still Mitch — ear test before 1024×2 default.
+> **G2 blocks Gate 1 ship** — governor recalibration + re-enable before B3; ear test with
+> governor off does not certify the shipping default.
 
 ### Track A — autonomous (no reboot, no gate)
 
@@ -84,7 +85,8 @@ Full plan: [`docs/measurements/PROMPT-PI4-CLOSEOUT.md`](docs/measurements/PROMPT
 |---|---|---|---|
 | B1 | **P7 clock-scaling diagnostic** — now a Pi 5 *forecast*, not a lever | `PROMPT-P7-overclock-diagnostic.md` | ~13 min |
 | ~~**B2**~~ | ~~**8 h soak @ 1024×2**~~ — **PASS** (991 xruns, 2.06/min) | — | overnight |
-| B3 | Ear test before shipping any new binary default | — | ~10 min |
+| **G2** | **Governor recalibration + re-enable** — blocks B3 / Gate 1 ship | `PROMPT-G2-governor-recalibration.md` | ~30 min + Mitch ear |
+| B3 | Ear test at 1024×2 **with governor on** — Gate 1 ship | — | ~10 min |
 
 ### Track C — Pi 5, on arrival
 
@@ -102,14 +104,14 @@ new board. As an **instrument** it forecasts whether the Pi 5's 2.4 GHz will con
 if DSP does *not* scale with clock, the Pi 5's memory advantage is the operative one and the
 optimisation order changes. 13 minutes either way.
 
-**Deferred:** multithreading (re-score after the Pi 5 baseline), governor fade and threshold
-recalibration (Pi 4-absolute thresholds will be wrong on the Pi 5 — do it once, there),
-percussive rate metric.
+**Deferred:** multithreading (re-score after the Pi 5 baseline), percussive rate metric.
+Governor thresholds are Pi 4-absolute and will need a Pi 5 pass after G2 closes here.
 
 ### Open gates (Mitch only)
 
 - **Gate 1** — ship 1024x2 as instrument profile default. **Soak PASS** (991 xruns, 2.06/min,
-  `invalid_windows=0`) — see `b2-soak-gate1-2026-08-23.md`. **Ship blocked on B3 ear test.**
+  `invalid_windows=0`) — see `b2-soak-gate1-2026-08-23.md`. **Ship blocked on G2 then B3**
+  (governor must be on and calibrated before the ear test counts).
 - **Gate 2** — governor re-enable: **now blocks Gate 1.** The governor has been OFF since V9, so
   the appliance as played has no voice limiting and heavy patches insta-crackle — expected, not a
   regression. B3's ear test cannot certify a shipping default that excludes the governor.
@@ -119,7 +121,8 @@ percussive rate metric.
   governor check.
 - **Gate 3** — percussive metric: deferred. Reframed as a **rate** question (does a fast roll
   drop notes), not a voice-count question.
-- **B3 ear test** — required before any binary or buffer default ships to production.
+- **B3 ear test** — required before any binary or buffer default ships to production; **invalid
+  until G2 closes** (shipping default includes the governor).
 
 ---
 
@@ -157,6 +160,7 @@ percussive rate metric.
 | File | What it is |
 |---|---|
 | `docs/measurements/b2-soak-gate1-2026-08-23.md` | **B2 PASS** — Gate 1 soak (991 xruns, 2.06/min) |
+| `docs/measurements/PROMPT-G2-governor-recalibration.md` | **G2** — 78/68 proposal, empirical verify, blocks Gate 1 |
 | `docs/measurements/pi5-predictions-2026-08-23.md` | **A9** — pre-registered Pi 5 predictions |
 | `docs/measurements/reference-suite-pi4-a4-spread-2026-08-23.md` | **A4 noise floor** — spread table, Duduk retro, Pi 5 threshold |
 | `docs/measurements/reference-suite-pi4-pass1-revalidation-2026-08-22.md` | A2 pass 1 offline re-validation at a1e80e3 |

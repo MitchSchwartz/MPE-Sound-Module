@@ -177,22 +177,32 @@ each window, never during. Board must be **cool** — do not run this after a bu
 
 ### B2. Overnight soak at the V11 winner (8 h)
 
-Whatever V11 leaves as the best clean config. Gate 1 (shipping default) depends on it. Start it
+Whatever V11 leaves as the best clean config. Gate 1 **soak** depends on it. Start it
 and leave — but **nothing else may touch the Pi while it runs.**
+
+**Status (2026-08-23): PASS** — see `b2-soak-gate1-2026-08-23.md`.
+
+### G2. Governor recalibration and re-enable (~30 min + Mitch ear)
+
+`PROMPT-G2-governor-recalibration.md`. **Blocks Gate 1 ship and B3.** Proposed thresholds
+78/68 (not derived from suite `dsp_p99`). Empirical verification: 30 min clean Cloud Horn @5
+with zero engagements (negative control), then Crystals past floor must engage and release
+(positive control). Depends on fade landing and X1 governor check.
 
 ### B3. Ear test (~10 min, Mitch only)
 
-Confirm the instrument still sounds correct at the new buffer config before it becomes the
-shipping default. Numbers improving is necessary, not sufficient.
+Confirm the instrument still sounds correct at **1024×2 with governor on** before it becomes the
+shipping default. **Invalid until G2 closes** — numbers improving is necessary, not sufficient.
 
 ---
 
 ## Explicitly deferred
 
 - **Multithreading.** Re-score after the Pi 5 baseline, do not start.
-- **Governor fade and re-enable.** Thresholds are Pi 4-absolute and will be wrong on the Pi 5;
-  recalibrate there rather than twice.
 - **Percussive rate metric.** Gate 3, still deferred.
+
+**Not deferred on Pi 4:** governor recalibration (G2) — must close before Gate 1 ship. Pi 5 will
+need its own threshold pass after the Pi 4 baseline is frozen.
 
 ---
 
