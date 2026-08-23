@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # Pull unversioned runtime state off the appliance into appliance-state/.
 #
+# Prefer scripts/provision/capture-external-state.sh for golden-image workflows
+# (superset: full /etc/mpe/mpe.env + patch browser prefs). This script remains
+# for calibration-only quick capture into appliance-state/calibration/.
+#
 #   ./scripts/backup-appliance-state.sh              # capture
 #   ./scripts/backup-appliance-state.sh --check      # report drift, change nothing
 #
