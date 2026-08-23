@@ -138,7 +138,7 @@ class GridEstablishmentTests(unittest.TestCase):
         def start(_loop: int) -> None:
             fs._osc.send_message(f"/sl/{SCRATCH_LOOP}/hit", ["record"])
 
-        def merge(_loop: int, done) -> bool:
+        def merge(_loop: int, done, resume_pos=None) -> bool:
             if merge_immediate:
                 done()
             return True
@@ -198,7 +198,7 @@ class GridEstablishmentTests(unittest.TestCase):
                 on_prepare_scratch=lambda loop: None,
                 on_start_scratch=lambda loop: started.append(loop),
                 on_stop_scratch=lambda loop: None,
-                on_request_merge=lambda loop, done: (done(), True)[1],
+                on_request_merge=lambda loop, done, resume_pos=None: (done(), True)[1],
             )
             fs._tail_capture = True
             fs._tail_stop_sent = True
@@ -302,7 +302,7 @@ class TailCaptureTests(unittest.TestCase):
             on_prepare_scratch=lambda loop: None,
             on_start_scratch=lambda loop: None,
             on_stop_scratch=lambda loop: None,
-            on_request_merge=lambda loop, done: (merged.append(loop) or False),
+            on_request_merge=lambda loop, done, resume_pos=None: (merged.append(loop) or False),
         )
         fs._tail_capture = True
         fs._tail_stop_sent = True
@@ -313,15 +313,15 @@ class TailCaptureTests(unittest.TestCase):
         self.assertFalse(fs._tail_capture)
         self.assertEqual(merged, [])
 
-    def test_tail_led_amber_during_weld(self) -> None:
-        from scripts.sooperlooper.led_table import LED_YELLOW_BLINK, led_for
+    def test_tail_led_record_to_play_during_weld(self) -> None:
+        from scripts.sooperlooper.led_table import RECORD_TO_PLAY, led_for
 
         fs = LoopFootswitch(loop=0, hold_ms=1000.0, debounce_ms=0.0)
         fs.bind(MagicMock(), MagicMock(), 36)
         fs.sync_from_sl(SL_STATE_PLAYING)
         fs._tail_capture = True
-        self.assertEqual(fs._led_target(), (LED_YELLOW_BLINK,))
-        self.assertEqual(led_for(SL_STATE_PLAYING, tail_capture=True), (LED_YELLOW_BLINK,))
+        self.assertEqual(fs._led_target(), RECORD_TO_PLAY)
+        self.assertEqual(led_for(SL_STATE_PLAYING, tail_capture=True), RECORD_TO_PLAY)
 
     def test_tail_max_timeout_closes_capture(self) -> None:
         from scripts.sooperlooper.sl_grid_sync import TAIL_MAX_S
@@ -332,7 +332,7 @@ class TailCaptureTests(unittest.TestCase):
             on_prepare_scratch=lambda loop: None,
             on_start_scratch=lambda loop: None,
             on_stop_scratch=lambda loop: None,
-            on_request_merge=lambda loop, done: (done(), True)[1],
+            on_request_merge=lambda loop, done, resume_pos=None: (done(), True)[1],
         )
         fs._tail_capture = True
         fs._tail_stop_sent = True
@@ -394,7 +394,7 @@ class TailCaptureTests(unittest.TestCase):
             on_prepare_scratch=lambda loop: None,
             on_start_scratch=lambda loop: None,
             on_stop_scratch=lambda loop: None,
-            on_request_merge=lambda loop, done: (done(), True)[1],
+            on_request_merge=lambda loop, done, resume_pos=None: (done(), True)[1],
         )
         fs._tail_capture = True
         fs._tail_stop_sent = True
@@ -416,7 +416,7 @@ class TailCaptureTests(unittest.TestCase):
             on_prepare_scratch=lambda loop: None,
             on_start_scratch=lambda loop: None,
             on_stop_scratch=lambda loop: None,
-            on_request_merge=lambda loop, done: (done(), True)[1],
+            on_request_merge=lambda loop, done, resume_pos=None: (done(), True)[1],
         )
         fs._tail_capture = True
         fs._tail_stop_sent = True
@@ -443,7 +443,7 @@ class TailCaptureTests(unittest.TestCase):
             on_prepare_scratch=lambda loop: None,
             on_start_scratch=lambda loop: None,
             on_stop_scratch=lambda loop: None,
-            on_request_merge=lambda loop, done: (done(), True)[1],
+            on_request_merge=lambda loop, done, resume_pos=None: (done(), True)[1],
         )
         fs._tail_capture = True
         fs._tail_stop_sent = True
@@ -457,7 +457,7 @@ class TailCaptureTests(unittest.TestCase):
         fs.poll_tail_capture()
         self.assertFalse(fs._tail_capture)
 
-    def test_no_merge_without_release_peak(self) -> None:
+    def test_merge_after_scratch_even_without_release_peak(self) -> None:
         from scripts.sooperlooper.sl_grid_sync import TAIL_MAX_S
 
         fs = LoopFootswitch(loop=0, hold_ms=1000.0, debounce_ms=0.0)
@@ -467,18 +467,22 @@ class TailCaptureTests(unittest.TestCase):
             on_prepare_scratch=lambda loop: None,
             on_start_scratch=lambda loop: None,
             on_stop_scratch=lambda loop: None,
-            on_request_merge=lambda loop, done: (merged.append(loop), True)[1],
+            on_request_merge=lambda loop, done, resume_pos=None: (
+                merged.append((loop, resume_pos)),
+                True,
+            )[1],
         )
         fs._tail_capture = True
         fs._tail_stop_sent = True
         fs.sync_from_sl(SL_STATE_PLAYING)
         fs.sync_loop_len(2.0)
         fs._scratch_active = True
+        fs._scratch_started = True
         fs._tail_saw_loud = False
         fs._tail_capture_since = time.monotonic() - TAIL_MAX_S - 0.01
         fs.poll_tail_capture()
         self.assertFalse(fs._tail_capture)
-        self.assertEqual(merged, [])
+        self.assertEqual(len(merged), 1)
 
     def test_grid_clock_deferred_until_tail_weld_finishes(self) -> None:
         from scripts.sooperlooper.sl_grid_state import GridState

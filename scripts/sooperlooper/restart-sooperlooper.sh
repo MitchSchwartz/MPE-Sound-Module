@@ -70,7 +70,17 @@ start_engine() {
 
 main() {
   need_cmd jack_lsp
-  if pgrep -x sooperlooper >/dev/null 2>&1 && jack_client_visible && record_path_ok && playback_path_ok; then
+  if command -v systemctl >/dev/null 2>&1; then
+    if systemctl is-active --quiet mpe-sooperlooper.service 2>/dev/null; then
+      log "stopping mpe-sooperlooper.service — manual bench owns the engine"
+      sudo systemctl stop mpe-sooperlooper.service 2>/dev/null \
+        || log "WARN: could not stop mpe-sooperlooper.service (sudo?)"
+      sleep 0.5
+    fi
+  fi
+  local sl_count
+  sl_count="$(pgrep -c sooperlooper 2>/dev/null || echo 0)"
+  if [[ "${sl_count}" -eq 1 ]] && jack_client_visible && record_path_ok && playback_path_ok; then
     log "OK — on JACK, record + playback paths wired"
     exit 0
   fi

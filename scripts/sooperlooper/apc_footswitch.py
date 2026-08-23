@@ -149,6 +149,7 @@ class LoopFootswitch:
         self._tail_stop_sent = False
         self._tail_deferred = False
         self._scratch_active = False
+        self._scratch_started = False
         self._tail_ending = False
         self._merge_pending = False
         self._deferred_grid_clock: tuple[float, int] | None = None
@@ -225,6 +226,7 @@ class LoopFootswitch:
         if not self._scratch_active:
             return
         self._scratch_active = False
+        self._scratch_started = False
         if self._on_stop_scratch is not None:
             self._on_stop_scratch(self.loop)
         log(f"loop {self.loop}: scratch tail record stopped (loop {SCRATCH_LOOP})")
@@ -244,6 +246,7 @@ class LoopFootswitch:
         if not SEAM_WELD_ENABLED or self._on_start_scratch is None:
             return
         self._scratch_active = True
+        self._scratch_started = True
         log(
             f"loop {self.loop}: scratch tail record on loop {SCRATCH_LOOP} "
             f"(pos={self.loop_pos:.3f}s / {self.loop_len:.3f}s)"
@@ -263,6 +266,7 @@ class LoopFootswitch:
         self._tail_saw_loud = False
         self._tail_stop_sent = False
         self._tail_deferred = False
+        self._scratch_started = False
         if had_deferred:
             self._flush_deferred_grid_side_effects()
 
@@ -293,6 +297,7 @@ class LoopFootswitch:
         self._tail_stop_sent = False
         self._tail_deferred = False
         self._scratch_active = False
+        self._scratch_started = False
         self._tail_ending = False
         self._merge_pending = False
         if self._on_tail_capture_end is not None:
@@ -306,12 +311,12 @@ class LoopFootswitch:
         self._mark_action()
 
     def _should_seam_merge(self) -> bool:
-        """Only merge when release was audible — empty scratch has nothing to weld."""
+        """Merge when scratch captured audio — peak quiet timing or fixed window."""
         if not SEAM_WELD_ENABLED or not self._tail_stop_sent:
             return False
-        if not self._tail_saw_loud:
+        if self._on_request_seam_merge is None:
             return False
-        return self._on_request_seam_merge is not None
+        return self._scratch_started or self._tail_saw_loud
 
     def _end_tail_capture(self, reason: str) -> None:
         """Stop scratch capture and optionally run Tier 3 merge before finish."""
@@ -326,6 +331,7 @@ class LoopFootswitch:
             accepted = self._on_request_seam_merge(
                 self.loop,
                 lambda: self._after_seam_merge(reason),
+                self.loop_pos if self._loop_pos_seen else None,
             )
             if not accepted:
                 log(
@@ -680,6 +686,7 @@ class LoopFootswitch:
             self._in_peak_seen = False
             self._tail_saw_loud = False
             self._scratch_active = False
+            self._scratch_started = False
             self._tail_deferred = plan.tail_deferred
             self._tail_stop_sent = True
             if plan.commands:
