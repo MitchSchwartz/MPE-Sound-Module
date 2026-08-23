@@ -75,6 +75,24 @@ after looper is up ([`archive/looper-p0-latency-calibration.md`](archive/looper-
 4. **Bench** — `mpe looper sl-bench restart`; watch log for `seam-weld: done loop N`.
 5. **Spike script** — `scripts/sooperlooper/spike-seam-weld.sh` on Pi.
 
+### Status 2026-08-23 (evening)
+
+| Step | State |
+|------|--------|
+| Binary | Copied Pi 4 `sooperlooper` → `~/src/sooperlooper-1.7.9/src/` |
+| Runtime deps | `liblo7`, `liblo-tools`, `libsigc++-2.0-0v5`, `librubberband2` (+ friends) |
+| Branch on Pi | `yolo/pi5-looper-seam-wrap` @ `3a5697a` |
+| Env | 16 loops, `MPE_SL_SEAM_WELD=1`, `TAIL_MODE=extend` removed |
+| sl-health | **PASS** |
+| APC bench | **Running** — log shows `stop-then-weld on (scratch loop 15)` |
+
+**Git note:** first `mpe looper deploy` may fail if Pi has untracked census artifacts — run
+`git clean -fd appliance-state/pi5-irq-census-2026-08-23` once, or use updated
+`scripts/looper-deploy.sh` after checkout lands.
+
+**Next:** Mitch ear — defining take close with release ringing; bench log should show
+`seam-weld: saving…` → `seam-weld: done loop N`.
+
 Env on Pi 5 (`/etc/mpe/mpe.env`):
 
 ```bash
