@@ -329,11 +329,20 @@ class LoopFootswitch:
         if self._should_seam_merge():
             log(f"loop {self.loop}: seam merge queued ({reason})")
             self._merge_pending = True
-            accepted = self._on_request_seam_merge(
-                self.loop,
-                lambda: self._after_seam_merge(reason),
-                self.loop_pos if self._loop_pos_seen else None,
-            )
+            try:
+                accepted = self._on_request_seam_merge(
+                    self.loop,
+                    lambda: self._after_seam_merge(reason),
+                    self.loop_pos if self._loop_pos_seen else None,
+                )
+            except Exception as exc:
+                log(
+                    f"loop {self.loop}: seam merge hook failed ({exc!r}) — "
+                    f"finishing without reload"
+                )
+                self._merge_pending = False
+                self._finish_tail_capture(reason)
+                return
             if not accepted:
                 log(
                     f"loop {self.loop}: seam merge declined — finishing without reload"
