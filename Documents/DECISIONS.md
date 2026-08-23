@@ -6,6 +6,39 @@ Orientation canon: OM-Repo [`GROUNDING.md`](https://github.com/opsMachine/OM-Rep
 
 ---
 
+## 2026-08-23 — G2 recalibration spec; Gate 2 now blocks Gate 1
+
+**Ordering change:** **Gate 2 (governor) must close before Gate 1 ship or B3 ear test.** The
+shipping default includes the poly governor; ear-testing with it off certifies a configuration
+that never ships.
+
+**Diagnosis (A2 reference suite, governor off, `dsp_median`):** `MPE_POLY_CPU_HIGH=50.0` sits
+below Cloud Horn @5 clean load (56.9–59.4% at every buffer) — permanent panic and voice steal
+on a healthy patch; likely identity of original "crackle at 512." `CPU_LOW=40.0` is below every
+clean operating point — governor latches and never releases.
+
+**Proposed thresholds (starting point, not result):** `MPE_POLY_CPU_HIGH=78.0`, `MPE_POLY_CPU_LOW=68.0`;
+hold times and headroom unchanged. Reasoning: deadline-relative DSP needs thresholds near the
+deadline, not halfway; HIGH clears max clean (59.4%) with transient margin; LOW at 68 sits above
+every clean median so release is possible.
+
+**Hard rule:** Do **not** set thresholds from reference-suite `dsp_p99` — (1) 25 samples makes
+"p99" the max in disguise; (2) 1 Hz sampling cannot observe 150 ms governor hold events
+(sub-Nyquist).
+
+**Verification (empirical, both arms — same structure as C0 positive/negative controls):**
+- **Negative control:** Cloud Horn @5, 1024×2, governor on — **zero engagements** across 30 min clean play.
+- **Positive control:** Crystals pushed past floor (6+ voices) — governor **must** engage and **release**.
+
+A governor that never fires passes the negative arm trivially; both arms required.
+
+**Dependencies before G2 runs:** (1) X1 governor check — confirm harness must not leave governor on;
+(2) fade implemented and merged — abrupt voice drop fails ear test for a reason unrelated to buffer.
+
+**Prompt:** `docs/measurements/PROMPT-G2-governor-recalibration.md`
+
+---
+
 ## 2026-08-22 — Gates: ship 1024×2 after soak; governor waits on fade
 
 **Gate 1 (Mitch):** Ship **1024×2** for instrument profile after **one overnight soak**
