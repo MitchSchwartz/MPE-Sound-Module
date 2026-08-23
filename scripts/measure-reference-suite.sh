@@ -261,6 +261,8 @@ if tsv.is_file():
             platform, pass_n, cell_id, patch, voices, buffer, periods,
             xruns, dsp_median, dsp_p99, dsp_max, samples, temp, throttle, log,
         ) = line.split("\t")
+        if cell_id == "cell_id":
+            continue
         cells.append({
             "cell_id": cell_id,
             "patch": patch,
