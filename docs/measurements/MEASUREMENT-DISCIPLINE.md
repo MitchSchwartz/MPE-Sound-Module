@@ -21,7 +21,7 @@ error** — usually by an order of magnitude.
 The last one was written *while* documenting the others. **Naming the pattern does not stop
 it. A mechanism does.**
 
-**There is a second pattern, and it is worse — see Rule -1.** It has nine occurrences to this
+**There is a second pattern, and it is worse — see Rule -1.** It has ten occurrences to this
 one's six, and unlike this one it does not announce itself: a promoted inference eventually
 contradicts something, but an instrument that reads clean while blind never does.
 
@@ -37,7 +37,7 @@ reading site there is no way to distinguish *"here is a measurement"* from *"I c
 measure."* A broken instrument and a working one are indistinguishable, so the failure arrives
 as a **result** instead of as an **error** — and gets believed, written up, and acted on.
 
-That is not nine bugs. It is one missing convention, replicated everywhere because nothing
+That is not ten bugs. It is one missing convention, replicated everywhere because nothing
 enforced it.
 
 | date | instrument | returned | should have returned |
@@ -51,6 +51,7 @@ enforced it.
 | 08-22 | V10-b ramp probe | `0` xruns, via `\|\| start=0` swallowing a blind meter | blind-meter error |
 | 08-22 | census `unison_voices` | a plausible integer (summed engine selectors) | unsupported-field error |
 | 08-22 | V11 `dsp_med` | `unknown`, plus idle readings presented as measurements | field + alignment error |
+| 08-22 | reference-suite TSV `printf` | 14 format specifiers for 15 args — `$log` column silently dropped (#104) | format/arg mismatch error |
 
 **The V11 case is the clearest.** `dsp_med` read ~1% at 256x3 across three unrelated patches,
 including a cell with 23 xruns. A cell missing its deadline is at ~100% by definition. The
@@ -71,7 +72,7 @@ assert the counter moves. Run a known load and assert DSP lands in the expected 
 
 **3. Negative control — break it deliberately, assert the harness halts.**
 Kill the meter, stale the state file, rename the field. If the harness still prints a number,
-the instrument is not trustworthy no matter what it reads. **All nine failures above would have
+the instrument is not trustworthy no matter what it reads. **All ten failures above would have
 been caught by this one check.**
 
 **4. Physics assertions on results, automatic and in-harness.**
