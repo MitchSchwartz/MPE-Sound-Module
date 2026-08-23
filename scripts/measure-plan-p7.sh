@@ -95,6 +95,10 @@ clock_assert_idle || exit 1
 # P7 holds governor off — one variable (G2 may have left it on).
 systemctl stop surge-poly-governor.service 2>/dev/null || true
 
+# Baseline must be @ 1800 MHz — apply MPE_CPU_GOVERNOR from appliance env.
+"$SCRIPT_DIR/set-cpu-governor.sh"
+sleep 1
+
 {
     echo "PREDICTION clock_gain_pct=11.1 expect_dsp_p99_drop_pct=~10 if_compute_bound"
     echo "PREDICTION falsifier=dsp_p99_within_baseline_spread -> clock_not_binding"
