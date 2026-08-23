@@ -7,6 +7,7 @@
 # Usage:
 #   sudo ./scripts/measure-reference-suite.sh --platform pi4 [--pass 1] [--artifact-dir DIR]
 #   sudo ./scripts/measure-reference-suite.sh --platform pi4 --no-conformance  # if C0 already passed this session
+#   sudo ./scripts/measure-reference-suite.sh --platform pi4 --pass 1 --finish-json DIR  # re-emit JSON from completed TSV
 #
 # Contract: PROMPT-PI4-CLOSEOUT.md §A2 · PI5-TRANSITION-PLAN.md §1.1
 #
@@ -35,6 +36,7 @@ RUN_CONFORMANCE=1
 SECONDS_HOLD=25
 RUNS=2
 export MPE_EXPECT_SAMPLES=$SECONDS_HOLD
+_finish_json_only=0
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -42,6 +44,7 @@ while [ $# -gt 0 ]; do
         --pass) PASS="${2:?}"; shift 2 ;;
         --artifact-dir) ARTIFACT_DIR="${2:?}"; shift 2 ;;
         --no-conformance) RUN_CONFORMANCE=0; shift ;;
+        --finish-json) ARTIFACT_DIR="${2:?}"; shift 2; _finish_json_only=1 ;;
         -h | --help)
             sed -n '2,12p' "$0"
             exit 0
@@ -90,8 +93,13 @@ _clock_mhz() {
 }
 
 _cpu_model() {
-    awk -F: '/^Model|^Hardware|^CPU implementer/ { gsub(/^ +/, "", $2); print $1"="$2 }' /proc/cpuinfo 2>/dev/null \
-        | paste -sd';' - || echo "unknown"
+    awk -F: '/^Model|^Hardware|^CPU implementer/ {
+        gsub(/[\t\r\n]+/, " ", $2); gsub(/^ +| +$/, "", $2); print $1"="$2
+    }' /proc/cpuinfo 2>/dev/null | paste -sd';' - || echo "unknown"
+}
+
+_json_str() {
+    printf '%s' "${1-}" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))'
 }
 
 _surge_revision() {
@@ -125,11 +133,11 @@ _collect_meta() {
   "pass": ${PASS},
   "recorded_at": "$(date -Is)",
   "machine": "${machine}",
-  "cpu_model": "${model}",
-  "kernel": "${kernel}",
-  "repo_commit": "${repo_commit}",
-  "surge_revision": "${surge}",
-  "jack": $(printf '%s' "$jack" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read().strip()))'),
+  "cpu_model": $(_json_str "$model"),
+  "kernel": $(_json_str "$kernel"),
+  "repo_commit": $(_json_str "$repo_commit"),
+  "surge_revision": $(_json_str "$surge"),
+  "jack": $(_json_str "$jack"),
   "governor": "${governor}",
   "clock_mhz": "${clock}",
   "throttle": "${throttle}",
@@ -273,6 +281,19 @@ out.write_text(json.dumps(meta, indent=2) + "\n")
 print(f"Wrote {out} ({len(cells)} cells)")
 PY
 }
+
+if [ "${_finish_json_only:-0}" -eq 1 ]; then
+    [ -d "$ARTIFACT_DIR" ] || { echo "ERROR: artifact dir missing: ${ARTIFACT_DIR}" >&2; exit 1; }
+    TSV_OUT="${ARTIFACT_DIR}/reference-suite-cells.tsv"
+    JSON_OUT="${ARTIFACT_DIR}/reference-suite-${PLATFORM:-pi4}-pass${PASS}.json"
+    [ -f "$TSV_OUT" ] || { echo "ERROR: missing ${TSV_OUT}" >&2; exit 1; }
+    META_FILE="$(mktemp)"
+    _collect_meta >"$META_FILE"
+    _emit_json "$META_FILE"
+    rm -f "$META_FILE"
+    echo "SENTINEL reference-suite-complete platform=${PLATFORM:-pi4} pass=${PASS} json=${JSON_OUT}"
+    exit 0
+fi
 
 echo "=== reference-suite platform=${PLATFORM} pass=${PASS} $(date -Is) ==="
 echo "artifacts=${ARTIFACT_DIR}"
