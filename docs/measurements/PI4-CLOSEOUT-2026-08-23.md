@@ -43,7 +43,38 @@ substance of the investigation.
 | H3 | Compiler code generation is leaving performance on the table | A3 | **Null, pre-registered.** `-mcpu=cortex-a72` — all nine loaded cells ≤1.19% against a >5% win threshold. |
 | H4 | Real-time scheduling / IRQ placement is the constraint | E1 + IRQ census (archived) | **Closed.** xhci is pinned to CPU0 and not movable on this SoC; core allocation is not a lever here. |
 | H5 | The looper stack is the dominant cost | Looper stack cost, 2026-08-19 | **Refuted, and an earlier claim retracted.** See §3. |
-| H6 | Clock is the binding constraint (overclock converts to headroom) | P7 | **Baseline @1800 done; OC @2000 pending reboot** — see `P7-RESULT-baseline-2026-08-23.md` |
+| H6 | Clock is the binding constraint (overclock converts to headroom) | P7 | **Inconclusive 2026-08-23** — baseline half ~5–8% DSP (unloaded); OC ~34–53% (loaded). Comparison invalid; re-run required. See `P7-RESULT-2026-08-23.md`. |
+
+### 2a. H6 / P7 — ran, and failed on the instrument
+
+P7 executed 2026-08-23. **All 9 overclock cells: 0 xruns at 2000 MHz, `get_throttled` 0x0.**
+Thermals and PSU hold at overclock — a real, if separate, result. Config reverted to stock.
+
+**The comparison is void.** The @1800 baseline arm reported ~5–8% DSP against the OC arm's
+~34–53% for the same patches. A higher clock cannot show more load. Cloud Horn @5 read
+**7.6% baseline → 52.8% OC**; the reference suite has that cell at **56.9%** (1024×2) at
+stock 1800 MHz, governor off. The OC arm is plausible; **the baseline arm was unloaded** —
+the voice hold did not apply.
+
+**Rule −1, occurrence eleven.** The load silently failed to apply, the harness reported a
+plausible-shaped number, and the run exited clean through nine cells. Note that 7.6% is
+*at or below the project's own plausibility floor for 1024* (1024=7.6, 512=12.5,
+256=15.2). **Those floors existed as a concept and were never wired into this harness as an
+assertion.** A pre-flight check rejecting any loaded cell below its buffer's floor would
+have failed this run at minute one. Mechanism over vigilance — same shape as the
+`MPE_EXPECT_SAMPLES` fail-open.
+
+**Not rescued by cross-comparison, deliberately.** The OC arm could be compared against the
+reference suite's validated 1800 MHz figures instead of its own broken baseline: 52.8% vs
+56.9% is −7.2%, against −10% if DSP were perfectly clock-bound at +11.1% clock. That would
+read as substantial-but-incomplete clock scaling. **It is not cited as a result** — different
+day, different harness invocation, buffer configuration of the P7 cells not established.
+Cross-instrument comparison is this project's recurring error class, and doing it to rescue
+a run rather than to answer a question is how it happens. Recorded as a hypothesis with a
+cheap test: **re-run the baseline arm alone with the floor assertion in place; if it lands
+near 56.9%, H6 closes on one ~15-minute cell.**
+
+**H6 therefore remains open.** Clock is neither established nor eliminated as a lever.
 
 **Independent cross-validation of V1.** Stock `dsp_median` rises +2.34 / +2.11 / +2.48 pp
 across 1024→512→256 for Crystals / Duduk / Cloud Horn. The V1 fit predicts ~1.83 pp from
@@ -108,16 +139,17 @@ Recalibrated to `HIGH=78.0` / `LOW=68.0` and verified with both arms:
 | Negative | Cloud Horn @5, 30 min | 0 governor engagements · 8 xruns · `dsp_max` 78.3 |
 | Positive | Crystals @6, 3 min (deliberate overload) | 1 emergency engagement |
 
-**Open question on the negative arm — resolved 2026-08-23 (O4):** `dsp_max` 78.3 exceeded
-`HIGH` 78.0 with zero engagements. **Not a governor bug.** The governor compares
-**`SurgeCpuMonitor` proc/OSC samples** at ~6.7 Hz (`poll_interval=0.15 s`, preferring
-`raw_percent` — see `surge_poly_governor._cpu_sample`). The soak's `dsp_max` is the maximum
-**`jack_cpu_load`** reading over 30 minutes — a different instrument with a different
-denominator (callback time vs period deadline, not `/proc` jiffies). They are **not
-commensurable**; exceeding HIGH on the JACK meter does not imply the governor saw
-`cpu >= 78.0`. The `high` path also requires **0.15 s sustained** load; brief JACK peaks
-need not appear in proc samples. **Margin at HIGH is not 0.3 pp** when stated in JACK
-`dsp_max` terms. Positive arm confirms the governor is not blind.
+**Open question on the negative arm — closed 2026-08-23 (O4):** `dsp_max` 78.3 with
+`HIGH` 78.0 and zero engagements looked like a near-miss. It was not. The governor reads
+**process/OSC CPU** via `SurgeCpuMonitor` at ~6.7 Hz (`poll_interval=0.15 s`,
+`raw_percent` — `surge_poly_governor._cpu_sample`). The soak's `dsp_max` is
+**`jack_cpu_load`** at ~1 Hz — different instrument, different denominator (callback time
+vs period deadline, not `/proc` jiffies), different sampling rate. **78.0 and 78.3 were
+never the same quantity**, so the negative arm did not demonstrate a 0.3 pp margin — it
+demonstrated **non-engagement**, which is weaker and sufficient. G2's `HIGH=78.0` /
+`LOW=68.0` are calibrated against the meter the governor actually reads; that is what
+counts for shipping. Do not audit or tune those thresholds from soak `dsp_max`. The
+positive arm confirms the governor is not blind.
 
 ---
 
@@ -230,15 +262,18 @@ must say so rather than reporting a single ratio.
 
 | # | Item | Why it blocks the close-out | Cost |
 |---|---|---|---|
-| O1 | **P7** — baseline @1800 **done**; OC @2000 **awaiting reboot** | H6 (clock) baseline captured; OC half pending one reboot + `--phase oc`. Artifacts `~/plan-p7-20260823-145330`. See `P7-RESULT-baseline-2026-08-23.md`. | ~15 min remaining |
+| O1 | ~~**P7**~~ | **Ran 2026-08-23; comparison invalid** — OC half clean @2000; baseline half unloaded (~7% vs ~52% Cloud Horn @5). H6 inconclusive; re-run baseline before citing. `P7-RESULT-2026-08-23.md`. | re-run baseline |
+| O1b | ~~**Wire plausibility floors into the load harness**~~ | **Done 2026-08-23.** `measure-latency-run.sh` + `measure-soak-instrument.sh` minute-1 via `mpe_result_assert_loaded_dsp` / `require_fields dsp_median`. | done |
 | O2 | **A4** — reference pass 2 | The only thing that puts an error bar on any Pi4→Pi5 ratio. Was a curiosity about a closed lever; now load-bearing. | one suite pass |
 | O3 | **V12** — buffer compare | The quantified Pi 4 ceiling. No longer a ship decision — it is the close-out's headline measurement. | ~70 min |
-| O4 | ~~**G2 threshold statistic** (§4)~~ | **Resolved 2026-08-23.** Governor uses proc/OSC CPU @ 6.7 Hz; soak `dsp_max` is `jack_cpu_load` — not commensurable. See §4, `G2-RESULT-2026-08-23.md` §O4. | done |
+| O4 | ~~**G2 threshold statistic** (§4)~~ | **Closed 2026-08-23.** Two instruments — governor proc/OSC @ 6.7 Hz vs soak `jack_cpu_load`. Negative arm: non-engagement, not margin. See §4, `G2-RESULT-2026-08-23.md` §O4. | done |
 | O5 | **B3** — steal audibility | The gap in §5e between measured capacity and player-relevant quality. | ear test |
 | O6 | ~~Pi hot-patch not in repo~~ | **Done 2026-08-23.** Pi @ `1c165b9`; soak script matches repo (hot-patch removed). | done |
 
-**O1, O4 and O6 are cheap and should land before V12 runs.** O2 and O3 are the close-out's
-own measurements. O5 is honest to leave open, provided §5e keeps saying so.
+**O4, O6 and O1b are closed.** V12 may proceed. O1 (P7 baseline re-run) is ~15 min,
+out of V12's way — H6 stays open on a boring reason (broken baseline arm), not an
+interesting one. §2 is otherwise closed. The two measurements this document still needs
+for itself are **A4** and **V12**. O5 is honest to leave open, provided §5e keeps saying so.
 
 ---
 
@@ -255,6 +290,7 @@ investigation.
 | Ceilings systematically optimistic | V9 | Pre-registered falsifier fired **against its author**. The defect was variance, not bias. |
 | `unison_voices` scalar | `parse-fxp-metadata.py` | Engine selectors were being summed as voice counts. Fabricated metric, cited in decisions before it was caught. |
 | Governor "correctly quiet" at 50/40 | G2 | Thresholds set below measured clean load — our own configuration confounding our own platform conclusion. |
+| P7 clock comparison (@1800 baseline) | §2a | Load silently failed to apply; harness reported a plausible number below its own plausibility floor and exited clean. |
 
 ---
 

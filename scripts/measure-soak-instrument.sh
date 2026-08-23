@@ -320,6 +320,20 @@ while [ "$minute" -lt "$TOTAL_MIN" ]; do
         echo "SOAK minute=${minute} xruns_minute=${delta} xruns_total=$((cur - START_XR)) meter_live=1 meter_age_s=${METER_AGE_S} governor_engagements=${gov_delta} ${temp} ${throttle}"
     } >>"$OUTPUT"
 
+    if [ "$minute" -eq 1 ] && [ -f "$DSP_RAW" ]; then
+        STAGE=soak-plausibility-minute1
+        if read -r _pl_med _pl_max < <(_dsp_stats "$DSP_RAW"); then
+            if ! mpe_result_assert_loaded_dsp "$BUFFER" "$_pl_med"; then
+                echo "ERROR: plausibility floor failed at soak minute 1 (dsp_median=${_pl_med}%)" >&2
+                exit 1
+            fi
+            echo "SOAK plausibility-ok minute=1 dsp_median=${_pl_med} floor=$(mpe_result_dsp_plausibility_floor "$BUFFER")" >>"$OUTPUT"
+        else
+            echo "ERROR: no DSP samples at minute 1 for plausibility check" >&2
+            exit 1
+        fi
+    fi
+
     if [ $((minute % 60)) -eq 0 ]; then
         hour_delta=$((cur - HOUR_START))
         {
