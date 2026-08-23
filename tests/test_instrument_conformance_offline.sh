@@ -58,6 +58,7 @@ fi
 ok "negative control missing dsp_median halts"
 
 # --- F4: idle 0.9% at 256 fails plausibility floor ---
+MPE_EXPECT_SAMPLES=60
 mpe_result_parse_line "RESULT tag=A-b256-p3-l0-run1 xruns=0 meter_live=1 dsp_median=0.900000 dsp_p99=1.000000 dsp_max=1.100000 samples=60"
 if mpe_result_require_fields dsp_median 2>/dev/null; then
     fail "0.9% at 256 should fail plausibility floor (F4)"
@@ -139,6 +140,14 @@ if mpe_result_require_fields dsp_median 2>/dev/null; then
 fi
 unset MPE_EXPECT_SAMPLES
 ok "plausibility VOID on samples mismatch (S3)"
+
+# --- S9: unset MPE_EXPECT_SAMPLES VOIDs dsp plausibility (fail-closed) ---
+mpe_result_parse_line "RESULT tag=A-b256-p3-l0-run1 xruns=0 meter_live=1 dsp_median=20.000000 samples=60"
+unset MPE_EXPECT_SAMPLES
+if mpe_result_require_fields dsp_median 2>/dev/null; then
+    fail "unset MPE_EXPECT_SAMPLES should VOID dsp plausibility check"
+fi
+ok "plausibility VOID without MPE_EXPECT_SAMPLES (S9)"
 
 # --- S7: non-numeric xruns VOID physics ---
 mpe_result_parse_line "RESULT tag=A-b512-p3-l0-run1 xruns=notnum meter_live=1 dsp_median=10.0 samples=60"
