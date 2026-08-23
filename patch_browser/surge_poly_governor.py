@@ -19,6 +19,11 @@ from patch_browser.surge_playback import (
     read_poly_state,
     send_polylimit,
 )
+from patch_browser.poly_voice_tracker import (
+    fade_actuation_enabled,
+    read_active_voice_count,
+    write_fade_request,
+)
 from patch_browser.ui_prefs import load_ui_preference
 
 Reason = Literal["high", "spike", "emergency", "warm", "recover"]
@@ -149,6 +154,7 @@ class PolyGovernorJournal:
             f"step_down_warm={config.step_down_warm} "
             f"step_up={config.step_up} "
             f"warm_window={config.patch_warm_window_s} "
+            f"fade={int(fade_actuation_enabled())} "
             f"emergency_poly={poly_emergency()}",
             flush=True,
         )
@@ -239,6 +245,11 @@ class SurgePolyGovernor:
 
     Surge voice stealing on limit drop is engine behaviour — see
     docs/measurements/poly-governor-instrumentation-2026-08-21.md (Task C).
+
+    With ``MPE_POLY_GOVERNOR_FADE=1`` (default), step-down requests defer until
+    the MIDI voice tracker reports fewer sounding notes than the target limit,
+    avoiding note-on-triggered ``uber_release`` steals. Emergency still requests
+    proactive MIDI note-offs via ``governor-fade-request.json``.
     """
 
     def __init__(
@@ -278,6 +289,7 @@ class SurgePolyGovernor:
         self._pref_check_counter = 0
         self._enabled = governor_active()
         self._startup_logged = False
+        self._pending_limit: int | None = None
 
     def start(self) -> None:
         if self._thread and self._thread.is_alive():
@@ -340,6 +352,52 @@ class SurgePolyGovernor:
         if isinstance(effective, (int, float)):
             self._effective_poly = clamp_poly_limit(int(effective))
 
+    def _resolve_applicable_limit(
+        self,
+        new_limit: int,
+        *,
+        reason: Reason,
+        old_limit: int | None,
+    ) -> int | None:
+        """Return OSC limit to apply, or None to defer step-down under fade policy."""
+        if not fade_actuation_enabled():
+            return new_limit
+        if old_limit is not None and new_limit >= old_limit:
+            self._pending_limit = None
+            return new_limit
+
+        active = read_active_voice_count()
+        if active <= new_limit:
+            self._pending_limit = None
+            return new_limit
+
+        if reason == "emergency":
+            write_fade_request(release_count=active - new_limit, reason=reason)
+            self._pending_limit = None
+            return new_limit
+
+        self._pending_limit = new_limit
+        return None
+
+    def _try_apply_pending_limit(
+        self,
+        *,
+        cpu: float,
+        raw_cpu: float | None,
+    ) -> None:
+        if self._pending_limit is None or self._effective_poly is None:
+            return
+        if read_active_voice_count() > self._pending_limit:
+            return
+        self._apply_limit(
+            self._pending_limit,
+            reason="high",
+            cpu=cpu,
+            raw_cpu=raw_cpu,
+            held_s=0.0,
+        )
+        self._pending_limit = None
+
     def _apply_limit(
         self,
         new_limit: int,
@@ -356,6 +414,16 @@ class SurgePolyGovernor:
             new_limit = min(new_limit, self._ceiling_poly)
         old_limit = self._effective_poly
         if old_limit is None or old_limit == new_limit:
+            return
+        applicable = self._resolve_applicable_limit(
+            new_limit,
+            reason=reason,
+            old_limit=old_limit,
+        )
+        if applicable is None:
+            return
+        new_limit = applicable
+        if old_limit == new_limit:
             return
         fail_key = (old_limit, new_limit, reason)
         if send_polylimit(self.osc_client, new_limit):
@@ -451,6 +519,8 @@ class SurgePolyGovernor:
         cpu, raw_cpu = self._cpu_sample()
         if cpu is None:
             return
+
+        self._try_apply_pending_limit(cpu=cpu, raw_cpu=raw_cpu)
 
         cfg = self.config
         now = time.monotonic()
