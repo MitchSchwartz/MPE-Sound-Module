@@ -19,6 +19,8 @@ source "$SCRIPT_DIR/lib/mpe-services.sh"
 # shellcheck source=lib/audio-engine.sh
 source "$SCRIPT_DIR/lib/audio-engine.sh"
 # shellcheck source=lib/measurement-result.sh
+# shellcheck source=lib/measure-run-as-user.sh
+source "$SCRIPT_DIR/lib/measure-run-as-user.sh"
 source "$SCRIPT_DIR/lib/measurement-result.sh"
 
 HOURS=8
@@ -37,6 +39,7 @@ QUICK_SELECT="${USER_HOME}/Documents/Surge XT/Patches/Quick Select"
 LOAD_PID=""
 DSP_PID=""
 DSP_RAW=""
+PREFLIGHT_ONLY=0
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -49,6 +52,7 @@ while [ $# -gt 0 ]; do
         --periods) PERIODS="${2:?}"; shift 2 ;;
         --governor) GOVERNOR="${2:?}"; shift 2 ;;
         --label) RUN_LABEL="${2:?}"; shift 2 ;;
+        --preflight-only) PREFLIGHT_ONLY=1; shift ;;
         -h | --help)
             sed -n '2,14p' "$0"
             echo "  --governor on|off   default off (B2); V12 uses on"
@@ -83,14 +87,22 @@ fi
 PATCH_PATH="${QUICK_SELECT}/${PATCH_NAME}.fxp"
 [ -f "$PATCH_PATH" ] || { echo "ERROR: missing $PATCH_PATH" >&2; exit 1; }
 
-# PatchLoader reads MPE_POLY_* from the child process env (not /etc/mpe/mpe.env).
-# Without these exports, governor defaults on and ceiling falls back to 12 → ~33% not ~58%.
-_as_user() {
-    sudo -u "$RUN_AS_USER" env \
-        MPE_POLY_GOVERNOR="${MPE_POLY_GOVERNOR:-0}" \
-        MPE_POLY_CEILING="${MPE_POLY_CEILING:-64}" \
-        MPE_POLY_FLOOR="${MPE_POLY_FLOOR:-64}" \
-        MPE_POLY_GOVERNOR_HEADROOM="${MPE_POLY_GOVERNOR_HEADROOM:-3}" "$@"
+# PatchLoader poly policy: scripts/lib/measure-run-as-user.sh (mpe_as_user)
+MPE_RUN_AS_USER="$RUN_AS_USER"
+MPE_RUN_AS_USER_HOME="$USER_HOME"
+_as_user() { mpe_as_user "$@"; }
+_run_loaded_preflight() {
+    local state_effective
+    echo "SENTINEL preflight-start" >>"$OUTPUT"
+    mpe_assert_poly_state_after_load >>"$OUTPUT" 2>&1 || exit 1
+    state_effective="$(grep -o '"effective_poly"[[:space:]]*:[[:space:]]*[0-9]*' "${USER_HOME}/.patch_browser_poly_state.json" | grep -o '[0-9]*$' || true)"
+    mpe_assert_surge_polylimit_matches_state "$SCRIPT_DIR" "$state_effective" >>"$OUTPUT" 2>&1 || exit 1
+    if [ "$VOICES" -gt 0 ]; then
+        local _pf_min=50
+        case "$BUFFER" in 1024) _pf_min=35 ;; 256) _pf_min=55 ;; esac
+        mpe_preflight_dsp_spot_check "$SCRIPT_DIR" "$VOICES" "$BUFFER" 45 "$_pf_min" >>"$OUTPUT" 2>&1 || exit 1
+    fi
+    echo "SENTINEL preflight-pass" >>"$OUTPUT"
 }
 
 # Command substitution runs mpe_meter_xruns_read in a subshell, so MPE_METER_LAST_AGE_S
@@ -285,6 +297,15 @@ if [ -f "${USER_HOME}/.patch_browser_poly_state.json" ]; then
     echo "poly_state_after_load=$(tr -d '\n' <"${USER_HOME}/.patch_browser_poly_state.json")" >>"$OUTPUT"
 fi
 sleep 1
+
+STAGE=loaded-preflight
+_run_loaded_preflight
+if [ "$PREFLIGHT_ONLY" -eq 1 ]; then
+    SOAK_COMPLETE=1
+    echo "SENTINEL preflight-only-complete" >>"$OUTPUT"
+    echo "Preflight-only pass → ${OUTPUT}"
+    exit 0
+fi
 
 STAGE=start-hold-load
 SOAK_SEC=$((TOTAL_MIN * 60 + 120))
