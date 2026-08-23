@@ -66,6 +66,22 @@ after looper is up ([`archive/looper-p0-latency-calibration.md`](archive/looper-
 
 ---
 
+## Deploy rule (hard)
+
+**Laptop/repo is source of truth. Pi is deploy target only.**
+
+| Do (laptop) | Don't (Pi) |
+|-------------|------------|
+| Commit on `yolo/pi5-looper-seam-wrap` | Edit files under `~/MPE-Module` on Pi |
+| `git push origin yolo/pi5-looper-seam-wrap` | `scp` one-off patches (drifts from git) |
+| `PI_HOST=192.168.1.106 mpe looper deploy yolo/pi5-looper-seam-wrap` | Hand-fix bench/footswitch on Pi and forget to commit |
+| `mpe looper sl-restart` / `sl-bench restart` after deploy | Debug by editing live Python on the appliance |
+
+Partial deploy (e.g. footswitch without bench) **will crash the bench** — see 2026-08-23
+`resume_pos` / `SeamWeldWorker.request` mismatch. Always deploy the **whole branch**.
+
+---
+
 ## Pi 5 bring-up sequence (before ear tests)
 
 1. **SooperLooper on Pi 5** — build eval tree per [`AGENTS.md`](../../AGENTS.md) scoped exception
@@ -75,23 +91,25 @@ after looper is up ([`archive/looper-p0-latency-calibration.md`](archive/looper-
 4. **Bench** — `mpe looper sl-bench restart`; watch log for `seam-weld: done loop N`.
 5. **Spike script** — `scripts/sooperlooper/spike-seam-weld.sh` on Pi.
 
-### Status 2026-08-23 (evening)
+### Status 2026-08-23 (19:10 America/Toronto)
 
 | Step | State |
 |------|--------|
-| Binary | Copied Pi 4 `sooperlooper` → `~/src/sooperlooper-1.7.9/src/` |
-| Runtime deps | `liblo7`, `liblo-tools`, `libsigc++-2.0-0v5`, `librubberband2` (+ friends) |
-| Branch on Pi | `yolo/pi5-looper-seam-wrap` @ `3a5697a` |
-| Env | 16 loops, `MPE_SL_SEAM_WELD=1`, `TAIL_MODE=extend` removed |
-| sl-health | **PASS** |
-| APC bench | **Running** — log shows `stop-then-weld on (scratch loop 15)` |
+| Binary | Copied Pi 4 `sooperlooper` → `~/src/sooperlooper-1.7.9/src/` (native Pi 5 build still todo) |
+| Branch on Pi | **`yolo/pi5-looper-seam-wrap` @ `c955d09`** via `mpe looper deploy` |
+| Seam fixes | `_scratch_started` merge gate; tail max 750 ms; scratch loop 15 peak meter; merge hook crash guard |
+| sl-health | Run before each ear session |
+| APC bench | **`mpe looper sl-bench restart`** after every deploy |
 
-**Git note:** first `mpe looper deploy` may fail if Pi has untracked census artifacts — run
-`git clean -fd appliance-state/pi5-irq-census-2026-08-23` once, or use updated
-`scripts/looper-deploy.sh` after checkout lands.
+**Deploy (canonical):**
 
-**Next:** Mitch ear — defining take close with release ringing; bench log should show
-`seam-weld: saving…` → `seam-weld: done loop N`.
+```bash
+PI_HOST=192.168.1.106 mpe looper deploy yolo/pi5-looper-seam-wrap
+PI_HOST=192.168.1.106 mpe looper sl-bench restart
+```
+
+**Next:** Mitch ear — defining take close with release through wrap; log must show
+`seam merge queued` → `seam-weld: saving` → `seam-weld: done` (no traceback).
 
 Env on Pi 5 (`/etc/mpe/mpe.env`):
 
