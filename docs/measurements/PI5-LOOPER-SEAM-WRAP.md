@@ -71,6 +71,11 @@ after looper is up ([`archive/looper-p0-latency-calibration.md`](archive/looper-
 
 **Laptop/repo is source of truth. Pi is deploy target only.**
 
+**Never deploy `dev` to the Pi looper while seam-wrap ear tests are in flight** — governor
+commits on `dev` do not carry seam-weld fixes; Pi will look like "hard stop, no tail" even
+when `yolo/pi5-looper-seam-wrap` is checked out by name. Always verify:
+`git log -1 --oneline` on Pi matches `origin/yolo/pi5-looper-seam-wrap`.
+
 | Do (laptop) | Don't (Pi) |
 |-------------|------------|
 | Commit on `yolo/pi5-looper-seam-wrap` | Edit files under `~/MPE-Module` on Pi |

@@ -17,8 +17,12 @@ class SeamWeldWorkerTests(unittest.TestCase):
 
         self.assertIn((f"/sl/{SCRATCH_LOOP}/hit", ["undo_all"]), sent)
         self.assertIn((f"/sl/{SCRATCH_LOOP}/set", ["wet", 0.0]), sent)
-        self.assertIn((f"/sl/{SCRATCH_LOOP}/set", ["dry", 0.0]), sent)
         self.assertIn((f"/sl/{SCRATCH_LOOP}/set", ["feedback", 0.0]), sent)
+        self.assertNotIn(
+            (f"/sl/{SCRATCH_LOOP}/set", ["dry", 0.0]),
+            sent,
+            "dry must stay up — it carries input into the record buffer",
+        )
 
     def test_start_scratch_record_reapplies_silence(self) -> None:
         sent: list[tuple[str, list]] = []

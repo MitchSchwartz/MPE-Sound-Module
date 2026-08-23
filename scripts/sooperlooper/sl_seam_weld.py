@@ -21,11 +21,15 @@ SEAM_WELD_ENABLED = os.environ.get("MPE_SL_SEAM_WELD", "1").strip().lower() not 
 SEAM_TMP_DIR = Path(os.environ.get("MPE_SL_SEAM_TMP", "/tmp/mpe-seam-weld"))
 SAVE_POLL_S = float(os.environ.get("MPE_SL_SEAM_SAVE_POLL_S", "0.05"))
 SAVE_TIMEOUT_S = float(os.environ.get("MPE_SL_SEAM_SAVE_TIMEOUT_S", "8.0"))
-# Scratch loop is capture-only — never audible during the live tail pass.
+# Scratch loop is capture-only — mute its live mix, not the record path.
 SCRATCH_CAPTURE_WET = float(os.environ.get("MPE_SL_SCRATCH_CAPTURE_WET", "0"))
-SCRATCH_CAPTURE_DRY = float(os.environ.get("MPE_SL_SCRATCH_CAPTURE_DRY", "0"))
 SCRATCH_CAPTURE_FEEDBACK = float(
     os.environ.get("MPE_SL_SCRATCH_CAPTURE_FEEDBACK", "0")
+)
+# save_loop files smaller than this are empty headers — skip merge.
+MIN_TAIL_WAV_BYTES = int(os.environ.get("MPE_SL_MIN_TAIL_WAV_BYTES", "512"))
+SCRATCH_RECORD_SETTLE_S = float(
+    os.environ.get("MPE_SL_SCRATCH_RECORD_SETTLE_S", "0.05")
 )
 
 
@@ -127,6 +131,15 @@ class SeamWeldWorker:
             )
             self._clear_scratch(scratch_loop)
             return False
+        tail_bytes = tail_wav.stat().st_size if tail_wav.exists() else 0
+        if tail_bytes < MIN_TAIL_WAV_BYTES:
+            self._log(
+                f"seam-weld: scratch tail too small ({tail_bytes} B) — "
+                f"skip merge for loop {main_loop}",
+                flush=True,
+            )
+            self._clear_scratch(scratch_loop)
+            return False
         try:
             merge_tail_at_seam(
                 main_wav,
@@ -161,10 +174,9 @@ class SeamWeldWorker:
         self._send(f"/sl/{scratch_loop}/hit", ["undo_all"])
 
     def _silence_scratch_live(self, scratch_loop: int) -> None:
-        """Keep scratch off common outs while recording — merge is offline only."""
+        """Mute scratch playback in the mix; do not touch dry (record path)."""
         for control, value in (
             ("wet", SCRATCH_CAPTURE_WET),
-            ("dry", SCRATCH_CAPTURE_DRY),
             ("feedback", SCRATCH_CAPTURE_FEEDBACK),
         ):
             self._send(f"/sl/{scratch_loop}/set", [control, float(value)])
@@ -180,3 +192,4 @@ class SeamWeldWorker:
 
     def stop_scratch_record(self, scratch_loop: int = SCRATCH_LOOP) -> None:
         self._send(f"/sl/{scratch_loop}/hit", ["record"])
+        time.sleep(SCRATCH_RECORD_SETTLE_S)
