@@ -6,6 +6,10 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")" && pwd)"
+# shellcheck source=lib/mpe-services.sh
+source "$SCRIPT_DIR/lib/mpe-services.sh"
+# shellcheck source=lib/measure-run-as-user.sh
+source "$SCRIPT_DIR/lib/measure-run-as-user.sh"
 RUN_AS_USER="${MPE_PI_USER:-mitch}"
 USER_HOME="$(getent passwd "$RUN_AS_USER" | cut -d: -f6)"
 ARTIFACT_DIR="${USER_HOME}/plan-v9a-$(date +%Y%m%d-%H%M%S)"
@@ -116,7 +120,7 @@ for name in "${PATCHES[@]}"; do
     confirm_log="${ARTIFACT_DIR}/v9a-confirm-${name// /_}.log"
     : >"$confirm_log"
 
-    sudo -u "$RUN_AS_USER" python3 "$SCRIPT_DIR/load-patch-osc.py" "$fxp"
+    MPE_RUN_AS_USER="$RUN_AS_USER"; MPE_RUN_AS_USER_HOME="$USER_HOME"; mpe_load_patch_osc "$fxp" "$SCRIPT_DIR"
     sleep 1
 
     echo "=== V9-a confirm patch=${name} voices=${confirm_voices} sec=${CONFIRM_SEC} ==="
@@ -145,7 +149,7 @@ for name in "${PATCHES[@]}"; do
         if [ "$step_voices" -ge 1 ]; then
             step_down=1
             echo "=== V9-a step-down patch=${name} voices=${step_voices} (ramp was ${confirm_voices}) ==="
-            sudo -u "$RUN_AS_USER" python3 "$SCRIPT_DIR/load-patch-osc.py" "$fxp"
+            MPE_RUN_AS_USER="$RUN_AS_USER"; MPE_RUN_AS_USER_HOME="$USER_HOME"; mpe_load_patch_osc "$fxp" "$SCRIPT_DIR"
             sleep 1
             step_log="${ARTIFACT_DIR}/v9a-confirm-stepdown-${name// /_}.log"
             : >"$step_log"
