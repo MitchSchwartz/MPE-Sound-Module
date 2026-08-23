@@ -29,7 +29,8 @@ PLATFORM=""
 PASS=1
 ARTIFACT_DIR=""
 RUN_CONFORMANCE=1
-SECONDS_HOLD=25
+# C0 plausibility on loaded cells requires samples>=30 (measurement-result.sh).
+SECONDS_HOLD=30
 RUNS=2
 
 while [ $# -gt 0 ]; do
