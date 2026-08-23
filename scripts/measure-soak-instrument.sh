@@ -118,10 +118,11 @@ _provenance_line() {
     printf '\n'
 }
 
-_count_governor_transitions_since() {
+# Limit drops only — recover/step-up is release, not engagement (G2 negative control).
+_count_governor_engagements_since() {
     local since="$1"
     journalctl -u surge-poly-governor.service --since "$since" --no-pager -o cat 2>/dev/null \
-        | grep -cE 'poly-governor: [0-9]+ -> [0-9]+ reason=' || true
+        | grep -cE 'poly-governor: [0-9]+ -> [0-9]+ reason=(emergency|high|spike|warm)' || true
 }
 
 _kill_dsp_sampler() {
@@ -222,6 +223,7 @@ fi
 
 STAGE=services-stop
 systemctl stop mpe-looper-session.service sl-watchdog.service mpe-sooperlooper.service 2>/dev/null || true
+systemctl stop touch-patch-browser.service patch-browser.service 2>/dev/null || true
 if [ "$GOVERNOR" = off ]; then
     systemctl stop surge-poly-governor.service 2>/dev/null || true
 fi
@@ -293,7 +295,7 @@ while [ "$minute" -lt "$TOTAL_MIN" ]; do
         || date -Is)"
     gov_delta=0
     if [ "$GOVERNOR" = on ]; then
-        gov_delta="$(_count_governor_transitions_since "$minute_since")"
+        gov_delta="$(_count_governor_engagements_since "$minute_since")"
         GOV_TOTAL=$((GOV_TOTAL + gov_delta))
     fi
     if ! _read_meter_xruns; then
