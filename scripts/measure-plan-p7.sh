@@ -26,6 +26,7 @@ EXPECT_OC_MHZ=2000
 PATCHES=(
     "Crystals:3"
     "Cloud Horn:5"
+    "Duduk:3"
 )
 
 while [ $# -gt 0 ]; do
@@ -90,6 +91,9 @@ echo "git=$(git -C "$SCRIPT_DIR/.." rev-parse --short HEAD 2>/dev/null || echo u
 echo "buffer=${BUFFER} periods=${PERIODS} confirm_sec=${CONFIRM_SEC} runs=${BASELINE_RUNS}"
 
 clock_assert_idle || exit 1
+
+# P7 holds governor off — one variable (G2 may have left it on).
+systemctl stop surge-poly-governor.service 2>/dev/null || true
 
 {
     echo "PREDICTION clock_gain_pct=11.1 expect_dsp_p99_drop_pct=~10 if_compute_bound"
