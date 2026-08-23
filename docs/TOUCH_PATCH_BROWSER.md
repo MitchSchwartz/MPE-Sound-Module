@@ -1,6 +1,6 @@
-# Touch Patch Browser (SmartiPi / 5" landscape)
+# Touch Patch Browser (Freenove 5″ / 800×480 landscape)
 
-Fullscreen touch UI for the second Pi + **SmartiPi touch screen** (~5", **landscape**). Same Surge patch library and OSC loading as the encoder/OLED build — touch replaces every hardware control.
+Fullscreen touch UI on the **Freenove 5″ DSI panel** ([B0B455LDKH](https://www.amazon.ca/dp/B0B455LDKH), 800×480 landscape). Same Surge patch library and OSC loading as the encoder/OLED build — touch replaces every hardware control.
 
 **Target resolution:** 800×480 landscape (typical for 5" DSI and HDMI panels). The UI auto-sizes if your panel reports something else — confirm on the Pi with:
 
@@ -57,10 +57,19 @@ Interaction model:
 
 ## Hardware
 
-- Raspberry Pi 5 (or 4) in a SmartiPi (or similar) case with ~5" **landscape** touch panel
-- Most panels: **800×480** via DSI or HDMI+USB touch
-- Same USB audio + MPE MIDI stack as the reference build
-- **No encoder required** on this test rig
+| Piece | Reference spec |
+|-------|----------------|
+| **Panel** | **Freenove 5″ IPS DSI touch** — [B0B455LDKH](https://www.amazon.ca/dp/B0B455LDKH) / FNK0078A, **800×480**, 5-point capacitive |
+| **Touch controller** | **EDT FT5x06** on reference units — kernel driver `edt_ft5x06`; UI reads evdev directly ([`patch_browser/touch_evdev.py`](../patch_browser/touch_evdev.py)) |
+| **Connection** | MIPI DSI ribbon — Pi 5 **CAM/DISP**, Pi 4 **DISPLAY** (no HDMI) |
+| **Display overlay** | `dtoverlay=vc4-kms-dsi-7inch` on reference Pi 4/5 units — verify with `kmsprint \| head` |
+| **Compute** | **Pi 5 recommended** for player builds; Pi 4 = measurement/clone baseline — [`PI5-SESSION-CLOSEOUT-2026-08-23.md`](measurements/PI5-SESSION-CLOSEOUT-2026-08-23.md) |
+| **Pi power** | USB-C PSU **works**. **GPIO 5V/GND recommended** when desk-tethering — frees USB-C for PC connection + `usb-host` audio ([`USB-AUDIO-PASSTHROUGH-SPIKE.md`](USB-AUDIO-PASSTHROUGH-SPIKE.md)) |
+
+- Same USB audio + MPE MIDI stack as the encoder build
+- **No encoder or OLED** on the touch build
+- Optional **SmartiPi Touch** case; Freenove kit includes a desk stand
+- Generic HDMI+USB touch monitors and **7″** panels are **not validated** for this UI
 
 ## Software prerequisites
 
