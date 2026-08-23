@@ -103,6 +103,21 @@ class GovernorV2CurveTests(unittest.TestCase):
         )
 
 
+class GovernorLoadTrackerTests(unittest.TestCase):
+    def test_auto_prefers_proc_when_jack_pegged(self) -> None:
+        tracker = LoadTracker(meter_mode="auto")
+        with (
+            mock.patch.object(tracker, "_read_meter_dsp", return_value=(100.0, 100.0)),
+            mock.patch.object(tracker, "_read_proc_cpu", return_value=42.0),
+            mock.patch.object(tracker, "_read_xruns", return_value=(0, 0)),
+        ):
+            sample = tracker.sample()
+        self.assertIsNotNone(sample)
+        assert sample is not None
+        self.assertEqual(sample.load, 42.0)
+        self.assertEqual(sample.source, "proc")
+
+
 class GovernorV2IntegrationTests(unittest.TestCase):
     @contextmanager
     def _patch_state_file(self, state_path: Path):
