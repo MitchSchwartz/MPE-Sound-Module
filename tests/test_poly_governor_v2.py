@@ -13,7 +13,9 @@ from unittest import mock
 from patch_browser.governor_load import LoadTracker
 from patch_browser.governor_v2 import (
     adaptive_poll_interval,
+    always_on_target_limit,
     continuous_target_limit,
+    normalize_jack_load,
     rate_limited_target,
     rise_bias,
     smoothstep,
@@ -103,19 +105,37 @@ class GovernorV2CurveTests(unittest.TestCase):
         )
 
 
+    def test_always_on_keeps_headroom_at_rest(self) -> None:
+        self.assertEqual(
+            always_on_target_limit(0.0, ceiling=64, floor=4, min_headroom=3),
+            61,
+        )
+
+    def test_always_on_hits_floor_at_full_stress(self) -> None:
+        self.assertEqual(
+            always_on_target_limit(100.0, ceiling=64, floor=4, min_headroom=3, hard=100.0),
+            4,
+        )
+
+    def test_normalize_jack_baseline(self) -> None:
+        self.assertAlmostEqual(normalize_jack_load(85.0, 70.0), 50.0)
+        self.assertAlmostEqual(normalize_jack_load(70.0, 70.0), 0.0)
+
+
 class GovernorLoadTrackerTests(unittest.TestCase):
-    def test_auto_prefers_proc_when_jack_pegged(self) -> None:
-        tracker = LoadTracker(meter_mode="auto")
+    def test_auto_prefers_jack(self) -> None:
+        tracker = LoadTracker(meter_mode="auto", jack_baseline=70.0)
         with (
-            mock.patch.object(tracker, "_read_meter_dsp", return_value=(100.0, 100.0)),
+            mock.patch.object(tracker, "_read_meter_dsp", return_value=(85.0, 85.0)),
             mock.patch.object(tracker, "_read_proc_cpu", return_value=42.0),
             mock.patch.object(tracker, "_read_xruns", return_value=(0, 0)),
         ):
             sample = tracker.sample()
         self.assertIsNotNone(sample)
         assert sample is not None
-        self.assertEqual(sample.load, 42.0)
-        self.assertEqual(sample.source, "proc")
+        self.assertEqual(sample.load, 85.0)
+        self.assertEqual(sample.source, "jack")
+        self.assertAlmostEqual(sample.normalized_load, 50.0)
 
     def test_auto_skips_pegged_jack_without_proc(self) -> None:
         tracker = LoadTracker(meter_mode="auto")
@@ -124,7 +144,10 @@ class GovernorLoadTrackerTests(unittest.TestCase):
             mock.patch.object(tracker, "_read_proc_cpu", return_value=None),
             mock.patch.object(tracker, "_read_xruns", return_value=(0, 0)),
         ):
-            self.assertIsNone(tracker.sample())
+            sample = tracker.sample()
+        self.assertIsNotNone(sample)
+        assert sample is not None
+        self.assertEqual(sample.source, "jack")
 
 
 class GovernorV2IntegrationTests(unittest.TestCase):
@@ -200,9 +223,10 @@ class GovernorV2IntegrationTests(unittest.TestCase):
                             dload_dt=50.0,
                             xruns=0,
                             xrun_delta=0,
+                            normalized_load=35.0,
                         ),
                     ):
-                        governor._tick_v2()
+                        governor._tick_v2_progressive()
             self.assertEqual(sends, [11])
 
 
