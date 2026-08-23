@@ -9,6 +9,10 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")" && pwd)"
+# shellcheck source=lib/mpe-services.sh
+source "$SCRIPT_DIR/lib/mpe-services.sh"
+# shellcheck source=lib/measure-run-as-user.sh
+source "$SCRIPT_DIR/lib/measure-run-as-user.sh"
 # shellcheck source=lib/audio-engine.sh
 source "$SCRIPT_DIR/lib/audio-engine.sh"
 RUN_AS_USER="${MPE_PI_USER:-mitch}"
@@ -80,7 +84,7 @@ _run_config() {
     echo ""
     echo "=== V11 patch=${name} voices=${voices} buffer=${buffer} periods=${periods} ==="
 
-    sudo -u "$RUN_AS_USER" python3 "$SCRIPT_DIR/load-patch-osc.py" "$patch_path"
+    MPE_RUN_AS_USER="$RUN_AS_USER"; MPE_RUN_AS_USER_HOME="$USER_HOME"; mpe_load_patch_osc "$patch_path" "$SCRIPT_DIR"
     sleep 1
 
     "$SCRIPT_DIR/measure-latency-run.sh" \

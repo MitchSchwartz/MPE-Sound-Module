@@ -17,6 +17,10 @@ SECONDS_HOLD=60
 OUTPUT=""
 TAG=""
 BUFFER=1024
+# shellcheck source=lib/mpe-services.sh
+source "$SCRIPT_DIR/lib/mpe-services.sh"
+# shellcheck source=lib/measure-run-as-user.sh
+source "$SCRIPT_DIR/lib/measure-run-as-user.sh"
 PERIODS=3
 ENV_FILE="/etc/mpe/mpe.env"
 
@@ -63,11 +67,14 @@ _set_env_var() {
 }
 
 _set_env_var MPE_POLY_GOVERNOR 0
+_set_env_var MPE_POLY_CEILING 64
+_set_env_var MPE_POLY_FLOOR 64
+mpe_source_appliance_env
 systemctl stop surge-poly-governor.service 2>/dev/null || true
 
 {
     echo "=== measure-confirm-at-voices tag=${TAG} patch=${PATCH_NAME} voices=${VOICES} sec=${SECONDS_HOLD} $(date -Is) ==="
-    sudo -u "$RUN_AS_USER" python3 "$SCRIPT_DIR/load-patch-osc.py" "$PATCH_PATH"
+    MPE_RUN_AS_USER="$RUN_AS_USER"; MPE_RUN_AS_USER_HOME="$USER_HOME"; mpe_load_patch_osc "$PATCH_PATH" "$SCRIPT_DIR"
     sleep 1
 } >>"$OUTPUT"
 
