@@ -72,7 +72,7 @@ Canon: [`Documents/specs/system-hygiene-baseline.md`](../../Documents/specs/syst
 |------|--------------------------|--------|
 | apt/daily, fstrim, logrotate, … timers | **Masked** | masked |
 | **bluetooth** | disabled | disabled |
-| **avahi-daemon** | **still enabled** | disabled |
+| **avahi-daemon** | disabled (hygiene) → **re-enable for mDNS** | **enabled** (player SSH) |
 | **cron** | **still enabled** | disabled |
 | **udisks2** | **still enabled** | disabled |
 | **console-setup / keyboard-setup** | enabled | disabled |
