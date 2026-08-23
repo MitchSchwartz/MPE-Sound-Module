@@ -78,8 +78,10 @@ main() {
       sleep 0.5
     fi
   fi
-  local sl_count
-  sl_count="$(pgrep -c sooperlooper 2>/dev/null || echo 0)"
+  local sl_count=0
+  if pgrep -x sooperlooper >/dev/null 2>&1; then
+    sl_count="$(pgrep -xc sooperlooper)"
+  fi
   if [[ "${sl_count}" -eq 1 ]] && jack_client_visible && record_path_ok && playback_path_ok; then
     log "OK — on JACK, record + playback paths wired"
     exit 0
