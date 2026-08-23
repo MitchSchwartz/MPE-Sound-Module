@@ -1,6 +1,6 @@
 # PROGRESS — canonical thread
 
-**Updated 2026-08-22 23:57 (America/Toronto).** This is the top-level index.
+**Updated 2026-08-23 00:01 (America/Toronto).** This is the top-level index.
 
 ---
 
@@ -34,13 +34,13 @@ See [`docs/PI5-TRANSITION-PLAN.md`](docs/PI5-TRANSITION-PLAN.md).
 | Confirmed floors | Crystals 3, Cloud Horn 5, Duduk 3, Brave New World 3 (all 1024) |
 | **V11 (2026-08-22)** | **512x2 clean for Crystals @3 and Duduk @3** (0/0/0 x3). Cloud Horn @5 marginal. 256x3: Duduk clean, Crystals marginal, Cloud Horn overloaded. **Xrun column stands.** Post-C0 DSP certified. Artifacts `~/plan-v11-20260822-144259/` |
 | **A2 pass 1 (2026-08-22)** | **DONE** — stock binary. JSON `~/reference-suite-pi4-20260822-204559/reference-suite-pi4-pass1.json` (`110977a`). Re-validated offline at `a1e80e3`: 12/12 loaded cells PASS. |
-| **A3 (2026-08-22)** | **DONE — NULL.** a72 suite `~/reference-suite-pi4-a72-20260822-231637/`. No patch beats stock beyond noise; Duduk +0.6–1.2% worse on a72. **Stock kept as control.** Doc: `reference-suite-pi4-a3-a72-comparison-2026-08-22.md` |
+| **A3 (2026-08-22)** | **DONE — NULL (pre-reg &lt;3%).** a72 suite `~/reference-suite-pi4-a72-20260822-231637/`. Same Surge `253f8d86`; no win on any cell; Duduk filter path possibly worse (unresolvable until A4). **Stock kept as control.** Doc: `reference-suite-pi4-a3-a72-comparison-2026-08-22.md` |
 
 **Settled and not to be relitigated:** every xrun on this appliance is a **JACK graph
 overrun**, not an ALSA underrun — the ring has never drained (`W1-VERDICT`). Fixed
 per-callback cost is **a = 0.13 ms** (`V1-VERDICT`). Retired: the 600 us gap, cushion/drain
 model, URB depth/rate, frame alignment, `threadirqs`, `isolcpus`, PREEMPT_RT, the
-single-client refactor, and the unison cost theory (twice).
+single-client refactor, the unison cost theory (twice), and **`-mcpu=cortex-a72`** (A3 null).
 
 **Scope caveat:** every number above is a **Pi 4 fact**. Absolute costs, core allocation, and
 the whole IRQ census are void on a Pi 5 (RP1 moves USB behind PCIe). Retired lines were retired
