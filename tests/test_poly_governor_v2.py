@@ -118,8 +118,9 @@ class GovernorV2CurveTests(unittest.TestCase):
         )
 
     def test_normalize_jack_baseline(self) -> None:
-        self.assertAlmostEqual(normalize_jack_load(85.0, 70.0), 50.0)
+        self.assertAlmostEqual(normalize_jack_load(85.0, 70.0), 15.0)
         self.assertAlmostEqual(normalize_jack_load(70.0, 70.0), 0.0)
+        self.assertAlmostEqual(normalize_jack_load(100.0, 90.0), 10.0)
 
 
 class GovernorLoadTrackerTests(unittest.TestCase):
@@ -135,7 +136,7 @@ class GovernorLoadTrackerTests(unittest.TestCase):
         assert sample is not None
         self.assertEqual(sample.load, 85.0)
         self.assertEqual(sample.source, "jack")
-        self.assertAlmostEqual(sample.normalized_load, 50.0)
+        self.assertAlmostEqual(sample.normalized_load, 15.0)
 
     def test_auto_skips_pegged_jack_without_proc(self) -> None:
         tracker = LoadTracker(meter_mode="auto")
