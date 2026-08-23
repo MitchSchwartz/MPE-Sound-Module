@@ -1,7 +1,7 @@
 # Looper loop seam — tail capture and wrap continuity
 
 **Issue:** untracked  
-**Status:** Approved (P0 + P1); Tier 3 blocked on spike  
+**Status:** Approved (P0 + P1); Tier 3 implementation on branch `yolo/pi5-looper-seam-wrap` (Pi 5 finish)  
 **Last updated:** 2026-08-18 (America/Toronto)
 
 **Register:** working hypothesis unless labelled **measured**. Builds on shipped grid
