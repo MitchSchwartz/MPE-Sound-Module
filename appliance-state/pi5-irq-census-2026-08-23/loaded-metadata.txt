@@ -1,0 +1,22 @@
+=== loaded capture metadata ===
+started: 2026-08-23T17:44:28-04:00
+voices: 24
+duration_s: 60
+jack: pi          3688  0.6  3.1 208064 131920 ?       SLsl 17:33   0:03 jackd -R -P70 -d alsa -P hw:1 -r 48000 -p 128 -n 2
+MPE_JACK_BUFFER=128
+MPE_JACK_SOFTMODE=0
+MPE_JACK_PERIODS=2
+
+=== hardware caveats (operator) ===
+No active cooler fitted; PSU reported 5V/3A (below official 27W/5A).
+Expect thermal and/or undervoltage flags under load — log below.
+
+finished: 2026-08-23T17:45:35-04:00
+throttled_final: throttled=0x0
+
+=== IRQ delta (key lines, loaded minus pre-load counts) ===
+IRQ 111: pre=324216 post=348916 delta=24700
+IRQ 131: pre=319975 post=345111 delta=25136
+IRQ 148: pre=105705 post=113751 delta=8046
+IRQ 161: pre=16137 post=16303 delta=166
+IRQ 162: pre=74394 post=79395 delta=5001
