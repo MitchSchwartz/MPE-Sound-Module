@@ -57,6 +57,10 @@ class GovernorV2CurveTests(unittest.TestCase):
         self.assertAlmostEqual(rise_bias(20.0, full_rate=40.0, max_bias=12.0), 6.0)
         self.assertAlmostEqual(rise_bias(40.0, full_rate=40.0, max_bias=12.0), 12.0)
 
+    def test_rise_bias_min_rate_deadband(self) -> None:
+        self.assertEqual(rise_bias(15.0, full_rate=65.0, max_bias=8.0, min_rate=20.0), 0.0)
+        self.assertAlmostEqual(rise_bias(32.5, full_rate=65.0, max_bias=8.0, min_rate=20.0), 4.0)
+
     def test_rate_limiter_blocks_fast_step_down(self) -> None:
         now = 100.0
         blocked = rate_limited_target(
