@@ -117,6 +117,15 @@ class GovernorLoadTrackerTests(unittest.TestCase):
         self.assertEqual(sample.load, 42.0)
         self.assertEqual(sample.source, "proc")
 
+    def test_auto_skips_pegged_jack_without_proc(self) -> None:
+        tracker = LoadTracker(meter_mode="auto")
+        with (
+            mock.patch.object(tracker, "_read_meter_dsp", return_value=(100.0, 100.0)),
+            mock.patch.object(tracker, "_read_proc_cpu", return_value=None),
+            mock.patch.object(tracker, "_read_xruns", return_value=(0, 0)),
+        ):
+            self.assertIsNone(tracker.sample())
+
 
 class GovernorV2IntegrationTests(unittest.TestCase):
     @contextmanager
