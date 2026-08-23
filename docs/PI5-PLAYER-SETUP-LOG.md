@@ -2,7 +2,16 @@
 
 *Last updated: 2026-08-23 (America/Toronto)*
 
-**Purpose:** Every step needed to go from a fresh Pi 5 SD card to a **working touch player** that matches the live Pi 4 — not the measurement suite track ([`PI5-BRINGUP-RUNBOOK.md`](PI5-BRINGUP-RUNBOOK.md)).
+**Purpose:** Every step needed to go from a fresh Pi 5 SD card to a **working touch player** that matches the live Pi 4.
+
+**Two tracks — do not mix before platform comparison lands:**
+
+| Track | Doc | Tier 3 touch UI | cmdline `irqaffinity` | When |
+|-------|-----|-----------------|----------------------|------|
+| **Day 0 / measurement** | [`PROMPT-PI5-DAY0.md`](measurements/PROMPT-PI5-DAY0.md) §1a | **Skip** | **Skip** (census only) | Before Suite 1 |
+| **Player (this log)** | This file | **Install** | **Required** for `mpe-jackd` | Daily instrument |
+
+Measurement runbook: [`PI5-BRINGUP-RUNBOOK.md`](PI5-BRINGUP-RUNBOOK.md).
 
 **Worked example:** `raspberrypi5` · user `pi` · Pi 4 remains `raspberrypi2` · user `mitch`.
 
@@ -61,17 +70,18 @@ Default `~/.config/mpe/mpe.env` → whichever board is the daily player.
 
 Run on the **new Pi** (SSH as its user).
 
+**Day 0 first (measurement path only):** `scripts/install-pi5-day0-tier1.sh` — build/JACK deps, no touch UI. See [`PROMPT-PI5-DAY0.md`](measurements/PROMPT-PI5-DAY0.md) §1a.
+
 | Step | Command / action | Verify |
 |------|------------------|--------|
 | B1 | `sudo apt update && sudo apt install -y git rsync` | — |
 | B2 | Clone repo: `git clone https://github.com/MitchSchwartz/MPE-Sound-Module.git ~/MPE-Module && cd ~/MPE-Module && git checkout dev` | No deploy key on appliance — anonymous HTTPS pull only ([`PI-GITHUB-ACCESS.md`](PI-GITHUB-ACCESS.md)) |
 | B3 | **Deploy from laptop** (Surge binary + factory patches + MPE-Library): `MPE_PERSONAL_REPO=/path/to/MPE-Library ./scripts/deploy-all.sh` with `config/mpe.env` pointing at Pi 5 | `~/surge/build/surge_xt_products/surge-xt-cli --version` |
 | B4 | `echo 'MPE_UI_MODE=touch' >> ~/MPE-Module/config/mpe.env` | — |
-| B5 | `./scripts/setup-touch-pi.sh` | Installs pygame/SDL, pip deps, udev, systemd |
-| B6 | **`pip3 install --break-system-packages -r requirements.txt`** if setup skipped or failed | `pip3 show python-rtmidi` → must exist |
-| B7 | **Extra apt packages** (Trixie Lite gaps hit on 2026-08-23 — not all pulled in by setup-touch-pi): | — |
-| | `sudo apt install -y jackd2 libegl1 libegl-mesa0 libgles2 libgl1-mesa-dri mesa-vulkan-drivers` | `jackd --version`; touch UI starts without `EGL not initialized` |
-| B8 | `./scripts/configure-pi-paths.sh --local --force` | `systemctl list-unit-files \| grep mpe` |
+| B5 | **`scripts/install-pi5-player-tier3.sh`** (touch UI + `python3-rtmidi` via apt — not pip) | `dpkg-query -W python3-rtmidi`; pygame imports |
+| B5alt | Or `./scripts/setup-touch-pi.sh` (legacy — may still pip-install rtmidi; prefer B5) | — |
+| B6 | `./scripts/configure-pi-paths.sh --local --force` | `systemctl list-unit-files \| grep mpe` |
+| B7 | **`scripts/apply-player-env-parity.sh`** — Pi 4 tuning keys into `/etc/mpe/mpe.env` | No `RTMIDI_API` line; `MPE_PEAK_METER=1` |
 
 ---
 
@@ -92,20 +102,27 @@ Without C7 graphics packages, `touch-patch-browser` dies with `EGL not initializ
 
 ## D. `/etc/mpe/mpe.env` — match Pi 4 player
 
-After `configure-pi-paths.sh`, edit **`/etc/mpe/mpe.env`**. Critical keys discovered during bringup:
+After `configure-pi-paths.sh`, run **`scripts/apply-player-env-parity.sh`** (merges
+`config/platform/player-env-parity.env`). Or edit **`/etc/mpe/mpe.env`** manually.
 
 | Key | Pi 4 value | Wrong on fresh Pi 5 | Symptom if wrong |
 |-----|------------|---------------------|------------------|
 | `MPE_FAVORITES_NAME` | `"Quick Select"` | `"!Quick Access"` (template default) | Empty / wrong favorites tab |
 | `MPE_PEAK_METER` | `1` | `0` | OUT meter shows **−** |
-| `MPE_JACK_BUFFER` | `1024` | `256` | Different latency (optional for player) |
+| `MPE_JACK_BUFFER` | `1024` | `256` / `512` | Different latency |
 | `MPE_JACK_SOFTMODE` | `0` | — | — |
 | `MPE_CPU_GOVERNOR` | `performance` | — | — |
-| `RTMIDI_API` | `alsa` | *(unset → RtMidi tries JACK)* | Roli silent; remapper: `Midi Through Port-0 not found in RtMidi outputs: []` |
+| `MPE_POLY_GOVERNOR` + ceiling/floor | `1` / `64` / `64` | missing | Poly behaviour differs |
+| **`RTMIDI_API`** | **unset** | `alsa` (wrong workaround) | Pip rtmidi + wrong backend; remapper empty outputs |
+
+**MIDI matches Pi 4:** apt **`python3-rtmidi`**, no `RTMIDI_API`. JACK is **audio only**; MIDI is
+`LUMI → mpe-pressure-remap → ALSA Midi Through → Surge`.
 
 ```bash
-sudo systemctl enable mpe-peak-meter.service   # only when MPE_PEAK_METER=1
-sudo systemctl restart mpe-jackd surge-xt-cli touch-patch-browser mpe-peak-meter
+sudo apt install -y python3-rtmidi
+pip3 uninstall -y python-rtmidi 2>/dev/null || true   # remove pip copy if present
+sudo systemctl enable mpe-peak-meter.service   # when MPE_PEAK_METER=1
+sudo systemctl restart mpe-pressure-remap mpe-jackd surge-xt-cli touch-patch-browser mpe-peak-meter
 ```
 
 ---
@@ -153,13 +170,13 @@ Long-term: `scripts/backup-appliance-state.sh` → commit `appliance-state/calib
 
 ## F. ROLI / MIDI chain
 
-**Architecture:** `LUMI USB → mpe-pressure-remap → Midi Through → Surge`
+**Architecture (same on Pi 4 and Pi 5):** `LUMI USB → mpe-pressure-remap → ALSA Midi Through → Surge`
 
 | Step | Verify |
 |------|--------|
 | Plug LUMI into **Pi 5 USB** (not Pi 4) | `lsusb \| grep 2af4` |
-| `python-rtmidi` installed | `pip3 show python-rtmidi` |
-| `RTMIDI_API=alsa` in `/etc/mpe/mpe.env` | remapper journal must **not** show JackClient errors |
+| **`python3-rtmidi` via apt** | `dpkg-query -W python3-rtmidi`; **no** pip `python-rtmidi` |
+| **No `RTMIDI_API` in `/etc/mpe/mpe.env`** | Pi 4 leaves it unset |
 | udev rule present | `/etc/udev/rules.d/99-roli-seaboard.rules` |
 | Remapper running | `systemctl status mpe-pressure-remap` → **active**; log: `Listening: LUMI Keys BLOCK MIDI 1` |
 | Surge input | `grep "Midi Through" ~/surge-cli.log` |
@@ -203,14 +220,12 @@ Human checks: patch browser on DSI, OUT meter moves, LUMI plays with matched lou
 
 Steps that **`setup-touch-pi.sh` / `deploy-all.sh` do not yet cover** — add here when fixed:
 
-1. **`jackd2`** — not installed by setup-touch-pi; JACK fails silently until apt install.
-2. **EGL/GLES/Mesa stack** — `libegl1`, `libegl-mesa0`, `libgles2`, `mesa-vulkan-drivers`, `libgl1-mesa-dri` for pygame kmsdrm on Trixie Pi 5.
-3. **`requirements.txt` / `python-rtmidi`** — must run pip after setup; remapper hard-fails without it.
-4. **`RTMIDI_API=alsa`** — should be in appliance env template or `mpe-pressure-remap.service` Environment=.
-5. **`MPE_FAVORITES_NAME`** — template defaults to `!Quick Access`; Pi 4 uses `Quick Select` — align `config/mpe.env.example`.
-6. **`MPE_PEAK_METER=1`** — enable unit when flag set (Pi 5 got `0` from a partial pi4 parity paste).
-7. **User state sync** — no single script yet for ui + normalization + pressure + quick-select; candidates: extend `deploy-all.sh` step 7 or `scripts/sync-player-state-from-pi4.sh`.
-8. **Two-Pi laptop config** — document in `mpe-cli` README (`mpe.env.pi4` / `mpe.env.pi5` pattern).
+1. **`install-pi5-day0-tier1.sh`** — day-0 apt + jackd RT verify (player track can reuse jackd2 from Tier 3).
+2. **`install-pi5-player-tier3.sh`** — touch/SDL/EGL + apt `python3-rtmidi` (skip on day 0).
+3. **`apply-player-env-parity.sh`** — Pi 4 tuning keys; explicitly omits `RTMIDI_API`.
+4. **`MPE_FAVORITES_NAME`** — template defaults to `!Quick Access`; Pi 4 uses `Quick Select`.
+5. **User state sync** — no single script yet for ui + normalization + pressure + quick-select.
+6. **Two-Pi laptop config** — document in `mpe-cli` README (`mpe.env.pi4` / `mpe.env.pi5` pattern).
 
 ---
 
@@ -229,6 +244,12 @@ Steps that **`setup-touch-pi.sh` / `deploy-all.sh` do not yet cover** — add he
 |-----|-----|
 | [`BUILD-FROM-ZERO.md`](BUILD-FROM-ZERO.md) | Generic greenfield |
 | [`PI5-BRINGUP-RUNBOOK.md`](PI5-BRINGUP-RUNBOOK.md) | Measurement / overnight suites |
+| [`measurements/PROMPT-PI5-DAY0.md`](measurements/PROMPT-PI5-DAY0.md) | Day 0 tiers, RT kernel asymmetry, skip Tier 3 |
+| [`scripts/install-pi5-day0-tier1.sh`](../scripts/install-pi5-day0-tier1.sh) | Tier 1 apt + jackd RT verify |
+| [`scripts/install-pi5-player-tier3.sh`](../scripts/install-pi5-player-tier3.sh) | Touch UI + apt rtmidi (after comparison) |
+| [`scripts/apply-player-env-parity.sh`](../scripts/apply-player-env-parity.sh) | Pi 4 env keys into `/etc/mpe/mpe.env` |
+| [`scripts/verify-jack-rt-limits.sh`](../scripts/verify-jack-rt-limits.sh) | RT priority / audio group check |
+| [`config/platform/player-env-parity.env`](../config/platform/player-env-parity.env) | Parity key source |
 | [`scripts/backup-appliance-state.sh`](../scripts/backup-appliance-state.sh) | Pull calibration into repo |
 | [`scripts/restore-quick-select.py`](../scripts/restore-quick-select.py) | Restore Quick Select folder |
 | [`Documents/specs/system-hygiene-baseline.md`](../Documents/specs/system-hygiene-baseline.md) | Roli detection / remapper behaviour |
