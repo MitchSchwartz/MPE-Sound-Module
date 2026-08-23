@@ -60,6 +60,7 @@ after looper is up ([`archive/looper-p0-latency-calibration.md`](archive/looper-
 |---------|--------------|-------------|
 | Release tail missing | Peak meter / merge skip / scratch mis-align | Tune `MPE_SL_TAIL_*`; log peak during weld |
 | Jump to loop head after weld | `load_loop` + `trigger` playhead reset | Confirm `pause_off` + `trigger` sequence; ear |
+| **Crackle / level rise during live tail** | Scratch loop 15 monitored while recording; `undo_all` at stop | **2026-08-23:** silence scratch wet/dry/feedback; defer prepare until PLAYING |
 | `save_loop` timeout | Wedged engine (B8 history) | **`mpe looper sl-health`** before every merge test |
 | HUD bar count wrong during tail | Scratch loop in phrase ref | Fixed in `sl_hud_monitor` — regression test |
 | Seam weld busy drop | Overlapping closes | Log + guard in bench |
