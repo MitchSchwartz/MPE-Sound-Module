@@ -615,6 +615,10 @@ _run_window() {
         echo "ERROR: physics assertion failed for ${tag}" >&2
         return 1
     fi
+    if ! mpe_result_require_fields dsp_median; then
+        echo "ERROR: plausibility floor failed for ${tag}" >&2
+        return 1
+    fi
 
     {
         echo "RESULT tag=${tag} xruns=${total_xr} meter_live=1 meter_max_age_s=${_meter_max_age_s} dsp_median=${dsp_median} dsp_p99=${dsp_p99} dsp_max=${dsp_max} window_align=${_window_align}"
