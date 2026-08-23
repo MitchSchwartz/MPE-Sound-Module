@@ -182,17 +182,21 @@ and leave — but **nothing else may touch the Pi while it runs.**
 
 **Status (2026-08-23): PASS** — see `b2-soak-gate1-2026-08-23.md`.
 
-### G2. Governor recalibration and re-enable (~30 min + Mitch ear)
+### G2. Governor recalibration and re-enable (~30 min)
 
-`PROMPT-G2-governor-recalibration.md`. **Blocks Gate 1 ship and B3.** Proposed thresholds
-78/68 (not derived from suite `dsp_p99`). Empirical verification: 30 min clean Cloud Horn @5
-with zero engagements (negative control), then Crystals past floor must engage and release
-(positive control). Depends on fade landing and X1 governor check.
+`PROMPT-G2-governor-recalibration.md`. Proposed thresholds 78/68; empirical verify both control
+arms. Depends on fade landing and X1 governor check.
+
+### V12. Buffer rate comparison (~70 min, Mitch approval)
+
+`PROMPT-V12-certify-buffer.md`. **After G2.** Two 30-minute arms (`1024×2` vs `512×2`), governor
+on, Cloud Horn @5. Answers how much worse the lower latency is — not whether either is "clean."
+No PASS/FAIL reporting. Reuse soak harness; stamp governor state.
 
 ### B3. Ear test (~10 min, Mitch only)
 
-Confirm the instrument still sounds correct at **1024×2 with governor on** before it becomes the
-shipping default. **Invalid until G2 closes** — numbers improving is necessary, not sufficient.
+Audibility acceptance at the config V12 recommends, **governor on**. **Invalid until G2 and V12
+close.** Numbers necessary, not sufficient.
 
 ---
 
