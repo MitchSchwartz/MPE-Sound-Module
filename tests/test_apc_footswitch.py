@@ -484,6 +484,23 @@ class TailCaptureTests(unittest.TestCase):
         self.assertFalse(fs._tail_capture)
         self.assertEqual(len(merged), 1)
 
+    def test_stop_scratch_does_not_clear_merge_flag(self) -> None:
+        fs = LoopFootswitch(loop=0, hold_ms=1000.0, debounce_ms=0.0)
+        fs.bind(MagicMock(), MagicMock(), 36)
+        fs.set_seam_weld_hooks(
+            on_prepare_scratch=lambda loop: None,
+            on_start_scratch=lambda loop: None,
+            on_stop_scratch=lambda loop: None,
+            on_request_merge=lambda loop, done, resume_pos=None: True,
+        )
+        fs._tail_capture = True
+        fs._tail_stop_sent = True
+        fs._scratch_active = True
+        fs._scratch_started = True
+        fs._stop_scratch_capture()
+        self.assertTrue(fs._scratch_started)
+        self.assertTrue(fs._should_seam_merge())
+
     def test_grid_clock_deferred_until_tail_weld_finishes(self) -> None:
         from scripts.sooperlooper.sl_grid_state import GridState
 

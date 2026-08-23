@@ -226,7 +226,8 @@ class LoopFootswitch:
         if not self._scratch_active:
             return
         self._scratch_active = False
-        self._scratch_started = False
+        # Keep _scratch_started until merge decision — _end_tail_capture stops
+        # scratch before _should_seam_merge() runs.
         if self._on_stop_scratch is not None:
             self._on_stop_scratch(self.loop)
         log(f"loop {self.loop}: scratch tail record stopped (loop {SCRATCH_LOOP})")
