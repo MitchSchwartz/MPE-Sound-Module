@@ -83,7 +83,16 @@ fi
 PATCH_PATH="${QUICK_SELECT}/${PATCH_NAME}.fxp"
 [ -f "$PATCH_PATH" ] || { echo "ERROR: missing $PATCH_PATH" >&2; exit 1; }
 
-_as_user() { sudo -u "$RUN_AS_USER" -- "$@"; }
+# PatchLoader reads MPE_POLY_* from the child process env (not /etc/mpe/mpe.env).
+# Without these exports, governor defaults on and ceiling falls back to 12 → ~33% not ~58%.
+_as_user() {
+    sudo -u "$RUN_AS_USER" env \
+        MPE_POLY_GOVERNOR="${MPE_POLY_GOVERNOR:-0}" \
+        MPE_POLY_CEILING="${MPE_POLY_CEILING:-64}" \
+        MPE_POLY_FLOOR="${MPE_POLY_FLOOR:-64}" \
+        MPE_POLY_GOVERNOR_HEADROOM="${MPE_POLY_GOVERNOR_HEADROOM:-3}" \
+        -- "$@"
+}
 
 # Command substitution runs mpe_meter_xruns_read in a subshell, so MPE_METER_LAST_AGE_S
 # is lost before the log line — set -u then aborts (occurrence eleven, 2026-08-23).
@@ -112,6 +121,8 @@ _provenance_line() {
     printf ' MPE_POLY_CPU_HIGH_HOLD_S=%s' "$(_env_readback MPE_POLY_CPU_HIGH_HOLD_S)"
     printf ' MPE_POLY_CPU_LOW_HOLD_S=%s' "$(_env_readback MPE_POLY_CPU_LOW_HOLD_S)"
     printf ' MPE_POLY_GOVERNOR_HEADROOM=%s' "$(_env_readback MPE_POLY_GOVERNOR_HEADROOM)"
+    printf ' MPE_POLY_CEILING=%s' "$(_env_readback MPE_POLY_CEILING)"
+    printf ' MPE_POLY_FLOOR=%s' "$(_env_readback MPE_POLY_FLOOR)"
     printf ' surge-poly-governor=%s' "$svc"
     if [ -n "$RUN_LABEL" ]; then
         printf ' label=%s' "$RUN_LABEL"
@@ -230,7 +241,11 @@ if [ "$GOVERNOR" = on ]; then
     _set_env_var MPE_POLY_GOVERNOR 1
 else
     _set_env_var MPE_POLY_GOVERNOR 0
+    # Match reference / capacity harnesses — native poly, no touch ceiling 12.
+    _set_env_var MPE_POLY_CEILING 64
+    _set_env_var MPE_POLY_FLOOR 64
 fi
+mpe_source_appliance_env
 
 STAGE=services-stop
 systemctl stop mpe-looper-session.service sl-watchdog.service mpe-sooperlooper.service 2>/dev/null || true
@@ -267,6 +282,9 @@ sleep 2
 
 STAGE=load-patch
 _as_user python3 "$SCRIPT_DIR/load-patch-osc.py" "$PATCH_PATH"
+if [ -f "${USER_HOME}/.patch_browser_poly_state.json" ]; then
+    echo "poly_state_after_load=$(tr -d '\n' <"${USER_HOME}/.patch_browser_poly_state.json")" >>"$OUTPUT"
+fi
 sleep 1
 
 STAGE=start-hold-load
