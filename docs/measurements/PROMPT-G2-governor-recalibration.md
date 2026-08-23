@@ -115,7 +115,8 @@ Log, per minute: whether the governor engaged, how many voices it stole, xruns, 
 Then the opposite arm, briefly: **deliberately exceed the floor** (Crystals at 6+ voices) and
 confirm the governor **does** engage and **does** release afterwards. A governor that never fires
 passes the first test trivially — **both arms are required**, exactly as C0's positive and
-negative controls are.
+negative controls are (`PROMPT-C0-instrument-conformance.md` — force a known overrun, then confirm
+clean play produces zero).
 
 **Anything longer than 30 minutes needs Mitch's explicit approval** with the event-rate
 arithmetic. It should not be needed here: engagement is a per-second event, not a 2/min one.
