@@ -7,7 +7,6 @@
 # Usage:
 #   sudo ./scripts/measure-reference-suite.sh --platform pi4 [--pass 1] [--artifact-dir DIR]
 #   sudo ./scripts/measure-reference-suite.sh --platform pi4 --no-conformance  # if C0 already passed this session
-#   sudo ./scripts/measure-reference-suite.sh --platform pi4 --pass 1 --finish-json DIR  # re-emit JSON from completed TSV
 #
 # Contract: PROMPT-PI4-CLOSEOUT.md §A2 · PI5-TRANSITION-PLAN.md §1.1
 #
@@ -211,7 +210,7 @@ _run_cell() {
 
     IFS=$'\t' read -r xr dsp_med dsp_p99 dsp_max samples temp thr < <(_parse_last_run "$log" "$relaxed")
 
-    printf '%s\t%s\t%s\t%s\t%d\t%d\t%d\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+    printf '%s\t%s\t%s\t%s\t%d\t%d\t%d\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
         "$PLATFORM" "$PASS" "$cell_id" "${patch:-silence}" "$voices" "$buffer" "$periods" \
         "$xr" "$dsp_med" "$dsp_p99" "$dsp_max" "$samples" "$temp" "$thr" "$log" \
         >>"$TSV_OUT"
@@ -284,11 +283,38 @@ print(f"Wrote {out} ({len(cells)} cells)")
 PY
 }
 
+_rebuild_tsv_from_cell_logs() {
+    local log_path base cell_id patch voices buffer periods relaxed
+    local xr dsp_med dsp_p99 dsp_max samples temp thr
+    printf 'platform\tpass\tcell_id\tpatch\tvoices\tbuffer\tperiods\txruns\tdsp_median\tdsp_p99\tdsp_max\tsamples\ttemp\tthrottle\tlog\n' >"$TSV_OUT"
+    while IFS= read -r log_path; do
+        [ -f "$log_path" ] || continue
+        base="$(basename "$log_path" .log)"
+        if [[ "$base" =~ ^cell-([^-]+)-(.*)-b([0-9]+)-p([0-9]+)-v([0-9]+)$ ]]; then
+            cell_id="${BASH_REMATCH[1]}"
+            patch="${BASH_REMATCH[2]//_/ }"
+            buffer="${BASH_REMATCH[3]}"
+            periods="${BASH_REMATCH[4]}"
+            voices="${BASH_REMATCH[5]}"
+        else
+            echo "WARN: skip unparseable ${log_path}" >&2
+            continue
+        fi
+        relaxed=0
+        [ "$voices" -eq 0 ] && relaxed=1
+        IFS=$'\t' read -r xr dsp_med dsp_p99 dsp_max samples temp thr < <(_parse_last_run "$log_path" "$relaxed")
+        printf '%s\t%s\t%s\t%s\t%d\t%d\t%d\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+            "$PLATFORM" "$PASS" "$cell_id" "$patch" "$voices" "$buffer" "$periods" \
+            "$xr" "$dsp_med" "$dsp_p99" "$dsp_max" "$samples" "$temp" "$thr" "$log_path" \
+            >>"$TSV_OUT"
+    done < <(find "$ARTIFACT_DIR" -maxdepth 1 -name 'cell-*.log' | sort)
+}
+
 if [ "${_finish_json_only:-0}" -eq 1 ]; then
     [ -d "$ARTIFACT_DIR" ] || { echo "ERROR: artifact dir missing: ${ARTIFACT_DIR}" >&2; exit 1; }
     TSV_OUT="${ARTIFACT_DIR}/reference-suite-cells.tsv"
     JSON_OUT="${ARTIFACT_DIR}/reference-suite-${PLATFORM:-pi4}-pass${PASS}.json"
-    [ -f "$TSV_OUT" ] || { echo "ERROR: missing ${TSV_OUT}" >&2; exit 1; }
+    _rebuild_tsv_from_cell_logs
     META_FILE="$(mktemp)"
     _collect_meta >"$META_FILE"
     _emit_json "$META_FILE"
