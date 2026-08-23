@@ -2,6 +2,7 @@
 # Instrument-only long-window hold — Gate 1 overnight soak (default) or V12 certification arm.
 #
 # Default: Cloud Horn @ 5 voices, 1024×2, 8 h, governor off.
+# Loaded plausibility: every soak minute (per-minute jack_cpu_load window).
 #
 # Usage:
 #   sudo ./scripts/measure-soak-instrument.sh [--hours 8] [--minutes 30] [--output FILE] \
@@ -137,14 +138,24 @@ _kill_dsp_sampler() {
     DSP_PID=""
 }
 
-_dsp_stats() {
+_dsp_jack_line_count() {
     local raw="$1"
-    awk '
+    [ -f "$raw" ] || { echo 0; return 0; }
+    awk '/^jack DSP load / { c++ } END { print c+0 }' "$raw"
+}
+
+_dsp_stats() {
+    local raw="$1" since_line="${2:-0}"
+    awk -v since="$since_line" '
         function take(v) {
             if (v != "?" && v+0 > 0 && v+0 <= 200) { a[++n]=v+0 }
         }
-        /^[[:space:]]+[0-9]+/ { take($2) }
-        /^jack DSP load / { take($NF) }
+        /^[[:space:]]+[0-9]+/ {
+            if (++ln > since) { take($2) }
+        }
+        /^jack DSP load / {
+            if (++ln > since) { take($NF) }
+        }
         END {
             if (n==0) { print "0 0"; exit 1 }
             for (i=1;i<=n;i++) {
@@ -286,9 +297,12 @@ prev_xr="$START_XR"
 HOUR_START="$START_XR"
 GOV_TOTAL=0
 LOOP_START_EPOCH="$(date +%s)"
+DSP_MARK=0
+SOAK_MINUTE1_DSP_MED=""
 
 while [ "$minute" -lt "$TOTAL_MIN" ]; do
     STAGE=soak-loop-minute
+    DSP_MARK="$(_dsp_jack_line_count "$DSP_RAW")"
     sleep 60
     minute=$((minute + 1))
     minute_since="$(date -d "@$((LOOP_START_EPOCH + (minute - 1) * 60))" -Is 2>/dev/null \
@@ -320,16 +334,24 @@ while [ "$minute" -lt "$TOTAL_MIN" ]; do
         echo "SOAK minute=${minute} xruns_minute=${delta} xruns_total=$((cur - START_XR)) meter_live=1 meter_age_s=${METER_AGE_S} governor_engagements=${gov_delta} ${temp} ${throttle}"
     } >>"$OUTPUT"
 
-    if [ "$minute" -eq 1 ] && [ -f "$DSP_RAW" ]; then
-        STAGE=soak-plausibility-minute1
-        if read -r _pl_med _pl_max < <(_dsp_stats "$DSP_RAW"); then
+    if [ -f "$DSP_RAW" ]; then
+        STAGE=soak-plausibility-minute
+        _pl_window_lines=$(( $(_dsp_jack_line_count "$DSP_RAW") - DSP_MARK ))
+        if read -r _pl_med _pl_max < <(_dsp_stats "$DSP_RAW" "$DSP_MARK"); then
             if ! mpe_result_assert_loaded_dsp "$BUFFER" "$_pl_med"; then
-                echo "ERROR: plausibility floor failed at soak minute 1 (dsp_median=${_pl_med}%)" >&2
+                echo "ERROR: plausibility floor failed at soak minute ${minute} (dsp_median=${_pl_med}% window_lines=${_pl_window_lines})" >&2
                 exit 1
             fi
-            echo "SOAK plausibility-ok minute=1 dsp_median=${_pl_med} floor=$(mpe_result_dsp_plausibility_floor "$BUFFER")" >>"$OUTPUT"
+            echo "SOAK plausibility-ok minute=${minute} dsp_median=${_pl_med} dsp_max=${_pl_max} floor=$(mpe_result_dsp_plausibility_floor "$BUFFER") window_lines=${_pl_window_lines}" >>"$OUTPUT"
+            if [ "$minute" -eq 1 ]; then
+                SOAK_MINUTE1_DSP_MED="$_pl_med"
+            elif [ -n "$SOAK_MINUTE1_DSP_MED" ] && awk -v cur="$_pl_med" -v base="$SOAK_MINUTE1_DSP_MED" \
+                'BEGIN { exit !(cur + 0 < base * 0.5) }'; then
+                echo "ERROR: soak load collapsed at minute ${minute} (dsp_median=${_pl_med}% vs minute-1=${SOAK_MINUTE1_DSP_MED}%)" >&2
+                exit 1
+            fi
         else
-            echo "ERROR: no DSP samples at minute 1 for plausibility check" >&2
+            echo "ERROR: no DSP samples in minute ${minute} window for plausibility check" >&2
             exit 1
         fi
     fi
