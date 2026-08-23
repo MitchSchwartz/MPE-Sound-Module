@@ -13,13 +13,8 @@ def smoothstep(t: float) -> float:
 
 
 def normalize_jack_load(raw: float, baseline: float) -> float:
-    """Map raw jack dsp_percent to 0–100 above a platform idle baseline."""
-    if baseline >= 99.0:
-        return max(0.0, min(100.0, raw))
-    span = 100.0 - baseline
-    if span <= 0.0:
-        return max(0.0, min(100.0, raw))
-    return max(0.0, min(100.0, ((raw - baseline) / span) * 100.0))
+    """Linear stress above platform idle baseline (percentage points)."""
+    return max(0.0, min(100.0, raw - baseline))
 
 
 def rise_bias(
