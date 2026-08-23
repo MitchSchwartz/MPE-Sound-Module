@@ -195,6 +195,23 @@ A re-run of an unchanged cell on an unchanged platform does not need one.
 
 **Any failure stops the scale-up.** Fix, re-pilot, then run.
 
+### Hard limit — anything over 30 minutes needs Mitch's explicit approval
+
+**Standing instruction, 2026-08-23.** Any measurement window longer than **30 minutes** requires
+his approval *before* it runs, with a written justification stating: the expected event rate, how
+many events the conclusion needs, and **why a shorter window cannot answer the question.**
+
+**This exists because the rule above was not applied to the B2 soak.** At the observed ~2
+xruns/min, **one hour yields ~200 events** — a rate estimate good to ~7%, more than enough to
+answer "does 1024x2 hold." The 8-hour run bought one additional fact (the rate is non-stationary:
+peaks ~3.5/min near minute 14, settles ~1.8/min by hour 4), most of which is visible inside the
+first 90 minutes. Defensible **once**, as first characterisation of a rate nobody had measured.
+Indefensible as a routine gate — and nobody did the event-rate arithmetic before spending the
+8 hours.
+
+Re-certification after a config change: **30 minutes.** First characterisation of an unknown
+rate: **60 minutes**, and say so.
+
 ### Applies to harness changes too
 
 A harness edit is not verified by the harness running. **Pilot it against a cell whose answer
