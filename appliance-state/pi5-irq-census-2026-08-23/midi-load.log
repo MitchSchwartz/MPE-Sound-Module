@@ -1,0 +1,4 @@
+midi-load-hold: -> Midi Through:Midi Through Port-0 14:0  24 voices held, 65s
+/home/pi/MPE-Module/scripts/midi-load-hold.py:48: UserWarning: MidiOutAlsa::sendMessage: incomplete message!
+  out.send_message([0xE0 | ch, bend & 0x7F, (bend >> 7) & 0x7F])
+midi-load-hold: done
