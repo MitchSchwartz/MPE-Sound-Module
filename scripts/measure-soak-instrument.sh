@@ -247,6 +247,7 @@ if [ "$GOVERNOR" = on ]; then
     STAGE=governor-start
     systemctl enable surge-poly-governor.service 2>/dev/null || true
     systemctl restart surge-poly-governor.service
+    GOV_SINCE="$(date -Is)"
     sleep 1
 fi
 STAGE=meter-start
@@ -331,6 +332,10 @@ while [ "$minute" -lt "$TOTAL_MIN" ]; do
 done
 
 _kill_dsp_sampler
+
+if [ "$GOVERNOR" = on ] && [ -n "${GOV_SINCE:-}" ]; then
+    GOV_TOTAL="$(_count_governor_engagements_since "$GOV_SINCE")"
+fi
 
 FINAL=$((prev_xr - START_XR))
 DSP_MED="unknown"
