@@ -87,7 +87,7 @@ sudo apt install -y i2c-tools
 sudo i2cdetect -y 1   # should show 3c
 ```
 
-**SmartiPi touch build:** skip OLED wiring. Assemble the case, connect the panel, plug USB audio + MPE controller when ready. Follow **[`docs/TOUCH_PATCH_BROWSER.md`](TOUCH_PATCH_BROWSER.md)** for UI setup (`MPE_UI_MODE=touch`, `./scripts/setup-touch-pi.sh`).
+**SmartiPi touch build:** skip OLED wiring. Assemble the case, connect the panel, plug USB audio + MPE controller when ready. Follow **[`docs/TOUCH_PATCH_BROWSER.md`](TOUCH_PATCH_BROWSER.md)** for UI setup (`MPE_UI_MODE=touch`, `./scripts/setup-touch-pi.sh`). **Pi 5 with an existing Pi 4 reference:** use **[`docs/PI5-PLAYER-SETUP-LOG.md`](PI5-PLAYER-SETUP-LOG.md)** — it lists extra Trixie packages, env keys, and Pi 4 state to copy that generic setup scripts still miss.
 
 ## 5. Configure paths and systemd services
 
