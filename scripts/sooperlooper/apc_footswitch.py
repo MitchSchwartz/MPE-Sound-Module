@@ -248,6 +248,8 @@ class LoopFootswitch:
             return
         self._scratch_active = True
         self._scratch_started = True
+        if self._on_prepare_scratch is not None:
+            self._on_prepare_scratch(self.loop)
         log(
             f"loop {self.loop}: scratch tail record on loop {SCRATCH_LOOP} "
             f"(pos={self.loop_pos:.3f}s / {self.loop_len:.3f}s)"
@@ -704,8 +706,6 @@ class LoopFootswitch:
                     self._hit(cmd)
             elif self.sl_state in ACTIVE_RECORD:
                 self._hit("record")
-            if self._on_prepare_scratch is not None:
-                self._on_prepare_scratch(self.loop)
             self._expect(STATE_PLAYING)
             if self._on_tail_capture_begin is not None:
                 self._on_tail_capture_begin(self.loop)
