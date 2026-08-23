@@ -4,6 +4,8 @@
 [`measurements/PROMPT-PI4-CLOSEOUT.md`](measurements/PROMPT-PI4-CLOSEOUT.md) (what must exist
 first).** This is the *how*, in order.
 
+**Player-only bringup (touch UI, no measurement suites):** [`PI5-PLAYER-SETUP-LOG.md`](PI5-PLAYER-SETUP-LOG.md) — checklist from the 2026-08-23 Pi 5 session, including laptop two-Pi SSH/mpe config and every gap not covered by `setup-touch-pi.sh`.
+
 **Design goal: Mitch starts a suite in the evening and reads a report in the morning.** He is
 woken only for a **major fork** — a result that changes what should be done next, not one that
 is merely interesting. Everything else is recorded and continues.
