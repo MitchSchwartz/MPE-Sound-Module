@@ -1,6 +1,6 @@
 # PROGRESS — canonical thread
 
-**Updated 2026-08-23 00:45 (America/Toronto).** This is the top-level index.
+**Updated 2026-08-23 00:54 (America/Toronto).** This is the top-level index.
 
 ---
 
@@ -36,7 +36,7 @@ See [`docs/PI5-TRANSITION-PLAN.md`](docs/PI5-TRANSITION-PLAN.md).
 | **A2 pass 1 (2026-08-22)** | **DONE** — stock binary. JSON `~/reference-suite-pi4-20260822-204559/reference-suite-pi4-pass1.json` (`110977a`). Re-validated offline at `a1e80e3`: 12/12 loaded cells PASS. |
 | **A3 (2026-08-22)** | **DONE — NULL (pre-reg &lt;3%).** a72 suite `~/reference-suite-pi4-a72-20260822-231637/`. Same Surge `253f8d86`; no win on any cell. **Stock kept as control.** Doc: `reference-suite-pi4-a3-a72-comparison-2026-08-22.md` |
 | **A4 (2026-08-23)** | **DONE — noise floor.** Pass 2 `~/reference-suite-pi4-20260823-000348/`. Re-validated 12/12 at `e51856e`. **Max run-to-run spread 1.70%** (median 0.47%). Duduk a72 retro: **noise.** Doc: `reference-suite-pi4-a4-spread-2026-08-23.md` |
-| **B2 soak (2026-08-23)** | **FAIL** — aborted minute 1; `MPE_METER_LAST_AGE_S` unbound (occurrence 11). Fix on `dev`. Doc: `b2-soak-gate1-2026-08-23.md`. Re-run after Pi pull + 2-min pilot. |
+| **B2 soak (2026-08-23)** | **IN FLIGHT** — attempt #3 @ 1024×2 Cloud Horn @5. Pi `9060236`. Started 00:51, expected finish ~08:51. Log `~/instrument-soak-1024x2.log`. Pilot PASS (`~/instrument-soak-pilot-2026-08-23.log`). Prior attempt FAIL: `b2-soak-gate1-2026-08-23.md`. |
 
 **Settled and not to be relitigated:** every xrun on this appliance is a **JACK graph
 overrun**, not an ALSA underrun — the ring has never drained (`W1-VERDICT`). Fixed
@@ -59,8 +59,8 @@ Full plan: [`docs/measurements/PROMPT-PI4-CLOSEOUT.md`](docs/measurements/PROMPT
 
 > **C0 done on Pi 2026-08-22** — full gate green (`~/conformance-full-green.log`, #96–#101).
 > **A2 + A3 + A4 done** — stock control calibrated with noise floor.
-> **B2 FAIL** — subshell bug; fix committed; re-run blocked on Pi deploy + pilot.
-> **A5–A9 blocked** until B2 PASS.
+> **B2 IN FLIGHT** — 8 h soak started 00:51 after pilot PASS on `9060236`.
+> **A5–A9 blocked** until B2 PASS (`SENTINEL soak-complete`).
 
 ### Track A — autonomous (no reboot, no gate)
 
@@ -83,7 +83,7 @@ Full plan: [`docs/measurements/PROMPT-PI4-CLOSEOUT.md`](docs/measurements/PROMPT
 | # | Task | Prompt | Time |
 |---|---|---|---|
 | B1 | **P7 clock-scaling diagnostic** — now a Pi 5 *forecast*, not a lever | `PROMPT-P7-overclock-diagnostic.md` | ~13 min |
-| **B2** | **FAIL — re-run after fix + pilot** | — | overnight |
+| **B2** | **IN FLIGHT** — 8 h soak @ 1024×2 (started 00:51) | — | overnight |
 | B3 | Ear test before shipping any new binary default | — | ~10 min |
 
 ### Track C — Pi 5, on arrival
@@ -109,8 +109,8 @@ percussive rate metric.
 ### Open gates (Mitch only)
 
 - **Gate 1** — ship 1024x2 as instrument profile default, after a clean soak. Looper stack stays
-  1024x3/D. **BLOCKED** — B2 aborted minute 1 (occurrence 11); fix on `dev`; re-run after Pi pull
-  and 2-min pilot. Gate opens only on `SENTINEL soak-complete` + acceptable xrun total.
+  1024x3/D. **IN FLIGHT** — B2 attempt #3 running (00:51→~08:51). Prior abort documented in
+  `b2-soak-gate1-2026-08-23.md`. Gate opens only on `SENTINEL soak-complete` + acceptable xrun total.
 - **Gate 2** — governor re-enable: **blocked** until the fade lands *and*
   `CPU_HIGH_THRESHOLD=50.0` is recalibrated (it sits *below* the ~58.9% baseline DSP).
 - **Gate 3** — percussive metric: deferred. Reframed as a **rate** question (does a fast roll
