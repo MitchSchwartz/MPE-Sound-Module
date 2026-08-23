@@ -120,7 +120,7 @@ Phased so bench/dev can continue on mutable SD until Phase 1 is ready to bake.
    - `~/surge-cli-calibration.log`, `~/.patch_browser_calibration_backups`
 3. **Volatile or redirected journal** during performance (`Storage=volatile` or tmpfs logs; persist only for support captures).
 4. **Boot health gate** — fsck `/state`; on failure mount empty factory tree or restore last `.bak`; **still boot to sound**.
-5. **Rehearse restore** — fill the rehearsal log in [`RESTORE.md`](RESTORE.md); until then treat expendable-SD as a hypothesis.
+5. **Rehearse restore** — fill the rehearsal log in [`RESTORE.md`](RESTORE.md) via [`PI4-GOLDEN-IMAGE.md`](PI4-GOLDEN-IMAGE.md); until then treat expendable-SD as a hypothesis.
 
 ### Phase 2 — "Updates don't kill it"
 
