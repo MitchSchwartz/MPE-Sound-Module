@@ -263,14 +263,14 @@ must say so rather than reporting a single ratio.
 | # | Item | Why it blocks the close-out | Cost |
 |---|---|---|---|
 | O1 | ~~**P7**~~ | **Ran 2026-08-23; comparison invalid** — OC half clean @2000; baseline half unloaded (~7% vs ~52% Cloud Horn @5). H6 inconclusive; re-run baseline before citing. `P7-RESULT-2026-08-23.md`. | re-run baseline |
-| O1b | ~~**Wire plausibility floors into the load harness**~~ | **Done 2026-08-23.** `measure-latency-run.sh` + soak **per-minute** window via `mpe_result_assert_loaded_dsp` (extended after V12; minute-1-only missed 1024 decay). | done |
+| O1b | ~~**Wire plausibility floors into the load harness**~~ | **Done 2026-08-23.** `measure-latency-run.sh` + soak **per-minute** window via `mpe_result_assert_loaded_dsp` (extended after V12; minute-1-only missed 1024 decay). **Preflight gate (2026-08-23):** `measure-soak-preflight.sh` / `--preflight-only` — poly JSON + 45s DSP ≥50% @512 before multi-minute soak. | done |
 | O2 | **A4** — reference pass 2 | The only thing that puts an error bar on any Pi4→Pi5 ratio. Was a curiosity about a closed lever; now load-bearing. | one suite pass |
-| O3 | **V12** — buffer compare | **Ran 2026-08-23; comparison VOID.** 1024 arm decayed after min 1; 512 arm ~33% vs reference ~58% (governor on vs off). See `V12-RESULT-2026-08-23.md`. Rerun after load-parity check — **not** a close-out headline until then. | rerun |
+| O3 | **V12** — buffer compare | **Ran 2026-08-23; comparison VOID.** Preflight + P5 reval (17:45) both **~33%** dsp @512 — reference P5 band (~58%) **disputed** on current appliance (see `V12-PARITY-2026-08-23.md`). V12 rerun blocked until P5 baseline reconciled (hw:2 vs hw:1, patch-reload order). | blocked |
 | O4 | ~~**G2 threshold statistic** (§4)~~ | **Closed 2026-08-23.** Two instruments — governor proc/OSC @ 6.7 Hz vs soak `jack_cpu_load`. Negative arm: non-engagement, not margin. See §4, `G2-RESULT-2026-08-23.md` §O4. | done |
 | O5 | **B3** — steal audibility | The gap in §5e between measured capacity and player-relevant quality. | ear test |
 | O6 | ~~Pi hot-patch not in repo~~ | **Done 2026-08-23.** Pi @ `1c165b9`; soak script matches repo (hot-patch removed). | done |
 
-**O4, O6 and O1b are closed.** V12 ran but is **void** for buffer comparison (see `V12-RESULT-2026-08-23.md`). O1 (P7 baseline re-run) is ~15 min — H6 stays open on a boring reason (broken baseline arm), not an interesting one. §2 is otherwise closed. The measurement this document still needs for itself is **A4**; **V12 rerun** only after load-parity confirmation. O5 is honest to leave open, provided §5e keeps saying so.
+**O4, O6 and O1b are closed.** V12 is **void** and **blocked** — preflight now fails fast at ~33% (not reference ~58%). Next: reconcile P5 baseline (`V12-PARITY` §17:45); then A4 pass 2 with updated floors. O1 (P7 baseline) and O5 unchanged.
 
 ---
 
