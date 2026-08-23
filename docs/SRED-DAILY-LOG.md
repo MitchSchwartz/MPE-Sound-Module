@@ -26,6 +26,8 @@
 |---|---|---|---:|---:|---:|---:|---|---|---|---|
 | 2026-08-22 | starting daily capture | — | — | — | — | — | — | — | [`SRED-EFFORT-LOG.md`](SRED-EFFORT-LOG.md) | **Backfill complete through today.** From next session onward, append here — do not rely on G1-style reconstruction. |
 | 2026-08-22 | 16:40–18:10 | SR&ED evidence (G1/G3) | ~1.5 | - | 0 | 1 | 3 | eligible | docs/SRED-DAILY-LOG.md, AGENTS.md, sred-daily-capture skill | Daily capture stack: skill, append script, AGENTS rule; G1 effort log closed; G3 archive committed. |
+| 2026-08-22 | evening (A3) | A3 `-mcpu=cortex-a72` | ? | 1 | 0 | 0.5 | - | eligible | reference-suite-pi4-a3-a72-comparison-2026-08-22.md | NULL result: all cells &lt;3% by pre-registration; stock reverted; U7 `-mcpu` branch closed. Hours pending Mitch recall. |
+| 2026-08-23 | doc revision | A3 `-mcpu=cortex-a72` | ? | - | - | 0.5 | - | eligible | 90e4a7e, SRED-EVIDENCE-2026.md | Mitch review: pre-reg framing, stock revision 253f8d86, V1 cross-validation, U7 chronology. Hours pending. |
 ---
 
 *Daily capture started: 2026-08-22 (America/Toronto)*
@@ -61,5 +63,7 @@ V9/W1 anchors, and the offline revalidation helper.
 
 **Routine (G5, excluded):** repo hygiene, branch merges, PROGRESS bookkeeping.
 
-**Open:** A3 (a72 A/B), P7 (clock scaling — cheapest Pi 5 forecast), Cloud Horn variance,
+**Open:** P7 (clock scaling — cheapest Pi 5 forecast), Cloud Horn variance, A4 (noise floor),
 V11 DSP re-run, Gate 1 soak re-run, ear test.
+
+**Closed 2026-08-22:** A3 (a72 A/B) — NULL; `-mcpu=cortex-a72` lever retired.
