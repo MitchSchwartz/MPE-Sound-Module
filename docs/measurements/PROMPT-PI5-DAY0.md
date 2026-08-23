@@ -47,6 +47,11 @@ vs Pi 5 result: the Pi 4 has a scheduling lever the Pi 5 does not.
 
 ### Tier 1 — needed today (build + smoke test)
 
+**Script (on Pi):** `scripts/install-pi5-day0-tier1.sh` — debconf pre-seeds jackd2 RT=yes, installs
+Tier 1 + `rt-tests`, adds user to `audio`, runs `scripts/verify-jack-rt-limits.sh`.
+
+Manual equivalent:
+
 ```
 sudo apt update
 sudo apt install -y build-essential cmake git jackd2 alsa-utils
