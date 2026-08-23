@@ -136,7 +136,9 @@ percussive rate metric.
 5. **Pilot before running at length.** One cell, minimum window, **read every field** — exit 0
    is not the check. Required whenever anything is new or changed, including after a fix and on
    a new platform. V11 spent 24.5 min to learn what a 2-min pilot would have shown.
-6. **Ask the shortest useful version of a test** before running it. Doctrine:
+6. **Ask the shortest useful version of a test** before running it. **Any window over 30 minutes
+   needs Mitch's explicit approval and a written justification** — expected event rate, events
+   needed, why shorter will not do. Doctrine:
    `docs/measurements/MEASUREMENT-DISCIPLINE.md`, skill: `.claude/skills/measurement-design/`.
 7. **One variable.** Overclock and rebuild do not overlap. Neither overlaps a soak. This
    applies hardest during the Pi 5 transition, where a dozen things change at once.

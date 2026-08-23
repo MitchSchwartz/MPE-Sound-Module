@@ -106,6 +106,12 @@ project exited 0.
 `dsp_med=unknown` in the first cell.** The same was true of all nine failures: visible in cell
 one, noticed only after the run finished.
 
+**Any window over 30 minutes requires Mitch's explicit prior approval**, with the expected event
+rate, the events the conclusion needs, and why a shorter window cannot answer it. The B2 soak ran
+8 h to establish a ~2/min rate that one hour measures to ~7% — the event-rate arithmetic was never
+done. Re-certification after a config change: 30 min. First characterisation of an unknown rate:
+60 min.
+
 **Pilot whenever something is new or changed** — new harness, new metric or field, changed
 instrument, changed platform (**mandatory on the Pi 5**), a config never measured before, or
 **any run following a fix**. An unchanged cell on an unchanged platform does not need one.
