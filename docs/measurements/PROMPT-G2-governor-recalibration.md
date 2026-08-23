@@ -121,14 +121,11 @@ clean play produces zero).
 **Anything longer than 30 minutes needs Mitch's explicit approval** with the event-rate
 arithmetic. It should not be needed here: engagement is a per-second event, not a 2/min one.
 
-### 4. Ear test — Mitch only
+### 4. Hand off to V12 — not B3 yet
 
-Governor on, calibrated, playing normally. **Two things to listen for:** that heavy patches no
-longer insta-crackle, and that voice stealing is not itself audible as a click or a swallowed
-note. The second is what the fade exists to prevent.
-
-This is also the moment Gate 1's B3 becomes valid, since the configuration under test is finally
-the one that would ship.
+Once both control arms pass, **Gate 2 closes.** Next in stack: **`PROMPT-V12-certify-buffer.md`**
+(buffer comparison at long windows, governor on). B3 ear test comes **after V12** — audibility is
+not answerable from G2's 30-minute governor check alone.
 
 ---
 
