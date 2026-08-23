@@ -84,4 +84,27 @@ fi
 
 cmake "$SURGE_SRC" "${CMAKE_ARGS[@]}" 2>&1 | tee -a "$LOG"
 make surge-xt-cli -j"$JOBS" 2>&1 | tee -a "$LOG"
-echo "SENTINEL build-${BUILD_SUFFIX}-complete" >>"$LOG"
+
+artifact=""
+for candidate in \
+    "$BUILD_DIR/surge_xt_products/surge-xt-cli" \
+    "$BUILD_DIR/src/surge-xt/surge-xt_artefacts/Release/CLI/surge-xt-cli"; do
+    if [ -x "$candidate" ]; then
+        artifact="$candidate"
+        break
+    fi
+done
+if [ ! -x "$artifact" ]; then
+    {
+        echo "ERROR: missing surge-xt-cli artifact (searched surge_xt_products and surge-xt_artefacts/Release/CLI)"
+    } >>"$LOG"
+    exit 1
+fi
+
+{
+    echo "=== build complete $(date -Is) ==="
+    echo "artifact=$artifact"
+    echo "version=$("$artifact" --version 2>&1 || true)"
+    echo "sha256=$(sha256sum "$artifact" | awk '{print $1}')"
+    echo "SENTINEL build-${BUILD_SUFFIX}-complete"
+} >>"$LOG"
