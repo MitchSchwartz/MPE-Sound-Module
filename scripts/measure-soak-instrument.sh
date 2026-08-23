@@ -98,8 +98,9 @@ _run_loaded_preflight() {
     state_effective="$(grep -o '"effective_poly"[[:space:]]*:[[:space:]]*[0-9]*' "${USER_HOME}/.patch_browser_poly_state.json" | grep -o '[0-9]*$' || true)"
     mpe_assert_surge_polylimit_matches_state "$SCRIPT_DIR" "$state_effective" >>"$OUTPUT" 2>&1 || exit 1
     if [ "$VOICES" -gt 0 ]; then
-        local _pf_min=50
-        case "$BUFFER" in 1024) _pf_min=35 ;; 256) _pf_min=55 ;; esac
+        # P5 A/B 2026-08-23: 512 canonical ~33%; 50% preflight not justified (V12-PARITY-2026-08-23.md §A/B)
+        local _pf_min=28
+        case "$BUFFER" in 1024) _pf_min=20 ;; 256) _pf_min=31 ;; esac
         mpe_preflight_dsp_spot_check "$SCRIPT_DIR" "$VOICES" "$BUFFER" 45 "$_pf_min" >>"$OUTPUT" 2>&1 || exit 1
     fi
     echo "SENTINEL preflight-pass" >>"$OUTPUT"
