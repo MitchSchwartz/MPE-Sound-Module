@@ -1,6 +1,6 @@
 # PROGRESS — canonical thread
 
-**Updated 2026-08-22 21:31 (America/Toronto).** This is the top-level index.
+**Updated 2026-08-22 23:57 (America/Toronto).** This is the top-level index.
 
 ---
 
@@ -25,6 +25,7 @@ See [`docs/PI5-TRANSITION-PLAN.md`](docs/PI5-TRANSITION-PLAN.md).
 | | |
 |---|---|
 | **Platform** | **Pi 4B / BCM2711 / Cortex-A72**, Pi OS Lite 64-bit (trixie). Pi 5 on order — see Track C |
+| **Control binary** | **stock** (a72 null result 2026-08-22; reverted). Backup `~/surge-xt-cli.pre-a72` |
 | Shipping | 1024x3 = **64.0 ms** |
 | Measured free at clean load | 1024x2 = **42.7 ms** (Cloud Horn, Duduk, Brave New World, Crystals) |
 | Governor | **OFF** (left off from V9; re-enable blocked on fade) |
@@ -32,7 +33,8 @@ See [`docs/PI5-TRANSITION-PLAN.md`](docs/PI5-TRANSITION-PLAN.md).
 | Cores | `irqaffinity=0,1`; jackd/surge/looper `CPUAffinity=2 3` |
 | Confirmed floors | Crystals 3, Cloud Horn 5, Duduk 3, Brave New World 3 (all 1024) |
 | **V11 (2026-08-22)** | **512x2 clean for Crystals @3 and Duduk @3** (0/0/0 x3). Cloud Horn @5 marginal. 256x3: Duduk clean, Crystals marginal, Cloud Horn overloaded. **Xrun column stands.** Post-C0 DSP certified. Artifacts `~/plan-v11-20260822-144259/` |
-| **A2 pass 1 (2026-08-22)** | **DONE** — frozen reference suite, 15 cells, 25 s × 2 runs, governor off. JSON `~/reference-suite-pi4-20260822-204559/reference-suite-pi4-pass1.json` (`dev` @ `110977a`). Rule 0.5 pilot + `MPE_EXPECT_SAMPLES` guard (#96–#101 threshold fix). |
+| **A2 pass 1 (2026-08-22)** | **DONE** — stock binary. JSON `~/reference-suite-pi4-20260822-204559/reference-suite-pi4-pass1.json` (`110977a`). Re-validated offline at `a1e80e3`: 12/12 loaded cells PASS. |
+| **A3 (2026-08-22)** | **DONE — NULL.** a72 suite `~/reference-suite-pi4-a72-20260822-231637/`. No patch beats stock beyond noise; Duduk +0.6–1.2% worse on a72. **Stock kept as control.** Doc: `reference-suite-pi4-a3-a72-comparison-2026-08-22.md` |
 
 **Settled and not to be relitigated:** every xrun on this appliance is a **JACK graph
 overrun**, not an ALSA underrun — the ring has never drained (`W1-VERDICT`). Fixed
@@ -53,8 +55,8 @@ transport work **un-retires**. Check, do not assume.
 Full plan: [`docs/measurements/PROMPT-PI4-CLOSEOUT.md`](docs/measurements/PROMPT-PI4-CLOSEOUT.md).
 
 > **C0 done on Pi 2026-08-22** — full gate green (`~/conformance-full-green.log`, #96–#101).
-> **A2 pass 1 done** 2026-08-22 — `~/reference-suite-pi4-20260822-204559/` (15 cells, 25 s).
-> **Next:** A3 (settle a72 on stock binary from this pass).
+> **A2 + A3 done** 2026-08-22 — stock control frozen; a72 null.
+> **Next:** A4 (reference pass 2, different day).
 
 ### Track A — autonomous (no reboot, no gate)
 
@@ -63,19 +65,17 @@ Full plan: [`docs/measurements/PROMPT-PI4-CLOSEOUT.md`](docs/measurements/PROMPT
 | ~~**C0**~~ | ~~**INSTRUMENT CONFORMANCE**~~ — **DONE.** Pi full gate green 2026-08-22 | `PROMPT-C0-instrument-conformance.md` | ≤15 min |
 | A0 | Per-session conformance pass (same gate as C0) | `PROMPT-C0-instrument-conformance.md` | ≤15 min |
 | ~~**A1**~~ | ~~**V11**~~ — **DONE (xrun column).** 3/6 cells pass | `PROMPT-V11-512-256-confirm.md` | ~25 min |
-| ~~**A2**~~ | ~~**Reference suite pass 1**~~ — **DONE** 2026-08-22 (`measure-reference-suite.sh`, #98–#110) | closeout §A2 | ~35 min |
-| **A3** | **NEXT — Settle a72** — pass 1 = stock binary (A2 run); then a72 A/B | closeout §A3 | ~60 min |
-| A4 | Reference pass 2, different day (noise floor) | closeout §A4 | ~30 min |
+| ~~**A2**~~ | ~~**Reference suite pass 1**~~ — **DONE** 2026-08-22 (stock binary) | closeout §A2 | ~35 min |
+| ~~**A3**~~ | ~~**Settle a72**~~ — **DONE NULL** 2026-08-22; stock control kept | closeout §A3 | ~60 min |
+| **A4** | **NEXT — Reference pass 2**, different day (noise floor) | closeout §A4 | ~30 min |
 | A5 | Full appliance state capture — the control condition | closeout §A5 | ~10 min |
 | A6 | Archive raw logs off the SD card | `PROMPT-G3-archive-raw-logs.md` | ~30 min |
 | A7 | `build-surge.sh --arch {a72\|a76\|generic}` as reusable infrastructure | closeout §A7 | ~30 min |
 | A8 | Platform-stamp the live docs | closeout §A8 | ~20 min |
 | A9 | **Predictions table — commit before the Pi 5 boots** | transition plan §5 | ~20 min |
 
-**A3 must precede A4.** If a72 is installed after the reference passes, the two passes ran on
-different binaries and the noise floor is worthless. And the Pi 5 will run `-mcpu=cortex-a76` —
-if the Pi 4 control is untuned, the platform comparison measures *hardware plus a compiler flag*
-and reports it as hardware.
+**A4 must run on a different day** than A2 pass 1 to measure run-to-run spread on the frozen
+stock control binary.
 
 ### Track B — needs Mitch (one window, ~45 min + soak)
 
@@ -83,7 +83,7 @@ and reports it as hardware.
 |---|---|---|---|
 | B1 | **P7 clock-scaling diagnostic** — now a Pi 5 *forecast*, not a lever | `PROMPT-P7-overclock-diagnostic.md` | ~13 min |
 | B2 | 8 h soak at the V11 winner | — | overnight |
-| B3 | Ear test before shipping the new default | — | ~10 min |
+| B3 | Ear test before shipping any new binary default | — | ~10 min |
 
 ### Track C — Pi 5, on arrival
 
@@ -149,6 +149,8 @@ percussive rate metric.
 
 | File | What it is |
 |---|---|
+| `docs/measurements/reference-suite-pi4-pass1-revalidation-2026-08-22.md` | A2 pass 1 offline re-validation at a1e80e3 |
+| `docs/measurements/reference-suite-pi4-a3-a72-comparison-2026-08-22.md` | A3 stock vs a72 — null result |
 | `docs/measurements/REVIEW-line-of-thought-2026-08-22.md` | **Current roadmap argument.** Read this second. |
 | `docs/measurements/REVIEW-C0-conformance-2026-08-22.md` | C0 review; blocking findings through #97 |
 | `Documents/reviews/review-loop-index-c0-conformance-live-2026-08-22.md` | C0 review loop (#96 + #97) |
