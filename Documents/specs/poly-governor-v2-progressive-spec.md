@@ -1,8 +1,10 @@
 # Poly governor v2 — ramp-aware proactive limit (no duck)
 
-**Status:** Approved (Gate A 2026-08-23)  
+**Status:** Approved (Gate A 2026-08-23) · **Pi 5 default candidate:** `always_on` (ear tune 2026-08-23)  
 **Created:** 2026-08-23 (America/Toronto)  
-**Last updated:** 2026-08-23 18:49 (America/Toronto)
+**Last updated:** 2026-08-23 19:47 (America/Toronto)
+
+**Pi 5 result:** [`docs/measurements/poly-governor-v2-always-on-pi5-2026-08-23.md`](../../docs/measurements/poly-governor-v2-always-on-pi5-2026-08-23.md)
 
 **Related:** [`docs/measurements/poly-governor-instrumentation-2026-08-21.md`](../../docs/measurements/poly-governor-instrumentation-2026-08-21.md) · [`docs/measurements/archive/V7-capacity-curve-plan.md`](../../docs/measurements/archive/V7-capacity-curve-plan.md) · [`docs/measurements/G2-RESULT-2026-08-23.md`](../../docs/measurements/G2-RESULT-2026-08-23.md) · [`patch_browser/surge_poly_governor.py`](../../patch_browser/surge_poly_governor.py)
 
@@ -55,6 +57,36 @@ From measurement canon + code review:
 3. **Reactive cadence.** 150 ms poll + 150 ms high hold ≈ 14 periods @ 128×2 before sustained high actuation.
 4. **Wrong meter.** Proc CPU proxy; governor explicitly rejects smoothed UI meter but still ignores JACK deadline fill.
 5. **Polylimit is not a load knob.** Lowering limit does not reduce DSP on sounding notes until note-on or fade release ([Task C](../../docs/measurements/poly-governor-instrumentation-2026-08-21.md)).
+
+---
+
+## Post Gate A — always-on jack model (Pi 5 ear tune 2026-08-23)
+
+**Supersedes progressive as Pi 5 shipping candidate** until full Gate B. Threshold-gated `progressive` mode remains for A/B.
+
+Ear A/B on Pi 5 showed:
+
+- **Jack `dsp_percent`** — no crackle under overload; held voices too aggressively when pegged at 100% at idle.
+- **Proc fallback** — crackle at orange header CPU; governor engaged late.
+
+**Pivot:** Governor always on; jack deadline primary; loosen via **baseline offset**, not proc meter or soft-start disable.
+
+```
+stress = raw_jack − baseline          # linear; baseline raise = looser hold
+target = always_on_curve(stress)      # smoothstep 0→hard; min_headroom at rest
+emergency = xruns only (default)
+```
+
+| Env | Pi 5 tuned | Role |
+|---|---|---|
+| `MPE_POLY_LIMIT_MODE` | `always_on` | No SOFT_START gate |
+| `MPE_POLY_GOVERNOR_METER` | `jack` | No proc fallback on peg |
+| `MPE_POLY_JACK_BASELINE` | `96` (ear) | Idle loosen dial |
+| `MPE_POLY_MIN_HEADROOM` | `3` | Rest voices = ceiling − 3 |
+| `MPE_POLY_EMERGENCY_XRUN_ONLY` | `1` | No load≥90 cliff |
+| `MPE_POLY_FLOOR` | `4` | Required (breaks 64/64 parity) |
+
+Full chronology: [`poly-governor-v2-always-on-pi5-2026-08-23.md`](../../docs/measurements/poly-governor-v2-always-on-pi5-2026-08-23.md).
 
 ---
 
@@ -294,4 +326,4 @@ Commented in `config/mpe.env.example`. **`player-env-parity.env` only after Pi 5
 - [x] Legacy v1 mode for A/B is enough
 - [x] Approve spec → Status: **Approved**
 
-*Last updated: 2026-08-23 18:49 (America/Toronto)*
+*Last updated: 2026-08-23 19:47 (America/Toronto)*
