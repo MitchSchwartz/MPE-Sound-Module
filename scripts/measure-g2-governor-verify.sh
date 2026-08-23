@@ -5,7 +5,7 @@
 #
 # Usage:
 #   sudo ./scripts/measure-g2-governor-verify.sh [--output-dir DIR] [--minutes 30]
-#       [--cpu-high 78.0] [--cpu-low 68.0] [--skip-positive]
+#       [--cpu-high 78.0] [--cpu-low 68.0] [--skip-positive] [--skip-negative]
 
 set -euo pipefail
 
@@ -17,6 +17,7 @@ OUTPUT_DIR="${HOME}/g2-governor-$(date +%Y%m%d-%H%M%S)"
 CPU_HIGH=78.0
 CPU_LOW=68.0
 SKIP_POSITIVE=0
+SKIP_NEGATIVE=0
 ENV_FILE="/etc/mpe/mpe.env"
 
 while [ $# -gt 0 ]; do
@@ -26,6 +27,7 @@ while [ $# -gt 0 ]; do
         --cpu-high) CPU_HIGH="${2:?}"; shift 2 ;;
         --cpu-low) CPU_LOW="${2:?}"; shift 2 ;;
         --skip-positive) SKIP_POSITIVE=1; shift ;;
+        --skip-negative) SKIP_NEGATIVE=1; shift ;;
         -h | --help)
             sed -n '2,12p' "$0"
             exit 0
@@ -57,6 +59,11 @@ _set_env_var() {
 
 _readback() {
     mpe_read_appliance_env_var "$1" 2>/dev/null || echo unset
+}
+
+_soak_result_field() {
+    local log="$1" field="$2"
+    grep -E '^RESULT soak_minutes=' "$log" | tail -1 | sed -n "s/.*${field}=\\([0-9.]*\\).*/\\1/p"
 }
 
 mkdir -p "$OUTPUT_DIR"
@@ -98,39 +105,48 @@ systemctl stop surge-poly-governor.service 2>/dev/null || true
     echo "readback MPE_POLY_CPU_LOW=$(_readback MPE_POLY_CPU_LOW)"
     echo "readback MPE_POLY_GOVERNOR=$(_readback MPE_POLY_GOVERNOR)"
     echo
-    echo "--- Step 3a: negative control — Cloud Horn @5, 1024×2, governor ON, ${MINUTES} min ---"
-    echo "criterion: governor_engagements_total=0"
 } | tee -a "$SUMMARY"
 
-"$SCRIPT_DIR/measure-soak-instrument.sh" \
-    --minutes "$MINUTES" --buffer 1024 --periods 2 \
-    --governor on --patch-name "Cloud Horn" --voices 5 \
-    --label g2-negative-cloudhorn \
-    --output "$NEG_LOG"
-
-neg_gov="$(grep -E '^RESULT ' "$NEG_LOG" | tail -1 | sed -n 's/.*governor_engagements_total=\([0-9]*\).*/\1/p')"
-neg_gov="${neg_gov:-unknown}"
-neg_xr="$(grep -E '^RESULT ' "$NEG_LOG" | tail -1 | sed -n 's/.*xruns_total=\([0-9]*\).*/\1/p')"
-neg_xr="${neg_xr:-unknown}"
-
-if [ "$neg_gov" = "0" ]; then
-    neg_verdict=PASS
-else
-    neg_verdict=FAIL
-fi
-
-{
-    echo "negative_control governor_engagements_total=${neg_gov} xruns_total=${neg_xr} verdict=${neg_verdict}"
-    echo
-} | tee -a "$SUMMARY"
-
-if [ "$neg_verdict" != PASS ]; then
+if [ "$SKIP_NEGATIVE" -eq 0 ]; then
     {
-        echo "G2 STOP: governor engaged during clean Cloud Horn @5 — raise thresholds and re-test"
-        echo "SENTINEL g2-aborted-negative-fail"
+        echo "--- Step 3a: negative control — Cloud Horn @5, 1024×2, governor ON, ${MINUTES} min ---"
+        echo "criterion: governor_engagements_total=0"
     } | tee -a "$SUMMARY"
-    echo "G2 failed negative control → ${SUMMARY}"
-    exit 1
+
+    "$SCRIPT_DIR/measure-soak-instrument.sh" \
+        --minutes "$MINUTES" --buffer 1024 --periods 2 \
+        --governor on --patch-name "Cloud Horn" --voices 5 \
+        --label g2-negative-cloudhorn \
+        --output "$NEG_LOG"
+
+    neg_gov="$(_soak_result_field "$NEG_LOG" governor_engagements_total)"
+    neg_gov="${neg_gov:-unknown}"
+    neg_xr="$(_soak_result_field "$NEG_LOG" xruns_total)"
+    neg_xr="${neg_xr:-unknown}"
+
+    if [ "$neg_gov" = "0" ]; then
+        neg_verdict=PASS
+    else
+        neg_verdict=FAIL
+    fi
+
+    {
+        echo "negative_control governor_engagements_total=${neg_gov} xruns_total=${neg_xr} verdict=${neg_verdict}"
+        echo
+    } | tee -a "$SUMMARY"
+
+    if [ "$neg_verdict" != PASS ]; then
+        {
+            echo "G2 STOP: governor engaged during clean Cloud Horn @5 — raise thresholds and re-test"
+            echo "SENTINEL g2-aborted-negative-fail"
+        } | tee -a "$SUMMARY"
+        echo "G2 failed negative control → ${SUMMARY}"
+        exit 1
+    fi
+else
+    echo "negative_control SKIPPED (--skip-negative)" | tee -a "$SUMMARY"
+    neg_gov=0
+    neg_xr=unknown
 fi
 
 if [ "$SKIP_POSITIVE" -eq 0 ]; then
@@ -145,7 +161,7 @@ if [ "$SKIP_POSITIVE" -eq 0 ]; then
         --label g2-positive-crystals \
         --output "$POS_LOG"
 
-    pos_gov="$(grep -E '^RESULT ' "$POS_LOG" | tail -1 | sed -n 's/.*governor_engagements_total=\([0-9]*\).*/\1/p')"
+    pos_gov="$(_soak_result_field "$POS_LOG" governor_engagements_total)"
     pos_gov="${pos_gov:-0}"
     if [ "$pos_gov" -gt 0 ]; then
         pos_verdict=PASS
