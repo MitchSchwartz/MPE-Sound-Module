@@ -26,6 +26,12 @@ from patch_browser.midi_sync import (  # noqa: E402
     should_schedule,
 )
 from patch_browser.patch_pressure import PatchPressureStore  # noqa: E402
+from patch_browser.poly_voice_tracker import (  # noqa: E402
+    PolyVoiceTracker,
+    clear_fade_request,
+    fade_actuation_enabled,
+    read_fade_request,
+)
 from patch_browser.pressure_midi import (  # noqa: E402
     REMAP_OUTPUT_PORT_NAME,
     find_remap_output_port_index,
@@ -68,6 +74,8 @@ class PressureRemapDaemon:
         self._clock_snap = read_clock_state()
         self._next_clock_refresh = 0.0
         self._pass_clock = clock_through_enabled()
+        self._voice_tracker = PolyVoiceTracker()
+        self._last_fade_request_id: float | None = None
 
     def _refresh_floor(self) -> None:
         from patch_browser.patch_pressure import LIVE_STATE_FILE
@@ -105,7 +113,36 @@ class PressureRemapDaemon:
             print(f"Warning: skipping bad MIDI message {message!r}: {exc}", flush=True)
             return
         if out_msg:
+            if fade_actuation_enabled() and self._voice_tracker.observe_message(out_msg):
+                self._voice_tracker.persist()
             self._out.send_message(out_msg)
+
+    def _process_fade_request(self) -> None:
+        if not fade_actuation_enabled() or self._out is None:
+            return
+        request = read_fade_request()
+        if not request:
+            return
+        try:
+            request_id = float(request.get("request_id"))
+            release_count = int(request.get("release_count", 0))
+        except (TypeError, ValueError):
+            clear_fade_request()
+            return
+        if release_count <= 0:
+            clear_fade_request()
+            return
+        if self._last_fade_request_id == request_id:
+            return
+        targets = self._voice_tracker.notes_to_release(release_count)
+        if not targets:
+            return
+        for channel, note in targets:
+            self._out.send_message([0x80 | channel, note, 0])
+            self._voice_tracker.observe_message([0x80 | channel, note, 0])
+        self._voice_tracker.persist()
+        self._last_fade_request_id = request_id
+        clear_fade_request()
 
     def _handle_incoming(self, raw: list[int], now: float) -> None:
         if not raw:
@@ -147,6 +184,7 @@ class PressureRemapDaemon:
         self._refresh_clock(now)
         self._refresh_floor()
         sent = self._drain_scheduled(now)
+        self._process_fade_request()
         while True:
             try:
                 raw = self._queue.get_nowait()
