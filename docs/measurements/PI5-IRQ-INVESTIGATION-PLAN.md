@@ -113,9 +113,9 @@ Promote via **`integrate`** / weekly close — not ad-hoc on player SD.
 - [x] Cooler/PSU ordered (human)
 - [x] Bluetooth disabled (`systemctl disable --now bluetooth`)
 - [x] Wi‑Fi kept; powersave off via `apply-appliance-hygiene.sh`
-- [x] **Phase 0 idle capture** → `appliance-state/pi5-irq-census-2026-08-23/` (on Pi; pull to laptop for commit)
-- [ ] Phase 0 **loaded** capture (Surge @64 poly ~60 s) → `interrupts-loaded.txt`, `softirqs-loaded.txt`
-- [ ] Cooler mounted before Phase 3 latency cells
+- [x] **Phase 0 idle capture** → `appliance-state/pi5-irq-census-2026-08-23/` (on Pi)
+- [x] Phase 0 **loaded** capture (24 voices × 60 s) — see `pi5-irq-phase1-2026-08-23.md`
+- [ ] Cooler + 27 W PSU before Phase 3 latency cells / Suite 1
 
 **Scripts:** `scripts/capture-pi5-irq-census.sh`
 
