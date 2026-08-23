@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import math
-
 
 def smoothstep(t: float) -> float:
     """Hermite smoothstep on [0, 1]; clamps outside."""
@@ -14,6 +12,16 @@ def smoothstep(t: float) -> float:
     return t * t * (3.0 - 2.0 * t)
 
 
+def normalize_jack_load(raw: float, baseline: float) -> float:
+    """Map raw jack dsp_percent to 0–100 above a platform idle baseline."""
+    if baseline >= 99.0:
+        return max(0.0, min(100.0, raw))
+    span = 100.0 - baseline
+    if span <= 0.0:
+        return max(0.0, min(100.0, raw))
+    return max(0.0, min(100.0, ((raw - baseline) / span) * 100.0))
+
+
 def rise_bias(
     dload_dt: float,
     *,
@@ -22,16 +30,35 @@ def rise_bias(
     min_rate: float = 0.0,
     enabled: bool = True,
 ) -> float:
-    """Virtual load points from rate-of-rise (%/s).
-
-    ``min_rate``: ignore ramps slower than this (%/s deadband).
-    """
+    """Virtual load points from rate-of-rise (%/s)."""
     if not enabled or dload_dt <= min_rate or full_rate <= 0.0:
         return 0.0
     ratio = dload_dt / full_rate
     if ratio >= 1.0:
         return max_bias
     return ratio * max_bias
+
+
+def always_on_target_limit(
+    normalized_load: float,
+    *,
+    ceiling: int,
+    floor: int,
+    min_headroom: int,
+    hard: float = 100.0,
+) -> int:
+    """Always-on progressive limit — tight overhead at rest, floor at full stress."""
+    headroom = max(0, min_headroom)
+    top = max(floor, ceiling - headroom)
+    if normalized_load <= 0.0:
+        return top
+    if normalized_load >= hard:
+        return floor
+    if hard <= 0.0:
+        return floor
+    fraction = smoothstep(normalized_load / hard)
+    target = top - int(round((top - floor) * fraction))
+    return max(floor, min(ceiling, target))
 
 
 def continuous_target_limit(
@@ -42,7 +69,7 @@ def continuous_target_limit(
     soft_start: float,
     hard: float,
 ) -> int:
-    """Map load % to target poly limit (continuous curve)."""
+    """Threshold progressive limit (legacy v2 path)."""
     if effective_load <= soft_start:
         return ceiling
     if effective_load >= hard:
