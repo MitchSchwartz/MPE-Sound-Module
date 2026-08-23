@@ -51,7 +51,8 @@ mpe_assert_poly_state_after_load() {
 }
 mpe_preflight_dsp_spot_check() {
     local script_dir="$1" voices="$2" buffer="$3"
-    local secs="${4:-45}" min_pct="${5:-50}"
+    # P5 A/B 2026-08-23: canonical Cloud Horn @5 @512×2 ~33%; 50% floor stale (V12-PARITY-2026-08-23.md §A/B)
+    local secs="${4:-45}" min_pct="${5:-28}"
     local raw="/tmp/mpe-preflight-dsp-$$.raw" load_log="/tmp/mpe-preflight-midi-$$.log"
     local med
     mpe_as_user_init
