@@ -37,6 +37,79 @@ missing, say so — do not run a 25-minute all-core build on an unknown supply.
 
 ---
 
+## 1a. Packages to install first (`sudo apt` is a Mitch-only gate per `AGENTS.md`)
+
+**RT kernel: settled.** `apt-cache search` on the Pi 5 returns `linux-image-rpi-2712` and
+`linux-image-rpi-2712-dbg` — **no `-rt` variant.** `linux-image-rpi-v8-rt` exists but is the Pi 4
+(v8) kernel and will not boot a 2712. **PREEMPT_RT is a Pi 4-only lever.** Record this as measured,
+not inherited — it is a real asymmetry in the platform comparison and must be stated in any Pi 4
+vs Pi 5 result: the Pi 4 has a scheduling lever the Pi 5 does not.
+
+### Tier 1 — needed today (build + smoke test)
+
+```
+sudo apt update
+sudo apt install -y build-essential cmake git jackd2 alsa-utils
+sudo apt install -y \
+  libcairo2-dev libxkbcommon-x11-dev libxkbcommon-dev \
+  libxcb-cursor-dev libxcb-keysyms1-dev libxcb-util-dev \
+  libxrandr-dev libxinerama-dev libxcursor-dev \
+  libasound2-dev libjack-jackd2-dev libfreetype6-dev libglu1-mesa-dev
+```
+
+That library list is `docs/SURGE_ARM_BUILD.md:157-169` — the same set `watch-build-a72.sh:90`
+installs when cmake reports missing deps. Installing it up front avoids a cmake failure 10 minutes
+into the build.
+
+**`jackd2` asks whether to enable realtime priority. Answer YES.** It writes
+`/etc/security/limits.d/audio.conf` and creates the `audio` group; **your user must be in
+`audio`** (`sudo usermod -aG audio $USER`, then log out and back in). Under a non-interactive
+install this prompt can be auto-answered *no*, and then **JACK runs without RT priority and every
+latency number is quietly wrong** — the appliance still works, still makes sound, and reports
+plausible figures. **Verify explicitly** rather than assuming: check `ulimit -r` is non-zero and
+that `audio.conf` exists.
+
+### Tier 2 — needed before any measurement
+
+**`libjack-jackd2-dev` is in Tier 1 above and it is not optional** — `build-mpe-peak-meter.sh` and
+`build-mpe-xrun-probe.sh` both hard-require it, and **those two binaries are the instruments.**
+Without them the peak meter degrades and xrun counts come from nowhere. `MPE_PEAK_METER != 1` is
+fatal in `measure-latency-run.sh` by design; **that guard exists precisely because a missing
+instrument used to read as a clean result.** Build both explicitly before C0:
+
+```
+scripts/build-mpe-peak-meter.sh --required
+scripts/build-mpe-xrun-probe.sh
+```
+
+`--required` makes a missing library exit 1 instead of skipping. Use it.
+
+Also: `sudo apt install -y rt-tests` for `cyclictest` (`measure-cyclictest-floor.sh`) — cheap, and
+a Pi 5 cyclictest floor is worth having as a scheduling baseline given there is no RT kernel.
+
+### Tier 3 — NOT needed, skip for now
+
+`python3-pygame`, the SDL libs, `i2c-tools`, the OLED/encoder stack, and `requirements.txt`. That
+is the touch/patch-browser UI. **It is not on the latency path**, it adds background processes to
+a box whose entire measurement is about scheduling, and installing it now would mean the Pi 5's
+first numbers come from a busier machine than the Pi 4's control. Add it after the platform
+comparison lands, not before.
+
+### Memory / swap
+
+`SURGE_ARM_BUILD.md` documents adding swap for the build on a 4 GB Pi 4. **Check `free -h` first.**
+On an 8 GB Pi 5, `make -j4` should fit without swap and you do not want swap on an audio box —
+if it is an 8 GB board, skip the swapfile. If 4 GB, either add swap for the build **and remove it
+afterwards**, or build with `-j3`.
+
+### Confirm before building
+
+- `nproc` = 4, `free -h`, free disk (Surge build tree is multiple GB)
+- `ulimit -r` non-zero and user in `audio`
+- `git --version`, `cmake --version`
+
+---
+
 ## 2. Platform state capture — the mirror of A5
 
 Same shape as the Pi 4 control capture, so the two are diffable:
@@ -76,10 +149,7 @@ E1 made.
 
 ## 4. Free checks worth having on record
 
-- **RT kernel availability.** `docs/LATENCY-SPIKE.md:194` records that trixie ships
-  `linux-image-rpi-v8-rt` for the Pi 4 but **no `linux-image-rpi-2712-rt`**. Verify with
-  `apt-cache search linux-image-rpi` — one command. If still absent, RT is a Pi 4-only lever and
-  that asymmetry should be recorded before anyone assumes otherwise.
+- **RT kernel availability: RESOLVED** — see §1a. No `linux-image-rpi-2712-rt`. Pi 4-only lever.
 - **Smoke test only:** does `jackd` start against the Sound Blaster at `1024x3`, and does it stay
   up for 60 s? This is *"is the platform viable"*, **not** a measurement — report up/down and any
   errors, **no xrun counts, no DSP figures, no comparisons.**
