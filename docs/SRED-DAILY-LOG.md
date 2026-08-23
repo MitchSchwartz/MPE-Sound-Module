@@ -29,7 +29,8 @@
 | 2026-08-22 | evening (A3) | A3 `-mcpu=cortex-a72` | ? | 1 | 0 | 0.5 | - | eligible | reference-suite-pi4-a3-a72-comparison-2026-08-22.md | NULL result: all cells &lt;3% by pre-registration; stock reverted; U7 `-mcpu` branch closed. Hours pending Mitch recall. |
 | 2026-08-23 | doc revision | A3 `-mcpu=cortex-a72` | ? | - | - | 0.5 | - | eligible | 90e4a7e, SRED-EVIDENCE-2026.md | Mitch review: pre-reg framing, stock revision 253f8d86, V1 cross-validation, U7 chronology. Hours pending. |
 | 2026-08-23 | 00:03–00:42 | A4 reference pass 2 | ? | 1 | 0 | 0.5 | - | eligible | bf37e5d, reference-suite-pi4-a4-spread-2026-08-23.md | Autonomous overnight: conformance + pass 2 suite; 12/12 revalidated; max spread 1.70%; Duduk a72 retro closed as noise. Hours pending. |
-| 2026-08-23 | 00:42→08:42 | Gate 1 soak (B2) | 0 | 0 | 0 | 0 | - | eligible | ~/instrument-soak-1024x2.log | Unattended 8 h @ 1024×2 Cloud Horn @5; agent monitoring 0%; Mitch verifies soak-complete on wake. |
+| 2026-08-23 | 00:42–00:44 | Gate 1 soak (B2) | 0 | 0 | 0 | 0 | - | eligible | ~/instrument-soak-1024x2.log | Started 8 h soak; aborted minute 1 — no xrun data. |
+| 2026-08-23 | 00:44–00:45 | Gate 1 soak (B2) | ? | 0 | 1 | 0.5 | 2+3 | eligible | 8f138ec, b2-soak-gate1-2026-08-23.md | Agent closeout: subshell dropped `MPE_METER_LAST_AGE_S` (occurrence 11); fix `_read_meter_xruns`; Gate 1 blocked. Hours pending. |
 ---
 
 *Daily capture started: 2026-08-22 (America/Toronto)*
@@ -70,3 +71,4 @@ ear test.
 
 **Closed 2026-08-22:** A3 (a72 A/B) — NULL; `-mcpu=cortex-a72` lever retired.
 **Closed 2026-08-23:** A4 (noise floor) — max spread 1.70%; Duduk a72 retro = noise.
+**Closed 2026-08-23:** B2 attempt — FAIL minute 1 (occurrence 11); fix committed; re-run pending.
