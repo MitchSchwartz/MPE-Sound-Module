@@ -21,6 +21,12 @@ SEAM_WELD_ENABLED = os.environ.get("MPE_SL_SEAM_WELD", "1").strip().lower() not 
 SEAM_TMP_DIR = Path(os.environ.get("MPE_SL_SEAM_TMP", "/tmp/mpe-seam-weld"))
 SAVE_POLL_S = float(os.environ.get("MPE_SL_SEAM_SAVE_POLL_S", "0.05"))
 SAVE_TIMEOUT_S = float(os.environ.get("MPE_SL_SEAM_SAVE_TIMEOUT_S", "8.0"))
+# Scratch loop is capture-only — never audible during the live tail pass.
+SCRATCH_CAPTURE_WET = float(os.environ.get("MPE_SL_SCRATCH_CAPTURE_WET", "0"))
+SCRATCH_CAPTURE_DRY = float(os.environ.get("MPE_SL_SCRATCH_CAPTURE_DRY", "0"))
+SCRATCH_CAPTURE_FEEDBACK = float(
+    os.environ.get("MPE_SL_SCRATCH_CAPTURE_FEEDBACK", "0")
+)
 
 
 def _save_loop_blocking(send, loop: int, path: Path) -> bool:
@@ -154,11 +160,22 @@ class SeamWeldWorker:
     def _clear_scratch(self, scratch_loop: int) -> None:
         self._send(f"/sl/{scratch_loop}/hit", ["undo_all"])
 
+    def _silence_scratch_live(self, scratch_loop: int) -> None:
+        """Keep scratch off common outs while recording — merge is offline only."""
+        for control, value in (
+            ("wet", SCRATCH_CAPTURE_WET),
+            ("dry", SCRATCH_CAPTURE_DRY),
+            ("feedback", SCRATCH_CAPTURE_FEEDBACK),
+        ):
+            self._send(f"/sl/{scratch_loop}/set", [control, float(value)])
+
     def prepare_scratch(self, scratch_loop: int = SCRATCH_LOOP) -> None:
-        """Ensure scratch slot is empty before tail capture."""
+        """Ensure scratch slot is empty and inaudible before tail capture."""
         self._clear_scratch(scratch_loop)
+        self._silence_scratch_live(scratch_loop)
 
     def start_scratch_record(self, scratch_loop: int = SCRATCH_LOOP) -> None:
+        self._silence_scratch_live(scratch_loop)
         self._send(f"/sl/{scratch_loop}/hit", ["record"])
 
     def stop_scratch_record(self, scratch_loop: int = SCRATCH_LOOP) -> None:
