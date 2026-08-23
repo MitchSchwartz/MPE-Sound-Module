@@ -234,7 +234,7 @@ _pilot_loaded_cell() {
     echo "=== Rule 0.5 pilot: one loaded cell (Crystals @3 1024x2, 1 run) before full pass ==="
     [ -f "$patch_path" ] || { echo "ERROR: missing $patch_path" >&2; exit 1; }
     export MPE_EXPECT_SAMPLES=$SECONDS_HOLD
-    sudo -u "$RUN_AS_USER" python3 "$SCRIPT_DIR/load-patch-osc.py" "$patch_path"
+    mpe_load_patch_osc "$patch_path" "$SCRIPT_DIR"
     sleep 1
     "$SCRIPT_DIR/measure-latency-run.sh" \
         --buffer 1024 --periods 2 --condition A \
@@ -341,6 +341,11 @@ if [ ! -x "${MPE_MODULE_REPO}/native/mpe-xrun-probe/mpe-xrun-probe" ]; then
 fi
 
 _set_env_var MPE_POLY_GOVERNOR 0
+_set_env_var MPE_POLY_CEILING 64
+_set_env_var MPE_POLY_FLOOR 64
+# shellcheck source=lib/mpe-services.sh
+source "$SCRIPT_DIR/lib/mpe-services.sh"
+mpe_source_appliance_env
 systemctl stop surge-poly-governor.service 2>/dev/null || true
 
 if ! mpe_meter_xruns_read >/dev/null 2>&1; then
