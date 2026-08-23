@@ -165,9 +165,11 @@ mpe_result_require_fields() {
                 _mpe_result_die "dsp plausibility: missing or non-numeric samples="
                 return 1
             fi
-            if [ "${MPE_R_samples}" -lt 30 ]; then
-                _mpe_result_die "dsp plausibility: samples=${MPE_R_samples} too short for loaded window"
-                return 1
+            if [ -n "${MPE_EXPECT_SAMPLES-}" ]; then
+                if [ "${MPE_R_samples}" != "$MPE_EXPECT_SAMPLES" ]; then
+                    _mpe_result_die "dsp plausibility: samples=${MPE_R_samples} expected ${MPE_EXPECT_SAMPLES}"
+                    return 1
+                fi
             fi
             floor="$(mpe_result_dsp_plausibility_floor "$buf")" || return 1
             if awk -v v="${!var}" -v fl="$floor" 'BEGIN{exit !(v+0 < fl+0)}'; then
