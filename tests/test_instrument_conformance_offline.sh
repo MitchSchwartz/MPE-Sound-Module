@@ -65,6 +65,16 @@ if mpe_result_require_fields dsp_median 2>/dev/null; then
 fi
 ok "plausibility floor rejects V11 idle 0.9% at 256 (F4)"
 
+# --- F4b: P7 baseline signature (Crystals ~5.6% @1024) fails loaded floor ---
+if mpe_result_assert_loaded_dsp 1024 5.59514 2>/dev/null; then
+    fail "5.6% at 1024 should fail loaded plausibility floor (P7 baseline Crystals)"
+fi
+ok "assert_loaded_dsp rejects P7 unloaded baseline 5.6% at 1024 (F4b)"
+
+# --- F4c: loaded Cloud Horn @1024 passes floor ---
+mpe_result_assert_loaded_dsp 1024 56.9 || fail "56.9% at 1024 should pass floor"
+ok "assert_loaded_dsp accepts reference-suite Cloud Horn @1024 (F4c)"
+
 # --- F5: non-numeric jitter_n halts ---
 mpe_result_parse_line "$(grep '^RESULT' "${FIX}/good-512-a.log" | grep 'jitter_n=' | head -1)"
 MPE_R_jitter_n="not-a-number"
