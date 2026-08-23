@@ -22,9 +22,13 @@ source "$SCRIPT_DIR/lib/paths.sh"
 source "$SCRIPT_DIR/lib/audio-engine.sh"
 # shellcheck source=lib/measurement-result.sh
 source "$SCRIPT_DIR/lib/measurement-result.sh"
+# shellcheck source=lib/measure-run-as-user.sh
+source "$SCRIPT_DIR/lib/measure-run-as-user.sh"
 
 RUN_AS_USER="${MPE_PI_USER:-mitch}"
 USER_HOME="$(getent passwd "$RUN_AS_USER" | cut -d: -f6)"
+MPE_RUN_AS_USER="$RUN_AS_USER"
+MPE_RUN_AS_USER_HOME="$USER_HOME"
 QUICK_SELECT="${USER_HOME}/Documents/Surge XT/Patches/Quick Select"
 ENV_FILE="/etc/mpe/mpe.env"
 
@@ -197,7 +201,7 @@ _run_cell() {
     if [ -n "$patch" ] && [ "$patch" != "silence" ]; then
         local patch_path="${QUICK_SELECT}/${patch}.fxp"
         [ -f "$patch_path" ] || { echo "ERROR: missing $patch_path" >&2; exit 1; }
-        sudo -u "$RUN_AS_USER" python3 "$SCRIPT_DIR/load-patch-osc.py" "$patch_path"
+        mpe_load_patch_osc "$patch_path" "$SCRIPT_DIR"
         sleep 1
     fi
 
