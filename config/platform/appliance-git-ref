@@ -1,0 +1,4 @@
+# Git branch pinned on appliance deploys (Pi clone SD + build-pi4-appliance.sh).
+# Override: MPE_APPLIANCE_GIT_REF=dev or --git-ref dev
+
+main

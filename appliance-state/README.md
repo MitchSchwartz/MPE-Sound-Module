@@ -30,6 +30,8 @@ Run after any recalibration, or this directory silently drifts from the applianc
 ./scripts/backup-appliance-state.sh
 ```
 
+For full device state (prefs + `/etc/mpe/mpe.env`), use [`scripts/provision/capture-external-state.sh`](../scripts/provision/capture-external-state.sh) — see [`docs/PI4-GOLDEN-IMAGE.md`](../docs/PI4-GOLDEN-IMAGE.md).
+
 ## What is deliberately NOT here
 
 - **Credentials.** The appliance holds none by design — see [`docs/PI-GITHUB-ACCESS.md`](../docs/PI-GITHUB-ACCESS.md). Nothing credential-shaped should ever land in this directory; the repo is public and gitleaks runs pre-commit.
