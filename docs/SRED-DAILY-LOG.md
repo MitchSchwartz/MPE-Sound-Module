@@ -33,6 +33,7 @@
 | 2026-08-23 | 00:44–00:45 | Gate 1 soak (B2) | ? | 0 | 1 | 0.5 | 2+3 | eligible | 8f138ec, b2-soak-gate1-2026-08-23.md | Agent closeout: subshell dropped `MPE_METER_LAST_AGE_S` (occurrence 11); fix `_read_meter_xruns`; Gate 1 blocked. Hours pending. |
 | 2026-08-23 | 00:47–00:54 | Gate 1 soak (B2) | 0 | 1 | 0 | 0 | - | eligible | 9060236, ~/instrument-soak-pilot-2026-08-23.log | Pi pull + Rule 0.5 pilot PASS (`meter_age_s` present @ minute 1); B2 attempt #3 started 00:51 → ~08:51. Hours pending. |
 | 2026-08-23 | 00:51–08:55 | Gate 1 soak (B2) | 0 | 1 | 0 | 1 | - | eligible | b2-soak-gate1-2026-08-23.md, raw-logs/home/instrument-soak-1024x2.log | Attempt #3 PASS: 991 xruns, 2.06/min, invalid_windows=0; A5–A9 closeout. Hours pending. |
+| 2026-08-23 | afternoon–evening | U10 Pi 5 bringup | ~3 | 1 | 0 | 1 | - | eligible | d99d6db, PI5-SESSION-CLOSEOUT-2026-08-23.md, pi5-irq-phase1-2026-08-23.md | Player live 128x2; hygiene+v3d+avahi; IRQ Phase1 (RP1 usb1/i2c CPU0); RT FIFO verified; Suite1 blocked 3A/no cooler. |
 ---
 
 *Daily capture started: 2026-08-22 (America/Toronto)*

@@ -85,7 +85,7 @@ Recorded so the claim shows what was *established*, not only what was attempted.
 | Is Cloud Horn genuinely unable to hold `512x2`? | 0/0/8 on three runs is a variance signal, not a verdict |
 | The entire DSP picture at 512/256 | V11's column void; re-run pending |
 | Does `1024x2` survive 8 h? | **Gate 1 soak never ran** (occurrence ten) |
-| Do these findings hold on another ARM microarchitecture? | U10, below — Pi 5 on order |
+| Do these findings hold on another ARM microarchitecture? | U10 — **Pi 5 instrument live; suite blocked on hardware** |
 
 ### Honest cost accounting
 
@@ -113,6 +113,12 @@ Not resolvable by reference: Pi 5 specifications are **published and must be cit
 measured**; how this specific audio graph behaves on it is not. Method: a frozen 15-cell
 reference suite (A2, pass 1 established and revalidated), a predictions table committed **before
 the board boots**, and a like-for-like pass before any optimisation.
+
+**Status 2026-08-23:** Pi 5 player appliance operational at 128×2; IRQ/hygiene baseline captured;
+predictions table committed ([`pi5-predictions-2026-08-23.md`](measurements/pi5-predictions-2026-08-23.md)).
+**Frozen reference suite not yet run** — blocked on active cooler + 27 W PSU. Early platform
+finding: RP1 USB/touch IRQ topology differs materially from Pi 4; Pi 4 affinity map only
+partially transfers ([`pi5-irq-phase1-2026-08-23.md`](measurements/pi5-irq-phase1-2026-08-23.md)).
 
 ---
 
@@ -319,6 +325,7 @@ follows hypothesis → experiment → analysis → revised hypothesis.
 | 08-22 | Rule -1 / Rule 0.5 / C0 | Root-cause analysis of ten instrument failures; conformance suite built, reviewed (F1-F5), fixed, and run live on Pi | **U8 partially resolved.** Gate green on Pi 2026-08-22; live DSP 80.2% @ 256 corroborates the V11 refutation |
 | 08-22 | A2 reference suite | Frozen 15-cell suite, pass 1 at 25 s windows | Control established; revalidated offline against the later parser (`494e8b4`) — **control stands** |
 | 08-22 | A3 `-mcpu=cortex-a72` | Same revision (`253f8d86`), flag-only rebuild vs stock on reference suite | **NULL — no-effect** (&lt;3% all cells). **U7 `-mcpu` branch closed.** V1 model cross-validated on loaded cells (+2.1–2.5 pp rise vs ~1.83 pp predicted). Duduk filter path: possible regression, pending A4 noise floor |
+| 08-23 | **Pi 5 player bringup (U10)** | Second platform: clone + hygiene + IRQ Phase 0/1 + RT verify; 128×2 player tuning; loaded census @ 24v | **Instrument live; replication suite not run.** RP1 IRQ map differs (usb1/i2c CPU0, not writable); Pi 4 movable-IRQ script no-op. PREEMPT_RT N/A on 2712. Suite 1 blocked: 3 A PSU, no cooler. See [`PI5-SESSION-CLOSEOUT-2026-08-23.md`](measurements/PI5-SESSION-CLOSEOUT-2026-08-23.md) |
 
 **Documented retractions** (evidence of genuine iteration, not post-hoc narrative):
 W1's `a = 1.10 ms`; the E1 core-allocation config; the unison cost theory; the probe-duration
