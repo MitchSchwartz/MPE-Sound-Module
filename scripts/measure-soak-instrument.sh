@@ -90,8 +90,7 @@ _as_user() {
         MPE_POLY_GOVERNOR="${MPE_POLY_GOVERNOR:-0}" \
         MPE_POLY_CEILING="${MPE_POLY_CEILING:-64}" \
         MPE_POLY_FLOOR="${MPE_POLY_FLOOR:-64}" \
-        MPE_POLY_GOVERNOR_HEADROOM="${MPE_POLY_GOVERNOR_HEADROOM:-3}" \
-        -- "$@"
+        MPE_POLY_GOVERNOR_HEADROOM="${MPE_POLY_GOVERNOR_HEADROOM:-3}" "$@"
 }
 
 # Command substitution runs mpe_meter_xruns_read in a subshell, so MPE_METER_LAST_AGE_S
