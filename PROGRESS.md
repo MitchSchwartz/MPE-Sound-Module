@@ -1,6 +1,6 @@
 # PROGRESS — canonical thread
 
-**Updated 2026-08-23 00:01 (America/Toronto).** This is the top-level index.
+**Updated 2026-08-23 00:43 (America/Toronto).** This is the top-level index.
 
 ---
 
@@ -34,13 +34,16 @@ See [`docs/PI5-TRANSITION-PLAN.md`](docs/PI5-TRANSITION-PLAN.md).
 | Confirmed floors | Crystals 3, Cloud Horn 5, Duduk 3, Brave New World 3 (all 1024) |
 | **V11 (2026-08-22)** | **512x2 clean for Crystals @3 and Duduk @3** (0/0/0 x3). Cloud Horn @5 marginal. 256x3: Duduk clean, Crystals marginal, Cloud Horn overloaded. **Xrun column stands.** Post-C0 DSP certified. Artifacts `~/plan-v11-20260822-144259/` |
 | **A2 pass 1 (2026-08-22)** | **DONE** — stock binary. JSON `~/reference-suite-pi4-20260822-204559/reference-suite-pi4-pass1.json` (`110977a`). Re-validated offline at `a1e80e3`: 12/12 loaded cells PASS. |
-| **A3 (2026-08-22)** | **DONE — NULL (pre-reg &lt;3%).** a72 suite `~/reference-suite-pi4-a72-20260822-231637/`. Same Surge `253f8d86`; no win on any cell; Duduk filter path possibly worse (unresolvable until A4). **Stock kept as control.** Doc: `reference-suite-pi4-a3-a72-comparison-2026-08-22.md` |
+| **A3 (2026-08-22)** | **DONE — NULL (pre-reg &lt;3%).** a72 suite `~/reference-suite-pi4-a72-20260822-231637/`. Same Surge `253f8d86`; no win on any cell. **Stock kept as control.** Doc: `reference-suite-pi4-a3-a72-comparison-2026-08-22.md` |
+| **A4 (2026-08-23)** | **DONE — noise floor.** Pass 2 `~/reference-suite-pi4-20260823-000348/`. Re-validated 12/12 at `e51856e`. **Max run-to-run spread 1.70%** (median 0.47%). Duduk a72 retro: **noise.** Doc: `reference-suite-pi4-a4-spread-2026-08-23.md` |
+| **B2 soak (2026-08-23)** | **IN FLIGHT** — 8 h @ 1024×2 Cloud Horn @5. Started 00:42, expected finish ~08:42. Log `~/instrument-soak-1024x2.log` |
 
 **Settled and not to be relitigated:** every xrun on this appliance is a **JACK graph
 overrun**, not an ALSA underrun — the ring has never drained (`W1-VERDICT`). Fixed
 per-callback cost is **a = 0.13 ms** (`V1-VERDICT`). Retired: the 600 us gap, cushion/drain
 model, URB depth/rate, frame alignment, `threadirqs`, `isolcpus`, PREEMPT_RT, the
 single-client refactor, the unison cost theory (twice), and **`-mcpu=cortex-a72`** (A3 null).
+**Run-to-run spread floor: ~1.7% max** (A4) — use as Pi 5 significance threshold.
 
 **Scope caveat:** every number above is a **Pi 4 fact**. Absolute costs, core allocation, and
 the whole IRQ census are void on a Pi 5 (RP1 moves USB behind PCIe). Retired lines were retired
@@ -55,8 +58,9 @@ transport work **un-retires**. Check, do not assume.
 Full plan: [`docs/measurements/PROMPT-PI4-CLOSEOUT.md`](docs/measurements/PROMPT-PI4-CLOSEOUT.md).
 
 > **C0 done on Pi 2026-08-22** — full gate green (`~/conformance-full-green.log`, #96–#101).
-> **A2 + A3 done** 2026-08-22 — stock control frozen; a72 null.
-> **Next:** A4 (reference pass 2, different day).
+> **A2 + A3 + A4 done** — stock control calibrated with noise floor.
+> **B2 soak in flight** — Gate 1 certification overnight.
+> **Next (autonomous):** A5 state capture, A6 log archive, A7–A9 infra/predictions.
 
 ### Track A — autonomous (no reboot, no gate)
 
@@ -67,22 +71,19 @@ Full plan: [`docs/measurements/PROMPT-PI4-CLOSEOUT.md`](docs/measurements/PROMPT
 | ~~**A1**~~ | ~~**V11**~~ — **DONE (xrun column).** 3/6 cells pass | `PROMPT-V11-512-256-confirm.md` | ~25 min |
 | ~~**A2**~~ | ~~**Reference suite pass 1**~~ — **DONE** 2026-08-22 (stock binary) | closeout §A2 | ~35 min |
 | ~~**A3**~~ | ~~**Settle a72**~~ — **DONE NULL** 2026-08-22; stock control kept | closeout §A3 | ~60 min |
-| **A4** | **NEXT — Reference pass 2**, different day (noise floor) | closeout §A4 | ~30 min |
-| A5 | Full appliance state capture — the control condition | closeout §A5 | ~10 min |
+| ~~**A4**~~ | ~~**Reference pass 2**~~ — **DONE** 2026-08-23; max spread **1.70%** | closeout §A4 | ~30 min |
+| **A5** | **NEXT — Full appliance state capture** | closeout §A5 | ~10 min |
 | A6 | Archive raw logs off the SD card | `PROMPT-G3-archive-raw-logs.md` | ~30 min |
 | A7 | `build-surge.sh --arch {a72\|a76\|generic}` as reusable infrastructure | closeout §A7 | ~30 min |
 | A8 | Platform-stamp the live docs | closeout §A8 | ~20 min |
 | A9 | **Predictions table — commit before the Pi 5 boots** | transition plan §5 | ~20 min |
-
-**A4 must run on a different day** than A2 pass 1 to measure run-to-run spread on the frozen
-stock control binary.
 
 ### Track B — needs Mitch (one window, ~45 min + soak)
 
 | # | Task | Prompt | Time |
 |---|---|---|---|
 | B1 | **P7 clock-scaling diagnostic** — now a Pi 5 *forecast*, not a lever | `PROMPT-P7-overclock-diagnostic.md` | ~13 min |
-| B2 | 8 h soak at the V11 winner | — | overnight |
+| **B2** | **IN FLIGHT** — 8 h soak @ 1024×2 Cloud Horn @5 | — | overnight |
 | B3 | Ear test before shipping any new binary default | — | ~10 min |
 
 ### Track C — Pi 5, on arrival
@@ -107,14 +108,14 @@ percussive rate metric.
 
 ### Open gates (Mitch only)
 
-- **Gate 1** — ship 1024x2 (or better, if V11 lands) as instrument profile default, after a
-  clean soak. Looper stack stays 1024x3/D. **NOT SATISFIED — prior soak died silently** (header-only
-  log, occurrence ten). Soak harness fix merged #102 (`soak-aborted` sentinel + stderr in log);
-  **re-run overnight** (A2 pass 1 done — unblocked).
+- **Gate 1** — ship 1024x2 as instrument profile default, after a clean soak. Looper stack stays
+  1024x3/D. **PENDING B2** — soak running 2026-08-23 00:42→~08:42 (`soak-start` sentinel present;
+  prior failure was occurrence ten). Mitch verifies `SENTINEL soak-complete` + xrun total on wake.
 - **Gate 2** — governor re-enable: **blocked** until the fade lands *and*
   `CPU_HIGH_THRESHOLD=50.0` is recalibrated (it sits *below* the ~58.9% baseline DSP).
 - **Gate 3** — percussive metric: deferred. Reframed as a **rate** question (does a fast roll
   drop notes), not a voice-count question.
+- **B3 ear test** — required before any binary or buffer default ships to production.
 
 ---
 
@@ -149,6 +150,7 @@ percussive rate metric.
 
 | File | What it is |
 |---|---|
+| `docs/measurements/reference-suite-pi4-a4-spread-2026-08-23.md` | **A4 noise floor** — spread table, Duduk retro, Pi 5 threshold |
 | `docs/measurements/reference-suite-pi4-pass1-revalidation-2026-08-22.md` | A2 pass 1 offline re-validation at a1e80e3 |
 | `docs/measurements/reference-suite-pi4-a3-a72-comparison-2026-08-22.md` | A3 stock vs a72 — null result |
 | `docs/measurements/REVIEW-line-of-thought-2026-08-22.md` | **Current roadmap argument.** Read this second. |
@@ -157,13 +159,8 @@ percussive rate metric.
 | `docs/measurements/MEASUREMENT-DISCIPLINE.md` | Doctrine. Rules 0-7. |
 | `docs/measurements/session-handoff-2026-08-22.md` | Last session state |
 | `docs/measurements/V9-REVIEW-2026-08-22.md` | V9 a/b/c/d results |
-| `docs/measurements/V10-b-ramp-probe-fix-2026-08-22.md` | Why ramp ceilings are screening-only |
 | `docs/measurements/V1-VERDICT-no-fixed-cost-2026-08-21.md` | a = 0.13 ms |
 | `docs/measurements/W1-VERDICT-compute-bound-2026-08-21.md` | Graph overrun, not underrun. **Note: its a = 1.10 ms is retracted by V1-VERDICT.** |
-| `docs/measurements/v8-patch-capacity-2026-08-21.md` + `V8-REVIEW` | 53-patch survey (ceilings screening-grade) |
-| `docs/measurements/CEILING-ANALYSIS-what-maxed-out-means.md` | Assumption stack A1–A6, levers 1–7 |
-| `docs/measurements/PATCH-COST-what-makes-them-heavy.md` | Unison retraction; real cost centres |
-| `docs/measurements/MULTITHREADING-ASSESSMENT.md` | ~3× prize, multi-week cost; do not start yet |
 | `docs/PI5-TRANSITION-PLAN.md` | **Why the transition is structured this way.** What survives, what is void |
 | `docs/PI5-BRINGUP-RUNBOOK.md` | Pi 5 setup + overnight suites with gates |
 | `docs/measurements/PROMPT-PI4-CLOSEOUT.md` | Ordered Pi 4 closeout, Track A/B |
