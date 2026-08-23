@@ -19,10 +19,14 @@ def rise_bias(
     *,
     full_rate: float,
     max_bias: float,
+    min_rate: float = 0.0,
     enabled: bool = True,
 ) -> float:
-    """Virtual load points from rate-of-rise (%/s)."""
-    if not enabled or dload_dt <= 0.0 or full_rate <= 0.0:
+    """Virtual load points from rate-of-rise (%/s).
+
+    ``min_rate``: ignore ramps slower than this (%/s deadband).
+    """
+    if not enabled or dload_dt <= min_rate or full_rate <= 0.0:
         return 0.0
     ratio = dload_dt / full_rate
     if ratio >= 1.0:
