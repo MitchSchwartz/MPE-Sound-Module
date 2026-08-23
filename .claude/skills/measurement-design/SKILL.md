@@ -169,6 +169,13 @@ That last row is the important one: when the shortest useful version is implausi
 for a metric with a higher event rate — fill level, DSP p99, magnitudes — or a comparison
 that does not require counting rare events.
 
+**Check dispersion before trusting any event-rate arithmetic.** Xruns here are **not Poisson** —
+measured Fano factor **4.32**, with **33% of minutes silent at a 3.87/min mean**
+(`X1-RESULT-burstiness-2026-08-23.md`). Effective sample size is ~`n / Fano`, so event-count
+windows need to be **~4x longer** than Poisson math suggests. A short-window zero is **not**
+evidence of clean — screen on a continuous metric (`dsp_max` / headroom), certify on a long
+window. Report the Fano factor whenever you claim a rate.
+
 Ask the same of **n**: three streams cannot establish shape, but ten runs inside one stream
 will not either. Spend the samples where the variance actually is.
 
