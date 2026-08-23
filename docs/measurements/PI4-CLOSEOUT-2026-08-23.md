@@ -43,7 +43,7 @@ substance of the investigation.
 | H3 | Compiler code generation is leaving performance on the table | A3 | **Null, pre-registered.** `-mcpu=cortex-a72` — all nine loaded cells ≤1.19% against a >5% win threshold. |
 | H4 | Real-time scheduling / IRQ placement is the constraint | E1 + IRQ census (archived) | **Closed.** xhci is pinned to CPU0 and not movable on this SoC; core allocation is not a lever here. |
 | H5 | The looper stack is the dominant cost | Looper stack cost, 2026-08-19 | **Refuted, and an earlier claim retracted.** See §3. |
-| H6 | Clock is the binding constraint (overclock converts to headroom) | P7 | **NOT RUN.** Open hole — see §7. |
+| H6 | Clock is the binding constraint (overclock converts to headroom) | P7 | **Baseline @1800 done; OC @2000 pending reboot** — see `P7-RESULT-baseline-2026-08-23.md` |
 
 **Independent cross-validation of V1.** Stock `dsp_median` rises +2.34 / +2.11 / +2.48 pp
 across 1024→512→256 for Crystals / Duduk / Cloud Horn. The V1 fit predicts ~1.83 pp from
@@ -230,12 +230,12 @@ must say so rather than reporting a single ratio.
 
 | # | Item | Why it blocks the close-out | Cost |
 |---|---|---|---|
-| O1 | **P7 never ran** | H6 (clock) is the one lever in §2 with no test. A3's own gate said P7 governs whether a compute win is convertible at all. Without it the elimination table has a hole. | ~15 min |
+| O1 | **P7** — baseline @1800 **done**; OC @2000 **awaiting reboot** | H6 (clock) baseline captured; OC half pending one reboot + `--phase oc`. Artifacts `~/plan-p7-20260823-145330`. See `P7-RESULT-baseline-2026-08-23.md`. | ~15 min remaining |
 | O2 | **A4** — reference pass 2 | The only thing that puts an error bar on any Pi4→Pi5 ratio. Was a curiosity about a closed lever; now load-bearing. | one suite pass |
 | O3 | **V12** — buffer compare | The quantified Pi 4 ceiling. No longer a ship decision — it is the close-out's headline measurement. | ~70 min |
 | O4 | ~~**G2 threshold statistic** (§4)~~ | **Resolved 2026-08-23.** Governor uses proc/OSC CPU @ 6.7 Hz; soak `dsp_max` is `jack_cpu_load` — not commensurable. See §4, `G2-RESULT-2026-08-23.md` §O4. | done |
 | O5 | **B3** — steal audibility | The gap in §5e between measured capacity and player-relevant quality. | ear test |
-| O6 | Pi hot-patch not in repo | V12 would otherwise produce numbers from scripts with no committed provenance — the same gap as `surge_revision: unknown` in the suite JSON. Push `dev`, have the Pi pull, before V12. | minutes |
+| O6 | ~~Pi hot-patch not in repo~~ | **Done 2026-08-23.** Pi @ `1c165b9`; soak script matches repo (hot-patch removed). | done |
 
 **O1, O4 and O6 are cheap and should land before V12 runs.** O2 and O3 are the close-out's
 own measurements. O5 is honest to leave open, provided §5e keeps saying so.
