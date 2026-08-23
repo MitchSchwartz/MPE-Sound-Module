@@ -27,7 +27,7 @@ See [`docs/PI5-TRANSITION-PLAN.md`](docs/PI5-TRANSITION-PLAN.md).
 | **Platform** | **Pi 4B / BCM2711 / Cortex-A72**, Pi OS Lite 64-bit (trixie). Pi 5 on order — see Track C |
 | **Control binary** | **stock** (a72 null result 2026-08-22; reverted). Backup `~/surge-xt-cli.pre-a72` |
 | Shipping | 1024x3 = **64.0 ms** |
-| Measured free at clean load | 1024x2 = **42.7 ms** (Cloud Horn, Duduk, Brave New World, Crystals) |
+| Measured free at clean load | 1024x2 = **42.7 ms** — **but "free" is wrong.** The 8 h soak measured **991 xruns = 2.06/min** at this config. It read clean only because windows were 25-45 s and the process is bursty (Fano 4.32). **No config is "clean"; the open question is audibility (B3).** |
 | Governor | **OFF** (left off from V9; re-enable blocked on fade) |
 | Clock | 1800 MHz, `arm_boost=1`, `performance` |
 | Cores | `irqaffinity=0,1`; jackd/surge/looper `CPUAffinity=2 3` |
