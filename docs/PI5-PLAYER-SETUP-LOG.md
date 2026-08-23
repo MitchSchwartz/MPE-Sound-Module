@@ -2,6 +2,9 @@
 
 *Last updated: 2026-08-23 (America/Toronto)*
 
+**Session closeout (2026-08-23):** Player is **live** at 128×2; hygiene + IRQ Phase 1 done; Suite 1
+**blocked** on cooler + 27 W PSU. Full state: [`measurements/PI5-SESSION-CLOSEOUT-2026-08-23.md`](measurements/PI5-SESSION-CLOSEOUT-2026-08-23.md).
+
 **Purpose:** Every step needed to go from a fresh Pi 5 SD card to a **working touch player** that matches the live Pi 4.
 
 **Two tracks — do not mix before platform comparison lands:**
@@ -40,13 +43,14 @@ Host pi4 surge raspberrypi2 raspberrypi2.local
     IdentitiesOnly yes
 
 Host pi5 raspberrypi5 raspberrypi5.local
-    HostName raspberrypi5.local
+    HostName 192.168.1.106
     User pi
     IdentityFile ~/.ssh/surge_pi5_key
     IdentitiesOnly yes
 ```
 
-Use **mDNS** (`.local`), not a hardcoded DHCP IP.
+Prefer **LAN IP** if mDNS is flaky; avahi is **enabled** on the player (2026-08-23). Pi 4 still
+uses `.local` via Tailscale/LAN as configured.
 
 ### Laptop `mpe` CLI — two boards
 
@@ -109,7 +113,7 @@ After `configure-pi-paths.sh`, run **`scripts/apply-player-env-parity.sh`** (mer
 |-----|------------|---------------------|------------------|
 | `MPE_FAVORITES_NAME` | `"Quick Select"` | `"!Quick Access"` (template default) | Empty / wrong favorites tab |
 | `MPE_PEAK_METER` | `1` | `0` | OUT meter shows **−** |
-| `MPE_JACK_BUFFER` | `1024` | `256` / `512` | Different latency |
+| `MPE_JACK_BUFFER` | `1024` (Pi 4 ship) · **128** (Pi 5 player today) | `256` / wrong parity overwrite | 64×2 broke USB/ALSA on Pi 5; use parity script that **preserves** tuned value |
 | `MPE_JACK_SOFTMODE` | `0` | — | — |
 | `MPE_CPU_GOVERNOR` | `performance` | — | — |
 | `MPE_POLY_GOVERNOR` + ceiling/floor | `1` / `64` / `64` | missing | Poly behaviour differs |
@@ -226,6 +230,24 @@ Steps that **`setup-touch-pi.sh` / `deploy-all.sh` do not yet cover** — add he
 4. **`MPE_FAVORITES_NAME`** — template defaults to `!Quick Access`; Pi 4 uses `Quick Select`.
 5. **User state sync** — no single script yet for ui + normalization + pressure + quick-select.
 6. **Two-Pi laptop config** — document in `mpe-cli` README (`mpe.env.pi4` / `mpe.env.pi5` pattern).
+
+---
+
+## J. Session status — 2026-08-23 bringup
+
+| Item | State |
+|------|--------|
+| Services | mpe-jackd, surge-xt-cli, touch-patch-browser, mpe-peak-meter, mpe-pressure-remap → active |
+| Audio | 128×2 @ 48 kHz, Sound Blaster hw:1 |
+| RT FIFO | jackd **70**, Surge audio **65** — `verify-jack-rt-limits.sh pi` passes |
+| Affinity | Audio **2–3**; UI + poly governor **0–1** |
+| Hygiene | v3d blacklisted; BT off; avahi on; performance governor |
+| IRQ Phase 1 | [`pi5-irq-phase1-2026-08-23.md`](measurements/pi5-irq-phase1-2026-08-23.md) — partial Pi 4 map |
+| PSU / cooling | **3 A, no cooler** — throttle expected under soak; cooler ordered |
+| Blocked | Reference suite, Suite 1, 64-voice census until cooler + 27 W PSU |
+
+**SR&ED:** U10 platform replication — instrument live, predictions unscored. See
+[`PI5-SESSION-CLOSEOUT-2026-08-23.md`](measurements/PI5-SESSION-CLOSEOUT-2026-08-23.md).
 
 ---
 
