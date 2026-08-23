@@ -131,12 +131,14 @@ if mpe_result_physics_assert "" 2>/dev/null; then
 fi
 ok "physics VOID without -bNNN- tag (S2)"
 
-# --- S3: plausibility VOID when samples too short ---
+# --- S3: plausibility VOID when samples != MPE_EXPECT_SAMPLES (truncated window) ---
+MPE_EXPECT_SAMPLES=60
 mpe_result_parse_line "RESULT tag=A-b256-p3-l0-run1 xruns=0 meter_live=1 dsp_median=0.900000 samples=12"
 if mpe_result_require_fields dsp_median 2>/dev/null; then
-    fail "samples=12 should VOID plausibility check"
+    fail "samples=12 with EXPECT=60 should VOID plausibility check"
 fi
-ok "plausibility VOID on short window (S3)"
+unset MPE_EXPECT_SAMPLES
+ok "plausibility VOID on samples mismatch (S3)"
 
 # --- S7: non-numeric xruns VOID physics ---
 mpe_result_parse_line "RESULT tag=A-b512-p3-l0-run1 xruns=notnum meter_live=1 dsp_median=10.0 samples=60"
