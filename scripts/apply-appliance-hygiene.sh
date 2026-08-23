@@ -46,12 +46,12 @@ for t in apt-daily.timer apt-daily-upgrade.timer dpkg-db-backup.timer logrotate.
 done
 
 echo "=== prune services ==="
-for u in bluetooth avahi-daemon cron udisks2 console-setup keyboard-setup \
+# avahi-daemon: keep on player boxes — mDNS (.local) SSH reachability (Pi 5 Wi‑Fi).
+# Pi 4 control runs avahi enabled; do not prune here.
+for u in bluetooth cron udisks2 console-setup keyboard-setup \
     cloud-init cloud-init-local cloud-config cloud-final; do
     _disable_unit "${u}.service"
 done
-# avahi socket can respawn the daemon if left enabled
-_disable_unit avahi-daemon.socket
 
 # usb-audio-gadget: only disable when usb-host profile unused (card 5 / UAC2)
 if aplay -l 2>/dev/null | grep -qi UAC2; then
