@@ -62,6 +62,27 @@ A governor that never fires passes the negative arm trivially; both arms require
 
 ---
 
+## 2026-08-23 — G2 closed: governor ON at 78/68
+
+**Result:** Gate 2 **closed** on Pi 4 control. Thresholds **78.0 / 68.0** verified empirically;
+only pair tested. Governor **re-enabled** (`MPE_POLY_GOVERNOR=1`, `surge-poly-governor.service` active).
+
+**Negative control:** Cloud Horn @5, 1024×2, 30 min — `governor_engagements_total=0`, 8 xruns,
+`dsp_max=78.3`. **Positive control:** Crystals @6, 3 min — `governor_engagements_total=1`
+(emergency limit drop).
+
+**Fade:** not merged (V7 Fix 2 open). Threshold recalibration unblocks shipping stack; steal
+audibility deferred to **B3 after V12**.
+
+**Harness fixes during close:** engagement-only journal filter; G2 RESULT line parsing; GOV_SINCE
+total recount; stop touch UI during soaks.
+
+**Doc:** `docs/measurements/G2-RESULT-2026-08-23.md` · Pi logs under `~/g2-governor-2026-08-23-*`
+
+**Next:** V12 buffer comparison (~70 min, Mitch approval) → B3 ear test → Gate 1 ship.
+
+---
+
 ## 2026-08-22 — Gates: ship 1024×2 after soak; governor waits on fade
 
 **Gate 1 (Mitch):** Ship **1024×2** for instrument profile after **one overnight soak**

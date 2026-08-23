@@ -1,6 +1,6 @@
 # PROGRESS — canonical thread
 
-**Updated 2026-08-23 12:30 (America/Toronto).** This is the top-level index.
+**Updated 2026-08-23 14:04 (America/Toronto).** This is the top-level index.
 
 ---
 
@@ -28,7 +28,7 @@ See [`docs/PI5-TRANSITION-PLAN.md`](docs/PI5-TRANSITION-PLAN.md).
 | **Control binary** | **stock** (a72 null result 2026-08-22; reverted). Backup `~/surge-xt-cli.pre-a72` |
 | Shipping | 1024x3 = **64.0 ms** |
 | Measured free at clean load | 1024x2 = **42.7 ms** — **but "free" is wrong.** The 8 h soak measured **991 xruns = 2.06/min** at this config. It read clean only because windows were 25-45 s and the process is bursty (Fano 4.32). **No config is "clean"; the open question is audibility (B3).** |
-| Governor | **OFF** (left off from V9; re-enable blocked on fade) |
+| Governor | **ON** — `HIGH=78.0` `LOW=68.0` (G2 closed 2026-08-23). Fade actuation still open (B3 audibility) |
 | Clock | 1800 MHz, `arm_boost=1`, `performance` |
 | Cores | `irqaffinity=0,1`; jackd/surge/looper `CPUAffinity=2 3` |
 | Confirmed floors | Crystals 3, Cloud Horn 5, Duduk 3, Brave New World 3 (all 1024) |
@@ -60,8 +60,7 @@ Full plan: [`docs/measurements/PROMPT-PI4-CLOSEOUT.md`](docs/measurements/PROMPT
 > **C0 done on Pi 2026-08-22** — full gate green (`~/conformance-full-green.log`, #96–#101).
 > **A2 + A3 + A4 done** — stock control calibrated with noise floor.
 > **B2 PASS** — Gate 1 soak complete 08:54; A5–A9 unblocked (closeout in progress).
-> **Gate 1 ship stack:** **G2 → V12 → B3** (~70 min Pi time after G2, Mitch approval). Governor
-> off or short-window confirm cannot certify the shipping default.
+> **Gate 1 ship stack:** **V12 → B3** (~70 min Pi time, Mitch approval for V12). G2 closed; governor on at 78/68.
 
 ### Track A — autonomous (no reboot, no gate)
 
@@ -85,7 +84,7 @@ Full plan: [`docs/measurements/PROMPT-PI4-CLOSEOUT.md`](docs/measurements/PROMPT
 |---|---|---|---|
 | B1 | **P7 clock-scaling diagnostic** — now a Pi 5 *forecast*, not a lever | `PROMPT-P7-overclock-diagnostic.md` | ~13 min |
 | ~~**B2**~~ | ~~**8 h soak @ 1024×2**~~ — **PASS** (991 xruns, 2.06/min) | — | overnight |
-| **G2** | **Governor recalibration + re-enable** | `PROMPT-G2-governor-recalibration.md` | ~30 min |
+| ~~**G2**~~ | ~~**Governor recalibration + re-enable**~~ — **CLOSED** 2026-08-23. Doc: `G2-RESULT-2026-08-23.md` | `PROMPT-G2-governor-recalibration.md` | ~33 min |
 | **V12** | **512×2 vs 1024×2 rate comparison** — needs Mitch approval | `PROMPT-V12-certify-buffer.md` · `measure-v12-buffer-compare.sh` | ~70 min |
 | B3 | Ear test (audibility) — **Gate 1 ship** | — | ~10 min |
 
@@ -112,20 +111,20 @@ Governor thresholds are Pi 4-absolute and will need a Pi 5 pass after G2 closes 
 ### Open gates (Mitch only)
 
 - **Gate 1** — ship instrument profile default (1024×2 or 512×2 per V12). **Soak PASS** at
-  1024×2 (991 xruns, 2.06/min) — see `b2-soak-gate1-2026-08-23.md`. **Ship blocked on G2 → V12 →
-  B3.** No config is "clean"; audibility decides.
-- **Gate 2** — governor re-enable: **now blocks Gate 1.** The governor has been OFF since V9, so
-  the appliance as played has no voice limiting and heavy patches insta-crackle — expected, not a
-  regression. B3's ear test cannot certify a shipping default that excludes the governor.
-  `MPE_POLY_CPU_HIGH=50.0` sits *below* Cloud Horn's measured clean 56.9-59.4%, and
-  `CPU_LOW=40.0` is below every clean point so the governor would latch and never release.
-  Prompt: `PROMPT-G2-governor-recalibration.md`. Depends on the fade landing and on X1's
-  governor check.
+  1024×2 (991 xruns, 2.06/min) — see `b2-soak-gate1-2026-08-23.md`. **Ship blocked on V12 → B3.**
+- ~~**Gate 2**~~ — **CLOSED 2026-08-23.** Thresholds 78/68 verified; governor on. See
+  `G2-RESULT-2026-08-23.md`. Fade actuation still open — audibility is B3, not a G2 blocker for thresholds.
 - **Gate 3** — percussive metric: deferred. Reframed as a **rate** question (does a fast roll
   drop notes), not a voice-count question.
 - **V12** — long-window buffer comparison, governor on. Prompt:
   `PROMPT-V12-certify-buffer.md`. Requires Mitch approval (~70 min).
-- **B3 ear test** — audibility acceptance; **invalid until G2 and V12 close.**
+- **B3 ear test** — audibility acceptance; **invalid until V12 closes.**
+
+---
+
+## G2 result pointer
+
+Full log paths and harness notes: [`docs/measurements/G2-RESULT-2026-08-23.md`](docs/measurements/G2-RESULT-2026-08-23.md).
 
 ---
 
