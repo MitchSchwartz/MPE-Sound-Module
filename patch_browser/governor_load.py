@@ -43,6 +43,7 @@ class LoadTracker:
         self._prev_at: float | None = None
         self._prev_xruns: int | None = None
         self._meter_fallback_logged = False
+        self._jack_proc_disagreement_logged = False
         self._proc_prev: tuple[int, float] | None = None
 
     def sample(self) -> LoadSample | None:
@@ -92,11 +93,11 @@ class LoadTracker:
         return xruns, delta
 
     def _read_load(self, now: float) -> tuple[float | None, float | None, str]:
+        jack_load: float | None = None
+        jack_raw: float | None = None
         if self.meter_mode in ("auto", "jack"):
-            load, raw = self._read_meter_dsp(now)
-            if load is not None:
-                return load, raw, "jack"
-            if self.meter_mode == "jack":
+            jack_load, jack_raw = self._read_meter_dsp(now)
+            if self.meter_mode == "jack" and jack_load is None:
                 if not self._meter_fallback_logged:
                     print(
                         "poly-governor: meter=jack but dsp_percent stale — falling back to proc",
@@ -104,9 +105,39 @@ class LoadTracker:
                     )
                     self._meter_fallback_logged = True
 
-        proc = self._read_proc_cpu()
-        if proc is not None:
-            return proc, proc, "proc"
+        proc_load = self._read_proc_cpu()
+
+        if self.meter_mode == "proc":
+            if proc_load is None:
+                return None, None, "none"
+            return proc_load, proc_load, "proc"
+
+        if self.meter_mode == "jack":
+            if jack_load is not None:
+                return jack_load, jack_raw, "jack"
+            if proc_load is not None:
+                return proc_load, proc_load, "proc"
+            return None, None, "none"
+
+        # auto — prefer jack unless pegged while proc disagrees (Pi 5 @ 128×2 common)
+        if jack_load is not None:
+            if (
+                proc_load is not None
+                and jack_load >= 95.0
+                and proc_load + 15.0 < jack_load
+            ):
+                if not self._jack_proc_disagreement_logged:
+                    print(
+                        "poly-governor: jack dsp pegged "
+                        f"({jack_load:.0f}%) vs proc ({proc_load:.0f}%) — using proc",
+                        flush=True,
+                    )
+                    self._jack_proc_disagreement_logged = True
+                return proc_load, proc_load, "proc"
+            return jack_load, jack_raw, "jack"
+
+        if proc_load is not None:
+            return proc_load, proc_load, "proc"
         return None, None, "none"
 
     def _read_meter_dsp(self, now: float) -> tuple[float | None, float | None]:
