@@ -59,6 +59,63 @@ without it every buffer reduction is guess-and-listen.
 
 ---
 
+## 2a. State of knowledge — 2026-08-22
+
+Recorded so the claim shows what was *established*, not only what was attempted.
+
+### Established
+
+| finding | evidence | status |
+|---|---|---|
+| All xruns here are JACK graph overruns; the ring has never drained | W1 journal instrumentation | settled |
+| Fixed per-callback cost `a = 0.13 ms` (0.6% of deadline at 1024, 1.2% at 512) | V1 silence test | settled; **retracted W1's own 1.10 ms by 8x** |
+| `1024x2` = 42.7 ms is free at clean load | V9-d, four patches, 3 x 45 s | settled |
+| **`512x2` = 21.3 ms is clean for Crystals @3 and Duduk @3** | V11 xrun column, 0/0/0 x3 | **settled — a 3x reduction on the 64.0 ms shipping config, not yet shipped** |
+| The latency floor is **patch-dependent** | V11: Cloud Horn @5 marginal (0/0/8) at the same config | settled (U9) |
+| Filter choice predicts cost better than oscillator count | 53-patch census + capacity survey | settled (U4) |
+| Live DSP at 256 under load ~80% | C0 live gate, 2026-08-22 | settled; refutes V11's 0.9-1.6% by ~50-80x |
+| Instrument failure has **one** root cause across ten instances | Rule -1 analysis | settled (U3) |
+
+### Not established — open
+
+| question | why it is open |
+|---|---|
+| Does `-mcpu=cortex-a72` help? | A3 not run |
+| Does DSP scale inversely with clock? | P7 not run — and it is the cheapest available Pi 5 forecast |
+| Is Cloud Horn genuinely unable to hold `512x2`? | 0/0/8 on three runs is a variance signal, not a verdict |
+| The entire DSP picture at 512/256 | V11's column void; re-run pending |
+| Does `1024x2` survive 8 h? | **Gate 1 soak never ran** (occurrence ten) |
+| Do these findings hold on another ARM microarchitecture? | U10, below — Pi 5 on order |
+
+### Honest cost accounting
+
+2026-08-22 consumed ~13 h hands-on and shipped **no latency improvement**. Nearly all of it went
+into the measurement system. The justification is not that the instrument work was pleasant but
+that the alternative was carrying an unaudited apparatus onto new hardware where no baseline
+exists to catch an impossible reading. Nine prior conclusions rested on uncertified instruments
+and several were retracted, including a fixed-cost model wrong by 8x that shaped roughly a week
+of work before V1 caught it.
+
+**One structural observation, recorded because it distinguishes convergence from thrash.** The
+defects found across 2026-08-22 shrank monotonically in scope: an entire metric column (V11) ->
+one 8-hour run lost silently (soak) -> one cell halted at 4 of 15 (C0 threshold) -> one field
+dropped by a `printf` specifier count. Each is more peripheral than the last. That is the
+signature of a converging investigation, not a widening one.
+
+---
+
+### U10 — Do the findings hold across ARM microarchitectures?
+**Stated before the work, per gap G4.** Every result above is entangled with one SoC. `a = 0.13
+ms`, the filter-over-oscillator cost finding, and the cushion result are each *either* a property
+of the Surge/JACK stack *or* of a Cortex-A72 at 1.8 GHz, and one board cannot separate them.
+
+Not resolvable by reference: Pi 5 specifications are **published and must be cited, not
+measured**; how this specific audio graph behaves on it is not. Method: a frozen 15-cell
+reference suite (A2, pass 1 established and revalidated), a predictions table committed **before
+the board boots**, and a like-for-like pass before any optimisation.
+
+---
+
 ## 3. Technological uncertainties
 
 Each of these was a genuine unknown at the time work began, each was resolved by
@@ -93,17 +150,65 @@ the single number the current roadmap rests on. It also killed a planned single-
 refactor (measured benefit: 35 µs).
 
 ### U3 — Is the measurement instrument itself trustworthy?
-**Uncertainty.** Recurring, and the most expensive class encountered. An instrument that
-reads *clean* when it is *blind* is indistinguishable from a passing test.
+**Uncertainty.** Recurring, and by a wide margin the most expensive class encountered. An
+instrument that reads *clean* while *blind* is indistinguishable from a passing test, so the
+failure arrives as a **result** rather than an error and is believed, published, and built on.
 
-**Four separate occurrences**, each found and documented: V8-b patch auto-pick,
-`mpe-peak-meter` shutdown path, the V10-b ramp probe (`xruns_delta=0` where the confirm
-harness read 275 on the identical load), and a fabricated `unison_voices` field in the patch
-census (`HANDOVER-census-unison-fix.md`).
+**Resolved 2026-08-22 — and the resolution is a single root cause, not a list of bugs.**
 
-**Consequence.** `MEASUREMENT-DISCIPLINE.md` (rules 0–7), the `measurement-design` skill, and
-an instrument self-test doctrine in `AGENTS.md`. `measure-capacity-ramp.sh` demoted to
-screening-only; all comparative claims restricted to the confirm harness.
+> **Every instrument on this appliance returned its value and its failure through the same
+> channel.** At the reading site there was no way to distinguish *"here is a measurement"* from
+> *"I could not measure."* That is one missing convention, replicated everywhere because
+> nothing enforced it.
+
+**Ten documented occurrences**, spanning five days and four subsystems:
+
+| date | instrument | returned | should have returned |
+|---|---|---|---|
+| 08-19 | `xrun-corr.sh` | exit 0, empty file, 12 runs | write failure |
+| 08-19 | `set-surge-audio.sh` | continued without `sudo` — a run labelled 512 ran at 1024 | hard stop |
+| 08-19 | latency tap v1 | `n=0` after 267 presses (wrong code path) | no-events error |
+| 08-19 | latency tap v2 | `n=0` after 115 presses | no-events error |
+| 08-21 | V8-b auto-pick | a plausible patch name — the wrong one | selection failure |
+| 08-21 | `mpe-peak-meter` shutdown | looked stopped; was not | shutdown failure |
+| 08-22 | V10-b ramp probe | `0` xruns via `\|\| start=0` swallowing a blind meter | blind-meter error |
+| 08-22 | census `unison_voices` | plausible integer, summed engine selectors | unsupported-field error |
+| 08-22 | V11 `dsp_med` | `unknown`, plus idle readings presented as measurements | field + alignment error |
+| 08-22 | Gate 1 soak log | 253 bytes, header only, 4 h in — setup died under `set -e`, every failure path wrote to stderr or nowhere | aborted sentinel |
+
+**The V11 case is the clearest and is independently corroborated.** `dsp_med` read 0.9–1.6% at
+256x3 across three unrelated patches, including a cell with 23 xruns — a cell missing its
+deadline is at ~100% by definition, so the reading was **arithmetically impossible**, not merely
+wrong. The live conformance gate later measured **80.2% at 256 under load**: the original
+readings were off by a factor of roughly 50–80. That is a measured refutation, not an inference.
+
+**Consequence — the advancement.** The general principle was derived from the instances and
+implemented as a mechanism, not a habit:
+
+- **`MEASUREMENT-DISCIPLINE.md` Rule -1**, five required mechanisms: no in-band failures
+  (`|| x=0`, `unknown`, continue-on-error all halt); a **positive control** asserting a reading
+  is *right*, not merely present; a **negative control** asserting the harness halts when the
+  instrument is broken; **physics assertions** rejecting arithmetically impossible results
+  in-harness; and a **terminal sentinel on every exit path** for long runs, so "no result yet"
+  and "died" stop sharing a channel.
+- **`Rule 0.5` — pilot before running at length.** One cell, minimum window, read every field.
+  Exit code 0 is not the check; every silent failure above exited 0.
+- **C0 conformance suite** (`scripts/instrument-conformance.sh`, offline + live), with
+  data-derived monotone plausibility floors (1024=7.6, 512=12.5, 256=15.2, anchored to V9/W1)
+  and a monotonicity assertion on the thresholds themselves.
+- Propagated to the `measurement-design` skill, `AGENTS.md`, and both pre-registration blocks.
+
+**Independently validated on first use, same day:** the C0 gate found real defects when first
+run on the Pi (PR #99); it then **refused to publish** reference-suite cell P1 under a
+sample-count threshold it could not defend, halting at cell 4 of 15 rather than emitting fifteen
+plausible values. The pilot rule caught that threshold defect in ~2 minutes, against the 25
+minutes the equivalent V11 failure had cost two days earlier.
+
+**Residual finding worth recording:** fixing the undefendable threshold introduced a
+*fail-open* — a guard that silently did not apply when its environment variable was unset.
+Caught in review and closed (`a1e80e3`, fail-closed). **The failure mode reproduces inside its
+own remedy**, which is the strongest available evidence that the mechanism — not vigilance — is
+what does the work.
 
 ### U4 — What determines per-voice compute cost across a real patch library?
 **Uncertainty.** Whether patch cost was predictable from visible structure, which would let
@@ -143,6 +248,44 @@ and P8 (`-mcpu=cortex-a72`) remain unrun.
 
 ---
 
+### U8 — Can a measurement system be made structurally incapable of silent failure?
+**Uncertainty.** Distinct from U3, which asked whether *these* instruments were trustworthy.
+This asks whether a general mechanism exists that makes the failure class impossible rather
+than merely watched-for. Vigilance had already failed ten times, including twice *after* the
+pattern was named in writing (`MEASUREMENT-DISCIPLINE.md`, 2026-08-21 21:38).
+
+**Partially resolved.** Five mechanisms implemented and independently exercised (see U3).
+Evidence that mechanism beats vigilance: the gate refused two runs on its first day, and the
+fail-open regression inside the fix itself was caught by a structural review rather than by
+care. **Not fully resolved** — the class is still appearing in *new* code (a `printf` with 14
+format specifiers for 15 arguments silently dropped a field, 2026-08-22), which is the argument
+for retaining the mechanisms rather than declaring the doctrine finished.
+
+**Why this is not routine engineering.** The question is not "write better tests." It is whether
+a measurement apparatus for a real-time audio system can be given a structural property —
+value and failure on separate channels, with physics-level rejection of impossible readings —
+that eliminates a failure mode empirically shown to survive documentation, review, and
+experience. That is experimental development on the measurement system itself.
+
+### U9 — Is the latency floor a property of the appliance or of the patch?
+**Uncertainty.** All prior work sought a single shipping buffer configuration, implicitly
+assuming one floor for the instrument.
+
+**Resolved against that assumption, 2026-08-22 (V11).** At `512x2` (21.3 ms) Crystals @3 and
+Duduk @3 held **0 xruns across three runs each**, while Cloud Horn @5 produced 0/0/8. At
+`256x3` (16.0 ms) Duduk held clean and Crystals was marginal (0/2/2). **The floor is
+patch-dependent, not a single appliance-wide constant.**
+
+**Consequence.** Reframes the shipping decision from one global buffer to a per-profile
+configuration the appliance already supports, and reframes marginal cells (two clean runs then
+one bad) as a variance question requiring more runs, not a verdict from three.
+
+**Note on evidence integrity.** V11's **xrun** column is sound and its **DSP** column is
+withheld — the derived plausibility floors show the 512 readings were implausible too, not only
+the 256 ones. The xrun path survived precisely because a positive control had been run against
+it that morning; the DSP path had none. **A single 5-minute control is the entire difference
+between half a usable result and none.**
+
 ## 4. Systematic investigation — chronology
 
 Commit density by day is in git; the shape of the investigation is below. Every phase
@@ -161,6 +304,10 @@ follows hypothesis → experiment → analysis → revised hypothesis.
 | 08-22 | V8 review → V9 | Probe duration; `x2` vs `x3` below the knee | **U5 and U6 resolved.** `1024 x 2` shipped-eligible |
 | 08-22 | V10-b | Ramp probe counting defect | Instrument fixed; ramp demoted to screening |
 | 08-22 | Ceiling / multithreading analysis | Audit of the "maxed out" premise; parallelism scoping | **U7 partially resolved**; P7/P8 queued |
+| 08-22 | V11 buffer confirmation | `512x2` / `256x3` at confirmed voice counts | **U9 resolved** — floor is patch-dependent. **21.3 ms available** for 2 of 3 patches, a 3x reduction on the 64.0 ms shipping config. DSP column void — occurrence nine |
+| 08-22 | Gate 1 soak | 8 h certification at `1024x2` | **Never ran.** Died in setup, logged nothing — occurrence ten. Certification outstanding |
+| 08-22 | Rule -1 / Rule 0.5 / C0 | Root-cause analysis of ten instrument failures; conformance suite built, reviewed (F1-F5), fixed, and run live on Pi | **U8 partially resolved.** Gate green on Pi 2026-08-22; live DSP 80.2% @ 256 corroborates the V11 refutation |
+| 08-22 | A2 reference suite | Frozen 15-cell suite, pass 1 at 25 s windows | Control established; revalidated offline against the later parser (`494e8b4`) — **control stands** |
 
 **Documented retractions** (evidence of genuine iteration, not post-hoc narrative):
 W1's `a = 1.10 ms`; the E1 core-allocation config; the unison cost theory; the probe-duration

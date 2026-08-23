@@ -29,3 +29,37 @@
 ---
 
 *Daily capture started: 2026-08-22 (America/Toronto)*
+
+## 2026-08-22 — instrument-system arc (retro entry, ~13 h hands-on)
+
+**Sessions:** 00:04-04:15 · 07:56-15:24 · 16:40-late. Continuous from 2026-08-21 13:16 with one
+3 h 41 sleep break — the calendar boundary falls mid-session; see `SRED-EFFORT-LOG.md`.
+
+**Advancement claimed.** Root-cause analysis of ten instrument failures spanning five days and
+four subsystems, resolving to **one** structural defect: value and failure sharing a channel.
+Derived five general mechanisms, implemented them as a conformance gate (offline + live),
+reviewed it adversarially (F1-F5), fixed the findings, and ran it green on the appliance.
+
+**Experimental results.**
+- V11: `512x2` = 21.3 ms clean for Crystals @3, Duduk @3 (0/0/0 x3); Cloud Horn @5 marginal.
+  **Floor is patch-dependent** (U9). DSP column void — occurrence nine.
+- Live conformance: DSP 80.2% @ 256 under load vs V11's 0.9-1.6% — **~50-80x refutation,
+  measured**.
+- Gate 1 soak: never ran; logged 253 bytes over 4 h — occurrence ten.
+- A2 reference suite pass 1 established, revalidated offline against the later parser
+  (`494e8b4`) — control stands.
+
+**Validation of the mechanism, same day.** C0 found real defects on first Pi run (#99); refused
+reference-suite cell P1 under a threshold it could not defend, halting at cell 4 of 15; Rule 0.5
+pilot caught that defect in ~2 min against the 25 min the equivalent V11 failure cost two days
+earlier. The threshold fix then introduced a **fail-open**, caught in review (`a1e80e3`) — the
+failure mode reproducing inside its own remedy.
+
+**Instrument/measurement-system labour (eligible, invisible in commits):** root-cause analysis,
+doctrine authoring, adversarial review of the gate across two cycles, threshold derivation from
+V9/W1 anchors, and the offline revalidation helper.
+
+**Routine (G5, excluded):** repo hygiene, branch merges, PROGRESS bookkeeping.
+
+**Open:** A3 (a72 A/B), P7 (clock scaling — cheapest Pi 5 forecast), Cloud Horn variance,
+V11 DSP re-run, Gate 1 soak re-run, ear test.
