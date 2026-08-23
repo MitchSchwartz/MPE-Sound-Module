@@ -86,8 +86,10 @@ POS_LOG="${OUTPUT_DIR}/g2-positive-crystals-6.log"
     fi
     echo
     echo "--- Step 1: fade status ---"
-    echo "fade_actuation: not implemented as separate layer (Task C / V7 Fix 2 open)"
-    echo "surge_path: softkillVoice/uber_release — steal on next note-on after limit drop"
+    fade_env="$(mpe_read_appliance_env_var MPE_POLY_GOVERNOR_FADE 2>/dev/null || echo unset)"
+    echo "fade_actuation: merged (V7 Fix 2) — deferred step-down + emergency MIDI note-offs"
+    echo "MPE_POLY_GOVERNOR_FADE=${fade_env:-1 (default on)}"
+    echo "surge_path: normal release via MIDI note-off when fade fires; otherwise deferred polylimit"
     echo "steal_order: in-release first, then oldest (Surge default; matches spec)"
     echo "note: threshold recalibration prevents false engagement on clean Cloud Horn;"
     echo "      audibility of real steals is B3 after V12"
