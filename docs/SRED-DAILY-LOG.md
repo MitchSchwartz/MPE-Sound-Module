@@ -28,6 +28,8 @@
 | 2026-08-22 | 16:40–18:10 | SR&ED evidence (G1/G3) | ~1.5 | - | 0 | 1 | 3 | eligible | docs/SRED-DAILY-LOG.md, AGENTS.md, sred-daily-capture skill | Daily capture stack: skill, append script, AGENTS rule; G1 effort log closed; G3 archive committed. |
 | 2026-08-22 | evening (A3) | A3 `-mcpu=cortex-a72` | ? | 1 | 0 | 0.5 | - | eligible | reference-suite-pi4-a3-a72-comparison-2026-08-22.md | NULL result: all cells &lt;3% by pre-registration; stock reverted; U7 `-mcpu` branch closed. Hours pending Mitch recall. |
 | 2026-08-23 | doc revision | A3 `-mcpu=cortex-a72` | ? | - | - | 0.5 | - | eligible | 90e4a7e, SRED-EVIDENCE-2026.md | Mitch review: pre-reg framing, stock revision 253f8d86, V1 cross-validation, U7 chronology. Hours pending. |
+| 2026-08-23 | 00:03–00:42 | A4 reference pass 2 | ? | 1 | 0 | 0.5 | - | eligible | bf37e5d, reference-suite-pi4-a4-spread-2026-08-23.md | Autonomous overnight: conformance + pass 2 suite; 12/12 revalidated; max spread 1.70%; Duduk a72 retro closed as noise. Hours pending. |
+| 2026-08-23 | 00:42→08:42 | Gate 1 soak (B2) | 0 | 0 | 0 | 0 | - | eligible | ~/instrument-soak-1024x2.log | Unattended 8 h @ 1024×2 Cloud Horn @5; agent monitoring 0%; Mitch verifies soak-complete on wake. |
 ---
 
 *Daily capture started: 2026-08-22 (America/Toronto)*
@@ -63,7 +65,8 @@ V9/W1 anchors, and the offline revalidation helper.
 
 **Routine (G5, excluded):** repo hygiene, branch merges, PROGRESS bookkeeping.
 
-**Open:** P7 (clock scaling — cheapest Pi 5 forecast), Cloud Horn variance, A4 (noise floor),
-V11 DSP re-run, Gate 1 soak re-run, ear test.
+**Open:** P7 (clock scaling — cheapest Pi 5 forecast), Cloud Horn variance, Gate 1 soak result,
+ear test.
 
 **Closed 2026-08-22:** A3 (a72 A/B) — NULL; `-mcpu=cortex-a72` lever retired.
+**Closed 2026-08-23:** A4 (noise floor) — max spread 1.70%; Duduk a72 retro = noise.
