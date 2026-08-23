@@ -120,7 +120,7 @@ After `configure-pi-paths.sh`, run **`scripts/apply-player-env-parity.sh`** (mer
 
 ```bash
 sudo apt install -y python3-rtmidi
-pip3 uninstall -y python-rtmidi 2>/dev/null || true   # remove pip copy if present
+pip3 uninstall --break-system-packages -y python-rtmidi 2>/dev/null || true   # remove pip copy if present
 sudo systemctl enable mpe-peak-meter.service   # when MPE_PEAK_METER=1
 sudo systemctl restart mpe-pressure-remap mpe-jackd surge-xt-cli touch-patch-browser mpe-peak-meter
 ```
