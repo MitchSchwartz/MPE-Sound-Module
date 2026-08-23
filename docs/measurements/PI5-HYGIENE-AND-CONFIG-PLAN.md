@@ -171,10 +171,10 @@ irqaffinity=0,1 threadirqs video=HDMI-A-1:d video=HDMI-A-2:d
 
 - [x] Document this plan
 - [x] Add `config/modprobe.d/blacklist-v3d-mpe.conf` + hygiene installer
-- [ ] Run `apply-appliance-hygiene.sh` on Pi 5 (services + v3d)
-- [ ] **Reboot Pi 5**
-- [ ] Post-reboot verify: `lsmod | grep v3d` empty; `grep v3d /proc/interrupts` empty; touch UI + jackd up
-- [ ] Re-run `capture-pi5-irq-census.sh` (idle) — compare IRQ 166 gone
+- [x] Run `apply-appliance-hygiene.sh` on Pi 5 (services + v3d)
+- [x] **Reboot Pi 5**
+- [x] Post-reboot verify: v3d not loaded; touch UI + jackd up
+- [x] IRQ census idle + loaded — [`pi5-irq-phase1-2026-08-23.md`](pi5-irq-phase1-2026-08-23.md)
 
 ### Phase B — after v3d verified (one change per reboot)
 
