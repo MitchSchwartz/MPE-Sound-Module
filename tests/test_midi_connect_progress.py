@@ -49,7 +49,7 @@ class MidiConnectProgressTests(unittest.TestCase):
             self.assertTrue(midi_connect_progress.blocks_audio_recovery_toast())
             self.assertEqual(midi_connect_progress.connecting_toast_base(), "Connecting keyboard")
 
-    def test_hotplug_cooldown_blocks_audio_toast(self) -> None:
+    def test_hotplug_cooldown_does_not_block_audio_toast(self) -> None:
         with mock.patch.object(midi_connect_progress, "CONNECT_STATE_PATH") as path:
             path.is_file.return_value = False
             with mock.patch.object(midi_connect_progress, "COOLDOWN_STATE_PATH") as cooldown:
@@ -57,7 +57,7 @@ class MidiConnectProgressTests(unittest.TestCase):
                 cooldown.read_text.return_value = f"hotplug {int(time.time())}\n"
                 cooldown.stat.return_value.st_mtime = time.time()
                 self.assertTrue(midi_connect_progress.hotplug_cooldown_active())
-                self.assertTrue(midi_connect_progress.blocks_audio_recovery_toast())
+                self.assertFalse(midi_connect_progress.blocks_audio_recovery_toast())
 
 
 if __name__ == "__main__":
