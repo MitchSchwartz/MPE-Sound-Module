@@ -6,6 +6,83 @@ Orientation canon: OM-Repo [`GROUNDING.md`](https://github.com/opsMachine/OM-Rep
 
 ---
 
+## 2026-08-23 — V12 buffer comparison; "clean" criterion retired
+
+**Stack:** **G2 → V12 → B3 → Gate 1 ship.**
+
+**Finding (X1):** xrun arrivals are bursty (Fano 4.32, 33% silent minutes). **"0 xruns at
+confirmed voice counts" was never achievable** — B2 measured 2.06/min at `1024×2`; V9/V11 "clean"
+cells sampled windows too short to see bursts.
+
+**V12 asks:** (1) how much worse is `512×2` (21.3 ms) than `1024×2` (42.7 ms)? (2) audibility
+is **B3 only**. **Prohibition:** no PASS/FAIL or "clean" for a buffer in V12 reporting.
+
+**Design:** two 30-minute arms, governor on (G2 thresholds), buffer only variable, Cloud Horn @5;
+alternate/randomise order (rate decays in first ~30 min). Fano-corrected window ~130 raw events ≈
+33 min at 3.87/min. Reuse `measure-soak-instrument.sh` with `--minutes`; confirm harness =
+screening only. Stamp governor state in every log (X1 provenance gap).
+
+**Fallback:** if `512×2` is materially worse, `1024×2` at 42.7 ms is still 1.5× better than
+shipping 64.0 ms and is soak-tested.
+
+**Prompt:** `docs/measurements/PROMPT-V12-certify-buffer.md`
+
+---
+
+## 2026-08-23 — G2 recalibration spec; Gate 2 now blocks Gate 1
+
+**Ordering change:** **Gate 2 (governor) must close before Gate 1 ship or B3 ear test.** The
+shipping default includes the poly governor; ear-testing with it off certifies a configuration
+that never ships.
+
+**Diagnosis (A2 reference suite, governor off, `dsp_median`):** `MPE_POLY_CPU_HIGH=50.0` sits
+below Cloud Horn @5 clean load (56.9–59.4% at every buffer) — permanent panic and voice steal
+on a healthy patch; likely identity of original "crackle at 512." `CPU_LOW=40.0` is below every
+clean operating point — governor latches and never releases.
+
+**Proposed thresholds (starting point, not result):** `MPE_POLY_CPU_HIGH=78.0`, `MPE_POLY_CPU_LOW=68.0`;
+hold times and headroom unchanged. Reasoning: deadline-relative DSP needs thresholds near the
+deadline, not halfway; HIGH clears max clean (59.4%) with transient margin; LOW at 68 sits above
+every clean median so release is possible.
+
+**Hard rule:** Do **not** set thresholds from reference-suite `dsp_p99` — (1) 25 samples makes
+"p99" the max in disguise; (2) 1 Hz sampling cannot observe 150 ms governor hold events
+(sub-Nyquist).
+
+**Verification (empirical, both arms — same structure as C0 positive/negative controls):**
+- **Negative control:** Cloud Horn @5, 1024×2, governor on — **zero engagements** across 30 min clean play.
+- **Positive control:** Crystals pushed past floor (6+ voices) — governor **must** engage and **release**.
+
+A governor that never fires passes the negative arm trivially; both arms required.
+
+**Dependencies before G2 runs:** (1) X1 governor check — confirm harness must not leave governor on;
+(2) fade implemented and merged — abrupt voice drop fails ear test for a reason unrelated to buffer.
+
+**Prompt:** `docs/measurements/PROMPT-G2-governor-recalibration.md`
+
+---
+
+## 2026-08-23 — G2 closed: governor ON at 78/68
+
+**Result:** Gate 2 **closed** on Pi 4 control. Thresholds **78.0 / 68.0** verified empirically;
+only pair tested. Governor **re-enabled** (`MPE_POLY_GOVERNOR=1`, `surge-poly-governor.service` active).
+
+**Negative control:** Cloud Horn @5, 1024×2, 30 min — `governor_engagements_total=0`, 8 xruns,
+`dsp_max=78.3`. **Positive control:** Crystals @6, 3 min — `governor_engagements_total=1`
+(emergency limit drop).
+
+**Fade:** not merged (V7 Fix 2 open). Threshold recalibration unblocks shipping stack; steal
+audibility deferred to **B3 after V12**.
+
+**Harness fixes during close:** engagement-only journal filter; G2 RESULT line parsing; GOV_SINCE
+total recount; stop touch UI during soaks.
+
+**Doc:** `docs/measurements/G2-RESULT-2026-08-23.md` · Pi logs under `~/g2-governor-2026-08-23-*`
+
+**Next:** V12 buffer comparison (~70 min, Mitch approval) → B3 ear test → Gate 1 ship.
+
+---
+
 ## 2026-08-22 — Gates: ship 1024×2 after soak; governor waits on fade
 
 **Gate 1 (Mitch):** Ship **1024×2** for instrument profile after **one overnight soak**

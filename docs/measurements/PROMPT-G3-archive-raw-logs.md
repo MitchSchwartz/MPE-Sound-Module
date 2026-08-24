@@ -1,6 +1,6 @@
 # G3 — pull the raw measurement logs off the appliance and archive them usefully
 
-**Gap G3 from [`docs/SRED-EVIDENCE-2026.md`](../SRED-EVIDENCE-2026.md).** Every number in
+**Gap G3 from OM-Repo [`SRED-EVIDENCE-2026.md`](../../../OM-Repo/internal/projects/mpe-synth-launch/sred/SRED-EVIDENCE-2026.md).** Every number in
 74 measurement documents traces back to a log file that exists in exactly one place: the SD
 card in `raspberrypi2`. That card shares IRQ 41 with the SDIO WiFi, gets hammered by every
 build, and has no backup. If it fails, the documents survive and **the evidence behind them

@@ -453,6 +453,22 @@ mpe_publish_jack_engine_failure() {
     mpe_surge_state_write none ""
 }
 
+# True when a non-virtual playback card is listed in /proc/asound/cards.
+mpe_physical_playback_card_present() {
+    local cards_file="${MPE_ASOUND_CARDS:-/proc/asound/cards}"
+    [ -r "$cards_file" ] || return 1
+    grep -E '^[[:space:]]*[0-9]+[[:space:]]*\[' "$cards_file" 2>/dev/null \
+        | grep -viE 'Loopback|vc4hdmi|UAC2' \
+        | grep -q .
+}
+
+# Reset supervisor budget and publish recovering — graph restart or DAC replug.
+mpe_engine_graph_recovery_begin() {
+    local reason="${1:-graph-restart}"
+    mpe_engine_reconcile_reset
+    mpe_engine_state_write "$MPE_ENGINE_NAME" none recovering "$reason" "$(mpe_looper_state_label)"
+}
+
 mpe_restart_audio_graph() {
     local unit
     unit="$(mpe_audio_graph_unit)"
@@ -466,9 +482,8 @@ mpe_restart_audio_graph() {
         return 1
     fi
     # A device change or an operator restart is a new situation, so the supervisor
-    # gets its restart budget back — otherwise an appliance that reached
-    # state=failed stays there through the very action meant to fix it.
-    mpe_engine_reconcile_reset
+    # gets its restart budget back and HUD leaves supervisor-exhausted behind.
+    mpe_engine_graph_recovery_begin "graph-restart"
     return 0
 }
 
@@ -704,6 +719,127 @@ mpe_engine_reconcile_record_restart() {
 # stop an unbounded loop, so reaching ok must clear it.
 mpe_engine_reconcile_reset() {
     rm -f "$(mpe_engine_reconcile_file)" 2>/dev/null || true
+    mpe_engine_stuck_failed_clear
+}
+
+# ---------------------------------------------------------------------------
+# Stuck failed sweeper (recovery hardening)
+# ---------------------------------------------------------------------------
+#
+# When hardware is back (DAC present, jackd accepting clients) but engine.state
+# remains failed — e.g. supervisor-exhausted after a crash spiral — restart the
+# graph once after a dwell instead of waiting for the operator.
+
+MPE_ENGINE_STUCK_FAILED_SWEEP_DEFAULT=15
+
+mpe_engine_stuck_failed_sweep_seconds() {
+    case "${MPE_ENGINE_STUCK_FAILED_SWEEP_S:-}" in
+        '' | *[!0-9]*) printf '%s' "$MPE_ENGINE_STUCK_FAILED_SWEEP_DEFAULT" ;;
+        0) printf '%s' "$MPE_ENGINE_STUCK_FAILED_SWEEP_DEFAULT" ;;
+        *) printf '%s' "$MPE_ENGINE_STUCK_FAILED_SWEEP_S" ;;
+    esac
+}
+
+mpe_engine_stuck_failed_file() {
+    printf '%s' "${MPE_ENGINE_STUCK_FAILED_FILE:-$(mpe_run_dir)/stuck-failed.state}"
+}
+
+mpe_engine_stuck_failed_clear() {
+    rm -f "$(mpe_engine_stuck_failed_file)" 2>/dev/null || true
+}
+
+# mpe_engine_stuck_failed_decision <now> <since> <swept> <threshold> <state> <card> <jack_ready> <jackd_active>
+# Prints: idle | wait | sweep | done
+mpe_engine_stuck_failed_decision() {
+    local now="${1:?now required}"
+    local since="${2:-0}"
+    local swept="${3:-0}"
+    local threshold="${4:?threshold required}"
+    local state="${5:-}"
+    local card="${6:-0}"
+    local jack_ready="${7:-0}"
+    local jackd_active="${8:-0}"
+
+    if [ "$state" != failed ]; then
+        printf 'idle'
+        return 0
+    fi
+    if [ "$card" != 1 ] || [ "$jack_ready" != 1 ] || [ "$jackd_active" != 1 ]; then
+        printf 'idle'
+        return 0
+    fi
+    if [ "$swept" = 1 ]; then
+        printf 'done'
+        return 0
+    fi
+    if [ "$since" -le 0 ]; then
+        printf 'wait'
+        return 0
+    fi
+    if [ "$((now - since))" -ge "$threshold" ]; then
+        printf 'sweep'
+    else
+        printf 'wait'
+    fi
+}
+
+# Returns 0 if a graph restart was issued.
+mpe_engine_stuck_failed_maybe_sweep() {
+    local now state decision since swept threshold file card jack_ready jackd_active
+    now=$EPOCHSECONDS
+    state="$(mpe_engine_state_get state)"
+    threshold="$(mpe_engine_stuck_failed_sweep_seconds)"
+    file="$(mpe_engine_stuck_failed_file)"
+
+    card=0
+    if mpe_physical_playback_card_present; then
+        card=1
+    fi
+    jack_ready=0
+    if mpe_jack_server_ready 1; then
+        jack_ready=1
+    fi
+    jackd_active=0
+    if mpe_systemctl is-active --quiet "$(mpe_audio_graph_unit)" 2>/dev/null; then
+        jackd_active=1
+    fi
+
+    since="$(mpe_state_get "$file" since)"
+    swept="$(mpe_state_get "$file" swept)"
+    case "$swept" in
+        1) ;;
+        *) swept=0 ;;
+    esac
+    case "$since" in
+        '' | *[!0-9]*) since=0 ;;
+    esac
+
+    decision=$(mpe_engine_stuck_failed_decision \
+        "$now" "$since" "$swept" "$threshold" "$state" "$card" "$jack_ready" "$jackd_active")
+
+    case "$decision" in
+        idle)
+            mpe_engine_stuck_failed_clear
+            return 1
+            ;;
+        wait)
+            if [ "$since" -le 0 ]; then
+                mpe_state_write_atomic "$file" "since=$now" "swept=0" || true
+            fi
+            return 1
+            ;;
+        done)
+            return 1
+            ;;
+        sweep)
+            mpe_state_write_atomic "$file" "since=$since" "swept=1" || true
+            if mpe_restart_audio_graph; then
+                return 0
+            fi
+            return 1
+            ;;
+    esac
+    return 1
 }
 
 # Freshness window for meter.state. The compiled meter writes at 5 Hz, so anything
