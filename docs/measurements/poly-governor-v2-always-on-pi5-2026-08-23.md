@@ -1,6 +1,6 @@
 # Poly governor v2 — always-on jack model (Pi 5 ear tune)
 
-*Last updated: 2026-08-23 19:47 (America/Toronto)*
+*Last updated: 2026-08-23 20:20 (America/Toronto)*
 
 **Platform:** Pi 5 · 128×2 @ 48 kHz · Cloud Horn / heavy chords  
 **Uncertainty:** U10 (Pi 5 replication) + V7 (patch-aware capacity / audible degradation)  
@@ -11,16 +11,18 @@
 
 ## Verdict (preliminary Gate B)
 
-**Mitch ear (2026-08-23 ~19:45):** *"pretty damn good"* at `MPE_POLY_JACK_BASELINE=96` — full Gate B checklist still open; continued daily play requested.
-
-**Mitch ear (2026-08-23 ~20:15):** ramp apply @ baseline 96 — *"pretty good, maybe a bit too aggressive on voice steal but still overall better"* than pre-ramp. Baseline loosened **96 → 98** for retest.
+**Best tune (2026-08-23 ~20:20):** Mitch — *"best version yet."* Cloud Horn: no crackle at orange. Crystals @6 (heavy): tiny pop on first governor engage, **no crackle** under sustained load. Stack: always_on + jack + ramp apply + baseline **97** / headroom **3** / rise bias **7**.
 
 | Criterion | Status |
 |---|---|
-| B1 Crackle reduced vs proc-meter v2 | **PASS** (jack path; no crackle at orange proc during prior A/B) |
-| B2 Gradual degradation | **PASS** (rate-limited steps; no emergency cliff at idle after baseline tune) |
-| B3 Clean play does not engage limit | **TBD** — holds ~3 voices headroom by design in `always_on` |
+| B1 Crackle vs proc-meter v2 | **PASS** @ Cloud Horn + Crystals (baseline 97, ramp apply) |
+| B2 Gradual degradation | **PASS** (ramp apply; Crystals: tiny first-engage pop only) |
+| B3 Clean play does not engage limit | **TBD** — holds ceiling − headroom (~61) by design |
 | B4 Recovery does not pump | **TBD** |
+
+**Tune history (ear):** 96 pretty good → ramp apply fixes pop → loosen to 99/headroom 2 → orange crackle on Cloud Horn/Crystals → rebalance **97/3/7** → best so far.
+
+**Prior notes:** ~19:45 baseline 96 *"pretty damn good"* · ~20:15 ramp apply *"overall better"* but steal aggressive · over-loosen 98–99 caused crackle.
 
 ---
 
@@ -60,8 +62,10 @@ Initial v2 shipped **threshold progressive** mode with optional **proc fallback*
 MPE_POLY_GOVERNOR_V2=1
 MPE_POLY_GOVERNOR_METER=jack
 MPE_POLY_LIMIT_MODE=always_on
-MPE_POLY_JACK_BASELINE=98          # tuned 92 → 96 → 98 on ear pass
+MPE_POLY_JACK_BASELINE=97
 MPE_POLY_MIN_HEADROOM=3
+MPE_POLY_RISE_BIAS_MAX=7
+MPE_POLY_RAMP_APPLY=1
 MPE_POLY_LIMIT_HARD=100
 MPE_POLY_EMERGENCY_XRUN_ONLY=1
 MPE_POLY_CEILING=64
@@ -83,7 +87,7 @@ MPE_POLY_RISE_MIN_RATE=20
 | 2 | Always-on jack model (`801771b`) | Anti-crackle restored; baseline 75 still stepped down hard |
 | 3 | Linear baseline fix (`e66260e`) | Pegged raw=100 mappable via baseline offset |
 | 4 | Deploy baseline **92** | No immediate 64→4 cascade in journal |
-| 5 | Ear tune **raise** → baseline **96** | Mitch preliminary pass |
+| 5 | Ear rebalance + ramp apply tune | baseline 97/headroom 3/rise 7 — **best version yet** (Cloud Horn clean; Crystals tiny first pop, no crackle) |
 
 ---
 
