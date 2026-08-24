@@ -17,8 +17,9 @@ log() {
 }
 
 midi_connect_begin() {
+    local phase="${1:-connecting}"
     mkdir -p "$(dirname "$MIDI_CONNECT_STATE")"
-    echo "connecting $(date +%s)" >"$MIDI_CONNECT_STATE"
+    echo "$phase $(date +%s)" >"$MIDI_CONNECT_STATE"
     chmod 644 "$MIDI_CONNECT_STATE" 2>/dev/null || true
 }
 
@@ -100,7 +101,9 @@ case "$ACTION" in
         ;;
     remove)
         log "ROLI controller disconnected"
+        midi_connect_begin disconnecting
         restart_remapper
+        midi_connect_clear
         ;;
     *)
         echo "Usage: $0 add|remove" >&2

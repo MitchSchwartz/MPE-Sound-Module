@@ -12,6 +12,15 @@ CONNECT_STATE_PATH = Path(
 STALE_SECONDS = 30.0
 
 
+def _read_state_text() -> str | None:
+    if not CONNECT_STATE_PATH.is_file():
+        return None
+    try:
+        return CONNECT_STATE_PATH.read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+
+
 def _parse_since(text: str) -> float:
     parts = text.split()
     if len(parts) >= 2:
@@ -22,18 +31,32 @@ def _parse_since(text: str) -> float:
     return CONNECT_STATE_PATH.stat().st_mtime
 
 
-def is_connecting() -> bool:
-    """True while udev debounce is wiring the pressure remapper to a new controller."""
-    if not CONNECT_STATE_PATH.is_file():
-        return False
-    try:
-        text = CONNECT_STATE_PATH.read_text(encoding="utf-8").strip()
-    except OSError:
-        return False
-    if not text.startswith("connecting"):
+def _state_fresh(text: str, prefix: str) -> bool:
+    if not text.startswith(prefix):
         return False
     since = _parse_since(text)
     return (time.time() - since) < STALE_SECONDS
+
+
+def is_connecting() -> bool:
+    """True while udev debounce is wiring the pressure remapper to a new controller."""
+    text = _read_state_text()
+    if not text:
+        return False
+    return _state_fresh(text, "connecting")
+
+
+def is_disconnecting() -> bool:
+    """True while udev debounce is restarting the remapper after unplug."""
+    text = _read_state_text()
+    if not text:
+        return False
+    return _state_fresh(text, "disconnecting")
+
+
+def blocks_audio_recovery_toast() -> bool:
+    """MIDI hot-plug work must not surface audio-reconnect toasts."""
+    return is_connecting() or is_disconnecting()
 
 
 def connecting_toast() -> str | None:
