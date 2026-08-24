@@ -305,5 +305,5 @@ investigation.
 ---
 
 *Companion documents: [`MEASUREMENT-DISCIPLINE.md`](MEASUREMENT-DISCIPLINE.md) (Rules −1, 0.5, 0–7) ·
-[`../SRED-EVIDENCE-2026.md`](../SRED-EVIDENCE-2026.md) (U1–U10) ·
+[`../../../OM-Repo/internal/projects/mpe-synth-launch/sred/SRED-EVIDENCE-2026.md`](../../../OM-Repo/internal/projects/mpe-synth-launch/sred/SRED-EVIDENCE-2026.md) (U1–U10) ·
 [`pi5-predictions-2026-08-23.md`](pi5-predictions-2026-08-23.md) (pre-registered, do not edit retroactively).*

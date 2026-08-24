@@ -9,7 +9,7 @@ daily instrument**; measurement Suite 1 remains **blocked** on hardware.
 **Host:** `raspberrypi5` · user `pi` · **192.168.1.106** (SSH `HostName` pinned; `.local` flaky)
 
 Canon: [`PI5-PLAYER-SETUP-LOG.md`](../PI5-PLAYER-SETUP-LOG.md) · [`PI5-TRANSITION-PLAN.md`](../PI5-TRANSITION-PLAN.md) ·
-[`pi5-predictions-2026-08-23.md`](pi5-predictions-2026-08-23.md) · [`SRED-EVIDENCE-2026.md`](../SRED-EVIDENCE-2026.md) §U10
+[`pi5-predictions-2026-08-23.md`](pi5-predictions-2026-08-23.md) · [`SRED-EVIDENCE-2026.md`](../../../OM-Repo/internal/projects/mpe-synth-launch/sred/SRED-EVIDENCE-2026.md) §U10
 
 ---
 
@@ -174,4 +174,4 @@ loaded census instrument run (meas), RT verification (meas).
 
 ---
 
-*Hands-on: ~3 h (Mitch, 2026-08-23) — [`SRED-DAILY-LOG.md`](../SRED-DAILY-LOG.md).*
+*Hands-on: ~3 h (Mitch, 2026-08-23) — OM-Repo [`SRED-DAILY-LOG.md`](../../../OM-Repo/internal/projects/mpe-synth-launch/sred/SRED-DAILY-LOG.md).*
