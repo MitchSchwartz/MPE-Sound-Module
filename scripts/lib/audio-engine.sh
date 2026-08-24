@@ -510,6 +510,27 @@ mpe_planned_promote_flag_clear() {
     rm -f "$(mpe_planned_promote_flag_file)" 2>/dev/null || true
 }
 
+# ROLI udev debounce writes /run/mpe/midi-connect.state while remapper restarts.
+# Skip passive Surge reconcile — remapper-only work must not restart Surge.
+mpe_midi_hotplug_busy() {
+    local file="${MPE_MIDI_CONNECT_STATE:-$(mpe_run_dir)/midi-connect.state}"
+    local text since age
+    [ -f "$file" ] || return 1
+    text=$(head -1 "$file" 2>/dev/null) || return 1
+    case "$text" in
+        connecting*|disconnecting*) ;;
+        *) return 1 ;;
+    esac
+    since=${text#* }
+    case "$since" in
+        '' | *[!0-9]*)
+            since=$(stat -c %Y "$file" 2>/dev/null || echo 0)
+            ;;
+    esac
+    age=$((EPOCHSECONDS - since))
+    [ "$age" -ge 0 ] && [ "$age" -lt 30 ]
+}
+
 mpe_wait_for_surge_on_graph() {
     local timeout="${1:-30}"
     local waited=0
