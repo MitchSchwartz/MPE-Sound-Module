@@ -51,6 +51,36 @@ class GovernorFadeTests(unittest.TestCase):
     @mock.patch("patch_browser.surge_poly_governor.fade_actuation_enabled", return_value=True)
     @mock.patch("patch_browser.surge_poly_governor.read_active_voice_count", return_value=8)
     @mock.patch("patch_browser.surge_poly_governor.send_polylimit")
+    def test_ramp_apply_sends_limit_while_notes_sound(
+        self,
+        send_polylimit: mock.Mock,
+        _active: mock.Mock,
+        _fade: mock.Mock,
+        _gov: mock.Mock,
+    ) -> None:
+        osc = mock.Mock()
+        monitor = mock.Mock()
+        monitor.check_health.return_value = (True, None)
+        governor = SurgePolyGovernor(osc, surge_monitor=monitor)
+        governor._effective_poly = 12
+        governor._ceiling_poly = 12
+        governor._floor_poly = 4
+        with mock.patch("builtins.print"):
+            governor._apply_limit(
+                11,
+                reason="high",
+                cpu=80.0,
+                raw_cpu=80.0,
+                held_s=0.0,
+                ramp_apply=True,
+            )
+        send_polylimit.assert_called_once_with(osc, 11)
+        self.assertIsNone(governor._pending_limit)
+
+    @mock.patch("patch_browser.surge_poly_governor.governor_active", return_value=True)
+    @mock.patch("patch_browser.surge_poly_governor.fade_actuation_enabled", return_value=True)
+    @mock.patch("patch_browser.surge_poly_governor.read_active_voice_count", return_value=8)
+    @mock.patch("patch_browser.surge_poly_governor.send_polylimit")
     def test_step_down_defers_when_notes_sound(
         self,
         send_polylimit: mock.Mock,
