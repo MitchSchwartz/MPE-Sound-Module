@@ -393,8 +393,10 @@ class TouchPatchBrowser(
         if "paused" in base.lower():
             self.toast_message = base
             return
-        phase = int(time.monotonic() * 2.5) % 4
-        self.toast_message = f"{base}{'.' * phase}"
+        from patch_browser.audio_engine import loader_dots_suffix
+
+        tick = int(time.monotonic() * 2.5)
+        self.toast_message = f"{base}{loader_dots_suffix(tick=tick)}"
 
     def _handle_screen_recorder_signals(self) -> None:
         if self._recorder_stop_requested:

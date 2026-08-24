@@ -62,6 +62,15 @@ class AudioSwitchProgressTests(unittest.TestCase):
         self.assertEqual(toast_loader_base("Reconnecting audio…"), "Reconnecting audio")
         self.assertEqual(toast_loader_base("Connecting keyboard..."), "Connecting keyboard")
 
+    def test_loader_dots_suffix_fixed_width(self) -> None:
+        from patch_browser.audio_engine import loader_dots_suffix
+
+        self.assertEqual(len(loader_dots_suffix(tick=0)), 3)
+        self.assertEqual(len(loader_dots_suffix(tick=1)), 3)
+        self.assertEqual(len(loader_dots_suffix(tick=2)), 3)
+        self.assertEqual(loader_dots_suffix(tick=0), ".  ")
+        self.assertEqual(loader_dots_suffix(tick=2), "...")
+
 
 if __name__ == "__main__":
     unittest.main()

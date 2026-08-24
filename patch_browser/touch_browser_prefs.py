@@ -324,14 +324,17 @@ class TouchBrowserPrefsMixin:
         ):
             return
 
-        from patch_browser.midi_connect_progress import connecting_toast_base
+        from patch_browser.midi_connect_progress import (
+            blocks_audio_recovery_toast,
+            connecting_toast_base,
+        )
 
         monitor = getattr(self, "engine_monitor", None)
         snap = monitor.snapshot() if monitor is not None else {}
         state = snap.get("state") or ""
 
         loader_base: str | None = connecting_toast_base()
-        if loader_base is None and state in {"recovering", "failed"}:
+        if loader_base is None and not blocks_audio_recovery_toast() and state in {"recovering", "failed"}:
             from patch_browser.audio_engine import (
                 audio_switch_progress_message,
                 read_jack_state,
@@ -346,7 +349,7 @@ class TouchBrowserPrefsMixin:
                 jack=read_jack_state(),
             )
             loader_base = toast_loader_base(toast)
-            if loader_base and recovery_loader_suppressed(snap):
+            if loader_base and recovery_loader_suppressed(snap, toast_base=loader_base):
                 loader_base = None
 
         if loader_base:
