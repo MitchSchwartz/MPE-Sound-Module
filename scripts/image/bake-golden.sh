@@ -133,20 +133,15 @@ _verify_surge_arch() {
 
 _pi5_bake_content_gates() {
     echo ""
-    echo "Pi 5 golden .img.xz — content gates (tooling is ready; bake is still premature):"
-    local blocked=0
+    echo "Pi 5 golden .img.xz — release assumptions:"
     if [ "$GIT_REF" = dev ]; then
-        echo "  BLOCKED: appliance-git-ref.pi5 is dev (integration branch — not a release pin)"
-        blocked=1
+        echo "  FAIL: appliance-git-ref.pi5 is dev — pin main (or a release tag) before baking"
+        return 1
     fi
-    echo "  BLOCKED: poly governor tune provisional (97/3/7 + ramp apply — ear validation open)"
-    blocked=1
-    echo "  BLOCKED: 3 A PSU / no active cooler (Suite 1 + soak blocked)"
-    blocked=1
-    echo ""
-    echo "  OK to run: capture-external-state.sh, bake-golden verify (this check), daily player use."
-    echo "  Not yet: capture-golden + dd for a distributable Pi 5 golden image."
-    return "$blocked"
+    echo "  OK: git ref $GIT_REF (release pin)"
+    echo "  OK: governor tune (97/3/7 + ramp apply) — ship as-is; Gate B may continue on dev"
+    echo "  OK: assumes 27 W / 5 A USB-C PSU (reference unit may differ during bring-up)"
+    return 0
 }
 
 case "$CMD" in

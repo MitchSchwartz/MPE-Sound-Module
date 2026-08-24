@@ -56,7 +56,7 @@ Writes `state/laptop-mpe-YYYY-MM-DD/` with `mpe.env.*`, pi4/pi5 **SSH Host block
 | Board | Ref file | Default branch |
 |-------|----------|----------------|
 | Pi 4 | `config/platform/appliance-git-ref.pi4` | `main` |
-| Pi 5 | `config/platform/appliance-git-ref.pi5` | `dev` |
+| Pi 5 | `config/platform/appliance-git-ref.pi5` | `main` |
 
 Override at build time: `./scripts/image/build-appliance.sh --git-ref …`
 

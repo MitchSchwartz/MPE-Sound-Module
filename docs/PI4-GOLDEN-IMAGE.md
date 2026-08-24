@@ -67,7 +67,7 @@ Player tuning defaults (when not restoring a full capture): [`player-env-parity.
 ./scripts/image/build-appliance.sh --platform pi4 \
   --state state/raspberrypi2-2026-08-23
 
-# Pi 5 (uses appliance-git-ref.pi5 → dev by default):
+# Pi 5 (uses appliance-git-ref.pi5 → main):
 ./scripts/image/build-appliance.sh --platform pi5 --state state/raspberrypi5-2026-08-23
 ```
 
@@ -222,7 +222,7 @@ Before calling an image "golden", confirm on the reference Pi:
 - [ ] Touch stack: `setup-touch-pi.sh` deps installed, `MPE_UI_MODE=touch`
 - [ ] `install-units.sh` enable set matches production
 - [ ] Native tools built: `mpe-peak-meter`, `mpe-xrun-probe`
-- [ ] Git checkout matches platform ref (`appliance-git-ref.pi4` → **`main`**, `appliance-git-ref.pi5` → **`dev`** until promoted)
+- [ ] Git checkout matches platform ref (`appliance-git-ref.pi4` → **`main`**, `appliance-git-ref.pi5` → **`main`**)
 - [ ] **`sudo ./scripts/install-license-payload.sh --verify`** passes — license texts +
       corresponding source present, and `PROVENANCE.txt` sha256 matches the **installed**
       Surge binary
@@ -266,7 +266,7 @@ Until this passes, "expendable SD" is still a hypothesis ([`RESTORE.md`](RESTORE
 | **`dd` clone** (Workflows A/B) | **Board-specific** | Tuning baked into the image is wrong on the other board (e.g. Pi 4 `MPE_JACK_BUFFER=1024` vs Pi 5 `128`; Pi 5 `v3d` blacklist; **`mpe-irq-affinity.service` off on Pi 5** — RP1 IRQs not writable). A Pi 4 image on Pi 5 is actively wrong. |
 | **Build-from-assets** (Workflow D) | **Board-neutral base + profile** | [`build-appliance.sh --platform {pi4,pi5,auto}`](../scripts/image/build-appliance.sh) selects day0 tier, git ref, and parity profile via `detect-pi-platform.sh`. |
 
-**Pi 5 golden `.img.xz` — premature for content, not tooling.** Scripts accept `--platform pi5`; `bake-golden.sh --platform pi5 verify` fails on branch mismatch, wrong Surge arch, and open content gates (dev ref, governor tune, PSU/cooler). External state capture is fine.
+**Pi 5 golden `.img.xz` — tooling ready.** `bake-golden.sh --platform pi5 verify` fails on manifest/git SHA mismatch or non-a76 Surge. Assumes **27 W / 5 A** PSU; governor ships at current ear tune.
 
 **Order:** (1) laptop `mpe.env.pi4` / `mpe.env.pi5`, (2) capture external state on both boards, (3) Pi 4 clone rehearsal + RESTORE row, (4) Pi 5 golden bake when verify passes.
 
