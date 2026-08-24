@@ -13,6 +13,8 @@
 
 **Mitch ear (2026-08-23 ~19:45):** *"pretty damn good"* at `MPE_POLY_JACK_BASELINE=96` — full Gate B checklist still open; continued daily play requested.
 
+**Mitch ear (2026-08-23 ~20:15):** ramp apply @ baseline 96 — *"pretty good, maybe a bit too aggressive on voice steal but still overall better"* than pre-ramp. Baseline loosened **96 → 98** for retest.
+
 | Criterion | Status |
 |---|---|
 | B1 Crackle reduced vs proc-meter v2 | **PASS** (jack path; no crackle at orange proc during prior A/B) |
@@ -58,7 +60,7 @@ Initial v2 shipped **threshold progressive** mode with optional **proc fallback*
 MPE_POLY_GOVERNOR_V2=1
 MPE_POLY_GOVERNOR_METER=jack
 MPE_POLY_LIMIT_MODE=always_on
-MPE_POLY_JACK_BASELINE=96          # tuned 92 → 96 on ear pass
+MPE_POLY_JACK_BASELINE=98          # tuned 92 → 96 → 98 on ear pass
 MPE_POLY_MIN_HEADROOM=3
 MPE_POLY_LIMIT_HARD=100
 MPE_POLY_EMERGENCY_XRUN_ONLY=1
