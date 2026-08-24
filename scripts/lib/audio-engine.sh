@@ -511,10 +511,27 @@ mpe_planned_promote_flag_clear() {
 }
 
 # ROLI udev debounce writes /run/mpe/midi-connect.state while remapper restarts.
-# Skip passive Surge reconcile — remapper-only work must not restart Surge.
+# Skip passive Surge reconcile during hot-plug — remapper-only work must not restart Surge.
 mpe_midi_hotplug_busy() {
     local file="${MPE_MIDI_CONNECT_STATE:-$(mpe_run_dir)/midi-connect.state}"
-    local text since age
+    local cooldown="${MPE_MIDI_HOTPLUG_COOLDOWN:-$(mpe_run_dir)/midi-hotplug-cooldown}"
+    local text since age cooldown_s
+    cooldown_s="${MPE_MIDI_HOTPLUG_COOLDOWN_S:-20}"
+
+    if [ -f "$cooldown" ]; then
+        since=$(head -1 "$cooldown" 2>/dev/null)
+        since=${since#hotplug }
+        case "$since" in
+            '' | *[!0-9]*)
+                since=$(stat -c %Y "$cooldown" 2>/dev/null || echo 0)
+                ;;
+        esac
+        age=$((EPOCHSECONDS - since))
+        if [ "$age" -ge 0 ] && [ "$age" -lt "$cooldown_s" ]; then
+            return 0
+        fi
+    fi
+
     [ -f "$file" ] || return 1
     text=$(head -1 "$file" 2>/dev/null) || return 1
     case "$text" in
