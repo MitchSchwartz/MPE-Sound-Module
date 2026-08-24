@@ -10,7 +10,10 @@ from typing import Callable
 
 from seam_merge import merge_tail_at_seam
 
-SCRATCH_LOOP = int(os.environ.get("MPE_SL_SCRATCH_LOOP", "15"))
+# Default 14, not 15: Pi 5 SooperLooper 1.7.9 (arm64 trixie build) accepts save_loop
+# on loops 0–14 but loop index 15 always returns an empty 88 B WAV — tail capture
+# silently fails. Override via MPE_SL_SCRATCH_LOOP if a native build fixes loop 15.
+SCRATCH_LOOP = int(os.environ.get("MPE_SL_SCRATCH_LOOP", "14"))
 SEAM_MERGE_SAMPLES = int(os.environ.get("MPE_SL_SEAM_MERGE_SAMPLES", "2048"))
 SEAM_WELD_ENABLED = os.environ.get("MPE_SL_SEAM_WELD", "1").strip().lower() not in (
     "",
@@ -188,6 +191,9 @@ class SeamWeldWorker:
 
     def start_scratch_record(self, scratch_loop: int = SCRATCH_LOOP) -> None:
         self._silence_scratch_live(scratch_loop)
+        # Bare record on an off loop often yields empty save_loop on Pi — arm first.
+        self._send(f"/sl/{scratch_loop}/hit", ["pause_off"])
+        self._send(f"/sl/{scratch_loop}/hit", ["trigger"])
         self._send(f"/sl/{scratch_loop}/hit", ["record"])
 
     def stop_scratch_record(self, scratch_loop: int = SCRATCH_LOOP) -> None:

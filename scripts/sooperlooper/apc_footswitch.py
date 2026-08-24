@@ -804,7 +804,10 @@ def build_footswitches(
             on_phase_reanchor=on_phase_reanchor,
             on_grid_dropped=on_grid_dropped,
         )
-        fs.bind(osc, midi_out, view.note_for_loop(loop_i))
+        pad = view.note_for_loop(loop_i)
+        if SEAM_WELD_ENABLED and loop_i == SCRATCH_LOOP:
+            pad = None
+        fs.bind(osc, midi_out, pad)
         footswitches.append(fs)
     return notes_for_view(footswitches, view), footswitches
 
