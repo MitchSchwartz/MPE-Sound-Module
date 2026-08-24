@@ -110,5 +110,10 @@ rm -f "$tmp"
 echo "Wrote $TARGET (platform=$plat, source=$(basename "$PARITY"))"
 echo "  Paths preserved; buffer keys kept if already set on appliance"
 echo "  MPE_POLY_* applied all-or-nothing from board file"
+if [ "$plat" = pi5 ]; then
+    if grep -qE '^MPE_POLY_CPU_(HIGH|LOW)=' "$TARGET" 2>/dev/null; then
+        echo "WARNING: stale Pi 4 v1 keys MPE_POLY_CPU_HIGH/LOW still present — re-run failed?" >&2
+    fi
+fi
 echo "  RTMIDI_API not set — apt python3-rtmidi, ALSA Midi Through chain"
 echo "If MPE_PEAK_METER=1: sudo systemctl enable --now mpe-peak-meter.service"

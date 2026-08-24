@@ -17,6 +17,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 PATHS_LIST="${MPE_EXTERNAL_STATE_PATHS_LIST:-$REPO_ROOT/config/platform/external-state-paths.list}"
 
+# Bump when capture output shape changes — _verify_capture_artifacts enforces this.
+CAPTURE_SCHEMA_VERSION=2
+
 CHECK=false
 LOCAL=false
 OUTPUT=""
@@ -104,9 +107,32 @@ _capture_boot_dsi_snippet() {
     echo "  skip (missing): boot config.txt"
 }
 
+_verify_capture_artifacts() {
+    local dest="$1"
+    local fail=0
+
+    if [ ! -f "$dest/platform.json" ]; then
+        echo "ERROR: capture incomplete — missing platform.json" >&2
+        fail=1
+    fi
+    if [ ! -f "$dest/boot/dsi-config.snippet" ]; then
+        echo "ERROR: capture incomplete — missing boot/dsi-config.snippet" >&2
+        fail=1
+    fi
+    if [ ! -f "$dest/MANIFEST.md" ] || ! grep -q '## Platform / kernel' "$dest/MANIFEST.md" 2>/dev/null; then
+        echo "ERROR: capture incomplete — MANIFEST missing platform section" >&2
+        fail=1
+    fi
+    if [ "$fail" -ne 0 ]; then
+        echo "  Capture schema v${CAPTURE_SCHEMA_VERSION} requires current scripts on the appliance." >&2
+        echo "  On Pi: cd ~/MPE-Module && git fetch origin && git checkout dev && git pull --ff-only" >&2
+        exit 1
+    fi
+}
+
 _write_manifest() {
     local dest="$1"
-    local surge_ver git_rev model plat_section
+    local surge_ver git_rev model plat_section restore_label
 
     # shellcheck source=../lib/detect-pi-platform.sh
     source "$SCRIPT_DIR/../lib/detect-pi-platform.sh"
@@ -117,6 +143,7 @@ _write_manifest() {
     git_rev="$(cd "${MPE_MODULE_REPO:-$REPO_ROOT}" && git rev-parse --short HEAD 2>/dev/null || echo unknown)"
     model="$(mpe_pi_model_string 2>/dev/null || tr -d '\0' < /proc/device-tree/model 2>/dev/null || echo unknown)"
     plat_section="$(mpe_platform_manifest_markdown)"
+    restore_label="${MPE_STATE_RESTORE_LABEL:-state/$(basename "$dest")}"
 
     cat >"$dest/MANIFEST.md" <<EOF
 # External state capture
@@ -130,6 +157,7 @@ _write_manifest() {
 | Model | $model |
 | MPE-Module | $git_rev |
 | Surge CLI | $surge_ver |
+| Capture schema | v${CAPTURE_SCHEMA_VERSION} |
 
 ## Platform / kernel
 
@@ -138,7 +166,7 @@ $plat_section
 Restore with:
 
 \`\`\`bash
-./scripts/provision/apply-external-state.sh --state $(basename "$dest")
+./scripts/provision/apply-external-state.sh --state ${restore_label}
 \`\`\`
 
 See \`docs/PI4-GOLDEN-IMAGE.md\`.
@@ -195,6 +223,7 @@ _capture_on_appliance() {
     _capture_systemd_dropins "$dest"
     _capture_boot_dsi_snippet "$dest"
     _write_manifest "$dest"
+    _verify_capture_artifacts "$dest"
     _credential_scan "$dest"
     echo ""
     echo "Captured into: $dest"
@@ -233,6 +262,25 @@ fi
 
 remote_tmp="/tmp/mpe-external-state-$$"
 repo_path="$(mpe_pi_repo_path)"
+restore_label="state/$(basename "$OUTPUT")"
+laptop_rev="$(cd "$REPO_ROOT" && git rev-parse HEAD 2>/dev/null || echo unknown)"
+
+_ensure_pi_repo_for_capture() {
+    echo "Ensuring Pi repo is current for capture schema v${CAPTURE_SCHEMA_VERSION} ..."
+    if ! mpe_pi_ssh "cd '$repo_path' && git fetch origin dev 2>/dev/null || git fetch origin && \
+        git checkout dev && git pull --ff-only origin dev"; then
+        echo "ERROR: git pull failed on $PI_USER@$PI_HOST — capture would run stale scripts." >&2
+        exit 1
+    fi
+    local pi_rev
+    pi_rev="$(mpe_pi_ssh "cd '$repo_path' && git rev-parse HEAD" 2>/dev/null || echo unknown)"
+    if [ "$pi_rev" != "$laptop_rev" ] && [ "$laptop_rev" != unknown ]; then
+        echo "WARNING: Pi at $pi_rev, laptop at $laptop_rev — push laptop dev if Pi is behind." >&2
+    fi
+    echo "  Pi MPE-Module: $pi_rev"
+}
+
+_ensure_pi_repo_for_capture
 
 if [ "$CHECK" = true ]; then
     if [ ! -d "$OUTPUT" ]; then
@@ -242,9 +290,11 @@ if [ "$CHECK" = true ]; then
     tmp="$(mktemp -d)"
     trap 'rm -rf "$tmp"' EXIT
     mpe_pi_ssh "rm -rf '$remote_tmp' && mkdir -p '$remote_tmp' && \
-        cd '$repo_path' && ./scripts/provision/capture-external-state.sh --local '$remote_tmp'"
+        cd '$repo_path' && MPE_STATE_RESTORE_LABEL='$restore_label' \
+        ./scripts/provision/capture-external-state.sh --local '$remote_tmp'"
     scp -qr -i "$SSH_KEY" "$PI_USER@$PI_HOST:$remote_tmp/." "$tmp/"
     mpe_pi_ssh "rm -rf '$remote_tmp'"
+    _verify_capture_artifacts "$tmp"
     if diff -rq "$OUTPUT" "$tmp" >/dev/null 2>&1; then
         echo "  no drift — $OUTPUT matches the appliance"
         exit 0
@@ -256,13 +306,15 @@ if [ "$CHECK" = true ]; then
 fi
 
 mpe_pi_ssh "rm -rf '$remote_tmp' && mkdir -p '$remote_tmp' && \
-    cd '$repo_path' && ./scripts/provision/capture-external-state.sh --local '$remote_tmp'"
+    cd '$repo_path' && MPE_STATE_RESTORE_LABEL='$restore_label' \
+    ./scripts/provision/capture-external-state.sh --local '$remote_tmp'"
 
 mkdir -p "$OUTPUT"
 rm -rf "${OUTPUT:?}"/*
 scp -qr -i "$SSH_KEY" "$PI_USER@$PI_HOST:$remote_tmp/." "$OUTPUT/"
 mpe_pi_ssh "rm -rf '$remote_tmp'"
 
+_verify_capture_artifacts "$OUTPUT"
 _credential_scan "$OUTPUT"
 echo ""
 echo "Captured from $PI_USER@$PI_HOST into: $OUTPUT"
