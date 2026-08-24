@@ -38,6 +38,13 @@ class MidiConnectProgressTests(unittest.TestCase):
             self.assertTrue(midi_connect_progress.blocks_audio_recovery_toast())
             self.assertIsNone(midi_connect_progress.connecting_toast_base())
 
+    def test_connecting_does_not_block_audio_toast(self) -> None:
+        with mock.patch.object(midi_connect_progress, "CONNECT_STATE_PATH") as path:
+            path.is_file.return_value = True
+            path.read_text.return_value = f"connecting {int(time.time())}\n"
+            self.assertTrue(midi_connect_progress.is_connecting())
+            self.assertFalse(midi_connect_progress.blocks_audio_recovery_toast())
+
 
 if __name__ == "__main__":
     unittest.main()

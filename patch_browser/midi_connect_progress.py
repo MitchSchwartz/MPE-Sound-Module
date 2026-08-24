@@ -55,8 +55,12 @@ def is_disconnecting() -> bool:
 
 
 def blocks_audio_recovery_toast() -> bool:
-    """MIDI hot-plug work must not surface audio-reconnect toasts."""
-    return is_connecting() or is_disconnecting()
+    """Only unplug debounce — connect may coincide with a real Surge promote."""
+    return is_disconnecting()
+
+
+def suppress_audio_recovery_toast() -> bool:
+    return blocks_audio_recovery_toast()
 
 
 def connecting_toast() -> str | None:

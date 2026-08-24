@@ -178,11 +178,16 @@ def toast_loader_base(message: str | None) -> str | None:
 LOADER_DOT_WIDTH = 3
 
 
-def loader_dots_suffix(*, tick: int, width: int = LOADER_DOT_WIDTH) -> str:
-    """Fixed-width dot animation so centered toasts do not shift."""
+def loader_dot_count(*, tick: int, width: int = LOADER_DOT_WIDTH) -> int:
+    """Dot count 1..width for loader animation."""
     if width <= 0:
-        return ""
-    count = (tick % width) + 1
+        return 0
+    return (tick % width) + 1
+
+
+def loader_dots_suffix(*, tick: int, width: int = LOADER_DOT_WIDTH) -> str:
+    """Deprecated — use loader_dot_count + fixed layout in draw."""
+    count = loader_dot_count(tick=tick, width=width)
     return ("." * count) + (" " * (width - count))
 
 
@@ -191,22 +196,14 @@ def recovery_loader_suppressed(
     *,
     toast_base: str | None = None,
 ) -> bool:
-    """True when engine.state says recovering but the audio graph still looks healthy."""
+    """True only when Surge is still on the JACK graph despite recovering state."""
     engine = engine or {}
     if engine.get("state") != "recovering":
         return False
-
-    jack_live = jack_reachable_via_meter()
-    if jack_live is not True:
+    if jack_reachable_via_meter() is not True:
         return False
-
-    base = (toast_base or "").lower()
-    if "surge" in base:
-        surge_wired = _meter_flag(read_meter_state(), "online")
-        return surge_wired is True
-
-    # JACK is up — generic "Reconnecting audio" is a false positive (e.g. MIDI unplug).
-    return True
+    surge_wired = _meter_flag(read_meter_state(), "online")
+    return surge_wired is True
 
 
 def read_engine_state(path: Path | None = None) -> dict[str, str]:
