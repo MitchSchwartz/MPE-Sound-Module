@@ -49,7 +49,7 @@ Host pi5 pi5.local raspberrypi5.local
 ./scripts/provision/capture-laptop-mpe-config.sh
 ```
 
-Writes `state/laptop-mpe-YYYY-MM-DD/` with copies of existing `mpe.env.*` files (paths only — no key material).
+Writes `state/laptop-mpe-YYYY-MM-DD/` with `mpe.env.*`, pi4/pi5 **SSH Host blocks** (no private keys), and **mpe4/mpe5 shell aliases** when present.
 
 ## Appliance git refs
 
