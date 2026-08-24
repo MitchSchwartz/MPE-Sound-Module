@@ -65,6 +65,9 @@ fi
 echo "=== JACK RT limits (shell / harness) ==="
 "$REPO_ROOT/scripts/install-jack-audio-limits.sh"
 
+echo "=== GPL compliance payload (licenses + corresponding source) ==="
+"$REPO_ROOT/scripts/install-license-payload.sh"
+
 echo "=== install systemd units ==="
 "$REPO_ROOT/scripts/install-units.sh"
 

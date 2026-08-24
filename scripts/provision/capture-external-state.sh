@@ -132,18 +132,23 @@ _verify_capture_artifacts() {
 
 _write_manifest() {
     local dest="$1"
-    local surge_ver git_rev model plat_section restore_label
+    local git_rev model plat_section restore_label
 
     # shellcheck source=../lib/detect-pi-platform.sh
     source "$SCRIPT_DIR/../lib/detect-pi-platform.sh"
     # shellcheck source=../lib/write-platform-manifest.sh
     source "$SCRIPT_DIR/../lib/write-platform-manifest.sh"
-
-    surge_ver="$("${SURGE_CLI:-/nonexistent}" --version 2>/dev/null || echo unknown)"
+    # shellcheck source=../lib/paths.sh
+    source "$SCRIPT_DIR/../lib/paths.sh"
     git_rev="$(cd "${MPE_MODULE_REPO:-$REPO_ROOT}" && git rev-parse --short HEAD 2>/dev/null || echo unknown)"
     model="$(mpe_pi_model_string 2>/dev/null || tr -d '\0' < /proc/device-tree/model 2>/dev/null || echo unknown)"
     plat_section="$(mpe_platform_manifest_markdown)"
     restore_label="${MPE_STATE_RESTORE_LABEL:-state/$(basename "$dest")}"
+
+    # shellcheck source=../lib/surge-build-provenance.sh
+    source "$SCRIPT_DIR/../lib/surge-build-provenance.sh"
+    surge_prov_section="$(mpe_surge_provenance_markdown)"
+    surge_prov_json="$(mpe_surge_provenance_json)"
 
     cat >"$dest/MANIFEST.md" <<EOF
 # External state capture
@@ -156,8 +161,11 @@ _write_manifest() {
 | User | $(id -un) |
 | Model | $model |
 | MPE-Module | $git_rev |
-| Surge CLI | $surge_ver |
 | Capture schema | v${CAPTURE_SCHEMA_VERSION} |
+
+## Surge CLI (installed)
+
+$surge_prov_section
 
 ## Platform / kernel
 
@@ -172,6 +180,7 @@ Restore with:
 See \`docs/PI4-GOLDEN-IMAGE.md\`.
 EOF
     mpe_platform_manifest_json >"$dest/platform.json"
+    printf '%s\n' "$surge_prov_json" >"$dest/surge-provenance.json"
 }
 
 _capture_on_appliance() {
@@ -270,8 +279,8 @@ _ensure_pi_repo_for_capture() {
     echo "Ensuring Pi repo is current for capture schema v${CAPTURE_SCHEMA_VERSION} (ref: $git_ref) ..."
     if ! mpe_pi_ssh "cd '$repo_path' && git stash push -u -m 'capture-pre-checkout' 2>/dev/null || true && \
         git fetch origin '$git_ref' 2>/dev/null || git fetch origin && \
-        git checkout '$git_ref' && git pull --ff-only origin '$git_ref' 2>/dev/null || git pull --ff-only"; then
-        echo "ERROR: git pull failed on $PI_USER@$PI_HOST — capture would run stale scripts." >&2
+        git checkout '$git_ref' && git reset --hard 'origin/$git_ref'"; then
+        echo "ERROR: git sync failed on $PI_USER@$PI_HOST — capture would run stale scripts." >&2
         exit 1
     fi
     local pi_rev

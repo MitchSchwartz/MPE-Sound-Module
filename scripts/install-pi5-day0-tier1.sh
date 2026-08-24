@@ -53,5 +53,5 @@ else
 fi
 
 echo ""
-echo "Tier 1 complete. Next (day 0): scripts/build-surge.sh --arch a76"
+echo "Tier 1 complete. Next: scripts/build-surge.sh --arch a76 && scripts/install-surge-from-build.sh --arch a76"
 echo "Instruments (Tier 2): scripts/build-mpe-peak-meter.sh --required && scripts/build-mpe-xrun-probe.sh"
