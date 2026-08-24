@@ -4,6 +4,27 @@
 
 **Use this when:** you want to hand someone (or yourself) an SD card that boots straight into a working MPE touch instrument — no Raspberry Pi Imager OS wizard, no laptop build script, no Surge compile.
 
+> ### ⚠️ Handing this card to someone else is distribution
+>
+> The moment a card, `.img.xz`, or compiled binary leaves your hands — free, a loan, a
+> friend, a bench spare for someone else's unit — **GPL-3.0 obligations attach** for Surge XT
+> and every other GPL component on the image. Keeping it on your own boards is not
+> distribution and owes nothing.
+>
+> **Before the card goes out:**
+>
+> ```bash
+> sudo ./scripts/install-license-payload.sh          # licenses + corresponding source
+> sudo ./scripts/install-license-payload.sh --verify # asserts provenance matches the binary
+> sudo ./scripts/provision/sanitize-for-clone.sh --verify
+> ```
+>
+> `first-boot.sh` installs the payload automatically on build-from-assets units. A **`dd`
+> clone inherits whatever the master had** — so verify on the master before imaging.
+>
+> Patch content (CC0 / permissive packs) imposes no distribution obligation, but Surge
+> factory content is unconfirmed. See [`THIRD-PARTY-NOTICES.md`](../THIRD-PARTY-NOTICES.md).
+
 **Canonical alternative:** fresh Imager flash + [`build-pi4-appliance.sh`](../scripts/image/build-pi4-appliance.sh) from private assets — see [`PI4-GOLDEN-IMAGE.md`](PI4-GOLDEN-IMAGE.md) Workflow D.
 
 **Status:** procedure documented; **first end-to-end rehearsal not done** — fill [`RESTORE.md`](RESTORE.md) rehearsal log when complete.
@@ -102,7 +123,8 @@ git rev-parse --short HEAD   # record in manifest
 
 ```bash
 cd ~/MPE-Module
-sudo ./scripts/image/capture-pi4-golden.sh
+sudo ./scripts/image/capture-golden.sh --platform pi4
+# or: sudo ./scripts/image/capture-pi4-golden.sh
 sudo poweroff
 ```
 
@@ -120,7 +142,8 @@ xz -9 -T0 ~/mpe-pi4-golden-*.img
 Verify:
 
 ```bash
-./scripts/image/bake-pi4-golden.sh verify
+./scripts/image/bake-golden.sh --platform pi4 verify
+# or: ./scripts/image/bake-pi4-golden.sh verify
 ```
 
 Store `*.img.xz` on an external drive or private bucket.
@@ -209,10 +232,12 @@ sudo systemctl restart mpe-jackd surge-xt-cli touch-patch-browser
 
 | Script | Role in clone SD path |
 |---|---|
-| [`capture-pi4-golden.sh`](../scripts/image/capture-pi4-golden.sh) | Pre-`dd` on master Pi |
-| [`sanitize-for-clone.sh`](../scripts/provision/sanitize-for-clone.sh) | Called by capture-pi4-golden |
+| [`capture-golden.sh`](../scripts/image/capture-golden.sh) | Pre-`dd` on master Pi (`--platform pi4\|pi5\|auto`) |
+| [`capture-pi4-golden.sh`](../scripts/image/capture-pi4-golden.sh) | Wrapper → `--platform pi4` |
+| [`sanitize-for-clone.sh`](../scripts/provision/sanitize-for-clone.sh) | Called by capture-golden |
 | [`capture-external-state.sh`](../scripts/provision/capture-external-state.sh) | Optional laptop backup only |
-| [`bake-pi4-golden.sh`](../scripts/image/bake-pi4-golden.sh) | Verify manifest / print instructions |
+| [`bake-golden.sh`](../scripts/image/bake-golden.sh) | Verify manifest / print instructions |
+| [`bake-pi4-golden.sh`](../scripts/image/bake-pi4-golden.sh) | Wrapper → `--platform pi4` |
 | [`apply-external-state.sh`](../scripts/provision/apply-external-state.sh) | **Not used** for normal clone SD |
 | [`build-pi4-appliance.sh`](../scripts/image/build-pi4-appliance.sh) | Alternate path — fresh Imager + assets |
 

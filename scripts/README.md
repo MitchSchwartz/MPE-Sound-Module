@@ -40,14 +40,16 @@
 - **setup-touch-pi.sh** - SmartiPi touch Pi: apt deps, udev rules, `MPE_UI_MODE=touch` services
 - **setup-usb-audio-gadget.sh** - UAC2 USB audio gadget bind/unbind (desk tether profile)
 
-### Golden image (Pi 4)
+### Golden image (Pi 4 / Pi 5)
 
 Docs: [`docs/PI4-CLONE-SD.md`](../docs/PI4-CLONE-SD.md) (configured clone SD) · [`docs/PI4-GOLDEN-IMAGE.md`](../docs/PI4-GOLDEN-IMAGE.md) (full matrix)
 
-- **image/capture-pi4-golden.sh** - Pre-`dd` on master Pi (sanitize + manifest)
-- **provision/sanitize-for-clone.sh** - Strip machine-id, SSH host keys, Tailscale
+- **image/capture-golden.sh** - Pre-`dd` on master Pi (`--platform pi4|pi5|auto`)
+- **image/bake-golden.sh** - Verify manifest / print instructions (`--platform pi4|pi5`)
+- **image/capture-pi4-golden.sh** / **capture-pi5-golden.sh** - Platform wrappers
+- **image/bake-pi4-golden.sh** / **bake-pi5-golden.sh** - Platform wrappers
+- **provision/sanitize-for-clone.sh** - Strip machine-id, SSH host keys, Tailscale (called by capture-golden)
 - **provision/capture-external-state.sh** - Optional laptop backup (not required for clone SD)
-- **image/bake-pi4-golden.sh** - Verify manifest / print instructions
 - **image/build-appliance.sh** - Fresh Imager + private assets (`--platform pi4|pi5|auto`)
 - **image/build-pi4-appliance.sh** - Wrapper for `--platform pi4`
 - **image/install-pi4-day0-tier1.sh** - Apt/JACK/pygame tier (Pi 4)

@@ -253,7 +253,7 @@ Steps that **`setup-touch-pi.sh` / `deploy-all.sh` do not yet cover** — add he
 
 ## I. What this log intentionally skips
 
-- **`build-surge.sh --arch a76`** — use Pi 4/laptop binary for player smoke test; a76 build is measurement track.
+- **`build-surge.sh --arch a76`** + **`install-surge-from-build.sh --arch a76`** — Pi 5 runtime binary must be a76-tuned at the same Surge revision as Pi 4 (`253f8d86`). Generic/stock (`c3680d6b…`) was smoke-only.
 - **IRQ census / Suite 0–3** — see [`PI5-BRINGUP-RUNBOOK.md`](PI5-BRINGUP-RUNBOOK.md).
 - **Renaming `pi` → `mitch`** — optional; paths in `/etc/mpe/mpe.env` must match actual user.
 - **Touch sudoers** (power menu NOPASSWD) — one-time, [`TOUCH_PATCH_BROWSER.md`](TOUCH_PATCH_BROWSER.md).

@@ -17,6 +17,7 @@
 #   MPE-Module @ tag, native meters, touch deps, SooperLooper (--with-looper only)
 
 /etc/mpe/mpe.env
+surge/build/surge_xt_products/surge-xt-cli.provenance
 surge-cli-calibration.log
 .patch_browser_brightness.json
 .patch_browser_favorites.json

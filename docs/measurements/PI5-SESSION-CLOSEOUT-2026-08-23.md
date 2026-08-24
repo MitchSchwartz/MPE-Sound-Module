@@ -30,7 +30,7 @@ Canon: [`PI5-PLAYER-SETUP-LOG.md`](../PI5-PLAYER-SETUP-LOG.md) · [`PI5-TRANSITI
 
 ### Player bringup
 
-1. Cloned `MPE-Module` (`dev`) on Pi 5; rsynced Surge binary, MPE-Library, user calibration/theme from Pi 4.
+1. Cloned `MPE-Module` (`dev`) on Pi 5; rsynced Surge **generic/stock** binary (`c3680d6b…`, Pi 4 deploy path) for initial smoke; **replaced 2026-08-24** with `-mcpu=cortex-a76` build (`0ac9456c…`, commit `253f8d86`).
 2. Ran touch setup, `configure-pi-paths.sh`, enabled services.
 3. Laptop `mpe` config split (`mpe.env.pi4` / `mpe.env.pi5`); Pi 5 SSH pinned to LAN IP after mDNS failures.
 4. Restored Quick Select (71 patches), theme, normalization, pressure curves.
@@ -128,7 +128,8 @@ Human: patches load, OUT meter moves, LUMI plays, no crackle at 128×2.
 | Loaded census @ **64** voices | Same | After cooler/PSU |
 | Poly governor Pi 5 tuning | **Paused @ 97/3/7 + ramp apply** — best ear tune; step-attack crackle open. Resume after cooler + 27 W PSU + gesture automation plan. [`poly-governor-v2-always-on-pi5-2026-08-23.md`](poly-governor-v2-always-on-pi5-2026-08-23.md) | Cooler + PSU; automated P1–P4 gesture matrix |
 | cmdline experiments (`isolcpus`, `irqaffinity=0`) | E1 rule; one variable per reboot | Phase 3 plan only |
-| Pi 5 `-mcpu=cortex-a76` Surge build | Player uses Pi 4 binary for smoke; build is measurement track | When suite needs matched revision |
+| Pi 5 golden `.img.xz` bake | Tooling ready; **content gates open** (dev ref, governor tune, 3 A PSU) | `bake-golden.sh --platform pi5 verify` green + gates closed |
+| Pi 5 `-mcpu=cortex-a76` Surge build | **Installed 2026-08-24** — sha256 `0ac9456c…` | In golden verify + re-capture |
 
 ---
 
