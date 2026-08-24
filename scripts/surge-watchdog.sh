@@ -71,6 +71,10 @@ _reconcile_engine() {
         return 0
     fi
 
+    if mpe_midi_hotplug_busy; then
+        return 0
+    fi
+
     # Steady state: unit active and engine already ok — skip jack_lsp if a full
     # graph probe ran recently. Unbounded skip is indistinguishable from stopping
     # to look (orphaned JACK client, DECISIONS.md 2026-08-15).
