@@ -52,6 +52,14 @@ git push
 
 ## Ongoing Backups (Weekly Recommended)
 
+**Device state** (calibration, patch-browser JSON, `/etc/mpe/mpe.env`):
+
+```bash
+MPE_CLI_CONFIG=~/.config/mpe/mpe.env.pi5 ./scripts/provision/capture-external-state.sh
+./scripts/provision/archive-state-to-assets.sh
+cd ../MPE-Library && git add assets/appliance-state && git commit -m "state backup $(date +%Y-%m-%d)" && git push
+```
+
 ### Quick Sync
 
 Use the sync script to pull only changed files (configs, user data):

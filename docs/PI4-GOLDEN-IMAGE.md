@@ -234,4 +234,9 @@ Until this passes, "expendable SD" is still a hypothesis ([`RESTORE.md`](RESTORE
 | `appliance-git-ref` vs Pi 5 on `dev` | **Split:** `appliance-git-ref.pi4` / `.pi5` |
 | Laptop mpe env / SSH pins | **`capture-laptop-mpe-config.sh`** + [`LAPTOP-MPE-CLI.md`](LAPTOP-MPE-CLI.md) examples |
 | systemd drop-ins | **Captured/restored** under `state/.../etc/systemd-dropins/` |
+| [`archive-state-to-assets.sh`](../scripts/provision/archive-state-to-assets.sh) | Laptop | Copy `state/` → MPE-Library (credential scan) |
 | Public image hosting (GPL + size) | Not in v1 |
+
+### Firmware alignment (Pi 4 ↔ Pi 5)
+
+Captured 2026-08-23: same **kernel** (6.18.34), different **VideoCore firmware** (Pi 4 May 2026, Pi 5 Jan 2026). For comparison experiments, bring Pi 5 forward with `apt full-upgrade` — never strip Pi 4. Both boards keep both `linux-image-rpi-*` packages for build-from-assets; do not purge unless images are board-locked.
