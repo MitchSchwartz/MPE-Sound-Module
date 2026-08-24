@@ -98,7 +98,8 @@ MPE_POLY_RISE_MIN_RATE=20
 ## Open
 
 1. **Full Gate B** — B3/B4 under daily patches; recovery after sustained overload.
-2. **Promote to `player-env-parity.env`** — only after Gate B; includes floor=4 break.
+2. **Ramp apply (2026-08-23)** — `MPE_POLY_RAMP_APPLY=1`: while stress rising, OSC limit tracks curve without fade deferral (spread note-on steals). Ear retest Piano Fictions overload gesture.
+3. **Promote to `player-env-parity.env`** — only after Gate B; includes floor=4 break.
 3. **Auto-learn baseline** — `MPE_POLY_JACK_BASELINE=-1` (40-sample min) vs fixed 96 on Pi 5.
 4. **Measurement arm** — structured soak with governor on @ 128×2 (blocked on cooler/PSU for Suite 1).
 
