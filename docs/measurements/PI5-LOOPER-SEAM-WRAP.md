@@ -2,8 +2,13 @@
 
 *Branch:* `yolo/pi5-looper-seam-wrap` · *Opened:* 2026-08-23 (America/Toronto)
 
-**Goal:** Ship **stop-then-weld** (scratch loop 15 + offline merge) on the Pi 5 player —
+**Goal:** Ship **stop-then-weld** (scratch loop 14 + offline merge) on the Pi 5 player —
 continuous wrap at N→0 with release tail at the seam, not at sample 0.
+
+**Pi 5 scratch slot:** loop **14**, not 15. SooperLooper 1.7.9 (arm64 build copied from Pi 4)
+accepts `save_loop` on indices 0–14; **loop 15 always saves an 88 B empty WAV** even after
+0.8 s record with Surge wired to `loop15_in`. Symptom: merge runs but skips (`tail too small`) →
+hard stop at seam on replay. Track pad 14 is unbound while seam weld is on (scratch reserved).
 
 **Canon:** [`Documents/specs/looper-loop-seam-spec.md`](../../Documents/specs/looper-loop-seam-spec.md) ·
 [`DECISIONS.md`](../../Documents/DECISIONS.md) §2026-08-19 ·
@@ -17,7 +22,7 @@ Looper stack is **not** part of daily player services yet — this branch adds/e
 ## Product model (locked)
 
 1. **Pad-down → stop** — length fixes immediately (defining take) or at quantised bar (grid).
-2. **Tail pass** — parallel record on **scratch loop 15** while main loop plays at fixed N.
+2. **Tail pass** — parallel record on **scratch loop 14** while main loop plays at fixed N.
 3. **Weld once** — `save_loop` both buffers → Python crossfade at seam → `load_loop` → resume.
 
 **Rejected forever:** Tier 2 extend-until-quiet, Option E seam overdub ([`DECISIONS.md`](../../Documents/DECISIONS.md)).
@@ -60,7 +65,9 @@ after looper is up ([`archive/looper-p0-latency-calibration.md`](archive/looper-
 |---------|--------------|-------------|
 | Release tail missing | Peak meter / merge skip / scratch mis-align | Tune `MPE_SL_TAIL_*`; log peak during weld |
 | Jump to loop head after weld | `load_loop` + `trigger` playhead reset | Confirm `pause_off` + `trigger` sequence; ear |
-| **Crackle / level rise during live tail** | Scratch loop 15 monitored while recording; `undo_all` at stop | **2026-08-23:** silence scratch wet/dry/feedback; defer prepare until PLAYING |
+| **Crackle / level rise during live tail** | Scratch loop monitored while recording; `undo_all` at stop | Silence scratch wet/feedback; defer prepare until PLAYING |
+| **Live tail sounds “added”, level drops at seam** | Stop-then-weld: main buffer frozen; Surge fail-open still audible; merge skipped → no weld | Fix scratch capture (loop 14); expect splice at merge, not live overdub |
+| **Hard stop on replay** | `save_loop` on loop 15 → 88 B; merge guard skips | **Use loop 14 scratch** (2026-08-23) |
 | `save_loop` timeout | Wedged engine (B8 history) | **`mpe looper sl-health`** before every merge test |
 | HUD bar count wrong during tail | Scratch loop in phrase ref | Fixed in `sl_hud_monitor` — regression test |
 | Seam weld busy drop | Overlapping closes | Log + guard in bench |
@@ -122,7 +129,7 @@ Env on Pi 5 (`/etc/mpe/mpe.env`):
 ```bash
 MPE_SL_TAIL_CAPTURE=1
 MPE_SL_SEAM_WELD=1
-MPE_SL_SCRATCH_LOOP=15
+MPE_SL_SCRATCH_LOOP=14
 # After P0 re-tune:
 # MPE_SL_AUTOSET_LATENCY=0
 # MPE_SL_INPUT_LATENCY=<samples>
@@ -153,4 +160,4 @@ Log labour via [`sred-daily-capture`](../../.claude/skills/sred-daily-capture/SK
 
 ---
 
-*Last updated: 2026-08-23 (America/Toronto)*
+*Last updated: 2026-08-23 (America/Toronto — scratch loop 14)*
