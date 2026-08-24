@@ -11,6 +11,9 @@ MIN_RESTART_INTERVAL=8
 REMAP_SERVICE="mpe-pressure-remap.service"
 LOG_FILE="/tmp/roli-events.log"
 MIDI_CONNECT_STATE="${MPE_MIDI_CONNECT_STATE:-/run/mpe/midi-connect.state}"
+MIDI_HOTPLUG_COOLDOWN="${MPE_MIDI_HOTPLUG_COOLDOWN:-/run/mpe/midi-hotplug-cooldown}"
+CONNECT_UI_MIN_S="${MPE_MIDI_CONNECT_UI_MIN_S:-3}"
+DISCONNECT_UI_MIN_S="${MPE_MIDI_DISCONNECT_UI_MIN_S:-12}"
 
 log() {
     echo "$(date): $1" >>"$LOG_FILE"
@@ -23,7 +26,23 @@ midi_connect_begin() {
     chmod 644 "$MIDI_CONNECT_STATE" 2>/dev/null || true
 }
 
-midi_connect_clear() {
+midi_hotplug_cooldown_mark() {
+    mkdir -p "$(dirname "$MIDI_HOTPLUG_COOLDOWN")"
+    echo "hotplug $(date +%s)" >"$MIDI_HOTPLUG_COOLDOWN"
+    chmod 644 "$MIDI_HOTPLUG_COOLDOWN" 2>/dev/null || true
+}
+
+hold_connect_ui_then_clear() {
+    local started=$1
+    local elapsed=$(( $(date +%s) - started ))
+    if [ "$elapsed" -lt "$CONNECT_UI_MIN_S" ]; then
+        sleep $((CONNECT_UI_MIN_S - elapsed))
+    fi
+    rm -f "$MIDI_CONNECT_STATE"
+}
+
+hold_disconnect_ui_then_clear() {
+    sleep "$DISCONNECT_UI_MIN_S"
     rm -f "$MIDI_CONNECT_STATE"
 }
 
@@ -85,25 +104,27 @@ restart_remapper() {
 case "$ACTION" in
     add)
         log "ROLI controller connected — waiting for USB stability"
-        midi_connect_begin
+        ui_started=$(date +%s)
+        midi_connect_begin connecting
+        midi_hotplug_cooldown_mark
         if ! wait_for_stability; then
             log "ROLI not stable after wait — skipping remapper restart"
-            midi_connect_clear
+            hold_connect_ui_then_clear "$ui_started"
             exit 0
         fi
         if remap_input_connected; then
             log "Remapper already connected to ROLI ALSA port — skipping restart"
-            midi_connect_clear
-            exit 0
+        else
+            restart_remapper
         fi
-        restart_remapper
-        midi_connect_clear
+        hold_connect_ui_then_clear "$ui_started"
         ;;
     remove)
         log "ROLI controller disconnected"
         midi_connect_begin disconnecting
+        midi_hotplug_cooldown_mark
         restart_remapper
-        midi_connect_clear
+        hold_disconnect_ui_then_clear &
         ;;
     *)
         echo "Usage: $0 add|remove" >&2
