@@ -203,9 +203,9 @@ mpe_engine_stuck_failed_decision 1000 0 0 15 ok 1 1 1
     def test_decision_wait_then_sweep(self) -> None:
         body = f"""
 source {AUDIO_ENGINE_SH}
-mpe_engine_stuck_failed_decision 1000 900 0 15 failed 1 1 1
+mpe_engine_stuck_failed_decision 1000 0 0 15 failed 1 1 1
 printf '\\n'
-mpe_engine_stuck_failed_decision 1020 900 0 15 failed 1 1 1
+mpe_engine_stuck_failed_decision 1020 1000 0 15 failed 1 1 1
 """
         result = _run_bash_script(body, env=_bash_env())
         lines = result.stdout.strip().splitlines()

@@ -318,30 +318,51 @@ class TouchBrowserPrefsMixin:
                 self._last_audio_switch_toast_at = now
 
     def _poll_engine_recovery_toast(self) -> None:
-        """Surface unplanned recovery / cooldown while the user is not in a settings overlay."""
+        """Surface unplanned recovery with a loader toast; clear when idle."""
         if getattr(self, "_surge_audio_switching", False) or getattr(
             self, "_audio_profile_switching", False
         ):
             return
-        monitor = getattr(self, "engine_monitor", None)
-        if monitor is None:
-            return
-        snap = monitor.snapshot()
-        if snap.get("state") not in {"recovering", "failed"}:
-            return
-        from patch_browser.audio_engine import audio_switch_progress_message, read_jack_state, read_reconcile_state
 
-        _, toast, toast_sec = audio_switch_progress_message(
-            snap,
-            read_reconcile_state(),
-            jack=read_jack_state(),
+        from patch_browser.midi_connect_progress import (
+            blocks_audio_recovery_toast,
+            connecting_toast_base,
+            is_disconnecting,
         )
-        if not toast:
-            return
-        now = time.monotonic()
-        if now - getattr(self, "_last_audio_switch_toast_at", 0.0) >= 2.0:
-            self._toast(toast, toast_sec)
-            self._last_audio_switch_toast_at = now
+
+        monitor = getattr(self, "engine_monitor", None)
+        snap = monitor.snapshot() if monitor is not None else {}
+        state = snap.get("state") or ""
+
+        loader_base: str | None = None
+        if is_disconnecting():
+            loader_base = None
+        elif connecting_toast_base():
+            loader_base = connecting_toast_base()
+        elif not blocks_audio_recovery_toast() and state in {"recovering", "failed"}:
+            from patch_browser.audio_engine import (
+                audio_switch_progress_message,
+                read_jack_state,
+                read_reconcile_state,
+                recovery_loader_suppressed,
+                toast_loader_base,
+            )
+
+            _, toast, _ = audio_switch_progress_message(
+                snap,
+                read_reconcile_state(),
+                jack=read_jack_state(),
+            )
+            candidate = toast_loader_base(toast)
+            if candidate and not recovery_loader_suppressed(snap, toast_base=candidate):
+                loader_base = candidate
+
+        if loader_base:
+            self._start_loader_toast(loader_base)
+        elif getattr(self, "_loader_toast_active", False):
+            self._stop_loader_toast()
+
+        self._last_engine_recovery_state = state
 
     def _finish_audio_profile_switch(self, ok: bool, message: str) -> None:
         self._audio_profile_switching = False

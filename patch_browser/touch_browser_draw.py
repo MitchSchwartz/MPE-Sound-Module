@@ -1530,7 +1530,12 @@ class TouchBrowserDrawMixin:
             pressed=self._pressed("cal:start"),
         )
     def _draw_toast(self) -> None:
-        if time.time() > self.toast_until or not self.toast_message:
+        if time.time() > self.toast_until:
+            return
+        if getattr(self, "_loader_toast_active", False) and self._loader_toast_base:
+            self._draw_loader_toast()
+            return
+        if not self.toast_message:
             return
         max_w = min(560, self.width - 48)
         lines = wrap_text_lines(self.font_sm, self.toast_message, max_w, max_lines=3)
@@ -1550,3 +1555,32 @@ class TouchBrowserDrawMixin:
             self.theme.text,
             line_spacing=2,
         )
+
+    def _draw_loader_toast(self) -> None:
+        from patch_browser.audio_engine import LOADER_DOT_WIDTH, loader_dot_count
+
+        base = self._loader_toast_base
+        pad_x, pad_y = 16, 10
+        color = self.theme.text
+        if "paused" in base.lower():
+            base_surf = self.font_sm.render(base, True, color)
+            w = base_surf.get_width() + pad_x * 2
+            h = base_surf.get_height() + pad_y * 2
+            rect = pygame.Rect((self.width - w) // 2, self.height - 80, w, h)
+            pygame.draw.rect(self.screen, self.theme.surface_alt, rect, border_radius=10)
+            self.screen.blit(base_surf, (rect.x + pad_x, rect.y + pad_y))
+            return
+
+        tick = int(time.monotonic() * 2.5)
+        dot_count = loader_dot_count(tick=tick, width=LOADER_DOT_WIDTH)
+        layout_w = self.font_sm.size(f"{base}{'.' * LOADER_DOT_WIDTH}")[0]
+        base_surf = self.font_sm.render(base, True, color)
+        dots_surf = self.font_sm.render("." * dot_count, True, color)
+        w = layout_w + pad_x * 2
+        h = max(base_surf.get_height(), dots_surf.get_height()) + pad_y * 2
+        rect = pygame.Rect((self.width - w) // 2, self.height - 80, w, h)
+        pygame.draw.rect(self.screen, self.theme.surface_alt, rect, border_radius=10)
+        text_y = rect.y + pad_y
+        text_x = rect.x + pad_x
+        self.screen.blit(base_surf, (text_x, text_y))
+        self.screen.blit(dots_surf, (text_x + base_surf.get_width(), text_y))
