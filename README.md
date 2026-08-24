@@ -219,6 +219,7 @@ Full command reference: **[COMMANDS.md](COMMANDS.md)**
 
 | Doc                                                                  | For                                                  |
 | -------------------------------------------------------------------- | ---------------------------------------------------- |
+| [docs/POLY-GOVERNOR.md](docs/POLY-GOVERNOR.md)                       | Dynamic voice limit (poly governor) behaviour and env |
 | [docs/BUILD-FROM-ZERO.md](docs/BUILD-FROM-ZERO.md)                   | Full walkthrough: blank Pi → working module          |
 | [REFERENCE_BOM.md](REFERENCE_BOM.md)                                 | Building the hardware                                |
 | [docs/HARDWARE_WIRING.md](docs/HARDWARE_WIRING.md)                   | Wiring the OLED + encoder                            |
@@ -236,6 +237,13 @@ Full command reference: **[COMMANDS.md](COMMANDS.md)**
 | [docs/SURGE_CLI_HEADLESS_SETUP.md](docs/SURGE_CLI_HEADLESS_SETUP.md) | Full technical deep dive                             |
 | [docs/WHATS-NEW.md](docs/WHATS-NEW.md)                               | Recent feature updates, in plain English             |
 | [CHANGELOG.md](CHANGELOG.md)                                         | Full engineering log                                 |
+
+
+## Reporting bugs
+
+Something broken? Check **[FAQ.md](FAQ.md)** first — a lot of "bugs" are config or wiring gotchas with a known fix.
+
+If it's still wrong, [open a bug report](https://github.com/MitchSchwartz/MPE-Sound-Module/issues/new?template=bug_report.md). The template asks for Pi model, UI mode, audio profile, and repro steps so we can actually chase it.
 
 
 ## Credits
