@@ -165,6 +165,30 @@ def audio_switch_progress_message(
     return "Restarting audio…", "Reconnecting audio…", 3.0
 
 
+def toast_loader_base(message: str | None) -> str | None:
+    """Strip trailing ellipsis for animated loader toasts."""
+    if not message:
+        return None
+    base = message.rstrip()
+    while base and base[-1] in "…. ":
+        base = base[:-1].rstrip()
+    return base or None
+
+
+def recovery_loader_suppressed(engine: dict[str, str] | None) -> bool:
+    """True when engine.state says recovering but JACK + Surge meter still look healthy."""
+    engine = engine or {}
+    if engine.get("state") != "recovering":
+        return False
+    reason = engine.get("reason") or ""
+    if reason not in {"promote-to-jack", "promote-planned", "promote-timeout"}:
+        return False
+    if jack_reachable_via_meter() is not True:
+        return False
+    surge_wired = _meter_flag(read_meter_state(), "online")
+    return surge_wired is True
+
+
 def read_engine_state(path: Path | None = None) -> dict[str, str]:
     """Parse ``engine.state``; tolerate missing, empty, or partially-written files."""
     target = path or ENGINE_STATE_FILE

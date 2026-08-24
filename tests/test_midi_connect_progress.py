@@ -21,6 +21,7 @@ class MidiConnectProgressTests(unittest.TestCase):
             path.is_file.return_value = True
             path.read_text.return_value = f"connecting {int(time.time())}\n"
             self.assertTrue(midi_connect_progress.is_connecting())
+            self.assertEqual(midi_connect_progress.connecting_toast_base(), "Connecting keyboard")
             self.assertEqual(midi_connect_progress.connecting_toast(), "Connecting keyboard…")
 
     def test_stale_connecting_ignored(self) -> None:

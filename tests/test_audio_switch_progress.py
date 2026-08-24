@@ -56,6 +56,12 @@ class AudioSwitchProgressTests(unittest.TestCase):
         self.assertIn(f"{remaining}s", hint)
         self.assertIn("paused", (toast or "").lower())
 
+    def test_toast_loader_base_strips_ellipsis(self) -> None:
+        from patch_browser.audio_engine import toast_loader_base
+
+        self.assertEqual(toast_loader_base("Reconnecting audio…"), "Reconnecting audio")
+        self.assertEqual(toast_loader_base("Connecting keyboard..."), "Connecting keyboard")
+
 
 if __name__ == "__main__":
     unittest.main()
