@@ -264,13 +264,13 @@ must say so rather than reporting a single ratio.
 |---|---|---|---|
 | O1 | **P7** — baseline re-run | **Baseline valid 2026-08-23 PM** — Cloud Horn @5 **~34% p99** (loaded); Crystals **~37%**. Morning run invalid (~7%) superseded. **H6 open:** paired OC re-run needed. `P7-RESULT-2026-08-23.md` §Baseline re-run. | OC re-run (paired) |
 | O1b | ~~**Wire plausibility floors into the load harness**~~ | **Done 2026-08-23.** `measure-latency-run.sh` + soak **per-minute** window via `mpe_result_assert_loaded_dsp` (extended after V12; minute-1-only missed 1024 decay). **Preflight gate (2026-08-23):** `measure-soak-preflight.sh` / `--preflight-only` — poly JSON + 45s DSP ≥28% @512 (was 50%; lowered post P5 A/B). | done |
-| O2 | **A4** — reference pass 2 | **Partial 2026-08-23 PM** — 7/12 loaded cells @ **~33%** canonical (P1–P7); aborted P8 (Duduk floor). Prior ~58% pass 2 spread doc unchanged. `A4-RESULT-2026-08-23.md`. | finish 12/12 + harness floors |
+| O2 | **A4** — reference pass 2 | **Partial 2026-08-23 PM** — 7/12 @ **~33%** (P1–P7); aborted P8 (Duduk floor). Harness fix **`0c22600`**: silence skip + light-patch 10% floor. **Re-run P8–P12.** `A4-RESULT-2026-08-23.md`. | re-run pass 2 completion |
 | O3 | **V12** — buffer compare | **Two-arm @ governor off, 10 min/arm (2026-08-23 18:29–18:58)** @ Pi `46f5300`: manual orchestration (script defaults governor **on**). **1024×2:** 0 xruns, dsp **32.67%**, plausibility **10/10** — **no 1024 cliff**. **512×2** (after jack/surge restart): 2 xruns (min 1 only), dsp **33.08%**, plausibility **10/10**. Logs: `~/v12-full-govoff-20260823-182931/`. **Do not cite** 512↔1024 dropout equivalence (unequal xruns, 10 min not 30, B3 open). Prior VOID 30 min governor-on run retained as historical confound. See `V12-RESULT-2026-08-23.md` §Full two-arm compare @ governor off. | **substantially done** — 30 min + orchestrator `--governor` flag optional follow-up |
 | O4 | ~~**G2 threshold statistic** (§4)~~ | **Closed 2026-08-23.** Two instruments — governor proc/OSC @ 6.7 Hz vs soak `jack_cpu_load`. Negative arm: non-engagement, not margin. See §4, `G2-RESULT-2026-08-23.md` §O4. | done |
 | O5 | **B3** — steal audibility | The gap in §5e between measured capacity and player-relevant quality. | ear test |
 | O6 | ~~Pi hot-patch not in repo~~ | **Done 2026-08-23.** Pi @ `1c165b9`; soak script matches repo (hot-patch removed). | done |
 
-**O4, O6 and O1b are closed.** V12 **two-arm governor-off compare (10 min/arm)** completed with both arms passing per-minute plausibility at **~33%**; **1024 cliff not reproduced**; **no dropout-equivalence claim** (512 had 2 xruns minute 1). Reference **~58%** P5 band still not restored. **Next:** A4 completion (Duduk/BNW floors); paired P7 OC; O5 (B3) ear test unchanged.
+**O4, O6 and O1b are closed.** V12 **two-arm governor-off compare (10 min/arm)** completed with both arms passing per-minute plausibility at **~33%**; **1024 cliff not reproduced**; **no dropout-equivalence claim** (512 had 2 xruns minute 1). Reference **~58%** P5 band still not restored. **Next:** A4 pass 2 re-run (P8–P12); paired P7 OC; O5 (B3) ear test unchanged.
 
 ---
 
