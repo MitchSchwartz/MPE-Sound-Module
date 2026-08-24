@@ -46,7 +46,8 @@ Docs: [`docs/PI4-CLONE-SD.md`](../docs/PI4-CLONE-SD.md) (configured clone SD) ·
 - **provision/sanitize-for-clone.sh** - Strip machine-id, SSH host keys, Tailscale
 - **provision/capture-external-state.sh** - Optional laptop backup (not required for clone SD)
 - **image/bake-pi4-golden.sh** - Verify manifest / print instructions
-- **image/build-pi4-appliance.sh** - Alternate: fresh Imager + private assets
+- **image/build-appliance.sh** - Fresh Imager + private assets (`--platform pi4|pi5|auto`)
+- **image/build-pi4-appliance.sh** - Wrapper for `--platform pi4`
 - **image/install-pi4-day0-tier1.sh** - Apt/JACK/pygame tier (Pi 4)
 - **image/flash-and-provision.sh** - Generic image + apply state (unusual)
 

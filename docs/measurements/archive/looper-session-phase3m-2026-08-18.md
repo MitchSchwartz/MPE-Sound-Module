@@ -1,5 +1,7 @@
 # Looper session Phase 3M merge — 2026-08-18
 
+> **Correction (2026-08-23):** Reference Pi 4 is **4 GB RAM**. The **7.6 GiB** row below was a logging error — not an 8 GB board.
+
 PR [#72](https://github.com/MitchSchwartz/MPE-Sound-Module/pull/72) — merge `mpe-apc-bench` +
 `sl-hud-monitor` into `mpe-looper-session.service`. Spec criteria: session-control-plane
 Phase 3M (38–48); this run covers Pi soak, criterion **47** (idle CPU), and xrun sanity.
@@ -20,7 +22,7 @@ idle CPU ~3.3% merged; **0 xruns** through soak. Criterion **42** (MIDI latency)
 
 | Field | Value |
 |---|---|
-| Pi model / RAM | Raspberry Pi 4 Model B Rev 1.5 / 7.6 GiB |
+| Pi model / RAM | Raspberry Pi 4 Model B Rev 1.5 / **4 GiB** *(was logged 7.6 GiB in error)* |
 | OS | Debian 13 (trixie) arm64 |
 | MPE-Module commit | `2c9fab4` (`yolo/looper-session-phase3m`) |
 | Profile / UI | `standalone` / `touch` |
