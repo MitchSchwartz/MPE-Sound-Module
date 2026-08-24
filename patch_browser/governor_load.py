@@ -1,4 +1,4 @@
-"""Governor load sampling — JACK dsp_percent from meter.state with proc fallback."""
+"""Governor load sampling — JACK dsp_percent primary; proc fallback when stale."""
 
 from __future__ import annotations
 
@@ -11,7 +11,10 @@ from patch_browser.audio_engine import (
     meter_state_fresh,
     read_meter_state,
 )
+from patch_browser.governor_v2 import normalize_jack_load
 from patch_browser.mpe_run_dir import run_dir
+
+BASELINE_LEARN_SAMPLES = 40
 
 
 @dataclass(frozen=True)
@@ -22,6 +25,7 @@ class LoadSample:
     dload_dt: float | None
     xruns: int | None
     xrun_delta: int
+    normalized_load: float
 
 
 class LoadTracker:
@@ -34,16 +38,24 @@ class LoadTracker:
         surge_monitor=None,
         meter_mode: str | None = None,
         meter_max_age_s: float = METER_STATE_MAX_AGE_S,
+        jack_baseline: float | None = None,
     ) -> None:
         self.cpu_monitor = cpu_monitor
         self.surge_monitor = surge_monitor
         self.meter_mode = (meter_mode or os.environ.get("MPE_POLY_GOVERNOR_METER", "auto")).strip().lower()
         self.meter_max_age_s = meter_max_age_s
+        env_base = os.environ.get("MPE_POLY_JACK_BASELINE", "-1").strip()
+        try:
+            self._baseline_env = float(env_base) if jack_baseline is None else jack_baseline
+        except ValueError:
+            self._baseline_env = -1.0
+        self._baseline_learned: float | None = None
+        self._baseline_window: list[float] = []
+        self._baseline_logged = False
         self._prev_load: float | None = None
         self._prev_at: float | None = None
         self._prev_xruns: int | None = None
         self._meter_fallback_logged = False
-        self._jack_proc_disagreement_logged = False
         self._proc_prev: tuple[int, float] | None = None
 
     def sample(self) -> LoadSample | None:
@@ -52,10 +64,14 @@ class LoadTracker:
         if load is None:
             return None
 
-        dload_dt = self._compute_dload_dt(load, now)
+        if source == "jack":
+            self._maybe_learn_baseline(load)
+
+        normalized = self._normalize(load, source)
+        dload_dt = self._compute_dload_dt(normalized, now)
         xruns, xrun_delta = self._read_xruns()
 
-        self._prev_load = load
+        self._prev_load = normalized
         self._prev_at = now
 
         return LoadSample(
@@ -65,7 +81,38 @@ class LoadTracker:
             dload_dt=dload_dt,
             xruns=xruns,
             xrun_delta=xrun_delta,
+            normalized_load=normalized,
         )
+
+    def jack_baseline(self) -> float | None:
+        if self._baseline_env >= 0.0:
+            return self._baseline_env
+        return self._baseline_learned
+
+    def _maybe_learn_baseline(self, load: float) -> None:
+        if self._baseline_env >= 0.0:
+            return
+        self._baseline_window.append(load)
+        if len(self._baseline_window) < BASELINE_LEARN_SAMPLES:
+            return
+        learned = min(self._baseline_window)
+        if self._baseline_learned is None:
+            self._baseline_learned = learned
+            if not self._baseline_logged:
+                print(
+                    f"poly-governor: jack baseline learned={learned:.1f}% "
+                    f"({BASELINE_LEARN_SAMPLES} samples)",
+                    flush=True,
+                )
+                self._baseline_logged = True
+
+    def _normalize(self, load: float, source: str) -> float:
+        if source != "jack":
+            return load
+        baseline = self.jack_baseline()
+        if baseline is None:
+            return load
+        return normalize_jack_load(load, baseline)
 
     def _compute_dload_dt(self, load: float, now: float) -> float | None:
         if self._prev_load is None or self._prev_at is None:
@@ -119,23 +166,9 @@ class LoadTracker:
                 return proc_load, proc_load, "proc"
             return None, None, "none"
 
-        # auto — prefer jack unless pegged while proc disagrees (Pi 5 @ 128×2 common)
+        # auto — deadline-aligned jack; proc only when jack unavailable
         if jack_load is not None:
-            if (
-                proc_load is not None
-                and jack_load >= 95.0
-                and proc_load + 15.0 < jack_load
-            ):
-                if not self._jack_proc_disagreement_logged:
-                    print(
-                        "poly-governor: jack dsp pegged "
-                        f"({jack_load:.0f}%) vs proc ({proc_load:.0f}%) — using proc",
-                        flush=True,
-                    )
-                    self._jack_proc_disagreement_logged = True
-                return proc_load, proc_load, "proc"
             return jack_load, jack_raw, "jack"
-
         if proc_load is not None:
             return proc_load, proc_load, "proc"
         return None, None, "none"
