@@ -1,6 +1,6 @@
 # Pi 4 close-out — the platform conclusion and what transfers to Pi 5
 
-*Drafted: 2026-08-23 (America/Toronto). **Status: draft — three cells still open, see §7.***
+*Closed: 2026-08-23 (America/Toronto). **Status: closed for Pi 4 platform conclusion (§1).** Deferred work in §7 does not block §1.*
 
 **Purpose.** Close the Pi 4 instrument-latency arc as a systematic investigation with a
 stated conclusion, an explicit list of eliminated hypotheses, and an honest account of the
@@ -43,7 +43,7 @@ substance of the investigation.
 | H3 | Compiler code generation is leaving performance on the table | A3 | **Null, pre-registered.** `-mcpu=cortex-a72` — all nine loaded cells ≤1.19% against a >5% win threshold. |
 | H4 | Real-time scheduling / IRQ placement is the constraint | E1 + IRQ census (archived) | **Closed.** xhci is pinned to CPU0 and not movable on this SoC; core allocation is not a lever here. |
 | H5 | The looper stack is the dominant cost | Looper stack cost, 2026-08-19 | **Refuted, and an earlier claim retracted.** See §3. |
-| H6 | Clock is the binding constraint (overclock converts to headroom) | P7 | **Inconclusive 2026-08-23** — baseline half ~5–8% DSP (unloaded); OC ~34–53% (loaded). Comparison invalid; re-run required. See `P7-RESULT-2026-08-23.md`. |
+| H6 | Clock is the binding constraint (overclock converts to headroom) | P7 | **Inconclusive 2026-08-23** — morning baseline void (~5–8%, unload); evening baseline valid (~34% Cloud Horn). OC half ~53% @2000 MHz on disk but not re-paired. Does not block §1. See `P7-RESULT-2026-08-23.md`. |
 
 ### 2a. H6 / P7 — ran, and failed on the instrument
 
@@ -74,7 +74,7 @@ a run rather than to answer a question is how it happens. Recorded as a hypothes
 cheap test: **re-run the baseline arm alone with the floor assertion in place; if it lands
 near 56.9%, H6 closes on one ~15-minute cell.**
 
-**H6 therefore remains open.** Clock is neither established nor eliminated as a lever.
+**H6 remains open for U7/Pi 5 forecast, not for §1.** The evening baseline re-run landed loaded Cloud Horn ~34% p99 and Crystals ~37% — the morning instrument failure is superseded for baseline numbers. A valid A/B still needs a paired OC phase in the same harness generation; reported DSP still *rises* with clock in the one-sided comparison (baseline ~34% vs prior OC ~53%), opposite naive compute-bound headroom. Clock is neither established nor eliminated as a lever.
 
 **Independent cross-validation of V1.** Stock `dsp_median` rises +2.34 / +2.11 / +2.48 pp
 across 1024→512→256 for Crystals / Duduk / Cloud Horn. The V1 fit predicts ~1.83 pp from
@@ -258,19 +258,32 @@ must say so rather than reporting a single ratio.
 
 ---
 
-## 7. Open cells — what this draft is still missing
+## 7. Close-out scope — closed for §1 vs deferred
 
-| # | Item | Why it blocks the close-out | Cost |
-|---|---|---|---|
-| O1 | **P7** — baseline re-run | **Baseline valid 2026-08-23 PM** — Cloud Horn @5 **~34% p99** (loaded); Crystals **~37%**. Morning run invalid (~7%) superseded. **H6 open:** paired OC re-run needed. `P7-RESULT-2026-08-23.md` §Baseline re-run. | OC re-run (paired) |
-| O1b | ~~**Wire plausibility floors into the load harness**~~ | **Done 2026-08-23.** `measure-latency-run.sh` + soak **per-minute** window via `mpe_result_assert_loaded_dsp` (extended after V12; minute-1-only missed 1024 decay). **Preflight gate (2026-08-23):** `measure-soak-preflight.sh` / `--preflight-only` — poly JSON + 45s DSP ≥28% @512 (was 50%; lowered post P5 A/B). | done |
-| O2 | **A4** — reference pass 2 | **Partial 2026-08-23 PM** — 7/12 @ **~33%** (P1–P7); aborted P8 (Duduk floor). Harness fix **`0c22600`**: silence skip + light-patch 10% floor. **Re-run P8–P12.** `A4-RESULT-2026-08-23.md`. | re-run pass 2 completion |
-| O3 | **V12** — buffer compare | **Two-arm @ governor off, 10 min/arm (2026-08-23 18:29–18:58)** @ Pi `46f5300`: manual orchestration (script defaults governor **on**). **1024×2:** 0 xruns, dsp **32.67%**, plausibility **10/10** — **no 1024 cliff**. **512×2** (after jack/surge restart): 2 xruns (min 1 only), dsp **33.08%**, plausibility **10/10**. Logs: `~/v12-full-govoff-20260823-182931/`. **Do not cite** 512↔1024 dropout equivalence (unequal xruns, 10 min not 30, B3 open). Prior VOID 30 min governor-on run retained as historical confound. See `V12-RESULT-2026-08-23.md` §Full two-arm compare @ governor off. | **substantially done** — 30 min + orchestrator `--governor` flag optional follow-up |
-| O4 | ~~**G2 threshold statistic** (§4)~~ | **Closed 2026-08-23.** Two instruments — governor proc/OSC @ 6.7 Hz vs soak `jack_cpu_load`. Negative arm: non-engagement, not margin. See §4, `G2-RESULT-2026-08-23.md` §O4. | done |
-| O5 | **B3** — steal audibility | The gap in §5e between measured capacity and player-relevant quality. | ear test |
-| O6 | ~~Pi hot-patch not in repo~~ | **Done 2026-08-23.** Pi @ `1c165b9`; soak script matches repo (hot-patch removed). | done |
+§1 closes on Pi 4 data and elimination logic (§2–§5). Nothing below is proposed as a blocker
+for that conclusion.
 
-**O4, O6 and O1b are closed.** V12 **two-arm governor-off compare (10 min/arm)** completed with both arms passing per-minute plausibility at **~33%**; **1024 cliff not reproduced**; **no dropout-equivalence claim** (512 had 2 xruns minute 1). Reference **~58%** P5 band still not restored. **Next:** A4 pass 2 re-run (P8–P12); paired P7 OC; O5 (B3) ear test unchanged.
+### Closed for §1 conclusion
+
+| # | Item | Result |
+|---|---|---|
+| O1b | Plausibility floors + preflight gate | **Done 2026-08-23.** Per-minute loaded DSP assert in soak; `measure-soak-preflight.sh` (poly JSON + 45 s spot, floor **28%** @512 after P5 A/B). |
+| O3 | V12 buffer compare (§1 scope) | **Two-arm @ governor off, 10 min/arm** (18:29–18:58, Pi `46f5300`). **1024×2:** 0 xruns, dsp **32.67%**, plausibility **10/10**. **512×2** (post restart): 2 xruns (minute 1 only), dsp **33.08%**, plausibility **10/10**. Prior 1024 cliff **not reproduced** at canonical load. **No 512↔1024 dropout-equivalence claim** (unequal xruns, 10 min not 30, B3 open). `V12-RESULT-2026-08-23.md`. |
+| O4 | G2 threshold statistic (§4) | **Closed 2026-08-23.** Governor proc/OSC @ ~6.7 Hz vs soak `jack_cpu_load` — different instruments; negative arm = non-engagement. `G2-RESULT-2026-08-23.md`. |
+| O6 | Pi hot-patch not in repo | **Done 2026-08-23.** Pi @ `1c165b9`; soak script matches repo. |
+| P7 | Baseline half (H6 instrument) | **Valid 2026-08-23 PM** — Cloud Horn @5 **~34% p99** (loaded); Crystals **~37%**. Morning ~7% run superseded. H6 A/B still open (see deferred). `P7-RESULT-2026-08-23.md`. |
+
+### Deferred (does not block §1)
+
+| # | Item | Status / honest limit |
+|---|---|---|
+| O2 | **A4** reference pass 2 completion | **Partial 2026-08-23 PM** — **7/12** @ canonical **~33%** (P1–P7); P8–P12 not run (Duduk floor before hotfix). Heavy patches P4–P7 captured at ~33%; sufficient for Pi 4 §1 spread at this load regime. `A4-RESULT-2026-08-23.md`. |
+| P7 | OC / H6 paired compare | Morning OC @2000 MHz (~53% Cloud Horn) on disk; **paired re-run not done** in PM session. Clock scaling for Pi 5 forecast only. |
+| O5 | **B3** steal audibility | Ear test; §5e subjective gap unchanged. |
+| O3′ | V12 30 min + orchestrator default | 10 min two-arm closes §1 buffer question at canonical load; longer soak and `--governor` default ship are Pi 5 / product follow-ups. |
+| — | **`hw:2` / ~58% archaeology** | Historical A4 pass 2 P5 (~58%) used `jackd -P hw:2` without post-restart reload; **not reproduced** on today's stack (`hw:1` + reload → **~33%** stable). Treat **~58% as stale for this appliance** until a deliberate archaeology pass; **canonical live baseline: Cloud Horn @5 @512×2 ~33%** (`V12-PARITY-2026-08-23.md`). |
+
+**§1 stands without resolving deferred rows.** The platform could not be certified at 512×2 under the Quick Select library at measured canonical load (~33% Cloud Horn @5), with per-callback compute as the binding constraint by elimination. We do **not** claim 512↔1024 dropout equivalence, do **not** restore the ~58% reference band, and do **not** treat incomplete A4, open H6, or B3 as reasons to withhold §1.
 
 ---
 
