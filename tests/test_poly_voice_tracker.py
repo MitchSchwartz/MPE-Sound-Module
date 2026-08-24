@@ -79,7 +79,7 @@ class GovernorFadeTests(unittest.TestCase):
 
     @mock.patch("patch_browser.surge_poly_governor.governor_active", return_value=True)
     @mock.patch("patch_browser.surge_poly_governor.fade_actuation_enabled", return_value=True)
-    @mock.patch("patch_browser.surge_poly_governor.read_active_voice_count", return_value=8)
+    @mock.patch("patch_browser.surge_poly_governor.read_active_voice_count", return_value=12)
     @mock.patch("patch_browser.surge_poly_governor.send_polylimit")
     def test_step_down_defers_when_notes_sound(
         self,
@@ -175,7 +175,7 @@ class GovernorFadeTests(unittest.TestCase):
                 governor._refresh_patch_state()
                 with mock.patch("builtins.print"):
                     governor._tick()
-            write_fade.assert_called_once_with(release_count=6, reason="emergency")
+            write_fade.assert_called_once_with(release_count=5, reason="emergency")
             send_polylimit.assert_called_once()
             self.assertEqual(send_polylimit.call_args.args[1], 3)
 
