@@ -273,7 +273,7 @@ Sections are grouped top-to-bottom:
   - **USB Audio** profile toggle (Analog vs USB host); header badge matches. Background switch with overlay — see **[USB-AUDIO-HOST.md](USB-AUDIO-HOST.md)**.
   - **Buffer** — preset picker (32–2048 samples) + approximate latency; restarts Surge ([#44](https://github.com/MitchSchwartz/MPE-Sound-Module/issues/44)).
   - **Sample rate** — **44.1 kHz / 48 kHz** picker; persists to `/etc/mpe/mpe.env` and restarts Surge (+ USB gadget when **usb-host**) ([#39](https://github.com/MitchSchwartz/MPE-Sound-Module/issues/39)).
-  - **Dynamic voice limit** — poly governor toggle.
+  - **Dynamic voice limit** — poly governor toggle. Reads jack deadline load in v2; see **[POLY-GOVERNOR.md](POLY-GOVERNOR.md)**.
   - **Patch normalization** — master toggle for all per-patch Norm controls.
   - **Calibrate missing patches** / **Force full re-calibration** — confirm modal → loader on DSI. See **[PATCH_NORMALIZATION.md](PATCH_NORMALIZATION.md)**.
 

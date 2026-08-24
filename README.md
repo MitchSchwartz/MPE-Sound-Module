@@ -66,7 +66,7 @@ Every patch is fully editable and MPE-assignable from your computer, across all 
 - **Selectable audio buffer** — `MPE_JACK_BUFFER` / `MPE_JACK_PERIODS` (defaults 256 × 3), server-side under JACK, the only audio engine. Restarts the audio graph when changed
 - **Per-patch volume normalization** — calibrate once (strike + sustain anchors, peak-safe closed loop); every patch loads at a matched level. The same run sets **Touch** pressure floors for light vs full press on favorites.
 - **Reuse Single on load** — patches are rewritten at load so restrikes on the same key reuse the voice instead of stacking new ones (lighter CPU on dense patches)
-- **Dynamic voice limit** — a background governor watches CPU and steps Surge's poly limit down under sustained load, then recovers when headroom returns; Surge's built-in softkill handles voice stealing (no MIDI panic)
+- **Dynamic voice limit** — background governor (`surge-poly-governor.service`) tracks JACK deadline load and moves Surge's poly limit on a continuous curve under sustained playing, then recovers when headroom returns; Surge softkill handles voice stealing (no MIDI panic). See **[docs/POLY-GOVERNOR.md](docs/POLY-GOVERNOR.md)**.
 
 ### UI
 
@@ -77,7 +77,7 @@ Every patch is fully editable and MPE-assignable from your computer, across all 
 - **Per-patch mixer (touch)** — vertical faders on the patch detail pane: **Vol** (level), **Tail** (envelope length; **0** = patch-as-loaded), **Touch** (MPE pressure floor; **cal value** = default handle position on **−50…+50**). See **[docs/TOUCH_PATCH_BROWSER.md](docs/TOUCH_PATCH_BROWSER.md)** §Mixer faders.
 - **Theming** — light/dark base themes with custom accent colors
 - **CPU meter** — live engine headroom while playing
-- **Dynamic voice limit toggle (touch)** — System settings → turn CPU-aware poly limiting on or off (default on). No in-Surge output limiter — loudness headroom comes from per-patch normalization at calibration time; use host/USB gain staging if you need a safety ceiling live.
+- **Dynamic voice limit toggle (touch)** — System settings → turn poly limiting on or off (default on). v2 uses jack deadline load when `MPE_POLY_GOVERNOR_METER=jack`. Full behaviour: **[docs/POLY-GOVERNOR.md](docs/POLY-GOVERNOR.md)**.
 
 **Status:** 
 
@@ -179,14 +179,15 @@ Toggle **Norm.** on the patch detail pane to bypass normalization for one patch;
 
 ### Playback policy (Pi)
 
-On every patch load, **Reuse Single** is applied automatically (XML rewrite — not an OSC toggle). A static poly **ceiling** is applied via Surge OSC; the **dynamic voice limit** governor (`surge-poly-governor.service`) can step that limit down further when CPU stays high.
+On every patch load, **Reuse Single** is applied automatically (XML rewrite — not an OSC toggle). A static poly **ceiling** is applied via Surge OSC; the **dynamic voice limit** governor can lower and raise that limit under load.
 
 | Control | Where |
 | -------- | ----- |
-| Dynamic voice limit on/off | Touch UI → System settings |
-| Poly ceiling / floor / emergency | `/etc/mpe/mpe.env` — `MPE_POLY_CEILING` (12), `MPE_POLY_FLOOR` (4), `MPE_POLY_EMERGENCY` (3 at ≥90% CPU) |
+| Dynamic voice limit on/off | Touch UI → System settings → Audio… |
+| Mode, baseline, rest cap, ramp | `/etc/mpe/mpe.env` — see **[docs/POLY-GOVERNOR.md](docs/POLY-GOVERNOR.md)** and `config/mpe.env.example` |
+| Poly ceiling / floor / emergency | `MPE_POLY_CEILING`, `MPE_POLY_FLOOR`, `MPE_POLY_EMERGENCY` |
 | Disable Reuse Single | `MPE_REUSE_SINGLE=0` in `mpe.env` |
-| Disable governor entirely | `MPE_POLY_GOVERNOR=0` or turn off in touch settings |
+| Disable governor entirely | `MPE_POLY_GOVERNOR=0` or touch settings |
 
 Manual OSC smoke test: `python3 scripts/manual/test-poly-governor-osc.py`
 
@@ -249,6 +250,11 @@ The **3,192 bundled patches** are Surge XT's own stock library, not custom conte
 Optional **CC0 / permissive community packs** (drums and more) curated in the private [MPE-Library](https://github.com/MitchSchwartz/MPE-Library) assets repo — Italo Disco Drum Pack (CC0), ironcross32/Surge-XT-Patches (CC0-1.0), Phasor Space Vol. 1 (CC0), Hefxthoth collection (DWTFYWPL). See that repo's README §Third-party patch credits.
 
 Surge XT itself is licensed **GPL-3.0**. Sounds/patches you make or perform with it are yours to use freely, commercially or otherwise — see the [Surge XT license FAQ](https://github.com/surge-synthesizer/surge) for specifics. This repo's own code (Pi setup, wiring, UI, deploy scripts) is licensed separately below.
+
+MPE-Module drives Surge as a **separate process** over OSC, MIDI and JACK — it does not link
+Surge as a library or host it in-process. That arms-length boundary is what lets this repo
+carry a different license from Surge's GPL-3.0. Full component list, corresponding-source
+pointers, and distribution obligations: [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md).
 
 ## License
 
