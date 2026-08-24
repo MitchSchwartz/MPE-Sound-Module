@@ -287,4 +287,4 @@ Standing constraints to restate in every prompt:
 
 ## After the session (labour evidence)
 
-Invoke **`sred-daily-capture`** (`.claude/skills/sred-daily-capture/SKILL.md`) and append to [`docs/SRED-DAILY-LOG.md`](../../docs/SRED-DAILY-LOG.md). Conditions before the run; labour after — same session, not Friday.
+Invoke OM-Repo **`sred-daily-capture`** ([`OM-Repo/.claude/skills/sred-daily-capture/SKILL.md`](../../../../OM-Repo/.claude/skills/sred-daily-capture/SKILL.md)) and append to [`SRED-DAILY-LOG.md`](../../../../OM-Repo/internal/projects/mpe-synth-launch/sred/SRED-DAILY-LOG.md). Conditions before the run; labour after — same session, not Friday.
