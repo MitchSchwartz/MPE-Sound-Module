@@ -323,11 +323,31 @@ class TouchBrowserPrefsMixin:
             self, "_audio_profile_switching", False
         ):
             return
+
+        from patch_browser.midi_connect_progress import connecting_toast
+
+        midi_toast = connecting_toast()
+        if midi_toast:
+            now = time.monotonic()
+            last_midi = getattr(self, "_last_midi_connect_toast_at", 0.0)
+            first_midi = not getattr(self, "_midi_connect_toast_active", False)
+            if first_midi or now - last_midi >= 2.0:
+                self._toast(midi_toast, 3.0)
+                self._last_midi_connect_toast_at = now
+                self._midi_connect_toast_active = True
+            return
+
+        self._midi_connect_toast_active = False
+
         monitor = getattr(self, "engine_monitor", None)
         if monitor is None:
             return
         snap = monitor.snapshot()
-        if snap.get("state") not in {"recovering", "failed"}:
+        state = snap.get("state") or ""
+        prev = getattr(self, "_last_engine_recovery_state", "ok")
+        self._last_engine_recovery_state = state
+
+        if state not in {"recovering", "failed"}:
             return
         from patch_browser.audio_engine import audio_switch_progress_message, read_jack_state, read_reconcile_state
 
@@ -339,7 +359,9 @@ class TouchBrowserPrefsMixin:
         if not toast:
             return
         now = time.monotonic()
-        if now - getattr(self, "_last_audio_switch_toast_at", 0.0) >= 2.0:
+        entered_recovery = prev not in {"recovering", "failed"}
+        last_toast = getattr(self, "_last_audio_switch_toast_at", 0.0)
+        if entered_recovery or now - last_toast >= 2.0:
             self._toast(toast, toast_sec)
             self._last_audio_switch_toast_at = now
 

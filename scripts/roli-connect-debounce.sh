@@ -10,9 +10,20 @@ LOCK_FILE="/tmp/roli-remap-restart.lock"
 MIN_RESTART_INTERVAL=8
 REMAP_SERVICE="mpe-pressure-remap.service"
 LOG_FILE="/tmp/roli-events.log"
+MIDI_CONNECT_STATE="${MPE_MIDI_CONNECT_STATE:-/run/mpe/midi-connect.state}"
 
 log() {
     echo "$(date): $1" >>"$LOG_FILE"
+}
+
+midi_connect_begin() {
+    mkdir -p "$(dirname "$MIDI_CONNECT_STATE")"
+    echo "connecting $(date +%s)" >"$MIDI_CONNECT_STATE"
+    chmod 644 "$MIDI_CONNECT_STATE" 2>/dev/null || true
+}
+
+midi_connect_clear() {
+    rm -f "$MIDI_CONNECT_STATE"
 }
 
 check_recent_restart() {
@@ -73,15 +84,19 @@ restart_remapper() {
 case "$ACTION" in
     add)
         log "ROLI controller connected — waiting for USB stability"
+        midi_connect_begin
         if ! wait_for_stability; then
             log "ROLI not stable after wait — skipping remapper restart"
+            midi_connect_clear
             exit 0
         fi
         if remap_input_connected; then
             log "Remapper already connected to ROLI ALSA port — skipping restart"
+            midi_connect_clear
             exit 0
         fi
         restart_remapper
+        midi_connect_clear
         ;;
     remove)
         log "ROLI controller disconnected"

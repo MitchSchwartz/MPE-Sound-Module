@@ -135,30 +135,34 @@ def audio_switch_progress_message(
                 f"Recovery paused — wait {COOLDOWN_SEC}s or replug DAC",
                 5.0,
             )
+        last_restart = _parse_epoch(reconcile.get("last_restart"))
+        restart_count = _parse_epoch(reconcile.get("restarts"))
+        if restart_count > 0 and last_restart > 0:
+            since = now_ts - last_restart
+            if since < COOLDOWN_SEC:
+                remaining = COOLDOWN_SEC - since
+                hint = f"Waiting to retry ({remaining}s)…"
+                toast = f"Recovery paused — {remaining}s until retry"
+                return hint, toast, min(float(remaining + 1), 8.0)
         return "Audio failed", "Audio failed — check connection", 4.0
 
-    last_restart = _parse_epoch(reconcile.get("last_restart"))
-    restart_count = _parse_epoch(reconcile.get("restarts"))
-    if restart_count > 0 and last_restart > 0:
-        since = now_ts - last_restart
-        if since < COOLDOWN_SEC:
-            remaining = COOLDOWN_SEC - since
-            hint = f"Waiting to retry ({remaining}s)…"
-            toast = f"Recovery paused — {remaining}s until retry"
-            return hint, toast, min(float(remaining + 1), 8.0)
+    if state == "recovering":
+        jack_started = _parse_epoch(jack.get("started"))
+        if jack_started > 0 and (now_ts - jack_started) < JACKD_SETTLE_SEC:
+            return "JACK server starting…", "Reconnecting audio…", 3.0
 
-    jack_started = _parse_epoch(jack.get("started"))
-    if jack_started > 0 and (now_ts - jack_started) < JACKD_SETTLE_SEC:
-        return "JACK server starting…", "Restarting audio engine…", 3.0
+        if reason == "promote-planned":
+            return "Reconnecting Surge…", "Reconnecting Surge…", 3.0
+        if reason in {"settings-change", "profile-change"}:
+            return "Restarting JACK server…", "Applying audio settings…", 3.0
+        if reason == "promote-timeout":
+            return "Surge reconnect slow — still trying…", "Still reconnecting Surge…", 3.0
+        if reason in {"jackd-starting", "jackd-down", "graph-restart"}:
+            return "Reconnecting audio…", "Reconnecting audio…", 3.0
 
-    if reason == "promote-planned":
-        return "Reconnecting Surge…", "Reconnecting Surge to JACK…", 3.0
-    if reason in {"settings-change", "profile-change"}:
-        return "Restarting JACK server…", "Applying audio settings…", 3.0
-    if reason == "promote-timeout":
-        return "Surge reconnect slow — still trying…", "Still reconnecting Surge…", 3.0
+        return "Reconnecting audio…", "Reconnecting audio…", 3.0
 
-    return "Restarting audio…", "Applying audio settings…", 3.0
+    return "Restarting audio…", "Reconnecting audio…", 3.0
 
 
 def read_engine_state(path: Path | None = None) -> dict[str, str]:
