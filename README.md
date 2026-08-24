@@ -6,6 +6,14 @@ Plug a Roli into a Raspberry Pi. Turn it on. Play. That's the whole interaction.
 
 **Bootstrap, not a product.** This repo is a reference design and doc set for technical builders — SSH, git, CMake, wiring, systemd. Comfortable with a terminal (or AI-guided setup) is assumed. No installer, no prebuilt Surge binary yet, no plug-and-play path for non-dev Surge users.
 
+## Disclaimer
+
+**Use at your own risk.** I take no responsibility if your device bricks, catches fire, disrespects your coworkers, or causes any other collateral damage. This is DIY hardware and software on a single-board computer running a realtime audio stack — things can go wrong.
+
+The expectation is that you **know what you're doing**, or you're **learning and taking reasonable safety precautions** (proper power, ventilation, sane wiring, backups before you flash anything).
+
+**This project assumes an AI is in the loop.** Docs and tooling are written for builders who will have an assistant walk them through SSH, git, systemd, and wiring — not for a polished installer UX. Developer experience and feature velocity come first; the AI is expected to fill the gaps a product would normally paper over.
+
 ## Git workflow
 
 **`dev`** is the integration branch for day-to-day development and agent work. **`main`** is the release line — land changes there only via pull request or explicit promotion from `dev`. Pi deploy can keep tracking `main` until you promote.
@@ -86,7 +94,7 @@ Everything to replicate the hardware — parts list, wiring, GPIO pinout:
 
 ### Touch build (recommended)
 
-**Compute:** Raspberry Pi **5** (4 GB+). Pi 4 works and remains the measurement baseline, but Pi 5 is the target player platform while validation finishes.
+**Compute:** Raspberry Pi **5** (**4 GB** recommended). Pi **4** (**4 GB** reference) works and remains the measurement baseline, but Pi 5 is the target player platform while validation finishes.
 
 **Display stack:**
 

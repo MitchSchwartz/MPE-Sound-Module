@@ -31,6 +31,10 @@ if ! id -nG "$PI_USER" 2>/dev/null | tr ' ' '\n' | grep -qx audio; then
 fi
 
 echo ""
+echo "=== JACK RT limits file (repair path) ==="
+sudo "$REPO_ROOT/scripts/install-jack-audio-limits.sh"
+
+echo ""
 echo "=== RT / JACK verification ==="
 if ! "$REPO_ROOT/scripts/verify-jack-rt-limits.sh" "$PI_USER"; then
     echo ""

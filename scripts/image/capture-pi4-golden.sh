@@ -36,10 +36,16 @@ fi
 mkdir -p "$OUTPUT_DIR"
 
 _write_image_manifest() {
-    local surge_ver git_rev cmdline
+    local surge_ver git_rev cmdline plat_section
+    # shellcheck source=../lib/detect-pi-platform.sh
+    source "$SCRIPT_DIR/../lib/detect-pi-platform.sh"
+    # shellcheck source=../lib/write-platform-manifest.sh
+    source "$SCRIPT_DIR/../lib/write-platform-manifest.sh"
+
     surge_ver="$("$SURGE_CLI" --version 2>/dev/null || echo unknown)"
     git_rev="$(cd "$MPE_MODULE_REPO" && git rev-parse HEAD 2>/dev/null || echo unknown)"
     cmdline="$(tr '\0' ' ' < /proc/cmdline)"
+    plat_section="$(mpe_platform_manifest_markdown)"
     cat >"$OUTPUT_DIR/IMAGE-MANIFEST.md" <<EOF
 # Pi 4 golden image manifest
 
@@ -49,17 +55,23 @@ _write_image_manifest() {
 |---|---|
 | Model | $model |
 | Hostname (pre-sanitize) | $(hostname) |
-| Kernel | $(uname -r) |
 | MPE-Module | $git_rev |
 | Surge CLI | $surge_ver |
 | cmdline | $cmdline |
 
+## Platform / kernel
+
+$plat_section
+
 ## Sanitization applied (never ship in image)
 
-- \`/etc/machine-id\` truncated (regenerated on first boot)
+- \`/etc/machine-id\` truncated (+ \`/var/lib/dbus/machine-id\` when not symlinked)
 - SSH **host** keys removed (regenerated on first boot)
 - **Tailscale node credentials** removed (\`tailscale logout\` + \`/var/lib/tailscale/*\`)
+- **NetworkManager WiFi profiles** removed (\`/etc/NetworkManager/system-connections/*\` — PSKs)
+- Shell history truncated (\`~/.bash_history\`, \`~/.zsh_history\`)
 - \`/var/lib/mpe/first-boot.stamp\` removed if present
+- \`sanitize-for-clone.sh --verify\` run before poweroff (asserts the above)
 
 \`authorized_keys\` is **kept** by default so your SSH key still works on first boot.
 Use \`sanitize-for-clone.sh --strip-authorized-keys\` before imaging if you want a blank SSH slate.
@@ -84,6 +96,7 @@ Store the \`.img.xz\` **privately** — includes Surge GPL binary.
 Each new unit: \`sudo tailscale up\` separately — credentials are never baked in.
 EOF
     echo "Wrote $OUTPUT_DIR/IMAGE-MANIFEST.md"
+    mpe_platform_manifest_json >"$OUTPUT_DIR/platform.json"
 }
 
 _write_image_manifest
@@ -105,6 +118,12 @@ echo "=== Sanitize for golden clone (no Tailscale / no host keys in image) ==="
 sanitize_args=""
 [ "$DRY" = true ] && sanitize_args="--dry-run"
 "$REPO_ROOT/scripts/provision/sanitize-for-clone.sh" $sanitize_args
+
+if [ "$DRY" = false ]; then
+    echo ""
+    echo "=== Verify clone-safe state ==="
+    "$REPO_ROOT/scripts/provision/sanitize-for-clone.sh" --verify
+fi
 
 echo ""
 echo "capture-pi4-golden: ready for imaging"

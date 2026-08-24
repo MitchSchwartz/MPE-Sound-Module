@@ -8,6 +8,7 @@ user="${1:-$(id -un)}"
 
 if [ ! -f /etc/security/limits.d/audio.conf ]; then
     echo "FAIL: /etc/security/limits.d/audio.conf missing (jackd2 RT prompt likely answered no)" >&2
+    echo "  Repair: sudo ./scripts/install-jack-audio-limits.sh" >&2
     fail=1
 else
     echo "OK: /etc/security/limits.d/audio.conf present"

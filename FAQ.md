@@ -12,7 +12,7 @@
 
 ### Q: Will this work on Pi 3?
 
-**A:** Not tested, not recommended. The reference build is Pi 4 (4GB+) or Pi 5. Surge XT plus the patch browser UI is more CPU than a Pi 3 comfortably has to spare.
+**A:** Not tested, not recommended. The reference build is Pi 4 (**4 GB**) or Pi 5 (**4 GB** recommended). Surge XT plus the patch browser UI is more CPU than a Pi 3 comfortably has to spare.
 
 ### Q: Can I add more encoders/buttons?
 
@@ -24,7 +24,16 @@
 
 ## Hardware Questions
 
+### Q: How much RAM do I need?
 
+**A:** **4 GB** on the reference Pi 4 — that is what the certified player stack was built and measured on (not 8 GB; some older measurement logs incorrectly reported 7.6 GiB).
+
+| Config | 2 GB | 4 GB |
+|--------|------|------|
+| Touch + Surge, **no looper**, prebuilt binary | **Probably not** — untested; thin margin once OS + Surge (~170 MB) + touch UI + JACK are up; pressure can cause xruns before OOM | **Yes** — reference |
+| SooperLooper / multi-loop | No | Tight; eval used 4 GB |
+
+Do not build Surge on the Pi with only 2 GB. Avoid swap on a playing instrument.
 
 ### Q: What's the actual audio interface?
 
