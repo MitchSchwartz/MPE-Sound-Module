@@ -126,7 +126,7 @@ Human: patches load, OUT meter moves, LUMI plays, no crackle at 128×2.
 |------|-----|---------|
 | Reference suite / Suite 1 | Thermal + PSU; predictions unscored | Cooler mounted + 27 W PSU |
 | Loaded census @ **64** voices | Same | After cooler/PSU |
-| Poly governor Pi 5 tuning | **Preliminary Gate B pass** — `always_on` + jack baseline 96; see [`poly-governor-v2-always-on-pi5-2026-08-23.md`](poly-governor-v2-always-on-pi5-2026-08-23.md) | Full Gate B + parity env promote |
+| Poly governor Pi 5 tuning | **Paused @ 97/3/7 + ramp apply** — best ear tune; step-attack crackle open. Resume after cooler + 27 W PSU + gesture automation plan. [`poly-governor-v2-always-on-pi5-2026-08-23.md`](poly-governor-v2-always-on-pi5-2026-08-23.md) | Cooler + PSU; automated P1–P4 gesture matrix |
 | cmdline experiments (`isolcpus`, `irqaffinity=0`) | E1 rule; one variable per reboot | Phase 3 plan only |
 | Pi 5 `-mcpu=cortex-a76` Surge build | Player uses Pi 4 binary for smoke; build is measurement track | When suite needs matched revision |
 
@@ -138,7 +138,7 @@ Human: patches load, OUT meter moves, LUMI plays, no crackle at 128×2.
 2. **Hardware** — mount ordered cooler; swap to 27 W PSU.
 3. **64-voice loaded census** — repeat `capture-pi5-irq-loaded.sh` with throttle series.
 4. **Frozen reference suite** — `measure-reference-suite.sh` unchanged from Pi 4; fill [`pi5-predictions-2026-08-23.md`](pi5-predictions-2026-08-23.md) **Pi 5 actual** column.
-5. **Poly governor** — daily play at baseline 96; complete Gate B B3/B4; promote to parity env if stable.
+5. **Poly governor** — **paused** (97/3/7 + ramp apply frozen on Pi). After cooler + PSU: build gesture automation (P1–P4 in governor result doc), re-run Gate B including step-attack profile.
 
 ---
 
