@@ -13,9 +13,12 @@ MPE_RESULT_STRICT="${MPE_RESULT_STRICT:-1}"
 #   512:  W1-b 512×3 — 62.4% (docs/measurements/w1-instrumented-window-2026-08-21.md)
 #   256:  W1-c 256×3 — 76.1% (docs/measurements/w1-instrumented-window-2026-08-21.md)
 # V11 idle/mistimed signatures (0.9%, 1.6%) sit far below these floors.
-readonly MPE_DSP_FLOOR_1024="7.6"
-readonly MPE_DSP_FLOOR_512="12.5"
-readonly MPE_DSP_FLOOR_256="15.2"
+if [ -z "${_MPE_MEASUREMENT_RESULT_SOURCED:-}" ]; then
+    readonly MPE_DSP_FLOOR_1024="7.6"
+    readonly MPE_DSP_FLOOR_512="12.5"
+    readonly MPE_DSP_FLOOR_256="15.2"
+    _MPE_MEASUREMENT_RESULT_SOURCED=1
+fi
 
 _mpe_result_die() {
     echo "ERROR: measurement-result: $*" >&2
@@ -40,6 +43,10 @@ mpe_result_buffer_from_tag() {
 
 mpe_result_dsp_plausibility_floor() {
     local buf="${1:-}"
+    if [ -n "${MPE_DSP_PLAUSIBILITY_FLOOR_OVERRIDE:-}" ]; then
+        echo "$MPE_DSP_PLAUSIBILITY_FLOOR_OVERRIDE"
+        return 0
+    fi
     case "$buf" in
         1024) echo "$MPE_DSP_FLOOR_1024" ;;
         512) echo "$MPE_DSP_FLOOR_512" ;;
@@ -49,6 +56,27 @@ mpe_result_dsp_plausibility_floor() {
             return 1
             ;;
     esac
+}
+
+# O1b — loaded-cell floor without a full RESULT tag (soak minute-1, direct harness checks).
+mpe_result_assert_loaded_dsp() {
+    local buf="$1"
+    local dsp="$2"
+    local floor
+    if [ -z "$buf" ] || [ -z "$dsp" ]; then
+        _mpe_result_die "assert_loaded_dsp: need buffer and dsp_median"
+        return 1
+    fi
+    if awk -v v="$dsp" 'BEGIN{exit !(v+0==0)}'; then
+        _mpe_result_die "assert_loaded_dsp: dsp_median=0 (sampler dead)"
+        return 1
+    fi
+    floor="$(mpe_result_dsp_plausibility_floor "$buf")" || return 1
+    if awk -v v="$dsp" -v fl="$floor" 'BEGIN{exit !(v+0 < fl+0)}'; then
+        _mpe_result_die "loaded-cell dsp_median=${dsp}% below plausibility floor ${floor}% at buffer ${buf} (voice hold likely not applied)"
+        return 1
+    fi
+    return 0
 }
 
 # Assert floor(1024) < floor(512) < floor(256). Called from offline tests.
@@ -81,6 +109,30 @@ _mpe_result_resolve_buffer() {
         return 0
     fi
     mpe_result_buffer_from_tag "${MPE_R_tag-}"
+}
+
+# Minimum probe process-callback jitter events for a window length.
+# Anchor: 100 events @ 60 s (W1 instrumented window / measure-latency-run write path).
+# Scales linearly with window — not a hard 30 s cutoff.
+mpe_result_jitter_n_floor() {
+    local secs="${1:-}"
+    if [ -z "$secs" ] || ! [[ "$secs" =~ ^[0-9]+$ ]]; then
+        _mpe_result_die "jitter_n floor: need numeric window seconds"
+        return 1
+    fi
+    awk -v s="$secs" 'BEGIN { printf "%d\n", int((s * 100 + 59) / 60) }'
+}
+
+_mpe_result_require_expect_samples() {
+    if [ -z "${MPE_EXPECT_SAMPLES-}" ]; then
+        _mpe_result_die "MPE_EXPECT_SAMPLES unset (caller must declare expected window length)"
+        return 1
+    fi
+    if [ "${MPE_R_samples}" != "$MPE_EXPECT_SAMPLES" ]; then
+        _mpe_result_die "dsp plausibility: samples=${MPE_R_samples} expected ${MPE_EXPECT_SAMPLES}"
+        return 1
+    fi
+    return 0
 }
 
 # Median of jack_cpu_load samples in a capture file.
@@ -162,10 +214,7 @@ mpe_result_require_fields() {
                 _mpe_result_die "dsp plausibility: missing or non-numeric samples="
                 return 1
             fi
-            if [ "${MPE_R_samples}" -lt 30 ]; then
-                _mpe_result_die "dsp plausibility: samples=${MPE_R_samples} too short for loaded window"
-                return 1
-            fi
+            _mpe_result_require_expect_samples || return 1
             floor="$(mpe_result_dsp_plausibility_floor "$buf")" || return 1
             if awk -v v="${!var}" -v fl="$floor" 'BEGIN{exit !(v+0 < fl+0)}'; then
                 _mpe_result_die "field dsp_median=${!var}% below plausibility floor ${floor}% at buffer ${buf}"
@@ -189,7 +238,11 @@ mpe_result_physics_assert() {
         return 1
     fi
 
-    if [ -n "$samples" ] && [ -n "${MPE_EXPECT_SAMPLES-}" ]; then
+    if [ -n "$samples" ]; then
+        if [ -z "${MPE_EXPECT_SAMPLES-}" ]; then
+            _mpe_result_die "samples=${samples} but MPE_EXPECT_SAMPLES unset (caller must declare expected window length)"
+            return 1
+        fi
         if [ "$samples" != "$MPE_EXPECT_SAMPLES" ]; then
             _mpe_result_die "samples=${samples} expected ${MPE_EXPECT_SAMPLES}"
             return 1
@@ -201,8 +254,14 @@ mpe_result_physics_assert() {
             _mpe_result_die "jitter_n=${jitter_n} is not numeric"
             return 1
         fi
-        if [ -n "${MPE_EXPECT_SAMPLES-}" ] && [ "$MPE_EXPECT_SAMPLES" -ge 30 ] && [ "$jitter_n" -lt 100 ]; then
-            _mpe_result_die "jitter_n=${jitter_n} too low for ${MPE_EXPECT_SAMPLES}s window"
+        if [ -z "${MPE_EXPECT_SAMPLES-}" ]; then
+            _mpe_result_die "jitter_n=${jitter_n} but MPE_EXPECT_SAMPLES unset (caller must declare expected window length)"
+            return 1
+        fi
+        local jitter_floor
+        jitter_floor="$(mpe_result_jitter_n_floor "$MPE_EXPECT_SAMPLES")" || return 1
+        if [ "$jitter_n" -lt "$jitter_floor" ]; then
+            _mpe_result_die "jitter_n=${jitter_n} below floor ${jitter_floor} for ${MPE_EXPECT_SAMPLES}s window"
             return 1
         fi
     fi

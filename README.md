@@ -6,21 +6,41 @@ Plug a Roli into a Raspberry Pi. Turn it on. Play. That's the whole interaction.
 
 **Bootstrap, not a product.** This repo is a reference design and doc set for technical builders — SSH, git, CMake, wiring, systemd. Comfortable with a terminal (or AI-guided setup) is assumed. No installer, no prebuilt Surge binary yet, no plug-and-play path for non-dev Surge users.
 
+## Disclaimer
+
+**Use at your own risk.** I take no responsibility if your device bricks, catches fire, disrespects your coworkers, or causes any other collateral damage. This is DIY hardware and software on a single-board computer running a realtime audio stack — things can go wrong.
+
+The expectation is that you **know what you're doing**, or you're **learning and taking reasonable safety precautions** (proper power, ventilation, sane wiring, backups before you flash anything).
+
+**This project assumes an AI is in the loop.** Docs and tooling are written for builders who will have an assistant walk them through SSH, git, systemd, and wiring — not for a polished installer UX. Developer experience and feature velocity come first; the AI is expected to fill the gaps a product would normally paper over.
+
 ## Git workflow
 
 **`dev`** is the integration branch for day-to-day development and agent work. **`main`** is the release line — land changes there only via pull request or explicit promotion from `dev`. Pi deploy can keep tracking `main` until you promote.
 
 ## Demo
 
-**Touch screen build** (SmartiPi, 5" landscape touch panel)
+**Touch screen build** (recommended) — Freenove 5″ DSI panel ([B0B455LDKH](https://www.amazon.ca/dp/B0B455LDKH)), 800×480 landscape
 
 <!-- TODO: replace with the user-attachments URL for docs/demo-touch.mp4 -->
 
-**Encoder + OLED build** (reference hardware)
+**Encoder + OLED build** (legacy — usable but not gig-polished)
 
 https://github.com/user-attachments/assets/74652240-74af-48be-9db1-608f54805d25
 
 ---
+
+## Platform (Pi 4 vs Pi 5)
+
+| | **Pi 5** | **Pi 4** |
+|---|---|---|
+| **Role today** | **Preferred player** — more CPU headroom, lower JACK buffers in daily use | **Measurement control** + clone-SD baseline ([`docs/PI4-CLONE-SD.md`](docs/PI4-CLONE-SD.md)) |
+| **Touch UI** | Playable — 128×2 @ 48 kHz on reference unit (Aug 2026) | Certified player stack; latency arc closed on this platform |
+| **Validation** | **In progress** — IRQ map, reference suite, PSU/cooling gates not closed | Closed for instrument-latency claims; see [`docs/measurements/PI4-CLOSEOUT-2026-08-23.md`](docs/measurements/PI4-CLOSEOUT-2026-08-23.md) |
+
+The working hypothesis is **Pi 5 is the better day-to-day instrument** (headroom, buffers, polyphony ceiling). Treat Pi 5 production tuning as **provisional** until the pre-registered measurement suite lands — [`docs/measurements/PI5-SESSION-CLOSEOUT-2026-08-23.md`](docs/measurements/PI5-SESSION-CLOSEOUT-2026-08-23.md), [`docs/PI5-PLAYER-SETUP-LOG.md`](docs/PI5-PLAYER-SETUP-LOG.md).
+
+Appliance deploys pin git branch **`main`** ([`config/platform/appliance-git-ref`](config/platform/appliance-git-ref)).
 
 ## Why this exists
 
@@ -50,7 +70,7 @@ Every patch is fully editable and MPE-assignable from your computer, across all 
 
 ### UI
 
-- **Two interface options** — rotary encoder + OLED screen, or fullscreen touch display (SmartiPi 5″)
+- **Two interface options** — fullscreen **Freenove 5″ touch** (recommended) or legacy rotary encoder + OLED
 - **Full-library browsing** — folder view or a flat, alphabetical list with an A–Z scrub rail
 - **Quick Select** — your personal patch shortlist. Heart a patch on the detail pane to save it; browse saved patches under **Quick Select** like any other category. Add subfolders for gig sets or moods (long-press to create, rename, or organize). Long-press a patch or library folder for shortcuts — add a whole folder at once, move patches between folders, remove from the list. Copies live on the Pi; the originals in the main library stay put.
 - **Filter by instrument** — browsing a deep folder or the full A–Z list? Tap the funnel icon next to the **A–Z** button to narrow by type — bass, pad, keys, and so on. Tap **All** to see everything again.
@@ -67,14 +87,32 @@ Every patch is fully editable and MPE-assignable from your computer, across all 
 
 ## Build one
 
-Everything to replicate the reference hardware — exact parts (with purchase links), wiring diagrams, GPIO pinout:
+Everything to replicate the hardware — parts list, wiring, GPIO pinout:
 
-- **[REFERENCE_BOM.md](REFERENCE_BOM.md)** — the parts list, what to buy, what to skip
-- **[docs/HARDWARE_WIRING.md](docs/HARDWARE_WIRING.md)** — full wiring diagram
+- **[REFERENCE_BOM.md](REFERENCE_BOM.md)** — what to buy, what to skip, touch vs encoder builds
+- **[docs/HARDWARE_WIRING.md](docs/HARDWARE_WIRING.md)** — encoder/OLED wiring (skip for touch)
 
-Reference stack: Raspberry Pi 5 + 1.3″ I2C OLED + one KY-040 encoder + a USB sound dongle (no DAC HAT needed). Software targets this configuration; other displays/encoders aren't supported yet.
+### Touch build (recommended)
 
-**Prefer a touch screen?** A SmartiPi + 5″ landscape touch panel is a fully supported alternate build — skip the OLED/encoder wiring entirely. See **[docs/TOUCH_PATCH_BROWSER.md](docs/TOUCH_PATCH_BROWSER.md)**.
+**Compute:** Raspberry Pi **5** (**4 GB** recommended). Pi **4** (**4 GB** reference) works and remains the measurement baseline, but Pi 5 is the target player platform while validation finishes.
+
+**Display stack:**
+
+| Piece | Reference spec |
+|-------|----------------|
+| **Panel** | **Freenove 5″ IPS DSI** — [B0B455LDKH](https://www.amazon.ca/dp/B0B455LDKH) / FNK0078A, **800×480**, 5-point capacitive |
+| **Touch controller** | **EDT FT5x06** on reference units — Linux driver `edt_ft5x06` |
+| **Connection** | MIPI DSI ribbon only (Pi 5: **CAM/DISP**; Pi 4: **DISPLAY**) — no HDMI |
+| **Boot overlay** | `dtoverlay=vc4-kms-dsi-7inch` on reference units — confirm with `kmsprint` on your panel |
+| **Pi power** | USB-C PSU **works**. **GPIO 5V/GND (or barrel PSU) recommended** — frees USB-C for PC tether + `usb-host` audio ([`docs/USB-AUDIO-PASSTHROUGH-SPIKE.md`](docs/USB-AUDIO-PASSTHROUGH-SPIKE.md)) |
+
+Optional enclosure: SmartiPi Touch case or the Freenove included stand.
+
+No OLED or encoder wiring. Full setup: **[docs/TOUCH_PATCH_BROWSER.md](docs/TOUCH_PATCH_BROWSER.md)** · Pi 5 from an existing Pi 4: **[docs/PI5-PLAYER-SETUP-LOG.md](docs/PI5-PLAYER-SETUP-LOG.md)**.
+
+### Encoder + OLED build (legacy)
+
+Raspberry Pi 4 or 5 + 1.3″ I2C OLED + one KY-040 encoder + USB sound dongle (no DAC HAT). Software targets this configuration; other displays/encoders aren't supported yet. Encoder UX is functional but not gig-polished — see **How to navigate it** below.
 
 ### Getting the patch library
 
@@ -184,7 +222,7 @@ Full command reference: **[COMMANDS.md](COMMANDS.md)**
 | [REFERENCE_BOM.md](REFERENCE_BOM.md)                                 | Building the hardware                                |
 | [docs/HARDWARE_WIRING.md](docs/HARDWARE_WIRING.md)                   | Wiring the OLED + encoder                            |
 | [docs/PATCH_BROWSER_UI.md](docs/PATCH_BROWSER_UI.md)                 | How the encoder/button navigation actually works     |
-| [docs/TOUCH_PATCH_BROWSER.md](docs/TOUCH_PATCH_BROWSER.md)           | SmartiPi / 5″ touch browser setup and interaction    |
+| [docs/TOUCH_PATCH_BROWSER.md](docs/TOUCH_PATCH_BROWSER.md)           | Freenove 5″ touch browser setup and interaction    |
 | [docs/PATCH_NORMALIZATION.md](docs/PATCH_NORMALIZATION.md)           | Per-patch loudness calibration and Norm toggle       |
 | [docs/USB-AUDIO-HOST.md](docs/USB-AUDIO-HOST.md)                     | USB desk-tether audio (route to a laptop/PC)         |
 | [docs/PATCH-EDITING-WORKFLOW.md](docs/PATCH-EDITING-WORKFLOW.md)     | Editing sounds, pushing to the Pi                    |

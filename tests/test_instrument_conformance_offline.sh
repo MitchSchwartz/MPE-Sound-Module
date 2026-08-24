@@ -58,11 +58,22 @@ fi
 ok "negative control missing dsp_median halts"
 
 # --- F4: idle 0.9% at 256 fails plausibility floor ---
+MPE_EXPECT_SAMPLES=60
 mpe_result_parse_line "RESULT tag=A-b256-p3-l0-run1 xruns=0 meter_live=1 dsp_median=0.900000 dsp_p99=1.000000 dsp_max=1.100000 samples=60"
 if mpe_result_require_fields dsp_median 2>/dev/null; then
     fail "0.9% at 256 should fail plausibility floor (F4)"
 fi
 ok "plausibility floor rejects V11 idle 0.9% at 256 (F4)"
+
+# --- F4b: P7 baseline signature (Crystals ~5.6% @1024) fails loaded floor ---
+if mpe_result_assert_loaded_dsp 1024 5.59514 2>/dev/null; then
+    fail "5.6% at 1024 should fail loaded plausibility floor (P7 baseline Crystals)"
+fi
+ok "assert_loaded_dsp rejects P7 unloaded baseline 5.6% at 1024 (F4b)"
+
+# --- F4c: loaded Cloud Horn @1024 passes floor ---
+mpe_result_assert_loaded_dsp 1024 56.9 || fail "56.9% at 1024 should pass floor"
+ok "assert_loaded_dsp accepts reference-suite Cloud Horn @1024 (F4c)"
 
 # --- F5: non-numeric jitter_n halts ---
 mpe_result_parse_line "$(grep '^RESULT' "${FIX}/good-512-a.log" | grep 'jitter_n=' | head -1)"
@@ -131,12 +142,22 @@ if mpe_result_physics_assert "" 2>/dev/null; then
 fi
 ok "physics VOID without -bNNN- tag (S2)"
 
-# --- S3: plausibility VOID when samples too short ---
+# --- S3: plausibility VOID when samples != MPE_EXPECT_SAMPLES (truncated window) ---
+MPE_EXPECT_SAMPLES=60
 mpe_result_parse_line "RESULT tag=A-b256-p3-l0-run1 xruns=0 meter_live=1 dsp_median=0.900000 samples=12"
 if mpe_result_require_fields dsp_median 2>/dev/null; then
-    fail "samples=12 should VOID plausibility check"
+    fail "samples=12 with EXPECT=60 should VOID plausibility check"
 fi
-ok "plausibility VOID on short window (S3)"
+unset MPE_EXPECT_SAMPLES
+ok "plausibility VOID on samples mismatch (S3)"
+
+# --- S9: unset MPE_EXPECT_SAMPLES VOIDs dsp plausibility (fail-closed) ---
+mpe_result_parse_line "RESULT tag=A-b256-p3-l0-run1 xruns=0 meter_live=1 dsp_median=20.000000 samples=60"
+unset MPE_EXPECT_SAMPLES
+if mpe_result_require_fields dsp_median 2>/dev/null; then
+    fail "unset MPE_EXPECT_SAMPLES should VOID dsp plausibility check"
+fi
+ok "plausibility VOID without MPE_EXPECT_SAMPLES (S9)"
 
 # --- S7: non-numeric xruns VOID physics ---
 mpe_result_parse_line "RESULT tag=A-b512-p3-l0-run1 xruns=notnum meter_live=1 dsp_median=10.0 samples=60"

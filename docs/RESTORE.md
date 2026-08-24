@@ -2,7 +2,7 @@
 
 **Purpose:** rebuild the instrument from a blank SD card. This document is the reason the appliance can be treated as expendable — see the decision recorded in [`racknerd-pi-access-spec.md`](racknerd-pi-access-spec.md) (§Decision C). If this procedure does not work, that decision is not valid.
 
-*Last updated: 2026-08-16 (America/Toronto).*
+*Last updated: 2026-08-23 (America/Toronto).*
 
 > **⚠️ UNREHEARSED.** This procedure has been written from the live appliance's actual state but has **never been executed end to end**. An untested recovery path is an asserted one. Until someone reflashes and gets sound out, treat every time estimate below as a guess and the whole document as a draft.
 
@@ -14,14 +14,16 @@
 |---|---|---|
 | Application + scripts | This repo | `git clone` |
 | **systemd units** | [`config/`](../config/) (templates) | `scripts/install-units.sh` |
-| Appliance config | `/etc/mpe/mpe.env` | Step 4 — **two keys only**, see below |
-| Surge XT binary | `~/surge`, built from source | [`SURGE_ARM_BUILD.md`](SURGE_ARM_BUILD.md) — **hours** |
-| sooperlooper | `~/src/sooperlooper-1.7.9` | Built from source |
-| **Patch library** | `MPE-Library` (private repo) | `git clone` — **verify the Pi copy holds nothing extra** |
-| **Touch calibration** | `~/surge-cli-calibration.log`, `~/.patch_browser_calibration_backups` | ❌ **NOT VERSIONED — back these up** |
-| GitHub credentials | — | ❌ **None. Deliberate.** See [`PI-GITHUB-ACCESS.md`](PI-GITHUB-ACCESS.md) |
+| **External device state** (calibration, patch-browser JSON, `/etc/mpe/mpe.env`, Surge user defaults) | **MPE-Library** `assets/appliance-state/captures/` + laptop `state/` | [`capture-external-state.sh`](../scripts/provision/capture-external-state.sh) → [`apply-external-state.sh`](../scripts/provision/apply-external-state.sh) — see [`PI4-GOLDEN-IMAGE.md`](PI4-GOLDEN-IMAGE.md) |
+| **Laptop mpe-cli** (host/user/SSH key paths) | MPE-Library captures + `~/.config/mpe/` | [`capture-laptop-mpe-config.sh`](../scripts/provision/capture-laptop-mpe-config.sh) |
+| Surge XT binary | Private assets `assets/binaries/` | [`deploy-all.sh`](../scripts/deploy-all.sh) — not hours-from-source for golden/clone paths |
+| sooperlooper | `~/src/sooperlooper-1.7.9` | Built from source (optional) |
+| **Patch library** | `MPE-Library` (private repo) | `git clone` |
+| GitHub credentials on Pi | — | **None. Deliberate.** See [`PI-GITHUB-ACCESS.md`](PI-GITHUB-ACCESS.md) |
 
-**The two gaps that will hurt:** touch calibration is device-specific and unversioned, and the Surge ARM build takes hours. Everything else is reproducible.
+**Backed up 2026-08-23:** schema v2 captures for Pi 4 (`raspberrypi2-2026-08-23`) and Pi 5 (`raspberrypi5-2026-08-23`) in [MPE-Library `assets/appliance-state/captures/2026-08-23/`](https://github.com/MitchSchwartz/MPE-Library/tree/main/assets/appliance-state/captures/2026-08-23). Pi 4 holds `surge-cli-calibration.log` and `.patch_browser_calibration_backups/`; Pi 5 holds current labelling/normalization (authoritative for daily play).
+
+**Still slow without a clone image:** Surge ARM build from source ([`SURGE_ARM_BUILD.md`](SURGE_ARM_BUILD.md)) if you skip private binary deploy. Prefer [`PI4-GOLDEN-IMAGE.md`](PI4-GOLDEN-IMAGE.md) clone or build-from-assets for speed.
 
 ---
 
@@ -100,9 +102,30 @@ Private repo — needs a **read-only deploy key** ([`PI-GITHUB-ACCESS.md`](PI-GI
 
 The Pi copy being a plain directory rather than a checkout is therefore a tidiness issue, not a data-loss risk.
 
-### 7. Calibration
+### 7. External state (calibration + prefs)
 
-Restore `~/surge-cli-calibration.log` and `~/.patch_browser_calibration_backups` from backup. **There is no backup mechanism yet.** Until there is, re-run touch calibration by hand.
+**Preferred:** restore from a capture tree (not hand-picking files).
+
+On laptop, after clone SD or build-from-assets + first-boot:
+
+```bash
+# Copy from MPE-Library if needed:
+# cp -a ../MPE-Library/assets/appliance-state/captures/2026-08-23/raspberrypi5-* state/
+
+./scripts/provision/apply-external-state.sh --state state/raspberrypi5-2026-08-23
+# Pi 4 reference capture: state/raspberrypi2-2026-08-23
+```
+
+Includes `/etc/mpe/mpe.env`, `~/.patch_browser_*`, `surge-cli-calibration.log`, calibration backups, looper HUD JSON (Pi 4 capture), `platform.json`, boot DSI snippet. See [`external-state-paths.list`](../config/platform/external-state-paths.list).
+
+**Refresh after tuning:**
+
+```bash
+MPE_CLI_CONFIG=~/.config/mpe/mpe.env.pi5 ./scripts/provision/capture-external-state.sh
+./scripts/provision/archive-state-to-assets.sh   # → MPE-Library, offsite
+```
+
+Credential scan runs before archive; laptop trees hold SSH **paths** only, not private keys.
 
 ### 8. Bring up and verify
 
@@ -139,6 +162,23 @@ Then play it. Automated checks do not cover the thing that matters.
 
 ---
 
+## Platform notes (Pi 4 ↔ Pi 5 comparisons)
+
+Both boards ran **kernel 6.18.34** at capture (Pi 4: `rpi-v8`; Pi 5: `rpi-2712`) — kernel is not a confound for U10-style A/B.
+
+**Firmware (`vcgencmd version`) differed at capture:**
+
+| Board | Firmware date | Notes |
+|---|---|---|
+| Pi 4 (reference) | 2026-05-21 | Newer |
+| Pi 5 (player) | 2026-01-21 | Older — minor residual confound |
+
+**Do not downgrade Pi 4.** Align forward only: on Pi 5 run `sudo apt update && sudo apt full-upgrade` (includes `raspberrypi-bootloader` / EEPROM where applicable), reboot, re-capture `platform.json`. No `rpi-update` on production appliances.
+
+**Dual kernel packages** (`linux-image-rpi-v8` + `linux-image-rpi-2712` on both boards): intentional for build-from-assets ([`PI4-GOLDEN-IMAGE.md`](PI4-GOLDEN-IMAGE.md) Workflow D). Do **not** purge the inactive flavour unless you commit to board-specific golden images only.
+
+---
+
 ## Drift check
 
 Run periodically — the appliance changing without the repo changing is how a restore silently produces a different instrument:
@@ -150,6 +190,8 @@ sudo ./scripts/install-units.sh --diff
 ---
 
 ## Rehearsal log
+
+**Golden-image path:** [`PI4-CLONE-SD.md`](PI4-CLONE-SD.md) — master `dd` → write SD → boot (no Imager setup). Build-from-assets: [`PI4-GOLDEN-IMAGE.md`](PI4-GOLDEN-IMAGE.md) Workflow D.
 
 | Date | Outcome | Wall-clock | Notes |
 |---|---|---|---|

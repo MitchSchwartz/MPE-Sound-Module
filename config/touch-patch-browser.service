@@ -13,6 +13,8 @@ EnvironmentFile=-/tmp/mpe-screen-record.env
 # Phase 5: OUT meter is mpe-peak-meter.service (compiled JACK client).
 # This pygame process must never register a JACK process callback.
 Environment=SDL_MOUSE_TOUCH_EVENTS=1
+# Display/UI on IRQ-side cores — keep pygame off jackd/surge (2-3).
+CPUAffinity=0 1
 ExecStartPre=@MPE_MODULE_REPO@/scripts/prepare-dsi-display.sh
 ExecStart=@MPE_MODULE_REPO@/scripts/start-touch-patch-browser.sh
 TimeoutStopSec=10
