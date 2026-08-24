@@ -37,6 +37,11 @@ def is_connecting() -> bool:
 
 
 def connecting_toast() -> str | None:
+    base = connecting_toast_base()
+    return f"{base}…" if base else None
+
+
+def connecting_toast_base() -> str | None:
     if is_connecting():
-        return "Connecting keyboard…"
+        return "Connecting keyboard"
     return None
