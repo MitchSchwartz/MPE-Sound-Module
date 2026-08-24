@@ -179,6 +179,10 @@ while true; do
 
     _reconcile_engine
 
+    if mpe_engine_stuck_failed_maybe_sweep; then
+        log "STUCK-FAILED sweep: graph restart issued (hardware ready, state=failed)"
+    fi
+
     now=$EPOCHSECONDS
     if [ $((now - _last_looper_reconcile)) -ge "$LOOPER_RECONCILE_INTERVAL_S" ]; then
         _reconcile_looper_units_if_needed
