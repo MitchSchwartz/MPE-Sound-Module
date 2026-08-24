@@ -34,6 +34,20 @@ def rise_bias(
     return ratio * max_bias
 
 
+def always_on_rest_top(
+    *,
+    ceiling: int,
+    floor: int,
+    min_headroom: int,
+    rest_cap: int = 0,
+) -> int:
+    """Resting poly limit at zero stress (pre-engaged cap overrides headroom)."""
+    if rest_cap > 0:
+        return max(floor, min(ceiling, rest_cap))
+    headroom = max(0, min_headroom)
+    return max(floor, ceiling - headroom)
+
+
 def always_on_target_limit(
     normalized_load: float,
     *,
@@ -41,10 +55,12 @@ def always_on_target_limit(
     floor: int,
     min_headroom: int,
     hard: float = 100.0,
+    rest_cap: int = 0,
 ) -> int:
     """Always-on progressive limit — tight overhead at rest, floor at full stress."""
-    headroom = max(0, min_headroom)
-    top = max(floor, ceiling - headroom)
+    top = always_on_rest_top(
+        ceiling=ceiling, floor=floor, min_headroom=min_headroom, rest_cap=rest_cap
+    )
     if normalized_load <= 0.0:
         return top
     if normalized_load >= hard:

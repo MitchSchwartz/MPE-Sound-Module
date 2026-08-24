@@ -22,6 +22,7 @@ from patch_browser.surge_playback import (
 from patch_browser.governor_load import LoadSample, LoadTracker
 from patch_browser.governor_v2 import (
     adaptive_poll_interval,
+    always_on_rest_top,
     always_on_target_limit,
     continuous_target_limit,
     rate_limited_target,
@@ -63,6 +64,7 @@ DEFAULT_POLL_FAST_S = 0.05
 DEFAULT_POLL_SLOW_S = 0.15
 DEFAULT_XRUN_NUDGE = 8.0
 DEFAULT_MIN_HEADROOM = 3
+DEFAULT_REST_CAP = 0
 DEFAULT_JACK_BASELINE = -1.0
 DEFAULT_LIMIT_MODE = "always_on"
 VERBOSE_TRACE_FILE = "poly-governor.trace"
@@ -150,6 +152,7 @@ class GovernorConfig:
     poll_slow_s: float
     xrun_nudge: float
     min_headroom: int
+    rest_cap: int
     jack_baseline: float
     emergency_xrun_only: bool
     limit_mode: str
@@ -196,6 +199,7 @@ def load_governor_config() -> GovernorConfig:
         poll_slow_s=poll_slow,
         xrun_nudge=_env_float("MPE_POLY_XRUN_NUDGE", DEFAULT_XRUN_NUDGE),
         min_headroom=_env_int("MPE_POLY_MIN_HEADROOM", DEFAULT_MIN_HEADROOM),
+        rest_cap=_env_int("MPE_POLY_REST_CAP", DEFAULT_REST_CAP),
         jack_baseline=_env_float("MPE_POLY_JACK_BASELINE", DEFAULT_JACK_BASELINE),
         emergency_xrun_only=_env_bool("MPE_POLY_EMERGENCY_XRUN_ONLY", True),
         limit_mode=limit_mode_name(),
@@ -258,6 +262,7 @@ class PolyGovernorJournal:
             f"soft={config.limit_soft_start} "
             f"hard={config.limit_hard} "
             f"headroom={config.min_headroom} "
+            f"rest_cap={config.rest_cap} "
             f"jack_base={config.jack_baseline} "
             f"rise={int(config.rise_enable)} "
             f"rise_full={config.rise_full_rate} "
@@ -406,6 +411,7 @@ class SurgePolyGovernor:
         self._last_load: float | None = None
         self._last_dload_dt: float | None = None
         self._last_normalized_stress: float | None = None
+        self._pre_engaged_bootstrapped = False
 
     def start(self) -> None:
         if self._thread and self._thread.is_alive():
@@ -859,8 +865,21 @@ class SurgePolyGovernor:
             floor=floor,
             min_headroom=cfg.min_headroom,
             hard=cfg.limit_hard,
+            rest_cap=cfg.rest_cap,
         )
 
+        rest_top = always_on_rest_top(
+            ceiling=ceiling,
+            floor=floor,
+            min_headroom=cfg.min_headroom,
+            rest_cap=cfg.rest_cap,
+        )
+        if self._maybe_bootstrap_pre_engaged(
+            rest_top=rest_top, cpu=cpu, raw_cpu=raw_cpu, ramp_apply=ramp_apply
+        ):
+            return
+
+        recover_ceiling = rest_top if cfg.rest_cap > 0 else ceiling
         recover_below = max(8.0, cfg.min_headroom * 3.0)
         if effective_stress <= recover_below:
             self._high_since = None
@@ -868,10 +887,11 @@ class SurgePolyGovernor:
                 self._low_since = now
             elif (
                 now - self._low_since >= cfg.limit_recover_hold_s
-                and self._effective_poly < ceiling
+                and self._effective_poly < recover_ceiling
+                and cfg.step_up > 0
             ):
                 self._apply_limit(
-                    min(ceiling, self._effective_poly + cfg.step_up),
+                    min(recover_ceiling, self._effective_poly + cfg.step_up),
                     reason="recover",
                     cpu=cpu,
                     raw_cpu=raw_cpu,
@@ -894,6 +914,32 @@ class SurgePolyGovernor:
             )
 
         self._last_normalized_stress = stress
+
+    def _maybe_bootstrap_pre_engaged(
+        self,
+        *,
+        rest_top: int,
+        cpu: float,
+        raw_cpu: float | None,
+        ramp_apply: bool,
+    ) -> bool:
+        """One-shot: apply pre-engaged rest cap immediately instead of rate-limited chase."""
+        if self._pre_engaged_bootstrapped:
+            return False
+        self._pre_engaged_bootstrapped = True
+        if self.config.rest_cap <= 0 or self._effective_poly is None:
+            return False
+        if self._effective_poly <= rest_top:
+            return False
+        self._apply_limit(
+            rest_top,
+            reason="high",
+            cpu=cpu,
+            raw_cpu=raw_cpu,
+            held_s=0.0,
+            ramp_apply=ramp_apply,
+        )
+        return True
 
     def _tick_v2_progressive(self) -> None:
         self._pref_check_counter += 1
