@@ -18,7 +18,9 @@
 - **deploy-crash-fixes.sh** - Deploy crash fix scripts
 
 ### Backup & Sync Scripts
-- **capture-external-state.sh** - Portable device state tree for golden-image restore ([`docs/PI4-GOLDEN-IMAGE.md`](../docs/PI4-GOLDEN-IMAGE.md))
+- **provision/capture-external-state.sh** - Portable device state tree for golden-image restore ([`docs/PI4-GOLDEN-IMAGE.md`](../docs/PI4-GOLDEN-IMAGE.md))
+- **provision/archive-state-to-assets.sh** - Copy `state/` into MPE-Library (offsite backup)
+- **provision/capture-laptop-mpe-config.sh** - Laptop mpe-cli + SSH Host blocks
 - **apply-external-state.sh** - Restore portable state tree to Pi
 - **pull-all-from-device.sh** - Full backup from Pi to development machine
 - **sync-from-device.sh** - Incremental backup from Pi
