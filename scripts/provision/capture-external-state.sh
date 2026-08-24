@@ -266,9 +266,10 @@ restore_label="state/$(basename "$OUTPUT")"
 laptop_rev="$(cd "$REPO_ROOT" && git rev-parse HEAD 2>/dev/null || echo unknown)"
 
 _ensure_pi_repo_for_capture() {
-    echo "Ensuring Pi repo is current for capture schema v${CAPTURE_SCHEMA_VERSION} ..."
-    if ! mpe_pi_ssh "cd '$repo_path' && git fetch origin dev 2>/dev/null || git fetch origin && \
-        git checkout dev && git pull --ff-only origin dev"; then
+    local git_ref="${MPE_CAPTURE_GIT_REF:-dev}"
+    echo "Ensuring Pi repo is current for capture schema v${CAPTURE_SCHEMA_VERSION} (ref: $git_ref) ..."
+    if ! mpe_pi_ssh "cd '$repo_path' && git fetch origin '$git_ref' 2>/dev/null || git fetch origin && \
+        git checkout '$git_ref' && git pull --ff-only origin '$git_ref' 2>/dev/null || git pull --ff-only"; then
         echo "ERROR: git pull failed on $PI_USER@$PI_HOST — capture would run stale scripts." >&2
         exit 1
     fi
