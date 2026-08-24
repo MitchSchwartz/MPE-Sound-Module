@@ -24,7 +24,7 @@ class SeamWeldWorkerTests(unittest.TestCase):
             "dry must stay up — it carries input into the record buffer",
         )
 
-    def test_start_scratch_record_reapplies_silence(self) -> None:
+    def test_start_scratch_record_arms_then_records(self) -> None:
         sent: list[tuple[str, list]] = []
 
         def capture(path: str, args: list) -> None:
@@ -34,7 +34,11 @@ class SeamWeldWorkerTests(unittest.TestCase):
         worker.start_scratch_record(SCRATCH_LOOP)
 
         self.assertIn((f"/sl/{SCRATCH_LOOP}/set", ["wet", 0.0]), sent)
-        self.assertIn((f"/sl/{SCRATCH_LOOP}/hit", ["record"]), sent)
+        hits = [a for p, a in sent if p == f"/sl/{SCRATCH_LOOP}/hit"]
+        self.assertEqual(hits, [["pause_off"], ["trigger"], ["record"]])
+
+    def test_default_scratch_loop_is_fourteen(self) -> None:
+        self.assertEqual(SCRATCH_LOOP, 14)
 
 
 if __name__ == "__main__":

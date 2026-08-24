@@ -31,12 +31,12 @@ _remove_env_key() {
     sudo sed -i "/^${key}=/d" "$MPE_ENV" 2>/dev/null || true
 }
 
-log "configuring looper env (stop-then-weld, 16 loops, scratch 15)"
+log "configuring looper env (stop-then-weld, 16 loops, scratch 14 — loop 15 empty on Pi)"
 _remove_env_key MPE_SL_TAIL_MODE
 _ensure_env_kv MPE_SL_LOOPS 16
 _ensure_env_kv MPE_SL_TAIL_CAPTURE 1
 _ensure_env_kv MPE_SL_SEAM_WELD 1
-_ensure_env_kv MPE_SL_SCRATCH_LOOP 15
+_ensure_env_kv MPE_SL_SCRATCH_LOOP 14
 _ensure_env_kv MPE_SL_SEAM_MERGE_SAMPLES 2048
 
 if [ ! -x "$SOOP_BIN" ]; then
