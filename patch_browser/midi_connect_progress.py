@@ -89,8 +89,8 @@ def is_disconnecting() -> bool:
 
 
 def blocks_audio_recovery_toast() -> bool:
-    """MIDI hot-plug window — keyboard toast only, or silence on unplug."""
-    return is_connecting() or is_disconnecting() or hotplug_cooldown_active()
+    """Active MIDI phase only — cooldown is watchdog-only (see mpe_midi_hotplug_busy)."""
+    return is_connecting() or is_disconnecting()
 
 
 def suppress_audio_recovery_toast() -> bool:
