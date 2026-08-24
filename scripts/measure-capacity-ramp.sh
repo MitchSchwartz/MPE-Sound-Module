@@ -16,6 +16,8 @@ source "$SCRIPT_DIR/lib/paths.sh"
 # shellcheck source=lib/mpe-services.sh
 source "$SCRIPT_DIR/lib/mpe-services.sh"
 # shellcheck source=lib/audio-engine.sh
+# shellcheck source=lib/measure-run-as-user.sh
+source "$SCRIPT_DIR/lib/measure-run-as-user.sh"
 source "$SCRIPT_DIR/lib/audio-engine.sh"
 
 BUFFER=""
@@ -63,7 +65,9 @@ if [ "$(id -u)" -ne 0 ]; then
     exit 1
 fi
 
-_as_user() { sudo -u "$RUN_AS_USER" -- "$@"; }
+MPE_RUN_AS_USER="${RUN_AS_USER:-mitch}"
+MPE_RUN_AS_USER_HOME="$(getent passwd "$MPE_RUN_AS_USER" | cut -d: -f6)"
+_as_user() { mpe_as_user "$@"; }
 
 _set_env_var() {
     local key="$1" value="$2" tmp

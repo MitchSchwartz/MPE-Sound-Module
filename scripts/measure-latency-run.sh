@@ -24,6 +24,8 @@ source "$SCRIPT_DIR/lib/paths.sh"
 source "$SCRIPT_DIR/lib/mpe-services.sh"
 # shellcheck source=lib/audio-engine.sh
 source "$SCRIPT_DIR/lib/audio-engine.sh"
+# shellcheck source=lib/measure-run-as-user.sh
+source "$SCRIPT_DIR/lib/measure-run-as-user.sh"
 
 BUFFER=""
 CONDITION=""
@@ -90,11 +92,30 @@ RESTORE_BUFFER="$(mpe_jack_period)"
 RESTORE_PERIODS="$(mpe_jack_periods)"
 
 RUN_AS_USER="${MPE_PI_USER:-mitch}"
+USER_HOME="$(getent passwd "$RUN_AS_USER" | cut -d: -f6)"
+QUICK_SELECT="${USER_HOME}/Documents/Surge XT/Patches/Quick Select"
+MPE_RUN_AS_USER="$RUN_AS_USER"
+MPE_RUN_AS_USER_HOME="$USER_HOME"
 if [ "$(id -u)" -eq 0 ] && id "$RUN_AS_USER" >/dev/null 2>&1; then
-    _as_user() { sudo -u "$RUN_AS_USER" -- "$@"; }
+    _as_user() { mpe_as_user "$@"; }
 else
-    _as_user() { "$@"; }
+    _as_user() { mpe_as_user "$@"; }
 fi
+
+_reload_provenance_patch() {
+    local patch_path
+    [ -n "$PROVENANCE_PATCH" ] || return 0
+    [ "$PROVENANCE_PATCH" != "silence" ] || return 0
+    patch_path="${QUICK_SELECT}/${PROVENANCE_PATCH}.fxp"
+    [ -f "$patch_path" ] || {
+        echo "ERROR: missing provenance patch ${patch_path}" >&2
+        return 1
+    }
+    echo "=== reload patch after strict restart: ${PROVENANCE_PATCH} ==="
+    mpe_load_patch_osc "$patch_path" "$SCRIPT_DIR" || return 1
+    sleep 1
+    return 0
+}
 
 ENV_FILE="/etc/mpe/mpe.env"
 
@@ -465,6 +486,10 @@ _run_window() {
     local window_since window_until
     local jackd_alsa_n jackd_alsa_min jackd_alsa_med jackd_alsa_max jackd_alsa_mean
     local probe_xrun_n
+    local jitter_floor
+
+    # shellcheck source=lib/measurement-result.sh
+    source "$SCRIPT_DIR/lib/measurement-result.sh"
 
     _meter_max_age_s=0
 
@@ -578,8 +603,13 @@ _run_window() {
     read -r late_p99 late_max < <(_frames_late_stats "$xrun_events")
     read -r delay_n delay_nz delay_med delay_p99 delay_max < <(_delay_stats_legacy "$xrun_events")
 
-    if [ "$SECONDS_PER_RUN" -ge 30 ] && [ "$jitter_n" -lt 100 ]; then
-        echo "ERROR: jitter_n=${jitter_n} — probe process callback produced too few samples" >&2
+    if [ "$SECONDS_PER_RUN" -lt 1 ]; then
+        echo "ERROR: SECONDS_PER_RUN must be >= 1" >&2
+        return 1
+    fi
+    jitter_floor="$(mpe_result_jitter_n_floor "$SECONDS_PER_RUN")" || return 1
+    if [ "$jitter_n" -lt "$jitter_floor" ]; then
+        echo "ERROR: jitter_n=${jitter_n} below floor ${jitter_floor} for ${SECONDS_PER_RUN}s window — probe process callback produced too few samples" >&2
         return 1
     fi
     temp="$(vcgencmd measure_temp 2>/dev/null || echo 'temp=unknown')"
@@ -595,16 +625,24 @@ _run_window() {
     )
     probe_xrun_n="$(grep '^XRUN_COUNT ' "$xrun_events" 2>/dev/null | awk '{print $2}' || echo 0)"
 
-    # shellcheck source=lib/measurement-result.sh
-    source "$SCRIPT_DIR/lib/measurement-result.sh"
     MPE_R_xruns=$total_xr
     MPE_R_dsp_median=$dsp_median
     MPE_R_samples=$samples
     MPE_R_jitter_n=$jitter_n
     MPE_R_tag=$tag
     MPE_EXPECT_SAMPLES=$SECONDS_PER_RUN
+    export MPE_EXPECT_SAMPLES
     if ! mpe_result_physics_assert "$BUFFER"; then
         echo "ERROR: physics assertion failed for ${tag}" >&2
+        return 1
+    fi
+    if [ "${HOLD_VOICES:-0}" -gt 0 ]; then
+        if ! mpe_result_require_fields dsp_median; then
+            echo "ERROR: plausibility floor failed for ${tag}" >&2
+            return 1
+        fi
+    elif [ -z "${MPE_R_dsp_median-}" ]; then
+        echo "ERROR: missing dsp_median for ${tag}" >&2
         return 1
     fi
 
@@ -657,6 +695,7 @@ _run_window() {
     _assert_jack_periods "$PERIODS_EFFECTIVE" || exit 1
     echo "=== provenance after strict restart ==="
     _record_provenance
+    _reload_provenance_patch || exit 1
 
     if [ -n "$PROVENANCE_PATCH" ] || [ "$HOLD_VOICES" -gt 0 ]; then
         {

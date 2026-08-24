@@ -177,22 +177,36 @@ each window, never during. Board must be **cool** — do not run this after a bu
 
 ### B2. Overnight soak at the V11 winner (8 h)
 
-Whatever V11 leaves as the best clean config. Gate 1 (shipping default) depends on it. Start it
+Whatever V11 leaves as the best clean config. Gate 1 **soak** depends on it. Start it
 and leave — but **nothing else may touch the Pi while it runs.**
+
+**Status (2026-08-23): PASS** — see `b2-soak-gate1-2026-08-23.md`.
+
+### G2. Governor recalibration and re-enable (~30 min)
+
+`PROMPT-G2-governor-recalibration.md`. Proposed thresholds 78/68; empirical verify both control
+arms. Depends on fade landing and X1 governor check.
+
+### V12. Buffer rate comparison (~70 min, Mitch approval)
+
+`PROMPT-V12-certify-buffer.md`. **After G2.** Two 30-minute arms (`1024×2` vs `512×2`), governor
+on, Cloud Horn @5. Answers how much worse the lower latency is — not whether either is "clean."
+No PASS/FAIL reporting. Reuse soak harness; stamp governor state.
 
 ### B3. Ear test (~10 min, Mitch only)
 
-Confirm the instrument still sounds correct at the new buffer config before it becomes the
-shipping default. Numbers improving is necessary, not sufficient.
+Audibility acceptance at the config V12 recommends, **governor on**. **Invalid until G2 and V12
+close.** Numbers necessary, not sufficient.
 
 ---
 
 ## Explicitly deferred
 
 - **Multithreading.** Re-score after the Pi 5 baseline, do not start.
-- **Governor fade and re-enable.** Thresholds are Pi 4-absolute and will be wrong on the Pi 5;
-  recalibrate there rather than twice.
 - **Percussive rate metric.** Gate 3, still deferred.
+
+**Not deferred on Pi 4:** governor recalibration (G2) — must close before Gate 1 ship. Pi 5 will
+need its own threshold pass after the Pi 4 baseline is frozen.
 
 ---
 

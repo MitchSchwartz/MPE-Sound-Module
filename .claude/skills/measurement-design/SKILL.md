@@ -106,6 +106,12 @@ project exited 0.
 `dsp_med=unknown` in the first cell.** The same was true of all nine failures: visible in cell
 one, noticed only after the run finished.
 
+**Any window over 30 minutes requires Mitch's explicit prior approval**, with the expected event
+rate, the events the conclusion needs, and why a shorter window cannot answer it. The B2 soak ran
+8 h to establish a ~2/min rate that one hour measures to ~7% — the event-rate arithmetic was never
+done. Re-certification after a config change: 30 min. First characterisation of an unknown rate:
+60 min.
+
 **Pilot whenever something is new or changed** — new harness, new metric or field, changed
 instrument, changed platform (**mandatory on the Pi 5**), a config never measured before, or
 **any run following a fix**. An unchanged cell on an unchanged platform does not need one.
@@ -162,6 +168,13 @@ That last row is the important one: when the shortest useful version is implausi
 **that is a signal the metric is wrong for the question**, not a reason to run a soak. Look
 for a metric with a higher event rate — fill level, DSP p99, magnitudes — or a comparison
 that does not require counting rare events.
+
+**Check dispersion before trusting any event-rate arithmetic.** Xruns here are **not Poisson** —
+measured Fano factor **4.32**, with **33% of minutes silent at a 3.87/min mean**
+(`X1-RESULT-burstiness-2026-08-23.md`). Effective sample size is ~`n / Fano`, so event-count
+windows need to be **~4x longer** than Poisson math suggests. A short-window zero is **not**
+evidence of clean — screen on a continuous metric (`dsp_max` / headroom), certify on a long
+window. Report the Fano factor whenever you claim a rate.
 
 Ask the same of **n**: three streams cannot establish shape, but ten runs inside one stream
 will not either. Spend the samples where the variance actually is.
@@ -274,4 +287,4 @@ Standing constraints to restate in every prompt:
 
 ## After the session (labour evidence)
 
-Invoke **`sred-daily-capture`** (`.claude/skills/sred-daily-capture/SKILL.md`) and append to [`docs/SRED-DAILY-LOG.md`](../../docs/SRED-DAILY-LOG.md). Conditions before the run; labour after — same session, not Friday.
+Invoke OM-Repo **`sred-daily-capture`** ([`OM-Repo/.claude/skills/sred-daily-capture/SKILL.md`](../../../../OM-Repo/.claude/skills/sred-daily-capture/SKILL.md)) and append to [`SRED-DAILY-LOG.md`](../../../../OM-Repo/internal/projects/mpe-synth-launch/sred/SRED-DAILY-LOG.md). Conditions before the run; labour after — same session, not Friday.

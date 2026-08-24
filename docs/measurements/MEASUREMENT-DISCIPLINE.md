@@ -21,7 +21,7 @@ error** — usually by an order of magnitude.
 The last one was written *while* documenting the others. **Naming the pattern does not stop
 it. A mechanism does.**
 
-**There is a second pattern, and it is worse — see Rule -1.** It has nine occurrences to this
+**There is a second pattern, and it is worse — see Rule -1.** It has ten occurrences to this
 one's six, and unlike this one it does not announce itself: a promoted inference eventually
 contradicts something, but an instrument that reads clean while blind never does.
 
@@ -37,7 +37,7 @@ reading site there is no way to distinguish *"here is a measurement"* from *"I c
 measure."* A broken instrument and a working one are indistinguishable, so the failure arrives
 as a **result** instead of as an **error** — and gets believed, written up, and acted on.
 
-That is not nine bugs. It is one missing convention, replicated everywhere because nothing
+That is not ten bugs. It is one missing convention, replicated everywhere because nothing
 enforced it.
 
 | date | instrument | returned | should have returned |
@@ -51,6 +51,7 @@ enforced it.
 | 08-22 | V10-b ramp probe | `0` xruns, via `\|\| start=0` swallowing a blind meter | blind-meter error |
 | 08-22 | census `unison_voices` | a plausible integer (summed engine selectors) | unsupported-field error |
 | 08-22 | V11 `dsp_med` | `unknown`, plus idle readings presented as measurements | field + alignment error |
+| 08-22 | reference-suite TSV `printf` | 14 format specifiers for 15 args — `$log` column silently dropped (#104) | format/arg mismatch error |
 
 **The V11 case is the clearest.** `dsp_med` read ~1% at 256x3 across three unrelated patches,
 including a cell with 23 xruns. A cell missing its deadline is at ~100% by definition. The
@@ -71,7 +72,7 @@ assert the counter moves. Run a known load and assert DSP lands in the expected 
 
 **3. Negative control — break it deliberately, assert the harness halts.**
 Kill the meter, stale the state file, rename the field. If the harness still prints a number,
-the instrument is not trustworthy no matter what it reads. **All nine failures above would have
+the instrument is not trustworthy no matter what it reads. **All ten failures above would have
 been caught by this one check.**
 
 **4. Physics assertions on results, automatic and in-harness.**
@@ -193,6 +194,61 @@ A re-run of an unchanged cell on an unchanged platform does not need one.
 | n as expected | sample count far below the window x rate |
 
 **Any failure stops the scale-up.** Fix, re-pilot, then run.
+
+### Size the window for over-dispersion, not just for rate
+
+**Measured 2026-08-23** (`X1-RESULT-burstiness-2026-08-23.md`): xruns on this appliance are
+**not Poisson**. From the B2 soak, minutes 1-15:
+
+| statistic | value | Poisson |
+|---|---|---|
+| mean | 3.87/min | — |
+| **Fano factor** (var/mean) | **4.32** | 1.00 |
+| silent minutes | **5 of 15 (33%)** | 2% |
+
+**A third of all minutes are completely silent at a mean of nearly four per minute.** Events
+arrive in bursts separated by real quiet stretches.
+
+**Consequences, all load-bearing:**
+
+1. **Effective sample size is roughly `n / Fano`.** A window must be **~4x longer** than Poisson
+   arithmetic suggests. ~30 effective events at 3.87/min needs ~130 raw events ~ **33 minutes**.
+   This is the real basis for the 30-minute minimum.
+2. **A short-window zero is not evidence of clean.** `0/0/0` over 3 x 25 s is consistent with any
+   true rate from 0 to several per minute. Every short-window "clean" claim in this project's
+   history is downgraded to *"no events observed in N seconds."*
+3. **Short windows are screening; long windows certify.** For event counts, there is no third
+   option.
+4. **Use a continuous metric in short windows.** This is the "metric is wrong for the question"
+   rule with teeth: `dsp_max` / headroom has no burst structure and is informative in 25 s.
+   **Screen on DSP; certify on a long-window count.**
+5. **Report the Fano factor whenever a rate is claimed.** A bare rate implies Poisson, and here
+   that implication is false by more than 4x.
+
+**Do not compute confidence from Poisson assumptions on this appliance without checking
+dispersion first.** A Poisson estimate in the X1 prompt put P(three silent 25 s windows) at ~8%;
+the empirical silent-minute fraction alone is 33%, and clustering pushes consecutive-window
+silence higher still. The wrong model produced a wrong conclusion about whether an instrument was
+defective — it was not.
+
+### Hard limit — anything over 30 minutes needs Mitch's explicit approval
+
+**Standing instruction, 2026-08-23.** Any measurement window longer than **30 minutes** requires
+his approval *before* it runs, with a written justification stating: the expected event rate, how
+many events the conclusion needs, and **why a shorter window cannot answer the question.**
+
+**This exists because the rule above was not applied to the B2 soak.** At the observed ~2
+xruns/min, **one hour yields ~200 events** — a rate estimate good to ~7%, more than enough to
+answer "does 1024x2 hold." The 8-hour run bought one additional fact (the rate is non-stationary: minutes 1-15 average
+**3.87/min** and decay toward ~1.8/min by hour 4), most of which is visible inside the first 30
+minutes. *(An earlier version of this paragraph said the rate "peaks ~3.5/min near minute 14" —
+that was a **cumulative average** misread as an instantaneous rate. The curve is front-loaded,
+not ramping. Corrected 2026-08-23.)* Defensible **once**, as first characterisation of a rate nobody had measured.
+Indefensible as a routine gate — and nobody did the event-rate arithmetic before spending the
+8 hours.
+
+Re-certification after a config change: **30 minutes.** First characterisation of an unknown
+rate: **60 minutes**, and say so.
 
 ### Applies to harness changes too
 

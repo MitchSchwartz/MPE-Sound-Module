@@ -19,6 +19,20 @@ from patch_browser.surge_playback import (
     read_poly_state,
     send_polylimit,
 )
+from patch_browser.governor_load import LoadSample, LoadTracker
+from patch_browser.governor_v2 import (
+    adaptive_poll_interval,
+    always_on_rest_top,
+    always_on_target_limit,
+    continuous_target_limit,
+    rate_limited_target,
+    rise_bias,
+)
+from patch_browser.poly_voice_tracker import (
+    fade_actuation_enabled,
+    read_active_voice_count,
+    write_fade_request,
+)
 from patch_browser.ui_prefs import load_ui_preference
 
 Reason = Literal["high", "spike", "emergency", "warm", "recover"]
@@ -36,7 +50,33 @@ DEFAULT_STEP_DOWN = 2
 DEFAULT_STEP_DOWN_SPIKE = 4
 DEFAULT_STEP_DOWN_WARM = 2
 DEFAULT_STEP_UP = 1
+DEFAULT_GOVERNOR_V2 = False
+DEFAULT_LIMIT_SOFT_START = 68.0
+DEFAULT_LIMIT_HARD = 86.0
+DEFAULT_RISE_FULL_RATE = 65.0
+DEFAULT_RISE_BIAS_MAX = 8.0
+DEFAULT_RISE_MIN_RATE = 20.0
+DEFAULT_RAMP_APPLY = True
+DEFAULT_LIMIT_MAX_STEP_DOWN = 1
+DEFAULT_LIMIT_STEP_INTERVAL_S = 0.25
+DEFAULT_LIMIT_RECOVER_HOLD_S = 5.0
+DEFAULT_POLL_FAST_S = 0.05
+DEFAULT_POLL_SLOW_S = 0.15
+DEFAULT_XRUN_NUDGE = 8.0
+DEFAULT_MIN_HEADROOM = 3
+DEFAULT_REST_CAP = 0
+DEFAULT_JACK_BASELINE = -1.0
+DEFAULT_LIMIT_MODE = "always_on"
 VERBOSE_TRACE_FILE = "poly-governor.trace"
+
+
+def limit_mode_name() -> str:
+    raw = os.environ.get("MPE_POLY_LIMIT_MODE", DEFAULT_LIMIT_MODE).strip().lower()
+    if raw == "legacy":
+        return "legacy"
+    if raw in ("progressive", "threshold"):
+        return "progressive"
+    return "always_on"
 
 
 def spam_threshold_per_s(poll_interval_s: float) -> int:
@@ -62,6 +102,27 @@ def _env_int(key: str, default: int) -> int:
         return default
 
 
+def _env_bool(key: str, default: bool) -> bool:
+    raw = os.environ.get(key, "1" if default else "0").strip().lower()
+    return raw in ("1", "true", "yes", "on")
+
+
+def governor_v2_enabled() -> bool:
+    return _env_bool("MPE_POLY_GOVERNOR_V2", DEFAULT_GOVERNOR_V2)
+
+
+def limit_mode_legacy() -> bool:
+    return limit_mode_name() == "legacy"
+
+
+def limit_mode_always_on() -> bool:
+    return limit_mode_name() == "always_on"
+
+
+def governor_v2_active() -> bool:
+    return governor_v2_enabled() and not limit_mode_legacy()
+
+
 @dataclass(frozen=True)
 class GovernorConfig:
     poll_interval_s: float
@@ -77,11 +138,31 @@ class GovernorConfig:
     step_down_spike: int
     step_down_warm: int
     step_up: int
+    governor_v2: bool
+    limit_soft_start: float
+    limit_hard: float
+    rise_enable: bool
+    rise_full_rate: float
+    rise_bias_max: float
+    rise_min_rate: float
+    limit_max_step_down: int
+    limit_step_interval_s: float
+    limit_recover_hold_s: float
+    poll_fast_s: float
+    poll_slow_s: float
+    xrun_nudge: float
+    min_headroom: int
+    rest_cap: int
+    jack_baseline: float
+    emergency_xrun_only: bool
+    limit_mode: str
+    ramp_apply: bool
 
 
 def load_governor_config() -> GovernorConfig:
+    poll_slow = _env_float("MPE_POLY_POLL_SLOW_S", DEFAULT_POLL_SLOW_S)
     return GovernorConfig(
-        poll_interval_s=_env_float("MPE_POLY_POLL_INTERVAL_S", DEFAULT_POLL_INTERVAL_S),
+        poll_interval_s=_env_float("MPE_POLY_POLL_INTERVAL_S", poll_slow),
         cpu_emergency_threshold=_env_float(
             "MPE_POLY_CPU_EMERGENCY", DEFAULT_CPU_EMERGENCY_THRESHOLD
         ),
@@ -98,6 +179,31 @@ def load_governor_config() -> GovernorConfig:
         step_down_spike=_env_int("MPE_POLY_STEP_DOWN_SPIKE", DEFAULT_STEP_DOWN_SPIKE),
         step_down_warm=_env_int("MPE_POLY_STEP_DOWN_WARM", DEFAULT_STEP_DOWN_WARM),
         step_up=_env_int("MPE_POLY_STEP_UP", DEFAULT_STEP_UP),
+        governor_v2=governor_v2_enabled(),
+        limit_soft_start=_env_float("MPE_POLY_LIMIT_SOFT_START", DEFAULT_LIMIT_SOFT_START),
+        limit_hard=_env_float("MPE_POLY_LIMIT_HARD", DEFAULT_LIMIT_HARD),
+        rise_enable=_env_bool("MPE_POLY_RISE_ENABLE", True),
+        rise_full_rate=_env_float("MPE_POLY_RISE_FULL_RATE", DEFAULT_RISE_FULL_RATE),
+        rise_bias_max=_env_float("MPE_POLY_RISE_BIAS_MAX", DEFAULT_RISE_BIAS_MAX),
+        rise_min_rate=_env_float("MPE_POLY_RISE_MIN_RATE", DEFAULT_RISE_MIN_RATE),
+        limit_max_step_down=_env_int(
+            "MPE_POLY_LIMIT_MAX_STEP_DOWN", DEFAULT_LIMIT_MAX_STEP_DOWN
+        ),
+        limit_step_interval_s=_env_float(
+            "MPE_POLY_LIMIT_STEP_INTERVAL_S", DEFAULT_LIMIT_STEP_INTERVAL_S
+        ),
+        limit_recover_hold_s=_env_float(
+            "MPE_POLY_LIMIT_RECOVER_HOLD_S", DEFAULT_LIMIT_RECOVER_HOLD_S
+        ),
+        poll_fast_s=_env_float("MPE_POLY_POLL_FAST_S", DEFAULT_POLL_FAST_S),
+        poll_slow_s=poll_slow,
+        xrun_nudge=_env_float("MPE_POLY_XRUN_NUDGE", DEFAULT_XRUN_NUDGE),
+        min_headroom=_env_int("MPE_POLY_MIN_HEADROOM", DEFAULT_MIN_HEADROOM),
+        rest_cap=_env_int("MPE_POLY_REST_CAP", DEFAULT_REST_CAP),
+        jack_baseline=_env_float("MPE_POLY_JACK_BASELINE", DEFAULT_JACK_BASELINE),
+        emergency_xrun_only=_env_bool("MPE_POLY_EMERGENCY_XRUN_ONLY", True),
+        limit_mode=limit_mode_name(),
+        ramp_apply=_env_bool("MPE_POLY_RAMP_APPLY", DEFAULT_RAMP_APPLY),
     )
 
 
@@ -149,7 +255,19 @@ class PolyGovernorJournal:
             f"step_down_warm={config.step_down_warm} "
             f"step_up={config.step_up} "
             f"warm_window={config.patch_warm_window_s} "
-            f"emergency_poly={poly_emergency()}",
+            f"fade={int(fade_actuation_enabled())} "
+            f"emergency_poly={poly_emergency()} "
+            f"v2={int(governor_v2_active())} "
+            f"mode={config.limit_mode} "
+            f"soft={config.limit_soft_start} "
+            f"hard={config.limit_hard} "
+            f"headroom={config.min_headroom} "
+            f"rest_cap={config.rest_cap} "
+            f"jack_base={config.jack_baseline} "
+            f"rise={int(config.rise_enable)} "
+            f"rise_full={config.rise_full_rate} "
+            f"rise_min={config.rise_min_rate} "
+            f"ramp_apply={int(config.ramp_apply)}",
             flush=True,
         )
 
@@ -239,6 +357,11 @@ class SurgePolyGovernor:
 
     Surge voice stealing on limit drop is engine behaviour — see
     docs/measurements/poly-governor-instrumentation-2026-08-21.md (Task C).
+
+    With ``MPE_POLY_GOVERNOR_FADE=1`` (default), step-down requests defer until
+    the MIDI voice tracker reports fewer sounding notes than the target limit,
+    avoiding note-on-triggered ``uber_release`` steals. Emergency still requests
+    proactive MIDI note-offs via ``governor-fade-request.json``.
     """
 
     def __init__(
@@ -278,6 +401,17 @@ class SurgePolyGovernor:
         self._pref_check_counter = 0
         self._enabled = governor_active()
         self._startup_logged = False
+        self._pending_limit: int | None = None
+        self._load_tracker = LoadTracker(
+            cpu_monitor=self.cpu_monitor,
+            surge_monitor=self.surge_monitor,
+        )
+        self._last_step_down_at: float | None = None
+        self._adaptive_poll_interval = self.config.poll_interval_s
+        self._last_load: float | None = None
+        self._last_dload_dt: float | None = None
+        self._last_normalized_stress: float | None = None
+        self._pre_engaged_bootstrapped = False
 
     def start(self) -> None:
         if self._thread and self._thread.is_alive():
@@ -340,6 +474,69 @@ class SurgePolyGovernor:
         if isinstance(effective, (int, float)):
             self._effective_poly = clamp_poly_limit(int(effective))
 
+    def _load_rising(self, sample: LoadSample) -> bool:
+        """True when stress is climbing — ramp apply sends OSC without fade deferral."""
+        if not self.config.ramp_apply:
+            return False
+        dload = sample.dload_dt
+        if dload is not None and dload > self.config.rise_min_rate:
+            return True
+        prev = self._last_normalized_stress
+        if prev is not None and sample.normalized_load > prev + 0.25:
+            return True
+        return False
+
+    def _resolve_applicable_limit(
+        self,
+        new_limit: int,
+        *,
+        reason: Reason,
+        old_limit: int | None,
+        ramp_apply: bool = False,
+    ) -> int | None:
+        """Return OSC limit to apply, or None to defer step-down under fade policy."""
+        if not fade_actuation_enabled():
+            return new_limit
+        if old_limit is not None and new_limit >= old_limit:
+            self._pending_limit = None
+            return new_limit
+
+        active = read_active_voice_count()
+        if active <= new_limit:
+            self._pending_limit = None
+            return new_limit
+
+        if reason == "emergency":
+            write_fade_request(release_count=active - new_limit, reason=reason)
+            self._pending_limit = None
+            return new_limit
+
+        if ramp_apply and reason in ("high", "warm", "spike"):
+            self._pending_limit = None
+            return new_limit
+
+        self._pending_limit = new_limit
+        return None
+
+    def _try_apply_pending_limit(
+        self,
+        *,
+        cpu: float,
+        raw_cpu: float | None,
+    ) -> None:
+        if self._pending_limit is None or self._effective_poly is None:
+            return
+        if read_active_voice_count() > self._pending_limit:
+            return
+        self._apply_limit(
+            self._pending_limit,
+            reason="high",
+            cpu=cpu,
+            raw_cpu=raw_cpu,
+            held_s=0.0,
+        )
+        self._pending_limit = None
+
     def _apply_limit(
         self,
         new_limit: int,
@@ -349,6 +546,7 @@ class SurgePolyGovernor:
         raw_cpu: float | None,
         held_s: float,
         minimum: int | None = None,
+        ramp_apply: bool = False,
     ) -> None:
         floor = self._floor_poly if minimum is None else minimum
         new_limit = clamp_poly_limit(new_limit, minimum=floor)
@@ -356,6 +554,17 @@ class SurgePolyGovernor:
             new_limit = min(new_limit, self._ceiling_poly)
         old_limit = self._effective_poly
         if old_limit is None or old_limit == new_limit:
+            return
+        applicable = self._resolve_applicable_limit(
+            new_limit,
+            reason=reason,
+            old_limit=old_limit,
+            ramp_apply=ramp_apply,
+        )
+        if applicable is None:
+            return
+        new_limit = applicable
+        if old_limit == new_limit:
             return
         fail_key = (old_limit, new_limit, reason)
         if send_polylimit(self.osc_client, new_limit):
@@ -421,13 +630,29 @@ class SurgePolyGovernor:
         return sample, sample
 
     def _worker(self) -> None:
-        while not self._stop.wait(self.poll_interval):
+        while not self._stop.is_set():
+            interval = (
+                self._adaptive_poll_interval
+                if governor_v2_active()
+                else self.poll_interval
+            )
+            if self._stop.wait(interval):
+                break
             try:
                 self._tick()
             except Exception as exc:
                 self._journal.log_error(str(exc))
 
     def _tick(self) -> None:
+        if governor_v2_active():
+            if limit_mode_always_on():
+                self._tick_v2_always_on()
+            else:
+                self._tick_v2_progressive()
+        else:
+            self._tick_legacy()
+
+    def _tick_legacy(self) -> None:
         self._pref_check_counter += 1
         if self._pref_check_counter % 4 == 0:
             enabled = governor_active()
@@ -451,6 +676,8 @@ class SurgePolyGovernor:
         cpu, raw_cpu = self._cpu_sample()
         if cpu is None:
             return
+
+        self._try_apply_pending_limit(cpu=cpu, raw_cpu=raw_cpu)
 
         cfg = self.config
         now = time.monotonic()
@@ -541,3 +768,355 @@ class SurgePolyGovernor:
         else:
             self._high_since = None
             self._low_since = None
+
+    def _tick_v2_always_on(self) -> None:
+        """Jack deadline meter; continuous overhead; loosen via baseline not proc fallback."""
+        self._pref_check_counter += 1
+        if self._pref_check_counter % 4 == 0:
+            enabled = governor_active()
+            if enabled != self._enabled:
+                self._journal.log_enabled_change(was=self._enabled, now=enabled)
+            self._enabled = enabled
+
+        self._refresh_patch_state()
+        if not self._enabled:
+            self._high_since = None
+            self._low_since = None
+            return
+
+        if not self._limits_ready():
+            return
+
+        healthy, _ = self.surge_monitor.check_health()
+        if not healthy:
+            return
+
+        sample = self._load_tracker.sample()
+        if sample is None:
+            return
+
+        cfg = self.config
+        stress = sample.normalized_load
+        self._last_load = sample.load
+        self._last_dload_dt = sample.dload_dt
+        ramp_apply = self._load_rising(sample)
+        self._adaptive_poll_interval = adaptive_poll_interval(
+            load=stress,
+            dload_dt=sample.dload_dt,
+            soft_start=25.0,
+            fast_s=cfg.poll_fast_s,
+            slow_s=cfg.poll_slow_s,
+        )
+
+        bias = rise_bias(
+            sample.dload_dt or 0.0,
+            full_rate=cfg.rise_full_rate,
+            max_bias=cfg.rise_bias_max,
+            min_rate=cfg.rise_min_rate,
+            enabled=cfg.rise_enable,
+        )
+        effective_stress = stress + bias
+        if sample.xrun_delta > 0:
+            effective_stress += cfg.xrun_nudge
+
+        cpu = sample.load
+        raw_cpu = sample.raw_load
+        now = time.monotonic()
+
+        self._try_apply_pending_limit(cpu=cpu, raw_cpu=raw_cpu)
+
+        ceiling = self._ceiling_poly
+        floor = self._floor_poly
+        if ceiling is None or self._effective_poly is None:
+            return
+
+        if sample.xrun_delta > 0 and cfg.emergency_xrun_only:
+            emergency = poly_emergency()
+            if self._effective_poly > emergency:
+                self._apply_limit(
+                    emergency,
+                    reason="emergency",
+                    cpu=cpu,
+                    raw_cpu=raw_cpu,
+                    held_s=0.0,
+                    minimum=emergency,
+                )
+                return
+
+        if (
+            not cfg.emergency_xrun_only
+            and effective_stress >= cfg.cpu_emergency_threshold
+        ):
+            emergency = poly_emergency()
+            if self._effective_poly > emergency:
+                self._apply_limit(
+                    emergency,
+                    reason="emergency",
+                    cpu=cpu,
+                    raw_cpu=raw_cpu,
+                    held_s=0.0,
+                    minimum=emergency,
+                )
+            return
+
+        desired = always_on_target_limit(
+            effective_stress,
+            ceiling=ceiling,
+            floor=floor,
+            min_headroom=cfg.min_headroom,
+            hard=cfg.limit_hard,
+            rest_cap=cfg.rest_cap,
+        )
+
+        rest_top = always_on_rest_top(
+            ceiling=ceiling,
+            floor=floor,
+            min_headroom=cfg.min_headroom,
+            rest_cap=cfg.rest_cap,
+        )
+        if self._maybe_bootstrap_pre_engaged(
+            rest_top=rest_top, cpu=cpu, raw_cpu=raw_cpu, ramp_apply=ramp_apply
+        ):
+            return
+
+        recover_ceiling = rest_top if cfg.rest_cap > 0 else ceiling
+        recover_below = max(8.0, cfg.min_headroom * 3.0)
+        if effective_stress <= recover_below:
+            self._high_since = None
+            if self._low_since is None:
+                self._low_since = now
+            elif (
+                now - self._low_since >= cfg.limit_recover_hold_s
+                and self._effective_poly < recover_ceiling
+                and cfg.step_up > 0
+            ):
+                self._apply_limit(
+                    min(recover_ceiling, self._effective_poly + cfg.step_up),
+                    reason="recover",
+                    cpu=cpu,
+                    raw_cpu=raw_cpu,
+                    held_s=now - self._low_since,
+                )
+                self._low_since = now
+        else:
+            self._low_since = None
+            max_step = cfg.limit_max_step_down
+            if sample.xrun_delta > 0:
+                max_step = min(ceiling - floor, max_step + 1)
+            self._apply_v2_step(
+                desired,
+                reason="high",
+                cpu=cpu,
+                raw_cpu=raw_cpu,
+                now=now,
+                max_step_down=max_step,
+                ramp_apply=ramp_apply,
+            )
+
+        self._last_normalized_stress = stress
+
+    def _maybe_bootstrap_pre_engaged(
+        self,
+        *,
+        rest_top: int,
+        cpu: float,
+        raw_cpu: float | None,
+        ramp_apply: bool,
+    ) -> bool:
+        """One-shot: apply pre-engaged rest cap immediately instead of rate-limited chase."""
+        if self._pre_engaged_bootstrapped:
+            return False
+        self._pre_engaged_bootstrapped = True
+        if self.config.rest_cap <= 0 or self._effective_poly is None:
+            return False
+        if self._effective_poly <= rest_top:
+            return False
+        self._apply_limit(
+            rest_top,
+            reason="high",
+            cpu=cpu,
+            raw_cpu=raw_cpu,
+            held_s=0.0,
+            ramp_apply=ramp_apply,
+        )
+        return True
+
+    def _tick_v2_progressive(self) -> None:
+        self._pref_check_counter += 1
+        if self._pref_check_counter % 4 == 0:
+            enabled = governor_active()
+            if enabled != self._enabled:
+                self._journal.log_enabled_change(was=self._enabled, now=enabled)
+            self._enabled = enabled
+
+        self._refresh_patch_state()
+        if not self._enabled:
+            self._high_since = None
+            self._low_since = None
+            return
+
+        if not self._limits_ready():
+            return
+
+        healthy, _ = self.surge_monitor.check_health()
+        if not healthy:
+            return
+
+        sample = self._load_tracker.sample()
+        if sample is None:
+            return
+
+        cfg = self.config
+        self._last_load = sample.load
+        self._last_dload_dt = sample.dload_dt
+        ramp_apply = self._load_rising(sample)
+        self._adaptive_poll_interval = adaptive_poll_interval(
+            load=sample.load,
+            dload_dt=sample.dload_dt,
+            soft_start=cfg.limit_soft_start,
+            fast_s=cfg.poll_fast_s,
+            slow_s=cfg.poll_slow_s,
+        )
+
+        bias = rise_bias(
+            sample.dload_dt or 0.0,
+            full_rate=cfg.rise_full_rate,
+            max_bias=cfg.rise_bias_max,
+            min_rate=cfg.rise_min_rate,
+            enabled=cfg.rise_enable,
+        )
+        effective_load = sample.load + bias
+        if sample.xrun_delta > 0:
+            effective_load += cfg.xrun_nudge
+
+        cpu = sample.load
+        raw_cpu = sample.raw_load
+        now = time.monotonic()
+
+        self._try_apply_pending_limit(cpu=cpu, raw_cpu=raw_cpu)
+
+        if effective_load >= cfg.cpu_emergency_threshold:
+            self._low_since = None
+            self._high_since = now
+            emergency = poly_emergency()
+            if self._effective_poly is not None and self._effective_poly > emergency:
+                self._apply_limit(
+                    emergency,
+                    reason="emergency",
+                    cpu=cpu,
+                    raw_cpu=raw_cpu,
+                    held_s=0.0,
+                    minimum=emergency,
+                )
+            return
+
+        ceiling = self._ceiling_poly
+        floor = self._floor_poly
+        if ceiling is None or self._effective_poly is None:
+            return
+
+        if (
+            self._patch_changed_at is not None
+            and not self._warm_preempt_done
+            and now - self._patch_changed_at <= cfg.patch_warm_window_s
+            and effective_load > cfg.limit_soft_start
+            and self._effective_poly > floor
+        ):
+            self._warm_preempt_done = True
+            desired = continuous_target_limit(
+                effective_load,
+                ceiling=ceiling,
+                floor=floor,
+                soft_start=cfg.limit_soft_start,
+                hard=cfg.limit_hard,
+            )
+            self._apply_v2_step(
+                desired,
+                reason="warm",
+                cpu=cpu,
+                raw_cpu=raw_cpu,
+                now=now,
+                ramp_apply=ramp_apply,
+            )
+            self._last_normalized_stress = sample.normalized_load
+            return
+
+        desired = continuous_target_limit(
+            effective_load,
+            ceiling=ceiling,
+            floor=floor,
+            soft_start=cfg.limit_soft_start,
+            hard=cfg.limit_hard,
+        )
+
+        if sample.load <= cfg.limit_soft_start:
+            self._high_since = None
+            if self._low_since is None:
+                self._low_since = now
+            elif (
+                now - self._low_since >= cfg.limit_recover_hold_s
+                and self._effective_poly < ceiling
+            ):
+                self._apply_limit(
+                    self._effective_poly + cfg.step_up,
+                    reason="recover",
+                    cpu=cpu,
+                    raw_cpu=raw_cpu,
+                    held_s=now - self._low_since,
+                )
+                self._low_since = now
+        else:
+            self._low_since = None
+            self._apply_v2_step(
+                desired,
+                reason="high",
+                cpu=cpu,
+                raw_cpu=raw_cpu,
+                now=now,
+                ramp_apply=ramp_apply,
+            )
+        self._last_normalized_stress = sample.normalized_load
+
+    def _apply_v2_step(
+        self,
+        desired: int,
+        *,
+        reason: Reason,
+        cpu: float,
+        raw_cpu: float | None,
+        now: float,
+        max_step_down: int | None = None,
+        ramp_apply: bool = False,
+    ) -> None:
+        if self._effective_poly is None:
+            return
+        current = self._effective_poly
+        if desired >= current:
+            return
+
+        step_cap = (
+            self.config.limit_max_step_down
+            if max_step_down is None
+            else max_step_down
+        )
+        next_limit = rate_limited_target(
+            current,
+            desired,
+            last_step_down_at=self._last_step_down_at,
+            now=now,
+            step_interval_s=self.config.limit_step_interval_s,
+            max_step_down=step_cap,
+        )
+        if next_limit is None or next_limit >= current:
+            return
+        self._apply_limit(
+            next_limit,
+            reason=reason,
+            cpu=cpu,
+            raw_cpu=raw_cpu,
+            held_s=0.0,
+            ramp_apply=ramp_apply,
+        )
+        self._last_step_down_at = now
+        if self._high_since is None:
+            self._high_since = now

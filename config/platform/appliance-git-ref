@@ -1,0 +1,8 @@
+# Default appliance git branch when platform-specific file is missing.
+# Prefer:
+#   appliance-git-ref.pi4  → clone SD + Pi 4 build-from-assets
+#   appliance-git-ref.pi5  → Pi 5 player (dev until promoted)
+#
+# Override: MPE_APPLIANCE_GIT_REF=… or build-appliance.sh --git-ref …
+
+main

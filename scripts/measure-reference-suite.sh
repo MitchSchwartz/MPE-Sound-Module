@@ -9,6 +9,9 @@
 #   sudo ./scripts/measure-reference-suite.sh --platform pi4 --no-conformance  # if C0 already passed this session
 #
 # Contract: PROMPT-PI4-CLOSEOUT.md §A2 · PI5-TRANSITION-PLAN.md §1.1
+#
+# Rule 0.5 (structural): _pilot_loaded_cell runs one strict loaded cell before the
+# full pass — catches parser/threshold mismatches in ~2 min, not after the silence block.
 
 set -euo pipefail
 
@@ -19,9 +22,13 @@ source "$SCRIPT_DIR/lib/paths.sh"
 source "$SCRIPT_DIR/lib/audio-engine.sh"
 # shellcheck source=lib/measurement-result.sh
 source "$SCRIPT_DIR/lib/measurement-result.sh"
+# shellcheck source=lib/measure-run-as-user.sh
+source "$SCRIPT_DIR/lib/measure-run-as-user.sh"
 
 RUN_AS_USER="${MPE_PI_USER:-mitch}"
 USER_HOME="$(getent passwd "$RUN_AS_USER" | cut -d: -f6)"
+MPE_RUN_AS_USER="$RUN_AS_USER"
+MPE_RUN_AS_USER_HOME="$USER_HOME"
 QUICK_SELECT="${USER_HOME}/Documents/Surge XT/Patches/Quick Select"
 ENV_FILE="/etc/mpe/mpe.env"
 
@@ -31,6 +38,8 @@ ARTIFACT_DIR=""
 RUN_CONFORMANCE=1
 SECONDS_HOLD=25
 RUNS=2
+export MPE_EXPECT_SAMPLES=$SECONDS_HOLD
+_finish_json_only=0
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -38,6 +47,7 @@ while [ $# -gt 0 ]; do
         --pass) PASS="${2:?}"; shift 2 ;;
         --artifact-dir) ARTIFACT_DIR="${2:?}"; shift 2 ;;
         --no-conformance) RUN_CONFORMANCE=0; shift ;;
+        --finish-json) ARTIFACT_DIR="${2:?}"; shift 2; _finish_json_only=1 ;;
         -h | --help)
             sed -n '2,12p' "$0"
             exit 0
@@ -86,8 +96,13 @@ _clock_mhz() {
 }
 
 _cpu_model() {
-    awk -F: '/^Model|^Hardware|^CPU implementer/ { gsub(/^ +/, "", $2); print $1"="$2 }' /proc/cpuinfo 2>/dev/null \
-        | paste -sd';' - || echo "unknown"
+    awk -F: '/^Model|^Hardware|^CPU implementer/ {
+        gsub(/[\t\r\n]+/, " ", $2); gsub(/^ +| +$/, "", $2); print $1"="$2
+    }' /proc/cpuinfo 2>/dev/null | paste -sd';' - || echo "unknown"
+}
+
+_json_str() {
+    printf '%s' "${1-}" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))'
 }
 
 _surge_revision() {
@@ -121,11 +136,11 @@ _collect_meta() {
   "pass": ${PASS},
   "recorded_at": "$(date -Is)",
   "machine": "${machine}",
-  "cpu_model": "${model}",
-  "kernel": "${kernel}",
-  "repo_commit": "${repo_commit}",
-  "surge_revision": "${surge}",
-  "jack": $(printf '%s' "$jack" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read().strip()))'),
+  "cpu_model": $(_json_str "$model"),
+  "kernel": $(_json_str "$kernel"),
+  "repo_commit": $(_json_str "$repo_commit"),
+  "surge_revision": $(_json_str "$surge"),
+  "jack": $(_json_str "$jack"),
   "governor": "${governor}",
   "clock_mhz": "${clock}",
   "throttle": "${throttle}",
@@ -149,7 +164,7 @@ _parse_last_run() {
                 for (i = 1; i <= NF; i++) {
                     if ($i ~ /^xruns=/) xr = substr($i, 7)
                     if ($i ~ /^dsp_median=/) dm = substr($i, 12)
-                    if ($i ~ /^dsp_p99=/) dp = substr($i, 8)
+                    if ($i ~ /^dsp_p99=/) dp = substr($i, 9)
                     if ($i ~ /^dsp_max=/) dx = substr($i, 9)
                     if ($i ~ /^samples=/) sm = substr($i, 9)
                     if ($i ~ /^temp=/) tp = $i
@@ -186,9 +201,16 @@ _run_cell() {
     if [ -n "$patch" ] && [ "$patch" != "silence" ]; then
         local patch_path="${QUICK_SELECT}/${patch}.fxp"
         [ -f "$patch_path" ] || { echo "ERROR: missing $patch_path" >&2; exit 1; }
-        sudo -u "$RUN_AS_USER" python3 "$SCRIPT_DIR/load-patch-osc.py" "$patch_path"
+        mpe_load_patch_osc "$patch_path" "$SCRIPT_DIR"
         sleep 1
     fi
+
+    # Light patches (Duduk, Brave New World) load ~10–11% @512 on Pi4 canonical stack —
+    # below heavy-patch floors (12.5%) but above idle failure (~7% Cloud Horn no-reload).
+    unset MPE_DSP_PLAUSIBILITY_FLOOR_OVERRIDE
+    case "${patch:-}" in
+        Duduk | "Brave New World") export MPE_DSP_PLAUSIBILITY_FLOOR_OVERRIDE="10.0" ;;
+    esac
 
     "$SCRIPT_DIR/measure-latency-run.sh" \
         --buffer "$buffer" --periods "$periods" --condition A \
@@ -197,9 +219,11 @@ _run_cell() {
         --provenance-patch "${patch:-silence}" --provenance-voices "$voices" \
         --output "$log" --no-restore-buffer
 
+    unset MPE_DSP_PLAUSIBILITY_FLOOR_OVERRIDE
+
     IFS=$'\t' read -r xr dsp_med dsp_p99 dsp_max samples temp thr < <(_parse_last_run "$log" "$relaxed")
 
-    printf '%s\t%s\t%s\t%d\t%d\t%d\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+    printf '%s\t%s\t%s\t%s\t%d\t%d\t%d\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
         "$PLATFORM" "$PASS" "$cell_id" "${patch:-silence}" "$voices" "$buffer" "$periods" \
         "$xr" "$dsp_med" "$dsp_p99" "$dsp_max" "$samples" "$temp" "$thr" "$log" \
         >>"$TSV_OUT"
@@ -208,6 +232,27 @@ _run_cell() {
     if [ "${xr:-1}" -ne 0 ]; then
         echo "WARN: non-zero xruns in cell ${cell_id}"
     fi
+}
+
+_pilot_loaded_cell() {
+    local pilot_log="${ARTIFACT_DIR}/pilot-loaded-P1-Crystals.log"
+    local patch_path="${QUICK_SELECT}/Crystals.fxp"
+    local xr dsp_med dsp_p99 dsp_max samples temp thr
+
+    echo ""
+    echo "=== Rule 0.5 pilot: one loaded cell (Crystals @3 1024x2, 1 run) before full pass ==="
+    [ -f "$patch_path" ] || { echo "ERROR: missing $patch_path" >&2; exit 1; }
+    export MPE_EXPECT_SAMPLES=$SECONDS_HOLD
+    mpe_load_patch_osc "$patch_path" "$SCRIPT_DIR"
+    sleep 1
+    "$SCRIPT_DIR/measure-latency-run.sh" \
+        --buffer 1024 --periods 2 --condition A \
+        --runs 1 --seconds "$SECONDS_HOLD" \
+        --hold-voices 3 \
+        --provenance-patch Crystals --provenance-voices 3 \
+        --output "$pilot_log" --no-restore-buffer
+    IFS=$'\t' read -r xr dsp_med dsp_p99 dsp_max samples temp thr < <(_parse_last_run "$pilot_log" 0)
+    echo "SENTINEL pilot-loaded-cell-pass patch=Crystals voices=3 1024x2 xruns=${xr} dsp_median=${dsp_med} samples=${samples} expect=${MPE_EXPECT_SAMPLES}"
 }
 
 _emit_json() {
@@ -228,6 +273,8 @@ if tsv.is_file():
             platform, pass_n, cell_id, patch, voices, buffer, periods,
             xruns, dsp_median, dsp_p99, dsp_max, samples, temp, throttle, log,
         ) = line.split("\t")
+        if cell_id == "cell_id":
+            continue
         cells.append({
             "cell_id": cell_id,
             "patch": patch,
@@ -249,6 +296,46 @@ print(f"Wrote {out} ({len(cells)} cells)")
 PY
 }
 
+_rebuild_tsv_from_cell_logs() {
+    local log_path base cell_id patch voices buffer periods relaxed
+    local xr dsp_med dsp_p99 dsp_max samples temp thr
+    printf 'platform\tpass\tcell_id\tpatch\tvoices\tbuffer\tperiods\txruns\tdsp_median\tdsp_p99\tdsp_max\tsamples\ttemp\tthrottle\tlog\n' >"$TSV_OUT"
+    while IFS= read -r log_path; do
+        [ -f "$log_path" ] || continue
+        base="$(basename "$log_path" .log)"
+        if [[ "$base" =~ ^cell-([^-]+)-(.*)-b([0-9]+)-p([0-9]+)-v([0-9]+)$ ]]; then
+            cell_id="${BASH_REMATCH[1]}"
+            patch="${BASH_REMATCH[2]//_/ }"
+            buffer="${BASH_REMATCH[3]}"
+            periods="${BASH_REMATCH[4]}"
+            voices="${BASH_REMATCH[5]}"
+        else
+            echo "WARN: skip unparseable ${log_path}" >&2
+            continue
+        fi
+        relaxed=0
+        [ "$voices" -eq 0 ] && relaxed=1
+        IFS=$'\t' read -r xr dsp_med dsp_p99 dsp_max samples temp thr < <(_parse_last_run "$log_path" "$relaxed")
+        printf '%s\t%s\t%s\t%s\t%d\t%d\t%d\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+            "$PLATFORM" "$PASS" "$cell_id" "$patch" "$voices" "$buffer" "$periods" \
+            "$xr" "$dsp_med" "$dsp_p99" "$dsp_max" "$samples" "$temp" "$thr" "$log_path" \
+            >>"$TSV_OUT"
+    done < <(find "$ARTIFACT_DIR" -maxdepth 1 -name 'cell-*.log' | sort)
+}
+
+if [ "${_finish_json_only:-0}" -eq 1 ]; then
+    [ -d "$ARTIFACT_DIR" ] || { echo "ERROR: artifact dir missing: ${ARTIFACT_DIR}" >&2; exit 1; }
+    TSV_OUT="${ARTIFACT_DIR}/reference-suite-cells.tsv"
+    JSON_OUT="${ARTIFACT_DIR}/reference-suite-${PLATFORM:-pi4}-pass${PASS}.json"
+    _rebuild_tsv_from_cell_logs
+    META_FILE="$(mktemp)"
+    _collect_meta >"$META_FILE"
+    _emit_json "$META_FILE"
+    rm -f "$META_FILE"
+    echo "SENTINEL reference-suite-complete platform=${PLATFORM:-pi4} pass=${PASS} json=${JSON_OUT}"
+    exit 0
+fi
+
 echo "=== reference-suite platform=${PLATFORM} pass=${PASS} $(date -Is) ==="
 echo "artifacts=${ARTIFACT_DIR}"
 
@@ -257,7 +344,17 @@ if [ "$RUN_CONFORMANCE" -eq 1 ]; then
     "$SCRIPT_DIR/instrument-conformance.sh"
 fi
 
+if [ ! -x "${MPE_MODULE_REPO}/native/mpe-xrun-probe/mpe-xrun-probe" ]; then
+    echo "=== building mpe-xrun-probe ==="
+    "$SCRIPT_DIR/build-mpe-xrun-probe.sh" --required
+fi
+
 _set_env_var MPE_POLY_GOVERNOR 0
+_set_env_var MPE_POLY_CEILING 64
+_set_env_var MPE_POLY_FLOOR 64
+# shellcheck source=lib/mpe-services.sh
+source "$SCRIPT_DIR/lib/mpe-services.sh"
+mpe_source_appliance_env
 systemctl stop surge-poly-governor.service 2>/dev/null || true
 
 if ! mpe_meter_xruns_read >/dev/null 2>&1; then
@@ -279,6 +376,8 @@ printf 'platform\tpass\tcell_id\tpatch\tvoices\tbuffer\tperiods\txruns\tdsp_medi
 
 META_FILE="$(mktemp)"
 _collect_meta >"$META_FILE"
+
+_pilot_loaded_cell
 
 # Silence @ 0 voices — fixed-cost isolation
 _run_cell "S1" "silence" 0 1024 2

@@ -53,7 +53,16 @@ fi
 echo "[3/4] Installing udev rules (backlight, USB audio, Roli)..."
 "$MPE_MODULE_REPO/scripts/install-udev-rules.sh"
 
-echo "[4/4] Installing systemd units and enabling touch browser..."
+echo "[4/5] DSI boot config (config.txt overlay + cmdline)..."
+if [ "$(id -u)" -eq 0 ]; then
+    "$MPE_MODULE_REPO/scripts/apply-dsi-config.sh"
+    "$MPE_MODULE_REPO/scripts/apply-dsi-cmdline.sh" || true
+else
+    sudo "$MPE_MODULE_REPO/scripts/apply-dsi-config.sh"
+    sudo "$MPE_MODULE_REPO/scripts/apply-dsi-cmdline.sh" || true
+fi
+
+echo "[5/5] Installing systemd units and enabling touch browser..."
 "$MPE_MODULE_REPO/scripts/configure-pi-paths.sh" --local --force
 
 echo ""

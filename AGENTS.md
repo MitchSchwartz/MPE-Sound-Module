@@ -297,15 +297,17 @@ measurement.
 
 ## SR&ED daily labour capture (mandatory going forward)
 
-Historical labour through 2026-08-22 lives in [`docs/SRED-EFFORT-LOG.md`](docs/SRED-EFFORT-LOG.md) (G1 reconstruction). **Do not backfill that way again.**
+**Canon lives in OM-Repo**, not this repo: [`internal/projects/mpe-synth-launch/sred/`](../OM-Repo/internal/projects/mpe-synth-launch/sred/README.md)
+
+Historical labour through 2026-08-22 lives in [`SRED-EFFORT-LOG.md`](../OM-Repo/internal/projects/mpe-synth-launch/sred/SRED-EFFORT-LOG.md) (G1 reconstruction). **Do not backfill that way again.**
 
 | when | do |
 |---|---|
-| End of investigation / measurement / instrument session | Invoke **`sred-daily-capture`** (`.claude/skills/sred-daily-capture/SKILL.md`) |
-| Append row | [`docs/SRED-DAILY-LOG.md`](docs/SRED-DAILY-LOG.md) via `scripts/sred-log-append.sh` |
-| Phase names | [`docs/SRED-EVIDENCE-2026.md`](docs/SRED-EVIDENCE-2026.md) §4 only |
+| End of investigation / measurement / instrument session | Invoke OM-Repo **`sred-daily-capture`** ([`.claude/skills/sred-daily-capture/SKILL.md`](../OM-Repo/.claude/skills/sred-daily-capture/SKILL.md)) |
+| Append row | [`SRED-DAILY-LOG.md`](../OM-Repo/internal/projects/mpe-synth-launch/sred/SRED-DAILY-LOG.md) via [`sred/scripts/sred-log-append.sh`](../OM-Repo/internal/projects/mpe-synth-launch/sred/scripts/sred-log-append.sh) |
+| Phase names | [`SRED-EVIDENCE-2026.md`](../OM-Repo/internal/projects/mpe-synth-launch/sred/SRED-EVIDENCE-2026.md) §4 only |
 | Hours | Mitch's ranges only — never invent; use `?` if session ends without answer |
 
 **Log instrumentation work explicitly** (build / discover wrong / derive rule — see effort log §Instrumentation). Unattended soaks are normal; note monitoring fraction and mechanism references in the daily row.
 
-**Pair with `measurement-design`:** conditions before the Pi run; **labour after the session**.
+**Pair with `measurement-design`:** conditions before the Pi run; **labour after the session** (OM-Repo skill).

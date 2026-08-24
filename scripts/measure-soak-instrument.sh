@@ -1,11 +1,13 @@
 #!/bin/bash
-# Instrument-only overnight soak — 1024×2 tail certification (Gate 1).
+# Instrument-only long-window hold — Gate 1 overnight soak (default) or V12 certification arm.
 #
-# Default: Cloud Horn @ 5 voices (V9 verified-clean), condition A, 8 h.
+# Default: Cloud Horn @ 5 voices, 1024×2, 8 h, governor off.
+# Loaded plausibility: every soak minute (per-minute jack_cpu_load window).
 #
 # Usage:
-#   sudo ./scripts/measure-soak-instrument.sh [--hours 8] [--output FILE] \
-#       [--patch-name "Cloud Horn"] [--voices 5]
+#   sudo ./scripts/measure-soak-instrument.sh [--hours 8] [--minutes 30] [--output FILE] \
+#       [--patch-name "Cloud Horn"] [--voices 5] [--buffer 1024] [--periods 2] \
+#       [--governor on|off] [--label TAG]
 
 set -euo pipefail
 
@@ -16,31 +18,66 @@ source "$SCRIPT_DIR/lib/paths.sh"
 source "$SCRIPT_DIR/lib/mpe-services.sh"
 # shellcheck source=lib/audio-engine.sh
 source "$SCRIPT_DIR/lib/audio-engine.sh"
+# shellcheck source=lib/measurement-result.sh
+# shellcheck source=lib/measure-run-as-user.sh
+source "$SCRIPT_DIR/lib/measure-run-as-user.sh"
+source "$SCRIPT_DIR/lib/measurement-result.sh"
 
 HOURS=8
+MINUTES=0
 OUTPUT="${MPE_SOAK_LOG:-$HOME/instrument-soak-1024x2.log}"
 PATCH_NAME="Cloud Horn"
 VOICES=5
 BUFFER=1024
 PERIODS=2
+GOVERNOR=off
+RUN_LABEL=""
 ENV_FILE="/etc/mpe/mpe.env"
 RUN_AS_USER="${MPE_PI_USER:-mitch}"
 USER_HOME="$(getent passwd "$RUN_AS_USER" | cut -d: -f6)"
 QUICK_SELECT="${USER_HOME}/Documents/Surge XT/Patches/Quick Select"
 LOAD_PID=""
+DSP_PID=""
+DSP_RAW=""
+PREFLIGHT_ONLY=0
 
 while [ $# -gt 0 ]; do
     case "$1" in
         --hours) HOURS="${2:?}"; shift 2 ;;
+        --minutes) MINUTES="${2:?}"; shift 2 ;;
         --output) OUTPUT="${2:?}"; shift 2 ;;
         --patch-name) PATCH_NAME="${2:?}"; shift 2 ;;
         --voices) VOICES="${2:?}"; shift 2 ;;
         --buffer) BUFFER="${2:?}"; shift 2 ;;
         --periods) PERIODS="${2:?}"; shift 2 ;;
-        -h | --help) sed -n '2,12p' "$0"; exit 0 ;;
+        --governor) GOVERNOR="${2:?}"; shift 2 ;;
+        --label) RUN_LABEL="${2:?}"; shift 2 ;;
+        --preflight-only) PREFLIGHT_ONLY=1; shift ;;
+        -h | --help)
+            sed -n '2,14p' "$0"
+            echo "  --governor on|off   default off (B2, V12 Pi4 canonical); on for G2/B3"
+            echo "  --minutes N         short certification window (mutually preferred over --hours)"
+            echo "  --label TAG         optional tag in log header / RESULT"
+            exit 0
+            ;;
         *) echo "Unknown: $1" >&2; exit 2 ;;
     esac
 done
+
+case "$GOVERNOR" in
+    on | off) ;;
+    *) echo "ERROR: --governor must be on or off (got: $GOVERNOR)" >&2; exit 2 ;;
+esac
+
+if [ "$MINUTES" -gt 0 ] && [ "$HOURS" -ne 8 ]; then
+    echo "WARN: --minutes takes precedence over --hours" >&2
+fi
+
+if [ "$MINUTES" -gt 0 ]; then
+    TOTAL_MIN="$MINUTES"
+else
+    TOTAL_MIN=$((HOURS * 60))
+fi
 
 if [ "$(id -u)" -ne 0 ]; then
     echo "ERROR: run with sudo" >&2
@@ -50,13 +87,116 @@ fi
 PATCH_PATH="${QUICK_SELECT}/${PATCH_NAME}.fxp"
 [ -f "$PATCH_PATH" ] || { echo "ERROR: missing $PATCH_PATH" >&2; exit 1; }
 
-_as_user() { sudo -u "$RUN_AS_USER" -- "$@"; }
+# PatchLoader poly policy: scripts/lib/measure-run-as-user.sh (mpe_as_user)
+MPE_RUN_AS_USER="$RUN_AS_USER"
+MPE_RUN_AS_USER_HOME="$USER_HOME"
+_as_user() { mpe_as_user "$@"; }
+_run_loaded_preflight() {
+    local state_effective
+    echo "SENTINEL preflight-start" >>"$OUTPUT"
+    mpe_assert_poly_state_after_load >>"$OUTPUT" 2>&1 || exit 1
+    state_effective="$(grep -o '"effective_poly"[[:space:]]*:[[:space:]]*[0-9]*' "${USER_HOME}/.patch_browser_poly_state.json" | grep -o '[0-9]*$' || true)"
+    mpe_assert_surge_polylimit_matches_state "$SCRIPT_DIR" "$state_effective" >>"$OUTPUT" 2>&1 || exit 1
+    if [ "$VOICES" -gt 0 ]; then
+        # P5 A/B 2026-08-23: 512 canonical ~33%; 50% preflight not justified (V12-PARITY-2026-08-23.md §A/B)
+        local _pf_min=28
+        case "$BUFFER" in 1024) _pf_min=20 ;; 256) _pf_min=31 ;; esac
+        mpe_preflight_dsp_spot_check "$SCRIPT_DIR" "$VOICES" "$BUFFER" 45 "$_pf_min" >>"$OUTPUT" 2>&1 || exit 1
+    fi
+    echo "SENTINEL preflight-pass" >>"$OUTPUT"
+}
+
+# Command substitution runs mpe_meter_xruns_read in a subshell, so MPE_METER_LAST_AGE_S
+# is lost before the log line — set -u then aborts (occurrence eleven, 2026-08-23).
+_read_meter_xruns() {
+    if mpe_meter_xruns_read >/dev/null; then
+        REPLY="$MPE_METER_LAST_XRUNS"
+        METER_AGE_S="$MPE_METER_LAST_AGE_S"
+        return 0
+    fi
+    return 1
+}
+
+_env_readback() {
+    local key="$1"
+    mpe_read_appliance_env_var "$key" 2>/dev/null || echo unset
+}
+
+_provenance_line() {
+    local svc
+    svc="$(systemctl is-active surge-poly-governor.service 2>/dev/null || echo inactive)"
+    printf 'PROVENANCE patch=%s hold_voices=%s buffer=%s periods=%s condition=A governor=%s' \
+        "$PATCH_NAME" "$VOICES" "$BUFFER" "$PERIODS" "$GOVERNOR"
+    printf ' MPE_POLY_GOVERNOR=%s' "$(_env_readback MPE_POLY_GOVERNOR)"
+    printf ' MPE_POLY_CPU_HIGH=%s' "$(_env_readback MPE_POLY_CPU_HIGH)"
+    printf ' MPE_POLY_CPU_LOW=%s' "$(_env_readback MPE_POLY_CPU_LOW)"
+    printf ' MPE_POLY_CPU_HIGH_HOLD_S=%s' "$(_env_readback MPE_POLY_CPU_HIGH_HOLD_S)"
+    printf ' MPE_POLY_CPU_LOW_HOLD_S=%s' "$(_env_readback MPE_POLY_CPU_LOW_HOLD_S)"
+    printf ' MPE_POLY_GOVERNOR_HEADROOM=%s' "$(_env_readback MPE_POLY_GOVERNOR_HEADROOM)"
+    printf ' MPE_POLY_CEILING=%s' "$(_env_readback MPE_POLY_CEILING)"
+    printf ' MPE_POLY_FLOOR=%s' "$(_env_readback MPE_POLY_FLOOR)"
+    printf ' surge-poly-governor=%s' "$svc"
+    if [ -n "$RUN_LABEL" ]; then
+        printf ' label=%s' "$RUN_LABEL"
+    fi
+    printf '\n'
+}
+
+# Limit drops only — recover/step-up is release, not engagement (G2 negative control).
+_count_governor_engagements_since() {
+    local since="$1"
+    journalctl -u surge-poly-governor.service --since "$since" --no-pager -o cat 2>/dev/null \
+        | grep -cE 'poly-governor: [0-9]+ -> [0-9]+ reason=(emergency|high|spike|warm)' || true
+}
+
+_kill_dsp_sampler() {
+    if [ -n "${DSP_PID:-}" ] && kill -0 "$DSP_PID" 2>/dev/null; then
+        kill "$DSP_PID" 2>/dev/null || true
+        if command -v timeout >/dev/null 2>&1; then
+            timeout -k 0.5 2 tail --pid="$DSP_PID" -f /dev/null >/dev/null 2>&1 || true
+        else
+            wait "$DSP_PID" 2>/dev/null || true
+        fi
+    fi
+    DSP_PID=""
+}
+
+_dsp_jack_line_count() {
+    local raw="$1"
+    [ -f "$raw" ] || { echo 0; return 0; }
+    awk '/^jack DSP load / { c++ } END { print c+0 }' "$raw"
+}
+
+_dsp_stats() {
+    local raw="$1" since_line="${2:-0}"
+    awk -v since="$since_line" '
+        function take(v) {
+            if (v != "?" && v+0 > 0 && v+0 <= 200) { a[++n]=v+0 }
+        }
+        /^[[:space:]]+[0-9]+/ {
+            if (++ln > since) { take($2) }
+        }
+        /^jack DSP load / {
+            if (++ln > since) { take($NF) }
+        }
+        END {
+            if (n==0) { print "0 0"; exit 1 }
+            for (i=1;i<=n;i++) {
+                for (j=i+1;j<=n;j++) if (a[i]>a[j]) { t=a[i]; a[i]=a[j]; a[j]=t }
+            }
+            med=a[int((n+1)/2)]
+            max=a[n]
+            printf "%.6f %.6f\n", med, max
+        }
+    ' "$raw"
+}
 
 STAGE=init
 SOAK_COMPLETE=0
 
 _cleanup() {
     local rc=$?
+    _kill_dsp_sampler
     [ -n "${LOAD_PID:-}" ] && kill "$LOAD_PID" 2>/dev/null || true
     if [ "${SOAK_COMPLETE:-0}" -eq 0 ] && [ -n "${OUTPUT:-}" ]; then
         echo "SENTINEL soak-aborted stage=${STAGE:-unknown} rc=${rc}" >>"$OUTPUT" 2>/dev/null || true
@@ -77,11 +217,16 @@ _set_env_var() {
     rm -f "$tmp"
 }
 
-TOTAL_MIN=$((HOURS * 60))
 FINISH_EPOCH=$(( $(date +%s) + TOTAL_MIN * 60 ))
-FINISH_ISO="$(date -d "@${FINISH_EPOCH}" -Is 2>/dev/null || date -r "$FINISH_EPOCH" -Is 2>/dev/null || echo "in ${HOURS}h")"
+FINISH_ISO="$(date -d "@${FINISH_EPOCH}" -Is 2>/dev/null || date -r "$FINISH_EPOCH" -Is 2>/dev/null || echo "in ${TOTAL_MIN}m")"
 
-echo "Instrument soak: ${HOURS}h @ ${BUFFER}×${PERIODS}, patch=${PATCH_NAME} voices=${VOICES}, condition A"
+if [ "$MINUTES" -gt 0 ]; then
+    DURATION_DESC="${MINUTES} min"
+else
+    DURATION_DESC="${HOURS} h"
+fi
+
+echo "Instrument soak: ${DURATION_DESC} @ ${BUFFER}×${PERIODS}, patch=${PATCH_NAME} voices=${VOICES}, governor=${GOVERNOR}, condition A"
 echo "Started: $(date -Is)"
 echo "Expected finish: ${FINISH_ISO}"
 echo "Log: ${OUTPUT}"
@@ -89,8 +234,12 @@ echo "Log: ${OUTPUT}"
 STAGE=header
 {
     echo
-    echo "=== measure-soak-instrument buffer=${BUFFER} periods=${PERIODS} patch=${PATCH_NAME} voices=${VOICES} hours=${HOURS} $(date -Is) ==="
-    echo "PROVENANCE patch=${PATCH_NAME} hold_voices=${VOICES} buffer=${BUFFER} periods=${PERIODS} condition=A"
+    if [ "$MINUTES" -gt 0 ]; then
+        echo "=== measure-soak-instrument buffer=${BUFFER} periods=${PERIODS} patch=${PATCH_NAME} voices=${VOICES} minutes=${MINUTES} governor=${GOVERNOR} $(date -Is) ==="
+    else
+        echo "=== measure-soak-instrument buffer=${BUFFER} periods=${PERIODS} patch=${PATCH_NAME} voices=${VOICES} hours=${HOURS} governor=${GOVERNOR} $(date -Is) ==="
+    fi
+    _provenance_line
     echo "SENTINEL soak-start"
     echo "expected_finish=${FINISH_ISO}"
 } >>"$OUTPUT"
@@ -99,11 +248,23 @@ STAGE=header
 exec 2> >(tee -a "$OUTPUT" >&2)
 
 STAGE=env-config
-_set_env_var MPE_POLY_GOVERNOR 0
 _set_env_var MPE_JACK_SOFTMODE 0
+if [ "$GOVERNOR" = on ]; then
+    _set_env_var MPE_POLY_GOVERNOR 1
+else
+    _set_env_var MPE_POLY_GOVERNOR 0
+    # Match reference / capacity harnesses — native poly, no touch ceiling 12.
+    _set_env_var MPE_POLY_CEILING 64
+    _set_env_var MPE_POLY_FLOOR 64
+fi
+mpe_source_appliance_env
+
 STAGE=services-stop
-systemctl stop surge-poly-governor.service 2>/dev/null || true
 systemctl stop mpe-looper-session.service sl-watchdog.service mpe-sooperlooper.service 2>/dev/null || true
+systemctl stop touch-patch-browser.service patch-browser.service 2>/dev/null || true
+if [ "$GOVERNOR" = off ]; then
+    systemctl stop surge-poly-governor.service 2>/dev/null || true
+fi
 
 STAGE=set-surge-audio
 if ! "$SCRIPT_DIR/set-surge-audio.sh" --buffer "$BUFFER" --periods "$PERIODS"; then
@@ -120,26 +281,50 @@ mpe_wait_for_jack_server 30
 STAGE=surge-restart
 systemctl restart surge-xt-cli.service
 sleep 6
+if [ "$GOVERNOR" = on ]; then
+    STAGE=governor-start
+    systemctl enable surge-poly-governor.service 2>/dev/null || true
+    systemctl restart surge-poly-governor.service
+    GOV_SINCE="$(date -Is)"
+    sleep 1
+fi
 STAGE=meter-start
 systemctl start mpe-peak-meter.service 2>/dev/null || true
 sleep 2
 
 STAGE=load-patch
 _as_user python3 "$SCRIPT_DIR/load-patch-osc.py" "$PATCH_PATH"
+if [ -f "${USER_HOME}/.patch_browser_poly_state.json" ]; then
+    echo "poly_state_after_load=$(tr -d '\n' <"${USER_HOME}/.patch_browser_poly_state.json")" >>"$OUTPUT"
+fi
 sleep 1
 
+STAGE=loaded-preflight
+_run_loaded_preflight
+if [ "$PREFLIGHT_ONLY" -eq 1 ]; then
+    SOAK_COMPLETE=1
+    echo "SENTINEL preflight-only-complete" >>"$OUTPUT"
+    echo "Preflight-only pass → ${OUTPUT}"
+    exit 0
+fi
+
 STAGE=start-hold-load
-SOAK_SEC=$((HOURS * 3600 + 120))
+SOAK_SEC=$((TOTAL_MIN * 60 + 120))
 _as_user python3 "$SCRIPT_DIR/midi-load-hold.py" "$SOAK_SEC" "$VOICES" \
     >"/tmp/instrument-soak-midi.log" 2>&1 &
 LOAD_PID=$!
 sleep 2
 
 STAGE=meter-baseline
-if ! START_XR="$(mpe_meter_xruns_read)"; then
+if ! _read_meter_xruns; then
     echo "ERROR: meter blind at soak start" >&2
     exit 1
 fi
+START_XR="$REPLY"
+
+DSP_RAW="${OUTPUT}.dsp"
+_as_user stdbuf -oL jack_cpu_load >"$DSP_RAW" 2>/dev/null &
+DSP_PID=$!
 
 STAGE=soak-loop
 echo "SENTINEL soak-loop-entered" >>"$OUTPUT"
@@ -149,18 +334,32 @@ minute=0
 invalid_windows=0
 prev_xr="$START_XR"
 HOUR_START="$START_XR"
+GOV_TOTAL=0
+LOOP_START_EPOCH="$(date +%s)"
+DSP_MARK=0
+SOAK_MINUTE1_DSP_MED=""
 
 while [ "$minute" -lt "$TOTAL_MIN" ]; do
     STAGE=soak-loop-minute
+    DSP_MARK="$(_dsp_jack_line_count "$DSP_RAW")"
     sleep 60
     minute=$((minute + 1))
-    if ! cur="$(mpe_meter_xruns_read)"; then
+    minute_since="$(date -d "@$((LOOP_START_EPOCH + (minute - 1) * 60))" -Is 2>/dev/null \
+        || date -r "$((LOOP_START_EPOCH + (minute - 1) * 60))" -Is 2>/dev/null \
+        || date -Is)"
+    gov_delta=0
+    if [ "$GOVERNOR" = on ]; then
+        gov_delta="$(_count_governor_engagements_since "$minute_since")"
+        GOV_TOTAL=$((GOV_TOTAL + gov_delta))
+    fi
+    if ! _read_meter_xruns; then
         invalid_windows=$((invalid_windows + 1))
         temp="$(vcgencmd measure_temp 2>/dev/null || echo 'temp=unknown')"
-        echo "SOAK minute=${minute} meter_live=0 INVALID_WINDOW ${temp}" >>"$OUTPUT"
+        echo "SOAK minute=${minute} meter_live=0 INVALID_WINDOW governor_engagements=${gov_delta} ${temp}" >>"$OUTPUT"
         echo "WARN minute ${minute}: meter blind"
         continue
     fi
+    cur="$REPLY"
     if [ "$cur" -lt "$prev_xr" ]; then
         STAGE=soak-loop-meter-reset
         echo "ERROR: meter restarted mid-soak" >&2
@@ -171,13 +370,35 @@ while [ "$minute" -lt "$TOTAL_MIN" ]; do
     temp="$(vcgencmd measure_temp 2>/dev/null || echo 'temp=unknown')"
     throttle="$(vcgencmd get_throttled 2>/dev/null || echo 'throttled=unknown')"
     {
-        echo "SOAK minute=${minute} xruns_minute=${delta} xruns_total=$((cur - START_XR)) meter_live=1 meter_age_s=${MPE_METER_LAST_AGE_S} ${temp} ${throttle}"
+        echo "SOAK minute=${minute} xruns_minute=${delta} xruns_total=$((cur - START_XR)) meter_live=1 meter_age_s=${METER_AGE_S} governor_engagements=${gov_delta} ${temp} ${throttle}"
     } >>"$OUTPUT"
+
+    if [ -f "$DSP_RAW" ]; then
+        STAGE=soak-plausibility-minute
+        _pl_window_lines=$(( $(_dsp_jack_line_count "$DSP_RAW") - DSP_MARK ))
+        if read -r _pl_med _pl_max < <(_dsp_stats "$DSP_RAW" "$DSP_MARK"); then
+            if ! mpe_result_assert_loaded_dsp "$BUFFER" "$_pl_med"; then
+                echo "ERROR: plausibility floor failed at soak minute ${minute} (dsp_median=${_pl_med}% window_lines=${_pl_window_lines})" >&2
+                exit 1
+            fi
+            echo "SOAK plausibility-ok minute=${minute} dsp_median=${_pl_med} dsp_max=${_pl_max} floor=$(mpe_result_dsp_plausibility_floor "$BUFFER") window_lines=${_pl_window_lines}" >>"$OUTPUT"
+            if [ "$minute" -eq 1 ]; then
+                SOAK_MINUTE1_DSP_MED="$_pl_med"
+            elif [ -n "$SOAK_MINUTE1_DSP_MED" ] && awk -v cur="$_pl_med" -v base="$SOAK_MINUTE1_DSP_MED" \
+                'BEGIN { exit !(cur + 0 < base * 0.5) }'; then
+                echo "ERROR: soak load collapsed at minute ${minute} (dsp_median=${_pl_med}% vs minute-1=${SOAK_MINUTE1_DSP_MED}%)" >&2
+                exit 1
+            fi
+        else
+            echo "ERROR: no DSP samples in minute ${minute} window for plausibility check" >&2
+            exit 1
+        fi
+    fi
 
     if [ $((minute % 60)) -eq 0 ]; then
         hour_delta=$((cur - HOUR_START))
         {
-            echo "SOAK hour=${hour} minute=${minute} xruns_hour=${hour_delta} xruns_total=$((cur - START_XR)) meter_live=1 invalid_windows=${invalid_windows} ${temp} ${throttle}"
+            echo "SOAK hour=${hour} minute=${minute} xruns_hour=${hour_delta} xruns_total=$((cur - START_XR)) meter_live=1 invalid_windows=${invalid_windows} governor_engagements_total=${GOV_TOTAL} ${temp} ${throttle}"
         } >>"$OUTPUT"
         echo "SOAK hour ${hour}: +${hour_delta} xruns (total $((cur - START_XR)))"
         hour=$((hour + 1))
@@ -185,11 +406,36 @@ while [ "$minute" -lt "$TOTAL_MIN" ]; do
     fi
 done
 
+_kill_dsp_sampler
+
+if [ "$GOVERNOR" = on ] && [ -n "${GOV_SINCE:-}" ]; then
+    GOV_TOTAL="$(_count_governor_engagements_since "$GOV_SINCE")"
+fi
+
 FINAL=$((prev_xr - START_XR))
+DSP_MED="unknown"
+DSP_MAX="unknown"
+if [ -f "$DSP_RAW" ]; then
+    if read -r DSP_MED DSP_MAX < <(_dsp_stats "$DSP_RAW"); then
+        :
+    else
+        echo "WARN: no DSP samples in ${DSP_RAW}" >&2
+        DSP_MED="unknown"
+        DSP_MAX="unknown"
+    fi
+fi
+
 STAGE=soak-complete
 SOAK_COMPLETE=1
 {
-    echo "RESULT soak_hours=${HOURS} buffer=${BUFFER} periods=${PERIODS} patch=${PATCH_NAME} voices=${VOICES} xruns_total=${FINAL} invalid_windows=${invalid_windows}"
+    if [ "$MINUTES" -gt 0 ]; then
+        echo "RESULT soak_minutes=${MINUTES} buffer=${BUFFER} periods=${PERIODS} patch=${PATCH_NAME} voices=${VOICES} governor=${GOVERNOR} xruns_total=${FINAL} invalid_windows=${invalid_windows} dsp_median=${DSP_MED} dsp_max=${DSP_MAX} governor_engagements_total=${GOV_TOTAL}"
+    else
+        echo "RESULT soak_hours=${HOURS} buffer=${BUFFER} periods=${PERIODS} patch=${PATCH_NAME} voices=${VOICES} governor=${GOVERNOR} xruns_total=${FINAL} invalid_windows=${invalid_windows} dsp_median=${DSP_MED} dsp_max=${DSP_MAX} governor_engagements_total=${GOV_TOTAL}"
+    fi
+    if [ -n "$RUN_LABEL" ]; then
+        echo "RESULT label=${RUN_LABEL} buffer=${BUFFER} periods=${PERIODS} xruns_total=${FINAL}"
+    fi
     echo "SENTINEL soak-complete"
 } >>"$OUTPUT"
-echo "Instrument soak complete: ${FINAL} xruns in ${HOURS} h → ${OUTPUT}"
+echo "Instrument soak complete: ${FINAL} xruns in ${DURATION_DESC}, governor_engagements=${GOV_TOTAL} → ${OUTPUT}"
