@@ -30,15 +30,8 @@ log() {
 
 # sound.target does not guarantee the USB DAC has enumerated — bounded wait for
 # any non-virtual card rather than a fixed sleep.
-_physical_card_present() {
-    [ -r "$CARDS_FILE" ] || return 1
-    grep -E '^[[:space:]]*[0-9]+[[:space:]]*\[' "$CARDS_FILE" 2>/dev/null \
-        | grep -viE 'Loopback|vc4hdmi|UAC2' \
-        | grep -q .
-}
-
 waited=0
-while ! _physical_card_present; do
+while ! mpe_physical_playback_card_present; do
     if [ "$waited" -ge "$WAIT_SECONDS" ]; then
         log "WARNING: no physical sound card after ${WAIT_SECONDS}s — trying detection anyway"
         break

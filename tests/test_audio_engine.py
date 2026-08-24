@@ -191,6 +191,36 @@ class BashReconcileParityTests(unittest.TestCase):
         self.assertEqual(_run_bash_reconcile(5000, 4000, 3, 1000), "failed")
 
 
+class StuckFailedSweepTests(unittest.TestCase):
+    def test_decision_idle_when_not_failed(self) -> None:
+        body = f"""
+source {AUDIO_ENGINE_SH}
+mpe_engine_stuck_failed_decision 1000 0 0 15 ok 1 1 1
+"""
+        result = _run_bash_script(body, env=_bash_env())
+        self.assertEqual(result.stdout.strip(), "idle")
+
+    def test_decision_wait_then_sweep(self) -> None:
+        body = f"""
+source {AUDIO_ENGINE_SH}
+mpe_engine_stuck_failed_decision 1000 900 0 15 failed 1 1 1
+printf '\\n'
+mpe_engine_stuck_failed_decision 1020 900 0 15 failed 1 1 1
+"""
+        result = _run_bash_script(body, env=_bash_env())
+        lines = result.stdout.strip().splitlines()
+        self.assertEqual(lines[0], "wait")
+        self.assertEqual(lines[1], "sweep")
+
+    def test_decision_done_after_sweep(self) -> None:
+        body = f"""
+source {AUDIO_ENGINE_SH}
+mpe_engine_stuck_failed_decision 2000 1000 1 15 failed 1 1 1
+"""
+        result = _run_bash_script(body, env=_bash_env())
+        self.assertEqual(result.stdout.strip(), "done")
+
+
 class RuntimeDirectoryPreserveTests(unittest.TestCase):
     """B2 — cooldown state must survive sibling unit restarts."""
 
@@ -304,14 +334,18 @@ export -f mpe_systemctl
 mpe_engine_reconcile_record_restart
 mpe_restart_audio_graph
 printf 'count=%s\\n' "$(mpe_engine_reconcile_count)"
+printf 'state=%s\\n' "$(mpe_engine_state_get state)"
+printf 'reason=%s\\n' "$(mpe_engine_state_get reason)"
 cat "{tmp}/systemctl.log"
 """
             result = _run_bash_script(body, env=env)
             self.assertEqual(result.returncode, 0, result.stderr)
             lines = result.stdout.strip().splitlines()
             self.assertEqual(lines[0], "count=0")
-            self.assertEqual(lines[1], "reset-failed mpe-jackd.service")
-            self.assertEqual(lines[2], "restart --no-block mpe-jackd.service")
+            self.assertEqual(lines[1], "state=recovering")
+            self.assertEqual(lines[2], "reason=graph-restart")
+            self.assertEqual(lines[3], "reset-failed mpe-jackd.service")
+            self.assertEqual(lines[4], "restart --no-block mpe-jackd.service")
 
     def test_audio_graph_unit_is_always_jackd(self) -> None:
         """Single engine: mpe_audio_graph_unit no longer branches on anything."""
