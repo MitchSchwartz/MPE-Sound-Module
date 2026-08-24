@@ -18,6 +18,9 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 MPE_CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/mpe"
 SSH_CONFIG="${HOME}/.ssh/config"
 
+# shellcheck source=lib/credential-scan.sh
+source "$SCRIPT_DIR/lib/credential-scan.sh"
+
 OUTPUT="${1:-$REPO_ROOT/state/laptop-mpe-$(date +%Y-%m-%d)}"
 mkdir -p "$OUTPUT"
 
@@ -113,6 +116,8 @@ if [ "$any" = false ]; then
     echo ""
     echo "WARNING: nothing captured — create configs from config/laptop/mpe.env.*.example"
 fi
+
+_credential_scan_tree "$OUTPUT"
 
 echo ""
 echo "Laptop config snapshot: $OUTPUT"
