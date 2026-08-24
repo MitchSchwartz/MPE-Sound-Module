@@ -23,6 +23,11 @@ elif [ -f "${HOME:-/tmp}/.config/mpe/mpe.env" ]; then
     source "${HOME}/.config/mpe/mpe.env"
 fi
 
+if [ -n "${MPE_CLI_CONFIG:-}" ] && [ -f "$MPE_CLI_CONFIG" ]; then
+    # shellcheck disable=SC1091
+    source "$MPE_CLI_CONFIG"
+fi
+
 if [ -f "$_MPE_MODULE_ROOT/config/mpe.env" ]; then
     # shellcheck disable=SC1091
     source "$_MPE_MODULE_ROOT/config/mpe.env"

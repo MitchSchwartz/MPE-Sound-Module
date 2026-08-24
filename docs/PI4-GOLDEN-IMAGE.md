@@ -4,7 +4,7 @@
 
 **Primary deploy for a configured SD card:** [`PI4-CLONE-SD.md`](PI4-CLONE-SD.md) — master image → write blank SD → boot (no Imager setup).
 
-**Alternate:** fresh Imager flash + [`build-pi4-appliance.sh`](../scripts/image/build-pi4-appliance.sh) from private assets (Workflow D below).
+**Alternate:** fresh Imager flash + [`build-appliance.sh`](../scripts/image/build-appliance.sh) from private assets (Workflow D below). [`build-pi4-appliance.sh`](../scripts/image/build-pi4-appliance.sh) is a thin `--platform pi4` wrapper.
 
 **Status:** scripts shipped; **first full rehearsal not done yet** — fill the row in [`RESTORE.md`](RESTORE.md) when complete.
 
@@ -30,9 +30,10 @@ Companion: [`STORAGE-ROBUSTNESS.md`](STORAGE-ROBUSTNESS.md) Phase 1 (future `/st
 | Category | Items | Mechanism |
 |---|---|---|
 | **External state** (capture/apply) | `/etc/mpe/mpe.env`, `~/.patch_browser_*`, `.patch_browser_*_backups`, looper HUD JSON (`.mpe_sl_*`, `.mpe_midi_clock_state.json`, `.mpe_looper_timing.json`), `~/surge-cli-calibration.log`, `~/.local/share/Surge XT/` | [`external-state-paths.list`](../config/platform/external-state-paths.list) |
-| **Built on each unit** | Pi OS Lite, apt/JACK/pygame, Surge binary + factory/3rd-party/user patches, MPE-Module @ ref, systemd units, cmdline hygiene, native meters, touch setup | [`build-pi4-appliance.sh`](../scripts/image/build-pi4-appliance.sh) |
+| **Built on each unit** | Pi OS Lite, apt/JACK/pygame, Surge binary + patches, MPE-Module @ ref, systemd units, cmdline hygiene, **`apply-dsi-config.sh`** (DSI overlay), **`install-jack-audio-limits.sh`**, native meters, touch setup | [`build-appliance.sh`](../scripts/image/build-appliance.sh) |
+| **External state extras** | systemd drop-ins (`mpe-*`, `surge-*`, `sl-*`, `touch-*`), boot DSI snippet (audit), `platform.json` kernel stamp | capture/apply provision scripts |
 | **Per-unit manual** (not captured) | **SSH `authorized_keys`** (your choice per device), **Tailscale** (`sudo tailscale up` — node creds never in image), WiFi (`NetworkManager` profiles contain PSKs), hostname (unless `--hostname`) | You configure after build |
-| **Never in image / capture** (hard-coded) | `~/.ssh/host_*`, `known_hosts`, **`/var/lib/tailscale/*`**, `.mpe_clock_*.json` (tempfiles), shell history, `machine-id` | `sanitize-for-clone.sh` before `dd`; capture script skips |
+| **Never in image / capture** (hard-coded) | `~/.ssh/host_*`, `known_hosts`, **`/var/lib/tailscale/*`**, `.mpe_clock_*.json` (tempfiles), shell history, **`/etc/NetworkManager/system-connections/*`** (WiFi PSKs), `machine-id` | `sanitize-for-clone.sh` before `dd`; `--verify` asserts; capture script skips secrets |
 | **In private assets, not state** | Surge binary, factory/3rd-party patches, Quick Select tree | [`BACKUP_GUIDE.md`](BACKUP_GUIDE.md) / `deploy-all.sh` |
 | **On Pi but empty / symlinked** | `~/.Surge Synth Team/Surge XT/Patches` → MPE-Library via deploy | Build script, not capture |
 | **Optional / looper** | SooperLooper build under `~/src/sooperlooper-*` | `--with-looper` stub only; manual build |
@@ -49,7 +50,7 @@ Canonical path list: [`config/platform/external-state-paths.list`](../config/pla
 
 Includes `/etc/mpe/mpe.env`, `~/.patch_browser_*`, calibration logs/backups, `~/.local/share/Surge XT/`.
 
-Player tuning defaults (when not restoring a full capture): [`config/platform/player-env-parity.env`](../config/platform/player-env-parity.env) via `apply-player-env-parity.sh`.
+Player tuning defaults (when not restoring a full capture): [`player-env-parity.pi4.env`](../config/platform/player-env-parity.pi4.env) / [`player-env-parity.pi5.env`](../config/platform/player-env-parity.pi5.env) via `apply-player-env-parity.sh` (auto-detects board).
 
 ---
 
@@ -61,9 +62,11 @@ Player tuning defaults (when not restoring a full capture): [`config/platform/pl
 4. Run:
 
 ```bash
-./scripts/image/build-pi4-appliance.sh \
-  --git-ref main \
+./scripts/image/build-appliance.sh --platform pi4 \
   --state state/raspberrypi2-2026-08-23
+
+# Pi 5 (uses appliance-git-ref.pi5 → dev by default):
+./scripts/image/build-appliance.sh --platform pi5 --state state/raspberrypi5-2026-08-23
 ```
 
 5. Add **your** SSH public key to the new Pi (`authorized_keys` — not copied from reference).
@@ -152,9 +155,14 @@ Push to another bench unit:
 |---|---|---|
 | [`capture-external-state.sh`](../scripts/provision/capture-external-state.sh) | Laptop or Pi `--local` | Pull portable `state/` tree |
 | [`sanitize-for-clone.sh`](../scripts/provision/sanitize-for-clone.sh) | Pi (sudo) | Strip machine-id, SSH host keys, **Tailscale creds** before imaging |
-| [`apply-external-state.sh`](../scripts/provision/apply-external-state.sh) | Laptop or Pi `--local` | Restore `state/` tree |
+| [`apply-player-env-parity.sh`](../scripts/apply-player-env-parity.sh) | Pi | Board-specific env (`player-env-parity.pi4.env` / `.pi5.env`) |
+| [`apply-dsi-config.sh`](../scripts/apply-dsi-config.sh) | Pi (sudo) | Freenove DSI `config.txt` overlay |
+| [`install-jack-audio-limits.sh`](../scripts/install-jack-audio-limits.sh) | Pi (sudo) | `/etc/security/limits.d/audio.conf` for shell jackd |
 | [`first-boot.sh`](../scripts/provision/first-boot.sh) | Pi (sudo) | Units, hygiene, parity env |
-| [`build-pi4-appliance.sh`](../scripts/image/build-pi4-appliance.sh) | Laptop | **Primary:** Imager OS → deploy assets → first-boot → state |
+| [`build-appliance.sh`](../scripts/image/build-appliance.sh) | Laptop | Imager OS → deploy assets → first-boot → state (`--platform pi4\|pi5\|auto`) |
+| [`build-pi4-appliance.sh`](../scripts/image/build-pi4-appliance.sh) | Laptop | Wrapper → `build-appliance.sh --platform pi4` |
+| [`audit-external-state-paths.sh`](../scripts/provision/audit-external-state-paths.sh) | Laptop or Pi | Compare paths list vs home |
+| [`capture-laptop-mpe-config.sh`](../scripts/provision/capture-laptop-mpe-config.sh) | Laptop | Snapshot `~/.config/mpe/mpe.env.*` |
 | [`install-pi4-day0-tier1.sh`](../scripts/image/install-pi4-day0-tier1.sh) | Pi | Apt/JACK/pygame (called by build script) |
 | [`capture-pi4-golden.sh`](../scripts/image/capture-pi4-golden.sh) | Pi (sudo) | Optional pre-`dd` sanitize + manifest |
 | [`bake-pi4-golden.sh`](../scripts/image/bake-pi4-golden.sh) | Laptop | Instructions + manifest verify |
@@ -175,7 +183,7 @@ Before calling an image "golden", confirm on the reference Pi:
 - [ ] Touch stack: `setup-touch-pi.sh` deps installed, `MPE_UI_MODE=touch`
 - [ ] `install-units.sh` enable set matches production
 - [ ] Native tools built: `mpe-peak-meter`, `mpe-xrun-probe`
-- [ ] Git checkout is **`main`** (see `config/platform/appliance-git-ref`)
+- [ ] Git checkout matches platform ref (`appliance-git-ref.pi4` → **`main`**, `appliance-git-ref.pi5` → **`dev`** until promoted)
 
 ---
 
@@ -197,4 +205,33 @@ Until this passes, "expendable SD" is still a hypothesis ([`RESTORE.md`](RESTORE
 - pi-gen reproducible bake (`artifacts/pi-gen/` — tracked as follow-up)
 - Dedicated `/state` partition ([`STORAGE-ROBUSTNESS.md`](STORAGE-ROBUSTNESS.md))
 - A/B slot updates
-- Public image hosting (GPL + size)
+
+---
+
+## Platform direction (Pi 4 → Pi 5)
+
+**Problem:** scripts and docs are Pi 4–named (`build-pi4-appliance.sh`, `PI4-CLONE-SD.md`, …) while the reference player moves to Pi 5 (`install-pi5-*` lives outside `scripts/image/`).
+
+**Split by portability — do not duplicate both paths per board:**
+
+| Path | Scope | Why |
+|---|---|---|
+| **`dd` clone** (Workflows A/B) | **Board-specific** | Tuning baked into the image is wrong on the other board (e.g. Pi 4 `MPE_JACK_BUFFER=1024` vs Pi 5 `128`; Pi 5 `v3d` blacklist; **`mpe-irq-affinity.service` off on Pi 5** — RP1 IRQs not writable). A Pi 4 image on Pi 5 is actively wrong. |
+| **Build-from-assets** (Workflow D) | **Board-neutral base + profile** | [`build-appliance.sh --platform {pi4,pi5,auto}`](../scripts/image/build-appliance.sh) selects day0 tier, git ref, and parity profile via `detect-pi-platform.sh`. |
+
+**Pi 5 golden image — capture now, bake later.** Blockers: 3 A PSU / no cooler, Pi 4–built Surge binary (arm64 functional, not a76-native), governor tune mid-experiment. **`capture-external-state.sh` on Pi 5** once [`docs/LAPTOP-MPE-CLI.md`](LAPTOP-MPE-CLI.md) `mpe.env.pi5` exists.
+
+**Order:** (1) configure laptop `mpe.env.pi5` + capture Pi 5 state, (2) `audit-external-state-paths.sh` on each board, (3) Pi 4 clone rehearsal + RESTORE.md row, (4) Pi 5 golden image after gates close.
+
+**Provisioning gaps (2026-08-23):**
+
+| Gap | Status |
+|-----|--------|
+| `/boot/firmware/config.txt` DSI overlay | **`apply-dsi-config.sh`** — first-boot; snippet captured for audit |
+| `/etc/security/limits.d/audio.conf` | **`install-jack-audio-limits.sh`** — day0 + first-boot |
+| Kernel/firmware pin + manifest stamp | **`write-platform-manifest.sh`** — in capture MANIFEST + `platform.json`; golden IMAGE-MANIFEST |
+| Pi 4 vs Pi 5 branching | **`build-appliance.sh --platform`** + parity split + `detect-pi-platform.sh` |
+| `appliance-git-ref` vs Pi 5 on `dev` | **Split:** `appliance-git-ref.pi4` / `.pi5` |
+| Laptop mpe env / SSH pins | **`capture-laptop-mpe-config.sh`** + [`LAPTOP-MPE-CLI.md`](LAPTOP-MPE-CLI.md) examples |
+| systemd drop-ins | **Captured/restored** under `state/.../etc/systemd-dropins/` |
+| Public image hosting (GPL + size) | Not in v1 |

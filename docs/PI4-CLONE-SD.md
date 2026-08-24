@@ -38,6 +38,7 @@ A full-card `dd` copies the **entire root filesystem** from the reference Pi. Th
 | Looper HUD prefs | `~/.mpe_sl_hud_state.json`, `~/.mpe_midi_clock_state.json`, … |
 | Code + units | `~/MPE-Module` @ **`main`**, systemd units, hygiene, cmdline |
 | Surge + patches | `~/surge/`, `~/MPE-Library/` (or symlinks) |
+| **SooperLooper binary** | **Only if** built on master at `~/src/sooperlooper-*` before `dd` — **not** in build-from-assets automation |
 
 You do **not** run `apply-external-state.sh` on a clone SD unless you deliberately built a **generic** image without tuning and want to push `state/` afterward.
 
@@ -59,8 +60,9 @@ It does **not** touch patch browser JSON, calibration, or `/etc/mpe/mpe.env` pla
 | Item | Why |
 |---|---|
 | Tailscale node credentials | Per-device enrollment — `sudo tailscale up` after boot |
-| WiFi profiles (default) | Contain PSKs — configure per site or use Imager WiFi on first master only |
+| WiFi profiles | Contain PSKs — **stripped by `sanitize-for-clone.sh`** before imaging; reconfigure per site on each clone |
 | SSH **host** keys | Regenerated on clone boot |
+| Shell history | Truncated by `sanitize-for-clone.sh` before imaging |
 | `~/.ssh/authorized_keys` | **Kept by default** so your laptop key still works; use `--strip-authorized-keys` on sanitize for a blank SSH slate |
 
 Store the `.img.xz` **privately** — not on public GitHub (size + Surge GPL binary in the image).

@@ -64,12 +64,60 @@ _credential_scan() {
     fi
 }
 
+_capture_systemd_dropins() {
+    local dest="$1"
+    local drop_dest="$dest/etc/systemd-dropins"
+    local d unit base
+
+    mkdir -p "$drop_dest"
+    shopt -s nullglob
+    for d in /etc/systemd/system/*.service.d; do
+        unit="$(basename "$d")"
+        base="${unit%.service.d}"
+        case "$base" in
+            mpe-*|surge-*|sl-*|touch-*)
+                rm -rf "$drop_dest/$unit"
+                cp -a "$d" "$drop_dest/$unit"
+                echo "  captured systemd drop-in: $unit"
+                ;;
+        esac
+    done
+    shopt -u nullglob
+}
+
+_capture_boot_dsi_snippet() {
+    local dest="$1"
+    local cfg snip
+
+    snip="$dest/boot/dsi-config.snippet"
+    mkdir -p "$(dirname "$snip")"
+    for cfg in /boot/firmware/config.txt /boot/config.txt; do
+        if [ -f "$cfg" ]; then
+            {
+                echo "# source: $cfg"
+                grep -E 'dtoverlay=|display_auto_detect' "$cfg" 2>/dev/null || true
+            } >"$snip"
+            echo "  captured boot DSI snippet from $cfg"
+            return 0
+        fi
+    done
+    echo "  skip (missing): boot config.txt"
+}
+
 _write_manifest() {
     local dest="$1"
-    local surge_ver git_rev model
+    local surge_ver git_rev model plat_section
+
+    # shellcheck source=../lib/detect-pi-platform.sh
+    source "$SCRIPT_DIR/../lib/detect-pi-platform.sh"
+    # shellcheck source=../lib/write-platform-manifest.sh
+    source "$SCRIPT_DIR/../lib/write-platform-manifest.sh"
+
     surge_ver="$("${SURGE_CLI:-/nonexistent}" --version 2>/dev/null || echo unknown)"
     git_rev="$(cd "${MPE_MODULE_REPO:-$REPO_ROOT}" && git rev-parse --short HEAD 2>/dev/null || echo unknown)"
-    model="$(tr -d '\0' < /proc/device-tree/model 2>/dev/null || echo unknown)"
+    model="$(mpe_pi_model_string 2>/dev/null || tr -d '\0' < /proc/device-tree/model 2>/dev/null || echo unknown)"
+    plat_section="$(mpe_platform_manifest_markdown)"
+
     cat >"$dest/MANIFEST.md" <<EOF
 # External state capture
 
@@ -83,6 +131,10 @@ _write_manifest() {
 | MPE-Module | $git_rev |
 | Surge CLI | $surge_ver |
 
+## Platform / kernel
+
+$plat_section
+
 Restore with:
 
 \`\`\`bash
@@ -91,6 +143,7 @@ Restore with:
 
 See \`docs/PI4-GOLDEN-IMAGE.md\`.
 EOF
+    mpe_platform_manifest_json >"$dest/platform.json"
 }
 
 _capture_on_appliance() {
@@ -139,6 +192,8 @@ _capture_on_appliance() {
         echo "  captured: $rel"
     done < <(_read_paths)
 
+    _capture_systemd_dropins "$dest"
+    _capture_boot_dsi_snippet "$dest"
     _write_manifest "$dest"
     _credential_scan "$dest"
     echo ""

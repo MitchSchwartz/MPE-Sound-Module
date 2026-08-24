@@ -30,7 +30,7 @@ These would lower the bar for less technical builders — tracked as follow-ups,
 
 ## 0. What you need
 
-- Raspberry Pi 4 (4GB+) or Pi 5, running headless
+- Raspberry Pi 4 (**4 GB**) or Pi 5 (**4 GB** recommended), running headless
 - The exact reference hardware and wiring: **[`REFERENCE_BOM.md`](../REFERENCE_BOM.md)** + **[`docs/HARDWARE_WIRING.md`](HARDWARE_WIRING.md)**
 - An MPE controller (Roli Seaboard/Lightpad, etc.) — only needed once you get to testing
 - A PC/Mac/Linux machine to flash the SD card and SSH in from
