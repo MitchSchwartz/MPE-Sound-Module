@@ -13,7 +13,7 @@ LOG_FILE="/tmp/roli-events.log"
 MIDI_CONNECT_STATE="${MPE_MIDI_CONNECT_STATE:-/run/mpe/midi-connect.state}"
 MIDI_HOTPLUG_COOLDOWN="${MPE_MIDI_HOTPLUG_COOLDOWN:-/run/mpe/midi-hotplug-cooldown}"
 CONNECT_UI_MIN_S="${MPE_MIDI_CONNECT_UI_MIN_S:-3}"
-DISCONNECT_UI_MIN_S="${MPE_MIDI_DISCONNECT_UI_MIN_S:-12}"
+DISCONNECT_UI_MIN_S="${MPE_MIDI_DISCONNECT_UI_MIN_S:-5}"
 
 log() {
     echo "$(date): $1" >>"$LOG_FILE"
@@ -124,7 +124,7 @@ case "$ACTION" in
         midi_connect_begin disconnecting
         midi_hotplug_cooldown_mark
         restart_remapper
-        hold_disconnect_ui_then_clear &
+        hold_disconnect_ui_then_clear
         ;;
     *)
         echo "Usage: $0 add|remove" >&2
