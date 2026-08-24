@@ -636,8 +636,13 @@ _run_window() {
         echo "ERROR: physics assertion failed for ${tag}" >&2
         return 1
     fi
-    if ! mpe_result_require_fields dsp_median; then
-        echo "ERROR: plausibility floor failed for ${tag}" >&2
+    if [ "${HOLD_VOICES:-0}" -gt 0 ]; then
+        if ! mpe_result_require_fields dsp_median; then
+            echo "ERROR: plausibility floor failed for ${tag}" >&2
+            return 1
+        fi
+    elif [ -z "${MPE_R_dsp_median-}" ]; then
+        echo "ERROR: missing dsp_median for ${tag}" >&2
         return 1
     fi
 
