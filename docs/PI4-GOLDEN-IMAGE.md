@@ -6,6 +6,8 @@
 
 **Alternate:** fresh Imager flash + [`build-appliance.sh`](../scripts/image/build-appliance.sh) from private assets (Workflow D below). [`build-pi4-appliance.sh`](../scripts/image/build-pi4-appliance.sh) is a thin `--platform pi4` wrapper.
 
+**Golden-image scripts** are board-neutral: [`capture-golden.sh`](../scripts/image/capture-golden.sh) and [`bake-golden.sh`](../scripts/image/bake-golden.sh) take `--platform {pi4|pi5|auto}`. Pi 4 wrappers (`capture-pi4-golden.sh`, `bake-pi4-golden.sh`) remain for back-compat.
+
 **Status:** scripts shipped; **first full rehearsal not done yet** — fill the row in [`RESTORE.md`](RESTORE.md) when complete.
 
 Companion: [`STORAGE-ROBUSTNESS.md`](STORAGE-ROBUSTNESS.md) Phase 1 (future `/state` partition).
@@ -87,7 +89,8 @@ On **`raspberrypi2`** (certified unit):
 ```bash
 cd ~/MPE-Module
 git checkout main    # appliance deploy branch — pin before imaging
-sudo ./scripts/image/capture-pi4-golden.sh
+sudo ./scripts/image/capture-golden.sh --platform pi4
+# or: sudo ./scripts/image/capture-pi4-golden.sh  (wrapper)
 # Tailscale creds stripped automatically — no manual logout required
 sudo poweroff
 ```
@@ -102,10 +105,42 @@ xz -9 -T0 ~/mpe-pi4-golden-*.img
 Verify manifest:
 
 ```bash
-./scripts/image/bake-pi4-golden.sh verify
+./scripts/image/bake-golden.sh --platform pi4 verify
+# or: ./scripts/image/bake-pi4-golden.sh verify
 ```
 
 Store `*.img.xz` on an external drive or private bucket — not in this public repo.
+
+---
+
+## Workflow A5 — bake golden image from reference Pi 5
+
+**Tooling:** `capture-golden.sh --platform pi5` and `bake-golden.sh --platform pi5 verify` are ready.
+
+**Content:** **Do not bake a Pi 5 golden `.img.xz` yet.** Same as Workflow A mechanically, but the reference unit still has open gates — not a script problem:
+
+| Gate | Status |
+|------|--------|
+| Git ref | `dev` (integration) — golden images should pin a release ref |
+| Surge | a76 installed 2026-08-24; verify enforces arch |
+| Poly governor | Provisional tune (97/3/7 + ramp apply) |
+| Hardware | 3 A PSU, no active cooler |
+
+**OK now:** `capture-external-state.sh`, player daily use, `bake-golden.sh --platform pi5 verify` (surfaces branch/arch/content mismatches).
+
+**Not yet:** `capture-golden.sh --platform pi5` + `dd` for a distributable image.
+
+When gates close, on **`raspberrypi5`**:
+
+```bash
+cd ~/MPE-Module
+git checkout dev     # or promoted release ref — must match appliance-git-ref.pi5
+git reset --hard origin/dev
+sudo ./scripts/image/capture-golden.sh --platform pi5
+sudo poweroff
+```
+
+Laptop: `mpe-pi5-golden-*.img` → `artifacts/golden-pi5/` → `./scripts/image/bake-golden.sh --platform pi5 verify` before storing `.img.xz`.
 
 ---
 
@@ -164,8 +199,12 @@ Push to another bench unit:
 | [`audit-external-state-paths.sh`](../scripts/provision/audit-external-state-paths.sh) | Laptop or Pi | Compare paths list vs home |
 | [`capture-laptop-mpe-config.sh`](../scripts/provision/capture-laptop-mpe-config.sh) | Laptop | Snapshot `~/.config/mpe/mpe.env.*` |
 | [`install-pi4-day0-tier1.sh`](../scripts/image/install-pi4-day0-tier1.sh) | Pi | Apt/JACK/pygame (called by build script) |
-| [`capture-pi4-golden.sh`](../scripts/image/capture-pi4-golden.sh) | Pi (sudo) | Optional pre-`dd` sanitize + manifest |
-| [`bake-pi4-golden.sh`](../scripts/image/bake-pi4-golden.sh) | Laptop | Instructions + manifest verify |
+| [`capture-golden.sh`](../scripts/image/capture-golden.sh) | Pi (sudo) | Pre-`dd` sanitize + manifest (`--platform pi4\|pi5\|auto`) |
+| [`bake-golden.sh`](../scripts/image/bake-golden.sh) | Laptop | Instructions + manifest verify (`--platform pi4\|pi5`) |
+| [`capture-pi4-golden.sh`](../scripts/image/capture-pi4-golden.sh) | Pi (sudo) | Wrapper → `capture-golden.sh --platform pi4` |
+| [`capture-pi5-golden.sh`](../scripts/image/capture-pi5-golden.sh) | Pi (sudo) | Wrapper → `capture-golden.sh --platform pi5` |
+| [`bake-pi4-golden.sh`](../scripts/image/bake-pi4-golden.sh) | Laptop | Wrapper → `bake-golden.sh --platform pi4` |
+| [`bake-pi5-golden.sh`](../scripts/image/bake-pi5-golden.sh) | Laptop | Wrapper → `bake-golden.sh --platform pi5` |
 | [`flash-and-provision.sh`](../scripts/image/flash-and-provision.sh) | Laptop | SSH wait → first-boot → state |
 
 Legacy: [`backup-appliance-state.sh`](../scripts/backup-appliance-state.sh) (calibration only) — use `capture-external-state.sh` instead.
@@ -184,6 +223,14 @@ Before calling an image "golden", confirm on the reference Pi:
 - [ ] `install-units.sh` enable set matches production
 - [ ] Native tools built: `mpe-peak-meter`, `mpe-xrun-probe`
 - [ ] Git checkout matches platform ref (`appliance-git-ref.pi4` → **`main`**, `appliance-git-ref.pi5` → **`dev`** until promoted)
+- [ ] **`sudo ./scripts/install-license-payload.sh --verify`** passes — license texts +
+      corresponding source present, and `PROVENANCE.txt` sha256 matches the **installed**
+      Surge binary
+- [ ] **`sudo ./scripts/provision/sanitize-for-clone.sh --verify`** passes
+- [ ] Patch content licensing confirmed ([`THIRD-PARTY-NOTICES.md`](../THIRD-PARTY-NOTICES.md))
+
+**An image handed to anyone is distribution.** `capture-golden.sh` runs both verifies
+before poweroff and fails closed; this checklist is the manual backstop if you `dd` without it.
 
 ---
 
@@ -210,7 +257,7 @@ Until this passes, "expendable SD" is still a hypothesis ([`RESTORE.md`](RESTORE
 
 ## Platform direction (Pi 4 → Pi 5)
 
-**Problem:** scripts and docs are Pi 4–named (`build-pi4-appliance.sh`, `PI4-CLONE-SD.md`, …) while the reference player moves to Pi 5 (`install-pi5-*` lives outside `scripts/image/`).
+**Problem:** docs are still Pi 4–named (`PI4-CLONE-SD.md`, this file) while the reference player moves to Pi 5. **Scripts are generalized:** `capture-golden.sh` / `bake-golden.sh` / `build-appliance.sh` all take `--platform`.
 
 **Split by portability — do not duplicate both paths per board:**
 
@@ -219,9 +266,9 @@ Until this passes, "expendable SD" is still a hypothesis ([`RESTORE.md`](RESTORE
 | **`dd` clone** (Workflows A/B) | **Board-specific** | Tuning baked into the image is wrong on the other board (e.g. Pi 4 `MPE_JACK_BUFFER=1024` vs Pi 5 `128`; Pi 5 `v3d` blacklist; **`mpe-irq-affinity.service` off on Pi 5** — RP1 IRQs not writable). A Pi 4 image on Pi 5 is actively wrong. |
 | **Build-from-assets** (Workflow D) | **Board-neutral base + profile** | [`build-appliance.sh --platform {pi4,pi5,auto}`](../scripts/image/build-appliance.sh) selects day0 tier, git ref, and parity profile via `detect-pi-platform.sh`. |
 
-**Pi 5 golden image — capture now, bake later.** Blockers: 3 A PSU / no cooler, Pi 4–built Surge binary (arm64 functional, not a76-native), governor tune mid-experiment. **`capture-external-state.sh` on Pi 5** once [`docs/LAPTOP-MPE-CLI.md`](LAPTOP-MPE-CLI.md) `mpe.env.pi5` exists.
+**Pi 5 golden `.img.xz` — premature for content, not tooling.** Scripts accept `--platform pi5`; `bake-golden.sh --platform pi5 verify` fails on branch mismatch, wrong Surge arch, and open content gates (dev ref, governor tune, PSU/cooler). External state capture is fine.
 
-**Order:** (1) configure laptop `mpe.env.pi5` + capture Pi 5 state, (2) `audit-external-state-paths.sh` on each board, (3) Pi 4 clone rehearsal + RESTORE.md row, (4) Pi 5 golden image after gates close.
+**Order:** (1) laptop `mpe.env.pi4` / `mpe.env.pi5`, (2) capture external state on both boards, (3) Pi 4 clone rehearsal + RESTORE row, (4) Pi 5 golden bake when verify passes.
 
 **Provisioning gaps (2026-08-23):**
 
@@ -239,4 +286,4 @@ Until this passes, "expendable SD" is still a hypothesis ([`RESTORE.md`](RESTORE
 
 ### Firmware alignment (Pi 4 ↔ Pi 5)
 
-Captured 2026-08-23: same **kernel** (6.18.34), different **VideoCore firmware** (Pi 4 May 2026, Pi 5 Jan 2026). For comparison experiments, bring Pi 5 forward with `apt full-upgrade` — never strip Pi 4. Both boards keep both `linux-image-rpi-*` packages for build-from-assets; do not purge unless images are board-locked.
+Captured 2026-08-23 (post-upgrade): both on **kernel 6.18.39**; VideoCore firmware differs by board (Pi 4 May 2026, Pi 5 May 26 2026). Align forward with `apt full-upgrade` — never downgrade Pi 4.
