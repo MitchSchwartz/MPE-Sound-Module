@@ -19,7 +19,7 @@ from patch_browser.surge_playback import (
     read_poly_state,
     send_polylimit,
 )
-from patch_browser.governor_load import LoadTracker
+from patch_browser.governor_load import LoadSample, LoadTracker
 from patch_browser.governor_v2 import (
     adaptive_poll_interval,
     always_on_target_limit,
@@ -55,6 +55,7 @@ DEFAULT_LIMIT_HARD = 86.0
 DEFAULT_RISE_FULL_RATE = 65.0
 DEFAULT_RISE_BIAS_MAX = 8.0
 DEFAULT_RISE_MIN_RATE = 20.0
+DEFAULT_RAMP_APPLY = True
 DEFAULT_LIMIT_MAX_STEP_DOWN = 1
 DEFAULT_LIMIT_STEP_INTERVAL_S = 0.25
 DEFAULT_LIMIT_RECOVER_HOLD_S = 5.0
@@ -152,6 +153,7 @@ class GovernorConfig:
     jack_baseline: float
     emergency_xrun_only: bool
     limit_mode: str
+    ramp_apply: bool
 
 
 def load_governor_config() -> GovernorConfig:
@@ -197,6 +199,7 @@ def load_governor_config() -> GovernorConfig:
         jack_baseline=_env_float("MPE_POLY_JACK_BASELINE", DEFAULT_JACK_BASELINE),
         emergency_xrun_only=_env_bool("MPE_POLY_EMERGENCY_XRUN_ONLY", True),
         limit_mode=limit_mode_name(),
+        ramp_apply=_env_bool("MPE_POLY_RAMP_APPLY", DEFAULT_RAMP_APPLY),
     )
 
 
@@ -258,7 +261,8 @@ class PolyGovernorJournal:
             f"jack_base={config.jack_baseline} "
             f"rise={int(config.rise_enable)} "
             f"rise_full={config.rise_full_rate} "
-            f"rise_min={config.rise_min_rate}",
+            f"rise_min={config.rise_min_rate} "
+            f"ramp_apply={int(config.ramp_apply)}",
             flush=True,
         )
 
@@ -401,6 +405,7 @@ class SurgePolyGovernor:
         self._adaptive_poll_interval = self.config.poll_interval_s
         self._last_load: float | None = None
         self._last_dload_dt: float | None = None
+        self._last_normalized_stress: float | None = None
 
     def start(self) -> None:
         if self._thread and self._thread.is_alive():
@@ -463,12 +468,25 @@ class SurgePolyGovernor:
         if isinstance(effective, (int, float)):
             self._effective_poly = clamp_poly_limit(int(effective))
 
+    def _load_rising(self, sample: LoadSample) -> bool:
+        """True when stress is climbing — ramp apply sends OSC without fade deferral."""
+        if not self.config.ramp_apply:
+            return False
+        dload = sample.dload_dt
+        if dload is not None and dload > self.config.rise_min_rate:
+            return True
+        prev = self._last_normalized_stress
+        if prev is not None and sample.normalized_load > prev + 0.25:
+            return True
+        return False
+
     def _resolve_applicable_limit(
         self,
         new_limit: int,
         *,
         reason: Reason,
         old_limit: int | None,
+        ramp_apply: bool = False,
     ) -> int | None:
         """Return OSC limit to apply, or None to defer step-down under fade policy."""
         if not fade_actuation_enabled():
@@ -484,6 +502,10 @@ class SurgePolyGovernor:
 
         if reason == "emergency":
             write_fade_request(release_count=active - new_limit, reason=reason)
+            self._pending_limit = None
+            return new_limit
+
+        if ramp_apply and reason in ("high", "warm", "spike"):
             self._pending_limit = None
             return new_limit
 
@@ -518,6 +540,7 @@ class SurgePolyGovernor:
         raw_cpu: float | None,
         held_s: float,
         minimum: int | None = None,
+        ramp_apply: bool = False,
     ) -> None:
         floor = self._floor_poly if minimum is None else minimum
         new_limit = clamp_poly_limit(new_limit, minimum=floor)
@@ -530,6 +553,7 @@ class SurgePolyGovernor:
             new_limit,
             reason=reason,
             old_limit=old_limit,
+            ramp_apply=ramp_apply,
         )
         if applicable is None:
             return
@@ -769,6 +793,7 @@ class SurgePolyGovernor:
         stress = sample.normalized_load
         self._last_load = sample.load
         self._last_dload_dt = sample.dload_dt
+        ramp_apply = self._load_rising(sample)
         self._adaptive_poll_interval = adaptive_poll_interval(
             load=stress,
             dload_dt=sample.dload_dt,
@@ -865,7 +890,10 @@ class SurgePolyGovernor:
                 raw_cpu=raw_cpu,
                 now=now,
                 max_step_down=max_step,
+                ramp_apply=ramp_apply,
             )
+
+        self._last_normalized_stress = stress
 
     def _tick_v2_progressive(self) -> None:
         self._pref_check_counter += 1
@@ -895,6 +923,7 @@ class SurgePolyGovernor:
         cfg = self.config
         self._last_load = sample.load
         self._last_dload_dt = sample.dload_dt
+        ramp_apply = self._load_rising(sample)
         self._adaptive_poll_interval = adaptive_poll_interval(
             load=sample.load,
             dload_dt=sample.dload_dt,
@@ -961,7 +990,9 @@ class SurgePolyGovernor:
                 cpu=cpu,
                 raw_cpu=raw_cpu,
                 now=now,
+                ramp_apply=ramp_apply,
             )
+            self._last_normalized_stress = sample.normalized_load
             return
 
         desired = continuous_target_limit(
@@ -996,7 +1027,9 @@ class SurgePolyGovernor:
                 cpu=cpu,
                 raw_cpu=raw_cpu,
                 now=now,
+                ramp_apply=ramp_apply,
             )
+        self._last_normalized_stress = sample.normalized_load
 
     def _apply_v2_step(
         self,
@@ -1007,6 +1040,7 @@ class SurgePolyGovernor:
         raw_cpu: float | None,
         now: float,
         max_step_down: int | None = None,
+        ramp_apply: bool = False,
     ) -> None:
         if self._effective_poly is None:
             return
@@ -1035,6 +1069,7 @@ class SurgePolyGovernor:
             cpu=cpu,
             raw_cpu=raw_cpu,
             held_s=0.0,
+            ramp_apply=ramp_apply,
         )
         self._last_step_down_at = now
         if self._high_since is None:
