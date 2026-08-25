@@ -76,8 +76,13 @@ require_root() {
 }
 
 ensure_configfs() {
-    if [ ! -d "$GADGET_ROOT" ]; then
+    # usb_gadget appears only after libcomposite loads; configfs may already be
+    # mounted at /sys/kernel/config on boot without that subdirectory yet.
+    if [ ! -d /sys/kernel/config ]; then
         run_or_echo mount -t configfs none /sys/kernel/config
+    fi
+    if [ ! -d "$GADGET_ROOT" ]; then
+        run_or_echo modprobe libcomposite
     fi
     if [ ! -d "$GADGET_ROOT" ]; then
         log "ERROR: configfs not mounted at $GADGET_ROOT (check dtoverlay=dwc2,dr_mode=peripheral)"
@@ -93,7 +98,6 @@ create_gadget() {
     }
 
     ensure_configfs
-    run_or_echo modprobe libcomposite
 
     local sample_rate="${MPE_SURGE_SAMPLE_RATE:-48000}"
 

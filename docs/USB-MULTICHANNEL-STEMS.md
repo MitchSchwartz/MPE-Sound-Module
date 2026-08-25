@@ -6,6 +6,10 @@
 
 **Use case:** Desk tether to a laptop/DAW where the host receives **individual loop stems** (one per APC clip) **plus a loop-bus master**, over the same USB-C cable used today for stereo passthrough.
 
+**Clocking dependency:** stems are the dual-sink problem at 34 channels — live synth on the
+local DAC while loops go to USB. Whatever **[`USB-DUAL-OUTPUT-CLOCK.md`](USB-DUAL-OUTPUT-CLOCK.md)**
+settles, stems inherit. Do not build §2 (JACK routing) before that is resolved.
+
 Related: [`USB-AUDIO-PASSTHROUGH-PLAN.md`](USB-AUDIO-PASSTHROUGH-PLAN.md) · [`scripts/sooperlooper/README.md`](../scripts/sooperlooper/README.md) · [`docs/measurements/sooperlooper-eval-2026-08-14.md`](measurements/sooperlooper-eval-2026-08-14.md)
 
 ---
