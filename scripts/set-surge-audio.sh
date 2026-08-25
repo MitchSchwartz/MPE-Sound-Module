@@ -45,7 +45,7 @@ fi
 is_valid_buffer() {
     # JACK server period — must match jackd / mpe jack buffer (not legacy Surge ALSA sizes).
     case "$1" in
-        64 | 96 | 128 | 192 | 256 | 512 | 1024) return 0 ;;
+        32 | 64 | 96 | 128 | 192 | 256 | 512 | 1024) return 0 ;;
         *) return 1 ;;
     esac
 }
