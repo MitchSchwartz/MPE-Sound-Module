@@ -804,6 +804,12 @@ class NoAlsaPathTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_set_surge_audio_rolls_back_on_graph_failure(self) -> None:
+        text = SET_SURGE_AUDIO_SH.read_text(encoding="utf-8")
+        self.assertIn("_prev_buffer=", text)
+        self.assertIn("rollback-after-failed-settings", text)
+        self.assertIn("reverted to", text)
+
 
 class StartSurgeCliFailureTests(unittest.TestCase):
     """Jack-mode failure exits non-zero and touches no ALSA path (spec D3 amended)."""
