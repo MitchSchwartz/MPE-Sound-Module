@@ -3,10 +3,12 @@
 # Run ON the Pi as root (sudo).
 #
 #   sudo ./scripts/provision/sanitize-for-clone.sh [--dry-run]
-#   sudo ./scripts/provision/sanitize-for-clone.sh --verify
+#   sudo ./scripts/provision/sanitize-for-clone.sh --recover-sshd
 #
-# Removes: machine-id (+ dbus copy when not symlinked), SSH host keys, Tailscale
-# credentials, NetworkManager WiFi profiles (PSKs), shell history, first-boot stamp.
+# Removes: machine-id (+ dbus copy when not symlinked), SSH host keys (re-arm Pi OS
+# regeneration for clone first boot — does NOT leave sshd working on a live unit),
+# Tailscale credentials, NetworkManager WiFi profiles (PSKs), shell history,
+# first-boot stamp.
 # Does NOT remove ~/.ssh/authorized_keys — add --strip-authorized-keys for a blank SSH slate.
 #
 # --verify: assert clone-safe properties; exit 1 if anything forbidden remains.
@@ -19,15 +21,22 @@ set -euo pipefail
 DRY=false
 VERIFY=false
 STRIP_AUTHORIZED_KEYS=false
+RECOVER_SSHD=false
 
 while [ $# -gt 0 ]; do
     case "$1" in
         --dry-run) DRY=true; shift ;;
         --verify) VERIFY=true; shift ;;
         --strip-authorized-keys) STRIP_AUTHORIZED_KEYS=true; shift ;;
-        *) echo "Usage: $0 [--dry-run] [--verify] [--strip-authorized-keys]" >&2; exit 2 ;;
+        --recover-sshd) RECOVER_SSHD=true; shift ;;
+        *) echo "Usage: $0 [--dry-run] [--verify] [--strip-authorized-keys] | $0 --recover-sshd" >&2; exit 2 ;;
     esac
 done
+
+if [ "$RECOVER_SSHD" = true ] && { [ "$DRY" = true ] || [ "$VERIFY" = true ] || [ "$STRIP_AUTHORIZED_KEYS" = true ]; }; then
+    echo "ERROR: --recover-sshd cannot be combined with other modes." >&2
+    exit 2
+fi
 
 if [ "$VERIFY" = true ] && [ "$DRY" = true ]; then
     echo "ERROR: --verify and --dry-run are mutually exclusive." >&2
@@ -66,8 +75,40 @@ _sanitize_machine_ids() {
 }
 
 _sanitize_ssh_host_keys() {
-    echo "--- SSH host keys (regenerated on next boot) ---"
+    echo "--- SSH host keys (removed for imaging — not auto-restored on live boot) ---"
     _run rm -f /etc/ssh/ssh_host_*
+}
+
+_rearm_regenerate_ssh_host_keys() {
+    local svc=regenerate_ssh_host_keys.service
+    echo "--- re-arm $svc (clone first boot / after mistaken sanitize) ---"
+    if ! systemctl list-unit-files "$svc" &>/dev/null 2>&1; then
+        echo "  WARN: $svc not found — clones may boot with no sshd until ssh-keygen -A"
+        return 0
+    fi
+    if [ "$DRY" = true ]; then
+        echo "would: systemctl reset $svc; systemctl enable $svc"
+        return 0
+    fi
+    systemctl reset-failed "$svc" 2>/dev/null || true
+    systemctl disable "$svc" 2>/dev/null || true
+    systemctl enable "$svc" 2>/dev/null || true
+    systemctl reset "$svc" 2>/dev/null || true
+    echo "  enabled for next boot when /etc/ssh/ssh_host_* are absent"
+}
+
+_recover_sshd_after_sanitize() {
+    echo "--- recover sshd on live unit (--recover-sshd) ---"
+    _run ssh-keygen -A
+    if systemctl list-unit-files ssh.service &>/dev/null 2>&1; then
+        _run systemctl enable ssh 2>/dev/null || true
+        _run systemctl restart ssh
+    elif systemctl list-unit-files sshd.service &>/dev/null 2>&1; then
+        _run systemctl enable sshd 2>/dev/null || true
+        _run systemctl restart sshd
+    else
+        echo "  WARN: neither ssh nor sshd unit found" >&2
+    fi
 }
 
 _sanitize_authorized_keys() {
@@ -186,10 +227,17 @@ if [ "$VERIFY" = true ]; then
     _verify
 fi
 
+if [ "$RECOVER_SSHD" = true ]; then
+    echo "=== sanitize-for-clone --recover-sshd ==="
+    _recover_sshd_after_sanitize
+    exit 0
+fi
+
 echo "=== sanitize-for-clone ==="
 
 _sanitize_machine_ids
 _sanitize_ssh_host_keys
+_rearm_regenerate_ssh_host_keys
 _sanitize_authorized_keys
 _sanitize_tailscale
 _sanitize_wifi_profiles
@@ -198,7 +246,10 @@ _sanitize_first_boot_stamp
 
 echo ""
 echo "sanitize-for-clone: done"
+echo "  sshd: host keys removed — will NOT listen until regenerate_ssh_host_keys on"
+echo "        first boot (clone) OR manual recovery on a live unit:"
+echo "          sudo ssh-keygen -A && sudo systemctl enable --now ssh"
+echo "        Or: sudo $0 --recover-sshd"
 echo "  Tailscale: run 'sudo tailscale up' on each new unit after flash."
 echo "  WiFi: reconfigure per site (profiles were stripped)."
-echo "  SSH: add your laptop public key to ~/.ssh/authorized_keys on each new unit."
 echo "  Run 'sudo $0 --verify' before imaging to confirm clone-safe state."
