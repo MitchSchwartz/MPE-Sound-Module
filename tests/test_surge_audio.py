@@ -14,11 +14,11 @@ from patch_browser import surge_audio
 class SurgeAudioTests(unittest.TestCase):
     def test_buffer_presets_cycle(self) -> None:
         self.assertEqual(surge_audio.next_buffer_preset(512), 1024)
-        self.assertEqual(surge_audio.next_buffer_preset(1024), 64)
+        self.assertEqual(surge_audio.next_buffer_preset(1024), 32)
 
     def test_jack_period_presets(self) -> None:
+        self.assertIn(32, surge_audio.JACK_PERIOD_PRESETS)
         self.assertNotIn(768, surge_audio.JACK_PERIOD_PRESETS)
-        self.assertNotIn(32, surge_audio.JACK_PERIOD_PRESETS)
 
     def test_sample_rate_toggles(self) -> None:
         self.assertEqual(surge_audio.next_sample_rate(48000), 44100)
