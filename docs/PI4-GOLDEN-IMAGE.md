@@ -91,7 +91,14 @@ cd ~/MPE-Module
 git checkout main    # appliance deploy branch — pin before imaging
 sudo ./scripts/image/capture-golden.sh --platform pi4
 # or: sudo ./scripts/image/capture-pi4-golden.sh  (wrapper)
-# Tailscale creds stripped automatically — no manual logout required
+# Default capture does NOT strip WiFi/Tailscale — reference Pi stays usable.
+```
+
+When ready to `dd` (separate scripts — mutates Pi):
+
+```bash
+sudo ./scripts/install-license-payload.sh && sudo ./scripts/install-license-payload.sh --verify
+sudo ./scripts/provision/sanitize-for-clone.sh && sudo ./scripts/provision/sanitize-for-clone.sh --verify
 sudo poweroff
 ```
 
@@ -189,7 +196,7 @@ Push to another bench unit:
 | Script | Where | Purpose |
 |---|---|---|
 | [`capture-external-state.sh`](../scripts/provision/capture-external-state.sh) | Laptop or Pi `--local` | Pull portable `state/` tree |
-| [`sanitize-for-clone.sh`](../scripts/provision/sanitize-for-clone.sh) | Pi (sudo) | Strip machine-id, SSH host keys, **Tailscale creds** before imaging |
+| [`sanitize-for-clone.sh`](../scripts/provision/sanitize-for-clone.sh) | Pi (sudo) | Strip machine-id, SSH host keys, **Tailscale creds** — run manually before `dd` |
 | [`apply-player-env-parity.sh`](../scripts/apply-player-env-parity.sh) | Pi | Board-specific env (`player-env-parity.pi4.env` / `.pi5.env`) |
 | [`apply-dsi-config.sh`](../scripts/apply-dsi-config.sh) | Pi (sudo) | Freenove DSI `config.txt` overlay |
 | [`install-jack-audio-limits.sh`](../scripts/install-jack-audio-limits.sh) | Pi (sudo) | `/etc/security/limits.d/audio.conf` for shell jackd |
@@ -199,7 +206,7 @@ Push to another bench unit:
 | [`audit-external-state-paths.sh`](../scripts/provision/audit-external-state-paths.sh) | Laptop or Pi | Compare paths list vs home |
 | [`capture-laptop-mpe-config.sh`](../scripts/provision/capture-laptop-mpe-config.sh) | Laptop | Snapshot `~/.config/mpe/mpe.env.*` |
 | [`install-pi4-day0-tier1.sh`](../scripts/image/install-pi4-day0-tier1.sh) | Pi | Apt/JACK/pygame (called by build script) |
-| [`capture-golden.sh`](../scripts/image/capture-golden.sh) | Pi (sudo) | Pre-`dd` sanitize + manifest (`--platform pi4\|pi5\|auto`) |
+| [`capture-golden.sh`](../scripts/image/capture-golden.sh) | Pi (sudo) | Manifest + state capture only (read-only on live Pi) |
 | [`bake-golden.sh`](../scripts/image/bake-golden.sh) | Laptop | Instructions + manifest verify (`--platform pi4\|pi5`) |
 | [`capture-pi4-golden.sh`](../scripts/image/capture-pi4-golden.sh) | Pi (sudo) | Wrapper → `capture-golden.sh --platform pi4` |
 | [`capture-pi5-golden.sh`](../scripts/image/capture-pi5-golden.sh) | Pi (sudo) | Wrapper → `capture-golden.sh --platform pi5` |
@@ -229,8 +236,8 @@ Before calling an image "golden", confirm on the reference Pi:
 - [ ] **`sudo ./scripts/provision/sanitize-for-clone.sh --verify`** passes
 - [ ] Patch content licensing confirmed ([`THIRD-PARTY-NOTICES.md`](../THIRD-PARTY-NOTICES.md))
 
-**An image handed to anyone is distribution.** `capture-golden.sh` runs both verifies
-before poweroff and fails closed; this checklist is the manual backstop if you `dd` without it.
+**An image handed to anyone is distribution.** Run `install-license-payload.sh --verify` and
+`sanitize-for-clone.sh --verify` manually before poweroff; this checklist is the backstop if you `dd` without them.
 
 ---
 

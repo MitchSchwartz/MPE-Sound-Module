@@ -183,16 +183,21 @@ ${plat_label} golden image — bake workflow (v1)
      sudo ./scripts/provision/first-boot.sh --force   # if re-baking in place
      sudo ./scripts/image/capture-golden.sh --platform ${PLATFORM}
 
-2. Power off, remove SD, dd on laptop:
+2. When ready to image (separate scripts — mutates Pi):
+     sudo ./scripts/install-license-payload.sh && sudo ./scripts/install-license-payload.sh --verify
+     sudo ./scripts/provision/sanitize-for-clone.sh && sudo ./scripts/provision/sanitize-for-clone.sh --verify
+     sudo poweroff
+
+3. Remove SD, dd on laptop:
      sudo dd if=/dev/sdX of=~/${img_prefix}-\$(date +%Y%m%d).img bs=4M status=progress conv=fsync
      xz -9 -T0 ~/${img_prefix}-*.img
 
-3. Store .img.xz privately (Surge GPL binary inside).
+4. Store .img.xz privately (Surge GPL binary inside).
 
-4. Flash a blank SD with Raspberry Pi Imager or:
+5. Flash a blank SD with Raspberry Pi Imager or:
      xz -dc ~/${img_prefix}-*.img.xz | sudo dd of=/dev/sdX bs=4M status=progress conv=fsync
 
-5. Boot, wait for SSH, then from laptop:
+6. Boot, wait for SSH, then from laptop:
      ./scripts/image/build-appliance.sh --platform ${PLATFORM} \\
        --state state/${ref_host}-YYYY-MM-DD
 
