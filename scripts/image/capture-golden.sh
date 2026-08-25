@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
-# Pre-image checklist + sanitization on a reference Pi before dd / imaging.
-# Run ON the Pi (Mitch gate — mutates identity files).
+# Golden-image manifest + external-state capture on a reference Pi.
+# Read-only on the live appliance — does not sanitize, install licenses, or strip secrets.
 #
 #   sudo ./scripts/image/capture-golden.sh --platform auto
-#   sudo ./scripts/image/capture-golden.sh --platform pi4 [--dry-run]
 #   sudo ./scripts/image/capture-golden.sh --platform pi5 --write-manifest-only
 #
-# After this script: power off, dd the SD from the laptop, store .img.xz privately.
-# Tailscale credentials and SSH host keys are stripped — not included in the image.
+# Before dd imaging (separate scripts — mutates the Pi):
+#   sudo ./scripts/install-license-payload.sh
+#   sudo ./scripts/provision/sanitize-for-clone.sh
+#   sudo ./scripts/provision/sanitize-for-clone.sh --verify
+#
 # See docs/PI4-GOLDEN-IMAGE.md
 
 set -euo pipefail
@@ -20,6 +22,7 @@ MANIFEST_ONLY=false
 
 usage() {
     echo "Usage: sudo $0 --platform {pi4|pi5|auto} [--dry-run] [--write-manifest-only]" >&2
+    echo "  Captures manifest + external state only. Does not run sanitize-for-clone.sh." >&2
     exit 2
 }
 
@@ -103,7 +106,7 @@ _write_image_manifest() {
 |---|---|
 | Platform | ${PLATFORM} |
 | Model | $model |
-| Hostname (pre-sanitize) | $(hostname) |
+| Hostname | $(hostname) |
 | MPE-Module | $git_rev |
 | Surge CLI | $surge_ver |
 | cmdline | $cmdline |
@@ -124,18 +127,20 @@ EOF
 
 $plat_section
 
-## Sanitization applied (never ship in image)
+## Before \`dd\` (separate scripts — not part of capture-golden)
 
-- \`/etc/machine-id\` truncated (+ \`/var/lib/dbus/machine-id\` when not symlinked)
-- SSH **host** keys removed (regenerated on first boot)
-- **Tailscale node credentials** removed (\`tailscale logout\` + \`/var/lib/tailscale/*\`)
-- **NetworkManager WiFi profiles** removed (\`/etc/NetworkManager/system-connections/*\` — PSKs)
-- Shell history truncated (\`~/.bash_history\`, \`~/.zsh_history\`)
-- \`/var/lib/mpe/first-boot.stamp\` removed if present
-- \`sanitize-for-clone.sh --verify\` run before poweroff (asserts the above)
+Run on the reference Pi **immediately before** poweroff and imaging:
 
-\`authorized_keys\` is **kept** by default so your SSH key still works on first boot.
-Use \`sanitize-for-clone.sh --strip-authorized-keys\` before imaging if you want a blank SSH slate.
+\`\`\`bash
+sudo ./scripts/install-license-payload.sh
+sudo ./scripts/install-license-payload.sh --verify
+sudo ./scripts/provision/sanitize-for-clone.sh
+sudo ./scripts/provision/sanitize-for-clone.sh --verify
+sudo poweroff
+\`\`\`
+
+\`sanitize-for-clone.sh\` strips machine-id, SSH host keys, Tailscale creds, WiFi PSKs, and shell history.
+\`authorized_keys\` is kept by default. See \`docs/PI4-GOLDEN-IMAGE.md\`.
 
 ## Imaging (laptop)
 
@@ -176,29 +181,11 @@ else
 fi
 
 echo ""
-echo "=== GPL compliance payload (an image is distribution) ==="
-lic_args=""
-[ "$DRY" = true ] && lic_args="--dry-run"
-"$REPO_ROOT/scripts/install-license-payload.sh" $lic_args
-
+echo "capture-golden ($PLATFORM): manifest + state captured"
+echo "  This script does not sanitize the Pi or install license payload."
 echo ""
-echo "=== Sanitize for golden clone (no Tailscale / no host keys in image) ==="
-sanitize_args=""
-[ "$DRY" = true ] && sanitize_args="--dry-run"
-"$REPO_ROOT/scripts/provision/sanitize-for-clone.sh" $sanitize_args
-
-if [ "$DRY" = false ]; then
-    echo ""
-    echo "=== Verify clone-safe state ==="
-    "$REPO_ROOT/scripts/provision/sanitize-for-clone.sh" --verify
-
-    echo ""
-    echo "=== Verify GPL compliance payload matches the installed binary ==="
-    "$REPO_ROOT/scripts/install-license-payload.sh" --verify
-fi
-
-echo ""
-echo "capture-golden ($PLATFORM): ready for imaging"
-echo "  1. sudo poweroff"
-echo "  2. dd SD on laptop — see $OUTPUT_DIR/IMAGE-MANIFEST.md"
-echo "  3. On each clone: sudo tailscale up  (fresh enrollment)"
+echo "  Before dd imaging (separate — mutates the Pi):"
+echo "    sudo ./scripts/install-license-payload.sh && sudo ./scripts/install-license-payload.sh --verify"
+echo "    sudo ./scripts/provision/sanitize-for-clone.sh && sudo ./scripts/provision/sanitize-for-clone.sh --verify"
+echo "    sudo poweroff"
+echo "  Then dd SD on laptop — see $OUTPUT_DIR/IMAGE-MANIFEST.md"
