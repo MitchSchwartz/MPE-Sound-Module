@@ -94,13 +94,15 @@ sudo ./scripts/image/capture-golden.sh --platform pi4
 # Default capture does NOT strip WiFi/Tailscale — reference Pi stays usable.
 ```
 
-When ready to `dd` (separate scripts — mutates Pi):
+When ready to `dd` (separate scripts — **sshd stops until poweroff**; clones regenerate host keys on first boot):
 
 ```bash
 sudo ./scripts/install-license-payload.sh && sudo ./scripts/install-license-payload.sh --verify
 sudo ./scripts/provision/sanitize-for-clone.sh && sudo ./scripts/provision/sanitize-for-clone.sh --verify
 sudo poweroff
 ```
+
+If sanitize ran on a **live** unit by mistake and sshd is dead: `sudo ./scripts/provision/sanitize-for-clone.sh --recover-sshd` (keyboard/monitor — no remote fix).
 
 On **laptop** (SD in reader):
 
