@@ -87,6 +87,8 @@ fi
 
 mpe_source_appliance_env
 _old_rate="${MPE_SURGE_SAMPLE_RATE:-48000}"
+_prev_buffer="${MPE_JACK_BUFFER:-256}"
+_prev_periods="${MPE_JACK_PERIODS:-3}"
 
 _update_env_var() {
     local key="$1"
@@ -148,7 +150,26 @@ profile_switch_flag_mark
 # JACK is the only engine (spec amended 2026-08-13) — always the graph-restart
 # path below; there is no ALSA-direct branch left to fall through to.
 if ! mpe_promote_surge_planned "settings-change"; then
-    echo "ERROR: audio graph change failed — check journalctl -u mpe-jackd -u surge-xt-cli" >&2
+    _rollback=false
+    if [ -n "$BUFFER" ] || [ -n "$PERIODS" ] || [ "$_rate_changed" = true ]; then
+        _rollback=true
+    fi
+    if [ "$_rollback" = true ]; then
+        echo "ERROR: audio graph change failed — restoring ${_prev_buffer}×${_prev_periods}" >&2
+        [ -n "$BUFFER" ] && _update_env_var MPE_JACK_BUFFER "$_prev_buffer"
+        [ -n "$PERIODS" ] && _update_env_var MPE_JACK_PERIODS "$_prev_periods"
+        if [ "$_rate_changed" = true ]; then
+            _update_env_var MPE_SURGE_SAMPLE_RATE "$_old_rate"
+        fi
+        mpe_source_appliance_env
+        if mpe_promote_surge_planned "rollback-after-failed-settings"; then
+            echo "ERROR: requested settings not supported — reverted to ${_prev_buffer}×${_prev_periods}" >&2
+        else
+            echo "ERROR: graph failed and rollback failed — check journalctl -u mpe-jackd -u surge-xt-cli" >&2
+        fi
+    else
+        echo "ERROR: audio graph change failed — check journalctl -u mpe-jackd -u surge-xt-cli" >&2
+    fi
     exit 1
 fi
 
