@@ -67,7 +67,7 @@ You do **not** run `apply-external-state.sh` on a clone SD unless you deliberate
 
 ### What sanitize removes (identity only)
 
-[`sanitize-for-clone.sh`](../scripts/provision/sanitize-for-clone.sh) runs before imaging. It strips:
+[`sanitize-for-clone.sh`](../scripts/provision/sanitize-for-clone.sh) is a **separate** pre-`dd` step (not called by capture-golden). It strips:
 
 - `/etc/machine-id` (regenerated on first boot)
 - `/etc/ssh/ssh_host_*` (regenerated on first boot)
@@ -234,7 +234,7 @@ sudo systemctl restart mpe-jackd surge-xt-cli touch-patch-browser
 |---|---|
 | [`capture-golden.sh`](../scripts/image/capture-golden.sh) | Pre-`dd` on master Pi (`--platform pi4\|pi5\|auto`) |
 | [`capture-pi4-golden.sh`](../scripts/image/capture-pi4-golden.sh) | Wrapper → `--platform pi4` |
-| [`sanitize-for-clone.sh`](../scripts/provision/sanitize-for-clone.sh) | Called by capture-golden |
+| [`sanitize-for-clone.sh`](../scripts/provision/sanitize-for-clone.sh) | Manual pre-`dd` step |
 | [`capture-external-state.sh`](../scripts/provision/capture-external-state.sh) | Optional laptop backup only |
 | [`bake-golden.sh`](../scripts/image/bake-golden.sh) | Verify manifest / print instructions |
 | [`bake-pi4-golden.sh`](../scripts/image/bake-pi4-golden.sh) | Wrapper → `--platform pi4` |
