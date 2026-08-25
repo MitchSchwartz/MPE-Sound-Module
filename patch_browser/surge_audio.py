@@ -13,7 +13,7 @@ SET_SURGE_AUDIO_SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "set-
 # Legacy Surge ALSA sizes — still valid in mpe.env for MIDI offset / calibration.
 BUFFER_PRESETS: tuple[int, ...] = (32, 64, 128, 256, 512, 768, 1024, 2048)
 # JACK server period sizes the touch UI and jackd accept (see mpe-cli jack buffer).
-JACK_PERIOD_PRESETS: tuple[int, ...] = (64, 128, 256, 512, 1024)
+JACK_PERIOD_PRESETS: tuple[int, ...] = (32, 64, 128, 256, 512, 1024)
 JACK_PERIODS_PRESETS: tuple[int, ...] = (2, 3, 4)
 SAMPLE_RATE_PRESETS: tuple[int, ...] = (44100, 48000)
 
