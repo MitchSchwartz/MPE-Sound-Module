@@ -298,6 +298,8 @@ class TouchBrowserInputMixin:
             return "theme"
         if self._surge_restart_btn and self._settings_rect_hit(self._surge_restart_btn, local_pos):
             return "surge_restart"
+        if self._restart_bench_btn and self._settings_rect_hit(self._restart_bench_btn, local_pos):
+            return "restart_bench"
         if self._settings_rect_hit(self.brightness_row_rect, local_pos):
             return "brightness"
         return None
@@ -366,10 +368,20 @@ class TouchBrowserInputMixin:
                 self._layout_settings_content()
             else:
                 self._toast(f"Restart failed: {message}", 3.5)
+        elif hit == "restart_bench":
+            from patch_browser.restart_bench import is_running
+
+            if is_running():
+                self._toast("Restart already in progress", 2.5)
+            else:
+                self._pending_confirm_kind = "restart_bench"
+                self.screen_state = Screen.CALIBRATE_CONFIRM
         elif hit == "cal_missing":
+            self._pending_confirm_kind = "calibrate"
             self._pending_calibrate_mode = CalibrateMode.MISSING_ONLY
             self.screen_state = Screen.CALIBRATE_CONFIRM
         elif hit == "cal_force":
+            self._pending_confirm_kind = "calibrate"
             self._pending_calibrate_mode = CalibrateMode.FORCE_FULL
             self.screen_state = Screen.CALIBRATE_CONFIRM
         elif hit == "brightness":
@@ -620,6 +632,14 @@ class TouchBrowserInputMixin:
             self._clear_modal_pointer()
             return
         if self._modal_pending_index == 0:
+            self.screen_state = Screen.SETTINGS
+        elif getattr(self, "_pending_confirm_kind", "calibrate") == "restart_bench":
+            from patch_browser.restart_bench import trigger
+
+            ok, message = trigger()
+            self._toast(message, 3.0)
+            # Return to settings and do NOT wait: step 8 of the sequence restarts
+            # this process. The outcome is reported on the next startup instead.
             self.screen_state = Screen.SETTINGS
         else:
             targets, _ = self._calibration_scope_stats(self._pending_calibrate_mode)
