@@ -27,6 +27,27 @@ SEAM_DECLICK_SAMPLES = int(
 SEAM_TAIL_OFFSET_SAMPLES = int(
     os.environ.get("MPE_SL_SEAM_TAIL_OFFSET_SAMPLES", "0")
 )
+# Align the tail to where the scratch loop actually armed? Default OFF.
+#
+# It sounds right and it measures wrong. The scratch arms ~36-53 ms after the
+# stop, so placing the tail there is physically truthful — but the ring-out
+# from those 36 ms was never captured by anything, so truthful placement just
+# uncovers the hole. Measured on the 21:58 take (5.823 s clip, pos=0.036 s),
+# head RMS in 10 ms windows:
+#
+#   align off  0.138  0.166  0.167  0.166  0.167 ...
+#   align on   0.035  0.000  0.000  0.044  0.163 ...   <- 20 ms of silence
+#
+# The take's own head is empty (record hit before the first note) and the loop
+# end is at 0.164, so every wrap is an energy cliff the tail exists to bridge.
+# Landing it at 0 bridges it. A 36 ms timing error on a decaying tail is
+# inaudible; a 20 ms dropout is a stutter. Turn on only with a take whose head
+# is already full, where there is no hole to uncover.
+SEAM_TAIL_ALIGN = os.environ.get("MPE_SL_SEAM_TAIL_ALIGN", "0").strip().lower() in (
+    "1",
+    "on",
+    "true",
+)
 SEAM_WELD_ENABLED = os.environ.get("MPE_SL_SEAM_WELD", "1").strip().lower() not in (
     "",
     "0",
@@ -184,7 +205,7 @@ class SeamWeldWorker:
                 merge_samples=SEAM_MERGE_SAMPLES,
                 declick_samples=SEAM_DECLICK_SAMPLES,
                 offset_samples=SEAM_TAIL_OFFSET_SAMPLES,
-                offset_seconds=tail_offset_s,
+                offset_seconds=tail_offset_s if SEAM_TAIL_ALIGN else 0.0,
             )
         except (OSError, ValueError) as exc:
             self._log(f"seam-weld: merge error: {exc!r}", flush=True)
