@@ -6,6 +6,29 @@ Orientation canon: OM-Repo [`GROUNDING.md`](https://github.com/opsMachine/OM-Rep
 
 ---
 
+## 2026-08-26 — Multi-clip per track Gate A approved
+
+**Decision (Mitch, 2026-08-26):** Gate A approved for
+`Documents/specs/multi-clip-per-track-spec.md` — **15 tracks** × 8 clip slots (loop 14 =
+scratch/weld buffer), one audible clip per column, quantized switch/cancel, Scene Launch
+**1–7** across all 15 tracks (row 7 pad-only on mk1 — see spec OPEN-1).
+
+**Locked implementation choices:**
+
+| Topic | Choice |
+|-------|--------|
+| Inactive slot storage | Disk-only; lazy `load_loop` on launch; song load restores active slot per track |
+| Record into non-active slot | Save active slot to disk if dirty, clear loop, record into target slot |
+| v1 songs | Read forever; overwrite Save upgrades to manifest v2 |
+| Scene empty cells | Skip silently |
+| APC LED | Occupied stopped stays yellow (unchanged) |
+| Autosave | Deferred — GitHub [#115](https://github.com/MitchSchwartz/MPE-Sound-Module/issues/115) |
+| P0 (pending-mute cancel) | Laptop build |
+
+**Next:** P0 pending-mute cancel → spikes → P1 manifest v2 + touch save/load.
+
+---
+
 ## 2026-08-23 — V12 buffer comparison; "clean" criterion retired
 
 **Stack:** **G2 → V12 → B3 → Gate 1 ship.**
