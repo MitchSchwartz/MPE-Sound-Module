@@ -35,6 +35,10 @@ class RestartBenchResult:
     finished: float = 0.0
     result: str = ""
     patch_reload: str = ""
+    # "none" (healthy), "reaped-N", or "failed". A stray engine outside the
+    # service cgroup survives every unit restart and can stall the JACK graph,
+    # so a reap is the most useful thing the file can say about what was wrong.
+    reap_sooperlooper: str = ""
     units: dict[str, str] = field(default_factory=dict)
 
     @property
@@ -59,6 +63,11 @@ class RestartBenchResult:
         if not self.complete:
             return "Restart did not finish — check the journal"
         if self.result == "ok":
+            # Surface a reap: it explains a wedge the user could not otherwise
+            # see, and it means something started an engine outside systemd —
+            # worth knowing rather than quietly cleaning up.
+            if self.reap_sooperlooper.startswith("reaped"):
+                return "Everything restarted — cleared a stray looper process"
             return "Everything restarted"
         failed = self.failed_units
         if not failed:
@@ -101,6 +110,8 @@ def read_result(path: Path | None = None) -> RestartBenchResult | None:
             unit = key[len("unit.") :]
             if unit:
                 out.units[unit] = value
+        elif key == "reap.sooperlooper":
+            out.reap_sooperlooper = value
         elif key == "started":
             out.started = _parse_float(value)
         elif key == "finished":

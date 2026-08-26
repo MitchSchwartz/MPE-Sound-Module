@@ -1020,6 +1020,85 @@ mpe_reconcile_looper_if_orphaned() {
     mpe_restart_looper_after_graph_change "$reason"
 }
 
+# ---------------------------------------------------------------------------
+# Stray engine reaper
+# ---------------------------------------------------------------------------
+#
+# Measured 2026-08-26. A SooperLooper started by hand over SSH at 00:43 was
+# still running at 12:09, in `user-1000.slice/session-82.scope` rather than the
+# service cgroup. `systemctl restart mpe-sooperlooper` therefore never touched
+# it, and a DAC replug produced a SECOND engine beside it. Both registered the
+# JACK client name `mpe-looper`; the stale one never returned from its process
+# callback, and a stalled client stalls the whole graph:
+#
+#     JackEngine::XRun: client = mpe-looper was not finished, state = Triggered
+#     JackAudioDriver::ProcessGraphAsyncMaster: Process error
+#
+# Audio stopped everywhere — including the headphone outputs, which are wired
+# straight from PCM and have nothing to do with the replug. From the panel every
+# unit was active and every route correct, so this is a fail-quiet in the
+# direction that matters: nothing surfaced the stall but the journal.
+#
+# Note what did NOT catch it. `mpe_reconcile_looper_if_orphaned` above tests
+# "running AND not on the JACK graph". The stray WAS on the graph — it owned the
+# client name — so that predicate returned healthy. Detecting an engine that is
+# off the bus and detecting a duplicate that is on it are different questions;
+# only the first was being asked.
+#
+# Set MPE_REAP_STRAY=0 to disable, for bench work that deliberately runs an
+# engine outside systemd (see sooperlooper/restart-sooperlooper.sh).
+
+# PIDs of `proc` NOT accounted for by `unit`'s cgroup. Compares cgroup
+# membership, not name or user: a duplicate is legitimate iff systemd owns it.
+mpe_stray_engine_pids() {
+    local proc="${1:-}" unit="${2:-}" pid
+    [ -n "$proc" ] && [ -n "$unit" ] || return 0
+    for pid in $(pgrep -x "$proc" 2>/dev/null); do
+        [ "$pid" = "$$" ] && continue
+        # Unreadable cgroup => cannot prove it is ours => leave it alone and say
+        # so. Killing on missing evidence is how a reaper eats the live engine.
+        if [ ! -r "/proc/$pid/cgroup" ]; then
+            echo "audio-engine: WARNING cannot read cgroup for $proc pid=$pid — not reaping" >&2
+            continue
+        fi
+        grep -qF "/$unit" "/proc/$pid/cgroup" 2>/dev/null && continue
+        printf '%s\n' "$pid"
+    done
+}
+
+# Terminate strays, escalating to SIGKILL. Returns non-zero if any survive.
+mpe_reap_stray_engines() {
+    local proc="${1:-}" unit="${2:-}" reason="${3:-unspecified}"
+    local pids pid waited=0 grace="${MPE_REAP_GRACE_S:-3}"
+
+    [ "${MPE_REAP_STRAY:-1}" = "0" ] && return 0
+
+    pids="$(mpe_stray_engine_pids "$proc" "$unit")"
+    [ -n "$pids" ] || return 0
+
+    # Loud on purpose. A reaped stray means something started an engine outside
+    # systemd; silently cleaning up hides the cause and it recurs.
+    echo "audio-engine: reaping stray $proc outside $unit ($reason): $(echo $pids)" >&2
+    kill $pids 2>/dev/null || true
+
+    while [ "$waited" -lt "$grace" ]; do
+        pids="$(mpe_stray_engine_pids "$proc" "$unit")"
+        [ -n "$pids" ] || return 0
+        sleep 1
+        waited=$((waited + 1))
+    done
+
+    echo "audio-engine: stray $proc did not exit on SIGTERM — SIGKILL: $(echo $pids)" >&2
+    kill -9 $pids 2>/dev/null || true
+    sleep 1
+    pids="$(mpe_stray_engine_pids "$proc" "$unit")"
+    if [ -n "$pids" ]; then
+        echo "audio-engine: FAILED to reap stray $proc: $(echo $pids)" >&2
+        return 1
+    fi
+    return 0
+}
+
 # Back-compat alias used by udev helper and profile scripts.
 restart_audio_graph() {
     mpe_restart_audio_graph
