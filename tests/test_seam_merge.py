@@ -89,6 +89,44 @@ class SeamMergeTests(unittest.TestCase):
         self.assertAlmostEqual(out[500][0], 0.4, places=6)
         self.assertEqual(out[600], (0.0, 0.0))
 
+    def test_offset_seconds_uses_the_measured_scratch_start(self) -> None:
+        """Regression: the swell at the wrap.
+
+        Measured on a real take — 6.499 s clip, scratch armed at pos=0.044 s.
+        Summing tail[0] at index 0 puts the ring-out 44 ms early: less decayed,
+        and landing on the take's own attack. It must land where it was
+        actually recorded instead.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            main_wav, tail_wav, out_wav = (
+                root / "m.wav", root / "t.wav", root / "o.wav"
+            )
+            rate = 48000
+            write_float32_stereo_wav(
+                main_wav, [(0.0, 0.0)] * rate, sample_rate=rate
+            )
+            write_float32_stereo_wav(
+                tail_wav, [(0.5, 0.5)] * 1000, sample_rate=rate
+            )
+            merge_tail_at_seam(
+                main_wav, tail_wav, out_wav, declick_samples=0,
+                offset_seconds=0.044,
+            )
+            merged, _ = read_float32_stereo_wav(out_wav)
+            landed = int(round(0.044 * rate))  # 2112
+            self.assertEqual(merged[landed - 1], (0.0, 0.0), "nothing before it")
+            self.assertAlmostEqual(merged[landed][0], 0.5, places=5)
+
+    def test_manual_trim_adds_to_the_measured_offset(self) -> None:
+        main = [(0.0, 0.0)] * 1000
+        tail = [(0.25, 0.25)] * 10
+        out = merge_stereo_frames(
+            main, tail, declick_samples=0, offset_samples=100
+        )
+        self.assertEqual(out[99], (0.0, 0.0))
+        self.assertAlmostEqual(out[100][0], 0.25, places=6)
+
     def test_empty_tail_returns_the_take_unchanged(self) -> None:
         main = [(0.7, -0.7)] * 64
         self.assertEqual(merge_stereo_frames(main, []), main)

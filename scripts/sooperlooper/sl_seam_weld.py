@@ -95,6 +95,7 @@ class SeamWeldWorker:
         *,
         done: Callable[[], None],
         position: Callable[[], tuple[float, float] | None] | None = None,
+        tail_offset_s: float = 0.0,
     ) -> bool:
         with self._lock:
             if self._busy:
@@ -107,7 +108,7 @@ class SeamWeldWorker:
             self._done_cb = done
         thread = threading.Thread(
             target=self._run,
-            args=(main_loop, scratch_loop, position),
+            args=(main_loop, scratch_loop, position, tail_offset_s),
             daemon=True,
             name="seam-weld",
         )
@@ -119,10 +120,11 @@ class SeamWeldWorker:
         main_loop: int,
         scratch_loop: int,
         position: Callable[[], tuple[float, float] | None] | None,
+        tail_offset_s: float,
     ) -> None:
         ok = False
         try:
-            ok = self._merge(main_loop, scratch_loop, position)
+            ok = self._merge(main_loop, scratch_loop, position, tail_offset_s)
         finally:
             cb = None
             with self._lock:
@@ -144,6 +146,7 @@ class SeamWeldWorker:
         main_loop: int,
         scratch_loop: int,
         position: Callable[[], tuple[float, float] | None] | None,
+        tail_offset_s: float = 0.0,
     ) -> bool:
         tag = f"{main_loop}-{int(time.time() * 1000)}"
         main_wav = SEAM_TMP_DIR / f"main-{tag}.wav"
@@ -181,6 +184,7 @@ class SeamWeldWorker:
                 merge_samples=SEAM_MERGE_SAMPLES,
                 declick_samples=SEAM_DECLICK_SAMPLES,
                 offset_samples=SEAM_TAIL_OFFSET_SAMPLES,
+                offset_seconds=tail_offset_s,
             )
         except (OSError, ValueError) as exc:
             self._log(f"seam-weld: merge error: {exc!r}", flush=True)
