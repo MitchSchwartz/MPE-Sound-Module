@@ -10,6 +10,7 @@ import time
 from typing import Protocol
 
 from led_table import (
+    LED_RED,
     SCENE_LED_OFF,
     SCENE_LED_ON,
     TRACK_LED_OFF,
@@ -108,6 +109,17 @@ def resolve_shift_indicator_note(apc_label: str) -> int:
     if apc_label == "mk2":
         return NOTE_TRACK8_MK2
     return NOTE_TRACK8_MK1
+
+
+def resolve_shift_indicator_on_vel(apc_label: str) -> int:
+    """Velocity for the shift-held indicator.
+
+    mk1 note 0x37 overlaps grid row 6 — velocity 1 is green on the pad matrix;
+    velocity 3 (LED_RED) is red. mk2 Track Select 8 uses the side-button table.
+    """
+    if apc_label == "mk2":
+        return TRACK_LED_ON
+    return LED_RED
 
 
 class ShiftHoldCombo:
@@ -218,6 +230,7 @@ class TransportButtonLeds:
         stop_all_note: int,
         shift_indicator_note: int,
         hold_s: float,
+        shift_indicator_on_vel: int | None = None,
         blink_start_half_s: float = 0.35,
         blink_min_half_s: float = 0.04,
     ) -> None:
@@ -225,6 +238,9 @@ class TransportButtonLeds:
         self._shift_note = shift_note
         self._stop_all_note = stop_all_note
         self._shift_indicator_note = shift_indicator_note
+        self._shift_indicator_on_vel = (
+            TRACK_LED_ON if shift_indicator_on_vel is None else shift_indicator_on_vel
+        )
         self._hold_s = max(hold_s, 0.001)
         self._blink_start_half_s = blink_start_half_s
         self._blink_min_half_s = blink_min_half_s
@@ -286,7 +302,7 @@ class TransportButtonLeds:
                 blink_start_half_s=self._blink_start_half_s,
                 blink_min_half_s=self._blink_min_half_s,
             )
-            track_vel = TRACK_LED_ON if blink_on else TRACK_LED_OFF
+            track_vel = self._shift_indicator_on_vel if blink_on else TRACK_LED_OFF
             scene_vel = SCENE_LED_ON if blink_on else SCENE_LED_OFF
             self._set_led(self._shift_indicator_note, track_vel)
             self._set_led(self._stop_all_note, scene_vel)
@@ -294,7 +310,7 @@ class TransportButtonLeds:
 
         self._set_led(
             self._shift_indicator_note,
-            TRACK_LED_ON if self._shift_down else TRACK_LED_OFF,
+            self._shift_indicator_on_vel if self._shift_down else TRACK_LED_OFF,
         )
         self._set_led(
             self._stop_all_note,
