@@ -99,7 +99,12 @@ class TouchBrowserInputMixin:
             Screen.WIFI_MODAL,
             Screen.MIDI_SYNC_MODAL,
         )
-        overlay_modal = self.screen_state in (Screen.CONTEXT_MENU, Screen.NAME_PROMPT)
+        overlay_modal = self.screen_state in (
+            Screen.CONTEXT_MENU,
+            Screen.NAME_PROMPT,
+            Screen.LOOPER_CONFIRM,
+            Screen.LOOPER_NAME,
+        )
         panel_visible = self.screen_state == Screen.SETTINGS or self._settings_slide > 0.004
 
         if modal or panel_visible:
@@ -128,8 +133,12 @@ class TouchBrowserInputMixin:
             self._draw_browser()
             if self.screen_state == Screen.CONTEXT_MENU:
                 self._draw_context_menu()
-            else:
+            elif self.screen_state == Screen.NAME_PROMPT:
                 self._draw_name_prompt()
+            elif self.screen_state == Screen.LOOPER_CONFIRM:
+                self._draw_looper_confirm_modal()
+            elif self.screen_state == Screen.LOOPER_NAME:
+                self._draw_looper_name_modal()
         else:
             self._draw_browser()
         if getattr(self, "_audio_profile_switching", False):
@@ -172,6 +181,18 @@ class TouchBrowserInputMixin:
             self._toggle_favorites()
             return
 
+        if self._try_looper_menu_tap_at(pos):
+            return
+
+        if self._try_looper_list_tap_at(pos):
+            return
+
+        if self._try_looper_confirm_tap_at(pos):
+            return
+
+        if self._try_looper_name_tap_at(pos):
+            return
+
         if self.left_nav_collapsed:
             if self.nav_toggle_btn.contains(*pos):
                 self._toggle_nav_collapsed()
@@ -179,6 +200,13 @@ class TouchBrowserInputMixin:
 
         if self.nav_collapse_btn.contains(*pos):
             self._toggle_nav_collapsed()
+            return
+        if (
+            getattr(self, "browse_looper_open_btn", None)
+            and self.browse_looper_open_btn.w > 0
+            and self.browse_looper_open_btn.contains(*pos)
+        ):
+            self._toggle_browse_looper()
             return
         if (
             getattr(self, "browse_filter_open_btn", None)
@@ -707,10 +735,22 @@ class TouchBrowserInputMixin:
             if self.screen_state == Screen.NAME_PROMPT:
                 self._handle_name_prompt_pointer_up(event.pos)
                 return
+            if self.screen_state == Screen.LOOPER_CONFIRM:
+                self._handle_looper_confirm_pointer_up(event.pos)
+                return
+            if self.screen_state == Screen.LOOPER_NAME:
+                self._handle_looper_name_pointer_up(event.pos)
+                return
 
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             if self.screen_state == Screen.NAME_PROMPT:
                 self._handle_name_prompt_pointer_down(event.pos)
+                return
+            if self.screen_state == Screen.LOOPER_CONFIRM:
+                self._handle_looper_confirm_pointer_down(event.pos)
+                return
+            if self.screen_state == Screen.LOOPER_NAME:
+                self._handle_looper_name_pointer_down(event.pos)
                 return
             if self.screen_state == Screen.SETTINGS:
                 self._handle_settings_pointer_down(event.pos)

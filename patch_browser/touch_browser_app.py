@@ -34,6 +34,7 @@ from patch_browser.surge_peak_monitor import SurgePeakMonitor, peak_meter_enable
 from patch_browser.surge_monitor import SurgeMonitor
 from patch_browser.touch_evdev import TouchEvdevBridge, evdev_bridge_enabled
 from patch_browser.touch_browser_browse import TouchBrowserBrowseMixin
+from patch_browser.touch_browser_looper_songs import TouchBrowserLooperSongsMixin
 from patch_browser.touch_browser_context import TouchBrowserContextMixin
 from patch_browser.touch_browser_draw import TouchBrowserDrawMixin
 from patch_browser.touch_browser_evdev import TouchBrowserEvdevMixin
@@ -79,6 +80,7 @@ class TouchPatchBrowser(
     TouchBrowserWifiModalMixin,
     TouchBrowserLayoutMixin,
     TouchBrowserBrowseMixin,
+    TouchBrowserLooperSongsMixin,
     TouchBrowserNavMixin,
     TouchBrowserInstrumentsMixin,
     TouchBrowserContextMixin,
@@ -177,6 +179,7 @@ class TouchPatchBrowser(
         self.screen_state = Screen.BROWSER
         self.nav_folder_title_rect: Rect | None = None
         self._init_browse_carousel_state()
+        self._init_looper_songs_state()
         self._init_instrument_filter_state()
         self._init_context_menu_state()
 
@@ -356,6 +359,18 @@ class TouchPatchBrowser(
         self._modal_pending_key = hit
         self._touch_press.set(hit)
 
+    def _modal_release_hit(self, pos: tuple[int, int]) -> str | None:
+        if (
+            self._modal_pending_key is None
+            or self._pointer_move_distance(self._modal_pointer_down_pos, pos)
+            > TAP_MOVE_THRESHOLD_PX
+        ):
+            self._clear_modal_pointer()
+            return None
+        hit = self._modal_pending_key
+        self._clear_modal_pointer()
+        return hit
+
     def _pressed(self, target_id: str) -> bool:
         return self._touch_press.is_pressed(target_id)
     def _toast(self, message: str, seconds: float = 2.0) -> None:
@@ -456,6 +471,7 @@ class TouchPatchBrowser(
             self._tick_loader_toast()
             self._poll_midi_sync_switch()
             self._poll_wifi_work()
+            self._poll_looper_song_results()
             self._handle_screen_recorder_signals()
             busy = False
             for event in pygame.event.get():

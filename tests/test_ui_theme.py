@@ -12,20 +12,17 @@ import patch_browser.ui_theme as ui_theme
 
 
 class UiThemeAccentTests(unittest.TestCase):
-    def test_both_themes_read_shared_accent(self) -> None:
-        self.assertEqual(ui_theme.STANDARD_THEME.accent, ui_theme.ACCENT)
-        self.assertEqual(ui_theme.OLED_BLACK_THEME.accent, ui_theme.ACCENT)
-        self.assertEqual(ui_theme.accent_color(), ui_theme.ACCENT)
-
-    def test_both_themes_read_shared_text(self) -> None:
-        self.assertEqual(ui_theme.STANDARD_THEME.text, ui_theme.TEXT)
-        self.assertEqual(ui_theme.OLED_BLACK_THEME.text, ui_theme.TEXT)
-        self.assertEqual(ui_theme.text_color(), ui_theme.TEXT)
-
-    def test_both_themes_read_shared_muted(self) -> None:
-        self.assertEqual(ui_theme.STANDARD_THEME.muted, ui_theme.MUTED)
-        self.assertEqual(ui_theme.OLED_BLACK_THEME.muted, ui_theme.MUTED)
-        self.assertEqual(ui_theme.muted_color(), ui_theme.MUTED)
+    def test_both_themes_read_shared_accent_text_muted(self) -> None:
+        cases = (
+            ("accent", ui_theme.ACCENT, ui_theme.accent_color),
+            ("text", ui_theme.TEXT, ui_theme.text_color),
+            ("muted", ui_theme.MUTED, ui_theme.muted_color),
+        )
+        for name, global_value, accessor in cases:
+            with self.subTest(knob=name):
+                self.assertEqual(getattr(ui_theme.STANDARD_THEME, name), global_value)
+                self.assertEqual(getattr(ui_theme.OLED_BLACK_THEME, name), global_value)
+                self.assertEqual(accessor(), global_value)
 
     def test_text_and_accent_are_separate_knobs(self) -> None:
         self.assertEqual(ui_theme.TEXT, ui_theme.ACCENT)

@@ -15,7 +15,7 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
 echo "=== Tier 3 seam weld spike ==="
 echo "Repo: ${REPO_ROOT}"
-echo "Scratch loop: ${MPE_SL_SCRATCH_LOOP:-15}"
+echo "Scratch loop: ${MPE_SL_SCRATCH_LOOP:-14} (Pi 5: must not be 15 — empty save_loop)"
 echo "Merge samples: ${MPE_SL_SEAM_MERGE_SAMPLES:-2048}"
 echo
 echo "Preconditions:"

@@ -7,7 +7,7 @@ answers immediately and agreeably.
 
 from __future__ import annotations
 
-import conftest  # noqa: F401 — bare sooperlooper imports (apc_grid, …)
+from tests import conftest  # noqa: F401 — bare sooperlooper imports (apc_grid, …)
 
 import unittest
 from unittest.mock import MagicMock

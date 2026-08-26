@@ -21,7 +21,7 @@ from patch_browser.instrument_filter import (
     primary_instrument,
 )
 from patch_browser.scroll_widgets import ScrollableActionList
-from patch_browser.touch_keyboard import TouchKeyboardLayout
+from patch_browser.touch_keyboard import KeyboardProfile, TouchKeyboardLayout, draw_touch_keyboard
 from patch_browser.touch_ui_constants import (
     BROWSER_BOTTOM_MARGIN,
     LONG_PRESS_S,
@@ -484,7 +484,13 @@ class TouchBrowserContextMixin:
             panel_w - 16,
             self._name_prompt_panel.bottom - kb_top - 56,
         )
-        self._name_prompt_keyboard = TouchKeyboardLayout(kb_panel, row_h=32, row_gap=4, key_gap=3)
+        self._name_prompt_keyboard = TouchKeyboardLayout(
+            kb_panel,
+            profile=KeyboardProfile.TEXT,
+            row_h=32,
+            row_gap=4,
+            key_gap=3,
+        )
         btn_y = self._name_prompt_panel.bottom - 48
         btn_w = (panel_w - 48) // 2
         self._name_prompt_cancel = Rect(self._name_prompt_panel.x + 16, btn_y, btn_w, 40)
@@ -643,35 +649,20 @@ class TouchBrowserContextMixin:
         )
         kb = self._name_prompt_keyboard
         if kb:
-            for rect, label in kb.keys:
-                key_hit = f"name:key:{label}"
-                pressed = self._pressed(key_hit)
-                bg = self.theme.accent if pressed else self.theme.surface_alt
-                text_color = self.theme.bg if pressed else self.theme.text
-                pygame.draw.rect(self.screen, bg, rect.pygame_rect, border_radius=6)
-                key_label = label.upper() if len(label) == 1 else label
-                ks = self.font_sm.render(key_label, True, text_color)
-                self.screen.blit(
-                    ks,
-                    (rect.x + (rect.w - ks.get_width()) // 2, rect.y + (rect.h - ks.get_height()) // 2),
-                )
-            for special, rect in (
-                ("backspace", kb.backspace_rect),
-                (" ", kb.space_rect),
-            ):
-                if rect is None:
-                    continue
-                key_hit = f"name:key:{special}"
-                pressed = self._pressed(key_hit)
-                bg = self.theme.accent if pressed else self.theme.surface_alt
-                text_color = self.theme.bg if pressed else self.theme.text
-                pygame.draw.rect(self.screen, bg, rect.pygame_rect, border_radius=6)
-                display = "⌫" if special == "backspace" else "space"
-                ks = self.font_sm.render(display, True, text_color)
-                self.screen.blit(
-                    ks,
-                    (rect.x + (rect.w - ks.get_width()) // 2, rect.y + (rect.h - ks.get_height()) // 2),
-                )
+            pressed = self._touch_press.active_id
+            pressed_key = None
+            if pressed and pressed.startswith("name:key:"):
+                pressed_key = pressed.split(":", 2)[2]
+            draw_touch_keyboard(
+                kb,
+                draw_button=lambda rect, label, **kw: self._draw_button(
+                    rect,
+                    label.upper() if len(label) == 1 else label,
+                    small=True,
+                    **kw,
+                ),
+                pressed_key=pressed_key,
+            )
         if self._name_prompt_cancel:
             self._draw_button(
                 self._name_prompt_cancel,

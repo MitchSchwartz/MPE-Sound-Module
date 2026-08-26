@@ -90,6 +90,9 @@ class TouchBrowserInstrumentsMixin:
     def _layout_browse_filter_pane(self, *, pane: Rect) -> None:
         self.browse_filter_rect = pane
         self.browse_filter_back_btn = Rect(0, 0, 0, 0)
+        if getattr(self, "_browse_left_pane_mode", "filter") == "looper":
+            self._layout_looper_pane(pane=pane)
+            return
         self._refresh_instrument_chips()
 
     def _refresh_instrument_chips(self) -> None:
@@ -164,6 +167,9 @@ class TouchBrowserInstrumentsMixin:
         return None
 
     def _draw_browse_filter_pane(self) -> None:
+        if getattr(self, "_browse_left_pane_mode", "filter") == "looper":
+            self._draw_looper_pane()
+            return
         pane = self.browse_filter_rect
         if pane.w <= 0:
             return

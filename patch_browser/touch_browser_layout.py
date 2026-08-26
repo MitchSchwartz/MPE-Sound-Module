@@ -414,10 +414,12 @@ class TouchBrowserLayoutMixin:
         x += icon_w + 6
         self.nav_all_btn = Rect(x, y, all_w, btn_h)
         self.browse_filter_open_btn = Rect(0, 0, 0, 0)
+        self.browse_looper_open_btn = Rect(0, 0, 0, 0)
         if self.left_nav_mode != LeftNavMode.ALL_PATCHES:
             self.nav_collapse_btn = Rect(self.nav_header_rect.right - 38, y, 32, btn_h)
             if self._browse_carousel_active():
                 self.browse_filter_open_btn = Rect(self.nav_header_rect.right - 76, y, 32, btn_h)
+                self.browse_looper_open_btn = Rect(self.nav_header_rect.right - 114, y, 32, btn_h)
         else:
             self.nav_collapse_btn = Rect(0, 0, 0, 0)
 

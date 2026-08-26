@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import conftest  # noqa: F401 — bare sooperlooper imports (sl_loop_states, …)
+from tests import conftest  # noqa: F401 — bare sooperlooper imports (sl_loop_states, …)
 
 import unittest
 
@@ -212,11 +212,11 @@ class LedTableTests(unittest.TestCase):
         self.assertEqual(led_for(SL_STATE_WAIT_START), (LED_RED_BLINK,))
 
     def test_tail_capture_led_is_amber_while_weld_pending(self) -> None:
-        from scripts.sooperlooper.led_table import LED_YELLOW_BLINK
+        from scripts.sooperlooper.led_table import RECORD_TO_PLAY, led_for
 
         self.assertEqual(
             led_for(SL_STATE_PLAYING, tail_capture=True),
-            (LED_YELLOW_BLINK,),
+            RECORD_TO_PLAY,
         )
 
     def test_recording_queued_to_play_shows_both_colours(self) -> None:

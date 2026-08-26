@@ -16,6 +16,7 @@ from led_table import (  # noqa: F401
     LED_RED_BLINK,
     LED_YELLOW,
     LED_YELLOW_BLINK,
+    accelerating_hold_blink_on,
     led_for,
 )
 from loop_model import (
@@ -39,7 +40,12 @@ from sl_grid_sync import (
     detect_loop_wrap,
     should_defer_phase_anchor,
 )
-from sl_seam_weld import SCRATCH_LOOP, SEAM_WELD_ENABLED
+from sl_seam_weld import (
+    SCRATCH_LOOP,
+    SEAM_EARLY_ARM,
+    SEAM_EARLY_ARM_BIAS_S,
+    SEAM_WELD_ENABLED,
+)
 from sl_loop_states import (
     ACTIVE_PLAY,
     ACTIVE_RECORD,
@@ -98,6 +104,7 @@ class LoopFootswitch:
         loop: int,
         hold_ms: float,
         debounce_ms: float,
+        hold_blink_start_ms: float = 500.0,
         num_loops: int = 16,
         quantized: bool = True,
         grid: GridState | None = None,
@@ -124,6 +131,7 @@ class LoopFootswitch:
         self.quantized = quantized
         self.num_loops = num_loops
         self.hold_s = hold_ms / 1000.0
+        self.hold_blink_start_s = hold_blink_start_ms / 1000.0
         self.debounce_s = debounce_ms / 1000.0
         self._pending: str | None = None
         self._pending_since = 0.0
@@ -142,6 +150,9 @@ class LoopFootswitch:
         self._led_last: int | None = None
         self._tail_capture = False
         self._tail_capture_since = 0.0
+        self._loop_pos_at = 0.0
+        self._scratch_start_pos = 0.0
+        self._scratch_armed_early = False
         self._tail_silence_since: float | None = None
         self._in_peak = 0.0
         self._in_peak_seen = False
@@ -149,6 +160,7 @@ class LoopFootswitch:
         self._tail_stop_sent = False
         self._tail_deferred = False
         self._scratch_active = False
+        self._scratch_started = False
         self._tail_ending = False
         self._merge_pending = False
         self._deferred_grid_clock: tuple[float, int] | None = None
@@ -225,6 +237,8 @@ class LoopFootswitch:
         if not self._scratch_active:
             return
         self._scratch_active = False
+        # Keep _scratch_started until merge decision — _end_tail_capture stops
+        # scratch before _should_seam_merge() runs.
         if self._on_stop_scratch is not None:
             self._on_stop_scratch(self.loop)
         log(f"loop {self.loop}: scratch tail record stopped (loop {SCRATCH_LOOP})")
@@ -244,9 +258,17 @@ class LoopFootswitch:
         if not SEAM_WELD_ENABLED or self._on_start_scratch is None:
             return
         self._scratch_active = True
+        self._scratch_started = True
+        if self._on_prepare_scratch is not None:
+            self._on_prepare_scratch(self.loop)
+        self._scratch_start_pos = self.loop_pos if self._loop_pos_seen else 0.0
+        # Armed before the boundary? Then the scratch head is take content and
+        # the merge must skip it. How much is only knowable once the final
+        # length lands, so record the arm position and resolve it at merge time.
+        self._scratch_armed_early = self.sl_state not in ACTIVE_PLAY
         log(
             f"loop {self.loop}: scratch tail record on loop {SCRATCH_LOOP} "
-            f"(pos={self.loop_pos:.3f}s / {self.loop_len:.3f}s)"
+            f"(pos={self._scratch_start_pos:.3f}s / {self.loop_len:.3f}s)"
         )
         self._on_start_scratch(self.loop)
 
@@ -263,6 +285,8 @@ class LoopFootswitch:
         self._tail_saw_loud = False
         self._tail_stop_sent = False
         self._tail_deferred = False
+        self._scratch_started = False
+        self._scratch_start_pos = 0.0
         if had_deferred:
             self._flush_deferred_grid_side_effects()
 
@@ -293,6 +317,7 @@ class LoopFootswitch:
         self._tail_stop_sent = False
         self._tail_deferred = False
         self._scratch_active = False
+        self._scratch_started = False
         self._tail_ending = False
         self._merge_pending = False
         if self._on_tail_capture_end is not None:
@@ -306,12 +331,12 @@ class LoopFootswitch:
         self._mark_action()
 
     def _should_seam_merge(self) -> bool:
-        """Only merge when release was audible — empty scratch has nothing to weld."""
+        """Merge when scratch captured audio — peak quiet timing or fixed window."""
         if not SEAM_WELD_ENABLED or not self._tail_stop_sent:
             return False
-        if not self._tail_saw_loud:
+        if self._on_request_seam_merge is None:
             return False
-        return self._on_request_seam_merge is not None
+        return self._scratch_started or self._tail_saw_loud
 
     def _end_tail_capture(self, reason: str) -> None:
         """Stop scratch capture and optionally run Tier 3 merge before finish."""
@@ -323,10 +348,23 @@ class LoopFootswitch:
         if self._should_seam_merge():
             log(f"loop {self.loop}: seam merge queued ({reason})")
             self._merge_pending = True
-            accepted = self._on_request_seam_merge(
-                self.loop,
-                lambda: self._after_seam_merge(reason),
-            )
+            self._sync_led()
+            try:
+                accepted = self._on_request_seam_merge(
+                    self.loop,
+                    lambda: self._after_seam_merge(reason),
+                    self.seam_position,
+                    self._scratch_start_pos,
+                    self._tail_skip_seconds(),
+                )
+            except Exception as exc:
+                log(
+                    f"loop {self.loop}: seam merge hook failed ({exc!r}) — "
+                    f"finishing without reload"
+                )
+                self._merge_pending = False
+                self._finish_tail_capture(reason)
+                return
             if not accepted:
                 log(
                     f"loop {self.loop}: seam merge declined — finishing without reload"
@@ -367,8 +405,60 @@ class LoopFootswitch:
         self._on_stop_scratch = on_stop_scratch
         self._on_request_seam_merge = on_request_merge
 
+    def _tail_skip_seconds(self) -> float:
+        """Take content sitting at the head of the scratch, in seconds.
+
+        Zero unless the scratch was armed early. When it was, it started at
+        recording position ``_scratch_start_pos`` and the take ended at
+        ``loop_len``, so everything before the boundary is performance, not
+        release. A small bias trims a little extra: clipping a few ms off the
+        start of the ring-out is inaudible, while leaving take content in
+        doubles it onto the head as an audible flam.
+        """
+        if not self._scratch_armed_early or self.loop_len <= 0.0:
+            return 0.0
+        if self._scratch_start_pos <= 0.0:
+            # No usable arm position — fall back to treating the whole scratch
+            # as tail rather than skipping blindly.
+            return 0.0
+        skip = self.loop_len - self._scratch_start_pos
+        if skip <= 0.0:
+            return 0.0
+        return skip + SEAM_EARLY_ARM_BIAS_S
+
+    def seam_position(self) -> tuple[float, float] | None:
+        """Live (loop_pos, loop_len) for timing the seam swap, or None.
+
+        Predicted forward from the last OSC frame: loop_pos arrives every
+        ~20 ms (MPE_SL_BENCH_LOOP_POS_MS) and the swap needs finer aim than
+        that. A stale snapshot is worse than none here — the merge takes
+        hundreds of ms, so a position sampled when the merge was *queued* is
+        already most of a bar out of date.
+        """
+        if not self._loop_pos_seen or self.loop_len <= 0.0:
+            return None
+        if self.sl_state not in ACTIVE_PLAY:
+            return None
+        predicted = self.loop_pos + (time.monotonic() - self._loop_pos_at)
+        return (predicted % self.loop_len, self.loop_len)
+
     def _tail_playback_ready(self) -> bool:
-        return self.sl_state in ACTIVE_PLAY
+        if self.sl_state in ACTIVE_PLAY:
+            return True
+        # Early arming: WAIT_STOP means the stop is sent and SL is counting to
+        # the cycle boundary. Arming here gets the scratch rolling BEFORE the
+        # take ends, so the release is captured continuously with no hole.
+        # Waiting for PLAYING costs a state round-trip — measured 17-68ms of
+        # ring-out that nothing ever recorded, and that gap is what still
+        # steps the wrap down after the fade fix.
+        if not (SEAM_EARLY_ARM and self.sl_state == SL_STATE_WAIT_STOP):
+            return False
+        # Only with a real playhead reading. Arming early without one leaves
+        # _scratch_start_pos at 0, and the skip below then computes a full
+        # loop_len — which would discard the entire tail instead of the take
+        # content. Waiting for the next loop_pos frame costs ~20ms; guessing
+        # costs the whole feature.
+        return self._loop_pos_seen
 
     def poll_tail_capture(self) -> None:
         """Stop-then-weld: fixed loop length + parallel scratch + offline merge."""
@@ -437,6 +527,9 @@ class LoopFootswitch:
             self._maybe_establish_grid()
             if self._tail_capture and self._tail_stop_sent:
                 self._maybe_start_scratch()
+        elif sl_state == SL_STATE_WAIT_STOP:
+            if self._tail_capture and self._tail_stop_sent:
+                self._maybe_start_scratch()
 
         if self.grid is not None:
             if self.grid.note_loop_content(self.loop, sl_state != SL_STATE_OFF):
@@ -477,6 +570,7 @@ class LoopFootswitch:
                 self._try_commit_phase_reanchor(force_wrap=True)
         self._last_loop_pos = self.loop_pos if self._loop_pos_seen else pos
         self.loop_pos = pos
+        self._loop_pos_at = time.monotonic()
         self._loop_pos_seen = True
         if self._phase_reanchor_at > 0.0 and not self._tail_capture:
             self._try_commit_phase_reanchor()
@@ -578,8 +672,14 @@ class LoopFootswitch:
         return led_for(
             self.sl_state,
             pending=self._pending,
-            tail_capture=self._tail_capture,
+            tail_capture=self._tail_capture and not self._merge_pending,
         )
+
+    def _hold_led_lock(self) -> bool:
+        """True while hold-warning owns the pad LED (after blink-start delay)."""
+        if not self._pad_down or self._hold_fired:
+            return False
+        return (time.monotonic() - self._pad_down_at) >= self.hold_blink_start_s
 
     def _sync_led(self) -> None:
         """Paint the pad from engine truth plus unconfirmed intent.
@@ -588,6 +688,8 @@ class LoopFootswitch:
         one-element sequence is a steady colour, anything longer animates and
         `poll_led` drives it from here.
         """
+        if self._hold_led_lock():
+            return
         seq = self._led_target()
         if len(seq) > 1:
             self._led_transition = seq
@@ -643,6 +745,33 @@ class LoopFootswitch:
         self._sync_led()
         self._mark_action()
 
+    def _hold_targets_cancel(self) -> bool:
+        """True when a long press should abort a take, not delete a landed clip."""
+        if self._tail_capture:
+            return True
+        if self.sl_state in (
+            SL_STATE_RECORDING,
+            SL_STATE_WAIT_START,
+            SL_STATE_WAIT_STOP,
+        ):
+            return True
+        return self.state == STATE_RECORDING
+
+    def _cancel_recording(self) -> None:
+        """Abort an in-progress take (armed, recording, or tail capture)."""
+        self._stop_queued = False
+        self._cancel_tail_capture()
+        if self.grid is not None:
+            self.grid.cancel(self.loop)
+        self.awaiting_quantize = False
+        if self.sl_state == SL_STATE_WAIT_START:
+            self._hit("record")
+        else:
+            self._hit("undo_all")
+        self._expect(STATE_IDLE)
+        self._sync_led()
+        self._mark_action()
+
     def _gesture(self, edge: str) -> None:
         if self._tail_capture:
             if edge == "down":
@@ -680,6 +809,7 @@ class LoopFootswitch:
             self._in_peak_seen = False
             self._tail_saw_loud = False
             self._scratch_active = False
+            self._scratch_started = False
             self._tail_deferred = plan.tail_deferred
             self._tail_stop_sent = True
             if plan.commands:
@@ -687,8 +817,6 @@ class LoopFootswitch:
                     self._hit(cmd)
             elif self.sl_state in ACTIVE_RECORD:
                 self._hit("record")
-            if self._on_prepare_scratch is not None:
-                self._on_prepare_scratch(self.loop)
             self._expect(STATE_PLAYING)
             if self._on_tail_capture_begin is not None:
                 self._on_tail_capture_begin(self.loop)
@@ -733,7 +861,22 @@ class LoopFootswitch:
         self._pad_down = False
 
     def poll_led(self) -> None:
-        """Drive the transition blink. Cheap no-op unless one is active."""
+        """Drive transition blink and hold-warning blink."""
+        if self._pad_down and not self._hold_fired and self._note is not None:
+            elapsed = time.monotonic() - self._pad_down_at
+            if elapsed >= self.hold_blink_start_s:
+                if self._hold_targets_cancel():
+                    blink_on = accelerating_hold_blink_on(
+                        elapsed - self.hold_blink_start_s,
+                        hold_s=max(self.hold_s - self.hold_blink_start_s, 0.001),
+                        blink_after_s=0.0,
+                    )
+                    if blink_on is not None:
+                        self._set_led(LED_RED if blink_on else LED_OFF)
+                        return
+                else:
+                    self._set_led(LED_RED)
+                    return
         if self._led_transition is None:
             return
         seq = self._led_transition
@@ -747,8 +890,12 @@ class LoopFootswitch:
             return
         self._hold_fired = True
         self._pad_down = False
-        log(f"loop {self.loop}: -> hold clear")
-        self._clear_loop()
+        if self._hold_targets_cancel():
+            log(f"loop {self.loop}: -> hold cancel recording")
+            self._cancel_recording()
+        else:
+            log(f"loop {self.loop}: -> hold clear")
+            self._clear_loop()
 
 
 def build_footswitches(
@@ -758,6 +905,7 @@ def build_footswitches(
     num_loops: int,
     hold_ms: float,
     debounce_ms: float,
+    hold_blink_start_ms: float = 500.0,
     quantized: bool = True,
     grid: GridState | None = None,
     view: GridView | None = None,
@@ -780,6 +928,7 @@ def build_footswitches(
             loop=loop_i,
             hold_ms=hold_ms,
             debounce_ms=debounce_ms,
+            hold_blink_start_ms=hold_blink_start_ms,
             num_loops=num_loops,
             quantized=quantized,
             grid=grid,
@@ -787,7 +936,10 @@ def build_footswitches(
             on_phase_reanchor=on_phase_reanchor,
             on_grid_dropped=on_grid_dropped,
         )
-        fs.bind(osc, midi_out, view.note_for_loop(loop_i))
+        pad = view.note_for_loop(loop_i)
+        if SEAM_WELD_ENABLED and loop_i == SCRATCH_LOOP:
+            pad = None
+        fs.bind(osc, midi_out, pad)
         footswitches.append(fs)
     return notes_for_view(footswitches, view), footswitches
 

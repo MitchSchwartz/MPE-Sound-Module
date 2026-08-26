@@ -7,14 +7,25 @@ Mk1: original APC mini — Stop All 0x59 (scene launch 8), Shift 0x62.
 from __future__ import annotations
 
 import time
+from typing import Protocol
+
+from led_table import (
+    SCENE_LED_OFF,
+    SCENE_LED_ON,
+    TRACK_LED_OFF,
+    TRACK_LED_ON,
+    accelerating_hold_blink_on,
+)
 
 # APC mini mk2 (Communication Protocol v1.0)
 NOTE_STOP_ALL_CLIPS_MK2 = 0x77
 NOTE_SHIFT_MK2 = 0x7A
+NOTE_TRACK8_MK2 = 0x6B
 
 # APC mini mk1 (original — port name is usually "APC MINI" without "mk2")
 NOTE_STOP_ALL_CLIPS_MK1 = 0x59
 NOTE_SHIFT_MK1 = 0x62
+NOTE_TRACK8_MK1 = 0x37
 
 # Bank arrows — up, down, left, right.
 #
@@ -90,6 +101,13 @@ def resolve_apc_transport_notes(
     if "mk2" in name or "mkii" in name:
         return NOTE_SHIFT_MK2, NOTE_STOP_ALL_CLIPS_MK2, "mk2"
     return NOTE_SHIFT_MK1, NOTE_STOP_ALL_CLIPS_MK1, "mk1"
+
+
+def resolve_shift_indicator_note(apc_label: str) -> int:
+    """Track Select 8 — red LED used as Shift held indicator (Shift has no LED)."""
+    if apc_label == "mk2":
+        return NOTE_TRACK8_MK2
+    return NOTE_TRACK8_MK1
 
 
 class ShiftHoldCombo:
@@ -175,3 +193,117 @@ class ShiftHoldCombo:
     def poll(self) -> bool:
         """Backward-compatible alias for poll_long()."""
         return self.poll_long()
+
+
+class _MidiOut(Protocol):
+    def send_message(self, message: list[int]) -> None: ...
+
+
+class TransportButtonLeds:
+    """Shift / Stop All Clips button LEDs on the APC transport row.
+
+    Shift has no LED on mk1 or mk2 — ``shift_indicator_note`` (Track Select 8)
+    shows solid red while Shift is held.
+
+    Stop All is Scene Launch 8 (green-only hardware): solid green while held
+    alone; green blink during Shift+Stop reset combo. Track 8 blinks red in
+    that combo.
+    """
+
+    def __init__(
+        self,
+        *,
+        midi_out: _MidiOut,
+        shift_note: int,
+        stop_all_note: int,
+        shift_indicator_note: int,
+        hold_s: float,
+        blink_start_half_s: float = 0.35,
+        blink_min_half_s: float = 0.04,
+    ) -> None:
+        self._midi_out = midi_out
+        self._shift_note = shift_note
+        self._stop_all_note = stop_all_note
+        self._shift_indicator_note = shift_indicator_note
+        self._hold_s = max(hold_s, 0.001)
+        self._blink_start_half_s = blink_start_half_s
+        self._blink_min_half_s = blink_min_half_s
+        self._shift_down = False
+        self._stop_down = False
+        self._combo_started_at: float | None = None
+        self._suppress_until_release = False
+        self._last_vel: dict[int, int] = {}
+        self._set_led(self._shift_indicator_note, TRACK_LED_OFF)
+        self._set_led(self._stop_all_note, SCENE_LED_OFF)
+
+    def note_event(self, note: int, down: bool) -> None:
+        if note == self._shift_note:
+            self._shift_down = down
+        elif note == self._stop_all_note:
+            self._stop_down = down
+        else:
+            return
+
+        self._maybe_clear_suppress()
+        if self._suppress_until_release:
+            self._set_led(self._shift_indicator_note, TRACK_LED_OFF)
+            self._set_led(self._stop_all_note, SCENE_LED_OFF)
+            return
+
+        if self._shift_down and self._stop_down:
+            if self._combo_started_at is None:
+                self._combo_started_at = time.monotonic()
+        else:
+            self._combo_started_at = None
+
+        self._apply(time.monotonic())
+
+    def poll(self) -> None:
+        """Drive accelerating combo blink between MIDI events."""
+        if self._suppress_until_release:
+            return
+        if self._shift_down and self._stop_down and self._combo_started_at is not None:
+            self._apply(time.monotonic())
+
+    def on_reset_fired(self) -> None:
+        """Track reset completed — dark until both buttons are released."""
+        self._suppress_until_release = True
+        self._combo_started_at = None
+        self._set_led(self._shift_indicator_note, TRACK_LED_OFF)
+        self._set_led(self._stop_all_note, SCENE_LED_OFF)
+
+    def _maybe_clear_suppress(self) -> None:
+        if self._suppress_until_release and not self._shift_down and not self._stop_down:
+            self._suppress_until_release = False
+
+    def _apply(self, now: float) -> None:
+        if self._shift_down and self._stop_down and self._combo_started_at is not None:
+            elapsed = now - self._combo_started_at
+            blink_on = accelerating_hold_blink_on(
+                elapsed,
+                hold_s=self._hold_s,
+                blink_after_s=0.0,
+                blink_start_half_s=self._blink_start_half_s,
+                blink_min_half_s=self._blink_min_half_s,
+            )
+            track_vel = TRACK_LED_ON if blink_on else TRACK_LED_OFF
+            scene_vel = SCENE_LED_ON if blink_on else SCENE_LED_OFF
+            self._set_led(self._shift_indicator_note, track_vel)
+            self._set_led(self._stop_all_note, scene_vel)
+            return
+
+        self._set_led(
+            self._shift_indicator_note,
+            TRACK_LED_ON if self._shift_down else TRACK_LED_OFF,
+        )
+        self._set_led(
+            self._stop_all_note,
+            SCENE_LED_ON if self._stop_down else SCENE_LED_OFF,
+        )
+
+    def _set_led(self, note: int, velocity: int) -> None:
+        velocity = max(0, min(127, velocity))
+        if self._last_vel.get(note) == velocity:
+            return
+        self._last_vel[note] = velocity
+        self._midi_out.send_message([0x90, note, velocity])
