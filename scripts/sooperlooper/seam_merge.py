@@ -34,29 +34,50 @@ import struct
 from pathlib import Path
 from typing import Sequence
 
-# ~5 ms at 48 kHz. The scratch loop starts recording mid-decay, so tail[0] is a
-# step away from silence; without a fade-in that step is the click. Long enough
-# to kill the step, short enough not to swallow the start of the ring-out.
+# Fade-out at the tail's truncation point: ~5 ms at 48 kHz. The tail is cut
+# wherever capture stopped, so it needs a real ramp to silence.
 DEFAULT_DECLICK_SAMPLES = 256
+
+# Fade-IN at the wrap: 64 samples, ~1.3 ms. Deliberately far shorter than the
+# fade-out, because the two edges are not the same problem.
+#
+# The tail's first sample lands at loop index 0, where it is *continuing* the
+# energy of the take's end — not starting from silence. Ramping it up from zero
+# digs a hole exactly at the seam. Measured on the 00:50 take (3.968 s clip),
+# 1 ms RMS windows across the wrap, against a take-end level of 0.193:
+#
+#   fade_in=256   0.110  0.049  0.086  0.103  0.167 ...   dip to 0.25x  <- stutter
+#   fade_in=64    0.110  0.155  0.183  0.155  0.195 ...   dip to 0.52x
+#
+# Sweep of the worst 1 ms window in the first 10 ms: 0 -> 0.46x, 32 -> 0.52x,
+# 64 -> 0.52x, 128 -> 0.48x, 256 -> 0.25x. 64 is the flat part of the curve;
+# it still kills any step (0.0012 full-scale at the wrap) without the hole.
+DEFAULT_FADE_IN_SAMPLES = 64
 
 _WAVE_FORMAT_IEEE_FLOAT = 3
 
 
 def _declicked(
-    tail: Sequence[tuple[float, float]], declick: int
+    tail: Sequence[tuple[float, float]], fade_in: int, fade_out: int
 ) -> list[tuple[float, float]]:
-    """Linear fade in/out on the tail edges so summing it cannot step."""
+    """Linear fades on the tail edges. The two edges are asymmetric on purpose.
+
+    The trailing edge is a truncation and needs a real ramp to silence. The
+    leading edge lands on the wrap, where the tail continues the take's energy,
+    so it gets only enough ramp to kill the step — see DEFAULT_FADE_IN_SAMPLES.
+    """
     frames = list(tail)
     n = len(frames)
     if n == 0:
         return frames
-    d = max(0, min(int(declick), n // 2))
-    if d == 0:
-        return frames
-    for i in range(d):
-        g = (i + 1) / (d + 1)
+    fi = max(0, min(int(fade_in), n // 2))
+    fo = max(0, min(int(fade_out), n // 2))
+    for i in range(fi):
+        g = (i + 1) / (fi + 1)
         l, r = frames[i]
         frames[i] = (l * g, r * g)
+    for i in range(fo):
+        g = (i + 1) / (fo + 1)
         j = n - 1 - i
         l, r = frames[j]
         frames[j] = (l * g, r * g)
@@ -69,6 +90,7 @@ def merge_stereo_frames(
     *,
     merge_samples: int = 0,
     declick_samples: int = DEFAULT_DECLICK_SAMPLES,
+    fade_in_samples: int = DEFAULT_FADE_IN_SAMPLES,
     offset_samples: int = 0,
 ) -> list[tuple[float, float]]:
     """Sum the release tail into the loop head, wrapping modulo N.
@@ -92,7 +114,9 @@ def merge_stereo_frames(
     # buffer that then repeats forever — level buildup and mud, not realism.
     # Reachable now that the tail ends on actual decay (up to
     # TAIL_ABSOLUTE_MAX_S) rather than the old fixed 750 ms cut.
-    frames = _declicked(list(tail)[:n], declick_samples)
+    # declick_samples=0 means "no fades at all" — keep that contract.
+    fade_in = fade_in_samples if declick_samples else 0
+    frames = _declicked(list(tail)[:n], fade_in, declick_samples)
     start = int(offset_samples) % n
     for i, (tl, tr) in enumerate(frames):
         idx = (start + i) % n
@@ -200,6 +224,7 @@ def merge_tail_at_seam(
     *,
     merge_samples: int = 0,
     declick_samples: int = DEFAULT_DECLICK_SAMPLES,
+    fade_in_samples: int = DEFAULT_FADE_IN_SAMPLES,
     offset_samples: int = 0,
     offset_seconds: float = 0.0,
 ) -> Path:
@@ -224,6 +249,7 @@ def merge_tail_at_seam(
         tail_frames,
         merge_samples=merge_samples,
         declick_samples=declick_samples,
+        fade_in_samples=fade_in_samples,
         offset_samples=offset,
     )
     write_float32_stereo_wav(out_path, merged, sample_rate=main_rate)

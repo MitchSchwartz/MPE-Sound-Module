@@ -7,6 +7,9 @@ Mk1: original APC mini — Stop All 0x59 (scene launch 8), Shift 0x62.
 from __future__ import annotations
 
 import time
+from typing import Protocol
+
+from led_table import LED_OFF, LED_RED
 
 # APC mini mk2 (Communication Protocol v1.0)
 NOTE_STOP_ALL_CLIPS_MK2 = 0x77
@@ -175,3 +178,104 @@ class ShiftHoldCombo:
     def poll(self) -> bool:
         """Backward-compatible alias for poll_long()."""
         return self.poll_long()
+
+
+class _MidiOut(Protocol):
+    def send_message(self, message: list[int]) -> None: ...
+
+
+class TransportButtonLeds:
+    """Shift / Stop All Clips button LEDs on the APC transport row.
+
+    Single button held → solid red. Both held (reset combo) → red blink that
+    accelerates until ``on_reset_fired()``. After a track reset, LEDs stay off
+    until both buttons are released and pressed again.
+    """
+
+    def __init__(
+        self,
+        *,
+        midi_out: _MidiOut,
+        shift_note: int,
+        stop_all_note: int,
+        hold_s: float,
+        blink_start_half_s: float = 0.35,
+        blink_min_half_s: float = 0.04,
+    ) -> None:
+        self._midi_out = midi_out
+        self._shift_note = shift_note
+        self._stop_all_note = stop_all_note
+        self._hold_s = max(hold_s, 0.001)
+        self._blink_start_half_s = blink_start_half_s
+        self._blink_min_half_s = blink_min_half_s
+        self._shift_down = False
+        self._stop_down = False
+        self._combo_started_at: float | None = None
+        self._suppress_until_release = False
+        self._last_vel: dict[int, int] = {}
+        self._set_led(self._shift_note, LED_OFF)
+        self._set_led(self._stop_all_note, LED_OFF)
+
+    def note_event(self, note: int, down: bool) -> None:
+        if note == self._shift_note:
+            self._shift_down = down
+        elif note == self._stop_all_note:
+            self._stop_down = down
+        else:
+            return
+
+        self._maybe_clear_suppress()
+        if self._suppress_until_release:
+            self._set_led(self._shift_note, LED_OFF)
+            self._set_led(self._stop_all_note, LED_OFF)
+            return
+
+        if self._shift_down and self._stop_down:
+            if self._combo_started_at is None:
+                self._combo_started_at = time.monotonic()
+        else:
+            self._combo_started_at = None
+
+        self._apply(time.monotonic())
+
+    def poll(self) -> None:
+        """Drive accelerating combo blink between MIDI events."""
+        if self._suppress_until_release:
+            return
+        if self._shift_down and self._stop_down and self._combo_started_at is not None:
+            self._apply(time.monotonic())
+
+    def on_reset_fired(self) -> None:
+        """Track reset completed — dark until both buttons are released."""
+        self._suppress_until_release = True
+        self._combo_started_at = None
+        self._set_led(self._shift_note, LED_OFF)
+        self._set_led(self._stop_all_note, LED_OFF)
+
+    def _maybe_clear_suppress(self) -> None:
+        if self._suppress_until_release and not self._shift_down and not self._stop_down:
+            self._suppress_until_release = False
+
+    def _apply(self, now: float) -> None:
+        if self._shift_down and self._stop_down and self._combo_started_at is not None:
+            elapsed = now - self._combo_started_at
+            progress = min(1.0, elapsed / self._hold_s)
+            half_period = max(
+                self._blink_min_half_s,
+                self._blink_start_half_s * (1.0 - progress) ** 1.5,
+            )
+            on = int(elapsed / half_period) % 2 == 0
+            velocity = LED_RED if on else LED_OFF
+            self._set_led(self._shift_note, velocity)
+            self._set_led(self._stop_all_note, velocity)
+            return
+
+        self._set_led(self._shift_note, LED_RED if self._shift_down else LED_OFF)
+        self._set_led(self._stop_all_note, LED_RED if self._stop_down else LED_OFF)
+
+    def _set_led(self, note: int, velocity: int) -> None:
+        velocity = max(0, min(127, velocity))
+        if self._last_vel.get(note) == velocity:
+            return
+        self._last_vel[note] = velocity
+        self._midi_out.send_message([0x90, note, velocity])

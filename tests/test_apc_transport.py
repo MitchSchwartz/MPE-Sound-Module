@@ -9,8 +9,10 @@ from scripts.sooperlooper.apc_transport import (
     NOTE_STOP_ALL_CLIPS_MK1,
     NOTE_STOP_ALL_CLIPS_MK2,
     ShiftHoldCombo,
+    TransportButtonLeds,
     resolve_apc_transport_notes,
 )
+from scripts.sooperlooper.led_table import LED_OFF, LED_RED
 
 
 class ResolveApcTransportNotesTests(unittest.TestCase):
@@ -99,3 +101,65 @@ class ArrowBankingTests(unittest.TestCase):
         self.assertEqual(bank_delta_for_arrow("right", shift_down=False), 0)
         self.assertEqual(bank_delta_for_arrow("right", shift_down=True), 1)
         self.assertEqual(bank_delta_for_arrow("left", shift_down=True), -1)
+
+
+class TransportButtonLedsTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.sent: list[list[int]] = []
+
+        class FakeOut:
+            def __init__(self, sink: list[list[int]]) -> None:
+                self._sink = sink
+
+            def send_message(self, message: list[int]) -> None:
+                self._sink.append(list(message))
+
+        self.midi_out = FakeOut(self.sent)
+        self.shift = NOTE_SHIFT_MK1
+        self.stop = NOTE_STOP_ALL_CLIPS_MK1
+
+    def _leds(self, *, hold_s: float = 3.0) -> TransportButtonLeds:
+        return TransportButtonLeds(
+            midi_out=self.midi_out,
+            shift_note=self.shift,
+            stop_all_note=self.stop,
+            hold_s=hold_s,
+        )
+
+    def test_shift_alone_solid_red_while_held(self) -> None:
+        leds = self._leds()
+        leds.note_event(self.shift, True)
+        self.assertEqual(self.sent[-1], [0x90, self.shift, LED_RED])
+        leds.note_event(self.shift, False)
+        self.assertEqual(self.sent[-1], [0x90, self.shift, LED_OFF])
+
+    def test_both_held_blinks_and_accelerates(self) -> None:
+        leds = self._leds(hold_s=3.0)
+        with patch(
+            "scripts.sooperlooper.apc_transport.time.monotonic",
+            side_effect=[0.0, 0.0, 0.0, 0.5, 0.5],
+        ):
+            leds.note_event(self.shift, True)
+            leds.note_event(self.stop, True)
+            self.assertEqual(self.sent[-1], [0x90, self.stop, LED_RED])
+            leds.poll()
+            self.assertIn(self.sent[-1][2], (LED_RED, LED_OFF))
+            leds.poll()
+            # Later in the hold the half-period is shorter — phase may differ.
+            self.assertIn(self.sent[-1][2], (LED_RED, LED_OFF))
+
+    def test_reset_clears_until_both_released(self) -> None:
+        leds = self._leds()
+        leds.note_event(self.shift, True)
+        leds.note_event(self.stop, True)
+        leds.on_reset_fired()
+        self.assertEqual(self.sent[-2:], [
+            [0x90, self.shift, LED_OFF],
+            [0x90, self.stop, LED_OFF],
+        ])
+        leds.note_event(self.shift, True)
+        self.assertEqual(self.sent[-1], [0x90, self.stop, LED_OFF])
+        leds.note_event(self.shift, False)
+        leds.note_event(self.stop, False)
+        leds.note_event(self.shift, True)
+        self.assertEqual(self.sent[-1], [0x90, self.shift, LED_RED])
