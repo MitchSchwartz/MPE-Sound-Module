@@ -93,6 +93,13 @@ Official guidance ([RPi OTG app note](https://pip-assets.raspberrypi.com/categor
 
 ### Clock master
 
+> **⚠️ Unverified assumption (flagged 2026-08-25).** The Phase 0 drift confirmation
+> requested below **was never performed** — the spike was consumed by the Surge/JUCE writer
+> stall ([`USB-AUDIO-PASSTHROUGH-SPIKE.md`](USB-AUDIO-PASSTHROUGH-SPIKE.md)). The
+> host-is-master claim has been inherited unmeasured ever since. It is load-bearing for any
+> dual-output design — see **[`USB-DUAL-OUTPUT-CLOCK.md`](USB-DUAL-OUTPUT-CLOCK.md)**, which
+> treats it as an open question rather than a fact.
+
 In gadget playback (Pi → host), the **USB host typically clocks the isochronous stream** (host is master). Surge/ALSA on the Pi should run at a fixed **48000 Hz** matching gadget `p_srate`. Mismatch causes resampling or periodic underruns. Phase 0 spike must log `dmesg` + `aplay -l` and confirm stable playback without drift over several minutes.
 
 ### Composite MIDI + audio?

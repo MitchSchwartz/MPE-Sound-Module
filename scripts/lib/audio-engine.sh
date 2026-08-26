@@ -42,7 +42,7 @@ MPE_JACKD_SERVICE="mpe-jackd.service"
 # The Surge key stays alive for calibration only; nothing here reads it.
 mpe_buffer_env_canonical() {
     case "${MPE_JACK_BUFFER:-}" in
-        64 | 96 | 128 | 192 | 256 | 512 | 1024) printf '%s' "$MPE_JACK_BUFFER"; return 0 ;;
+        32 | 64 | 96 | 128 | 192 | 256 | 512 | 1024) printf '%s' "$MPE_JACK_BUFFER"; return 0 ;;
         '') printf '%s' "$MPE_JACK_BUFFER_DEFAULT"; return 0 ;;
     esac
     echo "WARNING: MPE_JACK_BUFFER='${MPE_JACK_BUFFER}' invalid — using $MPE_JACK_BUFFER_DEFAULT" >&2
@@ -508,6 +508,44 @@ mpe_planned_promote_flag_mark() {
 
 mpe_planned_promote_flag_clear() {
     rm -f "$(mpe_planned_promote_flag_file)" 2>/dev/null || true
+}
+
+# ROLI udev debounce writes /run/mpe/midi-connect.state while remapper restarts.
+# Skip passive Surge reconcile during hot-plug — remapper-only work must not restart Surge.
+mpe_midi_hotplug_busy() {
+    local file="${MPE_MIDI_CONNECT_STATE:-$(mpe_run_dir)/midi-connect.state}"
+    local cooldown="${MPE_MIDI_HOTPLUG_COOLDOWN:-$(mpe_run_dir)/midi-hotplug-cooldown}"
+    local text since age cooldown_s
+    cooldown_s="${MPE_MIDI_HOTPLUG_COOLDOWN_S:-20}"
+
+    if [ -f "$cooldown" ]; then
+        since=$(head -1 "$cooldown" 2>/dev/null)
+        since=${since#hotplug }
+        case "$since" in
+            '' | *[!0-9]*)
+                since=$(stat -c %Y "$cooldown" 2>/dev/null || echo 0)
+                ;;
+        esac
+        age=$((EPOCHSECONDS - since))
+        if [ "$age" -ge 0 ] && [ "$age" -lt "$cooldown_s" ]; then
+            return 0
+        fi
+    fi
+
+    [ -f "$file" ] || return 1
+    text=$(head -1 "$file" 2>/dev/null) || return 1
+    case "$text" in
+        connecting*|disconnecting*) ;;
+        *) return 1 ;;
+    esac
+    since=${text#* }
+    case "$since" in
+        '' | *[!0-9]*)
+            since=$(stat -c %Y "$file" 2>/dev/null || echo 0)
+            ;;
+    esac
+    age=$((EPOCHSECONDS - since))
+    [ "$age" -ge 0 ] && [ "$age" -lt 30 ]
 }
 
 mpe_wait_for_surge_on_graph() {
