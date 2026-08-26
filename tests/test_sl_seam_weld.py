@@ -1,6 +1,9 @@
 """SeamWeldWorker OSC orchestration."""
 
+import importlib
+import os
 import unittest
+from unittest import mock
 from pathlib import Path
 
 from scripts.sooperlooper import sl_seam_weld
@@ -124,3 +127,24 @@ class SeamSwapTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TailAlignDefaultTest(unittest.TestCase):
+    """The scratch arms 65-139 ms after the wrap; the tail must land there.
+
+    Measured 2026-08-26 on three takes welded by the no-retrigger swap: with
+    alignment off the tail's loudest block is summed onto sample 0 of a take
+    whose own head is near silence, an ~18 dB step every wrap. See the comment
+    on SEAM_TAIL_ALIGN in sl_seam_weld.py for the table.
+    """
+
+    def test_alignment_is_on_by_default(self) -> None:
+        with mock.patch.dict(os.environ, {}, clear=True):
+            module = importlib.reload(sl_seam_weld)
+            self.assertTrue(module.SEAM_TAIL_ALIGN)
+
+    def test_alignment_can_be_killed_by_env(self) -> None:
+        with mock.patch.dict(os.environ, {"MPE_SL_SEAM_TAIL_ALIGN": "0"}, clear=True):
+            module = importlib.reload(sl_seam_weld)
+            self.assertFalse(module.SEAM_TAIL_ALIGN)
+        importlib.reload(sl_seam_weld)
