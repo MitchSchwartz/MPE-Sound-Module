@@ -4,7 +4,7 @@
 else in the queue proceeds until it exists and passes.
 
 Doctrine: [`MEASUREMENT-DISCIPLINE.md`](MEASUREMENT-DISCIPLINE.md) **Rule -1**. Skill:
-`.claude/skills/measurement-design/` **Step 0**.
+OM-Repo `.claude/skills/measurement-design/` **Step 0**.
 
 ---
 
