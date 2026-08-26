@@ -24,7 +24,12 @@ from scripts.sooperlooper.led_table import (
     LED_YELLOW_BLINK,
 )
 from scripts.sooperlooper.sl_grid_state import GridState
-from scripts.sooperlooper.sl_loop_states import SL_STATE_MUTE, SL_STATE_OFF, SL_STATE_PLAYING
+from scripts.sooperlooper.sl_loop_states import (
+    SL_STATE_MUTE,
+    SL_STATE_OFF,
+    SL_STATE_OVERDUBBING,
+    SL_STATE_PLAYING,
+)
 from tests.fake_sl_engine import FakeSlEngine
 
 
@@ -64,19 +69,16 @@ class FootswitchOnEngineTests(unittest.TestCase):
         engine.poll(fs)
         self.assertEqual(self._led(midi), LED_RED)
 
-        fs.on_pad_down()                 # stop on pad down; weld tail still running
+        fs.on_pad_down()                 # closes the take into an overdub
         engine.poll(fs)
         self.assertNotEqual(self._led(midi), LED_GREEN,
                             "nothing has landed yet — green would be a lie")
 
-        engine.boundary()                # the take lands; weld still running
-        engine.poll(fs)
-        self.assertNotEqual(self._led(midi), LED_GREEN,
-                            "stop-then-weld: amber until the tail merge finishes")
-        fs._finish_tail_capture("test")
+        engine.boundary()                # the take lands
         engine.poll(fs)
         self.assertEqual(self._led(midi), LED_GREEN)
-        self.assertEqual(engine.state[0], SL_STATE_PLAYING)
+        self.assertEqual(engine.state[0], SL_STATE_OVERDUBBING,
+                         "the take closed into an overdub capturing the ring-out")
         self.assertGreater(engine.loop_len[0], 0.0, "green means there is audio")
 
     def test_a_take_that_never_lands_does_not_leave_a_green_pad(self) -> None:

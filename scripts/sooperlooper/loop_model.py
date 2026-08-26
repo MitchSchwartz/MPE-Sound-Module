@@ -154,13 +154,14 @@ def plan_gesture(
             # recording, which is what a player tapping again means.
             return Plan(commands=("record",))
         if is_defining and tail_capture_enabled:
-            # Defining take: stop immediately, then weld release at the wrap seam.
+            # Defining take: one `overdub` hit closes the take AND starts
+            # overdubbing at the same sample, inside SL's audio thread. The
+            # ring-out of the notes the take cut off lands in the loop head.
             # Works even when OSC lags (OffMuted / WAIT_START) — never queue_stop.
             return Plan(
-                begin_tail_capture=True,
-                commands=("record",) if sl_state == SL_STATE_RECORDING else (),
+                commands=("overdub",) if sl_state == SL_STATE_RECORDING else (),
                 expect=STATE_PLAYING,
-                note="stop now — weld release at seam",
+                note="stop + overdub the ring-out (one hit)",
             )
         if sl_state != SL_STATE_RECORDING:
             # Armed, or asked-for-but-unconfirmed. Either way the engine may be
@@ -176,21 +177,31 @@ def plan_gesture(
         wait = quantized and not is_defining
         if tail_capture_enabled and grid_established and not is_defining:
             return Plan(
-                commands=("record",),
+                commands=("overdub",),
                 expect=None if wait else STATE_PLAYING,
                 begin_quantize_wait=wait,
-                begin_tail_capture=True,
-                tail_deferred=wait,
                 note=(
-                    "stop at bar — weld release at seam"
+                    "stop at bar + overdub the ring-out"
                     if wait
-                    else "stop — weld release at seam"
+                    else "stop + overdub the ring-out"
                 ),
             )
         return Plan(
             commands=("record",),
             expect=None if wait else STATE_PLAYING,
             begin_quantize_wait=wait,
+        )
+
+    if sl_state == SL_STATE_OVERDUBBING:
+        # The take closed into an overdub; this press ends it. Checked against
+        # sl_state directly because derive_state folds OVERDUBBING into
+        # "playing", where a press means mute.
+        if edge != "down":
+            return Plan()
+        return Plan(
+            commands=("overdub",),
+            expect=STATE_PLAYING,
+            note="end the ring-out overdub",
         )
 
     if state == STATE_PLAYING:

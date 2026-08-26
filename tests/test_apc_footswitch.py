@@ -167,8 +167,7 @@ class GridEstablishmentTests(unittest.TestCase):
         self._start_defining_take(fs)
         self.assertTrue(grid.is_pending(0))
         fs.on_pad_down()
-        self.assertTrue(fs._tail_capture)
-        self.assertTrue(fs._tail_stop_sent)
+        self.assertFalse(fs._tail_capture)
         self.assertFalse(fs.awaiting_quantize)
 
         hits = [
@@ -176,7 +175,8 @@ class GridEstablishmentTests(unittest.TestCase):
             for c in fs._osc.send_message.call_args_list
             if c.args[0] == "/sl/0/hit"
         ]
-        self.assertEqual(hits, ["record", "record"], "start then immediate stop")
+        self.assertEqual(hits, ["record", "overdub"],
+                         "start, then close the take into the ring-out overdub")
 
         fs.sync_from_sl(SL_STATE_PLAYING)
         fs.sync_loop_len(2.0)
@@ -210,41 +210,6 @@ class GridEstablishmentTests(unittest.TestCase):
             self.assertTrue(fs._scratch_active)
             self.assertEqual(prepared, [0])
             self.assertEqual(started, [0])
-
-    def test_prepare_scratch_deferred_until_playback_ready(self) -> None:
-        from scripts.sooperlooper.sl_seam_weld import SCRATCH_LOOP
-
-        fs = LoopFootswitch(loop=0, hold_ms=1000.0, debounce_ms=0.0)
-        fs.bind(MagicMock(), MagicMock(), 36)
-        prepared = []
-        fs.set_seam_weld_hooks(
-            on_prepare_scratch=lambda _loop: (
-                fs._osc.send_message(f"/sl/{SCRATCH_LOOP}/hit", ["undo_all"]),
-                prepared.append(_loop),
-            ),
-            on_start_scratch=lambda _loop: None,
-            on_stop_scratch=lambda _loop: None,
-            on_request_merge=lambda _loop, done, position=None, tail_offset_s=0.0, tail_skip_s=0.0: True,
-        )
-        self._start_defining_take(fs)
-        fs.on_pad_down()
-        scratch_hits = [
-            c.args
-            for c in fs._osc.send_message.call_args_list
-            if c.args[0] == f"/sl/{SCRATCH_LOOP}/hit"
-        ]
-        self.assertEqual(scratch_hits, [], "no scratch OSC at stop — wait for PLAYING")
-        self.assertEqual(prepared, [])
-        fs.sync_from_sl(SL_STATE_PLAYING)
-        fs.sync_loop_len(2.0)
-        fs._maybe_start_scratch()
-        self.assertEqual(prepared, [0])
-        scratch_hits = [
-            c.args
-            for c in fs._osc.send_message.call_args_list
-            if c.args[0] == f"/sl/{SCRATCH_LOOP}/hit"
-        ]
-        self.assertEqual(scratch_hits, [(f"/sl/{SCRATCH_LOOP}/hit", ["undo_all"])])
 
     def test_grid_anchor_defers_until_loop_wrap(self) -> None:
         """Late PLAYING report: grid now, phase re-anchor at wrap."""
@@ -327,8 +292,6 @@ class GridEstablishmentTests(unittest.TestCase):
         fs.on_pad_down()
         fs.sync_from_sl(SL_STATE_WAIT_STOP)
         self.assertTrue(fs.awaiting_quantize, "quantized clip must wait for the bar")
-        self.assertTrue(fs._tail_capture)
-        self.assertTrue(fs._tail_deferred)
 
 
 class TailCaptureTests(unittest.TestCase):
@@ -419,9 +382,9 @@ class TailCaptureTests(unittest.TestCase):
             for c in fs._osc.send_message.call_args_list
             if c.args[0] == "/sl/0/hit"
         ]
-        self.assertEqual(hits, ["record", "record"], "stop on pad — length fixed now")
-        self.assertTrue(fs._tail_stop_sent)
-        self.assertTrue(fs._tail_capture)
+        self.assertEqual(hits, ["record", "overdub"],
+                         "one overdub hit closes the take and captures the ring-out")
+        self.assertFalse(fs._tail_capture, "no scratch pipeline — SL does this natively")
 
     def test_tail_max_timeout_without_peak_reading(self) -> None:
         from scripts.sooperlooper.sl_grid_sync import TAIL_MAX_S
