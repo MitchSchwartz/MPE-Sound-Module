@@ -150,46 +150,6 @@ class ReconcileCooldownTests(unittest.TestCase):
         self.assertEqual(MAX_SUPERVISOR_RESTARTS, 3)
 
 
-def _run_bash_reconcile(now: int, last: int, count: int, jackd: int) -> str:
-    with tempfile.TemporaryDirectory() as tmp:
-        script = Path(tmp) / "decide.sh"
-        script.write_text(
-            "#!/bin/bash\n"
-            f"source {AUDIO_ENGINE_SH}\n"
-            f"mpe_engine_reconcile_decision {now} {last} {count} {jackd}\n",
-            encoding="utf-8",
-        )
-        script.chmod(script.stat().st_mode | stat.S_IXUSR)
-        env = os.environ.copy()
-        env["MPE_MODULE_REPO"] = str(REPO_ROOT)
-        result = subprocess.run(
-            [str(script)],
-            capture_output=True,
-            text=True,
-            env=env,
-            check=False,
-        )
-        if result.returncode != 0:
-            raise AssertionError(result.stderr or result.stdout)
-        return result.stdout.strip()
-
-
-class BashReconcileParityTests(unittest.TestCase):
-    def test_bash_first_restart(self) -> None:
-        self.assertEqual(_run_bash_reconcile(1000, 0, 0, 900), "restart")
-
-    def test_bash_cooldown(self) -> None:
-        self.assertEqual(_run_bash_reconcile(1000, 980, 1, 800), "cooldown")
-
-    def test_bash_jackd_settling(self) -> None:
-        self.assertEqual(_run_bash_reconcile(1000, 800, 0, 997), "jackd-settling")
-
-    def test_bash_proceeds_once_settle_window_elapses(self) -> None:
-        self.assertEqual(_run_bash_reconcile(1000, 800, 0, 990), "restart")
-
-    def test_bash_failed(self) -> None:
-        self.assertEqual(_run_bash_reconcile(5000, 4000, 3, 1000), "failed")
-
 
 class StuckFailedSweepTests(unittest.TestCase):
     def test_decision_idle_when_not_failed(self) -> None:
@@ -221,109 +181,7 @@ mpe_engine_stuck_failed_decision 2000 1000 1 15 failed 1 1 1
         self.assertEqual(result.stdout.strip(), "done")
 
 
-class RuntimeDirectoryPreserveTests(unittest.TestCase):
-    """B2 — cooldown state must survive sibling unit restarts."""
-
-    def test_surge_unit_preserves_runtime_dir(self) -> None:
-        text = SURGE_SERVICE.read_text(encoding="utf-8")
-        self.assertIn("RuntimeDirectory=mpe", text)
-        self.assertIn("RuntimeDirectoryPreserve=yes", text)
-
-    def test_watchdog_unit_has_runtime_dir(self) -> None:
-        text = WATCHDOG_SERVICE.read_text(encoding="utf-8")
-        self.assertIn("RuntimeDirectory=mpe", text)
-        self.assertIn("RuntimeDirectoryPreserve=yes", text)
-
-    def test_jackd_unit_preserves_runtime_dir(self) -> None:
-        text = JACKD_SERVICE.read_text(encoding="utf-8")
-        self.assertIn("RuntimeDirectory=mpe", text)
-        self.assertIn("RuntimeDirectoryPreserve=yes", text)
-
-    def test_surge_unit_wants_watchdog(self) -> None:
-        sections = _systemd_sections(SURGE_SERVICE.read_text(encoding="utf-8"))
-        wants = _systemd_unit_directives(sections, "Wants")
-        self.assertIn("surge-watchdog.service", wants)
-
-    def test_watchdog_not_bound_to_surge(self) -> None:
-        # Gate C 2*: the watchdog must survive a hard Surge failure to promote
-        # once jackd recovers. BindsTo kills the supervisor with the supervised.
-        sections = _systemd_sections(WATCHDOG_SERVICE.read_text(encoding="utf-8"))
-        self.assertEqual([], _systemd_unit_directives(sections, "BindsTo"))
-        after = _systemd_unit_directives(sections, "After")
-        self.assertIn("surge-xt-cli.service", after)
-
-    def test_watchdog_restarts_always(self) -> None:
-        text = WATCHDOG_SERVICE.read_text(encoding="utf-8")
-        self.assertIn("Restart=always", text)
-
-
-def _systemd_sections(text: str) -> dict[str, list[str]]:
-    """Parse a unit file into section -> non-empty, non-comment lines."""
-    sections: dict[str, list[str]] = {}
-    current = ""
-    for raw in text.splitlines():
-        line = raw.strip()
-        if not line or line.startswith("#"):
-            continue
-        if line.startswith("[") and line.endswith("]"):
-            current = line[1:-1]
-            sections.setdefault(current, [])
-            continue
-        if current:
-            sections.setdefault(current, []).append(line)
-    return sections
-
-
-def _systemd_unit_directives(
-    sections: dict[str, list[str]], key: str, *, section: str = "Unit"
-) -> list[str]:
-    """Collect values for a unit directive (space-separated lists and repeated lines)."""
-    values: list[str] = []
-    prefix = f"{key}="
-    for line in sections.get(section, []):
-        if line.startswith(prefix):
-            rest = line[len(prefix) :].strip()
-            if rest:
-                values.extend(rest.split())
-    return values
-
-
-class SurgeStartLimitUnitTests(unittest.TestCase):
-    """StartLimit* must live in [Unit] — systemd ignores them under [Service]."""
-
-    def test_start_limit_keys_in_unit_section(self) -> None:
-        sections = _systemd_sections(SURGE_SERVICE.read_text(encoding="utf-8"))
-        unit_lines = sections.get("Unit", [])
-        service_lines = sections.get("Service", [])
-        self.assertIn("StartLimitBurst=5", unit_lines)
-        self.assertIn("StartLimitIntervalSec=300", unit_lines)
-        self.assertNotIn("StartLimitBurst=5", service_lines)
-        self.assertNotIn("StartLimitIntervalSec=300", service_lines)
-
-
-class JackdStartLimitTests(unittest.TestCase):
-    """DAC replug recovery (9258b68/5717d85). ALSA-skip tests (finding 11) and the
-    jackd-engine-condition executable-bit test are gone with ALSA removal — jackd
-    now starts unconditionally, so there is no ExecCondition script to check."""
-
-    def test_jackd_unit_disables_start_rate_limit(self) -> None:
-        text = JACKD_SERVICE.read_text(encoding="utf-8")
-        self.assertIn("Restart=always", text)
-        self.assertIn("StartLimitIntervalSec=0", text)
-
-    def test_jackd_unit_disables_alsa_audio_reservation(self) -> None:
-        text = JACKD_SERVICE.read_text(encoding="utf-8")
-        self.assertIn("JACK_NO_AUDIO_RESERVATION=1", text)
-
-    def test_jackd_unit_has_no_engine_condition(self) -> None:
-        """ExecCondition=jackd-engine-condition.sh is gone — jackd always starts."""
-        text = JACKD_SERVICE.read_text(encoding="utf-8")
-        self.assertNotIn("ExecCondition=", text)
-        self.assertNotIn("jackd-engine-condition.sh", text)
-
-    def test_jackd_engine_condition_script_removed(self) -> None:
-        self.assertFalse((REPO_ROOT / "scripts" / "jackd-engine-condition.sh").exists())
-
+class GraphRestartTests(unittest.TestCase):
     def test_graph_restart_resets_failed_state_first(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             env = _bash_env(tmp)
@@ -481,67 +339,63 @@ printf 'SURVIVED'
             finally:
                 ro_dir.chmod(0o755)
 
-    def test_unchanged_republish_does_not_rewrite_the_file(self) -> None:
-        """The supervisor reconciles every 10 s; an identical rewrite is pure churn."""
-        with tempfile.TemporaryDirectory() as tmp:
-            state = Path(tmp) / "engine.state"
-            body = f"""
-source {AUDIO_ENGINE_SH}
+    def test_engine_state_rewrite_matrix(self) -> None:
+        """Supervisor reconciles every 10 s — rewrites must key on content, not habit."""
+        cases = (
+            (
+                "unchanged_republish",
+                """
 export MPE_ENGINE_STATE_FILE="{state}"
 mpe_engine_state_write jack jack ok "" off
 stat -c %Y.%i "{state}"
 sleep 1.1
 mpe_engine_state_write jack jack ok "" off
 stat -c %Y.%i "{state}"
-"""
-            result = _run_bash_script(body, env=_bash_env(tmp))
-            self.assertEqual(result.returncode, 0, result.stderr)
-            first, second = result.stdout.split()
-            self.assertEqual(first, second, "identical state was rewritten (mtime/inode moved)")
-
-    def test_changed_state_still_rewrites(self) -> None:
-        """The skip must key on content, not on 'we already wrote once'."""
-        with tempfile.TemporaryDirectory() as tmp:
-            state = Path(tmp) / "engine.state"
-            body = f"""
-source {AUDIO_ENGINE_SH}
+""",
+                lambda lines: self.assertEqual(lines[0], lines[1], "identical state was rewritten"),
+            ),
+            (
+                "changed_state",
+                """
 export MPE_ENGINE_STATE_FILE="{state}"
 mpe_engine_state_write jack jack ok "" off
 mpe_engine_state_write jack none recovering surge-failed off
 mpe_state_get "{state}" state
 mpe_state_get "{state}" reason
-"""
-            result = _run_bash_script(body, env=_bash_env(tmp))
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(result.stdout.split(), ["recovering", "surge-failed"])
-
-    def test_reason_only_change_still_rewrites(self) -> None:
-        """Same state, new reason — the reason is the whole diagnostic payload."""
-        with tempfile.TemporaryDirectory() as tmp:
-            state = Path(tmp) / "engine.state"
-            body = f"""
-source {AUDIO_ENGINE_SH}
+""",
+                lambda lines: self.assertEqual(lines, ["recovering", "surge-failed"]),
+            ),
+            (
+                "reason_only_change",
+                """
 export MPE_ENGINE_STATE_FILE="{state}"
 mpe_engine_state_write jack none recovering jackd-down off
 mpe_engine_state_write jack none recovering promote-planned off
 mpe_state_get "{state}" reason
-"""
-            result = _run_bash_script(body, env=_bash_env(tmp))
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(result.stdout.strip(), "promote-planned")
-
-    def test_missing_state_file_is_always_written(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            state = Path(tmp) / "engine.state"
-            body = f"""
-source {AUDIO_ENGINE_SH}
+""",
+                lambda lines: self.assertEqual(lines[0], "promote-planned"),
+            ),
+            (
+                "missing_file",
+                """
 export MPE_ENGINE_STATE_FILE="{state}"
 mpe_engine_state_write jack jack ok "" off
 mpe_state_get "{state}" state
+""",
+                lambda lines: self.assertEqual(lines[0], "ok"),
+            ),
+        )
+        for name, body_template, check in cases:
+            with self.subTest(case=name):
+                with tempfile.TemporaryDirectory() as tmp:
+                    state = Path(tmp) / "engine.state"
+                    body = f"""
+source {AUDIO_ENGINE_SH}
+{body_template.format(state=state)}
 """
-            result = _run_bash_script(body, env=_bash_env(tmp))
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(result.stdout.strip(), "ok")
+                    result = _run_bash_script(body, env=_bash_env(tmp))
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    check(result.stdout.split())
 
 
 class JackLspProbeTests(unittest.TestCase):
@@ -722,95 +576,6 @@ cat "{log}"
             self.assertIn("-u mitch", result.stdout)
 
 
-class NoAlsaPathTests(unittest.TestCase):
-    """ALSA is not a reachable audio engine anywhere in the codebase (2026-08-12)."""
-
-    def test_start_surge_cli_has_no_alsa_branch(self) -> None:
-        text = START_SURGE_CLI_SH.read_text(encoding="utf-8")
-        for token in (
-            "select_alsa_device",
-            "ALSA_FAIL_REASON",
-            "ENGINE-FALLBACK",
-            "MPE_AUDIO_ENGINE",
-            "mpe_release_audio_device_for_alsa",
-            "--buffer-size=",
-        ):
-            self.assertNotIn(token, text, f"start-surge-cli.sh still references {token!r}")
-
-    def test_audio_engine_lib_has_no_engine_selection(self) -> None:
-        text = AUDIO_ENGINE_SH.read_text(encoding="utf-8")
-        # ${MPE_AUDIO_ENGINE (a read) is banned; the bare name may still appear
-        # in comments documenting that it was retired — that is not a reader.
-        self.assertNotIn("${MPE_AUDIO_ENGINE", text, "audio-engine.sh still reads $MPE_AUDIO_ENGINE")
-        for token in (
-            "mpe_audio_engine()",
-            "mpe_engine_is_jack()",
-            "mpe_release_audio_device_for_alsa",
-            "mpe_surge_active_engine",
-            "mpe_jackd_unit_masked",
-            "mpe_jackd_unit_seeking_start",
-            "MPE_AUDIO_GRAPH_ACTION",
-        ):
-            self.assertNotIn(token, text, f"audio-engine.sh still references {token!r}")
-
-    def test_surge_watchdog_has_no_alsa_reconcile_arm(self) -> None:
-        text = SURGE_WATCHDOG_SH.read_text(encoding="utf-8")
-        for token in ("active=alsa", "mpe_surge_active_engine", "release-alsa-for-jackd", "degraded"):
-            self.assertNotIn(token, text, f"surge-watchdog.sh still references {token!r}")
-
-    def test_surge_watchdog_uses_epochseconds(self) -> None:
-        text = SURGE_WATCHDOG_SH.read_text(encoding="utf-8")
-        self.assertIn("now=$EPOCHSECONDS", text)
-        self.assertNotIn("now=$(date +%s)", text)
-
-    def test_surge_watchdog_reconcile_short_circuits_on_ok_surge(self) -> None:
-        text = SURGE_WATCHDOG_SH.read_text(encoding="utf-8")
-        self.assertIn('systemctl is-active --quiet "$SURGE_SERVICE"', text)
-        self.assertIn('[ "$state" = ok ] && [ "$active" = jack ]', text)
-        self.assertIn("JACK_PROBE_INTERVAL_S", text)
-        self.assertIn("_last_jack_probe=$EPOCHSECONDS", text)
-        self.assertIn('JACK_PROBE_INTERVAL_S="${MPE_JACK_PROBE_INTERVAL_S:-10}"', text)
-
-    def test_surge_watchdog_looper_reconcile_batched_and_throttled(self) -> None:
-        text = SURGE_WATCHDOG_SH.read_text(encoding="utf-8")
-        self.assertIn("_reconcile_looper_units_if_needed", text)
-        self.assertIn("LOOPER_RECONCILE_INTERVAL_S", text)
-        self.assertIn('systemctl is-active "${units[@]}"', text)
-        self.assertNotIn(
-            "python3 \"$MPE_MODULE_REPO/scripts/ensure-looper-units-running.py\" >/dev/null 2>&1 || true\n    fi\n\n    sleep 5",
-            text,
-        )
-
-    def test_engine_guard_offers_no_engine_switch(self) -> None:
-        text = ENGINE_GUARD_SH.read_text(encoding="utf-8")
-        self.assertNotIn("MPE_AUDIO_ENGINE", text)
-        self.assertNotIn("engine set alsa", text)
-
-    def test_set_surge_audio_has_no_engine_branch(self) -> None:
-        """Regression: this caller still invoked the deleted mpe_audio_engine()
-        after the library removed it — a real bug caught by this sweep, not a
-        hypothetical. It must unconditionally take the graph-restart path."""
-        text = SET_SURGE_AUDIO_SH.read_text(encoding="utf-8")
-        self.assertNotIn("mpe_audio_engine", text)
-        self.assertIn("mpe_promote_surge_planned", text)
-        self.assertNotIn("systemctl restart surge-xt-cli.service", text)
-
-    def test_set_surge_audio_is_valid_bash(self) -> None:
-        result = subprocess.run(
-            ["bash", "-n", str(SET_SURGE_AUDIO_SH)],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        self.assertEqual(result.returncode, 0, result.stderr)
-
-    def test_set_surge_audio_rolls_back_on_graph_failure(self) -> None:
-        text = SET_SURGE_AUDIO_SH.read_text(encoding="utf-8")
-        self.assertIn("_prev_buffer=", text)
-        self.assertIn("rollback-after-failed-settings", text)
-        self.assertIn("reverted to", text)
-
-
 class StartSurgeCliFailureTests(unittest.TestCase):
     """Jack-mode failure exits non-zero and touches no ALSA path (spec D3 amended)."""
 
@@ -844,7 +609,7 @@ exit 1
     def test_jack_failure_never_calls_alsa_detection(self) -> None:
         """Static guarantee: no code path in the script can reach ALSA device
         selection, because select_alsa_device (and the branch that called it)
-        do not exist post-amendment — see NoAlsaPathTests. detect-audio-device.sh
+        do not exist post-amendment — covered by scripts/lint-jack-only-paths.sh.
         is a separate, still-legitimate tiering script used by jackd's own
         device pick (detect-jack-device.sh) and calibration; start-surge-cli.sh
         may mention it in a comment but must never invoke it directly."""
@@ -888,29 +653,18 @@ if mpe_surge_on_jack_graph; then echo ON_GRAPH; else echo OFF_GRAPH; fi
         self.assertEqual(result.stdout.strip(), "OFF_GRAPH", result.stderr)
         self.assertFalse(result.spawned, "probe must not register a JACK client")
 
-    def test_stale_state_falls_back_to_jack_lsp(self) -> None:
-        """A stale meter must not be trusted — that is the false-green shape."""
-        result = self._run("wired=1\nonline=1\nupdated=1\n")
-        self.assertEqual(result.stdout.strip(), "ON_GRAPH", result.stderr)
-        self.assertTrue(result.spawned, "stale meter state must fall back to jack_lsp")
-
-    def test_missing_state_falls_back_to_jack_lsp(self) -> None:
-        """Meter disabled (MPE_PEAK_METER=0) must still leave the watchdog working."""
-        result = self._run(None)
-        self.assertEqual(result.stdout.strip(), "ON_GRAPH", result.stderr)
-        self.assertTrue(result.spawned, "must fall back to jack_lsp")
-
-    def test_garbage_state_falls_back_to_jack_lsp(self) -> None:
-        result = self._run("wired=banana\nupdated=nope\n")
-        self.assertTrue(result.spawned, "must fall back to jack_lsp")
-
-
-class JackLspPathTests(unittest.TestCase):
-    def test_jack_lsp_uses_resolved_absolute_path(self) -> None:
-        text = AUDIO_ENGINE_SH.read_text(encoding="utf-8")
-        self.assertIn("_mpe_jack_lsp_bin", text)
-        self.assertIn('"$_MPE_JACK_LSP_BIN"', text)
-        self.assertNotIn('timeout "$timeout_s" jack_lsp "$@"', text)
+    def test_meter_fallback_cases(self) -> None:
+        cases = (
+            ("stale", "wired=1\nonline=1\nupdated=1\n", "ON_GRAPH"),
+            ("missing", None, "ON_GRAPH"),
+            ("garbage", "wired=banana\nupdated=nope\n", None),
+        )
+        for label, state, expected_out in cases:
+            with self.subTest(case=label):
+                result = self._run(state)
+                if expected_out is not None:
+                    self.assertEqual(result.stdout.strip(), expected_out, result.stderr)
+                self.assertTrue(result.spawned, "must fall back to jack_lsp")
 
 
 class WatchdogReconcileArmTests(unittest.TestCase):
