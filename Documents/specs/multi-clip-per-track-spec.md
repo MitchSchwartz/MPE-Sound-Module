@@ -442,6 +442,7 @@ Not facts to be corrected — product calls. Each needs a dated DECISIONS row.
 |---|----------|---------|----------------|
 | **OPEN-1** | Row 7 has no scene button on mk1 (note `0x59` is Stop All). mk2 has a dedicated Stop All (`0x77`) and may have 8 free scene buttons. | (a) 7 scene rows on both variants — row 7 pad-only, behaviour identical everywhere. (b) 8 rows on mk2, 7 on mk1 — full use of the hardware, divergent muscle memory. (c) 7 slots per track, dropping row 7 entirely — perfectly regular, loses 15 slots. | **(a)** until SP6 confirms mk2's notes. Identical behaviour across variants beats one extra row; (c) stays available if the asymmetry grates. |
 | **OPEN-2** | Record-while-playing (see §One buffer per track). | (a) v1 ships silence-on-arm; revisit later on the indirection laid down now. (b) Reserve spare loop indices now, ~halving track count, for unconditional record-while-playing. | **(a)**. 15 tracks with a known limitation beats ~7 tracks with a richer gesture, and rev 2's indirection keeps (b) cheap later. Mitch's call — it is a playing-feel question, not a technical one. |
+| **OPEN-3** | Scratch loop index — today **14** (Pi: loop 15 `save_loop` is empty). Hole at 14 breaks naive column math. | (a) Keep **14** until SL fixes loop 15, then move scratch to **15**. (b) Move scratch to **0** now — tracks **1–15**, column 0 → loop 1; needs Pi `save_loop` spike on loop 0 + song/index migration. (c) Stay on 14; fix addressing only via `musical_loop_indices()`. | **(b)** if Pi spike passes — clearest mapping. **(c)** is zero-migration fallback. Needs dated DECISIONS row before env/default change. |
 
 ---
 
@@ -540,6 +541,7 @@ Run on bench (Pi or laptop + SL):
 | SP1 | `save_loop` / `load_loop` timing for 15 tracks × up to 8 slots (120 max) | Script: measure per-call latency, full matrix save | Document p95; touch UI timeout budget |
 | SP2 | Inactive slot `load_loop` latency at launch | Measure single swap load_loop p95 | Within touch/APC timeout budget (disk-only lazy — **decided**) |
 | SP3 | **mute_off cancel** for pending quantized mute | Tap play → tap stop → re-tap before bar | Outgoing keeps playing; no glitch |
+| SP3b | **pause_on cancel** for pending quantized launch | Tap stop (muted) → tap launch → re-tap before bar | Stays stopped/muted; no launch at bar |
 | SP4 | Switch: mute track A slot + load B + trigger same boundary | OSC sequence from bench | One audible clip after boundary |
 | SP5 | Scene row launch with 15 tracks (7 off-screen) | Iterate `musical_loop_indices()` | All occupied cells in row queue; scratch loop never touched |
 | **SP6** | **Scene Launch note numbers per APC variant** | `sooperlooper-apc-bench.py --dump-midi`, press each scene button on mk1 (and mk2 if available) | Confirmed note list; settles [OPEN-1](#open-decisions) for mk2 |

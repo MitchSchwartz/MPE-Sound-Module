@@ -795,7 +795,13 @@ class LoopFootswitch:
             quantized=self.quantized,
             tail_capture_enabled=TAIL_CAPTURE_ENABLED,
         )
-        if not (plan.commands or plan.queue_stop or plan.arm_grid or plan.begin_tail_capture):
+        if not (
+            plan.commands
+            or plan.queue_stop
+            or plan.arm_grid
+            or plan.begin_tail_capture
+            or plan.cancel_pending
+        ):
             return
         if plan.note:
             log(f"loop {self.loop}: {plan.note}")
@@ -833,7 +839,11 @@ class LoopFootswitch:
             self._stop_queued = True
         if plan.begin_quantize_wait:
             self._begin_quantize_wait()
-        self._expect(plan.expect)
+        if plan.cancel_pending:
+            self._pending = None
+            self._pending_since = None
+        elif plan.expect is not None:
+            self._expect(plan.expect)
 
         self._sync_led()
         self._mark_action()
