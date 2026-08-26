@@ -107,6 +107,18 @@ class TouchBrowserInputMixin:
         )
         panel_visible = self.screen_state == Screen.SETTINGS or self._settings_slide > 0.004
 
+        if self.screen_state == Screen.TERMINAL:
+            # Fullscreen and exclusive: a shell rendered under a settings
+            # panel would be unreadable, and half-visible UI would invite
+            # touches that do nothing (the terminal takes keys only).
+            self._draw_terminal()
+            self._draw_toast()
+            pygame.display.flip()
+            recorder = getattr(self, "_screen_recorder", None)
+            if recorder is not None:
+                recorder.write_frame(self.screen)
+            return
+
         if modal or panel_visible:
             self._draw_settings()
             if self.screen_state == Screen.POWER_MENU:
@@ -633,6 +645,8 @@ class TouchBrowserInputMixin:
             return
         if self._modal_pending_index == 0:
             self.screen_state = Screen.SETTINGS
+        elif getattr(self, "_pending_confirm_kind", "calibrate") == "terminal":
+            self._open_terminal()
         elif getattr(self, "_pending_confirm_kind", "calibrate") == "restart_bench":
             from patch_browser.restart_bench import trigger
 
@@ -693,6 +707,10 @@ class TouchBrowserInputMixin:
         if event.type == pygame.QUIT:
             self._running = False
             return
+
+        if event.type == pygame.KEYDOWN:
+            if self._handle_keydown(event):
+                return
 
         if event.type in (pygame.FINGERDOWN, pygame.FINGERMOTION, pygame.FINGERUP):
             x = int(event.x * self.width)
@@ -868,3 +886,59 @@ class TouchBrowserInputMixin:
             elif self.screen_state == Screen.BRIGHTNESS_MODAL:
                 self._handle_brightness_modal_pointer_move(event.pos)
             self._handle_mixer_motion(event.pos)
+
+    def _handle_keydown(self, event: pygame.event.Event) -> bool:
+        """Keyboard entry point. Returns True when the event was consumed.
+
+        Inert on the normal appliance: no keyboard attached means no KEYDOWN
+        events at all. See keyboard_shortcuts.py for why the terminal is
+        deliberately reachable ONLY this way.
+        """
+        from patch_browser.keyboard_shortcuts import (
+            ACTION_RESTART_BENCH,
+            ACTION_TERMINAL,
+            match_chord,
+        )
+
+        # Whether SDL delivers key events under the KMSDRM videodriver on this
+        # appliance is UNVERIFIED — there was no keyboard attached when this
+        # shipped. Without this line the two failure modes are indistinguishable
+        # from the panel: "SDL sends nothing" and "you typed the wrong chord"
+        # both look like nothing happening. One journal line settles it.
+        if not getattr(self, "_keydown_seen", False):
+            self._keydown_seen = True
+            # stderr, not stdout: the unit sets StandardOutput=null and only
+            # StandardError=journal, so a print() here would be discarded.
+            import sys
+
+            print(
+                f"keyboard: first KEYDOWN key={event.key} mod={event.mod}",
+                file=sys.stderr,
+                flush=True,
+            )
+
+        if self.screen_state == Screen.TERMINAL:
+            # Ctrl+Alt+T toggles back out, for a shell that will not exit on its
+            # own. Checked before the shell sees the key so a wedged process
+            # cannot swallow the way home.
+            if match_chord(event.key, event.mod) == ACTION_TERMINAL:
+                self._close_terminal("Terminal closed")
+                return True
+            self._handle_terminal_key(event)
+            return True
+
+        action = match_chord(event.key, event.mod)
+        if action is None:
+            return False
+        # Both chords route through the same confirm screen the touch path uses.
+        # A stray chord from a device that enumerates as a keyboard must not
+        # restart the stack or open a shell mid-set without a deliberate tap.
+        if action == ACTION_TERMINAL:
+            self._pending_confirm_kind = "terminal"
+            self.screen_state = Screen.CALIBRATE_CONFIRM
+            return True
+        if action == ACTION_RESTART_BENCH:
+            self._pending_confirm_kind = "restart_bench"
+            self.screen_state = Screen.CALIBRATE_CONFIRM
+            return True
+        return False
