@@ -4,18 +4,23 @@ import unittest
 from unittest.mock import patch
 
 from scripts.sooperlooper.apc_transport import (
-    MK1_GHOST_STOP_S,
+    MK1_GHOST_SHIFT_S,
+    MK1_TRACK_OVERLAP_NOTES,
     NOTE_SHIFT_MK1,
     NOTE_SHIFT_MK2,
     NOTE_STOP_ALL_CLIPS_MK1,
     NOTE_STOP_ALL_CLIPS_MK2,
     NOTE_TRACK8_MK2,
+    SCENE_LAUNCH_NOTES_MK1,
+    Mk1ShiftGhostFilter,
     ShiftHoldCombo,
     TransportButtonLeds,
     resolve_apc_transport_notes,
+    resolve_scene_launch_notes,
     resolve_shift_indicator_note,
 )
 from scripts.sooperlooper.led_table import (
+    LED_OFF,
     SCENE_LED_OFF,
     SCENE_LED_ON,
     TRACK_LED_OFF,
@@ -47,6 +52,40 @@ class ResolveApcTransportNotesTests(unittest.TestCase):
 
     def test_mk2_shift_indicator_track8(self) -> None:
         self.assertEqual(resolve_shift_indicator_note("mk2"), NOTE_TRACK8_MK2)
+
+    def test_mk1_scene_launch_notes(self) -> None:
+        self.assertEqual(resolve_scene_launch_notes("mk1"), SCENE_LAUNCH_NOTES_MK1)
+        self.assertNotIn(NOTE_STOP_ALL_CLIPS_MK1, resolve_scene_launch_notes("mk1"))
+
+
+class Mk1ShiftGhostFilterTests(unittest.TestCase):
+    def test_ghost_stop_and_scene_after_shift(self) -> None:
+        filt = Mk1ShiftGhostFilter(
+            shift_note=NOTE_SHIFT_MK1,
+            stop_all_note=NOTE_STOP_ALL_CLIPS_MK1,
+            scene_launch_notes=SCENE_LAUNCH_NOTES_MK1,
+        )
+        with patch(
+            "scripts.sooperlooper.apc_transport.time.monotonic",
+            side_effect=[0.0, 0.01, 0.01, 0.01],
+        ):
+            filt.note_event(NOTE_SHIFT_MK1, True, now=0.0)
+            self.assertTrue(filt.consume(NOTE_STOP_ALL_CLIPS_MK1, True, now=0.01))
+            self.assertTrue(filt.consume(SCENE_LAUNCH_NOTES_MK1[0], True, now=0.01))
+            self.assertTrue(filt.consume(MK1_TRACK_OVERLAP_NOTES[6], True, now=0.01))
+
+    def test_intentional_stop_after_ghost_window(self) -> None:
+        filt = Mk1ShiftGhostFilter(
+            shift_note=NOTE_SHIFT_MK1,
+            stop_all_note=NOTE_STOP_ALL_CLIPS_MK1,
+            scene_launch_notes=SCENE_LAUNCH_NOTES_MK1,
+        )
+        with patch(
+            "scripts.sooperlooper.apc_transport.time.monotonic",
+            side_effect=[0.0, 0.2],
+        ):
+            filt.note_event(NOTE_SHIFT_MK1, True, now=0.0)
+            self.assertFalse(filt.consume(NOTE_STOP_ALL_CLIPS_MK1, True, now=0.2))
 
 
 class ShiftHoldComboTests(unittest.TestCase):
@@ -139,6 +178,7 @@ class TransportButtonLedsTests(unittest.TestCase):
             shift_note=self.shift,
             stop_all_note=self.stop,
             shift_indicator_note=resolve_shift_indicator_note(apc_label),
+            scene_launch_notes=resolve_scene_launch_notes(apc_label),
             hold_s=hold_s,
             apc_label=apc_label,
         )
@@ -196,8 +236,20 @@ class TransportButtonLedsTests(unittest.TestCase):
         leds.note_event(self.shift, True)
         self.assertEqual(self.sent[-1], [0x90, self.stop, SCENE_LED_OFF])
 
-    def test_mk1_ghost_stop_window(self) -> None:
-        self.assertLess(MK1_GHOST_STOP_S, 0.2)
+    def test_mk1_shift_clears_scene_and_upper_grid(self) -> None:
+        leds = self._leds()
+        with patch(
+            "scripts.sooperlooper.apc_transport.time.monotonic",
+            side_effect=[0.0, 0.0],
+        ):
+            leds.note_event(self.shift, True)
+        scene_msgs = [m for m in self.sent if m[1] in SCENE_LAUNCH_NOTES_MK1]
+        self.assertTrue(all(m[2] == SCENE_LED_OFF for m in scene_msgs))
+        upper = [m for m in self.sent if 8 <= m[1] <= 63]
+        self.assertTrue(all(m[2] == 0 for m in upper))
+
+    def test_mk1_ghost_shift_window(self) -> None:
+        self.assertLess(MK1_GHOST_SHIFT_S, 0.2)
 
 
 class AcceleratingHoldBlinkTests(unittest.TestCase):
