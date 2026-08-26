@@ -1489,19 +1489,41 @@ class TouchBrowserDrawMixin:
         return max(0, min(255, round(ratio * 255)))
 
     def _draw_calibrate_confirm(self) -> None:
+        """Shared action-confirm panel.
+
+        Serves calibration and the whole-stack restart (#112); the shell, the
+        buttons and every pointer handler are already action-agnostic, so the
+        kind only selects text and the confirm label. Screen.CALIBRATE_CONFIRM
+        is now a misnomer — renaming it touches eight dispatch sites and is
+        deferred rather than bundled into a recovery feature.
+        """
         self._draw_modal_backdrop(legacy_alpha=150)
 
+        kind = getattr(self, "_pending_confirm_kind", "calibrate")
         mode = self._pending_calibrate_mode
         targets, total = self._calibration_scope_stats(mode)
-        title = self._calibration_mode_label(mode)
 
         panel_w = min(520, self.width - 48)
-        body_raw = (
-            self._calibration_mode_description(mode, targets, total),
-            "Touch browser will stop; loader takes over the display.",
-            self._calibration_duration_hint(targets),
-            "Do not touch the screen during measurement.",
-        )
+        if kind == "restart_bench":
+            title = "Restart everything"
+            body_raw = (
+                "Restarts the audio stack in order: MIDI, JACK, Surge, looper, "
+                "meters, governor, then this browser.",
+                "Audio stops for about 15 seconds. Your patch reloads afterwards.",
+                "Use this instead of a full shutdown when something is stuck.",
+            )
+            confirm_label = "Restart"
+            confirm_disabled = False
+        else:
+            title = self._calibration_mode_label(mode)
+            body_raw = (
+                self._calibration_mode_description(mode, targets, total),
+                "Touch browser will stop; loader takes over the display.",
+                self._calibration_duration_hint(targets),
+                "Do not touch the screen during measurement.",
+            )
+            confirm_label = "Start"
+            confirm_disabled = mode == CalibrateMode.MISSING_ONLY and targets == 0
         body_max_w = panel_w - 48
         body_lines: list[str] = []
         for paragraph in body_raw:
@@ -1536,11 +1558,11 @@ class TouchBrowserDrawMixin:
             (panel.w - 60) // 2,
             btn_h,
         )
-        start_disabled = mode == CalibrateMode.MISSING_ONLY and targets == 0
+        start_disabled = confirm_disabled
         self._draw_button(self._calibrate_confirm_no, "Cancel", pressed=self._pressed("cal:cancel"))
         self._draw_button(
             self._calibrate_confirm_yes,
-            "Start",
+            confirm_label,
             accent=not start_disabled,
             muted=start_disabled,
             pressed=self._pressed("cal:start"),
