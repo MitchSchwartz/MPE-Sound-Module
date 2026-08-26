@@ -584,7 +584,7 @@ class StartSurgeCliFailureTests(unittest.TestCase):
         # real SURGE_CLI binary + USER_DEFAULTS setup to run end-to-end. This
         # exercises the exact state-publishing sequence its failure branch
         # runs (spec D3 hard failure), matching the real script line-for-line;
-        # NoAlsaPathTests statically confirms the real script has no other branch.
+        # scripts/lint-jack-only-paths.sh statically confirms the real script has no ALSA branch.
         body = f"""
 LOG_FILE="{env.get('MPE_RUN_DIR', '/tmp')}/surge-cli.log"
 {stubs}
