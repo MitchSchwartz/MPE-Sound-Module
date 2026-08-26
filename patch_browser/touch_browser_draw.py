@@ -43,6 +43,10 @@ from patch_browser.touch_ui_constants import (
 )
 from patch_browser.audio_profile import header_badge_label
 from patch_browser.audio_engine import engine_hud_label, engine_hud_semantic, engine_hud_should_show
+from patch_browser.midi_clock import (
+    looper_hud_label as clock_tempo_label,
+    looper_hud_should_show as clock_tempo_should_show,
+)
 from patch_browser.looper_hud import (
     bar_progress as looper_bar_progress,
     beat_label as looper_beat_label,
@@ -519,8 +523,18 @@ class TouchBrowserDrawMixin:
     def _draw_looper_hud(self, rect: Rect) -> None:
         if rect.w <= 0:
             return
-        sl = (self.looper_monitor.snapshot() or {}).get("sl") or {}
-        if not looper_should_show(sl, user_enabled=getattr(self, "show_looper_hud", True)):
+        snap = self.looper_monitor.snapshot() or {}
+        sl = snap.get("sl") or {}
+        enabled = getattr(self, "show_looper_hud", True)
+        if not looper_should_show(sl, user_enabled=enabled):
+            # No looper grid to sweep. Fall back to the plain tempo readout —
+            # the badge's ORIGINAL meaning, orphaned when the sweep landed
+            # (f069648) and dead in production until 2026-08-26: the sweep needs
+            # sl["bpm"], which only mpe-looper-session publishes, and that unit
+            # is deliberately not started at boot. So with the looper off the
+            # badge vanished with no explanation even while a clock was synced.
+            if clock_tempo_should_show(snap, user_enabled=enabled):
+                self._draw_tempo_readout(rect, clock_tempo_label(snap))
             return
 
         accent = self.theme.accent
@@ -585,6 +599,19 @@ class TouchBrowserDrawMixin:
                 (rect.right - pad_x - frac_w,
                  rect.y + (rect.h - frac_surf.get_height()) // 2),
             )
+
+    def _draw_tempo_readout(self, rect: Rect, label: str) -> None:
+        """Right-aligned BPM text where the sweep would be. No bar: without a
+        loop length there is no phrase to draw a position within, and a bar
+        that never moves reads as a broken sweep rather than as 'no loop'."""
+        if not label or rect.w <= 0:
+            return
+        surf = self.font_sm.render(f"{label} BPM", True, self.theme.muted)
+        self.screen.blit(
+            surf,
+            (rect.right - LOOPER_HUD_PAD_X - surf.get_width(),
+             rect.y + (rect.h - surf.get_height()) // 2),
+        )
 
     def _draw_audio_profile_badge(self, rect: Rect) -> None:
         label = header_badge_label()

@@ -129,3 +129,36 @@ class TestClockStateFile(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestTempoBarFallback(unittest.TestCase):
+    """The header tempo bar has two producers; exactly one should claim a snapshot.
+
+    Regression guard for 2026-08-26: the sweep (looper_hud.should_show) needs
+    sl["bpm"], published only by mpe-looper-session, which is not started at
+    boot. With the looper off the badge vanished silently even while the MIDI
+    clock daemon was connected and synced.
+    """
+
+    def _paths(self, snapshot: dict) -> tuple[bool, bool]:
+        from patch_browser.looper_hud import should_show as sweep_should_show
+        from patch_browser.midi_clock import looper_hud_should_show as tempo_should_show
+
+        sl = snapshot.get("sl") or {}
+        sweep = sweep_should_show(sl)
+        return sweep, (not sweep and tempo_should_show(snapshot))
+
+    def test_looper_running_uses_sweep(self) -> None:
+        sweep, tempo = self._paths({"connected": True, "bpm": 120, "sl": {"bpm": 120}})
+        self.assertTrue(sweep)
+        self.assertFalse(tempo)
+
+    def test_looper_off_but_clock_synced_uses_tempo_readout(self) -> None:
+        sweep, tempo = self._paths({"connected": True, "bpm": 120, "sl": {}})
+        self.assertFalse(sweep)
+        self.assertTrue(tempo)
+
+    def test_no_tempo_source_draws_nothing(self) -> None:
+        sweep, tempo = self._paths({"connected": True, "bpm": None, "running": False, "sl": {}})
+        self.assertFalse(sweep)
+        self.assertFalse(tempo)
