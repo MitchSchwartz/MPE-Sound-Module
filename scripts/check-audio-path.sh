@@ -108,7 +108,19 @@ if pgrep -x jackd >/dev/null 2>&1; then
     jack_metro -b 100 </dev/null >/dev/null 2>&1 &
     sleep 2
     PORT="$(jack_lsp 2>/dev/null | grep -i metro | head -1)"
-    if [ -z "$PORT" ]; then log "ERROR jack_metro did not register"; exit 2; fi
+    if [ -z "$PORT" ]; then
+        log "ERROR jack_metro did not register with the JACK server"
+        # Overwhelmingly the cause: run under sudo. The server belongs to the
+        # appliance user, and root is a different JACK client namespace, so the
+        # tone silently goes nowhere and the check would report a false FAIL.
+        if [ "$(id -u)" -eq 0 ]; then
+            log "  Running as root. Re-run as the user that owns jackd (no sudo):"
+            log "    ./scripts/check-audio-path.sh"
+        else
+            log "  Is jackd healthy? try: jack_lsp"
+        fi
+        exit 2
+    fi
     for n in 1 2 3 4; do jack_connect "$PORT" "system:playback_$n" >/dev/null 2>&1; done
 else
     log "jackd is not running — injecting via speaker-test"
