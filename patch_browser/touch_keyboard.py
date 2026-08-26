@@ -84,11 +84,13 @@ class TouchKeyboardLayout:
         rows = self._row_count()
         if rows <= 0 or self.panel.h <= 0:
             return
-        padding = 8
+        top_inset = 4
+        bottom_slack = 2
         total_gap = self.row_gap * max(0, rows - 1)
-        max_row_h = int((self.panel.h - padding - total_gap) / rows)
+        available = self.panel.h - top_inset - bottom_slack
+        max_row_h = int((available - total_gap) / rows)
         if max_row_h < self.row_h:
-            self.row_h = max(28, max_row_h)
+            self.row_h = max(24, max_row_h)
 
     def _add_even_row(self, y: int, labels: list[str], inner_x: int, inner_w: int) -> int:
         if not labels:
