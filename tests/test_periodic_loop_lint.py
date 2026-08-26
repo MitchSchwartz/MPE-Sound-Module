@@ -21,25 +21,29 @@ class PeriodicLoopLintTests(unittest.TestCase):
             "\n".join(f"{f.path}:{f.line} {f.detail}" for f in findings),
         )
 
-    def test_deliberate_fork_in_snippet_fails(self) -> None:
-        bad = """
+    def test_deliberate_bad_snippets_fail(self) -> None:
+        cases = (
+            (
+                "jack_lsp subprocess in loop",
+                """
 while True:
     subprocess.run(["jack_lsp", "-c"])
-"""
-        findings = lint_source(bad, path="bad.py")
-        self.assertTrue(findings, "jack_lsp in while True must be flagged")
-        self.assertIn("subprocess", findings[0].detail)
-
-    def test_deliberate_journalctl_in_loop_fails(self) -> None:
-        bad = """
+""",
+                "bad.py",
+                "subprocess",
+            ),
+            (
+                "journalctl in loop",
+                """
 while not stop.is_set():
     journalctl("-u", "mpe-jackd.service")
-"""
-        findings = lint_source(bad, path="bad.py")
-        self.assertTrue(findings)
-
-    def test_deliberate_journalctl_two_calls_deep_fails(self) -> None:
-        bad = """
+""",
+                "bad.py",
+                "journalctl",
+            ),
+            (
+                "journalctl two calls deep",
+                """
 def poll_xruns():
     journalctl("-u", "mpe-jackd.service")
 
@@ -48,13 +52,16 @@ def collect_health():
 
 while not stop.is_set():
     collect_health()
-"""
-        findings = lint_source(bad, path="bad_nested.py")
-        self.assertTrue(
-            findings,
-            "journalctl two calls deep from periodic loop must be flagged",
+""",
+                "bad_nested.py",
+                "journalctl",
+            ),
         )
-        self.assertIn("journalctl", findings[0].detail)
+        for label, bad, path, needle in cases:
+            with self.subTest(case=label):
+                findings = lint_source(bad, path=path)
+                self.assertTrue(findings, f"{label} must be flagged")
+                self.assertIn(needle, findings[0].detail)
 
     def test_meter_file_read_in_loop_passes(self) -> None:
         ok = """

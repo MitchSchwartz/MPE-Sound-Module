@@ -124,7 +124,7 @@ actual binding term.
 | **V3** | `1024 x 2` as a shipping change (42.7 ms) | free latency win, independent of all of the above |
 
 **Do not run V1 before fixing softmode**, and pre-register both V1 and V2 per
-`.claude/skills/measurement-design`.
+OM-Repo `.claude/skills/measurement-design`.
 
 ## Product position
 

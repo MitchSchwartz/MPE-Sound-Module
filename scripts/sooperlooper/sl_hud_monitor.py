@@ -90,7 +90,7 @@ class HudWriter:
         """Subscribe HUD controls on the shared session and seed tempo.
 
         register_auto_update delivers on CHANGE only — see module docstring and
-        tests/test_sl_hud_seed.py.
+        tests/test_sl_hud.py.
         """
         self._sl.register_hud()
         self._sl.seed_tempo()
