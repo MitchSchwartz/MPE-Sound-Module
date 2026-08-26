@@ -44,6 +44,12 @@ UNIT="mpe-sooperlooper.service"
 
 echo "test_stray_engine_reaper.sh"
 
+# Kill leftovers from an interrupted earlier run FIRST. A stale fake-engine makes
+# "no processes -> no strays" fail, and worse, would make the kill assertions
+# below pass against the wrong process.
+pkill -x fake-engine 2>/dev/null
+sleep 0.3
+
 # --- nothing running -------------------------------------------------------
 check "$(mpe_stray_engine_pids fake-engine "$UNIT")" "" "no processes -> no strays"
 mpe_reap_stray_engines fake-engine "$UNIT" "test" >/dev/null 2>&1
