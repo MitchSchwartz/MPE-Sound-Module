@@ -106,7 +106,7 @@ device and its URB configuration.
 
 ### 1.6 — Run G3 (raw log archival) before the SD card matters less to you
 
-`PROMPT-G3-archive-raw-logs.md`. Once attention moves to the Pi 5, that card is a
+OM-Repo [`sred/PROMPT-G3-archive-raw-logs.md`](../../../OM-Repo/internal/projects/mpe-synth-launch/sred/PROMPT-G3-archive-raw-logs.md). Once attention moves to the Pi 5, that card is a
 decreasingly-cared-for object holding the only copy of every number in 74 documents. Pull the
 logs while it is still the machine you are using.
 
