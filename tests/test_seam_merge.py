@@ -118,6 +118,42 @@ class SeamMergeTests(unittest.TestCase):
             self.assertEqual(merged[landed - 1], (0.0, 0.0), "nothing before it")
             self.assertAlmostEqual(merged[landed][0], 0.5, places=5)
 
+    def test_tail_bridges_a_silent_head_leaving_no_dropout(self) -> None:
+        """Regression: the 20 ms stutter at every wrap.
+
+        Modelled on the measured 21:58 take — the player hits record just
+        before the first note, so the take's own head is digital silence while
+        the loop end is loud. Every wrap is an energy cliff and the tail is
+        what bridges it. Aligning the tail to where the scratch actually armed
+        (36 ms) moved it off the hole and uncovered 20 ms of pure silence.
+
+        Physical truthfulness is not the goal here; an unbroken wrap is.
+        """
+        rate = 48000
+        ms = rate // 1000
+        # 30 ms of silence at the head, loud everywhere else.
+        main = [(0.0, 0.0)] * (30 * ms) + [(0.4, 0.4)] * (rate - 30 * ms)
+        tail = [(0.3, 0.3)] * (500 * ms)
+
+        def quietest_10ms(frames):
+            w = 10 * ms
+            return min(
+                max(abs(x[0]) for x in frames[i * w : (i + 1) * w])
+                for i in range(5)
+            )
+
+        bridged = merge_stereo_frames(main, tail, declick_samples=0)
+        self.assertGreater(
+            quietest_10ms(bridged), 0.05, "head must not contain a dropout"
+        )
+        # And this is what aligning to the arm time does instead.
+        holed = merge_stereo_frames(
+            main, tail, declick_samples=0, offset_samples=36 * ms
+        )
+        self.assertEqual(
+            quietest_10ms(holed), 0.0, "documents why alignment is off by default"
+        )
+
     def test_manual_trim_adds_to_the_measured_offset(self) -> None:
         main = [(0.0, 0.0)] * 1000
         tail = [(0.25, 0.25)] * 10
