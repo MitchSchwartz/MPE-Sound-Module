@@ -1,6 +1,6 @@
 """SlBenchStateListener registers all loops incl. 0."""
 
-import conftest  # noqa: F401 — bare sooperlooper imports (apc_grid, …)
+from tests import conftest  # noqa: F401 — bare sooperlooper imports (apc_grid, …)
 
 import unittest
 from unittest.mock import ANY, MagicMock

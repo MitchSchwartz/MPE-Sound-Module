@@ -41,6 +41,42 @@ LED_RED_BLINK = 4
 LED_YELLOW = 5
 LED_YELLOW_BLINK = 6
 
+# APC side buttons are single-colour — not the grid RGB velocity table.
+# Scene Launch (Stop All, etc.): green only. Track Select: red only.
+SCENE_LED_OFF = 0
+SCENE_LED_ON = 1
+SCENE_LED_BLINK = 2
+TRACK_LED_OFF = 0
+TRACK_LED_ON = 1
+TRACK_LED_BLINK = 2
+
+
+def accelerating_hold_blink_on(
+    elapsed: float,
+    *,
+    hold_s: float,
+    blink_after_s: float = 0.0,
+    blink_start_half_s: float = 0.35,
+    blink_min_half_s: float = 0.04,
+) -> bool | None:
+    """Return whether the hold-warning blink phase is lit.
+
+    ``None`` means the caller should show its normal (solid) colour — the hold
+    has not yet reached ``blink_after_s``. After that, the blink accelerates
+    until ``hold_s``.
+    """
+    if elapsed < blink_after_s:
+        return None
+    blink_elapsed = elapsed - blink_after_s
+    blink_window = max(hold_s - blink_after_s, 0.001)
+    progress = min(1.0, blink_elapsed / blink_window)
+    half_period = max(
+        blink_min_half_s,
+        blink_start_half_s * (1.0 - progress) ** 1.5,
+    )
+    return int(blink_elapsed / half_period) % 2 == 0
+
+
 _SOLID = {
     STATE_IDLE: LED_OFF,
     STATE_RECORDING: LED_RED,

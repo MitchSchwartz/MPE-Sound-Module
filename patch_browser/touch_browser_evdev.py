@@ -117,6 +117,8 @@ class TouchBrowserEvdevMixin:
                 self._handle_browse_pointer_up(pos)
                 self._touch_list_capture = False
                 self._touch_browse_capture = False
+                if self.screen_state == Screen.BROWSER and self._try_looper_list_tap_at(pos):
+                    return
                 return
 
             if self.screen_state == Screen.CONTEXT_MENU:
