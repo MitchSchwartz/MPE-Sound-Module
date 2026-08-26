@@ -28,6 +28,7 @@ from apc_faders import MASTER, fader_for_cc, is_control_change, resolve_fader_cc
 from apc_grid import GRID_COLS, GRID_ROWS, NUM_LOOPS, GridView, is_clip_note  # noqa: E402
 from apc_transport import (  # noqa: E402
     ShiftHoldCombo,
+    TransportButtonLeds,
     bank_delta_for_arrow,
     resolve_apc_transport_notes,
     resolve_arrow_notes,
@@ -325,6 +326,12 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
         target_note=stop_all_note,
         hold_s=track_reset_hold_ms / 1000.0,
     )
+    transport_leds = TransportButtonLeds(
+        midi_out=midi_out,
+        shift_note=shift_note,
+        stop_all_note=stop_all_note,
+        hold_s=track_reset_hold_ms / 1000.0,
+    )
 
     print(
         f"APC [{idx}] {port_name} ({apc_label}) | bottom row -> 8 of {num_loops} tracks "
@@ -371,9 +378,13 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
         faders.submit(mix.messages_for(fader, value), now=now)
         faders.tick(now=now)
 
+    def poll_transport_leds() -> None:
+        transport_leds.poll()
+
     def maybe_track_transport() -> None:
         if track_reset.poll_long():
             print("transport: Shift+StopAll long -> track reset", flush=True)
+            transport_leds.on_reset_fired()
             reset_all_loops(
                 osc,
                 midi_out,
@@ -413,6 +424,7 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
         packet = midi_in.get_message()
         if packet is None:
             poll_holds()
+            poll_transport_leds()
             maybe_track_transport()
             tick_faders()
             state_listener.maybe_reregister()
@@ -427,6 +439,7 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
 
         if not msg or len(msg) < 2:
             poll_holds()
+            poll_transport_leds()
             maybe_track_transport()
             state_listener.maybe_reregister()
 
@@ -439,6 +452,7 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
         if is_control_change(st) and len(msg) >= 3:
             handle_cc(n, vel)
             poll_holds()
+            poll_transport_leds()
             maybe_track_transport()
             state_listener.maybe_reregister()
 
@@ -450,6 +464,7 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
             shift_held = down
         if down and handle_arrow(n):
             poll_holds()
+            poll_transport_leds()
             maybe_track_transport()
             state_listener.maybe_reregister()
 
@@ -460,6 +475,7 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
             label = "Shift" if n == shift_note else "StopAll"
             print(f"transport: {label} {'down' if down else 'up'}", flush=True)
             track_reset.note_event(n, down)
+            transport_leds.note_event(n, down)
             maybe_track_transport()
             poll_holds()
             state_listener.maybe_reregister()
@@ -483,6 +499,7 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
             print(f"ignored clip pad note {n} (no track in this bank)", flush=True)
 
         poll_holds()
+        poll_transport_leds()
         maybe_track_transport()
         state_listener.maybe_reregister()
 

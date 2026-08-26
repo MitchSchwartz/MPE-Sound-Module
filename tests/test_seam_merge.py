@@ -9,6 +9,7 @@ from pathlib import Path
 
 from scripts.sooperlooper.seam_merge import (
     DEFAULT_DECLICK_SAMPLES,
+    DEFAULT_FADE_IN_SAMPLES,
     merge_stereo_frames,
     merge_tail_at_seam,
     read_float32_stereo_wav,
@@ -65,9 +66,14 @@ class SeamMergeTests(unittest.TestCase):
         main = [(0.0, 0.0)] * 1000
         tail = [(1.0, 1.0)] * 800
         d = DEFAULT_DECLICK_SAMPLES
-        out = merge_stereo_frames(main, tail, declick_samples=d)
+        out = merge_stereo_frames(
+            main, tail, declick_samples=d, fade_in_samples=d
+        )
         self.assertAlmostEqual(out[d // 2][0], 0.5, places=2)
         self.assertGreater(out[d][0], 0.99)
+        # Same law on the trailing edge, which is where the real ramp lives.
+        end = len(tail) - 1
+        self.assertAlmostEqual(out[end - d // 2][0], 0.5, places=2)
 
     def test_tail_longer_than_the_loop_is_capped_at_one_pass(self) -> None:
         """A 15 s ring-out over a 2 s loop must not bake 7 stacked copies."""
@@ -117,6 +123,40 @@ class SeamMergeTests(unittest.TestCase):
             landed = int(round(0.044 * rate))  # 2112
             self.assertEqual(merged[landed - 1], (0.0, 0.0), "nothing before it")
             self.assertAlmostEqual(merged[landed][0], 0.5, places=5)
+
+    def test_wrap_fade_in_is_short_enough_not_to_dig_a_hole(self) -> None:
+        """Regression: the subtle stutter at every wrap.
+
+        The tail's first sample continues the take's energy across the wrap, so
+        a long fade-in ramps down what the ear expects to be continuous. Scored
+        the way it was measured on the 00:50 take: the worst 1 ms RMS window in
+        the first 10 ms, against the tail's steady level. A 256-sample fade-in
+        fell to 0.25x there and was audible as a dropout every loop.
+        """
+        rate, level = 48000, 0.2
+        ms = rate // 1000
+        main = [(0.0, 0.0)] * rate
+        tail = [(level, level)] * (rate // 2)
+
+        def worst_1ms(frames):
+            return min(
+                (
+                    sum(x[0] * x[0] for x in frames[i * ms : (i + 1) * ms]) / ms
+                ) ** 0.5
+                for i in range(10)
+            )
+
+        shipped = worst_1ms(merge_stereo_frames(main, tail))
+        long_fade = worst_1ms(
+            merge_stereo_frames(main, tail, fade_in_samples=256)
+        )
+        self.assertGreater(
+            shipped / level, 0.3, "wrap must not collapse into a dropout"
+        )
+        self.assertLess(
+            long_fade / level, 0.15, "documents the fade length that stuttered"
+        )
+        self.assertLessEqual(DEFAULT_FADE_IN_SAMPLES, 128)
 
     def test_tail_bridges_a_silent_head_leaving_no_dropout(self) -> None:
         """Regression: the 20 ms stutter at every wrap.

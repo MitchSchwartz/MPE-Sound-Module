@@ -8,7 +8,11 @@ import time
 from pathlib import Path
 from typing import Callable
 
-from seam_merge import DEFAULT_DECLICK_SAMPLES, merge_tail_at_seam
+from seam_merge import (
+    DEFAULT_DECLICK_SAMPLES,
+    DEFAULT_FADE_IN_SAMPLES,
+    merge_tail_at_seam,
+)
 
 # Default 14, not 15: Pi 5 SooperLooper 1.7.9 (arm64 trixie build) accepts save_loop
 # on loops 0–14 but loop index 15 always returns an empty 88 B WAV — tail capture
@@ -20,6 +24,10 @@ SEAM_MERGE_SAMPLES = 0
 # Linear fade on both tail edges before it is summed into the head, in samples.
 SEAM_DECLICK_SAMPLES = int(
     os.environ.get("MPE_SL_SEAM_DECLICK_SAMPLES", str(DEFAULT_DECLICK_SAMPLES))
+)
+# Fade-in at the wrap. Short on purpose — a long one digs a hole at the seam.
+SEAM_FADE_IN_SAMPLES = int(
+    os.environ.get("MPE_SL_SEAM_FADE_IN_SAMPLES", str(DEFAULT_FADE_IN_SAMPLES))
 )
 # Where the tail lands in the head. The scratch loop only arms once SL reports
 # the main loop PLAYING, so tail[0] is already some ms past the stop instant;
@@ -204,6 +212,7 @@ class SeamWeldWorker:
                 out_wav,
                 merge_samples=SEAM_MERGE_SAMPLES,
                 declick_samples=SEAM_DECLICK_SAMPLES,
+                fade_in_samples=SEAM_FADE_IN_SAMPLES,
                 offset_samples=SEAM_TAIL_OFFSET_SAMPLES,
                 offset_seconds=tail_offset_s if SEAM_TAIL_ALIGN else 0.0,
             )
