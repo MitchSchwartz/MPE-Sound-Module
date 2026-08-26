@@ -215,11 +215,24 @@ def establish_grid_clock(send: Callable[[str, list], None], bpm: float) -> None:
     bar 0 then waits through all of bar 1 and arms at bar 2.
 
     Order: smart_eighths off, eighth_per_cycle, then tempo (phase reset via
-    Engine::set_tempo — verified in engine.cpp).
+    Engine::set_tempo — verified in engine.cpp), then eighth_per_cycle AGAIN.
+
+    The re-send is not belt-and-braces (2026-08-26). `Engine::set_tempo` runs
+    `_eighth_cycle *= 2` below 60 BPM and pushes the doubled value to every
+    loop — the same rewrite `apply_grid_sync` documents at startup. Setting the
+    cycle *before* the tempo therefore sets one bar and then has the engine
+    double it straight back to two, which is why the HUD read two bars on the
+    defining take and snapped to one only later.
+
+    "First take = one bar" puts every multi-second take under 60 BPM (a 4.4 s
+    bar is 54 BPM), so this fired on essentially every session, not an edge
+    case. The tempo must land first and the cycle be asserted after it.
     """
     send("/set", ["smart_eighths", 0.0])
     send("/set", ["eighth_per_cycle", float(EIGHTH_PER_CYCLE)])
     send("/set", ["tempo", float(bpm)])
+    # set_tempo may have just doubled the cycle underneath us — say it again.
+    send("/set", ["eighth_per_cycle", float(EIGHTH_PER_CYCLE)])
 
 
 def anchor_phase(send: Callable[[str, list], None], bpm: float) -> None:
