@@ -10,9 +10,11 @@ import unittest
 from scripts.sooperlooper.apc_grid import (
     CONTROLLER_ROWS,
     MAX_VIEW_OFFSET,
+    RESERVED_GRID_NOTES,
     GridView,
     all_clip_pads,
     is_clip_note,
+    is_reserved_grid_note,
     pad_note,
 )
 
@@ -28,6 +30,13 @@ class ApcGridTests(unittest.TestCase):
         view = GridView()
         for row in CONTROLLER_ROWS:
             self.assertIsNone(view.loop_for_pad(row, 0))
+
+    def test_reserved_grid_notes_are_rows_one_through_seven(self) -> None:
+        self.assertEqual(len(RESERVED_GRID_NOTES), 7 * 8)
+        for note in RESERVED_GRID_NOTES:
+            self.assertTrue(is_reserved_grid_note(note))
+            self.assertFalse(is_clip_note(note))
+        self.assertFalse(is_reserved_grid_note(pad_note(0, 0)))
 
     def test_row_three_is_no_longer_a_clip_row(self) -> None:
         self.assertIsNone(GridView().loop_for_note(pad_note(3, 0)))
