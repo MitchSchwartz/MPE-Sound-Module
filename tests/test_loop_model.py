@@ -179,6 +179,16 @@ class PlanTapTests(unittest.TestCase):
         self.assertEqual(up.commands, ("mute_on",))
         self.assertEqual(up.expect, STATE_STOPPED)
 
+    def test_re_tap_while_pending_mute_cancels_with_mute_off(self) -> None:
+        p = self._gesture("up", SL_STATE_PLAYING, pending=STATE_STOPPED)
+        self.assertEqual(p.commands, ("mute_off",))
+        self.assertTrue(p.cancel_pending)
+        self.assertIsNone(p.expect)
+
+    def test_pending_mute_cancel_does_not_fire_on_pad_down(self) -> None:
+        p = self._gesture("down", SL_STATE_PLAYING, pending=STATE_STOPPED)
+        self.assertEqual(p.commands, ())
+
     def test_playing_mutes_rather_than_pauses(self) -> None:
         p = self._plan(SL_STATE_PLAYING)
         self.assertEqual(p.commands, ("mute_on",))
