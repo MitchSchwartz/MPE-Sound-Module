@@ -85,8 +85,12 @@ class FakeSlEngine:
                 else:
                     self.state[loop] = SL_STATE_PLAYING
         elif cmd == "pause_on":
-            self.state[loop] = SL_STATE_PAUSED
-            self._at_boundary.pop(loop, None)
+            # From MUTE with only a queued trigger: cancel the queue, stay muted.
+            if st == SL_STATE_MUTE and loop in self._at_boundary:
+                self._at_boundary.pop(loop, None)
+            else:
+                self.state[loop] = SL_STATE_PAUSED
+                self._at_boundary.pop(loop, None)
         elif cmd == "pause_off":
             if st == SL_STATE_PAUSED:
                 self.state[loop] = SL_STATE_MUTE
