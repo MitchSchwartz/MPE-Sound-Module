@@ -114,44 +114,6 @@ class FootswitchOnEngineTests(unittest.TestCase):
         engine.poll(fs)
         self.assertEqual(engine.state[0], SL_STATE_PLAYING)
 
-    def test_second_tap_during_a_quantized_stop_keeps_it_playing(self) -> None:
-        """Stop is queued to the bar; tapping again inside that bar undoes it.
-
-        This is only expressible because the bench remembers what it asked for.
-        Deriving purely from engine state would read the loop as still playing
-        and mute it a second time.
-        """
-        engine, fs, midi = self._rig()
-        engine.state[0] = SL_STATE_PLAYING
-        engine.loop_len[0] = 2.0
-        engine.poll(fs)
-
-        self._tap(fs)                    # stop, queued to the bar
-        self.assertEqual(self._led(midi), LED_YELLOW_BLINK,
-                         "queued to stop — the state Ableton has no name for")
-
-        self._tap(fs)                    # changed my mind
-        engine.boundary()
-        engine.poll(fs)
-        self.assertEqual(engine.state[0], SL_STATE_PLAYING)
-        self.assertEqual(self._led(midi), LED_GREEN)
-
-    def test_second_tap_during_a_queued_launch_keeps_it_stopped(self) -> None:
-        """Launch is queued to the bar; tapping again inside that bar aborts it."""
-        engine, fs, midi = self._rig()
-        engine.state[0] = SL_STATE_MUTE
-        engine.loop_len[0] = 2.0
-        engine.poll(fs)
-
-        self._tap(fs)                    # launch, queued to the bar
-        self.assertEqual(fs._pending, "playing")
-
-        self._tap(fs)                    # changed my mind
-        engine.boundary()
-        engine.poll(fs)
-        self.assertEqual(engine.state[0], SL_STATE_MUTE)
-        self.assertNotEqual(self._led(midi), LED_GREEN)
-
     # --- polls must not clobber intent -----------------------------------
     def test_polls_during_a_queued_launch_do_not_cancel_the_blink(self) -> None:
         """The launch blink survived exactly one poll before this refactor."""

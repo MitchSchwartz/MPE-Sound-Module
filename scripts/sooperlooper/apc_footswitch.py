@@ -40,12 +40,7 @@ from sl_grid_sync import (
     detect_loop_wrap,
     should_defer_phase_anchor,
 )
-from sl_seam_weld import (
-    SCRATCH_LOOP,
-    SEAM_EARLY_ARM,
-    SEAM_EARLY_ARM_BIAS_S,
-    SEAM_WELD_ENABLED,
-)
+from sl_seam_weld import SCRATCH_LOOP, SEAM_WELD_ENABLED
 from sl_loop_states import (
     ACTIVE_PLAY,
     ACTIVE_RECORD,
@@ -152,7 +147,6 @@ class LoopFootswitch:
         self._tail_capture_since = 0.0
         self._loop_pos_at = 0.0
         self._scratch_start_pos = 0.0
-        self._scratch_armed_early = False
         self._tail_silence_since: float | None = None
         self._in_peak = 0.0
         self._in_peak_seen = False
@@ -262,10 +256,6 @@ class LoopFootswitch:
         if self._on_prepare_scratch is not None:
             self._on_prepare_scratch(self.loop)
         self._scratch_start_pos = self.loop_pos if self._loop_pos_seen else 0.0
-        # Armed before the boundary? Then the scratch head is take content and
-        # the merge must skip it. How much is only knowable once the final
-        # length lands, so record the arm position and resolve it at merge time.
-        self._scratch_armed_early = self.sl_state not in ACTIVE_PLAY
         log(
             f"loop {self.loop}: scratch tail record on loop {SCRATCH_LOOP} "
             f"(pos={self._scratch_start_pos:.3f}s / {self.loop_len:.3f}s)"
@@ -355,7 +345,6 @@ class LoopFootswitch:
                     lambda: self._after_seam_merge(reason),
                     self.seam_position,
                     self._scratch_start_pos,
-                    self._tail_skip_seconds(),
                 )
             except Exception as exc:
                 log(
@@ -405,27 +394,6 @@ class LoopFootswitch:
         self._on_stop_scratch = on_stop_scratch
         self._on_request_seam_merge = on_request_merge
 
-    def _tail_skip_seconds(self) -> float:
-        """Take content sitting at the head of the scratch, in seconds.
-
-        Zero unless the scratch was armed early. When it was, it started at
-        recording position ``_scratch_start_pos`` and the take ended at
-        ``loop_len``, so everything before the boundary is performance, not
-        release. A small bias trims a little extra: clipping a few ms off the
-        start of the ring-out is inaudible, while leaving take content in
-        doubles it onto the head as an audible flam.
-        """
-        if not self._scratch_armed_early or self.loop_len <= 0.0:
-            return 0.0
-        if self._scratch_start_pos <= 0.0:
-            # No usable arm position — fall back to treating the whole scratch
-            # as tail rather than skipping blindly.
-            return 0.0
-        skip = self.loop_len - self._scratch_start_pos
-        if skip <= 0.0:
-            return 0.0
-        return skip + SEAM_EARLY_ARM_BIAS_S
-
     def seam_position(self) -> tuple[float, float] | None:
         """Live (loop_pos, loop_len) for timing the seam swap, or None.
 
@@ -443,22 +411,7 @@ class LoopFootswitch:
         return (predicted % self.loop_len, self.loop_len)
 
     def _tail_playback_ready(self) -> bool:
-        if self.sl_state in ACTIVE_PLAY:
-            return True
-        # Early arming: WAIT_STOP means the stop is sent and SL is counting to
-        # the cycle boundary. Arming here gets the scratch rolling BEFORE the
-        # take ends, so the release is captured continuously with no hole.
-        # Waiting for PLAYING costs a state round-trip — measured 17-68ms of
-        # ring-out that nothing ever recorded, and that gap is what still
-        # steps the wrap down after the fade fix.
-        if not (SEAM_EARLY_ARM and self.sl_state == SL_STATE_WAIT_STOP):
-            return False
-        # Only with a real playhead reading. Arming early without one leaves
-        # _scratch_start_pos at 0, and the skip below then computes a full
-        # loop_len — which would discard the entire tail instead of the take
-        # content. Waiting for the next loop_pos frame costs ~20ms; guessing
-        # costs the whole feature.
-        return self._loop_pos_seen
+        return self.sl_state in ACTIVE_PLAY
 
     def poll_tail_capture(self) -> None:
         """Stop-then-weld: fixed loop length + parallel scratch + offline merge."""
@@ -525,9 +478,6 @@ class LoopFootswitch:
 
         if sl_state == SL_STATE_PLAYING:
             self._maybe_establish_grid()
-            if self._tail_capture and self._tail_stop_sent:
-                self._maybe_start_scratch()
-        elif sl_state == SL_STATE_WAIT_STOP:
             if self._tail_capture and self._tail_stop_sent:
                 self._maybe_start_scratch()
 
@@ -800,7 +750,6 @@ class LoopFootswitch:
             or plan.queue_stop
             or plan.arm_grid
             or plan.begin_tail_capture
-            or plan.cancel_pending
         ):
             return
         if plan.note:
@@ -839,11 +788,7 @@ class LoopFootswitch:
             self._stop_queued = True
         if plan.begin_quantize_wait:
             self._begin_quantize_wait()
-        if plan.cancel_pending:
-            self._pending = None
-            self._pending_since = None
-        elif plan.expect is not None:
-            self._expect(plan.expect)
+        self._expect(plan.expect)
 
         self._sync_led()
         self._mark_action()
