@@ -24,7 +24,7 @@ from scripts.sooperlooper.led_table import (
     LED_YELLOW_BLINK,
 )
 from scripts.sooperlooper.sl_grid_state import GridState
-from scripts.sooperlooper.sl_loop_states import SL_STATE_OFF, SL_STATE_PLAYING
+from scripts.sooperlooper.sl_loop_states import SL_STATE_MUTE, SL_STATE_OFF, SL_STATE_PLAYING
 from tests.fake_sl_engine import FakeSlEngine
 
 
@@ -135,6 +135,22 @@ class FootswitchOnEngineTests(unittest.TestCase):
         engine.poll(fs)
         self.assertEqual(engine.state[0], SL_STATE_PLAYING)
         self.assertEqual(self._led(midi), LED_GREEN)
+
+    def test_second_tap_during_a_queued_launch_keeps_it_stopped(self) -> None:
+        """Launch is queued to the bar; tapping again inside that bar aborts it."""
+        engine, fs, midi = self._rig()
+        engine.state[0] = SL_STATE_MUTE
+        engine.loop_len[0] = 2.0
+        engine.poll(fs)
+
+        self._tap(fs)                    # launch, queued to the bar
+        self.assertEqual(fs._pending, "playing")
+
+        self._tap(fs)                    # changed my mind
+        engine.boundary()
+        engine.poll(fs)
+        self.assertEqual(engine.state[0], SL_STATE_MUTE)
+        self.assertNotEqual(self._led(midi), LED_GREEN)
 
     # --- polls must not clobber intent -----------------------------------
     def test_polls_during_a_queued_launch_do_not_cancel_the_blink(self) -> None:

@@ -8,6 +8,7 @@ import time
 
 import scripts.sooperlooper.apc_footswitch as footswitch_mod
 from scripts.sooperlooper.apc_footswitch import LoopFootswitch, build_footswitches
+from scripts.sooperlooper.loop_model import STATE_PLAYING, STATE_STOPPED
 from scripts.sooperlooper.sl_loop_states import (
     SL_STATE_MUTE,
     SL_STATE_OFF,
@@ -829,6 +830,24 @@ class QuantizedLaunchTests(unittest.TestCase):
         fs.sync_from_sl(SL_STATE_PLAYING)
         fs.on_pad_down(); fs.on_pad_up()
         self.assertEqual(self._hits(fs), ["mute_on"])
+
+    def test_re_tap_cancels_pending_mute_before_the_bar(self) -> None:
+        fs = self._fs()
+        fs.sync_from_sl(SL_STATE_PLAYING)
+        fs.on_pad_down(); fs.on_pad_up()
+        self.assertEqual(fs._pending, STATE_STOPPED)
+        fs.on_pad_down(); fs.on_pad_up()
+        self.assertIsNone(fs._pending)
+        self.assertEqual(self._hits(fs), ["mute_on", "mute_off"])
+
+    def test_re_tap_cancels_pending_launch_with_pause_on(self) -> None:
+        fs = self._fs()
+        fs.sync_from_sl(SL_STATE_MUTE)
+        fs.on_pad_down(); fs.on_pad_up()
+        self.assertEqual(fs._pending, STATE_PLAYING)
+        fs.on_pad_down(); fs.on_pad_up()
+        self.assertIsNone(fs._pending)
+        self.assertEqual(self._hits(fs), ["pause_off", "trigger", "pause_on"])
 
     def test_launch_is_a_quantized_trigger_from_the_clip_start(self) -> None:
         """trigger plays from the start, is deferred to the boundary by SL,
