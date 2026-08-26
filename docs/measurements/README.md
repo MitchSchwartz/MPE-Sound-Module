@@ -52,11 +52,11 @@ Queued prompts: [`PROMPT-P7`](PROMPT-P7-overclock-diagnostic.md),
 [`PROMPT-P8`](PROMPT-P8-mcpu-cortex-a72.md),
 [`HANDOVER-census-unison-fix`](HANDOVER-census-unison-fix.md).
 
-Evidence-record tasks (offline, not measurements): [`PROMPT-G1`](PROMPT-G1-effort-reconstruction.md)
-effort reconstruction (historical — see [`SRED-EFFORT-LOG.md`](../SRED-EFFORT-LOG.md)),
+Evidence-record tasks (offline, not measurements): OM-Repo [`PROMPT-G1`](../../../OM-Repo/internal/projects/mpe-synth-launch/sred/PROMPT-G1-effort-reconstruction.md)
+effort reconstruction (historical — see [`SRED-EFFORT-LOG.md`](../../../OM-Repo/internal/projects/mpe-synth-launch/sred/SRED-EFFORT-LOG.md)),
 [`PROMPT-G3`](PROMPT-G3-archive-raw-logs.md) raw-log archival, and ongoing
-[`SRED-DAILY-LOG.md`](../SRED-DAILY-LOG.md) via skill `sred-daily-capture` — all from
-[`SRED-EVIDENCE-2026.md`](../SRED-EVIDENCE-2026.md).
+[`SRED-DAILY-LOG.md`](../../../OM-Repo/internal/projects/mpe-synth-launch/sred/SRED-DAILY-LOG.md) via OM-Repo skill `sred-daily-capture` — all from
+[`SRED-EVIDENCE-2026.md`](../../../OM-Repo/internal/projects/mpe-synth-launch/sred/SRED-EVIDENCE-2026.md).
 
 ## Archive
 

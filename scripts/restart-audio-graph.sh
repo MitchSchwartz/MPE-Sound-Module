@@ -5,8 +5,9 @@
 #
 # Entry point for callers that cannot source shell libraries — notably
 # config/99-usb-audio.rules, where a DAC unplug/replug must restart the graph
-# rather than only Surge (criterion 15). udev kills long-running RUN commands,
-# so the restart is issued with --no-block.
+# rather than only Surge (criterion 15). Resets supervisor budget and sets
+# state=recovering so supervisor-exhausted cannot survive a good replug. udev kills
+# long-running RUN commands, so the restart is issued with --no-block.
 
 set -uo pipefail
 

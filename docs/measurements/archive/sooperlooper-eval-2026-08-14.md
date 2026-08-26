@@ -1,5 +1,7 @@
 # SooperLooper evaluation — 2026-08-14
 
+> **Correction (2026-08-23):** Reference Pi 4 is **4 GB RAM**. The **7.6 GiB** conditions row was a logging error.
+
 Plan: OM-Repo `internal/projects/mpe-synth-launch/research/looper-vetting.md` §7.
 Decisions this feeds: `Documents/DECISIONS.md` 2026-08-14 entries.
 
@@ -35,7 +37,7 @@ rm -rf ~/src/sooperlooper-1.7.9
 
 | Field | Value |
 |---|---|
-| Pi model / RAM | Raspberry Pi 4 Model B Rev 1.5 / 7.6 GiB |
+| Pi model / RAM | Raspberry Pi 4 Model B Rev 1.5 / **4 GiB** *(was logged 7.6 GiB in error)* |
 | OS | Debian 13 (trixie) arm64 |
 | MPE-Module commit | `d01d9c3` (Pi clone) |
 | mpe-cli version | laptop `mpe ping` / `mpe sysinfo` 2026-08-14 |
