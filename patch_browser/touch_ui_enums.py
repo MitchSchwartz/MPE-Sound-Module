@@ -20,6 +20,8 @@ class Screen(Enum):
     MIDI_SYNC_MODAL = auto()
     CONTEXT_MENU = auto()
     NAME_PROMPT = auto()
+    LOOPER_CONFIRM = auto()
+    LOOPER_NAME = auto()
 
 
 class CalibrateMode(Enum):
