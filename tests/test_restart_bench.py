@@ -107,3 +107,38 @@ class RestartBenchResultTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestStrayReapReporting(unittest.TestCase):
+    """The reap line explains a wedge nothing else surfaces (2026-08-26)."""
+
+    def _read(self, body: str):
+        import tempfile
+        from pathlib import Path
+
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "r"
+            p.write_text(body, encoding="utf-8")
+            return read_result(p)
+
+    _OK = "started=100\nunit.mpe-jackd=ok\nfinished=110\nresult=ok\n"
+
+    def test_no_stray_is_not_mentioned(self) -> None:
+        r = self._read(self._OK.replace("started=", "reap.sooperlooper=none\nstarted="))
+        self.assertEqual(r.reap_sooperlooper, "none")
+        self.assertEqual(r.summary(), "Everything restarted")
+
+    def test_reaped_stray_is_surfaced(self) -> None:
+        r = self._read(self._OK.replace("started=", "reap.sooperlooper=reaped-1\nstarted="))
+        self.assertIn("stray looper", r.summary())
+
+    def test_failed_reap_does_not_claim_success(self) -> None:
+        body = "reap.sooperlooper=failed\nstarted=100\nfinished=110\nresult=partial\n"
+        r = self._read(body)
+        self.assertEqual(r.reap_sooperlooper, "failed")
+        self.assertNotEqual(r.summary(), "Everything restarted")
+
+    def test_absent_key_defaults_empty(self) -> None:
+        r = self._read(self._OK)
+        self.assertEqual(r.reap_sooperlooper, "")
+        self.assertEqual(r.summary(), "Everything restarted")

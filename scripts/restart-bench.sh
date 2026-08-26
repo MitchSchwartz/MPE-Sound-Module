@@ -74,6 +74,7 @@ if [ "$EXPLAIN" = true ]; then
         n=$((n + 1))
         printf '  %d. %-22s gate=%s\n' "$n" "${entry%%:*}" "${entry##*:}"
     done
+    echo "restart-bench: pre-step — reap sooperlooper processes outside mpe-sooperlooper.service"
     echo "restart-bench: result file -> $RESULT_FILE"
     echo "restart-bench: no action taken (--explain)"
     exit 0
@@ -120,7 +121,30 @@ wait_gate() {
     esac
 }
 
+# Reap before restarting anything. An engine outside systemd's cgroups survives
+# every unit restart in the loop below, so without this the one action built to
+# unwedge the stack cannot fix the wedge that actually happened on 2026-08-26:
+# a hand-started SooperLooper holding the `mpe-looper` JACK client name and
+# stalling the graph. Recorded in the result file either way — a reap that
+# happened is the single most useful line for explaining what was wrong.
 overall=ok
+
+# Distinguish "nothing to reap" from "reaped something": they mean opposite
+# things to whoever reads this file afterwards. `none` is a healthy stack;
+# `reaped=N` names the wedge that was just cleared.
+strays="$(mpe_stray_engine_pids sooperlooper "mpe-sooperlooper.service")"
+if [ -z "$strays" ]; then
+    reaped=none
+elif mpe_reap_stray_engines sooperlooper "mpe-sooperlooper.service" "restart-bench"; then
+    reaped="reaped-$(echo $strays | wc -w)"
+    log "cleared $reaped stray sooperlooper process(es)"
+else
+    reaped=failed
+    overall=partial
+    log "WARNING stray sooperlooper survived reap (continuing)"
+fi
+printf 'reap.sooperlooper=%s\n' "$reaped" >>"$RESULT_FILE"
+
 for entry in "${UNITS[@]}"; do
     unit="${entry%%:*}"
     gate="${entry##*:}"
