@@ -121,6 +121,7 @@ class TouchBrowserSettingsMixin:
         self.peak_meter_toggle_rect = Rect(pad, y, 0, 0)
         self.norm_global_toggle_rect = Rect(pad, y, 0, 0)
         self._surge_restart_btn = None
+        self._restart_bench_btn = None
         self._calibrate_missing_btn = Rect(pad, y, 0, 0)
         self._calibrate_force_btn = Rect(pad, y, 0, 0)
 
@@ -139,6 +140,13 @@ class TouchBrowserSettingsMixin:
                 self._surge_restart_btn = Rect(pad, y, inner_w, restart_h)
                 y += restart_h + SETTINGS_ROW_GAP
 
+            # Deliberately NOT gated on surge_monitor: this is the catch-all, so
+            # it has to be reachable precisely when the thing that reports
+            # health is itself the thing that is broken.
+            bench_h = self._settings_row_height("Restart everything", inner_w)
+            self._restart_bench_btn = Rect(pad, y, inner_w, bench_h)
+            y += bench_h + SETTINGS_ROW_GAP
+
         self.audio_profile_row_rect = Rect(pad, y, 0, 0)
         self.poly_governor_toggle_rect = Rect(pad, y, 0, 0)
         self.surge_buffer_row_rect = Rect(pad, y, 0, 0)
@@ -156,6 +164,7 @@ class TouchBrowserSettingsMixin:
         self.cpu_meter_toggle_rect = Rect(pad, y, 0, 0)
         self.peak_meter_toggle_rect = Rect(pad, y, 0, 0)
         self._surge_restart_btn = None
+        self._restart_bench_btn = None
 
         from patch_browser.audio_profile import profile_settings_label
         from patch_browser.surge_audio import buffer_settings_label, sample_rate_settings_label
@@ -535,6 +544,15 @@ class TouchBrowserSettingsMixin:
                         restart,
                         "Restart Surge",
                         pressed=self._pressed("settings:surge_restart"),
+                    )
+
+                if self._restart_bench_btn and self._restart_bench_btn.h > 0:
+                    bench = self._panel_local_to_screen(self._restart_bench_btn, scrolled=True)
+                    self._draw_settings_action_row(
+                        bench,
+                        "Restart everything",
+                        muted=True,
+                        pressed=self._pressed("settings:restart_bench"),
                     )
 
         self.screen.set_clip(clip)

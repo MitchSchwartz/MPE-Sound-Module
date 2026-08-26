@@ -216,6 +216,10 @@ class TouchPatchBrowser(
         self._surge_was_healthy = False
         self._surge_liveness_initialized = False
         self._surge_restart_btn: Rect | None = None
+        self._restart_bench_btn: Rect | None = None
+        # Which action the shared confirm screen is standing in for.
+        self._pending_confirm_kind: str = "calibrate"
+        self._restart_bench_toast_shown = False
         self._settings_slide = 0.0
         self._settings_view = "root"
         self._settings_advanced_open = False
@@ -401,6 +405,32 @@ class TouchPatchBrowser(
         self._loader_toast_base = ""
         self._clear_toast()
 
+    def _poll_restart_bench_result(self) -> None:
+        """Report the outcome of a whole-stack restart (#112) once, on startup.
+
+        The sequence restarts this process as its final step, so the browser
+        cannot observe its own restart — the result is read afterwards instead.
+        Without this, a failed unit would be recorded in a file nobody reads,
+        which is the same as not reporting it.
+        """
+        if self._restart_bench_toast_shown:
+            return
+        from patch_browser.restart_bench import read_result
+
+        result = read_result()
+        if result is None:
+            # No sequence has run since boot. Nothing to say, and nothing to
+            # retry — mark done so this costs one read, not one per frame.
+            self._restart_bench_toast_shown = True
+            return
+        if not result.complete:
+            # Still running, or it died partway. Leave the flag clear so the
+            # outcome is picked up once it lands.
+            return
+        self._restart_bench_toast_shown = True
+        if result.is_fresh(time.time()):
+            self._toast(result.summary(), 4.0 if result.result != "ok" else 2.5)
+
     def _tick_loader_toast(self) -> None:
         if not self._loader_toast_active:
             return
@@ -468,6 +498,7 @@ class TouchPatchBrowser(
             self._poll_audio_profile_switch()
             self._poll_surge_audio_switch()
             self._poll_engine_recovery_toast()
+            self._poll_restart_bench_result()
             self._tick_loader_toast()
             self._poll_midi_sync_switch()
             self._poll_wifi_work()
