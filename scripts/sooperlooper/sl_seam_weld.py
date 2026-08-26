@@ -78,24 +78,7 @@ SEAM_TAIL_OFFSET_SAMPLES = int(
 # Landing it at 0 bridges it. A 36 ms timing error on a decaying tail is
 # inaudible; a 20 ms dropout is a stutter. Turn on only with a take whose head
 # is already full, where there is no hole to uncover.
-#
-# 2026-08-26 — REVERSED, default now on. The hole above was measured against a
-# take welded by the *retriggering* swap (pre-712f012); the 20 ms of silence was
-# the retrigger landing early, not the offset. Re-measured on three 18:30 takes
-# with the no-retrigger swap, arm offsets 0.065-0.139 s, worst single-sample
-# step near the tail's entry point:
-#
-#   take     loop     arm      align off -> on    1 ms RMS at entry
-#   571185   2.877s   0.139s   0.0214 -> 0.0096   0.0541 -> 0.0046
-#   599117   4.028s   0.065s   0.0034 -> 0.0034   0.0183 -> 0.0099
-#   445886   2.034s   0.111s   0.0273 -> 0.0281   0.1273 -> 0.0079
-#
-# No hole: the 64-sample fade-in ramps in over 1.3 ms and every block after the
-# entry matches the unaligned merge. The win is the third column — unaligned,
-# the tail's loudest block lands on sample 0 of a take whose own head is near
-# silence (0.0004 RMS), an ~18 dB step every wrap. Aligned, the head stays the
-# take's and the tail enters where it actually sounded.
-SEAM_TAIL_ALIGN = os.environ.get("MPE_SL_SEAM_TAIL_ALIGN", "1").strip().lower() in (
+SEAM_TAIL_ALIGN = os.environ.get("MPE_SL_SEAM_TAIL_ALIGN", "0").strip().lower() in (
     "1",
     "on",
     "true",
