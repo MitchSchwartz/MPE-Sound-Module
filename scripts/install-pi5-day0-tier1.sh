@@ -31,6 +31,10 @@ if ! id -nG "$PI_USER" 2>/dev/null | tr ' ' '\n' | grep -qx audio; then
 fi
 
 echo ""
+echo "=== JACK RT limits file (repair path) ==="
+sudo "$REPO_ROOT/scripts/install-jack-audio-limits.sh"
+
+echo ""
 echo "=== RT / JACK verification ==="
 if ! "$REPO_ROOT/scripts/verify-jack-rt-limits.sh" "$PI_USER"; then
     echo ""
@@ -49,5 +53,5 @@ else
 fi
 
 echo ""
-echo "Tier 1 complete. Next (day 0): scripts/build-surge.sh --arch a76"
+echo "Tier 1 complete. Next: scripts/build-surge.sh --arch a76 && scripts/install-surge-from-build.sh --arch a76"
 echo "Instruments (Tier 2): scripts/build-mpe-peak-meter.sh --required && scripts/build-mpe-xrun-probe.sh"

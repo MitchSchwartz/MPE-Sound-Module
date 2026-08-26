@@ -71,6 +71,10 @@ _reconcile_engine() {
         return 0
     fi
 
+    if mpe_midi_hotplug_busy; then
+        return 0
+    fi
+
     # Steady state: unit active and engine already ok — skip jack_lsp if a full
     # graph probe ran recently. Unbounded skip is indistinguishable from stopping
     # to look (orphaned JACK client, DECISIONS.md 2026-08-15).
@@ -178,6 +182,10 @@ while true; do
     fi
 
     _reconcile_engine
+
+    if mpe_engine_stuck_failed_maybe_sweep; then
+        log "STUCK-FAILED sweep: graph restart issued (hardware ready, state=failed)"
+    fi
 
     now=$EPOCHSECONDS
     if [ $((now - _last_looper_reconcile)) -ge "$LOOPER_RECONCILE_INTERVAL_S" ]; then

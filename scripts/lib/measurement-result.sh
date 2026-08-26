@@ -43,6 +43,10 @@ mpe_result_buffer_from_tag() {
 
 mpe_result_dsp_plausibility_floor() {
     local buf="${1:-}"
+    if [ -n "${MPE_DSP_PLAUSIBILITY_FLOOR_OVERRIDE:-}" ]; then
+        echo "$MPE_DSP_PLAUSIBILITY_FLOOR_OVERRIDE"
+        return 0
+    fi
     case "$buf" in
         1024) echo "$MPE_DSP_FLOOR_1024" ;;
         512) echo "$MPE_DSP_FLOOR_512" ;;

@@ -1,13 +1,13 @@
 # Poly governor v2 — always-on jack model (Pi 5 ear tune)
 
-*Last updated: 2026-08-23 20:23 (America/Toronto)*
+*Last updated: 2026-08-23 20:35 (America/Toronto)*
 
-**Status:** **PAUSED** — Gate B not closed. Further tune / measurement deferred until Pi 5 **active cooler + 27 W PSU** (thermal/voltage baseline will shift the playing field).
+**Status:** **EAR TEST — pre-engaged cap** (`yolo/pre-engaged-cap` @ `bae4f5e` on Pi 5).
 
 **Platform:** Pi 5 · 128×2 @ 48 kHz · Cloud Horn / Crystals / Piano Fictions  
 **Uncertainty:** U10 (Pi 5 replication) + V7 (patch-aware capacity / audible degradation)  
 **Spec:** [`Documents/specs/poly-governor-v2-progressive-spec.md`](../../Documents/specs/poly-governor-v2-progressive-spec.md)  
-**Code:** `dev` @ `db64943` (always_on + ramp apply `07cb32d`)
+**Code:** `yolo/pre-engaged-cap` @ `bae4f5e` (`MPE_POLY_REST_CAP`)
 
 ---
 
@@ -63,6 +63,8 @@ MPE_POLY_JACK_BASELINE=97
 MPE_POLY_MIN_HEADROOM=3
 MPE_POLY_RISE_BIAS_MAX=7
 MPE_POLY_RAMP_APPLY=1
+MPE_POLY_REST_CAP=40
+MPE_POLY_STEP_UP=0
 MPE_POLY_LIMIT_HARD=100
 MPE_POLY_EMERGENCY_XRUN_ONLY=1
 MPE_POLY_CEILING=64
@@ -100,6 +102,18 @@ MPE_POLY_RISE_MIN_RATE=20
 
 ---
 
+## Pre-engaged cap experiment (2026-08-23 ~20:35)
+
+**Hypothesis:** Steady-state engaged limit sounds perfect; pain is the down-transition. Hold orange-equilibrium cap from boot.
+
+**Shipped:** `MPE_POLY_REST_CAP` + bootstrap on governor start; recovery capped at rest_cap; `MPE_POLY_STEP_UP=0`.
+
+**Pi journal @ boot:** `rest_cap=40 step_up=0` → `64 -> 40 reason=high` (immediate).
+
+**Ear test (Mitch):** Cloud Horn @5, Crystals @6, Piano — progressive ramp + step-attack gesture vs prior 97/3/7 tune.
+
+---
+
 ## Session chronology
 
 | Step | Action | Outcome |
@@ -109,7 +123,8 @@ MPE_POLY_RISE_MIN_RATE=20
 | 3 | Ramp apply (`07cb32d`) | Piano pop fixed; progressive ramp smooth |
 | 4 | Ear tune 96→99→97, headroom, rise bias | Tradeoff surface mapped |
 | 5 | Best @ 97/3/7 | Cloud Horn clean; Crystals tiny pop |
-| 6 | Step-attack gesture | Crackle returns — **pause** |
+| 6 | Step-attack gesture | Crackle returns — pause |
+| 7 | Pre-engaged cap `bae4f5e` | REST_CAP=40, STEP_UP=0; bootstrap 64→40 @ boot — **ear pending** |
 
 ---
 

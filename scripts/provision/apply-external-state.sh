@@ -64,7 +64,7 @@ _read_paths() {
 
 _apply_tree_on_appliance() {
     local state_dir="$1"
-    local home dest_src dest_sub rel
+    local home dest_src dest_sub rel unit drop_src
 
     # shellcheck source=../lib/paths.sh
     source "$SCRIPT_DIR/../lib/paths.sh"
@@ -111,6 +111,25 @@ _apply_tree_on_appliance() {
             _run cp -a "$dest_src" "$dest_sub"
         fi
     done < <(_read_paths)
+
+    if [ -d "$state_dir/etc/systemd-dropins" ]; then
+        shopt -s nullglob
+        for drop_src in "$state_dir/etc/systemd-dropins"/*.service.d; do
+            [ -d "$drop_src" ] || continue
+            unit="$(basename "$drop_src")"
+            echo "  systemd drop-in: $unit"
+            if [ "$DRY" = true ]; then
+                echo "would: sudo cp -> /etc/systemd/system/$unit"
+            else
+                sudo mkdir -p "/etc/systemd/system/$unit"
+                sudo cp -a "$drop_src/." "/etc/systemd/system/$unit/"
+            fi
+        done
+        shopt -u nullglob
+        if [ "$DRY" = false ]; then
+            sudo systemctl daemon-reload 2>/dev/null || true
+        fi
+    fi
 
     echo ""
     echo "External state applied."
