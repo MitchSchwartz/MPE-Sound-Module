@@ -139,7 +139,7 @@ class GridEstablishmentTests(unittest.TestCase):
         def start(_loop: int) -> None:
             fs._osc.send_message(f"/sl/{SCRATCH_LOOP}/hit", ["record"])
 
-        def merge(_loop: int, done, position=None, tail_offset_s=0.0) -> bool:
+        def merge(_loop: int, done, position=None, tail_offset_s=0.0, tail_skip_s=0.0) -> bool:
             if merge_immediate:
                 done()
             return True
@@ -200,7 +200,7 @@ class GridEstablishmentTests(unittest.TestCase):
                 on_prepare_scratch=lambda loop: prepared.append(loop),
                 on_start_scratch=lambda loop: started.append(loop),
                 on_stop_scratch=lambda loop: None,
-                on_request_merge=lambda loop, done, position=None, tail_offset_s=0.0: (done(), True)[1],
+                on_request_merge=lambda loop, done, position=None, tail_offset_s=0.0, tail_skip_s=0.0: (done(), True)[1],
             )
             fs._tail_capture = True
             fs._tail_stop_sent = True
@@ -224,7 +224,7 @@ class GridEstablishmentTests(unittest.TestCase):
             ),
             on_start_scratch=lambda _loop: None,
             on_stop_scratch=lambda _loop: None,
-            on_request_merge=lambda _loop, done, position=None, tail_offset_s=0.0: True,
+            on_request_merge=lambda _loop, done, position=None, tail_offset_s=0.0, tail_skip_s=0.0: True,
         )
         self._start_defining_take(fs)
         fs.on_pad_down()
@@ -340,7 +340,7 @@ class TailCaptureTests(unittest.TestCase):
             on_prepare_scratch=lambda loop: None,
             on_start_scratch=lambda loop: None,
             on_stop_scratch=lambda loop: None,
-            on_request_merge=lambda loop, done, position=None, tail_offset_s=0.0: (merged.append(loop) or False),
+            on_request_merge=lambda loop, done, position=None, tail_offset_s=0.0, tail_skip_s=0.0: (merged.append(loop) or False),
         )
         fs._tail_capture = True
         fs._tail_stop_sent = True
@@ -370,7 +370,7 @@ class TailCaptureTests(unittest.TestCase):
             on_prepare_scratch=lambda loop: None,
             on_start_scratch=lambda loop: None,
             on_stop_scratch=lambda loop: None,
-            on_request_merge=lambda loop, done, position=None, tail_offset_s=0.0: (done(), True)[1],
+            on_request_merge=lambda loop, done, position=None, tail_offset_s=0.0, tail_skip_s=0.0: (done(), True)[1],
         )
         fs._tail_capture = True
         fs._tail_stop_sent = True
@@ -432,7 +432,7 @@ class TailCaptureTests(unittest.TestCase):
             on_prepare_scratch=lambda loop: None,
             on_start_scratch=lambda loop: None,
             on_stop_scratch=lambda loop: None,
-            on_request_merge=lambda loop, done, position=None, tail_offset_s=0.0: (done(), True)[1],
+            on_request_merge=lambda loop, done, position=None, tail_offset_s=0.0, tail_skip_s=0.0: (done(), True)[1],
         )
         fs._tail_capture = True
         fs._tail_stop_sent = True
@@ -454,7 +454,7 @@ class TailCaptureTests(unittest.TestCase):
             on_prepare_scratch=lambda loop: None,
             on_start_scratch=lambda loop: None,
             on_stop_scratch=lambda loop: None,
-            on_request_merge=lambda loop, done, position=None, tail_offset_s=0.0: (done(), True)[1],
+            on_request_merge=lambda loop, done, position=None, tail_offset_s=0.0, tail_skip_s=0.0: (done(), True)[1],
         )
         fs._tail_capture = True
         fs._tail_stop_sent = True
@@ -481,7 +481,7 @@ class TailCaptureTests(unittest.TestCase):
             on_prepare_scratch=lambda loop: None,
             on_start_scratch=lambda loop: None,
             on_stop_scratch=lambda loop: None,
-            on_request_merge=lambda loop, done, position=None, tail_offset_s=0.0: (done(), True)[1],
+            on_request_merge=lambda loop, done, position=None, tail_offset_s=0.0, tail_skip_s=0.0: (done(), True)[1],
         )
         fs._tail_capture = True
         fs._tail_stop_sent = True
@@ -505,7 +505,7 @@ class TailCaptureTests(unittest.TestCase):
             on_prepare_scratch=lambda loop: None,
             on_start_scratch=lambda loop: None,
             on_stop_scratch=lambda loop: None,
-            on_request_merge=lambda loop, done, position=None, tail_offset_s=0.0: (
+            on_request_merge=lambda loop, done, position=None, tail_offset_s=0.0, tail_skip_s=0.0: (
                 merged.append((loop, position)),
                 done(),
                 True,
@@ -534,7 +534,7 @@ class TailCaptureTests(unittest.TestCase):
             on_prepare_scratch=lambda loop: None,
             on_start_scratch=lambda loop: None,
             on_stop_scratch=lambda loop: None,
-            on_request_merge=lambda loop, done, position=None, tail_offset_s=0.0: (
+            on_request_merge=lambda loop, done, position=None, tail_offset_s=0.0, tail_skip_s=0.0: (
                 handed.append(position),
                 done(),
                 True,
@@ -587,7 +587,7 @@ class TailCaptureTests(unittest.TestCase):
             on_prepare_scratch=lambda loop: None,
             on_start_scratch=lambda loop: None,
             on_stop_scratch=lambda loop: None,
-            on_request_merge=lambda loop, done, position=None, tail_offset_s=0.0: (
+            on_request_merge=lambda loop, done, position=None, tail_offset_s=0.0, tail_skip_s=0.0: (
                 seen.append(tail_offset_s),
                 done(),
                 True,
@@ -631,7 +631,7 @@ class TailCaptureTests(unittest.TestCase):
             on_prepare_scratch=lambda loop: None,
             on_start_scratch=lambda loop: None,
             on_stop_scratch=lambda loop: None,
-            on_request_merge=lambda loop, done, position=None, tail_offset_s=0.0: True,
+            on_request_merge=lambda loop, done, position=None, tail_offset_s=0.0, tail_skip_s=0.0: True,
         )
         fs._tail_capture = True
         fs._tail_stop_sent = True
