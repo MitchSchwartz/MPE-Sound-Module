@@ -1531,7 +1531,17 @@ class TouchBrowserDrawMixin:
         targets, total = self._calibration_scope_stats(mode)
 
         panel_w = min(520, self.width - 48)
-        if kind == "restart_bench":
+        if kind == "terminal":
+            title = "Open terminal"
+            body_raw = (
+                "Opens a shell on this panel. Audio keeps running — the browser "
+                "is not part of the audio graph.",
+                "Type exit, or press Ctrl+D, to come back.",
+                "Closes itself after 5 minutes with no typing.",
+            )
+            confirm_label = "Open"
+            confirm_disabled = False
+        elif kind == "restart_bench":
             title = "Restart everything"
             body_raw = (
                 "Restarts the audio stack in order: MIDI, JACK, Surge, looper, "
