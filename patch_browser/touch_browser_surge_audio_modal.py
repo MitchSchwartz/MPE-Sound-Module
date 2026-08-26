@@ -92,7 +92,11 @@ class TouchBrowserSurgeAudioModalMixin:
         self.screen.blit(self.font_md.render("Audio buffer", True, self.theme.text), (inner_x, y))
         y += self.font_md.get_height() + 8
         self.screen.blit(
-            self.font_sm.render("Lower values reduce latency; heavy patches may crackle.", True, self.theme.muted),
+            self.font_sm.render(
+                "Lower latency = heavier CPU load. 32/64 may fail; reverts automatically.",
+                True,
+                self.theme.muted,
+            ),
             (inner_x, y),
         )
         y += hint_h + 8

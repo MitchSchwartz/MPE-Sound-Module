@@ -203,9 +203,9 @@ mpe_engine_stuck_failed_decision 1000 0 0 15 ok 1 1 1
     def test_decision_wait_then_sweep(self) -> None:
         body = f"""
 source {AUDIO_ENGINE_SH}
-mpe_engine_stuck_failed_decision 1000 900 0 15 failed 1 1 1
+mpe_engine_stuck_failed_decision 1000 0 0 15 failed 1 1 1
 printf '\\n'
-mpe_engine_stuck_failed_decision 1020 900 0 15 failed 1 1 1
+mpe_engine_stuck_failed_decision 1020 1000 0 15 failed 1 1 1
 """
         result = _run_bash_script(body, env=_bash_env())
         lines = result.stdout.strip().splitlines()
@@ -803,6 +803,12 @@ class NoAlsaPathTests(unittest.TestCase):
             check=False,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_set_surge_audio_rolls_back_on_graph_failure(self) -> None:
+        text = SET_SURGE_AUDIO_SH.read_text(encoding="utf-8")
+        self.assertIn("_prev_buffer=", text)
+        self.assertIn("rollback-after-failed-settings", text)
+        self.assertIn("reverted to", text)
 
 
 class StartSurgeCliFailureTests(unittest.TestCase):
