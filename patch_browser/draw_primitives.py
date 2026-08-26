@@ -91,6 +91,26 @@ def draw_filter_icon(
         y += line_h + gap
 
 
+def draw_looper_icon(
+    surface: pygame.Surface,
+    rect: Rect,
+    color: tuple[int, int, int],
+) -> None:
+    """Looper songs — circle with looping arrow (nav header toggle)."""
+    cx, cy = rect.centerx, rect.centery
+    radius = max(6, min(rect.w, rect.h) // 2 - 3)
+    pygame.draw.circle(surface, color, (cx, cy), radius, 2)
+    arc_rect = pygame.Rect(cx - radius + 2, cy - radius + 2, (radius - 2) * 2, (radius - 2) * 2)
+    pygame.draw.arc(surface, color, arc_rect, 0.8, 5.2, 2)
+    tip_x = cx + int((radius - 4) * 0.85)
+    tip_y = cy - int((radius - 4) * 0.45)
+    pygame.draw.polygon(
+        surface,
+        color,
+        [(tip_x, tip_y), (tip_x - 5, tip_y - 2), (tip_x - 2, tip_y + 4)],
+    )
+
+
 def draw_toggle_switch(
     surface: pygame.Surface,
     rect: Rect,

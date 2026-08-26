@@ -16,6 +16,7 @@ from led_table import (  # noqa: F401
     LED_RED_BLINK,
     LED_YELLOW,
     LED_YELLOW_BLINK,
+    accelerating_hold_blink_on,
     led_for,
 )
 from loop_model import (
@@ -39,7 +40,12 @@ from sl_grid_sync import (
     detect_loop_wrap,
     should_defer_phase_anchor,
 )
-from sl_seam_weld import SCRATCH_LOOP, SEAM_WELD_ENABLED
+from sl_seam_weld import (
+    SCRATCH_LOOP,
+    SEAM_EARLY_ARM,
+    SEAM_EARLY_ARM_BIAS_S,
+    SEAM_WELD_ENABLED,
+)
 from sl_loop_states import (
     ACTIVE_PLAY,
     ACTIVE_RECORD,
@@ -98,6 +104,7 @@ class LoopFootswitch:
         loop: int,
         hold_ms: float,
         debounce_ms: float,
+        hold_blink_start_ms: float = 500.0,
         num_loops: int = 16,
         quantized: bool = True,
         grid: GridState | None = None,
@@ -124,6 +131,7 @@ class LoopFootswitch:
         self.quantized = quantized
         self.num_loops = num_loops
         self.hold_s = hold_ms / 1000.0
+        self.hold_blink_start_s = hold_blink_start_ms / 1000.0
         self.debounce_s = debounce_ms / 1000.0
         self._pending: str | None = None
         self._pending_since = 0.0
@@ -144,6 +152,7 @@ class LoopFootswitch:
         self._tail_capture_since = 0.0
         self._loop_pos_at = 0.0
         self._scratch_start_pos = 0.0
+        self._scratch_armed_early = False
         self._tail_silence_since: float | None = None
         self._in_peak = 0.0
         self._in_peak_seen = False
@@ -253,6 +262,10 @@ class LoopFootswitch:
         if self._on_prepare_scratch is not None:
             self._on_prepare_scratch(self.loop)
         self._scratch_start_pos = self.loop_pos if self._loop_pos_seen else 0.0
+        # Armed before the boundary? Then the scratch head is take content and
+        # the merge must skip it. How much is only knowable once the final
+        # length lands, so record the arm position and resolve it at merge time.
+        self._scratch_armed_early = self.sl_state not in ACTIVE_PLAY
         log(
             f"loop {self.loop}: scratch tail record on loop {SCRATCH_LOOP} "
             f"(pos={self._scratch_start_pos:.3f}s / {self.loop_len:.3f}s)"
@@ -342,6 +355,7 @@ class LoopFootswitch:
                     lambda: self._after_seam_merge(reason),
                     self.seam_position,
                     self._scratch_start_pos,
+                    self._tail_skip_seconds(),
                 )
             except Exception as exc:
                 log(
@@ -391,6 +405,27 @@ class LoopFootswitch:
         self._on_stop_scratch = on_stop_scratch
         self._on_request_seam_merge = on_request_merge
 
+    def _tail_skip_seconds(self) -> float:
+        """Take content sitting at the head of the scratch, in seconds.
+
+        Zero unless the scratch was armed early. When it was, it started at
+        recording position ``_scratch_start_pos`` and the take ended at
+        ``loop_len``, so everything before the boundary is performance, not
+        release. A small bias trims a little extra: clipping a few ms off the
+        start of the ring-out is inaudible, while leaving take content in
+        doubles it onto the head as an audible flam.
+        """
+        if not self._scratch_armed_early or self.loop_len <= 0.0:
+            return 0.0
+        if self._scratch_start_pos <= 0.0:
+            # No usable arm position — fall back to treating the whole scratch
+            # as tail rather than skipping blindly.
+            return 0.0
+        skip = self.loop_len - self._scratch_start_pos
+        if skip <= 0.0:
+            return 0.0
+        return skip + SEAM_EARLY_ARM_BIAS_S
+
     def seam_position(self) -> tuple[float, float] | None:
         """Live (loop_pos, loop_len) for timing the seam swap, or None.
 
@@ -408,7 +443,22 @@ class LoopFootswitch:
         return (predicted % self.loop_len, self.loop_len)
 
     def _tail_playback_ready(self) -> bool:
-        return self.sl_state in ACTIVE_PLAY
+        if self.sl_state in ACTIVE_PLAY:
+            return True
+        # Early arming: WAIT_STOP means the stop is sent and SL is counting to
+        # the cycle boundary. Arming here gets the scratch rolling BEFORE the
+        # take ends, so the release is captured continuously with no hole.
+        # Waiting for PLAYING costs a state round-trip — measured 17-68ms of
+        # ring-out that nothing ever recorded, and that gap is what still
+        # steps the wrap down after the fade fix.
+        if not (SEAM_EARLY_ARM and self.sl_state == SL_STATE_WAIT_STOP):
+            return False
+        # Only with a real playhead reading. Arming early without one leaves
+        # _scratch_start_pos at 0, and the skip below then computes a full
+        # loop_len — which would discard the entire tail instead of the take
+        # content. Waiting for the next loop_pos frame costs ~20ms; guessing
+        # costs the whole feature.
+        return self._loop_pos_seen
 
     def poll_tail_capture(self) -> None:
         """Stop-then-weld: fixed loop length + parallel scratch + offline merge."""
@@ -475,6 +525,9 @@ class LoopFootswitch:
 
         if sl_state == SL_STATE_PLAYING:
             self._maybe_establish_grid()
+            if self._tail_capture and self._tail_stop_sent:
+                self._maybe_start_scratch()
+        elif sl_state == SL_STATE_WAIT_STOP:
             if self._tail_capture and self._tail_stop_sent:
                 self._maybe_start_scratch()
 
@@ -622,6 +675,12 @@ class LoopFootswitch:
             tail_capture=self._tail_capture and not self._merge_pending,
         )
 
+    def _hold_led_lock(self) -> bool:
+        """True while hold-warning owns the pad LED (after blink-start delay)."""
+        if not self._pad_down or self._hold_fired:
+            return False
+        return (time.monotonic() - self._pad_down_at) >= self.hold_blink_start_s
+
     def _sync_led(self) -> None:
         """Paint the pad from engine truth plus unconfirmed intent.
 
@@ -629,6 +688,8 @@ class LoopFootswitch:
         one-element sequence is a steady colour, anything longer animates and
         `poll_led` drives it from here.
         """
+        if self._hold_led_lock():
+            return
         seq = self._led_target()
         if len(seq) > 1:
             self._led_transition = seq
@@ -680,6 +741,33 @@ class LoopFootswitch:
         # signal — "no clips, no grid" has to be the engine's verdict, not the
         # bench's. The pad goes dark immediately either way; if the engine never
         # confirms, the intent expires and the pad tells the truth again.
+        self._expect(STATE_IDLE)
+        self._sync_led()
+        self._mark_action()
+
+    def _hold_targets_cancel(self) -> bool:
+        """True when a long press should abort a take, not delete a landed clip."""
+        if self._tail_capture:
+            return True
+        if self.sl_state in (
+            SL_STATE_RECORDING,
+            SL_STATE_WAIT_START,
+            SL_STATE_WAIT_STOP,
+        ):
+            return True
+        return self.state == STATE_RECORDING
+
+    def _cancel_recording(self) -> None:
+        """Abort an in-progress take (armed, recording, or tail capture)."""
+        self._stop_queued = False
+        self._cancel_tail_capture()
+        if self.grid is not None:
+            self.grid.cancel(self.loop)
+        self.awaiting_quantize = False
+        if self.sl_state == SL_STATE_WAIT_START:
+            self._hit("record")
+        else:
+            self._hit("undo_all")
         self._expect(STATE_IDLE)
         self._sync_led()
         self._mark_action()
@@ -773,7 +861,22 @@ class LoopFootswitch:
         self._pad_down = False
 
     def poll_led(self) -> None:
-        """Drive the transition blink. Cheap no-op unless one is active."""
+        """Drive transition blink and hold-warning blink."""
+        if self._pad_down and not self._hold_fired and self._note is not None:
+            elapsed = time.monotonic() - self._pad_down_at
+            if elapsed >= self.hold_blink_start_s:
+                if self._hold_targets_cancel():
+                    blink_on = accelerating_hold_blink_on(
+                        elapsed - self.hold_blink_start_s,
+                        hold_s=max(self.hold_s - self.hold_blink_start_s, 0.001),
+                        blink_after_s=0.0,
+                    )
+                    if blink_on is not None:
+                        self._set_led(LED_RED if blink_on else LED_OFF)
+                        return
+                else:
+                    self._set_led(LED_RED)
+                    return
         if self._led_transition is None:
             return
         seq = self._led_transition
@@ -787,8 +890,12 @@ class LoopFootswitch:
             return
         self._hold_fired = True
         self._pad_down = False
-        log(f"loop {self.loop}: -> hold clear")
-        self._clear_loop()
+        if self._hold_targets_cancel():
+            log(f"loop {self.loop}: -> hold cancel recording")
+            self._cancel_recording()
+        else:
+            log(f"loop {self.loop}: -> hold clear")
+            self._clear_loop()
 
 
 def build_footswitches(
@@ -798,6 +905,7 @@ def build_footswitches(
     num_loops: int,
     hold_ms: float,
     debounce_ms: float,
+    hold_blink_start_ms: float = 500.0,
     quantized: bool = True,
     grid: GridState | None = None,
     view: GridView | None = None,
@@ -820,6 +928,7 @@ def build_footswitches(
             loop=loop_i,
             hold_ms=hold_ms,
             debounce_ms=debounce_ms,
+            hold_blink_start_ms=hold_blink_start_ms,
             num_loops=num_loops,
             quantized=quantized,
             grid=grid,

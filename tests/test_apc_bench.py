@@ -1,6 +1,6 @@
 """16-pad APC footswitch bench wiring."""
 
-import conftest  # noqa: F401 — bare sooperlooper imports (apc_grid, …)
+from tests import conftest  # noqa: F401 — bare sooperlooper imports (apc_grid, …)
 
 import unittest
 from pathlib import Path

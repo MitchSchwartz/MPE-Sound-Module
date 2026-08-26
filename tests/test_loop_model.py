@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import conftest  # noqa: F401 — bare sooperlooper imports (sl_loop_states, …)
+from tests import conftest  # noqa: F401 — bare sooperlooper imports (sl_loop_states, …)
 
 import unittest
 

@@ -11,7 +11,7 @@ import pygame
 from patch_browser.draw_primitives import draw_lock_icon
 from patch_browser.geometry import Rect
 from patch_browser.scroll_widgets import ContentScrollArea, draw_vertical_scroll_edge_hints
-from patch_browser.touch_keyboard import TouchKeyboardLayout, wifi_password_char_visible
+from patch_browser.touch_keyboard import TouchKeyboardLayout, draw_touch_keyboard, wifi_password_char_visible
 from patch_browser.touch_ui_constants import (
     LONG_PRESS_S,
     SETTINGS_ROW_GAP,
@@ -510,22 +510,11 @@ class TouchBrowserWifiModalMixin:
 
         keyboard_panel = Rect(inner_x, y, inner_w, btn_y - y - 8)
         self._wifi_keyboard = TouchKeyboardLayout(keyboard_panel)
-        for rect, label in self._wifi_keyboard.keys:
-            self._draw_button(rect, label, small=True, pressed=pressed_key == label)
-        if self._wifi_keyboard.backspace_rect:
-            self._draw_button(
-                self._wifi_keyboard.backspace_rect,
-                "⌫",
-                small=True,
-                pressed=pressed_key == "backspace",
-            )
-        if self._wifi_keyboard.space_rect:
-            self._draw_button(
-                self._wifi_keyboard.space_rect,
-                "space",
-                small=True,
-                pressed=pressed_key == " ",
-            )
+        draw_touch_keyboard(
+            self._wifi_keyboard,
+            draw_button=self._draw_button,
+            pressed_key=pressed_key,
+        )
 
     def _wifi_list_hit_at(self, pos: tuple[int, int]) -> str | None:
         refresh = getattr(self, "_wifi_refresh_rect", None)

@@ -8,11 +8,19 @@ from scripts.sooperlooper.apc_transport import (
     NOTE_SHIFT_MK2,
     NOTE_STOP_ALL_CLIPS_MK1,
     NOTE_STOP_ALL_CLIPS_MK2,
+    NOTE_TRACK8_MK1,
     ShiftHoldCombo,
     TransportButtonLeds,
     resolve_apc_transport_notes,
+    resolve_shift_indicator_note,
 )
-from scripts.sooperlooper.led_table import LED_OFF, LED_RED
+from scripts.sooperlooper.led_table import (
+    SCENE_LED_OFF,
+    SCENE_LED_ON,
+    TRACK_LED_OFF,
+    TRACK_LED_ON,
+    accelerating_hold_blink_on,
+)
 
 
 class ResolveApcTransportNotesTests(unittest.TestCase):
@@ -117,21 +125,30 @@ class TransportButtonLedsTests(unittest.TestCase):
         self.midi_out = FakeOut(self.sent)
         self.shift = NOTE_SHIFT_MK1
         self.stop = NOTE_STOP_ALL_CLIPS_MK1
+        self.shift_indicator = NOTE_TRACK8_MK1
 
     def _leds(self, *, hold_s: float = 3.0) -> TransportButtonLeds:
         return TransportButtonLeds(
             midi_out=self.midi_out,
             shift_note=self.shift,
             stop_all_note=self.stop,
+            shift_indicator_note=self.shift_indicator,
             hold_s=hold_s,
         )
 
-    def test_shift_alone_solid_red_while_held(self) -> None:
+    def test_shift_alone_lights_track_indicator_red(self) -> None:
         leds = self._leds()
         leds.note_event(self.shift, True)
-        self.assertEqual(self.sent[-1], [0x90, self.shift, LED_RED])
+        self.assertEqual(self.sent[-1], [0x90, self.shift_indicator, TRACK_LED_ON])
         leds.note_event(self.shift, False)
-        self.assertEqual(self.sent[-1], [0x90, self.shift, LED_OFF])
+        self.assertEqual(self.sent[-1], [0x90, self.shift_indicator, TRACK_LED_OFF])
+
+    def test_stop_all_alone_lights_scene_green(self) -> None:
+        leds = self._leds()
+        leds.note_event(self.stop, True)
+        self.assertEqual(self.sent[-1], [0x90, self.stop, SCENE_LED_ON])
+        leds.note_event(self.stop, False)
+        self.assertEqual(self.sent[-1], [0x90, self.stop, SCENE_LED_OFF])
 
     def test_both_held_blinks_and_accelerates(self) -> None:
         leds = self._leds(hold_s=3.0)
@@ -141,12 +158,12 @@ class TransportButtonLedsTests(unittest.TestCase):
         ):
             leds.note_event(self.shift, True)
             leds.note_event(self.stop, True)
-            self.assertEqual(self.sent[-1], [0x90, self.stop, LED_RED])
+            self.assertEqual(self.sent[-1], [0x90, self.stop, SCENE_LED_ON])
             leds.poll()
-            self.assertIn(self.sent[-1][2], (LED_RED, LED_OFF))
+            self.assertIn(self.sent[-1][2], (SCENE_LED_ON, SCENE_LED_OFF))
             leds.poll()
             # Later in the hold the half-period is shorter — phase may differ.
-            self.assertIn(self.sent[-1][2], (LED_RED, LED_OFF))
+            self.assertIn(self.sent[-1][2], (SCENE_LED_ON, SCENE_LED_OFF))
 
     def test_reset_clears_until_both_released(self) -> None:
         leds = self._leds()
@@ -154,12 +171,23 @@ class TransportButtonLedsTests(unittest.TestCase):
         leds.note_event(self.stop, True)
         leds.on_reset_fired()
         self.assertEqual(self.sent[-2:], [
-            [0x90, self.shift, LED_OFF],
-            [0x90, self.stop, LED_OFF],
+            [0x90, self.shift_indicator, TRACK_LED_OFF],
+            [0x90, self.stop, SCENE_LED_OFF],
         ])
         leds.note_event(self.shift, True)
-        self.assertEqual(self.sent[-1], [0x90, self.stop, LED_OFF])
+        self.assertEqual(self.sent[-1], [0x90, self.stop, SCENE_LED_OFF])
         leds.note_event(self.shift, False)
         leds.note_event(self.stop, False)
         leds.note_event(self.shift, True)
-        self.assertEqual(self.sent[-1], [0x90, self.shift, LED_RED])
+        self.assertEqual(self.sent[-1], [0x90, self.shift_indicator, TRACK_LED_ON])
+
+
+class AcceleratingHoldBlinkTests(unittest.TestCase):
+    def test_not_in_blink_window_before_delay(self) -> None:
+        self.assertIsNone(
+            accelerating_hold_blink_on(0.4, hold_s=2.0, blink_after_s=0.5)
+        )
+
+    def test_blinks_after_delay(self) -> None:
+        first = accelerating_hold_blink_on(0.6, hold_s=2.0, blink_after_s=0.5)
+        self.assertIn(first, (True, False))

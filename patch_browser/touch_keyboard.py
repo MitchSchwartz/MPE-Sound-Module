@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from patch_browser.geometry import Rect
 
 LOWER_ROWS = ("qwertyuiop", "asdfghjkl", "zxcvbnm")
@@ -13,6 +15,21 @@ def wifi_password_char_visible(ch: str) -> str:
     if ch == " ":
         return "␣"
     return ch
+
+
+def draw_touch_keyboard(
+    kb: TouchKeyboardLayout,
+    *,
+    draw_button: Callable[..., None],
+    pressed_key: str | None,
+) -> None:
+    """Draw keyboard keys via the host's _draw_button (Wi‑Fi + looper song name)."""
+    for rect, label in kb.keys:
+        draw_button(rect, label, small=True, pressed=pressed_key == label)
+    if kb.backspace_rect:
+        draw_button(kb.backspace_rect, "⌫", small=True, pressed=pressed_key == "backspace")
+    if kb.space_rect:
+        draw_button(kb.space_rect, "space", small=True, pressed=pressed_key == " ")
 
 
 class TouchKeyboardLayout:

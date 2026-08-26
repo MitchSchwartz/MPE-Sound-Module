@@ -25,6 +25,28 @@ SEAM_MERGE_SAMPLES = 0
 SEAM_DECLICK_SAMPLES = int(
     os.environ.get("MPE_SL_SEAM_DECLICK_SAMPLES", str(DEFAULT_DECLICK_SAMPLES))
 )
+# Arm the scratch loop at WAIT_STOP instead of waiting for PLAYING.
+#
+# Waiting for the PLAYING state costs an OSC round-trip. Measured across four
+# takes the scratch armed 17, 36, 53 and 68 ms after the loop wrapped — that
+# much release tail was never captured by anything, which is why the wrap still
+# steps down to ~0.5-0.7x of the take-end level after the fade fix, and why the
+# amount varies take to take. Arming at WAIT_STOP starts the scratch before the
+# boundary so the release is captured continuously.
+#
+# The cost: the scratch head is then take content, which the merge skips (see
+# _tail_skip_seconds). Kill switch if it disturbs the take: MPE_SL_SEAM_EARLY_ARM=0.
+SEAM_EARLY_ARM = os.environ.get("MPE_SL_SEAM_EARLY_ARM", "1").strip().lower() not in (
+    "",
+    "0",
+    "off",
+    "false",
+)
+# Trim a little extra off the skip. Erring long clips a few ms of ring-out and
+# is inaudible; erring short leaves take content on the head and flams.
+SEAM_EARLY_ARM_BIAS_S = (
+    float(os.environ.get("MPE_SL_SEAM_EARLY_ARM_BIAS_MS", "10")) / 1000.0
+)
 # Fade-in at the wrap. Short on purpose — a long one digs a hole at the seam.
 SEAM_FADE_IN_SAMPLES = int(
     os.environ.get("MPE_SL_SEAM_FADE_IN_SAMPLES", str(DEFAULT_FADE_IN_SAMPLES))
@@ -125,6 +147,7 @@ class SeamWeldWorker:
         done: Callable[[], None],
         position: Callable[[], tuple[float, float] | None] | None = None,
         tail_offset_s: float = 0.0,
+        tail_skip_s: float = 0.0,
     ) -> bool:
         with self._lock:
             if self._busy:
@@ -137,7 +160,7 @@ class SeamWeldWorker:
             self._done_cb = done
         thread = threading.Thread(
             target=self._run,
-            args=(main_loop, scratch_loop, position, tail_offset_s),
+            args=(main_loop, scratch_loop, position, tail_offset_s, tail_skip_s),
             daemon=True,
             name="seam-weld",
         )
@@ -150,10 +173,13 @@ class SeamWeldWorker:
         scratch_loop: int,
         position: Callable[[], tuple[float, float] | None] | None,
         tail_offset_s: float,
+        tail_skip_s: float,
     ) -> None:
         ok = False
         try:
-            ok = self._merge(main_loop, scratch_loop, position, tail_offset_s)
+            ok = self._merge(
+                main_loop, scratch_loop, position, tail_offset_s, tail_skip_s
+            )
         finally:
             cb = None
             with self._lock:
@@ -176,6 +202,7 @@ class SeamWeldWorker:
         scratch_loop: int,
         position: Callable[[], tuple[float, float] | None] | None,
         tail_offset_s: float = 0.0,
+        tail_skip_s: float = 0.0,
     ) -> bool:
         tag = f"{main_loop}-{int(time.time() * 1000)}"
         main_wav = SEAM_TMP_DIR / f"main-{tag}.wav"
@@ -215,6 +242,7 @@ class SeamWeldWorker:
                 fade_in_samples=SEAM_FADE_IN_SAMPLES,
                 offset_samples=SEAM_TAIL_OFFSET_SAMPLES,
                 offset_seconds=tail_offset_s if SEAM_TAIL_ALIGN else 0.0,
+                skip_seconds=tail_skip_s,
             )
         except (OSError, ValueError) as exc:
             self._log(f"seam-weld: merge error: {exc!r}", flush=True)
