@@ -138,7 +138,7 @@ class GridEstablishmentTests(unittest.TestCase):
         def start(_loop: int) -> None:
             fs._osc.send_message(f"/sl/{SCRATCH_LOOP}/hit", ["record"])
 
-        def merge(_loop: int, done, resume_pos=None) -> bool:
+        def merge(_loop: int, done, position=None) -> bool:
             if merge_immediate:
                 done()
             return True
@@ -199,7 +199,7 @@ class GridEstablishmentTests(unittest.TestCase):
                 on_prepare_scratch=lambda loop: prepared.append(loop),
                 on_start_scratch=lambda loop: started.append(loop),
                 on_stop_scratch=lambda loop: None,
-                on_request_merge=lambda loop, done, resume_pos=None: (done(), True)[1],
+                on_request_merge=lambda loop, done, position=None: (done(), True)[1],
             )
             fs._tail_capture = True
             fs._tail_stop_sent = True
@@ -217,12 +217,13 @@ class GridEstablishmentTests(unittest.TestCase):
         fs.bind(MagicMock(), MagicMock(), 36)
         prepared = []
         fs.set_seam_weld_hooks(
-            on_prepare_scratch=lambda _loop: prepared.append(
-                fs._osc.send_message(f"/sl/{SCRATCH_LOOP}/hit", ["undo_all"])
+            on_prepare_scratch=lambda _loop: (
+                fs._osc.send_message(f"/sl/{SCRATCH_LOOP}/hit", ["undo_all"]),
+                prepared.append(_loop),
             ),
             on_start_scratch=lambda _loop: None,
             on_stop_scratch=lambda _loop: None,
-            on_request_merge=lambda _loop, done, resume_pos=None: True,
+            on_request_merge=lambda _loop, done, position=None: True,
         )
         self._start_defining_take(fs)
         fs.on_pad_down()
@@ -236,13 +237,13 @@ class GridEstablishmentTests(unittest.TestCase):
         fs.sync_from_sl(SL_STATE_PLAYING)
         fs.sync_loop_len(2.0)
         fs._maybe_start_scratch()
-        self.assertEqual(prepared, [None])
+        self.assertEqual(prepared, [0])
         scratch_hits = [
             c.args
             for c in fs._osc.send_message.call_args_list
             if c.args[0] == f"/sl/{SCRATCH_LOOP}/hit"
         ]
-        self.assertEqual(scratch_hits, [["undo_all"]])
+        self.assertEqual(scratch_hits, [(f"/sl/{SCRATCH_LOOP}/hit", ["undo_all"])])
 
     def test_grid_anchor_defers_until_loop_wrap(self) -> None:
         """Late PLAYING report: grid now, phase re-anchor at wrap."""
@@ -338,7 +339,7 @@ class TailCaptureTests(unittest.TestCase):
             on_prepare_scratch=lambda loop: None,
             on_start_scratch=lambda loop: None,
             on_stop_scratch=lambda loop: None,
-            on_request_merge=lambda loop, done, resume_pos=None: (merged.append(loop) or False),
+            on_request_merge=lambda loop, done, position=None: (merged.append(loop) or False),
         )
         fs._tail_capture = True
         fs._tail_stop_sent = True
@@ -368,7 +369,7 @@ class TailCaptureTests(unittest.TestCase):
             on_prepare_scratch=lambda loop: None,
             on_start_scratch=lambda loop: None,
             on_stop_scratch=lambda loop: None,
-            on_request_merge=lambda loop, done, resume_pos=None: (done(), True)[1],
+            on_request_merge=lambda loop, done, position=None: (done(), True)[1],
         )
         fs._tail_capture = True
         fs._tail_stop_sent = True
@@ -430,7 +431,7 @@ class TailCaptureTests(unittest.TestCase):
             on_prepare_scratch=lambda loop: None,
             on_start_scratch=lambda loop: None,
             on_stop_scratch=lambda loop: None,
-            on_request_merge=lambda loop, done, resume_pos=None: (done(), True)[1],
+            on_request_merge=lambda loop, done, position=None: (done(), True)[1],
         )
         fs._tail_capture = True
         fs._tail_stop_sent = True
@@ -452,7 +453,7 @@ class TailCaptureTests(unittest.TestCase):
             on_prepare_scratch=lambda loop: None,
             on_start_scratch=lambda loop: None,
             on_stop_scratch=lambda loop: None,
-            on_request_merge=lambda loop, done, resume_pos=None: (done(), True)[1],
+            on_request_merge=lambda loop, done, position=None: (done(), True)[1],
         )
         fs._tail_capture = True
         fs._tail_stop_sent = True
@@ -479,7 +480,7 @@ class TailCaptureTests(unittest.TestCase):
             on_prepare_scratch=lambda loop: None,
             on_start_scratch=lambda loop: None,
             on_stop_scratch=lambda loop: None,
-            on_request_merge=lambda loop, done, resume_pos=None: (done(), True)[1],
+            on_request_merge=lambda loop, done, position=None: (done(), True)[1],
         )
         fs._tail_capture = True
         fs._tail_stop_sent = True
@@ -503,10 +504,11 @@ class TailCaptureTests(unittest.TestCase):
             on_prepare_scratch=lambda loop: None,
             on_start_scratch=lambda loop: None,
             on_stop_scratch=lambda loop: None,
-            on_request_merge=lambda loop, done, resume_pos=None: (
-                merged.append((loop, resume_pos)),
+            on_request_merge=lambda loop, done, position=None: (
+                merged.append((loop, position)),
+                done(),
                 True,
-            )[1],
+            )[2],
         )
         fs._tail_capture = True
         fs._tail_stop_sent = True
@@ -520,6 +522,56 @@ class TailCaptureTests(unittest.TestCase):
         self.assertFalse(fs._tail_capture)
         self.assertEqual(len(merged), 1)
 
+    def test_seam_position_is_live_not_a_stale_snapshot(self) -> None:
+        """The merge takes hundreds of ms; a position sampled at queue time is
+        most of a bar stale by the time the swap fires. The hook hands over a
+        *callable* so the worker reads the playhead when it actually needs it."""
+        fs = LoopFootswitch(loop=0, hold_ms=1000.0, debounce_ms=0.0)
+        fs.bind(MagicMock(), MagicMock(), 36)
+        handed = []
+        fs.set_seam_weld_hooks(
+            on_prepare_scratch=lambda loop: None,
+            on_start_scratch=lambda loop: None,
+            on_stop_scratch=lambda loop: None,
+            on_request_merge=lambda loop, done, position=None: (
+                handed.append(position),
+                done(),
+                True,
+            )[2],
+        )
+        fs.sync_from_sl(SL_STATE_PLAYING)
+        fs.sync_loop_len(2.0)
+        fs._tail_capture = True
+        fs._tail_stop_sent = True
+        fs._scratch_started = True
+        fs.sync_loop_pos(0.5)
+        fs._end_tail_capture("test")
+        self.assertEqual(len(handed), 1)
+        self.assertTrue(callable(handed[0]), "must be a live feed, not a float")
+        pos, length = handed[0]()
+        self.assertEqual(length, 2.0)
+        self.assertGreaterEqual(pos, 0.5)
+
+    def test_seam_position_is_none_when_not_playing(self) -> None:
+        """A stopped playhead would make the worker wait for a wrap forever."""
+        fs = LoopFootswitch(loop=0, hold_ms=1000.0, debounce_ms=0.0)
+        fs.bind(MagicMock(), MagicMock(), 36)
+        fs.sync_loop_len(2.0)
+        fs.sync_loop_pos(0.5)
+        fs.sync_from_sl(SL_STATE_OFF)
+        self.assertIsNone(fs.seam_position())
+
+    def test_seam_position_wraps_within_the_loop(self) -> None:
+        fs = LoopFootswitch(loop=0, hold_ms=1000.0, debounce_ms=0.0)
+        fs.bind(MagicMock(), MagicMock(), 36)
+        fs.sync_from_sl(SL_STATE_PLAYING)
+        fs.sync_loop_len(2.0)
+        fs.sync_loop_pos(1.999)
+        fs._loop_pos_at = time.monotonic() - 0.5  # prediction runs past the end
+        pos, length = fs.seam_position()
+        self.assertLess(pos, length)
+        self.assertGreaterEqual(pos, 0.0)
+
     def test_stop_scratch_does_not_clear_merge_flag(self) -> None:
         fs = LoopFootswitch(loop=0, hold_ms=1000.0, debounce_ms=0.0)
         fs.bind(MagicMock(), MagicMock(), 36)
@@ -527,7 +579,7 @@ class TailCaptureTests(unittest.TestCase):
             on_prepare_scratch=lambda loop: None,
             on_start_scratch=lambda loop: None,
             on_stop_scratch=lambda loop: None,
-            on_request_merge=lambda loop, done, resume_pos=None: True,
+            on_request_merge=lambda loop, done, position=None: True,
         )
         fs._tail_capture = True
         fs._tail_stop_sent = True

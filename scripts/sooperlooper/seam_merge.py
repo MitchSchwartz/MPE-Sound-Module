@@ -1,8 +1,25 @@
 """Merge a parallel tail recording onto the wrap seam of a main loop buffer.
 
-Tier 3 path (looper-loop-seam-spec.md): tail is captured on a scratch loop
-while the main loop plays at fixed length N; this module welds tail samples
-onto [N-L, N) and crossfades [0, M) with [N-M, N) for wrap continuity.
+Tier 3 path (looper-loop-seam-spec.md): the tail is captured on a scratch loop
+while the main loop plays at fixed length N. The tail is the audio that kept
+sounding *after* sample N — the release of notes the take cut off.
+
+Model (2026-08-25): the tail is **summed into the head**, wrapping modulo N.
+It is not welded onto [N-L, N) and the head is never crossfaded with the end.
+That is what a hardware looper does and it is the only model where the take is
+preserved bit-for-bit: on the second pass you hear the ring-out of pass one
+underneath the attack of pass two, which is exactly what the player heard live.
+
+Why the previous model popped: it crossfaded main->tail across [N-L, N)
+(destroying the last L samples of the actual take) and then crossfaded the head
+[0, M) toward the seam. At i = M the head snapped back to untouched main in one
+sample — a full-scale step every wrap. With main=1.0, tail=0.3, M=256 the merged
+buffer stepped 0.30 -> 1.00 between samples 255 and 256.
+
+Level rule: fades applied to the tail are **linear** (a single signal going to
+and from silence). Equal-power is for crossfading two decorrelated signals; used
+on a fade to silence it lifts the middle by ~3 dB, which is the "tail gets loud
+at that part" symptom.
 
 Pure functions only — no OSC, no MIDI. Tests use float32 WAV fixtures.
 
@@ -13,55 +30,74 @@ so RIFF parsing is manual here.
 
 from __future__ import annotations
 
-import math
 import struct
 from pathlib import Path
 from typing import Sequence
 
+# ~5 ms at 48 kHz. The scratch loop starts recording mid-decay, so tail[0] is a
+# step away from silence; without a fade-in that step is the click. Long enough
+# to kill the step, short enough not to swallow the start of the ring-out.
+DEFAULT_DECLICK_SAMPLES = 256
+
 _WAVE_FORMAT_IEEE_FLOAT = 3
 
 
-def _equal_power(a: float, b: float, t: float) -> float:
-    """Blend b in as t goes 0→1 (equal-power crossfade)."""
-    t = max(0.0, min(1.0, t))
-    w0 = math.cos(t * math.pi / 2.0)
-    w1 = math.sin(t * math.pi / 2.0)
-    return a * w0 + b * w1
+def _declicked(
+    tail: Sequence[tuple[float, float]], declick: int
+) -> list[tuple[float, float]]:
+    """Linear fade in/out on the tail edges so summing it cannot step."""
+    frames = list(tail)
+    n = len(frames)
+    if n == 0:
+        return frames
+    d = max(0, min(int(declick), n // 2))
+    if d == 0:
+        return frames
+    for i in range(d):
+        g = (i + 1) / (d + 1)
+        l, r = frames[i]
+        frames[i] = (l * g, r * g)
+        j = n - 1 - i
+        l, r = frames[j]
+        frames[j] = (l * g, r * g)
+    return frames
 
 
 def merge_stereo_frames(
     main: Sequence[tuple[float, float]],
     tail: Sequence[tuple[float, float]],
     *,
-    merge_samples: int,
+    merge_samples: int = 0,
+    declick_samples: int = DEFAULT_DECLICK_SAMPLES,
+    offset_samples: int = 0,
 ) -> list[tuple[float, float]]:
-    """Return new main buffer with tail welded at the end and wrap smoothed."""
+    """Sum the release tail into the loop head, wrapping modulo N.
+
+    ``main`` is returned unmodified except for the samples the tail lands on.
+    ``offset_samples`` shifts where the tail starts, to compensate for the delay
+    between the stop instant and the scratch loop actually arming (the scratch
+    record only fires once SL reports the main loop PLAYING).  ``merge_samples``
+    is accepted and ignored — it named the head/end crossfade that caused the
+    seam pop and no longer exists.
+    """
     n = len(main)
     if n == 0:
         return []
-    if not tail:
-        return list(main)
-
-    m = max(0, min(int(merge_samples), n // 2))
-    use = min(len(tail), n)
-    if use <= 0:
-        return list(main)
-
     out = list(main)
-    for i in range(use):
-        idx = n - use + i
-        t = i / max(use - 1, 1)
-        ml, mr = main[idx]
-        tl, tr = tail[i]
-        out[idx] = (_equal_power(ml, tl, t), _equal_power(mr, tr, t))
+    if not tail:
+        return out
 
-    if m > 1:
-        for i in range(m):
-            t = i / max(m - 1, 1)
-            head = out[i]
-            seam = out[n - m + i]
-            out[i] = (_equal_power(head[0], seam[0], t), _equal_power(head[1], seam[1], t))
-
+    # Cap at one loop length. The tail is a single acoustic event; wrapping it
+    # more than once bakes N overlapping copies of the same ring-out into a
+    # buffer that then repeats forever — level buildup and mud, not realism.
+    # Reachable now that the tail ends on actual decay (up to
+    # TAIL_ABSOLUTE_MAX_S) rather than the old fixed 750 ms cut.
+    frames = _declicked(list(tail)[:n], declick_samples)
+    start = int(offset_samples) % n
+    for i, (tl, tr) in enumerate(frames):
+        idx = (start + i) % n
+        l, r = out[idx]
+        out[idx] = (l + tl, r + tr)
     return out
 
 
@@ -162,9 +198,11 @@ def merge_tail_at_seam(
     tail_path: Path,
     out_path: Path,
     *,
-    merge_samples: int,
+    merge_samples: int = 0,
+    declick_samples: int = DEFAULT_DECLICK_SAMPLES,
+    offset_samples: int = 0,
 ) -> Path:
-    """Load two SL WAVs, weld tail at seam, write merged WAV."""
+    """Load two SL WAVs, sum the tail into the head, write merged WAV."""
     main_frames, main_rate = read_float32_stereo_wav(main_path)
     tail_frames, tail_rate = read_float32_stereo_wav(tail_path)
     if tail_rate != main_rate:
@@ -172,7 +210,11 @@ def merge_tail_at_seam(
             f"sample rate mismatch: main={main_rate} tail={tail_rate}"
         )
     merged = merge_stereo_frames(
-        main_frames, tail_frames, merge_samples=merge_samples
+        main_frames,
+        tail_frames,
+        merge_samples=merge_samples,
+        declick_samples=declick_samples,
+        offset_samples=offset_samples,
     )
     write_float32_stereo_wav(out_path, merged, sample_rate=main_rate)
     return out_path
