@@ -61,8 +61,16 @@ class SlGridSyncTests(unittest.TestCase):
             # round on top of a quantized stop adds another whole cycle
             self.assertIn((f"/sl/{loop}/set", ["round", 0.0]), sent)
 
-    def test_establish_grid_clock_disables_smart_eighths_before_tempo(self) -> None:
-        """Sub-60 BPM first takes must not double the cycle to two bars."""
+    def test_establish_grid_clock_asserts_the_cycle_after_the_tempo(self) -> None:
+        """Sub-60 BPM first takes must not double the cycle to two bars.
+
+        Engine::set_tempo runs `_eighth_cycle *= 2` below 60 BPM and pushes the
+        doubled value to every loop, so a cycle set BEFORE the tempo is undone
+        by it. Turning smart_eighths off does not prevent that rewrite. The
+        cycle must therefore be asserted again after the tempo lands — this
+        test previously pinned the pre-tempo-only order, which is why the HUD
+        read two bars on the defining take (2026-08-26).
+        """
         sent: list[tuple[str, list]] = []
 
         def send(path: str, args: list) -> None:
@@ -75,7 +83,15 @@ class SlGridSyncTests(unittest.TestCase):
                 ("/set", ["smart_eighths", 0.0]),
                 ("/set", ["eighth_per_cycle", 8.0]),
                 ("/set", ["tempo", 30.0]),
+                ("/set", ["eighth_per_cycle", 8.0]),
             ],
+        )
+        # The invariant, stated independently of the exact sequence: the last
+        # word on cycle length must come after the tempo that can rewrite it.
+        paths = [(p, a[0]) for p, a in sent]
+        self.assertGreater(
+            len(paths) - 1 - paths[::-1].index(("/set", "eighth_per_cycle")),
+            paths.index(("/set", "tempo")),
         )
 
     def test_phase_anchor_helpers(self) -> None:
