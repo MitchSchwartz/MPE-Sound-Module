@@ -74,14 +74,29 @@ class SeamSwapTests(unittest.TestCase):
         sets = [(p, a) for p, a in self.sent if a and a[0] == "loop_pos"]
         self.assertEqual(sets, [], "loop_pos is not settable and trigger ignores it")
 
-    def test_swap_order_is_load_then_pause_off_then_trigger(self) -> None:
+    def test_swap_loads_and_never_touches_transport(self) -> None:
+        """Regression: the stutter on the first loop.
+
+        `trigger` restarts at sample 0, aimed at the wrap by predicting the
+        playhead. Measured landing error on an idle Pi 5: -4.9 ms, cutting that
+        much audio off the end of the first pass. It was only ever there on the
+        assumption that load_loop halts playback — measured false: loop_pos ran
+        straight through a load_loop with no stall and no reset. Loading is the
+        whole operation.
+        """
         self.worker._swap_at_wrap(3, Path("/tmp/merged.wav"), lambda: (0.9, 1.0))
         paths = [p for p, _ in self.sent]
-        self.assertEqual(paths[0], "/sl/3/load_loop")
-        self.assertEqual(self._hits(3), [["pause_off"], ["trigger"]])
+        self.assertEqual(paths, ["/sl/3/load_loop"])
+        self.assertEqual(self._hits(3), [], "transport must be left alone")
 
-    def test_waits_for_the_wrap_before_triggering(self) -> None:
-        """Playhead starts a full loop away — the swap must not fire early."""
+    def test_waits_for_the_wrap_before_loading(self) -> None:
+        """Load lands in the region both buffers share.
+
+        The merged buffer differs from the take only in the head, where the
+        tail was summed. Waiting for the wrap window means the audio under the
+        playhead is sample-identical across the swap, and the welded head is in
+        place when the wrap arrives.
+        """
         feed = iter([(0.0, 2.0), (0.9, 2.0), (1.7, 2.0), (1.95, 2.0)])
         last = [(1.95, 2.0)]
 
@@ -95,12 +110,13 @@ class SeamSwapTests(unittest.TestCase):
         self.worker._swap_at_wrap(3, Path("/tmp/merged.wav"), position)
         # It polled its way to the wrap rather than swapping on the first read.
         self.assertGreater(len(self.slept), 1)
-        self.assertEqual(self._hits(3), [["pause_off"], ["trigger"]])
+        self.assertEqual([p for p, _ in self.sent], ["/sl/3/load_loop"])
 
     def test_swaps_blind_when_there_is_no_position_feed(self) -> None:
         """No feed must still complete the weld — a seam beats a stuck loop."""
         self.worker._swap_at_wrap(3, Path("/tmp/merged.wav"), None)
-        self.assertEqual(self._hits(3), [["pause_off"], ["trigger"]])
+        self.assertEqual([p for p, _ in self.sent], ["/sl/3/load_loop"])
+        self.assertEqual(self._hits(3), [])
 
     def test_zero_length_loop_does_not_spin(self) -> None:
         self.assertIsNone(self.worker._time_to_wrap(lambda: (0.0, 0.0), 0.15))

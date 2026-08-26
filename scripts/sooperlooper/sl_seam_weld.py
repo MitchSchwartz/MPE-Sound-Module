@@ -89,15 +89,12 @@ SEAM_WELD_ENABLED = os.environ.get("MPE_SL_SEAM_WELD", "1").strip().lower() not 
     "off",
     "false",
 )
-# The merged buffer is swapped in at a WRAP boundary, never mid-pass.
-# `trigger` restarts the loop from sample 0 (tests/test_apc_footswitch.py
-# ::test_launch_is_a_quantized_trigger_from_the_clip_start), so firing it at a
-# random moment yanks the playhead to the start — that is a jump, not a seam.
-# Fired at the wrap, the restart IS the wrap and nothing moves.
-# How early load_loop goes out, so the engine has the buffer before the wrap.
+# The merged buffer is loaded just before the WRAP, and transport is left alone.
+# `trigger` used to fire here to "restart at the wrap"; it was removed
+# 2026-08-26 after measuring that load_loop does not stop playback and that the
+# trigger landed -4.9 ms early, cutting audio off the end of the first pass.
+# How early load_loop goes out, so the welded head is in place at the wrap.
 SEAM_LOAD_LEAD_S = float(os.environ.get("MPE_SL_SEAM_LOAD_LEAD_MS", "150")) / 1000.0
-# Slack for OSC + engine dispatch on the trigger itself.
-SEAM_TRIGGER_LAG_S = float(os.environ.get("MPE_SL_SEAM_TRIGGER_LAG_MS", "5")) / 1000.0
 SEAM_SWAP_POLL_S = float(os.environ.get("MPE_SL_SEAM_SWAP_POLL_MS", "3")) / 1000.0
 # Give up waiting for a wrap after this long and swap anyway (audible seam).
 SEAM_SWAP_TIMEOUT_S = float(os.environ.get("MPE_SL_SEAM_SWAP_TIMEOUT_S", "12.0"))
@@ -292,29 +289,42 @@ class SeamWeldWorker:
         out_wav: Path,
         position: Callable[[], tuple[float, float] | None] | None,
     ) -> None:
-        """Land load_loop + trigger on the wrap, so the restart IS the wrap."""
+        """Load the merged buffer just before the wrap. Do not touch transport.
+
+        No `trigger`. It was here on the assumption that load_loop halts
+        playback and needs a restart. Measured on Pi 5 2026-08-26: it does not.
+        loop_pos ran straight through a load_loop (0.805 -> 0.813, no stall
+        beyond the 10 ms update interval) — the buffer swaps under a running
+        loop with no gap and no position reset.
+
+        So `trigger` was not recovering from anything. It restarts the loop at
+        sample 0, aimed at the wrap by predicting the playhead from 20 ms OSC
+        frames and sleeping. Measured landing error on an idle machine:
+        **-4.9 ms**, i.e. it cut the last 4.9 ms off the pass and jumped. Early
+        skips audio, late replays the head; both are the once-only "stutter on
+        the first loop, smooth after" — once-only because the weld happens once.
+
+        Loading still waits for the wrap window, for a different reason: the
+        merged buffer differs from the take *only* in the head, where the tail
+        was summed. Landing the swap just before the wrap means the region
+        under the playhead is sample-identical in both buffers, so the swap
+        itself is inaudible, and the welded head is in place when the wrap
+        arrives.
+        """
         remaining = self._time_to_wrap(position, SEAM_LOAD_LEAD_S)
         if remaining is None:
             self._log(
                 f"seam-weld: loading merged buffer onto loop {main_loop} "
-                f"(no position feed — expect a seam)",
+                f"(no position feed — swapping where the playhead is)",
                 flush=True,
             )
         else:
             self._log(
                 f"seam-weld: loading merged buffer onto loop {main_loop} "
-                f"{remaining * 1000:.0f}ms before wrap",
+                f"{remaining * 1000:.0f}ms before wrap (no retrigger)",
                 flush=True,
             )
         self._send(f"/sl/{main_loop}/load_loop", [str(out_wav), "", ""])
-        # NOTE (unverified on Pi 5): whether load_loop halts playback decides
-        # whether this lead is a safe pre-load or an audible dropout. Settle it
-        # by watching loop_pos across a load_loop with SEAM_LOAD_LEAD_MS=600 —
-        # if the position freezes, the lead must shrink to the load cost.
-        wait = SEAM_LOAD_LEAD_S if remaining is None else remaining
-        time.sleep(max(0.0, wait - SEAM_TRIGGER_LAG_S))
-        self._send(f"/sl/{main_loop}/hit", ["pause_off"])
-        self._send(f"/sl/{main_loop}/hit", ["trigger"])
 
     def _clear_scratch(self, scratch_loop: int) -> None:
         self._send(f"/sl/{scratch_loop}/hit", ["undo_all"])
