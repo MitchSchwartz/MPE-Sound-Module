@@ -33,6 +33,22 @@ class SlBenchStateListener:
             if self._on_wet is not None:
                 self._on_wet(int(loop_index), float(value))
             return
+        if control == "in_peak_meter":
+            # Routed BEFORE the _by_loop lookup: during seam weld the meter is
+            # registered on the scratch loop (14), which has no footswitch —
+            # the lookup below returns None and would drop every tail peak.
+            # With them dropped, _tail_saw_loud never sets and poll_tail_capture
+            # falls through to the fixed TAIL_MAX_S cut, so the tail was always
+            # truncated at 750 ms instead of ending when the note decayed.
+            if loop_index != self._tail_peak_loop:
+                return
+            owner = self._tail_peak_owner
+            if owner is None:
+                return
+            owner_fs = self._by_loop.get(owner)
+            if owner_fs is not None:
+                owner_fs.sync_in_peak(float(value))
+            return
         fs = self._by_loop.get(loop_index)
         if fs is None:
             return
@@ -42,15 +58,6 @@ class SlBenchStateListener:
             fs.sync_loop_len(float(value))
         elif control == "loop_pos":
             fs.sync_loop_pos(float(value))
-        elif control == "in_peak_meter":
-            if loop_index != self._tail_peak_loop:
-                return
-            owner = self._tail_peak_owner
-            if owner is None:
-                return
-            owner_fs = self._by_loop.get(owner)
-            if owner_fs is not None:
-                owner_fs.sync_in_peak(float(value))
 
     def register(self, _client, *, num_loops: int) -> None:
         """Register bench subscriptions on the shared session."""

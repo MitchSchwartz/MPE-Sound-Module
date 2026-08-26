@@ -46,6 +46,25 @@ class SlBenchStateListenerTests(unittest.TestCase):
             SCRATCH_LOOP, update_ms=ANY
         )
 
+    def test_scratch_peak_survives_having_no_footswitch(self) -> None:
+        """Regression: the _by_loop lookup used to run first and swallow these.
+
+        The scratch loop has no pad bound while seam weld is on, so every tail
+        peak was dropped, _tail_saw_loud never set, and the tail got cut at the
+        fixed TAIL_MAX_S window instead of at the note's actual decay.
+        """
+        from scripts.sooperlooper.sl_seam_weld import SCRATCH_LOOP
+
+        fs0 = LoopFootswitch(loop=0, hold_ms=1000.0, debounce_ms=0.0)
+        listener = SlBenchStateListener({0: fs0}, session=_session())
+        self.assertIsNone(listener._by_loop.get(SCRATCH_LOOP))
+        listener._tail_peak_loop = SCRATCH_LOOP
+        listener._tail_peak_owner = 0
+        fs0._tail_capture = True
+        listener.on_update("/sl/bench/state", SCRATCH_LOOP, "in_peak_meter", 0.9)
+        self.assertTrue(fs0._in_peak_seen)
+        self.assertTrue(fs0._tail_saw_loud, "release peak must reach the owner loop")
+
     def test_in_peak_from_scratch_routes_to_owner_loop(self) -> None:
         from scripts.sooperlooper.sl_seam_weld import SCRATCH_LOOP
 
