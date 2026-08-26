@@ -8,19 +8,43 @@ import time
 from pathlib import Path
 from typing import Callable
 
-from seam_merge import merge_tail_at_seam
+from seam_merge import DEFAULT_DECLICK_SAMPLES, merge_tail_at_seam
 
 # Default 14, not 15: Pi 5 SooperLooper 1.7.9 (arm64 trixie build) accepts save_loop
 # on loops 0–14 but loop index 15 always returns an empty 88 B WAV — tail capture
 # silently fails. Override via MPE_SL_SCRATCH_LOOP if a native build fixes loop 15.
 SCRATCH_LOOP = int(os.environ.get("MPE_SL_SCRATCH_LOOP", "14"))
-SEAM_MERGE_SAMPLES = int(os.environ.get("MPE_SL_SEAM_MERGE_SAMPLES", "2048"))
+# Retired 2026-08-25: named the head/end crossfade that stepped full-scale at the
+# seam. Read only so an old export in the environment cannot resurrect it.
+SEAM_MERGE_SAMPLES = 0
+# Linear fade on both tail edges before it is summed into the head, in samples.
+SEAM_DECLICK_SAMPLES = int(
+    os.environ.get("MPE_SL_SEAM_DECLICK_SAMPLES", str(DEFAULT_DECLICK_SAMPLES))
+)
+# Where the tail lands in the head. The scratch loop only arms once SL reports
+# the main loop PLAYING, so tail[0] is already some ms past the stop instant;
+# a positive offset pushes it later still. Ear-tune on the Pi, then pin here.
+SEAM_TAIL_OFFSET_SAMPLES = int(
+    os.environ.get("MPE_SL_SEAM_TAIL_OFFSET_SAMPLES", "0")
+)
 SEAM_WELD_ENABLED = os.environ.get("MPE_SL_SEAM_WELD", "1").strip().lower() not in (
     "",
     "0",
     "off",
     "false",
 )
+# The merged buffer is swapped in at a WRAP boundary, never mid-pass.
+# `trigger` restarts the loop from sample 0 (tests/test_apc_footswitch.py
+# ::test_launch_is_a_quantized_trigger_from_the_clip_start), so firing it at a
+# random moment yanks the playhead to the start — that is a jump, not a seam.
+# Fired at the wrap, the restart IS the wrap and nothing moves.
+# How early load_loop goes out, so the engine has the buffer before the wrap.
+SEAM_LOAD_LEAD_S = float(os.environ.get("MPE_SL_SEAM_LOAD_LEAD_MS", "150")) / 1000.0
+# Slack for OSC + engine dispatch on the trigger itself.
+SEAM_TRIGGER_LAG_S = float(os.environ.get("MPE_SL_SEAM_TRIGGER_LAG_MS", "5")) / 1000.0
+SEAM_SWAP_POLL_S = float(os.environ.get("MPE_SL_SEAM_SWAP_POLL_MS", "3")) / 1000.0
+# Give up waiting for a wrap after this long and swap anyway (audible seam).
+SEAM_SWAP_TIMEOUT_S = float(os.environ.get("MPE_SL_SEAM_SWAP_TIMEOUT_S", "12.0"))
 SEAM_TMP_DIR = Path(os.environ.get("MPE_SL_SEAM_TMP", "/tmp/mpe-seam-weld"))
 SAVE_POLL_S = float(os.environ.get("MPE_SL_SEAM_SAVE_POLL_S", "0.05"))
 SAVE_TIMEOUT_S = float(os.environ.get("MPE_SL_SEAM_SAVE_TIMEOUT_S", "8.0"))
@@ -70,7 +94,7 @@ class SeamWeldWorker:
         scratch_loop: int,
         *,
         done: Callable[[], None],
-        resume_pos: float | None = None,
+        position: Callable[[], tuple[float, float] | None] | None = None,
     ) -> bool:
         with self._lock:
             if self._busy:
@@ -83,7 +107,7 @@ class SeamWeldWorker:
             self._done_cb = done
         thread = threading.Thread(
             target=self._run,
-            args=(main_loop, scratch_loop, resume_pos),
+            args=(main_loop, scratch_loop, position),
             daemon=True,
             name="seam-weld",
         )
@@ -91,11 +115,14 @@ class SeamWeldWorker:
         return True
 
     def _run(
-        self, main_loop: int, scratch_loop: int, resume_pos: float | None
+        self,
+        main_loop: int,
+        scratch_loop: int,
+        position: Callable[[], tuple[float, float] | None] | None,
     ) -> None:
         ok = False
         try:
-            ok = self._merge(main_loop, scratch_loop, resume_pos)
+            ok = self._merge(main_loop, scratch_loop, position)
         finally:
             cb = None
             with self._lock:
@@ -113,7 +140,10 @@ class SeamWeldWorker:
             )
 
     def _merge(
-        self, main_loop: int, scratch_loop: int, resume_pos: float | None
+        self,
+        main_loop: int,
+        scratch_loop: int,
+        position: Callable[[], tuple[float, float] | None] | None,
     ) -> bool:
         tag = f"{main_loop}-{int(time.time() * 1000)}"
         main_wav = SEAM_TMP_DIR / f"main-{tag}.wav"
@@ -149,29 +179,75 @@ class SeamWeldWorker:
                 tail_wav,
                 out_wav,
                 merge_samples=SEAM_MERGE_SAMPLES,
+                declick_samples=SEAM_DECLICK_SAMPLES,
+                offset_samples=SEAM_TAIL_OFFSET_SAMPLES,
             )
         except (OSError, ValueError) as exc:
             self._log(f"seam-weld: merge error: {exc!r}", flush=True)
             self._clear_scratch(scratch_loop)
             return False
-        self._log(
-            f"seam-weld: loading merged buffer onto loop {main_loop}",
-            flush=True,
-        )
-        self._send(
-            f"/sl/{main_loop}/load_loop",
-            [str(out_wav), "", ""],
-        )
-        time.sleep(0.15)
-        # load_loop replaces buffer and stops playback — restore playhead near seam.
-        if resume_pos is not None and resume_pos >= 0.0:
-            self._send(f"/sl/{main_loop}/set", ["loop_pos", float(resume_pos)])
-            time.sleep(0.05)
-        self._send(f"/sl/{main_loop}/hit", ["pause_off"])
-        self._send(f"/sl/{main_loop}/hit", ["trigger"])
+        self._swap_at_wrap(main_loop, out_wav, position)
         self._clear_scratch(scratch_loop)
         self._log(f"seam-weld: done loop {main_loop}", flush=True)
         return True
+
+    def _time_to_wrap(
+        self, position: Callable[[], tuple[float, float] | None] | None, lead: float
+    ) -> float | None:
+        """Block until the playhead is ``lead`` seconds from wrapping.
+
+        Returns the seconds still left to the wrap at the moment it returns, or
+        None if there is no usable position feed (caller then swaps blind).
+        """
+        if position is None:
+            return None
+        deadline = time.monotonic() + SEAM_SWAP_TIMEOUT_S
+        while time.monotonic() < deadline:
+            snap = position()
+            if snap is None:
+                return None
+            pos, length = snap
+            if length <= 0.0:
+                return None
+            remaining = length - pos
+            if remaining <= lead:
+                return max(0.0, remaining)
+            time.sleep(min(SEAM_SWAP_POLL_S, remaining - lead))
+        self._log(
+            f"seam-weld: no wrap within {SEAM_SWAP_TIMEOUT_S:.1f}s — swapping blind",
+            flush=True,
+        )
+        return None
+
+    def _swap_at_wrap(
+        self,
+        main_loop: int,
+        out_wav: Path,
+        position: Callable[[], tuple[float, float] | None] | None,
+    ) -> None:
+        """Land load_loop + trigger on the wrap, so the restart IS the wrap."""
+        remaining = self._time_to_wrap(position, SEAM_LOAD_LEAD_S)
+        if remaining is None:
+            self._log(
+                f"seam-weld: loading merged buffer onto loop {main_loop} "
+                f"(no position feed — expect a seam)",
+                flush=True,
+            )
+        else:
+            self._log(
+                f"seam-weld: loading merged buffer onto loop {main_loop} "
+                f"{remaining * 1000:.0f}ms before wrap",
+                flush=True,
+            )
+        self._send(f"/sl/{main_loop}/load_loop", [str(out_wav), "", ""])
+        # NOTE (unverified on Pi 5): whether load_loop halts playback decides
+        # whether this lead is a safe pre-load or an audible dropout. Settle it
+        # by watching loop_pos across a load_loop with SEAM_LOAD_LEAD_MS=600 —
+        # if the position freezes, the lead must shrink to the load cost.
+        wait = SEAM_LOAD_LEAD_S if remaining is None else remaining
+        time.sleep(max(0.0, wait - SEAM_TRIGGER_LAG_S))
+        self._send(f"/sl/{main_loop}/hit", ["pause_off"])
+        self._send(f"/sl/{main_loop}/hit", ["trigger"])
 
     def _clear_scratch(self, scratch_loop: int) -> None:
         self._send(f"/sl/{scratch_loop}/hit", ["undo_all"])

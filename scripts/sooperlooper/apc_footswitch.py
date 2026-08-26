@@ -142,6 +142,7 @@ class LoopFootswitch:
         self._led_last: int | None = None
         self._tail_capture = False
         self._tail_capture_since = 0.0
+        self._loop_pos_at = 0.0
         self._tail_silence_since: float | None = None
         self._in_peak = 0.0
         self._in_peak_seen = False
@@ -335,7 +336,7 @@ class LoopFootswitch:
                 accepted = self._on_request_seam_merge(
                     self.loop,
                     lambda: self._after_seam_merge(reason),
-                    self.loop_pos if self._loop_pos_seen else None,
+                    self.seam_position,
                 )
             except Exception as exc:
                 log(
@@ -384,6 +385,22 @@ class LoopFootswitch:
         self._on_start_scratch = on_start_scratch
         self._on_stop_scratch = on_stop_scratch
         self._on_request_seam_merge = on_request_merge
+
+    def seam_position(self) -> tuple[float, float] | None:
+        """Live (loop_pos, loop_len) for timing the seam swap, or None.
+
+        Predicted forward from the last OSC frame: loop_pos arrives every
+        ~20 ms (MPE_SL_BENCH_LOOP_POS_MS) and the swap needs finer aim than
+        that. A stale snapshot is worse than none here — the merge takes
+        hundreds of ms, so a position sampled when the merge was *queued* is
+        already most of a bar out of date.
+        """
+        if not self._loop_pos_seen or self.loop_len <= 0.0:
+            return None
+        if self.sl_state not in ACTIVE_PLAY:
+            return None
+        predicted = self.loop_pos + (time.monotonic() - self._loop_pos_at)
+        return (predicted % self.loop_len, self.loop_len)
 
     def _tail_playback_ready(self) -> bool:
         return self.sl_state in ACTIVE_PLAY
@@ -495,6 +512,7 @@ class LoopFootswitch:
                 self._try_commit_phase_reanchor(force_wrap=True)
         self._last_loop_pos = self.loop_pos if self._loop_pos_seen else pos
         self.loop_pos = pos
+        self._loop_pos_at = time.monotonic()
         self._loop_pos_seen = True
         if self._phase_reanchor_at > 0.0 and not self._tail_capture:
             self._try_commit_phase_reanchor()
