@@ -11,7 +11,11 @@ import pygame
 
 from patch_browser.geometry import Rect
 from patch_browser.scroll_widgets import ScrollList
-from patch_browser.touch_keyboard import TouchKeyboardLayout, draw_touch_keyboard
+from patch_browser.touch_keyboard import (
+    KeyboardProfile,
+    TouchKeyboardLayout,
+    draw_touch_keyboard,
+)
 from patch_browser.touch_ui_constants import (
     BROWSE_EDGE_GRAB_W,
     BROWSE_FILTER_HEADER_H,
@@ -43,6 +47,7 @@ class TouchBrowserLooperSongsMixin:
         self._looper_result_queue: queue.Queue = queue.Queue()
         self._looper_save_btn = Rect(0, 0, 0, 0)
         self._looper_load_btn = Rect(0, 0, 0, 0)
+        self._looper_back_btn = Rect(0, 0, 0, 0)
         self._looper_list = ScrollList(Rect(0, 0, 0, 0), row_height=52)
         self._looper_confirm_yes = Rect(0, 0, 0, 0)
         self._looper_confirm_no = Rect(0, 0, 0, 0)
@@ -96,9 +101,15 @@ class TouchBrowserLooperSongsMixin:
         y = pane.y + BROWSE_FILTER_HEADER_H + 8
         btn_h = 44
         gap = 10
+        back_h = 36
+        self._looper_back_btn = Rect(0, 0, 0, 0)
+        if self._looper_pane_view in ("save_list", "load_list"):
+            self._looper_back_btn = Rect(x, pane.y + 6, 88, back_h)
+            list_y = pane.y + BROWSE_FILTER_HEADER_H + 4
+        else:
+            list_y = y + (btn_h + gap) * 2 + 8
         self._looper_save_btn = Rect(x, y, w, btn_h)
         self._looper_load_btn = Rect(x, y + btn_h + gap, w, btn_h)
-        list_y = y + (btn_h + gap) * 2 + 8
         self._looper_list.rect = Rect(x, list_y, w, max(0, pane.bottom - list_y - 8))
 
     def _refresh_looper_song_list(self) -> None:
@@ -118,8 +129,21 @@ class TouchBrowserLooperSongsMixin:
             return
         pygame.draw.rect(self.screen, self.theme.surface, pane.pygame_rect, border_radius=10)
         header_x = pane.x + BROWSE_EDGE_GRAB_W + BROWSE_FILTER_TAG_PAD_X
-        title = self.font_sm.render("Looper songs", True, self.theme.muted)
-        self.screen.blit(title, (header_x, pane.y + 8))
+        if self._looper_pane_view in ("save_list", "load_list"):
+            if self._looper_back_btn.w > 0:
+                self._draw_button(
+                    self._looper_back_btn,
+                    "← Back",
+                    small=True,
+                    pressed=self._pressed("looper:back"),
+                )
+            title_text = "Save song" if self._looper_pane_view == "save_list" else "Load song"
+            title = self.font_sm.render(title_text, True, self.theme.muted)
+            title_x = max(header_x, self._looper_back_btn.right + 8)
+            self.screen.blit(title, (title_x, pane.y + 14))
+        else:
+            title = self.font_sm.render("Looper songs", True, self.theme.muted)
+            self.screen.blit(title, (header_x, pane.y + 8))
 
         if self._looper_busy:
             busy = self.font_md.render("Working…", True, self.theme.accent)
@@ -164,6 +188,38 @@ class TouchBrowserLooperSongsMixin:
         if idx < 0 or idx >= len(self._looper_song_slugs):
             return None
         return self._looper_song_slugs[idx]
+
+    def _looper_pane_go_back(self) -> None:
+        if self._looper_pane_view in ("save_list", "load_list"):
+            self._looper_pane_view = "menu"
+            self._looper_selected_slug = None
+            return
+        if self.screen_state == Screen.LOOPER_NAME:
+            self.screen_state = Screen.BROWSER
+            self._looper_pane_view = "save_list"
+            self._refresh_looper_song_list()
+            return
+        if self.screen_state == Screen.LOOPER_CONFIRM:
+            kind = self._looper_confirm_kind
+            self._looper_pending_load_slug = None
+            self._close_looper_confirm()
+            if kind == "load_replace":
+                self._looper_pane_view = "load_list"
+            elif kind == "overwrite":
+                self._looper_pane_view = "save_list"
+
+    def _try_looper_back_tap_at(self, pos: tuple[int, int]) -> bool:
+        if (
+            self._browse_left_pane_mode != "looper"
+            or self._browse_carousel.stop != "filter"
+            or self._looper_pane_view not in ("save_list", "load_list")
+            or self._looper_busy
+        ):
+            return False
+        if self._looper_back_btn.w > 0 and self._looper_back_btn.contains(*pos):
+            self._looper_pane_go_back()
+            return True
+        return False
 
     def _apply_looper_menu_tap(self, action: str) -> None:
         if action == "save":
@@ -282,6 +338,9 @@ class TouchBrowserLooperSongsMixin:
             return False
         if self._looper_busy:
             return True
+        if self._try_looper_back_tap_at(pos):
+            self._touch_press.set("looper:back")
+            return True
         if self._looper_pane_view == "menu":
             self._looper_menu_pending = None
             self._looper_menu_down_pos = pos
@@ -303,10 +362,15 @@ class TouchBrowserLooperSongsMixin:
         if self._browse_left_pane_mode != "looper":
             return False
         if self._looper_pane_view != "menu":
+            pending_back = self._pressed("looper:back")
+            self._touch_press.clear()
             idx = self._resolve_looper_list_tap_index(pos)
             self._looper_list_down_pos = None
             self._looper_menu_pending = None
             self._looper_menu_down_pos = None
+            if pending_back and self._looper_back_btn.contains(*pos):
+                self._looper_pane_go_back()
+                return True
             if idx is not None:
                 self._on_looper_list_tap(idx)
             return True
@@ -463,8 +527,10 @@ class TouchBrowserLooperSongsMixin:
     def _apply_looper_confirm_hit(self, hit: str) -> None:
         kind = self._looper_confirm_kind
         if hit == "looper:confirm:cancel":
-            self._looper_pending_load_slug = None
-            self._close_looper_confirm()
+            self._looper_pane_go_back()
+            return
+        if hit == "looper:confirm:no" and kind == "overwrite":
+            self._looper_pane_go_back()
             return
         if kind == "overwrite" and hit == "looper:confirm:yes":
             slug = self._looper_selected_slug
@@ -545,7 +611,7 @@ class TouchBrowserLooperSongsMixin:
         pressed_key = self._looper_name_active_key()
         self._draw_button(
             self._looper_name_cancel,
-            "Cancel",
+            "Back",
             pressed=pressed_key == "cancel",
         )
         self._draw_button(
@@ -556,7 +622,10 @@ class TouchBrowserLooperSongsMixin:
         )
 
         keyboard_panel = Rect(inner_x, y, inner_w, btn_y - y - 8)
-        self._looper_name_keyboard = TouchKeyboardLayout(keyboard_panel)
+        self._looper_name_keyboard = TouchKeyboardLayout(
+            keyboard_panel,
+            profile=KeyboardProfile.TEXT,
+        )
         draw_touch_keyboard(
             self._looper_name_keyboard,
             draw_button=self._draw_button,
@@ -588,7 +657,7 @@ class TouchBrowserLooperSongsMixin:
             self._run_looper_save(name, overwrite=False, then_load_slug=slug_after)
             return
         if hit == "looper:name:cancel":
-            self.screen_state = Screen.BROWSER
+            self._looper_pane_go_back()
             return
         if hit.startswith("looper:name:"):
             key = hit[len("looper:name:") :]
@@ -689,7 +758,7 @@ class TouchBrowserLooperSongsMixin:
     def _handle_looper_name_pointer_up(self, pos: tuple[int, int]) -> None:
         panel = getattr(self, "_looper_name_panel", None)
         if panel is not None and panel.w > 0 and not panel.contains(*pos):
-            self.screen_state = Screen.BROWSER
+            self._looper_pane_go_back()
             self._clear_modal_pointer()
             return
         hit = self._modal_release_hit(pos)
