@@ -74,6 +74,10 @@ class FakeSlEngine:
                     self._at_boundary[loop] = SL_STATE_MUTE
                 else:
                     self.state[loop] = SL_STATE_MUTE
+        elif cmd == "mute_off":
+            self._at_boundary.pop(loop, None)
+            if st == SL_STATE_MUTE:
+                self.state[loop] = SL_STATE_PLAYING
         elif cmd == "trigger":
             if st in (SL_STATE_MUTE, SL_STATE_PAUSED, SL_STATE_PLAYING):
                 if self.quantized:
