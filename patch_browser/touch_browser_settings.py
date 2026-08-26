@@ -505,7 +505,7 @@ class TouchBrowserSettingsMixin:
                 looper_toggle,
                 getattr(self, "show_looper_hud", True),
                 has_gain=True,
-                label="Show tempo badge",
+                label="Show tempo bar",
             )
 
             advanced_row = self._panel_local_to_screen(
