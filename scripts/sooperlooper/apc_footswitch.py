@@ -238,7 +238,10 @@ class LoopFootswitch:
         log(f"loop {self.loop}: scratch tail record stopped (loop {SCRATCH_LOOP})")
 
     def _maybe_start_scratch(self) -> None:
-        """Parallel tail capture on scratch loop while main plays at fixed length."""
+        """Parallel tail capture on scratch loop while main plays at fixed length.
+
+        **Seam path — DO NOT CHANGE** without explicit permission from Mitch.
+        """
         if (
             self._scratch_active
             or self._tail_ending
@@ -329,7 +332,10 @@ class LoopFootswitch:
         return self._scratch_started or self._tail_saw_loud
 
     def _end_tail_capture(self, reason: str) -> None:
-        """Stop scratch capture and optionally run Tier 3 merge before finish."""
+        """Stop scratch capture and optionally run Tier 3 merge before finish.
+
+        **Seam path — DO NOT CHANGE** without explicit permission from Mitch.
+        """
         if self._tail_ending or not self._tail_capture:
             return
         self._tail_ending = True
