@@ -2,6 +2,10 @@
 
 Mk2: Communication Protocol v1.0 — Stop All 0x77, Shift 0x7A.
 Mk1: original APC mini — Stop All 0x59 (scene launch 8), Shift 0x62.
+
+mk1 gotcha: Track Status notes 0x30–0x37 are the same numbers as grid row 6.
+They are **not** usable as a Shift-held indicator — lighting 0x37 paints grid
+pads 6–7 red, not the Shift button (Shift has no LED on mk1).
 """
 
 from __future__ import annotations
@@ -10,7 +14,6 @@ import time
 from typing import Protocol
 
 from led_table import (
-    LED_RED,
     SCENE_LED_OFF,
     SCENE_LED_ON,
     TRACK_LED_OFF,
@@ -26,7 +29,12 @@ NOTE_TRACK8_MK2 = 0x6B
 # APC mini mk1 (original — port name is usually "APC MINI" without "mk2")
 NOTE_STOP_ALL_CLIPS_MK1 = 0x59
 NOTE_SHIFT_MK1 = 0x62
+# 0x37 = grid row 6 col 7 on mk1 — NOT a side-button-only note (see module doc).
 NOTE_TRACK8_MK1 = 0x37
+
+# Stop All ghost: pressing Shift on mk1 often spuriously fires Scene 8 (0x59)
+# within a few ms. Ignore that stop-on while Shift was just pressed solo.
+MK1_GHOST_STOP_S = 0.08
 
 # Bank arrows — up, down, left, right.
 #
@@ -104,22 +112,16 @@ def resolve_apc_transport_notes(
     return NOTE_SHIFT_MK1, NOTE_STOP_ALL_CLIPS_MK1, "mk1"
 
 
-def resolve_shift_indicator_note(apc_label: str) -> int:
-    """Track Select 8 — red LED used as Shift held indicator (Shift has no LED)."""
-    if apc_label == "mk2":
-        return NOTE_TRACK8_MK2
-    return NOTE_TRACK8_MK1
+def resolve_shift_indicator_note(apc_label: str) -> int | None:
+    """Side-button note for Shift-held indicator, or None if none exists.
 
-
-def resolve_shift_indicator_on_vel(apc_label: str) -> int:
-    """Velocity for the shift-held indicator.
-
-    mk1 note 0x37 overlaps grid row 6 — velocity 1 is green on the pad matrix;
-    velocity 3 (LED_RED) is red. mk2 Track Select 8 uses the side-button table.
+    mk2: Track Select 8 (0x6B) — red LED, off the grid.
+    mk1: None — Shift has no LED; 0x30–0x37 are grid row 6 / Track Status and
+    must not be used (lights clip pads 6–7 instead of Shift).
     """
     if apc_label == "mk2":
-        return TRACK_LED_ON
-    return LED_RED
+        return NOTE_TRACK8_MK2
+    return None
 
 
 class ShiftHoldCombo:
@@ -214,12 +216,10 @@ class _MidiOut(Protocol):
 class TransportButtonLeds:
     """Shift / Stop All Clips button LEDs on the APC transport row.
 
-    Shift has no LED on mk1 or mk2 — ``shift_indicator_note`` (Track Select 8)
-    shows solid red while Shift is held.
+    mk2: Track Select 8 (red) shows Shift held; Stop All (green-only) when held.
 
-    Stop All is Scene Launch 8 (green-only hardware): solid green while held
-    alone; green blink during Shift+Stop reset combo. Track 8 blinks red in
-    that combo.
+    mk1: Shift has no LED — no shift indicator is sent. Stop All is green when
+    held alone; Shift+Stop reset combo blinks Stop All green only.
     """
 
     def __init__(
@@ -228,9 +228,9 @@ class TransportButtonLeds:
         midi_out: _MidiOut,
         shift_note: int,
         stop_all_note: int,
-        shift_indicator_note: int,
+        shift_indicator_note: int | None,
         hold_s: float,
-        shift_indicator_on_vel: int | None = None,
+        apc_label: str = "mk1",
         blink_start_half_s: float = 0.35,
         blink_min_half_s: float = 0.04,
     ) -> None:
@@ -238,41 +238,66 @@ class TransportButtonLeds:
         self._shift_note = shift_note
         self._stop_all_note = stop_all_note
         self._shift_indicator_note = shift_indicator_note
-        self._shift_indicator_on_vel = (
-            TRACK_LED_ON if shift_indicator_on_vel is None else shift_indicator_on_vel
-        )
+        self._shift_indicator_on_vel = TRACK_LED_ON
+        self._apc_label = apc_label
         self._hold_s = max(hold_s, 0.001)
         self._blink_start_half_s = blink_start_half_s
         self._blink_min_half_s = blink_min_half_s
         self._shift_down = False
         self._stop_down = False
+        self._shift_down_at: float | None = None
+        self._stop_down_before_shift = False
         self._combo_started_at: float | None = None
         self._suppress_until_release = False
         self._last_vel: dict[int, int] = {}
-        self._set_led(self._shift_indicator_note, TRACK_LED_OFF)
+        if self._shift_indicator_note is not None:
+            self._set_led(self._shift_indicator_note, TRACK_LED_OFF)
         self._set_led(self._stop_all_note, SCENE_LED_OFF)
 
     def note_event(self, note: int, down: bool) -> None:
+        now = time.monotonic()
         if note == self._shift_note:
-            self._shift_down = down
+            if down:
+                self._shift_down = True
+                self._shift_down_at = now
+                self._stop_down_before_shift = self._stop_down
+                if self._apc_label == "mk1" and not self._stop_down_before_shift:
+                    self._stop_down = False
+            else:
+                self._shift_down = False
+                self._shift_down_at = None
         elif note == self._stop_all_note:
-            self._stop_down = down
+            if down and self._mk1_ghost_stop(now):
+                pass
+            else:
+                self._stop_down = down
         else:
             return
 
         self._maybe_clear_suppress()
         if self._suppress_until_release:
-            self._set_led(self._shift_indicator_note, TRACK_LED_OFF)
+            if self._shift_indicator_note is not None:
+                self._set_led(self._shift_indicator_note, TRACK_LED_OFF)
             self._set_led(self._stop_all_note, SCENE_LED_OFF)
             return
 
         if self._shift_down and self._stop_down:
             if self._combo_started_at is None:
-                self._combo_started_at = time.monotonic()
+                self._combo_started_at = now
         else:
             self._combo_started_at = None
 
-        self._apply(time.monotonic())
+        self._apply(now)
+
+    def _mk1_ghost_stop(self, now: float) -> bool:
+        """True when mk1 Scene 8 (Stop All note) fired spuriously with Shift."""
+        if self._apc_label != "mk1" or not self._shift_down:
+            return False
+        if self._stop_down_before_shift:
+            return False
+        if self._shift_down_at is None:
+            return False
+        return (now - self._shift_down_at) < MK1_GHOST_STOP_S
 
     def poll(self) -> None:
         """Drive accelerating combo blink between MIDI events."""
@@ -285,7 +310,8 @@ class TransportButtonLeds:
         """Track reset completed — dark until both buttons are released."""
         self._suppress_until_release = True
         self._combo_started_at = None
-        self._set_led(self._shift_indicator_note, TRACK_LED_OFF)
+        if self._shift_indicator_note is not None:
+            self._set_led(self._shift_indicator_note, TRACK_LED_OFF)
         self._set_led(self._stop_all_note, SCENE_LED_OFF)
 
     def _maybe_clear_suppress(self) -> None:
@@ -302,16 +328,18 @@ class TransportButtonLeds:
                 blink_start_half_s=self._blink_start_half_s,
                 blink_min_half_s=self._blink_min_half_s,
             )
-            track_vel = self._shift_indicator_on_vel if blink_on else TRACK_LED_OFF
             scene_vel = SCENE_LED_ON if blink_on else SCENE_LED_OFF
-            self._set_led(self._shift_indicator_note, track_vel)
+            if self._shift_indicator_note is not None:
+                track_vel = self._shift_indicator_on_vel if blink_on else TRACK_LED_OFF
+                self._set_led(self._shift_indicator_note, track_vel)
             self._set_led(self._stop_all_note, scene_vel)
             return
 
-        self._set_led(
-            self._shift_indicator_note,
-            self._shift_indicator_on_vel if self._shift_down else TRACK_LED_OFF,
-        )
+        if self._shift_indicator_note is not None:
+            self._set_led(
+                self._shift_indicator_note,
+                self._shift_indicator_on_vel if self._shift_down else TRACK_LED_OFF,
+            )
         self._set_led(
             self._stop_all_note,
             SCENE_LED_ON if self._stop_down else SCENE_LED_OFF,

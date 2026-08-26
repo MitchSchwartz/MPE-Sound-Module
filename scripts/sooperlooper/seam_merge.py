@@ -1,5 +1,9 @@
 """Merge a parallel tail recording onto the wrap seam of a main loop buffer.
 
+**DO NOT CHANGE** merge geometry or fade constants here without **explicit
+written permission from Mitch**. Pair with ``sl_seam_weld.py`` — revert, do not
+re-derive. See module docstring in ``sl_seam_weld.py``.
+
 Tier 3 path (looper-loop-seam-spec.md): the tail is captured on a scratch loop
 while the main loop plays at fixed length N. The tail is the audio that kept
 sounding *after* sample N — the release of notes the take cut off.
