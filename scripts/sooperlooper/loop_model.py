@@ -141,6 +141,13 @@ def plan_gesture(
                 cancel_pending=True,
                 note="cancel pending mute — keep playing",
             )
+        if pending == STATE_PLAYING and sl_state in (SL_STATE_MUTE, SL_STATE_PAUSED):
+            # pause_on clears a queued trigger at the bar (Pi SP4 — verify on hardware).
+            return Plan(
+                commands=("pause_on",),
+                cancel_pending=True,
+                note="cancel pending launch",
+            )
 
     state = effective_state(sl_state, pending)
 
