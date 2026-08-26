@@ -201,20 +201,30 @@ def merge_tail_at_seam(
     merge_samples: int = 0,
     declick_samples: int = DEFAULT_DECLICK_SAMPLES,
     offset_samples: int = 0,
+    offset_seconds: float = 0.0,
 ) -> Path:
-    """Load two SL WAVs, sum the tail into the head, write merged WAV."""
+    """Load two SL WAVs, sum the tail into the head, write merged WAV.
+
+    ``offset_seconds`` is where the scratch loop actually started recording,
+    as a loop position. The scratch only arms once SL reports the main loop
+    PLAYING, so tail[0] is not loop-position 0 — measured at 0.044 s on a
+    6.5 s clip. Summing it at index 0 places the ring-out ~44 ms early, i.e.
+    less decayed and landing on the take's own attack: a level swell exactly
+    at the wrap. ``offset_samples`` is added on top as a manual trim.
+    """
     main_frames, main_rate = read_float32_stereo_wav(main_path)
     tail_frames, tail_rate = read_float32_stereo_wav(tail_path)
     if tail_rate != main_rate:
         raise ValueError(
             f"sample rate mismatch: main={main_rate} tail={tail_rate}"
         )
+    offset = int(offset_samples) + int(round(offset_seconds * main_rate))
     merged = merge_stereo_frames(
         main_frames,
         tail_frames,
         merge_samples=merge_samples,
         declick_samples=declick_samples,
-        offset_samples=offset_samples,
+        offset_samples=offset,
     )
     write_float32_stereo_wav(out_path, merged, sample_rate=main_rate)
     return out_path

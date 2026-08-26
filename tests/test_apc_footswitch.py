@@ -138,7 +138,7 @@ class GridEstablishmentTests(unittest.TestCase):
         def start(_loop: int) -> None:
             fs._osc.send_message(f"/sl/{SCRATCH_LOOP}/hit", ["record"])
 
-        def merge(_loop: int, done, position=None) -> bool:
+        def merge(_loop: int, done, position=None, tail_offset_s=0.0) -> bool:
             if merge_immediate:
                 done()
             return True
@@ -199,7 +199,7 @@ class GridEstablishmentTests(unittest.TestCase):
                 on_prepare_scratch=lambda loop: prepared.append(loop),
                 on_start_scratch=lambda loop: started.append(loop),
                 on_stop_scratch=lambda loop: None,
-                on_request_merge=lambda loop, done, position=None: (done(), True)[1],
+                on_request_merge=lambda loop, done, position=None, tail_offset_s=0.0: (done(), True)[1],
             )
             fs._tail_capture = True
             fs._tail_stop_sent = True
@@ -223,7 +223,7 @@ class GridEstablishmentTests(unittest.TestCase):
             ),
             on_start_scratch=lambda _loop: None,
             on_stop_scratch=lambda _loop: None,
-            on_request_merge=lambda _loop, done, position=None: True,
+            on_request_merge=lambda _loop, done, position=None, tail_offset_s=0.0: True,
         )
         self._start_defining_take(fs)
         fs.on_pad_down()
@@ -339,7 +339,7 @@ class TailCaptureTests(unittest.TestCase):
             on_prepare_scratch=lambda loop: None,
             on_start_scratch=lambda loop: None,
             on_stop_scratch=lambda loop: None,
-            on_request_merge=lambda loop, done, position=None: (merged.append(loop) or False),
+            on_request_merge=lambda loop, done, position=None, tail_offset_s=0.0: (merged.append(loop) or False),
         )
         fs._tail_capture = True
         fs._tail_stop_sent = True
@@ -369,7 +369,7 @@ class TailCaptureTests(unittest.TestCase):
             on_prepare_scratch=lambda loop: None,
             on_start_scratch=lambda loop: None,
             on_stop_scratch=lambda loop: None,
-            on_request_merge=lambda loop, done, position=None: (done(), True)[1],
+            on_request_merge=lambda loop, done, position=None, tail_offset_s=0.0: (done(), True)[1],
         )
         fs._tail_capture = True
         fs._tail_stop_sent = True
@@ -431,7 +431,7 @@ class TailCaptureTests(unittest.TestCase):
             on_prepare_scratch=lambda loop: None,
             on_start_scratch=lambda loop: None,
             on_stop_scratch=lambda loop: None,
-            on_request_merge=lambda loop, done, position=None: (done(), True)[1],
+            on_request_merge=lambda loop, done, position=None, tail_offset_s=0.0: (done(), True)[1],
         )
         fs._tail_capture = True
         fs._tail_stop_sent = True
@@ -453,7 +453,7 @@ class TailCaptureTests(unittest.TestCase):
             on_prepare_scratch=lambda loop: None,
             on_start_scratch=lambda loop: None,
             on_stop_scratch=lambda loop: None,
-            on_request_merge=lambda loop, done, position=None: (done(), True)[1],
+            on_request_merge=lambda loop, done, position=None, tail_offset_s=0.0: (done(), True)[1],
         )
         fs._tail_capture = True
         fs._tail_stop_sent = True
@@ -480,7 +480,7 @@ class TailCaptureTests(unittest.TestCase):
             on_prepare_scratch=lambda loop: None,
             on_start_scratch=lambda loop: None,
             on_stop_scratch=lambda loop: None,
-            on_request_merge=lambda loop, done, position=None: (done(), True)[1],
+            on_request_merge=lambda loop, done, position=None, tail_offset_s=0.0: (done(), True)[1],
         )
         fs._tail_capture = True
         fs._tail_stop_sent = True
@@ -504,7 +504,7 @@ class TailCaptureTests(unittest.TestCase):
             on_prepare_scratch=lambda loop: None,
             on_start_scratch=lambda loop: None,
             on_stop_scratch=lambda loop: None,
-            on_request_merge=lambda loop, done, position=None: (
+            on_request_merge=lambda loop, done, position=None, tail_offset_s=0.0: (
                 merged.append((loop, position)),
                 done(),
                 True,
@@ -533,7 +533,7 @@ class TailCaptureTests(unittest.TestCase):
             on_prepare_scratch=lambda loop: None,
             on_start_scratch=lambda loop: None,
             on_stop_scratch=lambda loop: None,
-            on_request_merge=lambda loop, done, position=None: (
+            on_request_merge=lambda loop, done, position=None, tail_offset_s=0.0: (
                 handed.append(position),
                 done(),
                 True,
@@ -551,6 +551,57 @@ class TailCaptureTests(unittest.TestCase):
         pos, length = handed[0]()
         self.assertEqual(length, 2.0)
         self.assertGreaterEqual(pos, 0.5)
+
+    def test_pad_stops_blinking_when_recording_stops_not_when_merge_lands(
+        self,
+    ) -> None:
+        """The blink means "keep performing through the release".
+
+        Recording ends when the scratch stops; the merge then waits for the
+        wrap, which is not the player's business. Blinking through it told the
+        player to keep playing for the whole first pass.
+        """
+        from scripts.sooperlooper.led_table import led_for
+
+        fs = LoopFootswitch(loop=0, hold_ms=1000.0, debounce_ms=0.0)
+        fs.bind(MagicMock(), MagicMock(), 36)
+        fs.sync_from_sl(SL_STATE_PLAYING)
+        fs._tail_capture = True
+        fs._merge_pending = False
+        capturing = fs._led_target()
+        self.assertEqual(capturing, led_for(SL_STATE_PLAYING, tail_capture=True))
+        # Merge queued: recording is over, the weld is just waiting for a wrap.
+        fs._merge_pending = True
+        self.assertNotEqual(fs._led_target(), capturing)
+        self.assertEqual(
+            fs._led_target(), led_for(SL_STATE_PLAYING, tail_capture=False)
+        )
+
+    def test_scratch_start_position_is_handed_to_the_merge(self) -> None:
+        """The offset that fixes the wrap swell is measured, not guessed."""
+        fs = LoopFootswitch(loop=0, hold_ms=1000.0, debounce_ms=0.0)
+        fs.bind(MagicMock(), MagicMock(), 36)
+        seen = []
+        fs.set_seam_weld_hooks(
+            on_prepare_scratch=lambda loop: None,
+            on_start_scratch=lambda loop: None,
+            on_stop_scratch=lambda loop: None,
+            on_request_merge=lambda loop, done, position=None, tail_offset_s=0.0: (
+                seen.append(tail_offset_s),
+                done(),
+                True,
+            )[2],
+        )
+        fs.sync_from_sl(SL_STATE_PLAYING)
+        fs.sync_loop_len(6.499)
+        fs._tail_capture = True
+        fs._tail_stop_sent = True
+        fs.sync_loop_pos(0.044)
+        fs._maybe_start_scratch()
+        self.assertAlmostEqual(fs._scratch_start_pos, 0.044, places=3)
+        fs._end_tail_capture("test")
+        self.assertEqual(len(seen), 1)
+        self.assertAlmostEqual(seen[0], 0.044, places=3)
 
     def test_seam_position_is_none_when_not_playing(self) -> None:
         """A stopped playhead would make the worker wait for a wrap forever."""
@@ -579,7 +630,7 @@ class TailCaptureTests(unittest.TestCase):
             on_prepare_scratch=lambda loop: None,
             on_start_scratch=lambda loop: None,
             on_stop_scratch=lambda loop: None,
-            on_request_merge=lambda loop, done, position=None: True,
+            on_request_merge=lambda loop, done, position=None, tail_offset_s=0.0: True,
         )
         fs._tail_capture = True
         fs._tail_stop_sent = True

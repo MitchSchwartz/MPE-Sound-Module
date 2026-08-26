@@ -143,6 +143,7 @@ class LoopFootswitch:
         self._tail_capture = False
         self._tail_capture_since = 0.0
         self._loop_pos_at = 0.0
+        self._scratch_start_pos = 0.0
         self._tail_silence_since: float | None = None
         self._in_peak = 0.0
         self._in_peak_seen = False
@@ -251,9 +252,10 @@ class LoopFootswitch:
         self._scratch_started = True
         if self._on_prepare_scratch is not None:
             self._on_prepare_scratch(self.loop)
+        self._scratch_start_pos = self.loop_pos if self._loop_pos_seen else 0.0
         log(
             f"loop {self.loop}: scratch tail record on loop {SCRATCH_LOOP} "
-            f"(pos={self.loop_pos:.3f}s / {self.loop_len:.3f}s)"
+            f"(pos={self._scratch_start_pos:.3f}s / {self.loop_len:.3f}s)"
         )
         self._on_start_scratch(self.loop)
 
@@ -271,6 +273,7 @@ class LoopFootswitch:
         self._tail_stop_sent = False
         self._tail_deferred = False
         self._scratch_started = False
+        self._scratch_start_pos = 0.0
         if had_deferred:
             self._flush_deferred_grid_side_effects()
 
@@ -332,11 +335,13 @@ class LoopFootswitch:
         if self._should_seam_merge():
             log(f"loop {self.loop}: seam merge queued ({reason})")
             self._merge_pending = True
+            self._sync_led()
             try:
                 accepted = self._on_request_seam_merge(
                     self.loop,
                     lambda: self._after_seam_merge(reason),
                     self.seam_position,
+                    self._scratch_start_pos,
                 )
             except Exception as exc:
                 log(
@@ -614,7 +619,7 @@ class LoopFootswitch:
         return led_for(
             self.sl_state,
             pending=self._pending,
-            tail_capture=self._tail_capture,
+            tail_capture=self._tail_capture and not self._merge_pending,
         )
 
     def _sync_led(self) -> None:

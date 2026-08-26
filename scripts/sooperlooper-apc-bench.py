@@ -266,8 +266,12 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
                 on_stop_scratch=lambda loop, w=seam_worker: w.stop_scratch_record(
                     SCRATCH_LOOP
                 ),
-                on_request_merge=lambda loop, done, position=None, w=seam_worker: w.request(
-                    loop, SCRATCH_LOOP, done=done, position=position
+                on_request_merge=lambda loop, done, position=None, tail_offset_s=0.0, w=seam_worker: w.request(
+                    loop,
+                    SCRATCH_LOOP,
+                    done=done,
+                    position=position,
+                    tail_offset_s=tail_offset_s,
                 ),
             )
         weld_note = (
