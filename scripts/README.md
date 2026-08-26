@@ -44,11 +44,11 @@
 
 Docs: [`docs/PI4-CLONE-SD.md`](../docs/PI4-CLONE-SD.md) (configured clone SD) · [`docs/PI4-GOLDEN-IMAGE.md`](../docs/PI4-GOLDEN-IMAGE.md) (full matrix)
 
-- **image/capture-golden.sh** - Pre-`dd` on master Pi (`--platform pi4|pi5|auto`)
+- **image/capture-golden.sh** - Manifest + state on reference Pi (read-only; no sanitize)
 - **image/bake-golden.sh** - Verify manifest / print instructions (`--platform pi4|pi5`)
 - **image/capture-pi4-golden.sh** / **capture-pi5-golden.sh** - Platform wrappers
 - **image/bake-pi4-golden.sh** / **bake-pi5-golden.sh** - Platform wrappers
-- **provision/sanitize-for-clone.sh** - Strip machine-id, SSH host keys, Tailscale (called by capture-golden)
+- **provision/sanitize-for-clone.sh** - Manual pre-`dd` step (WiFi/Tailscale/host keys)
 - **provision/capture-external-state.sh** - Optional laptop backup (not required for clone SD)
 - **image/build-appliance.sh** - Fresh Imager + private assets (`--platform pi4|pi5|auto`)
 - **image/build-pi4-appliance.sh** - Wrapper for `--platform pi4`

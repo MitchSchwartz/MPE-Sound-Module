@@ -135,30 +135,75 @@ def audio_switch_progress_message(
                 f"Recovery paused — wait {COOLDOWN_SEC}s or replug DAC",
                 5.0,
             )
+        last_restart = _parse_epoch(reconcile.get("last_restart"))
+        restart_count = _parse_epoch(reconcile.get("restarts"))
+        if restart_count > 0 and last_restart > 0:
+            since = now_ts - last_restart
+            if since < COOLDOWN_SEC:
+                remaining = COOLDOWN_SEC - since
+                hint = f"Waiting to retry ({remaining}s)…"
+                toast = f"Recovery paused — {remaining}s until retry"
+                return hint, toast, min(float(remaining + 1), 8.0)
         return "Audio failed", "Audio failed — check connection", 4.0
 
-    last_restart = _parse_epoch(reconcile.get("last_restart"))
-    restart_count = _parse_epoch(reconcile.get("restarts"))
-    if restart_count > 0 and last_restart > 0:
-        since = now_ts - last_restart
-        if since < COOLDOWN_SEC:
-            remaining = COOLDOWN_SEC - since
-            hint = f"Waiting to retry ({remaining}s)…"
-            toast = f"Recovery paused — {remaining}s until retry"
-            return hint, toast, min(float(remaining + 1), 8.0)
+    if state == "recovering":
+        jack_started = _parse_epoch(jack.get("started"))
+        if jack_started > 0 and (now_ts - jack_started) < JACKD_SETTLE_SEC:
+            return "JACK server starting…", "Reconnecting audio…", 3.0
 
-    jack_started = _parse_epoch(jack.get("started"))
-    if jack_started > 0 and (now_ts - jack_started) < JACKD_SETTLE_SEC:
-        return "JACK server starting…", "Restarting audio engine…", 3.0
+        if reason == "promote-planned":
+            return "Reconnecting Surge…", "Reconnecting Surge…", 3.0
+        if reason in {"settings-change", "profile-change"}:
+            return "Restarting JACK server…", "Applying audio settings…", 3.0
+        if reason == "promote-timeout":
+            return "Surge reconnect slow — still trying…", "Still reconnecting Surge…", 3.0
+        if reason in {"jackd-starting", "jackd-down", "graph-restart"}:
+            return "Reconnecting audio…", "Reconnecting audio…", 3.0
 
-    if reason == "promote-planned":
-        return "Reconnecting Surge…", "Reconnecting Surge to JACK…", 3.0
-    if reason in {"settings-change", "profile-change"}:
-        return "Restarting JACK server…", "Applying audio settings…", 3.0
-    if reason == "promote-timeout":
-        return "Surge reconnect slow — still trying…", "Still reconnecting Surge…", 3.0
+        return "Reconnecting audio…", "Reconnecting audio…", 3.0
 
-    return "Restarting audio…", "Applying audio settings…", 3.0
+    return "Restarting audio…", "Reconnecting audio…", 3.0
+
+
+def toast_loader_base(message: str | None) -> str | None:
+    """Strip trailing ellipsis for animated loader toasts."""
+    if not message:
+        return None
+    base = message.rstrip()
+    while base and base[-1] in "…. ":
+        base = base[:-1].rstrip()
+    return base or None
+
+
+LOADER_DOT_WIDTH = 3
+
+
+def loader_dot_count(*, tick: int, width: int = LOADER_DOT_WIDTH) -> int:
+    """Dot count 1..width for loader animation."""
+    if width <= 0:
+        return 0
+    return (tick % width) + 1
+
+
+def loader_dots_suffix(*, tick: int, width: int = LOADER_DOT_WIDTH) -> str:
+    """Deprecated — use loader_dot_count + fixed layout in draw."""
+    count = loader_dot_count(tick=tick, width=width)
+    return ("." * count) + (" " * (width - count))
+
+
+def recovery_loader_suppressed(
+    engine: dict[str, str] | None,
+    *,
+    toast_base: str | None = None,
+) -> bool:
+    """True only when Surge is still on the JACK graph despite recovering state."""
+    engine = engine or {}
+    if engine.get("state") != "recovering":
+        return False
+    if jack_reachable_via_meter() is not True:
+        return False
+    surge_wired = _meter_flag(read_meter_state(), "online")
+    return surge_wired is True
 
 
 def read_engine_state(path: Path | None = None) -> dict[str, str]:
