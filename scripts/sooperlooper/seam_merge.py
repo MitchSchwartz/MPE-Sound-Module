@@ -231,6 +231,7 @@ def merge_tail_at_seam(
     fade_in_samples: int = DEFAULT_FADE_IN_SAMPLES,
     offset_samples: int = 0,
     offset_seconds: float = 0.0,
+    skip_seconds: float = 0.0,
 ) -> Path:
     """Load two SL WAVs, sum the tail into the head, write merged WAV.
 
@@ -240,6 +241,10 @@ def merge_tail_at_seam(
     6.5 s clip. Summing it at index 0 places the ring-out ~44 ms early, i.e.
     less decayed and landing on the take's own attack: a level swell exactly
     at the wrap. ``offset_samples`` is added on top as a manual trim.
+
+    ``skip_seconds`` drops take content at the head of the scratch when it was
+    armed early (WAIT_STOP). Summing that onto the loop head would double the
+    take and flam at the wrap.
     """
     main_frames, main_rate = read_float32_stereo_wav(main_path)
     tail_frames, tail_rate = read_float32_stereo_wav(tail_path)
@@ -247,6 +252,9 @@ def merge_tail_at_seam(
         raise ValueError(
             f"sample rate mismatch: main={main_rate} tail={tail_rate}"
         )
+    skip = max(0, int(round(skip_seconds * main_rate)))
+    if skip:
+        tail_frames = tail_frames[skip:]
     offset = int(offset_samples) + int(round(offset_seconds * main_rate))
     merged = merge_stereo_frames(
         main_frames,
