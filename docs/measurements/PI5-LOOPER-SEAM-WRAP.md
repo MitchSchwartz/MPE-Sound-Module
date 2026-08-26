@@ -92,7 +92,26 @@ tails can now run to 15 s. Summed modulo N that baked seven overlapping copies
 of one ring-out into a buffer that repeats forever. *Fix:* cap the tail at one
 loop length; the declick fade lands on the cap.
 
-**Open, ear-only:** the scratch loop only arms once SL reports the main loop
+### Early arming — the last known gap (2026-08-26)
+
+After the fade fix the wrap still stepped down to ~0.5–0.7x of the take-end level, and the
+amount varied per take. Cause: the scratch loop armed only once SL reported `PLAYING`, an OSC
+state round-trip. Measured across four takes it armed **17, 36, 53 and 68 ms** after the loop
+wrapped — that much release tail was recorded by nothing, and no merge tuning can recover it.
+
+*Fix:* arm at `WAIT_STOP` instead. SL is already counting to the cycle boundary there, so the
+scratch is rolling **before** the take ends and the release is captured continuously. The cost
+is that the scratch head is then take content, which the merge skips
+(`loop_len − arm_pos`, biased 10 ms long — clipping a few ms of ring-out is inaudible, while
+leaving take content doubles it onto the head as a flam).
+
+Guard worth keeping: arming requires a real `loop_pos` reading. Without one the arm position is
+0 and the skip computes a full `loop_len`, discarding the **entire** tail. Found by writing the
+test, not by ear.
+
+Kill switch `MPE_SL_SEAM_EARLY_ARM=0`. **Unverified by ear** as of this note.
+
+**Superseded, ear-only:** the scratch loop only arms once SL reports the main loop
 PLAYING, so `tail[0]` is already some ms past the stop instant. The declick fade
 hides the discontinuity but not the timing. Tune
 `MPE_SL_SEAM_TAIL_OFFSET_SAMPLES` by ear on the Pi and pin the value here.
@@ -148,10 +167,16 @@ after looper is up ([`archive/looper-p0-latency-calibration.md`](archive/looper-
 
 **Laptop/repo is source of truth. Pi is deploy target only.**
 
-**Never deploy `dev` to the Pi looper while seam-wrap ear tests are in flight** — governor
-commits on `dev` do not carry seam-weld fixes; Pi will look like "hard stop, no tail" even
-when `yolo/pi5-looper-seam-wrap` is checked out by name. Always verify:
-`git log -1 --oneline` on Pi matches `origin/yolo/pi5-looper-seam-wrap`.
+**Superseded 2026-08-26:** the seam-weld work is merged to `dev` (`9c5b4ba`, fast-forward),
+so `dev` now carries it and deploying `dev` is correct. The original warning — that `dev`
+lacked the seam fixes and the Pi would look like "hard stop, no tail" — no longer applies.
+
+What still holds: **always verify what is actually running.** `git log -1 --oneline` on the Pi
+must match `origin/dev`, and `pgrep -c sooperlooper` must return `1`. A second engine from a
+`jackd` restart keeps the OSC port while losing its JACK ports, so it answers every query
+(`state=playing`, `wet=1.0`) while recording digital silence — the readings look identical
+whether the audio path is fine or gone. Cost 2026-08-26: one ear-test round and several
+diagnostics taken as ground truth before the orphan was found.
 
 | Do (laptop) | Don't (Pi) |
 |-------------|------------|
@@ -180,7 +205,8 @@ Partial deploy (e.g. footswitch without bench) **will crash the bench** — see 
 |------|--------|
 | Binary | Copied Pi 4 `sooperlooper` → `~/src/sooperlooper-1.7.9/src/` (native Pi 5 build still todo) |
 | Branch on Pi | **`yolo/pi5-looper-seam-wrap` @ `c955d09`** via `mpe looper deploy` |
-| Seam fixes | `_scratch_started` merge gate; tail max 750 ms; scratch loop 15 peak meter; merge hook crash guard |
+| Seam fixes | `_scratch_started` merge gate; scratch loop 15 peak meter; merge hook crash guard |
+| ~~tail max 750 ms~~ | **Not a fix — a symptom.** The bench listener dropped every scratch-loop `in_peak_meter` (`_by_loop` guard ran before the routing branch, and the scratch loop has no pad bound), so `_tail_saw_loud` never set and every tail was cut at the fixed `TAIL_MAX_S` window regardless of the note's decay. Corrected 2026-08-26; tails now end on measured decay. |
 | sl-health | Run before each ear session |
 | APC bench | **`mpe looper sl-bench restart`** after every deploy |
 
