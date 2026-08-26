@@ -14,7 +14,7 @@ commands and their output are quoted inline so you can re-run them.
 `tests/fixtures/instrument-conformance/`, `docs/measurements/MEASUREMENT-DISCIPLINE.md`,
 `docs/measurements/PROMPT-C0-instrument-conformance.md`,
 `docs/measurements/instrument-conformance-c0-2026-08-22.md`, `Documents/PROGRESS.md`,
-`.claude/skills/mpe-measurement/SKILL.md`, the diffs to `AGENTS.md`, both spec
+OM-Repo `.claude/skills/measurement-design/SKILL.md`, the diffs to `AGENTS.md`, both spec
 pre-registration blocks, `docs/measurements/README.md`, and the
 `mpe_meter_assert_live` / `mpe_meter_xruns_read` block in `scripts/lib/audio-engine.sh`.
 
@@ -328,7 +328,7 @@ the `/dev/stdout` default in favour of writing to stdout unconditionally when `$
 
 ### 🔴 3 — The residual in-band failures are in the harness C0 was chartered to fix
 
-`.claude/skills/mpe-measurement/SKILL.md:100-102` declares these "instant P0":
+OM-Repo `.claude/skills/measurement-design/SKILL.md:100-102` declares these "instant P0":
 
 | # | Pattern | Fix |
 |---|---|---|
@@ -693,7 +693,7 @@ doctrine.
 `PROMPT-C0-instrument-conformance.md` would get a new agent productive in well under a day,
 and the "hand this to a fresh agent, self-contained, assumes no prior context" convention on
 the specs is doing real work. The nine-occurrence table in
-`.claude/skills/mpe-measurement/SKILL.md:111-121` is the best onboarding artifact in the repo
+OM-Repo `.claude/skills/measurement-design/SKILL.md:111-121` is the best onboarding artifact in the repo
 — it teaches the failure mode by example rather than by rule. I checked the count for
 consistency across `MEASUREMENT-DISCIPLINE.md`, `PROMPT-C0`, the deliverable, and
 `PROGRESS.md`: all four say nine, and PROMPT-C0's arithmetic ("AGENTS.md lists four ... T2/T6

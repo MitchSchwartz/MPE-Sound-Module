@@ -124,7 +124,7 @@ This is the control condition. Without it, "the Pi 5 is faster" is unfalsifiable
 
 ### A6. G3 — archive the raw logs (~30 min)
 
-`PROMPT-G3-archive-raw-logs.md`. Do it now, while the Pi 4's SD card is still the machine you
+OM-Repo [`sred/PROMPT-G3-archive-raw-logs.md`](../../../OM-Repo/internal/projects/mpe-synth-launch/sred/PROMPT-G3-archive-raw-logs.md). Do it now, while the Pi 4's SD card is still the machine you
 care about. Once attention moves to the Pi 5 it becomes a neglected object holding the only
 copy of every number in 74 documents.
 

@@ -73,7 +73,7 @@ Full plan: [`docs/measurements/PROMPT-PI4-CLOSEOUT.md`](docs/measurements/PROMPT
 | ~~**A3**~~ | ~~**Settle a72**~~ — **DONE NULL** 2026-08-22; stock control kept | closeout §A3 | ~60 min |
 | ~~**A4**~~ | ~~**Reference pass 2**~~ — **DONE** 2026-08-23; max spread **1.70%** | closeout §A4 | ~30 min |
 | ~~**A5**~~ | ~~**State capture**~~ — **DONE** 2026-08-23 (calibration + `pi4-control-2026-08-23/`) | closeout §A5 | ~10 min |
-| ~~**A6**~~ | ~~**Log archive refresh**~~ — **DONE** soak log re-pulled (512 lines) | `PROMPT-G3-archive-raw-logs.md` | ~30 min |
+| ~~**A6**~~ | ~~**Log archive refresh**~~ — **DONE** soak log re-pulled (512 lines) | OM-Repo `sred/PROMPT-G3-archive-raw-logs.md` | ~30 min |
 | ~~**A7**~~ | ~~**`build-surge.sh --arch`**~~ — **DONE** (`scripts/build-surge.sh`) | closeout §A7 | ~30 min |
 | ~~**A8**~~ | ~~**Platform stamps**~~ — **DONE** on B2 + predictions docs | closeout §A8 | ~20 min |
 | ~~**A9**~~ | ~~**Predictions table**~~ — **DONE** `pi5-predictions-2026-08-23.md` | transition plan §5 | ~20 min |
@@ -149,7 +149,7 @@ Full log paths and harness notes: [`docs/measurements/G2-RESULT-2026-08-23.md`](
 6. **Ask the shortest useful version of a test** before running it. **Any window over 30 minutes
    needs Mitch's explicit approval and a written justification** — expected event rate, events
    needed, why shorter will not do. Doctrine:
-   `docs/measurements/MEASUREMENT-DISCIPLINE.md`, skill: `.claude/skills/measurement-design/`.
+   `docs/measurements/MEASUREMENT-DISCIPLINE.md`, skill: OM-Repo `.claude/skills/measurement-design/`.
 7. **One variable.** Overclock and rebuild do not overlap. Neither overlaps a soak. This
    applies hardest during the Pi 5 transition, where a dozen things change at once.
 8. **Name the platform in every measurement doc.** Two boards, one repo: an unstamped number is
