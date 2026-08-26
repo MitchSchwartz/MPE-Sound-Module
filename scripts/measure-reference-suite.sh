@@ -205,12 +205,21 @@ _run_cell() {
         sleep 1
     fi
 
+    # Light patches (Duduk, Brave New World) load ~10–11% @512 on Pi4 canonical stack —
+    # below heavy-patch floors (12.5%) but above idle failure (~7% Cloud Horn no-reload).
+    unset MPE_DSP_PLAUSIBILITY_FLOOR_OVERRIDE
+    case "${patch:-}" in
+        Duduk | "Brave New World") export MPE_DSP_PLAUSIBILITY_FLOOR_OVERRIDE="10.0" ;;
+    esac
+
     "$SCRIPT_DIR/measure-latency-run.sh" \
         --buffer "$buffer" --periods "$periods" --condition A \
         --runs "$RUNS" --seconds "$SECONDS_HOLD" \
         --hold-voices "$voices" \
         --provenance-patch "${patch:-silence}" --provenance-voices "$voices" \
         --output "$log" --no-restore-buffer
+
+    unset MPE_DSP_PLAUSIBILITY_FLOOR_OVERRIDE
 
     IFS=$'\t' read -r xr dsp_med dsp_p99 dsp_max samples temp thr < <(_parse_last_run "$log" "$relaxed")
 

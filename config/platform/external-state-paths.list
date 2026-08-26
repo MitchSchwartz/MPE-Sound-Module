@@ -2,17 +2,22 @@
 # and apply-external-state.sh. One path per line; # comments and blank lines ignored.
 # Paths are relative to the Pi user's home unless absolute.
 #
+# Pi 5 audit: run capture --check on raspberrypi5 and diff against actual home
+# (includes .patch_browser_poly_state.json — ceiling_poly / effective_poly).
+#
 # NEVER captured (hard-coded in capture script):
 #   ~/.ssh/*  host keys, authorized_keys, known_hosts
 #   /var/lib/tailscale/*  Tailscale node identity — never in an image
 #   ~/.mpe_clock_*.json  tempfile scratch from midi_clock.py
 #   NetworkManager WiFi profiles (PSKs), shell history, machine-id
 #
-# Built by build-pi4-appliance.sh (not external state):
+# Built by build-appliance.sh (not external state):
+# Also captured separately: etc/systemd-dropins/, boot/dsi-config.snippet, platform.json
 #   OS, apt, Surge binary, factory/3rd-party patches, systemd units, cmdline hygiene
 #   MPE-Module @ tag, native meters, touch deps, SooperLooper (--with-looper only)
 
 /etc/mpe/mpe.env
+surge/build/surge_xt_products/surge-xt-cli.provenance
 surge-cli-calibration.log
 .patch_browser_brightness.json
 .patch_browser_favorites.json

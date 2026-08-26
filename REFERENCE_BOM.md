@@ -1,8 +1,6 @@
 # Reference BOM — MPE Sound Module
 
-*Last updated: 2026-08-23 (America/Toronto)*
-
-Two supported hardware paths. Software is tested against **these** stacks — not arbitrary displays or encoders.
+*Last updated: 2026-08-23 (America/Toronto)* Software is tested against **these** stacks — not arbitrary displays or encoders.
 
 | Path | Status | Doc |
 |------|--------|-----|
@@ -33,8 +31,8 @@ Two supported hardware paths. Software is tested against **these** stacks — no
 
 | Qty | Part | Spec | Buy (CA) | Notes |
 |-----|------|------|----------|-------|
-| 1 | **Raspberry Pi 5** | 4 GB+; Pi OS **Lite** 64-bit | *(Pi retailer)* | **Preferred player.** Reference unit: 128×2 @ 48 kHz (Aug 2026). |
-| 1 | **Raspberry Pi 4 Model B** | 4 GB+ | *(Pi retailer)* | Valid touch build; measurement baseline; clone-SD master today |
+| 1 | **Raspberry Pi 5** | **4 GB** recommended; Pi OS **Lite** 64-bit | *(Pi retailer)* | **Preferred player.** Reference unit: 128×2 @ 48 kHz (Aug 2026). |
+| 1 | **Raspberry Pi 4 Model B** | **4 GB** (reference unit) | *(Pi retailer)* | Certified measurement + clone-SD baseline — **not** 8 GB |
 | 1 | **USB audio dongle** | Creative **Sound Blaster Play! 3** (SB1730) | [B06XBZ38ZJ](https://www.amazon.ca/dp/B06XBZ38ZJ) | Same as encoder build — USB stick, not a DAC HAT |
 | 1 | **microSD** | 32 GB+, UHS-I | *(retailer)* | See [`docs/STORAGE-ROBUSTNESS.md`](docs/STORAGE-ROBUSTNESS.md) |
 | 1 | **Pi power supply** | **Official 27 W (5 V / 5 A) on Pi 5**; 3 A OK on Pi 4 | *(retailer)* | Pi 5 reference suite blocked on undersized 5 V / 3 A supply + no active cooler |
@@ -43,6 +41,15 @@ Two supported hardware paths. Software is tested against **these** stacks — no
 | 1 | **USB-C cable** *(desk kit)* | Host PC ↔ Pi USB-C | *(retailer)* | Data only when Pi is GPIO-powered; for `usb-host` — [`docs/USB-AUDIO-HOST.md`](docs/USB-AUDIO-HOST.md) |
 
 **No OLED or KY-040** on the touch build.
+
+### RAM
+
+| RAM | Touch + Surge (no looper) | With SooperLooper |
+|-----|---------------------------|-------------------|
+| **4 GB** | **Reference** — certified Pi 4 player path | Tight but measured on eval bench |
+| **2 GB** | **Probably not** — untested; Surge + pygame + OS leaves little margin; memory pressure can show up as xruns before OOM | **No** — add ~150 MB+ for the engine alone |
+
+Use a **prebuilt Surge binary** on low-RAM boards (do not compile on the Pi). No swap on a realtime instrument unless you are doing a one-off build and remove it after.
 
 ---
 
@@ -80,7 +87,7 @@ See [`docs/HARDWARE_WIRING.md`](docs/HARDWARE_WIRING.md) for the canonical wirin
 
 | Qty | Part | Spec | Buy (CA) | Notes |
 |-----|------|------|----------|-------|
-| 1 | **Raspberry Pi 5** (or 4, 4 GB+) | Pi OS **Lite** 64-bit | *(Pi retailer)* | Pi 5 preferred for new builds |
+| 1 | **Raspberry Pi 5** (or 4) | **4 GB**; Pi OS **Lite** 64-bit | *(Pi retailer)* | Pi 5 preferred; Pi 4 reference unit is **4 GB** |
 | 1 | **USB audio dongle** | Creative **Sound Blaster Play! 3** (SB1730) | [B06XBZ38ZJ](https://www.amazon.ca/dp/B06XBZ38ZJ) | USB stick — not a DAC HAT |
 | 1 | **microSD** | 32 GB+, UHS-I | *(retailer)* | Flash Pi OS Lite; deploy via repo scripts |
 | 1 | **Pi power supply** | Official 5 V / 5 A (Pi 5) or 3 A (Pi 4) | *(retailer)* | Undervoltage = audio glitches |

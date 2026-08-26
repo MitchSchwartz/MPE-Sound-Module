@@ -18,7 +18,9 @@
 - **deploy-crash-fixes.sh** - Deploy crash fix scripts
 
 ### Backup & Sync Scripts
-- **capture-external-state.sh** - Portable device state tree for golden-image restore ([`docs/PI4-GOLDEN-IMAGE.md`](../docs/PI4-GOLDEN-IMAGE.md))
+- **provision/capture-external-state.sh** - Portable device state tree for golden-image restore ([`docs/PI4-GOLDEN-IMAGE.md`](../docs/PI4-GOLDEN-IMAGE.md))
+- **provision/archive-state-to-assets.sh** - Copy `state/` into MPE-Library (offsite backup)
+- **provision/capture-laptop-mpe-config.sh** - Laptop mpe-cli + SSH Host blocks
 - **apply-external-state.sh** - Restore portable state tree to Pi
 - **pull-all-from-device.sh** - Full backup from Pi to development machine
 - **sync-from-device.sh** - Incremental backup from Pi
@@ -38,15 +40,18 @@
 - **setup-touch-pi.sh** - SmartiPi touch Pi: apt deps, udev rules, `MPE_UI_MODE=touch` services
 - **setup-usb-audio-gadget.sh** - UAC2 USB audio gadget bind/unbind (desk tether profile)
 
-### Golden image (Pi 4)
+### Golden image (Pi 4 / Pi 5)
 
 Docs: [`docs/PI4-CLONE-SD.md`](../docs/PI4-CLONE-SD.md) (configured clone SD) · [`docs/PI4-GOLDEN-IMAGE.md`](../docs/PI4-GOLDEN-IMAGE.md) (full matrix)
 
-- **image/capture-pi4-golden.sh** - Pre-`dd` on master Pi (sanitize + manifest)
-- **provision/sanitize-for-clone.sh** - Strip machine-id, SSH host keys, Tailscale
+- **image/capture-golden.sh** - Manifest + state on reference Pi (read-only; no sanitize)
+- **image/bake-golden.sh** - Verify manifest / print instructions (`--platform pi4|pi5`)
+- **image/capture-pi4-golden.sh** / **capture-pi5-golden.sh** - Platform wrappers
+- **image/bake-pi4-golden.sh** / **bake-pi5-golden.sh** - Platform wrappers
+- **provision/sanitize-for-clone.sh** - Manual pre-`dd` step (WiFi/Tailscale/host keys)
 - **provision/capture-external-state.sh** - Optional laptop backup (not required for clone SD)
-- **image/bake-pi4-golden.sh** - Verify manifest / print instructions
-- **image/build-pi4-appliance.sh** - Alternate: fresh Imager + private assets
+- **image/build-appliance.sh** - Fresh Imager + private assets (`--platform pi4|pi5|auto`)
+- **image/build-pi4-appliance.sh** - Wrapper for `--platform pi4`
 - **image/install-pi4-day0-tier1.sh** - Apt/JACK/pygame tier (Pi 4)
 - **image/flash-and-provision.sh** - Generic image + apply state (unusual)
 

@@ -180,7 +180,7 @@ Full log paths and harness notes: [`docs/measurements/G2-RESULT-2026-08-23.md`](
 | `docs/PI5-TRANSITION-PLAN.md` | **Why the transition is structured this way.** What survives, what is void |
 | `docs/PI5-BRINGUP-RUNBOOK.md` | Pi 5 setup + overnight suites with gates |
 | `docs/measurements/PROMPT-PI4-CLOSEOUT.md` | Ordered Pi 4 closeout, Track A/B |
-| `docs/SRED-EVIDENCE-2026.md` | Uncertainties, chronology, prior-art position, gaps G1–G5 |
+| OM-Repo [`sred/SRED-EVIDENCE-2026.md`](../OM-Repo/internal/projects/mpe-synth-launch/sred/SRED-EVIDENCE-2026.md) | Uncertainties, chronology, prior-art position, gaps G1–G5 |
 
 **History:** superseded and refuted runs live in [`docs/measurements/archive/`](docs/measurements/archive/)
 (53 files, 2026-08-22 compaction). Keep for provenance — not decision inputs.

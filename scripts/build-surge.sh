@@ -107,4 +107,5 @@ fi
     echo "version=$("$artifact" --version 2>&1 || true)"
     echo "sha256=$(sha256sum "$artifact" | awk '{print $1}')"
     echo "SENTINEL build-${BUILD_SUFFIX}-complete"
+    echo "Next: ./scripts/install-surge-from-build.sh --arch ${ARCH}"
 } >>"$LOG"

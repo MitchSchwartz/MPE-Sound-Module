@@ -51,8 +51,22 @@ echo "=== configure-pi-paths (units + /etc/mpe/mpe.env paths) ==="
 sudo -u "$APPLIANCE_USER" env MPE_PI_USER="$APPLIANCE_USER" HOME="/home/$APPLIANCE_USER" \
     bash -lc "cd '$REPO_ROOT' && ./scripts/configure-pi-paths.sh --local --force"
 
-echo "=== player env parity (Pi 4 control tuning) ==="
+echo "=== player env parity (board-specific tuning) ==="
 sudo -u "$APPLIANCE_USER" bash -lc "cd '$REPO_ROOT' && ./scripts/apply-player-env-parity.sh"
+
+echo "=== DSI config.txt (touch panel overlay) ==="
+if grep -q '^MPE_UI_MODE=touch' /etc/mpe/mpe.env 2>/dev/null; then
+    "$REPO_ROOT/scripts/apply-dsi-config.sh"
+    "$REPO_ROOT/scripts/apply-dsi-cmdline.sh" || true
+else
+    echo "  MPE_UI_MODE != touch — skip DSI config.txt"
+fi
+
+echo "=== JACK RT limits (shell / harness) ==="
+"$REPO_ROOT/scripts/install-jack-audio-limits.sh"
+
+echo "=== GPL compliance payload (licenses + corresponding source) ==="
+"$REPO_ROOT/scripts/install-license-payload.sh"
 
 echo "=== install systemd units ==="
 "$REPO_ROOT/scripts/install-units.sh"

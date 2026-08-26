@@ -32,6 +32,7 @@ config.local.ini
 config/mpe.env
 state/
 artifacts/golden-pi4/
+artifacts/golden-pi5/
 *.img
 *.img.xz
 *.local.*

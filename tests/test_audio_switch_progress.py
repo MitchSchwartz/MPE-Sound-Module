@@ -17,17 +17,17 @@ class AudioSwitchProgressTests(unittest.TestCase):
         self.assertEqual(toast, "Audio ready")
         self.assertEqual(sec, 2.0)
 
-    def test_cooldown_shows_remaining_seconds(self) -> None:
+    def test_recovering_during_cooldown_shows_reconnecting_not_paused(self) -> None:
         now = 1000
         hint, toast, sec = audio_switch_progress_message(
             {"state": "recovering", "active": "jack", "reason": "promote-to-jack"},
             {"last_restart": str(now - 12), "restarts": "1"},
             now=now,
         )
-        remaining = COOLDOWN_SEC - 12
-        self.assertIn(f"{remaining}s", hint)
-        self.assertIn(f"{remaining}s", toast or "")
-        self.assertEqual(sec, 8.0)
+        self.assertIn("Reconnect", hint)
+        self.assertIn("Reconnect", toast or "")
+        self.assertNotIn("paused", (toast or "").lower())
+        self.assertEqual(sec, 3.0)
 
     def test_settings_change_hint(self) -> None:
         hint, toast, _ = audio_switch_progress_message(
@@ -44,6 +44,31 @@ class AudioSwitchProgressTests(unittest.TestCase):
         )
         self.assertIn("paused", hint.lower())
         self.assertIn(str(COOLDOWN_SEC), toast or "")
+
+    def test_failed_in_cooldown_shows_retry_wait(self) -> None:
+        now = 1000
+        hint, toast, _ = audio_switch_progress_message(
+            {"state": "failed", "reason": "surge-failed"},
+            {"last_restart": str(now - 12), "restarts": "2"},
+            now=now,
+        )
+        remaining = COOLDOWN_SEC - 12
+        self.assertIn(f"{remaining}s", hint)
+        self.assertIn("paused", (toast or "").lower())
+
+    def test_toast_loader_base_strips_ellipsis(self) -> None:
+        from patch_browser.audio_engine import toast_loader_base
+
+        self.assertEqual(toast_loader_base("Reconnecting audio…"), "Reconnecting audio")
+        self.assertEqual(toast_loader_base("Connecting keyboard..."), "Connecting keyboard")
+
+    def test_loader_dot_count_cycles(self) -> None:
+        from patch_browser.audio_engine import LOADER_DOT_WIDTH, loader_dot_count
+
+        self.assertEqual(loader_dot_count(tick=0), 1)
+        self.assertEqual(loader_dot_count(tick=2), 3)
+        self.assertEqual(loader_dot_count(tick=3), 1)
+        self.assertEqual(loader_dot_count(tick=0, width=LOADER_DOT_WIDTH), 1)
 
 
 if __name__ == "__main__":

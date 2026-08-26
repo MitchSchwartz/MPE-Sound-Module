@@ -13,6 +13,7 @@ from unittest import mock
 from patch_browser.governor_load import LoadTracker
 from patch_browser.governor_v2 import (
     adaptive_poll_interval,
+    always_on_rest_top,
     always_on_target_limit,
     continuous_target_limit,
     normalize_jack_load,
@@ -114,6 +115,24 @@ class GovernorV2CurveTests(unittest.TestCase):
     def test_always_on_hits_floor_at_full_stress(self) -> None:
         self.assertEqual(
             always_on_target_limit(100.0, ceiling=64, floor=4, min_headroom=3, hard=100.0),
+            4,
+        )
+
+    def test_rest_cap_overrides_headroom_at_rest(self) -> None:
+        self.assertEqual(
+            always_on_rest_top(ceiling=64, floor=4, min_headroom=3, rest_cap=40),
+            40,
+        )
+        self.assertEqual(
+            always_on_target_limit(0.0, ceiling=64, floor=4, min_headroom=3, rest_cap=40),
+            40,
+        )
+
+    def test_rest_cap_still_reaches_floor_under_stress(self) -> None:
+        self.assertEqual(
+            always_on_target_limit(
+                100.0, ceiling=64, floor=4, min_headroom=3, hard=100.0, rest_cap=40
+            ),
             4,
         )
 

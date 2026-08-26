@@ -191,6 +191,8 @@ class TouchPatchBrowser(
         self.brightness_percent = self.backlight.get_percent()
         self.toast_message = ""
         self.toast_until = 0.0
+        self._loader_toast_active = False
+        self._loader_toast_base = ""
         self.power_action: str | None = None
         self._pending_calibrate_mode: CalibrateMode = CalibrateMode.MISSING_ONLY
         self._slider_dragging = False
@@ -357,8 +359,43 @@ class TouchPatchBrowser(
     def _pressed(self, target_id: str) -> bool:
         return self._touch_press.is_pressed(target_id)
     def _toast(self, message: str, seconds: float = 2.0) -> None:
+        self._loader_toast_active = False
+        self._loader_toast_base = ""
         self.toast_message = message
         self.toast_until = time.time() + seconds
+
+    def _clear_toast(self) -> None:
+        self.toast_message = ""
+        self.toast_until = 0.0
+
+    def _start_loader_toast(self, base: str) -> None:
+        from patch_browser.audio_engine import toast_loader_base
+
+        normalized = toast_loader_base(base)
+        if not normalized:
+            return
+        self._loader_toast_base = normalized
+        self._loader_toast_active = True
+        self.toast_until = time.time() + 86400.0
+        self._tick_loader_toast()
+
+    def _stop_loader_toast(self) -> None:
+        if not self._loader_toast_active:
+            return
+        self._loader_toast_active = False
+        self._loader_toast_base = ""
+        self._clear_toast()
+
+    def _tick_loader_toast(self) -> None:
+        if not self._loader_toast_active:
+            return
+        base = self._loader_toast_base
+        if "paused" in base.lower():
+            self.toast_message = base
+        else:
+            # Dots rendered in _draw_toast at fixed width — keep message stable.
+            self.toast_message = base
+
     def _handle_screen_recorder_signals(self) -> None:
         if self._recorder_stop_requested:
             self._recorder_stop_requested = False
@@ -416,6 +453,7 @@ class TouchPatchBrowser(
             self._poll_audio_profile_switch()
             self._poll_surge_audio_switch()
             self._poll_engine_recovery_toast()
+            self._tick_loader_toast()
             self._poll_midi_sync_switch()
             self._poll_wifi_work()
             self._handle_screen_recorder_signals()
