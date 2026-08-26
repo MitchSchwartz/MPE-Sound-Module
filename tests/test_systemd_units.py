@@ -17,6 +17,7 @@ watching it. These tests assert the units exist, name real files, and are superv
 from __future__ import annotations
 
 import re
+import subprocess
 import unittest
 from pathlib import Path
 
@@ -284,6 +285,17 @@ class EngineLauncherTests(unittest.TestCase):
             encoding="utf-8"
         )
         self.assertIn("mpe_wait_for_jack_server", text)
+
+
+class RepoLintIntegrationTests(unittest.TestCase):
+    def test_lint_systemd_units_script_passes(self) -> None:
+        result = subprocess.run(
+            [str(REPO / "scripts" / "lint-systemd-units.sh")],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
 
 
 if __name__ == "__main__":
