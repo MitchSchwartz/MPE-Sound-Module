@@ -32,6 +32,7 @@ from apc_transport import (  # noqa: E402
     bank_delta_for_arrow,
     resolve_apc_transport_notes,
     resolve_arrow_notes,
+    resolve_shift_indicator_note,
 )
 from led_table import LED_OFF  # noqa: E402
 from loop_mix import CoalescingSender, LoopMix  # noqa: E402
@@ -99,6 +100,7 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
     port = int(os.environ.get("MPE_SL_OSC_PORT", "9951"))
     hold_ms = float(os.environ.get("MPE_APC_HOLD_MS", "2000"))
     debounce_ms = float(os.environ.get("MPE_APC_DEBOUNCE_MS", "200"))
+    hold_blink_start_ms = float(os.environ.get("MPE_APC_HOLD_BLINK_START_MS", "500"))
     num_loops = int(os.environ.get("MPE_SL_LOOPS", str(NUM_LOOPS)))
     shift_note = int(os.environ.get("MPE_APC_SHIFT_NOTE", "0"))
     stop_all_note = int(os.environ.get("MPE_APC_STOP_ALL_NOTE", "0"))
@@ -208,6 +210,7 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
         num_loops=num_loops,
         hold_ms=hold_ms,
         debounce_ms=debounce_ms,
+        hold_blink_start_ms=hold_blink_start_ms,
         quantized=grid_active,
         view=view,
         grid=grid if grid_active else None,
@@ -267,12 +270,13 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
                 on_stop_scratch=lambda loop, w=seam_worker: w.stop_scratch_record(
                     SCRATCH_LOOP
                 ),
-                on_request_merge=lambda loop, done, position=None, tail_offset_s=0.0, w=seam_worker: w.request(
+                on_request_merge=lambda loop, done, position=None, tail_offset_s=0.0, tail_skip_s=0.0, w=seam_worker: w.request(
                     loop,
                     SCRATCH_LOOP,
                     done=done,
                     position=position,
                     tail_offset_s=tail_offset_s,
+                    tail_skip_s=tail_skip_s,
                 ),
             )
         weld_note = (
@@ -330,6 +334,7 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
         midi_out=midi_out,
         shift_note=shift_note,
         stop_all_note=stop_all_note,
+        shift_indicator_note=resolve_shift_indicator_note(apc_label),
         hold_s=track_reset_hold_ms / 1000.0,
     )
 

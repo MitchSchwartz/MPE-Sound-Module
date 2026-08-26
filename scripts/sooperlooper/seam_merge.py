@@ -227,6 +227,7 @@ def merge_tail_at_seam(
     fade_in_samples: int = DEFAULT_FADE_IN_SAMPLES,
     offset_samples: int = 0,
     offset_seconds: float = 0.0,
+    skip_seconds: float = 0.0,
 ) -> Path:
     """Load two SL WAVs, sum the tail into the head, write merged WAV.
 
@@ -243,6 +244,12 @@ def merge_tail_at_seam(
         raise ValueError(
             f"sample rate mismatch: main={main_rate} tail={tail_rate}"
         )
+    # Early arming starts the scratch before the take's boundary, so the head
+    # of the scratch is take content, not tail. Drop it — summing it onto the
+    # head would double that audio and flam.
+    skip = max(0, int(round(skip_seconds * main_rate)))
+    if skip:
+        tail_frames = tail_frames[skip:]
     offset = int(offset_samples) + int(round(offset_seconds * main_rate))
     merged = merge_stereo_frames(
         main_frames,

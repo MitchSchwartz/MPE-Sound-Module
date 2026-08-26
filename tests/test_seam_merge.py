@@ -203,6 +203,37 @@ class SeamMergeTests(unittest.TestCase):
         self.assertEqual(out[99], (0.0, 0.0))
         self.assertAlmostEqual(out[100][0], 0.25, places=6)
 
+    def test_skip_seconds_drops_take_content_from_the_scratch_head(self) -> None:
+        """Early arming captures take content first; it must never be summed.
+
+        Leaving it in doubles that audio onto the loop head — a flam at every
+        wrap, which is worse than the gap early arming exists to remove.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            main_wav, tail_wav, out_wav = (
+                root / "m.wav", root / "t.wav", root / "o.wav"
+            )
+            rate = 48000
+            write_float32_stereo_wav(
+                main_wav, [(0.0, 0.0)] * rate, sample_rate=rate
+            )
+            # First half is take content (0.9), second half is release (0.1).
+            scratch = [(0.9, 0.9)] * (rate // 2) + [(0.1, 0.1)] * (rate // 2)
+            write_float32_stereo_wav(tail_wav, scratch, sample_rate=rate)
+            merge_tail_at_seam(
+                main_wav, tail_wav, out_wav,
+                declick_samples=0, skip_seconds=0.5,
+            )
+            merged, _ = read_float32_stereo_wav(out_wav)
+            # Only the release survives, and it lands at the head.
+            self.assertAlmostEqual(merged[0][0], 0.1, places=5)
+            self.assertAlmostEqual(merged[rate // 2 - 1][0], 0.1, places=5)
+            self.assertAlmostEqual(
+                max(abs(f[0]) for f in merged), 0.1, places=5,
+                msg="no take content may reach the merged buffer",
+            )
+
     def test_empty_tail_returns_the_take_unchanged(self) -> None:
         main = [(0.7, -0.7)] * 64
         self.assertEqual(merge_stereo_frames(main, []), main)
