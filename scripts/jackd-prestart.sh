@@ -30,8 +30,22 @@ log() {
 
 # sound.target does not guarantee the USB DAC has enumerated — bounded wait for
 # any non-virtual card rather than a fixed sleep.
+#
+# While waiting, publish reason=no-device so the UI can say "No audio device"
+# instead of spinning "Reconnecting audio…" forever. restart-audio-graph.sh
+# issues the restart with --no-block, so state=recovering is published
+# optimistically and nothing reconciles it when this unit then fails to start.
+# With nothing plugged in there is nothing to reconnect TO, and a progress
+# spinner that can never finish is a lie about what the appliance is doing.
 waited=0
+announced_no_device=false
 while ! mpe_physical_playback_card_present; do
+    if [ "$announced_no_device" = false ]; then
+        announced_no_device=true
+        log "no physical sound card — waiting up to ${WAIT_SECONDS}s"
+        mpe_engine_state_write "$MPE_ENGINE_NAME" none recovering no-device \
+            "$(mpe_looper_state_label)" || true
+    fi
     if [ "$waited" -ge "$WAIT_SECONDS" ]; then
         log "WARNING: no physical sound card after ${WAIT_SECONDS}s — trying detection anyway"
         break
@@ -50,6 +64,15 @@ JACK_TIER="$(printf '%s\n' "$DETECT_OUTPUT" | grep '^TIER=' | cut -d= -f2-)"
 if [ $DETECT_EXIT -ne 0 ] || [ -z "$JACK_DEVICE" ]; then
     log "ERROR: no ALSA card resolved for jackd — refusing to start the server"
     printf '%s\n' "$DETECT_OUTPUT" >&2
+    # Distinguish "nothing is plugged in" from "a device is present but unusable".
+    # Both fail the unit; only the first is fixed by the user plugging something in.
+    if mpe_physical_playback_card_present; then
+        mpe_engine_state_write "$MPE_ENGINE_NAME" none failed no-card-resolved \
+            "$(mpe_looper_state_label)" || true
+    else
+        mpe_engine_state_write "$MPE_ENGINE_NAME" none failed no-device \
+            "$(mpe_looper_state_label)" || true
+    fi
     exit 1
 fi
 
