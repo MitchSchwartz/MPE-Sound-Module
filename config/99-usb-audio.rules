@@ -1,24 +1,38 @@
 # udev rules for USB audio device hot-plug support
-# Automatically restart the JACK graph when external USB audio devices connect/disconnect.
+# Restart the JACK graph when an external audio SINK connects/disconnects.
 #
-# Skip-listed cards (HDMI, UAC2 gadget passthrough, snd-aloop) are filtered in
-# restart-audio-graph.sh — ATTR{id} cannot match on remove, so SOUND_CARD_ID is
-# stamped at add time and read from the udev db on remove.
+# Match playback PCM nodes, NOT cards.
+#   USB MIDI controllers (APC MINI, ROLI Seaboard, …) register ALSA cards with no
+#   PCM at all. Matching KERNEL=="card[0-9]*" therefore fired on every controller
+#   replug and restarted mpe-jackd, dropping audio mid-play ("reconnecting audio").
+#   Playback PCM nodes (pcmC*D*p) exist only on devices that can actually be a
+#   jackd sink, so the filter lives in the matcher instead of a name denylist.
+#
+# Skip-listed cards (HDMI, UAC2 gadget, snd-aloop) DO have playback PCMs and are
+# still filtered by name in restart-audio-graph.sh — the two stages solve
+# different halves.
+#
+# Card id resolution does NOT rely on the udev database. Measured 2026-08-26:
+# SOUND_CARD_ID was absent from the db for every card, so the name denylist was
+# silently bypassed on every `remove` event. The PCM kernel name (%k) is passed
+# instead; restart-audio-graph.sh derives the card id from sysfs and caches it
+# under /run/mpe/pcm-card-id/ so `remove` can still resolve it after the card is
+# gone.
 #
 # Installation:
 #   sudo cp 99-usb-audio.rules /etc/udev/rules.d/
 #   sudo udevadm control --reload-rules
 #
 # Testing:
-#   1. Plug/unplug USB audio device
-#   2. Check logs: sudo journalctl -u mpe-jackd -f
-#   3. Verify graph restarted: mpe engine status
+#   udevadm test /sys/class/sound/pcmC0D0p   # should RUN restart-audio-graph.sh
+#   udevadm test /sys/class/sound/card3      # MIDI-only — should NOT match
+#   sudo journalctl -u mpe-jackd -f
 
-# Persist card id for remove events (ATTR{} is gone once the card is unlinked).
+# Persist card id on the card device (source of truth for the name denylist).
 ACTION=="add", SUBSYSTEM=="sound", KERNEL=="card[0-9]*", ATTR{id}=="?*", ENV{SOUND_CARD_ID}="%s{id}"
 
-# Restart audio graph when external USB audio devices connect/disconnect.
+# Restart the audio graph only for playback-capable devices.
 # restart-audio-graph.sh restarts mpe-jackd.service — the only audio engine
-# (spec D2, criterion 15). --no-block is inside the script.
-ACTION=="add", SUBSYSTEM=="sound", KERNEL=="card[0-9]*", RUN+="@MPE_MODULE_REPO@/scripts/restart-audio-graph.sh %E{SOUND_CARD_ID}"
-ACTION=="remove", SUBSYSTEM=="sound", KERNEL=="card[0-9]*", RUN+="@MPE_MODULE_REPO@/scripts/restart-audio-graph.sh %E{SOUND_CARD_ID}"
+# (spec D2, criterion 15). --no-block is inside the script, which also debounces.
+ACTION=="add", SUBSYSTEM=="sound", KERNEL=="pcmC[0-9]*D[0-9]*p", RUN+="@MPE_MODULE_REPO@/scripts/restart-audio-graph.sh %E{SOUND_CARD_ID} %k"
+ACTION=="remove", SUBSYSTEM=="sound", KERNEL=="pcmC[0-9]*D[0-9]*p", RUN+="@MPE_MODULE_REPO@/scripts/restart-audio-graph.sh %E{SOUND_CARD_ID} %k"
