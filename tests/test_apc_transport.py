@@ -15,6 +15,7 @@ from scripts.sooperlooper.apc_transport import (
     resolve_shift_indicator_note,
 )
 from scripts.sooperlooper.led_table import (
+    LED_RED,
     SCENE_LED_OFF,
     SCENE_LED_ON,
     TRACK_LED_OFF,
@@ -133,13 +134,14 @@ class TransportButtonLedsTests(unittest.TestCase):
             shift_note=self.shift,
             stop_all_note=self.stop,
             shift_indicator_note=self.shift_indicator,
+            shift_indicator_on_vel=LED_RED,
             hold_s=hold_s,
         )
 
     def test_shift_alone_lights_track_indicator_red(self) -> None:
         leds = self._leds()
         leds.note_event(self.shift, True)
-        self.assertEqual(self.sent[-1], [0x90, self.shift_indicator, TRACK_LED_ON])
+        self.assertEqual(self.sent[-1], [0x90, self.shift_indicator, LED_RED])
         leds.note_event(self.shift, False)
         self.assertEqual(self.sent[-1], [0x90, self.shift_indicator, TRACK_LED_OFF])
 
