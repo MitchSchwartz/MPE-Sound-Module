@@ -34,6 +34,19 @@ def install_fake_pygame(*, minimal: bool = False) -> None:
     fake = types.ModuleType("pygame")
 
     fake.QUIT = 12
+    # SDL key/modifier values (#113 keyboard shortcuts). Real values, so a
+    # test that reasons about chords reasons about the same numbers the
+    # appliance will see.
+    fake.KEYDOWN = 768
+    fake.K_ESCAPE = 27
+    fake.K_t = 116
+    fake.K_r = 114
+    fake.KMOD_LCTRL = 0x0040
+    fake.KMOD_RCTRL = 0x0080
+    fake.KMOD_CTRL = 0x00C0
+    fake.KMOD_LALT = 0x0100
+    fake.KMOD_RALT = 0x0200
+    fake.KMOD_ALT = 0x0300
     fake.MOUSEBUTTONDOWN = 1025
     fake.MOUSEBUTTONUP = 1026
     fake.MOUSEMOTION = 1024

@@ -50,6 +50,7 @@ from patch_browser.touch_browser_patches import TouchBrowserPatchesMixin
 from patch_browser.touch_browser_prefs import TouchBrowserPrefsMixin
 from patch_browser.touch_browser_brightness_modal import TouchBrowserBrightnessModalMixin
 from patch_browser.touch_browser_settings import TouchBrowserSettingsMixin
+from patch_browser.touch_browser_terminal import TerminalMixin
 from patch_browser.touch_browser_audio_profile_modal import TouchBrowserAudioProfileModalMixin
 from patch_browser.touch_browser_surge_audio_modal import TouchBrowserSurgeAudioModalMixin
 from patch_browser.touch_browser_midi_sync_modal import TouchBrowserMidiSyncModalMixin
@@ -70,6 +71,7 @@ from patch_browser.ui_theme import DEFAULT_ACCENT_RGB, THEME_VIEW_COLORS, THEME_
 
 
 class TouchPatchBrowser(
+    TerminalMixin,
     TouchBrowserEvdevMixin,
     TouchBrowserPrefsMixin,
     TouchBrowserSettingsMixin,
@@ -219,6 +221,11 @@ class TouchPatchBrowser(
         self._restart_bench_btn: Rect | None = None
         # Which action the shared confirm screen is standing in for.
         self._pending_confirm_kind: str = "calibrate"
+        # #113: live shell session, or None. See touch_browser_terminal.py.
+        self._terminal = None
+        self._terminal_last_input = 0.0
+        self._terminal_esc_armed = False
+        self._term_font = None
         self._restart_bench_toast_shown = False
         self._settings_slide = 0.0
         self._settings_view = "root"
@@ -499,12 +506,13 @@ class TouchPatchBrowser(
             self._poll_surge_audio_switch()
             self._poll_engine_recovery_toast()
             self._poll_restart_bench_result()
+            terminal_dirty = self._poll_terminal()
             self._tick_loader_toast()
             self._poll_midi_sync_switch()
             self._poll_wifi_work()
             self._poll_looper_song_results()
             self._handle_screen_recorder_signals()
-            busy = False
+            busy = bool(terminal_dirty)
             for event in pygame.event.get():
                 if self._ignore_sdl_pointer_event(event):
                     continue
@@ -549,6 +557,10 @@ class TouchPatchBrowser(
             self._draw()
             clock.tick(self._frame_rate_for(busy))
 
+        if getattr(self, "_terminal", None) is not None:
+            # A forgotten shell must not outlive the UI that owns it: it holds a
+            # PTY and a child process nothing would reap.
+            self._close_terminal()
         if self._evdev_bridge is not None:
             self._evdev_bridge.stop()
         if self._screen_recorder is not None:
