@@ -33,7 +33,6 @@ from apc_transport import (  # noqa: E402
     resolve_apc_transport_notes,
     resolve_arrow_notes,
     resolve_shift_indicator_note,
-    resolve_shift_indicator_on_vel,
 )
 from led_table import LED_OFF  # noqa: E402
 from loop_mix import CoalescingSender, LoopMix  # noqa: E402
@@ -335,8 +334,8 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
         shift_note=shift_note,
         stop_all_note=stop_all_note,
         shift_indicator_note=resolve_shift_indicator_note(apc_label),
-        shift_indicator_on_vel=resolve_shift_indicator_on_vel(apc_label),
         hold_s=track_reset_hold_ms / 1000.0,
+        apc_label=apc_label,
     )
 
     print(

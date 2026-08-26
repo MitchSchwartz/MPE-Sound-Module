@@ -1,4 +1,11 @@
-"""OSC orchestration: save main + scratch loops, seam merge, reload main."""
+"""OSC orchestration: save main + scratch loops, seam merge, reload main.
+
+**DO NOT CHANGE** seam weld logic, timing, or merge geometry in this module (or
+``seam_merge.py`` / tail-capture paths in ``apc_footswitch.py``) without
+**explicit written permission from Mitch**. Revert to known-good code; do not
+re-derive or reinvent. Canon: ``Documents/specs/looper-loop-seam-spec.md``,
+``docs/measurements/PI5-LOOPER-SEAM-WRAP.md``.
+"""
 
 from __future__ import annotations
 
