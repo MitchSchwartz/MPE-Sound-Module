@@ -53,6 +53,8 @@ class Session(unittest.TestCase):
         self.dir = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, self.dir, True)
         self.engine = FakeSlEngine(num_loops=15, quantized=False)
+        self._last_state: dict[int, int] = {}
+        self._last_len: dict[int, float] = {}
         self.out = FakeOut()
         self.osc: list[tuple[str, list]] = []
         self.fs_by_loop = build_footswitches(self.osc)
@@ -92,16 +94,35 @@ class Session(unittest.TestCase):
         self.deliver()
 
     def deliver(self) -> None:
-        """One round of engine state to everyone who listens."""
+        """One round of engine state, delivered the way the engine delivers it.
+
+        SooperLooper's auto-updates fire ON CHANGE. A harness that pushes the
+        current state every round is strictly more generous than the appliance,
+        and it hides every bug that depends on a callback which never arrives —
+        the surface looks edge-triggered and correct because the harness keeps
+        re-triggering the edge. Only changes are delivered here, so a value
+        that stays put stays silent, exactly as it does on the Pi.
+        """
         for loop in range(15):
             state = self.engine.state[loop]
+            length = self.engine.loop_len.get(loop, 0.0)
+            if length and self._last_len.get(loop) != length:
+                self._last_len[loop] = length
+                self.surface.on_loop_len(loop, length)
+            if self._last_state.get(loop) == state:
+                continue
+            self._last_state[loop] = state
             fs = self.fs_by_loop.get(loop)
             if fs is not None:
                 fs.sync_from_sl(state)
-            length = self.engine.loop_len.get(loop, 0.0)
-            if length:
-                self.surface.on_loop_len(loop, length)
             self.surface.on_state(loop, state)
+
+    def idle(self, rounds: int = 20) -> None:
+        """The bench's idle loop, which runs thousands of times a second."""
+        for _ in range(rounds):
+            self.surface.poll_hold()
+            self.surface.poll_hold_led()
+            self.surface.poll_led_repaint()
 
     def boundary(self, *, length: float = 2.0) -> None:
         self.engine.boundary(length=length)
@@ -197,7 +218,25 @@ class TwoClipsOnOneTrackTests(Session):
         self.osc.clear()
         self.tap(0)
         self.boundary()
+        self.idle()
         self.assertIn("/sl/0/load_loop", [p for p, _ in self.osc])
+        self.assertEqual(self.rt.track(0).active_slot, 0)
+
+    def test_the_switch_does_not_stay_queued_forever(self) -> None:
+        """Reported 2026-08-27: "I see the appropriate flashing on each clip,
+        but it never actually switches."
+
+        The loop is PLAYING before the switch and PLAYING after it, so the
+        engine never sends a state update — and a resolution hung off a state
+        CHANGE waits for a callback that is never coming. Both pads then blink
+        for ever: the surface saying "requested" about something already done.
+        """
+        self.record_clip(0)
+        self.record_clip(1)
+        self.tap(0)
+        self.boundary()
+        self.idle()
+        self.assertIsNone(self.rt.track(0).pending, "the switch never resolved")
         self.assertEqual(self.rt.track(0).active_slot, 0)
 
 

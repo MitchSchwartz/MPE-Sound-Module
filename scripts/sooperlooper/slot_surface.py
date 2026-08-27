@@ -249,8 +249,28 @@ class SlotSurface:
         vel = LED_RED if int(elapsed * 4) % 2 == 0 else LED_OFF
         self._midi_out.send_message([0x90, note, vel])
 
+    def poll_pending(self) -> None:
+        """Resolve queued actions from state we already hold.
+
+        `_maybe_resolve` used to run only from `on_state`, i.e. only when the
+        engine reported a CHANGE. A switch between two clips on a playing track
+        has no change to report — the loop is Playing before and Playing after
+        — so the resolution waited for a callback that was never coming, and
+        both pads blinked for ever while the audio had in fact already moved.
+        Reported 2026-08-27: "I see the appropriate flashing on each clip, but
+        it never actually switches."
+
+        Same lesson the footswitch LEDs learned earlier: act on what is true,
+        not on the arrival of a message saying it changed.
+        """
+        for track_index, track in self._rt.tracks().items():
+            if track.pending is None:
+                continue
+            self._maybe_resolve(track_index, self._sl_states.get(track_index, SL_STATE_OFF))
+
     def poll_led_repaint(self) -> None:
         """Advance footswitch blink phase and repaint if needed."""
+        self.poll_pending()
         self.repaint()
 
     # -- engine feedback --------------------------------------------------
