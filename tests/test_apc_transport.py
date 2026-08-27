@@ -60,8 +60,12 @@ class ResolveApcTransportNotesTests(unittest.TestCase):
 
     def test_scene_row_for_note(self) -> None:
         notes = resolve_scene_launch_notes("mk1")
-        self.assertEqual(scene_row_for_note(notes, notes[0]), 0)
-        self.assertEqual(scene_row_for_note(notes, notes[6]), 6)
+        # The side buttons run top-to-bottom, the grid rows bottom-to-top, so
+        # the mapping is a reflection and not an identity: the TOP button is
+        # the TOP row. An identity here put every scene one end of the grid
+        # away from the row the player pressed.
+        self.assertEqual(scene_row_for_note(notes, notes[0]), 6)
+        self.assertEqual(scene_row_for_note(notes, notes[6]), 0)
         self.assertIsNone(scene_row_for_note(notes, NOTE_STOP_ALL_CLIPS_MK1))
 
 

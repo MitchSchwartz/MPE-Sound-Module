@@ -153,14 +153,31 @@ class SwitchSafetyTests(RuntimeCase):
 
 
 class ClearTests(RuntimeCase):
-    def test_clearing_the_active_slot_drops_the_buffer_and_the_file(self) -> None:
+    def test_forgetting_the_active_slot_drops_the_file_without_touching_the_engine(
+        self,
+    ) -> None:
+        """A long press on the active slot is forwarded to the footswitch,
+        which sends `undo_all` itself. The runtime's half is the disk only —
+        sending the engine command here too would double it."""
         p = self._clip(0, 1)
         self.rt._tracks[0] = Track(slots=(None, Slot("b.wav"), *([None] * 6)), active_slot=1)
-        self.rt.press(0, 1, sl_state=SL_STATE_PLAYING, hold=True)
+        self.sent.clear()
+        self.assertTrue(self.rt.forget_active_slot(0))
         self.assertFalse(p.exists())
         self.assertIsNone(self.rt.track(0).slot(1))
         self.assertIsNone(self.rt.track(0).active_slot)
-        self.assertIn(("/sl/0/hit", ["undo_all"]), self.sent)
+        self.assertEqual(self.sent, [], "the footswitch owns the engine")
+
+    def test_forgetting_an_unbound_track_is_a_noop(self) -> None:
+        self.assertFalse(self.rt.forget_active_slot(0))
+
+    def test_a_hold_on_the_active_slot_is_forwarded_not_cleared(self) -> None:
+        p = self._clip(0, 1)
+        self.rt._tracks[0] = Track(slots=(None, Slot("b.wav"), *([None] * 6)), active_slot=1)
+        self.sent.clear()
+        self.rt.press(0, 1, sl_state=SL_STATE_PLAYING, hold=True)
+        self.assertTrue(p.exists(), "the surface drives this, not press()")
+        self.assertEqual(self.sent, [])
 
     def test_clearing_an_inactive_slot_leaves_the_playing_buffer_alone(self) -> None:
         """undo_all here would wipe the clip the player is listening to."""
