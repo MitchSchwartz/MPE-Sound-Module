@@ -256,4 +256,58 @@ Log labour via OM-Repo [`sred-daily-capture`](../../../OM-Repo/.claude/skills/sr
 
 ---
 
-*Last updated: 2026-08-23 (America/Toronto — scratch loop 14)*
+---
+
+## CLOSED 2026-08-26 — the weld is gone; a native overdub replaced it
+
+Everything above describes the **stop-then-weld** pipeline: capture the
+ring-out into a scratch loop, merge it into the head offline, load the merged
+buffer back and retrigger at the wrap. That pipeline was deleted in `a99cf63`
+(-1927 lines). The work queue and env block above are historical — do not
+follow them.
+
+**The first-loop stutter was the retrigger, not the load** (`712f012`).
+`_swap_at_wrap` sent `load_loop`, waited, then `pause_off` + `trigger`. The
+trigger existed on the assumption that `load_loop` halts playback and needs a
+restart. Both premises were measured on Pi 5 and both were wrong:
+
+- `load_loop` does **not** halt playback — `loop_pos` ran straight through one
+  (0.805 → 0.813), no stall beyond the 10 ms update interval, no position
+  reset. The buffer swaps under a running loop.
+- The trigger's landing error was **-4.9 ms on an idle machine**, and it aims
+  at the wrap by predicting the playhead from 20 ms OSC frames and sleeping
+  ~145 ms. Early cuts audio off the end of the pass; late replays the head.
+  Either is the stutter, and the error swings with scheduling jitter.
+
+An independent probe (`spike-load-halt.py`, since removed with the pipeline)
+reached the same conclusion from the other direction: polling a playing loop
+across a `load_loop` showed no stall, and its same-loop control — which must
+stall if the halt is real — showed none either.
+
+Corollary for anyone reading the `SEAM_LOAD_LEAD_MS` sweep above (600 ms full
+dropout / 150 ms pop / 20 ms nearly clean / 5 ms pop plus volume step): that
+table is real, but it was never measuring a load. It was measuring **how far
+off the wrap the retrigger landed**. Tuning the lead was tuning the size of the
+cut, which is why no value was ever inaudible.
+
+**The replacement** (`117f4cc`, `1a90d51`): one `overdub` hit while recording
+makes SooperLooper close the take and begin overdubbing at the same sample,
+inside its own audio thread — the ring-out the take cut off lands in the loop
+head with no file I/O, no swap and no retrigger. The overdub is ended at the
+first wrap, armed off `sl_state == OVERDUBBING` rather than off the command
+sent. An earlier Pi 4 test that popped at `fade_samples` 512/1024 used *two*
+hits (record off, then overdub on), which leaves a gap while SL closes the loop
+and restarts playback — the fade never mattered, the gap did.
+
+**Method note.** A full day was lost before this to a rollback that was
+believed deployed and was not: it targeted a commit 35 minutes *after* the one
+that introduced the behaviour, and `git checkout` does not reload a running
+Python process. `scripts/deployed-version.sh` reports the deployed commit and
+flags any unit started before the checkout. Separately, `MPE_SL_LOOPS` and
+`MPE_SL_SEAM_WELD` are written by `bootstrap-pi5-looper.sh`, not by git —
+running bootstrap moved the appliance from 8 loops to 16, which created the
+scratch loop the weld needed and let it start firing where it had previously
+skipped. Appliance behaviour changed with no commit behind it.
+
+*Last updated: 2026-08-26 — pipeline removed, doc closed for history.*
+
