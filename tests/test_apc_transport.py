@@ -173,10 +173,17 @@ class TransportButtonLedsTests(unittest.TestCase):
         self.stop = NOTE_STOP_ALL_CLIPS_MK1
 
     def _leds(self, *, hold_s: float = 3.0, apc_label: str = "mk1") -> TransportButtonLeds:
+        # The notes must match the variant. Building an mk2 object with mk1
+        # notes made every mk2 note_event fall through the `else: return`, so
+        # the assertion read a leftover message from construction.
+        shift, stop = (
+            (NOTE_SHIFT_MK2, NOTE_STOP_ALL_CLIPS_MK2) if apc_label == "mk2"
+            else (self.shift, self.stop)
+        )
         return TransportButtonLeds(
             midi_out=self.midi_out,
-            shift_note=self.shift,
-            stop_all_note=self.stop,
+            shift_note=shift,
+            stop_all_note=stop,
             shift_indicator_note=resolve_shift_indicator_note(apc_label),
             scene_launch_notes=resolve_scene_launch_notes(apc_label),
             hold_s=hold_s,
@@ -205,10 +212,14 @@ class TransportButtonLedsTests(unittest.TestCase):
         self.assertEqual(self.sent[-1], [0x90, self.stop, SCENE_LED_OFF])
 
     def test_mk1_both_held_blinks_stop_all_only(self) -> None:
+        """A deliberate Shift+Stop All hold, i.e. Stop All arriving AFTER the
+        mk1 ghost window. Inside the window it is a ghost and is ignored
+        (test_mk1_shift_alone_does_not_light_grid_or_stop covers that) —
+        with both events stamped 0.0 the two cases are indistinguishable."""
         leds = self._leds(hold_s=3.0)
         with patch(
             "scripts.sooperlooper.apc_transport.time.monotonic",
-            side_effect=[0.0, 0.0, 0.5, 0.5],
+            side_effect=[0.0, MK1_GHOST_SHIFT_S + 0.01, 0.5, 0.5],
         ):
             leds.note_event(self.shift, True)
             leds.note_event(self.stop, True)
