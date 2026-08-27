@@ -29,10 +29,6 @@ from slot_matrix import (
     PENDING_LAUNCH,
     PENDING_STOP,
     PENDING_SWITCH,
-    PHASE_ARMING,
-    PHASE_CLOSING,
-    PHASE_IDLE,
-    PHASE_RECORDING,
     plan_scene_press,
     scene_row_led_on,
 )
@@ -120,7 +116,6 @@ class SlotSurface:
             slot,
             sl_state=sl_state,
             hold=hold,
-            record_phase=self._record_phase(track, slot, fs),
         )
         if plan.action == ACT_NOOP and plan.note:
             self._log(f"track {track + 1} slot {slot + 1}: {plan.note}")
@@ -147,15 +142,61 @@ class SlotSurface:
                 note = self._view.note_for_cell(plan.track, plan.slot)
                 if fs is not None and note is not None:
                     fs.set_note(note)
+                    # A scene press is a complete tap. There is no pad to
+                    # release, so the up has to be synthesised here: leaving
+                    # the footswitch held would let its hold timer expire and
+                    # fire long-press-to-clear on every track in the row, and
+                    # the mute/unmute half of the gesture lands on the up.
                     fs.on_pad_down()
+                    fs.on_pad_up()
         if plans:
             self._log(f"scene row {row + 1}: {len(plans)} track(s)")
         self._sync_footswitch_notes()
         self.repaint()
         self.repaint_scenes()
 
+    def _is_active_lane(self, note: int) -> bool:
+        """Is this pad the track's bound buffer (or a track with none)?
+
+        The lane where the footswitch decides everything. Kept as one predicate
+        so hold, press and LED routing cannot disagree about which lane a pad
+        is in — three separate answers to that question is how the surface
+        ended up with two hold implementations.
+        """
+        cell = self._view.cell_for_note(note)
+        if cell is None:
+            return False
+        track, slot = cell
+        tr = self._rt.track(track)
+        # Must agree with plan_cell_press exactly. An OCCUPIED slot on an
+        # unbound track is NOT the lane — the matrix launches it from disk —
+        # so routing its hold or its LED to the footswitch would have the
+        # surface and the planner disagreeing about who owns the same pad.
+        return tr.active_slot == slot or (
+            tr.active_slot is None and not tr.occupied(slot)
+        )
+
     def poll_hold(self) -> None:
         if self._pad_down_note is None or self._hold_fired or self._pad_down_at is None:
+            return
+        # Active lane: the footswitch owns hold-to-clear, blink and all. Its
+        # own poll_hold is skipped under multigrid (see poll_footswitches), so
+        # drive it here rather than reimplementing the timing — a second hold
+        # implementation fired at a different moment and painted a different
+        # blink, which is what the equivalence test caught.
+        if self._is_active_lane(self._pad_down_note):
+            cell = self._view.cell_for_note(self._pad_down_note)
+            fs = self._fs.get(cell[0]) if cell else None
+            if fs is not None:
+                fs.poll_hold()
+                if fs.hold_fired:
+                    # The footswitch cleared the engine. The clip on disk is
+                    # ours, and nothing else will remove it.
+                    self._rt.forget_active_slot(cell[0])
+                    self._hold_fired = True
+                    self._pad_down_note = None
+                    self._pad_down_at = None
+                    self.repaint()
             return
         if (self._now() - self._pad_down_at) < self._hold_s:
             return
@@ -167,6 +208,10 @@ class SlotSurface:
 
     def poll_hold_led(self) -> None:
         if self._pad_down_note is None or self._hold_fired or self._pad_down_at is None:
+            return
+        # Active lane: the footswitch's own hold blink reaches the surface
+        # through current_led(), so painting here as well would fight it.
+        if self._is_active_lane(self._pad_down_note):
             return
         elapsed = self._now() - self._pad_down_at
         if elapsed < self._hold_blink_start_s:
@@ -216,19 +261,6 @@ class SlotSurface:
                 f"track {track + 1} slot {active + 1}: take landed "
                 f"({loop_len:.2f}s)"
             )
-
-    def _record_phase(self, track: int, slot: int, fs) -> str:
-        if self._rt.track(track).active_slot != slot:
-            return PHASE_IDLE
-        if fs.sl_state == SL_STATE_OVERDUBBING:
-            return PHASE_CLOSING
-        if fs.sl_state in ACTIVE_RECORD:
-            return (
-                PHASE_RECORDING
-                if fs.sl_state == SL_STATE_RECORDING
-                else PHASE_ARMING
-            )
-        return PHASE_IDLE
 
     def _sync_footswitch_notes(self) -> None:
         for track_index in self._view.visible_loops():

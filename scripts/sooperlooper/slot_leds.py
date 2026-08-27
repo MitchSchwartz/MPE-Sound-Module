@@ -25,22 +25,32 @@ from led_table import (
     LED_GREEN,
     LED_GREEN_BLINK,
     LED_OFF,
-    LED_RED,
-    LED_RED_BLINK,
     LED_YELLOW,
     LED_YELLOW_BLINK,
-)
-from sl_loop_states import (
-    ACTIVE_PLAY,
-    ACTIVE_RECORD,
-    SL_STATE_RECORDING,
-    SL_STATE_WAIT_START,
 )
 from slot_matrix import PENDING_LAUNCH, PENDING_STOP, PENDING_SWITCH, Track
 
 
-def cell_led(track: Track, slot: int, *, sl_state: int) -> int:
-    """The colour this cell should show right now."""
+def static_cell_led(track: Track, slot: int) -> int:
+    """The colour for a cell the footswitch does NOT own.
+
+    Deliberately narrower than it used to be. This function once coloured the
+    active slot too, from `sl_state` alone — and that could never be right,
+    because the single-clip surface's colours are not a function of the current
+    state: record-to-play is a timed red/green blink, a SEQUENCE, whose input
+    (how long ago the take closed) is not in this signature. No amount of
+    case-patching here could reproduce it, which is exactly how the missing
+    ring-out blinker got shipped. The active cell's colour now comes from
+    `LoopFootswitch` via `footswitch_leds`, and there is no second opinion.
+
+    What is left is what the footswitch genuinely cannot know: the matrix's own
+    pending blinks, and the yellow for a slot that holds audio but is not the
+    one bound to the track's buffer. Neither depends on the engine state, so
+    there is deliberately no `sl_state` parameter: `sl_state` describes the one
+    loop bound to the buffer, and every cell this function still colours is by
+    definition not that loop. An unused parameter here would be an open
+    invitation to derive a colour from it again.
+    """
     pending = track.pending
 
     # Pending first: what is about to happen outranks what is happening, because
@@ -58,30 +68,8 @@ def cell_led(track: Track, slot: int, *, sl_state: int) -> int:
             return LED_YELLOW_BLINK
 
     if not track.occupied(slot):
-        if slot == track.active_slot:
-            if sl_state in ACTIVE_PLAY:
-                return LED_GREEN
-            if sl_state in ACTIVE_RECORD or sl_state == SL_STATE_RECORDING:
-                return LED_RED if sl_state == SL_STATE_RECORDING else LED_RED_BLINK
-            if sl_state == SL_STATE_WAIT_START:
-                return LED_RED_BLINK
         return LED_OFF
-
-    if slot != track.active_slot:
-        return LED_YELLOW               # holds audio, not the one sounding
-
-    if sl_state == SL_STATE_RECORDING:
-        return LED_RED
-    if sl_state == SL_STATE_WAIT_START:
-        return LED_RED_BLINK
-    if sl_state in ACTIVE_PLAY:
-        return LED_GREEN
-    return LED_YELLOW                   # loaded but stopped or muted
-
-
-def column_leds(track: Track, *, sl_state: int, num_slots: int = 8) -> list[int]:
-    """Colours for one column, bottom row first."""
-    return [cell_led(track, slot, sl_state=sl_state) for slot in range(num_slots)]
+    return LED_YELLOW                   # holds audio, not the one sounding
 
 
 def matrix_messages(
@@ -112,17 +100,18 @@ def matrix_messages(
         if track is None:
             desired[note] = LED_OFF
             continue
-        if (
-            footswitch_leds is not None
-            and track.pending is None
-            and row == track.active_slot
-            and track_index in footswitch_leds
-        ):
-            desired[note] = footswitch_leds[track_index]
+        # The active lane is the footswitch's, unconditionally — including
+        # when it has no entry yet, which reads as OFF and is correct: an
+        # unpainted pad is dark. Falling back to a state-derived colour here
+        # would quietly restore the second opinion this refactor removed.
+        #
+        # A pending is the one thing that outranks it: a pending switch's
+        # outgoing slot IS the active slot, and the footswitch has never heard
+        # of the switch, so only the matrix can blink it.
+        if row == track.active_slot and track.pending is None:
+            desired[note] = (footswitch_leds or {}).get(track_index, LED_OFF)
         else:
-            desired[note] = cell_led(
-                track, row, sl_state=sl_states.get(track_index, 0)
-            )
+            desired[note] = static_cell_led(track, row)
     if previous is None:
         return sorted(desired.items()), desired
     changed = [(n, c) for n, c in sorted(desired.items()) if previous.get(n) != c]
