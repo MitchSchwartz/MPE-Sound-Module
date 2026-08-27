@@ -10,6 +10,7 @@ pads 6–7 red, not the Shift button (Shift has no LED on mk1).
 
 from __future__ import annotations
 
+import os
 import time
 from typing import Protocol
 
@@ -41,9 +42,35 @@ SCENE_LAUNCH_NOTES_MK2 = tuple(range(0x70, 0x77))  # 0x70..0x76
 # mk1 Track Select 1–8 share notes with grid row 6 (0x30–0x37).
 MK1_TRACK_OVERLAP_NOTES = tuple(range(0x30, 0x38))
 
-# Pressing Shift on mk1 often spuriously fires Scene 1–8 / Track Select notes
-# within a few ms. Ignore those while Shift was just pressed solo.
-MK1_GHOST_SHIFT_S = 0.08
+def _env_float(name: str, default: float) -> float:
+    """Read a float from the environment; blank or unset means the default."""
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        return default
+
+
+# The mk1 Shift ghost: DISABLED, because it was never observed (SP8, 2026-08-27).
+#
+# The claim this filter was built on — that Shift spuriously fires Scene 1–8 /
+# Track Select notes within a few ms — has now been refuted twice on the actual
+# hardware. `aseqdump -p "APC MINI"`, Shift pressed alone, produced note 0x62
+# and nothing else: once during the SP6 capture, and again in SP8 with Shift as
+# the only button touched. Zero ghost notes across both.
+#
+# Meanwhile the filter's cost is real and was being paid every session. It drops
+# every Scene / Track Select note-on arriving within the window of a Shift-down,
+# and a human pressing Shift+Scene as a chord lands the second note well inside
+# 80 ms. So the filter was eating the genuine chord — exactly the gesture the
+# scene-launch row needs — to suppress an event that does not occur.
+#
+# The mechanism is kept, not deleted: if the ghost turns up on another mk1 unit,
+# set MPE_APC_MK1_GHOST_S and it comes back with no code change. A window of 0
+# disables it (see Mk1ShiftGhostFilter.consume).
+MK1_GHOST_SHIFT_S = _env_float("MPE_APC_MK1_GHOST_S", 0.0)
 MK1_GHOST_STOP_S = MK1_GHOST_SHIFT_S  # alias — Stop All is scene 8 on mk1
 
 # Bank arrows — up, down, left, right.
@@ -200,6 +227,8 @@ class Mk1ShiftGhostFilter:
             return False
         if note == self._stop_all_note and self._stop_down_before_shift:
             return False
+        if self._ghost_s <= 0.0:
+            return False  # filter off — see MK1_GHOST_SHIFT_S
         return (now - self._shift_down_at) < self._ghost_s
 
     def shift_solo(self) -> bool:
@@ -401,6 +430,8 @@ class TransportButtonLeds:
             return False
         if self._shift_down_at is None:
             return False
+        if MK1_GHOST_STOP_S <= 0.0:
+            return False  # filter off — see MK1_GHOST_SHIFT_S
         return (now - self._shift_down_at) < MK1_GHOST_STOP_S
 
     def poll(self) -> None:
