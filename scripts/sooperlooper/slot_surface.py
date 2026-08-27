@@ -74,6 +74,9 @@ class SlotSurface:
         self._pad_down_note: int | None = None
         self._pad_down_at: float | None = None
         self._hold_fired = False
+        #: Last (track, active, loop_len) we declined to register, so the
+        #: explanation is logged once per transition rather than every poll.
+        self._declined: tuple | None = None
 
     # -- input ------------------------------------------------------------
 
@@ -287,6 +290,30 @@ class SlotSurface:
                 f"track {track + 1} slot {active + 1}: take landed "
                 f"({loop_len:.2f}s)"
             )
+            return
+
+        # Declining used to be silent, and its symptom on the surface — a pad
+        # that stays dark and records again when pressed — looks identical to
+        # "you never recorded anything". Say which of the three reasons it was,
+        # once per transition into PLAYING, so one reproduction is enough to
+        # tell them apart.
+        if self._declined == (track, active, round(loop_len, 3)):
+            return
+        self._declined = (track, active, round(loop_len, 3))
+        if active is None:
+            why = "no slot is bound to this track's buffer"
+        elif row.occupied(active):
+            why = (
+                f"slot {active + 1} already holds a take, so the buffer's "
+                f"binding never moved to the new slot"
+            )
+        else:
+            why = f"loop_len {loop_len:.3f}s is below the {MIN_TAKE_LEN_S}s floor"
+        self._log(
+            f"track {track + 1}: engine reached PLAYING but the take was NOT "
+            f"registered — {why}. The pad will read empty and the next press "
+            f"will record again."
+        )
 
     def _sync_footswitch_notes(self) -> None:
         for track_index in self._view.visible_loops():
