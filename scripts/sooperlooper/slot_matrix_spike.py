@@ -337,8 +337,11 @@ def sp3(osc: Osc, *, seconds: float) -> None:
         time.sleep(seconds + 0.6)          # past the boundary
         after = osc.get(0, "state")
         ok = after == 4.0
-        print(f"  SP3  queued-mute state={queued} -> after boundary={after}  "
-              f"{'PASS — kept playing' if ok else 'FAIL — it muted anyway'}")
+        verdict = "state kept playing" if ok else "state muted anyway"
+        if queued == 10.0:
+            verdict += "  [INCONCLUSIVE: SL reported MUTE immediately, so " \
+                       "there was no pending state to cancel]"
+        print(f"  SP3  queued-mute state={queued} -> after boundary={after}  {verdict}")
 
     # --- SP3b: cancel a queued launch ----------------------------------
     osc.hit(0, "mute_on")
@@ -351,9 +354,17 @@ def sp3(osc: Osc, *, seconds: float) -> None:
     time.sleep(seconds + 0.6)
     after = osc.get(0, "state")
     ok = after != 4.0
-    print(f"  SP3b muted={muted} queued-launch={queued} -> after boundary={after}  "
-          f"{'PASS — stayed stopped' if ok else 'FAIL — it launched anyway'}")
+    verdict = "state stayed stopped" if ok else "state launched anyway"
+    if queued == 4.0:
+        verdict += "  [INCONCLUSIVE: SL reported PLAYING immediately, so " \
+                   "pause_on stopped a launched loop rather than cancelling " \
+                   "a queued one]"
+    print(f"  SP3b muted={muted} queued-launch={queued} -> after boundary={after}  {verdict}")
     print("  states: 4=playing 10=mute 14=paused")
+    print("  NOTE: SooperLooper sets the target state optimistically and defers")
+    print("  the audio, so state polling cannot distinguish 'cancelled' from")
+    print("  'happened, then undone'. Settling SP3/SP3b needs the EAR or an")
+    print("  audio capture — see the spike write-up.")
     osc.send("/sl/0/set", ["quantize", 0.0])
     osc.send("/sl/0/set", ["mute_quantized", 0.0])
     osc.hit(0, "undo_all")
