@@ -17,7 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "sooper
 
 from slot_matrix import ACT_NOOP, ACT_SWITCH, Slot, Track  # noqa: E402
 from slot_runtime import MIN_CLIP_BYTES, SlotRuntime  # noqa: E402
-from sl_loop_states import SL_STATE_OFF, SL_STATE_PLAYING  # noqa: E402
+from sl_loop_states import SL_STATE_MUTE, SL_STATE_OFF, SL_STATE_PLAYING  # noqa: E402
 
 
 class RuntimeCase(unittest.TestCase):
@@ -169,6 +169,30 @@ class ClearTests(RuntimeCase):
 
 
 class BookkeepingTests(RuntimeCase):
+    def test_record_arm_sets_active_slot(self) -> None:
+        self.rt.press(0, 3, sl_state=SL_STATE_OFF)
+        self.assertEqual(self.rt.track(0).active_slot, 3)
+        self.assertFalse(self.rt.track(0).occupied(3))
+
+    def test_sync_engine_commits_a_finished_take(self) -> None:
+        self.rt.press(2, 1, sl_state=SL_STATE_OFF)
+        changed = self.rt.sync_engine(
+            2, sl_state=SL_STATE_PLAYING, loop_len=4.0
+        )
+        self.assertTrue(changed)
+        track = self.rt.track(2)
+        self.assertTrue(track.occupied(1))
+        self.assertEqual(track.active_slot, 1)
+        self.assertTrue(track.slot(1).dirty)
+
+    def test_record_into_another_slot_clears_the_buffer_first(self) -> None:
+        self.rt._tracks[0] = Track(
+            slots=(Slot("a.wav"), None, *([None] * 6)), active_slot=0
+        )
+        self.rt.press(0, 1, sl_state=SL_STATE_MUTE)
+        self.assertIn(("/sl/0/hit", ["undo_all"]), self.sent)
+        self.assertEqual(self.rt.track(0).active_slot, 1)
+
     def test_a_finished_take_is_dirty_and_active(self) -> None:
         self.rt.mark_recorded(2, 5, len_s=4.0, sl_state=SL_STATE_PLAYING)
         track = self.rt.track(2)

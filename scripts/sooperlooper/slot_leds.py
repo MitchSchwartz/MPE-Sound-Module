@@ -32,6 +32,7 @@ from led_table import (
 )
 from sl_loop_states import (
     ACTIVE_PLAY,
+    ACTIVE_RECORD,
     SL_STATE_RECORDING,
     SL_STATE_WAIT_START,
 )
@@ -57,10 +58,11 @@ def cell_led(track: Track, slot: int, *, sl_state: int) -> int:
             return LED_YELLOW_BLINK
 
     if not track.occupied(slot):
-        # An empty cell still blinks red while it is queued to record, which is
-        # the only case where an unoccupied slot has anything to say.
-        if slot == track.active_slot and sl_state == SL_STATE_WAIT_START:
-            return LED_RED_BLINK
+        if slot == track.active_slot:
+            if sl_state in ACTIVE_RECORD or sl_state == SL_STATE_RECORDING:
+                return LED_RED if sl_state == SL_STATE_RECORDING else LED_RED_BLINK
+            if sl_state == SL_STATE_WAIT_START:
+                return LED_RED_BLINK
         return LED_OFF
 
     if slot != track.active_slot:

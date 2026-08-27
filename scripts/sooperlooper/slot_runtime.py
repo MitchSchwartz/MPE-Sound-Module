@@ -46,6 +46,8 @@ from slot_matrix import (
     resolve_at_boundary,
 )
 
+MIN_TAKE_LEN_S = 0.01
+
 # How long to wait for save_loop to produce a usable file before abandoning a
 # switch. Generous against the 2.3 ms p95 measured in SP1 — this budget is not
 # about speed, it is about never continuing on a save that did not happen.
@@ -76,6 +78,8 @@ class SlotRuntime:
         self._log = log or (lambda _m: None)
         self._now = now
         self._tracks: dict[int, Track] = {i: Track() for i in range(num_tracks)}
+        self._loop_lens: dict[int, float] = {}
+        self._last_sl_state: dict[int, int] = {}
 
     # -- state ------------------------------------------------------------
 
@@ -106,6 +110,10 @@ class SlotRuntime:
         if not self._execute(plan):
             return replace(plan, action=ACT_NOOP, note=f"{plan.note} — FAILED")
         self._tracks[track_index] = apply_pending(self.track(track_index), plan)
+        if plan.action == ACT_RECORD:
+            self._tracks[track_index] = replace(
+                self.track(track_index), active_slot=plan.slot
+            )
         if plan.note:
             self._log(f"track {track_index + 1} slot {slot + 1}: {plan.note}")
         return plan
@@ -129,6 +137,32 @@ class SlotRuntime:
     def reset(self) -> None:
         """Drop slot bookkeeping after a full track reset."""
         self._tracks = {i: Track() for i in range(self._num_tracks)}
+        self._loop_lens.clear()
+        self._last_sl_state.clear()
+
+    def sync_engine(
+        self, track_index: int, *, sl_state: int, loop_len: float
+    ) -> bool:
+        """Reconcile matrix occupancy with engine reports. True if the model moved."""
+        self._last_sl_state[track_index] = int(sl_state)
+        if loop_len > 0:
+            self._loop_lens[track_index] = float(loop_len)
+
+        track = self.track(track_index)
+        active = track.active_slot
+        if active is None or track.occupied(active):
+            return False
+        if sl_state in ACTIVE_RECORD or loop_len < MIN_TAKE_LEN_S:
+            return False
+
+        self.mark_recorded(
+            track_index, active, len_s=loop_len, sl_state=int(sl_state)
+        )
+        self._log(
+            f"track {track_index + 1} slot {active + 1}: take landed "
+            f"({loop_len:.2f}s)"
+        )
+        return True
 
     def mark_recorded(self, track_index: int, slot: int, *, len_s: float,
                       sl_state: int) -> None:
@@ -163,6 +197,15 @@ class SlotRuntime:
             return False
 
         if plan.action == ACT_RECORD:
+            loop = plan.track
+            if (
+                plan.from_slot is not None
+                and plan.from_slot != plan.slot
+                and self.track(loop).occupied(plan.from_slot)
+            ):
+                if plan.save_first and not self._flush_active(loop):
+                    return False
+                self._send(f"/sl/{loop}/hit", ["undo_all"])
             self._send(f"/sl/{loop}/hit", ["record"])
             return True
         if plan.action == ACT_STOP:

@@ -168,6 +168,22 @@ class SceneRowTests(SurfaceCase):
         self.assertTrue(scene_msgs)
         self.assertEqual(scene_msgs[-1][2], 1)
 
+    def test_scene_leds_stay_dark_when_a_row_is_empty(self) -> None:
+        self.surface.repaint_scenes(force=True)
+        scene_msgs = [m for m in self.out.sent if m[1] == 0x52]
+        self.assertTrue(scene_msgs)
+        self.assertEqual(scene_msgs[-1][2], 0)
+
+    def test_engine_sync_marks_a_take_and_repaints(self) -> None:
+        from sl_loop_states import SL_STATE_PLAYING
+
+        self.surface.note_down(pad_note(2, 0))
+        self.osc.clear()
+        self.surface.on_loop_len(0, 4.0)
+        self.surface.on_state(0, SL_STATE_PLAYING)
+        self.assertTrue(self.rt.track(0).occupied(0))
+        self.assertEqual(self.colour_of(pad_note(0, 0)), LED_GREEN)
+
     def test_scene_press_launches_stopped_cells(self) -> None:
         from slot_matrix import Slot, Track
 

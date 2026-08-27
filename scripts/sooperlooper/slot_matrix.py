@@ -29,7 +29,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
 
-from sl_loop_states import ACTIVE_PLAY, SL_STATE_MUTE, SL_STATE_PAUSED
+from sl_loop_states import ACTIVE_PLAY, SL_STATE_MUTE, SL_STATE_PAUSED, ACTIVE_RECORD
 
 from sl_limits import MAX_USABLE_LOOPS
 
@@ -273,6 +273,23 @@ def row_is_fully_playing(
         if track.active_slot != row or not _is_playing(sl_states.get(index, 0)):
             return False
     return seen
+
+
+def row_has_occupied(tracks: dict[int, Track], row: int) -> bool:
+    """True when any track holds a clip in slot row ``row``."""
+    return any(track.occupied(row) for track in tracks.values())
+
+
+def scene_row_led_on(
+    tracks: dict[int, Track],
+    row: int,
+    *,
+    sl_states: dict[int, int],
+) -> bool:
+    """Scene Launch lit when the row has clips and is not fully playing."""
+    if not row_has_occupied(tracks, row):
+        return False
+    return not row_is_fully_playing(tracks, row, sl_states=sl_states)
 
 
 def plan_scene_press(
