@@ -1,4 +1,4 @@
-"""Per-loop APC footswitch state + 16-pad grid wiring."""
+"""Per-loop APC footswitch state + pad grid wiring (8 visible of 15 tracks)."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ import time
 from apc_grid import DEFAULT_VIEW, GridView, all_clip_pads, pad_note
 # LED constants are re-exported: the bench and its tests reach for them here,
 # and the pad surface is this module's job even though the policy is not.
+from sl_limits import MAX_USABLE_LOOPS
 from led_table import (  # noqa: F401
     LED_GREEN,
     LED_GREEN_BLINK,
@@ -90,7 +91,7 @@ class LoopFootswitch:
         hold_ms: float,
         debounce_ms: float,
         hold_blink_start_ms: float = 500.0,
-        num_loops: int = 16,
+        num_loops: int = MAX_USABLE_LOOPS,
         quantized: bool = True,
         grid: GridState | None = None,
         on_grid_established=None,
@@ -519,6 +520,7 @@ class LoopFootswitch:
             plan.commands
             or plan.queue_stop
             or plan.arm_grid
+            or plan.cancel_pending
         ):
             return
         if plan.note:
@@ -531,7 +533,11 @@ class LoopFootswitch:
             self._stop_queued = True
         if plan.begin_quantize_wait:
             self._begin_quantize_wait()
-        self._expect(plan.expect)
+        if plan.cancel_pending:
+            self._pending = None
+            self._pending_since = None
+        elif plan.expect is not None:
+            self._expect(plan.expect)
 
         self._sync_led()
         self._mark_action()

@@ -31,6 +31,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from sl_loop_states import (
+    ACTIVE_PLAY,
     SL_STATE_INSERTING,
     SL_STATE_MUTE,
     SL_STATE_MULTIPLYING,
@@ -104,9 +105,8 @@ class Plan:
     arm_grid: bool = False
     queue_stop: bool = False
     begin_quantize_wait: bool = False
-    begin_tail_capture: bool = False
-    # True when scratch tail waits for quantize boundary + PLAYING (grid clips).
-    tail_deferred: bool = False
+    # A re-tap that aborts a queued mute or launch: clear intent, expect nothing.
+    cancel_pending: bool = False
     note: str = ""
 
 
@@ -129,6 +129,30 @@ def plan_gesture(
     Record **stops on pad down** while the engine is actually capturing; launch
     and mute stay on pad up (musical toggles, not time-critical attacks).
     """
+    if edge == "up" and pending is not None:
+        # Pending cancel is checked against engine truth, not effective_state.
+        # Otherwise a queued mute makes the pad look Stopped and a re-tap
+        # launches instead of aborting the mute (multi-clip-per-track-spec P0).
+        if pending == STATE_STOPPED and sl_state in ACTIVE_PLAY:
+            return Plan(
+                commands=("mute_off",),
+                cancel_pending=True,
+                note="cancel pending mute — keep playing",
+            )
+        if pending == STATE_PLAYING and sl_state in (SL_STATE_MUTE, SL_STATE_PAUSED):
+            # pause_on clears a queued trigger at the bar. CONFIRMED on
+            # hardware by ear, SP3b-B (2026-08-27): clip stopped, tap to queue
+            # the launch, tap again before the bar, and it stays silent.
+            # Verified by ear rather than by polling state on purpose — SL sets
+            # the target state optimistically the instant the trigger is
+            # queued, so /sl/N/get state reports 4 for a launch that is later
+            # cancelled. Two automated runs PASSed vacuously on exactly that.
+            return Plan(
+                commands=("pause_on",),
+                cancel_pending=True,
+                note="cancel pending launch",
+            )
+
     state = effective_state(sl_state, pending)
 
     if state == STATE_IDLE:
@@ -250,7 +274,7 @@ def plan_tap(
         quantized=quantized,
         tail_capture_enabled=tail_capture_enabled,
     )
-    if down.commands or down.queue_stop or down.arm_grid or down.begin_tail_capture:
+    if down.commands or down.queue_stop or down.arm_grid:
         return down
     return plan_gesture(
         edge="up",

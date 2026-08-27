@@ -138,8 +138,6 @@ class PlanTapTests(unittest.TestCase):
         )
         self.assertEqual(p.commands, ("overdub",))
         self.assertEqual(p.expect, STATE_PLAYING)
-        self.assertFalse(p.begin_tail_capture)
-        self.assertFalse(p.tail_deferred)
 
     def test_grid_clip_stop_closes_into_overdub(self) -> None:
         p = self._gesture(
@@ -151,7 +149,6 @@ class PlanTapTests(unittest.TestCase):
         )
         self.assertEqual(p.commands, ("overdub",))
         self.assertTrue(p.begin_quantize_wait)
-        self.assertFalse(p.begin_tail_capture)
 
     def test_defining_take_stop_off_muted_enters_tail_not_queue_stop(self) -> None:
         """Pi reported sl=20 (OffMuted) while pending=recording — was queue_stop deadlock."""
@@ -244,3 +241,51 @@ class LedTableTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PendingCancelTests(unittest.TestCase):
+    """P0 (multi-clip-per-track-spec): a re-tap aborts a queued switch.
+
+    Shipped in f2a3994 / 6da3b27, then dropped by 2500782 alongside an
+    unrelated seam revert and never restored. These tests exist so a third
+    silent removal fails the build.
+    """
+
+    def _gesture(self, edge, sl_state, *, pending=None):
+        return plan_gesture(
+            edge=edge,
+            sl_state=sl_state,
+            pending=pending,
+            grid_established=True,
+            is_defining=False,
+            quantized=True,
+        )
+
+    def test_retap_during_queued_mute_keeps_it_playing(self) -> None:
+        p = self._gesture("up", SL_STATE_PLAYING, pending=STATE_STOPPED)
+        self.assertEqual(p.commands, ("mute_off",))
+        self.assertTrue(p.cancel_pending)
+        self.assertIsNone(p.expect, "cancel expects nothing — intent is cleared")
+
+    def test_retap_during_queued_launch_keeps_it_stopped(self) -> None:
+        p = self._gesture("up", SL_STATE_MUTE, pending=STATE_PLAYING)
+        self.assertEqual(p.commands, ("pause_on",))
+        self.assertTrue(p.cancel_pending)
+
+    def test_cancel_reads_engine_truth_not_the_derived_state(self) -> None:
+        """A queued mute makes the pad *look* stopped. Dispatching on the
+        derived state would launch the loop instead of aborting the mute —
+        the exact defect P0 was written for."""
+        self.assertEqual(effective_state(SL_STATE_PLAYING, STATE_STOPPED),
+                         STATE_STOPPED)
+        p = self._gesture("up", SL_STATE_PLAYING, pending=STATE_STOPPED)
+        self.assertNotIn("trigger", p.commands)
+
+    def test_no_pending_is_an_ordinary_tap(self) -> None:
+        p = self._gesture("up", SL_STATE_PLAYING)
+        self.assertFalse(p.cancel_pending)
+
+    def test_pad_down_does_not_cancel(self) -> None:
+        """Cancel is a pad-UP gesture, matching launch and mute."""
+        p = self._gesture("down", SL_STATE_PLAYING, pending=STATE_STOPPED)
+        self.assertFalse(p.cancel_pending)

@@ -60,10 +60,13 @@ class ResolveApcTransportNotesTests(unittest.TestCase):
 
 class Mk1ShiftGhostFilterTests(unittest.TestCase):
     def test_ghost_stop_and_scene_after_shift(self) -> None:
+        """The mechanism, exercised with an explicit window. It is OFF by
+        default since SP8 — see test_mk1_ghost_filter_is_off_by_default."""
         filt = Mk1ShiftGhostFilter(
             shift_note=NOTE_SHIFT_MK1,
             stop_all_note=NOTE_STOP_ALL_CLIPS_MK1,
             scene_launch_notes=SCENE_LAUNCH_NOTES_MK1,
+            ghost_s=0.08,
         )
         with patch(
             "scripts.sooperlooper.apc_transport.time.monotonic",
@@ -173,29 +176,52 @@ class TransportButtonLedsTests(unittest.TestCase):
         self.stop = NOTE_STOP_ALL_CLIPS_MK1
 
     def _leds(self, *, hold_s: float = 3.0, apc_label: str = "mk1") -> TransportButtonLeds:
+        # The notes must match the variant. Building an mk2 object with mk1
+        # notes made every mk2 note_event fall through the `else: return`, so
+        # the assertion read a leftover message from construction.
+        shift, stop = (
+            (NOTE_SHIFT_MK2, NOTE_STOP_ALL_CLIPS_MK2) if apc_label == "mk2"
+            else (self.shift, self.stop)
+        )
         return TransportButtonLeds(
             midi_out=self.midi_out,
-            shift_note=self.shift,
-            stop_all_note=self.stop,
+            shift_note=shift,
+            stop_all_note=stop,
             shift_indicator_note=resolve_shift_indicator_note(apc_label),
             scene_launch_notes=resolve_scene_launch_notes(apc_label),
             hold_s=hold_s,
             apc_label=apc_label,
         )
 
-    def test_mk1_shift_alone_does_not_light_grid_or_stop(self) -> None:
+    def test_mk1_shift_alone_darkens_scene_row(self) -> None:
+        """Shift alone dims the scene row. It does NOT arrive with a Stop All.
+
+        SP8 (2026-08-27): Shift pressed alone on the real mk1 emits note 0x62
+        and nothing else. So this test presses only Shift — the previous
+        version pressed Stop All 10 ms later to assert it was swallowed as a
+        ghost, which encoded hardware behaviour that does not exist.
+        """
         leds = self._leds()
-        with patch(
-            "scripts.sooperlooper.apc_transport.time.monotonic",
-            side_effect=[0.0, 0.01],
-        ):
-            leds.note_event(self.shift, True)
-            # Ghost stop (Scene 8) within MK1_GHOST_STOP_S — ignored.
-            leds.note_event(self.stop, True)
+        leds.note_event(self.shift, True)
         stop_msgs = [m for m in self.sent if m[1] == self.stop]
         self.assertEqual(stop_msgs, [[0x90, self.stop, SCENE_LED_OFF]])
         leds.note_event(self.shift, False)
-        self.assertEqual(self.sent[-1], [0x90, self.stop, SCENE_LED_OFF])
+
+    def test_mk1_stop_all_right_after_shift_is_a_real_chord(self) -> None:
+        """The regression SP8 unblocks: a fast Shift+Stop All must register.
+
+        10 ms after Shift is inside the old 80 ms window, so this press used
+        to be discarded as a ghost. A human chording two buttons routinely
+        lands there.
+        """
+        leds = self._leds()
+        with patch(
+            "scripts.sooperlooper.apc_transport.time.monotonic",
+            side_effect=[0.0, 0.01, 0.01],
+        ):
+            leds.note_event(self.shift, True)
+            leds.note_event(self.stop, True)
+        self.assertEqual(self.sent[-1], [0x90, self.stop, SCENE_LED_ON])
 
     def test_mk1_stop_all_alone_lights_scene_green(self) -> None:
         leds = self._leds()
@@ -205,10 +231,12 @@ class TransportButtonLedsTests(unittest.TestCase):
         self.assertEqual(self.sent[-1], [0x90, self.stop, SCENE_LED_OFF])
 
     def test_mk1_both_held_blinks_stop_all_only(self) -> None:
+        """A deliberate Shift+Stop All hold. No longer has to dodge a ghost
+        window — SP8 refuted the ghost and MK1_GHOST_SHIFT_S is 0."""
         leds = self._leds(hold_s=3.0)
         with patch(
             "scripts.sooperlooper.apc_transport.time.monotonic",
-            side_effect=[0.0, 0.0, 0.5, 0.5],
+            side_effect=[0.0, 0.01, 0.5, 0.5],
         ):
             leds.note_event(self.shift, True)
             leds.note_event(self.stop, True)
@@ -248,8 +276,33 @@ class TransportButtonLedsTests(unittest.TestCase):
         upper = [m for m in self.sent if 8 <= m[1] <= 63]
         self.assertTrue(all(m[2] == 0 for m in upper))
 
-    def test_mk1_ghost_shift_window(self) -> None:
-        self.assertLess(MK1_GHOST_SHIFT_S, 0.2)
+    def test_mk1_ghost_filter_is_off_by_default(self) -> None:
+        """SP8 refuted the ghost. A non-zero default would silently eat the
+        Shift+Scene chord again."""
+        self.assertEqual(MK1_GHOST_SHIFT_S, 0.0)
+
+    def test_ghost_filter_still_works_when_a_window_is_configured(self) -> None:
+        """The mechanism is kept for another mk1 unit that does ghost —
+        MPE_APC_MK1_GHOST_S brings it back with no code change."""
+        f = Mk1ShiftGhostFilter(
+            shift_note=self.shift,
+            stop_all_note=self.stop,
+            scene_launch_notes=SCENE_LAUNCH_NOTES_MK1,
+            ghost_s=0.08,
+        )
+        f.note_event(self.shift, True, now=0.0)
+        self.assertTrue(f.consume(SCENE_LAUNCH_NOTES_MK1[0], True, now=0.01))
+        self.assertFalse(f.consume(SCENE_LAUNCH_NOTES_MK1[0], True, now=0.5))
+
+    def test_zero_window_passes_the_chord_through(self) -> None:
+        f = Mk1ShiftGhostFilter(
+            shift_note=self.shift,
+            stop_all_note=self.stop,
+            scene_launch_notes=SCENE_LAUNCH_NOTES_MK1,
+            ghost_s=0.0,
+        )
+        f.note_event(self.shift, True, now=0.0)
+        self.assertFalse(f.consume(SCENE_LAUNCH_NOTES_MK1[0], True, now=0.001))
 
 
 class AcceleratingHoldBlinkTests(unittest.TestCase):

@@ -17,7 +17,7 @@ SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")" && 
 
 SOOP_BIN="${MPE_SOOPERLOOPER_BIN:-${HOME}/src/sooperlooper-1.7.9/src/sooperlooper}"
 OSC_PORT="${MPE_SL_OSC_PORT:-9951}"
-LOOPS="${MPE_SL_LOOPS:-16}"
+LOOPS="${MPE_SL_LOOPS:-15}"  # 15 usable max — see sl_limits.py
 TIME_MAX="${MPE_SL_TIME_MAX:-40}"
 JACK_CLIENT="${MPE_SL_JACK_CLIENT:-mpe-looper}"
 
