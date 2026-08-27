@@ -43,6 +43,7 @@ COLLECT_S = 1.5
 # wrong number and records a false pass. The remaining labels are engine codes
 # nothing here branches on; they exist so the dump is readable, not asserted on.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from sl_limits import resolve_num_loops  # noqa: E402
 from sl_loop_states import (  # noqa: E402
     SL_STATE_MUTE,
     SL_STATE_OFF,

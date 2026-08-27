@@ -31,7 +31,7 @@ _remove_env_key() {
     sudo sed -i "/^${key}=/d" "$MPE_ENV" 2>/dev/null || true
 }
 
-log "configuring looper env (native ring-out overdub, 16 usable loops, no scratch)"
+log "configuring looper env (native ring-out overdub, 15 usable loops, no scratch)"
 
 # Keys from the offline seam-weld pipeline, deleted 2026-08-26 when a single
 # native `overdub` replaced it. They are removed rather than ignored because
