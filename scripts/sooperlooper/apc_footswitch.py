@@ -75,10 +75,13 @@ def log(msg: str) -> None:
 def poll_footswitches(footswitches: list[LoopFootswitch], *, multigrid: bool = False) -> None:
     """Periodic bench poll — holds and LED transitions.
 
-    When ``multigrid`` is on, skip pad hold/LED: ``SlotSurface`` owns the 8×8.
-    Footswitches still receive engine sync for grid side-effects.
+    When ``multigrid`` is on, skip footswitch hold (``SlotSurface`` owns hold-
+    clear) but still advance blink phase — ``SlotSurface.repaint`` reads
+    ``current_led()``.
     """
     if multigrid:
+        for fs in footswitches:
+            fs.poll_led()
         return
     for fs in footswitches:
         fs.poll_hold()
@@ -187,6 +190,11 @@ class LoopFootswitch:
         (`_pending`) that expires on its own.
         """
         return effective_state(self.sl_state, self._pending)
+
+    @property
+    def pending(self) -> str | None:
+        """Unconfirmed bench intent — same field ``led_for`` reads."""
+        return self._pending
 
     def _expect(self, state: str | None) -> None:
         self._pending = state
@@ -415,6 +423,30 @@ class LoopFootswitch:
             self.sl_state,
             pending=self._pending,
         )
+
+    def current_led(self) -> int:
+        """Colour this track's active slot should show — no MIDI write.
+
+        Multigrid ``SlotSurface`` calls this when painting the active row;
+        single-clip mode uses ``_sync_led`` / ``poll_led`` instead.
+        """
+        if self._hold_led_lock():
+            elapsed = time.monotonic() - self._pad_down_at
+            if self._hold_targets_cancel():
+                blink_on = accelerating_hold_blink_on(
+                    elapsed - self.hold_blink_start_s,
+                    hold_s=max(self.hold_s - self.hold_blink_start_s, 0.001),
+                    blink_after_s=0.0,
+                )
+                if blink_on is not None:
+                    return LED_RED if blink_on else LED_OFF
+            return LED_RED
+        if self._led_transition is not None:
+            seq = self._led_transition
+            phase = int(time.monotonic() / TRANSITION_BLINK_S) % len(seq)
+            return seq[phase]
+        seq = self._led_target()
+        return seq[0] if seq else LED_OFF
 
     def _hold_led_lock(self) -> bool:
         """True while hold-warning owns the pad LED (after blink-start delay)."""

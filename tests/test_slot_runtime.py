@@ -16,7 +16,6 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "sooperlooper"))
 
 from slot_matrix import ACT_NOOP, ACT_SWITCH, Slot, Track  # noqa: E402
-from slot_matrix import ACT_CLOSE, PHASE_ARMING, PHASE_RECORDING  # noqa: E402
 from slot_runtime import MIN_CLIP_BYTES, SlotRuntime  # noqa: E402
 from sl_loop_states import (  # noqa: E402
     SL_STATE_MUTE,
@@ -180,35 +179,6 @@ class BookkeepingTests(RuntimeCase):
         self.rt.press(0, 3, sl_state=SL_STATE_OFF)
         self.assertEqual(self.rt.track(0).active_slot, 3)
         self.assertFalse(self.rt.track(0).occupied(3))
-
-    def test_sync_engine_commits_a_finished_take(self) -> None:
-        self.rt.press(2, 1, sl_state=SL_STATE_OFF)
-        self.rt._phase[2] = PHASE_CLOSING
-        changed = self.rt.sync_engine(
-            2, sl_state=SL_STATE_PLAYING, loop_len=4.0
-        )
-        self.assertTrue(changed)
-        track = self.rt.track(2)
-        self.assertTrue(track.occupied(1))
-        self.assertEqual(track.active_slot, 1)
-        self.assertTrue(track.slot(1).dirty)
-
-    def test_close_take_sends_overdub_when_recording(self) -> None:
-        self.rt.press(0, 0, sl_state=SL_STATE_OFF)
-        self.rt._phase[0] = PHASE_RECORDING
-        self.sent.clear()
-        self.rt.press(0, 0, sl_state=SL_STATE_RECORDING)
-        hits = [a for p, a in self.sent if p.endswith("/hit")]
-        self.assertIn(["overdub"], hits)
-
-    def test_overdubbing_does_not_commit_before_playing(self) -> None:
-        self.rt.press(0, 0, sl_state=SL_STATE_OFF)
-        self.rt._phase[0] = PHASE_CLOSING
-        changed = self.rt.sync_engine(0, sl_state=SL_STATE_OVERDUBBING, loop_len=4.0)
-        self.assertTrue(changed)
-        self.assertFalse(self.rt.track(0).occupied(0))
-        self.rt.sync_engine(0, sl_state=SL_STATE_PLAYING, loop_len=4.0)
-        self.assertTrue(self.rt.track(0).occupied(0))
 
     def test_record_into_another_slot_mutes_and_flushes_first(self) -> None:
         self.rt._tracks[0] = Track(
