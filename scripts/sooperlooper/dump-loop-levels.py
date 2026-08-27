@@ -43,6 +43,7 @@ COLLECT_S = 1.5
 # wrong number and records a false pass. The remaining labels are engine codes
 # nothing here branches on; they exist so the dump is readable, not asserted on.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from sl_limits import resolve_num_loops  # noqa: E402
 from sl_loop_states import (  # noqa: E402
     SL_STATE_MUTE,
     SL_STATE_OFF,
@@ -69,7 +70,7 @@ STATE_NAMES = {
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--loops", type=int, default=int(os.environ.get("MPE_SL_LOOPS", "16")))
+    parser.add_argument("--loops", type=int, default=resolve_num_loops())
     parser.add_argument("--json", action="store_true", help="machine-readable, for diffing")
     parser.add_argument(
         "--detail",

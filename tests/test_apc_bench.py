@@ -7,29 +7,29 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 from scripts.sooperlooper.apc_footswitch import apply_view, build_footswitches, poll_footswitches
-from scripts.sooperlooper.apc_grid import GridView, pad_note
+from scripts.sooperlooper.apc_grid import MAX_VIEW_OFFSET, NUM_LOOPS, GridView, pad_note
 
 
 class ApcBenchFootswitchTests(unittest.TestCase):
-    def test_build_sixteen_tracks_eight_of_them_on_pads(self) -> None:
+    def test_build_every_track_eight_of_them_on_pads(self) -> None:
         osc = MagicMock()
         midi_out = MagicMock()
         by_note, footswitches = build_footswitches(
             osc=osc,
             midi_out=midi_out,
-            num_loops=16,
+            num_loops=NUM_LOOPS,
             hold_ms=1000.0,
             debounce_ms=200.0,
         )
         # A footswitch per track — banked-off tracks keep their state and
         # keep receiving engine updates; only their pad binding goes away.
-        self.assertEqual(len(footswitches), 16)
+        self.assertEqual(len(footswitches), NUM_LOOPS)
         self.assertEqual(len(by_note), 8)
         view = GridView()
         for note, fs in by_note.items():
             self.assertEqual(fs.loop, view.loop_for_note(note))
             self.assertEqual(fs._note, note)
-        self.assertIsNone({fs.loop: fs for fs in footswitches}[15]._note)
+        self.assertIsNone({fs.loop: fs for fs in footswitches}[NUM_LOOPS - 1]._note)
 
     def test_bottom_row_only(self) -> None:
         osc = MagicMock()
@@ -37,7 +37,7 @@ class ApcBenchFootswitchTests(unittest.TestCase):
         by_note, _ = build_footswitches(
             osc=osc,
             midi_out=midi_out,
-            num_loops=16,
+            num_loops=NUM_LOOPS,
             hold_ms=1000.0,
             debounce_ms=200.0,
         )
@@ -51,16 +51,16 @@ class ApcBenchFootswitchTests(unittest.TestCase):
         _by_note, footswitches = build_footswitches(
             osc=osc,
             midi_out=midi_out,
-            num_loops=16,
+            num_loops=NUM_LOOPS,
             hold_ms=1000.0,
             debounce_ms=200.0,
         )
         midi_out.reset_mock()
         by_note = apply_view(
-            midi_out, footswitches=footswitches, view=GridView(offset=8)
+            midi_out, footswitches=footswitches, view=GridView(offset=MAX_VIEW_OFFSET)
         )
-        self.assertEqual(sorted(fs.loop for fs in by_note.values()), list(range(8, 16)))
-        self.assertEqual(by_note[pad_note(0, 0)].loop, 8)
+        self.assertEqual(sorted(fs.loop for fs in by_note.values()), list(range(NUM_LOOPS - 8, NUM_LOOPS)))
+        self.assertEqual(by_note[pad_note(0, 0)].loop, NUM_LOOPS - 8)
         # Every clip pad is cleared before the repaint — a pad left lit from
         # the previous bank is a track the player thinks is running and isn't.
         cleared = [
@@ -83,7 +83,7 @@ class ApcBenchFootswitchTests(unittest.TestCase):
         by_note, footswitches = build_footswitches(
             osc=osc,
             midi_out=midi_out,
-            num_loops=16,
+            num_loops=NUM_LOOPS,
             hold_ms=1.0,
             debounce_ms=0.0,
         )
@@ -93,7 +93,7 @@ class ApcBenchFootswitchTests(unittest.TestCase):
         osc.reset_mock()  # the down leg already fired record — legitimately
 
         new_by_note = apply_view(
-            midi_out, footswitches=footswitches, view=GridView(offset=8)
+            midi_out, footswitches=footswitches, view=GridView(offset=MAX_VIEW_OFFSET)
         )
         held._pad_down_at -= 10.0  # well past hold_ms
         for fs in footswitches:
@@ -131,11 +131,11 @@ class ViewAgreementTests(unittest.TestCase):
         _by_note, footswitches = build_footswitches(
             osc=osc,
             midi_out=midi_out,
-            num_loops=16,
+            num_loops=NUM_LOOPS,
             hold_ms=1000.0,
             debounce_ms=200.0,
         )
-        mix = LoopMix(num_loops=16)
+        mix = LoopMix(num_loops=NUM_LOOPS)
         for offset in (0, 8, 1, 7):
             view = GridView(offset=offset)
             by_note = apply_view(midi_out, footswitches=footswitches, view=view)
@@ -184,7 +184,7 @@ class FaderDispatchTests(unittest.TestCase):
         from scripts.sooperlooper.loop_mix import CoalescingSender, LoopMix
 
         self.ccs, self.master, _ = resolve_fader_ccs("APC mini mk2")
-        self.mix = LoopMix(num_loops=16)
+        self.mix = LoopMix(num_loops=NUM_LOOPS)
         self.sent: list = []
         self.faders = CoalescingSender(
             lambda path, args: self.sent.append((path, args)),
@@ -210,7 +210,7 @@ class FaderDispatchTests(unittest.TestCase):
 
     def test_master_drives_every_loop(self) -> None:
         self.feed(self.master, 64)
-        self.assertEqual([p for p, _ in self.sent], [f"/sl/{n}/set" for n in range(16)])
+        self.assertEqual([p for p, _ in self.sent], [f"/sl/{n}/set" for n in range(NUM_LOOPS)])
 
     def test_non_fader_cc_is_ignored(self) -> None:
         self.feed(7, 100)

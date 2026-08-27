@@ -2,6 +2,7 @@ import unittest
 
 import loop_mix
 from apc_faders import CC_MAX, MASTER
+from scripts.sooperlooper.apc_grid import MAX_VIEW_OFFSET, NUM_LOOPS
 from apc_grid import GridView
 from loop_mix import CoalescingSender, LoopMix, fader_taper
 
@@ -42,10 +43,10 @@ class ColumnMapping(unittest.TestCase):
 
     def test_fader_follows_the_bank(self):
         mix = LoopMix()
-        mix.set_view(GridView(offset=8))
+        mix.set_view(GridView(offset=MAX_VIEW_OFFSET))
         _picked_up(mix, 0)
         paths = [p for p, _ in mix.messages_for(0, 100)]
-        self.assertEqual(paths, ["/sl/8/set"])
+        self.assertEqual(paths, [f"/sl/{NUM_LOOPS - 8}/set"])
 
     def test_loops_beyond_num_loops_are_not_addressed(self):
         mix = _picked_up(LoopMix(num_loops=8), 2)
@@ -58,8 +59,8 @@ class ColumnMapping(unittest.TestCase):
 
 class Master(unittest.TestCase):
     def test_master_scales_every_loop_over_per_loop_wet(self):
-        msgs = LoopMix(num_loops=16).messages_for(MASTER, 100)
-        self.assertEqual([p for p, _ in msgs], [f"/sl/{n}/set" for n in range(16)])
+        msgs = LoopMix(num_loops=NUM_LOOPS).messages_for(MASTER, 100)
+        self.assertEqual([p for p, _ in msgs], [f"/sl/{n}/set" for n in range(NUM_LOOPS)])
 
     def test_master_at_full_is_identity(self):
         mix = LoopMix()
@@ -118,7 +119,7 @@ class Pickup(unittest.TestCase):
         # rather than apply a delta the new track never asked for.
         mix = _picked_up(LoopMix(), 0)
         mix.messages_for(0, 100)
-        mix.set_view(GridView(offset=8))
+        mix.set_view(GridView(offset=MAX_VIEW_OFFSET))
         self.assertEqual(mix.messages_for(0, 20), [])  # anchors, no jump
         self.assertTrue(mix.messages_for(0, 30))
 
@@ -126,7 +127,7 @@ class Pickup(unittest.TestCase):
         mix = _picked_up(LoopMix(), 0)
         mix.messages_for(0, 60)
         quiet = mix.user_gain[0]
-        mix.set_view(GridView(offset=8))
+        mix.set_view(GridView(offset=MAX_VIEW_OFFSET))
         mix.set_view(GridView(offset=0))
         self.assertEqual(mix.user_gain[0], quiet)
         # ...and the re-armed fader picks up from that stored level, not unity.
@@ -172,9 +173,9 @@ class Composition(unittest.TestCase):
             self.assertAlmostEqual(mix.wet_for(0), 0.25)
 
     def test_loop_count_change_reemits_every_loop(self):
-        mix = LoopMix(num_loops=16)
+        mix = LoopMix(num_loops=NUM_LOOPS)
         msgs = mix.note_active_loops(3)
-        self.assertEqual(len(msgs), 16)
+        self.assertEqual(len(msgs), NUM_LOOPS)
 
     def test_unchanged_loop_count_emits_nothing(self):
         mix = LoopMix()
