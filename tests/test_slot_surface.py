@@ -65,11 +65,11 @@ class DispatchTests(SurfaceCase):
         self.assertFalse(self.surface.press(0x62))
 
     def test_a_press_on_an_empty_cell_starts_a_take(self) -> None:
-        self.assertTrue(self.surface.press(pad_note(3, 2)))
+        self.assertTrue(self.surface.note_down(pad_note(3, 2)))
         self.assertIn(("/sl/2/hit", ["record"]), self.osc)
 
     def test_the_row_is_the_slot_and_the_column_is_the_track(self) -> None:
-        self.surface.press(pad_note(5, 6))
+        self.surface.note_down(pad_note(5, 6))
         self.assertIn(("/sl/6/hit", ["record"]), self.osc)
 
 
@@ -81,7 +81,7 @@ class PendingResolutionTests(SurfaceCase):
             active_slot=0,
         )
         self.surface.on_state(0, SL_STATE_PLAYING)
-        self.surface.press(pad_note(4, 0))
+        self.surface.note_down(pad_note(4, 0))
 
     def test_a_switch_is_pending_until_the_engine_moves(self) -> None:
         self._armed_switch()
@@ -99,7 +99,7 @@ class PendingResolutionTests(SurfaceCase):
     def test_a_pending_stop_resolves_only_on_silence(self) -> None:
         self.rt._tracks[0] = Track(slots=(Slot("a.wav"), *([None] * 7)), active_slot=0)
         self.surface.on_state(0, SL_STATE_PLAYING)
-        self.surface.press(pad_note(0, 0))
+        self.surface.note_down(pad_note(0, 0))
         self.assertIsNotNone(self.rt.track(0).pending)
         self.surface.on_state(0, SL_STATE_PLAYING)
         self.assertIsNotNone(self.rt.track(0).pending, "still sounding — not yet")
@@ -138,3 +138,47 @@ class PaintTests(SurfaceCase):
         self.surface.blank()
         dark = [m for m in self.out.sent if m[2] == LED_OFF]
         self.assertGreaterEqual(len(dark), 64)
+
+
+class HoldClearTests(SurfaceCase):
+    def test_hold_clear_fires_after_hold_s(self) -> None:
+        from slot_matrix import Slot, Track
+
+        self.rt._tracks[0] = Track(slots=(Slot("a.wav"), *([None] * 7)), active_slot=0)
+        self.surface._hold_s = 0.05
+        self.surface.note_down(pad_note(0, 0))
+        self.osc.clear()
+        self.surface._pad_down_at = 0.0
+        self.surface.poll_hold()
+        self.assertIn(("/sl/0/hit", ["undo_all"]), self.osc)
+
+
+class SceneRowTests(SurfaceCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.surface._scene_launch_notes = (0x52, 0x53)
+
+    def test_scene_led_lit_when_row_not_fully_playing(self) -> None:
+        from slot_matrix import Slot, Track
+
+        self.rt._tracks[0] = Track(slots=(Slot("a.wav"), *([None] * 7)), active_slot=0)
+        self.surface.on_state(0, SL_STATE_MUTE)
+        self.surface.repaint_scenes(force=True)
+        scene_msgs = [m for m in self.out.sent if m[1] == 0x52]
+        self.assertTrue(scene_msgs)
+        self.assertEqual(scene_msgs[-1][2], 1)
+
+    def test_scene_press_launches_stopped_cells(self) -> None:
+        from slot_matrix import Slot, Track
+
+        self.rt.clip_path(0, 0).write_bytes(b"\0" * 4096)
+        self.rt.clip_path(1, 0).write_bytes(b"\0" * 4096)
+        self.rt._tracks[0] = Track(slots=(Slot("a.wav"), *([None] * 7)), active_slot=0)
+        self.rt._tracks[1] = Track(slots=(Slot("b.wav"), *([None] * 7)), active_slot=0)
+        self.surface.on_state(0, SL_STATE_MUTE)
+        self.surface.on_state(1, SL_STATE_MUTE)
+        self.osc.clear()
+        self.surface.scene_press(0)
+        paths = [p for p, _ in self.osc if p.endswith("/load_loop")]
+        self.assertEqual(len(paths), 2)
+

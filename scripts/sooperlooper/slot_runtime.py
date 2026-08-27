@@ -114,6 +114,22 @@ class SlotRuntime:
         """A quantize boundary arrived for this track: pending becomes true."""
         self._tracks[track_index] = resolve_at_boundary(self.track(track_index))
 
+    def dispatch(self, plan: SlotPlan) -> SlotPlan:
+        """Execute a plan produced elsewhere (e.g. scene row) and record it."""
+        if not self._execute(plan):
+            failed = replace(plan, action=ACT_NOOP, note=f"{plan.note} — FAILED")
+            if plan.note:
+                self._log(failed.note)
+            return failed
+        self._tracks[plan.track] = apply_pending(self.track(plan.track), plan)
+        if plan.note:
+            self._log(f"track {plan.track + 1} slot {plan.slot + 1}: {plan.note}")
+        return plan
+
+    def reset(self) -> None:
+        """Drop slot bookkeeping after a full track reset."""
+        self._tracks = {i: Track() for i in range(self._num_tracks)}
+
     def mark_recorded(self, track_index: int, slot: int, *, len_s: float,
                       sl_state: int) -> None:
         """A take finished on this cell — the buffer now holds unsaved audio."""
