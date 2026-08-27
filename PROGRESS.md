@@ -52,9 +52,11 @@ transport work **un-retires**. Check, do not assume.
 
 ---
 
-## Queue — two tracks
+## Queue — four tracks
 
 **Track A runs without Mitch.** Track B needs him reachable and is batched into one window.
+**Track D (looper multi-clip)** is the live thread as of 2026-08-26 — two short hardware
+checks are batched for the morning of **2026-08-27**; everything else in it is autonomous.
 Full plan: [`docs/measurements/PROMPT-PI4-CLOSEOUT.md`](docs/measurements/PROMPT-PI4-CLOSEOUT.md).
 
 > **C0 done on Pi 2026-08-22** — full gate green (`~/conformance-full-green.log`, #96–#101).
@@ -87,6 +89,37 @@ Full plan: [`docs/measurements/PROMPT-PI4-CLOSEOUT.md`](docs/measurements/PROMPT
 | ~~**G2**~~ | ~~**Governor recalibration + re-enable**~~ — **CLOSED** 2026-08-23. Doc: `G2-RESULT-2026-08-23.md` | `PROMPT-G2-governor-recalibration.md` | ~33 min |
 | **V12** | **512×2 vs 1024×2 rate comparison** — needs Mitch approval | `PROMPT-V12-certify-buffer.md` · `measure-v12-buffer-compare.sh` | ~70 min |
 | B3 | Ear test (audibility) — **Gate 1 ship** | — | ~10 min |
+
+### Track D — multi-clip slot matrix (looper), 2026-08-26
+
+Spec: [`Documents/specs/multi-clip-per-track-spec.md`](Documents/specs/multi-clip-per-track-spec.md) (rev 3).
+Spike results: [`docs/measurements/multi-clip-slot-spike-2026-08-26.md`](docs/measurements/multi-clip-slot-spike-2026-08-26.md).
+
+**Done 2026-08-26:** the seam-weld pipeline is deleted — takes close into a native
+one-pass SooperLooper overdub (`117f4cc`, `1a90d51`, `a99cf63`). 16 contiguous
+tracks. P0 restored (`c509ed9`) after `2500782` had silently dropped it.
+SP1/SP2/SP4 pass with 2–3 orders of magnitude of margin; SP6 measured.
+
+#### Needs Mitch — batched for the morning of 2026-08-27 (~5 min total)
+
+| # | Task | Exact gesture | Why it matters |
+|---|---|---|---|
+| **SP8** | **Is the mk1 Shift ghost real?** | Start `aseqdump -p "APC MINI"`, press **Shift alone 5–6×, touching nothing else**. Any note but `0x62` is a ghost. | `apc_transport` claims Shift "often" ghost-fires Scene 1–8 / Track Select, and `a1bcb4b` filters all of them for `MK1_GHOST_SHIFT_S = 80 ms`. **The SP6 capture contained no ghost.** If it is not real, the filter is eating genuine Shift+Scene presses — the exact P3 chord. **Blocks P3.** |
+| **SP3b** | **Does a re-tap cancel a queued switch?** | **A:** clip playing → tap (queues stop) → tap again before the bar → *should keep playing*. **B:** clip stopped → tap (queues launch) → tap again before the bar → *should stay silent*. | P0 was reverted once by `2500782` with no reason recorded, and `c509ed9` restores it. Driving this over OSC produced **two false PASSes** — SooperLooper sets the target state optimistically and defers the audio, so state polling cannot tell "cancelled" from "happened then undone". Only the ear can. Mitch: *"low risk overall"*. |
+
+#### Open decision — not a test
+
+| # | Question | Evidence |
+|---|---|---|
+| **D1** | **`save_loop` durability.** A "Saved" toast does not currently mean the song survives a power cut. | SP1 measured `save_loop` at **2.1 ms for a ~1.5 MB WAV** — ~700 MB/s, i.e. the **page cache**, not the SD card. SL does not fsync. Fine for UI responsiveness; not persistence. This is an appliance people switch off at the wall. **Decide before manifest v2 hardens** — the spec does not currently raise it. |
+
+#### Autonomous — no Mitch needed
+
+| # | Task |
+|---|---|
+| **P1** | `slot_matrix.py` (pure: active slot, occupancy, pending) + manifest v2 read/write with v1 compat. Fully unit-testable, no hardware. |
+| **P2** | APC all rows — the actual Ableton gesture. Also closes the audible half of SP7 (state machine confirmed; Surge was silent, so the ring-out seam is untested). |
+| **P3** | Scene Launch rows 0–6 across 16 tracks. **Gated on SP8.** |
 
 ### Track C — Pi 5, on arrival
 
