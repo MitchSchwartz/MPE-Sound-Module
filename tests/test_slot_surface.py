@@ -258,19 +258,25 @@ class SceneRowTests(SurfaceCase):
         # its INDEX in this tuple, so a truncated stand-in silently addresses
         # different rows.
         self.surface._scene_launch_notes = tuple(range(0x52, 0x59))
-        self.row0_note = 0x58          # bottom button == bottom row
+        # Row 0 has NO scene button — Stop All Clips (0x59) occupies that
+        # position on the panel. The lowest scene launcher, 0x58, is beside
+        # row 1, so that is the row these tests drive.
+        self.scene_row = 1
+        self.scene_note = 0x58
 
     def test_scene_led_lit_when_row_not_fully_playing(self) -> None:
-        self.rt._tracks[0] = Track(slots=(Slot("a.wav"), *([None] * 7)), active_slot=0)
+        self.rt._tracks[0] = Track(
+            slots=(None, Slot("a.wav"), *([None] * 6)), active_slot=1
+        )
         self.state(0, SL_STATE_MUTE)
         self.surface.repaint_scenes(force=True)
-        scene_msgs = [m for m in self.out.sent if m[1] == self.row0_note]
+        scene_msgs = [m for m in self.out.sent if m[1] == self.scene_note]
         self.assertTrue(scene_msgs)
         self.assertEqual(scene_msgs[-1][2], 1)
 
     def test_scene_leds_stay_dark_when_a_row_is_empty(self) -> None:
         self.surface.repaint_scenes(force=True)
-        scene_msgs = [m for m in self.out.sent if m[1] == self.row0_note]
+        scene_msgs = [m for m in self.out.sent if m[1] == self.scene_note]
         self.assertTrue(scene_msgs)
         self.assertEqual(scene_msgs[-1][2], 0)
 
