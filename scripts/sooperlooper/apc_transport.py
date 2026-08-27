@@ -395,6 +395,19 @@ class TransportButtonLeds:
             self._set_led(self._shift_indicator_note, TRACK_LED_OFF)
         self._set_led(self._stop_all_note, SCENE_LED_OFF)
 
+    def repaint(self) -> None:
+        """Re-assert every transport LED, ignoring the cache.
+
+        `_last_vel` suppresses redundant writes, which is right until the
+        device re-enumerates: it then comes back dark while the cache still
+        says lit, and every subsequent write is skipped as a no-op.
+        """
+        self._last_vel.clear()
+        self.clear_unwired_surfaces()
+        if self._shift_indicator_note is not None:
+            self._set_led(self._shift_indicator_note, TRACK_LED_OFF)
+        self._set_led(self._stop_all_note, SCENE_LED_OFF)
+
     def clear_unwired_surfaces(self) -> None:
         """Darken scene launch 1–7 and grid rows 1–7 (not wired until P3)."""
         from apc_grid import RESERVED_GRID_NOTES

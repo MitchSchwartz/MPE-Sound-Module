@@ -38,6 +38,7 @@ from apc_transport import (  # noqa: E402
     scene_row_for_note,
 )
 from led_table import LED_OFF  # noqa: E402
+from apc_link import LinkHealth, PacedMidiOut  # noqa: E402
 from midi_subscription import wait_for_subscription  # noqa: E402
 from running_code import running_code_sha  # noqa: E402
 from slot_runtime import SlotRuntime  # noqa: E402
@@ -133,6 +134,14 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
     midi_in.open_port(idx)
     midi_out.open_port(idx)
     port_name = ports_in[idx]
+
+    # Every write to the APC goes through the pacer. It is a 12 Mbit
+    # full-speed device two hubs deep, sharing that chain with a Scarlett
+    # streaming audio; a 64-message burst stalls its endpoint (-EPIPE) and the
+    # device drops off the bus and re-enumerates. Measured 2026-08-27: four
+    # session starts in six left the pads dead this way.
+    raw_midi_out = midi_out
+    midi_out = PacedMidiOut(raw_midi_out)
 
     # open_port() reports success whether or not the ALSA subscription took.
     # On 2026-08-27 it did not — twice — because systemd started this process
@@ -233,6 +242,9 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
     # advertising tracks that are not on those pads.
     for _note in range(GRID_ROWS * GRID_COLS):
         midi_out.send_message([0x90, _note, LED_OFF])
+    # Startup only: nothing else is happening yet, and the surface must be
+    # blank before anything paints over it. ~96 ms at the pacing rate.
+    midi_out.drain()
 
     scene_launch_notes = resolve_scene_launch_notes(apc_label)
     multigrid = os.environ.get("MPE_SL_MULTIGRID", "0") == "1"
@@ -413,7 +425,62 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
             last_engine_event_poll = now_mono
             engine_event_watch.poll()
 
+    def reopen_apc() -> bool:
+        """Reopen the APC after it re-enumerated. Returns True if it took.
+
+        The device comes back with a new USB device number and usually a new
+        rtmidi port index, so the index resolved at startup is worthless —
+        re-resolve by name. Our old ALSA client survives the re-enumeration
+        still subscribed to a device that no longer exists, which is exactly
+        why nothing noticed for hours: it has to be closed explicitly.
+        """
+        nonlocal midi_in, raw_midi_out, by_note
+        try:
+            midi_in.close_port()
+            raw_midi_out.close_port()
+        except Exception:
+            pass
+        try:
+            ports = midi_in.get_ports()
+            new_idx = next(
+                (i for i, n in enumerate(ports) if port_hint.lower() in n.lower()),
+                None,
+            )
+            if new_idx is None:
+                return False
+            midi_in.open_port(new_idx)
+            raw_midi_out.open_port(new_idx)
+        except Exception as exc:
+            print(f"bench: APC reopen failed: {exc}", file=sys.stderr, flush=True)
+            return False
+        # The device came back dark and its LED cache is now a lie, so repaint
+        # everything rather than diffing against a surface that no longer
+        # exists.
+        midi_out.reset()
+        for _n in range(GRID_ROWS * GRID_COLS):
+            midi_out.send_message([0x90, _n, LED_OFF])
+        by_note = apply_view(
+            midi_out, footswitches=footswitches, view=view, multigrid=multigrid
+        )
+        if slot_surface is not None:
+            slot_surface.repaint(force=True)
+            slot_surface.repaint_scenes(force=True)
+        transport_leds.repaint()
+        return True
+
+    link_health = LinkHealth(
+        device_key,
+        on_lost=reopen_apc,
+        log=lambda m: print(f"bench: {m}", flush=True),
+    )
+
     def poll_holds() -> None:
+        # Ask the kernel, on a timer, whether we still have the device. This is
+        # the check that was missing: open_port succeeded once at startup and
+        # nothing ever asked again, so a re-enumeration left the bench running
+        # against a dead input while printing a healthy banner.
+        link_health.poll()
+        midi_out.pump()
         poll_footswitches(footswitches, multigrid=multigrid)
         if slot_surface is not None:
             slot_surface.poll_hold()
