@@ -40,7 +40,11 @@ from tests.fake_sl_engine import FakeSlEngine  # noqa: E402
 
 from apc_grid import GridView, pad_note  # noqa: E402
 from led_table import LED_GREEN, LED_OFF, LED_YELLOW  # noqa: E402
-from sl_loop_states import SL_STATE_PLAYING, SL_STATE_WAIT_START  # noqa: E402
+from sl_loop_states import (  # noqa: E402
+    SL_STATE_OVERDUBBING,
+    SL_STATE_PLAYING,
+    SL_STATE_WAIT_START,
+)
 from slot_runtime import SlotRuntime  # noqa: E402
 from slot_surface import SlotSurface  # noqa: E402
 from tests.test_slot_surface import FakeOut, build_footswitches  # noqa: E402
@@ -238,6 +242,63 @@ class TwoClipsOnOneTrackTests(Session):
         self.idle()
         self.assertIsNone(self.rt.track(0).pending, "the switch never resolved")
         self.assertEqual(self.rt.track(0).active_slot, 0)
+
+
+class RingOutStillRunningTests(Session):
+    """Recording the next clip while the ring-out tail is still running.
+
+    Reported 2026-08-27, with the cause guessed correctly by Mitch: "the
+    initial bug where the clip gets deleted... I'm guessing it's because the
+    tail or overdub phase is still happening."
+
+    `record_clip` elsewhere in this file always lets the tail finish, so every
+    other test steps over this window. It is not a rare window: the ring-out
+    is a whole pass of the loop, which at any usable tempo is seconds.
+    """
+
+    def close_take_but_leave_the_tail_running(self, slot: int, *,
+                                              length: float = 2.0) -> None:
+        self.tap(slot)                       # arm / record
+        self.tap(slot)                       # close into the ring-out overdub
+        self.boundary(length=length)         # take lands, overdub begins
+        self.assertEqual(self.engine.state[0], SL_STATE_OVERDUBBING,
+                         "precondition: the tail is still running")
+
+    def test_the_take_is_registered_before_the_tail_finishes(self) -> None:
+        """The audio exists the moment the take closes. Waiting for the tail
+        to end before admitting that leaves a window where the buffer holds a
+        recording nothing knows about — and anything that reuses the buffer in
+        that window destroys it with no way back."""
+        self.close_take_but_leave_the_tail_running(0)
+        self.assertTrue(self.rt.track(0).occupied(0),
+                        "the take is real as soon as it closes")
+
+    def test_the_first_clip_survives_recording_the_second_mid_tail(self) -> None:
+        self.close_take_but_leave_the_tail_running(0)
+        self.tap(1)                          # start clip 2 while the tail runs
+        self.assertTrue(self.rt.track(0).occupied(0), "clip 1 was erased")
+
+    def test_the_first_clip_reaches_disk_before_its_buffer_is_reused(self) -> None:
+        """`undo_all` empties the buffer. If the take was never registered,
+        the flush finds no slot to save and skips silently, and the take is
+        gone the instant the next one is armed."""
+        self.close_take_but_leave_the_tail_running(0)
+        self.tap(1)
+        self.assertTrue(self.rt.clip_path(0, 0).exists(),
+                        "clip 1 was wiped from the buffer without ever being saved")
+
+    def test_the_buffer_is_not_emptied_before_the_save(self) -> None:
+        self.close_take_but_leave_the_tail_running(0)
+        self.osc.clear()
+        self.tap(1)
+        paths = [p for p, _ in self.osc]
+        hits = [(p, a[0]) for p, a in self.osc if p.endswith("/hit")]
+        self.assertIn("/sl/0/save_loop", paths, "no save was even attempted")
+        self.assertLess(
+            paths.index("/sl/0/save_loop"),
+            paths.index(next(p for p, a in self.osc if a and a[0] == "undo_all")),
+            "the buffer was emptied before the take was written",
+        )
 
 
 class ThreeClipsTests(Session):
