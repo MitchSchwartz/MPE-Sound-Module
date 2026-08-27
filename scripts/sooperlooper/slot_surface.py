@@ -314,12 +314,18 @@ class SlotSurface:
                 out[track_index] = fs.current_led()
         return out
 
-    def repaint(self) -> None:
+    def repaint(self, *, force: bool = False) -> None:
+        """Paint changed pads. `force` repaints every one.
+
+        Needed after the APC re-enumerates: the device comes back dark, so the
+        diff cache describes a surface that no longer exists and a normal
+        repaint would send nothing at all.
+        """
         messages, painted = matrix_messages(
             self._view,
             self._rt.tracks(),
             self._sl_states,
-            previous=self._painted,
+            previous=None if force else self._painted,
             footswitch_leds=self._footswitch_leds(),
         )
         for note, colour in messages:
