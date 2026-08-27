@@ -30,8 +30,9 @@ sys.path.insert(0, str(REPO_ROOT))
 
 from patch_browser.looper_health import JackGraphHealth, collect_jack_graph_health  # noqa: E402
 from patch_browser.sl_hud_state import SL_HUD_STATE_FILE  # noqa: E402
-# Default 14 — must match sl_seam_weld.SCRATCH_LOOP / looper_songs.SCRATCH.
-SCRATCH_LOOP = int(os.environ.get("MPE_SL_SCRATCH_LOOP", "14"))
+# No loop is reserved any more — the seam-weld scratch buffer is gone (SR&ED
+# §3 U11). -1 means "hide nothing". Must match looper_songs.SCRATCH.
+SCRATCH_LOOP = int(os.environ.get("MPE_SL_SCRATCH_LOOP", "-1"))
 
 WRITE_INTERVAL_S = float(os.environ.get("MPE_SL_HUD_WRITE_INTERVAL_S", "0.5"))
 REREGISTER_INTERVAL_S = 15.0
