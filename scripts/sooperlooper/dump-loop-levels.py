@@ -69,7 +69,7 @@ STATE_NAMES = {
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--loops", type=int, default=int(os.environ.get("MPE_SL_LOOPS", "16")))
+    parser.add_argument("--loops", type=int, default=resolve_num_loops())
     parser.add_argument("--json", action="store_true", help="machine-readable, for diffing")
     parser.add_argument(
         "--detail",

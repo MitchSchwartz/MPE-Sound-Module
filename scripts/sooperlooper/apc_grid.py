@@ -26,7 +26,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-NUM_LOOPS = 16
+from sl_limits import MAX_USABLE_LOOPS
+
+# 15, not 16 — SooperLooper 1.7.9 stops at index 14. See sl_limits.
+NUM_LOOPS = MAX_USABLE_LOOPS
 GRID_COLS = 8
 GRID_ROWS = 8
 
