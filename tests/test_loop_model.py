@@ -126,19 +126,22 @@ class PlanTapTests(unittest.TestCase):
         self.assertFalse(p.begin_quantize_wait)
         self.assertEqual(p.expect, STATE_PLAYING)
 
-    def test_defining_take_stop_uses_stop_then_weld_when_enabled(self) -> None:
+    def test_defining_take_stop_closes_into_overdub_in_one_hit(self) -> None:
+        """One `overdub` hit, not `record` — SL closes the take and starts
+        overdubbing at the same sample, so the ring-out lands in the head.
+        `record` here would close the take and leave a gap."""
         p = self._gesture(
             "down",
             SL_STATE_RECORDING,
             is_defining=True,
             tail_capture_enabled=True,
         )
-        self.assertTrue(p.begin_tail_capture)
-        self.assertEqual(p.commands, ("record",))
+        self.assertEqual(p.commands, ("overdub",))
         self.assertEqual(p.expect, STATE_PLAYING)
+        self.assertFalse(p.begin_tail_capture)
         self.assertFalse(p.tail_deferred)
 
-    def test_grid_clip_stop_arms_deferred_tail_weld(self) -> None:
+    def test_grid_clip_stop_closes_into_overdub(self) -> None:
         p = self._gesture(
             "down",
             SL_STATE_RECORDING,
@@ -146,10 +149,9 @@ class PlanTapTests(unittest.TestCase):
             is_defining=False,
             tail_capture_enabled=True,
         )
-        self.assertTrue(p.begin_tail_capture)
+        self.assertEqual(p.commands, ("overdub",))
         self.assertTrue(p.begin_quantize_wait)
-        self.assertTrue(p.tail_deferred)
-        self.assertEqual(p.commands, ("record",))
+        self.assertFalse(p.begin_tail_capture)
 
     def test_defining_take_stop_off_muted_enters_tail_not_queue_stop(self) -> None:
         """Pi reported sl=20 (OffMuted) while pending=recording — was queue_stop deadlock."""
@@ -160,8 +162,23 @@ class PlanTapTests(unittest.TestCase):
             is_defining=True,
             tail_capture_enabled=True,
         )
-        self.assertTrue(p.begin_tail_capture)
         self.assertFalse(p.queue_stop)
+
+    def test_press_while_overdubbing_ends_the_overdub(self) -> None:
+        """derive_state folds OVERDUBBING into "playing", where a press means
+        mute. The overdub has to be ended off sl_state directly or the pad
+        mutes a loop that is still recording the ring-out."""
+        from sl_loop_states import SL_STATE_OVERDUBBING
+
+        p = self._gesture("down", SL_STATE_OVERDUBBING)
+        self.assertEqual(p.commands, ("overdub",))
+        self.assertEqual(p.expect, STATE_PLAYING)
+
+    def test_pad_up_while_overdubbing_does_not_mute(self) -> None:
+        from sl_loop_states import SL_STATE_OVERDUBBING
+
+        p = self._gesture("up", SL_STATE_OVERDUBBING)
+        self.assertEqual(p.commands, ())
 
     def test_free_form_loops_never_arm_a_quantize_wait(self) -> None:
         p = self._gesture("down", SL_STATE_RECORDING, quantized=False)
@@ -210,14 +227,6 @@ class LedTableTests(unittest.TestCase):
 
     def test_queued_to_record_is_ableton_standard(self) -> None:
         self.assertEqual(led_for(SL_STATE_WAIT_START), (LED_RED_BLINK,))
-
-    def test_tail_capture_led_is_amber_while_weld_pending(self) -> None:
-        from scripts.sooperlooper.led_table import RECORD_TO_PLAY, led_for
-
-        self.assertEqual(
-            led_for(SL_STATE_PLAYING, tail_capture=True),
-            RECORD_TO_PLAY,
-        )
 
     def test_recording_queued_to_play_shows_both_colours(self) -> None:
         """The state Ableton drops: recording is STILL RUNNING into this bar."""

@@ -56,6 +56,48 @@ class AudioSwitchProgressTests(unittest.TestCase):
         self.assertIn(f"{remaining}s", hint)
         self.assertIn("paused", (toast or "").lower())
 
+    def test_no_device_recovering_does_not_promise_reconnection(self) -> None:
+        """Nothing plugged in -> nothing to reconnect TO."""
+        hint, toast, _ = audio_switch_progress_message(
+            {"state": "recovering", "reason": "no-device"},
+            now=1000,
+        )
+        self.assertIn("no audio device", hint.lower())
+        self.assertNotIn("reconnect", hint.lower())
+        self.assertNotIn("reconnect", (toast or "").lower())
+
+    def test_no_device_failed_matches_recovering(self) -> None:
+        """Same cause, same message — the user cannot act on the distinction."""
+        rec, rec_toast, _ = audio_switch_progress_message(
+            {"state": "recovering", "reason": "no-device"}, now=1000
+        )
+        failed, failed_toast, _ = audio_switch_progress_message(
+            {"state": "failed", "reason": "no-device"}, now=1000
+        )
+        self.assertEqual(rec, failed)
+        self.assertEqual(rec_toast, failed_toast)
+
+    def test_no_device_has_no_loader_ellipsis(self) -> None:
+        """toast_loader_base() strips '…' to drive the animated loader.
+
+        Waiting on the user is a resting state; animating progress that cannot
+        occur misreports what the appliance is doing.
+        """
+        _, toast, _ = audio_switch_progress_message(
+            {"state": "recovering", "reason": "no-device"}, now=1000
+        )
+        self.assertFalse((toast or "").endswith("…"))
+
+    def test_unusable_device_differs_from_absent_device(self) -> None:
+        """A present-but-unusable card is not fixed by plugging something in."""
+        absent, _, _ = audio_switch_progress_message(
+            {"state": "failed", "reason": "no-device"}, now=1000
+        )
+        unusable, _, _ = audio_switch_progress_message(
+            {"state": "failed", "reason": "no-card-resolved"}, now=1000
+        )
+        self.assertNotEqual(absent, unusable)
+
     def test_toast_loader_base_strips_ellipsis(self) -> None:
         from patch_browser.audio_engine import toast_loader_base
 

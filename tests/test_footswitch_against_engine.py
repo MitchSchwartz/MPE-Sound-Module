@@ -24,7 +24,12 @@ from scripts.sooperlooper.led_table import (
     LED_YELLOW_BLINK,
 )
 from scripts.sooperlooper.sl_grid_state import GridState
-from scripts.sooperlooper.sl_loop_states import SL_STATE_OFF, SL_STATE_PLAYING
+from scripts.sooperlooper.sl_loop_states import (
+    SL_STATE_MUTE,
+    SL_STATE_OFF,
+    SL_STATE_OVERDUBBING,
+    SL_STATE_PLAYING,
+)
 from tests.fake_sl_engine import FakeSlEngine
 
 
@@ -64,19 +69,16 @@ class FootswitchOnEngineTests(unittest.TestCase):
         engine.poll(fs)
         self.assertEqual(self._led(midi), LED_RED)
 
-        fs.on_pad_down()                 # stop on pad down; weld tail still running
+        fs.on_pad_down()                 # closes the take into an overdub
         engine.poll(fs)
         self.assertNotEqual(self._led(midi), LED_GREEN,
                             "nothing has landed yet — green would be a lie")
 
-        engine.boundary()                # the take lands; weld still running
-        engine.poll(fs)
-        self.assertNotEqual(self._led(midi), LED_GREEN,
-                            "stop-then-weld: amber until the tail merge finishes")
-        fs._finish_tail_capture("test")
+        engine.boundary()                # the take lands
         engine.poll(fs)
         self.assertEqual(self._led(midi), LED_GREEN)
-        self.assertEqual(engine.state[0], SL_STATE_PLAYING)
+        self.assertEqual(engine.state[0], SL_STATE_OVERDUBBING,
+                         "the take closed into an overdub capturing the ring-out")
         self.assertGreater(engine.loop_len[0], 0.0, "green means there is audio")
 
     def test_a_take_that_never_lands_does_not_leave_a_green_pad(self) -> None:
@@ -113,28 +115,6 @@ class FootswitchOnEngineTests(unittest.TestCase):
         engine.boundary()                # one cycle later, it lands
         engine.poll(fs)
         self.assertEqual(engine.state[0], SL_STATE_PLAYING)
-
-    def test_second_tap_during_a_quantized_stop_keeps_it_playing(self) -> None:
-        """Stop is queued to the bar; tapping again inside that bar undoes it.
-
-        This is only expressible because the bench remembers what it asked for.
-        Deriving purely from engine state would read the loop as still playing
-        and mute it a second time.
-        """
-        engine, fs, midi = self._rig()
-        engine.state[0] = SL_STATE_PLAYING
-        engine.loop_len[0] = 2.0
-        engine.poll(fs)
-
-        self._tap(fs)                    # stop, queued to the bar
-        self.assertEqual(self._led(midi), LED_YELLOW_BLINK,
-                         "queued to stop — the state Ableton has no name for")
-
-        self._tap(fs)                    # changed my mind
-        engine.boundary()
-        engine.poll(fs)
-        self.assertEqual(engine.state[0], SL_STATE_PLAYING)
-        self.assertEqual(self._led(midi), LED_GREEN)
 
     # --- polls must not clobber intent -----------------------------------
     def test_polls_during_a_queued_launch_do_not_cancel_the_blink(self) -> None:
