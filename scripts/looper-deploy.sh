@@ -25,3 +25,29 @@ if [ -x "$REPO_ROOT/scripts/bootstrap-pi5-looper.sh" ]; then
 else
     echo "looper-deploy: no bootstrap-pi5-looper.sh — git sync only"
 fi
+
+# Restart the session (APC bench + HUD), because a deploy that leaves it alone
+# is a deploy that did not happen.
+#
+# 2026-08-27: bootstrap restarts SooperLooper but nothing restarted
+# looper-session.py, so a session started the previous evening kept driving the
+# pads on code from eleven commits earlier — while the deploy printed success
+# and the new SHA. Hours of a real-looking bug came out of that. Python holds
+# its modules in memory: pulling new files onto the Pi changes nothing about a
+# process that already imported the old ones.
+#
+# Only if the unit is loaded; a bare checkout or a bench-only host has no unit
+# and must not fail the deploy over it.
+if systemctl list-unit-files mpe-looper-session.service >/dev/null 2>&1; then
+    if systemctl cat mpe-looper-session.service >/dev/null 2>&1; then
+        was_active="$(systemctl is-active mpe-looper-session.service 2>/dev/null || true)"
+        echo "looper-deploy: restarting mpe-looper-session.service (was: ${was_active:-unknown})"
+        sudo systemctl restart mpe-looper-session.service || {
+            echo "looper-deploy: WARN — mpe-looper-session.service failed to restart;" >&2
+            echo "  the pads may still be running pre-deploy code. Check:" >&2
+            echo "    systemctl status mpe-looper-session.service" >&2
+        }
+    fi
+else
+    echo "looper-deploy: no mpe-looper-session.service on this host — skipping"
+fi

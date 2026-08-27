@@ -84,3 +84,12 @@ fi
 chmod 0644 "$DEVICE_FILE" 2>/dev/null || true
 
 log "device $JACK_DEVICE (card ${JACK_CARD_ID:-unknown}, tier ${JACK_TIER:-unknown}) after ${waited}s wait"
+
+# Assert the interface can actually pass host audio BEFORE jackd binds it.
+# A device in standalone mode, or with its outputs fed from its own hardware
+# mixer, discards everything jackd writes while every other reading on the
+# appliance stays green (2026-08-26). Never fails the unit: a guard that blocks
+# startup would turn a recoverable misconfiguration into no instrument at all.
+# shellcheck source=lib/interface-guard.sh
+source "$SCRIPT_DIR/lib/interface-guard.sh"
+mpe_interface_guard "$(printf '%s' "$JACK_DEVICE" | sed 's/^hw://;s/,.*//')" || true

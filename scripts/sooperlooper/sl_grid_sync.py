@@ -17,6 +17,8 @@ see Documents/specs/looper-transport-clock-spec.md §J.
 
 from __future__ import annotations
 
+from sl_limits import MAX_USABLE_LOOPS, resolve_num_loops
+
 import os
 import sys
 from typing import Callable
@@ -25,19 +27,21 @@ DEFAULT_FADE_SAMPLES = int(os.environ.get("MPE_SL_FADE_SAMPLES", "256"))
 DEFAULT_BPM = float(os.environ.get("MPE_LOOPER_BPM", "120"))
 DEFAULT_CLOCK = os.environ.get("MPE_SL_GRID_CLOCK", "internal").strip().lower()
 
-# Stop-then-weld: pad fixes loop length; parallel scratch + offline merge at seam.
-# Tier 2 (extend recording until quiet) rejected 2026-08-19 — see DECISIONS.md.
-TAIL_CAPTURE_ENABLED = os.environ.get("MPE_SL_TAIL_CAPTURE", "1").strip().lower() not in (
+# Ring-out capture: the pad press that closes a take sends `overdub` instead of
+# `record`, so SooperLooper closes the loop and starts overdubbing at the same
+# sample and the release of the cut-off notes lands in the loop head. The
+# overdub ends itself one pass later.
+#
+# This replaced an offline pipeline (parallel scratch capture + merge + buffer
+# reload) that could not work: measured 65-139 ms of OSC arm latency after the
+# wrap, and +4.05 dB of summed level across the loop head. See SR&ED evidence
+# §3 U11. Kill switch, falls back to a plain stop: MPE_SL_RING_OUT=0.
+RING_OUT_ENABLED = os.environ.get("MPE_SL_RING_OUT", "1").strip().lower() not in (
     "0",
     "off",
     "false",
     "",
 )
-TAIL_THRESH = float(os.environ.get("MPE_SL_TAIL_THRESH", "0.02"))
-TAIL_HOLD_S = float(os.environ.get("MPE_SL_TAIL_HOLD_MS", "80")) / 1000.0
-TAIL_MAX_S = float(os.environ.get("MPE_SL_TAIL_MAX_MS", "750")) / 1000.0
-TAIL_ABSOLUTE_MAX_S = float(os.environ.get("MPE_SL_TAIL_ABSOLUTE_MAX_MS", "15000")) / 1000.0
-TAIL_PEAK_UPDATE_MS = int(os.environ.get("MPE_SL_TAIL_PEAK_MS", "25"))
 # Start seam overdub when playhead enters the last fraction of the loop (wrap weld).
 TAIL_SEAM_RATIO = float(os.environ.get("MPE_SL_TAIL_SEAM_RATIO", "0.85"))
 # After release falls quiet, wait for playhead near the wrap before overdub off (reduces pop).
@@ -104,7 +108,7 @@ EIGHTH_PER_CYCLE = int(os.environ.get("MPE_LOOPER_EIGHTH_PER_CYCLE", "8"))
 
 
 def set_grid_active(
-    send: Callable[[str, list], None], *, num_loops: int = 16, active: bool
+    send: Callable[[str, list], None], *, num_loops: int = MAX_USABLE_LOOPS, active: bool
 ) -> None:
     """The two grid states, applied to the engine.
 
@@ -139,7 +143,7 @@ def set_grid_active(
 
 
 def apply_loop_latency(
-    send: Callable[[str, list], None], *, num_loops: int = 16
+    send: Callable[[str, list], None], *, num_loops: int = MAX_USABLE_LOOPS
 ) -> None:
     """Align record/stop boundaries with JACK pipeline delay (Tier 1).
 
@@ -170,7 +174,7 @@ def apply_loop_latency(
 def apply_grid_sync(
     send: Callable[[str, list], None],
     *,
-    num_loops: int = 16,
+    num_loops: int = MAX_USABLE_LOOPS,
     eighth_per_cycle: int = 8,
     fade_samples: int = DEFAULT_FADE_SAMPLES,
     clock: str = DEFAULT_CLOCK,
@@ -199,7 +203,7 @@ def apply_grid_sync(
 
 
 def set_count_in(
-    send: Callable[[str, list], None], *, num_loops: int = 16, count_in: bool
+    send: Callable[[str, list], None], *, num_loops: int = MAX_USABLE_LOOPS, count_in: bool
 ) -> None:
     """Deprecated alias — the grid has two states, not a count-in toggle."""
     set_grid_active(send, num_loops=num_loops, active=count_in)
@@ -230,7 +234,7 @@ def anchor_phase(send: Callable[[str, list], None], bpm: float) -> None:
 def apply_freeform(
     send: Callable[[str, list], None],
     *,
-    num_loops: int = 16,
+    num_loops: int = MAX_USABLE_LOOPS,
 ) -> None:
     """Eval free-form mode — no sync/quantize (B2 bench)."""
     send("/set", ["sync_source", SYNC_SOURCE_NONE])
@@ -246,7 +250,7 @@ def apply_freeform(
 def main() -> int:
     host = os.environ.get("MPE_SL_OSC_HOST", "127.0.0.1")
     port = int(os.environ.get("MPE_SL_OSC_PORT", "9951"))
-    num_loops = int(os.environ.get("MPE_SL_LOOPS", "16"))
+    num_loops = resolve_num_loops()
     mode = os.environ.get("MPE_SL_SYNC_MODE", "grid").strip().lower()
 
     try:

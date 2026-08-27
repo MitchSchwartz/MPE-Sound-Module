@@ -27,10 +27,13 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from sl_probe import (  # noqa: E402
     ALIVE,
+    PHANTOM,
     PROBE_LOOP,
     WEDGED,
     check_command_path,
+    check_loops_writable,
 )
+from sl_limits import MAX_USABLE_LOOPS, resolve_num_loops  # noqa: E402
 
 SL_HOST = os.environ.get("MPE_SL_OSC_HOST", "127.0.0.1")
 SL_PORT = int(os.environ.get("MPE_SL_OSC_PORT", "9951"))
@@ -121,6 +124,34 @@ def main(argv: list[str] | None = None) -> int:
                 print("      looks identical from here (spec §M):  jack_lsp | grep mpe-looper")
                 print("      Then, only if it is on JACK: mpe looper sl-restart")
                 print("      (sl-restart DESTROYS every recorded loop.)")
+            failures += 1
+
+        # 2b. Does every loop the engine CLAIMS to have actually take a write?
+        #
+        #     The check above proves the command path drains, using one loop.
+        #     It says nothing about loop 15. SooperLooper reports whatever
+        #     count `-l` asked for and answers `get` on every index, so a
+        #     phantom loop passes every read-based check while discarding its
+        #     configuration — one unquantized track among fourteen quantized
+        #     ones, and no error anywhere. That shape cost a morning on
+        #     2026-08-27; see sl_limits.py.
+        want_loops = resolve_num_loops()
+        loop_verdict, phantoms, loop_detail = check_loops_writable(
+            lambda loop, ctrl: p.get(ctrl, loop=loop),
+            lambda loop, ctrl, val: p.client.send_message(
+                f"/sl/{loop}/set", [ctrl, val]
+            ),
+            num_loops=want_loops,
+        )
+        if loop_verdict == ALIVE:
+            print(f"PASS  loop count   {loop_detail}")
+        else:
+            print(f"FAIL  loop count   {loop_detail}")
+            if loop_verdict == PHANTOM:
+                print(f"      The engine's real ceiling is {MAX_USABLE_LOOPS} loops "
+                      f"(indices 0..{MAX_USABLE_LOOPS - 1}).")
+                print("      Phantom loops accept no settings — the pads for them")
+                print("      will behave unlike every other track.")
             failures += 1
 
         # 3) Global config readback.

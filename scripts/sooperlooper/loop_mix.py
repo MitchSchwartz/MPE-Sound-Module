@@ -38,6 +38,8 @@ fast drags and misaligned surfaces do not step or jump.
 
 from __future__ import annotations
 
+from sl_limits import MAX_USABLE_LOOPS
+
 import math
 import os
 from dataclasses import dataclass, field
@@ -138,7 +140,7 @@ class LoopMix:
     stays a pure display of them.
     """
 
-    num_loops: int = 16
+    num_loops: int = MAX_USABLE_LOOPS
     mode: FaderMode = FaderMode.LEVEL
     # Which eight tracks the faders currently address. A view, not ownership:
     # levels are stored per loop and survive every bank change.

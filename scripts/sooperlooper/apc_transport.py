@@ -2,14 +2,20 @@
 
 Mk2: Communication Protocol v1.0 — Stop All 0x77, Shift 0x7A.
 Mk1: original APC mini — Stop All 0x59 (scene launch 8), Shift 0x62.
+
+mk1 gotcha: Track Status notes 0x30–0x37 are the same numbers as grid row 6.
+They are **not** usable as a Shift-held indicator — lighting 0x37 paints grid
+pads 6–7 red, not the Shift button (Shift has no LED on mk1).
 """
 
 from __future__ import annotations
 
+import os
 import time
 from typing import Protocol
 
 from led_table import (
+    LED_OFF,
     SCENE_LED_OFF,
     SCENE_LED_ON,
     TRACK_LED_OFF,
@@ -25,7 +31,47 @@ NOTE_TRACK8_MK2 = 0x6B
 # APC mini mk1 (original — port name is usually "APC MINI" without "mk2")
 NOTE_STOP_ALL_CLIPS_MK1 = 0x59
 NOTE_SHIFT_MK1 = 0x62
+# 0x37 = grid row 6 col 7 on mk1 — NOT a side-button-only note (see module doc).
 NOTE_TRACK8_MK1 = 0x37
+
+# Scene Launch 1–7 (slot rows 0–6) — Stop All is separate per variant.
+# mk1 scene 8 note (0x59) is Stop All; mk2 Stop All is 0x77 (scene 8 note).
+SCENE_LAUNCH_NOTES_MK1 = tuple(range(0x52, 0x59))  # 0x52..0x58
+SCENE_LAUNCH_NOTES_MK2 = tuple(range(0x70, 0x77))  # 0x70..0x76
+
+# mk1 Track Select 1–8 share notes with grid row 6 (0x30–0x37).
+MK1_TRACK_OVERLAP_NOTES = tuple(range(0x30, 0x38))
+
+def _env_float(name: str, default: float) -> float:
+    """Read a float from the environment; blank or unset means the default."""
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        return default
+
+
+# The mk1 Shift ghost: DISABLED, because it was never observed (SP8, 2026-08-27).
+#
+# The claim this filter was built on — that Shift spuriously fires Scene 1–8 /
+# Track Select notes within a few ms — has now been refuted twice on the actual
+# hardware. `aseqdump -p "APC MINI"`, Shift pressed alone, produced note 0x62
+# and nothing else: once during the SP6 capture, and again in SP8 with Shift as
+# the only button touched. Zero ghost notes across both.
+#
+# Meanwhile the filter's cost is real and was being paid every session. It drops
+# every Scene / Track Select note-on arriving within the window of a Shift-down,
+# and a human pressing Shift+Scene as a chord lands the second note well inside
+# 80 ms. So the filter was eating the genuine chord — exactly the gesture the
+# scene-launch row needs — to suppress an event that does not occur.
+#
+# The mechanism is kept, not deleted: if the ghost turns up on another mk1 unit,
+# set MPE_APC_MK1_GHOST_S and it comes back with no code change. A window of 0
+# disables it (see Mk1ShiftGhostFilter.consume).
+MK1_GHOST_SHIFT_S = _env_float("MPE_APC_MK1_GHOST_S", 0.0)
+MK1_GHOST_STOP_S = MK1_GHOST_SHIFT_S  # alias — Stop All is scene 8 on mk1
 
 # Bank arrows — up, down, left, right.
 #
@@ -103,11 +149,91 @@ def resolve_apc_transport_notes(
     return NOTE_SHIFT_MK1, NOTE_STOP_ALL_CLIPS_MK1, "mk1"
 
 
-def resolve_shift_indicator_note(apc_label: str) -> int:
-    """Track Select 8 — red LED used as Shift held indicator (Shift has no LED)."""
+def resolve_shift_indicator_note(apc_label: str) -> int | None:
+    """Side-button note for Shift-held indicator, or None if none exists.
+
+    mk2: Track Select 8 (0x6B) — red LED, off the grid.
+    mk1: None — Shift has no LED; 0x30–0x37 are grid row 6 / Track Status and
+    must not be used (lights clip pads 6–7 instead of Shift).
+    """
     if apc_label == "mk2":
         return NOTE_TRACK8_MK2
-    return NOTE_TRACK8_MK1
+    return None
+
+
+def resolve_scene_launch_notes(apc_label: str) -> tuple[int, ...]:
+    """Scene Launch 1–7 notes (slot rows 0–6). Stop All is not included."""
+    if apc_label == "mk2":
+        return SCENE_LAUNCH_NOTES_MK2
+    return SCENE_LAUNCH_NOTES_MK1
+
+
+def mk1_shift_ghost_notes(
+    *,
+    stop_all_note: int,
+    scene_launch_notes: tuple[int, ...],
+) -> frozenset[int]:
+    """Notes that spuriously fire when Shift goes down on mk1."""
+    return frozenset(scene_launch_notes) | frozenset(MK1_TRACK_OVERLAP_NOTES) | {stop_all_note}
+
+
+class Mk1ShiftGhostFilter:
+    """Drop mk1 ghost note-ons that arrive right after Shift (solo press)."""
+
+    def __init__(
+        self,
+        *,
+        shift_note: int,
+        stop_all_note: int,
+        scene_launch_notes: tuple[int, ...],
+        ghost_s: float = MK1_GHOST_SHIFT_S,
+    ) -> None:
+        self._shift_note = shift_note
+        self._stop_all_note = stop_all_note
+        self._ghost_notes = mk1_shift_ghost_notes(
+            stop_all_note=stop_all_note,
+            scene_launch_notes=scene_launch_notes,
+        )
+        self._ghost_s = ghost_s
+        self._shift_down = False
+        self._shift_down_at: float | None = None
+        self._stop_down_before_shift = False
+        self._stop_down = False
+
+    @property
+    def shift_down(self) -> bool:
+        return self._shift_down
+
+    def note_event(self, note: int, down: bool, *, now: float) -> None:
+        """Track shift/stop state for ghost detection (call before consume)."""
+        if note == self._shift_note:
+            if down:
+                self._shift_down = True
+                self._shift_down_at = now
+                self._stop_down_before_shift = self._stop_down
+            else:
+                self._shift_down = False
+                self._shift_down_at = None
+        elif note == self._stop_all_note and not self.consume(note, down, now=now):
+            self._stop_down = down
+
+    def consume(self, note: int, down: bool, *, now: float) -> bool:
+        """True when this event should be ignored (ghost or swallowed)."""
+        if not down:
+            return False
+        if note not in self._ghost_notes:
+            return False
+        if not self._shift_down or self._shift_down_at is None:
+            return False
+        if note == self._stop_all_note and self._stop_down_before_shift:
+            return False
+        if self._ghost_s <= 0.0:
+            return False  # filter off — see MK1_GHOST_SHIFT_S
+        return (now - self._shift_down_at) < self._ghost_s
+
+    def shift_solo(self) -> bool:
+        """Shift held without intentional Stop All (no ghost window required)."""
+        return self._shift_down and not self._stop_down
 
 
 class ShiftHoldCombo:
@@ -202,12 +328,12 @@ class _MidiOut(Protocol):
 class TransportButtonLeds:
     """Shift / Stop All Clips button LEDs on the APC transport row.
 
-    Shift has no LED on mk1 or mk2 — ``shift_indicator_note`` (Track Select 8)
-    shows solid red while Shift is held.
+    mk2: Track Select 8 (red) shows Shift held; Stop All (green-only) when held.
 
-    Stop All is Scene Launch 8 (green-only hardware): solid green while held
-    alone; green blink during Shift+Stop reset combo. Track 8 blinks red in
-    that combo.
+    mk1: Shift has no LED — no shift indicator is sent. Stop All is green when
+    held alone; Shift+Stop reset combo blinks Stop All green only. Scene Launch
+    1–7 and grid rows 1–7 stay dark until multi-clip P3 wires them; Shift solo
+    suppresses mk1 ghost glow on those surfaces.
     """
 
     def __init__(
@@ -216,8 +342,10 @@ class TransportButtonLeds:
         midi_out: _MidiOut,
         shift_note: int,
         stop_all_note: int,
-        shift_indicator_note: int,
+        shift_indicator_note: int | None,
+        scene_launch_notes: tuple[int, ...] = (),
         hold_s: float,
+        apc_label: str = "mk1",
         blink_start_half_s: float = 0.35,
         blink_min_half_s: float = 0.04,
     ) -> None:
@@ -225,43 +353,92 @@ class TransportButtonLeds:
         self._shift_note = shift_note
         self._stop_all_note = stop_all_note
         self._shift_indicator_note = shift_indicator_note
+        self._scene_launch_notes = scene_launch_notes
+        self._shift_indicator_on_vel = TRACK_LED_ON
+        self._apc_label = apc_label
         self._hold_s = max(hold_s, 0.001)
         self._blink_start_half_s = blink_start_half_s
         self._blink_min_half_s = blink_min_half_s
         self._shift_down = False
         self._stop_down = False
+        self._shift_down_at: float | None = None
+        self._stop_down_before_shift = False
         self._combo_started_at: float | None = None
         self._suppress_until_release = False
         self._last_vel: dict[int, int] = {}
-        self._set_led(self._shift_indicator_note, TRACK_LED_OFF)
+        self.clear_unwired_surfaces()
+        if self._shift_indicator_note is not None:
+            self._set_led(self._shift_indicator_note, TRACK_LED_OFF)
         self._set_led(self._stop_all_note, SCENE_LED_OFF)
 
+    def clear_unwired_surfaces(self) -> None:
+        """Darken scene launch 1–7 and grid rows 1–7 (not wired until P3)."""
+        from apc_grid import RESERVED_GRID_NOTES
+
+        for note in self._scene_launch_notes:
+            self._set_led(note, SCENE_LED_OFF)
+        for note in RESERVED_GRID_NOTES:
+            self._set_led(note, LED_OFF)
+
+    def _darken_mk1_shift_ghost_surfaces(self) -> None:
+        """Re-assert dark on mk1 surfaces that ghost-glow when Shift is solo."""
+        if self._apc_label != "mk1" or not self._shift_down or self._stop_down:
+            return
+        self.clear_unwired_surfaces()
+
     def note_event(self, note: int, down: bool) -> None:
+        now = time.monotonic()
         if note == self._shift_note:
-            self._shift_down = down
+            if down:
+                self._shift_down = True
+                self._shift_down_at = now
+                self._stop_down_before_shift = self._stop_down
+                if self._apc_label == "mk1" and not self._stop_down_before_shift:
+                    self._stop_down = False
+                self._darken_mk1_shift_ghost_surfaces()
+            else:
+                self._shift_down = False
+                self._shift_down_at = None
         elif note == self._stop_all_note:
-            self._stop_down = down
+            if down and self._mk1_ghost_stop(now):
+                pass
+            else:
+                self._stop_down = down
         else:
             return
 
         self._maybe_clear_suppress()
         if self._suppress_until_release:
-            self._set_led(self._shift_indicator_note, TRACK_LED_OFF)
+            if self._shift_indicator_note is not None:
+                self._set_led(self._shift_indicator_note, TRACK_LED_OFF)
             self._set_led(self._stop_all_note, SCENE_LED_OFF)
             return
 
         if self._shift_down and self._stop_down:
             if self._combo_started_at is None:
-                self._combo_started_at = time.monotonic()
+                self._combo_started_at = now
         else:
             self._combo_started_at = None
 
-        self._apply(time.monotonic())
+        self._apply(now)
+
+    def _mk1_ghost_stop(self, now: float) -> bool:
+        """True when mk1 Scene 8 (Stop All note) fired spuriously with Shift."""
+        if self._apc_label != "mk1" or not self._shift_down:
+            return False
+        if self._stop_down_before_shift:
+            return False
+        if self._shift_down_at is None:
+            return False
+        if MK1_GHOST_STOP_S <= 0.0:
+            return False  # filter off — see MK1_GHOST_SHIFT_S
+        return (now - self._shift_down_at) < MK1_GHOST_STOP_S
 
     def poll(self) -> None:
         """Drive accelerating combo blink between MIDI events."""
         if self._suppress_until_release:
             return
+        self._darken_mk1_shift_ghost_surfaces()
         if self._shift_down and self._stop_down and self._combo_started_at is not None:
             self._apply(time.monotonic())
 
@@ -269,7 +446,8 @@ class TransportButtonLeds:
         """Track reset completed — dark until both buttons are released."""
         self._suppress_until_release = True
         self._combo_started_at = None
-        self._set_led(self._shift_indicator_note, TRACK_LED_OFF)
+        if self._shift_indicator_note is not None:
+            self._set_led(self._shift_indicator_note, TRACK_LED_OFF)
         self._set_led(self._stop_all_note, SCENE_LED_OFF)
 
     def _maybe_clear_suppress(self) -> None:
@@ -286,16 +464,18 @@ class TransportButtonLeds:
                 blink_start_half_s=self._blink_start_half_s,
                 blink_min_half_s=self._blink_min_half_s,
             )
-            track_vel = TRACK_LED_ON if blink_on else TRACK_LED_OFF
             scene_vel = SCENE_LED_ON if blink_on else SCENE_LED_OFF
-            self._set_led(self._shift_indicator_note, track_vel)
+            if self._shift_indicator_note is not None:
+                track_vel = self._shift_indicator_on_vel if blink_on else TRACK_LED_OFF
+                self._set_led(self._shift_indicator_note, track_vel)
             self._set_led(self._stop_all_note, scene_vel)
             return
 
-        self._set_led(
-            self._shift_indicator_note,
-            TRACK_LED_ON if self._shift_down else TRACK_LED_OFF,
-        )
+        if self._shift_indicator_note is not None:
+            self._set_led(
+                self._shift_indicator_note,
+                self._shift_indicator_on_vel if self._shift_down else TRACK_LED_OFF,
+            )
         self._set_led(
             self._stop_all_note,
             SCENE_LED_ON if self._stop_down else SCENE_LED_OFF,

@@ -48,6 +48,10 @@ ENABLED=(
 # meter off again with MPE_PEAK_METER=1 still set and nothing in the journal.
 # A unit that disables itself on each provisioning run is the ghost-unit pattern
 # (Documents/DECISIONS.md 2026-08-15: a state that reads the same broken or fine).
+# mpe-restart-bench is in NEITHER list on purpose. It is a manually-triggered
+# recovery oneshot (#112) and has no [Install] section, so it cannot be enabled
+# at boot and does not need disabling either. Adding it to DISABLED would run
+# `systemctl disable` against a unit with no install target on every deploy.
 DISABLED=(
     midi-clock-out
     boot-animation

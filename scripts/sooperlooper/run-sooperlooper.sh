@@ -17,7 +17,7 @@ SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")" && 
 
 SOOP_BIN="${MPE_SOOPERLOOPER_BIN:-${HOME}/src/sooperlooper-1.7.9/src/sooperlooper}"
 OSC_PORT="${MPE_SL_OSC_PORT:-9951}"
-LOOPS="${MPE_SL_LOOPS:-16}"
+LOOPS="${MPE_SL_LOOPS:-15}"  # 15 usable max — see sl_limits.py
 TIME_MAX="${MPE_SL_TIME_MAX:-40}"
 JACK_CLIENT="${MPE_SL_JACK_CLIENT:-mpe-looper}"
 
@@ -36,6 +36,17 @@ if ! mpe_wait_for_jack_server "${MPE_SL_JACK_WAIT_S:-30}"; then
     echo "run-sooperlooper: JACK server not accepting clients — refusing to start" >&2
     exit 1
 fi
+
+# Reap any engine systemd does not own before starting ours. Without this a
+# hand-started SooperLooper (SSH, bench work) survives every `systemctl restart`
+# — it lives in a login session's cgroup — and we come up as a SECOND client
+# claiming the same JACK name. On 2026-08-26 that pair stalled the graph and
+# killed all audio for eleven hours' worth of orphan. Prevention is here;
+# restart-bench.sh carries the cure for a stack already in that state.
+mpe_reap_stray_engines sooperlooper "mpe-sooperlooper.service" "run-sooperlooper preflight" || {
+    echo "run-sooperlooper: stray engine could not be reaped — refusing to start a duplicate" >&2
+    exit 1
+}
 
 echo "run-sooperlooper: ${LOOPS} loops, -t ${TIME_MAX}, OSC ${OSC_PORT}, client ${JACK_CLIENT}"
 exec "$SOOP_BIN" -q -D yes -l "$LOOPS" -c 2 -t "$TIME_MAX" \

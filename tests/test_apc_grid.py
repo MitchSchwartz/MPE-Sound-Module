@@ -8,11 +8,14 @@ one track, which is what makes per-column state expressible later.
 import unittest
 
 from scripts.sooperlooper.apc_grid import (
+    NUM_LOOPS,
     CONTROLLER_ROWS,
     MAX_VIEW_OFFSET,
+    RESERVED_GRID_NOTES,
     GridView,
     all_clip_pads,
     is_clip_note,
+    is_reserved_grid_note,
     pad_note,
 )
 
@@ -29,21 +32,29 @@ class ApcGridTests(unittest.TestCase):
         for row in CONTROLLER_ROWS:
             self.assertIsNone(view.loop_for_pad(row, 0))
 
+    def test_reserved_grid_notes_are_rows_one_through_seven(self) -> None:
+        self.assertEqual(len(RESERVED_GRID_NOTES), 7 * 8)
+        for note in RESERVED_GRID_NOTES:
+            self.assertTrue(is_reserved_grid_note(note))
+            self.assertFalse(is_clip_note(note))
+        self.assertFalse(is_reserved_grid_note(pad_note(0, 0)))
+
     def test_row_three_is_no_longer_a_clip_row(self) -> None:
         self.assertIsNone(GridView().loop_for_note(pad_note(3, 0)))
         self.assertFalse(is_clip_note(pad_note(3, 0)))
 
     def test_banking_shifts_which_tracks_are_shown(self) -> None:
-        view = GridView(offset=8)
-        self.assertEqual(view.visible_loops(), tuple(range(8, 16)))
-        self.assertEqual(view.loop_for_pad(0, 0), 8)
-        self.assertEqual(view.note_for_loop(8), pad_note(0, 0))
+        view = GridView(offset=MAX_VIEW_OFFSET)
+        self.assertEqual(view.visible_loops(), tuple(range(7, 15)))
+        self.assertEqual(view.loop_for_pad(0, 0), MAX_VIEW_OFFSET)
+        self.assertEqual(view.note_for_loop(MAX_VIEW_OFFSET), pad_note(0, 0))
         self.assertIsNone(view.note_for_loop(0))
 
     def test_scroll_clamps_and_never_wraps(self) -> None:
         self.assertEqual(GridView().scrolled(-8).offset, 0)
-        self.assertEqual(GridView(offset=8).scrolled(8).offset, MAX_VIEW_OFFSET)
-        self.assertEqual(GridView(offset=7).scrolled(1).offset, 8)
+        self.assertEqual(GridView(offset=MAX_VIEW_OFFSET).scrolled(8).offset, MAX_VIEW_OFFSET)
+        self.assertEqual(GridView(offset=MAX_VIEW_OFFSET).scrolled(1).offset,
+                         MAX_VIEW_OFFSET, 'clamps at the last bank')
         self.assertFalse(GridView().can_scroll(-1))
         self.assertTrue(GridView().can_scroll(1))
 
@@ -54,14 +65,14 @@ class ApcGridTests(unittest.TestCase):
                 self.assertEqual(view.loop_for_note(pad_note(row, col)), loop_i)
                 self.assertEqual(view.note_for_loop(loop_i), pad_note(row, col))
 
-    def test_eight_visible_pads_covering_sixteen_tracks_across_banks(self) -> None:
+    def test_eight_visible_pads_covering_every_track_across_banks(self) -> None:
         self.assertEqual(len(GridView().visible_pads()), 8)
         self.assertEqual(len(all_clip_pads()), 8)
-        seen = set(GridView().visible_loops()) | set(GridView(offset=8).visible_loops())
-        self.assertEqual(sorted(seen), list(range(16)))
+        seen = set(GridView().visible_loops()) | set(GridView(offset=MAX_VIEW_OFFSET).visible_loops())
+        self.assertEqual(sorted(seen), list(range(NUM_LOOPS)))
 
     def test_column_holds_exactly_one_track(self) -> None:
-        for offset in (0, 3, 8):
+        for offset in (0, 3, MAX_VIEW_OFFSET):
             view = GridView(offset=offset)
             for col in range(8):
                 self.assertEqual(view.loops_for_column(col), (offset + col,))

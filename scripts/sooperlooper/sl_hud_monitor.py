@@ -30,13 +30,17 @@ sys.path.insert(0, str(REPO_ROOT))
 
 from patch_browser.looper_health import JackGraphHealth, collect_jack_graph_health  # noqa: E402
 from patch_browser.sl_hud_state import SL_HUD_STATE_FILE  # noqa: E402
+# No loop is reserved any more — the seam-weld scratch buffer is gone (SR&ED
+# §3 U11). -1 means "hide nothing". Must match looper_songs.SCRATCH.
+SCRATCH_LOOP = int(os.environ.get("MPE_SL_SCRATCH_LOOP", "-1"))
 
 WRITE_INTERVAL_S = float(os.environ.get("MPE_SL_HUD_WRITE_INTERVAL_S", "0.5"))
 REREGISTER_INTERVAL_S = 15.0
 SL_HOST = os.environ.get("MPE_SL_OSC_HOST", "127.0.0.1")
 SL_PORT = int(os.environ.get("MPE_SL_OSC_PORT", "9951"))
-NUM_LOOPS = int(os.environ.get("MPE_SL_LOOPS", "16"))
-SCRATCH_LOOP = int(os.environ.get("MPE_SL_SCRATCH_LOOP", "15"))
+from sl_limits import resolve_num_loops  # noqa: E402
+
+NUM_LOOPS = resolve_num_loops()
 PLAYING_STATES = frozenset({4, 5})
 
 
@@ -137,6 +141,32 @@ class HudWriter:
         return loop, phrase_len, bars
 
     def _from_sl(self) -> dict | None:
+        """Build the HUD payload from engine state.
+
+        KNOWN ISSUE (2026-08-26, parked deliberately — display only).
+        `bars_in_phrase` below is inferred as round(phrase_len / bar_span),
+        where bar_span comes from the ENGINE's current tempo. During the
+        defining take no grid exists yet, so that tempo is still the startup
+        default from apply_grid_sync — the take is being divided by a bar that
+        has not been set. A 4.4 s first take against a default 120 BPM (2 s)
+        bar reads TWO bars, then snaps to one when the grid establishes at the
+        first wrap. The snap is a late correction, not the grid settling.
+
+        derive_tempo() already returns bars=1 for the defining take and says so
+        explicitly: the first take is one bar "by definition rather than by
+        inference". The correct number exists; this function does not have it.
+
+        Not fixed because the fix is not local: the HUD monitor has no grid
+        awareness at all, and GridState lives in the bench process. Plumbing
+        establishment state across processes is real work for a readout that
+        self-corrects within one wrap and has no functional effect.
+
+        If you do fix it: publish "grid established" into the HUD state and
+        report 1 bar (or nothing) until it is true. Do NOT try to correct it by
+        adjusting the engine cycle — re-asserting eighth_per_cycle after the
+        tempo was tried on 2026-08-26 and made the readout THREE bars, because
+        it moved the same ratio rather than removing the inference.
+        """
         tempo = self._sl.cached("tempo", -1)
         if not tempo:
             return None

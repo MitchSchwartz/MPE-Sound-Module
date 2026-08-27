@@ -26,7 +26,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-NUM_LOOPS = 16
+from sl_limits import MAX_USABLE_LOOPS
+
+# 15, not 16 — SooperLooper 1.7.9 stops at index 14. See sl_limits.
+NUM_LOOPS = MAX_USABLE_LOOPS
 GRID_COLS = 8
 GRID_ROWS = 8
 
@@ -51,6 +54,12 @@ def pad_note(row: int, col: int) -> int:
     return row * 8 + col
 
 
+# Grid notes for rows 1–7 (reserved — multi-clip slot rows 1–7 land here in P3).
+RESERVED_GRID_NOTES: tuple[int, ...] = tuple(
+    pad_note(row, col) for row in range(1, GRID_ROWS) for col in range(GRID_COLS)
+)
+
+
 def note_to_row_col(note: int) -> tuple[int, int] | None:
     if not 0 <= note <= 63:
         return None
@@ -61,6 +70,12 @@ def is_clip_note(note: int) -> bool:
     """Is this note a clip pad at all (any bank)?"""
     rc = note_to_row_col(note)
     return rc is not None and rc[0] == CLIP_ROW
+
+
+def is_reserved_grid_note(note: int) -> bool:
+    """Grid rows 1–7 — not wired until multi-clip P3."""
+    rc = note_to_row_col(note)
+    return rc is not None and rc[0] != CLIP_ROW
 
 
 @dataclass(frozen=True)

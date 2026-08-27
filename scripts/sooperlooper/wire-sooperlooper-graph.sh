@@ -14,7 +14,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")" && pwd)"
 
 JACK_CLIENT="${MPE_SL_JACK_CLIENT:-mpe-looper}"
-LOOPS="${MPE_SL_LOOPS:-16}"
+LOOPS="${MPE_SL_LOOPS:-15}"  # 15 usable max — see sl_limits.py
 SURGE_CLIENT="${MPE_SL_SURGE_CLIENT:-Surge XT}"
 WAIT_S="${MPE_SL_GRAPH_WAIT_S:-20}"
 
