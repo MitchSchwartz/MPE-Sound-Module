@@ -64,6 +64,65 @@ def musical_loop_indices(*, num_loops: int = NUM_LOOPS, scratch_loop: int = SCRA
     return [i for i in range(num_loops) if i != scratch_loop]
 
 
+# Durability. This is an appliance people switch off at the wall, so "Saved"
+# has to mean the song survives that — not that it reached the page cache.
+#
+# Measured in SP1 (2026-08-26): SooperLooper's save_loop returned a ~1.5 MB WAV
+# in 2.1 ms. That is ~700 MB/s on a Class-10 SD card, i.e. nothing touched the
+# card at all. SL never fsyncs, and neither did we. The file existing on disk —
+# which is all _save_loop_blocking waits for — proves only that the kernel
+# accepted the write.
+#
+# So every file the save path produces is fsynced, and so is the directory that
+# names it: without the directory fsync the rename of the manifest into place
+# can be lost even though the manifest's own contents are durable, which would
+# leave the WAVs on the card and no song pointing at them.
+#
+# Cost is paid once per save gesture, not per loop write, and it is real — tens
+# of ms on this card. That is the price of the toast being true. Set
+# MPE_LOOPER_FSYNC=0 to skip it (tests, or a session on a machine where the
+# save target is not the appliance's own card).
+FSYNC_ENABLED = os.environ.get("MPE_LOOPER_FSYNC", "1") != "0"
+
+
+def _fsync_file(path: Path) -> None:
+    """Flush one file's contents to the storage device.
+
+    Opened read-only on purpose: the writer here is SooperLooper, in another
+    process. fsync(2) on an O_RDONLY descriptor still flushes the inode's dirty
+    pages on Linux, and this way the save path never holds a writable handle to
+    a file SL may still be touching.
+    """
+    if not FSYNC_ENABLED:
+        return
+    try:
+        fd = os.open(path, os.O_RDONLY)
+    except OSError:
+        return
+    try:
+        os.fsync(fd)
+    except OSError:
+        pass
+    finally:
+        os.close(fd)
+
+
+def _fsync_dir(path: Path) -> None:
+    """Flush a directory entry, so creates and renames inside it are durable."""
+    if not FSYNC_ENABLED:
+        return
+    try:
+        fd = os.open(path, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+    except OSError:
+        return
+    try:
+        os.fsync(fd)
+    except OSError:
+        pass  # some filesystems refuse fsync on a directory; nothing to do
+    finally:
+        os.close(fd)
+
+
 def _save_loop_blocking(send, loop: int, path: Path) -> bool:
     """Ask SL to write a loop to disk and wait for the file to appear.
 
@@ -485,6 +544,8 @@ def save_song(
         if wav.stat().st_size < MIN_LOOP_WAV_BYTES:
             wav.unlink(missing_ok=True)
             continue
+        # Durable before the manifest can reference it — see FSYNC_ENABLED.
+        _fsync_file(wav)
         slots: list[SlotEntry | None] = [None] * NUM_SLOTS
         slots[slot_index] = SlotEntry(
             file=wav.name, len_s=float(loop_len), sl_state=int(state)
@@ -521,9 +582,15 @@ def save_song(
             message="Save aborted — " + "; ".join(problems[:3]),
         )
 
+    # Write, flush, rename, flush the directory. The rename is atomic, so a
+    # power cut either leaves the previous manifest or the new one — never a
+    # half-written file. The two fsyncs are what make that guarantee reach the
+    # card rather than stopping at the page cache.
     tmp = manifest.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    _fsync_file(tmp)
     tmp.replace(manifest)
+    _fsync_dir(root)
 
     if overwrite:
         keep = {
@@ -532,9 +599,13 @@ def save_song(
             for slot in entry.slots
             if slot is not None
         }
+        pruned = False
         for path in root.glob(f"{slug}_*.wav"):
             if path.name not in keep:
                 path.unlink(missing_ok=True)
+                pruned = True
+        if pruned:
+            _fsync_dir(root)
 
     return SongResult(ok=True, message=f"Saved '{name.strip()}'")
 

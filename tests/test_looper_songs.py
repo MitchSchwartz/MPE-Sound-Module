@@ -14,6 +14,8 @@ from tests import conftest  # noqa: F401
 from scripts.sooperlooper.looper_songs import (
     SlotEntry,
     SongResult,
+    _fsync_dir,
+    _fsync_file,
     TrackEntry,
     build_manifest_v2,
     list_songs,
@@ -474,3 +476,89 @@ class V1UpgradeTests(unittest.TestCase):
         self.assertFalse(result.ok)
         self.assertFalse(manifest_path("bad", songs_dir=self.root).exists(),
                          "no manifest may exist for a song that cannot reload")
+
+
+class DurabilityTests(unittest.TestCase):
+    """D1: a "Saved" toast must mean the song survives a power cut.
+
+    save_loop hit ~700 MB/s in SP1, which is the page cache, not the SD card.
+    These tests pin the flushes; without them a save looks identical whether
+    the bytes reached the card or not — the reading that cannot fail.
+    """
+
+    def setUp(self) -> None:
+        self.root = Path(tempfile.mkdtemp())
+        self.probe = MagicMock()
+
+        def get(ctrl, loop=None):
+            if ctrl == "tempo":
+                return 120.0
+            if loop == 0:
+                return {"state": SL_STATE_PLAYING, "loop_len": 2.0, "wet": 1.0}[ctrl]
+            return SL_STATE_OFF if ctrl == "state" else 0.0
+
+        self.probe.get.side_effect = get
+
+    def tearDown(self) -> None:
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def _save(self, **kw):
+        with patch(
+            "scripts.sooperlooper.looper_songs._save_loop_blocking",
+            side_effect=lambda _s, _l, path: (
+                path.write_bytes(b"\x00" * 4096), True
+            )[1],
+        ), patch("scripts.sooperlooper.looper_songs.time.sleep", return_value=None):
+            return save_song(self.probe, "Durable", songs_dir=self.root, **kw)
+
+    def test_save_syncs_every_wav_and_the_directory(self) -> None:
+        synced_files: list[Path] = []
+        synced_dirs: list[Path] = []
+        with patch("scripts.sooperlooper.looper_songs._fsync_file",
+                   side_effect=synced_files.append), \
+             patch("scripts.sooperlooper.looper_songs._fsync_dir",
+                   side_effect=synced_dirs.append):
+            result = self._save()
+        self.assertTrue(result.ok, result.message)
+        names = [p.name for p in synced_files]
+        self.assertIn(wav_path_v2("durable", 0, 0, songs_dir=self.root).name, names)
+        self.assertTrue(any(n.endswith(".json.tmp") for n in names),
+                        f"manifest flushed before the rename: {names}")
+        self.assertIn(self.root, synced_dirs,
+                      "directory flushed, or the rename itself can be lost")
+
+    def test_wavs_are_synced_before_the_manifest_is_written(self) -> None:
+        """Order matters. A manifest durable ahead of the audio it names is a
+        song that survives the power cut pointing at files that did not."""
+        order: list[str] = []
+        with patch("scripts.sooperlooper.looper_songs._fsync_file",
+                   side_effect=lambda p: order.append(p.suffix)), \
+             patch("scripts.sooperlooper.looper_songs._fsync_dir",
+                   side_effect=lambda p: order.append("dir")):
+            self.assertTrue(self._save().ok)
+        self.assertEqual(order[0], ".wav")
+        self.assertLess(order.index(".wav"), order.index(".tmp"))
+        self.assertLess(order.index(".tmp"), order.index("dir"))
+
+    def test_fsync_helpers_survive_a_missing_path(self) -> None:
+        """Best-effort by design — a vanished temp file must not turn a good
+        save into a crash on the instrument."""
+        _fsync_file(self.root / "nope.wav")
+        _fsync_dir(self.root / "nope")
+
+    def test_fsync_can_be_disabled_for_non_appliance_targets(self) -> None:
+        with patch("scripts.sooperlooper.looper_songs.FSYNC_ENABLED", False), \
+             patch("scripts.sooperlooper.looper_songs.os.open") as opened:
+            _fsync_file(self.root)
+            _fsync_dir(self.root)
+        opened.assert_not_called()
+
+    def test_fsync_file_really_flushes_a_real_file(self) -> None:
+        """Positive control: the helper must actually reach the fd layer.
+        Every other test here patches the helper out, so without this one they
+        would all still pass with the bodies emptied."""
+        target = self.root / "real.wav"
+        target.write_bytes(b"\x00" * 64)
+        with patch("scripts.sooperlooper.looper_songs.os.fsync") as fsync:
+            _fsync_file(target)
+        self.assertEqual(fsync.call_count, 1)
