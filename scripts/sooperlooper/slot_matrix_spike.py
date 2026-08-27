@@ -168,20 +168,47 @@ def _stats(name: str, xs: list[float]) -> None:
           f"max={xs[-1]*1000:.1f} ms")
 
 
+def control(osc: Osc, *, seconds: float) -> None:
+    """Positive control — the instrument must register a bigger job as slower.
+
+    Rule 0.5: an instrument that reads the same whether the work is small or
+    large is not measuring the work. If a 16 s clip loads in the same time as
+    a 1 s clip, the numbers below are a round-trip floor, not a load time.
+    """
+    print("\nCONTROL — does measured load time move with clip length?")
+    for secs in (1.0, 4.0, 16.0):
+        clip = write_clip(SPIKE_DIR / f"ctl-{secs}.wav", seconds=secs, hz=220.0)
+        osc.hit(0, "undo_all")
+        time.sleep(0.2)
+        t0 = time.monotonic()
+        osc.send("/sl/0/load_loop", [str(clip), "", ""])
+        ok = _wait_len(osc, 0, secs, 10.0)
+        dt = (time.monotonic() - t0) * 1000
+        print(f"  {secs:>5.1f}s clip ({clip.stat().st_size/1e6:.1f} MB): "
+              f"{dt:7.1f} ms{'' if ok else '  !! never landed'}")
+    osc.hit(0, "undo_all")
+    print("  If these are flat, the load numbers are a floor — do not use them.")
+
+
 # --- SP1 -------------------------------------------------------------------
 def sp1(osc: Osc, *, slots: int, seconds: float) -> None:
     print(f"\nSP1 — save/load latency, {NUM_LOOPS} tracks x {slots} slots "
-          f"({NUM_LOOPS * slots} clips, {seconds}s each)")
-    src = write_clip(SPIKE_DIR / "src.wav", seconds=seconds, hz=220.0)
-    loads, saves = [], []
+          f"({NUM_LOOPS * slots} clips, ~{seconds}s each)")
+    # Alternate two lengths so every load is observable: see _wait_len.
+    a = write_clip(SPIKE_DIR / "src-a.wav", seconds=seconds, hz=220.0)
+    b = write_clip(SPIKE_DIR / "src-b.wav", seconds=seconds * 0.75, hz=220.0)
+    loads, saves, missed = [], [], 0
     for track in range(NUM_LOOPS):
         for slot in range(slots):
+            src, want = (a, seconds) if slot % 2 == 0 else (b, seconds * 0.75)
             dst = SPIKE_DIR / f"t{track}s{slot}.wav"
             shutil.copyfile(src, dst)
             t0 = time.monotonic()
             osc.send(f"/sl/{track}/load_loop", [str(dst), "", ""])
-            if _wait_state(osc, track, lambda v: v not in (None, 0.0, 20.0), 5.0):
+            if _wait_len(osc, track, want, 5.0):
                 loads.append(time.monotonic() - t0)
+            else:
+                missed += 1
             out = SPIKE_DIR / f"save-t{track}s{slot}.wav"
             if out.exists():
                 out.unlink()
@@ -191,6 +218,9 @@ def sp1(osc: Osc, *, slots: int, seconds: float) -> None:
                 saves.append(time.monotonic() - t0)
     _stats("load_loop", loads)
     _stats("save_loop", saves)
+    if missed:
+        print(f"  !! {missed} loads never reached the expected length — "
+              f"numbers above are incomplete")
     print(f"  full-matrix save total: {sum(saves):.1f}s "
           f"({NUM_LOOPS * slots} clips) — this is the touch-UI budget")
 
@@ -204,10 +234,19 @@ def _wait_file(path: Path, timeout: float) -> bool:
     return False
 
 
-def _wait_state(osc: Osc, loop: int, pred, timeout: float) -> bool:
+def _wait_len(osc: Osc, loop: int, want: float, timeout: float) -> bool:
+    """Wait for the loop to actually hold a clip of ``want`` seconds.
+
+    NOT "state is no longer empty". A loop that already holds a clip satisfies
+    that the instant it is asked, so the first version of this measured one
+    OSC round-trip instead of the load and reported a floor of 3.3 ms on every
+    call. Loop length is the one observable that a stale buffer cannot fake —
+    so consecutive loads alternate between clips of *different* length.
+    """
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        if pred(osc.get(loop, "state", timeout=0.1)):
+        got = osc.get(loop, "loop_len", timeout=0.1)
+        if got is not None and abs(float(got) - want) < 0.02:
             return True
     return False
 
@@ -216,15 +255,20 @@ def _wait_state(osc: Osc, loop: int, pred, timeout: float) -> bool:
 def sp2(osc: Osc, *, trials: int, seconds: float) -> None:
     print(f"\nSP2 — single-swap load_loop latency ({trials} trials)")
     a = write_clip(SPIKE_DIR / "swap-a.wav", seconds=seconds, hz=220.0)
-    b = write_clip(SPIKE_DIR / "swap-b.wav", seconds=seconds, hz=330.0)
+    b = write_clip(SPIKE_DIR / "swap-b.wav", seconds=seconds * 0.75, hz=330.0)
     xs = []
+    missed = 0
     for i in range(trials):
-        path = a if i % 2 else b
+        path, want = (a, seconds) if i % 2 else (b, seconds * 0.75)
         t0 = time.monotonic()
         osc.send("/sl/0/load_loop", [str(path), "", ""])
-        if _wait_state(osc, 0, lambda v: v not in (None, 0.0, 20.0), 5.0):
+        if _wait_len(osc, 0, want, 5.0):
             xs.append(time.monotonic() - t0)
+        else:
+            missed += 1
     _stats("swap load_loop", xs)
+    if missed:
+        print(f"  !! {missed} swaps never took effect")
     print("  budget: must fit inside one bar at the working tempo "
           "(120 BPM 4/4 = 2000 ms) with room for the mute + trigger")
 
@@ -293,12 +337,14 @@ def main() -> int:
     ap.add_argument("--sp4", action="store_true")
     ap.add_argument("--sp7", action="store_true")
     ap.add_argument("--all", action="store_true")
+    ap.add_argument("--control", action="store_true",
+                    help="positive control: does load time move with clip length?")
     ap.add_argument("--slots", type=int, default=8, help="slots per track (SP1)")
     ap.add_argument("--trials", type=int, default=20, help="swaps (SP2)")
     ap.add_argument("--seconds", type=float, default=2.0, help="clip length")
     ap.add_argument("--keep", action="store_true", help="do not clear loops after")
     a = ap.parse_args()
-    if not (a.sp1 or a.sp2 or a.sp4 or a.sp7 or a.all):
+    if not (a.sp1 or a.sp2 or a.sp4 or a.sp7 or a.control or a.all):
         ap.print_help()
         return 2
 
@@ -310,6 +356,8 @@ def main() -> int:
     SPIKE_DIR.mkdir(parents=True, exist_ok=True)
     print(f"slot-matrix spike — {NUM_LOOPS} loops, artifacts in {SPIKE_DIR}")
 
+    if a.control or a.all:
+        control(osc, seconds=a.seconds)
     if a.sp1 or a.all:
         sp1(osc, slots=a.slots, seconds=a.seconds)
     if a.sp2 or a.all:
