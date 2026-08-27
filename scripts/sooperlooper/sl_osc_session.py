@@ -176,18 +176,6 @@ class SlOscSession:
             flush=True,
         )
 
-    def register_tail_peak(self, loop: int, *, update_ms: int) -> None:
-        self.client.send_message(
-            f"/sl/{loop}/register_auto_update",
-            ["in_peak_meter", update_ms, self.returl(), "/sl/bench/state"],
-        )
-
-    def unregister_tail_peak(self, loop: int) -> None:
-        self.client.send_message(
-            f"/sl/{loop}/unregister_auto_update",
-            ["in_peak_meter", self.returl(), "/sl/bench/state"],
-        )
-
     def register_all(self, *, num_loops: int) -> None:
         """Subscribe bench + HUD, then seed tempo if still unknown."""
         self.register_hud()
