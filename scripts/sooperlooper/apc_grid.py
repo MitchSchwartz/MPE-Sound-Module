@@ -76,7 +76,7 @@ def is_clip_note(note: int) -> bool:
 
 
 def is_reserved_grid_note(note: int) -> bool:
-    """Grid rows 1–7 — not wired until multi-clip P3."""
+    """Grid rows 1–7 — ignored when ``MPE_SL_MULTIGRID=0`` (single-clip mode)."""
     rc = note_to_row_col(note)
     return rc is not None and rc[0] != CLIP_ROW
 
