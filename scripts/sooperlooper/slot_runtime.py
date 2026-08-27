@@ -92,10 +92,6 @@ class SlotRuntime:
         if not self._execute_slot_ops(plan, sl_state=sl_state):
             return replace(plan, action=ACT_NOOP, note=f"{plan.note} — FAILED")
         self._tracks[track_index] = apply_pending(self.track(track_index), plan)
-        if plan.action == ACT_RECORD:
-            self._tracks[track_index] = replace(
-                self.track(track_index), active_slot=plan.slot
-            )
         if plan.note:
             self._log(f"track {track_index + 1} slot {slot + 1}: {plan.note}")
         return plan
@@ -193,6 +189,17 @@ class SlotRuntime:
             elif plan.save_first and not self._flush_active(loop):
                 return False
             self._send(f"/sl/{loop}/hit", ["undo_all"])
+
+        # The buffer is now this slot's, so the binding moves NOW — not when
+        # the take lands. `_maybe_mark_recorded` refuses to register a take on
+        # a slot that already holds one, so leaving the binding on the outgoing
+        # slot means the new take is never recorded anywhere: the pad stays
+        # dark and the next press records over it again.
+        #
+        # This lives here rather than in `press()` because `dispatch()` — the
+        # scene path — never ran that branch, so the same plan bound the slot
+        # or not depending on which caller produced it.
+        self._tracks[loop] = replace(self.track(loop), active_slot=plan.slot)
         return True
 
     def _launch(self, plan: SlotPlan) -> bool:
