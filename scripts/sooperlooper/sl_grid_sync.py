@@ -17,7 +17,7 @@ see Documents/specs/looper-transport-clock-spec.md §J.
 
 from __future__ import annotations
 
-from sl_limits import MAX_USABLE_LOOPS
+from sl_limits import MAX_USABLE_LOOPS, resolve_num_loops
 
 import os
 import sys

@@ -8,6 +8,7 @@ import time
 import pygame
 
 from patch_browser.dsi_splash import release_display_for_shutdown, trigger_user_shutdown
+from patch_browser.geometry import Rect
 from patch_browser.shutdown_trace import begin_shutdown_session, log_shutdown_event
 from patch_browser.touch_ui_constants import (
     SETTINGS_PANEL_HEADER_H,
