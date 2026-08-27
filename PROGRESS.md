@@ -104,14 +104,14 @@ SP1/SP2/SP4 pass with 2–3 orders of magnitude of margin; SP6 measured.
 
 | # | Task | Exact gesture | Why it matters |
 |---|---|---|---|
-| **SP8** | **Is the mk1 Shift ghost real?** | Start `aseqdump -p "APC MINI"`, press **Shift alone 5–6×, touching nothing else**. Any note but `0x62` is a ghost. | `apc_transport` claims Shift "often" ghost-fires Scene 1–8 / Track Select, and `a1bcb4b` filters all of them for `MK1_GHOST_SHIFT_S = 80 ms`. **The SP6 capture contained no ghost.** If it is not real, the filter is eating genuine Shift+Scene presses — the exact P3 chord. **Blocks P3.** |
-| **SP3b** | **Does a re-tap cancel a queued switch?** | **A:** clip playing → tap (queues stop) → tap again before the bar → *should keep playing*. **B:** clip stopped → tap (queues launch) → tap again before the bar → *should stay silent*. | P0 was reverted once by `2500782` with no reason recorded, and `c509ed9` restores it. Driving this over OSC produced **two false PASSes** — SooperLooper sets the target state optimistically and defers the audio, so state polling cannot tell "cancelled" from "happened then undone". Only the ear can. Mitch: *"low risk overall"*. |
+| ~~**SP8**~~ | **Done 2026-08-27 — REFUTED.** Shift alone emitted note `0x62` and nothing else, four clean press/release pairs. With the SP6 capture that is two independent observations and zero ghost notes. The 80 ms filter was eating the genuine Shift+Scene chord; `MK1_GHOST_SHIFT_S` now defaults to 0 (`07bff9e`), mechanism kept behind `MPE_APC_MK1_GHOST_S`. **P3 unblocked.** |
+| ~~**SP3b**~~ | **Done 2026-08-27 — both PASS by ear.** Queued stop re-tapped before the bar keeps playing; queued launch re-tapped before the bar stays silent. P0 and the `pause_on` cancel are confirmed on hardware. Had to be by ear: SL sets the target state the instant a trigger is queued, which is how two automated runs PASSed vacuously. |
 
 #### Open decision — not a test
 
 | # | Question | Evidence |
 |---|---|---|
-| **D1** | **`save_loop` durability.** A "Saved" toast does not currently mean the song survives a power cut. | SP1 measured `save_loop` at **2.1 ms for a ~1.5 MB WAV** — ~700 MB/s, i.e. the **page cache**, not the SD card. SL does not fsync. Fine for UI responsiveness; not persistence. This is an appliance people switch off at the wall. **Decide before manifest v2 hardens** — the spec does not currently raise it. |
+| ~~**D1**~~ | **Done 2026-08-27 — write to the card.** Mitch: *"let's write to sd actually and do what the feature promises."* Every WAV fsynced before the manifest names it, manifest fsynced before its rename, directory fsynced after (`07bff9e`). `MPE_LOOPER_FSYNC=0` opts out. **Still unmeasured on the Pi** — the added latency per save gesture needs a number. |
 
 #### Autonomous — no Mitch needed
 
@@ -119,7 +119,7 @@ SP1/SP2/SP4 pass with 2–3 orders of magnitude of margin; SP6 measured.
 |---|---|
 | ~~**P1**~~ | **Done** — `slot_matrix.py` (`0c039e7`, 31 tests) + manifest v2 (`83cade9`, 26 tests). Pushed to `dev`; **not deployed to the Pi** — v2 changes what `save_song` writes to disk, and that is not a change to make on Mitch's instrument overnight without him. Suite: 1186 passed. |
 | **P2** | APC all rows — the actual Ableton gesture. Also closes the audible half of SP7 (state machine confirmed; Surge was silent, so the ring-out seam is untested). |
-| **P3** | Scene Launch rows 0–6 across 16 tracks. **Gated on SP8.** |
+| **P3** | Scene Launch rows 0–6 across 16 tracks. ~~Gated on SP8~~ — **unblocked**, the ghost filter that would have eaten the chord is off. |
 
 ### Track C — Pi 5, on arrival
 
