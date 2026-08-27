@@ -451,7 +451,7 @@ Not facts to be corrected — product calls. Each needs a dated DECISIONS row.
 | **OPEN-1** | Row 7 has no scene button on mk1 (note `0x59` is Stop All). mk2 has a dedicated Stop All (`0x77`) and may have 8 free scene buttons. | (a) 7 scene rows on both variants — row 7 pad-only, behaviour identical everywhere. (b) 8 rows on mk2, 7 on mk1 — full use of the hardware, divergent muscle memory. (c) 7 slots per track, dropping row 7 entirely — perfectly regular, loses 15 slots. | **(a)** until SP6 confirms mk2's notes. Identical behaviour across variants beats one extra row; (c) stays available if the asymmetry grates. |
 | **OPEN-2** | Record-while-playing (see §One buffer per track). | (a) v1 ships silence-on-arm; revisit later on the indirection laid down now. (b) Reserve spare loop indices now, ~halving track count, for unconditional record-while-playing. | **(a)**. 16 tracks with a known limitation beats ~8 tracks with a richer gesture, and rev 2's indirection keeps (b) cheap later. Mitch's call — it is a playing-feel question, not a technical one. |
 | ~~**OPEN-3**~~ | ~~Scratch loop index~~ | — | **CLOSED rev 3.** `a99cf63` removed the scratch loop; `MPE_SL_SCRATCH_LOOP` defaults to `-1`. No index is reserved and the track space is contiguous. |
-| **OPEN-4** | **Slot switch while the ring-out overdub is running.** A take closes into a one-pass overdub (`117f4cc`, `1a90d51`); the track is `OVERDUBBING` for a full pass. What does a switch queued on that track during the overdub do? | (a) **Block** the switch until the overdub ends — simple, but a pad press does nothing for up to one pass, which reads as a dropped press. (b) **Defer**: accept the press, end the overdub at the wrap as it would have anyway, apply the switch at the same boundary. (c) **Cut it short**: end the overdub immediately on the press and switch at the next bar, losing the rest of the ring-out. | **(b)** — the overdub already ends at the wrap, which is the same boundary a quantized switch lands on, so the two coincide naturally and nothing is lost. Needs SP7 to confirm SL accepts `overdub` off + `mute_on` + `load_loop` on one boundary. |
+| **OPEN-4** *(SP7 partial — leaning (b))* | **Slot switch while the ring-out overdub is running.** A take closes into a one-pass overdub (`117f4cc`, `1a90d51`); the track is `OVERDUBBING` for a full pass. What does a switch queued on that track during the overdub do? | (a) **Block** the switch until the overdub ends — simple, but a pad press does nothing for up to one pass, which reads as a dropped press. (b) **Defer**: accept the press, end the overdub at the wrap as it would have anyway, apply the switch at the same boundary. (c) **Cut it short**: end the overdub immediately on the press and switch at the next bar, losing the rest of the ring-out. | **(b)** — the overdub already ends at the wrap, which is the same boundary a quantized switch lands on, so the two coincide naturally and nothing is lost. Needs SP7 to confirm SL accepts `overdub` off + `mute_on` + `load_loop` on one boundary. |
 
 ---
 
@@ -529,7 +529,7 @@ first, then fills multi-slot once swap logic exists.
 
 | Risk | Mitigation |
 |------|------------|
-| 128 WAVs × load time on full load | Lazy load inactive slots; spike save_loop/load_loop timing |
+| ~~128 WAVs × load time on full load~~ | **Retired by SP1** — 0.3 s for the full matrix. Lazy loading is still right for *memory*, not for load time |
 | Memory with many occupied idle slots | Same as 64 idle loops — monitor VmRSS; `-t` tuning |
 | Cancel via `mute_off` vs SL WAIT states | Spike on engine; mirror WAIT_STOP cancel (`record` cancel pattern) |
 | Scene row + pending switch race | Single pending per track; scene applies after cancel clears |
@@ -546,16 +546,16 @@ Run on bench (Pi or laptop + SL):
 
 | # | Question | Method | Pass |
 |---|----------|--------|------|
-| SP1 | `save_loop` / `load_loop` timing for 16 tracks × up to 8 slots (128 max) | Script: measure per-call latency, full matrix save | Document p95; touch UI timeout budget |
-| SP2 | Inactive slot `load_loop` latency at launch | Measure single swap load_loop p95 | Within touch/APC timeout budget (disk-only lazy — **decided**) |
+| ✅ SP1 | `save_loop` / `load_loop` timing, 16 × 8 = 128 | `slot_matrix_spike.py --sp1` | **PASS 2026-08-26.** load p95 **7.1 ms**, save p95 **2.3 ms**, full matrix **0.3 s**. Budget not under pressure |
+| ✅ SP2 | Inactive slot `load_loop` latency at launch | `slot_matrix_spike.py --sp2` | **PASS 2026-08-26.** p95 **6.8 ms** vs a 2000 ms bar — ~300× margin |
 | SP3 | **mute_off cancel** for pending quantized mute | Tap play → tap stop → re-tap before bar | Outgoing keeps playing; no glitch |
 | SP3b | **pause_on cancel** for pending quantized launch | Tap stop (muted) → tap launch → re-tap before bar | Stays stopped/muted; no launch at bar |
-| SP4 | Switch: mute track A slot + load B + trigger same boundary | OSC sequence from bench | One audible clip after boundary |
+| ✅ SP4 | Switch: mute A + load B + trigger, one boundary | `slot_matrix_spike.py --sp4` | **PASS (state level) 2026-08-26.** Lands playing. Audible check deferred to P2 |
 | SP5 | Scene row launch with 16 tracks (8 off-screen) | Iterate `musical_loop_indices()` | All occupied cells in row queue |
-| **SP7** | **Switch queued while the ring-out overdub is running** (rev 3, settles OPEN-4) | Record a take on track T, then during its one-pass overdub tap another slot in the same column | At the wrap: overdub ends, outgoing mutes, incoming loads and plays — one audible clip, no pop |
+| ⚠️ SP7 | **Switch queued while the ring-out overdub is running** (rev 3, settles OPEN-4) | `slot_matrix_spike.py --sp7` | **PARTIAL 2026-08-26.** State machine confirmed: SL accepts overdub-off + switch in one burst and lands playing. **Audible seam untested** — Surge was silent, so the overdub recorded zero. Needs a played take (P2) |
 | **SP6** | **Scene Launch note numbers per APC variant** | `sooperlooper-apc-bench.py --dump-midi`, press each scene button on mk1 (and mk2 if available) | Confirmed note list; settles [OPEN-1](#open-decisions) for mk2 |
 
-Spike write-up: `docs/measurements/multi-clip-slot-spike-YYYY-MM-DD.md`.
+Spike write-up: [`multi-clip-slot-spike-2026-08-26.md`](../../docs/measurements/multi-clip-slot-spike-2026-08-26.md) — **read its instrument audit first**; two instruments in the harness could not fail and produced plausible numbers.
 
 ---
 
@@ -573,9 +573,15 @@ Spike write-up: `docs/measurements/multi-clip-slot-spike-YYYY-MM-DD.md`.
 | 8 | ~~**Track count (rev 2):** 15 tracks — loop 14 is scratch.~~ **Superseded rev 3: 16 tracks, contiguous.** The scratch loop was deleted with the seam-weld pipeline (`a99cf63`). |
 | 9 | **Scene rows (rev 2):** Scene Launch 1–7 → rows 0–6. Row 7 pad-only pending [OPEN-1](#open-decisions). |
 
-**Next step (rev 3):** the `sl_hud_monitor` fix is done and OPEN-3 is closed, so the
-queue is now **P0 pending-mute cancel on the single-slot model → spikes SP1–SP7 →
-P1 touch v2**. P0 is unchanged by rev 3 and is still blocking for P2/P3.
+**Next step (rev 3, updated 2026-08-26 evening):** P0 is restored in `c509ed9` — it had
+been dropped by `2500782` and was absent from shipped code despite Gate A listing it
+complete. SP1/SP2/SP4 pass and SP7 is partial, so latency is settled and the queue is now:
+
+1. **Hardware-confirm SP3b** — the `pause_on` launch-cancel has only ever run against
+   `FakeSlEngine`, and `2500782` reverted it once without recording a reason.
+2. **SP6** — scene launch note numbers; needs a human pressing buttons.
+3. **P1** — `slot_matrix.py` + manifest v2.
+4. **P2** — APC all rows, which also closes the audible half of SP7.
 
 ---
 
