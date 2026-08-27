@@ -37,6 +37,17 @@ if ! mpe_wait_for_jack_server "${MPE_SL_JACK_WAIT_S:-30}"; then
     exit 1
 fi
 
+# Reap any engine systemd does not own before starting ours. Without this a
+# hand-started SooperLooper (SSH, bench work) survives every `systemctl restart`
+# — it lives in a login session's cgroup — and we come up as a SECOND client
+# claiming the same JACK name. On 2026-08-26 that pair stalled the graph and
+# killed all audio for eleven hours' worth of orphan. Prevention is here;
+# restart-bench.sh carries the cure for a stack already in that state.
+mpe_reap_stray_engines sooperlooper "mpe-sooperlooper.service" "run-sooperlooper preflight" || {
+    echo "run-sooperlooper: stray engine could not be reaped — refusing to start a duplicate" >&2
+    exit 1
+}
+
 echo "run-sooperlooper: ${LOOPS} loops, -t ${TIME_MAX}, OSC ${OSC_PORT}, client ${JACK_CLIENT}"
 exec "$SOOP_BIN" -q -D yes -l "$LOOPS" -c 2 -t "$TIME_MAX" \
     -p "$OSC_PORT" -j "$JACK_CLIENT"
