@@ -523,6 +523,27 @@ class LoopFootswitch:
         self._sync_led()
         self._mark_action()
 
+    def expect_cleared(self) -> None:
+        """Someone else emptied this loop — expect idle, so the next gesture records.
+
+        The multi-clip runtime clears the buffer itself (`mute_on` + `undo_all`)
+        when a press means "record into a different slot on this track". Without
+        being told, `state` still derives `playing` from the last engine report,
+        so the very next gesture is a mute: reported from the appliance
+        2026-08-27 as the pad going green, then yellow on a second press, with
+        no take ever recorded.
+
+        An expectation, not an assertion — the engine still gets to confirm, and
+        an intent that never lands expires on its own. Sends no OSC: the caller
+        has already cleared the engine and a second `undo_all` from here would
+        be the double-command this design exists to prevent.
+        """
+        self.awaiting_quantize = False
+        self._stop_queued = False
+        self._led_transition = None
+        self._expect(STATE_IDLE)
+        self._sync_led()
+
     def _hold_targets_cancel(self) -> bool:
         """True when a long press should abort a take, not delete a landed clip."""
         if self.sl_state in (
@@ -777,11 +798,7 @@ def reset_all_loops(
         osc.send_message(f"/sl/{loop}/hit", "pause_on")
         osc.send_message(f"/sl/{loop}/hit", "undo_all")
     for fs in footswitches:
-        fs.awaiting_quantize = False
-        fs._stop_queued = False
-        fs._led_transition = None
-        fs._expect(STATE_IDLE)
-        fs._sync_led()
+        fs.expect_cleared()
     for row, col in all_clip_pads():
         midi_out.send_message([0x90, pad_note(row, col), LED_OFF])
     print(f"-> track reset: cleared {num_loops} loops", flush=True)

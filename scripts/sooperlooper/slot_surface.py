@@ -26,6 +26,7 @@ from sl_loop_states import (
 from slot_leds import matrix_messages
 from slot_matrix import (
     ACT_NOOP,
+    ACT_RECORD,
     PENDING_LAUNCH,
     PENDING_STOP,
     PENDING_SWITCH,
@@ -121,6 +122,12 @@ class SlotSurface:
             self._log(f"track {track + 1} slot {slot + 1}: {plan.note}")
         if self._rt.needs_gesture(plan):
             fs.set_note(note)
+            if plan.action == ACT_RECORD:
+                # The runtime just muted and emptied this track's buffer for a
+                # take on a different slot. Tell the footswitch, or it derives
+                # `playing` from the last engine report and its gesture is a
+                # mute instead of a record.
+                fs.expect_cleared()
             fs.on_pad_down()
         self._sync_footswitch_notes()
         self.repaint()
