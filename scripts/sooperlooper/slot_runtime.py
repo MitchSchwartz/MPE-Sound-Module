@@ -15,7 +15,7 @@ from typing import Callable
 from slot_matrix import (
     ACT_CANCEL,
     ACT_CLEAR,
-    ACT_CLOSE,
+    ACT_FORWARD,
     ACT_LAUNCH,
     ACT_NOOP,
     ACT_RECORD,
@@ -32,7 +32,9 @@ from slot_matrix import (
 from sl_loop_states import ACTIVE_PLAY, SL_STATE_OFF
 
 # Gestures the footswitch owns — runtime must not send parallel OSC for these.
-GESTURE_ACTIONS = frozenset({ACT_RECORD, ACT_CLOSE, ACT_STOP})
+# Actions the track's own footswitch carries out. ACT_FORWARD is the whole
+# active lane: the matrix contributes nothing to it but the binding.
+GESTURE_ACTIONS = frozenset({ACT_FORWARD, ACT_RECORD})
 
 SAVE_TIMEOUT_S = 2.0
 SAVE_POLL_S = 0.01
@@ -74,11 +76,8 @@ class SlotRuntime:
         *,
         sl_state: int,
         hold: bool = False,
-        record_phase: str | None = None,
     ) -> SlotPlan:
         """Plan a cell press and run slot/buffer ops. Gestures are not sent here."""
-        from slot_matrix import PHASE_IDLE
-
         track = self.track(track_index)
         plan = plan_cell_press(
             track_index=track_index,
@@ -86,7 +85,6 @@ class SlotRuntime:
             slot=slot,
             sl_state=sl_state,
             hold=hold,
-            record_phase=record_phase or PHASE_IDLE,
         )
         if not self._execute_slot_ops(plan, sl_state=sl_state):
             return replace(plan, action=ACT_NOOP, note=f"{plan.note} — FAILED")
@@ -142,9 +140,17 @@ class SlotRuntime:
 
     def _execute_slot_ops(self, plan: SlotPlan, *, sl_state: int) -> bool:
         loop = plan.track
-        if plan.action in (ACT_NOOP, ACT_CLOSE) or plan.action in GESTURE_ACTIONS:
+        if plan.action == ACT_NOOP or plan.action in GESTURE_ACTIONS:
             if plan.action == ACT_RECORD:
                 return self._prepare_record(plan, sl_state=sl_state)
+            if plan.action == ACT_FORWARD:
+                # Bind the buffer to this slot if the track had none. No OSC:
+                # the footswitch owns every command in this lane, and a stray
+                # send from here would double whatever it does.
+                if self.track(plan.track).active_slot is None:
+                    self._tracks[plan.track] = replace(
+                        self.track(plan.track), active_slot=plan.slot
+                    )
             return True
 
         if plan.action == ACT_CANCEL:
@@ -212,6 +218,24 @@ class SlotRuntime:
         if cleared.active_slot == slot:
             cleared = replace(cleared, active_slot=None)
         self._tracks[loop] = cleared
+        return True
+
+    def forget_active_slot(self, loop: int) -> bool:
+        """Drop the active slot's file and binding, touching nothing else.
+
+        The engine half of a long-press-to-clear belongs to `LoopFootswitch`,
+        which already sent `undo_all` — sending it again from here would be the
+        second opinion this design removed. What the footswitch cannot do is
+        delete the WAV: it has never heard of slot files. So the split is
+        exact — the footswitch owns the engine and the LED, the matrix owns the
+        disk and the binding.
+        """
+        track = self.track(loop)
+        slot = track.active_slot
+        if slot is None:
+            return False
+        self.clip_path(loop, slot).unlink(missing_ok=True)
+        self._tracks[loop] = replace(track.with_slot(slot, None), active_slot=None)
         return True
 
     def _flush_active(self, loop: int) -> bool:

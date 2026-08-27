@@ -9,7 +9,7 @@ import unittest
 from scripts.sooperlooper.slot_matrix import (
     ACT_CANCEL,
     ACT_CLEAR,
-    ACT_CLOSE,
+    ACT_FORWARD,
     ACT_LAUNCH,
     ACT_NOOP,
     ACT_RECORD,
@@ -20,8 +20,6 @@ from scripts.sooperlooper.slot_matrix import (
     PENDING_LAUNCH,
     PENDING_STOP,
     PENDING_SWITCH,
-    PHASE_ARMING,
-    PHASE_RECORDING,
     Pending,
     Slot,
     Track,
@@ -51,10 +49,9 @@ def track(**kw) -> Track:
     return Track(slots=tuple(slots), **kw)
 
 
-def press(tr, slot, *, sl_state=SL_STATE_OFF, index=0, hold=False, record_phase="idle"):
+def press(tr, slot, *, sl_state=SL_STATE_OFF, index=0, hold=False):
     return plan_cell_press(
         track_index=index, track=tr, slot=slot, sl_state=sl_state, hold=hold,
-        record_phase=record_phase,
     )
 
 
@@ -79,18 +76,20 @@ class GeometryTests(unittest.TestCase):
 class EmptyCellTests(unittest.TestCase):
     def test_empty_slot_arms_record(self) -> None:
         p = press(track(), 0)
-        self.assertEqual(p.action, ACT_RECORD)
-        self.assertFalse(p.save_first, "nothing loaded — nothing to flush")
+        self.assertEqual(p.action, ACT_FORWARD,
+                         "an empty slot on an unbound track is the "
+                         "footswitch's lane — it owns arming")
 
     def test_second_tap_while_recording_closes_take(self) -> None:
         tr = track(active_slot=0)
-        p = press(tr, 0, sl_state=SL_STATE_RECORDING, record_phase=PHASE_RECORDING)
-        self.assertEqual(p.action, ACT_CLOSE)
+        p = press(tr, 0, sl_state=SL_STATE_RECORDING)
+        self.assertEqual(p.action, ACT_FORWARD,
+                         "closing a take is the footswitch's decision, not ours")
 
     def test_second_tap_while_arming_closes_take(self) -> None:
         tr = track(active_slot=2)
-        p = press(tr, 2, sl_state=SL_STATE_WAIT_START, record_phase=PHASE_ARMING)
-        self.assertEqual(p.action, ACT_CLOSE)
+        p = press(tr, 2, sl_state=SL_STATE_WAIT_START)
+        self.assertEqual(p.action, ACT_FORWARD)
 
     def test_record_into_empty_slot_flushes_a_dirty_active_slot(self) -> None:
         """One buffer per track: arming reuses it, so unflushed audio dies."""
@@ -110,20 +109,22 @@ class OccupiedCellTests(unittest.TestCase):
     def test_tapping_the_playing_active_slot_queues_a_stop(self) -> None:
         slots = [clip()] + [None] * 7
         p = press(track(slots=slots, active_slot=0), 0, sl_state=SL_STATE_PLAYING)
-        self.assertEqual(p.action, ACT_STOP)
-        self.assertEqual(p.from_slot, 0)
+        self.assertEqual(p.action, ACT_FORWARD,
+                         "stopping the sounding clip is the footswitch's mute")
 
     def test_tapping_the_muted_active_slot_relaunches_it(self) -> None:
         slots = [clip()] + [None] * 7
         p = press(track(slots=slots, active_slot=0), 0, sl_state=SL_STATE_MUTE)
-        self.assertEqual(p.action, ACT_LAUNCH)
+        self.assertEqual(p.action, ACT_FORWARD,
+                         "the clip is already loaded — unmute is the "
+                         "footswitch's, not a fresh launch")
 
     def test_overdubbing_counts_as_playing(self) -> None:
         """A take closing into its ring-out overdub is sounding, so the pad
         means stop — not relaunch (rev 3 / OPEN-4)."""
         slots = [clip()] + [None] * 7
         p = press(track(slots=slots, active_slot=0), 0, sl_state=SL_STATE_OVERDUBBING)
-        self.assertEqual(p.action, ACT_STOP)
+        self.assertEqual(p.action, ACT_FORWARD)
 
     def test_launch_when_the_track_has_nothing_active(self) -> None:
         slots = [None, clip()] + [None] * 6
@@ -147,8 +148,10 @@ class OccupiedCellTests(unittest.TestCase):
         slots = [clip()] + [None] * 7
         self.assertEqual(press(track(slots=slots), 0, hold=True).action, ACT_CLEAR)
 
-    def test_hold_on_empty_does_nothing(self) -> None:
-        self.assertEqual(press(track(), 0, hold=True).action, ACT_NOOP)
+    def test_hold_on_empty_forwards_to_the_footswitch(self) -> None:
+        """Unbound + empty is the active lane, so long-press-to-clear is the
+        footswitch's gesture even though the matrix has nothing to clear."""
+        self.assertEqual(press(track(), 0, hold=True).action, ACT_FORWARD)
 
 
 class CancelTests(unittest.TestCase):
@@ -256,13 +259,17 @@ class SceneRowTests(unittest.TestCase):
     def test_lit_row_launches_only_the_cells_that_are_not_playing(self) -> None:
         states = {0: SL_STATE_PLAYING, 1: SL_STATE_MUTE, 2: SL_STATE_OFF}
         plans = plan_scene_press(self._grid(), 0, sl_states=states)
-        self.assertEqual([(p.track, p.action) for p in plans], [(1, ACT_LAUNCH)])
+        self.assertEqual([(p.track, p.action) for p in plans], [(1, ACT_FORWARD)],
+                         "the muted cell is its track's active slot, so the "
+                         "scene forwards rather than re-launching it")
 
     def test_dark_row_stops_every_playing_cell(self) -> None:
         states = {0: SL_STATE_PLAYING, 1: SL_STATE_PLAYING, 2: SL_STATE_OFF}
         plans = plan_scene_press(self._grid(), 0, sl_states=states)
         self.assertEqual([(p.track, p.action) for p in plans],
-                         [(0, ACT_STOP), (1, ACT_STOP)])
+                         [(0, ACT_FORWARD), (1, ACT_FORWARD)],
+                         "a scene stop on an active cell is that cell's own "
+                         "stop gesture, fanned out")
 
     def test_scene_reaches_tracks_banked_off_screen(self) -> None:
         """The viewport must not change what the gesture means."""

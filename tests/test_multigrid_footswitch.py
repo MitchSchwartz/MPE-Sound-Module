@@ -20,7 +20,11 @@ class MultigridFootswitchTests(unittest.TestCase):
         fs.poll_led = MagicMock()
         poll_footswitches([fs], multigrid=True)
         fs.poll_hold.assert_not_called()
-        fs.poll_led.assert_not_called()
+        # poll_led IS still called. It advances the blink phase, and
+        # SlotSurface paints the pad from current_led() — stopping it would
+        # freeze every transition blink on the matrix. Painting is suppressed
+        # separately, inside _set_led.
+        fs.poll_led.assert_called_once()
 
     def test_sync_from_sl_does_not_paint_led_when_multigrid(self) -> None:
         out = MagicMock()

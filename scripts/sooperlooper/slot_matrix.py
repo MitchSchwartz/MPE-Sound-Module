@@ -43,6 +43,7 @@ PENDING_LAUNCH = "launch"
 PENDING_SWITCH = "switch"
 
 # What a press means. The caller turns these into OSC.
+ACT_FORWARD = "forward"
 ACT_RECORD = "record"
 ACT_CLOSE = "close"
 ACT_LAUNCH = "launch"
@@ -53,10 +54,9 @@ ACT_CLEAR = "clear"
 ACT_NOOP = "noop"
 
 # Bench recording phase for the active slot (runtime-owned; passed into planner).
-PHASE_IDLE = "idle"
-PHASE_ARMING = "arming"
-PHASE_RECORDING = "recording"
-PHASE_CLOSING = "closing"
+# Record phases used to be rebuilt here to mirror the footswitch's own
+# state machine. The active lane forwards now, so the mirror is gone —
+# there is one record state machine and it lives in LoopFootswitch.
 
 
 @dataclass(frozen=True)
@@ -131,21 +131,6 @@ def _needs_flush(track: Track) -> bool:
     return active is not None and active.dirty
 
 
-def _recording_into_slot(
-    track: Track,
-    slot: int,
-    *,
-    sl_state: int,
-    record_phase: str,
-) -> bool:
-    """True when this cell holds an in-progress take (not yet occupied)."""
-    if track.active_slot != slot or track.occupied(slot):
-        return False
-    if record_phase in (PHASE_ARMING, PHASE_RECORDING, PHASE_CLOSING):
-        return True
-    return sl_state in ACTIVE_RECORD
-
-
 def plan_cell_press(
     *,
     track_index: int,
@@ -153,7 +138,6 @@ def plan_cell_press(
     slot: int,
     sl_state: int,
     hold: bool = False,
-    record_phase: str = PHASE_IDLE,
 ) -> SlotPlan:
     """The whole cell vocabulary, per the spec's tap matrix.
 
@@ -166,22 +150,18 @@ def plan_cell_press(
     if not 0 <= slot < NUM_SLOTS:
         return replace(here, note=f"slot {slot} out of range")
 
-    occupied = track.occupied(slot)
+    active = track.active_slot
 
-    if hold:
-        if not occupied:
-            return replace(here, note="hold on an empty slot — nothing to clear")
-        return replace(here, action=ACT_CLEAR, note="clear this slot")
-
-    # A pending action is cancelled by re-tapping the slot that owns it. For a
-    # stop or a switch that is the OUTGOING slot; for a launch onto a silent
-    # track there is no outgoing slot, so it is the incoming one (rev 2).
+    # A pending the MATRIX owns is cancelled by re-tapping the slot that owns
+    # it, and that must be decided before the forward. For a switch the
+    # outgoing slot IS the active slot, so forwarding first would hand the
+    # press to a footswitch that has never heard of the switch, and the queued
+    # switch would go through anyway — a cancel the player performed and the
+    # instrument ignored.
     pending = track.pending
     if pending is not None:
         owner = (
-            pending.to_slot
-            if pending.kind == PENDING_LAUNCH
-            else pending.from_slot
+            pending.to_slot if pending.kind == PENDING_LAUNCH else pending.from_slot
         )
         if owner == slot:
             return replace(
@@ -191,16 +171,50 @@ def plan_cell_press(
                 clear_pending=True,
                 note=f"cancel pending {pending.kind}",
             )
-        # A press elsewhere while something is pending replaces the pending
-        # action rather than stacking on it — one pending per track.
 
-    active = track.active_slot
-    playing = _is_playing(sl_state)
+    # --- the active lane: forward, decide nothing -------------------------
+    #
+    # When this pad IS the track's bound buffer — or the track has no bound
+    # buffer yet, so pressing here binds it — the press means exactly what it
+    # means on the single-clip surface. `LoopFootswitch` + `loop_model` decide:
+    # record, close-into-ring-out, mute, unmute, hold-to-clear, pending-cancel,
+    # and the LED sequence for each.
+    #
+    # This used to be re-decided here, and the re-decision was wrong in ways
+    # nobody could enumerate: the ring-out `overdub` was never sent at all, and
+    # a double tap on a playing clip emitted `record` over it. Those were found
+    # by a player, one at a time, over days. They are now impossible to
+    # reintroduce because there is no second opinion to disagree — see
+    # tests/test_multigrid_equivalence.py.
+    #
+    # `hold` is forwarded too: long-press-to-clear is the footswitch's, blink
+    # and all. Pending likewise — the footswitch has its own pending model.
+    # The lane is the slot the buffer is bound to, plus — when the track has no
+    # buffer yet — an EMPTY slot, which the footswitch records into. An
+    # OCCUPIED slot on a silent track is NOT in the lane: it has to be loaded
+    # from disk before anything sounds, and the footswitch has no idea a file
+    # exists. Forwarding that press would record over the clip the player
+    # meant to hear.
+    if slot == active or (active is None and not track.occupied(slot)):
+        return replace(
+            here,
+            action=ACT_FORWARD,
+            note="forward to the track's footswitch",
+        )
 
-    if _recording_into_slot(
-        track, slot, sl_state=sl_state, record_phase=record_phase
-    ):
-        return replace(here, action=ACT_CLOSE, note="close take on this slot")
+    # --- everything below is the matrix's own vocabulary ------------------
+    # Only reached for a NON-active slot, which the single-clip surface has no
+    # concept of, so there is nothing to be equivalent to.
+
+    occupied = track.occupied(slot)
+
+    if hold:
+        if not occupied:
+            return replace(here, note="hold on an empty slot — nothing to clear")
+        return replace(here, action=ACT_CLEAR, note="clear this slot")
+
+    # A press elsewhere while something is pending replaces the pending action
+    # rather than stacking on it — one pending per track.
 
     if not occupied:
         # Recording into a non-active slot reuses the track's only buffer, so
@@ -218,25 +232,15 @@ def plan_cell_press(
             ),
         )
 
-    if slot == active:
-        if playing:
-            return replace(
-                here,
-                action=ACT_STOP,
-                from_slot=slot,
-                note="queue stop at the boundary",
-            )
-        return replace(
-            here,
-            action=ACT_LAUNCH,
-            note="relaunch the active slot",
-        )
-
     if active is None:
+        # Nothing is bound, so there is nothing to switch away from: load the
+        # clip and unmute it. Distinct from ACT_SWITCH, which has an outgoing
+        # slot to flush and must wait for the cycle boundary.
         return replace(
             here,
             action=ACT_LAUNCH,
-            note="launch — nothing playing on this track",
+            from_slot=None,
+            note=f"launch slot {slot} onto a silent track",
         )
 
     return replace(
@@ -341,16 +345,23 @@ def plan_scene_press(
         track = tracks[index]
         if not track.occupied(row):
             continue
+        # Filter on what the cell is DOING, not on which action the planner
+        # named. The active lane returns ACT_FORWARD for both "start me" and
+        # "stop me" — the footswitch decides which, from the same engine state
+        # read here — so keying off the action would drop every active cell
+        # from every scene.
+        state = sl_states.get(index, 0)
+        sounding = track.active_slot == row and _is_playing(state)
         plan = plan_cell_press(
             track_index=index,
             track=track,
             slot=row,
-            sl_state=sl_states.get(index, 0),
+            sl_state=state,
         )
         if stop:
-            if plan.action == ACT_STOP:
+            if sounding:
                 plans.append(plan)
-        elif plan.action in (ACT_LAUNCH, ACT_SWITCH):
+        elif not sounding:
             plans.append(plan)
     return plans
 

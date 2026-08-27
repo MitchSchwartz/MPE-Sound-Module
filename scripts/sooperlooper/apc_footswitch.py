@@ -277,8 +277,14 @@ class LoopFootswitch:
                    or led_before != self._led_target())
         if changed:
             log(f"loop {self.loop}: SL sync sl={sl_state} bench={self.state}")
-            if not self._multigrid:
-                self._sync_led()
+            # Always. `_sync_led` is where `_led_transition` is armed, and the
+            # transition is READ under multigrid — `SlotSurface` paints the pad
+            # from `current_led()`. Skipping the whole call here to avoid
+            # painting also skipped the arming, so the record-to-play tail
+            # blink never happened on the matrix and the pad jumped straight to
+            # green. `_set_led` already suppresses the paint under multigrid;
+            # that is the only half that should ever be conditional.
+            self._sync_led()
             return True
         return False
 
@@ -585,6 +591,17 @@ class LoopFootswitch:
         self._sync_led()
         self._mark_action()
         log(f"loop {self.loop}: -> {edge} done (state={self.state}, sl_state={self.sl_state})")
+
+    @property
+    def hold_fired(self) -> bool:
+        """Did the current gesture already fire its long-press?
+
+        Read by `SlotSurface`, which drives this footswitch's `poll_hold` under
+        multigrid and needs to know when it fired so the two do not both track
+        hold state — two hold flags is how the surface ended up firing the
+        blink at one moment and the clear at another.
+        """
+        return self._hold_fired
 
     def on_pad_down(self) -> None:
         self._pad_down = True

@@ -112,7 +112,7 @@ class ApcBenchFootswitchTests(unittest.TestCase):
         source = (
             Path(__file__).resolve().parent.parent / "scripts" / "sooperlooper-apc-bench.py"
         ).read_text(encoding="utf-8")
-        self.assertIn("poll_footswitches(footswitches)", source)
+        self.assertIn("poll_footswitches(footswitches, multigrid=multigrid)", source)
         self.assertNotIn("fs.poll_tail_capture()", source)
 
 class ViewAgreementTests(unittest.TestCase):
