@@ -117,7 +117,7 @@ SP1/SP2/SP4 pass with 2–3 orders of magnitude of margin; SP6 measured.
 
 | # | Task |
 |---|---|
-| **P1** | `slot_matrix.py` (pure: active slot, occupancy, pending) + manifest v2 read/write with v1 compat. Fully unit-testable, no hardware. |
+| ~~**P1**~~ | **Done** — `slot_matrix.py` (`0c039e7`, 31 tests) + manifest v2 (`83cade9`, 26 tests). Pushed to `dev`; **not deployed to the Pi** — v2 changes what `save_song` writes to disk, and that is not a change to make on Mitch's instrument overnight without him. Suite: 1186 passed. |
 | **P2** | APC all rows — the actual Ableton gesture. Also closes the audible half of SP7 (state machine confirmed; Surge was silent, so the ring-out seam is untested). |
 | **P3** | Scene Launch rows 0–6 across 16 tracks. **Gated on SP8.** |
 
