@@ -51,6 +51,7 @@ from sl_loop_states import (
     ACTIVE_RECORD,
     SL_STATE_OFF,
     SL_STATE_OFF_MUTED,
+    SL_STATE_OVERDUBBING,
     SL_STATE_PLAYING,
     SL_STATE_RECORDING,
     SL_STATE_WAIT_START,
@@ -124,6 +125,9 @@ class LoopFootswitch:
         self.loop_len = 0.0
         self.loop_pos = 0.0
         self._loop_pos_seen = False
+        # True while an overdub started by closing a take is still
+        # running. Cleared at the first wrap — one pass of ring-out.
+        self._overdub_pass = False
         self._last_loop_pos = 0.0
         self._phase_reanchor_at = 0.0
         # Is this loop waiting for cycle boundaries? False in free-form, where
@@ -529,6 +533,12 @@ class LoopFootswitch:
             self._hit("record")
             self._begin_quantize_wait()
 
+        if sl_state == SL_STATE_OVERDUBBING:
+            self._overdub_pass = True
+        elif prev_sl == SL_STATE_OVERDUBBING:
+            # Ended by the pad, or by the engine. Either way stop watching.
+            self._overdub_pass = False
+
         if sl_state == SL_STATE_PLAYING:
             self._maybe_establish_grid()
             if self._tail_capture and self._tail_stop_sent:
@@ -569,6 +579,15 @@ class LoopFootswitch:
 
     def sync_loop_pos(self, loop_pos: float) -> None:
         pos = float(loop_pos)
+        # `_last_loop_pos` is set one update behind (see below), so the shared
+        # detector fires ~40 ms after the wrap. That is harmless for grid
+        # re-anchoring and not for the overdub, where every late millisecond
+        # records pass two on top of pass one — so that check gets the true
+        # previous position.
+        if self._loop_pos_seen and detect_loop_wrap(
+            self.loop_pos, pos, self.loop_len
+        ):
+            self._end_overdub_pass()
         if self._loop_pos_seen and detect_loop_wrap(
             self._last_loop_pos, pos, self.loop_len
         ):
@@ -580,6 +599,25 @@ class LoopFootswitch:
         self._loop_pos_seen = True
         if self._phase_reanchor_at > 0.0 and not self._tail_capture:
             self._try_commit_phase_reanchor()
+
+    def _end_overdub_pass(self) -> None:
+        """One pass of ring-out, then out of overdub.
+
+        The take closes into an overdub at the boundary, so overdub begins at
+        loop position 0 and the next wrap is exactly one pass later. Armed off
+        `sl_state == OVERDUBBING` rather than off the command we sent, so an
+        overdub the engine never entered cannot leave this latched.
+
+        `loop_pos` arrives every 20 ms, so this can overrun the wrap by up to
+        one update. That records a sliver of pass two on top of pass one — the
+        alternative is ending early and clipping the ring-out, which is the
+        artefact this whole feature exists to remove.
+        """
+        if not self._overdub_pass:
+            return
+        self._overdub_pass = False
+        self._hit("overdub")
+        log(f"loop {self.loop}: overdub off at wrap — one pass of ring-out")
 
     def _maybe_establish_grid(self) -> None:
         """The defining take just landed — grid immediately, phase maybe at wrap.
