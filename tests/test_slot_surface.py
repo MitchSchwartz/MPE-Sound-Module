@@ -128,7 +128,9 @@ class PendingResolutionTests(SurfaceCase):
             active_slot=0,
         )
         self.state(0, SL_STATE_PLAYING)
+        # A stored slot acts on release now, so the gesture needs both edges.
         self.surface.note_down(pad_note(4, 0))
+        self.surface.note_up(pad_note(4, 0))
 
     def test_a_switch_is_pending_until_the_engine_moves(self) -> None:
         self._armed_switch()
