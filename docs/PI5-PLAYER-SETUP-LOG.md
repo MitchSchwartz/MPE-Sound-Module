@@ -2,8 +2,7 @@
 
 *Last updated: 2026-08-23 (America/Toronto)*
 
-**Session closeout (2026-08-23):** Player is **live** (128×2 at the time; **64×2 today** —
-ear-validated only, [`pi5-buffer-64-ear-2026-08-27.md`](measurements/pi5-buffer-64-ear-2026-08-27.md)); hygiene + IRQ Phase 1 done; Suite 1
+**Session closeout (2026-08-23):** Player is **live** at 128×2; hygiene + IRQ Phase 1 done; Suite 1
 **blocked** on cooler + 27 W PSU. Full state: [`measurements/PI5-SESSION-CLOSEOUT-2026-08-23.md`](measurements/PI5-SESSION-CLOSEOUT-2026-08-23.md).
 
 **Purpose:** Every step needed to go from a fresh Pi 5 SD card to a **working touch player** that matches the live Pi 4.
@@ -114,7 +113,7 @@ After `configure-pi-paths.sh`, run **`scripts/apply-player-env-parity.sh`** (mer
 |-----|------------|---------------------|------------------|
 | `MPE_FAVORITES_NAME` | `"Quick Select"` | `"!Quick Access"` (template default) | Empty / wrong favorites tab |
 | `MPE_PEAK_METER` | `1` | `0` | OUT meter shows **−** |
-| `MPE_JACK_BUFFER` | `1024` (Pi 4 ship) · **64** (Pi 5 player today, ear-only) | `256` / wrong parity overwrite | 64×2 broke USB/ALSA here on 2026-08-23 and no longer does — cause unknown, see [`pi5-buffer-64-ear-2026-08-27.md`](measurements/pi5-buffer-64-ear-2026-08-27.md); use parity script that **preserves** tuned value |
+| `MPE_JACK_BUFFER` | `1024` (Pi 4 ship) · **128** (Pi 5 player today) | `256` / wrong parity overwrite | 64×2 broke USB/ALSA on Pi 5; use parity script that **preserves** tuned value |
 | `MPE_JACK_SOFTMODE` | `0` | — | — |
 | `MPE_CPU_GOVERNOR` | `performance` | — | — |
 | `MPE_POLY_GOVERNOR` + ceiling/floor | `1` / `64` / `64` | missing | Poly behaviour differs |
@@ -239,7 +238,7 @@ Steps that **`setup-touch-pi.sh` / `deploy-all.sh` do not yet cover** — add he
 | Item | State |
 |------|--------|
 | Services | mpe-jackd, surge-xt-cli, touch-patch-browser, mpe-peak-meter, mpe-pressure-remap → active |
-| Audio | 64×2 @ 48 kHz (was 128×2 at 08-23 closeout), Sound Blaster hw:1 |
+| Audio | 128×2 @ 48 kHz, Sound Blaster hw:1 |
 | RT FIFO | jackd **70**, Surge audio **65** — `verify-jack-rt-limits.sh pi` passes |
 | Affinity | Audio **2–3**; UI + poly governor **0–1** |
 | Hygiene | v3d blacklisted; BT off; avahi on; performance governor |
