@@ -287,13 +287,24 @@ class SlotSurface:
         if loop_len > 0:
             self._loop_lens[track] = float(loop_len)
         sl_state = self._sl_states.get(track, SL_STATE_OFF)
-        if sl_state == SL_STATE_PLAYING:
+        if sl_state in ACTIVE_PLAY:
             self._maybe_mark_recorded(track, sl_state)
         self.repaint()
         self.repaint_scenes()
 
     def _maybe_mark_recorded(self, track: int, sl_state: int) -> None:
-        if sl_state != SL_STATE_PLAYING:
+        # ACTIVE_PLAY, not PLAYING. Closing a take drops the loop straight into
+        # the ring-out overdub, which runs for a whole pass — seconds at any
+        # usable tempo. Waiting for plain PLAYING to admit the take exists left
+        # that entire window with a recording in the buffer that nothing knew
+        # about: `_flush_active` found no slot to save and skipped silently,
+        # and the `undo_all` that arms the next take destroyed it with no way
+        # back. Reported 2026-08-27 as "the clip gets deleted", cause guessed
+        # correctly as "the tail or overdub phase is still happening".
+        #
+        # The audio is real the moment the take closes. That is when it gets
+        # written down.
+        if sl_state not in ACTIVE_PLAY:
             return
         row = self._rt.track(track)
         active = row.active_slot
