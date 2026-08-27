@@ -110,12 +110,12 @@ Classification must be **re-evaluated on hot-plug**, not only at boot.
 |---|---|
 | Note on, ch N | Allocate a free member channel; note on there |
 | Note off | Release that note's member channel |
-| Pitch bend, ch N | Same bend, **scaled** `in_range/48`, to every active member channel of that device |
+| Pitch bend, ch N | Same bend, **scaled** `in_range/48`, to every active member channel of that device. **Never to the master channel** — see §5.3 |
 | Channel pressure | Broadcast to that device's active member channels |
 | CC 1 / 11 / 74 | Broadcast (they are zone-wide for a classic device) |
-| CC 64 sustain | Hold member-channel release until pedal up — the router owns this, not Surge |
+| CC 64 sustain | **Forward to the master channel unchanged.** Surge already holds a note while either its member channel or the master channel is held, so zone-wide sustain works natively — the router must NOT own this (§5.7) |
 | RPN 0/0 (bend range) | Update that device's declared range; do not forward |
-| Program change | Route to patch selection, not to Surge (see §7) |
+| Program change | **Filtered by default** — not forwarded to Surge (§7, OPEN-1) |
 | Clock / transport | Unchanged — existing `midi-clock-in.py` path |
 
 ### Channel allocation
@@ -133,10 +133,10 @@ Each phase ends at a gate. No phase starts before the previous one's gate.
 
 | # | Phase | Deliverable | Gate |
 |---|---|---|---|
-| 0 | **Spikes** (§5) | Answers to the four unknowns | All four answered; any "no" reshapes the plan |
+| 0 | **Spike** (§5.8) | Router-hop latency measured | Measured, not estimated. The other three spikes are answered — see §5 |
 | 1 | **Pure translator** | `midi_translate.py` — events in, events out, no I/O | Unit tests pass; no hardware needed |
 | 2 | **Router daemon** | Generalise `mpe-pressure-remap.py`; ROLI profile preserved | ROLI still behaves exactly as today (regression gate) |
-| 3 | **Classification + hot-plug** | MCM detection, device table, re-classify on plug | Plug/unplug both device kinds in any order, 20× |
+| 3 | **Classification + hot-plug + display** | MCM detection, device table, re-classify on plug, read-only device list in the UI | Plug/unplug both kinds in any order, 20×; UI always shows what the router decided |
 | 4 | **Boot path** | Surge always reads Midi Through; router always runs | Cold boot with: no controller / classic only / MPE only / both |
 | 5 | **Ear pass** | Mitch, both controllers | Bend depth correct on both; chords and pedal correct |
 | 6 | **Docs + measurement** | Update this doc with measured latency; note in `docs/` | Latency delta recorded, not estimated |
@@ -147,25 +147,95 @@ the hard part is testable in CI and by ear only once.
 
 ---
 
-## 5. Spikes — answer these before building
+## 5. Research findings (2026-08-26) and remaining spikes
 
-1. **Does Surge XT in MPE mode sound notes sent on the master channel?**
-   Decides whether "classic device, no translation" is even partially usable,
-   and therefore how bad a mis-classification is.
-2. **Can MPE mode / bend range be changed at runtime over Surge's OSC port?**
-   Surge is launched with `--osc-in-port=53280`. If mode is settable live,
-   Option 1 becomes cheap enough to keep as a fallback. If not, Option 2 is the
-   only no-restart path — which is what this plan assumes.
-3. **What is the added latency of the router hop for devices that currently
-   bypass it?** There is a production precedent (the ROLI path already goes
-   through Python), so the cost is likely acceptable — but it must be measured,
-   not assumed. `scripts/sooperlooper/measure_midi_osc_latency.py` is the
-   existing instrument.
-4. **Do real classic controllers actually declare bend range via RPN 0/0?**
-   Most do not; they assume ±2. Confirms the default and whether a per-device
-   override is needed in the UI.
+Sourced from the Surge XT source (`surge-synthesizer/surge`, main) and the MPE
+specification. Three of the four original spikes are answered; one remains.
 
----
+### 5.1 No OSC path to change MPE mode or bend range — **ANSWERED: no**
+`src/surge-xt/osc/OpenSoundControl.cpp` contains no `mpe` handler at all. The
+OSC surface is `/patch`, `/param/…`, `/mod/…`, `/wavetable/…`, `/tuning/…`,
+`/pbend` (a bend *value*, not a range), and `/doc…`. MPE mode and MPE bend
+range are startup flags only.
+
+**Consequence:** Option 1 (global mode switch) cannot avoid a Surge restart,
+and therefore cannot avoid dropping audio. This is now the decisive argument
+for Option 2 rather than a preference.
+
+### 5.2 Master-channel notes DO sound — **ANSWERED: they play**
+`SurgeSynthesizer::playNote()` has no channel filter when `mpeEnabled` is true;
+it plays any channel including the master. `getMpeMainChannel()` concerns which
+channel supplies zone-wide expression, not note suppression.
+
+**Consequence:** a mis-classified classic device is **not silent** — it plays,
+with the wrong bend depth. That is the "works but sounds wrong" failure shape,
+and it is invisible without a display. See OPEN-2.
+
+### 5.3 Master-channel pitch bend is a dead path in Surge — **NEW CONSTRAINT**
+`--mpe-pitch-bend-range=48` sets the **member-channel** range
+(`storage.mpePitchBendRange`). Master-channel bend uses a separate
+`mpeGlobalPitchBendRange`, which the source's own comment describes as broken
+since smoothing was added; channel-0 bend falls through to the generic global
+pitch modulation path instead.
+
+**Consequence:** the router must never translate a classic device's bend onto
+the master channel and expect the configured range to apply. Bend must be
+written to that device's active member channels. This was already the plan's
+intent; it is now a hard requirement rather than a stylistic choice.
+
+### 5.4 MCM bytes — **CONFIRMED**
+```
+Bn 64 06   CC 101 = RPN MSB 0x06
+Bn 65 00   CC 100 = RPN LSB 0x00
+Bn 06 mm   CC 6   = Data Entry MSB = member channel count
+```
+`n = 0` (channel 1) = lower zone; `n = F` (channel 16) = upper zone; any other
+channel is invalid. `mm = 0` disables the zone; `mm = 1..15` enables it with
+that many member channels. RPN **6**, distinct from RPN 0/0 (bend sensitivity).
+On MCM receipt the spec has the receiver default master bend to 2 semitones and
+member bend to 48 — consistent with Surge's defaulting, though that sub-detail
+is attested from secondary sources rather than the primary PDF.
+
+### 5.5 Classic controllers and RPN 0/0 — **ANSWERED: usually not sent**
+Bend range is typically a local setting on the keyboard and never transmitted.
+The GM convention is to assume **±2 semitones** absent an RPN 0/0. So the
+router must default to ±2 and treat a received RPN 0/0 as a correction, and a
+per-device override is worth having for keyboards set to something else with no
+way to announce it.
+
+### 5.6 Prior art — **MPE Emulator** (attilammagyar.github.io/mpe-emulator)
+An existing open-source classic→MPE translator. Worth reading before writing
+allocation logic. Its documented design decisions:
+- Configurable zone (lower/upper) and member-channel count.
+- **Explicit** excess-note policy: never / steal lowest / highest / oldest /
+  newest. Not undefined behaviour.
+- **Deliberately avoids immediate reuse of a just-released channel**, so a
+  still-decaying release tail is not pitch-bent or re-modulated by the next
+  note. This is a real pitfall and directly informs §3's allocation rule.
+- Sustain is opt-in deferral of note-off, with immediate note-off the default.
+- Bend range is a router-side setting, not assumed from either end.
+
+### 5.7 Sustain in Surge — **ANSWERED: handle it on the master channel**
+Surge releases a note only when *both* its member channel and the master
+channel are un-held:
+```cpp
+bool noHold = !channelState[channel].hold;
+if (mpeEnabled) noHold = noHold && !channelState[0].hold;
+```
+So CC64 on the master channel holds the whole zone natively, and CC64 on a
+member channel additionally holds that channel.
+
+**Consequence:** the router should forward CC64 to the master channel and do
+nothing else. The original plan had the router owning sustain and deferring
+note-offs itself — that would duplicate logic Surge already implements
+correctly and is the kind of second mechanism that produces stuck notes. Drop
+it.
+
+### 5.8 Still open — latency of the router hop
+Unmeasured, and the one spike research cannot answer. There is a production
+precedent (the ROLI path already traverses a Python daemon), so the cost is
+probably acceptable — but it must be measured with
+`scripts/sooperlooper/measure_midi_osc_latency.py`, not assumed. Phase 0.
 
 ## 6. Risks
 
@@ -183,7 +253,10 @@ the hard part is testable in CI and by ear only once.
    which layer owns voice count.
 4. **Stuck notes.** The classic failure of any channel-allocating translator: a
    note-off arrives for a note whose channel was stolen. Needs an all-notes-off
-   safety on device unplug and on router restart.
+   safety on device unplug and on router restart. Note that sustain is NOT a
+   contributor here as long as §5.7 is followed — CC64 goes to the master
+   channel and Surge owns the hold. A router that also deferred note-offs would
+   be a second mechanism racing the first.
 5. **Silent mis-classification.** A device classified wrongly produces "works
    but sounds wrong", which is the failure shape this project keeps getting
    caught by. Classification must be **visible** — logged, and surfaced in the
@@ -191,20 +264,50 @@ the hard part is testable in CI and by ear only once.
 
 ---
 
-## 7. Open decisions
+## 7. Decisions
 
-- **OPEN-1: Program change.** Classic instruments send PC freely. Mapping it to
-  patch selection is powerful and also means an errant keyboard can change the
-  sound mid-take. Proposal: off by default, opt-in per device.
-- **OPEN-2: Per-device UI.** Does the touch browser get a MIDI devices screen
-  (showing classification, with an override), or is classification automatic and
-  invisible? Risk 5 argues for at least a read-only display.
-- **OPEN-3: Multi-timbral.** Two controllers currently share one Surge patch.
-  Separate sounds per controller is a much larger change (multiple Surge
-  instances) and is explicitly **out of scope** here — but the router's device
-  identity is the hook it would eventually need.
+### OPEN-1: Program Change — **RECOMMEND: filter at the router by default**
 
----
+Nothing in this codebase handles Program Change today. That is not the same as
+PC being harmless: Surge reads Midi Through, so a PC from a classic keyboard
+reaches Surge directly. Either Surge acts on it — changing the patch out from
+under the patch browser, whose UI then shows something that is not loaded — or
+it ignores it. Both outcomes argue for the same thing, and which one is true is
+a five-minute check rather than a design input.
+
+Classic keyboards emit PC casually: on power-up, on preset changes made for the
+keyboard's own local sound, from a connected sequencer. A stray PC mid-take
+changing the sound is a much worse failure than losing a feature nobody has
+today.
+
+Recommendation: **the router drops Program Change by default.** Mapping PC to
+patch-browser selection is a genuinely nice feature, but it belongs behind a
+per-device opt-in, after the browser can accept an external selection without
+desyncing. Not in this plan's scope.
+
+### OPEN-2: Device UI — **RECOMMEND: read-only display now, override next**
+
+§5.2 settles this. A mis-classified classic device is not silent — it plays,
+with bend roughly 24× too wide. The appliance would be doing something
+confidently wrong with no way to see what it thinks is attached. That is the
+exact failure shape this project keeps losing days to: a reading that looks the
+same whether it is right or wrong.
+
+Recommendation: **a read-only MIDI devices list in the touch browser** —
+device name, classification (MPE / Classic), and the bend range in use — landed
+in phase 3 alongside classification itself, not deferred. Cheap, and it makes
+the invisible visible.
+
+A **manual override** (force this device to Classic/MPE) should follow in phase
+4, once classification has been observed against real devices. Shipping the
+override first would invite working around a classifier bug instead of fixing
+it; shipping the display first means any classifier bug is *reported* rather
+than silently endured.
+
+### OPEN-3: Multi-timbral — unchanged, out of scope
+Two controllers currently share one Surge patch. Separate sounds per controller
+means multiple Surge instances and is a much larger change. The router's device
+identity is the hook it would eventually need.
 
 ## 8. Test strategy
 
