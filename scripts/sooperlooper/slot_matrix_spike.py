@@ -197,7 +197,7 @@ def sp1(osc: Osc, *, slots: int, seconds: float) -> None:
     # Alternate two lengths so every load is observable: see _wait_len.
     a = write_clip(SPIKE_DIR / "src-a.wav", seconds=seconds, hz=220.0)
     b = write_clip(SPIKE_DIR / "src-b.wav", seconds=seconds * 0.75, hz=220.0)
-    loads, saves, missed = [], [], 0
+    loads, saves, missed, missed_saves = [], [], 0, 0
     for track in range(NUM_LOOPS):
         for slot in range(slots):
             src, want = (a, seconds) if slot % 2 == 0 else (b, seconds * 0.75)
@@ -212,25 +212,50 @@ def sp1(osc: Osc, *, slots: int, seconds: float) -> None:
             out = SPIKE_DIR / f"save-t{track}s{slot}.wav"
             if out.exists():
                 out.unlink()
+            want_bytes = 44 + int(SAMPLE_RATE * want) * 8
             t0 = time.monotonic()
             osc.send(f"/sl/{track}/save_loop", [str(out), "", "", "", ""])
-            if _wait_file(out, 5.0):
+            if _wait_file(out, 10.0, want_bytes=want_bytes):
                 saves.append(time.monotonic() - t0)
+            else:
+                missed_saves += 1
     _stats("load_loop", loads)
     _stats("save_loop", saves)
     if missed:
         print(f"  !! {missed} loads never reached the expected length — "
               f"numbers above are incomplete")
+    if missed_saves:
+        print(f"  !! {missed_saves} saves never reached the expected size")
     print(f"  full-matrix save total: {sum(saves):.1f}s "
           f"({NUM_LOOPS * slots} clips) — this is the touch-UI budget")
 
 
-def _wait_file(path: Path, timeout: float) -> bool:
+def _wait_file(path: Path, timeout: float, *, want_bytes: int | None = None) -> bool:
+    """Wait for a save to *finish*, not to start.
+
+    The first version accepted any file over 64 bytes, so it timed the moment
+    SooperLooper created the header — flat ~5 ms regardless of clip length,
+    which would have meant ~280 MB/s to the SD card. Callers that know the
+    expected size pass it; the fallback waits for the size to stop growing.
+    """
     deadline = time.monotonic() + timeout
+    last, stable_since = -1, None
     while time.monotonic() < deadline:
-        if path.exists() and path.stat().st_size > 64:
-            return True
-        time.sleep(0.005)
+        if path.exists():
+            size = path.stat().st_size
+            if want_bytes is not None:
+                if size >= want_bytes:
+                    return True
+            else:
+                if size == last and size > 64:
+                    if stable_since is None:
+                        stable_since = time.monotonic()
+                    elif time.monotonic() - stable_since > 0.02:
+                        return True
+                else:
+                    stable_since = None
+                last = size
+        time.sleep(0.002)
     return False
 
 
