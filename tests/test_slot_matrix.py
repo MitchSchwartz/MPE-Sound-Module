@@ -232,6 +232,11 @@ class SceneRowTests(unittest.TestCase):
         """Nothing to stop — the button must not read as an active row."""
         self.assertFalse(row_is_fully_playing({0: track()}, 0, sl_states={0: 0}))
 
+    def test_an_empty_row_scene_led_is_off(self) -> None:
+        from slot_matrix import scene_row_led_on
+
+        self.assertFalse(scene_row_led_on({0: track()}, 0, sl_states={0: 0}))
+
     def test_lit_row_launches_only_the_cells_that_are_not_playing(self) -> None:
         states = {0: SL_STATE_PLAYING, 1: SL_STATE_MUTE, 2: SL_STATE_OFF}
         plans = plan_scene_press(self._grid(), 0, sl_states=states)

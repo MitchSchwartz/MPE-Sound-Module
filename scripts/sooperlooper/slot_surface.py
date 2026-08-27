@@ -27,7 +27,7 @@ from led_table import LED_OFF, LED_RED, SCENE_LED_OFF, SCENE_LED_ON
 from sl_loop_states import ACTIVE_PLAY, SL_STATE_MUTE, SL_STATE_OFF, SL_STATE_PAUSED
 from slot_leds import matrix_messages
 from slot_matrix import ACT_NOOP, PENDING_LAUNCH, PENDING_STOP, PENDING_SWITCH
-from slot_matrix import plan_scene_press, row_is_fully_playing
+from slot_matrix import plan_scene_press, scene_row_led_on
 from slot_runtime import SlotRuntime
 
 SILENT = (SL_STATE_MUTE, SL_STATE_PAUSED, SL_STATE_OFF)
@@ -59,6 +59,7 @@ class SlotSurface:
         self._painted: dict[int, int] | None = None
         self._scene_painted: dict[int, int] = {}
         self._sl_states: dict[int, int] = {}
+        self._loop_lens: dict[int, float] = {}
         self._pad_down_note: int | None = None
         self._pad_down_at: float | None = None
         self._hold_fired = False
@@ -144,9 +145,20 @@ class SlotSurface:
     def on_state(self, track: int, sl_state: int) -> None:
         """An engine state update. Resolves a pending when it has come true."""
         self._sl_states[track] = int(sl_state)
+        loop_len = self._loop_lens.get(track, 0.0)
+        self._rt.sync_engine(track, sl_state=int(sl_state), loop_len=loop_len)
         self._maybe_resolve(track, int(sl_state))
         self.repaint()
         self.repaint_scenes()
+
+    def on_loop_len(self, track: int, loop_len: float) -> None:
+        """Engine reported a new loop length — may commit a just-finished take."""
+        if loop_len > 0:
+            self._loop_lens[track] = float(loop_len)
+        sl_state = self._sl_states.get(track, SL_STATE_OFF)
+        if self._rt.sync_engine(track, sl_state=sl_state, loop_len=float(loop_len)):
+            self.repaint()
+            self.repaint_scenes()
 
     def _maybe_resolve(self, track_index: int, sl_state: int) -> None:
         track = self._rt.track(track_index)
@@ -166,6 +178,7 @@ class SlotSurface:
         """After Shift+Stop All long — match engine cleared, dark surface."""
         self._rt.reset()
         self._sl_states.clear()
+        self._loop_lens.clear()
         self._pad_down_note = None
         self._pad_down_at = None
         self._hold_fired = False
@@ -197,10 +210,10 @@ class SlotSurface:
         desired: dict[int, int] = {}
         for index, note in enumerate(self._scene_launch_notes):
             row = index
-            fully = row_is_fully_playing(
+            lit = scene_row_led_on(
                 self._rt.tracks(), row, sl_states=self._sl_states
             )
-            desired[note] = SCENE_LED_OFF if fully else SCENE_LED_ON
+            desired[note] = SCENE_LED_ON if lit else SCENE_LED_OFF
         if force:
             to_send = sorted(desired.items())
         else:
