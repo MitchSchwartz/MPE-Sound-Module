@@ -309,11 +309,10 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
             ),
             num_tracks=num_loops,
             log=lambda m: print(f"slots: {m}", flush=True),
-            grid=grid if grid_active else None,
-            quantized=grid_active,
         )
         slot_surface = SlotSurface(
             runtime=slot_runtime,
+            footswitches_by_loop=by_loop,
             view=view,
             midi_out=midi_out,
             num_tracks=num_loops,
@@ -419,6 +418,8 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
         if slot_surface is not None:
             slot_surface.poll_hold()
             slot_surface.poll_hold_led()
+            if multigrid:
+                slot_surface.poll_led_repaint()
 
     def tick_faders() -> None:
         """Ramp smoothed wet toward targets between CC events."""

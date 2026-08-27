@@ -118,7 +118,7 @@ SP1/SP2/SP4 pass with 2–3 orders of magnitude of margin; SP6 measured.
 | # | Task |
 |---|---|
 | ~~**P1**~~ | **Done** — `slot_matrix.py` (`0c039e7`, 31 tests) + manifest v2 (`83cade9`, 26 tests). Pushed to `dev`; **not deployed to the Pi** — v2 changes what `save_song` writes to disk, and that is not a change to make on Mitch's instrument overnight without him. Suite: 1186 passed. |
-| **P2** | **I0+I1 on `dev` — Pi gate open.** Dual-controller fix + close-take lifecycle. See integration plan I0–I2. |
+| **P2** | **Composition refactor on `dev`** — multigrid delegates record/close/stop to `LoopFootswitch`; slot runtime = files + load/switch only. Pi re-test. |
 | **P3** | **Blocked on I0–I4** — scene row code exists; scene LED/gesture wrong until unified column controller lands. |
 
 ### Track C — Pi 5, on arrival

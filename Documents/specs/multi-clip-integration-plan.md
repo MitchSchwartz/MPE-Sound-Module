@@ -1,6 +1,6 @@
 # Multi-clip integration plan — one owner per track column
 
-**Status:** I0 + I1 implemented on `dev` (2026-08-27) — deploy + Pi gate pending Mitch  
+**Status:** Composition refactor on `dev` (2026-08-27) — gestures delegate to `LoopFootswitch`; `SlotRuntime` is slot/file ops only  
 **Last updated:** 2026-08-27 (America/Toronto)  
 **Product spec:** [`multi-clip-per-track-spec.md`](multi-clip-per-track-spec.md) (rev 4)  
 **Spike evidence:** [`docs/measurements/multi-clip-slot-spike-2026-08-26.md`](../../docs/measurements/multi-clip-slot-spike-2026-08-26.md)  

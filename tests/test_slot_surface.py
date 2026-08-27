@@ -10,12 +10,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "sooperlooper"))
 
+from apc_footswitch import LoopFootswitch  # noqa: E402
 from apc_grid import GridView, pad_note  # noqa: E402
 from led_table import LED_GREEN, LED_OFF, LED_YELLOW  # noqa: E402
 from sl_loop_states import (  # noqa: E402
     SL_STATE_MUTE,
     SL_STATE_OFF,
     SL_STATE_PLAYING,
+    SL_STATE_RECORDING,
 )
 from slot_matrix import Slot, Track  # noqa: E402
 from slot_runtime import SlotRuntime  # noqa: E402
@@ -30,6 +32,28 @@ class FakeOut:
         self.sent.append(list(msg))
 
 
+class _OscStub:
+    def __init__(self, sink: list) -> None:
+        self._sink = sink
+
+    def send_message(self, path, args) -> None:
+        if isinstance(args, str):
+            self._sink.append((path, [args]))
+        else:
+            self._sink.append((path, list(args)))
+
+
+def build_footswitches(sink: list, *, num: int = 15) -> dict[int, LoopFootswitch]:
+    out: dict[int, LoopFootswitch] = {}
+    for loop in range(num):
+        fs = LoopFootswitch(
+            loop=loop, hold_ms=2000, debounce_ms=0, multigrid=True, quantized=False
+        )
+        fs.bind(_OscStub(sink), FakeOut(), None)
+        out[loop] = fs
+    return out
+
+
 class SurfaceCase(unittest.TestCase):
     def setUp(self) -> None:
         self.dir = Path(tempfile.mkdtemp())
@@ -40,8 +64,13 @@ class SurfaceCase(unittest.TestCase):
             clips_dir=self.dir,
             num_tracks=15,
         )
+        self.fs_by_loop = build_footswitches(self.osc)
         self.surface = SlotSurface(
-            runtime=self.rt, view=GridView(offset=0), midi_out=self.out, num_tracks=15
+            runtime=self.rt,
+            footswitches_by_loop=self.fs_by_loop,
+            view=GridView(offset=0),
+            midi_out=self.out,
+            num_tracks=15,
         )
 
     def tearDown(self) -> None:
@@ -61,7 +90,7 @@ class DispatchTests(SurfaceCase):
                 self.assertTrue(self.surface.handles(pad_note(row, col)))
 
     def test_a_non_grid_note_is_declined(self) -> None:
-        self.assertFalse(self.surface.handles(0x62))   # Shift
+        self.assertFalse(self.surface.handles(0x62))
         self.assertFalse(self.surface.press(0x62))
 
     def test_a_press_on_an_empty_cell_starts_a_take(self) -> None:
@@ -89,8 +118,6 @@ class PendingResolutionTests(SurfaceCase):
         self.assertEqual(self.rt.track(0).active_slot, 0)
 
     def test_the_engine_reaching_the_target_resolves_it(self) -> None:
-        """The boundary is the engine acting, not a clock. A timer would drift
-        and show the pad going solid before the audio changed."""
         self._armed_switch()
         self.surface.on_state(0, SL_STATE_PLAYING)
         self.assertIsNone(self.rt.track(0).pending)
@@ -98,6 +125,7 @@ class PendingResolutionTests(SurfaceCase):
 
     def test_a_pending_stop_resolves_only_on_silence(self) -> None:
         self.rt._tracks[0] = Track(slots=(Slot("a.wav"), *([None] * 7)), active_slot=0)
+        self.fs_by_loop[0].sl_state = SL_STATE_PLAYING
         self.surface.on_state(0, SL_STATE_PLAYING)
         self.surface.note_down(pad_note(0, 0))
         self.assertIsNotNone(self.rt.track(0).pending)
@@ -117,6 +145,7 @@ class PaintTests(SurfaceCase):
         self.rt._tracks[1] = Track(
             slots=(Slot("a.wav"), None, Slot("c.wav"), *([None] * 5)), active_slot=0
         )
+        self.fs_by_loop[1].sl_state = SL_STATE_PLAYING
         self.surface.on_state(1, SL_STATE_PLAYING)
         self.assertEqual(self.colour_of(pad_note(0, 1)), LED_GREEN)
         self.assertEqual(self.colour_of(pad_note(2, 1)), LED_YELLOW)
@@ -131,8 +160,7 @@ class PaintTests(SurfaceCase):
         self.surface.repaint()
         before = len(self.out.sent)
         self.surface.set_view(GridView(offset=7))
-        self.assertGreaterEqual(len(self.out.sent) - before, 64,
-                                "notes now address other tracks — diffing would lie")
+        self.assertGreaterEqual(len(self.out.sent) - before, 64)
 
     def test_blank_darkens_all_64(self) -> None:
         self.surface.blank()
@@ -142,8 +170,6 @@ class PaintTests(SurfaceCase):
 
 class HoldClearTests(SurfaceCase):
     def test_hold_clear_fires_after_hold_s(self) -> None:
-        from slot_matrix import Slot, Track
-
         self.rt._tracks[0] = Track(slots=(Slot("a.wav"), *([None] * 7)), active_slot=0)
         self.surface._hold_s = 0.05
         self.surface.note_down(pad_note(0, 0))
@@ -159,8 +185,6 @@ class SceneRowTests(SurfaceCase):
         self.surface._scene_launch_notes = (0x52, 0x53)
 
     def test_scene_led_lit_when_row_not_fully_playing(self) -> None:
-        from slot_matrix import Slot, Track
-
         self.rt._tracks[0] = Track(slots=(Slot("a.wav"), *([None] * 7)), active_slot=0)
         self.surface.on_state(0, SL_STATE_MUTE)
         self.surface.repaint_scenes(force=True)
@@ -175,19 +199,14 @@ class SceneRowTests(SurfaceCase):
         self.assertEqual(scene_msgs[-1][2], 0)
 
     def test_engine_sync_marks_a_take_and_repaints(self) -> None:
-        from sl_loop_states import SL_STATE_PLAYING
-        from slot_matrix import PHASE_RECORDING
-
         self.surface.note_down(pad_note(2, 0))
-        self.rt._phase[0] = PHASE_RECORDING
-        self.osc.clear()
+        self.fs_by_loop[0].sl_state = SL_STATE_RECORDING
+        self.surface.on_loop_len(0, 4.0)
         self.surface.on_state(0, SL_STATE_PLAYING)
-        self.assertTrue(self.rt.track(0).occupied(0))
-        self.assertEqual(self.colour_of(pad_note(0, 0)), LED_GREEN)
+        self.assertTrue(self.rt.track(0).occupied(2))
+        self.assertEqual(self.colour_of(pad_note(2, 0)), LED_GREEN)
 
     def test_scene_press_launches_stopped_cells(self) -> None:
-        from slot_matrix import Slot, Track
-
         self.rt.clip_path(0, 0).write_bytes(b"\0" * 4096)
         self.rt.clip_path(1, 0).write_bytes(b"\0" * 4096)
         self.rt._tracks[0] = Track(slots=(Slot("a.wav"), *([None] * 7)), active_slot=0)
@@ -198,4 +217,3 @@ class SceneRowTests(SurfaceCase):
         self.surface.scene_press(0)
         paths = [p for p, _ in self.osc if p.endswith("/load_loop")]
         self.assertEqual(len(paths), 2)
-

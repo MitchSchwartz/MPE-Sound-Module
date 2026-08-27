@@ -90,6 +90,7 @@ def matrix_messages(
     sl_states: dict[int, int],
     *,
     previous: dict[int, int] | None = None,
+    footswitch_leds: dict[int, int] | None = None,
 ) -> tuple[list[tuple[int, int]], dict[int, int]]:
     """(note, colour) for the visible matrix, plus the state to pass in next time.
 
@@ -111,9 +112,17 @@ def matrix_messages(
         if track is None:
             desired[note] = LED_OFF
             continue
-        desired[note] = cell_led(
-            track, row, sl_state=sl_states.get(track_index, 0)
-        )
+        if (
+            footswitch_leds is not None
+            and track.pending is None
+            and row == track.active_slot
+            and track_index in footswitch_leds
+        ):
+            desired[note] = footswitch_leds[track_index]
+        else:
+            desired[note] = cell_led(
+                track, row, sl_state=sl_states.get(track_index, 0)
+            )
     if previous is None:
         return sorted(desired.items()), desired
     changed = [(n, c) for n, c in sorted(desired.items()) if previous.get(n) != c]
