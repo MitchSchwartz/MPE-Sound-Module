@@ -13,6 +13,7 @@ from scripts.sooperlooper.sl_loop_states import (
     SL_STATE_MUTE,
     SL_STATE_OFF,
     SL_STATE_OFF_MUTED,
+    SL_STATE_OVERDUBBING,
     SL_STATE_PAUSED,
     SL_STATE_PLAYING,
     SL_STATE_RECORDING,
@@ -919,3 +920,52 @@ class HoldGestureTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class OverdubOnePassTests(unittest.TestCase):
+    """The take closes into an overdub; it has to end itself one pass later."""
+
+    def _fs(self):
+        fs = LoopFootswitch(loop=0, hold_ms=1000.0, debounce_ms=0.0)
+        fs.bind(MagicMock(), MagicMock(), 36)
+        fs.sync_loop_len(2.0)
+        return fs
+
+    def _hits(self, fs):
+        return [c.args[1] for c in fs._osc.send_message.call_args_list
+                if c.args[0] == "/sl/0/hit"]
+
+    def test_overdub_ends_at_the_first_wrap(self) -> None:
+        fs = self._fs()
+        fs.sync_from_sl(SL_STATE_OVERDUBBING)
+        fs.sync_loop_pos(0.1)
+        fs.sync_loop_pos(1.9)
+        self.assertNotIn("overdub", self._hits(fs), "still inside pass one")
+        fs.sync_loop_pos(0.02)
+        self.assertEqual(self._hits(fs).count("overdub"), 1)
+
+    def test_overdub_ends_only_once(self) -> None:
+        fs = self._fs()
+        fs.sync_from_sl(SL_STATE_OVERDUBBING)
+        fs.sync_loop_pos(1.9)
+        fs.sync_loop_pos(0.02)
+        fs.sync_loop_pos(1.9)
+        fs.sync_loop_pos(0.02)
+        self.assertEqual(self._hits(fs).count("overdub"), 1)
+
+    def test_a_wrap_while_merely_playing_sends_nothing(self) -> None:
+        fs = self._fs()
+        fs.sync_from_sl(SL_STATE_PLAYING)
+        fs.sync_loop_pos(1.9)
+        fs.sync_loop_pos(0.02)
+        self.assertNotIn("overdub", self._hits(fs))
+
+    def test_pad_ending_the_overdub_disarms_the_wrap_watch(self) -> None:
+        """Ending it by hand must not leave a wrap primed to send a second
+        `overdub`, which would turn overdub back ON a pass later."""
+        fs = self._fs()
+        fs.sync_from_sl(SL_STATE_OVERDUBBING)
+        fs.sync_from_sl(SL_STATE_PLAYING)
+        fs.sync_loop_pos(1.9)
+        fs.sync_loop_pos(0.02)
+        self.assertNotIn("overdub", self._hits(fs))
