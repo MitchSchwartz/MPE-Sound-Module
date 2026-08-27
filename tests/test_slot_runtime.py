@@ -183,7 +183,7 @@ class BookkeepingTests(RuntimeCase):
 
     def test_sync_engine_commits_a_finished_take(self) -> None:
         self.rt.press(2, 1, sl_state=SL_STATE_OFF)
-        self.rt._phase[2] = PHASE_RECORDING
+        self.rt._phase[2] = PHASE_CLOSING
         changed = self.rt.sync_engine(
             2, sl_state=SL_STATE_PLAYING, loop_len=4.0
         )
@@ -200,6 +200,32 @@ class BookkeepingTests(RuntimeCase):
         self.rt.press(0, 0, sl_state=SL_STATE_RECORDING)
         hits = [a for p, a in self.sent if p.endswith("/hit")]
         self.assertIn(["overdub"], hits)
+
+    def test_overdubbing_does_not_commit_before_playing(self) -> None:
+        self.rt.press(0, 0, sl_state=SL_STATE_OFF)
+        self.rt._phase[0] = PHASE_CLOSING
+        changed = self.rt.sync_engine(0, sl_state=SL_STATE_OVERDUBBING, loop_len=4.0)
+        self.assertTrue(changed)
+        self.assertFalse(self.rt.track(0).occupied(0))
+        self.rt.sync_engine(0, sl_state=SL_STATE_PLAYING, loop_len=4.0)
+        self.assertTrue(self.rt.track(0).occupied(0))
+
+    def test_record_into_another_slot_mutes_and_flushes_first(self) -> None:
+        self.rt._tracks[0] = Track(
+            slots=(Slot("a.wav", dirty=True), None, *([None] * 6)), active_slot=0
+        )
+        original = self.rt._send
+
+        def send(path, args):
+            original(path, args)
+            if path.endswith("/save_loop"):
+                Path(args[0]).write_bytes(b"\0" * MIN_CLIP_BYTES)
+
+        self.rt._send = send
+        self.rt.press(0, 1, sl_state=SL_STATE_PLAYING)
+        self.assertIn(("/sl/0/hit", ["mute_on"]), self.sent)
+        self.assertTrue(any(p.endswith("/save_loop") for p, _ in self.sent))
+        self.assertIn(("/sl/0/hit", ["undo_all"]), self.sent)
 
     def test_record_into_another_slot_clears_the_buffer_first(self) -> None:
         self.rt._tracks[0] = Track(

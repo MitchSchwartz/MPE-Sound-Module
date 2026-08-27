@@ -23,6 +23,7 @@ import time
 from typing import Callable
 
 from apc_grid import GRID_ROWS, GridView
+from apc_transport import scene_launch_index_to_row
 from led_table import LED_OFF, LED_RED, SCENE_LED_OFF, SCENE_LED_ON
 from sl_loop_states import ACTIVE_PLAY, SL_STATE_MUTE, SL_STATE_OFF, SL_STATE_PAUSED
 from slot_leds import matrix_messages
@@ -160,6 +161,12 @@ class SlotSurface:
             self.repaint()
             self.repaint_scenes()
 
+    def on_loop_pos(self, track: int, loop_pos: float) -> None:
+        """Engine loop position — ends ring-out overdub at wrap."""
+        if self._rt.on_loop_pos(track, float(loop_pos)):
+            self.repaint()
+            self.repaint_scenes()
+
     def _maybe_resolve(self, track_index: int, sl_state: int) -> None:
         track = self._rt.track(track_index)
         pending = track.pending
@@ -209,7 +216,7 @@ class SlotSurface:
             return
         desired: dict[int, int] = {}
         for index, note in enumerate(self._scene_launch_notes):
-            row = index
+            row = scene_launch_index_to_row(index)
             lit = scene_row_led_on(
                 self._rt.tracks(), row, sl_states=self._sl_states
             )

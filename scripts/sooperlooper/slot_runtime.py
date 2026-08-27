@@ -59,6 +59,7 @@ from sl_loop_states import (
     SL_STATE_PLAYING,
     SL_STATE_RECORDING,
 )
+from sl_grid_sync import detect_loop_wrap
 
 MIN_TAKE_LEN_S = 0.01
 
@@ -100,6 +101,10 @@ class SlotRuntime:
         self._last_sl_state: dict[int, int] = {}
         self._phase: dict[int, str] = {i: PHASE_IDLE for i in range(num_tracks)}
         self._stop_queued: dict[int, bool] = {}
+        self._overdub_pass: dict[int, bool] = {}
+        self._loop_pos: dict[int, float] = {}
+        self._loop_pos_seen: dict[int, bool] = {}
+        self._last_loop_pos: dict[int, float] = {}
 
     # -- state ------------------------------------------------------------
 
@@ -178,6 +183,33 @@ class SlotRuntime:
         self._last_sl_state.clear()
         self._phase = {i: PHASE_IDLE for i in range(self._num_tracks)}
         self._stop_queued.clear()
+        self._overdub_pass.clear()
+        self._loop_pos.clear()
+        self._loop_pos_seen.clear()
+        self._last_loop_pos.clear()
+
+    def on_loop_pos(self, track_index: int, loop_pos: float) -> bool:
+        """Track loop position; end ring-out overdub at wrap. True if model moved."""
+        pos = float(loop_pos)
+        loop_len = self._loop_lens.get(track_index, 0.0)
+        if (
+            self._overdub_pass.get(track_index)
+            and self._loop_pos_seen.get(track_index)
+            and detect_loop_wrap(self._loop_pos.get(track_index, pos), pos, loop_len)
+        ):
+            self._overdub_pass[track_index] = False
+            self._send(f"/sl/{track_index}/hit", ["overdub"])
+            self._log(f"track {track_index + 1}: overdub off at wrap — one pass of ring-out")
+            return True
+        if self._loop_pos_seen.get(track_index) and detect_loop_wrap(
+            self._last_loop_pos.get(track_index, pos), pos, loop_len
+        ):
+            self._overdub_pass[track_index] = False
+        prev = self._loop_pos.get(track_index, pos)
+        self._last_loop_pos[track_index] = prev if self._loop_pos_seen.get(track_index) else pos
+        self._loop_pos[track_index] = pos
+        self._loop_pos_seen[track_index] = True
+        return False
 
     def sync_engine(
         self, track_index: int, *, sl_state: int, loop_len: float
@@ -197,6 +229,9 @@ class SlotRuntime:
             changed = True
 
         phase = self._phase.get(track_index, PHASE_IDLE)
+        track = self.track(track_index)
+        active = track.active_slot
+
         if sl_state in ACTIVE_RECORD:
             phase = (
                 PHASE_RECORDING
@@ -205,15 +240,11 @@ class SlotRuntime:
             )
         elif sl_state == SL_STATE_OVERDUBBING:
             phase = PHASE_CLOSING
-        elif sl_state in ACTIVE_PLAY and phase in (
-            PHASE_ARMING,
-            PHASE_RECORDING,
-            PHASE_CLOSING,
-        ):
-            track = self.track(track_index)
-            active = track.active_slot
+            self._overdub_pass[track_index] = True
+        elif sl_state == SL_STATE_PLAYING:
             if (
-                active is not None
+                phase in (PHASE_CLOSING, PHASE_RECORDING, PHASE_ARMING)
+                and active is not None
                 and not track.occupied(active)
                 and loop_len >= MIN_TAKE_LEN_S
             ):
@@ -226,8 +257,10 @@ class SlotRuntime:
                 )
                 changed = True
             phase = PHASE_IDLE
+            self._overdub_pass[track_index] = False
         elif sl_state == SL_STATE_OFF and prev_sl != SL_STATE_OFF:
             phase = PHASE_IDLE
+            self._overdub_pass[track_index] = False
 
         if phase != self._phase.get(track_index):
             changed = True
@@ -268,12 +301,21 @@ class SlotRuntime:
             return False
 
         if plan.action == ACT_RECORD:
+            loop = plan.track
+            track = self.track(loop)
             if (
                 plan.from_slot is not None
                 and plan.from_slot != plan.slot
-                and self.track(loop).occupied(plan.from_slot)
+                and (
+                    track.occupied(plan.from_slot)
+                    or track.active_slot == plan.from_slot
+                )
             ):
-                if plan.save_first and not self._flush_active(loop):
+                if sl_state in ACTIVE_PLAY:
+                    if not self._flush_active(loop):
+                        return False
+                    self._send(f"/sl/{loop}/hit", ["mute_on"])
+                elif plan.save_first and not self._flush_active(loop):
                     return False
                 self._send(f"/sl/{loop}/hit", ["undo_all"])
             gesture = plan_arm_record(

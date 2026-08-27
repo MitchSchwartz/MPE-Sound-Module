@@ -59,6 +59,8 @@ def cell_led(track: Track, slot: int, *, sl_state: int) -> int:
 
     if not track.occupied(slot):
         if slot == track.active_slot:
+            if sl_state in ACTIVE_PLAY:
+                return LED_GREEN
             if sl_state in ACTIVE_RECORD or sl_state == SL_STATE_RECORDING:
                 return LED_RED if sl_state == SL_STATE_RECORDING else LED_RED_BLINK
             if sl_state == SL_STATE_WAIT_START:

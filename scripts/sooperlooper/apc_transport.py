@@ -171,9 +171,25 @@ def resolve_scene_launch_notes(apc_label: str) -> tuple[int, ...]:
 def scene_row_for_note(scene_launch_notes: tuple[int, ...], note: int) -> int | None:
     """Map a Scene Launch note to slot row 0–6, or None if unknown."""
     try:
-        return scene_launch_notes.index(note)
+        index = scene_launch_notes.index(note)
     except ValueError:
         return None
+    return scene_launch_index_to_row(index)
+
+
+def scene_launch_index_to_row(index: int) -> int:
+    """Map Scene Launch button index to grid slot row.
+
+    APC side buttons run top-to-bottom (index 0 = Scene 1 at the top). Grid
+    rows run bottom-to-top (row 0 = bottom clip row). Scene 7 (bottom button)
+    aligns with row 0; Scene 1 (top button) with row 6.
+    """
+    return 6 - int(index)
+
+
+def scene_row_to_launch_index(row: int) -> int:
+    """Inverse of ``scene_launch_index_to_row`` for rows 0–6."""
+    return 6 - int(row)
 
 
 def mk1_shift_ghost_notes(
