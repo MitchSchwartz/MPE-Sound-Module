@@ -37,6 +37,7 @@ from apc_transport import (  # noqa: E402
     resolve_shift_indicator_note,
 )
 from led_table import LED_OFF  # noqa: E402
+from running_code import running_code_sha  # noqa: E402
 from loop_mix import CoalescingSender, LoopMix  # noqa: E402
 from sl_bench_listener import SlBenchStateListener  # noqa: E402
 from looper_engine_events import LooperEngineEventWatch, poll_interval_s  # noqa: E402
@@ -319,6 +320,7 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
         apc_label=apc_label,
     )
 
+    print(f"bench: running code {running_code_sha()}", flush=True)
     print(
         f"APC [{idx}] {port_name} ({apc_label}) | bottom row -> 8 of {num_loops} tracks "
         f"(Up/Down page 8, Shift+Left/Right nudge 1) | "
