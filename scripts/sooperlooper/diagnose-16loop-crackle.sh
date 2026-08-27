@@ -8,7 +8,7 @@ DUR="${MPE_SL_DIAG_SEC:-45}"
 CAP_SEC="${MPE_SL_DIAG_CAPTURE_SEC:-5}"
 OSC_HOST="${MPE_SL_OSC_HOST:-127.0.0.1}"
 OSC_PORT="${MPE_SL_OSC_PORT:-9951}"
-LOOPS="${MPE_SL_LOOPS:-16}"
+LOOPS="${MPE_SL_LOOPS:-15}"  # 15 usable max — see sl_limits.py
 OUT="${MPE_SL_DIAG_OUT:-/tmp/sl-16loop-diag-$(date +%Y%m%d-%H%M%S).txt}"
 
 log() { echo "diag-16: $*" | tee -a "$OUT"; }

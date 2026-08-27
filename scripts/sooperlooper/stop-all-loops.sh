@@ -4,7 +4,7 @@ set -euo pipefail
 
 OSC_HOST="${MPE_SL_OSC_HOST:-127.0.0.1}"
 OSC_PORT="${MPE_SL_OSC_PORT:-9951}"
-LOOPS="${MPE_SL_LOOPS:-16}"
+LOOPS="${MPE_SL_LOOPS:-15}"  # 15 usable max — see sl_limits.py
 
 if ! command -v oscsend >/dev/null 2>&1; then
   echo "stop-all-loops: oscsend required" >&2
