@@ -448,7 +448,7 @@ Not facts to be corrected — product calls. Each needs a dated DECISIONS row.
 
 | # | Question | Options | Recommendation |
 |---|----------|---------|----------------|
-| **OPEN-1** | Row 7 has no scene button on mk1 (note `0x59` is Stop All). mk2 has a dedicated Stop All (`0x77`) and may have 8 free scene buttons. | (a) 7 scene rows on both variants — row 7 pad-only, behaviour identical everywhere. (b) 8 rows on mk2, 7 on mk1 — full use of the hardware, divergent muscle memory. (c) 7 slots per track, dropping row 7 entirely — perfectly regular, loses 15 slots. | **(a)** until SP6 confirms mk2's notes. Identical behaviour across variants beats one extra row; (c) stays available if the asymmetry grates. |
+| **OPEN-1** *(mk1 settled by SP6 — (a))* | Row 7 has no scene button on mk1 (note `0x59` is Stop All). mk2 has a dedicated Stop All (`0x77`) and may have 8 free scene buttons. | (a) 7 scene rows on both variants — row 7 pad-only, behaviour identical everywhere. (b) 8 rows on mk2, 7 on mk1 — full use of the hardware, divergent muscle memory. (c) 7 slots per track, dropping row 7 entirely — perfectly regular, loses 15 slots. | **(a)** until SP6 confirms mk2's notes. Identical behaviour across variants beats one extra row; (c) stays available if the asymmetry grates. |
 | **OPEN-2** | Record-while-playing (see §One buffer per track). | (a) v1 ships silence-on-arm; revisit later on the indirection laid down now. (b) Reserve spare loop indices now, ~halving track count, for unconditional record-while-playing. | **(a)**. 16 tracks with a known limitation beats ~8 tracks with a richer gesture, and rev 2's indirection keeps (b) cheap later. Mitch's call — it is a playing-feel question, not a technical one. |
 | ~~**OPEN-3**~~ | ~~Scratch loop index~~ | — | **CLOSED rev 3.** `a99cf63` removed the scratch loop; `MPE_SL_SCRATCH_LOOP` defaults to `-1`. No index is reserved and the track space is contiguous. |
 | **OPEN-4** *(SP7 partial — leaning (b))* | **Slot switch while the ring-out overdub is running.** A take closes into a one-pass overdub (`117f4cc`, `1a90d51`); the track is `OVERDUBBING` for a full pass. What does a switch queued on that track during the overdub do? | (a) **Block** the switch until the overdub ends — simple, but a pad press does nothing for up to one pass, which reads as a dropped press. (b) **Defer**: accept the press, end the overdub at the wrap as it would have anyway, apply the switch at the same boundary. (c) **Cut it short**: end the overdub immediately on the press and switch at the next bar, losing the rest of the ring-out. | **(b)** — the overdub already ends at the wrap, which is the same boundary a quantized switch lands on, so the two coincide naturally and nothing is lost. Needs SP7 to confirm SL accepts `overdub` off + `mute_on` + `load_loop` on one boundary. |
@@ -553,7 +553,8 @@ Run on bench (Pi or laptop + SL):
 | ✅ SP4 | Switch: mute A + load B + trigger, one boundary | `slot_matrix_spike.py --sp4` | **PASS (state level) 2026-08-26.** Lands playing. Audible check deferred to P2 |
 | SP5 | Scene row launch with 16 tracks (8 off-screen) | Iterate `musical_loop_indices()` | All occupied cells in row queue |
 | ⚠️ SP7 | **Switch queued while the ring-out overdub is running** (rev 3, settles OPEN-4) | `slot_matrix_spike.py --sp7` | **PARTIAL 2026-08-26.** State machine confirmed: SL accepts overdub-off + switch in one burst and lands playing. **Audible seam untested** — Surge was silent, so the overdub recorded zero. Needs a played take (P2) |
-| **SP6** | **Scene Launch note numbers per APC variant** | `sooperlooper-apc-bench.py --dump-midi`, press each scene button on mk1 (and mk2 if available) | Confirmed note list; settles [OPEN-1](#open-decisions) for mk2 |
+| ✅ **SP6** | **Scene Launch note numbers per APC variant** | `aseqdump -p "APC MINI"` alongside the running bench | **mk1 MEASURED 2026-08-26.** Scene 1–7 = `0x52`–`0x58`, Scene 8 = `0x59` (= Stop All), Shift = `0x62` — every existing constant confirmed. Shift does **not** modify scene notes. mk2 still unverified |
+| ⚠️ **SP8** | **Does the mk1 Shift ghost exist?** (new, from SP6) | Press Shift alone several times, capture; any note but `0x62` is a ghost | The SP6 capture contained **no ghost**. If it is not real, `MK1_GHOST_SHIFT_S` is swallowing genuine Shift+Scene presses for 80 ms — the P3 gesture. **Blocks P3** |
 
 Spike write-up: [`multi-clip-slot-spike-2026-08-26.md`](../../docs/measurements/multi-clip-slot-spike-2026-08-26.md) — **read its instrument audit first**; two instruments in the harness could not fail and produced plausible numbers.
 
@@ -579,7 +580,9 @@ complete. SP1/SP2/SP4 pass and SP7 is partial, so latency is settled and the que
 
 1. **Hardware-confirm SP3b** — the `pause_on` launch-cancel has only ever run against
    `FakeSlEngine`, and `2500782` reverted it once without recording a reason.
-2. **SP6** — scene launch note numbers; needs a human pressing buttons.
+2. ~~SP6~~ **done** — mk1 constants measured and confirmed. Replaced by **SP8**:
+   confirm whether the mk1 Shift ghost is real, because the 80 ms filter built
+   for it will otherwise eat the Shift+Scene chord P3 depends on.
 3. **P1** — `slot_matrix.py` + manifest v2.
 4. **P2** — APC all rows, which also closes the audible half of SP7.
 

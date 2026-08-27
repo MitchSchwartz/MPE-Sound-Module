@@ -113,13 +113,61 @@ P2 hardware work.
 
 ---
 
+## SP6 — Scene Launch note numbers (mk1) — **MEASURED**
+
+`aseqdump -p "APC MINI"` subscribed alongside the running bench (ALSA seq allows
+a second subscriber, so the looper kept working). Mitch pressed Scene 1–8 twice,
+then once more with Shift held.
+
+| button | note | matches constant |
+|---|---|---|
+| Scene Launch 1–7 | **82–88** (`0x52`–`0x58`) | `SCENE_LAUNCH_NOTES_MK1 = range(0x52, 0x59)` ✅ |
+| Scene Launch 8 | **89** (`0x59`) | `NOTE_STOP_ALL_CLIPS_MK1` ✅ — scene 8 **is** Stop All |
+| Shift | **98** (`0x62`) | `NOTE_SHIFT_MK1` ✅ |
+
+Every mk1 constant the spec depended on is confirmed. They were previously
+**recalled**; they are now **measured**.
+
+**Shift does not modify the scene notes.** With Shift held, Scene 1–8 send the
+identical notes 82–89. Shift+Scene chords are therefore distinguishable only by
+software shift-state, which the bench already tracks. P3 is viable as designed.
+
+**OPEN-1 settled for mk1: 7 usable scene rows.** The 8th physical button is
+Stop All. Option (a) — 7 scene rows, row 7 pad-only — stands. mk2 remains
+unverified (no mk2 hardware on hand); `SCENE_LAUNCH_NOTES_MK2` is still recalled.
+
+### ⚠️ The mk1 Shift ghost did not reproduce
+
+`apc_transport.py` states: *"Pressing Shift on mk1 often spuriously fires Scene
+1–8 / Track Select notes within a few ms."* On that basis `a1bcb4b` filters all
+scene notes, the track-overlap notes `0x30–0x37`, and Stop All for
+`MK1_GHOST_SHIFT_S = 0.08` after Shift goes down.
+
+**This capture contains no ghost.** `Note on 98` is followed directly by
+`Note on 82` — the deliberate press — with no spurious notes in between, and no
+stray events anywhere else in 52 lines.
+
+One capture does not refute "often"; the ghost may be intermittent or
+condition-dependent. But the stake is high enough to re-test deliberately:
+
+- If the ghost is real, the filter is correct and must stay.
+- If it is rare or absent, **the filter is swallowing genuine Shift+Scene
+  presses in the first 80 ms** — which is precisely the P3 gesture, and would
+  present as "the scene button sometimes does nothing".
+
+The discriminating test is trivial: press **Shift alone**, several times,
+touching nothing else, and capture. Any note other than 98 is a ghost.
+**Do this before P3 wires the scene rows.** Filed as SP8.
+
+---
+
 ## Not run
 
 | # | Why |
 |---|---|
 | SP3 / SP3b | Cancel paths. Model-level restored in `c509ed9` (they had been dropped by `2500782`); hardware confirmation still outstanding — **SP3b has only ever run against `FakeSlEngine`** |
 | SP5 | Scene row launch across 16 tracks — needs the scene handler, which is P3 |
-| SP6 | Scene Launch note numbers — requires pressing each button on the hardware; cannot be driven from a script |
+| ~~SP6~~ | **Done — see above.** |
 
 ---
 
