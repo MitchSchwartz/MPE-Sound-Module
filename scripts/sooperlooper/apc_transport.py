@@ -169,7 +169,7 @@ def resolve_scene_launch_notes(apc_label: str) -> tuple[int, ...]:
 
 
 def scene_row_for_note(scene_launch_notes: tuple[int, ...], note: int) -> int | None:
-    """Map a Scene Launch note to slot row 0–6, or None if unknown."""
+    """Map a Scene Launch note to the slot row 1–7 beside it, or None."""
     try:
         index = scene_launch_notes.index(note)
     except ValueError:
@@ -178,18 +178,38 @@ def scene_row_for_note(scene_launch_notes: tuple[int, ...], note: int) -> int | 
 
 
 def scene_launch_index_to_row(index: int) -> int:
-    """Map Scene Launch button index to grid slot row.
+    """Map Scene Launch button index to the grid row it sits BESIDE.
 
-    APC side buttons run top-to-bottom (index 0 = Scene 1 at the top). Grid
-    rows run bottom-to-top (row 0 = bottom clip row). Scene 7 (bottom button)
-    aligns with row 0; Scene 1 (top button) with row 6.
+    The right-hand column is eight buttons, 0x52 at the top down to 0x59 at
+    the bottom, and the bottom one is Stop All Clips — so only the upper SEVEN
+    are scene launchers. Grid rows run bottom-to-top (row 0 = bottom).
+    Physically, then:
+
+        0x52  top     -> row 7
+        0x53          -> row 6
+        ...
+        0x58          -> row 1
+        0x59  bottom  -> row 0, and it is Stop All Clips, not a scene
+
+    This used to return ``6 - index``, which put every scene button one row
+    below the pads it is physically next to, and claimed row 0 had a scene
+    launcher when the button beside row 0 is Stop All. Reported from the
+    appliance 2026-08-27: "the stop all clips button is the 1st row."
+
+    Row 0 therefore has NO scene button. That is a property of the hardware,
+    not an omission to be worked around: there are eight rows and only seven
+    free buttons.
     """
-    return 6 - int(index)
+    return 7 - int(index)
 
 
-def scene_row_to_launch_index(row: int) -> int:
-    """Inverse of ``scene_launch_index_to_row`` for rows 0–6."""
-    return 6 - int(row)
+def scene_row_to_launch_index(row: int) -> int | None:
+    """Inverse of ``scene_launch_index_to_row``; None for row 0, which has no
+    scene button because Stop All Clips occupies that position."""
+    row = int(row)
+    if not 1 <= row <= 7:
+        return None
+    return 7 - row
 
 
 def mk1_shift_ghost_notes(
