@@ -168,6 +168,14 @@ def resolve_scene_launch_notes(apc_label: str) -> tuple[int, ...]:
     return SCENE_LAUNCH_NOTES_MK1
 
 
+def scene_row_for_note(scene_launch_notes: tuple[int, ...], note: int) -> int | None:
+    """Map a Scene Launch note to slot row 0–6, or None if unknown."""
+    try:
+        return scene_launch_notes.index(note)
+    except ValueError:
+        return None
+
+
 def mk1_shift_ghost_notes(
     *,
     stop_all_note: int,

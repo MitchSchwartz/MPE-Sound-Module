@@ -35,6 +35,7 @@ from apc_transport import (  # noqa: E402
     resolve_arrow_notes,
     resolve_scene_launch_notes,
     resolve_shift_indicator_note,
+    scene_row_for_note,
 )
 from led_table import LED_OFF  # noqa: E402
 from midi_subscription import wait_for_subscription  # noqa: E402
@@ -307,8 +308,16 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
             log=lambda m: print(f"slots: {m}", flush=True),
         )
         slot_surface = SlotSurface(
-            runtime=slot_runtime, view=view, midi_out=midi_out, num_tracks=num_loops
+            runtime=slot_runtime,
+            view=view,
+            midi_out=midi_out,
+            num_tracks=num_loops,
+            scene_launch_notes=scene_launch_notes,
+            hold_s=hold_ms / 1000.0,
+            hold_blink_start_s=hold_blink_start_ms / 1000.0,
+            log=lambda m: print(f"slots: {m}", flush=True),
         )
+        slot_surface.repaint_scenes(force=True)
         print(
             f"bench: MULTIGRID on — 8 slots x {num_loops} tracks; "
             f"rows are slots, columns are tracks. Kill switch: MPE_SL_MULTIGRID=0",
@@ -400,6 +409,9 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
 
     def poll_holds() -> None:
         poll_footswitches(footswitches)
+        if slot_surface is not None:
+            slot_surface.poll_hold()
+            slot_surface.poll_hold_led()
 
     def tick_faders() -> None:
         """Ramp smoothed wet toward targets between CC events."""
@@ -423,6 +435,8 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
 
     def poll_transport_leds() -> None:
         transport_leds.poll()
+        if slot_surface is not None:
+            slot_surface.repaint_scenes()
 
     def maybe_track_transport() -> None:
         if track_reset.poll_long():
@@ -434,6 +448,8 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
                 num_loops=num_loops,
                 footswitches=footswitches,
             )
+            if slot_surface is not None:
+                slot_surface.reset()
         elif track_reset.poll_short():
             print("transport: Shift+StopAll short -> stop all", flush=True)
             stop_all_loops(
@@ -515,8 +531,12 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
                 continue
 
         if down is not None and n in scene_launch_notes:
-            if args.dump_midi:
-                print(f"ignored scene launch note {n} (unwired until P3)", flush=True)
+            if slot_surface is not None and down:
+                row = scene_row_for_note(scene_launch_notes, n)
+                if row is not None:
+                    slot_surface.scene_press(row)
+            elif args.dump_midi:
+                print(f"ignored scene launch note {n} (set MPE_SL_MULTIGRID=1)", flush=True)
             poll_holds()
             poll_transport_leds()
             maybe_track_transport()
@@ -525,11 +545,10 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
             continue
 
         if slot_surface is not None and down is not None and slot_surface.handles(n):
-            # The matrix owns every grid pad, row 0 included. Presses act on
-            # pad-down; a hold is not wired here yet, so clearing a slot still
-            # goes through the single-clip path when MULTIGRID is off.
             if down:
-                slot_surface.press(n)
+                slot_surface.note_down(n)
+            else:
+                slot_surface.note_up(n)
             poll_holds()
             poll_transport_leds()
             maybe_track_transport()

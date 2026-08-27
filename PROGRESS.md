@@ -1,6 +1,6 @@
 # PROGRESS — canonical thread
 
-**Updated 2026-08-23 14:04 (America/Toronto).** This is the top-level index.
+**Updated 2026-08-27 10:38 (America/Toronto).** This is the top-level index.
 
 ---
 
@@ -118,8 +118,8 @@ SP1/SP2/SP4 pass with 2–3 orders of magnitude of margin; SP6 measured.
 | # | Task |
 |---|---|
 | ~~**P1**~~ | **Done** — `slot_matrix.py` (`0c039e7`, 31 tests) + manifest v2 (`83cade9`, 26 tests). Pushed to `dev`; **not deployed to the Pi** — v2 changes what `save_song` writes to disk, and that is not a change to make on Mitch's instrument overnight without him. Suite: 1186 passed. |
-| **P2** | APC all rows — the actual Ableton gesture. Also closes the audible half of SP7 (state machine confirmed; Surge was silent, so the ring-out seam is untested). |
-| **P3** | Scene Launch rows 0–6 across 16 tracks. ~~Gated on SP8~~ — **unblocked**, the ghost filter that would have eaten the chord is off. |
+| **P2** | **Code on `dev`, not Pi-soaked.** Full 8×8 matrix behind `MPE_SL_MULTIGRID=1` (`8815bb4` + hold-clear + scene LEDs). Mitch ear pass still open — quantized switch, ring-out seam (audible SP7). |
+| **P3** | **Code on `dev`, not Pi-soaked.** Scene Launch 1–7 → rows 0–6 across all 15 tracks; scene row LEDs follow spec. Same flag as P2. |
 
 ### Track C — Pi 5, on arrival
 

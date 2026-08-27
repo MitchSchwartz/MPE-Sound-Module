@@ -18,6 +18,7 @@ from scripts.sooperlooper.apc_transport import (
     resolve_apc_transport_notes,
     resolve_scene_launch_notes,
     resolve_shift_indicator_note,
+    scene_row_for_note,
 )
 from scripts.sooperlooper.led_table import (
     LED_OFF,
@@ -56,6 +57,12 @@ class ResolveApcTransportNotesTests(unittest.TestCase):
     def test_mk1_scene_launch_notes(self) -> None:
         self.assertEqual(resolve_scene_launch_notes("mk1"), SCENE_LAUNCH_NOTES_MK1)
         self.assertNotIn(NOTE_STOP_ALL_CLIPS_MK1, resolve_scene_launch_notes("mk1"))
+
+    def test_scene_row_for_note(self) -> None:
+        notes = resolve_scene_launch_notes("mk1")
+        self.assertEqual(scene_row_for_note(notes, notes[0]), 0)
+        self.assertEqual(scene_row_for_note(notes, notes[6]), 6)
+        self.assertIsNone(scene_row_for_note(notes, NOTE_STOP_ALL_CLIPS_MK1))
 
 
 class Mk1ShiftGhostFilterTests(unittest.TestCase):
