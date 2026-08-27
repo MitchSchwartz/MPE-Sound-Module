@@ -31,8 +31,18 @@ _remove_env_key() {
     sudo sed -i "/^${key}=/d" "$MPE_ENV" 2>/dev/null || true
 }
 
-log "configuring looper env (stop-then-weld, 16 loops, scratch 14 — loop 15 empty on Pi)"
+log "configuring looper env (native ring-out overdub, 16 usable loops, no scratch)"
+
+# Keys from the offline seam-weld pipeline, deleted 2026-08-26 when a single
+# native `overdub` replaced it. They are removed rather than ignored because
+# /etc/mpe/mpe.env persists across deploys: MPE_SL_SCRATCH_LOOP=14 was still
+# live on the Pi a day after the code stopped wanting a scratch loop, and it
+# does real damage — looper_songs skips that index and sl_hud_monitor hides it,
+# so track 15 silently disappears from a 16-track instrument.
 _remove_env_key MPE_SL_TAIL_MODE
+_remove_env_key MPE_SL_TAIL_CAPTURE
+_remove_env_key MPE_SL_SEAM_WELD
+_remove_env_key MPE_SL_SCRATCH_LOOP
 _ensure_env_kv MPE_SL_LOOPS 16
 
 if [ ! -x "$SOOP_BIN" ]; then
