@@ -298,6 +298,67 @@ def sp2(osc: Osc, *, trials: int, seconds: float) -> None:
           "(120 BPM 4/4 = 2000 ms) with room for the mute + trigger")
 
 
+def sp3(osc: Osc, *, seconds: float) -> None:
+    """SP3 / SP3b — do mute_off and pause_on cancel a QUEUED action?
+
+    This is an engine question, not a pad question: the bench dispatch is unit
+    tested, the unknown is whether SooperLooper honours the cancel. Driven over
+    OSC so no hardware gesture is needed.
+
+    Conditions are SET here and printed, because the appliance idles with
+    quantize = 0 and mute_quantized = 0 (no grid), where there is no pending
+    window at all and both tests would pass vacuously.
+    """
+    print("\nSP3 / SP3b — cancel a queued mute / queued launch")
+    clip = write_clip(SPIKE_DIR / "sp3.wav", seconds=seconds, hz=220.0)
+    osc.hit(0, "undo_all")
+    time.sleep(0.3)
+    osc.send("/sl/0/load_loop", [str(clip), "", ""])
+    if not _wait_len(osc, 0, seconds, 5.0):
+        print("  !! clip never loaded — cannot run")
+        return
+    osc.send("/sl/0/set", ["quantize", 3.0])        # 3 = loop boundary
+    osc.send("/sl/0/set", ["mute_quantized", 1.0])
+    time.sleep(0.2)
+    print(f"  conditions: quantize={osc.get(0,'quantize')} "
+          f"mute_quantized={osc.get(0,'mute_quantized')} "
+          f"cycle={seconds}s")
+
+    # --- SP3: cancel a queued mute -------------------------------------
+    osc.hit(0, "trigger")
+    time.sleep(0.6)
+    if osc.get(0, "state") != 4.0:
+        print("  !! loop not playing — SP3 inconclusive")
+    else:
+        osc.hit(0, "mute_on")
+        time.sleep(0.15)
+        queued = osc.get(0, "state")
+        osc.hit(0, "mute_off")
+        time.sleep(seconds + 0.6)          # past the boundary
+        after = osc.get(0, "state")
+        ok = after == 4.0
+        print(f"  SP3  queued-mute state={queued} -> after boundary={after}  "
+              f"{'PASS — kept playing' if ok else 'FAIL — it muted anyway'}")
+
+    # --- SP3b: cancel a queued launch ----------------------------------
+    osc.hit(0, "mute_on")
+    time.sleep(seconds + 0.6)
+    muted = osc.get(0, "state")
+    osc.hit(0, "trigger")
+    time.sleep(0.15)
+    queued = osc.get(0, "state")
+    osc.hit(0, "pause_on")
+    time.sleep(seconds + 0.6)
+    after = osc.get(0, "state")
+    ok = after != 4.0
+    print(f"  SP3b muted={muted} queued-launch={queued} -> after boundary={after}  "
+          f"{'PASS — stayed stopped' if ok else 'FAIL — it launched anyway'}")
+    print("  states: 4=playing 10=mute 14=paused")
+    osc.send("/sl/0/set", ["quantize", 0.0])
+    osc.send("/sl/0/set", ["mute_quantized", 0.0])
+    osc.hit(0, "undo_all")
+
+
 # --- SP4 -------------------------------------------------------------------
 def sp4(osc: Osc, *, seconds: float) -> None:
     print("\nSP4 — switch: mute outgoing + load + trigger incoming")
@@ -359,6 +420,7 @@ def main() -> int:
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--sp1", action="store_true")
     ap.add_argument("--sp2", action="store_true")
+    ap.add_argument("--sp3", action="store_true")
     ap.add_argument("--sp4", action="store_true")
     ap.add_argument("--sp7", action="store_true")
     ap.add_argument("--all", action="store_true")
@@ -369,7 +431,7 @@ def main() -> int:
     ap.add_argument("--seconds", type=float, default=2.0, help="clip length")
     ap.add_argument("--keep", action="store_true", help="do not clear loops after")
     a = ap.parse_args()
-    if not (a.sp1 or a.sp2 or a.sp4 or a.sp7 or a.control or a.all):
+    if not (a.sp1 or a.sp2 or a.sp3 or a.sp4 or a.sp7 or a.control or a.all):
         ap.print_help()
         return 2
 
@@ -387,6 +449,8 @@ def main() -> int:
         sp1(osc, slots=a.slots, seconds=a.seconds)
     if a.sp2 or a.all:
         sp2(osc, trials=a.trials, seconds=a.seconds)
+    if a.sp3 or a.all:
+        sp3(osc, seconds=a.seconds)
     if a.sp4 or a.all:
         sp4(osc, seconds=a.seconds)
     if a.sp7 or a.all:
