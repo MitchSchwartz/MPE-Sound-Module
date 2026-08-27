@@ -102,3 +102,53 @@ def check_command_path(get, send, *, seed: str, settle_s: float = 0.5,
 def _restore(send, _before: float | None) -> None:
     """Always to the policy value — see PROBE_RESTORE."""
     send(PROBE_CONTROL, PROBE_RESTORE)
+
+
+PHANTOM = "phantom"
+
+
+def check_loops_writable(get_loop, send_loop, *, num_loops: int,
+                         settle_s: float = 0.12) -> tuple[str, list[int], str]:
+    """Which loop indices actually accept writes?
+
+    `check_command_path` proves the engine's command path is draining, using
+    one loop. That is not the same question as "does every loop I was given
+    exist", and on 2026-08-27 the difference cost a morning.
+
+    SooperLooper reports whatever loop count you passed to `-l`, and every
+    index answers `get` with plausible defaults — but only indices below the
+    engine's real ceiling accept `set`. A phantom index therefore passes every
+    read-based check while silently discarding configuration, which is how one
+    track ended up unquantized among fourteen quantized ones with nothing
+    anywhere reporting a problem.
+
+    So this writes to each index and reads it back. `get_loop(loop, ctrl)`
+    returns a float or None; `send_loop(loop, ctrl, value)` writes.
+
+    Returns (verdict, phantom_indices, detail).
+    """
+    phantoms: list[int] = []
+    unreachable: list[int] = []
+    for loop in range(num_loops):
+        before = get_loop(loop, PROBE_CONTROL)
+        if before is None:
+            unreachable.append(loop)
+            continue
+        target = probe_target(f"writable{loop}", before)
+        send_loop(loop, PROBE_CONTROL, target)
+        time.sleep(settle_s)
+        after = get_loop(loop, PROBE_CONTROL)
+        if after is None or abs(float(after) - target) >= 0.01:
+            phantoms.append(loop)
+        else:
+            send_loop(loop, PROBE_CONTROL, PROBE_RESTORE)
+
+    if unreachable:
+        return (UNREACHABLE, phantoms,
+                f"no reply from loops {unreachable} reading {PROBE_CONTROL}")
+    if phantoms:
+        return (PHANTOM, phantoms,
+                f"loops {phantoms} answer reads but ignore writes — "
+                f"the engine has fewer usable loops than it reports. "
+                f"Lower MPE_SL_LOOPS to {min(phantoms)} (see sl_limits.py).")
+    return ALIVE, [], f"all {num_loops} loops accept writes"

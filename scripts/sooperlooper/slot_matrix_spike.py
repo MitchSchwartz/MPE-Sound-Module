@@ -36,7 +36,9 @@ from pathlib import Path
 
 SL_HOST = os.environ.get("MPE_SL_OSC_HOST", "127.0.0.1")
 SL_PORT = int(os.environ.get("MPE_SL_OSC_PORT", "9951"))
-NUM_LOOPS = int(os.environ.get("MPE_SL_LOOPS", "16"))
+from sl_limits import resolve_num_loops  # noqa: E402
+
+NUM_LOOPS = resolve_num_loops()
 SPIKE_DIR = Path(os.environ.get("MPE_SLOT_SPIKE_DIR", "/tmp/mpe-slot-spike"))
 SAMPLE_RATE = 48000
 _WAVE_FORMAT_IEEE_FLOAT = 3

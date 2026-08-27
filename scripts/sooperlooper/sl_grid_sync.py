@@ -17,6 +17,8 @@ see Documents/specs/looper-transport-clock-spec.md §J.
 
 from __future__ import annotations
 
+from sl_limits import MAX_USABLE_LOOPS
+
 import os
 import sys
 from typing import Callable
@@ -106,7 +108,7 @@ EIGHTH_PER_CYCLE = int(os.environ.get("MPE_LOOPER_EIGHTH_PER_CYCLE", "8"))
 
 
 def set_grid_active(
-    send: Callable[[str, list], None], *, num_loops: int = 16, active: bool
+    send: Callable[[str, list], None], *, num_loops: int = MAX_USABLE_LOOPS, active: bool
 ) -> None:
     """The two grid states, applied to the engine.
 
@@ -141,7 +143,7 @@ def set_grid_active(
 
 
 def apply_loop_latency(
-    send: Callable[[str, list], None], *, num_loops: int = 16
+    send: Callable[[str, list], None], *, num_loops: int = MAX_USABLE_LOOPS
 ) -> None:
     """Align record/stop boundaries with JACK pipeline delay (Tier 1).
 
@@ -172,7 +174,7 @@ def apply_loop_latency(
 def apply_grid_sync(
     send: Callable[[str, list], None],
     *,
-    num_loops: int = 16,
+    num_loops: int = MAX_USABLE_LOOPS,
     eighth_per_cycle: int = 8,
     fade_samples: int = DEFAULT_FADE_SAMPLES,
     clock: str = DEFAULT_CLOCK,
@@ -201,7 +203,7 @@ def apply_grid_sync(
 
 
 def set_count_in(
-    send: Callable[[str, list], None], *, num_loops: int = 16, count_in: bool
+    send: Callable[[str, list], None], *, num_loops: int = MAX_USABLE_LOOPS, count_in: bool
 ) -> None:
     """Deprecated alias — the grid has two states, not a count-in toggle."""
     set_grid_active(send, num_loops=num_loops, active=count_in)
@@ -232,7 +234,7 @@ def anchor_phase(send: Callable[[str, list], None], bpm: float) -> None:
 def apply_freeform(
     send: Callable[[str, list], None],
     *,
-    num_loops: int = 16,
+    num_loops: int = MAX_USABLE_LOOPS,
 ) -> None:
     """Eval free-form mode — no sync/quantize (B2 bench)."""
     send("/set", ["sync_source", SYNC_SOURCE_NONE])
@@ -248,7 +250,7 @@ def apply_freeform(
 def main() -> int:
     host = os.environ.get("MPE_SL_OSC_HOST", "127.0.0.1")
     port = int(os.environ.get("MPE_SL_OSC_PORT", "9951"))
-    num_loops = int(os.environ.get("MPE_SL_LOOPS", "16"))
+    num_loops = resolve_num_loops()
     mode = os.environ.get("MPE_SL_SYNC_MODE", "grid").strip().lower()
 
     try:
