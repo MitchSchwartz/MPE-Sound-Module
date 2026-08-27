@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import os
+import signal
 import sys
 import threading
 import time
@@ -69,6 +70,35 @@ def start_hud_thread(session: SlOscSession) -> tuple[threading.Thread, threading
     return thread, stop, writer
 
 
+def _install_sigterm_handler() -> None:
+    """Turn SIGTERM into a normal exit so cleanup actually runs.
+
+    Python's default SIGTERM action terminates the process outright — no
+    `finally`, no atexit. That matters here because the HUD holds a
+    `jack_cpu_load` child, and that binary **ignores SIGTERM** (measured
+    2026-08-17; it is why 705 zombie JACK clients once accumulated).
+    `JackGraphHealth.close()` already SIGKILLs it correctly — it was simply
+    never reached on a service stop.
+
+    The consequence was not a leak but a race: the child kept the unit's cgroup
+    alive, systemd waited out its full stop timeout, SIGKILLed the group, and
+    started the replacement in the same second. The new process then opened the
+    APC while the dying one still held it, and the MIDI subscription silently
+    did not take. That killed the pads twice on 2026-08-27, and `mpe looper
+    deploy` triggers it on every deploy.
+
+    Raising SystemExit lets the existing `finally` blocks run in order.
+    """
+    def _on_sigterm(_signum, _frame):
+        print("looper-session: SIGTERM — shutting down", flush=True)
+        raise SystemExit(0)
+
+    try:
+        signal.signal(signal.SIGTERM, _on_sigterm)
+    except ValueError:
+        pass  # not the main thread; the caller owns signals
+
+
 def run_session(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -82,6 +112,8 @@ def run_session(argv: list[str] | None = None) -> int:
         help="Run HUD writer only (debug)",
     )
     args, bench_argv = parser.parse_known_args(argv)
+
+    _install_sigterm_handler()
 
     if args.bench_only and args.hud_only:
         print("Error: --bench-only and --hud-only are mutually exclusive", file=sys.stderr)

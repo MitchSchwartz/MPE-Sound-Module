@@ -37,6 +37,7 @@ from apc_transport import (  # noqa: E402
     resolve_shift_indicator_note,
 )
 from led_table import LED_OFF  # noqa: E402
+from midi_subscription import wait_for_subscription  # noqa: E402
 from running_code import running_code_sha  # noqa: E402
 from loop_mix import CoalescingSender, LoopMix  # noqa: E402
 from sl_bench_listener import SlBenchStateListener  # noqa: E402
@@ -129,6 +130,30 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
     midi_in.open_port(idx)
     midi_out.open_port(idx)
     port_name = ports_in[idx]
+
+    # open_port() reports success whether or not the ALSA subscription took.
+    # On 2026-08-27 it did not — twice — because systemd started this process
+    # in the same second it SIGKILLed the previous one, and the banner below
+    # printed a complete, correct device line over dead pads for 17 minutes.
+    # Ask the kernel rather than trusting the library; refuse to run blind, the
+    # way sl-osc-session refuses when it cannot bind its port.
+    device_key = port_name.split(":")[0] or "APC"
+    has_reader, has_writer = wait_for_subscription(device_key)
+    if not has_reader:
+        print(
+            f"bench: FAIL — opened {port_name!r} but nothing is subscribed to it.\n"
+            f"  ALSA shows no reader for this device, so no pad press can arrive.\n"
+            f"  Usually a restart race: the previous session still held the device.\n"
+            f"  Fix: systemctl stop mpe-looper-session, wait for the process to go,\n"
+            f"       then start it.\n"
+            f"  Refusing to run blind — a bench that receives nothing looks exactly\n"
+            f"  like an idle one.",
+            file=sys.stderr,
+        )
+        return 1
+    if not has_writer:
+        print(f"bench: WARN — no writer to {port_name!r}; LEDs will not light.",
+              file=sys.stderr)
     if shift_note <= 0 or stop_all_note <= 0:
         shift_note, stop_all_note, apc_label = resolve_apc_transport_notes(
             port_name, variant=apc_variant
