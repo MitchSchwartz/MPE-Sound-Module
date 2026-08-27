@@ -210,6 +210,45 @@ class HoldClearTests(SurfaceCase):
         self.assertIsNone(self.rt.track(0).active_slot)
 
 
+class RecordOverPlayingTrackTests(SurfaceCase):
+    """Recording into an empty slot while the track is playing something else.
+
+    Reported from the appliance 2026-08-27: the pad went green, then yellow on
+    a second press, and no take was ever recorded.
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.rt._tracks[0] = Track(
+            slots=(Slot("a.wav", dirty=False), *([None] * 7)), active_slot=0
+        )
+        self.state(0, SL_STATE_PLAYING)
+        self.osc.clear()
+
+    def test_pressing_an_empty_slot_records(self) -> None:
+        self.surface.note_down(pad_note(3, 0))
+        self.surface.note_up(pad_note(3, 0))
+        cmds = [a[0] for p, a in self.osc if p == "/sl/0/hit"]
+        self.assertIn("record", cmds,
+                      "an empty slot means record, whatever the track was doing")
+        self.assertNotIn("mute_on", cmds[cmds.index("record"):],
+                         "the mute belongs BEFORE the record, not instead of it")
+
+    def test_the_outgoing_clip_is_silenced_and_the_buffer_cleared_first(self) -> None:
+        """One buffer per track: the new take reuses it, so the old clip has to
+        stop and the buffer has to be emptied before recording."""
+        self.surface.note_down(pad_note(3, 0))
+        cmds = [a[0] for p, a in self.osc if p == "/sl/0/hit"]
+        self.assertLess(cmds.index("mute_on"), cmds.index("record"))
+        self.assertLess(cmds.index("undo_all"), cmds.index("record"))
+
+    def test_the_footswitch_is_not_left_thinking_it_is_playing(self) -> None:
+        """The root cause: the runtime cleared the engine, but the footswitch's
+        own state machine still read `playing`, so its gesture was mute."""
+        self.surface.note_down(pad_note(3, 0))
+        self.assertEqual(self.fs_by_loop[0].state, "recording")
+
+
 class SceneRowTests(SurfaceCase):
     def setUp(self) -> None:
         super().setUp()
