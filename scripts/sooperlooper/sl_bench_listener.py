@@ -6,7 +6,12 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from apc_footswitch import LoopFootswitch
+from sl_limits import MAX_USABLE_LOOPS
 
+
+
+def _noop(*_a, **_k) -> None:
+    return None
 
 
 class SlBenchStateListener:
@@ -22,7 +27,10 @@ class SlBenchStateListener:
         self._by_loop = by_loop
         self._on_wet = on_wet
         self._session = session
-        self._num_loops = 16
+        self._num_loops = MAX_USABLE_LOOPS
+        #: Optional multi-clip surface. Gets every `state` update so it can tell
+        #: when a queued switch has actually happened — see SlotSurface.
+        self._surface = None
 
     def on_update(self, _addr: str, loop_index: int, control: str, value: float) -> None:
         if control == "wet":
@@ -31,13 +39,23 @@ class SlBenchStateListener:
             return
         fs = self._by_loop.get(loop_index)
         if fs is None:
+            # Still forward state: the matrix keeps a slot model for every
+            # track, including any without a footswitch bound to a pad.
+            if control == "state" and self._surface is not None:
+                self._surface.on_state(int(loop_index), int(value))
             return
         if control == "state":
             fs.sync_from_sl(int(value))
+            if self._surface is not None:
+                self._surface.on_state(int(loop_index), int(value))
         elif control == "loop_len":
             fs.sync_loop_len(float(value))
         elif control == "loop_pos":
             fs.sync_loop_pos(float(value))
+
+    def attach_surface(self, surface) -> None:
+        """Route state updates to the multi-clip surface as well."""
+        self._surface = surface
 
     def register(self, _client, *, num_loops: int) -> None:
         """Register bench subscriptions on the shared session."""

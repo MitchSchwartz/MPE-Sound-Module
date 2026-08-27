@@ -39,6 +39,8 @@ from apc_transport import (  # noqa: E402
 from led_table import LED_OFF  # noqa: E402
 from midi_subscription import wait_for_subscription  # noqa: E402
 from running_code import running_code_sha  # noqa: E402
+from slot_runtime import SlotRuntime  # noqa: E402
+from slot_surface import SlotSurface  # noqa: E402
 from loop_mix import CoalescingSender, LoopMix  # noqa: E402
 from sl_bench_listener import SlBenchStateListener  # noqa: E402
 from looper_engine_events import LooperEngineEventWatch, poll_interval_s  # noqa: E402
@@ -289,8 +291,34 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
         mix.seed_from_engine(loop_index, value)
 
     by_loop = footswitches_by_loop(footswitches)
+    # Multi-clip matrix. OFF by default: it takes over all eight rows including
+    # row 0, replacing the single-clip record gesture Mitch plays with today.
+    # That is not a change to make live without him having tried it, so it is
+    # opt-in until it has earned the default.
+    slot_surface = None
+    if os.environ.get("MPE_SL_MULTIGRID", "0") == "1":
+        slot_runtime = SlotRuntime(
+            send=_send,
+            clips_dir=Path(
+                os.environ.get("MPE_SL_CLIPS_DIR",
+                               str(Path.home() / ".mpe" / "looper-clips"))
+            ),
+            num_tracks=num_loops,
+            log=lambda m: print(f"slots: {m}", flush=True),
+        )
+        slot_surface = SlotSurface(
+            runtime=slot_runtime, view=view, midi_out=midi_out, num_tracks=num_loops
+        )
+        print(
+            f"bench: MULTIGRID on — 8 slots x {num_loops} tracks; "
+            f"rows are slots, columns are tracks. Kill switch: MPE_SL_MULTIGRID=0",
+            flush=True,
+        )
+
     state_listener = SlBenchStateListener(by_loop, on_wet=on_wet, session=osc_session)
     state_listener.start()
+    if slot_surface is not None:
+        state_listener.attach_surface(slot_surface)
     state_listener.register(osc, num_loops=num_loops)
     print(
         "bench: ring-out capture "
@@ -317,6 +345,8 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
             return
         view = new_view
         by_note = apply_view(midi_out, footswitches=footswitches, view=view)
+        if slot_surface is not None:
+            slot_surface.set_view(view)
         mix.set_view(view)
         last = view.offset + 7
         print(f"bank: tracks {view.offset + 1}-{last + 1} of {num_loops}", flush=True)
@@ -494,9 +524,22 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
             poll_engine_events(now_mono)
             continue
 
+        if slot_surface is not None and down is not None and slot_surface.handles(n):
+            # The matrix owns every grid pad, row 0 included. Presses act on
+            # pad-down; a hold is not wired here yet, so clearing a slot still
+            # goes through the single-clip path when MULTIGRID is off.
+            if down:
+                slot_surface.press(n)
+            poll_holds()
+            poll_transport_leds()
+            maybe_track_transport()
+            state_listener.maybe_reregister()
+            poll_engine_events(now_mono)
+            continue
+
         if down is not None and is_reserved_grid_note(n):
             if args.dump_midi:
-                print(f"ignored reserved grid note {n} (rows 1-7 unwired until P3)", flush=True)
+                print(f"ignored reserved grid note {n} (rows 1-7: set MPE_SL_MULTIGRID=1)", flush=True)
             poll_holds()
             poll_transport_leds()
             maybe_track_transport()
