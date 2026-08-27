@@ -39,10 +39,10 @@ class SlBenchStateListener:
             return
         fs = self._by_loop.get(loop_index)
         if fs is None:
-            # Still forward state: the matrix keeps a slot model for every
-            # track, including any without a footswitch bound to a pad.
             if control == "state" and self._surface is not None:
                 self._surface.on_state(int(loop_index), int(value))
+            elif control == "loop_len" and self._surface is not None:
+                self._surface.on_loop_len(int(loop_index), float(value))
             return
         if control == "state":
             fs.sync_from_sl(int(value))
@@ -50,6 +50,8 @@ class SlBenchStateListener:
                 self._surface.on_state(int(loop_index), int(value))
         elif control == "loop_len":
             fs.sync_loop_len(float(value))
+            if self._surface is not None:
+                self._surface.on_loop_len(int(loop_index), float(value))
         elif control == "loop_pos":
             fs.sync_loop_pos(float(value))
 
