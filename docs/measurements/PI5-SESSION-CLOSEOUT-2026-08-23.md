@@ -2,12 +2,6 @@
 
 *Last updated: 2026-08-23 (America/Toronto)*
 
-> **Superseded in part (2026-08-27):** the JACK buffer finding below — 128×2 as the
-> player setting, and 64×2 breaking ALSA/USB — no longer describes the reference unit.
-> It now runs **64×2, ear-validated only**, and the original collapse is unexplained.
-> See [`pi5-buffer-64-ear-2026-08-27.md`](pi5-buffer-64-ear-2026-08-27.md).
-> The rest of this closeout stands as written.
-
 **Purpose:** Progress continuity for the Pi 5 player track and SR&ED evidence under **U10**
 (cross-architecture replication). This session brought the board from fresh clone to a **playable
 daily instrument**; measurement Suite 1 remains **blocked** on hardware.
