@@ -158,10 +158,16 @@ def plan_gesture(
             # overdubbing at the same sample, inside SL's audio thread. The
             # ring-out of the notes the take cut off lands in the loop head.
             # Works even when OSC lags (OffMuted / WAIT_START) — never queue_stop.
+            # `overdub` only when the engine is genuinely RECORDING. From
+            # WAIT_START / OffMuted (OSC lagging) a bare `record` is what stops
+            # the take; sending `overdub` there is untested and losing the take
+            # is worse than losing the ring-out. Never queue_stop either way.
+            recording = sl_state == SL_STATE_RECORDING
             return Plan(
-                commands=("overdub",) if sl_state == SL_STATE_RECORDING else (),
+                commands=("overdub",) if recording else ("record",),
                 expect=STATE_PLAYING,
-                note="stop + overdub the ring-out (one hit)",
+                note=("stop + overdub the ring-out (one hit)" if recording
+                      else "stop now — engine not confirmed recording, no ring-out"),
             )
         if sl_state != SL_STATE_RECORDING:
             # Armed, or asked-for-but-unconfirmed. Either way the engine may be

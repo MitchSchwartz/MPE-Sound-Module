@@ -40,10 +40,9 @@ from led_table import LED_OFF  # noqa: E402
 from loop_mix import CoalescingSender, LoopMix  # noqa: E402
 from sl_bench_listener import SlBenchStateListener  # noqa: E402
 from looper_engine_events import LooperEngineEventWatch, poll_interval_s  # noqa: E402
-from sl_seam_weld import SCRATCH_LOOP, SEAM_WELD_ENABLED, SeamWeldWorker  # noqa: E402
 from sl_grid_state import GridState  # noqa: E402
 from sl_grid_sync import (  # noqa: E402
-    TAIL_CAPTURE_ENABLED,
+    RING_OUT_ENABLED,
     apply_freeform,
     apply_grid_sync,
     establish_grid_clock,
@@ -267,43 +266,12 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
     state_listener = SlBenchStateListener(by_loop, on_wet=on_wet, session=osc_session)
     state_listener.start()
     state_listener.register(osc, num_loops=num_loops)
-    state_listener.wire_tail_capture(footswitches)
-    if TAIL_CAPTURE_ENABLED:
-        seam_worker = SeamWeldWorker(_send)
-        for fs in footswitches:
-            fs.set_seam_weld_hooks(
-                on_prepare_scratch=lambda loop, w=seam_worker: w.prepare_scratch(
-                    SCRATCH_LOOP
-                ),
-                on_start_scratch=lambda loop, w=seam_worker: w.start_scratch_record(
-                    SCRATCH_LOOP
-                ),
-                on_stop_scratch=lambda loop, w=seam_worker: w.stop_scratch_record(
-                    SCRATCH_LOOP
-                ),
-                on_request_merge=lambda loop, done, position=None, tail_offset_s=0.0, tail_skip_s=0.0, w=seam_worker: w.request(
-                    loop,
-                    SCRATCH_LOOP,
-                    done=done,
-                    position=position,
-                    tail_offset_s=tail_offset_s,
-                    tail_skip_s=tail_skip_s,
-                ),
-            )
-        weld_note = (
-            "on"
-            if SEAM_WELD_ENABLED
-            else "off (MPE_SL_SEAM_WELD=0 — stop only, no merge reload)"
-        )
-        print(
-            f"bench: stop-then-weld {weld_note} (scratch loop {SCRATCH_LOOP})",
-            flush=True,
-        )
-    else:
-        print(
-            "bench: MPE_SL_TAIL_CAPTURE off — tail weld disabled",
-            flush=True,
-        )
+    print(
+        "bench: ring-out capture "
+        + ("on (take closes into a one-pass overdub)" if RING_OUT_ENABLED
+           else "off (MPE_SL_RING_OUT=0 — plain stop)"),
+        flush=True,
+    )
 
     arrow_notes = resolve_arrow_notes(port_name, variant=apc_variant)
     # One shift latch for the whole event loop. ShiftHoldCombo keeps its own

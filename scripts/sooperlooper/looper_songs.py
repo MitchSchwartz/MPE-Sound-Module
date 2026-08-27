@@ -14,13 +14,18 @@ from typing import Callable
 
 from sl_grid_sync import apply_grid_sync, establish_grid_clock, set_grid_active
 from sl_loop_states import ACTIVE_PLAY, SL_STATE_MUTE, SL_STATE_OFF, SL_STATE_PAUSED
-from sl_seam_weld import MIN_TAIL_WAV_BYTES, SCRATCH_LOOP, _save_loop_blocking
 
 SL_HOST = os.environ.get("MPE_SL_OSC_HOST", "127.0.0.1")
 SL_PORT = int(os.environ.get("MPE_SL_OSC_PORT", "9951"))
 LISTEN_PORT = int(os.environ.get("MPE_SL_SONGS_PORT", "9955"))
 NUM_LOOPS = int(os.environ.get("MPE_SL_LOOPS", "16"))
-SCRATCH = int(os.environ.get("MPE_SL_SCRATCH_LOOP", str(SCRATCH_LOOP)))
+# No loop is reserved any more. Loop 14 was the seam-weld scratch buffer; that
+# pipeline is gone (see SRED-EVIDENCE §3 U11), so all 16 loops are musical.
+# Set MPE_SL_SCRATCH_LOOP to reserve one again if some future feature needs it.
+SCRATCH = int(os.environ.get("MPE_SL_SCRATCH_LOOP", "-1"))
+MIN_LOOP_WAV_BYTES = int(os.environ.get("MPE_LOOPER_MIN_LOOP_WAV_BYTES", "512"))
+SAVE_POLL_S = float(os.environ.get("MPE_LOOPER_SAVE_POLL_S", "0.05"))
+SAVE_TIMEOUT_S = float(os.environ.get("MPE_LOOPER_SAVE_TIMEOUT_S", "8.0"))
 MANIFEST_VERSION = 1
 SONGS_DIR = Path(
     os.environ.get("MPE_LOOPER_SONGS_DIR", str(Path.home() / ".mpe" / "looper-songs"))
@@ -53,6 +58,24 @@ def musical_loop_indices(*, num_loops: int = NUM_LOOPS, scratch_loop: int = SCRA
     if scratch_loop < 0:
         return list(range(num_loops))
     return [i for i in range(num_loops) if i != scratch_loop]
+
+
+def _save_loop_blocking(send, loop: int, path: Path) -> bool:
+    """Ask SL to write a loop to disk and wait for the file to appear.
+
+    SooperLooper's save_loop is fire-and-forget over OSC — there is no reply to
+    wait on, so the file landing on disk is the only completion signal.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.exists():
+        path.unlink()
+    send(f"/sl/{loop}/save_loop", [str(path), "", "", "", ""])
+    deadline = time.monotonic() + SAVE_TIMEOUT_S
+    while time.monotonic() < deadline:
+        if path.exists() and path.stat().st_size > 64:
+            return True
+        time.sleep(SAVE_POLL_S)
+    return False
 
 
 def manifest_path(slug: str, *, songs_dir: Path | None = None) -> Path:
@@ -226,7 +249,7 @@ def save_song(
         wav = wav_path(slug, loop, songs_dir=root)
         if not _save_loop_blocking(send, loop, wav):
             return SongResult(ok=False, message=f"save_loop failed for track {loop + 1}")
-        if wav.stat().st_size < MIN_TAIL_WAV_BYTES:
+        if wav.stat().st_size < MIN_LOOP_WAV_BYTES:
             wav.unlink(missing_ok=True)
             continue
         loops_meta.append(

@@ -115,14 +115,6 @@ class ApcBenchFootswitchTests(unittest.TestCase):
         self.assertIn("poll_footswitches(footswitches)", source)
         self.assertNotIn("fs.poll_tail_capture()", source)
 
-    def test_poll_footswitches_delegates_to_tail_capture(self) -> None:
-        fs = MagicMock()
-        poll_footswitches([fs])
-        fs.poll_hold.assert_called_once()
-        fs.poll_led.assert_called_once()
-        fs.poll_tail_capture.assert_called_once()
-
-
 class ViewAgreementTests(unittest.TestCase):
     """The pad layer and the fader layer must address the same track.
 

@@ -70,7 +70,7 @@ class SaveLoadTests(unittest.TestCase):
         return None
 
     @patch("scripts.sooperlooper.looper_songs._save_loop_blocking", return_value=True)
-    @patch("scripts.sooperlooper.looper_songs.MIN_TAIL_WAV_BYTES", 10)
+    @patch("scripts.sooperlooper.looper_songs.MIN_LOOP_WAV_BYTES", 10)
     def test_save_writes_manifest_and_wav(self, _save) -> None:
         def _write(send, loop, path):
             path.parent.mkdir(parents=True, exist_ok=True)
