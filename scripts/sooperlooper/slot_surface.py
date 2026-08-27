@@ -80,18 +80,37 @@ class SlotSurface:
     def handles(self, note: int) -> bool:
         return self._view.cell_for_note(note) is not None
 
+    def _acts_on_release(self, note: int) -> bool:
+        """Does this pad wait for the finger to lift?
+
+        An occupied slot that is NOT the track's active one does. Its press
+        means launch-or-switch, and its long press means delete — so acting on
+        pad-down loaded and played the clip before the hold could fire, and the
+        player watched the take they were deleting start up first. The
+        footswitch already lands mute and launch on release for the same
+        reason; only record has to be immediate.
+        """
+        cell = self._view.cell_for_note(note)
+        if cell is None or self._is_active_lane(note):
+            return False
+        track, slot = cell
+        return self._rt.track(track).occupied(slot)
+
     def note_down(self, note: int) -> bool:
         if not self.handles(note):
             return False
         self._pad_down_note = note
         self._pad_down_at = self._now()
         self._hold_fired = False
-        self.press(note)
+        if not self._acts_on_release(note):
+            self.press(note)
         return True
 
     def note_up(self, note: int) -> bool:
         if note != self._pad_down_note:
             return False
+        if not self._hold_fired and self._acts_on_release(note):
+            self.press(note)
         cell = self._view.cell_for_note(note)
         if cell is not None:
             track, _slot = cell

@@ -7,6 +7,7 @@ only the matrix needs (`load_loop`, `save_loop`, `undo_all` for slot changes).
 
 from __future__ import annotations
 
+import os
 import time
 from dataclasses import replace
 from pathlib import Path
@@ -29,6 +30,7 @@ from slot_matrix import (
     plan_cell_press,
     resolve_at_boundary,
 )
+from looper_songs import _fsync_dir, _fsync_file
 from sl_loop_states import ACTIVE_PLAY, SL_STATE_OFF
 
 # Gestures the footswitch owns — runtime must not send parallel OSC for these.
@@ -56,6 +58,7 @@ class SlotRuntime:
         self._send = send
         self._clips_dir = Path(clips_dir)
         self._num_tracks = num_tracks
+        self._save_timeout_s = SAVE_TIMEOUT_S
         self._log = log or (lambda _m: None)
         self._now = now
         self._tracks: dict[int, Track] = {i: Track() for i in range(num_tracks)}
@@ -248,13 +251,32 @@ class SlotRuntime:
 
         path = self.clip_path(loop, track.active_slot)
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.unlink(missing_ok=True)
-        self._send(f"/sl/{loop}/save_loop", [str(path), "", "", "", ""])
 
-        deadline = self._now() + SAVE_TIMEOUT_S
+        # Save to a sibling temp file and rename over the original only once a
+        # complete file exists. This used to unlink `path` first and ask the
+        # engine to write it — so a save that never landed destroyed the take
+        # it was trying to preserve, and the caller then "refused to switch" to
+        # protect a clip it had already deleted. Reported from the appliance
+        # 2026-08-27 as "when I record clip 2, clip 1 is deleted".
+        #
+        # The unlink was not gratuitous: SooperLooper will not overwrite an
+        # existing file. A fresh temp path satisfies that without ever putting
+        # the recorded take at risk.
+        tmp = path.with_name(path.name + ".part")
+        tmp.unlink(missing_ok=True)
+        self._send(f"/sl/{loop}/save_loop", [str(tmp), "", "", "", ""])
+
+        deadline = self._now() + self._save_timeout_s
         while self._now() < deadline:
             try:
-                if path.stat().st_size >= MIN_CLIP_BYTES:
+                if tmp.stat().st_size >= MIN_CLIP_BYTES:
+                    # Durable before it is authoritative: fsync the data, then
+                    # rename, then fsync the directory. A rename that reaches
+                    # the SD card before the bytes do leaves a manifest naming
+                    # a truncated file after a power cut.
+                    _fsync_file(tmp)
+                    os.replace(tmp, path)
+                    _fsync_dir(path.parent)
                     self._tracks[loop] = track.with_slot(
                         track.active_slot, replace(active, dirty=False)
                     )
@@ -262,4 +284,13 @@ class SlotRuntime:
             except OSError:
                 pass
             time.sleep(SAVE_POLL_S)
+
+        # Nothing usable arrived. Leave the original exactly as it was, drop
+        # the partial, and stay dirty so the surface keeps telling the truth.
+        tmp.unlink(missing_ok=True)
+        self._log(
+            f"track {loop + 1} slot {track.active_slot + 1}: save did not land "
+            f"in {self._save_timeout_s:.1f}s — the take is still only in the "
+            f"engine buffer, and the clip already on disk is untouched"
+        )
         return False
