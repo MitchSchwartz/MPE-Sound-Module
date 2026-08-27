@@ -22,6 +22,7 @@ class Screen(Enum):
     NAME_PROMPT = auto()
     LOOPER_CONFIRM = auto()
     LOOPER_NAME = auto()
+    TERMINAL = auto()
 
 
 class CalibrateMode(Enum):

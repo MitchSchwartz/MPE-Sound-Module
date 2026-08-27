@@ -127,6 +127,10 @@ def audio_switch_progress_message(
         return "Audio restored", "Audio ready", 2.0
 
     if state == "failed":
+        if reason == "no-device":
+            return "No audio device — connect a DAC", "No audio device", 6.0
+        if reason == "no-card-resolved":
+            return "Audio device not usable — check DAC", "Audio device not usable", 5.0
         if reason == "no-server":
             return "JACK server failed — check DAC", "Audio failed — check DAC", 4.0
         if reason == "supervisor-exhausted":
@@ -147,6 +151,14 @@ def audio_switch_progress_message(
         return "Audio failed", "Audio failed — check connection", 4.0
 
     if state == "recovering":
+        # Nothing is plugged in, so there is nothing to reconnect TO. Reported
+        # without a trailing ellipsis on purpose: toast_loader_base() strips the
+        # ellipsis to drive the animated loader, and animating progress that
+        # cannot occur misreports what the appliance is doing. Waiting on the
+        # user is a resting state, not work in flight.
+        if reason == "no-device":
+            return "No audio device — connect a DAC", "No audio device", 6.0
+
         jack_started = _parse_epoch(jack.get("started"))
         if jack_started > 0 and (now_ts - jack_started) < JACKD_SETTLE_SEC:
             return "JACK server starting…", "Reconnecting audio…", 3.0

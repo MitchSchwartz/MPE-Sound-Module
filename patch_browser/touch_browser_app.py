@@ -50,6 +50,7 @@ from patch_browser.touch_browser_patches import TouchBrowserPatchesMixin
 from patch_browser.touch_browser_prefs import TouchBrowserPrefsMixin
 from patch_browser.touch_browser_brightness_modal import TouchBrowserBrightnessModalMixin
 from patch_browser.touch_browser_settings import TouchBrowserSettingsMixin
+from patch_browser.touch_browser_terminal import TerminalMixin
 from patch_browser.touch_browser_audio_profile_modal import TouchBrowserAudioProfileModalMixin
 from patch_browser.touch_browser_surge_audio_modal import TouchBrowserSurgeAudioModalMixin
 from patch_browser.touch_browser_midi_sync_modal import TouchBrowserMidiSyncModalMixin
@@ -70,6 +71,7 @@ from patch_browser.ui_theme import DEFAULT_ACCENT_RGB, THEME_VIEW_COLORS, THEME_
 
 
 class TouchPatchBrowser(
+    TerminalMixin,
     TouchBrowserEvdevMixin,
     TouchBrowserPrefsMixin,
     TouchBrowserSettingsMixin,
@@ -216,6 +218,15 @@ class TouchPatchBrowser(
         self._surge_was_healthy = False
         self._surge_liveness_initialized = False
         self._surge_restart_btn: Rect | None = None
+        self._restart_bench_btn: Rect | None = None
+        # Which action the shared confirm screen is standing in for.
+        self._pending_confirm_kind: str = "calibrate"
+        # #113: live shell session, or None. See touch_browser_terminal.py.
+        self._terminal = None
+        self._terminal_last_input = 0.0
+        self._terminal_esc_armed = False
+        self._term_font = None
+        self._restart_bench_toast_shown = False
         self._settings_slide = 0.0
         self._settings_view = "root"
         self._settings_advanced_open = False
@@ -401,6 +412,32 @@ class TouchPatchBrowser(
         self._loader_toast_base = ""
         self._clear_toast()
 
+    def _poll_restart_bench_result(self) -> None:
+        """Report the outcome of a whole-stack restart (#112) once, on startup.
+
+        The sequence restarts this process as its final step, so the browser
+        cannot observe its own restart — the result is read afterwards instead.
+        Without this, a failed unit would be recorded in a file nobody reads,
+        which is the same as not reporting it.
+        """
+        if self._restart_bench_toast_shown:
+            return
+        from patch_browser.restart_bench import read_result
+
+        result = read_result()
+        if result is None:
+            # No sequence has run since boot. Nothing to say, and nothing to
+            # retry — mark done so this costs one read, not one per frame.
+            self._restart_bench_toast_shown = True
+            return
+        if not result.complete:
+            # Still running, or it died partway. Leave the flag clear so the
+            # outcome is picked up once it lands.
+            return
+        self._restart_bench_toast_shown = True
+        if result.is_fresh(time.time()):
+            self._toast(result.summary(), 4.0 if result.result != "ok" else 2.5)
+
     def _tick_loader_toast(self) -> None:
         if not self._loader_toast_active:
             return
@@ -468,12 +505,14 @@ class TouchPatchBrowser(
             self._poll_audio_profile_switch()
             self._poll_surge_audio_switch()
             self._poll_engine_recovery_toast()
+            self._poll_restart_bench_result()
+            terminal_dirty = self._poll_terminal()
             self._tick_loader_toast()
             self._poll_midi_sync_switch()
             self._poll_wifi_work()
             self._poll_looper_song_results()
             self._handle_screen_recorder_signals()
-            busy = False
+            busy = bool(terminal_dirty)
             for event in pygame.event.get():
                 if self._ignore_sdl_pointer_event(event):
                     continue
@@ -518,6 +557,10 @@ class TouchPatchBrowser(
             self._draw()
             clock.tick(self._frame_rate_for(busy))
 
+        if getattr(self, "_terminal", None) is not None:
+            # A forgotten shell must not outlive the UI that owns it: it holds a
+            # PTY and a child process nothing would reap.
+            self._close_terminal()
         if self._evdev_bridge is not None:
             self._evdev_bridge.stop()
         if self._screen_recorder is not None:

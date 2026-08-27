@@ -25,6 +25,7 @@ from scripts.sooperlooper.sl_loop_states import (
     SL_STATE_MUTE,
     SL_STATE_OFF,
     SL_STATE_PAUSED,
+    SL_STATE_OVERDUBBING,
     SL_STATE_PLAYING,
     SL_STATE_RECORDING,
     SL_STATE_WAIT_START,
@@ -68,12 +69,31 @@ class FakeSlEngine:
                     self.state[loop] = SL_STATE_WAIT_STOP
                 else:
                     self._finish_record(loop)
+        elif cmd == "overdub":
+            # Real SL: `overdub` while RECORDING closes the take and starts
+            # overdubbing at the same sample — one transition, no gap. That is
+            # the whole reason the pad sends it instead of `record`.
+            if st == SL_STATE_RECORDING:
+                if self.quantized:
+                    self._at_boundary[loop] = SL_STATE_OVERDUBBING
+                    self.state[loop] = SL_STATE_WAIT_STOP
+                else:
+                    self._finish_record(loop)
+                    self.state[loop] = SL_STATE_OVERDUBBING
+            elif st == SL_STATE_OVERDUBBING:
+                self.state[loop] = SL_STATE_PLAYING
+            elif st == SL_STATE_PLAYING:
+                self.state[loop] = SL_STATE_OVERDUBBING
         elif cmd == "mute_on":
             if st == SL_STATE_PLAYING:
                 if self.quantized:
                     self._at_boundary[loop] = SL_STATE_MUTE
                 else:
                     self.state[loop] = SL_STATE_MUTE
+        elif cmd == "mute_off":
+            self._at_boundary.pop(loop, None)
+            if st == SL_STATE_MUTE:
+                self.state[loop] = SL_STATE_PLAYING
         elif cmd == "trigger":
             if st in (SL_STATE_MUTE, SL_STATE_PAUSED, SL_STATE_PLAYING):
                 if self.quantized:
@@ -81,8 +101,12 @@ class FakeSlEngine:
                 else:
                     self.state[loop] = SL_STATE_PLAYING
         elif cmd == "pause_on":
-            self.state[loop] = SL_STATE_PAUSED
-            self._at_boundary.pop(loop, None)
+            # From MUTE with only a queued trigger: cancel the queue, stay muted.
+            if st == SL_STATE_MUTE and loop in self._at_boundary:
+                self._at_boundary.pop(loop, None)
+            else:
+                self.state[loop] = SL_STATE_PAUSED
+                self._at_boundary.pop(loop, None)
         elif cmd == "pause_off":
             if st == SL_STATE_PAUSED:
                 self.state[loop] = SL_STATE_MUTE

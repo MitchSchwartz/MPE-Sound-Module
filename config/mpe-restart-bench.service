@@ -1,0 +1,31 @@
+[Unit]
+Description=MPE restart bench — restart the whole stack in order, without a reboot
+# Deliberately NOT ordered after the units it restarts, and NOT PartOf anything.
+# This unit restarts touch-patch-browser and mpe-jackd; any dependency binding it
+# to them would let systemd stop this sequence halfway through as a side effect
+# of its own work.
+
+[Service]
+Type=oneshot
+# Runs as root: it restarts system units. The touch browser triggers it with
+# `sudo systemctl start --no-block`, the same way it already restarts Surge.
+WorkingDirectory=@MPE_MODULE_REPO@
+EnvironmentFile=-/etc/mpe/mpe.env
+RuntimeDirectory=mpe
+RuntimeDirectoryPreserve=yes
+ExecStart=@MPE_MODULE_REPO@/scripts/restart-bench.sh
+# Long enough for the full sequence including readiness gates (jackd ~3-5s,
+# Surge reaching the JACK graph up to MPE_RESTART_BENCH_UNIT_TIMEOUT_S).
+TimeoutStartSec=180
+# Never restart the restarter. A failed sequence must be read from the result
+# file and re-triggered deliberately, not retried behind the user's back while
+# they are trying to work out what is wrong.
+Restart=no
+StandardOutput=journal
+StandardError=journal
+
+# No [Install] section, deliberately. This is a manually-triggered recovery
+# action; it must never run at boot. Omitting [Install] makes `systemctl enable`
+# fail outright rather than relying on install-units.sh remembering to keep it
+# out of ENABLED. It is in neither ENABLED nor DISABLED there for this reason —
+# see the note in that script before "fixing" the omission.

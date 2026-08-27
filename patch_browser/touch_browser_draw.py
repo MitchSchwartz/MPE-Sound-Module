@@ -43,6 +43,10 @@ from patch_browser.touch_ui_constants import (
 )
 from patch_browser.audio_profile import header_badge_label
 from patch_browser.audio_engine import engine_hud_label, engine_hud_semantic, engine_hud_should_show
+from patch_browser.midi_clock import (
+    looper_hud_label as clock_tempo_label,
+    looper_hud_should_show as clock_tempo_should_show,
+)
 from patch_browser.looper_hud import (
     bar_progress as looper_bar_progress,
     beat_label as looper_beat_label,
@@ -519,8 +523,18 @@ class TouchBrowserDrawMixin:
     def _draw_looper_hud(self, rect: Rect) -> None:
         if rect.w <= 0:
             return
-        sl = (self.looper_monitor.snapshot() or {}).get("sl") or {}
-        if not looper_should_show(sl, user_enabled=getattr(self, "show_looper_hud", True)):
+        snap = self.looper_monitor.snapshot() or {}
+        sl = snap.get("sl") or {}
+        enabled = getattr(self, "show_looper_hud", True)
+        if not looper_should_show(sl, user_enabled=enabled):
+            # No looper grid to sweep. Fall back to the plain tempo readout —
+            # the badge's ORIGINAL meaning, orphaned when the sweep landed
+            # (f069648) and dead in production until 2026-08-26: the sweep needs
+            # sl["bpm"], which only mpe-looper-session publishes, and that unit
+            # is deliberately not started at boot. So with the looper off the
+            # badge vanished with no explanation even while a clock was synced.
+            if clock_tempo_should_show(snap, user_enabled=enabled):
+                self._draw_tempo_readout(rect, clock_tempo_label(snap))
             return
 
         accent = self.theme.accent
@@ -585,6 +599,19 @@ class TouchBrowserDrawMixin:
                 (rect.right - pad_x - frac_w,
                  rect.y + (rect.h - frac_surf.get_height()) // 2),
             )
+
+    def _draw_tempo_readout(self, rect: Rect, label: str) -> None:
+        """Right-aligned BPM text where the sweep would be. No bar: without a
+        loop length there is no phrase to draw a position within, and a bar
+        that never moves reads as a broken sweep rather than as 'no loop'."""
+        if not label or rect.w <= 0:
+            return
+        surf = self.font_sm.render(f"{label} BPM", True, self.theme.muted)
+        self.screen.blit(
+            surf,
+            (rect.right - LOOPER_HUD_PAD_X - surf.get_width(),
+             rect.y + (rect.h - surf.get_height()) // 2),
+        )
 
     def _draw_audio_profile_badge(self, rect: Rect) -> None:
         label = header_badge_label()
@@ -1489,19 +1516,51 @@ class TouchBrowserDrawMixin:
         return max(0, min(255, round(ratio * 255)))
 
     def _draw_calibrate_confirm(self) -> None:
+        """Shared action-confirm panel.
+
+        Serves calibration and the whole-stack restart (#112); the shell, the
+        buttons and every pointer handler are already action-agnostic, so the
+        kind only selects text and the confirm label. Screen.CALIBRATE_CONFIRM
+        is now a misnomer — renaming it touches eight dispatch sites and is
+        deferred rather than bundled into a recovery feature.
+        """
         self._draw_modal_backdrop(legacy_alpha=150)
 
+        kind = getattr(self, "_pending_confirm_kind", "calibrate")
         mode = self._pending_calibrate_mode
         targets, total = self._calibration_scope_stats(mode)
-        title = self._calibration_mode_label(mode)
 
         panel_w = min(520, self.width - 48)
-        body_raw = (
-            self._calibration_mode_description(mode, targets, total),
-            "Touch browser will stop; loader takes over the display.",
-            self._calibration_duration_hint(targets),
-            "Do not touch the screen during measurement.",
-        )
+        if kind == "terminal":
+            title = "Open terminal"
+            body_raw = (
+                "Opens a shell on this panel. Audio keeps running — the browser "
+                "is not part of the audio graph.",
+                "Type exit, or press Ctrl+D, to come back.",
+                "Closes itself after 5 minutes with no typing.",
+            )
+            confirm_label = "Open"
+            confirm_disabled = False
+        elif kind == "restart_bench":
+            title = "Restart everything"
+            body_raw = (
+                "Restarts the audio stack in order: MIDI, JACK, Surge, looper, "
+                "meters, governor, then this browser.",
+                "Audio stops for about 15 seconds. Your patch reloads afterwards.",
+                "Use this instead of a full shutdown when something is stuck.",
+            )
+            confirm_label = "Restart"
+            confirm_disabled = False
+        else:
+            title = self._calibration_mode_label(mode)
+            body_raw = (
+                self._calibration_mode_description(mode, targets, total),
+                "Touch browser will stop; loader takes over the display.",
+                self._calibration_duration_hint(targets),
+                "Do not touch the screen during measurement.",
+            )
+            confirm_label = "Start"
+            confirm_disabled = mode == CalibrateMode.MISSING_ONLY and targets == 0
         body_max_w = panel_w - 48
         body_lines: list[str] = []
         for paragraph in body_raw:
@@ -1536,11 +1595,11 @@ class TouchBrowserDrawMixin:
             (panel.w - 60) // 2,
             btn_h,
         )
-        start_disabled = mode == CalibrateMode.MISSING_ONLY and targets == 0
+        start_disabled = confirm_disabled
         self._draw_button(self._calibrate_confirm_no, "Cancel", pressed=self._pressed("cal:cancel"))
         self._draw_button(
             self._calibrate_confirm_yes,
-            "Start",
+            confirm_label,
             accent=not start_disabled,
             muted=start_disabled,
             pressed=self._pressed("cal:start"),
