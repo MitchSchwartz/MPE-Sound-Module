@@ -2,15 +2,25 @@
 
 **Issue:** [#115 autosave](https://github.com/MitchSchwartz/MPE-Sound-Module/issues/115) (follow-on; out of scope v1)  
 **Status:** Approved (Gate A — Mitch 2026-08-26)  
-**Last updated:** 2026-08-26 (America/Toronto) — **rev 2**, code-audit corrections
+**Last updated:** 2026-08-26 (America/Toronto) — **rev 3**, scratch loop removed
 
 **Register:** working hypothesis unless labelled **measured**. Builds on shipped
-grid clock (`looper-transport-clock-spec.md`), seam weld (`looper-loop-seam-spec.md`),
-and song save/load v1 (`looper_songs.py` / touch HUD).
+grid clock (`looper-transport-clock-spec.md`), native ring-out capture (`a99cf63`;
+the seam-weld pipeline it replaced is deleted), and song save/load v1 (`looper_songs.py` / touch HUD).
 
 **Locked product decisions (Mitch 2026-08-26):** see §TL;DR and body — do not
 re-litigate without a dated DECISIONS row.
 
+> **Rev 3 (2026-08-26) — the scratch loop no longer exists.** `a99cf63` deleted the
+> offline seam-weld pipeline; takes now close into a one-pass SooperLooper overdub.
+> Loop 14 was that pipeline's scratch buffer and is a normal track again, so **the
+> track space is 16 and contiguous**. Rev 2's central complication — the hole at 14,
+> `musical_loop_indices()` addressing, `MAX_VIEW_OFFSET = 7` — is **gone**, and so is
+> OPEN-3. Two banks of 8 now divide the hardware exactly. One risk is retired
+> (seam weld during a switch) and one is **new**: the ring-out overdub runs for a
+> full pass after a take, so a switch can be queued on a track that is still
+> overdubbing — see [OPEN-4](#open-decisions).
+>
 > **Rev 2 (2026-08-26) — corrections from a code audit.** Rev 1 stated 16 tracks,
 > scratch on loop 15, and Scene Launch 1–8. All three are wrong against the
 > shipped code; every affected figure and rule below is corrected, and the
@@ -26,12 +36,12 @@ positions on row 0 only, banked 8 at a time) to **Ableton Session View semantics
 
 | Axis | Meaning |
 |------|---------|
-| **Column** | One **track** (**15** total — loop 14 is the scratch/weld buffer, never a track; APC shows 8, banked) |
+| **Column** | One **track** (**16** total, contiguous `0–15`; APC shows 8, banked — exactly two banks) |
 | **Row 0–7** | **Clip slot** on that track (8 slots per column) |
 | **Audible rule** | At most **one slot playing per column** — not polyphonic stacking |
 | **Switch** | Quantized: **mute/stop outgoing + launch incoming** on the same bar |
 | **Cancel** | Re-tap the **outgoing** slot before the boundary → abort pending switch |
-| **Scene Launch 1–7** | Toggle **slot row 0–6** across **all 15 tracks** (not visible-8 only). Row 7 is pad-only on mk1 — see [OPEN-1](#open-decisions) |
+| **Scene Launch 1–7** | Toggle **slot row 0–6** across **all 16 tracks** (not visible-8 only). Row 7 is pad-only on mk1 — see [OPEN-1](#open-decisions) |
 | **Persistence** | Manifest **v2** — full 15×8 slot matrix; **manual save only** |
 | **Touch** | Save/Load whole session via existing HUD — **in scope**; per-slot matrix UI — **not** |
 
@@ -54,7 +64,7 @@ recorded clips per track, one audible at a time, row launches across the set.
 Song save v1 already persists loop WAVs + manifest, but only the **flat 16-loop**
 layout — one file per loop index, no slot dimension.
 
-**Product requirement:** 8 clip slots × 15 tracks; switch clips on a column
+**Product requirement:** 8 clip slots × 16 tracks; switch clips on a column
 without polyphony; scene rows launch/stop a horizontal slice; save/load restores
 the full matrix from touch (and later APC/bench).
 
@@ -68,8 +78,8 @@ the full matrix from touch (and later APC/bench).
 | Touch UI for editing the 8×15 matrix | Save/load whole session is enough for v1 |
 | Autosave on stop/switch/power | Manual save only; track as future GitHub issue |
 | Scene row clear / "exclusive row off" gesture | Only Stop All + per-pad hold-clear (`undo_all`) |
-| Replacing seam weld or grid clock | Orthogonal; slot switch uses same quantize path |
-| Second SooperLooper instance / >16 engine loops | 16 SL loops = **15 tracks + 1 scratch**; slots are bench-managed storage |
+| Replacing ring-out capture or grid clock | Orthogonal; slot switch uses same quantize path |
+| Second SooperLooper instance / >16 engine loops | 16 SL loops = **16 tracks**; slots are bench-managed storage |
 | **Recording a new clip while another plays on the same track** | **Out of scope v1** — arming a record on a track silences it. See §One buffer per track for why, what it would cost, and the cheap forward-compat step taken now |
 | Full APC shift-layer multiply/reverse in this spec | Separate work; shares persistence layer when ready |
 
@@ -95,44 +105,39 @@ row 0   slot0  slot0  …  slot0    Scene Launch 1 ↔ row 0  (bottom row)
 - **Rows = slot index** `S ∈ [0, 7]`. Row 0 is the APC bottom row (`pad_note` convention).
 - **All 8 rows** are clip slots — no separate "controller rows" in v1.
 
-**⚠️ The track index space is NOT contiguous.** SooperLooper runs
-`MPE_SL_LOOPS = 16` loops and loop **14** is the scratch/weld buffer
-(`sl_seam_weld.SCRATCH_LOOP`), so the tracks are
-`[0…13, 15]` — 15 of them, with a hole at 14. Naive `track = offset + col`
-addressing will hand a pad the seam-weld buffer, and `MAX_VIEW_OFFSET =
-NUM_LOOPS - GRID_COLS = 8` means the viewport genuinely can place it in a column.
+**The track index space is contiguous (rev 3).** SooperLooper runs
+`MPE_SL_LOOPS = 16` loops and **all 16 are tracks**. Loop 14 was the seam-weld
+scratch buffer; that pipeline is deleted (`a99cf63`) and the loop has its pad
+back. `MPE_SL_SCRATCH_LOOP` now defaults to `-1` — "reserve nothing".
 
-**Addressing rule (rev 2):** columns index into
-`musical_loop_indices()` — the existing helper in `looper_songs.py` that already
-excludes the scratch loop — **not** into `range(NUM_LOOPS)`:
+**Addressing rule (rev 3):**
 
 ```
-tracks = musical_loop_indices()      # [0..13, 15]  — length 15
-track  = tracks[offset + col]        # offset ∈ [0, 7]
+track = offset + col                 # offset ∈ [0, 8], col ∈ [0, 7]
+MAX_VIEW_OFFSET = NUM_LOOPS - GRID_COLS = 8
 ```
 
-`MAX_VIEW_OFFSET` therefore becomes `len(tracks) - GRID_COLS = 7`, not 8. Every
-iteration over "all tracks" in this spec means `musical_loop_indices()`.
-Hardcoding `range(16)` anywhere is a defect.
+Rev 2 required every column lookup to go through `musical_loop_indices()` to skip
+the hole at 14. That indirection is no longer load-bearing for correctness —
+`musical_loop_indices()` now returns `range(16)` — but **keep using it anyway**:
+it is the single place a reservation would reappear, and it costs nothing. What
+rev 2 called a defect (`range(16)` hardcoded) is still a defect, for that reason
+rather than for the old one.
 
-**This is already true today, harmlessly.** `GridView.loop_for_pad` returns
-`self.offset + col` with no scratch exclusion, so at `offset ≥ 7` a pad already
-addresses loop 14. Today that pad merely shows scratch state on a row nobody
-launches from. Under the slot matrix the same pad would *record into* and *launch*
-the seam-weld buffer. Excluding it is therefore new work, not a regression to
-avoid — and it needs its own test (see §Risks).
+**Two banks of 8 divide 16 exactly**, so the viewport no longer has a ragged
+final page.
 
 ### Engine mapping
 
 | Concept | SooperLooper | Bench layer |
 |---------|--------------|-------------|
-| Track `T` | Loop index ∈ `[0…13, 15]` | Column position in `musical_loop_indices()`; one **active slot** pointer per track |
+| Track `T` | Loop index ∈ `[0…15]` | Column position `offset + col`; one **active slot** pointer per track |
 | Slot `S` | Not a native SL object | WAV + metadata in manifest; loaded into loop `T` on launch |
-| Scratch / weld | Loop **14** (`sl_seam_weld.SCRATCH_LOOP`, unchanged) | Never a track; excluded from songs and from the grid |
 | Audible on track | Loop `T` playing or muted | Exactly one slot's audio loaded in loop `T` when occupied |
+| Ring-out | Loop `T` in `OVERDUBBING` for one pass after a take | Track is busy — see [OPEN-4](#open-decisions) |
 
-**Implication:** up to **120 occupied slot WAVs** (15 × 8) in storage, but still
-**≤15 loops playing** across tracks (one per column max). Recorded-but-idle slots add memory like
+**Implication:** up to **128 occupied slot WAVs** (16 × 8) in storage, but still
+**≤16 loops playing** across tracks (one per column max). Recorded-but-idle slots add memory like
 today's idle loops (see DIRECTION.md memory table).
 
 ---
@@ -196,7 +201,7 @@ are needed, and they fall in the same category as `ARROW_NOTES_MK2`, which
 carries an explicit *"UNVERIFIED against hardware"* warning. Confirm by
 `sooperlooper-apc-bench.py --dump-midi` before P3 — see [SP6](#spike-gate-a--before-p1p2-implementation).
 
-**Scope:** affects **all 15 tracks**, including tracks banked off the visible 8.
+**Scope:** affects **all 16 tracks**, including tracks banked off the visible 8.
 Implementation must iterate `musical_loop_indices()`, not `visible_loops()` and
 not `range(16)`.
 
@@ -206,7 +211,7 @@ not `range(16)`.
 
 | Scene row LED | Condition |
 |---------------|-----------|
-| **OFF** (dark) | For row `S`: every **occupied** slot `(T, S)` across all 15 tracks is **playing** (active on its track). Empty columns **do not count** — if track T has no slot S, skip T. |
+| **OFF** (dark) | For row `S`: every **occupied** slot `(T, S)` across all 16 tracks is **playing** (active on its track). Empty columns **do not count** — if track T has no slot S, skip T. |
 | **ON** (lit) | At least one occupied `(T, S)` is **not** playing (stopped or another slot active on T) |
 
 ### Toggle on press
@@ -263,8 +268,11 @@ stateDiagram-v2
 (one slot per loop, row 0 only) so WAIT_STOP / pending-mute cancel is proven before
 the slot matrix multiplies surface area.
 
-**Interaction with seam weld:** while track `T` is in `SEAM_WELD`, ignore launch/switch
-on that track except hold-clear abort (per seam spec single-loop lock).
+**Interaction with the ring-out overdub (rev 3):** a take closes into a one-pass
+overdub, so track `T` sits in `OVERDUBBING` for a full pass afterwards. The overdub
+ends at the wrap — the same boundary a quantized switch lands on — so the
+recommendation is to let a switch queued during it apply at that shared boundary
+rather than be ignored. Undecided: [OPEN-4](#open-decisions), needs SP7.
 
 ---
 
@@ -322,7 +330,7 @@ that track). **Overwrite Save** upgrades to v2 (`{slug}_{loop:02d}.wav` →
 | `bpm` / `grid_active` | Same as v1 |
 
 **Slot residency (Gate A — locked):** SooperLooper has **one loop buffer per track**
-(16 buffers = 15 tracks + scratch). Inactive occupied slots live on **disk only**; bench holds manifest paths.
+(16 buffers = 16 tracks). Inactive occupied slots live on **disk only**; bench holds manifest paths.
 Swap-to-disk on slot switch or record-into-non-active-slot before `load_loop` /
 record arm.
 
@@ -333,8 +341,8 @@ record arm.
    loaded active slot; other occupied slots must already be on disk from prior
    swap/save (dirty active slots flushed before switch per runtime rules).
 3. **Verify before writing the manifest (rev 2).** For every slot the manifest is
-   about to reference, assert the WAV exists and exceeds `MIN_TAIL_WAV_BYTES`
-   (already defined in `sl_seam_weld.py`). Fail loudly, naming the offending
+   about to reference, assert the WAV exists and exceeds `MIN_LOOP_WAV_BYTES`
+   (moved to `looper_songs.py` in rev 3; was `MIN_TAIL_WAV_BYTES` in `sl_seam_weld.py`). Fail loudly, naming the offending
    `(track, slot)`, rather than writing the manifest.
 
    *Why this is not optional:* step 2 makes save correctness depend on an
@@ -393,7 +401,7 @@ knowingly departs from the model.
 ### What lifting it would cost
 
 The fix is not more buffers — it is breaking the `track == loop index` identity.
-SL has 16 buffers; if fewer than 15 tracks are occupied, spare loop indices exist.
+SL has 16 buffers; if fewer than 16 tracks are occupied, spare loop indices exist.
 Record the new take into a **spare** index, then repoint the track at it. No copy,
 no disk round-trip: a clip switch becomes a pointer move.
 
@@ -441,8 +449,9 @@ Not facts to be corrected — product calls. Each needs a dated DECISIONS row.
 | # | Question | Options | Recommendation |
 |---|----------|---------|----------------|
 | **OPEN-1** | Row 7 has no scene button on mk1 (note `0x59` is Stop All). mk2 has a dedicated Stop All (`0x77`) and may have 8 free scene buttons. | (a) 7 scene rows on both variants — row 7 pad-only, behaviour identical everywhere. (b) 8 rows on mk2, 7 on mk1 — full use of the hardware, divergent muscle memory. (c) 7 slots per track, dropping row 7 entirely — perfectly regular, loses 15 slots. | **(a)** until SP6 confirms mk2's notes. Identical behaviour across variants beats one extra row; (c) stays available if the asymmetry grates. |
-| **OPEN-2** | Record-while-playing (see §One buffer per track). | (a) v1 ships silence-on-arm; revisit later on the indirection laid down now. (b) Reserve spare loop indices now, ~halving track count, for unconditional record-while-playing. | **(a)**. 15 tracks with a known limitation beats ~7 tracks with a richer gesture, and rev 2's indirection keeps (b) cheap later. Mitch's call — it is a playing-feel question, not a technical one. |
-| **OPEN-3** | Scratch loop index — today **14** (Pi: loop 15 `save_loop` is empty). Hole at 14 breaks naive column math. | (a) Keep **14** until SL fixes loop 15, then move scratch to **15**. (b) Move scratch to **0** now — tracks **1–15**, column 0 → loop 1; needs Pi `save_loop` spike on loop 0 + song/index migration. (c) Stay on 14; fix addressing only via `musical_loop_indices()`. | **(b)** if Pi spike passes — clearest mapping. **(c)** is zero-migration fallback. Needs dated DECISIONS row before env/default change. |
+| **OPEN-2** | Record-while-playing (see §One buffer per track). | (a) v1 ships silence-on-arm; revisit later on the indirection laid down now. (b) Reserve spare loop indices now, ~halving track count, for unconditional record-while-playing. | **(a)**. 16 tracks with a known limitation beats ~8 tracks with a richer gesture, and rev 2's indirection keeps (b) cheap later. Mitch's call — it is a playing-feel question, not a technical one. |
+| ~~**OPEN-3**~~ | ~~Scratch loop index~~ | — | **CLOSED rev 3.** `a99cf63` removed the scratch loop; `MPE_SL_SCRATCH_LOOP` defaults to `-1`. No index is reserved and the track space is contiguous. |
+| **OPEN-4** | **Slot switch while the ring-out overdub is running.** A take closes into a one-pass overdub (`117f4cc`, `1a90d51`); the track is `OVERDUBBING` for a full pass. What does a switch queued on that track during the overdub do? | (a) **Block** the switch until the overdub ends — simple, but a pad press does nothing for up to one pass, which reads as a dropped press. (b) **Defer**: accept the press, end the overdub at the wrap as it would have anyway, apply the switch at the same boundary. (c) **Cut it short**: end the overdub immediately on the press and switch at the next bar, losing the rest of the ring-out. | **(b)** — the overdub already ends at the wrap, which is the same boundary a quantized switch lands on, so the two coincide naturally and nothing is lost. Needs SP7 to confirm SL accepts `overdub` off + `mute_on` + `load_loop` on one boundary. |
 
 ---
 
@@ -452,17 +461,18 @@ What changed from rev 1 and the evidence, so none of it is re-litigated from mem
 
 | Rev 1 claim | Reality | Evidence |
 |-------------|---------|----------|
-| "16 tracks", `T ∈ [0, 15]`, iterate `range(16)` | **15 tracks**; the scratch loop is excluded | `looper_songs.musical_loop_indices()` filters `scratch_loop` out of `range(NUM_LOOPS)` |
-| Scratch is "Loop 15" | Scratch is loop **14** | `sl_seam_weld.SCRATCH_LOOP = int(os.environ.get("MPE_SL_SCRATCH_LOOP", "14"))`; `looper_songs.SCRATCH` resolves from it |
-| "up to 128 occupied slot WAVs" | **120** (15 × 8) | arithmetic on the corrected track count |
+| "16 tracks", `T ∈ [0, 15]`, iterate `range(16)` | ~~15 tracks~~ → **16 again as of rev 3** | Rev 2 was right about the code as it then stood; `a99cf63` deleted the scratch loop |
+| Scratch is "Loop 15" | ~~Loop 14~~ → **no scratch loop at all** (rev 3) | `MPE_SL_SCRATCH_LOOP` defaults to `-1`; `musical_loop_indices()` returns `range(16)` |
+| "up to 128 occupied slot WAVs" | ~~120~~ → **128** again (rev 3) | arithmetic on 16 × 8 |
 | "Scene Launch 1–8" ↔ rows 0–7 | Only **1–7** on mk1; the 8th scene note is Stop All | `apc_transport.NOTE_STOP_ALL_CLIPS_MK1 = 0x59`; module docstring: *"Stop All 0x59 (scene launch 8)"* |
 | Scene buttons "unused" and available | No scene note constants exist at all beyond Stop All | `apc_transport.py` defines only Shift, Stop All, Track-8, arrows |
 | Cancel = "re-tap the outgoing slot" (all cases) | Undefined for a pure launch — there is no outgoing slot | rev 1 §state machine, `PendingLaunch` transition |
 | Save relies on prior flushes with no check | Silent bad-save path | rev 1 §Save path step 2 |
 
-Also found, outside this spec's scope but adjacent: `sl_hud_monitor.py` defaults
-`MPE_SL_SCRATCH_LOOP` to `15` while `sl_seam_weld.py` defaults it to `14`. With
-the env var unset they disagree. Fix before P1.
+Rev 2 also flagged a scratch-index disagreement between `sl_hud_monitor.py` (`15`)
+and `sl_seam_weld.py` (`14`). **Resolved by deletion in rev 3** — `sl_seam_weld.py`
+is gone and `sl_hud_monitor.py` now defaults to `-1`, matching `looper_songs.py`.
+No longer a blocker for P1.
 
 ---
 
@@ -496,7 +506,6 @@ Phase 0 cancel, but **shares** `looper_songs.py` v2 persistence with touch save/
 | `tests/test_slot_matrix.py` | **New** — scene row logic, occupancy |
 | `tests/test_looper_songs.py` | v2 round-trip |
 | `config/mpe.env.example` | Any matrix limits |
-| `scripts/sooperlooper/sl_hud_monitor.py` | **Pre-existing bug:** defaults `MPE_SL_SCRATCH_LOOP` to `15` while `sl_seam_weld.py` defaults it to `14`. Unset env → the HUD excludes the wrong loop. Fix before slot work builds on an ambiguous scratch index |
 | `Documents/DECISIONS.md` | Row on Gate A approval |
 
 ---
@@ -508,7 +517,7 @@ Phase 0 cancel, but **shares** `looper_songs.py` v2 persistence with touch save/
 | **P0** | Pending-mute **cancel** on single-slot (row 0) model | Unit + Mitch tap test |
 | **P1** | `slot_matrix` pure layer + manifest v2 save/load (touch HUD) | T1–T6 |
 | **P2** | APC grid all rows; pad switch/stop/record per §semantics | Mitch ear + unit |
-| **P3** | Scene Launch 1–7 row toggle (rows 0–6) across 15 tracks | SP6 note confirmation, then scene LED + launch/stop |
+| **P3** | Scene Launch 1–7 row toggle (rows 0–6) across 16 tracks | SP6 note confirmation, then scene LED + launch/stop |
 | **P4** | Spike outcomes wired (load timing, inactive slot residency) | Measurement note |
 
 P0 is **blocking** for P2/P3. P1 can parallel P0 if v2 writer reads active slot only
@@ -520,14 +529,13 @@ first, then fills multi-slot once swap logic exists.
 
 | Risk | Mitigation |
 |------|------------|
-| 120 WAVs × load time on full load | Lazy load inactive slots; spike save_loop/load_loop timing |
+| 128 WAVs × load time on full load | Lazy load inactive slots; spike save_loop/load_loop timing |
 | Memory with many occupied idle slots | Same as 64 idle loops — monitor VmRSS; `-t` tuning |
 | Cancel via `mute_off` vs SL WAIT states | Spike on engine; mirror WAIT_STOP cancel (`record` cancel pattern) |
 | Scene row + pending switch race | Single pending per track; scene applies after cancel clears |
 | v1 song migration | Read v1 forever; upgrade on overwrite Save (Gate A) |
-| Seam weld during switch | Block switch on track in SEAM_WELD |
+| **Ring-out overdub during switch** | The overdub runs a full pass after a take. Block or defer a switch while track `T` is `OVERDUBBING` — see OPEN-4 |
 | **Manifest references a stale or missing WAV** | Verify every referenced WAV at save (step 3); fail loudly. Without it a bad save is indistinguishable from a good one |
-| **Scratch loop addressed as a track** | All track iteration goes through `musical_loop_indices()`; `range(16)` is a defect. Add a unit test asserting no pad maps to `SCRATCH_LOOP` at any viewport offset |
 | **Scene note numbers wrong (recalled, not measured)** | SP6 `--dump-midi` before P3, same discipline as `ARROW_NOTES_MK2` |
 
 ---
@@ -538,12 +546,13 @@ Run on bench (Pi or laptop + SL):
 
 | # | Question | Method | Pass |
 |---|----------|--------|------|
-| SP1 | `save_loop` / `load_loop` timing for 15 tracks × up to 8 slots (120 max) | Script: measure per-call latency, full matrix save | Document p95; touch UI timeout budget |
+| SP1 | `save_loop` / `load_loop` timing for 16 tracks × up to 8 slots (128 max) | Script: measure per-call latency, full matrix save | Document p95; touch UI timeout budget |
 | SP2 | Inactive slot `load_loop` latency at launch | Measure single swap load_loop p95 | Within touch/APC timeout budget (disk-only lazy — **decided**) |
 | SP3 | **mute_off cancel** for pending quantized mute | Tap play → tap stop → re-tap before bar | Outgoing keeps playing; no glitch |
 | SP3b | **pause_on cancel** for pending quantized launch | Tap stop (muted) → tap launch → re-tap before bar | Stays stopped/muted; no launch at bar |
 | SP4 | Switch: mute track A slot + load B + trigger same boundary | OSC sequence from bench | One audible clip after boundary |
-| SP5 | Scene row launch with 15 tracks (7 off-screen) | Iterate `musical_loop_indices()` | All occupied cells in row queue; scratch loop never touched |
+| SP5 | Scene row launch with 16 tracks (8 off-screen) | Iterate `musical_loop_indices()` | All occupied cells in row queue |
+| **SP7** | **Switch queued while the ring-out overdub is running** (rev 3, settles OPEN-4) | Record a take on track T, then during its one-pass overdub tap another slot in the same column | At the wrap: overdub ends, outgoing mutes, incoming loads and plays — one audible clip, no pop |
 | **SP6** | **Scene Launch note numbers per APC variant** | `sooperlooper-apc-bench.py --dump-midi`, press each scene button on mk1 (and mk2 if available) | Confirmed note list; settles [OPEN-1](#open-decisions) for mk2 |
 
 Spike write-up: `docs/measurements/multi-clip-slot-spike-YYYY-MM-DD.md`.
@@ -561,11 +570,12 @@ Spike write-up: `docs/measurements/multi-clip-slot-spike-YYYY-MM-DD.md`.
 | 5 | **APC LED:** no change — occupied stopped stays yellow. |
 | 6 | **Autosave:** out of scope v1 — [#115](https://github.com/MitchSchwartz/MPE-Sound-Module/issues/115). |
 | 7 | **P0 owner:** laptop session (pending-mute cancel). |
-| 8 | **Track count (rev 2):** 15 tracks — loop 14 is scratch. Superseded rev 1's "16 tracks". |
+| 8 | ~~**Track count (rev 2):** 15 tracks — loop 14 is scratch.~~ **Superseded rev 3: 16 tracks, contiguous.** The scratch loop was deleted with the seam-weld pipeline (`a99cf63`). |
 | 9 | **Scene rows (rev 2):** Scene Launch 1–7 → rows 0–6. Row 7 pad-only pending [OPEN-1](#open-decisions). |
 
-**Next step:** fix the `sl_hud_monitor` scratch-index default → P0 pending-mute cancel on
-single-slot model → spikes SP1–SP6 → P1 touch v2.
+**Next step (rev 3):** the `sl_hud_monitor` fix is done and OPEN-3 is closed, so the
+queue is now **P0 pending-mute cancel on the single-slot model → spikes SP1–SP7 →
+P1 touch v2**. P0 is unchanged by rev 3 and is still blocking for P2/P3.
 
 ---
 
