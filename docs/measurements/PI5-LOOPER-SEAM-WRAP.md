@@ -309,5 +309,100 @@ running bootstrap moved the appliance from 8 loops to 16, which created the
 scratch loop the weld needed and let it start firing where it had previously
 skipped. Appliance behaviour changed with no commit behind it.
 
-*Last updated: 2026-08-26 — pipeline removed, doc closed for history.*
 
+
+---
+
+## History — the entries the closure above supersedes
+
+Kept because the *reasons* still apply even though the pipeline is gone.
+The note about `bootstrap-pi5-looper.sh` writing `MPE_SL_LOOPS` outside git
+is the same mechanism that hid a phantom loop 15 until 2026-08-27.
+
+
+---
+
+## 2026-08-26 — First-wrap artifact: cycle doubling at grid establishment
+
+### Fixed: `establish_grid_clock` set the cycle, then had it doubled back
+
+`Engine::set_tempo` runs `_eighth_cycle *= 2` below 60 BPM and pushes the
+doubled value to every loop — the rewrite `apply_grid_sync` already documents
+at startup. `establish_grid_clock` sent the cycle **before** the tempo, so it
+set one bar and the engine immediately doubled it back to two. Turning
+`smart_eighths` off does not prevent that rewrite.
+
+"First take = one bar" puts every multi-second take under 60 BPM (a 4.4 s bar
+is 54 BPM), so this fired on essentially every session. Observed as the HUD
+reading **two bars on the defining take and snapping to one later** — the snap
+being a later correction, not the grid settling.
+
+Fix: assert `eighth_per_cycle` **after** the tempo. `apply_grid_sync` already
+had the correct order; only `establish_grid_clock` was inverted. The existing
+test pinned the inverted sequence while its own docstring stated the opposite
+intent, so the suite was green on the bug.
+
+### What else lands on the first wrap
+
+Only the defining take does this work, which is why the artifact is
+first-clip-only and later clips are clean. At that single boundary:
+
+```
+loop 0: seam weld done            <- buffer swap (load_loop + trigger)
+loop 0: applying deferred grid clock — 1 bar(s) @ 54.1 BPM
+loop 0: phase re-anchored at loop_pos=0.815s
+```
+
+plus `set_grid_active(active=True)`, which writes quantize/sync to all 16
+loops. `_flush_deferred_grid_side_effects` defers the grid work to avoid
+"baking a stutter into the loop buffer" during capture — and in doing so lands
+a phase reset and a per-loop OSC burst exactly on the wrap.
+
+### `SEAM_LOAD_LEAD_MS` — sweep, and a hypothesis that did NOT survive
+
+Ear sweep, one take per value, artifact at the first wrap:
+
+| `SEAM_LOAD_LEAD_MS` | Result |
+|---|---|
+| 600 | Full "record skip" |
+| 150 *(default)* | Audible pop |
+| 20 | Near nothing, still audible |
+| 5 | Pop **plus** a large volume step |
+
+The obvious reading — that `load_loop` halts playback, making the lead a hole —
+**was tested and refuted.** `spike-load-halt.py` polls a playing loop's
+`loop_pos` for stalls across three phases (baseline / load another loop / load
+the polled loop itself). The same-loop control, which must stall if the halt is
+real, showed no stall at all: worst gaps 8.2 / 9.2 / 8.5 ms against a 4 ms
+polling median. The control is what makes the result readable — without it the
+other two rows would have read as a clean "per-loop halt" and a double-buffer
+design would have been built on nothing.
+
+Current best explanation, **not yet measured**: `load_loop` swaps the buffer
+immediately, so the lead is the duration of *wrong content* playing before
+`trigger` restarts at zero. That fits the monotonic 600/150/20 progression and
+the 5 ms partial-buffer step, but no instrument has confirmed it. A load-latency
+probe (watch `loop_len` change after `load_loop`) returned 4.2 ms against a
+baseline that read 0.0 for a loop known to be 2.09 s long — a bad baseline, so
+that number is discarded, not reported.
+
+**Do not tune `SEAM_LOAD_LEAD_MS` by ear against this table.** No value tested
+is inaudible, and the mechanism setting the floor is still unidentified.
+
+### Method note
+
+The env file is not in git and the journal did not survive the session in
+question, so "what was running" was unrecoverable after the fact — a full day
+went to a rollback that was believed deployed and was not, because it targeted
+a commit 35 minutes *after* the one that introduced the behaviour.
+`scripts/deployed-version.sh` now reports the deployed commit and flags any unit
+whose start time predates the checkout, since `git checkout` does not reload a
+running Python process.
+
+Also note `MPE_SL_LOOPS` and `MPE_SL_SEAM_WELD` are written by
+`bootstrap-pi5-looper.sh`, not by git: running bootstrap moved the appliance
+from 8 loops to 16, which created scratch loop 14 and let the weld begin firing
+where it had previously skipped for want of a scratch slot. Appliance behaviour
+changed with no commit behind it.
+
+*Last updated: 2026-08-26 — pipeline removed, doc closed for history.*
