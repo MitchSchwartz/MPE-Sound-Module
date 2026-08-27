@@ -44,12 +44,19 @@ PENDING_SWITCH = "switch"
 
 # What a press means. The caller turns these into OSC.
 ACT_RECORD = "record"
+ACT_CLOSE = "close"
 ACT_LAUNCH = "launch"
 ACT_STOP = "stop"
 ACT_SWITCH = "switch"
 ACT_CANCEL = "cancel"
 ACT_CLEAR = "clear"
 ACT_NOOP = "noop"
+
+# Bench recording phase for the active slot (runtime-owned; passed into planner).
+PHASE_IDLE = "idle"
+PHASE_ARMING = "arming"
+PHASE_RECORDING = "recording"
+PHASE_CLOSING = "closing"
 
 
 @dataclass(frozen=True)
@@ -124,6 +131,21 @@ def _needs_flush(track: Track) -> bool:
     return active is not None and active.dirty
 
 
+def _recording_into_slot(
+    track: Track,
+    slot: int,
+    *,
+    sl_state: int,
+    record_phase: str,
+) -> bool:
+    """True when this cell holds an in-progress take (not yet occupied)."""
+    if track.active_slot != slot or track.occupied(slot):
+        return False
+    if record_phase in (PHASE_ARMING, PHASE_RECORDING, PHASE_CLOSING):
+        return True
+    return sl_state in ACTIVE_RECORD
+
+
 def plan_cell_press(
     *,
     track_index: int,
@@ -131,6 +153,7 @@ def plan_cell_press(
     slot: int,
     sl_state: int,
     hold: bool = False,
+    record_phase: str = PHASE_IDLE,
 ) -> SlotPlan:
     """The whole cell vocabulary, per the spec's tap matrix.
 
@@ -173,6 +196,11 @@ def plan_cell_press(
 
     active = track.active_slot
     playing = _is_playing(sl_state)
+
+    if _recording_into_slot(
+        track, slot, sl_state=sl_state, record_phase=record_phase
+    ):
+        return replace(here, action=ACT_CLOSE, note="close take on this slot")
 
     if not occupied:
         # Recording into a non-active slot reuses the track's only buffer, so

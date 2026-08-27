@@ -16,8 +16,15 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "sooperlooper"))
 
 from slot_matrix import ACT_NOOP, ACT_SWITCH, Slot, Track  # noqa: E402
+from slot_matrix import ACT_CLOSE, PHASE_ARMING, PHASE_RECORDING  # noqa: E402
 from slot_runtime import MIN_CLIP_BYTES, SlotRuntime  # noqa: E402
-from sl_loop_states import SL_STATE_MUTE, SL_STATE_OFF, SL_STATE_PLAYING  # noqa: E402
+from sl_loop_states import (  # noqa: E402
+    SL_STATE_MUTE,
+    SL_STATE_OFF,
+    SL_STATE_PLAYING,
+    SL_STATE_RECORDING,
+    SL_STATE_WAIT_START,
+)
 
 
 class RuntimeCase(unittest.TestCase):
@@ -176,6 +183,7 @@ class BookkeepingTests(RuntimeCase):
 
     def test_sync_engine_commits_a_finished_take(self) -> None:
         self.rt.press(2, 1, sl_state=SL_STATE_OFF)
+        self.rt._phase[2] = PHASE_RECORDING
         changed = self.rt.sync_engine(
             2, sl_state=SL_STATE_PLAYING, loop_len=4.0
         )
@@ -184,6 +192,14 @@ class BookkeepingTests(RuntimeCase):
         self.assertTrue(track.occupied(1))
         self.assertEqual(track.active_slot, 1)
         self.assertTrue(track.slot(1).dirty)
+
+    def test_close_take_sends_overdub_when_recording(self) -> None:
+        self.rt.press(0, 0, sl_state=SL_STATE_OFF)
+        self.rt._phase[0] = PHASE_RECORDING
+        self.sent.clear()
+        self.rt.press(0, 0, sl_state=SL_STATE_RECORDING)
+        hits = [a for p, a in self.sent if p.endswith("/hit")]
+        self.assertIn(["overdub"], hits)
 
     def test_record_into_another_slot_clears_the_buffer_first(self) -> None:
         self.rt._tracks[0] = Track(

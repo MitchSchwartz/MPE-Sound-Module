@@ -72,8 +72,14 @@ def log(msg: str) -> None:
     print(f"[{time.strftime('%H:%M:%S')}.{int(time.time() % 1 * 1000):03d}] {msg}", flush=True)
 
 
-def poll_footswitches(footswitches: list[LoopFootswitch]) -> None:
-    """Periodic bench poll — holds and LED transitions."""
+def poll_footswitches(footswitches: list[LoopFootswitch], *, multigrid: bool = False) -> None:
+    """Periodic bench poll — holds and LED transitions.
+
+    When ``multigrid`` is on, skip pad hold/LED: ``SlotSurface`` owns the 8×8.
+    Footswitches still receive engine sync for grid side-effects.
+    """
+    if multigrid:
+        return
     for fs in footswitches:
         fs.poll_hold()
         fs.poll_led()
@@ -97,9 +103,11 @@ class LoopFootswitch:
         on_grid_established=None,
         on_phase_reanchor=None,
         on_grid_dropped=None,
+        multigrid: bool = False,
     ) -> None:
         self.loop = loop
         self.grid = grid
+        self._multigrid = multigrid
         self._on_grid_established = on_grid_established
         self._on_phase_reanchor = on_phase_reanchor
         self._on_grid_dropped = on_grid_dropped
@@ -261,7 +269,8 @@ class LoopFootswitch:
                    or led_before != self._led_target())
         if changed:
             log(f"loop {self.loop}: SL sync sl={sl_state} bench={self.state}")
-            self._sync_led()
+            if not self._multigrid:
+                self._sync_led()
             return True
         return False
 
@@ -391,6 +400,8 @@ class LoopFootswitch:
         log(f"loop {self.loop}: -> {cmd} (state={self.state})")
 
     def _set_led(self, velocity: int, *, force: bool = False) -> None:
+        if self._multigrid:
+            return
         if self._midi_out is None or self._note is None:
             return  # banked off-screen: this track has no pad to paint
         velocity = max(0, min(127, velocity))
@@ -616,6 +627,7 @@ def build_footswitches(
     on_grid_established=None,
     on_phase_reanchor=None,
     on_grid_dropped=None,
+    multigrid: bool = False,
 ) -> tuple[dict[int, LoopFootswitch], list[LoopFootswitch]]:
     """One footswitch per track, bound to the pad showing it in `view`.
 
@@ -639,6 +651,7 @@ def build_footswitches(
             on_grid_established=on_grid_established,
             on_phase_reanchor=on_phase_reanchor,
             on_grid_dropped=on_grid_dropped,
+            multigrid=multigrid,
         )
         pad = view.note_for_loop(loop_i)
         fs.bind(osc, midi_out, pad)
@@ -663,6 +676,7 @@ def apply_view(
     *,
     footswitches: list[LoopFootswitch],
     view: GridView,
+    multigrid: bool = False,
 ) -> dict[int, LoopFootswitch]:
     """Move the viewport: clear the clip row, rebind pads, repaint. New by-note map.
 
@@ -671,13 +685,17 @@ def apply_view(
     bank is a track the player believes is running and isn't, and that is the
     one failure of this feature they cannot debug from the surface. One sweep
     of eight notes costs nothing and makes it impossible.
+
+    When ``multigrid`` is on, do not paint row 0 from footswitch state —
+    ``SlotSurface.repaint`` owns the full matrix.
     """
     for row, col in all_clip_pads():
         midi_out.send_message([0x90, pad_note(row, col), LED_OFF])
     for fs in footswitches:
         fs.release_pad()
         fs.set_note(view.note_for_loop(fs.loop))
-        fs._sync_led()
+        if not multigrid:
+            fs._sync_led()
     return notes_for_view(footswitches, view)
 
 
