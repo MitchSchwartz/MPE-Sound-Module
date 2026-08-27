@@ -9,6 +9,7 @@ import unittest
 from scripts.sooperlooper.slot_matrix import (
     ACT_CANCEL,
     ACT_CLEAR,
+    ACT_CLOSE,
     ACT_LAUNCH,
     ACT_NOOP,
     ACT_RECORD,
@@ -19,6 +20,8 @@ from scripts.sooperlooper.slot_matrix import (
     PENDING_LAUNCH,
     PENDING_STOP,
     PENDING_SWITCH,
+    PHASE_ARMING,
+    PHASE_RECORDING,
     Pending,
     Slot,
     Track,
@@ -34,6 +37,8 @@ from scripts.sooperlooper.sl_loop_states import (
     SL_STATE_OFF,
     SL_STATE_OVERDUBBING,
     SL_STATE_PLAYING,
+    SL_STATE_RECORDING,
+    SL_STATE_WAIT_START,
 )
 
 
@@ -46,9 +51,10 @@ def track(**kw) -> Track:
     return Track(slots=tuple(slots), **kw)
 
 
-def press(tr, slot, *, sl_state=SL_STATE_OFF, index=0, hold=False):
+def press(tr, slot, *, sl_state=SL_STATE_OFF, index=0, hold=False, record_phase="idle"):
     return plan_cell_press(
-        track_index=index, track=tr, slot=slot, sl_state=sl_state, hold=hold
+        track_index=index, track=tr, slot=slot, sl_state=sl_state, hold=hold,
+        record_phase=record_phase,
     )
 
 
@@ -75,6 +81,16 @@ class EmptyCellTests(unittest.TestCase):
         p = press(track(), 0)
         self.assertEqual(p.action, ACT_RECORD)
         self.assertFalse(p.save_first, "nothing loaded — nothing to flush")
+
+    def test_second_tap_while_recording_closes_take(self) -> None:
+        tr = track(active_slot=0)
+        p = press(tr, 0, sl_state=SL_STATE_RECORDING, record_phase=PHASE_RECORDING)
+        self.assertEqual(p.action, ACT_CLOSE)
+
+    def test_second_tap_while_arming_closes_take(self) -> None:
+        tr = track(active_slot=2)
+        p = press(tr, 2, sl_state=SL_STATE_WAIT_START, record_phase=PHASE_ARMING)
+        self.assertEqual(p.action, ACT_CLOSE)
 
     def test_record_into_empty_slot_flushes_a_dirty_active_slot(self) -> None:
         """One buffer per track: arming reuses it, so unflushed audio dies."""

@@ -176,10 +176,11 @@ class SceneRowTests(SurfaceCase):
 
     def test_engine_sync_marks_a_take_and_repaints(self) -> None:
         from sl_loop_states import SL_STATE_PLAYING
+        from slot_matrix import PHASE_RECORDING
 
         self.surface.note_down(pad_note(2, 0))
+        self.rt._phase[0] = PHASE_RECORDING
         self.osc.clear()
-        self.surface.on_loop_len(0, 4.0)
         self.surface.on_state(0, SL_STATE_PLAYING)
         self.assertTrue(self.rt.track(0).occupied(0))
         self.assertEqual(self.colour_of(pad_note(0, 0)), LED_GREEN)

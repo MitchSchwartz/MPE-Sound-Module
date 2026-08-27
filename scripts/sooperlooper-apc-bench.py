@@ -235,6 +235,7 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
         midi_out.send_message([0x90, _note, LED_OFF])
 
     scene_launch_notes = resolve_scene_launch_notes(apc_label)
+    multigrid = os.environ.get("MPE_SL_MULTIGRID", "0") == "1"
     mk1_ghost: Mk1ShiftGhostFilter | None = None
     if apc_label == "mk1":
         mk1_ghost = Mk1ShiftGhostFilter(
@@ -256,9 +257,11 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
         on_grid_established=on_grid_established if grid_active else None,
         on_phase_reanchor=on_phase_reanchor if grid_active else None,
         on_grid_dropped=on_grid_dropped if grid_active else None,
+        multigrid=multigrid,
     )
-    for fs in footswitches:
-        fs._sync_led()
+    if not multigrid:
+        for fs in footswitches:
+            fs._sync_led()
 
     def on_looper_engine_started() -> None:
         """Reconcile bench grid state when the looper engine restarts (criterion 40).
@@ -297,7 +300,7 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
     # That is not a change to make live without him having tried it, so it is
     # opt-in until it has earned the default.
     slot_surface = None
-    if os.environ.get("MPE_SL_MULTIGRID", "0") == "1":
+    if multigrid:
         slot_runtime = SlotRuntime(
             send=_send,
             clips_dir=Path(
@@ -306,6 +309,8 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
             ),
             num_tracks=num_loops,
             log=lambda m: print(f"slots: {m}", flush=True),
+            grid=grid if grid_active else None,
+            quantized=grid_active,
         )
         slot_surface = SlotSurface(
             runtime=slot_runtime,
@@ -353,7 +358,9 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
         if new_view.offset == view.offset:
             return
         view = new_view
-        by_note = apply_view(midi_out, footswitches=footswitches, view=view)
+        by_note = apply_view(
+            midi_out, footswitches=footswitches, view=view, multigrid=multigrid
+        )
         if slot_surface is not None:
             slot_surface.set_view(view)
         mix.set_view(view)
@@ -408,7 +415,7 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
             engine_event_watch.poll()
 
     def poll_holds() -> None:
-        poll_footswitches(footswitches)
+        poll_footswitches(footswitches, multigrid=multigrid)
         if slot_surface is not None:
             slot_surface.poll_hold()
             slot_surface.poll_hold_led()

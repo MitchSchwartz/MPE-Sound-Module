@@ -118,8 +118,8 @@ SP1/SP2/SP4 pass with 2–3 orders of magnitude of margin; SP6 measured.
 | # | Task |
 |---|---|
 | ~~**P1**~~ | **Done** — `slot_matrix.py` (`0c039e7`, 31 tests) + manifest v2 (`83cade9`, 26 tests). Pushed to `dev`; **not deployed to the Pi** — v2 changes what `save_song` writes to disk, and that is not a change to make on Mitch's instrument overnight without him. Suite: 1186 passed. |
-| **P2** | **Fix deployed 2026-08-27 — re-test on Pi.** First multigrid pass: matrix never marked slots occupied (record-completion hook missing); scene rows all lit. Wired `sync_engine` + `loop_len` routing + scene LED gating. Mitch ear pass still open — quantized switch, ring-out seam (audible SP7). |
-| **P3** | **Same fix as P2** — scene Launch LEDs now dark on empty rows; lit only when row has clips and is not fully playing. Re-test with P2. |
+| **P2** | **I0+I1 on `dev` — Pi gate open.** Dual-controller fix + close-take lifecycle. See integration plan I0–I2. |
+| **P3** | **Blocked on I0–I4** — scene row code exists; scene LED/gesture wrong until unified column controller lands. |
 
 ### Track C — Pi 5, on arrival
 

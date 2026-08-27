@@ -29,21 +29,35 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Callable
 
+from gesture_engine import plan_arm_record, plan_close_take
 from slot_matrix import (
     ACT_CANCEL,
     ACT_CLEAR,
+    ACT_CLOSE,
     ACT_LAUNCH,
     ACT_NOOP,
     ACT_RECORD,
     ACT_STOP,
     ACT_SWITCH,
     NUM_SLOTS,
+    PHASE_ARMING,
+    PHASE_CLOSING,
+    PHASE_IDLE,
+    PHASE_RECORDING,
     Slot,
     SlotPlan,
     Track,
     apply_pending,
     plan_cell_press,
     resolve_at_boundary,
+)
+from sl_loop_states import (
+    ACTIVE_PLAY,
+    ACTIVE_RECORD,
+    SL_STATE_OFF,
+    SL_STATE_OVERDUBBING,
+    SL_STATE_PLAYING,
+    SL_STATE_RECORDING,
 )
 
 MIN_TAKE_LEN_S = 0.01
@@ -71,15 +85,21 @@ class SlotRuntime:
         num_tracks: int,
         log: Callable[[str], None] | None = None,
         now: Callable[[], float] = time.monotonic,
+        grid=None,
+        quantized: bool = True,
     ) -> None:
         self._send = send
         self._clips_dir = Path(clips_dir)
         self._num_tracks = num_tracks
         self._log = log or (lambda _m: None)
         self._now = now
+        self._grid = grid
+        self._quantized = quantized
         self._tracks: dict[int, Track] = {i: Track() for i in range(num_tracks)}
         self._loop_lens: dict[int, float] = {}
         self._last_sl_state: dict[int, int] = {}
+        self._phase: dict[int, str] = {i: PHASE_IDLE for i in range(num_tracks)}
+        self._stop_queued: dict[int, bool] = {}
 
     # -- state ------------------------------------------------------------
 
@@ -89,8 +109,17 @@ class SlotRuntime:
     def tracks(self) -> dict[int, Track]:
         return dict(self._tracks)
 
+    def record_phase(self, track_index: int) -> str:
+        return self._phase.get(track_index, PHASE_IDLE)
+
     def clip_path(self, track: int, slot: int) -> Path:
         return self._clips_dir / f"live_t{track:02d}_s{slot}.wav"
+
+    def _grid_established(self) -> bool:
+        return self._grid is None or self._grid.established
+
+    def _is_defining(self, track_index: int) -> bool:
+        return self._grid is not None and self._grid.is_pending(track_index)
 
     # -- the one entry point ----------------------------------------------
 
@@ -104,16 +133,23 @@ class SlotRuntime:
         """
         track = self.track(track_index)
         plan = plan_cell_press(
-            track_index=track_index, track=track, slot=slot,
-            sl_state=sl_state, hold=hold,
+            track_index=track_index,
+            track=track,
+            slot=slot,
+            sl_state=sl_state,
+            hold=hold,
+            record_phase=self.record_phase(track_index),
         )
-        if not self._execute(plan):
+        if not self._execute(plan, sl_state=sl_state):
             return replace(plan, action=ACT_NOOP, note=f"{plan.note} — FAILED")
         self._tracks[track_index] = apply_pending(self.track(track_index), plan)
         if plan.action == ACT_RECORD:
             self._tracks[track_index] = replace(
                 self.track(track_index), active_slot=plan.slot
             )
+            self._phase[track_index] = PHASE_ARMING
+        elif plan.action == ACT_CLOSE:
+            self._phase[track_index] = PHASE_CLOSING
         if plan.note:
             self._log(f"track {track_index + 1} slot {slot + 1}: {plan.note}")
         return plan
@@ -124,7 +160,8 @@ class SlotRuntime:
 
     def dispatch(self, plan: SlotPlan) -> SlotPlan:
         """Execute a plan produced elsewhere (e.g. scene row) and record it."""
-        if not self._execute(plan):
+        sl_state = self._last_sl_state.get(plan.track, SL_STATE_OFF)
+        if not self._execute(plan, sl_state=sl_state):
             failed = replace(plan, action=ACT_NOOP, note=f"{plan.note} — FAILED")
             if plan.note:
                 self._log(failed.note)
@@ -139,30 +176,63 @@ class SlotRuntime:
         self._tracks = {i: Track() for i in range(self._num_tracks)}
         self._loop_lens.clear()
         self._last_sl_state.clear()
+        self._phase = {i: PHASE_IDLE for i in range(self._num_tracks)}
+        self._stop_queued.clear()
 
     def sync_engine(
         self, track_index: int, *, sl_state: int, loop_len: float
     ) -> bool:
-        """Reconcile matrix occupancy with engine reports. True if the model moved."""
+        """Reconcile matrix occupancy and recording phase with engine reports."""
+        prev_sl = self._last_sl_state.get(track_index, SL_STATE_OFF)
         self._last_sl_state[track_index] = int(sl_state)
         if loop_len > 0:
             self._loop_lens[track_index] = float(loop_len)
 
-        track = self.track(track_index)
-        active = track.active_slot
-        if active is None or track.occupied(active):
-            return False
-        if sl_state in ACTIVE_RECORD or loop_len < MIN_TAKE_LEN_S:
-            return False
+        changed = False
 
-        self.mark_recorded(
-            track_index, active, len_s=loop_len, sl_state=int(sl_state)
-        )
-        self._log(
-            f"track {track_index + 1} slot {active + 1}: take landed "
-            f"({loop_len:.2f}s)"
-        )
-        return True
+        if sl_state == SL_STATE_RECORDING and self._stop_queued.get(track_index):
+            self._stop_queued[track_index] = False
+            self._send(f"/sl/{track_index}/hit", ["record"])
+            self._phase[track_index] = PHASE_CLOSING
+            changed = True
+
+        phase = self._phase.get(track_index, PHASE_IDLE)
+        if sl_state in ACTIVE_RECORD:
+            phase = (
+                PHASE_RECORDING
+                if sl_state == SL_STATE_RECORDING
+                else PHASE_ARMING
+            )
+        elif sl_state == SL_STATE_OVERDUBBING:
+            phase = PHASE_CLOSING
+        elif sl_state in ACTIVE_PLAY and phase in (
+            PHASE_ARMING,
+            PHASE_RECORDING,
+            PHASE_CLOSING,
+        ):
+            track = self.track(track_index)
+            active = track.active_slot
+            if (
+                active is not None
+                and not track.occupied(active)
+                and loop_len >= MIN_TAKE_LEN_S
+            ):
+                self.mark_recorded(
+                    track_index, active, len_s=loop_len, sl_state=int(sl_state)
+                )
+                self._log(
+                    f"track {track_index + 1} slot {active + 1}: take landed "
+                    f"({loop_len:.2f}s)"
+                )
+                changed = True
+            phase = PHASE_IDLE
+        elif sl_state == SL_STATE_OFF and prev_sl != SL_STATE_OFF:
+            phase = PHASE_IDLE
+
+        if phase != self._phase.get(track_index):
+            changed = True
+        self._phase[track_index] = phase
+        return changed
 
     def mark_recorded(self, track_index: int, slot: int, *, len_s: float,
                       sl_state: int) -> None:
@@ -175,10 +245,11 @@ class SlotRuntime:
             )),
             active_slot=slot,
         )
+        self._phase[track_index] = PHASE_IDLE
 
     # -- execution --------------------------------------------------------
 
-    def _execute(self, plan: SlotPlan) -> bool:
+    def _execute(self, plan: SlotPlan, *, sl_state: int) -> bool:
         loop = plan.track
         if plan.action in (ACT_NOOP, ACT_CANCEL):
             if plan.action == ACT_CANCEL:
@@ -197,7 +268,6 @@ class SlotRuntime:
             return False
 
         if plan.action == ACT_RECORD:
-            loop = plan.track
             if (
                 plan.from_slot is not None
                 and plan.from_slot != plan.slot
@@ -206,8 +276,24 @@ class SlotRuntime:
                 if plan.save_first and not self._flush_active(loop):
                     return False
                 self._send(f"/sl/{loop}/hit", ["undo_all"])
-            self._send(f"/sl/{loop}/hit", ["record"])
-            return True
+            gesture = plan_arm_record(
+                grid_established=self._grid_established(),
+                is_defining=self._is_defining(loop),
+                quantized=self._quantized,
+            )
+            return self._dispatch_gesture(loop, gesture)
+
+        if plan.action == ACT_CLOSE:
+            gesture = plan_close_take(
+                sl_state=sl_state,
+                grid_established=self._grid_established(),
+                is_defining=self._is_defining(loop),
+                quantized=self._quantized,
+            )
+            if gesture.note:
+                self._log(f"track {loop + 1} slot {plan.slot + 1}: {gesture.note}")
+            return self._dispatch_gesture(loop, gesture)
+
         if plan.action == ACT_STOP:
             self._send(f"/sl/{loop}/hit", ["mute_on"])
             return True
@@ -217,14 +303,32 @@ class SlotRuntime:
             return self._launch(plan)
         return True
 
+    def _dispatch_gesture(self, loop: int, gesture) -> bool:
+        if gesture.arm_grid and self._grid is not None:
+            self._grid.arm(loop)
+        for cmd in gesture.commands:
+            self._send(f"/sl/{loop}/hit", [cmd])
+        if gesture.queue_stop:
+            self._stop_queued[loop] = True
+        return True
+
     def _launch(self, plan: SlotPlan) -> bool:
         """Load the incoming clip, then unmute — the engine defers the unmute.
 
         Load first, unmute second, always. The reverse order unmutes a buffer
         that still holds the *outgoing* clip, so the wrong audio is heard for
         however long the load takes.
+
+        When the target slot is already loaded in the buffer (dirty, not yet on
+        disk), skip ``load_loop`` and unmute in place.
         """
         loop = plan.track
+        track = self.track(loop)
+        if track.active_slot == plan.slot:
+            active = track.slot(plan.slot)
+            if active is not None and active.dirty:
+                self._send(f"/sl/{loop}/hit", ["mute_off"])
+                return True
         path = self.clip_path(loop, plan.slot)
         if not path.exists():
             self._log(f"track {loop + 1} slot {plan.slot + 1}: no clip file")
@@ -243,6 +347,8 @@ class SlotRuntime:
         if cleared.active_slot == slot:
             cleared = replace(cleared, active_slot=None)
         self._tracks[loop] = cleared
+        if track.active_slot == slot:
+            self._phase[loop] = PHASE_IDLE
         return True
 
     def _flush_active(self, loop: int) -> bool:
