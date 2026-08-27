@@ -39,6 +39,7 @@ from apc_transport import (  # noqa: E402
 )
 from led_table import LED_OFF  # noqa: E402
 from apc_link import LinkHealth, PacedMidiOut  # noqa: E402
+from apc_panel import is_stop_all, scene_press_row  # noqa: E402
 from midi_subscription import wait_for_subscription  # noqa: E402
 from running_code import running_code_sha  # noqa: E402
 from slot_runtime import SlotRuntime  # noqa: E402
@@ -358,6 +359,7 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
     # feed and could disagree with the first about whether Shift is held.
     shift_held = False
 
+    stop_all_took_shift = False
     def set_view(new_view: GridView) -> None:
         """Move the viewport: repaint the pads, rebind the faders.
 
@@ -605,11 +607,30 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
                 poll_engine_events(now_mono)
                 continue
 
-        if down is not None and n in scene_launch_notes:
+        # The bottom button is a scene launcher alone and Stop All Clips with
+        # Shift. Which one it is has to be latched at press-down: if we asked
+        # the live `shift_held` again on release, letting go of Shift first
+        # would send the down to the transport combo and the up to the scene
+        # handler, and the combo would sit there holding a button forever.
+        if down is not None and is_stop_all(apc_label, n):
+            if down:
+                stop_all_took_shift = shift_held
+            routing_shift = stop_all_took_shift
+        else:
+            routing_shift = shift_held
+        scene_row = (
+            scene_press_row(
+                n,
+                scene_notes=scene_launch_notes,
+                apc_label=apc_label,
+                shift_held=routing_shift,
+            )
+            if down is not None
+            else None
+        )
+        if scene_row is not None:
             if slot_surface is not None and down:
-                row = scene_row_for_note(scene_launch_notes, n)
-                if row is not None:
-                    slot_surface.scene_press(row)
+                slot_surface.scene_press(scene_row)
             elif args.dump_midi:
                 print(f"ignored scene launch note {n} (set MPE_SL_MULTIGRID=1)", flush=True)
             poll_holds()
