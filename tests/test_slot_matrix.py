@@ -53,9 +53,13 @@ def press(tr, slot, *, sl_state=SL_STATE_OFF, index=0, hold=False):
 
 
 class GeometryTests(unittest.TestCase):
-    def test_sixteen_contiguous_tracks(self) -> None:
+    def test_fifteen_contiguous_tracks_the_engine_ceiling(self) -> None:
+        """15, not 16. SooperLooper 1.7.9 stops at index 14 — index 15 answers
+        reads with defaults and discards writes, so a 16th track looks present
+        and behaves unlike every other one. Measured 2026-08-27; see
+        sl_limits.py."""
         """rev 3: the seam-weld scratch loop is gone, so nothing is reserved."""
-        self.assertEqual(NUM_TRACKS, 16)
+        self.assertEqual(NUM_TRACKS, 15)
         self.assertEqual(NUM_SLOTS, 8)
 
     def test_a_track_always_has_eight_slots(self) -> None:
@@ -243,7 +247,7 @@ class SceneRowTests(unittest.TestCase):
         """The viewport must not change what the gesture means."""
         grid = {i: track(slots=[clip(f"a{i}.wav")] + [None] * 7, active_slot=None)
                 for i in range(NUM_TRACKS)}
-        plans = plan_scene_press(grid, 0, sl_states={i: SL_STATE_OFF for i in range(16)})
+        plans = plan_scene_press(grid, 0, sl_states={i: SL_STATE_OFF for i in range(NUM_TRACKS)})
         self.assertEqual(len(plans), NUM_TRACKS)
         self.assertEqual(sorted(p.track for p in plans), list(range(NUM_TRACKS)))
 

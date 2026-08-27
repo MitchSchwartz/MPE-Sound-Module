@@ -32,7 +32,9 @@ BENCH_STATE_MS = int(os.environ.get("MPE_SL_BENCH_STATE_MS", "100"))
 BENCH_LOOP_POS_MS = int(os.environ.get("MPE_SL_BENCH_LOOP_POS_MS", "20"))
 BENCH_WET_MS = int(os.environ.get("MPE_SL_BENCH_WET_MS", "500"))
 REREGISTER_S = float(os.environ.get("MPE_SL_BENCH_REREGISTER_S", "15"))
-NUM_LOOPS = int(os.environ.get("MPE_SL_LOOPS", "16"))
+from sl_limits import resolve_num_loops  # noqa: E402
+
+NUM_LOOPS = resolve_num_loops()
 
 BenchWetCallback = Callable[[int, float], None]
 

@@ -38,7 +38,9 @@ WRITE_INTERVAL_S = float(os.environ.get("MPE_SL_HUD_WRITE_INTERVAL_S", "0.5"))
 REREGISTER_INTERVAL_S = 15.0
 SL_HOST = os.environ.get("MPE_SL_OSC_HOST", "127.0.0.1")
 SL_PORT = int(os.environ.get("MPE_SL_OSC_PORT", "9951"))
-NUM_LOOPS = int(os.environ.get("MPE_SL_LOOPS", "16"))
+from sl_limits import resolve_num_loops  # noqa: E402
+
+NUM_LOOPS = resolve_num_loops()
 PLAYING_STATES = frozenset({4, 5})
 
 

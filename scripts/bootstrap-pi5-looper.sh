@@ -43,7 +43,7 @@ _remove_env_key MPE_SL_TAIL_MODE
 _remove_env_key MPE_SL_TAIL_CAPTURE
 _remove_env_key MPE_SL_SEAM_WELD
 _remove_env_key MPE_SL_SCRATCH_LOOP
-_ensure_env_kv MPE_SL_LOOPS 16
+_ensure_env_kv MPE_SL_LOOPS 15
 
 if [ ! -x "$SOOP_BIN" ]; then
     echo "bootstrap-pi5-looper: FAIL — SooperLooper binary missing: $SOOP_BIN" >&2

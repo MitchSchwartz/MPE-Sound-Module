@@ -18,7 +18,9 @@ from sl_loop_states import ACTIVE_PLAY, SL_STATE_MUTE, SL_STATE_OFF, SL_STATE_PA
 SL_HOST = os.environ.get("MPE_SL_OSC_HOST", "127.0.0.1")
 SL_PORT = int(os.environ.get("MPE_SL_OSC_PORT", "9951"))
 LISTEN_PORT = int(os.environ.get("MPE_SL_SONGS_PORT", "9955"))
-NUM_LOOPS = int(os.environ.get("MPE_SL_LOOPS", "16"))
+from sl_limits import resolve_num_loops  # noqa: E402
+
+NUM_LOOPS = resolve_num_loops()
 # No loop is reserved any more. Loop 14 was the seam-weld scratch buffer; that
 # pipeline is gone (see SRED-EVIDENCE §3 U11), so all 16 loops are musical.
 # Set MPE_SL_SCRATCH_LOOP to reserve one again if some future feature needs it.
