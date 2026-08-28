@@ -46,7 +46,13 @@ if ! systemctl is-active --quiet "$UNIT"; then
 fi
 
 if [ -r /proc/asound/seq/clients ]; then
-    if grep -A3 '"APC MINI"' /proc/asound/seq/clients | grep -q 'Connecting To:'; then
+    # Match any APC model by name, case-insensitively. Hardcoding the mk1
+    # string "APC MINI" made this warn on a connected mk2 ("APC mini mk2") —
+    # a false negative in the one check that exists to be trustworthy. A
+    # verification that cries wolf gets ignored, which is the failure it was
+    # built to prevent.
+    if awk 'BEGIN{IGNORECASE=1} /^Client .*"[^"]*APC[^"]*"/{f=1;next} /^Client /{f=0} f && /Connecting To:/{ok=1} END{exit !ok}' \
+        /proc/asound/seq/clients; then
         echo "restart-looper-session: PASS — APC has ALSA reader"
     else
         echo "restart-looper-session: WARN — APC has no ALSA reader yet; check journal" >&2
