@@ -236,13 +236,17 @@ class RecordOverPlayingTrackTests(SurfaceCase):
         self.assertNotIn("mute_on", cmds[cmds.index("record"):],
                          "the mute belongs BEFORE the record, not instead of it")
 
-    def test_the_outgoing_clip_is_silenced_and_the_buffer_cleared_first(self) -> None:
-        """One buffer per track: the new take reuses it, so the old clip has to
-        stop and the buffer has to be emptied before recording."""
+    def test_the_outgoing_clip_keeps_sounding_until_the_engine_stops_it(self) -> None:
+        """One buffer per track, but the swap belongs on the bar, not the press.
+
+        SL arms `record` over a playing loop and keeps it sounding to the wrap.
+        Muting and emptying here pre-empted that and left the track silent for
+        up to a full bar."""
         self.surface.note_down(pad_note(3, 0))
         cmds = [a[0] for p, a in self.osc if p == "/sl/0/hit"]
-        self.assertLess(cmds.index("mute_on"), cmds.index("record"))
-        self.assertLess(cmds.index("undo_all"), cmds.index("record"))
+        self.assertIn("record", cmds)
+        self.assertNotIn("mute_on", cmds)
+        self.assertNotIn("undo_all", cmds)
 
     def test_the_footswitch_is_not_left_thinking_it_is_playing(self) -> None:
         """The root cause: the runtime cleared the engine, but the footswitch's
