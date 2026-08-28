@@ -168,34 +168,54 @@ been observed against real devices. Shipping the override first invites working
 around a classifier bug instead of fixing it; shipping the display first means a
 classifier bug is reported rather than silently endured.
 
-### OPEN-4: Dual-role control surfaces (APC in instrument mode) — **OPEN**
+### OPEN-4: Dual-role control surfaces (APC in instrument mode) — **ANSWERED 2026-08-28**
 
 §2's diagram routes the APC around the router, on the assumption that a control
 surface is never an instrument. The APC mini mk2 has an instrument/note mode,
-which breaks that assumption: the same device would be the looper's control
-surface *and* a classic MIDI keyboard. One pad press could launch a clip and
-play a note.
+which appeared to break that assumption: the same device would be the looper's
+control surface *and* a classic MIDI keyboard.
 
-Today nothing could tell those apart. The APC handling is **entirely
-note-number based and reasons about channel nowhere** — `apc_panel.py` and
-`apc_transport.py` match on note numbers only. So there is no existing
-mechanism to separate the two roles.
+**It does not break it. The APC exposes two separate ALSA ports:**
 
-Whether this is trivial or genuinely hard turns on one unknown: does the mk2's
-instrument mode send on a **different MIDI channel**, or in a **different note
-range**, than clip-launch mode?
+```
+  [2] APC mini mk2:APC mini mk2 Control   32:0
+  [3] APC mini mk2:APC mini mk2 Notes     32:1
+```
 
-- **Different channel** → trivial. Route by channel: control notes to the
-  looper, instrument notes to the router. No mode, no user decision.
-- **Different note range, same channel** → workable but fragile, and it would
-  couple the router to an APC-specific note map.
-- **Identical notes and channel** → not separable at the wire. Requires an
-  explicit mode, and the looper must stop consuming pads while it is on.
+Capture of the Notes port (`scripts/capture-midi-stream.py`, 6.7 s of hand
+playing, 2026-08-28):
 
-**Settle it by capture, not by manual:** `scripts/capture-midi-stream.py`
-against the APC in each mode, then diff the channel and note-range summaries.
-Two 20-second runs. Until then, treat "the APC bypasses the router" as an
-assumption with a known counter-example rather than as settled.
+| property | measured |
+|---|---|
+| messages | 187 (94 note_on, 93 note_off) |
+| kinds | note_on / note_off only — no CC, no bend, no aftertouch |
+| channel | 1 only (1-based) |
+| notes | 36–96, 31 distinct |
+| velocity | **fixed at 127** — the pads are not velocity sensitive |
+
+The Control port's clip-launch grid is notes 0–63; the Notes port is 36–96 on a
+different port entirely. **Separation is by port, not by channel or note range** —
+the best of the three cases §2 anticipated. No mode flag, no user decision, and
+the looper's note-number-based handling on the Control port is untouched.
+
+Consequences for the design:
+
+- The router binds the **Notes** port as a classic source. The **Control** port
+  keeps going straight to the looper, exactly as §2's diagram has it.
+- Fixed velocity 127 means the APC carries **no continuous expression at the
+  source**. The translator's bend/pressure paths are inert for this device; per-note
+  expression has to come from elsewhere (the pressure remapper's floor, or a
+  second controller). This is a property of the hardware, not a gap in the router.
+- The capture is committed as `tests/fixtures/apc-mini-mk2-notes-2026-08-28.jsonl`
+  and exercised by `tests/test_midi_golden_apc.py`.
+
+**One hardware behaviour the synthetic tests did not anticipate:** the APC emits
+`note_on 59` **twice with no `note_off` between** (a pad double-strike it does not
+clean up). The translator's retrigger path handles it by releasing the held note
+before re-allocating, which is what MPE requires — but this was found by real
+capture, not by design. The golden test now pins it. The fixture is also
+deliberately *unbalanced* (note 62 was still held when the window closed); tests
+assert the translator's held state mirrors the source's rather than assuming zero.
 
 ### OPEN-3: Multi-timbral — out of scope
 Two controllers share one Surge patch. Per-controller sounds means multiple
