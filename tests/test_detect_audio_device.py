@@ -116,3 +116,58 @@ class DetectAudioDeviceTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+SCARLETT = "Output Audio Device [0.2] : ALSA.Scarlett 4i4 USB, USB Audio"
+GADGET = "Output Audio Device [0.13] : Direct hardware device on ALSA.UAC2_Gadget"
+HDMI = "Output Audio Device [0.12] : ALSA.vc4-hdmi-0, MAI PCM i2s-hifi-0"
+
+
+class UsbHostIdleSinkTests(unittest.TestCase):
+    """usb-host needs a LOCAL sink before it can ever reach the host.
+
+    Reported 2026-08-28: switching to USB direct killed all audio. usb-host
+    skipped tier 2 entirely, so a Focusrite Scarlett — which resolves nowhere
+    else, tier 1 being a Sound Blaster product-name match — left the profile
+    with no idle sink. Detection fell to tier 3, which matched vc4-hdmi, and
+    jackd was then handed a card it could not play out of. Surge never came up,
+    and because the host-route watcher starts from surge-xt-cli.service
+    ExecStartPost, the USB route could never arm either.
+    """
+
+    def test_a_non_reference_usb_dac_is_the_idle_sink(self) -> None:
+        result = _run_detect("\n".join([GADGET, HDMI, SCARLETT]), profile="usb-host")
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+        self.assertIn("DEVICE_ID=0.2", result.stdout)
+        self.assertIn("TIER=2", result.stdout)
+        self.assertIn("idle sink", result.stderr)
+
+    def test_the_idle_sink_is_never_the_gadget(self) -> None:
+        """Why tier 2 was skipped in the first place.
+
+        Its match is a bare "usb", which selects the UAC2 gadget as readily as
+        a DAC. Binding the gadget while the host is not capturing is the stall
+        the profile exists to avoid, so the tier must run AND exclude it.
+        """
+        result = _run_detect("\n".join([GADGET, SCARLETT]), profile="usb-host")
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+        self.assertNotIn("0.13", result.stdout)
+        self.assertIn("DEVICE_ID=0.2", result.stdout)
+
+    def test_hdmi_is_not_a_headphone_jack(self) -> None:
+        """Tier 3's exclusion was `grep -v "HDMI"` — case-sensitive — while
+        JUCE reports "ALSA.vc4-hdmi-0" in lower case."""
+        result = _run_detect("\n".join([GADGET, HDMI]), profile="usb-host")
+        # HDMI may still be taken as the honest last resort — it can actually
+        # play, and a silent-but-working sink beats no instrument. What it must
+        # never be is tier 3, a headphone jack this board does not have.
+        self.assertNotIn("TIER=3", result.stdout)
+        self.assertIn("TIER=4", result.stdout)
+
+    def test_standalone_still_prefers_the_reference_dac(self) -> None:
+        """Tier 1 must keep winning where the Sound Blaster is present."""
+        blaster = "Output Audio Device [0.4] : Front output on Sound Blaster Play! 3"
+        result = _run_detect("\n".join([SCARLETT, blaster]), profile="standalone")
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+        self.assertIn("TIER=1", result.stdout)
+        self.assertIn("DEVICE_ID=0.4", result.stdout)

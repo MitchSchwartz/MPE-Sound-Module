@@ -124,14 +124,30 @@ if [ -n "$DEVICE" ]; then
 fi
 
 # ============================================================================
-# TIER 2: Any USB audio device (standalone only — skip in usb-host idle)
+# TIER 2: Any USB audio device — including the usb-host IDLE sink.
+#
+# This used to be skipped entirely under usb-host. The reason was sound: the
+# match below is a bare "usb", which happily selects the UAC2 gadget itself,
+# and binding the gadget while the host is not capturing is the stall this
+# whole profile is built to avoid. But skipping the tier threw out every other
+# USB DAC with it.
+#
+# The appliance's interface is a Focusrite Scarlett 4i4, which only ever
+# resolves here — tier 1 matches the reference Sound Blaster by product name.
+# So under usb-host there was no idle sink at all: tier 3 then matched
+# vc4-hdmi, and jackd was handed a card that cannot play. The USB route never
+# came up either, because the host-route watcher starts from
+# surge-xt-cli.service ExecStartPost and Surge never started.
+#
+# Excluding the gadget keeps the original reason for the skip and restores the
+# idle sink. See docs/USB-AUDIO-HOST.md for the idle/active table.
 # ============================================================================
-if [ "$AUDIO_PROFILE" != "usb-host" ] && [ "$AUDIO_PROFILE" != "usb-host-session" ]; then
 DEVICE=$(echo "$DEVICE_LIST" | \
     grep -i "usb" | \
+    grep -viE "$GADGET_GREP" | \
     grep -v "Surround" | \
     grep -v "S/PDIF" | \
-    grep -v "HDMI" | \
+    grep -vi "HDMI" | \
     grep -v "Stream" | \
     head -1 || true)
 
@@ -142,18 +158,25 @@ if [ -n "$DEVICE" ]; then
         echo "DEVICE_ID=$DEVICE_ID"
         echo "DEVICE_NAME=$DEVICE_NAME"
         echo "TIER=2"
-        echo "REASON=Generic USB audio device found" >&2
+        if [ "$AUDIO_PROFILE" = "usb-host" ]; then
+            echo "REASON=usb-host idle sink (USB DAC — host capture not active)" >&2
+        else
+            echo "REASON=Generic USB audio device found" >&2
+        fi
         exit 0
     fi
-fi
 fi
 
 # ============================================================================
 # TIER 3: Pi headphone jack — idle sink for usb-host without Sound Blaster
 # ============================================================================
+# `grep -v "HDMI"` was case-SENSITIVE, and JUCE reports the Pi's HDMI outputs
+# as "ALSA.vc4-hdmi-0" in lower case — so the exclusion never fired and this
+# "headphone jack" tier returned an HDMI port. The Pi 5 has no headphone jack
+# at all, so on that board this tier must find nothing and fall through.
 DEVICE=$(echo "$DEVICE_LIST" | \
-    grep -E "(Headphones|bcm2835|vc4-hdmi)" | \
-    grep -v "HDMI" | \
+    grep -E "(Headphones|bcm2835)" | \
+    grep -vi "hdmi" | \
     head -1 || true)
 
 if [ -n "$DEVICE" ]; then
@@ -174,8 +197,13 @@ fi
 
 # ============================================================================
 # TIER 4: First available output device (last resort)
+#
+# The gadget is excluded here as well. Reaching it by accident — rather than
+# through tier 0, which first confirms the host is capturing — binds a PCM
+# nobody is draining, and that is the stall this profile exists to prevent.
+# With genuinely nothing else present, failing loudly beats wedging quietly.
 # ============================================================================
-DEVICE=$(echo "$DEVICE_LIST" | head -1)
+DEVICE=$(echo "$DEVICE_LIST" | grep -viE "$GADGET_GREP" | head -1 || true)
 
 if [ -n "$DEVICE" ]; then
     DEVICE_ID=$(extract_device_id "$DEVICE")

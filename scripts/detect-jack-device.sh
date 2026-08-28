@@ -138,10 +138,35 @@ if [ -n "$_match" ]; then
     _emit "$_match" "tier $TIER card pattern match"
 fi
 
-# 3. Last resort — first non-virtual card, mirroring detect-audio-device.sh TIER 4.
-_match="$(printf '%s\n' "$_records" | grep -viE 'Loopback|vc4hdmi|UAC2' | head -1)"
+# A card can be "physical" and still have nothing to play out of. The APC mini
+# is a control surface: it enumerates as USB-Audio and appears in
+# /proc/asound/cards like any interface, but exposes no playback PCM at all.
+# Handing it to jackd produces "ALSA: Cannot open PCM device alsa_pcm for
+# playback", the server dies, Surge dies with it, and the appliance goes silent
+# (measured 2026-08-28). A name blocklist cannot see this; the pcm nodes can.
+_card_can_play() {
+    local idx="$1"
+    local root="${MPE_ASOUND_ROOT:-/proc/asound}"
+    # No proc tree to consult (hermetic tests): do not veto on missing evidence.
+    [ -d "$root/card$idx" ] || return 0
+    ls "$root/card$idx" 2>/dev/null | grep -qE '^pcm[0-9]+p$'
+}
+
+_playable_records() {
+    local record idx
+    printf '%s\n' "$_records" | grep -viE 'Loopback|vc4hdmi|UAC2' | while IFS= read -r record; do
+        [ -n "$record" ] || continue
+        idx="$(printf '%s' "$record" | cut -d'|' -f1)"
+        if _card_can_play "$idx"; then
+            printf '%s\n' "$record"
+        fi
+    done
+}
+
+# 3. Last resort — first non-virtual card that can actually play.
+_match="$(_playable_records | head -1)"
 if [ -n "$_match" ]; then
-    _emit "$_match" "no tier $TIER card — first physical card (last resort)"
+    _emit "$_match" "no tier $TIER card — first playback-capable card (last resort)"
 fi
 
 echo "ERROR: no ALSA card matches tier '$TIER' (device name: ${DEVICE_NAME:-unknown})" >&2
