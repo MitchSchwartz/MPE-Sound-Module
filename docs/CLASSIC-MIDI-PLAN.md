@@ -1,8 +1,10 @@
 # Classic MIDI instrument compatibility — plan of record
 
-**Status:** phases 0 and 1 complete. Design settled 2026-08-26 against the
-Surge XT source and the MPE specification (§7); router-hop latency measured
-2026-08-28 and negligible (§7.8). **Next: phase 2**, the router daemon.
+**Status:** phases 0 and 1 complete; phase 3's pure half (classification) done
+ahead of phase 2, since it needs no hardware either. Design settled 2026-08-26
+against the Surge XT source and the MPE specification (§7); router-hop latency
+measured 2026-08-28 and negligible (§7.8). **Next: phase 2**, the router daemon
+— which needs a ROLI stream capture for its regression gate.
 
 "Classic MIDI" means a channel-based controller: one MIDI channel for all notes,
 pitch bend applied to every sounding note, ±2 semitones by default, no per-note
@@ -119,7 +121,7 @@ Each phase ends at a gate. No phase starts before the previous gate passes.
 | ~~0~~ | **Latency spike — DONE** | +0.053 ms p50, +0.115 ms p99; `translate()` 2.87 µs | Passed. [`classic-midi-router-hop-2026-08-28.md`](measurements/classic-midi-router-hop-2026-08-28.md) |
 | ~~1~~ | **Pure translator — DONE** | `scripts/midi_translate.py` + 37 tests | Passed. Mutation-checked: un-scaled bend, sustain to member channels, and immediate channel reuse each fail the suite, so it is not passing vacuously |
 | 2 | **Router daemon** | Generalise `mpe-pressure-remap.py`; ROLI profile preserved | ROLI behaviour **unchanged**, proven by byte-identical output on a recorded stream |
-| 3 | **Classification + hot-plug + display** | MCM detection, device table, re-classify on plug, read-only device list in the touch UI | Plug/unplug both kinds in any order, 20×; the UI always shows what the router decided |
+| 3 | **Classification + hot-plug + display** | ~~MCM detection, device table~~ **done** (`midi_device.py`, 18 tests); still to do: re-classify on plug, read-only device list in the touch UI | Plug/unplug both kinds in any order, 20×; the UI always shows what the router decided |
 | 4 | **Boot path + override** | Surge always reads Midi Through; router always runs; manual classification override | Cold boot with: nothing / classic only / MPE only / both |
 | 5 | **Ear pass** | Mitch, both controllers | Bend depth correct on both; chords and pedal correct |
 | 6 | **Close out** | Measured latency and classification results written to `docs/measurements/` | Numbers recorded, not adjectives |
