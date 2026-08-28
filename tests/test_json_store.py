@@ -32,3 +32,37 @@ class JsonStoreTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MissingFileIsSilent(unittest.TestCase):
+    """A file that does not exist is the normal state for the request and
+    handoff files this helper reads, and the docstring already promises
+    {} for missing. Warning on it put ~419 journald writes per second on
+    the remapper's hot path (measured 2026-08-28).
+    """
+
+    def test_absent_file_returns_empty_without_printing(self):
+        import io
+        from contextlib import redirect_stdout
+
+        buf = io.StringIO()
+        with tempfile.TemporaryDirectory() as tmp:
+            missing = Path(tmp) / "not-there.json"
+            with redirect_stdout(buf):
+                result = read_json_dict(missing, label="governor-fade-request")
+        self.assertEqual(result, {})
+        self.assertEqual(buf.getvalue(), "", "absent file must not log")
+
+    def test_corrupt_file_still_warns(self):
+        """Silencing ENOENT must not silence real problems."""
+        import io
+        from contextlib import redirect_stdout
+
+        buf = io.StringIO()
+        with tempfile.TemporaryDirectory() as tmp:
+            bad = Path(tmp) / "bad.json"
+            bad.write_text("{not json")
+            with redirect_stdout(buf):
+                result = read_json_dict(bad, label="bad file")
+        self.assertEqual(result, {})
+        self.assertIn("bad file", buf.getvalue())

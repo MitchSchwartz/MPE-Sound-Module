@@ -33,8 +33,11 @@ NUM_LOOPS = MAX_USABLE_LOOPS
 GRID_COLS = 8
 GRID_ROWS = 8
 
-# The one row that holds clips. Recording happens here — the bottom row is the
-# whole track lane, and everything above it is reserved.
+# Rows are slots: eight per track, row 0 at the bottom (`pad_note` convention).
+NUM_SLOTS = GRID_ROWS
+
+# The row addressed by the single-clip API (`loop_for_pad`, `all_clip_pads`).
+# Kept because unconverted callers mean "the track's clip" by it.
 CLIP_ROW = 0
 LOOP_CLIP_ROWS: tuple[int, ...] = (CLIP_ROW,)
 CONTROLLER_ROWS: tuple[int, ...] = tuple(r for r in range(GRID_ROWS) if r != CLIP_ROW)
@@ -73,7 +76,7 @@ def is_clip_note(note: int) -> bool:
 
 
 def is_reserved_grid_note(note: int) -> bool:
-    """Grid rows 1–7 — not wired until multi-clip P3."""
+    """Grid rows 1–7 — ignored when ``MPE_SL_MULTIGRID=0`` (single-clip mode)."""
     rc = note_to_row_col(note)
     return rc is not None and rc[0] != CLIP_ROW
 
@@ -146,6 +149,61 @@ class GridView:
             if (loop := self.loop_for_pad(CLIP_ROW, col)) is not None
         ]
 
+
+    # -- cells (multi-clip): every row is a slot ---------------------------
+    #
+    # The clip-row methods above address one clip per track. These address the
+    # full matrix: a **column is a track**, a **row is a slot**, and one slot
+    # per track is audible at a time — Ableton Session View semantics.
+    #
+    # Both sets coexist on purpose. `loop_for_pad` keeps meaning "the clip row",
+    # so a caller that has not been converted keeps its old behaviour instead of
+    # silently acquiring seven new rows of pads it does not handle.
+
+    def track_for_pad(self, row: int, col: int) -> int | None:
+        """Track under this pad. Depends on the column only — the row is the
+        slot, and banking moves tracks, never slots."""
+        if not 0 <= row < GRID_ROWS or not 0 <= col < GRID_COLS:
+            return None
+        track = self.offset + col
+        return track if track < self.num_loops else None
+
+    def cell_for_note(self, note: int) -> tuple[int, int] | None:
+        """(track, slot) under this pad note in this bank, or None."""
+        rc = note_to_row_col(note)
+        if rc is None:
+            return None
+        row, col = rc
+        track = self.track_for_pad(row, col)
+        return None if track is None else (track, row)
+
+    def note_for_cell(self, track: int, slot: int) -> int | None:
+        """Pad note for a cell, or None while its track is banked off-screen."""
+        if not 0 <= slot < NUM_SLOTS:
+            return None
+        col = track - self.offset
+        if not 0 <= col < GRID_COLS:
+            return None
+        return pad_note(slot, col)
+
+    def visible_cells(self) -> list[tuple[int, int, int]]:
+        """(row, col, track) for every pad in the matrix under this bank.
+
+        Filters rather than assuming a full grid. With 15 tracks and
+        MAX_VIEW_OFFSET = 7 every bank happens to be full — the last page
+        overlaps the first by one track instead of leaving a gap — but that is
+        arithmetic that holds only while NUM_LOOPS - GRID_COLS is the clamp.
+        A future track count that does not divide cleanly would leave empty
+        columns, and a grid painted as if they were tracks would light pads
+        that address nothing.
+        """
+        return [
+            (row, col, track)
+            for row in range(GRID_ROWS)
+            for col in range(GRID_COLS)
+            if (track := self.track_for_pad(row, col)) is not None
+        ]
+
     def loops_for_column(self, col: int) -> tuple[int, ...]:
         """Tracks sharing grid column `col` — one, under this layout.
 
@@ -161,6 +219,16 @@ class GridView:
 # Default view for callers that have not banked (and for LED-clearing sweeps
 # that need every pad the clip row can ever occupy).
 DEFAULT_VIEW = GridView()
+
+
+def all_grid_pads() -> list[tuple[int, int]]:
+    """(row, col) for every pad in the 8x8 matrix — bank-independent.
+
+    The multi-clip counterpart of `all_clip_pads`. Clearing must cover every
+    row, not just the clip row: after a bank change a pad left lit from the
+    previous bank is the one visible symptom of forgetting to clear.
+    """
+    return [(row, col) for row in range(GRID_ROWS) for col in range(GRID_COLS)]
 
 
 def all_clip_pads() -> list[tuple[int, int]]:

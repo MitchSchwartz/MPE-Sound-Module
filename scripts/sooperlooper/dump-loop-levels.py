@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read every loop's wet level and state out of the engine. READ ONLY.
+"""Read every loop's wet/dry level and state out of the engine. READ ONLY.
 
 The bank test asks "did the fader binding travel with the clip?" — a question
 you cannot answer by ear. Turning fader 1 down and hearing something get quieter
@@ -12,6 +12,10 @@ and prints one line per loop. Run it before and after a bank change and diff.
 
 `get` is a pure read — unlike sl_probe.py, which writes a probe value, this
 touches nothing. Safe to run against a live take.
+
+It also reports `dry`, which must be 0 on every loop, and says so loudly when
+it is not — that is the passthrough fault that sounds like a level problem in
+the amp rather than a control-layer bug.
 
 Usage:
     dump-loop-levels.py [--loops 16] [--json] [--detail]
@@ -37,6 +41,13 @@ RETPATH = "/dump/reply"
 # far past the observed round trip and still short enough to fail fast when the
 # command path is wedged (the case sl_probe.py exists to diagnose).
 COLLECT_S = 1.5
+
+# `dry` must be 0 on every loop. Above this it is audible: the JACK graph is
+# parallel (Surge -> playback AND Surge -> every loop input, fail-open), so any
+# loop with dry > 0 adds a second copy of the live signal one input-latency
+# late. Left at ~0.4 by a leaking health probe on 2026-08-27, heard as random
+# volume swells while nothing was looping. Repair: wire-jack-graph.sh connect
+DRY_MAX = float(os.environ.get("MPE_SL_DRY_MAX", "0.001"))
 
 # The codes the rest of the codebase reasons about come from the canonical
 # module — a second hand-written copy is how a tester reads "playing" off a
@@ -110,9 +121,15 @@ def main() -> int:
     # to work live — sl_bench_listener.register(). Guessing the URL form and
     # being wrong prints "engine may be wedged" at a perfectly healthy engine.
     returl = f"{LISTEN_HOST}:{listen_port}"
-    controls = ("wet", "state")
+    # `dry` is read every time, not behind --detail. It has exactly one correct
+    # value here (0.0 — wire-jack-graph.sh pins it, because the graph is
+    # parallel and the looper must not pass its input through), and when it
+    # drifts off zero the symptom is a level fault at the speakers that reads
+    # like a hardware problem. A number nobody prints is a number nobody checks.
+    controls = ("wet", "dry", "state")
     if args.detail:
-        controls = ("wet", "state", "input_latency", "autoset_latency", "fade_samples", "loop_len")
+        controls = ("wet", "dry", "state", "input_latency", "autoset_latency",
+                    "fade_samples", "loop_len")
     for loop in range(args.loops):
         for ctrl in controls:
             client.send_message(f"/sl/{loop}/get", [ctrl, returl, RETPATH])
@@ -127,7 +144,8 @@ def main() -> int:
     if args.json:
         payload = {}
         for n in range(args.loops):
-            row = {"wet": got.get((n, "wet")), "state": got.get((n, "state"))}
+            row = {"wet": got.get((n, "wet")), "dry": got.get((n, "dry")),
+                   "state": got.get((n, "state"))}
             if args.detail:
                 row["input_latency"] = got.get((n, "input_latency"))
                 row["autoset_latency"] = got.get((n, "autoset_latency"))
@@ -139,12 +157,16 @@ def main() -> int:
         for n in range(args.loops):
             wet = got.get((n, "wet"))
             state = got.get((n, "state"))
+            dry = got.get((n, "dry"))
             wet_s = "  --  " if wet is None else f"{wet:6.3f}"
+            dry_s = "  --  " if dry is None else f"{dry:6.3f}"
             if state is None:
                 state_s = "no reply"
             else:
                 state_s = STATE_NAMES.get(int(state), f"unknown({int(state)})")
-            line = f"loop {n:2d}  wet={wet_s}  state={state_s}"
+            line = f"loop {n:2d}  wet={wet_s}  dry={dry_s}  state={state_s}"
+            if dry is not None and abs(dry) > DRY_MAX:
+                line += "   <-- PASSTHROUGH ON"
             if args.detail:
                 il = got.get((n, "input_latency"))
                 au = got.get((n, "autoset_latency"))
@@ -157,6 +179,18 @@ def main() -> int:
                 line += f"  in_lat={il_s}  autoset={au_s}  fade={fs_s}  len={ll_s}"
             print(line)
 
+    passthrough = [n for n in range(args.loops)
+                   if (got.get((n, "dry")) or 0.0) > DRY_MAX]
+    if passthrough:
+        print(
+            f"\nPASSTHROUGH: loops {passthrough} have dry > {DRY_MAX} — the "
+            f"looper is mixing the live input back to the speakers on top of "
+            f"the direct Surge path. Expect level swells / doubling.\n"
+            f"Repair (non-destructive, no loops lost): "
+            f"scripts/sooperlooper/wire-jack-graph.sh connect",
+            file=sys.stderr,
+        )
+
     if missing:
         # Silence is the wedge signature, not an empty engine: a loop that
         # exists always answers `get`. Say so rather than printing dashes and
@@ -167,7 +201,7 @@ def main() -> int:
             file=sys.stderr,
         )
         return 1
-    return 0
+    return 1 if passthrough else 0
 
 
 if __name__ == "__main__":

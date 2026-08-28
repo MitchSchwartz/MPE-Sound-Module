@@ -35,9 +35,16 @@ from apc_transport import (  # noqa: E402
     resolve_arrow_notes,
     resolve_scene_launch_notes,
     resolve_shift_indicator_note,
+    scene_row_for_note,
 )
 from led_table import LED_OFF  # noqa: E402
+from apc_link import LinkHealth, PacedMidiOut  # noqa: E402
+from apc_mode import grid_silent_reason, parse_mode_sysex  # noqa: E402
+from apc_panel import is_stop_all, scene_press_row  # noqa: E402
+from midi_subscription import wait_for_subscription  # noqa: E402
 from running_code import running_code_sha  # noqa: E402
+from slot_runtime import SlotRuntime  # noqa: E402
+from slot_surface import SlotSurface  # noqa: E402
 from loop_mix import CoalescingSender, LoopMix  # noqa: E402
 from sl_bench_listener import SlBenchStateListener  # noqa: E402
 from looper_engine_events import LooperEngineEventWatch, poll_interval_s  # noqa: E402
@@ -118,6 +125,10 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
         print(f"Error: {exc}", file=sys.stderr)
         return 1
 
+    # Last mode the APC announced. None until it says something -- the
+    # device does not report on connect, only on change.
+    apc_mode_state: dict = {"mode": None}
+
     midi_in = rtmidi.MidiIn()
     midi_out = rtmidi.MidiOut()
     ports_in = midi_in.get_ports()
@@ -127,8 +138,49 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
         return 1
 
     midi_in.open_port(idx)
+    # rtmidi drops SysEx by default, so the APC's mode announcements never
+    # arrived. Without them a Notes-mode switch presents as a silently dead
+    # grid -- the failure that cost a debugging session on 2026-08-28.
+    # The APC sends these only on an actual mode change, so this adds no
+    # traffic to the hot loop.
+    try:
+        midi_in.ignore_types(sysex=False, timing=True, active_sense=True)
+    except Exception as exc:  # pragma: no cover - depends on rtmidi build
+        print(f"Warning: could not enable SysEx input: {exc}", flush=True)
     midi_out.open_port(idx)
     port_name = ports_in[idx]
+
+    # Every write to the APC goes through the pacer. It is a 12 Mbit
+    # full-speed device two hubs deep, sharing that chain with a Scarlett
+    # streaming audio; a 64-message burst stalls its endpoint (-EPIPE) and the
+    # device drops off the bus and re-enumerates. Measured 2026-08-27: four
+    # session starts in six left the pads dead this way.
+    raw_midi_out = midi_out
+    midi_out = PacedMidiOut(raw_midi_out)
+
+    # open_port() reports success whether or not the ALSA subscription took.
+    # On 2026-08-27 it did not — twice — because systemd started this process
+    # in the same second it SIGKILLed the previous one, and the banner below
+    # printed a complete, correct device line over dead pads for 17 minutes.
+    # Ask the kernel rather than trusting the library; refuse to run blind, the
+    # way sl-osc-session refuses when it cannot bind its port.
+    device_key = port_name.split(":")[0] or "APC"
+    has_reader, has_writer = wait_for_subscription(device_key)
+    if not has_reader:
+        print(
+            f"bench: FAIL — opened {port_name!r} but nothing is subscribed to it.\n"
+            f"  ALSA shows no reader for this device, so no pad press can arrive.\n"
+            f"  Usually a restart race: the previous session still held the device.\n"
+            f"  Fix: systemctl stop mpe-looper-session, wait for the process to go,\n"
+            f"       then start it.\n"
+            f"  Refusing to run blind — a bench that receives nothing looks exactly\n"
+            f"  like an idle one.",
+            file=sys.stderr,
+        )
+        return 1
+    if not has_writer:
+        print(f"bench: WARN — no writer to {port_name!r}; LEDs will not light.",
+              file=sys.stderr)
     if shift_note <= 0 or stop_all_note <= 0:
         shift_note, stop_all_note, apc_label = resolve_apc_transport_notes(
             port_name, variant=apc_variant
@@ -205,8 +257,12 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
     # advertising tracks that are not on those pads.
     for _note in range(GRID_ROWS * GRID_COLS):
         midi_out.send_message([0x90, _note, LED_OFF])
+    # Startup only: nothing else is happening yet, and the surface must be
+    # blank before anything paints over it. ~96 ms at the pacing rate.
+    midi_out.drain()
 
     scene_launch_notes = resolve_scene_launch_notes(apc_label)
+    multigrid = os.environ.get("MPE_SL_MULTIGRID", "0") == "1"
     mk1_ghost: Mk1ShiftGhostFilter | None = None
     if apc_label == "mk1":
         mk1_ghost = Mk1ShiftGhostFilter(
@@ -228,9 +284,11 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
         on_grid_established=on_grid_established if grid_active else None,
         on_phase_reanchor=on_phase_reanchor if grid_active else None,
         on_grid_dropped=on_grid_dropped if grid_active else None,
+        multigrid=multigrid,
     )
-    for fs in footswitches:
-        fs._sync_led()
+    if not multigrid:
+        for fs in footswitches:
+            fs._sync_led()
 
     def on_looper_engine_started() -> None:
         """Reconcile bench grid state when the looper engine restarts (criterion 40).
@@ -264,8 +322,43 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
         mix.seed_from_engine(loop_index, value)
 
     by_loop = footswitches_by_loop(footswitches)
+    # Multi-clip matrix. OFF by default: it takes over all eight rows including
+    # row 0, replacing the single-clip record gesture Mitch plays with today.
+    # That is not a change to make live without him having tried it, so it is
+    # opt-in until it has earned the default.
+    slot_surface = None
+    if multigrid:
+        slot_runtime = SlotRuntime(
+            send=_send,
+            clips_dir=Path(
+                os.environ.get("MPE_SL_CLIPS_DIR",
+                               str(Path.home() / ".mpe" / "looper-clips"))
+            ),
+            num_tracks=num_loops,
+            log=lambda m: print(f"slots: {m}", flush=True),
+        )
+        slot_surface = SlotSurface(
+            runtime=slot_runtime,
+            footswitches_by_loop=by_loop,
+            view=view,
+            midi_out=midi_out,
+            num_tracks=num_loops,
+            scene_launch_notes=scene_launch_notes,
+            hold_s=hold_ms / 1000.0,
+            hold_blink_start_s=hold_blink_start_ms / 1000.0,
+            log=lambda m: print(f"slots: {m}", flush=True),
+        )
+        slot_surface.repaint_scenes(force=True)
+        print(
+            f"bench: MULTIGRID on — 8 slots x {num_loops} tracks; "
+            f"rows are slots, columns are tracks. Kill switch: MPE_SL_MULTIGRID=0",
+            flush=True,
+        )
+
     state_listener = SlBenchStateListener(by_loop, on_wet=on_wet, session=osc_session)
     state_listener.start()
+    if slot_surface is not None:
+        state_listener.attach_surface(slot_surface)
     state_listener.register(osc, num_loops=num_loops)
     print(
         "bench: ring-out capture "
@@ -280,6 +373,7 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
     # feed and could disagree with the first about whether Shift is held.
     shift_held = False
 
+    stop_all_took_shift = False
     def set_view(new_view: GridView) -> None:
         """Move the viewport: repaint the pads, rebind the faders.
 
@@ -291,7 +385,11 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
         if new_view.offset == view.offset:
             return
         view = new_view
-        by_note = apply_view(midi_out, footswitches=footswitches, view=view)
+        by_note = apply_view(
+            midi_out, footswitches=footswitches, view=view, multigrid=multigrid
+        )
+        if slot_surface is not None:
+            slot_surface.set_view(view)
         mix.set_view(view)
         last = view.offset + 7
         print(f"bank: tracks {view.offset + 1}-{last + 1} of {num_loops}", flush=True)
@@ -343,8 +441,68 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
             last_engine_event_poll = now_mono
             engine_event_watch.poll()
 
+    def reopen_apc() -> bool:
+        """Reopen the APC after it re-enumerated. Returns True if it took.
+
+        The device comes back with a new USB device number and usually a new
+        rtmidi port index, so the index resolved at startup is worthless —
+        re-resolve by name. Our old ALSA client survives the re-enumeration
+        still subscribed to a device that no longer exists, which is exactly
+        why nothing noticed for hours: it has to be closed explicitly.
+        """
+        nonlocal midi_in, raw_midi_out, by_note
+        try:
+            midi_in.close_port()
+            raw_midi_out.close_port()
+        except Exception:
+            pass
+        try:
+            ports = midi_in.get_ports()
+            new_idx = next(
+                (i for i, n in enumerate(ports) if port_hint.lower() in n.lower()),
+                None,
+            )
+            if new_idx is None:
+                return False
+            midi_in.open_port(new_idx)
+            raw_midi_out.open_port(new_idx)
+        except Exception as exc:
+            print(f"bench: APC reopen failed: {exc}", file=sys.stderr, flush=True)
+            return False
+        # The device came back dark and its LED cache is now a lie, so repaint
+        # everything rather than diffing against a surface that no longer
+        # exists.
+        midi_out.reset()
+        for _n in range(GRID_ROWS * GRID_COLS):
+            midi_out.send_message([0x90, _n, LED_OFF])
+        by_note = apply_view(
+            midi_out, footswitches=footswitches, view=view, multigrid=multigrid
+        )
+        if slot_surface is not None:
+            slot_surface.repaint(force=True)
+            slot_surface.repaint_scenes(force=True)
+        transport_leds.repaint()
+        return True
+
+    link_health = LinkHealth(
+        device_key,
+        on_lost=reopen_apc,
+        log=lambda m: print(f"bench: {m}", flush=True),
+    )
+
     def poll_holds() -> None:
-        poll_footswitches(footswitches)
+        # Ask the kernel, on a timer, whether we still have the device. This is
+        # the check that was missing: open_port succeeded once at startup and
+        # nothing ever asked again, so a re-enumeration left the bench running
+        # against a dead input while printing a healthy banner.
+        link_health.poll()
+        midi_out.pump()
+        poll_footswitches(footswitches, multigrid=multigrid)
+        if slot_surface is not None:
+            slot_surface.poll_hold()
+            slot_surface.poll_hold_led()
+            if multigrid:
+                slot_surface.poll_led_repaint()
 
     def tick_faders() -> None:
         """Ramp smoothed wet toward targets between CC events."""
@@ -368,6 +526,8 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
 
     def poll_transport_leds() -> None:
         transport_leds.poll()
+        if slot_surface is not None:
+            slot_surface.repaint_scenes()
 
     def maybe_track_transport() -> None:
         if track_reset.poll_long():
@@ -379,6 +539,8 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
                 num_loops=num_loops,
                 footswitches=footswitches,
             )
+            if slot_surface is not None:
+                slot_surface.reset()
         elif track_reset.poll_short():
             print("transport: Shift+StopAll short -> stop all", flush=True)
             stop_all_loops(
@@ -425,6 +587,16 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
         if args.dump_midi and msg:
             print(f"midi: {_format_midi(list(msg))}", flush=True)
 
+        announced = parse_mode_sysex(msg)
+        if announced is not None:
+            apc_mode_state["mode"] = announced
+            print(f"APC mode: {announced.describe()}", flush=True)
+            reason = grid_silent_reason(announced)
+            if reason:
+                print(f"APC: {reason}", flush=True)
+            poll_engine_events(time.monotonic())
+            continue
+
         if not msg or len(msg) < 2:
             poll_holds()
             poll_transport_leds()
@@ -459,9 +631,44 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
                 poll_engine_events(now_mono)
                 continue
 
-        if down is not None and n in scene_launch_notes:
-            if args.dump_midi:
-                print(f"ignored scene launch note {n} (unwired until P3)", flush=True)
+        # The bottom button is a scene launcher alone and Stop All Clips with
+        # Shift. Which one it is has to be latched at press-down: if we asked
+        # the live `shift_held` again on release, letting go of Shift first
+        # would send the down to the transport combo and the up to the scene
+        # handler, and the combo would sit there holding a button forever.
+        if down is not None and is_stop_all(apc_label, n):
+            if down:
+                stop_all_took_shift = shift_held
+            routing_shift = stop_all_took_shift
+        else:
+            routing_shift = shift_held
+        scene_row = (
+            scene_press_row(
+                n,
+                scene_notes=scene_launch_notes,
+                apc_label=apc_label,
+                shift_held=routing_shift,
+            )
+            if down is not None
+            else None
+        )
+        if scene_row is not None:
+            if slot_surface is not None and down:
+                slot_surface.scene_press(scene_row)
+            elif args.dump_midi:
+                print(f"ignored scene launch note {n} (set MPE_SL_MULTIGRID=1)", flush=True)
+            poll_holds()
+            poll_transport_leds()
+            maybe_track_transport()
+            state_listener.maybe_reregister()
+            poll_engine_events(now_mono)
+            continue
+
+        if slot_surface is not None and down is not None and slot_surface.handles(n):
+            if down:
+                slot_surface.note_down(n)
+            else:
+                slot_surface.note_up(n)
             poll_holds()
             poll_transport_leds()
             maybe_track_transport()
@@ -471,7 +678,7 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
 
         if down is not None and is_reserved_grid_note(n):
             if args.dump_midi:
-                print(f"ignored reserved grid note {n} (rows 1-7 unwired until P3)", flush=True)
+                print(f"ignored reserved grid note {n} (rows 1-7: set MPE_SL_MULTIGRID=1)", flush=True)
             poll_holds()
             poll_transport_leds()
             maybe_track_transport()

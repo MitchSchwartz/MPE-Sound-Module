@@ -23,21 +23,28 @@ from led_table import (
     accelerating_hold_blink_on,
 )
 
-# APC mini mk2 (Communication Protocol v1.0)
-NOTE_STOP_ALL_CLIPS_MK2 = 0x77
-NOTE_SHIFT_MK2 = 0x7A
-NOTE_TRACK8_MK2 = 0x6B
+# The panel map is canonical in apc_panel. Nothing here re-derives a note.
+from apc_panel import (  # noqa: E402
+    NOTE_SHIFT_MK1,
+    NOTE_SHIFT_MK2,
+    NOTE_STOP_ALL_CLIPS_MK1,
+    NOTE_STOP_ALL_CLIPS_MK2,
+    SCENE_COLUMN_MK1,
+    SCENE_COLUMN_MK2,
+    row_for_scene_index,
+    row_for_scene_note,
+    scene_index_for_row,
+)
 
-# APC mini mk1 (original — port name is usually "APC MINI" without "mk2")
-NOTE_STOP_ALL_CLIPS_MK1 = 0x59
-NOTE_SHIFT_MK1 = 0x62
+NOTE_TRACK8_MK2 = 0x6B
 # 0x37 = grid row 6 col 7 on mk1 — NOT a side-button-only note (see module doc).
 NOTE_TRACK8_MK1 = 0x37
 
-# Scene Launch 1–7 (slot rows 0–6) — Stop All is separate per variant.
-# mk1 scene 8 note (0x59) is Stop All; mk2 Stop All is 0x77 (scene 8 note).
-SCENE_LAUNCH_NOTES_MK1 = tuple(range(0x52, 0x59))  # 0x52..0x58
-SCENE_LAUNCH_NOTES_MK2 = tuple(range(0x70, 0x77))  # 0x70..0x76
+# All EIGHT right-hand buttons are scene launchers, one per grid row. The last
+# one carries "Stop All Clips" as a SHIFT layer only, so pressed alone it is
+# row 0's launcher. See apc_panel for the panel drawing and the measurement.
+SCENE_LAUNCH_NOTES_MK1 = SCENE_COLUMN_MK1
+SCENE_LAUNCH_NOTES_MK2 = SCENE_COLUMN_MK2
 
 # mk1 Track Select 1–8 share notes with grid row 6 (0x30–0x37).
 MK1_TRACK_OVERLAP_NOTES = tuple(range(0x30, 0x38))
@@ -166,6 +173,21 @@ def resolve_scene_launch_notes(apc_label: str) -> tuple[int, ...]:
     if apc_label == "mk2":
         return SCENE_LAUNCH_NOTES_MK2
     return SCENE_LAUNCH_NOTES_MK1
+
+
+def scene_row_for_note(scene_launch_notes: tuple[int, ...], note: int) -> int | None:
+    """Grid row for a scene-column note, or None. Canonical map: apc_panel."""
+    return row_for_scene_note(scene_launch_notes, note)
+
+
+def scene_launch_index_to_row(index: int) -> int:
+    """Row beside the button at `index` from the TOP. Canonical: apc_panel."""
+    return row_for_scene_index(index)
+
+
+def scene_row_to_launch_index(row: int) -> int:
+    """Inverse. Every row has a button — eight buttons, eight rows."""
+    return scene_index_for_row(row)
 
 
 def mk1_shift_ghost_notes(
@@ -366,6 +388,19 @@ class TransportButtonLeds:
         self._combo_started_at: float | None = None
         self._suppress_until_release = False
         self._last_vel: dict[int, int] = {}
+        self.clear_unwired_surfaces()
+        if self._shift_indicator_note is not None:
+            self._set_led(self._shift_indicator_note, TRACK_LED_OFF)
+        self._set_led(self._stop_all_note, SCENE_LED_OFF)
+
+    def repaint(self) -> None:
+        """Re-assert every transport LED, ignoring the cache.
+
+        `_last_vel` suppresses redundant writes, which is right until the
+        device re-enumerates: it then comes back dark while the cache still
+        says lit, and every subsequent write is skipped as a no-op.
+        """
+        self._last_vel.clear()
         self.clear_unwired_surfaces()
         if self._shift_indicator_note is not None:
             self._set_led(self._shift_indicator_note, TRACK_LED_OFF)
