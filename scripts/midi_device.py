@@ -173,9 +173,10 @@ ROUTER_PORT_EXCLUSIONS = (
 )
 
 
-def is_router_excluded(port_name: str) -> bool:
+def is_router_excluded(port_name: str, extra=()) -> bool:
     lowered = port_name.lower()
-    return any(token in lowered for token in ROUTER_PORT_EXCLUSIONS)
+    tokens = tuple(ROUTER_PORT_EXCLUSIONS) + tuple(extra)
+    return any(token in lowered for token in tokens)
 
 
 class BehaviouralMpeDetector:
@@ -240,3 +241,48 @@ class BehaviouralMpeDetector:
     def reset(self) -> None:
         self._noted.clear()
         self._bent.clear()
+
+
+def parse_overrides(spec: str | None) -> tuple[tuple[str, str], ...]:
+    """Parse MPE_MIDI_OVERRIDE, e.g. "keystation=classic,osmose=mpe".
+
+    Each entry is `port-substring=kind`, matched case-insensitively.
+    Order is preserved so the first match wins, which lets a specific
+    rule sit in front of a broad one. Malformed or unknown-kind entries
+    are dropped rather than raising: a typo in an env var must not stop
+    the appliance from booting with MIDI.
+    """
+    out: list[tuple[str, str]] = []
+    for chunk in (spec or "").split(","):
+        chunk = chunk.strip()
+        if not chunk or "=" not in chunk:
+            continue
+        needle, _, kind = chunk.partition("=")
+        needle, kind = needle.strip().lower(), kind.strip().lower()
+        if not needle or kind not in (KIND_MPE, KIND_CLASSIC):
+            continue
+        out.append((needle, kind))
+    return tuple(out)
+
+
+def override_for(port_name: str, overrides) -> str | None:
+    """The configured kind for this port, or None. First match wins."""
+    lowered = port_name.lower()
+    for needle, kind in overrides:
+        if needle in lowered:
+            return kind
+    return None
+
+
+def parse_extra_exclusions(spec: str | None) -> tuple[str, ...]:
+    """Parse MPE_ROUTER_EXCLUDE, a comma-separated list of substrings.
+
+    Lets a port be kept away from the router without a code change --
+    e.g. a DIN jack on an audio interface that carries something the
+    synth should not play.
+    """
+    return tuple(
+        chunk.strip().lower()
+        for chunk in (spec or "").split(",")
+        if chunk.strip()
+    )

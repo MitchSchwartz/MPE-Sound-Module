@@ -130,7 +130,11 @@ def bind_source(
 
 
 def select_router_ports(
-    port_names, *, route_classic: bool, is_mpe_port: Callable[[str], bool]
+    port_names,
+    *,
+    route_classic: bool,
+    is_mpe_port: Callable[[str], bool],
+    extra_exclusions=(),
 ) -> list[str]:
     """Which input ports the router binds, in order.
 
@@ -140,7 +144,7 @@ def select_router_ports(
     """
     selected = []
     for name in port_names:
-        if is_router_excluded(name):
+        if is_router_excluded(name, extra_exclusions):
             continue
         if not route_classic and not is_mpe_port(name):
             continue
@@ -173,3 +177,22 @@ def reconnect_decision(desired, connected, *, have_inputs: bool) -> str:
     if desired == connected and have_inputs:
         return RECONNECT_IDLE
     return RECONNECT_REOPEN
+
+
+def startup_report(opened: int, *, roli_on_bus: bool) -> str | None:
+    """What to say about the input ports found at startup, or None.
+
+    The daemon used to exit non-zero when it opened nothing. With
+    `Restart=no` on the unit, that meant an appliance booted with no
+    controller attached had no router at all, and plugging one in later
+    did nothing until someone restarted the service by hand. Waiting is
+    strictly better: the reconnect poll binds devices as they appear.
+    """
+    if opened > 0:
+        return None
+    if roli_on_bus:
+        return (
+            "MPE controller present on USB but no ALSA MIDI input opened — "
+            "its port is not ready yet; waiting for it"
+        )
+    return "No MIDI inputs yet — waiting for a controller to be plugged in"

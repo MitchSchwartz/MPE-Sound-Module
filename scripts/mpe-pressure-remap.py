@@ -42,7 +42,12 @@ from patch_browser.pressure_midi import (  # noqa: E402
 
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
-from midi_device import classify_port  # noqa: E402
+from midi_device import (  # noqa: E402
+    classify_port,
+    override_for,
+    parse_extra_exclusions,
+    parse_overrides,
+)
 from midi_router import (  # noqa: E402
     RECONNECT_CLOSE,
     RECONNECT_IDLE,
@@ -50,6 +55,7 @@ from midi_router import (  # noqa: E402
     bind_source,
     reconnect_decision,
     select_router_ports,
+    startup_report,
 )
 
 RECONNECT_POLL_S = 1.0
@@ -59,6 +65,15 @@ RECONNECT_POLL_S = 1.0
 # non-MPE input ports and translate them. With it off, _open_inputs binds
 # exactly the ports it bound before this change.
 ROUTE_CLASSIC = os.environ.get("MPE_ROUTE_CLASSIC", "0").strip() not in ("", "0")
+
+# Manual classification, e.g. MPE_MIDI_OVERRIDE="osmose=mpe,keystation=classic".
+# First match wins, so a specific rule can precede a broad one.
+MIDI_OVERRIDES = parse_overrides(os.environ.get("MPE_MIDI_OVERRIDE"))
+
+# Extra ports to keep away from the router entirely, e.g.
+# MPE_ROUTER_EXCLUDE="scarlett" for a DIN jack carrying something the synth
+# should not play.
+EXTRA_EXCLUSIONS = parse_extra_exclusions(os.environ.get("MPE_ROUTER_EXCLUDE"))
 CLOCK_REFRESH_S = 0.05
 
 
@@ -263,7 +278,9 @@ class PressureRemapDaemon:
         for index, name in enumerate(ports):
             if name not in wanted:
                 continue
-            classification = classify_port(name)
+            classification = classify_port(
+                name, override=override_for(name, MIDI_OVERRIDES)
+            )
             midi_in = rtmidi.MidiIn()
             try:
                 midi_in.open_port(index)
@@ -299,6 +316,7 @@ class PressureRemapDaemon:
                     list(probe.get_ports()),
                     route_classic=ROUTE_CLASSIC,
                     is_mpe_port=is_roli_controller_port,
+                    extra_exclusions=EXTRA_EXCLUSIONS,
                 )
             )
         )
@@ -365,17 +383,11 @@ class PressureRemapDaemon:
         )
 
         probe = rtmidi.MidiIn()
-        if self._open_inputs(probe) == 0:
-            if lsusb_has_roli():
-                print(
-                    "Error: Roli USB present but no ALSA MIDI input opened — "
-                    "ALSA port not ready",
-                    file=sys.stderr,
-                    flush=True,
-                )
-            else:
-                print("Error: no physical MIDI inputs opened", file=sys.stderr, flush=True)
-            return 1
+        report = startup_report(
+            self._open_inputs(probe), roli_on_bus=lsusb_has_roli()
+        )
+        if report:
+            print(f"{report}", flush=True)
 
         try:
             while True:

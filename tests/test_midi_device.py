@@ -205,3 +205,75 @@ class BehaviouralDetection(unittest.TestCase):
     def test_malformed_input_is_ignored(self):
         for msg in ([], [0x90], None, [0x00, 0x00], [0xF8], [0xF0, 0x47]):
             self.assertFalse(self.det.observe(msg), msg)
+
+
+class Overrides(unittest.TestCase):
+    """Manual classification, phase 4. A typo in an env var must never
+    stop the appliance booting with MIDI, so parsing drops bad entries
+    rather than raising."""
+
+    def setUp(self):
+        from scripts.midi_device import (
+            override_for,
+            parse_extra_exclusions,
+            parse_overrides,
+        )
+
+        self.parse = parse_overrides
+        self.lookup = override_for
+        self.parse_ex = parse_extra_exclusions
+
+    def test_parses_a_simple_spec(self):
+        self.assertEqual(
+            self.parse("keystation=classic,osmose=mpe"),
+            (("keystation", "classic"), ("osmose", "mpe")),
+        )
+
+    def test_whitespace_and_case_are_tolerated(self):
+        self.assertEqual(self.parse("  LUMI = MPE  "), (("lumi", "mpe"),))
+
+    def test_malformed_entries_are_dropped_not_raised(self):
+        self.assertEqual(self.parse("junk,=mpe,x=,y=nonsense"), ())
+        self.assertEqual(self.parse(None), ())
+        self.assertEqual(self.parse(""), ())
+
+    def test_a_typo_does_not_discard_the_valid_entries(self):
+        self.assertEqual(self.parse("bad=nope,osmose=mpe"), (("osmose", "mpe"),))
+
+    def test_first_match_wins_so_specific_rules_can_precede_broad_ones(self):
+        rules = self.parse("apc mini mk2 notes=mpe,apc=classic")
+        self.assertEqual(self.lookup("APC mini mk2:APC mini mk2 Notes", rules), "mpe")
+        self.assertEqual(self.lookup("APC mini mk2:APC mini mk2 Control", rules), "classic")
+
+    def test_no_match_returns_none_so_detection_still_runs(self):
+        self.assertIsNone(self.lookup("Unknown Keyboard", self.parse("lumi=mpe")))
+
+    def test_override_reaches_classify_port(self):
+        from scripts.midi_device import KIND_MPE, classify_port
+
+        result = classify_port("Nameless Keyboard", override="mpe")
+        self.assertEqual(result.kind, KIND_MPE)
+
+
+class ExtraExclusions(unittest.TestCase):
+    def setUp(self):
+        from scripts.midi_device import is_router_excluded, parse_extra_exclusions
+
+        self.excluded = is_router_excluded
+        self.parse_ex = parse_extra_exclusions
+
+    def test_extra_exclusion_keeps_a_port_from_the_router(self):
+        extra = self.parse_ex("scarlett")
+        self.assertTrue(self.excluded("Scarlett 4i4 USB MIDI 1", extra))
+        self.assertFalse(self.excluded("APC mini mk2 Notes", extra))
+
+    def test_builtin_exclusions_survive_extras(self):
+        extra = self.parse_ex("scarlett")
+        self.assertTrue(self.excluded("Midi Through Port-0", extra))
+        self.assertTrue(self.excluded("APC mini mk2 Control", extra))
+
+    def test_empty_spec_changes_nothing(self):
+        for spec in (None, "", " , "):
+            extra = self.parse_ex(spec)
+            self.assertFalse(self.excluded("APC mini mk2 Notes", extra))
+            self.assertTrue(self.excluded("Midi Through Port-0", extra))
