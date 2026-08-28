@@ -268,13 +268,11 @@ class PressureRemapDaemon:
         opened = 0
         connected: list[str] = []
         self._bindings = []
-        wanted = set(
-            select_router_ports(
-                ports,
-                route_classic=ROUTE_CLASSIC,
-                is_mpe_port=is_roli_controller_port,
-            )
-        )
+        # One place decides which ports are wanted. This used to compute
+        # its own selection, and an exclusion added to the other call site
+        # silently did not apply here -- the router kept binding a port the
+        # operator had excluded, with nothing in the log to say so.
+        wanted = set(self._selected_port_names(ports))
         for index, name in enumerate(ports):
             if name not in wanted:
                 continue
@@ -309,17 +307,16 @@ class PressureRemapDaemon:
         self._connected_port_names = tuple(sorted(connected))
         return opened
 
-    def _router_ports_on_bus(self, probe) -> tuple[str, ...]:
-        return tuple(
-            sorted(
-                select_router_ports(
-                    list(probe.get_ports()),
-                    route_classic=ROUTE_CLASSIC,
-                    is_mpe_port=is_roli_controller_port,
-                    extra_exclusions=EXTRA_EXCLUSIONS,
-                )
-            )
+    def _selected_port_names(self, ports) -> list[str]:
+        return select_router_ports(
+            list(ports),
+            route_classic=ROUTE_CLASSIC,
+            is_mpe_port=is_roli_controller_port,
+            extra_exclusions=EXTRA_EXCLUSIONS,
         )
+
+    def _router_ports_on_bus(self, probe) -> tuple[str, ...]:
+        return tuple(sorted(self._selected_port_names(probe.get_ports())))
 
     def _maybe_reconnect_inputs(self, probe) -> None:
         now = time.monotonic()
