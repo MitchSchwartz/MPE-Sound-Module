@@ -45,6 +45,12 @@ _remove_env_key MPE_SL_SEAM_WELD
 _remove_env_key MPE_SL_SCRATCH_LOOP
 _ensure_env_kv MPE_SL_LOOPS 15
 
+# Classic-MIDI routing. Without this the router binds only MPE controllers, so
+# a plain keyboard plugged into a cold-booted appliance is silent -- which is
+# exactly the outcome the classic-MIDI work exists to remove. Set here rather
+# than by hand so it survives a reflash; see docs/CLASSIC-MIDI-PLAN.md.
+_ensure_env_kv MPE_ROUTE_CLASSIC 1
+
 if [ ! -x "$SOOP_BIN" ]; then
     echo "bootstrap-pi5-looper: FAIL — SooperLooper binary missing: $SOOP_BIN" >&2
     echo "  Copy from Pi 4 (arm64 trixie build):" >&2

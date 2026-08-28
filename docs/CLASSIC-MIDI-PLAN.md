@@ -1,8 +1,10 @@
 # Classic MIDI instrument compatibility — plan of record
 
-**Status:** decided, not started. Design settled 2026-08-26 against the Surge XT
-source and the MPE specification (§7). One measurement outstanding before
-build (§4, phase 0).
+**Status:** phases 0 and 1 complete; phase 3's pure half (classification) done
+ahead of phase 2, since it needs no hardware either. Design settled 2026-08-26
+against the Surge XT source and the MPE specification (§7); router-hop latency
+measured 2026-08-28 and negligible (§7.8). **Next: phase 2**, the router daemon
+— which needs a ROLI stream capture for its regression gate.
 
 "Classic MIDI" means a channel-based controller: one MIDI channel for all notes,
 pitch bend applied to every sounding note, ±2 semitones by default, no per-note
@@ -116,13 +118,36 @@ Each phase ends at a gate. No phase starts before the previous gate passes.
 
 | # | Phase | Deliverable | Gate |
 |---|---|---|---|
-| 0 | **Latency spike** (§7.8) | Router-hop cost measured | Measured with `measure_midi_osc_latency.py`, not estimated |
-| 1 | **Pure translator** | `midi_translate.py` — events in, events out, no I/O | Unit tests pass. No Pi, no hardware |
-| 2 | **Router daemon** | Generalise `mpe-pressure-remap.py`; ROLI profile preserved | ROLI behaviour **unchanged**, proven by byte-identical output on a recorded stream |
-| 3 | **Classification + hot-plug + display** | MCM detection, device table, re-classify on plug, read-only device list in the touch UI | Plug/unplug both kinds in any order, 20×; the UI always shows what the router decided |
-| 4 | **Boot path + override** | Surge always reads Midi Through; router always runs; manual classification override | Cold boot with: nothing / classic only / MPE only / both |
-| 5 | **Ear pass** | Mitch, both controllers | Bend depth correct on both; chords and pedal correct |
+| ~~0~~ | **Latency spike — DONE** | +0.053 ms p50, +0.115 ms p99; `translate()` 2.87 µs | Passed. [`classic-midi-router-hop-2026-08-28.md`](measurements/classic-midi-router-hop-2026-08-28.md) |
+| ~~1~~ | **Pure translator — DONE** | `scripts/midi_translate.py` + 37 tests | Passed. Mutation-checked: un-scaled bend, sustain to member channels, and immediate channel reuse each fail the suite, so it is not passing vacuously |
+| ~~2~~ | **Router daemon — DONE** | `scripts/midi_router.py` + per-source dispatch in `mpe-pressure-remap.py`, behind `MPE_ROUTE_CLASSIC` (now =1 on pi5) | **Passed.** MPE path byte-identical over 128 status bytes × 4 floors; port selection with flag off identical to the old daemon; APC played into Surge on hardware 2026-08-28. [`classic-midi-phase2-hardware-2026-08-28.md`](measurements/classic-midi-phase2-hardware-2026-08-28.md) |
+| 3 | **Classification + hot-plug + display** | ~~MCM detection~~, ~~hot-plug re-binding~~, ~~behavioural self-correction~~ **done**; still to do: **read-only device list in the touch UI** | Hot-plug logic proven pure (6 cases incl. the ROLI-shaped teardown bug). **Not yet done:** the 20× physical plug/unplug run, and the UI |
+| ~~4~~ | **Boot path + override — CODE DONE** | Daemon waits instead of exiting when no ports open; `MPE_MIDI_OVERRIDE`; `MPE_ROUTER_EXCLUDE`; `MPE_ROUTE_CLASSIC=1` written by bootstrap. Surge's Midi Through selection was already unconditional (keys off `MPE_PRESSURE_REMAP`) | **Passed 2026-08-28.** Three real cold boots: both-attached, classic-only, MPE-only. Nothing-attached is not reachable while the Scarlett DIN enumerates; its code path was covered separately. Found three defects the unit tests could not. [`classic-midi-phase4-coldboot-2026-08-28.md`](measurements/classic-midi-phase4-coldboot-2026-08-28.md) |
+| 5 | **Ear pass** | Mitch, both controllers | Bend depth correct on both; chords and pedal correct. **This is the ROLI's only regression check** — treat it as blocking, not confirmatory |
 | 6 | **Close out** | Measured latency and classification results written to `docs/measurements/` | Numbers recorded, not adjectives |
+
+### Phase 2 gate note — the ROLI regression proof (2026-08-28)
+
+The original gate was "ROLI behaviour unchanged, proven by byte-identical output
+on a recorded stream." **There is no such recording and there will not be one
+soon:** the LUMI is not a controller Mitch is currently playing (four capture
+windows returned zero messages for exactly that reason — not a device fault).
+
+Rather than fake the gate, it is split and its weakness stated:
+
+- **Classic path (APC Notes):** gated by real data — the committed golden stream.
+  This is the path being added, so it carries the real risk.
+- **ROLI path:** gated **by construction**. The router selects the transform per
+  source device; the ROLI source must resolve to `remap_midi_message` with the
+  same arguments it uses today, asserted by a unit test on the dispatch table.
+  That proves the *routing decision* is unchanged. It does **not** prove the
+  audible result is unchanged.
+
+**Accepted risk:** a ROLI regression that lives below the dispatch decision
+(fan-out ordering, message batching, timing) would pass phase 2 and only surface
+at the phase 5 ear pass. That is why phase 5 is blocking for the ROLI. If the
+ROLI comes back into regular use before phase 2 lands, capture a stream and
+restore the stronger gate — the capture tool is already written.
 
 Phase 1 holds the bulk of the logic and needs **no hardware** — the translator is
 a pure function over MIDI events. That is deliberate: the hard part is testable
@@ -165,6 +190,59 @@ The manual override follows in phase 4, deliberately after classification has
 been observed against real devices. Shipping the override first invites working
 around a classifier bug instead of fixing it; shipping the display first means a
 classifier bug is reported rather than silently endured.
+
+### OPEN-4: Dual-role control surfaces (APC in instrument mode) — **ANSWERED 2026-08-28 (corrected)**
+
+**An earlier revision of this section claimed the roles separate cleanly by
+ALSA port and called this the good case. That was wrong.** It rested on a
+single capture that had a mode change inside it, which produced a spurious
+"grid on channel 10, notes 64-127" reading and a false suspicion that
+`apc_panel.py`'s `GRID_NOTE_MIN/MAX = 0/63` were stale. Two clean
+single-mode captures overturned it.
+
+**Measured, one mode per capture, Control port (32:0):**
+
+| | normal mode | Notes mode |
+|---|---|---|
+| grid pads | ch1, notes 0-63 | **nothing** |
+| scene / transport | ch1, notes ~100-122 | ch1 (mode button only) |
+| faders | CC 48-56 | — |
+| grid pads elsewhere | — | Notes port (32:1), ch1, notes 36-96 |
+
+`apc_panel.py`'s `0-63` is **correct**. No bug there.
+
+**The roles are mutually exclusive, and the hardware enforces it.** Notes mode
+is a *global device mode*, not a per-port behaviour: entering it silences grid
+output on the Control port entirely and moves it to the Notes port. So there is
+no double-emission and no clip-launch-plus-pitch conflict -- but grid control of
+the looper is unavailable while the APC is an instrument. This is the plan's
+original **case 3**, not the trivial case.
+
+Consequences for the design:
+
+- The router still binds the **Notes** port and never the **Control** port
+  (`ROUTER_PORT_EXCLUSIONS` in `midi_device.py`). That part stands.
+- No arbitration is needed between the two roles. The device does it.
+- **The failure mode is a silent one and it has already bitten:** with the APC
+  left in Notes mode, the looper grid is simply dead, with nothing on screen to
+  say why. This cost real debugging time on 2026-08-28 and was initially
+  misdiagnosed as stale note constants.
+
+**The APC announces its mode over SysEx**, which makes that failure fixable:
+
+```
+F0 47 7F 4F 62 00 01 <mode> F7      47 = Akai, 4F = APC mini mk2
+```
+
+`<mode> = 0x01` was observed on entering Notes mode (emitted ~250 ms after the
+Shift+Scene 7 press). Values `0x00` and `0x02` were also observed during mode
+switching; **which mode each denotes is not yet established** -- one observation
+each, do not treat as decoded.
+
+**Recommended follow-up (not yet built):** the looper already reads the Control
+port, so it can watch for this SysEx and surface the current APC mode in the
+HUD. A dead grid then explains itself. Confirm the `0x00`/`0x02` meanings by
+capture before relying on them.
 
 ### OPEN-3: Multi-timbral — out of scope
 Two controllers share one Surge patch. Per-controller sounds means multiple
@@ -249,10 +327,17 @@ if (mpeEnabled) noHold = noHold && !channelState[0].hold;
 ```
 *So forward CC64 to the master channel and do nothing else.*
 
-**7.8 Outstanding — router-hop latency.** Unmeasured, and the one question
-research cannot answer. There is a production precedent (the ROLI path already
-traverses a Python daemon), so the cost is probably acceptable — but it must be
-measured with `scripts/sooperlooper/measure_midi_osc_latency.py`. Phase 0.
+**7.8 Router-hop latency — measured 2026-08-28, negligible.** +0.053 ms p50,
++0.115 ms p99 on Pi 5 idle; `translate()` itself is 2.87 µs, so the cost is ALSA
+transport rather than the translation. About 1% of one 64×2 JACK period and two
+orders of magnitude below perceptible. Full result and method:
+[`classic-midi-router-hop-2026-08-28.md`](measurements/classic-midi-router-hop-2026-08-28.md).
+
+`measure_midi_osc_latency.py`, which this plan originally named, measures
+pad-down → OSC for the bench and is the wrong shape for a forwarding hop;
+`scripts/spike-router-hop-latency.py` was written for it instead. Unmeasured:
+cost under a live audio graph, and the fan-out case where one input bend becomes
+up to 15 output messages.
 
 ---
 
@@ -278,7 +363,8 @@ measured with `scripts/sooperlooper/measure_midi_osc_latency.py`. Phase 0.
 1. A classic keyboard plugged into a cold-booted appliance plays, with correct
    bend depth, with no setting changed by the user.
 2. An MPE controller behaves exactly as it does today — per-note bend, pressure
-   remap intact.
+   remap intact. **Verified by ear at phase 5, not by recorded stream** (see the
+   phase 2 gate note).
 3. Both attached at once, both correct, simultaneously.
 4. Either unplugged and replugged in any order: no stuck notes, no restart.
 5. Surge is never restarted to change MIDI mode.

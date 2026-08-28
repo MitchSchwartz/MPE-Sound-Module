@@ -40,7 +40,40 @@ from patch_browser.pressure_midi import (  # noqa: E402
     remap_midi_message,
 )
 
+sys.path.insert(0, str(REPO_ROOT / "scripts"))
+
+from midi_device import (  # noqa: E402
+    classify_port,
+    override_for,
+    parse_extra_exclusions,
+    parse_overrides,
+)
+from midi_router import (  # noqa: E402
+    RECONNECT_CLOSE,
+    RECONNECT_IDLE,
+    SourceBinding,
+    bind_source,
+    reconnect_decision,
+    select_router_ports,
+    startup_report,
+)
+
 RECONNECT_POLL_S = 1.0
+
+# Classic-MIDI routing is off by default: phase 2 lands the mechanism, and
+# the phase 5 ear pass is what promotes it. Set MPE_ROUTE_CLASSIC=1 to bind
+# non-MPE input ports and translate them. With it off, _open_inputs binds
+# exactly the ports it bound before this change.
+ROUTE_CLASSIC = os.environ.get("MPE_ROUTE_CLASSIC", "0").strip() not in ("", "0")
+
+# Manual classification, e.g. MPE_MIDI_OVERRIDE="osmose=mpe,keystation=classic".
+# First match wins, so a specific rule can precede a broad one.
+MIDI_OVERRIDES = parse_overrides(os.environ.get("MPE_MIDI_OVERRIDE"))
+
+# Extra ports to keep away from the router entirely, e.g.
+# MPE_ROUTER_EXCLUDE="scarlett" for a DIN jack carrying something the synth
+# should not play.
+EXTRA_EXCLUSIONS = parse_extra_exclusions(os.environ.get("MPE_ROUTER_EXCLUDE"))
 CLOCK_REFRESH_S = 0.05
 
 
@@ -64,10 +97,11 @@ class PressureRemapDaemon:
         self._live_mtime = 0.0
         self._out = None
         self._inputs: list = []
+        self._bindings: list[SourceBinding] = []
         self._queue: queue.SimpleQueue = queue.SimpleQueue()
-        self._connected_roli_names: tuple[str, ...] = ()
+        self._connected_port_names: tuple[str, ...] = ()
         self._next_reconnect_check = 0.0
-        self._scheduled: list[tuple[float, int, list[int]]] = []
+        self._scheduled: list[tuple[float, int, SourceBinding, list[int]]] = []
         self._schedule_seq = 0
         self._offset_ms = resolve_output_offset_ms()
         self._grid_ticks = resolve_quantize_grid_ticks()
@@ -95,27 +129,42 @@ class PressureRemapDaemon:
         self._next_clock_refresh = now + CLOCK_REFRESH_S
         self._clock_snap = read_clock_state()
 
-    def _enqueue(self, message, _data=None) -> None:
-        flat = prepare_incoming(message)
-        if flat:
-            self._queue.put(flat)
+    def _make_callback(self, binding: SourceBinding):
+        """One callback per port. rtmidi hands the callback no source
+        identity, so the binding has to be closed over here -- otherwise
+        every device's messages arrive indistinguishable and the router
+        cannot pick a transform."""
 
-    def _schedule_message(self, fire_at: float, message: list[int]) -> None:
+        def _enqueue(message, _data=None) -> None:
+            flat = prepare_incoming(message)
+            if flat:
+                self._queue.put((binding, flat))
+
+        return _enqueue
+
+    def _schedule_message(
+        self, fire_at: float, binding: SourceBinding, message: list[int]
+    ) -> None:
         self._schedule_seq += 1
-        heapq.heappush(self._scheduled, (fire_at, self._schedule_seq, message))
+        heapq.heappush(self._scheduled, (fire_at, self._schedule_seq, binding, message))
 
-    def _emit_message(self, message: list[int]) -> None:
+    def _send(self, out_msg: list[int]) -> None:
+        if not out_msg:
+            return
+        if fade_actuation_enabled() and self._voice_tracker.observe_message(out_msg):
+            self._voice_tracker.persist()
+        self._out.send_message(out_msg)
+
+    def _emit_message(self, binding: SourceBinding, message: list[int]) -> None:
         if self._out is None:
             return
         try:
-            out_msg = remap_midi_message(message, self._floor)
+            out_msgs = binding.apply(message, self._floor)
         except (TypeError, ValueError, IndexError) as exc:
             print(f"Warning: skipping bad MIDI message {message!r}: {exc}", flush=True)
             return
-        if out_msg:
-            if fade_actuation_enabled() and self._voice_tracker.observe_message(out_msg):
-                self._voice_tracker.persist()
-            self._out.send_message(out_msg)
+        for out_msg in out_msgs:
+            self._send(out_msg)
 
     def _process_fade_request(self) -> None:
         if not fade_actuation_enabled() or self._out is None:
@@ -144,12 +193,14 @@ class PressureRemapDaemon:
         self._last_fade_request_id = request_id
         clear_fade_request()
 
-    def _handle_incoming(self, raw: list[int], now: float) -> None:
+    def _handle_incoming(
+        self, binding: SourceBinding, raw: list[int], now: float
+    ) -> None:
         if not raw:
             return
         status = raw[0]
         if self._pass_clock and is_realtime_clock_byte(status):
-            self._emit_message(raw)
+            self._emit_message(binding, raw)
             return
 
         quantize = self._grid_ticks > 0 and is_note_on(raw)
@@ -162,18 +213,18 @@ class PressureRemapDaemon:
                 offset_ms=self._offset_ms,
             )
             if fire_at <= now:
-                self._emit_message(raw)
+                self._emit_message(binding, raw)
             else:
-                self._schedule_message(fire_at, raw)
+                self._schedule_message(fire_at, binding, raw)
             return
 
-        self._emit_message(raw)
+        self._emit_message(binding, raw)
 
     def _drain_scheduled(self, now: float) -> int:
         sent = 0
         while self._scheduled and self._scheduled[0][0] <= now:
-            _, _, message = heapq.heappop(self._scheduled)
-            self._emit_message(message)
+            _, _, binding, message = heapq.heappop(self._scheduled)
+            self._emit_message(binding, message)
             sent += 1
         return sent
 
@@ -187,21 +238,28 @@ class PressureRemapDaemon:
         self._process_fade_request()
         while True:
             try:
-                raw = self._queue.get_nowait()
+                binding, raw = self._queue.get_nowait()
             except queue.Empty:
                 break
-            self._handle_incoming(raw, now)
+            self._handle_incoming(binding, raw, now)
         sent += self._drain_scheduled(time.monotonic())
         return sent
 
     def _close_inputs(self) -> None:
+        # Release anything a translator is holding before the port goes
+        # away, or a yanked cable leaves a note sounding with no source
+        # left to send its note-off.
+        for binding in self._bindings:
+            for msg in binding.reset():
+                self._send(msg)
+        self._bindings = []
         for midi_in in self._inputs:
             try:
                 midi_in.close_port()
             except Exception:
                 pass
         self._inputs.clear()
-        self._connected_roli_names = ()
+        self._connected_port_names = ()
 
     def _open_inputs(self, probe) -> int:
         import rtmidi
@@ -209,25 +267,56 @@ class PressureRemapDaemon:
         ports = list(probe.get_ports())
         opened = 0
         connected: list[str] = []
+        self._bindings = []
+        # One place decides which ports are wanted. This used to compute
+        # its own selection, and an exclusion added to the other call site
+        # silently did not apply here -- the router kept binding a port the
+        # operator had excluded, with nothing in the log to say so.
+        wanted = set(self._selected_port_names(ports))
         for index, name in enumerate(ports):
-            if not is_roli_controller_port(name):
+            if name not in wanted:
                 continue
+            classification = classify_port(
+                name, override=override_for(name, MIDI_OVERRIDES)
+            )
             midi_in = rtmidi.MidiIn()
             try:
                 midi_in.open_port(index)
             except Exception as exc:
                 print(f"Warning: could not open MIDI in {name!r}: {exc}", flush=True)
                 continue
-            midi_in.set_callback(self._enqueue)
+            binding = bind_source(
+                name,
+                classification,
+                on_promote=lambda port: print(
+                    f"  Reclassified: {port} → mpe "
+                    "(per-note bend on separate channels; it never announced "
+                    "itself, so it was bound as classic)",
+                    flush=True,
+                ),
+            )
+            midi_in.set_callback(self._make_callback(binding))
             self._inputs.append(midi_in)
+            self._bindings.append(binding)
             opened += 1
             connected.append(name)
-            print(f"  Listening: {name}", flush=True)
-        self._connected_roli_names = tuple(sorted(connected))
+            print(
+                f"  Listening: {name}  [{classification.kind}: {classification.reason}]",
+                flush=True,
+            )
+        self._connected_port_names = tuple(sorted(connected))
         return opened
 
-    def _roli_ports_on_bus(self, probe) -> tuple[str, ...]:
-        return tuple(sorted(list_roli_input_port_names(list(probe.get_ports()))))
+    def _selected_port_names(self, ports) -> list[str]:
+        return select_router_ports(
+            list(ports),
+            route_classic=ROUTE_CLASSIC,
+            is_mpe_port=is_roli_controller_port,
+            extra_exclusions=EXTRA_EXCLUSIONS,
+        )
+
+    def _router_ports_on_bus(self, probe) -> tuple[str, ...]:
+        return tuple(sorted(self._selected_port_names(probe.get_ports())))
 
     def _maybe_reconnect_inputs(self, probe) -> None:
         now = time.monotonic()
@@ -235,28 +324,30 @@ class PressureRemapDaemon:
             return
         self._next_reconnect_check = now + RECONNECT_POLL_S
 
-        desired = self._roli_ports_on_bus(probe)
-        if not desired:
-            if self._connected_roli_names:
-                print("ROLI disconnected — closing stale MIDI inputs", flush=True)
-                self._close_inputs()
+        desired = self._router_ports_on_bus(probe)
+        action = reconnect_decision(
+            desired, self._connected_port_names, have_inputs=bool(self._inputs)
+        )
+        if action == RECONNECT_IDLE:
             return
-
-        if desired == self._connected_roli_names and self._inputs:
+        if action == RECONNECT_CLOSE:
+            print("No MIDI inputs on bus — closing stale inputs", flush=True)
+            self._close_inputs()
             return
 
         print(
-            f"ROLI port change {self._connected_roli_names!r} → {desired!r} — reopening inputs",
+            f"MIDI port change {self._connected_port_names!r} → {desired!r} "
+            "— reopening inputs",
             flush=True,
         )
         self._close_inputs()
         try:
             opened = self._open_inputs(probe)
         except Exception as exc:
-            print(f"Warning: ROLI reopen failed ({exc!r}) — will retry", flush=True)
+            print(f"Warning: MIDI reopen failed ({exc!r}) — will retry", flush=True)
             return
         if opened == 0:
-            print("Warning: ROLI seen on bus but no MIDI inputs opened", flush=True)
+            print("Warning: ports seen on bus but no MIDI inputs opened", flush=True)
 
     def run(self) -> int:
         try:
@@ -265,9 +356,16 @@ class PressureRemapDaemon:
             print("Error: python-rtmidi required for mpe-pressure-remap", file=sys.stderr)
             return 1
 
-        wait_script = REPO_ROOT / "scripts" / "wait-for-usb-midi.sh"
-        if wait_script.is_file():
-            subprocess.run(["bash", str(wait_script)], check=False)
+        # The ROLI-specific settle wait. Skipped when classic routing is on:
+        # it blocks 15 s waiting for a device that may legitimately never
+        # appear, and the reconnect poll now binds controllers whenever they
+        # show up, so nothing is gained by blocking here. Measured on the
+        # appliance 2026-08-28: with no ROLI attached this wait ran here AND
+        # in the wrapper, delaying a classic-only startup by 32 s.
+        if not ROUTE_CLASSIC:
+            wait_script = REPO_ROOT / "scripts" / "wait-for-usb-midi.sh"
+            if wait_script.is_file():
+                subprocess.run(["bash", str(wait_script)], check=False)
 
         self._out = rtmidi.MidiOut()
         out_ports = list(self._out.get_ports())
@@ -289,17 +387,11 @@ class PressureRemapDaemon:
         )
 
         probe = rtmidi.MidiIn()
-        if self._open_inputs(probe) == 0:
-            if lsusb_has_roli():
-                print(
-                    "Error: Roli USB present but no ALSA MIDI input opened — "
-                    "ALSA port not ready",
-                    file=sys.stderr,
-                    flush=True,
-                )
-            else:
-                print("Error: no physical MIDI inputs opened", file=sys.stderr, flush=True)
-            return 1
+        report = startup_report(
+            self._open_inputs(probe), roli_on_bus=lsusb_has_roli()
+        )
+        if report:
+            print(f"{report}", flush=True)
 
         try:
             while True:
