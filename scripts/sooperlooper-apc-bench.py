@@ -39,6 +39,7 @@ from apc_transport import (  # noqa: E402
 )
 from led_table import LED_OFF  # noqa: E402
 from apc_link import LinkHealth, PacedMidiOut  # noqa: E402
+from apc_mode import grid_silent_reason, parse_mode_sysex  # noqa: E402
 from apc_panel import is_stop_all, scene_press_row  # noqa: E402
 from midi_subscription import wait_for_subscription  # noqa: E402
 from running_code import running_code_sha  # noqa: E402
@@ -124,6 +125,10 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
         print(f"Error: {exc}", file=sys.stderr)
         return 1
 
+    # Last mode the APC announced. None until it says something -- the
+    # device does not report on connect, only on change.
+    apc_mode_state: dict = {"mode": None}
+
     midi_in = rtmidi.MidiIn()
     midi_out = rtmidi.MidiOut()
     ports_in = midi_in.get_ports()
@@ -133,6 +138,15 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
         return 1
 
     midi_in.open_port(idx)
+    # rtmidi drops SysEx by default, so the APC's mode announcements never
+    # arrived. Without them a Notes-mode switch presents as a silently dead
+    # grid -- the failure that cost a debugging session on 2026-08-28.
+    # The APC sends these only on an actual mode change, so this adds no
+    # traffic to the hot loop.
+    try:
+        midi_in.ignore_types(sysex=False, timing=True, active_sense=True)
+    except Exception as exc:  # pragma: no cover - depends on rtmidi build
+        print(f"Warning: could not enable SysEx input: {exc}", flush=True)
     midi_out.open_port(idx)
     port_name = ports_in[idx]
 
@@ -572,6 +586,16 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
         msg, _delta = packet
         if args.dump_midi and msg:
             print(f"midi: {_format_midi(list(msg))}", flush=True)
+
+        announced = parse_mode_sysex(msg)
+        if announced is not None:
+            apc_mode_state["mode"] = announced
+            print(f"APC mode: {announced.describe()}", flush=True)
+            reason = grid_silent_reason(announced)
+            if reason:
+                print(f"APC: {reason}", flush=True)
+            poll_engine_events(time.monotonic())
+            continue
 
         if not msg or len(msg) < 2:
             poll_holds()
