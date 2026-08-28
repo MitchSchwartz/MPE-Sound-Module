@@ -1,8 +1,9 @@
 # Classic MIDI instrument compatibility — plan of record
 
-**Status:** decided, not started. Design settled 2026-08-26 against the Surge XT
-source and the MPE specification (§7). One measurement outstanding before
-build (§4, phase 0).
+**Status:** phase 1 complete. Design settled 2026-08-26 against the Surge XT
+source and the MPE specification (§7). Phase 0's latency measurement is still
+outstanding — it gates **deploying** the router, not writing the translator,
+which is pure and needs no hardware.
 
 "Classic MIDI" means a channel-based controller: one MIDI channel for all notes,
 pitch bend applied to every sounding note, ±2 semitones by default, no per-note
@@ -117,7 +118,7 @@ Each phase ends at a gate. No phase starts before the previous gate passes.
 | # | Phase | Deliverable | Gate |
 |---|---|---|---|
 | 0 | **Latency spike** (§7.8) | Router-hop cost measured | Measured with `measure_midi_osc_latency.py`, not estimated |
-| 1 | **Pure translator** | `midi_translate.py` — events in, events out, no I/O | Unit tests pass. No Pi, no hardware |
+| ~~1~~ | **Pure translator — DONE** | `scripts/midi_translate.py` + 37 tests | Passed. Mutation-checked: un-scaled bend, sustain to member channels, and immediate channel reuse each fail the suite, so it is not passing vacuously |
 | 2 | **Router daemon** | Generalise `mpe-pressure-remap.py`; ROLI profile preserved | ROLI behaviour **unchanged**, proven by byte-identical output on a recorded stream |
 | 3 | **Classification + hot-plug + display** | MCM detection, device table, re-classify on plug, read-only device list in the touch UI | Plug/unplug both kinds in any order, 20×; the UI always shows what the router decided |
 | 4 | **Boot path + override** | Surge always reads Midi Through; router always runs; manual classification override | Cold boot with: nothing / classic only / MPE only / both |
