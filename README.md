@@ -59,6 +59,8 @@ Every patch is fully editable and MPE-assignable from your computer, across all 
 ### Audio
 
 - **MPE sound module** — compatible with any MPE MIDI controller (Roli Seaboard, LinnStrument, Osmose, etc.)
+- **Classic MIDI keyboards work too** — a plain, non-MPE keyboard plugged into a cold-booted appliance plays it, with no setting changed and no restart. A translation layer assigns each held note its own MIDI channel and rescales pitch bend between the two conventions, so single-channel gear drives an MPE-only engine correctly. MPE controllers are detected and pass through untouched. Both kinds can be attached at once — each is classified and bound independently. See **[docs/CLASSIC-MIDI-PLAN.md](docs/CLASSIC-MIDI-PLAN.md)**
+  - Expression is limited by what the controller actually sends: a keyboard with no aftertouch sends no pressure, and velocity-less pads (e.g. APC-style grids) arrive at full velocity, so slow-attack patches lose their attack shaping. That is the hardware's ceiling, not the translator's
 - **Runs Surge XT** — free, open-source synth engine, always in MPE mode, full mod matrix across all 5 expression dimensions
 - **3,192 patches included** — 639 factory + 2,553 community
 - **Analog and USB audio out** — 3.5mm jack standalone, or USB to a laptop/PC as a standard audio input
@@ -205,12 +207,15 @@ Full command reference: **[COMMANDS.md](COMMANDS.md)**
 ## How it's built (for the curious)
 
 ```
-[Roli Seaboard] --USB MIDI--> [Surge XT CLI] --JACK client--> [jackd graph server] --USB--> [USB audio dongle] --> speakers/headphones
-                                     ↑
-                            MPE always enabled, headless, auto-starts on boot
+[MPE controller  ]--USB MIDI--┐
+[classic keyboard]--USB MIDI--┴--> [MIDI router] --> [Surge XT CLI] --JACK client--> [jackd graph server] --USB--> [USB audio dongle] --> speakers/headphones
+                                        ↑                   ↑
+                    classifies each device and       MPE always enabled, headless,
+                    translates classic -> MPE        auto-starts on boot
 ```
 
 - **Surge XT CLI, not GUI** — no X11/VNC overhead, auto MIDI connect, MPE hardcoded on, lower latency
+- **One MIDI path, not two** — Surge stays in MPE mode permanently; there is no runtime control to change its expression mode or bend range, so classic instruments are converted upstream instead. The router picks a transform per device, and an MPE controller's bytes reach Surge byte-for-byte identical to before the router existed. Devices that never announce their capability are classified by behaviour and corrected mid-stream if the guess was wrong. Measured cost of the extra hop: **0.053 ms median** (idle machine; not yet measured under a live audio graph)
 - **JACK graph server (only engine)** — Surge is a JACK client; jackd owns the DAC so everything on the graph shares one clock. Measured keeper on the appliance: 256 frames × 3 periods @ 48 kHz, 24-bit, zero xruns (~16 ms). Server buffer is `MPE_JACK_BUFFER` / `MPE_JACK_PERIODS`. A jackd that will not start is a hard failure — there is no ALSA fallback
 - **Not Zynthian** — different category. Zynthian is a multi-engine workstation; getting persistent, always-on MPE through its generalized preset architecture is a known unsolved friction point (confirmed on Zynthian's own forum as recently as 2025). This project sidesteps that by being narrow on purpose.
 
@@ -230,6 +235,7 @@ Full command reference: **[COMMANDS.md](COMMANDS.md)**
 | [docs/PATCH-EDITING-WORKFLOW.md](docs/PATCH-EDITING-WORKFLOW.md)     | Editing sounds, pushing to the Pi                    |
 | [docs/FOOT_PEDAL.md](docs/FOOT_PEDAL.md)                             | USB footswitch setup + remapping                     |
 | [docs/MIDI-CLOCK.md](docs/MIDI-CLOCK.md)                             | MIDI clock out for Boss RC-5 / external sync         |
+| [docs/CLASSIC-MIDI-PLAN.md](docs/CLASSIC-MIDI-PLAN.md)               | Classic (non-MPE) keyboard support — design and gates |
 | [docs/POWER_BUTTON_SETUP.md](docs/POWER_BUTTON_SETUP.md)             | Shutdown/power-on via the encoder button             |
 | [COMMANDS.md](COMMANDS.md)                                           | Backup, deploy, restore, day-to-day ops              |
 | [docs/BACKUP_GUIDE.md](docs/BACKUP_GUIDE.md)                         | Full disaster recovery                               |
