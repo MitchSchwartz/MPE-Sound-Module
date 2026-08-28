@@ -1,5 +1,6 @@
 """Device classification. Pure; no ports, no hardware."""
 
+import pathlib
 import unittest
 
 from scripts.midi_device import (
@@ -130,3 +131,77 @@ class ClassifiesPorts(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class BehaviouralDetection(unittest.TestCase):
+    """Catch an MPE controller that never announced itself, without ever
+    promoting a genuine classic keyboard."""
+
+    def setUp(self):
+        from scripts.midi_device import BehaviouralMpeDetector
+
+        self.det = BehaviouralMpeDetector()
+
+    def _feed(self, messages):
+        return [self.det.observe(m) for m in messages]
+
+    def test_per_note_bend_on_separate_channels_is_mpe(self):
+        fired = self._feed(
+            [[0x91, 60, 100], [0xE1, 0x00, 0x50], [0x92, 64, 100], [0xE2, 0x00, 0x30]]
+        )
+        self.assertTrue(self.det.looks_like_mpe)
+        self.assertEqual(fired.count(True), 1, "must fire exactly once")
+
+    def test_fires_only_on_the_transition(self):
+        self._feed([[0x91, 60, 100], [0xE1, 0, 80], [0x92, 64, 100], [0xE2, 0, 80]])
+        self.assertFalse(self.det.observe([0xE3, 0, 90]) or False)
+
+    def test_single_channel_bend_is_not_mpe(self):
+        """Every classic keyboard with a pitch wheel does this."""
+        self._feed([[0x90, 60, 100], [0xE0, 0, 90], [0x90, 64, 100], [0xE0, 0, 40]])
+        self.assertFalse(self.det.looks_like_mpe)
+
+    def test_notes_on_many_channels_without_bend_is_not_mpe(self):
+        """A multi-timbral split, which is explicitly out of scope."""
+        self._feed([[0x90 | c, 60 + c, 100] for c in range(8)])
+        self.assertFalse(self.det.looks_like_mpe)
+
+    def test_bend_on_channels_that_never_played_is_not_mpe(self):
+        self._feed([[0x91, 60, 100], [0xE5, 0, 80], [0xE6, 0, 80]])
+        self.assertFalse(self.det.looks_like_mpe)
+
+    def test_note_off_does_not_count_as_activity(self):
+        self._feed(
+            [[0x81, 60, 0], [0xE1, 0, 80], [0x82, 64, 0], [0xE2, 0, 80]]
+        )
+        self.assertFalse(self.det.looks_like_mpe)
+
+    def test_note_on_velocity_zero_does_not_count(self):
+        self._feed(
+            [[0x91, 60, 0], [0xE1, 0, 80], [0x92, 64, 0], [0xE2, 0, 80]]
+        )
+        self.assertFalse(self.det.looks_like_mpe)
+
+    def test_real_apc_capture_never_triggers(self):
+        """The strongest false-positive guard available: 187 messages of
+        real classic hardware must not be promoted to MPE."""
+        import json
+
+        fixture = (
+            pathlib.Path(__file__).resolve().parent
+            / "fixtures"
+            / "apc-mini-mk2-notes-2026-08-28.jsonl"
+        )
+        stream = [
+            json.loads(line)["msg"]
+            for line in fixture.read_text().splitlines()
+            if line.strip()
+        ]
+        self.assertEqual(len(stream), 187)
+        for msg in stream:
+            self.assertFalse(self.det.observe(msg))
+        self.assertFalse(self.det.looks_like_mpe)
+
+    def test_malformed_input_is_ignored(self):
+        for msg in ([], [0x90], None, [0x00, 0x00], [0xF8], [0xF0, 0x47]):
+            self.assertFalse(self.det.observe(msg), msg)

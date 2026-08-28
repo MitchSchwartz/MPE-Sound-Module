@@ -176,3 +176,67 @@ ROUTER_PORT_EXCLUSIONS = (
 def is_router_excluded(port_name: str) -> bool:
     lowered = port_name.lower()
     return any(token in lowered for token in ROUTER_PORT_EXCLUSIONS)
+
+
+class BehaviouralMpeDetector:
+    """Spot an MPE controller that never announced itself.
+
+    Classification is declarative: a device is MPE if it sends an MPE
+    Configuration Message, or if its port name / USB vendor is one we
+    recognise. A controller that does neither is treated as classic --
+    and then the translator re-allocates channels for a device that was
+    already assigning them correctly. It still makes sound, so nothing
+    errors; only the per-note expression quietly collapses.
+
+    That is the failure shape this appliance keeps producing: a reading
+    that looks the same whether it is working or broken. This detector
+    is the behavioural cross-check.
+
+    The evidence required is deliberately narrow, because a false
+    positive is worse than a miss: promoting a genuine classic keyboard
+    to MPE would scatter its notes across channels it never intended.
+    A classic keyboard plays on ONE channel. So we require pitch bend on
+    at least two distinct channels that have each also carried a note --
+    per-note bend on separate channels is the defining MPE behaviour and
+    no single-channel instrument can produce it.
+
+    Notably NOT sufficient on their own:
+      - notes on many channels (a multi-timbral split does this)
+      - bend on one channel (every classic keyboard with a wheel)
+    """
+
+    #: Distinct channels needing both a note and a bend before we call it.
+    REQUIRED_CHANNELS = 2
+
+    def __init__(self) -> None:
+        self._noted: set[int] = set()
+        self._bent: set[int] = set()
+
+    @property
+    def evidence_channels(self) -> frozenset[int]:
+        """Channels that have carried both a note and a pitch bend."""
+        return frozenset(self._noted & self._bent)
+
+    @property
+    def looks_like_mpe(self) -> bool:
+        return len(self.evidence_channels) >= self.REQUIRED_CHANNELS
+
+    def observe(self, message) -> bool:
+        """Feed one inbound message. Returns True once, on the transition
+        to looks_like_mpe, so the caller can act without re-triggering."""
+        data = list(message or [])
+        if len(data) < 2 or data[0] < 0x80 or data[0] >= 0xF0:
+            return False
+        was = self.looks_like_mpe
+        status, channel = data[0] & 0xF0, data[0] & 0x0F
+        if status == 0x90 and len(data) >= 3 and data[2] > 0:
+            self._noted.add(channel)
+        elif status == 0xE0:
+            self._bent.add(channel)
+        else:
+            return False
+        return self.looks_like_mpe and not was
+
+    def reset(self) -> None:
+        self._noted.clear()
+        self._bent.clear()

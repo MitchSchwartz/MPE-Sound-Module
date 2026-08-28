@@ -270,7 +270,16 @@ class PressureRemapDaemon:
             except Exception as exc:
                 print(f"Warning: could not open MIDI in {name!r}: {exc}", flush=True)
                 continue
-            binding = bind_source(name, classification)
+            binding = bind_source(
+                name,
+                classification,
+                on_promote=lambda port: print(
+                    f"  Reclassified: {port} → mpe "
+                    "(per-note bend on separate channels; it never announced "
+                    "itself, so it was bound as classic)",
+                    flush=True,
+                ),
+            )
             midi_in.set_callback(self._make_callback(binding))
             self._inputs.append(midi_in)
             self._bindings.append(binding)

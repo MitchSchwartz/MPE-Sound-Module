@@ -36,6 +36,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from midi_device import (  # noqa: E402
     KIND_CLASSIC,
     KIND_MPE,
+    BehaviouralMpeDetector,
     Classification,
     is_router_excluded,
 )
@@ -54,7 +55,14 @@ class SourceBinding:
     port_name: str
     kind: str
     translator: ClassicToMpe | None = None
+    detector: BehaviouralMpeDetector | None = None
+    on_promote: Callable[[str], None] | None = None
     _seen: int = field(default=0, repr=False)
+    _promoted: bool = field(default=False, repr=False)
+
+    @property
+    def was_promoted(self) -> bool:
+        return self._promoted
 
     @property
     def is_classic(self) -> bool:
@@ -71,7 +79,30 @@ class SourceBinding:
             # MPE path: byte-identical to the pre-router daemon.
             out = remap_midi_message(raw, floor)
             return [out] if out else []
+
+        # A device classified classic that behaves like MPE was misjudged.
+        # Left alone it still makes sound, so nothing errors -- only its
+        # per-note expression collapses, silently. Promote it instead.
+        if self.detector is not None and self.detector.observe(raw):
+            return self._promote(raw, floor)
+
         return self.translator.translate(raw)
+
+    def _promote(self, raw: list[int], floor: float) -> list[list[int]]:
+        """Switch to the MPE path mid-stream.
+
+        Anything the translator is holding must be released first: those
+        notes were allocated onto channels this binding is about to stop
+        managing, and nothing else would ever send their note-offs.
+        """
+        released = self.translator.all_notes_off() if self.translator else []
+        self.translator = None
+        self.kind = KIND_MPE
+        self._promoted = True
+        if self.on_promote is not None:
+            self.on_promote(self.port_name)
+        out = remap_midi_message(raw, floor)
+        return released + ([out] if out else [])
 
     def reset(self) -> list[list[int]]:
         """Release anything held. Called on unplug so a yanked cable
@@ -81,12 +112,19 @@ class SourceBinding:
         return self.translator.all_notes_off()
 
 
-def bind_source(port_name: str, classification: Classification) -> SourceBinding:
+def bind_source(
+    port_name: str,
+    classification: Classification,
+    *,
+    on_promote: Callable[[str], None] | None = None,
+) -> SourceBinding:
     if classification.kind == KIND_CLASSIC:
         return SourceBinding(
             port_name=port_name,
             kind=KIND_CLASSIC,
             translator=ClassicToMpe(),
+            detector=BehaviouralMpeDetector(),
+            on_promote=on_promote,
         )
     return SourceBinding(port_name=port_name, kind=KIND_MPE, translator=None)
 

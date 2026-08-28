@@ -234,3 +234,69 @@ class Reconnect(unittest.TestCase):
         self.assertEqual(
             self.decide(("LUMI",), ("LUMI",), have_inputs=False), self.REOPEN
         )
+
+
+class Promotion(unittest.TestCase):
+    """A device misclassified as classic must correct itself, because the
+    failure is silent: it still makes sound, only the per-note expression
+    collapses."""
+
+    def setUp(self):
+        self.promoted = []
+        self.binding = bind_source(
+            "Unknown MPE keyboard", CLASSIC, on_promote=self.promoted.append
+        )
+
+    def _play_mpe(self):
+        out = []
+        for msg in (
+            [0x91, 60, 100],
+            [0xE1, 0x00, 0x50],
+            [0x92, 64, 100],
+            [0xE2, 0x00, 0x30],
+        ):
+            out.extend(self.binding.apply(msg, 0.0))
+        return out
+
+    def test_mpe_behaviour_promotes_the_binding(self):
+        self._play_mpe()
+        self.assertTrue(self.binding.was_promoted)
+        self.assertFalse(self.binding.is_classic)
+        self.assertIsNone(self.binding.translator)
+        self.assertEqual(self.promoted, ["Unknown MPE keyboard"])
+
+    def test_held_notes_are_released_on_promotion(self):
+        """Those notes sit on channels the binding is about to stop
+        managing; nothing else would ever send their note-offs."""
+        out = self._play_mpe()
+        offs = [m for m in out if m[0] & 0xF0 == 0x80]
+        self.assertTrue(offs, "held notes must be released")
+
+    def test_after_promotion_bytes_pass_through_untouched(self):
+        self._play_mpe()
+        for raw in ([0x93, 67, 100], [0xE3, 0, 90], [0xD3, 50]):
+            self.assertEqual(
+                self.binding.apply(list(raw), 0.5),
+                [remap_midi_message(list(raw), 0.5)],
+            )
+
+    def test_promotion_happens_once(self):
+        self._play_mpe()
+        self.binding.apply([0x94, 70, 100], 0.0)
+        self.binding.apply([0xE4, 0, 90], 0.0)
+        self.assertEqual(len(self.promoted), 1)
+
+    def test_real_classic_hardware_is_never_promoted(self):
+        stream = [
+            json.loads(line)["msg"]
+            for line in FIXTURE.read_text().splitlines()
+            if line.strip()
+        ]
+        for msg in stream:
+            self.binding.apply(msg, 0.0)
+        self.assertFalse(self.binding.was_promoted)
+        self.assertEqual(self.promoted, [])
+
+    def test_mpe_binding_has_no_detector_to_run(self):
+        mpe = bind_source("LUMI", MPE)
+        self.assertIsNone(mpe.detector)
