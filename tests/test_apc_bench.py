@@ -1,4 +1,4 @@
-"""16-pad APC footswitch bench wiring."""
+"""16-pad APC gesture bench wiring."""
 
 from tests import conftest  # noqa: F401 — bare sooperlooper imports (apc_grid, …)
 
@@ -6,35 +6,35 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock
 
-from scripts.sooperlooper.apc_footswitch import apply_view, build_footswitches, poll_footswitches
+from scripts.sooperlooper.track_gesture import apply_view, build_track_gestures, poll_track_gestures
 from scripts.sooperlooper.apc_grid import MAX_VIEW_OFFSET, NUM_LOOPS, GridView, pad_note
 
 
-class ApcBenchFootswitchTests(unittest.TestCase):
+class ApcBenchTrackGestureTests(unittest.TestCase):
     def test_build_every_track_eight_of_them_on_pads(self) -> None:
         osc = MagicMock()
         midi_out = MagicMock()
-        by_note, footswitches = build_footswitches(
+        by_note, gestures = build_track_gestures(
             osc=osc,
             midi_out=midi_out,
             num_loops=NUM_LOOPS,
             hold_ms=1000.0,
             debounce_ms=200.0,
         )
-        # A footswitch per track — banked-off tracks keep their state and
+        # A gesture per track — banked-off tracks keep their state and
         # keep receiving engine updates; only their pad binding goes away.
-        self.assertEqual(len(footswitches), NUM_LOOPS)
+        self.assertEqual(len(gestures), NUM_LOOPS)
         self.assertEqual(len(by_note), 8)
         view = GridView()
         for note, fs in by_note.items():
             self.assertEqual(fs.loop, view.loop_for_note(note))
             self.assertEqual(fs._note, note)
-        self.assertIsNone({fs.loop: fs for fs in footswitches}[NUM_LOOPS - 1]._note)
+        self.assertIsNone({fs.loop: fs for fs in gestures}[NUM_LOOPS - 1]._note)
 
     def test_bottom_row_only(self) -> None:
         osc = MagicMock()
         midi_out = MagicMock()
-        by_note, _ = build_footswitches(
+        by_note, _ = build_track_gestures(
             osc=osc,
             midi_out=midi_out,
             num_loops=NUM_LOOPS,
@@ -48,7 +48,7 @@ class ApcBenchFootswitchTests(unittest.TestCase):
     def test_apply_view_rebinds_and_clears_the_old_bank(self) -> None:
         osc = MagicMock()
         midi_out = MagicMock()
-        _by_note, footswitches = build_footswitches(
+        _by_note, gestures = build_track_gestures(
             osc=osc,
             midi_out=midi_out,
             num_loops=NUM_LOOPS,
@@ -57,7 +57,7 @@ class ApcBenchFootswitchTests(unittest.TestCase):
         )
         midi_out.reset_mock()
         by_note = apply_view(
-            midi_out, footswitches=footswitches, view=GridView(offset=MAX_VIEW_OFFSET)
+            midi_out, gestures=gestures, view=GridView(offset=MAX_VIEW_OFFSET)
         )
         self.assertEqual(sorted(fs.loop for fs in by_note.values()), list(range(NUM_LOOPS - 8, NUM_LOOPS)))
         self.assertEqual(by_note[pad_note(0, 0)].loop, NUM_LOOPS - 8)
@@ -70,7 +70,7 @@ class ApcBenchFootswitchTests(unittest.TestCase):
         ]
         for col in range(8):
             self.assertIn(pad_note(0, col), cleared)
-        self.assertIsNone({fs.loop: fs for fs in footswitches}[0]._note)
+        self.assertIsNone({fs.loop: fs for fs in gestures}[0]._note)
 
 
     def test_banking_while_a_pad_is_held_does_not_clear_that_loop(self) -> None:
@@ -80,7 +80,7 @@ class ApcBenchFootswitchTests(unittest.TestCase):
         # track that is no longer even on screen.
         osc = MagicMock()
         midi_out = MagicMock()
-        by_note, footswitches = build_footswitches(
+        by_note, gestures = build_track_gestures(
             osc=osc,
             midi_out=midi_out,
             num_loops=NUM_LOOPS,
@@ -93,10 +93,10 @@ class ApcBenchFootswitchTests(unittest.TestCase):
         osc.reset_mock()  # the down leg already fired record — legitimately
 
         new_by_note = apply_view(
-            midi_out, footswitches=footswitches, view=GridView(offset=MAX_VIEW_OFFSET)
+            midi_out, gestures=gestures, view=GridView(offset=MAX_VIEW_OFFSET)
         )
         held._pad_down_at -= 10.0  # well past hold_ms
-        for fs in footswitches:
+        for fs in gestures:
             fs.poll_hold()
         self.assertFalse(held._hold_fired)
         self.assertNotIn("/sl/0/hit", [c.args[0] for c in osc.send_message.call_args_list])
@@ -107,12 +107,12 @@ class ApcBenchFootswitchTests(unittest.TestCase):
         took_over.on_pad_up()
         osc.send_message.assert_not_called()
 
-    def test_poll_footswitches_is_wired_in_bench_idle_loop(self) -> None:
+    def test_poll_track_gestures_is_wired_in_bench_idle_loop(self) -> None:
         """Tail capture must be polled from the live bench, not only in unit tests."""
         source = (
             Path(__file__).resolve().parent.parent / "scripts" / "sooperlooper-apc-bench.py"
         ).read_text(encoding="utf-8")
-        self.assertIn("poll_footswitches(footswitches, multigrid=multigrid)", source)
+        self.assertIn("poll_track_gestures(gestures, multigrid=multigrid)", source)
         self.assertNotIn("fs.poll_tail_capture()", source)
 
 class ViewAgreementTests(unittest.TestCase):
@@ -128,7 +128,7 @@ class ViewAgreementTests(unittest.TestCase):
 
         osc = MagicMock()
         midi_out = MagicMock()
-        _by_note, footswitches = build_footswitches(
+        _by_note, gestures = build_track_gestures(
             osc=osc,
             midi_out=midi_out,
             num_loops=NUM_LOOPS,
@@ -138,7 +138,7 @@ class ViewAgreementTests(unittest.TestCase):
         mix = LoopMix(num_loops=NUM_LOOPS)
         for offset in (0, 8, 1, 7):
             view = GridView(offset=offset)
-            by_note = apply_view(midi_out, footswitches=footswitches, view=view)
+            by_note = apply_view(midi_out, gestures=gestures, view=view)
             mix.set_view(view)
             for col in range(8):
                 self.assertEqual(
@@ -177,7 +177,7 @@ class DumpMidiTests(unittest.TestCase):
 
 
 class FaderDispatchTests(unittest.TestCase):
-    """Fake CC in → assert the OSC calls, the way the footswitch tests do."""
+    """Fake CC in → assert the OSC calls, the way the gesture tests do."""
 
     def setUp(self) -> None:
         from scripts.sooperlooper.apc_faders import fader_for_cc, resolve_fader_ccs

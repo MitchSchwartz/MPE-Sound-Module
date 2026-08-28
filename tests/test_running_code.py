@@ -48,10 +48,10 @@ class StaleDetectionTests(unittest.TestCase):
 
     def test_banner_says_stale_and_names_the_remedy(self) -> None:
         with patch("running_code.stale_source_files",
-                   return_value=["/x/apc_footswitch.py", "/x/loop_model.py"]):
+                   return_value=["/x/track_gesture.py", "/x/loop_model.py"]):
             line = running_code_sha()
         self.assertIn("STALE", line)
-        self.assertIn("apc_footswitch.py", line)
+        self.assertIn("track_gesture.py", line)
         self.assertIn("mpe-looper-session", line,
                       "the banner must say what to restart, not just complain")
 

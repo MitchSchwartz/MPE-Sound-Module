@@ -7,7 +7,7 @@ so this is the only net under these paths.
 
 That gap was not theoretical. The 2026-08-27 "pad goes green then yellow and
 never records" bug lived in exactly this space: `_prepare_record` cleared the
-engine correctly, but nothing told the footswitch, so its next gesture was a
+engine correctly, but nothing told the gesture, so its next gesture was a
 mute. Equivalence was green throughout.
 
 Each test asserts the OSC the engine actually receives, in order, because
@@ -34,7 +34,7 @@ from sl_loop_states import (  # noqa: E402
 from slot_matrix import PENDING_SWITCH, Slot, Track  # noqa: E402
 from slot_runtime import SlotRuntime  # noqa: E402
 from slot_surface import SlotSurface  # noqa: E402
-from tests.test_slot_surface import FakeOut, build_footswitches  # noqa: E402
+from tests.test_slot_surface import FakeOut, build_track_gestures  # noqa: E402
 
 
 class VocabularyCase(unittest.TestCase):
@@ -43,7 +43,7 @@ class VocabularyCase(unittest.TestCase):
         self.addCleanup(shutil.rmtree, self.dir, True)
         self.osc: list[tuple[str, list]] = []
         self.out = FakeOut()
-        self.fs_by_loop = build_footswitches(self.osc)
+        self.fs_by_loop = build_track_gestures(self.osc)
         self.engine_saves = True     # does save_loop actually produce a file?
         self.rt = SlotRuntime(
             send=self._send,
@@ -54,7 +54,7 @@ class VocabularyCase(unittest.TestCase):
         self.view = GridView(offset=0)
         self.surface = SlotSurface(
             runtime=self.rt,
-            footswitches_by_loop=self.fs_by_loop,
+            gestures_by_loop=self.fs_by_loop,
             view=self.view,
             midi_out=self.out,
             num_tracks=15,
@@ -207,9 +207,9 @@ class RecordIntoAnotherSlotTests(VocabularyCase):
         self.tap(3)
         self.assertEqual(self.hits(), ["record"])
 
-    def test_the_footswitch_owns_the_record_command(self) -> None:
+    def test_the_gesture_owns_the_record_command(self) -> None:
         """One record state machine. The runtime prepares the buffer; the
-        gesture is the footswitch's, or the two disagree about the take."""
+        gesture is the gesture's, or the two disagree about the take."""
         self.tap(3)
         self.assertEqual(self.hits().count("record"), 1)
 
@@ -295,7 +295,7 @@ class ClearTests(VocabularyCase):
 
         This caught a real one: the launch fired on pad DOWN, so holding a
         stored clip to delete it loaded and played it first, then deleted it.
-        A stored slot now acts on RELEASE, which is also where the footswitch
+        A stored slot now acts on RELEASE, which is also where the gesture
         puts mute and launch.
         """
         path = self.rt.clip_path(0, 1)

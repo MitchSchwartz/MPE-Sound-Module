@@ -2,7 +2,7 @@
 
 Slot **occupancy** and switch/stop pending live in ``SlotRuntime``. Record,
 close, stop, ring-out, quantize, and active-slot LED timing live in the
-existing ``LoopFootswitch`` for each track — one gesture brain per column.
+existing ``TrackGesture`` for each track — one gesture brain per column.
 """
 
 from __future__ import annotations
@@ -36,7 +36,7 @@ from slot_matrix import (
 from slot_runtime import SlotRuntime
 
 if False:  # TYPE_CHECKING — avoid import cycle at runtime
-    from apc_footswitch import LoopFootswitch
+    from track_gesture import TrackGesture
 
 MIN_TAKE_LEN_S = 0.01
 SILENT = (SL_STATE_MUTE, SL_STATE_PAUSED, SL_STATE_OFF)
@@ -47,7 +47,7 @@ class SlotSurface:
         self,
         *,
         runtime: SlotRuntime,
-        footswitches_by_loop: dict[int, "LoopFootswitch"],
+        gestures_by_loop: dict[int, "TrackGesture"],
         view: GridView,
         midi_out,
         num_tracks: int,
@@ -58,7 +58,7 @@ class SlotSurface:
         now: Callable[[], float] = time.monotonic,
     ) -> None:
         self._rt = runtime
-        self._fs = footswitches_by_loop
+        self._fs = gestures_by_loop
         self._view = view
         self._midi_out = midi_out
         self._num_tracks = num_tracks
@@ -90,7 +90,7 @@ class SlotSurface:
         means launch-or-switch, and its long press means delete — so acting on
         pad-down loaded and played the clip before the hold could fire, and the
         player watched the take they were deleting start up first. The
-        footswitch already lands mute and launch on release for the same
+        gesture already lands mute and launch on release for the same
         reason; only record has to be immediate.
         """
         cell = self._view.cell_for_note(note)
@@ -146,12 +146,12 @@ class SlotSurface:
             fs.set_note(note)
             if plan.action == ACT_RECORD:
                 # The runtime just muted and emptied this track's buffer for a
-                # take on a different slot. Tell the footswitch, or it derives
+                # take on a different slot. Tell the gesture, or it derives
                 # `playing` from the last engine report and its gesture is a
                 # mute instead of a record.
                 fs.expect_cleared()
             fs.on_pad_down()
-        self._sync_footswitch_notes()
+        self._sync_gesture_notes()
         self.repaint()
         self.repaint_scenes()
         return True
@@ -173,7 +173,7 @@ class SlotSurface:
                     fs.set_note(note)
                     # A scene press is a complete tap. There is no pad to
                     # release, so the up has to be synthesised: leaving the
-                    # footswitch held would let its hold timer expire and fire
+                    # gesture held would let its hold timer expire and fire
                     # long-press-to-clear on every track in the row, and the
                     # mute/unmute half of the gesture lands on the up.
                     #
@@ -187,14 +187,14 @@ class SlotSurface:
                     fs.synthesised_tap()
         if plans:
             self._log(f"scene row {row + 1}: {len(plans)} track(s)")
-        self._sync_footswitch_notes()
+        self._sync_gesture_notes()
         self.repaint()
         self.repaint_scenes()
 
     def _is_active_lane(self, note: int) -> bool:
         """Is this pad the track's bound buffer (or a track with none)?
 
-        The lane where the footswitch decides everything. Kept as one predicate
+        The lane where the gesture decides everything. Kept as one predicate
         so hold, press and LED routing cannot disagree about which lane a pad
         is in — three separate answers to that question is how the surface
         ended up with two hold implementations.
@@ -206,7 +206,7 @@ class SlotSurface:
         tr = self._rt.track(track)
         # Must agree with plan_cell_press exactly. An OCCUPIED slot on an
         # unbound track is NOT the lane — the matrix launches it from disk —
-        # so routing its hold or its LED to the footswitch would have the
+        # so routing its hold or its LED to the gesture would have the
         # surface and the planner disagreeing about who owns the same pad.
         return tr.active_slot == slot or (
             tr.active_slot is None and not tr.occupied(slot)
@@ -215,8 +215,8 @@ class SlotSurface:
     def poll_hold(self) -> None:
         if self._pad_down_note is None or self._hold_fired or self._pad_down_at is None:
             return
-        # Active lane: the footswitch owns hold-to-clear, blink and all. Its
-        # own poll_hold is skipped under multigrid (see poll_footswitches), so
+        # Active lane: the gesture owns hold-to-clear, blink and all. Its
+        # own poll_hold is skipped under multigrid (see poll_track_gestures), so
         # drive it here rather than reimplementing the timing — a second hold
         # implementation fired at a different moment and painted a different
         # blink, which is what the equivalence test caught.
@@ -226,7 +226,7 @@ class SlotSurface:
             if fs is not None:
                 fs.poll_hold()
                 if fs.hold_fired:
-                    # The footswitch cleared the engine. The clip on disk is
+                    # The gesture cleared the engine. The clip on disk is
                     # ours, and nothing else will remove it.
                     self._rt.forget_active_slot(cell[0])
                     self._hold_fired = True
@@ -245,7 +245,7 @@ class SlotSurface:
     def poll_hold_led(self) -> None:
         if self._pad_down_note is None or self._hold_fired or self._pad_down_at is None:
             return
-        # Active lane: the footswitch's own hold blink reaches the surface
+        # Active lane: the gesture's own hold blink reaches the surface
         # through current_led(), so painting here as well would fight it.
         if self._is_active_lane(self._pad_down_note):
             return
@@ -267,7 +267,7 @@ class SlotSurface:
         Reported 2026-08-27: "I see the appropriate flashing on each clip, but
         it never actually switches."
 
-        Same lesson the footswitch LEDs learned earlier: act on what is true,
+        Same lesson the gesture LEDs learned earlier: act on what is true,
         not on the arrival of a message saying it changed.
         """
         for track_index, track in self._rt.tracks().items():
@@ -276,7 +276,7 @@ class SlotSurface:
             self._maybe_resolve(track_index, self._sl_states.get(track_index, SL_STATE_OFF))
 
     def poll_led_repaint(self) -> None:
-        """Advance footswitch blink phase and repaint if needed."""
+        """Advance gesture blink phase and repaint if needed."""
         self.poll_pending()
         self.repaint()
 
@@ -286,7 +286,7 @@ class SlotSurface:
         self._sl_states[track] = int(sl_state)
         self._maybe_mark_recorded(track, int(sl_state))
         self._maybe_resolve(track, int(sl_state))
-        self._sync_footswitch_notes()
+        self._sync_gesture_notes()
         self.repaint()
         self.repaint_scenes()
 
@@ -353,7 +353,7 @@ class SlotSurface:
             f"will record again."
         )
 
-    def _sync_footswitch_notes(self) -> None:
+    def _sync_gesture_notes(self) -> None:
         for track_index in self._view.visible_loops():
             fs = self._fs.get(track_index)
             if fs is None:
@@ -393,11 +393,11 @@ class SlotSurface:
     def set_view(self, view: GridView) -> None:
         self._view = view
         self._painted = None
-        self._sync_footswitch_notes()
+        self._sync_gesture_notes()
         self.repaint()
         self.repaint_scenes(force=True)
 
-    def _footswitch_leds(self) -> dict[int, int]:
+    def _gesture_leds(self) -> dict[int, int]:
         out: dict[int, int] = {}
         for track_index in self._view.visible_loops():
             fs = self._fs.get(track_index)
@@ -417,7 +417,7 @@ class SlotSurface:
             self._rt.tracks(),
             self._sl_states,
             previous=None if force else self._painted,
-            footswitch_leds=self._footswitch_leds(),
+            gesture_leds=self._gesture_leds(),
         )
         for note, colour in messages:
             self._midi_out.send_message([0x90, note, colour])

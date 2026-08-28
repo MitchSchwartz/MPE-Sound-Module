@@ -10,7 +10,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "sooperlooper"))
 
-from apc_footswitch import LoopFootswitch  # noqa: E402
+from track_gesture import TrackGesture  # noqa: E402
 from apc_grid import GridView, pad_note  # noqa: E402
 from led_table import (  # noqa: E402
     LED_GREEN,
@@ -49,10 +49,10 @@ class _OscStub:
             self._sink.append((path, list(args)))
 
 
-def build_footswitches(sink: list, *, num: int = 15) -> dict[int, LoopFootswitch]:
-    out: dict[int, LoopFootswitch] = {}
+def build_track_gestures(sink: list, *, num: int = 15) -> dict[int, TrackGesture]:
+    out: dict[int, TrackGesture] = {}
     for loop in range(num):
-        fs = LoopFootswitch(
+        fs = TrackGesture(
             loop=loop, hold_ms=2000, debounce_ms=0, multigrid=True, quantized=False
         )
         fs.bind(_OscStub(sink), FakeOut(), None)
@@ -70,10 +70,10 @@ class SurfaceCase(unittest.TestCase):
             clips_dir=self.dir,
             num_tracks=15,
         )
-        self.fs_by_loop = build_footswitches(self.osc)
+        self.fs_by_loop = build_track_gestures(self.osc)
         self.surface = SlotSurface(
             runtime=self.rt,
-            footswitches_by_loop=self.fs_by_loop,
+            gestures_by_loop=self.fs_by_loop,
             view=GridView(offset=0),
             midi_out=self.out,
             num_tracks=15,
@@ -93,7 +93,7 @@ class SurfaceCase(unittest.TestCase):
         """Deliver an engine state exactly as SlBenchStateListener does.
 
         Both halves, in this order. A test that updated only the surface left
-        the footswitch's mirror at idle, so a forwarded press planned from
+        the gesture's mirror at idle, so a forwarded press planned from
         stale state — the harness reporting a bug the appliance does not have.
         """
         fs = self.fs_by_loop.get(loop)
@@ -143,9 +143,9 @@ class PendingResolutionTests(SurfaceCase):
         self.assertIsNone(self.rt.track(0).pending)
         self.assertEqual(self.rt.track(0).active_slot, 4)
 
-    def test_stopping_the_active_clip_is_the_footswitch_not_a_pending(self) -> None:
+    def test_stopping_the_active_clip_is_the_gesture_not_a_pending(self) -> None:
         """The matrix has no pending for its own active slot any more. The
-        footswitch mutes it, exactly as on the single-clip surface — the
+        gesture mutes it, exactly as on the single-clip surface — the
         engine does its own quantizing, so a second queue here only added a
         way for the two to disagree about when the stop happened."""
         self.rt._tracks[0] = Track(slots=(Slot("a.wav"), *([None] * 7)), active_slot=0)
@@ -193,7 +193,7 @@ class PaintTests(SurfaceCase):
 
 class HoldClearTests(SurfaceCase):
     def test_hold_on_the_active_slot_clears_engine_and_disk_once(self) -> None:
-        """Split gesture: the footswitch sends `undo_all`, the runtime deletes
+        """Split gesture: the gesture sends `undo_all`, the runtime deletes
         the WAV and unbinds. Neither does the other's half."""
         path = self.rt.clip_path(0, 0)
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -248,8 +248,8 @@ class RecordOverPlayingTrackTests(SurfaceCase):
         self.assertNotIn("mute_on", cmds)
         self.assertNotIn("undo_all", cmds)
 
-    def test_the_footswitch_is_not_left_thinking_it_is_playing(self) -> None:
-        """The root cause: the runtime cleared the engine, but the footswitch's
+    def test_the_gesture_is_not_left_thinking_it_is_playing(self) -> None:
+        """The root cause: the runtime cleared the engine, but the gesture's
         own state machine still read `playing`, so its gesture was mute."""
         self.surface.note_down(pad_note(3, 0))
         self.assertEqual(self.fs_by_loop[0].state, "recording")
@@ -338,10 +338,10 @@ class SceneLaunchSurvivesTheRealDebounce(SurfaceCase):
     """
 
     def test_the_up_edge_is_not_swallowed_at_200ms(self) -> None:
-        from tests.test_multigrid_delegates import build_test_footswitch
+        from tests.test_multigrid_delegates import build_test_gesture
 
         sink: list[tuple[str, list]] = []
-        fs = build_test_footswitch(0, sink, debounce_ms=200.0)
+        fs = build_test_gesture(0, sink, debounce_ms=200.0)
         fs.sl_state = SL_STATE_OFF
         fs.synthesised_tap()
         self.assertTrue(
@@ -350,10 +350,10 @@ class SceneLaunchSurvivesTheRealDebounce(SurfaceCase):
 
     def test_a_real_double_press_is_still_debounced(self) -> None:
         """The guard must keep rejecting hardware contact bounce."""
-        from tests.test_multigrid_delegates import build_test_footswitch
+        from tests.test_multigrid_delegates import build_test_gesture
 
         sink: list[tuple[str, list]] = []
-        fs = build_test_footswitch(0, sink, debounce_ms=200.0)
+        fs = build_test_gesture(0, sink, debounce_ms=200.0)
         fs.sl_state = SL_STATE_OFF
         fs.on_pad_down()
         first = len(sink)

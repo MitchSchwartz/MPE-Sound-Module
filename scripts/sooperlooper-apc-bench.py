@@ -3,7 +3,7 @@
 
 Ableton-style: the 16 tracks are one horizontal line on the bottom row, eight
 visible at a time. Up/Down page the viewport by eight; Shift+Left/Right nudge
-it by one. Short tap = footswitch cycle, hold ~2 s = clear loop.
+it by one. Short tap = gesture cycle, hold ~2 s = clear loop.
 Shift + Stop All Clips (release) = stop all loops. Shift + Stop All held 3 s = clear all.
 """
 
@@ -16,11 +16,11 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "sooperlooper"))
-from apc_footswitch import (  # noqa: E402
+from track_gesture import (  # noqa: E402
     apply_view,
-    build_footswitches,
-    footswitches_by_loop,
-    poll_footswitches,
+    build_track_gestures,
+    gestures_by_loop,
+    poll_track_gestures,
     reset_all_loops,
     stop_all_loops,
 )
@@ -195,8 +195,8 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
     midi_osc_latencies: list[float] = []
     midi_osc_pending: list[float] = []
     if args.measure_latency:
-        # Tap the CLIENT, not the bench's _send helper. Footswitches are handed the raw
-        # client by build_footswitches(osc=...) and send /hit through it directly, so a
+        # Tap the CLIENT, not the bench's _send helper. TrackGesturees are handed the raw
+        # client by build_track_gestures(osc=...) and send /hit through it directly, so a
         # hook in _send sees nothing a pad ever does. Measured on the appliance
         # 2026-08-19: 267 pad presses, zero samples, no result printed.
         from latency_tap import LatencyTapClient
@@ -275,7 +275,7 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
             scene_launch_notes=scene_launch_notes,
         )
 
-    by_note, footswitches = build_footswitches(
+    by_note, gestures = build_track_gestures(
         osc=osc,
         midi_out=midi_out,
         num_loops=num_loops,
@@ -291,7 +291,7 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
         multigrid=multigrid,
     )
     if not multigrid:
-        for fs in footswitches:
+        for fs in gestures:
             fs._sync_led()
 
     def on_looper_engine_started() -> None:
@@ -325,7 +325,7 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
     def on_wet(loop_index: int, value: float) -> None:
         mix.seed_from_engine(loop_index, value)
 
-    by_loop = footswitches_by_loop(footswitches)
+    by_loop = gestures_by_loop(gestures)
     # Multi-clip matrix. OFF by default: it takes over all eight rows including
     # row 0, replacing the single-clip record gesture Mitch plays with today.
     # That is not a change to make live without him having tried it, so it is
@@ -343,7 +343,7 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
         )
         slot_surface = SlotSurface(
             runtime=slot_runtime,
-            footswitches_by_loop=by_loop,
+            gestures_by_loop=by_loop,
             view=view,
             midi_out=midi_out,
             num_tracks=num_loops,
@@ -390,7 +390,7 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
             return
         view = new_view
         by_note = apply_view(
-            midi_out, footswitches=footswitches, view=view, multigrid=multigrid
+            midi_out, gestures=gestures, view=view, multigrid=multigrid
         )
         if slot_surface is not None:
             slot_surface.set_view(view)
@@ -480,7 +480,7 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
         for _n in range(GRID_ROWS * GRID_COLS):
             midi_out.send_message([0x90, _n, LED_OFF])
         by_note = apply_view(
-            midi_out, footswitches=footswitches, view=view, multigrid=multigrid
+            midi_out, gestures=gestures, view=view, multigrid=multigrid
         )
         if slot_surface is not None:
             slot_surface.repaint(force=True)
@@ -501,7 +501,7 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
         # against a dead input while printing a healthy banner.
         link_health.poll()
         midi_out.pump()
-        poll_footswitches(footswitches, multigrid=multigrid)
+        poll_track_gestures(gestures, multigrid=multigrid)
         if slot_surface is not None:
             slot_surface.poll_hold()
             slot_surface.poll_hold_led()
@@ -541,7 +541,7 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
                 osc,
                 midi_out,
                 num_loops=num_loops,
-                footswitches=footswitches,
+                gestures=gestures,
             )
             if slot_surface is not None:
                 slot_surface.reset()
@@ -550,7 +550,7 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
             stop_all_loops(
                 osc,
                 num_loops=num_loops,
-                footswitches=footswitches,
+                gestures=gestures,
             )
 
     while True:

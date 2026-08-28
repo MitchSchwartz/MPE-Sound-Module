@@ -1,6 +1,6 @@
 """Execute `slot_matrix` plans — slot files and buffer prep only.
 
-Record/close/stop **gestures** are delegated to ``LoopFootswitch`` per track.
+Record/close/stop **gestures** are delegated to ``TrackGesture`` per track.
 This module owns mutable slot occupancy, pending switch/stop, and the OSC that
 only the matrix needs (`load_loop`, `save_loop`, `undo_all` for slot changes).
 """
@@ -34,8 +34,8 @@ from slot_matrix import (
 from looper_songs import _fsync_dir, _fsync_file
 from sl_loop_states import ACTIVE_PLAY, SL_STATE_OFF
 
-# Gestures the footswitch owns — runtime must not send parallel OSC for these.
-# Actions the track's own footswitch carries out. ACT_FORWARD is the whole
+# Gestures the gesture owns — runtime must not send parallel OSC for these.
+# Actions the track's own gesture carries out. ACT_FORWARD is the whole
 # active lane: the matrix contributes nothing to it but the binding.
 GESTURE_ACTIONS = frozenset({ACT_FORWARD, ACT_RECORD})
 
@@ -158,7 +158,7 @@ class SlotRuntime:
                 return self._prepare_record(plan, sl_state=sl_state)
             if plan.action == ACT_FORWARD:
                 # Bind the buffer to this slot if the track had none. No OSC:
-                # the footswitch owns every command in this lane, and a stray
+                # the gesture owns every command in this lane, and a stray
                 # send from here would double whatever it does.
                 if self.track(plan.track).active_slot is None:
                     self._tracks[plan.track] = replace(
@@ -281,11 +281,11 @@ class SlotRuntime:
     def forget_active_slot(self, loop: int) -> bool:
         """Drop the active slot's file and binding, touching nothing else.
 
-        The engine half of a long-press-to-clear belongs to `LoopFootswitch`,
+        The engine half of a long-press-to-clear belongs to `TrackGesture`,
         which already sent `undo_all` — sending it again from here would be the
-        second opinion this design removed. What the footswitch cannot do is
+        second opinion this design removed. What the gesture cannot do is
         delete the WAV: it has never heard of slot files. So the split is
-        exact — the footswitch owns the engine and the LED, the matrix owns the
+        exact — the gesture owns the engine and the LED, the matrix owns the
         disk and the binding.
         """
         track = self.track(loop)

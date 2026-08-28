@@ -78,13 +78,13 @@ class EmptyCellTests(unittest.TestCase):
         p = press(track(), 0)
         self.assertEqual(p.action, ACT_FORWARD,
                          "an empty slot on an unbound track is the "
-                         "footswitch's lane — it owns arming")
+                         "gesture's lane — it owns arming")
 
     def test_second_tap_while_recording_closes_take(self) -> None:
         tr = track(active_slot=0)
         p = press(tr, 0, sl_state=SL_STATE_RECORDING)
         self.assertEqual(p.action, ACT_FORWARD,
-                         "closing a take is the footswitch's decision, not ours")
+                         "closing a take is the gesture's decision, not ours")
 
     def test_second_tap_while_arming_closes_take(self) -> None:
         tr = track(active_slot=2)
@@ -110,14 +110,14 @@ class OccupiedCellTests(unittest.TestCase):
         slots = [clip()] + [None] * 7
         p = press(track(slots=slots, active_slot=0), 0, sl_state=SL_STATE_PLAYING)
         self.assertEqual(p.action, ACT_FORWARD,
-                         "stopping the sounding clip is the footswitch's mute")
+                         "stopping the sounding clip is the gesture's mute")
 
     def test_tapping_the_muted_active_slot_relaunches_it(self) -> None:
         slots = [clip()] + [None] * 7
         p = press(track(slots=slots, active_slot=0), 0, sl_state=SL_STATE_MUTE)
         self.assertEqual(p.action, ACT_FORWARD,
                          "the clip is already loaded — unmute is the "
-                         "footswitch's, not a fresh launch")
+                         "gesture's, not a fresh launch")
 
     def test_overdubbing_counts_as_playing(self) -> None:
         """A take closing into its ring-out overdub is sounding, so the pad
@@ -148,9 +148,9 @@ class OccupiedCellTests(unittest.TestCase):
         slots = [clip()] + [None] * 7
         self.assertEqual(press(track(slots=slots), 0, hold=True).action, ACT_CLEAR)
 
-    def test_hold_on_empty_forwards_to_the_footswitch(self) -> None:
+    def test_hold_on_empty_forwards_to_the_gesture(self) -> None:
         """Unbound + empty is the active lane, so long-press-to-clear is the
-        footswitch's gesture even though the matrix has nothing to clear."""
+        gesture's gesture even though the matrix has nothing to clear."""
         self.assertEqual(press(track(), 0, hold=True).action, ACT_FORWARD)
 
 

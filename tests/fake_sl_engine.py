@@ -148,9 +148,9 @@ class FakeSlEngine:
         self._at_boundary.clear()
 
     # --- what the bench listener would deliver ----------------------------
-    def poll(self, footswitch) -> None:
+    def poll(self, gesture) -> None:
         """Deliver this loop's state, the way the OSC listener would."""
-        loop = footswitch.loop
-        footswitch.sync_from_sl(self.state[loop])
+        loop = gesture.loop
+        gesture.sync_from_sl(self.state[loop])
         if self.loop_len[loop]:
-            footswitch.sync_loop_len(self.loop_len[loop])
+            gesture.sync_loop_len(self.loop_len[loop])

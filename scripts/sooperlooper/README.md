@@ -33,7 +33,7 @@ is stale — those files are gone.
 | **Up / Down** | arrows | — | Page the viewport by 8 |
 | **Shift + Left / Right** | arrows | — | Nudge the viewport by 1 |
 
-Mapping: `apc_grid.py` (`GridView`) · pads: `apc_footswitch.py` · bench: `../sooperlooper-apc-bench.py`
+Mapping: `apc_grid.py` (`GridView`) · pads: `track_gesture.py` · bench: `../sooperlooper-apc-bench.py`
 
 **Tracks run left to right on one line.** The APC is eight columns wide, so it
 is a *viewport* onto sixteen tracks, not a container for them. This replaced
@@ -54,7 +54,7 @@ pickup exists to prevent. So the next touch of each fader re-anchors and
 changes nothing. Stored levels are untouched: tracks scrolled off-screen keep
 playing at the level they were left at, and only the binding moved.
 
-Every track keeps a footswitch whether or not it is on screen — a banked-off
+Every track keeps a gesture whether or not it is on screen — a banked-off
 track keeps playing, keeps receiving engine state and keeps its pending intent;
 only its pad binding goes away (`note=None`) and comes back on the next bank
 change. Banking clears the whole clip row before repainting: a pad left lit by
