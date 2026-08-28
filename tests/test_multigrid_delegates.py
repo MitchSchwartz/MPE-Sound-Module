@@ -26,9 +26,22 @@ class _OscStub:
             self._sink.append((path, list(args)))
 
 
-def build_test_footswitch(loop: int, sink: list) -> LoopFootswitch:
+def build_test_footswitch(
+    loop: int, sink: list, *, debounce_ms: float = 0
+) -> LoopFootswitch:
+    """`debounce_ms` is a parameter on purpose.
+
+    It defaulted to 0 with no way to override, and every harness in the suite
+    inherited that. 0 is the one value at which a debounce bug cannot appear,
+    and the appliance runs 200 — which is how a scene launch that was silently
+    swallowed by the debounce shipped with a green suite.
+    """
     fs = LoopFootswitch(
-        loop=loop, hold_ms=2000, debounce_ms=0, multigrid=True, quantized=False
+        loop=loop,
+        hold_ms=2000,
+        debounce_ms=debounce_ms,
+        multigrid=True,
+        quantized=False,
     )
     fs.bind(_OscStub(sink), None, pad_note(0, loop))
     return fs
