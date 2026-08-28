@@ -20,9 +20,10 @@ source "$SCRIPT_DIR/lib/paths.sh"
 ROUTE_CLASSIC="${MPE_ROUTE_CLASSIC:-0}"
 
 if [ "$ROUTE_CLASSIC" != "0" ] && [ -n "$ROUTE_CLASSIC" ]; then
-    # Any controller will do. The daemon waits for one rather than exiting,
-    # so there is nothing useful to decide here.
-    bash "$SCRIPT_DIR/wait-for-usb-midi.sh" || true
+    # Any controller will do, and the daemon waits for one rather than
+    # exiting -- so blocking 15 s here for a ROLI that may never appear buys
+    # nothing and delays a classic-only startup.
+    :
 else
     if ! lsusb 2>/dev/null | grep -qi '2af4:'; then
         echo "mpe-pressure-remap: no Roli USB and classic routing off — idle exit 0"

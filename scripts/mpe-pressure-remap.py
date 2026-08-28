@@ -356,9 +356,16 @@ class PressureRemapDaemon:
             print("Error: python-rtmidi required for mpe-pressure-remap", file=sys.stderr)
             return 1
 
-        wait_script = REPO_ROOT / "scripts" / "wait-for-usb-midi.sh"
-        if wait_script.is_file():
-            subprocess.run(["bash", str(wait_script)], check=False)
+        # The ROLI-specific settle wait. Skipped when classic routing is on:
+        # it blocks 15 s waiting for a device that may legitimately never
+        # appear, and the reconnect poll now binds controllers whenever they
+        # show up, so nothing is gained by blocking here. Measured on the
+        # appliance 2026-08-28: with no ROLI attached this wait ran here AND
+        # in the wrapper, delaying a classic-only startup by 32 s.
+        if not ROUTE_CLASSIC:
+            wait_script = REPO_ROOT / "scripts" / "wait-for-usb-midi.sh"
+            if wait_script.is_file():
+                subprocess.run(["bash", str(wait_script)], check=False)
 
         self._out = rtmidi.MidiOut()
         out_ports = list(self._out.get_ports())
