@@ -32,7 +32,7 @@ from slot_matrix import PENDING_LAUNCH, PENDING_STOP, PENDING_SWITCH, Track
 
 
 def static_cell_led(track: Track, slot: int) -> int:
-    """The colour for a cell the footswitch does NOT own.
+    """The colour for a cell the gesture does NOT own.
 
     Deliberately narrower than it used to be. This function once coloured the
     active slot too, from `sl_state` alone — and that could never be right,
@@ -41,9 +41,9 @@ def static_cell_led(track: Track, slot: int) -> int:
     (how long ago the take closed) is not in this signature. No amount of
     case-patching here could reproduce it, which is exactly how the missing
     ring-out blinker got shipped. The active cell's colour now comes from
-    `LoopFootswitch` via `footswitch_leds`, and there is no second opinion.
+    `TrackGesture` via `gesture_leds`, and there is no second opinion.
 
-    What is left is what the footswitch genuinely cannot know: the matrix's own
+    What is left is what the gesture genuinely cannot know: the matrix's own
     pending blinks, and the yellow for a slot that holds audio but is not the
     one bound to the track's buffer. Neither depends on the engine state, so
     there is deliberately no `sl_state` parameter: `sl_state` describes the one
@@ -78,7 +78,7 @@ def matrix_messages(
     sl_states: dict[int, int],
     *,
     previous: dict[int, int] | None = None,
-    footswitch_leds: dict[int, int] | None = None,
+    gesture_leds: dict[int, int] | None = None,
 ) -> tuple[list[tuple[int, int]], dict[int, int]]:
     """(note, colour) for the visible matrix, plus the state to pass in next time.
 
@@ -100,16 +100,16 @@ def matrix_messages(
         if track is None:
             desired[note] = LED_OFF
             continue
-        # The active lane is the footswitch's, unconditionally — including
+        # The active lane is the gesture's, unconditionally — including
         # when it has no entry yet, which reads as OFF and is correct: an
         # unpainted pad is dark. Falling back to a state-derived colour here
         # would quietly restore the second opinion this refactor removed.
         #
         # A pending is the one thing that outranks it: a pending switch's
-        # outgoing slot IS the active slot, and the footswitch has never heard
+        # outgoing slot IS the active slot, and the gesture has never heard
         # of the switch, so only the matrix can blink it.
         if row == track.active_slot and track.pending is None:
-            desired[note] = (footswitch_leds or {}).get(track_index, LED_OFF)
+            desired[note] = (gesture_leds or {}).get(track_index, LED_OFF)
         else:
             desired[note] = static_cell_led(track, row)
     if previous is None:

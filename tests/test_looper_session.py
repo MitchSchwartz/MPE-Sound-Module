@@ -183,17 +183,17 @@ class LatencyTapTests(unittest.TestCase):
         client.send_message("/sl/0/set", ["x"])
         self.assertEqual(len(out), 1, "non-/hit sends must not consume a sample")
 
-    def test_footswitches_are_handed_the_tapped_client(self) -> None:
+    def test_gestures_are_handed_the_tapped_client(self) -> None:
         """The bug this exists for: hooking _send measured nothing.
 
-        build_footswitches(osc=...) hands the raw client to every footswitch, which
+        build_track_gestures(osc=...) hands the raw client to every gesture, which
         sends /hit through it directly. A hook in the bench's _send helper never sees
         a pad. Measured on the appliance 2026-08-19: 267 presses, zero samples.
         """
         text = (REPO / "scripts" / "sooperlooper-apc-bench.py").read_text(encoding="utf-8")
         tap = text.index("LatencyTapClient(osc,")
-        build = text.index("by_note, footswitches = build_footswitches(")
-        self.assertLess(tap, build, "the client must be wrapped before footswitches bind it")
+        build = text.index("by_note, gestures = build_track_gestures(")
+        self.assertLess(tap, build, "the client must be wrapped before gestures bind it")
         send_body = text.split("def _send(path: str, a: list) -> None:", 1)[1].split("\n\n", 1)[0]
         self.assertNotIn(
             "midi_osc_pending", send_body, "pairing belongs on the client, not in _send"

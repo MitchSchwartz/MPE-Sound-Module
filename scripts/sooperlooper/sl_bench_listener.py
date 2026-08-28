@@ -1,11 +1,11 @@
-"""OSC state auto-update routing for APC footswitch bench (criterion 41)."""
+"""OSC state auto-update routing for APC gesture bench (criterion 41)."""
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from apc_footswitch import LoopFootswitch
+    from track_gesture import TrackGesture
 from sl_limits import MAX_USABLE_LOOPS
 
 
@@ -19,7 +19,7 @@ class SlBenchStateListener:
 
     def __init__(
         self,
-        by_loop: dict[int, LoopFootswitch],
+        by_loop: dict[int, TrackGesture],
         on_wet=None,
         *,
         session=None,

@@ -1,4 +1,4 @@
-"""APC footswitch — no master-loop special cases."""
+"""APC gesture — no master-loop special cases."""
 
 from tests import conftest  # noqa: F401 — bare sooperlooper imports (apc_grid, …)
 
@@ -6,8 +6,8 @@ import unittest
 from unittest.mock import MagicMock, patch
 import time
 
-import scripts.sooperlooper.apc_footswitch as footswitch_mod
-from scripts.sooperlooper.apc_footswitch import LoopFootswitch, build_footswitches
+import scripts.sooperlooper.track_gesture as gesture_mod
+from scripts.sooperlooper.track_gesture import TrackGesture, build_track_gestures
 from scripts.sooperlooper.loop_model import STATE_PLAYING, STATE_STOPPED
 from scripts.sooperlooper.sl_loop_states import (
     SL_STATE_MUTE,
@@ -22,10 +22,10 @@ from scripts.sooperlooper.sl_loop_states import (
 )
 
 
-class ApcFootswitchTests(unittest.TestCase):
+class ApcTrackGestureTests(unittest.TestCase):
     def test_loop0_tap_record_does_not_send_trigger(self) -> None:
         osc = MagicMock()
-        fs = LoopFootswitch(loop=0, hold_ms=1000.0, debounce_ms=0.0)
+        fs = TrackGesture(loop=0, hold_ms=1000.0, debounce_ms=0.0)
         fs.bind(osc, MagicMock(), 36)
         fs.on_pad_down()
         fs.on_pad_up()
@@ -37,7 +37,7 @@ class ApcFootswitchTests(unittest.TestCase):
     def test_record_starts_on_pad_down_not_release(self) -> None:
         """First-beat capture: arm on touch, not on lift."""
         osc = MagicMock()
-        fs = LoopFootswitch(loop=0, hold_ms=1000.0, debounce_ms=0.0)
+        fs = TrackGesture(loop=0, hold_ms=1000.0, debounce_ms=0.0)
         fs.bind(osc, MagicMock(), 36)
         fs.on_pad_down()
         hits = [c.args[1] for c in osc.send_message.call_args_list if c.args[0] == "/sl/0/hit"]
@@ -48,7 +48,7 @@ class ApcFootswitchTests(unittest.TestCase):
 
     def test_sync_from_sl_loop0_playing(self) -> None:
         osc = MagicMock()
-        fs = LoopFootswitch(loop=0, hold_ms=1000.0, debounce_ms=0.0)
+        fs = TrackGesture(loop=0, hold_ms=1000.0, debounce_ms=0.0)
         fs.bind(osc, MagicMock(), 36)
         changed = fs.sync_from_sl(SL_STATE_PLAYING)
         self.assertTrue(changed)
@@ -56,7 +56,7 @@ class ApcFootswitchTests(unittest.TestCase):
 
     def test_sync_from_sl_quantize_wait_stays_red(self) -> None:
         osc = MagicMock()
-        fs = LoopFootswitch(loop=2, hold_ms=1000.0, debounce_ms=0.0)
+        fs = TrackGesture(loop=2, hold_ms=1000.0, debounce_ms=0.0)
         fs.bind(osc, MagicMock(), 38)
         fs.sync_from_sl(SL_STATE_WAIT_STOP)
         self.assertEqual(fs.state, "recording")
@@ -66,9 +66,9 @@ class ApcFootswitchTests(unittest.TestCase):
     def test_quantize_wait_times_out_instead_of_latching(self) -> None:
         """No cycle boundary => release the pad, never latch it forever."""
         osc = MagicMock()
-        fs = LoopFootswitch(loop=0, hold_ms=1000.0, debounce_ms=0.0)
+        fs = TrackGesture(loop=0, hold_ms=1000.0, debounce_ms=0.0)
         fs.bind(osc, MagicMock(), 36)
-        with patch.object(footswitch_mod, "RING_OUT_ENABLED", False):
+        with patch.object(gesture_mod, "RING_OUT_ENABLED", False):
             fs.on_pad_down()
             fs.on_pad_up()
             fs.sync_from_sl(SL_STATE_RECORDING)
@@ -78,7 +78,7 @@ class ApcFootswitchTests(unittest.TestCase):
             self.assertTrue(fs.awaiting_quantize)
             self.assertTrue(fs._waiting_for_quantize())
 
-            fs._wait_since -= footswitch_mod.QUANTIZE_WAIT_TIMEOUT_S + 1.0
+            fs._wait_since -= gesture_mod.QUANTIZE_WAIT_TIMEOUT_S + 1.0
             self.assertFalse(fs._waiting_for_quantize())
             self.assertFalse(fs.awaiting_quantize)
 
@@ -89,21 +89,21 @@ class ApcFootswitchTests(unittest.TestCase):
 
     def test_sync_from_sl_paused_yellow(self) -> None:
         osc = MagicMock()
-        fs = LoopFootswitch(loop=1, hold_ms=1000.0, debounce_ms=0.0)
+        fs = TrackGesture(loop=1, hold_ms=1000.0, debounce_ms=0.0)
         fs.bind(osc, MagicMock(), 37)
         fs.sync_from_sl(SL_STATE_PAUSED)
         self.assertEqual(fs.state, "stopped")
 
     def test_build_includes_loop0(self) -> None:
         osc = MagicMock()
-        _, footswitches = build_footswitches(
+        _, gestures = build_track_gestures(
             osc=osc,
             midi_out=MagicMock(),
             num_loops=16,
             hold_ms=1000.0,
             debounce_ms=200.0,
         )
-        loops = {fs.loop for fs in footswitches}
+        loops = {fs.loop for fs in gestures}
         self.assertIn(0, loops)
 
 
@@ -112,9 +112,9 @@ class GridEstablishmentTests(unittest.TestCase):
     """First take defines the tempo, then the grid stands alone."""
 
     def _fs(self, loop, grid, established_cb=None, reanchor_cb=None):
-        from scripts.sooperlooper.apc_footswitch import LoopFootswitch
+        from scripts.sooperlooper.track_gesture import TrackGesture
 
-        fs = LoopFootswitch(
+        fs = TrackGesture(
             loop=loop, hold_ms=1000.0, debounce_ms=0.0,
             quantized=True, grid=grid,
             on_grid_established=established_cb,
@@ -246,9 +246,9 @@ class DoubleTapRecordsOneCycleTests(unittest.TestCase):
     """Double-tap while armed must record exactly one cycle, not cancel."""
 
     def _fs(self, grid):
-        from scripts.sooperlooper.apc_footswitch import LoopFootswitch
+        from scripts.sooperlooper.track_gesture import TrackGesture
 
-        fs = LoopFootswitch(loop=1, hold_ms=1000.0, debounce_ms=0.0,
+        fs = TrackGesture(loop=1, hold_ms=1000.0, debounce_ms=0.0,
                             quantized=True, grid=grid)
         fs.bind(MagicMock(), MagicMock(), 37)
         return fs
@@ -289,9 +289,9 @@ class TransitionBlinkTests(unittest.TestCase):
     """Recording -> playing alternates red/green; other states stay standard."""
 
     def _fs(self):
-        from scripts.sooperlooper.apc_footswitch import LoopFootswitch
+        from scripts.sooperlooper.track_gesture import TrackGesture
 
-        fs = LoopFootswitch(loop=0, hold_ms=1000.0, debounce_ms=0.0)
+        fs = TrackGesture(loop=0, hold_ms=1000.0, debounce_ms=0.0)
         fs.bind(MagicMock(), MagicMock(), 36)
         return fs
 
@@ -302,18 +302,18 @@ class TransitionBlinkTests(unittest.TestCase):
         fs = self._fs()
         fs.sync_from_sl(SL_STATE_WAIT_STOP)
         seq = []
-        with patch("scripts.sooperlooper.apc_footswitch.time.monotonic") as clock:
+        with patch("scripts.sooperlooper.track_gesture.time.monotonic") as clock:
             for i in range(4):
-                clock.return_value = i * footswitch_mod.TRANSITION_BLINK_S
+                clock.return_value = i * gesture_mod.TRANSITION_BLINK_S
                 fs.poll_led()
                 seq.append(self._sent(fs)[-1])
         # gaps demarcate the colours; without them it reads as one flicker
-        self.assertEqual(seq, [footswitch_mod.LED_OFF, footswitch_mod.LED_RED, footswitch_mod.LED_OFF, footswitch_mod.LED_GREEN])
+        self.assertEqual(seq, [gesture_mod.LED_OFF, gesture_mod.LED_RED, gesture_mod.LED_OFF, gesture_mod.LED_GREEN])
 
     def test_queued_to_record_stays_ableton_standard_red_blink(self) -> None:
         fs = self._fs()
         fs.sync_from_sl(SL_STATE_WAIT_START)
-        self.assertEqual(self._sent(fs)[-1], footswitch_mod.LED_RED_BLINK)
+        self.assertEqual(self._sent(fs)[-1], gesture_mod.LED_RED_BLINK)
         self.assertIsNone(fs._led_transition, "no animation for an unambiguous state")
 
     def test_landing_on_playing_ends_the_animation(self) -> None:
@@ -321,16 +321,16 @@ class TransitionBlinkTests(unittest.TestCase):
         fs.sync_from_sl(SL_STATE_WAIT_STOP)
         fs.sync_from_sl(SL_STATE_PLAYING)
         self.assertIsNone(fs._led_transition)
-        self.assertEqual(self._sent(fs)[-1], footswitch_mod.LED_GREEN)
+        self.assertEqual(self._sent(fs)[-1], gesture_mod.LED_GREEN)
 
 
 class QuantizedLaunchTests(unittest.TestCase):
     """Launching a stopped clip lands on the bar, not immediately."""
 
     def _fs(self):
-        from scripts.sooperlooper.apc_footswitch import LoopFootswitch
+        from scripts.sooperlooper.track_gesture import TrackGesture
 
-        fs = LoopFootswitch(loop=2, hold_ms=1000.0, debounce_ms=0.0, quantized=True)
+        fs = TrackGesture(loop=2, hold_ms=1000.0, debounce_ms=0.0, quantized=True)
         fs.bind(MagicMock(), MagicMock(), 38)
         return fs
 
@@ -366,12 +366,12 @@ class QuantizedLaunchTests(unittest.TestCase):
         self.assertIsNone(fs._led_transition)
         self.assertEqual(
             [c.args[0][2] for c in fs._midi_out.send_message.call_args_list][-1],
-            footswitch_mod.LED_GREEN_BLINK,
+            gesture_mod.LED_GREEN_BLINK,
         )
         fs.sync_from_sl(SL_STATE_PLAYING)
         self.assertEqual(
             [c.args[0][2] for c in fs._midi_out.send_message.call_args_list][-1],
-            footswitch_mod.LED_GREEN,
+            gesture_mod.LED_GREEN,
             "landed — solid green, and only now",
         )
 
@@ -380,13 +380,13 @@ class StopAllIsImmediateTests(unittest.TestCase):
     """Stop All is a transport action; per-clip stop stays musical."""
 
     def test_stop_all_lifts_quantize_then_restores_it(self) -> None:
-        from scripts.sooperlooper.apc_footswitch import build_footswitches, stop_all_loops
+        from scripts.sooperlooper.track_gesture import build_track_gestures, stop_all_loops
 
         osc, midi = MagicMock(), MagicMock()
-        _, footswitches = build_footswitches(
+        _, gestures = build_track_gestures(
             osc=osc, midi_out=midi, num_loops=2, hold_ms=1000.0, debounce_ms=0.0
         )
-        stop_all_loops(osc, num_loops=2, footswitches=footswitches)
+        stop_all_loops(osc, num_loops=2, gestures=gestures)
 
         sent = [(c.args[0], c.args[1]) for c in osc.send_message.call_args_list]
         quant = [v for path, v in sent if path == "/sl/-1/set"]
@@ -397,22 +397,22 @@ class StopAllIsImmediateTests(unittest.TestCase):
 
     def test_stop_all_skips_pending_on_off_muted_empty_loops(self) -> None:
         """Global mute leaves empties at sl=20; must not get pending=stopped."""
-        from scripts.sooperlooper.apc_footswitch import stop_all_loops
+        from scripts.sooperlooper.track_gesture import stop_all_loops
         from scripts.sooperlooper.led_table import led_for
 
         osc = MagicMock()
-        empty = LoopFootswitch(loop=1, hold_ms=1000.0, debounce_ms=0.0)
+        empty = TrackGesture(loop=1, hold_ms=1000.0, debounce_ms=0.0)
         empty.bind(MagicMock(), MagicMock(), 37)
         empty.sync_from_sl(SL_STATE_OFF_MUTED)
-        stop_all_loops(osc, num_loops=2, footswitches=[empty])
+        stop_all_loops(osc, num_loops=2, gestures=[empty])
         self.assertIsNone(empty._pending)
         self.assertEqual(led_for(SL_STATE_OFF_MUTED), (0,))
 
     def test_per_clip_stop_is_still_quantized(self) -> None:
         """Only Stop All is immediate — a single pad stop still waits."""
-        from scripts.sooperlooper.apc_footswitch import LoopFootswitch
+        from scripts.sooperlooper.track_gesture import TrackGesture
 
-        fs = LoopFootswitch(loop=1, hold_ms=1000.0, debounce_ms=0.0, quantized=True)
+        fs = TrackGesture(loop=1, hold_ms=1000.0, debounce_ms=0.0, quantized=True)
         fs.bind(MagicMock(), MagicMock(), 37)
         fs.sync_from_sl(SL_STATE_PLAYING)
         fs.on_pad_down(); fs.on_pad_up()
@@ -423,7 +423,7 @@ class StopAllIsImmediateTests(unittest.TestCase):
 class HoldGestureTests(unittest.TestCase):
     def test_hold_delete_shows_red_after_blink_start(self) -> None:
         midi = MagicMock()
-        fs = LoopFootswitch(
+        fs = TrackGesture(
             loop=0,
             hold_ms=2000.0,
             hold_blink_start_ms=500.0,
@@ -440,7 +440,7 @@ class HoldGestureTests(unittest.TestCase):
 
     def test_sync_from_sl_does_not_overwrite_hold_warning(self) -> None:
         midi = MagicMock()
-        fs = LoopFootswitch(loop=0, hold_ms=1000.0, debounce_ms=0.0)
+        fs = TrackGesture(loop=0, hold_ms=1000.0, debounce_ms=0.0)
         fs.bind(MagicMock(), midi, 36)
         fs.sync_from_sl(SL_STATE_PLAYING)
         fs.on_pad_down()
@@ -451,7 +451,7 @@ class HoldGestureTests(unittest.TestCase):
 
     def test_hold_blink_starts_after_blink_start_s(self) -> None:
         midi = MagicMock()
-        fs = LoopFootswitch(
+        fs = TrackGesture(
             loop=0,
             hold_ms=2000.0,
             hold_blink_start_ms=500.0,
@@ -470,7 +470,7 @@ class HoldGestureTests(unittest.TestCase):
 
     def test_hold_while_armed_cancels_with_record_not_undo(self) -> None:
         osc = MagicMock()
-        fs = LoopFootswitch(loop=0, hold_ms=1000.0, debounce_ms=0.0)
+        fs = TrackGesture(loop=0, hold_ms=1000.0, debounce_ms=0.0)
         fs.bind(osc, MagicMock(), 36)
         fs.on_pad_down()
         fs.sync_from_sl(SL_STATE_WAIT_START)
@@ -481,7 +481,7 @@ class HoldGestureTests(unittest.TestCase):
 
     def test_hold_while_recording_cancels_with_undo_all(self) -> None:
         osc = MagicMock()
-        fs = LoopFootswitch(loop=0, hold_ms=1000.0, debounce_ms=0.0)
+        fs = TrackGesture(loop=0, hold_ms=1000.0, debounce_ms=0.0)
         fs.bind(osc, MagicMock(), 36)
         fs.on_pad_down()
         fs.sync_from_sl(SL_STATE_RECORDING)
@@ -492,7 +492,7 @@ class HoldGestureTests(unittest.TestCase):
 
     def test_hold_on_playing_clip_clears_with_undo_all(self) -> None:
         osc = MagicMock()
-        fs = LoopFootswitch(loop=0, hold_ms=1000.0, debounce_ms=0.0)
+        fs = TrackGesture(loop=0, hold_ms=1000.0, debounce_ms=0.0)
         fs.bind(osc, MagicMock(), 36)
         fs.sync_from_sl(SL_STATE_PLAYING)
         fs.on_pad_down()
@@ -510,7 +510,7 @@ class OverdubOnePassTests(unittest.TestCase):
     """The take closes into an overdub; it has to end itself one pass later."""
 
     def _fs(self):
-        fs = LoopFootswitch(loop=0, hold_ms=1000.0, debounce_ms=0.0)
+        fs = TrackGesture(loop=0, hold_ms=1000.0, debounce_ms=0.0)
         fs.bind(MagicMock(), MagicMock(), 36)
         fs.sync_loop_len(2.0)
         return fs

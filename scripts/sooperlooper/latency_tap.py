@@ -1,7 +1,7 @@
 """Pad-down -> next ``/hit`` OSC timing for criterion 42.
 
 Lives in its own module so tests can import it without executing the bench, which
-binds MIDI and mutates shared footswitch state on import.
+binds MIDI and mutates shared gesture state on import.
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ PAIR_WINDOW_S = 0.1
 class LatencyTapClient:
     """Wraps the OSC client so every send is seen, whoever makes it.
 
-    The footswitches hold the client directly — ``build_footswitches(osc=...)`` hands
+    The gestures hold the client directly — ``build_track_gestures(osc=...)`` hands
     it to each one — and the bench's ``_send`` helper goes through it too, so there is
     exactly one pairing point rather than two that can disagree.
 

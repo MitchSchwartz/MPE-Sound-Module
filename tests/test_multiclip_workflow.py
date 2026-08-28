@@ -47,11 +47,11 @@ from sl_loop_states import (  # noqa: E402
 )
 from slot_runtime import SlotRuntime  # noqa: E402
 from slot_surface import SlotSurface  # noqa: E402
-from tests.test_slot_surface import FakeOut, build_footswitches  # noqa: E402
+from tests.test_slot_surface import FakeOut, build_track_gestures  # noqa: E402
 
 
 class Session(unittest.TestCase):
-    """A running appliance: engine, footswitches, runtime, surface."""
+    """A running appliance: engine, gestures, runtime, surface."""
 
     def setUp(self) -> None:
         self.dir = Path(tempfile.mkdtemp())
@@ -61,7 +61,7 @@ class Session(unittest.TestCase):
         self._last_len: dict[int, float] = {}
         self.out = FakeOut()
         self.osc: list[tuple[str, list]] = []
-        self.fs_by_loop = build_footswitches(self.osc)
+        self.fs_by_loop = build_track_gestures(self.osc)
         for fs in self.fs_by_loop.values():
             fs.bind(self, FakeOut(), None)
         self.rt = SlotRuntime(
@@ -74,7 +74,7 @@ class Session(unittest.TestCase):
         self.view = GridView(offset=0)
         self.surface = SlotSurface(
             runtime=self.rt,
-            footswitches_by_loop=self.fs_by_loop,
+            gestures_by_loop=self.fs_by_loop,
             view=self.view,
             midi_out=self.out,
             num_tracks=15,

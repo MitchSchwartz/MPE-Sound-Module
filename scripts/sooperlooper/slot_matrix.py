@@ -54,9 +54,9 @@ ACT_CLEAR = "clear"
 ACT_NOOP = "noop"
 
 # Bench recording phase for the active slot (runtime-owned; passed into planner).
-# Record phases used to be rebuilt here to mirror the footswitch's own
+# Record phases used to be rebuilt here to mirror the gesture's own
 # state machine. The active lane forwards now, so the mirror is gone —
-# there is one record state machine and it lives in LoopFootswitch.
+# there is one record state machine and it lives in TrackGesture.
 
 
 @dataclass(frozen=True)
@@ -155,7 +155,7 @@ def plan_cell_press(
     # A pending the MATRIX owns is cancelled by re-tapping the slot that owns
     # it, and that must be decided before the forward. For a switch the
     # outgoing slot IS the active slot, so forwarding first would hand the
-    # press to a footswitch that has never heard of the switch, and the queued
+    # press to a gesture that has never heard of the switch, and the queued
     # switch would go through anyway — a cancel the player performed and the
     # instrument ignored.
     pending = track.pending
@@ -176,7 +176,7 @@ def plan_cell_press(
     #
     # When this pad IS the track's bound buffer — or the track has no bound
     # buffer yet, so pressing here binds it — the press means exactly what it
-    # means on the single-clip surface. `LoopFootswitch` + `loop_model` decide:
+    # means on the single-clip surface. `TrackGesture` + `loop_model` decide:
     # record, close-into-ring-out, mute, unmute, hold-to-clear, pending-cancel,
     # and the LED sequence for each.
     #
@@ -187,19 +187,19 @@ def plan_cell_press(
     # reintroduce because there is no second opinion to disagree — see
     # tests/test_multigrid_equivalence.py.
     #
-    # `hold` is forwarded too: long-press-to-clear is the footswitch's, blink
-    # and all. Pending likewise — the footswitch has its own pending model.
+    # `hold` is forwarded too: long-press-to-clear is the gesture's, blink
+    # and all. Pending likewise — the gesture has its own pending model.
     # The lane is the slot the buffer is bound to, plus — when the track has no
-    # buffer yet — an EMPTY slot, which the footswitch records into. An
+    # buffer yet — an EMPTY slot, which the gesture records into. An
     # OCCUPIED slot on a silent track is NOT in the lane: it has to be loaded
-    # from disk before anything sounds, and the footswitch has no idea a file
+    # from disk before anything sounds, and the gesture has no idea a file
     # exists. Forwarding that press would record over the clip the player
     # meant to hear.
     if slot == active or (active is None and not track.occupied(slot)):
         return replace(
             here,
             action=ACT_FORWARD,
-            note="forward to the track's footswitch",
+            note="forward to the track's gesture",
         )
 
     # --- everything below is the matrix's own vocabulary ------------------
@@ -347,7 +347,7 @@ def plan_scene_press(
             continue
         # Filter on what the cell is DOING, not on which action the planner
         # named. The active lane returns ACT_FORWARD for both "start me" and
-        # "stop me" — the footswitch decides which, from the same engine state
+        # "stop me" — the gesture decides which, from the same engine state
         # read here — so keying off the action would drop every active cell
         # from every scene.
         state = sl_states.get(index, 0)
