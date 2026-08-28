@@ -191,54 +191,58 @@ been observed against real devices. Shipping the override first invites working
 around a classifier bug instead of fixing it; shipping the display first means a
 classifier bug is reported rather than silently endured.
 
-### OPEN-4: Dual-role control surfaces (APC in instrument mode) — **ANSWERED 2026-08-28**
+### OPEN-4: Dual-role control surfaces (APC in instrument mode) — **ANSWERED 2026-08-28 (corrected)**
 
-§2's diagram routes the APC around the router, on the assumption that a control
-surface is never an instrument. The APC mini mk2 has an instrument/note mode,
-which appeared to break that assumption: the same device would be the looper's
-control surface *and* a classic MIDI keyboard.
+**An earlier revision of this section claimed the roles separate cleanly by
+ALSA port and called this the good case. That was wrong.** It rested on a
+single capture that had a mode change inside it, which produced a spurious
+"grid on channel 10, notes 64-127" reading and a false suspicion that
+`apc_panel.py`'s `GRID_NOTE_MIN/MAX = 0/63` were stale. Two clean
+single-mode captures overturned it.
 
-**It does not break it. The APC exposes two separate ALSA ports:**
+**Measured, one mode per capture, Control port (32:0):**
 
-```
-  [2] APC mini mk2:APC mini mk2 Control   32:0
-  [3] APC mini mk2:APC mini mk2 Notes     32:1
-```
+| | normal mode | Notes mode |
+|---|---|---|
+| grid pads | ch1, notes 0-63 | **nothing** |
+| scene / transport | ch1, notes ~100-122 | ch1 (mode button only) |
+| faders | CC 48-56 | — |
+| grid pads elsewhere | — | Notes port (32:1), ch1, notes 36-96 |
 
-Capture of the Notes port (`scripts/capture-midi-stream.py`, 6.7 s of hand
-playing, 2026-08-28):
+`apc_panel.py`'s `0-63` is **correct**. No bug there.
 
-| property | measured |
-|---|---|
-| messages | 187 (94 note_on, 93 note_off) |
-| kinds | note_on / note_off only — no CC, no bend, no aftertouch |
-| channel | 1 only (1-based) |
-| notes | 36–96, 31 distinct |
-| velocity | **fixed at 127** — the pads are not velocity sensitive |
-
-The Control port's clip-launch grid is notes 0–63; the Notes port is 36–96 on a
-different port entirely. **Separation is by port, not by channel or note range** —
-the best of the three cases §2 anticipated. No mode flag, no user decision, and
-the looper's note-number-based handling on the Control port is untouched.
+**The roles are mutually exclusive, and the hardware enforces it.** Notes mode
+is a *global device mode*, not a per-port behaviour: entering it silences grid
+output on the Control port entirely and moves it to the Notes port. So there is
+no double-emission and no clip-launch-plus-pitch conflict -- but grid control of
+the looper is unavailable while the APC is an instrument. This is the plan's
+original **case 3**, not the trivial case.
 
 Consequences for the design:
 
-- The router binds the **Notes** port as a classic source. The **Control** port
-  keeps going straight to the looper, exactly as §2's diagram has it.
-- Fixed velocity 127 means the APC carries **no continuous expression at the
-  source**. The translator's bend/pressure paths are inert for this device; per-note
-  expression has to come from elsewhere (the pressure remapper's floor, or a
-  second controller). This is a property of the hardware, not a gap in the router.
-- The capture is committed as `tests/fixtures/apc-mini-mk2-notes-2026-08-28.jsonl`
-  and exercised by `tests/test_midi_golden_apc.py`.
+- The router still binds the **Notes** port and never the **Control** port
+  (`ROUTER_PORT_EXCLUSIONS` in `midi_device.py`). That part stands.
+- No arbitration is needed between the two roles. The device does it.
+- **The failure mode is a silent one and it has already bitten:** with the APC
+  left in Notes mode, the looper grid is simply dead, with nothing on screen to
+  say why. This cost real debugging time on 2026-08-28 and was initially
+  misdiagnosed as stale note constants.
 
-**One hardware behaviour the synthetic tests did not anticipate:** the APC emits
-`note_on 59` **twice with no `note_off` between** (a pad double-strike it does not
-clean up). The translator's retrigger path handles it by releasing the held note
-before re-allocating, which is what MPE requires — but this was found by real
-capture, not by design. The golden test now pins it. The fixture is also
-deliberately *unbalanced* (note 62 was still held when the window closed); tests
-assert the translator's held state mirrors the source's rather than assuming zero.
+**The APC announces its mode over SysEx**, which makes that failure fixable:
+
+```
+F0 47 7F 4F 62 00 01 <mode> F7      47 = Akai, 4F = APC mini mk2
+```
+
+`<mode> = 0x01` was observed on entering Notes mode (emitted ~250 ms after the
+Shift+Scene 7 press). Values `0x00` and `0x02` were also observed during mode
+switching; **which mode each denotes is not yet established** -- one observation
+each, do not treat as decoded.
+
+**Recommended follow-up (not yet built):** the looper already reads the Control
+port, so it can watch for this SysEx and surface the current APC mode in the
+HUD. A dead grid then explains itself. Confirm the `0x00`/`0x02` meanings by
+capture before relying on them.
 
 ### OPEN-3: Multi-timbral — out of scope
 Two controllers share one Surge patch. Per-controller sounds means multiple
