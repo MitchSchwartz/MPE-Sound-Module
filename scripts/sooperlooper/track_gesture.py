@@ -114,6 +114,11 @@ class TrackGesture:
         self._on_grid_established = on_grid_established
         self._on_phase_reanchor = on_phase_reanchor
         self._on_grid_dropped = on_grid_dropped
+        #: Called at each loop wrap. This is the ONE boundary signal in the
+        #: bench: the same detector that ends the ring-out overdub also
+        #: releases a queued slot switch, so the two cannot disagree about
+        #: where the bar line is.
+        self._on_wrap = None
         self.loop_len = 0.0
         self.loop_pos = 0.0
         self._loop_pos_seen = False
@@ -288,6 +293,11 @@ class TrackGesture:
             return True
         return False
 
+    def set_wrap_callback(self, callback) -> None:
+        """Install the wrap listener. Set by `SlotSurface`, which does not
+        exist yet when the gestures are built."""
+        self._on_wrap = callback
+
     def sync_loop_len(self, loop_len: float) -> None:
         self.loop_len = float(loop_len)
         # Engine truth only: a length that arrives while we merely *expect*
@@ -308,6 +318,8 @@ class TrackGesture:
             self.loop_pos, pos, self.loop_len
         ):
             self._end_overdub_pass()
+            if self._on_wrap is not None:
+                self._on_wrap()
         if self._loop_pos_seen and detect_loop_wrap(
             self._last_loop_pos, pos, self.loop_len
         ):

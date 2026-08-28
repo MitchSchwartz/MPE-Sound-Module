@@ -23,7 +23,11 @@ from slot_matrix import (  # noqa: E402
     SlotPlan,
     Track,
 )
-from slot_runtime import MIN_CLIP_BYTES, SlotRuntime  # noqa: E402
+from slot_runtime import (  # noqa: E402
+    DEFERRED_LAUNCH_GRACE_S,
+    MIN_CLIP_BYTES,
+    SlotRuntime,
+)
 from sl_loop_states import (  # noqa: E402
     SL_STATE_MUTE,
     SL_STATE_OFF,
@@ -112,6 +116,12 @@ class SwitchSafetyTests(RuntimeCase):
         self.rt._send = send
         plan = self.rt.press(0, 3, sl_state=SL_STATE_PLAYING)
         self.assertEqual(plan.action, ACT_SWITCH)
+        # The flush is disk-only and happens at press: it must not wait for the
+        # boundary, or a slow save would eat into the switch. The load waits,
+        # because it is the one that touches audio.
+        self.assertIn("/sl/0/save_loop", self.paths())
+        self.assertNotIn("/sl/0/load_loop", self.paths())
+        self.rt.boundary(0)
         paths = self.paths()
         self.assertLess(paths.index("/sl/0/save_loop"), paths.index("/sl/0/load_loop"))
         self.assertFalse(self.rt.track(0).slot(0).dirty, "flushed slot is clean")
@@ -324,3 +334,52 @@ class LaunchAfterStopAll(RuntimeCase):
             '["mute_off"]', source,
             "a launch path is sending mute_off directly again",
         )
+
+
+class StrandedSwitchTests(unittest.TestCase):
+    """A held launch must never wait for a wrap that is not coming.
+
+    The wrap is the boundary, and it rides on `loop_pos`. If those updates dry
+    up — engine restart, a listener that quietly stopped — the switch waits for
+    ever behind a blinking pad and the instrument is dead with no error. A late
+    switch is bad; a switch that never happens is worse, so the hold expires.
+    """
+
+    def setUp(self) -> None:
+        self.dir = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.dir, True)
+        self.osc: list[tuple[str, list]] = []
+        self.clock = [1000.0]
+        self.rt = SlotRuntime(
+            send=lambda p, a: self.osc.append((p, a)),
+            clips_dir=self.dir,
+            num_tracks=15,
+            now=lambda: self.clock[0],
+        )
+        for slot in (0, 1):
+            self.rt.clip_path(0, slot).write_bytes(b"\0" * 4096)
+        self.rt._tracks[0] = Track(
+            slots=(Slot("a.wav"), Slot("b.wav"), *([None] * 6)), active_slot=0
+        )
+        self.rt.press(0, 1, sl_state=SL_STATE_PLAYING)
+
+    def paths(self) -> list[str]:
+        return [p for p, _ in self.osc]
+
+    def test_the_hold_survives_until_the_grace_runs_out(self) -> None:
+        self.clock[0] += DEFERRED_LAUNCH_GRACE_S - 0.1
+        self.assertFalse(self.rt.expire_deferred(0))
+        self.assertNotIn("/sl/0/load_loop", self.paths())
+
+    def test_a_wrap_that_never_comes_launches_anyway(self) -> None:
+        self.clock[0] += DEFERRED_LAUNCH_GRACE_S + 0.1
+        self.assertTrue(self.rt.expire_deferred(0))
+        self.assertIn("/sl/0/load_loop", self.paths())
+        self.assertIsNone(self.rt.track(0).pending, "and the model catches up")
+        self.assertEqual(self.rt.track(0).active_slot, 1)
+
+    def test_a_wrap_that_does_come_leaves_nothing_to_expire(self) -> None:
+        self.rt.boundary(0)
+        self.clock[0] += DEFERRED_LAUNCH_GRACE_S * 10
+        self.assertFalse(self.rt.expire_deferred(0), "the hold is gone")
+        self.assertEqual(self.paths().count("/sl/0/load_loop"), 1)

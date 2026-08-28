@@ -34,7 +34,11 @@ from sl_loop_states import (  # noqa: E402
 from slot_matrix import PENDING_SWITCH, Slot, Track  # noqa: E402
 from slot_runtime import SlotRuntime  # noqa: E402
 from slot_surface import SlotSurface  # noqa: E402
-from tests.test_slot_surface import FakeOut, build_track_gestures  # noqa: E402
+from tests.test_slot_surface import (  # noqa: E402
+    FakeOut,
+    build_track_gestures,
+    feed_wrap,
+)
 
 
 class VocabularyCase(unittest.TestCase):
@@ -161,7 +165,21 @@ class SwitchTests(VocabularyCase):
         self.osc.clear()
 
     def test_the_incoming_clip_is_loaded_and_unmuted(self) -> None:
+        """And not one byte of it before the wrap.
+
+        `load_loop` swaps the buffer the instant it lands — measured
+        2026-08-26, it does NOT halt playback (PI5-LOOPER-SEAM-WRAP.md). Sent
+        at press it therefore replaces the audio under the player's fingers
+        part-way through a bar, which is exactly what "switching isn't
+        quantized" sounded like.
+        """
         self.tap(1)
+        self.assertNotIn(
+            "/sl/0/load_loop",
+            self.paths(),
+            "loading at press overwrites the take that is still sounding",
+        )
+        feed_wrap(self.fs_by_loop[0])
         self.assertIn("/sl/0/load_loop", self.paths())
         self.assertEqual(self.hits(), ["pause_off", "trigger"])
 
@@ -178,7 +196,11 @@ class SwitchTests(VocabularyCase):
         sounding for a whole cycle."""
         self.tap(1)
         self.assertEqual(self.rt.track(0).active_slot, 0)
+        # The loop was already PLAYING before the press, so another PLAYING is
+        # not news and certainly not a bar line.
         self.state(0, SL_STATE_PLAYING)
+        self.assertEqual(self.rt.track(0).active_slot, 0)
+        feed_wrap(self.fs_by_loop[0])
         self.assertEqual(self.rt.track(0).active_slot, 1)
         self.assertIsNone(self.rt.track(0).pending)
 

@@ -67,6 +67,13 @@ class SlotSurface:
         self._hold_blink_start_s = max(hold_blink_start_s, 0.0)
         self._log = log or (lambda _m: None)
         self._now = now
+        # The wrap is the only boundary the surface has. Wired here rather
+        # than where the gestures are built so that production and every test
+        # harness get it by construction — the earlier resolution hung off
+        # `sl_state in ACTIVE_PLAY`, which is true the instant a switch is
+        # pressed and is why switches fired mid-bar.
+        for loop, fs in self._fs.items():
+            fs.set_wrap_callback(lambda i=loop: self.on_wrap(i))
         self._painted: dict[int, int] | None = None
         self._scene_painted: dict[int, int] = {}
         self._sl_states: dict[int, int] = {}
@@ -364,19 +371,45 @@ class SlotSurface:
             else:
                 fs.set_note(self._view.note_for_cell(track_index, active))
 
+    def on_wrap(self, track_index: int) -> None:
+        """This track's loop just wrapped — the one boundary in the bench.
+
+        Fed by `TrackGesture`'s wrap detector, the same one that ends the
+        ring-out overdub, so a queued switch and the ring-out cannot disagree
+        about where the bar line is.
+        """
+        if self._rt.track(track_index).pending is None:
+            return
+        self._rt.boundary(track_index)
+        self._sync_gesture_notes()
+        self.repaint()
+        self.repaint_scenes()
+
     def _maybe_resolve(self, track_index: int, sl_state: int) -> None:
         track = self._rt.track(track_index)
         pending = track.pending
         if pending is None:
             return
         if pending.kind == PENDING_STOP:
-            arrived = sl_state in SILENT
-        elif pending.kind in (PENDING_LAUNCH, PENDING_SWITCH):
-            arrived = sl_state in ACTIVE_PLAY
-        else:
-            arrived = False
-        if arrived:
-            self._rt.boundary(track_index)
+            if sl_state in SILENT:
+                self._rt.boundary(track_index)
+            return
+        if pending.kind in (PENDING_LAUNCH, PENDING_SWITCH):
+            if self._rt.has_deferred(track_index):
+                # A launch waiting for the wrap must NOT be resolved by
+                # `sl_state in ACTIVE_PLAY`. On a switch the outgoing take is
+                # already playing, so that test was true the instant the pad
+                # went down — which is how a queued switch fired mid-bar.
+                # `on_wrap` is the boundary. This is only the safety net for a
+                # track whose `loop_pos` has stopped arriving, where no wrap is
+                # coming at all.
+                self._rt.expire_deferred(track_index)
+                return
+            # Nothing was held: the launch went out at press because the track
+            # was silent. Reaching ACTIVE_PLAY is then a real confirmation,
+            # not a guess, and it is what moves the binding.
+            if sl_state in ACTIVE_PLAY:
+                self._rt.boundary(track_index)
 
     def reset(self) -> None:
         self._rt.reset()

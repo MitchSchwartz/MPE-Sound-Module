@@ -43,6 +43,8 @@ class FakeSlEngine:
         self.sent: list[tuple[str, object]] = []
         # loop -> state to enter at the next cycle boundary
         self._at_boundary: dict[int, int] = {}
+        # Loops whose playhead has crossed zero since the last poll.
+        self._wrapped: set[int] = set()
 
     # --- the OSC surface the bench talks to ------------------------------
     def send_message(self, path: str, arg) -> None:
@@ -138,6 +140,15 @@ class FakeSlEngine:
     # --- time ------------------------------------------------------------
     def boundary(self, *, length: float = 2.0) -> None:
         """The next cycle boundary arrives. Everything queued lands now."""
+        # Snapshot first: only a loop that was ALREADY running has completed a
+        # pass at this boundary. A take that closes into its ring-out overdub
+        # here has one full pass still to go, and marking it wrapped now would
+        # end the ring-out in the same breath that started it.
+        running_before = {
+            loop
+            for loop, st in self.state.items()
+            if st in (SL_STATE_PLAYING, SL_STATE_OVERDUBBING)
+        }
         for loop, st in list(self.state.items()):
             if st == SL_STATE_WAIT_START:
                 self.state[loop] = SL_STATE_RECORDING
@@ -146,11 +157,35 @@ class FakeSlEngine:
         for loop, st in self._at_boundary.items():
             self.state[loop] = st
         self._at_boundary.clear()
+        # A cycle boundary IS a loop wrap for anything that is playing. The
+        # fake had no playhead at all, so a wrap was invisible to it and every
+        # test that thought it was crossing a bar line was crossing nothing.
+        # That blindness is why a switch firing at press time passed the suite.
+        self._wrapped |= running_before
 
     # --- what the bench listener would deliver ----------------------------
     def poll(self, gesture) -> None:
         """Deliver this loop's state, the way the OSC listener would."""
         loop = gesture.loop
         gesture.sync_from_sl(self.state[loop])
-        if self.loop_len[loop]:
-            gesture.sync_loop_len(self.loop_len[loop])
+        length = self.loop_len[loop]
+        if length:
+            gesture.sync_loop_len(length)
+        self.deliver_wrap(gesture)
+
+    def deliver_wrap(self, gesture) -> None:
+        """Feed the playhead across a wrap, if this loop has crossed one.
+
+        A wrap is a change, so it belongs in a change-only delivery loop like
+        any state transition.
+        """
+        loop = gesture.loop
+        length = self.loop_len[loop]
+        if loop not in self._wrapped or not length:
+            return
+        self._wrapped.discard(loop)
+        # Two positions, because that is what the real listener delivers and
+        # what `detect_loop_wrap` reads: near the end, then back at the start.
+        # Sending only the zero would never trip the detector.
+        gesture.sync_loop_pos(length * 0.99)
+        gesture.sync_loop_pos(0.0)
