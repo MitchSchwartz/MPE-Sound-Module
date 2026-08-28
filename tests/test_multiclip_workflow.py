@@ -294,11 +294,20 @@ class RingOutStillRunningTests(Session):
         paths = [p for p, _ in self.osc]
         hits = [(p, a[0]) for p, a in self.osc if p.endswith("/hit")]
         self.assertIn("/sl/0/save_loop", paths, "no save was even attempted")
-        self.assertLess(
-            paths.index("/sl/0/save_loop"),
-            paths.index(next(p for p, a in self.osc if a and a[0] == "undo_all")),
-            "the buffer was emptied before the take was written",
-        )
+        # The invariant is "the take reaches disk before anything can destroy
+        # the buffer" — NOT "an undo_all appears after the save". Recording
+        # over a playing track no longer empties the buffer at all, so this
+        # asserts the guarantee itself and stays honest either way.
+        destroyers = [
+            i for i, (p, a) in enumerate(self.osc)
+            if a and a[0] in ("undo_all", "mute_on")
+        ]
+        if destroyers:
+            self.assertLess(
+                paths.index("/sl/0/save_loop"),
+                min(destroyers),
+                "the buffer was emptied before the take was written",
+            )
 
 
 class ThreeClipsTests(Session):

@@ -196,9 +196,14 @@ class RecordIntoAnotherSlotTests(VocabularyCase):
         self.state(0, SL_STATE_PLAYING)
         self.osc.clear()
 
-    def test_the_engine_is_silenced_and_emptied_then_recorded(self) -> None:
+    def test_the_outgoing_clip_is_left_sounding_for_the_engine_to_stop(self) -> None:
+        """Measured 2026-08-28: `record` over a PLAYING loop arms (WAIT_START)
+        and the loop keeps sounding to the wrap, entering RECORDING there. So
+        the stop already lands on the take's own boundary, and muting or
+        emptying the buffer at press time only creates a silent gap of up to a
+        bar. Previously asserted as ["mute_on", "undo_all", "record"]."""
         self.tap(3)
-        self.assertEqual(self.hits(), ["mute_on", "undo_all", "record"])
+        self.assertEqual(self.hits(), ["record"])
 
     def test_the_footswitch_owns_the_record_command(self) -> None:
         """One record state machine. The runtime prepares the buffer; the
