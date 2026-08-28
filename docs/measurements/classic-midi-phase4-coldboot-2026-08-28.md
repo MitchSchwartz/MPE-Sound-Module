@@ -11,24 +11,34 @@ by uptime or by trusting the reboot command.
 | case | result | how it was tested |
 |---|---|---|
 | **both attached** | **PASS** | two real cold boots |
-| **classic only** | **PASS** | service restarts with the ROLI genuinely off USB — **not** a full cold boot, see below |
-| **MPE only** | **NOT TESTED** | would need the APC unplugged |
-| **nothing attached** | **NOT TESTED** | approximated only, see below |
+| **classic only** | **PASS** | real cold boot, ROLI off the bus, APC bound and subscribed |
+| **MPE only** | **PASS** | real cold boot, APC unplugged, LUMI bound as `mpe` |
+| **nothing attached** | **NOT REACHABLE** | see below |
 
-### classic only
+Every PASS was verified as a genuine cold boot by comparing
+`/proc/sys/kernel/random/boot_id` before and after — not by uptime, and not by
+trusting that the reboot command did what it said.
 
-Verified by restarting the service while the LUMI was powered off and absent
-from `lsusb`. The router started, bound the APC, and Surge was reachable. A
-full cold boot of this case was started but the LUMI was switched back on
-mid-flight, so the reboot became a "both attached" run. **The restart evidence
-is real but weaker than a cold boot**, because it does not exercise USB
-enumeration ordering at boot.
+### classic only — the case that mattered
 
-### nothing attached
+ROLI absent from `lsusb`, APC present. Router active, APC bound and subscribed
+(`Connecting To: 132:0`), JACK active, no `idle exit`, no settle wait.
 
-Approximated with `MPE_ROUTER_EXCLUDE=apc,lumi,scarlett`, which drives the
-"zero bindable ports" code path. It does **not** reproduce USB absence, so
-enumeration timing is untested. Treat as code-path coverage only.
+**Before the wrapper fix earlier the same day, this case failed completely** —
+the service exited before Python ran and the appliance had no router at all.
+
+### nothing attached — not reachable in practice
+
+The Scarlett 4i4's DIN jack always enumerates as a MIDI input, so with the APC
+and LUMI both removed the router still has a classic port to bind. Reaching
+genuinely zero ports would mean unplugging the audio interface, which takes
+JACK and Surge down with it — a configuration the appliance would never be
+booted into.
+
+The zero-port *code path* was exercised separately with
+`MPE_ROUTER_EXCLUDE=apc,lumi,scarlett`: the daemon reported and waited rather
+than exiting. That is code-path coverage, not USB-absence coverage, and the
+distinction is left explicit rather than counted as a pass.
 
 ## Three real defects this found
 
