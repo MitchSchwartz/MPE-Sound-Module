@@ -48,10 +48,16 @@ class MidiClockInDaemon:
 
     def _close_input(self) -> None:
         if self._midi_in is not None:
-            try:
-                self._midi_in.close_port()
-            except Exception:
-                pass
+            # close_port() leaves the ALSA sequencer client allocated — see
+            # the same fix in mpe-pressure-remap.py. This class reconnects on
+            # a timer, so every retry against an absent pedal leaked one
+            # client until ALSA's table filled and other services could not
+            # open one at all.
+            for step in ("cancel_callback", "close_port", "delete"):
+                try:
+                    getattr(self._midi_in, step)()
+                except Exception:
+                    pass
         self._midi_in = None
         self._connected_index = None
         self._connected_name = None

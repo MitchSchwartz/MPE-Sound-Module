@@ -254,10 +254,24 @@ class PressureRemapDaemon:
                 self._send(msg)
         self._bindings = []
         for midi_in in self._inputs:
-            try:
-                midi_in.close_port()
-            except Exception:
-                pass
+            # close_port() does NOT free the ALSA sequencer client — that is
+            # owned by the MidiIn object, and rtmidi's callback keeps a
+            # reference cycle alive so dropping the list never collects it.
+            # Measured on the Pi 2026-08-28: constructing a MidiIn takes the
+            # client count 20 -> 21, close_port() leaves it at 21, and delete()
+            # returns it to 20.
+            #
+            # Every port change therefore leaked one client per bound port.
+            # They accumulated to 51 here and exhausted ALSA's client table,
+            # at which point an UNRELATED service — the looper — could not
+            # create a sequencer client at all and died on startup with
+            # "error creating ALSA sequencer client object". The failure
+            # surfaced nowhere near its cause.
+            for step in ("cancel_callback", "close_port", "delete"):
+                try:
+                    getattr(midi_in, step)()
+                except Exception:
+                    pass
         self._inputs.clear()
         self._connected_port_names = ()
 
