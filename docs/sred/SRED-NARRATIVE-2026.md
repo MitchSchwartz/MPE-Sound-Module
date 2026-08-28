@@ -31,12 +31,14 @@ Concrete examples, all in `docs/measurements/`:
 | `PI5-LOOPER-SEAM-WRAP.md` | Two premises **measured false**, closing out a line of work that had been built on them. |
 | `pi5-predictions-2026-08-23.md` | Predictions **pre-registered** before the hardware booted, marked never to be edited retroactively. |
 | `MEASUREMENT-DISCIPLINE.md` | A written analysis of the project's own recurring failure mode, with a cost table. |
+| `sooperlooper-loop-ceiling-2026-08-27.md` | A **third-party dependency** found to report resources it does not provide — reads answered with defaults, writes discarded, every health check passing. |
+| `multi-clip-p2-composition-failure-2026-08-27.md` | A **composition failure** recorded as such: two components each deciding what a control press meant, producing defects that were individually fixable and collectively endless. |
 
 ---
 
 ## 1. Uncertainties addressed
 
-CRA's first question is what could not be resolved by standard practice. Six threads.
+CRA's first question is what could not be resolved by standard practice. Eight threads.
 
 ### 1.1 Whether the target hardware could sustain the required polyphony at all
 
@@ -69,7 +71,10 @@ technological uncertainty: for several instruments it was unknown whether a read
 distinguished a working system from a broken one. A counter believed to mean "the
 audio buffer emptied" did not. A patch-metadata parser emitted a voice count that was
 not in the file. A MIDI port reported as open was subscribed to nothing, and the
-startup banner read identically in both cases.
+startup banner read identically in both cases — that last one recurred and was finally
+quantified and closed under §1.8, and the class reached its most general form in §1.7,
+where the untrustworthy instrument was a third-party engine reporting resources it did
+not provide.
 
 **Work performed.** Instruments were audited before their outputs were trusted;
 positive controls were introduced so a null result could be distinguished from a dead
@@ -116,8 +121,10 @@ false premises are recorded so the abandoned approach is not re-derived.
 **Evidence.** `PI5-LOOPER-SEAM-WRAP.md` (close-out section), `multi-clip-slot-spike-2026-08-26.md`,
 `multi-clip-p2-composition-failure-2026-08-27.md`.
 
-> **See §4** — the majority of this thread was performed by a different agent/session
-> and needs its own account.
+**Full account:** [`looper-thread.md`](looper-thread.md) — written by the session that
+carried out the work, with the seven refuted hypotheses, the quantified limits of the
+abandoned approach (65–139 ms arm latency, +4.05 dB head summing), and the correction
+that the `SEAM_LOAD_LEAD_MS` sweep was measuring a defect the weld itself introduced.
 
 ### 1.5 Translating conventional MIDI instruments into an MPE-only signal path
 
@@ -172,6 +179,53 @@ tuning assumptions tested rather than adopted.
 
 ---
 
+### 1.7 Whether a third-party engine supplies the resources it reports
+
+**Uncertainty.** The multi-track design assumed the audio engine provides as many
+independent loop buffers as requested. It was unknown whether the count SooperLooper
+reports is a guarantee or unrelated to what it will accept commands for — and whether a
+shortfall is detectable from the control layer at all. This is §1.2's problem relocated
+into a dependency, where the discipline cannot be enforced, only checked for.
+
+**Work performed.** Four hypotheses refuted by measurement (grid-sync off-by-one, OSC
+burst loss, memory exhaustion, last-index reservation), then a parameter sweep against an
+isolated second engine instance, writing and reading back every index so the running
+system was never perturbed.
+
+**Advancement.** A hard platform constraint established: 15 usable loops, indices 0–14,
+independent of the configured count. Indices above it are **phantoms** that answer reads
+with plausible defaults and discard writes, so every read-based health check passes while
+configuration vanishes. The remedy is correspondingly different from a corrected
+instrument — an **acceptance probe** that exercises the capability by writing.
+
+**Evidence.** `docs/measurements/sooperlooper-loop-ceiling-2026-08-27.md`,
+`scripts/sooperlooper/sl_limits.py`, [`looper-thread.md`](looper-thread.md) §2.
+
+### 1.8 Keeping a USB control surface alive on a contended bus
+
+**Uncertainty.** The appliance repeatedly presented as unresponsive with no error. The
+prior uncertainty was not the cause but whether **any available reading distinguished a
+live control surface from a dead one** — `systemctl is-active`, absent journal errors,
+the startup banner, and the MIDI library's `open_port()` return value are all satisfied
+equally by a dead surface, which is why the fault survived four or more diagnostic passes.
+
+**Work performed.** The symptom was quantified before it was explained: repeated session
+starts scored on pad response, establishing a **4-in-6 failure rate** — the step that
+matters, since an intermittent fault is exactly what a single restart appears to cure.
+The kernel ring buffer then gave the mechanism: a USB endpoint stall (`-EPIPE`) and
+re-enumeration, provoked by an unpaced 64-message LED burst on a full-speed device two
+hubs deep sharing its chain with streaming audio.
+
+**Advancement.** Writes paced through a queue with a link-health reopen: **0 failures in
+6 starts**, no further disconnects. More durably, the deploy path now consults the
+kernel's subscription graph for an actual reader and refuses to report success without
+one. The pacing fixes this instance; the reading makes the next one detectable.
+
+**Evidence.** `scripts/sooperlooper/apc_link.py`, `tests/test_apc_link.py`,
+`scripts/restart-looper-session.sh`, [`looper-thread.md`](looper-thread.md) §3.
+
+---
+
 ## 2. What is deliberately excluded
 
 Listing this protects the claim. The following were performed in the same period and
@@ -190,7 +244,7 @@ thread it belongs to, not as a separate item.
 
 ## 3. Suggested T661 wording
 
-**Line 242 — technological uncertainties.** Six threads, above. If a single framing is
+**Line 242 — technological uncertainties.** Eight threads, above. If a single framing is
 needed: *whether a general-purpose ARM single-board computer could host a
 polyphonic, per-note-expressive synthesis instrument with live looping at usable
 polyphony inside real-time audio deadlines — and, at each stage, whether the
@@ -204,16 +258,22 @@ expression conventions. Evidence is contemporaneous and includes recorded failur
 **Line 246 — advancements achieved.** A characterised polyphony ceiling stated narrowly
 to its conditions; a corrected measurement methodology with a documented failure mode;
 an adaptive voice governor; a resolved loop-continuity mechanism with two disproved
-premises recorded; and automatic conventional-MIDI interoperability with an MPE-only
-engine, including hardware behaviour not present in vendor documentation.
+premises recorded; a characterised engine resource ceiling with an acceptance probe that
+detects it; a control-surface link made observable, with the failure rate measured before
+and after; and automatic conventional-MIDI interoperability with an MPE-only engine,
+including hardware behaviour not present in vendor documentation.
 
 ---
 
 ## 4. Gaps to close before filing
 
-1. **The looper thread (§1.4) is under-documented here.** Most of that investigation was
-   carried out in a separate session. See `docs/sred/PROMPT-looper-agent.md` for the
-   request to send to whoever holds that context.
+1. ~~**The looper thread (§1.4) is under-documented here.**~~ **Closed 2026-08-28** —
+   answered by the session that held that context in [`looper-thread.md`](looper-thread.md),
+   which also supplied §1.7 and §1.8. It flags four items rather than smoothing them: the
+   final control-surface fix is committed but **unverified on hardware**; a wrong mapping
+   shipped in `8c4aee6` and was corrected the same day by `a2da7a7`; the 64×2 buffer
+   setting is ear-validated only, with an undiagnosed 2026-08-23 collapse behind it; and
+   the thread's hours are not separable from adjacent sessions.
 2. **Time and cost records.** This narrative covers the *what*, not the *how much*. No
    hours are recorded in the repo.
 3. **Fiscal year boundary.** The work period here is 2026-07-18 to 2026-08-28. Which
