@@ -185,10 +185,27 @@ class SlotRuntime:
             if sl_state in ACTIVE_PLAY:
                 if not self._flush_active(loop):
                     return False
-                self._send(f"/sl/{loop}/hit", ["mute_on"])
-            elif plan.save_first and not self._flush_active(loop):
-                return False
-            self._send(f"/sl/{loop}/hit", ["undo_all"])
+                # Deliberately NO mute_on and NO undo_all. Measured on the Pi
+                # 2026-08-28: `record` over a PLAYING loop goes WAIT_START and
+                # the loop KEEPS SOUNDING to the wrap, then enters RECORDING
+                # there (0.303 s of continued playback against 0.307 s left in
+                # the cycle). The engine already puts the stop on the same
+                # boundary as the take.
+                #
+                # Silencing here pre-empted that: the track went quiet the
+                # instant the pad was pressed and stayed quiet for up to a full
+                # bar before anything replaced it. Reported as "recording a new
+                # clip immediately cuts the currently playing clip".
+                #
+                # The flush stays — it writes the outgoing take to disk and
+                # touches no audio.
+                pass
+            else:
+                if plan.save_first and not self._flush_active(loop):
+                    return False
+                # Nothing is sounding, so clearing the stale buffer costs no
+                # audio and guarantees the take starts from empty.
+                self._send(f"/sl/{loop}/hit", ["undo_all"])
 
         # The buffer is now this slot's, so the binding moves NOW — not when
         # the take lands. `_maybe_mark_recorded` refuses to register a take on

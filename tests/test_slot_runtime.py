@@ -197,7 +197,7 @@ class BookkeepingTests(RuntimeCase):
         self.assertEqual(self.rt.track(0).active_slot, 3)
         self.assertFalse(self.rt.track(0).occupied(3))
 
-    def test_record_into_another_slot_mutes_and_flushes_first(self) -> None:
+    def test_record_into_another_slot_flushes_without_silencing(self) -> None:
         self.rt._tracks[0] = Track(
             slots=(Slot("a.wav", dirty=True), None, *([None] * 6)), active_slot=0
         )
@@ -210,9 +210,13 @@ class BookkeepingTests(RuntimeCase):
 
         self.rt._send = send
         self.rt.press(0, 1, sl_state=SL_STATE_PLAYING)
-        self.assertIn(("/sl/0/hit", ["mute_on"]), self.sent)
+        # The take must still reach disk — that half is a data-loss guard.
         self.assertTrue(any(p.endswith("/save_loop") for p, _ in self.sent))
-        self.assertIn(("/sl/0/hit", ["undo_all"]), self.sent)
+        # ...but the audio must not be cut. SL holds playback to the boundary
+        # and swaps to recording there; silencing here just makes the track
+        # quiet for up to a bar first.
+        self.assertNotIn(("/sl/0/hit", ["mute_on"]), self.sent)
+        self.assertNotIn(("/sl/0/hit", ["undo_all"]), self.sent)
 
     def test_record_into_another_slot_clears_the_buffer_first(self) -> None:
         self.rt._tracks[0] = Track(

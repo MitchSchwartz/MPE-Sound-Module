@@ -69,6 +69,22 @@ class FakeSlEngine:
                     self.state[loop] = SL_STATE_WAIT_STOP
                 else:
                     self._finish_record(loop)
+            elif st == SL_STATE_PLAYING:
+                # MEASURED on the Pi, 2026-08-28, engine 9951, loop_len 0.803 s:
+                # hit `record` at loop_pos 0.496 and the loop stayed PLAYING,
+                # went WAIT_START at +0.041 s (still at 0.496), and reached
+                # RECORDING at +0.344 s and loop_pos 0.030 — i.e. it kept
+                # sounding for 0.303 s against 0.307 s remaining to the wrap.
+                #
+                # SooperLooper holds playback to the boundary and swaps to
+                # recording there, on its own. This branch was MISSING, so the
+                # fake silently ignored `record` over a playing loop, and the
+                # only reason the suite passed was that the runtime sent
+                # `undo_all` first and dropped the loop to OFF. That made a
+                # press-time mute look mandatory when it is the defect.
+                self.state[loop] = (
+                    SL_STATE_WAIT_START if self.quantized else SL_STATE_RECORDING
+                )
         elif cmd == "overdub":
             # Real SL: `overdub` while RECORDING closes the take and starts
             # overdubbing at the same sample — one transition, no gap. That is
