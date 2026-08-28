@@ -6,6 +6,28 @@ Orientation canon: OM-Repo [`GROUNDING.md`](https://github.com/opsMachine/OM-Rep
 
 ---
 
+## 2026-08-27 — Multi-clip integration plan (architecture)
+
+**Decision (Mitch, 2026-08-27):** First multigrid Pi pass failed because two controllers
+(`LoopFootswitch` + `SlotSurface`) share each track's single SooperLooper buffer. P2/P3
+code is not abandoned — integration follows
+[`Documents/specs/multi-clip-integration-plan.md`](specs/multi-clip-integration-plan.md)
+phases **I0–I4** before P2 is marked Pi-validated.
+
+**Locked for implementation:**
+
+| Topic | Choice |
+|-------|--------|
+| Architecture | One **TrackColumn** (session matrix) owner per loop index — gesture, occupancy, LED for all 8 slot rows |
+| Single-clip | Unchanged when `MPE_SL_MULTIGRID=0`; footswitch path stays |
+| Multigrid | Footswitch demoted — no pad LED/bind; shared `GestureEngine` for record/close/ring-out |
+| Recording | Explicit **phase** (arming/recording/closing) — second tap closes take, not `record` toggle |
+| P2 sign-off | Seven-item Pi checklist in integration plan §Pi validation master checklist |
+
+**Next:** I0 (stop dual LED/control) → I1 (close take) → deploy → Mitch Pi gate.
+
+---
+
 ## 2026-08-26 — Multi-clip per track Gate A approved
 
 **Decision (Mitch, 2026-08-26):** Gate A approved for

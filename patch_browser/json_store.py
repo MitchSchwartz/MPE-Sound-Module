@@ -13,6 +13,12 @@ def read_json_dict(path: Path, *, label: str | None = None) -> dict[str, Any]:
     """Load a JSON object from disk; return {} on missing or invalid files."""
     try:
         raw = json.loads(path.read_text())
+    except FileNotFoundError:
+        # Absent is the normal state for request/handoff files that only
+        # exist between a writer and its reader. Warning here put ~419
+        # journald writes per second on the appliance's hot path (measured
+        # 2026-08-28: 25,127 messages in one minute from the remapper).
+        return {}
     except (OSError, json.JSONDecodeError) as exc:
         name = label or path.name
         print(f"Warning: could not load {name} {path}: {exc}")

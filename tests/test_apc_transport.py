@@ -18,6 +18,7 @@ from scripts.sooperlooper.apc_transport import (
     resolve_apc_transport_notes,
     resolve_scene_launch_notes,
     resolve_shift_indicator_note,
+    scene_row_for_note,
 )
 from scripts.sooperlooper.led_table import (
     LED_OFF,
@@ -55,7 +56,24 @@ class ResolveApcTransportNotesTests(unittest.TestCase):
 
     def test_mk1_scene_launch_notes(self) -> None:
         self.assertEqual(resolve_scene_launch_notes("mk1"), SCENE_LAUNCH_NOTES_MK1)
-        self.assertNotIn(NOTE_STOP_ALL_CLIPS_MK1, resolve_scene_launch_notes("mk1"))
+        # 0x59 IS a scene launcher — row 0's. Its "Stop All Clips" label is a
+        # Shift layer, and the bench has always required Shift+0x59 for that,
+        # so excluding it from the column left the bottom row unreachable.
+        self.assertIn(NOTE_STOP_ALL_CLIPS_MK1, resolve_scene_launch_notes("mk1"))
+        self.assertEqual(len(resolve_scene_launch_notes("mk1")), 8)
+
+    def test_scene_row_for_note(self) -> None:
+        notes = resolve_scene_launch_notes("mk1")
+        # The side buttons run top-to-bottom, the grid rows bottom-to-top, so
+        # the mapping is a reflection and not an identity: the TOP button is
+        # the TOP row. An identity here put every scene one end of the grid
+        # away from the row the player pressed.
+        # Eight buttons, eight rows, running opposite ways: the top button
+        # (0x52) is beside the top row, the bottom one (0x59) beside row 0.
+        # 0x59's "Stop All" is a Shift layer, so alone it is row 0's launcher.
+        self.assertEqual(scene_row_for_note(notes, notes[0]), 7)
+        self.assertEqual(scene_row_for_note(notes, notes[7]), 0)
+        self.assertEqual(scene_row_for_note(notes, NOTE_STOP_ALL_CLIPS_MK1), 0)
 
 
 class Mk1ShiftGhostFilterTests(unittest.TestCase):

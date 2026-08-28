@@ -64,6 +64,8 @@ Full deploy walkthrough: **[docs/PATCH-EDITING-WORKFLOW.md](docs/PATCH-EDITING-W
 ### Audio
 
 - **MPE sound module** — compatible with any MPE MIDI controller (Roli Seaboard, LinnStrument, Osmose, etc.)
+- **Classic MIDI keyboards work too** — a plain, non-MPE keyboard plugged into a cold-booted appliance plays it, with no setting changed and no restart. A translation layer gives each held note its own MIDI channel and rescales pitch bend between the two conventions, so single-channel gear drives an MPE-only engine correctly. MPE controllers are detected and pass through untouched; both kinds can be attached at once, each classified and bound independently. See **[docs/CLASSIC-MIDI-PLAN.md](docs/CLASSIC-MIDI-PLAN.md)**
+  - Expression is bounded by what the controller actually sends: a keyboard with no aftertouch sends no pressure, and velocity-less pads (APC-style grids) arrive at full velocity, so slow-attack patches lose their attack shaping. That is the hardware's ceiling, not the translator's
 - **Runs Surge XT** — full synth engine in MPE mode; mod matrix and per-note expression (see **MPE expression** above)
 - **3,192 patches** (via Surge build) — 639 factory + 2,553 community; not shipped inside this repo
 - **Analog and USB audio out** — 3.5mm jack standalone, or USB to a laptop/PC as a standard audio input (`[docs/USB-AUDIO-HOST.md](docs/USB-AUDIO-HOST.md)`)
@@ -274,9 +276,11 @@ Raw SSH still works — full reference: **[COMMANDS.md](COMMANDS.md)**.
 ## How it's built (for the curious)
 
 ```
-[Roli Seaboard] --USB MIDI--> [Surge XT CLI] --JACK client--> [jackd graph server] --USB--> [USB audio dongle] --> speakers/headphones
-                                     ↑
-                            MPE always enabled, headless, auto-starts on boot
+[MPE controller  ]--USB MIDI--┐
+[classic keyboard]--USB MIDI--┴--> [MIDI router] --> [Surge XT CLI] --JACK client--> [jackd graph server] --USB--> [USB audio dongle] --> speakers/headphones
+                                        ↑                    ↑
+                              classifies each device,   MPE always enabled, headless,
+                              translates classic -> MPE  auto-starts on boot
 ```
 
 Optional: `[SooperLooper]` on the same JACK graph when looper is enabled.
@@ -309,6 +313,7 @@ Optional: `[SooperLooper]` on the same JACK graph when looper is enabled.
 | [docs/PATCH-EDITING-WORKFLOW.md](docs/PATCH-EDITING-WORKFLOW.md)     | Editing sounds, pushing to the Pi                     |
 | [docs/FOOT_PEDAL.md](docs/FOOT_PEDAL.md)                             | USB footswitch setup + remapping                      |
 | [docs/MIDI-CLOCK.md](docs/MIDI-CLOCK.md)                             | MIDI clock out for Boss RC-5 / external sync          |
+| [docs/CLASSIC-MIDI-PLAN.md](docs/CLASSIC-MIDI-PLAN.md)               | Classic (non-MPE) keyboard support — design and gates |
 | [docs/POWER_BUTTON_SETUP.md](docs/POWER_BUTTON_SETUP.md)             | Shutdown/power-on via the encoder button              |
 | [docs/measurements/README.md](docs/measurements/README.md)           | Pi 4/5 validation and measurement index               |
 | [COMMANDS.md](COMMANDS.md)                                           | Backup, deploy, restore, day-to-day ops               |
