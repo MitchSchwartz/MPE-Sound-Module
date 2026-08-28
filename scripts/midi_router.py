@@ -108,3 +108,30 @@ def select_router_ports(
             continue
         selected.append(name)
     return selected
+
+
+# Reconnect outcomes.
+RECONNECT_IDLE = "idle"
+RECONNECT_CLOSE = "close"
+RECONNECT_REOPEN = "reopen"
+
+
+def reconnect_decision(desired, connected, *, have_inputs: bool) -> str:
+    """What the daemon should do about the current set of ports.
+
+    Pure because the previous version of this decision was ROLI-shaped --
+    "no ROLI on the bus" meant "close every input" -- which silently
+    became wrong the moment a second kind of device could be bound:
+    unplugging the MPE controller would have torn down the classic
+    keyboard's port too.
+
+    The decision is now about the *set* of router-eligible ports and has
+    nothing to say about which kind of device any of them is.
+    """
+    desired = tuple(desired)
+    connected = tuple(connected)
+    if not desired:
+        return RECONNECT_CLOSE if connected or have_inputs else RECONNECT_IDLE
+    if desired == connected and have_inputs:
+        return RECONNECT_IDLE
+    return RECONNECT_REOPEN

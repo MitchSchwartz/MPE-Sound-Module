@@ -181,3 +181,56 @@ class PortSelection(unittest.TestCase):
             )
             self.assertNotIn("Midi Through:Midi Through Port-0", selected)
             self.assertNotIn("RtMidiOut Client:RtMidi output", selected)
+
+
+class Reconnect(unittest.TestCase):
+    """Hot-plug decisions. The previous logic was ROLI-shaped -- 'no ROLI
+    on the bus' meant 'close every input' -- which would have torn down a
+    classic keyboard's port when the MPE controller was unplugged."""
+
+    def setUp(self):
+        from midi_router import (
+            RECONNECT_CLOSE,
+            RECONNECT_IDLE,
+            RECONNECT_REOPEN,
+            reconnect_decision,
+        )
+
+        self.decide = reconnect_decision
+        self.IDLE, self.CLOSE, self.REOPEN = (
+            RECONNECT_IDLE,
+            RECONNECT_CLOSE,
+            RECONNECT_REOPEN,
+        )
+
+    def test_steady_state_does_nothing(self):
+        self.assertEqual(
+            self.decide(("a", "b"), ("a", "b"), have_inputs=True), self.IDLE
+        )
+
+    def test_unplugging_one_device_does_not_tear_down_the_other(self):
+        """The regression this function exists to prevent."""
+        self.assertEqual(
+            self.decide(("APC Notes",), ("APC Notes", "LUMI"), have_inputs=True),
+            self.REOPEN,
+        )
+
+    def test_last_device_removed_closes(self):
+        self.assertEqual(self.decide((), ("LUMI",), have_inputs=True), self.CLOSE)
+
+    def test_nothing_attached_and_nothing_open_is_idle(self):
+        """Must not print or churn every poll on a bare appliance."""
+        self.assertEqual(self.decide((), (), have_inputs=False), self.IDLE)
+
+    def test_new_device_appearing_reopens(self):
+        self.assertEqual(
+            self.decide(("APC Notes", "LUMI"), ("LUMI",), have_inputs=True),
+            self.REOPEN,
+        )
+
+    def test_names_match_but_ports_died_reopens(self):
+        """Bindings gone while the bus still lists the port -- the
+        subscription-failure shape seen elsewhere on this appliance."""
+        self.assertEqual(
+            self.decide(("LUMI",), ("LUMI",), have_inputs=False), self.REOPEN
+        )

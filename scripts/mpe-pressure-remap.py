@@ -43,7 +43,14 @@ from patch_browser.pressure_midi import (  # noqa: E402
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
 from midi_device import classify_port  # noqa: E402
-from midi_router import SourceBinding, bind_source, select_router_ports  # noqa: E402
+from midi_router import (  # noqa: E402
+    RECONNECT_CLOSE,
+    RECONNECT_IDLE,
+    SourceBinding,
+    bind_source,
+    reconnect_decision,
+    select_router_ports,
+)
 
 RECONNECT_POLL_S = 1.0
 
@@ -77,7 +84,7 @@ class PressureRemapDaemon:
         self._inputs: list = []
         self._bindings: list[SourceBinding] = []
         self._queue: queue.SimpleQueue = queue.SimpleQueue()
-        self._connected_roli_names: tuple[str, ...] = ()
+        self._connected_port_names: tuple[str, ...] = ()
         self._next_reconnect_check = 0.0
         self._scheduled: list[tuple[float, int, SourceBinding, list[int]]] = []
         self._schedule_seq = 0
@@ -237,7 +244,7 @@ class PressureRemapDaemon:
             except Exception:
                 pass
         self._inputs.clear()
-        self._connected_roli_names = ()
+        self._connected_port_names = ()
 
     def _open_inputs(self, probe) -> int:
         import rtmidi
@@ -273,13 +280,19 @@ class PressureRemapDaemon:
                 f"  Listening: {name}  [{classification.kind}: {classification.reason}]",
                 flush=True,
             )
-        self._connected_roli_names = tuple(
-            sorted(n for n in connected if is_roli_controller_port(n))
-        )
+        self._connected_port_names = tuple(sorted(connected))
         return opened
 
-    def _roli_ports_on_bus(self, probe) -> tuple[str, ...]:
-        return tuple(sorted(list_roli_input_port_names(list(probe.get_ports()))))
+    def _router_ports_on_bus(self, probe) -> tuple[str, ...]:
+        return tuple(
+            sorted(
+                select_router_ports(
+                    list(probe.get_ports()),
+                    route_classic=ROUTE_CLASSIC,
+                    is_mpe_port=is_roli_controller_port,
+                )
+            )
+        )
 
     def _maybe_reconnect_inputs(self, probe) -> None:
         now = time.monotonic()
@@ -287,28 +300,30 @@ class PressureRemapDaemon:
             return
         self._next_reconnect_check = now + RECONNECT_POLL_S
 
-        desired = self._roli_ports_on_bus(probe)
-        if not desired:
-            if self._connected_roli_names:
-                print("ROLI disconnected — closing stale MIDI inputs", flush=True)
-                self._close_inputs()
+        desired = self._router_ports_on_bus(probe)
+        action = reconnect_decision(
+            desired, self._connected_port_names, have_inputs=bool(self._inputs)
+        )
+        if action == RECONNECT_IDLE:
             return
-
-        if desired == self._connected_roli_names and self._inputs:
+        if action == RECONNECT_CLOSE:
+            print("No MIDI inputs on bus — closing stale inputs", flush=True)
+            self._close_inputs()
             return
 
         print(
-            f"ROLI port change {self._connected_roli_names!r} → {desired!r} — reopening inputs",
+            f"MIDI port change {self._connected_port_names!r} → {desired!r} "
+            "— reopening inputs",
             flush=True,
         )
         self._close_inputs()
         try:
             opened = self._open_inputs(probe)
         except Exception as exc:
-            print(f"Warning: ROLI reopen failed ({exc!r}) — will retry", flush=True)
+            print(f"Warning: MIDI reopen failed ({exc!r}) — will retry", flush=True)
             return
         if opened == 0:
-            print("Warning: ROLI seen on bus but no MIDI inputs opened", flush=True)
+            print("Warning: ports seen on bus but no MIDI inputs opened", flush=True)
 
     def run(self) -> int:
         try:
