@@ -1,4 +1,4 @@
-"""Shared record/close gestures — single-clip footswitch and multigrid matrix.
+"""Shared record/close gestures — single-clip gesture and multigrid matrix.
 
 Wraps ``loop_model.plan_gesture`` so both control paths send the same OSC
 sequence for arming and closing a take (ring-out, quantize stop, grid arm).

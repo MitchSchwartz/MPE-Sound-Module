@@ -2,7 +2,7 @@
 
 Why this test rather than more behaviour tests
 ----------------------------------------------
-The single-clip transport model — `loop_model` + `led_table` + `LoopFootswitch` —
+The single-clip transport model — `loop_model` + `led_table` + `TrackGesture` —
 was validated over weeks, by ear, on the instrument. When the matrix was built it
 grew a second gesture vocabulary and a second colour policy, so every behaviour the
 old model encodes had to be rediscovered one symptom at a time by the person
@@ -32,7 +32,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "sooperlooper"))
 
-from apc_footswitch import LoopFootswitch  # noqa: E402
+from track_gesture import TrackGesture  # noqa: E402
 from apc_grid import GridView, pad_note  # noqa: E402
 from sl_loop_states import (  # noqa: E402
     SL_STATE_MUTE,
@@ -77,8 +77,8 @@ class Clock:
         return self.t
 
 
-def _footswitch(*, osc, out, clock, multigrid: bool) -> LoopFootswitch:
-    fs = LoopFootswitch(
+def _gesture(*, osc, out, clock, multigrid: bool) -> TrackGesture:
+    fs = TrackGesture(
         loop=TRACK,
         hold_ms=HOLD_MS,
         debounce_ms=DEBOUNCE_MS,
@@ -137,7 +137,7 @@ class ReferenceRig(Rig):
 
     def __init__(self) -> None:
         super().__init__()
-        self.fs = _footswitch(
+        self.fs = _gesture(
             osc=FakeOsc(self.osc_log), out=FakeOut(self.led_log),
             clock=self.clock, multigrid=False,
         )
@@ -161,8 +161,8 @@ class MultigridRig(Rig):
     def __init__(self, tmp: Path) -> None:
         super().__init__()
         # Faithful to the bench: under multigrid SlotSurface is the only LED
-        # owner, so the footswitch is bound with no midi_out of its own.
-        self.fs = _footswitch(
+        # owner, so the gesture is bound with no midi_out of its own.
+        self.fs = _gesture(
             osc=FakeOsc(self.osc_log), out=None,
             clock=self.clock, multigrid=True,
         )
@@ -173,7 +173,7 @@ class MultigridRig(Rig):
         )
         self.surface = SlotSurface(
             runtime=self.rt,
-            footswitches_by_loop={TRACK: self.fs},
+            gestures_by_loop={TRACK: self.fs},
             view=GridView(offset=0),
             midi_out=FakeOut(self.led_log),
             num_tracks=15,
@@ -189,13 +189,13 @@ class MultigridRig(Rig):
         self.surface.note_up(NOTE)
 
     def state(self, value: int) -> None:
-        # Exactly what SlBenchStateListener.on_update does: the footswitch is
+        # Exactly what SlBenchStateListener.on_update does: the gesture is
         # told first, then the surface.
         self.fs.sync_from_sl(value)
         self.surface.on_state(TRACK, value)
 
     def tick(self, dt: float) -> None:
-        # Mirrors the bench loop: poll_footswitches(multigrid=True) advances
+        # Mirrors the bench loop: poll_track_gestures(multigrid=True) advances
         # blink phase only, then the surface polls hold and repaints.
         self.clock.t += dt
         self.fs.poll_led()

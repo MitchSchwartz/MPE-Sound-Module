@@ -1,4 +1,4 @@
-"""The footswitch driven against a stateful engine, across time.
+"""The gesture driven against a stateful engine, across time.
 
 These are the tests that would have caught the defects the unit tests could
 not: everything here depends on *when* the engine answers, and a mock always
@@ -12,8 +12,8 @@ from tests import conftest  # noqa: F401 — bare sooperlooper imports (apc_grid
 import unittest
 from unittest.mock import MagicMock
 
-import scripts.sooperlooper.apc_footswitch as footswitch_mod
-from scripts.sooperlooper.apc_footswitch import LoopFootswitch
+import scripts.sooperlooper.track_gesture as gesture_mod
+from scripts.sooperlooper.track_gesture import TrackGesture
 from scripts.sooperlooper.led_table import (
     LED_GREEN,
     LED_GREEN_BLINK,
@@ -33,11 +33,11 @@ from scripts.sooperlooper.sl_loop_states import (
 from tests.fake_sl_engine import FakeSlEngine
 
 
-class FootswitchOnEngineTests(unittest.TestCase):
+class TrackGestureOnEngineTests(unittest.TestCase):
     def _rig(self, *, quantized=True, grid=None, loop=0):
         engine = FakeSlEngine(quantized=quantized)
         midi = MagicMock()
-        fs = LoopFootswitch(loop=loop, hold_ms=800, debounce_ms=0,
+        fs = TrackGesture(loop=loop, hold_ms=800, debounce_ms=0,
                             quantized=quantized, grid=grid)
         fs.bind(engine, midi, note=0)
         return engine, fs, midi
@@ -152,7 +152,7 @@ class FootswitchOnEngineTests(unittest.TestCase):
         engine.poll(fs)
         self.assertEqual(fs.state, "recording", "still inside the grace window")
 
-        fs._pending_since -= footswitch_mod.PENDING_TIMEOUT_S + 1
+        fs._pending_since -= gesture_mod.PENDING_TIMEOUT_S + 1
         engine.poll(fs)
         self.assertEqual(fs.state, "idle")
         self.assertEqual(self._led(midi), LED_OFF)

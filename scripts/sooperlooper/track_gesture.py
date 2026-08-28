@@ -1,4 +1,4 @@
-"""Per-loop APC footswitch state + pad grid wiring (8 visible of 15 tracks)."""
+"""Per-loop APC gesture state + pad grid wiring (8 visible of 15 tracks)."""
 
 from __future__ import annotations
 
@@ -72,18 +72,18 @@ def log(msg: str) -> None:
     print(f"[{time.strftime('%H:%M:%S')}.{int(time.time() % 1 * 1000):03d}] {msg}", flush=True)
 
 
-def poll_footswitches(footswitches: list[LoopFootswitch], *, multigrid: bool = False) -> None:
+def poll_track_gestures(gestures: list[TrackGesture], *, multigrid: bool = False) -> None:
     """Periodic bench poll — holds and LED transitions.
 
-    When ``multigrid`` is on, skip footswitch hold (``SlotSurface`` owns hold-
+    When ``multigrid`` is on, skip gesture hold (``SlotSurface`` owns hold-
     clear) but still advance blink phase — ``SlotSurface.repaint`` reads
     ``current_led()``.
     """
     if multigrid:
-        for fs in footswitches:
+        for fs in gestures:
             fs.poll_led()
         return
-    for fs in footswitches:
+    for fs in gestures:
         fs.poll_hold()
         fs.poll_led()
 
@@ -92,7 +92,7 @@ def _osc_send(osc, path: str, args: list) -> None:
     osc.send_message(path, args)
 
 
-class LoopFootswitch:
+class TrackGesture:
     def __init__(
         self,
         *,
@@ -580,7 +580,7 @@ class LoopFootswitch:
         That mattered because the mute/launch half of the gesture lands on the
         UP. Scene launch of a stored, muted clip was therefore a silent no-op
         on hardware while passing every test, because every harness constructs
-        the footswitch with `debounce_ms=0` — the one value at which the bug
+        the gesture with `debounce_ms=0` — the one value at which the bug
         cannot appear.
         """
         self._gesture("down", debounced=False)
@@ -635,7 +635,7 @@ class LoopFootswitch:
     def hold_fired(self) -> bool:
         """Did the current gesture already fire its long-press?
 
-        Read by `SlotSurface`, which drives this footswitch's `poll_hold` under
+        Read by `SlotSurface`, which drives this gesture's `poll_hold` under
         multigrid and needs to know when it fired so the two do not both track
         hold state — two hold flags is how the surface ended up firing the
         blink at one moment and the clear at another.
@@ -701,7 +701,7 @@ class LoopFootswitch:
             self._clear_loop()
 
 
-def build_footswitches(
+def build_track_gestures(
     *,
     osc,
     midi_out,
@@ -716,19 +716,19 @@ def build_footswitches(
     on_phase_reanchor=None,
     on_grid_dropped=None,
     multigrid: bool = False,
-) -> tuple[dict[int, LoopFootswitch], list[LoopFootswitch]]:
-    """One footswitch per track, bound to the pad showing it in `view`.
+) -> tuple[dict[int, TrackGesture], list[TrackGesture]]:
+    """One gesture per track, bound to the pad showing it in `view`.
 
-    A footswitch exists for **every** track, not just the visible eight: a
+    A gesture exists for **every** track, not just the visible eight: a
     banked-off track keeps playing, keeps receiving engine state, and keeps its
     pending intent. Only its pad binding goes away (note=None), and comes back
     on the next bank change. The returned by-note map covers the current bank
     only and is rebuilt by `apply_view()`.
     """
     view = view or DEFAULT_VIEW
-    footswitches: list[LoopFootswitch] = []
+    gestures: list[TrackGesture] = []
     for loop_i in range(num_loops):
-        fs = LoopFootswitch(
+        fs = TrackGesture(
             loop=loop_i,
             hold_ms=hold_ms,
             debounce_ms=debounce_ms,
@@ -743,16 +743,16 @@ def build_footswitches(
         )
         pad = view.note_for_loop(loop_i)
         fs.bind(osc, midi_out, pad)
-        footswitches.append(fs)
-    return notes_for_view(footswitches, view), footswitches
+        gestures.append(fs)
+    return notes_for_view(gestures, view), gestures
 
 
 def notes_for_view(
-    footswitches: list[LoopFootswitch], view: GridView
-) -> dict[int, LoopFootswitch]:
-    """Pad note -> footswitch, for the tracks visible in `view`."""
-    by_note: dict[int, LoopFootswitch] = {}
-    for fs in footswitches:
+    gestures: list[TrackGesture], view: GridView
+) -> dict[int, TrackGesture]:
+    """Pad note -> gesture, for the tracks visible in `view`."""
+    by_note: dict[int, TrackGesture] = {}
+    for fs in gestures:
         note = view.note_for_loop(fs.loop)
         if note is not None:
             by_note[note] = fs
@@ -762,10 +762,10 @@ def notes_for_view(
 def apply_view(
     midi_out,
     *,
-    footswitches: list[LoopFootswitch],
+    gestures: list[TrackGesture],
     view: GridView,
     multigrid: bool = False,
-) -> dict[int, LoopFootswitch]:
+) -> dict[int, TrackGesture]:
     """Move the viewport: clear the clip row, rebind pads, repaint. New by-note map.
 
     Clearing the whole row first — rather than only the pads that changed —
@@ -774,21 +774,21 @@ def apply_view(
     one failure of this feature they cannot debug from the surface. One sweep
     of eight notes costs nothing and makes it impossible.
 
-    When ``multigrid`` is on, do not paint row 0 from footswitch state —
+    When ``multigrid`` is on, do not paint row 0 from gesture state —
     ``SlotSurface.repaint`` owns the full matrix.
     """
     for row, col in all_clip_pads():
         midi_out.send_message([0x90, pad_note(row, col), LED_OFF])
-    for fs in footswitches:
+    for fs in gestures:
         fs.release_pad()
         fs.set_note(view.note_for_loop(fs.loop))
         if not multigrid:
             fs._sync_led()
-    return notes_for_view(footswitches, view)
+    return notes_for_view(gestures, view)
 
 
-def footswitches_by_loop(footswitches: list[LoopFootswitch]) -> dict[int, LoopFootswitch]:
-    return {fs.loop: fs for fs in footswitches}
+def gestures_by_loop(gestures: list[TrackGesture]) -> dict[int, TrackGesture]:
+    return {fs.loop: fs for fs in gestures}
 
 
 def reset_all_loops(
@@ -796,14 +796,14 @@ def reset_all_loops(
     midi_out,
     *,
     num_loops: int,
-    footswitches: list[LoopFootswitch],
+    gestures: list[TrackGesture],
 ) -> None:
     """Stop playback and clear every loop; reset bench LED/state.
 
     Also drops the grid: with no clips left there is no tempo, so the next
     take defines it again — same as a fresh session.
     """
-    for fs in footswitches:
+    for fs in gestures:
         if fs.grid is not None:
             fs.grid.reset()
             if fs._on_grid_dropped is not None:
@@ -815,7 +815,7 @@ def reset_all_loops(
         # root error DECISIONS records for trigger and mute.
         osc.send_message(f"/sl/{loop}/hit", "pause_on")
         osc.send_message(f"/sl/{loop}/hit", "undo_all")
-    for fs in footswitches:
+    for fs in gestures:
         fs.expect_cleared()
     for row, col in all_clip_pads():
         midi_out.send_message([0x90, pad_note(row, col), LED_OFF])
@@ -826,7 +826,7 @@ def stop_all_loops(
     osc,
     *,
     num_loops: int,
-    footswitches: list[LoopFootswitch],
+    gestures: list[TrackGesture],
 ) -> None:
     """Pause every loop without clearing audio; LEDs -> stopped (yellow).
 
@@ -845,11 +845,11 @@ def stop_all_loops(
     osc.send_message("/sl/-1/hit", "mute_on")
     osc.send_message("/sl/-1/hit", "pause_on")
     osc.send_message("/sl/-1/set", ["mute_quantized", 1.0])
-    grid = next((fs.grid for fs in footswitches if fs.grid is not None), None)
+    grid = next((fs.grid for fs in gestures if fs.grid is not None), None)
     if grid is not None and grid.established and grid.bpm:
         osc.send_message("/set", ["tempo", float(grid.bpm)])  # zeroes the phase
         log(f"grid position reset to zero ({grid.bpm:.3f} BPM)")
-    for fs in footswitches:
+    for fs in gestures:
         fs.awaiting_quantize = False
         # OFF_MUTED (20) is idle/empty after global mute — not a clip to stop.
         # Treating it like active set pending=stopped on every empty pad (yellow
