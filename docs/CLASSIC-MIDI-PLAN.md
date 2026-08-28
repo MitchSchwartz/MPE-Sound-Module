@@ -168,6 +168,35 @@ been observed against real devices. Shipping the override first invites working
 around a classifier bug instead of fixing it; shipping the display first means a
 classifier bug is reported rather than silently endured.
 
+### OPEN-4: Dual-role control surfaces (APC in instrument mode) — **OPEN**
+
+§2's diagram routes the APC around the router, on the assumption that a control
+surface is never an instrument. The APC mini mk2 has an instrument/note mode,
+which breaks that assumption: the same device would be the looper's control
+surface *and* a classic MIDI keyboard. One pad press could launch a clip and
+play a note.
+
+Today nothing could tell those apart. The APC handling is **entirely
+note-number based and reasons about channel nowhere** — `apc_panel.py` and
+`apc_transport.py` match on note numbers only. So there is no existing
+mechanism to separate the two roles.
+
+Whether this is trivial or genuinely hard turns on one unknown: does the mk2's
+instrument mode send on a **different MIDI channel**, or in a **different note
+range**, than clip-launch mode?
+
+- **Different channel** → trivial. Route by channel: control notes to the
+  looper, instrument notes to the router. No mode, no user decision.
+- **Different note range, same channel** → workable but fragile, and it would
+  couple the router to an APC-specific note map.
+- **Identical notes and channel** → not separable at the wire. Requires an
+  explicit mode, and the looper must stop consuming pads while it is on.
+
+**Settle it by capture, not by manual:** `scripts/capture-midi-stream.py`
+against the APC in each mode, then diff the channel and note-range summaries.
+Two 20-second runs. Until then, treat "the APC bypasses the router" as an
+assumption with a known counter-example rather than as settled.
+
 ### OPEN-3: Multi-timbral — out of scope
 Two controllers share one Surge patch. Per-controller sounds means multiple
 Surge instances. The router's device identity is the hook that work would need.
