@@ -120,11 +120,34 @@ Each phase ends at a gate. No phase starts before the previous gate passes.
 |---|---|---|---|
 | ~~0~~ | **Latency spike — DONE** | +0.053 ms p50, +0.115 ms p99; `translate()` 2.87 µs | Passed. [`classic-midi-router-hop-2026-08-28.md`](measurements/classic-midi-router-hop-2026-08-28.md) |
 | ~~1~~ | **Pure translator — DONE** | `scripts/midi_translate.py` + 37 tests | Passed. Mutation-checked: un-scaled bend, sustain to member channels, and immediate channel reuse each fail the suite, so it is not passing vacuously |
-| 2 | **Router daemon** | Generalise `mpe-pressure-remap.py`; ROLI profile preserved | ROLI behaviour **unchanged**, proven by byte-identical output on a recorded stream |
+| 2 | **Router daemon** | Generalise `mpe-pressure-remap.py`; ROLI profile preserved | Classic path: byte-identical output on the committed APC golden stream. ROLI path: **unchanged by construction** — see the gate note below |
 | 3 | **Classification + hot-plug + display** | ~~MCM detection, device table~~ **done** (`midi_device.py`, 18 tests); still to do: re-classify on plug, read-only device list in the touch UI | Plug/unplug both kinds in any order, 20×; the UI always shows what the router decided |
 | 4 | **Boot path + override** | Surge always reads Midi Through; router always runs; manual classification override | Cold boot with: nothing / classic only / MPE only / both |
-| 5 | **Ear pass** | Mitch, both controllers | Bend depth correct on both; chords and pedal correct |
+| 5 | **Ear pass** | Mitch, both controllers | Bend depth correct on both; chords and pedal correct. **This is the ROLI's only regression check** — treat it as blocking, not confirmatory |
 | 6 | **Close out** | Measured latency and classification results written to `docs/measurements/` | Numbers recorded, not adjectives |
+
+### Phase 2 gate note — the ROLI regression proof (2026-08-28)
+
+The original gate was "ROLI behaviour unchanged, proven by byte-identical output
+on a recorded stream." **There is no such recording and there will not be one
+soon:** the LUMI is not a controller Mitch is currently playing (four capture
+windows returned zero messages for exactly that reason — not a device fault).
+
+Rather than fake the gate, it is split and its weakness stated:
+
+- **Classic path (APC Notes):** gated by real data — the committed golden stream.
+  This is the path being added, so it carries the real risk.
+- **ROLI path:** gated **by construction**. The router selects the transform per
+  source device; the ROLI source must resolve to `remap_midi_message` with the
+  same arguments it uses today, asserted by a unit test on the dispatch table.
+  That proves the *routing decision* is unchanged. It does **not** prove the
+  audible result is unchanged.
+
+**Accepted risk:** a ROLI regression that lives below the dispatch decision
+(fan-out ordering, message batching, timing) would pass phase 2 and only surface
+at the phase 5 ear pass. That is why phase 5 is blocking for the ROLI. If the
+ROLI comes back into regular use before phase 2 lands, capture a stream and
+restore the stronger gate — the capture tool is already written.
 
 Phase 1 holds the bulk of the logic and needs **no hardware** — the translator is
 a pure function over MIDI events. That is deliberate: the hard part is testable
@@ -336,7 +359,8 @@ up to 15 output messages.
 1. A classic keyboard plugged into a cold-booted appliance plays, with correct
    bend depth, with no setting changed by the user.
 2. An MPE controller behaves exactly as it does today — per-note bend, pressure
-   remap intact.
+   remap intact. **Verified by ear at phase 5, not by recorded stream** (see the
+   phase 2 gate note).
 3. Both attached at once, both correct, simultaneously.
 4. Either unplugged and replugged in any order: no stuck notes, no restart.
 5. Surge is never restarted to change MIDI mode.
