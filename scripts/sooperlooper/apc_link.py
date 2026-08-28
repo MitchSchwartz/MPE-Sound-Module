@@ -35,6 +35,7 @@ import time
 from collections import deque
 from typing import Callable
 
+from apc_leds import translate as translate_led
 from midi_subscription import port_subscriptions
 
 #: Minimum gap between MIDI writes to the APC. At 31.25 kbaud a 3-byte message
@@ -56,8 +57,14 @@ class PacedMidiOut:
     """
 
     def __init__(self, midi_out, *, gap_s: float = DEFAULT_GAP_S,
-                 now: Callable[[], float] = time.monotonic) -> None:
+                 now: Callable[[], float] = time.monotonic,
+                 apc_label: str | None = None) -> None:
         self._out = midi_out
+        # Every LED write in the bench funnels through here, which makes this
+        # the one place a per-model translation cannot be forgotten at a call
+        # site. There are eleven `send_message([0x90, ...])` sites; wiring the
+        # mk2 encoding into each of them is eleven chances to miss one.
+        self._apc_label = apc_label
         self._gap_s = float(gap_s)
         self._now = now
         self._queue: deque[list[int]] = deque()
@@ -67,8 +74,24 @@ class PacedMidiOut:
     def backlog(self) -> int:
         return len(self._queue)
 
+    @property
+    def apc_label(self) -> str | None:
+        return self._apc_label
+
+    @apc_label.setter
+    def apc_label(self, label: str | None) -> None:
+        """Set once the device is identified — resolution happens after open.
+
+        Anything already queued was encoded under the previous label, so the
+        backlog is dropped rather than sent in the wrong dialect. At startup
+        that queue is empty or a blank, and a blank is about to be re-sent.
+        """
+        if label != self._apc_label:
+            self._queue.clear()
+        self._apc_label = label
+
     def send_message(self, msg) -> None:
-        self._queue.append(list(msg))
+        self._queue.append(list(translate_led(list(msg), self._apc_label)))
 
     def pump(self) -> int:
         """Send whatever the pacing budget allows. Returns messages sent."""

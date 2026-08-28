@@ -187,6 +187,10 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
         )
     else:
         apc_label = apc_variant or "env"
+
+    # The pacer encodes pad colour per model; it cannot know the model until
+    # now. Set before the 64-pad blank below, which is the first LED write.
+    midi_out.apc_label = apc_label
     osc = osc_session.client
     midi_osc_latencies: list[float] = []
     midi_osc_pending: list[float] = []
