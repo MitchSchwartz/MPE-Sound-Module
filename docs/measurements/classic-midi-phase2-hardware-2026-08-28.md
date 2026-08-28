@@ -51,6 +51,29 @@ Consequences:
 - Revisit only if a specific patch is silent or lifeless with a classic device,
   and identify that patch by name when it happens.
 
+## What actually happens instead (Mitch, 2026-08-28)
+
+> "Full velocity is instantly registered and full pressure is achieved quickly
+> on Bode strings which usually has a slower attack. It just comes in with full
+> attack."
+
+So the failure mode is the opposite of the one predicted: not silence, but
+**no attack shaping**. The APC's fixed velocity 127 drives the envelope to full
+immediately, and a patch whose character depends on a slow attack loses it.
+Every note also arrives identical -- the pads cannot express otherwise.
+
+**Decision: accept as the default, do not fix as part of this implementation.**
+Mitch's reasoning, which sets the bar for revisiting it:
+
+> "This isn't the best outcome, but it's maybe the best default unhandled
+> outcome in as much as it's working and could be optimized later rather than
+> it's not working and needs to be fixed as part of implementation."
+
+This is a *known expressive limitation of velocity-less pad hardware*, not a
+defect in the router. Optimisation, if it ever happens, belongs in a later pass
+-- e.g. a per-source velocity curve, or synthesising a pressure ramp so the
+envelope is driven over time rather than instantly. Neither is scheduled.
+
 ## Still not covered
 
 - Latency under a live audio graph (phase 0 measured the hop on an idle machine).
