@@ -214,7 +214,15 @@ class SlotRuntime:
         if not path.exists():
             self._log(f"track {loop + 1} slot {plan.slot + 1}: no clip file")
             return False
-        self._send(f"/sl/{loop}/load_loop", [str(path)])
+        # Three arguments, not one. SooperLooper's handler is registered as
+        # `s:filename s:return_url s:error_path`; a one-argument message does
+        # not match the signature and is DISCARDED without a reply or an error.
+        # That is why a queued switch moved the binding but never the audio:
+        # the model advanced, `boundary()` resolved, both pads repainted, and
+        # the engine had simply never been told. Every other load_loop in this
+        # repo (looper_songs.py, both spikes) already sends the empty reply
+        # paths — this call site was the only one that did not.
+        self._send(f"/sl/{loop}/load_loop", [str(path), "", ""])
         self._send(f"/sl/{loop}/hit", ["mute_off"])
         return True
 

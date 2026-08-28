@@ -243,3 +243,29 @@ class BookkeepingTests(RuntimeCase):
     def test_clip_paths_are_unique_per_cell(self) -> None:
         seen = {self.rt.clip_path(t, s) for t in range(15) for s in range(8)}
         self.assertEqual(len(seen), 15 * 8)
+
+
+class LoadLoopArity(RuntimeCase):
+    """A one-argument load_loop is silently discarded by SooperLooper.
+
+    This is why a queued switch moved the binding but never the audio: the
+    model advanced and both pads repainted while the engine was never told.
+    """
+
+    def test_switch_sends_the_reply_paths(self) -> None:
+        from dataclasses import replace as _replace
+        from slot_matrix import ACT_LAUNCH, SlotPlan
+
+        self._clip(0, 1)
+        self.rt._tracks[0] = _replace(
+            self.rt.track(0), active_slot=0
+        ).with_slot(1, Slot(file=self.rt.clip_path(0, 1).name, len_s=1.0))
+        self.rt._launch(SlotPlan(action=ACT_LAUNCH, track=0, slot=1))
+
+        loads = [a for path, a in self.sent if path.endswith("/load_loop")]
+        self.assertTrue(loads, "no load_loop was sent")
+        self.assertEqual(
+            len(loads[0]), 3,
+            "load_loop needs filename + return_url + error_path; a shorter "
+            "message does not match SL's handler signature and is dropped",
+        )
