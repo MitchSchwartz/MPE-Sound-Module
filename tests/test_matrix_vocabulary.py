@@ -118,7 +118,9 @@ class LaunchTests(VocabularyCase):
         paths = self.paths()
         self.assertIn("/sl/0/load_loop", paths)
         self.assertLess(paths.index("/sl/0/load_loop"), paths.index("/sl/0/hit"))
-        self.assertEqual(self.hits(), ["mute_off"])
+        # pause_off + trigger, not mute_off: mute_off does not lift a pause,
+        # and stop_all_loops pauses every loop. See LAUNCH_COMMANDS.
+        self.assertEqual(self.hits(), ["pause_off", "trigger"])
 
     def test_the_slot_becomes_active_only_once_the_engine_confirms(self) -> None:
         """Binding at press time would make the pad claim a clip is sounding
@@ -161,7 +163,7 @@ class SwitchTests(VocabularyCase):
     def test_the_incoming_clip_is_loaded_and_unmuted(self) -> None:
         self.tap(1)
         self.assertIn("/sl/0/load_loop", self.paths())
-        self.assertEqual(self.hits(), ["mute_off"])
+        self.assertEqual(self.hits(), ["pause_off", "trigger"])
 
     def test_a_switch_is_recorded_as_pending_until_the_engine_confirms(self) -> None:
         self.tap(1)

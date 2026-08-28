@@ -15,7 +15,14 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "sooperlooper"))
 
-from slot_matrix import ACT_NOOP, ACT_SWITCH, Slot, Track  # noqa: E402
+from slot_matrix import (  # noqa: E402
+    ACT_LAUNCH,
+    ACT_NOOP,
+    ACT_SWITCH,
+    Slot,
+    SlotPlan,
+    Track,
+)
 from slot_runtime import MIN_CLIP_BYTES, SlotRuntime  # noqa: E402
 from sl_loop_states import (  # noqa: E402
     SL_STATE_MUTE,
@@ -73,7 +80,7 @@ class LaunchOrderTests(RuntimeCase):
         self.assertIn("/sl/0/load_loop", paths)
         self.assertIn("/sl/0/hit", paths)
         self.assertLess(paths.index("/sl/0/load_loop"), paths.index("/sl/0/hit"))
-        self.assertEqual(self.sent[-1][1], ["mute_off"])
+        self.assertEqual(self.sent[-1][1], ["trigger"])
 
     def test_a_missing_clip_file_does_not_unmute(self) -> None:
         """Without the file check the engine unmutes whatever the buffer still
@@ -272,4 +279,48 @@ class LoadLoopArity(RuntimeCase):
             len(loads[0]), 3,
             "load_loop needs filename + return_url + error_path; a shorter "
             "message does not match SL's handler signature and is dropped",
+        )
+
+
+class LaunchAfterStopAll(RuntimeCase):
+    """Stop All pauses every loop; a launch has to lift that pause.
+
+    This sequence had ZERO coverage in either direction, which is how it
+    shipped. `stop_all_loops` sends `pause_on` to every loop, and the matrix's
+    launch used to send only `mute_off` — which does not lift a pause. The clip
+    loaded, the pad lit, and nothing came out. The single-clip path had always
+    sent `pause_off` + `trigger`; the matrix was a sibling that never inherited
+    the rule.
+    """
+
+    def test_launch_lifts_a_pause_rather_than_only_unmuting(self) -> None:
+        self._clip(0, 1)
+        self.rt._tracks[0] = Track(slots=(None, Slot("b.wav"), *([None] * 6)))
+        self.rt.press(0, 1, sl_state=SL_STATE_OFF)
+        hits = [a[0] for p, a in self.sent if p.endswith("/hit")]
+        self.assertIn(
+            "pause_off", hits,
+            "a launch after Stop All is silent unless the pause is lifted",
+        )
+        self.assertIn("trigger", hits)
+
+    def test_relaunching_a_dirty_active_slot_also_lifts_the_pause(self) -> None:
+        """The 'already bound, just unmute' shortcut needs the rule too."""
+        self.rt._tracks[0] = Track(
+            slots=(Slot("a.wav", dirty=True), *([None] * 7)), active_slot=0
+        )
+        self.rt._launch(SlotPlan(action=ACT_LAUNCH, track=0, slot=0))
+        hits = [a[0] for p, a in self.sent if p.endswith("/hit")]
+        self.assertIn("pause_off", hits)
+        self.assertIn("trigger", hits)
+
+    def test_no_launch_path_relies_on_mute_off_alone(self) -> None:
+        """One answer to 'how do you start a loop', not two that drift."""
+        from slot_runtime import LAUNCH_COMMANDS
+
+        self.assertEqual(LAUNCH_COMMANDS, ("pause_off", "trigger"))
+        source = Path("scripts/sooperlooper/slot_runtime.py").read_text()
+        self.assertNotIn(
+            '["mute_off"]', source,
+            "a launch path is sending mute_off directly again",
         )

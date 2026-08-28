@@ -325,3 +325,39 @@ class SceneRowTests(SurfaceCase):
             "a scene launch of an active cell is that cell's own tap, fanned "
             "out — the same relaunch gesture, not a second way to start a clip",
         )
+
+
+class SceneLaunchSurvivesTheRealDebounce(SurfaceCase):
+    """Scene launch must work at the debounce the appliance actually runs.
+
+    `MPE_APC_DEBOUNCE_MS` defaults to 200 on the Pi. The synthesised down/up
+    pair lands in one microsecond, so the up — which carries the mute/unmute
+    half of the gesture — was inside the window and silently dropped. Every
+    other harness in this suite uses debounce_ms=0, the single value at which
+    the defect cannot appear, so it shipped green.
+    """
+
+    def test_the_up_edge_is_not_swallowed_at_200ms(self) -> None:
+        from tests.test_multigrid_delegates import build_test_footswitch
+
+        sink: list[tuple[str, list]] = []
+        fs = build_test_footswitch(0, sink, debounce_ms=200.0)
+        fs.sl_state = SL_STATE_OFF
+        fs.synthesised_tap()
+        self.assertTrue(
+            sink, "the synthesised tap produced no engine command at all"
+        )
+
+    def test_a_real_double_press_is_still_debounced(self) -> None:
+        """The guard must keep rejecting hardware contact bounce."""
+        from tests.test_multigrid_delegates import build_test_footswitch
+
+        sink: list[tuple[str, list]] = []
+        fs = build_test_footswitch(0, sink, debounce_ms=200.0)
+        fs.sl_state = SL_STATE_OFF
+        fs.on_pad_down()
+        first = len(sink)
+        fs.on_pad_down()
+        self.assertEqual(
+            len(sink), first, "a bouncing pad must not fire twice"
+        )

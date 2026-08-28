@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Callable
 
 from slot_matrix import (
+    PENDING_LAUNCH,
     ACT_CANCEL,
     ACT_CLEAR,
     ACT_FORWARD,
@@ -41,6 +42,19 @@ GESTURE_ACTIONS = frozenset({ACT_FORWARD, ACT_RECORD})
 SAVE_TIMEOUT_S = 2.0
 SAVE_POLL_S = 0.01
 MIN_CLIP_BYTES = 512
+
+
+#: What it takes to make a loop sound, whatever it was doing before.
+#:
+#: `mute_off` alone does NOT lift a pause. `stop_all_loops` pauses every loop
+#: (`pause_on`), so after any Stop All a matrix launch that sent only
+#: `mute_off` was SILENT — the clip loaded, the pads lit, and nothing played.
+#:
+#: The single-clip path has always known this and sends `pause_off` + `trigger`
+#: (see `loop_model.plan_gesture`, STATE_STOPPED). The matrix was written as a
+#: sibling of that path and never inherited the rule. This constant exists so
+#: there is ONE answer to "how do you start a loop" instead of two that drift.
+LAUNCH_COMMANDS: tuple[str, ...] = ("pause_off", "trigger")
 
 
 class SlotRuntime:
@@ -153,7 +167,14 @@ class SlotRuntime:
             return True
 
         if plan.action == ACT_CANCEL:
-            self._send(f"/sl/{loop}/hit", ["pause_on"])
+            # Cancelling a queued LAUNCH means "never mind, stay silent", and
+            # pause_on is right. Cancelling a queued SWITCH means "never mind,
+            # keep playing what you were playing" — the outgoing slot is still
+            # sounding, and pausing it stops audio the player never asked to
+            # stop. Only the launch case has anything to undo.
+            pending = self.track(loop).pending
+            if pending is None or pending.kind == PENDING_LAUNCH:
+                self._send(f"/sl/{loop}/hit", ["pause_on"])
             return True
 
         if plan.action == ACT_CLEAR:
@@ -225,7 +246,8 @@ class SlotRuntime:
         if track.active_slot == plan.slot:
             active = track.slot(plan.slot)
             if active is not None and active.dirty:
-                self._send(f"/sl/{loop}/hit", ["mute_off"])
+                for cmd in LAUNCH_COMMANDS:
+                    self._send(f"/sl/{loop}/hit", [cmd])
                 return True
         path = self.clip_path(loop, plan.slot)
         if not path.exists():
@@ -240,7 +262,8 @@ class SlotRuntime:
         # repo (looper_songs.py, both spikes) already sends the empty reply
         # paths — this call site was the only one that did not.
         self._send(f"/sl/{loop}/load_loop", [str(path), "", ""])
-        self._send(f"/sl/{loop}/hit", ["mute_off"])
+        for cmd in LAUNCH_COMMANDS:
+            self._send(f"/sl/{loop}/hit", [cmd])
         return True
 
     def _clear(self, plan: SlotPlan) -> bool:
