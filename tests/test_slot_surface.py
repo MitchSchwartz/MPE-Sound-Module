@@ -60,6 +60,18 @@ def build_track_gestures(sink: list, *, num: int = 15) -> dict[int, TrackGesture
     return out
 
 
+def feed_wrap(gesture, *, length: float = 2.0) -> None:
+    """Drive one loop wrap through a gesture's playhead.
+
+    The wrap is the bench's only quantize boundary — a queued switch is
+    released here — so a test about switch timing has to cross one for real
+    rather than assert on the state that happens to be true at press.
+    """
+    gesture.sync_loop_len(length)
+    gesture.sync_loop_pos(length * 0.99)
+    gesture.sync_loop_pos(0.0)
+
+
 class SurfaceCase(unittest.TestCase):
     def setUp(self) -> None:
         self.dir = Path(tempfile.mkdtemp())
@@ -138,8 +150,20 @@ class PendingResolutionTests(SurfaceCase):
         self.assertEqual(self.rt.track(0).active_slot, 0)
 
     def test_the_engine_reaching_the_target_resolves_it(self) -> None:
+        """The WRAP resolves it, not the state.
+
+        This used to resolve on `sl_state in ACTIVE_PLAY`, which on a switch is
+        already true when the pad goes down — the outgoing take is playing.
+        So the "pending" resolved instantly and the switch landed in the middle
+        of a bar. Reported as "switching works but isn't quantized".
+        """
         self._armed_switch()
         self.state(0, SL_STATE_PLAYING)
+        self.assertIsNotNone(
+            self.rt.track(0).pending, "playing is not a boundary"
+        )
+        self.assertEqual(self.rt.track(0).active_slot, 0)
+        feed_wrap(self.fs_by_loop[0])
         self.assertIsNone(self.rt.track(0).pending)
         self.assertEqual(self.rt.track(0).active_slot, 4)
 
