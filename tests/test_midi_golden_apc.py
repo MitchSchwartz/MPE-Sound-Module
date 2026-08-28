@@ -120,11 +120,33 @@ class GoldenApcStream(unittest.TestCase):
         self.assertEqual(src_on, dst_on)
         self.assertLessEqual({m[1] for m in self.out}, {m[1] for m in self.stream})
 
-    def test_retriggered_note_is_released_before_it_sounds_again(self):
-        """Guards the synthetic note_off the double-strike depends on."""
+    def test_duplicate_note_events_are_absorbed_exactly(self):
+        """The APC duplicates pad events: it sends note_on twice and
+        note_off twice for the same press (7 times in this capture).
+
+        Both halves must be absorbed. A duplicate note_on becomes a
+        release plus a retrigger; the trailing duplicate note_off has
+        nothing to release and must produce nothing. These net to zero
+        added messages, so a bare length assertion proves nothing --
+        count the two events separately.
+        """
+        translator = ClassicToMpe()
+        retriggers = 0
+        dropped_offs = 0
+        for msg in self.stream:
+            out = translator.translate(msg)
+            if msg[0] & 0xF0 == 0x90 and len(out) == 2:
+                self.assertEqual(out[0][0] & 0xF0, 0x80, "release must come first")
+                self.assertEqual(out[0][1], msg[1])
+                self.assertEqual(out[1][0] & 0xF0, 0x90)
+                retriggers += 1
+            elif msg[0] & 0xF0 == 0x80 and not out:
+                dropped_offs += 1
+        self.assertEqual(retriggers, 7)
+        self.assertEqual(dropped_offs, 7)
+
+    def test_a_note_is_never_retriggered_while_still_held(self):
         held = set()
-        inserted = 0
-        src_i = 0
         for msg in self.out:
             kind = msg[0] & 0xF0
             if kind == 0x90 and msg[2] > 0:
@@ -132,9 +154,6 @@ class GoldenApcStream(unittest.TestCase):
                 held.add(msg[1])
             else:
                 held.discard(msg[1])
-        self.assertGreater(
-            len(self.out), len(self.stream) - 1, "expected a synthetic release"
-        )
 
     def test_translation_is_deterministic(self):
         second = []

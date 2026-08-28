@@ -150,3 +150,29 @@ def classify_port(
     if usb_vendors and KNOWN_MPE_USB_VENDORS & {v.lower() for v in usb_vendors}:
         return Classification(kind=KIND_MPE, reason=REASON_KNOWN_USB)
     return Classification(kind=KIND_CLASSIC, reason=REASON_DEFAULT)
+
+
+# Ports the router must never bind, matched case-insensitively as substrings.
+#
+# These are exclusions of *policy*, not of classification -- each one would
+# classify perfectly well, and binding it would still be wrong:
+#
+#   Midi Through      ALSA's loopback. Surge reads it; binding it would feed
+#                     the router's own output back to itself.
+#   RtMidi output     the router's own virtual output port.
+#   APC mini mk2 Control
+#                     the looper's control surface. Its clip-launch and
+#                     transport presses are notes on the wire; routing them
+#                     would play them as pitches while launching clips.
+#                     The APC's *Notes* port is a separate ALSA port and is
+#                     deliberately NOT excluded.
+ROUTER_PORT_EXCLUSIONS = (
+    "midi through",
+    "rtmidi output",
+    "apc mini mk2 control",
+)
+
+
+def is_router_excluded(port_name: str) -> bool:
+    lowered = port_name.lower()
+    return any(token in lowered for token in ROUTER_PORT_EXCLUSIONS)
