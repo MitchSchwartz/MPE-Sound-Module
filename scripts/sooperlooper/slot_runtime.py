@@ -56,6 +56,12 @@ MIN_CLIP_BYTES = 512
 #: there is ONE answer to "how do you start a loop" instead of two that drift.
 LAUNCH_COMMANDS: tuple[str, ...] = ("pause_off", "trigger")
 
+#: A deferred launch waits for the track's loop wrap. If `loop_pos` stops
+#: arriving the wrap never comes and the switch is stranded — a dead pad with
+#: no error, which is worse than a late switch. After this many seconds without
+#: a wrap the launch fires anyway and says so.
+DEFERRED_LAUNCH_GRACE_S: float = 5.0
+
 
 class SlotRuntime:
     """Per-track slot bookkeeping plus non-gesture engine actions."""
@@ -76,6 +82,12 @@ class SlotRuntime:
         self._log = log or (lambda _m: None)
         self._now = now
         self._tracks: dict[int, Track] = {i: Track() for i in range(num_tracks)}
+        #: Launches held until the track's next wrap, by track index.
+        #: `load_loop` swaps the buffer the instant it lands (measured
+        #: 2026-08-26, PI5-LOOPER-SEAM-WRAP.md: it does NOT halt playback), so
+        #: sending it at press time replaces the audio under the player's
+        #: fingers mid-bar. Held here instead and fired at the boundary.
+        self._deferred: dict[int, tuple[SlotPlan, float]] = {}
 
     def track(self, index: int) -> Track:
         return self._tracks.get(index, Track())
@@ -111,7 +123,22 @@ class SlotRuntime:
         return plan
 
     def boundary(self, track_index: int) -> None:
-        """A quantize boundary arrived for this track: pending becomes true."""
+        """A quantize boundary arrived for this track: pending becomes true.
+
+        This is where a held launch actually reaches the engine. `load_loop`
+        swaps the buffer immediately, so at the wrap the outgoing take has just
+        finished and the swap lands in the seam instead of over the middle of
+        a bar.
+        """
+        held = self._deferred.pop(track_index, None)
+        if held is not None and not self._launch(held[0]):
+            # The launch failed at the boundary. Drop the pending rather than
+            # advancing the model onto a slot the engine never loaded — the
+            # outgoing take is still sounding and still the truth.
+            self._tracks[track_index] = replace(
+                self.track(track_index), pending=None
+            )
+            return
         self._tracks[track_index] = resolve_at_boundary(self.track(track_index))
 
     def dispatch(self, plan: SlotPlan, *, sl_state: int = SL_STATE_OFF) -> SlotPlan:
@@ -126,9 +153,14 @@ class SlotRuntime:
             self._log(f"track {plan.track + 1} slot {plan.slot + 1}: {plan.note}")
         return plan
 
+    def has_deferred(self, track_index: int) -> bool:
+        """True while a launch is held waiting for this track's wrap."""
+        return track_index in self._deferred
+
     def reset(self) -> None:
         """Drop slot bookkeeping after a full track reset."""
         self._tracks = {i: Track() for i in range(self._num_tracks)}
+        self._deferred.clear()
 
     def mark_recorded(
         self, track_index: int, slot: int, *, len_s: float, sl_state: int
@@ -172,6 +204,7 @@ class SlotRuntime:
             # keep playing what you were playing" — the outgoing slot is still
             # sounding, and pausing it stops audio the player never asked to
             # stop. Only the launch case has anything to undo.
+            self._deferred.pop(loop, None)
             pending = self.track(loop).pending
             if pending is None or pending.kind == PENDING_LAUNCH:
                 self._send(f"/sl/{loop}/hit", ["pause_on"])
@@ -189,7 +222,47 @@ class SlotRuntime:
             return False
 
         if plan.action in (ACT_LAUNCH, ACT_SWITCH):
+            if sl_state in ACTIVE_PLAY:
+                return self._defer_launch(plan)
+            # Nothing is sounding: there is no boundary to wait for and no
+            # audio to protect, so the launch is immediate.
             return self._launch(plan)
+        return True
+
+    def _defer_launch(self, plan: SlotPlan) -> bool:
+        """Hold a launch until the wrap. Validate NOW so failures are visible.
+
+        A missing clip file discovered at the boundary would be a pad that
+        lights, waits a bar and then quietly does nothing. Checked at press
+        instead, where the press is what failed.
+        """
+        loop = plan.track
+        track = self.track(loop)
+        retrigger_only = track.active_slot == plan.slot
+        if not retrigger_only and not self.clip_path(loop, plan.slot).exists():
+            self._log(f"track {loop + 1} slot {plan.slot + 1}: no clip file")
+            return False
+        self._deferred[loop] = (plan, self._now())
+        return True
+
+    def expire_deferred(self, track_index: int) -> bool:
+        """Fire a deferred launch that has waited too long for a wrap.
+
+        Called from the surface's routine state poll, so no new ticker exists
+        for this. Returns True if it fired.
+        """
+        held = self._deferred.get(track_index)
+        if held is None:
+            return False
+        plan, at = held
+        if self._now() - at < DEFERRED_LAUNCH_GRACE_S:
+            return False
+        self._log(
+            f"track {track_index + 1}: no loop wrap in "
+            f"{DEFERRED_LAUNCH_GRACE_S:.0f}s — launching unquantized rather "
+            f"than stranding the switch"
+        )
+        self.boundary(track_index)
         return True
 
     def _prepare_record(self, plan: SlotPlan, *, sl_state: int) -> bool:

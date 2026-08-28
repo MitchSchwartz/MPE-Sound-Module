@@ -110,13 +110,17 @@ class Session(unittest.TestCase):
         for loop in range(15):
             state = self.engine.state[loop]
             length = self.engine.loop_len.get(loop, 0.0)
+            fs = self.fs_by_loop.get(loop)
             if length and self._last_len.get(loop) != length:
                 self._last_len[loop] = length
                 self.surface.on_loop_len(loop, length)
+            # The playhead crossing zero is a change like any other, and it is
+            # the bench's only boundary: a queued switch is released here.
+            if fs is not None:
+                self.engine.deliver_wrap(fs)
             if self._last_state.get(loop) == state:
                 continue
             self._last_state[loop] = state
-            fs = self.fs_by_loop.get(loop)
             if fs is not None:
                 fs.sync_from_sl(state)
             self.surface.on_state(loop, state)
