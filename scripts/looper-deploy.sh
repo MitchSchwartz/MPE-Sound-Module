@@ -42,11 +42,19 @@ if systemctl list-unit-files mpe-looper-session.service >/dev/null 2>&1; then
     if systemctl cat mpe-looper-session.service >/dev/null 2>&1; then
         was_active="$(systemctl is-active mpe-looper-session.service 2>/dev/null || true)"
         echo "looper-deploy: restarting mpe-looper-session.service (was: ${was_active:-unknown})"
-        sudo systemctl restart mpe-looper-session.service || {
-            echo "looper-deploy: WARN — mpe-looper-session.service failed to restart;" >&2
-            echo "  the pads may still be running pre-deploy code. Check:" >&2
-            echo "    systemctl status mpe-looper-session.service" >&2
-        }
+        if [ -x "$REPO_ROOT/scripts/restart-looper-session.sh" ]; then
+            bash "$REPO_ROOT/scripts/restart-looper-session.sh" || {
+                echo "looper-deploy: WARN — looper session restart failed;" >&2
+                echo "  the pads may still be running pre-deploy code. Check:" >&2
+                echo "    systemctl status mpe-looper-session.service" >&2
+            }
+        else
+            sudo systemctl restart mpe-looper-session.service || {
+                echo "looper-deploy: WARN — mpe-looper-session.service failed to restart;" >&2
+                echo "  the pads may still be running pre-deploy code. Check:" >&2
+                echo "    systemctl status mpe-looper-session.service" >&2
+            }
+        fi
     fi
 else
     echo "looper-deploy: no mpe-looper-session.service on this host — skipping"

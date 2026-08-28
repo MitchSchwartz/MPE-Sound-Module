@@ -8,6 +8,8 @@ one track, which is what makes per-column state expressible later.
 import unittest
 
 from scripts.sooperlooper.apc_grid import (
+    NUM_SLOTS,
+    all_grid_pads,
     NUM_LOOPS,
     CONTROLLER_ROWS,
     MAX_VIEW_OFFSET,
@@ -101,3 +103,54 @@ class ApcGridTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CellGeometryTests(unittest.TestCase):
+    """The multi-clip matrix: columns are tracks, rows are slots."""
+
+    def test_a_column_is_one_track_across_every_row(self) -> None:
+        view = GridView(offset=3)
+        for row in range(8):
+            self.assertEqual(view.track_for_pad(row, 5), 8,
+                             "banking moves tracks; the row is the slot")
+
+    def test_note_and_cell_round_trip(self) -> None:
+        view = GridView(offset=7)
+        for track in view.visible_loops():
+            for slot in range(NUM_SLOTS):
+                note = view.note_for_cell(track, slot)
+                self.assertIsNotNone(note)
+                self.assertEqual(view.cell_for_note(note), (track, slot))
+
+    def test_the_clip_row_still_means_the_clip_row(self) -> None:
+        """loop_for_pad must not silently acquire seven new rows — an
+        unconverted caller would start handling pads it has no logic for."""
+        view = GridView()
+        self.assertEqual(view.loop_for_pad(0, 2), 2)
+        for row in range(1, 8):
+            self.assertIsNone(view.loop_for_pad(row, 2))
+        self.assertEqual(view.track_for_pad(3, 2), 2)
+
+    def test_an_off_screen_track_has_no_pad(self) -> None:
+        view = GridView(offset=0)
+        self.assertIsNone(view.note_for_cell(14, 0))
+        self.assertIsNotNone(GridView(offset=7).note_for_cell(14, 0))
+
+    def test_slot_out_of_range_has_no_pad(self) -> None:
+        self.assertIsNone(GridView().note_for_cell(0, NUM_SLOTS))
+        self.assertIsNone(GridView().note_for_cell(0, -1))
+
+    def test_every_pad_addresses_a_track_in_every_bank(self) -> None:
+        """With 15 tracks and MAX_VIEW_OFFSET 7 no bank is ragged — the last
+        page overlaps rather than leaving a gap. Pinned because the grid is
+        painted from this, and a pad that addresses nothing would still light."""
+        for offset in range(MAX_VIEW_OFFSET + 1):
+            self.assertEqual(len(GridView(offset=offset).visible_cells()), 64)
+
+    def test_banks_overlap_by_one_at_the_end(self) -> None:
+        self.assertEqual(GridView(offset=MAX_VIEW_OFFSET).visible_loops(),
+                         tuple(range(7, 15)))
+
+    def test_all_grid_pads_covers_the_whole_surface(self) -> None:
+        self.assertEqual(len(all_grid_pads()), 64)
+        self.assertEqual(len(set(all_grid_pads())), 64)

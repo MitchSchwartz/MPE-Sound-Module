@@ -72,8 +72,17 @@ def log(msg: str) -> None:
     print(f"[{time.strftime('%H:%M:%S')}.{int(time.time() % 1 * 1000):03d}] {msg}", flush=True)
 
 
-def poll_footswitches(footswitches: list[LoopFootswitch]) -> None:
-    """Periodic bench poll — holds and LED transitions."""
+def poll_footswitches(footswitches: list[LoopFootswitch], *, multigrid: bool = False) -> None:
+    """Periodic bench poll — holds and LED transitions.
+
+    When ``multigrid`` is on, skip footswitch hold (``SlotSurface`` owns hold-
+    clear) but still advance blink phase — ``SlotSurface.repaint`` reads
+    ``current_led()``.
+    """
+    if multigrid:
+        for fs in footswitches:
+            fs.poll_led()
+        return
     for fs in footswitches:
         fs.poll_hold()
         fs.poll_led()
@@ -97,9 +106,11 @@ class LoopFootswitch:
         on_grid_established=None,
         on_phase_reanchor=None,
         on_grid_dropped=None,
+        multigrid: bool = False,
     ) -> None:
         self.loop = loop
         self.grid = grid
+        self._multigrid = multigrid
         self._on_grid_established = on_grid_established
         self._on_phase_reanchor = on_phase_reanchor
         self._on_grid_dropped = on_grid_dropped
@@ -179,6 +190,11 @@ class LoopFootswitch:
         (`_pending`) that expires on its own.
         """
         return effective_state(self.sl_state, self._pending)
+
+    @property
+    def pending(self) -> str | None:
+        """Unconfirmed bench intent — same field ``led_for`` reads."""
+        return self._pending
 
     def _expect(self, state: str | None) -> None:
         self._pending = state
@@ -261,6 +277,13 @@ class LoopFootswitch:
                    or led_before != self._led_target())
         if changed:
             log(f"loop {self.loop}: SL sync sl={sl_state} bench={self.state}")
+            # Always. `_sync_led` is where `_led_transition` is armed, and the
+            # transition is READ under multigrid — `SlotSurface` paints the pad
+            # from `current_led()`. Skipping the whole call here to avoid
+            # painting also skipped the arming, so the record-to-play tail
+            # blink never happened on the matrix and the pad jumped straight to
+            # green. `_set_led` already suppresses the paint under multigrid;
+            # that is the only half that should ever be conditional.
             self._sync_led()
             return True
         return False
@@ -391,6 +414,8 @@ class LoopFootswitch:
         log(f"loop {self.loop}: -> {cmd} (state={self.state})")
 
     def _set_led(self, velocity: int, *, force: bool = False) -> None:
+        if self._multigrid:
+            return
         if self._midi_out is None or self._note is None:
             return  # banked off-screen: this track has no pad to paint
         velocity = max(0, min(127, velocity))
@@ -404,6 +429,30 @@ class LoopFootswitch:
             self.sl_state,
             pending=self._pending,
         )
+
+    def current_led(self) -> int:
+        """Colour this track's active slot should show — no MIDI write.
+
+        Multigrid ``SlotSurface`` calls this when painting the active row;
+        single-clip mode uses ``_sync_led`` / ``poll_led`` instead.
+        """
+        if self._hold_led_lock():
+            elapsed = time.monotonic() - self._pad_down_at
+            if self._hold_targets_cancel():
+                blink_on = accelerating_hold_blink_on(
+                    elapsed - self.hold_blink_start_s,
+                    hold_s=max(self.hold_s - self.hold_blink_start_s, 0.001),
+                    blink_after_s=0.0,
+                )
+                if blink_on is not None:
+                    return LED_RED if blink_on else LED_OFF
+            return LED_RED
+        if self._led_transition is not None:
+            seq = self._led_transition
+            phase = int(time.monotonic() / TRANSITION_BLINK_S) % len(seq)
+            return seq[phase]
+        seq = self._led_target()
+        return seq[0] if seq else LED_OFF
 
     def _hold_led_lock(self) -> bool:
         """True while hold-warning owns the pad LED (after blink-start delay)."""
@@ -474,6 +523,27 @@ class LoopFootswitch:
         self._sync_led()
         self._mark_action()
 
+    def expect_cleared(self) -> None:
+        """Someone else emptied this loop — expect idle, so the next gesture records.
+
+        The multi-clip runtime clears the buffer itself (`mute_on` + `undo_all`)
+        when a press means "record into a different slot on this track". Without
+        being told, `state` still derives `playing` from the last engine report,
+        so the very next gesture is a mute: reported from the appliance
+        2026-08-27 as the pad going green, then yellow on a second press, with
+        no take ever recorded.
+
+        An expectation, not an assertion — the engine still gets to confirm, and
+        an intent that never lands expires on its own. Sends no OSC: the caller
+        has already cleared the engine and a second `undo_all` from here would
+        be the double-command this design exists to prevent.
+        """
+        self.awaiting_quantize = False
+        self._stop_queued = False
+        self._led_transition = None
+        self._expect(STATE_IDLE)
+        self._sync_led()
+
     def _hold_targets_cancel(self) -> bool:
         """True when a long press should abort a take, not delete a landed clip."""
         if self.sl_state in (
@@ -542,6 +612,17 @@ class LoopFootswitch:
         self._sync_led()
         self._mark_action()
         log(f"loop {self.loop}: -> {edge} done (state={self.state}, sl_state={self.sl_state})")
+
+    @property
+    def hold_fired(self) -> bool:
+        """Did the current gesture already fire its long-press?
+
+        Read by `SlotSurface`, which drives this footswitch's `poll_hold` under
+        multigrid and needs to know when it fired so the two do not both track
+        hold state — two hold flags is how the surface ended up firing the
+        blink at one moment and the clear at another.
+        """
+        return self._hold_fired
 
     def on_pad_down(self) -> None:
         self._pad_down = True
@@ -616,6 +697,7 @@ def build_footswitches(
     on_grid_established=None,
     on_phase_reanchor=None,
     on_grid_dropped=None,
+    multigrid: bool = False,
 ) -> tuple[dict[int, LoopFootswitch], list[LoopFootswitch]]:
     """One footswitch per track, bound to the pad showing it in `view`.
 
@@ -639,6 +721,7 @@ def build_footswitches(
             on_grid_established=on_grid_established,
             on_phase_reanchor=on_phase_reanchor,
             on_grid_dropped=on_grid_dropped,
+            multigrid=multigrid,
         )
         pad = view.note_for_loop(loop_i)
         fs.bind(osc, midi_out, pad)
@@ -663,6 +746,7 @@ def apply_view(
     *,
     footswitches: list[LoopFootswitch],
     view: GridView,
+    multigrid: bool = False,
 ) -> dict[int, LoopFootswitch]:
     """Move the viewport: clear the clip row, rebind pads, repaint. New by-note map.
 
@@ -671,13 +755,17 @@ def apply_view(
     bank is a track the player believes is running and isn't, and that is the
     one failure of this feature they cannot debug from the surface. One sweep
     of eight notes costs nothing and makes it impossible.
+
+    When ``multigrid`` is on, do not paint row 0 from footswitch state —
+    ``SlotSurface.repaint`` owns the full matrix.
     """
     for row, col in all_clip_pads():
         midi_out.send_message([0x90, pad_note(row, col), LED_OFF])
     for fs in footswitches:
         fs.release_pad()
         fs.set_note(view.note_for_loop(fs.loop))
-        fs._sync_led()
+        if not multigrid:
+            fs._sync_led()
     return notes_for_view(footswitches, view)
 
 
@@ -710,11 +798,7 @@ def reset_all_loops(
         osc.send_message(f"/sl/{loop}/hit", "pause_on")
         osc.send_message(f"/sl/{loop}/hit", "undo_all")
     for fs in footswitches:
-        fs.awaiting_quantize = False
-        fs._stop_queued = False
-        fs._led_transition = None
-        fs._expect(STATE_IDLE)
-        fs._sync_led()
+        fs.expect_cleared()
     for row, col in all_clip_pads():
         midi_out.send_message([0x90, pad_note(row, col), LED_OFF])
     print(f"-> track reset: cleared {num_loops} loops", flush=True)

@@ -31,3 +31,10 @@ class SlBenchStateListenerTests(unittest.TestCase):
         listener = SlBenchStateListener({3: fs}, session=_session())
         listener.on_update("/sl/bench/state", 3, "state", 4.0)
         self.assertEqual(fs.state, "playing")
+
+    def test_on_update_routes_loop_len_to_surface_without_footswitch(self) -> None:
+        surface = MagicMock()
+        listener = SlBenchStateListener({}, session=_session())
+        listener.attach_surface(surface)
+        listener.on_update("/sl/bench/state", 7, "loop_len", 4.0)
+        surface.on_loop_len.assert_called_once_with(7, 4.0)
