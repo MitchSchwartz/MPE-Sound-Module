@@ -172,12 +172,19 @@ class SlotSurface:
                 if fs is not None and note is not None:
                     fs.set_note(note)
                     # A scene press is a complete tap. There is no pad to
-                    # release, so the up has to be synthesised here: leaving
-                    # the footswitch held would let its hold timer expire and
-                    # fire long-press-to-clear on every track in the row, and
-                    # the mute/unmute half of the gesture lands on the up.
-                    fs.on_pad_down()
-                    fs.on_pad_up()
+                    # release, so the up has to be synthesised: leaving the
+                    # footswitch held would let its hold timer expire and fire
+                    # long-press-to-clear on every track in the row, and the
+                    # mute/unmute half of the gesture lands on the up.
+                    #
+                    # It must NOT go through the debounce gate. Calling
+                    # on_pad_down() then on_pad_up() put both edges in the same
+                    # microsecond, inside the appliance's real 200 ms window
+                    # (MPE_APC_DEBOUNCE_MS), so the up was discarded and a
+                    # scene launch of a stored, muted clip did nothing at all.
+                    # Every harness used debounce_ms=0 — the one value at which
+                    # that bug is invisible.
+                    fs.synthesised_tap()
         if plans:
             self._log(f"scene row {row + 1}: {len(plans)} track(s)")
         self._sync_footswitch_notes()

@@ -568,8 +568,26 @@ class LoopFootswitch:
         self._sync_led()
         self._mark_action()
 
-    def _gesture(self, edge: str) -> None:
-        if self._debounced():
+    def synthesised_tap(self) -> None:
+        """A complete down+up that the debounce must not eat.
+
+        The debounce exists to reject HARDWARE double-triggers — one physical
+        press reported twice by a contact bouncing inside the pad. A tap this
+        process generates itself cannot bounce, and the two edges arrive in the
+        same microsecond, so `_debounced()` rejected the `up` every time on the
+        appliance's real 200 ms window (`MPE_APC_DEBOUNCE_MS`).
+
+        That mattered because the mute/launch half of the gesture lands on the
+        UP. Scene launch of a stored, muted clip was therefore a silent no-op
+        on hardware while passing every test, because every harness constructs
+        the footswitch with `debounce_ms=0` — the one value at which the bug
+        cannot appear.
+        """
+        self._gesture("down", debounced=False)
+        self._gesture("up", debounced=False)
+
+    def _gesture(self, edge: str, *, debounced: bool = True) -> None:
+        if debounced and self._debounced():
             log(f"loop {self.loop}: -> {edge} ignored (debounce)")
             return
         if self._waiting_for_quantize():
