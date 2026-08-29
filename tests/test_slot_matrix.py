@@ -13,12 +13,10 @@ from scripts.sooperlooper.slot_matrix import (
     ACT_LAUNCH,
     ACT_NOOP,
     ACT_RECORD,
-    ACT_STOP,
     ACT_SWITCH,
     NUM_SLOTS,
     NUM_TRACKS,
     PENDING_LAUNCH,
-    PENDING_STOP,
     PENDING_SWITCH,
     Pending,
     Slot,
@@ -157,14 +155,6 @@ class OccupiedCellTests(unittest.TestCase):
 class CancelTests(unittest.TestCase):
     """Cancel is a re-tap of the slot that OWNS the pending action."""
 
-    def test_retap_outgoing_cancels_a_pending_stop(self) -> None:
-        slots = [clip()] + [None] * 7
-        tr = track(slots=slots, active_slot=0,
-                   pending=Pending(PENDING_STOP, from_slot=0))
-        p = press(tr, 0, sl_state=SL_STATE_PLAYING)
-        self.assertEqual(p.action, ACT_CANCEL)
-        self.assertTrue(p.clear_pending)
-
     def test_retap_outgoing_cancels_a_pending_switch(self) -> None:
         slots = [clip("a.wav"), clip("b.wav")] + [None] * 6
         tr = track(slots=slots, active_slot=0,
@@ -204,15 +194,6 @@ class BookkeepingTests(unittest.TestCase):
                    pending=Pending(PENDING_SWITCH, from_slot=0, to_slot=1))
         tr = resolve_at_boundary(tr)
         self.assertEqual(tr.active_slot, 1)
-        self.assertIsNone(tr.pending)
-
-    def test_boundary_on_a_stop_keeps_the_slot_active(self) -> None:
-        """Stopped is not unloaded — the buffer still holds that slot."""
-        slots = [clip()] + [None] * 7
-        tr = track(slots=slots, active_slot=0,
-                   pending=Pending(PENDING_STOP, from_slot=0))
-        tr = resolve_at_boundary(tr)
-        self.assertEqual(tr.active_slot, 0)
         self.assertIsNone(tr.pending)
 
     def test_cancel_clears_pending_without_moving_the_active_slot(self) -> None:

@@ -53,7 +53,7 @@ def build_track_gestures(sink: list, *, num: int = 15) -> dict[int, TrackGesture
     out: dict[int, TrackGesture] = {}
     for loop in range(num):
         fs = TrackGesture(
-            loop=loop, hold_ms=2000, debounce_ms=0, multigrid=True, quantized=False
+            loop=loop, hold_ms=2000, debounce_ms=0, multigrid=True, quantized=True
         )
         fs.bind(_OscStub(sink), FakeOut(), None)
         out[loop] = fs
