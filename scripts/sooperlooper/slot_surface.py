@@ -12,7 +12,7 @@ from typing import Callable
 
 from apc_grid import GRID_ROWS, GridView
 from apc_transport import scene_launch_index_to_row
-from led_table import LED_OFF, LED_RED, SCENE_LED_OFF, SCENE_LED_ON
+from led_table import LED_OFF, LED_RED
 from sl_loop_states import (
     ACTIVE_PLAY,
     ACTIVE_RECORD,
@@ -31,7 +31,7 @@ from slot_matrix import (
     PENDING_SWITCH,
     SlotPlan,
     plan_scene_press,
-    scene_row_led_on,
+    scene_row_led,
 )
 from slot_runtime import SlotRuntime
 
@@ -539,10 +539,9 @@ class SlotSurface:
         desired: dict[int, int] = {}
         for index, note in enumerate(self._scene_launch_notes):
             row = scene_launch_index_to_row(index)
-            lit = scene_row_led_on(
+            desired[note] = scene_row_led(
                 self._rt.tracks(), row, sl_states=self._sl_states
             )
-            desired[note] = SCENE_LED_ON if lit else SCENE_LED_OFF
         if force:
             to_send = sorted(desired.items())
         else:

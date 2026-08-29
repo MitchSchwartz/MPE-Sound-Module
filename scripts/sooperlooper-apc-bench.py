@@ -34,7 +34,7 @@ from apc_transport import (  # noqa: E402
     resolve_apc_transport_notes,
     resolve_arrow_notes,
     resolve_scene_launch_notes,
-    resolve_shift_indicator_note,
+    resolve_clear_warning_note,
     scene_row_for_note,
 )
 from led_table import LED_OFF  # noqa: E402
@@ -427,7 +427,7 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
         midi_out=midi_out,
         shift_note=shift_note,
         stop_all_note=stop_all_note,
-        shift_indicator_note=resolve_shift_indicator_note(apc_label),
+        clear_warning_note=resolve_clear_warning_note(apc_label),
         scene_launch_notes=scene_launch_notes,
         hold_s=track_reset_hold_ms / 1000.0,
         apc_label=apc_label,

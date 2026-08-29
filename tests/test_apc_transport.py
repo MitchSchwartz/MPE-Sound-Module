@@ -17,7 +17,7 @@ from scripts.sooperlooper.apc_transport import (
     TransportButtonLeds,
     resolve_apc_transport_notes,
     resolve_scene_launch_notes,
-    resolve_shift_indicator_note,
+    resolve_clear_warning_note,
     scene_row_for_note,
 )
 from scripts.sooperlooper.led_table import (
@@ -48,11 +48,11 @@ class ResolveApcTransportNotesTests(unittest.TestCase):
         self.assertEqual(label, "mk2")
         self.assertEqual(shift, NOTE_SHIFT_MK2)
 
-    def test_mk1_shift_indicator_none(self) -> None:
-        self.assertIsNone(resolve_shift_indicator_note("mk1"))
+    def test_mk1_has_no_red_button_for_the_clear_warning(self) -> None:
+        self.assertIsNone(resolve_clear_warning_note("mk1"))
 
-    def test_mk2_shift_indicator_track8(self) -> None:
-        self.assertEqual(resolve_shift_indicator_note("mk2"), NOTE_TRACK8_MK2)
+    def test_mk2_clear_warning_is_track8(self) -> None:
+        self.assertEqual(resolve_clear_warning_note("mk2"), NOTE_TRACK8_MK2)
 
     def test_mk1_scene_launch_notes(self) -> None:
         self.assertEqual(resolve_scene_launch_notes("mk1"), SCENE_LAUNCH_NOTES_MK1)
@@ -205,7 +205,7 @@ class TransportButtonLedsTests(unittest.TestCase):
             midi_out=self.midi_out,
             shift_note=shift,
             stop_all_note=stop,
-            shift_indicator_note=resolve_shift_indicator_note(apc_label),
+            clear_warning_note=resolve_clear_warning_note(apc_label),
             scene_launch_notes=resolve_scene_launch_notes(apc_label),
             hold_s=hold_s,
             apc_label=apc_label,
@@ -262,12 +262,42 @@ class TransportButtonLedsTests(unittest.TestCase):
             leds.poll()
             self.assertIn(self.sent[-1][2], (SCENE_LED_ON, SCENE_LED_OFF))
 
-    def test_mk2_shift_alone_lights_track_indicator(self) -> None:
+    def test_mk2_shift_alone_lights_nothing(self) -> None:
+        """Shift is a modifier, not a track state.
+
+        Track Select 8 used to light whenever Shift was held. It is a control
+        with its own meaning, so lighting it for an unrelated modifier says
+        something false about track 8 — reported from the device as "pressing
+        shift causes column 8 rec arm to light up".
+        """
         leds = self._leds(apc_label="mk2")
         leds.note_event(NOTE_SHIFT_MK2, True)
-        self.assertEqual(self.sent[-1], [0x90, NOTE_TRACK8_MK2, TRACK_LED_ON])
-        leds.note_event(NOTE_SHIFT_MK2, False)
-        self.assertEqual(self.sent[-1], [0x90, NOTE_TRACK8_MK2, TRACK_LED_OFF])
+        self.assertNotIn([0x90, NOTE_TRACK8_MK2, TRACK_LED_ON], self.sent)
+
+    def test_mk2_clear_hold_blinks_red_and_leaves_green_dark(self) -> None:
+        """The clear warning is red, and it is the ONLY thing blinking.
+
+        The Stop All button is single-colour green in hardware, so "blink red"
+        cannot be painted there. Track Select 8 is the one red LED on the
+        panel, so the warning moves to it — and the green goes dark, because
+        two buttons blinking together reads as decoration rather than danger.
+        """
+        leds = self._leds(apc_label="mk2")
+        leds.note_event(NOTE_SHIFT_MK2, True)
+        leds.note_event(NOTE_STOP_ALL_CLIPS_MK2, True)
+        reds = [m for m in self.sent if m[1] == NOTE_TRACK8_MK2]
+        self.assertEqual(reds[-1], [0x90, NOTE_TRACK8_MK2, TRACK_LED_ON])
+        greens = [m for m in self.sent if m[1] == NOTE_STOP_ALL_CLIPS_MK2]
+        self.assertEqual(greens[-1][2], SCENE_LED_OFF)
+
+    def test_mk1_keeps_the_green_blink_it_has_no_red_button(self) -> None:
+        """mk1 has no red LED anywhere on the panel, so darkening the green
+        blink there would remove the only feedback the gesture has."""
+        leds = self._leds(apc_label="mk1")
+        leds.note_event(self.shift, True)
+        leds.note_event(self.stop, True)
+        greens = [m for m in self.sent if m[1] == self.stop]
+        self.assertEqual(greens[-1][2], SCENE_LED_ON)
 
     def test_reset_clears_until_both_released_mk1(self) -> None:
         leds = self._leds()
