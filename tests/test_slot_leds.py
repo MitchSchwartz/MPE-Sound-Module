@@ -90,11 +90,6 @@ class PendingTests(unittest.TestCase):
         self.assertEqual(static_cell_led(t, 0),
                          LED_YELLOW_BLINK)
 
-    def test_a_pending_stop_blinks_the_outgoing_slot(self) -> None:
-        t = track_with(active=2, occupied=(2,), pending=Pending("stop", from_slot=2))
-        self.assertEqual(static_cell_led(t, 2),
-                         LED_YELLOW_BLINK)
-
     def test_a_pending_outranks_the_gesture_on_the_active_cell(self) -> None:
         """A pending switch's outgoing slot IS the active slot, and the
         gesture has never heard of the switch. Only the matrix can blink

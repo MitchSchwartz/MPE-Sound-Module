@@ -21,7 +21,6 @@ from slot_matrix import (
     ACT_LAUNCH,
     ACT_NOOP,
     ACT_RECORD,
-    ACT_STOP,
     ACT_SWITCH,
     NUM_SLOTS,
     Slot,

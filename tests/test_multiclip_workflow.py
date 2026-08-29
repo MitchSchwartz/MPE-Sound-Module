@@ -421,3 +421,57 @@ class TwoTracksTests(Session):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class StopAllThenLaunchTests(Session):
+    """Stop All, then launch a stored clip from the matrix.
+
+    This combination had NO test in either direction, and a P0 shipped through
+    the gap: `stop_all_loops` pauses every loop, and the matrix launch replied
+    with `mute_off` — which does not lift a pause. Every launch after a Stop All
+    was silent. The fix was LAUNCH_COMMANDS (`pause_off` then `trigger`); this
+    is the coverage that should have caught it.
+    """
+
+    def stop_all(self) -> None:
+        """What the Shift+Stop-All chord sends, per stop_all_loops()."""
+        self.osc_send("/sl/-1/set", ["mute_quantized", 0.0])
+        self.osc_send("/sl/-1/hit", "mute_on")
+        self.osc_send("/sl/-1/hit", "pause_on")
+        self.osc_send("/sl/-1/set", ["mute_quantized", 1.0])
+        for fs in self.fs_by_loop.values():
+            fs.awaiting_quantize = False
+        self.deliver()
+
+    def osc_send(self, path: str, args) -> None:
+        self.engine.send_message(path, args[0] if isinstance(args, list) else args)
+
+    def test_restarting_the_active_clip_after_stop_all(self) -> None:
+        """The GESTURE path, not the launch path.
+
+        Tapping a track's own active slot is ACT_FORWARD — the track's gesture
+        owns it and `_launch` is never reached. Kept as a separate scenario
+        because it is what a player does first after a Stop All, and because
+        naming which path it exercises stops it being mistaken for coverage of
+        LAUNCH_COMMANDS: this test passes even with the mute_off bug in place.
+        """
+        self.record_clip(0)
+        self.stop_all()
+        self.assertNotEqual(
+            self.engine.state[0], SL_STATE_PLAYING, "Stop All must silence it"
+        )
+        self.tap(0)
+        self.boundary()
+        self.idle()
+        self.assertEqual(self.engine.state[0], SL_STATE_PLAYING, "it must sound")
+
+    def test_a_second_clip_launches_after_stop_all(self) -> None:
+        self.record_clip(0)
+        self.record_clip(1)
+        self.stop_all()
+        self.osc.clear()
+        self.tap(0)
+        self.boundary()
+        self.idle()
+        self.assertEqual(self.engine.state[0], SL_STATE_PLAYING)
+        self.assertEqual(self.rt.track(0).active_slot, 0)

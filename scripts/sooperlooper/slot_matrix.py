@@ -38,16 +38,13 @@ NUM_TRACKS = MAX_USABLE_LOOPS
 NUM_SLOTS = 8
 
 # What the player has asked for and the boundary has not yet delivered.
-PENDING_STOP = "stop"
 PENDING_LAUNCH = "launch"
 PENDING_SWITCH = "switch"
 
 # What a press means. The caller turns these into OSC.
 ACT_FORWARD = "forward"
 ACT_RECORD = "record"
-ACT_CLOSE = "close"
 ACT_LAUNCH = "launch"
-ACT_STOP = "stop"
 ACT_SWITCH = "switch"
 ACT_CANCEL = "cancel"
 ACT_CLEAR = "clear"
@@ -260,8 +257,6 @@ def apply_pending(track: Track, plan: SlotPlan) -> Track:
     """
     if plan.clear_pending:
         return replace(track, pending=None)
-    if plan.action == ACT_STOP:
-        return replace(track, pending=Pending(PENDING_STOP, from_slot=plan.slot))
     if plan.action == ACT_LAUNCH:
         return replace(track, pending=Pending(PENDING_LAUNCH, to_slot=plan.slot))
     if plan.action == ACT_SWITCH:
@@ -279,8 +274,6 @@ def resolve_at_boundary(track: Track) -> Track:
     pending = track.pending
     if pending is None:
         return track
-    if pending.kind == PENDING_STOP:
-        return replace(track, pending=None)
     return replace(track, active_slot=pending.to_slot, pending=None)
 
 
