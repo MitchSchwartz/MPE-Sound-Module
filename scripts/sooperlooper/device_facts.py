@@ -106,21 +106,85 @@ record(Fact(
 ))
 
 record(Fact(
-    id="apc.scene.led_colours",
-    claim="UNKNOWN. The vendor document says single-colour green; that "
-          "document also implied Shift has no LED, which is wrong, so its "
-          "colour claims carry no weight until measured.",
-    tier=VENDOR,
+    id="apc.scene.led_observed",
+    claim="On channel 0 (0x90), velocities 0/1/2/3/5/13/21/127 on the scene "
+          "buttons give: 0 = off, 2 = blinking green, everything else = solid "
+          "green. The grid's RGB palette indices (13 yellow, 21 green) are not "
+          "honoured — they are just green.",
+    tier=MEASURED,
     established="2026-08-29",
-    source="Akai 'APC mini mk2 Communications Protocol v1.0', via 618a19e",
+    source="probe round 1: all eight scene buttons lit at once with different "
+           "velocities, read off by Mitch top to bottom",
 ))
 
 record(Fact(
-    id="apc.track.led_colours",
-    claim="UNKNOWN. Same document, same standing as apc.scene.led_colours.",
-    tier=VENDOR,
+    id="apc.track.led_observed",
+    claim="Same paint on the track row gives the same pattern in RED.",
+    tier=MEASURED,
     established="2026-08-29",
-    source="Akai 'APC mini mk2 Communications Protocol v1.0', via 618a19e",
+    source="probe round 1, read off left to right",
+))
+
+record(Fact(
+    id="apc.buttons.channel_response",
+    claim="Button LEDs respond on channel 0 (0x90) and on NOTHING ELSE. All "
+          "sixteen channels were painted at once, one per button: only the "
+          "button on 0x90 lit. The grid's channel scheme (0x96 brightness, "
+          "0x9D blink) does not carry over — those channels are simply dark. "
+          "The channel axis is therefore EXHAUSTED, not sampled.",
+    tier=MEASURED,
+    established="2026-08-29",
+    source="probe rounds 2 and 3. Round 3 put channels 0x90-0x97 on the scene "
+           "column and 0x98-0x9F on the track row, velocity 1 throughout; "
+           "Mitch: 'scene 1 green, all others off'",
+))
+
+record(Fact(
+    id="apc.buttons.single_colour",
+    claim="CLOSED, as a bounded negative: no addressing scheme we have tried "
+          "produces any colour other than green (scene) and red (track). The "
+          "buttons have exactly three states each — off, on, blink (velocity "
+          "2). All colour-carrying UI must therefore live on the 8x8 grid.\n\n"
+          "The space that was tried, so the next person knows what is left:\n"
+          "  * CHANNEL — exhausted. All 16 painted at once; only 0x90 lights.\n"
+          "  * VELOCITY — swept 0..127 in steps of 8, plus 1/2/3/5/13/21/127. "
+          "Only off / on / blink. No palette regions, no brightness change.\n"
+          "  * SYSEX RGB — the documented mk2 direct-colour message. Rejected "
+          "by the buttons.\n\n"
+          "This is stated as 'nothing we tried works', NOT as 'the hardware "
+          "cannot'. Those differ, and the difference is Mitch's point.",
+    tier=MEASURED,
+    established="2026-08-29",
+    source="probe rounds 1-5 on the appliance, read off the device by Mitch",
+))
+
+record(Fact(
+    id="apc.probe.positive_control",
+    claim="The round-5 SysEx probe carried a POSITIVE CONTROL: the identical "
+          "message, from the same code, aimed at grid pads 0-7, which are "
+          "known RGB. The grid turned blue and the buttons stayed dark. That "
+          "is what makes round 5 evidence about the hardware rather than "
+          "evidence about whether I wrote the message correctly.",
+    tier=MEASURED,
+    established="2026-08-29",
+    source="probe round 5; Mitch: 'first row all blue, all others off'. Every "
+           "earlier 'it cannot do that' on this panel was a negative result "
+           "with NO control, which is how a vendor PDF passed as measurement.",
+))
+
+record(Fact(
+    id="apc.shift.led",
+    claim="OPEN, and unresolved AGAINST expectation. Shift (mk2 0x7A) did not "
+          "light on any of the 16 channels, at velocity 1 or 127, and nothing "
+          "appeared on the unused notes 0x78-0x7F or 0x62 either. Mitch states "
+          "every button has an LED and he owns the device, so this is NOT "
+          "closed as 'no LED' — the live hypothesis is that Shift's lamp is "
+          "firmware-owned and not addressable over MIDI at all. Do not build "
+          "anything that depends on lighting it, and do not tell Mitch it has "
+          "no LED.",
+    tier=MEASURED,
+    established="2026-08-29",
+    source="probe rounds 1-3, negative throughout",
 ))
 
 record(Fact(
