@@ -233,9 +233,28 @@ class SceneRowTests(unittest.TestCase):
         self.assertFalse(row_is_fully_playing({0: track()}, 0, sl_states={0: 0}))
 
     def test_an_empty_row_scene_led_is_off(self) -> None:
-        from slot_matrix import scene_row_led_on
+        from led_table import SCENE_LED_OFF
+        from slot_matrix import scene_row_led
 
-        self.assertFalse(scene_row_led_on({0: track()}, 0, sl_states={0: 0}))
+        self.assertEqual(scene_row_led({0: track()}, 0, sl_states={0: 0}),
+                         SCENE_LED_OFF)
+
+    def test_a_fully_playing_row_blinks_rather_than_going_dark(self) -> None:
+        """Dark is what an EMPTY row shows. A row where every clip is playing
+        is the one press that stops the scene, and it used to look identical
+        to a button that does nothing."""
+        from led_table import SCENE_LED_BLINK, SCENE_LED_OFF, SCENE_LED_ON
+        from slot_matrix import scene_row_led
+
+        playing = self._grid()
+        states = {i: SL_STATE_PLAYING for i in playing}
+        self.assertEqual(scene_row_led(playing, 0, sl_states=states),
+                         SCENE_LED_BLINK)
+        idle = {i: SL_STATE_OFF for i in playing}
+        self.assertEqual(scene_row_led(playing, 0, sl_states=idle),
+                         SCENE_LED_ON)
+        self.assertNotEqual(scene_row_led(playing, 0, sl_states=states),
+                            SCENE_LED_OFF)
 
     def test_lit_row_launches_only_the_cells_that_are_not_playing(self) -> None:
         states = {0: SL_STATE_PLAYING, 1: SL_STATE_MUTE, 2: SL_STATE_OFF}

@@ -29,6 +29,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
 
+from led_table import SCENE_LED_BLINK, SCENE_LED_OFF, SCENE_LED_ON
 from sl_loop_states import ACTIVE_PLAY, SL_STATE_MUTE, SL_STATE_PAUSED, ACTIVE_RECORD
 
 from sl_limits import MAX_USABLE_LOOPS
@@ -305,16 +306,36 @@ def row_has_occupied(tracks: dict[int, Track], row: int) -> bool:
     return any(track.occupied(row) for track in tracks.values())
 
 
-def scene_row_led_on(
+def scene_row_led(
     tracks: dict[int, Track],
     row: int,
     *,
     sl_states: dict[int, int],
-) -> bool:
-    """Scene Launch lit when the row has clips and is not fully playing."""
+) -> int:
+    """What the Scene Launch button should show for this row.
+
+    The button is a toggle, so it has two live meanings and needs to say which
+    one is armed:
+
+        dark    no clips in this row — pressing does nothing
+        solid   press to LAUNCH (some clip here is not playing)
+        blink   press to STOP (every clip here is already playing)
+
+    It used to go DARK when the row was fully playing, which is the same thing
+    it shows for an empty row — so the button that stops a running scene looked
+    identical to a button that does nothing at all.
+
+    Mitch asked for yellow here. The scene buttons are single-colour green in
+    hardware (`led_table`: scene launch green only, track select red only), so
+    yellow is not available on this control; blink is the only third state it
+    has. If that reads wrong on the device, the alternative is moving the cue
+    to the grid rather than inventing a colour the button cannot show.
+    """
     if not row_has_occupied(tracks, row):
-        return False
-    return not row_is_fully_playing(tracks, row, sl_states=sl_states)
+        return SCENE_LED_OFF
+    if row_is_fully_playing(tracks, row, sl_states=sl_states):
+        return SCENE_LED_BLINK
+    return SCENE_LED_ON
 
 
 def plan_scene_press(

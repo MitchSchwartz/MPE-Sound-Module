@@ -20,6 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "sooper
 from tail_phase import (  # noqa: E402
     EXIT_CAP,
     EXIT_DECAY,
+    append_trace,
     TailPhase,
     bar_seconds,
 )
@@ -105,6 +106,67 @@ class BarLengthTests(unittest.TestCase):
         """A zero cap would end every ring-out instantly."""
         self.assertGreater(bar_seconds(0.0, loop_len=0.0), 0.0)
         self.assertGreater(bar_seconds(None, loop_len=0.0), 0.0)
+
+
+class TailTraceTests(unittest.TestCase):
+    """The trace exists to replace inherited thresholds with measured ones.
+
+    `TAIL_THRESH` and `TAIL_HOLD_S` came from the seam-weld work, on a
+    different signal path. Nothing has confirmed them against the synth
+    patches actually being played, and a threshold that is wrong in the quiet
+    direction is invisible: every tail simply exits on the cap instead, which
+    is exactly what a DEAD peak meter also looks like.
+    """
+
+    def test_tracing_is_off_unless_asked_for(self) -> None:
+        """Off must cost nothing — no list, no growth during a long tail."""
+        tail = TailPhase(started_at=0.0, cap_s=2.0)
+        self.assertIsNone(tail.trace)
+        for i in range(500):
+            tail.peak(0.5, i * 0.025)
+        self.assertIsNone(tail.trace)
+
+    def test_a_traced_tail_keeps_every_sample_with_its_offset(self) -> None:
+        tail = TailPhase(started_at=10.0, cap_s=2.0, trace=True)
+        tail.peak(0.5, 10.0)
+        tail.peak(0.1, 10.025)
+        self.assertEqual(len(tail.trace), 2)
+        self.assertEqual([v for _t, v in tail.trace], [0.5, 0.1])
+        self.assertAlmostEqual(tail.trace[0][0], 0.0)
+        self.assertAlmostEqual(tail.trace[1][0], 0.025)
+
+    def test_the_written_file_is_readable_as_flat_csv(self) -> None:
+        import csv
+        import tempfile
+        from pathlib import Path as _Path
+
+        tail = TailPhase(started_at=0.0, cap_s=2.0, thresh=0.02, trace=True)
+        tail.peak(0.5, 0.0)
+        tail.peak(0.001, 0.025)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = str(_Path(tmp) / "tails.csv")
+            self.assertIsNone(append_trace(path, tail_id=1, loop=3, tail=tail,
+                                           reason=EXIT_DECAY, elapsed=0.1))
+            # A second tail appends without repeating the header.
+            self.assertIsNone(append_trace(path, tail_id=2, loop=3, tail=tail,
+                                           reason=EXIT_CAP, elapsed=2.0))
+            with open(path) as handle:
+                rows = list(csv.DictReader(handle))
+        self.assertEqual(len(rows), 4)
+        self.assertEqual(rows[0]["loop"], "3")
+        self.assertEqual(rows[0]["exit_reason"], EXIT_DECAY)
+        self.assertEqual(rows[-1]["exit_reason"], EXIT_CAP)
+        self.assertEqual([r["tail_id"] for r in rows], ["1", "1", "2", "2"])
+
+    def test_an_unwritable_path_is_reported_not_swallowed(self) -> None:
+        """A trace that silently fails to write is a measurement that lies
+        about having been taken."""
+        tail = TailPhase(started_at=0.0, cap_s=2.0, trace=True)
+        tail.peak(0.5, 0.0)
+        failure = append_trace("/proc/nonexistent/tails.csv", tail_id=1, loop=0,
+                               tail=tail, reason=EXIT_DECAY, elapsed=0.1)
+        self.assertIsNotNone(failure)
+        self.assertIn("tails.csv", failure)
 
 
 if __name__ == "__main__":
