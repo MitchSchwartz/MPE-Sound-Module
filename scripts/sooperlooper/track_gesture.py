@@ -30,6 +30,11 @@ from loop_model import (
     plan_gesture,
 )
 from sl_grid_state import GridState, derive_tempo
+from tail_phase import (  # noqa: E402
+    EXIT_WRAP,
+    TailPhase,
+    bar_seconds,
+)
 from sl_grid_sync import (
     GRID_ANCHOR_FALLBACK_CYCLES,
     GRID_ANCHOR_MAX_S,
@@ -79,6 +84,11 @@ def poll_track_gestures(gestures: list[TrackGesture], *, multigrid: bool = False
     clear) but still advance blink phase — ``SlotSurface.repaint`` reads
     ``current_led()``.
     """
+    # The ring-out cap runs in BOTH modes and before anything else. It is the
+    # one exit that does not depend on the peak meter arriving, so it is what
+    # stops an overdub running forever if the feed is missing.
+    for fs in gestures:
+        fs.poll_tail()
     if multigrid:
         for fs in gestures:
             fs.poll_led()
@@ -106,6 +116,7 @@ class TrackGesture:
         on_grid_established=None,
         on_phase_reanchor=None,
         on_grid_dropped=None,
+        on_tail_change=None,
         multigrid: bool = False,
     ) -> None:
         self.loop = loop
@@ -114,6 +125,9 @@ class TrackGesture:
         self._on_grid_established = on_grid_established
         self._on_phase_reanchor = on_phase_reanchor
         self._on_grid_dropped = on_grid_dropped
+        #: Called (loop, active) when the ring-out phase starts or ends, so the
+        #: surface can register the peak meter and colour the pad.
+        self._on_tail_change = on_tail_change
         #: Called at each loop wrap. This is the ONE boundary signal in the
         #: bench: the same detector that ends the ring-out overdub also
         #: releases a queued slot switch, so the two cannot disagree about
@@ -124,7 +138,7 @@ class TrackGesture:
         self._loop_pos_seen = False
         # True while an overdub started by closing a take is still
         # running. Cleared at the first wrap — one pass of ring-out.
-        self._overdub_pass = False
+        self._tail: TailPhase | None = None
         self._last_loop_pos = 0.0
         self._phase_reanchor_at = 0.0
         # Is this loop waiting for cycle boundaries? False in free-form, where
@@ -259,10 +273,13 @@ class TrackGesture:
             self._begin_quantize_wait()
 
         if sl_state == SL_STATE_OVERDUBBING:
-            self._overdub_pass = True
+            if self._tail is None:
+                self._begin_tail()
         elif prev_sl == SL_STATE_OVERDUBBING:
-            # Ended by the pad, or by the engine. Either way stop watching.
-            self._overdub_pass = False
+            # Ended by the pad, or by the engine. Either way stop watching —
+            # and do NOT send an overdub-off, because whatever ended it already
+            # did. Sending one here would toggle overdub back ON.
+            self._abandon_tail()
 
         if sl_state == SL_STATE_PLAYING:
             self._maybe_establish_grid()
@@ -317,7 +334,7 @@ class TrackGesture:
         if self._loop_pos_seen and detect_loop_wrap(
             self.loop_pos, pos, self.loop_len
         ):
-            self._end_overdub_pass()
+            self._end_tail(EXIT_WRAP)
             if self._on_wrap is not None:
                 self._on_wrap()
         if self._loop_pos_seen and detect_loop_wrap(
@@ -331,24 +348,79 @@ class TrackGesture:
         if self._phase_reanchor_at > 0.0:
             self._try_commit_phase_reanchor()
 
-    def _end_overdub_pass(self) -> None:
-        """One pass of ring-out, then out of overdub.
+    # -- the ring-out (TAIL) phase --------------------------------------
 
-        The take closes into an overdub at the boundary, so overdub begins at
-        loop position 0 and the next wrap is exactly one pass later. Armed off
-        `sl_state == OVERDUBBING` rather than off the command we sent, so an
-        overdub the engine never entered cannot leave this latched.
+    def _begin_tail(self) -> None:
+        """The take just closed into its ring-out.
 
-        `loop_pos` arrives every 20 ms, so this can overrun the wrap by up to
-        one update. That records a sliver of pass two on top of pass one — the
-        alternative is ending early and clipping the ring-out, which is the
-        artefact this whole feature exists to remove.
+        Armed off `sl_state == OVERDUBBING` rather than off the command we
+        sent, so an overdub the engine never entered cannot leave this latched.
         """
-        if not self._overdub_pass:
+        bpm = self.grid.bpm if self.grid is not None else None
+        cap = bar_seconds(bpm, loop_len=self.loop_len)
+        self._tail = TailPhase(started_at=self._tail_clock(), cap_s=cap)
+        if self._on_tail_change is not None:
+            self._on_tail_change(self.loop, True)
+        log(f"loop {self.loop}: tail phase — ends on decay, capped at "
+            f"{cap:.3f}s (one bar)")
+
+    def _tail_clock(self) -> float:
+        return time.monotonic()
+
+    def _abandon_tail(self) -> None:
+        """Something else ended the overdub. Drop the phase, send nothing."""
+        if self._tail is None:
             return
-        self._overdub_pass = False
+        self._tail = None
+        if self._on_tail_change is not None:
+            self._on_tail_change(self.loop, False)
+
+    def _end_tail(self, reason: str, *, now: float | None = None) -> None:
+        """Leave the overdub, once, and say why."""
+        tail = self._tail
+        if tail is None:
+            return
+        self._tail = None
         self._hit("overdub")
-        log(f"loop {self.loop}: overdub off at wrap — one pass of ring-out")
+        if self._on_tail_change is not None:
+            self._on_tail_change(self.loop, False)
+        at = time.monotonic() if now is None else now
+        log(f"loop {self.loop}: ring-out ended on {reason} after "
+            f"{tail.elapsed(at):.3f}s")
+
+    def sync_in_peak(self, value: float, *, now: float | None = None) -> None:
+        """Input peak from the engine. Only meaningful during the tail.
+
+        `now` is injectable because the decay exit is a statement about elapsed
+        time, and a test that cannot advance the clock can only ever assert
+        that nothing happened yet.
+        """
+        if self._tail is None:
+            return
+        at = time.monotonic() if now is None else now
+        reason = self._tail.peak(float(value), at)
+        if reason is not None:
+            self._end_tail(reason, now=at)
+
+    def poll_tail(self, *, now: float | None = None) -> None:
+        """The cap, checked from the idle loop.
+
+        Deliberately not dependent on the meter: if `in_peak_meter` never
+        arrives — unregistered, dropped by a listener guard, input silent — the
+        overdub must still end. Every tail peak being silently dropped is a
+        thing that has actually happened here (PI5-LOOPER-SEAM-WRAP.md), and
+        the result was tails cut to a fixed window with nobody the wiser.
+        """
+        if self._tail is None:
+            return
+        at = time.monotonic() if now is None else now
+        reason = self._tail.tick(at)
+        if reason is not None:
+            self._end_tail(reason, now=at)
+
+    @property
+    def in_tail(self) -> bool:
+        return self._tail is not None
 
     def _maybe_establish_grid(self) -> None:
         """The defining take just landed — grid immediately, phase maybe at wrap.
@@ -440,6 +512,7 @@ class TrackGesture:
         return led_for(
             self.sl_state,
             pending=self._pending,
+            tail=self.in_tail,
         )
 
     def current_led(self) -> int:
@@ -727,6 +800,7 @@ def build_track_gestures(
     on_grid_established=None,
     on_phase_reanchor=None,
     on_grid_dropped=None,
+    on_tail_change=None,
     multigrid: bool = False,
 ) -> tuple[dict[int, TrackGesture], list[TrackGesture]]:
     """One gesture per track, bound to the pad showing it in `view`.
@@ -751,6 +825,7 @@ def build_track_gestures(
             on_grid_established=on_grid_established,
             on_phase_reanchor=on_phase_reanchor,
             on_grid_dropped=on_grid_dropped,
+            on_tail_change=on_tail_change,
             multigrid=multigrid,
         )
         pad = view.note_for_loop(loop_i)

@@ -37,6 +37,17 @@ class SlBenchStateListener:
             if self._on_wet is not None:
                 self._on_wet(int(loop_index), float(value))
             return
+        if control == "in_peak_meter":
+            # Routed BEFORE the `_by_loop` lookup, deliberately. The last time
+            # this existed the lookup ran first and returned on None, so every
+            # tail peak died here: `saw_loud` never set, and the ring-out was
+            # cut at a fixed window regardless of how the note actually decayed
+            # (PI5-LOOPER-SEAM-WRAP.md, corrected 2026-08-26). Peaks reach the
+            # gesture whether or not that loop currently has a pad bound.
+            target = self._by_loop.get(loop_index)
+            if target is not None:
+                target.sync_in_peak(float(value))
+            return
         fs = self._by_loop.get(loop_index)
         if fs is None:
             if control == "state" and self._surface is not None:
