@@ -183,6 +183,28 @@ class SlotRuntime:
             self._log(f"track {plan.track + 1} slot {plan.slot + 1}: {plan.note}")
         return plan
 
+    def abandon(self, track_index: int) -> None:
+        """Drop every unfinished intent for one track.
+
+        A track can be taken out from under a queued action in several ways —
+        Stop All, clearing the slot, forgetting the binding — and each one used
+        to leave `_deferred`, `_awaiting` and `Track.pending` behind. The
+        deferred launch was the dangerous one: Stop All pauses the loop, so no
+        wrap can ever arrive, and `expire_deferred` then decided none was
+        coming and STARTED THE TRACK PLAYING about five seconds after the panic
+        button. One place to abandon, called from all of them.
+        """
+        self._deferred.pop(track_index, None)
+        self._awaiting.pop(track_index, None)
+        track = self.track(track_index)
+        if track.pending is not None:
+            self._tracks[track_index] = replace(track, pending=None)
+
+    def abandon_all(self) -> None:
+        """Stop All means everything, queued intent included."""
+        for track_index in range(self._num_tracks):
+            self.abandon(track_index)
+
     def awaiting_tracks(self) -> tuple[int, ...]:
         """Tracks holding a press parked behind an in-flight save."""
         return tuple(self._awaiting)
@@ -321,14 +343,27 @@ class SlotRuntime:
         self._deferred[loop] = (plan, self._now())
         return True
 
-    def expire_deferred(self, track_index: int) -> bool:
+    def expire_deferred(self, track_index: int, *, sl_state: int) -> bool:
         """Fire a deferred launch that has waited too long for a wrap.
 
         Called from the surface's routine state poll, so no new ticker exists
         for this. Returns True if it fired.
+
+        The grace timer's premise is "this track is playing but no wrap is
+        reaching us". If the track is not sounding, the premise is false: there
+        is no audio to protect and no wrap to wait for, and firing here starts
+        a track the player has stopped. That is exactly what happened after
+        Stop All. Silence is a reason to drop the launch, never to force it.
         """
         held = self._deferred.get(track_index)
         if held is None:
+            return False
+        if sl_state not in ACTIVE_PLAY:
+            self._log(
+                f"track {track_index + 1}: dropping the queued launch — the "
+                f"track is no longer playing, so there is nothing to sync to"
+            )
+            self.abandon(track_index)
             return False
         plan, at = held
         if self._now() - at < DEFERRED_LAUNCH_GRACE_S:
@@ -424,6 +459,7 @@ class SlotRuntime:
 
     def _clear(self, plan: SlotPlan) -> bool:
         loop, slot = plan.track, plan.slot
+        self.abandon(loop)
         track = self.track(loop)
         if track.active_slot == slot:
             self._send(f"/sl/{loop}/hit", ["undo_all"])
@@ -450,6 +486,10 @@ class SlotRuntime:
             return False
         self.clip_path(loop, slot).unlink(missing_ok=True)
         self._tracks[loop] = replace(track.with_slot(slot, None), active_slot=None)
+        # The clip this track was going to switch to may be the one just
+        # deleted, and a parked press is waiting on a buffer that no longer
+        # belongs to anything.
+        self.abandon(loop)
         return True
 
     # -- saving a take to disk ------------------------------------------

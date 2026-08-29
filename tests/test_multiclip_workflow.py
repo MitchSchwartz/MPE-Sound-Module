@@ -475,3 +475,41 @@ class StopAllThenLaunchTests(Session):
         self.idle()
         self.assertEqual(self.engine.state[0], SL_STATE_PLAYING)
         self.assertEqual(self.rt.track(0).active_slot, 0)
+
+
+class StopAllCancelsAQueuedSwitchTests(Session):
+    """Stop All must cancel intent, not just audio.
+
+    `stop_all_loops` talks to the gestures and the engine and has never heard
+    of `SlotRuntime`, so a switch queued for the next wrap survived the panic
+    button. Stop All pauses the loop, so no wrap could ever arrive to consume
+    it — and `DEFERRED_LAUNCH_GRACE_S` then concluded none was coming and
+    started the track playing again about five seconds later.
+    """
+
+    def stop_all(self) -> None:
+        self.engine.send_message("/sl/-1/hit", "mute_on")
+        self.engine.send_message("/sl/-1/hit", "pause_on")
+        for fs in self.fs_by_loop.values():
+            fs.awaiting_quantize = False
+        self.surface.on_stop_all()
+        self.deliver()
+
+    def test_a_queued_switch_does_not_survive_stop_all(self) -> None:
+        self.record_clip(0)
+        self.record_clip(1)
+        self.tap(0)                      # queue a switch back to slot 0
+        self.assertTrue(self.rt.has_deferred(0), "the switch is queued")
+
+        self.stop_all()
+        self.assertFalse(self.rt.has_deferred(0), "Stop All means everything")
+        self.assertIsNone(self.rt.track(0).pending)
+
+        self.osc.clear()
+        self.idle(rounds=200)
+        self.assertNotIn(
+            "/sl/0/load_loop",
+            [p for p, _ in self.osc],
+            "the panic button must not be undone by a timer",
+        )
+        self.assertNotEqual(self.engine.state[0], SL_STATE_PLAYING)
