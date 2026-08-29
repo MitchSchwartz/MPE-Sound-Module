@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 import os
 import time
 
@@ -118,6 +120,7 @@ class TrackGesture:
         on_grid_dropped=None,
         on_tail_change=None,
         multigrid: bool = False,
+        now: Callable[[], float] = time.monotonic,
     ) -> None:
         self.loop = loop
         self.grid = grid
@@ -139,6 +142,11 @@ class TrackGesture:
         # True while an overdub started by closing a take is still
         # running. Cleared at the first wrap — one pass of ring-out.
         self._tail: TailPhase | None = None
+        #: Injected at construction, the way SlotRuntime takes its clock. The
+        #: tail's cap is a statement about elapsed time, and a phase whose
+        #: clock is only injectable at some call sites is one a test can drive
+        #: halfway.
+        self._now = now
         self._last_loop_pos = 0.0
         self._phase_reanchor_at = 0.0
         # Is this loop waiting for cycle boundaries? False in free-form, where
@@ -363,14 +371,11 @@ class TrackGesture:
         """
         bpm = self.grid.bpm if self.grid is not None else None
         cap = bar_seconds(bpm, loop_len=self.loop_len)
-        self._tail = TailPhase(started_at=self._tail_clock(), cap_s=cap)
+        self._tail = TailPhase(started_at=self._now(), cap_s=cap)
         if self._on_tail_change is not None:
             self._on_tail_change(self.loop, True)
         log(f"loop {self.loop}: tail phase — ends on decay, capped at "
             f"{cap:.3f}s (one bar)")
-
-    def _tail_clock(self) -> float:
-        return time.monotonic()
 
     def _abandon_tail(self) -> None:
         """Something else ended the overdub. Drop the phase, send nothing."""
@@ -380,7 +385,7 @@ class TrackGesture:
         if self._on_tail_change is not None:
             self._on_tail_change(self.loop, False)
 
-    def _end_tail(self, reason: str, *, now: float | None = None) -> None:
+    def _end_tail(self, reason: str) -> None:
         """Leave the overdub, once, and say why."""
         tail = self._tail
         if tail is None:
@@ -393,25 +398,18 @@ class TrackGesture:
             self._hit("overdub")
         if self._on_tail_change is not None:
             self._on_tail_change(self.loop, False)
-        at = time.monotonic() if now is None else now
         log(f"loop {self.loop}: ring-out ended on {reason} after "
-            f"{tail.elapsed(at):.3f}s")
+            f"{tail.elapsed(self._now()):.3f}s")
 
-    def sync_in_peak(self, value: float, *, now: float | None = None) -> None:
-        """Input peak from the engine. Only meaningful during the tail.
-
-        `now` is injectable because the decay exit is a statement about elapsed
-        time, and a test that cannot advance the clock can only ever assert
-        that nothing happened yet.
-        """
+    def sync_in_peak(self, value: float) -> None:
+        """Input peak from the engine. Only meaningful during the tail."""
         if self._tail is None:
             return
-        at = time.monotonic() if now is None else now
-        reason = self._tail.peak(float(value), at)
+        reason = self._tail.peak(float(value), self._now())
         if reason is not None:
-            self._end_tail(reason, now=at)
+            self._end_tail(reason)
 
-    def poll_tail(self, *, now: float | None = None) -> None:
+    def poll_tail(self) -> None:
         """The cap, checked from the idle loop.
 
         Deliberately not dependent on the meter: if `in_peak_meter` never
@@ -422,10 +420,9 @@ class TrackGesture:
         """
         if self._tail is None:
             return
-        at = time.monotonic() if now is None else now
-        reason = self._tail.tick(at)
+        reason = self._tail.tick(self._now())
         if reason is not None:
-            self._end_tail(reason, now=at)
+            self._end_tail(reason)
 
     @property
     def in_tail(self) -> bool:
