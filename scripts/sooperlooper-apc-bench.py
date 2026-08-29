@@ -563,6 +563,10 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
                 num_loops=num_loops,
                 gestures=gestures,
             )
+            if slot_surface is not None:
+                # Queued intent dies with the audio. Without this a deferred
+                # launch outlived the panic button and restarted the track.
+                slot_surface.on_stop_all()
 
     while True:
         if (

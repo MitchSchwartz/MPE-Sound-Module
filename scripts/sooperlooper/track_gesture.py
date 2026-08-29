@@ -273,7 +273,12 @@ class TrackGesture:
             self._begin_quantize_wait()
 
         if sl_state == SL_STATE_OVERDUBBING:
-            if self._tail is None:
+            # On the TRANSITION only. This ran on every OVERDUBBING report, so
+            # a repeated or stale one re-armed the phase after it had already
+            # ended — and the cap then sent `overdub` with nothing armed to
+            # turn off, which turns overdub back ON. A loop quietly recording
+            # the room behind a green pad.
+            if self._tail is None and prev_sl != SL_STATE_OVERDUBBING:
                 self._begin_tail()
         elif prev_sl == SL_STATE_OVERDUBBING:
             # Ended by the pad, or by the engine. Either way stop watching —
@@ -381,7 +386,11 @@ class TrackGesture:
         if tail is None:
             return
         self._tail = None
-        self._hit("overdub")
+        # Only if the engine is actually overdubbing. `overdub` is a TOGGLE:
+        # sent when it is not, it starts one. Belt and braces against the phase
+        # ever being armed when the engine has already moved on.
+        if self.sl_state == SL_STATE_OVERDUBBING:
+            self._hit("overdub")
         if self._on_tail_change is not None:
             self._on_tail_change(self.loop, False)
         at = time.monotonic() if now is None else now
