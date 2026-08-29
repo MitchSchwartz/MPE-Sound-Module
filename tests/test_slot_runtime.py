@@ -30,6 +30,7 @@ from slot_runtime import (  # noqa: E402
 from sl_loop_states import (  # noqa: E402
     SL_STATE_MUTE,
     SL_STATE_OFF,
+    SL_STATE_PAUSED,
     SL_STATE_PLAYING,
     SL_STATE_RECORDING,
     SL_STATE_WAIT_START,
@@ -373,20 +374,47 @@ class StrandedSwitchTests(unittest.TestCase):
 
     def test_the_hold_survives_until_the_grace_runs_out(self) -> None:
         self.clock[0] += DEFERRED_LAUNCH_GRACE_S - 0.1
-        self.assertFalse(self.rt.expire_deferred(0))
+        self.assertFalse(self.rt.expire_deferred(0, sl_state=SL_STATE_PLAYING))
         self.assertNotIn("/sl/0/load_loop", self.paths())
 
     def test_a_wrap_that_never_comes_launches_anyway(self) -> None:
         self.clock[0] += DEFERRED_LAUNCH_GRACE_S + 0.1
-        self.assertTrue(self.rt.expire_deferred(0))
+        self.assertTrue(self.rt.expire_deferred(0, sl_state=SL_STATE_PLAYING))
         self.assertIn("/sl/0/load_loop", self.paths())
         self.assertIsNone(self.rt.track(0).pending, "and the model catches up")
         self.assertEqual(self.rt.track(0).active_slot, 1)
 
+    def test_a_stopped_track_drops_the_launch_instead_of_firing_it(self) -> None:
+        """Stop All is the case that made this urgent.
+
+        The grace timer's premise is "playing, but no wrap is reaching us". A
+        paused loop can never produce a wrap, so the timer concluded none was
+        coming and STARTED THE TRACK about five seconds after the panic button.
+        Silence is a reason to drop the launch, never to force it.
+        """
+        self.clock[0] += DEFERRED_LAUNCH_GRACE_S + 0.1
+        self.assertFalse(
+            self.rt.expire_deferred(0, sl_state=SL_STATE_PAUSED),
+            "a stopped track must not be started by a timer",
+        )
+        self.assertNotIn("/sl/0/load_loop", self.paths())
+        self.assertFalse(self.rt.has_deferred(0), "and the launch is dropped")
+        self.assertIsNone(self.rt.track(0).pending)
+
+    def test_stop_all_abandons_every_queued_launch(self) -> None:
+        self.assertTrue(self.rt.has_deferred(0))
+        self.rt.abandon_all()
+        self.assertFalse(self.rt.has_deferred(0))
+        self.assertIsNone(self.rt.track(0).pending)
+        self.assertEqual(self.rt.awaiting_tracks(), ())
+        self.clock[0] += DEFERRED_LAUNCH_GRACE_S + 0.1
+        self.assertFalse(self.rt.expire_deferred(0, sl_state=SL_STATE_PLAYING))
+        self.assertNotIn("/sl/0/load_loop", self.paths())
+
     def test_a_wrap_that_does_come_leaves_nothing_to_expire(self) -> None:
         self.rt.boundary(0)
         self.clock[0] += DEFERRED_LAUNCH_GRACE_S * 10
-        self.assertFalse(self.rt.expire_deferred(0), "the hold is gone")
+        self.assertFalse(self.rt.expire_deferred(0, sl_state=SL_STATE_PLAYING), "the hold is gone")
         self.assertEqual(self.paths().count("/sl/0/load_loop"), 1)
 
 

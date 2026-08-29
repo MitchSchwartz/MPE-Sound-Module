@@ -179,6 +179,20 @@ class SlotSurface:
         self.repaint()
         self.repaint_scenes()
 
+    def on_stop_all(self) -> None:
+        """Stop All was pressed. Queued intent dies with the audio.
+
+        `stop_all_loops` talks to the gestures and the engine; it has never
+        heard of `SlotRuntime`, so a deferred launch used to survive the panic
+        button — and since Stop All pauses the loop, no wrap could ever arrive
+        to consume it. `expire_deferred` then concluded no wrap was coming and
+        started the track playing again about five seconds later.
+        """
+        self._rt.abandon_all()
+        self._sync_gesture_notes()
+        self.repaint()
+        self.repaint_scenes()
+
     def track_states(self) -> dict[int, int]:
         """Every track's state, from the one source. See `track_state`."""
         return {i: self.track_state(i) for i in range(self._num_tracks)}
@@ -218,7 +232,14 @@ class SlotSurface:
         if note is None:
             note = self._view.note_for_cell(plan.track, plan.slot)
         if note is None:
-            return
+            # The track is banked away. That is a display fact, not a reason to
+            # drop the action: a gesture exists for EVERY track, and the
+            # runtime has already moved the binding by the time we get here, so
+            # returning silently left the model ahead of the engine. The pad
+            # binding comes back on the next bank change.
+            self._log(
+                f"track {plan.track + 1} slot {plan.slot + 1}: acting off-view"
+            )
         fs.set_note(note)
         if plan.action == ACT_RECORD:
             # The runtime just emptied this track's buffer for a take on a
@@ -330,7 +351,11 @@ class SlotSurface:
                 track_index, sl_state=self.track_state(track_index)
             )
             if plan is not None:
-                self._hand_to_gesture(plan, tap=False)
+                # A complete tap. The real pad's up edge is long gone — it was
+                # consumed when the press was first made and parked — so
+                # replaying only the down would latch the gesture held, blink
+                # the hold warning and eventually fire long-press-to-clear.
+                self._hand_to_gesture(plan, tap=True)
                 if plan.note:
                     self._log(f"track {track_index + 1}: {plan.note}")
         for track_index, track in self._rt.tracks().items():
@@ -455,7 +480,7 @@ class SlotSurface:
                 # `on_wrap` is the boundary. This is only the safety net for a
                 # track whose `loop_pos` has stopped arriving, where no wrap is
                 # coming at all.
-                self._rt.expire_deferred(track_index)
+                self._rt.expire_deferred(track_index, sl_state=sl_state)
                 return
             # Nothing was held: the launch went out at press because the track
             # was silent. Reaching ACTIVE_PLAY is then a real confirmation,

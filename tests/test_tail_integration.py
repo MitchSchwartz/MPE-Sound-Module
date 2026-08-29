@@ -89,6 +89,30 @@ class TailLifecycleTests(unittest.TestCase):
         self.assertEqual(self.osc.hits(), [])
         self.assertFalse(self.fs.in_tail)
 
+    def test_a_repeated_overdub_report_does_not_re_arm_the_tail(self) -> None:
+        """The re-arm race, and it is the dangerous direction.
+
+        `_begin_tail` ran on every OVERDUBBING report rather than on the
+        transition, so one repeated or in-flight report re-armed the phase
+        after it had already ended. The cap then sent `overdub` a second time —
+        and `overdub` is a TOGGLE, so that turns it back ON with nothing armed
+        to turn it off: a loop quietly recording the room behind a green pad.
+        """
+        self._enter_tail()
+        self._decay()
+        self.assertFalse(self.fs.in_tail)
+        self.osc.sent.clear()
+
+        # A stale report for a state the engine has already left.
+        self.fs.sync_from_sl(SL_STATE_OVERDUBBING)
+        self.assertFalse(self.fs.in_tail, "no transition, no new ring-out")
+
+        # And nothing can now fire a second overdub.
+        self.fs.poll_tail(now=1e6)
+        self.assertEqual(
+            self.osc.hits(), [], "a second overdub would start recording"
+        )
+
     def test_peaks_before_any_tail_are_ignored(self) -> None:
         self.fs.sync_in_peak(0.9)
         self.fs.sync_in_peak(0.0)
