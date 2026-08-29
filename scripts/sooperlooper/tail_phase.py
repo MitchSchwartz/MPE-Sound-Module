@@ -37,6 +37,12 @@ TAIL_HOLD_S = float(os.environ.get("MPE_SL_TAIL_HOLD_MS", "80")) / 1000.0
 #: Fallback bar length when no grid is established yet.
 TAIL_FALLBACK_CAP_S = float(os.environ.get("MPE_SL_TAIL_CAP_MS", "2000")) / 1000.0
 
+#: Where to append the raw peak series, one CSV row per sample. Unset = off,
+#: and off costs one `is not None` per peak — on a stream that only exists
+#: during a ring-out at all. Nothing is written until the tail ends, so the
+#: audio thread never waits on a file.
+TAIL_TRACE_PATH = os.environ.get("MPE_SL_TAIL_TRACE", "")
+
 EXIT_DECAY = "decay"
 EXIT_CAP = "cap"
 EXIT_WRAP = "wrap"
@@ -68,6 +74,7 @@ class TailPhase:
         cap_s: float,
         thresh: float = TAIL_THRESH,
         hold_s: float = TAIL_HOLD_S,
+        trace: bool = False,
     ) -> None:
         self.started_at = started_at
         self.cap_s = cap_s
@@ -76,9 +83,15 @@ class TailPhase:
         #: The settle. Quiet does not count until something loud has happened.
         self.saw_loud = False
         self._quiet_since: float | None = None
+        #: (t_rel, peak) for every sample fed in, when tracing. The thresholds
+        #: above were inherited from the seam-weld work on a different signal
+        #: path; this is how they stop being inherited.
+        self.trace: list[tuple[float, float]] | None = [] if trace else None
 
     def peak(self, value: float, now: float) -> str | None:
         """Feed one input peak. Returns an exit reason, or None to continue."""
+        if self.trace is not None:
+            self.trace.append((now - self.started_at, value))
         if value >= self._thresh:
             self.saw_loud = True
             self._quiet_since = None
@@ -101,3 +114,51 @@ class TailPhase:
 
     def elapsed(self, now: float) -> float:
         return now - self.started_at
+
+    @property
+    def thresh(self) -> float:
+        return self._thresh
+
+    @property
+    def hold_s(self) -> float:
+        return self._hold_s
+
+
+#: Header written once, when the trace file is first created.
+TRACE_HEADER = "tail_id,loop,t_rel,peak,exit_reason,exit_elapsed,cap_s,thresh,hold_s\n"
+
+
+def append_trace(
+    path: str,
+    *,
+    tail_id: int,
+    loop: int,
+    tail: TailPhase,
+    reason: str,
+    elapsed: float,
+) -> str | None:
+    """Append one finished ring-out's peak series. Never raises.
+
+    Called once per tail, from the bench thread, after the overdub has already
+    been closed — so a slow or full disk cannot delay the thing that actually
+    matters. A trace that fails to write is not worth taking the bench down
+    for, but it must not fail SILENTLY either: that is the exact shape of bug
+    this file exists to measure. Returns the failure for the caller to log —
+    this module cannot import the bench logger without a cycle.
+    """
+    if not path or tail.trace is None:
+        return None
+    rows = "".join(
+        f"{tail_id},{loop},{t_rel:.4f},{peak:.5f},{reason},{elapsed:.4f},"
+        f"{tail.cap_s:.4f},{tail.thresh:.5f},{tail.hold_s:.4f}\n"
+        for t_rel, peak in tail.trace
+    )
+    try:
+        new = not os.path.exists(path)
+        with open(path, "a") as handle:
+            if new:
+                handle.write(TRACE_HEADER)
+            handle.write(rows)
+    except OSError as exc:  # pragma: no cover — disk-full / permissions
+        return f"tail trace: could not append to {path}: {exc}"
+    return None

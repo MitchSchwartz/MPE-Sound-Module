@@ -34,7 +34,9 @@ from loop_model import (
 from sl_grid_state import GridState, derive_tempo
 from tail_phase import (  # noqa: E402
     EXIT_WRAP,
+    TAIL_TRACE_PATH,
     TailPhase,
+    append_trace,
     bar_seconds,
 )
 from sl_grid_sync import (
@@ -105,6 +107,10 @@ def _osc_send(osc, path: str, args: list) -> None:
 
 
 class TrackGesture:
+    #: Monotonic id across all loops, so one trace file can be read as a
+    #: sequence of takes without joining on timestamps.
+    _tail_traces = 0
+
     def __init__(
         self,
         *,
@@ -371,7 +377,8 @@ class TrackGesture:
         """
         bpm = self.grid.bpm if self.grid is not None else None
         cap = bar_seconds(bpm, loop_len=self.loop_len)
-        self._tail = TailPhase(started_at=self._now(), cap_s=cap)
+        self._tail = TailPhase(started_at=self._now(), cap_s=cap,
+                               trace=bool(TAIL_TRACE_PATH))
         if self._on_tail_change is not None:
             self._on_tail_change(self.loop, True)
         log(f"loop {self.loop}: tail phase — ends on decay, capped at "
@@ -398,8 +405,24 @@ class TrackGesture:
             self._hit("overdub")
         if self._on_tail_change is not None:
             self._on_tail_change(self.loop, False)
+        elapsed = tail.elapsed(self._now())
         log(f"loop {self.loop}: ring-out ended on {reason} after "
-            f"{tail.elapsed(self._now()):.3f}s")
+            f"{elapsed:.3f}s")
+        if TAIL_TRACE_PATH:
+            # After the overdub is closed and the pad repainted: tracing is
+            # evidence, and evidence must never be in the path of the thing
+            # it is measuring.
+            TrackGesture._tail_traces += 1
+            failure = append_trace(
+                TAIL_TRACE_PATH,
+                tail_id=TrackGesture._tail_traces,
+                loop=self.loop,
+                tail=tail,
+                reason=reason,
+                elapsed=elapsed,
+            )
+            if failure is not None:
+                log(failure)
 
     def sync_in_peak(self, value: float) -> None:
         """Input peak from the engine. Only meaningful during the tail."""

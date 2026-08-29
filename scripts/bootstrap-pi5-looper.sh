@@ -45,6 +45,18 @@ _remove_env_key MPE_SL_SEAM_WELD
 _remove_env_key MPE_SL_SCRATCH_LOOP
 _ensure_env_kv MPE_SL_LOOPS 15
 
+# Ring-out peak trace. TAIL_THRESH and TAIL_HOLD_MS were inherited from the
+# seam-weld work on a different signal path and have never been checked against
+# the patches actually played, so this records the decay curve of every take:
+# one line per peak sample, buffered in memory and appended once when the tail
+# ends. Costs a list append during ring-outs only -- the peak stream does not
+# exist at any other time -- and one file append per take.
+#
+# It is ON because a threshold that is wrong in the quiet direction is
+# invisible without it: every tail just exits on the cap, which is also what a
+# DEAD peak meter looks like. Unset the key in /etc/mpe/mpe.env to stop.
+_ensure_env_kv MPE_SL_TAIL_TRACE /home/pi/tail-trace.csv
+
 # Classic-MIDI routing. Without this the router binds only MPE controllers, so
 # a plain keyboard plugged into a cold-booted appliance is silent -- which is
 # exactly the outcome the classic-MIDI work exists to remove. Set here rather
