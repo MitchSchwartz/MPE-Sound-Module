@@ -28,7 +28,6 @@ from slot_matrix import (
     ACT_NOOP,
     ACT_RECORD,
     PENDING_LAUNCH,
-    PENDING_STOP,
     PENDING_SWITCH,
     plan_scene_press,
     scene_row_led_on,
@@ -389,10 +388,6 @@ class SlotSurface:
         track = self._rt.track(track_index)
         pending = track.pending
         if pending is None:
-            return
-        if pending.kind == PENDING_STOP:
-            if sl_state in SILENT:
-                self._rt.boundary(track_index)
             return
         if pending.kind in (PENDING_LAUNCH, PENDING_SWITCH):
             if self._rt.has_deferred(track_index):

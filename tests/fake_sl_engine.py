@@ -45,13 +45,26 @@ class FakeSlEngine:
         self._at_boundary: dict[int, int] = {}
         # Loops whose playhead has crossed zero since the last poll.
         self._wrapped: set[int] = set()
+        #: loop -> file most recently loaded into its buffer, and loop -> file
+        #: most recently written out. These used to be invisible: send_message
+        #: returned early for anything that was not a `hit`, so a test could
+        #: only see load_loop/save_loop by grepping raw OSC, and nothing in the
+        #: engine model changed when a buffer was replaced. A switch that
+        #: loaded the wrong clip, or loaded none at all, looked identical.
+        self.loaded: dict[int, str] = {}
+        self.saved: dict[int, str] = {}
 
     # --- the OSC surface the bench talks to ------------------------------
     def send_message(self, path: str, arg) -> None:
         self.sent.append((path, arg))
         parts = path.strip("/").split("/")
-        if len(parts) != 3 or parts[0] != "sl" or parts[2] != "hit":
+        if len(parts) != 3 or parts[0] != "sl":
             return  # /set and global paths do not move loop state here
+        if parts[2] in ("load_loop", "save_loop"):
+            self._buffer_op(int(parts[1]), parts[2], arg)
+            return
+        if parts[2] != "hit":
+            return
         loop = int(parts[1])
         if loop < 0:
             for i in self.state:
@@ -132,6 +145,32 @@ class FakeSlEngine:
             self.state[loop] = SL_STATE_OFF
             self.loop_len[loop] = 0.0
             self._at_boundary.pop(loop, None)
+
+    def _buffer_op(self, loop: int, op: str, arg) -> None:
+        """`load_loop` replaces the buffer; `save_loop` writes it out.
+
+        SooperLooper's handlers take `s:filename s:return_url s:error_path`, so
+        the filename is the first element of a list. A bare string is accepted
+        too — that is the one-argument form the engine silently DISCARDS, and
+        modelling it as a no-op is what lets a test catch it.
+        """
+        if isinstance(arg, (list, tuple)):
+            if len(arg) < 3:
+                return  # discarded by the real engine: wrong arity, no reply
+            filename = str(arg[0])
+        else:
+            return  # one-argument form — never matches the handler signature
+        if loop < 0:
+            return
+        if op == "load_loop":
+            self.loaded[loop] = filename
+            # A loaded clip is resident and stopped until something starts it.
+            if self.state.get(loop) in (SL_STATE_OFF, None):
+                self.state[loop] = SL_STATE_PAUSED
+            if not self.loop_len.get(loop):
+                self.loop_len[loop] = 2.0
+        else:
+            self.saved[loop] = filename
 
     def _finish_record(self, loop: int, length: float = 2.0) -> None:
         self.state[loop] = SL_STATE_PLAYING

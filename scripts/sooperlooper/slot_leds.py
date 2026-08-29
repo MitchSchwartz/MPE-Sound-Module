@@ -28,7 +28,7 @@ from led_table import (
     LED_YELLOW,
     LED_YELLOW_BLINK,
 )
-from slot_matrix import PENDING_LAUNCH, PENDING_STOP, PENDING_SWITCH, Track
+from slot_matrix import PENDING_LAUNCH, PENDING_SWITCH, Track
 
 
 def static_cell_led(track: Track, slot: int) -> int:
@@ -64,8 +64,6 @@ def static_cell_led(track: Track, slot: int) -> int:
                 return LED_YELLOW_BLINK     # leaving
         elif pending.kind == PENDING_LAUNCH and slot == pending.to_slot:
             return LED_GREEN_BLINK
-        elif pending.kind == PENDING_STOP and slot == pending.from_slot:
-            return LED_YELLOW_BLINK
 
     if not track.occupied(slot):
         return LED_OFF
