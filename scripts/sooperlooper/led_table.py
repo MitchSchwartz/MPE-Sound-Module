@@ -41,8 +41,10 @@ LED_RED_BLINK = 4
 LED_YELLOW = 5
 LED_YELLOW_BLINK = 6
 
-# APC side buttons are single-colour — not the grid RGB velocity table.
-# Scene Launch (Stop All, etc.): green only. Track Select: red only.
+# What we currently SEND to the side buttons. Not a statement about what
+# they can show: see `device_facts.apc.scene.led_colours` and
+# `.apc.track.led_colours`, both still resting on a vendor document that has
+# already been wrong once about this panel. Measure before promising a colour.
 SCENE_LED_OFF = 0
 SCENE_LED_ON = 1
 SCENE_LED_BLINK = 2

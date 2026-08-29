@@ -5,7 +5,8 @@ Mk1: original APC mini — Stop All 0x59 (scene launch 8), Shift 0x62.
 
 mk1 gotcha: Track Status notes 0x30–0x37 are the same numbers as grid row 6.
 They are **not** usable as a Shift-held indicator — lighting 0x37 paints grid
-pads 6–7 red, not the Shift button (Shift has no LED on mk1).
+pads 6-7 red. Whether the Shift button itself has an LED is NOT settled here
+— see `device_facts.apc.buttons.all_have_leds`, which says it does.
 """
 
 from __future__ import annotations
@@ -363,10 +364,10 @@ class TransportButtonLeds:
 
     Stop All lights while held and blinks under the Shift+StopAll clear hold,
     accelerating as the hold completes. It is green on both models because the
-    scene-launch LEDs are single-colour green in hardware — there is no red to
-    paint there, on either device.
+    scene-launch LEDs are driven green here. Whether they CAN show red is
+    unmeasured — `device_facts.apc.scene.led_colours`.
 
-    mk1: Shift has no LED — no shift indicator is sent. Stop All is green when
+    mk1: no shift indicator is sent. Stop All is green when
     held alone; Shift+Stop reset combo blinks Stop All green only. Scene Launch
     1–7 and grid rows 1–7 stay dark until multi-clip P3 wires them; Shift solo
     suppresses mk1 ghost glow on those surfaces.

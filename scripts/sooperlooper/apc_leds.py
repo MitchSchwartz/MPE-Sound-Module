@@ -23,10 +23,15 @@ Communications Protocol (v1.0)", not inferred from behaviour:
     LED_YELLOW (5) is #FF0000, red. Nothing in 0..6 is blue, so the blue seen
     on the device does NOT come from this codebase — see `probe_messages`.
 
-The mk2's *button* LEDs (0x64-0x77) are single-colour and use 0x90 with
-velocity 0=off, 1=on, 2=blink, which is exactly what `SCENE_LED_*` and
-`TRACK_LED_*` already are. Buttons therefore need no translation; only the
-8x8 RGB grid does.
+The mk2's *button* LEDs (0x64-0x77) are driven here with 0x90 and velocity
+0=off, 1=on, 2=blink, matching `SCENE_LED_*` and `TRACK_LED_*`, so buttons get
+no translation and only the 8x8 RGB grid does.
+
+This used to say the button LEDs ARE single-colour, as established fact. It is
+not established — see `device_facts.apc.scene.led_colours`. It came from the
+vendor document, was never measured, and the same document's implication that
+Shift has no LED is wrong. Treat this as "what we currently send", not "what
+the hardware can do"; `scripts/probe-apc-buttons.py` settles the difference.
 """
 
 from __future__ import annotations

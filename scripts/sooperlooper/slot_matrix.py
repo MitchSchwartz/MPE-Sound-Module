@@ -325,11 +325,11 @@ def scene_row_led(
     it shows for an empty row — so the button that stops a running scene looked
     identical to a button that does nothing at all.
 
-    Mitch asked for yellow here. The scene buttons are single-colour green in
-    hardware (`led_table`: scene launch green only, track select red only), so
-    yellow is not available on this control; blink is the only third state it
-    has. If that reads wrong on the device, the alternative is moving the cue
-    to the grid rather than inventing a colour the button cannot show.
+    Mitch asked for yellow here and got blink instead, on the grounds that the
+    scene buttons are green-only. That ground is not solid — see
+    `device_facts.apc.scene.led_colours`, which is vendor-tier and unmeasured.
+    If the probe shows these buttons can do yellow, this should become yellow,
+    which is what was asked for in the first place.
     """
     if not row_has_occupied(tracks, row):
         return SCENE_LED_OFF

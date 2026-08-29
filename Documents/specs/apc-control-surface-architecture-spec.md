@@ -53,28 +53,87 @@ has no answer short of reading four files and simulating the event loop.
 D1 and D4 are why changes are hard to find. D2 is why they don't stick. D3 is
 why some of them were impossible from the start and nothing said so.
 
-## 3. What the hardware actually is
+## 3. The deeper defect: facts about the device have no home
 
-The registry is worthless if its facts are guessed. Current state of knowledge:
+Section 2 is about code structure. It is not the whole problem, and on
+2026-08-29 Mitch named the rest of it:
 
-| Control | Notes | LED | Source |
+> "All buttons have LED. Before the set of changes you made, maybe two or three
+> rounds ago, I even specified that. This is the point. We have a very poor
+> mental model of each one of these, at least you do."
+
+He is right, and the history is checkable. `git log -S "Shift has no LED"` puts
+the claim's origin at 618a19e. It came from a vendor protocol document. It was
+never measured. It was copied into five docstrings, each of which reads as
+established fact to the next reader. On 2026-08-29 I used it to tell Mitch that
+what he was asking for was physically impossible — twice — and then propagated
+it a sixth time in 568f459.
+
+He had told me the opposite, in conversation, several sessions earlier. That
+statement lived in a chat log and nowhere else. The wrong fact was in the repo,
+in five files, being read aloud. **The repo outranked the man holding the
+device, because the repo was written down and he was not.**
+
+No amount of registry or compositor fixes that. A perfectly-structured control
+surface built on an unmeasured claim is wrong faster and more consistently.
+
+### 3.1 The fact base — `scripts/sooperlooper/device_facts.py`
+
+Every fact about the hardware gets recorded once, with **how it was
+established**, in tiers:
+
+    MEASURED   observed on this appliance, with a date
+    OWNER      Mitch stated it about his own hardware
+    VENDOR     read from a manufacturer document
+    INFERRED   reasoned from another fact
+
+Five rules, each one written against a specific way this went wrong:
+
+1. **Recorded once.** Other modules cite the fact id in a comment; they do not
+   restate the claim. Five restatements is how a single unverified sentence
+   became load-bearing in five places.
+2. **Provenance is mandatory.** A fact with no tier and no date is not a fact.
+3. **MEASURED and OWNER outrank VENDOR and INFERRED, always.** When they
+   conflict, the lower tier is wrong until re-measured. It does not get to
+   stand because it is written more confidently or more recently.
+4. **A VENDOR or INFERRED fact may never be used to tell Mitch something is
+   impossible.** "The document says green-only" is not "your device cannot do
+   this." If a claim matters enough to refuse a request over, it matters enough
+   to measure first. `Fact.refuse_with()` raises if this is attempted, so the
+   rule is executable rather than aspirational.
+5. **A contradiction is an event.** When an observation disagrees with a
+   recorded fact, the old claim is superseded in place with both dates and the
+   reason visible. The history of having been wrong is the useful part — it is
+   what tells the next reader which sources to distrust.
+
+### 3.2 Capture discipline — the part that actually failed
+
+Rules 1-5 govern facts already in the file. The failure was upstream of that:
+Mitch stated a fact and nobody wrote it down.
+
+**When Mitch states something about his own hardware, it is recorded in
+`device_facts.py` in the same session, at OWNER tier, before the work
+continues.** Not at the end, not "if it turns out to matter." A fact stated in
+conversation and not committed is gone at the next context boundary, and what
+survives is whatever the repo happens to say — which may be wrong.
+
+This is the cheapest rule here and the one that would have prevented the whole
+week: one commit, three lines, at the moment he said it.
+
+### 3.3 Current state of knowledge
+
+| Control | Notes | LED | Tier |
 |---|---|---|---|
-| 8x8 grid | 0x00-0x3F | mk1: 7-value velocity table; mk2: RGB, channel=brightness, velocity=palette | Akai protocol doc + measured on device 2026-08-28 |
-| Scene launch | mk1 0x52-0x59, mk2 0x70-0x77 | single-colour GREEN, 0=off 1=on 2=blink | Akai protocol doc — NOT independently measured |
-| Track select | mk1 0x64-0x6B, mk2 0x64-0x6B | single-colour RED, 0/1/2 | Akai protocol doc — NOT independently measured |
-| Shift | mk1 0x62, mk2 0x7A | believed NO LED | **UNVERIFIED — this is Mitch's open question** |
+| 8x8 grid | 0x00-0x3F | mk2 RGB: channel = brightness, velocity = palette | MEASURED 2026-08-28 |
+| mk1 scene column | 0x52 top .. 0x59 bottom | — | MEASURED 2026-08-27 |
+| All buttons | — | every button has an LED, Shift included | OWNER 2026-08-29 |
+| Scene launch colours | mk1 0x52-0x59, mk2 0x70-0x77 | UNKNOWN | VENDOR — unmeasured |
+| Track select colours | 0x64-0x6B | UNKNOWN | VENDOR — unmeasured |
 
-The Shift row is the point. Mitch asked why Shift does not light when pressed,
-and the honest answer today is "we think that button has no LED, but nobody has
-checked." Under the proposal that question is answered by reading one table
-whose every row cites how it was established. `apc_panel.py` Rule 3 already says
-disputed facts get measured, not reasoned about — this makes the measurement
-somewhere to *put* the answer.
-
-**Step 0 of any work here is a capability probe**: sweep velocity and channel
-across one button of each class, have Mitch report what he sees, and write the
-result into the registry with the date. Ten seconds of looking replaces three
-rounds of deploy-and-guess. Doing this first is what makes the rest honest.
+The two UNKNOWN rows are what `scripts/probe-apc-buttons.py` exists to settle.
+They are marked unknown rather than green-only/red-only precisely because the
+document they came from has already been caught being wrong about this panel,
+which is rule 3 doing its job.
 
 ## 4. Prior art
 
@@ -162,9 +221,10 @@ Three, all cheap, each pinning a defect above:
 
 ## 6. Migration — each stage shippable, none a big-bang rewrite
 
-0. **Capability probe.** Measure what each button class can show, including
-   whether Shift has an LED at all. Write results into the registry with dates.
-   *Answers Mitch's open question and makes everything after it honest.*
+0. **Fact base + capability probe.** `device_facts.py` exists (2026-08-29).
+   Run `scripts/probe-apc-buttons.py` with the session stopped, record what
+   the buttons actually do at MEASURED tier, and correct the code that has been
+   asserting otherwise. *Everything after this depends on it being true.*
 1. **Registry, data only.** Move every note constant in, including the three in
    `apc_transport`. Add the "no notes outside" test. No behaviour changes.
 2. **Compositor.** Route existing writers through it unchanged; add the
