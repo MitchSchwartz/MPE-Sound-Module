@@ -156,24 +156,23 @@ def resolve_apc_transport_notes(
     return NOTE_SHIFT_MK1, NOTE_STOP_ALL_CLIPS_MK1, "mk1"
 
 
-def resolve_clear_warning_note(apc_label: str) -> int | None:
-    """The one RED button we can use to warn "this is about to clear".
+def resolve_stale_lamp_note(apc_label: str) -> int | None:
+    """A button the bench must keep DARK, not a button it lights.
 
-    mk2: Track Select 8 (0x6B). mk1: None — Shift has no LED, and 0x30-0x37 are
-    grid row 6 / Track Status, so lighting them lights clip pads instead.
+    mk2 Track Select 8 (0x6B); mk1 has none.
 
-    This USED to be a Shift-held indicator, lit whenever Shift was down. Mitch
-    read that as a fault, and he was right to: 0x6B is Track Select 8, a
-    control with its own meaning, and lighting it for an unrelated modifier
-    says something false about that track. It now lights for exactly one
-    thing — the Shift+StopAll hold that clears every clip.
+    History, because it has now been wrong twice in opposite directions. It
+    started as a "Shift is held" lamp, which lit a track control to report an
+    unrelated modifier — reported from the device as "pressing shift lights up
+    column 8". I then moved the clear-all warning onto it, reasoning that Stop
+    All is green-only in hardware so red had to live somewhere. That was worse:
+    it still lit the wrong button, and it took the blink OFF the button the
+    player is actually looking at while holding it.
 
-    That also answers "Stop All blinks green, it should blink red". The Stop
-    All button's LED is GREEN-ONLY in hardware (see led_table: scene launch
-    buttons are single-colour green, track select single-colour red), so red
-    cannot be painted there. The red already exists one button away. So the
-    clear warning moves ONTO the red button and off the green one, which is
-    the requested signal on the hardware that can actually produce it.
+    The correct answer to "Stop All should blink red" is that this hardware
+    cannot do it, said out loud, and the blink stays where the gesture is. So
+    the bench lights this button for nothing. The note is kept only so a lamp
+    left on by an earlier build gets cleared.
     """
     if apc_label == "mk2":
         return NOTE_TRACK8_MK2
@@ -362,9 +361,10 @@ class _MidiOut(Protocol):
 class TransportButtonLeds:
     """Shift / Stop All Clips button LEDs on the APC transport row.
 
-    mk2: Stop All (green-only) lights while held. The Shift+StopAll clear hold
-    blinks Track Select 8 RED, accelerating as the hold completes — red because
-    the gesture destroys every clip, and the scene buttons cannot show red.
+    Stop All lights while held and blinks under the Shift+StopAll clear hold,
+    accelerating as the hold completes. It is green on both models because the
+    scene-launch LEDs are single-colour green in hardware — there is no red to
+    paint there, on either device.
 
     mk1: Shift has no LED — no shift indicator is sent. Stop All is green when
     held alone; Shift+Stop reset combo blinks Stop All green only. Scene Launch
@@ -378,7 +378,7 @@ class TransportButtonLeds:
         midi_out: _MidiOut,
         shift_note: int,
         stop_all_note: int,
-        clear_warning_note: int | None,
+        stale_lamp_note: int | None,
         scene_launch_notes: tuple[int, ...] = (),
         hold_s: float,
         apc_label: str = "mk1",
@@ -388,9 +388,8 @@ class TransportButtonLeds:
         self._midi_out = midi_out
         self._shift_note = shift_note
         self._stop_all_note = stop_all_note
-        self._clear_warning_note = clear_warning_note
+        self._stale_lamp_note = stale_lamp_note
         self._scene_launch_notes = scene_launch_notes
-        self._clear_warning_on_vel = TRACK_LED_ON
         self._apc_label = apc_label
         self._hold_s = max(hold_s, 0.001)
         self._blink_start_half_s = blink_start_half_s
@@ -403,8 +402,8 @@ class TransportButtonLeds:
         self._suppress_until_release = False
         self._last_vel: dict[int, int] = {}
         self.clear_unwired_surfaces()
-        if self._clear_warning_note is not None:
-            self._set_led(self._clear_warning_note, TRACK_LED_OFF)
+        if self._stale_lamp_note is not None:
+            self._set_led(self._stale_lamp_note, TRACK_LED_OFF)
         self._set_led(self._stop_all_note, SCENE_LED_OFF)
 
     def repaint(self) -> None:
@@ -416,8 +415,8 @@ class TransportButtonLeds:
         """
         self._last_vel.clear()
         self.clear_unwired_surfaces()
-        if self._clear_warning_note is not None:
-            self._set_led(self._clear_warning_note, TRACK_LED_OFF)
+        if self._stale_lamp_note is not None:
+            self._set_led(self._stale_lamp_note, TRACK_LED_OFF)
         self._set_led(self._stop_all_note, SCENE_LED_OFF)
 
     def clear_unwired_surfaces(self) -> None:
@@ -458,8 +457,8 @@ class TransportButtonLeds:
 
         self._maybe_clear_suppress()
         if self._suppress_until_release:
-            if self._clear_warning_note is not None:
-                self._set_led(self._clear_warning_note, TRACK_LED_OFF)
+            if self._stale_lamp_note is not None:
+                self._set_led(self._stale_lamp_note, TRACK_LED_OFF)
             self._set_led(self._stop_all_note, SCENE_LED_OFF)
             return
 
@@ -495,8 +494,8 @@ class TransportButtonLeds:
         """Track reset completed — dark until both buttons are released."""
         self._suppress_until_release = True
         self._combo_started_at = None
-        if self._clear_warning_note is not None:
-            self._set_led(self._clear_warning_note, TRACK_LED_OFF)
+        if self._stale_lamp_note is not None:
+            self._set_led(self._stale_lamp_note, TRACK_LED_OFF)
         self._set_led(self._stop_all_note, SCENE_LED_OFF)
 
     def _maybe_clear_suppress(self) -> None:
@@ -513,21 +512,12 @@ class TransportButtonLeds:
                 blink_start_half_s=self._blink_start_half_s,
                 blink_min_half_s=self._blink_min_half_s,
             )
-            if self._clear_warning_note is not None:
-                track_vel = self._clear_warning_on_vel if blink_on else TRACK_LED_OFF
-                self._set_led(self._clear_warning_note, track_vel)
-                # Green goes dark for the duration: two buttons blinking in
-                # lockstep reads as decoration, one red blinking alone reads as
-                # a warning. On mk1 there is no red button, so the green blink
-                # is all there is and it stays.
-                self._set_led(self._stop_all_note, SCENE_LED_OFF)
-            else:
-                self._set_led(self._stop_all_note,
-                              SCENE_LED_ON if blink_on else SCENE_LED_OFF)
+            self._set_led(self._stop_all_note,
+                          SCENE_LED_ON if blink_on else SCENE_LED_OFF)
             return
 
-        if self._clear_warning_note is not None:
-            self._set_led(self._clear_warning_note, TRACK_LED_OFF)
+        if self._stale_lamp_note is not None:
+            self._set_led(self._stale_lamp_note, TRACK_LED_OFF)
         self._set_led(
             self._stop_all_note,
             SCENE_LED_ON if self._stop_down else SCENE_LED_OFF,
