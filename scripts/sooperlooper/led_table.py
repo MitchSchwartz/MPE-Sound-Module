@@ -104,12 +104,18 @@ _BLINK = {
 # is STILL RUNNING, which the player needs. Everywhere else a plain blink is
 # enough, because nothing of consequence is happening meanwhile.
 RECORD_TO_PLAY = (LED_OFF, LED_RED, LED_OFF, LED_GREEN)
+#: The ring-out. The take has closed but the decay is still being captured, so
+#: the pad is neither recording nor simply playing — and it read as plain green
+#: before, which is why "I did not see it blinking during the tail capture".
+#: Alternating red/green is not used anywhere else on the surface.
+TAIL_CAPTURE = (LED_RED, LED_GREEN)
 
 
 def led_for(
     sl_state: int,
     *,
     pending: str | None = None,
+    tail: bool = False,
 ) -> tuple[int, ...]:
     """Pad colour, as a blink sequence. Length 1 means hold it steady.
 
@@ -121,6 +127,11 @@ def led_for(
     what let a poll clear the flag while the launch was still pending, leaving
     the pad blinking green forever after it had already landed.
     """
+    if tail:
+        # Checked first: during the ring-out the engine reports OVERDUBBING,
+        # which derives to Playing, so every other branch here would paint it
+        # as an ordinary playing clip.
+        return TAIL_CAPTURE
     if sl_state == SL_STATE_WAIT_STOP:
         return RECORD_TO_PLAY
     if sl_state == SL_STATE_WAIT_START:

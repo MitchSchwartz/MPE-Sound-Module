@@ -275,6 +275,16 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
             scene_launch_notes=scene_launch_notes,
         )
 
+    def on_tail_change(loop: int, active: bool) -> None:
+        """Subscribe the input meter only while that loop is ringing out.
+
+        A standing subscription on all 15 loops is traffic spent answering a
+        question that is only asked about one loop, for about a bar, after a
+        take closes.
+        """
+        if osc_session is not None:
+            osc_session.set_peak_updates(loop, active)
+
     by_note, gestures = build_track_gestures(
         osc=osc,
         midi_out=midi_out,
@@ -288,6 +298,7 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
         on_grid_established=on_grid_established if grid_active else None,
         on_phase_reanchor=on_phase_reanchor if grid_active else None,
         on_grid_dropped=on_grid_dropped if grid_active else None,
+        on_tail_change=on_tail_change,
         multigrid=multigrid,
     )
     if not multigrid:

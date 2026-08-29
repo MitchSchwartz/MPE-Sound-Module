@@ -31,6 +31,11 @@ HUD_UPDATE_MS = 100
 BENCH_STATE_MS = int(os.environ.get("MPE_SL_BENCH_STATE_MS", "100"))
 BENCH_LOOP_POS_MS = int(os.environ.get("MPE_SL_BENCH_LOOP_POS_MS", "20"))
 BENCH_WET_MS = int(os.environ.get("MPE_SL_BENCH_WET_MS", "500"))
+#: Input peak, subscribed only while a ring-out is running. Fast enough to see
+#: a decay, and off the wire the rest of the time — a standing subscription on
+#: every loop is 15 streams of traffic to answer a question that is only ever
+#: asked about one loop, for about a bar, after a take closes.
+BENCH_PEAK_MS = int(os.environ.get("MPE_SL_BENCH_PEAK_MS", "25"))
 REREGISTER_S = float(os.environ.get("MPE_SL_BENCH_REREGISTER_S", "15"))
 from sl_limits import resolve_num_loops  # noqa: E402
 
@@ -153,6 +158,20 @@ class SlOscSession:
                     [ctrl, HUD_UPDATE_MS, returl, "/r"],
                 )
         self._hud_loops_registered = True
+
+    def set_peak_updates(self, loop: int, on: bool) -> None:
+        """Subscribe/unsubscribe `in_peak_meter` for one loop."""
+        returl = self.returl()
+        if on:
+            self.client.send_message(
+                f"/sl/{loop}/register_auto_update",
+                ["in_peak_meter", BENCH_PEAK_MS, returl, "/sl/bench/state"],
+            )
+        else:
+            self.client.send_message(
+                f"/sl/{loop}/unregister_auto_update",
+                ["in_peak_meter", returl, "/sl/bench/state"],
+            )
 
     def register_bench(self, *, num_loops: int) -> None:
         self._bench_num_loops = num_loops

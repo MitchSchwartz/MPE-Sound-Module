@@ -22,6 +22,7 @@ from scripts.sooperlooper.led_table import (
     LED_RED_BLINK,
     LED_YELLOW,
     LED_YELLOW_BLINK,
+    TAIL_CAPTURE,
 )
 from scripts.sooperlooper.sl_grid_state import GridState
 from scripts.sooperlooper.sl_loop_states import (
@@ -76,10 +77,20 @@ class TrackGestureOnEngineTests(unittest.TestCase):
 
         engine.boundary()                # the take lands
         engine.poll(fs)
-        self.assertEqual(self._led(midi), LED_GREEN)
         self.assertEqual(engine.state[0], SL_STATE_OVERDUBBING,
                          "the take closed into an overdub capturing the ring-out")
-        self.assertGreater(engine.loop_len[0], 0.0, "green means there is audio")
+        self.assertGreater(engine.loop_len[0], 0.0, "there is audio")
+        # Not solid green YET: the take has landed but its ring-out is still
+        # being captured, and the pad says so. This used to read as an ordinary
+        # playing clip, which is why the tail was invisible on the surface.
+        self.assertTrue(fs.in_tail)
+        self.assertIn(self._led(midi), TAIL_CAPTURE)
+
+        # The ring-out ends and the clip becomes an ordinary playing loop.
+        fs.poll_tail(now=fs._tail.started_at + fs._tail.cap_s + 0.01)
+        engine.poll(fs)
+        self.assertFalse(fs.in_tail)
+        self.assertEqual(self._led(midi), LED_GREEN)
 
     def test_a_take_that_never_lands_does_not_leave_a_green_pad(self) -> None:
         """If the engine stops answering, the pad must not claim success."""
