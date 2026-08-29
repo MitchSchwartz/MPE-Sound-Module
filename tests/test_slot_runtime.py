@@ -115,7 +115,7 @@ class SwitchSafetyTests(RuntimeCase):
         # because it is the one that touches audio.
         self.assertIn("/sl/0/save_loop", self.paths())
         self.assertNotIn("/sl/0/load_loop", self.paths())
-        self.rt.boundary(0)
+        self.rt.land_pending(0)
         paths = self.paths()
         self.assertLess(paths.index("/sl/0/save_loop"), paths.index("/sl/0/load_loop"))
         self.assertFalse(self.rt.track(0).slot(0).dirty, "flushed slot is clean")
@@ -263,7 +263,7 @@ class BookkeepingTests(RuntimeCase):
         self.rt.press(1, 2, sl_state=SL_STATE_PLAYING)
         self.assertIsNotNone(self.rt.track(1).pending)
         self.assertEqual(self.rt.track(1).active_slot, 0, "not yet — the bar has not come")
-        self.rt.boundary(1)
+        self.rt.land_pending(1)
         self.assertIsNone(self.rt.track(1).pending)
         self.assertEqual(self.rt.track(1).active_slot, 2)
 
@@ -412,7 +412,7 @@ class StrandedSwitchTests(unittest.TestCase):
         self.assertNotIn("/sl/0/load_loop", self.paths())
 
     def test_a_wrap_that_does_come_leaves_nothing_to_expire(self) -> None:
-        self.rt.boundary(0)
+        self.rt.land_pending(0)
         self.clock[0] += DEFERRED_LAUNCH_GRACE_S * 10
         self.assertFalse(self.rt.expire_deferred(0, sl_state=SL_STATE_PLAYING), "the hold is gone")
         self.assertEqual(self.paths().count("/sl/0/load_loop"), 1)

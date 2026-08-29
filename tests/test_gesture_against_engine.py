@@ -38,8 +38,12 @@ class TrackGestureOnEngineTests(unittest.TestCase):
     def _rig(self, *, quantized=True, grid=None, loop=0):
         engine = FakeSlEngine(quantized=quantized)
         midi = MagicMock()
+        # The gesture's clock is injected so the ring-out cap — the one exit
+        # that survives a dead peak meter — can be driven from a test.
+        self.clock = [0.0]
         fs = TrackGesture(loop=loop, hold_ms=800, debounce_ms=0,
-                            quantized=quantized, grid=grid)
+                            quantized=quantized, grid=grid,
+                            now=lambda: self.clock[0])
         fs.bind(engine, midi, note=0)
         return engine, fs, midi
 
@@ -87,7 +91,8 @@ class TrackGestureOnEngineTests(unittest.TestCase):
         self.assertIn(self._led(midi), TAIL_CAPTURE)
 
         # The ring-out ends and the clip becomes an ordinary playing loop.
-        fs.poll_tail(now=fs._tail.started_at + fs._tail.cap_s + 0.01)
+        self.clock[0] = fs._tail.started_at + fs._tail.cap_s + 0.01
+        fs.poll_tail()
         engine.poll(fs)
         self.assertFalse(fs.in_tail)
         self.assertEqual(self._led(midi), LED_GREEN)
