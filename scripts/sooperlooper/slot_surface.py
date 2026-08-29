@@ -29,6 +29,7 @@ from slot_matrix import (
     ACT_RECORD,
     PENDING_LAUNCH,
     PENDING_SWITCH,
+    SlotPlan,
     plan_scene_press,
     scene_row_led_on,
 )
@@ -139,24 +140,17 @@ class SlotSurface:
         fs = self._fs.get(track)
         if fs is None:
             return False
-        sl_state = fs.sl_state
         plan = self._rt.press(
             track,
             slot,
-            sl_state=sl_state,
+            sl_state=self.track_state(track),
             hold=hold,
         )
         if plan.action == ACT_NOOP and plan.note:
             self._log(f"track {track + 1} slot {slot + 1}: {plan.note}")
-        if self._rt.needs_gesture(plan):
-            fs.set_note(note)
-            if plan.action == ACT_RECORD:
-                # The runtime just muted and emptied this track's buffer for a
-                # take on a different slot. Tell the gesture, or it derives
-                # `playing` from the last engine report and its gesture is a
-                # mute instead of a record.
-                fs.expect_cleared()
-            fs.on_pad_down()
+        # A real pad press: the down edge only. The up arrives as its own MIDI
+        # event, which is what makes hold-to-clear possible.
+        self._hand_to_gesture(plan, note=note, tap=False)
         self._sync_gesture_notes()
         self.repaint()
         self.repaint_scenes()
@@ -165,37 +159,87 @@ class SlotSurface:
     def scene_press(self, row: int) -> None:
         if not 0 <= row < GRID_ROWS:
             return
+        # Planned against the same state the execution will use. This read
+        # `self._sl_states` while `dispatch` read the gesture — so a scene row
+        # could be planned from one view of the engine and carried out against
+        # another, and `row_is_fully_playing` decides launch-vs-stop for the
+        # WHOLE row from it.
         plans = plan_scene_press(
-            self._rt.tracks(), row, sl_states=self._sl_states
+            self._rt.tracks(), row, sl_states=self.track_states()
         )
         for plan in plans:
             executed = self._rt.dispatch(
-                plan, sl_state=self._sl_states.get(plan.track, SL_STATE_OFF)
+                plan, sl_state=self.track_state(plan.track)
             )
-            if self._rt.needs_gesture(executed):
-                fs = self._fs.get(plan.track)
-                note = self._view.note_for_cell(plan.track, plan.slot)
-                if fs is not None and note is not None:
-                    fs.set_note(note)
-                    # A scene press is a complete tap. There is no pad to
-                    # release, so the up has to be synthesised: leaving the
-                    # gesture held would let its hold timer expire and fire
-                    # long-press-to-clear on every track in the row, and the
-                    # mute/unmute half of the gesture lands on the up.
-                    #
-                    # It must NOT go through the debounce gate. Calling
-                    # on_pad_down() then on_pad_up() put both edges in the same
-                    # microsecond, inside the appliance's real 200 ms window
-                    # (MPE_APC_DEBOUNCE_MS), so the up was discarded and a
-                    # scene launch of a stored, muted clip did nothing at all.
-                    # Every harness used debounce_ms=0 — the one value at which
-                    # that bug is invisible.
-                    fs.synthesised_tap()
+            # A scene press is a complete tap: there is no pad to release.
+            self._hand_to_gesture(executed, tap=True)
         if plans:
             self._log(f"scene row {row + 1}: {len(plans)} track(s)")
         self._sync_gesture_notes()
         self.repaint()
         self.repaint_scenes()
+
+    def track_states(self) -> dict[int, int]:
+        """Every track's state, from the one source. See `track_state`."""
+        return {i: self.track_state(i) for i in range(self._num_tracks)}
+
+    def track_state(self, track: int) -> int:
+        """The ONE answer to "what is this track's engine state".
+
+        `press` read `fs.sl_state` while `scene_press` and `dispatch` read the
+        surface's own `_sl_states` cache. Both are fed from the same OSC
+        message (sl_bench_listener updates the gesture, then the surface), so
+        they agreed in practice — but two sources for one fact is how the
+        paths drifted apart in every other respect, and a plan is only as good
+        as the state it was planned against.
+        """
+        fs = self._fs.get(track)
+        if fs is not None:
+            return fs.sl_state
+        return self._sl_states.get(track, SL_STATE_OFF)
+
+    def _hand_to_gesture(
+        self, plan: SlotPlan, *, note: int | None = None, tap: bool
+    ) -> None:
+        """The single handoff from a plan to the track's gesture.
+
+        This was written out three times — `press`, `dispatch` via
+        `scene_press`, and the scene path's own inline copy — and the copies
+        had drifted: only `press` called `expect_cleared()`, so a scene press
+        that started a take left the gesture deriving `playing` from the last
+        engine report and sending a mute instead of a record. Collapsing them
+        is the point; `tap` is the ONLY difference that is real.
+        """
+        if not self._rt.needs_gesture(plan):
+            return
+        fs = self._fs.get(plan.track)
+        if fs is None:
+            return
+        if note is None:
+            note = self._view.note_for_cell(plan.track, plan.slot)
+        if note is None:
+            return
+        fs.set_note(note)
+        if plan.action == ACT_RECORD:
+            # The runtime just emptied this track's buffer for a take on a
+            # different slot. Tell the gesture, or it derives `playing` from
+            # the last engine report and its gesture is a mute, not a record.
+            fs.expect_cleared()
+        if tap:
+            # There is no pad to release, so the up has to be synthesised:
+            # leaving the gesture held would let its hold timer expire and fire
+            # long-press-to-clear on every track in the row, and the
+            # mute/unmute half of the gesture lands on the up.
+            #
+            # It must NOT go through the debounce gate. Calling on_pad_down()
+            # then on_pad_up() put both edges in the same microsecond, inside
+            # the appliance's real 200 ms window (MPE_APC_DEBOUNCE_MS), so the
+            # up was discarded and a scene launch of a stored, muted clip did
+            # nothing at all. Every harness used debounce_ms=0 — the one value
+            # at which that bug is invisible.
+            fs.synthesised_tap()
+        else:
+            fs.on_pad_down()
 
     def _is_active_lane(self, note: int) -> bool:
         """Is this pad the track's bound buffer (or a track with none)?
@@ -276,10 +320,23 @@ class SlotSurface:
         Same lesson the gesture LEDs learned earlier: act on what is true,
         not on the arrival of a message saying it changed.
         """
+        for track_index in self._rt.awaiting_tracks():
+            # A press parked behind an in-flight save. The save used to be
+            # waited out inside the press itself, with `time.sleep` in a loop —
+            # up to the full timeout with no pad reads and no LED updates, on
+            # an instrument. It is polled here instead; the buffer is still
+            # never reused before the take is on disk.
+            plan = self._rt.resume_awaiting(
+                track_index, sl_state=self.track_state(track_index)
+            )
+            if plan is not None:
+                self._hand_to_gesture(plan, tap=False)
+                if plan.note:
+                    self._log(f"track {track_index + 1}: {plan.note}")
         for track_index, track in self._rt.tracks().items():
             if track.pending is None:
                 continue
-            self._maybe_resolve(track_index, self._sl_states.get(track_index, SL_STATE_OFF))
+            self._maybe_resolve(track_index, self.track_state(track_index))
 
     def poll_led_repaint(self) -> None:
         """Advance gesture blink phase and repaint if needed."""
