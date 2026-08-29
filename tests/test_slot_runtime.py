@@ -11,7 +11,6 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "sooperlooper"))
 
@@ -39,16 +38,10 @@ from sl_loop_states import (  # noqa: E402
 
 class RuntimeCase(unittest.TestCase):
     def setUp(self) -> None:
-        # The save poll sleeps between checks. Under a fake clock that only
-        # moves elsewhere, that loop would never reach its deadline — so the
-        # patched sleep advances time, the way a real one does.
+        # No sleep patch. The save is polled from the idle loop now, so
+        # nothing inside the runtime advances the clock on its own — and a
+        # harness that quietly advanced time would hide a press that blocks.
         self.clock = [0.0]
-        self._sleep_patch = patch(
-            "slot_runtime.time.sleep",
-            side_effect=lambda s: self.clock.__setitem__(0, self.clock[0] + s),
-        )
-        self._sleep_patch.start()
-        self.addCleanup(self._sleep_patch.stop)
         self.dir = Path(tempfile.mkdtemp())
         self.sent: list[tuple[str, list]] = []
         self.logs: list[str] = []
@@ -139,8 +132,20 @@ class SwitchSafetyTests(RuntimeCase):
                 self.clock[0] += 10.0  # save never produces a file; time runs out
 
         self.rt._send = send
+        # The press parks rather than blocking: the save is in flight and the
+        # buffer must not be reused, but the surface stays responsive.
         plan = self.rt.press(0, 3, sl_state=SL_STATE_PLAYING)
         self.assertEqual(plan.action, ACT_NOOP)
+        self.assertIn("waiting for save", plan.note)
+        self.assertEqual(self.rt.awaiting_tracks(), (0,))
+        self.assertNotIn("/sl/0/load_loop", self.paths())
+
+        # Time runs out with no file. The replay refuses, exactly as the
+        # blocking version did.
+        self.clock[0] += 10.0
+        resumed = self.rt.resume_awaiting(0, sl_state=SL_STATE_PLAYING)
+        self.assertIsNotNone(resumed)
+        self.assertEqual(resumed.action, ACT_NOOP)
         self.assertNotIn("/sl/0/load_loop", self.paths())
         self.assertIn("REFUSING", " ".join(self.logs))
 
@@ -383,3 +388,74 @@ class StrandedSwitchTests(unittest.TestCase):
         self.clock[0] += DEFERRED_LAUNCH_GRACE_S * 10
         self.assertFalse(self.rt.expire_deferred(0), "the hold is gone")
         self.assertEqual(self.paths().count("/sl/0/load_loop"), 1)
+
+
+class NonBlockingSaveTests(RuntimeCase):
+    """A pad press must never sleep. This is an instrument.
+
+    The save used to be waited out inside `press()` with `time.sleep` in a
+    loop — up to the full 2s timeout on the failure path, during which the
+    bench read no pads and updated no LEDs. The safety rule it enforced is
+    unchanged: the buffer is not reused until the take is on disk. Only the
+    waiting moved.
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        self._clip(0, 3)
+        self.rt._tracks[0] = Track(
+            slots=(Slot("a.wav", dirty=True), None, None, Slot("b.wav"),
+                   *([None] * 4)),
+            active_slot=0,
+        )
+
+    def _saved_tmp(self) -> Path:
+        for path, args in self.sent:
+            if path.endswith("/save_loop"):
+                return Path(args[0])
+        raise AssertionError("no save_loop was sent")
+
+    def test_the_press_does_not_sleep(self) -> None:
+        import time as real_time
+
+        before = real_time.monotonic()
+        plan = self.rt.press(0, 3, sl_state=SL_STATE_PLAYING)
+        elapsed = real_time.monotonic() - before
+        self.assertLess(elapsed, 0.05, "a press that sleeps is a deaf surface")
+        self.assertEqual(plan.action, ACT_NOOP)
+        self.assertIn("waiting for save", plan.note)
+
+    def test_the_parked_press_completes_when_the_save_lands(self) -> None:
+        self.rt.press(0, 3, sl_state=SL_STATE_PLAYING)
+        self.assertIsNone(
+            self.rt.resume_awaiting(0, sl_state=SL_STATE_PLAYING),
+            "nothing on disk yet — stay parked",
+        )
+        self._saved_tmp().write_bytes(b"\0" * 4096)
+        resumed = self.rt.resume_awaiting(0, sl_state=SL_STATE_PLAYING)
+        self.assertIsNotNone(resumed)
+        self.assertEqual(resumed.action, ACT_SWITCH)
+        self.assertFalse(self.rt.track(0).slot(0).dirty, "the take is on disk")
+        self.assertEqual(self.rt.awaiting_tracks(), ())
+
+    def test_a_failed_save_does_not_retry_for_ever(self) -> None:
+        """The replay must refuse, not re-park.
+
+        Replaying would find the slot still dirty, start a fresh save, park
+        again, and spin — the take never reaching disk is exactly what makes
+        the replay futile.
+        """
+        self.rt.press(0, 3, sl_state=SL_STATE_PLAYING)
+        self.clock[0] += 10.0
+        resumed = self.rt.resume_awaiting(0, sl_state=SL_STATE_PLAYING)
+        self.assertEqual(resumed.action, ACT_NOOP)
+        self.assertEqual(self.rt.awaiting_tracks(), (), "parked no longer")
+        self.assertIsNone(self.rt.resume_awaiting(0, sl_state=SL_STATE_PLAYING))
+        saves = [p for p, _ in self.sent if p.endswith("/save_loop")]
+        self.assertEqual(len(saves), 1, "one attempt, not a retry storm")
+
+    def test_the_buffer_is_never_reused_while_the_save_is_in_flight(self) -> None:
+        self.rt.press(0, 3, sl_state=SL_STATE_PLAYING)
+        self.assertNotIn("/sl/0/load_loop", self.paths())
+        self.assertNotIn("undo_all", [a[0] for p, a in self.sent
+                                      if p.endswith("/hit")])
