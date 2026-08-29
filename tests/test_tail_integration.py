@@ -33,9 +33,10 @@ class _Osc:
         return [a[0] for p, a in self.sent if p == f"/sl/{loop}/hit"]
 
 
-def gesture(osc: _Osc, *, loop: int = 0) -> TrackGesture:
+def gesture(osc: _Osc, *, loop: int = 0, clock=None) -> TrackGesture:
     fs = TrackGesture(
-        loop=loop, hold_ms=2000, debounce_ms=0, multigrid=True, quantized=True
+        loop=loop, hold_ms=2000, debounce_ms=0, multigrid=True, quantized=True,
+        now=(lambda: clock[0]) if clock is not None else __import__("time").monotonic,
     )
     fs.bind(osc, None, None)
     fs.loop_len = 2.0
@@ -45,13 +46,15 @@ def gesture(osc: _Osc, *, loop: int = 0) -> TrackGesture:
 class TailLifecycleTests(unittest.TestCase):
     def setUp(self) -> None:
         self.osc = _Osc()
-        self.fs = gesture(self.osc)
+        self.clock = [0.0]
+        self.fs = gesture(self.osc, clock=self.clock)
 
-    def _decay(self, *, base: float = 0.0) -> None:
+    def _decay(self) -> None:
         """A loud peak, then quiet for longer than the hold."""
-        self.fs.sync_in_peak(0.8, now=base)
-        for i in range(1, 40):
-            self.fs.sync_in_peak(0.0, now=base + i * 0.01)
+        self.fs.sync_in_peak(0.8)
+        for _ in range(40):
+            self.clock[0] += 0.01
+            self.fs.sync_in_peak(0.0)
 
     def _enter_tail(self) -> None:
         self.fs.sync_from_sl(SL_STATE_RECORDING)
@@ -74,8 +77,9 @@ class TailLifecycleTests(unittest.TestCase):
         self._enter_tail()
         self._decay()
         self.osc.sent.clear()
-        for i in range(50):
-            self.fs.sync_in_peak(0.0, now=10.0 + i * 0.01)
+        for _ in range(50):
+            self.clock[0] += 0.01
+            self.fs.sync_in_peak(0.0)
         self.assertEqual(self.osc.hits(), [], "the phase is over")
 
     def test_the_engine_leaving_overdub_does_not_send_an_overdub_off(self) -> None:
@@ -108,7 +112,8 @@ class TailLifecycleTests(unittest.TestCase):
         self.assertFalse(self.fs.in_tail, "no transition, no new ring-out")
 
         # And nothing can now fire a second overdub.
-        self.fs.poll_tail(now=1e6)
+        self.clock[0] += 1e6
+        self.fs.poll_tail()
         self.assertEqual(
             self.osc.hits(), [], "a second overdub would start recording"
         )
@@ -128,17 +133,49 @@ class PeakRoutingTests(unittest.TestCase):
     """
 
     def test_a_peak_reaches_the_gesture(self) -> None:
+        """Asserted through the OBSERVABLE result, not a private field.
+
+        `saw_loud` is an implementation detail; what the routing has to
+        deliver is a ring-out that ends when the note does.
+        """
         osc = _Osc()
-        fs = gesture(osc)
+        clock = [0.0]
+        fs = gesture(osc, clock=clock)
         listener = SlBenchStateListener({0: fs})
         fs.sync_from_sl(SL_STATE_RECORDING)
         fs.sync_from_sl(SL_STATE_OVERDUBBING)
-        listener.on_update("/x", 0, "in_peak_meter", 0.9)
-        self.assertTrue(fs._tail.saw_loud, "the peak never arrived")
+        osc.sent.clear()
 
-    def test_a_peak_for_an_unbound_loop_does_not_raise(self) -> None:
-        listener = SlBenchStateListener({})
+        listener.on_update("/x", 0, "in_peak_meter", 0.9)
+        for _ in range(40):
+            clock[0] += 0.01
+            listener.on_update("/x", 0, "in_peak_meter", 0.0)
+
+        self.assertEqual(
+            osc.hits(), ["overdub"],
+            "peaks routed through the listener must end the ring-out",
+        )
+        self.assertFalse(fs.in_tail)
+
+    def test_a_peak_for_an_unbound_loop_is_dropped_not_misrouted(self) -> None:
+        """Asserting nothing proves nothing. A peak for a loop with no gesture
+        must reach no other gesture — misrouting it would end the wrong
+        track's ring-out."""
+        osc = _Osc()
+        clock = [0.0]
+        fs = gesture(osc, clock=clock)
+        listener = SlBenchStateListener({0: fs})
+        fs.sync_from_sl(SL_STATE_RECORDING)
+        fs.sync_from_sl(SL_STATE_OVERDUBBING)
+        osc.sent.clear()
+
         listener.on_update("/x", 7, "in_peak_meter", 0.9)
+        for _ in range(40):
+            clock[0] += 0.01
+            listener.on_update("/x", 7, "in_peak_meter", 0.0)
+
+        self.assertEqual(osc.hits(), [], "loop 7 is not loop 0")
+        self.assertTrue(fs.in_tail, "and loop 0's ring-out is untouched")
 
 
 if __name__ == "__main__":

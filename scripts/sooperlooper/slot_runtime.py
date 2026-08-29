@@ -145,8 +145,12 @@ class SlotRuntime:
             self._log(f"track {track_index + 1} slot {slot + 1}: {plan.note}")
         return plan
 
-    def boundary(self, track_index: int) -> None:
-        """A quantize boundary arrived for this track: pending becomes true.
+    def land_pending(self, track_index: int) -> None:
+        """Carry out this track's queued action now.
+
+        Named for what it does rather than for why it is usually called. It
+        WAS `boundary()`, which stopped being true the moment `expire_deferred`
+        started calling it precisely because no boundary had arrived.
 
         This is where a held launch actually reaches the engine. `load_loop`
         swaps the buffer immediately, so at the wrap the outgoing take has just
@@ -335,9 +339,11 @@ class SlotRuntime:
         instead, where the press is what failed.
         """
         loop = plan.track
-        track = self.track(loop)
-        retrigger_only = track.active_slot == plan.slot
-        if not retrigger_only and not self.clip_path(loop, plan.slot).exists():
+        # No `retrigger_only` guard. A press on the track's OWN active slot
+        # plans ACT_FORWARD, never LAUNCH or SWITCH — verified across every
+        # state x dirty x hold combination — so this only ever runs for a slot
+        # that is not the active one, and the clip file has to be there.
+        if not self.clip_path(loop, plan.slot).exists():
             self._log(f"track {loop + 1} slot {plan.slot + 1}: no clip file")
             return False
         self._deferred[loop] = (plan, self._now())
@@ -373,7 +379,7 @@ class SlotRuntime:
             f"{DEFERRED_LAUNCH_GRACE_S:.0f}s — launching unquantized rather "
             f"than stranding the switch"
         )
-        self.boundary(track_index)
+        self.land_pending(track_index)
         return True
 
     def _prepare_record(self, plan: SlotPlan, *, sl_state: int) -> str:

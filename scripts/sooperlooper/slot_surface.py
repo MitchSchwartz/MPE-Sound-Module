@@ -461,7 +461,7 @@ class SlotSurface:
         """
         if self._rt.track(track_index).pending is None:
             return
-        self._rt.boundary(track_index)
+        self._rt.land_pending(track_index)
         self._sync_gesture_notes()
         self.repaint()
         self.repaint_scenes()
@@ -486,7 +486,7 @@ class SlotSurface:
             # was silent. Reaching ACTIVE_PLAY is then a real confirmation,
             # not a guess, and it is what moves the binding.
             if sl_state in ACTIVE_PLAY:
-                self._rt.boundary(track_index)
+                self._rt.land_pending(track_index)
 
     def reset(self) -> None:
         self._rt.reset()
