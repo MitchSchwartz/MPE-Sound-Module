@@ -172,7 +172,9 @@ LED hint: blink **amber** during `SEAM_WELD` (“still finishing take”).
 
 | Variable | Default | Meaning |
 |----------|---------|---------|
-| `MPE_SL_TAIL_THRESH` | `0.02` | Peak meter below this = silence ( tune on Pi ) |
+| `MPE_SL_TAIL_RATIO` | `0.1` | Tail ends this far below ITS OWN peak (-20 dB). Replaced `MPE_SL_TAIL_THRESH`, which was absolute and therefore wrong for any patch quieter than the one it was tuned on — measured 2026-08-29 |
+| `MPE_SL_TAIL_FLOOR` | `0.002` | Absolute noise floor: below this is silence regardless of ratio |
+| `MPE_SL_TAIL_SILENT_MS` | `400` | A tail never rising above the floor stops here instead of holding a live overdub for a bar |
 | `MPE_SL_TAIL_HOLD_MS` | `80` | Consecutive silence before close |
 | `MPE_SL_TAIL_MAX_MS` | `750` | Force close / abort weld |
 | `MPE_SL_SEAM_MERGE_SAMPLES` | `2048` | Crossfade width M at seam (Tier 3) |
