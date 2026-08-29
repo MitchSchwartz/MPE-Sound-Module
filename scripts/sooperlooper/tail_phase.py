@@ -28,9 +28,25 @@ from __future__ import annotations
 
 import os
 
-#: Input peak below this counts as quiet. Measured default from the seam-weld
-#: work; overridable because room noise floors differ.
-TAIL_THRESH = float(os.environ.get("MPE_SL_TAIL_THRESH", "0.02"))
+#: How far the peak must fall FROM ITS OWN MAXIMUM before the tail is over.
+#: 0.1 is -20 dB.
+#:
+#: This used to be an absolute level (MPE_SL_TAIL_THRESH, 0.02) inherited from
+#: the seam-weld work. The first trace off the appliance (2026-08-29) showed
+#: why that cannot work: the whole ring-out peaked at 0.0487, so 0.02 was not
+#: "quiet", it was 40% of the signal. The tail was cut at 0.0172 while still
+#: audibly decaying. Worse, a quieter patch that never crosses 0.02 would never
+#: arm the detector at all and would run silently to the cap — which is also
+#: exactly what a dead peak meter looks like.
+#:
+#: Relative to the tail's own peak, the same number works for a loud pluck and
+#: a quiet pad with nothing for the player to tune.
+TAIL_RATIO = float(os.environ.get("MPE_SL_TAIL_RATIO", "0.1"))
+
+#: Absolute noise floor. Below this is silence regardless of ratio — a decay
+#: that asymptotes above its own -20 dB would otherwise never finish. Also what
+#: decides whether a tail contained any signal at all.
+TAIL_FLOOR = float(os.environ.get("MPE_SL_TAIL_FLOOR", "0.002"))
 #: How long it must stay quiet before the tail is called done. Short enough to
 #: feel immediate, long enough not to trip on a gap between two plucks.
 TAIL_HOLD_S = float(os.environ.get("MPE_SL_TAIL_HOLD_MS", "80")) / 1000.0
@@ -44,19 +60,40 @@ TAIL_FALLBACK_CAP_S = float(os.environ.get("MPE_SL_TAIL_CAP_MS", "2000")) / 1000
 TAIL_TRACE_PATH = os.environ.get("MPE_SL_TAIL_TRACE", "")
 
 EXIT_DECAY = "decay"
+#: The input was silent for the whole tail. Distinct from `decay` because it
+#: means there was nothing to capture — worth seeing in the log rather than
+#: hiding inside a generic ending.
+EXIT_SILENT = "silent"
 EXIT_CAP = "cap"
 EXIT_WRAP = "wrap"
 EXIT_ABANDONED = "abandoned"
 
+#: How long a tail may stay below the noise floor before it is called silent.
+#: Long enough that a slow attack or a late first meter report is not mistaken
+#: for silence; far short of the cap, which would mean a bar of recorded room.
+SILENT_GRACE_S = float(os.environ.get("MPE_SL_TAIL_SILENT_MS", "400")) / 1000.0
+
 BEATS_PER_BAR = 4
 
 
-def bar_seconds(bpm: float | None, *, loop_len: float = 0.0) -> float:
-    """One bar, from the grid if there is one.
+def cap_for(bpm: float | None, *, loop_len: float = 0.0) -> tuple[float, str]:
+    """The tail cap, and WHERE IT CAME FROM.
 
-    Falls back to the loop's own length — on a one-bar loop those are the same
-    number, and on a longer one the wrap exit covers it anyway.
+    The caller logs this. It used to log "capped at 4.078s (one bar)" while
+    actually using the loop length, because no grid was established — a bar at
+    120 BPM is 2.0s. A log line that names the wrong source is worse than no
+    log line: the first real trace off the appliance had to be decoded against
+    a number the log had misattributed.
     """
+    if bpm and bpm > 0.0:
+        return (60.0 / bpm) * BEATS_PER_BAR, "one bar"
+    if loop_len > 0.0:
+        return loop_len, "loop length, no grid established"
+    return TAIL_FALLBACK_CAP_S, "fallback, no grid and no loop length"
+
+
+def bar_seconds(bpm: float | None, *, loop_len: float = 0.0) -> float:
+    """One bar, from the grid if there is one. See `cap_for` for the source."""
     if bpm and bpm > 0.0:
         return (60.0 / bpm) * BEATS_PER_BAR
     if loop_len > 0.0:
@@ -72,15 +109,22 @@ class TailPhase:
         *,
         started_at: float,
         cap_s: float,
-        thresh: float = TAIL_THRESH,
+        ratio: float = TAIL_RATIO,
+        floor: float = TAIL_FLOOR,
         hold_s: float = TAIL_HOLD_S,
         trace: bool = False,
     ) -> None:
         self.started_at = started_at
         self.cap_s = cap_s
-        self._thresh = thresh
+        self._ratio = ratio
+        self._floor = floor
         self._hold_s = hold_s
-        #: The settle. Quiet does not count until something loud has happened.
+        #: The loudest sample this tail has seen. The exit level is derived
+        #: from it, so the detector calibrates itself to each take.
+        self.peak_max = 0.0
+        #: The settle. Quiet does not count until something loud has happened —
+        #: at the instant the overdub starts the meter has reported nothing,
+        #: and treating that as "decayed" cuts the ring-out to zero.
         self.saw_loud = False
         self._quiet_since: float | None = None
         #: (t_rel, peak) for every sample fed in, when tracing. The thresholds
@@ -92,11 +136,16 @@ class TailPhase:
         """Feed one input peak. Returns an exit reason, or None to continue."""
         if self.trace is not None:
             self.trace.append((now - self.started_at, value))
-        if value >= self._thresh:
+        if value > self.peak_max:
+            self.peak_max = value
+        if value >= self._floor:
             self.saw_loud = True
-            self._quiet_since = None
-            return None
         if not self.saw_loud:
+            # Nothing above the noise floor yet. Not silence-with-a-verdict:
+            # the tail has simply not begun. `tick` decides when to give up.
+            return None
+        if value >= self.exit_level:
+            self._quiet_since = None
             return None
         if self._quiet_since is None:
             self._quiet_since = now
@@ -105,19 +154,40 @@ class TailPhase:
             return EXIT_DECAY
         return None
 
+    @property
+    def exit_level(self) -> float:
+        """The level this tail counts as quiet, from its own peak.
+
+        Floored, so a very quiet take cannot set an exit level below the noise
+        floor and then wait forever for the room to get quieter than it is.
+        """
+        return max(self.peak_max * self._ratio, self._floor)
+
     def tick(self, now: float) -> str | None:
         """The cap. Checked from the idle loop, so it holds with no meter at
         all — a peak feed that never arrives must not mean an endless overdub."""
-        if now - self.started_at >= self.cap_s:
-            return EXIT_CAP
+        if self.saw_loud:
+            if now - self.started_at >= self.cap_s:
+                return EXIT_CAP
+            return None
+        # Never got above the noise floor. Either the take ended in silence or
+        # the meter is not feeding; both mean there is nothing to capture, and
+        # holding a live overdub open for a full bar over silence records the
+        # room. Give it a fair chance to start, then stop.
+        if now - self.started_at >= SILENT_GRACE_S:
+            return EXIT_SILENT
         return None
 
     def elapsed(self, now: float) -> float:
         return now - self.started_at
 
     @property
-    def thresh(self) -> float:
-        return self._thresh
+    def ratio(self) -> float:
+        return self._ratio
+
+    @property
+    def floor(self) -> float:
+        return self._floor
 
     @property
     def hold_s(self) -> float:
@@ -125,7 +195,8 @@ class TailPhase:
 
 
 #: Header written once, when the trace file is first created.
-TRACE_HEADER = "tail_id,loop,t_rel,peak,exit_reason,exit_elapsed,cap_s,thresh,hold_s\n"
+TRACE_HEADER = ("tail_id,loop,t_rel,peak,exit_reason,exit_elapsed,"
+                "cap_s,peak_max,exit_level,ratio,floor,hold_s\n")
 
 
 def append_trace(
@@ -150,7 +221,8 @@ def append_trace(
         return None
     rows = "".join(
         f"{tail_id},{loop},{t_rel:.4f},{peak:.5f},{reason},{elapsed:.4f},"
-        f"{tail.cap_s:.4f},{tail.thresh:.5f},{tail.hold_s:.4f}\n"
+        f"{tail.cap_s:.4f},{tail.peak_max:.5f},{tail.exit_level:.5f},"
+        f"{tail.ratio:.4f},{tail.floor:.5f},{tail.hold_s:.4f}\n"
         for t_rel, peak in tail.trace
     )
     try:

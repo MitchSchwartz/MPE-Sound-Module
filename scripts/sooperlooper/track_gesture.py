@@ -37,7 +37,7 @@ from tail_phase import (  # noqa: E402
     TAIL_TRACE_PATH,
     TailPhase,
     append_trace,
-    bar_seconds,
+    cap_for,
 )
 from sl_grid_sync import (
     GRID_ANCHOR_FALLBACK_CYCLES,
@@ -376,13 +376,13 @@ class TrackGesture:
         sent, so an overdub the engine never entered cannot leave this latched.
         """
         bpm = self.grid.bpm if self.grid is not None else None
-        cap = bar_seconds(bpm, loop_len=self.loop_len)
+        cap, cap_source = cap_for(bpm, loop_len=self.loop_len)
         self._tail = TailPhase(started_at=self._now(), cap_s=cap,
                                trace=bool(TAIL_TRACE_PATH))
         if self._on_tail_change is not None:
             self._on_tail_change(self.loop, True)
         log(f"loop {self.loop}: tail phase — ends on decay, capped at "
-            f"{cap:.3f}s (one bar)")
+            f"{cap:.3f}s ({cap_source})")
 
     def _abandon_tail(self) -> None:
         """Something else ended the overdub. Drop the phase, send nothing."""
