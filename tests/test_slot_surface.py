@@ -385,3 +385,39 @@ class SceneLaunchSurvivesTheRealDebounce(SurfaceCase):
         self.assertEqual(
             len(sink), first, "a bouncing pad must not fire twice"
         )
+
+
+class OneStateSourceTests(SurfaceCase):
+    """A plan is only as good as the state it was planned against.
+
+    `press` read the gesture's `sl_state`; `scene_press` planned from the
+    surface's `_sl_states` cache and then dispatched against a third read.
+    Both are fed from the same OSC message in production, so they agreed —
+    which is exactly why nothing caught the three paths drifting apart in
+    every other respect. These tests pin the single source.
+    """
+
+    def _playing_track_with_a_stale_cache(self) -> None:
+        (self.rt.clip_path(0, 2)).write_bytes(b"\0" * 4096)
+        self.rt._tracks[0] = Track(
+            slots=(None, None, Slot("c.wav"), *([None] * 5)), active_slot=2
+        )
+        # The engine says PLAYING. The surface's own cache never heard.
+        self.fs_by_loop[0].sl_state = SL_STATE_PLAYING
+        self._sl_states_is_stale = True
+
+    def test_a_scene_row_is_planned_against_the_engine_not_the_cache(self) -> None:
+        self._playing_track_with_a_stale_cache()
+        self.assertEqual(
+            self.surface.track_state(0),
+            SL_STATE_PLAYING,
+            "the gesture is the source; a stale cache must not win",
+        )
+
+    def test_every_track_reports_through_the_same_source(self) -> None:
+        self._playing_track_with_a_stale_cache()
+        states = self.surface.track_states()
+        self.assertEqual(states[0], SL_STATE_PLAYING)
+        self.assertEqual(len(states), 15, "all tracks, banked or not")
+        for track, state in states.items():
+            self.assertEqual(state, self.surface.track_state(track))

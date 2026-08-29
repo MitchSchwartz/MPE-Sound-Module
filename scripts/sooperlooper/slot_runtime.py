@@ -39,7 +39,16 @@ from sl_loop_states import ACTIVE_PLAY, SL_STATE_OFF
 GESTURE_ACTIONS = frozenset({ACT_FORWARD, ACT_RECORD})
 
 SAVE_TIMEOUT_S = 2.0
-SAVE_POLL_S = 0.01
+#: `_ensure_flushed` / `poll_flush` outcomes.
+FLUSH_CLEAN = "clean"
+FLUSH_PENDING = "pending"
+FLUSH_FAILED = "failed"
+
+#: `_execute_slot_ops` outcomes. "waiting" is not failure: the press is parked
+#: until the outgoing take reaches disk, and is replayed by `resume_awaiting`.
+OP_OK = "ok"
+OP_FAILED = "failed"
+OP_WAITING = "waiting"
 MIN_CLIP_BYTES = 512
 
 
@@ -87,6 +96,10 @@ class SlotRuntime:
         #: sending it at press time replaces the audio under the player's
         #: fingers mid-bar. Held here instead and fired at the boundary.
         self._deferred: dict[int, tuple[SlotPlan, float]] = {}
+        #: In-flight saves: loop -> (slot, tmp path, final path, deadline).
+        self._flush: dict[int, tuple[int, Path, Path, float]] = {}
+        #: Presses parked until their track's save lands: loop -> (slot, hold).
+        self._awaiting: dict[int, tuple[int, bool]] = {}
 
     def track(self, index: int) -> Track:
         return self._tracks.get(index, Track())
@@ -114,7 +127,18 @@ class SlotRuntime:
             sl_state=sl_state,
             hold=hold,
         )
-        if not self._execute_slot_ops(plan, sl_state=sl_state):
+        outcome = self._execute_slot_ops(plan, sl_state=sl_state)
+        if outcome == OP_WAITING:
+            # The outgoing take is still being written. Park the press and
+            # replay it from the idle loop rather than sleeping here — the
+            # buffer must not be reused before the save lands, but the surface
+            # must not go deaf while it does.
+            self._awaiting[track_index] = (slot, hold)
+            return replace(
+                plan, action=ACT_NOOP, note=f"{plan.note} — waiting for save"
+            )
+        self._awaiting.pop(track_index, None)
+        if outcome == OP_FAILED:
             return replace(plan, action=ACT_NOOP, note=f"{plan.note} — FAILED")
         self._tracks[track_index] = apply_pending(self.track(track_index), plan)
         if plan.note:
@@ -142,7 +166,14 @@ class SlotRuntime:
 
     def dispatch(self, plan: SlotPlan, *, sl_state: int = SL_STATE_OFF) -> SlotPlan:
         """Execute a plan produced elsewhere (e.g. scene row)."""
-        if not self._execute_slot_ops(plan, sl_state=sl_state):
+        outcome = self._execute_slot_ops(plan, sl_state=sl_state)
+        if outcome == OP_WAITING:
+            self._awaiting[plan.track] = (plan.slot, False)
+            return replace(
+                plan, action=ACT_NOOP, note=f"{plan.note} — waiting for save"
+            )
+        self._awaiting.pop(plan.track, None)
+        if outcome == OP_FAILED:
             failed = replace(plan, action=ACT_NOOP, note=f"{plan.note} — FAILED")
             if plan.note:
                 self._log(failed.note)
@@ -152,6 +183,46 @@ class SlotRuntime:
             self._log(f"track {plan.track + 1} slot {plan.slot + 1}: {plan.note}")
         return plan
 
+    def awaiting_tracks(self) -> tuple[int, ...]:
+        """Tracks holding a press parked behind an in-flight save."""
+        return tuple(self._awaiting)
+
+    def resume_awaiting(self, track_index: int, *, sl_state: int) -> SlotPlan | None:
+        """Replay a parked press once its save resolves. None while pending.
+
+        The press is re-planned rather than resumed mid-way: the track may have
+        moved on, and re-running `plan_cell_press` against current state is the
+        only way the answer stays true. A save that FAILED is not replayed into
+        a proceed — `_ensure_flushed` reports failed again and the press is
+        refused, which is the same protection the blocking version gave.
+        """
+        held = self._awaiting.get(track_index)
+        if held is None:
+            return None
+        status = self.poll_flush(track_index)
+        if status == FLUSH_PENDING:
+            return None
+        slot, hold = held
+        self._awaiting.pop(track_index, None)
+        if status == FLUSH_FAILED:
+            # Refuse HERE rather than replaying the press. A replay would find
+            # the slot still dirty, start a fresh save, park again, and retry
+            # for ever — the take never reaching disk is exactly the state that
+            # makes the replay futile. A later press by the player is a new
+            # decision and does get a new attempt.
+            self._log(
+                f"track {track_index + 1}: REFUSING — the take on the current "
+                f"slot did not reach disk, and reusing the buffer would "
+                f"overwrite it"
+            )
+            return SlotPlan(
+                action=ACT_NOOP,
+                track=track_index,
+                slot=slot,
+                note="save did not land — FAILED",
+            )
+        return self.press(track_index, slot, sl_state=sl_state, hold=hold)
+
     def has_deferred(self, track_index: int) -> bool:
         """True while a launch is held waiting for this track's wrap."""
         return track_index in self._deferred
@@ -160,6 +231,7 @@ class SlotRuntime:
         """Drop slot bookkeeping after a full track reset."""
         self._tracks = {i: Track() for i in range(self._num_tracks)}
         self._deferred.clear()
+        self._awaiting.clear()
 
     def mark_recorded(
         self, track_index: int, slot: int, *, len_s: float, sl_state: int
@@ -182,7 +254,7 @@ class SlotRuntime:
     def needs_gesture(self, plan: SlotPlan) -> bool:
         return plan.action in GESTURE_ACTIONS
 
-    def _execute_slot_ops(self, plan: SlotPlan, *, sl_state: int) -> bool:
+    def _execute_slot_ops(self, plan: SlotPlan, *, sl_state: int) -> str:
         loop = plan.track
         if plan.action == ACT_NOOP or plan.action in GESTURE_ACTIONS:
             if plan.action == ACT_RECORD:
@@ -195,7 +267,7 @@ class SlotRuntime:
                     self._tracks[plan.track] = replace(
                         self.track(plan.track), active_slot=plan.slot
                     )
-            return True
+            return OP_OK
 
         if plan.action == ACT_CANCEL:
             # Cancelling a queued LAUNCH means "never mind, stay silent", and
@@ -207,26 +279,31 @@ class SlotRuntime:
             pending = self.track(loop).pending
             if pending is None or pending.kind == PENDING_LAUNCH:
                 self._send(f"/sl/{loop}/hit", ["pause_on"])
-            return True
+            self._awaiting.pop(loop, None)
+            return OP_OK
 
         if plan.action == ACT_CLEAR:
-            return self._clear(plan)
+            return OP_OK if self._clear(plan) else OP_FAILED
 
-        if plan.save_first and not self._flush_active(loop):
-            self._log(
-                f"track {loop + 1}: REFUSING to switch — the take on the "
-                f"current slot did not reach disk, and switching would "
-                f"overwrite the buffer holding it"
-            )
-            return False
+        if plan.save_first:
+            status = self._ensure_flushed(loop)
+            if status == FLUSH_PENDING:
+                return OP_WAITING
+            if status == FLUSH_FAILED:
+                self._log(
+                    f"track {loop + 1}: REFUSING to switch — the take on the "
+                    f"current slot did not reach disk, and switching would "
+                    f"overwrite the buffer holding it"
+                )
+                return OP_FAILED
 
         if plan.action in (ACT_LAUNCH, ACT_SWITCH):
             if sl_state in ACTIVE_PLAY:
-                return self._defer_launch(plan)
+                return OP_OK if self._defer_launch(plan) else OP_FAILED
             # Nothing is sounding: there is no boundary to wait for and no
             # audio to protect, so the launch is immediate.
-            return self._launch(plan)
-        return True
+            return OP_OK if self._launch(plan) else OP_FAILED
+        return OP_OK
 
     def _defer_launch(self, plan: SlotPlan) -> bool:
         """Hold a launch until the wrap. Validate NOW so failures are visible.
@@ -264,7 +341,7 @@ class SlotRuntime:
         self.boundary(track_index)
         return True
 
-    def _prepare_record(self, plan: SlotPlan, *, sl_state: int) -> bool:
+    def _prepare_record(self, plan: SlotPlan, *, sl_state: int) -> str:
         loop = plan.track
         track = self.track(loop)
         if (
@@ -276,8 +353,11 @@ class SlotRuntime:
             )
         ):
             if sl_state in ACTIVE_PLAY:
-                if not self._flush_active(loop):
-                    return False
+                status = self._ensure_flushed(loop)
+                if status == FLUSH_PENDING:
+                    return OP_WAITING
+                if status == FLUSH_FAILED:
+                    return OP_FAILED
                 # Deliberately NO mute_on and NO undo_all. Measured on the Pi
                 # 2026-08-28: `record` over a PLAYING loop goes WAIT_START and
                 # the loop KEEPS SOUNDING to the wrap, then enters RECORDING
@@ -294,8 +374,12 @@ class SlotRuntime:
                 # touches no audio.
                 pass
             else:
-                if plan.save_first and not self._flush_active(loop):
-                    return False
+                if plan.save_first:
+                    status = self._ensure_flushed(loop)
+                    if status == FLUSH_PENDING:
+                        return OP_WAITING
+                    if status == FLUSH_FAILED:
+                        return OP_FAILED
                 # Nothing is sounding, so clearing the stale buffer costs no
                 # audio and guarantees the take starts from empty.
                 self._send(f"/sl/{loop}/hit", ["undo_all"])
@@ -310,7 +394,7 @@ class SlotRuntime:
         # scene path — never ran that branch, so the same plan bound the slot
         # or not depending on which caller produced it.
         self._tracks[loop] = replace(self.track(loop), active_slot=plan.slot)
-        return True
+        return OP_OK
 
     def _launch(self, plan: SlotPlan) -> bool:
         loop = plan.track
@@ -368,15 +452,32 @@ class SlotRuntime:
         self._tracks[loop] = replace(track.with_slot(slot, None), active_slot=None)
         return True
 
-    def _flush_active(self, loop: int) -> bool:
+    # -- saving a take to disk ------------------------------------------
+    #
+    # This used to be one synchronous method with `time.sleep` in a loop,
+    # called straight from a pad press. On the failure path it froze the whole
+    # input/LED loop for the full timeout — no pad reads, no LED updates, on an
+    # instrument. Split into begin/poll so the wait happens in the idle loop
+    # while the surface stays responsive.
+    #
+    # The SAFETY RULE is unchanged and is the reason for the split rather than
+    # a shortcut around it: a buffer is never reused until its take is on disk.
+    # Callers get "pending" and come back; they never get to proceed early.
+
+    def _ensure_flushed(self, loop: int) -> str:
+        """clean | pending | failed — start the save if needed, never block."""
         track = self.track(loop)
         if track.active_slot is None:
-            return True
+            return FLUSH_CLEAN
         active = track.slot(track.active_slot)
         if active is None or not active.dirty:
-            return True
+            return FLUSH_CLEAN
+        if loop not in self._flush:
+            self._begin_flush(loop, track.active_slot)
+        return self.poll_flush(loop)
 
-        path = self.clip_path(loop, track.active_slot)
+    def _begin_flush(self, loop: int, slot: int) -> None:
+        path = self.clip_path(loop, slot)
         path.parent.mkdir(parents=True, exist_ok=True)
 
         # Save to a sibling temp file and rename over the original only once a
@@ -392,32 +493,43 @@ class SlotRuntime:
         tmp = path.with_name(path.name + ".part")
         tmp.unlink(missing_ok=True)
         self._send(f"/sl/{loop}/save_loop", [str(tmp), "", "", "", ""])
+        self._flush[loop] = (slot, tmp, path, self._now() + self._save_timeout_s)
 
-        deadline = self._now() + self._save_timeout_s
-        while self._now() < deadline:
-            try:
-                if tmp.stat().st_size >= MIN_CLIP_BYTES:
-                    # Durable before it is authoritative: fsync the data, then
-                    # rename, then fsync the directory. A rename that reaches
-                    # the SD card before the bytes do leaves a manifest naming
-                    # a truncated file after a power cut.
-                    _fsync_file(tmp)
-                    os.replace(tmp, path)
-                    _fsync_dir(path.parent)
+    def poll_flush(self, loop: int) -> str:
+        """clean | pending | failed. Cheap enough for the idle loop."""
+        job = self._flush.get(loop)
+        if job is None:
+            return FLUSH_CLEAN
+        slot, tmp, path, deadline = job
+        try:
+            if tmp.stat().st_size >= MIN_CLIP_BYTES:
+                # Durable before it is authoritative: fsync the data, then
+                # rename, then fsync the directory. A rename that reaches the
+                # SD card before the bytes do leaves a manifest naming a
+                # truncated file after a power cut.
+                _fsync_file(tmp)
+                os.replace(tmp, path)
+                _fsync_dir(path.parent)
+                track = self.track(loop)
+                active = track.slot(slot)
+                if active is not None:
                     self._tracks[loop] = track.with_slot(
-                        track.active_slot, replace(active, dirty=False)
+                        slot, replace(active, dirty=False)
                     )
-                    return True
-            except OSError:
-                pass
-            time.sleep(SAVE_POLL_S)
+                self._flush.pop(loop, None)
+                return FLUSH_CLEAN
+        except OSError:
+            pass
+        if self._now() < deadline:
+            return FLUSH_PENDING
 
         # Nothing usable arrived. Leave the original exactly as it was, drop
         # the partial, and stay dirty so the surface keeps telling the truth.
+        self._flush.pop(loop, None)
         tmp.unlink(missing_ok=True)
         self._log(
-            f"track {loop + 1} slot {track.active_slot + 1}: save did not land "
+            f"track {loop + 1} slot {slot + 1}: save did not land "
             f"in {self._save_timeout_s:.1f}s — the take is still only in the "
             f"engine buffer, and the clip already on disk is untouched"
         )
-        return False
+        return FLUSH_FAILED
