@@ -62,8 +62,11 @@ class PacedMidiOut:
         self._out = midi_out
         # Every LED write in the bench funnels through here, which makes this
         # the one place a per-model translation cannot be forgotten at a call
-        # site. There are eleven `send_message([0x90, ...])` sites; wiring the
-        # mk2 encoding into each of them is eleven chances to miss one.
+        # site. This used to say "there are eleven `send_message([0x90, ...])`
+        # sites" and argue the funnel from that count. There are now none: the
+        # compositor owns the wire, and `test_led_compositor` fails with the
+        # offending file and line if a twelfth is ever added. The argument for
+        # the funnel is no longer a count that goes stale — it is enforced.
         self._apc_label = apc_label
         self._gap_s = float(gap_s)
         self._now = now
