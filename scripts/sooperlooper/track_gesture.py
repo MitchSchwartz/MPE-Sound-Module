@@ -717,7 +717,28 @@ class TrackGesture:
             phase = int(time.monotonic() / TRANSITION_BLINK_S) % len(seq)
             return seq[phase]
         seq = self._led_target()
-        return seq[0] if seq else LED_OFF
+        if not seq:
+            return LED_OFF
+        # Cycle the sequence, do not take frame 0 and call it the colour.
+        #
+        # `led_for` returns a BLINK SEQUENCE; length 1 means hold. This took
+        # `seq[0]` unconditionally, so every multi-phase sequence collapsed to
+        # its first frame — and only under multigrid, which is what the
+        # appliance runs (`MPE_SL_MULTIGRID=1`). Single-clip mode animates the
+        # same sequences correctly via `poll_led`, so the surface disagreed
+        # with itself depending on a mode nobody changes.
+        #
+        # What that cost, reported from the instrument 2026-08-30: the ring-out
+        # is TAIL_CAPTURE = (RED, GREEN), deliberately the one alternating
+        # pattern on the surface, and it showed as plain red — "we're getting
+        # red blinking during the tail capture rather than red and green
+        # blinking." RECORD_TO_PLAY = (OFF, RED, OFF, GREEN) lost its green
+        # half the same way, so "recording -> playing" read as an ordinary
+        # queued-to-record blink. Both are states the player acts on mid-take.
+        if len(seq) == 1:
+            return seq[0]
+        phase = int(time.monotonic() / TRANSITION_BLINK_S) % len(seq)
+        return seq[phase]
 
     def _hold_led_lock(self) -> bool:
         """True while hold-warning owns the pad LED (after blink-start delay)."""
