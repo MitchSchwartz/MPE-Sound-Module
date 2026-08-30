@@ -20,7 +20,12 @@ source "$SCRIPT_DIR/lib/audio-engine.sh"
 HOURS=8
 OUTPUT="${MPE_SOAK_LOG:-$HOME/latency-soak.log}"
 BUFFER=1024
-LOOPS=16
+# 15, not 16. Index 15 is the phantom sl_limits.MAX_USABLE_LOOPS exists to
+# keep out: it answers reads with plausible defaults and discards writes, so
+# a soak at 16 measures fourteen real loops and one that only looks real.
+# This value is sed'd into the persistent /etc/mpe/mpe.env below and is NOT
+# restored afterwards, so it outlives the run and the next deploy.
+LOOPS=15
 ENV_FILE="/etc/mpe/mpe.env"
 RUN_AS_USER="${MPE_PI_USER:-mitch}"
 MIDI_PID=""
