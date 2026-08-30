@@ -61,18 +61,34 @@ change. Banking clears the whole clip row before repainting: a pad left lit by
 the previous bank is a track the player believes is running and isn't, and it
 is the one failure here that can't be debugged from the surface.
 
-⚠️ **The arrow-button notes are UNVERIFIED against hardware**, exactly like the
-fader CCs. They resolve per variant in `apc_transport.py::resolve_arrow_notes`
-through the same port-name path as Shift and Stop-All (which *do* differ
-between mk1 and mk2). On mk1 they may be shift-functions of the top button row
-rather than notes of their own. Confirm with `--dump-midi` and press each arrow.
+🔴 **Banking does not work on the mk2, and has never worked.** The recalled
+arrow notes `0x70–0x73` are scene buttons 1–4 (`device_facts.apc.buttons.note_sets`,
+MEASURED 2026-08-29). The bench's scene branch takes them and `continue`s
+forty-five lines before `handle_arrow` is reached, so the viewport is pinned at
+offset 0 and tracks 9–15 of 15 cannot be reached from the surface at all. As of
+2026-08-30 the mk2 arrow notes are recorded as **unknown** in
+`control_registry` rather than replaced with another guess, `resolve_arrow_notes`
+returns `{}` for mk2, and the startup banner says so instead of advertising the
+feature. The mk1 tuple (`0x40–0x43`) is still unverified recall; it collides
+with nothing, so it stands. See `device_facts.apc.bank_arrows.notes`.
 
-**No bank indicator yet.** With eight of sixteen showing, nothing on the
+To close it: stop the session, run `sooperlooper-apc-bench.py --dump-midi`,
+press Up/Down/Left/Right, and record the four notes at MEASURED tier in
+`device_facts.py` and as rows in `control_registry.CONTROLS`. Five minutes and
+one pair of eyes. Do not fill them in by reasoning — reasoning has produced
+three wrong answers about this panel already.
+
+**No bank indicator yet.** With eight of fifteen showing, nothing on the
 surface says which half you are on — the bench prints it, the hardware does
-not. Row 3 just freed up and the mk2 arrows have LEDs; both are candidates.
+not. Row 3 just freed up; that is the candidate. (The earlier note here said
+"the mk2 arrows have LEDs" — nothing has been measured about the arrows'
+lamps, and per `apc.buttons.single_colour` any lamp on them would be single
+colour anyway.)
 
-⚠️ **Fader CC numbers also unverified.** Resolved per variant in
-`apc_faders.py`. Confirm with `--dump-midi` and move each fader.
+⚠️ **Fader CC numbers also unverified** — `device_facts.apc.faders.ccs`,
+VENDOR tier. Resolved per variant in `apc_faders.py` from `control_registry`.
+Confirm with `--dump-midi` and move each fader. The failure is silent: a wrong
+CC is indistinguishable from a fader nobody touched.
 
 **Master = loops only.** It scales the loop mix, not the live synth: the
 audio graph runs `Surge → system:playback` in parallel with

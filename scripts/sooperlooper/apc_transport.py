@@ -37,9 +37,26 @@ from apc_panel import (  # noqa: E402
     scene_index_for_row,
 )
 
-NOTE_TRACK8_MK2 = 0x6B
-# 0x37 = grid row 6 col 7 on mk1 — NOT a side-button-only note (see module doc).
-NOTE_TRACK8_MK1 = 0x37
+# Note numbers live in control_registry — including the two this file used to
+# type out for itself, and the arrow tuple that turned out to be scene buttons.
+from control_registry import (  # noqa: E402
+    DISPUTED,
+    MK1_TRACK_STATUS_NOTES,
+    arrow_notes,
+    required_note,
+)
+
+NOTE_TRACK8_MK2 = required_note("track_select_8", "mk2")
+
+# 0x37 = grid row 6 col 7 on mk1 — NOT a side-button-only note (see module doc),
+# and flatly contradicted by apc_panel, which puts the whole mk1 track row at
+# 0x64-0x6B. Neither claim has evidence, this name has never had a reader, and
+# reasoning has produced three wrong answers about this panel already. So it
+# stays a *disputed* claim rather than a constant that looks settled.
+NOTE_TRACK8_MK1 = next(
+    d.claimed[0] for d in DISPUTED
+    if d.control_id == "track_select_8" and d.variant == "mk1"
+)
 
 # All EIGHT right-hand buttons are scene launchers, one per grid row. The last
 # one carries "Stop All Clips" as a SHIFT layer only, so pressed alone it is
@@ -47,8 +64,10 @@ NOTE_TRACK8_MK1 = 0x37
 SCENE_LAUNCH_NOTES_MK1 = SCENE_COLUMN_MK1
 SCENE_LAUNCH_NOTES_MK2 = SCENE_COLUMN_MK2
 
-# mk1 Track Select 1–8 share notes with grid row 6 (0x30–0x37).
-MK1_TRACK_OVERLAP_NOTES = tuple(range(0x30, 0x38))
+# mk1 Track Select 1–8 are believed to share notes with grid row 6. Named in
+# the registry as what they are — grid row 6 — rather than as a note range that
+# reads like a row of side buttons.
+MK1_TRACK_OVERLAP_NOTES = MK1_TRACK_STATUS_NOTES
 
 def _env_float(name: str, default: float) -> float:
     """Read a float from the environment; blank or unset means the default."""
@@ -83,16 +102,20 @@ MK1_GHOST_STOP_S = MK1_GHOST_SHIFT_S  # alias — Stop All is scene 8 on mk1
 
 # Bank arrows — up, down, left, right.
 #
-# ⚠️ UNVERIFIED against hardware, exactly like the fader CCs in apc_faders.py.
-# They are resolved per variant through the same port-name path as Shift and
-# Stop All (which *do* differ between mk1 and mk2), so if the recalled numbers
-# are wrong, one tuple changes and no call site does. On mk1 the arrows may be
-# shift-functions of the top button row rather than notes of their own — one
-# more reason not to hardcode them at a call site.
+# ⚠️ UNVERIFIED against hardware on mk1, and UNKNOWN on mk2. Both live in
+# control_registry with their evidence; see device_facts.apc.bank_arrows.notes.
 #
-# Confirm with: sooperlooper-apc-bench.py --dump-midi, then press each arrow.
-ARROW_NOTES_MK2 = (0x70, 0x71, 0x72, 0x73)  # up, down, left, right
-ARROW_NOTES_MK1 = (0x40, 0x41, 0x42, 0x43)  # up, down, left, right
+# The mk2 tuple used to read (0x70, 0x71, 0x72, 0x73) and was recall. Those are
+# scene buttons 1-4 — MEASURED, device_facts.apc.buttons.note_sets — so the
+# bench's scene branch claimed every one of them and `continue`d forty-five
+# lines before handle_arrow was reached. Banking has therefore never worked on
+# the attached mk2, tracks 9-15 were unreachable from the surface, and the
+# startup banner advertised the feature anyway. Empty is what we actually know.
+#
+# Do NOT fill this in by reasoning. Confirm with:
+#   sooperlooper-apc-bench.py --dump-midi, then press each arrow.
+ARROW_NOTES_MK2 = arrow_notes("mk2")  # () — unknown, see above
+ARROW_NOTES_MK1 = arrow_notes("mk1")  # up, down, left, right; recall
 
 
 def resolve_arrow_notes(
@@ -104,6 +127,11 @@ def resolve_arrow_notes(
 
     Same explicit-variant-then-port-name precedence as
     resolve_apc_transport_notes(). One surface, one way of asking what it is.
+
+    **Empty on mk2**, because the mk2 arrow notes are not established and the
+    only claim ever made about them was the scene column. An empty map makes
+    handle_arrow return False for every note, which is exactly what happens
+    today by accident — the difference is that it now says so.
     """
     explicit = (variant or "").strip().lower()
     if explicit in ("mk2", "mkii", "2"):
@@ -363,9 +391,12 @@ class TransportButtonLeds:
     """Shift / Stop All Clips button LEDs on the APC transport row.
 
     Stop All lights while held and blinks under the Shift+StopAll clear hold,
-    accelerating as the hold completes. It is green on both models because the
-    scene-launch LEDs are driven green here. Whether they CAN show red is
-    unmeasured — `device_facts.apc.scene.led_colours`.
+    accelerating as the hold completes. It is green on both models because
+    green is the only colour these buttons have — measured, not assumed:
+    `device_facts.apc.scene.led_observed` and `.apc.buttons.single_colour`,
+    2026-08-29, five probe rounds with a positive control. Red on Stop All is
+    settled as impossible, on authoritative grounds; the blink is the whole
+    vocabulary that is left.
 
     mk1: no shift indicator is sent. Stop All is green when
     held alone; Shift+Stop reset combo blinks Stop All green only. Scene Launch

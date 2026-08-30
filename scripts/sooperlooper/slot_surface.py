@@ -10,7 +10,7 @@ from __future__ import annotations
 import time
 from typing import Callable
 
-from apc_grid import GRID_ROWS, GridView
+from apc_grid import GRID_COLS, GRID_ROWS, GridView, pad_note
 from apc_transport import scene_launch_index_to_row
 from led_table import LED_OFF, LED_RED
 from sl_loop_states import (
@@ -568,7 +568,10 @@ class SlotSurface:
         self._scene_painted = desired
 
     def blank(self) -> None:
+        # `pad_note`, not `row * 8 + col`: this was the third copy of the grid
+        # note formula and the only one without a range check, sitting beside
+        # an imported GRID_ROWS and a hardcoded 8.
         for row in range(GRID_ROWS):
-            for col in range(8):
-                self._midi_out.send_message([0x90, row * 8 + col, LED_OFF])
+            for col in range(GRID_COLS):
+                self._midi_out.send_message([0x90, pad_note(row, col), LED_OFF])
         self._painted = None

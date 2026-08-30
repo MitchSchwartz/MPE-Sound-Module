@@ -127,13 +127,26 @@ week: one commit, three lines, at the moment he said it.
 | 8x8 grid | 0x00-0x3F | mk2 RGB: channel = brightness, velocity = palette | MEASURED 2026-08-28 |
 | mk1 scene column | 0x52 top .. 0x59 bottom | — | MEASURED 2026-08-27 |
 | All buttons | — | every button has an LED, Shift included | OWNER 2026-08-29 |
-| Scene launch colours | mk1 0x52-0x59, mk2 0x70-0x77 | UNKNOWN | VENDOR — unmeasured |
-| Track select colours | 0x64-0x6B | UNKNOWN | VENDOR — unmeasured |
+| Scene launch colours | mk1 0x52-0x59, mk2 0x70-0x77 | ~~UNKNOWN~~ **green only; off/on/blink** | ~~VENDOR~~ **MEASURED 2026-08-29** |
+| Track select colours | 0x64-0x6B | ~~UNKNOWN~~ **red only; off/on/blink** | ~~VENDOR~~ **MEASURED 2026-08-29** |
+| Bank arrow notes | mk1 0x40-0x43 recall; **mk2 unknown** | — | VENDOR — see `apc.bank_arrows.notes` |
+| Fader CCs | 48-55 + 56 | — | VENDOR — see `apc.faders.ccs` |
 
-The two UNKNOWN rows are what `scripts/probe-apc-buttons.py` exists to settle.
-They are marked unknown rather than green-only/red-only precisely because the
-document they came from has already been caught being wrong about this panel,
-which is rule 3 doing its job.
+**Superseded in place, 2026-08-30** (rule 5 — the old claim stays visible). The
+two UNKNOWN rows were what `scripts/probe-apc-buttons.py` existed to settle. It
+ran on 2026-08-29: five rounds, with a positive control on the grid pads, read
+off the device by Mitch. The answer went the way the vendor document said, and
+it is now ours: `apc.scene.led_observed`, `apc.track.led_observed`,
+`apc.buttons.channel_response` and `apc.buttons.single_colour` — the last
+CLOSED as a bounded negative. Channel axis exhausted, velocity swept, SysEx RGB
+rejected. **All colour-carrying UI must live on the 8x8 grid**, and we may now
+say so on authoritative grounds.
+
+The last two rows are new, and they are the questions this table did not know
+it had: identity claims that never made it into `device_facts` at all, and so
+stayed load-bearing for shipped features without ever passing rule 4. Recorded
+2026-08-30 at VENDOR tier with a resolution path. Migration stage 0 is done for
+colours and still open for these two.
 
 ## 4. Prior art
 

@@ -189,7 +189,22 @@ starts, stays up, and logs clean after each stage; MIDI port and variant
 resolution; that LED writes reach the device without error; OSC command-path
 health via read-only checks.
 
-**Stage 0 is already done — corrected 2026-08-30, 02:5x.** This section
+> **Correction to this correction, 2026-08-30 03:4x.** What follows says
+> `device_facts.unmeasured()` returns `[]` and reads that as "nothing left to
+> measure." The Stage 1 builder caught the flaw: the list was empty because the
+> **open questions had never been written down as facts at all**, not because
+> they were answered. An empty `unmeasured()` is only as honest as the fact
+> base is complete, and a fact base records what someone thought to record.
+> Two live unknowns were missing entirely — the mk2 bank-arrow notes and the
+> fader CCs, both load-bearing, both still VENDOR recall. They are now recorded
+> and `unmeasured()` returns 2.
+>
+> So the button-colour half below is right and stands. The conclusion drawn
+> from the empty list was not. This is the third time in one night that a
+> confident reading of a written artifact beat reading the source — which is
+> the finding, not the footnote.
+
+**Stage 0's button-colour half is done — corrected 2026-08-30, 02:5x.** This section
 originally said the button colours were UNKNOWN and that the probe was Mitch's
 job in the morning. That was wrong, and wrong in the exact way this whole
 branch exists to fix: a stale claim about hardware, written confidently, in a
