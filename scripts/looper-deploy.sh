@@ -42,19 +42,46 @@ if systemctl list-unit-files mpe-looper-session.service >/dev/null 2>&1; then
     if systemctl cat mpe-looper-session.service >/dev/null 2>&1; then
         was_active="$(systemctl is-active mpe-looper-session.service 2>/dev/null || true)"
         echo "looper-deploy: restarting mpe-looper-session.service (was: ${was_active:-unknown})"
+        # These used to be `|| { echo WARN...; }`. A brace block's status is
+        # its last command, so `echo` returned 0, `set -e` never fired, and the
+        # deploy exited clean.
+        #
+        # 2026-08-30 is what that costs. The bench crashlooped on arrival
+        # (`repaint_scenes(force=True)`, restart counter 32) while
+        # `mpe looper deploy` printed its PASS lines and returned success. The
+        # appliance was dead and every reading said it was fine — a deploy
+        # result identical whether the instrument came back or not, which is
+        # the one bug shape this project keeps paying for.
+        #
+        # A failed restart is a FAILED DEPLOY. The new code is on disk and the
+        # process running the pads is not running it, which is strictly worse
+        # than not deploying: the SHA says one thing and the instrument does
+        # another. The host that legitimately has no session unit is already
+        # excluded by the `list-unit-files` guard above.
         if [ -x "$REPO_ROOT/scripts/restart-looper-session.sh" ]; then
-            bash "$REPO_ROOT/scripts/restart-looper-session.sh" || {
-                echo "looper-deploy: WARN — looper session restart failed;" >&2
-                echo "  the pads may still be running pre-deploy code. Check:" >&2
-                echo "    systemctl status mpe-looper-session.service" >&2
-            }
+            restart_cmd=(bash "$REPO_ROOT/scripts/restart-looper-session.sh")
         else
-            sudo systemctl restart mpe-looper-session.service || {
-                echo "looper-deploy: WARN — mpe-looper-session.service failed to restart;" >&2
-                echo "  the pads may still be running pre-deploy code. Check:" >&2
-                echo "    systemctl status mpe-looper-session.service" >&2
-            }
+            restart_cmd=(sudo systemctl restart mpe-looper-session.service)
         fi
+        if ! "${restart_cmd[@]}"; then
+            echo "looper-deploy: FAIL — looper session restart failed." >&2
+            echo "  The pads are still running PRE-DEPLOY code. Check:" >&2
+            echo "    systemctl status mpe-looper-session.service" >&2
+            echo "    journalctl -u mpe-looper-session.service -n 50" >&2
+            exit 1
+        fi
+        if ! systemctl is-active --quiet mpe-looper-session.service; then
+            # Belt and braces: the unit can exit non-zero AFTER a restart that
+            # reported success, which is exactly how a crashloop presents —
+            # systemd returns from `restart` and the process dies milliseconds
+            # later. Ask the question again, at the end, about the thing we
+            # actually care about.
+            echo "looper-deploy: FAIL — mpe-looper-session.service is not active" >&2
+            echo "  after a restart that reported success (crashloop?). Check:" >&2
+            echo "    journalctl -u mpe-looper-session.service -n 50" >&2
+            exit 1
+        fi
+        echo "looper-deploy: session active on $(git rev-parse --short HEAD 2>/dev/null || echo '?')"
     fi
 else
     echo "looper-deploy: no mpe-looper-session.service on this host — skipping"

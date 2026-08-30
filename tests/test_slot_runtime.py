@@ -22,9 +22,9 @@ from slot_matrix import (  # noqa: E402
     SlotPlan,
     Track,
 )
+from slot_flush import MIN_CLIP_BYTES  # noqa: E402
 from slot_runtime import (  # noqa: E402
     DEFERRED_LAUNCH_GRACE_S,
-    MIN_CLIP_BYTES,
     SlotRuntime,
 )
 from sl_loop_states import (  # noqa: E402

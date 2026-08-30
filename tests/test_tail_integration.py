@@ -3,6 +3,15 @@
 The unit tests in test_tail_phase.py cover the decision. These cover the parts
 that were wrong the last time this existed — where the peaks were routed, and
 whether the overdub was left on.
+
+**Every engine report here is followed by a bench poll**, through `_deliver`
+and `_poll`. Since 2026-08-30 the ring-out has exactly one owner: `poll_tail`,
+on the idle loop. `SlBenchStateListener` runs on OSC dispatcher threads and
+only records what it saw, so a test that fed a peak and asserted the overdub
+had already been closed would be asserting that an OSC thread ends ring-outs —
+the defect, not the contract. The routing claim these tests exist to defend is
+unchanged and still tested: *a peak that reaches this gesture ends its
+ring-out, and one for another loop does not.*
 """
 
 from __future__ import annotations
@@ -13,7 +22,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "sooperlooper"))
 
-from track_gesture import TrackGesture  # noqa: E402
+from track_gesture import TrackGesture, poll_track_gestures  # noqa: E402
 from sl_bench_listener import SlBenchStateListener  # noqa: E402
 from sl_loop_states import (  # noqa: E402
     SL_STATE_OVERDUBBING,
@@ -49,16 +58,24 @@ class TailLifecycleTests(unittest.TestCase):
         self.clock = [0.0]
         self.fs = gesture(self.osc, clock=self.clock)
 
+    def _poll(self) -> None:
+        """One bench iteration — the tail's owner, and the only thing that acts."""
+        poll_track_gestures([self.fs])
+
     def _decay(self) -> None:
         """A loud peak, then quiet for longer than the hold."""
         self.fs.sync_in_peak(0.8)
+        self._poll()
         for _ in range(40):
             self.clock[0] += 0.01
             self.fs.sync_in_peak(0.0)
+            self._poll()
 
     def _enter_tail(self) -> None:
         self.fs.sync_from_sl(SL_STATE_RECORDING)
+        self._poll()
         self.fs.sync_from_sl(SL_STATE_OVERDUBBING)
+        self._poll()
 
     def test_closing_a_take_enters_the_tail(self) -> None:
         self._enter_tail()
@@ -80,6 +97,7 @@ class TailLifecycleTests(unittest.TestCase):
         for _ in range(50):
             self.clock[0] += 0.01
             self.fs.sync_in_peak(0.0)
+            self._poll()
         self.assertEqual(self.osc.hits(), [], "the phase is over")
 
     def test_the_engine_leaving_overdub_does_not_send_an_overdub_off(self) -> None:
@@ -90,6 +108,7 @@ class TailLifecycleTests(unittest.TestCase):
         self._enter_tail()
         self.osc.sent.clear()
         self.fs.sync_from_sl(SL_STATE_PLAYING)
+        self._poll()
         self.assertEqual(self.osc.hits(), [])
         self.assertFalse(self.fs.in_tail)
 
@@ -109,6 +128,7 @@ class TailLifecycleTests(unittest.TestCase):
 
         # A stale report for a state the engine has already left.
         self.fs.sync_from_sl(SL_STATE_OVERDUBBING)
+        self._poll()
         self.assertFalse(self.fs.in_tail, "no transition, no new ring-out")
 
         # And nothing can now fire a second overdub.
@@ -121,6 +141,7 @@ class TailLifecycleTests(unittest.TestCase):
     def test_peaks_before_any_tail_are_ignored(self) -> None:
         self.fs.sync_in_peak(0.9)
         self.fs.sync_in_peak(0.0)
+        self._poll()
         self.assertEqual(self.osc.hits(), [])
 
 
@@ -144,12 +165,15 @@ class PeakRoutingTests(unittest.TestCase):
         listener = SlBenchStateListener({0: fs})
         fs.sync_from_sl(SL_STATE_RECORDING)
         fs.sync_from_sl(SL_STATE_OVERDUBBING)
+        poll_track_gestures([fs])
         osc.sent.clear()
 
         listener.on_update("/x", 0, "in_peak_meter", 0.9)
+        poll_track_gestures([fs])
         for _ in range(40):
             clock[0] += 0.01
             listener.on_update("/x", 0, "in_peak_meter", 0.0)
+            poll_track_gestures([fs])
 
         self.assertEqual(
             osc.hits(), ["overdub"],
@@ -160,19 +184,30 @@ class PeakRoutingTests(unittest.TestCase):
     def test_a_peak_for_an_unbound_loop_is_dropped_not_misrouted(self) -> None:
         """Asserting nothing proves nothing. A peak for a loop with no gesture
         must reach no other gesture — misrouting it would end the wrong
-        track's ring-out."""
+        track's ring-out.
+
+        The window is kept inside `SILENT_GRACE_S` (400 ms) on purpose. Loop 0
+        hears nothing here, so past the grace it correctly exits on `silent` —
+        a real exit, and not the one this test is about. Before 2026-08-30 the
+        harness ran no poll at all, so `tick` never ran and the grace could
+        never fire: the assertion below passed partly because the cap and the
+        silent exit were both switched off.
+        """
         osc = _Osc()
         clock = [0.0]
         fs = gesture(osc, clock=clock)
         listener = SlBenchStateListener({0: fs})
         fs.sync_from_sl(SL_STATE_RECORDING)
         fs.sync_from_sl(SL_STATE_OVERDUBBING)
+        poll_track_gestures([fs])
         osc.sent.clear()
 
         listener.on_update("/x", 7, "in_peak_meter", 0.9)
-        for _ in range(40):
+        poll_track_gestures([fs])
+        for _ in range(25):                       # 0.25 s < SILENT_GRACE_S
             clock[0] += 0.01
             listener.on_update("/x", 7, "in_peak_meter", 0.0)
+            poll_track_gestures([fs])
 
         self.assertEqual(osc.hits(), [], "loop 7 is not loop 0")
         self.assertTrue(fs.in_tail, "and loop 0's ring-out is untouched")

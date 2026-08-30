@@ -41,10 +41,18 @@ LED_RED_BLINK = 4
 LED_YELLOW = 5
 LED_YELLOW_BLINK = 6
 
-# What we currently SEND to the side buttons. Not a statement about what
-# they can show: see `device_facts.apc.scene.led_colours` and
-# `.apc.track.led_colours`, both still resting on a vendor document that has
-# already been wrong once about this panel. Measure before promising a colour.
+# The side buttons' whole vocabulary. Off, on, blink — and one colour each,
+# green on the scene column and red on the track row. That is measured, not
+# read off a document: `device_facts.apc.scene.led_observed`,
+# `.apc.track.led_observed`, `.apc.buttons.channel_response` and
+# `.apc.buttons.single_colour`, 2026-08-29, five probe rounds with a positive
+# control on the grid pads. Sixteen channels were painted at once and only 0x90
+# lit; velocity was swept and only 0/2/other appeared; the documented mk2 SysEx
+# RGB message was rejected while the same message lit the grid blue.
+#
+# So there is no third value to add here. Anything that wants a colour has to
+# live on the 8x8 grid — enforced by `control_registry.check_colour`, which
+# raises for these two because the facts behind them are MEASURED.
 SCENE_LED_OFF = 0
 SCENE_LED_ON = 1
 SCENE_LED_BLINK = 2

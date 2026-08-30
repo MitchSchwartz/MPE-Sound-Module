@@ -8,9 +8,32 @@
 `tempo`. No timebase master, no extra process, no JACK transport.
 
 A grid needs three things — tempo, unit, and **phase**. `Engine::set_tempo`
-zeroes `_quarter_counter` and `_tempo_counter`, so **re-sending the tempo is the
-phase reset**. That is why the JACK timebase master was never needed: its only
-job was phase.
+zeroes `_quarter_counter` and `_tempo_counter` (verified, `engine.cpp:2174-2178`),
+so **re-sending the tempo is the phase reset**. That is why the JACK timebase
+master was never needed: its only job was phase.
+
+**One owner, one seam (2026-08-30).** `GridState` holds all three quantities;
+`sl_grid_sync.apply_established_grid(send, grid, …)` is the only thing that
+tells the engine about them, and `establish_grid_clock` has no other caller.
+Both are enforced by `tests/test_clock_tail_ownership.py`, which also fails if
+any module outside `sl_grid_sync` writes `/set ["tempo", …]` at all — because
+writing the tempo *is* moving the downbeat, and the four places that did it
+by hand had three different bugs between them (a missing phase mark after an
+engine restart, a stale bar count on the phase re-anchor, a song load that
+never carried a bar count to begin with).
+
+The seam sends **smart_eighths off, then `eighth_per_cycle`, then `tempo`** —
+tempo last precisely because it is the phase reset — and marks the bench's
+phase zero in the same call, so the two halves cannot drift apart.
+
+**A song carries its own grid.** The manifest stores `bars` and `cycle_s`
+alongside `bpm` (additive, no version bump; absent they read 1 and are derived,
+which is what every song saved before 2026-08-30 did). `save_song` reads the
+unit off the engine — `/get "eighth_per_cycle"` is answered at
+`engine.cpp:1898-1899`, and `cycle = eighth_per_cycle * 30 / tempo` at
+`engine.cpp:2310` — and `load_song` restores through the same seam. Before
+this, loading a song re-established at the default one bar, so a song whose
+first take read as four bars came back quantizing to a quarter of the take.
 
 **The first take defines the grid.** It records free-form and instant, with no
 bar to count in to; its length yields the tempo. Every later clip counts in and
@@ -34,6 +57,32 @@ is stale — those files are gone.
 | **Shift + Left / Right** | arrows | — | Nudge the viewport by 1 |
 
 Mapping: `apc_grid.py` (`GridView`) · pads: `track_gesture.py` · bench: `../sooperlooper-apc-bench.py`
+
+**What a button does is a row, not a branch** (2026-08-30, charter stage 5).
+`control_registry.py` says which physical control sends which note;
+`binding_table.py` says what happens when you press it, as one row per
+(control, gesture, layer, mode). The bench event loop looks the row up — it does
+not embody it. To answer "what does this pad do on press, on hold, under
+Shift?", read `binding_table.BINDINGS`; nothing else has an opinion.
+
+Three things fall out that could not be said before:
+
+* **Two rows cannot both match an event.** `assert_no_binding_collisions`
+  refuses the table at import and names both source lines. Combined with
+  `control_registry.assert_no_collisions` (one note, one control) there is no
+  "first match wins" anywhere, so there is no order to get wrong.
+* **A dead button is reportable without hardware.** `unreachable(variant)`
+  returns the rows whose control has no established note, with the reason and
+  the line. On the mk2 that is exactly the four bank arrows.
+* **An unbound control is written down.** All eight track-select buttons carry
+  `noop` rows. Before this, a wrong note number and a button nobody touched
+  produced identical silence.
+
+Timing stays where it is: a HOLD row records the threshold's env var and which
+module counts the milliseconds (`ShiftHoldCombo`, `SlotSurface.poll_hold`,
+`TrackGesture.poll_hold`), and a test asserts the bench actually feeds that env
+var into that module — so the number in the table cannot drift from the number
+that runs.
 
 **Tracks run left to right on one line.** The APC is eight columns wide, so it
 is a *viewport* onto sixteen tracks, not a container for them. This replaced
@@ -61,18 +110,43 @@ change. Banking clears the whole clip row before repainting: a pad left lit by
 the previous bank is a track the player believes is running and isn't, and it
 is the one failure here that can't be debugged from the surface.
 
-⚠️ **The arrow-button notes are UNVERIFIED against hardware**, exactly like the
-fader CCs. They resolve per variant in `apc_transport.py::resolve_arrow_notes`
-through the same port-name path as Shift and Stop-All (which *do* differ
-between mk1 and mk2). On mk1 they may be shift-functions of the top button row
-rather than notes of their own. Confirm with `--dump-midi` and press each arrow.
+🔴 **Banking does not work on the mk2, and has never worked.** The recalled
+arrow notes `0x70–0x73` are scene buttons 1–4 (`device_facts.apc.buttons.note_sets`,
+MEASURED 2026-08-29), so the viewport is pinned at offset 0 and tracks 9–15 of
+15 cannot be reached from the surface at all. As of 2026-08-30 the mk2 arrow
+notes are recorded as **unknown** in `control_registry` rather than replaced
+with another guess, `resolve_arrow_notes` returns `{}` for mk2, and the startup
+banner says so instead of advertising the feature. The mk1 tuple (`0x40–0x43`)
+is still unverified recall; it collides with nothing, so it stands. See
+`device_facts.apc.bank_arrows.notes`.
 
-**No bank indicator yet.** With eight of sixteen showing, nothing on the
+**How it used to fail, and how it fails now.** Until stage 5 the mechanism was
+statement order: the bench's scene branch took those notes and `continue`d
+forty-five lines before `handle_arrow` was reached. Nothing could see that —
+reachability was a property of the event loop's `if` sequence, and no test read
+statement order. Since 2026-08-30 the arrows have no note at all, so
+`binding_table.unreachable("mk2")` returns their eight rows with the reason and
+the source line, and `tests/test_binding_table.py` fails the moment a NEW
+binding joins them. The button is still dead; the difference is that the repo
+says so out loud, without a device.
+
+To close it: stop the session, run `sooperlooper-apc-bench.py --dump-midi`,
+press Up/Down/Left/Right, and record the four notes at MEASURED tier in
+`device_facts.py` and as rows in `control_registry.CONTROLS`. Five minutes and
+one pair of eyes. Do not fill them in by reasoning — reasoning has produced
+three wrong answers about this panel already.
+
+**No bank indicator yet.** With eight of fifteen showing, nothing on the
 surface says which half you are on — the bench prints it, the hardware does
-not. Row 3 just freed up and the mk2 arrows have LEDs; both are candidates.
+not. Row 3 just freed up; that is the candidate. (The earlier note here said
+"the mk2 arrows have LEDs" — nothing has been measured about the arrows'
+lamps, and per `apc.buttons.single_colour` any lamp on them would be single
+colour anyway.)
 
-⚠️ **Fader CC numbers also unverified.** Resolved per variant in
-`apc_faders.py`. Confirm with `--dump-midi` and move each fader.
+⚠️ **Fader CC numbers also unverified** — `device_facts.apc.faders.ccs`,
+VENDOR tier. Resolved per variant in `apc_faders.py` from `control_registry`.
+Confirm with `--dump-midi` and move each fader. The failure is silent: a wrong
+CC is indistinguishable from a fader nobody touched.
 
 **Master = loops only.** It scales the loop mix, not the live synth: the
 audio graph runs `Surge → system:playback` in parallel with
@@ -98,8 +172,36 @@ Level composition lives in one place, `loop_mix.wet_for()`:
 `wet = taper(user gain) × taper(master) × auto_law(active loops)`. The three
 contributions meet in one multiply, always recomputed in full from state we own,
 so nothing compounds. The `loop_gain/N` backstop
-(DECISIONS.md) is off by default (`MPE_SL_LOOP_GAIN_LAW=1`); the point of the
-seam is that nothing else ever writes `wet`.
+(DECISIONS.md) is off by default (`MPE_SL_LOOP_GAIN_LAW=1`).
+
+**One composer, and one named exception — corrected 2026-08-30.** This
+paragraph used to end "the point of the seam is that nothing else ever writes
+`wet`." That was not true when it was written. `looper_songs.load_song` sends
+`/sl/N/set ["wet", …]` directly, once per restored track, and `save_song` reads
+it back — song load/save has owned the level on its own axis the whole time.
+
+It is not a bug to be closed by routing it through the seam, because it cannot
+reach the seam. Songs are loaded by the **touch browser**
+(`touch-patch-browser.service`); `LoopMix` lives in the **bench**
+(`mpe-looper-session.service`). Every column gain, the master position and the
+active-loop count are in the other process. So the invariant is the narrower
+one that is actually true:
+
+| | |
+|---|---|
+| **Composer** | `loop_mix.wet_for()` — the only place contributions are combined, and the sole writer inside the bench process |
+| **Exception** | `looper_songs.load_song`, restoring the level a song was saved at. That call and nothing else, in any process |
+| **Reconciliation** | The bench *subscribes* to `wet` (`sl_osc_session` `register_auto_update` — a read, not a write) and `LoopMix.seed_from_engine` adopts any value it did not ask for: it backs out master and law, adopts the implied column position and re-arms pickup. The foreign write is absorbed, not fought |
+| **Also gated** | `sl_probe` can write `wet` as a command-path probe *only* if `MPE_SL_PROBE_CONTROLS` names it — it is not in the default chain (`rec_thresh,dry`), and `AUDIO_PATH_CONTROLS` exists to warn when a probe lands in the audio path. It restores after every write |
+| **Enforced by** | `tests/test_track_state_ownership.py::WetOwnershipTests`. A third writer fails the build naming its file, line and function |
+
+**Known consequence, undecided.** The manifest stores the **composed** level —
+`save_song` reads the engine's `wet`, which already has master and law in it.
+Reload with the master somewhere else and the loops come back at their saved
+*absolute* level while the master fader reads whatever it happens to read, so
+the fader stops corresponding to the sound until it is next moved. Storing the
+column gain instead would keep the fader honest and change how songs already on
+the appliance play back. That is a call for Mitch's ear, not a silent fix.
 
 **Grid sync:** two states, not a pile of settings — `set_grid_active(active=)`.
 Off until the first take lands (so it records instantly), then on for every clip

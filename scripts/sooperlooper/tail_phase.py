@@ -13,7 +13,8 @@ This phase owns the answer. It ends on the FIRST of:
   decay  the input has actually fallen quiet — the musical answer, and the one
          that was measured working on 2026-08-26 before the seam-weld pipeline
          was removed and took the detector with it
-  cap    one bar. A ring-out longer than a bar is not a ring-out
+  cap    one CYCLE — the first take's own length. A ring-out longer than the
+         unit the whole session counts in is not a ring-out
   wrap   the playhead came round; one pass is the hard ceiling either way
   abandon  the engine left OVERDUBBING for some other reason
 
@@ -58,7 +59,7 @@ TAIL_FLOOR = float(os.environ.get("MPE_SL_TAIL_FLOOR", "0.002"))
 #: How long it must stay quiet before the tail is called done. Short enough to
 #: feel immediate, long enough not to trip on a gap between two plucks.
 TAIL_HOLD_S = float(os.environ.get("MPE_SL_TAIL_HOLD_MS", "80")) / 1000.0
-#: Fallback bar length when no grid is established yet.
+#: Fallback cap when there is neither a grid nor a loop length to size one.
 TAIL_FALLBACK_CAP_S = float(os.environ.get("MPE_SL_TAIL_CAP_MS", "2000")) / 1000.0
 
 #: Where to append the raw peak series, one CSV row per sample. Unset = off,
@@ -78,35 +79,40 @@ EXIT_ABANDONED = "abandoned"
 
 #: How long a tail may stay below the noise floor before it is called silent.
 #: Long enough that a slow attack or a late first meter report is not mistaken
-#: for silence; far short of the cap, which would mean a bar of recorded room.
+#: for silence; far short of the cap, which would mean a whole cycle of
+#: recorded room.
 SILENT_GRACE_S = float(os.environ.get("MPE_SL_TAIL_SILENT_MS", "400")) / 1000.0
 
-BEATS_PER_BAR = 4
 
-
-def cap_for(bpm: float | None, *, loop_len: float = 0.0) -> tuple[float, str]:
+def cap_for(cycle_s: float | None, *, loop_len: float = 0.0) -> tuple[float, str]:
     """The tail cap, and WHERE IT CAME FROM.
 
-    The caller logs this. It used to log "capped at 4.078s (one bar)" while
-    actually using the loop length, because no grid was established — a bar at
-    120 BPM is 2.0s. A log line that names the wrong source is worse than no
-    log line: the first real trace off the appliance had to be decoded against
-    a number the log had misattributed.
+    **It takes the CYCLE, not the tempo.** `looper-timing-model-spec.md` §6:
+    *"cap — one cycle; a ring-out longer than that is not a ring-out."* And §1:
+    the cycle is the first take's own length, and `bar_s` "must never be used
+    to place a boundary."
+
+    This argument used to be a BPM, and the body computed `60/bpm * 4` and
+    called the answer "one bar". That was right only while every first take was
+    read as one bar, which is what `d06fb08` stopped being true on 2026-08-30:
+    it introduced `BAR_CANDIDATES = (1,2,4,8)`, so a 6.939 s take now reads as
+    4 bars at 138 BPM and this function silently began capping the ring-out at
+    1.735 s — a quarter of spec, on a same-day regression it did not touch.
+    Taking the cycle directly means there is no arithmetic here to go stale
+    when the *description* of a cycle changes again.
+
+    The caller logs the returned source. It used to log "capped at 4.078s (one
+    bar)" while actually using the loop length, because no grid was established
+    — a bar at 120 BPM is 2.0s. A log line that names the wrong source is worse
+    than no log line: the first real trace off the appliance had to be decoded
+    against a number the log had misattributed. So the name and the number come
+    out of one expression, always.
     """
-    if bpm and bpm > 0.0:
-        return (60.0 / bpm) * BEATS_PER_BAR, "one bar"
+    if cycle_s and cycle_s > 0.0:
+        return cycle_s, "one cycle"
     if loop_len > 0.0:
         return loop_len, "loop length, no grid established"
     return TAIL_FALLBACK_CAP_S, "fallback, no grid and no loop length"
-
-
-def bar_seconds(bpm: float | None, *, loop_len: float = 0.0) -> float:
-    """One bar, from the grid if there is one. See `cap_for` for the source."""
-    if bpm and bpm > 0.0:
-        return (60.0 / bpm) * BEATS_PER_BAR
-    if loop_len > 0.0:
-        return loop_len
-    return TAIL_FALLBACK_CAP_S
 
 
 class TailPhase:

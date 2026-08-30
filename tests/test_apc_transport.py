@@ -1,5 +1,7 @@
 """APC transport combo (Shift + Stop All Clips hold)."""
 
+from tests import conftest  # noqa: F401 — bare sooperlooper imports (led_table, …)
+
 import unittest
 from unittest.mock import patch
 
@@ -17,14 +19,14 @@ from scripts.sooperlooper.apc_transport import (
     TransportButtonLeds,
     resolve_apc_transport_notes,
     resolve_scene_launch_notes,
-    resolve_stale_lamp_note,
     scene_row_for_note,
 )
+from scripts.sooperlooper.control_registry import lit_notes
+from scripts.sooperlooper.led_compositor import LedCompositor
 from scripts.sooperlooper.led_table import (
     LED_OFF,
     SCENE_LED_OFF,
     SCENE_LED_ON,
-    TRACK_LED_OFF,
     TRACK_LED_ON,
     accelerating_hold_blink_on,
 )
@@ -48,11 +50,47 @@ class ResolveApcTransportNotesTests(unittest.TestCase):
         self.assertEqual(label, "mk2")
         self.assertEqual(shift, NOTE_SHIFT_MK2)
 
-    def test_mk1_has_no_red_button_for_the_clear_warning(self) -> None:
-        self.assertIsNone(resolve_stale_lamp_note("mk1"))
+    def test_the_mk2_stale_lamp_is_cleared_at_startup_and_never_lit(self) -> None:
+        """mk2 Track Select 8, dark, once — and nothing ever lights it.
 
-    def test_mk2_clear_warning_is_track8(self) -> None:
-        self.assertEqual(resolve_stale_lamp_note("mk2"), NOTE_TRACK8_MK2)
+        It has been lit for the wrong reason twice, in opposite directions: as
+        a "Shift is held" lamp ("pressing shift lights up column 8"), then as
+        the clear-all warning, which took the blink off the button under the
+        player's finger. The note is kept only so a lamp left on by an earlier
+        build gets cleared, and that clear is now the compositor's base layer
+        rather than four methods of a live writer re-asserting it.
+
+        This replaces two tests that asserted `resolve_stale_lamp_note`'s
+        return value. That function had no production caller left once the
+        clear moved, and a resolver nobody calls proves nothing about the
+        panel — spec §5.3, "nothing outside the compositor may send a button
+        LED byte."
+        """
+        sent: list[list[int]] = []
+
+        class Out:
+            def send_message(self, m) -> None:
+                sent.append(list(m))
+
+        leds = LedCompositor(Out(), apc_label="mk2")
+        leds.invalidate()
+        self.assertIn([0x90, NOTE_TRACK8_MK2, 0], sent)
+        self.assertEqual(
+            [m for m in sent if m[1] == NOTE_TRACK8_MK2 and m[2] != 0], []
+        )
+
+    def test_the_mk1_track_row_is_not_painted_at_all(self) -> None:
+        """Its note numbers are recall, and they contradict each other.
+
+        `apc_transport` claimed 0x37 for button 8 while `apc_panel` claims
+        0x64-0x6B for the row; neither has evidence. Darkening a note we cannot
+        name is how you turn off something you did not mean to, so the mk1
+        track row stays out of `lit_notes` until someone presses the buttons
+        with `--dump-midi` running. That is what `resolve_stale_lamp_note`
+        used to say by hand as "mk1 has none".
+        """
+        self.assertNotIn(NOTE_TRACK8_MK2, lit_notes("mk1"))
+        self.assertIn(NOTE_TRACK8_MK2, lit_notes("mk2"))
 
     def test_mk1_scene_launch_notes(self) -> None:
         self.assertEqual(resolve_scene_launch_notes("mk1"), SCENE_LAUNCH_NOTES_MK1)
@@ -151,22 +189,85 @@ class ShiftHoldComboTests(unittest.TestCase):
 
 
 class ArrowBankingTests(unittest.TestCase):
+    """Arrow note resolution.
+
+    REWRITTEN 2026-08-30, stage 1. The previous version asserted that
+    `resolve_arrow_notes` returns `ARROW_NOTES_MK2` and never compared that
+    tuple against `SCENE_COLUMN_MK2` — which it sat inside. It was named for
+    arrow banking and would have passed with arrow banking deleted, so it
+    passed for weeks over a feature that has never worked on the attached
+    hardware. Charter §2: "a test whose failure would not have caught the bug
+    it is named for is a test that needs rewriting, even if it passes today."
+
+    The mk2 tuple is now empty. That follows from canon, not from a guess:
+    `device_facts.apc.buttons.note_sets` (MEASURED, rank 1) puts the eight
+    scene buttons at 0x70-0x77, and the recalled arrow tuple (rank 6, VENDOR)
+    claimed four of them. Rank 1 beats rank 6 and the lower tier is wrong until
+    re-measured — so the mk2 arrow notes are recorded as unknown rather than
+    replaced with another guess. See `device_facts.apc.bank_arrows.notes`.
+    """
+
     def test_variant_resolution_matches_the_transport_notes_path(self) -> None:
         from scripts.sooperlooper.apc_transport import (
             ARROW_NOTES_MK1,
-            ARROW_NOTES_MK2,
             resolve_arrow_notes,
         )
 
-        mk2 = resolve_arrow_notes("APC mini mk2 MIDI 1")
-        self.assertEqual(sorted(mk2), sorted(ARROW_NOTES_MK2))
-        self.assertEqual(mk2[ARROW_NOTES_MK2[0]], "up")
         self.assertEqual(sorted(resolve_arrow_notes("APC MINI")), sorted(ARROW_NOTES_MK1))
+        self.assertEqual(resolve_arrow_notes("APC MINI")[ARROW_NOTES_MK1[0]], "up")
         # Explicit variant beats the port name, same as Shift/Stop-All.
         self.assertEqual(
-            sorted(resolve_arrow_notes("APC MINI", variant="mk2")),
-            sorted(ARROW_NOTES_MK2),
+            sorted(resolve_arrow_notes("APC mini mk2", variant="mk1")),
+            sorted(ARROW_NOTES_MK1),
         )
+
+    def test_no_arrow_note_is_also_a_scene_button(self) -> None:
+        """The assertion whose absence let banking die.
+
+        Not "the resolver returns the tuple we wrote down" — that is true of
+        any tuple. This asks whether the tuple can survive contact with the
+        rest of the panel, which is the only question that mattered.
+        """
+        from scripts.sooperlooper.apc_panel import SCENE_COLUMN_MK1, SCENE_COLUMN_MK2
+        from scripts.sooperlooper.apc_transport import resolve_arrow_notes
+
+        for port, scene_notes in (
+            ("APC MINI", SCENE_COLUMN_MK1),
+            ("APC mini mk2 MIDI 1", SCENE_COLUMN_MK2),
+        ):
+            with self.subTest(port=port):
+                clash = set(resolve_arrow_notes(port)) & set(scene_notes)
+                self.assertEqual(
+                    clash,
+                    set(),
+                    f"{port}: {[hex(n) for n in sorted(clash)]} is claimed by "
+                    "both the bank arrows and the scene column. The scene "
+                    "branch of the bench event loop runs first and continues, "
+                    "so these presses never reach handle_arrow.",
+                )
+
+    def test_mk2_arrow_notes_are_unknown_not_guessed(self) -> None:
+        """Empty, and empty on the record.
+
+        A future session that wants banking back on the mk2 needs `--dump-midi`
+        and four presses, not a tuple. This pins the "unknown" so it cannot be
+        quietly refilled with the same recall.
+        """
+        from scripts.sooperlooper.apc_transport import resolve_arrow_notes
+        from scripts.sooperlooper.control_registry import DISPUTED
+        from scripts.sooperlooper.device_facts import VENDOR, fact
+
+        self.assertEqual(resolve_arrow_notes("APC mini mk2 MIDI 1"), {})
+        refuted = {
+            note
+            for d in DISPUTED
+            if d.variant == "mk2" and d.control_id.startswith("bank_")
+            for note in d.claimed
+        }
+        self.assertEqual(sorted(refuted), [0x70, 0x71, 0x72, 0x73])
+        # VENDOR on purpose: rule 4 forbids using it to say banking is
+        # impossible. It records that we do not know the notes.
+        self.assertEqual(fact("apc.bank_arrows.notes").tier, VENDOR)
 
     def test_up_down_page_by_eight_arrows_nudge_only_with_shift(self) -> None:
         from scripts.sooperlooper.apc_transport import bank_delta_for_arrow
@@ -192,6 +293,7 @@ class TransportButtonLedsTests(unittest.TestCase):
         self.midi_out = FakeOut(self.sent)
         self.shift = NOTE_SHIFT_MK1
         self.stop = NOTE_STOP_ALL_CLIPS_MK1
+        self.leds = None
 
     def _leds(self, *, hold_s: float = 3.0, apc_label: str = "mk1") -> TransportButtonLeds:
         # The notes must match the variant. Building an mk2 object with mk1
@@ -201,28 +303,35 @@ class TransportButtonLedsTests(unittest.TestCase):
             (NOTE_SHIFT_MK2, NOTE_STOP_ALL_CLIPS_MK2) if apc_label == "mk2"
             else (self.shift, self.stop)
         )
+        self.leds = LedCompositor(self.midi_out, apc_label=apc_label)
         return TransportButtonLeds(
-            midi_out=self.midi_out,
+            compositor=self.leds,
             shift_note=shift,
             stop_all_note=stop,
-            stale_lamp_note=resolve_stale_lamp_note(apc_label),
-            scene_launch_notes=resolve_scene_launch_notes(apc_label),
             hold_s=hold_s,
             apc_label=apc_label,
         )
 
-    def test_mk1_shift_alone_darkens_scene_row(self) -> None:
-        """Shift alone dims the scene row. It does NOT arrive with a Stop All.
+    def test_mk1_shift_alone_says_nothing_about_the_scene_row(self) -> None:
+        """Shift alone must not touch the scene column at all.
 
-        SP8 (2026-08-27): Shift pressed alone on the real mk1 emits note 0x62
-        and nothing else. So this test presses only Shift — the previous
-        version pressed Stop All 10 ms later to assert it was swallowed as a
-        ghost, which encoded hardware behaviour that does not exist.
+        It used to darken all eight scene buttons and grid notes 8-63, via
+        `clear_unwired_surfaces`, on every Shift-down and on every poll while
+        Shift was held. Under `MPE_SL_MULTIGRID=1` those 64 controls belong to
+        `SlotSurface`, and its private diff cache then suppressed the repair —
+        so reaching for Shift wiped the matrix until a colour happened to
+        change. The mk1 ghost it was compensating for was refuted twice on
+        hardware (SP6 and SP8, 2026-08-27: Shift alone emits 0x62 and nothing
+        else) and `MK1_GHOST_SHIFT_S` is 0.
+
+        Canon: `apc-control-surface-architecture-spec` §5.3 — "nothing outside
+        the compositor may send a button LED byte", and the compositor
+        resolves by declared priority rather than by who wrote last.
         """
         leds = self._leds()
         leds.note_event(self.shift, True)
-        stop_msgs = [m for m in self.sent if m[1] == self.stop]
-        self.assertEqual(stop_msgs, [[0x90, self.stop, SCENE_LED_OFF]])
+        scene = [m for m in self.sent if m[1] in SCENE_LAUNCH_NOTES_MK1]
+        self.assertEqual(scene, [], "Shift is a modifier, not a paint command")
         leds.note_event(self.shift, False)
 
     def test_mk1_stop_all_right_after_shift_is_a_real_chord(self) -> None:
@@ -247,6 +356,36 @@ class TransportButtonLedsTests(unittest.TestCase):
         self.assertEqual(self.sent[-1], [0x90, self.stop, SCENE_LED_ON])
         leds.note_event(self.stop, False)
         self.assertEqual(self.sent[-1], [0x90, self.stop, SCENE_LED_OFF])
+
+    def test_releasing_stop_all_hands_the_button_back(self) -> None:
+        """One tap of Stop All must not kill scene row 0's indicator.
+
+        Stop All is grid row 0's scene launcher; "Stop All Clips" is a SHIFT
+        layer on the same physical button. `SlotSurface` paints it to say
+        whether row 0 holds clips. The transport used to submit SCENE_LED_OFF
+        when nothing was held — an opinion, and the last one written — so a
+        single tap of the most-used transport button on the panel left row 0
+        dark for the rest of the session while the surface believed it was
+        lit. The button that means "this scene holds clips" became identical
+        to the one that means "empty, does nothing".
+
+        Canon: `apc-control-surface-architecture-spec` §5.3 — owners submit
+        desired state and the compositor resolves by priority. A transient
+        releases; it does not paint over the owner underneath.
+        """
+        from scripts.sooperlooper.led_compositor import LAYER_SURFACE
+        from scripts.sooperlooper.led_table import SCENE_LED_BLINK
+
+        leds = self._leds()
+        # The surface says row 0 is fully playing: blink, press to stop.
+        self.leds.submit(LAYER_SURFACE, {self.stop: SCENE_LED_BLINK})
+        leds.note_event(self.stop, True)
+        self.assertEqual(self.leds.believes()[self.stop], SCENE_LED_ON)
+        leds.note_event(self.stop, False)
+        self.assertEqual(
+            self.leds.believes()[self.stop], SCENE_LED_BLINK,
+            "the scene indicator underneath must come back",
+        )
 
     def test_mk1_both_held_blinks_stop_all_only(self) -> None:
         """A deliberate Shift+Stop All hold. No longer has to dodge a ghost
@@ -303,6 +442,7 @@ class TransportButtonLedsTests(unittest.TestCase):
         track 8 — twice now, in opposite directions.
         """
         leds = self._leds(apc_label="mk2")
+        self.leds.invalidate()      # the startup clear, which IS allowed
         leds.note_event(NOTE_SHIFT_MK2, True)
         leds.note_event(NOTE_STOP_ALL_CLIPS_MK2, True)
         leds.poll()
@@ -322,17 +462,29 @@ class TransportButtonLedsTests(unittest.TestCase):
         leds.note_event(self.shift, True)
         self.assertEqual(self.sent[-1], [0x90, self.stop, SCENE_LED_OFF])
 
-    def test_mk1_shift_clears_scene_and_upper_grid(self) -> None:
-        leds = self._leds()
-        with patch(
-            "scripts.sooperlooper.apc_transport.time.monotonic",
-            side_effect=[0.0, 0.0],
-        ):
-            leds.note_event(self.shift, True)
-        scene_msgs = [m for m in self.sent if m[1] in SCENE_LAUNCH_NOTES_MK1]
-        self.assertTrue(all(m[2] == SCENE_LED_OFF for m in scene_msgs))
-        upper = [m for m in self.sent if 8 <= m[1] <= 63]
-        self.assertTrue(all(m[2] == 0 for m in upper))
+    def test_shift_never_touches_the_matrix(self) -> None:
+        """The transport writes ONE note: Stop All, while it is held.
+
+        This replaces `test_mk1_shift_clears_scene_and_upper_grid`, which
+        asserted that holding Shift darkened every scene note and every grid
+        note 8-63. That test wrote the defect down as a requirement: under
+        multigrid those are the 64 controls `SlotSurface` owns, and the
+        darkening is what erased the player's takes. It contradicts
+        `apc-control-surface-architecture-spec` §5.3 and cannot survive the
+        compositor, so it is replaced rather than adjusted.
+        """
+        for label in ("mk1", "mk2"):
+            with self.subTest(label):
+                self.sent.clear()
+                leds = self._leds(apc_label=label)
+                shift = NOTE_SHIFT_MK2 if label == "mk2" else NOTE_SHIFT_MK1
+                leds.note_event(shift, True)
+                leds.poll()
+                leds.note_event(shift, False)
+                self.assertEqual(
+                    [m for m in self.sent if m[1] <= 0x63], [],
+                    "the transport wrote a grid pad",
+                )
 
     def test_mk1_ghost_filter_is_off_by_default(self) -> None:
         """SP8 refuted the ghost. A non-zero default would silently eat the

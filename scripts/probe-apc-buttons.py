@@ -7,11 +7,19 @@ painting:
     mpe looper stop-session          # or: sudo systemctl stop mpe-looper-session
     python3 scripts/probe-apc-buttons.py
 
-Why it exists: `device_facts.apc.scene.led_colours` and `.track.led_colours`
-rest on a vendor document, and that same document's implication that Shift has
-no LED is wrong — Mitch's device has an LED on every button. Rule 4 in
-`device_facts` says a vendor-tier fact may never be used to call something
-impossible. So these get measured, and this is the instrument.
+Why it existed: what the scene and track buttons could show rested on a vendor
+document, and that same document's implication that Shift has no LED is wrong —
+Mitch's device has an LED on every button. Rule 4 in `device_facts` says a
+vendor-tier fact may never be used to call something impossible. So these got
+measured, and this is the instrument.
+
+**It has run.** 2026-08-29, five rounds, Mitch reading the panel:
+`device_facts.apc.scene.led_observed` (green only), `.apc.track.led_observed`
+(red only), `.apc.buttons.channel_response` (0x90 and nothing else, the channel
+axis exhausted rather than sampled) and `.apc.buttons.single_colour`, which is
+CLOSED as a bounded negative. `.apc.shift.led` is the one still open. Keep this
+script for re-measuring after a firmware change or on a second unit — but the
+capability question it was written for is answered, and answered no.
 
 It lights ONE CLASS AT A TIME so the answer is unmissable, steps on Enter, and
 records what you type. Output is a markdown block ready to paste into
@@ -38,6 +46,7 @@ from apc_panel import (  # noqa: E402
     SCENE_COLUMN_MK2,
     TRACK_BUTTON_NOTES_MK1,
 )
+from control_registry import track_button_notes  # noqa: E402
 
 #: Channels worth trying. On the mk2 grid the channel selects brightness and
 #: blink (a MEASURED fact — see device_facts.apc.grid.mk2_encoding). Whether
@@ -66,7 +75,9 @@ def classes(label: str):
     if label == "mk2":
         return [
             ("scene launch", list(SCENE_COLUMN_MK2)),
-            ("track select", list(range(0x64, 0x6C))),
+            # This was a hardcoded range — the only place in the repo that said
+            # what "the track row" in apc.track.led_observed actually meant.
+            ("track select", list(track_button_notes("mk2"))),
             ("shift", [NOTE_SHIFT_MK2]),
         ]
     return [

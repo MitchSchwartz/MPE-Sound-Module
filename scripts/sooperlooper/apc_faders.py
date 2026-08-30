@@ -8,8 +8,15 @@ Variant-aware on purpose. The mk1/mk2 divergence is a known hazard here:
 apc_transport.py exists solely because Shift and Stop-All sit on different
 notes on the two surfaces. The fader CCs are *believed* to agree (48–55 plus
 56) but that has not been confirmed against hardware, so the two variants get
-separate constants and go through the same resolve-by-port-name path. If they
-turn out to differ, one constant changes and nothing else does.
+separate rows in `control_registry` and go through the same
+resolve-by-port-name path. If they turn out to differ, one row changes and
+nothing else does.
+
+That belief is now recorded where it can be found — `device_facts.apc.faders.ccs`,
+VENDOR tier — rather than only in this docstring. It matters because the
+failure is silent: a wrong CC makes `fader_for_cc` return None, `handle_cc`
+returns without a word, and the result is indistinguishable from a fader nobody
+touched.
 
 Confirm with: sooperlooper-apc-bench.py --dump-midi, then move each fader.
 
@@ -20,6 +27,8 @@ going to mean pan or filter as well as level.
 
 from __future__ import annotations
 
+from control_registry import fader_ccs
+
 # The master fader is not fader index 8 — it is a different kind of thing,
 # addressing the loop bus rather than a grid column. Naming it as a string
 # keeps that distinction in the type instead of in a comment.
@@ -27,15 +36,15 @@ MASTER = "master"
 
 FaderId = int | str  # 0–7, or MASTER
 
-# APC mini mk2 (Communication Protocol v1.0)
-CC_FADER_BASE_MK2 = 48
-CC_MASTER_MK2 = 56
+# A fader is a control, so its CC lives in control_registry beside every note
+# number — which is also what stops this module growing a fourth private copy
+# of the "which APC is this" sniff to go with it.
+_MK2_CCS, CC_MASTER_MK2 = fader_ccs("mk2")
+_MK1_CCS, CC_MASTER_MK1 = fader_ccs("mk1")
+CC_FADER_BASE_MK2 = _MK2_CCS[0]
+CC_FADER_BASE_MK1 = _MK1_CCS[0]
 
-# APC mini mk1 (original)
-CC_FADER_BASE_MK1 = 48
-CC_MASTER_MK1 = 56
-
-NUM_LOOP_FADERS = 8
+NUM_LOOP_FADERS = len(_MK2_CCS)
 CC_MIN = 0
 CC_MAX = 127
 

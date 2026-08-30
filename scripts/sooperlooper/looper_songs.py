@@ -12,7 +12,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
 
-from sl_grid_sync import apply_grid_sync, establish_grid_clock, set_grid_active
+from sl_grid_state import GridState
+from sl_grid_sync import (
+    EIGHTH_PER_CYCLE,
+    apply_established_grid,
+    apply_grid_sync,
+    set_grid_active,
+)
 from sl_loop_states import ACTIVE_PLAY, SL_STATE_MUTE, SL_STATE_OFF, SL_STATE_PAUSED
 
 SL_HOST = os.environ.get("MPE_SL_OSC_HOST", "127.0.0.1")
@@ -198,6 +204,18 @@ class SongManifest:
     grid_active: bool
     tracks: tuple[TrackEntry, ...]
     saved_at: str = ""
+    #: How many 4/4 bars the song's cycle was read as, and the cycle itself in
+    #: seconds. **The tempo is not the grid.** A grid is tempo, unit and phase
+    #: (`scripts/sooperlooper/README.md`, Clock); this file stored only the
+    #: tempo until 2026-08-30, so `load_song` re-established at the default
+    #: `bars=1` and any song whose first take read as 2, 4 or 8 bars came back
+    #: with the engine quantizing to a fraction of the take —
+    #: `cycle = eighth_per_cycle * 30 / bpm` (engine.cpp:2310).
+    #:
+    #: Absent (every song saved before that date) they read 1 and 0.0, which is
+    #: exactly what the old code did, so no existing song changes behaviour.
+    bars: int = 1
+    cycle_s: float = 0.0
 
     def track(self, index: int) -> TrackEntry | None:
         for entry in self.tracks:
@@ -236,6 +254,23 @@ def parse_manifest(raw: dict, *, slug: str = "") -> SongManifest | None:
     got_slug = str(raw.get("slug") or slug)
     bpm = float(raw.get("bpm") or 0.0)
     grid_active = bool(raw.get("grid_active")) and bpm > 0.0
+    try:
+        bars = int(raw.get("bars") or 1)
+    except (TypeError, ValueError):
+        bars = 1
+    try:
+        cycle_s = float(raw.get("cycle_s") or 0.0)
+    except (TypeError, ValueError):
+        cycle_s = 0.0
+    if bars < 1:
+        bars = 1
+    if cycle_s <= 0.0 and bpm > 0.0:
+        # Pre-2026-08-30 songs carry no cycle. Derive the one the engine would
+        # have used from the bar count we just defaulted, so the manifest is
+        # always self-consistent rather than half-specified: SL's own
+        # cycle = eighth_per_cycle * 30 / bpm with eighth_per_cycle = 8 * bars
+        # (engine.cpp:2310), which is 4 beats a bar.
+        cycle_s = bars * 4 * 60.0 / bpm
 
     tracks: list[TrackEntry] = []
     if version >= 2:
@@ -299,6 +334,8 @@ def parse_manifest(raw: dict, *, slug: str = "") -> SongManifest | None:
         grid_active=grid_active,
         tracks=tuple(tracks),
         saved_at=str(raw.get("saved_at") or ""),
+        bars=bars,
+        cycle_s=cycle_s,
     )
 
 
@@ -310,14 +347,25 @@ def build_manifest_v2(
     grid_active: bool,
     tracks: list[TrackEntry],
     saved_at: str,
+    bars: int = 1,
+    cycle_s: float = 0.0,
 ) -> dict:
-    """The JSON payload. Pure — no disk, no clock."""
+    """The JSON payload. Pure — no disk, no clock.
+
+    `bars`/`cycle_s` were added 2026-08-30 WITHOUT a version bump, deliberately.
+    The version selects the track SHAPE (`parse_manifest` branches on `>= 2`)
+    and the shape has not changed; these are two additive scalars whose absence
+    already has a defined meaning. Bumping would have made every song on disk
+    "old" for a reason that has nothing to do with how it is laid out.
+    """
     return {
         "version": MANIFEST_VERSION,
         "name": name.strip(),
         "slug": slug,
         "saved_at": saved_at,
         "bpm": float(bpm),
+        "bars": int(bars),
+        "cycle_s": float(cycle_s),
         "grid_active": bool(grid_active),
         "tracks": [
             {
@@ -465,14 +513,84 @@ def session_has_content(
     return False
 
 
-def stop_playback(probe: LooperSongProbe) -> None:
+def read_engine_grid(probe: LooperSongProbe) -> GridState | None:
+    """The grid the ENGINE is holding, as a `GridState`. None if there is none.
+
+    Save and load run in the touch-browser process; `GridState` lives in the
+    bench. The engine is the only thing both can see, so it is the source here
+    — and it can answer for all three quantities:
+
+      tempo             engine.cpp:1895-1897 (`/get "tempo"`)
+      eighth_per_cycle  engine.cpp:1898-1899 (`/get "eighth_per_cycle"`)
+      cycle             = eighth_per_cycle * 30 / tempo  (engine.cpp:2310)
+
+    Both `/get` params verified in upstream `essej/sooperlooper` before this was
+    written, rather than assumed to exist because `/set` accepts them.
+
+    A missing or unanswered `eighth_per_cycle` falls back to `EIGHTH_PER_CYCLE`
+    — one bar, which is exactly what the code did before it asked at all — so a
+    silent engine costs the old behaviour and never a wrong cycle.
+
+    `cycle_s` is computed from the SNAPPED bar count rather than from the raw
+    reading, so what the manifest stores is what a reload will actually send
+    back. A bar count is the only unit this system can express
+    (`looper-timing-model-spec.md` §1a: "`eighth_per_cycle = 8 * bars` is the
+    one place the subdivision is expressed"), so recording a cycle it cannot
+    reproduce would be storing a number that is right and useless.
+    """
+    tempo = probe.get("tempo", -1)
+    if tempo is None or float(tempo) < 20.0:
+        return None
+    eighths = probe.get("eighth_per_cycle", -1)
+    if eighths is None or float(eighths) <= 0.0:
+        eighths = float(EIGHTH_PER_CYCLE)
+    bars = max(1, int(round(float(eighths) / EIGHTH_PER_CYCLE)))
+    grid = GridState()
+    cycle_s = (EIGHTH_PER_CYCLE * bars) * 30.0 / float(tempo)
+    if not grid.restore(float(tempo), bars, cycle_s):
+        return None
+    return grid
+
+
+def stop_playback(
+    probe: LooperSongProbe,
+    *,
+    grid: GridState | None = None,
+    num_loops: int = NUM_LOOPS,
+) -> None:
+    """Silence everything, then reset the grid PHASE — keeping the grid.
+
+    Same rule as Stop All on the surface (`looper-timing-model-spec.md` §5:
+    "resets the grid phase to zero, and **keeps the grid**").
+
+    The last two lines used to be a raw `/set tempo` of whatever the engine
+    already held, unexplained. What it was doing is the phase reset —
+    `Engine::set_tempo` zeroes `_quarter_counter` and `_tempo_counter`
+    (engine.cpp:2174-2178) and re-sending the SAME tempo therefore moves the
+    downbeat and nothing else. That is now said out loud and routed through the
+    one seam, so this cannot drift from the other phase resets.
+
+    It is NOT the song's tempo being restored. `load_song` does that afterwards,
+    from the manifest.
+
+    `grid` lets a caller that has already read the engine avoid a second
+    round trip; absent, it reads.
+    """
     probe.send("/sl/-1/set", ["mute_quantized", 0.0])
     probe.send("/sl/-1/hit", "mute_on")
     probe.send("/sl/-1/hit", "pause_on")
     probe.send("/sl/-1/set", ["mute_quantized", 1.0])
-    tempo = probe.get("tempo", -1)
-    if tempo is not None and float(tempo) > 0:
-        probe.send("/set", ["tempo", float(tempo)])
+    if grid is None:
+        grid = read_engine_grid(probe)
+    if grid is None:
+        return          # no grid on the engine; there is no phase to reset
+    apply_established_grid(
+        _send_fn(probe),
+        grid,
+        num_loops=num_loops,
+        now=time.monotonic(),
+        arm_loops=False,
+    )
 
 
 def clear_all_loops(
@@ -518,11 +636,13 @@ def save_song(
     if probe.get("state", 0) is None:
         return SongResult(ok=False, message="Looper engine not responding")
 
-    stop_playback(probe)
+    # Read the grid BEFORE stopping: `stop_playback` re-sends the tempo to zero
+    # the phase, and reading across that is reading across a write.
+    song_grid = read_engine_grid(probe)
+    stop_playback(probe, grid=song_grid, num_loops=num_loops)
     time.sleep(0.15)
 
-    tempo = probe.get("tempo", -1)
-    grid_active = tempo is not None and float(tempo) >= 20.0
+    grid_active = song_grid is not None
 
     loops_meta: list[TrackEntry] = []
     root.mkdir(parents=True, exist_ok=True)
@@ -564,10 +684,13 @@ def save_song(
     if not loops_meta:
         return SongResult(ok=False, message="Nothing to save — no loops with audio")
 
+    snapshot = song_grid.snapshot() if song_grid is not None else None
     payload = build_manifest_v2(
         name=name,
         slug=slug,
-        bpm=float(tempo) if tempo is not None else 0.0,
+        bpm=snapshot["bpm"] if snapshot else 0.0,
+        bars=snapshot["bars"] if snapshot else 1,
+        cycle_s=snapshot["cycle_s"] if snapshot else 0.0,
         grid_active=grid_active,
         tracks=loops_meta,
         saved_at=datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds"),
@@ -632,7 +755,7 @@ def load_song(
     if probe.get("state", 0) is None:
         return SongResult(ok=False, message="Looper engine not responding")
 
-    stop_playback(probe)
+    stop_playback(probe, num_loops=num_loops)
     clear_all_loops(probe, num_loops=num_loops)
     time.sleep(0.2)
 
@@ -643,11 +766,23 @@ def load_song(
     if song is None:
         return SongResult(ok=False, message="Song has no loops")
 
-    bpm = song.bpm
-    grid_active = song.grid_active
-    if grid_active:
-        establish_grid_clock(send, bpm)
-        set_grid_active(send, num_loops=num_loops, active=True)
+    # The song's own grid, restored through the seam every other establishment
+    # path uses. This used to be `establish_grid_clock(send, bpm)` — the bar
+    # count left at its default of 1, because the manifest had nowhere to keep
+    # one. A song whose first take read as 4 bars at 138 BPM therefore came
+    # back with the engine's cycle at 8 * 30 / 138 = 1.74 s against a 6.94 s
+    # take, and every clip in the song joined four times inside the loop the
+    # player thinks of as one unit — the exact defect `d06fb08` fixed for the
+    # live path and did not reach here.
+    restored = GridState()
+    if song.grid_active and restored.restore(song.bpm, song.bars, song.cycle_s):
+        apply_established_grid(
+            send,
+            restored,
+            num_loops=num_loops,
+            now=time.monotonic(),
+            arm_loops=True,
+        )
     else:
         set_grid_active(send, num_loops=num_loops, active=False)
 
@@ -674,6 +809,25 @@ def load_song(
             continue
         probe.send(f"/sl/{loop}/load_loop", [str(wav), "", ""])
         time.sleep(0.05)
+        # THE ONE SANCTIONED WRITE OF `wet` OUTSIDE `loop_mix.wet_for()`.
+        #
+        # `loop_mix` owns level composition and the README says so. This is the
+        # documented exception, and the reason is process boundaries, not
+        # convenience: songs load in `touch-patch-browser.service` and `LoopMix`
+        # lives in `mpe-looper-session.service`, so the column gains, the master
+        # and the active-loop count that `wet_for()` multiplies are not
+        # reachable from here at all.
+        #
+        # It is safe because the bench adopts it rather than fighting it: it
+        # subscribes to `wet` and `LoopMix.seed_from_engine` backs out master
+        # and law, takes the implied column position and re-arms pickup.
+        #
+        # `entry.wet` is the COMPOSED level (`save_song` reads the engine's
+        # `wet`, which already includes master and law), so a song reloaded at a
+        # different master position returns to its saved absolute level. Noted
+        # in the README as an open question, deliberately not changed here.
+        #
+        # A third writer fails tests/test_track_state_ownership.py.
         probe.send(f"/sl/{loop}/set", ["wet", float(entry.wet)])
         if slot.sl_state in ACTIVE_PLAY:
             probe.send(f"/sl/{loop}/hit", "pause_off")

@@ -26,7 +26,7 @@ from sl_loop_states import (  # noqa: E402
     SL_STATE_RECORDING,
     SL_STATE_WAIT_START,
 )
-from slot_leds import matrix_messages, static_cell_led  # noqa: E402
+from slot_leds import matrix_colours, static_cell_led  # noqa: E402
 from slot_matrix import Pending, Slot, Track  # noqa: E402
 
 
@@ -55,10 +55,8 @@ class ActiveLaneOwnershipTests(unittest.TestCase):
         self.tracks = {0: track_with(active=0, occupied=(0,))}
 
     def _colour_of_active(self, states, leds) -> int:
-        msgs, _ = matrix_messages(self.view, self.tracks, states,
-                                  previous=None, gesture_leds=leds)
-        note = self.view.note_for_cell(0, 0)
-        return dict(msgs)[note]
+        colours = matrix_colours(self.view, self.tracks, gesture_leds=leds)
+        return colours[self.view.note_for_cell(0, 0)]
 
     def test_the_gesture_colour_wins(self) -> None:
         self.assertEqual(
@@ -97,9 +95,8 @@ class PendingTests(unittest.TestCase):
         view = GridView(offset=0)
         tracks = {0: track_with(active=0, occupied=(0, 5),
                                 pending=Pending("switch", to_slot=5, from_slot=0))}
-        msgs, _ = matrix_messages(view, tracks, {0: SL_STATE_PLAYING},
-                                  previous=None, gesture_leds={0: LED_GREEN})
-        self.assertEqual(dict(msgs)[view.note_for_cell(0, 0)], LED_YELLOW_BLINK)
+        colours = matrix_colours(view, tracks, gesture_leds={0: LED_GREEN})
+        self.assertEqual(colours[view.note_for_cell(0, 0)], LED_YELLOW_BLINK)
 
     def test_uninvolved_slots_ignore_the_pending(self) -> None:
         t = track_with(active=0, occupied=(0, 3, 6),
@@ -124,61 +121,56 @@ class ColumnInvariantTests(unittest.TestCase):
                            LED_GREEN_BLINK, LED_RED_BLINK):
                     tracks = {0: track_with(active=active, occupied=(0, 1, 4, 6, 7),
                                             pending=pending)}
-                    msgs, _ = matrix_messages(view, tracks, {0: SL_STATE_PLAYING},
-                                              previous=None, gesture_leds={0: fs})
-                    column = [c for n, c in msgs if view.cell_for_note(n)[0] == 0]
+                    colours = matrix_colours(view, tracks, gesture_leds={0: fs})
+                    column = [c for n, c in colours.items()
+                              if view.cell_for_note(n)[0] == 0]
                     self.assertLessEqual(
                         column.count(LED_GREEN), 1,
                         f"active={active} pending={pending} fs={fs}"
                     )
 
 
-class MatrixMessageTests(unittest.TestCase):
+class MatrixColourTests(unittest.TestCase):
     def setUp(self) -> None:
         self.view = GridView(offset=0)
         self.tracks = {i: track_with(active=0, occupied=(0,)) for i in range(15)}
-        self.states = {i: SL_STATE_PLAYING for i in range(15)}
         # The active row is the gesture's; without this every column's
-        # bottom pad is dark and the diff tests have nothing to move.
+        # bottom pad is dark.
         self.fs = {i: LED_GREEN for i in range(15)}
 
-    def test_first_paint_covers_every_visible_pad(self) -> None:
-        msgs, _ = matrix_messages(self.view, self.tracks, self.states, previous=None,
-                                  gesture_leds=self.fs)
-        self.assertEqual(len(msgs), 64)
+    def test_every_visible_pad_has_a_colour(self) -> None:
+        """Total over the viewport, so no pad can be left showing whatever it
+        showed before. It used to return only the pads that had changed since
+        the caller's own last paint — the private diff cache that made the
+        reconnect erasure permanent (see `led_compositor`). Diffing is the
+        compositor's, against what the device was told; this function's job is
+        to be complete."""
+        colours = matrix_colours(self.view, self.tracks, gesture_leds=self.fs)
+        self.assertEqual(len(colours), 64)
 
-    def test_an_unchanged_surface_sends_nothing(self) -> None:
-        """A full repaint is ~192 bytes on a 31.25 kbaud link — about 60 ms of
-        wire time, on the same cable the pad presses arrive on."""
-        _, state = matrix_messages(self.view, self.tracks, self.states, previous=None,
-                                  gesture_leds=self.fs)
-        msgs, _ = matrix_messages(self.view, self.tracks, self.states, previous=state,
-                                  gesture_leds=self.fs)
-        self.assertEqual(msgs, [])
-
-    def test_only_the_changed_cell_is_sent(self) -> None:
-        _, state = matrix_messages(self.view, self.tracks, self.states, previous=None,
-                                  gesture_leds=self.fs)
+    def test_only_the_changed_cell_differs(self) -> None:
+        before = matrix_colours(self.view, self.tracks, gesture_leds=self.fs)
         self.fs[3] = LED_YELLOW      # track 3's gesture went muted
-        msgs, _ = matrix_messages(self.view, self.tracks, self.states, previous=state,
-                                  gesture_leds=self.fs)
-        self.assertEqual(len(msgs), 1)
-        note, colour = msgs[0]
+        after = matrix_colours(self.view, self.tracks, gesture_leds=self.fs)
+        changed = {n: c for n, c in after.items() if before[n] != c}
+        self.assertEqual(len(changed), 1)
+        note, colour = next(iter(changed.items()))
         self.assertEqual(self.view.cell_for_note(note), (3, 0))
         self.assertEqual(colour, LED_YELLOW)
 
-    def test_a_bank_change_forces_a_full_repaint(self) -> None:
-        """The notes now address different tracks, so diffing against the old
-        bank leaves pads showing the previous one."""
-        _, state = matrix_messages(self.view, self.tracks, self.states, previous=None,
-                                  gesture_leds=self.fs)
+    def test_a_bank_change_re_addresses_every_note(self) -> None:
+        """The notes now address different tracks, so every one of them is a
+        fresh claim about a different track."""
         moved = GridView(offset=7)
-        msgs, _ = matrix_messages(moved, self.tracks, self.states, previous=None,
-                                  gesture_leds=self.fs)
-        self.assertEqual(len(msgs), 64)
-        self.assertNotEqual(state, {})
+        self.assertEqual(
+            len(matrix_colours(moved, self.tracks, gesture_leds=self.fs)), 64
+        )
 
     def test_a_track_with_no_state_is_dark_not_missing(self) -> None:
-        msgs, _ = matrix_messages(self.view, {}, {}, previous=None)
-        self.assertEqual(len(msgs), 64)
-        self.assertTrue(all(c == LED_OFF for _n, c in msgs))
+        colours = matrix_colours(self.view, {})
+        self.assertEqual(len(colours), 64)
+        self.assertTrue(all(c == LED_OFF for c in colours.values()))
+
+
+if __name__ == "__main__":
+    unittest.main()

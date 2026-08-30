@@ -74,6 +74,19 @@ class PlayheadTests(unittest.TestCase):
         def sync_loop_pos(self, pos: float) -> None:
             self.positions.append(pos)
 
+        # `FakeSlEngine.poll` runs one bench iteration after delivering, the
+        # way the appliance does. This stub records the DELIVERY half, so the
+        # bench half has nothing to do — but it must exist, or the harness
+        # would be asserting against a gesture the real loop cannot drive.
+        def poll_tail(self) -> None:
+            return None
+
+        def poll_hold(self) -> None:
+            return None
+
+        def poll_led(self) -> None:
+            return None
+
     def test_a_playing_loop_wraps_at_the_boundary(self) -> None:
         engine = FakeSlEngine()
         engine.state[0] = SL_STATE_PLAYING

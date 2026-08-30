@@ -26,6 +26,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "sooperlooper"))
 
 from apc_grid import GridView, pad_note  # noqa: E402
+from apc_transport import SCENE_LAUNCH_NOTES_MK1  # noqa: E402
 from sl_loop_states import (  # noqa: E402
     SL_STATE_MUTE,
     SL_STATE_OFF,
@@ -37,6 +38,7 @@ from slot_surface import SlotSurface  # noqa: E402
 from tests.test_slot_surface import (  # noqa: E402
     FakeOut,
     build_track_gestures,
+    compositor_for,
     feed_wrap,
 )
 
@@ -47,7 +49,8 @@ class VocabularyCase(unittest.TestCase):
         self.addCleanup(shutil.rmtree, self.dir, True)
         self.osc: list[tuple[str, list]] = []
         self.out = FakeOut()
-        self.fs_by_loop = build_track_gestures(self.osc)
+        self.leds = compositor_for(self.out)
+        self.fs_by_loop = build_track_gestures(self.osc, compositor=self.leds)
         self.engine_saves = True     # does save_loop actually produce a file?
         self.rt = SlotRuntime(
             send=self._send,
@@ -60,9 +63,9 @@ class VocabularyCase(unittest.TestCase):
             runtime=self.rt,
             gestures_by_loop=self.fs_by_loop,
             view=self.view,
-            midi_out=self.out,
+            compositor=self.leds,
             num_tracks=15,
-            scene_launch_notes=tuple(range(0x52, 0x59)),
+            scene_launch_notes=SCENE_LAUNCH_NOTES_MK1,
             hold_s=2.0,
             hold_blink_start_s=0.5,
             log=lambda m: None,

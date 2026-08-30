@@ -10,6 +10,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "sooperlooper"))
 
+from apc_transport import SCENE_LAUNCH_NOTES_MK1  # noqa: E402
 from track_gesture import TrackGesture  # noqa: E402
 from apc_grid import GridView, pad_note  # noqa: E402
 from led_table import (  # noqa: E402
@@ -25,6 +26,7 @@ from sl_loop_states import (  # noqa: E402
     SL_STATE_RECORDING,
     SL_STATE_WAIT_STOP,
 )
+from led_compositor import LedCompositor  # noqa: E402
 from slot_matrix import Slot, Track  # noqa: E402
 from slot_runtime import SlotRuntime  # noqa: E402
 from slot_surface import SlotSurface  # noqa: E402
@@ -38,6 +40,17 @@ class FakeOut:
         self.sent.append(list(msg))
 
 
+def compositor_for(out: FakeOut, *, apc_label: str = "mk1") -> LedCompositor:
+    """The one writer to the wire, over a recording fake.
+
+    Every test in this file asserts on `out.sent`, which is now the complete
+    record of what the device was told — not one writer's outgoing messages.
+    That distinction is the point of the stage: the defect these tests could
+    not see was a *second* writer erasing the first.
+    """
+    return LedCompositor(out, apc_label=apc_label)
+
+
 class _OscStub:
     def __init__(self, sink: list) -> None:
         self._sink = sink
@@ -49,13 +62,15 @@ class _OscStub:
             self._sink.append((path, list(args)))
 
 
-def build_track_gestures(sink: list, *, num: int = 15) -> dict[int, TrackGesture]:
+def build_track_gestures(
+    sink: list, *, num: int = 15, compositor=None
+) -> dict[int, TrackGesture]:
     out: dict[int, TrackGesture] = {}
     for loop in range(num):
         fs = TrackGesture(
             loop=loop, hold_ms=2000, debounce_ms=0, multigrid=True, quantized=True
         )
-        fs.bind(_OscStub(sink), FakeOut(), None)
+        fs.bind(_OscStub(sink), compositor, None)
         out[loop] = fs
     return out
 
@@ -77,17 +92,18 @@ class SurfaceCase(unittest.TestCase):
         self.dir = Path(tempfile.mkdtemp())
         self.osc: list[tuple[str, list]] = []
         self.out = FakeOut()
+        self.leds = compositor_for(self.out)
         self.rt = SlotRuntime(
             send=lambda p, a: self.osc.append((p, a)),
             clips_dir=self.dir,
             num_tracks=15,
         )
-        self.fs_by_loop = build_track_gestures(self.osc)
+        self.fs_by_loop = build_track_gestures(self.osc, compositor=self.leds)
         self.surface = SlotSurface(
             runtime=self.rt,
             gestures_by_loop=self.fs_by_loop,
             view=GridView(offset=0),
-            midi_out=self.out,
+            compositor=self.leds,
             num_tracks=15,
         )
 
@@ -203,16 +219,47 @@ class PaintTests(SurfaceCase):
         self.surface.repaint()
         self.assertEqual(len(self.out.sent), before)
 
-    def test_a_bank_change_repaints_everything(self) -> None:
-        self.surface.repaint()
-        before = len(self.out.sent)
-        self.surface.set_view(GridView(offset=7))
-        self.assertGreaterEqual(len(self.out.sent) - before, 64)
+    def test_a_bank_change_leaves_no_pad_showing_the_old_bank(self) -> None:
+        """The guarantee, asserted as device state rather than as traffic.
 
-    def test_blank_darkens_all_64(self) -> None:
-        self.surface.blank()
-        dark = [m for m in self.out.sent if m[2] == LED_OFF]
-        self.assertGreaterEqual(len(dark), 64)
+        This used to assert that a bank change sent at least 64 messages,
+        because `set_view` cleared the surface's private diff cache and every
+        pad was re-sent whether or not it had changed — ~192 bytes, about 60 ms
+        of wire time on the same 31.25 kbaud cable the pad presses arrive on.
+        The compositor sends only what changed. What the player needs is not
+        the traffic: it is that no pad is left lit for a track that is no
+        longer in that column, which a message count never actually checked.
+        """
+        self.rt._tracks[0] = Track(slots=(Slot("a.wav"), *([None] * 7)),
+                                   active_slot=None)
+        self.surface.repaint()
+        moved = GridView(offset=7)
+        self.surface.set_view(moved)
+        wire = self.leds.believes()
+        for row, col, track_index in moved.visible_cells():
+            note = moved.note_for_cell(track_index, row)
+            expected = (LED_YELLOW
+                        if self.rt.track(track_index).occupied(row)
+                        else LED_OFF)
+            self.assertEqual(wire[note], expected,
+                             f"pad {note:#04x} still shows the old bank")
+        self.assertEqual(
+            [v for n, v in wire.items() if n < 64 and v != LED_OFF], [],
+            "track 0 is banked off-screen, so nothing should still be lit",
+        )
+
+    def test_a_reset_leaves_the_matrix_dark(self) -> None:
+        """`blank()` is gone. It sent 64 explicit OFFs to overwrite whatever
+        the surface's own diff cache thought was painted; with one cache at the
+        wire, an empty runtime simply produces an all-dark desired map and the
+        compositor sends the pads that were actually lit."""
+        self.rt._tracks[0] = Track(slots=(Slot("a.wav"), *([None] * 7)),
+                                   active_slot=0)
+        self.surface.repaint()
+        self.surface.reset()
+        lit = [n for n, v in self.leds.believes().items()
+               if v != LED_OFF and self.surface.handles(n)]
+        self.assertEqual(lit, [], "a reset matrix has no lit pad")
 
 
 class HoldClearTests(SurfaceCase):
@@ -282,13 +329,19 @@ class RecordOverPlayingTrackTests(SurfaceCase):
 class SceneRowTests(SurfaceCase):
     def setUp(self) -> None:
         super().setUp()
-        # The real seven, in hardware order: the row a note means depends on
-        # its INDEX in this tuple, so a truncated stand-in silently addresses
+        # All EIGHT, in hardware order: the row a note means depends on its
+        # INDEX in this tuple, so a truncated stand-in silently addresses
         # different rows.
-        self.surface._scene_launch_notes = tuple(range(0x52, 0x59))
-        # Row 0 has NO scene button — Stop All Clips (0x59) occupies that
-        # position on the panel. The lowest scene launcher, 0x58, is beside
-        # row 1, so that is the row these tests drive.
+        #
+        # This fixture used to be seven notes, 0x52-0x58, with a comment saying
+        # row 0 has no scene button because Stop All Clips occupies that
+        # position. That contradicts `apc_panel`, which is MEASURED 2026-08-27
+        # and states all eight are scene launchers with Stop All as a SHIFT
+        # layer on the last one — and `resolve_scene_launch_notes` returns all
+        # eight to production. Excluding 0x59 is what made the two-writer
+        # defect on that button structurally invisible to the suite: it is the
+        # one note `SlotSurface` and `TransportButtonLeds` both painted.
+        self.surface._scene_launch_notes = SCENE_LAUNCH_NOTES_MK1
         self.scene_row = 1
         self.scene_note = 0x58
 
@@ -297,13 +350,13 @@ class SceneRowTests(SurfaceCase):
             slots=(None, Slot("a.wav"), *([None] * 6)), active_slot=1
         )
         self.state(0, SL_STATE_MUTE)
-        self.surface.repaint_scenes(force=True)
+        self.surface.repaint_scenes()
         scene_msgs = [m for m in self.out.sent if m[1] == self.scene_note]
         self.assertTrue(scene_msgs)
         self.assertEqual(scene_msgs[-1][2], 1)
 
     def test_scene_leds_stay_dark_when_a_row_is_empty(self) -> None:
-        self.surface.repaint_scenes(force=True)
+        self.surface.repaint_scenes()
         scene_msgs = [m for m in self.out.sent if m[1] == self.scene_note]
         self.assertTrue(scene_msgs)
         self.assertEqual(scene_msgs[-1][2], 0)
@@ -421,3 +474,77 @@ class OneStateSourceTests(SurfaceCase):
         self.assertEqual(len(states), 15, "all tracks, banked or not")
         for track, state in states.items():
             self.assertEqual(state, self.surface.track_state(track))
+
+
+class GridWaitLaunchTests(SurfaceCase):
+    """The silent-session launch path, which had never once run.
+
+    `poll_pending` called `self.repaint(self._sl_states)`. `repaint` is
+    keyword-only and takes no positional argument, so the call raised
+    TypeError the instant a queued launch came due — and the bench main loop
+    has no `try`, so the process died with the load/launch OSC already sent:
+    the audio moves, the pads freeze mid-blink, nothing repaints them ever.
+
+    The unused loop variable was the tell. Nothing had executed this branch.
+    `repaint()` already reads `self._sl_states` itself, so the argument was
+    redundant as well as fatal.
+
+    Canon: `Documents/specs/multi-clip-integration-plan.md` — a launch with
+    nothing playing lands on the grid bar line. That cannot happen if reaching
+    the bar line kills the process.
+    """
+
+    def _a_queued_launch_waiting_on_the_bar_line(self):
+        """A stopped track holding a take, a sounding session, and a grid.
+
+        Assembled the way production assembles it — `grid_boundary` injected,
+        the launch queued by a real press on a real pad — rather than by
+        writing `_grid_wait` directly. The bug survived because no test ever
+        reached this branch, so a test that reached it by hand would leave
+        exactly the gap that hid it.
+        """
+        rt = SlotRuntime(
+            send=lambda p, a: self.osc.append((p, a)),
+            clips_dir=self.dir,
+            num_tracks=15,
+            grid_boundary=lambda: 0.0,  # a bar line already past
+        )
+        # Its own compositor: a second surface submitting into the shared
+        # one would be exactly the two-writers-per-layer confusion this stage
+        # removes from production.
+        leds = compositor_for(FakeOut())
+        fs = build_track_gestures(self.osc, compositor=leds)
+        surface = SlotSurface(
+            runtime=rt,
+            gestures_by_loop=fs,
+            view=GridView(offset=0),
+            compositor=leds,
+            num_tracks=15,
+        )
+        rt.clip_path(3, 2).write_bytes(b"\0" * 4096)
+        rt._tracks[3] = Track(slots=(None, None, Slot("c.wav"), *([None] * 5)))
+        # Some OTHER track is sounding. That is what makes the launch wait for
+        # a boundary instead of firing under the player's fingers, and it is
+        # why no wrap of track 3's own will ever arrive to fire it.
+        fs[0].sync_from_sl(SL_STATE_PLAYING)
+        note = GridView(offset=0).note_for_cell(3, 2)
+        surface.note_down(note)
+        surface.note_up(note)  # an occupied, non-active slot acts on release
+        return rt, surface
+
+    def test_a_launch_deferred_to_the_grid_bar_line_does_not_raise(self) -> None:
+        rt, surface = self._a_queued_launch_waiting_on_the_bar_line()
+        self.assertIn(3, rt._grid_wait, "the press should have queued on the grid")
+        surface.poll_pending()  # raised TypeError before this fix
+        self.assertEqual(
+            rt._grid_wait, {}, "the wait is consumed, not left to refire"
+        )
+
+    def test_nothing_due_paints_nothing(self) -> None:
+        before = len(self.out.sent)
+        self.surface.poll_pending()
+        self.assertEqual(
+            len(self.out.sent),
+            before,
+            "no launch came due, so the surface must not be repainted",
+        )

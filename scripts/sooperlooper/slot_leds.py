@@ -21,6 +21,7 @@ is what keeps that from being expressible.
 
 from __future__ import annotations
 
+from apc_grid import GRID_COLS, GRID_ROWS, pad_note
 from led_table import (
     LED_GREEN,
     LED_GREEN_BLINK,
@@ -70,34 +71,46 @@ def static_cell_led(track: Track, slot: int) -> int:
     return LED_YELLOW                   # holds audio, not the one sounding
 
 
-def matrix_messages(
+def matrix_colours(
     view,
     tracks: dict[int, Track],
-    sl_states: dict[int, int],
     *,
-    previous: dict[int, int] | None = None,
     gesture_leds: dict[int, int] | None = None,
-) -> tuple[list[tuple[int, int]], dict[int, int]]:
-    """(note, colour) for the visible matrix, plus the state to pass in next time.
+) -> dict[int, int]:
+    """note -> colour for every visible pad. What the matrix *should* show.
 
-    Only changed pads are returned. The APC is on a 31.25 kbaud MIDI link and a
-    full 64-pad repaint is ~192 bytes, about 60 ms of wire time — enough, at a
-    poll rate, to delay the pad presses arriving on the same cable. Diffing
-    keeps a steady surface silent.
+    Total over the viewport, and nothing more. It used to also diff against the
+    caller's `previous` map and return only the changed pads — the surface's
+    private record of what it had painted. That record was one of four in the
+    process, none of them at the wire, and it is what made the reconnect
+    erasure permanent: a different writer darkened 56 pads, this diff saw no
+    change, and fifty poll cycles sent nothing. The diff now happens once, in
+    `led_compositor`, against what the device was actually told.
 
-    Pass `previous=None` after a bank change to force a full repaint: the notes
-    have been reassigned to different tracks, so a diff against the old bank
-    would leave pads showing the previous one.
+    It also used to take `sl_states` and never read it. `static_cell_led`'s
+    docstring explains at length why it deliberately dropped that parameter —
+    "an unused parameter here would be an open invitation to derive a colour
+    from it again" — and this function kept one anyway.
     """
+    # Column-major, because a column IS a track: the track lookup, its active
+    # slot, its pending and its gesture colour are all per-column facts and
+    # were being re-fetched once per cell — 64 lookups an iteration, at the
+    # bench's ~485 Hz poll rate, to answer eight questions. `visible_cells`
+    # already hands back the column, so the note comes from `pad_note(row, col)`
+    # rather than from re-deriving the column out of the track index.
+    leds = gesture_leds or {}
     desired: dict[int, int] = {}
-    for row, col, track_index in view.visible_cells():
-        note = view.note_for_cell(track_index, row)
-        if note is None:
+    for col in range(GRID_COLS):
+        track_index = view.track_for_pad(0, col)
+        if track_index is None:
             continue
         track = tracks.get(track_index)
         if track is None:
-            desired[note] = LED_OFF
+            for row in range(GRID_ROWS):
+                desired[pad_note(row, col)] = LED_OFF
             continue
+        active = track.active_slot
+        pending = track.pending
         # The active lane is the gesture's, unconditionally — including
         # when it has no entry yet, which reads as OFF and is correct: an
         # unpainted pad is dark. Falling back to a state-derived colour here
@@ -106,11 +119,10 @@ def matrix_messages(
         # A pending is the one thing that outranks it: a pending switch's
         # outgoing slot IS the active slot, and the gesture has never heard
         # of the switch, so only the matrix can blink it.
-        if row == track.active_slot and track.pending is None:
-            desired[note] = (gesture_leds or {}).get(track_index, LED_OFF)
-        else:
-            desired[note] = static_cell_led(track, row)
-    if previous is None:
-        return sorted(desired.items()), desired
-    changed = [(n, c) for n, c in sorted(desired.items()) if previous.get(n) != c]
-    return changed, desired
+        gesture_colour = leds.get(track_index, LED_OFF)
+        for row in range(GRID_ROWS):
+            if row == active and pending is None:
+                desired[pad_note(row, col)] = gesture_colour
+            else:
+                desired[pad_note(row, col)] = static_cell_led(track, row)
+    return desired

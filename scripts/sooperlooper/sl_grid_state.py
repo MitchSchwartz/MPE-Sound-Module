@@ -174,6 +174,46 @@ class GridState:
         self._pending = None
         return derived
 
+    def restore(self, bpm: float, bars: int, cycle_s: float) -> bool:
+        """Adopt a grid that was established EARLIER — by a song, not a take.
+
+        The inverse of `establish`. `establish` derives the description from a
+        take that just landed; this one is handed a description that was
+        already agreed and only has to believe it, which is why it takes all
+        three numbers rather than re-deriving them. Re-deriving would be the
+        bug: `derive_tempo` picks the bar count that puts the BPM nearest 100,
+        and a saved 6.939 s cycle at 138 BPM in 4 bars is not recoverable from
+        the BPM alone — 1 bar and 2 bars are both fixed points of that scoring
+        at 100 BPM. The unit has to be STORED, and this is what stores it.
+
+        Refuses anything it cannot make self-consistent, because a grid that is
+        wrong is worse than no grid: every later clip is placed against it.
+        """
+        if bpm <= 0.0 or bars <= 0 or cycle_s <= 0.0:
+            return False
+        self.bpm = float(bpm)
+        self.bars = int(bars)
+        self.cycle_s = float(cycle_s)
+        self.established = True
+        self.defined_by = None      # the defining take is not in this session
+        self._pending = None
+        return True
+
+    def snapshot(self) -> dict | None:
+        """The three numbers a song has to carry, or None if there is no grid.
+
+        `bpm` alone is not a grid. The manifest stored only that until
+        2026-08-30, which is why a reloaded song came back with the engine's
+        cycle at `8 * 30 / bpm` regardless of what the take had been.
+        """
+        if not self.established or not self.bpm or not self.cycle_s:
+            return None
+        return {
+            "bpm": float(self.bpm),
+            "bars": int(self.bars or 1),
+            "cycle_s": float(self.cycle_s),
+        }
+
     def note_loop_content(self, loop: int, occupied: bool) -> bool:
         """Track which loops hold audio. Always returns False — see below.
 
