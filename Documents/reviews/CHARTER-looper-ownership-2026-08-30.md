@@ -173,13 +173,42 @@ starts, stays up, and logs clean after each stage; MIDI port and variant
 resolution; that LED writes reach the device without error; OSC command-path
 health via read-only checks.
 
-**Not verifiable overnight:** *what the panel looks like.* The capability
-probe (`scripts/probe-apc-buttons.py`) is explicit that its sensor is a pair
-of human eyes. Scene-button and track-button colours stay **UNKNOWN** and must
-be recorded as UNKNOWN — not guessed, not inferred from the vendor document
-that has already been caught lying about this panel. Stage 0 of the spec's
-migration is Mitch's, in the morning, and the structural work is designed to
-not depend on its answer.
+**Stage 0 is already done — corrected 2026-08-30, 02:5x.** This section
+originally said the button colours were UNKNOWN and that the probe was Mitch's
+job in the morning. That was wrong, and wrong in the exact way this whole
+branch exists to fix: a stale claim about hardware, written confidently, in a
+document whose subject is stale claims about hardware. `device_facts.unmeasured()`
+returns `[]`. The probe ran on **2026-08-29**, three rounds, with Mitch reading
+the panel:
+
+| Fact | Tier | Content |
+|---|---|---|
+| `apc.scene.led_observed` | MEASURED | Scene buttons are **green only**. 0 = off, 2 = blinking green, every other velocity = solid green. The grid's RGB palette indices are not honoured. |
+| `apc.track.led_observed` | MEASURED | Track row identical, in **red**. |
+| `apc.buttons.channel_response` | MEASURED | LEDs answer on channel 0 (`0x90`) and **nothing else**. All 16 channels painted at once; only `0x90` lit. The channel axis is **exhausted, not sampled**. |
+| `apc.buttons.single_colour` | MEASURED | **CLOSED as a bounded negative.** Three states per button — off, on, blink. No addressing scheme tried produces any other colour. |
+| `apc.buttons.all_have_leds` | OWNER | Every button has an LED, Shift included. |
+
+Three consequences, all load-bearing for this branch:
+
+1. **The capability check may now raise.** These are MEASURED, therefore
+   authoritative, therefore `device_facts` rule 4 is satisfied. The hedged
+   version in §5's original note applies only to facts that are still
+   VENDOR/INFERRED — of which there are now none for the buttons.
+2. **All colour-carrying UI must live on the 8x8 grid.** Not a preference, a
+   measured constraint. Any design that wants a third colour on a scene or
+   track button is impossible, and we may now say so on authoritative grounds.
+3. **Five files cite fact ids that do not exist.** `led_table.py:45-46`,
+   `apc_leds.py:31`, `apc_transport.py:368`, `slot_matrix.py:330`,
+   `probe-apc-buttons.py:10` all reference `device_facts.apc.scene.led_colours`
+   / `.apc.track.led_colours`, which raise `KeyError`; the real ids end
+   `_observed`. All five also still describe the claim as vendor-tier and
+   unmeasured, which stopped being true the day before this branch opened.
+   Fixing those citations is in scope and cheap.
+
+**Still not verifiable overnight:** whether a cue is *good UI* — blink versus
+colour versus grid. That is Mitch's ear and eye. Our job is to make trying
+three options cost three one-line edits.
 
 Also not verifiable: whether a cue is *good UI*. That is Mitch's ear and eye.
 Our job is to make trying three options cost three one-line edits.
