@@ -78,6 +78,15 @@ if ldd "$SOOP_BIN" 2>/dev/null | grep -q 'not found'; then
     exit 1
 fi
 
+# Idle sink. On usb-host with no external DAC the Pi 5 has no free-running
+# playback device at all -- no headphone jack, and HDMI reads disconnected with
+# no display -- so jackd had nothing to bind and the whole graph failed to
+# start. The UAC2 gadget cannot fill that role: MEASURED 2026-08-30, writing to
+# it while the host is not capturing returns EIO in 1s, because under the USB
+# Audio Class spec the HOST enables the stream. snd-aloop free-runs instead.
+log "idle sink"
+bash "$REPO_ROOT/scripts/install-idle-sink.sh"
+
 log "restarting SooperLooper + JACK graph"
 bash "$REPO_ROOT/scripts/sooperlooper/restart-sooperlooper.sh"
 
