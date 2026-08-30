@@ -25,7 +25,7 @@ from track_gesture import (  # noqa: E402
     stop_all_loops,
 )
 from apc_faders import MASTER, fader_for_cc, is_control_change, resolve_fader_ccs  # noqa: E402
-from apc_grid import GRID_COLS, GRID_ROWS, NUM_LOOPS, GridView, is_clip_note, is_reserved_grid_note  # noqa: E402
+from apc_grid import NUM_LOOPS, GridView, is_clip_note, is_reserved_grid_note  # noqa: E402
 from apc_transport import (  # noqa: E402
     Mk1ShiftGhostFilter,
     ShiftHoldCombo,
@@ -34,10 +34,9 @@ from apc_transport import (  # noqa: E402
     resolve_apc_transport_notes,
     resolve_arrow_notes,
     resolve_scene_launch_notes,
-    resolve_stale_lamp_note,
     scene_row_for_note,
 )
-from led_table import LED_OFF  # noqa: E402
+from led_compositor import LedCompositor  # noqa: E402
 from apc_link import LinkHealth, PacedMidiOut  # noqa: E402
 from apc_mode import grid_silent_reason, parse_mode_sysex  # noqa: E402
 from apc_panel import is_stop_all, scene_press_row  # noqa: E402
@@ -189,8 +188,15 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
         apc_label = apc_variant or "env"
 
     # The pacer encodes pad colour per model; it cannot know the model until
-    # now. Set before the 64-pad blank below, which is the first LED write.
+    # now. Set before the first LED write, which the compositor makes below.
     midi_out.apc_label = apc_label
+
+    # The one thing in this process that sends an LED byte. Everything that
+    # wants a lamp lit submits desired state to it and it decides, once, what
+    # the device is told. Before 2026-08-30 ten sites wrote here directly and
+    # four of them kept private records of what they thought was showing; see
+    # `led_compositor` for what that cost on a reconnect.
+    leds = LedCompositor(midi_out, apc_label=apc_label)
     osc = osc_session.client
     midi_osc_latencies: list[float] = []
     midi_osc_pending: list[float] = []
@@ -259,14 +265,15 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
     # and the fader layer — so the three cannot drift apart.
     view = GridView(num_loops=num_loops)
 
-    # Blank the whole 8x8 before anything paints. Only the bottom row is ours
-    # now, so nothing else would ever write rows 1-7: LEDs left lit by the
-    # previous build (or by Ableton, or by a crash) would sit there all session
-    # advertising tracks that are not on those pads.
-    for _note in range(GRID_ROWS * GRID_COLS):
-        midi_out.send_message([0x90, _note, LED_OFF])
+    # We have no idea what the panel shows: a lamp left lit by the previous
+    # build, by Ableton, or by a crash outlives the process, and on a surface
+    # where an unowned pad is simply never written it would sit there all
+    # session advertising a track that is not on it. `invalidate` asserts the
+    # compositor's whole model — every lamp we know how to address, dark,
+    # because nothing has submitted anything yet.
+    leds.invalidate()
     # Startup only: nothing else is happening yet, and the surface must be
-    # blank before anything paints over it. ~96 ms at the pacing rate.
+    # blank before anything paints over it. ~120 ms at the pacing rate.
     midi_out.drain()
 
     scene_launch_notes = resolve_scene_launch_notes(apc_label)
@@ -291,7 +298,7 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
 
     by_note, gestures = build_track_gestures(
         osc=osc,
-        midi_out=midi_out,
+        compositor=leds,
         num_loops=num_loops,
         hold_ms=hold_ms,
         debounce_ms=debounce_ms,
@@ -368,7 +375,7 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
             runtime=slot_runtime,
             gestures_by_loop=by_loop,
             view=view,
-            midi_out=midi_out,
+            compositor=leds,
             num_tracks=num_loops,
             scene_launch_notes=scene_launch_notes,
             hold_s=hold_ms / 1000.0,
@@ -413,7 +420,7 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
             return
         view = new_view
         by_note = apply_view(
-            midi_out, gestures=gestures, view=view, multigrid=multigrid
+            leds, gestures=gestures, view=view, multigrid=multigrid
         )
         if slot_surface is not None:
             slot_surface.set_view(view)
@@ -436,11 +443,9 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
         hold_s=track_reset_hold_ms / 1000.0,
     )
     transport_leds = TransportButtonLeds(
-        midi_out=midi_out,
+        compositor=leds,
         shift_note=shift_note,
         stop_all_note=stop_all_note,
-        stale_lamp_note=resolve_stale_lamp_note(apc_label),
-        scene_launch_notes=scene_launch_notes,
         hold_s=track_reset_hold_ms / 1000.0,
         apc_label=apc_label,
     )
@@ -505,19 +510,28 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
         except Exception as exc:
             print(f"bench: APC reopen failed: {exc}", file=sys.stderr, flush=True)
             return False
-        # The device came back dark and its LED cache is now a lie, so repaint
-        # everything rather than diffing against a surface that no longer
-        # exists.
+        # The device came back dark, so our record of what it shows is a lie.
+        # `invalidate` is the whole of it — one cache, one forgetting, one
+        # re-assertion of the resolved model.
+        #
+        # This used to be four calls, in an order that mattered and was wrong:
+        # repaint the matrix, repaint the scene column, then
+        # `transport_leds.repaint()` -> `clear_unwired_surfaces()`, which
+        # darkened 56 of the 64 pads the first call had just painted and all
+        # eight scene buttons. The surface's own diff cache had already
+        # recorded them as painted, so the next fifty poll cycles sent nothing
+        # and the erasure was permanent: after any USB glitch the player's
+        # stored takes were gone from the grid until the session restarted.
+        # Order cannot matter here now — submissions resolve by declared
+        # priority, so the same panel comes out whichever way round they run.
         midi_out.reset()
-        for _n in range(GRID_ROWS * GRID_COLS):
-            midi_out.send_message([0x90, _n, LED_OFF])
         by_note = apply_view(
-            midi_out, gestures=gestures, view=view, multigrid=multigrid
+            leds, gestures=gestures, view=view, multigrid=multigrid
         )
         if slot_surface is not None:
-            slot_surface.repaint(force=True)
-            slot_surface.repaint_scenes(force=True)
-        transport_leds.repaint()
+            slot_surface.repaint()
+            slot_surface.repaint_scenes()
+        leds.invalidate()
         return True
 
     link_health = LinkHealth(
@@ -561,9 +575,18 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
         faders.tick(now=now)
 
     def poll_transport_leds() -> None:
+        """Advance the Stop All hold blink. Nothing else animates here.
+
+        This used to re-derive all eight scene buttons on every call, which is
+        every idle iteration at ~485 Hz — `row_has_occupied` plus
+        `row_is_fully_playing` over fifteen tracks, eight times, ~16.5 us an
+        iteration (3.2 % of a Pi 5 core, extrapolated) to discover nothing had
+        moved. It was there because `TransportButtonLeds` darkened the scene
+        column behind the surface's back and the surface had to keep painting
+        it again. With one writer to the wire the column changes only when the
+        clips do, and every path that moves a clip repaints it.
+        """
         transport_leds.poll()
-        if slot_surface is not None:
-            slot_surface.repaint_scenes()
 
     def maybe_track_transport() -> None:
         if track_reset.poll_long():
@@ -571,7 +594,7 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
             transport_leds.on_reset_fired()
             reset_all_loops(
                 osc,
-                midi_out,
+                leds,
                 num_loops=num_loops,
                 gestures=gestures,
             )

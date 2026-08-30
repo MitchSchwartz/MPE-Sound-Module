@@ -140,6 +140,13 @@ class NoteLiteralTests(unittest.TestCase):
         # A SysEx *mode* byte whose label happens to be "Notes" (the pad mode).
         # Nothing addresses a note with it.
         ("apc_mode.py", "MODE_NOTES"),
+        # The note-on STATUS byte, 0x90 — a message type, not a control. It is
+        # named for the MIDI message because that is what it is, and there is
+        # exactly one of it in the process now that the compositor is the only
+        # writer. What it encodes is `device_facts.apc.buttons.channel_response`
+        # (MEASURED 2026-08-29): the channel axis is exhausted, and 0x90 is the
+        # only channel a button LED answers on.
+        ("led_compositor.py", "NOTE_ON_CH0"),
     }
     EXEMPT_HEX = {
         # SysEx identity bytes. 0x62 is also mk1 Shift, which is a coincidence
@@ -423,8 +430,12 @@ class ReachabilityTests(unittest.TestCase):
             sorted(c.id for c in reg.unowned()),
             sorted(f"track_select_{i}" for i in range(1, 9)),
         )
+        # `led_compositor`, not `apc_transport`: the clear moved to the
+        # compositor's base layer, which is the lowest priority and therefore
+        # cannot erase an owner that has spoken. `apc_transport` used to
+        # re-assert it OFF from four separate methods.
         self.assertEqual(
-            reg.control("track_select_8").led_writers, ("apc_transport",)
+            reg.control("track_select_8").led_writers, ("led_compositor",)
         )
 
     def test_every_lamp_with_two_writers_is_declared_as_such(self) -> None:

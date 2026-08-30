@@ -13,14 +13,11 @@ from __future__ import annotations
 
 import os
 import time
-from typing import Protocol
 
+from led_compositor import LAYER_TRANSPORT
 from led_table import (
-    LED_OFF,
     SCENE_LED_OFF,
     SCENE_LED_ON,
-    TRACK_LED_OFF,
-    TRACK_LED_ON,
     accelerating_hold_blink_on,
 )
 
@@ -183,29 +180,6 @@ def resolve_apc_transport_notes(
     if "mk2" in name or "mkii" in name:
         return NOTE_SHIFT_MK2, NOTE_STOP_ALL_CLIPS_MK2, "mk2"
     return NOTE_SHIFT_MK1, NOTE_STOP_ALL_CLIPS_MK1, "mk1"
-
-
-def resolve_stale_lamp_note(apc_label: str) -> int | None:
-    """A button the bench must keep DARK, not a button it lights.
-
-    mk2 Track Select 8 (0x6B); mk1 has none.
-
-    History, because it has now been wrong twice in opposite directions. It
-    started as a "Shift is held" lamp, which lit a track control to report an
-    unrelated modifier — reported from the device as "pressing shift lights up
-    column 8". I then moved the clear-all warning onto it, reasoning that Stop
-    All is green-only in hardware so red had to live somewhere. That was worse:
-    it still lit the wrong button, and it took the blink OFF the button the
-    player is actually looking at while holding it.
-
-    The correct answer to "Stop All should blink red" is that this hardware
-    cannot do it, said out loud, and the blink stays where the gesture is. So
-    the bench lights this button for nothing. The note is kept only so a lamp
-    left on by an earlier build gets cleared.
-    """
-    if apc_label == "mk2":
-        return NOTE_TRACK8_MK2
-    return None
 
 
 def resolve_scene_launch_notes(apc_label: str) -> tuple[int, ...]:
@@ -383,12 +357,8 @@ class ShiftHoldCombo:
         return self.poll_long()
 
 
-class _MidiOut(Protocol):
-    def send_message(self, message: list[int]) -> None: ...
-
-
 class TransportButtonLeds:
-    """Shift / Stop All Clips button LEDs on the APC transport row.
+    """Stop All Clips, while a finger is on it. Nothing else.
 
     Stop All lights while held and blinks under the Shift+StopAll clear hold,
     accelerating as the hold completes. It is green on both models because
@@ -398,30 +368,45 @@ class TransportButtonLeds:
     settled as impossible, on authoritative grounds; the blink is the whole
     vocabulary that is left.
 
-    mk1: no shift indicator is sent. Stop All is green when
-    held alone; Shift+Stop reset combo blinks Stop All green only. Scene Launch
-    1–7 and grid rows 1–7 stay dark until multi-clip P3 wires them; Shift solo
-    suppresses mk1 ghost glow on those surfaces.
+    **A transient, and only a transient.** This is one button and it is shared:
+    pressed alone, Stop All is grid row 0's scene launcher, and `SlotSurface`
+    paints it to say whether that row holds clips. So when no finger is on the
+    combo this class submits `None` — *no opinion* — and the scene indicator
+    underneath comes back. It used to submit `SCENE_LED_OFF` instead, which is
+    an opinion, and it won: one tap of the most-used transport button on the
+    panel left row 0's indicator dark for the rest of the session while
+    `SlotSurface` believed it was lit.
+
+    What is gone, and why. `clear_unwired_surfaces()` darkened all eight scene
+    notes and grid notes 8–63 — "not wired until P3", a docstring two features
+    stale — on construction, on every reconnect, and on every poll while Shift
+    was held alone on mk1. Under `MPE_SL_MULTIGRID=1` those 64 controls belong
+    to `SlotSurface`, and this module contains no occurrence of the word
+    multigrid: it darkened a surface it had never heard of. Its job — clearing
+    a lamp left lit by a previous build — is now the compositor's base layer,
+    which cannot clobber an owner because it is the lowest priority rather than
+    the last writer. `repaint()` and `_last_vel` went with it: one diff, at the
+    wire, in `led_compositor`.
+
+    The stale mk2 Track Select 8 lamp is cleared the same way, once, by the
+    base layer. Four methods here used to re-assert it OFF on a button nothing
+    reads and nothing lights.
     """
 
     def __init__(
         self,
         *,
-        midi_out: _MidiOut,
+        compositor,
         shift_note: int,
         stop_all_note: int,
-        stale_lamp_note: int | None,
-        scene_launch_notes: tuple[int, ...] = (),
         hold_s: float,
         apc_label: str = "mk1",
         blink_start_half_s: float = 0.35,
         blink_min_half_s: float = 0.04,
     ) -> None:
-        self._midi_out = midi_out
+        self._compositor = compositor
         self._shift_note = shift_note
         self._stop_all_note = stop_all_note
-        self._stale_lamp_note = stale_lamp_note
-        self._scene_launch_notes = scene_launch_notes
         self._apc_label = apc_label
         self._hold_s = max(hold_s, 0.001)
         self._blink_start_half_s = blink_start_half_s
@@ -432,39 +417,6 @@ class TransportButtonLeds:
         self._stop_down_before_shift = False
         self._combo_started_at: float | None = None
         self._suppress_until_release = False
-        self._last_vel: dict[int, int] = {}
-        self.clear_unwired_surfaces()
-        if self._stale_lamp_note is not None:
-            self._set_led(self._stale_lamp_note, TRACK_LED_OFF)
-        self._set_led(self._stop_all_note, SCENE_LED_OFF)
-
-    def repaint(self) -> None:
-        """Re-assert every transport LED, ignoring the cache.
-
-        `_last_vel` suppresses redundant writes, which is right until the
-        device re-enumerates: it then comes back dark while the cache still
-        says lit, and every subsequent write is skipped as a no-op.
-        """
-        self._last_vel.clear()
-        self.clear_unwired_surfaces()
-        if self._stale_lamp_note is not None:
-            self._set_led(self._stale_lamp_note, TRACK_LED_OFF)
-        self._set_led(self._stop_all_note, SCENE_LED_OFF)
-
-    def clear_unwired_surfaces(self) -> None:
-        """Darken scene launch 1–7 and grid rows 1–7 (not wired until P3)."""
-        from apc_grid import RESERVED_GRID_NOTES
-
-        for note in self._scene_launch_notes:
-            self._set_led(note, SCENE_LED_OFF)
-        for note in RESERVED_GRID_NOTES:
-            self._set_led(note, LED_OFF)
-
-    def _darken_mk1_shift_ghost_surfaces(self) -> None:
-        """Re-assert dark on mk1 surfaces that ghost-glow when Shift is solo."""
-        if self._apc_label != "mk1" or not self._shift_down or self._stop_down:
-            return
-        self.clear_unwired_surfaces()
 
     def note_event(self, note: int, down: bool) -> None:
         now = time.monotonic()
@@ -475,7 +427,6 @@ class TransportButtonLeds:
                 self._stop_down_before_shift = self._stop_down
                 if self._apc_label == "mk1" and not self._stop_down_before_shift:
                     self._stop_down = False
-                self._darken_mk1_shift_ghost_surfaces()
             else:
                 self._shift_down = False
                 self._shift_down_at = None
@@ -489,8 +440,6 @@ class TransportButtonLeds:
 
         self._maybe_clear_suppress()
         if self._suppress_until_release:
-            if self._stale_lamp_note is not None:
-                self._set_led(self._stale_lamp_note, TRACK_LED_OFF)
             self._set_led(self._stop_all_note, SCENE_LED_OFF)
             return
 
@@ -518,16 +467,20 @@ class TransportButtonLeds:
         """Drive accelerating combo blink between MIDI events."""
         if self._suppress_until_release:
             return
-        self._darken_mk1_shift_ghost_surfaces()
         if self._shift_down and self._stop_down and self._combo_started_at is not None:
             self._apply(time.monotonic())
 
     def on_reset_fired(self) -> None:
-        """Track reset completed — dark until both buttons are released."""
+        """Track reset completed — dark until both buttons are released.
+
+        Deliberately an opinion, not a release: every take has just been
+        cleared, so the scene indicator under this button would come back
+        saying "row 0 holds clips" for the moment before the engine reports
+        otherwise. Dark is what the player is being told, and it is held until
+        the fingers lift.
+        """
         self._suppress_until_release = True
         self._combo_started_at = None
-        if self._stale_lamp_note is not None:
-            self._set_led(self._stale_lamp_note, TRACK_LED_OFF)
         self._set_led(self._stop_all_note, SCENE_LED_OFF)
 
     def _maybe_clear_suppress(self) -> None:
@@ -548,16 +501,18 @@ class TransportButtonLeds:
                           SCENE_LED_ON if blink_on else SCENE_LED_OFF)
             return
 
-        if self._stale_lamp_note is not None:
-            self._set_led(self._stale_lamp_note, TRACK_LED_OFF)
-        self._set_led(
-            self._stop_all_note,
-            SCENE_LED_ON if self._stop_down else SCENE_LED_OFF,
-        )
+        if self._stop_down:
+            self._set_led(self._stop_all_note, SCENE_LED_ON)
+            return
+        # Nothing is held. Hand the button back rather than painting it dark:
+        # it is grid row 0's scene launcher when it is not being used as
+        # transport, and this class has no idea whether that row holds clips.
+        self._release(self._stop_all_note)
 
     def _set_led(self, note: int, velocity: int) -> None:
-        velocity = max(0, min(127, velocity))
-        if self._last_vel.get(note) == velocity:
-            return
-        self._last_vel[note] = velocity
-        self._midi_out.send_message([0x90, note, velocity])
+        self._compositor.submit(
+            LAYER_TRANSPORT, {note: max(0, min(127, velocity))}
+        )
+
+    def _release(self, note: int) -> None:
+        self._compositor.submit(LAYER_TRANSPORT, {note: None})

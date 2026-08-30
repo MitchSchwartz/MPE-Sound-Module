@@ -10,8 +10,9 @@ from __future__ import annotations
 import time
 from typing import Callable
 
-from apc_grid import GRID_COLS, GRID_ROWS, GridView, pad_note
+from apc_grid import GRID_ROWS, GridView
 from apc_transport import scene_launch_index_to_row
+from led_compositor import LAYER_HOLD, LAYER_SURFACE
 from led_table import LED_OFF, LED_RED
 from sl_loop_states import (
     ACTIVE_PLAY,
@@ -23,7 +24,7 @@ from sl_loop_states import (
     SL_STATE_PLAYING,
     SL_STATE_RECORDING,
 )
-from slot_leds import matrix_messages
+from slot_leds import matrix_colours
 from slot_matrix import (
     ACT_NOOP,
     ACT_RECORD,
@@ -49,7 +50,7 @@ class SlotSurface:
         runtime: SlotRuntime,
         gestures_by_loop: dict[int, "TrackGesture"],
         view: GridView,
-        midi_out,
+        compositor,
         num_tracks: int,
         scene_launch_notes: tuple[int, ...] = (),
         hold_s: float = 2.0,
@@ -60,7 +61,11 @@ class SlotSurface:
         self._rt = runtime
         self._fs = gestures_by_loop
         self._view = view
-        self._midi_out = midi_out
+        # The surface submits desired state and never sends a byte. Its two
+        # private records of what it had painted — `_painted` and
+        # `_scene_painted` — are gone with the writes: two of the four caches
+        # that let `clear_unwired_surfaces` erase this matrix permanently.
+        self._compositor = compositor
         self._num_tracks = num_tracks
         self._scene_launch_notes = scene_launch_notes
         self._hold_s = max(hold_s, 0.001)
@@ -81,8 +86,6 @@ class SlotSurface:
         self._rt.set_session_sounding(
             lambda: any(g.sl_state in ACTIVE_PLAY for g in self._fs.values())
         )
-        self._painted: dict[int, int] | None = None
-        self._scene_painted: dict[int, int] = {}
         self._sl_states: dict[int, int] = {}
         self._loop_lens: dict[int, float] = {}
         self._pad_down_note: int | None = None
@@ -136,6 +139,7 @@ class SlotSurface:
                 fs.on_pad_up()
         self._pad_down_note = None
         self._pad_down_at = None
+        self.poll_hold_led()
         self.repaint()
         return True
 
@@ -310,6 +314,7 @@ class SlotSurface:
                     self._hold_fired = True
                     self._pad_down_note = None
                     self._pad_down_at = None
+                    self.poll_hold_led()
                     self.repaint()
             return
         if (self._now() - self._pad_down_at) < self._hold_s:
@@ -318,21 +323,39 @@ class SlotSurface:
         self._hold_fired = True
         self._pad_down_note = None
         self._pad_down_at = None
+        self.poll_hold_led()
         self.press(note, hold=True)
 
     def poll_hold_led(self) -> None:
-        if self._pad_down_note is None or self._hold_fired or self._pad_down_at is None:
-            return
+        """Submit the delete-hold warning for the pad under the finger.
+
+        It used to write straight to the wire with no record of what it had
+        sent: measured at **87,174 messages to one note in 0.30 s**, against a
+        pacing budget of ~666/s, so a 1.5 s hold spent most of the LED
+        bandwidth re-asserting two velocities and every other repaint queued
+        behind it. The blink itself changes at 2 Hz. Going through the
+        compositor makes the write rate equal the blink rate by construction —
+        there is nothing here to remember to do.
+
+        `replace`, not `submit`: the warning follows the finger, so the pad it
+        has left must lose the opinion in the same call. That is what stops the
+        old pad blinking on after the player moves.
+        """
+        self._compositor.replace(LAYER_HOLD, self._hold_warning())
+
+    def _hold_warning(self) -> dict[int, int]:
+        """The hold layer's whole opinion — empty when nothing is held."""
+        note = self._pad_down_note
+        if note is None or self._hold_fired or self._pad_down_at is None:
+            return {}
         # Active lane: the gesture's own hold blink reaches the surface
         # through current_led(), so painting here as well would fight it.
-        if self._is_active_lane(self._pad_down_note):
-            return
+        if self._is_active_lane(note):
+            return {}
         elapsed = self._now() - self._pad_down_at
         if elapsed < self._hold_blink_start_s:
-            return
-        note = self._pad_down_note
-        vel = LED_RED if int(elapsed * 4) % 2 == 0 else LED_OFF
-        self._midi_out.send_message([0x90, note, vel])
+            return {}
+        return {note: LED_RED if int(elapsed * 4) % 2 == 0 else LED_OFF}
 
     def poll_pending(self) -> None:
         """Resolve queued actions from state we already hold.
@@ -351,9 +374,7 @@ class SlotSurface:
         # Launches waiting on the grid rather than on a wrap. Nothing is
         # playing in that case, so no wrap callback is ever coming — this is
         # the only thing that will fire them.
-        if self._rt.poll_grid_wait():
-            self.repaint()
-            self.repaint_scenes()
+        touched = bool(self._rt.poll_grid_wait())
 
         for track_index in self._rt.awaiting_tracks():
             # A press parked behind an in-flight save. The save used to be
@@ -365,6 +386,7 @@ class SlotSurface:
                 track_index, sl_state=self.track_state(track_index)
             )
             if plan is not None:
+                touched = True
                 # A complete tap. The real pad's up edge is long gone — it was
                 # consumed when the press was first made and parked — so
                 # replaying only the down would latch the gesture held, blink
@@ -375,7 +397,17 @@ class SlotSurface:
         for track_index, track in self._rt.tracks().items():
             if track.pending is None:
                 continue
+            touched = True
             self._maybe_resolve(track_index, self.track_state(track_index))
+        if touched:
+            # Whatever just happened moved a clip, so the scene column can have
+            # changed too. This is the ONE path that mutates the runtime
+            # without an engine message behind it, and it is why the bench used
+            # to re-derive all eight scene buttons on every idle iteration —
+            # 485 times a second, over fifteen tracks each, to discover
+            # nothing had moved. Saying so here costs one boolean.
+            self.repaint()
+            self.repaint_scenes()
 
     def poll_led_repaint(self) -> None:
         """Advance gesture blink phase and repaint if needed."""
@@ -509,17 +541,26 @@ class SlotSurface:
         self._pad_down_note = None
         self._pad_down_at = None
         self._hold_fired = False
-        self.blank()
-        self.repaint_scenes(force=True)
+        self.poll_hold_led()
+        # No `blank()` any more. The runtime is empty, so every cell in the
+        # desired map is already OFF and the compositor sends exactly the pads
+        # that were lit. `blank()` existed to overwrite pads the diff cache
+        # thought were still painted, which is a question that no longer has a
+        # second answer.
+        self.repaint()
+        self.repaint_scenes()
 
     # -- output -----------------------------------------------------------
 
     def set_view(self, view: GridView) -> None:
         self._view = view
-        self._painted = None
         self._sync_gesture_notes()
+        # No force. The notes now address different tracks, so the desired map
+        # has genuinely changed and the one diff at the wire sees it. `force=`
+        # was here because the diff was against this object's own record of
+        # what it had painted, which a bank change invalidated.
         self.repaint()
-        self.repaint_scenes(force=True)
+        self.repaint_scenes()
 
     def _gesture_leds(self) -> dict[int, int]:
         out: dict[int, int] = {}
@@ -529,49 +570,32 @@ class SlotSurface:
                 out[track_index] = fs.current_led()
         return out
 
-    def repaint(self, *, force: bool = False) -> None:
-        """Paint changed pads. `force` repaints every one.
+    def repaint(self) -> None:
+        """Submit the matrix. Nothing is sent unless a pad actually changed.
 
-        Needed after the APC re-enumerates: the device comes back dark, so the
-        diff cache describes a surface that no longer exists and a normal
-        repaint would send nothing at all.
+        There is no `force=`. What it meant was "the device is not what I think
+        it is", which was never this object's question to answer: it is the
+        compositor's `invalidate()`, called once, by whoever learned the device
+        came back dark.
         """
-        messages, painted = matrix_messages(
+        self._compositor.submit(LAYER_SURFACE, matrix_colours(
             self._view,
             self._rt.tracks(),
-            self._sl_states,
-            previous=None if force else self._painted,
             gesture_leds=self._gesture_leds(),
-        )
-        for note, colour in messages:
-            self._midi_out.send_message([0x90, note, colour])
-        self._painted = painted
+        ))
 
-    def repaint_scenes(self, *, force: bool = False) -> None:
+    def repaint_scenes(self) -> None:
+        """Submit the scene column — the eight buttons beside the eight rows."""
         if not self._scene_launch_notes:
             return
-        desired: dict[int, int] = {}
-        for index, note in enumerate(self._scene_launch_notes):
-            row = scene_launch_index_to_row(index)
-            desired[note] = scene_row_led(
-                self._rt.tracks(), row, sl_states=self._sl_states
+        # Hoisted. `SlotRuntime.tracks()` copies the whole track dict, and this
+        # called it once per button — eight copies of fifteen tracks, at the
+        # bench's ~485 Hz poll rate, to answer a question about the same
+        # tracks eight times.
+        tracks = self._rt.tracks()
+        self._compositor.submit(LAYER_SURFACE, {
+            note: scene_row_led(
+                tracks, scene_launch_index_to_row(index), sl_states=self._sl_states
             )
-        if force:
-            to_send = sorted(desired.items())
-        else:
-            to_send = [
-                (n, v) for n, v in sorted(desired.items())
-                if self._scene_painted.get(n) != v
-            ]
-        for note, vel in to_send:
-            self._midi_out.send_message([0x90, note, vel])
-        self._scene_painted = desired
-
-    def blank(self) -> None:
-        # `pad_note`, not `row * 8 + col`: this was the third copy of the grid
-        # note formula and the only one without a range check, sitting beside
-        # an imported GRID_ROWS and a hardcoded 8.
-        for row in range(GRID_ROWS):
-            for col in range(GRID_COLS):
-                self._midi_out.send_message([0x90, pad_note(row, col), LED_OFF])
-        self._painted = None
+            for index, note in enumerate(self._scene_launch_notes)
+        })

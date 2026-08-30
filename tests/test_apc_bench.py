@@ -8,15 +8,31 @@ from unittest.mock import MagicMock
 
 from scripts.sooperlooper.track_gesture import apply_view, build_track_gestures, poll_track_gestures
 from scripts.sooperlooper.apc_grid import MAX_VIEW_OFFSET, NUM_LOOPS, GridView, pad_note
+from scripts.sooperlooper.led_compositor import LedCompositor
+from scripts.sooperlooper.led_table import LED_GREEN, LED_OFF
+from scripts.sooperlooper.sl_loop_states import SL_STATE_PLAYING
+
+
+class RecordingOut:
+    """Everything the device is told, in order."""
+
+    def __init__(self) -> None:
+        self.sent: list[list[int]] = []
+
+    def send_message(self, msg) -> None:
+        self.sent.append(list(msg))
+
+
+def compositor() -> LedCompositor:
+    return LedCompositor(RecordingOut(), apc_label="mk1")
 
 
 class ApcBenchTrackGestureTests(unittest.TestCase):
     def test_build_every_track_eight_of_them_on_pads(self) -> None:
         osc = MagicMock()
-        midi_out = MagicMock()
         by_note, gestures = build_track_gestures(
             osc=osc,
-            midi_out=midi_out,
+            compositor=compositor(),
             num_loops=NUM_LOOPS,
             hold_ms=1000.0,
             debounce_ms=200.0,
@@ -33,10 +49,9 @@ class ApcBenchTrackGestureTests(unittest.TestCase):
 
     def test_bottom_row_only(self) -> None:
         osc = MagicMock()
-        midi_out = MagicMock()
         by_note, _ = build_track_gestures(
             osc=osc,
-            midi_out=midi_out,
+            compositor=compositor(),
             num_loops=NUM_LOOPS,
             hold_ms=1000.0,
             debounce_ms=200.0,
@@ -46,31 +61,42 @@ class ApcBenchTrackGestureTests(unittest.TestCase):
             self.assertNotIn(pad_note(3, col), by_note)
 
     def test_apply_view_rebinds_and_clears_the_old_bank(self) -> None:
+        """A pad left lit from the previous bank is a track the player thinks
+        is running and isn't — the one failure of banking they cannot debug
+        from the surface.
+
+        Asserted as what the DEVICE shows. It used to assert that eight
+        explicit OFF messages went out before the repaint, which is a way of
+        producing the guarantee and not the guarantee itself: it passed
+        whether or not anything painted over them afterwards. The clip row is
+        now submitted as the gesture layer's whole opinion, so a pad the new
+        bank has nothing to say about is dark by construction.
+        """
         osc = MagicMock()
-        midi_out = MagicMock()
+        leds = compositor()
         _by_note, gestures = build_track_gestures(
             osc=osc,
-            midi_out=midi_out,
+            compositor=leds,
             num_loops=NUM_LOOPS,
             hold_ms=1000.0,
             debounce_ms=200.0,
         )
-        midi_out.reset_mock()
+        by_loop = {fs.loop: fs for fs in gestures}
+        by_loop[0].sl_state = SL_STATE_PLAYING
+        by_loop[0]._sync_led()
+        self.assertEqual(leds.believes()[pad_note(0, 0)], LED_GREEN,
+                         "track 1 is playing on the first pad")
+
         by_note = apply_view(
-            midi_out, gestures=gestures, view=GridView(offset=MAX_VIEW_OFFSET)
+            leds, gestures=gestures, view=GridView(offset=MAX_VIEW_OFFSET)
         )
         self.assertEqual(sorted(fs.loop for fs in by_note.values()), list(range(NUM_LOOPS - 8, NUM_LOOPS)))
         self.assertEqual(by_note[pad_note(0, 0)].loop, NUM_LOOPS - 8)
-        # Every clip pad is cleared before the repaint — a pad left lit from
-        # the previous bank is a track the player thinks is running and isn't.
-        cleared = [
-            c.args[0][1]
-            for c in midi_out.send_message.call_args_list
-            if c.args[0][2] == 0
-        ]
+        wire = leds.believes()
         for col in range(8):
-            self.assertIn(pad_note(0, col), cleared)
-        self.assertIsNone({fs.loop: fs for fs in gestures}[0]._note)
+            self.assertEqual(wire[pad_note(0, col)], LED_OFF,
+                             f"pad {col} still shows the previous bank")
+        self.assertIsNone(by_loop[0]._note)
 
 
     def test_banking_while_a_pad_is_held_does_not_clear_that_loop(self) -> None:
@@ -79,10 +105,10 @@ class ApcBenchTrackGestureTests(unittest.TestCase):
         # bank change, poll_hold() fires the long-press ~2 s later and wipes a
         # track that is no longer even on screen.
         osc = MagicMock()
-        midi_out = MagicMock()
+        leds = compositor()
         by_note, gestures = build_track_gestures(
             osc=osc,
-            midi_out=midi_out,
+            compositor=leds,
             num_loops=NUM_LOOPS,
             hold_ms=1.0,
             debounce_ms=0.0,
@@ -93,7 +119,7 @@ class ApcBenchTrackGestureTests(unittest.TestCase):
         osc.reset_mock()  # the down leg already fired record — legitimately
 
         new_by_note = apply_view(
-            midi_out, gestures=gestures, view=GridView(offset=MAX_VIEW_OFFSET)
+            leds, gestures=gestures, view=GridView(offset=MAX_VIEW_OFFSET)
         )
         held._pad_down_at -= 10.0  # well past hold_ms
         for fs in gestures:
@@ -127,10 +153,10 @@ class ViewAgreementTests(unittest.TestCase):
         from scripts.sooperlooper.loop_mix import LoopMix
 
         osc = MagicMock()
-        midi_out = MagicMock()
+        leds = compositor()
         _by_note, gestures = build_track_gestures(
             osc=osc,
-            midi_out=midi_out,
+            compositor=leds,
             num_loops=NUM_LOOPS,
             hold_ms=1000.0,
             debounce_ms=200.0,
@@ -138,7 +164,7 @@ class ViewAgreementTests(unittest.TestCase):
         mix = LoopMix(num_loops=NUM_LOOPS)
         for offset in (0, 8, 1, 7):
             view = GridView(offset=offset)
-            by_note = apply_view(midi_out, gestures=gestures, view=view)
+            by_note = apply_view(leds, gestures=gestures, view=view)
             mix.set_view(view)
             for col in range(8):
                 self.assertEqual(

@@ -8,6 +8,7 @@ import os
 import time
 
 from apc_grid import DEFAULT_VIEW, GridView, all_clip_pads, pad_note
+from led_compositor import LAYER_GESTURE
 # LED constants are re-exported: the bench and its tests reach for them here,
 # and the pad surface is this module's job even though the policy is not.
 from sl_limits import MAX_USABLE_LOOPS
@@ -165,7 +166,7 @@ class TrackGesture:
         self._pending: str | None = None
         self._pending_since = 0.0
         self._osc = None
-        self._midi_out = None
+        self._compositor = None
         self._note: int | None = None
         self._pad_down = False
         self._pad_down_at = 0.0
@@ -176,28 +177,29 @@ class TrackGesture:
         self._wait_since = 0.0
         self._stop_queued = False
         self._led_transition: tuple[int, int] | None = None
-        self._led_last: int | None = None
         self._loop_pos_at = 0.0
         self._in_peak = 0.0
         self._in_peak_seen = False
         self._deferred_grid_clock: tuple[float, int] | None = None
 
-    def bind(self, osc, midi_out, note: int | None) -> None:
+    def bind(self, osc, compositor, note: int | None) -> None:
         self._osc = osc
-        self._midi_out = midi_out
+        self._compositor = compositor
         self._note = note
 
     def set_note(self, note: int | None) -> None:
         """Move this track to a different pad, or off-screen (None).
 
         Banking does not change what a track *is* — only where, or whether, it
-        is drawn. `_led_last` is cleared so the next paint is unconditional:
-        the pad this track lands on was showing some other track a moment ago,
-        and the "same velocity, skip the write" guard would otherwise leave the
-        previous track's colour sitting there.
+        is drawn. The pad this track is leaving loses this gesture's opinion in
+        the same call, so it cannot sit there showing the previous track's
+        colour. That used to be handled by clearing `_led_last` and letting the
+        next unconditional paint overwrite it — which worked only because
+        `apply_view` blanked the whole row first.
         """
+        if self._note is not None and self._note != note:
+            self._submit({self._note: None})
         self._note = note
-        self._led_last = None
 
     def release_pad(self) -> None:
         """Abandon an in-flight pad gesture without firing it.
@@ -526,16 +528,27 @@ class TrackGesture:
         self._osc.send_message(self._path("hit"), cmd)
         log(f"loop {self.loop}: -> {cmd} (state={self.state})")
 
-    def _set_led(self, velocity: int, *, force: bool = False) -> None:
-        if self._multigrid:
-            return
-        if self._midi_out is None or self._note is None:
+    def _set_led(self, velocity: int) -> None:
+        """Submit this track's pad colour. Single-clip mode only.
+
+        Under multigrid the gesture computes colour and writes nothing —
+        `SlotSurface` reads `current_led()` and paints. That early return is
+        the one place in the LED stack where ownership was genuinely enforced
+        before this branch, and it is the shape everything else now has.
+
+        There is no `force=`. It existed because `_led_last` was this object's
+        private record of what the device showed, and `_sync_led` passed
+        `force=True` unconditionally to defeat it — leaving the flag doing
+        nothing but dedup for `poll_led`. The diff is at the wire now.
+        """
+        if self._multigrid or self._note is None:
             return  # banked off-screen: this track has no pad to paint
-        velocity = max(0, min(127, velocity))
-        if not force and velocity == self._led_last:
-            return  # do not spam the surface every poll
-        self._led_last = velocity
-        self._midi_out.send_message([0x90, self._note, velocity])
+        self._submit({self._note: max(0, min(127, velocity))})
+
+    def _submit(self, desired: dict[int, int | None]) -> None:
+        if self._compositor is None:
+            return
+        self._compositor.submit(LAYER_GESTURE, desired)
 
     def _led_target(self) -> tuple[int, ...]:
         return led_for(
@@ -588,7 +601,7 @@ class TrackGesture:
             self._led_transition = seq
             return
         self._led_transition = None
-        self._set_led(seq[0], force=True)
+        self._set_led(seq[0])
 
     def _debounced(self) -> bool:
         return (time.monotonic() - self._last_action_at) < self.debounce_s
@@ -818,7 +831,7 @@ class TrackGesture:
 def build_track_gestures(
     *,
     osc,
-    midi_out,
+    compositor,
     num_loops: int,
     hold_ms: float,
     debounce_ms: float,
@@ -858,7 +871,7 @@ def build_track_gestures(
             multigrid=multigrid,
         )
         pad = view.note_for_loop(loop_i)
-        fs.bind(osc, midi_out, pad)
+        fs.bind(osc, compositor, pad)
         gestures.append(fs)
     return notes_for_view(gestures, view), gestures
 
@@ -876,25 +889,31 @@ def notes_for_view(
 
 
 def apply_view(
-    midi_out,
+    compositor,
     *,
     gestures: list[TrackGesture],
     view: GridView,
     multigrid: bool = False,
 ) -> dict[int, TrackGesture]:
-    """Move the viewport: clear the clip row, rebind pads, repaint. New by-note map.
+    """Move the viewport: rebind pads, repaint the clip row. New by-note map.
 
-    Clearing the whole row first — rather than only the pads that changed —
-    is deliberate. Whatever the arithmetic says, a pad left lit by the previous
-    bank is a track the player believes is running and isn't, and that is the
-    one failure of this feature they cannot debug from the surface. One sweep
-    of eight notes costs nothing and makes it impossible.
+    The clip row is submitted as the gesture layer's WHOLE opinion — every pad
+    dark, then each visible gesture's colour over it — so a pad left lit by the
+    previous bank cannot survive. That mattered: a pad still lit after a bank
+    change is a track the player believes is running and isn't, and it is the
+    one failure of this feature they cannot debug from the surface. It used to
+    be handled by sending eight explicit OFFs and then eight colours, sixteen
+    messages down a 31.25 kbaud link; the compositor diffs the result and sends
+    only the pads that actually changed.
 
-    When ``multigrid`` is on, do not paint row 0 from gesture state —
-    ``SlotSurface.repaint`` owns the full matrix.
+    When ``multigrid`` is on the gesture layer says nothing at all: the matrix
+    is `SlotSurface`'s, all eight rows of it, and a blank submitted here would
+    be a second writer to the row this branch exists to give one owner.
     """
-    for row, col in all_clip_pads():
-        midi_out.send_message([0x90, pad_note(row, col), LED_OFF])
+    if not multigrid:
+        compositor.replace(LAYER_GESTURE, {
+            pad_note(row, col): LED_OFF for row, col in all_clip_pads()
+        })
     for fs in gestures:
         fs.release_pad()
         fs.set_note(view.note_for_loop(fs.loop))
@@ -909,7 +928,7 @@ def gestures_by_loop(gestures: list[TrackGesture]) -> dict[int, TrackGesture]:
 
 def reset_all_loops(
     osc,
-    midi_out,
+    compositor,
     *,
     num_loops: int,
     gestures: list[TrackGesture],
@@ -933,8 +952,12 @@ def reset_all_loops(
         osc.send_message(f"/sl/{loop}/hit", "undo_all")
     for fs in gestures:
         fs.expect_cleared()
-    for row, col in all_clip_pads():
-        midi_out.send_message([0x90, pad_note(row, col), LED_OFF])
+    # Every loop is empty, so the gesture layer's whole opinion of the clip row
+    # is "dark". Under multigrid it has no opinion at all and `SlotSurface`
+    # repaints from the runtime it just reset.
+    compositor.replace(LAYER_GESTURE, {
+        pad_note(row, col): LED_OFF for row, col in all_clip_pads()
+    } if not gestures or not gestures[0]._multigrid else {})
     print(f"-> track reset: cleared {num_loops} loops", flush=True)
 
 

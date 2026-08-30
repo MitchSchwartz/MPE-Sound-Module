@@ -24,6 +24,7 @@ from scripts.sooperlooper.led_table import (
     LED_YELLOW_BLINK,
     TAIL_CAPTURE,
 )
+from scripts.sooperlooper.led_compositor import LedCompositor
 from scripts.sooperlooper.sl_grid_state import GridState
 from scripts.sooperlooper.sl_loop_states import (
     SL_STATE_MUTE,
@@ -34,10 +35,21 @@ from scripts.sooperlooper.sl_loop_states import (
 from tests.fake_sl_engine import FakeSlEngine
 
 
+class _Wire(LedCompositor):
+    """A compositor over a recording fake, with the record in easy reach."""
+
+    def __init__(self) -> None:
+        self.sent: list[list[int]] = []
+        super().__init__(self, apc_label="mk1")
+
+    def send_message(self, msg) -> None:
+        self.sent.append(list(msg))
+
+
 class TrackGestureOnEngineTests(unittest.TestCase):
     def _rig(self, *, quantized=True, grid=None, loop=0):
         engine = FakeSlEngine(quantized=quantized)
-        midi = MagicMock()
+        midi = _Wire()
         # The gesture's clock is injected so the ring-out cap — the one exit
         # that survives a dead peak meter — can be driven from a test.
         self.clock = [0.0]
@@ -48,9 +60,14 @@ class TrackGestureOnEngineTests(unittest.TestCase):
         return engine, fs, midi
 
     def _led(self, midi):
-        """Last velocity actually pushed to the surface."""
-        calls = [c.args[0] for c in midi.send_message.call_args_list]
-        return calls[-1][2] if calls else None
+        """Last velocity the DEVICE received for this pad.
+
+        The gesture no longer holds a `midi_out`; it submits desired state and
+        `led_compositor` decides what is sent. That is the same question this
+        helper always meant to ask — it is now asked of the wire rather than of
+        one writer's outgoing stream.
+        """
+        return midi.sent[-1][2] if midi.sent else None
 
     def _tap(self, fs):
         fs.on_pad_down()
