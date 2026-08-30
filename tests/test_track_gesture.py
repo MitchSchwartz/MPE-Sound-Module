@@ -7,7 +7,11 @@ from unittest.mock import MagicMock, patch
 import time
 
 import scripts.sooperlooper.track_gesture as gesture_mod
-from scripts.sooperlooper.track_gesture import TrackGesture, build_track_gestures
+from scripts.sooperlooper.track_gesture import (
+    TrackGesture,
+    build_track_gestures,
+    poll_track_gestures,
+)
 from scripts.sooperlooper.led_compositor import LedCompositor
 
 
@@ -532,7 +536,19 @@ if __name__ == "__main__":
 
 
 class OverdubOnePassTests(unittest.TestCase):
-    """The take closes into an overdub; it has to end itself one pass later."""
+    """The take closes into an overdub; it has to end itself one pass later.
+
+    Every engine report below goes through `_state`/`_pos`, which deliver it
+    and then run the bench's gesture poll. That is not decoration: since
+    2026-08-30 the ring-out has ONE owner, `poll_tail`, and the OSC entry points
+    only record what they saw (`track_gesture` module docstring). A test that
+    called `sync_loop_pos` and asserted the send had already gone out would be
+    asserting that an OSC dispatcher thread ends the overdub — which is the
+    defect these tests exist to catch, not the behaviour.
+
+    The negative cases run the poll too. Without it they would pass by
+    asserting that nothing happened in code that was never given the chance.
+    """
 
     def _fs(self):
         fs = TrackGesture(loop=0, hold_ms=1000.0, debounce_ms=0.0)
@@ -544,37 +560,62 @@ class OverdubOnePassTests(unittest.TestCase):
         return [c.args[1] for c in fs._osc.send_message.call_args_list
                 if c.args[0] == "/sl/0/hit"]
 
+    def _state(self, fs, sl_state: int) -> None:
+        fs.sync_from_sl(sl_state)
+        poll_track_gestures([fs])
+
+    def _pos(self, fs, pos: float) -> None:
+        fs.sync_loop_pos(pos)
+        poll_track_gestures([fs])
+
     def test_overdub_ends_at_the_first_wrap(self) -> None:
         fs = self._fs()
-        fs.sync_from_sl(SL_STATE_OVERDUBBING)
-        fs.sync_loop_pos(0.1)
-        fs.sync_loop_pos(1.9)
+        self._state(fs, SL_STATE_OVERDUBBING)
+        self._pos(fs, 0.1)
+        self._pos(fs, 1.9)
         self.assertNotIn("overdub", self._hits(fs), "still inside pass one")
-        fs.sync_loop_pos(0.02)
+        self._pos(fs, 0.02)
         self.assertEqual(self._hits(fs).count("overdub"), 1)
 
     def test_overdub_ends_only_once(self) -> None:
         fs = self._fs()
-        fs.sync_from_sl(SL_STATE_OVERDUBBING)
+        self._state(fs, SL_STATE_OVERDUBBING)
+        self._pos(fs, 1.9)
+        self._pos(fs, 0.02)
+        self._pos(fs, 1.9)
+        self._pos(fs, 0.02)
+        self.assertEqual(self._hits(fs).count("overdub"), 1)
+
+    def test_two_wraps_queued_before_one_poll_still_send_one_overdub(self) -> None:
+        """The queue cannot smuggle a second toggle past the owner.
+
+        The OSC side now records; if two wrap reports land between polls the
+        drain sees two `TAIL_WRAP` events. The second must find the phase gone
+        and send nothing — `overdub` is a toggle, so a second send starts a
+        fresh one recording the room over the take.
+        """
+        fs = self._fs()
+        self._state(fs, SL_STATE_OVERDUBBING)
         fs.sync_loop_pos(1.9)
         fs.sync_loop_pos(0.02)
         fs.sync_loop_pos(1.9)
         fs.sync_loop_pos(0.02)
+        poll_track_gestures([fs])
         self.assertEqual(self._hits(fs).count("overdub"), 1)
 
     def test_a_wrap_while_merely_playing_sends_nothing(self) -> None:
         fs = self._fs()
-        fs.sync_from_sl(SL_STATE_PLAYING)
-        fs.sync_loop_pos(1.9)
-        fs.sync_loop_pos(0.02)
+        self._state(fs, SL_STATE_PLAYING)
+        self._pos(fs, 1.9)
+        self._pos(fs, 0.02)
         self.assertNotIn("overdub", self._hits(fs))
 
     def test_pad_ending_the_overdub_disarms_the_wrap_watch(self) -> None:
         """Ending it by hand must not leave a wrap primed to send a second
         `overdub`, which would turn overdub back ON a pass later."""
         fs = self._fs()
-        fs.sync_from_sl(SL_STATE_OVERDUBBING)
-        fs.sync_from_sl(SL_STATE_PLAYING)
-        fs.sync_loop_pos(1.9)
-        fs.sync_loop_pos(0.02)
+        self._state(fs, SL_STATE_OVERDUBBING)
+        self._state(fs, SL_STATE_PLAYING)
+        self._pos(fs, 1.9)
+        self._pos(fs, 0.02)
         self.assertNotIn("overdub", self._hits(fs))

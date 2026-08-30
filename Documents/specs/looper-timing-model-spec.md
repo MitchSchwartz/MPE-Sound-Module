@@ -187,11 +187,25 @@ A take closes with `overdub` rather than `record`, which suppresses
 SooperLooper's right-edge fade so the note still ringing lands in the loop
 head. That overdub ends on the FIRST of:
 
-- **decay** — the input has fallen to `MPE_SL_TAIL_RATIO` (0.01, -40 dB) of
-  *this tail's own peak*, held for `MPE_SL_TAIL_HOLD_MS`
+- **decay** — the input has fallen to `MPE_SL_TAIL_RATIO` (~~0.01, -40 dB~~
+  **0.032, -30 dB**) of *this tail's own peak*, held for `MPE_SL_TAIL_HOLD_MS`
 - **cap** — one cycle; a ring-out longer than that is not a ring-out
 - **wrap** — the playhead came round
 - **silent** — never rose above the noise floor at all (400 ms)
+
+> **Corrected in place, 2026-08-30.** The ratio was written here as 0.01 and
+> shipped as 0.032, MEASURED across seven takes on the appliance the same day
+> (`tail_phase.TAIL_RATIO` carries the working). -20 dB was reported by Mitch as
+> "possible the decay is a bit steep" and -30 dB is where it landed. Left
+> visible rather than overwritten, per the fact-base rule that the history of
+> having been wrong is the useful part.
+>
+> **The cap was implemented as one BAR until 2026-08-30**, which is this line's
+> whole point. It was correct while every first take read as one bar; `d06fb08`
+> introduced `BAR_CANDIDATES = (1,2,4,8)` the same day and did not touch
+> `tail_phase.cap_for`, so a 4-bar cycle silently capped the ring-out at a
+> quarter of spec. `cap_for` now takes `GridState.cycle_s` rather than a BPM,
+> so there is no bar arithmetic left in it to go stale again.
 
 The threshold is relative because an absolute one cannot work: measured
 2026-08-29, a real ring-out peaked at 0.0487, so the old fixed 0.02 was 40% of
