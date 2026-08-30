@@ -96,11 +96,27 @@ Known and named already — verify each, do not assume:
 | Tempo / phase / bar | `GridState`, `sl_grid_sync`, `TrackGesture._maybe_establish_grid`, bench callbacks |
 | The tail/ring-out | `TailPhase`, `track_gesture`'s tail methods, `sl_grid_sync`'s `TAIL_*` constants |
 | Loop level | `loop_mix.wet_for` (claims sole ownership — check it) |
-| **"How many loops"** | README says **16**; `sl_limits.MAX_USABLE_LOOPS` says **15**; `smoke-16-loops.sh` passes `-l 16`, which that same module documents as manufacturing a phantom. The live service runs `-l 15`. |
+| **"How many loops"** | README says **16** throughout; `sl_limits.MAX_USABLE_LOOPS` says **15**; `config/platform/player-env-parity.pi5.env` ships `MPE_SL_LOOPS=16`; `sooperlooper-apc-bench.py` is the one Python reader that bypasses `resolve_num_loops()` and so never clamps. Live service runs `-l 15`. |
 
-That last row is the whole brief in one line: a number with four homes, one of
-which is known to be dangerous, sitting in a repo that already contains a
-beautifully written explanation of why it is dangerous.
+That row is the whole brief in one line: a number with several homes, one of
+which is known to be dangerous, in a repo that already contains a beautifully
+written explanation of why it is dangerous.
+
+> **Correction, 2026-08-30 03:0x.** This row originally accused
+> `smoke-16-loops.sh` of passing `-l 16`. It does not. Line 12 reads
+> `LOOPS="${MPE_SL_LOOPS:-15}"  # 15 usable max — see sl_limits.py`, and the
+> `-l 16` literal was removed in `0e9987c` on 2026-08-27 — the same day
+> `sl_limits.py` was written. I sourced the claim from the **filename** and
+> repeated it as fact, which is precisely the defect this branch exists to fix,
+> committed by the document that defines the fix. The config-drift reviewer
+> caught it and noted it nearly repeated the error from the same charter.
+>
+> The real residual issue is smaller and different: the script's *name* still
+> says 16, it iterates a hardcoded range against a `LOOPS` that is now 15, and
+> it restarts the engine from the ambient environment — so with
+> `MPE_SL_LOOPS=16` present it is the fastest route to the phantom config
+> *and prints PASS for it*. The 🔴 belongs to the parity env file that supplies
+> that variable, not to the smoke script.
 
 ### What good looks like
 
@@ -198,13 +214,34 @@ Three consequences, all load-bearing for this branch:
 2. **All colour-carrying UI must live on the 8x8 grid.** Not a preference, a
    measured constraint. Any design that wants a third colour on a scene or
    track button is impossible, and we may now say so on authoritative grounds.
-3. **Five files cite fact ids that do not exist.** `led_table.py:45-46`,
+3. **Five files cite fact ids that do not exist** — `led_table.py:45-46`,
    `apc_leds.py:31`, `apc_transport.py:368`, `slot_matrix.py:330`,
-   `probe-apc-buttons.py:10` all reference `device_facts.apc.scene.led_colours`
-   / `.apc.track.led_colours`, which raise `KeyError`; the real ids end
-   `_observed`. All five also still describe the claim as vendor-tier and
-   unmeasured, which stopped being true the day before this branch opened.
-   Fixing those citations is in scope and cheap.
+   `probe-apc-buttons.py:10`, all naming `device_facts.apc.scene.led_colours`
+   / `.apc.track.led_colours`. The real ids end `_observed`. All five also
+   still describe the claim as vendor-tier and unmeasured, which stopped being
+   true the day before this branch opened. The worst is `slot_matrix.py:328`:
+   a standing TODO telling the next session to implement yellow scene LEDs
+   "if the probe shows they can" — the probe ran, and `apc.scene.led_observed`
+   records velocity 13 as *not honoured, just green*. A trap pointed at a
+   refuted outcome.
+
+   **Correction, 2026-08-30 03:0x.** An earlier version of this line said those
+   citations "raise `KeyError`". They would — but nothing calls them.
+   `fact()`, `refuse_with()`, `unmeasured()` and `AUTHORITATIVE` have **zero
+   callers anywhere in the repo**; every one of the five is prose in a comment.
+   That is the sharper and worse finding, and it has two consequences this
+   charter must own:
+
+   - `apc-control-surface-architecture-spec.md:102` says `Fact.refuse_with()`
+     raises "so the rule is executable rather than aspirational." It is
+     aspirational. It has never executed.
+   - **§5's capability rule is therefore unimplementable as written** —
+     there is no boundary to enforce it at yet. Building that boundary, and
+     giving the fact base its first caller, is the concrete Stage 1 deliverable
+     rather than a documentation fix.
+
+   Five bad citations accumulating in a single day is exactly what a fact base
+   with no callers predicts: prose cannot fail a build.
 
 **Still not verifiable overnight:** whether a cue is *good UI* — blink versus
 colour versus grid. That is Mitch's ear and eye. Our job is to make trying
