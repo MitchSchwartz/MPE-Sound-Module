@@ -82,8 +82,13 @@ class SlotRuntime:
         num_tracks: int,
         log: Callable[[str], None] | None = None,
         now: Callable[[], float] = time.monotonic,
+        grid_boundary: Callable[[], float | None] = lambda: None,
     ) -> None:
         self._send = send
+        #: When the next grid bar line falls, or None if there is no grid.
+        #: Injected rather than reached for: the runtime needs a BOUNDARY, and
+        #: has no business knowing what a GridState is.
+        self._grid_boundary = grid_boundary
         self._clips_dir = Path(clips_dir)
         self._num_tracks = num_tracks
         self._save_timeout_s = SAVE_TIMEOUT_S
@@ -100,6 +105,11 @@ class SlotRuntime:
         self._flush: dict[int, tuple[int, Path, Path, float]] = {}
         #: Presses parked until their track's save lands: loop -> (slot, hold).
         self._awaiting: dict[int, tuple[int, bool]] = {}
+        #: Deferred launches that are waiting on the GRID clock rather than on
+        #: a loop wrap: track -> the boundary time they are waiting for. A
+        #: track that is playing gets its wrap, which is the more accurate
+        #: signal; this is for when nothing is playing at all.
+        self._grid_wait: dict[int, float] = {}
 
     def track(self, index: int) -> Track:
         return self._tracks.get(index, Track())
@@ -157,6 +167,7 @@ class SlotRuntime:
         finished and the swap lands in the seam instead of over the middle of
         a bar.
         """
+        self._grid_wait.pop(track_index, None)
         held = self._deferred.pop(track_index, None)
         if held is not None and not self._launch(held[0]):
             # The launch failed at the boundary. Drop the pending rather than
@@ -199,6 +210,7 @@ class SlotRuntime:
         button. One place to abandon, called from all of them.
         """
         self._deferred.pop(track_index, None)
+        self._grid_wait.pop(track_index, None)
         self._awaiting.pop(track_index, None)
         track = self.track(track_index)
         if track.pending is not None:
@@ -249,6 +261,23 @@ class SlotRuntime:
             )
         return self.press(track_index, slot, sl_state=sl_state, hold=hold)
 
+    def poll_grid_wait(self) -> list[int]:
+        """Fire launches whose grid bar line has arrived. Returns those fired.
+
+        The counterpart to `on_wrap` for a silent session. A playing track
+        still lands on its own wrap — that is sample-accurate and this is not —
+        so this only ever runs for launches that had no wrap to wait for.
+        """
+        now = self._now()
+        due = [t for t, at in self._grid_wait.items() if now >= at]
+        for track_index in due:
+            self._log(
+                f"track {track_index + 1}: queued launch lands on the grid bar "
+                f"line (nothing was playing to sync to)"
+            )
+            self.land_pending(track_index)
+        return due
+
     def has_deferred(self, track_index: int) -> bool:
         """True while a launch is held waiting for this track's wrap."""
         return track_index in self._deferred
@@ -257,6 +286,7 @@ class SlotRuntime:
         """Drop slot bookkeeping after a full track reset."""
         self._tracks = {i: Track() for i in range(self._num_tracks)}
         self._deferred.clear()
+        self._grid_wait.clear()
         self._awaiting.clear()
 
     def mark_recorded(
@@ -302,6 +332,7 @@ class SlotRuntime:
             # sounding, and pausing it stops audio the player never asked to
             # stop. Only the launch case has anything to undo.
             self._deferred.pop(loop, None)
+            self._grid_wait.pop(loop, None)
             pending = self.track(loop).pending
             if pending is None or pending.kind == PENDING_LAUNCH:
                 self._send(f"/sl/{loop}/hit", ["pause_on"])
@@ -324,10 +355,14 @@ class SlotRuntime:
                 return OP_FAILED
 
         if plan.action in (ACT_LAUNCH, ACT_SWITCH):
-            if sl_state in ACTIVE_PLAY:
+            if sl_state in ACTIVE_PLAY or self._grid_boundary() is not None:
                 return OP_OK if self._defer_launch(plan) else OP_FAILED
-            # Nothing is sounding: there is no boundary to wait for and no
-            # audio to protect, so the launch is immediate.
+            # No audio AND no grid: nothing to sync to, so the launch is
+            # immediate. This branch used to be reached whenever nothing was
+            # sounding, which meant that after Stop All every launch fired
+            # instantly even though the tempo was known — "there is no boundary
+            # to wait for" was simply false, and had been since the grid
+            # existed. Now it means what it says.
             return OP_OK if self._launch(plan) else OP_FAILED
         return OP_OK
 
@@ -347,6 +382,9 @@ class SlotRuntime:
             self._log(f"track {loop + 1} slot {plan.slot + 1}: no clip file")
             return False
         self._deferred[loop] = (plan, self._now())
+        boundary = self._grid_boundary()
+        if boundary is not None:
+            self._grid_wait[loop] = boundary
         return True
 
     def expire_deferred(self, track_index: int, *, sl_state: int) -> bool:
@@ -364,12 +402,17 @@ class SlotRuntime:
         held = self._deferred.get(track_index)
         if held is None:
             return False
-        if sl_state not in ACTIVE_PLAY:
+        if sl_state not in ACTIVE_PLAY and track_index not in self._grid_wait:
             self._log(
                 f"track {track_index + 1}: dropping the queued launch — the "
-                f"track is no longer playing, so there is nothing to sync to"
+                f"track is no longer playing and there is no grid, so there is "
+                f"nothing to sync to"
             )
             self.abandon(track_index)
+            return False
+        if sl_state not in ACTIVE_PLAY:
+            # Silent, but the grid knows when the bar falls. `poll_grid_wait`
+            # owns this one; the playing-track grace timer must not touch it.
             return False
         plan, at = held
         if self._now() - at < DEFERRED_LAUNCH_GRACE_S:

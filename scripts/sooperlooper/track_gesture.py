@@ -964,6 +964,7 @@ def stop_all_loops(
     grid = next((fs.grid for fs in gestures if fs.grid is not None), None)
     if grid is not None and grid.established and grid.bpm:
         osc.send_message("/set", ["tempo", float(grid.bpm)])  # zeroes the phase
+        grid.mark_phase_zero(time.monotonic())
         log(f"grid position reset to zero ({grid.bpm:.3f} BPM)")
     for fs in gestures:
         fs.awaiting_quantize = False

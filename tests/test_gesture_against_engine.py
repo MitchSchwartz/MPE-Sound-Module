@@ -174,7 +174,7 @@ class TrackGestureOnEngineTests(unittest.TestCase):
         self.assertEqual(self._led(midi), LED_OFF)
 
     # --- grid lifetime, end to end ---------------------------------------
-    def test_grid_establishes_from_the_first_take_and_drops_with_the_last(self) -> None:
+    def test_the_grid_outlives_the_clip_that_defined_it(self) -> None:
         grid = GridState()
         engine, fs, _ = self._rig(grid=grid, quantized=False)
 
@@ -189,7 +189,13 @@ class TrackGestureOnEngineTests(unittest.TestCase):
         fs.poll_hold_for_test = None
         fs._clear_loop()
         engine.poll(fs)
-        self.assertFalse(grid.established, "no clips, no grid")
+        # The clip that defined the tempo is an ordinary clip. Clearing it used
+        # to take the whole grid with it, so the next take redefined the base
+        # unit — measured on the appliance 2026-08-30 as a tempo that walked
+        # 73.7 -> 34.6 -> 54.9 -> 179.3 BPM across four takes. Only an explicit
+        # track reset starts over now.
+        self.assertTrue(grid.established, "the session keeps its tempo")
+        self.assertIsNotNone(grid.bpm)
 
 
 if __name__ == "__main__":

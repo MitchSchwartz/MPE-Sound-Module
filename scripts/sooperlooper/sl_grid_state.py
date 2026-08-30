@@ -18,6 +18,7 @@ So the grid has exactly two states, and one transition: the first take landing.
 
 from __future__ import annotations
 
+import math
 import os
 
 BEATS_PER_BAR = int(os.environ.get("MPE_LOOPER_BEATS_PER_BAR", "4"))
@@ -82,6 +83,15 @@ class GridState:
 
     def __init__(self) -> None:
         self.established = False
+        #: Monotonic time of the grid's last downbeat, or None if unknown.
+        #:
+        #: The grid used to have no clock of its own: the only boundary the
+        #: bench could see was a playing loop's wrap. So after Stop All, with
+        #: nothing playing, there was no boundary at all and every launch fired
+        #: instantly — reported 2026-08-30 as "I stopped all the clips, then
+        #: restarted the second track and it was not quantized". The tempo was
+        #: known the whole time. Nothing could compute a bar line from it.
+        self.phase_zero_at: float | None = None
         self.bpm: float | None = None
         self.bars: int | None = None
         self.defined_by: int | None = None
@@ -116,28 +126,75 @@ class GridState:
         return derived
 
     def note_loop_content(self, loop: int, occupied: bool) -> bool:
-        """Track which loops hold audio. Returns True if the grid was dropped.
+        """Track which loops hold audio. Always returns False — see below.
 
-        **No clips, no grid.** Clearing every pad one at a time has to leave the
-        session exactly where a track reset does, or the next take is treated as
-        a later clip and gets quantized to the tempo of a grid whose clips are
-        all gone — a short take stretched to an imaginary bar.
+        This USED to drop the whole grid when the last clip was cleared, on the
+        rationale "no clips, no grid": otherwise a fresh take gets quantized to
+        the tempo of a grid whose clips are all gone.
 
-        Driven by engine state (SL_STATE_OFF), not by bench bookkeeping, so it
-        stays true however the clips were cleared.
+        Mitch's call, 2026-08-30, and it is his instrument:
+
+            "Even if we stop all clips, and even if the second track is two
+            bars compared to the established base unit length that the first
+            recorded clip establishes, we still need to reinitialize with those
+            original settings. They should never be cleared away."
+
+        The base unit is a property of the SESSION, not of whichever clips
+        happen to exist right now. Losing it because the pads went empty is how
+        a stable tempo turned into 73.7, then 34.6, then 54.9, then 179.3 BPM
+        across four consecutive takes.
+
+        The tradeoff, stated because it is real: the take after you clear
+        everything is now counted in and length-quantized rather than
+        free-form. Redefining the tempo takes an explicit track reset, which
+        calls `reset()`. That is the only thing that clears a grid now.
+
+        Occupancy is still tracked — callers use it, and it costs nothing.
         """
         if occupied:
             self._occupied.add(loop)
         else:
             self._occupied.discard(loop)
-        if self._occupied or not self.established or self._pending is not None:
-            return False
-        self.reset()
-        return True
+        return False
+
+    def mark_phase_zero(self, now: float) -> None:
+        """The grid's downbeat is NOW.
+
+        Called wherever the engine's phase is zeroed — grid establishment,
+        phase re-anchor, and Stop All — so the bench's idea of the bar line
+        cannot drift away from the engine's.
+        """
+        self.phase_zero_at = now
+
+    @property
+    def bar_s(self) -> float | None:
+        """One bar in seconds, or None without a tempo."""
+        if not self.bpm or self.bpm <= 0.0:
+            return None
+        return BEATS_PER_BAR * 60.0 / self.bpm
+
+    def next_boundary(self, now: float) -> float | None:
+        """When the next bar line falls, or None if the grid cannot say.
+
+        This is what makes a launch quantized with NOTHING playing. It answers
+        from the tempo, which is what a grid is for, instead of from a wrap,
+        which requires audio.
+        """
+        bar = self.bar_s
+        if not self.established or bar is None or self.phase_zero_at is None:
+            return None
+        elapsed = now - self.phase_zero_at
+        if elapsed < 0:
+            return self.phase_zero_at
+        return self.phase_zero_at + (math.floor(elapsed / bar) + 1) * bar
 
     def reset(self) -> None:
-        """Track reset — back to no grid, so the next take defines it again."""
+        """Track reset — back to no grid, so the next take defines it again.
+
+        The ONLY thing that clears a grid. Not Stop All, not clearing clips.
+        """
         self.established = False
+        self.phase_zero_at = None
         self.bpm = None
         self.bars = None
         self.defined_by = None
