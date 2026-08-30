@@ -125,7 +125,7 @@ if __name__ == "__main__":
 
 # The Pi 5 in usb-host with nothing but the gadget and the control surface
 # attached, 2026-08-30 — no headphone jack, HDMI enumerates with no display,
-# and card 7 is the snd-aloop idle sink installed by install-idle-sink.sh.
+# and card 8 is the snd-dummy idle sink installed by install-idle-sink.sh.
 PI5_IDLE_CARDS = """\
  0 [vc4hdmi0       ]: vc4-hdmi - vc4-hdmi-0
                       vc4-hdmi-0
@@ -133,20 +133,20 @@ PI5_IDLE_CARDS = """\
                       UAC2_Gadget 0
  3 [mk2            ]: USB-Audio - APC mini mk2
                       AKAI professional APC mini mk2 at usb-xhci-hcd.0-1.2, full speed
- 7 [Loopback       ]: Loopback - Loopback
-                      Loopback 1
+ 8 [Dummy          ]: Dummy - Dummy
+                      Dummy 1
 """
 
-# What surge-xt-cli --list-devices reports on that unit: the loopback is the
+# What surge-xt-cli --list-devices reports on that unit: the snd-dummy is the
 # only playback device besides HDMI, so detect-audio-device.sh lands on tier 3.
-PI5_IDLE_DEVICES = "Output Audio Device [0.10] : ALSA.Loopback, Loopback PCM"
+PI5_IDLE_DEVICES = "Output Audio Device [0.10] : ALSA.Dummy, Dummy PCM"
 
 
 class Pi5IdleSinkResolutionTests(unittest.TestCase):
-    """Tier 3 on a Pi 5 resolves to the loopback, not to nothing.
+    """Tier 3 on a Pi 5 resolves to the snd-dummy, not to nothing.
 
     MEASURED 2026-08-30: detect-audio-device.sh correctly emitted TIER=3 with
-    DEVICE_NAME "ALSA.Loopback, Loopback PCM", and this script still answered
+    DEVICE_NAME "ALSA.Dummy, Dummy PCM", and this script still answered
     "no ALSA card matches tier '3'" — the name hint does not appear verbatim in
     /proc/asound/cards, and the tier-3 fallback pattern only knew the Pi 4's
     headphone jack. jackd crashlooped and the appliance stayed silent.
@@ -161,26 +161,26 @@ class Pi5IdleSinkResolutionTests(unittest.TestCase):
         )
         return proc
 
-    def test_tier_3_resolves_the_loopback_as_the_pi5_idle_sink(self):
-        proc = self._resolve({0, 2, 7})
+    def test_tier_3_resolves_the_dummy_card_as_the_pi5_idle_sink(self):
+        proc = self._resolve({0, 2, 8})
         self.assertEqual(proc.returncode, 0, proc.stderr)
-        self.assertIn("JACK_DEVICE=hw:7", proc.stdout)
-        self.assertIn("JACK_CARD_ID=Loopback", proc.stdout)
+        self.assertIn("JACK_DEVICE=hw:8", proc.stdout)
+        self.assertIn("JACK_CARD_ID=Dummy", proc.stdout)
 
     def test_the_control_surface_is_still_never_chosen(self):
         """Positive control for the exclusion this file was written for.
 
-        Card 3 is the APC mini and has no playback PCM. If the loopback match
+        Card 3 is the APC mini and has no playback PCM. If the snd-dummy match
         were wired in by loosening the last-resort filter instead, this would
         be the test that caught it.
         """
-        proc = self._resolve({0, 2, 7})
+        proc = self._resolve({0, 2, 8})
         self.assertNotIn("JACK_DEVICE=hw:3", proc.stdout)
 
-    def test_no_loopback_and_no_dac_still_fails_loudly(self):
+    def test_no_dummy_card_and_no_dac_still_fails_loudly(self):
         """Without an idle sink there is nothing honest to return."""
         cards = "\n".join(
-            line for line in PI5_IDLE_CARDS.splitlines() if "Loopback" not in line
+            line for line in PI5_IDLE_CARDS.splitlines() if "Dummy" not in line
         ) + "\n"
         proc = _run(PI5_IDLE_DEVICES, "usb-host", {0, 2}, cards=cards)
         self.assertNotEqual(proc.returncode, 0)

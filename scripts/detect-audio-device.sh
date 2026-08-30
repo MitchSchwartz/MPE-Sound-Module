@@ -207,8 +207,8 @@ DEVICE=$(echo "$DEVICE_LIST" | \
     head -1 || true)
 
 if [ -z "$DEVICE" ]; then
-    DEVICE=$(echo "$DEVICE_LIST" | grep -iE 'Loopback' | head -1 || true)
-    [ -n "$DEVICE" ] && IDLE_SINK_KIND="ALSA loopback"
+    DEVICE=$(echo "$DEVICE_LIST" | grep -iE 'Dummy' | head -1 || true)
+    [ -n "$DEVICE" ] && IDLE_SINK_KIND="snd-dummy"
 fi
 
 if [ -n "$DEVICE" ]; then
@@ -245,7 +245,7 @@ fi
 # tier's own comment already promised to fail loudly; now it does.
 DEVICE=$(echo "$DEVICE_LIST" \
     | grep -viE "$GADGET_GREP" \
-    | grep -viE 'Default Audio Device|Loopback' \
+    | grep -viE 'Default Audio Device|Dummy' \
     | head -1 || true)
 
 if [ -n "$DEVICE" ]; then

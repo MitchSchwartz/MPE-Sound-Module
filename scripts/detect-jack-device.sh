@@ -127,12 +127,12 @@ case "$TIER" in
         ;;
     3)
         # Headphones|bcm2835 is the Pi 4 idle sink. The Pi 5 has no headphone
-        # jack, so there its idle sink is the snd-aloop Loopback card installed
-        # by scripts/install-idle-sink.sh -- see docs/USB-AUDIO-HOST.md. The
-        # loopback stays OUT of the last-resort match below: picking a virtual
+        # jack, so there its idle sink is the snd-dummy card installed by
+        # scripts/install-idle-sink.sh -- see docs/USB-AUDIO-HOST.md. It stays
+        # OUT of the last-resort match below: picking a virtual
         # card by accident is exactly what that exclusion exists to prevent.
         # Here it is not an accident, it is what tier 3 asked for.
-        _match="$(printf '%s\n' "$_records" | grep -iE 'Headphones|bcm2835|Loopback' \
+        _match="$(printf '%s\n' "$_records" | grep -iE 'Headphones|bcm2835|Dummy' \
             | grep -vi 'HDMI' | head -1)"
         ;;
     *)
@@ -160,7 +160,7 @@ _card_can_play() {
 
 _playable_records() {
     local record idx
-    printf '%s\n' "$_records" | grep -viE 'Loopback|vc4hdmi|UAC2' | while IFS= read -r record; do
+    printf '%s\n' "$_records" | grep -viE 'Loopback|Dummy|vc4hdmi|UAC2' | while IFS= read -r record; do
         [ -n "$record" ] || continue
         idx="$(printf '%s' "$record" | cut -d'|' -f1)"
         if _card_can_play "$idx"; then
