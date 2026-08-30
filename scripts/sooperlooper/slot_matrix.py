@@ -326,10 +326,20 @@ def scene_row_led(
     identical to a button that does nothing at all.
 
     Mitch asked for yellow here and got blink instead, on the grounds that the
-    scene buttons are green-only. That ground is not solid — see
-    `device_facts.apc.scene.led_colours`, which is vendor-tier and unmeasured.
-    If the probe shows these buttons can do yellow, this should become yellow,
-    which is what was asked for in the first place.
+    scene buttons are green-only. That ground was NOT solid when this docstring
+    was written — it was a vendor document — and it left a standing TODO here
+    telling the next session to make it yellow "if the probe shows they can".
+
+    The probe ran, on 2026-08-29, and refuted it. Both
+    `device_facts.apc.scene.led_observed` and `.apc.buttons.single_colour` are
+    MEASURED: green only, three states, channel axis exhausted, SysEx RGB
+    rejected against a positive control on the grid pads. Velocity 13 — the
+    grid's yellow — is sent, and comes back green.
+
+    So blink is not a consolation prize any more, it is the whole remaining
+    vocabulary, and a yellow scene button is impossible on grounds we are
+    entitled to state. `control_registry.check_colour("scene_launch_4",
+    YELLOW)` raises. Anything that needs a third colour goes on the grid.
     """
     if not row_has_occupied(tracks, row):
         return SCENE_LED_OFF

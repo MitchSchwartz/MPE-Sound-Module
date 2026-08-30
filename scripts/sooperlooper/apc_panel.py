@@ -18,6 +18,23 @@ RULES FOR THIS FILE
   3. If a fact is disputed, it gets measured again — not reasoned about. The
      three wrong answers were all produced by reasoning.
 
+WHERE THE NUMBERS LIVE NOW — 2026-08-30
+
+Rule 2 was right and unenforceable: by 2026-08-30 seven constants outside this
+file named nineteen notes, and one of them — `apc_transport.ARROW_NOTES_MK2` —
+had been sitting inside `SCENE_COLUMN_MK2` for weeks, killing banking on the
+attached mk2 with 126 green tests over it. A rule in a docstring cannot fail a
+build.
+
+So the note numbers moved down one layer, to `control_registry.py`, where
+every control is one row and a test walks the AST of every APC module to make
+sure no literal escapes. The names below are unchanged and mean exactly what
+they always did; they are now views onto the registry rather than the place the
+digits are typed. This file keeps what it is actually for: the panel drawing,
+the vertical flip, and the pure functions that stop call sites re-deriving it.
+
+The drawing below is a picture, not a source — the registry is the source.
+
 THE PANEL (APC mini mk1)
 
     ┌─────────────────────────┬────────┐
@@ -57,27 +74,26 @@ bottom-up rows, and it has to be written down exactly once, here.
 
 from __future__ import annotations
 
-GRID_COLS = 8
-GRID_ROWS = 8
-
-# --- the 8x8 clip grid ------------------------------------------------------
-# Measured: pad notes are 0..63, row 0 at the BOTTOM, col 0 at the LEFT.
-GRID_NOTE_MIN = 0
-GRID_NOTE_MAX = 63
+from control_registry import (
+    required_note,
+    scene_column_notes,
+    track_button_notes,
+)
+from control_registry import GRID_COLS, GRID_NOTE_MAX, GRID_NOTE_MIN, GRID_ROWS
 
 # --- mk1 --------------------------------------------------------------------
 #: Right-hand column, TOP to BOTTOM. Index 0 is the top button.
-SCENE_COLUMN_MK1: tuple[int, ...] = tuple(range(0x52, 0x5A))   # 0x52..0x59
+SCENE_COLUMN_MK1: tuple[int, ...] = scene_column_notes("mk1")
 #: Printed "Stop All Clips" — the bottom button. Only stops all WITH Shift.
-NOTE_STOP_ALL_CLIPS_MK1 = 0x59
-NOTE_SHIFT_MK1 = 0x62
+NOTE_STOP_ALL_CLIPS_MK1 = required_note("stop_all_clips", "mk1")
+NOTE_SHIFT_MK1 = required_note("shift", "mk1")
 #: Bottom row of eight, left to right.
-TRACK_BUTTON_NOTES_MK1: tuple[int, ...] = tuple(range(0x64, 0x6C))
+TRACK_BUTTON_NOTES_MK1: tuple[int, ...] = track_button_notes("mk1")
 
 # --- mk2 --------------------------------------------------------------------
-SCENE_COLUMN_MK2: tuple[int, ...] = tuple(range(0x70, 0x78))   # 0x70..0x77
-NOTE_STOP_ALL_CLIPS_MK2 = 0x77
-NOTE_SHIFT_MK2 = 0x7A
+SCENE_COLUMN_MK2: tuple[int, ...] = scene_column_notes("mk2")
+NOTE_STOP_ALL_CLIPS_MK2 = required_note("stop_all_clips", "mk2")
+NOTE_SHIFT_MK2 = required_note("shift", "mk2")
 
 assert len(SCENE_COLUMN_MK1) == GRID_ROWS, "one scene button per grid row"
 assert len(SCENE_COLUMN_MK2) == GRID_ROWS, "one scene button per grid row"

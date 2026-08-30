@@ -445,10 +445,19 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
         apc_label=apc_label,
     )
 
+    # The banner used to promise banking unconditionally. On mk2 the arrow
+    # notes were the scene column, so the promise was false on every boot for
+    # the whole life of the feature — the exact failure shape AGENTS.md names:
+    # a reading identical whether it is working or broken.
+    banking = (
+        "(Up/Down page 8, Shift+Left/Right nudge 1)" if arrow_notes
+        else "(BANKING UNAVAILABLE: arrow notes unknown on this variant — see "
+             "device_facts.apc.bank_arrows.notes; --dump-midi to close it)"
+    )
     print(f"bench: running code {running_code_sha()}", flush=True)
     print(
         f"APC [{idx}] {port_name} ({apc_label}) | bottom row -> 8 of {num_loops} tracks "
-        f"(Up/Down page 8, Shift+Left/Right nudge 1) | "
+        f"{banking} | "
         f"OSC {host}:{port} | {len(by_note)} pads | "
         f"Shift=0x{shift_note:02X} StopAll=0x{stop_all_note:02X} | "
         f"short tap=cycle hold>={hold_ms:.0f}ms clear | "

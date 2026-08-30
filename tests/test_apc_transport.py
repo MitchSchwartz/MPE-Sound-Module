@@ -151,22 +151,85 @@ class ShiftHoldComboTests(unittest.TestCase):
 
 
 class ArrowBankingTests(unittest.TestCase):
+    """Arrow note resolution.
+
+    REWRITTEN 2026-08-30, stage 1. The previous version asserted that
+    `resolve_arrow_notes` returns `ARROW_NOTES_MK2` and never compared that
+    tuple against `SCENE_COLUMN_MK2` — which it sat inside. It was named for
+    arrow banking and would have passed with arrow banking deleted, so it
+    passed for weeks over a feature that has never worked on the attached
+    hardware. Charter §2: "a test whose failure would not have caught the bug
+    it is named for is a test that needs rewriting, even if it passes today."
+
+    The mk2 tuple is now empty. That follows from canon, not from a guess:
+    `device_facts.apc.buttons.note_sets` (MEASURED, rank 1) puts the eight
+    scene buttons at 0x70-0x77, and the recalled arrow tuple (rank 6, VENDOR)
+    claimed four of them. Rank 1 beats rank 6 and the lower tier is wrong until
+    re-measured — so the mk2 arrow notes are recorded as unknown rather than
+    replaced with another guess. See `device_facts.apc.bank_arrows.notes`.
+    """
+
     def test_variant_resolution_matches_the_transport_notes_path(self) -> None:
         from scripts.sooperlooper.apc_transport import (
             ARROW_NOTES_MK1,
-            ARROW_NOTES_MK2,
             resolve_arrow_notes,
         )
 
-        mk2 = resolve_arrow_notes("APC mini mk2 MIDI 1")
-        self.assertEqual(sorted(mk2), sorted(ARROW_NOTES_MK2))
-        self.assertEqual(mk2[ARROW_NOTES_MK2[0]], "up")
         self.assertEqual(sorted(resolve_arrow_notes("APC MINI")), sorted(ARROW_NOTES_MK1))
+        self.assertEqual(resolve_arrow_notes("APC MINI")[ARROW_NOTES_MK1[0]], "up")
         # Explicit variant beats the port name, same as Shift/Stop-All.
         self.assertEqual(
-            sorted(resolve_arrow_notes("APC MINI", variant="mk2")),
-            sorted(ARROW_NOTES_MK2),
+            sorted(resolve_arrow_notes("APC mini mk2", variant="mk1")),
+            sorted(ARROW_NOTES_MK1),
         )
+
+    def test_no_arrow_note_is_also_a_scene_button(self) -> None:
+        """The assertion whose absence let banking die.
+
+        Not "the resolver returns the tuple we wrote down" — that is true of
+        any tuple. This asks whether the tuple can survive contact with the
+        rest of the panel, which is the only question that mattered.
+        """
+        from scripts.sooperlooper.apc_panel import SCENE_COLUMN_MK1, SCENE_COLUMN_MK2
+        from scripts.sooperlooper.apc_transport import resolve_arrow_notes
+
+        for port, scene_notes in (
+            ("APC MINI", SCENE_COLUMN_MK1),
+            ("APC mini mk2 MIDI 1", SCENE_COLUMN_MK2),
+        ):
+            with self.subTest(port=port):
+                clash = set(resolve_arrow_notes(port)) & set(scene_notes)
+                self.assertEqual(
+                    clash,
+                    set(),
+                    f"{port}: {[hex(n) for n in sorted(clash)]} is claimed by "
+                    "both the bank arrows and the scene column. The scene "
+                    "branch of the bench event loop runs first and continues, "
+                    "so these presses never reach handle_arrow.",
+                )
+
+    def test_mk2_arrow_notes_are_unknown_not_guessed(self) -> None:
+        """Empty, and empty on the record.
+
+        A future session that wants banking back on the mk2 needs `--dump-midi`
+        and four presses, not a tuple. This pins the "unknown" so it cannot be
+        quietly refilled with the same recall.
+        """
+        from scripts.sooperlooper.apc_transport import resolve_arrow_notes
+        from scripts.sooperlooper.control_registry import DISPUTED
+        from scripts.sooperlooper.device_facts import VENDOR, fact
+
+        self.assertEqual(resolve_arrow_notes("APC mini mk2 MIDI 1"), {})
+        refuted = {
+            note
+            for d in DISPUTED
+            if d.variant == "mk2" and d.control_id.startswith("bank_")
+            for note in d.claimed
+        }
+        self.assertEqual(sorted(refuted), [0x70, 0x71, 0x72, 0x73])
+        # VENDOR on purpose: rule 4 forbids using it to say banking is
+        # impossible. It records that we do not know the notes.
+        self.assertEqual(fact("apc.bank_arrows.notes").tier, VENDOR)
 
     def test_up_down_page_by_eight_arrows_nudge_only_with_shift(self) -> None:
         from scripts.sooperlooper.apc_transport import bank_delta_for_arrow
