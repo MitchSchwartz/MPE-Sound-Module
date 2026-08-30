@@ -410,7 +410,7 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
             hold_blink_start_s=hold_blink_start_ms / 1000.0,
             log=lambda m: print(f"slots: {m}", flush=True),
         )
-        slot_surface.repaint_scenes(force=True)
+        slot_surface.repaint_scenes()
         print(
             f"bench: MULTIGRID on — 8 slots x {num_loops} tracks; "
             f"rows are slots, columns are tracks. Kill switch: MPE_SL_MULTIGRID=0",
