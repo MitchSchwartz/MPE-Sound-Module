@@ -421,3 +421,38 @@ class OneStateSourceTests(SurfaceCase):
         self.assertEqual(len(states), 15, "all tracks, banked or not")
         for track, state in states.items():
             self.assertEqual(state, self.surface.track_state(track))
+
+
+class GridWaitLaunchTests(SurfaceCase):
+    """The silent-session launch path, which had never once run.
+
+    `poll_pending` called `self.repaint(self._sl_states)`. `repaint` is
+    keyword-only and takes no positional argument, so the call raised
+    TypeError the instant a queued launch came due — and the bench main loop
+    has no `try`, so the process died with the load/launch OSC already sent:
+    the audio moves, the pads freeze mid-blink, nothing repaints them ever.
+
+    The unused loop variable was the tell. Nothing had executed this branch.
+    `repaint()` already reads `self._sl_states` itself, so the argument was
+    redundant as well as fatal.
+
+    Canon: `Documents/specs/multi-clip-integration-plan.md` — a launch with
+    nothing playing lands on the grid bar line. That cannot happen if reaching
+    the bar line kills the process.
+    """
+
+    def test_a_launch_due_on_the_grid_bar_line_does_not_raise(self) -> None:
+        self.rt._grid_wait[3] = 0.0  # due for any monotonic now
+        self.surface.poll_pending()  # raised TypeError before this fix
+        self.assertEqual(
+            self.rt._grid_wait, {}, "the wait is consumed, not left to refire"
+        )
+
+    def test_nothing_due_paints_nothing(self) -> None:
+        before = len(self.out.sent)
+        self.surface.poll_pending()
+        self.assertEqual(
+            len(self.out.sent),
+            before,
+            "no launch came due, so the surface must not be repainted",
+        )

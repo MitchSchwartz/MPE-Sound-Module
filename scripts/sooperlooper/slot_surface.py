@@ -351,8 +351,8 @@ class SlotSurface:
         # Launches waiting on the grid rather than on a wrap. Nothing is
         # playing in that case, so no wrap callback is ever coming — this is
         # the only thing that will fire them.
-        for track_index in self._rt.poll_grid_wait():
-            self.repaint(self._sl_states)
+        if self._rt.poll_grid_wait():
+            self.repaint()
             self.repaint_scenes()
 
         for track_index in self._rt.awaiting_tracks():
