@@ -177,12 +177,12 @@ MOCK_PI5_USB_HOST_NO_DAC = "\n".join(
     [
         # What a Pi 5 in usb-host actually offers with nothing plugged in:
         # the gadget, two disconnected HDMI ports, ALSA's virtual default, and
-        # the loopback idle sink. No headphone jack — that is a Pi 4 part.
+        # the snd-dummy card idle sink. No headphone jack — that is a Pi 4 part.
         "Output Audio Device [0.13] : Direct hardware device on ALSA.UAC2_Gadget",
         "Output Audio Device [0.0] : ALSA.Default Audio Device (1)",
         "Output Audio Device [0.1] : Direct hardware device on ALSA.vc4-hdmi-0",
         "Output Audio Device [0.2] : Direct hardware device on ALSA.vc4-hdmi-1",
-        "Output Audio Device [0.7] : Direct hardware device on ALSA.Loopback",
+        "Output Audio Device [0.7] : Direct hardware device on ALSA.Dummy",
     ]
 )
 
@@ -195,7 +195,7 @@ class Pi5IdleSinkTests(unittest.TestCase):
     appliance 2026-08-30 with the host attached but idle:
 
         aplay -D <gadget>   -> write error: Input/output error, after 1s
-        aplay -D <Loopback> -> 3 s of audio took 3 s, nothing reading it
+        aplay -D <Dummy> -> 3 s of audio took 3 s, nothing reading it
 
     A UAC2 gadget has no clock of its own; the host enables the streaming
     interface and isochronous transfers only happen while it is active. So the
@@ -208,7 +208,7 @@ class Pi5IdleSinkTests(unittest.TestCase):
     idle sink at all: jackd failed, Surge failed, the appliance went silent.
     """
 
-    def test_the_loopback_is_the_idle_sink_when_nothing_else_exists(self) -> None:
+    def test_the_dummy_card_is_the_idle_sink_when_nothing_else_exists(self) -> None:
         result = _run_detect(MOCK_PI5_USB_HOST_NO_DAC, profile="usb-host")
         self.assertIn("TIER=3", result.stdout, result.stderr)
         self.assertIn("DEVICE_ID=0.7", result.stdout, result.stderr)
