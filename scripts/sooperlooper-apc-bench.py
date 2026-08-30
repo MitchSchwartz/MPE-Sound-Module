@@ -50,9 +50,9 @@ from looper_engine_events import LooperEngineEventWatch, poll_interval_s  # noqa
 from sl_grid_state import GridState  # noqa: E402
 from sl_grid_sync import (  # noqa: E402
     RING_OUT_ENABLED,
+    apply_established_grid,
     apply_freeform,
     apply_grid_sync,
-    establish_grid_clock,
     set_grid_active,
 )
 
@@ -233,25 +233,39 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
         """First take landed: capture its tempo, then turn the grid on.
 
         Until now every loop had sync=0 so the defining take could record
-        instantly. From here clips count in to the next bar.
+        instantly. From here clips count in to the next CYCLE boundary — the
+        first take's own length, which is one bar only when the take read as
+        one (`looper-timing-model-spec.md` §1).
         """
-        establish_grid_clock(_send, bpm, bars=bars)
-        # `establish_grid_clock` zeroes the engine's phase, so the bench's bar
-        # line starts counting from the same instant.
-        grid.mark_phase_zero(time.monotonic())
-        set_grid_active(_send, num_loops=num_loops, active=True)
+        apply_established_grid(
+            _send, grid, num_loops=num_loops, now=time.monotonic(), arm_loops=True
+        )
         print(
             f"bench: grid established — {bars} bar(s) @ {bpm:.1f} BPM, "
-            f"cycle=1 bar (smart_eighths off). Later clips count in to the bar.",
+            f"cycle={grid.cycle_s or 0.0:.3f}s (smart_eighths off). "
+            f"Later clips count in to the cycle.",
             flush=True,
         )
 
-    def on_phase_reanchor(bpm: float) -> None:
-        """Re-send tempo at the defining take's downbeat after a late PLAYING report."""
-        establish_grid_clock(_send, bpm, bars=grid.bars or 1)
-        grid.mark_phase_zero(time.monotonic())
+    def on_phase_reanchor(_bpm: float) -> None:
+        """Re-send tempo at the defining take's downbeat after a late PLAYING report.
+
+        Phase only: the loops were armed when the grid landed, so `arm_loops`
+        is False rather than re-sending the per-loop settings into live audio.
+
+        `_bpm` is the gesture's freshly re-derived tempo and is deliberately
+        NOT used. This used to send that value with `bars=grid.bars`, which is a
+        tempo from one reading paired with a bar count from another — an engine
+        cycle belonging to neither. The grid was captured once and stands
+        (`looper-timing-model-spec.md` §2); the owner's numbers are the grid.
+        The log prints what was actually sent, for the same reason `cap_for`
+        returns its own source string.
+        """
+        apply_established_grid(
+            _send, grid, num_loops=num_loops, now=time.monotonic(), arm_loops=False
+        )
         print(
-            f"bench: phase re-anchored @ {bpm:.1f} BPM (loop wrap)",
+            f"bench: phase re-anchored @ {grid.bpm:.1f} BPM (loop wrap)",
             flush=True,
         )
 
@@ -327,10 +341,21 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
         print("bench: looper.engine.started — re-applying grid config", flush=True)
         apply_grid_sync(_send, num_loops=num_loops)
         if grid.established and grid.bpm:
-            establish_grid_clock(_send, grid.bpm, bars=grid.bars or 1)
-            set_grid_active(_send, num_loops=num_loops, active=True)
-            print(f"bench: grid restored — {grid.bpm:.1f} BPM, 1-bar cycle",
-                  flush=True)
+            # Through the one seam, which also marks phase zero. This block used
+            # to send the tempo without it: `Engine::set_tempo` zeroes the
+            # engine's counters (engine.cpp:2174-2178), so the engine's downbeat
+            # moved to the restart instant while the bench kept counting from
+            # wherever the grid last landed. Every quantized launch after a
+            # restart was then placed against a bar line the engine did not
+            # share — silently, with the surface vouching for it.
+            apply_established_grid(
+                _send, grid, num_loops=num_loops, now=time.monotonic(), arm_loops=True
+            )
+            print(
+                f"bench: grid restored — {grid.bpm:.1f} BPM, "
+                f"{grid.bars or 1}-bar cycle of {grid.cycle_s or 0.0:.3f}s",
+                flush=True,
+            )
         else:
             print("bench: no grid to restore — next take defines one", flush=True)
 

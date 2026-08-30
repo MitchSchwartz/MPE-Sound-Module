@@ -1,7 +1,46 @@
-"""Per-loop APC gesture state + pad grid wiring (8 visible of 15 tracks)."""
+"""Per-loop APC gesture state + pad grid wiring (8 visible of 15 tracks).
+
+## Who owns the ring-out
+
+This module runs on **two threads**. `SlOscSession` serves the engine's
+auto-updates on a `ThreadingOSCUDPServer`, which hands *each datagram* to its
+own thread; the bench's idle loop calls `poll_track_gestures` from the main
+thread on every iteration (~485 Hz idle, and once per MIDI message besides).
+
+`self._tail` has exactly one owner: **`poll_tail`, on the idle loop.** Nothing
+on an OSC thread may create, end or abandon a ring-out. The OSC side records
+what it saw into `_tail_inbox` and returns; `poll_tail` drains that in arrival
+order and is the only code that touches the phase.
+
+That is not stylistic. `_end_tail` is read-guard-clear, and it sends
+`hit overdub` — **which is a TOGGLE**. Two threads could both pass the `tail is
+None` guard, both clear it, and both send: the first ends the overdub and the
+second STARTS a new one, recording room tone over the take behind a green pad.
+The `sl_state == OVERDUBBING` guard narrows the window and cannot close it,
+because `sl_state` is written by the same OSC thread that is racing. Four sites
+could reach `_end_tail`/`_begin_tail` from an OSC thread — `sync_in_peak`,
+`sync_loop_pos`'s wrap, and both arms of `sync_from_sl` — against `poll_tail`
+on the main loop, at 485 Hz.
+
+A lock would have made the double-fire impossible too. A single owner makes a
+*second* owner impossible, which is the thing that keeps coming back: the exact
+same toggle bug already shipped once from a stale OVERDUBBING report (see
+`sync_from_sl`), was fixed there, and returned here wearing threads instead. So
+the rule is enforced by `tests/test_clock_tail_ownership.py`, which reads the
+source and fails naming the file and line if any OSC-thread entry point ever
+reaches a tail mutator again.
+
+Cost of the seam: one empty-`deque` drain per gesture per idle poll, on top of
+the `is None` guard that was already there. **Measured** with `timeit`,
+200 000 calls: 0.052 µs against 0.026 µs, so **+0.026 µs/call**. At 15 gestures
+x 485 Hz that is 0.019 % of an x86 core, and ~0.06 % of a Pi 5 core on the
+lifecycle review's x3 extrapolation. No subprocess, no timer, no new thread —
+`DECISIONS.md` § 2026-08-18.
+"""
 
 from __future__ import annotations
 
+from collections import deque
 from collections.abc import Callable
 
 import os
@@ -44,6 +83,7 @@ from sl_grid_sync import (
     GRID_ANCHOR_FALLBACK_CYCLES,
     GRID_ANCHOR_MAX_S,
     RING_OUT_ENABLED,
+    apply_established_grid,
     detect_loop_wrap,
     should_defer_phase_anchor,
 )
@@ -75,6 +115,33 @@ PENDING_TIMEOUT_S = float(os.environ.get("MPE_SL_PENDING_TIMEOUT_S", "6.0"))
 
 # Transition blink: alternate FROM-colour and TO-colour, half a period each.
 TRANSITION_BLINK_S = float(os.environ.get("MPE_APC_TRANSITION_BLINK_S", "0.25"))
+
+# -- the ring-out inbox: what an OSC thread may say about a tail ------------
+#
+# Four facts, recorded by whichever OSC dispatcher thread observed them and
+# acted on by `poll_tail` alone. Each carries the time it was OBSERVED, not the
+# time it was drained, so moving the decision to the idle loop does not move the
+# cap window or the decay hold.
+TAIL_BEGIN = "begin"        # the engine entered OVERDUBBING (a take just closed)
+TAIL_ABANDON = "abandon"    # it left OVERDUBBING by some other route
+TAIL_PEAK = "peak"          # one input-peak sample
+TAIL_WRAP = "wrap"          # the playhead came round
+
+#: Ceiling on queued peaks. Peaks arrive at MPE_SL_BENCH_PEAK_MS (25 ms => 40 Hz)
+#: for the ONE loop that is ringing out, and the idle loop drains at ~485 Hz, so
+#: the steady-state depth is 0-1. Reaching this means the main loop has been
+#: stalled for ~25 s, which is a different emergency.
+#:
+#: The drop is COUNTED and logged, never silent. Losing peaks silently is the
+#: precise failure this whole phase was rebuilt after: every tail peak was
+#: dropped by a listener guard in 2026-08-26 and the ring-out was cut to a fixed
+#: window with nobody the wiser (PI5-LOOPER-SEAM-WRAP.md). A queue that discards
+#: evidence quietly reads exactly like a queue that is working.
+#:
+#: Control events (begin/abandon/wrap) are never dropped: there are at most a
+#: handful per take, and losing one is the failure direction that leaves a live
+#: overdub armed with nothing to end it.
+TAIL_INBOX_LIMIT = int(os.environ.get("MPE_SL_TAIL_INBOX_LIMIT", "1024"))
 
 
 def log(msg: str) -> None:
@@ -146,9 +213,20 @@ class TrackGesture:
         self.loop_len = 0.0
         self.loop_pos = 0.0
         self._loop_pos_seen = False
-        # True while an overdub started by closing a take is still
-        # running. Cleared at the first wrap — one pass of ring-out.
+        # True while an overdub started by closing a take is still running.
+        #
+        # OWNED BY `poll_tail`, ON THE IDLE LOOP. Created, ended and abandoned
+        # there and nowhere else — see the module docstring for why a second
+        # writer here is audible rather than theoretical.
         self._tail: TailPhase | None = None
+        #: What the OSC dispatcher threads have seen, in arrival order.
+        #: `deque.append`/`popleft` are atomic under CPython, so the seam needs
+        #: no lock — and needing no lock is the point: there is one owner, not
+        #: several taking turns.
+        self._tail_inbox: deque[tuple[str, float, float]] = deque()
+        #: Peaks refused because the inbox was over `TAIL_INBOX_LIMIT`, so the
+        #: drop can be reported instead of inferred from a short trace.
+        self._tail_peaks_dropped = 0
         #: Injected at construction, the way SlotRuntime takes its clock. The
         #: tail's cap is a statement about elapsed time, and a phase whose
         #: clock is only injectable at some call sites is one a test can drive
@@ -178,9 +256,6 @@ class TrackGesture:
         self._stop_queued = False
         self._led_transition: tuple[int, int] | None = None
         self._loop_pos_at = 0.0
-        self._in_peak = 0.0
-        self._in_peak_seen = False
-        self._deferred_grid_clock: tuple[float, int] | None = None
 
     def bind(self, osc, compositor, note: int | None) -> None:
         self._osc = osc
@@ -247,22 +322,17 @@ class TrackGesture:
                 f"deferring to the engine")
             self._pending = None
 
-    def sync_in_peak(self, peak: float) -> None:
-        self._in_peak = max(0.0, float(peak))
-        self._in_peak_seen = True
-
-    def _flush_deferred_grid_side_effects(self) -> None:
-        """Apply grid clock + phase re-anchor once it is safe to reset phase."""
-        if self._deferred_grid_clock is not None and self._on_grid_established is not None:
-            bpm, bars = self._deferred_grid_clock
-            self._deferred_grid_clock = None
-            log(
-                f"loop {self.loop}: applying deferred grid clock — "
-                f"{bars} bar(s) @ {bpm:.1f} BPM"
-            )
-            self._on_grid_established(bpm, bars)
-        if self._phase_reanchor_at > 0.0:
-            self._try_commit_phase_reanchor(force_wrap=True)
+    # `_flush_deferred_grid_side_effects` stood here until 2026-08-30, holding a
+    # `_deferred_grid_clock` tuple and calling `_on_grid_established` from it.
+    # Deleted: the method had **zero callers** and the field was never assigned
+    # anything but None, so the whole deferral was a description of behaviour
+    # that does not run. That is not harmless in this file — it made a fifth
+    # candidate answer to "what establishes the grid?", and reading a codebase
+    # for its owner is the job this branch exists to make possible. Same
+    # treatment as the dead `TAIL_*` seam constants (audit cycle 1, finding E).
+    #
+    # The live deferral is `_phase_reanchor_at` plus `_try_commit_phase_reanchor`,
+    # driven from `sync_loop_len` / `sync_loop_pos`, and it is untouched.
 
     def sync_from_sl(self, sl_state: int) -> bool:
         """Mirror SooperLooper state → bench LED (all loops incl. 0)."""
@@ -288,19 +358,21 @@ class TrackGesture:
             self._hit("record")
             self._begin_quantize_wait()
 
+        # THIS RUNS ON AN OSC DISPATCHER THREAD, so it only records what the
+        # engine said. `poll_tail` decides. See the module docstring.
         if sl_state == SL_STATE_OVERDUBBING:
             # On the TRANSITION only. This ran on every OVERDUBBING report, so
             # a repeated or stale one re-armed the phase after it had already
             # ended — and the cap then sent `overdub` with nothing armed to
             # turn off, which turns overdub back ON. A loop quietly recording
             # the room behind a green pad.
-            if self._tail is None and prev_sl != SL_STATE_OVERDUBBING:
-                self._begin_tail()
+            if prev_sl != SL_STATE_OVERDUBBING:
+                self._tail_inbox.append((TAIL_BEGIN, 0.0, self._now()))
         elif prev_sl == SL_STATE_OVERDUBBING:
             # Ended by the pad, or by the engine. Either way stop watching —
             # and do NOT send an overdub-off, because whatever ended it already
             # did. Sending one here would toggle overdub back ON.
-            self._abandon_tail()
+            self._tail_inbox.append((TAIL_ABANDON, 0.0, self._now()))
 
         if sl_state == SL_STATE_PLAYING:
             self._maybe_establish_grid()
@@ -355,7 +427,13 @@ class TrackGesture:
         if self._loop_pos_seen and detect_loop_wrap(
             self.loop_pos, pos, self.loop_len
         ):
-            self._end_tail(EXIT_WRAP)
+            # Recorded, not acted on — this is an OSC thread. `poll_tail` runs
+            # on every bench iteration (idle AND per MIDI message), so the
+            # overdub closes within one ~2.1 ms period of this line. Set that
+            # against the 20 ms `loop_pos` reporting interval the wrap is
+            # already quantised to, and against the failure it removes, which
+            # is a whole extra PASS of room recorded over the take.
+            self._tail_inbox.append((TAIL_WRAP, 0.0, self._now()))
             if self._on_wrap is not None:
                 self._on_wrap()
         if self._loop_pos_seen and detect_loop_wrap(
@@ -370,17 +448,31 @@ class TrackGesture:
             self._try_commit_phase_reanchor()
 
     # -- the ring-out (TAIL) phase --------------------------------------
+    #
+    # Everything from `_begin_tail` to `poll_tail` runs on the IDLE LOOP and
+    # only there. The three methods that mutate `self._tail` are named in
+    # `tests/test_clock_tail_ownership.py::TAIL_MUTATORS`; adding a caller from
+    # an OSC entry point fails that test by name and line.
 
-    def _begin_tail(self) -> None:
+    def _begin_tail(self, at: float | None = None) -> None:
         """The take just closed into its ring-out.
 
         Armed off `sl_state == OVERDUBBING` rather than off the command we
         sent, so an overdub the engine never entered cannot leave this latched.
+
+        `at` is when the engine's OVERDUBBING report was OBSERVED, so the cap
+        window starts where the ring-out did rather than where the idle loop
+        happened to look.
+
+        The cap is one CYCLE — `GridState.cycle_s`, the first take's own length
+        (`looper-timing-model-spec.md` §6). Not one bar: since `d06fb08` a first
+        take may read as 2, 4 or 8 bars, and `bar_s` is a description of the
+        cycle, never a boundary (§1).
         """
-        bpm = self.grid.bpm if self.grid is not None else None
-        cap, cap_source = cap_for(bpm, loop_len=self.loop_len)
-        self._tail = TailPhase(started_at=self._now(), cap_s=cap,
-                               trace=bool(TAIL_TRACE_PATH))
+        cycle = self.grid.cycle_s if self.grid is not None else None
+        cap, cap_source = cap_for(cycle, loop_len=self.loop_len)
+        self._tail = TailPhase(started_at=self._now() if at is None else at,
+                               cap_s=cap, trace=bool(TAIL_TRACE_PATH))
         if self._on_tail_change is not None:
             self._on_tail_change(self.loop, True)
         log(f"loop {self.loop}: tail phase — ends on decay, capped at "
@@ -395,7 +487,14 @@ class TrackGesture:
             self._on_tail_change(self.loop, False)
 
     def _end_tail(self, reason: str) -> None:
-        """Leave the overdub, once, and say why."""
+        """Leave the overdub, once, and say why.
+
+        "Once" is guaranteed by there being ONE CALLER THREAD, not by the guard
+        below. Read-guard-clear is not atomic: two threads both saw a live tail
+        here, both cleared it and both sent `overdub` — a toggle — so the second
+        send started a fresh overdub recording the room over the take. That is
+        why `poll_tail` is the only path in.
+        """
         tail = self._tail
         if tail is None:
             return
@@ -427,22 +526,61 @@ class TrackGesture:
                 log(failure)
 
     def sync_in_peak(self, value: float) -> None:
-        """Input peak from the engine. Only meaningful during the tail."""
-        if self._tail is None:
+        """Input peak from the engine — RECORDED HERE, ACTED ON IN `poll_tail`.
+
+        Runs on an OSC dispatcher thread. It used to feed the phase directly
+        and end the overdub itself, which is one of the four ways two threads
+        could both send the `overdub` toggle. Now it timestamps the sample and
+        leaves; the owner drains it within one ~2.1 ms poll, against a 25 ms
+        peak interval.
+
+        The queue is bounded and the overflow is COUNTED, not swallowed: a
+        peak stream that quietly loses samples looks exactly like a healthy one
+        at the reading site, which is how the ring-out came to be cut at a
+        fixed window for weeks (PI5-LOOPER-SEAM-WRAP.md).
+        """
+        if len(self._tail_inbox) >= TAIL_INBOX_LIMIT:
+            self._tail_peaks_dropped += 1
             return
-        reason = self._tail.peak(float(value), self._now())
-        if reason is not None:
-            self._end_tail(reason)
+        self._tail_inbox.append((TAIL_PEAK, float(value), self._now()))
 
     def poll_tail(self) -> None:
-        """The cap, checked from the idle loop.
+        """The ring-out's ONE owner. Drain what the OSC threads saw, then tick.
 
         Deliberately not dependent on the meter: if `in_peak_meter` never
         arrives — unregistered, dropped by a listener guard, input silent — the
         overdub must still end. Every tail peak being silently dropped is a
         thing that has actually happened here (PI5-LOOPER-SEAM-WRAP.md), and
         the result was tails cut to a fixed window with nobody the wiser.
+
+        Called from `poll_track_gestures`, which the bench runs on every
+        iteration of its loop — the idle branch at ~485 Hz and once per MIDI
+        message besides — so no burst of pad or fader traffic can starve it.
         """
+        inbox = self._tail_inbox
+        while inbox:
+            kind, value, at = inbox.popleft()
+            if kind == TAIL_PEAK:
+                if self._tail is None:
+                    continue          # a peak outside a ring-out means nothing
+                reason = self._tail.peak(value, at)
+                if reason is not None:
+                    self._end_tail(reason)
+            elif kind == TAIL_BEGIN:
+                # The `is None` guard belongs to the owner. A stale or repeated
+                # OVERDUBBING report must not re-arm a phase that has ended:
+                # the cap would then send `overdub` with nothing to turn off,
+                # which turns it back ON.
+                if self._tail is None:
+                    self._begin_tail(at)
+            elif kind == TAIL_ABANDON:
+                self._abandon_tail()
+            elif kind == TAIL_WRAP:
+                self._end_tail(EXIT_WRAP)
+        if self._tail_peaks_dropped:
+            dropped, self._tail_peaks_dropped = self._tail_peaks_dropped, 0
+            log(f"loop {self.loop}: !! dropped {dropped} tail peak(s) — the "
+                f"idle loop fell more than {TAIL_INBOX_LIMIT} samples behind")
         if self._tail is None:
             return
         reason = self._tail.tick(self._now())
@@ -986,8 +1124,22 @@ def stop_all_loops(
     osc.send_message("/sl/-1/set", ["mute_quantized", 1.0])
     grid = next((fs.grid for fs in gestures if fs.grid is not None), None)
     if grid is not None and grid.established and grid.bpm:
-        osc.send_message("/set", ["tempo", float(grid.bpm)])  # zeroes the phase
-        grid.mark_phase_zero(time.monotonic())
+        # Through the one seam. This was a raw `/set tempo` with the phase mark
+        # hand-paired beside it — a fourth copy of the three lines, and the one
+        # that also skipped `smart_eighths` and `eighth_per_cycle`. Harmless
+        # while those happen to still hold from establishment, which is exactly
+        # the "inferred from something that happens to be true right now" shape
+        # `looper-timing-model-spec.md` §7 names as the root of every bug here.
+        #
+        # `arm_loops=False`: Stop All "resets the grid phase to zero, and keeps
+        # the grid" (spec §5). It is not an establishment and must not re-arm.
+        apply_established_grid(
+            osc.send_message,
+            grid,
+            num_loops=num_loops,
+            now=time.monotonic(),
+            arm_loops=False,
+        )
         log(f"grid position reset to zero ({grid.bpm:.3f} BPM)")
     for fs in gestures:
         fs.awaiting_quantize = False

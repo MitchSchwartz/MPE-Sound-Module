@@ -8,9 +8,32 @@
 `tempo`. No timebase master, no extra process, no JACK transport.
 
 A grid needs three things — tempo, unit, and **phase**. `Engine::set_tempo`
-zeroes `_quarter_counter` and `_tempo_counter`, so **re-sending the tempo is the
-phase reset**. That is why the JACK timebase master was never needed: its only
-job was phase.
+zeroes `_quarter_counter` and `_tempo_counter` (verified, `engine.cpp:2174-2178`),
+so **re-sending the tempo is the phase reset**. That is why the JACK timebase
+master was never needed: its only job was phase.
+
+**One owner, one seam (2026-08-30).** `GridState` holds all three quantities;
+`sl_grid_sync.apply_established_grid(send, grid, …)` is the only thing that
+tells the engine about them, and `establish_grid_clock` has no other caller.
+Both are enforced by `tests/test_clock_tail_ownership.py`, which also fails if
+any module outside `sl_grid_sync` writes `/set ["tempo", …]` at all — because
+writing the tempo *is* moving the downbeat, and the four places that did it
+by hand had three different bugs between them (a missing phase mark after an
+engine restart, a stale bar count on the phase re-anchor, a song load that
+never carried a bar count to begin with).
+
+The seam sends **smart_eighths off, then `eighth_per_cycle`, then `tempo`** —
+tempo last precisely because it is the phase reset — and marks the bench's
+phase zero in the same call, so the two halves cannot drift apart.
+
+**A song carries its own grid.** The manifest stores `bars` and `cycle_s`
+alongside `bpm` (additive, no version bump; absent they read 1 and are derived,
+which is what every song saved before 2026-08-30 did). `save_song` reads the
+unit off the engine — `/get "eighth_per_cycle"` is answered at
+`engine.cpp:1898-1899`, and `cycle = eighth_per_cycle * 30 / tempo` at
+`engine.cpp:2310` — and `load_song` restores through the same seam. Before
+this, loading a song re-established at the default one bar, so a song whose
+first take read as four bars came back quantizing to a quarter of the take.
 
 **The first take defines the grid.** It records free-form and instant, with no
 bar to count in to; its length yields the tempo. Every later clip counts in and

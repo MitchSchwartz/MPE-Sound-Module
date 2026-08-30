@@ -21,7 +21,10 @@ from sl_limits import MAX_USABLE_LOOPS, resolve_num_loops
 
 import os
 import sys
-from typing import Callable
+from typing import TYPE_CHECKING, Callable
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from sl_grid_state import GridState
 
 DEFAULT_FADE_SAMPLES = int(os.environ.get("MPE_SL_FADE_SAMPLES", "256"))
 DEFAULT_BPM = float(os.environ.get("MPE_LOOPER_BPM", "120"))
@@ -235,9 +238,67 @@ def establish_grid_clock(
     send("/set", ["tempo", float(bpm)])
 
 
-def anchor_phase(send: Callable[[str, list], None], bpm: float) -> None:
-    """Phase reset only — prefer establish_grid_clock when the grid lands."""
-    establish_grid_clock(send, bpm)
+def apply_established_grid(
+    send: Callable[[str, list], None],
+    grid: GridState,
+    *,
+    num_loops: int = MAX_USABLE_LOOPS,
+    now: float,
+    arm_loops: bool,
+) -> None:
+    """**The one way the engine is ever told what the grid is.**
+
+    `GridState` owns tempo, unit and phase. This is its only seam to the
+    engine, and `establish_grid_clock` has no other caller — enforced by
+    `tests/test_clock_tail_ownership.py`, which fails naming the file and line
+    if a second one appears.
+
+    It exists because the same few lines were hand-assembled at **six** sites,
+    of which exactly one was right:
+
+    * `bench.on_grid_established` — clock, `mark_phase_zero`, arm. Correct.
+    * `bench.on_phase_reanchor` — sent a freshly re-derived bpm with the STORED
+      bar count: a tempo from one reading and a unit from another, giving the
+      engine a cycle belonging to neither. Latent; it bites when `loop_len`
+      moves between establishment and the wrap.
+    * `bench.on_looper_engine_started` — clock and arm, **and no
+      `mark_phase_zero`.** `Engine::set_tempo` zeroes `_quarter_counter` /
+      `_tempo_counter` (engine.cpp:2174-2178), so after an engine restart the
+      engine's downbeat moved and the bench's did not. `next_boundary` then
+      hands `SlotRuntime` a bar line the engine does not agree with, and a
+      quantized launch lands off the beat with the surface vouching for it.
+    * `looper_songs.load_song` — clock at the default `bars=1`, so any song
+      whose first take read as 2, 4 or 8 bars came back with the engine's cycle
+      at a fraction of the take.
+    * `track_gesture.stop_all_loops` — a raw `/set tempo` with the phase mark
+      beside it, and no `smart_eighths` / `eighth_per_cycle`. Correct only
+      while those happen to still hold from establishment.
+    * `looper_songs.stop_playback` — a raw `/set tempo` of the value it had
+      just read back, unexplained. It is a phase reset, and now says so.
+
+    Six near-copies, four distinct defects. Pairing the phase mark with the
+    tempo send in ONE function is what stops them recurring: you cannot reset
+    the engine's phase through this module without saying where the bench's
+    downbeat now is.
+
+    `arm_loops` is deliberately required. True re-sends the per-loop quantize /
+    sync / mute_quantized settings (grid establishment, engine restart, song
+    load); False is phase-only (the re-anchor at the defining take's wrap),
+    where those loops are already armed and re-sending ~90 messages into live
+    playback buys nothing.
+    """
+    if not grid.established or not grid.bpm or grid.bpm <= 0.0:
+        raise ValueError(
+            "apply_established_grid called with no established grid — "
+            "there is no tempo to send, and sending one anyway would zero the "
+            "engine's phase against a bar line nobody has agreed on"
+        )
+    establish_grid_clock(send, grid.bpm, bars=grid.bars or 1)
+    # Immediately after, and unconditionally: the tempo send above WAS the
+    # phase reset, so this is not bookkeeping, it is the other half of it.
+    grid.mark_phase_zero(now)
+    if arm_loops:
+        set_grid_active(send, num_loops=num_loops, active=True)
 
 
 def apply_freeform(

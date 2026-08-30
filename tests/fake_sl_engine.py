@@ -21,6 +21,7 @@ Verb semantics are taken from the engine, not guessed:
 
 from __future__ import annotations
 
+
 from scripts.sooperlooper.sl_loop_states import (
     SL_STATE_MUTE,
     SL_STATE_OFF,
@@ -204,13 +205,35 @@ class FakeSlEngine:
 
     # --- what the bench listener would deliver ----------------------------
     def poll(self, gesture) -> None:
-        """Deliver this loop's state, the way the OSC listener would."""
+        """Deliver this loop's state the way the OSC listener would, then let
+        the bench's ring-out owner act on it.
+
+        The appliance has both halves: `SlBenchStateListener` delivers on OSC
+        dispatcher threads, and `poll_holds()` runs `poll_track_gestures` on
+        every bench iteration — the idle branch at ~485 Hz and once per MIDI
+        message besides. The second half was missing here until 2026-08-30, and
+        it started mattering the day the ring-out got a single owner: the OSC
+        entry points now only record what they saw, so a harness that ran the
+        listener alone modelled an appliance whose main loop had stopped, with
+        the cap and the 400 ms silent grace switched off along with it.
+
+        **`poll_tail` and not `poll_track_gestures`, deliberately.** The full
+        poll also drives `poll_led`, whose blink phase is
+        `int(time.monotonic() / 0.25)` — real wall-clock time. Pulling that
+        into a shared harness makes every LED assertion in every test that uses
+        this engine depend on when the suite happened to run, and it did:
+        `test_pad_never_goes_solid_green_before_the_engine_confirms` passed on
+        one run and failed on the next with nothing changed between them. A
+        test that flakes is not a stricter test. Callers that want the LED half
+        drive it explicitly, with a clock they control.
+        """
         loop = gesture.loop
         gesture.sync_from_sl(self.state[loop])
         length = self.loop_len[loop]
         if length:
             gesture.sync_loop_len(length)
         self.deliver_wrap(gesture)
+        gesture.poll_tail()
 
     def deliver_wrap(self, gesture) -> None:
         """Feed the playhead across a wrap, if this loop has crossed one.

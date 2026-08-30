@@ -48,6 +48,7 @@ from sl_loop_states import (  # noqa: E402
 )
 from slot_runtime import SlotRuntime  # noqa: E402
 from slot_surface import SlotSurface  # noqa: E402
+from track_gesture import poll_track_gestures  # noqa: E402
 from tests.test_slot_surface import (  # noqa: E402
     FakeOut,
     build_track_gestures,
@@ -131,9 +132,27 @@ class Session(unittest.TestCase):
                 fs.sync_from_sl(state)
             self.surface.on_state(loop, state)
 
+    def poll_gestures(self) -> None:
+        """The half of the bench's idle loop this harness used to omit.
+
+        `poll_holds()` runs `poll_track_gestures` on EVERY bench iteration — the
+        idle branch at ~485 Hz and once per MIDI message besides — and that is
+        where the ring-out is owned: the OSC threads only record what they saw.
+        A harness that delivers engine state and never runs the gesture poll is
+        modelling an appliance whose main loop has stopped, which is not a state
+        any assertion here is about.
+
+        Added 2026-08-30 with the tail's single owner. Before that the OSC
+        entry points ended the ring-out themselves, on whichever thread got
+        there first — which is exactly the defect, and the reason this omission
+        was invisible.
+        """
+        poll_track_gestures(list(self.fs_by_loop.values()), multigrid=True)
+
     def idle(self, rounds: int = 20) -> None:
         """The bench's idle loop, which runs thousands of times a second."""
         for _ in range(rounds):
+            self.poll_gestures()
             self.surface.poll_hold()
             self.surface.poll_hold_led()
             self.surface.poll_led_repaint()
@@ -141,6 +160,7 @@ class Session(unittest.TestCase):
     def boundary(self, *, length: float = 2.0) -> None:
         self.engine.boundary(length=length)
         self.deliver()
+        self.poll_gestures()
 
     # -- gestures (the ONLY way state is allowed to change) ----------------
     def tap(self, slot: int, track: int = 0) -> None:
@@ -148,6 +168,7 @@ class Session(unittest.TestCase):
         self.surface.note_down(note)
         self.surface.note_up(note)
         self.deliver()
+        self.poll_gestures()
 
     def ring_out_pass(self, track: int = 0, *, length: float = 2.0) -> None:
         """Run the loop round once so the ring-out overdub ends.
@@ -163,6 +184,7 @@ class Session(unittest.TestCase):
         for pos in (0.1, length * 0.5, length * 0.95, 0.02):
             fs.sync_loop_pos(pos)
             self.deliver()
+            self.poll_gestures()
 
     def record_clip(self, slot: int, track: int = 0, *, length: float = 2.0) -> None:
         """Play a take into a slot, exactly as a player would: tap, tap, let it
