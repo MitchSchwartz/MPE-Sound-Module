@@ -27,6 +27,13 @@ at it reads "fine" either way.
 Second finding of equal weight: `loop_mix`'s central claim — *"nothing else ever
 writes `wet`"* — is **false**, and the second writer lives in the other process.
 
+Third, and the most on-the-nose: `device_facts.py` was built to end the failure where
+one unmeasured sentence became load-bearing in five docstrings. Five modules now cite
+two of its fact ids that **do not exist**, and all five describe a question as open
+that closed MEASURED the day before. Nothing detects this, because `fact()`,
+`refuse_with()` and `unmeasured()` have zero callers anywhere in the repo. The fact
+base has a home and provenance; it still has no way to be wrong.
+
 ---
 
 ## Section 1 — the confirmed instance, verified and corrected
@@ -42,14 +49,27 @@ The charter's "how many loops" row is **confirmed with one correction**.
 | `scripts/bootstrap-pi5-looper.sh` | **15**, written into `/etc/mpe/mpe.env` | `:46` |
 | every other shell script | **15** default | `run-sooperlooper.sh:20`, `restart-sooperlooper.sh:13`, `wire-jack-graph.sh:19`, `stop-all-loops.sh:7`, `reset-all-loops.sh:8`, `wire-sooperlooper-graph.sh:17`, `diagnose-16loop-crackle.sh:11` |
 
-**Correction to the charter:** `smoke-16-loops.sh` no longer passes `-l 16`. Line 12
-now reads `LOOPS="${MPE_SL_LOOPS:-15}"`. The charter's description of that file is
-stale. What it does instead is worse in a quieter way — see 🔴 4.
+**Correction to the charter — `smoke-16-loops.sh` does not pass `-l 16`.** The file has
+exactly one `-l`, at `:42`, and it passes `"${LOOPS}"`, which `:12` defaults to **15**.
+The hardcoded `-l 16` was removed in `0e9987c` (2026-08-27) — the same day `sl_limits.py`
+was written. The charter's row, and the coordinator's restatement of it, are stale by
+three days and appear to be sourced from the **filename**.
 
-**Correction to the charter (2):** "the live service runs `-l 15`" is true only if
-`/etc/mpe/mpe.env` does not contain `MPE_SL_LOOPS`. `run-sooperlooper.sh:20` reads
-that file (`EnvironmentFile=-/etc/mpe/mpe.env`, `config/mpe-sooperlooper.service:20`)
-and passes the value through **unclamped**. Three scripts write `16` into it.
+That correction does not rescue the script. It is still broken, in a quieter and more
+interesting way — it now *inherits* the bad configuration instead of hardcoding it, and
+it independently exercises an index that does not exist while printing PASS. See 🟡 6.
+The coordinator's ranking instinct ("a test tool that reproduces a known-bad config is
+worse than no tool") is right; the mechanism is just not the one named.
+
+**Correction to the charter (2):** "the live service runs `-l 15`" is true **today** —
+the coordinator confirmed the live process is `sooperlooper -q -D yes -l 15 -c 2 -t 40
+-p 9951 -j mpe-looper` and the journal logs `bench state updates for loops 0..14`. That
+tells us something precise: the Pi's `/etc/mpe/mpe.env` currently has `MPE_SL_LOOPS=15`,
+i.e. **`bootstrap-pi5-looper.sh` was the last writer**. The divergence in 🔴 1 is
+therefore **latent, not currently active** — one run of `apply-player-env-parity.sh` or
+`apply-external-state.sh` arms it. `run-sooperlooper.sh:20` reads that file
+(`EnvironmentFile=-/etc/mpe/mpe.env`, `config/mpe-sooperlooper.service:20`) and passes
+the value through **unclamped**.
 
 ---
 
@@ -311,6 +331,126 @@ day it was written.
 
 ---
 
+### 🔴 5b. Five `device_facts` citations point at ids that do not exist — and the fact base has zero callers, so nothing can tell
+
+Five modules cite two fact ids. **Neither id is in `FACTS`.** Verified by executing
+the module:
+
+```
+$ python3 -c "import device_facts as d; print(sorted(d.FACTS)); print(d.unmeasured())"
+['apc.buttons.all_have_leds', 'apc.buttons.channel_response', 'apc.buttons.single_colour',
+ 'apc.grid.mk2_encoding', 'apc.probe.positive_control', 'apc.scene.led_observed',
+ 'apc.scene_column.bottom_is_0x59', 'apc.shift.led', 'apc.track.led_observed']
+[]
+```
+
+| Site | Cites | Real id |
+|---|---|---|
+| `led_table.py:45-46` | `apc.scene.led_colours`, `.apc.track.led_colours` | `apc.scene.led_observed:109`, `apc.track.led_observed:121` |
+| `apc_leds.py:31` | `apc.scene.led_colours` | same |
+| `apc_transport.py:368` | `apc.scene.led_colours` | same |
+| `slot_matrix.py:330` | `apc.scene.led_colours` | same |
+| `probe-apc-buttons.py:10` | `apc.scene.led_colours`, `.track.led_colours` | same |
+
+The dead link is the smaller half. **The prose at all five sites is now wrong against
+tier 1**, and in the same direction: it tells the reader an open question is open, one
+day after it closed MEASURED.
+
+`scripts/sooperlooper/led_table.py:44-47`:
+```python
+# What we currently SEND to the side buttons. Not a statement about what
+# they can show: see `device_facts.apc.scene.led_colours` and
+# `.apc.track.led_colours`, both still resting on a vendor document that has
+# already been wrong once about this panel. Measure before promising a colour.
+```
+It **was** measured — five probe rounds on 2026-08-29, with a positive control
+(`apc.probe.positive_control`).
+
+`scripts/sooperlooper/apc_leds.py:30-31`:
+```python
+This used to say the button LEDs ARE single-colour, as established fact. It is
+not established — see `device_facts.apc.scene.led_colours`.
+```
+It **is** established: `apc.buttons.single_colour` (MEASURED, 2026-08-29) records it
+CLOSED as a bounded negative across three exhausted axes. The comment now states the
+exact inverse of the fact base.
+
+`scripts/sooperlooper/apc_transport.py:367-368`:
+```python
+It is green on both models because the
+scene-launch LEDs are driven green here. Whether they CAN show red is
+unmeasured — `device_facts.apc.scene.led_colours`.
+```
+Answered: `apc.scene.led_observed` = green only; `apc.track.led_observed` = red on the
+track row. Scene-red is refuted, not unmeasured.
+
+**The dangerous one** — `scripts/sooperlooper/slot_matrix.py:328-332`:
+```python
+Mitch asked for yellow here and got blink instead, on the grounds that the
+scene buttons are green-only. That ground is not solid — see
+`device_facts.apc.scene.led_colours`, which is vendor-tier and unmeasured.
+If the probe shows these buttons can do yellow, this should become yellow,
+which is what was asked for in the first place.
+```
+The probe ran. `apc.scene.led_observed` states velocities *"13 yellow, 21 green are not
+honoured — they are just green."* Yellow on the scene column is **measured impossible**.
+So this is a standing TODO, addressed to the next session, pointing at a nonexistent
+fact id, instructing it to implement a colour the hardware has been measured not to
+produce — and framed as restoring something Mitch asked for. That is a trap, and it is
+the highest-consequence of the five.
+
+**The structural finding underneath, which is worse than the five instances.**
+`device_facts.fact()`, `Fact.refuse_with()`, `AUTHORITATIVE` and `unmeasured()` have
+**zero callers anywhere in `scripts/`, `patch_browser/` or `tests/`**. Grep confirms
+every reference outside `device_facts.py` itself is prose in a comment. Consequences:
+
+1. A broken fact id cannot raise, cannot fail a test, and cannot be noticed. That is
+   why five of them accumulated in one day.
+2. `Documents/specs/apc-control-surface-architecture-spec.md:102` claims
+   *"`Fact.refuse_with()` raises if this is attempted, so the rule is executable rather
+   than aspirational."* It is aspirational. Nothing calls it.
+3. The charter's §5 hard rule — *"capability violations raise on authoritative tiers and
+   warn on unmeasured ones"* — has no implementation to attach to.
+4. `unmeasured()` returns `[]`. Its docstring calls it *"the work queue for the
+   capability probe… meant to be read before promising Mitch anything about the panel."*
+   An empty work queue that nobody reads is indistinguishable from a finished one.
+
+`device_facts.py` was built to end the failure where *"a claim about physical hardware
+had no home, no provenance, and no way to be wrong"* (`:17-18`), and where one sentence
+became load-bearing in five docstrings. It now has a home and provenance. It still has
+**no way to be wrong** — and it has produced five restatements of its own.
+
+**Fix direction, and it is small:**
+- Correct the five ids and rewrite the five prose blocks against the MEASURED facts.
+  `slot_matrix.py:328-332` should say yellow is refuted and why, not invite it.
+- Add `def cite(fact_id: str) -> str` and make the citations executable, or at minimum
+  a test that scans the tree for `device_facts\.([a-z_.]+)` and asserts every captured
+  id is in `FACTS`. Twenty lines. It would have caught all five the day they landed,
+  and it is the charter's own standard: *"A rule a build cannot fail is not a rule."*
+
+**Also stale against tier 1 — `apc-control-surface-architecture-spec.md:130-136`:**
+
+```
+| Scene launch colours | mk1 0x52-0x59, mk2 0x70-0x77 | UNKNOWN | VENDOR — unmeasured |
+| Track select colours | 0x64-0x6B                    | UNKNOWN | VENDOR — unmeasured |
+
+The two UNKNOWN rows are what `scripts/probe-apc-buttons.py` exists to settle.
+```
+
+Both rows are settled MEASURED 2026-08-29. Under the charter's canon table
+`device_facts` at MEASURED is tier 1 and a spec is tier 3, so **the spec table is the
+defect**. This matters more than an ordinary stale doc: the charter §1 instructs every
+agent on this branch to read that spec *"before anything else"* and says it *"is already
+correct."* In §3.3 it is not, and it is stale in the direction that re-opens a closed
+question — the same shape as the five citations, one tier up.
+
+*(This finding was flagged by the coordinator and independently verified here; the
+zero-callers structure, the `slot_matrix.py` yellow trap, and the spec §3.3 row are
+additions from this pass. The coordinator's "raise KeyError" framing is not quite
+right — nothing calls `fact()`, so nothing raises. Silence is the problem.)*
+
+---
+
 ### 🟡 6. `smoke-16-loops.sh` prints PASS after loading a loop that does not exist
 
 `smoke-16-loops.sh:12` correctly defaults `LOOPS=15`. Lines 55, 66, 72 do not:
@@ -330,9 +470,19 @@ to verify the 16th. `mpe looper sl-smoke`'s own help still says *"Restart Sooper
 -l 16"* (`mpe-cli/commands/looper.sh:96`), as does `README.md:143,154` and
 `AGENTS.md:68`.
 
-**Fix direction:** `$(seq 0 $((LOOPS - 1)))` in all three places, and rename the file
-and the CLI text. `smoke-16-loops.sh` naming a count that is wrong is how the number
-16 keeps propagating.
+**On "does it still reproduce the known-bad config?"** — the coordinator's framing.
+Answer: **not on its own any more, but it is the one script that will.** The `-l 16`
+literal is gone (`0e9987c`, 2026-08-27), so with a clean env it starts the engine at 15.
+But it is also the only looper script that *restarts the engine from the ambient env*
+(`:38-47`) while iterating a hardcoded 16, so with `MPE_SL_LOOPS=16` present — which
+`player-env-parity.pi5.env:24` ships — `sl-smoke` becomes the fastest way to put the
+appliance into the phantom configuration and get a PASS for it. Ranked 🟡 rather than
+🔴 only because the config that arms it is already ranked 🔴 1.
+
+**Fix direction:** `$(seq 0 $((LOOPS - 1)))` in all three places; fix the two log
+strings to interpolate `${LOOPS}`; rename the file and the CLI text. A script whose
+*filename* asserts a count is how the number 16 keeps propagating — it is where both
+the charter and the coordinator picked the stale claim up.
 
 ---
 
@@ -395,13 +545,41 @@ keyed right and one keyed wrong.
 (`:20`) is assigned at `:380` and then immediately overwritten by an ephemeral bind
 at `:395-396`. The env var controls nothing.
 
-**On `SCRATCH` / `musical_loop_indices` specifically** — the charter asks whether it
-still reflects reality. Verdict: the *default* is correct and honest (`-1`, with the
-reason travelling with it at `looper_songs.py:24-26` and `sl_hud_monitor.py:33-34`,
-and the two agree). The danger is not the code, it is that the env key that switches
-it on is still shipped set to `14` in `player-env-parity.pi5.env:27` (🔴 1), and only
-two of the six modules that address loops honour it. Either every consumer honours
-`SCRATCH` or none does; "two of six" is the two-writer shape wearing a config hat.
+**On `SCRATCH` / `musical_loop_indices` — is it still live, still correct, still
+meaning what it meant?** Three separate answers, and they do not agree.
+
+**Still live?** Yes, on all three counts: the constant, the function, and the env key.
+`SCRATCH` is read at `looper_songs.py:27` and `sl_hud_monitor.py:35`;
+`musical_loop_indices` is called at `looper_songs.py:456, 531`; and the key is *shipped
+set to `14`* in `player-env-parity.pi5.env:27` and documented as `14` in
+`mpe.env.example:225, 234`.
+
+**Still correct?** The *code* is. Both defaults are `-1` and they agree, and each
+carries its reason (`looper_songs.py:24-26`, `sl_hud_monitor.py:33-34`, which even says
+*"Must match looper_songs.SCRATCH"*). `musical_loop_indices` short-circuits cleanly at
+`:64-65`. The *configuration* is not: it still asserts the workaround
+`sl_limits.py:30-32` says *"outlived the explanation."*
+
+**Still means what it meant?** **No — and this is the sharp end.** It used to mean
+"loop 14 is the seam-weld capture buffer, reserved by the engine's own workflow." The
+seam-weld pipeline was deleted 2026-08-26 (`sl_grid_sync.py:35-38`), so today it means
+only "hide loop 14 from two of the six modules that address loops." The other four —
+`apc_grid`, `slot_matrix`, `slot_runtime`, `slot_surface`/`track_gesture` and the bench —
+have **never** read `SCRATCH`; grep across `scripts/` and `patch_browser/` returns
+exactly two readers. So the name still says "reserved" while the behaviour is now
+"recordable on the surface, invisible to save and to the HUD." That is the data-loss
+path in 🔴 1, and it is a semantic drift, not a bug in either module.
+
+Note the symmetry with `sl_limits.py`'s own history: the scratch workaround outlived its
+explanation once and cost a morning; the explanation has now been written down properly
+in two modules, and the **configuration** outlived the removal instead. Same failure,
+moved one layer down.
+
+**Fix direction:** delete `MPE_SL_SCRATCH_LOOP` from `player-env-parity.pi5.env:27` and
+`mpe.env.example:225,234-236`. Keep `SCRATCH`/`musical_loop_indices` — the seam is
+cheap and honestly documented — but either make all six loop-addressing modules honour
+it or add a test that fails when a reserved index is reachable from the surface.
+"Two of six" is the two-writer shape wearing a config hat.
 
 One stale comment inside otherwise good code: `looper_songs.py:25` — *"so all 16
 loops are musical"* — sits directly under `NUM_LOOPS = resolve_num_loops()` which is 15.
@@ -554,11 +732,41 @@ and omits 9954 (health) and the songs probe.
 **`mpe-cli/commands/looper.sh`:** `:95` "generate 16 fixture WAVs", `:96` "Restart
 SooperLooper -l 16", `:109` "APC 16-pad bench".
 
+**`Documents/specs/apc-control-surface-architecture-spec.md`:** `:130-136` — two rows
+marked UNKNOWN / VENDOR-unmeasured that `device_facts` settled MEASURED on 2026-08-29;
+`:102` claims `Fact.refuse_with()` makes rule 4 "executable rather than aspirational"
+when nothing calls it. See 🔴 5b. This is the one that matters most, because the
+charter sends every agent to this spec first and vouches for it.
+
+**Five source files** — `led_table.py:45-46`, `apc_leds.py:31`, `apc_transport.py:368`,
+`slot_matrix.py:330`, `probe-apc-buttons.py:10` — cite two fact ids that do not exist
+and describe a closed question as open. See 🔴 5b.
+
 The pattern: **16 appears as fact in five documents and three help strings**, all
 downstream of a constant that has said 15 since 2026-08-27. `sl_limits.py`'s own
 history section (`:26-31`) describes precisely this — a fact that lived in one place,
 read as stale, and got deleted. The inverse is happening now: a corrected fact that
 lives in one place while nine stale copies read as canon.
+
+### The velocity of this, measured
+
+Three independent data points from this session alone, worth stating because they
+change what the fix has to be:
+
+1. The **charter**, written ~6 h ago, carried a stale `smoke-16-loops.sh` claim
+   (fixed in git 3 days earlier) and — per the coordinator — a stale §6 on button
+   colours (closed 1 day earlier). Both have now been corrected.
+2. **Five source files** drifted from `device_facts` within **one day** of the facts
+   being recorded (🔴 5b).
+3. This review picked the stale smoke claim up from the charter and would have
+   repeated it, had the `-l` line not been read directly.
+
+A doc-freshness convention cannot survive drift at this rate; three careful readers in
+one night all inherited a stale fact from a document rather than from the source. The
+only durable fixes are the executable ones: a citation-resolution test for
+`device_facts` ids, a generated `mpe.env.example`, and constants that have exactly one
+importable home. Everything in this review that is *prose* will be stale again by the
+weekend.
 
 ---
 
@@ -607,6 +815,8 @@ Ranked by what breaks if the homes diverge.
 | **scratch loop** | `looper_songs.SCRATCH:27` (−1); `sl_hud_monitor.SCRATCH_LOOP:35` (−1); **`player-env-parity.pi5.env:27`=14**; `mpe.env.example:234`=14; `bootstrap-pi5-looper.sh:45` deletes it | **−1 / 14** | `looper_songs.py:24-26` = **−1** (none reserved) | ❌ **NO** |
 | **`wet` composition** | `loop_mix.wet_for:313` (claims sole); **`looper_songs.py:677`** | one composed, one raw | `loop_mix.wet_for` | ❌ **NO** |
 | **mk2 notes 0x70–0x73** | `apc_panel.SCENE_COLUMN_MK2:78` (scene rows 7–4); `apc_transport.ARROW_NOTES_MK2:94` (arrows) | two meanings, same notes | `apc_panel` (rule 2; MEASURED via `device_facts.apc.scene.led_observed`) | ❌ **NO** |
+| **`device_facts` fact ids** | `device_facts.FACTS` (9 real ids); cited as `apc.scene.led_colours` / `apc.track.led_colours` in `led_table.py:45-46`, `apc_leds.py:31`, `apc_transport.py:368`, `slot_matrix.py:330`, `probe-apc-buttons.py:10` | 2 cited ids resolve to **nothing** | `device_facts.FACTS` | ❌ **NO** — and unenforceable: `fact()` has zero callers |
+| **scene/track LED capability** | `device_facts.apc.scene.led_observed:109` + `.track.led_observed:121` + `.buttons.single_colour:143` (MEASURED, CLOSED); 5 source comments say "unmeasured"; `apc-control-surface-architecture-spec.md:130-131` says UNKNOWN/VENDOR | MEASURED vs "unmeasured" ×6 | `device_facts` at MEASURED (charter tier 1) | ❌ **NO** |
 | **eighth_per_cycle** | `sl_grid_sync.EIGHTH_PER_CYCLE:107` (env); `apply_grid_sync:178` (hard 8) | env / 8 | `EIGHTH_PER_CYCLE` | ⚠️ only while env unset |
 | **beats per bar** | `sl_grid_state.BEATS_PER_BAR:24` (env); `tail_phase.BEATS_PER_BAR:84` (4); `sl_hud_monitor.bar_beat:56` (4) | env / 4 / 4 | `sl_grid_state.BEATS_PER_BAR` | ⚠️ only while env unset |
 | **slots per track** | `apc_grid.NUM_SLOTS:37`; `slot_matrix.NUM_SLOTS:39`; `looper_songs.NUM_SLOTS:35` | 8 / 8 / 8 | `apc_grid` (= `GRID_ROWS`) | ✅ |
@@ -719,6 +929,8 @@ outside it. That single move closes 🟡 8, the `MPE_SL_SONGS_PORT` dead knob, t
 | `apc_transport.ARROW_NOTES_MK1/MK2` (`:94-95`) | Live constants that collide with a measured fact (🔴 5) | **Measure, then move to `apc_panel.py` + `device_facts.py`.** Delete from `apc_transport` |
 | `apc_faders` mk1/mk2 CC split (`:29-35`) | Both branches identical | **Keep** — the divergence hazard is real and documented; note in the docstring that the branch is currently inert |
 | `docs/CODE-MAP.md` §3.4 rows for `apc_footswitch.py` (`:263-264`) | Module does not exist | **Delete the rows** |
+| `device_facts.fact()`, `Fact.refuse_with()`, `AUTHORITATIVE`, `unmeasured()` | **Zero callers repo-wide.** Every "citation" is prose in a comment | **Promote, do not delete.** These are the enforcement mechanism the charter §5 and spec §5.4 both assume exists. Wire `refuse_with()` into the capability check and add a test that every `device_facts.<id>` string in the tree resolves — 🔴 5b |
+| `scripts/probe-apc-buttons.py` | Ran 2026-08-29, rounds 1–5, results recorded as MEASURED. Its own header (`:10-18`) still describes the question as open | **Keep** — the sensor is Mitch's eyes and the arrow-note question (🔴 5) still needs it. **Rewrite the header** to say what it settled and what remains (`apc.shift.led` is still OPEN) |
 
 ---
 
