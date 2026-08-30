@@ -441,11 +441,46 @@ class GridWaitLaunchTests(SurfaceCase):
     the bar line kills the process.
     """
 
-    def test_a_launch_due_on_the_grid_bar_line_does_not_raise(self) -> None:
-        self.rt._grid_wait[3] = 0.0  # due for any monotonic now
-        self.surface.poll_pending()  # raised TypeError before this fix
+    def _a_queued_launch_waiting_on_the_bar_line(self):
+        """A stopped track holding a take, a sounding session, and a grid.
+
+        Assembled the way production assembles it — `grid_boundary` injected,
+        the launch queued by a real press on a real pad — rather than by
+        writing `_grid_wait` directly. The bug survived because no test ever
+        reached this branch, so a test that reached it by hand would leave
+        exactly the gap that hid it.
+        """
+        rt = SlotRuntime(
+            send=lambda p, a: self.osc.append((p, a)),
+            clips_dir=self.dir,
+            num_tracks=15,
+            grid_boundary=lambda: 0.0,  # a bar line already past
+        )
+        fs = build_track_gestures(self.osc)
+        surface = SlotSurface(
+            runtime=rt,
+            gestures_by_loop=fs,
+            view=GridView(offset=0),
+            midi_out=self.out,
+            num_tracks=15,
+        )
+        rt.clip_path(3, 2).write_bytes(b"\0" * 4096)
+        rt._tracks[3] = Track(slots=(None, None, Slot("c.wav"), *([None] * 5)))
+        # Some OTHER track is sounding. That is what makes the launch wait for
+        # a boundary instead of firing under the player's fingers, and it is
+        # why no wrap of track 3's own will ever arrive to fire it.
+        fs[0].sync_from_sl(SL_STATE_PLAYING)
+        note = GridView(offset=0).note_for_cell(3, 2)
+        surface.note_down(note)
+        surface.note_up(note)  # an occupied, non-active slot acts on release
+        return rt, surface
+
+    def test_a_launch_deferred_to_the_grid_bar_line_does_not_raise(self) -> None:
+        rt, surface = self._a_queued_launch_waiting_on_the_bar_line()
+        self.assertIn(3, rt._grid_wait, "the press should have queued on the grid")
+        surface.poll_pending()  # raised TypeError before this fix
         self.assertEqual(
-            self.rt._grid_wait, {}, "the wait is consumed, not left to refire"
+            rt._grid_wait, {}, "the wait is consumed, not left to refire"
         )
 
     def test_nothing_due_paints_nothing(self) -> None:
