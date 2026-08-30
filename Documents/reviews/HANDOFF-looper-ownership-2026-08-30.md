@@ -49,6 +49,38 @@ Same trip, same five minutes: move each fader and confirm the CCs. They are
 VENDOR-tier recall and the failure is silent — a wrong CC is indistinguishable
 from a fader nobody touched.
 
+### 1b. The button capability probe is DONE — do not run it again
+
+`scripts/sooperlooper/probe-apc-buttons.py` is stage 0's other half, and its
+sensor is your eyes. **It already ran, 2026-08-29, three rounds, with you
+reading the panel.** Five facts came out of it and all five are authoritative:
+
+| Fact | Tier |
+|---|---|
+| `apc.scene.led_observed` — scene buttons are green only; 0 off, 2 blink, everything else solid | MEASURED |
+| `apc.track.led_observed` — track row identical, in red | MEASURED |
+| `apc.buttons.channel_response` — LEDs answer on channel 0 and nothing else; all 16 channels painted, only `0x90` lit | MEASURED |
+| `apc.buttons.single_colour` — **closed as a bounded negative**: three states per button, no addressing scheme produces another colour | MEASURED |
+| `apc.buttons.all_have_leds` — every button has one, Shift included | OWNER |
+
+I am flagging this because the overnight fallback prompt described the button
+probe as still pending, and it is not. `device_facts.unmeasured()` returns
+exactly **two** facts, and neither is a button colour:
+
+- `apc.bank_arrows.notes` — VENDOR
+- `apc.faders.ccs` — VENDOR
+
+Those two are §1 above, and `--dump-midi` closes both in the same five minutes.
+
+**Nothing structural was allowed to depend on either.** Verified in
+`control_registry.check_colour`: it raises only when every supporting fact is
+MEASURED or OWNER, and merely *warns* when any is VENDOR or INFERRED. That is
+`device_facts` rule 4 made executable — this code cannot tell you your device
+is incapable of something on the strength of a manufacturer's PDF, which is
+precisely what happened twice on 2026-08-29. Before this branch the rule was
+aspirational: `fact()`, `refuse_with()` and `unmeasured()` had **zero callers
+anywhere in the repo**, so it had never once executed.
+
 ### 2. Your ear on one deliberate change
 
 **The ring-out cap is now one CYCLE, not one bar** — on a 4-bar cycle that is
