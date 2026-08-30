@@ -55,7 +55,7 @@ cleanup() {
     stop_browser_recorder
     sleep 0.3
     if [ -n "$FFPID" ] && kill -0 "$FFPID" 2>/dev/null; then
-        kill -INT "$FFPID" 2>/dev/null || true
+        kill -TERM "$FFPID" 2>/dev/null || true
         local i=0
         while kill -0 "$FFPID" 2>/dev/null && [ "$i" -lt 20 ]; do
             sleep 0.25
@@ -87,15 +87,26 @@ mkfifo "$PIPE"
 chmod 666 "$PIPE" 2>/dev/null || true
 
 echo "record-screen: ffmpeg → $OUT @ ${FPS}fps (${WIDTH}x${HEIGHT})" >&2
-# ffmpeg must ignore SIGHUP, and the trap above is not enough on its own.
+# ffmpeg must ignore both SIGINT and SIGHUP from the terminal, and the trap
+# above is not enough on its own.
 # `mpe record` runs this over ssh; a Ctrl+C there can drop the connection
 # before SIGINT arrives, and SIGHUP then goes to the whole process group.
-# ffmpeg would die mid-stream with no moov/EBML header written, and cleanup's
-# `kill -INT` would arrive at a process that is already gone. Ignoring HUP in
-# a subshell that execs into ffmpeg keeps it alive just long enough for
-# cleanup to shut it down properly. (MEASURED 2026-08-30 on pi5: without
-# this, HUP -> 0-byte .mkv that ffprobe rejects; with it -> valid file.)
-( trap '' HUP; exec ffmpeg -y -loglevel warning \
+# ffmpeg would die mid-stream with no EBML header written.
+#
+# A terminal Ctrl+C is worse and is the case that actually bites: SIGINT goes
+# to the whole foreground process group, so ffmpeg receives it directly, and
+# then cleanup's own `kill` arrives as a SECOND signal. Two SIGINTs is
+# ffmpeg's documented abort-now gesture — it exits without finalising, and
+# you get a 256KiB unflushed buffer that ffprobe rejects.
+#
+# So ffmpeg ignores INT and HUP from the group, and cleanup shuts it down
+# with a single SIGTERM instead, which ffmpeg also finalises on. Exactly one
+# shutdown signal, sent deliberately.
+#
+# `timeout -s INT` does NOT reproduce this — it signals one process, not the
+# group — which is why the first fix looked correct and was not. Test this
+# path with a real pty and a real 0x03, or the instrument lies to you.
+( trap '' HUP INT; exec ffmpeg -y -loglevel warning \
     -f rawvideo -pix_fmt rgb24 -s "${WIDTH}x${HEIGHT}" -r "$FPS" -i "$PIPE" \
     -c:v libx264 -preset veryfast -crf 18 -pix_fmt yuv420p \
     "$OUT" ) &
@@ -131,7 +142,7 @@ echo "record-screen: recording — use the touch screen; Ctrl+C to stop" >&2
 while kill -0 "$FFPID" 2>/dev/null; do
     if ! systemctl is-active touch-patch-browser.service >/dev/null 2>&1; then
         echo "record-screen: touch-patch-browser exited — stopping ffmpeg" >&2
-        kill -INT "$FFPID" 2>/dev/null || true
+        kill -TERM "$FFPID" 2>/dev/null || true
         wait "$FFPID" 2>/dev/null || true
         FFPID=""
         break
