@@ -133,23 +133,40 @@ load/save owns `wet` on its own axis. **Exempt, checked:** `sl_osc_session.py:19
 is `register_auto_update` — a subscription, not a write.
 
 ### VERIFIED — a song cannot restore its own grid
-**P1, in Stage 4a's scope.**
+**P1. Fixed in Stage 4a (`5e12100`). My original diagnosis was half wrong —
+see the correction immediately below.**
 
-`looper_songs.py:473-475`:
+The manifest stores no `bars` and no `eighth_per_cycle`. `load_song` called
+`establish_grid_clock(send, bpm)` with `bars` **defaulting to 1**, so a song
+whose defining take read as 4 bars reloaded with the engine quantizing to a
+quarter of it. That is the real defect, and it is real.
 
-```python
-tempo = probe.get("tempo", -1)
-if tempo is not None and float(tempo) > 0:
-    probe.send("/set", ["tempo", float(tempo)])
-```
+> **Correction, 2026-08-30 ~05:4x — mine.** I originally located this at
+> `looper_songs.py:473-475`:
+>
+> ```python
+> tempo = probe.get("tempo", -1)
+> if tempo is not None and float(tempo) > 0:
+>     probe.send("/set", ["tempo", float(tempo)])
+> ```
+>
+> and called it a failed song-load restore that "reads the engine's current
+> tempo and writes it straight back." Those lines are **inside
+> `def stop_playback` (line 468)**, immediately after `mute_on` / `pause_on`.
+> Re-sending the tempo there is a **deliberate phase reset** on Stop All — spec
+> §5, "resets the grid phase to zero, and keeps the grid" — not a restore that
+> failed. It was merely unlabelled. It is labelled now.
+>
+> I checked the enclosing `def` only after the Stage 4a builder challenged it.
+> Reading three lines without reading the function they sit in is the same
+> error as reading a filename instead of a file, which is how I got
+> `smoke-16-loops.sh` wrong in the charter. **Sixth correction on this branch,
+> and the fifth of them mine.**
 
-This reads the engine's **current** tempo and writes it straight back — it does
-not restore the song's tempo, because the manifest has no field for one. And
-per upstream `engine.cpp:2174`, `Engine::set_tempo` zeroes `_quarter_counter`
-and `_tempo_counter`: **re-sending the tempo is the phase reset.** Loading a
-song therefore resets grid phase to whatever the engine happened to hold.
-Grep confirms no `bars` or `eighth_per_cycle` key anywhere in the manifest
-format.
+The half that was right and still stands: `Engine::set_tempo`
+(`engine.cpp:2174-2178`) zeroes `_quarter_counter` and `_tempo_counter`, so
+re-sending the tempo IS the phase reset. That is exactly why `stop_playback`
+does it, and exactly why it needed a label rather than a fix.
 
 ### VERIFIED — `player-env-parity.pi5.env` disagrees with `MAX_USABLE_LOOPS`
 **P0 by blast radius, latent today.**
