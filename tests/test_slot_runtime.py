@@ -46,12 +46,18 @@ class RuntimeCase(unittest.TestCase):
         self.dir = Path(tempfile.mkdtemp())
         self.sent: list[tuple[str, list]] = []
         self.logs: list[str] = []
+        #: Is any loop sounding. False by default — most cases here press into
+        #: a stopped session, where a launch is immediate. A test that presses
+        #: a PLAYING track sets this, because that is what makes the launch
+        #: deferred in production.
+        self.sounding = [False]
         self.rt = SlotRuntime(
             send=lambda p, a: self.sent.append((p, a)),
             clips_dir=self.dir,
             num_tracks=15,
             log=self.logs.append,
             now=lambda: self.clock[0],
+            session_sounding=lambda: self.sounding[0],
         )
 
     def tearDown(self) -> None:
@@ -99,6 +105,7 @@ class SwitchSafetyTests(RuntimeCase):
 
     def test_a_dirty_buffer_is_saved_before_the_switch(self) -> None:
         self._dirty_track_with_target()
+        self.sounding[0] = True     # the outgoing clip is audible
         # save_loop lands the file the moment it is asked for.
         real_send = self.rt._send
 
@@ -356,11 +363,14 @@ class StrandedSwitchTests(unittest.TestCase):
         self.addCleanup(shutil.rmtree, self.dir, True)
         self.osc: list[tuple[str, list]] = []
         self.clock = [1000.0]
+        # The pressed track is PLAYING throughout this class, so the session is
+        # sounding and every launch here is a deferred one.
         self.rt = SlotRuntime(
             send=lambda p, a: self.osc.append((p, a)),
             clips_dir=self.dir,
             num_tracks=15,
             now=lambda: self.clock[0],
+            session_sounding=lambda: True,
         )
         for slot in (0, 1):
             self.rt.clip_path(0, slot).write_bytes(b"\0" * 4096)
@@ -489,83 +499,91 @@ class NonBlockingSaveTests(RuntimeCase):
                                       if p.endswith("/hit")])
 
 
-class QuantizedWithNothingPlayingTests(RuntimeCase):
-    """Mitch's repro, 2026-08-30:
+class StartingIntoSilenceTests(RuntimeCase):
+    """Nothing is playing: the clip starts NOW and becomes the downbeat.
 
-        "When it failed, I had stopped all the clips and then restarted the
-        second track, but not the first one, which might just be a
-        programmatic hole in our design."
+    Mitch, 2026-08-30, correcting my first attempt at this:
 
-    It was. `_execute_slot_ops` deferred a launch only when the track was in
-    ACTIVE_PLAY, on the reasoning "nothing is sounding, so there is no boundary
-    to wait for". After Stop All nothing is sounding by definition, so every
-    launch fired the instant the pad was pressed — while the grid sat there
-    knowing the tempo exactly. The bench's only clock was a playing loop's
-    wrap, so silence meant no time existed.
+        "When I've stopped all and I start a clip, we've reset the phase to
+        zero — technically, quantized start could and probably is most simply
+        left as true, but it should also mean that start happens immediately."
+
+    Right, and it is not a special case. A downbeat is where the music starts;
+    you cannot be late for something that has not begun. My first version made
+    this launch wait for the "next" bar line, which sits in silence for a whole
+    bar before the first note.
     """
 
     def setUp(self) -> None:
         super().setUp()
-        # A grid whose bar line falls at t=10.0, as it would after Stop All.
-        self.boundary = [10.0]
+        self.phase_zeros: list[float] = []
+        self.sounding = [False]
         self.rt = SlotRuntime(
             send=lambda p, a: self.sent.append((p, a)),
             clips_dir=self.dir,
             num_tracks=15,
             log=self.logs.append,
             now=lambda: self.clock[0],
-            grid_boundary=lambda: self.boundary[0],
+            grid_boundary=lambda: 10.0,
+            session_sounding=lambda: self.sounding[0],
+            mark_phase_zero=lambda: self.phase_zeros.append(self.clock[0]),
         )
-
-    def _stopped_track_with_a_clip(self) -> None:
         self._clip(1, 3)
         self.rt._tracks[1] = Track(
-            slots=(None, None, None, Slot("x"), *([None] * 4)),
-            active_slot=None,
+            slots=(None, None, None, Slot("x"), *([None] * 4)), active_slot=None
         )
 
-    def test_a_launch_after_stop_all_waits_for_the_bar(self) -> None:
-        self._stopped_track_with_a_clip()
+    def test_a_clip_started_into_silence_fires_immediately(self) -> None:
         self.rt.press(1, 3, sl_state=SL_STATE_PAUSED)
-        self.assertNotIn("/sl/1/load_loop", self.paths(),
-                         "fired instantly — the whole bug")
-        self.assertTrue(self.rt.has_deferred(1))
+        self.assertIn("/sl/1/load_loop", self.paths(),
+                      "a bar of silence before the first note")
+        self.assertFalse(self.rt.has_deferred(1))
 
-    def test_and_lands_when_the_bar_line_arrives(self) -> None:
-        self._stopped_track_with_a_clip()
+    def test_and_that_clip_becomes_the_downbeat(self) -> None:
+        """Without this the grid keeps counting from whenever the phase was
+        last zeroed, and every later clip lines up with nothing audible."""
+        self.clock[0] = 42.0
+        self.rt.press(1, 3, sl_state=SL_STATE_PAUSED)
+        self.assertEqual(self.phase_zeros, [42.0])
+
+    def test_a_failed_launch_does_not_move_the_downbeat(self) -> None:
+        """No clip file: nothing starts, so nothing defines the beat."""
+        self.rt._tracks[2] = Track(
+            slots=(None, Slot("missing.wav"), *([None] * 6)), active_slot=None
+        )
+        self.rt.press(2, 1, sl_state=SL_STATE_PAUSED)
+        self.assertEqual(self.phase_zeros, [])
+
+    def test_a_track_joining_music_that_is_playing_still_waits(self) -> None:
+        """THE OTHER HALF OF THE BUG.
+
+        The old check asked whether the PRESSED track was playing. Launching a
+        stopped track while another track played therefore fired instantly —
+        landing off the beat of the very music it was joining. The question is
+        whether the session is sounding, not whether this track is.
+        """
+        self.sounding[0] = True
+        self.rt.press(1, 3, sl_state=SL_STATE_PAUSED)
+        self.assertNotIn("/sl/1/load_loop", self.paths())
+        self.assertTrue(self.rt.has_deferred(1))
+        self.assertEqual(self.phase_zeros, [], "joining does not redefine the beat")
+
+    def test_a_silent_track_joining_lands_on_the_grid_bar_line(self) -> None:
+        """It has no wrap of its own — nothing is playing on THIS track — so
+        the grid clock is the only thing that can fire it."""
+        self.sounding[0] = True
         self.rt.press(1, 3, sl_state=SL_STATE_PAUSED)
         self.clock[0] = 9.9
         self.assertEqual(self.rt.poll_grid_wait(), [])
-        self.assertNotIn("/sl/1/load_loop", self.paths())
         self.clock[0] = 10.0
         self.assertEqual(self.rt.poll_grid_wait(), [1])
         self.assertIn("/sl/1/load_loop", self.paths())
 
-    def test_with_no_grid_at_all_it_still_fires_immediately(self) -> None:
-        """The original branch was not wrong, only over-applied. With no tempo
-        anywhere there genuinely is nothing to sync to, and making the player
-        wait for a boundary that does not exist would be worse."""
-        rt = SlotRuntime(
-            send=lambda p, a: self.sent.append((p, a)),
-            clips_dir=self.dir,
-            num_tracks=15,
-            log=self.logs.append,
-            now=lambda: self.clock[0],
-            grid_boundary=lambda: None,
-        )
-        self._clip(1, 3)
-        rt._tracks[1] = Track(
-            slots=(None, None, None, Slot("x"), *([None] * 4)), active_slot=None
-        )
-        rt.press(1, 3, sl_state=SL_STATE_PAUSED)
-        self.assertIn("/sl/1/load_loop", self.paths())
-
     def test_the_grace_timer_does_not_drop_a_grid_launch(self) -> None:
-        """`expire_deferred` drops a queued launch when the track is silent,
-        because a silent track can never produce a wrap. A launch waiting on
-        the GRID is exactly that case and must survive it — otherwise the fix
-        above is cancelled by the safety net written for the old model."""
-        self._stopped_track_with_a_clip()
+        """`expire_deferred` drops a queued launch when the pressed track is
+        silent, because a silent track can never produce a wrap. A launch
+        waiting on the GRID is exactly that case and must survive it."""
+        self.sounding[0] = True
         self.rt.press(1, 3, sl_state=SL_STATE_PAUSED)
         self.clock[0] = DEFERRED_LAUNCH_GRACE_S + 1.0
         self.rt.expire_deferred(1, sl_state=SL_STATE_PAUSED)
