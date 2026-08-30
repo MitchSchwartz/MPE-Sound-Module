@@ -232,19 +232,57 @@ It is a guard that reads the same whether it is guarding or not.
 
 ---
 
-## 4. Still not audited by me
+## 4. REFUTED — "banking while holding a pad unlinks another track's clip"
 
-Carried forward honestly rather than quietly dropped. These remain
-**reviewer-reported and unverified**, and no builder has been given them:
+**Reported P0. It is already fixed, and was fixed before this branch opened.**
 
-- Banking while holding a pad unlinks another track's clip (**P0, reported**).
+`track_gesture.py:203`, `release_pad()`, names the exact reported failure in its
+own docstring — and names it as the thing it prevents:
+
+> Banking while a pad is held would otherwise strand `_pad_down` on the track
+> that just left the screen: `poll_hold()` runs for every track, visible or not,
+> so ~`hold_s` later it would fire the long-press and clear a loop the player
+> never let go of.
+
+Traced rather than taken on the docstring's word, per the charter rule:
+
+1. `apply_view()` (`:891`) calls `fs.release_pad()` for **every** gesture at
+   `:919`, before `set_note`.
+2. `apply_view` has exactly two production callers — `set_view`
+   (`sooperlooper-apc-bench.py:422`) and `reopen_apc` (`:528`). There is no
+   third bank-change path.
+3. Both guards are real, not decorative:
+   - `poll_hold`: `if not self._pad_down or self._hold_fired: return` — a
+     released gesture cannot fire the long-press.
+   - `on_pad_up`: `if self._pad_down and not self._hold_fired:` — the note-off
+     that dispatches to whichever track *took over* that pad does nothing,
+     because that gesture was released in the same call.
+4. `git log -S"def release_pad"` gives `2fc657e`, and
+   `git merge-base --is-ancestor 2fc657e 0bc0b63` confirms it predates this
+   branch's point.
+
+The residual behaviour is that a pad held across a bank change does nothing at
+all. That is deliberate — `release_pad` is documented as "abandon an in-flight
+pad gesture without firing it" — and banking mid-press is genuinely ambiguous.
+Not a defect.
+
+Recorded at length because of the shape: a docstring describing a bug that was
+*fixed* was read as a bug that *exists*. That is the same confident-restatement
+failure as the other five on this branch, and it is worth one paragraph to make
+the pattern impossible to miss.
+
+## 5. Still not audited by me
+
+Carried forward honestly rather than quietly dropped. Still
+**reviewer-reported and unverified**:
+
 - `restart-sooperlooper.sh` never emits `looper.engine.started`, leaving a
   split brain after a restart (**P0, reported**; handed to Stage 4a only as a
   *check whether this is the same subject*, explicitly not as a fixed premise).
 
 ---
 
-## 5. Staging from here
+## 6. Staging from here
 
 | Stage | Work | Status |
 |---|---|---|
@@ -257,7 +295,7 @@ Carried forward honestly rather than quietly dropped. These remain
 | 6 | Grid behind the compositor | later |
 | 0 | Capability probe — **Mitch, morning, eyes** | blocked on hardware |
 
-## 6. For Mitch, in the morning
+## 7. For Mitch, in the morning
 
 Unchanged and still the highest-value five minutes available: stop the session,
 run `sooperlooper-apc-bench.py --dump-midi`, press Up/Down/Left/Right, and
