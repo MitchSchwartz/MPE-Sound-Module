@@ -58,6 +58,32 @@ is stale — those files are gone.
 
 Mapping: `apc_grid.py` (`GridView`) · pads: `track_gesture.py` · bench: `../sooperlooper-apc-bench.py`
 
+**What a button does is a row, not a branch** (2026-08-30, charter stage 5).
+`control_registry.py` says which physical control sends which note;
+`binding_table.py` says what happens when you press it, as one row per
+(control, gesture, layer, mode). The bench event loop looks the row up — it does
+not embody it. To answer "what does this pad do on press, on hold, under
+Shift?", read `binding_table.BINDINGS`; nothing else has an opinion.
+
+Three things fall out that could not be said before:
+
+* **Two rows cannot both match an event.** `assert_no_binding_collisions`
+  refuses the table at import and names both source lines. Combined with
+  `control_registry.assert_no_collisions` (one note, one control) there is no
+  "first match wins" anywhere, so there is no order to get wrong.
+* **A dead button is reportable without hardware.** `unreachable(variant)`
+  returns the rows whose control has no established note, with the reason and
+  the line. On the mk2 that is exactly the four bank arrows.
+* **An unbound control is written down.** All eight track-select buttons carry
+  `noop` rows. Before this, a wrong note number and a button nobody touched
+  produced identical silence.
+
+Timing stays where it is: a HOLD row records the threshold's env var and which
+module counts the milliseconds (`ShiftHoldCombo`, `SlotSurface.poll_hold`,
+`TrackGesture.poll_hold`), and a test asserts the bench actually feeds that env
+var into that module — so the number in the table cannot drift from the number
+that runs.
+
 **Tracks run left to right on one line.** The APC is eight columns wide, so it
 is a *viewport* onto sixteen tracks, not a container for them. This replaced
 the row-0/row-3 split (2026-08-16), where fader N drove loops N *and* N+8
@@ -86,14 +112,23 @@ is the one failure here that can't be debugged from the surface.
 
 🔴 **Banking does not work on the mk2, and has never worked.** The recalled
 arrow notes `0x70–0x73` are scene buttons 1–4 (`device_facts.apc.buttons.note_sets`,
-MEASURED 2026-08-29). The bench's scene branch takes them and `continue`s
-forty-five lines before `handle_arrow` is reached, so the viewport is pinned at
-offset 0 and tracks 9–15 of 15 cannot be reached from the surface at all. As of
-2026-08-30 the mk2 arrow notes are recorded as **unknown** in
-`control_registry` rather than replaced with another guess, `resolve_arrow_notes`
-returns `{}` for mk2, and the startup banner says so instead of advertising the
-feature. The mk1 tuple (`0x40–0x43`) is still unverified recall; it collides
-with nothing, so it stands. See `device_facts.apc.bank_arrows.notes`.
+MEASURED 2026-08-29), so the viewport is pinned at offset 0 and tracks 9–15 of
+15 cannot be reached from the surface at all. As of 2026-08-30 the mk2 arrow
+notes are recorded as **unknown** in `control_registry` rather than replaced
+with another guess, `resolve_arrow_notes` returns `{}` for mk2, and the startup
+banner says so instead of advertising the feature. The mk1 tuple (`0x40–0x43`)
+is still unverified recall; it collides with nothing, so it stands. See
+`device_facts.apc.bank_arrows.notes`.
+
+**How it used to fail, and how it fails now.** Until stage 5 the mechanism was
+statement order: the bench's scene branch took those notes and `continue`d
+forty-five lines before `handle_arrow` was reached. Nothing could see that —
+reachability was a property of the event loop's `if` sequence, and no test read
+statement order. Since 2026-08-30 the arrows have no note at all, so
+`binding_table.unreachable("mk2")` returns their eight rows with the reason and
+the source line, and `tests/test_binding_table.py` fails the moment a NEW
+binding joins them. The button is still dead; the difference is that the repo
+says so out loud, without a device.
 
 To close it: stop the session, run `sooperlooper-apc-bench.py --dump-midi`,
 press Up/Down/Left/Right, and record the four notes at MEASURED tier in

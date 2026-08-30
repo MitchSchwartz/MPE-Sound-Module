@@ -25,7 +25,7 @@ from track_gesture import (  # noqa: E402
     stop_all_loops,
 )
 from apc_faders import MASTER, fader_for_cc, is_control_change, resolve_fader_ccs  # noqa: E402
-from apc_grid import NUM_LOOPS, GridView, is_clip_note, is_reserved_grid_note  # noqa: E402
+from apc_grid import NUM_LOOPS, GridView, is_clip_note  # noqa: E402
 from apc_transport import (  # noqa: E402
     Mk1ShiftGhostFilter,
     ShiftHoldCombo,
@@ -34,12 +34,11 @@ from apc_transport import (  # noqa: E402
     resolve_apc_transport_notes,
     resolve_arrow_notes,
     resolve_scene_launch_notes,
-    scene_row_for_note,
 )
+from binding_table import HOLD, TAP, BindingRouter, for_surface, scene_row  # noqa: E402
 from led_compositor import LedCompositor  # noqa: E402
 from apc_link import LinkHealth, PacedMidiOut  # noqa: E402
 from apc_mode import grid_silent_reason, parse_mode_sysex  # noqa: E402
-from apc_panel import is_stop_all, scene_press_row  # noqa: E402
 from midi_subscription import wait_for_subscription  # noqa: E402
 from running_code import running_code_sha  # noqa: E402
 from slot_runtime import SlotRuntime  # noqa: E402
@@ -110,8 +109,15 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
     debounce_ms = float(os.environ.get("MPE_APC_DEBOUNCE_MS", "200"))
     hold_blink_start_ms = float(os.environ.get("MPE_APC_HOLD_BLINK_START_MS", "500"))
     num_loops = int(os.environ.get("MPE_SL_LOOPS", str(NUM_LOOPS)))
-    shift_note = int(os.environ.get("MPE_APC_SHIFT_NOTE", "0"))
-    stop_all_note = int(os.environ.get("MPE_APC_STOP_ALL_NOTE", "0"))
+    # MPE_APC_SHIFT_NOTE / MPE_APC_STOP_ALL_NOTE are gone. They injected two
+    # note numbers at runtime, which `control_registry`'s rule 1 forbids
+    # ("Note numbers ... live HERE. Nowhere else.") and no test could see. They
+    # also skipped the variant resolver entirely, so `apc_label` became the raw
+    # env string: every `== "mk2"` consumer then answered mk1, which is the
+    # 2026-08-28 "pads barely light up, and I'm seeing blue" regression
+    # reachable from a documented-looking env var. Nothing in the repo, the
+    # units or /etc/mpe/mpe.env set them. MPE_APC_VARIANT stays — it selects a
+    # variant, it does not invent a note.
     apc_variant = os.environ.get("MPE_APC_VARIANT", "").strip() or None
     track_reset_hold_ms = float(os.environ.get("MPE_APC_TRACK_RESET_HOLD_MS", "3000"))
     sync_mode = os.environ.get("MPE_SL_SYNC_MODE", "grid").strip().lower()
@@ -180,12 +186,9 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
     if not has_writer:
         print(f"bench: WARN — no writer to {port_name!r}; LEDs will not light.",
               file=sys.stderr)
-    if shift_note <= 0 or stop_all_note <= 0:
-        shift_note, stop_all_note, apc_label = resolve_apc_transport_notes(
-            port_name, variant=apc_variant
-        )
-    else:
-        apc_label = apc_variant or "env"
+    shift_note, stop_all_note, apc_label = resolve_apc_transport_notes(
+        port_name, variant=apc_variant
+    )
 
     # The pacer encodes pad colour per model; it cannot know the model until
     # now. Set before the first LED write, which the compositor makes below.
@@ -427,12 +430,7 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
     )
 
     arrow_notes = resolve_arrow_notes(port_name, variant=apc_variant)
-    # One shift latch for the whole event loop. ShiftHoldCombo keeps its own
-    # `_shift_down`, so a second combo watching the same note would need its own
-    # feed and could disagree with the first about whether Shift is held.
-    shift_held = False
 
-    stop_all_took_shift = False
     def set_view(new_view: GridView) -> None:
         """Move the viewport: repaint the pads, rebind the faders.
 
@@ -454,10 +452,17 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
         print(f"bank: tracks {view.offset + 1}-{last + 1} of {num_loops}", flush=True)
 
     def handle_arrow(note: int) -> bool:
+        """Move the viewport. The Shift gate is arithmetic in bank_delta_for_arrow.
+
+        `bindings.shift_held` is the one modifier latch. It used to be a
+        loop-local read from three points of a 150-line `if`-chain with
+        `continue`s between them; it now lives next to the routing decision it
+        exists for, which is the only thing that reads it.
+        """
         direction = arrow_notes.get(note)
         if direction is None:
             return False
-        delta = bank_delta_for_arrow(direction, shift_down=shift_held)
+        delta = bank_delta_for_arrow(direction, shift_down=bindings.shift_held)
         if delta:
             set_view(view.scrolled(delta))
         return True
@@ -613,29 +618,176 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
         """
         transport_leds.poll()
 
+    # --- what each control DOES -------------------------------------------
+    #
+    # One closure per action named in `binding_table.ACTIONS`. They are the
+    # bodies of the old event-loop branches, unchanged; what has gone is the
+    # `if`-chain that decided which one ran, and with it the possibility that
+    # an earlier branch swallows a note a later one is waiting for. That is not
+    # a tidier version of the same risk — it is the mk2 banking bug made
+    # unexpressible, because `control_registry` refuses two claims on one note
+    # and `binding_table` refuses two rows on one gesture.
+    #
+    # Every closure takes (number, down, control): the note or CC, the edge,
+    # and the registry id of the control that sent it.
+
+    def _log_unbound_pad(note: int) -> None:
+        """A grid pad with no track under it in this bank.
+
+        Both strings are verbatim what the old chain printed — including the
+        one advising `MPE_SL_MULTIGRID=1` while multigrid is on. They are
+        `--dump-midi` diagnostics on a path that 15 tracks in an 8-wide window
+        cannot reach; correcting them is a separate question from moving the
+        routing, so they move unchanged.
+        """
+        if is_clip_note(note):
+            print(f"ignored clip pad note {note} (no track in this bank)", flush=True)
+        elif args.dump_midi:
+            print(
+                f"ignored reserved grid note {note} (rows 1-7: set MPE_SL_MULTIGRID=1)",
+                flush=True,
+            )
+
+    def act_noop(_number: int, _down: bool, _control: str) -> None:
+        """Nothing is wired to this control. Written down, not omitted."""
+
+    def act_scene_launch(note: int, _down: bool, control: str) -> None:
+        if slot_surface is not None:
+            # The row comes from the control's place in the registry's scene
+            # ordering, not from re-finding the note in a tuple.
+            slot_surface.scene_press(scene_row(control))
+        elif args.dump_midi:
+            print(f"ignored scene launch note {note} (set MPE_SL_MULTIGRID=1)", flush=True)
+
+    def act_scene_release_consumed(note: int, _down: bool, _control: str) -> None:
+        if args.dump_midi:
+            print(f"ignored scene launch note {note} (set MPE_SL_MULTIGRID=1)", flush=True)
+
+    def act_slot_press(note: int, _down: bool, _control: str) -> None:
+        if slot_surface is not None and slot_surface.handles(note):
+            slot_surface.note_down(note)
+        else:
+            _log_unbound_pad(note)
+
+    def act_slot_release(note: int, _down: bool, _control: str) -> None:
+        if slot_surface is not None and slot_surface.handles(note):
+            slot_surface.note_up(note)
+        else:
+            _log_unbound_pad(note)
+
+    def _stamp_latency() -> None:
+        # Stamp BOTH edges. A short tap sends its OSC on pad-up, so timing from
+        # pad-down measures how long the finger was held, not how long the code
+        # took: an 80 ms synthetic hold produced an 80 ms "latency" on
+        # 2026-08-19. The slot holds the most recent MIDI event, which is the
+        # one that caused whatever send comes next.
+        if args.measure_latency:
+            midi_osc_pending[:] = [time.monotonic()]
+
+    def act_clip_press(note: int, _down: bool, _control: str) -> None:
+        fs = by_note.get(note)
+        if fs is None:
+            _log_unbound_pad(note)
+            return
+        _stamp_latency()
+        fs.on_pad_down()
+
+    def act_clip_release(note: int, _down: bool, _control: str) -> None:
+        fs = by_note.get(note)
+        if fs is None:
+            _log_unbound_pad(note)
+            return
+        _stamp_latency()
+        fs.on_pad_up()
+
+    def act_ignore_reserved_row(note: int, _down: bool, _control: str) -> None:
+        if args.dump_midi:
+            print(
+                f"ignored reserved grid note {note} (rows 1-7: set MPE_SL_MULTIGRID=1)",
+                flush=True,
+            )
+
+    def act_latch_shift(_note: int, down: bool, _control: str) -> None:
+        """The event loop's modifier latch.
+
+        First action of the `shift` row, so it lands before `apc_transport`
+        sees the same event — which is where the old loop put it: branch 4 set
+        it and deliberately did NOT `continue`.
+        """
+        bindings.set_shift(down)
+
+    def act_transport_note(note: int, down: bool, _control: str) -> None:
+        label = "Shift" if note == shift_note else "StopAll"
+        print(f"transport: {label} {'down' if down else 'up'}", flush=True)
+        track_reset.note_event(note, down)
+        transport_leds.note_event(note, down)
+
+    def act_stop_all_loops(_note: int, _down: bool, _control: str) -> None:
+        print("transport: Shift+StopAll short -> stop all", flush=True)
+        stop_all_loops(
+            osc,
+            num_loops=num_loops,
+            gestures=gestures,
+        )
+        if slot_surface is not None:
+            # Queued intent dies with the audio. Without this a deferred
+            # launch outlived the panic button and restarted the track.
+            slot_surface.on_stop_all()
+
+    def act_clear_all_loops(_note: int, _down: bool, _control: str) -> None:
+        print("transport: Shift+StopAll long -> track reset", flush=True)
+        transport_leds.on_reset_fired()
+        reset_all_loops(
+            osc,
+            leds,
+            num_loops=num_loops,
+            gestures=gestures,
+        )
+        if slot_surface is not None:
+            slot_surface.reset()
+
+    def act_bank_scroll(note: int, _down: bool, _control: str) -> None:
+        handle_arrow(note)
+
+    def act_fader_move(cc: int, value: int, _control: str) -> None:
+        handle_cc(cc, value)
+
+    # The one place a MIDI event turns into an action. `BindingRouter` refuses
+    # to be built if any action a row can reach has no handler here, so a new
+    # row cannot ship as a control that silently does nothing.
+    bindings = BindingRouter(
+        for_surface(apc_label, multigrid=multigrid),
+        actions={
+            "noop": act_noop,
+            "scene_launch": act_scene_launch,
+            "scene_release_consumed": act_scene_release_consumed,
+            "slot_press": act_slot_press,
+            "slot_release": act_slot_release,
+            "clip_press": act_clip_press,
+            "clip_release": act_clip_release,
+            "ignore_reserved_row": act_ignore_reserved_row,
+            "latch_shift": act_latch_shift,
+            "transport_note": act_transport_note,
+            "stop_all_loops": act_stop_all_loops,
+            "clear_all_loops": act_clear_all_loops,
+            "bank_scroll": act_bank_scroll,
+            "fader_move": act_fader_move,
+        },
+        ghost=mk1_ghost,
+    )
+
     def maybe_track_transport() -> None:
+        """Ask the combo whether a threshold passed, then fire the row.
+
+        The milliseconds are `ShiftHoldCombo`'s and stay there. What is no
+        longer here is the *consequence*: "Shift+StopAll held clears every
+        take" is a row in `binding_table` beside everything else that button
+        does, instead of a body forty lines from anything that mentions it.
+        """
         if track_reset.poll_long():
-            print("transport: Shift+StopAll long -> track reset", flush=True)
-            transport_leds.on_reset_fired()
-            reset_all_loops(
-                osc,
-                leds,
-                num_loops=num_loops,
-                gestures=gestures,
-            )
-            if slot_surface is not None:
-                slot_surface.reset()
+            bindings.fire("stop_all_clips", HOLD)
         elif track_reset.poll_short():
-            print("transport: Shift+StopAll short -> stop all", flush=True)
-            stop_all_loops(
-                osc,
-                num_loops=num_loops,
-                gestures=gestures,
-            )
-            if slot_surface is not None:
-                # Queued intent dies with the audio. Without this a deferred
-                # launch outlived the panic button and restarted the track.
-                slot_surface.on_stop_all()
+            bindings.fire("stop_all_clips", TAP)
 
     while True:
         if (
@@ -685,132 +837,23 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
             poll_engine_events(time.monotonic())
             continue
 
-        if not msg or len(msg) < 2:
-            poll_holds()
-            poll_transport_leds()
-            maybe_track_transport()
-            state_listener.maybe_reregister()
-
-            poll_engine_events(time.monotonic())
-            continue
-
-        st, n = msg[0], msg[1]
-        vel = msg[2] if len(msg) > 2 else 0
-
-        if is_control_change(st) and len(msg) >= 3:
-            handle_cc(n, vel)
-            poll_holds()
-            poll_transport_leds()
-            maybe_track_transport()
-            state_listener.maybe_reregister()
-
-            poll_engine_events(time.monotonic())
-            continue
-
-        down = midi_note_down(st, vel)
-        now_mono = time.monotonic()
-        if mk1_ghost is not None and down is not None:
-            mk1_ghost.note_event(n, down, now=now_mono)
-            if mk1_ghost.consume(n, down, now=now_mono):
-                poll_holds()
-                poll_transport_leds()
-                maybe_track_transport()
-                state_listener.maybe_reregister()
-                poll_engine_events(now_mono)
-                continue
-
-        # The bottom button is a scene launcher alone and Stop All Clips with
-        # Shift. Which one it is has to be latched at press-down: if we asked
-        # the live `shift_held` again on release, letting go of Shift first
-        # would send the down to the transport combo and the up to the scene
-        # handler, and the combo would sit there holding a button forever.
-        if down is not None and is_stop_all(apc_label, n):
-            if down:
-                stop_all_took_shift = shift_held
-            routing_shift = stop_all_took_shift
-        else:
-            routing_shift = shift_held
-        scene_row = (
-            scene_press_row(
-                n,
-                scene_notes=scene_launch_notes,
-                apc_label=apc_label,
-                shift_held=routing_shift,
-            )
-            if down is not None
-            else None
-        )
-        if scene_row is not None:
-            if slot_surface is not None and down:
-                slot_surface.scene_press(scene_row)
-            elif args.dump_midi:
-                print(f"ignored scene launch note {n} (set MPE_SL_MULTIGRID=1)", flush=True)
-            poll_holds()
-            poll_transport_leds()
-            maybe_track_transport()
-            state_listener.maybe_reregister()
-            poll_engine_events(now_mono)
-            continue
-
-        if slot_surface is not None and down is not None and slot_surface.handles(n):
-            if down:
-                slot_surface.note_down(n)
+        # ONE routing decision, and it is a lookup. What was here until
+        # 2026-08-30 was nine `if` branches whose ORDER decided which control
+        # won a note — which is not a metaphor for the mk2 banking bug, it is
+        # the bug: the scene branch `continue`d forty-five lines before
+        # `handle_arrow` was reached, so four buttons did nothing and the boot
+        # banner advertised them anyway, under 126 green tests. `binding_table`
+        # resolves note -> control -> row, with collisions refused at import in
+        # both steps, so there is no order left to get wrong.
+        if len(msg) >= 2:
+            st, n = msg[0], msg[1]
+            vel = msg[2] if len(msg) > 2 else 0
+            if is_control_change(st) and len(msg) >= 3:
+                bindings.cc_event(n, vel)
             else:
-                slot_surface.note_up(n)
-            poll_holds()
-            poll_transport_leds()
-            maybe_track_transport()
-            state_listener.maybe_reregister()
-            poll_engine_events(now_mono)
-            continue
-
-        if down is not None and is_reserved_grid_note(n):
-            if args.dump_midi:
-                print(f"ignored reserved grid note {n} (rows 1-7: set MPE_SL_MULTIGRID=1)", flush=True)
-            poll_holds()
-            poll_transport_leds()
-            maybe_track_transport()
-            state_listener.maybe_reregister()
-            poll_engine_events(now_mono)
-            continue
-
-        if down is not None and n == shift_note:
-            shift_held = down
-        if down and handle_arrow(n):
-            poll_holds()
-            poll_transport_leds()
-            maybe_track_transport()
-            state_listener.maybe_reregister()
-
-            poll_engine_events(time.monotonic())
-            continue
-
-        if down is not None and n in (shift_note, stop_all_note):
-            label = "Shift" if n == shift_note else "StopAll"
-            print(f"transport: {label} {'down' if down else 'up'}", flush=True)
-            track_reset.note_event(n, down)
-            transport_leds.note_event(n, down)
-            maybe_track_transport()
-            poll_holds()
-            state_listener.maybe_reregister()
-
-            poll_engine_events(time.monotonic())
-            continue
-
-        if down is not None and n in by_note:
-            if args.measure_latency:
-                # Stamp BOTH edges. A short tap sends its OSC on pad-up, so timing from
-                # pad-down measures how long the finger was held, not how long the code
-                # took: an 80 ms synthetic hold produced an 80 ms "latency" on
-                # 2026-08-19. The slot holds the most recent MIDI event, which is the
-                # one that caused whatever send comes next.
-                midi_osc_pending[:] = [time.monotonic()]
-            if down:
-                by_note[n].on_pad_down()
-            else:
-                by_note[n].on_pad_up()
-        elif down is not None and is_clip_note(n):
-            print(f"ignored clip pad note {n} (no track in this bank)", flush=True)
+                bindings.note_event(
+                    n, down=midi_note_down(st, vel), now=time.monotonic()
+                )
 
         poll_holds()
         poll_transport_leds()
