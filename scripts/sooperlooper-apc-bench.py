@@ -229,7 +229,7 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
         Until now every loop had sync=0 so the defining take could record
         instantly. From here clips count in to the next bar.
         """
-        establish_grid_clock(_send, bpm)
+        establish_grid_clock(_send, bpm, bars=bars)
         # `establish_grid_clock` zeroes the engine's phase, so the bench's bar
         # line starts counting from the same instant.
         grid.mark_phase_zero(time.monotonic())
@@ -242,7 +242,7 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
 
     def on_phase_reanchor(bpm: float) -> None:
         """Re-send tempo at the defining take's downbeat after a late PLAYING report."""
-        establish_grid_clock(_send, bpm)
+        establish_grid_clock(_send, bpm, bars=grid.bars or 1)
         grid.mark_phase_zero(time.monotonic())
         print(
             f"bench: phase re-anchored @ {bpm:.1f} BPM (loop wrap)",
@@ -320,7 +320,7 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
         print("bench: looper.engine.started — re-applying grid config", flush=True)
         apply_grid_sync(_send, num_loops=num_loops)
         if grid.established and grid.bpm:
-            establish_grid_clock(_send, grid.bpm)
+            establish_grid_clock(_send, grid.bpm, bars=grid.bars or 1)
             set_grid_active(_send, num_loops=num_loops, active=True)
             print(f"bench: grid restored — {grid.bpm:.1f} BPM, 1-bar cycle",
                   flush=True)
