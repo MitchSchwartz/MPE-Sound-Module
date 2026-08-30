@@ -618,6 +618,17 @@ def _old_chain_branch(
     from scripts.sooperlooper.apc_grid import is_clip_note, is_reserved_grid_note
     from scripts.sooperlooper.apc_panel import is_stop_all, scene_press_row
 
+    # Every branch label carries the EDGE that took it. Without this the
+    # differential is blind to the defect it most needs to see: swap
+    # `slot_press` and `slot_release` in the binding table and both models
+    # still say "slot", so 1536 subtests stay green while every pad on the
+    # surface fires on the wrong edge. A press that acts on release is not a
+    # subtle regression — it is the instrument feeling broken in the hand.
+    edge = "down" if down else "up"
+
+    def tag(*names):
+        return tuple(f"{n}:{edge}" for n in names)
+
     out: list[str] = []
     if down is None:
         return ()
@@ -631,22 +642,22 @@ def _old_chain_branch(
         note, scene_notes=scene_notes, apc_label=label, shift_held=routing_shift
     )
     if scene_row is not None:
-        return ("scene",)
+        return tag("scene")
     if multigrid and view.cell_for_note(note) is not None:
-        return ("slot",)
+        return tag("slot")
     if is_reserved_grid_note(note):
-        return ("reserved",)
+        return tag("reserved")
     if note == shift_note:
         state["shift_held"] = down
-        out.append("latch")
+        out.append(f"latch:{edge}")
     if down and note in arrows:
-        return tuple(out) + ("arrow",)
+        return tuple(out) + tag("arrow")
     if note in (shift_note, stop_all_note):
-        return tuple(out) + ("transport",)
+        return tuple(out) + tag("transport")
     if note in by_note:
-        return tuple(out) + ("clip",)
+        return tuple(out) + tag("clip")
     if is_clip_note(note):
-        return tuple(out) + ("clip_ignored",)
+        return tuple(out) + tag("clip_ignored")
     return tuple(out)
 
 
@@ -654,18 +665,41 @@ def _old_chain_branch(
 #: maps to nothing, because the old chain had no branch: the note fell through
 #: the whole loop.
 _ACTION_TO_BRANCH = {
-    "scene_launch": "scene",
-    "scene_release_consumed": "scene",
-    "slot_press": "slot",
-    "slot_release": "slot",
-    "clip_press": "clip",
-    "clip_release": "clip",
-    "ignore_reserved_row": "reserved",
-    "latch_shift": "latch",
-    "transport_note": "transport",
-    "bank_scroll": "arrow",
+    "scene_launch": ("scene", "down"),
+    "scene_release_consumed": ("scene", "up"),
+    "slot_press": ("slot", "down"),
+    "slot_release": ("slot", "up"),
+    "clip_press": ("clip", "down"),
+    "clip_release": ("clip", "up"),
+    "ignore_reserved_row": ("reserved", None),
+    "latch_shift": ("latch", None),
+    "transport_note": ("transport", None),
+    "bank_scroll": ("arrow", None),
     "noop": None,
 }
+
+
+def _fired_label(name: str, down: bool) -> str | None:
+    """The label the table side records for one action on one edge.
+
+    The edge is pinned for every action whose NAME encodes one, and that
+    pinning is the whole point. Tag the branch with the edge of the *event*
+    instead and a table that fires `slot_release` on a press still reports
+    `slot:down` — which is how 1536 subtests stayed green through a swap of
+    every pad's edges. The reference model reports the edge the event arrived
+    on; this side reports the edge the action MEANS. They agree only when the
+    action is bound to the edge it is named for.
+
+    A pinned edge of `None` means "fires on whichever edge it is bound to" —
+    the latch, the transport notes and the reserved rows genuinely act on both
+    and the old chain did the same, so there the event's edge is the honest
+    label.
+    """
+    mapped = _ACTION_TO_BRANCH[name]
+    if mapped is None:
+        return None
+    branch, pinned = mapped
+    return f"{branch}:{pinned or ('down' if down else 'up')}"
 
 
 class BehaviourIsUnchangedTests(unittest.TestCase):
@@ -708,10 +742,12 @@ class BehaviourIsUnchangedTests(unittest.TestCase):
 
         table = bt.for_surface(label, multigrid=multigrid)
         fired: list[str] = []
+        divergences: list[tuple] = []
+        compared = 0
 
         def make(name):
             def handler(_number, down, _control):
-                label_for = _ACTION_TO_BRANCH[name]
+                label_for = _fired_label(name, down)
                 if label_for is not None:
                     fired.append(label_for)
                 if name == "latch_shift":
@@ -743,19 +779,53 @@ class BehaviourIsUnchangedTests(unittest.TestCase):
                     stop_all_note=stop_all_note,
                 )
                 router.note_event(note, down=down, now=1.0)
-                context = (
-                    contextlib.nullcontext() if strict
-                    else self.subTest(variant=variant, multigrid=multigrid,
-                                      shift=shift_first, note=hex(note), down=down)
-                )
-                with context:
+                # Compare every note on every edge, and open a subTest only
+                # for a DIVERGENCE.
+                #
+                # This used to wrap all 1536 comparisons in `subTest`, which
+                # reported 1536 passing subtests per call and was most of the
+                # 2451 in the suite. The audit's pruning plan proposed
+                # collapsing it to one 1536-entry `assertEqual`; that keeps the
+                # detection power and throws away the localization, because
+                # `maxDiff` truncates a dict that size to "Diff is N characters
+                # long" — a red test naming no pad and no edge, on the sweep
+                # whose whole job is to say WHICH pad moved.
+                #
+                # Comparing in plain code and reporting only what differs keeps
+                # both: identical comparisons, failures that still name the pad
+                # and the edge, and nothing reported when there is nothing to
+                # say.
+                if strict:
                     self.assertEqual(tuple(fired), old)
-                    self.assertNotIn(
-                        "clip_ignored", old,
-                        "at 15 tracks in an 8-wide window every column holds a "
-                        "track, so the chain's final `elif` was already dead",
-                    )
+                    self.assertNotIn("clip_ignored:down", old)
                     self.assertEqual(state["shift_held"], router.shift_held)
+                elif (tuple(fired) != old
+                      or "clip_ignored:down" in old
+                      or state["shift_held"] != router.shift_held):
+                    divergences.append(
+                        (hex(note), down, tuple(fired), old,
+                         state["shift_held"], router.shift_held)
+                    )
+                compared += 1
+
+        if strict:
+            return
+        # A sweep that compared nothing would satisfy every assertion above.
+        self.assertEqual(compared, 256, "the sweep did not cover 128 notes x 2 edges")
+        if divergences:
+            shown = "\n".join(
+                f"  note {n} down={d}: table={f!r} chain={o!r} "
+                f"shift chain={sc} router={sr}"
+                for n, d, f, o, sc, sr in divergences[:8]
+            )
+            more = ("\n  ... and %d more" % (len(divergences) - 8)
+                    if len(divergences) > 8 else "")
+            self.fail(
+                f"{len(divergences)} of {compared} routings diverged from the "
+                f"pre-stage-5 chain "
+                f"(variant={variant}, multigrid={multigrid}, "
+                f"shift_first={shift_first}):\n{shown}{more}"
+            )
 
     def test_mk2_multigrid_matches(self) -> None:
         self._sweep("mk2", multigrid=True, shift_first=False)
@@ -806,7 +876,7 @@ class BehaviourIsUnchangedTests(unittest.TestCase):
 
         def make(name):
             def handler(_number, down, _control):
-                mapped = _ACTION_TO_BRANCH[name]
+                mapped = _fired_label(name, down)
                 if mapped is not None:
                     fired.append(mapped)
                 if name == "latch_shift":
@@ -852,7 +922,7 @@ class BehaviourIsUnchangedTests(unittest.TestCase):
         """
         original = _ACTION_TO_BRANCH["slot_press"]
         try:
-            _ACTION_TO_BRANCH["slot_press"] = "transport"
+            _ACTION_TO_BRANCH["slot_press"] = ("transport", "down")
             with self.assertRaises(AssertionError):
                 self._sweep("mk2", multigrid=True, shift_first=False, strict=True)
         finally:
@@ -883,8 +953,8 @@ class BehaviourIsUnchangedTests(unittest.TestCase):
                 arrows={note: "up"}, by_note={}, scene_notes=scene_notes,
                 shift_note=0x7A, stop_all_note=stop_all_note,
             )
-            self.assertEqual(branch, ("scene",))
-            self.assertNotEqual(branch, ("arrow",))
+            self.assertEqual(branch, ("scene:down",))
+            self.assertNotEqual(branch, ("arrow:down",))
 
 
 if __name__ == "__main__":

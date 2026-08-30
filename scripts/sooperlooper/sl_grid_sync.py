@@ -301,6 +301,46 @@ def apply_established_grid(
         set_grid_active(send, num_loops=num_loops, active=True)
 
 
+def mark_immediate_downbeat(
+    send: Callable[[str, list], None],
+    grid,
+    *,
+    num_loops: int,
+    now: float,
+) -> bool:
+    """A clip launched into silence IS the downbeat — move BOTH clocks.
+
+    Returns True if the downbeat was applied.
+
+    `SlotRuntime` starts a clip immediately when nothing is sounding (Stop All,
+    then a pad). Mitch, about his own instrument: *"when I've stopped all and I
+    start a clip, we've reset the phase to zero ... it should also mean that
+    start happens immediately."* That clip becomes the phase reference for
+    every clip after it.
+
+    The bench used to answer this with `grid.mark_phase_zero(...)` alone, which
+    moves OUR bar line and leaves the engine's wherever `set_tempo` last put it
+    (engine.cpp:2174-2178). Every later quantized launch is then placed against
+    a bar line the engine does not share — off the beat, with the surface
+    vouching for it. That is the sixth instance of the near-copy this module
+    was written to end, and it arrived through a callback rather than a copy.
+
+    `arm_loops=False`: phase only. The loops are already armed, and pushing ~90
+    quantize/sync messages into a clip that just started adds latency to the
+    one gesture that has to feel instant.
+
+    A grid must exist first. With no tempo there is no bar line to move, and
+    `apply_established_grid` refuses rather than zero the engine against a grid
+    nobody has agreed on.
+    """
+    if not getattr(grid, "established", False) or not getattr(grid, "bpm", None):
+        return False
+    apply_established_grid(
+        send, grid, num_loops=num_loops, now=now, arm_loops=False
+    )
+    return True
+
+
 def apply_freeform(
     send: Callable[[str, list], None],
     *,

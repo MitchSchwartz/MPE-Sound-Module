@@ -51,6 +51,7 @@ from sl_limits import resolve_num_loops  # noqa: E402
 from sl_grid_sync import (  # noqa: E402
     RING_OUT_ENABLED,
     apply_established_grid,
+    mark_immediate_downbeat,
     apply_freeform,
     apply_grid_sync,
     set_grid_active,
@@ -406,7 +407,22 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
             # A clip started into silence IS the downbeat. Without this the
             # grid keeps counting from whenever the phase was last zeroed, and
             # every later clip lines up with nothing anyone can hear.
-            mark_phase_zero=lambda: grid.mark_phase_zero(time.monotonic()),
+            #
+            # Through the seam, not `grid.mark_phase_zero` directly. Marking
+            # only the bench's downbeat moves OUR bar line and leaves the
+            # engine's where `set_tempo` last put it (engine.cpp:2174-2178), so
+            # every clip launched after this one is quantized against a bar
+            # line the engine does not share — placed wrong, with the surface
+            # vouching for it. `apply_established_grid` sends the tempo, which
+            # IS the engine's phase reset, and marks ours in the same call;
+            # that pairing is the whole reason the function exists.
+            #
+            # arm_loops=False: phase only. These loops are already armed, and
+            # re-sending ~90 quantize/sync messages into a clip that just
+            # started is latency on the one gesture that must feel instant.
+            mark_phase_zero=lambda: mark_immediate_downbeat(
+                _send, grid, num_loops=num_loops, now=time.monotonic()
+            ),
         )
         slot_surface = SlotSurface(
             runtime=slot_runtime,
