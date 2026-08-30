@@ -6,31 +6,68 @@ from scripts.sooperlooper.sl_grid_state import GridState, derive_tempo, display_
 
 
 class DeriveTempoTests(unittest.TestCase):
-    def test_first_take_is_one_bar_by_definition(self) -> None:
-        for length in (1.5, 2.0, 3.2, 5.964, 8.0):
+    """The take is the base unit; what is chosen is how it DIVIDES.
+
+    Until 2026-08-30 the first take was called one bar unconditionally, so a
+    6 s loop was 40 BPM and one of Mitch's real takes became 34.6 BPM. Two
+    consequences beyond the silly label: the quantize unit is one bar, so clips
+    could only join every 6 s; and SooperLooper doubles `eighth_cycle` below
+    60 BPM on its own, so we were driving the engine into its odd corner nearly
+    every session.
+    """
+
+    def test_the_grid_always_reconstructs_the_take_exactly(self) -> None:
+        """Whatever bar count is chosen, the bars span the audio played.
+
+        This is the invariant. Everything else here is a labelling decision;
+        this one keeps the grid and the recording the same length.
+        """
+        for length in (1.0, 1.5, 2.0, 3.2, 4.0, 5.964, 8.0, 12.0, 30.0):
             bpm, bars = derive_tempo(length)
-            self.assertEqual(bars, 1, f"{length}s should be one bar")
-            self.assertAlmostEqual(4 * 60.0 / bpm, length, places=6)
+            self.assertAlmostEqual((bars * 4) * 60.0 / bpm, length, places=9,
+                                   msg=f"{length}s reconstructs")
+
+    def test_a_take_lands_on_a_plausible_tempo(self) -> None:
+        for length in (1.5, 2.0, 3.0, 4.0, 6.0, 8.0, 12.0, 30.0):
+            bpm, _bars = derive_tempo(length)
+            self.assertGreaterEqual(bpm, 60.0,
+                                    f"{length}s: below 60 SL doubles eighth_cycle")
+            self.assertLessEqual(bpm, 240.0, f"{length}s")
+
+    def test_the_bar_count_is_the_musical_reading(self) -> None:
+        self.assertEqual(derive_tempo(2.0), (120.0, 1))
+        self.assertEqual(derive_tempo(4.0), (120.0, 2))
+        self.assertEqual(derive_tempo(8.0), (120.0, 4))
+        bpm, bars = derive_tempo(6.0)
+        self.assertEqual((round(bpm), bars), (80, 2),
+                         "a 6s loop is two bars at 80, not one bar at 40")
+
+    def test_mitchs_real_takes_stop_producing_nonsense(self) -> None:
+        """Measured on the appliance 2026-08-30. These four takes produced
+        73.7, 34.6, 54.9 and 179.3 BPM — a tempo that walked because each one
+        redefined the grid."""
+        for length, was in ((3.257, 73.7), (6.939, 34.6), (4.373, 54.9)):
+            bpm, _bars = derive_tempo(length)
+            if was < 60.0:
+                self.assertGreater(bpm, was, f"{length}s was {was} BPM")
+            self.assertGreaterEqual(bpm, 60.0)
+
+    def test_bar_counts_are_powers_of_two(self) -> None:
+        """Nobody plays a three-bar phrase and then wonders why."""
+        for length in (1.0, 2.5, 5.0, 7.0, 11.0, 19.0, 30.0):
+            _bpm, bars = derive_tempo(length)
+            self.assertIn(bars, (1, 2, 4, 8), f"{length}s -> {bars} bars")
 
     def test_tempo_is_exact_never_rounded(self) -> None:
         """Rounding the engine tempo makes the grid bar differ from the audio."""
-        bpm, _ = derive_tempo(5.964)
+        bpm, bars = derive_tempo(5.964)
         self.assertNotEqual(bpm, round(bpm))
-        self.assertAlmostEqual(bpm, 40.24145, places=4)
-        # the bar must reconstruct the take exactly, or clips drift apart
-        self.assertAlmostEqual(4 * 60.0 / bpm, 5.964, places=9)
+        self.assertAlmostEqual((bars * 4) * 60.0 / bpm, 5.964, places=9)
 
     def test_display_rounds_but_engine_does_not(self) -> None:
-        bpm, _ = derive_tempo(5.964)
-        self.assertEqual(display_bpm(bpm), 40)
-        self.assertAlmostEqual(bpm, 40.24145, places=4)
-
-    def test_absurdly_long_take_falls_back_to_more_bars(self) -> None:
-        bpm, bars = derive_tempo(30.0)
-        self.assertGreater(bars, 1)
-        self.assertGreaterEqual(bpm, 20.0)
-        # the cycle still equals the whole take
-        self.assertAlmostEqual((bars * 4) * 60.0 / bpm, 30.0, places=6)
+        bpm, _bars = derive_tempo(5.964)
+        self.assertEqual(display_bpm(bpm), round(bpm))
+        self.assertNotEqual(bpm, float(display_bpm(bpm)))
 
     def test_rejects_nonsense(self) -> None:
         self.assertIsNone(derive_tempo(0.0))
@@ -140,6 +177,54 @@ class GridSurvivesEmptyPadsTests(unittest.TestCase):
         self.assertTrue(g.arm(4), "after a reset the next take defines a grid")
 
 
+class TheCycleIsTheFirstTakeTests(unittest.TestCase):
+    """The quantize unit is the take itself, whatever tempo we call it.
+
+    Nearly shipped broken on 2026-08-30. Fitting the BPM to a plausible range
+    means a 6.939 s take reads as 4 bars at 138 BPM — and if the boundary is
+    then computed as ONE BAR, clips join four times inside the loop the player
+    thinks of as a single unit. Mitch caught it in review:
+
+        "A six second clip reading as 138 BPM in four bars — I don't know why
+        it's inherently four bars. If it's my first clip, it should still be
+        one bar. I just want to make sure we're not misaligning again."
+
+    Bar count and BPM describe the cycle. They do not divide it.
+    """
+
+    def _established(self, take: float) -> GridState:
+        g = GridState()
+        g.arm(0)
+        g.establish(0, take)
+        g.mark_phase_zero(0.0)
+        return g
+
+    def test_the_boundary_is_the_take_however_many_bars_it_reads_as(self) -> None:
+        for take in (2.0, 3.257, 4.0, 6.0, 6.939, 8.0, 12.0, 30.0):
+            g = self._established(take)
+            self.assertAlmostEqual(
+                g.next_boundary(0.0), take, places=6,
+                msg=f"{take}s take read as {g.bars} bars @ {g.bpm:.1f} BPM",
+            )
+
+    def test_the_engine_cycle_matches_the_bench_boundary(self) -> None:
+        """SL computes cycle = eighth_per_cycle * 30 / bpm. Left at a fixed 8
+        while the tempo rises, the ENGINE quantizes to a fraction of the take
+        even if the bench does not — the two would disagree silently."""
+        for take in (2.0, 4.0, 6.939, 12.0, 30.0):
+            g = self._established(take)
+            engine_cycle = g.eighth_per_cycle * 30.0 / g.bpm
+            self.assertAlmostEqual(engine_cycle, take, places=6,
+                                   msg=f"{take}s -> {g.bars} bars")
+
+    def test_a_bar_is_still_reported_for_display(self) -> None:
+        g = self._established(8.0)          # 120 BPM, 4 bars
+        self.assertAlmostEqual(g.bar_s, 2.0)
+        self.assertAlmostEqual(g.cycle_s, 8.0)
+        self.assertNotAlmostEqual(g.bar_s, g.cycle_s,
+                                  msg="the two are different things")
+
+
 class GridClockTests(unittest.TestCase):
     """The grid can name its own bar line, with nothing playing.
 
@@ -157,7 +242,7 @@ class GridClockTests(unittest.TestCase):
 
     def test_the_next_bar_line_comes_from_the_tempo(self) -> None:
         g = self._running()
-        self.assertAlmostEqual(g.bar_s, 2.0)
+        self.assertAlmostEqual(g.cycle_s, 2.0)
         self.assertAlmostEqual(g.next_boundary(100.0), 102.0)
         self.assertAlmostEqual(g.next_boundary(101.9), 102.0)
         self.assertAlmostEqual(g.next_boundary(102.0), 104.0)
