@@ -47,6 +47,7 @@ from loop_mix import CoalescingSender, LoopMix  # noqa: E402
 from sl_bench_listener import SlBenchStateListener  # noqa: E402
 from looper_engine_events import LooperEngineEventWatch, poll_interval_s  # noqa: E402
 from sl_grid_state import GridState  # noqa: E402
+from sl_limits import resolve_num_loops  # noqa: E402
 from sl_grid_sync import (  # noqa: E402
     RING_OUT_ENABLED,
     apply_established_grid,
@@ -108,7 +109,15 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
     hold_ms = float(os.environ.get("MPE_APC_HOLD_MS", "2000"))
     debounce_ms = float(os.environ.get("MPE_APC_DEBOUNCE_MS", "200"))
     hold_blink_start_ms = float(os.environ.get("MPE_APC_HOLD_BLINK_START_MS", "500"))
-    num_loops = int(os.environ.get("MPE_SL_LOOPS", str(NUM_LOOPS)))
+    # Clamped, like every other consumer of this variable. Read raw, an
+    # MPE_SL_LOOPS of 16 reinstates the phantom index 15 that `sl_limits`
+    # exists to keep out — it answers `get` with plausible defaults and
+    # silently discards every `set`, so the surface vouches for a track the
+    # engine is not running. `ccde96a` removed the 16 from `pi5.env`, but
+    # `measure-soak.sh` and `measure-latency-run.sh` both sed the same value
+    # into the persistent `/etc/mpe/mpe.env` and neither restores it, so one
+    # measurement run left the door open behind them.
+    num_loops = resolve_num_loops()
     # MPE_APC_SHIFT_NOTE / MPE_APC_STOP_ALL_NOTE are gone. They injected two
     # note numbers at runtime, which `control_registry`'s rule 1 forbids
     # ("Note numbers ... live HERE. Nowhere else.") and no test could see. They
