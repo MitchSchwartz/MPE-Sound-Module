@@ -231,8 +231,23 @@ _jackd_alsa_xrun_stats() {
         '
 }
 
+_restore_sl_loops() {
+    # /etc/mpe/mpe.env persists across deploys, and this script edits it. Without
+    # this, one latency block left MPE_SL_LOOPS at the measurement value forever
+    # and every later session ran on it — a config change with no expiry, made by
+    # an instrument, invisible to the person playing the instrument afterwards.
+    [ "${RESTORE_SL_LOOPS_SET:-false}" = true ] || return 0
+    if [ -n "${RESTORE_SL_LOOPS:-}" ]; then
+        sed -i "s/^MPE_SL_LOOPS=.*/MPE_SL_LOOPS=${RESTORE_SL_LOOPS}/" "$ENV_FILE" || true
+    else
+        sed -i '/^MPE_SL_LOOPS=/d' "$ENV_FILE" || true
+    fi
+    RESTORE_SL_LOOPS_SET=false
+}
+
 _restore_all() {
     _stop_midi_load
+    _restore_sl_loops
     _stop_fill_poller
     _stop_xrun_probe
     _restore_softmode
@@ -715,12 +730,14 @@ _run_window() {
 
     if [ "$PLAYING_LOOPS" -gt 0 ]; then
         case "$PLAYING_LOOPS" in
-            4 | 8 | 16) ;;
+            4 | 8 | 15) ;;
             *)
-                echo "ERROR: --playing-loops must be 0, 4, 8, or 16" >&2
+                echo "ERROR: --playing-loops must be 0, 4, 8, or 15" >&2
                 exit 2
                 ;;
         esac
+        RESTORE_SL_LOOPS="$(sed -n 's/^MPE_SL_LOOPS=//p' "$ENV_FILE" 2>/dev/null | tail -1)"
+        RESTORE_SL_LOOPS_SET=true
         if ! grep -q "^MPE_SL_LOOPS=" "$ENV_FILE" 2>/dev/null; then
             printf '\nMPE_SL_LOOPS=%s\n' "$PLAYING_LOOPS" >>"$ENV_FILE"
         else
