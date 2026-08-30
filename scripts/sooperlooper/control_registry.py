@@ -405,11 +405,22 @@ for _index in range(GRID_COLS):
         # through every branch of the event loop and is not even logged, so a
         # wrong note number and a button nobody touched look the same.
         owner=UNOWNED,
-        # ...and yet mk2 track 8 IS written: apc_transport sends it OFF, so a
-        # lamp left on by an earlier build gets cleared. Never read, never lit,
-        # and still has a writer — which is exactly why press ownership and
-        # lamp ownership are two columns and not one.
-        led_writers=("apc_transport",) if _index == GRID_COLS - 1 else (),
+        # ...and yet mk2 track 8 IS written, dark, once, so a lamp left on by
+        # an earlier build gets cleared. Never read, never lit, and still has a
+        # writer — which is exactly why press ownership and lamp ownership are
+        # two columns and not one.
+        #
+        # It has been lit for the wrong reason twice, in opposite directions.
+        # First as a "Shift is held" lamp, which reported an unrelated modifier
+        # on a track control — read off the device as "pressing shift lights up
+        # column 8". Then as the clear-all warning, on the reasoning that Stop
+        # All is green-only so red had to live somewhere: worse, because it
+        # still lit the wrong button AND took the blink off the button under
+        # the player's finger. The correct answer to "Stop All should blink
+        # red" is that this hardware cannot, said out loud. The clear is now
+        # `led_compositor`'s base layer, from `lit_notes`, rather than four
+        # methods of a live writer re-asserting it.
+        led_writers=("led_compositor",) if _index == GRID_COLS - 1 else (),
         led=_TRACK_LED,
     ))
 
@@ -758,12 +769,59 @@ def notes_for_kind(kind: str, variant: str) -> tuple[int, ...]:
     )
 
 
+#: note -> control, per variant. Built once. `assert_no_collisions` above has
+#: already refused a table where one note has two controls, so this cannot lose
+#: a claim by overwriting it — which is the usual reason a lookup like this is
+#: written as a scan instead.
+_NOTE_INDEX: dict[str, dict[int, Control]] = {
+    v: {c.notes[v]: c for c in CONTROLS.values() if c.notes[v] is not None}
+    for v in VARIANTS
+}
+
+
+def note_index(variant: str) -> dict[int, Control]:
+    """note -> control for one variant. The LED compositor's hot lookup.
+
+    Handed out as the live mapping rather than a copy: it is consulted once per
+    LED byte, and the compositor is in the bench's 485 Hz poll loop.
+    """
+    _check_variant(variant)
+    return _NOTE_INDEX[variant]
+
+
 def control_for_note(note_number: int, variant: str) -> Control | None:
     _check_variant(variant)
-    for c in CONTROLS.values():
-        if c.notes[variant] == note_number:
-            return c
-    return None
+    return _NOTE_INDEX[variant].get(note_number)
+
+
+def lit_notes(variant: str) -> tuple[int, ...]:
+    """Every note we may paint on `variant`: known lamp, known identity.
+
+    What the compositor seeds dark at startup, and therefore the complete list
+    of lamps a previous build can leave lit. Two exclusions, and they are
+    different exclusions:
+
+    * **No established addressing.** Shift and the bank arrows. Their lamps
+      exist — `apc.buttons.all_have_leds` is OWNER tier — but no message we
+      have sent has ever lit one, so painting them would be guessing at a
+      protocol. Excluding them is not a claim that they cannot light.
+    * **Identity not authoritative on this variant.** The mk1 track row is
+      recall: `apc_transport` claims 0x37 for button 8 while `apc_panel` claims
+      0x64-0x6B, and neither has evidence. Darkening a note we cannot name is
+      how you turn off something you did not mean to. So the mk1 track row is
+      not painted, and the mk2 one — MEASURED 2026-08-29 — is.
+
+    That second rule is what `resolve_stale_lamp_note` used to say by hand:
+    "mk2 Track Select 8, and mk1 has none". It now falls out of the evidence
+    instead of being a special case someone has to remember to keep true.
+    """
+    _check_variant(variant)
+    return tuple(sorted(
+        note for note, c in _NOTE_INDEX[variant].items()
+        if c.led is not None
+        and c.led.established
+        and c.evidence[variant].authoritative
+    ))
 
 
 def scene_column_notes(variant: str) -> tuple[int, ...]:

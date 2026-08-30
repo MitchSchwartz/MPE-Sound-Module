@@ -39,6 +39,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "sooper
 from tests.fake_sl_engine import FakeSlEngine  # noqa: E402
 
 from apc_grid import GridView, pad_note  # noqa: E402
+from apc_transport import SCENE_LAUNCH_NOTES_MK1  # noqa: E402
 from led_table import LED_GREEN, LED_OFF, LED_YELLOW  # noqa: E402
 from sl_loop_states import (  # noqa: E402
     SL_STATE_OVERDUBBING,
@@ -47,7 +48,11 @@ from sl_loop_states import (  # noqa: E402
 )
 from slot_runtime import SlotRuntime  # noqa: E402
 from slot_surface import SlotSurface  # noqa: E402
-from tests.test_slot_surface import FakeOut, build_track_gestures  # noqa: E402
+from tests.test_slot_surface import (  # noqa: E402
+    FakeOut,
+    build_track_gestures,
+    compositor_for,
+)
 
 
 class Session(unittest.TestCase):
@@ -60,10 +65,11 @@ class Session(unittest.TestCase):
         self._last_state: dict[int, int] = {}
         self._last_len: dict[int, float] = {}
         self.out = FakeOut()
+        self.leds = compositor_for(self.out)
         self.osc: list[tuple[str, list]] = []
-        self.fs_by_loop = build_track_gestures(self.osc)
+        self.fs_by_loop = build_track_gestures(self.osc, compositor=self.leds)
         for fs in self.fs_by_loop.values():
-            fs.bind(self, FakeOut(), None)
+            fs.bind(self, self.leds, None)
         self.rt = SlotRuntime(
             send=self.send_message,
             clips_dir=self.dir,
@@ -76,9 +82,9 @@ class Session(unittest.TestCase):
             runtime=self.rt,
             gestures_by_loop=self.fs_by_loop,
             view=self.view,
-            midi_out=self.out,
+            compositor=self.leds,
             num_tracks=15,
-            scene_launch_notes=tuple(range(0x52, 0x59)),
+            scene_launch_notes=SCENE_LAUNCH_NOTES_MK1,
             hold_s=2.0,
             hold_blink_start_s=0.5,
             log=lambda m: None,
