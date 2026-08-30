@@ -42,6 +42,7 @@ from sl_loop_states import (  # noqa: E402
     SL_STATE_RECORDING,
     SL_STATE_WAIT_START,
 )
+from led_compositor import LedCompositor  # noqa: E402
 from slot_runtime import SlotRuntime  # noqa: E402
 from slot_surface import SlotSurface  # noqa: E402
 
@@ -77,7 +78,7 @@ class Clock:
         return self.t
 
 
-def _gesture(*, osc, out, clock, multigrid: bool) -> TrackGesture:
+def _gesture(*, osc, compositor, clock, multigrid: bool) -> TrackGesture:
     fs = TrackGesture(
         loop=TRACK,
         hold_ms=HOLD_MS,
@@ -86,7 +87,7 @@ def _gesture(*, osc, out, clock, multigrid: bool) -> TrackGesture:
         quantized=False,
         multigrid=multigrid,
     )
-    fs.bind(osc, out, NOTE)
+    fs.bind(osc, compositor, NOTE)
     fs._now = clock  # type: ignore[attr-defined]
     return fs
 
@@ -109,11 +110,11 @@ class Rig:
         normalising them here is what keeps this test about the player's
         experience rather than about MIDI byte counts:
 
-        * **Consecutive duplicates.** The single-clip path re-sends a colour it
-          is already showing at the end of a transition; the matrix diffs and
-          does not. The pad looks identical — one is just quieter on a
-          31.25 kbaud link. Blink sequences alternate, so collapsing runs
-          cannot hide a blink.
+        * **Consecutive duplicates.** Both paths now diff once at the wire, so
+          neither should emit them — but the normalisation stays, because what
+          this test is about is the colour sequence a player perceives and not
+          the traffic that produced it. Blink sequences alternate, so
+          collapsing runs cannot hide a blink.
         * **A leading OFF.** The matrix blanks and paints the whole 8x8 at
           startup, so an empty cell is explicitly darkened; the single-clip
           path never paints a pad it has nothing to say about. Both leave the
@@ -138,7 +139,8 @@ class ReferenceRig(Rig):
     def __init__(self) -> None:
         super().__init__()
         self.fs = _gesture(
-            osc=FakeOsc(self.osc_log), out=FakeOut(self.led_log),
+            osc=FakeOsc(self.osc_log),
+            compositor=LedCompositor(FakeOut(self.led_log), apc_label="mk1"),
             clock=self.clock, multigrid=False,
         )
 
@@ -161,11 +163,12 @@ class MultigridRig(Rig):
     def __init__(self, tmp: Path) -> None:
         super().__init__()
         # Faithful to the bench: under multigrid SlotSurface is the only LED
-        # owner, so the gesture is bound with no midi_out of its own.
+        # owner, so the gesture is bound with no compositor of its own.
         self.fs = _gesture(
-            osc=FakeOsc(self.osc_log), out=None,
+            osc=FakeOsc(self.osc_log), compositor=None,
             clock=self.clock, multigrid=True,
         )
+        leds = LedCompositor(FakeOut(self.led_log), apc_label="mk1")
         self.rt = SlotRuntime(
             send=lambda p, a: self.osc_log.append((p, list(a))),
             clips_dir=tmp,
@@ -175,7 +178,7 @@ class MultigridRig(Rig):
             runtime=self.rt,
             gestures_by_loop={TRACK: self.fs},
             view=GridView(offset=0),
-            midi_out=FakeOut(self.led_log),
+            compositor=leds,
             num_tracks=15,
             hold_s=HOLD_MS / 1000.0,
             hold_blink_start_s=BLINK_MS / 1000.0,
