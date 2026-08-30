@@ -23,6 +23,31 @@ JACK_PERIODS="$(mpe_jack_periods)"
 JACK_RATE="$(mpe_jack_rate)"
 JACK_PRIO="$(mpe_jack_rt_priority)"
 
+# Idle-sink period floor.
+#
+# The snd-aloop idle sink cannot run the appliance's configured 64-frame period.
+# MEASURED 2026-08-30, three attempts each, waiting 7s for the driver thread:
+#
+#     -p 64   -> "LockedTimedWait ... Connection timed out / Driver is not
+#                 running", every time; jackd stays up but no client can attach
+#     -p 128  -> driver runs, clients attach
+#     -p 192  -> driver runs, clients attach
+#
+# So on a Pi 5 with no DAC the choice was a 64-frame period and NO audio graph
+# at all, versus a 128-frame period on a sink whose output is inaudible by
+# definition. The floor applies ONLY while bound to the loopback: the moment a
+# real DAC appears, restart-audio-graph.sh sees the desired card differ from the
+# bound one and restarts the graph, and this branch does not run.
+#
+# It is loud on purpose. A silently-doubled period is a latency change the
+# player feels and cannot account for, and it is exactly the kind of reading
+# that looks identical whether it was intended or not.
+MPE_IDLE_SINK_MIN_PERIOD="${MPE_IDLE_SINK_MIN_PERIOD:-128}"
+if [ "${JACK_CARD_ID:-}" = "Loopback" ] && [ "$JACK_BUFFER" -lt "$MPE_IDLE_SINK_MIN_PERIOD" ]; then
+    echo "start-jackd: idle sink (Loopback) cannot run ${JACK_BUFFER} frames — raising to ${MPE_IDLE_SINK_MIN_PERIOD} for this binding only" >&2
+    JACK_BUFFER="$MPE_IDLE_SINK_MIN_PERIOD"
+fi
+
 if ! command -v jackd >/dev/null 2>&1; then
     echo "ERROR: jackd not installed (apt install jackd2)" >&2
     exit 1
