@@ -29,7 +29,15 @@ from __future__ import annotations
 import os
 
 #: How far the peak must fall FROM ITS OWN MAXIMUM before the tail is over.
-#: 0.1 is -20 dB.
+#: 0.032 is -30 dB.
+#:
+#: MEASURED, 2026-08-30, seven takes on the appliance. At the first value tried
+#: (-20 dB) Mitch reported "possible the decay is a bit steep". He was right and
+#: it is not subjective: -20 dB cuts the ring-out while it is still at a TENTH
+#: of its peak, which is a truncation rather than an ending. The measured decay
+#: half-life across those takes was 0.25-0.48 s, so each extra 10 dB costs only
+#: 0.35-0.85 s, and six of the seven still finish well inside their cap at
+#: -30 dB. The seventh has a 1.34 s loop, where hitting the cap is correct.
 #:
 #: This used to be an absolute level (MPE_SL_TAIL_THRESH, 0.02) inherited from
 #: the seam-weld work. The first trace off the appliance (2026-08-29) showed
@@ -41,7 +49,7 @@ import os
 #:
 #: Relative to the tail's own peak, the same number works for a loud pluck and
 #: a quiet pad with nothing for the player to tune.
-TAIL_RATIO = float(os.environ.get("MPE_SL_TAIL_RATIO", "0.1"))
+TAIL_RATIO = float(os.environ.get("MPE_SL_TAIL_RATIO", "0.032"))
 
 #: Absolute noise floor. Below this is silence regardless of ratio — a decay
 #: that asymptotes above its own -20 dB would otherwise never finish. Also what
