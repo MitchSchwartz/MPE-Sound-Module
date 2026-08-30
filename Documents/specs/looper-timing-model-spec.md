@@ -47,6 +47,54 @@ engine's cycle shrinks below the take.
 **Invariant, tested:** for any first take, the bench boundary and the engine
 cycle both equal the take length exactly.
 
+## 1a. What BPM actually counts, and why subdivision cannot rescue "one bar"
+
+Recorded because it was nearly got wrong twice in one conversation.
+
+**BPM is not inherently quarter notes per minute.** A tempo mark names a note
+value and a count — the beat is the notated beat unit, the time signature's
+denominator in simple meters (quarter in 4/4, half in 2/2) and the dotted value
+in compound meters (dotted quarter in 6/8).
+
+**But for this instrument it is quarters, and that is not an assumption.**
+SooperLooper computes `cycle = eighth_per_cycle * 30 / bpm`, so an eighth is
+`30/bpm` seconds and a quarter is `60/bpm`. SL's BPM is quarter notes per
+minute, and every major DAW uses the same convention regardless of meter.
+
+**The dead end, written down so nobody walks into it again.** It is tempting to
+think the quarter/eighth/sixteenth subdivision is a slider that keeps the first
+take at "one bar" while making the BPM plausible. It is not. A 4/4 bar contains
+4 quarters, 8 eighths and 16 sixteenths *always* — that is what the meter
+means. Subdivision does not change how many notes fit in a bar; the time
+signature does.
+
+So the take's length, the meter and the BPM are bound by one equation. Fix any
+two and the third follows. For a 6.939 s take:
+
+| | reading | tempo | cost |
+|---|---|---|---|
+| 1 | 4 bars of 4/4 | 138 BPM | the first clip is called "4 bars" |
+| 2 | one bar of 16/4 | 138 BPM | a meter nobody writes music in |
+| 3 | one bar of 4/4 | 34.6 BPM | nonsense tempo, and under 60 BPM SL doubles `eighth_cycle` on us |
+
+**Option 1 is what the code does**, chosen 2026-08-30 and left in place.
+
+In all three the QUANTIZE UNIT is the first take — guaranteed by `cycle_s` and
+tested. This whole table is about what the take is CALLED and what number the
+engine is handed, not about when clips land.
+
+**Open: the display, not the math.** "4 bars" contradicts the player's mental
+model of one base unit, and the fix is likely vocabulary — the HUD saying
+"cycle" or "loop" where it now implies a bar. Mitch is playing with it to see
+what it should look like before we name it. Until then the code stands.
+
+`eighth_per_cycle = 8 * bars` is the one place the subdivision is expressed,
+and it is currently spelled as a bar count. If a real abstraction is wanted
+later, the free variable is beats-per-cycle: pick it and the tempo, the bar
+count and `eighth_per_cycle` all follow — and it would also open up 3, 6 or 12
+for 3/4 and odd meters, which bar counts of 1/2/4/8 cannot express. Noted, not
+built.
+
 ## 2. Establishing the grid
 
 The first take records free-form: no count-in, no quantize, no rounding. There
