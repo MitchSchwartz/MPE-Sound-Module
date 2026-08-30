@@ -289,22 +289,6 @@ class ReachabilityTests(unittest.TestCase):
     what the player experiences.
     """
 
-    #: The bench event loop's note branches, in source order. Each entry is a
-    #: line from `sooperlooper-apc-bench.py`. `test_the_model_matches_the_bench`
-    #: asserts they still appear in this order, so a reordered loop fails here
-    #: rather than quietly invalidating the model below.
-    BRANCHES = (
-        "scene_row = (",
-        "if scene_row is not None:",
-        "if slot_surface is not None and down is not None and slot_surface.handles(n):",
-        "if down is not None and is_reserved_grid_note(n):",
-        "if down is not None and n == shift_note:",
-        "if down and handle_arrow(n):",
-        "if down is not None and n in (shift_note, stop_all_note):",
-        "if down is not None and n in by_note:",
-        "elif down is not None and is_clip_note(n):",
-    )
-
     def _dispatch(self, note: int, variant: str) -> list[str]:
         """Who sees a note-on for `note`, under the live configuration.
 
@@ -314,62 +298,58 @@ class ReachabilityTests(unittest.TestCase):
         what runs, and a model of two configurations that agrees with neither
         is worse than no model.
 
-        Built from the bench's own predicates rather than a second copy of
-        them: `scene_press_row`, `GridView.cell_for_note`,
-        `is_reserved_grid_note`, `resolve_arrow_notes` and `is_clip_note` are
-        all imported, not reimplemented. What IS duplicated is the ORDER they
-        run in, which `test_the_model_matches_the_bench` pins to the source.
+        **Rewritten 2026-08-30 for charter stage 5 / spec §5.2.** This used to
+        be a hand-copied replica of the bench's `if`-chain, pinned to the source
+        by a list of nine branch strings in source order — because reachability
+        WAS statement order, and there was nowhere else to read it from. Stage 5
+        made routing a table, so the model asks the table. That is not the test
+        checking itself: `control_registry.Control.owner` and
+        `binding_table.ACTIONS[...].owner` are two independent statements, and
+        this compares them. The old form could not survive the stage it was
+        written to enable — the branch strings it pinned are the ones the stage
+        deletes.
         """
-        from scripts.sooperlooper.apc_grid import (
-            DEFAULT_VIEW,
-            is_clip_note,
-            is_reserved_grid_note,
-        )
-        from scripts.sooperlooper.apc_panel import scene_press_row
-        from scripts.sooperlooper.apc_transport import (
-            resolve_arrow_notes,
-            resolve_apc_transport_notes,
-            resolve_scene_launch_notes,
-        )
+        from scripts.sooperlooper import binding_table as bt
+        from scripts.sooperlooper.apc_transport import resolve_apc_transport_notes
 
         port = "APC mini mk2 MIDI 1" if variant == "mk2" else "APC MINI"
-        shift_note, stop_all_note, label = resolve_apc_transport_notes(port)
-        scene_notes = resolve_scene_launch_notes(label)
-        arrows = resolve_arrow_notes(port)
-        view = DEFAULT_VIEW
-        seen: list[str] = []
-
-        if scene_press_row(note, scene_notes=scene_notes, apc_label=label,
-                           shift_held=False) is not None:
-            return ["slot_surface"]
-        if view.cell_for_note(note) is not None:
-            return ["slot_surface"]
-        if is_reserved_grid_note(note):
+        _shift, _stop, label = resolve_apc_transport_notes(port)
+        table = bt.for_surface(label, multigrid=True)
+        binding = table.resolve(note, layer=bt.BASE, gesture=bt.PRESS)
+        if binding is None:
             return []
-        if note == shift_note:
-            # Sets the bench's latch and falls through — no `continue` here,
-            # which is why Shift reaches two modules and the others reach one.
-            seen.append("sooperlooper-apc-bench")
-        if note in arrows:
-            return seen + ["sooperlooper-apc-bench"]
-        if note in (shift_note, stop_all_note):
-            return seen + ["apc_transport"]
-        if is_clip_note(note):
-            return seen + ["track_gesture"]
-        return seen
+        # An action owned by nobody is a press that reaches nobody — the eight
+        # track-select buttons, whose notes fall through the whole surface.
+        return [owner for owner in binding.owners if owner != reg.UNOWNED]
 
-    def test_the_model_matches_the_bench(self) -> None:
-        source = BENCH.read_text(encoding="utf-8")
-        positions = []
-        for marker in self.BRANCHES:
-            index = source.find(marker)
-            self.assertNotEqual(
-                index, -1,
-                f"the bench no longer contains {marker!r} — the dispatch model "
-                "in this test is describing a loop that has changed",
-            )
-            positions.append(index)
-        self.assertEqual(positions, sorted(positions))
+    def test_the_model_is_the_table_the_bench_runs(self) -> None:
+        """The model above is worthless if the bench routes some other way.
+
+        Structural, not a substring: the bench must contain a real call to
+        `BindingRouter` whose table argument is `for_surface(...)` with the same
+        multigrid flag the model assumes. A comment or a docstring mentioning
+        either name cannot satisfy this, because comments are not AST nodes —
+        which is the failure mode the lifecycle guard hit on 2026-08-30, where a
+        substring check passed over deleted code because a comment named it.
+        """
+        tree = ast.parse(BENCH.read_text(encoding="utf-8"))
+        built = [
+            node for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "BindingRouter"
+        ]
+        self.assertEqual(
+            len(built), 1,
+            "the bench builds exactly one router; the model above describes it",
+        )
+        table_arg = built[0].args[0]
+        self.assertIsInstance(table_arg, ast.Call)
+        self.assertEqual(table_arg.func.id, "for_surface")
+        self.assertEqual(
+            [k.arg for k in table_arg.keywords], ["multigrid"],
+            "the table is built per mode; the model assumes multigrid",
+        )
 
     def test_every_control_reaches_its_declared_owner(self) -> None:
         for variant in reg.VARIANTS:

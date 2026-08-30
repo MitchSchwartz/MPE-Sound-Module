@@ -247,6 +247,17 @@ Three, all cheap, each pinning a defect above:
 3. **Ownership.** Assign each control exactly one owner; delete
    `clear_unwired_surfaces`, whose whole job was cleaning up after the conflict.
 4. **Binding table.** Move press/hold/shift-layer routing into rows.
+   **Done 2026-08-30** — `scripts/sooperlooper/binding_table.py`. One
+   correction to §5.2 while it was being built: the example rows there are a
+   *sequence* (`Binding(control="stop_all", layer=SHIFT, ...)` twice over), and
+   a sequence needs a match order, which is the defect wearing a dataclass. The
+   shipped table is a **mapping** keyed by `(control, mode, layer, gesture)`
+   with collisions refused at import, so the shadowing §5.2 would have
+   permitted is not expressible. Two fields the spec did not anticipate: `mode`
+   (`MPE_SL_MULTIGRID` genuinely rebinds all 64 pads, and modelling one
+   configuration would have described one nobody runs) and `fired_by` (a row
+   the router executes and a row that only describes a poller elsewhere are
+   different things, and conflating them is how a table becomes prose).
 5. **Grid.** Move the 8x8 behind the same compositor. Last, because it is the
    part that currently works.
 
