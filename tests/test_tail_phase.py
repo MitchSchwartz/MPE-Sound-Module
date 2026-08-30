@@ -23,7 +23,6 @@ from tail_phase import (  # noqa: E402
     EXIT_SILENT,
     append_trace,
     TailPhase,
-    bar_seconds,
     cap_for,
 )
 
@@ -106,24 +105,53 @@ class CapTests(unittest.TestCase):
         self.assertEqual(p.tick(2.5), EXIT_CAP)
 
 
-class BarLengthTests(unittest.TestCase):
-    def test_a_bar_comes_from_the_grid_when_there_is_one(self) -> None:
-        self.assertAlmostEqual(bar_seconds(120.0), 2.0)
-        self.assertAlmostEqual(bar_seconds(60.0), 4.0)
+class CapLengthTests(unittest.TestCase):
+    """The cap is ONE CYCLE.
+
+    Rewritten 2026-08-30. This class used to assert `cap_for(120.0) ==
+    (2.0, "one bar")` — a BPM in, a bar out. `looper-timing-model-spec.md` §6
+    says the cap is **one cycle**, and §1 says `bar_s` "must never be used to
+    place a boundary", so the old assertions contradicted canon at rank 3 and
+    were the defect rather than the record. They were written when every first
+    take was one bar, which `d06fb08` stopped being true on the same day.
+
+    `bar_seconds` went with them: it was a third home for "one bar" beside
+    `GridState.bar_s` and `patch_browser.looper_hud.bar_seconds`, with no
+    production caller — a bar-shaped helper sitting in the module whose job is
+    cycles, which is how the regression happened in the first place.
+    """
+
+    def test_the_cap_is_the_cycle_when_there_is_a_grid(self) -> None:
+        self.assertEqual(cap_for(6.939), (6.939, "one cycle"))
+        self.assertEqual(cap_for(2.0), (2.0, "one cycle"))
+
+    def test_a_multi_bar_cycle_is_not_divided_by_its_bar_count(self) -> None:
+        """The regression, stated as a number.
+
+        A 6.939 s take reads as 4 bars at 138 BPM. Capping at one BAR gives
+        1.735 s and truncates three quarters of the ring-out.
+        """
+        cap, source = cap_for(6.939)
+        self.assertAlmostEqual(cap, 6.939)
+        self.assertNotAlmostEqual(cap, (60.0 / 138.0) * 4, places=2)
+        self.assertEqual(source, "one cycle")
 
     def test_it_falls_back_to_the_loop_length(self) -> None:
-        self.assertAlmostEqual(bar_seconds(None, loop_len=1.5), 1.5)
+        cap, source = cap_for(None, loop_len=1.5)
+        self.assertAlmostEqual(cap, 1.5)
+        self.assertIn("no grid", source)
 
-    def test_a_nonsense_tempo_does_not_produce_a_zero_cap(self) -> None:
+    def test_no_grid_and_no_length_does_not_produce_a_zero_cap(self) -> None:
         """A zero cap would end every ring-out instantly."""
-        self.assertGreater(bar_seconds(0.0, loop_len=0.0), 0.0)
-        self.assertGreater(bar_seconds(None, loop_len=0.0), 0.0)
+        for cycle in (None, 0.0):
+            cap, source = cap_for(cycle, loop_len=0.0)
+            self.assertGreater(cap, 0.0)
+            self.assertIn("fallback", source)
 
     def test_the_cap_reports_where_it_came_from(self) -> None:
         """The log said "capped at 4.078s (one bar)" on a take with no grid,
         where a bar would have been 2.0s. A log line that misattributes its own
         number cost real time decoding the first trace off the appliance."""
-        self.assertEqual(cap_for(120.0), (2.0, "one bar"))
         cap, source = cap_for(None, loop_len=4.078)
         self.assertAlmostEqual(cap, 4.078)
         self.assertIn("no grid", source)
