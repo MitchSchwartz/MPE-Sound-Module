@@ -248,3 +248,106 @@ Reported severities re-rated against live/latent status and blast radius.
   extrapolated ×3, and said so.
 - **Anything audible.** No sound was made. Every finding above is from source,
   logs, process environ, and one CSV.
+
+---
+
+## 5. Addendum — settled against SooperLooper's own source
+
+The clock reviewer filed **P1-4** (`establish_grid_clock` sends
+`eighth_per_cycle` before `tempo`) with an explicit caveat: it could not read
+`engine.cpp`, so every engine claim came from a repo document, and two of those
+documents disagree. It flagged this as a morning task needing the source.
+
+The source is not on the Pi either — `~/src/sooperlooper-1.7.9/src/` contains
+**only the compiled binary**, no sources. So `AGENTS.md`'s "source tree lives at
+`~/src/sooperlooper-<version>`" is now true only of the binary. One more stale
+claim, in the file that governs agent behaviour.
+
+Settled by fetching upstream `essej/sooperlooper` to a scratch dir on the
+laptop — no appliance writes, no sound.
+
+### ❌ P1-4 is REFUTED
+
+`engine.cpp:2174`:
+
+```cpp
+Engine::set_tempo (double tempo, bool rt)
+{
+    _tempo = tempo;
+    _quarter_counter = 0;
+    _tempo_counter = 0;
+
+    // adjust eighths per cycle if tempo is > 240 or < 60
+    if (_smart_eighths &&
+        _tempo > 1.0 && (_tempo > 240.0 || _tempo < 60.0)) {
+        ...  _eighth_cycle *= 2;  // and pushed to every loop
+```
+
+The mutation that would clobber `eighth_per_cycle` is **gated on
+`_smart_eighths`** — and `establish_grid_clock` turns that off *first*:
+
+```python
+send("/set", ["smart_eighths", 0.0])
+send("/set", ["eighth_per_cycle", float(EIGHTH_PER_CYCLE * max(1, bars))])
+send("/set", ["tempo", float(bpm)])
+```
+
+With the flag off the block never runs, so the ordering is safe. It is also
+*better* than the reorder the reviewer wanted: `set_tempo` is the phase reset,
+so tempo must go **last** or the phase would be zeroed before the unit is set.
+The code is right and its docstring already says why. Marked ❌ Incorrect — do
+not "fix" this.
+
+### ✅ Two canon claims verified, one canon conflict resolved
+
+- **The README's central invariant holds.** *"`Engine::set_tempo` zeroes
+  `_quarter_counter` and `_tempo_counter`, so re-sending the tempo IS the phase
+  reset"* — confirmed verbatim at `engine.cpp:2176-2178`.
+- **`DECISIONS.md` 2026-08-15 is correct** that disabling `smart_eighths`
+  prevents the sub-60-BPM cycle doubling: the whole block is gated on it.
+  Engine default is ON (`engine.cpp:92`), as the docstring claims. The
+  2026-08-26 measurement that reported the disable *not* working is therefore
+  the document to re-examine — the likely explanation is a setting that never
+  reached the engine, which is this project's signature failure shape, not a
+  wrong mechanism.
+
+### 🔴 NEW — following the README re-arms the doubling bug
+
+`apply_freeform` (`sl_grid_sync.py:243-256`) sets `sync_source`, `quantize`,
+`sync`, `relative_sync`, `round`, `playback_sync` — and **never sends
+`smart_eighths`**. Only `apply_grid_sync:189` does.
+
+`scripts/sooperlooper/README.md:106` instructs: *"Free-form throughout:
+`MPE_SL_SYNC_MODE=freeform`."*
+
+So anyone who configures the appliance the way its own README says re-arms the
+cycle-doubling that `DECISIONS.md` and `looper-transport-clock-spec.md` both
+document at length. The appliance is currently safe **only because it does not
+follow its own README** — `MPE_SL_SYNC_MODE` is unset in the live process
+environ, so `main()` falls to the `grid` branch and gets the disable.
+
+### 🔴 NEW — the restart path never restores the established grid
+
+`restart-sooperlooper.sh` calls `wire-jack-graph.sh connect`. The **only**
+emitter of `looper.engine.started` is `wire-sooperlooper-graph.sh:56` — a
+different script. So `on_looper_engine_started` (`bench:312`) never fires on
+the documented restart path, and the block that restores tempo, bars and phase
+never runs.
+
+Base sync config survives, because `restart-sooperlooper.sh` separately runs
+`configure-grid-sync.sh` → `sl_grid_sync.main()` → `apply_grid_sync`. What does
+**not** survive is the *established* grid: after `mpe looper sl-restart` the
+bench still believes `grid.established` with a bpm and a bar count, while the
+engine is back at its default tempo with phase zeroed at a different instant.
+Two owners of musical time, disagreeing silently, with the surface vouching for
+the bench's copy.
+
+This confirms and sharpens the lifecycle review's P0 on the same script.
+
+### 🟡 Minor, same family
+
+`bench:325` prints `grid restored — {bpm} BPM, 1-bar cycle` unconditionally,
+while the line above it passes `bars=grid.bars or 1`. A log line that names the
+wrong unit whenever `bars > 1` — precisely the defect `tail_phase.cap_for`'s
+own docstring was written to complain about ("a log line that names the wrong
+source is worse than no log line").
