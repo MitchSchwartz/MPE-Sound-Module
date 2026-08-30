@@ -72,17 +72,33 @@ cleanup() {
     fi
     exit "$code"
 }
-trap cleanup EXIT INT TERM
+# HUP matters as much as INT here: `mpe record` runs this over ssh, and Ctrl+C
+# there can drop the connection before SIGINT is delivered. The remote process
+# group then gets SIGHUP, and without it in the trap ffmpeg dies unfinalised —
+# leaving a 0-byte .mkv that still matches the `mpe pull-videos` glob, plus a
+# stale env file and FIFO. A recording that looks like a recording and holds no
+# frames is the failure shape this project keeps meeting; it should not survive
+# in the tool used to record the evidence. (MEASURED 2026-08-30: INT -> 28KB
+# valid file, HUP -> 0 bytes.)
+trap cleanup EXIT INT TERM HUP
 
 rm -f "$PIPE"
 mkfifo "$PIPE"
 chmod 666 "$PIPE" 2>/dev/null || true
 
 echo "record-screen: ffmpeg → $OUT @ ${FPS}fps (${WIDTH}x${HEIGHT})" >&2
-ffmpeg -y -loglevel warning \
+# ffmpeg must ignore SIGHUP, and the trap above is not enough on its own.
+# `mpe record` runs this over ssh; a Ctrl+C there can drop the connection
+# before SIGINT arrives, and SIGHUP then goes to the whole process group.
+# ffmpeg would die mid-stream with no moov/EBML header written, and cleanup's
+# `kill -INT` would arrive at a process that is already gone. Ignoring HUP in
+# a subshell that execs into ffmpeg keeps it alive just long enough for
+# cleanup to shut it down properly. (MEASURED 2026-08-30 on pi5: without
+# this, HUP -> 0-byte .mkv that ffprobe rejects; with it -> valid file.)
+( trap '' HUP; exec ffmpeg -y -loglevel warning \
     -f rawvideo -pix_fmt rgb24 -s "${WIDTH}x${HEIGHT}" -r "$FPS" -i "$PIPE" \
     -c:v libx264 -preset veryfast -crf 18 -pix_fmt yuv420p \
-    "$OUT" &
+    "$OUT" ) &
 FFPID=$!
 
 tee "$ENV_FILE" >/dev/null <<EOF
