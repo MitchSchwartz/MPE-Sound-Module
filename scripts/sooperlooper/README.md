@@ -137,8 +137,36 @@ Level composition lives in one place, `loop_mix.wet_for()`:
 `wet = taper(user gain) × taper(master) × auto_law(active loops)`. The three
 contributions meet in one multiply, always recomputed in full from state we own,
 so nothing compounds. The `loop_gain/N` backstop
-(DECISIONS.md) is off by default (`MPE_SL_LOOP_GAIN_LAW=1`); the point of the
-seam is that nothing else ever writes `wet`.
+(DECISIONS.md) is off by default (`MPE_SL_LOOP_GAIN_LAW=1`).
+
+**One composer, and one named exception — corrected 2026-08-30.** This
+paragraph used to end "the point of the seam is that nothing else ever writes
+`wet`." That was not true when it was written. `looper_songs.load_song` sends
+`/sl/N/set ["wet", …]` directly, once per restored track, and `save_song` reads
+it back — song load/save has owned the level on its own axis the whole time.
+
+It is not a bug to be closed by routing it through the seam, because it cannot
+reach the seam. Songs are loaded by the **touch browser**
+(`touch-patch-browser.service`); `LoopMix` lives in the **bench**
+(`mpe-looper-session.service`). Every column gain, the master position and the
+active-loop count are in the other process. So the invariant is the narrower
+one that is actually true:
+
+| | |
+|---|---|
+| **Composer** | `loop_mix.wet_for()` — the only place contributions are combined, and the sole writer inside the bench process |
+| **Exception** | `looper_songs.load_song`, restoring the level a song was saved at. That call and nothing else, in any process |
+| **Reconciliation** | The bench *subscribes* to `wet` (`sl_osc_session` `register_auto_update` — a read, not a write) and `LoopMix.seed_from_engine` adopts any value it did not ask for: it backs out master and law, adopts the implied column position and re-arms pickup. The foreign write is absorbed, not fought |
+| **Also gated** | `sl_probe` can write `wet` as a command-path probe *only* if `MPE_SL_PROBE_CONTROLS` names it — it is not in the default chain (`rec_thresh,dry`), and `AUDIO_PATH_CONTROLS` exists to warn when a probe lands in the audio path. It restores after every write |
+| **Enforced by** | `tests/test_track_state_ownership.py::WetOwnershipTests`. A third writer fails the build naming its file, line and function |
+
+**Known consequence, undecided.** The manifest stores the **composed** level —
+`save_song` reads the engine's `wet`, which already has master and law in it.
+Reload with the master somewhere else and the loops come back at their saved
+*absolute* level while the master fader reads whatever it happens to read, so
+the fader stops corresponding to the sound until it is next moved. Storing the
+column gain instead would keep the fader honest and change how songs already on
+the appliance play back. That is a call for Mitch's ear, not a silent fix.
 
 **Grid sync:** two states, not a pile of settings — `set_grid_active(active=)`.
 Off until the first take lands (so it records instantly), then on for every clip
