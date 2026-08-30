@@ -180,7 +180,6 @@ fi
 # is not a policy — MEASURED on the appliance the same day:
 #
 #     aplay -D hw:2,0 (gadget), host not capturing -> EIO after 1s
-#     aplay -D hw:7,0 (snd-aloop), nothing reading -> 3s write took 3s
 #
 # A UAC2 gadget has no clock of its own. Under the USB Audio Class spec the
 # HOST enables the streaming interface, and isochronous transfers happen only
@@ -197,8 +196,12 @@ fi
 # could not start, and the appliance was silent with a misleading error. That
 # is a hardware-generation assumption that outlived its board.
 #
-# snd-aloop free-runs off a kernel timer and needs no reader, which is exactly
-# the property the headphone jack was providing. It ranks BELOW every real DAC
+# snd-dummy free-runs off its own hrtimer and needs no reader, which is exactly
+# the property the headphone jack was providing. NOT snd-aloop: that is a pipe,
+# whose playback side only advances while something reads its capture side, so
+# jackd's driver thread dies with "ALSA: poll time out ... Exiting". An `aplay`
+# to it still completes in real time, which looks identical to a working clock
+# and is not one. It ranks BELOW every real DAC
 # (tiers 1 and 2) so a plugged-in interface always wins, and above the
 # last-resort tier so "no sink at all" still fails loudly.
 DEVICE=$(echo "$DEVICE_LIST" | \
