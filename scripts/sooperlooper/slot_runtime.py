@@ -7,9 +7,8 @@ only the matrix needs (`load_loop`, `save_loop`, `undo_all` for slot changes).
 
 from __future__ import annotations
 
-import os
 import time
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Callable
 
@@ -30,7 +29,13 @@ from slot_matrix import (
     plan_cell_press,
     resolve_at_boundary,
 )
-from looper_songs import _fsync_dir, _fsync_file
+from slot_flush import (
+    FLUSH_CLEAN,
+    FLUSH_FAILED,
+    FLUSH_PENDING,
+    SAVE_TIMEOUT_S,
+    FlushLedger,
+)
 from sl_loop_states import ACTIVE_PLAY, SL_STATE_OFF
 
 # Gestures the gesture owns — runtime must not send parallel OSC for these.
@@ -38,18 +43,11 @@ from sl_loop_states import ACTIVE_PLAY, SL_STATE_OFF
 # active lane: the matrix contributes nothing to it but the binding.
 GESTURE_ACTIONS = frozenset({ACT_FORWARD, ACT_RECORD})
 
-SAVE_TIMEOUT_S = 2.0
-#: `_ensure_flushed` / `poll_flush` outcomes.
-FLUSH_CLEAN = "clean"
-FLUSH_PENDING = "pending"
-FLUSH_FAILED = "failed"
-
 #: `_execute_slot_ops` outcomes. "waiting" is not failure: the press is parked
 #: until the outgoing take reaches disk, and is replayed by `resume_awaiting`.
 OP_OK = "ok"
 OP_FAILED = "failed"
 OP_WAITING = "waiting"
-MIN_CLIP_BYTES = 512
 
 
 #: What it takes to make a loop sound, whatever it was doing before.
@@ -69,6 +67,22 @@ LAUNCH_COMMANDS: tuple[str, ...] = ("pause_off", "trigger")
 #: no error, which is worse than a late switch. After this many seconds without
 #: a wrap the launch fires anyway and says so.
 DEFERRED_LAUNCH_GRACE_S: float = 5.0
+
+
+@dataclass(frozen=True)
+class _Parked:
+    """A press held until the take already in the buffer reaches disk.
+
+    ``flush_slot`` is not decoration. The press was parked because *that* cell
+    had audio the buffer was about to lose, and that is the save it is waiting
+    on — not "whatever save this track happens to have". Asking the track-wide
+    question here is how a parked press used to be released by the completion
+    of a save for a different slot.
+    """
+
+    slot: int
+    hold: bool
+    flush_slot: int
 
 
 class SlotRuntime:
@@ -103,22 +117,9 @@ class SlotRuntime:
         self._save_timeout_s = SAVE_TIMEOUT_S
         self._log = log or (lambda _m: None)
         self._now = now
-        self._tracks: dict[int, Track] = {i: Track() for i in range(num_tracks)}
-        #: Launches held until the track's next wrap, by track index.
-        #: `load_loop` swaps the buffer the instant it lands (measured
-        #: 2026-08-26, PI5-LOOPER-SEAM-WRAP.md: it does NOT halt playback), so
-        #: sending it at press time replaces the audio under the player's
-        #: fingers mid-bar. Held here instead and fired at the boundary.
-        self._deferred: dict[int, tuple[SlotPlan, float]] = {}
-        #: In-flight saves: loop -> (slot, tmp path, final path, deadline).
-        self._flush: dict[int, tuple[int, Path, Path, float]] = {}
-        #: Presses parked until their track's save lands: loop -> (slot, hold).
-        self._awaiting: dict[int, tuple[int, bool]] = {}
-        #: Deferred launches that are waiting on the GRID clock rather than on
-        #: a loop wrap: track -> the boundary time they are waiting for. A
-        #: track that is playing gets its wrap, which is the more accurate
-        #: signal; this is for when nothing is playing at all.
-        self._grid_wait: dict[int, float] = {}
+        # Every mutable field is born in `reset()` and nowhere else. See its
+        # docstring for why that is a rule and not a style.
+        self.reset()
 
     def set_session_sounding(self, probe: Callable[[], bool]) -> None:
         """Tell the runtime how to ask whether ANY loop is sounding.
@@ -155,16 +156,19 @@ class SlotRuntime:
             sl_state=sl_state,
             hold=hold,
         )
-        outcome = self._execute_slot_ops(plan, sl_state=sl_state)
+        outcome, waiting_on = self._execute_slot_ops(plan, sl_state=sl_state)
         if outcome == OP_WAITING:
             # The outgoing take is still being written. Park the press and
             # replay it from the idle loop rather than sleeping here — the
             # buffer must not be reused before the save lands, but the surface
             # must not go deaf while it does.
-            self._awaiting[track_index] = (slot, hold)
-            return replace(
-                plan, action=ACT_NOOP, note=f"{plan.note} — waiting for save"
-            )
+            if self._park(
+                track_index, slot=slot, hold=hold, flush_slot=waiting_on
+            ):
+                return replace(
+                    plan, action=ACT_NOOP, note=f"{plan.note} — waiting for save"
+                )
+            return replace(plan, action=ACT_NOOP, note=f"{plan.note} — FAILED")
         self._awaiting.pop(track_index, None)
         if outcome == OP_FAILED:
             return replace(plan, action=ACT_NOOP, note=f"{plan.note} — FAILED")
@@ -199,12 +203,15 @@ class SlotRuntime:
 
     def dispatch(self, plan: SlotPlan, *, sl_state: int = SL_STATE_OFF) -> SlotPlan:
         """Execute a plan produced elsewhere (e.g. scene row)."""
-        outcome = self._execute_slot_ops(plan, sl_state=sl_state)
+        outcome, waiting_on = self._execute_slot_ops(plan, sl_state=sl_state)
         if outcome == OP_WAITING:
-            self._awaiting[plan.track] = (plan.slot, False)
-            return replace(
-                plan, action=ACT_NOOP, note=f"{plan.note} — waiting for save"
-            )
+            if self._park(
+                plan.track, slot=plan.slot, hold=False, flush_slot=waiting_on
+            ):
+                return replace(
+                    plan, action=ACT_NOOP, note=f"{plan.note} — waiting for save"
+                )
+            return replace(plan, action=ACT_NOOP, note=f"{plan.note} — FAILED")
         self._awaiting.pop(plan.track, None)
         if outcome == OP_FAILED:
             failed = replace(plan, action=ACT_NOOP, note=f"{plan.note} — FAILED")
@@ -243,6 +250,36 @@ class SlotRuntime:
         """Tracks holding a press parked behind an in-flight save."""
         return tuple(self._awaiting)
 
+    def _park(
+        self, track_index: int, *, slot: int, hold: bool, flush_slot: int | None
+    ) -> bool:
+        """Hold a press until the save that blocked it lands. False = refused.
+
+        `flush_slot` comes back from `_execute_slot_ops` rather than being
+        re-derived from `track.active_slot` here. Re-deriving would be right
+        today and silently wrong the first time anything moves the binding
+        between the flush and the park — which is the shape of the bug this
+        whole stage is about, one level up.
+
+        `None` is unreachable today: `_ensure_flushed` only reports `pending`
+        for a slot it named. If that ever stops being true, refuse the press
+        rather than park it — a press parked on nothing is a pad that never
+        responds again, and refusing is the direction that keeps the take. It
+        does NOT raise: an exception out of `press()` leaves the bench's input
+        loop, and the session dying takes every recorded loop with it.
+        """
+        if flush_slot is None:
+            self._log(
+                f"track {track_index + 1}: REFUSING the press — a save is in "
+                f"flight but did not say which slot it is for, so there is no "
+                f"way to know when the buffer is safe to reuse"
+            )
+            return False
+        self._awaiting[track_index] = _Parked(
+            slot=slot, hold=hold, flush_slot=flush_slot
+        )
+        return True
+
     def resume_awaiting(self, track_index: int, *, sl_state: int) -> SlotPlan | None:
         """Replay a parked press once its save resolves. None while pending.
 
@@ -251,14 +288,19 @@ class SlotRuntime:
         only way the answer stays true. A save that FAILED is not replayed into
         a proceed — `_ensure_flushed` reports failed again and the press is
         refused, which is the same protection the blocking version gave.
+
+        The poll is against `held.flush_slot`, the cell whose save parked this
+        press, not against the track. It used to be `poll_flush(track_index)`,
+        which would release the press on the completion of a save for whatever
+        other slot the ledger happened to be holding.
         """
         held = self._awaiting.get(track_index)
         if held is None:
             return None
-        status = self.poll_flush(track_index)
+        status = self._poll_flush(track_index, held.flush_slot)
         if status == FLUSH_PENDING:
             return None
-        slot, hold = held
+        slot, hold = held.slot, held.hold
         self._awaiting.pop(track_index, None)
         if status == FLUSH_FAILED:
             # Refuse HERE rather than replaying the press. A replay would find
@@ -301,16 +343,70 @@ class SlotRuntime:
         return track_index in self._deferred
 
     def reset(self) -> None:
-        """Drop slot bookkeeping after a full track reset."""
-        self._tracks = {i: Track() for i in range(self._num_tracks)}
-        self._deferred.clear()
-        self._grid_wait.clear()
-        self._awaiting.clear()
+        """Build this object's whole mutable state. The ONLY place it is born.
+
+        `__init__` calls this instead of initialising the fields itself, and
+        that is the fix for a defect, not a tidy-up. This method used to clear
+        four fields by name — `_tracks`, `_deferred`, `_grid_wait`,
+        `_awaiting` — and there was a fifth. `_flush` held saves in flight and
+        survived every clear-all, so a save started before the reset finished
+        after it: it renamed its temp over a clip path on a track the model
+        now believed empty, and (with the loop-keyed bug this file used to
+        have) marked the NEXT take clean without ever saving it. The bytes on
+        disk were the pre-reset take while the model and the surface both said
+        saved.
+
+        Enumerating fields to clear is a list that goes stale the first time
+        someone adds a field somewhere else. Constructing them is not: a field
+        this method does not create does not exist for the rest of the
+        object's life, so forgetting one here is an `AttributeError` on the
+        first press rather than a state that quietly survives a clear-all.
+
+        `tests/test_track_state_ownership.py` holds the rule to it — every attribute
+        the class mutates in place must be created here, checked against the
+        source.
+        """
+        self._tracks: dict[int, Track] = {
+            i: Track() for i in range(self._num_tracks)
+        }
+        #: Launches held until the track's next wrap, by track index.
+        #: `load_loop` swaps the buffer the instant it lands (measured
+        #: 2026-08-26, PI5-LOOPER-SEAM-WRAP.md: it does NOT halt playback), so
+        #: sending it at press time replaces the audio under the player's
+        #: fingers mid-bar. Held here instead and fired at the boundary.
+        self._deferred: dict[int, tuple[SlotPlan, float]] = {}
+        #: In-flight saves. Keyed by `(loop, slot)` inside the ledger, which is
+        #: the only thing that may answer "did this take reach disk".
+        #: Forwarded through lambdas, not snapshotted. `self._send`,
+        #: `self._now` and `self._log` are the runtime's seams and a test —
+        #: or a future caller — may rebind one after construction; a ledger
+        #: holding the object they used to point at would send OSC nobody is
+        #: watching and time itself by a clock nobody is advancing. One extra
+        #: Python frame per call, on the save path only (never a periodic
+        #: loop): ~0.1 us x at most a few hundred calls per save.
+        self._flush = FlushLedger(
+            send=lambda path, args: self._send(path, args),
+            now=lambda: self._now(),
+            log=lambda message: self._log(message),
+        )
+        #: Presses parked until the save they are waiting on lands.
+        self._awaiting: dict[int, _Parked] = {}
+        #: Deferred launches that are waiting on the GRID clock rather than on
+        #: a loop wrap: track -> the boundary time they are waiting for. A
+        #: track that is playing gets its wrap, which is the more accurate
+        #: signal; this is for when nothing is playing at all.
+        self._grid_wait: dict[int, float] = {}
 
     def mark_recorded(
         self, track_index: int, slot: int, *, len_s: float, sl_state: int
     ) -> None:
         """A take finished on this cell — the buffer now holds unsaved audio."""
+        # Any save still in flight for this cell was a promise about the take
+        # this one just replaced. Left in the ledger it would rename those
+        # stale bytes over the clip path and report the NEW take clean without
+        # ever having written it — the model and the surface saying saved over
+        # audio that is gone.
+        self._flush.drop(track_index, slot)
         track = self.track(track_index)
         self._tracks[track_index] = replace(
             track.with_slot(
@@ -328,7 +424,16 @@ class SlotRuntime:
     def needs_gesture(self, plan: SlotPlan) -> bool:
         return plan.action in GESTURE_ACTIONS
 
-    def _execute_slot_ops(self, plan: SlotPlan, *, sl_state: int) -> str:
+    def _execute_slot_ops(
+        self, plan: SlotPlan, *, sl_state: int
+    ) -> tuple[str, int | None]:
+        """(ok|failed|waiting, the slot whose save is being waited on).
+
+        The second element is only meaningful with `waiting`, and it is what
+        lets the caller park on the RIGHT save. Deriving it at the park site
+        instead — "the active slot, presumably" — is the same class of
+        assumption that keyed the ledger by loop.
+        """
         loop = plan.track
         if plan.action == ACT_NOOP or plan.action in GESTURE_ACTIONS:
             if plan.action == ACT_RECORD:
@@ -341,7 +446,7 @@ class SlotRuntime:
                     self._tracks[plan.track] = replace(
                         self.track(plan.track), active_slot=plan.slot
                     )
-            return OP_OK
+            return OP_OK, None
 
         if plan.action == ACT_CANCEL:
             # Cancelling a queued LAUNCH means "never mind, stay silent", and
@@ -355,22 +460,22 @@ class SlotRuntime:
             if pending is None or pending.kind == PENDING_LAUNCH:
                 self._send(f"/sl/{loop}/hit", ["pause_on"])
             self._awaiting.pop(loop, None)
-            return OP_OK
+            return OP_OK, None
 
         if plan.action == ACT_CLEAR:
-            return OP_OK if self._clear(plan) else OP_FAILED
+            return (OP_OK, None) if self._clear(plan) else (OP_FAILED, None)
 
         if plan.save_first:
-            status = self._ensure_flushed(loop)
+            status, flush_slot = self._ensure_flushed(loop)
             if status == FLUSH_PENDING:
-                return OP_WAITING
+                return OP_WAITING, flush_slot
             if status == FLUSH_FAILED:
                 self._log(
                     f"track {loop + 1}: REFUSING to switch — the take on the "
                     f"current slot did not reach disk, and switching would "
                     f"overwrite the buffer holding it"
                 )
-                return OP_FAILED
+                return OP_FAILED, None
 
         if plan.action in (ACT_LAUNCH, ACT_SWITCH):
             # THE QUESTION IS WHETHER THE SESSION IS SOUNDING, NOT THIS TRACK.
@@ -381,7 +486,10 @@ class SlotRuntime:
             # music it was joining. And after Stop All nothing is sounding by
             # definition, so every launch fired instantly too.
             if self._session_sounding():
-                return OP_OK if self._defer_launch(plan) else OP_FAILED
+                return (
+                    (OP_OK, None) if self._defer_launch(plan)
+                    else (OP_FAILED, None)
+                )
             # Nothing is playing anywhere. Mitch, 2026-08-30: "when I've
             # stopped all and I start a clip, we've reset the phase to zero
             # ... it should also mean that start happens immediately."
@@ -395,10 +503,10 @@ class SlotRuntime:
             # So the clip starts now AND becomes the phase reference, which is
             # what makes every later clip line up with it.
             if not self._launch(plan):
-                return OP_FAILED
+                return OP_FAILED, None
             self._mark_phase_zero()
-            return OP_OK
-        return OP_OK
+            return OP_OK, None
+        return OP_OK, None
 
     def _defer_launch(self, plan: SlotPlan) -> bool:
         """Hold a launch until the wrap. Validate NOW so failures are visible.
@@ -459,7 +567,9 @@ class SlotRuntime:
         self.land_pending(track_index)
         return True
 
-    def _prepare_record(self, plan: SlotPlan, *, sl_state: int) -> str:
+    def _prepare_record(
+        self, plan: SlotPlan, *, sl_state: int
+    ) -> tuple[str, int | None]:
         loop = plan.track
         track = self.track(loop)
         if (
@@ -471,11 +581,11 @@ class SlotRuntime:
             )
         ):
             if sl_state in ACTIVE_PLAY:
-                status = self._ensure_flushed(loop)
+                status, flush_slot = self._ensure_flushed(loop)
                 if status == FLUSH_PENDING:
-                    return OP_WAITING
+                    return OP_WAITING, flush_slot
                 if status == FLUSH_FAILED:
-                    return OP_FAILED
+                    return OP_FAILED, None
                 # Deliberately NO mute_on and NO undo_all. Measured on the Pi
                 # 2026-08-28: `record` over a PLAYING loop goes WAIT_START and
                 # the loop KEEPS SOUNDING to the wrap, then enters RECORDING
@@ -493,11 +603,11 @@ class SlotRuntime:
                 pass
             else:
                 if plan.save_first:
-                    status = self._ensure_flushed(loop)
+                    status, flush_slot = self._ensure_flushed(loop)
                     if status == FLUSH_PENDING:
-                        return OP_WAITING
+                        return OP_WAITING, flush_slot
                     if status == FLUSH_FAILED:
-                        return OP_FAILED
+                        return OP_FAILED, None
                 # Nothing is sounding, so clearing the stale buffer costs no
                 # audio and guarantees the take starts from empty.
                 self._send(f"/sl/{loop}/hit", ["undo_all"])
@@ -512,7 +622,7 @@ class SlotRuntime:
         # scene path — never ran that branch, so the same plan bound the slot
         # or not depending on which caller produced it.
         self._tracks[loop] = replace(self.track(loop), active_slot=plan.slot)
-        return OP_OK
+        return OP_OK, None
 
     def _launch(self, plan: SlotPlan) -> bool:
         loop = plan.track
@@ -546,6 +656,11 @@ class SlotRuntime:
         track = self.track(loop)
         if track.active_slot == slot:
             self._send(f"/sl/{loop}/hit", ["undo_all"])
+        # Before the unlink, not after. A save in flight for this cell would
+        # otherwise land later and rename its temp over the path we are about
+        # to delete — the clip coming back from the dead a second after the
+        # player cleared it, on a slot the model now shows empty.
+        self._flush.drop(loop, slot)
         self.clip_path(loop, slot).unlink(missing_ok=True)
         cleared = track.with_slot(slot, None)
         if cleared.active_slot == slot:
@@ -567,6 +682,8 @@ class SlotRuntime:
         slot = track.active_slot
         if slot is None:
             return False
+        # Same reason as `_clear`: an in-flight save would resurrect the file.
+        self._flush.drop(loop, slot)
         self.clip_path(loop, slot).unlink(missing_ok=True)
         self._tracks[loop] = replace(track.with_slot(slot, None), active_slot=None)
         # The clip this track was going to switch to may be the one just
@@ -586,73 +703,63 @@ class SlotRuntime:
     # The SAFETY RULE is unchanged and is the reason for the split rather than
     # a shortcut around it: a buffer is never reused until its take is on disk.
     # Callers get "pending" and come back; they never get to proceed early.
+    #
+    # The files, the temps and the deadlines belong to `slot_flush.FlushLedger`
+    # and are keyed by `(loop, slot)` there. What stays here is the half that
+    # needs the track model: WHICH cell the question is about, and keeping
+    # `Slot.dirty` in step with the ledger's answer.
 
-    def _ensure_flushed(self, loop: int) -> str:
-        """clean | pending | failed — start the save if needed, never block."""
+    def _ensure_flushed(self, loop: int) -> tuple[str, int | None]:
+        """(clean | pending | failed, the slot the answer is ABOUT).
+
+        Returning the slot is the whole fix. The old signature returned a bare
+        verdict, and the caller — the "REFUSING to switch" guard that stands
+        between an unsaved take and the buffer about to overwrite it — had no
+        way to know which slot it had been told about. It could be told about
+        another one: the ledger was keyed by loop, so
+        `if loop not in self._flush` suppressed the save this call was for
+        whenever ANY save was running on the track, and the poll then resolved
+        that other save and reported `clean`.
+
+        Never blocks. Starts a save for this cell if it has none, then reports
+        on that one.
+        """
         track = self.track(loop)
-        if track.active_slot is None:
-            return FLUSH_CLEAN
-        active = track.slot(track.active_slot)
+        slot = track.active_slot
+        if slot is None:
+            return FLUSH_CLEAN, None
+        active = track.slot(slot)
         if active is None or not active.dirty:
-            return FLUSH_CLEAN
-        if loop not in self._flush:
-            self._begin_flush(loop, track.active_slot)
-        return self.poll_flush(loop)
+            return FLUSH_CLEAN, slot
+        if not self._flush.running(loop, slot):
+            self._flush.begin(
+                loop,
+                slot,
+                self.clip_path(loop, slot),
+                timeout_s=self._save_timeout_s,
+            )
+        return self._poll_flush(loop, slot), slot
 
-    def _begin_flush(self, loop: int, slot: int) -> None:
-        path = self.clip_path(loop, slot)
-        path.parent.mkdir(parents=True, exist_ok=True)
+    def _poll_flush(self, loop: int, slot: int) -> str:
+        """Poll ONE cell's save and keep the track model in step with it.
 
-        # Save to a sibling temp file and rename over the original only once a
-        # complete file exists. This used to unlink `path` first and ask the
-        # engine to write it — so a save that never landed destroyed the take
-        # it was trying to preserve, and the caller then "refused to switch" to
-        # protect a clip it had already deleted. Reported from the appliance
-        # 2026-08-27 as "when I record clip 2, clip 1 is deleted".
-        #
-        # The unlink was not gratuitous: SooperLooper will not overwrite an
-        # existing file. A fresh temp path satisfies that without ever putting
-        # the recorded take at risk.
-        tmp = path.with_name(path.name + ".part")
-        tmp.unlink(missing_ok=True)
-        self._send(f"/sl/{loop}/save_loop", [str(tmp), "", "", "", ""])
-        self._flush[loop] = (slot, tmp, path, self._now() + self._save_timeout_s)
+        `Slot.dirty` and the ledger are two halves of one fact, so they move
+        together in exactly one place, and this is it.
 
-    def poll_flush(self, loop: int) -> str:
-        """clean | pending | failed. Cheap enough for the idle loop."""
-        job = self._flush.get(loop)
-        if job is None:
-            return FLUSH_CLEAN
-        slot, tmp, path, deadline = job
-        try:
-            if tmp.stat().st_size >= MIN_CLIP_BYTES:
-                # Durable before it is authoritative: fsync the data, then
-                # rename, then fsync the directory. A rename that reaches the
-                # SD card before the bytes do leaves a manifest naming a
-                # truncated file after a power cut.
-                _fsync_file(tmp)
-                os.replace(tmp, path)
-                _fsync_dir(path.parent)
-                track = self.track(loop)
-                active = track.slot(slot)
-                if active is not None:
-                    self._tracks[loop] = track.with_slot(
-                        slot, replace(active, dirty=False)
-                    )
-                self._flush.pop(loop, None)
-                return FLUSH_CLEAN
-        except OSError:
-            pass
-        if self._now() < deadline:
-            return FLUSH_PENDING
-
-        # Nothing usable arrived. Leave the original exactly as it was, drop
-        # the partial, and stay dirty so the surface keeps telling the truth.
-        self._flush.pop(loop, None)
-        tmp.unlink(missing_ok=True)
-        self._log(
-            f"track {loop + 1} slot {slot + 1}: save did not land "
-            f"in {self._save_timeout_s:.1f}s — the take is still only in the "
-            f"engine buffer, and the clip already on disk is untouched"
-        )
-        return FLUSH_FAILED
+        `running` is read before the poll because the ledger answers `clean`
+        for two different things — "the rename landed" and "no save is in
+        flight for this cell" — and only the first means the take is now on
+        disk. Marking a cell clean on the second would be the same lie in a
+        new place: a cell holding a take nobody saved, reported as saved.
+        """
+        running = self._flush.running(loop, slot)
+        status = self._flush.poll(loop, slot)
+        if not running or status != FLUSH_CLEAN:
+            return status
+        track = self.track(loop)
+        active = track.slot(slot)
+        if active is not None:
+            self._tracks[loop] = track.with_slot(
+                slot, replace(active, dirty=False)
+            )
+        return status
