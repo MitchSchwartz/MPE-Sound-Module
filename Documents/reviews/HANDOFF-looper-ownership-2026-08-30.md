@@ -1,7 +1,7 @@
 # Morning handoff — looper + controller ownership branch
 
 **Branch:** `refactor/looper-ownership-2026-08-30` (from `dev`, not pushed)
-**Suite:** 1710 passed, 3 skipped, 736 subtests — from 1631/3/714 at the start
+**Suite:** 1746 passed, 3 skipped, 2451 subtests — from 1631/3/714 at the start
 **Not deployed.** Nothing ran on the Pi. No sound was made.
 
 Read this first, then the commit messages — they carry the reasoning and each
@@ -139,12 +139,47 @@ cheap because each was caught by someone who did not write it.
 
 ---
 
+## Stages — all complete except the one that needs you
+
+| Stage | | |
+|---|---|---|
+| 1 | Control registry | `aeb7a61` |
+| 2 | LED compositor — one writer to the wire | `8106513` |
+| 3 | One owner per control | absorbed by Stage 2 |
+| 4a | Clock + tail | `5e12100` |
+| 4b | Track state | `64af5ec` |
+| 5 | Binding table | `085e8d3` |
+| 6 | Grid behind the compositor | absorbed by Stage 2 |
+| **0** | **Capability probe** | **blocked on your eyes** |
+
+Stage 6 was not skipped and I did not do it: Stage 2 already achieved it. Every
+grid paint goes through the compositor — `slot_surface` → `LAYER_SURFACE` for
+the 8×8 under multigrid, `track_gesture` → `LAYER_GESTURE` for the clip row
+otherwise — and the only remaining write to the wire is `apc_link.py:107`,
+which *is* the compositor's queue drain.
+
+**I stopped here rather than inventing a Stage 7.** The next thing this branch
+needs is not more refactoring, it is the device pass. Stage 2 changed how the
+panel looks and Stage 5 rewrote how it routes; both are unverified on hardware.
+Stacking more panel work on top would give you two unverified changes to bisect
+instead of one.
+
 ## Still open
 
-- **Stage 5** (binding routing as a table) — in progress overnight.
-- **Stage 6** (grid behind the compositor) — not started.
-- **6 of 12 lint evasions** still get through; the specific ones are in
-  `periodic_loop_lint`'s docstring rather than left to be rediscovered.
+- **6 of 12 lint evasions** still get through. The specific ones are written
+  into `periodic_loop_lint`'s docstring rather than left to be rediscovered.
+- **`--measure-latency` records zero samples under `MPE_SL_MULTIGRID=1`**, which
+  is what the appliance runs — the stamp lives in a clip-row branch multigrid
+  never reaches. Pre-existing, found during Stage 5, deliberately not fixed
+  there because it is not routing. It is an instrument that cannot sample in the
+  live configuration, which is the exact thing AGENTS.md's doctrine is about.
+- **`apc_panel.scene_press_row` has no production caller** — kept on purpose as
+  the independent statement of old behaviour that the Stage 5 differential
+  checks against. Delete it after the device pass.
+- **`docs/CODE-MAP.md` is stale** independently of this work (it lists
+  `apc_footswitch.py`, which does not exist). Untouched.
 - **Nothing is proven on hardware.** Every claim here is from traced paths,
-  injected violations and upstream source. "Tests pass" is not "it works," and
-  on this project that substitution has cost multiple evenings.
+  injected violations and upstream engine source. In particular **the refactored
+  event loop has never been executed** — no test runs `run_bench`, which needs
+  `rtmidi` and a device. "Tests pass" is not "it works," and on this project
+  that substitution has cost multiple evenings.
