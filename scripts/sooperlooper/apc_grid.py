@@ -26,6 +26,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from control_registry import grid_note
 from sl_limits import MAX_USABLE_LOOPS
 
 # 15, not 16 — SooperLooper 1.7.9 stops at index 14. See sl_limits.
@@ -51,15 +52,17 @@ NUDGE_STEP = 1
 
 
 def pad_note(row: int, col: int) -> int:
-    """APC mini grid note: row 0 = bottom, col 0 = left. Notes 0–63."""
-    if not 0 <= row <= 7 or not 0 <= col <= 7:
-        raise ValueError(f"row/col out of range: ({row}, {col})")
-    return row * 8 + col
+    """APC mini grid note: row 0 = bottom, col 0 = left. Notes 0–63.
+
+    The formula itself lives in `control_registry.grid_note`, with every other
+    note number; this is the name the grid layer has always called it by.
+    """
+    return grid_note(row, col)
 
 
 # Grid notes for rows 1–7 (reserved — multi-clip slot rows 1–7 land here in P3).
 RESERVED_GRID_NOTES: tuple[int, ...] = tuple(
-    pad_note(row, col) for row in range(1, GRID_ROWS) for col in range(GRID_COLS)
+    pad_note(row, col) for row in CONTROLLER_ROWS for col in range(GRID_COLS)
 )
 
 
