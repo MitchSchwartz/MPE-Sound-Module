@@ -102,6 +102,17 @@ main() {
 
   if record_path_ok && playback_path_ok; then
     log "PASS — Surge -> loop0_in, common_out -> playback"
+    # Tell the bench the engine is new, or it keeps applying the old one's grid
+    # to a process that has never heard of it. `start_engine` launches the
+    # binary directly (setsid nohup), NOT via systemd, so the ExecStartPost on
+    # mpe-sooperlooper.service that normally emits this never fires here — the
+    # systemd path is fine and this one was the split brain. Emitted after the
+    # verify, because announcing a ready engine before the graph is proven is
+    # the same lie one step earlier.
+    # shellcheck source=../lib/audio-engine.sh
+    source "${SCRIPT_DIR}/../lib/audio-engine.sh"
+    mpe_session_event_emit looper.engine.started "sl-restart" || \
+        log "WARN: could not emit looper.engine.started"
   else
     echo "sl-restart: graph verify failed" >&2
     jack_lsp -c "Surge XT:out_1" 2>/dev/null || true
