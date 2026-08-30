@@ -487,3 +487,86 @@ class NonBlockingSaveTests(RuntimeCase):
         self.assertNotIn("/sl/0/load_loop", self.paths())
         self.assertNotIn("undo_all", [a[0] for p, a in self.sent
                                       if p.endswith("/hit")])
+
+
+class QuantizedWithNothingPlayingTests(RuntimeCase):
+    """Mitch's repro, 2026-08-30:
+
+        "When it failed, I had stopped all the clips and then restarted the
+        second track, but not the first one, which might just be a
+        programmatic hole in our design."
+
+    It was. `_execute_slot_ops` deferred a launch only when the track was in
+    ACTIVE_PLAY, on the reasoning "nothing is sounding, so there is no boundary
+    to wait for". After Stop All nothing is sounding by definition, so every
+    launch fired the instant the pad was pressed — while the grid sat there
+    knowing the tempo exactly. The bench's only clock was a playing loop's
+    wrap, so silence meant no time existed.
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        # A grid whose bar line falls at t=10.0, as it would after Stop All.
+        self.boundary = [10.0]
+        self.rt = SlotRuntime(
+            send=lambda p, a: self.sent.append((p, a)),
+            clips_dir=self.dir,
+            num_tracks=15,
+            log=self.logs.append,
+            now=lambda: self.clock[0],
+            grid_boundary=lambda: self.boundary[0],
+        )
+
+    def _stopped_track_with_a_clip(self) -> None:
+        self._clip(1, 3)
+        self.rt._tracks[1] = Track(
+            slots=(None, None, None, Slot("x"), *([None] * 4)),
+            active_slot=None,
+        )
+
+    def test_a_launch_after_stop_all_waits_for_the_bar(self) -> None:
+        self._stopped_track_with_a_clip()
+        self.rt.press(1, 3, sl_state=SL_STATE_PAUSED)
+        self.assertNotIn("/sl/1/load_loop", self.paths(),
+                         "fired instantly — the whole bug")
+        self.assertTrue(self.rt.has_deferred(1))
+
+    def test_and_lands_when_the_bar_line_arrives(self) -> None:
+        self._stopped_track_with_a_clip()
+        self.rt.press(1, 3, sl_state=SL_STATE_PAUSED)
+        self.clock[0] = 9.9
+        self.assertEqual(self.rt.poll_grid_wait(), [])
+        self.assertNotIn("/sl/1/load_loop", self.paths())
+        self.clock[0] = 10.0
+        self.assertEqual(self.rt.poll_grid_wait(), [1])
+        self.assertIn("/sl/1/load_loop", self.paths())
+
+    def test_with_no_grid_at_all_it_still_fires_immediately(self) -> None:
+        """The original branch was not wrong, only over-applied. With no tempo
+        anywhere there genuinely is nothing to sync to, and making the player
+        wait for a boundary that does not exist would be worse."""
+        rt = SlotRuntime(
+            send=lambda p, a: self.sent.append((p, a)),
+            clips_dir=self.dir,
+            num_tracks=15,
+            log=self.logs.append,
+            now=lambda: self.clock[0],
+            grid_boundary=lambda: None,
+        )
+        self._clip(1, 3)
+        rt._tracks[1] = Track(
+            slots=(None, None, None, Slot("x"), *([None] * 4)), active_slot=None
+        )
+        rt.press(1, 3, sl_state=SL_STATE_PAUSED)
+        self.assertIn("/sl/1/load_loop", self.paths())
+
+    def test_the_grace_timer_does_not_drop_a_grid_launch(self) -> None:
+        """`expire_deferred` drops a queued launch when the track is silent,
+        because a silent track can never produce a wrap. A launch waiting on
+        the GRID is exactly that case and must survive it — otherwise the fix
+        above is cancelled by the safety net written for the old model."""
+        self._stopped_track_with_a_clip()
+        self.rt.press(1, 3, sl_state=SL_STATE_PAUSED)
+        self.clock[0] = DEFERRED_LAUNCH_GRACE_S + 1.0
+        self.rt.expire_deferred(1, sl_state=SL_STATE_PAUSED)
+        self.assertTrue(self.rt.has_deferred(1), "the grid launch was dropped")

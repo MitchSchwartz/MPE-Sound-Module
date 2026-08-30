@@ -185,8 +185,13 @@ class GridEstablishmentTests(unittest.TestCase):
         fs.sync_loop_pos(0.01)  # wrap
         self.assertEqual(reanchored, [120.0])
 
-    def test_hold_clear_drops_grid_when_engine_reports_last_clip_off(self) -> None:
-        """No clips, no grid — driven by SL state, not bench hold-clear alone."""
+    def test_hold_clear_keeps_the_grid_the_engine_reported_empty(self) -> None:
+        """Clearing the last clip empties the pads, not the session's tempo.
+
+        Inverted 2026-08-30 on Mitch's call: "even if we stop all clips ... we
+        still need to reinitialize with those original settings. They should
+        never be cleared away." Track reset remains the way to start over.
+        """
         from scripts.sooperlooper.sl_grid_state import GridState
 
         grid = GridState()
@@ -205,8 +210,8 @@ class GridEstablishmentTests(unittest.TestCase):
         )
 
         fs.sync_from_sl(SL_STATE_OFF)
-        self.assertFalse(grid.established)
-        self.assertIsNone(grid.bpm)
+        self.assertTrue(grid.established, "the tempo survives an empty session")
+        self.assertEqual(grid.bpm, 120.0, "and so does the tempo itself")
 
     def test_deleting_defining_clip_keeps_grid_while_other_clips_remain(self) -> None:
         from scripts.sooperlooper.sl_grid_state import GridState

@@ -230,6 +230,9 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
         instantly. From here clips count in to the next bar.
         """
         establish_grid_clock(_send, bpm)
+        # `establish_grid_clock` zeroes the engine's phase, so the bench's bar
+        # line starts counting from the same instant.
+        grid.mark_phase_zero(time.monotonic())
         set_grid_active(_send, num_loops=num_loops, active=True)
         print(
             f"bench: grid established — {bars} bar(s) @ {bpm:.1f} BPM, "
@@ -240,6 +243,7 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
     def on_phase_reanchor(bpm: float) -> None:
         """Re-send tempo at the defining take's downbeat after a late PLAYING report."""
         establish_grid_clock(_send, bpm)
+        grid.mark_phase_zero(time.monotonic())
         print(
             f"bench: phase re-anchored @ {bpm:.1f} BPM (loop wrap)",
             flush=True,
@@ -351,6 +355,10 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
             ),
             num_tracks=num_loops,
             log=lambda m: print(f"slots: {m}", flush=True),
+            # The grid's bar line, so a launch is quantized even when nothing
+            # is playing. Before this the only boundary was a loop wrap, which
+            # requires audio — so after Stop All every launch fired instantly.
+            grid_boundary=lambda: grid.next_boundary(time.monotonic()),
         )
         slot_surface = SlotSurface(
             runtime=slot_runtime,

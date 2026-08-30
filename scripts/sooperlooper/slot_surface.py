@@ -341,6 +341,13 @@ class SlotSurface:
         Same lesson the gesture LEDs learned earlier: act on what is true,
         not on the arrival of a message saying it changed.
         """
+        # Launches waiting on the grid rather than on a wrap. Nothing is
+        # playing in that case, so no wrap callback is ever coming — this is
+        # the only thing that will fire them.
+        for track_index in self._rt.poll_grid_wait():
+            self.repaint(self._sl_states)
+            self.repaint_scenes()
+
         for track_index in self._rt.awaiting_tracks():
             # A press parked behind an in-flight save. The save used to be
             # waited out inside the press itself, with `time.sleep` in a loop —
