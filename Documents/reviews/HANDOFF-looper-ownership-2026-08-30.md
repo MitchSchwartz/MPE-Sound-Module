@@ -51,7 +51,7 @@ from a fader nobody touched.
 
 ### 1b. The button capability probe is DONE — do not run it again
 
-`scripts/sooperlooper/probe-apc-buttons.py` is stage 0's other half, and its
+`scripts/probe-apc-buttons.py` is stage 0's other half, and its
 sensor is your eyes. **It already ran, 2026-08-29, three rounds, with you
 reading the panel.** Five facts came out of it and all five are authoritative:
 
