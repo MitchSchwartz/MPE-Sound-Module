@@ -227,14 +227,50 @@ class GridState:
         return BEATS_PER_BAR * 60.0 / self.bpm
 
     @property
-    def eighth_per_cycle(self) -> int:
-        """What the engine needs so ITS cycle equals the first take.
+    def beats_per_cycle(self) -> int:
+        """THE ACTUAL FREE VARIABLE: how many beats the first take contains.
 
-        SooperLooper computes cycle = eighth_per_cycle * 30 / bpm. Left at the
-        fixed 8 while the tempo rises, the engine's cycle shrinks below the
-        take and the engine quantizes to a boundary the player never played.
+        Everything else in the tempo story is a way of NAMING this number.
+        Mitch, 2026-08-30, on reading the spec:
+
+            "There's a piece that isn't being mentioned, and that's whether
+            we're in quarter notes, eighth notes, sixteenth notes. That's the
+            slider that allows us to remain in one bar while adjusting
+            different BPMs... it's possible we've already implicitly coded that
+            and not named it."
+
+        We had. `eighth_per_cycle = 8 * bars` IS the subdivision slider, wearing
+        a bar count as a disguise. For a 6.939 s take these say the same thing:
+
+            "four bars at 138 BPM"
+            "one bar at 138 BPM, counted in sixteenths"
+
+        His framing is the better one, because it keeps "one bar = my first
+        clip" true, which is the invariant everything else here protects.
+
+        Pick this number and the rest follows:
+
+            bpm            = beats_per_cycle * 60 / cycle_s
+            bars           = beats_per_cycle / BEATS_PER_BAR
+            eighth_per_cycle = beats_per_cycle * 2    (beat = quarter note)
+
+        NOT YET AN ABSTRACTION, deliberately. Today it can only take values
+        implied by bar counts of 1/2/4/8, i.e. 4, 8, 16 or 32 beats. Making it
+        the primitive would also allow 3, 6 or 12 for 3/4, and odd meters — a
+        real feature, and not one to bolt on at 2 a.m. under a bug fix.
         """
-        return 8 * (self.bars or 1)
+        return (self.bars or 1) * BEATS_PER_BAR
+
+    @property
+    def eighth_per_cycle(self) -> int:
+        """`beats_per_cycle` in the unit SooperLooper actually wants.
+
+        SL computes cycle = eighth_per_cycle * 30 / bpm, so this has to track
+        the subdivision. Left at a fixed 8 while the tempo rises, the engine's
+        cycle shrinks below the take and it quantizes to a boundary the player
+        never played — while the bench uses its own, and neither complains.
+        """
+        return self.beats_per_cycle * 2
 
     def next_boundary(self, now: float) -> float | None:
         """When the next bar line falls, or None if the grid cannot say.
