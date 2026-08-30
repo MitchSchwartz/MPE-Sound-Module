@@ -209,8 +209,17 @@ def set_count_in(
     set_grid_active(send, num_loops=num_loops, active=count_in)
 
 
-def establish_grid_clock(send: Callable[[str, list], None], bpm: float) -> None:
-    """Lock cycle length to one bar, disable smart_eighths, reset phase.
+def establish_grid_clock(
+    send: Callable[[str, list], None], bpm: float, *, bars: int = 1
+) -> None:
+    """Lock the engine's cycle to the FIRST TAKE, disable smart_eighths, reset phase.
+
+    `bars` is how many 4/4 bars the take was read as. It must be passed, because
+    SL computes cycle = eighth_per_cycle * 30 / bpm: leave eighth_per_cycle at 8
+    while the derived tempo rises and the engine's cycle shrinks to a fraction
+    of the take. A 6.939 s first loop read as 4 bars at 138 BPM would give the
+    engine a 1.735 s cycle, and clips would join four times inside the loop the
+    player thinks of as one bar.
 
     A grid needs tempo, unit, and phase. Sending tempo alone was not enough:
     with `smart_eighths` left at SooperLooper's default (ON), any tempo under
@@ -222,7 +231,7 @@ def establish_grid_clock(send: Callable[[str, list], None], bpm: float) -> None:
     Engine::set_tempo — verified in engine.cpp).
     """
     send("/set", ["smart_eighths", 0.0])
-    send("/set", ["eighth_per_cycle", float(EIGHTH_PER_CYCLE)])
+    send("/set", ["eighth_per_cycle", float(EIGHTH_PER_CYCLE * max(1, bars))])
     send("/set", ["tempo", float(bpm)])
 
 
