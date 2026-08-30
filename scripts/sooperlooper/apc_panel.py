@@ -157,6 +157,14 @@ def scene_press_row(
 ) -> int | None:
     """Row this press should launch, or None if it is not a scene press.
 
+    **Superseded 2026-08-30 and deliberately kept.** Production routing is
+    `binding_table`: the bottom button has a BASE row and a SHIFT row, and
+    `BindingRouter` latches which layer it took at ITS OWN press-down. This
+    function is now the *reference implementation* the differential in
+    `tests/test_binding_table.py` checks that table against, over the whole note
+    space. Delete it when that differential has outlived the stage — not before,
+    because then the only statement of the old behaviour is the new code.
+
     The bottom button wears two hats: scene launch for row 0, and — only while
     Shift is held — Stop All Clips. Deciding that here rather than by the order
     of `if` statements in the bench event loop is deliberate: the old code
