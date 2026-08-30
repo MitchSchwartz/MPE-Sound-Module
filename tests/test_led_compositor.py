@@ -123,6 +123,12 @@ class OneWriterToTheWireTests(unittest.TestCase):
         # up. Pacing or diffing it would put the instrument between the probe
         # and the thing being probed. See its module docstring.
         "probe-apc-buttons.py",
+        # Same category, same reason: a separate process, session stopped,
+        # bisecting the note space to find Shift's lamp. It must paint notes
+        # the compositor has no control for, and routing it through the
+        # compositor would mean the instrument decides what the probe is
+        # allowed to ask. See its module docstring.
+        "probe-apc-shift-led.py",
         # Not an LED write and not to the APC: it opens a virtual port and
         # sends note-ons INTO the bench's input, standing in for a finger.
         # Same three bytes, opposite direction, different device. It lives in
