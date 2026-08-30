@@ -74,6 +74,13 @@ class SlotSurface:
         # pressed and is why switches fired mid-bar.
         for loop, fs in self._fs.items():
             fs.set_wrap_callback(lambda i=loop: self.on_wrap(i))
+        # Whether the SESSION is sounding, which is what decides if a launch
+        # waits for a boundary. The runtime used to ask only about the pressed
+        # track, so a stopped track launched while other tracks played fired
+        # instantly and landed off their beat.
+        self._rt.set_session_sounding(
+            lambda: any(g.sl_state in ACTIVE_PLAY for g in self._fs.values())
+        )
         self._painted: dict[int, int] | None = None
         self._scene_painted: dict[int, int] = {}
         self._sl_states: dict[int, int] = {}

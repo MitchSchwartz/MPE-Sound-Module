@@ -359,6 +359,10 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
             # is playing. Before this the only boundary was a loop wrap, which
             # requires audio — so after Stop All every launch fired instantly.
             grid_boundary=lambda: grid.next_boundary(time.monotonic()),
+            # A clip started into silence IS the downbeat. Without this the
+            # grid keeps counting from whenever the phase was last zeroed, and
+            # every later clip lines up with nothing anyone can hear.
+            mark_phase_zero=lambda: grid.mark_phase_zero(time.monotonic()),
         )
         slot_surface = SlotSurface(
             runtime=slot_runtime,

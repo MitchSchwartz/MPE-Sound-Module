@@ -83,12 +83,21 @@ class SlotRuntime:
         log: Callable[[str], None] | None = None,
         now: Callable[[], float] = time.monotonic,
         grid_boundary: Callable[[], float | None] = lambda: None,
+        session_sounding: Callable[[], bool] = lambda: False,
+        mark_phase_zero: Callable[[], None] = lambda: None,
     ) -> None:
         self._send = send
         #: When the next grid bar line falls, or None if there is no grid.
         #: Injected rather than reached for: the runtime needs a BOUNDARY, and
         #: has no business knowing what a GridState is.
         self._grid_boundary = grid_boundary
+        #: Is ANY loop sounding right now — not just this one. The old check
+        #: asked only about the pressed track, so launching a stopped track
+        #: while another track played fired instantly and landed off the beat
+        #: of the thing it was joining.
+        self._session_sounding = session_sounding
+        #: Declare the downbeat. A clip started into silence IS the downbeat.
+        self._mark_phase_zero = mark_phase_zero
         self._clips_dir = Path(clips_dir)
         self._num_tracks = num_tracks
         self._save_timeout_s = SAVE_TIMEOUT_S
@@ -110,6 +119,15 @@ class SlotRuntime:
         #: track that is playing gets its wrap, which is the more accurate
         #: signal; this is for when nothing is playing at all.
         self._grid_wait: dict[int, float] = {}
+
+    def set_session_sounding(self, probe: Callable[[], bool]) -> None:
+        """Tell the runtime how to ask whether ANY loop is sounding.
+
+        Wired by `SlotSurface`, which holds every gesture, for the same reason
+        the wrap callback is: production and every test harness then get it by
+        construction instead of each caller remembering.
+        """
+        self._session_sounding = probe
 
     def track(self, index: int) -> Track:
         return self._tracks.get(index, Track())
@@ -355,15 +373,31 @@ class SlotRuntime:
                 return OP_FAILED
 
         if plan.action in (ACT_LAUNCH, ACT_SWITCH):
-            if sl_state in ACTIVE_PLAY or self._grid_boundary() is not None:
+            # THE QUESTION IS WHETHER THE SESSION IS SOUNDING, NOT THIS TRACK.
+            #
+            # It used to be `sl_state in ACTIVE_PLAY` — the pressed track only.
+            # Two failures came out of that. Launching a stopped track while
+            # another track played fired instantly, landing off the beat of the
+            # music it was joining. And after Stop All nothing is sounding by
+            # definition, so every launch fired instantly too.
+            if self._session_sounding():
                 return OP_OK if self._defer_launch(plan) else OP_FAILED
-            # No audio AND no grid: nothing to sync to, so the launch is
-            # immediate. This branch used to be reached whenever nothing was
-            # sounding, which meant that after Stop All every launch fired
-            # instantly even though the tempo was known — "there is no boundary
-            # to wait for" was simply false, and had been since the grid
-            # existed. Now it means what it says.
-            return OP_OK if self._launch(plan) else OP_FAILED
+            # Nothing is playing anywhere. Mitch, 2026-08-30: "when I've
+            # stopped all and I start a clip, we've reset the phase to zero
+            # ... it should also mean that start happens immediately."
+            #
+            # Right, and it is not a special case — it is what a downbeat IS.
+            # You cannot be late for something that has not started. Waiting
+            # for the "next" bar line here would sit in silence for a full bar
+            # before the first note, which is what this code did for about
+            # twenty minutes after I first read the report.
+            #
+            # So the clip starts now AND becomes the phase reference, which is
+            # what makes every later clip line up with it.
+            if not self._launch(plan):
+                return OP_FAILED
+            self._mark_phase_zero()
+            return OP_OK
         return OP_OK
 
     def _defer_launch(self, plan: SlotPlan) -> bool:
