@@ -155,7 +155,7 @@ Surge **must not** keep UAC2 PCM open unless the laptop/DAW is **actively captur
 
 | Host capture | Surge output |
 |--------------|--------------|
-| **Idle** (disarmed, rate 0) | Sound Blaster if plugged, else Pi headphone, else `snd-aloop` (inaudible sink) |
+| **Idle** (disarmed, rate 0) | Sound Blaster if plugged, else Pi headphone, else `snd-dummy` (inaudible sink) |
 | **Active** (armed, rate 48000) | UAC2 gadget → host |
 
 `uac2-stall-watchdog.service` watches host stream rate and **restarts Surge on transitions** (~3–5 s, **Sync** badge). No stall heuristics, no Sound Blaster requirement for Reaper.
@@ -164,14 +164,20 @@ Surge **must not** keep UAC2 PCM open unless the laptop/DAW is **actively captur
 - **Analog profile toggle:** Surge → Sound Blaster; USB input on host goes silent; **no Reaper restart**.
 - **No external DAC:** idle sink is the Pi headphone jack on a Pi 4. **The Pi 5
   has no headphone jack**, and HDMI enumerates `disconnected` with no display
-  attached, so there the idle sink is the `snd-aloop` loopback card installed by
-  `scripts/install-idle-sink.sh` (card index 7, loaded on every deploy). Reaper
+  attached, so there the idle sink is the `snd-dummy` card installed by
+  `scripts/install-idle-sink.sh` (card index 8, loaded on every deploy). Reaper
   path unchanged.
 - The gadget cannot be the idle sink. MEASURED 2026-08-30 with the host attached
   but not capturing: `aplay` to the gadget fails with `Input/output error` after
-  1s, while `aplay` to the loopback free-runs (3s of audio took 3s). Under the
-  USB Audio Class spec the host enables the streaming interface, so there are no
-  isochronous transfers -- and therefore no clock -- until it does.
+  1s. Under the USB Audio Class spec the host enables the streaming interface,
+  so there are no isochronous transfers -- and therefore no clock -- until it
+  does.
+- **snd-dummy, not snd-aloop.** MEASURED the same day: jackd on the loopback
+  dies with "ALSA: poll time out ... Driver is not running" at every period
+  size, because snd-aloop's playback side only advances while something reads
+  its capture side -- it is a pipe, not a clock. An `aplay` to it still
+  completes in real time, which looks exactly like a working clock. jackd on
+  snd-dummy runs at the appliance's 64-frame period and serves clients.
 
 ---
 
