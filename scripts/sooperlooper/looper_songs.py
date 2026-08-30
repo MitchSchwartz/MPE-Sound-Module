@@ -809,6 +809,25 @@ def load_song(
             continue
         probe.send(f"/sl/{loop}/load_loop", [str(wav), "", ""])
         time.sleep(0.05)
+        # THE ONE SANCTIONED WRITE OF `wet` OUTSIDE `loop_mix.wet_for()`.
+        #
+        # `loop_mix` owns level composition and the README says so. This is the
+        # documented exception, and the reason is process boundaries, not
+        # convenience: songs load in `touch-patch-browser.service` and `LoopMix`
+        # lives in `mpe-looper-session.service`, so the column gains, the master
+        # and the active-loop count that `wet_for()` multiplies are not
+        # reachable from here at all.
+        #
+        # It is safe because the bench adopts it rather than fighting it: it
+        # subscribes to `wet` and `LoopMix.seed_from_engine` backs out master
+        # and law, takes the implied column position and re-arms pickup.
+        #
+        # `entry.wet` is the COMPOSED level (`save_song` reads the engine's
+        # `wet`, which already includes master and law), so a song reloaded at a
+        # different master position returns to its saved absolute level. Noted
+        # in the README as an open question, deliberately not changed here.
+        #
+        # A third writer fails tests/test_track_state_ownership.py.
         probe.send(f"/sl/{loop}/set", ["wet", float(entry.wet)])
         if slot.sl_state in ACTIVE_PLAY:
             probe.send(f"/sl/{loop}/hit", "pause_off")
