@@ -351,3 +351,68 @@ while the line above it passes `bars=grid.bars or 1`. A log line that names the
 wrong unit whenever `bars > 1` — precisely the defect `tail_phase.cap_for`'s
 own docstring was written to complain about ("a log line that names the wrong
 source is worse than no log line").
+
+---
+
+## 6. Retraction — my own "following the README re-arms the doubling bug"
+
+**Retracted 2026-08-30 ~04:0x. The finding was wrong.**
+
+§5 claimed that because `apply_freeform` never sends `smart_eighths`, and
+`README.md:106` recommends `MPE_SL_SYNC_MODE=freeform`, following the README
+re-arms the sub-60-BPM cycle doubling. I traced the paths properly afterwards
+and it does not.
+
+Why it does not bite:
+
+- `establish_grid_clock` sends `smart_eighths 0.0` **first**, before
+  `eighth_per_cycle` and `tempo`.
+- Every path that turns sync ON runs it first: `on_grid_established`
+  (`bench:232-236`) does `establish_grid_clock` → `mark_phase_zero` →
+  `set_grid_active(active=True)`, and the engine-restart path at `:245-246`
+  does the same.
+- Before establishment there is no grid to double: `set_grid_active(False)`
+  leaves `quantize`/`sync` at 0, so a doubled `_eighth_cycle` is read by
+  nothing.
+
+The exposure window is therefore empty. And `apply_grid_sync:189` already sends
+the disable, with a comment citing `engine.cpp set_tempo` and the "_eighth_cycle
+*= 2 under 60" mechanism precisely — the codebase knew this before I did.
+
+**What survives:** nothing worth a severity. `apply_freeform` omitting
+`smart_eighths` is harmless given the ordering. It would be worth a line of
+defensive symmetry only if someone later enabled sync without going through
+`establish_grid_clock`, and the collision-style fix for *that* is a test, not
+an extra OSC send.
+
+### The rule this cost, and it is the fourth correction of mine tonight
+
+**A structural defect is not a bug until you trace the path that reaches it.**
+
+I found code shaped like the bug — a function that omits a setting the sibling
+function sends — and promoted it to 🔴 without asking whether anything reads
+the setting in that state. That is inference promoted to premise, which is the
+same move as sourcing `-l 16` from a filename and reading an empty
+`unmeasured()` as "nothing left to measure."
+
+It applies to the outstanding reviewer findings too: several are structural
+("these two could disagree") without a traced path proving they do. Those are
+**not** P0s until someone walks the path. Ranking them as though they were
+spends the night on the wrong things — and it is exactly the failure the
+charter's own opening paragraph describes, arriving from the other direction.
+
+### Verified as still live, by the same standard
+
+The **restart split-brain** stands, and now with the path traced.
+`restart-sooperlooper.sh` runs `configure-grid-sync.sh` →
+`sl_grid_sync.main()` → `apply_grid_sync`, which sends `tempo` at
+`DEFAULT_BPM` (**120**) and `eighth_per_cycle` at **8** — the defaults, not the
+established grid. The only emitter of `looper.engine.started` is
+`wire-sooperlooper-graph.sh:56`, a different script, so
+`on_looper_engine_started` never fires and the block that would re-send the
+real bpm and bar count never runs.
+
+Result after `mpe looper sl-restart`: the engine is at 120 BPM with an 8-eighth
+cycle while the bench still reports `grid.established` at, say, 138 BPM and 4
+bars, and the surface vouches for the bench's copy. Two owners of musical time,
+traced end to end, no inference.
