@@ -156,6 +156,16 @@ class NoteLiteralTests(unittest.TestCase):
         ("apc_mode.py", "MODE_MESSAGE_TYPE"),
         # The 7-bit ceiling in a range check, not a control.
         ("apc_mode.py", "parse_mode_sysex"),
+        # SysEx framing for the RGB message, same category as the apc_mode
+        # identity bytes above. The note the message addresses comes from
+        # control_registry.required_note, not from these.
+        ("probe-apc-shift-led.py", "SYSEX_ALL_DEVICES"),
+        ("probe-apc-shift-led.py", "MK2_PRODUCT"),
+        ("probe-apc-shift-led.py", "RGB_MESSAGE_TYPE"),
+        ("probe-apc-shift-led.py", "RGB_FULL"),
+        # Which notes a previous probe already swept — coverage history, not
+        # an address the registry is entitled to own.
+        ("probe-apc-shift-led.py", "ROUND3_COVERED"),
     }
 
     def _sources(self):

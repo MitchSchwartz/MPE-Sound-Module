@@ -37,12 +37,38 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "sooperlooper"))
 
-from control_registry import GRID_NOTE_MIN  # noqa: E402
+from control_registry import (  # noqa: E402
+    ATTACHED_VARIANT,
+    GRID_NOTE_MIN,
+    note_index,
+)
+from apc_mode import (  # noqa: E402
+    AKAI_MANUFACTURER_ID,
+    SYSEX_END,
+    SYSEX_START,
+)
 
-#: Never painted by any probe in this repo. The grid is 0x00-0x3F, track
-#: buttons 0x64-0x6B, the scene column 0x70-0x77, and 0x78-0x7F plus 0x62/0x7A
-#: were covered in round 3.
-UNEXPLORED = [n for n in range(0x40, 0x64)] + [n for n in range(0x6C, 0x70)]
+#: Swept in round 3 (2026-08-29), so not unexplored despite being unclaimed.
+#: Exempted from the note-literal rule: prior probe coverage, not an address
+#: the registry is entitled to own.
+ROUND3_COVERED = frozenset(range(0x78, 0x80))
+
+#: Never painted by any probe in this repo. Derived from the registry rather
+#: than restated, so the claim is executable: whatever the registry does not
+#: claim, minus what round 3 already swept. On the mk2 this is 0x40-0x63 and
+#: 0x6C-0x6F. The grid, the track row and the scene column are claimed, so
+#: they fall out on their own and cannot drift out of sync with this comment.
+UNEXPLORED = [
+    n for n in range(128)
+    if n not in note_index(ATTACHED_VARIANT) and n not in ROUND3_COVERED
+]
+
+#: SysEx framing for the RGB message. Identity bytes, not control addresses —
+#: same category as the exempted constants in `apc_mode.py`.
+SYSEX_ALL_DEVICES = 0x7F
+MK2_PRODUCT = 0x4F
+RGB_MESSAGE_TYPE = 0x24
+RGB_FULL = 0x7F      # one colour channel at full
 
 #: Full brightness. 0x90 is 10% on the mk2 and reads as unlit in daylight,
 #: which is its own way of producing a false negative.
@@ -147,10 +173,12 @@ def main() -> int:
         print("  This works on grid pads and was rejected by the track and "
               "scene buttons. It has never been aimed at Shift.")
         from control_registry import required_note
-        shift_note = required_note("shift", "mk2")
-        out.send_message([0xF0, 0x47, 0x7F, 0x4F, 0x24, 0x00, 0x08,
+        shift_note = required_note("shift", ATTACHED_VARIANT)
+        out.send_message([SYSEX_START, AKAI_MANUFACTURER_ID, SYSEX_ALL_DEVICES,
+                          MK2_PRODUCT, RGB_MESSAGE_TYPE, 0x00, 0x08,
                           shift_note, shift_note,
-                          0x00, 0x7F, 0x00, 0x7F, 0x00, 0x7F, 0xF7])
+                          0x00, RGB_FULL, 0x00, RGB_FULL, 0x00, RGB_FULL,
+                          SYSEX_END])
         time.sleep(0.05)
         lit = _ask(f"  is SHIFT lit? (SysEx RGB at {hex(shift_note)})")
         if lit:
