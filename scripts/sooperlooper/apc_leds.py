@@ -27,15 +27,23 @@ The mk2's *button* LEDs (0x64-0x77) are driven here with 0x90 and velocity
 0=off, 1=on, 2=blink, matching `SCENE_LED_*` and `TRACK_LED_*`, so buttons get
 no translation and only the 8x8 RGB grid does.
 
-This used to say the button LEDs ARE single-colour, as established fact. It is
-not established — see `device_facts.apc.scene.led_colours`. It came from the
-vendor document, was never measured, and the same document's implication that
-Shift has no LED is wrong. Treat this as "what we currently send", not "what
-the hardware can do"; `scripts/probe-apc-buttons.py` settles the difference.
+For a while this said the button LEDs ARE single-colour as established fact,
+then — after that turned out to be a vendor document nobody had checked — that
+it was unestablished. It is established now, and it went the way the document
+said: `device_facts.apc.scene.led_observed`, `.apc.track.led_observed` and
+`.apc.buttons.single_colour`, all MEASURED 2026-08-29 over five probe rounds
+with a positive control on the grid pads. Green on the scene column, red on the
+track row, three states each, channel axis exhausted. So the buttons genuinely
+need no translation — and that is now a measurement rather than a coincidence.
+
+The `0x64-0x77` range in the note above is the part that is still vendor
+recall. The note *numbers* live in `control_registry`; what is measured is that
+the notes the probe painted lit the buttons Mitch named.
 """
 
 from __future__ import annotations
 
+from control_registry import GRID_NOTE_MAX, GRID_NOTE_MIN
 from led_table import (
     LED_GREEN,
     LED_GREEN_BLINK,
@@ -46,9 +54,11 @@ from led_table import (
     LED_YELLOW_BLINK,
 )
 
-#: Note range of the 8x8 RGB grid. Identical on both models.
-PAD_NOTE_MIN = 0x00
-PAD_NOTE_MAX = 0x3F
+#: Note range of the 8x8 RGB grid. Identical on both models. These were a
+#: second copy of `apc_panel.GRID_NOTE_MIN/MAX`, written in a different base so
+#: a grep for one missed the other; both now come from the registry.
+PAD_NOTE_MIN = GRID_NOTE_MIN
+PAD_NOTE_MAX = GRID_NOTE_MAX
 
 # --- mk2 wire facts, from the protocol document -----------------------------
 

@@ -7,7 +7,36 @@ from unittest.mock import MagicMock, patch
 import time
 
 import scripts.sooperlooper.track_gesture as gesture_mod
-from scripts.sooperlooper.track_gesture import TrackGesture, build_track_gestures
+from scripts.sooperlooper.track_gesture import (
+    TrackGesture,
+    build_track_gestures,
+    poll_track_gestures,
+)
+from scripts.sooperlooper.led_compositor import LedCompositor
+
+
+class RecordingOut:
+    def __init__(self) -> None:
+        self.sent: list[list[int]] = []
+
+    def send_message(self, msg) -> None:
+        self.sent.append(list(msg))
+
+
+def wire(fs) -> list[int]:
+    """Velocities the DEVICE received. Not one writer's outgoing stream."""
+    return [m[2] for m in fs._compositor._midi_out.sent]
+
+
+def compositor() -> LedCompositor:
+    """The one writer to the wire, over a recording fake.
+
+    A gesture no longer holds a `midi_out`: it submits desired state and the
+    compositor decides what the device is told. `sent` is therefore the
+    device's whole history rather than one writer's outgoing stream — which is
+    the distinction the four private diff caches made impossible to draw.
+    """
+    return LedCompositor(RecordingOut(), apc_label="mk1")
 from scripts.sooperlooper.loop_model import STATE_PLAYING, STATE_STOPPED
 from scripts.sooperlooper.sl_loop_states import (
     SL_STATE_MUTE,
@@ -26,7 +55,7 @@ class ApcTrackGestureTests(unittest.TestCase):
     def test_loop0_tap_record_does_not_send_trigger(self) -> None:
         osc = MagicMock()
         fs = TrackGesture(loop=0, hold_ms=1000.0, debounce_ms=0.0)
-        fs.bind(osc, MagicMock(), 36)
+        fs.bind(osc, compositor(), 36)
         fs.on_pad_down()
         fs.on_pad_up()
         paths = [c.args[0] for c in osc.send_message.call_args_list]
@@ -38,7 +67,7 @@ class ApcTrackGestureTests(unittest.TestCase):
         """First-beat capture: arm on touch, not on lift."""
         osc = MagicMock()
         fs = TrackGesture(loop=0, hold_ms=1000.0, debounce_ms=0.0)
-        fs.bind(osc, MagicMock(), 36)
+        fs.bind(osc, compositor(), 36)
         fs.on_pad_down()
         hits = [c.args[1] for c in osc.send_message.call_args_list if c.args[0] == "/sl/0/hit"]
         self.assertEqual(hits, ["record"])
@@ -49,7 +78,7 @@ class ApcTrackGestureTests(unittest.TestCase):
     def test_sync_from_sl_loop0_playing(self) -> None:
         osc = MagicMock()
         fs = TrackGesture(loop=0, hold_ms=1000.0, debounce_ms=0.0)
-        fs.bind(osc, MagicMock(), 36)
+        fs.bind(osc, compositor(), 36)
         changed = fs.sync_from_sl(SL_STATE_PLAYING)
         self.assertTrue(changed)
         self.assertEqual(fs.state, "playing")
@@ -67,7 +96,7 @@ class ApcTrackGestureTests(unittest.TestCase):
         """No cycle boundary => release the pad, never latch it forever."""
         osc = MagicMock()
         fs = TrackGesture(loop=0, hold_ms=1000.0, debounce_ms=0.0)
-        fs.bind(osc, MagicMock(), 36)
+        fs.bind(osc, compositor(), 36)
         with patch.object(gesture_mod, "RING_OUT_ENABLED", False):
             fs.on_pad_down()
             fs.on_pad_up()
@@ -90,7 +119,7 @@ class ApcTrackGestureTests(unittest.TestCase):
     def test_sync_from_sl_paused_yellow(self) -> None:
         osc = MagicMock()
         fs = TrackGesture(loop=1, hold_ms=1000.0, debounce_ms=0.0)
-        fs.bind(osc, MagicMock(), 37)
+        fs.bind(osc, compositor(), 37)
         fs.sync_from_sl(SL_STATE_PAUSED)
         self.assertEqual(fs.state, "stopped")
 
@@ -98,7 +127,7 @@ class ApcTrackGestureTests(unittest.TestCase):
         osc = MagicMock()
         _, gestures = build_track_gestures(
             osc=osc,
-            midi_out=MagicMock(),
+            compositor=compositor(),
             num_loops=16,
             hold_ms=1000.0,
             debounce_ms=200.0,
@@ -120,7 +149,7 @@ class GridEstablishmentTests(unittest.TestCase):
             on_grid_established=established_cb,
             on_phase_reanchor=reanchor_cb,
         )
-        fs.bind(MagicMock(), MagicMock(), 36 + loop)
+        fs.bind(MagicMock(), compositor(), 36 + loop)
         return fs
 
     def _start_defining_take(self, fs) -> None:
@@ -255,7 +284,7 @@ class DoubleTapRecordsOneCycleTests(unittest.TestCase):
 
         fs = TrackGesture(loop=1, hold_ms=1000.0, debounce_ms=0.0,
                             quantized=True, grid=grid)
-        fs.bind(MagicMock(), MagicMock(), 37)
+        fs.bind(MagicMock(), compositor(), 37)
         return fs
 
     def _grid(self):
@@ -297,11 +326,11 @@ class TransitionBlinkTests(unittest.TestCase):
         from scripts.sooperlooper.track_gesture import TrackGesture
 
         fs = TrackGesture(loop=0, hold_ms=1000.0, debounce_ms=0.0)
-        fs.bind(MagicMock(), MagicMock(), 36)
+        fs.bind(MagicMock(), compositor(), 36)
         return fs
 
     def _sent(self, fs):
-        return [c.args[0][2] for c in fs._midi_out.send_message.call_args_list]
+        return wire(fs)
 
     def test_recording_queued_to_play_alternates_red_and_green(self) -> None:
         fs = self._fs()
@@ -336,7 +365,7 @@ class QuantizedLaunchTests(unittest.TestCase):
         from scripts.sooperlooper.track_gesture import TrackGesture
 
         fs = TrackGesture(loop=2, hold_ms=1000.0, debounce_ms=0.0, quantized=True)
-        fs.bind(MagicMock(), MagicMock(), 38)
+        fs.bind(MagicMock(), compositor(), 38)
         return fs
 
     def _hits(self, fs):
@@ -370,12 +399,12 @@ class QuantizedLaunchTests(unittest.TestCase):
         # a queued launch is a plain green blink — no second colour needed
         self.assertIsNone(fs._led_transition)
         self.assertEqual(
-            [c.args[0][2] for c in fs._midi_out.send_message.call_args_list][-1],
+            wire(fs)[-1],
             gesture_mod.LED_GREEN_BLINK,
         )
         fs.sync_from_sl(SL_STATE_PLAYING)
         self.assertEqual(
-            [c.args[0][2] for c in fs._midi_out.send_message.call_args_list][-1],
+            wire(fs)[-1],
             gesture_mod.LED_GREEN,
             "landed — solid green, and only now",
         )
@@ -387,9 +416,10 @@ class StopAllIsImmediateTests(unittest.TestCase):
     def test_stop_all_lifts_quantize_then_restores_it(self) -> None:
         from scripts.sooperlooper.track_gesture import build_track_gestures, stop_all_loops
 
-        osc, midi = MagicMock(), MagicMock()
+        osc = MagicMock()
         _, gestures = build_track_gestures(
-            osc=osc, midi_out=midi, num_loops=2, hold_ms=1000.0, debounce_ms=0.0
+            osc=osc, compositor=compositor(), num_loops=2,
+            hold_ms=1000.0, debounce_ms=0.0
         )
         stop_all_loops(osc, num_loops=2, gestures=gestures)
 
@@ -407,7 +437,7 @@ class StopAllIsImmediateTests(unittest.TestCase):
 
         osc = MagicMock()
         empty = TrackGesture(loop=1, hold_ms=1000.0, debounce_ms=0.0)
-        empty.bind(MagicMock(), MagicMock(), 37)
+        empty.bind(MagicMock(), compositor(), 37)
         empty.sync_from_sl(SL_STATE_OFF_MUTED)
         stop_all_loops(osc, num_loops=2, gestures=[empty])
         self.assertIsNone(empty._pending)
@@ -418,7 +448,7 @@ class StopAllIsImmediateTests(unittest.TestCase):
         from scripts.sooperlooper.track_gesture import TrackGesture
 
         fs = TrackGesture(loop=1, hold_ms=1000.0, debounce_ms=0.0, quantized=True)
-        fs.bind(MagicMock(), MagicMock(), 37)
+        fs.bind(MagicMock(), compositor(), 37)
         fs.sync_from_sl(SL_STATE_PLAYING)
         fs.on_pad_down(); fs.on_pad_up()
         paths = [c.args[0] for c in fs._osc.send_message.call_args_list]
@@ -427,56 +457,50 @@ class StopAllIsImmediateTests(unittest.TestCase):
 
 class HoldGestureTests(unittest.TestCase):
     def test_hold_delete_shows_red_after_blink_start(self) -> None:
-        midi = MagicMock()
         fs = TrackGesture(
             loop=0,
             hold_ms=2000.0,
             hold_blink_start_ms=500.0,
             debounce_ms=0.0,
         )
-        fs.bind(MagicMock(), midi, 36)
+        fs.bind(MagicMock(), compositor(), 36)
         fs.sync_from_sl(SL_STATE_PLAYING)
         fs.on_pad_down()
-        midi.reset_mock()
         fs._pad_down_at = time.monotonic() - 0.6
         fs.poll_led()
-        calls = [c.args[0][2] for c in midi.send_message.call_args_list]
-        self.assertEqual(calls[-1], 3)
+        self.assertEqual(wire(fs)[-1], 3)
 
     def test_sync_from_sl_does_not_overwrite_hold_warning(self) -> None:
-        midi = MagicMock()
         fs = TrackGesture(loop=0, hold_ms=1000.0, debounce_ms=0.0)
-        fs.bind(MagicMock(), midi, 36)
+        fs.bind(MagicMock(), compositor(), 36)
         fs.sync_from_sl(SL_STATE_PLAYING)
         fs.on_pad_down()
         fs._pad_down_at = time.monotonic() - 0.6
-        midi.reset_mock()
+        before = len(wire(fs))
         fs.sync_from_sl(SL_STATE_PLAYING)
-        midi.send_message.assert_not_called()
+        self.assertEqual(len(wire(fs)), before,
+                         "the hold warning owns the pad until the hold ends")
 
     def test_hold_blink_starts_after_blink_start_s(self) -> None:
-        midi = MagicMock()
         fs = TrackGesture(
             loop=0,
             hold_ms=2000.0,
             hold_blink_start_ms=500.0,
             debounce_ms=0.0,
         )
-        fs.bind(MagicMock(), midi, 36)
+        fs.bind(MagicMock(), compositor(), 36)
         fs.on_pad_down()
         fs.sync_from_sl(SL_STATE_PLAYING)
-        midi.reset_mock()
 
         fs._pad_down_at = time.monotonic() - 0.6
         fs.poll_led()
-        calls = [c.args[0][2] for c in midi.send_message.call_args_list]
-        self.assertTrue(calls)
-        self.assertIn(calls[-1], (0, 3))
+        self.assertTrue(wire(fs))
+        self.assertIn(wire(fs)[-1], (0, 3))
 
     def test_hold_while_armed_cancels_with_record_not_undo(self) -> None:
         osc = MagicMock()
         fs = TrackGesture(loop=0, hold_ms=1000.0, debounce_ms=0.0)
-        fs.bind(osc, MagicMock(), 36)
+        fs.bind(osc, compositor(), 36)
         fs.on_pad_down()
         fs.sync_from_sl(SL_STATE_WAIT_START)
         fs._pad_down_at -= 2.0
@@ -487,7 +511,7 @@ class HoldGestureTests(unittest.TestCase):
     def test_hold_while_recording_cancels_with_undo_all(self) -> None:
         osc = MagicMock()
         fs = TrackGesture(loop=0, hold_ms=1000.0, debounce_ms=0.0)
-        fs.bind(osc, MagicMock(), 36)
+        fs.bind(osc, compositor(), 36)
         fs.on_pad_down()
         fs.sync_from_sl(SL_STATE_RECORDING)
         fs._pad_down_at -= 2.0
@@ -498,7 +522,7 @@ class HoldGestureTests(unittest.TestCase):
     def test_hold_on_playing_clip_clears_with_undo_all(self) -> None:
         osc = MagicMock()
         fs = TrackGesture(loop=0, hold_ms=1000.0, debounce_ms=0.0)
-        fs.bind(osc, MagicMock(), 36)
+        fs.bind(osc, compositor(), 36)
         fs.sync_from_sl(SL_STATE_PLAYING)
         fs.on_pad_down()
         fs._pad_down_at -= 2.0
@@ -512,11 +536,23 @@ if __name__ == "__main__":
 
 
 class OverdubOnePassTests(unittest.TestCase):
-    """The take closes into an overdub; it has to end itself one pass later."""
+    """The take closes into an overdub; it has to end itself one pass later.
+
+    Every engine report below goes through `_state`/`_pos`, which deliver it
+    and then run the bench's gesture poll. That is not decoration: since
+    2026-08-30 the ring-out has ONE owner, `poll_tail`, and the OSC entry points
+    only record what they saw (`track_gesture` module docstring). A test that
+    called `sync_loop_pos` and asserted the send had already gone out would be
+    asserting that an OSC dispatcher thread ends the overdub — which is the
+    defect these tests exist to catch, not the behaviour.
+
+    The negative cases run the poll too. Without it they would pass by
+    asserting that nothing happened in code that was never given the chance.
+    """
 
     def _fs(self):
         fs = TrackGesture(loop=0, hold_ms=1000.0, debounce_ms=0.0)
-        fs.bind(MagicMock(), MagicMock(), 36)
+        fs.bind(MagicMock(), compositor(), 36)
         fs.sync_loop_len(2.0)
         return fs
 
@@ -524,37 +560,62 @@ class OverdubOnePassTests(unittest.TestCase):
         return [c.args[1] for c in fs._osc.send_message.call_args_list
                 if c.args[0] == "/sl/0/hit"]
 
+    def _state(self, fs, sl_state: int) -> None:
+        fs.sync_from_sl(sl_state)
+        poll_track_gestures([fs])
+
+    def _pos(self, fs, pos: float) -> None:
+        fs.sync_loop_pos(pos)
+        poll_track_gestures([fs])
+
     def test_overdub_ends_at_the_first_wrap(self) -> None:
         fs = self._fs()
-        fs.sync_from_sl(SL_STATE_OVERDUBBING)
-        fs.sync_loop_pos(0.1)
-        fs.sync_loop_pos(1.9)
+        self._state(fs, SL_STATE_OVERDUBBING)
+        self._pos(fs, 0.1)
+        self._pos(fs, 1.9)
         self.assertNotIn("overdub", self._hits(fs), "still inside pass one")
-        fs.sync_loop_pos(0.02)
+        self._pos(fs, 0.02)
         self.assertEqual(self._hits(fs).count("overdub"), 1)
 
     def test_overdub_ends_only_once(self) -> None:
         fs = self._fs()
-        fs.sync_from_sl(SL_STATE_OVERDUBBING)
+        self._state(fs, SL_STATE_OVERDUBBING)
+        self._pos(fs, 1.9)
+        self._pos(fs, 0.02)
+        self._pos(fs, 1.9)
+        self._pos(fs, 0.02)
+        self.assertEqual(self._hits(fs).count("overdub"), 1)
+
+    def test_two_wraps_queued_before_one_poll_still_send_one_overdub(self) -> None:
+        """The queue cannot smuggle a second toggle past the owner.
+
+        The OSC side now records; if two wrap reports land between polls the
+        drain sees two `TAIL_WRAP` events. The second must find the phase gone
+        and send nothing — `overdub` is a toggle, so a second send starts a
+        fresh one recording the room over the take.
+        """
+        fs = self._fs()
+        self._state(fs, SL_STATE_OVERDUBBING)
         fs.sync_loop_pos(1.9)
         fs.sync_loop_pos(0.02)
         fs.sync_loop_pos(1.9)
         fs.sync_loop_pos(0.02)
+        poll_track_gestures([fs])
         self.assertEqual(self._hits(fs).count("overdub"), 1)
 
     def test_a_wrap_while_merely_playing_sends_nothing(self) -> None:
         fs = self._fs()
-        fs.sync_from_sl(SL_STATE_PLAYING)
-        fs.sync_loop_pos(1.9)
-        fs.sync_loop_pos(0.02)
+        self._state(fs, SL_STATE_PLAYING)
+        self._pos(fs, 1.9)
+        self._pos(fs, 0.02)
         self.assertNotIn("overdub", self._hits(fs))
 
     def test_pad_ending_the_overdub_disarms_the_wrap_watch(self) -> None:
         """Ending it by hand must not leave a wrap primed to send a second
         `overdub`, which would turn overdub back ON a pass later."""
         fs = self._fs()
-        fs.sync_from_sl(SL_STATE_OVERDUBBING)
-        fs.sync_from_sl(SL_STATE_PLAYING)
-        fs.sync_loop_pos(1.9)
-        fs.sync_loop_pos(0.02)
+        self._state(fs, SL_STATE_OVERDUBBING)
+        self._state(fs, SL_STATE_PLAYING)
+        self._pos(fs, 1.9)
+        self._pos(fs, 0.02)
         self.assertNotIn("overdub", self._hits(fs))

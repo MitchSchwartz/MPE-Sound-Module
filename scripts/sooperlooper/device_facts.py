@@ -207,6 +207,90 @@ record(Fact(
            "three wrong answers reached by reasoning (see apc_panel.py)",
 ))
 
+record(Fact(
+    id="apc.buttons.note_sets",
+    claim="Which notes address which physical buttons — ON THE MK2, which is "
+          "the only unit the probe ran against. The eight right-hand SCENE "
+          "buttons are 0x70-0x77, top to bottom. The bottom TRACK row is "
+          "0x64-0x6B, left to right. Shift is 0x7A.\n\n"
+          "Says NOTHING about mk1. The probe's mk1 arm has never executed; no "
+          "mk1 has been attached since it was written. For mk1 the scene "
+          "column rests on apc.scene_column.bottom_is_0x59 and Shift on the "
+          "SP6/SP8 aseqdump captures — and the mk1 TRACK ROW rests on nothing "
+          "at any tier, with apc_panel and apc_transport holding contradictory "
+          "claims about button 8 (0x6B vs 0x37).\n\n"
+          "Recorded separately because apc.scene.led_observed and "
+          "apc.track.led_observed say 'the scene buttons' and 'the track row' "
+          "without naming a note or a variant. On a two-variant surface the "
+          "control identity IS part of the provenance: the only way to learn "
+          "what 'the track row' meant was to read a hardcoded range in the "
+          "probe's source, which was itself an uncited note literal.",
+    tier=MEASURED,
+    established="2026-08-29",
+    source="probe rounds 1-3 (scripts/probe-apc-buttons.py) sent to exactly "
+           "these notes on the attached mk2 and Mitch read the lit buttons off "
+           "the panel — 'scene 1 green, all others off', and the scene column "
+           "top to bottom. Note set re-read from the probe source 2026-08-30.",
+))
+
+record(Fact(
+    id="apc.bank_arrows.notes",
+    claim="OPEN. What the four bank arrows send is NOT established on either "
+          "variant.\n\n"
+          "mk1: recalled as 0x40-0x43. Unverified — no capture, no probe. It "
+          "collides with nothing, so it is carried as a live claim and "
+          "labelled VENDOR wherever it is used.\n\n"
+          "mk2: recalled as 0x70-0x73, and that recall is REFUTED. Those four "
+          "notes are scene buttons 1-4 (apc.buttons.note_sets, MEASURED "
+          "2026-08-29), so they cannot also be the arrows. The consequence ran "
+          "in production: the bench's scene branch claimed the note and "
+          "`continue`d forty-five lines before handle_arrow was reached, so "
+          "banking was dead and tracks 9-15 of 15 were unreachable from the "
+          "surface, while every session start printed a banner advertising "
+          "the feature. The mk2 arrow notes are therefore recorded as UNKNOWN "
+          "rather than replaced with another guess.\n\n"
+          "This fact is VENDOR on purpose. Rule 4: it may not be used to tell "
+          "Mitch the arrows cannot work. It says we do not know their notes.",
+    tier=VENDOR,
+    established="2026-08-30",
+    source="recall, origin unknown, flagged UNVERIFIED in apc_transport.py "
+           "since it was written and in scripts/sooperlooper/README.md. The "
+           "mk2 refutation is the collision with apc.buttons.note_sets, run "
+           "against the live resolvers 2026-08-30.",
+    supersedes="apc_transport.ARROW_NOTES_MK2 = (0x70,0x71,0x72,0x73), which "
+               "was never a fact here at all — it was a tuple with a warning "
+               "comment, which is how an unmeasured guess stayed load-bearing "
+               "for a shipped feature without ever passing rule 4",
+))
+
+record(Fact(
+    id="apc.faders.ccs",
+    claim="OPEN. The nine faders are believed to send CC 48-55 (left to "
+          "right) and CC 56 (master), identically on both variants. Never "
+          "confirmed against hardware on either.\n\n"
+          "Recorded because the failure is silent: a wrong CC makes "
+          "fader_for_cc return None, handle_cc returns without a word, and "
+          "the result is indistinguishable from a fader nobody touched. Same "
+          "shape as the arrows, and the same instrument closes it.",
+    tier=VENDOR,
+    established="2026-08-30",
+    source="recall, flagged as unconfirmed in apc_faders.py since it was "
+           "written and in scripts/sooperlooper/README.md",
+))
+
+
+#: How the two OPEN questions above get closed. Both need the same five
+#: minutes at the device and neither can be closed from here:
+#:
+#:     mpe looper stop-session
+#:     python3 scripts/sooperlooper-apc-bench.py --dump-midi
+#:     press Up, Down, Left, Right; then move each fader left to right
+#:
+#: then record the notes and CCs here at MEASURED with the date, and put them
+#: in control_registry.CONTROLS. Until then both stay VENDOR, which is what
+#: stops either being used to call anything impossible.
+RESOLUTION_PATH_UNMEASURED_CONTROLS = ("apc.bank_arrows.notes", "apc.faders.ccs")
+
 
 def fact(fact_id: str) -> Fact:
     return FACTS[fact_id]
