@@ -93,12 +93,20 @@ main() {
   start_engine
   bash "${SCRIPT_DIR}/configure-grid-sync.sh" || log "WARN: grid-sync configure failed"
   wire_jack_parallel
+  # Same fresh engine, same announcement as restart-sooperlooper.sh. This
+  # pkills the old engine and leaves the new one RUNNING at the end, so a bench
+  # that is up must re-apply its grid or it keeps addressing an engine that has
+  # never heard of one. A no-op when nothing is listening.
+  # shellcheck source=../lib/audio-engine.sh
+  source "${SCRIPT_DIR}/../lib/audio-engine.sh"
+  mpe_session_event_emit looper.engine.started "smoke" || \
+      log "WARN: could not emit looper.engine.started"
   load_and_play
   sleep 2
   sample_stats
   log "pausing all loops (smoke complete — use sl-stop or APC to control playback)"
   bash "${SCRIPT_DIR}/stop-all-loops.sh" || true
-  log "PASS — 16 clips loaded, triggered, measured, paused"
+  log "PASS — ${LOOPS} clips loaded, triggered, measured, paused"
 }
 
 main "$@"
