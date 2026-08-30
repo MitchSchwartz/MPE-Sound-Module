@@ -221,7 +221,7 @@ Reported severities re-rated against live/latent status and blast radius.
 |---|---|---|---|---|
 | **P0** | Silent-session launch → `TypeError`, process death | ✅ | quick | **fixed `7c57107`** |
 | **P0** | Arrow/scene note collision → banking dead, tracks 9–15 unreachable | ✅ | half-day + Mitch | structural half tonight |
-| **P0** | Ring-out cap = one bar, spec says one cycle (regression from `d06fb08`) | ✅ | quick | next |
+| **P0** | Ring-out cap = one bar, spec says one cycle (exposed by `d06fb08`, which does **not** touch `tail_phase.py` — `cap_for` went stale underneath it) | ✅ | quick | **fixed `5e12100`** |
 | **P0** | `SlotRuntime.reset()` leaves `_flush` alive → silent take loss, model says clean | reported | half-day | audit pending |
 | **P0** | Banking while holding a pad unlinks another track's clip | reported | quick | audit pending |
 | **P0** | `reopen_apc` repaints then erases 56 of 64 pads + 8 scene buttons; four private caches make it permanent | ✅ | half-day | Stage 2/3 |
