@@ -118,6 +118,27 @@ written explanation of why it is dangerous.
 > *and prints PASS for it*. The 🔴 belongs to the parity env file that supplies
 > that variable, not to the smoke script.
 
+### A structural defect is not a bug until you trace the path
+
+Added 2026-08-30, after the coordinator ranked a fourth finding 🔴 on shape
+alone and had to retract it (audit §6).
+
+Code that *looks* like the bug — a function omitting a setting its sibling
+sends, two stores that *could* disagree, a cache that *might* go stale — is a
+candidate, not a finding. Before it gets a severity, walk the path: what reads
+this state, in what order, and is there an execution that actually reaches the
+bad value? If you cannot write that sequence down, the finding is **structural**
+and must be labelled so.
+
+This is not pedantry about severity. Ranking a structural candidate as live
+spends the night fixing something that never fires, while a real defect waits.
+It is also the same error the whole branch is about — inference promoted to
+premise — arriving from the reviewer's side instead of the author's.
+
+Both halves matter. `slot_surface.repaint(self._sl_states)` looked structural
+and was a live process kill. `apply_freeform` omitting `smart_eighths` looked
+live and reaches nothing. Only tracing tells them apart.
+
 ### What good looks like
 
 `sl_limits.py` is the standard. One constant, one home, and the reason it
