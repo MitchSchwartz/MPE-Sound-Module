@@ -17,6 +17,8 @@ MODE="${1:-connect}"
 OSC_HOST="${MPE_SL_OSC_HOST:-127.0.0.1}"
 OSC_PORT="${MPE_SL_OSC_PORT:-9951}"
 LOOPS="${MPE_SL_LOOPS:-15}"  # 15 usable max — see sl_limits.py
+STEM_CHANNELS="${MPE_USB_STEM_CHANNELS:-2}"
+STEM_FIRST_CH=3   # 1/2 are the master pair
 JACK_CLIENT="${MPE_SL_JACK_CLIENT:-mpe-looper}"
 SURGE_CLIENT="${MPE_SL_SURGE_CLIENT:-Surge XT}"
 
@@ -75,6 +77,38 @@ disconnect_loop_outs_from_playback() {
   done
 }
 
+# Per-loop stems on playback 3.. — only when the gadget is running multichannel.
+#
+# Both loopN_out_1 and loopN_out_2 go to the SAME playback port. JACK sums
+# multiple sources into one port, so this is a real mono fold-down of a stereo
+# loop, not the left channel with the right discarded.
+#
+# Gated on the ports actually existing rather than on the env var alone: with
+# jackd on the Sound Blaster there are only two playback ports, and every
+# connection here would be logged as a failure for a graph that is in fact
+# correct — the same "reads the same whether it works or not" trap the rest of
+# this file is annotated for.
+connect_stems() {
+  if [ "$STEM_CHANNELS" -le 2 ] 2>/dev/null; then
+    return 0
+  fi
+  local available
+  available="$(jack_lsp 2>/dev/null | grep -c '^system:playback_' || true)"
+  if [ "${available:-0}" -lt "$STEM_FIRST_CH" ]; then
+    log "stems: only ${available:-0} playback port(s) — not multichannel, skipping"
+    return 0
+  fi
+  local wired=0 i ch
+  for i in $(seq 0 $((LOOPS - 1))); do
+    ch=$((STEM_FIRST_CH + i))
+    [ "$ch" -le "$available" ] || break
+    try_jack jack_connect "${JACK_CLIENT}:loop${i}_out_1" "system:playback_${ch}"
+    try_jack jack_connect "${JACK_CLIENT}:loop${i}_out_2" "system:playback_${ch}"
+    wired=$((wired + 1))
+  done
+  log "stems: loop0..$((wired - 1)) -> playback_${STEM_FIRST_CH}..$((STEM_FIRST_CH + wired - 1)) (mono fold, ${available} ports available)"
+}
+
 connect_graph() {
   local i
   for i in $(seq 0 $((LOOPS - 1))); do
@@ -99,6 +133,7 @@ wire_connect() {
   need_cmd oscsend
   log "connect-only (${MODE}): Surge -> loop0..$((LOOPS - 1)) in; common_out -> playback"
   connect_graph
+  connect_stems
   set_dry_all
   log "dry=0 on loops 0..$((LOOPS - 1))"
 }
@@ -112,6 +147,7 @@ wire_rewire() {
   log "disconnecting per-loop outs from playback (use common_out mix instead)"
   disconnect_loop_outs_from_playback
   connect_graph
+  connect_stems
   set_dry_all
   log "dry=0 on loops 0..$((LOOPS - 1)); common_out -> playback; Surge parallel fail-open"
 }
