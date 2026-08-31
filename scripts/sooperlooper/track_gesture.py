@@ -93,6 +93,7 @@ from sl_loop_states import (
     SL_STATE_OFF,
     SL_STATE_OFF_MUTED,
     SL_STATE_OVERDUBBING,
+    SL_STATE_PAUSED,
     SL_STATE_PLAYING,
     SL_STATE_RECORDING,
     SL_STATE_WAIT_START,
@@ -1120,13 +1121,56 @@ def reset_all_loops(
     print(f"-> track reset: cleared {num_loops} loops", flush=True)
 
 
+#: How long to wait before believing SL about what Stop All achieved.
+#:
+#: SL pushes state asynchronously, so reading `fs.sl_state` in the same breath
+#: as the pause returns the PRE-stop value and would confirm whatever was
+#: already there. One second is far longer than the observed update latency and
+#: still inside the window where a spurious restart shows up.
+STOP_ALL_VERIFY_S: float = 1.0
+
+#: What "stopped" is allowed to look like after Stop All.
+#: OFF is an empty loop, OFF_MUTED an empty loop after global mute, PAUSED a
+#: loop with audio that is holding position.
+STOPPED_STATES = frozenset({SL_STATE_OFF, SL_STATE_OFF_MUTED, SL_STATE_PAUSED})
+
+
+def verify_stop_all(gestures: list["TrackGesture"], *, log=log) -> list[tuple[int, int]]:
+    """Report what Stop All ACTUALLY achieved. Returns the loops still active.
+
+    The counterpart to the request `stop_all_loops` sends. Separated in time
+    because SL's state arrives by push, so the honest answer does not exist yet
+    when the commands go out.
+
+    Reported 2026-08-30: clips restarting 5-10s after Stop All. The only
+    evidence was a log line that said "paused 15 loops" unconditionally, so
+    "they never stopped" and "they stopped and something restarted them" were
+    indistinguishable. This makes them distinguishable, which is the whole
+    point -- it is an instrument, not a fix.
+    """
+    still_active = [
+        (fs.loop, fs.sl_state)
+        for fs in gestures
+        if fs.sl_state not in STOPPED_STATES
+    ]
+    if still_active:
+        detail = ", ".join(f"loop {i} state={st}" for i, st in still_active)
+        log(f"stop all VERIFY: {len(still_active)} loop(s) did NOT stop -- {detail}")
+    else:
+        log(f"stop all VERIFY: all {len(gestures)} loops stopped")
+    return still_active
+
+
 def stop_all_loops(
     osc,
     *,
     num_loops: int,
     gestures: list[TrackGesture],
-) -> None:
+) -> float:
     """Pause every loop without clearing audio; LEDs -> stopped (yellow).
+
+    Returns the monotonic time at which `verify_stop_all` should be called to
+    find out whether it actually worked.
 
     Nothing is playing now, so the grid position resets to zero: the next clip
     launched starts from the top of the bar instead of joining a cycle that has
@@ -1200,4 +1244,11 @@ def stop_all_loops(
         if fs.sl_state not in (SL_STATE_OFF, SL_STATE_OFF_MUTED):
             fs._expect(STATE_STOPPED)
         fs._sync_led()
-    print(f"-> stop all: paused {num_loops} loops", flush=True)
+    # NOT "paused 15 loops". This print used to claim the outcome while only
+    # ever having sent the request -- it read identically whether every loop
+    # paused, some paused, or none did, which is the one bug shape this
+    # project keeps paying for. It now says what it DID, and the truth is
+    # reported a moment later by `verify_stop_all` once SL's own state
+    # updates have arrived.
+    print(f"-> stop all: pause requested for {num_loops} loops", flush=True)
+    return time.monotonic() + STOP_ALL_VERIFY_S
