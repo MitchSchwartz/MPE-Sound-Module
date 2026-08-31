@@ -1132,6 +1132,9 @@ def stop_all_loops(
     launched starts from the top of the bar instead of joining a cycle that has
     been running unheard.
     """
+    grid = next((fs.grid for fs in gestures if fs.grid is not None), None)
+    grid_active = bool(grid is not None and grid.established and grid.bpm)
+
     # Stop All is NOT quantized. Per-clip stop waits for the bar because it is
     # a musical edit; Stop All is a transport action — when you hit it you want
     # silence now, not at the end of the bar.
@@ -1139,12 +1142,39 @@ def stop_all_loops(
     # mute_quantized is lifted for the duration, then restored, so the per-clip
     # behaviour is untouched. SL drains its non-realtime queue in order, so the
     # restore cannot overtake the mute.
+    #
+    # `trigger` is what REWINDS. Without it `pause_on` freezes every loop
+    # wherever it happened to be, and the launch path (`pause_off` + `trigger`)
+    # then resumes from that stored position — so Stop All followed by a
+    # restart came back mid-loop instead of from the top, and the loops came
+    # back at different phases from each other. MEASURED 2026-08-30 with four
+    # loops stopped: pos 3.719/8.052 (46%), 3.731/8.052 (46%), 11.783/16.104
+    # (73%), 3.719/16.104 (23%).
+    #
+    # quantize is lifted alongside mute_quantized because a quantized trigger
+    # is DEFERRED to the next cycle, which here would rewind a loop up to a
+    # full cycle after the player asked for silence.
+    #
+    # NOTE, and it corrects a comment in sl_grid_sync.set_grid_active: trigger
+    # DOES lift a pause. MEASURED 2026-08-30 — a loop in state 14 (Paused),
+    # sent `trigger` with quantize at 0, went to state 4 (Playing) from
+    # position 0. The earlier "verified: a paused loop stays Paused through
+    # trigger" was almost certainly read with quantize at CYCLE, where the
+    # trigger is merely deferred. A deferred trigger and an ignored trigger
+    # look identical from outside, which is the reading-the-same-either-way
+    # shape this project keeps paying for.
     osc.send_message("/sl/-1/set", ["mute_quantized", 0.0])
+    osc.send_message("/sl/-1/set", ["quantize", 0.0])
     osc.send_message("/sl/-1/hit", "mute_on")
+    osc.send_message("/sl/-1/hit", "trigger")
     osc.send_message("/sl/-1/hit", "pause_on")
+    # Back to what the grid says this loop should be, NOT unconditionally 1.0:
+    # with no grid established every loop is deliberately free-form and a
+    # quantize of 1 here would sync the take that is supposed to DEFINE the
+    # grid to a cycle inherited from the previous session.
+    osc.send_message("/sl/-1/set", ["quantize", 1.0 if grid_active else 0.0])
     osc.send_message("/sl/-1/set", ["mute_quantized", 1.0])
-    grid = next((fs.grid for fs in gestures if fs.grid is not None), None)
-    if grid is not None and grid.established and grid.bpm:
+    if grid_active:
         # Through the one seam. This was a raw `/set tempo` with the phase mark
         # hand-paired beside it — a fourth copy of the three lines, and the one
         # that also skipped `smart_eighths` and `eighth_per_cycle`. Harmless
