@@ -383,6 +383,10 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
     )
     mix = LoopMix(num_loops=num_loops, view=view)
     faders = CoalescingSender(_send, interval_s=fader_interval_ms / 1000.0)
+    # Let echo detection see the ramp, not just its destination. Without this
+    # every smoothed master move looks like a foreign write and walks
+    # `user_gain` down — see `LoopMix.seed_from_engine`.
+    mix.echo_probe = faders.was_emitted
 
     # The touch UI's Vol fader, arriving as if it were the master CC. It is not
     # a second writer of `wet`: it goes through `handle_cc` below, the same
