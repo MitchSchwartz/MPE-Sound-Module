@@ -194,6 +194,26 @@ one that is actually true:
 | **Reconciliation** | The bench *subscribes* to `wet` (`sl_osc_session` `register_auto_update` — a read, not a write) and `LoopMix.seed_from_engine` adopts any value it did not ask for: it backs out master and law, adopts the implied column position and re-arms pickup. The foreign write is absorbed, not fought |
 | **Also gated** | `sl_probe` can write `wet` as a command-path probe *only* if `MPE_SL_PROBE_CONTROLS` names it — it is not in the default chain (`rec_thresh,dry`), and `AUDIO_PATH_CONTROLS` exists to warn when a probe lands in the audio path. It restores after every write |
 | **Enforced by** | `tests/test_track_state_ownership.py::WetOwnershipTests`. A third writer fails the build naming its file, line and function |
+| **Not an exception** | `remote_fader` carries the touch UI's Vol position across the process boundary as a *fader position*, and the bench replays it through `handle_cc` — the same entry the hardware master fader uses. It composes nothing and writes nothing; the master gain it moves is still multiplied in by `wet_for()`. `tests/test_remote_fader.py::TestBenchWiring` fails if that path ever calls the sender or the composer directly |
+
+**Why the touch Vol fader is not a second writer.** Surge's amp trim moves the
+live synth only. On the multichannel USB out that is channels 1/2 — every loop
+stem keeps playing at its recorded level, which is why the fader felt dead once
+stems existed. The level that moves the stems is the master gain already inside
+`wet_for()`, and it lives in `mpe-looper-session.service`.
+
+Letting the touch UI write `wet` directly, the way `load_song` may, would have
+been the short path and the wrong one: `load_song` fires **once**, and
+`seed_from_engine` adopts the result afterwards. A volume fader is a continuous
+drag, so it would be a *continuous* second writer — `seed_from_engine` would
+keep back-computing column gains from a master the other process was still
+moving, and the resulting drift would present as a hardware fault. Instead
+`remote_fader` ships the fader position (UDP, `master <0-127>`, port
+`MPE_LOOPER_CTL_PORT`, default 9956) and the bench feeds it to `handle_cc`. The
+socket is non-blocking and drained from the bench's existing idle branch: a
+thread would be another scheduler client in a process whose job is to not be
+late. If the looper is not running the send fails silently and Vol trims Surge
+alone, exactly as before.
 
 **Known consequence, undecided.** The manifest stores the **composed** level —
 `save_song` reads the engine's `wet`, which already has master and law in it.
