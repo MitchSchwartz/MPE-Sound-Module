@@ -42,6 +42,7 @@ from sl_limits import MAX_USABLE_LOOPS
 
 import math
 import os
+from collections import deque
 from dataclasses import dataclass, field
 from enum import Enum
 
@@ -63,6 +64,12 @@ PICKUP_TOLERANCE_CC = int(os.environ.get("MPE_APC_FADER_PICKUP_CC", "2"))
 # Engine `wet` echoes include master and auto-law — compare composed level,
 # not per-column fader CC, or master moves corrupt user_gain.
 WET_ECHO_TOLERANCE = float(os.environ.get("MPE_APC_FADER_WET_ECHO", "1e-4"))
+
+#: How many recently-emitted values per path stay recognisable as echoes. The
+#: ramp emits at most one value per `interval_s` (10 ms) and SooperLooper's
+#: echo comes back well inside a ramp, so a handful covers the lag with room
+#: to spare; too long a memory would start absorbing genuine foreign writes.
+EMITTED_HISTORY = int(os.environ.get("MPE_APC_FADER_ECHO_HISTORY", "8"))
 
 # Output smoothing — one-pole follow toward target wet (0 = off).
 FADER_SMOOTH_MS = float(os.environ.get("MPE_APC_FADER_SMOOTH_MS", "45"))
@@ -150,6 +157,11 @@ class LoopMix:
     # own. See messages_for() for why it is not an engine-global control.
     master_gain: int = CC_MAX
     active_loops: int = 0
+    #: Optional ``(path, wet) -> bool``, answering "did we put this on the
+    #: wire?". Set by the bench to `CoalescingSender.was_emitted`. Without it
+    #: echo detection can only recognise the *settled* level — see
+    #: `seed_from_engine`.
+    echo_probe: object = None
     _picked_up: set[FaderId] = field(default_factory=set)
     # Relative pickup: first CC anchors; later CCs apply delta from here.
     _pickup_anchor: dict[int, int] = field(default_factory=dict)
@@ -209,6 +221,21 @@ class LoopMix:
         composed wet into CC and comparing to the column fader corrupts
         ``user_gain`` whenever the master moves.
 
+        Comparing against the settled target is necessary but **not
+        sufficient**, because the sender smooths: a master move ramps over
+        `FADER_SMOOTH_MS` and the engine echoes every intermediate value. Those
+        echoes miss `WET_ECHO_TOLERANCE` (1e-4) by orders of magnitude, so they
+        used to read as foreign writes — and `_user_cc_from_composed_wet` then
+        divided a mid-ramp `wet` by the master that had *already* arrived,
+        implying a column gain far too low. Repeated master moves walked
+        `user_gain` down a few percent at a time (MEASURED 2026-08-31: wet at a
+        fixed master of 1.0 read 0.9959, 0.9604, 0.9262, 0.8604 over four
+        cycles before re-anchoring). It presented as levels sagging on their
+        own, which is the "looks like a hardware fault" failure this class of
+        bug always wears. So `echo_probe` asks the sender what it actually put
+        on the wire, and anything the sender sent is an echo whether it is the
+        target or a step on the way to it.
+
         A value we did *not* ask for is different: something else changed the
         level, our stored gain is stale, and the physical fader is now lying
         about it. Back out master and law, adopt the implied column fader
@@ -217,6 +244,10 @@ class LoopMix:
         if loop not in self.user_gain:
             return
         if abs(wet - self.wet_for(loop)) <= WET_ECHO_TOLERANCE:
+            return
+        if self.echo_probe is not None and self.echo_probe(
+            f"/sl/{loop}/set", wet
+        ):
             return
         cc = self._user_cc_from_composed_wet(loop, wet)
         if abs(cc - self.user_gain[loop]) <= PICKUP_TOLERANCE_CC:
@@ -368,6 +399,10 @@ class CoalescingSender:
         self._pending_meta: dict[str, list] = {}
         self._last_sent = float("-inf")
         self._last_tick = float("-inf")
+        # What actually went on the wire, per path. A ring rather than a single
+        # value because the engine's echo of step N can arrive after we have
+        # already sent step N+1, and an echo that arrives late is still an echo.
+        self._emitted: dict[str, deque] = {}
 
     def seed_current(self, path: str, wet: float) -> None:
         """Start the ramp from engine truth — avoids a first-send crackle."""
@@ -423,4 +458,16 @@ class CoalescingSender:
             meta = self._pending_meta.get(path, ["wet"])
             control = meta[0] if meta else "wet"
             self._send(path, [control, wet])
+            history = self._emitted.get(path)
+            if history is None:
+                history = self._emitted[path] = deque(maxlen=EMITTED_HISTORY)
+            history.append(wet)
         self._last_sent = now
+
+    def was_emitted(self, path: str, wet: float, *,
+                    tol: float = WET_ECHO_TOLERANCE) -> bool:
+        """True if `wet` is a value this sender recently put on the wire."""
+        history = self._emitted.get(path)
+        if not history:
+            return False
+        return any(abs(wet - sent) <= tol for sent in history)
