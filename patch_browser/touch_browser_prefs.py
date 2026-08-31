@@ -546,10 +546,38 @@ class TouchBrowserPrefsMixin:
             name="MidiSyncSwitch",
         ).start()
 
+    def _send_looper_volume(self, level: float) -> None:
+        """Carry the Vol position to the looper's master fader.
+
+        Surge's amp trim moves the live synth only, so on the multichannel USB
+        out it moves channels 1/2 and nothing else — every loop stem keeps
+        playing at its recorded level and the fader feels dead. The master gain
+        the looper already composes into every loop's `wet` is the level that
+        moves them, and it lives in the other process.
+
+        This does not write `wet`. It hands a fader position to
+        `sooperlooper-apc-bench`, which replays it through the same `handle_cc`
+        the hardware master fader uses, so `loop_mix` remains the only composer.
+        Failure is silent by design: no looper running means Surge-only volume,
+        which is what this did before.
+        """
+        import sys
+        from pathlib import Path as _Path
+
+        sooper = _Path(__file__).resolve().parent.parent / "scripts" / "sooperlooper"
+        if str(sooper) not in sys.path:
+            sys.path.insert(0, str(sooper))
+        try:
+            from remote_fader import send_master
+        except ImportError:
+            return
+        send_master(level)
+
     def _apply_volume(self, level: float, persist: bool = True) -> None:
         self.volume_level = max(VOLUME_MIN, min(VOLUME_MAX, level))
         if self.loader.osc_enabled:
             self.loader.set_volume(self.volume_level)
+        self._send_looper_volume(self.volume_level)
         if persist:
             self._save_volume_level()
 
