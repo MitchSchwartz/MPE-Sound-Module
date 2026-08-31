@@ -23,6 +23,7 @@ from track_gesture import (  # noqa: E402
     poll_track_gestures,
     reset_all_loops,
     stop_all_loops,
+    verify_stop_all,
 )
 from apc_faders import MASTER, fader_for_cc, is_control_change, resolve_fader_ccs  # noqa: E402
 from apc_grid import NUM_LOOPS, GridView, is_clip_note  # noqa: E402
@@ -747,9 +748,26 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
         track_reset.note_event(note, down)
         transport_leds.note_event(note, down)
 
+    #: When to ask SL what Stop All actually achieved. A one-element list
+    #: because this is a closure, not a class.
+    stop_all_verify_at: list[float | None] = [None]
+
+    def poll_stop_all_verify(now_mono: float) -> None:
+        """Report the TRUTH about the last Stop All, once SL has told us.
+
+        Deliberately separate from `act_stop_all_loops`: SL pushes state, so
+        asking in the same breath as the pause returns the pre-stop value and
+        confirms whatever was already there.
+        """
+        due = stop_all_verify_at[0]
+        if due is None or now_mono < due:
+            return
+        stop_all_verify_at[0] = None
+        verify_stop_all(gestures)
+
     def act_stop_all_loops(_note: int, _down: bool, _control: str) -> None:
         print("transport: Shift+StopAll short -> stop all", flush=True)
-        stop_all_loops(
+        stop_all_verify_at[0] = stop_all_loops(
             osc,
             num_loops=num_loops,
             gestures=gestures,
@@ -840,6 +858,7 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
         if packet is None:
             poll_holds()
             poll_transport_leds()
+            poll_stop_all_verify(time.monotonic())
             maybe_track_transport()
             tick_faders()
             state_listener.maybe_reregister()
@@ -882,6 +901,7 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
 
         poll_holds()
         poll_transport_leds()
+        poll_stop_all_verify(time.monotonic())
         maybe_track_transport()
         state_listener.maybe_reregister()
 
