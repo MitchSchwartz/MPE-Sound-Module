@@ -32,8 +32,20 @@ def instrument_counts(patches: list[dict]) -> dict[str, int]:
 
 
 def instruments_with_patches(patches: list[dict]) -> list[str]:
+    """Instruments that have at least one patch, ordered A-Z by chip label.
+
+    Sorted here rather than by reordering INSTRUMENT_VOCAB, because that tuple
+    is also the key order for classification scoring
+    (`patch_metadata.classify_instrument`) — reordering it would change
+    tie-breaks between instruments that score equally, which is a silent
+    change to how patches are labelled, not a display change.
+
+    Membership still comes from the vocab, so an unknown instrument_primary
+    cannot introduce a chip.
+    """
     counts = instrument_counts(patches)
-    return [name for name in INSTRUMENT_VOCAB if counts.get(name, 0) > 0]
+    present = [name for name in INSTRUMENT_VOCAB if counts.get(name, 0) > 0]
+    return sorted(present, key=instrument_chip_label)
 
 
 def instrument_chip_label(instrument: str) -> str:
