@@ -106,9 +106,26 @@ echo "record-screen: ffmpeg → $OUT @ ${FPS}fps (${WIDTH}x${HEIGHT})" >&2
 # `timeout -s INT` does NOT reproduce this — it signals one process, not the
 # group — which is why the first fix looked correct and was not. Test this
 # path with a real pty and a real 0x03, or the instrument lies to you.
+#
+# Do NOT pass `-r "$FPS"` on the INPUT. That asserts a frame rate instead of
+# measuring one, and the UI does not honour it: `_draw()` calls
+# `write_frame()` once per draw-loop iteration, so the writer runs at whatever
+# `frame_pacing.frame_rate_for()` returns — IDLE_FPS (20) when idle, higher
+# when busy. Telling ffmpeg 30 made every idle capture play 1.5x too fast and
+# report 2/3 of its real length. (MEASURED 2026-08-30: 85s of capture ->
+# 1692 frames -> a file claiming 56.4s. 85*20=1700, 1692/30=56.4.)
+#
+# Pinning the draw rate while recording would fix the ratio but raise idle CPU
+# exactly during a capture, and telling ffmpeg IDLE_FPS would be wrong the
+# moment the UI goes busy — which is the normal case for a demo. Both assume
+# a constant rate. It is not constant; that assumption is the bug.
+#
+# So timestamp frames on arrival and let the container carry variable timing.
 ( trap '' HUP INT; exec ffmpeg -y -loglevel warning \
-    -f rawvideo -pix_fmt rgb24 -s "${WIDTH}x${HEIGHT}" -r "$FPS" -i "$PIPE" \
+    -use_wallclock_as_timestamps 1 \
+    -f rawvideo -pix_fmt rgb24 -s "${WIDTH}x${HEIGHT}" -i "$PIPE" \
     -c:v libx264 -preset veryfast -crf 18 -pix_fmt yuv420p \
+    -fps_mode vfr \
     "$OUT" ) &
 FFPID=$!
 
