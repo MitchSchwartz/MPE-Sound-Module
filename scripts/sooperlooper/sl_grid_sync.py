@@ -137,10 +137,22 @@ def set_grid_active(
         # already landed on one.
         send(prefix, ["playback_sync", 0.0])
         # Quantize launch/stop to the cycle. This is what makes a clip start on
-        # the bar: `trigger` cannot be used for launch because it does not lift
-        # a pause (verified — a paused loop stays Paused through trigger), so
-        # clips are stopped by MUTING and launched by unmuting, and SL defers
-        # the unmute to the boundary.
+        # the bar: clips are stopped by MUTING and launched by unmuting, and SL
+        # defers the unmute to the boundary.
+        #
+        # CORRECTION 2026-08-30. This comment used to say `trigger` "cannot be
+        # used for launch because it does not lift a pause (verified — a paused
+        # loop stays Paused through trigger)". That is wrong. MEASURED on the
+        # appliance: a loop in state 14 (Paused), sent `trigger` with quantize
+        # at 0, went to state 4 (Playing) from position 0 — it lifts the pause
+        # AND rewinds. The original reading was almost certainly taken with
+        # quantize at CYCLE, where the trigger is merely DEFERRED to the next
+        # boundary and so looks like a no-op. A deferred trigger and an ignored
+        # trigger are indistinguishable from outside, which is the
+        # same-reading-either-way shape this project keeps paying for.
+        #
+        # `stop_all_loops` depends on the corrected fact: it lifts quantize and
+        # uses `trigger` to rewind every loop before pausing it.
         send(prefix, ["mute_quantized", 1.0 if active else 0.0])
 
 
