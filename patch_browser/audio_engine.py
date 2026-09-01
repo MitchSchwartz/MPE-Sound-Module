@@ -124,6 +124,23 @@ def audio_switch_progress_message(
     active = engine.get("active") or ""
 
     if state == "ok" and active == "jack":
+        # "On the graph" is not "audible". When jackd is bound to the idle sink
+        # (snd-dummy / Loopback) every check below passes and the player hears
+        # NOTHING. jack.state records this as audible=no and the supervisor
+        # publishes reason=idle-sink; before 2026-09-01 this branch returned
+        # "Audio ready" regardless, which is the reading-the-same-either-way
+        # shape one layer above the state file that was fixed to prevent it.
+        # Two independent sources, because they become true at different moments:
+        # jack.state carries audible= the instant jackd binds, while engine.state's
+        # reason= is only refreshed on the supervisor's next reconcile tick (up to
+        # MPE_JACK_PROBE_INTERVAL_S later). Reading reason alone leaves a window
+        # where a Dummy-bound graph still reports "Audio ready".
+        if reason == "idle-sink" or (jack.get("audible") or "") == "no":
+            return (
+                "No audio output — connect a DAC",
+                "Running on the idle sink — nothing is audible",
+                6.0,
+            )
         return "Audio restored", "Audio ready", 2.0
 
     if state == "failed":

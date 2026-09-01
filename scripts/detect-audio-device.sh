@@ -47,6 +47,9 @@ get_device_name() {
 }
 
 GADGET_GREP='UAC2[_ ]?Gadget|UAC2Gadget|USB Audio Passthrough|MPE Sound Module|ALSA\.UAC2'
+# Virtual sinks in JUCE's device-string namespace. Keep in step with
+# mpe_card_is_virtual() in lib/audio-engine.sh — same policy, different spelling.
+VIRTUAL_GREP='ALSA\.Dummy|Dummy PCM|ALSA\.Loopback|Loopback PCM'
 
 filter_gadget_devices() {
     echo "$DEVICE_LIST" | grep -iE "$GADGET_GREP" || true
@@ -142,9 +145,15 @@ fi
 # Excluding the gadget keeps the original reason for the skip and restores the
 # idle sink. See docs/USB-AUDIO-HOST.md for the idle/active table.
 # ============================================================================
+# VIRTUAL_GREP mirrors mpe_card_is_virtual() for the JUCE *device-string*
+# namespace (this script matches "ALSA.Dummy, Dummy PCM"; the predicate matches
+# ALSA card ids). Two namespaces, one policy — kept adjacent and named so the
+# next card type is added to both, which is precisely what did not happen when
+# snd-dummy landed.
 DEVICE=$(echo "$DEVICE_LIST" | \
     grep -i "usb" | \
     grep -viE "$GADGET_GREP" | \
+    grep -viE "$VIRTUAL_GREP" | \
     grep -v "Surround" | \
     grep -v "S/PDIF" | \
     grep -vi "HDMI" | \

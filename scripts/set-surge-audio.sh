@@ -11,6 +11,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")" && pwd)"
 # shellcheck source=lib/mpe-services.sh
 source "$SCRIPT_DIR/lib/mpe-services.sh"
+# shellcheck source=lib/audio-settings-pending.sh
+source "$SCRIPT_DIR/lib/audio-settings-pending.sh"
 
 BUFFER=""
 SAMPLE_RATE=""
@@ -85,6 +87,22 @@ if [ -n "$PERIODS" ] && ! is_valid_periods "$PERIODS"; then
     exit 1
 fi
 
+# Serialise settings changes. Two concurrent runs each read _prev_* from the same
+# file, so the second adopts the first's in-flight, UNTESTED value as its
+# known-good baseline — and after that no rollback anywhere can find the setting
+# that actually worked. flock releases on process death, including SIGKILL, so a
+# killed run cannot wedge the lock.
+_LOCK_DIR="/run/mpe"
+mkdir -p "$_LOCK_DIR" 2>/dev/null || _LOCK_DIR="${TMPDIR:-/tmp}"
+exec 9>"$_LOCK_DIR/set-surge-audio.lock" 2>/dev/null || true
+if command -v flock >/dev/null 2>&1; then
+    if ! flock -n 9; then
+        echo "ERROR: another audio settings change is already running — refusing to" >&2
+        echo "       start a second one (it would adopt an untested value as 'previous')." >&2
+        exit 1
+    fi
+fi
+
 mpe_source_appliance_env
 _old_rate="${MPE_SURGE_SAMPLE_RATE:-48000}"
 _prev_buffer="${MPE_JACK_BUFFER:-256}"
@@ -107,11 +125,25 @@ _prev_periods="${MPE_JACK_PERIODS:-3}"
 # kept 64 (untested, and 64x2 does not start on this DAC) instead of restoring
 # the 128 that was running. The rig booted dead.
 #
-# So the restore is now a trap, not a code path: every death route runs it.
-# `_env_committed` is set only once the graph is proven, or once the explicit
-# rollback below has already put the file back the way it wants it.
+# The restore is therefore NOT a trap and NOT a code path — both depend on this
+# process still being alive. It is a marker on persistent storage, written before
+# the mutation and reconciled by mpe-jackd's ExecStartPre on the next graph
+# start. `_env_committed` is set only once the graph is proven, or once the
+# explicit rollback below has already put the file back the way it wants it.
 _env_dirty=false
 _env_committed=false
+
+# The trap below is the FAST path — it makes an ordinary Ctrl+C or SIGTERM tidy
+# up immediately. It is explicitly NOT the guarantee: SIGKILL (which is what
+# `subprocess.run(timeout=)` sends) cannot be trapped, and an orphaned run after
+# sudo's monitor is killed never reaches it either. The guarantee is the marker
+# written here, on persistent storage, and reconciled by mpe-jackd's
+# ExecStartPre. See lib/audio-settings-pending.sh.
+mpe_pending_write "$ENV_FILE" \
+    "MPE_JACK_BUFFER=$_prev_buffer" \
+    "MPE_JACK_PERIODS=$_prev_periods" \
+    "MPE_SURGE_SAMPLE_RATE=$_old_rate" \
+    || echo "WARNING: could not write the pending-settings marker — a kill mid-change will not self-heal" >&2
 
 _restore_env_on_death() {
     local rc=$?
@@ -131,6 +163,7 @@ _restore_env_on_death() {
     if [ "${_rate_changed:-false}" = true ]; then
         _update_env_var MPE_SURGE_SAMPLE_RATE "$_old_rate" || true
     fi
+    mpe_pending_clear
     return $rc
 }
 trap _restore_env_on_death EXIT INT TERM HUP
@@ -210,6 +243,7 @@ if ! mpe_promote_surge_planned "settings-change"; then
             _update_env_var MPE_SURGE_SAMPLE_RATE "$_old_rate"
         fi
         _env_committed=true   # the file is already where this path wants it
+        mpe_pending_clear
         mpe_source_appliance_env
         if mpe_promote_surge_planned "rollback-after-failed-settings"; then
             echo "ERROR: requested settings not supported — reverted to ${_prev_buffer}×${_prev_periods}" >&2
@@ -222,8 +256,10 @@ if ! mpe_promote_surge_planned "settings-change"; then
     exit 1
 fi
 
-# Proven: the graph came up on the new settings, so the file may keep them.
+# Proven: the graph came up on the new settings, so the file may keep them, and
+# the crash marker is no longer needed.
 _env_committed=true
+mpe_pending_clear
 
 echo -n "Applied"
 [ -n "$BUFFER" ] && echo -n " buffer=$BUFFER"

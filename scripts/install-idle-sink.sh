@@ -48,7 +48,7 @@ _install "$REPO_ROOT/config/modules-load.d/mpe-idle-sink.conf" \
          /etc/modules-load.d/mpe-idle-sink.conf || true
 
 # Load now so the current boot gets it without a reboot. The options file above
-# supplies index=7; passing them again here would be a second place for them to
+# supplies index=8; passing them again here would be a second place for them to
 # drift, so it is deliberately a bare modprobe.
 if [ -d /proc/asound/Dummy ]; then
     _log "idle sink already present (card Dummy)"

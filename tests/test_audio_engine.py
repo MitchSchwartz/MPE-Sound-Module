@@ -1209,3 +1209,48 @@ python3 -c "import json; from pathlib import Path; lines=Path('$(mpe_run_dir)/ev
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class IdleSinkIsVisibleToThePlayerTests(unittest.TestCase):
+    """The state file knowing is not enough — the HUD has to say it.
+
+    Cycle 1 added audible=/reason=idle-sink to the state files; this branch
+    returned "Audio ready" before ever reading `reason`, so a Dummy-bound rig
+    still told the player everything was fine. Same reading-the-same-either-way
+    disease, one layer above the file that was fixed to prevent it.
+    """
+
+    def test_idle_sink_does_not_report_audio_ready(self):
+        from patch_browser.audio_engine import audio_switch_progress_message
+        hint, toast, _ = audio_switch_progress_message(
+            engine={"state": "ok", "active": "jack", "reason": "idle-sink"},
+        )
+        self.assertNotIn("Audio ready", toast or "")
+        self.assertNotIn("restored", (hint or "").lower())
+        self.assertIn("audible", (toast or "").lower())
+
+    def test_a_real_dac_still_reports_ready(self):
+        from patch_browser.audio_engine import audio_switch_progress_message
+        hint, toast, _ = audio_switch_progress_message(
+            engine={"state": "ok", "active": "jack", "reason": ""},
+        )
+        self.assertEqual(toast, "Audio ready")
+
+    def test_audible_no_is_honoured_before_reason_catches_up(self):
+        """jack.state is written the instant jackd binds; engine.state's reason is
+        only refreshed on the supervisor's next tick. The gap between them was a
+        window where a Dummy-bound rig still said "Audio ready"."""
+        from patch_browser.audio_engine import audio_switch_progress_message
+        _, toast, _s = audio_switch_progress_message(
+            engine={"state": "ok", "active": "jack", "reason": ""},
+            jack={"card": "Dummy", "audible": "no"},
+        )
+        self.assertNotIn("Audio ready", toast or "")
+
+    def test_audible_yes_reports_ready(self):
+        from patch_browser.audio_engine import audio_switch_progress_message
+        _, toast, _s = audio_switch_progress_message(
+            engine={"state": "ok", "active": "jack", "reason": ""},
+            jack={"card": "Play3", "audible": "yes"},
+        )
+        self.assertEqual(toast, "Audio ready")

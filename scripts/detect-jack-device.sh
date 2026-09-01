@@ -23,6 +23,8 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")" && pwd)"
 # shellcheck source=lib/paths.sh
 source "$SCRIPT_DIR/lib/paths.sh"
+# shellcheck source=lib/audio-engine.sh
+source "$SCRIPT_DIR/lib/audio-engine.sh"
 
 SURGE_CLI="${1:-$SURGE_CLI}"
 CARDS_FILE="${MPE_ASOUND_CARDS:-/proc/asound/cards}"
@@ -91,6 +93,18 @@ if [ -z "$_records" ]; then
     exit 1
 fi
 
+# Drop records whose card id is virtual, using the shared predicate. Every tier
+# that needs this calls it -- a local regex here is how snd-dummy got through.
+_drop_virtual_records() {
+    local record id
+    while IFS= read -r record; do
+        [ -n "$record" ] || continue
+        id="$(printf '%s' "$record" | cut -d'|' -f2)"
+        mpe_card_is_virtual "$id" && continue
+        printf '%s\n' "$record"
+    done
+}
+
 _emit() {
     local record="$1"
     local reason="$2"
@@ -123,7 +137,7 @@ case "$TIER" in
         ;;
     2)
         _match="$(printf '%s\n' "$_records" | grep -iE 'USB-?Audio' \
-            | grep -viE 'UAC2|Loopback' | head -1)"
+            | _drop_virtual_records | head -1)"
         ;;
     3)
         # Headphones|bcm2835 is the Pi 4 idle sink. The Pi 5 has no headphone
@@ -158,9 +172,12 @@ _card_can_play() {
     ls "$root/card$idx" 2>/dev/null | grep -qE '^pcm[0-9]+p$'
 }
 
+# Virtual cards are excluded via the shared predicate in lib/audio-engine.sh, not
+# a local regex. This list used to be one of five that had to agree by hand; when
+# snd-dummy arrived only two of the five were updated.
 _playable_records() {
     local record idx
-    printf '%s\n' "$_records" | grep -viE 'Loopback|Dummy|vc4hdmi|UAC2' | while IFS= read -r record; do
+    printf '%s\n' "$_records" | _drop_virtual_records | while IFS= read -r record; do
         [ -n "$record" ] || continue
         idx="$(printf '%s' "$record" | cut -d'|' -f1)"
         if _card_can_play "$idx"; then
