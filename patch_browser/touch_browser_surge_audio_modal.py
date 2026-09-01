@@ -93,7 +93,7 @@ class TouchBrowserSurgeAudioModalMixin:
         y += self.font_md.get_height() + 8
         self.screen.blit(
             self.font_sm.render(
-                "Lower latency = heavier CPU load. 32/64 may fail; reverts automatically.",
+                "Lower values reduce latency; heavy patches may crackle.",
                 True,
                 self.theme.muted,
             ),
