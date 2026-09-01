@@ -90,6 +90,51 @@ _old_rate="${MPE_SURGE_SAMPLE_RATE:-48000}"
 _prev_buffer="${MPE_JACK_BUFFER:-256}"
 _prev_periods="${MPE_JACK_PERIODS:-3}"
 
+# The env file is written before the graph is proven, so between that write and
+# the validation below the file holds a value nothing has tested. The rollback
+# further down restores it — but only if this process lives long enough to run.
+# It frequently does not: the touch UI calls us through `subprocess.run(...,
+# timeout=AUDIO_SWITCH_TIMEOUT_S)`, which KILLS the child on timeout, and a
+# buffer change is slowest exactly when the graph is already struggling. A kill
+# there left the untested value in /etc/mpe/mpe.env permanently, with no
+# rollback and no log line — the appliance then booted into that setting.
+#
+# Worse, it compounds: `_prev_buffer` is read from the same file, so once a
+# killed run has left a bad value behind, the NEXT run adopts it as "previous".
+# Two failed attempts and the last known-good setting is gone.
+#
+# MEASURED 2026-09-01: `--buffer 64` at 09:12:32 was killed mid-flight; the file
+# kept 64 (untested, and 64x2 does not start on this DAC) instead of restoring
+# the 128 that was running. The rig booted dead.
+#
+# So the restore is now a trap, not a code path: every death route runs it.
+# `_env_committed` is set only once the graph is proven, or once the explicit
+# rollback below has already put the file back the way it wants it.
+_env_dirty=false
+_env_committed=false
+
+_restore_env_on_death() {
+    local rc=$?
+    if [ "$_env_committed" = true ] || [ "$_env_dirty" = false ]; then
+        return 0
+    fi
+    echo "set-surge-audio: interrupted — restoring ${_prev_buffer}x${_prev_periods}" >&2
+    # `if` blocks, not `&&` chains: under `set -e` a false test in an && chain
+    # aborts the trap, and a half-restored env file is the bug this exists to
+    # prevent.
+    if [ -n "$BUFFER" ]; then
+        _update_env_var MPE_JACK_BUFFER "$_prev_buffer" || true
+    fi
+    if [ -n "$PERIODS" ]; then
+        _update_env_var MPE_JACK_PERIODS "$_prev_periods" || true
+    fi
+    if [ "${_rate_changed:-false}" = true ]; then
+        _update_env_var MPE_SURGE_SAMPLE_RATE "$_old_rate" || true
+    fi
+    return $rc
+}
+trap _restore_env_on_death EXIT INT TERM HUP
+
 _update_env_var() {
     local key="$1"
     local value="$2"
@@ -109,16 +154,19 @@ if [ -n "$BUFFER" ]; then
     # --buffer is the JACK graph period. Write it here, before the re-source below,
     # or mpe_source_appliance_env sees a half-applied file and warns about drift this
     # script created. MPE_SURGE_BUFFER_SIZE is NOT touched — it is not the period.
+    _env_dirty=true
     _update_env_var MPE_JACK_BUFFER "$BUFFER"
     export MPE_JACK_BUFFER="$BUFFER"
 fi
 
 if [ -n "$SAMPLE_RATE" ]; then
+    _env_dirty=true
     _update_env_var MPE_SURGE_SAMPLE_RATE "$SAMPLE_RATE"
     export MPE_SURGE_SAMPLE_RATE="$SAMPLE_RATE"
 fi
 
 if [ -n "$PERIODS" ]; then
+    _env_dirty=true
     _update_env_var MPE_JACK_PERIODS "$PERIODS"
     export MPE_JACK_PERIODS="$PERIODS"
 fi
@@ -161,6 +209,7 @@ if ! mpe_promote_surge_planned "settings-change"; then
         if [ "$_rate_changed" = true ]; then
             _update_env_var MPE_SURGE_SAMPLE_RATE "$_old_rate"
         fi
+        _env_committed=true   # the file is already where this path wants it
         mpe_source_appliance_env
         if mpe_promote_surge_planned "rollback-after-failed-settings"; then
             echo "ERROR: requested settings not supported — reverted to ${_prev_buffer}×${_prev_periods}" >&2
@@ -172,6 +221,9 @@ if ! mpe_promote_surge_planned "settings-change"; then
     fi
     exit 1
 fi
+
+# Proven: the graph came up on the new settings, so the file may keep them.
+_env_committed=true
 
 echo -n "Applied"
 [ -n "$BUFFER" ] && echo -n " buffer=$BUFFER"
