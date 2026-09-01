@@ -18,7 +18,14 @@ LimitRTPRIO=95
 LimitMEMLOCK=infinity
 ExecStart=@MPE_MODULE_REPO@/scripts/start-surge-cli.sh
 ExecStartPost=+@MPE_MODULE_REPO@/scripts/start-uac2-watchdog-if-needed.sh
-ExecStop=/usr/bin/pkill -TERM -f surge-xt-cli
+# -x (exact process name), NOT -f (full command line). `pkill -f surge-xt-cli`
+# also matches `systemctl restart surge-xt-cli.service` -- the process asking
+# for the stop -- so every watchdog-issued restart killed the watchdog mid-call.
+# systemd restarted it, it swept again, and Surge never converged: the graph sat
+# in "reconnecting" indefinitely. MEASURED 2026-09-01: `pgrep -f surge-xt-cli`
+# matches pid of `/usr/bin/systemctl restart surge-xt-cli.service`; `pgrep -x`
+# matches only the binary.
+ExecStop=/usr/bin/pkill -TERM -x surge-xt-cli
 TimeoutStopSec=15
 KillMode=control-group
 Restart=on-failure
