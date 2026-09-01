@@ -59,11 +59,44 @@ class RollbackSurvivesDeathTests(unittest.TestCase):
         )
 
     def test_commit_happens_only_after_the_graph_is_proven(self):
-        commit = self.src.index("_env_committed=true\n\necho -n \"Applied\"")
+        # There are two `_env_committed=true` sites (rollback path and success
+        # path). Find the success one by anchoring on the "Applied" echo and
+        # walking back, rather than by pinning the exact text between them --
+        # the old literal broke when mpe_pending_clear was added on that path,
+        # which is a formatting change, not a change to what is being asserted.
+        # Anchor on the success-path comment, not just "the last commit before
+        # the echo" — rindex would also match the rollback path's commit, which
+        # is a weaker assertion than the one this test replaced.
+        proven = self.src.index("# Proven: the graph came up")
+        commit = self.src.index("_env_committed=true", proven)
         promote = self.src.index('mpe_promote_surge_planned "settings-change"')
         self.assertGreater(
             commit, promote,
             "settings are committed before the graph proves them",
+        )
+
+    def test_crash_marker_is_written_before_the_first_mutation(self):
+        """The trap cannot catch SIGKILL, so the marker is the actual guarantee.
+
+        `subprocess.run(timeout=)` escalates to Popen.kill(); a trap never runs.
+        The marker must therefore already be on disk before mpe.env is touched.
+        """
+        marker = self.src.index("mpe_pending_write")
+        first_write = self.src.index("_update_env_var MPE_JACK_BUFFER")
+        self.assertLess(
+            marker, first_write,
+            "mpe.env is mutated before the crash marker exists — a kill in that "
+            "window leaves an untested setting with nothing able to undo it",
+        )
+
+    def test_crash_marker_is_cleared_on_the_success_path(self):
+        """A marker left behind would make the NEXT graph start roll back a
+        setting that was proven good."""
+        proven = self.src.index("# Proven: the graph came up")
+        applied = self.src.index('echo -n "Applied"', proven)
+        self.assertIn(
+            "mpe_pending_clear", self.src[proven:applied],
+            "the crash marker survives a successful settings change",
         )
 
     def test_trap_checks_the_commit_flag(self):
