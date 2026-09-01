@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import tempfile
+import subprocess
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -55,20 +56,70 @@ class SurgeAudioTests(unittest.TestCase):
         self.assertEqual(surge_audio.buffer_option_label(768, 48000), "768 · 16 ms")
         self.assertEqual(surge_audio.sample_rate_option_label(44100), "44.1 kHz")
 
-    @mock.patch("patch_browser.surge_audio.subprocess.run")
-    def test_apply_buffer_rejects_non_jack_period(self, run_mock: mock.Mock) -> None:
+    # These mock Popen rather than subprocess.run: the UI stopped using
+    # `subprocess.run(timeout=)` because its timeout path goes straight to
+    # SIGKILL, which set-surge-audio.sh cannot trap and which orphans the script
+    # when sudo forks a monitor. It now sends TERM first (see surge_audio.py).
+    # What is asserted is unchanged — the script is invoked with the right
+    # arguments and a zero exit is reported as success.
+    @staticmethod
+    def _popen_mock(returncode: int = 0, stdout: str = "", stderr: str = "") -> mock.Mock:
+        proc = mock.Mock()
+        proc.returncode = returncode
+        proc.communicate.return_value = (stdout, stderr)
+        proc.args = []
+        return proc
+
+    @mock.patch("patch_browser.surge_audio.subprocess.Popen")
+    def test_apply_buffer_rejects_non_jack_period(self, popen_mock: mock.Mock) -> None:
         ok, message = surge_audio.apply_buffer(768)
         self.assertFalse(ok)
         self.assertIn("768", message)
-        run_mock.assert_not_called()
+        popen_mock.assert_not_called()
 
-    @mock.patch("patch_browser.surge_audio.subprocess.run")
-    def test_apply_buffer_success(self, run_mock: mock.Mock) -> None:
-        run_mock.return_value = mock.Mock(returncode=0, stdout="", stderr="")
+    @mock.patch("patch_browser.surge_audio.subprocess.Popen")
+    def test_apply_buffer_success(self, popen_mock: mock.Mock) -> None:
+        popen_mock.return_value = self._popen_mock()
         ok, message = surge_audio.apply_buffer(512)
         self.assertTrue(ok)
         self.assertIn("512", message)
-        self.assertEqual(run_mock.call_args.args[0][3], "512")
+        self.assertEqual(popen_mock.call_args.args[0][3], "512")
+
+    @mock.patch("patch_browser.surge_audio.subprocess.Popen")
+    def test_apply_buffer_reports_script_failure(self, popen_mock: mock.Mock) -> None:
+        popen_mock.return_value = self._popen_mock(returncode=1, stderr="graph failed\n")
+        ok, message = surge_audio.apply_buffer(512)
+        self.assertFalse(ok)
+        self.assertIn("graph failed", message)
+
+    @mock.patch("patch_browser.surge_audio.subprocess.Popen")
+    def test_timeout_asks_politely_before_killing(self, popen_mock: mock.Mock) -> None:
+        """A SIGKILL orphans the script mid-graph-restart; TERM lets it tidy up."""
+        proc = self._popen_mock()
+        proc.communicate.side_effect = [
+            subprocess.TimeoutExpired(cmd="set-surge-audio.sh", timeout=1.0),
+            ("", ""),
+        ]
+        popen_mock.return_value = proc
+        ok, message = surge_audio.apply_buffer(512)
+        self.assertFalse(ok)
+        self.assertIn("Timed out", message)
+        proc.terminate.assert_called_once()
+        proc.kill.assert_not_called()
+
+    @mock.patch("patch_browser.surge_audio.subprocess.Popen")
+    def test_kill_is_the_last_resort_not_the_first(self, popen_mock: mock.Mock) -> None:
+        proc = self._popen_mock()
+        proc.communicate.side_effect = [
+            subprocess.TimeoutExpired(cmd="set-surge-audio.sh", timeout=1.0),
+            subprocess.TimeoutExpired(cmd="set-surge-audio.sh", timeout=1.0),
+            ("", ""),
+        ]
+        popen_mock.return_value = proc
+        ok, _ = surge_audio.apply_buffer(512)
+        self.assertFalse(ok)
+        proc.terminate.assert_called_once()
+        proc.kill.assert_called_once()
 
 
 if __name__ == "__main__":

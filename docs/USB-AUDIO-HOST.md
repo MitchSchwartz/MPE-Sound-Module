@@ -165,7 +165,9 @@ Surge **must not** keep UAC2 PCM open unless the laptop/DAW is **actively captur
 - **No external DAC:** idle sink is the Pi headphone jack on a Pi 4. **The Pi 5
   has no headphone jack**, and HDMI enumerates `disconnected` with no display
   attached, so there the idle sink is the `snd-dummy` card installed by
-  `scripts/install-idle-sink.sh` (card index 8, loaded on every deploy). Reaper
+  `scripts/install-idle-sink.sh` (card index 8). NOTE: this is NOT run on every
+  deploy — `bootstrap-pi5-looper.sh` is currently its only caller, so whether a
+  given unit has an idle sink depends on which script was last run against it. Reaper
   path unchanged.
 - The gadget cannot be the idle sink. MEASURED 2026-08-30 with the host attached
   but not capturing: `aplay` to the gadget fails with `Input/output error` after
