@@ -25,7 +25,11 @@ ExecStartPost=+@MPE_MODULE_REPO@/scripts/start-uac2-watchdog-if-needed.sh
 # in "reconnecting" indefinitely. MEASURED 2026-09-01: `pgrep -f surge-xt-cli`
 # matches pid of `/usr/bin/systemctl restart surge-xt-cli.service`; `pgrep -x`
 # matches only the binary.
-ExecStop=/usr/bin/pkill -TERM -x surge-xt-cli
+# Leading `-`: pkill exits 1 when NOTHING matched, and a non-zero ExecStop fails
+# the unit -- which restarts it, which stops it, which fails again. KillMode
+# below is what actually guarantees teardown; this is belt-and-braces and must
+# never be able to fail the unit on its own.
+ExecStop=-/usr/bin/pkill -TERM -x surge-xt-cli
 TimeoutStopSec=15
 KillMode=control-group
 Restart=on-failure
