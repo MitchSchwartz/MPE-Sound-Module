@@ -17,6 +17,31 @@ PROFILE_OPTIONS: tuple[tuple[str, str, str], ...] = (
     ("usb-host", "USB direct", "Surge to PC when recording (analog mutes)"),
     ("usb-host-session", "USB session", "Analog stays on; mic return to PC"),
 )
+
+# PROFILE_OPTIONS above is the VOCABULARY -- every profile the appliance
+# understands, with its label. HIDDEN_PROFILES is about the MENU only. Removing
+# a row from the vocabulary would make profile_option_label() fall through to
+# "Analog", so an appliance sitting on a hidden profile would be mislabelled as
+# something else -- the failure this whole area keeps producing.
+#
+# usb-host-session ("mic return to PC") is hidden because the mic capture it
+# depends on is hardwired to a Sound Blaster product string that is not on this
+# appliance; see issue #136 for what has to be true before it comes back.
+HIDDEN_PROFILES: frozenset[str] = frozenset({"usb-host-session"})
+
+
+def menu_profile_options(current: str | None = None) -> tuple[tuple[str, str, str], ...]:
+    """Rows the settings modal offers.
+
+    A hidden profile is still shown when it is the ACTIVE one -- otherwise the
+    menu would not name the state the appliance is in, and there would be no way
+    to switch off it. Same rule as a saved-but-absent audio device.
+    """
+    active = normalize_profile(current if current is not None else current_profile())
+    return tuple(
+        option for option in PROFILE_OPTIONS
+        if option[0] not in HIDDEN_PROFILES or option[0] == active
+    )
 def profile_env_path() -> Path | None:
     """Appliance canon file, or None when MPE_ENV_FILE='' (hermetic tests)."""
     if "MPE_ENV_FILE" in os.environ:
