@@ -27,10 +27,21 @@ DEFAULT_SAMPLE_RATE = 48000
 # the whole JACK graph — slowest exactly when the graph is already unhappy, which
 # is when a buffer change is most likely to be attempted. At 45 s that kill
 # landed between the env write and its validation and left an untested buffer in
-# /etc/mpe/mpe.env; the appliance booted into it, dead (2026-09-01). The script
-# now traps its own death and rolls back, so a kill is survivable — this margin
-# is the second line of defence, not the first.
+# /etc/mpe/mpe.env; the appliance booted into it, dead (2026-09-01).
+#
+# The script does NOT survive that kill and cannot be made to: `subprocess.run`
+# escalates to Popen.kill() == SIGKILL, which is untrappable, and the child here
+# is `sudo`, so depending on the build the signal either kills the script outright
+# or kills sudo and orphans it. Recovery therefore does not live in the script's
+# lifetime at all — set-surge-audio.sh writes /etc/mpe/mpe.env.pending before
+# mutating anything and mpe-jackd's ExecStartPre reconciles it on the next graph
+# start. This margin is a courtesy so ordinary slow changes are not interrupted.
 AUDIO_SWITCH_TIMEOUT_S = 150.0
+
+# How long a TERM gets to run the script's own rollback before SIGKILL. The
+# rollback is three sed-and-install passes over a small file — well under a
+# second — so this is generous.
+TERMINATE_GRACE_S = 10.0
 
 
 def _read_env_int(key: str, default: int, *, valid: frozenset[int]) -> int:
@@ -180,17 +191,36 @@ def _run_set_script(args: list[str], *, success: str) -> tuple[bool, str]:
     if not SET_SURGE_AUDIO_SCRIPT.is_file():
         return False, "set-surge-audio.sh missing"
 
+    # Deliberately not subprocess.run(timeout=): that escalates straight to
+    # SIGKILL, which the script cannot trap and which orphans it when sudo forks
+    # a monitor. Ask politely first — a TERM lets the in-process rollback run and
+    # tidy up immediately, which is much faster than waiting for the next graph
+    # start to reconcile the marker. SIGKILL stays as the last resort, and the
+    # marker covers whatever it leaves behind.
     try:
-        result = subprocess.run(
+        proc = subprocess.Popen(
             ["sudo", str(SET_SURGE_AUDIO_SCRIPT), *args],
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
-            timeout=AUDIO_SWITCH_TIMEOUT_S,
         )
-    except subprocess.TimeoutExpired:
-        return False, f"Timed out ({int(AUDIO_SWITCH_TIMEOUT_S)}s)"
     except OSError as exc:
         return False, str(exc)[:60]
+
+    try:
+        stdout, stderr = proc.communicate(timeout=AUDIO_SWITCH_TIMEOUT_S)
+    except subprocess.TimeoutExpired:
+        proc.terminate()
+        try:
+            stdout, stderr = proc.communicate(timeout=TERMINATE_GRACE_S)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.communicate()
+        return False, f"Timed out ({int(AUDIO_SWITCH_TIMEOUT_S)}s)"
+
+    result = subprocess.CompletedProcess(
+        proc.args, proc.returncode, stdout=stdout, stderr=stderr
+    )
 
     if result.returncode != 0:
         detail = (result.stderr or result.stdout or "apply failed").strip()
