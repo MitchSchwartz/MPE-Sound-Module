@@ -12,8 +12,35 @@ SET_SURGE_AUDIO_SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "set-
 
 # Legacy Surge ALSA sizes — still valid in mpe.env for MIDI offset / calibration.
 BUFFER_PRESETS: tuple[int, ...] = (32, 64, 128, 256, 512, 768, 1024, 2048)
-# JACK server period sizes the touch UI and jackd accept (see mpe-cli jack buffer).
-JACK_PERIOD_PRESETS: tuple[int, ...] = (32, 64, 128, 256, 512, 1024)
+
+JACK_PERIODS_CONF = Path(__file__).resolve().parents[1] / "config" / "jack-periods.conf"
+# Fallback ONLY for a missing conf file (a broken checkout). Never edit this to
+# add a period -- it is not the list, and a second list is the bug this replaces.
+_JACK_PERIOD_FALLBACK: tuple[int, ...] = (32, 64, 128, 256, 512, 1024)
+
+
+def _load_jack_period_presets() -> tuple[int, ...]:
+    """The periods jackd accepts, from config/jack-periods.conf — THE list.
+
+    This was a hardcoded tuple until 2026-09-01, by which point it had drifted
+    from the shell validator: 96 and 192 were runnable on the appliance and
+    absent here, so the touch menu could not offer a period the appliance would
+    happily run.
+    """
+    try:
+        values = []
+        for line in JACK_PERIODS_CONF.read_text(encoding="utf-8").splitlines():
+            line = line.split("#", 1)[0].strip()
+            if line.isdigit():
+                values.append(int(line))
+        if values:
+            return tuple(values)
+    except OSError:
+        pass
+    return _JACK_PERIOD_FALLBACK
+
+
+JACK_PERIOD_PRESETS: tuple[int, ...] = _load_jack_period_presets()
 JACK_PERIODS_PRESETS: tuple[int, ...] = (2, 3, 4)
 SAMPLE_RATE_PRESETS: tuple[int, ...] = (44100, 48000)
 

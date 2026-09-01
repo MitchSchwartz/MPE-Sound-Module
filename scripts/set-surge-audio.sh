@@ -45,11 +45,10 @@ if [ -z "$BUFFER" ] && [ -z "$SAMPLE_RATE" ] && [ -z "$PERIODS" ]; then
 fi
 
 is_valid_buffer() {
-    # JACK server period — must match jackd / mpe jack buffer (not legacy Surge ALSA sizes).
-    case "$1" in
-        32 | 64 | 96 | 128 | 192 | 256 | 512 | 1024) return 0 ;;
-        *) return 1 ;;
-    esac
+    # JACK server period — must match jackd / mpe jack buffer (not legacy Surge
+    # ALSA sizes). Delegates to config/jack-periods.conf; this used to carry its
+    # own copy of the list, which is how the UI and mpe-cli drifted away from it.
+    mpe_jack_period_is_valid "$1"
 }
 
 is_valid_sample_rate() {

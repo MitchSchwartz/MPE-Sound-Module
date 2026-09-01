@@ -40,13 +40,62 @@ MPE_JACKD_SERVICE="mpe-jackd.service"
 # disagrees with what those servers actually ran (256) — aliasing the two lets stale
 # config silently reassign the live period on any appliance missing the JACK key.
 # The Surge key stays alive for calibration only; nothing here reads it.
+# config/jack-periods.conf is THE list -- see that file for why it is not four
+# lists. Never inline the values here; a copy is how 96 and 192 became runnable
+# on the appliance and unreachable from every user interface.
+mpe_jack_periods_conf() {
+    printf '%s' "${MPE_JACK_PERIODS_CONF:-${MPE_MODULE_REPO:-}/config/jack-periods.conf}"
+}
+
+mpe_jack_period_presets() {
+    local f; f="$(mpe_jack_periods_conf)"
+    [ -r "$f" ] || return 1
+    sed -e 's/#.*//' -e 's/[[:space:]]//g' "$f" | grep -E '^[0-9]+$'
+}
+
+mpe_jack_period_is_valid() {
+    local want="${1:-}" p
+    [ -n "$want" ] || return 1
+    while IFS= read -r p; do
+        [ "$p" = "$want" ] && return 0
+    done < <(mpe_jack_period_presets)
+    return 1
+}
+
 mpe_buffer_env_canonical() {
-    case "${MPE_JACK_BUFFER:-}" in
-        32 | 64 | 96 | 128 | 192 | 256 | 512 | 1024) printf '%s' "$MPE_JACK_BUFFER"; return 0 ;;
-        '') printf '%s' "$MPE_JACK_BUFFER_DEFAULT"; return 0 ;;
-    esac
+    if [ -z "${MPE_JACK_BUFFER:-}" ]; then
+        printf '%s' "$MPE_JACK_BUFFER_DEFAULT"; return 0
+    fi
+    if mpe_jack_period_is_valid "$MPE_JACK_BUFFER"; then
+        printf '%s' "$MPE_JACK_BUFFER"; return 0
+    fi
     echo "WARNING: MPE_JACK_BUFFER='${MPE_JACK_BUFFER}' invalid — using $MPE_JACK_BUFFER_DEFAULT" >&2
     printf '%s' "$MPE_JACK_BUFFER_DEFAULT"
+}
+
+# Periods to try, in order, when the configured one will not start a driver.
+# MEASURED 2026-09-01: the Apple full-speed dongle never starts a driver thread
+# at 64 (`LockedTimedWait ... / Driver is not running`, every attempt) and is
+# clean at 128. Before this ladder the appliance simply stayed silent, with
+# jackd "active" and engine.state green -- the player's only signal was no sound.
+#
+# Only ever climbs. Falling to a SMALLER period would be the one direction T13
+# measured as actively worse (128x6 vs 256x3, identical runway, 713 vs 1.53
+# xruns/60s: period size binds).
+MPE_JACK_FALLBACK_PERIODS_DEFAULT="128 256"
+
+mpe_jack_fallback_ladder() {
+    local start="${1:-}" p seen
+    [ -n "$start" ] || return 1
+    printf '%s\n' "$start"
+    seen="$start"
+    for p in ${MPE_JACK_FALLBACK_PERIODS:-$MPE_JACK_FALLBACK_PERIODS_DEFAULT}; do
+        case " $seen " in *" $p "*) continue ;; esac
+        [ "$p" -gt "$start" ] 2>/dev/null || continue
+        mpe_jack_period_is_valid "$p" || continue
+        printf '%s\n' "$p"
+        seen="$seen $p"
+    done
 }
 
 # After sourcing mpe.env: report (do not silently reconcile) a period the operator set
@@ -383,6 +432,10 @@ mpe_jack_state_write() {
     local rate="${4:-}"
     local card="${5:-}"
     local tier="${6:-}"
+    # What was ASKED for, when a fallback had to climb off it. Defaults to the
+    # applied period so the common case writes them equal. A doubled period is
+    # latency the player feels and cannot account for; it must never be silent.
+    local requested="${7:-${2:-}}"
     local file prev_period audible
     file="$(mpe_jack_state_file)"
     prev_period="$(mpe_state_get "$file" period)"
@@ -402,8 +455,12 @@ mpe_jack_state_write() {
         "tier=$tier" \
         "audible=$audible" \
         "period=$period" \
+        "requested_period=$requested" \
         "periods=$periods" \
         "rate=$rate" || true
+    if [ -n "$period" ] && [ -n "$requested" ] && [ "$period" != "$requested" ]; then
+        mpe_session_event_emit buffer.fallback "period=$period" "requested=$requested"
+    fi
     if [ -n "$period" ] && [ -n "$prev_period" ] && [ "$period" != "$prev_period" ]; then
         mpe_session_event_emit buffer.changed "period=$period" "from=$prev_period"
     fi
