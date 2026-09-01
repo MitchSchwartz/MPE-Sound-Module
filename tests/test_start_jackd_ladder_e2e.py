@@ -14,6 +14,8 @@ systemd "active", engine.state "ok", and no client could ever attach.
 from __future__ import annotations
 
 import os
+import shutil
+import signal
 import subprocess
 import tempfile
 import time
@@ -31,8 +33,9 @@ while [ $# -gt 0 ]; do
     case "$1" in -p) period="$2"; shift 2 ;; *) shift ;; esac
 done
 echo "$period" > "$STUB_DIR/current_period"
+echo "$$" >> "$STUB_DIR/jackd.pids"
 echo "creating alsa driver ... period = $period"
-sleep 600
+sleep 90
 """
 
 # Reports the driver's ports only when the period is one the "device" can run.
@@ -78,8 +81,14 @@ class LadderEndToEndTests(unittest.TestCase):
         log = Path(tmp, "out.log")
         state = run_dir / "jack.state"
         with log.open("w") as fh:
-            proc = subprocess.Popen([str(START_JACKD)], env=env,
-                                    stdout=fh, stderr=subprocess.STDOUT, text=True)
+            # start_new_session: the stub jackd MUST die with the test. It is
+            # named `jackd`, so a survivor makes `pgrep -x jackd` true for every
+            # other test in the run -- mpe_jack_server_running then reports a
+            # server that does not exist. That leak made test_audio_engine's
+            # promote path fail and cost a wrong 'pre-existing on dev' verdict.
+            proc = subprocess.Popen([str(START_JACKD)], env=env, stdout=fh,
+                                    stderr=subprocess.STDOUT, text=True,
+                                    start_new_session=True)
             try:
                 # On success the script BLOCKS supervising jackd — that is the
                 # pass condition, not an exit. Poll for the state it publishes.
@@ -91,10 +100,24 @@ class LadderEndToEndTests(unittest.TestCase):
                         break
                     time.sleep(0.2)
             finally:
-                if proc.poll() is None:
-                    proc.kill()
+                try:
+                    os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+                except (ProcessLookupError, PermissionError):
+                    pass
                 proc.wait(timeout=10)
-        return log.read_text(), (state.read_text() if state.exists() else "")
+                # Belt and braces: a backgrounded stub can outlive the group
+                # kill, and a survivor named `jackd` breaks the whole suite.
+                pidfile = stub / "jackd.pids"
+                if pidfile.exists():
+                    for line in pidfile.read_text().split():
+                        try:
+                            os.kill(int(line), signal.SIGKILL)
+                        except (ProcessLookupError, PermissionError, ValueError):
+                            pass
+        out = log.read_text()
+        st = state.read_text() if state.exists() else ""
+        shutil.rmtree(tmp, ignore_errors=True)
+        return out, st
 
     def test_negative_control_a_workable_period_does_not_climb(self):
         """If this climbs, the ladder fires when it should not and the rest is noise."""
@@ -126,3 +149,23 @@ class LadderEndToEndTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class StubsMustNotOutliveTheTestTests(unittest.TestCase):
+    """The stub is named `jackd`. A survivor poisons the whole suite.
+
+    mpe_jack_server_running is `pgrep -x jackd`, so one leaked stub makes every
+    other test believe a JACK server is up. That is exactly what happened: six
+    leaked stubs (sleep 600) made test_audio_engine's promote path fail, and the
+    failure reproduced on unmodified dev — which looked like proof it was
+    pre-existing. It was not. The instrument was contaminating its own control.
+    """
+
+    def test_no_stub_jackd_survives_a_run(self):
+        before = subprocess.run(["pgrep", "-x", "jackd"],
+                                capture_output=True, text=True).stdout.split()
+        LadderEndToEndTests()._run(configured=64, min_workable=128)
+        after = subprocess.run(["pgrep", "-x", "jackd"],
+                               capture_output=True, text=True).stdout.split()
+        self.assertEqual(sorted(after), sorted(before),
+                         "a stub jackd outlived the test and will break other tests")

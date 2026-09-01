@@ -15,6 +15,7 @@ THE BUGS (2026-09-01, both measured on the appliance).
 
 from __future__ import annotations
 
+import re
 import subprocess
 import tempfile
 import unittest
@@ -136,3 +137,41 @@ class FallbackIsVisibleTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ProbeUsesTheSanctionedHelperTests(unittest.TestCase):
+    """The readiness probe already existed; do not hand-roll a second one.
+
+    mpe_wait_for_jack_server / mpe_jack_server_ready carry the "running is not
+    the same as accepting clients" logic, and mpe_jack_lsp resolves the binary
+    once, wraps it in `timeout`, and drops from root to the graph owner. A bare
+    `jack_lsp` call in a script does none of that.
+
+    Separately, d1541d8 measured that registering a JACK client on a 10 s timer
+    produced 35 xruns/min — the largest single xrun source on the appliance —
+    and moved the watchdog's STEADY-STATE probe to meter.state. A bounded wait
+    at startup is still correct; a polling loop in a running graph is not.
+    """
+
+    SCRIPT = REPO_ROOT / "scripts" / "start-jackd.sh"
+
+    def test_start_jackd_uses_the_bounded_readiness_wait(self):
+        src = self.SCRIPT.read_text(encoding="utf-8")
+        self.assertIn("mpe_wait_for_jack_server", src)
+
+    def test_start_jackd_never_calls_jack_lsp_directly(self):
+        offenders = []
+        for num, line in enumerate(self.SCRIPT.read_text(encoding="utf-8").splitlines(), 1):
+            s = line.strip()
+            if s.startswith("#"):
+                continue
+            # `mpe_jack_lsp` is the wrapper and is fine; a bare `jack_lsp` is not.
+            if re.search(r"(?<!mpe_)\bjack_lsp\b", s):
+                offenders.append(f"{num}: {s}")
+        self.assertEqual(offenders, [],
+                         "call mpe_jack_lsp, never jack_lsp directly")
+
+    def test_probe_is_bounded_not_an_unbounded_poll(self):
+        src = self.SCRIPT.read_text(encoding="utf-8")
+        self.assertIn("MPE_JACK_PROBE_TIMEOUT", src)
+        self.assertIn("mpe_jack_ready_timeout", src)

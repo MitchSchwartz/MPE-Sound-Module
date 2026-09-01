@@ -67,28 +67,25 @@ esac
 # systemd reported the unit active, engine.state read ok, and Surge retried
 # forever against a server that could never accept it. The only honest probe is
 # to do what a client does: connect, and require the driver's own ports.
-JACK_PROBE_TIMEOUT="${MPE_JACK_PROBE_TIMEOUT:-12}"
+JACK_PROBE_TIMEOUT="${MPE_JACK_PROBE_TIMEOUT:-$(mpe_jack_ready_timeout)}"
 
+# mpe_wait_for_jack_server IS this probe -- "running is not the same as accepting
+# clients" is its own comment, and it is what start-surge-cli.sh already waits on
+# at every start. Do not hand-roll a jack_lsp loop here: mpe_jack_lsp resolves the
+# binary once, wraps it in `timeout`, and drops from root to the graph owner,
+# none of which a bare `jack_lsp` call does -- which is what
+# lint-jack-only-paths.sh forbids.
+#
+# This is a BOUNDED STARTUP wait, not a steady-state probe. d1541d8 moved the
+# watchdog's periodic graph probe to meter.state because registering a client on
+# a 10 s timer measured 35 xruns/min -- the largest single xrun source on the
+# appliance. That rule governs the running graph; readiness at start is still
+# answered here, and stops the moment the driver answers.
 _driver_is_running() {
-    local deadline=$(( SECONDS + JACK_PROBE_TIMEOUT )) out
-    # No probe tool => no opinion. Assume the driver is fine rather than tearing
-    # down a graph that may be perfectly healthy: a broken instrument must not
-    # be able to manufacture a failure it cannot actually observe.
-    if ! command -v jack_lsp >/dev/null 2>&1; then
-        echo "WARNING: jack_lsp not found — cannot verify the driver started;" \
-             "period fallback is disabled for this run." >&2
-        sleep 2
-        kill -0 "$JACKD_PID" 2>/dev/null && return 0
-        return 1
-    fi
-    while [ "$SECONDS" -lt "$deadline" ]; do
-        kill -0 "$JACKD_PID" 2>/dev/null || return 1   # died outright
-        # jack_lsp blocks ~5s against a dead driver, so this doubles as the wait.
-        out="$(jack_lsp 2>/dev/null || true)"
-        case "$out" in *system:playback_*) return 0 ;; esac
-        sleep 1
-    done
-    return 1
+    mpe_wait_for_jack_server "$JACK_PROBE_TIMEOUT" || return 1
+    # Server accepted a client; make sure it was the DRIVER that came up and not
+    # a server sitting there with no ports to offer.
+    mpe_jack_lsp 2>/dev/null | grep -q '^system:playback_'
 }
 
 _stop_jackd() {
