@@ -13,6 +13,14 @@
 # route. Restart=on-failure (surge-xt-cli.service) retries independently, and
 # the supervisor promotes Surge onto the graph once jackd recovers.
 
+# -u because this script read $DEVICE_TIER for months after 5b4f24b deleted the
+# only line that assigned it, and nothing noticed: the test silently evaluated
+# false and the UAC2 route was never selected. shellcheck cannot catch that --
+# SC2154 structurally exempts SCREAMING_SNAKE_CASE names -- so the only thing
+# that will ever catch the next one is the shell itself. No -e: this script has
+# many deliberate best-effort steps that must not abort startup.
+set -uo pipefail
+
 SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")" && pwd)"
 # shellcheck source=lib/paths.sh
 source "$SCRIPT_DIR/lib/paths.sh"
@@ -40,14 +48,35 @@ resolve_jack_device_index() {
     # Surge may exit non-zero while still printing a usable device list — do not
     # treat a noisy exit as "no JACK device" (finding 6).
     list="$(timeout 5 "$SURGE_CLI" --list-devices 2>&1)" || true
+    # Anchor on the DRIVER namespace `JACK.`, never a bare `grep -i jack`.
+    # MEASURED 2026-09-01: the appliance's own DAC is named "USB-C to 3.5mm
+    # Headphone Jack A", so `grep -i jack` matched ten ALSA entries before the
+    # one real JACK device and head -1 took the first:
+    #
+    #   [0.8]  : ALSA.USB-C to 3.5mm Headphone Jack A, ... <- picked (wrong)
+    #   [1.0]  : JACK.system                               <- the graph
+    #
+    # Surge then opened the raw ALSA device, which does not support 48000, and
+    # died -- while the appliance logged engine=jack active=jack state=ok. A
+    # product name must never be able to impersonate the driver.
     index=$(printf '%s\n' "$list" \
         | grep "Output Audio Device" \
-        | grep -i "JACK" \
-        | sed -n 's/.*\[\([0-9][0-9]*\.[0-9][0-9]*\)\].*/\1/p' \
+        | sed -n 's/.*\[\([0-9][0-9]*\.[0-9][0-9]*\)\][[:space:]]*:[[:space:]]*JACK\..*/\1/p' \
         | head -1)
     [ -n "$index" ] || return 1
     printf '%s' "$index"
 }
+
+# The tier jackd actually resolved, from the file jackd-prestart.sh already
+# writes. $DEVICE_TIER used to be read here and was assigned NOWHERE -- its
+# writer went out with the ALSA path in 5b4f24b and the reader stayed. With no
+# `set -u` it expanded to "", the test was always false, and the appliance wrote
+# route=analog unconditionally: the uac2 branch has never executed.
+DEVICE_TIER=""
+_jack_device_file="${MPE_JACK_DEVICE_FILE:-$(mpe_run_dir)/jack-device}"
+if [ -r "$_jack_device_file" ]; then
+    DEVICE_TIER="$(sed -n 's/^TIER=//p' "$_jack_device_file" | head -1)"
+fi
 
 # shellcheck source=lib/uac2-lazy-route.sh
 source "$SCRIPT_DIR/lib/uac2-lazy-route.sh"

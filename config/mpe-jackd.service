@@ -33,6 +33,18 @@ LimitMEMLOCK=infinity
 RuntimeDirectory=mpe
 RuntimeDirectoryMode=0755
 RuntimeDirectoryPreserve=yes
+# Undo a settings change that never completed (SIGKILL mid-change, or a reboot
+# into an untested value) BEFORE anything reads the period out of mpe.env.
+# `+` runs it as root: the unit runs as the appliance user, and /etc/mpe is root.
+# `-` so a MISSING script cannot brick the instrument, `+` so it runs as root.
+# Without the `-`: this unit is Restart=always with StartLimitIntervalSec=0, so a
+# unit file installed from a branch and then left pointing at a script that is not
+# on the checked-out tree (AGENTS.md's soak flow returns the Pi to `main`) would
+# thrash forever and the appliance would be silent. install-units.sh's
+# missing-ExecStart guard could not see this line -- it greps `^ExecStart=` only --
+# so nothing would have reported it either. Losing the reconcile is recoverable;
+# losing the audio graph is not.
+ExecStartPre=-+@MPE_MODULE_REPO@/scripts/reconcile-audio-settings.sh
 # Device selection on every start — same tier logic as Surge (spec D1).
 ExecStartPre=@MPE_MODULE_REPO@/scripts/boot-assert-cmdline.sh
 ExecStartPre=@MPE_MODULE_REPO@/scripts/jackd-prestart.sh
