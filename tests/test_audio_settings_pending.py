@@ -533,3 +533,19 @@ class PkillPatternTests(unittest.TestCase):
                     offenders.append(f"{path.relative_to(REPO_ROOT)}:{num}: {stripped}")
         self.assertEqual(offenders, [],
                          "pkill in a unit must match on -x (exact name), never -f")
+
+    def test_pkill_in_a_unit_cannot_fail_the_unit(self):
+        """pkill exits 1 when nothing matched. A non-zero ExecStop fails the unit,
+        systemd restarts it, the stop fails again — the same loop by another door.
+        Every pkill ExecStop must carry the `-` tolerance modifier."""
+        offenders = []
+        for path in sorted((REPO_ROOT / "config").glob("*.service")):
+            for num, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+                stripped = line.strip()
+                if stripped.startswith("#") or "pkill" not in stripped:
+                    continue
+                key, _, value = stripped.partition("=")
+                if key.strip().startswith("Exec") and not value.lstrip().startswith("-"):
+                    offenders.append(f"{path.relative_to(REPO_ROOT)}:{num}: {stripped}")
+        self.assertEqual(offenders, [],
+                         "an Exec* line running pkill must be prefixed with `-`")
