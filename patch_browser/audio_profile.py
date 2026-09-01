@@ -9,7 +9,11 @@ from pathlib import Path
 
 VALID_PROFILES = frozenset({"standalone", "usb-host", "usb-host-session"})
 PROFILE_OPTIONS: tuple[tuple[str, str, str], ...] = (
-    ("standalone", "Analog", "Sound Blaster — headphones and pedal"),
+    # "USB DAC", not a product name. The appliance binds whichever USB DAC is
+    # present (tier 1 or 2) -- a Scarlett 4i4 and a KM-HIFI-384KHZ have both run
+    # this profile. Naming one product in the label told the user the wrong
+    # device was selected. detect-audio-device.sh already says "USB DAC" here.
+    ("standalone", "Analog", "USB DAC — headphones and pedal"),
     ("usb-host", "USB direct", "Surge to PC when recording (analog mutes)"),
     ("usb-host-session", "USB session", "Analog stays on; mic return to PC"),
 )
@@ -123,7 +127,7 @@ def apply_profile(profile: str) -> tuple[bool, str]:
         return True, "USB host audio — plug USB-C to PC"
     if profile == "usb-host-session":
         return True, "Session record — mic → USB when PC captures"
-    return True, "Analog audio (Sound Blaster)"
+    return True, "Analog audio (USB DAC)"
 
 
 def read_profile_from_env_file(path: Path = MPE_ENV_PATH) -> str | None:
