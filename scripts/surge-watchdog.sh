@@ -1,6 +1,11 @@
 #!/bin/bash
 # Surge Watchdog: crash recovery + JACK graph reconciliation (spec D3).
 
+# -u so an unassigned variable in the supervisor fails loudly instead of
+# silently evaluating false (see start-surge-cli.sh / DEVICE_TIER). No -e: this
+# loop must survive individual probe failures, which is its whole job.
+set -uo pipefail
+
 SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || echo "${BASH_SOURCE[0]}")")" && pwd)"
 # shellcheck source=lib/paths.sh
 source "$SCRIPT_DIR/lib/paths.sh"
@@ -88,7 +93,11 @@ _reconcile_engine() {
 
     _last_jack_probe=$EPOCHSECONDS
     if mpe_surge_on_jack_graph; then
-        mpe_engine_state_write "$MPE_ENGINE_NAME" jack ok "" "$looper_label"
+        # Surge being ON the graph is not the same as the player being able to
+        # HEAR it. When the graph is bound to the idle sink, everything below is
+        # true and the instrument is silent -- so carry that in reason= rather
+        # than publishing a bare ok that reads identically to a working rig.
+        mpe_engine_state_write "$MPE_ENGINE_NAME" jack ok "$(mpe_engine_sink_reason)" "$looper_label"
         mpe_engine_reconcile_reset
         mpe_reconcile_looper_if_orphaned "surge-on-graph"
         return 0

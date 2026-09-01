@@ -36,7 +36,17 @@ if mpe_jack_softmode_enabled; then
 fi
 
 echo "Starting jackd on $HW_DEV — ${JACK_BUFFER} x ${JACK_PERIODS} @ ${JACK_RATE} Hz (${SOFTMODE_LABEL})"
-mpe_jack_state_write "$HW_DEV" "$JACK_BUFFER" "$JACK_PERIODS" "$JACK_RATE"
+mpe_jack_state_write "$HW_DEV" "$JACK_BUFFER" "$JACK_PERIODS" "$JACK_RATE" \
+    "${JACK_CARD_ID:-}" "${TIER:-}"
+
+# Binding a virtual card is a legitimate state (usb-host idle, no DAC yet) and an
+# inaudible one. Say so once, loudly, at the moment it happens -- otherwise the
+# only difference between this and a working instrument is that no sound comes
+# out, which is not a diagnostic anyone can act on at a gig.
+if [ -n "${JACK_CARD_ID:-}" ] && mpe_card_is_virtual "$JACK_CARD_ID"; then
+    echo "WARNING: bound '$JACK_CARD_ID' (tier ${TIER:-unknown}) — this is the idle sink." \
+         "NOTHING WILL BE AUDIBLE until a real DAC is connected."
+fi
 # Do not clobber Surge's ok/failed — only publish recovering when nothing more
 # specific is already published.
 current_state="$(mpe_engine_state_get state)"
