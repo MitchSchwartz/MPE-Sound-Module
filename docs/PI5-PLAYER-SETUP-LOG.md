@@ -113,7 +113,7 @@ After `configure-pi-paths.sh`, run **`scripts/apply-player-env-parity.sh`** (mer
 |-----|------------|---------------------|------------------|
 | `MPE_FAVORITES_NAME` | `"Quick Select"` | `"!Quick Access"` (template default) | Empty / wrong favorites tab |
 | `MPE_PEAK_METER` | `1` | `0` | OUT meter shows **−** |
-| `MPE_JACK_BUFFER` | `1024` (Pi 4 ship) · **128** (Pi 5 player today) | `256` / wrong parity overwrite | 64×2 broke USB/ALSA on Pi 5; use parity script that **preserves** tuned value |
+| `MPE_JACK_BUFFER` | `1024` (Pi 4 ship) · **128** (Pi 5 player today) | `256` / wrong parity overwrite | Use parity script that **preserves** tuned value |
 | `MPE_JACK_SOFTMODE` | `0` | — | — |
 | `MPE_CPU_GOVERNOR` | `performance` | — | — |
 | `MPE_POLY_GOVERNOR` + ceiling/floor | `1` / `64` / `64` | missing | Poly behaviour differs |
