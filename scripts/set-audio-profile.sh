@@ -36,8 +36,16 @@ fi
 # profile therefore persisted across the reboot exactly as a bad buffer did.
 _LOCK_DIR="/run/mpe"
 mkdir -p "$_LOCK_DIR" 2>/dev/null || _LOCK_DIR="${TMPDIR:-/tmp}"
-exec 9>"$_LOCK_DIR/set-surge-audio.lock" 2>/dev/null || true
-if command -v flock >/dev/null 2>&1; then
+# See set-surge-audio.sh: `exec 9>FILE 2>/dev/null` permanently redirects this
+# script's stderr, silencing every later diagnostic. Open the file separately so
+# a failure is reportable.
+if : > "$_LOCK_DIR/set-surge-audio.lock" 2>/dev/null; then
+    exec 9>"$_LOCK_DIR/set-surge-audio.lock"
+else
+    echo "WARNING: cannot create $_LOCK_DIR/set-surge-audio.lock — proceeding" >&2
+    echo "         without serialisation." >&2
+fi
+if [ -e /dev/fd/9 ] && command -v flock >/dev/null 2>&1; then
     if ! flock -n 9; then
         echo "ERROR: another audio settings change is already running — refusing to" >&2
         echo "       start a second one." >&2

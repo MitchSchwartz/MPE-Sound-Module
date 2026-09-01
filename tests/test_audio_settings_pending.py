@@ -24,6 +24,7 @@ Every recovery test is paired with a negative control (AGENTS.md Rule -1).
 from __future__ import annotations
 
 import os
+import re
 import signal
 import subprocess
 import tempfile
@@ -435,3 +436,100 @@ class TrapIsNotTheGuaranteeTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ExecRedirectDoesNotSwallowStderrTests(unittest.TestCase):
+    """`exec 9>FILE 2>/dev/null` silences the script, not just the redirect.
+
+    With no command, EVERY redirection on an exec applies to the shell for the
+    rest of the run. The intent was to suppress a message from the fd open; the
+    effect was that a failing `set-surge-audio.sh --buffer N` exited 1 with
+    nothing on stdout OR stderr, and even `bash -x` went dark. The rollback was
+    printing "graph failed and rollback failed" the whole time, into /dev/null.
+    """
+
+    @staticmethod
+    def _stderr_of(lock_open: str) -> str:
+        with tempfile.TemporaryDirectory() as tmp:
+            script = (f'set -euo pipefail\n{lock_open.replace("LOCK", tmp + "/l.lock")}\n'
+                      f'echo "diagnostic-that-must-survive" >&2\n')
+            proc = subprocess.run(["bash", "-c", script], capture_output=True,
+                                  text=True, timeout=30)
+            return proc.stderr
+
+    def test_negative_control_the_old_form_really_did_swallow_stderr(self):
+        """If this passes trivially, the rest of the class proves nothing."""
+        err = self._stderr_of('exec 9>"LOCK" 2>/dev/null || true')
+        self.assertNotIn("diagnostic-that-must-survive", err,
+                         "the bug did not reproduce — this test no longer guards anything")
+
+    def test_the_fixed_form_keeps_stderr(self):
+        err = self._stderr_of('if : > "LOCK" 2>/dev/null; then exec 9>"LOCK"; fi')
+        self.assertIn("diagnostic-that-must-survive", err)
+
+    # Numbered-fd open that ALSO redirects stderr. Deliberately NOT the broader
+    # `exec >` shape: `exec > >(tee ...) 2>&1` is the measurement scripts'
+    # logging idiom and is correct — flagging it would make this guard noise.
+    _FD_OPEN_WITH_STDERR = re.compile(r"^exec\s+\d+>[^|;]*2>")
+
+    def test_the_matcher_catches_the_historical_bad_line(self):
+        """Instrument check: a guard that matches nothing guards nothing."""
+        self.assertRegex('exec 9>"$_LOCK_DIR/set-surge-audio.lock" 2>/dev/null || true',
+                         self._FD_OPEN_WITH_STDERR)
+        self.assertNotRegex('exec > >(tee -a "$LOG") 2>&1', self._FD_OPEN_WITH_STDERR)
+
+    def test_no_script_redirects_stderr_on_an_exec_fd_open(self):
+        offenders = []
+        for path in sorted((REPO_ROOT / "scripts").rglob("*.sh")):
+            for num, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+                stripped = line.strip()
+                if stripped.startswith("#"):
+                    continue
+                if self._FD_OPEN_WITH_STDERR.match(stripped):
+                    offenders.append(f"{path.relative_to(REPO_ROOT)}:{num}: {stripped}")
+        self.assertEqual(offenders, [], "exec fd-open must not carry a stderr redirection")
+
+
+class PkillPatternTests(unittest.TestCase):
+    """`pkill -f surge-xt-cli` matches the process ASKING for the stop.
+
+    surge-watchdog issued `systemctl restart surge-xt-cli.service`; that unit's
+    ExecStop ran `pkill -TERM -f surge-xt-cli`, whose pattern matches the
+    systemctl command line itself. The watchdog died mid-restart, systemd
+    restarted it, it swept again — and Surge never converged. The appliance sat
+    in "reconnecting" indefinitely with jackd healthy underneath.
+    """
+
+    DECOY = "/usr/bin/systemctl restart surge-xt-cli.service"
+
+    def _pgrep_hits(self, flag: str) -> bool:
+        proc = subprocess.Popen(
+            ["bash", "-c", f'exec -a "{self.DECOY}" sleep 5'])
+        try:
+            time.sleep(0.7)
+            found = subprocess.run(["pgrep", flag, "surge-xt-cli"],
+                                   capture_output=True, text=True, timeout=15)
+            hits = [ln for ln in found.stdout.split() if ln.strip()]
+            return any(int(h) == proc.pid or int(h) == proc.pid + 1 for h in hits) or bool(hits)
+        finally:
+            proc.kill()
+            proc.wait(timeout=10)
+
+    def test_negative_control_dash_f_matches_the_restart_request(self):
+        self.assertTrue(self._pgrep_hits("-f"),
+                        "`pgrep -f` no longer overmatches — this test guards nothing")
+
+    def test_dash_x_does_not_match_the_restart_request(self):
+        self.assertFalse(self._pgrep_hits("-x"))
+
+    def test_no_unit_uses_pkill_dash_f_on_a_service_name(self):
+        offenders = []
+        for path in sorted((REPO_ROOT / "config").glob("*.service")):
+            for num, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+                stripped = line.strip()
+                if stripped.startswith("#"):
+                    continue
+                if "pkill" in stripped and " -f " in stripped:
+                    offenders.append(f"{path.relative_to(REPO_ROOT)}:{num}: {stripped}")
+        self.assertEqual(offenders, [],
+                         "pkill in a unit must match on -x (exact name), never -f")

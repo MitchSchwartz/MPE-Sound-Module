@@ -94,8 +94,19 @@ fi
 # killed run cannot wedge the lock.
 _LOCK_DIR="/run/mpe"
 mkdir -p "$_LOCK_DIR" 2>/dev/null || _LOCK_DIR="${TMPDIR:-/tmp}"
-exec 9>"$_LOCK_DIR/set-surge-audio.lock" 2>/dev/null || true
-if command -v flock >/dev/null 2>&1; then
+# NO redirection other than the fd itself. `exec 9>FILE 2>/dev/null` sends this
+# script's stderr to /dev/null for the REST OF THE RUN -- with no command, every
+# redirection on an exec applies to the shell permanently. That swallowed the
+# rollback diagnostics and made a failing settings change look silent: exit 1,
+# nothing on stdout or stderr. Open the file first so a real failure is
+# reportable; an exec redirection error is fatal and cannot be trapped.
+if : > "$_LOCK_DIR/set-surge-audio.lock" 2>/dev/null; then
+    exec 9>"$_LOCK_DIR/set-surge-audio.lock"
+else
+    echo "WARNING: cannot create $_LOCK_DIR/set-surge-audio.lock — proceeding" >&2
+    echo "         without serialisation." >&2
+fi
+if [ -e /dev/fd/9 ] && command -v flock >/dev/null 2>&1; then
     if ! flock -n 9; then
         echo "ERROR: another audio settings change is already running — refusing to" >&2
         echo "       start a second one (it would adopt an untested value as 'previous')." >&2
