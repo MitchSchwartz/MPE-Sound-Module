@@ -170,3 +170,40 @@ mpe_output_speed_label() {
         *) printf '%s Mbps' "$1" ;;
     esac
 }
+
+# The output LABEL is the only free-form value /etc/mpe/mpe.env ever holds, and
+# it is vendor-controlled -- the product string is whatever the DAC says it is,
+# and the spec is explicit that a vendor can put any word in it (that is how
+# "Headphone JACK A" started a day of bisection).
+#
+# MEASURED 2026-09-01: selecting the FiiO wrote
+#
+#     MPE_AUDIO_OUTPUT_LABEL=FiiO KA1
+#
+# and mpe.env is SOURCED by bash, where that reads "set the var to FiiO, then
+# run the command KA1" -- so every script sourcing the file reported
+# "KA1: command not found" from line 52.
+#
+# Strip to a conservative set:
+#   `/` and `&` -- the value reaches a sed REPLACEMENT in _update_env_var and in
+#     mpe_pending_reconcile; `&` expands to the whole match and `/` ends the
+#     expression, either of which corrupts the env file the appliance boots from.
+#   `"`, `$`, backslash, backtick -- the value is re-read by `source`, where
+#     they would break out of the quoting or run a command.
+#
+# This lives in the library, not in set-surge-audio.sh, because a function
+# inside a top-to-bottom script cannot be sourced by a test -- and "the test
+# could only assert the script's TEXT" is precisely how the buffer validator
+# shipped undefined behind 1905 passing tests.
+mpe_output_label_sanitize() {
+    printf '%s' "${1:-}" \
+        | tr -d '\n\r' \
+        | sed -e 's/[^A-Za-z0-9 ._+()-]//g' -e 's/^ *//' -e 's/ *$//'
+}
+
+# The env-file LINE for a label, quoted so a value with spaces survives being
+# sourced. Every reader copes: bash `source` strips the quotes, systemd
+# EnvironmentFile= strips them, and the Python readers already .strip("\"'").
+mpe_output_label_env_value() {
+    printf '"%s"' "$(mpe_output_label_sanitize "${1:-}")"
+}
