@@ -1,7 +1,23 @@
 # Audio output selection
 
-Status: Proposed, not implemented. Written 2026-09-01 after a full day lost to
-three separate bugs that were all the same bug.
+Status: **IMPLEMENTED 2026-09-01.** Written earlier the same day, after a full
+day lost to three separate bugs that were all the same bug.
+
+Where it lives:
+
+| piece | file |
+|---|---|
+| identity, enumeration, matching | `scripts/lib/audio-outputs.sh` |
+| enumeration for other readers | `scripts/list-audio-outputs.sh` |
+| selection honoured at graph start | `scripts/detect-jack-device.sh` |
+| applying a change | `scripts/set-surge-audio.sh --output` |
+| menu construction | `patch_browser/audio_output.py` |
+| the touch modal | `patch_browser/touch_browser_audio_output_modal.py` |
+
+The settings row is **"Audio device"**. The pre-existing profile row was also
+called "Audio output", which would have made two differently-behaved rows share
+one name, so it was renamed **"Output mode"** — it answers "analog or USB", not
+"which DAC".
 
 This file exists because the appliance has never had a stated audio output. It
 has had a *guess*, re-derived from scratch on every start by whichever heuristic
