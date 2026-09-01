@@ -23,7 +23,14 @@ DEFAULT_JACK_PERIOD = 256
 DEFAULT_JACK_PERIODS = 3
 DEFAULT_SAMPLE_RATE = 48000
 
-AUDIO_SWITCH_TIMEOUT_S = 45.0
+# `subprocess.run(timeout=...)` KILLS the child, and set-surge-audio.sh restarts
+# the whole JACK graph — slowest exactly when the graph is already unhappy, which
+# is when a buffer change is most likely to be attempted. At 45 s that kill
+# landed between the env write and its validation and left an untested buffer in
+# /etc/mpe/mpe.env; the appliance booted into it, dead (2026-09-01). The script
+# now traps its own death and rolls back, so a kill is survivable — this margin
+# is the second line of defence, not the first.
+AUDIO_SWITCH_TIMEOUT_S = 150.0
 
 
 def _read_env_int(key: str, default: int, *, valid: frozenset[int]) -> int:
