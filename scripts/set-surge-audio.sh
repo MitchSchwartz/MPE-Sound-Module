@@ -233,12 +233,18 @@ _restore_env_on_death() {
     fi
     if [ -n "${OUTPUT:-}" ]; then
         _update_env_var MPE_AUDIO_OUTPUT "$_prev_output" || true
-        _update_env_var MPE_AUDIO_OUTPUT_LABEL "$_prev_output_label" || true
+        _update_env_label MPE_AUDIO_OUTPUT_LABEL "$_prev_output_label" || true
     fi
     mpe_pending_clear
     return $rc
 }
 trap _restore_env_on_death EXIT INT TERM HUP
+
+_update_env_label() {
+    # Sanitising and quoting live in lib/audio-outputs.sh so they are testable;
+    # see mpe_output_label_sanitize there for why each character is dropped.
+    _update_env_var "$1" "$(mpe_output_label_env_value "${2:-}")"
+}
 
 _update_env_var() {
     local key="$1"
@@ -282,7 +288,7 @@ if [ -n "$OUTPUT" ]; then
     export MPE_AUDIO_OUTPUT="$OUTPUT"
     # The label is written even when empty, so a stale name from a previous
     # selection can never be attached to a new device.
-    _update_env_var MPE_AUDIO_OUTPUT_LABEL "$OUTPUT_LABEL"
+    _update_env_label MPE_AUDIO_OUTPUT_LABEL "$OUTPUT_LABEL"
     export MPE_AUDIO_OUTPUT_LABEL="$OUTPUT_LABEL"
 fi
 
@@ -322,7 +328,7 @@ if ! mpe_promote_surge_planned "settings-change"; then
         [ -n "$PERIODS" ] && _update_env_var MPE_JACK_PERIODS "$_prev_periods"
         if [ -n "$OUTPUT" ]; then
             _update_env_var MPE_AUDIO_OUTPUT "$_prev_output"
-            _update_env_var MPE_AUDIO_OUTPUT_LABEL "$_prev_output_label"
+            _update_env_label MPE_AUDIO_OUTPUT_LABEL "$_prev_output_label"
         fi
         if [ "$_rate_changed" = true ]; then
             _update_env_var MPE_SURGE_SAMPLE_RATE "$_old_rate"
