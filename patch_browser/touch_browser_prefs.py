@@ -503,6 +503,20 @@ class TouchBrowserPrefsMixin:
             name="SurgeAudioSwitch",
         ).start()
 
+    def _begin_audio_output_switch(self, key: str, label: str = "") -> None:
+        """An output change restarts the graph exactly as a buffer change does,
+        so it reuses that path rather than opening a third door into the same
+        failure — set-audio-profile.sh was the second, and it had none of the
+        flock/marker/reconcile machinery."""
+        from patch_browser.audio_output import apply_output, normalize_selection
+
+        key = normalize_selection(key)
+        shown = label or ("Automatic" if key == "auto" else "Silent" if key == "silent" else key)
+        self._begin_surge_audio_switch(
+            f"Switching output to {shown}…",
+            lambda: apply_output(key, label),
+        )
+
     def _finish_midi_sync_switch(self, ok: bool, message: str) -> None:
         self._midi_sync_switching = False
         if ok:
