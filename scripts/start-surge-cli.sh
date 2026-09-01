@@ -48,10 +48,20 @@ resolve_jack_device_index() {
     # Surge may exit non-zero while still printing a usable device list — do not
     # treat a noisy exit as "no JACK device" (finding 6).
     list="$(timeout 5 "$SURGE_CLI" --list-devices 2>&1)" || true
+    # Anchor on the DRIVER namespace `JACK.`, never a bare `grep -i jack`.
+    # MEASURED 2026-09-01: the appliance's own DAC is named "USB-C to 3.5mm
+    # Headphone Jack A", so `grep -i jack` matched ten ALSA entries before the
+    # one real JACK device and head -1 took the first:
+    #
+    #   [0.8]  : ALSA.USB-C to 3.5mm Headphone Jack A, ... <- picked (wrong)
+    #   [1.0]  : JACK.system                               <- the graph
+    #
+    # Surge then opened the raw ALSA device, which does not support 48000, and
+    # died -- while the appliance logged engine=jack active=jack state=ok. A
+    # product name must never be able to impersonate the driver.
     index=$(printf '%s\n' "$list" \
         | grep "Output Audio Device" \
-        | grep -i "JACK" \
-        | sed -n 's/.*\[\([0-9][0-9]*\.[0-9][0-9]*\)\].*/\1/p' \
+        | sed -n 's/.*\[\([0-9][0-9]*\.[0-9][0-9]*\)\][[:space:]]*:[[:space:]]*JACK\..*/\1/p' \
         | head -1)
     [ -n "$index" ] || return 1
     printf '%s' "$index"
