@@ -43,13 +43,36 @@ MPE_JACKD_SERVICE="mpe-jackd.service"
 # config/jack-periods.conf is THE list -- see that file for why it is not four
 # lists. Never inline the values here; a copy is how 96 and 192 became runnable
 # on the appliance and unreachable from every user interface.
+# Resolve against THIS FILE, not $MPE_MODULE_REPO alone. MEASURED 2026-09-01:
+# set-surge-audio.sh validates --buffer at line 74 but sources the appliance env
+# at line 116, so MPE_MODULE_REPO was empty at validation time, the path came out
+# as "/config/jack-periods.conf", and EVERY period was rejected -- 128 and 256 as
+# surely as 48 and 96. The conf ships beside the library that reads it, so the
+# library can always find it without depending on when the caller loads its env.
 mpe_jack_periods_conf() {
-    printf '%s' "${MPE_JACK_PERIODS_CONF:-${MPE_MODULE_REPO:-}/config/jack-periods.conf}"
+    if [ -n "${MPE_JACK_PERIODS_CONF:-}" ]; then
+        printf '%s' "$MPE_JACK_PERIODS_CONF"
+        return 0
+    fi
+    local root="${MPE_MODULE_REPO:-}"
+    if [ -z "$root" ] || [ ! -r "$root/config/jack-periods.conf" ]; then
+        root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+    fi
+    printf '%s' "$root/config/jack-periods.conf"
 }
 
+# An unreadable list must be LOUD, never silently restrictive. Returning 1 here
+# made is_valid reject every value, which reads to the user as "96 is not a legal
+# buffer" -- a statement about the value when the truth was that the validator
+# could not find its own data. Same shape as the rest of 2026-09-01: an answer
+# that looks identical whether the instrument works or not.
 mpe_jack_period_presets() {
     local f; f="$(mpe_jack_periods_conf)"
-    [ -r "$f" ] || return 1
+    if [ ! -r "$f" ]; then
+        echo "ERROR: cannot read the JACK period list at '$f' — no period can be" >&2
+        echo "       validated. This is a broken install, not an invalid value." >&2
+        return 1
+    fi
     sed -e 's/#.*//' -e 's/[[:space:]]//g' "$f" | grep -E '^[0-9]+$'
 }
 

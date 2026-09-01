@@ -13,6 +13,12 @@ SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")" && 
 source "$SCRIPT_DIR/lib/mpe-services.sh"
 # shellcheck source=lib/audio-settings-pending.sh
 source "$SCRIPT_DIR/lib/audio-settings-pending.sh"
+# Must be sourced HERE, not further down: is_valid_buffer runs at line ~74 and
+# this is what defines mpe_jack_period_is_valid. It used to be sourced at line
+# 238, so validation called an undefined function, bash returned 127, and the
+# script reported "invalid buffer size: 96" for every value the user picked.
+# shellcheck source=lib/audio-engine.sh
+source "$SCRIPT_DIR/lib/audio-engine.sh"
 
 BUFFER=""
 SAMPLE_RATE=""
@@ -65,12 +71,12 @@ is_valid_periods() {
     esac
 }
 
-ENV_FILE="/etc/mpe/mpe.env"
-if [ ! -f "$ENV_FILE" ]; then
-    echo "ERROR: $ENV_FILE not found — run configure-pi-paths.sh first" >&2
-    exit 1
-fi
-
+# Argument validation runs BEFORE the environment check, and before anything is
+# touched. Two reasons. Bad input should be rejected without side effects. And it
+# makes this gate reachable without root, /etc/mpe, or a live graph -- which is
+# why tests/test_set_surge_audio_rollback.py could only ever assert the script's
+# TEXT, and why "mpe_jack_period_is_valid: command not found" shipped behind
+# 1905 passing tests.
 if [ -n "$BUFFER" ] && ! is_valid_buffer "$BUFFER"; then
     echo "ERROR: invalid buffer size: $BUFFER" >&2
     exit 1
@@ -83,6 +89,12 @@ fi
 
 if [ -n "$PERIODS" ] && ! is_valid_periods "$PERIODS"; then
     echo "ERROR: invalid periods: $PERIODS (allowed: 2, 3, 4, 6, 8)" >&2
+    exit 1
+fi
+
+ENV_FILE="/etc/mpe/mpe.env"
+if [ ! -f "$ENV_FILE" ]; then
+    echo "ERROR: $ENV_FILE not found — run configure-pi-paths.sh first" >&2
     exit 1
 fi
 
@@ -234,8 +246,7 @@ fi
 
 # shellcheck source=lib/profile-switch-flag.sh
 source "$SCRIPT_DIR/lib/profile-switch-flag.sh"
-# shellcheck source=lib/audio-engine.sh
-source "$SCRIPT_DIR/lib/audio-engine.sh"
+# audio-engine.sh is sourced at the top (see there) — it must precede validation.
 profile_switch_flag_mark
 
 # JACK is the only engine (spec amended 2026-08-13) — always the graph-restart
@@ -253,12 +264,23 @@ if ! mpe_promote_surge_planned "settings-change"; then
             _update_env_var MPE_SURGE_SAMPLE_RATE "$_old_rate"
         fi
         _env_committed=true   # the file is already where this path wants it
-        mpe_pending_clear
         mpe_source_appliance_env
+        # The marker is cleared ONLY once the rollback is PROVEN. It used to be
+        # cleared here, before the promote below -- so when the rollback also
+        # failed, the script deleted the one mechanism that could still recover
+        # the appliance (reconcile-audio-settings.sh, mpe-jackd ExecStartPre) at
+        # exactly the moment it was needed, and the box stayed silent across
+        # reboots. Observed 2026-09-01 as "graph failed and rollback failed".
         if mpe_promote_surge_planned "rollback-after-failed-settings"; then
+            mpe_pending_clear
             echo "ERROR: requested settings not supported — reverted to ${_prev_buffer}×${_prev_periods}" >&2
         else
-            echo "ERROR: graph failed and rollback failed — check journalctl -u mpe-jackd -u surge-xt-cli" >&2
+            echo "ERROR: graph failed AND rollback failed. The known-good settings" >&2
+            echo "       ${_prev_buffer}×${_prev_periods} are in $ENV_FILE and the recovery marker is" >&2
+            echo "       DELIBERATELY LEFT IN PLACE — the next graph start will reconcile it." >&2
+            echo "       This is not a settings problem: the graph would not come up on" >&2
+            echo "       values that were working. Check the DAC is connected, then:" >&2
+            echo "       journalctl -u mpe-jackd -u surge-xt-cli" >&2
         fi
     else
         echo "ERROR: audio graph change failed — check journalctl -u mpe-jackd -u surge-xt-cli" >&2
