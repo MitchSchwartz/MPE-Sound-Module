@@ -64,7 +64,31 @@ Period size stays 64, so per-period latency is unchanged; total buffer goes
 from ~2.7 ms to ~4 ms. Verified: full stack active, `Surge XT:out_*` connected
 to `system:playback_*`, peak meter tapping.
 
-## RESOLVED 2026-09-01 — the failure is device-specific
+## CORRECTED 2026-09-01 — NOT device-specific. Retracted below.
+
+The section that followed claimed 64 x 2 was a Sound Blaster quirk. **That was
+wrong**, and it was wrong because of a bad instrument. A sweep on the Apple
+USB-C adapter later the same day, checking the driver with `jack_lsp` instead
+of by eye:
+
+| period | periods | driver |
+|--------|---------|--------|
+| 64     | 2       | **FAIL** |
+| 128    | 2       | OK |
+| 256    | 2       | OK |
+| 1024   | 2       | OK |
+| 64     | 3       | OK |
+
+64 x 2 is the only failing cell **on this DAC too** — the same signature as the
+Sound Blaster. The earlier "it started fine" reading came from seeing the jackd
+process alive plus an `ALSA: use 2 periods for playback` line, neither of which
+distinguishes a running driver from a dead one. The driver was never running.
+`jack_lsp` returning ports is the check that can fail; the other two cannot.
+
+The honest rule from both devices is **64 needs 3 periods**, not "periods 3
+everywhere" and not "periods 2 everywhere".
+
+## SUPERSEDED — the retracted device-specific claim, kept for the record
 
 Answered on mains, with an Apple USB-C to 3.5mm adapter (`05ac:110a`, card 5)
 selected as the JACK device:
