@@ -64,7 +64,44 @@ Period size stays 64, so per-period latency is unchanged; total buffer goes
 from ~2.7 ms to ~4 ms. Verified: full stack active, `Surge XT:out_*` connected
 to `system:playback_*`, peak meter tapping.
 
-## OPEN — retest on mains power
+## RESOLVED 2026-09-01 — the failure is device-specific
+
+Answered on mains, with an Apple USB-C to 3.5mm adapter (`05ac:110a`, card 5)
+selected as the JACK device:
+
+    scripts/set-surge-audio.sh --periods 2
+    jackd -R -P70 -d alsa -P hw:5 -r 48000 -p 64 -n 2
+    ALSA: use 2 periods for playback
+
+**The driver started.** 64 x 2 is fine here. Mitch also reports 64 x 2 tested
+and working. So question 1 above is answered yes-it-was-always-marginal-there,
+and the failure recorded on 2026-08-29 is a property of the Sound Blaster
+Play! 3, not of 64 x 2.
+
+**What this says about the fix.** Pinning `MPE_JACK_PERIODS=3` was a global
+answer to a one-device fault, and it silently cost every other DAC a third of
+its latency budget. Mitch's objection is the correct one: *"if it doesn't work
+with the Sound Blaster then I won't use it on the Sound Blaster, but disabling
+it for all devices is silly."* The Pi is back to `MPE_JACK_PERIODS=2`. The
+touch modal's hint was the same over-generalization in another place — one
+device's behaviour printed at every device — and has been reverted to
+"Lower values reduce latency; heavy patches may crackle."
+
+**Limits of this result, stated plainly.** Two things are NOT shown:
+
+1. Only *driver start* was verified at 64 x 2. Steady-state xrun behaviour at
+   64 x 2 was not measured, because the buffer moved to 128 during the session
+   before a soak window could run. At 128 x 2 the steady state is clean:
+   0 xrun/process-error lines in a 30 s sample, all services active. The xrun
+   burst in the log at startup is Surge joining the graph and settles.
+2. The Sound Blaster arm was not re-run today. "Device-specific" rests on the
+   2026-08-29 Sound Blaster measurement plus today's Apple result, not on a
+   same-day A/B.
+
+The per-device conclusion below therefore still stands, and is now the
+recommended direction rather than a speculation.
+
+## SUPERSEDED — the original open question, kept for the record
 
 64 x 2 was in service before today, so it worked somewhere. Unresolved which:
 
