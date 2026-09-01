@@ -98,6 +98,19 @@ enumerates **high-speed** (480 Mbps, 125 µs microframes = 6 frames) and runs 64
 without complaint. A user staring at "no sound" should be able to see that fact
 rather than discover it through a day of bisection.
 
+### Absent devices are not offered
+
+**RESOLVED 2026-09-01 (Mitch): the menu lists PRESENT devices only.** A row you
+cannot pick is not a choice, and offering one invites exactly the selection that
+this spec exists to prevent.
+
+One exception, and it is not a selectable row: when `mpe.env` names a device that
+is **not currently present**, show it as an inert row marked *"saved — not
+connected"*. Without it the stored preference is invisible and the user cannot
+tell whether they ever set one; with it, the row explains the very fall-through
+described in §4. It must not be selectable, because selecting it would do
+nothing.
+
 Virtual cards are **excluded** from the list by `mpe_card_is_virtual()` — the
 existing single predicate. Do not write a second list. That predicate exists
 because five hand-maintained "which cards are virtual" lists had already
@@ -125,12 +138,14 @@ the appliance reports as `state=ok`.
 This is the section that matters. Get it wrong and the whole feature is a
 liability.
 
-**The appliance MUST NOT silently substitute another device.**
+**The appliance MUST NOT silently substitute another device.** The prohibition
+is on the *silence*, not on the substitution — see the resolution below.
 
 | situation | required behaviour |
 |---|---|
 | chosen device present | bind it |
-| chosen device absent | bind the idle sink, report `audible=no`, say *which* device is missing, by name |
+| chosen device absent | **fall through to Automatic**, and say loudly *which* device is missing, by name |
+| chosen device absent AND Automatic finds nothing | bind the idle sink, report `audible=no` |
 | chosen device absent, "Automatic" selected | existing tier detection |
 | two devices match an ambiguous identity | surface it; do not pick one |
 
@@ -143,6 +158,18 @@ must feed those fields, not bypass them.
 A missing *chosen* device is a stronger signal than a missing *any* device: the
 user told us what they wanted and it is not here. Say so by name — "Scarlett 4i4
 not connected", not "no audio output".
+
+### The stored selection is a preference, never a command
+
+**RESOLVED 2026-09-01 (Mitch).** A saved device is applied *only when that device
+is actually present*. When it is not, the appliance falls through to Automatic
+and says what happened, by name. A rig that is silent at soundcheck is worse than
+one that is on the wrong output and says so.
+
+This single rule answers three questions at once — boot, hot-unplug, and restore
+after a reflash — which is why it is stated here once rather than three times.
+The selection **is** in the backed-up set; restoring it restores a
+preference, not a binding.
 
 ---
 
@@ -212,17 +239,56 @@ menu where it can be selected mid-gig.
 
 ---
 
-## 8. Open questions for Mitch
+## 8. Decisions (answered by Mitch 2026-09-01)
 
-1. **Should a chosen-but-absent device block startup, or fall through to
-   Automatic?** Blocking is honest; falling through means the appliance always
-   makes noise. My inclination is fall through to Automatic *and say loudly what
-   happened*, because a rig that is silent at soundcheck is worse than one that
-   is on the wrong output and says so.
-2. **Should the selection survive a reflash?** It lives in `mpe.env` either way;
-   the question is whether it belongs in the backed-up set.
-3. **Does `state=` need a fourth value meaning "running but inaudible"?**
-   Deliberately unresolved since 2026-09-01: `degraded` is retired and
-   lint-banned by `lint-jack-only-paths.sh:56`. Currently expressed as
-   `jack.state audible=no` with `state=ok`, which is honest but requires two
-   reads to interpret.
+1. **A chosen-but-absent device falls through to Automatic, loudly.** Recorded in
+   §4. Mitch's challenge — *"why is a not-available device shown?"* — reframed the
+   question: the menu should not offer absent devices at all, which turns this
+   from a menu problem into a startup problem. §3 now lists present devices only.
+2. **The selection is backed up, and is applied only when the device is present.**
+   Recorded in §4 as one rule covering boot, hot-unplug, and restore.
+3. **`state=` gets a fourth value — but it must name a symptom, not a severity.**
+   `degraded` was retired and lint-banned (`lint-jack-only-paths.sh:56`) precisely
+   for being a severity word that told an operator nothing actionable. The
+   replacement must not repeat that. Proposed: **`state=inaudible`** — "the graph
+   is running and nothing can be heard" — which is the one fact that matters at
+   soundcheck and is currently only reachable by reading `jack.state audible=no`
+   *and* `engine.state` together and doing the join in your head.
+
+   Not yet written into the behaviour sections: the value has to be introduced
+   everywhere `state=` is read (HUD, watchdog, mpe-cli) in one change, or a reader
+   that does not know the word will treat it as an unknown state. That is
+   implementation sequencing, not an open question.
+
+---
+
+## 9. The MIDI side has no state at all — found 2026-09-01
+
+While diagnosing "MIDI won't connect", the appliance reported, truthfully:
+
+```
+engine.state   engine=jack active=jack state=ok reason= looper=off
+jack.state     device=hw:0 card=USB tier=2 audible=yes period=128 ...
+```
+
+Every field was correct. The audio path was perfect. The LUMI Keys BLOCK had been
+off the USB bus for **2 h 20 m** — disconnected at 15:02:07, one second before the
+DAC it was swapped alongside, and never re-enumerated. The instrument could not be
+played, and nothing in any state file said so, because **no state file mentions
+MIDI**.
+
+This is the same defect shape as §1, one layer up: a reading that is identical
+whether the instrument can be played or not. `audible=yes` is not a claim about
+playability, and today it was read as one.
+
+Topology detail worth keeping, because it contradicts the obvious story: the LUMI
+was on `3-1.3` — port 3 of the **first** hub — while the DAC was on `3-1.1.4`,
+port 4 of a **second hub cascaded off it**. The port being unplugged was not the
+LUMI's. Two bus-powered hubs in series propagate a tug or a power dip upward, and
+that is what took both devices down within one second.
+
+**Implied work, out of scope for this spec but not for the appliance:** a
+controller-presence signal that the HUD can read — `midi.state` with the
+controller's identity and presence, populated by the same identity model as §2.
+Until it exists, "is the instrument playable?" has no answer the appliance can
+give.

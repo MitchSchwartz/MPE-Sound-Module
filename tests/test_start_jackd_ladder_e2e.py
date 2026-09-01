@@ -147,10 +147,6 @@ class LadderEndToEndTests(unittest.TestCase):
         self.assertIn("no period in the ladder started a driver", out)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class StubsMustNotOutliveTheTestTests(unittest.TestCase):
     """The stub is named `jackd`. A survivor poisons the whole suite.
 
@@ -169,3 +165,7 @@ class StubsMustNotOutliveTheTestTests(unittest.TestCase):
                                capture_output=True, text=True).stdout.split()
         self.assertEqual(sorted(after), sorted(before),
                          "a stub jackd outlived the test and will break other tests")
+
+
+if __name__ == "__main__":
+    unittest.main()
