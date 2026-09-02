@@ -46,14 +46,23 @@ _restore() {
     # outright, because a client cannot start before the graph it attaches to is
     # accepting -- the same ordering truth the startup path already knows. Wait
     # on the PORTS, and verify, because "I started it" is not "it is running".
+    # This restore runs as root, and root's bare jack_lsp CANNOT SEE the graph --
+    # it must drop to the graph owner, which mpe_jack_lsp does and a bare call
+    # does not. The first version used bare jack_lsp here and reported
+    # surge_port=0 for a Surge that was running perfectly: the verification
+    # instrument was blind and published its blindness as a fact. A false alarm
+    # that the instrument is dead is nearly as expensive as missing a real one.
+    # shellcheck source=lib/audio-engine.sh
+    source "$SCRIPT_DIR/lib/audio-engine.sh" 2>/dev/null || true
+
     sudo systemctl start mpe-jackd 2>&1 | tail -1
     for _ in $(seq 1 30); do
-        jack_lsp 2>/dev/null | grep -q '^system:playback_' && break
+        mpe_jack_lsp 2>/dev/null | grep -q '^system:playback_' && break
         sleep 1
     done
     sudo systemctl start surge-xt-cli 2>&1 | tail -1
     for _ in $(seq 1 30); do
-        jack_lsp 2>/dev/null | grep -q '^Surge XT:out_1$' && break
+        mpe_jack_lsp 2>/dev/null | grep -q '^Surge XT:out_1$' && break
         sleep 1
     done
     case " $SERVICES " in
@@ -63,7 +72,7 @@ _restore() {
 
     local st
     st="$(systemctl is-active mpe-jackd surge-xt-cli 2>/dev/null | tr '\n' ' ')"
-    echo "SENTINEL phase2-restored state=\"${st}\" surge_port=$(jack_lsp 2>/dev/null | grep -c '^Surge XT:out_1$')"
+    echo "SENTINEL phase2-restored state=\"${st}\" surge_port=$(mpe_jack_lsp 2>/dev/null | grep -c '^Surge XT:out_1$')"
     case "$st" in
         *inactive*|*failed*)
             echo "WARNING: THE APPLIANCE DID NOT COME BACK -- ${st}" >&2
