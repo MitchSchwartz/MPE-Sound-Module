@@ -59,7 +59,12 @@ MAX_NOISE_FLOOR = 0.01
 
 SILENCE_PROBE_S = 0.5
 ONSET_TIMEOUT_S = 2.0
-SETTLE_S = 0.25
+# A fixed settle is a guess about the patch's release tail, and the pilot proved
+# the guess wrong on trial 2 (peak 0.253 still ringing after 0.25 s). Wait for
+# measured silence instead, and halt if it never arrives -- a note that never
+# decays means every subsequent onset would be attributed to the wrong trial.
+SILENCE_POLL_S = 0.05
+SILENCE_TIMEOUT_S = 8.0
 
 NOTE = 60
 VELOCITY = 100
@@ -190,6 +195,24 @@ class LatencyProbe:
             raise Halt("onset event set but frame not recorded -- instrument fault")
         return flr, trig
 
+    def wait_for_silence(self) -> float:
+        """Block until the release tail is provably below the floor threshold."""
+        deadline = time.monotonic() + SILENCE_TIMEOUT_S
+        while True:
+            with self._lock:
+                self._peak = 0.0
+            time.sleep(SILENCE_POLL_S)
+            with self._lock:
+                peak = self._peak
+            if peak < self._floor_thresh:
+                return peak
+            if time.monotonic() > deadline:
+                raise Halt(
+                    f"signal still at {peak:.5f} after {SILENCE_TIMEOUT_S}s of "
+                    "note-off -- the patch does not decay, so trials cannot be "
+                    "separated and no onset can be attributed to its own note"
+                )
+
     def close(self) -> None:
         try:
             self.client.deactivate()
@@ -233,7 +256,7 @@ def run_trial(probe: LatencyProbe, midi_out, inject_s: float) -> dict:
     finally:
         probe.disarm()
         midi_out.send_message([0x80, NOTE, 0])
-    time.sleep(SETTLE_S)
+    probe.wait_for_silence()
 
     rate = probe.rate
     trig_ms = (trig_frame - send_frame) * 1000.0 / rate
