@@ -15,6 +15,7 @@ class Screen(Enum):
     SURGE_BUFFER_MODAL = auto()
     SURGE_SAMPLE_RATE_MODAL = auto()
     AUDIO_PROFILE_MODAL = auto()
+    AUDIO_OUTPUT_MODAL = auto()
     BRIGHTNESS_MODAL = auto()
     WIFI_MODAL = auto()
     MIDI_SYNC_MODAL = auto()

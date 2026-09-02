@@ -35,9 +35,7 @@ if mpe_jack_softmode_enabled; then
     SOFTMODE_LABEL="softmode"
 fi
 
-echo "Starting jackd on $HW_DEV — ${JACK_BUFFER} x ${JACK_PERIODS} @ ${JACK_RATE} Hz (${SOFTMODE_LABEL})"
-mpe_jack_state_write "$HW_DEV" "$JACK_BUFFER" "$JACK_PERIODS" "$JACK_RATE" \
-    "${JACK_CARD_ID:-}" "${TIER:-}"
+REQUESTED_BUFFER="$JACK_BUFFER"
 
 # Binding a virtual card is a legitimate state (usb-host idle, no DAC yet) and an
 # inaudible one. Say so once, loudly, at the moment it happens -- otherwise the
@@ -57,5 +55,83 @@ case "$current_state" in
         ;;
 esac
 
-exec jackd -R -P"$JACK_PRIO" "${SOFTMODE_ARGS[@]}" \
-    -d alsa -P "$HW_DEV" -r "$JACK_RATE" -p "$JACK_BUFFER" -n "$JACK_PERIODS"
+# --- the period ladder -------------------------------------------------------
+#
+# jackd stays ALIVE when its driver thread fails to start, so an exit code
+# proves nothing. MEASURED 2026-09-01 on the Apple full-speed dongle at -p 64:
+#
+#   configuring for 48000Hz, period = 64 frames (1.3 ms)
+#   JackPosixProcessSync::LockedTimedWait error usec = 5000000
+#   Driver is not running / Cannot create new client
+#
+# systemd reported the unit active, engine.state read ok, and Surge retried
+# forever against a server that could never accept it. The only honest probe is
+# to do what a client does: connect, and require the driver's own ports.
+JACK_PROBE_TIMEOUT="${MPE_JACK_PROBE_TIMEOUT:-$(mpe_jack_ready_timeout)}"
+
+# mpe_wait_for_jack_server IS this probe -- "running is not the same as accepting
+# clients" is its own comment, and it is what start-surge-cli.sh already waits on
+# at every start. Do not hand-roll a jack_lsp loop here: mpe_jack_lsp resolves the
+# binary once, wraps it in `timeout`, and drops from root to the graph owner,
+# none of which a bare `jack_lsp` call does -- which is what
+# lint-jack-only-paths.sh forbids.
+#
+# This is a BOUNDED STARTUP wait, not a steady-state probe. d1541d8 moved the
+# watchdog's periodic graph probe to meter.state because registering a client on
+# a 10 s timer measured 35 xruns/min -- the largest single xrun source on the
+# appliance. That rule governs the running graph; readiness at start is still
+# answered here, and stops the moment the driver answers.
+_driver_is_running() {
+    mpe_wait_for_jack_server "$JACK_PROBE_TIMEOUT" || return 1
+    # Server accepted a client; make sure it was the DRIVER that came up and not
+    # a server sitting there with no ports to offer.
+    mpe_jack_lsp 2>/dev/null | grep -q '^system:playback_'
+}
+
+_stop_jackd() {
+    [ -n "${JACKD_PID:-}" ] || return 0
+    kill -TERM "$JACKD_PID" 2>/dev/null || true
+    for _ in 1 2 3 4 5; do
+        kill -0 "$JACKD_PID" 2>/dev/null || return 0
+        sleep 1
+    done
+    kill -KILL "$JACKD_PID" 2>/dev/null || true
+    wait "$JACKD_PID" 2>/dev/null || true
+}
+
+JACKD_PID=""
+trap '_stop_jackd' TERM INT
+
+while IFS= read -r CANDIDATE; do
+    [ -n "$CANDIDATE" ] || continue
+    echo "Starting jackd on $HW_DEV — ${CANDIDATE} x ${JACK_PERIODS} @ ${JACK_RATE} Hz (${SOFTMODE_LABEL})"
+
+    jackd -R -P"$JACK_PRIO" "${SOFTMODE_ARGS[@]}" \
+        -d alsa -P "$HW_DEV" -r "$JACK_RATE" -p "$CANDIDATE" -n "$JACK_PERIODS" &
+    JACKD_PID=$!
+
+    if _driver_is_running; then
+        if [ "$CANDIDATE" != "$REQUESTED_BUFFER" ]; then
+            # Loud, once, naming both numbers. A period the player did not choose
+            # is latency they will feel and be unable to account for.
+            echo "WARNING: ${REQUESTED_BUFFER} x ${JACK_PERIODS} would not start a driver on" \
+                 "'${JACK_CARD_ID:-$HW_DEV}' — running at ${CANDIDATE} instead." \
+                 "Latency is higher than configured. This DAC cannot sustain ${REQUESTED_BUFFER}."
+        fi
+        mpe_jack_state_write "$HW_DEV" "$CANDIDATE" "$JACK_PERIODS" "$JACK_RATE" \
+            "${JACK_CARD_ID:-}" "${TIER:-}" "$REQUESTED_BUFFER"
+        # `set -e` would abort on a non-zero wait before we could report it.
+        _rc=0; wait "$JACKD_PID" || _rc=$?
+        exit "$_rc"
+    fi
+
+    echo "WARNING: no driver at ${CANDIDATE} x ${JACK_PERIODS} on '${JACK_CARD_ID:-$HW_DEV}'" \
+         "after ${JACK_PROBE_TIMEOUT}s — jackd was up but no client could attach." >&2
+    _stop_jackd
+    JACKD_PID=""
+done < <(mpe_jack_fallback_ladder "$JACK_BUFFER")
+
+echo "ERROR: no period in the ladder started a driver on '${JACK_CARD_ID:-$HW_DEV}'." \
+     "Tried: $(mpe_jack_fallback_ladder "$JACK_BUFFER" | tr '\n' ' ')" >&2
+mpe_engine_state_write "$MPE_ENGINE_NAME" none failed no-driver "$(mpe_looper_state_label)"
+exit 1
