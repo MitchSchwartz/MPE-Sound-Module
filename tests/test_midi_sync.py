@@ -36,7 +36,7 @@ class TestMidiSyncConfig(unittest.TestCase):
             buffer_latency_ms(256, 48000, periods=3), 1000.0 * 256 * 3 / 48000
         )
 
-    def test_auto_offset_uses_jack_period_and_periods(self) -> None:
+    def test_auto_offset_covers_every_measured_leg_not_the_buffer_alone(self) -> None:
         env = os.environ.copy()
         try:
             os.environ.pop("MPE_MIDI_OUTPUT_OFFSET_MS", None)
@@ -46,8 +46,14 @@ class TestMidiSyncConfig(unittest.TestCase):
             os.environ["MPE_SURGE_SAMPLE_RATE"] = "48000"
             # The retired Surge key must not win over the live graph period.
             os.environ["MPE_SURGE_BUFFER_SIZE"] = "1024"
+            # period x periods was the WHOLE model until 2026-09-02, and it was
+            # wrong: it omitted Surge's own MIDI->audio leg (measured, one period
+            # plus 60 frames) and the DAC's hardware term. Asserting the sum
+            # keeps the retired Surge key from winning over the live graph, which
+            # is what this test was always for.
+            expected_frames = 256 + 60 + 256 * 3
             self.assertAlmostEqual(
-                resolve_output_offset_ms(), -1000.0 * 256 * 3 / 48000
+                resolve_output_offset_ms(), -1000.0 * expected_frames / 48000
             )
         finally:
             os.environ.clear()

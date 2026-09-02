@@ -108,7 +108,11 @@ class DisplayAndRuntimeAgreeTests(unittest.TestCase):
                 applied = midi_sync.resolve_output_offset_ms()
                 shown = midi_sync_settings.offset_ms_value()
                 self.assertEqual(shown, f"{applied:+.0f} ms")
-                self.assertEqual(shown, "-4 ms")
+                # Was "-4 ms" (period x periods alone). Measured 2026-09-02: the
+                # model omitted Surge's own 159-frame MIDI->audio leg entirely.
+                # The invariant this test guards -- displayed == applied -- is
+                # unchanged; only the quantity both now compute is correct.
+                self.assertEqual(shown, "-7 ms")
         finally:
             path.unlink()
 

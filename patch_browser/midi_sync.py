@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from typing import Any
 
 from patch_browser.midi_clock import PPQN, normalize_midi_bytes
@@ -127,13 +128,130 @@ def buffer_latency_ms(
     return 1000.0 * buf * n_periods / rate
 
 
+# Surge's own MIDI-in -> audio-out leg, which JACK cannot see and the offset
+# omitted entirely until 2026-09-02.
+#
+# MEASURED, n=30 per period (docs/measurements/midi-audio-latency-phase1-2026-09-02.md):
+#
+#     period  96 -> 159 frames      period 192 -> 249 frames
+#
+# Both distributions tight and unimodal. The slope between them is 0.94 and the
+# mechanism -- Surge picking MIDI up on the NEXT process callback -- predicts
+# exactly 1.0, so the model is one period plus a fixed dispatch cost. That fits
+# both points to within 3 frames (0.06 ms):
+#
+#     96 + 60 = 156 (measured 159)      192 + 60 = 252 (measured 249)
+#
+# A period-256 cell was run and DISCARDED: it returned a strict low/high
+# alternation every other trial, which is a harness artifact, not a property of
+# Surge. So this law is anchored on two periods and should be re-measured before
+# it is trusted far outside 96-192.
+SURGE_MIDI_LEG_CONST_FRAMES = 60
+
+OUTPUT_LATENCY_CONF = Path(__file__).resolve().parents[1] / "config" / "output-latency.conf"
+
+
+def surge_midi_leg_frames(period: int) -> int:
+    """Frames from a MIDI byte reaching Surge to its audio leaving Surge's port."""
+    if period <= 0:
+        return 0
+    return period + SURGE_MIDI_LEG_CONST_FRAMES
+
+
+def _running_card_key() -> str | None:
+    """usb:VID:PID of the card the graph is ACTUALLY bound to, or None.
+
+    Resolved from jack.state's device rather than the configured output, because
+    an absent selection legitimately falls through to another tier -- and
+    compensating for a DAC that is not the one making sound is exactly the class
+    of error this whole exercise exists to remove.
+    """
+    try:
+        from patch_browser.audio_engine import read_jack_state
+
+        device = str(read_jack_state().get("device", "")).strip()
+    except Exception:
+        return None
+    if not device.startswith("hw:"):
+        return None
+    index = device[3:].split(",", 1)[0].strip()
+    if not index.isdigit():
+        return None
+    try:
+        usbid = Path(f"/proc/asound/card{index}/usbid").read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    return f"usb:{usbid}" if usbid else None
+
+
+def _load_output_latency_table() -> dict[str, int]:
+    table: dict[str, int] = {}
+    try:
+        text = OUTPUT_LATENCY_CONF.read_text(encoding="utf-8")
+    except OSError:
+        return table
+    for line in text.splitlines():
+        line = line.split("#", 1)[0].strip()
+        if not line:
+            continue
+        parts = line.split()
+        if len(parts) >= 2 and parts[1].lstrip("-").isdigit():
+            table[parts[0]] = int(parts[1])
+    return table
+
+
+def output_hardware_latency_frames() -> int:
+    """Measured DAC latency beyond JACK's declaration, or 0 when unmeasured.
+
+    Zero is the honest answer for a device nobody has put on a loopback -- but it
+    is a KNOWN GAP, not a measurement, and must never be filled by guessing from
+    a similar-looking device. See config/output-latency.conf.
+    """
+    key = _running_card_key()
+    if not key:
+        return 0
+    return _load_output_latency_table().get(key, 0)
+
+
+def total_output_latency_ms() -> float:
+    """Every measured leg from a MIDI byte to sound in the air, in ms.
+
+    Three terms, only one of which the offset used before 2026-09-02:
+
+        Surge MIDI -> its output port   measured   (period + 60 frames)
+        its port   -> the converter     declared   (period x periods)
+        the DAC itself                  measured   (config/output-latency.conf)
+
+    The old model was the middle term alone -- 192 frames at period 96 x 2,
+    against ~415 actual. It under-compensated by more than half the real figure,
+    in the direction that fires MIDI LATE against the looper grid.
+    """
+    running = _running_graph_params()
+    if running is not None:
+        period, n_periods, rate = running
+    else:
+        period = _env_int("MPE_JACK_BUFFER", None) or _env_int(
+            "MPE_SURGE_BUFFER_SIZE", DEFAULT_BUFFER
+        )
+        n_periods = _env_int("MPE_JACK_PERIODS", 3)
+        rate = _env_int("MPE_SURGE_SAMPLE_RATE", DEFAULT_SAMPLE_RATE)
+    if not period or not n_periods or not rate or rate <= 0:
+        return 0.0
+    frames = (
+        surge_midi_leg_frames(period)
+        + period * n_periods
+        + output_hardware_latency_frames()
+    )
+    return 1000.0 * frames / rate
+
+
 def resolve_output_offset_ms() -> float:
     """Negative ms = fire MIDI earlier so Surge audio aligns with looper grid."""
     raw = os.environ.get("MPE_MIDI_OUTPUT_OFFSET_MS", "").strip()
     if raw:
         return float(raw)
     if os.environ.get("MPE_MIDI_OUTPUT_OFFSET_AUTO", "1").strip().lower() in ("1", "true", "yes"):
-        return -buffer_latency_ms()
+        return -total_output_latency_ms()
     return 0.0
 
 
