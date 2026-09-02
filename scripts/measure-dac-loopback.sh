@@ -25,7 +25,7 @@ RATE="${RATE:-48000}"
 PERIOD="${PERIOD:-256}"
 NPERIODS="${NPERIODS:-3}"
 SETTLE_S="${SETTLE_S:-12}"
-SERVICES="${SERVICES:-mpe-looper surge-xt-cli mpe-jackd}"
+SERVICES="${SERVICES:-mpe-sooperlooper surge-xt-cli mpe-jackd}"
 
 TMP_JACK_PID=""
 
@@ -39,7 +39,7 @@ _restore() {
     fi
     pkill -f jack_iodelay 2>/dev/null || true
     # Start in reverse dependency order: the graph before its clients.
-    for s in mpe-jackd surge-xt-cli mpe-looper; do
+    for s in mpe-jackd surge-xt-cli mpe-sooperlooper; do
         case " $SERVICES " in *" $s "*) sudo systemctl start "$s" 2>&1 | tail -1 ;; esac
     done
     sleep 3
@@ -56,6 +56,10 @@ pkill -x jackd 2>/dev/null || true
 sleep 1
 
 echo "=== temporary duplex server: capture hw:${CAPTURE_CARD} / playback ${PLAYBACK_DEV} ==="
+# Without a session bus jackd cannot reserve the device over dbus and dies
+# with "cannot be acquired" -- which reads like the Scarlett is missing when
+# it is in fact present and free.
+JACK_NO_AUDIO_RESERVATION=1 \
 jackd -R -P70 -d alsa -C "hw:${CAPTURE_CARD}" -P "$PLAYBACK_DEV" \
     -r "$RATE" -p "$PERIOD" -n "$NPERIODS" > /tmp/phase2-jackd.log 2>&1 &
 TMP_JACK_PID=$!
