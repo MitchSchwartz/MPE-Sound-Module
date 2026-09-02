@@ -67,5 +67,44 @@ class AudioProfileTests(unittest.TestCase):
         self.assertEqual(run_mock.call_args.args[0][2], "usb-host")
 
 
+
+class MenuHidesSessionProfileTests(unittest.TestCase):
+    """usb-host-session is off the menu, but still a profile the appliance knows.
+
+    Hiding it by deleting the PROFILE_OPTIONS row would make
+    profile_option_label() fall through to "Analog", so an appliance sitting on
+    the hidden profile would report itself as a different one. That is the
+    recurring defect in this area, not a cosmetic detail.
+    """
+
+    def test_menu_omits_the_hidden_profile(self) -> None:
+        keys = [key for key, _t, _s in audio_profile.menu_profile_options("standalone")]
+        self.assertNotIn("usb-host-session", keys)
+        self.assertIn("standalone", keys)
+        self.assertIn("usb-host", keys)
+
+    def test_hidden_profile_reappears_when_it_is_the_active_one(self) -> None:
+        """Otherwise the menu cannot name the current state or switch off it."""
+        keys = [key for key, _t, _s in audio_profile.menu_profile_options("usb-host-session")]
+        self.assertIn("usb-host-session", keys)
+
+    def test_the_label_survives_being_hidden(self) -> None:
+        self.assertEqual(audio_profile.profile_option_label("usb-host-session"), "USB session")
+
+    def test_the_profile_is_still_valid_and_normalizes(self) -> None:
+        self.assertIn("usb-host-session", audio_profile.VALID_PROFILES)
+        self.assertEqual(
+            audio_profile.normalize_profile("usb-host-session"), "usb-host-session"
+        )
+
+    def test_the_modal_renders_the_menu_not_the_vocabulary(self) -> None:
+        """A stale PROFILE_OPTIONS reference in the modal would silently undo this."""
+        src = (
+            Path(__file__).resolve().parent.parent
+            / "patch_browser" / "touch_browser_audio_profile_modal.py"
+        ).read_text(encoding="utf-8")
+        self.assertNotIn("PROFILE_OPTIONS", src)
+        self.assertIn("menu_profile_options", src)
+
 if __name__ == "__main__":
     unittest.main()
