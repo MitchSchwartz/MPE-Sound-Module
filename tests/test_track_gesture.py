@@ -425,10 +425,74 @@ class StopAllIsImmediateTests(unittest.TestCase):
 
         sent = [(c.args[0], c.args[1]) for c in osc.send_message.call_args_list]
         quant = [v for path, v in sent if path == "/sl/-1/set"]
-        self.assertEqual(quant, [["mute_quantized", 0.0], ["mute_quantized", 1.0]],
-                         "quantize must be lifted for the stop, then restored")
+        self.assertEqual(
+            quant,
+            [["mute_quantized", 0.0], ["quantize", 0.0],
+             ["quantize", 0.0], ["mute_quantized", 1.0]],
+            "both quantizers lifted for the stop, then restored",
+        )
         hits = [v for path, v in sent if path == "/sl/-1/hit"]
-        self.assertEqual(hits, ["mute_on", "pause_on"])
+        self.assertEqual(hits, ["mute_on", "trigger", "pause_on"])
+
+    def test_stop_all_rewinds_every_loop(self) -> None:
+        """The regression Mitch reported 2026-08-30.
+
+        Stop All froze each loop wherever it happened to be, so restarting
+        resumed mid-loop instead of from the top -- and loops came back at
+        different phases from each other. MEASURED on the appliance with four
+        loops stopped: 46%, 46%, 73% and 23% of the way through.
+
+        `trigger` is the rewind, and it has to land BETWEEN the mute and the
+        pause: before the mute it would be audible, after the pause there is
+        nothing left running to rewind.
+        """
+        from scripts.sooperlooper.track_gesture import build_track_gestures, stop_all_loops
+
+        osc = MagicMock()
+        _, gestures = build_track_gestures(
+            osc=osc, compositor=compositor(), num_loops=2,
+            hold_ms=1000.0, debounce_ms=0.0
+        )
+        stop_all_loops(osc, num_loops=2, gestures=gestures)
+
+        hits = [c.args[1] for c in osc.send_message.call_args_list
+                if c.args[0] == "/sl/-1/hit"]
+        self.assertIn("trigger", hits, "nothing rewound the loops")
+        self.assertLess(hits.index("mute_on"), hits.index("trigger"),
+                        "the rewind would be audible")
+        self.assertLess(hits.index("trigger"), hits.index("pause_on"),
+                        "paused first — the rewind lands on a stopped loop")
+
+    def test_stop_all_restores_quantize_to_what_the_grid_says(self) -> None:
+        """Positive control: the restore is not an unconditional 1.0.
+
+        With no grid, every loop is deliberately free-form -- the take that
+        will DEFINE the grid must not be synced to a cycle inherited from the
+        previous session. An unconditional restore would reintroduce exactly
+        the imaginary-bar bug set_grid_active was written to kill.
+        """
+        from scripts.sooperlooper.track_gesture import build_track_gestures, stop_all_loops
+        from scripts.sooperlooper.sl_grid_state import GridState
+
+        osc = MagicMock()
+        _, gestures = build_track_gestures(
+            osc=osc, compositor=compositor(), num_loops=2,
+            hold_ms=1000.0, debounce_ms=0.0
+        )
+        grid = GridState()
+        grid.established = True
+        grid.bpm = 120.0
+        grid.bars = 1
+        grid.cycle_s = 2.0
+        for fs in gestures:
+            fs.grid = grid
+        stop_all_loops(osc, num_loops=2, gestures=gestures)
+
+        quant = [v for path, v in
+                 ((c.args[0], c.args[1]) for c in osc.send_message.call_args_list)
+                 if path == "/sl/-1/set" and v[0] == "quantize"]
+        self.assertEqual(quant, [["quantize", 0.0], ["quantize", 1.0]],
+                         "with a grid established the restore is 1.0")
 
     def test_stop_all_skips_pending_on_off_muted_empty_loops(self) -> None:
         """Global mute leaves empties at sl=20; must not get pending=stopped."""
@@ -619,3 +683,74 @@ class OverdubOnePassTests(unittest.TestCase):
         self._pos(fs, 1.9)
         self._pos(fs, 0.02)
         self.assertNotIn("overdub", self._hits(fs))
+
+
+class StopAllVerificationTests(unittest.TestCase):
+    """Stop All must report what it ACHIEVED, not what it requested.
+
+    Reported 2026-08-30: clips restarting 5-10s after Stop All. The only
+    evidence was `-> stop all: paused 15 loops`, printed unconditionally at the
+    end of the function -- it read the same whether every loop paused, some
+    did, or none did. So "they never stopped" and "something restarted them"
+    could not be told apart, and the log actively pointed away from the first.
+    """
+
+    def _gestures(self, states):
+        from scripts.sooperlooper.track_gesture import TrackGesture
+
+        out = []
+        for loop, state in enumerate(states):
+            fs = TrackGesture(loop=loop, hold_ms=1000.0, debounce_ms=0.0)
+            fs.bind(MagicMock(), compositor(), 36 + loop)
+            fs.sync_from_sl(state)
+            out.append(fs)
+        return out
+
+    def test_a_loop_that_did_not_stop_is_named(self) -> None:
+        from scripts.sooperlooper.track_gesture import verify_stop_all
+        from scripts.sooperlooper.sl_loop_states import (
+            SL_STATE_PAUSED, SL_STATE_PLAYING,
+        )
+
+        lines = []
+        still = verify_stop_all(
+            self._gestures([SL_STATE_PAUSED, SL_STATE_PLAYING, SL_STATE_PAUSED]),
+            log=lines.append,
+        )
+        self.assertEqual(still, [(1, SL_STATE_PLAYING)])
+        self.assertIn("did NOT stop", lines[0])
+        self.assertIn("loop 1", lines[0], "the offender must be named")
+
+    def test_all_stopped_reports_clean(self) -> None:
+        """Positive control: a verifier that always cried wolf would be as
+        useless as the unconditional print it replaces."""
+        from scripts.sooperlooper.track_gesture import verify_stop_all
+        from scripts.sooperlooper.sl_loop_states import (
+            SL_STATE_OFF, SL_STATE_OFF_MUTED, SL_STATE_PAUSED,
+        )
+
+        lines = []
+        still = verify_stop_all(
+            self._gestures([SL_STATE_PAUSED, SL_STATE_OFF, SL_STATE_OFF_MUTED]),
+            log=lines.append,
+        )
+        self.assertEqual(still, [])
+        self.assertIn("all 3 loops stopped", lines[0])
+
+    def test_stop_all_returns_a_verification_deadline(self) -> None:
+        """Asking in the same breath returns SL's PRE-stop state, which would
+        confirm whatever was already there."""
+        import time
+        from scripts.sooperlooper.track_gesture import (
+            build_track_gestures, stop_all_loops, STOP_ALL_VERIFY_S,
+        )
+
+        osc = MagicMock()
+        _, gestures = build_track_gestures(
+            osc=osc, compositor=compositor(), num_loops=2,
+            hold_ms=1000.0, debounce_ms=0.0
+        )
+        before = time.monotonic()
+        due = stop_all_loops(osc, num_loops=2, gestures=gestures)
+        self.assertIsNotNone(due, "no deadline — nothing would ever verify")
+        self.assertGreaterEqual(due, before + STOP_ALL_VERIFY_S)

@@ -40,7 +40,7 @@ Canon: [`PI5-PLAYER-SETUP-LOG.md`](../PI5-PLAYER-SETUP-LOG.md) · [`PI5-TRANSITI
 | Item | Value / action |
 |------|----------------|
 | cmdline | `irqaffinity=0,1 threadirqs` + HDMI disabled for DSI |
-| JACK buffer | **128×2** @ 48 kHz (64×2 broke ALSA/USB; 1024 parity script overwrote tuning — **fixed** to preserve appliance values) |
+| JACK buffer | **128×2** @ 48 kHz (1024 parity script overwrote tuning — **fixed** to preserve appliance values) |
 | CPU affinity | jackd / surge / looper / peak-meter → **2–3**; poly governor + touch UI → **0–1** |
 | Governor | `MPE_CPU_GOVERNOR=performance` via `mpe-cpu-governor.service` |
 | MIDI | apt `python3-rtmidi`; **no** `RTMIDI_API`; LUMI → remapper → Midi Through → Surge |
@@ -89,7 +89,7 @@ Operator noted **no cooler** and **3 A PSU** — flags expected under 64-voice s
 
 ### F3 — Buffer ladder re-derived on Pi 5 (not ported from Pi 4)
 
-64×2 caused ALSA/driver collapse; **128×2** is the current player sweet spot (ear-validated).
+**128×2** is the current player sweet spot (ear-validated).
 This is **platform-specific tuning**, not a contradiction of Pi 4 V11 floors — replication suite
 must still run at **frozen Pi 4 cells** once hardware allows.
 

@@ -171,3 +171,86 @@ class UsbHostIdleSinkTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, msg=result.stderr)
         self.assertIn("TIER=1", result.stdout)
         self.assertIn("DEVICE_ID=0.4", result.stdout)
+
+
+MOCK_PI5_USB_HOST_NO_DAC = "\n".join(
+    [
+        # What a Pi 5 in usb-host actually offers with nothing plugged in:
+        # the gadget, two disconnected HDMI ports, ALSA's virtual default, and
+        # the snd-dummy card idle sink. No headphone jack — that is a Pi 4 part.
+        "Output Audio Device [0.13] : Direct hardware device on ALSA.UAC2_Gadget",
+        "Output Audio Device [0.0] : ALSA.Default Audio Device (1)",
+        "Output Audio Device [0.1] : Direct hardware device on ALSA.vc4-hdmi-0",
+        "Output Audio Device [0.2] : Direct hardware device on ALSA.vc4-hdmi-1",
+        "Output Audio Device [0.7] : Direct hardware device on ALSA.Dummy",
+    ]
+)
+
+
+class Pi5IdleSinkTests(unittest.TestCase):
+    """usb-host on a Pi 5 with no external DAC must still resolve a sink.
+
+    The `usb-host` profile refuses to bind the UAC2 gadget until the host is
+    actually capturing, and that refusal is not a policy — MEASURED on the
+    appliance 2026-08-30 with the host attached but idle:
+
+        aplay -D <gadget>   -> write error: Input/output error, after 1s
+        aplay -D <Dummy> -> 3 s of audio took 3 s, nothing reading it
+
+    A UAC2 gadget has no clock of its own; the host enables the streaming
+    interface and isochronous transfers only happen while it is active. So the
+    graph runs on a free-running local device and bridges into the gadget when
+    the host appears.
+
+    `docs/USB-AUDIO-HOST.md` gives the Pi 4 answer for that local device — "No
+    external DAC: idle sink is Pi headphone". The Pi 5 has no headphone jack
+    and its HDMI ports read `disconnected` with no display, so there was no
+    idle sink at all: jackd failed, Surge failed, the appliance went silent.
+    """
+
+    def test_the_dummy_card_is_the_idle_sink_when_nothing_else_exists(self) -> None:
+        result = _run_detect(MOCK_PI5_USB_HOST_NO_DAC, profile="usb-host")
+        self.assertIn("TIER=3", result.stdout, result.stderr)
+        self.assertIn("DEVICE_ID=0.7", result.stdout, result.stderr)
+
+    def test_it_never_outranks_a_real_interface(self) -> None:
+        """A plugged-in DAC must win. An idle sink that captured the graph
+        while real hardware was attached would be silent output on purpose."""
+        with_dac = MOCK_PI5_USB_HOST_NO_DAC + (
+            "\nOutput Audio Device [0.4] : Front output on Sound Blaster Play! 3"
+        )
+        result = _run_detect(with_dac, profile="usb-host")
+        self.assertIn("DEVICE_ID=0.4", result.stdout, result.stderr)
+        self.assertNotIn("TIER=3", result.stdout)
+
+    def test_the_gadget_still_wins_once_the_host_captures(self) -> None:
+        """Tier 0 must keep its precedence — the idle sink is only for idle."""
+        with tempfile.TemporaryDirectory() as tmp:
+            flag = Path(tmp) / "streaming"
+            flag.write_text("48000", encoding="utf-8")
+            result = _run_detect(
+                MOCK_PI5_USB_HOST_NO_DAC,
+                profile="usb-host",
+                extra_env={"MPE_UAC2_HOST_STREAMING_FLAG": str(flag)},
+            )
+        self.assertIn("TIER=0", result.stdout, result.stderr)
+
+    def test_no_sink_at_all_fails_loudly(self) -> None:
+        """Tier 4's own comment promises this and did not deliver it.
+
+        On 2026-08-30 it returned `ALSA.Default Audio Device (1)` — not a card.
+        `jackd-prestart.sh` could not map it to anything in /proc/asound/cards
+        and failed one layer later with "no ALSA card matches tier '4'", an
+        error that sent a diagnosis hunting for a missing sound interface
+        instead of reporting that no sink existed.
+        """
+        nothing_real = "\n".join(
+            [
+                "Output Audio Device [0.13] : Direct hardware device on ALSA.UAC2_Gadget",
+                "Output Audio Device [0.0] : ALSA.Default Audio Device (1)",
+            ]
+        )
+        result = _run_detect(nothing_real, profile="usb-host")
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertNotIn("DEVICE_ID=0.0", result.stdout,
+                         "returned ALSA's virtual default as if it were a card")

@@ -40,13 +40,85 @@ MPE_JACKD_SERVICE="mpe-jackd.service"
 # disagrees with what those servers actually ran (256) — aliasing the two lets stale
 # config silently reassign the live period on any appliance missing the JACK key.
 # The Surge key stays alive for calibration only; nothing here reads it.
+# config/jack-periods.conf is THE list -- see that file for why it is not four
+# lists. Never inline the values here; a copy is how 96 and 192 became runnable
+# on the appliance and unreachable from every user interface.
+# Resolve against THIS FILE, not $MPE_MODULE_REPO alone. MEASURED 2026-09-01:
+# set-surge-audio.sh validates --buffer at line 74 but sources the appliance env
+# at line 116, so MPE_MODULE_REPO was empty at validation time, the path came out
+# as "/config/jack-periods.conf", and EVERY period was rejected -- 128 and 256 as
+# surely as 48 and 96. The conf ships beside the library that reads it, so the
+# library can always find it without depending on when the caller loads its env.
+mpe_jack_periods_conf() {
+    if [ -n "${MPE_JACK_PERIODS_CONF:-}" ]; then
+        printf '%s' "$MPE_JACK_PERIODS_CONF"
+        return 0
+    fi
+    local root="${MPE_MODULE_REPO:-}"
+    if [ -z "$root" ] || [ ! -r "$root/config/jack-periods.conf" ]; then
+        root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+    fi
+    printf '%s' "$root/config/jack-periods.conf"
+}
+
+# An unreadable list must be LOUD, never silently restrictive. Returning 1 here
+# made is_valid reject every value, which reads to the user as "96 is not a legal
+# buffer" -- a statement about the value when the truth was that the validator
+# could not find its own data. Same shape as the rest of 2026-09-01: an answer
+# that looks identical whether the instrument works or not.
+mpe_jack_period_presets() {
+    local f; f="$(mpe_jack_periods_conf)"
+    if [ ! -r "$f" ]; then
+        echo "ERROR: cannot read the JACK period list at '$f' — no period can be" >&2
+        echo "       validated. This is a broken install, not an invalid value." >&2
+        return 1
+    fi
+    sed -e 's/#.*//' -e 's/[[:space:]]//g' "$f" | grep -E '^[0-9]+$'
+}
+
+mpe_jack_period_is_valid() {
+    local want="${1:-}" p
+    [ -n "$want" ] || return 1
+    while IFS= read -r p; do
+        [ "$p" = "$want" ] && return 0
+    done < <(mpe_jack_period_presets)
+    return 1
+}
+
 mpe_buffer_env_canonical() {
-    case "${MPE_JACK_BUFFER:-}" in
-        32 | 64 | 96 | 128 | 192 | 256 | 512 | 1024) printf '%s' "$MPE_JACK_BUFFER"; return 0 ;;
-        '') printf '%s' "$MPE_JACK_BUFFER_DEFAULT"; return 0 ;;
-    esac
+    if [ -z "${MPE_JACK_BUFFER:-}" ]; then
+        printf '%s' "$MPE_JACK_BUFFER_DEFAULT"; return 0
+    fi
+    if mpe_jack_period_is_valid "$MPE_JACK_BUFFER"; then
+        printf '%s' "$MPE_JACK_BUFFER"; return 0
+    fi
     echo "WARNING: MPE_JACK_BUFFER='${MPE_JACK_BUFFER}' invalid — using $MPE_JACK_BUFFER_DEFAULT" >&2
     printf '%s' "$MPE_JACK_BUFFER_DEFAULT"
+}
+
+# Periods to try, in order, when the configured one will not start a driver.
+# MEASURED 2026-09-01: the Apple full-speed dongle never starts a driver thread
+# at 64 (`LockedTimedWait ... / Driver is not running`, every attempt) and is
+# clean at 128. Before this ladder the appliance simply stayed silent, with
+# jackd "active" and engine.state green -- the player's only signal was no sound.
+#
+# Only ever climbs. Falling to a SMALLER period would be the one direction T13
+# measured as actively worse (128x6 vs 256x3, identical runway, 713 vs 1.53
+# xruns/60s: period size binds).
+MPE_JACK_FALLBACK_PERIODS_DEFAULT="128 256"
+
+mpe_jack_fallback_ladder() {
+    local start="${1:-}" p seen
+    [ -n "$start" ] || return 1
+    printf '%s\n' "$start"
+    seen="$start"
+    for p in ${MPE_JACK_FALLBACK_PERIODS:-$MPE_JACK_FALLBACK_PERIODS_DEFAULT}; do
+        case " $seen " in *" $p "*) continue ;; esac
+        [ "$p" -gt "$start" ] 2>/dev/null || continue
+        mpe_jack_period_is_valid "$p" || continue
+        printf '%s\n' "$p"
+        seen="$seen $p"
+    done
 }
 
 # After sourcing mpe.env: report (do not silently reconcile) a period the operator set
@@ -370,20 +442,48 @@ mpe_wait_for_jack_server() {
     done
 }
 
+# `device` is hw:N, and ALSA reuses N as cards come and go -- so the index alone
+# cannot answer "what are we actually bound to?". card/tier/audible are recorded
+# alongside it because without them engine.state and jack.state read IDENTICALLY
+# whether the graph is driving the player's DAC or the inaudible idle sink. That
+# is the reading-the-same-either-way shape (DECISIONS.md 2026-08-15), and it is
+# how a silent appliance passed every check it had on 2026-08-30.
 mpe_jack_state_write() {
     local device="${1:-}"
     local period="${2:-}"
     local periods="${3:-}"
     local rate="${4:-}"
-    local file prev_period
+    local card="${5:-}"
+    local tier="${6:-}"
+    # What was ASKED for, when a fallback had to climb off it. Defaults to the
+    # applied period so the common case writes them equal. A doubled period is
+    # latency the player feels and cannot account for; it must never be silent.
+    local requested="${7:-${2:-}}"
+    local file prev_period audible
     file="$(mpe_jack_state_file)"
     prev_period="$(mpe_state_get "$file" period)"
+    # Unknown card => unknown audibility. Do not guess "yes"; a wrong yes here is
+    # the failure this field exists to make visible.
+    if [ -z "$card" ]; then
+        audible=unknown
+    elif mpe_card_is_virtual "$card"; then
+        audible=no
+    else
+        audible=yes
+    fi
     mpe_state_write_atomic "$file" \
         "started=$(date +%s)" \
         "device=$device" \
+        "card=$card" \
+        "tier=$tier" \
+        "audible=$audible" \
         "period=$period" \
+        "requested_period=$requested" \
         "periods=$periods" \
         "rate=$rate" || true
+    if [ -n "$period" ] && [ -n "$requested" ] && [ "$period" != "$requested" ]; then
+        mpe_session_event_emit buffer.fallback "period=$period" "requested=$requested"
+    fi
     if [ -n "$period" ] && [ -n "$prev_period" ] && [ "$period" != "$prev_period" ]; then
         mpe_session_event_emit buffer.changed "period=$period" "from=$prev_period"
     fi
@@ -392,6 +492,29 @@ mpe_jack_state_write() {
 # Epoch seconds when jackd last started, or 0 when unknown. Written by
 # start-jackd.sh rather than parsed out of systemctl so it is testable and works
 # for a hand-started server too.
+# What the graph is actually bound to, and whether the player can hear it.
+mpe_jack_bound_card() {
+    mpe_state_get "$(mpe_jack_state_file)" card
+}
+
+# 0 = audible. Unknown counts as NOT audible: this gates a warning, and a missed
+# warning about silence is worse than an extra one.
+mpe_jack_bound_is_audible() {
+    [ "$(mpe_state_get "$(mpe_jack_state_file)" audible)" = yes ]
+}
+
+# reason= value for a graph that is up and running but cannot be heard. Uses the
+# existing free-form reason vocabulary (no-server, no-jack-device, no-device) --
+# NOT a new state= value: `degraded` is retired ALSA-era vocabulary and
+# lint-jack-only-paths.sh bans the token outright.
+mpe_engine_sink_reason() {
+    if mpe_jack_bound_is_audible; then
+        printf '%s' ""
+    else
+        printf '%s' "idle-sink"
+    fi
+}
+
 mpe_jack_start_epoch() {
     local value
     value="$(mpe_state_get "$(mpe_jack_state_file)" started)"
@@ -435,15 +558,45 @@ mpe_systemctl() {
     sudo -n systemctl "$@"
 }
 
+# THE card-identity predicate. True when a card cannot be the instrument's
+# audible output: a pipe (Loopback), a clock with no DAC behind it (Dummy), a
+# port with nothing plugged into it (vc4hdmi), or an endpoint only the tethered
+# host can drain (UAC2).
+#
+# This used to be four hand-maintained regex lists in three files plus a fifth in
+# mpe-cli, and they disagreed. When snd-dummy became the Pi 5 idle sink on
+# 2026-08-30 only two of the five learned about it -- and one of the two that did
+# not was mpe_physical_playback_card_present, the boot gate that decides whether
+# to wait for a USB DAC to enumerate. The gate saw Dummy, called it a real card,
+# skipped the wait, and jackd bound the one device on the appliance that is
+# inaudible by construction. Silent instrument, every reading green.
+#
+# So there is now one list. Every site that asks "is this card real?" calls this.
+#
+# NOT included: Headphones. On a Pi 4 that jack is a real, audible output and a
+# legitimate idle sink (detect-audio-device.sh tier 3). mpe-cli's _jack_pick_dac
+# excludes it because it answers a different question -- "which card is the
+# PREFERRED DAC" -- and that is not this predicate's job.
+# Patterns are ANCHORED, not open prefixes. `Dummy*` would also swallow a real
+# card called DummyPlug, and `UAC2*` a UAC2Audio interface -- silencing a working
+# rig is the exact failure this predicate exists to prevent, so it must not be
+# able to cause one. ALSA appends _1, _2 ... when two cards share an id, so that
+# suffix (and only that) is allowed.
+mpe_card_is_virtual() {
+    case "${1:-}" in
+        Loopback | Loopback_[0-9]* ) return 0 ;;
+        Dummy | Dummy_[0-9]* ) return 0 ;;
+        UAC2 | UAC2_[0-9]* | UAC2Gadget | UAC2_Gadget ) return 0 ;;
+        vc4hdmi | vc4hdmi[0-9]* | vc4-hdmi | vc4-hdmi[0-9]* ) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
 # Cards whose bind/unbind must not restart the production graph (spec D2).
 # udev remove events cannot match ATTR{id}; restart-audio-graph.sh receives
 # %E{SOUND_CARD_ID} from the udev database instead (see 99-usb-audio.rules).
 mpe_should_skip_graph_restart_for_card() {
-    local card_id="${1:-}"
-    case "$card_id" in
-        vc4hdmi* | UAC2Gadget | UAC2 | Loopback) return 0 ;;
-        *) return 1 ;;
-    esac
+    mpe_card_is_virtual "${1:-}"
 }
 
 # Criterion 2* failure path — publish state and exit (start-surge-cli.sh).
@@ -453,13 +606,26 @@ mpe_publish_jack_engine_failure() {
     mpe_surge_state_write none ""
 }
 
-# True when a non-virtual playback card is listed in /proc/asound/cards.
+# True when a REAL playback card -- one that can actually be heard -- is listed
+# in /proc/asound/cards. Drives the bounded DAC-enumeration wait in
+# jackd-prestart.sh, so a false positive here means the appliance stops waiting
+# for the DAC and binds whatever virtual card happened to load first.
+#
+# Parses the card ID out of each line ("  8 [Dummy          ]: Dummy - Dummy")
+# and asks mpe_card_is_virtual, rather than pattern-matching the whole line --
+# a description substring must never be able to launder a virtual card past this.
 mpe_physical_playback_card_present() {
     local cards_file="${MPE_ASOUND_CARDS:-/proc/asound/cards}"
+    local id
     [ -r "$cards_file" ] || return 1
-    grep -E '^[[:space:]]*[0-9]+[[:space:]]*\[' "$cards_file" 2>/dev/null \
-        | grep -viE 'Loopback|vc4hdmi|UAC2' \
-        | grep -q .
+    while IFS= read -r id; do
+        [ -n "$id" ] || continue
+        if ! mpe_card_is_virtual "$id"; then
+            return 0
+        fi
+    done < <(sed -n 's/^[[:space:]]*[0-9]\+[[:space:]]*\[\([^]]*\)\].*/\1/p' \
+                 "$cards_file" 2>/dev/null | sed 's/[[:space:]]*$//')
+    return 1
 }
 
 # Reset supervisor budget and publish recovering — graph restart or DAC replug.
