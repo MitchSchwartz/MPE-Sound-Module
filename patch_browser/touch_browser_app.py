@@ -52,6 +52,7 @@ from patch_browser.touch_browser_brightness_modal import TouchBrowserBrightnessM
 from patch_browser.touch_browser_settings import TouchBrowserSettingsMixin
 from patch_browser.touch_browser_terminal import TerminalMixin
 from patch_browser.touch_browser_audio_profile_modal import TouchBrowserAudioProfileModalMixin
+from patch_browser.touch_browser_audio_output_modal import TouchBrowserAudioOutputModalMixin
 from patch_browser.touch_browser_surge_audio_modal import TouchBrowserSurgeAudioModalMixin
 from patch_browser.touch_browser_midi_sync_modal import TouchBrowserMidiSyncModalMixin
 from patch_browser.touch_browser_wifi_modal import TouchBrowserWifiModalMixin
@@ -77,6 +78,7 @@ class TouchPatchBrowser(
     TouchBrowserSettingsMixin,
     TouchBrowserBrightnessModalMixin,
     TouchBrowserAudioProfileModalMixin,
+    TouchBrowserAudioOutputModalMixin,
     TouchBrowserSurgeAudioModalMixin,
     TouchBrowserMidiSyncModalMixin,
     TouchBrowserWifiModalMixin,

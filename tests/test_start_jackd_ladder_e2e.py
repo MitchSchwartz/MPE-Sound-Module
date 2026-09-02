@@ -1,0 +1,171 @@
+"""start-jackd.sh's period ladder, exercised end to end against a stubbed jackd.
+
+Real hardware cannot produce this failure on demand: the Scarlett 4i4 runs every
+period down to 32, and the DAC that fails at 64 is a dongle that may not be
+plugged in. So jackd and jack_lsp are stubbed to reproduce the ONE behaviour
+that matters and that no exit code reveals —
+
+    jackd stays alive while its driver thread never starts.
+
+MEASURED 2026-09-01 on the Apple full-speed dongle at -p 64: jackd running,
+systemd "active", engine.state "ok", and no client could ever attach.
+"""
+
+from __future__ import annotations
+
+import os
+import shutil
+import signal
+import subprocess
+import tempfile
+import time
+import unittest
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+START_JACKD = REPO_ROOT / "scripts" / "start-jackd.sh"
+
+# Stays alive forever, like the real thing, and records the period it was asked
+# for. Never exits on its own — that is the whole point.
+FAKE_JACKD = """#!/bin/bash
+period=""
+while [ $# -gt 0 ]; do
+    case "$1" in -p) period="$2"; shift 2 ;; *) shift ;; esac
+done
+echo "$period" > "$STUB_DIR/current_period"
+echo "$$" >> "$STUB_DIR/jackd.pids"
+echo "creating alsa driver ... period = $period"
+sleep 90
+"""
+
+# Reports the driver's ports only when the period is one the "device" can run.
+FAKE_JACK_LSP = """#!/bin/bash
+p="$(cat "$STUB_DIR/current_period" 2>/dev/null || echo 0)"
+min="$(cat "$STUB_DIR/min_workable" 2>/dev/null || echo 0)"
+if [ "$p" -ge "$min" ] 2>/dev/null; then
+    echo "system:playback_1"
+    echo "system:playback_2"
+    exit 0
+fi
+echo "Driver is not running" >&2
+exit 1
+"""
+
+
+class LadderEndToEndTests(unittest.TestCase):
+    def _run(self, configured: int, min_workable: int, timeout: int = 25):
+        tmp = tempfile.mkdtemp()
+        stub, run_dir = Path(tmp, "stub"), Path(tmp, "run")
+        stub.mkdir(); run_dir.mkdir()
+        (stub / "min_workable").write_text(str(min_workable))
+
+        for name, body in (("jackd", FAKE_JACKD), ("jack_lsp", FAKE_JACK_LSP)):
+            p = stub / name
+            p.write_text(body)
+            p.chmod(0o755)
+
+        device_file = Path(tmp, "jack-device")
+        device_file.write_text("JACK_DEVICE=hw:9\nJACK_CARD_ID=TestDAC\nTIER=2\n")
+
+        env = os.environ.copy()
+        env.update({
+            "PATH": f"{stub}:{env['PATH']}",
+            "STUB_DIR": str(stub),
+            "MPE_MODULE_REPO": str(REPO_ROOT),
+            "MPE_RUN_DIR": str(run_dir),
+            "MPE_JACK_DEVICE_FILE": str(device_file),
+            "MPE_JACK_BUFFER": str(configured),
+            "MPE_JACK_PERIODS": "2",
+            "MPE_JACK_PROBE_TIMEOUT": "4",
+        })
+        log = Path(tmp, "out.log")
+        state = run_dir / "jack.state"
+        with log.open("w") as fh:
+            # start_new_session: the stub jackd MUST die with the test. It is
+            # named `jackd`, so a survivor makes `pgrep -x jackd` true for every
+            # other test in the run -- mpe_jack_server_running then reports a
+            # server that does not exist. That leak made test_audio_engine's
+            # promote path fail and cost a wrong 'pre-existing on dev' verdict.
+            proc = subprocess.Popen([str(START_JACKD)], env=env, stdout=fh,
+                                    stderr=subprocess.STDOUT, text=True,
+                                    start_new_session=True)
+            try:
+                # On success the script BLOCKS supervising jackd — that is the
+                # pass condition, not an exit. Poll for the state it publishes.
+                deadline = time.time() + timeout
+                while time.time() < deadline:
+                    if proc.poll() is not None:
+                        break                      # exhausted ladder: it exits
+                    if state.exists() and "period=" in state.read_text():
+                        break
+                    time.sleep(0.2)
+            finally:
+                try:
+                    os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+                except (ProcessLookupError, PermissionError):
+                    pass
+                proc.wait(timeout=10)
+                # Belt and braces: a backgrounded stub can outlive the group
+                # kill, and a survivor named `jackd` breaks the whole suite.
+                pidfile = stub / "jackd.pids"
+                if pidfile.exists():
+                    for line in pidfile.read_text().split():
+                        try:
+                            os.kill(int(line), signal.SIGKILL)
+                        except (ProcessLookupError, PermissionError, ValueError):
+                            pass
+        out = log.read_text()
+        st = state.read_text() if state.exists() else ""
+        shutil.rmtree(tmp, ignore_errors=True)
+        return out, st
+
+    def test_negative_control_a_workable_period_does_not_climb(self):
+        """If this climbs, the ladder fires when it should not and the rest is noise."""
+        out, state = self._run(configured=128, min_workable=128)
+        self.assertIn("period=128", state)
+        self.assertIn("requested_period=128", state)
+        self.assertNotIn("Latency is higher than configured", out)
+
+    def test_64_climbs_to_128_and_says_so(self):
+        """The measured appliance failure, reproduced."""
+        out, state = self._run(configured=64, min_workable=128)
+        self.assertIn("period=128", state)
+        self.assertIn("requested_period=64", state,
+                      "the requested period must survive into state, or the "
+                      "player cannot account for the extra latency")
+        self.assertIn("Latency is higher than configured", out)
+        self.assertIn("no driver at 64", out)
+
+    def test_climbs_past_128_to_256(self):
+        out, state = self._run(configured=64, min_workable=256)
+        self.assertIn("period=256", state)
+        self.assertIn("requested_period=64", state)
+
+    def test_exhausted_ladder_fails_loudly_instead_of_running_silent(self):
+        """A graph nobody can attach to must not be reported as a working one."""
+        out, _ = self._run(configured=64, min_workable=99999)
+        self.assertIn("no period in the ladder started a driver", out)
+
+
+class StubsMustNotOutliveTheTestTests(unittest.TestCase):
+    """The stub is named `jackd`. A survivor poisons the whole suite.
+
+    mpe_jack_server_running is `pgrep -x jackd`, so one leaked stub makes every
+    other test believe a JACK server is up. That is exactly what happened: six
+    leaked stubs (sleep 600) made test_audio_engine's promote path fail, and the
+    failure reproduced on unmodified dev — which looked like proof it was
+    pre-existing. It was not. The instrument was contaminating its own control.
+    """
+
+    def test_no_stub_jackd_survives_a_run(self):
+        before = subprocess.run(["pgrep", "-x", "jackd"],
+                                capture_output=True, text=True).stdout.split()
+        LadderEndToEndTests()._run(configured=64, min_workable=128)
+        after = subprocess.run(["pgrep", "-x", "jackd"],
+                               capture_output=True, text=True).stdout.split()
+        self.assertEqual(sorted(after), sorted(before),
+                         "a stub jackd outlived the test and will break other tests")
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pygame
 
-from patch_browser.audio_profile import PROFILE_OPTIONS, current_profile, normalize_profile
+from patch_browser.audio_profile import current_profile, menu_profile_options, normalize_profile
 from patch_browser.geometry import Rect
 from patch_browser.touch_ui_constants import SETTINGS_ROW_GAP, SETTINGS_ROW_H, TAP_MOVE_THRESHOLD_PX
 from patch_browser.touch_ui_enums import Screen
@@ -62,7 +62,8 @@ class TouchBrowserAudioProfileModalMixin:
         inner_pad = 24
         inner_w = panel_w - inner_pad * 2
         hint_h = self.font_sm.get_height() + 8
-        grid_h = len(PROFILE_OPTIONS) * option_h + max(0, len(PROFILE_OPTIONS) - 1) * SETTINGS_ROW_GAP
+        options = menu_profile_options()
+        grid_h = len(options) * option_h + max(0, len(options) - 1) * SETTINGS_ROW_GAP
         panel_h = (
             inner_pad
             + self.font_md.get_height()
@@ -89,7 +90,7 @@ class TouchBrowserAudioProfileModalMixin:
 
         current = current_profile()
         self._audio_profile_option_rects = []
-        for index, (profile_id, title, subtitle) in enumerate(PROFILE_OPTIONS):
+        for index, (profile_id, title, subtitle) in enumerate(options):
             rect = Rect(inner_x, y + index * (option_h + SETTINGS_ROW_GAP), inner_w, option_h)
             self._audio_profile_option_rects.append((rect, profile_id))
             self._draw_audio_profile_choice(

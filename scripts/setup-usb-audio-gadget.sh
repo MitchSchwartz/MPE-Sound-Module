@@ -1,6 +1,9 @@
 #!/bin/bash
 # USB Audio Class 2 gadget — Surge output to tethered host PC (Approach C).
-# Playback-only stereo @ MPE_SURGE_SAMPLE_RATE (default 48000 Hz); no ALSA loopback.
+# Playback-only @ MPE_SURGE_SAMPLE_RATE (default 48000 Hz); no ALSA loopback.
+#
+# Channel count is MPE_USB_STEM_CHANNELS (default 2 = stereo). Above 2 the host
+# receives per-loop stems as well as the master pair — see docs/USB-MULTICHANNEL-STEMS.md.
 #
 # Usage:
 #   setup-usb-audio-gadget.sh start|stop|status|restart [--dry-run]
@@ -16,6 +19,23 @@ SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")" && 
 source "$SCRIPT_DIR/lib/paths.sh"
 
 GADGET_NAME="${MPE_USB_GADGET_NAME:-mpe_audio}"
+# Playback channel count. 2 = stereo (the historical behaviour).
+#
+# The 27-channel ceiling is not arbitrary and not a bandwidth limit. p_chmask is
+# the UAC2 bmChannelConfig field, where every bit is a NAMED speaker position
+# (bit 0 Front Left, bit 1 Front Right, ...). UAC2 defines positions for bits
+# 0-26 only, and f_uac2 rejects a mask touching any bit above that:
+#
+#   configfs-gadget gadget.0: Error: unsupported playback channels mask
+#   probe with driver configfs-gadget failed with error -22
+#
+# MEASURED 2026-08-30 on pi5: 27 channels bind, 28 do not; and a mask of just
+# THREE channels is rejected if one of them uses bit 27 — so it is the bit
+# positions that are limited, not the count. 28 channels also failed at 44100 Hz,
+# where bandwidth is not close to binding (27ch x 16-bit x 48kHz is ~2.6 MB/s
+# against ~24 MB/s on the high-speed link).
+MPE_USB_STEM_CHANNELS="${MPE_USB_STEM_CHANNELS:-2}"
+UAC2_MAX_CHANNELS=27
 GADGET_ROOT="/sys/kernel/config/usb_gadget"
 GADGET_DIR="$GADGET_ROOT/$GADGET_NAME"
 CONFIG_NAME="c.1"
@@ -90,6 +110,28 @@ ensure_configfs() {
     fi
 }
 
+# Playback channel mask for N channels: bits 0..N-1 set.
+#
+# Refuses anything the driver would reject at bind time. A rejected mask does
+# not fail loudly at write time — it fails later, when the UDC is written, and
+# the gadget simply never appears. Better to say so here with the reason.
+resolve_chmask() {
+    local n="$1"
+    case "$n" in
+        ''|*[!0-9]*)
+            log "ERROR: MPE_USB_STEM_CHANNELS must be an integer, got '$n'"
+            return 1
+            ;;
+    esac
+    if [ "$n" -lt 2 ] || [ "$n" -gt "$UAC2_MAX_CHANNELS" ]; then
+        log "ERROR: MPE_USB_STEM_CHANNELS=$n out of range (2-$UAC2_MAX_CHANNELS)"
+        log "       UAC2 defines channel positions for mask bits 0-26 only;"
+        log "       f_uac2 rejects any mask above that (MEASURED 2026-08-30)."
+        return 1
+    fi
+    python3 -c "print((1 << $n) - 1)"
+}
+
 create_gadget() {
     local udc
     udc="$(find_udc)" || {
@@ -100,6 +142,9 @@ create_gadget() {
     ensure_configfs
 
     local sample_rate="${MPE_SURGE_SAMPLE_RATE:-48000}"
+    local channels="$MPE_USB_STEM_CHANNELS"
+    local chmask
+    chmask="$(resolve_chmask "$channels")" || exit 1
 
     if [ "$DRY_RUN" = true ]; then
         log "DRY-RUN: would create gadget $GADGET_NAME on UDC $udc (${sample_rate} Hz stereo UAC2)"
@@ -129,19 +174,19 @@ create_gadget() {
     echo "0001" > strings/0x409/serialnumber
 
     mkdir -p "configs/$CONFIG_NAME/strings/0x409"
-    echo "UAC2 stereo playback" > "configs/$CONFIG_NAME/strings/0x409/configuration"
+    echo "UAC2 ${channels}ch playback" > "configs/$CONFIG_NAME/strings/0x409/configuration"
     echo 250 > "configs/$CONFIG_NAME/MaxPower"
 
     mkdir -p "functions/$FUNCTION_NAME"
     echo "$sample_rate" > "functions/$FUNCTION_NAME/p_srate"
     echo 2 > "functions/$FUNCTION_NAME/p_ssize"
-    echo 3 > "functions/$FUNCTION_NAME/p_chmask"
+    echo "$chmask" > "functions/$FUNCTION_NAME/p_chmask"
     echo 0 > "functions/$FUNCTION_NAME/c_chmask"
 
     ln -sf "functions/$FUNCTION_NAME" "configs/$CONFIG_NAME/"
 
     echo "$udc" > UDC
-    log "Bound UAC2 gadget on $udc (${sample_rate} Hz stereo playback)"
+    log "Bound UAC2 gadget on $udc (${sample_rate} Hz, ${channels}ch playback, chmask=${chmask})"
 }
 
 destroy_gadget() {
