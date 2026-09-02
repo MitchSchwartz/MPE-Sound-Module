@@ -38,14 +38,38 @@ _restore() {
         kill -KILL "$TMP_JACK_PID" 2>/dev/null || true
     fi
     pkill -f jack_iodelay 2>/dev/null || true
-    # Start in reverse dependency order: the graph before its clients.
-    for s in mpe-jackd surge-xt-cli mpe-sooperlooper; do
-        case " $SERVICES " in *" $s "*) sudo systemctl start "$s" 2>&1 | tail -1 ;; esac
+    pkill -x jackd 2>/dev/null || true
+    sleep 2
+
+    # The first version of this restore started all three units three seconds
+    # apart and reported success. Surge came back INACTIVE and the looper failed
+    # outright, because a client cannot start before the graph it attaches to is
+    # accepting -- the same ordering truth the startup path already knows. Wait
+    # on the PORTS, and verify, because "I started it" is not "it is running".
+    sudo systemctl start mpe-jackd 2>&1 | tail -1
+    for _ in $(seq 1 30); do
+        jack_lsp 2>/dev/null | grep -q '^system:playback_' && break
+        sleep 1
     done
-    sleep 3
-    echo "SENTINEL phase2-restored services=$(echo "$SERVICES" | tr ' ' ',')"
-    systemctl is-active mpe-jackd surge-xt-cli 2>/dev/null | tr '\n' ' '
-    echo
+    sudo systemctl start surge-xt-cli 2>&1 | tail -1
+    for _ in $(seq 1 30); do
+        jack_lsp 2>/dev/null | grep -q '^Surge XT:out_1$' && break
+        sleep 1
+    done
+    case " $SERVICES " in
+        *" mpe-sooperlooper "*) sudo systemctl start mpe-sooperlooper 2>&1 | tail -1 ;;
+    esac
+    sleep 2
+
+    local st
+    st="$(systemctl is-active mpe-jackd surge-xt-cli 2>/dev/null | tr '\n' ' ')"
+    echo "SENTINEL phase2-restored state=\"${st}\" surge_port=$(jack_lsp 2>/dev/null | grep -c '^Surge XT:out_1$')"
+    case "$st" in
+        *inactive*|*failed*)
+            echo "WARNING: THE APPLIANCE DID NOT COME BACK -- ${st}" >&2
+            echo "         run: sudo systemctl restart mpe-jackd surge-xt-cli" >&2
+            ;;
+    esac
 }
 trap _restore EXIT
 
@@ -88,7 +112,11 @@ for CH in $CHANNELS; do
     jack_lsp | grep -qx "$CAP" || { echo "  $CAP absent, skipping"; continue; }
     echo
     echo "=== jack_iodelay on ${CAP} (${SETTLE_S}s) ==="
-    jack_iodelay > /tmp/phase2-iodelay.log 2>&1 &
+    # jack_iodelay redraws ONE line with \r and block-buffers when stdout is not
+    # a terminal, so a plain redirect captured 0 bytes and every channel looked
+    # like "no signal" when the real fault was that nothing was ever flushed.
+    # Give it a pty so it behaves as it does interactively.
+    script -qec "jack_iodelay" /dev/null > /tmp/phase2-iodelay.raw 2>&1 &
     IOD=$!
     sleep 2
     # The client name differs between builds (jack_delay / jack_iodelay). Ask
@@ -108,12 +136,13 @@ for CH in $CHANNELS; do
     kill -TERM "$IOD" 2>/dev/null || true
     wait "$IOD" 2>/dev/null || true
 
-    tail -4 /tmp/phase2-iodelay.log
-    if grep -q "frames" /tmp/phase2-iodelay.log && \
-       ! grep -qi "signal" /tmp/phase2-iodelay.log; then
+    tr '\r' '\n' < /tmp/phase2-iodelay.raw | grep -vE '^\s*$' > /tmp/phase2-iodelay.log
+    echo "  --- last lines ---"
+    tail -4 /tmp/phase2-iodelay.log | sed 's/^/  /'
+    if grep -q "extra loopback latency" /tmp/phase2-iodelay.log; then
         echo "SENTINEL phase2-measured channel=${CH}"
-        echo "--- full trace (watch for drift, two unsynced clocks) ---"
-        tail -12 /tmp/phase2-iodelay.log
+        echo "--- convergence trace (watch it WALK: two unsynced USB clocks) ---"
+        grep "extra loopback latency" /tmp/phase2-iodelay.log | tail -10
         exit 0
     fi
     echo "  no convergence on ${CAP}"
