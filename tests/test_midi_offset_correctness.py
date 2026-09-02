@@ -127,7 +127,7 @@ class OffsetTracksTheGraphTests(unittest.TestCase):
         src = (Path(__file__).resolve().parent.parent
                / "scripts" / "mpe-pressure-remap.py").read_text(encoding="utf-8")
         self.assertIn("def _refresh_offset", src)
-        self.assertIn("self._refresh_offset()", src)
+        self.assertIn("self._refresh_offset(now)", src)
 
     def test_the_refresh_is_guarded_by_mtime_not_run_every_message(self):
         """A recompute per message would read a file in the MIDI hot path."""
@@ -136,6 +136,20 @@ class OffsetTracksTheGraphTests(unittest.TestCase):
         body = src[src.index("def _refresh_offset"):src.index("def _refresh_clock")]
         self.assertIn("_jack_state_mtime", body)
         self.assertIn("st_mtime <= self._jack_state_mtime", body)
+
+    def test_the_refresh_is_throttled_off_the_2ms_loop(self):
+        """_drain_queue runs every 2 ms. An unthrottled stat() would be ~500
+        syscalls/second watching a file that changes once per graph restart."""
+        src = (Path(__file__).resolve().parent.parent
+               / "scripts" / "mpe-pressure-remap.py").read_text(encoding="utf-8")
+        body = src[src.index("def _refresh_offset"):src.index("def _refresh_clock")]
+        self.assertIn("_next_offset_refresh", body)
+        # Anchor on the CALL, not the bare token: "stat()" also appears in the
+        # function's own docstring, which sits above the code and made a first
+        # draft of this test fail on prose.
+        self.assertLess(body.index("_next_offset_refresh"),
+                        body.index("JACK_STATE_FILE.stat()"),
+                        "the cheap time check must precede the syscall")
 
     def test_the_refresh_does_not_fork(self):
         """CPU doctrine: no subprocesses in a periodic loop on the appliance."""
