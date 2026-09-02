@@ -62,28 +62,66 @@ def resolve_quantize_grid_ticks() -> int:
     return parse_quantize_grid_ticks(os.environ.get("MPE_MIDI_QUANTIZE"))
 
 
+def _running_graph_params() -> tuple[int, int, int] | None:
+    """(period, periods, rate) the JACK server is ACTUALLY running, or None.
+
+    /run/mpe/jack.state is written by start-jackd.sh once the driver has proved
+    it can accept clients, so it records what the server got -- not what was
+    asked for. Those differ: the fallback ladder climbs when a DAC cannot
+    sustain the configured period, and a 64 -> 256 climb leaves MPE_JACK_BUFFER
+    saying 64 while the server runs 256. Compensating for a period the server is
+    not running is a 4x error in the direction that fires MIDI late.
+    """
+    try:
+        from patch_browser.audio_engine import read_jack_state
+
+        state = read_jack_state()
+    except Exception:
+        return None
+    try:
+        period = int(str(state.get("period", "")).strip())
+        n_periods = int(str(state.get("periods", "")).strip())
+        rate = int(str(state.get("rate", "")).strip())
+    except (TypeError, ValueError):
+        return None
+    if period <= 0 or n_periods <= 0 or rate <= 0:
+        return None
+    return period, n_periods, rate
+
+
 def buffer_latency_ms(
     buffer: int | None = None,
     sample_rate: int | None = None,
     periods: int | None = None,
 ) -> float:
-    """Output latency of the audio path in ms — the JACK period ×  MPE_JACK_PERIODS.
+    """Output latency of the audio path in ms — the JACK period × periods.
 
     Under the JACK graph server the period belongs to the server and the real
     output latency is ``period × periods``, not one period. Reading
     MPE_SURGE_BUFFER_SIZE and skipping the periods term under-reported latency by 3×
     at the shipped default, which fires MIDI too late against the looper grid.
+
+    Source of truth is jack.state — what the server IS running — falling back to
+    the env only when the graph has not published yet. MPE_SURGE_BUFFER_SIZE is
+    the legacy Surge ALSA key and is NOT the graph period; it is consulted last
+    and only because an appliance predating the JACK keys would otherwise
+    compute zero.
     """
-    if buffer is not None:
-        buf = buffer
+    running = _running_graph_params() if (buffer is None and periods is None
+                                          and sample_rate is None) else None
+    if running is not None:
+        buf, n_periods, rate = running
     else:
-        buf = _env_int("MPE_JACK_BUFFER", None) or _env_int(
-            "MPE_SURGE_BUFFER_SIZE", DEFAULT_BUFFER
+        if buffer is not None:
+            buf = buffer
+        else:
+            buf = _env_int("MPE_JACK_BUFFER", None) or _env_int(
+                "MPE_SURGE_BUFFER_SIZE", DEFAULT_BUFFER
+            )
+        n_periods = periods if periods is not None else _env_int("MPE_JACK_PERIODS", 3)
+        rate = sample_rate if sample_rate is not None else _env_int(
+            "MPE_SURGE_SAMPLE_RATE", DEFAULT_SAMPLE_RATE
         )
-    n_periods = periods if periods is not None else _env_int("MPE_JACK_PERIODS", 3)
-    rate = sample_rate if sample_rate is not None else _env_int(
-        "MPE_SURGE_SAMPLE_RATE", DEFAULT_SAMPLE_RATE
-    )
     if rate <= 0 or n_periods <= 0:
         return 0.0
     return 1000.0 * buf * n_periods / rate
