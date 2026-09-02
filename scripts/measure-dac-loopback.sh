@@ -115,12 +115,20 @@ jack_lsp | grep '^system:' | tr '\n' ' '; echo
 # Which capture channel is the cable actually in? Mitch patched the rear input
 # marked 1, which is input 3 on a 4i4, but ASKING THE HARDWARE beats trusting
 # the panel legend. Try each and keep the one that converges.
+# The headphone jack on a 4i4 mirrors a different output pair depending on the
+# generation, so the playback port is swept too. Guessing it wrong is
+# indistinguishable from an unplugged cable, which is precisely the confusion
+# that cost the first two runs of this script.
 CHANNELS="${CHANNELS:-3 4 1 2}"
+PLAYBACK_PORTS="${PLAYBACK_PORTS:-1 3 2 4}"
 for CH in $CHANNELS; do
+  for PB in $PLAYBACK_PORTS; do
     CAP="system:capture_${CH}"
+    PBP="system:playback_${PB}"
     jack_lsp | grep -qx "$CAP" || { echo "  $CAP absent, skipping"; continue; }
+    jack_lsp | grep -qx "$PBP" || { echo "  $PBP absent, skipping"; continue; }
     echo
-    echo "=== jack_iodelay on ${CAP} (${SETTLE_S}s) ==="
+    echo "=== jack_iodelay ${PBP} -> ${CAP} (${SETTLE_S}s) ==="
     # jack_iodelay redraws ONE line with \r and block-buffers when stdout is not
     # a terminal, so a plain redirect captured 0 bytes and every channel looked
     # like "no signal" when the real fault was that nothing was ever flushed.
@@ -139,7 +147,7 @@ for CH in $CHANNELS; do
         kill -TERM "$IOD" 2>/dev/null || true
         continue
     fi
-    jack_connect "$IOD_OUT" system:playback_1 2>/dev/null
+    jack_connect "$IOD_OUT" "$PBP" 2>/dev/null
     jack_connect "$CAP" "$IOD_IN" 2>/dev/null
     sleep "$SETTLE_S"
     kill -TERM "$IOD" 2>/dev/null || true
@@ -149,12 +157,13 @@ for CH in $CHANNELS; do
     echo "  --- last lines ---"
     tail -4 /tmp/phase2-iodelay.log | sed 's/^/  /'
     if grep -q "extra loopback latency" /tmp/phase2-iodelay.log; then
-        echo "SENTINEL phase2-measured channel=${CH}"
+        echo "SENTINEL phase2-measured capture=${CH} playback=${PB}"
         echo "--- convergence trace (watch it WALK: two unsynced USB clocks) ---"
         grep "extra loopback latency" /tmp/phase2-iodelay.log | tail -10
         exit 0
     fi
-    echo "  no convergence on ${CAP}"
+    echo "  no convergence ${PBP} -> ${CAP}"
+  done
 done
 
 echo "SENTINEL phase2-aborted stage=iodelay reason=no-channel-converged" >&2
