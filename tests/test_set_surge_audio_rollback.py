@@ -115,5 +115,47 @@ class RollbackSurvivesDeathTests(unittest.TestCase):
         )
 
 
+
+class RecoveryMarkerSurvivesAFailedRollbackTests(unittest.TestCase):
+    """The marker is the LAST line of defence; a failed rollback must not eat it.
+
+    Regression for 2026-09-01, observed as "graph failed and rollback failed"
+    leaving the appliance silent. mpe_pending_clear ran BEFORE the rollback's
+    promote, so when the rollback also failed the script had already deleted the
+    marker that reconcile-audio-settings.sh (mpe-jackd ExecStartPre) uses to
+    restore known-good settings on the next graph start. The one mechanism that
+    could still recover the box was discarded at the moment it was needed.
+    """
+
+    def setUp(self):
+        self.src = SCRIPT.read_text(encoding="utf-8")
+        rb = self.src.index('mpe_promote_surge_planned "rollback-after-failed-settings"')
+        self.head = self.src[:rb]
+        self.tail = self.src[rb:]
+
+    def test_marker_is_not_cleared_before_the_rollback_promote(self):
+        # Anchor on the INLINE rollback's own message, not "restoring
+        # ${_prev_buffer}" -- that also matches the trap, which clears the marker
+        # legitimately. A first draft of this test failed on the trap and would
+        # have been "fixed" by loosening it.
+        rollback_start = self.head.index("audio graph change failed — restoring")
+        self.assertNotIn(
+            "mpe_pending_clear", self.head[rollback_start:],
+            "the recovery marker is cleared before the rollback is proven",
+        )
+
+    def test_marker_is_cleared_on_the_proven_rollback_branch(self):
+        """Left behind on success it would trigger a pointless reconcile."""
+        success = self.tail.index("reverted to ${_prev_buffer}")
+        self.assertIn("mpe_pending_clear", self.tail[:success])
+
+    def test_the_failed_rollback_branch_says_the_marker_was_kept(self):
+        """Silence here is what made this cost a day: the operator could not tell
+        recovery was still armed, and the message blamed the settings."""
+        start = self.tail.index("graph failed AND rollback failed")
+        branch = self.tail[start:start + 900]
+        self.assertIn("LEFT IN PLACE", branch)
+        self.assertIn("not a settings problem", branch)
+
 if __name__ == "__main__":
     unittest.main()

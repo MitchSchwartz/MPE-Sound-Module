@@ -38,6 +38,7 @@ class TouchBrowserInputMixin:
             Screen.SURGE_BUFFER_MODAL,
             Screen.SURGE_SAMPLE_RATE_MODAL,
             Screen.AUDIO_PROFILE_MODAL,
+            Screen.AUDIO_OUTPUT_MODAL,
             Screen.BRIGHTNESS_MODAL,
             Screen.WIFI_MODAL,
             Screen.MIDI_SYNC_MODAL,
@@ -70,6 +71,8 @@ class TouchBrowserInputMixin:
             self._close_surge_audio_modal()
         elif state == Screen.AUDIO_PROFILE_MODAL:
             self._close_audio_profile_modal()
+        elif state == Screen.AUDIO_OUTPUT_MODAL:
+            self._close_audio_output_modal()
         elif state == Screen.BRIGHTNESS_MODAL:
             self._close_brightness_modal()
         elif state == Screen.WIFI_MODAL:
@@ -96,6 +99,7 @@ class TouchBrowserInputMixin:
             Screen.SURGE_BUFFER_MODAL,
             Screen.SURGE_SAMPLE_RATE_MODAL,
             Screen.AUDIO_PROFILE_MODAL,
+            Screen.AUDIO_OUTPUT_MODAL,
             Screen.BRIGHTNESS_MODAL,
             Screen.WIFI_MODAL,
             Screen.MIDI_SYNC_MODAL,
@@ -136,6 +140,8 @@ class TouchBrowserInputMixin:
                 self._draw_surge_sample_rate_modal()
             elif self.screen_state == Screen.AUDIO_PROFILE_MODAL:
                 self._draw_audio_profile_modal()
+            elif self.screen_state == Screen.AUDIO_OUTPUT_MODAL:
+                self._draw_audio_output_modal()
             elif self.screen_state == Screen.BRIGHTNESS_MODAL:
                 self._draw_brightness_modal()
             elif self.screen_state == Screen.WIFI_MODAL:
@@ -279,6 +285,8 @@ class TouchBrowserInputMixin:
         if audio_view:
             if self._settings_rect_hit(self.audio_profile_row_rect, local_pos):
                 return "audio_profile"
+            if self._settings_rect_hit(self.audio_output_row_rect, local_pos):
+                return "audio_output"
             if self._settings_rect_hit(self.poly_governor_toggle_rect, local_pos):
                 return "poly_governor"
             if self._settings_rect_hit(self.norm_global_toggle_rect, local_pos):
@@ -353,6 +361,11 @@ class TouchBrowserInputMixin:
                 self, "_surge_audio_switching", False
             ):
                 self._open_audio_profile_modal()
+        elif hit == "audio_output":
+            if not getattr(self, "_audio_profile_switching", False) and not getattr(
+                self, "_surge_audio_switching", False
+            ):
+                self._open_audio_output_modal()
         elif hit == "wifi":
             if not getattr(self, "_wifi_busy", False):
                 self._open_wifi_modal()
@@ -807,6 +820,8 @@ class TouchBrowserInputMixin:
                 self._handle_surge_sample_rate_modal_pointer_down(event.pos)
             elif self.screen_state == Screen.AUDIO_PROFILE_MODAL:
                 self._handle_audio_profile_modal_pointer_down(event.pos)
+            elif self.screen_state == Screen.AUDIO_OUTPUT_MODAL:
+                self._handle_audio_output_modal_pointer_down(event.pos)
             elif self.screen_state == Screen.BRIGHTNESS_MODAL:
                 self._handle_brightness_modal_pointer_down(event.pos)
             elif self.screen_state == Screen.WIFI_MODAL:
@@ -847,6 +862,8 @@ class TouchBrowserInputMixin:
                 self._handle_surge_sample_rate_modal_pointer_up(event.pos)
             elif self.screen_state == Screen.AUDIO_PROFILE_MODAL:
                 self._handle_audio_profile_modal_pointer_up(event.pos)
+            elif self.screen_state == Screen.AUDIO_OUTPUT_MODAL:
+                self._handle_audio_output_modal_pointer_up(event.pos)
             elif self.screen_state == Screen.BRIGHTNESS_MODAL:
                 self._handle_brightness_modal_pointer_up(event.pos)
             elif self.screen_state == Screen.WIFI_MODAL:
