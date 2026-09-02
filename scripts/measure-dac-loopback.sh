@@ -87,8 +87,19 @@ for CH in $CHANNELS; do
     jack_iodelay > /tmp/phase2-iodelay.log 2>&1 &
     IOD=$!
     sleep 2
-    jack_connect jack_delay:out system:playback_1 2>/dev/null
-    jack_connect "$CAP" jack_delay:in 2>/dev/null
+    # The client name differs between builds (jack_delay / jack_iodelay). Ask
+    # the graph what actually registered instead of guessing and then silently
+    # measuring nothing.
+    IOD_OUT="$(jack_lsp 2>/dev/null | grep -iE '^jack_(io)?delay:.*out' | head -1)"
+    IOD_IN="$(jack_lsp 2>/dev/null | grep -iE '^jack_(io)?delay:.*in' | head -1)"
+    if [ -z "$IOD_OUT" ] || [ -z "$IOD_IN" ]; then
+        echo "  jack_iodelay registered no ports — cannot connect" >&2
+        jack_lsp 2>/dev/null | grep -iv '^system:' | tr '\n' ' ' >&2; echo >&2
+        kill -TERM "$IOD" 2>/dev/null || true
+        continue
+    fi
+    jack_connect "$IOD_OUT" system:playback_1 2>/dev/null
+    jack_connect "$CAP" "$IOD_IN" 2>/dev/null
     sleep "$SETTLE_S"
     kill -TERM "$IOD" 2>/dev/null || true
     wait "$IOD" 2>/dev/null || true
