@@ -108,11 +108,13 @@ class DisplayAndRuntimeAgreeTests(unittest.TestCase):
                 applied = midi_sync.resolve_output_offset_ms()
                 shown = midi_sync_settings.offset_ms_value()
                 self.assertEqual(shown, f"{applied:+.0f} ms")
-                # Was "-4 ms" (period x periods alone). Measured 2026-09-02: the
-                # model omitted Surge's own 159-frame MIDI->audio leg entirely.
-                # The invariant this test guards -- displayed == applied -- is
-                # unchanged; only the quantity both now compute is correct.
-                self.assertEqual(shown, "-7 ms")
+                # Was "-4 ms" (period x periods -- the playback ringbuffer,
+                # which is downstream of where the looper taps Surge and so the
+                # wrong leg). Measured 2026-09-02: the offset owns Surge's own
+                # MIDI->audio leg alone, 156 frames at period 96 = 3.25 ms. The
+                # invariant this test guards -- displayed == applied -- never
+                # changed; only the quantity both compute.
+                self.assertEqual(shown, "-3 ms")
         finally:
             path.unlink()
 

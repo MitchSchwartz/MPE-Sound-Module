@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import statistics
 import sys
 import threading
@@ -298,7 +299,41 @@ def summarise(trials: list[dict], key: str) -> dict:
     }
 
 
+OPT_IN_ENV = "MPE_ALLOW_GRAPH_PROBE"
+
+
+def _refuse_unless_opted_in() -> None:
+    """This attaches a PYTHON process callback to the live JACK graph.
+
+    Criterion 33 forbids that for appliance runtime, and it is forbidden for a
+    good reason: while this probe was attached, JACK's xrun callback counted 1-4
+    graph overruns per window. It is tolerable here only because it runs by hand
+    for ~35 s and is torn down.
+
+    A tool that merely SAYS it is diagnostic gets called by something eventually.
+    So refuse to run without an explicit opt-in, and make the opt-in one that
+    nobody types into a service file by accident.
+    """
+    if os.environ.get(OPT_IN_ENV, "").strip() != "1":
+        print(
+            f"REFUSING TO RUN: {OPT_IN_ENV}=1 is not set.\n"
+            "\n"
+            "  This is a MEASUREMENT INSTRUMENT, not appliance code. It attaches a\n"
+            "  Python process callback to the live JACK graph, which measurably\n"
+            "  causes graph xruns (1-4 per window) and which criterion 33 forbids\n"
+            "  for anything that runs during a performance.\n"
+            "\n"
+            "  It must never be invoked by a service, a watchdog, or the UI. If you\n"
+            "  are running it by hand to take a measurement:\n"
+            "\n"
+            f"      {OPT_IN_ENV}=1 python3 scripts/measure-midi-audio-latency.py ...\n",
+            file=sys.stderr,
+        )
+        raise SystemExit(3)
+
+
 def main() -> int:
+    _refuse_unless_opted_in()
     ap = argparse.ArgumentParser()
     ap.add_argument("--trials", type=int, default=30)
     ap.add_argument("--source-port", default="Surge XT:out_1")

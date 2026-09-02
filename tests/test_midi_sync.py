@@ -46,12 +46,13 @@ class TestMidiSyncConfig(unittest.TestCase):
             os.environ["MPE_SURGE_SAMPLE_RATE"] = "48000"
             # The retired Surge key must not win over the live graph period.
             os.environ["MPE_SURGE_BUFFER_SIZE"] = "1024"
-            # period x periods was the WHOLE model until 2026-09-02, and it was
-            # wrong: it omitted Surge's own MIDI->audio leg (measured, one period
-            # plus 60 frames) and the DAC's hardware term. Asserting the sum
-            # keeps the retired Surge key from winning over the live graph, which
-            # is what this test was always for.
-            expected_frames = 256 + 60 + 256 * 3
+            # period x periods was the WHOLE model until 2026-09-02 and was the
+            # WRONG LEG: it is the playback ringbuffer, downstream of the point
+            # where the looper taps Surge. The offset owns only Surge's own
+            # MIDI->audio leg, measured at one period plus 60 frames. The retired
+            # Surge key must still not win over the live graph period, which is
+            # what this test was always for.
+            expected_frames = 256 + 60
             self.assertAlmostEqual(
                 resolve_output_offset_ms(), -1000.0 * expected_frames / 48000
             )

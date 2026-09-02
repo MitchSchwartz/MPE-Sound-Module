@@ -68,14 +68,9 @@ class TotalOutputLatencyTests(unittest.TestCase):
     def test_sums_all_three_legs_on_the_ka1_at_the_shipped_graph(self):
         with mock.patch.object(midi_sync, "_running_graph_params", return_value=(96, 2, 48000)), \
              mock.patch.object(midi_sync, "output_hardware_latency_frames", return_value=64):
-            # 156 (Surge) + 192 (declared) + 64 (KA1) = 412 frames
+            # 156 (Surge) + 192 (declared) + 64 (KA1) = 412 frames -- what the
+            # PLAYER HEARS. Display only; deliberately not the offset.
             self.assertAlmostEqual(midi_sync.total_output_latency_ms(), 412 * 1000 / 48000, places=6)
-
-    def test_is_more_than_double_the_old_period_times_periods_model(self):
-        with mock.patch.object(midi_sync, "_running_graph_params", return_value=(96, 2, 48000)), \
-             mock.patch.object(midi_sync, "output_hardware_latency_frames", return_value=64):
-            old = midi_sync.buffer_latency_ms(96, 48000, 2)
-            self.assertGreater(midi_sync.total_output_latency_ms(), 2 * old)
 
     def test_tracks_the_period_the_server_is_actually_running(self):
         # The ladder climbs when a DAC cannot sustain the configured period, and
@@ -94,6 +89,43 @@ class TotalOutputLatencyTests(unittest.TestCase):
         self.assertLess(value, 200.0)
 
 
+class LooperAlignmentTests(unittest.TestCase):
+    """The offset owns ONE leg. Both other legs sit after the looper's tap."""
+
+    def test_offset_is_the_surge_leg_alone(self):
+        with mock.patch.object(midi_sync, "_running_graph_params", return_value=(96, 2, 48000)):
+            self.assertAlmostEqual(
+                midi_sync.looper_alignment_latency_ms(), 156 * 1000 / 48000, places=6
+            )
+
+    def test_offset_excludes_the_playback_ringbuffer(self):
+        """period x periods is Surge's port -> the converter, downstream of the
+        looper input. It was the ENTIRE model until 2026-09-02 and was the wrong
+        leg: right magnitude, wrong path."""
+        with mock.patch.object(midi_sync, "_running_graph_params", return_value=(96, 2, 48000)):
+            offset = midi_sync.looper_alignment_latency_ms()
+            ringbuffer = midi_sync.buffer_latency_ms(96, 48000, 2)
+        self.assertLess(offset, ringbuffer)
+
+    def test_offset_is_unaffected_by_the_dac(self):
+        """The recorded signal never reaches the converter. A DAC term in the
+        offset compensates for a delay that is not in this path -- and one that
+        cancels at the ear anyway, since loop playback traverses it too."""
+        with mock.patch.object(midi_sync, "_running_graph_params", return_value=(96, 2, 48000)):
+            with mock.patch.object(midi_sync, "output_hardware_latency_frames", return_value=0):
+                without = midi_sync.looper_alignment_latency_ms()
+            with mock.patch.object(midi_sync, "output_hardware_latency_frames", return_value=500):
+                with_dac = midi_sync.looper_alignment_latency_ms()
+        self.assertEqual(without, with_dac)
+
+    def test_offset_is_strictly_smaller_than_what_the_player_hears(self):
+        with mock.patch.object(midi_sync, "_running_graph_params", return_value=(96, 2, 48000)), \
+             mock.patch.object(midi_sync, "output_hardware_latency_frames", return_value=98):
+            self.assertLess(
+                midi_sync.looper_alignment_latency_ms(), midi_sync.total_output_latency_ms()
+            )
+
+
 class ResolveOffsetTests(unittest.TestCase):
     def setUp(self):
         self._env = dict(os.environ)
@@ -104,9 +136,10 @@ class ResolveOffsetTests(unittest.TestCase):
         os.environ.clear()
         os.environ.update(self._env)
 
-    def test_auto_offset_is_the_negated_total_not_the_buffer_alone(self):
-        with mock.patch.object(midi_sync, "total_output_latency_ms", return_value=8.6):
-            self.assertAlmostEqual(midi_sync.resolve_output_offset_ms(), -8.6)
+    def test_auto_offset_is_the_negated_looper_alignment_not_the_path_to_the_ear(self):
+        with mock.patch.object(midi_sync, "looper_alignment_latency_ms", return_value=3.25), \
+             mock.patch.object(midi_sync, "total_output_latency_ms", return_value=9.29):
+            self.assertAlmostEqual(midi_sync.resolve_output_offset_ms(), -3.25)
 
     def test_explicit_override_still_wins(self):
         os.environ["MPE_MIDI_OUTPUT_OFFSET_MS"] = "-12.5"

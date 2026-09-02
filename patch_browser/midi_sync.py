@@ -214,17 +214,14 @@ def output_hardware_latency_frames() -> int:
 
 
 def total_output_latency_ms() -> float:
-    """Every measured leg from a MIDI byte to sound in the air, in ms.
+    """MIDI byte to sound IN THE AIR, in ms. NOT the looper-grid offset.
 
-    Three terms, only one of which the offset used before 2026-09-02:
+    This is what a player HEARS: Surge's own leg, plus the playback ringbuffer,
+    plus the DAC. Use it for display and diagnostics.
 
-        Surge MIDI -> its output port   measured   (period + 60 frames)
-        its port   -> the converter     declared   (period x periods)
-        the DAC itself                  measured   (config/output-latency.conf)
-
-    The old model was the middle term alone -- 192 frames at period 96 x 2,
-    against ~415 actual. It under-compensated by more than half the real figure,
-    in the direction that fires MIDI LATE against the looper grid.
+    It is deliberately NOT what resolve_output_offset_ms returns. See
+    looper_alignment_latency_ms for why the last two terms must not be
+    compensated for.
     """
     running = _running_graph_params()
     if running is not None:
@@ -245,13 +242,57 @@ def total_output_latency_ms() -> float:
     return 1000.0 * frames / rate
 
 
+def looper_alignment_latency_ms() -> float:
+    """MIDI byte to audio AT THE LOOPER'S INPUT -- the only leg the offset owns.
+
+    SooperLooper is a JACK client fed directly by Surge inside the graph:
+
+        Surge XT:out_1 -> system:playback_1        (the speakers)
+                       -> mpe-looper:loop0_in_1    (what is RECORDED)
+
+    The recorded audio never leaves the box, so everything downstream of that
+    input port is NOT in the path being aligned:
+
+      * period x periods is the playback ringbuffer, Surge's port -> converter
+      * the DAC term is the converter itself
+
+    Both sit AFTER the looper tap. Worse, both are common-mode: the live signal
+    and the loop's own playback traverse them identically, so they cancel at the
+    ear as well. Compensating for them shifts MIDI early against a delay that
+    does not exist in this path.
+
+    JACK runs a client after the client feeding it, in the SAME cycle, so there
+    is no additional term between Surge's output port and the looper's input.
+    What Phase 1 measured at Surge XT:out_1 is measured at exactly the point the
+    looper taps.
+
+    HISTORY. Until 2026-09-02 this returned period x periods (192 frames, 4.00 ms
+    at the shipped graph) -- the ringbuffer, which is the wrong leg entirely and
+    was right only by coincidence of magnitude. It was then briefly changed to
+    the full path to the ear (446 frames, 9.29 ms), which was worse: nearly 3x
+    the correct value. Mitch caught it by asking why a loopback measurement was
+    informing an offset whose signal never leaves the graph.
+    """
+    running = _running_graph_params()
+    if running is not None:
+        period, _n_periods, rate = running
+    else:
+        period = _env_int("MPE_JACK_BUFFER", None) or _env_int(
+            "MPE_SURGE_BUFFER_SIZE", DEFAULT_BUFFER
+        )
+        rate = _env_int("MPE_SURGE_SAMPLE_RATE", DEFAULT_SAMPLE_RATE)
+    if not period or not rate or rate <= 0:
+        return 0.0
+    return 1000.0 * surge_midi_leg_frames(period) / rate
+
+
 def resolve_output_offset_ms() -> float:
     """Negative ms = fire MIDI earlier so Surge audio aligns with looper grid."""
     raw = os.environ.get("MPE_MIDI_OUTPUT_OFFSET_MS", "").strip()
     if raw:
         return float(raw)
     if os.environ.get("MPE_MIDI_OUTPUT_OFFSET_AUTO", "1").strip().lower() in ("1", "true", "yes"):
-        return -total_output_latency_ms()
+        return -looper_alignment_latency_ms()
     return 0.0
 
 

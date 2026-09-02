@@ -61,6 +61,10 @@ for P in $PERIODS; do
     # a mismatch here instead of being silently labelled with the period we
     # asked for. That exact confusion -- a run labelled 512 that ran at 1024 --
     # is in this project's history.
+    # The harness refuses to run without this: it is a measurement instrument
+    # that attaches a Python callback to the live graph, and it must never be
+    # reachable by accident. A driver run BY HAND is the intended caller.
+    MPE_ALLOW_GRAPH_PROBE=1 \
     python3 "$REPO_ROOT/scripts/measure-midi-audio-latency.py" \
         --trials "$TRIALS" \
         --label "sweep-p${P}" \
