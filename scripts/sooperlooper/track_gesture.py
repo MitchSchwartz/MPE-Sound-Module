@@ -93,6 +93,7 @@ from sl_loop_states import (
     SL_STATE_OFF,
     SL_STATE_OFF_MUTED,
     SL_STATE_OVERDUBBING,
+    SL_STATE_PAUSED,
     SL_STATE_PLAYING,
     SL_STATE_RECORDING,
     SL_STATE_WAIT_START,
@@ -1120,18 +1121,64 @@ def reset_all_loops(
     print(f"-> track reset: cleared {num_loops} loops", flush=True)
 
 
+#: How long to wait before believing SL about what Stop All achieved.
+#:
+#: SL pushes state asynchronously, so reading `fs.sl_state` in the same breath
+#: as the pause returns the PRE-stop value and would confirm whatever was
+#: already there. One second is far longer than the observed update latency and
+#: still inside the window where a spurious restart shows up.
+STOP_ALL_VERIFY_S: float = 1.0
+
+#: What "stopped" is allowed to look like after Stop All.
+#: OFF is an empty loop, OFF_MUTED an empty loop after global mute, PAUSED a
+#: loop with audio that is holding position.
+STOPPED_STATES = frozenset({SL_STATE_OFF, SL_STATE_OFF_MUTED, SL_STATE_PAUSED})
+
+
+def verify_stop_all(gestures: list["TrackGesture"], *, log=log) -> list[tuple[int, int]]:
+    """Report what Stop All ACTUALLY achieved. Returns the loops still active.
+
+    The counterpart to the request `stop_all_loops` sends. Separated in time
+    because SL's state arrives by push, so the honest answer does not exist yet
+    when the commands go out.
+
+    Reported 2026-08-30: clips restarting 5-10s after Stop All. The only
+    evidence was a log line that said "paused 15 loops" unconditionally, so
+    "they never stopped" and "they stopped and something restarted them" were
+    indistinguishable. This makes them distinguishable, which is the whole
+    point -- it is an instrument, not a fix.
+    """
+    still_active = [
+        (fs.loop, fs.sl_state)
+        for fs in gestures
+        if fs.sl_state not in STOPPED_STATES
+    ]
+    if still_active:
+        detail = ", ".join(f"loop {i} state={st}" for i, st in still_active)
+        log(f"stop all VERIFY: {len(still_active)} loop(s) did NOT stop -- {detail}")
+    else:
+        log(f"stop all VERIFY: all {len(gestures)} loops stopped")
+    return still_active
+
+
 def stop_all_loops(
     osc,
     *,
     num_loops: int,
     gestures: list[TrackGesture],
-) -> None:
+) -> float:
     """Pause every loop without clearing audio; LEDs -> stopped (yellow).
+
+    Returns the monotonic time at which `verify_stop_all` should be called to
+    find out whether it actually worked.
 
     Nothing is playing now, so the grid position resets to zero: the next clip
     launched starts from the top of the bar instead of joining a cycle that has
     been running unheard.
     """
+    grid = next((fs.grid for fs in gestures if fs.grid is not None), None)
+    grid_active = bool(grid is not None and grid.established and grid.bpm)
+
     # Stop All is NOT quantized. Per-clip stop waits for the bar because it is
     # a musical edit; Stop All is a transport action — when you hit it you want
     # silence now, not at the end of the bar.
@@ -1139,12 +1186,39 @@ def stop_all_loops(
     # mute_quantized is lifted for the duration, then restored, so the per-clip
     # behaviour is untouched. SL drains its non-realtime queue in order, so the
     # restore cannot overtake the mute.
+    #
+    # `trigger` is what REWINDS. Without it `pause_on` freezes every loop
+    # wherever it happened to be, and the launch path (`pause_off` + `trigger`)
+    # then resumes from that stored position — so Stop All followed by a
+    # restart came back mid-loop instead of from the top, and the loops came
+    # back at different phases from each other. MEASURED 2026-08-30 with four
+    # loops stopped: pos 3.719/8.052 (46%), 3.731/8.052 (46%), 11.783/16.104
+    # (73%), 3.719/16.104 (23%).
+    #
+    # quantize is lifted alongside mute_quantized because a quantized trigger
+    # is DEFERRED to the next cycle, which here would rewind a loop up to a
+    # full cycle after the player asked for silence.
+    #
+    # NOTE, and it corrects a comment in sl_grid_sync.set_grid_active: trigger
+    # DOES lift a pause. MEASURED 2026-08-30 — a loop in state 14 (Paused),
+    # sent `trigger` with quantize at 0, went to state 4 (Playing) from
+    # position 0. The earlier "verified: a paused loop stays Paused through
+    # trigger" was almost certainly read with quantize at CYCLE, where the
+    # trigger is merely deferred. A deferred trigger and an ignored trigger
+    # look identical from outside, which is the reading-the-same-either-way
+    # shape this project keeps paying for.
     osc.send_message("/sl/-1/set", ["mute_quantized", 0.0])
+    osc.send_message("/sl/-1/set", ["quantize", 0.0])
     osc.send_message("/sl/-1/hit", "mute_on")
+    osc.send_message("/sl/-1/hit", "trigger")
     osc.send_message("/sl/-1/hit", "pause_on")
+    # Back to what the grid says this loop should be, NOT unconditionally 1.0:
+    # with no grid established every loop is deliberately free-form and a
+    # quantize of 1 here would sync the take that is supposed to DEFINE the
+    # grid to a cycle inherited from the previous session.
+    osc.send_message("/sl/-1/set", ["quantize", 1.0 if grid_active else 0.0])
     osc.send_message("/sl/-1/set", ["mute_quantized", 1.0])
-    grid = next((fs.grid for fs in gestures if fs.grid is not None), None)
-    if grid is not None and grid.established and grid.bpm:
+    if grid_active:
         # Through the one seam. This was a raw `/set tempo` with the phase mark
         # hand-paired beside it — a fourth copy of the three lines, and the one
         # that also skipped `smart_eighths` and `eighth_per_cycle`. Harmless
@@ -1170,4 +1244,11 @@ def stop_all_loops(
         if fs.sl_state not in (SL_STATE_OFF, SL_STATE_OFF_MUTED):
             fs._expect(STATE_STOPPED)
         fs._sync_led()
-    print(f"-> stop all: paused {num_loops} loops", flush=True)
+    # NOT "paused 15 loops". This print used to claim the outcome while only
+    # ever having sent the request -- it read identically whether every loop
+    # paused, some paused, or none did, which is the one bug shape this
+    # project keeps paying for. It now says what it DID, and the truth is
+    # reported a moment later by `verify_stop_all` once SL's own state
+    # updates have arrived.
+    print(f"-> stop all: pause requested for {num_loops} loops", flush=True)
+    return time.monotonic() + STOP_ALL_VERIFY_S

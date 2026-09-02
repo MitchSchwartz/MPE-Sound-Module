@@ -203,25 +203,46 @@ missing_exec=0
 for u in "${ENABLED[@]}"; do
     # The RENDERED copy — the template's @MPE_MODULE_REPO@ is not a path on disk,
     # so checking the template would warn on every unit and mean nothing.
-    exec_line="$(sed -n 's/^ExecStart=//p' "$RENDER_TMP/$u.service" | head -1)"
+    # Every Exec* line, not just ExecStart. An ExecStartPre pointing at a missing
+    # script fails the unit exactly as hard as a missing ExecStart, and this guard
+    # was blind to it -- which is how a `-`-less ExecStartPre could have thrashed
+    # mpe-jackd forever with nothing reporting it.
+    exec_lines="$(sed -n 's/^Exec\(Start\|StartPre\|StartPost\|Stop\|StopPost\|Reload\)=//p' \
+        "$RENDER_TMP/$u.service")"
+    [ -n "$exec_lines" ] || continue
+  while IFS= read -r exec_line; do
     [ -n "$exec_line" ] || continue
-    # Strip systemd's leading modifiers (-, @, :, +, !) before the executable.
+    # Strip systemd's leading modifiers (-, @, :, +, !) and note whether `-` was
+    # among them. A `-` means systemd tolerates failure, so a missing path there
+    # is a deliberate choice rather than a fault.
+    #
+    # Tolerance is decided from the LEADING MODIFIER RUN only. Asking "does the
+    # text before the first slash contain a hyphen" skipped
+    # `ExecStart=sudo-wrapper /path/x.sh` entirely — a false negative in the guard
+    # whose whole job is catching missing paths, which is strictly worse than the
+    # blindness it replaced.
+    _tolerant=0
     while [ -n "$exec_line" ]; do
         case "$exec_line" in
-            [-@:+!]*) exec_line="${exec_line#?}" ;;
+            -*)        _tolerant=1; exec_line="${exec_line#?}" ;;
+            [@:+!]*)   exec_line="${exec_line#?}" ;;
             *) break ;;
         esac
     done
+    [ "$_tolerant" = 1 ] && continue
     for tok in $exec_line; do
         case "$tok" in
             /*) ;;
             *) continue ;;
         esac
         if [ ! -e "$tok" ]; then
-            echo "  WARNING: $u is enabled but ExecStart path is missing: $tok" >&2
+            echo "  WARNING: $u is enabled but an Exec path is missing: $tok" >&2
             missing_exec=1
         fi
     done
+  done <<EOF_EXEC_LINES
+$exec_lines
+EOF_EXEC_LINES
 done
 if [ "$missing_exec" -eq 1 ]; then
     echo "  ^ These units will start-fail or silently skip. Fix before relying on" >&2

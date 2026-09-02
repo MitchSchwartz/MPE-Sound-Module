@@ -12,8 +12,35 @@ SET_SURGE_AUDIO_SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "set-
 
 # Legacy Surge ALSA sizes — still valid in mpe.env for MIDI offset / calibration.
 BUFFER_PRESETS: tuple[int, ...] = (32, 64, 128, 256, 512, 768, 1024, 2048)
-# JACK server period sizes the touch UI and jackd accept (see mpe-cli jack buffer).
-JACK_PERIOD_PRESETS: tuple[int, ...] = (32, 64, 128, 256, 512, 1024)
+
+JACK_PERIODS_CONF = Path(__file__).resolve().parents[1] / "config" / "jack-periods.conf"
+# Fallback ONLY for a missing conf file (a broken checkout). Never edit this to
+# add a period -- it is not the list, and a second list is the bug this replaces.
+_JACK_PERIOD_FALLBACK: tuple[int, ...] = (32, 64, 128, 256, 512, 1024)
+
+
+def _load_jack_period_presets() -> tuple[int, ...]:
+    """The periods jackd accepts, from config/jack-periods.conf — THE list.
+
+    This was a hardcoded tuple until 2026-09-01, by which point it had drifted
+    from the shell validator: 96 and 192 were runnable on the appliance and
+    absent here, so the touch menu could not offer a period the appliance would
+    happily run.
+    """
+    try:
+        values = []
+        for line in JACK_PERIODS_CONF.read_text(encoding="utf-8").splitlines():
+            line = line.split("#", 1)[0].strip()
+            if line.isdigit():
+                values.append(int(line))
+        if values:
+            return tuple(values)
+    except OSError:
+        pass
+    return _JACK_PERIOD_FALLBACK
+
+
+JACK_PERIOD_PRESETS: tuple[int, ...] = _load_jack_period_presets()
 JACK_PERIODS_PRESETS: tuple[int, ...] = (2, 3, 4)
 SAMPLE_RATE_PRESETS: tuple[int, ...] = (44100, 48000)
 
@@ -23,7 +50,25 @@ DEFAULT_JACK_PERIOD = 256
 DEFAULT_JACK_PERIODS = 3
 DEFAULT_SAMPLE_RATE = 48000
 
-AUDIO_SWITCH_TIMEOUT_S = 45.0
+# `subprocess.run(timeout=...)` KILLS the child, and set-surge-audio.sh restarts
+# the whole JACK graph — slowest exactly when the graph is already unhappy, which
+# is when a buffer change is most likely to be attempted. At 45 s that kill
+# landed between the env write and its validation and left an untested buffer in
+# /etc/mpe/mpe.env; the appliance booted into it, dead (2026-09-01).
+#
+# The script does NOT survive that kill and cannot be made to: `subprocess.run`
+# escalates to Popen.kill() == SIGKILL, which is untrappable, and the child here
+# is `sudo`, so depending on the build the signal either kills the script outright
+# or kills sudo and orphans it. Recovery therefore does not live in the script's
+# lifetime at all — set-surge-audio.sh writes /etc/mpe/mpe.env.pending before
+# mutating anything and mpe-jackd's ExecStartPre reconciles it on the next graph
+# start. This margin is a courtesy so ordinary slow changes are not interrupted.
+AUDIO_SWITCH_TIMEOUT_S = 150.0
+
+# How long a TERM gets to run the script's own rollback before SIGKILL. The
+# rollback is three sed-and-install passes over a small file — well under a
+# second — so this is generous.
+TERMINATE_GRACE_S = 10.0
 
 
 def _read_env_int(key: str, default: int, *, valid: frozenset[int]) -> int:
@@ -173,17 +218,36 @@ def _run_set_script(args: list[str], *, success: str) -> tuple[bool, str]:
     if not SET_SURGE_AUDIO_SCRIPT.is_file():
         return False, "set-surge-audio.sh missing"
 
+    # Deliberately not subprocess.run(timeout=): that escalates straight to
+    # SIGKILL, which the script cannot trap and which orphans it when sudo forks
+    # a monitor. Ask politely first — a TERM lets the in-process rollback run and
+    # tidy up immediately, which is much faster than waiting for the next graph
+    # start to reconcile the marker. SIGKILL stays as the last resort, and the
+    # marker covers whatever it leaves behind.
     try:
-        result = subprocess.run(
+        proc = subprocess.Popen(
             ["sudo", str(SET_SURGE_AUDIO_SCRIPT), *args],
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
-            timeout=AUDIO_SWITCH_TIMEOUT_S,
         )
-    except subprocess.TimeoutExpired:
-        return False, f"Timed out ({int(AUDIO_SWITCH_TIMEOUT_S)}s)"
     except OSError as exc:
         return False, str(exc)[:60]
+
+    try:
+        stdout, stderr = proc.communicate(timeout=AUDIO_SWITCH_TIMEOUT_S)
+    except subprocess.TimeoutExpired:
+        proc.terminate()
+        try:
+            stdout, stderr = proc.communicate(timeout=TERMINATE_GRACE_S)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.communicate()
+        return False, f"Timed out ({int(AUDIO_SWITCH_TIMEOUT_S)}s)"
+
+    result = subprocess.CompletedProcess(
+        proc.args, proc.returncode, stdout=stdout, stderr=stderr
+    )
 
     if result.returncode != 0:
         detail = (result.stderr or result.stdout or "apply failed").strip()

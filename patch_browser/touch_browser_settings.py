@@ -5,6 +5,7 @@ from __future__ import annotations
 import pygame
 
 from patch_browser.audio_profile import profile_settings_label
+from patch_browser.audio_output import output_settings_label
 from patch_browser.draw_primitives import draw_chevron
 from patch_browser.geometry import Rect
 from patch_browser.scroll_widgets import draw_vertical_scroll_edge_hints
@@ -42,6 +43,7 @@ class TouchBrowserSettingsMixin:
 
     def _audio_settings_summary_lines(self) -> list[str]:
         return settings_detail_lines(
+            output_settings_label(),
             profile_settings_label(),
             graph_buffer_option_label(),
             sample_rate_option_label(current_sample_rate()),
@@ -148,6 +150,7 @@ class TouchBrowserSettingsMixin:
             y += bench_h + SETTINGS_ROW_GAP
 
         self.audio_profile_row_rect = Rect(pad, y, 0, 0)
+        self.audio_output_row_rect = Rect(pad, y, 0, 0)
         self.poly_governor_toggle_rect = Rect(pad, y, 0, 0)
         self.surge_buffer_row_rect = Rect(pad, y, 0, 0)
         self.surge_sample_rate_row_rect = Rect(pad, y, 0, 0)
@@ -169,13 +172,26 @@ class TouchBrowserSettingsMixin:
         from patch_browser.audio_profile import profile_settings_label
         from patch_browser.surge_audio import buffer_settings_label, sample_rate_settings_label
 
+        # "Output mode" (analog vs USB) and "Audio device" (WHICH DAC) are two
+        # different questions. Both rows used to be reachable only as "Audio
+        # output", which is how you get a menu nobody can predict.
         audio_h = self._settings_chevron_row_height(
-            "Audio output",
+            "Output mode",
             profile_settings_label(),
             inner_w,
         )
         self.audio_profile_row_rect = Rect(pad, y, inner_w, audio_h)
         y += audio_h + SETTINGS_ROW_GAP
+
+        from patch_browser.audio_output import output_settings_label as _out_label
+
+        output_h = self._settings_chevron_row_height(
+            "Audio device",
+            _out_label(),
+            inner_w,
+        )
+        self.audio_output_row_rect = Rect(pad, y, inner_w, output_h)
+        y += output_h + SETTINGS_ROW_GAP
 
         buffer_h = self._settings_chevron_row_height(
             "Buffer",
@@ -394,10 +410,19 @@ class TouchBrowserSettingsMixin:
             profile_row = self._panel_local_to_screen(self.audio_profile_row_rect, scrolled=True)
             self._draw_settings_chevron_row(
                 profile_row,
-                "Audio output",
+                "Output mode",
                 profile_settings_label(),
                 muted=service_busy,
                 pressed=self._pressed("settings:audio_profile"),
+            )
+
+            output_row = self._panel_local_to_screen(self.audio_output_row_rect, scrolled=True)
+            self._draw_settings_chevron_row(
+                output_row,
+                "Audio device",
+                output_settings_label(),
+                muted=service_busy,
+                pressed=self._pressed("settings:audio_output"),
             )
 
             from patch_browser.surge_audio import buffer_settings_label, sample_rate_settings_label

@@ -9,10 +9,39 @@ from pathlib import Path
 
 VALID_PROFILES = frozenset({"standalone", "usb-host", "usb-host-session"})
 PROFILE_OPTIONS: tuple[tuple[str, str, str], ...] = (
-    ("standalone", "Analog", "Sound Blaster — headphones and pedal"),
+    # "USB DAC", not a product name. The appliance binds whichever USB DAC is
+    # present (tier 1 or 2) -- a Scarlett 4i4 and a KM-HIFI-384KHZ have both run
+    # this profile. Naming one product in the label told the user the wrong
+    # device was selected. detect-audio-device.sh already says "USB DAC" here.
+    ("standalone", "Analog", "USB DAC — headphones and pedal"),
     ("usb-host", "USB direct", "Surge to PC when recording (analog mutes)"),
     ("usb-host-session", "USB session", "Analog stays on; mic return to PC"),
 )
+
+# PROFILE_OPTIONS above is the VOCABULARY -- every profile the appliance
+# understands, with its label. HIDDEN_PROFILES is about the MENU only. Removing
+# a row from the vocabulary would make profile_option_label() fall through to
+# "Analog", so an appliance sitting on a hidden profile would be mislabelled as
+# something else -- the failure this whole area keeps producing.
+#
+# usb-host-session ("mic return to PC") is hidden because the mic capture it
+# depends on is hardwired to a Sound Blaster product string that is not on this
+# appliance; see issue #136 for what has to be true before it comes back.
+HIDDEN_PROFILES: frozenset[str] = frozenset({"usb-host-session"})
+
+
+def menu_profile_options(current: str | None = None) -> tuple[tuple[str, str, str], ...]:
+    """Rows the settings modal offers.
+
+    A hidden profile is still shown when it is the ACTIVE one -- otherwise the
+    menu would not name the state the appliance is in, and there would be no way
+    to switch off it. Same rule as a saved-but-absent audio device.
+    """
+    active = normalize_profile(current if current is not None else current_profile())
+    return tuple(
+        option for option in PROFILE_OPTIONS
+        if option[0] not in HIDDEN_PROFILES or option[0] == active
+    )
 def profile_env_path() -> Path | None:
     """Appliance canon file, or None when MPE_ENV_FILE='' (hermetic tests)."""
     if "MPE_ENV_FILE" in os.environ:
@@ -123,7 +152,7 @@ def apply_profile(profile: str) -> tuple[bool, str]:
         return True, "USB host audio — plug USB-C to PC"
     if profile == "usb-host-session":
         return True, "Session record — mic → USB when PC captures"
-    return True, "Analog audio (Sound Blaster)"
+    return True, "Analog audio (USB DAC)"
 
 
 def read_profile_from_env_file(path: Path = MPE_ENV_PATH) -> str | None:

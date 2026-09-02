@@ -47,6 +47,9 @@ get_device_name() {
 }
 
 GADGET_GREP='UAC2[_ ]?Gadget|UAC2Gadget|USB Audio Passthrough|MPE Sound Module|ALSA\.UAC2'
+# Virtual sinks in JUCE's device-string namespace. Keep in step with
+# mpe_card_is_virtual() in lib/audio-engine.sh — same policy, different spelling.
+VIRTUAL_GREP='ALSA\.Dummy|Dummy PCM|ALSA\.Loopback|Loopback PCM'
 
 filter_gadget_devices() {
     echo "$DEVICE_LIST" | grep -iE "$GADGET_GREP" || true
@@ -142,9 +145,15 @@ fi
 # Excluding the gadget keeps the original reason for the skip and restores the
 # idle sink. See docs/USB-AUDIO-HOST.md for the idle/active table.
 # ============================================================================
+# VIRTUAL_GREP mirrors mpe_card_is_virtual() for the JUCE *device-string*
+# namespace (this script matches "ALSA.Dummy, Dummy PCM"; the predicate matches
+# ALSA card ids). Two namespaces, one policy — kept adjacent and named so the
+# next card type is added to both, which is precisely what did not happen when
+# snd-dummy landed.
 DEVICE=$(echo "$DEVICE_LIST" | \
     grep -i "usb" | \
     grep -viE "$GADGET_GREP" | \
+    grep -viE "$VIRTUAL_GREP" | \
     grep -v "Surround" | \
     grep -v "S/PDIF" | \
     grep -vi "HDMI" | \
@@ -168,16 +177,51 @@ if [ -n "$DEVICE" ]; then
 fi
 
 # ============================================================================
-# TIER 3: Pi headphone jack — idle sink for usb-host without Sound Blaster
+# TIER 3: the IDLE SINK — a free-running local clock while the host is quiet
 # ============================================================================
 # `grep -v "HDMI"` was case-SENSITIVE, and JUCE reports the Pi's HDMI outputs
 # as "ALSA.vc4-hdmi-0" in lower case — so the exclusion never fired and this
 # "headphone jack" tier returned an HDMI port. The Pi 5 has no headphone jack
 # at all, so on that board this tier must find nothing and fall through.
+#
+# WHY THE LOOPBACK IS HERE (2026-08-30). `usb-host` deliberately refuses to
+# bind the UAC2 gadget until the host is actually capturing, and that refusal
+# is not a policy — MEASURED on the appliance the same day:
+#
+#     aplay -D hw:2,0 (gadget), host not capturing -> EIO after 1s
+#
+# A UAC2 gadget has no clock of its own. Under the USB Audio Class spec the
+# HOST enables the streaming interface, and isochronous transfers happen only
+# while it is active; until then the endpoint rejects writes. So "bind early
+# and let the host start whenever" cannot work at the ALSA layer, and the
+# standard arrangement — the one hardware synths with USB audio out use — is to
+# run the engine on a free-running local clock and bridge into the gadget when
+# the host appears. `usb-host-session` is that arrangement.
+#
+# It needs a local clock, and docs/USB-AUDIO-HOST.md supplies the Pi 4 answer:
+# "No external DAC: idle sink is Pi headphone". The Pi 5 has no headphone jack
+# and its HDMI ports read `disconnected` with no display, so on a Pi 5 with no
+# external DAC there was NO idle sink at all — jackd could not start, Surge
+# could not start, and the appliance was silent with a misleading error. That
+# is a hardware-generation assumption that outlived its board.
+#
+# snd-dummy free-runs off its own hrtimer and needs no reader, which is exactly
+# the property the headphone jack was providing. NOT snd-aloop: that is a pipe,
+# whose playback side only advances while something reads its capture side, so
+# jackd's driver thread dies with "ALSA: poll time out ... Exiting". An `aplay`
+# to it still completes in real time, which looks identical to a working clock
+# and is not one. It ranks BELOW every real DAC
+# (tiers 1 and 2) so a plugged-in interface always wins, and above the
+# last-resort tier so "no sink at all" still fails loudly.
 DEVICE=$(echo "$DEVICE_LIST" | \
     grep -E "(Headphones|bcm2835)" | \
     grep -vi "hdmi" | \
     head -1 || true)
+
+if [ -z "$DEVICE" ]; then
+    DEVICE=$(echo "$DEVICE_LIST" | grep -iE 'Dummy' | head -1 || true)
+    [ -n "$DEVICE" ] && IDLE_SINK_KIND="snd-dummy"
+fi
 
 if [ -n "$DEVICE" ]; then
     DEVICE_ID=$(extract_device_id "$DEVICE")
@@ -186,10 +230,11 @@ if [ -n "$DEVICE" ]; then
         echo "DEVICE_ID=$DEVICE_ID"
         echo "DEVICE_NAME=$DEVICE_NAME"
         echo "TIER=3"
+        _sink_kind="${IDLE_SINK_KIND:-Pi headphone}"
         if [ "$AUDIO_PROFILE" = "usb-host" ]; then
-            echo "REASON=usb-host idle sink (Pi headphone — host capture not active)" >&2
+            echo "REASON=usb-host idle sink ($_sink_kind — host capture not active)" >&2
         else
-            echo "REASON=Raspberry Pi headphone jack (fallback)" >&2
+            echo "REASON=$_sink_kind (fallback)" >&2
         fi
         exit 0
     fi
@@ -203,7 +248,17 @@ fi
 # nobody is draining, and that is the stall this profile exists to prevent.
 # With genuinely nothing else present, failing loudly beats wedging quietly.
 # ============================================================================
-DEVICE=$(echo "$DEVICE_LIST" | grep -viE "$GADGET_GREP" | head -1 || true)
+# ...and so are ALSA's virtual/plug entries. This tier returned
+# "ALSA.Default Audio Device (1)" on 2026-08-30 with genuinely nothing plugged
+# in. That is not a card: `jackd-prestart.sh` could not map it to anything in
+# /proc/asound/cards and failed one layer later with "no ALSA card matches tier
+# '4'" — an error that sent a diagnosis hunting for a missing sound interface
+# instead of reporting the truth, which was that no sink existed at all. This
+# tier's own comment already promised to fail loudly; now it does.
+DEVICE=$(echo "$DEVICE_LIST" \
+    | grep -viE "$GADGET_GREP" \
+    | grep -viE 'Default Audio Device|Dummy' \
+    | head -1 || true)
 
 if [ -n "$DEVICE" ]; then
     DEVICE_ID=$(extract_device_id "$DEVICE")

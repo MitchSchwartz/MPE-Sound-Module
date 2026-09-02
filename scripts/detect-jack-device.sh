@@ -23,6 +23,10 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")" && pwd)"
 # shellcheck source=lib/paths.sh
 source "$SCRIPT_DIR/lib/paths.sh"
+# shellcheck source=lib/audio-engine.sh
+source "$SCRIPT_DIR/lib/audio-engine.sh"
+# shellcheck source=lib/audio-outputs.sh
+source "$SCRIPT_DIR/lib/audio-outputs.sh"
 
 SURGE_CLI="${1:-$SURGE_CLI}"
 CARDS_FILE="${MPE_ASOUND_CARDS:-/proc/asound/cards}"
@@ -32,19 +36,79 @@ if [ ! -r "$CARDS_FILE" ]; then
     exit 1
 fi
 
+_emit() {
+    local record="$1"
+    local reason="$2"
+    local idx id
+    idx="$(printf '%s' "$record" | cut -d'|' -f1)"
+    id="$(printf '%s' "$record" | cut -d'|' -f2)"
+    echo "JACK_DEVICE=hw:$idx"
+    echo "JACK_CARD_ID=$id"
+    echo "TIER=$TIER"
+    echo "REASON=$reason" >&2
+    exit 0
+}
+
+# ---------------------------------------------------------------------------
+# EXPLICIT SELECTION (spec section 4). Answered here, before tier detection,
+# because an explicit choice is not a tier and must not be re-derived by one.
+# Running first also skips `surge-xt-cli --list-devices` entirely on the common
+# path, which is the slowest thing this script does.
+#
+# The rule Mitch resolved 2026-09-01: a stored selection is a PREFERENCE, never
+# a command. It is applied only when the device is actually present. When it is
+# not, this falls through to Automatic and says so BY NAME -- a rig that is
+# silent at soundcheck is worse than one that is on the wrong output and says
+# so. The prohibition is on the silence, not on the substitution.
+_selection="$(mpe_output_selection)"
+if mpe_output_selection_is_explicit; then
+    _sel_label="${MPE_AUDIO_OUTPUT_LABEL:-$_selection}"
+    _sel_matches="$(mpe_output_find "$_selection" 2>/dev/null || true)"
+    _sel_count="$(printf '%s' "$_sel_matches" | grep -c '[^[:space:]]' || true)"
+    if [ "${_sel_count:-0}" -eq 1 ]; then
+        TIER="selected"
+        _sel_speed="$(printf '%s' "$_sel_matches" | cut -d'|' -f4)"
+        _sel_product="$(printf '%s' "$_sel_matches" | cut -d'|' -f5)"
+        _emit "$_sel_matches" \
+            "selected output '$_sel_product' ($_selection, $(mpe_output_speed_label "$_sel_speed"))"
+    elif [ "${_sel_count:-0}" -gt 1 ]; then
+        # Two devices answering to one identity. Surface it; do not pick one.
+        # Guessing here would reintroduce `head -1`, which is the bug this
+        # whole feature replaces.
+        echo "WARNING: $_sel_count devices match the selected output '$_sel_label'" >&2
+        echo "         ($_selection). Refusing to guess which one you meant —" >&2
+        echo "         falling through to Automatic. Unplug one, or reselect." >&2
+        printf '%s\n' "$_sel_matches" | sed 's/^/         candidate: /' >&2
+    else
+        echo "WARNING: selected output '$_sel_label' is NOT CONNECTED ($_selection)." >&2
+        echo "         Falling through to Automatic — audio will come out of" >&2
+        echo "         whatever is attached, which is not what you chose." >&2
+    fi
+fi
+
 # The looper's snd-aloop tier is meaningless for jackd: under JACK there is no
 # loopback capture path (the looper is guarded off until spec Phase 2), so the
 # server must bind the real output device.
-DETECT_OUTPUT="$(MPE_LOOPER_ENABLED=0 "$SCRIPT_DIR/detect-audio-device.sh" "$SURGE_CLI" 2>/dev/null)"
-DETECT_EXIT=$?
+if [ "$_selection" = "$MPE_AUDIO_OUTPUT_SILENT" ]; then
+    # "Silent" exists so that binding the idle sink is a STATED INTENT rather
+    # than an accident. Today it is only ever reached by accident, and that is
+    # the state the appliance reports as state=ok. Tier 3 already knows how to
+    # find the idle sink -- ask it, rather than writing a second matcher.
+    echo "REASON=output set to Silent — binding the idle sink on purpose" >&2
+    DEVICE_NAME=""
+    TIER=3
+else
+    DETECT_OUTPUT="$(MPE_LOOPER_ENABLED=0 "$SCRIPT_DIR/detect-audio-device.sh" "$SURGE_CLI" 2>/dev/null)"
+    DETECT_EXIT=$?
 
-if [ $DETECT_EXIT -ne 0 ]; then
-    echo "ERROR: tier detection failed — cannot choose a card for jackd" >&2
-    exit 1
+    if [ $DETECT_EXIT -ne 0 ]; then
+        echo "ERROR: tier detection failed — cannot choose a card for jackd" >&2
+        exit 1
+    fi
+
+    DEVICE_NAME="$(printf '%s\n' "$DETECT_OUTPUT" | grep '^DEVICE_NAME=' | cut -d= -f2-)"
+    TIER="$(printf '%s\n' "$DETECT_OUTPUT" | grep '^TIER=' | cut -d= -f2-)"
 fi
-
-DEVICE_NAME="$(printf '%s\n' "$DETECT_OUTPUT" | grep '^DEVICE_NAME=' | cut -d= -f2-)"
-TIER="$(printf '%s\n' "$DETECT_OUTPUT" | grep '^TIER=' | cut -d= -f2-)"
 
 # One record per card: index|id|description (continuation lines folded in).
 _card_records() {
@@ -91,17 +155,16 @@ if [ -z "$_records" ]; then
     exit 1
 fi
 
-_emit() {
-    local record="$1"
-    local reason="$2"
-    local idx id
-    idx="$(printf '%s' "$record" | cut -d'|' -f1)"
-    id="$(printf '%s' "$record" | cut -d'|' -f2)"
-    echo "JACK_DEVICE=hw:$idx"
-    echo "JACK_CARD_ID=$id"
-    echo "TIER=$TIER"
-    echo "REASON=$reason" >&2
-    exit 0
+# Drop records whose card id is virtual, using the shared predicate. Every tier
+# that needs this calls it -- a local regex here is how snd-dummy got through.
+_drop_virtual_records() {
+    local record id
+    while IFS= read -r record; do
+        [ -n "$record" ] || continue
+        id="$(printf '%s' "$record" | cut -d'|' -f2)"
+        mpe_card_is_virtual "$id" && continue
+        printf '%s\n' "$record"
+    done
 }
 
 # 1. Name match — the tier already decided *which* hardware; trust its answer.
@@ -123,10 +186,16 @@ case "$TIER" in
         ;;
     2)
         _match="$(printf '%s\n' "$_records" | grep -iE 'USB-?Audio' \
-            | grep -viE 'UAC2|Loopback' | head -1)"
+            | _drop_virtual_records | head -1)"
         ;;
     3)
-        _match="$(printf '%s\n' "$_records" | grep -iE 'Headphones|bcm2835' \
+        # Headphones|bcm2835 is the Pi 4 idle sink. The Pi 5 has no headphone
+        # jack, so there its idle sink is the snd-dummy card installed by
+        # scripts/install-idle-sink.sh -- see docs/USB-AUDIO-HOST.md. It stays
+        # OUT of the last-resort match below: picking a virtual
+        # card by accident is exactly what that exclusion exists to prevent.
+        # Here it is not an accident, it is what tier 3 asked for.
+        _match="$(printf '%s\n' "$_records" | grep -iE 'Headphones|bcm2835|Dummy' \
             | grep -vi 'HDMI' | head -1)"
         ;;
     *)
@@ -152,9 +221,12 @@ _card_can_play() {
     ls "$root/card$idx" 2>/dev/null | grep -qE '^pcm[0-9]+p$'
 }
 
+# Virtual cards are excluded via the shared predicate in lib/audio-engine.sh, not
+# a local regex. This list used to be one of five that had to agree by hand; when
+# snd-dummy arrived only two of the five were updated.
 _playable_records() {
     local record idx
-    printf '%s\n' "$_records" | grep -viE 'Loopback|vc4hdmi|UAC2' | while IFS= read -r record; do
+    printf '%s\n' "$_records" | _drop_virtual_records | while IFS= read -r record; do
         [ -n "$record" ] || continue
         idx="$(printf '%s' "$record" | cut -d'|' -f1)"
         if _card_can_play "$idx"; then
