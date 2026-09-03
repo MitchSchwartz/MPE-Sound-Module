@@ -633,6 +633,21 @@ def main() -> int:
         result["clock_jitter_ms"] = round(cn.jitter_ms(), 3)
         result["bpm"] = args.bpm
 
+        # Write the evidence BEFORE the assertions can reject it. A rejected
+        # run is the one whose raw numbers are most worth having, and the first
+        # version of this threw them away with the halt -- leaving a verdict of
+        # "implausible" and nothing to diagnose it with.
+        args.out.write_text(json.dumps(result, indent=2), encoding="utf-8")
+        _sentinel(
+            "loop-align-raw",
+            median_error_ms=result["median_error_ms"],
+            sd_ms=result["sd_ms"],
+            onsets=result["onsets"],
+            loop_seconds=result["loop_seconds"],
+            first_onset_s=result["onset_positions_s"][0],
+            out=str(args.out),
+        )
+
         if abs(result["median_error_ms"]) > MAX_PLAUSIBLE_ERROR_MS:
             raise Halt(
                 f"median error {result['median_error_ms']} ms exceeds "
@@ -645,7 +660,6 @@ def main() -> int:
                 "detector missed notes and the median is not trustworthy"
             )
 
-        args.out.write_text(json.dumps(result, indent=2), encoding="utf-8")
         print(json.dumps(result, indent=2))
         _sentinel(
             "loop-align-complete",
