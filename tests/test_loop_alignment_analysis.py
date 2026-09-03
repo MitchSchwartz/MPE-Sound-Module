@@ -50,6 +50,69 @@ def _write_loop(path: Path, click_offsets_ms: list[float], beats: int = 8) -> No
         wf.writeframes(b"".join(struct.pack("<h", s) for s in samples))
 
 
+def _write_float32_loop(path: Path, click_offsets_ms: list[float], beats: int = 8) -> None:
+    """A float32 WAV, which is what SooperLooper actually saves."""
+    import struct as _struct
+    total = int(beats * BEAT_S * RATE)
+    samples = [0.0] * total
+    for b in range(beats):
+        for off in click_offsets_ms:
+            start = int((b * BEAT_S + off / 1000.0) * RATE)
+            if not (0 <= start < total - 500):
+                continue
+            for i in range(400):
+                env = 1.0 - (i / 400.0)
+                samples[start + i] = 0.67 * env * math.sin(2 * math.pi * 900 * i / RATE)
+    payload = b"".join(_struct.pack("<f", v) for v in samples)
+    fmt = _struct.pack("<HHIIHH", 3, 1, RATE, RATE * 4, 4, 32)
+    body = (b"WAVE"
+            + b"fmt " + _struct.pack("<I", len(fmt)) + fmt
+            + b"data" + _struct.pack("<I", len(payload)) + payload)
+    path.write_bytes(b"RIFF" + _struct.pack("<I", len(body)) + body)
+
+
+class Float32ReaderTests(unittest.TestCase):
+    """SooperLooper saves 32-bit IEEE float. Python's `wave` module cannot read
+    it at all ("unknown format: 3"), which killed the first live run after a
+    perfectly good recording."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.tmp = Path(self._tmp.name)
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def test_float32_loop_is_read_and_timed(self):
+        p = self.tmp / "f32.wav"
+        _write_float32_loop(p, [6.0])
+        r = mla.analyse(p, BEAT_S)
+        self.assertAlmostEqual(r["median_error_ms"], 6.0, delta=0.6)
+
+    def test_float32_silence_still_halts(self):
+        p = self.tmp / "f32-silent.wav"
+        _write_float32_loop(p, [])
+        with self.assertRaises(mla.Halt):
+            mla.analyse(p, BEAT_S)
+
+    def test_a_non_riff_file_halts_rather_than_decoding_garbage(self):
+        p = self.tmp / "junk.bin"
+        p.write_bytes(b"not a wav file at all" * 100)
+        with self.assertRaises(mla.Halt):
+            mla.analyse(p, BEAT_S)
+
+    def test_unsupported_encoding_halts_by_name(self):
+        import struct as _struct
+        p = self.tmp / "weird.wav"
+        fmt = _struct.pack("<HHIIHH", 7, 1, RATE, RATE, 1, 8)   # mu-law
+        payload = b"\x00" * 1000
+        body = (b"WAVE" + b"fmt " + _struct.pack("<I", len(fmt)) + fmt
+                + b"data" + _struct.pack("<I", len(payload)) + payload)
+        p.write_bytes(b"RIFF" + _struct.pack("<I", len(body)) + body)
+        with self.assertRaises(mla.Halt):
+            mla.analyse(p, BEAT_S)
+
+
 class AnalyserConformanceTests(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()

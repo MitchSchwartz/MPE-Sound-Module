@@ -286,24 +286,70 @@ def _alsa_client_id(name_fragment: str) -> str | None:
 # --------------------------------------------------------------------------
 # Analysis
 # --------------------------------------------------------------------------
+def read_wav_mono(path: Path):
+    """Mono float samples + rate from a RIFF file, PCM or IEEE float.
+
+    Python's `wave` module refuses SooperLooper's output with
+    "unknown format: 3" -- SooperLooper saves 32-bit IEEE FLOAT (format 3), which
+    `wave` cannot read at all. The first version of this analyser used `wave` and
+    died after a successful recording, which is the cheap kind of failure: it
+    halted loudly instead of returning a number from a misread buffer.
+    """
+    import numpy as np
+
+    raw = path.read_bytes()
+    if raw[:4] != b"RIFF" or raw[8:12] != b"WAVE":
+        raise Halt(f"{path} is not a RIFF/WAVE file")
+
+    fmt = None
+    data = None
+    pos = 12
+    while pos + 8 <= len(raw):
+        cid = raw[pos:pos + 4]
+        size = int.from_bytes(raw[pos + 4:pos + 8], "little")
+        body = raw[pos + 8:pos + 8 + size]
+        if cid == b"fmt ":
+            fmt = body
+        elif cid == b"data":
+            data = body
+        pos += 8 + size + (size & 1)
+
+    if fmt is None or data is None:
+        raise Halt(f"{path} has no fmt/data chunk -- cannot be decoded")
+
+    audio_format = int.from_bytes(fmt[0:2], "little")
+    channels = int.from_bytes(fmt[2:4], "little")
+    rate = int.from_bytes(fmt[4:8], "little")
+    bits = int.from_bytes(fmt[14:16], "little")
+    if audio_format == 0xFFFE and len(fmt) >= 26:      # WAVE_FORMAT_EXTENSIBLE
+        audio_format = int.from_bytes(fmt[24:26], "little")
+
+    if audio_format == 3 and bits == 32:
+        samples = np.frombuffer(data, dtype="<f4").astype(np.float64)
+    elif audio_format == 1 and bits == 16:
+        samples = np.frombuffer(data, dtype="<i2").astype(np.float64) / 32768.0
+    elif audio_format == 1 and bits == 32:
+        samples = np.frombuffer(data, dtype="<i4").astype(np.float64) / 2147483648.0
+    elif audio_format == 1 and bits == 24:
+        b = np.frombuffer(data, dtype=np.uint8).reshape(-1, 3).astype(np.int32)
+        ints = (b[:, 0] | (b[:, 1] << 8) | (b[:, 2] << 16))
+        ints[ints >= 1 << 23] -= 1 << 24
+        samples = ints.astype(np.float64) / 8388608.0
+    else:
+        raise Halt(
+            f"unsupported WAV encoding in {path}: format={audio_format} bits={bits}"
+        )
+
+    if channels > 1:
+        usable = (samples.size // channels) * channels
+        samples = samples[:usable].reshape(-1, channels).mean(axis=1)
+    return samples, rate
+
+
 def analyse(path: Path, beat_s: float, threshold_ratio: float = 0.25) -> dict:
     import numpy as np
 
-    with wave.open(str(path), "rb") as wf:
-        rate = wf.getframerate()
-        channels = wf.getnchannels()
-        width = wf.getsampwidth()
-        frames = wf.readframes(wf.getnframes())
-
-    if width != 2:
-        dtype = {1: np.uint8, 4: np.int32}.get(width)
-        if dtype is None:
-            raise Halt(f"unsupported sample width {width} in {path}")
-        data = np.frombuffer(frames, dtype=dtype).astype(np.float64)
-    else:
-        data = np.frombuffer(frames, dtype=np.int16).astype(np.float64)
-    if channels > 1:
-        data = data.reshape(-1, channels).mean(axis=1)
+    data, rate = read_wav_mono(path)
     if data.size == 0:
         raise Halt(f"{path} contains no audio -- the loop recorded nothing")
 
