@@ -218,7 +218,7 @@ def _write_overdub_loop(path: Path, pass2_late_ms: float, beats: int = 8,
     for b in range(beats):
         base = b * BEAT_S + start_phase_ms / 1000.0
         click(base)
-        click(base + BEAT_S / 2.0 + pass2_late_ms / 1000.0)
+        click(base + mla.OVERDUB_SHIFT_BEATS * BEAT_S + pass2_late_ms / 1000.0)
 
     import struct as _struct
     payload = b"".join(_struct.pack("<f", max(-1.0, min(1.0, v))) for v in samples)
@@ -297,3 +297,46 @@ class LoopPhaseAssertionTests(unittest.TestCase):
         overdub by a different amount every repetition."""
         with self.assertRaises(mla.Halt):
             mla.assert_loop_is_whole_beats(5.37, 0.5)
+
+
+class OverdubSignRobustnessTests(unittest.TestCase):
+    """The defect the earlier design hid: at a half-beat shift the take->overdub
+    and overdub->take intervals are (half+d) and (half-d), so the two signs of
+    one displacement cancel and the median lands on whichever direction happens
+    to be counted once more. A 20 ms live control read 18.3 ms with sd 21.7 --
+    the right magnitude by an accident of parity. The synthetic tests passed for
+    the same reason, so they were not controls at all.
+    """
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.tmp = Path(self._tmp.name)
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def test_both_interval_directions_are_present_and_agree(self):
+        p = self.tmp / "od-signs.wav"
+        _write_overdub_loop(p, pass2_late_ms=15.0)
+        r = mla.analyse_overdub(p, BEAT_S)
+        kinds = set(r["interval_kinds"]) - {"skip"}
+        self.assertEqual(kinds, {"short", "long"},
+                         "one direction only — the sign test is vacuous")
+        # Every sample must carry the SAME sign. Under the half-beat design
+        # these came in as +15 and -15 and averaged each other away.
+        self.assertTrue(all(e > 0 for e in r["errors_ms"]),
+                        f"directions disagree in sign: {r['errors_ms']}")
+        self.assertAlmostEqual(r["median_error_ms"], 15.0, delta=0.6)
+        self.assertLess(r["sd_ms"], 1.5, "spread should be sub-millisecond")
+
+    def test_the_answer_does_not_depend_on_how_many_intervals_are_counted(self):
+        """Truncating one interval must not move the result. Under the old
+        design it moved it by 2d."""
+        p = self.tmp / "od-parity.wav"
+        _write_overdub_loop(p, pass2_late_ms=15.0, beats=8)
+        full = mla.analyse_overdub(p, BEAT_S)
+        q = self.tmp / "od-parity-odd.wav"
+        _write_overdub_loop(q, pass2_late_ms=15.0, beats=7)
+        odd = mla.analyse_overdub(q, BEAT_S)
+        self.assertAlmostEqual(full["median_error_ms"], odd["median_error_ms"],
+                               delta=0.5)
