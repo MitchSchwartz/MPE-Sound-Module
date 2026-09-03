@@ -68,9 +68,10 @@ _restore() {
     case " $SERVICES " in
         *" mpe-sooperlooper "*) sudo systemctl start mpe-sooperlooper 2>&1 | tail -1 ;;
     esac
-    # The meter is PartOf=mpe-jackd, so killing jackd took it down silently and
-    # PartOf never starts anything back. Omitting it here left Mitch's output
-    # meter dead after a measurement, reading zero and looking like silence.
+    # The meter is PartOf=mpe-jackd. A RESTART of jackd would bring it back by
+    # itself, but this script STOPS the graph and pkills jackd -- PartOf
+    # propagates the stop and starts nothing. That is what left Mitch's output
+    # meter dead after Phase 2, reading zero and looking like silence.
     if systemctl is-enabled --quiet mpe-peak-meter.service 2>/dev/null; then
         sudo systemctl start mpe-peak-meter.service 2>&1 | tail -1
     fi

@@ -149,15 +149,19 @@ mpe_restart_core_services() {
     mpe_restart_peak_meter
 }
 
-# mpe-peak-meter is PartOf=mpe-jackd.service, and PartOf propagates stop and
-# restart but NEVER start. So every graph restart -- a buffer change from the
-# touch menu, an output switch, a recovery, a measurement -- took the meter down
-# and nothing brought it back. It exits 0 when its server goes away, so
-# Restart=on-failure does not apply either, and the unit sits inactive with
-# Result=success looking entirely healthy.
+# mpe-peak-meter is PartOf=mpe-jackd.service. PartOf propagates BOTH stop and
+# restart, so an ordinary `systemctl restart mpe-jackd` brings the meter back on
+# its own -- and every path in audio-engine.sh uses restart. Those are fine.
 #
-# The symptom is a meter that reads zero forever, which is indistinguishable
-# from silence. Found 2026-09-02 because Mitch noticed the meter was off.
+# The hole is a jackd STOP or death:
+#   * `systemctl stop mpe-jackd` stops the meter and starts nothing
+#   * a jackd crash or kill makes the meter's client exit 0, so
+#     Restart=on-failure never fires
+#
+# Either way the unit sits inactive with Result=success and ExecMainStatus=0,
+# looking entirely healthy, while the meter reads zero forever -- indistinguishable
+# from real silence. Found 2026-09-02 when Mitch noticed his meter was off after
+# measure-dac-loopback.sh stopped the graph outright.
 #
 # Start (not restart) and only when enabled: the unit is opt-in, gated on
 # MPE_PEAK_METER=1, and starting a disabled one would defeat that. `start` on an
