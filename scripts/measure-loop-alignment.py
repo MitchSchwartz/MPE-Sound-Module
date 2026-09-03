@@ -62,6 +62,12 @@ MIDI_CLOCK_BYTE = 0xF8
 MIDI_START_BYTE = 0xFA
 MIDI_STOP_BYTE = 0xFC
 
+# SooperLooper loop states (its LoopState enum).
+SL_STATE_WAIT_START = 1
+SL_STATE_RECORDING = 2
+SL_STATE_WAIT_STOP = 3
+SL_STATE_PLAYING = 4
+
 NOTE = 60
 VELOCITY = 100
 NOTE_LEN_S = 0.12
@@ -159,6 +165,25 @@ class SL:
                 return self._replies[param]
             time.sleep(0.02)
         raise Halt(f"no reply for loop {loop} parameter {param!r}")
+
+    def wait_for_state(self, loop: int, wanted: set[int], timeout: float, what: str) -> int:
+        """Block until the loop reports one of *wanted*, or halt.
+
+        With quantize=cycle a `record` hit does not start recording -- it queues
+        it until the next CYCLE boundary, up to two seconds away at 120 BPM.
+        Playing notes before that produced a loop of digital silence on the first
+        live run. Never assume a transport command took effect; ask.
+        """
+        deadline = time.monotonic() + timeout
+        last = -1.0
+        while time.monotonic() < deadline:
+            last = self.get_loop(loop, "state")
+            if int(round(last)) in wanted:
+                return int(round(last))
+            time.sleep(0.05)
+        raise Halt(
+            f"loop {loop} never reached {what} (last state {last}) within {timeout}s"
+        )
 
     def save_loop(self, loop: int, path: Path, timeout: float = 10.0) -> None:
         if path.exists():
@@ -500,9 +525,14 @@ def main() -> int:
         sl.hit(args.loop, "reset")
         time.sleep(0.5)
         sl.hit(args.loop, "record")
+        state = sl.wait_for_state(
+            args.loop, {SL_STATE_RECORDING}, timeout=8.0, what="Recording"
+        )
+        _sentinel("loop-align-recording", state=state)
 
         # Place notes on successive beats. Emitted at exactly the instant
-        # plan_fire_at would choose: the beat, shifted by the offset.
+        # plan_fire_at would choose: the beat, shifted by the offset. The first
+        # is a full beat after recording is CONFIRMED live, not after the hit.
         placed = []
         first = cn.beat_at_or_after(time.monotonic() + 1.5)
         for i in range(args.notes):
@@ -517,10 +547,18 @@ def main() -> int:
             time.sleep(NOTE_LEN_S)
             cn.note(False)
 
-        # Let the last note ring, then close the loop on a cycle boundary.
+        # Let the last note ring, then close the loop on a cycle boundary and
+        # wait for the transport to actually leave the recording states -- saving
+        # mid-record is another way to get a file that is not what it claims.
         time.sleep(beat_s * 1.5)
         sl.hit(args.loop, "record")
-        time.sleep(beat_s * 2.0)
+        sl.wait_for_state(
+            args.loop,
+            {SL_STATE_PLAYING, 0, 10},
+            timeout=10.0,
+            what="a settled (non-recording) state",
+        )
+        time.sleep(0.5)
 
         stage = "save"
         sl.save_loop(args.loop, args.wav)
