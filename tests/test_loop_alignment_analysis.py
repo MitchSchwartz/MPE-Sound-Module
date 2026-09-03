@@ -194,3 +194,106 @@ class OptInGateTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def _write_overdub_loop(path: Path, pass2_late_ms: float, beats: int = 8,
+                        start_phase_ms: float = 0.0) -> None:
+    """A loop with a take on the beats and an overdub on the offbeats.
+
+    `start_phase_ms` shifts BOTH passes together — it is the loop's own start
+    phase, which the live run measured at 145.5 ms. A correct differential
+    analyser must be blind to it.
+    """
+    total = int(beats * BEAT_S * RATE)
+    samples = [0.0] * total
+
+    def click(at_s: float) -> None:
+        start = int(at_s * RATE)
+        if not (0 <= start < total - 500):
+            return
+        for i in range(400):
+            env = 1.0 - (i / 400.0)
+            samples[start + i] += 0.6 * env * math.sin(2 * math.pi * 900 * i / RATE)
+
+    for b in range(beats):
+        base = b * BEAT_S + start_phase_ms / 1000.0
+        click(base)
+        click(base + BEAT_S / 2.0 + pass2_late_ms / 1000.0)
+
+    import struct as _struct
+    payload = b"".join(_struct.pack("<f", max(-1.0, min(1.0, v))) for v in samples)
+    fmt = _struct.pack("<HHIIHH", 3, 1, RATE, RATE * 4, 4, 32)
+    body = (b"WAVE" + b"fmt " + _struct.pack("<I", len(fmt)) + fmt
+            + b"data" + _struct.pack("<I", len(payload)) + payload)
+    path.write_bytes(b"RIFF" + _struct.pack("<I", len(body)) + body)
+
+
+class OverdubAnalyserTests(unittest.TestCase):
+    """The differential analyser. The previous design measured onset-mod-beat,
+    which on the live appliance reported a rock-steady 145.5 ms that was the
+    loop's start phase and not a timing error at all."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.tmp = Path(self._tmp.name)
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def test_a_perfect_overdub_reads_about_zero(self):
+        p = self.tmp / "od-perfect.wav"
+        _write_overdub_loop(p, pass2_late_ms=0.0)
+        r = mla.analyse_overdub(p, BEAT_S)
+        self.assertAlmostEqual(r["median_error_ms"], 0.0, delta=0.5)
+
+    def test_a_late_overdub_is_recovered_at_full_size(self):
+        """POSITIVE CONTROL: an overdub 12 ms late must read +12, not 12/2 and
+        not 250 - 12."""
+        p = self.tmp / "od-late.wav"
+        _write_overdub_loop(p, pass2_late_ms=12.0)
+        r = mla.analyse_overdub(p, BEAT_S)
+        self.assertAlmostEqual(r["median_error_ms"], 12.0, delta=0.6)
+
+    def test_an_early_overdub_reads_negative(self):
+        p = self.tmp / "od-early.wav"
+        _write_overdub_loop(p, pass2_late_ms=-9.0)
+        r = mla.analyse_overdub(p, BEAT_S)
+        self.assertAlmostEqual(r["median_error_ms"], -9.0, delta=0.6)
+
+    def test_the_loops_own_start_phase_cancels(self):
+        """THE POINT OF THE REDESIGN. A loop starting 145.5 ms off the beat grid
+        — exactly what the appliance produced — must still report the overdub
+        error, not the start phase."""
+        p = self.tmp / "od-phased.wav"
+        _write_overdub_loop(p, pass2_late_ms=7.0, start_phase_ms=145.5)
+        r = mla.analyse_overdub(p, BEAT_S)
+        self.assertAlmostEqual(r["median_error_ms"], 7.0, delta=0.6)
+
+    def test_a_single_pass_halts_rather_than_comparing_nothing(self):
+        """NEGATIVE CONTROL: with no overdub there is no alternation, and the
+        beat-spaced intervals must be rejected, not read as a huge error."""
+        p = self.tmp / "od-one-pass.wav"
+        _write_loop(p, [0.0])
+        with self.assertRaises(mla.Halt):
+            mla.analyse_overdub(p, BEAT_S)
+
+    def test_the_release_transient_is_not_counted_as_an_onset(self):
+        """The live run detected every note twice: NOTE_LEN_S is 120 ms and the
+        old fixed 50 ms gap let each note-off through as a fresh onset."""
+        p = self.tmp / "twins.wav"
+        _write_loop(p, [0.0, 100.0], beats=8)
+        r = mla.analyse(p, BEAT_S)
+        self.assertLessEqual(r["onsets"], 8)
+        self.assertAlmostEqual(r["median_error_ms"], 0.0, delta=0.5)
+
+
+class LoopPhaseAssertionTests(unittest.TestCase):
+    def test_a_whole_beat_loop_passes_and_reports_its_error(self):
+        err = mla.assert_loop_is_whole_beats(5.4997, 0.5)      # 11 beats, live
+        self.assertLess(err, mla.LOOP_LEN_TOLERANCE_MS)
+
+    def test_a_loop_out_of_phase_with_the_grid_halts(self):
+        """NEGATIVE CONTROL: a loop that does not repeat in phase drifts the
+        overdub by a different amount every repetition."""
+        with self.assertRaises(mla.Halt):
+            mla.assert_loop_is_whole_beats(5.37, 0.5)

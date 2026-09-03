@@ -67,6 +67,7 @@ SL_STATE_WAIT_START = 1
 SL_STATE_RECORDING = 2
 SL_STATE_WAIT_STOP = 3
 SL_STATE_PLAYING = 4
+SL_STATE_OVERDUBBING = 5
 
 # The loop input must see at least this (linear peak) for the record path to
 # be provably live. Surge at normal level reads far above it; a disconnected
@@ -79,6 +80,15 @@ NOTE_LEN_S = 0.12
 
 # A reading outside these is a broken instrument, not a slow result.
 MAX_PLAUSIBLE_ERROR_MS = 60.0
+
+# Minimum quiet span before a rising edge counts as a new onset, in beats.
+# Must exceed NOTE_LEN_S (the release transient) and stay under the closest
+# real spacing, which in overdub mode is half a beat.
+ONSET_GAP_BEATS = 0.35
+
+# The loop must close on a whole number of beats for pass 2 to land in phase
+# with pass 1. Asserted, never assumed.
+LOOP_LEN_TOLERANCE_MS = 8.0
 
 
 class Halt(RuntimeError):
@@ -390,8 +400,12 @@ def analyse(path: Path, beat_s: float, threshold_ratio: float = 0.25) -> dict:
 
     thresh = threshold_ratio
     above = norm > thresh
-    # Onset = a rising edge preceded by at least 50 ms below threshold.
-    gap = int(0.05 * rate)
+    beat_frames_i = beat_s * rate
+    # Onset = a rising edge preceded by a quiet gap. The gap is BEAT-RELATIVE,
+    # not a fixed 50 ms: at NOTE_LEN_S=0.12 every note-off released a transient
+    # 100 ms after its note-on, and a 50 ms gap counted each note twice, which
+    # dragged the median off every clean sample in the run.
+    gap = max(int(0.01 * rate), int(ONSET_GAP_BEATS * beat_frames_i))
     onsets: list[int] = []
     i = 0
     while i < above.size:
@@ -431,6 +445,74 @@ def analyse(path: Path, beat_s: float, threshold_ratio: float = 0.25) -> dict:
 
 
 # --------------------------------------------------------------------------
+def analyse_overdub(path: Path, beat_s: float, threshold_ratio: float = 0.25) -> dict:
+    """Measure pass 2 against pass 1, which is the question actually asked.
+
+    "Onset position mod beat" measures SooperLooper's loop-start phase, and the
+    first live run proved it: five onsets agreeing to sub-millisecond, all
+    145.5 ms from the beat grid, because the loop simply did not begin on one of
+    my beats. That number is real and tells you nothing about whether an overdub
+    lands on the take under it.
+
+    So: pass 1 on the beats, pass 2 on the offbeats, both in one loop. Every
+    consecutive pair of onsets should be exactly half a beat apart. Whatever the
+    loop's own start phase is, it is common to both passes and cancels. What is
+    left is the misalignment a player would hear -- flam between the take and
+    the overdub.
+    """
+    base = analyse(path, beat_s, threshold_ratio)
+    positions = base["onset_positions_s"]
+    if len(positions) < 4:
+        raise Halt(
+            f"only {len(positions)} onsets -- an overdub comparison needs both "
+            "passes present, and fewer than four cannot show alternation"
+        )
+
+    half = beat_s / 2.0
+    intervals = [b - a for a, b in zip(positions, positions[1:])]
+    # Keep only the pass-1 -> pass-2 (and back) steps. A missed note leaves a
+    # full-beat gap; including it would report a 250 ms "error" that is a
+    # detector miss, not a timing fault.
+    kept = [d for d in intervals if abs(d - half) < half * 0.6]
+    if len(kept) < 3:
+        raise Halt(
+            f"only {len(kept)} of {len(intervals)} onset intervals are near a "
+            f"half-beat ({half * 1000:.1f} ms) -- the two passes are not "
+            "alternating, so there is nothing to compare"
+        )
+
+    errors_ms = [(d - half) * 1000.0 for d in kept]
+    base.update(
+        {
+            "mode": "overdub",
+            "half_beat_ms": round(half * 1000.0, 3),
+            "intervals_ms": [round(d * 1000.0, 3) for d in intervals],
+            "errors_ms": [round(e, 3) for e in errors_ms],
+            "median_error_ms": round(statistics.median(errors_ms), 3),
+            "mean_error_ms": round(statistics.fmean(errors_ms), 3),
+            "sd_ms": round(statistics.stdev(errors_ms), 3) if len(errors_ms) > 1 else None,
+            "intervals_used": len(kept),
+        }
+    )
+    return base
+
+
+def assert_loop_is_whole_beats(loop_seconds: float, beat_s: float) -> float:
+    """PHYSICS ASSERTION. Pass 2 can only land in phase with pass 1 if the loop
+    repeats in phase with the beat grid. If it does not, the overdub drifts by a
+    different amount on every repetition and the median is meaningless."""
+    beats = loop_seconds / beat_s
+    err_ms = abs(beats - round(beats)) * beat_s * 1000.0
+    if err_ms > LOOP_LEN_TOLERANCE_MS:
+        raise Halt(
+            f"loop is {loop_seconds:.4f}s = {beats:.4f} beats, {err_ms:.1f} ms "
+            f"from a whole beat (max {LOOP_LEN_TOLERANCE_MS}) -- it does not "
+            "repeat in phase with the grid, so an overdub cannot be in phase "
+            "with the take either"
+        )
+    return err_ms
+
+
 def assert_looper_hears_surge(sl: "SL", cn: "ClockMaster", loop: int) -> float:
     """POSITIVE CONTROL on the record path, before anything is recorded.
 
@@ -484,6 +566,30 @@ def _surge_peak_linear() -> "float | None":
     return None
 
 
+def play_pass(cn: "ClockMaster", args, beat_s: float, offset_ms: float,
+              shift_s: float) -> list:
+    """Place `args.notes` notes on successive beats, shifted by `shift_s`.
+
+    Fired at exactly the instant plan_fire_at would choose: the beat, plus the
+    configured output offset. `shift_s` is what separates the two passes -- 0
+    for the take, half a beat for the overdub.
+    """
+    placed = []
+    first = cn.beat_at_or_after(time.monotonic() + 1.5)
+    for i in range(args.notes):
+        target = first + i * beat_s + shift_s
+        fire_at = target + (offset_ms + args.inject_ms) / 1000.0
+        while time.monotonic() < fire_at - 0.002:
+            time.sleep(0.0005)
+        while time.monotonic() < fire_at:
+            pass
+        cn.note(True)
+        placed.append(target)
+        time.sleep(NOTE_LEN_S)
+        cn.note(False)
+    return placed
+
+
 def main() -> int:
     _refuse_unless_opted_in()
 
@@ -501,6 +607,14 @@ def main() -> int:
         type=float,
         default=0.0,
         help="POSITIVE CONTROL: extra shift that must appear in the result 1:1",
+    )
+    ap.add_argument(
+        "--mode",
+        choices=("overdub", "phase"),
+        default="overdub",
+        help="overdub: measure pass 2 against pass 1 (the answerable question). "
+             "phase: raw onset position mod beat, which also measures the loop's "
+             "own start phase and cannot separate the two.",
     )
     ap.add_argument("--bpm", type=float, default=120.0)
     ap.add_argument("--out", type=Path, default=Path("/tmp/mpe-loop-align.json"))
@@ -595,19 +709,7 @@ def main() -> int:
         # Place notes on successive beats. Emitted at exactly the instant
         # plan_fire_at would choose: the beat, shifted by the offset. The first
         # is a full beat after recording is CONFIRMED live, not after the hit.
-        placed = []
-        first = cn.beat_at_or_after(time.monotonic() + 1.5)
-        for i in range(args.notes):
-            target = first + i * beat_s
-            fire_at = target + (offset_ms + args.inject_ms) / 1000.0
-            while time.monotonic() < fire_at - 0.002:
-                time.sleep(0.0005)
-            while time.monotonic() < fire_at:
-                pass
-            cn.note(True)
-            placed.append(target)
-            time.sleep(NOTE_LEN_S)
-            cn.note(False)
+        placed = play_pass(cn, args, beat_s, offset_ms, shift_s=0.0)
 
         # Let the last note ring, then close the loop on a cycle boundary and
         # wait for the transport to actually leave the recording states -- saving
@@ -622,11 +724,41 @@ def main() -> int:
         )
         time.sleep(0.5)
 
+        overdub_placed = []
+        if args.mode == "overdub":
+            stage = "overdub"
+            sl.hit(args.loop, "overdub")
+            od_state = sl.wait_for_state(
+                args.loop, {SL_STATE_OVERDUBBING}, timeout=8.0, what="Overdubbing"
+            )
+            _sentinel("loop-align-overdubbing", state=od_state)
+            overdub_placed = play_pass(
+                cn, args, beat_s, offset_ms, shift_s=beat_s / 2.0
+            )
+            time.sleep(beat_s * 1.5)
+            sl.hit(args.loop, "overdub")
+            sl.wait_for_state(
+                args.loop,
+                {SL_STATE_PLAYING, 0, 10},
+                timeout=10.0,
+                what="a settled (non-overdubbing) state",
+            )
+            time.sleep(0.5)
+
         stage = "save"
         sl.save_loop(args.loop, args.wav)
 
         stage = "analyse"
-        result = analyse(args.wav, beat_s)
+        if args.mode == "overdub":
+            result = analyse_overdub(args.wav, beat_s)
+        else:
+            result = analyse(args.wav, beat_s)
+            result["mode"] = "phase"
+        result["loop_phase_error_ms"] = round(
+            assert_loop_is_whole_beats(result["loop_seconds"], beat_s), 3
+        )
+        result["overdub_notes_placed"] = len(overdub_placed)
+        result["clock_jitter_ms_final"] = round(cn.jitter_ms(), 3)
         result["offset_ms_applied"] = round(offset_ms, 3)
         result["inject_ms"] = args.inject_ms
         result["notes_placed"] = len(placed)
