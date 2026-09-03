@@ -68,6 +68,11 @@ SL_STATE_RECORDING = 2
 SL_STATE_WAIT_STOP = 3
 SL_STATE_PLAYING = 4
 
+# The loop input must see at least this (linear peak) for the record path to
+# be provably live. Surge at normal level reads far above it; a disconnected
+# input reads exactly 0.0.
+INPUT_PEAK_MIN = 0.001
+
 NOTE = 60
 VELOCITY = 100
 NOTE_LEN_S = 0.12
@@ -426,6 +431,59 @@ def analyse(path: Path, beat_s: float, threshold_ratio: float = 0.25) -> dict:
 
 
 # --------------------------------------------------------------------------
+def assert_looper_hears_surge(sl: "SL", cn: "ClockMaster", loop: int) -> float:
+    """POSITIVE CONTROL on the record path, before anything is recorded.
+
+    A loop whose audio input is disconnected records digital silence, and so
+    does a loop whose record never armed. Those two failures reached the
+    analyser through the SAME channel -- an empty WAV -- so the harness could
+    say "silence" without being able to say why. It cost a full live run.
+
+    SooperLooper's in_peak_meter reads the signal AT the loop's input, which is
+    exactly the junction in question. Fire notes, require the meter to move.
+    If it does not, ask Surge's own peak meter which half is broken, so the
+    halt names the fault instead of describing it.
+    """
+    sl.get_loop(loop, "in_peak_meter")          # reset the peak-hold
+    peak = 0.0
+    for _ in range(4):
+        cn.note(True)
+        time.sleep(0.12)
+        cn.note(False)
+        time.sleep(0.18)
+        peak = max(peak, sl.get_loop(loop, "in_peak_meter"))
+        if peak >= INPUT_PEAK_MIN:
+            return peak
+
+    surge = _surge_peak_linear()
+    if surge is not None and surge >= INPUT_PEAK_MIN:
+        raise Halt(
+            f"loop {loop} input peak {peak:.5f} but Surge output peak {surge:.5f} "
+            f"-- Surge is making sound and the looper cannot hear it: the record "
+            f"path is disconnected. Repair: "
+            f"bash scripts/sooperlooper/wire-jack-graph.sh connect"
+        )
+    raise Halt(
+        f"loop {loop} input peak {peak:.5f} (< {INPUT_PEAK_MIN}) and Surge output "
+        f"peak {'unreadable' if surge is None else format(surge, '.5f')} -- no audio "
+        f"is being produced at all; check that a patch is loaded and Surge is voiced"
+    )
+
+
+def _surge_peak_linear() -> "float | None":
+    """Surge's output level from the peak meter's state file, or None if the
+    meter cannot be read. None means UNKNOWN and is never treated as zero."""
+    for path in (Path("/run/mpe/meter.state"), Path("/tmp/mpe-peak-meter.state")):
+        try:
+            for line in path.read_text(encoding="utf-8").splitlines():
+                key, _, value = line.partition("=")
+                if key.strip() == "peak_linear":
+                    return float(value.strip())
+        except Exception:
+            continue
+    return None
+
+
 def main() -> int:
     _refuse_unless_opted_in()
 
@@ -518,8 +576,12 @@ def main() -> int:
             inject_ms=args.inject_ms,
             midi_out=json.dumps(cn.out_port),
             clock_jitter_ms=round(cn.jitter_ms(), 3),
-            looper_wired=restore.get("wired", ("?", "?", False))[2],
+            midi_wired=restore.get("wired", ("?", "?", False))[2],
         )
+
+        stage = "input-check"
+        in_peak = assert_looper_hears_surge(sl, cn, args.loop)
+        _sentinel("loop-align-input-live", loop_in_peak=round(in_peak, 5))
 
         stage = "record"
         sl.hit(args.loop, "reset")
