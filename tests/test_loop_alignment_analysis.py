@@ -281,7 +281,7 @@ class OverdubAnalyserTests(unittest.TestCase):
         """The live run detected every note twice: NOTE_LEN_S is 120 ms and the
         old fixed 50 ms gap let each note-off through as a fresh onset."""
         p = self.tmp / "twins.wav"
-        _write_loop(p, [0.0, 100.0], beats=8)
+        _write_loop(p, [0.0, 50.0], beats=8)
         r = mla.analyse(p, BEAT_S)
         self.assertLessEqual(r["onsets"], 8)
         self.assertAlmostEqual(r["median_error_ms"], 0.0, delta=0.5)
@@ -340,3 +340,24 @@ class OverdubSignRobustnessTests(unittest.TestCase):
         odd = mla.analyse_overdub(q, BEAT_S)
         self.assertAlmostEqual(full["median_error_ms"], odd["median_error_ms"],
                                delta=0.5)
+
+
+class OnsetCountAssertionTests(unittest.TestCase):
+    """The assertion whose absence cost two live runs: the harness reported
+    -39.6 ms with sd 1.07, and the SAME -39.6 ms with a 20 ms control injected,
+    because release transients it was counting as notes could not be moved by
+    any injection."""
+
+    def test_a_matching_count_passes(self):
+        mla.assert_onsets_match_notes({"onsets": 12}, 12)
+
+    def test_extra_events_halt(self):
+        with self.assertRaises(mla.Halt):
+            mla.assert_onsets_match_notes({"onsets": 17}, 12)
+
+    def test_missing_notes_halt(self):
+        with self.assertRaises(mla.Halt):
+            mla.assert_onsets_match_notes({"onsets": 8}, 12)
+
+    def test_one_off_is_tolerated(self):
+        mla.assert_onsets_match_notes({"onsets": 11}, 12)
