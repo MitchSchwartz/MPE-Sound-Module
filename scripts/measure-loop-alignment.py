@@ -76,7 +76,10 @@ INPUT_PEAK_MIN = 0.001
 
 NOTE = 60
 VELOCITY = 100
-NOTE_LEN_S = 0.12
+# Short, so the note-off release transient lands far from the overdub spacing.
+# At 0.12 the release arrived ~100 ms after the note-on, a hair inside the
+# 150 ms take->overdub gap, and every release was counted as an early overdub.
+NOTE_LEN_S = 0.05
 
 # A reading outside these is a broken instrument, not a slow result.
 MAX_PLAUSIBLE_ERROR_MS = 60.0
@@ -84,7 +87,12 @@ MAX_PLAUSIBLE_ERROR_MS = 60.0
 # Minimum quiet span before a rising edge counts as a new onset, in beats.
 # Must exceed NOTE_LEN_S (the release transient) and stay under the closest
 # real spacing, which in overdub mode is half a beat.
-ONSET_GAP_BEATS = 0.22
+ONSET_GAP_BEATS = 0.2
+
+# The detector must find one onset per note played. More means it is counting
+# something that is not a note; fewer means it is missing them. Either way the
+# median describes a population that is not the notes.
+ONSET_COUNT_SLACK = 1
 
 # Where the overdub sits within the beat. Deliberately NOT 0.5: at half a beat
 # the take->overdub and overdub->take intervals are (half + d) and (half - d),
@@ -519,6 +527,27 @@ def analyse_overdub(path: Path, beat_s: float, threshold_ratio: float = 0.25) ->
     return base
 
 
+def assert_onsets_match_notes(result: dict, notes_played: int) -> None:
+    """PHYSICS ASSERTION: one onset per note, or the population is not the notes.
+
+    This is the assertion whose absence cost two live runs. The detector was
+    counting note-off release transients as onsets -- 16 and 17 events for 12
+    notes -- and because a release sits a fixed distance after its note-on, the
+    spurious intervals were CONSISTENT. The harness reported -39.6 ms with a
+    sub-millisecond spread, and reported the identical -39.6 ms with a 20 ms
+    control injected, because the median was dominated by events that no
+    injection could move. Precision is not evidence; a blind instrument can be
+    very precise about what it is not measuring.
+    """
+    found = result["onsets"]
+    if abs(found - notes_played) > ONSET_COUNT_SLACK:
+        raise Halt(
+            f"{found} onsets for {notes_played} notes played (slack "
+            f"{ONSET_COUNT_SLACK}) -- the detector is not counting notes, so "
+            f"whatever the median describes, it is not their timing"
+        )
+
+
 def assert_loop_is_whole_beats(loop_seconds: float, beat_s: float) -> float:
     """PHYSICS ASSERTION. Pass 2 can only land in phase with pass 1 if the loop
     repeats in phase with the beat grid. If it does not, the overdub drifts by a
@@ -782,6 +811,7 @@ def main() -> int:
         else:
             result = analyse(args.wav, beat_s)
             result["mode"] = "phase"
+        assert_onsets_match_notes(result, len(placed) + len(overdub_placed))
         result["loop_phase_error_ms"] = round(
             assert_loop_is_whole_beats(result["loop_seconds"], beat_s), 3
         )
