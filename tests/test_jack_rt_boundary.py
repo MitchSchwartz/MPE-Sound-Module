@@ -11,7 +11,24 @@ REPO = Path(__file__).resolve().parents[1]
 CONFIG = REPO / "config"
 
 # Python must not register JACK process callbacks. Compiled clients live in native/.
-JACK_CALLBACK_ALLOWLIST: frozenset[str] = frozenset()
+#
+# REVIEWED EXCEPTION, 2026-09-02: scripts/measure-midi-audio-latency.py.
+#
+# It is a MEASUREMENT INSTRUMENT, never appliance runtime -- no unit starts it
+# (asserted by test_measurement_harness_is_not_wired_into_any_unit below), it is
+# run by hand for ~35 s and torn down, and it exists to measure the one leg JACK
+# cannot report: Surge's MIDI-in to audio-out latency, which the looper-grid
+# offset omitted entirely until it was measured.
+#
+# The rule is right and this client proves it: JACK's xrun callback counted 1-4
+# graph overruns per window while it was attached. The journal recorded ZERO
+# ALSA underruns, so nothing became inaudible, and the reading it produces is a
+# FRAME DELTA rather than a rate -- so unlike an xrun count it is not distorted
+# by the probe's own presence. That is the whole reason a Python client is
+# tolerable here and nowhere else.
+JACK_CALLBACK_ALLOWLIST: frozenset[str] = frozenset({
+    "scripts/measure-midi-audio-latency.py",
+})
 
 # Units that host a JACK client must declare RT limits (criterion 36).
 JACK_CLIENT_UNITS: dict[str, str] = {
@@ -44,6 +61,34 @@ def _directive(text: str, key: str) -> list[str]:
 
 
 class JackRtBoundaryTests(unittest.TestCase):
+    def test_measurement_harness_is_not_wired_into_any_unit(self) -> None:
+        """An allowlisted Python JACK client must never become appliance runtime.
+
+        The exemption above is justified ONLY because the harness is run by hand
+        and torn down. If a unit ever started it, a Python process callback would
+        be live on the graph during a gig -- exactly what criterion 33 forbids.
+        This makes that impossible to do by accident.
+        """
+        units = sorted(CONFIG.glob("*.service"))
+        # Units live in config/, not systemd/. The first version of this guard
+        # scanned a directory that does not exist, found nothing, and passed --
+        # a test that cannot fail is not a guard. Assert the corpus is non-empty
+        # before trusting a clean result from it.
+        self.assertGreater(len(units), 10, "found almost no unit files — the scan path is wrong")
+
+        offenders = []
+        for rel in sorted(JACK_CALLBACK_ALLOWLIST):
+            name = Path(rel).name
+            for unit in units:
+                if name in unit.read_text(encoding="utf-8", errors="ignore"):
+                    offenders.append(f"  {unit.relative_to(REPO).as_posix()} references {name}")
+        if offenders:
+            self.fail(
+                "An allowlisted Python JACK client is referenced by a systemd unit.\n"
+                "It would then run on the live graph, which criterion 33 forbids:\n"
+                + "\n".join(offenders)
+            )
+
     def test_no_python_jack_process_callbacks(self) -> None:
         """Criterion 33: set_process_callback outside the allowlist fails the suite."""
         hits = _scan_python_jack_callbacks()
