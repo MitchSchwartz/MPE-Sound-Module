@@ -179,8 +179,22 @@ class SL:
 # --------------------------------------------------------------------------
 # MIDI clock follower + note sender, on the SAME port the router uses
 # --------------------------------------------------------------------------
-class ClockAndNotes:
-    def __init__(self) -> None:
+class ClockMaster:
+    """Generates MIDI clock on Midi Through AND places the notes.
+
+    midi-clock-out.service cannot be used here: it deliberately SKIPS any port
+    matching "midi through" (see SKIP_CLOCK_PORT_SUBSTRINGS) because it exists to
+    drive external gear with the Pi as master. Starting it would put no clock
+    anywhere Surge, the router or SooperLooper can see it.
+
+    Generating the clock here is also better for the measurement: the beat
+    instants are known BY CONSTRUCTION rather than recovered by following, so the
+    note placement carries no follower error at all. Delivery jitter still
+    reaches SooperLooper, so it is measured and reported, and a jittery clock
+    halts rather than quietly widening the result.
+    """
+
+    def __init__(self, bpm: float) -> None:
         import rtmidi
 
         from patch_browser.pressure_midi import (
@@ -192,90 +206,81 @@ class ClockAndNotes:
         ports = list(self._out.get_ports())
         index = find_remap_output_port_index(ports)
         if index is None:
-            raise Halt(
-                f"{REMAP_OUTPUT_PORT_NAME!r} not among RtMidi outputs {ports!r}"
-            )
+            raise Halt(f"{REMAP_OUTPUT_PORT_NAME!r} not among RtMidi outputs {ports!r}")
         self._out.open_port(index)
         self.out_port = ports[index]
 
-        self._in = rtmidi.MidiIn()
-        in_ports = list(self._in.get_ports())
-        in_index = find_remap_output_port_index(in_ports)
-        if in_index is None:
-            raise Halt(f"no Midi Through INPUT among {in_ports!r} to follow the clock on")
-        self._in.ignore_types(timing=False)     # clock is what we are here for
-        self._in.open_port(in_index)
-        self.in_port = in_ports[in_index]
+        self.bpm = bpm
+        self.beat_s = 60.0 / bpm
+        self._tick_s = self.beat_s / PPQN
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+        self.start_monotonic: float | None = None
+        self._lateness: list[float] = []
 
-        self._lock = threading.Lock()
-        self.tick_count = 0
-        self.last_beat_monotonic: float | None = None
-        self._in.set_callback(self._on_midi)
+    def start(self) -> None:
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+        # Wait for the first tick so start_monotonic is set before anyone asks.
+        deadline = time.monotonic() + 5.0
+        while self.start_monotonic is None and time.monotonic() < deadline:
+            time.sleep(0.01)
+        if self.start_monotonic is None:
+            raise Halt("clock thread never emitted its first tick")
 
-    def _on_midi(self, event, _data=None) -> None:
-        message, _delta = event
-        if not message:
-            return
-        status = message[0]
-        if status == MIDI_START_BYTE:
-            with self._lock:
-                self.tick_count = 0
-                self.last_beat_monotonic = time.monotonic()
-            return
-        if status != MIDI_CLOCK_BYTE:
-            return
-        with self._lock:
-            self.tick_count += 1
-            if self.tick_count % PPQN == 0:
-                self.last_beat_monotonic = time.monotonic()
+    def _run(self) -> None:
+        self._out.send_message([MIDI_START_BYTE])
+        t0 = time.monotonic()
+        self.start_monotonic = t0
+        n = 0
+        while not self._stop.is_set():
+            n += 1
+            due = t0 + n * self._tick_s
+            delay = due - time.monotonic()
+            if delay > 0.001:
+                time.sleep(delay - 0.0005)
+            while time.monotonic() < due:
+                pass
+            self._out.send_message([MIDI_CLOCK_BYTE])
+            self._lateness.append(time.monotonic() - due)
+        try:
+            self._out.send_message([MIDI_STOP_BYTE])
+        except Exception:
+            pass
 
-    def wait_for_clock(self, timeout: float = 10.0) -> float:
-        """Return measured beat length in seconds, or halt."""
-        deadline = time.monotonic() + timeout
-        with self._lock:
-            start_ticks = self.tick_count
-        while time.monotonic() < deadline:
-            time.sleep(0.2)
-            with self._lock:
-                if self.tick_count - start_ticks >= PPQN * 2:
-                    break
-        else:
-            raise Halt(
-                "no MIDI clock arriving on Midi Through -- quantize cannot engage "
-                "and there is no grid to measure against"
-            )
-        # Measure the beat length rather than trusting the configured tempo.
-        with self._lock:
-            t0 = self.last_beat_monotonic
-            n0 = self.tick_count
-        time.sleep(2.0)
-        with self._lock:
-            t1 = self.last_beat_monotonic
-            n1 = self.tick_count
-        if t0 is None or t1 is None or n1 <= n0:
-            raise Halt("clock followed but no beat boundaries observed")
-        beats = (n1 - n0) / PPQN
-        if beats <= 0:
-            raise Halt("clock tick count did not advance a whole beat")
-        return (t1 - t0) / max(1, round(beats))
+    def jitter_ms(self) -> float:
+        """Worst tick lateness so far, in ms. A jittery clock moves the loop
+        boundary SooperLooper syncs to, which lands directly in the result."""
+        if not self._lateness:
+            return 0.0
+        return max(self._lateness) * 1000.0
 
-    def next_beat_after(self, when: float, beat_s: float) -> float:
-        with self._lock:
-            last = self.last_beat_monotonic
-        if last is None:
-            raise Halt("no beat reference -- clock follower never saw a beat")
-        n = math.ceil((when - last) / beat_s)
-        return last + n * beat_s
+    def beat_at_or_after(self, when: float) -> float:
+        if self.start_monotonic is None:
+            raise Halt("clock has no start reference")
+        n = math.ceil((when - self.start_monotonic) / self.beat_s)
+        return self.start_monotonic + n * self.beat_s
 
     def note(self, on: bool) -> None:
         self._out.send_message([0x90 if on else 0x80, NOTE, VELOCITY if on else 0])
 
     def close(self) -> None:
-        for obj in (self._in, self._out):
-            try:
-                obj.close_port()
-            except Exception:
-                pass
+        self._stop.set()
+        if self._thread is not None:
+            self._thread.join(timeout=2.0)
+        try:
+            self._out.close_port()
+        except Exception:
+            pass
+
+
+def _alsa_client_id(name_fragment: str) -> str | None:
+    """ALSA sequencer client id whose name contains *name_fragment*."""
+    out = subprocess.run(["aconnect", "-l"], capture_output=True, text=True).stdout
+    for line in out.splitlines():
+        if line.startswith("client ") and name_fragment.lower() in line.lower():
+            return line.split()[1].rstrip(":")
+    return None
 
 
 # --------------------------------------------------------------------------
@@ -368,6 +373,7 @@ def main() -> int:
         default=0.0,
         help="POSITIVE CONTROL: extra shift that must appear in the result 1:1",
     )
+    ap.add_argument("--bpm", type=float, default=120.0)
     ap.add_argument("--out", type=Path, default=Path("/tmp/mpe-loop-align.json"))
     ap.add_argument("--wav", type=Path, default=Path("/tmp/mpe-loop-align.wav"))
     args = ap.parse_args()
@@ -389,24 +395,35 @@ def main() -> int:
         sl = SL()
         sl.ping()
 
-        stage = "clock-start"
-        active = subprocess.run(
-            ["systemctl", "is-active", "midi-clock-out"],
+        stage = "wire-looper"
+        # SooperLooper's MIDI input is not connected to anything on this
+        # appliance, so it can never see a clock as shipped. Wire it for the
+        # duration and take the wire out again afterwards.
+        through = _alsa_client_id("Midi Through")
+        sl_client = _alsa_client_id("sooperlooper") or _alsa_client_id("mpe-looper")
+        if through is None or sl_client is None:
+            raise Halt(
+                f"cannot find ALSA clients to wire (through={through}, sl={sl_client}) "
+                "-- SooperLooper cannot sync to a clock it never receives"
+            )
+        rc = subprocess.run(
+            ["aconnect", f"{through}:0", f"{sl_client}:0"],
             capture_output=True, text=True,
-        ).stdout.strip()
-        restore["clock_was"] = active
-        if active != "active":
-            subprocess.run(["sudo", "systemctl", "start", "midi-clock-out"], check=False)
-            clock_started = True
-            time.sleep(2.0)
+        )
+        wired = rc.returncode == 0
+        restore["wired"] = (through, sl_client, wired)
 
-        stage = "midi-open"
-        cn = ClockAndNotes()
-
-        stage = "clock-follow"
-        beat_s = cn.wait_for_clock()
-        if not (0.1 < beat_s < 4.0):
-            raise Halt(f"measured beat length {beat_s:.4f}s is not a musical tempo")
+        stage = "clock-start"
+        cn = ClockMaster(args.bpm)
+        cn.start()
+        clock_started = True
+        beat_s = cn.beat_s
+        time.sleep(1.0)
+        if cn.jitter_ms() > 3.0:
+            raise Halt(
+                f"clock delivery jitter {cn.jitter_ms():.2f} ms -- the loop boundary "
+                "SooperLooper syncs to would move by more than the effect being measured"
+            )
 
         stage = "sl-configure"
         restore["sync_source"] = sl.get_global("sync_source")
@@ -429,7 +446,8 @@ def main() -> int:
             offset_ms=round(offset_ms, 3),
             inject_ms=args.inject_ms,
             midi_out=json.dumps(cn.out_port),
-            clock_started=clock_started,
+            clock_jitter_ms=round(cn.jitter_ms(), 3),
+            looper_wired=restore.get("wired", ("?", "?", False))[2],
         )
 
         stage = "record"
@@ -440,7 +458,7 @@ def main() -> int:
         # Place notes on successive beats. Emitted at exactly the instant
         # plan_fire_at would choose: the beat, shifted by the offset.
         placed = []
-        first = cn.next_beat_after(time.monotonic() + 1.5, beat_s)
+        first = cn.beat_at_or_after(time.monotonic() + 1.5)
         for i in range(args.notes):
             target = first + i * beat_s
             fire_at = target + (offset_ms + args.inject_ms) / 1000.0
@@ -466,6 +484,8 @@ def main() -> int:
         result["offset_ms_applied"] = round(offset_ms, 3)
         result["inject_ms"] = args.inject_ms
         result["notes_placed"] = len(placed)
+        result["clock_jitter_ms"] = round(cn.jitter_ms(), 3)
+        result["bpm"] = args.bpm
 
         if abs(result["median_error_ms"]) > MAX_PLAUSIBLE_ERROR_MS:
             raise Halt(
@@ -510,9 +530,17 @@ def main() -> int:
             pass
         if cn is not None:
             cn.close()
-        if clock_started:
-            subprocess.run(["sudo", "systemctl", "stop", "midi-clock-out"], check=False)
-        _sentinel("loop-align-restored", clock_stopped=clock_started)
+        wire = restore.get("wired")
+        if isinstance(wire, tuple) and wire[2]:
+            subprocess.run(
+                ["aconnect", "-d", f"{wire[0]}:0", f"{wire[1]}:0"],
+                capture_output=True, text=True,
+            )
+        _sentinel(
+            "loop-align-restored",
+            clock_stopped=clock_started,
+            unwired=bool(isinstance(wire, tuple) and wire[2]),
+        )
 
 
 if __name__ == "__main__":
