@@ -567,7 +567,7 @@ def _surge_peak_linear() -> "float | None":
 
 
 def play_pass(cn: "ClockMaster", args, beat_s: float, offset_ms: float,
-              shift_s: float) -> list:
+              shift_s: float, inject_ms: float = 0.0) -> list:
     """Place `args.notes` notes on successive beats, shifted by `shift_s`.
 
     Fired at exactly the instant plan_fire_at would choose: the beat, plus the
@@ -578,7 +578,7 @@ def play_pass(cn: "ClockMaster", args, beat_s: float, offset_ms: float,
     first = cn.beat_at_or_after(time.monotonic() + 1.5)
     for i in range(args.notes):
         target = first + i * beat_s + shift_s
-        fire_at = target + (offset_ms + args.inject_ms) / 1000.0
+        fire_at = target + (offset_ms + inject_ms) / 1000.0
         while time.monotonic() < fire_at - 0.002:
             time.sleep(0.0005)
         while time.monotonic() < fire_at:
@@ -709,7 +709,12 @@ def main() -> int:
         # Place notes on successive beats. Emitted at exactly the instant
         # plan_fire_at would choose: the beat, shifted by the offset. The first
         # is a full beat after recording is CONFIRMED live, not after the hit.
-        placed = play_pass(cn, args, beat_s, offset_ms, shift_s=0.0)
+        # The take carries no injection: in overdub mode the injection is the
+        # control, and it must appear as a DIFFERENCE between the passes.
+        placed = play_pass(
+            cn, args, beat_s, offset_ms, shift_s=0.0,
+            inject_ms=0.0 if args.mode == "overdub" else args.inject_ms,
+        )
 
         # Let the last note ring, then close the loop on a cycle boundary and
         # wait for the transport to actually leave the recording states -- saving
@@ -733,7 +738,8 @@ def main() -> int:
             )
             _sentinel("loop-align-overdubbing", state=od_state)
             overdub_placed = play_pass(
-                cn, args, beat_s, offset_ms, shift_s=beat_s / 2.0
+                cn, args, beat_s, offset_ms, shift_s=beat_s / 2.0,
+                inject_ms=args.inject_ms,
             )
             time.sleep(beat_s * 1.5)
             sl.hit(args.loop, "overdub")
