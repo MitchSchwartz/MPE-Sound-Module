@@ -75,6 +75,11 @@ MIDI_OVERRIDES = parse_overrides(os.environ.get("MPE_MIDI_OVERRIDE"))
 # should not play.
 EXTRA_EXCLUSIONS = parse_extra_exclusions(os.environ.get("MPE_ROUTER_EXCLUDE"))
 CLOCK_REFRESH_S = 0.05
+# jack.state changes once per graph restart. _drain_queue runs every 2 ms, so an
+# unthrottled stat() here would be ~500 syscalls/second to watch a file that
+# moves a few times a day. Cheap check before the expensive one, on the busiest
+# loop in the router.
+OFFSET_REFRESH_S = 1.0
 
 
 def lsusb_has_roli() -> bool:
@@ -104,6 +109,8 @@ class PressureRemapDaemon:
         self._scheduled: list[tuple[float, int, SourceBinding, list[int]]] = []
         self._schedule_seq = 0
         self._offset_ms = resolve_output_offset_ms()
+        self._jack_state_mtime = 0.0
+        self._next_offset_refresh = 0.0
         self._grid_ticks = resolve_quantize_grid_ticks()
         self._clock_snap = read_clock_state()
         self._next_clock_refresh = 0.0
@@ -122,6 +129,44 @@ class PressureRemapDaemon:
             return
         self._live_mtime = stat.st_mtime
         self._floor = PatchPressureStore.read_live_floor()
+
+    def _refresh_offset(self, now: float) -> None:
+        """Track the offset when the graph changes under us.
+
+        MEASURED 2026-09-01: this process started at 18:12:57 and the graph
+        restarted at 21:02:00. The offset was computed ONCE in __init__, the
+        unit reads /etc/mpe/mpe.env only at exec and has Restart=no, and a
+        settings change restarts mpe-jackd, surge-xt-cli and mpe-sooperlooper
+        but NOT this unit. So changing the buffer left MIDI compensating for the
+        old buffer indefinitely -- until a ROLI hot-plug happened to restart
+        this unit via 99-roli-seaboard.rules and silently corrected it, which is
+        what made the whole thing feel intermittent rather than broken.
+
+        A stat() is not a fork. This is the same mtime guard _refresh_floor
+        uses, and it only recomputes when jack.state actually changes, which is
+        once per graph restart -- not per message.
+        """
+        if now < self._next_offset_refresh:
+            return
+        self._next_offset_refresh = now + OFFSET_REFRESH_S
+
+        from patch_browser.audio_engine import JACK_STATE_FILE
+
+        try:
+            stat = JACK_STATE_FILE.stat()
+        except OSError:
+            return
+        if stat.st_mtime <= self._jack_state_mtime:
+            return
+        self._jack_state_mtime = stat.st_mtime
+        previous = self._offset_ms
+        self._offset_ms = resolve_output_offset_ms()
+        if abs(self._offset_ms - previous) >= 0.05:
+            print(
+                f"audio graph changed — MIDI output offset {previous:+.1f} ms "
+                f"-> {self._offset_ms:+.1f} ms",
+                flush=True,
+            )
 
     def _refresh_clock(self, now: float) -> None:
         if now < self._next_clock_refresh:
@@ -234,6 +279,7 @@ class PressureRemapDaemon:
         now = time.monotonic()
         self._refresh_clock(now)
         self._refresh_floor()
+        self._refresh_offset(now)
         sent = self._drain_scheduled(now)
         self._process_fade_request()
         while True:
