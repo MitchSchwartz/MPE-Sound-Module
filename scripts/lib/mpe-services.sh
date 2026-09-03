@@ -146,4 +146,23 @@ mpe_restart_core_services() {
     else
         sudo systemctl start "$browser" 2>/dev/null || true
     fi
+    mpe_restart_peak_meter
+}
+
+# mpe-peak-meter is PartOf=mpe-jackd.service, and PartOf propagates stop and
+# restart but NEVER start. So every graph restart -- a buffer change from the
+# touch menu, an output switch, a recovery, a measurement -- took the meter down
+# and nothing brought it back. It exits 0 when its server goes away, so
+# Restart=on-failure does not apply either, and the unit sits inactive with
+# Result=success looking entirely healthy.
+#
+# The symptom is a meter that reads zero forever, which is indistinguishable
+# from silence. Found 2026-09-02 because Mitch noticed the meter was off.
+#
+# Start (not restart) and only when enabled: the unit is opt-in, gated on
+# MPE_PEAK_METER=1, and starting a disabled one would defeat that. `start` on an
+# already-running unit is a no-op, which is what we want here.
+mpe_restart_peak_meter() {
+    systemctl is-enabled --quiet mpe-peak-meter.service 2>/dev/null || return 0
+    sudo systemctl start mpe-peak-meter.service 2>/dev/null || true
 }
