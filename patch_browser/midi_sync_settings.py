@@ -9,7 +9,6 @@ from pathlib import Path
 
 from patch_browser.midi_sync import (
     QUANTIZE_CHOICES,
-    buffer_latency_ms,
     parse_quantize_grid_ticks,
 )
 from patch_browser.surge_audio import MPE_ENV_PATH
@@ -92,11 +91,24 @@ def quantize_option_label(value: str) -> str:
 
 
 def offset_ms_value() -> str:
-    if current_offset_auto():
-        from patch_browser.surge_audio import current_buffer_size, current_sample_rate
+    """What the runtime will actually apply — computed by the runtime's own
+    function, not re-derived here.
 
-        ms = buffer_latency_ms(current_buffer_size(), current_sample_rate())
-        return f"−{ms:.0f} ms"
+    MEASURED 2026-09-01: this displayed "−43 ms" while the appliance applied
+    −4 ms. It called buffer_latency_ms(current_buffer_size(), ...), and
+    current_buffer_size() is MPE_SURGE_BUFFER_SIZE -- the LEGACY Surge ALSA key,
+    1024 on the appliance -- whose own docstring in surge_audio.py says it is
+    "not the playing JACK period". The runtime used MPE_JACK_BUFFER (96). A 10x
+    disagreement between the number shown and the number used, on the one screen
+    you would look at to decide whether the offset was sane.
+
+    Two computations of one quantity is the bug. There is now one, and this is a
+    formatter for it.
+    """
+    if current_offset_auto():
+        from patch_browser.midi_sync import resolve_output_offset_ms
+
+        return f"{resolve_output_offset_ms():+.0f} ms"
     raw = read_str_from_env_file("MPE_MIDI_OUTPUT_OFFSET_MS", MPE_ENV_PATH)
     if raw:
         try:
