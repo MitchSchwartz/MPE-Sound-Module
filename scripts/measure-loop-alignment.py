@@ -84,7 +84,16 @@ MAX_PLAUSIBLE_ERROR_MS = 60.0
 # Minimum quiet span before a rising edge counts as a new onset, in beats.
 # Must exceed NOTE_LEN_S (the release transient) and stay under the closest
 # real spacing, which in overdub mode is half a beat.
-ONSET_GAP_BEATS = 0.35
+ONSET_GAP_BEATS = 0.22
+
+# Where the overdub sits within the beat. Deliberately NOT 0.5: at half a beat
+# the take->overdub and overdub->take intervals are (half + d) and (half - d),
+# which are indistinguishable, so the two signs of the same displacement cancel
+# and the median lands on whichever direction happens to be counted one more
+# time. A 20 ms control read 18.3 ms with sd 21.7 for exactly that reason. At
+# 0.3 the two gaps are 0.3 and 0.7 of a beat, so every interval declares which
+# direction it is and both yield +d.
+OVERDUB_SHIFT_BEATS = 0.3
 
 # The loop must close on a whole number of beats for pass 2 to land in phase
 # with pass 1. Asserted, never assumed.
@@ -468,30 +477,43 @@ def analyse_overdub(path: Path, beat_s: float, threshold_ratio: float = 0.25) ->
             "passes present, and fewer than four cannot show alternation"
         )
 
-    half = beat_s / 2.0
+    short = OVERDUB_SHIFT_BEATS * beat_s              # take -> overdub
+    long_ = (1.0 - OVERDUB_SHIFT_BEATS) * beat_s      # overdub -> next take
+    tol = min(short, long_) * 0.45
+
     intervals = [b - a for a, b in zip(positions, positions[1:])]
-    # Keep only the pass-1 -> pass-2 (and back) steps. A missed note leaves a
-    # full-beat gap; including it would report a 250 ms "error" that is a
-    # detector miss, not a timing fault.
-    kept = [d for d in intervals if abs(d - half) < half * 0.6]
-    if len(kept) < 3:
+    errors_ms: list[float] = []
+    classified: list[str] = []
+    for d in intervals:
+        if abs(d - short) <= tol:
+            errors_ms.append((d - short) * 1000.0)    # overdub late -> longer
+            classified.append("short")
+        elif abs(d - long_) <= tol:
+            errors_ms.append((long_ - d) * 1000.0)    # overdub late -> shorter
+            classified.append("long")
+        else:
+            classified.append("skip")                 # missed note, or a gap
+
+    if len(errors_ms) < 3:
         raise Halt(
-            f"only {len(kept)} of {len(intervals)} onset intervals are near a "
-            f"half-beat ({half * 1000:.1f} ms) -- the two passes are not "
-            "alternating, so there is nothing to compare"
+            f"only {len(errors_ms)} of {len(intervals)} onset intervals match "
+            f"the {short * 1000:.0f}/{long_ * 1000:.0f} ms alternation -- the "
+            "two passes are not interleaving, so there is nothing to compare"
         )
 
-    errors_ms = [(d - half) * 1000.0 for d in kept]
     base.update(
         {
             "mode": "overdub",
-            "half_beat_ms": round(half * 1000.0, 3),
+            "shift_beats": OVERDUB_SHIFT_BEATS,
+            "expected_short_ms": round(short * 1000.0, 3),
+            "expected_long_ms": round(long_ * 1000.0, 3),
             "intervals_ms": [round(d * 1000.0, 3) for d in intervals],
+            "interval_kinds": classified,
             "errors_ms": [round(e, 3) for e in errors_ms],
             "median_error_ms": round(statistics.median(errors_ms), 3),
             "mean_error_ms": round(statistics.fmean(errors_ms), 3),
             "sd_ms": round(statistics.stdev(errors_ms), 3) if len(errors_ms) > 1 else None,
-            "intervals_used": len(kept),
+            "intervals_used": len(errors_ms),
         }
     )
     return base
@@ -738,7 +760,7 @@ def main() -> int:
             )
             _sentinel("loop-align-overdubbing", state=od_state)
             overdub_placed = play_pass(
-                cn, args, beat_s, offset_ms, shift_s=beat_s / 2.0,
+                cn, args, beat_s, offset_ms, shift_s=OVERDUB_SHIFT_BEATS * beat_s,
                 inject_ms=args.inject_ms,
             )
             time.sleep(beat_s * 1.5)
