@@ -24,7 +24,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install test dependencies
         timeout-minutes: 3
-        run: pip install python-osc
+        run: pip install python-osc numpy
       - name: Run unit tests
         timeout-minutes: 10
         run: python3 -m unittest discover -s tests
