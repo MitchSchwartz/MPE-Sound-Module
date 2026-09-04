@@ -25,7 +25,6 @@ The MPE appliance is a headless **Surge XT** synthesizer on a Raspberry Pi, driv
 | 7 | **USB / UAC2 host** | USB audio gadget, host-route watcher, stall recovery (profile-dependent) |
 | 8 | **MIDI clock / sync** | Boss RC-5 clock in; quantize/through to Surge (touch settings) |
 | 9 | **Deploy / Pi ops** | `configure-pi-paths.sh`, unit install, DAC volume, audio profile |
-| 10 | **YOLO / nerdrack** | Headless agent queue, gates, nerdrack bootstrap (dev only) |
 
 **Inventory scale (Pass 1):** ~86 `patch_browser/*.py`, ~28 `scripts/sooperlooper/*`, ~100+ top-level `scripts/*.sh`, 23 `config/*.service`, 14 `scripts/lib/*.sh`, 96 `tests/test_*.py`.
 
@@ -322,21 +321,6 @@ stateDiagram-v2
 
 ---
 
-### 3.8 YOLO / nerdrack (dev only)
-
-**Not production boot path.** Queue: `.claude/primitives/yolo-queue.json`.
-
-| Script | Purpose |
-|--------|---------|
-| `enqueue-yolo-task.sh` | Add/approve/clear-gate tasks |
-| `claude-yolo.sh` | Nerdrack headless agent entry |
-| `check-yolo-gates.sh` | Gate A + queue before YOLO |
-| `run-yolo-queue.sh` | Drain ready tasks |
-| `bootstrap-nerdrack.sh` | Remote setup |
-| `mpe-yolo-remote.sh` | Pi-side remote helper |
-
----
-
 ## 4. Master call graphs
 
 ### 4.1 Boot / audio layer
@@ -464,7 +448,6 @@ flowchart LR
 | `test_midi_sync.py` / `test_midi_clock.py` | Quantize grid, clock through |
 | `test_calibration_*.py` | Normalization calibration pipeline |
 | `test_uac2_*.py` | Gadget stall watchdog, card helpers |
-| `test_mpe_yolo_remote.py` | YOLO remote script contract |
 | `test_mpe_env_file.py` | Hermetic env (`MPE_ENV_FILE`) |
 | `test_dac_volume.sh` | DAC dB ↔ raw mapping |
 

@@ -59,7 +59,7 @@ DISABLED=(
     # mpe-bench retired 2026-08-17: it existed so a hardware test could free the APC
     # with `systemctl stop`, but the APC is now held by mpe-looper-session.service, so
     # stopping mpe-bench would have freed nothing. The agent's sudoers grant in
-    # scripts/pi/provision-mpe-agent.sh names mpe-looper-session instead.
+    # The agent provisioning script names mpe-looper-session instead.
     # Phase 3M 2026-08-18: bench + HUD merged into mpe-looper-session.service.
     mpe-apc-bench
     sl-hud-monitor

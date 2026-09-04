@@ -1,6 +1,6 @@
 # Appliance restore
 
-**Purpose:** rebuild the instrument from a blank SD card. This document is the reason the appliance can be treated as expendable — see the decision recorded in [`racknerd-pi-access-spec.md`](racknerd-pi-access-spec.md) (§Decision C). If this procedure does not work, that decision is not valid.
+**Purpose:** rebuild the instrument from a blank SD card. This document is the reason the appliance can be treated as expendable: agent-authored code may run on it, and losing the SD card is accepted as an inconvenience rather than a disaster. That trade only holds while this procedure works — if it does not, the appliance is **not** expendable and the assumption behind it is void.
 
 *Last updated: 2026-08-23 (America/Toronto).*
 
@@ -19,7 +19,7 @@
 | Surge XT binary | Private assets `assets/binaries/` | [`deploy-all.sh`](../scripts/deploy-all.sh) — not hours-from-source for golden/clone paths |
 | sooperlooper | `~/src/sooperlooper-1.7.9` | Built from source (optional) |
 | **Patch library** | `MPE-Library` (private repo) | `git clone` |
-| GitHub credentials on Pi | — | **None. Deliberate.** See [`PI-GITHUB-ACCESS.md`](PI-GITHUB-ACCESS.md) |
+| GitHub credentials on Pi | — | **None. Deliberate.** This repo is public; anonymous HTTPS pull needs no credential |
 
 **Backed up 2026-08-23:** schema v2 captures for Pi 4 (`raspberrypi2-2026-08-23`) and Pi 5 (`raspberrypi5-2026-08-23`) in [MPE-Library `assets/appliance-state/captures/2026-08-23/`](https://github.com/MitchSchwartz/MPE-Library/tree/main/assets/appliance-state/captures/2026-08-23). Pi 4 holds `surge-cli-calibration.log` and `.patch_browser_calibration_backups/`; Pi 5 holds current labelling/normalization (authoritative for daily play).
 
@@ -82,7 +82,7 @@ Reproduces recorded enable state: 10 enabled, 3 deliberately disabled (`midi-clo
 git clone git@github.com:MitchSchwartz/MPE-Library.git ~/MPE-Library
 ```
 
-Private repo — needs a **read-only deploy key** ([`PI-GITHUB-ACCESS.md`](PI-GITHUB-ACCESS.md)), not a PAT.
+Private repo — needs a **read-only deploy key**, not a PAT. A deploy key's limits are structural (one repo, clone only); a PAT's are merely configured.
 
 **✅ RESOLVED 2026-08-16 — the library is backed up.** Compared by git blob hash against the private remote (`2572c06`, "Quick Select backup 2026-08-08"):
 
