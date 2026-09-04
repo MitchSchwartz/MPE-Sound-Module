@@ -237,15 +237,18 @@ The Pi is Debian, not Ubuntu — use the `raspbian`/`debian` path for its codena
 
 | Node | State |
 |---|---|
-| `racknerd-99e2417` | `100.80.219.21`, `tag:racknerd-yolo`, routes **None**, `--shields-up=true`, Tailscale 1.102.2 |
-| `mpe-pi` | `100.76.137.72`, `tag:mpe-pi`, routes **None**, Tailscale 1.102.2 (Debian trixie, aarch64) |
+| Racknerd node | `tag:racknerd-yolo`, routes **None**, `--shields-up=true`, Tailscale 1.102.2 |
+| `mpe-pi` | `tag:mpe-pi`, routes **None**, Tailscale 1.102.2 (Debian trixie, aarch64) |
+
+> Node names and tailnet addresses are deliberately omitted — **this repository is
+> public.** Read live values from `tailscale status`.
 
 Probe results from Racknerd:
 
 | # | Probe | Required | Actual |
 |---|---|---|---|
-| 1 | `nc -z 100.76.137.72 22` | succeed | ✅ succeeded |
-| 2 | `nc -z 100.76.137.72 8099` **with a live listener** | **fail** | ✅ **timed out** — see history below |
+| 1 | `nc -z <mpe-pi-tailnet-addr> 22` | succeed | ✅ succeeded |
+| 2 | `nc -z <mpe-pi-tailnet-addr> 8099` **with a live listener** | **fail** | ✅ **timed out** — see history below |
 | 3 | `nc -z mpe-pi 22` (MagicDNS) | succeed | ✅ succeeded |
 | 4 | `ping 192.168.1.210` (LAN) | fail | ✅ 100% loss |
 | 5 | `PrimaryRoutes` on Racknerd | `None` | ✅ `None` |
@@ -317,7 +320,7 @@ from="100.x.y.z",restrict,command="/usr/local/sbin/mpe-yolo-remote.sh" ssh-ed255
 ```
 
 - **`restrict`** (OpenSSH ≥ 7.2) is deny-by-default for all forwarding/PTY/user-rc options and stays correct as OpenSSH adds new ones. It replaces the rev-2 `no-port-forwarding,no-X11-forwarding,no-agent-forwarding,no-pty,no-user-rc` list, which was a hand-maintained allowlist of denials.
-- **`from="100.80.219.21"`** bounds a leaked key to one source. Defense in depth behind the L1 ACL, not a substitute for it. **Filled in at Phase 1 exit, 2026-08-16:** Racknerd joined the tailnet as `racknerd-99e2417` (`racknerd-99e2417.tail6f6cf1.ts.net`), tagged `tag:racknerd-yolo`, advertising no routes, `--shields-up=true`. Tagged nodes do not key-expire, so no expiry action is needed.
+- **`from="<racknerd-tailnet-addr>"`** bounds a leaked key to one source. Defense in depth behind the L1 ACL, not a substitute for it. **Filled in at Phase 1 exit, 2026-08-16:** Racknerd joined the tailnet tagged `tag:racknerd-yolo`, advertising no routes, `--shields-up=true`. Tagged nodes do not key-expire, so no expiry action is needed. The literal address is not recorded here — this repo is public; read it from `tailscale status`.
 - **Date the key comment** (`racknerd-yolo-2026-08`) so age is visible in `authorized_keys` without cross-referencing anything. Rotation remains manual (§Not in v1), and a visible date is what makes "manual" survivable.
 
 ### `mpe-yolo-remote.sh` (root-owned, 755, not writable by `mpe-yolo`)

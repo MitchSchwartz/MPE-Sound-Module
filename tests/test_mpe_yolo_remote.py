@@ -30,7 +30,8 @@ READ_TOKENS = [
 
 def run(command, stdin=b"", extra_env=None):
     env = dict(os.environ)
-    env["SSH_CLIENT"] = "100.80.219.21 12345 22"
+    # Placeholder tailnet address - the real one is not recorded in this public repo.
+    env["SSH_CLIENT"] = "100.64.0.1 12345 22"
     if command is None:
         env.pop("SSH_ORIGINAL_COMMAND", None)
     else:
