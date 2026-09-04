@@ -16,9 +16,8 @@ Redacting a file does not undo a disclosure; it only changes what new readers la
 - business, marketing, financial, client, contract, or tax material
 
 Infrastructure values belong in the **environment at run time** or in the private
-workspace — never as a committed constant. `provision-mpe-agent.sh` takes
-`RACKNERD_TS_IP` from the environment for exactly this reason, and the yolo wrappers
-default to a MagicDNS name rather than an address.
+workspace — never as a committed constant. If a script needs a host address, read it
+from the environment or resolve it by name; do not write the literal into a file here.
 
 **Assume public until verified otherwise** — a private repo is not the default:
 
@@ -154,21 +153,11 @@ Pattern: [OM-Repo `Docs/appliance-cli-pattern.md`](https://github.com/opsMachine
 
 ---
 
-## Nerdrack YOLO (Claude Code)
+## Remote build lane
 
-**Runner:** `scripts/yolo/claude-yolo.sh` on nerdrack (`claudeLogin` / `claude-yolo-mpe` SSH alias) — **not** Cursor `agent-yolo.sh`.
-
-| Stage | Where | What |
-|---|---|---|
-| Spec / Gate A | **Laptop** (sync with Mitch) | Spec `Status: Approved` |
-| Mitch gates | **Laptop** | `pi_soak`, `systemd_change`, `audio_profile`, `mpe_env` via `enqueue-yolo-task.sh clear-gate` |
-| Enqueue | **Laptop** | `enqueue-yolo-task.sh add` → `approve --id` |
-| Build / PR | **Nerdrack** | `YOLO_TASK_ID=… claude-yolo.sh -p "…"` |
-| Pi soak / deploy | **Laptop / Mitch** | Pi is LAN-only — nerdrack runs **unit tests only** |
-
-Full setup: [`docs/local-vs-nerdrack-dev.md`](docs/local-vs-nerdrack-dev.md). Queue: `.claude/primitives/yolo-queue.json`.
-
-**Nerdrack must not:** `deploy-all.sh`, audio profile scripts, `mpe restart`, Pi SSH/SCP, merge without independent review.
+The unattended agent build lane and its host provisioning are **not in this repo** — see
+the public-repository banner at the top. Pi soak, deploy, audio-profile changes and
+`mpe restart` remain laptop-and-Mitch only regardless of where a build ran.
 
 ---
 
@@ -188,13 +177,13 @@ Hard rules for agents:
 
 ## Pi deploy — appliance only, never a dev workspace
 
-**Hard rule (2026-08-17):** The Pi is a **read-only deploy target**. All commits, branches, stashes, and WIP live on the **laptop** (or nerdrack). Do not SSH in to edit, commit, stash, or create branches on the appliance.
+**Hard rule (2026-08-17):** The Pi is a **read-only deploy target**. All commits, branches, stashes, and WIP live on the **laptop** (or the remote build host). Do not SSH in to edit, commit, stash, or create branches on the appliance.
 
 | Pi state | Expected |
 |----------|----------|
 | Branch | **`main` only** — no local feature/`yolo/*` branches |
 | Push | **`origin` push URL = `DISABLED`** — pulls only |
-| GitHub auth | **None** — public repo pulls anonymously ([`docs/PI-GITHUB-ACCESS.md`](docs/PI-GITHUB-ACCESS.md)) |
+| GitHub auth | **None, deliberately** — this repo is public, so the appliance pulls anonymously over HTTPS. Do not add a credential |
 | Working tree | **Clean** — no uncommitted changes, no stashes |
 
 **Deploy from the laptop** — never “finish work on the Pi”:
