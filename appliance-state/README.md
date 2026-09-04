@@ -34,6 +34,6 @@ For full device state (prefs + `/etc/mpe/mpe.env`), use [`scripts/provision/capt
 
 ## What is deliberately NOT here
 
-- **Credentials.** The appliance holds none by design — see [`docs/PI-GITHUB-ACCESS.md`](../docs/PI-GITHUB-ACCESS.md). Nothing credential-shaped should ever land in this directory; the repo is public and gitleaks runs pre-commit.
+- **Credentials.** The appliance holds none by design. Nothing credential-shaped should ever land in this directory; the repo is public and gitleaks runs pre-commit.
 - **`/etc/mpe/mpe.env`.** Two non-secret keys, documented in `RESTORE.md` instead. Note `MPE_SURGE_BUFFER_SIZE` there is dead config and must not be restored.
 - **The Surge build** (`~/surge`, 238 MB) and **the patch library** (`MPE-Library`, 279 MB). Too large and separately sourced — see `RESTORE.md`.

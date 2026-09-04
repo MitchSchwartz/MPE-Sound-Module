@@ -1,7 +1,7 @@
 #!/bin/bash
 # C0 — live instrument conformance (meter path + Pi-only positive controls).
 #
-# On nerdrack: negative controls against synthetic meter.state always run.
+# On the remote build host: negative controls against synthetic meter.state always run.
 # Positive controls (forced xrun delta, DSP band) require a live appliance meter.
 set -euo pipefail
 

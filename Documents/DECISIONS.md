@@ -426,15 +426,23 @@ forever, and a queued stop dropping its expectation mid-take.
 
 Confirmed on hardware 2026-08-15. Detail: spec §L.
 
-## 2026-08-15 — Racknerd YOLO → Pi access (spec draft, not implemented)
+## 2026-08-15 — Remote agent → Pi access (spec draft, not implemented)
 
-**Spec:** [`docs/racknerd-pi-access-spec.md`](../docs/racknerd-pi-access-spec.md)
+**Spec: not in this repo.** The design covers host access and network containment, so it
+lives in the private workspace (moved 2026-09-04 — see the public-repository banner in
+`AGENTS.md`).
 
-**Intent:** Let the Racknerd YOLO agent run **allowlisted** `mpe test pi …` (Phase A) and optionally **bounded deploy** behind `pi_soak` (Phase B) — via **Tailscale ACL** (Pi:22 only, no LAN subnet routes), **forced-command SSH user** `mpe-yolo` on the Pi, **`mpe-cli` yolo profile** on Racknerd, and **`yolo-shell-guard` allowlist**. Mitch admin path (`mitch@pi`, laptop `mpe`) unchanged.
+**Appliance-relevant outcome:** an unattended remote agent may be given a **narrow,
+allowlisted** path to run tests on the Pi, with deploy-class actions still behind the
+`pi_soak` gate. Mitch's admin path is unchanged. The decision that followed from it —
+that the appliance is treated as **expendable**, protected by a proven restore rather
+than by keeping agent code off it — is the one that matters here; see
+[`../docs/RESTORE.md`](../docs/RESTORE.md).
 
-**Status:** Draft — **Gate A not cleared.** Do not install Tailscale agent path or widen guards until Mitch approves spec.
+**Status:** Draft — **Gate A not cleared.**
 
-**Non-goals:** LAN pivot, interactive agent shell on Pi, automated ear tests, `dev`→`main` appliance promotion from Racknerd.
+**Non-goals:** LAN pivot, interactive agent shell on Pi, automated ear tests,
+`dev`→`main` appliance promotion from a remote builder.
 
 ---
 

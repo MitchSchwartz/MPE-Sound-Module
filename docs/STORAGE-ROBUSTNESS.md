@@ -32,7 +32,7 @@ The card is inherently corruptible. The product requirement is that corruption i
 
 **Design goal:** power loss may lose **in-flight work**; it must not lose **bootability**.
 
-This aligns with Decision C in [`racknerd-pi-access-spec.md`](racknerd-pi-access-spec.md): the appliance can be treated as expendable only if recovery is fast and proven. That spec also names **immutable-release architecture** (build → artifact → atomic activation) as the work that retires the current restore-gap table.
+This aligns with the decision to treat the appliance as expendable: that only holds if recovery is fast and proven. **Immutable-release architecture** (build → artifact → atomic activation) is the work that retires the current restore-gap table.
 
 ---
 
@@ -79,7 +79,7 @@ Pi paths: `overlayroot` / raspi-config read-only overlay, custom image, or Build
 
 Two identical system partitions. Updates write the **inactive** slot, verify checksum or signature, flip bootloader preference, reboot. If fsck fails on slot A, boot slot B automatically.
 
-Same shape as the immutable-release pipeline already referenced in the racknerd spec: CI builds a signed artifact; activation is atomic; rollback is "boot the other slot."
+Same shape as the immutable-release pipeline: CI builds a signed artifact; activation is atomic; rollback is "boot the other slot."
 
 ### Layer 3 — User data contract
 
@@ -184,7 +184,6 @@ Runtime-only (stay tmpfs — already correct):
 | [`SHUTDOWN.md`](SHUTDOWN.md) | Graceful shutdown — reduces but does not replace ro root |
 | [`PI-BOOT-RECOVERY.md`](PI-BOOT-RECOVERY.md) | Cmdline/config rollback when kernel still boots |
 | [`BACKUP_GUIDE.md`](BACKUP_GUIDE.md) | Developer/laptop backup — not customer-facing recovery |
-| [`racknerd-pi-access-spec.md`](racknerd-pi-access-spec.md) | Decision C + immutable-release callout |
 | [`Documents/specs/session-control-plane-spec.md`](../Documents/specs/session-control-plane-spec.md) | D6 — `/run/mpe` tmpfs snapshot design |
 | [`Documents/DECISIONS.md`](../Documents/DECISIONS.md) | Locked engineering decisions |
 

@@ -39,7 +39,7 @@ artifacts/golden-pi5/
 logs/shutdown-trace.jsonl
 logs/shutdown-test-marker.json
 
-# Headless nerdrack config (copy from *.headless.example on the build box only)
+# Headless agent config (build box only)
 .claude/settings.local.json
 .claude/mcp.json
 .yolo/headless

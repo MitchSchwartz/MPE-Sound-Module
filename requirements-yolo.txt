@@ -1,5 +1,0 @@
-# VPS / nerdrack unit-test deps only — not Pi hardware (see requirements.txt).
-# Install: scripts/yolo/setup-nerdrack-python.sh
-
-pygame>=2.5.0
-python-osc>=1.9.0

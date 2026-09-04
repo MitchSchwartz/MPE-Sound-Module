@@ -1,4 +1,0 @@
-{
-  "_README": "Laptop manager enqueues tasks after human gates. Nerdrack claude-yolo.sh rejects runs without a matching ready entry. See scripts/yolo/enqueue-yolo-task.sh and AGENTS.md.",
-  "tasks": []
-}

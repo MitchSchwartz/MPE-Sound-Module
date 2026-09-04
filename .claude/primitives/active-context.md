@@ -7,10 +7,9 @@
 | Field | Value |
 |---|---|
 | **Product** | Raspberry Pi MPE sound module (Surge XT + patch browser) |
-| **Phase** | Phase 2 looper eval / YOLO lane bootstrap |
+| **Phase** | Phase 2 looper eval |
 | **Integration branch** | `dev` |
-| **Nerdrack runner** | Claude Code (`scripts/yolo/claude-yolo.sh`) |
-| **Pi soak** | Laptop / Mitch only — Pi is LAN-only, not reachable from nerdrack |
+| **Pi soak** | Laptop / Mitch only — the Pi is LAN-only |
 
 ## Queued next
 
@@ -20,5 +19,4 @@
 
 ## Notes
 
-- Nerdrack runs **unit tests only** (`python3 -m unittest discover -s tests -q`).
 - Appliance deploy, audio profile, systemd, and `mpe restart` stay Mitch gates.
