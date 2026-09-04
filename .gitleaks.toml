@@ -48,8 +48,6 @@ description = "Templates and docs that carry placeholders only"
 paths = [
   '''(?i)\.example$''',
   '''(?i)mpe\.env\.example$''',
-  '''(?i)^docs/PI-GITHUB-ACCESS\.md$''',
-  '''(?i)^scripts/setup-pi-github-pat\.sh$''',
 ]
 regexes = [
   '''your-pi-username''',

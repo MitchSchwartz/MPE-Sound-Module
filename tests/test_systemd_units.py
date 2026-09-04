@@ -251,16 +251,13 @@ class SingleUnitSourceTests(unittest.TestCase):
             self.assertIn(name, entries, f"{name} must be in install-units DISABLED")
 
     def test_retired_mpe_bench_is_gone_everywhere(self) -> None:
-        """It could no longer free the APC — mpe-looper-session.service holds it now."""
+        """It could no longer free the APC — mpe-looper-session.service holds it now.
+
+        This asserted the same thing about the agent provisioning script's UNITS=
+        line until 2026-09-04, when that script moved to the private workspace.
+        Nothing checks it now; the assertion would have to be rebuilt there.
+        """
         self.assertFalse((CONFIG / "mpe-bench.service").exists())
-        provision = (
-            REPO / "scripts" / "pi" / "provision-mpe-agent.sh"
-        ).read_text(encoding="utf-8")
-        units_line = next(
-            line for line in provision.splitlines() if line.startswith("UNITS=")
-        )
-        self.assertNotIn("mpe-bench ", units_line)
-        self.assertIn("mpe-looper-session", units_line)
 
 
 class EngineLauncherTests(unittest.TestCase):

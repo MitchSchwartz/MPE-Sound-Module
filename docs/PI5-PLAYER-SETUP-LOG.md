@@ -79,7 +79,7 @@ Run on the **new Pi** (SSH as its user).
 | Step | Command / action | Verify |
 |------|------------------|--------|
 | B1 | `sudo apt update && sudo apt install -y git rsync` | — |
-| B2 | Clone repo: `git clone https://github.com/MitchSchwartz/MPE-Sound-Module.git ~/MPE-Module && cd ~/MPE-Module && git checkout dev` | No deploy key on appliance — anonymous HTTPS pull only ([`PI-GITHUB-ACCESS.md`](PI-GITHUB-ACCESS.md)) |
+| B2 | Clone repo: `git clone https://github.com/MitchSchwartz/MPE-Sound-Module.git ~/MPE-Module && cd ~/MPE-Module && git checkout dev` | No deploy key on appliance — anonymous HTTPS pull only (this repo is public) |
 | B3 | **Deploy from laptop** (Surge binary + factory patches + MPE-Library): `MPE_PERSONAL_REPO=/path/to/MPE-Library ./scripts/deploy-all.sh` with `config/mpe.env` pointing at Pi 5 | `~/surge/build/surge_xt_products/surge-xt-cli --version` |
 | B4 | `echo 'MPE_UI_MODE=touch' >> ~/MPE-Module/config/mpe.env` | — |
 | B5 | **`scripts/install-pi5-player-tier3.sh`** (touch UI + `python3-rtmidi` via apt — not pip) | `dpkg-query -W python3-rtmidi`; pygame imports |
