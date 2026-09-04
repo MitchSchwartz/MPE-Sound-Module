@@ -1,6 +1,37 @@
 # MPE-Module — agent orientation
 
-*Last updated: 2026-08-22 (America/Toronto)*
+*Last updated: 2026-09-04 (America/Toronto)*
+
+## ⚠️ THIS REPOSITORY IS PUBLIC — read before writing anything
+
+Everything committed here is **world-readable, permanently**. It stays in history after
+deletion, and anyone who forked the repo keeps a copy regardless of what you remove later.
+Redacting a file does not undo a disclosure; it only changes what new readers land on.
+
+**Never commit, in any file, including comments, examples, tests and commit messages:**
+
+- host addresses or hostnames, and IP addresses of any kind — public, LAN, or tailnet
+- usernames, SSH details, credentials, tokens, or keys
+- infrastructure or network topology, VPS/provider details, firewall or access design
+- business, marketing, financial, client, contract, or tax material
+
+Infrastructure values belong in the **environment at run time** or in the private
+workspace — never as a committed constant. `provision-mpe-agent.sh` takes
+`RACKNERD_TS_IP` from the environment for exactly this reason, and the yolo wrappers
+default to a MagicDNS name rather than an address.
+
+**Assume public until verified otherwise** — a private repo is not the default:
+
+```bash
+gh repo view --json visibility,name
+```
+
+This is not hypothetical. Sensitive material has reached this repo twice — once in
+August 2026, and again on 2026-09-04 when an infrastructure address and login were found
+committed in the docs, noticed only because a stranger forked the repo. If you are about
+to write a value of this kind, stop and put it somewhere else.
+
+---
 
 **Product:** Raspberry Pi MPE sound module (Surge XT headless + patch browser UI).
 
