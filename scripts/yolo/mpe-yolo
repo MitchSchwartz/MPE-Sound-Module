@@ -20,7 +20,9 @@
 
 set -euo pipefail
 
-PI_HOST="${MPE_YOLO_PI_HOST:-100.76.137.72}"
+# MagicDNS name, not a literal address: this repo is public, and the name
+# survives a tailnet address change.
+PI_HOST="${MPE_YOLO_PI_HOST:-mpe-pi}"
 PI_USER="${MPE_YOLO_PI_USER:-mpe-yolo}"
 KEY="${MPE_YOLO_KEY:-$HOME/.ssh/mpe_yolo_ed25519}"
 

@@ -60,7 +60,9 @@ Human gates (when needed): `pi_soak`, `systemd_change`, `audio_profile`, `mpe_en
 
 ## Nerdrack setup (Claude Code YOLO)
 
-**Host:** `claudeLogin` (`claude-sandbox@167.160.187.172`)  
+**Host:** `claudeLogin` — address and login live in the laptop's `~/.ssh/config`, never in
+this repo. **This repository is public: do not commit host addresses, usernames, or
+tailnet addresses here.**  
 **SSH alias (laptop):** `claude-yolo-mpe` → runs `claude-yolo.sh` in repo
 
 ### 1. Clone (first time)

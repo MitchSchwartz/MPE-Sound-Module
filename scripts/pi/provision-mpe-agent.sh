@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Provision `mpe-agent`: a capable, unprivileged appliance user for remote agents.
 #
-#   sudo ./scripts/pi/provision-mpe-agent.sh <racknerd-pubkey-file>
+#   sudo RACKNERD_TS_IP=<tailnet-addr> ./scripts/pi/provision-mpe-agent.sh <racknerd-pubkey-file>
 #
 # GOAL (Mitch, 2026-08-16): the agent should be able to do what he can do from
 # the laptop — run tests, drive Surge and sooperlooper, start and stop appliance
@@ -33,7 +33,8 @@ set -euo pipefail
 AGENT_USER=mpe-agent
 AGENT_HOME="/home/$AGENT_USER"
 REPO_URL="https://github.com/MitchSchwartz/MPE-Sound-Module.git"
-RACKNERD_TS_IP="100.80.219.21"
+# Not committed: this repo is public. Supply it at run time.
+RACKNERD_TS_IP="${RACKNERD_TS_IP:?set RACKNERD_TS_IP to the Racknerd tailnet address}"
 LAN_CIDR="192.168.0.0/16"
 
 [ "$(id -u)" -eq 0 ] || { echo "ERROR: run as root." >&2; exit 1; }
