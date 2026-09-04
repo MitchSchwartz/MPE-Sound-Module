@@ -12,7 +12,7 @@
 # appliance and a restore quietly reverts tuning that was never captured.
 #
 # Deliberately captures calibration ONLY. Not credentials (the appliance holds
-# none — see docs/PI-GITHUB-ACCESS.md), not the Surge build, not MPE-Library.
+# none, deliberately), not the Surge build, not MPE-Library.
 # This repo is public; keep it that way.
 
 set -euo pipefail

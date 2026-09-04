@@ -775,7 +775,7 @@ suppress, and calibration's existing `systemctl stop` list keeps working.
 Omitted from the first draft, which folded it into a one-line decision. It needs a
 threat model, because **intents are a privilege boundary**.
 
-**The existing posture.** `scripts/pi/provision-mpe-agent.sh` grants the remote agent a
+**The existing posture.** The agent provisioning script (private workspace) grants the remote agent a
 deliberately narrow sudo: named units, named verbs, and explicitly *not* `sudo kill`,
 on the reasoning that sudo-kill can signal any process including root ones and is
 therefore a far wider grant than one more named unit. That reasoning is sound and this
