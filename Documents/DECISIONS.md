@@ -6,6 +6,53 @@ Orientation canon: OM-Repo [`GROUNDING.md`](https://github.com/opsMachine/OM-Rep
 
 ---
 
+## 2026-09-07 — The count-in eats what you play before the bar; the surface called every good take a failure
+
+Mitch, 2026-09-07: *"the second column doesn't seem to record the initial
+loop only the after loop, and it happens no matter what order I do it and
+whether it's the second loop or the first one."*
+
+**The symptom is the count-in, and it is not column-specific.** From the
+appliance journal, press to actual RECORDING:
+
+| press | recording began | swallowed | grid |
+|---|---|---|---|
+| 15:22:48.094 | 15:22:48.149 | 0.06 s | none — defining take |
+| 15:24:21.258 | 15:24:21.324 | 0.07 s | none — defining take |
+| 15:23:10.716 | 15:23:11.288 | 0.57 s | 3.62 s cycle |
+| 15:23:21.601 | 15:23:22.157 | 0.56 s | 3.62 s cycle |
+| 15:24:27.710 | 15:24:29.980 | **2.27 s** | 2.18 s cycle |
+
+With no grid the take starts in ~60 ms. With a grid the pad arms
+(WAIT_START) and the engine records nothing until the next bar line, so
+everything played in that window is gone. The wait is however far the press
+lands from the bar, up to a full cycle. What survives is what is played
+after the bar plus whatever the ring-out overdub catches, which is exactly
+"only the after loop". The column is irrelevant: the variable is whether a
+grid exists yet. This is the designed count-in ("Later clips count in and
+quantize"), working as specified. Whether it should behave that way is a
+musical question and is **open** — no code changed for it.
+
+**The surface reported every successful take as a failure.** Closing a take
+drops the loop into the ring-out overdub, so it enters ACTIVE_PLAY twice —
+OVERDUBBING when the take closes, PLAYING when the ring-out ends — and
+`SlotSurface._maybe_mark_recorded` runs on both. The first registered the
+take; the second found the slot legitimately occupied and logged *"engine
+reached PLAYING but the take was NOT registered — slot N already holds a
+take ... The pad will read empty and the next press will record again."*
+MEASURED: 6 of 6 successful takes in the session, each followed by that
+line. Every word false. It is the house bug shape once more — a reading
+identical whether the appliance is fine or broken, here inverted — and it
+sent this investigation at the wrong target until the timestamps corrected
+it. Fixed by remembering which slot the buffer's current content was
+registered into, dropped the moment the track records again. Not keyed on
+take length: on a grid every take is exactly one cycle, so lengths cannot
+tell two takes apart. The genuine case it was written for — a take reaching
+PLAYING while the bound slot holds different audio — still reports, and has
+a test.
+
+---
+
 ## 2026-09-07 — The deploy is gated on CI; the fader path is observable; a short take cannot define the grid
 
 **Gate.** `scripts/ci_gate.py` asks GitHub's check-runs API whether the commit

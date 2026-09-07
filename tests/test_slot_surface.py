@@ -22,8 +22,10 @@ from led_table import (  # noqa: E402
 from sl_loop_states import (  # noqa: E402
     SL_STATE_MUTE,
     SL_STATE_OFF,
+    SL_STATE_OVERDUBBING,
     SL_STATE_PLAYING,
     SL_STATE_RECORDING,
+    SL_STATE_WAIT_START,
     SL_STATE_WAIT_STOP,
 )
 from led_compositor import LedCompositor  # noqa: E402
@@ -128,6 +130,93 @@ class SurfaceCase(unittest.TestCase):
         if fs is not None:
             fs.sync_from_sl(int(value))
         self.surface.on_state(loop, int(value))
+
+class TakeRegistrationLogTests(SurfaceCase):
+    """A take that worked must not be reported as a take that failed.
+
+    Closing a take drops the loop into the ring-out overdub, so the engine
+    enters ACTIVE_PLAY twice: OVERDUBBING when the take closes, PLAYING when
+    the ring-out ends. `_maybe_mark_recorded` runs on both. It registered the
+    take on the first, then on the second found the slot legitimately
+    occupied and logged "engine reached PLAYING but the take was NOT
+    registered ... The pad will read empty and the next press will record
+    again."
+
+    MEASURED 2026-09-07 from the appliance journal: 6 of 6 successful takes
+    were each followed by that line. Every word of it false. This is the
+    sequence, replayed.
+    """
+
+    def _surface_with_log(self):
+        lines: list[str] = []
+        surface = SlotSurface(
+            runtime=self.rt,
+            gestures_by_loop=self.fs_by_loop,
+            view=GridView(offset=0),
+            compositor=self.leds,
+            num_tracks=15,
+            log=lines.append,
+        )
+        return surface, lines
+
+    def _record_a_take(self, surface, track=1, slot=0, length=2.18):
+        """Press to record, close into the ring-out, ring-out ends."""
+        self.rt.press(track, slot, sl_state=SL_STATE_OFF)
+        surface.on_state(track, SL_STATE_RECORDING)
+        surface.on_loop_len(track, length)
+        surface.on_state(track, SL_STATE_OVERDUBBING)   # take closes
+        surface.on_state(track, SL_STATE_PLAYING)       # ring-out ends
+
+    def test_a_successful_take_logs_landed_once_and_never_not_registered(self) -> None:
+        surface, lines = self._surface_with_log()
+        self._record_a_take(surface)
+        landed = [ln for ln in lines if "take landed" in ln]
+        complaints = [ln for ln in lines if "NOT registered" in ln]
+        self.assertEqual(len(landed), 1, lines)
+        self.assertEqual(complaints, [], "a take that worked was reported as failed")
+
+    def test_the_slot_really_does_hold_the_take(self) -> None:
+        """The claim the false line denied: the pad is not empty."""
+        surface, _ = self._surface_with_log()
+        self._record_a_take(surface)
+        self.assertTrue(self.rt.track(1).occupied(0))
+
+    def test_a_take_after_a_clear_lands_again(self) -> None:
+        """The registration must not outlive the audio it describes.
+
+        Same cell, same length -- on an established grid every take is exactly
+        one cycle, so a fix that compared lengths instead of tracking the
+        registration would silence this one as a duplicate.
+        """
+        surface, lines = self._surface_with_log()
+        self._record_a_take(surface, length=2.18)
+        # The cell is cleared, the way a hold-clear leaves it.
+        self.rt._tracks[1] = Track(slots=(None,) * 8, active_slot=None)
+        lines.clear()
+        self._record_a_take(surface, length=2.18)
+        self.assertEqual(len([ln for ln in lines if "take landed" in ln]), 1, lines)
+        self.assertEqual([ln for ln in lines if "NOT registered" in ln], [], lines)
+
+    def test_a_genuinely_unregistered_take_is_still_reported(self) -> None:
+        """The failure the message was written for must survive the fix.
+
+        A take reaches PLAYING while the bound slot already holds a DIFFERENT
+        take that this buffer did not record — the binding never moved. That
+        is real, and it must still say so.
+        """
+        surface, lines = self._surface_with_log()
+        self._record_a_take(surface, track=1, slot=0)
+        lines.clear()
+        # A new take arrives in the buffer: WAIT_START, then RECORDING, and
+        # the slot is never re-bound, so it still holds the earlier take.
+        surface.on_state(1, SL_STATE_WAIT_START)
+        surface.on_state(1, SL_STATE_RECORDING)
+        surface.on_loop_len(1, 2.18)
+        surface.on_state(1, SL_STATE_OVERDUBBING)
+        complaints = [ln for ln in lines if "NOT registered" in ln]
+        self.assertEqual(len(complaints), 1, lines)
+        self.assertIn("already holds a take", complaints[0])
+
 
 class DispatchTests(SurfaceCase):
     def test_every_grid_note_is_handled(self) -> None:

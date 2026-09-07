@@ -23,6 +23,7 @@ from sl_loop_states import (
     SL_STATE_PAUSED,
     SL_STATE_PLAYING,
     SL_STATE_RECORDING,
+    SL_STATE_WAIT_START,
 )
 from slot_leds import matrix_colours
 from slot_matrix import (
@@ -94,6 +95,12 @@ class SlotSurface:
         #: Last (track, active, loop_len) we declined to register, so the
         #: explanation is logged once per transition rather than every poll.
         self._declined: tuple | None = None
+        #: track -> the slot this track's CURRENT buffer content was registered
+        #: into. Dropped the moment the track records again, because that is
+        #: the only thing that can put different audio in the buffer. Without
+        #: it, every successful take was followed by a "NOT registered"
+        #: complaint about itself -- see `_maybe_mark_recorded`.
+        self._registered: dict[int, int] = {}
 
     # -- input ------------------------------------------------------------
 
@@ -445,6 +452,10 @@ class SlotSurface:
         #
         # The audio is real the moment the take closes. That is when it gets
         # written down.
+        # A take begins: whatever the buffer held is being replaced, so the
+        # registration below no longer describes it.
+        if sl_state in ACTIVE_RECORD or sl_state == SL_STATE_WAIT_START:
+            self._registered.pop(track, None)
         if sl_state not in ACTIVE_PLAY:
             return
         row = self._rt.track(track)
@@ -458,10 +469,30 @@ class SlotSurface:
             self._rt.mark_recorded(
                 track, active, len_s=loop_len, sl_state=sl_state
             )
+            self._registered[track] = active
             self._log(
                 f"track {track + 1} slot {active + 1}: take landed "
                 f"({loop_len:.2f}s)"
             )
+            return
+
+        # The take we just wrote down, seen a second time. Closing a take runs
+        # it through the ring-out overdub, so the loop enters ACTIVE_PLAY twice
+        # -- OVERDUBBING when the take closes, PLAYING when the ring-out ends
+        # -- and this method is re-entered with the slot now legitimately
+        # occupied by that same take. MEASURED 2026-09-07 from the appliance
+        # journal: 6 of 6 successful takes were each followed by "engine
+        # reached PLAYING but the take was NOT registered ... The pad will
+        # read empty and the next press will record again." Every word of it
+        # false, on every take that worked. An instrument that reports failure
+        # on success is worse than no instrument: it is the reading that looks
+        # the same whether the appliance is fine or broken, and it sent this
+        # investigation down the wrong path before the timestamps corrected it.
+        #
+        # Keyed on "did WE register this slot from the buffer's current
+        # content", not on the take's length: on an established grid every
+        # take is exactly one cycle, so lengths cannot tell two takes apart.
+        if self._registered.get(track) == active:
             return
 
         # Declining used to be silent, and its symptom on the surface — a pad
