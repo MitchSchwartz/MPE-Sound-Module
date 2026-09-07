@@ -457,8 +457,9 @@ class StopAllThenLaunchTests(Session):
     This combination had NO test in either direction, and a P0 shipped through
     the gap: `stop_all_loops` pauses every loop, and the matrix launch replied
     with `mute_off` — which does not lift a pause. Every launch after a Stop All
-    was silent. The fix was LAUNCH_COMMANDS (`pause_off` then `trigger`); this
-    is the coverage that should have caught it.
+    was silent. The fix was LAUNCH_COMMANDS (`trigger`, which lifts a pause;
+    it was `pause_off` then `trigger` until 2026-09-07); this is the coverage
+    that should have caught it.
     """
 
     def stop_all(self) -> None:

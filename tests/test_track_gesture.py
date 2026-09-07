@@ -481,7 +481,7 @@ class StopAllIsImmediateTests(unittest.TestCase):
             "both quantizers lifted, neither restored yet",
         )
         self.assertEqual([v for path, v in sent if path == "/sl/-1/hit"],
-                         ["mute_on", "trigger", "pause_on"])
+                         ["mute_on", "pause_on"])
 
         settle_stop_all(osc, gestures, log=lambda _m: None)
         sent = [(c.args[0], c.args[1]) for c in osc.send_message.call_args_list]
@@ -492,17 +492,17 @@ class StopAllIsImmediateTests(unittest.TestCase):
             "restored only once the engine has been asked what happened",
         )
 
-    def test_stop_all_rewinds_every_loop(self) -> None:
-        """The regression Mitch reported 2026-08-30.
+    def test_stop_all_sends_no_trigger(self) -> None:
+        """Mitch, 2026-09-06: 'After I stop all clips, it just resumes again.'
 
-        Stop All froze each loop wherever it happened to be, so restarting
-        resumed mid-loop instead of from the top -- and loops came back at
-        different phases from each other. MEASURED on the appliance with four
-        loops stopped: 46%, 46%, 73% and 23% of the way through.
-
-        `trigger` is the rewind, and it has to land BETWEEN the mute and the
-        pause: before the mute it would be audible, after the pause there is
-        nothing left running to rewind.
+        The burst used to be mute_on, trigger, pause_on -- the trigger added
+        2026-08-30 as a rewind so a relaunch came from the top. MEASURED
+        2026-09-07 on the real engine (tests/engine/test_engine_claims.py):
+        with that trigger a grid clip was still PLAYING 0.4 s and a full cycle
+        after Stop All at every one of five bar phases; without it, PAUSED in
+        5 of 5. The rewind is the launch's job -- `trigger` from PAUSED waits
+        for the bar and plays from the top -- and the mid-loop resumes of
+        08-30 were the launch's `pause_off`, not a missing rewind here.
         """
         from scripts.sooperlooper.track_gesture import build_track_gestures, stop_all_loops
 
@@ -515,11 +515,10 @@ class StopAllIsImmediateTests(unittest.TestCase):
 
         hits = [c.args[1] for c in osc.send_message.call_args_list
                 if c.args[0] == "/sl/-1/hit"]
-        self.assertIn("trigger", hits, "nothing rewound the loops")
-        self.assertLess(hits.index("mute_on"), hits.index("trigger"),
-                        "the rewind would be audible")
-        self.assertLess(hits.index("trigger"), hits.index("pause_on"),
-                        "paused first — the rewind lands on a stopped loop")
+        self.assertNotIn("trigger", hits,
+                         "a trigger in the Stop All burst keeps the loop playing")
+        self.assertLess(hits.index("mute_on"), hits.index("pause_on"),
+                        "mute first, so the pause lands on a silent loop")
 
     def _grid_rig(self, established: bool):
         from scripts.sooperlooper.track_gesture import build_track_gestures

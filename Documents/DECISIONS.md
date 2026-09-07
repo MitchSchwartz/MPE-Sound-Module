@@ -42,9 +42,14 @@ on the grid costs a cycle of wall clock, on purpose.
   top; `pause_off` resumes at once from wherever the clip stopped. Production
   launches with `("pause_off", "trigger")` (`slot_runtime.LAUNCH_COMMANDS`,
   `loop_model`, `looper_songs`), which is the 2026-08-30 "came back mid-loop"
-  measurement, explained. **Proposed, not done:** Stop All drops `trigger`;
-  launch sends `trigger` only. Both are one-line changes with their engine
-  tests already written.
+  measurement, explained. **Done the same day:** Stop All sends `mute_on`,
+  `pause_on` and no `trigger`; every launch path sends `trigger` alone
+  (`slot_runtime.LAUNCH_COMMANDS == ("trigger",)`, `loop_model`,
+  `looper_songs`). The fake engine now models `pause_off` as measured
+  (PAUSED → PLAYING at once). The known-bad burst stays in `tests/engine` as
+  a test that asserts the clip keeps PLAYING, so a reintroduced `trigger`
+  fails there rather than on stage. The `expectedFailure` is gone: 14 engine
+  tests pass, 2053 unit tests pass.
 
 ---
 
