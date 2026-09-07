@@ -55,7 +55,20 @@ script did not know, so the local and network stages ran every boot and the
 config and final stages never did. cloud-init touches no NetworkManager
 profile (the link-local eth0 fix is on disk and survives it). The script now
 disables the two newer units too and writes `/etc/cloud/cloud-init.disabled`,
-the documented off switch. Not a crash factor.
+the documented off switch. Not a crash factor. Applied to the SD image and
+**verified by a warm reboot at 13:21**: `cloud-init status` → `disabled`, eth0
+came up link-local on its own, `mpe-sooperlooper`, `mpe-looper-session` (on
+b553f20), `mpe-netconsole` and the crash-probe timer were active 30 s after
+boot, the previous boot's journal was still there, no unit failed. That is
+the first time the boot path enabled this morning has been seen to work.
+
+**sl-health after an engine restart.** The first deploy of b553f20 failed at
+`sl-health`: "no reply from loops [8, 9] reading rec_thresh/dry", seconds
+after `sl-restart`. The same probe passed 3 of 3 within the minute and 3 of 3
+on the next three restarts — 1 false FAIL in 4. `check_loops_writable` now
+asks a silent loop once more after 2 s and names the loops that answered only
+on retry; a loop silent through the retry is still unreachable, and a phantom
+(reads, drops writes) is still a phantom.
 
 ---
 
