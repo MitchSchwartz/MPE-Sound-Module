@@ -14,6 +14,21 @@ case "${1:-}" in
     *) echo "Usage: $0 [--dry-run]" >&2; exit 2 ;;
 esac
 
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+SCRIPT_DIR="$REPO_ROOT/scripts"
+# The appliance's canon. Overridable so a test can hand the script an env
+# file of its own; nothing else should ever set it.
+MPE_ENV_FILE="${MPE_ENV_FILE:-/etc/mpe/mpe.env}"
+
+# One KEY from the appliance env file, empty when absent. `sudo` strips the
+# caller's MPE_* variables, so a script that decides anything from them has to
+# read the file itself.
+_env_var() {
+    [ -f "$MPE_ENV_FILE" ] || return 0
+    grep -E "^$1=" "$MPE_ENV_FILE" 2>/dev/null | tail -1 | cut -d= -f2- \
+        | tr -d '"' | tr -d "'" || true
+}
+
 _run() {
     if [ "$DRY" = true ]; then
         echo "would: $*"
@@ -72,15 +87,27 @@ if [ ! -e /etc/cloud/cloud-init.disabled ]; then
     echo "cloud-init: off at next boot (/etc/cloud/cloud-init.disabled)"
 fi
 
-# usb-audio-gadget: only disable when usb-host profile unused (card 5 / UAC2)
-if aplay -l 2>/dev/null | grep -qi UAC2; then
-    if [ "${MPE_AUDIO_PROFILE:-standalone}" != "usb-host" ]; then
-        echo "usb-audio-gadget: ALSA card UAC2 present; disable only if usb-host unused"
-        _disable_unit usb-audio-gadget.service
-    else
-        echo "usb-audio-gadget: kept (MPE_AUDIO_PROFILE=usb-host)"
-    fi
+# usb-audio-gadget: the same question the unit itself asks at boot
+# (setup-usb-audio-gadget.sh -> mpe_gadget_should_bind): the gadget is wanted
+# when the profile routes audio to the host OR when MPE_USB_GADGET_PERSIST
+# keeps the UAC2 link up for the host's DAW. Until 2026-09-07 this section
+# asked a narrower question -- "is the profile usb-host?" -- of an environment
+# that under `sudo` never carries MPE_AUDIO_PROFILE at all, and disabled the
+# unit outright when no UAC2 card was listed. MEASURED 2026-09-07 on the SD
+# image (profile standalone, persist 1, gadget enabled and active by design):
+# a dry run answered "would: systemctl disable --now usb-audio-gadget.service".
+# The two keys come from the appliance env file when the environment lacks
+# them, the decision is the library's, and an unreadable answer keeps the
+# gadget: a unit disabled by mistake is a silent host with no error anywhere.
+# shellcheck source=lib/gadget-persist.sh
+source "$SCRIPT_DIR/lib/gadget-persist.sh"
+[ -n "${MPE_AUDIO_PROFILE+x}" ] || MPE_AUDIO_PROFILE="$(_env_var MPE_AUDIO_PROFILE)"
+[ -n "${MPE_USB_GADGET_PERSIST+x}" ] || MPE_USB_GADGET_PERSIST="$(_env_var MPE_USB_GADGET_PERSIST)"
+export MPE_AUDIO_PROFILE MPE_USB_GADGET_PERSIST
+if mpe_gadget_should_bind; then
+    echo "usb-audio-gadget: kept (profile=${MPE_AUDIO_PROFILE:-standalone} persist=${MPE_USB_GADGET_PERSIST:-1})"
 else
+    echo "usb-audio-gadget: not wanted (profile=${MPE_AUDIO_PROFILE:-standalone} persist=${MPE_USB_GADGET_PERSIST:-1})"
     _disable_unit usb-audio-gadget.service
 fi
 
@@ -114,6 +141,20 @@ if command -v nmcli >/dev/null 2>&1; then
     else
         nmcli dev set wlan0 powersave 2 2>/dev/null && echo "NetworkManager wlan0 powersave=2 (disable)" || true
     fi
+    # `nmcli dev set` is a runtime setting and a reboot forgets it. MEASURED
+    # 2026-09-07 on the SD image, 30 s after a warm reboot with the rest of
+    # this script's files already in place: `iw dev wlan0 get power_save` ->
+    # "Power save: on", every WiFi profile at powersave=default. The
+    # per-connection property is what survives.
+    while IFS=: read -r name type; do
+        [ "$type" = "802-11-wireless" ] || continue
+        if [ "$DRY" = true ]; then
+            echo "would: nmcli con modify \"$name\" 802-11-wireless.powersave 2"
+        else
+            nmcli con modify "$name" 802-11-wireless.powersave 2 2>/dev/null \
+                && echo "NetworkManager \"$name\" powersave=2 (persisted)" || true
+        fi
+    done < <(nmcli -t -f NAME,TYPE con show 2>/dev/null || true)
 fi
 
 echo "=== cmdline HDMI disable (requires reboot) ==="
@@ -146,11 +187,15 @@ if [ -f "$CMDLINE_FILE" ]; then
 fi
 
 echo "=== kernel module blacklist (v3d) ==="
-REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 V3D_SRC="$REPO_ROOT/config/modprobe.d/blacklist-v3d-mpe.conf"
 V3D_DST="/etc/modprobe.d/blacklist-v3d-mpe.conf"
 if [ -f "$V3D_SRC" ]; then
-    if [ "$DRY" = true ]; then
+    # Say "already installed" when it is. A dry run that prints "would:
+    # install" for a file already in place reads as drift that is not there
+    # (2026-09-07: three of four "unapplied" items were this).
+    if [ -f "$V3D_DST" ] && cmp -s "$V3D_SRC" "$V3D_DST"; then
+        echo "v3d blacklist already installed ($V3D_DST)"
+    elif [ "$DRY" = true ]; then
         echo "would: install $V3D_SRC -> $V3D_DST (reboot to unload v3d)"
     else
         _run cp "$V3D_SRC" "$V3D_DST"
@@ -164,7 +209,6 @@ echo "=== movable IRQ affinity ==="
 if [ "$DRY" = true ]; then
     echo "would: apply-movable-irq-affinity.sh"
 else
-    SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
     bash "$SCRIPT_DIR/apply-movable-irq-affinity.sh"
 fi
 
@@ -172,7 +216,9 @@ echo "=== systemd manager stop timeout (DefaultTimeoutStopSec=10s) ==="
 MANAGER_SRC="$REPO_ROOT/config/systemd/mpe-appliance.conf"
 MANAGER_DST="/etc/systemd/system.conf.d/mpe-appliance.conf"
 if [ -f "$MANAGER_SRC" ]; then
-    if [ "$DRY" = true ]; then
+    if [ -f "$MANAGER_DST" ] && cmp -s "$MANAGER_SRC" "$MANAGER_DST"; then
+        echo "systemd manager conf already current ($MANAGER_DST)"
+    elif [ "$DRY" = true ]; then
         echo "would: install $MANAGER_SRC -> $MANAGER_DST"
     else
         _run mkdir -p /etc/systemd/system.conf.d

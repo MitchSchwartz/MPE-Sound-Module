@@ -82,6 +82,23 @@ a dead engine for six seconds. `sl-restart` now restarts the unit when it is
 enabled and waits for its graph; the manual path remains for hosts without
 the unit or with it disabled (the pre-09-07 opt-in layout).
 
+**The hygiene script and the gadget.** `apply-appliance-hygiene.sh --dry-run`
+under `sudo` on the SD image answered *would: systemctl disable --now
+usb-audio-gadget.service*. Two faults: it asked "is the profile usb-host?" of
+an environment `sudo` strips of every `MPE_*` variable, and the real answer in
+`/etc/mpe/mpe.env` is `standalone` with `MPE_USB_GADGET_PERSIST=1`, the gadget
+enabled and active by design, which that question never considered. The
+decision now belongs to `scripts/lib/gadget-persist.sh`, the same library
+`setup-usb-audio-gadget.sh` asks at boot, fed from the env file when the
+environment is bare; an unreadable answer keeps the gadget. Of the other
+three "unapplied" items the dry run listed, the v3d blacklist, the IRQ
+affinity and the manager stop timeout were in place (the script printed
+"would: install" unconditionally; it now says "already installed"). WiFi
+powersave was really on: `nmcli dev set` is a runtime setting a reboot
+forgets, so the script now also persists it on every wireless profile.
+`tests/test_appliance_hygiene.sh` runs the real script in dry-run against
+fake tools for six cases.
+
 ---
 
 ## 2026-09-07 — The real engine is in the test suite; what it said on day one
