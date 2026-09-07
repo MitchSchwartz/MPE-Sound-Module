@@ -215,36 +215,40 @@ class GridState:
         }
 
     def note_loop_content(self, loop: int, occupied: bool) -> bool:
-        """Track which loops hold audio. Always returns False — see below.
+        """No loop holds audio, no grid. Returns True when that just happened.
 
-        This USED to drop the whole grid when the last clip was cleared, on the
-        rationale "no clips, no grid": otherwise a fresh take gets quantized to
-        the tempo of a grid whose clips are all gone.
+        Mitch, 2026-09-06: *"No clips playing, grid remains. All clips cleared
+        or deleted, grid is deleted."* Stop All pauses, so the clips are still
+        there and the grid stays. Clearing empties the buffers, and an empty
+        session has no tempo.
 
-        Mitch's call, 2026-08-30, and it is his instrument:
+        Never fires before the grid exists or while a defining take is pending;
+        neither is a session with anything to lose. The caller decides what
+        "holds audio" means — see `TrackGesture._holds_audio`.
 
-            "Even if we stop all clips, and even if the second track is two
-            bars compared to the established base unit length that the first
-            recorded clip establishes, we still need to reinitialize with those
-            original settings. They should never be cleared away."
+        HISTORY, because this rule has now been written three times:
 
-        The base unit is a property of the SESSION, not of whichever clips
-        happen to exist right now. Losing it because the pads went empty is how
-        a stable tempo turned into 73.7, then 34.6, then 54.9, then 179.3 BPM
-        across four consecutive takes.
+          2026-08-15 (eb7cae4) — introduced, exactly as above.
+          2026-08-30 (b4446a3) — removed, made to always return False, citing
+            Mitch's *"even if we stop all clips ... they should never be
+            cleared away."* That sentence is about STOP ALL; it was applied to
+            CLEAR as well, which is the whole error.
+          2026-09-06 — restored, and scoped to clear only.
 
-        The tradeoff, stated because it is real: the take after you clear
-        everything is now counted in and length-quantized rather than
-        free-form. Redefining the tempo takes an explicit track reset, which
-        calls `reset()`. That is the only thing that clears a grid now.
-
-        Occupancy is still tracked — callers use it, and it costs nothing.
+        The 2026-08-30 commit also blamed this rule for a tempo that walked
+        73.7 -> 34.6 -> 54.9 -> 179.3 BPM. That diagnosis was wrong. MEASURED
+        2026-09-06: the walk comes from nothing checking the take that DEFINES
+        the grid — a 1.084 s first take was accepted as "1 bar @ 221.4 BPM".
+        Dropping the grid on clear neither caused it nor prevents it.
         """
         if occupied:
             self._occupied.add(loop)
         else:
             self._occupied.discard(loop)
-        return False
+        if self._occupied or not self.established or self._pending is not None:
+            return False
+        self.reset()
+        return True
 
     def mark_phase_zero(self, now: float) -> None:
         """The grid's downbeat is NOW.

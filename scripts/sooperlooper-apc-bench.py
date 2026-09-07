@@ -23,6 +23,7 @@ from track_gesture import (  # noqa: E402
     poll_track_gestures,
     reset_all_loops,
     stop_all_loops,
+    settle_stop_all,
     verify_stop_all,
 )
 from apc_faders import MASTER, fader_for_cc, is_control_change, resolve_fader_ccs  # noqa: E402
@@ -785,7 +786,9 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
         if due is None or now_mono < due:
             return
         stop_all_verify_at[0] = None
-        verify_stop_all(gestures)
+        # Not just a report: this also re-pauses anything still sounding and
+        # restores quantize, which stop_all_loops deliberately left at 0.
+        settle_stop_all(osc, gestures)
 
     def act_stop_all_loops(_note: int, _down: bool, _control: str) -> None:
         print("transport: Shift+StopAll short -> stop all", flush=True)
