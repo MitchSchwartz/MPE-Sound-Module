@@ -6,6 +6,57 @@ Orientation canon: OM-Repo [`GROUNDING.md`](https://github.com/opsMachine/OM-Rep
 
 ---
 
+## 2026-09-06 — Stop keeps the grid, clear drops it (supersedes the 2026-08-30 code change)
+
+**Decision (Mitch, 2026-09-06):** *"If we clear all clips, then the grid should
+be cleared. If we stop all clips, that's different. That might have been where
+the confusion came from."*
+
+It was. On 2026-08-30 `b4446a3` made `GridState.note_loop_content` always return
+`False`, so nothing but an explicit track reset could clear a grid. The
+justification was Mitch's line *"even if we stop all clips ... they should never
+be cleared away"* — a sentence about **Stop All**, applied to **clear**.
+
+**That change never reached this file.** The "No clips, no grid" rule below
+(2026-08-15) stayed written while the code did the opposite for a week. The log
+was right and the code was wrong, which is the wrong way round for a document
+that exists to be trusted over the source.
+
+**The rule, restored and now scoped:**
+
+| Gesture | Engine result | Grid |
+|---|---|---|
+| Stop All | loops with audio → `PAUSED` (14) | **kept** — the session still has clips |
+| Clear last clip (pad hold) | loop → `OFF` (0) | **dropped** — next take defines a new one |
+| Track reset (Shift+StopAll long) | all loops → `OFF` | **dropped** |
+
+Told apart by engine state, never by bench bookkeeping, so it stays true however
+the clips were cleared.
+
+**Two traps, both measured on the appliance 2026-09-06, both now pinned by tests:**
+
+1. `stop_all_loops` sends `mute_on` to `/sl/-1`, so **every loop that never held
+   a take reports `OFF_MUTED` (20), not `OFF` (0)**. Observed: at the Stop All,
+   loops 1-14 each reported 20 exactly once; loop 0, the one with audio, never
+   did. Classifying occupancy as `!= SL_STATE_OFF` would count fourteen empty
+   pads as occupied and no clear could empty the session again. Ask
+   `sl_loop_states.EMPTY_STATES`, never a single code.
+2. Under multigrid, `slot_runtime._execute_slot_ops` sends `undo_all`
+   immediately before a re-record, so a loop passes through `OFF` on its way
+   **into** a take. The drop is therefore gated on there being no unanswered
+   intent (`TrackGesture._pending`): empty **and** idle is a clear; empty with a
+   record outstanding is not.
+
+**Not fixed here, and it is the bigger one.** The tempo walk blamed on this rule
+in the 2026-08-30 commit (73.7 → 34.6 → 54.9 → 179.3 BPM) has a different
+cause: nothing sanity-checks the take that DEFINES the grid. Measured the same
+evening — a 1.084 s first take was accepted as "1 bar @ 221.4 BPM", and the next
+7.59 s take landed as exactly seven cycles. The only guard is
+`20 <= bpm <= 300`. See
+[`Documents/reviews/why-the-looper-bugs-recur-2026-09-06.md`](reviews/why-the-looper-bugs-recur-2026-09-06.md).
+
+---
+
 ## 2026-08-27 — Multi-clip integration plan (architecture)
 
 **Decision (Mitch, 2026-08-27):** First multigrid Pi pass failed because two controllers
