@@ -244,8 +244,13 @@ def plan_gesture(
     if state == STATE_STOPPED:
         if edge != "up":
             return Plan()
+        # `trigger` alone: it lifts a mute AND a pause, waits for the bar and
+        # plays from the top (MEASURED 2026-09-07, tests/engine). The
+        # `pause_off` that used to precede it resumes at once from the stored
+        # position — the mid-loop launch heard on 2026-08-30. Same answer as
+        # slot_runtime.LAUNCH_COMMANDS; keep them in step.
         return Plan(
-            commands=("pause_off", "trigger"),
+            commands=("trigger",),
             expect=STATE_PLAYING,
             note="launch queued — starts on the bar",
         )

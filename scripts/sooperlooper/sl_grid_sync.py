@@ -151,8 +151,11 @@ def set_grid_active(
         # trigger are indistinguishable from outside, which is the
         # same-reading-either-way shape this project keeps paying for.
         #
-        # `stop_all_loops` depends on the corrected fact: it lifts quantize and
-        # uses `trigger` to rewind every loop before pausing it.
+        # MEASURED again 2026-09-07 on the real engine (tests/engine): from
+        # PAUSED with quantize at CYCLE, `trigger` waits for the bar and plays
+        # from the top; from MUTE likewise. So `trigger` alone is the launch
+        # (slot_runtime.LAUNCH_COMMANDS). `stop_all_loops` no longer sends
+        # it: a trigger in the Stop All burst left the loop PLAYING every time.
         send(prefix, ["mute_quantized", 1.0 if active else 0.0])
 
 

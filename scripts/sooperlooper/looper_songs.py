@@ -830,7 +830,9 @@ def load_song(
         # A third writer fails tests/test_track_state_ownership.py.
         probe.send(f"/sl/{loop}/set", ["wet", float(entry.wet)])
         if slot.sl_state in ACTIVE_PLAY:
-            probe.send(f"/sl/{loop}/hit", "pause_off")
+            # `trigger` alone lifts a pause and starts from the top on the bar;
+            # `pause_off` resumed at once from the stored position (MEASURED
+            # 2026-09-07). Same answer as slot_runtime.LAUNCH_COMMANDS.
             probe.send(f"/sl/{loop}/hit", "trigger")
         elif slot.sl_state in (SL_STATE_MUTE, SL_STATE_PAUSED):
             probe.send(f"/sl/{loop}/hit", "mute_on")
