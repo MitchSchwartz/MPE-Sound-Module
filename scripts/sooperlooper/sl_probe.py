@@ -224,7 +224,8 @@ PHANTOM = "phantom"
 
 def check_loops_writable(get_loop, send_loop, *, num_loops: int,
                          settle_s: float = 0.12,
-                         controls=None) -> tuple[str, list[int], str]:
+                         controls=None,
+                         retry_wait_s: float = 2.0) -> tuple[str, list[int], str]:
     """Which loop indices actually accept writes?
 
     `check_command_path` proves the engine's command path is draining, using
@@ -246,6 +247,16 @@ def check_loops_writable(get_loop, send_loop, *, num_loops: int,
     would otherwise report all fifteen loops phantom and tell the player to set
     MPE_SL_LOOPS=0.
 
+    A loop that does not answer at all is asked ONCE more, after
+    `retry_wait_s`. MEASURED 2026-09-07 on the Pi 5: seconds after
+    `sl-restart`, sl-health read "no reply from loops [8, 9]" and failed the
+    deploy; the same probe passed 3 of 3 within the minute and 3 of 3 on the
+    next three engine restarts -- 1 false FAIL in 4 restarts. A slow first
+    answer while the engine is still settling is not a phantom loop (a
+    phantom answers reads and drops writes) and not a dead engine (the
+    command path had just passed). One retry tells the three apart; a loop
+    that stays silent through it is still reported unreachable.
+
     Returns (verdict, phantom_indices, detail).
     """
     candidates = tuple(controls) if controls else PROBE_CONTROLS
@@ -253,11 +264,12 @@ def check_loops_writable(get_loop, send_loop, *, num_loops: int,
     unreachable: list[int] = []
     used: str | None = None
 
-    for loop in range(num_loops):
+    def probe(loop: int) -> tuple[bool, bool]:
+        """(accepted, saw_phantom) for one loop across the candidate controls."""
+        nonlocal used
         # Once a control has proven itself on one loop, stay on it: the others
         # are only reached while we still do not know which the engine takes.
         order = ([used] + [c for c in candidates if c != used]) if used else list(candidates)
-        accepted = False
         # "Read it but it ignored the write" outranks "could not read it" when
         # the candidates disagree: one readable control is enough to prove the
         # loop answers, so the remaining question is whether it takes a write.
@@ -268,12 +280,15 @@ def check_loops_writable(get_loop, send_loop, *, num_loops: int,
             )
             if verdict == ALIVE:
                 used = control
-                accepted = True
-                break
+                return True, saw_phantom
             if verdict == PHANTOM:
                 # Reads fine, ignored the write. Could be a phantom loop or an
                 # unsupported control — the next candidate tells them apart.
                 saw_phantom = True
+        return False, saw_phantom
+
+    for loop in range(num_loops):
+        accepted, saw_phantom = probe(loop)
         if accepted:
             continue
         if saw_phantom:
@@ -281,16 +296,30 @@ def check_loops_writable(get_loop, send_loop, *, num_loops: int,
         else:
             unreachable.append(loop)
 
+    late: list[int] = []
+    if unreachable:
+        time.sleep(retry_wait_s)
+        for loop in list(unreachable):
+            accepted, saw_phantom = probe(loop)
+            if accepted:
+                unreachable.remove(loop)
+                late.append(loop)
+            elif saw_phantom:
+                unreachable.remove(loop)
+                phantoms.append(loop)
+        phantoms.sort()
+    retried = f" (loops {late} answered only on retry)" if late else ""
+
     if unreachable:
         return (UNREACHABLE, phantoms,
                 f"no reply from loops {unreachable} reading "
-                f"{'/'.join(candidates)}")
+                f"{'/'.join(candidates)}, even after a retry{retried}")
     if phantoms:
         return (PHANTOM, phantoms,
                 f"loops {phantoms} answer reads but ignore writes — "
                 f"the engine has fewer usable loops than it reports. "
-                f"Lower MPE_SL_LOOPS to {min(phantoms)} (see sl_limits.py).")
-    return ALIVE, [], f"all {num_loops} loops accept writes"
+                f"Lower MPE_SL_LOOPS to {min(phantoms)} (see sl_limits.py).{retried}")
+    return ALIVE, [], f"all {num_loops} loops accept writes{retried}"
 
 
 def _loop_accepts(get_loop, send_loop, *, loop: int, control: str,

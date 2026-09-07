@@ -43,10 +43,77 @@ class FakeEngine:
             self.values[loop] = value
 
 
+class LateEngine(FakeEngine):
+    """Answers every loop, but not the first time it is asked about some of
+    them -- the engine seconds after `sl-restart`, MEASURED 2026-09-07."""
+
+    def __init__(self, *, usable: int, late: dict[int, int]) -> None:
+        super().__init__(usable=usable)
+        self.late = dict(late)      # loop -> reads still to swallow
+        self.gets: list[int] = []
+
+    def get(self, loop: int, ctrl: str):
+        self.gets.append(loop)
+        if self.late.get(loop, 0) > 0:
+            self.late[loop] -= 1
+            return None
+        return super().get(loop, ctrl)
+
+
+class RetryOnceTests(unittest.TestCase):
+    """A slow first answer is not a phantom and not a dead engine.
+
+    The 2026-09-07 deploy failed on "no reply from loops [8, 9]" seconds after
+    the engine started; the same probe passed 3 of 3 a minute later. One retry
+    separates that from a loop that never answers.
+    """
+
+    def _run(self, engine, num_loops):
+        return check_loops_writable(engine.get, engine.send,
+                                    num_loops=num_loops, settle_s=0.0, retry_wait_s=0.0)
+
+    def test_loops_that_answer_on_retry_pass_and_are_named(self) -> None:
+        # Silent for the whole first pass -- every candidate control -- as
+        # loops 8 and 9 were ("no reply ... reading rec_thresh/dry").
+        n = len(PROBE_CONTROLS)
+        eng = LateEngine(usable=15, late={8: n, 9: n})
+        verdict, phantoms, detail = self._run(eng, 15)
+        self.assertEqual(verdict, ALIVE)
+        self.assertEqual(phantoms, [])
+        self.assertIn("[8, 9] answered only on retry", detail)
+
+    def test_a_loop_silent_through_the_retry_is_still_unreachable(self) -> None:
+        eng = LateEngine(usable=15, late={8: 99})
+        # Every loop is asked twice on a clean pass; the retry must not turn
+        # the whole check into a loop that waits forever on a dead engine.
+        verdict, phantoms, detail = self._run(eng, 15)
+        self.assertEqual(verdict, UNREACHABLE)
+        self.assertIn("[8]", detail)
+        self.assertIn("retry", detail)
+
+    def test_the_retry_asks_only_the_silent_loops_again(self) -> None:
+        n = len(PROBE_CONTROLS)
+        eng = LateEngine(usable=15, late={8: n})
+        self._run(eng, 15)
+        # A clean loop is read twice (before/after the write). Loop 8 swallowed
+        # one read per candidate control on the first pass, then took its two
+        # on the retry; nobody else is asked again.
+        counts = {loop: eng.gets.count(loop) for loop in range(15)}
+        self.assertEqual(counts[8], n + 2)
+        self.assertTrue(all(counts[l] == 2 for l in range(15) if l != 8), counts)
+
+    def test_a_phantom_found_on_retry_is_a_phantom(self) -> None:
+        """Late to answer AND drops writes: the 08-27 shape, one second slower."""
+        eng = LateEngine(usable=15, late={15: len(PROBE_CONTROLS)})
+        verdict, phantoms, _ = self._run(eng, 16)
+        self.assertEqual(verdict, PHANTOM)
+        self.assertEqual(phantoms, [15])
+
+
 class CheckLoopsWritableTests(unittest.TestCase):
     def _run(self, engine, num_loops):
         return check_loops_writable(engine.get, engine.send,
-                                    num_loops=num_loops, settle_s=0.0)
+                                    num_loops=num_loops, settle_s=0.0, retry_wait_s=0.0)
 
     def test_all_usable_reads_alive(self) -> None:
         verdict, phantoms, detail = self._run(FakeEngine(usable=15), 15)
@@ -76,7 +143,7 @@ class CheckLoopsWritableTests(unittest.TestCase):
         different remedies."""
         engine = FakeEngine(usable=4)
         verdict, _, detail = check_loops_writable(
-            lambda _l, _c: None, engine.send, num_loops=4, settle_s=0.0
+            lambda _l, _c: None, engine.send, num_loops=4, settle_s=0.0, retry_wait_s=0.0
         )
         self.assertEqual(verdict, UNREACHABLE)
         self.assertIn(PROBE_CONTROL, detail)
@@ -128,7 +195,7 @@ class RestoreLeakTests(unittest.TestCase):
         of the player's signal at the speakers.
         """
         engine = TimingOutEngine(times_out={0})
-        check_loops_writable(engine.get, engine.send, num_loops=1, settle_s=0.0)
+        check_loops_writable(engine.get, engine.send, num_loops=1, settle_s=0.0, retry_wait_s=0.0)
         for (loop, ctrl), value in engine.values.items():
             self.assertAlmostEqual(
                 value, probe_restore_for(ctrl), places=3,
@@ -162,7 +229,7 @@ class ControlChainTests(unittest.TestCase):
         """Otherwise the remedy printed is "lower MPE_SL_LOOPS to 0"."""
         engine = PerControlEngine(usable=15, writable_control="dry")
         verdict, phantoms, _ = check_loops_writable(
-            engine.get, engine.send, num_loops=15, settle_s=0.0
+            engine.get, engine.send, num_loops=15, settle_s=0.0, retry_wait_s=0.0
         )
         self.assertEqual(verdict, ALIVE)
         self.assertEqual(phantoms, [])
@@ -170,7 +237,7 @@ class ControlChainTests(unittest.TestCase):
     def test_a_real_phantom_still_reads_as_one_through_the_chain(self) -> None:
         engine = PerControlEngine(usable=15, writable_control="dry")
         verdict, phantoms, detail = check_loops_writable(
-            engine.get, engine.send, num_loops=16, settle_s=0.0
+            engine.get, engine.send, num_loops=16, settle_s=0.0, retry_wait_s=0.0
         )
         self.assertEqual(verdict, PHANTOM)
         self.assertEqual(phantoms, [15])
@@ -181,7 +248,7 @@ class ControlChainTests(unittest.TestCase):
         the others on all fifteen loops — that is 15 extra writes to `dry`."""
         head = PROBE_CONTROLS[0]
         engine = PerControlEngine(usable=15, writable_control=head)
-        check_loops_writable(engine.get, engine.send, num_loops=15, settle_s=0.0)
+        check_loops_writable(engine.get, engine.send, num_loops=15, settle_s=0.0, retry_wait_s=0.0)
         self.assertEqual(engine.controls_written(), {head})
 
 
