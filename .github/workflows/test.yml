@@ -29,6 +29,29 @@ jobs:
         timeout-minutes: 10
         run: python3 -m unittest discover -s tests
 
+  # The real engine. SooperLooper 1.7.9 on headless JACK, built from source in
+  # tests/engine/Dockerfile, driven over OSC by tests/engine/. These are the
+  # only tests in the repo that can contradict a claim about what the engine
+  # does; the unittest job above runs against a hand-written double. Real
+  # time inside (a take on the grid costs a cycle of wall clock), so the
+  # budget is generous.
+  engine:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the engine image
+        timeout-minutes: 15
+        run: docker build -t mpe-sl-engine:1.7.9 tests/engine
+      - name: Install test dependencies
+        timeout-minutes: 3
+        run: pip install python-osc numpy
+      - name: Run engine tests
+        timeout-minutes: 10
+        env:
+          MPE_ENGINE_TESTS: "1"
+        run: python3 -m unittest tests.engine.test_engine_claims -v
+
   shell-tests:
     runs-on: ubuntu-latest
     timeout-minutes: 10

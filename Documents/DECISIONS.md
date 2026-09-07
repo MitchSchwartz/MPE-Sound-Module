@@ -6,6 +6,48 @@ Orientation canon: OM-Repo [`GROUNDING.md`](https://github.com/opsMachine/OM-Rep
 
 ---
 
+## 2026-09-07 — The real engine is in the test suite; what it said on day one
+
+`tests/engine/` runs SooperLooper 1.7.9 (the appliance's version, with its
+liblo 0.32 patch, on Debian trixie like the Pi) on a headless JACK dummy
+backend in a container, launched as `run-sooperlooper.sh` launches it, and
+drives it with the production grid code (`GridState.establish`,
+`apply_established_grid`, `stop_all_loops`). Opt-in with `MPE_ENGINE_TESTS=1`;
+a CI job builds the image and runs it on every push. Real time inside: a clip
+on the grid costs a cycle of wall clock, on purpose.
+
+**Rule from here:** a claim about what the engine does is a test in
+`tests/engine/`, or it is a guess. Comments that say MEASURED name the test.
+
+**What the engine said on the first day**, each pinned as a test:
+
+- A `record` hit while WAIT_START is **ignored** — not a cancel, not the stop.
+  `test_gesture_against_engine.py` said "would reach the engine as CANCEL";
+  the bench's rule (never send while pending) stands, its reason was wrong.
+- A muted empty loop reads 20, and `undo_all` does **not** lift the mute; only
+  `mute_off` does. That is why `EMPTY_STATES` has two members.
+- On the established grid a mid-bar `record` waits for the bar and lands
+  exactly one cycle long — the two numbers `fake_sl_engine.boundary()` is
+  handed. With `sync_source` NONE neither happens; the harness's reset now
+  sends the appliance's startup configuration for that reason.
+- **Stop All, as `stop_all_loops` sends it, does not pause a grid clip: 0 of 5
+  bar phases.** The same burst without its `trigger` pauses 5 of 5, stays
+  paused through the settle's quantize restore, and `trigger` at launch plays
+  from the top anyway — the rewind the `trigger` was added for on 2026-08-30.
+  The 2026-09-06 "restore overtakes the hit" hypothesis is refuted (no restore
+  is sent in the failing case). `settle_stop_all`'s corrective `pause_on` is
+  what stops the appliance today, a second late. Pinned as an
+  `expectedFailure` until the `trigger` goes.
+- Launch: `trigger` alone from PAUSED waits for the bar and starts from the
+  top; `pause_off` resumes at once from wherever the clip stopped. Production
+  launches with `("pause_off", "trigger")` (`slot_runtime.LAUNCH_COMMANDS`,
+  `loop_model`, `looper_songs`), which is the 2026-08-30 "came back mid-loop"
+  measurement, explained. **Proposed, not done:** Stop All drops `trigger`;
+  launch sends `trigger` only. Both are one-line changes with their engine
+  tests already written.
+
+---
+
 ## 2026-09-07 — The appliance journal is persistent; the looper comes up at boot
 
 **Journal.** After this morning's reboot the SD image had one boot in
@@ -24,6 +66,19 @@ image at Mitch's request (2026-09-07), superseding the 2026-08-18 opt-in whose
 motivating measurement `install-units.sh` already marks VOID. This is
 `systemctl enable` on one box; the installer still ships them opt-in.
 `sl-watchdog` was left as it was (disabled).
+
+**Lab cable.** `raspberrypi5.local` "timing out" was never the WiFi. The Pi's
+Ethernet port is cabled to the laptop's USB-ethernet dongle (link-local on the
+laptop side), and the Pi's `Wired connection 1` profile was DHCP: MEASURED in
+NetworkManager's journal, the lease timed out every 45 s, the activation
+failed, the IPv6 link-local was withdrawn and re-announced, four times, then a
+five-minute pause, all day. The laptop's resolver handed ssh that address
+without a scope. IPv4 mDNS over WiFi was measured working in both directions.
+Fix on the SD image: `Wired connection 1` is `ipv4.method link-local`,
+`ipv6.method link-local` (matching the laptop's profile; `ipv4.link-local=
+fallback` on NM 1.52 did not rescue the activation). The USB image still has
+the DHCP profile. Rollback is `ipv4.method auto ipv6.method auto`. If the
+Ethernet port is ever meant for a real LAN, this is the decision to revisit.
 
 ---
 
