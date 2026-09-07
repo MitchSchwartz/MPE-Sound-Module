@@ -70,6 +70,18 @@ asks a silent loop once more after 2 s and names the loops that answered only
 on retry; a loop silent through the retry is still unreachable, and a phantom
 (reads, drops writes) is still a phantom.
 
+**systemd owns the engine.** Enabling `mpe-sooperlooper.service` at boot this
+morning changed who owns the engine, and `restart-sooperlooper.sh` had not
+heard: it still stopped the unit and launched a manual engine ("manual bench
+owns the engine"). MEASURED on the first deploy after the reboot,
+13:26:03–13:26:26: the session restart pulled the unit back in (`Wants=`),
+`run-sooperlooper.sh` reaped the manual engine as a stray, the unit's graph
+verify failed against the half-torn-down graph, `Restart=always` brought a
+third engine up five seconds later, and the freshly restarted session sat on
+a dead engine for six seconds. `sl-restart` now restarts the unit when it is
+enabled and waits for its graph; the manual path remains for hosts without
+the unit or with it disabled (the pre-09-07 opt-in layout).
+
 ---
 
 ## 2026-09-07 — The real engine is in the test suite; what it said on day one
