@@ -17,6 +17,7 @@ Real time: a clip on the grid costs a cycle of wall clock. See harness.py.
 
 from __future__ import annotations
 
+import os
 import time
 import unittest
 
@@ -29,12 +30,15 @@ from sl_loop_states import (
     SL_STATE_OFF_MUTED,
     SL_STATE_PAUSED,
     SL_STATE_MUTE,
+    SL_STATE_OVERDUBBING,
     SL_STATE_PLAYING,
     SL_STATE_RECORDING,
     SL_STATE_WAIT_START,
     SL_STATE_WAIT_STOP,
 )
 from track_gesture import stop_all_loops
+from apc_faders import CC_MAX, MASTER
+from loop_mix import LoopMix
 from tests.engine.harness import PERIOD_S, SKIP_REASON, Engine, docker_ok, enabled
 
 RUN = enabled() and docker_ok()
@@ -294,6 +298,135 @@ class EngineClaims(unittest.TestCase):
         e.hit(0, "trigger")
         self.assertTrue(e.wait_state(0, SL_STATE_PLAYING, grid.cycle_s + 1.0))
         self.assertLess(e.get(0, "loop_pos"), 0.05, "relaunch did not start from the top")
+
+    # --- the fake engine's model, checked against the engine ------------------
+    def test_a_take_held_past_the_bar_closes_at_the_next_bar(self) -> None:
+        """fake_sl_engine.boundary: a quantized take closes at the NEXT bar,
+        so a hold of n-and-a-bit cycles lands as n+1 cycles. This is the
+        arithmetic behind the seven bars of 2026-09-06: the engine measured a
+        7.59 s take against a 1.084 s bar and got exactly seven, correctly.
+        MEASURED 2026-09-07: 2.5 cycles held -> 3.000 cycles landed.
+        """
+        e = self.e
+        grid = self._establish(2.0)
+        time.sleep(0.9)
+        e.hit(1, "record")
+        self.assertEqual(e.wait_state_in(1, {SL_STATE_WAIT_START, SL_STATE_RECORDING}, 0.5),
+                         SL_STATE_WAIT_START)
+        self.assertTrue(e.wait_state(1, SL_STATE_RECORDING, grid.cycle_s + 1.0))
+        time.sleep(2.5 * grid.cycle_s)
+        e.hit(1, "record")
+        self.assertEqual(e.wait_state_in(1, {SL_STATE_WAIT_STOP, SL_STATE_PLAYING}, 0.5),
+                         SL_STATE_WAIT_STOP, "the close did not wait for the bar")
+        self.assertTrue(e.wait_state(1, SL_STATE_PLAYING, grid.cycle_s + 1.0))
+        self.assertAlmostEqual(e.loop_len(1) / grid.cycle_s, 3.0, delta=0.02)
+
+    def test_overdub_while_recording_closes_the_take_on_the_bar(self) -> None:
+        """fake_sl_engine `overdub` from RECORDING: WAIT_STOP, then OVERDUBBING
+        at the bar with the take one cycle long. The pad sends this instead of
+        `record` so the ring-out overdub starts on the same sample the take
+        ends. MEASURED 2026-09-07."""
+        e = self.e
+        grid = self._establish(2.0)
+        time.sleep(0.9)
+        e.hit(1, "record")
+        self.assertTrue(e.wait_state(1, SL_STATE_RECORDING, grid.cycle_s + 1.0))
+        time.sleep(0.5)
+        e.hit(1, "overdub")
+        time.sleep(0.1)
+        self.assertEqual(e.state(1), SL_STATE_WAIT_STOP)
+        self.assertTrue(e.wait_state(1, SL_STATE_OVERDUBBING, grid.cycle_s + 1.0))
+        self.assertAlmostEqual(e.loop_len(1) / grid.cycle_s, 1.0, delta=0.02)
+
+    def test_overdub_toggles_at_once_on_a_playing_loop_even_when_quantized(self) -> None:
+        """fake_sl_engine models `overdub` from PLAYING and from OVERDUBBING
+        as immediate, quantize or not. So does the engine: MEASURED
+        2026-09-07, mid-bar at quantize=1, PLAYING -> OVERDUBBING within
+        0.1 s and back the same way. Ending the ring-out is not a bar event.
+        """
+        e = self.e
+        self._establish(2.0)
+        time.sleep(0.8)
+        e.hit(0, "overdub")
+        time.sleep(0.1)
+        self.assertEqual(e.state(0), SL_STATE_OVERDUBBING)
+        time.sleep(0.4)
+        e.hit(0, "overdub")
+        time.sleep(0.1)
+        self.assertEqual(e.state(0), SL_STATE_PLAYING)
+
+    def test_load_loop_needs_all_three_arguments_and_lands_paused(self) -> None:
+        """fake_sl_engine._buffer_op: the one-argument `load_loop` never
+        matches the handler signature and is DISCARDED without a reply; the
+        three-argument form loads, and the clip sits resident and PAUSED at
+        position 0 until something starts it. Both MEASURED 2026-09-07 --
+        the fake was written from the OSC doc, this is the engine."""
+        e = self.e
+        held = self._take(0, 0.5)
+        path = f"/tmp/mpe-claim-{os.getpid()}.wav"      # inside the container
+        e.send("/sl/0/save_loop", [path, "wav", "little", e.returl, "/err"])
+        time.sleep(0.5)
+        e.hit(0, "undo_all")
+        self.assertTrue(e.wait_state(0, SL_STATE_OFF, 2.0))
+        e.send("/sl/0/load_loop", [path])
+        time.sleep(0.5)
+        self.assertEqual((e.state(0), e.loop_len(0)), (SL_STATE_OFF, 0.0),
+                         "the one-argument load_loop did something")
+        e.send("/sl/0/load_loop", [path, e.returl, "/err"])
+        time.sleep(0.5)
+        self.assertEqual(e.state(0), SL_STATE_PAUSED)
+        self.assertAlmostEqual(e.loop_len(0), held, delta=LEN_TOL_S)
+        self.assertLess(e.get(0, "loop_pos"), 0.05)
+
+    # --- levels ----------------------------------------------------------------
+    def test_a_fader_move_sets_wet_and_the_loop_keeps_playing(self) -> None:
+        """loop_mix drives `wet` per loop; the review of 2026-09-07 asked for
+        the one real-engine test the fader path never had. The messages are
+        production's (`LoopMix.messages_for`, after the pickup anchor), sent
+        as the bench sends them. MEASURED 2026-09-07: wet defaults to 1.0,
+        reads back what was sent, the loop stays PLAYING, its neighbour is
+        untouched, and a master move reaches every loop."""
+        e = self.e
+        self._take(0, 0.5)
+        self._take(1, 0.5)
+        mix = LoopMix(num_loops=e.num_loops)
+        self.assertEqual(mix.messages_for(0, CC_MAX), [], "the first touch only anchors")
+        msgs = mix.messages_for(0, 64)
+        self.assertEqual(len(msgs), 1)
+        for path, args in msgs:
+            e.send(path, args)
+        time.sleep(0.2)
+        self.assertAlmostEqual(e.get(0, "wet"), mix.wet_for(0), delta=1e-3)
+        self.assertEqual(e.state(0), SL_STATE_PLAYING)
+        self.assertAlmostEqual(e.get(1, "wet"), 1.0, delta=1e-6)
+        for path, args in mix.messages_for(MASTER, 100):
+            e.send(path, args)
+        time.sleep(0.2)
+        for loop in (0, 1):
+            self.assertAlmostEqual(e.get(loop, "wet"), mix.wet_for(loop), delta=1e-3)
+            self.assertEqual(e.state(loop), SL_STATE_PLAYING)
+
+    # --- tempo bookkeeping -------------------------------------------------------
+    def test_smart_eighths_doubles_the_cycle_on_every_set_tempo_under_60(self) -> None:
+        """sl_grid_sync turns `smart_eighths` OFF before it sets a tempo.
+        engine.cpp set_tempo: with it on, a tempo under 60 doubles
+        eighth_per_cycle and one over 240 halves it -- on EVERY set, so two
+        sets at 50 BPM quadruple the cycle behind the grid's back. MEASURED
+        2026-09-07."""
+        e = self.e
+        e.gset("smart_eighths", 1.0)
+        e.gset("eighth_per_cycle", 8.0)
+        e.gset("tempo", 50.0)
+        time.sleep(0.1)
+        self.assertEqual(e.gget("eighth_per_cycle"), 16.0)
+        e.gset("tempo", 50.0)
+        time.sleep(0.1)
+        self.assertEqual(e.gget("eighth_per_cycle"), 32.0)
+        e.gset("smart_eighths", 0.0)
+        e.gset("eighth_per_cycle", 8.0)
+        e.gset("tempo", 50.0)
+        time.sleep(0.1)
+        self.assertEqual(e.gget("eighth_per_cycle"), 8.0)
 
     def test_trigger_lifts_a_mute_on_the_bar_from_the_top(self) -> None:
         """loop_model: a per-clip stop is `mute_on` (the loop keeps running,

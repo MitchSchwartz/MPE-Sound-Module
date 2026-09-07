@@ -633,6 +633,13 @@ class TrackGesture:
             return
         derived = self.grid.establish(self.loop, self.loop_len)
         if derived is None:
+            if self.grid.refused:
+                log(
+                    f"loop {self.loop}: !! take NOT accepted as the grid's defining "
+                    f"take — {self.grid.refused}. This clip plays free-form; the "
+                    "next take defines the grid. (The seven bars of 2026-09-06.)"
+                )
+                self.grid.refused = None
             return
         bpm, bars = derived
         log(

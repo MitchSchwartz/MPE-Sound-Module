@@ -8,6 +8,34 @@ cd "$REPO_ROOT"
 
 echo "looper-deploy: branch=$BRANCH @ $(git rev-parse --short HEAD 2>/dev/null || echo '?')"
 
+# CI gate. Nothing below runs for a commit CI has not judged green -- the
+# engine job included, because since 2026-09-07 it is the only part of the
+# suite that can contradict a claim about SooperLooper. A push and a deploy
+# thirty seconds apart used to ship code CI had not finished with, and a red
+# run on GitHub changed nothing here. scripts/ci_gate.py waits for a run in
+# progress and refuses everything else; a gate it cannot reach is a refusal
+# too (exit 3), because a gate that passes when it cannot see is not a gate.
+#
+# The refusal lands AFTER the checkout has moved (the CLI resets to
+# origin/<branch> before calling this script), so it stops the restart, not
+# the files: the running session keeps the code it loaded, and the message
+# says how to put the checkout back. The CLI-side gate, which runs before the
+# reset, is the one that keeps the files in place.
+deploy_sha="$(git rev-parse HEAD 2>/dev/null || echo unknown)"
+if [ "${MPE_DEPLOY_SKIP_CI_GATE:-0}" = "1" ]; then
+    echo "looper-deploy: !! CI gate SKIPPED for $deploy_sha (MPE_DEPLOY_SKIP_CI_GATE=1)"
+elif [ ! -f "$REPO_ROOT/scripts/ci_gate.py" ]; then
+    echo "looper-deploy: FAIL — scripts/ci_gate.py is missing, so $deploy_sha cannot be gated." >&2
+    echo "  Nothing restarted. Deploy a commit that carries the gate, or set" >&2
+    echo "  MPE_DEPLOY_SKIP_CI_GATE=1 to say out loud that you are skipping it." >&2
+    exit 1
+elif ! python3 "$REPO_ROOT/scripts/ci_gate.py" --sha "$deploy_sha"; then
+    echo "looper-deploy: FAIL — CI gate refused $deploy_sha. Nothing restarted;" >&2
+    echo "  the session is still running the code it loaded. The checkout has" >&2
+    echo "  moved, though: git -C $REPO_ROOT reset --hard ORIG_HEAD puts it back." >&2
+    exit 1
+fi
+
 # Pi census runs sometimes leave untracked copies of files now committed on dev/yolo branches.
 if [ -d appliance-state/pi5-irq-census-2026-08-23 ]; then
     if git ls-files --error-unmatch appliance-state/pi5-irq-census-2026-08-23/interrupts-loaded.txt >/dev/null 2>&1; then

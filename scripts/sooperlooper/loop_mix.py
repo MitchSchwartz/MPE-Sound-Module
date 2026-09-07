@@ -73,6 +73,16 @@ EMITTED_HISTORY = int(os.environ.get("MPE_APC_FADER_ECHO_HISTORY", "8"))
 
 # Output smoothing — one-pole follow toward target wet (0 = off).
 FADER_SMOOTH_MS = float(os.environ.get("MPE_APC_FADER_SMOOTH_MS", "45"))
+
+#: What `LoopMix.seed_from_engine` decided about one `wet` echo. Returned so
+#: the bench can LOG the adoptions: until 2026-09-07 the fader path wrote
+#: nothing to the journal at all, and a level regression reported at midnight
+#: on 09-06 left no trace anywhere by construction.
+SEED_UNKNOWN_LOOP = "unknown-loop"   # not a loop this mix owns
+SEED_ECHO = "echo"                   # the settled level we asked for
+SEED_ECHO_SENT = "echo-sent"         # a step of our own ramp, per the sender
+SEED_NEAR = "near"                   # foreign, but within pickup tolerance
+SEED_ADOPTED = "adopted"             # foreign: the column level was rewritten
 FADER_SMOOTH_SNAP = float(os.environ.get("MPE_APC_FADER_SMOOTH_SNAP", "0.004"))
 
 # Off by default: the backstop law is planned, not yet agreed as always-on.
@@ -207,8 +217,10 @@ class LoopMix:
 
     # -- state seeding ----------------------------------------------------
 
-    def seed_from_engine(self, loop: int, wet: float) -> None:
+    def seed_from_engine(self, loop: int, wet: float) -> str:
         """Adopt the engine's reported level as truth for this loop.
+
+        Returns one of the SEED_* verdicts so the caller can log what it did.
 
         Called from the OSC state listener, which streams `wet` continuously —
         so the common case is the engine echoing back a value we just set. That
@@ -242,22 +254,23 @@ class LoopMix:
         position, and make the fader earn control back.
         """
         if loop not in self.user_gain:
-            return
+            return SEED_UNKNOWN_LOOP
         if abs(wet - self.wet_for(loop)) <= WET_ECHO_TOLERANCE:
-            return
+            return SEED_ECHO
         if self.echo_probe is not None and self.echo_probe(
             f"/sl/{loop}/set", wet
         ):
-            return
+            return SEED_ECHO_SENT
         cc = self._user_cc_from_composed_wet(loop, wet)
         if abs(cc - self.user_gain[loop]) <= PICKUP_TOLERANCE_CC:
-            return
+            return SEED_NEAR
         self.user_gain[loop] = cc
         for col in range(8):
             if loop in self.view.loops_for_column(col):
                 self._picked_up.discard(col)
                 self._pickup_anchor.pop(col, None)
                 self._pickup_ref[col] = cc
+        return SEED_ADOPTED
 
     def _user_cc_from_composed_wet(self, loop: int, wet: float) -> int:
         """Column-fader CC implied by a composed engine ``wet`` level."""

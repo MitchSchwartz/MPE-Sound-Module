@@ -481,11 +481,19 @@ the instruments that already exist and are never run.
 3. **Deploy gate on the appliance.** `looper-deploy.sh` runs, before and after restart:
    `sl-health`, `smoke-16-loops`, one record-one-cycle-check-length, one Stop All + verify, one
    fader move + still-playing. Red blocks the deploy. These scripts mostly exist.
+   *Partly done the same day:* the gate that exists is on **CI**, not on the appliance —
+   `scripts/ci_gate.py` refuses any commit without a green `unittest` + `engine` + `shell-tests`
+   run, from `looper-deploy.sh` after the reset and from `mpe looper deploy` before it
+   (mpe-cli branch `feat/deploy-ci-gate`, unmerged). The on-appliance smoke run listed here
+   is still to do.
 4. **Make the record survive.** Persistent journal on every image (done on SD this morning;
    put it in `bootstrap-pi5-looper.sh` so it cannot be forgotten), and log every fader emit and
    every echo adoption with values and the decision. Last night's regression was invisible in
    three hours of journal and the journal itself was then erased by a reboot; between them that
    forbids diagnosing anything.
+   *Done the same day:* persistent journal in `bootstrap-pi5-looper.sh`; every fader move and
+   every echo adoption logged by the bench (`MPE_APC_FADER_LOG=0` to silence);
+   `LoopMix.seed_from_engine` returns its verdict; one real-engine test on `wet`.
 5. **One rule, one table, one test.** Grid lifecycle and Stop All each get a table in
    DECISIONS.md (gesture → engine state → outcome) and an engine-backed test that pins it. Tests
    are never inverted again; a policy change is a spec edit plus a new test, and the old one is

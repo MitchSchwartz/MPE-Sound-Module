@@ -48,10 +48,29 @@ done
 echo "=== prune services ==="
 # avahi-daemon: keep on player boxes — mDNS (.local) SSH reachability (Pi 5 Wi‑Fi).
 # Pi 4 control runs avahi enabled; do not prune here.
+# cloud-init: Raspberry Pi OS trixie ships cloud-init 25.2 as ONE process
+# (cloud-init-main.service) plus a network stage, linked from
+# cloud-init.target.wants at image build. This list held only the four
+# classic units until 2026-09-07, so main and network kept running every boot
+# while the config and final stages never did, and `cloud-init status`
+# reported "error - Failed due to systemd unit failure". MEASURED 2026-09-07
+# on the SD image: no unit had failed; the error was cloud-init's own
+# bookkeeping for a half-disabled layout, and cloud-init touches no
+# NetworkManager profile here. The two newer units join the list, and the
+# documented off switch -- the marker file the generator checks before any
+# unit is considered -- makes the next boot skip cloud-init entirely and
+# report "disabled" instead of "error". First-boot provisioning (user, host
+# name, WiFi) is long done on any box this script runs on.
 for u in bluetooth cron udisks2 console-setup keyboard-setup \
-    cloud-init cloud-init-local cloud-config cloud-final; do
+    cloud-init cloud-init-local cloud-config cloud-final \
+    cloud-init-main cloud-init-network; do
     _disable_unit "${u}.service"
 done
+_disable_unit cloud-init-hotplugd.socket
+if [ ! -e /etc/cloud/cloud-init.disabled ]; then
+    _run touch /etc/cloud/cloud-init.disabled
+    echo "cloud-init: off at next boot (/etc/cloud/cloud-init.disabled)"
+fi
 
 # usb-audio-gadget: only disable when usb-host profile unused (card 5 / UAC2)
 if aplay -l 2>/dev/null | grep -qi UAC2; then
