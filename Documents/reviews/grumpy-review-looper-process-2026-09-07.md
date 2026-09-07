@@ -470,6 +470,11 @@ the instruments that already exist and are never run.
    container; a CI job; the real `SlOscSession` driving it. First ten tests are the ten most
    expensive `MEASURED` facts, executed. This is the one change that alters what a regression
    *is*. Everything else is downstream.
+   *Done the same day:* `tests/engine/` (Debian trixie, like the Pi, with the liblo 0.32
+   patch), the `engine` CI job, ten claims executed and green, and the production grid code
+   (`GridState.establish`, `apply_established_grid`, `stop_all_loops`) driving the engine
+   directly. First contact already corrected one comment: a `record` hit while WAIT_START is
+   ignored by the engine, not a cancel (`test_gesture_against_engine.py` said cancel).
 2. **No engine claim without an executable.** A comment saying `MEASURED` or `used to` about
    SooperLooper must name the test that proves it, or it is a hypothesis and says so. Enforce it
    the way `control_registry` enforces note numbers — a test that greps.
