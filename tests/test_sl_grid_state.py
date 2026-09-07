@@ -3,6 +3,12 @@
 import unittest
 
 from scripts.sooperlooper.sl_grid_state import GridState, derive_tempo, display_bpm
+from scripts.sooperlooper.sl_loop_states import (
+    EMPTY_STATES,
+    SL_STATE_OFF,
+    SL_STATE_OFF_MUTED,
+    SL_STATE_PAUSED,
+)
 
 
 class DeriveTempoTests(unittest.TestCase):
@@ -118,20 +124,28 @@ class GridStateTests(unittest.TestCase):
         self.assertTrue(g.arm(3))
 
 
-class GridSurvivesEmptyPadsTests(unittest.TestCase):
-    """The base unit belongs to the session, not to whichever clips exist.
+class StopKeepsTheGridClearDropsItTests(unittest.TestCase):
+    """Stop and clear are different gestures and must have different effects.
 
-    This class asserted the opposite until 2026-08-30 ("no clips, no grid").
-    Mitch overruled it, about his own instrument:
+    This class has been inverted twice, so both readings are kept visible.
+
+    2026-08-30 it asserted "the grid survives an empty session", on this from
+    Mitch:
 
         "Even if we stop all clips, and even if the second track is two bars
         compared to the established base unit length that the first recorded
         clip establishes, we still need to reinitialize with those original
         settings. They should never be cleared away."
 
-    The old policy is why a tempo went 73.7 -> 34.6 -> 54.9 -> 179.3 BPM across
-    four consecutive takes: each one cleared the pads, dropped the grid, and
-    redefined the base unit from whatever was played next.
+    2026-09-06, the same instrument, the same owner:
+
+        "That's wrong. If we clear all clips, then the grid should be cleared.
+        If we stop all clips, that's different. That might have been where the
+        confusion came from."
+
+    It was. The first quote says STOP ALL and the code applied it to CLEAR. So
+    the rule is neither "always keep" nor "always drop": stop keeps, clear
+    drops, and the engine state is what tells them apart.
     """
 
     def _established(self):
@@ -141,12 +155,23 @@ class GridSurvivesEmptyPadsTests(unittest.TestCase):
         g.note_loop_content(0, True)
         return g
 
-    def test_clearing_the_last_clip_keeps_the_grid(self) -> None:
+    # --- clear drops -------------------------------------------------------
+    def test_clearing_the_last_clip_drops_the_grid(self) -> None:
         g = self._established()
-        self.assertFalse(g.note_loop_content(0, False),
-                         "clearing a pad must not drop the grid")
-        self.assertTrue(g.established)
-        self.assertEqual(g.bpm, 120.0)
+        self.assertTrue(g.note_loop_content(0, False),
+                        "clearing the last clip must drop the grid")
+        self.assertFalse(g.established)
+        self.assertIsNone(g.bpm)
+
+    def test_after_a_clear_the_next_take_defines_a_new_grid(self) -> None:
+        """The point of dropping it: the next take is free-form again.
+
+        This is the symptom Mitch hit on 2026-09-06 — a cleared session whose
+        next 'first' clip was still counted in and quantized to a 1.084 s bar.
+        """
+        g = self._established()
+        g.note_loop_content(0, False)
+        self.assertTrue(g.arm(0), "a cleared session takes a new defining take")
 
     def test_grid_survives_while_any_clip_remains(self) -> None:
         g = self._established()
@@ -154,22 +179,60 @@ class GridSurvivesEmptyPadsTests(unittest.TestCase):
         self.assertFalse(g.note_loop_content(0, False))
         self.assertTrue(g.established)
 
-    def test_clearing_every_pad_one_by_one_still_keeps_the_tempo(self) -> None:
+    def test_clearing_pads_one_by_one_drops_only_on_the_last(self) -> None:
         g = self._established()
         for loop in (1, 2):
             g.note_loop_content(loop, True)
-        for loop in (0, 1, 2):
-            g.note_loop_content(loop, False)
-        self.assertTrue(g.established, "an empty session still has its tempo")
-        self.assertEqual(g.bpm, 120.0)
-        self.assertFalse(g.arm(4),
-                         "a later take cannot redefine the grid — it counts in "
-                         "to the one that exists")
+        self.assertFalse(g.note_loop_content(0, False))
+        self.assertFalse(g.note_loop_content(1, False))
+        self.assertTrue(g.note_loop_content(2, False), "the last one drops it")
+        self.assertFalse(g.established)
 
-    def test_only_an_explicit_reset_clears_it(self) -> None:
-        """Track reset is the one gesture that means "start over"."""
+    # --- stop keeps --------------------------------------------------------
+    def test_stop_all_keeps_the_grid(self) -> None:
+        """Paused loops still hold audio, so the session still has a tempo.
+
+        `stop_all_loops` pauses rather than clearing, so a loop with a take in
+        it reports PAUSED (14) — occupied. This is the case the 2026-08-30
+        quote was actually about.
+        """
         g = self._established()
-        g.note_loop_content(0, False)
+        self.assertFalse(
+            g.note_loop_content(0, SL_STATE_PAUSED not in EMPTY_STATES),
+            "Stop All must not drop the grid",
+        )
+        self.assertTrue(g.established)
+        self.assertEqual(g.bpm, 120.0)
+
+    def test_stop_all_does_not_make_empty_pads_look_occupied(self) -> None:
+        """The trap that would have wedged the grid on forever.
+
+        Stop All sends `mute_on` to /sl/-1, so a loop that never held a take
+        reports OFF_MUTED (20), not OFF (0). Classifying occupancy as
+        `!= SL_STATE_OFF` would count all fourteen unused pads as occupied and
+        no clear could ever empty the session again.
+        """
+        self.assertIn(SL_STATE_OFF_MUTED, EMPTY_STATES)
+        self.assertIn(SL_STATE_OFF, EMPTY_STATES)
+        self.assertNotIn(SL_STATE_PAUSED, EMPTY_STATES)
+
+        g = self._established()
+        for empty_loop in range(1, 15):
+            g.note_loop_content(empty_loop, SL_STATE_OFF_MUTED not in EMPTY_STATES)
+        self.assertTrue(g.note_loop_content(0, False),
+                        "the only real clip was cleared — the grid must drop")
+
+    def test_stop_then_clear_still_drops(self) -> None:
+        """The full gesture Mitch described: stop everything, then clear it."""
+        g = self._established()
+        g.note_loop_content(0, SL_STATE_PAUSED not in EMPTY_STATES)
+        self.assertTrue(g.established, "stop alone keeps it")
+        self.assertTrue(g.note_loop_content(0, SL_STATE_OFF not in EMPTY_STATES))
+        self.assertFalse(g.established, "the clear after the stop drops it")
+
+    # --- reset is unchanged ------------------------------------------------
+    def test_an_explicit_reset_still_clears_it(self) -> None:
+        g = self._established()
         g.reset()
         self.assertFalse(g.established)
         self.assertIsNone(g.bpm)

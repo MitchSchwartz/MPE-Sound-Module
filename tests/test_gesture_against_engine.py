@@ -191,7 +191,7 @@ class TrackGestureOnEngineTests(unittest.TestCase):
         self.assertEqual(self._led(midi), LED_OFF)
 
     # --- grid lifetime, end to end ---------------------------------------
-    def test_the_grid_outlives_the_clip_that_defined_it(self) -> None:
+    def test_clearing_the_only_clip_drops_the_grid(self) -> None:
         grid = GridState()
         engine, fs, _ = self._rig(grid=grid, quantized=False)
 
@@ -206,13 +206,19 @@ class TrackGestureOnEngineTests(unittest.TestCase):
         fs.poll_hold_for_test = None
         fs._clear_loop()
         engine.poll(fs)
-        # The clip that defined the tempo is an ordinary clip. Clearing it used
-        # to take the whole grid with it, so the next take redefined the base
-        # unit — measured on the appliance 2026-08-30 as a tempo that walked
-        # 73.7 -> 34.6 -> 54.9 -> 179.3 BPM across four takes. Only an explicit
-        # track reset starts over now.
-        self.assertTrue(grid.established, "the session keeps its tempo")
-        self.assertIsNotNone(grid.bpm)
+        # Inverted 2026-09-06. Between 2026-08-30 and today this asserted the
+        # opposite, because the rule "the grid outlives its clips" had been
+        # derived from a quote about STOP ALL and applied to CLEAR as well.
+        # Mitch: "If we clear all clips, then the grid should be cleared. If we
+        # stop all clips, that's different."
+        #
+        # The clip that defined the tempo is still an ordinary clip — clearing
+        # it while OTHER clips remain must not touch the grid, and that is
+        # pinned by `test_deleting_defining_clip_keeps_grid_while_other_clips_
+        # remain` in test_track_gesture.py. This is the other case: it was the
+        # only clip, so the session is now empty and has no tempo.
+        self.assertFalse(grid.established, "an emptied session has no tempo")
+        self.assertIsNone(grid.bpm)
 
 
 if __name__ == "__main__":
