@@ -76,7 +76,10 @@ _ensure_env_kv MPE_ROUTE_CLASSIC 1
 # shipped-product stance; while the looper is being developed on this box the
 # evidence wins. Capped so it cannot fill the card. Cost on IRQ 41: unmeasured.
 JOURNAL_DROPIN="/etc/systemd/journald.conf.d/mpe-journal.conf"
-JOURNAL_WANT=$'[Journal]\nStorage=persistent\nSystemMaxUse=200M'
+# SyncIntervalSec: journald's default fsync cadence is five minutes, so a hard
+# freeze takes the last five minutes with it. Fifteen seconds while the full-Pi
+# crashes of 2026-09-06/07 are being chased; more SD writes, small ones.
+JOURNAL_WANT=$'[Journal]\nStorage=persistent\nSystemMaxUse=200M\nSyncIntervalSec=15s'
 if [ "$(cat "$JOURNAL_DROPIN" 2>/dev/null || true)" != "$JOURNAL_WANT" ]; then
     log "journald: persistent, 200M cap ($JOURNAL_DROPIN)"
     sudo mkdir -p "$(dirname "$JOURNAL_DROPIN")"
