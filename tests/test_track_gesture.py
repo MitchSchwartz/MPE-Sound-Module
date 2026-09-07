@@ -188,6 +188,33 @@ class GridEstablishmentTests(unittest.TestCase):
         self.assertTrue(grid.established)
         self.assertEqual(seen, [(120.0, 1)])
 
+    def test_a_short_defining_take_is_refused_and_says_so(self) -> None:
+        """The 1.084 s take of 2026-09-06, through the gesture: no grid, one
+        loud line naming the BPM it would have been, and the next take is
+        free to define the grid instead."""
+        from unittest.mock import patch
+
+        from scripts.sooperlooper.sl_grid_state import GridState
+
+        seen = []
+        grid = GridState()
+        fs = self._fs(0, grid, lambda bpm, bars: seen.append((bpm, bars)))
+        self._start_defining_take(fs)
+        self._close_defining_take(fs)
+        lines = []
+        with patch("scripts.sooperlooper.track_gesture.log", lines.append):
+            fs.sync_from_sl(SL_STATE_PLAYING)
+            fs.sync_loop_len(1.084)
+            fs.sync_loop_pos(0.0)
+            fs.sync_loop_len(1.084)      # the engine keeps reporting it
+        self.assertFalse(grid.established)
+        self.assertEqual(seen, [])
+        refusals = [line for line in lines if "NOT accepted" in line]
+        self.assertEqual(len(refusals), 1, lines)
+        self.assertIn("221.4 BPM", refusals[0])
+        self.assertFalse(grid.is_pending(0))
+        self.assertTrue(grid.arm(1), "the next take must be able to define the grid")
+
     def test_grid_anchor_defers_until_loop_wrap(self) -> None:
         """Late PLAYING report: grid now, phase re-anchor at wrap."""
         from scripts.sooperlooper.sl_grid_state import GridState
