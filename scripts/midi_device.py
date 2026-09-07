@@ -166,10 +166,23 @@ def classify_port(
 #                     would play them as pitches while launching clips.
 #                     The APC's *Notes* port is a separate ALSA port and is
 #                     deliberately NOT excluded.
+#   APC MINI MIDI     the mk1's ONLY port. The rule above is mk2-shaped: it
+#                     assumes a device that splits control and notes across two
+#                     ports, so excluding one leaves the other free to play.
+#                     The mk1 has no Notes mode at all -- one port carries the
+#                     grid, and nothing else -- so the mk2 token never matched
+#                     and the router bound the whole surface as a keyboard.
+#                     Measured 2026-09-06: with an mk1 on the desk the router
+#                     logged "Listening: APC MINI:APC MINI MIDI 1 16:0
+#                     [classic]" and every pad played a pitch in Surge.
+#                     The token is "apc mini midi", not "apc mini": the latter
+#                     would also swallow the mk2's Notes port, which is the one
+#                     APC port that IS meant to reach the synth.
 ROUTER_PORT_EXCLUSIONS = (
     "midi through",
     "rtmidi output",
     "apc mini mk2 control",
+    "apc mini midi",
 )
 
 
