@@ -13,6 +13,40 @@ def _picked_up(mix, fader):
     return mix
 
 
+class SeedVerdicts(unittest.TestCase):
+    """`seed_from_engine` says what it did, so the bench can log adoptions.
+
+    The bench used to get None back and logged nothing; the 2026-09-06 level
+    regression left no journal line. These pin the five answers.
+    """
+
+    def test_a_loop_the_mix_does_not_own(self):
+        self.assertEqual(LoopMix(num_loops=8).seed_from_engine(99, 0.5), loop_mix.SEED_UNKNOWN_LOOP)
+
+    def test_the_settled_level_is_an_echo(self):
+        mix = LoopMix()
+        self.assertEqual(mix.seed_from_engine(0, mix.wet_for(0)), loop_mix.SEED_ECHO)
+
+    def test_a_step_of_our_own_ramp_is_an_echo_too(self):
+        mix = LoopMix()
+        mix.echo_probe = lambda _path, _wet: True
+        self.assertEqual(mix.seed_from_engine(0, 0.5), loop_mix.SEED_ECHO_SENT)
+        self.assertEqual(mix.user_gain[0], CC_MAX, "an echo must not move the column level")
+
+    def test_a_foreign_level_within_pickup_tolerance_is_left_alone(self):
+        mix = LoopMix()
+        param = loop_mix.PARAMETERS[mix.mode]
+        one_step_down = fader_taper(CC_MAX - 1, floor_db=param.floor_db, ceil_db=param.ceil_db)
+        self.assertEqual(mix.seed_from_engine(0, one_step_down), loop_mix.SEED_NEAR)
+        self.assertEqual(mix.user_gain[0], CC_MAX)
+
+    def test_a_foreign_level_is_adopted_and_the_fader_must_pick_up(self):
+        mix = _picked_up(LoopMix(), 0)
+        self.assertEqual(mix.seed_from_engine(0, 0.25), loop_mix.SEED_ADOPTED)
+        self.assertLess(mix.user_gain[0], CC_MAX)
+        self.assertNotIn(0, mix._pickup_anchor, "the anchor must be dropped so the fader re-picks")
+
+
 class Taper(unittest.TestCase):
     def test_bottom_of_travel_is_actual_silence(self):
         self.assertEqual(fader_taper(0, floor_db=-40.0, ceil_db=0.0), 0.0)

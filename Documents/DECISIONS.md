@@ -6,6 +6,59 @@ Orientation canon: OM-Repo [`GROUNDING.md`](https://github.com/opsMachine/OM-Rep
 
 ---
 
+## 2026-09-07 — The deploy is gated on CI; the fader path is observable; a short take cannot define the grid
+
+**Gate.** `scripts/ci_gate.py` asks GitHub's check-runs API whether the commit
+about to be deployed has a completed, successful run of every job in
+`.github/workflows/test.yml` — `unittest`, `engine`, `shell-tests`. A run in
+progress is waited for (15 min); a red job, a missing job, a commit GitHub
+has not seen, or an API it cannot reach is a refusal. Two callers: `mpe looper
+deploy` runs it on the Pi **before** `git reset`, from the target commit's own
+copy of the script, so the checkout never moves for an ungated commit
+(mpe-cli branch `feat/deploy-ci-gate`, awaiting merge); `scripts/looper-deploy.sh`
+runs it again after the reset and refuses to restart anything, printing the
+`ORIG_HEAD` rollback. `MPE_DEPLOY_SKIP_CI_GATE=1` skips both and says so.
+The repo is public, so no token is needed. A gate that passes when it cannot
+see is not a gate: exit codes 1, 2 and 3 all mean "do not deploy".
+
+**Faders.** `LoopMix.seed_from_engine` returns what it decided (`SEED_ECHO`,
+`SEED_ECHO_SENT`, `SEED_NEAR`, `SEED_ADOPTED`, `SEED_UNKNOWN_LOOP`) and the
+bench logs every fader move (`bench: fader col N cc=V -> loop0=0.8123`) and
+every adoption. Three hours of the 2026-09-06 journal held zero fader lines
+while a level regression was being reported; that cannot recur. Off with
+`MPE_APC_FADER_LOG=0`. The one real-engine test the path never had is in
+`tests/engine`: production's messages, `wet` reads back, the loop keeps
+PLAYING, the neighbour is untouched, the master reaches every loop.
+
+**Defining take.** `MPE_LOOPER_MIN_DEFINING_TAKE_S` (default 1.5 s, one bar
+of four at 160 BPM). A shorter first take plays free-form and does **not**
+become the bar; the gesture logs `!! take NOT accepted as the grid's defining
+take — 1.084s ... (it would be 1 bar @ 221.4 BPM)` and the next take defines.
+Of the five grids established on the evening of 2026-09-06, four are now
+refused and the 1.802 s and 3.697 s ones stand. `derive_tempo` is untouched;
+this is a rule about *defining*, not arithmetic. A musical judgement, so it is
+an environment variable, not a constant.
+
+**Engine claims pinned the same day** (`tests/engine`, 20 tests): a take held
+2.5 cycles lands as 3; `overdub` while RECORDING closes the take on the bar;
+`overdub` on a playing loop toggles at once even under quantize; the
+one-argument `load_loop` is discarded and the three-argument form lands a
+PAUSED clip at position 0; with `smart_eighths` on, **every** `set tempo`
+under 60 BPM doubles `eighth_per_cycle` again (8 → 16 → 32), which is why
+`sl_grid_sync` turns it off first.
+
+**cloud-init.** `cloud-init status` on the SD image said `error — Failed due
+to systemd unit failure`. No unit had failed. `apply-appliance-hygiene.sh`
+disabled the four classic cloud-init units; Raspberry Pi OS trixie's
+cloud-init 25.2 runs as `cloud-init-main` plus a network stage, which the
+script did not know, so the local and network stages ran every boot and the
+config and final stages never did. cloud-init touches no NetworkManager
+profile (the link-local eth0 fix is on disk and survives it). The script now
+disables the two newer units too and writes `/etc/cloud/cloud-init.disabled`,
+the documented off switch. Not a crash factor.
+
+---
+
 ## 2026-09-07 — The real engine is in the test suite; what it said on day one
 
 `tests/engine/` runs SooperLooper 1.7.9 (the appliance's version, with its

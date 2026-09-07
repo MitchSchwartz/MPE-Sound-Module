@@ -2,7 +2,12 @@
 
 import unittest
 
-from scripts.sooperlooper.sl_grid_state import GridState, derive_tempo, display_bpm
+from scripts.sooperlooper.sl_grid_state import (
+    MIN_DEFINING_TAKE_S,
+    GridState,
+    derive_tempo,
+    display_bpm,
+)
 from scripts.sooperlooper.sl_loop_states import (
     EMPTY_STATES,
     SL_STATE_OFF,
@@ -78,6 +83,53 @@ class DeriveTempoTests(unittest.TestCase):
     def test_rejects_nonsense(self) -> None:
         self.assertIsNone(derive_tempo(0.0))
         self.assertIsNone(derive_tempo(-1.0))
+
+
+class DefiningTakeGuardTests(unittest.TestCase):
+    """A take too short to be a bar must not become the bar.
+
+    2026-09-06, from the journal: a 1.084 s first take was accepted as
+    "1 bar @ 221.4 BPM" and the next take, held for 7.59 s, landed as
+    exactly seven bars. The engine was right; the bar was wrong. The only
+    guard was 20-300 BPM.
+    """
+
+    def test_the_seven_bar_take_is_refused_with_its_reason(self) -> None:
+        g = GridState()
+        self.assertTrue(g.arm(0))
+        self.assertIsNone(g.establish(0, 1.084))
+        self.assertFalse(g.established)
+        self.assertIn("221.4 BPM", g.refused or "")
+        self.assertIn("1.084s", g.refused or "")
+
+    def test_a_refused_take_hands_the_grid_to_the_next_take(self) -> None:
+        g = GridState()
+        g.arm(0)
+        g.establish(0, 1.084)
+        self.assertFalse(g.is_pending(0), "still pending: every later arm would be refused")
+        self.assertTrue(g.arm(1), "the next take could not arm")
+        self.assertIsNone(g.refused, "arm must clear the stale reason")
+        self.assertEqual(g.establish(1, 2.0), (120.0, 1))
+
+    def test_the_evening_of_09_06_take_by_take(self) -> None:
+        """Four of the five grids that evening are refused; the 1.802 s and
+        3.697 s ones stand. The threshold is one bar of four at 160 BPM."""
+        for take, accepted in ((1.285, False), (1.084, False), (1.802, True),
+                               (1.225, False), (3.697, True)):
+            g = GridState()
+            g.arm(0)
+            self.assertEqual(g.establish(0, take) is not None, accepted, take)
+
+    def test_the_threshold_itself_is_accepted(self) -> None:
+        g = GridState()
+        g.arm(0)
+        self.assertEqual(g.establish(0, MIN_DEFINING_TAKE_S), (160.0, 1))
+
+    def test_derive_tempo_is_untouched(self) -> None:
+        """The guard is about DEFINING. The arithmetic still reads a short
+        take as one bar; a song restored with such a grid is `restore`'s
+        business, not this one's."""
+        self.assertEqual(derive_tempo(1.084)[1], 1)
 
 
 class GridStateTests(unittest.TestCase):

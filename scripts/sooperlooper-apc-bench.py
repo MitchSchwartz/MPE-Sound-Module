@@ -46,7 +46,7 @@ from midi_subscription import wait_for_subscription  # noqa: E402
 from running_code import running_code_sha  # noqa: E402
 from slot_runtime import SlotRuntime  # noqa: E402
 from slot_surface import SlotSurface  # noqa: E402
-from loop_mix import CoalescingSender, LoopMix  # noqa: E402
+from loop_mix import SEED_ADOPTED, CoalescingSender, LoopMix  # noqa: E402
 from sl_bench_listener import SlBenchStateListener  # noqa: E402
 from looper_engine_events import LooperEngineEventWatch, poll_interval_s  # noqa: E402
 from sl_grid_state import GridState  # noqa: E402
@@ -400,8 +400,21 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
             file=sys.stderr,
         )
 
+    # Fader path logging. Every move and every adoption, one line each, so
+    # the next level regression leaves a trace: the one reported at midnight
+    # on 2026-09-06 left none, because nothing here wrote to the journal.
+    # MPE_APC_FADER_LOG=0 silences it once the path is trusted again.
+    fader_log = os.environ.get("MPE_APC_FADER_LOG", "1") != "0"
+
     def on_wet(loop_index: int, value: float) -> None:
-        mix.seed_from_engine(loop_index, value)
+        verdict = mix.seed_from_engine(loop_index, value)
+        if verdict == SEED_ADOPTED and fader_log:
+            print(
+                f"bench: fader adopt loop {loop_index}: engine wet={value:.4f} "
+                f"was not ours -> column level cc={mix.user_gain.get(loop_index)}; "
+                "the fader must pick up before it moves the level again",
+                flush=True,
+            )
 
     by_loop = gestures_by_loop(gestures)
     # Multi-clip matrix. OFF by default: it takes over all eight rows including
@@ -650,7 +663,18 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
             affected = ()
         for loop in affected:
             faders.seed_current(f"/sl/{loop}/set", mix.wet_for(loop))
-        faders.submit(mix.messages_for(fader, value), now=now)
+        msgs = mix.messages_for(fader, value)
+        if fader_log:
+            who = "master" if fader == MASTER else f"col {fader}"
+            if msgs:
+                levels = " ".join(
+                    f"loop{path.split('/')[2]}={args[1]:.4f}" for path, args in msgs
+                )
+                print(f"bench: fader {who} cc={value} -> {levels}", flush=True)
+            else:
+                print(f"bench: fader {who} cc={value} -> no change (pickup anchor)",
+                      flush=True)
+        faders.submit(msgs, now=now)
         faders.tick(now=now)
 
     def poll_transport_leds() -> None:
