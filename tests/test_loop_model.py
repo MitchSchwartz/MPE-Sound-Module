@@ -201,7 +201,7 @@ class PlanTapTests(unittest.TestCase):
     def test_stopped_launches_with_a_quantized_trigger(self) -> None:
         for st in (SL_STATE_MUTE, SL_STATE_PAUSED):
             p = self._plan(st)
-            self.assertEqual(p.commands, ("pause_off", "trigger"))
+            self.assertEqual(p.commands, ("trigger",))
             self.assertEqual(p.expect, STATE_PLAYING)
             self.assertNotIn("mute_off", p.commands)
 

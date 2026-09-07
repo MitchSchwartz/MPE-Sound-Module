@@ -1203,9 +1203,11 @@ def settle_stop_all(osc, gestures: list["TrackGesture"], *, log=log):
       * anything still sounding is paused again, unquantized, and the
         correction is logged. The instrument has known about this failure
         since 2026-08-30 and has only ever written it down.
-      * quantize goes back to what the grid says. It is held at 0 from the
-        Stop All until here so a deferred `trigger` cannot survive the pause —
-        see the note in `stop_all_loops`.
+      * quantize goes back to what the grid says. The restore was moved here
+        on the guess that a deferred `trigger` was surviving the pause; the
+        trigger itself was the cause and is gone (see `stop_all_loops`).
+        MEASURED 2026-09-07: a loop paused by the burst stays paused through
+        this restore.
 
     Returns the loops that were still active, after the correction attempt.
     """
@@ -1247,55 +1249,41 @@ def stop_all_loops(
     # a musical edit; Stop All is a transport action — when you hit it you want
     # silence now, not at the end of the bar.
     #
-    # mute_quantized is lifted for the duration, then restored, so the per-clip
-    # behaviour is untouched. SL drains its non-realtime queue in order, so the
-    # restore cannot overtake the mute.
+    # mute_quantized and quantize are lifted for the duration and restored in
+    # `settle_stop_all`, once the engine has confirmed the pause, so the
+    # per-clip behaviour is untouched.
     #
-    # `trigger` is what REWINDS. Without it `pause_on` freezes every loop
-    # wherever it happened to be, and the launch path (`pause_off` + `trigger`)
-    # then resumes from that stored position — so Stop All followed by a
-    # restart came back mid-loop instead of from the top, and the loops came
-    # back at different phases from each other. MEASURED 2026-08-30 with four
-    # loops stopped: pos 3.719/8.052 (46%), 3.731/8.052 (46%), 11.783/16.104
-    # (73%), 3.719/16.104 (23%).
+    # No `trigger`. The burst used to be mute_on, trigger, pause_on, the
+    # trigger added 2026-08-30 as a REWIND so a relaunch came from the top.
+    # MEASURED 2026-09-07 on the real engine (tests/engine/test_engine_claims
+    # .py, SooperLooper 1.7.9 under a JACK dummy backend): with that trigger a
+    # clip on the grid read PLAYING 0.4 s after Stop All and was still playing
+    # a full cycle later, at every one of five bar phases tried — it never
+    # paused. Without it: PAUSED within 0.4 s in 5 of 5, still paused after
+    # the settle restore. That is "I stop all clips and it just resumes"
+    # (reported 2026-09-06; caught by `verify_stop_all` at 23:59:05 as "1
+    # loop(s) did NOT stop -- loop 0 state=4"). What made the appliance stop
+    # at all was `settle_stop_all`'s corrective pause_on, a second late.
     #
-    # quantize is lifted alongside mute_quantized because a quantized trigger
-    # is DEFERRED to the next cycle, which here would rewind a loop up to a
-    # full cycle after the player asked for silence.
+    # The rewind is not lost. The launch is `trigger` alone, and MEASURED the
+    # same day: `trigger` from PAUSED with quantize at CYCLE waits for the bar
+    # and plays from position 0; from MUTE likewise. The mid-loop resumes of
+    # 2026-08-30 (pos 46%/46%/73%/23%) were the launch's `pause_off`, which
+    # resumes AT ONCE from the stored position — not a missing rewind here.
+    # See `slot_runtime.LAUNCH_COMMANDS`.
     #
-    # NOTE, and it corrects a comment in sl_grid_sync.set_grid_active: trigger
-    # DOES lift a pause. MEASURED 2026-08-30 — a loop in state 14 (Paused),
-    # sent `trigger` with quantize at 0, went to state 4 (Playing) from
-    # position 0. The earlier "verified: a paused loop stays Paused through
-    # trigger" was almost certainly read with quantize at CYCLE, where the
-    # trigger is merely deferred. A deferred trigger and an ignored trigger
-    # look identical from outside, which is the reading-the-same-either-way
-    # shape this project keeps paying for.
+    # The earlier story for the resume — `set` lands ahead of a queued `hit`,
+    # so the quantize restore overtook the trigger — was reasoned from the
+    # send order, never measured, and is wrong twice over: no restore is
+    # sent in this window any more and the loop still resumed; and per-loop
+    # `set` and `hit` are pushed onto the SAME realtime queue (engine.cpp,
+    # push_control_event / push_command_event → _event_queue), in order.
+    # The quantize restore stays in `settle_stop_all` because it is harmless
+    # there, not because moving it fixed anything.
     osc.send_message("/sl/-1/set", ["mute_quantized", 0.0])
     osc.send_message("/sl/-1/set", ["quantize", 0.0])
     osc.send_message("/sl/-1/hit", "mute_on")
-    osc.send_message("/sl/-1/hit", "trigger")
     osc.send_message("/sl/-1/hit", "pause_on")
-    # The quantize restore used to be RIGHT HERE, and that is the best
-    # explanation we have for "I stop all clips and it just resumes again"
-    # (reported 2026-09-06; caught by the verify below at 23:59:05 as
-    # "1 loop(s) did NOT stop -- loop 0 state=4").
-    #
-    # `set` is applied when the OSC message is handled; `hit` is queued for the
-    # audio thread. So the whole run of `set`s above and below can land before
-    # the first `hit` is processed — and then `trigger` runs with quantize back
-    # at CYCLE, is DEFERRED to the next boundary, and fires after `pause_on`,
-    # lifting the pause and playing the loop from zero. Intermittent by
-    # construction: it depends on how the OSC and audio threads interleave.
-    #
-    # So the restore moves to `settle_stop_all`, one second later, after the
-    # engine has confirmed the pause. Quantize stays at 0 for that window,
-    # which is exactly the window in which a deferred trigger could fire.
-    #
-    # NOT ESTABLISHED: this mechanism is reasoned from the send order and the
-    # `set`/`hit` split, not measured. What IS measured is the symptom and that
-    # loop 0 logged no state change at all. If it recurs after this, the next
-    # step is a targeted capture, not another guess.
     if grid_active:
         # Through the one seam. This was a raw `/set tempo` with the phase mark
         # hand-paired beside it — a fourth copy of the three lines, and the one

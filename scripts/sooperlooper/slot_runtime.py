@@ -56,11 +56,17 @@ OP_WAITING = "waiting"
 #: (`pause_on`), so after any Stop All a matrix launch that sent only
 #: `mute_off` was SILENT — the clip loaded, the pads lit, and nothing played.
 #:
-#: The single-clip path has always known this and sends `pause_off` + `trigger`
-#: (see `loop_model.plan_gesture`, STATE_STOPPED). The matrix was written as a
-#: sibling of that path and never inherited the rule. This constant exists so
-#: there is ONE answer to "how do you start a loop" instead of two that drift.
-LAUNCH_COMMANDS: tuple[str, ...] = ("pause_off", "trigger")
+#: `trigger` alone lifts a mute AND a pause, waits for the bar while quantize
+#: is at CYCLE, and plays from the top. MEASURED 2026-09-07 on the real engine
+#: (tests/engine/test_engine_claims.py). Until then this was `pause_off` +
+#: `trigger`: `pause_off` resumes AT ONCE from the stored position, so a
+#: paused loop sounded mid-loop until the bar, when the trigger rewound it —
+#: the "came back at different phases" heard on 2026-08-30.
+#:
+#: This constant exists so there is ONE answer to "how do you start a loop".
+#: `loop_model.plan_gesture` (STATE_STOPPED) and `looper_songs.load_song`
+#: spell the same answer out; keep them in step.
+LAUNCH_COMMANDS: tuple[str, ...] = ("trigger",)
 
 #: A deferred launch waits for the track's loop wrap. If `loop_pos` stops
 #: arriving the wrap never comes and the switch is stranded — a dead pad with

@@ -312,8 +312,11 @@ class LaunchAfterStopAll(RuntimeCase):
     shipped. `stop_all_loops` sends `pause_on` to every loop, and the matrix's
     launch used to send only `mute_off` — which does not lift a pause. The clip
     loaded, the pad lit, and nothing came out. The single-clip path had always
-    sent `pause_off` + `trigger`; the matrix was a sibling that never inherited
-    the rule.
+    lifted the pause; the matrix was a sibling that never inherited the rule.
+
+    The lift is `trigger` alone. MEASURED 2026-09-07 on the real engine: it
+    lifts a pause, waits for the bar and plays from the top, while the
+    `pause_off` that used to go first resumes at once mid-loop.
     """
 
     def test_launch_lifts_a_pause_rather_than_only_unmuting(self) -> None:
@@ -322,10 +325,10 @@ class LaunchAfterStopAll(RuntimeCase):
         self.rt.press(0, 1, sl_state=SL_STATE_OFF)
         hits = [a[0] for p, a in self.sent if p.endswith("/hit")]
         self.assertIn(
-            "pause_off", hits,
+            "trigger", hits,
             "a launch after Stop All is silent unless the pause is lifted",
         )
-        self.assertIn("trigger", hits)
+        self.assertNotIn("pause_off", hits, "pause_off resumes mid-loop at once")
 
     def test_relaunching_a_dirty_active_slot_also_lifts_the_pause(self) -> None:
         """The 'already bound, just unmute' shortcut needs the rule too."""
@@ -334,14 +337,14 @@ class LaunchAfterStopAll(RuntimeCase):
         )
         self.rt._launch(SlotPlan(action=ACT_LAUNCH, track=0, slot=0))
         hits = [a[0] for p, a in self.sent if p.endswith("/hit")]
-        self.assertIn("pause_off", hits)
         self.assertIn("trigger", hits)
+        self.assertNotIn("pause_off", hits)
 
     def test_no_launch_path_relies_on_mute_off_alone(self) -> None:
         """One answer to 'how do you start a loop', not two that drift."""
         from slot_runtime import LAUNCH_COMMANDS
 
-        self.assertEqual(LAUNCH_COMMANDS, ("pause_off", "trigger"))
+        self.assertEqual(LAUNCH_COMMANDS, ("trigger",))
         source = Path("scripts/sooperlooper/slot_runtime.py").read_text()
         self.assertNotIn(
             '["mute_off"]', source,

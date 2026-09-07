@@ -28,6 +28,7 @@ from sl_loop_states import (
     SL_STATE_OFF,
     SL_STATE_OFF_MUTED,
     SL_STATE_PAUSED,
+    SL_STATE_MUTE,
     SL_STATE_PLAYING,
     SL_STATE_RECORDING,
     SL_STATE_WAIT_START,
@@ -233,7 +234,7 @@ class EngineClaims(unittest.TestCase):
         self.assertEqual(set(empties.values()), {SL_STATE_OFF_MUTED}, empties)
 
     def _stop_all_sends(self, *, trigger: bool) -> None:
-        """The Stop All burst as `stop_all_loops` sends it, with or without its `trigger`."""
+        """The Stop All burst, with or without the `trigger` it carried until 2026-09-07."""
         e = self.e
         e.send_message("/sl/-1/set", ["mute_quantized", 0.0])
         e.send_message("/sl/-1/set", ["quantize", 0.0])
@@ -242,29 +243,36 @@ class EngineClaims(unittest.TestCase):
             e.send_message("/sl/-1/hit", "trigger")
         e.send_message("/sl/-1/hit", "pause_on")
 
-    @unittest.expectedFailure
     def test_stop_all_pauses_a_clip_on_the_grid(self) -> None:
         """Mitch, 2026-09-06: 'After I stop all clips, it just resumes again.'
 
-        This is the behaviour Stop All is for, sent exactly as
-        `stop_all_loops` sends it, at a clip on an established grid.
-        MEASURED 2026-09-07 in this harness, five bar phases: the loop never
-        reads PAUSED at any 20 ms sample -- 0 of 5. Without the burst's
-        `trigger` it pauses 5 of 5 (next test). The 09-06 'quantize restore
-        overtakes the hit' hypothesis was wrong: no restore is sent here.
-        `settle_stop_all`'s corrective pause_on is what makes the appliance
-        stop today, a second late.
+        `stop_all_loops` as production sends it, at a clip on an established
+        grid, mid-bar. MEASURED 2026-09-07, five bar phases: with the `trigger`
+        the burst carried until that day the loop never read PAUSED at any
+        20 ms sample, 0 of 5 (the next test keeps that reading); without it,
+        5 of 5. This test was expectedFailure until the trigger came out.
+        """
+        e = self.e
+        self._establish(2.0)
+        time.sleep(0.5)
+        stop_all_loops(e, num_loops=e.num_loops, gestures=[])
+        time.sleep(0.4)
+        self.assertEqual(e.state(0), SL_STATE_PAUSED)
 
-        expectedFailure until stop_all_loops stops sending `trigger`; the day
-        it does, unittest reports an unexpected success and this decorator
-        comes off.
+    def test_a_trigger_in_the_stop_all_burst_keeps_the_clip_playing(self) -> None:
+        """The known-bad burst, kept so the reading that removed the trigger
+        stays on record and a reintroduction fails here: mute_on, trigger,
+        pause_on with both quantizers at 0 leaves a grid clip PLAYING.
+        MEASURED 2026-09-07, 5 of 5 bar phases, still playing a cycle later.
         """
         e = self.e
         grid = self._establish(2.0)
         time.sleep(0.5)
         self._stop_all_sends(trigger=True)
         time.sleep(0.4)
-        self.assertEqual(e.state(0), SL_STATE_PAUSED)
+        self.assertEqual(e.state(0), SL_STATE_PLAYING)
+        time.sleep(grid.cycle_s)
+        self.assertEqual(e.state(0), SL_STATE_PLAYING)
 
     def test_stop_all_without_its_trigger_pauses_and_relaunches_from_the_top(self) -> None:
         """MEASURED 2026-09-07, five bar phases: the burst minus `trigger`
@@ -286,6 +294,27 @@ class EngineClaims(unittest.TestCase):
         e.hit(0, "trigger")
         self.assertTrue(e.wait_state(0, SL_STATE_PLAYING, grid.cycle_s + 1.0))
         self.assertLess(e.get(0, "loop_pos"), 0.05, "relaunch did not start from the top")
+
+    def test_trigger_lifts_a_mute_on_the_bar_from_the_top(self) -> None:
+        """loop_model: a per-clip stop is `mute_on` (the loop keeps running,
+        locked to the grid) and the launch is `trigger`. So the launch the
+        pads send most often starts from MUTE, not PAUSED. MEASURED
+        2026-09-07: with mute_quantized=1 the mute waits for the bar; from
+        MUTE, `trigger` waits for the bar and plays from the top.
+        """
+        e = self.e
+        grid = self._establish(2.0)
+        time.sleep(0.9)
+        e.hit(0, "mute_on")
+        self.assertEqual(e.wait_state_in(0, {SL_STATE_MUTE, SL_STATE_PLAYING}, 0.3),
+                         SL_STATE_PLAYING, "a quantized mute must not land mid-bar")
+        self.assertTrue(e.wait_state(0, SL_STATE_MUTE, grid.cycle_s + 1.0))
+        time.sleep(0.9)                      # mid-bar again, muted and running
+        e.hit(0, "trigger")
+        time.sleep(0.15)
+        self.assertEqual(e.state(0), SL_STATE_MUTE, "trigger did not wait for the bar")
+        self.assertTrue(e.wait_state(0, SL_STATE_PLAYING, grid.cycle_s + 1.0))
+        self.assertLess(e.get(0, "loop_pos"), 0.1, "trigger did not start from the top")
 
     def test_trigger_from_paused_waits_for_the_bar_but_pause_off_does_not(self) -> None:
         """The launch a stopped pad wants: silent until the bar, then from the
