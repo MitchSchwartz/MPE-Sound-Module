@@ -63,6 +63,27 @@ _ensure_env_kv MPE_SL_TAIL_TRACE /home/pi/tail-trace.csv
 # than by hand so it survives a reflash; see docs/CLASSIC-MIDI-PLAN.md.
 _ensure_env_kv MPE_ROUTE_CLASSIC 1
 
+# Persistent journal. The SD image shipped at the Raspberry Pi OS default
+# (Storage=auto, no /var/log/journal), so the journal lived in tmpfs and a
+# reboot erased it. MEASURED 2026-09-07: after one reboot `journalctl
+# --list-boots` showed the current boot only -- the previous evening's looper
+# session, the Stop All failure at 23:59:05, the fader regression window and
+# two screen crashes were gone. The journal is the only instrument that has
+# ever caught a looper regression on the appliance; it must outlive a reboot.
+#
+# docs/STORAGE-ROBUSTNESS.md (Phase 1, item 3) wants a volatile journal in
+# performance because SD writes share IRQ 41 with the SDIO WiFi. That is the
+# shipped-product stance; while the looper is being developed on this box the
+# evidence wins. Capped so it cannot fill the card. Cost on IRQ 41: unmeasured.
+JOURNAL_DROPIN="/etc/systemd/journald.conf.d/mpe-journal.conf"
+JOURNAL_WANT=$'[Journal]\nStorage=persistent\nSystemMaxUse=200M'
+if [ "$(cat "$JOURNAL_DROPIN" 2>/dev/null || true)" != "$JOURNAL_WANT" ]; then
+    log "journald: persistent, 200M cap ($JOURNAL_DROPIN)"
+    sudo mkdir -p "$(dirname "$JOURNAL_DROPIN")"
+    printf '%s\n' "$JOURNAL_WANT" | sudo tee "$JOURNAL_DROPIN" >/dev/null
+    sudo systemctl restart systemd-journald
+fi
+
 if [ ! -x "$SOOP_BIN" ]; then
     echo "bootstrap-pi5-looper: FAIL — SooperLooper binary missing: $SOOP_BIN" >&2
     echo "  Copy from Pi 4 (arm64 trixie build):" >&2

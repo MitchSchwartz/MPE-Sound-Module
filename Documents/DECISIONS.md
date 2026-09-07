@@ -6,6 +6,27 @@ Orientation canon: OM-Repo [`GROUNDING.md`](https://github.com/opsMachine/OM-Rep
 
 ---
 
+## 2026-09-07 — The appliance journal is persistent; the looper comes up at boot
+
+**Journal.** After this morning's reboot the SD image had one boot in
+`journalctl --list-boots` and an empty `/var/log/journal`: last night's looper
+session, the Stop All failure at 23:59:05, the fader-regression window and two
+screen crashes were erased. The journal is the only instrument that has ever
+caught a looper regression on the appliance. `Storage=persistent`, capped at
+200 MB, is now written by `bootstrap-pi5-looper.sh` on every deploy.
+`docs/STORAGE-ROBUSTNESS.md` Phase 1 item 3 still wants a volatile journal for
+the shipped product (SD writes share IRQ 41 with the WiFi); that remains the
+product stance, this is the development stance, and the cost on IRQ 41 is
+unmeasured.
+
+**Boot.** `mpe-sooperlooper` and `mpe-looper-session` are enabled on the SD
+image at Mitch's request (2026-09-07), superseding the 2026-08-18 opt-in whose
+motivating measurement `install-units.sh` already marks VOID. This is
+`systemctl enable` on one box; the installer still ships them opt-in.
+`sl-watchdog` was left as it was (disabled).
+
+---
+
 ## 2026-09-06 — Stop keeps the grid, clear drops it (supersedes the 2026-08-30 code change)
 
 **Decision (Mitch, 2026-09-06):** *"If we clear all clips, then the grid should
