@@ -67,6 +67,25 @@ motivating measurement `install-units.sh` already marks VOID. This is
 `systemctl enable` on one box; the installer still ships them opt-in.
 `sl-watchdog` was left as it was (disabled).
 
+**Full-Pi crashes (two since 2026-09-06), instruments only.** Mitch: the
+crashes were the whole Pi, not the screen. Nothing survived them: the journal
+was volatile, there is no pstore, no coredump, and `wtmpdb` has no boot
+history. This boot's evidence is clean (`get_rsts=1000`, a power-on reset —
+consistent with a power cycle; no mmc, USB, OOM or lockup messages; 5.0 V on
+EXT5V; 67 °C; RT throttling on; the hardware watchdog armed at 60 s, which
+means a kernel that stopped scheduling would have rebooted itself within a
+minute). Three instruments were installed on the SD image for the next one:
+`SyncIntervalSec=15s` on the journal (bootstrap owns it); `mpe-crash-probe.timer`
+writing one health line a minute (temp, load, throttle flags, 5 V rail,
+free memory — two forks per run); and `mpe-netconsole.service`, kernel
+messages over the lab cable to the laptop (`~/mpe-netconsole.log`, listener
+`mpe-netconsole.service` in the user manager). The netconsole path is blocked
+by the laptop's ufw until `sudo ufw allow in on enx000010022734 to any port
+6666 proto udp` is run. The probe and netconsole units live only on the
+appliance (`/etc/systemd/system/mpe-crash-probe.*`, `mpe-netconsole.service`,
+`/usr/local/sbin/mpe-crash-probe.sh`); remove with `systemctl disable --now`
+when the investigation closes.
+
 **Lab cable.** `raspberrypi5.local` "timing out" was never the WiFi. The Pi's
 Ethernet port is cabled to the laptop's USB-ethernet dongle (link-local on the
 laptop side), and the Pi's `Wired connection 1` profile was DHCP: MEASURED in
