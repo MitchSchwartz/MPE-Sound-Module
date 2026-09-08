@@ -70,7 +70,7 @@ def build_track_gestures(
     out: dict[int, TrackGesture] = {}
     for loop in range(num):
         fs = TrackGesture(
-            loop=loop, hold_ms=2000, debounce_ms=0, multigrid=True, quantized=True
+            loop=loop, hold_ms=2000, debounce_ms=0, multigrid=True
         )
         fs.bind(_OscStub(sink), compositor, None)
         out[loop] = fs

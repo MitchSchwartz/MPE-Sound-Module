@@ -47,14 +47,17 @@ class _Wire(LedCompositor):
 
 
 class TrackGestureOnEngineTests(unittest.TestCase):
-    def _rig(self, *, quantized=True, grid=None, loop=0):
-        engine = FakeSlEngine(quantized=quantized)
+    def _rig(self, *, engine_quantizes=True, grid=None, loop=0):
+        # `engine_quantizes` configures the ENGINE DOUBLE only. The gesture no
+        # longer carries a quantize flag of its own: whether an action waits
+        # is asked of `looper_timing` per action, from live grid state.
+        engine = FakeSlEngine(quantized=engine_quantizes)
         midi = _Wire()
         # The gesture's clock is injected so the ring-out cap — the one exit
         # that survives a dead peak meter — can be driven from a test.
         self.clock = [0.0]
         fs = TrackGesture(loop=loop, hold_ms=800, debounce_ms=0,
-                            quantized=quantized, grid=grid,
+                            grid=grid,
                             now=lambda: self.clock[0])
         fs.bind(engine, midi, note=0)
         return engine, fs, midi
@@ -193,7 +196,10 @@ class TrackGestureOnEngineTests(unittest.TestCase):
     # --- grid lifetime, end to end ---------------------------------------
     def test_clearing_the_only_clip_drops_the_grid(self) -> None:
         grid = GridState()
-        engine, fs, _ = self._rig(grid=grid, quantized=False)
+        # A non-quantizing engine double, as this test has always used: it
+        # takes the take immediately so the clear can be exercised without
+        # driving boundaries.
+        engine, fs, _ = self._rig(grid=grid, engine_quantizes=False)
 
         self._tap(fs)
         engine.poll(fs)

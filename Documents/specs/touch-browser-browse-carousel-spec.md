@@ -1,5 +1,13 @@
 # Touch patch browser — browse carousel + filter pane
 
+> **HISTORY — this file does not describe the instrument.**
+> It records what was intended or believed on its own date. It has been wrong
+> about shipped behaviour before, and where that is known a `CORRECTION` note
+> is inline. **The code is the documentation**; `Documents/looper-audit-2026-09-07.md`
+> maps which module answers which question. Never change code to match this file,
+> and never quote it as current behaviour.
+
+
 **Status:** Implemented (v1) — Phases A–D, two scoped deviations (ALL_PATCHES carousel, snap tween) and one deferred item (nav list scroll-edge hints); see 2026-08-15 "Phases A–D implemented" row in `Documents/DECISIONS.md`  
 **Last updated:** 2026-08-15 (America/Toronto)  
 **Supersedes (partial):** inline instrument chip panel behavior in [touch-browser-instruments-favorites-spec.md](touch-browser-instruments-favorites-spec.md) §Chip filter  

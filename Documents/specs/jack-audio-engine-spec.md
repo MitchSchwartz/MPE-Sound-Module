@@ -1,5 +1,13 @@
 # JACK audio engine — permanent graph server + looper as callback client
 
+> **HISTORY — this file does not describe the instrument.**
+> It records what was intended or believed on its own date. It has been wrong
+> about shipped behaviour before, and where that is known a `CORRECTION` note
+> is inline. **The code is the documentation**; `Documents/looper-audit-2026-09-07.md`
+> maps which module answers which question. Never change code to match this file,
+> and never quote it as current behaviour.
+
+
 **Issue:** untracked
 **Status:** Approved, Phase 1 on `yolo/jack-audio-engine-phase1` @ `4d93fe2`, **amended 2026-08-13** (`yolo/jack-drop-alsa-fallback`) — ALSA removed entirely as a product audio path, see §Amendment. **Gate B soak** below verifies the *pre-amendment* fallback design and is retained as history; the amendment requires a fresh Pi soak before merge (not yet run).
 **Created:** 2026-08-12

@@ -18,6 +18,8 @@ see Documents/specs/looper-transport-clock-spec.md §J.
 from __future__ import annotations
 
 from sl_limits import MAX_USABLE_LOOPS, resolve_num_loops
+from sl_grid_state import BEATS_PER_BAR
+from looper_timing import engine_controls, send_engine_controls
 
 import os
 import sys
@@ -107,7 +109,11 @@ SYNC_SOURCE_NONE = 0.0
 
 # Quantize unit is always one 4/4 bar (8 eighth notes). Fixed deliberately —
 # see DECISIONS.md 2026-08-15 correction. Not sized to multi-bar first takes.
-EIGHTH_PER_CYCLE = int(os.environ.get("MPE_LOOPER_EIGHTH_PER_CYCLE", "8"))
+# Eighths in one bar. DERIVED, not a knob of its own: this and
+# `GridState.eighth_per_cycle` describe the same quantity, and when they were
+# two independent env vars a non-4/4 bar made them disagree with nothing to
+# say so. `MPE_LOOPER_BEATS_PER_BAR` is the one place that decides.
+EIGHTH_PER_CYCLE = BEATS_PER_BAR * 2
 
 
 def set_grid_active(
@@ -126,11 +132,18 @@ def set_grid_active(
         the stop is already quantized, and rounding on top extends the take by
         another cycle.
     """
+    # NOT written out here. `looper_timing.engine_controls` derives these from
+    # the same rule table that decides the bench-side waits, because the two
+    # halves of one rule drifting apart is what this whole module used to be a
+    # symptom of: `set_grid_active` keyed off "a grid exists" while
+    # `slot_runtime` keyed off "something is sounding", and neither knew about
+    # the other. See `looper_timing` for what each control does.
+    controls = engine_controls(grid=active)
     for loop in range(num_loops):
         prefix = f"/sl/{loop}/set"
-        send(prefix, ["quantize", 1.0 if active else 0.0])  # 1 = QUANT_CYCLE
-        send(prefix, ["sync", 1.0 if active else 0.0])
-        send(prefix, ["round", 0.0])
+        send(prefix, ["quantize", controls["quantize"]])  # 1 = QUANT_CYCLE
+        send(prefix, ["sync", controls["sync"]])
+        send(prefix, ["round", controls["round"]])
         send(prefix, ["relative_sync", 0.0])
         # SL's own default (looper.cpp ports[PlaybackSync] = 0.0f). Forcing 1
         # made a fresh clip wait for the NEXT boundary after record-stop had
@@ -156,7 +169,7 @@ def set_grid_active(
         # from the top; from MUTE likewise. So `trigger` alone is the launch
         # (slot_runtime.LAUNCH_COMMANDS). `stop_all_loops` no longer sends
         # it: a trigger in the Stop All burst left the loop PLAYING every time.
-        send(prefix, ["mute_quantized", 1.0 if active else 0.0])
+        send(prefix, ["mute_quantized", controls["mute_quantized"]])
 
 
 
@@ -193,7 +206,7 @@ def apply_grid_sync(
     send: Callable[[str, list], None],
     *,
     num_loops: int = MAX_USABLE_LOOPS,
-    eighth_per_cycle: int = 8,
+    eighth_per_cycle: int = EIGHTH_PER_CYCLE,
     fade_samples: int = DEFAULT_FADE_SAMPLES,
     clock: str = DEFAULT_CLOCK,
     bpm: float = DEFAULT_BPM,
@@ -218,13 +231,6 @@ def apply_grid_sync(
     apply_loop_latency(send, num_loops=num_loops)
     # No grid until a take defines one, so start free-form.
     set_grid_active(send, num_loops=num_loops, active=False)
-
-
-def set_count_in(
-    send: Callable[[str, list], None], *, num_loops: int = MAX_USABLE_LOOPS, count_in: bool
-) -> None:
-    """Deprecated alias — the grid has two states, not a count-in toggle."""
-    set_grid_active(send, num_loops=num_loops, active=count_in)
 
 
 def establish_grid_clock(
@@ -365,10 +371,8 @@ def apply_freeform(
     send("/set", ["sync_source", SYNC_SOURCE_NONE])
     for loop in range(num_loops):
         prefix = f"/sl/{loop}/set"
-        send(prefix, ["quantize", 0.0])
-        send(prefix, ["sync", 0.0])
-        send(prefix, ["relative_sync", 0.0])
-        send(prefix, ["round", 0.0])
+        send_engine_controls(send, grid=False, prefix=prefix)
+        send(prefix, ["relative_sync", 0.0])   # not a quantizer
         send(prefix, ["playback_sync", 0.0])
 
 

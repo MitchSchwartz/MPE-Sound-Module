@@ -1,5 +1,13 @@
 # Session control plane — one owner per fact, reconciliation over sequences
 
+> **HISTORY — this file does not describe the instrument.**
+> It records what was intended or believed on its own date. It has been wrong
+> about shipped behaviour before, and where that is known a `CORRECTION` note
+> is inline. **The code is the documentation**; `Documents/looper-audit-2026-09-07.md`
+> maps which module answers which question. Never change code to match this file,
+> and never quote it as current behaviour.
+
+
 **Status (2026-08-19).** Phases 0, 1, 2, 3M and 5 have all landed on `dev` and **`main`**
 (`b9bf98e`). **Phase 3M is complete** — all twelve criteria met; criteria 42, 46 and 47
 were re-taken on `main` 2026-08-19 with verified provenance. Phase 5 is complete except
@@ -9,7 +17,8 @@ D15. The 512 × 3 looper stack comparison is **done** (full stack not xrun-clean
 load — see [`looper-stack-cost-2026-08-19.md`](../../docs/measurements/looper-stack-cost-2026-08-19.md)).
 Criterion 7 **passes as of 2026-08-19** (0.53% of a core at 2 Hz) — see
 [`docs/measurements/systemd-liveness-cost-2026-08-19.md`](../../docs/measurements/systemd-liveness-cost-2026-08-19.md).
-Outstanding work is tracked in [`next-work-order-2026-08-19.md`](next-work-order-2026-08-19.md).
+Outstanding work was tracked in `next-work-order-2026-08-19.md`, a queue deleted
+2026-09-07 — it had been stale for three weeks. `git log` has it.
 
 **Every phase table below carries a Status column. Code landing is not a phase closing** —
 Phase 3M is the standing example of the difference.

@@ -1,5 +1,13 @@
 # System hygiene baseline — go wide before going deep (2026-08-21)
 
+> **HISTORY — this file does not describe the instrument.**
+> It records what was intended or believed on its own date. It has been wrong
+> about shipped behaviour before, and where that is known a `CORRECTION` note
+> is inline. **The code is the documentation**; `Documents/looper-audit-2026-09-07.md`
+> maps which module answers which question. Never change code to match this file,
+> and never quote it as current behaviour.
+
+
 **Why this exists.** Two days of measurement went depth-first on a machine nobody had
 surveyed. A three-minute wide pass found a service crash-looping 617 times, a 3D graphics
 driver generating 857 k interrupts on a headless appliance, and seven maintenance timers
