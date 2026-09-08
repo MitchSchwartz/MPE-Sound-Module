@@ -1,5 +1,13 @@
 # Multi-clip per track — Ableton-style slot matrix
 
+> **HISTORY — this file does not describe the instrument.**
+> It records what was intended or believed on its own date. It has been wrong
+> about shipped behaviour before, and where that is known a `CORRECTION` note
+> is inline. **The code is the documentation**; `Documents/looper-audit-2026-09-07.md`
+> maps which module answers which question. Never change code to match this file,
+> and never quote it as current behaviour.
+
+
 **Issue:** [#115 autosave](https://github.com/MitchSchwartz/MPE-Sound-Module/issues/115) (follow-on; out of scope v1)  
 **Status:** Approved (Gate A — Mitch 2026-08-26)  
 **Last updated:** 2026-08-26 (America/Toronto) — **rev 3**, scratch loop removed
@@ -187,7 +195,13 @@ Gestures apply to **(track, slot)**. Existing record/stop/clear vocabulary from
 | **Stopped (occupied, not active)** | Select + queue **launch** at boundary | — | Pending switch: mute active slot on track, load this slot, trigger |
 | **Stopped (occupied)** while **other slot active** on same track | Queue **switch** at boundary | — | Outgoing = active slot; incoming = this slot |
 | **Stopped (occupied)** while **this slot is active** (muted) | Queue **launch** | — | Relaunch same slot on bar |
-| **Empty (non-active slot)** while **another slot active** on same track | Arm record into this slot | — | **Swap first:** save active slot to disk if dirty, clear loop `T`, then record into slot `S` (Gate A). **The track goes silent at the moment of arming** — see §One buffer per track |
+| **Empty (non-active slot)** while **another slot active** on same track | Arm record into this slot | — | **Swap first:** save active slot to disk if dirty, clear loop `T`, then record into slot `S` (Gate A). **The track goes silent at the moment of arming** *(**CORRECTION 2026-09-07: no longer true.** MEASURED on the Pi 2026-08-28 —
+the outgoing clip keeps sounding to the wrap and the engine starts the new take
+on that same boundary, 0.303 s of playback against 0.307 s left in the cycle.
+Silencing at the press left the track dead for up to a bar with nothing
+replacing it, reported as "recording a new clip immediately cuts the currently
+playing clip". `slot_runtime._prepare_record` deliberately sends no `mute_on`
+and no `undo_all` in that branch. OPEN-2 in this file is therefore closed.)* — see §One buffer per track |
 | **Any occupied** | Hold ≥ clear threshold | — | `undo_all` on track loop + remove slot from matrix (unchanged clear gesture) |
 
 **Not polyphonic:** launching slot B on a track with slot A playing never layers A+B.
@@ -195,7 +209,10 @@ The bench always schedules **mute/stop A** and **load+trigger B** for the same
 quantize boundary.
 
 **Defining take / seam weld:** first take that establishes grid tempo may still use
-seam weld on the **track's active slot** — same as today on that loop index; slot
+seam weld on the **track's active slot**
+*(**CORRECTION 2026-09-07:** contradicts this file's own rev 3 note above. There
+is no seam weld and no scratch loop; `a99cf63` deleted both.)*
+ — same as today on that loop index; slot
 index recorded in matrix metadata.
 
 ### LED hints (contract)
@@ -575,13 +592,13 @@ Run on bench (Pi or laptop + SL):
 
 | # | Question | Method | Pass |
 |---|----------|--------|------|
-| ✅ SP1 | `save_loop` / `load_loop` timing, 16 × 8 = 128 | `slot_matrix_spike.py --sp1` | **PASS 2026-08-26.** load p95 **7.1 ms**, save p95 **2.3 ms**, full matrix **0.3 s**. Budget not under pressure |
-| ✅ SP2 | Inactive slot `load_loop` latency at launch | `slot_matrix_spike.py --sp2` | **PASS 2026-08-26.** p95 **6.8 ms** vs a 2000 ms bar — ~300× margin |
+| ✅ SP1 | `save_loop` / `load_loop` timing, 16 × 8 = 128 | was `slot_matrix_spike.py --sp1`, deleted 2026-09-07 | **PASS 2026-08-26.** load p95 **7.1 ms**, save p95 **2.3 ms**, full matrix **0.3 s**. Budget not under pressure |
+| ✅ SP2 | Inactive slot `load_loop` latency at launch | was `slot_matrix_spike.py --sp2`, deleted 2026-09-07 | **PASS 2026-08-26.** p95 **6.8 ms** vs a 2000 ms bar — ~300× margin |
 | SP3 | **mute_off cancel** for pending quantized mute | Tap play → tap stop → re-tap before bar | Outgoing keeps playing; no glitch |
 | SP3b | **pause_on cancel** for pending quantized launch | Tap stop (muted) → tap launch → re-tap before bar | Stays stopped/muted; no launch at bar |
-| ✅ SP4 | Switch: mute A + load B + trigger, one boundary | `slot_matrix_spike.py --sp4` | **PASS (state level) 2026-08-26.** Lands playing. Audible check deferred to P2 |
+| ✅ SP4 | Switch: mute A + load B + trigger, one boundary | was `slot_matrix_spike.py --sp4`, deleted 2026-09-07 | **PASS (state level) 2026-08-26.** Lands playing. Audible check deferred to P2 |
 | SP5 | Scene row launch with 15 tracks (7 off-screen) | Iterate `musical_loop_indices()` | All occupied cells in row queue |
-| ⚠️ SP7 | **Switch queued while the ring-out overdub is running** (rev 3, settles OPEN-4) | `slot_matrix_spike.py --sp7` | **PARTIAL 2026-08-26.** State machine confirmed: SL accepts overdub-off + switch in one burst and lands playing. **Audible seam untested** — Surge was silent, so the overdub recorded zero. Needs a played take (P2) |
+| ⚠️ SP7 | **Switch queued while the ring-out overdub is running** (rev 3, settles OPEN-4) | was `slot_matrix_spike.py --sp7`, deleted 2026-09-07 | **PARTIAL 2026-08-26.** State machine confirmed: SL accepts overdub-off + switch in one burst and lands playing. **Audible seam untested** — Surge was silent, so the overdub recorded zero. Needs a played take (P2) |
 | ✅ **SP6** | **Scene Launch note numbers per APC variant** | `aseqdump -p "APC MINI"` alongside the running bench | **mk1 MEASURED 2026-08-26.** Scene 1–7 = `0x52`–`0x58`, Scene 8 = `0x59` (= Stop All), Shift = `0x62` — every existing constant confirmed. Shift does **not** modify scene notes. mk2 still unverified |
 | ⚠️ **SP8** | **Does the mk1 Shift ghost exist?** (new, from SP6) | Press Shift alone several times, capture; any note but `0x62` is a ghost | The SP6 capture contained **no ghost**. If it is not real, `MK1_GHOST_SHIFT_S` is swallowing genuine Shift+Scene presses for 80 ms — the P3 gesture. **Blocks P3** |
 
@@ -623,5 +640,7 @@ complete. SP1/SP2/SP4 pass and SP7 is partial, so latency is settled and the que
 - Gesture plans: `scripts/sooperlooper/loop_model.py`
 - Songs v1: `scripts/sooperlooper/looper_songs.py`
 - Touch HUD: `patch_browser/touch_browser_looper_songs.py`
-- Seam / quantize: `Documents/specs/looper-loop-seam-spec.md`, `looper-transport-clock-spec.md`
+- Quantize: `looper-transport-clock-spec.md` (history). The seam spec it sat
+  beside described the offline weld deleted in `a99cf63`, and was itself
+  deleted 2026-09-07. Live answer: `scripts/sooperlooper/tail_phase.py`.
 - UX canon: `Documents/DECISIONS.md` 2026-08-14 "Loop UX"

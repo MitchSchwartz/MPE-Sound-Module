@@ -1,5 +1,13 @@
 # Looper as JACK callback client — swappable mixer, realtime discipline
 
+> **HISTORY — this file does not describe the instrument.**
+> It records what was intended or believed on its own date. It has been wrong
+> about shipped behaviour before, and where that is known a `CORRECTION` note
+> is inline. **The code is the documentation**; `Documents/looper-audit-2026-09-07.md`
+> maps which module answers which question. Never change code to match this file,
+> and never quote it as current behaviour.
+
+
 > **⚠ SUPERSEDED 2026-08-13** — The Python JACK callback path (Tasks 1–11) is
 > **rejected**. Python must not run on the audio thread. See
 > [`DECISIONS.md`](../DECISIONS.md) and [`DIRECTION.md`](../DIRECTION.md).

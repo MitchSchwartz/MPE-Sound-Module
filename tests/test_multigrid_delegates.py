@@ -41,7 +41,6 @@ def build_test_gesture(
         hold_ms=2000,
         debounce_ms=debounce_ms,
         multigrid=True,
-        quantized=False,
     )
     fs.bind(_OscStub(sink), None, pad_note(0, loop))
     return fs

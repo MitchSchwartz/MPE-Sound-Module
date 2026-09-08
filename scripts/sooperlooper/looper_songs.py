@@ -20,10 +20,10 @@ from sl_grid_sync import (
     set_grid_active,
 )
 from sl_loop_states import ACTIVE_PLAY, SL_STATE_MUTE, SL_STATE_OFF, SL_STATE_PAUSED
+from looper_timing import send_engine_controls
 
 SL_HOST = os.environ.get("MPE_SL_OSC_HOST", "127.0.0.1")
 SL_PORT = int(os.environ.get("MPE_SL_OSC_PORT", "9951"))
-LISTEN_PORT = int(os.environ.get("MPE_SL_SONGS_PORT", "9955"))
 from sl_limits import resolve_num_loops  # noqa: E402
 
 NUM_LOOPS = resolve_num_loops()
@@ -425,7 +425,7 @@ class LooperSongProbe:
         self.last: dict[str, float] = {}
         self._server = None
         self._listen_host = "127.0.0.1"
-        self._listen_port = LISTEN_PORT
+        self._listen_port = 0          # real port assigned by start()
         self.client = None
 
     def _on(self, _addr, *args) -> None:
@@ -438,7 +438,7 @@ class LooperSongProbe:
 
         disp = osc_dispatcher.Dispatcher()
         disp.set_default_handler(self._on)
-        # Ephemeral port — fixed LISTEN_PORT collides when save/load probes overlap.
+        # Ephemeral port — a fixed one collides when save/load probes overlap.
         self._listen_host = "127.0.0.1"
         self._server = osc_server.ThreadingOSCUDPServer((self._listen_host, 0), disp)
         self._listen_port = int(self._server.server_address[1])
@@ -576,12 +576,18 @@ def stop_playback(
     `grid` lets a caller that has already read the engine avoid a second
     round trip; absent, it reads.
     """
-    probe.send("/sl/-1/set", ["mute_quantized", 0.0])
+    # Values come from `looper_timing`, not from literals here. The restore
+    # below used to be an unconditional 1.0, so stopping playback in a session
+    # with no grid left every later per-clip stop waiting for a cycle boundary
+    # that no tempo defined — the same defect `settle_stop_all` had, written
+    # out separately in a second file. That is why nobody found either by
+    # reading: neither line was wrong on its own.
+    send_engine_controls(probe.send, grid=False)
     probe.send("/sl/-1/hit", "mute_on")
     probe.send("/sl/-1/hit", "pause_on")
-    probe.send("/sl/-1/set", ["mute_quantized", 1.0])
     if grid is None:
         grid = read_engine_grid(probe)
+    send_engine_controls(probe.send, grid=grid is not None)
     if grid is None:
         return          # no grid on the engine; there is no phase to reset
     apply_established_grid(

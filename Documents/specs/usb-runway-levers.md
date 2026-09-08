@@ -1,5 +1,13 @@
 # Levers on the USB runway (2026-08-21)
 
+> **HISTORY — this file does not describe the instrument.**
+> It records what was intended or believed on its own date. It has been wrong
+> about shipped behaviour before, and where that is known a `CORRECTION` note
+> is inline. **The code is the documentation**; `Documents/looper-audit-2026-09-07.md`
+> maps which module answers which question. Never change code to match this file,
+> and never quote it as current behaviour.
+
+
 Context: `docs/measurements/t11-condA-ladder-2026-08-21.md`. Condition A falls off a cliff
 below 512 while **callbacks never miss their deadline** (917 us worst against 1333 us at 64
 frames, with 6% of periods underrunning anyway). The drain is below JACK, in the USB

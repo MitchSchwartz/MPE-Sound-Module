@@ -34,7 +34,20 @@ to write a value of this kind, stop and put it somewhere else.
 
 **Product:** Raspberry Pi MPE sound module (Surge XT headless + patch browser UI).
 
-**Before looper / Phase 2 work:** [`Documents/DIRECTION.md`](Documents/DIRECTION.md) · [`Documents/DECISIONS.md`](Documents/DECISIONS.md) · OM-Repo [`GROUNDING.md`](https://github.com/opsMachine/OM-Repo/blob/main/internal/projects/mpe-synth-launch/GROUNDING.md)
+**Before looper work — the code is the documentation.** No document in this repo
+describes what the looper does, and several state the opposite of what it does.
+Start at [`Documents/looper-audit-2026-09-07.md`](Documents/looper-audit-2026-09-07.md),
+which maps which module answers which question, then read that module. Timing
+(does an action wait for the boundary?) is `scripts/sooperlooper/looper_timing.py`
+and nowhere else; routing (what a control does on which edge) is
+`scripts/sooperlooper/binding_table.py` and nowhere else. Both refuse a second
+opinion, in the test suite and at import.
+
+[`Documents/DIRECTION.md`](Documents/DIRECTION.md) and
+[`Documents/DECISIONS.md`](Documents/DECISIONS.md) are history: read them for
+*why* something was decided and what was measured, never for what is true now.
+Everything in `Documents/specs/` is stamped HISTORY for the same reason.
+Phase 2 direction also in OM-Repo [`GROUNDING.md`](https://github.com/opsMachine/OM-Repo/blob/main/internal/projects/mpe-synth-launch/GROUNDING.md).
 
 **Before adding any polling loop, watchdog tick, or timer:** CPU is the scarcest resource
 on this appliance — a `python3` fork is ~400 ms on the Pi, so once every 5 s is **9% of a
@@ -94,8 +107,8 @@ Install once: clone `mpe-cli`, run `./install.sh`, edit `~/.config/mpe/mpe.env` 
 | `mpe record [file] [fps]` | Touch UI screen capture |
 | `mpe pull-videos [-o DIR] [--delete-source]` | Download demo videos |
 | `mpe restart surge\|touch\|all` | Restart fixed systemd units |
-| `mpe looper sl-clips [local\|pi]` | SooperLooper eval: generate 16 fixture WAVs (default: pi) |
-| `mpe looper sl-smoke [local\|pi]` | SooperLooper eval: 16-loop load/trigger smoke (default: pi) |
+| `mpe looper sl-clips [local\|pi]` | SooperLooper eval: generate 15 fixture WAVs (default: pi) |
+| `mpe looper sl-smoke [local\|pi]` | SooperLooper eval: 15-loop load/trigger smoke (default: pi) |
 | `mpe looper sl-restart [local\|pi]` | Restart SooperLooper on JACK + wire record path (default: pi) |
 
 **Agent-safe (read-only):** `ping`, `status`, `logs`, `osc-check`, `diagnose`, `sysinfo`, `pull-videos` (skip `--delete-source` for zero writes), `looper sl-clips local` (fixture generation only).
@@ -204,7 +217,10 @@ Repo path on Pi: `~/MPE-Module` (override via `MPE_MODULE_REPO` in `/etc/mpe/mpe
 | Topic | Doc |
 |-------|-----|
 | **Code map (function-level, boot/lifecycle)** | [`docs/CODE-MAP.md`](docs/CODE-MAP.md) |
-| **Phase 2 direction + locked decisions** | [`Documents/DIRECTION.md`](Documents/DIRECTION.md) · [`Documents/DECISIONS.md`](Documents/DECISIONS.md) |
+| **What the looper does** | the code — [`Documents/looper-audit-2026-09-07.md`](Documents/looper-audit-2026-09-07.md) maps it |
+| **When an action takes effect** | `scripts/sooperlooper/looper_timing.py` (the only place) |
+| **What a control does** | `scripts/sooperlooper/binding_table.py` (the only place) |
+| Phase 2 direction + why decisions were made (history) | [`Documents/DIRECTION.md`](Documents/DIRECTION.md) · [`Documents/DECISIONS.md`](Documents/DECISIONS.md) |
 | Git branches + Pi testing | [`docs/GIT-WORKFLOW.md`](docs/GIT-WORKFLOW.md) |
 | Paths / env vars | [`docs/PATHS.md`](docs/PATHS.md) |
 | USB desk tether (`usb-host`) | [`docs/USB-AUDIO-HOST.md`](docs/USB-AUDIO-HOST.md) |

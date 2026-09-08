@@ -1,5 +1,13 @@
 # Touch Patch Browser (SmartiPi / 5" landscape)
 
+> **HISTORY — this file does not describe the instrument.**
+> It records what was intended or believed on its own date. It has been wrong
+> about shipped behaviour before, and where that is known a `CORRECTION` note
+> is inline. **The code is the documentation**; `Documents/looper-audit-2026-09-07.md`
+> maps which module answers which question. Never change code to match this file,
+> and never quote it as current behaviour.
+
+
 **Issue:** untracked
 **Status:** Draft
 **Created:** 2026-07-24

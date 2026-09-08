@@ -1,5 +1,13 @@
 # Touch patch browser — instruments, favorites v2, nested nav
 
+> **HISTORY — this file does not describe the instrument.**
+> It records what was intended or believed on its own date. It has been wrong
+> about shipped behaviour before, and where that is known a `CORRECTION` note
+> is inline. **The code is the documentation**; `Documents/looper-audit-2026-09-07.md`
+> maps which module answers which question. Never change code to match this file,
+> and never quote it as current behaviour.
+
+
 **Status:** Draft (design)  
 **Last updated:** 2026-08-08 (America/Toronto)  
 **Depends on:** #10 shipped (All patches + A–Z rail)  

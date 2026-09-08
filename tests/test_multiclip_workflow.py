@@ -385,10 +385,15 @@ class QuantizedSessionTests(Session):
     """
 
     def establish_grid(self) -> None:
-        """What on_grid_established does: later clips count in to the bar."""
+        """What on_grid_established does: later clips count in to the bar.
+
+        Only the ENGINE double is switched. The gestures used to be switched
+        too, by hand, via a `fs.quantized` flag — and that was the bug: the
+        flag was the bench's own idea of the mode, kept beside the truth
+        instead of read from it. They now ask `looper_timing` against live
+        grid state, so establishing the grid is all it takes.
+        """
         self.engine.quantized = True
-        for fs in self.fs_by_loop.values():
-            fs.quantized = True
 
     def record_first_then_grid(self, slot: int = 0) -> None:
         self.record_clip(slot)

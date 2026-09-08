@@ -46,7 +46,15 @@ JACKD_SERVICE = REPO_ROOT / "config" / "mpe-jackd.service"
 
 
 def _bash_env(run_dir: str | None = None, **extra: str) -> dict[str, str]:
-    env = os.environ.copy()
+    """A deliberate environment, not whatever the run has accumulated.
+
+    This was `os.environ.copy()`, so every `MPE_*` key any earlier test wrote
+    and failed to restore was handed to the shell under test. `audio-engine.sh`
+    reads `MPE_JACK_BUFFER` (`:89`) among others, so a leaked value changed the
+    behaviour being asserted -- and only when the leaking test ran first, which
+    is what an order-dependent flake looks like from the outside.
+    """
+    env = {k: v for k, v in os.environ.items() if not k.startswith("MPE_")}
     env["MPE_MODULE_REPO"] = str(REPO_ROOT)
     if run_dir is not None:
         env["MPE_RUN_DIR"] = run_dir

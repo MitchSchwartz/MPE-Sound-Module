@@ -1,5 +1,13 @@
 # Low-latency work order — make 512, then 256, xrun-clean
 
+> **HISTORY — this file does not describe the instrument.**
+> It records what was intended or believed on its own date. It has been wrong
+> about shipped behaviour before, and where that is known a `CORRECTION` note
+> is inline. **The code is the documentation**; `Documents/looper-audit-2026-09-07.md`
+> maps which module answers which question. Never change code to match this file,
+> and never quote it as current behaviour.
+
+
 **Hand this to a fresh agent.** Self-contained; assumes no prior context.
 
 **Conformance:** `./scripts/instrument-conformance.sh` must exit 0 before any Pi step.
@@ -92,7 +100,9 @@ a hard IRQ that cannot be preempted or prioritized. At 1024 (21 ms) that is invi
   this appliance is **a reading that looks the same broken or fine**.
 - `Documents/DECISIONS.md` — CPU doctrine: no forks in periodic loops; bash is acceptable,
   Python is not always, C is on the table when measured to be necessary.
-- `Documents/specs/rerun-order-2026-08-19.md` — the six traps that voided prior runs.
+- The six traps that voided prior runs were listed in
+  `Documents/specs/rerun-order-2026-08-19.md`, deleted 2026-09-07. They are
+  restated in the section below, which is why the file was removable.
 
 ## Traps that have already voided runs on this hardware
 
@@ -423,8 +433,8 @@ out) removes the host controller entirely and is cheaper than a USB interface.
 
 Ship-critical settings (`irqaffinity=0,1`, unit affinities) must be under repo management
 before any further measurement. Movable IRQs off CPU0. See
-`Documents/specs/system-hygiene-baseline.md` and the live queue in
-`Documents/specs/next-tasks-2026-08-20.md`.
+`Documents/specs/system-hygiene-baseline.md`. The queue this pointed at
+(`next-tasks-2026-08-20.md`) was deleted 2026-09-07; it had not been live since August.
 
 ### E1 — three cores instead of two. **CLOSED — refuted 2026-08-20.**
 

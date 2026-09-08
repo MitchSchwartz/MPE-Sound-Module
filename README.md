@@ -86,7 +86,7 @@ Grid/free-form looping via **SooperLooper** on the JACK graph, alongside Surge �
 - **APC MINI** transport/scene control when the looper is enabled
 - **Song save/load** from the touch UI
 - **Tempo readout** and looper-aware navigation
-- Seam/overdub behaviour is under active polish — see **[Documents/DIRECTION.md](Documents/DIRECTION.md)** and **[Documents/specs/looper-loop-seam-spec.md](Documents/specs/looper-loop-seam-spec.md)**. No standalone user guide yet; builder docs and specs are the source of truth.
+- Seam/overdub behaviour is under active polish. **The code is the source of truth** — no document here describes what the looper does, and the older specs state the opposite in places. [Documents/looper-audit-2026-09-07.md](Documents/looper-audit-2026-09-07.md) maps which module answers which question. No standalone user guide yet.
 
 Enable via `MPE_LOOPER_ENABLED=1` in `/etc/mpe/mpe.env` (Pi 5 only in practice).
 

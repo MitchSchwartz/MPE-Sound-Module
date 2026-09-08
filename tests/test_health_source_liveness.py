@@ -47,10 +47,14 @@ class HealthSourceLivenessTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             bad = Path(tmp) / "meter.state"
             import os
+            from unittest import mock
 
-            os.environ["MPE_METER_STATE"] = str(bad)
-            with self.assertRaises(SystemExit) as ctx:
-                verify_or_exit("sl-watchdog")
+            # Scoped, not assigned. This wrote MPE_METER_STATE into the process
+            # and never put it back, so every later test in the run inherited a
+            # path into a deleted temp directory.
+            with mock.patch.dict(os.environ, {"MPE_METER_STATE": str(bad)}):
+                with self.assertRaises(SystemExit) as ctx:
+                    verify_or_exit("sl-watchdog")
             self.assertEqual(1, ctx.exception.code)
 
     def test_sl_watchdog_role_spec(self) -> None:

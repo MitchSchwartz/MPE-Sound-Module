@@ -87,6 +87,8 @@ from sl_grid_sync import (
     detect_loop_wrap,
     should_defer_phase_anchor,
 )
+import looper_timing as timing
+from looper_timing import send_engine_controls
 from sl_loop_states import (
     ACTIVE_PLAY,
     ACTIVE_RECORD,
@@ -189,7 +191,6 @@ class TrackGesture:
         debounce_ms: float,
         hold_blink_start_ms: float = 500.0,
         num_loops: int = MAX_USABLE_LOOPS,
-        quantized: bool = True,
         grid: GridState | None = None,
         on_grid_established=None,
         on_phase_reanchor=None,
@@ -236,9 +237,11 @@ class TrackGesture:
         self._now = now
         self._last_loop_pos = 0.0
         self._phase_reanchor_at = 0.0
-        # Is this loop waiting for cycle boundaries? False in free-form, where
-        # arming a quantize wait strands the pad on a boundary that never comes.
-        self.quantized = quantized
+        # There is no `self.quantized` any more, and its absence is the fix.
+        # It was set once from MPE_SL_SYNC_MODE at bench startup and never
+        # updated, so it recorded the MODE the instrument booted in rather
+        # than whether a grid actually exists now. Whether an action waits is
+        # asked of `looper_timing`, per action, at the moment of the press.
         self.num_loops = num_loops
         self.hold_s = hold_ms / 1000.0
         self.hold_blink_start_s = hold_blink_start_ms / 1000.0
@@ -920,7 +923,6 @@ class TrackGesture:
             pending=self._pending,
             grid_established=self.grid is None or self.grid.established,
             is_defining=self.grid is not None and self.grid.is_pending(self.loop),
-            quantized=self.quantized,
             tail_capture_enabled=RING_OUT_ENABLED,
         )
         if not (
@@ -1028,7 +1030,6 @@ def build_track_gestures(
     hold_ms: float,
     debounce_ms: float,
     hold_blink_start_ms: float = 500.0,
-    quantized: bool = True,
     grid: GridState | None = None,
     view: GridView | None = None,
     on_grid_established=None,
@@ -1054,7 +1055,6 @@ def build_track_gestures(
             debounce_ms=debounce_ms,
             hold_blink_start_ms=hold_blink_start_ms,
             num_loops=num_loops,
-            quantized=quantized,
             grid=grid,
             on_grid_established=on_grid_established,
             on_phase_reanchor=on_phase_reanchor,
@@ -1225,12 +1225,15 @@ def settle_stop_all(osc, gestures: list["TrackGesture"], *, log=log):
 
     grid = next((fs.grid for fs in gestures if fs.grid is not None), None)
     grid_active = bool(grid is not None and grid.established and grid.bpm)
-    # Back to what the grid says, NOT unconditionally 1.0: with no grid
-    # established every loop is deliberately free-form, and a quantize of 1
-    # would sync the take that is supposed to DEFINE the grid to a cycle
-    # inherited from the previous session.
-    osc.send_message("/sl/-1/set", ["quantize", 1.0 if grid_active else 0.0])
-    osc.send_message("/sl/-1/set", ["mute_quantized", 1.0])
+    # Back to what the grid says, through the one function that knows what
+    # these controls mean. This restore used to be written out here, and it
+    # did not agree with itself: `quantize` followed the grid while
+    # `mute_quantized` went back to 1.0 UNCONDITIONALLY. So after a Stop All
+    # in a session with no grid, every later per-clip stop was deferred to a
+    # cycle boundary that no tempo defined — a stop that waited up to a whole
+    # loop while `set_grid_active` believed it had turned that off. Nobody
+    # found it by reading, because the two lines are in different files.
+    send_engine_controls(osc.send_message, grid=grid_active)
     return still_active
 
 
@@ -1287,8 +1290,13 @@ def stop_all_loops(
     # push_control_event / push_command_event → _event_queue), in order.
     # The quantize restore stays in `settle_stop_all` because it is harmless
     # there, not because moving it fixed anything.
-    osc.send_message("/sl/-1/set", ["mute_quantized", 0.0])
-    osc.send_message("/sl/-1/set", ["quantize", 0.0])
+    # Immediate by construction. `looper_timing` says Stop All never waits,
+    # and the controls that would make it wait are cleared here before the
+    # mute rather than being trusted to already be right.
+    assert timing.when(
+        timing.STOP_ALL, timing.Session(grid=grid_active, sounding=True)
+    ).immediate, "looper_timing says Stop All waits; this burst assumes it does not"
+    send_engine_controls(osc.send_message, grid=False)
     osc.send_message("/sl/-1/hit", "mute_on")
     osc.send_message("/sl/-1/hit", "pause_on")
     if grid_active:

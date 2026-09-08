@@ -333,8 +333,9 @@ transport rather than the translation. About 1% of one 64×2 JACK period and two
 orders of magnitude below perceptible. Full result and method:
 [`classic-midi-router-hop-2026-08-28.md`](measurements/classic-midi-router-hop-2026-08-28.md).
 
-`measure_midi_osc_latency.py`, which this plan originally named, measures
-pad-down → OSC for the bench and is the wrong shape for a forwarding hop;
+`measure_midi_osc_latency.py`, which this plan originally named, measured
+pad-down → OSC for the bench and was the wrong shape for a forwarding hop
+(deleted 2026-09-07 — the bench's own `--measure-latency` covers it);
 `scripts/spike-router-hop-latency.py` was written for it instead. Unmeasured:
 cost under a live audio graph, and the fan-out case where one input bend becomes
 up to 15 output messages.

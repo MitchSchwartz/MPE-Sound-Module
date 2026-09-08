@@ -333,7 +333,6 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
         hold_ms=hold_ms,
         debounce_ms=debounce_ms,
         hold_blink_start_ms=hold_blink_start_ms,
-        quantized=grid_active,
         view=view,
         grid=grid if grid_active else None,
         on_grid_established=on_grid_established if grid_active else None,

@@ -15,7 +15,6 @@ from scripts.sooperlooper.slot_matrix import (
     ACT_RECORD,
     ACT_SWITCH,
     NUM_SLOTS,
-    NUM_TRACKS,
     PENDING_LAUNCH,
     PENDING_SWITCH,
     Pending,
@@ -28,6 +27,7 @@ from scripts.sooperlooper.slot_matrix import (
     resolve_at_boundary,
     row_is_fully_playing,
 )
+from scripts.sooperlooper.sl_limits import MAX_USABLE_LOOPS
 from scripts.sooperlooper.sl_loop_states import (
     SL_STATE_MUTE,
     SL_STATE_OFF,
@@ -60,7 +60,7 @@ class GeometryTests(unittest.TestCase):
         and behaves unlike every other one. Measured 2026-08-27; see
         sl_limits.py."""
         """rev 3: the seam-weld scratch loop is gone, so nothing is reserved."""
-        self.assertEqual(NUM_TRACKS, 15)
+        self.assertEqual(MAX_USABLE_LOOPS, 15)
         self.assertEqual(NUM_SLOTS, 8)
 
     def test_a_track_always_has_eight_slots(self) -> None:
@@ -274,10 +274,10 @@ class SceneRowTests(unittest.TestCase):
     def test_scene_reaches_tracks_banked_off_screen(self) -> None:
         """The viewport must not change what the gesture means."""
         grid = {i: track(slots=[clip(f"a{i}.wav")] + [None] * 7, active_slot=None)
-                for i in range(NUM_TRACKS)}
-        plans = plan_scene_press(grid, 0, sl_states={i: SL_STATE_OFF for i in range(NUM_TRACKS)})
-        self.assertEqual(len(plans), NUM_TRACKS)
-        self.assertEqual(sorted(p.track for p in plans), list(range(NUM_TRACKS)))
+                for i in range(MAX_USABLE_LOOPS)}
+        plans = plan_scene_press(grid, 0, sl_states={i: SL_STATE_OFF for i in range(MAX_USABLE_LOOPS)})
+        self.assertEqual(len(plans), MAX_USABLE_LOOPS)
+        self.assertEqual(sorted(p.track for p in plans), list(range(MAX_USABLE_LOOPS)))
 
     def test_scene_skips_tracks_with_that_slot_empty(self) -> None:
         grid = {0: track(slots=[clip()] + [None] * 7), 1: track()}

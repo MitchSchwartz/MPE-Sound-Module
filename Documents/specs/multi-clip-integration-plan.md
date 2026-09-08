@@ -1,5 +1,13 @@
 # Multi-clip integration plan — one owner per track column
 
+> **HISTORY — this file does not describe the instrument.**
+> It records what was intended or believed on its own date. It has been wrong
+> about shipped behaviour before, and where that is known a `CORRECTION` note
+> is inline. **The code is the documentation**; `Documents/looper-audit-2026-09-07.md`
+> maps which module answers which question. Never change code to match this file,
+> and never quote it as current behaviour.
+
+
 **Status:** Composition refactor on `dev` (2026-08-27) — gestures delegate to `LoopFootswitch`; `SlotRuntime` is slot/file ops only  
 **Last updated:** 2026-08-27 (America/Toronto)  
 **Product spec:** [`multi-clip-per-track-spec.md`](multi-clip-per-track-spec.md) (rev 4)  
@@ -270,7 +278,9 @@ green + switch/cancel cases.
 - [ ] Cancel pending switch by re-tapping outgoing slot
 - [ ] SP7 audible seam check with Surge playing (not silent)
 
-**Gate — measurement:** optional `slot_matrix_spike.py --sp7` with audio fixture.
+**Gate — measurement:** was `slot_matrix_spike.py --sp7` with an audio fixture.
+That harness was deleted 2026-09-07 (`716468f` has it). The gate is still open;
+re-taking it means a played take on the bench, not a rebuilt spike.
 
 ---
 

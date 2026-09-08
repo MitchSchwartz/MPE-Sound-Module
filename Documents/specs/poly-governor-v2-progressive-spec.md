@@ -1,5 +1,13 @@
 # Poly governor v2 — ramp-aware proactive limit (no duck)
 
+> **HISTORY — this file does not describe the instrument.**
+> It records what was intended or believed on its own date. It has been wrong
+> about shipped behaviour before, and where that is known a `CORRECTION` note
+> is inline. **The code is the documentation**; `Documents/looper-audit-2026-09-07.md`
+> maps which module answers which question. Never change code to match this file,
+> and never quote it as current behaviour.
+
+
 **Status:** Approved (Gate A 2026-08-23) · **Pi 5 default candidate:** `always_on` (ear tune 2026-08-23)  
 **Created:** 2026-08-23 (America/Toronto)  
 **Last updated:** 2026-08-23 19:47 (America/Toronto)

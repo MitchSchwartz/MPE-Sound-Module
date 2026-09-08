@@ -2,6 +2,16 @@
 
 **Branch:** `dev` · Pi binary: `~/src/sooperlooper-1.7.9/src/sooperlooper`
 
+**15 tracks**, everywhere and always — `sl_limits.MAX_USABLE_LOOPS`. Loop 15
+exists in the engine and behaves unlike the others, so it is not usable; this
+file said 16 for three weeks while every script said 15.
+
+> **Orientation, not authority.** Where this file and a module disagree, the
+> module wins. Two questions have exactly one answer each and it is not here:
+> **when an action takes effect** is `looper_timing.py`, and **what a control
+> does on which edge** is `binding_table.py`. Both refuse a second opinion —
+> one in the test suite, one at import.
+
 ## Clock — settled (spec §K, DECISIONS 2026-08-15)
 
 **SooperLooper's own internal sync.** `sync_source = -3` plus an explicit
@@ -37,7 +47,8 @@ first take read as four bars came back quantizing to a quarter of the take.
 
 **The first take defines the grid.** It records free-form and instant, with no
 bar to count in to; its length yields the tempo. Every later clip counts in and
-quantizes. Standard looper workflow — Boss RC-20, JamMan, Ableton, Loopy Pro all
+quantizes — including, today, into a session where nothing is playing at all,
+which is the open question `looper_timing.RULES[RECORD_START]` calls D0. Standard looper workflow — Boss RC-20, JamMan, Ableton, Loopy Pro all
 work this way. After establishment the defining clip is ordinary and can be
 deleted like any other.
 
@@ -45,14 +56,14 @@ The JACK-transport path is **deleted, not deprecated** (`e279d6f`). Anything
 describing a timebase master, `start-jack-timebase.sh` or `spike-jack-transport.py`
 is stale — those files are gone.
 
-## APC 16-track clip row (Ableton-style, banked)
+## APC 15-track clip row (Ableton-style, banked)
 
 | Row | APC notes | Tracks | Role |
 |---|---|---|---|
-| **0** (bottom) | 0–7 | 8 visible of 16 | Clip pads — record/play/stop lives here |
-| 1–7 | — | — | Reserved (per-track controllers, scenes — future) |
+| **0** (bottom) | 0–7 | 8 visible of 15 | Clip pads — record/play/stop lives here |
+| 1–7 | 8–63 | slots 1–7 of the visible track | Multi-clip slot rows (`MPE_SL_MULTIGRID`) — `slot_matrix.py` |
 | **Faders 1–8** | CC 48–55 | the 8 visible tracks | Track level |
-| **Master fader** | CC 56 | all 16 | Loop-mix master |
+| **Master fader** | CC 56 | all 15 | Loop-mix master |
 | **Up / Down** | arrows | — | Page the viewport by 8 |
 | **Shift + Left / Right** | arrows | — | Nudge the viewport by 1 |
 
@@ -85,7 +96,7 @@ var into that module — so the number in the table cannot drift from the number
 that runs.
 
 **Tracks run left to right on one line.** The APC is eight columns wide, so it
-is a *viewport* onto sixteen tracks, not a container for them. This replaced
+is a *viewport* onto fifteen tracks, not a container for them. This replaced
 the row-0/row-3 split (2026-08-16), where fader N drove loops N *and* N+8
 because both sat in the same column. Under the viewport a column holds exactly
 one track, so a fader means one track — which is what makes "one clip at a time
@@ -157,9 +168,9 @@ would be the obvious mapping, but every global this system sends is a *setting*
 (`tempo`, `sync_source`, `fade_samples`) — nothing has ever written a level at
 engine scope, so that control is unproven, and OSC drops a message to a control
 the engine lacks in silence. So the master is a factor in `wet_for()` and moves
-all 16 loops over per-loop `wet`, which is proven live. Loops sum into
+all 15 loops over per-loop `wet`, which is proven live. Loops sum into
 `common_out` through plain `jack_connect` with no gain or limiter stage, so
-scaling all 16 is exactly equal to scaling the bus. One master move is 16 OSC
+scaling all 15 is exactly equal to scaling the bus. One master move is 15 OSC
 messages, capped by the same coalescer as the rest.
 
 **Faders don't move on their own.** They have no motors, so at startup their
@@ -263,7 +274,7 @@ healthy. That cost three evenings — spec §M.
 ```bash
 mpe looper sl-clips          # on Pi (default)
 mpe looper sl-clips local    # laptop clone → tests/fixtures/sooperlooper-loops/
-mpe looper sl-smoke          # restart -l 16, load, trigger, VmRSS + jack_cpu_load
+mpe looper sl-smoke          # restart -l 15, load, trigger, VmRSS + jack_cpu_load
 mpe looper sl-diagnose       # 45s soak: fan-in, xrun/journal, peak (needs jack-capture)
 ```
 
@@ -274,4 +285,4 @@ bash scripts/sooperlooper/generate-test-clips.sh
 bash scripts/sooperlooper/smoke-16-loops.sh
 ```
 
-Restarts SooperLooper with `-l 16`, loads fixture WAVs, triggers all loops, prints VmRSS + `jack_cpu_load`.
+Restarts SooperLooper with `-l 15`, loads fixture WAVs, triggers all loops, prints VmRSS + `jack_cpu_load`.

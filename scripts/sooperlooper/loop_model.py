@@ -30,6 +30,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+import looper_timing as timing
+
 from sl_loop_states import (
     ACTIVE_PLAY,
     SL_STATE_INSERTING,
@@ -117,8 +119,8 @@ def plan_gesture(
     pending: str | None,
     grid_established: bool,
     is_defining: bool,
-    quantized: bool,
     tail_capture_enabled: bool = False,
+    sounding: bool | None = None,
 ) -> Plan:
     """The whole gesture vocabulary, split by which physical edge fired.
 
@@ -158,14 +160,26 @@ def plan_gesture(
     if state == STATE_IDLE:
         if edge != "down":
             return Plan()
-        # No grid yet? This take defines it: record free-form and instant,
-        # because there is no bar to count in to. Standard looper workflow.
+        # This branch used to answer "does this record wait?" itself, from
+        # `grid_established`. That is the same question `slot_runtime` asks for
+        # launching, and answering it here with a different predicate is how
+        # "a silent session needs no count-in" came to apply to launching and
+        # never to recording -- D0. The table decides now: when D0 is answered,
+        # the row changes and this call site follows without being edited.
+        moment = timing.when(
+            timing.RECORD_START,
+            timing.Session(
+                grid=grid_established,
+                sounding=sounding,
+                defining=not grid_established,
+            ),
+        )
         if not grid_established:
             return Plan(
                 commands=("record",),
                 expect=STATE_RECORDING,
                 arm_grid=True,
-                note="defining the grid (free-form, no count-in)",
+                note=moment.why,
             )
         return Plan(commands=("record",), expect=STATE_RECORDING)
 
@@ -204,7 +218,18 @@ def plan_gesture(
                 expect=STATE_RECORDING,
                 note="stop queued — will record exactly one cycle",
             )
-        wait = quantized and not is_defining
+        # Not decided here. `looper_timing` owns "does this wait?" for every
+        # action on the surface, and this used to be the second place that
+        # answered it -- off a `quantized` flag the bench set ONCE at startup
+        # from MPE_SL_SYNC_MODE and never updated afterwards. That is the
+        # mode, not the state, and `looper-transport-clock-spec.md` named
+        # tracking the setting instead of the state as "the recurring bug
+        # shape" before this line was ever written.
+        wait = not timing.when(
+            timing.RECORD_CLOSE,
+            timing.Session(grid=grid_established, sounding=True,
+                           defining=is_defining),
+        ).immediate
         if tail_capture_enabled and grid_established and not is_defining:
             return Plan(
                 commands=("overdub",),
@@ -266,7 +291,6 @@ def plan_tap(
     pending: str | None,
     grid_established: bool,
     is_defining: bool,
-    quantized: bool,
     tail_capture_enabled: bool = False,
 ) -> Plan:
     """Legacy entry: both edges on release. Prefer plan_gesture in the bench."""
@@ -276,7 +300,6 @@ def plan_tap(
         pending=pending,
         grid_established=grid_established,
         is_defining=is_defining,
-        quantized=quantized,
         tail_capture_enabled=tail_capture_enabled,
     )
     if down.commands or down.queue_stop or down.arm_grid:
@@ -287,6 +310,5 @@ def plan_tap(
         pending=pending,
         grid_established=grid_established,
         is_defining=is_defining,
-        quantized=quantized,
         tail_capture_enabled=tail_capture_enabled,
     )

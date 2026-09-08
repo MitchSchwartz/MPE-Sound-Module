@@ -76,14 +76,12 @@ class PlanTapTests(unittest.TestCase):
         kw.setdefault("pending", None)
         kw.setdefault("grid_established", True)
         kw.setdefault("is_defining", False)
-        kw.setdefault("quantized", True)
         return plan_tap(sl_state=sl_state, **kw)
 
     def _gesture(self, edge, sl_state, **kw):
         kw.setdefault("pending", None)
         kw.setdefault("grid_established", True)
         kw.setdefault("is_defining", False)
-        kw.setdefault("quantized", True)
         return plan_gesture(edge=edge, sl_state=sl_state, **kw)
 
     def test_idle_records_on_pad_down_not_up(self) -> None:
@@ -178,7 +176,9 @@ class PlanTapTests(unittest.TestCase):
         self.assertEqual(p.commands, ())
 
     def test_free_form_loops_never_arm_a_quantize_wait(self) -> None:
-        p = self._gesture("down", SL_STATE_RECORDING, quantized=False)
+        # `grid_established=False`, not a `quantized` flag. The flag recorded
+        # the MODE the bench booted in and never changed; this asks the state.
+        p = self._gesture("down", SL_STATE_RECORDING, grid_established=False)
         self.assertFalse(p.begin_quantize_wait)
 
     def test_tapping_after_a_timed_out_stop_keeps_recording(self) -> None:
@@ -258,7 +258,6 @@ class PendingCancelTests(unittest.TestCase):
             pending=pending,
             grid_established=True,
             is_defining=False,
-            quantized=True,
         )
 
     def test_retap_during_queued_mute_keeps_it_playing(self) -> None:

@@ -159,5 +159,42 @@ class SlGridSyncTests(unittest.TestCase):
         self.assertIn(("/sl/0/set", ["playback_sync", 0.0]), sent)
 
 
+class TheQuantizeUnitIsTheWholeTakeTests(unittest.TestCase):
+    """`eighth_per_cycle` scales with the fitted bar count, and must.
+
+    SooperLooper computes `cycle = eighth_per_cycle * 30 / bpm`. Leave the
+    subdivision at 8 while the derived tempo rises and the engine's cycle
+    shrinks to a fraction of the take: a 6.939 s first loop read as 4 bars at
+    138 BPM gives a 1.735 s cycle, and clips join FOUR TIMES inside the loop
+    the player thinks of as one bar.
+
+    `DECISIONS.md` still states that `eighth_per_cycle` is 8, fixed at startup
+    and never changed. That has been false since 2026-08-30, which is exactly
+    why this lives here, next to the code, rather than in a document.
+    """
+
+    def _sent_for(self, bars: int) -> float:
+        sent: list[tuple[str, list]] = []
+        establish_grid_clock(lambda p, a: sent.append((p, a)), 100.0, bars=bars)
+        values = [a[1] for p, a in sent if a and a[0] == "eighth_per_cycle"]
+        self.assertTrue(values, f"bars={bars}: eighth_per_cycle never set")
+        return values[-1]
+
+    def test_the_subdivision_scales_with_the_bar_count(self) -> None:
+        self.assertEqual(self._sent_for(1), 8.0)
+        self.assertEqual(self._sent_for(2), 16.0)
+        self.assertEqual(self._sent_for(4), 32.0)
+
+    def test_the_engine_cycle_always_equals_the_take(self) -> None:
+        """The property the numbers exist to produce, checked directly."""
+        for bars, take_s in ((1, 3.0), (2, 6.0), (4, 12.0)):
+            with self.subTest(bars=bars):
+                bpm = bars * 4 * 60.0 / take_s
+                eighth = self._sent_for(bars)
+                self.assertAlmostEqual(eighth * 30.0 / bpm, take_s, places=6,
+                                       msg="the grid must reconstruct the "
+                                           "audio the player actually played")
+
+
 if __name__ == "__main__":
     unittest.main()
