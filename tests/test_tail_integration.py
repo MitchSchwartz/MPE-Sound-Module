@@ -44,7 +44,7 @@ class _Osc:
 
 def gesture(osc: _Osc, *, loop: int = 0, clock=None) -> TrackGesture:
     fs = TrackGesture(
-        loop=loop, hold_ms=2000, debounce_ms=0, multigrid=True, quantized=True,
+        loop=loop, hold_ms=2000, debounce_ms=0, multigrid=True,
         now=(lambda: clock[0]) if clock is not None else __import__("time").monotonic,
     )
     fs.bind(osc, None, None)

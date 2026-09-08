@@ -1,5 +1,13 @@
 # APC control surface: one map, one owner, one writer
 
+> **HISTORY — this file does not describe the instrument.**
+> It records what was intended or believed on its own date. It has been wrong
+> about shipped behaviour before, and where that is known a `CORRECTION` note
+> is inline. **The code is the documentation**; `Documents/looper-audit-2026-09-07.md`
+> maps which module answers which question. Never change code to match this file,
+> and never quote it as current behaviour.
+
+
 Status: Proposal — 2026-08-29
 Author: bench session, at Mitch's request after three consecutive LED changes
 went wrong in three different ways.

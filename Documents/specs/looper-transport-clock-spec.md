@@ -1,5 +1,13 @@
 # Looper grid clock — externalise the grid from clip 0
 
+> **HISTORY — this file does not describe the instrument.**
+> It records what was intended or believed on its own date. It has been wrong
+> about shipped behaviour before, and where that is known a `CORRECTION` note
+> is inline. **The code is the documentation**; `Documents/looper-audit-2026-09-07.md`
+> maps which module answers which question. Never change code to match this file,
+> and never quote it as current behaviour.
+
+
 **Issue:** untracked
 **Status:** **RESOLVED and shipped** on `yolo/looper-transport-clock`.
 Canon is `DECISIONS.md` 2026-08-15 "Looper grid clock: RESOLVED".
@@ -394,6 +402,10 @@ is not hiding the cause.
    **queues a stop** instead: it fires the moment recording actually begins, so
    a double tap records exactly one cycle. Sending `record` into an armed loop
    reaches SL as CANCEL and loses the take, which is the opposite of what the
+   <!-- CORRECTION 2026-09-07: MEASURED against real SooperLooper 1.7.9 -- a
+   `record` hit while WAIT_START is IGNORED. Not a cancel, not a stop, and
+   nothing is lost. The bench's rule of never sending one still stands; only
+   this stated reason for it was wrong. -->
    player means. See §L.
 
 **Test guard:** `test_grid_default_clock_is_internal_and_self_sufficient` fails

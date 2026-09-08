@@ -1,6 +1,15 @@
 # Engineering decisions log
 
-Dated rows agents and humans can trust over stale specs. Full research lives in
+> **This is a log, not a description of the instrument.** Each row was true when
+> it was written and several have since been overtaken by the code; where that
+> is known a `CORRECTION` note is inline, but **absence of a correction is not
+> evidence a row is current** — it took a full audit to find the four below.
+> Read it for *why* a decision was made, who made it, and what was measured on
+> the day. For what the looper does now, read the code:
+> `Documents/looper-audit-2026-09-07.md` maps which module answers which
+> question. Never change code to match a row here.
+
+Dated rows recording decisions as they were made. Full research lives in
 OM-Repo [`internal/projects/mpe-synth-launch/research/`](https://github.com/opsMachine/OM-Repo/tree/main/internal/projects/mpe-synth-launch/research).
 Orientation canon: OM-Repo [`GROUNDING.md`](https://github.com/opsMachine/OM-Repo/blob/main/internal/projects/mpe-synth-launch/GROUNDING.md).
 
@@ -456,6 +465,10 @@ uses the same **stop-then-weld** path:
 1. **Stop** — pad sends `record` stop; length fixes immediately (clip 0) or at the
    quantised bar (grid clips).
 2. **Tail pass** — parallel record on scratch loop 15 while main loop plays at fixed N.
+   <!-- CORRECTION 2026-09-07: superseded. a99cf63 deleted this pipeline; there
+   is no scratch loop. The take closes into one in-place overdub. Also settles
+   the loop 14 vs 15 discrepancy elsewhere in this file: neither, there is no
+   scratch buffer and all 15 loops are tracks. -->
 3. **Weld once** — offline merge at wrap seam; no second copy of release already in the buffer.
 
 **Why:** Tier 2 duplicated release, did not stop on the pad, and was an AI compromise —
@@ -464,7 +477,10 @@ not Mitch’s model. Ear-failed on Pi 2026-08-18–19.
 **Defaults:** `MPE_SL_TAIL_CAPTURE=1`, `MPE_SL_SEAM_WELD=1`. Set `MPE_SL_SEAM_WELD=0`
 for stop-only (no reload merge) while tuning latency.
 
-**Canon:** `Documents/specs/looper-loop-seam-spec.md` §Stop-then-weld.
+**Canon was** `Documents/specs/looper-loop-seam-spec.md` §Stop-then-weld — a file
+deleted 2026-09-07 describing a pipeline deleted in `a99cf63`. Neither
+`MPE_SL_SEAM_WELD` nor the scratch loop exists. The ring-out is captured in place
+by `scripts/sooperlooper/tail_phase.py`.
 
 ---
 
@@ -795,7 +811,17 @@ since `8d7a426` was never needed.
 **Correction 2026-08-15 — the unit is fixed at one bar, deliberately.** This
 entry originally claimed `eighth_per_cycle` was "sized to the first take". It is
 not: it is set to 8 once at startup and never changed, so the quantize unit is
-always one bar. That is the *correct* behaviour — clips count in to the next
+always one bar.
+
+> **CORRECTION 2026-09-07 — this sentence has been false since 2026-08-30.**
+> `eighth_per_cycle` is `8 * bars`, written on every grid establishment by
+> `sl_grid_sync.establish_grid_clock`. The quantize unit is therefore **the
+> whole first take**, not one bar of it: a four-bar defining take means later
+> clips join every four bars. Pinned by
+> `tests/test_sl_grid_sync.TheQuantizeUnitIsTheWholeTakeTests`. The paragraph
+> below describes the world as it stood two weeks before it was read.
+
+ That is the *correct* behaviour — clips count in to the next
 **bar**, not to the end of a multi-bar phrase — but it was true by accident
 rather than by decision, and the canon asserted a mechanism that does not exist.
 `derive_tempo` still returns `bars`, and `on_grid_established` still ignores it.

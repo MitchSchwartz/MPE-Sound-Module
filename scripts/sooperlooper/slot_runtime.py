@@ -37,6 +37,7 @@ from slot_flush import (
     FlushLedger,
 )
 from sl_loop_states import ACTIVE_PLAY, SL_STATE_OFF
+import looper_timing as timing
 
 # Gestures the gesture owns — runtime must not send parallel OSC for these.
 # Actions the track's own gesture carries out. ACT_FORWARD is the whole
@@ -68,11 +69,10 @@ OP_WAITING = "waiting"
 #: spell the same answer out; keep them in step.
 LAUNCH_COMMANDS: tuple[str, ...] = ("trigger",)
 
-#: A deferred launch waits for the track's loop wrap. If `loop_pos` stops
-#: arriving the wrap never comes and the switch is stranded — a dead pad with
-#: no error, which is worse than a late switch. After this many seconds without
-#: a wrap the launch fires anyway and says so.
-DEFERRED_LAUNCH_GRACE_S: float = 5.0
+#: The bench's cap on a deferred launch. Owned by `looper_timing` — it is a
+#: timing decision, and this module used to make it alone. Aliased rather than
+#: re-declared so the two cannot drift; D5 is about the magnitude.
+DEFERRED_LAUNCH_GRACE_S: float = timing.BENCH_WAIT_CAP_S
 
 
 @dataclass(frozen=True)
@@ -344,6 +344,24 @@ class SlotRuntime:
             self.land_pending(track_index)
         return due
 
+    def timing_session(self, sl_state: int) -> timing.Session:
+        """What the instrument is doing, for `looper_timing.when`.
+
+        Every field is read from the engine or from a probe over it, never
+        from this object's own bookkeeping: a bench flag written when a
+        command was SENT disagrees with the engine for as long as the engine
+        takes to answer, and that window is where the timing bugs live.
+        """
+        return timing.Session(
+            # Not `self._grid_boundary() is not None`: that is "a boundary
+            # is computable", not "a grid is established". This runtime is
+            # handed a boundary callable and cannot answer the second, so
+            # it says so. `when()` refuses if a rule ever needs it.
+            grid=None,
+            sounding=self._session_sounding(),
+            track_sounding=sl_state in ACTIVE_PLAY,
+        )
+
     def has_deferred(self, track_index: int) -> bool:
         """True while a launch is held waiting for this track's wrap."""
         return track_index in self._deferred
@@ -484,30 +502,24 @@ class SlotRuntime:
                 return OP_FAILED, None
 
         if plan.action in (ACT_LAUNCH, ACT_SWITCH):
-            # THE QUESTION IS WHETHER THE SESSION IS SOUNDING, NOT THIS TRACK.
-            #
-            # It used to be `sl_state in ACTIVE_PLAY` — the pressed track only.
-            # Two failures came out of that. Launching a stopped track while
-            # another track played fired instantly, landing off the beat of the
-            # music it was joining. And after Stop All nothing is sounding by
-            # definition, so every launch fired instantly too.
-            if self._session_sounding():
+            # This branch used to decide the timing itself. It no longer does,
+            # and that is the point: the same question was being answered here
+            # and in `loop_model` with two different predicates, which is how
+            # the rule "a silent session needs no count-in" ended up applied
+            # to launching and never to recording.
+            moment = timing.when(
+                timing.SLOT_SWITCH if plan.action == ACT_SWITCH
+                else timing.CLIP_LAUNCH,
+                self.timing_session(sl_state),
+            )
+            if not moment.immediate:
                 return (
                     (OP_OK, None) if self._defer_launch(plan)
                     else (OP_FAILED, None)
                 )
-            # Nothing is playing anywhere. Mitch, 2026-08-30: "when I've
-            # stopped all and I start a clip, we've reset the phase to zero
-            # ... it should also mean that start happens immediately."
-            #
-            # Right, and it is not a special case — it is what a downbeat IS.
-            # You cannot be late for something that has not started. Waiting
-            # for the "next" bar line here would sit in silence for a full bar
-            # before the first note, which is what this code did for about
-            # twenty minutes after I first read the report.
-            #
-            # So the clip starts now AND becomes the phase reference, which is
-            # what makes every later clip line up with it.
+            # Immediate. The clip also becomes the phase reference, which is
+            # what makes every later clip line up with it — a launch into
+            # silence moves the PHASE, never the LENGTH.
             if not self._launch(plan):
                 return OP_FAILED, None
             self._mark_phase_zero()

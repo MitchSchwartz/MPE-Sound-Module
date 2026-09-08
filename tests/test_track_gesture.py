@@ -38,6 +38,7 @@ def compositor() -> LedCompositor:
     """
     return LedCompositor(RecordingOut(), apc_label="mk1")
 from scripts.sooperlooper.loop_model import STATE_PLAYING, STATE_STOPPED
+from looper_timing import engine_controls
 from scripts.sooperlooper.sl_loop_states import (
     SL_STATE_MUTE,
     SL_STATE_OFF,
@@ -144,8 +145,7 @@ class GridEstablishmentTests(unittest.TestCase):
         from scripts.sooperlooper.track_gesture import TrackGesture
 
         fs = TrackGesture(
-            loop=loop, hold_ms=1000.0, debounce_ms=0.0,
-            quantized=True, grid=grid,
+            loop=loop, hold_ms=1000.0, debounce_ms=0.0, grid=grid,
             on_grid_established=established_cb,
             on_phase_reanchor=reanchor_cb,
         )
@@ -350,8 +350,7 @@ class DoubleTapRecordsOneCycleTests(unittest.TestCase):
     def _fs(self, grid):
         from scripts.sooperlooper.track_gesture import TrackGesture
 
-        fs = TrackGesture(loop=1, hold_ms=1000.0, debounce_ms=0.0,
-                            quantized=True, grid=grid)
+        fs = TrackGesture(loop=1, hold_ms=1000.0, debounce_ms=0.0, grid=grid)
         fs.bind(MagicMock(), compositor(), 37)
         return fs
 
@@ -432,7 +431,7 @@ class QuantizedLaunchTests(unittest.TestCase):
     def _fs(self):
         from scripts.sooperlooper.track_gesture import TrackGesture
 
-        fs = TrackGesture(loop=2, hold_ms=1000.0, debounce_ms=0.0, quantized=True)
+        fs = TrackGesture(loop=2, hold_ms=1000.0, debounce_ms=0.0)
         fs.bind(MagicMock(), compositor(), 38)
         return fs
 
@@ -502,22 +501,41 @@ class StopAllIsImmediateTests(unittest.TestCase):
         stop_all_loops(osc, num_loops=2, gestures=gestures)
 
         sent = [(c.args[0], c.args[1]) for c in osc.send_message.call_args_list]
+        lifted = [v for path, v in sent if path == "/sl/-1/set"]
+        # WHICH controls, not just their values. Checking only values passes a
+        # version of `engine_controls` that silently drops a control from its
+        # output — the burst would then leave that quantizer engaged and Stop
+        # All would wait for a bar. Derived from the source so it cannot drift.
         self.assertEqual(
-            [v for path, v in sent if path == "/sl/-1/set"],
-            [["mute_quantized", 0.0], ["quantize", 0.0]],
-            "both quantizers lifted, neither restored yet",
-        )
+            lifted, [[c, v] for c, v in engine_controls(grid=False).items()],
+            "the whole control set is lifted, in order, in one burst")
         self.assertEqual([v for path, v in sent if path == "/sl/-1/hit"],
                          ["mute_on", "pause_on"])
+        order = [path for path, _v in sent]
+        self.assertLess(max(i for i, p in enumerate(order) if p.endswith("/set")),
+                        min(i for i, p in enumerate(order) if p.endswith("/hit")),
+                        "lifted BEFORE the mute, or Stop All waits for the bar")
 
         settle_stop_all(osc, gestures, log=lambda _m: None)
         sent = [(c.args[0], c.args[1]) for c in osc.send_message.call_args_list]
-        self.assertEqual(
-            [v for path, v in sent if path == "/sl/-1/set"],
-            [["mute_quantized", 0.0], ["quantize", 0.0],
-             ["quantize", 0.0], ["mute_quantized", 1.0]],
-            "restored only once the engine has been asked what happened",
-        )
+        # Ordered and complete: `dict()` here would collapse the lift and the
+        # restore of the same control into one entry and lose the order, which
+        # is the whole content of this test. AGENTS.md: do not weaken an
+        # assertion to make a test pass.
+        every_set = [v for path, v in sent if path == "/sl/-1/set"]
+        free_form = [[c, v] for c, v in engine_controls(grid=False).items()]
+        self.assertEqual(every_set, free_form + free_form,
+                         "lift then restore, every control, both bursts")
+        restored = dict(v for path, v in sent if path == "/sl/-1/set")
+        # No grid in this rig, so the restore is free-form — INCLUDING
+        # mute_quantized. It used to go back to 1.0 unconditionally while
+        # quantize followed the grid, so a per-clip stop after a Stop All in a
+        # gridless session was deferred to a cycle boundary no tempo defined.
+        # Both controls now come from `looper_timing.engine_controls`, so they
+        # cannot disagree about the same state again.
+        self.assertEqual(restored.get("quantize"), 0.0)
+        self.assertEqual(restored.get("mute_quantized"), 0.0,
+                         "no grid means no quantized mute either")
 
     def test_stop_all_sends_no_trigger(self) -> None:
         """Mitch, 2026-09-06: 'After I stop all clips, it just resumes again.'
@@ -632,7 +650,7 @@ class StopAllIsImmediateTests(unittest.TestCase):
         """Only Stop All is immediate — a single pad stop still waits."""
         from scripts.sooperlooper.track_gesture import TrackGesture
 
-        fs = TrackGesture(loop=1, hold_ms=1000.0, debounce_ms=0.0, quantized=True)
+        fs = TrackGesture(loop=1, hold_ms=1000.0, debounce_ms=0.0)
         fs.bind(MagicMock(), compositor(), 37)
         fs.sync_from_sl(SL_STATE_PLAYING)
         fs.on_pad_down(); fs.on_pad_up()

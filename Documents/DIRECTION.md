@@ -1,6 +1,13 @@
-# Phase 2 direction — read before looper work
+# Phase 2 direction
 
 *Last updated: 2026-08-14 (America/Toronto)*
+
+> **Direction as of that date, not a description of the instrument.** This file
+> says what to build and why. It does not say what the looper does, and it is
+> weeks old. For behaviour read the code —
+> [`looper-audit-2026-09-07.md`](looper-audit-2026-09-07.md) maps it.
+> The title used to read *"read before looper work"*, which is what sent
+> readers here first.
 
 **Locked decisions:** [`DECISIONS.md`](DECISIONS.md)  
 **Deep canon (branch audit, open questions):** OM-Repo [`GROUNDING.md`](https://github.com/opsMachine/OM-Repo/blob/main/internal/projects/mpe-synth-launch/GROUNDING.md)  
