@@ -340,6 +340,30 @@ pad-down → OSC for the bench and was the wrong shape for a forwarding hop
 cost under a live audio graph, and the fan-out case where one input bend becomes
 up to 15 output messages.
 
+**7.9 Per-channel state outlives the note — confirmed 2026-09-08.**
+`MidiChannelState` (`src/common/SurgeStorage.h`) holds `pitchBend`, `pressure`,
+`timbre` and `pan` **per channel**. Nothing clears them on note-off or in
+`allNotesOff`; only a new inbound message for that channel does. `SurgeVoice`
+*initialises from that state at voice creation* —
+`state.mpePitchBend.init(voiceChannelState->pitchBend / 8192.f)`,
+`timbreSource.init(...)`, `monoAftertouchSource.init(...)` — and tracks it live
+thereafter. *So a member channel released while any of those is non-zero
+re-pitches or re-colours the NEXT note allocated to it, for that note's whole
+life.* Anything per-channel must therefore be written to a freshly allocated
+channel BEFORE its note-on. Broadcasting only to currently-active voices, which
+is what `translate()` does today, is not sufficient. This is §7.6's release-tail
+hazard, except it outlives the tail.
+
+**7.10 Surge's MPE path assumes one note per member channel — confirmed
+2026-09-08.** `purgeHoldbuffer` in `SurgeSynthesizer.cpp`: *"in mpe it can't
+happen because each note is on a different channel (in theory)"*. *So a classic
+device cannot be collapsed onto one member channel while `--mpe-enable` is on.*
+The fan-out is load-bearing for reasons independent of expression — considered
+and rejected 2026-09-08. Note also what does NOT justify the fan-out: velocity
+rides in the note-on byte and is already per-note in plain MIDI, and channel
+pressure is one value for the whole keyboard. Only **poly** aftertouch (0xA0) is
+genuinely per-note.
+
 ---
 
 ## 8. Test strategy
@@ -378,3 +402,76 @@ up to 15 output messages.
 Multi-timbral / per-controller patches; MIDI output to external instruments;
 MIDI learn; DIN MIDI hardware; General MIDI program maps; Program Change to
 patch selection.
+
+---
+
+## 11. Field defect — inconsistent pitch on chords (OPEN, reported 2026-09-07)
+
+Reported by ear, Alesis VI61, no capture taken. Playing an A triad up and down:
+returning to the A sounded sharp (heard as roughly A#), while stopping all notes
+and replaying gave the correct A. Reliable one note at a time; appears with
+simultaneous notes. **The pitch bend wheel was not used.**
+
+### Ranked hypotheses
+
+**H1 — stale per-channel state on channel reuse. LIVE, primary.**
+`_pitch_bend`, channel pressure and `BROADCAST_CCS` in `translate()` all emit
+only to *currently active* voices. A channel released while one of those values
+was non-zero never receives the message that returns it to rest, and
+`all_notes_off` resets `_bend14` without sending anything either. Demonstrated
+in the pure translator for both bend and CC1: the value is delivered to the
+sounding channel, the channel is released dirty, the return-to-rest message
+reaches nobody, and a later note allocated there gets no correcting message.
+Combined with §7.9, that note inherits the stale value for its whole life —
+which matches the report's shape: a consistently wrong pitch, not a cut note,
+cleared by releasing everything and replaying onto a different channel.
+Polyphony-dependent because the channels can only diverge from each other when
+the active set keeps changing.
+*Confirmed by:* capture showing bend (0xE0), channel pressure (0xD0), CC1 or
+CC74 in the VI61 stream. *Refuted by:* a stream of note-on/off only.
+
+**H2 — poly governor voice stealing. WEAK, secondary.**
+`read_active_voice_count()` counts note-ons; Surge's polyphony limit counts
+voices, and a unison-N patch spends N per key. The governor's resting limit is 9
+(`ceiling 12 − min_headroom 3`), sliding to a floor of 4, so a chord can cross a
+limit a single note never reaches, and the headroom check at
+`surge_poly_governor.py:504-507` compares the two quantities directly. Rejected
+as primary because stealing cuts voices rather than holding a note sharp for its
+duration. *Cheap falsification:* `MPE_POLY_CEILING=64`, or stop
+`surge-poly-governor.service`, and replay the same triad.
+
+**H3 — switch Surge to classic mode when no MPE device is attached. REJECTED.**
+§7.1 makes MPE mode and bend range startup flags, so this costs a Surge restart
+on every hotplug and breaks acceptance criterion 5. §7.10 independently rules
+out the milder version of the same idea.
+
+### Separate defect found while reading — RPN is never nulled
+
+`_control_change` sets `self._rpn` and never clears it on RPN null (127/127), so
+after a device declares its bend range, any later CC6 (Data Entry MSB, a common
+default assignment for a generic knob) is swallowed and rewrites
+`bend_semitones`. Reproduced: a stray `CC6=48` makes every subsequent bend 24×
+too wide. Independent of H1; unrelated to this field report, since it needs a
+bend to be expressed.
+
+### What to do next, in order
+
+1. **Capture before fixing.** `scripts/capture-midi-stream.py` is read-only and
+   runs alongside live routing:
+   ```
+   python3 scripts/capture-midi-stream.py --list
+   python3 scripts/capture-midi-stream.py --port <VI61> --seconds 60 \
+     --out vi61-triad.jsonl
+   ```
+   Play the triad until the wrong note is heard. The end-of-run summary counts
+   messages by kind and CC number. The question it answers is *which*
+   per-channel quantity the VI61 emits, if any. Velocity is not evidence either
+   way — it lives in the note-on byte, not in channel state.
+2. **Then fix**, shaped by the answer: in `_note_on`, emit the zone's current
+   value for every per-channel quantity before the note-on, *including when that
+   value is at rest*. The present guard `if self._bend14 != BEND_CENTRE` is
+   precisely what allows the reset to be skipped, and §7.9 says Surge reads the
+   channel at voice creation, so the ordering is load-bearing.
+3. The governor journal (`journalctl -u surge-poly-governor`) records limit
+   transitions and would settle H2 for the session in question, but journald
+   retention is the clock on that.
