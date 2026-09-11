@@ -6,6 +6,8 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=lib/paths.sh
 source "$SCRIPT_DIR/lib/paths.sh"
+# shellcheck source=lib/patch-format-revision.sh
+source "$SCRIPT_DIR/lib/patch-format-revision.sh"
 mpe_require_personal
 
 PATCHES_SRC="$MPE_ASSETS_DIR/user-data/Patches"
@@ -19,6 +21,18 @@ echo ""
 
 if [ ! -d "$PATCHES_SRC" ]; then
     echo "❌ ERROR: $PATCHES_SRC not found"
+    exit 1
+fi
+
+# The appliance engine is pinned; a patch written by a newer Surge loads there
+# and silently defaults what it cannot read. Refuse it here, before the network.
+if ! mpe_patch_revision_check "$PATCHES_SRC"; then
+    echo ""
+    echo "❌ ERROR: patches above the pinned engine's format revision (max ${MPE_PATCH_REVISION_MAX})"
+    echo ""
+    echo "The Pi runs surge-xt-cli @ 253f8d86. It would load these and quietly"
+    echo "default every parameter it does not recognise — no error, wrong sound."
+    echo "Re-save them from a Surge at or below that revision, or move the pin."
     exit 1
 fi
 
