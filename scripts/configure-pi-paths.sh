@@ -187,9 +187,6 @@ EOF
     echo "Applying Phase 0 appliance hygiene (timers, services, IRQ, cmdline)..."
     "$MPE_MODULE_REPO/scripts/apply-appliance-hygiene.sh" || true
     echo ""
-    echo "Applying DAC output level (MPE_DAC_VOLUME_DB)..."
-    "$MPE_MODULE_REPO/scripts/set-dac-volume.sh" || true
-    echo ""
     echo "Done. Restart: sudo systemctl restart surge-xt-cli $(mpe_patch_browser_unit)"
 }
 

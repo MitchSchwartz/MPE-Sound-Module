@@ -73,16 +73,13 @@ core, forever**. Compute cost × cadence and put it in the PR. Rules and measure
 |---|---|
 | Surge patch output | OSC `/param/a/amp/volume`, `/param/b/amp/volume` (UDP 53280) |
 | Looper | `MPE_SL_LOOP_GAIN`, `MPE_SL_LOOP_GAIN_LAW` |
-| Hardware mixer | `MPE_DAC_VOLUME_DB` in `/etc/mpe/mpe.env` → `scripts/set-dac-volume.sh` (`amixer` on Sound Blaster **Speaker**) |
+| Hardware mixer | Bound DAC's playback element, owned by `patch_browser/device_volume.py` |
 
-**Hardware output is the Sound Blaster Play! 3** (card index varies by hotplug — scripts detect by name). The playback control is **`Speaker`** — there is no `PCM` control on this card. Scale **0–88 raw**, dB ≈ `(raw − 88) × 0.5`. Appliance default: **`MPE_DAC_VOLUME_DB=-12`** (raw **64**). Previous defaults: 76 (−6 dB), 48 (−20 dB).
+**The Vol fader is the DAC level when the bound card allows it.** Exactly one writable, dB-carrying, playback-only volume element → *device* mode: the fader sets that element, Surge trim sits at unity. Anything else → *trim* mode (the old Surge trim). Measured 2026-09-13: FiiO KA1 `PCM` (−63.5..0 dB) and Sound Blaster `Speaker` (−44..0 dB) are device; Scarlett 4i4 (four `Line` volumes) is trim.
 
-Treat the **dB figure as the real number**, not the percentage — `amixer`'s percentage is not perceived loudness. Read or set via:
+Levels are remembered per USB model in `~/.patch_browser_device_volume.json` (dB). A model never seen starts at **`MPE_DAC_VOLUME_DB`** (default **−12**). The UI rebinds on every new `jack.state` — after ALSA's own `90-alsa-restore.rules`, which otherwise re-imposes a stale saved level on every plug.
 
-```bash
-./scripts/set-dac-volume.sh --show
-./scripts/set-dac-volume.sh   # applies /etc/mpe/mpe.env
-```
+Treat the **dB figure as the real number**. The fader position is ALSA's perceptual mapping (what alsamixer and `amixer -M` show), not raw steps. Read on the Pi via `amixer -c <card> contents`.
 
 **Loops sum.** A per-loop gain that is fine alone is not fine with 16 playing at once. Bring level up *after* the loops are running, never before.
 

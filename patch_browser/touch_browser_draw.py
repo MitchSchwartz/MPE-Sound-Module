@@ -376,7 +376,8 @@ class TouchBrowserDrawMixin:
 
         control = self._mixer_control(channel.channel_id)
         if channel.enabled and control is not None:
-            value_label = control.format(value)
+            format_for = getattr(control, "format_for", None)
+            value_label = format_for(self, value) if format_for else control.format(value)
         else:
             value_label = "—"
         val_s = self.font_sm.render(value_label, True, self.theme.muted if channel.enabled else self.theme.muted)

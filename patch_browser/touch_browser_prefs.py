@@ -589,11 +589,37 @@ class TouchBrowserPrefsMixin:
 
     def _apply_volume(self, level: float, persist: bool = True) -> None:
         self.volume_level = max(VOLUME_MIN, min(VOLUME_MAX, level))
+        device = getattr(self, "device_volume", None)
+        if device is not None and device.active:
+            # The DAC is the level stage (patch_browser/device_volume.py). Surge
+            # sits at unity so nothing stacks, and the looper master is left
+            # alone because the DAC already moves the loops with everything else.
+            if self.loader.osc_enabled:
+                self.loader.set_volume(VOLUME_MAX)
+            device.set_position(self.volume_level, persist=persist)
+            return
         if self.loader.osc_enabled:
             self.loader.set_volume(self.volume_level)
         self._send_looper_volume(self.volume_level)
         if persist:
             self._save_volume_level()
+
+    def _poll_device_volume(self) -> None:
+        """Rebind the Vol fader after any graph (re)start — boot, hotplug, or an
+        output switch all rewrite jack.state. A file read per second; amixer runs
+        only when the binding actually changed."""
+        from patch_browser.audio_engine import read_jack_state
+        from patch_browser.device_volume import REBIND_POLL_S
+
+        now = time.monotonic()
+        if now < getattr(self, "_device_volume_next_poll", 0.0):
+            return
+        self._device_volume_next_poll = now + REBIND_POLL_S
+        if not self.device_volume.rebind(read_jack_state()):
+            return
+        position = self.device_volume.position()
+        self.volume_level = position if position is not None else self._load_volume_level()
+        self._apply_volume(self.volume_level, persist=False)
 
     def _apply_brightness(self, percent: int) -> None:
         self.brightness_percent = percent
