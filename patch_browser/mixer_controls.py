@@ -98,7 +98,9 @@ class VolumeControl:
         return float(browser.volume_level)
 
     def default(self, browser) -> float:
-        return DEFAULT_VOLUME
+        device = getattr(browser, "device_volume", None)
+        position = device.default_position() if device is not None else None
+        return DEFAULT_VOLUME if position is None else position
 
     def write(self, browser, value: float, *, persist: bool) -> None:
         browser._apply_volume(max(self.spec.min_value, min(self.spec.max_value, value)))
@@ -111,6 +113,13 @@ class VolumeControl:
         return volume_fader_display_db(
             value, fader_min=VOLUME_MIN, fader_max=VOLUME_MAX
         )
+
+    def format_for(self, browser, value: float) -> str:
+        """Device mode shows the DAC's own dB; trim mode shows the Surge trim."""
+        device = getattr(browser, "device_volume", None)
+        if device is not None and device.active:
+            return device.format_db()
+        return self.format(value)
 
     def persist(self, browser) -> None:
         pass

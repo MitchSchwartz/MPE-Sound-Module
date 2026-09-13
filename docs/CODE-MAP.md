@@ -322,7 +322,7 @@ stateDiagram-v2
 | `mpe_patch_browser_unit()` | :11 | restart helpers | touch vs oled unit name |
 | `mpe_source_appliance_env()` | :28 | service scripts | Load `/etc/mpe/mpe.env` |
 | `_run_on_pi()` | configure-pi-paths.sh:26 | --local | Write mpe.env, install units |
-| `mpe_apply_dac_volume()` | dac-volume.sh | boot sync, set-dac-volume | Sound Blaster Speaker control |
+| `DeviceVolume.rebind()` | patch_browser/device_volume.py | touch UI loop on new jack.state | Bound DAC hardware level (device) or Surge trim (trim) |
 
 **External CLI (separate repo):** `mpe` from [mpe-cli](https://github.com/MitchSchwartz/mpe-cli) — `ping`, `status`, `logs`, `osc-check`, `restart`, `looper sl-*`.
 
@@ -419,9 +419,8 @@ flowchart LR
 | Library | Exports (functions) | Sourced by |
 |---------|---------------------|------------|
 | **audio-engine.sh** | 48 functions: state I/O, JACK probes, promote, reconcile, looper restart | `start-jackd.sh`, `start-surge-cli.sh`, `surge-watchdog.sh`, `run-sooperlooper.sh`, `set-surge-audio.sh`, `set-audio-profile.sh`, `restart-audio-graph.sh`, `bench-xruns.sh`, `uac2-stall-watchdog.sh`, `engine-guard.sh` |
-| **mpe-services.sh** | `_mpe_ui_mode_normalized`, `mpe_patch_browser_unit`, `mpe_enable_core_services`, `mpe_restart_core_services`, env readers | `configure-pi-paths.sh`, `set-dac-volume.sh`, `sync-audio-profile-on-boot.sh`, `set-surge-audio.sh`, `bench-xruns.sh` |
+| **mpe-services.sh** | `_mpe_ui_mode_normalized`, `mpe_patch_browser_unit`, `mpe_enable_core_services`, `mpe_restart_core_services`, env readers | `configure-pi-paths.sh`, `sync-audio-profile-on-boot.sh`, `set-surge-audio.sh`, `bench-xruns.sh` |
 | **paths.sh** | `mpe_apply_pi_home`, `mpe_pi_ssh`, repo path vars (`MPE_MODULE_REPO`, `SURGE_CLI`, `LOG_FILE`) | Nearly all scripts |
-| **dac-volume.sh** | `sound_blaster_card_index`, `mpe_apply_dac_volume` | `set-dac-volume.sh`, `restart-audio-graph.sh`, boot sync |
 | **engine-guard.sh** | `mpe_looper_engine_blocked`, `mpe_guard_looper_engine` | **Stale:** blocks `MPE_LOOPER_ENABLED=1` though SooperLooper works — see §8 |
 | **uac2-card.sh** | `uac2_card_index`, `uac2_appl_ptr`, rate helpers | `uac2-stall-watchdog.sh` |
 | **uac2-host-route.sh** | streaming mark/active/clear | stall watchdog, profile switch |
@@ -456,7 +455,7 @@ flowchart LR
 | `test_calibration_*.py` | Normalization calibration pipeline |
 | `test_uac2_*.py` | Gadget stall watchdog, card helpers |
 | `test_mpe_env_file.py` | Hermetic env (`MPE_ENV_FILE`) |
-| `test_dac_volume.sh` | DAC dB ↔ raw mapping |
+| `test_device_volume.py` | Vol fader device/trim choice + ALSA mapping, against real Pi `amixer contents` fixtures |
 
 Run: `python3 -m unittest discover -s tests -q`
 

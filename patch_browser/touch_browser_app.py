@@ -188,6 +188,9 @@ class TouchPatchBrowser(
         self._init_context_menu_state()
 
         self.volume_level = self._load_volume_level()
+        from patch_browser.device_volume import DeviceVolume
+
+        self.device_volume = DeviceVolume()
         # Draw-loop pacing state (see _frame_rate_for). Start "active" so the first
         # second after boot runs smooth while the UI settles.
         self._last_active_frame_at = time.monotonic()
@@ -506,6 +509,7 @@ class TouchPatchBrowser(
             self._drain_evdev_touch_queue()
             self._poll_audio_profile_switch()
             self._poll_surge_audio_switch()
+            self._poll_device_volume()
             self._poll_engine_recovery_toast()
             self._poll_restart_bench_result()
             terminal_dirty = self._poll_terminal()
