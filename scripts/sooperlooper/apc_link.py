@@ -139,11 +139,17 @@ class LinkHealth:
     anything.
     """
 
-    def __init__(self, device_key: str, *, on_lost: Callable[[], bool],
+    def __init__(self, port_name: str, *, reader: str, writer: str,
+                 on_lost: Callable[[], bool],
                  log: Callable[[str], None],
                  check_s: float = DEFAULT_CHECK_S,
                  now: Callable[[], float] = time.monotonic) -> None:
-        self._key = device_key
+        self._key = port_name
+        #: Our own ALSA client names. Without them this asked whether ANYONE
+        #: read from the APC, and the pressure remapper answered yes — see
+        #: `midi_subscription`, 2026-09-13.
+        self._reader = reader
+        self._writer = writer
         self._on_lost = on_lost
         self._log = log
         self._check_s = float(check_s)
@@ -165,7 +171,7 @@ class LinkHealth:
         if now < self._next_check:
             return
         self._next_check = now + self._check_s
-        has_reader, _has_writer = port_subscriptions(self._key)
+        has_reader = self._we_read()
         if has_reader:
             if not self._healthy:
                 self._log(
@@ -176,18 +182,24 @@ class LinkHealth:
         if self._healthy:
             self._losses += 1
             self._log(
-                f"APC link LOST — {self._key!r} has no reader in "
-                f"/proc/asound/seq/clients. The device re-enumerated (USB "
-                f"endpoint stall); our client is subscribed to a device that "
-                f"no longer exists. Pads are dead until reopened. Reopening..."
+                f"APC link LOST — our client {self._reader!r} is not "
+                f"subscribed to {self._key!r} in /proc/asound/seq/clients. "
+                f"The device re-enumerated (USB endpoint stall), or another "
+                f"process holds it and we do not. Pads are dead until "
+                f"reopened. Reopening..."
             )
         self._healthy = False
         if self._on_lost():
             # Confirm rather than assume: the whole bug was trusting that an
             # open which returned success had actually subscribed.
-            has_reader, _ = port_subscriptions(self._key)
-            if has_reader:
+            if self._we_read():
                 self._healthy = True
                 self._log("APC link reopened — pads live again")
             else:
                 self._log("APC reopen returned success but still no reader — retrying")
+
+    def _we_read(self) -> bool:
+        we_read, _we_write = port_subscriptions(
+            self._key, reader=self._reader, writer=self._writer
+        )
+        return we_read
