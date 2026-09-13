@@ -42,7 +42,7 @@ from binding_table import HOLD, TAP, BindingRouter, for_surface, scene_row  # no
 from led_compositor import LedCompositor  # noqa: E402
 from apc_link import LinkHealth, PacedMidiOut  # noqa: E402
 from apc_mode import grid_silent_reason, parse_mode_sysex  # noqa: E402
-from midi_subscription import wait_for_subscription  # noqa: E402
+from midi_subscription import own_client_names, wait_for_subscription  # noqa: E402
 from running_code import running_code_sha  # noqa: E402
 from slot_runtime import SlotRuntime  # noqa: E402
 from slot_surface import SlotSurface  # noqa: E402
@@ -147,8 +147,12 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
     # device does not report on connect, only on change.
     apc_mode_state: dict = {"mode": None}
 
-    midi_in = rtmidi.MidiIn()
-    midi_out = rtmidi.MidiOut()
+    # Named, with our pid, so the kernel graph can say whose subscription it
+    # is. Under the default "RtMidiIn Client" the pressure remapper's hold on
+    # the APC read as ours, and the link check reported dead pads as live.
+    apc_reader, apc_writer = own_client_names()
+    midi_in = rtmidi.MidiIn(name=apc_reader)
+    midi_out = rtmidi.MidiOut(name=apc_writer)
     ports_in = midi_in.get_ports()
     idx = next((i for i, n in enumerate(ports_in) if port_hint.lower() in n.lower()), None)
     if idx is None:
@@ -182,12 +186,14 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
     # printed a complete, correct device line over dead pads for 17 minutes.
     # Ask the kernel rather than trusting the library; refuse to run blind, the
     # way sl-osc-session refuses when it cannot bind its port.
-    device_key = port_name.split(":")[0] or "APC"
-    has_reader, has_writer = wait_for_subscription(device_key)
+    has_reader, has_writer = wait_for_subscription(
+        port_name, reader=apc_reader, writer=apc_writer
+    )
     if not has_reader:
         print(
-            f"bench: FAIL — opened {port_name!r} but nothing is subscribed to it.\n"
-            f"  ALSA shows no reader for this device, so no pad press can arrive.\n"
+            f"bench: FAIL — opened {port_name!r} but our client {apc_reader!r} is "
+            f"not subscribed to it.\n"
+            f"  ALSA shows no subscription from us, so no pad press can arrive.\n"
             f"  Usually a restart race: the previous session still held the device.\n"
             f"  Fix: systemctl stop mpe-looper-session, wait for the process to go,\n"
             f"       then start it.\n"
@@ -620,7 +626,9 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
         return True
 
     link_health = LinkHealth(
-        device_key,
+        port_name,
+        reader=apc_reader,
+        writer=apc_writer,
         on_lost=reopen_apc,
         log=lambda m: print(f"bench: {m}", flush=True),
     )
