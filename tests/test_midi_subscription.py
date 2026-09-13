@@ -21,6 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "sooper
 from midi_subscription import (  # noqa: E402
     own_client_names,
     port_subscriptions,
+    reader_holds_device,
     split_rtmidi_port,
     wait_for_subscription,
 )
@@ -180,6 +181,47 @@ class PortSubscriptionTests(unittest.TestCase):
         self.assertFalse(reader)
         self.assertGreaterEqual(time.monotonic() - started, 0.2,
                                 "it must actually wait — the failure is a race")
+
+
+class RestartScriptCheckTests(unittest.TestCase):
+    """`restart-looper-session.sh` asks by pid. It used to ask with awk whether
+    anything read from any APC port, and printed PASS for the remapper."""
+
+    SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "sooperlooper" / "midi_subscription.py"
+
+    def _cli(self, text: str, pid: int) -> int:
+        import os
+        import subprocess
+
+        env = dict(os.environ, MPE_SEQ_CLIENTS=str(_write(text)))
+        return subprocess.run(
+            [sys.executable, str(self.SCRIPT), "--pid", str(pid), "--device", "APC"],
+            capture_output=True, text=True, env=env, timeout=30,
+        ).returncode
+
+    def test_the_session_holding_the_apc_passes(self) -> None:
+        self.assertEqual(self._cli(HEALTHY, 1885294), 0)
+
+    def test_the_remapper_holding_the_apc_fails(self) -> None:
+        """The deploy printed 'PASS — APC has ALSA reader' for exactly this."""
+        self.assertEqual(self._cli(REMAPPER_HOLDS_IT, 1885294), 1)
+
+    def test_a_previous_session_does_not_pass_for_the_new_one(self) -> None:
+        self.assertEqual(self._cli(PREVIOUS_BENCH, 1885294), 1)
+        self.assertEqual(self._cli(PREVIOUS_BENCH, 2254), 0)
+
+    def test_an_unreadable_graph_is_not_a_pass(self) -> None:
+        self.assertFalse(
+            reader_holds_device("APC", reader=READER, path=Path("/nonexistent/clients"))
+        )
+
+    def test_the_shell_has_no_parser_of_its_own(self) -> None:
+        sh = (Path(__file__).resolve().parents[1] / "scripts"
+              / "restart-looper-session.sh").read_text()
+        self.assertNotIn("Connecting To", sh,
+                         "a second parser of the seq graph is how 'any reader' came back")
+        self.assertIn("midi_subscription.py", sh)
+        self.assertIn("MainPID", sh)
 
 
 if __name__ == "__main__":

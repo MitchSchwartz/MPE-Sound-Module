@@ -45,17 +45,19 @@ if ! systemctl is-active --quiet "$UNIT"; then
     exit 1
 fi
 
-if [ -r /proc/asound/seq/clients ]; then
-    # Match any APC model by name, case-insensitively. Hardcoding the mk1
-    # string "APC MINI" made this warn on a connected mk2 ("APC mini mk2") —
-    # a false negative in the one check that exists to be trustworthy. A
-    # verification that cries wolf gets ignored, which is the failure it was
-    # built to prevent.
-    if awk 'BEGIN{IGNORECASE=1} /^Client .*"[^"]*APC[^"]*"/{f=1;next} /^Client /{f=0} f && /Connecting To:/{ok=1} END{exit !ok}' \
-        /proc/asound/seq/clients; then
-        echo "restart-looper-session: PASS — APC has ALSA reader"
+if [ -r "${MPE_SEQ_CLIENTS:-/proc/asound/seq/clients}" ]; then
+    # Ask whether THE NEW SESSION holds the APC, not whether anything does.
+    # This was an awk line crediting any reader on any APC port, and on
+    # 2026-09-13 it printed PASS for mpe-pressure-remap on the Notes port.
+    # The bench names its ALSA clients with its pid; systemd knows the pid.
+    # The parser lives in midi_subscription.py so there is one of it.
+    bench_pid="$(systemctl show -p MainPID --value "$UNIT" 2>/dev/null || echo 0)"
+    here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    if [ "${bench_pid:-0}" != 0 ] && python3 "$here/sooperlooper/midi_subscription.py" \
+        --pid "$bench_pid" --device APC; then
+        echo "restart-looper-session: PASS — session pid $bench_pid holds the APC"
     else
-        echo "restart-looper-session: WARN — APC has no ALSA reader yet; check journal" >&2
+        echo "restart-looper-session: WARN — session pid ${bench_pid:-?} holds no APC port; check journal" >&2
         journalctl -u "$UNIT" -n 15 --no-pager || true
         exit 1
     fi
