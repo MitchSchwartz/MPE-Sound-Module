@@ -1,0 +1,12 @@
+numid=2,iface=MIXER,name='PCM Playback Switch'
+  ; type=BOOLEAN,access=rw------,values=1
+  : values=on
+numid=3,iface=MIXER,name='PCM Playback Volume'
+  ; type=INTEGER,access=rw---R--,values=1,min=0,max=127,step=0
+  : values=119
+  | dBminmax-min=-63.50dB,max=0.00dB
+numid=1,iface=PCM,name='Playback Channel Map'
+  ; type=INTEGER,access=r--v-R--,values=2,min=0,max=36,step=0
+  : values=3,4
+  | container
+    | chmap-fixed=FL,FR
