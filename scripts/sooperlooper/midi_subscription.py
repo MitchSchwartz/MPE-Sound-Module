@@ -141,6 +141,52 @@ def port_subscriptions(port_name: str, *, reader: str, writer: str,
     return False, False
 
 
+def reader_holds_device(device_hint: str, *, reader: str,
+                        path: Path = SEQ_CLIENTS) -> bool:
+    """Is the client named `reader` subscribed to ANY port of a matching device?
+
+    For callers that do not know which port the bench opened — the restart
+    script only knows the new session's pid. The looseness is in the port, never
+    in the subscriber: that is the half the remapper broke. Unlike
+    `port_subscriptions`, a missing procfs is False here — a restart that cannot
+    see the graph has not verified anything, and saying PASS would be the bug.
+    """
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+    clients, ports = _parse(text)
+    hint = device_hint.lower()
+    return any(
+        hint in clients.get(client_id, "").lower()
+        and any(clients.get(c) == reader for c in info["to"])
+        for (client_id, _index), info in ports.items()
+    )
+
+
+def main(argv: list[str] | None = None) -> int:
+    """`midi_subscription.py --pid N [--device APC]`: exit 0 iff that bench holds it.
+
+    The one check `restart-looper-session.sh` runs, so the shell has no parser
+    of its own. It had one — an awk line crediting any reader on any APC port —
+    and it printed "PASS — APC has ALSA reader" for the remapper.
+    """
+    import argparse
+    import os as _os
+
+    p = argparse.ArgumentParser(description=main.__doc__.splitlines()[0])
+    p.add_argument("--pid", type=int, required=True, help="the bench's pid")
+    p.add_argument("--device", default="APC")
+    args = p.parse_args(argv)
+    path = Path(_os.environ.get("MPE_SEQ_CLIENTS", str(SEQ_CLIENTS)))
+    reader, _writer = own_client_names(pid=args.pid)
+    if reader_holds_device(args.device, reader=reader, path=path):
+        print(f"{reader} is subscribed to {args.device}")
+        return 0
+    print(f"{reader} is NOT subscribed to any {args.device} port in {path}")
+    return 1
+
+
 def wait_for_subscription(port_name: str, *, reader: str, writer: str,
                           timeout_s: float = 3.0, poll_s: float = 0.1,
                           path: Path = SEQ_CLIENTS) -> tuple[bool, bool]:
@@ -157,3 +203,7 @@ def wait_for_subscription(port_name: str, *, reader: str, writer: str,
         if we_read or time.monotonic() >= deadline:
             return we_read, we_write
         time.sleep(poll_s)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
