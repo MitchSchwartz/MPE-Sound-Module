@@ -109,14 +109,42 @@ connect_stems() {
   log "stems: loop0..$((wired - 1)) -> playback_${STEM_FIRST_CH}..$((STEM_FIRST_CH + wired - 1)) (mono fold, ${available} ports available)"
 }
 
+# Is the monitor-branch gain stage actually CARRYING the live signal?
+#
+# If it is, Surge reaches playback THROUGH it and the direct connection below
+# must not be remade: both paths at once is two copies of your live playing,
+# which is the same fault a loop with dry > 0 produces (dump-loop-levels.py:45).
+#
+# The question is deliberately about the path, not the process. `jack_lsp |
+# grep '^mpe-live-monitor:'` was the first version of this and it was wrong:
+# ports exist the instant jack_port_register returns, so a client whose inputs
+# are connected to nothing — wrong MPE_SL_SURGE_CLIENT, or a Surge that never
+# started — passed the guard, and this script then declined to restore the
+# direct path it needed most. Silent instrument, nothing in any log, reaffirmed
+# on every wiring pass. Both legs, or it does not count.
+live_monitor_carrying() {
+  local ch
+  for ch in 1 2; do
+    jack_lsp -c "mpe-live-monitor:in_${ch}" 2>/dev/null \
+      | grep -Fq "${SURGE_CLIENT}:out_${ch}" || return 1
+    jack_lsp -c "mpe-live-monitor:out_${ch}" 2>/dev/null \
+      | grep -Fq "system:playback_${ch}" || return 1
+  done
+  return 0
+}
+
 connect_graph() {
   local i
   for i in $(seq 0 $((LOOPS - 1))); do
     try_jack jack_connect "${SURGE_CLIENT}:out_1" "${JACK_CLIENT}:loop${i}_in_1"
     try_jack jack_connect "${SURGE_CLIENT}:out_2" "${JACK_CLIENT}:loop${i}_in_2"
   done
-  try_jack jack_connect "${SURGE_CLIENT}:out_1" "system:playback_1"
-  try_jack jack_connect "${SURGE_CLIENT}:out_2" "system:playback_2"
+  if live_monitor_carrying; then
+    log "live monitor is carrying the live signal — leaving Surge -> playback to it"
+  else
+    try_jack jack_connect "${SURGE_CLIENT}:out_1" "system:playback_1"
+    try_jack jack_connect "${SURGE_CLIENT}:out_2" "system:playback_2"
+  fi
   try_jack jack_connect "${JACK_CLIENT}:common_out_1" "system:playback_1"
   try_jack jack_connect "${JACK_CLIENT}:common_out_2" "system:playback_2"
 }

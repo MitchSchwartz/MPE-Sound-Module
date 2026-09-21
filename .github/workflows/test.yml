@@ -29,6 +29,32 @@ jobs:
         timeout-minutes: 10
         run: python3 -m unittest discover -s tests
 
+  # The compiled JACK clients. Nothing else in CI touches them: the binaries are
+  # gitignored and built on the appliance by their start scripts, so a C file
+  # that stopped compiling would have reached the Pi and failed there, at the
+  # moment the unit tried to start. -Werror here and not in the Makefile on
+  # purpose — a warning must not stop Mitch getting sound out of a Pi at a gig.
+  native:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install libjack-dev
+        timeout-minutes: 3
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libjack-jackd2-dev
+      - name: Build native clients
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          for dir in native/*/; do
+            [ -f "$dir/Makefile" ] || continue
+            echo "== $dir"
+            make -C "$dir" clean
+            make -C "$dir" CFLAGS="-O2 -Wall -Wextra -Werror -std=c11"
+          done
+
   # The real engine. SooperLooper 1.7.9 on headless JACK, built from source in
   # tests/engine/Dockerfile, driven over OSC by tests/engine/. These are the
   # only tests in the repo that can contradict a claim about what the engine

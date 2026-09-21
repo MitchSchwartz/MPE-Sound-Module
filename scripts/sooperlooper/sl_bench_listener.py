@@ -23,9 +23,14 @@ class SlBenchStateListener:
         on_wet=None,
         *,
         session=None,
+        on_state=None,
     ) -> None:
         self._by_loop = by_loop
         self._on_wet = on_wet
+        #: Optional `(loop, state) -> None`. Every state update, whether or not
+        #: that loop has a pad bound — the live monitor needs to know a track is
+        #: capturing even when the viewport has scrolled its pad off the grid.
+        self._on_state = on_state
         self._session = session
         self._num_loops = MAX_USABLE_LOOPS
         #: Optional multi-clip surface. Gets every `state` update so it can tell
@@ -48,6 +53,11 @@ class SlBenchStateListener:
             if target is not None:
                 target.sync_in_peak(float(value))
             return
+        if control == "state" and self._on_state is not None:
+            # Routed before the `_by_loop` lookup for the same reason
+            # `in_peak_meter` is: a return on None here would hide exactly the
+            # loops that are hardest to notice going wrong.
+            self._on_state(int(loop_index), int(value))
         fs = self._by_loop.get(loop_index)
         if fs is None:
             if control == "state" and self._surface is not None:

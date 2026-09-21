@@ -41,6 +41,13 @@ Deploy/sync scripts resolve `../mpe-assets`, `../MPE-Library`, or `../MPE-Person
 | `MPE_JACK_PERIODS` | `3` | JACK periods per buffer (server-side). Valid: 2, 3, 4. Real output latency is `MPE_JACK_BUFFER × MPE_JACK_PERIODS`, which is what the MIDI output offset derives from. |
 | `MPE_JACK_SOFTMODE` | `1` | `jackd -s`. On (default) a client that misses its deadline is tolerated — correct for a gig. Set `0` on the bench so jackd zombifies the offender and names it in the journal. |
 | `MPE_PEAK_METER` | `0` | Live OUT meter via compiled `mpe-peak-meter` service (Phase 5). **Off by default** — set to `1`, then `systemctl enable --now mpe-peak-meter`. Enable only after `scripts/bench-xruns.sh --strict` passes. Build: `scripts/build-mpe-peak-meter.sh --required` (needs libjack-jackd2-dev). State includes `xruns=` (Q10 softmode counter). |
+| `MPE_LIVE_MONITOR` | `0` | Live monitor gain stage via compiled `mpe-live-monitor` service — how loud you hear yourself, separate from what is recorded. **Off by default** — set to `1`, then `systemctl enable --now mpe-live-monitor`. Build: `scripts/build-mpe-live-monitor.sh --required` (needs libjack-jackd2-dev). It takes the direct `Surge XT:out_N -> system:playback_N` path out of the graph while it runs and restores it on clean stop. A crash cannot run that code, so `ExecStopPost=` restores it however the process died, and `sl-watchdog.py` repairs it from `live-monitor.state` (or `meter.state` when `MPE_PEAK_METER=1`) if both fail. Nothing covers power loss. Level policy: [`scripts/sooperlooper/live_monitor.py`](../scripts/sooperlooper/live_monitor.py). |
+| `MPE_LIVE_MONITOR_CC` | `127` | What you hear yourself at when no track is capturing, as a 0–127 fader position. Unity by default, so an enabled monitor with nothing configured is inaudible. |
+| `MPE_LIVE_MONITOR_PORT` | `9957` | UDP control port for the gain stage. Both sides read it; `live_monitor.DEFAULT_PORT` pins the Python default. |
+| `MPE_LIVE_MONITOR_RAMP_MS` | `80` | Ramp time in ms for monitor level changes. The level moves while notes are sounding (every record start and stop), so a step would click. |
+| `MPE_LIVE_MONITOR_VERIFY_AFTER_S` | `3.0` | How long a take may go unmentioned before the bench asks the engine whether it is still recording. SooperLooper reports state **on change**, not on a timer (measured against the real engine, 2026-09-20: one datagram in five seconds of a held take), so silence is not evidence a take ended — the monitor asks rather than assuming. |
+| `MPE_LIVE_MONITOR_VERIFY_ATTEMPTS` | `3` | Unanswered questions before the take is treated as over and monitoring returns to the live level. More than one so a single lost datagram cannot end a take that is still recording. |
+| `MPE_LIVE_MONITOR_VERIFY_TIMEOUT_S` | `1.5` | How long each of those questions may go unanswered before it is asked again. |
 
 `MPE_AUDIO_ENGINE` is **retired** (spec amended 2026-08-13) — JACK is the only audio engine, so there is nothing left to select. A jackd that will not start is a hard failure (`state=failed`), not a route to an alternate engine.
 
@@ -55,6 +62,8 @@ Written by jackd, Surge, and the supervisor. tmpfs — cleared on reboot (correc
 | `jack.state` | `start-jackd.sh` | `device`, `period`, `periods`, `rate`, `started` |
 | `engine-reconcile.state` | watchdog | Supervisor cooldown: `last_restart`, `restarts` |
 | `jack-device` | `jackd-prestart.sh` | Selected `JACK_DEVICE=hw:N` for this start |
+| `meter.state` | `mpe-peak-meter` | `peak_linear`, `wired`, `looper_client`, `looper_playback`, `surge_playback` (can you hear yourself play — Surge to playback, or the live monitor insert with Surge actually feeding it), `xruns`, `dsp_percent`, `updated` |
+| `live-monitor.state` | `mpe-live-monitor` | `carrying` (audio traverses the insert end to end), `detached` (the direct Surge → playback path has been removed), `gain`, `surge_client`, `updated`. **Its staleness is the alarm:** the file stops being written when the insert dies, and `detached=1` in a stale file is how `sl-watchdog.py` knows the fail-open path was taken away by a process that is no longer there to give it back. |
 
 Units declare `RuntimeDirectory=mpe` + `RuntimeDirectoryPreserve=yes` on `surge-xt-cli`, `mpe-jackd`, and `surge-watchdog` so sibling restarts do not wipe shared state.
 

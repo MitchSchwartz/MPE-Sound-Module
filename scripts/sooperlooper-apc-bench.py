@@ -47,6 +47,8 @@ from running_code import running_code_sha  # noqa: E402
 from slot_runtime import SlotRuntime  # noqa: E402
 from slot_surface import SlotSurface  # noqa: E402
 from loop_mix import SEED_ADOPTED, CoalescingSender, LoopMix  # noqa: E402
+import live_monitor  # noqa: E402
+from live_monitor import LiveMonitor, LiveMonitorSender  # noqa: E402
 from sl_bench_listener import SlBenchStateListener  # noqa: E402
 from looper_engine_events import LooperEngineEventWatch, poll_interval_s  # noqa: E402
 from sl_grid_state import GridState  # noqa: E402
@@ -421,6 +423,68 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
                 flush=True,
             )
 
+    # The live monitor: how loud you hear yourself while playing into a track.
+    # Off unless MPE_LIVE_MONITOR=1, and inert without the gain stage running —
+    # the datagrams simply go nowhere. See live_monitor.py for the rule.
+    monitor = LiveMonitor() if live_monitor.ENABLED else None
+    monitor_sender: LiveMonitorSender | None = None
+    if monitor is not None:
+        monitor_sender = LiveMonitorSender(
+            log=lambda m: print(f"bench: {m}", flush=True)
+        )
+        if not monitor_sender.open():
+            print(
+                f"bench: WARN — live monitor off ({monitor_sender.error}); "
+                "you will hear yourself at the level Surge sends.",
+                file=sys.stderr,
+            )
+            monitor = None
+            monitor_sender = None
+
+    def push_monitor() -> None:
+        """Tell the gain stage what to be at now.
+
+        Called on the events that can change the answer — a state update, a
+        fader move, and the capture check in the idle branch. It is cheap enough
+        to sit there: MEASURED 2026-09-20, `poll_monitor_capture` costs 1.51 us
+        a pass idle and 2.70 us while capturing, which at the idle branch's
+        ~485 Hz is 0.07-0.13% of a core. `send()` drops anything that has not
+        moved, so the socket sees traffic only when the level actually changes
+        (DECISIONS.md, CPU is the scarcest resource).
+        """
+        if monitor is None or monitor_sender is None:
+            return
+        if monitor_sender.send(monitor.target_amp(mix.wet_for)) and fader_log:
+            loop = monitor.capturing_loop()
+            where = f"loop {loop}" if loop is not None else "live level"
+            print(
+                f"bench: live monitor -> {monitor.target_amp(mix.wet_for):.4f} ({where})",
+                flush=True,
+            )
+
+    def on_state(loop_index: int, state: int) -> None:
+        if monitor is None:
+            return
+        monitor.note_state(loop_index, state)
+        push_monitor()
+
+    def poll_monitor_capture() -> None:
+        """Ask the engine about a capture that has gone quiet, and act on silence.
+
+        The engine reports state on change, not on a timer, so a long take says
+        nothing for minutes and a *missed* end-of-take says nothing either —
+        the two are identical until somebody asks. This asks, once, and pushes
+        the level again when the answer (or the lack of one) has moved us off
+        that track. Costs one datagram per VERIFY_AFTER_S, and only while a
+        capture is actually being held.
+        """
+        if monitor is None:
+            return
+        loop = monitor.needs_verification()
+        if loop is not None:
+            osc_session.ask("state", loop)
+        push_monitor()
+
     by_loop = gestures_by_loop(gestures)
     # Multi-clip matrix. OFF by default: it takes over all eight rows including
     # row 0, replacing the single-clip record gesture Mitch plays with today.
@@ -478,11 +542,16 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
             flush=True,
         )
 
-    state_listener = SlBenchStateListener(by_loop, on_wet=on_wet, session=osc_session)
+    state_listener = SlBenchStateListener(
+        by_loop, on_wet=on_wet, session=osc_session, on_state=on_state
+    )
     state_listener.start()
     if slot_surface is not None:
         state_listener.attach_surface(slot_surface)
     state_listener.register(osc, num_loops=num_loops)
+    # Tell the gain stage where to start, so a configured live level applies
+    # before the first state update rather than at the first record.
+    push_monitor()
     print(
         "bench: ring-out capture "
         + ("on (take closes into a one-pass overdub)" if RING_OUT_ENABLED
@@ -683,6 +752,9 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
                       flush=True)
         faders.submit(msgs, now=now)
         faders.tick(now=now)
+        # A fader move changes what the track being captured will play back at,
+        # so it changes what you should be hearing yourself at right now.
+        push_monitor()
 
     def poll_transport_leds() -> None:
         """Advance the Stop All hold blink. Nothing else animates here.
@@ -918,6 +990,7 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
             maybe_track_transport()
             tick_faders()
             poll_remote_faders()
+            poll_monitor_capture()
             state_listener.maybe_reregister()
 
             poll_engine_events(time.monotonic())
@@ -964,6 +1037,8 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
 
         poll_engine_events(time.monotonic())
 
+    if monitor_sender is not None:
+        monitor_sender.close()
     return 0
 
 
