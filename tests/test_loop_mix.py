@@ -122,19 +122,97 @@ class Pickup(unittest.TestCase):
         self.assertEqual(mix.messages_for(0, 40), [])
         self.assertEqual(mix.user_gain[0], CC_MAX)
 
-    def test_relative_movement_after_anchor_applies_delta(self):
+    def test_movement_after_anchor_scales_toward_the_end_of_travel(self):
         mix = LoopMix()
-        mix.messages_for(0, 40)  # anchor at 40, ref 127
-        msgs = mix.messages_for(0, 30)  # delta -10 → effective 117
+        mix.messages_for(0, 40)  # anchor at 40, level 127
+        msgs = mix.messages_for(0, 30)  # a quarter of the way to 0 → 3/4 of 127
         self.assertTrue(msgs)
-        self.assertEqual(mix.user_gain[0], 117)
+        self.assertEqual(mix.user_gain[0], 95)
 
     def test_misaligned_fader_does_not_jump_on_grab(self):
         mix = LoopMix()
         mix.messages_for(0, 10)
         self.assertEqual(mix.user_gain[0], CC_MAX)
         mix.messages_for(0, 5)
-        self.assertEqual(mix.user_gain[0], 122)
+        self.assertEqual(mix.user_gain[0], 64)
+
+    def test_a_drag_does_not_compound(self):
+        """Each CC moves the level by its own step, not by the drag so far.
+
+        Asserted as a property rather than against the formula: under the old
+        law thirteen CCs down from 64 took the level from 127 to 36, because
+        each one re-applied the whole distance from the first touch. So the
+        sum of the steps must stay in proportion to the distance travelled,
+        and — the part that actually failed — thirteen small steps must land
+        where one big step of the same size lands.
+        """
+        gradual = LoopMix()
+        gradual.messages_for(0, 64)
+        for raw in range(63, 50, -1):
+            gradual.messages_for(0, raw)
+
+        one_move = LoopMix()
+        one_move.messages_for(0, 64)
+        one_move.messages_for(0, 51)
+
+        self.assertEqual(gradual.user_gain[0], one_move.user_gain[0])
+        # And it is a 13/64 reduction of travel, not the 71-CC collapse the old
+        # law produced.
+        self.assertGreater(gradual.user_gain[0], 90)
+        self.assertLess(gradual.user_gain[0], 127)
+
+    def test_reversing_a_drag_raises_the_level_at_once(self):
+        mix = LoopMix()
+        mix.messages_for(0, 64)
+        for raw in range(63, 50, -1):
+            mix.messages_for(0, raw)
+        low = mix.user_gain[0]
+        mix.messages_for(0, 52)
+        self.assertGreater(mix.user_gain[0], low)
+
+    def test_fader_ends_always_reach_silence_and_unity(self):
+        mix = LoopMix()
+        mix.messages_for(0, 100)
+        mix.messages_for(0, 0)
+        self.assertEqual(mix.wet_for(0), 0.0)
+        mix.messages_for(0, 127)
+        self.assertEqual(mix.user_gain[0], CC_MAX)
+
+    def test_slow_moves_near_silence_still_accumulate(self):
+        mix = LoopMix()
+        mix.messages_for(0, 127)
+        mix.messages_for(0, 5)  # level ≈ 5
+        start = mix.user_gain[0]
+        for raw in range(6, 40):
+            mix.messages_for(0, raw)
+        self.assertGreater(mix.user_gain[0], start)
+
+    def test_two_faders_move_independently(self):
+        """Interleaved moves on two faders must not reach each other's level.
+
+        Both columns start *below* unity, deliberately: the first version of
+        this test drove fader 1 upward from a level already at CC_MAX, where
+        the arithmetic is a no-op — it passed whether fader 1 was honoured or
+        ignored entirely, which is no test at all.
+        """
+        mix = LoopMix()
+        for fader in (0, 1):
+            mix.messages_for(fader, 127)
+            mix.messages_for(fader, 64)  # both columns now sit at half travel
+
+        col0 = mix.view.loops_for_column(0)[0]
+        col1 = mix.view.loops_for_column(1)[0]
+        start = mix.user_gain[col0]
+        self.assertEqual(mix.user_gain[col1], start)
+
+        for raw in range(65, 91):
+            mix.messages_for(0, 128 - raw)  # fader 0 downward
+            mix.messages_for(1, raw)        # fader 1 upward, same number of steps
+
+        self.assertLess(mix.user_gain[col0], start)
+        self.assertGreater(mix.user_gain[col1], start)
+        # Untouched columns are not written at all.
+        self.assertEqual(mix.user_gain[mix.view.loops_for_column(2)[0]], CC_MAX)
 
     def test_suppressed_anchor_does_not_change_stored_gain(self):
         mix = LoopMix()
@@ -167,7 +245,8 @@ class Pickup(unittest.TestCase):
         # ...and the re-armed fader picks up from that stored level, not unity.
         mix.messages_for(0, 90)
         self.assertEqual(mix.messages_for(0, 91)[0][0], "/sl/0/set")
-        self.assertEqual(mix.user_gain[0], quiet + 1)
+        self.assertGreater(mix.user_gain[0], quiet)
+        self.assertLess(mix.user_gain[0], quiet + 5)
 
     def test_engine_echoing_our_own_value_does_not_rearm_pickup(self):
         mix = _picked_up(LoopMix(), 0)

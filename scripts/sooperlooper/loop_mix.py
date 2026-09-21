@@ -30,10 +30,11 @@ loop is re-emitted rather than nudged.
 **Physical position is not truth.** The faders have no motors, so they send
 nothing until moved and their positions at startup are unknown. Taking the
 first CC at face value means the first touch of a fader mid-jam jumps the level
-— loud, and exactly when you least want it. So the first CC *anchors* relative
-pickup (no level change); movement after that applies delta from the anchor
-against the stored column level. Output wet is smoothed toward the target so
-fast drags and misaligned surfaces do not step or jump.
+— loud, and exactly when you least want it. So the first CC *anchors* pickup
+(no level change); each move after that scales the level toward the end of
+travel the fader is heading for, so fader bottom is always silence, fader top is
+always unity, and the two positions converge as you play. Output wet is smoothed
+toward the target so fast drags and misaligned surfaces do not step or jump.
 """
 
 from __future__ import annotations
@@ -172,11 +173,11 @@ class LoopMix:
     #: echo detection can only recognise the *settled* level — see
     #: `seed_from_engine`.
     echo_probe: object = None
-    _picked_up: set[FaderId] = field(default_factory=set)
-    # Relative pickup: first CC anchors; later CCs apply delta from here.
+    # The last CC each fader sent. Set on first touch, advanced on every move.
     _pickup_anchor: dict[int, int] = field(default_factory=dict)
-    # Stored column level the relative delta is applied against.
-    _pickup_ref: dict[int, int] = field(default_factory=dict)
+    # Column level before rounding to `user_gain`, so slow moves near either
+    # end of travel still accumulate instead of rounding away every step.
+    _pickup_ref: dict[int, float] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         for loop in range(self.num_loops):
@@ -207,7 +208,6 @@ class LoopMix:
         if view == self.view:
             return
         self.view = view
-        self._picked_up.clear()
         self._pickup_anchor.clear()
         for col in range(8):
             loops = self.view.loops_for_column(col)
@@ -267,7 +267,6 @@ class LoopMix:
         self.user_gain[loop] = cc
         for col in range(8):
             if loop in self.view.loops_for_column(col):
-                self._picked_up.discard(col)
                 self._pickup_anchor.pop(col, None)
                 self._pickup_ref[col] = cc
         return SEED_ADOPTED
@@ -325,25 +324,57 @@ class LoopMix:
         if not self._accept(fader, raw):
             return []
 
-        effective = self._effective_cc(fader, raw)
+        level = self._scaled_level(fader, raw)
+        self._pickup_anchor[fader] = raw
+        self._pickup_ref[fader] = level
         for loop in loops:
-            self.user_gain[loop] = effective
-        self._pickup_ref[fader] = effective
+            # Python's round() is banker's rounding — .5 goes to even, not up.
+            # It costs at most one CC step here and the float ref carries the
+            # remainder, so a slow drag still accumulates rather than stalling.
+            self.user_gain[loop] = round(level)
         return [self._message_for_loop(loop) for loop in loops]
 
     def _accept(self, fader: int, raw: int) -> bool:
-        """Relative pickup: anchor on first touch, no jump; then delta applies."""
+        """First touch of a fader anchors it and changes nothing.
+
+        After that every move is accepted and scaled — see `_scaled_level`.
+        Returning False here is what makes a grab silent instead of a jump.
+        """
         if fader in self._pickup_anchor:
             return True
         self._pickup_anchor[fader] = raw
-        self._picked_up.add(fader)
         return False
 
-    def _effective_cc(self, fader: int, raw: int) -> int:
-        """Map physical travel to column level via anchor + stored ref."""
-        anchor = self._pickup_anchor[fader]
+    def _scaled_level(self, fader: int, raw: int) -> float:
+        """Move the column level toward the end of travel the fader is heading for.
+
+        The step is the fraction of the remaining physical travel just covered,
+        applied to the remaining level travel. A fader at 10 with its track at
+        unity halves the level by 5 and silences it at 0.
+
+        **It does not jump on the grab** — the first touch changes nothing — but
+        a single CC can still move the level a long way once a fader is moving,
+        and the further the fader is from its track's level, the further. From
+        an anchor at 2, one CC to 60 is a 15 dB move (MEASURED against this
+        module, 2026-09-20: -32.1 dB to -17.0 dB), and sparse CCs on a fast drag
+        are ordinary, not an edge case. The output ramp (FADER_SMOOTH_MS) is what
+        keeps that from clicking; it is not bounded here.
+
+        This replaced ``ref + (raw - anchor)`` with a fixed first-touch anchor,
+        applied on top of a ref that every move had already rewritten. Each CC
+        re-added the whole drag so far: 13 steps down took a loop from 127 to
+        36, and moving back up kept lowering it until the fader crossed the
+        anchor. That was the clip "breaking or going silent" on a fader move.
+        """
+        prev = self._pickup_anchor[fader]
         ref = self._pickup_ref.get(fader, CC_MAX)
-        return max(0, min(CC_MAX, ref + (raw - anchor)))
+        if raw < prev:
+            level = ref - ref * (prev - raw) / prev
+        elif raw > prev:
+            level = ref + (CC_MAX - ref) * (raw - prev) / (CC_MAX - prev)
+        else:
+            level = ref
+        return max(0.0, min(float(CC_MAX), level))
 
     def _message_for_loop(self, loop: int) -> tuple[str, list]:
         param = PARAMETERS[self.mode]
