@@ -414,7 +414,7 @@ simultaneous notes. **The pitch bend wheel was not used.**
 
 ### Ranked hypotheses
 
-**H1 — stale per-channel state on channel reuse. LIVE, primary.**
+**H1 — stale per-channel state on channel reuse. Real defect; NOT the cause of this report (see Capture 2).**
 `_pitch_bend`, channel pressure and `BROADCAST_CCS` in `translate()` all emit
 only to *currently active* voices. A channel released while one of those values
 was non-zero never receives the message that returns it to rest, and
@@ -445,6 +445,50 @@ duration. *Cheap falsification:* `MPE_POLY_CEILING=64`, or stop
 on every hotplug and breaks acceptance criterion 5. §7.10 independently rules
 out the milder version of the same idea.
 
+### Capture 1 — 2026-09-13, VI61 on the laptop (no Pi, no Surge)
+
+`aseqdump -p 28:0,28:1`, 150 s. Chord was A–C#–E (notes 57/61/64). All traffic
+on port 28:0, channel 1. Totals: 26 note-on, 26 note-off, **109 channel
+aftertouch (0xD0)**, 241 CC1, **zero pitch bend, zero poly aftertouch**.
+
+- Single notes and overlapping notes: note messages only. No pressure, no CC.
+- Held chord, leaning in: channel aftertouch 0→53, then 0→82, returning to 0
+  *before* the keys were released.
+- Control section: CC1 0–127 from the mod wheel, so the recorder can see
+  controllers. The pitch wheel was not moved, so no bend is expected.
+- Nothing is subscribed to the VI61 on the laptop, and no CC1 appears during the
+  chord, so the display change Mitch saw while leaning is most likely the
+  keyboard showing its own aftertouch value, not feedback from the host.
+
+**Result for H1:** the VI61 keybed sends zone-wide channel aftertouch — the
+exact message class `translate()` broadcasts to active voices only. The input
+exists. But replaying this capture through `ClassicToMpe` left **no** dirty
+channel, because pressure returned to 0 while the chord was still held, so the
+rest value reached every sounding channel. H1 needs keys *released while
+pressure is still non-zero*; this capture never did that. Not confirmed, not
+refuted.
+
+### Capture 2 — 2026-09-13, targeted at H1 (laptop, no Surge)
+
+Six chords pressed hard and released quickly (the last four followed by a lone
+A), then free pitch-bend playing. 660 channel aftertouch, 553 pitch bend, 32
+note-on/off.
+
+- **In 14 of 14 releases, the VI61's pressure reached 0 before the first
+  note-off** — 30 to 1044 ms earlier, including quick releases from a peak of
+  127. The keybed's aftertouch lets go before the key contact opens, so the
+  zero is always delivered to the notes still held.
+- Replaying the capture through `ClassicToMpe` left no channel with stale
+  pressure or stale bend, and every lone A landed on a clean channel.
+
+**Result: H1 is not expressible through this keyboard's pressure in normal
+playing.** The translator defect is still real — a device whose pressure or
+wheel is non-zero at note-off would trigger it, and so would a single key
+lifted while the others keep pressing — but it does not explain the reported
+wrong A. The field defect has no confirmed mechanism. Next step needs sound:
+the VI61 on the Pi, reproducing by ear, with the input stream and the
+translator's output captured together.
+
 ### Separate defect found while reading — RPN is never nulled
 
 `_control_change` sets `self._rpn` and never clears it on RPN null (127/127), so
@@ -456,22 +500,21 @@ bend to be expressed.
 
 ### What to do next, in order
 
-1. **Capture before fixing.** `scripts/capture-midi-stream.py` is read-only and
-   runs alongside live routing:
-   ```
-   python3 scripts/capture-midi-stream.py --list
-   python3 scripts/capture-midi-stream.py --port <VI61> --seconds 60 \
-     --out vi61-triad.jsonl
-   ```
-   Play the triad until the wrong note is heard. The end-of-run summary counts
-   messages by kind and CC number. The question it answers is *which*
-   per-channel quantity the VI61 emits, if any. Velocity is not evidence either
-   way — it lives in the note-on byte, not in channel state.
-2. **Then fix**, shaped by the answer: in `_note_on`, emit the zone's current
-   value for every per-channel quantity before the note-on, *including when that
-   value is at rest*. The present guard `if self._bend14 != BEND_CENTRE` is
-   precisely what allows the reset to be skipped, and §7.9 says Surge reads the
-   channel at voice creation, so the ordering is load-bearing.
-3. The governor journal (`journalctl -u surge-poly-governor`) records limit
-   transitions and would settle H2 for the session in question, but journald
-   retention is the clock on that.
+1. **Reproduce by ear on the Pi.** Plug the VI61 into the appliance, play the
+   A–C#–E triad until the wrong A is heard, and capture the VI61 input and the
+   router's output to Surge at the same time. The laptop captures cannot do
+   this — there is no Surge in that loop, so the fault cannot be heard there.
+   `rtmidi` is not installed on the laptop; `aseqdump -p <client:port>` with a
+   timestamp prefix was used instead.
+2. **Read the two streams against each other.** If Surge receives correct
+   messages and still sounds a sharp A, the fault is in Surge or the patch. If
+   the router's output is wrong, the fault is in our code.
+3. **H2 falsification, same session:** `MPE_POLY_CEILING=64`, or stop
+   `surge-poly-governor.service`, and replay the triad.
+4. **H1 fix, independent of this report:** in `_note_on`, emit the zone's
+   current value for every per-channel quantity before the note-on, *including
+   when that value is at rest*. The present guard
+   `if self._bend14 != BEND_CENTRE` is what allows the reset to be skipped, and
+   §7.9 says Surge reads the channel at voice creation, so ordering is
+   load-bearing. Not written yet, by decision. The RPN-null defect above should
+   be fixed alongside it.
