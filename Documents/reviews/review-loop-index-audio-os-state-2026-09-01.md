@@ -1,5 +1,7 @@
 # Review loop — audio / appliance "OS" state
 
+> Cut 2026-09-23 in `4a77085`: this loop's cycle files. Restore: `git checkout 4a77085^ -- Documents/reviews/`
+
 **Scope:** system bring-up, part supervision, lifecycle + state across the Pi, DAC plug/unplug, multiple DACs.
 **Trigger:** recent pushes regressed the device — audio output largely stopped.
 **Branch:** `fix/card-identity-and-audible-state` (from `dev` @ 898b160). NOT committed, NOT merged.
