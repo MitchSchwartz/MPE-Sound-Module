@@ -1,5 +1,7 @@
 # Looper review artifacts — 2026-08-15 index
 
+> Cut 2026-09-23 in `4a77085`: this loop's cycle files. Restore: `git checkout 4a77085^ -- Documents/reviews/`
+
 *Last updated: 2026-08-15 (America/Toronto)*
 
 Four independent passes on the SooperLooper control layer. **Read the index first** — they are not interchangeable.
