@@ -1,5 +1,7 @@
 # Review loop — cycle 2 fixes (2026-08-22)
 
+> Cut 2026-09-23 in `4a77085`: this loop's cycle files. Restore: `git checkout 4a77085^ -- Documents/reviews/`
+
 Applied after grumpy + audit cycle 2 (5 P1):
 
 | P1 | Fix |

@@ -1,5 +1,7 @@
 # Review history — loops without an index
 
+> Cut 2026-09-23 in `4a77085`: this loop's cycle files. Restore: `git checkout 4a77085^ -- Documents/reviews/`
+
 Created 2026-09-23 when these loops' cycle files were cut. Each section carries one file's findings.
 
 

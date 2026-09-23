@@ -1,5 +1,7 @@
 # Review loop index — c0-conformance-live
 
+> Cut 2026-09-23 in `4a77085`: this loop's cycle files. Restore: `git checkout 4a77085^ -- Documents/reviews/`
+
 | Cycle | Grumpy | Audit | Fixes |
 |-------|--------|-------|-------|
 | 1 | (pre-merge, instrument-conformance-c0) | review-audit-instrument-conformance-c0-cycle1-2026-08-22.md | PR #96 merged |
