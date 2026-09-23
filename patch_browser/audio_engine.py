@@ -7,6 +7,9 @@ no ``MPE_AUDIO_ENGINE`` to resolve and nothing to switch between.
 
 from __future__ import annotations
 
+import os
+import time
+
 from pathlib import Path
 from typing import Literal
 
@@ -25,6 +28,13 @@ ENGINE_STATE_FILE = Path("/run/mpe/engine.state")
 RECONCILE_STATE_FILE = Path("/run/mpe/engine-reconcile.state")
 JACK_STATE_FILE = Path("/run/mpe/jack.state")
 METER_STATE_FILE = Path("/run/mpe/meter.state")
+#: Published by mpe-live-monitor (native/mpe-live-monitor). Its absence or
+#: staleness is the alarm that the insert died holding the fail-open path.
+LIVE_MONITOR_STATE_FILE = Path(
+    os.environ.get("MPE_RUN_DIR") or METER_STATE_FILE.parent
+) / "live-monitor.state"
+#: Written every 2 s by the wiring thread; three missed writes is dead enough.
+LIVE_MONITOR_STATE_MAX_AGE_S = 6.0
 ENGINE_STATE_MAX_BYTES = 4096
 METER_STATE_MAX_AGE_S = float(__import__("os").environ.get("MPE_METER_STATE_MAX_AGE_S", "5"))
 
@@ -318,6 +328,109 @@ def looper_playback_via_meter(*, path: Path | None = None,
     if not meter_state_fresh(state, now=now):
         return None
     return _meter_flag(state, "looper_playback")
+
+
+def read_live_monitor_state(path: Path | None = None) -> dict[str, str]:
+    """Parse ``live-monitor.state`` from the compiled live monitor process."""
+    return read_engine_state(path or LIVE_MONITOR_STATE_FILE)
+
+
+class LiveMonitorWatcher:
+    """Can you hear yourself play, according to the insert itself?
+
+    - **True** — the insert says audio traverses it end to end, or that it has
+      not taken the direct path away.
+    - **False** — the insert last said it had detached the direct path, and has
+      stopped saying anything since. That is the silent instrument: the process
+      that owed us a restore is gone, and what it removed is still removed.
+    - **None** — no file, it never claimed to have detached anything, or we have
+      not watched it long enough to say. Nothing to conclude, nothing to repair.
+
+    **Staleness is measured by the file standing still, not by its timestamp
+    being old.** The two are the same only on a machine with a reliable clock,
+    and this one has no RTC: NTP steps it forward at every boot. Comparing
+    `updated=` against a stepped clock made a file written one second ago look
+    an hour old, which answers False, which fires the repair — reconnecting the
+    direct path underneath a healthy insert, two copies of the live signal, the
+    one fault this feature must never produce.
+
+    So `updated=` is treated as an opaque token. The insert rewrites it every
+    2 s; if the token has not changed for `max_still_s` of the *reader's*
+    monotonic clock, the writer has stopped. A clock step changes the token's
+    value, which is indistinguishable from progress — which is correct, because
+    it is progress: something is still writing the file.
+    """
+
+    def __init__(self, *, path: Path | None = None,
+                 max_still_s: float = LIVE_MONITOR_STATE_MAX_AGE_S) -> None:
+        self._path = path
+        self._max_still_s = max_still_s
+        self._token: str | None = None
+        self._token_seen_at: float | None = None
+
+    def poll(self, *, now: float | None = None) -> bool | None:
+        """Read the file and answer. `now` is a MONOTONIC clock, not wall time."""
+        t = time.monotonic() if now is None else now
+        state = read_live_monitor_state(self._path)
+        if not state:
+            self._token = None
+            self._token_seen_at = None
+            return None
+
+        token = state.get("updated")
+        if token != self._token:
+            self._token = token
+            self._token_seen_at = t
+        still_for = t - (self._token_seen_at if self._token_seen_at is not None else t)
+
+        detached = _meter_flag(state, "detached")
+        if detached is None:
+            return None
+        if still_for <= self._max_still_s:
+            # Being written, or not yet watched long enough to say otherwise.
+            if _meter_flag(state, "carrying") is True:
+                return True
+            return detached is not True
+        # The file has stopped moving. Only a writer that left the direct path
+        # detached is a problem; one that had not touched it owes us nothing.
+        return False if detached is True else None
+
+
+#: The watchdog's own watcher. Module-level because the answer depends on how
+#: the file has changed over time, which a pure function cannot see.
+_live_monitor_watcher = LiveMonitorWatcher()
+
+
+def live_path_via_monitor_state(*, path: Path | None = None,
+                                now: float | None = None) -> bool | None:
+    """Convenience wrapper over the shared `LiveMonitorWatcher`."""
+    global _live_monitor_watcher
+    if path is not None and path != _live_monitor_watcher._path:
+        _live_monitor_watcher = LiveMonitorWatcher(path=path)
+    return _live_monitor_watcher.poll(now=now)
+
+
+def surge_playback_via_meter(*, path: Path | None = None,
+                             now: float | None = None) -> bool | None:
+    """True when you can hear yourself play: Surge reaches ``system:playback``
+    directly, or ``mpe-live-monitor`` does on its behalf. None → fall back.
+
+    Asked by sl-watchdog.py. Nothing asked it before mpe-live-monitor existed,
+    because the connection was made once at wiring time and never removed; an
+    insert that removes it on purpose makes "neither route" reachable, and a
+    missing answer here reads exactly like a healthy instrument.
+
+    A meter too old to publish the key answers None rather than False — absent
+    is not the same as disconnected, and repairing on the strength of a key that
+    was never written would reconnect the direct path underneath a healthy
+    insert, which is the doubled-signal fault.
+    """
+    state = read_meter_state(path)
+    if not meter_state_fresh(state, now=now):
+        return None
+    if not state or "surge_playback" not in state:
+        return None
+    return _meter_flag(state, "surge_playback")
 
 
 def engine_hud_should_show(state: dict[str, str] | None) -> bool:

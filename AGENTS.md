@@ -67,13 +67,25 @@ core, forever**. Compute cost × cadence and put it in the PR. Rules and measure
 3. **Never raise a level to diagnose silence.** If you expect sound and hear none, the cause is almost always routing, a stopped service, or a wrong device — not gain. Turning it up to find out is exactly how the damage happens. Check `mpe-yolo jack-status`, `osc-check`, and the unit states first.
 4. **Restore any level you change**, and say in your summary that you changed it.
 
-**There are three gain stages in series.** A level that is safe at one is not safe end to end:
+**There are four gain stages, and they are not all in series.** A level that is
+safe at one is not safe end to end:
 
-| Stage | Control |
-|---|---|
-| Surge patch output | OSC `/param/a/amp/volume`, `/param/b/amp/volume` (UDP 53280) |
-| Looper | `MPE_SL_LOOP_GAIN`, `MPE_SL_LOOP_GAIN_LAW` |
-| Hardware mixer | Bound DAC's playback element, owned by `patch_browser/device_volume.py` |
+| Stage | Control | Reaches |
+|---|---|---|
+| Surge patch output | OSC `/param/a/amp/volume`, `/param/b/amp/volume` (UDP 53280) | everything — it is upstream of the fan-out |
+| Live monitor | `native/mpe-live-monitor`, driven by `scripts/sooperlooper/live_monitor.py` (UDP 9957) | what you hear yourself at, never what is captured |
+| Looper | `MPE_SL_LOOP_GAIN`, `MPE_SL_LOOP_GAIN_LAW`, per-loop `wet` via `loop_mix.py` | loop playback only |
+| Hardware mixer | Bound DAC's playback element, owned by `patch_browser/device_volume.py` | everything |
+
+**Surge's output fans out; it is not a chain.** `Surge XT:out_N` goes to
+`system:playback_N` (what you hear) *and* to every `mpe-looper:loopM_in_N` (what
+gets captured) from the same port. That is why a gain stage can sit on the
+monitor branch and leave the capture untouched, and why `MPE_LIVE_MONITOR=1`
+inserts `mpe-live-monitor` between Surge and playback rather than upstream of
+the split. Two consequences worth holding on to: a take is always captured at
+full scale no matter what you were monitoring at, and **both paths must never be
+connected at once** — direct *and* through the insert is two copies of your live
+playing, the same fault a loop with `dry > 0` produces.
 
 **The Vol fader is the DAC level when the bound card allows it.** Exactly one writable, dB-carrying, playback-only volume element → *device* mode: the fader sets that element, Surge trim sits at unity. Anything else → *trim* mode (the old Surge trim). Measured 2026-09-13: FiiO KA1 `PCM` (−63.5..0 dB) and Sound Blaster `Speaker` (−44..0 dB) are device; Scarlett 4i4 (four `Line` volumes) is trim.
 

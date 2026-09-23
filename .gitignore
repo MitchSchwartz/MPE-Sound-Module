@@ -47,6 +47,10 @@ logs/shutdown-test-marker.json
 # Everything else (binaries, patches, configs) GOES IN GIT for backup!
 native/mpe-peak-meter/mpe-peak-meter
 
+# Compiled monitor-branch gain stage — build with `make` in native/mpe-live-monitor
+# (or scripts/build-mpe-live-monitor.sh). Built per architecture: the Pi is arm64.
+native/mpe-live-monitor/mpe-live-monitor
+
 # Compiled probe — build with `make` in native/mpe-xrun-probe.
 # An x86-64 laptop build was committed here and shipped to the aarch64 Pi,
 # where a fresh checkout produced "Syntax error: Unterminated quoted string"

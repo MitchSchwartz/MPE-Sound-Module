@@ -128,6 +128,19 @@ class SlOscSession:
         """Last value delivered by auto-update. Never blocks."""
         return self.last.get(_cache_key(loop, ctrl))
 
+    def ask(self, ctrl: str, loop: int) -> None:
+        """Ask for one control and do not wait — the reply arrives as an update.
+
+        `get()` blocks for up to `timeout`, which is fine in a health check and
+        not fine in the bench's MIDI loop. This points the engine's reply at
+        `/sl/bench/state`, the same path auto-updates arrive on, so the answer
+        reaches the bench listener as an ordinary state update and whoever cares
+        hears about it where they already listen.
+        """
+        self.client.send_message(
+            f"/sl/{loop}/get", [ctrl, self.returl(), "/sl/bench/state"]
+        )
+
     def get(self, ctrl: str, loop: int = 0, timeout: float = 0.4):
         key = _cache_key(loop, ctrl)
         self.last.pop(key, None)
