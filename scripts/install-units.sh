@@ -42,10 +42,12 @@ ENABLED=(
 # Installed but deliberately NOT enabled. Present so the file exists for manual
 # start or for a future profile that turns them on.
 #
-# Do NOT add mpe-peak-meter here. It gates on MPE_PEAK_METER inside
+# Do NOT add mpe-peak-meter or mpe-live-monitor here. The meter gates on MPE_PEAK_METER inside
 # start-mpe-peak-meter.sh (exit 0 when off), so it is safe to leave enabled — and
 # listing it ran `systemctl disable` on every deploy, silently switching the OUT
 # meter off again with MPE_PEAK_METER=1 still set and nothing in the journal.
+# mpe-live-monitor gates the same way on MPE_LIVE_MONITOR and is omitted for the
+# same reason.
 # A unit that disables itself on each provisioning run is the ghost-unit pattern
 # (Documents/DECISIONS.md 2026-08-15: a state that reads the same broken or fine).
 # mpe-restart-bench is in NEITHER list on purpose. It is a manually-triggered

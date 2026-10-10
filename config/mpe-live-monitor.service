@@ -1,0 +1,43 @@
+[Unit]
+Description=MPE live monitor gain stage (JACK insert on the monitor branch)
+After=mpe-jackd.service surge-xt-cli.service
+Wants=mpe-jackd.service
+PartOf=mpe-jackd.service
+# Opt-in, and in NEITHER list in install-units.sh — same reasoning as
+# mpe-peak-meter: start-mpe-live-monitor.sh gates on MPE_LIVE_MONITOR and exits 0
+# when off, so leaving it enabled is safe, while listing it in DISABLED would
+# `systemctl disable` it on every deploy with the flag still set (the ghost-unit
+# pattern). Enable only after MPE_LIVE_MONITOR=1 in /etc/mpe/mpe.env.
+
+[Service]
+Type=simple
+User=@MPE_PI_USER@
+WorkingDirectory=@MPE_MODULE_REPO@
+EnvironmentFile=-/etc/mpe/mpe.env
+RuntimeDirectory=mpe
+RuntimeDirectoryPreserve=yes
+LimitRTPRIO=95
+LimitMEMLOCK=infinity
+ExecStart=@MPE_MODULE_REPO@/scripts/start-mpe-live-monitor.sh
+# However this process dies, Surge goes back on playback directly. The client
+# restores the path itself on SIGTERM; a segfault or an OOM kill never reaches
+# that code, and what it leaves behind is a silent instrument with nothing in
+# the journal. systemd runs ExecStopPost in both cases. The `-` prefix keeps a
+# failure here from masking why the unit stopped.
+ExecStopPost=-@MPE_MODULE_REPO@/scripts/restore-direct-monitor-path.sh
+Restart=on-failure
+RestartSec=3
+# JACK leaf client — must not inherit 90s default when jackd tears down first.
+TimeoutStopSec=5
+KillMode=mixed
+StandardOutput=journal
+StandardError=journal
+
+# --- Audio cores (2026-08-21 hygiene baseline) --------------------------------
+# This client is IN the audio path, not beside it: every period waits on its
+# process callback. It belongs on the audio cores with jackd and surge, for the
+# same reason they are there.
+CPUAffinity=2 3
+
+[Install]
+WantedBy=multi-user.target
