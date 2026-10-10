@@ -266,13 +266,24 @@ class Safety(unittest.TestCase):
         self.assertEqual(len(out), 1)
         self.assertEqual(t.active_notes, {})
 
-    def test_bend_resets_to_centre_after_panic(self) -> None:
+    def test_panic_leaves_the_channels_to_be_rewritten(self) -> None:
+        """Panic clears OUR zone state but sends the member channels nothing,
+        so Surge still holds the old bend (plan §7.9). The next note must write
+        the channel rather than inherit it.
+
+        This test previously asserted the opposite -- a bare note-on -- which is
+        exactly the appliance failure measured 2026-10-10: one use of the wheel
+        left channels bent and later notes played sharp with no bend in the
+        stream.
+        """
         t = ClassicToMpe()
         t.translate([NOTE_ON, 60, 100])
         t.translate(bend_msg(0, 16383))
         t.all_notes_off()
         out = t.translate([NOTE_ON, 62, 100])
-        self.assertEqual([m[0] & 0xF0 for m in out], [NOTE_ON])
+        self.assertEqual(out[-1][0] & 0xF0, NOTE_ON, "note-on must come last")
+        bends = [m for m in out if m[0] & 0xF0 == PITCH_BEND]
+        self.assertEqual([value14(m) for m in bends], [BEND_CENTRE])
 
 
 class ConfigurationMessage(unittest.TestCase):
@@ -290,6 +301,130 @@ class ConfigurationMessage(unittest.TestCase):
     def test_out_of_range_member_count_is_refused(self) -> None:
         with self.assertRaises(ValueError):
             mpe_configuration_message(16)
+
+
+class StaleChannelState(unittest.TestCase):
+    """Surge keeps bend/pressure/timbre per channel for the life of the process
+    and a new voice initialises from it (plan §7.9), so a reused channel must be
+    written before its note-on. MEASURED on the appliance 2026-10-10."""
+
+    def setUp(self) -> None:
+        self.t = ClassicToMpe()
+        # One member channel, so "the same channel comes back" is exact rather
+        # than a function of allocation order.
+        self.one = ClassicToMpe(member_channels=(1,))
+
+    def _note(self, note: int) -> list[list[int]]:
+        return self.t.translate([NOTE_ON, note, 100])
+
+    def test_the_measured_field_case_a_reused_channel_is_recentred(self) -> None:
+        """Bend, release while bent, wheel back with nothing sounding, replay.
+
+        This is the appliance failure exactly: the wheel's return to centre
+        reaches only sounding voices, so the released channel kept the bend and
+        the next note there played sharp with no bend message in the stream.
+        """
+        t = self.one
+        t.translate([NOTE_ON, 69, 100])
+        t.translate(bend_msg(0, 16383))
+        t.translate([NOTE_OFF, 69, 0])
+        self.assertEqual(t.translate(bend_msg(0, BEND_CENTRE)), [],
+                         "nothing is sounding, so the centring reaches no channel")
+        out = t.translate([NOTE_ON, 69, 100])
+        bends = [m for m in out if m[0] & 0xF0 == PITCH_BEND]
+        self.assertEqual(len(bends), 1, f"no re-centring bend: {out}")
+        self.assertEqual(value14(bends[0]), BEND_CENTRE)
+        self.assertEqual(out[-1][0] & 0xF0, NOTE_ON)
+
+    def test_an_unprimed_channel_is_written_even_at_rest(self) -> None:
+        """Unknown is not the same as at rest: Surge may hold anything."""
+        out = self._note(60)
+        kinds = [m[0] & 0xF0 for m in out]
+        self.assertIn(PITCH_BEND, kinds)
+        self.assertIn(CHANNEL_PRESSURE, kinds)
+        self.assertEqual(kinds[-1], NOTE_ON, "state must precede the note-on")
+
+    def test_priming_precedes_the_note_on(self) -> None:
+        """Surge reads the channel at voice creation; after is a slide."""
+        self.t.translate([NOTE_ON, 60, 100])
+        self.t.translate(bend_msg(0, 10000))
+        self.t.translate([NOTE_OFF, 60, 0])
+        out = self._note(64)
+        self.assertEqual(out[-1][0] & 0xF0, NOTE_ON)
+        self.assertTrue(all(m[0] & 0xF0 != NOTE_ON for m in out[:-1]))
+
+    def test_an_already_matching_channel_costs_nothing(self) -> None:
+        """Priming must not add a message per note once a channel is known."""
+        t = self.one
+        t.translate([NOTE_ON, 60, 100])
+        t.translate([NOTE_OFF, 60, 0])
+        out = t.translate([NOTE_ON, 60, 100])
+        self.assertEqual(len(out), 1, f"expected the note-on alone: {out}")
+        self.assertEqual(out[0][0] & 0xF0, NOTE_ON)
+
+    def test_stale_pressure_is_cleared_on_reuse(self) -> None:
+        """Same defect, different message: pressure is zone-wide and sticks."""
+        t = self.one
+        t.translate([NOTE_ON, 60, 100])
+        t.translate([CHANNEL_PRESSURE, 100])
+        t.translate([NOTE_OFF, 60, 0])
+        t.translate([CHANNEL_PRESSURE, 0])  # reaches nothing
+        out = t.translate([NOTE_ON, 60, 100])
+        pressures = [m for m in out if m[0] & 0xF0 == CHANNEL_PRESSURE]
+        self.assertEqual([m[1] for m in pressures], [0], f"stale pressure: {out}")
+
+    def test_stale_broadcast_cc_is_cleared_on_reuse(self) -> None:
+        t = self.one
+        t.translate([NOTE_ON, 60, 100])
+        t.translate([CONTROL_CHANGE, CC_MOD_WHEEL, 90])
+        t.translate([NOTE_OFF, 60, 0])
+        t.translate([CONTROL_CHANGE, CC_MOD_WHEEL, 0])
+        out = t.translate([NOTE_ON, 60, 100])
+        mods = [m for m in out if m[0] & 0xF0 == CONTROL_CHANGE and m[1] == CC_MOD_WHEEL]
+        self.assertEqual([m[2] for m in mods], [0], f"stale mod wheel: {out}")
+
+    def test_poly_aftertouch_does_not_become_the_zone_pressure(self) -> None:
+        """It is per note by definition; treating it as zone state would leak
+        one key's pressure onto every later note."""
+        self.t.translate([NOTE_ON, 60, 100])
+        self.t.translate([POLY_AFTERTOUCH, 60, 120])
+        self.t.translate([NOTE_OFF, 60, 0])
+        out = self.t.translate([NOTE_ON, 72, 100])
+        pressures = [m[1] for m in out if m[0] & 0xF0 == CHANNEL_PRESSURE]
+        self.assertEqual(pressures, [0], f"zone pressure leaked: {out}")
+
+    def test_zone_reset_writes_every_member_channel(self) -> None:
+        """What cured the appliance by hand: bend, pressure and timbre on all."""
+        out = self.t.zone_reset()
+        for channel in self.t.member_channels:
+            mine = [m for m in out if m[0] & 0x0F == channel]
+            kinds = {m[0] & 0xF0 for m in mine}
+            self.assertEqual(kinds, {PITCH_BEND, CHANNEL_PRESSURE, CONTROL_CHANGE})
+        self.assertEqual(
+            self.t.translate([NOTE_ON, 60, 100]), [[NOTE_ON | self.t.member_channels[0], 60, 100]],
+            "after a reset the channels are known, so a note costs one message",
+        )
+
+
+class RpnNull(unittest.TestCase):
+    def test_rpn_null_closes_the_parameter(self) -> None:
+        """Without this, any later CC6 -- a common generic knob assignment --
+        is read as a bend-range declaration and rescales every bend."""
+        t = ClassicToMpe()
+        for msg in (
+            [CONTROL_CHANGE, CC_RPN_MSB, 0],
+            [CONTROL_CHANGE, CC_RPN_LSB, 0],
+            [CONTROL_CHANGE, CC_DATA_ENTRY_MSB, 2],
+        ):
+            t.translate(msg)
+        self.assertEqual(t.bend_semitones, 2.0)
+        for msg in (
+            [CONTROL_CHANGE, CC_RPN_MSB, 127],
+            [CONTROL_CHANGE, CC_RPN_LSB, 127],
+        ):
+            t.translate(msg)
+        t.translate([CONTROL_CHANGE, CC_DATA_ENTRY_MSB, 48])
+        self.assertEqual(t.bend_semitones, 2.0, "a stray CC6 rewrote the bend range")
 
 
 if __name__ == "__main__":

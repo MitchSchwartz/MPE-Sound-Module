@@ -123,7 +123,20 @@ class ClassicToMpe:
     # still-ringing tail is not re-modulated by the next note (plan §7.6).
     _released: dict[int, int] = field(default_factory=dict, init=False)
     _bend14: int = field(default=BEND_CENTRE, init=False)
+    _pressure: int = field(default=0, init=False)
+    _cc_zone: dict[int, int] = field(default_factory=dict, init=False)
     _rpn: tuple[int, int] | None = field(default=None, init=False)
+    # What each member channel was last SENT. Surge keeps bend, pressure and
+    # timbre per channel for the life of the process -- nothing clears them on
+    # note-off or allNotesOff -- and a new voice initialises from that state at
+    # creation (plan §7.9). A channel missing from these maps is UNPRIMED:
+    # Surge's state for it is unknown, so it must be written before a note-on,
+    # even when the zone value is at rest. MEASURED 2026-10-10: one use of the
+    # pitch wheel left channels bent, and notes allocated there played sharp for
+    # the rest of the session with no bend message anywhere in the stream.
+    _chan_bend: dict[int, int] = field(default_factory=dict, init=False)
+    _chan_pressure: dict[int, int] = field(default_factory=dict, init=False)
+    _chan_cc: dict[tuple[int, int], int] = field(default_factory=dict, init=False)
 
     # -- allocation ---------------------------------------------------------
     def _free_channel(self) -> int | None:
@@ -169,14 +182,17 @@ class ClassicToMpe:
         if kind == PITCH_BEND and len(msg) >= 3:
             return self._pitch_bend(msg[1], msg[2])
         if kind == CHANNEL_PRESSURE and len(msg) >= 2:
-            return [
-                [CHANNEL_PRESSURE | v.channel, msg[1]] for v in self._active.values()
-            ]
+            self._pressure = msg[1]
+            return [self._pressure_message(v.channel) for v in self._active.values()]
         if kind == POLY_AFTERTOUCH and len(msg) >= 3:
             # Per-note pressure is exactly what MPE expresses per member
-            # channel — the one classic message that maps without loss.
+            # channel — the one classic message that maps without loss. It is
+            # per note, so it does NOT become the zone's pressure.
             voice = self._active.get(msg[1])
-            return [[CHANNEL_PRESSURE | voice.channel, msg[2]]] if voice else []
+            if voice is None:
+                return []
+            self._chan_pressure[voice.channel] = msg[2]
+            return [[CHANNEL_PRESSURE | voice.channel, msg[2]]]
         if kind == CONTROL_CHANGE and len(msg) >= 3:
             return self._control_change(msg[1], msg[2])
         if kind == PROGRAM_CHANGE:
@@ -196,18 +212,47 @@ class ClassicToMpe:
             out += steal_out
         self._active[note] = _Voice(note=note, channel=channel, started=self._tick)
         self._released.pop(channel, None)
-        # The zone's current bend must apply to a note that arrives mid-bend,
-        # or it sounds at the wrong pitch until the next bend message.
-        if self._bend14 != BEND_CENTRE:
-            out.append(self._bend_message(channel))
+        # Every per-channel quantity must match the zone BEFORE the note-on:
+        # Surge reads the channel at voice creation, so a message sent after it
+        # is a slide, not the note's starting value (plan §7.9).
+        out += self._prime(channel)
         out.append([NOTE_ON | channel, note, velocity])
         return out
 
-    def _bend_message(self, channel: int) -> list[int]:
-        scaled = scale_bend(
+    def _prime(self, channel: int) -> list[list[int]]:
+        """Bring one member channel to the zone's current state.
+
+        Emits only what differs from what this channel was last sent, so a
+        channel already matching the zone costs nothing. An unprimed channel
+        gets written whatever the value, because 'unknown' is not 'at rest'.
+        """
+        out: list[list[int]] = []
+        if self._chan_bend.get(channel) != self._scaled_bend():
+            out.append(self._bend_message(channel))
+        if self._chan_pressure.get(channel) != self._pressure:
+            out.append(self._pressure_message(channel))
+        for cc, value in self._cc_zone.items():
+            if self._chan_cc.get((channel, cc)) != value:
+                out.append(self._cc_message(channel, cc, value))
+        return out
+
+    def _scaled_bend(self) -> int:
+        return scale_bend(
             self._bend14, self.bend_semitones, self.target_bend_semitones
         )
+
+    def _bend_message(self, channel: int) -> list[int]:
+        scaled = self._scaled_bend()
+        self._chan_bend[channel] = scaled
         return [PITCH_BEND | channel, scaled & 0x7F, (scaled >> 7) & 0x7F]
+
+    def _pressure_message(self, channel: int) -> list[int]:
+        self._chan_pressure[channel] = self._pressure
+        return [CHANNEL_PRESSURE | channel, self._pressure]
+
+    def _cc_message(self, channel: int, cc: int, value: int) -> list[int]:
+        self._chan_cc[(channel, cc)] = value
+        return [CONTROL_CHANGE | channel, cc, value]
 
     def _pitch_bend(self, lsb: int, msb: int) -> list[list[int]]:
         self._bend14 = (msb << 7) | lsb
@@ -226,6 +271,8 @@ class ClassicToMpe:
             return []
         if cc == CC_RPN_LSB:
             self._rpn = (self._rpn[0] if self._rpn else 0, value)
+            if self._rpn == (127, 127):  # RPN null — the parameter is closed
+                self._rpn = None
             return []
         if cc in (CC_DATA_ENTRY_MSB, CC_DATA_ENTRY_LSB):
             if self._rpn == (0, 0):  # RPN 0/0 = pitch bend sensitivity
@@ -234,8 +281,9 @@ class ClassicToMpe:
                 return []  # consumed: the range is ours, not Surge's
             return []
         if cc in BROADCAST_CCS:
+            self._cc_zone[cc] = value
             return [
-                [CONTROL_CHANGE | v.channel, cc, value] for v in self._active.values()
+                self._cc_message(v.channel, cc, value) for v in self._active.values()
             ]
         # Anything else is zone-wide for a classic device.
         return [[CONTROL_CHANGE | MASTER_CHANNEL, cc, value]]
@@ -253,6 +301,32 @@ class ClassicToMpe:
             self._released[voice.channel] = self._tick
         self._active.clear()
         self._bend14 = BEND_CENTRE
+        self._pressure = 0
+        self._cc_zone.clear()
+        # The zone is back at rest but Surge's channels are not, and this sends
+        # them nothing. Drop every channel to unprimed so the next note on each
+        # one writes its state rather than inheriting what panic left behind.
+        self._chan_bend.clear()
+        self._chan_pressure.clear()
+        self._chan_cc.clear()
+        return out
+
+    def zone_reset(self) -> list[list[int]]:
+        """Write the zone's rest state to every member channel.
+
+        For device bind and router startup. Surge may have been left with bend,
+        pressure or timbre on member channels by an earlier device or an earlier
+        session -- it keeps them for the life of the process -- and priming on
+        note-on cannot fix a channel this translator has never sent to, because
+        it has no way to know what Surge holds. MEASURED 2026-10-10: sending
+        exactly this cleared an appliance that was playing shifted notes.
+        """
+        out: list[list[int]] = []
+        for channel in self.member_channels:
+            out.append(self._bend_message(channel))
+            out.append(self._pressure_message(channel))
+            for cc in BROADCAST_CCS:
+                out.append(self._cc_message(channel, cc, self._cc_zone.get(cc, 0)))
         return out
 
     @property

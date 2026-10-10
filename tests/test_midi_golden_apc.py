@@ -62,6 +62,30 @@ class GoldenApcStream(unittest.TestCase):
         self.out = []
         for msg in self.stream:
             self.out.extend(self.translator.translate(msg))
+        # Output now carries channel priming as well as notes: a member channel
+        # must be brought to the zone's state before its note-on, because Surge
+        # reads the channel at voice creation (plan §7.9). Tests about notes
+        # read this view; test_priming_is_per_channel_and_precedes_its_note_on
+        # is what holds the priming itself to account.
+        self.notes = [m for m in self.out if m[0] & 0xF0 in (0x80, 0x90)]
+
+    def test_priming_is_per_channel_and_precedes_its_note_on(self):
+        """Priming is bend plus pressure, once per channel, never after the
+        note-on it belongs to -- 15 channels, 2 messages each, for this
+        capture's 15-channel fan-out."""
+        primed = [m for m in self.out if m[0] & 0xF0 not in (0x80, 0x90)]
+        self.assertEqual({m[0] & 0xF0 for m in primed}, {0xE0, 0xD0})
+        self.assertEqual(len(primed), 2 * len(MEMBER_CHANNELS))
+        for msg in primed:
+            self.assertIn(msg[0] & 0x0F, MEMBER_CHANNELS, msg)
+        # Each channel's first note-on must follow that channel's priming.
+        seen_priming = set()
+        for msg in self.out:
+            chan = msg[0] & 0x0F
+            if msg[0] & 0xF0 not in (0x80, 0x90):
+                seen_priming.add(chan)
+            elif msg[0] & 0xF0 == 0x90 and msg[2] > 0:
+                self.assertIn(chan, seen_priming, f"note-on before priming: {msg}")
 
     def test_fixture_is_the_capture_we_recorded(self):
         """Guard the fixture itself -- a silently truncated file would
@@ -87,7 +111,7 @@ class GoldenApcStream(unittest.TestCase):
 
     def test_note_offs_never_orphaned(self):
         held = {}
-        for msg in self.out:
+        for msg in self.notes:
             kind, chan = msg[0] & 0xF0, msg[0] & 0x0F
             if kind == 0x90 and msg[2] > 0:
                 held.setdefault(chan, []).append(msg[1])
@@ -100,7 +124,7 @@ class GoldenApcStream(unittest.TestCase):
     def test_one_note_per_member_channel_at_a_time(self):
         """The MPE invariant that makes per-note expression work at all."""
         held = {}
-        for msg in self.out:
+        for msg in self.notes:
             kind, chan = msg[0] & 0xF0, msg[0] & 0x0F
             if kind == 0x90 and msg[2] > 0:
                 self.assertNotIn(
@@ -116,9 +140,9 @@ class GoldenApcStream(unittest.TestCase):
         (note_on 59 twice with no note_off between), and MPE requires
         the held note be released before the channel retriggers."""
         src_on = [(m[1], m[2]) for m in self.stream if m[0] & 0xF0 == 0x90]
-        dst_on = [(m[1], m[2]) for m in self.out if m[0] & 0xF0 == 0x90]
+        dst_on = [(m[1], m[2]) for m in self.notes if m[0] & 0xF0 == 0x90]
         self.assertEqual(src_on, dst_on)
-        self.assertLessEqual({m[1] for m in self.out}, {m[1] for m in self.stream})
+        self.assertLessEqual({m[1] for m in self.notes}, {m[1] for m in self.stream})
 
     def test_duplicate_note_events_are_absorbed_exactly(self):
         """The APC duplicates pad events: it sends note_on twice and
@@ -134,7 +158,11 @@ class GoldenApcStream(unittest.TestCase):
         retriggers = 0
         dropped_offs = 0
         for msg in self.stream:
-            out = translator.translate(msg)
+            out = [
+                m
+                for m in translator.translate(msg)
+                if m[0] & 0xF0 in (0x80, 0x90)   # ignore channel priming
+            ]
             if msg[0] & 0xF0 == 0x90 and len(out) == 2:
                 self.assertEqual(out[0][0] & 0xF0, 0x80, "release must come first")
                 self.assertEqual(out[0][1], msg[1])
@@ -147,7 +175,7 @@ class GoldenApcStream(unittest.TestCase):
 
     def test_a_note_is_never_retriggered_while_still_held(self):
         held = set()
-        for msg in self.out:
+        for msg in self.notes:
             kind = msg[0] & 0xF0
             if kind == 0x90 and msg[2] > 0:
                 self.assertNotIn(msg[1], held, f"note {msg[1]} retriggered while held")
