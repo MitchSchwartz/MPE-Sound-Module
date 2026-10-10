@@ -50,7 +50,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from patch_browser.audio_engine import (  # noqa: E402
     jack_reachable_via_meter,
     looper_client_via_meter,
+    live_path_via_monitor_state,
     looper_playback_via_meter,
+    surge_playback_via_meter,
 )
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -159,6 +161,10 @@ class GraphSnapshot(NamedTuple):
     looper_client: bool | None
     looper_playback: bool | None
     source: str
+    #: Can you hear yourself play — Surge to playback, or the live monitor
+    #: insert standing in for it? Last and defaulted so that every existing
+    #: positional construction keeps working; None means the meter did not say.
+    surge_playback: bool | None = None
 
 
 def jackd_running() -> bool | None:
@@ -179,16 +185,47 @@ def jackd_running() -> bool | None:
         return None
 
 
+def live_monitor_enabled() -> bool:
+    """Is the insert meant to be running? One law, shared with everything else.
+
+    Imported rather than restated: `live_monitor.enabled` is the same predicate
+    `start-mpe-live-monitor.sh --check` answers with and the bench decides on.
+    A fourth reading of MPE_LIVE_MONITOR is how three of them ended up
+    disagreeing the first time.
+    """
+    try:
+        from live_monitor import enabled
+    except ImportError:
+        return False
+    return enabled()
+
+
 def read_graph_snapshot(*, now: float | None = None) -> GraphSnapshot:
     """Prefer meter.state. When the meter is off or stale, do not fork jack_lsp."""
     t = time.time() if now is None else now
     jack = jack_reachable_via_meter(now=t)
     looper = looper_client_via_meter(now=t)
     playback = looper_playback_via_meter(now=t)
+    live = surge_playback_via_meter(now=t)
+    if live is None and live_monitor_enabled():
+        # Monotonic, not wall time: this sensor measures whether the file is
+        # still moving, and the board has no RTC (see LiveMonitorWatcher).
+        # The meter is the cheap sensor for this, but it is opt-in and off by
+        # default, which left the repair arm below inert in the configuration
+        # everybody actually runs. The insert publishes its own state file, so
+        # ask that instead — a file read, not a jack_lsp fork, because a fork in
+        # this loop is banned (scripts/lib/periodic_loop_lint.py) and the ban is
+        # right: this loop runs forever on the board with the least CPU.
+        live = live_path_via_monitor_state(now=time.monotonic())
     if jack is not None and looper is not None and playback is not None:
-        return GraphSnapshot(jack, looper, playback, "meter")
+        return GraphSnapshot(jack, looper, playback, "meter", live)
 
-    return GraphSnapshot(None, None, None, "meter_stale")
+    # The looper fields still answer only when the meter does. The live-path
+    # field must not: it has its own sensor, and discarding it here is what kept
+    # the repair arm inert through two cycles of "fixing" it — the sensor was
+    # correct, the snapshot threw the answer away, and every test of the sensor
+    # passed because none of them came through this function.
+    return GraphSnapshot(None, None, None, "meter_stale", live)
 
 
 def wait_for_playback_via_meter(*, timeout_s: float = 4.0,
@@ -204,6 +241,49 @@ def wait_for_playback_via_meter(*, timeout_s: float = 4.0,
             continue
         return None
     return looper_playback_via_meter() is True
+
+
+def live_path_needs_repair(snap: GraphSnapshot, *, orphan: bool, stopped: bool) -> bool:
+    """Should we put Surge back on playback?
+
+    A function, not an `if` buried in the loop, because this decision has been
+    wrong in three different ways across this review — nested under a field only
+    the meter answers, gated on a sensor that could not see its own subject, and
+    fed by a snapshot that discarded the answer — and every one of those was
+    invisible to the tests, which asserted on the sensor and never on the
+    decision. Now the decision itself can be executed.
+
+    Not while the engine is orphaned or deliberately stopped: the ports would
+    not exist, and a repair that cannot work should not be attempted or logged.
+    Not when JACK is known to be down, for the same reason. `None` — nobody
+    knows — is not a reason to rewire anything.
+    """
+    if orphan or stopped:
+        return False
+    if snap.jack_reachable is False:
+        return False
+    return snap.surge_playback is False
+
+
+def wait_for_live_path(*, timeout_s: float = 4.0, poll_s: float = 0.2) -> bool | None:
+    """Did the repair take? Give the sensor time to say so.
+
+    The meter republishes on a 200 ms writer and re-reads the graph every 2 s,
+    and the insert writes its own state on the same 2 s wiring pass, so asking
+    the instant after a repair reads the state from before it. The arm above this one learned the same
+    lesson (`wait_for_playback_via_meter`): a repair that worked, reported as
+    "repair did not take", every ten seconds, is how this watchdog once logged a
+    problem for 45 minutes while saying nothing useful about it.
+    """
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        answer = surge_playback_via_meter()
+        if answer is None and live_monitor_enabled():
+            answer = live_path_via_monitor_state()
+        if answer is True:
+            return True
+        time.sleep(poll_s)
+    return None
 
 
 def read_governor() -> str | None:
@@ -547,6 +627,43 @@ def main(argv: list[str] | None = None) -> int:
                         log(f"repair failed: {exc}")
             elif snap.looper_playback is None and not playback_ok:
                 problems.append("common_out playback wiring unknown (meter stale)")
+
+
+        # Can Mitch hear himself play? Outside the `jack_reachable` gate above
+        # on purpose: that field is answered by the meter alone, and the meter
+        # is off by default, so anything nested under it does not run on the
+        # appliance as configured. This arm has its own sensor and its own
+        # reasons to be skipped, listed below.
+        #
+        # Loops reaching playback does not answer this: the live signal takes
+        # its own branch of the fan-out,
+        # and mpe-live-monitor removes the direct connection while it is
+        # inserted. If it dies without restoring it — a segfault, an OOM
+        # kill, anything ExecStopPost could not cover — nothing else in this
+        # repository notices, and a silent instrument looks identical to a
+        # working one in every log. Repair is the same script the unit runs.
+        if live_path_needs_repair(snap, orphan=orphan, stopped=stopped):
+            problems.append(
+                "nothing reaches system:playback from Surge or the live monitor"
+            )
+            if not args.no_repair:
+                script = REPO_ROOT / "scripts/restore-direct-monitor-path.sh"
+                try:
+                    proc = subprocess.run(["bash", str(script)],
+                                          capture_output=True, text=True,
+                                          timeout=30)
+                    if wait_for_live_path() is True:
+                        repaired.append("reconnected Surge -> playback")
+                        problems.pop()
+                    else:
+                        log(f"repair did not take: "
+                            f"restore-direct-monitor-path.sh exited {proc.returncode}")
+                        for stream, text in (("out", proc.stdout),
+                                             ("err", proc.stderr)):
+                            for line in (text or "").strip().splitlines():
+                                log(f"  restore {stream}: {line}")
+                except Exception as exc:
+                    log(f"repair failed: {exc}")
 
         # --- control path: NEVER auto-repair (restart destroys takes) --------
         # Skipped while orphaned: it would report WEDGED, which is true but

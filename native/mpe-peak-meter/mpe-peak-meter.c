@@ -42,6 +42,13 @@ static _Atomic float g_period_peak = 0.0f;
 static atomic_int g_surge_wired = 0;
 static atomic_int g_looper_client = 0;
 static atomic_int g_looper_playback = 0;
+/* Does anything reach system:playback from the live side — Surge directly, or
+ * the live monitor insert standing in for it? Nothing in this repository used
+ * to ask: the connection was made once at wiring time and never removed, so it
+ * needed no watchdog. mpe-live-monitor removes it on purpose, which makes
+ * "neither route is connected" a reachable state that is silent in every log.
+ * sl-watchdog.py repairs it from this flag. */
+static atomic_int g_surge_playback = 0;
 static _Atomic unsigned long g_xrun_count = 0;
 static char g_run_dir[RUN_DIR_MAX + 1] = "/run/mpe";
 static char g_surge_client[128];
@@ -165,8 +172,87 @@ static int looper_playback_wired(void)
     return ok;
 }
 
+/* Does a named source feed system:playback_<ch>? */
+static int playback_fed_by(int ch, const char *source)
+{
+    char playback[64];
+    snprintf(playback, sizeof(playback), "system:playback_%d", ch);
+    jack_port_t *pb = jack_port_by_name(g_client, playback);
+    if (pb == NULL) {
+        return 0;
+    }
+    const char **connections = jack_port_get_all_connections(g_client, pb);
+    if (connections == NULL) {
+        return 0;
+    }
+    int found = 0;
+    for (int i = 0; connections[i] != NULL; i++) {
+        if (strcmp(connections[i], source) == 0) {
+            found = 1;
+            break;
+        }
+    }
+    jack_free(connections);
+    return found;
+}
+
+static int port_fed_by(const char *port_name, const char *source)
+{
+    jack_port_t *port = jack_port_by_name(g_client, port_name);
+    if (port == NULL) {
+        return 0;
+    }
+    const char **connections = jack_port_get_all_connections(g_client, port);
+    if (connections == NULL) {
+        return 0;
+    }
+    int found = 0;
+    for (int i = 0; connections[i] != NULL; i++) {
+        if (strcmp(connections[i], source) == 0) {
+            found = 1;
+            break;
+        }
+    }
+    jack_free(connections);
+    return found;
+}
+
+/* Can you hear yourself play? True when Surge reaches playback directly on both
+ * channels, or when mpe-live-monitor does it on Surge's behalf — and for the
+ * insert, only when Surge actually reaches the insert's input.
+ *
+ * Both legs, both channels, exact names. The first version of this asked
+ * whether ANY connection whose name started with "mpe-live-monitor:" was on
+ * playback_1, which is the presence-not-path law that produced the silent
+ * instrument this whole flag exists to catch: an insert wired to playback with
+ * nothing feeding it satisfied it perfectly. A sensor that can be satisfied by
+ * the failure it watches for is worse than no sensor, because the watchdog
+ * built on it reports healthy. */
+static int surge_playback_wired(void)
+{
+    int direct = 1;
+    int through_insert = 1;
+    for (int ch = 1; ch <= 2; ch++) {
+        char surge_out[192];
+        char insert_in[64];
+        char insert_out[64];
+        snprintf(surge_out, sizeof(surge_out), "%s:out_%d", g_surge_client, ch);
+        snprintf(insert_in, sizeof(insert_in), "mpe-live-monitor:in_%d", ch);
+        snprintf(insert_out, sizeof(insert_out), "mpe-live-monitor:out_%d", ch);
+
+        if (!playback_fed_by(ch, surge_out)) {
+            direct = 0;
+        }
+        if (!playback_fed_by(ch, insert_out) || !port_fed_by(insert_in, surge_out)) {
+            through_insert = 0;
+        }
+    }
+    return direct || through_insert;
+}
+
 static void write_meter_state(float peak_linear, int surge_wired, int looper_client,
-                              int looper_playback, unsigned long xruns, float dsp_percent)
+                              int looper_playback, int surge_playback,
+                              unsigned long xruns, float dsp_percent)
 {
     char path[RUN_DIR_MAX + 32];
     char tmp[sizeof(path) + 32];
@@ -191,6 +277,7 @@ static void write_meter_state(float peak_linear, int surge_wired, int looper_cli
     fprintf(fh, "online=%d\n", surge_wired ? 1 : 0);
     fprintf(fh, "looper_client=%d\n", looper_client ? 1 : 0);
     fprintf(fh, "looper_playback=%d\n", looper_playback ? 1 : 0);
+    fprintf(fh, "surge_playback=%d\n", surge_playback ? 1 : 0);
     fprintf(fh, "source=jack\n");
     fprintf(fh, "xruns=%lu\n", xruns);
     fprintf(fh, "dsp_percent=%.3f\n", dsp_percent);
@@ -248,6 +335,7 @@ static int ensure_wiring(void)
     atomic_store_explicit(&g_surge_wired, surge_ok, memory_order_relaxed);
     atomic_store_explicit(&g_looper_client, looper_client_visible(), memory_order_relaxed);
     atomic_store_explicit(&g_looper_playback, looper_playback_wired(), memory_order_relaxed);
+    atomic_store_explicit(&g_surge_playback, surge_playback_wired(), memory_order_relaxed);
     return surge_ok;
 }
 
@@ -266,6 +354,7 @@ static void *writer_thread(void *arg)
         int surge_wired = atomic_load_explicit(&g_surge_wired, memory_order_relaxed);
         int looper_client = atomic_load_explicit(&g_looper_client, memory_order_relaxed);
         int looper_playback = atomic_load_explicit(&g_looper_playback, memory_order_relaxed);
+        int surge_playback = atomic_load_explicit(&g_surge_playback, memory_order_relaxed);
         unsigned long xruns = atomic_load_explicit(&g_xrun_count, memory_order_relaxed);
         float dsp_percent = 0.0f;
         if (g_client != NULL) {
@@ -276,12 +365,12 @@ static void *writer_thread(void *arg)
                 dsp_percent = 100.0f;
             }
         }
-        write_meter_state(held_peak, surge_wired, looper_client, looper_playback, xruns,
-                          dsp_percent);
+        write_meter_state(held_peak, surge_wired, looper_client, looper_playback,
+                          surge_playback, xruns, dsp_percent);
         interruptible_usleep(WRITER_INTERVAL_US);
     }
-    write_meter_state(0.0f, 0, 0, 0, atomic_load_explicit(&g_xrun_count, memory_order_relaxed),
-                      0.0f);
+    write_meter_state(0.0f, 0, 0, 0, 0,
+                      atomic_load_explicit(&g_xrun_count, memory_order_relaxed), 0.0f);
     return NULL;
 }
 
@@ -307,7 +396,14 @@ static void load_env(void)
     if (run_dir != NULL && run_dir[0] != '\0') {
         snprintf(g_run_dir, sizeof(g_run_dir), "%s", run_dir);
     }
+    /* MPE_PEAK_METER_SURGE_CLIENT first for compatibility, then the name every
+     * other part of the system uses. They were separate variables answering one
+     * question, and this one is now load-bearing: it decides whether the
+     * watchdog thinks you can hear yourself play. */
     const char *surge = getenv("MPE_PEAK_METER_SURGE_CLIENT");
+    if (surge == NULL || surge[0] == '\0') {
+        surge = getenv("MPE_SL_SURGE_CLIENT");
+    }
     if (surge != NULL && surge[0] != '\0') {
         snprintf(g_surge_client, sizeof(g_surge_client), "%s", surge);
     } else {
