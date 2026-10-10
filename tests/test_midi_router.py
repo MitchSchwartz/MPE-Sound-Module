@@ -76,8 +76,13 @@ class ClassicPath(unittest.TestCase):
 
     def test_classic_notes_move_off_the_master_channel(self):
         out = self.binding.apply([0x90, 60, 100], 0.0)
-        self.assertEqual(len(out), 1)
-        self.assertNotEqual(out[0][0] & 0x0F, 0)
+        self.assertEqual(out[-1][0] & 0xF0, 0x90, "the note-on comes last")
+        self.assertNotEqual(out[-1][0] & 0x0F, 0)
+        # The messages in front of it are this channel's priming, which must
+        # land before the note-on (plan §7.9).
+        for msg in out[:-1]:
+            self.assertIn(msg[0] & 0xF0, (0xE0, 0xD0, 0xB0), msg)
+            self.assertEqual(msg[0] & 0x0F, out[-1][0] & 0x0F)
 
     def test_classic_binding_fans_out(self):
         """A note arriving mid-bend must emit the bend before the note."""
@@ -104,10 +109,15 @@ class ClassicPath(unittest.TestCase):
         out = []
         for msg in stream:
             out.extend(self.binding.apply(msg, 0.0))
-        # Counts match by coincidence -- 7 retriggers add a message each
+        # Note counts match by coincidence -- 7 retriggers add a message each
         # and 7 duplicate note_offs drop one each. Assert the shape, not
         # the total, or this proves nothing.
-        self.assertEqual(len(out), 187)
+        notes = [m for m in out if m[0] & 0xF0 in (0x80, 0x90)]
+        self.assertEqual(len(notes), 187)
+        # Plus priming: bend and pressure once per member channel, written
+        # before that channel's first note-on (plan §7.9). Per channel, not per
+        # note -- if this were per note it would be 2 * 187.
+        self.assertEqual(len(out) - len(notes), 2 * 15)
         self.assertEqual(self.binding.messages_seen, len(stream))
         for msg in out:
             self.assertNotEqual(msg[0] & 0x0F, 0, "master channel must stay clear")

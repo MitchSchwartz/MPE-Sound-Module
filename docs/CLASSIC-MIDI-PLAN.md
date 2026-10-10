@@ -454,6 +454,57 @@ default assignment for a generic knob) is swallowed and rewrites
 too wide. Independent of H1; unrelated to this field report, since it needs a
 bend to be expressed.
 
+### Capture 3 — 2026-10-10, on the appliance. CONFIRMED, and fixed.
+
+VI61 on the module, Surge live, `MPE_ROUTE_CLASSIC=1`, two simultaneous taps:
+the VI61's input (`28:0`) and what reaches Surge (`14:0`, Midi Through).
+
+- **Run A, no bend used:** 66 note-on each side, note sequences *identical*,
+  input on channel 1, output fanned across all 15 member channels, zero channel
+  anomalies, nothing left held. Mitch could not reproduce the fault.
+- **He then used the pitch wheel once, and the fault appeared.**
+- **Run B, wheel untouched throughout:** 222 note-on each side, identical, zero
+  anomalies, and **no pitch bend anywhere in either stream** — yet notes were
+  audibly shifted up and down. The wheel's own display read centre.
+- **Decisive test:** bend-centre, pressure 0 and timbre 0 sent to all 15 member
+  channels by hand. Mitch: *"Seems clean now."*
+
+**Mechanism (H1, confirmed).** One use of the wheel left member channels bent.
+The wheel's return to centre reached only the voices sounding at that moment, so
+every channel released while bent kept its bend. Surge holds channel state for
+the life of the process and a new voice initialises from it (§7.9), so each
+later note allocated to a dirty channel played at that channel's old bend, with
+no bend message in the stream. Polyphony-dependent because the channels can only
+diverge from each other when the set of sounding notes keeps changing; cured by
+releasing everything only when the retry happened to land on a clean channel.
+
+**Fix (`fix/classic-midi-stale-channel-state`).**
+
+1. `ClassicToMpe` tracks what each member channel was last *sent* — bend,
+   pressure, and the broadcast CCs — and `_note_on` writes whatever differs from
+   the zone before the note-on. A channel it has never written is unprimed and
+   gets written whatever the value, because unknown is not the same as at rest.
+2. `all_notes_off` drops every channel to unprimed: panic clears our state but
+   sends the channels nothing.
+3. `zone_reset()`, emitted by the router at device bind — the automated form of
+   the manual test above. Priming cannot fix what an earlier device or an
+   earlier run left on a channel, because the translator has no way to know
+   what Surge holds.
+4. RPN null (127/127) now closes the parameter, so a later CC6 from a generic
+   knob can no longer rewrite `bend_semitones`.
+
+Mutation-checked: restoring the old `if self._bend14 != BEND_CENTRE` guard fails
+six tests, including the measured field case. The APC golden-stream and router
+tests were updated to read a notes-only view, with one new test holding the
+priming itself to account — per channel, never after the note-on it belongs to.
+Full suite 2147 passed.
+
+**Not done:** H2 (the poly governor) was never falsified on the appliance, and
+no longer needs to be — the mechanism is confirmed and the governor is
+configured here with `MPE_POLY_REST_CAP=48`, not the defaults §11 originally
+quoted. The live appliance is still running the old code; the manual reset
+cured the current Surge process only.
+
 ### What to do next, in order
 
 1. **Capture before fixing.** `scripts/capture-midi-stream.py` is read-only and
