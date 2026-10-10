@@ -364,6 +364,18 @@ class PressureRemapDaemon:
                 f"  Listening: {name}  [{classification.kind}: {classification.reason}]",
                 flush=True,
             )
+            # Surge holds bend, pressure and timbre per member channel for the
+            # life of the process, and nothing clears them (plan §7.9). A
+            # translator can prime a channel it has written before, but it
+            # cannot know what an earlier device -- or an earlier run of this
+            # one -- left behind, so the zone is written once at bind.
+            # MEASURED 2026-10-10: the appliance was playing notes a semitone
+            # or two off, with no bend anywhere in the stream Surge received,
+            # because one earlier use of the wheel had left channels bent.
+            # Sending exactly this cleared it.
+            if binding.translator is not None:
+                for reset_msg in binding.translator.zone_reset():
+                    self._send(reset_msg)
         self._connected_port_names = tuple(sorted(connected))
         return opened
 
