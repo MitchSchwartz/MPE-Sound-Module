@@ -18,13 +18,18 @@
  *     output clamp. Effects only ever produce a wet signal.
  *
  * Level law. Depth d in [0, 1] mixes toward the wet signal, never on top of
- * it:   out = dry + d * wet_max * (wet - dry)
+ * it:   out = dry + w(d) * (wet - dry),   w(d) = wet_max * min(1, d / mix_full_at)
  * So at d = 0 the output IS the dry signal, and at any d it is a weighted
  * average of dry and wet with non-negative weights summing to 1. An effect
- * whose wet signal never exceeds its recent input (the chorus: a linearly
- * interpolated read of its own delay line, no feedback) therefore cannot make
- * the output louder than the input was. The clamp to ±1.0 is the backstop for
- * a future effect that can.
+ * whose wet signal is never louder than its input therefore cannot make the
+ * output louder either. Each effect states how it keeps that promise next to
+ * its code in fx_dsp.c, and fx_selftest.c measures it at every knob position.
+ * The clamp to ±1.0 is the backstop, not the mechanism.
+ *
+ * For most effects the knob IS the mix (mix_full_at = 1). The drive is the
+ * exception: its knob is the drive amount, handed to `process` per frame, and
+ * the mix only fades the effect in across the first few percent so leaving
+ * bypass is a fade, not a step.
  */
 
 #ifndef MPE_FX_DSP_H
@@ -51,19 +56,24 @@ typedef struct {
     /* Fraction of wet at depth 1.0. Chorus is 0.5: fully wet is vibrato, and
      * the chorus sound is the mix. */
     float wet_max;
+    /* Depth at which the mix reaches wet_max: 1.0 when the knob is the mix. */
+    float mix_full_at;
     size_t state_bytes;
     /* Called at startup and on a rate change. Never allocates; `state` is
      * already `state_bytes` of zeroed memory. Returns 0 on success. */
     int (*init)(void *state, float rate);
-    /* Produce `n` (<= FX_CHUNK) frames of wet signal from `in`. Must read
+    /* Produce `n` (<= FX_CHUNK) frames of wet signal from `in`. `amount` is
+     * the smoothed depth, one value per frame, for an effect whose knob sets
+     * a parameter rather than the mix; the others ignore it. Must read
      * in[ch][i] before anything is written to wet: the engine may hand the
      * same memory to its output. */
     void (*process)(void *state, const float *const in[FX_CHANNELS],
-                    float *const wet[FX_CHANNELS], uint32_t n);
+                    float *const wet[FX_CHANNELS], const float *amount, uint32_t n);
     /* Keep history current without producing output — the bypass path. The
      * chorus writes its delay line and skips the modulated reads and LFO, so
-     * coming back in reads real audio, not whatever was there last time. NULL
-     * for an effect with no history. */
+     * coming back in reads real audio, not whatever was there last time. The
+     * filters (drive, phaser) run in full with the output discarded; the
+     * tremolo advances its LFO. NULL for an effect with no history. */
     void (*feed)(void *state, const float *const in[FX_CHANNELS], uint32_t n);
 } fx_effect_desc;
 
@@ -110,5 +120,23 @@ void fx_engine_process(fx_engine *e, const float *const in[FX_CHANNELS],
  * finite. Shared by the client and the self-test so the Python side's encoder
  * can be checked against the real parser. */
 int fx_parse_control(const char *text, int *effect, float *depth);
+
+#ifdef FX_SELFTEST
+/* Deliberately broken builds of the shipped effects, compiled only into the
+ * self-test (make selftest defines FX_SELFTEST). Each check that guards a
+ * property runs against the matching mutant and must fail it. Indices: */
+enum {
+    FX_MUT_DRIVE_NO_OVERSAMPLING,   /* the shaper runs at the base rate */
+    FX_MUT_DRIVE_NO_CEILING,        /* makeup gain without the peak ceiling */
+    FX_MUT_DRIVE_NO_FLUSH,          /* filter memories never flushed */
+    FX_MUT_PHASER_NO_FLUSH,
+    FX_MUT_PHASER_HOT_FEEDBACK,     /* positive feedback: resonant peaks > 1 */
+    FX_MUT_TREMOLO_OVERSHOOT,       /* LFO gain reaching 1.25 */
+    FX_MUT_COUNT
+};
+extern const fx_effect_desc FX_TEST_MUTANTS[];
+/* Non-zero turns the engine's output clamp off. Self-test only. */
+extern int fx_test_no_clamp;
+#endif
 
 #endif
