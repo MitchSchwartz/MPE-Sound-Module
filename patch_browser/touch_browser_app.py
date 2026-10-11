@@ -50,6 +50,7 @@ from patch_browser.touch_browser_normalization import TouchBrowserNormalizationM
 from patch_browser.touch_browser_patches import TouchBrowserPatchesMixin
 from patch_browser.touch_browser_prefs import TouchBrowserPrefsMixin
 from patch_browser.touch_browser_brightness_modal import TouchBrowserBrightnessModalMixin
+from patch_browser.touch_browser_fx_effect_modal import TouchBrowserFxEffectModalMixin
 from patch_browser.touch_browser_settings import TouchBrowserSettingsMixin
 from patch_browser.touch_browser_terminal import TerminalMixin
 from patch_browser.touch_browser_audio_profile_modal import TouchBrowserAudioProfileModalMixin
@@ -78,6 +79,7 @@ class TouchPatchBrowser(
     TouchBrowserPrefsMixin,
     TouchBrowserSettingsMixin,
     TouchBrowserBrightnessModalMixin,
+    TouchBrowserFxEffectModalMixin,
     TouchBrowserAudioProfileModalMixin,
     TouchBrowserAudioOutputModalMixin,
     TouchBrowserSurgeAudioModalMixin,

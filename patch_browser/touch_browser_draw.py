@@ -385,7 +385,7 @@ class TouchBrowserDrawMixin:
         val_x = channel.column_rect.x + (channel.column_rect.w - val_s.get_width()) // 2
         self.screen.blit(val_s, (val_x, channel.track_rect.bottom + 6))
 
-        label_s = self.font_sm.render(channel.label, True, self.theme.text if channel.enabled else self.theme.muted)
+        label_s = self.font_sm.render(self._mixer_channel_label(channel), True, self.theme.text if channel.enabled else self.theme.muted)
         label_x = channel.column_rect.x + (channel.column_rect.w - label_s.get_width()) // 2
         self.screen.blit(label_s, (label_x, channel.track_rect.bottom + 24))
     def _draw_mixer_strip(self) -> None:

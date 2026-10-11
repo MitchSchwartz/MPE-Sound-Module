@@ -382,16 +382,191 @@ class FxPolicyTests(unittest.TestCase):
         policy.on_patch_loaded(self.with_wheel)
         self.assertEqual(policy.knob_label, "Mod knob \u2192 Patch mod")
         policy.set_target(MOD_WHEEL_EFFECT)
-        self.assertEqual(policy.knob_label, "Mod knob \u2192 Effect")
+        self.assertEqual(policy.knob_label, "Mod knob \u2192 Chorus")
         policy.on_patch_loaded(self.without_wheel)  # patch first, but no wheel routing
         self.assertEqual(policy.target, MOD_WHEEL_PATCH_FIRST)
-        self.assertEqual(policy.knob_label, "Mod knob \u2192 Effect")
+        self.assertEqual(policy.knob_label, "Mod knob \u2192 Chorus")
 
     def test_patch_mod_is_surge_osc_cc1_on_the_master_channel(self) -> None:
         address, args = self._policy().set_patch_mod(64.4)
         self.assertEqual(address, "/cc")
         self.assertEqual(args, [0.0, 1.0, 64.0])
         self.assertTrue(all(isinstance(a, float) for a in args))  # Surge wants floats
+
+
+class EffectSelectionTests(unittest.TestCase):
+    """The picker's choice: global, persisted, resolved per load, sent by the remapper."""
+
+    def setUp(self) -> None:
+        self._dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self._dir.cleanup)
+        self.root = Path(self._dir.name)
+        self.route = self.root / "fx-route.json"
+        self.levels = self.root / "fx-levels.json"
+        self.prefs = self.root / "ui.json"
+        patcher = mock.patch("patch_browser.ui_prefs.UI_STATE_FILE", self.prefs)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.with_wheel = self.root / "with.fxp"
+        self.with_wheel.write_bytes(WITH_MODWHEEL)
+        self.without_wheel = self.root / "without.fxp"
+        self.without_wheel.write_bytes(NO_ROUTINGS)
+        self.now = 10.0
+
+    def _policy(self, **kw) -> FxPolicy:
+        kw.setdefault("enabled", True)
+        kw.setdefault("route_path", self.route)
+        kw.setdefault("levels_path", self.levels)
+        kw.setdefault("clock", lambda: self.now)
+        return FxPolicy(**kw)
+
+    def _route(self) -> dict:
+        return json.loads(self.route.read_text())
+
+    def test_names_come_from_the_protocol_table(self) -> None:
+        self.assertEqual(set(fx_host_protocol.EFFECT_NAMES), set(fx_host_protocol.EFFECT_IDS))
+        for effect_id in fx_host_protocol.EFFECT_IDS:
+            self.assertEqual(fx_policy.effect_name(effect_id), fx_host_protocol.EFFECT_NAMES[effect_id])
+        with mock.patch.dict(fx_host_protocol.EFFECT_NAMES, {fx_host_protocol.EFFECT_PHASER: "Swirl"}):
+            self.assertEqual(fx_policy.effect_name(fx_host_protocol.EFFECT_PHASER), "Swirl")
+
+    def test_no_module_restates_an_effect_name(self) -> None:
+        """Names live in fx_host_protocol.EFFECT_NAMES; anything else reads them."""
+        import re
+
+        names = list(fx_host_protocol.EFFECT_NAMES.values())
+        pattern = re.compile(r"[\"']({})[\"']".format("|".join(map(re.escape, names))))
+        offenders = []
+        for path in (REPO / "patch_browser").rglob("*.py"):
+            if path.name == "fx_host_protocol.py":
+                continue
+            if pattern.search(path.read_text(encoding="utf-8", errors="replace")):
+                offenders.append(path.name)
+        self.assertEqual(offenders, [])
+
+    def test_default_is_chorus_and_the_route_carries_it(self) -> None:
+        policy = self._policy()
+        self.assertEqual(policy.effect_id, fx_host_protocol.EFFECT_CHORUS)
+        self.assertEqual(policy.effect_name, "Chorus")
+        policy.on_patch_loaded(self.with_wheel)
+        self.assertEqual(self._route()["effect"], fx_host_protocol.EFFECT_CHORUS)
+
+    def test_choice_persists_and_reaches_the_route_file(self) -> None:
+        self.prefs.write_text(json.dumps({"theme_mode": "dark", "mod_wheel_target": MOD_WHEEL_EFFECT}))
+        policy = self._policy()
+        policy.on_patch_loaded(self.with_wheel)
+        policy.set_global_effect(fx_host_protocol.EFFECT_TUBE_DRIVE)
+        self.assertEqual(policy.effect_id, fx_host_protocol.EFFECT_TUBE_DRIVE)
+        self.assertEqual(self._route()["effect"], fx_host_protocol.EFFECT_TUBE_DRIVE)
+        saved = json.loads(self.prefs.read_text())
+        self.assertEqual(saved[fx_policy.EFFECT_PREF_KEY], fx_host_protocol.EFFECT_TUBE_DRIVE)
+        self.assertEqual(saved["theme_mode"], "dark")
+        self.assertEqual(saved["mod_wheel_target"], MOD_WHEEL_EFFECT)
+        # A fresh process reads it back, and its first route carries it.
+        fresh = self._policy()
+        self.assertEqual(fresh.effect_id, fx_host_protocol.EFFECT_TUBE_DRIVE)
+        fresh.on_patch_loaded(self.without_wheel)
+        self.assertEqual(self._route()["effect"], fx_host_protocol.EFFECT_TUBE_DRIVE)
+
+    def test_every_shipped_id_round_trips(self) -> None:
+        for effect_id in fx_host_protocol.EFFECT_IDS:
+            with self.subTest(effect=effect_id):
+                self._policy().set_global_effect(effect_id)
+                self.assertEqual(self._route()["effect"], effect_id)
+                self.assertEqual(fx_policy.read_route(self.route).effect_id, effect_id)
+                self.assertEqual(self._policy().effect_id, effect_id)
+
+    def test_bad_stored_value_falls_back_to_chorus(self) -> None:
+        for bad in (99, -1, True, "1", 1.0, None, [1]):
+            with self.subTest(value=bad):
+                self.prefs.write_text(json.dumps({fx_policy.EFFECT_PREF_KEY: bad}))
+                self.assertEqual(self._policy().effect_id, fx_host_protocol.EFFECT_CHORUS)
+
+    def test_choice_is_not_a_route_change(self) -> None:
+        """Only the effect moves: same target, same route stamp, so no replay to Surge."""
+        policy = self._policy()
+        policy.on_patch_loaded(self.with_wheel)
+        policy.set_target(MOD_WHEEL_EFFECT)
+        before = self._route()
+        policy.set_global_effect(fx_host_protocol.EFFECT_PHASER)
+        after = self._route()
+        self.assertEqual(after["route_stamp"], before["route_stamp"])
+        self.assertEqual(after["cc1"], before["cc1"])
+        self.assertEqual(policy.target, MOD_WHEEL_EFFECT)
+
+    def test_choice_survives_patch_loads_and_the_settings_default(self) -> None:
+        policy = self._policy()
+        policy.set_global_effect(fx_host_protocol.EFFECT_TREMOLO)
+        policy.on_patch_loaded(self.with_wheel)
+        self.assertEqual(self._route()["effect"], fx_host_protocol.EFFECT_TREMOLO)
+        policy.set_global_default(MOD_WHEEL_EFFECT)
+        self.assertEqual(self._route()["effect"], fx_host_protocol.EFFECT_TREMOLO)
+        policy.set_target(MOD_WHEEL_PATCH_FIRST)
+        self.assertEqual(self._route()["effect"], fx_host_protocol.EFFECT_TREMOLO)
+
+    def test_patch_value_wins_over_the_global_effect(self) -> None:
+        own = FxConfig(effect_id=fx_host_protocol.EFFECT_PHASER)
+        got = resolve_config(
+            global_target=MOD_WHEEL_PATCH_FIRST,
+            global_effect=fx_host_protocol.EFFECT_TUBE_DRIVE,
+            patch_config=own,
+        )
+        self.assertEqual(got.effect_id, fx_host_protocol.EFFECT_PHASER)
+        got = resolve_config(global_target=MOD_WHEEL_PATCH_FIRST, global_effect=fx_host_protocol.EFFECT_TUBE_DRIVE)
+        self.assertEqual(got.effect_id, fx_host_protocol.EFFECT_TUBE_DRIVE)
+
+    def test_knob_label_names_the_effect(self) -> None:
+        policy = self._policy(global_target=MOD_WHEEL_EFFECT)
+        policy.set_global_effect(fx_host_protocol.EFFECT_TUBE_DRIVE)
+        self.assertEqual(policy.knob_label, "Mod knob \u2192 Drive")
+        policy.set_target(MOD_WHEEL_PATCH_FIRST)
+        policy.on_patch_loaded(self.with_wheel)
+        policy.set_target(MOD_WHEEL_PATCH_FIRST)
+        self.assertEqual(policy.knob_label, "Mod knob \u2192 Patch mod")
+
+    def test_inert_when_off(self) -> None:
+        policy = self._policy(enabled=False)
+        policy.set_global_effect(fx_host_protocol.EFFECT_TUBE_DRIVE)
+        self.assertFalse(self.route.exists())
+        self.assertFalse(self.prefs.exists())
+        self.assertEqual(policy.effect_id, fx_host_protocol.EFFECT_CHORUS)
+
+    def test_remapper_sends_the_chosen_effect_and_nothing_else_does(self) -> None:
+        sender = _RecordingSender()
+        forward = _RecordingForward()
+        router = Cc1Router(
+            sender=sender,
+            route_path=self.route,
+            levels_path=self.levels,
+            forward=forward,
+            clock=lambda: self.now,
+        )
+
+        def tick() -> None:
+            self.now += fx_policy.ROUTE_REFRESH_S
+            router.refresh()
+
+        policy = self._policy(global_target=MOD_WHEEL_EFFECT)
+        policy.on_patch_loaded(self.with_wheel)
+        tick()
+        self.assertTrue(router.consume([0xB0, 1, 127]))  # knob up, effect 0
+        self.assertEqual(sender.sent, [(fx_host_protocol.EFFECT_CHORUS, 1.0)])
+        forwarded = len(forward.calls)
+        with mock.patch.object(socket_module(), "socket", side_effect=AssertionError("UI opened a socket")):
+            policy.set_global_effect(fx_host_protocol.EFFECT_TUBE_DRIVE)
+        tick()
+        # The remapper resends the depth in force under the new effect, once.
+        self.assertEqual(sender.sent[-1], (fx_host_protocol.EFFECT_TUBE_DRIVE, 1.0))
+        self.assertEqual(len(sender.sent), 2)
+        self.assertEqual(len(forward.calls), forwarded)  # no replay to Surge
+        tick()
+        self.assertEqual(len(sender.sent), 2)
+        self.assertTrue(router.consume([0xB0, 1, 64]))
+        self.assertEqual(sender.sent[-1], (fx_host_protocol.EFFECT_TUBE_DRIVE, 64 / 127))
+
+
+def socket_module():
+    return fx_policy.socket
 
 
 class InertWhenOffTests(unittest.TestCase):
