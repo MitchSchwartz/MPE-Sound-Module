@@ -8,6 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
+from patch_browser.fx_policy import EFFECT_FADER_LABEL, PATCH_MOD_FADER_LABEL
 from patch_browser.patch_hold import (
     DEFAULT_HOLD_MULT,
     HOLD_OFFSET_MAX,
@@ -325,10 +326,11 @@ class TouchControl:
 class PatchModControl:
     """On-screen mod wheel: sends CC 1 to Surge (via OSC), never to the FX.
 
-    Not persisted: it is a performance control, like the hardware wheel.
+    Not persisted: it is a performance control, like the hardware wheel. The
+    handle follows the knob while CC 1 goes to Surge (`FxPolicy.poll_levels`).
     """
 
-    spec = MixerControlSpec("patch_mod", "Patch mod", 0.0, 127.0)
+    spec = MixerControlSpec("patch_mod", PATCH_MOD_FADER_LABEL, 0.0, 127.0)
 
     def visible(self, browser) -> bool:
         return bool(browser.detail_patch)
@@ -341,7 +343,7 @@ class PatchModControl:
 
     def write(self, browser, value: float, *, persist: bool) -> None:
         # The loader holds the same FxPolicy as browser.fx_policy.
-        browser.loader.send_patch_mod(value)
+        browser.loader.send_patch_mod(value, final=persist)
 
     def reset(self, browser) -> None:
         self.write(browser, 0.0, persist=True)
@@ -351,7 +353,7 @@ class PatchModControl:
         return str(int(round(value)))
 
     def persist(self, browser) -> None:
-        pass
+        browser.fx_policy.finish_patch_mod()
 
 
 class EffectControl:
@@ -361,7 +363,7 @@ class EffectControl:
     in force, so it moves when the hardware knob does.
     """
 
-    spec = MixerControlSpec("effect", "Effect", 0.0, 1.0)
+    spec = MixerControlSpec("effect", EFFECT_FADER_LABEL, 0.0, 1.0)
 
     def visible(self, browser) -> bool:
         return bool(browser.detail_patch) and bool(browser.fx_policy.enabled)
