@@ -35,7 +35,6 @@ from patch_browser.touch_ui_constants import (
     LEFT_NAV_WIDTH,
     MIXER_BOTTOM_GAP,
     MIXER_LABEL_H,
-    MOD_WHEEL_INFO_MIN_W,
     MOD_WHEEL_SWITCH_W,
     NAV_FOLDER_TITLE_H,
     NORM_ROW_H,
@@ -265,29 +264,20 @@ class TouchBrowserLayoutMixin:
         self.settings_panel_rect = Rect(self.width - panel_w, margin, panel_w, self.height - margin * 2)
         self._layout_settings_content()
     def _layout_mod_wheel_row(self, bottom_row_y: int, action_row_h: int) -> None:
-        """Mod-wheel switch left of Norm., readout in the rest of the row.
-
-        The switch exists only with MPE_FX_HOST on; the readout (does the loaded
-        patch use the wheel?) is shown either way.
-        """
+        """Mod-knob switch left of Norm. Only with MPE_FX_HOST on."""
         policy = getattr(self, "fx_policy", None)
         left = self.main_rect.x + DETAIL_TITLE_PAD_X
         right = self.normalize_btn.x - 10
-        if policy is not None and policy.enabled:
-            self.mod_wheel_switch_rect = Rect(
-                right - MOD_WHEEL_SWITCH_W,
-                bottom_row_y + (action_row_h - NORM_ROW_H) // 2,
-                MOD_WHEEL_SWITCH_W,
-                NORM_ROW_H,
-            )
-            right = self.mod_wheel_switch_rect.x - 10
-        else:
+        width = min(MOD_WHEEL_SWITCH_W, right - left)
+        if policy is None or not policy.enabled or width <= 0:
             self.mod_wheel_switch_rect = Rect(0, 0, 0, 0)
-        info_w = right - left
-        if policy is None or info_w < MOD_WHEEL_INFO_MIN_W:
-            self.mod_wheel_info_rect = Rect(0, 0, 0, 0)
             return
-        self.mod_wheel_info_rect = Rect(left, bottom_row_y, info_w, action_row_h)
+        self.mod_wheel_switch_rect = Rect(
+            right - width,
+            bottom_row_y + (action_row_h - NORM_ROW_H) // 2,
+            width,
+            NORM_ROW_H,
+        )
     def _settings_panel_x(self) -> int:
         """Animated X offset — panel slides in from the right edge."""
         hidden_x = self.width

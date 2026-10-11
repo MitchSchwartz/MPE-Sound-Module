@@ -250,11 +250,11 @@ class PatchLoader:
             print(f"Error applying Hold via OSC: {e}")
             return False
 
-    def send_patch_mod(self, value: float) -> bool:
+    def send_patch_mod(self, value: float, *, final: bool = True) -> bool:
         """Patch mod fader: set Surge's mod wheel. fx_policy builds the message."""
         if not self.osc_enabled:
             return False
-        address, args = self.fx_policy.set_patch_mod(value)
+        address, args = self.fx_policy.set_patch_mod(value, final=final)
         try:
             self.osc_client.send_message(address, args)
             return True
