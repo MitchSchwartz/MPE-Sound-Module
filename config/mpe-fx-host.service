@@ -1,0 +1,43 @@
+[Unit]
+Description=MPE trunk effects insert (JACK client between Surge and the fan-out)
+After=mpe-jackd.service surge-xt-cli.service
+Wants=mpe-jackd.service
+PartOf=mpe-jackd.service
+# Opt-in, and in NEITHER list in install-units.sh — same reasoning as
+# mpe-live-monitor: start-mpe-fx-host.sh gates on MPE_FX_HOST and exits 0 when
+# off, so leaving it enabled is safe, while listing it in DISABLED would
+# `systemctl disable` it on every deploy with the flag still set (the
+# ghost-unit pattern). Enable only after MPE_FX_HOST=1 in /etc/mpe/mpe.env.
+
+[Service]
+Type=simple
+User=@MPE_PI_USER@
+WorkingDirectory=@MPE_MODULE_REPO@
+EnvironmentFile=-/etc/mpe/mpe.env
+RuntimeDirectory=mpe
+RuntimeDirectoryPreserve=yes
+LimitRTPRIO=95
+LimitMEMLOCK=infinity
+ExecStart=@MPE_MODULE_REPO@/scripts/start-mpe-fx-host.sh
+# However this process dies, Surge gets the trunk back: playback AND every loop
+# input it fed. The client gives it back itself on SIGTERM; a segfault or an
+# OOM kill never reaches that code. The script replays the edge list the
+# client wrote before taking each edge. The `-` prefix keeps a failure here
+# from masking why the unit stopped.
+ExecStopPost=-@MPE_MODULE_REPO@/scripts/restore-fx-trunk.sh
+# The client exits non-zero when jackd goes away, so this fires then too.
+Restart=on-failure
+RestartSec=3
+# JACK leaf client — must not inherit 90s default when jackd tears down first.
+TimeoutStopSec=5
+KillMode=mixed
+StandardOutput=journal
+StandardError=journal
+
+# --- Audio cores (2026-08-21 hygiene baseline) --------------------------------
+# In the audio path, not beside it: every period waits on its process callback.
+# On the audio cores with jackd, surge and the live monitor.
+CPUAffinity=2 3
+
+[Install]
+WantedBy=multi-user.target
