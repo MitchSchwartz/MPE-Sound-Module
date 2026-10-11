@@ -15,7 +15,6 @@ SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")" && 
 
 JACK_CLIENT="${MPE_SL_JACK_CLIENT:-mpe-looper}"
 LOOPS="${MPE_SL_LOOPS:-15}"  # 15 usable max — see sl_limits.py
-SURGE_CLIENT="${MPE_SL_SURGE_CLIENT:-Surge XT}"
 WAIT_S="${MPE_SL_GRAPH_WAIT_S:-20}"
 
 log() { echo "wire-sl: $*"; }
@@ -24,10 +23,12 @@ client_visible() {
     jack_lsp 2>/dev/null | grep -q "^${JACK_CLIENT}:"
 }
 
+# Does Surge reach every loop input -- directly, or through the FX host while it
+# is on the trunk? The routing authority answers; this used to grep for
+# "Surge XT:out_1" on two loops, which an FX host on the trunk would fail.
 record_path_ok() {
-    jack_lsp -c "${JACK_CLIENT}:loop0_in_1" 2>/dev/null | grep -Fq "${SURGE_CLIENT}:out_1" \
-        && jack_lsp -c "${JACK_CLIENT}:loop$((LOOPS - 1))_in_1" 2>/dev/null \
-            | grep -Fq "${SURGE_CLIENT}:out_1"
+    jack_lsp -c 2>/dev/null \
+        | python3 "${SCRIPT_DIR}/../../patch_browser/audio_routing.py" check record --loops "${LOOPS}"
 }
 
 playback_path_ok() {
@@ -50,7 +51,7 @@ bash "${SCRIPT_DIR}/wire-jack-graph.sh" connect
 sleep 0.5
 
 if record_path_ok && playback_path_ok; then
-    log "PASS — ${SURGE_CLIENT} -> loop0..$((LOOPS - 1))_in, common_out -> playback"
+    log "PASS — fan-out source -> loop0..$((LOOPS - 1))_in, common_out -> playback"
     # shellcheck source=../lib/audio-engine.sh
     source "${SCRIPT_DIR}/../lib/audio-engine.sh"
     mpe_session_event_emit looper.engine.started "graph-wired" || \
@@ -59,5 +60,5 @@ if record_path_ok && playback_path_ok; then
 fi
 
 log "ERROR: graph verify failed after wiring"
-jack_lsp -c "${SURGE_CLIENT}:out_1" 2>/dev/null || true
+jack_lsp -c "${JACK_CLIENT}:loop0_in_1" 2>/dev/null || true
 exit 1
