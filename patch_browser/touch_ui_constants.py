@@ -58,10 +58,10 @@ MIXER_BOTTOM_GAP = 8
 NORM_ROW_W = 128
 NORM_ROW_H = 40
 NORM_CHECKBOX_SIZE = 22
-# Play-screen mod-wheel switch (same row as Norm., left of it) and the
-# "what the wheel drives" readout that fills the rest of that row.
-MOD_WHEEL_SWITCH_W = 150
-MOD_WHEEL_INFO_MIN_W = 120
+# Play-screen mod-knob switch (same row as Norm., left of it). Its label names
+# the fader the knob drives; this width holds "Mod knob -> Patch mod" on one
+# line in the 22 px UI font, and the row narrows it if the screen cannot.
+MOD_WHEEL_SWITCH_W = 320
 SETTINGS_TOGGLE_W = 48
 SETTINGS_TOGGLE_H = 28
 SETTINGS_TOGGLE_KNOB_PAD = 3
