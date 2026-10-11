@@ -19,12 +19,14 @@ RuntimeDirectoryPreserve=yes
 LimitRTPRIO=95
 LimitMEMLOCK=infinity
 ExecStart=@MPE_MODULE_REPO@/scripts/start-mpe-fx-host.sh
-# However this process dies, Surge gets the trunk back: playback AND every loop
-# input it fed. The client gives it back itself on SIGTERM; a segfault or an
-# OOM kill never reaches that code. The script replays the edge list the
-# client wrote before taking each edge. The `-` prefix keeps a failure here
-# from masking why the unit stopped.
-ExecStopPost=-@MPE_MODULE_REPO@/scripts/restore-fx-trunk.sh
+# However this process dies, the fan-out gets a source again: the client gives
+# the trunk back itself on SIGTERM, but a segfault or an OOM kill never reaches
+# that code. With our ports gone the routing authority names Surge as the
+# source, and this script connects it to every destination nothing reaches —
+# playback and every loop input. The same script is the live monitor's
+# ExecStopPost. The `-` prefix keeps a failure here from masking why the unit
+# stopped.
+ExecStopPost=-@MPE_MODULE_REPO@/scripts/restore-direct-monitor-path.sh
 # The client exits non-zero when jackd goes away, so this fires then too.
 Restart=on-failure
 RestartSec=3

@@ -5,8 +5,8 @@
  * monitor sits on one branch of that fan-out; this sits upstream of it, so the
  * loops record what you hear:
  *
- *     Surge XT:out_N ──> mpe-fx-host:in_N ─(effect)─> out_N ─┬─> system:playback_N
- *                                                             └─> mpe-looper:loopM_in_N
+ *     Surge XT:out_N ─> [mpe-fx-host:in_N ─ out_N] ─> fan-out ─┬─> [mpe-live-monitor:in_N ─ out_N] ─> system:playback_N
+ *                                                              └─> mpe-looper:loopM_in_N
  *
  * JACK runs clients in graph order inside one period, so this adds no buffer
  * latency. The DSP — the effect table, depth smoothing, the swap crossfade,
@@ -17,6 +17,12 @@
  * it is told an effect id and a depth over UDP and it applies them. The Python
  * policy module is the only thing that decides; the datagram format has one
  * definition on that side, `patch_browser/fx_host_protocol.py`.
+ *
+ * Where the audio goes is not decided here either.
+ * `patch_browser/audio_routing.py` is the authority; this file cannot import
+ * it, so the names and the two rules it needs (`trunk_insert_carrying`,
+ * `fanout_source`) are mirrored below, and `tests/test_audio_routing.py`
+ * compiles this file against a fake JACK and checks it agrees.
  *
  * RT callback: fx_engine_process only — no syscalls, locks, or allocation.
  * Control thread: one blocking recvfrom with a timeout, storing atomics.
@@ -31,19 +37,19 @@
  *      the startup state — is the input, bit for bit.
  *
  *   2. **It takes the trunk only once it is carrying audio, and gives it back
- *      when it leaves.** "Carrying" means Surge reaches our input on every
- *      channel. Only then is each trunk edge Surge -> D moved to us -> D, our
- *      edge made before Surge's is broken, so there is never a moment with no
- *      path. SIGTERM moves every edge back. A crash cannot run that code, so
- *      every edge is written to fx-host.state BEFORE it is taken, and the
- *      unit's ExecStopPost (scripts/restore-fx-trunk.sh) replays that list.
+ *      when it leaves.** Carrying is the authority's rule: Surge reaches our
+ *      input on EVERY channel. Only then does our output feed the fan-out —
+ *      every loop input, and the live monitor's input or playback — our edge
+ *      made before Surge's direct one is broken, so there is never a moment
+ *      with no path. The wirers and repairers never disconnect; taking the
+ *      direct path away is this insert's job, as it is the monitor's on its
+ *      branch. SIGTERM puts Surge back on every destination we fed. A crash
+ *      cannot run that code, so the unit's ExecStopPost runs
+ *      restore-direct-monitor-path.sh, which asks the authority: our ports are
+ *      gone, so the source is Surge again, and every unreached destination gets
+ *      it.
  *
  *   3. **It exits non-zero when jackd goes away**, so Restart=on-failure fires.
- *      The live monitor and the meter exit 0 there and are never restarted.
- *
- * The trunk is EVERY destination Surge fed, not just playback: if the loop
- * inputs stayed on Surge they would record dry while you heard wet, and if
- * they were fed by both they would record the signal twice.
  */
 
 #define _GNU_SOURCE
@@ -62,18 +68,12 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
-#include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
 
-#define CLIENT_NAME "mpe-fx-host"
 #define CONTROL_PORT_DEFAULT 9958
 #define CONTROL_TIMEOUT_MS 200
 #define WIRING_BACKSTOP_S 2
-#define STATE_NAME "fx-host.state"
-#define RUN_DIR_MAX 480
-#define PORT_NAME_MAX 320
-#define MAX_TAKEN 64
 
 /* Depth follows the knob with a one-pole lag. CC has 128 steps, so unsmoothed
  * it zippers; much longer and the knob feels disconnected. A patch change with
@@ -84,57 +84,54 @@
 #define XFADE_MS 30.0
 
 /* --------------------------------------------------------------------------
- * Trunk port names — the ONLY place this process knows them.
- *
- * Interim. Issue #142 puts the intended graph in one routing authority that
- * every wirer, repairer and predicate reads; when that lands, these names and
- * `is_trunk_destination` move there and this block goes. Until then the rule
- * here is deliberately narrow: this process never invents an edge. It moves
- * the trunk edges Surge already has, and only these destinations count as
- * trunk — everything else that listens to Surge (the peak meter, calibration)
- * stays on Surge, pre-FX, as the issue requires.
+ * Names — the authority's (patch_browser/audio_routing.py), mirrored. The only
+ * place this process spells a JACK client name; tests/test_audio_routing.py
+ * pins each against the Python constant.
  * -------------------------------------------------------------------------- */
-#define SURGE_CLIENT_DEFAULT "Surge XT"
-#define LOOPER_CLIENT_DEFAULT "mpe-looper"
-#define LIVE_MONITOR_IN_1 "mpe-live-monitor:in_1"
+#define CLIENT_NAME "mpe-fx-host"            /* audio_routing.TRUNK_INSERT */
+#define TRUNK_INSERT CLIENT_NAME
+#define MONITOR_INSERT "mpe-live-monitor"    /* audio_routing.MONITOR_INSERT */
+#define SURGE_CLIENT_DEFAULT "Surge XT"      /* MPE_SL_SURGE_CLIENT */
+#define LOOPER_CLIENT_DEFAULT "mpe-looper"   /* MPE_SL_JACK_CLIENT */
+#define LOOPS_DEFAULT 15                     /* MPE_SL_LOOPS */
+#define LOOPS_MAX 64
+#define CHANNELS FX_CHANNELS
+#define PORT_MAX 192
 
 static char g_surge_client[128];
 static char g_looper_client[128];
+static int g_loops = LOOPS_DEFAULT;
 
 static void surge_out(int ch, char *buf, size_t len)
 {
-    snprintf(buf, len, "%s:out_%d", g_surge_client, ch + 1);
+    snprintf(buf, len, "%s:out_%d", g_surge_client, ch);
 }
 
-/* system:playback_N, or <looper>:loop<k>_in_N, on the same channel. */
-static int is_trunk_destination(const char *dest, int ch)
+static void playback(int ch, char *buf, size_t len)
 {
-    char want[64];
-    snprintf(want, sizeof(want), "system:playback_%d", ch + 1);
-    if (strcmp(dest, want) == 0) {
-        return 1;
-    }
-    size_t clen = strlen(g_looper_client);
-    if (strncmp(dest, g_looper_client, clen) != 0 || strncmp(dest + clen, ":loop", 5) != 0) {
-        return 0;
-    }
-    const char *p = dest + clen + 5;
-    if (*p < '0' || *p > '9') {
-        return 0;
-    }
-    while (*p >= '0' && *p <= '9') {
-        p++;
-    }
-    char tail[16];
-    snprintf(tail, sizeof(tail), "_in_%d", ch + 1);
-    return strcmp(p, tail) == 0;
+    snprintf(buf, len, "system:playback_%d", ch);
+}
+
+static void loop_in(int loop, int ch, char *buf, size_t len)
+{
+    snprintf(buf, len, "%s:loop%d_in_%d", g_looper_client, loop, ch);
+}
+
+static void monitor_in(int ch, char *buf, size_t len)
+{
+    snprintf(buf, len, MONITOR_INSERT ":in_%d", ch);
+}
+
+static void monitor_out(int ch, char *buf, size_t len)
+{
+    snprintf(buf, len, MONITOR_INSERT ":out_%d", ch);
 }
 
 /* ------------------------------------------------------------------------ */
 
 static jack_client_t *g_client;
-static jack_port_t *g_in_ports[FX_CHANNELS];
-static jack_port_t *g_out_ports[FX_CHANNELS];
+static jack_port_t *g_in_ports[CHANNELS];
+static jack_port_t *g_out_ports[CHANNELS];
 static volatile sig_atomic_t g_running = 1;
 static volatile sig_atomic_t g_jack_shutdown = 0;
 
@@ -147,21 +144,12 @@ static atomic_int g_target_effect = 0;
 static _Atomic float g_target_depth = 0.0f;
 static _Atomic float g_rate = 0.0f;
 
-static char g_run_dir[RUN_DIR_MAX + 1] = "/run/mpe";
 static int g_control_port = CONTROL_PORT_DEFAULT;
 
 /* Wake the wiring thread on a graph change. Coalesced: a wiring script making
  * thirty connections costs one or two passes, not thirty. */
 static sem_t g_wake;
 static atomic_int g_wake_pending = 0;
-
-/* Edges this process has taken from Surge. Wiring thread only. */
-typedef struct {
-    int ch;
-    char dest[PORT_NAME_MAX];
-} taken_edge;
-static taken_edge g_taken[MAX_TAKEN];
-static int g_taken_count = 0;
 
 static int process(jack_nframes_t nframes, void *arg)
 {
@@ -268,205 +256,196 @@ static int connect_if_absent(const char *source, const char *dest)
     return (rc == 0 || rc == EEXIST) ? 0 : rc;
 }
 
-static int disconnect_if_present(const char *source, const char *dest)
+static int named_port_fed_by(const char *port_name, const char *source)
 {
-    jack_port_t *src_port = jack_port_by_name(g_client, source);
-    if (src_port == NULL || !port_connected_to(src_port, dest)) {
-        return 0;
-    }
-    return jack_disconnect(g_client, source, dest);
+    jack_port_t *port = jack_port_by_name(g_client, port_name);
+    return port != NULL && port_connected_to(port, source);
 }
 
-/* Is Surge reaching our input on every channel? */
-static int input_leg_live(void)
+/* Mirror of audio_routing.trunk_insert_carrying(): our input fed by Surge on
+ * EVERY channel. One channel wet and the other dry is an L/R fault, not a
+ * partial success. */
+static int trunk_insert_carrying(void)
 {
-    for (int ch = 0; ch < FX_CHANNELS; ch++) {
-        char src[192];
+    for (int ch = 1; ch <= CHANNELS; ch++) {
+        char src[PORT_MAX];
         surge_out(ch, src, sizeof(src));
-        if (!port_connected_to(g_in_ports[ch], src)) {
+        if (!port_connected_to(g_in_ports[ch - 1], src)) {
             return 0;
         }
     }
     return 1;
 }
 
-/* The state file: what this process has taken, written BEFORE each edge is
- * taken so a crash between "connected ours" and "wrote it down" cannot leave an
- * edge nobody knows to give back. `scripts/restore-fx-trunk.sh` reads the
- * `edge=` lines; the rest is for whoever is diagnosing. Its going stale is the
- * alarm, as with live-monitor.state.
- *
- * Wiring thread only; written on every change and every backstop pass. */
-static void write_state(int carrying)
+/* Mirror of audio_routing.fanout_source() (ch is 1-based): us while we carry,
+ * otherwise Surge. */
+static void fanout_source(int ch, char *buf, size_t size)
 {
-    char path[RUN_DIR_MAX + 32];
-    char tmp[sizeof(path) + 32];
-
-    if (snprintf(path, sizeof(path), "%s/%s", g_run_dir, STATE_NAME) >= (int)sizeof(path)) {
-        return;
+    if (trunk_insert_carrying()) {
+        snprintf(buf, size, "%s", jack_port_name(g_out_ports[ch - 1]));
+    } else {
+        surge_out(ch, buf, size);
     }
-    if (snprintf(tmp, sizeof(tmp), "%s.tmp.%d", path, (int)getpid()) >= (int)sizeof(tmp)) {
-        return;
-    }
-    FILE *fh = fopen(tmp, "we");
-    if (fh == NULL) {
-        return;
-    }
-    fprintf(fh, "carrying=%d\n", carrying ? 1 : 0);
-    fprintf(fh, "taken=%d\n", g_taken_count);
-    for (int i = 0; i < g_taken_count; i++) {
-        fprintf(fh, "edge=%d %s\n", g_taken[i].ch + 1, g_taken[i].dest);
-    }
-    fprintf(fh, "effect=%d\n", atomic_load_explicit(&g_target_effect, memory_order_relaxed));
-    fprintf(fh, "depth=%.6f\n",
-            (double)atomic_load_explicit(&g_target_depth, memory_order_relaxed));
-    fprintf(fh, "surge_client=%s\n", g_surge_client);
-    fprintf(fh, "updated=%ld\n", (long)time(NULL));
-    fclose(fh);
-    chmod(tmp, 0644);
-    rename(tmp, path);
 }
 
-static int taken_index(int ch, const char *dest)
+/* Mirror of audio_routing.monitor_insert_carrying(): the monitor's input fed by
+ * the fan-out source and its output on playback, every channel. */
+static int monitor_insert_carrying(void)
 {
-    for (int i = 0; i < g_taken_count; i++) {
-        if (g_taken[i].ch == ch && strcmp(g_taken[i].dest, dest) == 0) {
-            return i;
+    for (int ch = 1; ch <= CHANNELS; ch++) {
+        char src[PORT_MAX], min[PORT_MAX], mout[PORT_MAX], pb[PORT_MAX];
+        fanout_source(ch, src, sizeof(src));
+        monitor_in(ch, min, sizeof(min));
+        monitor_out(ch, mout, sizeof(mout));
+        playback(ch, pb, sizeof(pb));
+        if (!named_port_fed_by(min, src) || !named_port_fed_by(mout, pb)) {
+            return 0;
         }
     }
-    return -1;
+    return 1;
 }
 
-static void forget_taken(int i)
+/* Move `dest` from `from` to `to`: make, then break. A dest that does not exist
+ * is not an error — the looper may be down, the monitor may be off. Returns 1
+ * when this call changed the graph. */
+static int move_edge(const char *from, const char *to, const char *dest)
 {
-    g_taken[i] = g_taken[g_taken_count - 1];
-    g_taken_count--;
-}
-
-/* A looper restart removes its ports, and the edges with them. Nothing to give
- * back for a port that is gone; whoever recreates it wires it to Surge, and the
- * next pass moves it. */
-static int prune_taken(void)
-{
+    if (jack_port_by_name(g_client, dest) == NULL) {
+        return 0;
+    }
     int changed = 0;
-    for (int i = g_taken_count - 1; i >= 0; i--) {
-        if (jack_port_by_name(g_client, g_taken[i].dest) == NULL) {
-            forget_taken(i);
+    if (!named_port_fed_by(dest, to)) {
+        int rc = jack_connect(g_client, to, dest);
+        if (rc != 0 && rc != EEXIST) {
+            /* Leave the old edge: one path, the old one, beats none. */
+            fprintf(stderr, "mpe-fx-host: could not connect %s -> %s (rc %d) — "
+                            "leaving it on %s\n", to, dest, rc, from);
+            return 0;
+        }
+        changed = 1;
+    }
+    if (named_port_fed_by(dest, from)) {
+        int rc = jack_disconnect(g_client, from, dest);
+        if (rc != 0) {
+            fprintf(stderr, "mpe-fx-host: could not detach %s -> %s (rc %d) — "
+                            "both paths are live on this destination\n", from, dest, rc);
+        } else {
             changed = 1;
         }
     }
     return changed;
 }
 
-/* Move every trunk edge Surge has onto us. Make-before-break: for the instant
- * between the two calls the destination is fed twice (one period at most, the
- * same trade the live monitor makes), never zero times. */
-static void take_trunk(void)
+/* Every port the fan-out owns on channel `ch` (1-based), as the authority's
+ * `destinations()` lists them — except that the monitor branch is named by the
+ * monitor's INPUT when the monitor is on the graph: the fan-out feeds it, and
+ * it alone feeds playback while it carries. */
+static int for_each_destination(int ch, const char *from, const char *to, int monitor_carrying)
 {
-    for (int ch = 0; ch < FX_CHANNELS; ch++) {
-        char src[192];
-        surge_out(ch, src, sizeof(src));
-        jack_port_t *src_port = jack_port_by_name(g_client, src);
-        if (src_port == NULL) {
-            continue;
+    char dest[PORT_MAX];
+    int changed = 0;
+    for (int m = 0; m < g_loops; m++) {
+        loop_in(m, ch, dest, sizeof(dest));
+        changed |= move_edge(from, to, dest);
+    }
+    monitor_in(ch, dest, sizeof(dest));
+    changed |= move_edge(from, to, dest);
+    if (!monitor_carrying) {
+        playback(ch, dest, sizeof(dest));
+        changed |= move_edge(from, to, dest);
+    } else {
+        /* The monitor owns playback now. A direct edge from Surge left there
+         * is a second copy; the monitor removes ours, we remove Surge's. */
+        playback(ch, dest, sizeof(dest));
+        char surge[PORT_MAX];
+        surge_out(ch, surge, sizeof(surge));
+        if (strcmp(from, surge) == 0 && named_port_fed_by(dest, surge)) {
+            if (jack_disconnect(g_client, surge, dest) == 0) {
+                changed = 1;
+            }
         }
-        const char **dests = jack_port_get_all_connections(g_client, src_port);
+    }
+    return changed;
+}
+
+/* Take the fan-out: every destination moves from Surge to us. The monitor's
+ * input moves first, so "is the monitor carrying" is asked about the graph as
+ * the authority will see it once we are the source. */
+static int take_trunk(void)
+{
+    int changed = 0;
+    for (int ch = 1; ch <= CHANNELS; ch++) {
+        char surge[PORT_MAX], min[PORT_MAX];
+        const char *ours = jack_port_name(g_out_ports[ch - 1]);
+        surge_out(ch, surge, sizeof(surge));
+        monitor_in(ch, min, sizeof(min));
+        changed |= move_edge(surge, ours, min);
+    }
+    const int monitor_carrying = monitor_insert_carrying();
+    for (int ch = 1; ch <= CHANNELS; ch++) {
+        char surge[PORT_MAX];
+        surge_out(ch, surge, sizeof(surge));
+        changed |= for_each_destination(ch, surge, jack_port_name(g_out_ports[ch - 1]),
+                                        monitor_carrying);
+    }
+    return changed;
+}
+
+/* Give the fan-out back: every destination our output feeds moves to Surge.
+ * Only edges we actually feed are touched; with no Surge port to move them to
+ * (Surge restarting) they stay — our input is unfed, so they carry silence and
+ * the authority already counts them as no path. */
+static void give_back_trunk(void)
+{
+    for (int ch = 1; ch <= CHANNELS; ch++) {
+        jack_port_t *ours = g_out_ports[ch - 1];
+        const char **dests = jack_port_get_all_connections(g_client, ours);
         if (dests == NULL) {
             continue;
         }
-        const char *ours = jack_port_name(g_out_ports[ch]);
-        for (int k = 0; dests[k] != NULL; k++) {
-            const char *dest = dests[k];
-            if (!is_trunk_destination(dest, ch)) {
-                continue;
-            }
-            int idx = taken_index(ch, dest);
-            if (idx < 0) {
-                if (g_taken_count >= MAX_TAKEN) {
-                    fprintf(stderr, "mpe-fx-host: more than %d trunk edges — leaving %s on %s\n",
-                            MAX_TAKEN, dest, src);
-                    continue;
+        char surge[PORT_MAX];
+        surge_out(ch, surge, sizeof(surge));
+        if (jack_port_by_name(g_client, surge) != NULL) {
+            for (int k = 0; dests[k] != NULL; k++) {
+                if (move_edge(jack_port_name(ours), surge, dests[k])) {
+                    fprintf(stderr, "mpe-fx-host: gave back %s -> %s\n", surge, dests[k]);
                 }
-                g_taken[g_taken_count].ch = ch;
-                snprintf(g_taken[g_taken_count].dest, PORT_NAME_MAX, "%s", dest);
-                g_taken_count++;
-                write_state(1);   /* write-ahead, see write_state */
-            }
-            int rc = connect_if_absent(ours, dest);
-            if (rc != 0) {
-                fprintf(stderr, "mpe-fx-host: could not connect %s -> %s (rc %d) — "
-                                "leaving it on %s\n", ours, dest, rc, src);
-                idx = taken_index(ch, dest);
-                if (idx >= 0) {
-                    forget_taken(idx);
-                }
-                continue;
-            }
-            rc = jack_disconnect(g_client, src, dest);
-            if (rc != 0) {
-                fprintf(stderr, "mpe-fx-host: could not detach %s -> %s (rc %d) — "
-                                "both paths are live on this destination\n", src, dest, rc);
-            } else if (idx < 0) {
-                fprintf(stderr, "mpe-fx-host: took %s -> %s\n", src, dest);
             }
         }
         jack_free(dests);
     }
 }
 
-/* Hand every taken edge back to Surge. An edge stays on the list until Surge
- * reaches it again, so a failed restore is retried, and recorded for
- * ExecStopPost, rather than forgotten. */
-static void give_back_trunk(void)
+/* SIGTERM: hand every destination back, THEN unplug our input. In that order
+ * so the audio never has a gap; and the input must go, because while Surge
+ * still feeds it every mirror of the authority — the live monitor's included —
+ * still names us as the fan-out source and would follow us back. */
+static void leave_trunk(void)
 {
-    if (g_taken_count == 0) {
-        return;
-    }
-    for (int i = g_taken_count - 1; i >= 0; i--) {
-        int ch = g_taken[i].ch;
-        char src[192];
+    give_back_trunk();
+    for (int ch = 1; ch <= CHANNELS; ch++) {
+        char src[PORT_MAX];
+        const char *in_name = jack_port_name(g_in_ports[ch - 1]);
         surge_out(ch, src, sizeof(src));
-        int rc = connect_if_absent(src, g_taken[i].dest);
-        if (rc != 0) {
-            fprintf(stderr, "mpe-fx-host: could not restore %s -> %s (rc %d)\n",
-                    src, g_taken[i].dest, rc);
-            continue;
+        if (named_port_fed_by(in_name, src)) {
+            (void)jack_disconnect(g_client, src, in_name);
         }
-        (void)disconnect_if_present(jack_port_name(g_out_ports[ch]), g_taken[i].dest);
-        fprintf(stderr, "mpe-fx-host: gave back %s -> %s\n", src, g_taken[i].dest);
-        forget_taken(i);
     }
 }
 
+/* One pass. Returns whether we carry afterwards. */
 static int wiring_pass(void)
 {
     static int warned_no_input = 0;
-    static int warned_monitor = 0;
+    static int was_carrying = 0;
 
-    for (int ch = 0; ch < FX_CHANNELS; ch++) {
-        char src[192];
+    for (int ch = 1; ch <= CHANNELS; ch++) {
+        char src[PORT_MAX];
         surge_out(ch, src, sizeof(src));
-        (void)connect_if_absent(src, jack_port_name(g_in_ports[ch]));
+        (void)connect_if_absent(src, jack_port_name(g_in_ports[ch - 1]));
     }
-    (void)prune_taken();
 
-    /* Two inserts, one on the trunk and one on its monitor branch, need the
-     * routing authority to say which feeds which: each client here knows only
-     * Surge as its source, and running both makes them re-source each other's
-     * edges in a loop, with the live signal doubled on every turn. Until that
-     * lands, the monitor wins and this stays out of the path. */
-    if (jack_port_by_name(g_client, LIVE_MONITOR_IN_1) != NULL) {
-        if (!warned_monitor) {
-            fprintf(stderr, "mpe-fx-host: mpe-live-monitor is running — staying off the trunk "
-                            "(both inserts at once needs the routing authority, #142)\n");
-            warned_monitor = 1;
-        }
-        give_back_trunk();
-        return 0;
-    }
-    warned_monitor = 0;
-
-    if (!input_leg_live()) {
+    if (!trunk_insert_carrying()) {
         /* Edge-triggered, as in the live monitor: a misconfigured insert and a
          * healthy one must not read the same. */
         if (!warned_no_input) {
@@ -475,13 +454,21 @@ static int wiring_pass(void)
             warned_no_input = 1;
         }
         give_back_trunk();
+        was_carrying = 0;
         return 0;
     }
     if (warned_no_input) {
         fprintf(stderr, "mpe-fx-host: %s reaching our input again\n", g_surge_client);
         warned_no_input = 0;
     }
-    take_trunk();
+    /* Asked on every pass, as the live monitor's detach is: anything that puts
+     * Surge back on a destination underneath us is a second copy, and is
+     * removed on the next pass — which a graph change triggers at once. */
+    if (take_trunk() && !was_carrying) {
+        fprintf(stderr, "mpe-fx-host: on the trunk (%s -> in, out -> fan-out)\n",
+                g_surge_client);
+    }
+    was_carrying = 1;
     return 1;
 }
 
@@ -490,8 +477,7 @@ static void *wiring_thread(void *arg)
     (void)arg;
     while (g_running) {
         atomic_store_explicit(&g_wake_pending, 0, memory_order_relaxed);
-        int carrying = wiring_pass();
-        write_state(carrying);
+        (void)wiring_pass();
 
         struct timespec deadline;
         clock_gettime(CLOCK_REALTIME, &deadline);
@@ -550,7 +536,6 @@ static void *control_thread(void *arg)
     close(sock);
     return NULL;
 }
-
 static void load_env(void)
 {
     const char *surge = getenv("MPE_SL_SURGE_CLIENT");
@@ -559,16 +544,21 @@ static void load_env(void)
     const char *looper = getenv("MPE_SL_JACK_CLIENT");
     snprintf(g_looper_client, sizeof(g_looper_client), "%s",
              (looper != NULL && looper[0] != '\0') ? looper : LOOPER_CLIENT_DEFAULT);
+    /* audio_routing.Topology.from_env: unparseable falls back to the default. */
+    const char *loops = getenv("MPE_SL_LOOPS");
+    if (loops != NULL && loops[0] != '\0') {
+        char *end = NULL;
+        long value = strtol(loops, &end, 10);
+        if (end != loops && *end == '\0') {
+            g_loops = value < 0 ? 0 : (value > LOOPS_MAX ? LOOPS_MAX : (int)value);
+        }
+    }
     const char *port = getenv("MPE_FX_HOST_PORT");
     if (port != NULL && port[0] != '\0') {
         int value = atoi(port);
         if (value >= 1 && value <= 65535) {
             g_control_port = value;
         }
-    }
-    const char *run_dir = getenv("MPE_RUN_DIR");
-    if (run_dir != NULL && run_dir[0] != '\0') {
-        snprintf(g_run_dir, sizeof(g_run_dir), "%s", run_dir);
     }
 }
 
@@ -600,7 +590,7 @@ int main(int argc, char **argv)
     sigaction(SIGTERM, &sa, NULL);
 
     /* JackUseExactName, as in the live monitor: a second instance renamed to
-     * mpe-fx-host-01 would take the trunk beside the first. Refuse instead. */
+     * mpe-fx-host-01 would feed the fan-out beside the first. Refuse instead. */
     jack_status_t status = 0;
     g_client = jack_client_open(CLIENT_NAME, JackNoStartServer | JackUseExactName, &status);
     if (g_client == NULL) {
@@ -630,7 +620,7 @@ int main(int argc, char **argv)
     jack_set_port_registration_callback(g_client, on_port_registration, NULL);
     jack_on_shutdown(g_client, on_shutdown, NULL);
 
-    for (int ch = 0; ch < FX_CHANNELS; ch++) {
+    for (int ch = 0; ch < CHANNELS; ch++) {
         char name[16];
         snprintf(name, sizeof(name), "in_%d", ch + 1);
         g_in_ports[ch] = jack_port_register(g_client, name, JACK_DEFAULT_AUDIO_TYPE,
@@ -675,19 +665,14 @@ int main(int argc, char **argv)
     pthread_join(controller, NULL);
 
     if (g_jack_shutdown) {
-        /* No graph left to give anything back to. The state file keeps its
-         * edge list; restore-fx-trunk.sh will find no server and do nothing,
-         * and the wiring scripts rebuild the graph when jackd returns. Non-zero
-         * so Restart=on-failure brings this back with it. */
-        fprintf(stderr, "mpe-fx-host: jackd went away — exiting for restart\n");
+        /* No graph left to give anything back to; the wiring scripts rebuild
+         * it when jackd returns. Non-zero so Restart=on-failure brings this
+         * back with it. */
+        fprintf(stderr, "mpe-fx-host: JACK shut down — exiting non-zero for Restart=on-failure\n");
         return 1;
     }
 
-    give_back_trunk();
-    /* Say what we leave behind, as the live monitor does: a stale carrying=1
-     * from a process that is gone is an alarm that can never clear. Any edge
-     * that could not be restored stays listed for ExecStopPost. */
-    write_state(0);
+    leave_trunk();
     shutdown_client();
     fx_engine_free(&g_engine);
     return 0;

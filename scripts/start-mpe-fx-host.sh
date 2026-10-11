@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Start the trunk effects insert — gates on MPE_FX_HOST from EnvironmentFile.
 #
-# Off unless asked for. Once carrying audio this client takes every trunk edge
-# Surge has (playback and every loop input), so starting it when nothing will
-# drive it changes the audio path for no benefit.
+# Off unless asked for. Once carrying audio this client becomes the fan-out
+# source (playback or the live monitor, and every loop input), so starting it
+# when nothing will drive it changes the audio path for no benefit.
 #
 # --check answers "would this start?" and exits: 0 for yes, 1 for no, without
 # reaching the binary — the same reason as start-mpe-live-monitor.sh: a test
@@ -19,8 +19,6 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")" && pwd)"
 # shellcheck source=lib/paths.sh
 source "$SCRIPT_DIR/lib/paths.sh"
-# shellcheck source=lib/audio-engine.sh
-source "$SCRIPT_DIR/lib/audio-engine.sh"
 
 # One law, shared with fx_host_protocol.enabled() in Python: lowercase, then
 # match these four words.
@@ -48,8 +46,4 @@ if [ ! -x "$BIN" ]; then
     exit 1
 fi
 
-# The client writes fx-host.state here: the edges it has taken, which
-# restore-fx-trunk.sh replays if this process dies without giving them back.
-export MPE_RUN_DIR
-MPE_RUN_DIR="$(mpe_run_dir)"
 exec "$BIN"
