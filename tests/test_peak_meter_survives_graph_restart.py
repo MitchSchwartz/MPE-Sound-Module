@@ -4,10 +4,11 @@ The unit is `PartOf=mpe-jackd.service`. PartOf propagates BOTH stop and restart,
 so an ordinary `systemctl restart mpe-jackd` recovers the meter by itself, and
 every lifecycle call in audio-engine.sh uses restart. Those paths are fine.
 
-The hole is a jackd STOP or death: a stop takes the meter down and starts
-nothing, and a crash or kill makes the client exit 0 so Restart=on-failure never
-fires. Either way the unit sits inactive with Result=success and
-ExecMainStatus=0, looking entirely healthy.
+The hole is a jackd STOP: a stop takes the meter down and a later start of
+jackd starts nothing that is PartOf it, so the unit sits inactive with
+Result=success and ExecMainStatus=0, looking entirely healthy. (A jackd crash or
+kill was the other half until 2026-10-11, when the client stopped exiting 0 on
+JACK's shutdown callback — see `test_jack_shutdown_is_a_failure_exit` below.)
 
 The symptom is an output meter reading zero forever, which is exactly what
 genuine silence looks like. Mitch found it by noticing the meter was off
@@ -56,6 +57,19 @@ class PeakMeterRestartTests(unittest.TestCase):
         the reasoning above stays true."""
         unit = METER_UNIT.read_text(encoding="utf-8")
         self.assertIn("PartOf=mpe-jackd.service", unit)
+
+    def test_jack_shutdown_is_a_failure_exit(self):
+        """Both JACK clients that sit on the graph for good must exit non-zero
+        when JACK goes away, or Restart=on-failure never brings them back."""
+        for rel in ("native/mpe-peak-meter/mpe-peak-meter.c",
+                    "native/mpe-live-monitor/mpe-live-monitor.c"):
+            with self.subTest(client=rel):
+                src = (REPO / rel).read_text(encoding="utf-8")
+                tail = src[src.rindex("int main("):]
+                match = re.search(r"if \(g_jack_shutdown\) \{(.*?)\}", tail, re.S)
+                self.assertIsNotNone(match, f"{rel}: no exit branch on JACK shutdown")
+                self.assertRegex(match.group(1), r"return [1-9]\d*;")
+                self.assertNotIn("(void)g_jack_shutdown", tail)
 
     def test_the_measurement_harness_restores_the_meter_too(self):
         """The Phase 2 loopback script stops the graph outright. It left the

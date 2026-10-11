@@ -4,6 +4,7 @@ import socket
 import subprocess
 import time
 import unittest
+import unittest.mock
 from pathlib import Path
 
 import tempfile
@@ -491,14 +492,20 @@ class TheSensorTheWatchdogRepairsFrom(unittest.TestCase):
         state = run_dir / "live-monitor.state"
         state.write_text("carrying=1\ndetached=1\nupdated=1000\n")
         env = dict(os.environ, MPE_RUN_DIR=str(run_dir), PATH=str(run_dir) + os.pathsep + os.environ["PATH"])
-        fake_connect = run_dir / "jack_connect"
-        fake_connect.write_text("#!/bin/sh\nexit 0\n")
-        fake_connect.chmod(0o755)
-        subprocess.run(
+        # jackd "running" with an empty graph listing: the restore must reach
+        # its connects (it skips everything when jackd is down) and answer the
+        # unknown graph fail-open.
+        for tool, body in (("jack_connect", "exit 0"), ("pgrep", "exit 0"),
+                           ("jack_lsp", "exit 0")):
+            fake = run_dir / tool
+            fake.write_text(f"#!/bin/sh\n{body}\n")
+            fake.chmod(0o755)
+        proc = subprocess.run(
             ["bash", str(REPO_ROOT / "scripts/restore-direct-monitor-path.sh")],
             env=env, capture_output=True, text=True, timeout=30,
         )
         self.assertTrue(state.exists(), "the success check reads this file")
+        self.assertIn("detached=0", state.read_text(), proc.stdout + proc.stderr)
         watcher = audio_engine.LiveMonitorWatcher(path=state)
         self.assertIs(watcher.poll(now=0.0), True)
 
@@ -531,15 +538,24 @@ class Wiring(unittest.TestCase):
         match = re.search(r'#define\s+SURGE_CLIENT_DEFAULT\s+"([^"]+)"', c_source)
         self.assertIsNotNone(match)
         name = match.group(1)
+        # The wiring and restore scripts no longer name Surge at all: they ask
+        # the routing authority, which reads the same variable with the same
+        # default. Pin the authority, and pin that both scripts ask it.
+        from patch_browser import audio_routing
+        self.assertEqual(audio_routing.SURGE_CLIENT_DEFAULT, name)
+        with unittest.mock.patch.dict(os.environ, {"MPE_SL_SURGE_CLIENT": "Other Synth"}):
+            self.assertEqual(audio_routing.Topology.from_env().surge, "Other Synth")
         for path in (
             "scripts/sooperlooper/wire-jack-graph.sh",
             "scripts/restore-direct-monitor-path.sh",
         ):
             text = (REPO_ROOT / path).read_text()
             self.assertIn(
-                f'MPE_SL_SURGE_CLIENT:-{name}', text,
-                f"{path} disagrees with the C client about Surge's JACK client name",
+                "patch_browser/audio_routing.py", text,
+                f"{path} no longer asks the routing authority where Surge goes",
             )
+            self.assertNotIn("Surge XT", text.replace("Surge XT:out_N", ""),
+                             f"{path} names Surge's client itself again")
 
         # The fourth site, and the one that decides whether the watchdog thinks
         # you can hear yourself play. It kept its own env var for compatibility,
