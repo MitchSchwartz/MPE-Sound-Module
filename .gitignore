@@ -50,6 +50,10 @@ native/mpe-peak-meter/mpe-peak-meter
 # Compiled monitor-branch gain stage — build with `make` in native/mpe-live-monitor
 # (or scripts/build-mpe-live-monitor.sh). Built per architecture: the Pi is arm64.
 native/mpe-live-monitor/mpe-live-monitor
+# Compiled trunk effects insert and its DSP self-test — build with `make` in
+# native/mpe-fx-host (or scripts/build-mpe-fx-host.sh).
+native/mpe-fx-host/mpe-fx-host
+native/mpe-fx-host/fx-selftest
 
 # Compiled probe — build with `make` in native/mpe-xrun-probe.
 # An x86-64 laptop build was committed here and shipped to the aarch64 Pi,
