@@ -2,8 +2,9 @@
 # Parallel fail-open graph for SooperLooper eval (B1 + multi-loop listen path).
 #
 # Listen path: engine common_out -> playback (internal mix), NOT per-loop outs.
-# Fail-open:   Surge -> playback stays connected.
-# Record path: Surge -> every loopN_in (16-pad APC clip grid).
+# Fail-open:   the fan-out source -> playback stays connected unless an insert carries it.
+# Record path: the fan-out source -> every loopN_in (16-pad APC clip grid).
+#              Both decided by patch_browser/audio_routing.py, not here.
 #
 # Usage:
 #   wire-jack-graph.sh [connect|rewire]
@@ -20,7 +21,9 @@ LOOPS="${MPE_SL_LOOPS:-15}"  # 15 usable max — see sl_limits.py
 STEM_CHANNELS="${MPE_USB_STEM_CHANNELS:-2}"
 STEM_FIRST_CH=3   # 1/2 are the master pair
 JACK_CLIENT="${MPE_SL_JACK_CLIENT:-mpe-looper}"
-SURGE_CLIENT="${MPE_SL_SURGE_CLIENT:-Surge XT}"
+# Surge's client name, and every rule about where its output goes, live in
+# the routing authority.
+ROUTING="${SCRIPT_DIR}/../../patch_browser/audio_routing.py"
 
 FAILURES=0
 
@@ -109,41 +112,35 @@ connect_stems() {
   log "stems: loop0..$((wired - 1)) -> playback_${STEM_FIRST_CH}..$((STEM_FIRST_CH + wired - 1)) (mono fold, ${available} ports available)"
 }
 
-# Is the monitor-branch gain stage actually CARRYING the live signal?
+# Where Surge's live signal goes is not decided here. The routing authority
+# (patch_browser/audio_routing.py) reads the graph as it is and answers with the
+# edges to ADD: the fan-out source -- Surge, or the FX host when it is on the
+# trunk -- into every loop input, and into playback unless the live monitor is
+# carrying it. It never proposes an edge to a destination Surge already
+# reaches by any route, so this pass cannot double the live signal underneath
+# an insert. That used to be a hand-written `live_monitor_carrying` here, which
+# knew one insert by name and would have reconnected Surge -> playback beneath
+# the next one.
 #
-# If it is, Surge reaches playback THROUGH it and the direct connection below
-# must not be remade: both paths at once is two copies of your live playing,
-# which is the same fault a loop with dry > 0 produces (dump-loop-levels.py:45).
-#
-# The question is deliberately about the path, not the process. `jack_lsp |
-# grep '^mpe-live-monitor:'` was the first version of this and it was wrong:
-# ports exist the instant jack_port_register returns, so a client whose inputs
-# are connected to nothing — wrong MPE_SL_SURGE_CLIENT, or a Surge that never
-# started — passed the guard, and this script then declined to restore the
-# direct path it needed most. Silent instrument, nothing in any log, reaffirmed
-# on every wiring pass. Both legs, or it does not count.
-live_monitor_carrying() {
-  local ch
-  for ch in 1 2; do
-    jack_lsp -c "mpe-live-monitor:in_${ch}" 2>/dev/null \
-      | grep -Fq "${SURGE_CLIENT}:out_${ch}" || return 1
-    jack_lsp -c "mpe-live-monitor:out_${ch}" 2>/dev/null \
-      | grep -Fq "system:playback_${ch}" || return 1
-  done
-  return 0
-}
-
+# One `jack_lsp -c` and one python3 per pass (~0.5 s on the Pi), replacing four
+# `jack_lsp -c` calls and 32 unconditional jack_connects. Runs at engine start
+# and on a watchdog repair, never on a timer.
 connect_graph() {
-  local i
-  for i in $(seq 0 $((LOOPS - 1))); do
-    try_jack jack_connect "${SURGE_CLIENT}:out_1" "${JACK_CLIENT}:loop${i}_in_1"
-    try_jack jack_connect "${SURGE_CLIENT}:out_2" "${JACK_CLIENT}:loop${i}_in_2"
-  done
-  if live_monitor_carrying; then
-    log "live monitor is carrying the live signal — leaving Surge -> playback to it"
+  local plan rc src dst
+  # A failed jack_lsp hands the authority an empty graph, which it answers
+  # fail-open (everything direct) rather than with nothing.
+  plan="$({ jack_lsp -c 2>/dev/null || true; } | python3 "${ROUTING}" plan --loops "${LOOPS}")" && rc=0 || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    FAILURES=$((FAILURES + 1))
+    log "FAILED: routing authority exited ${rc} -- Surge record/monitor path not wired"
+  elif [ -z "$plan" ]; then
+    log "Surge path: every destination already reached"
   else
-    try_jack jack_connect "${SURGE_CLIENT}:out_1" "system:playback_1"
-    try_jack jack_connect "${SURGE_CLIENT}:out_2" "system:playback_2"
+    while IFS=$'\t' read -r src dst; do
+      [ -n "$src" ] || continue
+      try_jack jack_connect "$src" "$dst"
+    done <<< "$plan"
+    log "Surge path: $(printf '%s\n' "$plan" | wc -l) edge(s) added from the fan-out source"
   fi
   try_jack jack_connect "${JACK_CLIENT}:common_out_1" "system:playback_1"
   try_jack jack_connect "${JACK_CLIENT}:common_out_2" "system:playback_2"
@@ -159,7 +156,7 @@ set_dry_all() {
 wire_connect() {
   need_cmd jack_connect
   need_cmd oscsend
-  log "connect-only (${MODE}): Surge -> loop0..$((LOOPS - 1)) in; common_out -> playback"
+  log "connect-only (${MODE}): fan-out source -> loop0..$((LOOPS - 1)) in; common_out -> playback"
   connect_graph
   connect_stems
   set_dry_all
@@ -177,7 +174,7 @@ wire_rewire() {
   connect_graph
   connect_stems
   set_dry_all
-  log "dry=0 on loops 0..$((LOOPS - 1)); common_out -> playback; Surge parallel fail-open"
+  log "dry=0 on loops 0..$((LOOPS - 1)); common_out -> playback; fan-out source parallel fail-open"
 }
 
 case "${MODE}" in

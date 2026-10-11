@@ -41,6 +41,16 @@
  *      `ExecStopPost=` lines that restore the direct path whatever killed this
  *      process, and `sl-watchdog.py` asserts that Surge reaches playback by one
  *      route or the other. Nothing covers power loss, which nothing can.
+ *
+ * What feeds this insert is not decided here either. The fan-out source is
+ * Surge, or the FX host while it is on the trunk ahead of the fan-out:
+ *
+ *     Surge XT:out_N ─> [mpe-fx-host:in_N ─ out_N] ─> fan-out ─> this insert ─> system:playback_N
+ *
+ * `patch_browser/audio_routing.py` is the authority for that rule. This file
+ * cannot import it, so `fanout_source()` below is its mirror, and
+ * `tests/test_audio_routing.py` compiles this file against a fake JACK and
+ * checks the two agree. Change one without the other and that test fails.
  */
 
 #define _GNU_SOURCE
@@ -63,6 +73,8 @@
 
 #define CLIENT_NAME "mpe-live-monitor"
 #define SURGE_CLIENT_DEFAULT "Surge XT"
+/* The trunk insert (audio_routing.TRUNK_INSERT). Absent today, harmless absent. */
+#define TRUNK_INSERT "mpe-fx-host"
 /* Stereo, and everything downstream assumes it: system:playback_1/_2, Surge's
  * out_1/out_2, and the ExecStopPost restore script's `for ch in 1 2`. Raising
  * this alone would wire channels nothing else knows about. */
@@ -211,12 +223,61 @@ static int connect_if_absent(const char *source, const char *dest)
     return (rc == 0 || rc == EEXIST) ? 0 : rc;
 }
 
-/* Is Surge actually reaching our input on every channel? */
+/* Is `port_name` connected to `source`? False when the port does not exist. */
+static int named_port_fed_by(const char *port_name, const char *source)
+{
+    jack_port_t *port = jack_port_by_name(g_client, port_name);
+    return port != NULL && port_connected_to(port, source);
+}
+
+/* Is the FX host on the trunk? Its input fed by Surge on EVERY channel — one
+ * channel wet and the other dry is an L/R fault, not a partial success.
+ * Mirror of audio_routing.trunk_insert_carrying(). */
+static int trunk_insert_carrying(void)
+{
+    for (int ch = 1; ch <= CHANNELS; ch++) {
+        char surge_out[192];
+        char fx_in[64];
+        snprintf(surge_out, sizeof(surge_out), "%s:out_%d", g_surge_client, ch);
+        snprintf(fx_in, sizeof(fx_in), TRUNK_INSERT ":in_%d", ch);
+        if (!named_port_fed_by(fx_in, surge_out)) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+/* The port feeding the fan-out on channel `ch` (1-based): the FX host while it
+ * carries, otherwise Surge. This is the fail-open rule — an FX host that died
+ * or lost its input is simply not the source. Mirror of
+ * audio_routing.fanout_source(). */
+static void fanout_source(int ch, char *buf, size_t size)
+{
+    if (trunk_insert_carrying()) {
+        snprintf(buf, size, TRUNK_INSERT ":out_%d", ch);
+    } else {
+        snprintf(buf, size, "%s:out_%d", g_surge_client, ch);
+    }
+}
+
+/* The trunk port on channel `ch` that is NOT the current fan-out source. */
+static void other_trunk_port(int ch, const char *source, char *buf, size_t size)
+{
+    char surge_out[192];
+    snprintf(surge_out, sizeof(surge_out), "%s:out_%d", g_surge_client, ch);
+    if (strcmp(source, surge_out) == 0) {
+        snprintf(buf, size, TRUNK_INSERT ":out_%d", ch);
+    } else {
+        snprintf(buf, size, "%s", surge_out);
+    }
+}
+
+/* Is the fan-out source actually reaching our input on every channel? */
 static int input_leg_live(void)
 {
     for (int ch = 0; ch < CHANNELS; ch++) {
         char src[192];
-        snprintf(src, sizeof(src), "%s:out_%d", g_surge_client, ch + 1);
+        fanout_source(ch + 1, src, sizeof(src));
         if (!port_connected_to(g_in_ports[ch], src)) {
             return 0;
         }
@@ -253,6 +314,11 @@ static int monitor_path_live(void)
 
 /* Returns 0 when the direct path is gone on every channel.
  *
+ * "The direct path" is every trunk port to playback — Surge's output AND the FX
+ * host's, whichever is the source right now. While this insert carries, the
+ * only legitimate live feed into playback is our own output; either trunk port
+ * there as well is a second copy of your playing.
+ *
  * Asks whether each connection is there before removing it, rather than firing
  * a disconnect every 2 s forever at something absent, and reports what it could
  * not remove: a half-failed detach leaves one channel doubled and the other not,
@@ -261,19 +327,22 @@ static int detach_direct_path(void)
 {
     int failures = 0;
     for (int ch = 0; ch < CHANNELS; ch++) {
-        char src[192];
+        char trunk[2][192];
         char playback[64];
-        snprintf(src, sizeof(src), "%s:out_%d", g_surge_client, ch + 1);
+        snprintf(trunk[0], sizeof(trunk[0]), "%s:out_%d", g_surge_client, ch + 1);
+        snprintf(trunk[1], sizeof(trunk[1]), TRUNK_INSERT ":out_%d", ch + 1);
         snprintf(playback, sizeof(playback), "system:playback_%d", ch + 1);
-        jack_port_t *src_port = jack_port_by_name(g_client, src);
-        if (src_port == NULL || !port_connected_to(src_port, playback)) {
-            continue;
-        }
-        int rc = jack_disconnect(g_client, src, playback);
-        if (rc != 0) {
-            failures++;
-            fprintf(stderr, "mpe-live-monitor: could not detach %s -> %s (rc %d) — "
-                            "both paths are live on this channel\n", src, playback, rc);
+        for (int t = 0; t < 2; t++) {
+            const char *src = trunk[t];
+            if (!named_port_fed_by(src, playback)) {
+                continue;
+            }
+            int rc = jack_disconnect(g_client, src, playback);
+            if (rc != 0) {
+                failures++;
+                fprintf(stderr, "mpe-live-monitor: could not detach %s -> %s (rc %d) — "
+                                "both paths are live on this channel\n", src, playback, rc);
+            }
         }
     }
     if (failures == 0) {
@@ -287,12 +356,12 @@ static void restore_direct_path(void)
     if (!atomic_load_explicit(&g_direct_detached, memory_order_relaxed)) {
         return;
     }
-    fprintf(stderr, "mpe-live-monitor: restoring %s -> system:playback\n", g_surge_client);
     int failures = 0;
     for (int ch = 0; ch < CHANNELS; ch++) {
         char src[192];
         char playback[64];
-        snprintf(src, sizeof(src), "%s:out_%d", g_surge_client, ch + 1);
+        fanout_source(ch + 1, src, sizeof(src));
+        fprintf(stderr, "mpe-live-monitor: restoring %s -> system:playback\n", src);
         snprintf(playback, sizeof(playback), "system:playback_%d", ch + 1);
         int rc = connect_if_absent(src, playback);
         if (rc != 0) {
@@ -315,10 +384,23 @@ static void ensure_wiring(void)
 
     for (int ch = 0; ch < CHANNELS; ch++) {
         char src[192];
+        char stale[192];
         char playback[64];
-        snprintf(src, sizeof(src), "%s:out_%d", g_surge_client, ch + 1);
+        const char *in_name = jack_port_name(g_in_ports[ch]);
+        fanout_source(ch + 1, src, sizeof(src));
         snprintf(playback, sizeof(playback), "system:playback_%d", ch + 1);
-        (void)connect_if_absent(src, jack_port_name(g_in_ports[ch]));
+        (void)connect_if_absent(src, in_name);
+        /* Make before break: our input follows the fan-out source, so the other
+         * trunk port — Surge after the FX host took the trunk, or an FX host that
+         * stopped carrying — comes off it once the new feed is on. Both at once
+         * is a doubled signal into the monitor. */
+        other_trunk_port(ch + 1, src, stale, sizeof(stale));
+        if (named_port_fed_by(stale, in_name)) {
+            if (jack_disconnect(g_client, stale, in_name) != 0) {
+                fprintf(stderr, "mpe-live-monitor: could not drop %s -> %s — "
+                                "the monitor hears both trunk ports\n", stale, in_name);
+            }
+        }
         (void)connect_if_absent(jack_port_name(g_out_ports[ch]), playback);
     }
 
@@ -327,8 +409,9 @@ static void ensure_wiring(void)
          * Said out loud because the alternative is an instrument that is fine
          * and an instrument that is misconfigured reading identically. */
         if (!warned_no_input) {
-            fprintf(stderr, "mpe-live-monitor: %s is not connected to our input — "
-                            "leaving the direct path in place (check MPE_SL_SURGE_CLIENT)\n",
+            fprintf(stderr, "mpe-live-monitor: the fan-out source (%s or " TRUNK_INSERT
+                            ") is not connected to our input — leaving the direct path "
+                            "in place (check MPE_SL_SURGE_CLIENT)\n",
                     g_surge_client);
             warned_no_input = 1;
         }
@@ -336,7 +419,7 @@ static void ensure_wiring(void)
         return;
     }
     if (warned_no_input) {
-        fprintf(stderr, "mpe-live-monitor: %s reaching our input again\n", g_surge_client);
+        fprintf(stderr, "mpe-live-monitor: the fan-out source is reaching our input again\n");
         warned_no_input = 0;
     }
 
@@ -352,8 +435,10 @@ static void ensure_wiring(void)
     int was_detached = atomic_load_explicit(&g_direct_detached, memory_order_relaxed);
     if (monitor_path_live()) {
         if (detach_direct_path() == 0 && !was_detached) {
+            char src[192];
+            fanout_source(1, src, sizeof(src));
             fprintf(stderr, "mpe-live-monitor: inserted on the monitor branch "
-                            "(%s -> in, out -> system:playback)\n", g_surge_client);
+                            "(%s -> in, out -> system:playback)\n", src);
         }
     }
 }
@@ -627,5 +712,18 @@ int main(int argc, char **argv)
 
     jack_deactivate(g_client);
     jack_client_close(g_client);
+
+    /* Non-zero when JACK went away underneath us, so Restart=on-failure brings
+     * the insert back once jackd is up again. Exiting 0 here — which this did
+     * until 2026-10-11 — left the unit inactive with Result=success for good
+     * after any jackd crash or kill: the insert silently gone, ExecStopPost
+     * having put the direct path back, nothing in any log. A SIGTERM from
+     * systemd (including the PartOf stop when mpe-jackd is stopped or
+     * restarted, which reaches us before jackd goes because of After=) is
+     * still a clean 0. */
+    if (g_jack_shutdown) {
+        fprintf(stderr, "mpe-live-monitor: JACK shut down — exiting non-zero for Restart=on-failure\n");
+        return 1;
+    }
     return 0;
 }

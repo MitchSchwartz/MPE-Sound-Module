@@ -644,7 +644,7 @@ def main(argv: list[str] | None = None) -> int:
         # working one in every log. Repair is the same script the unit runs.
         if live_path_needs_repair(snap, orphan=orphan, stopped=stopped):
             problems.append(
-                "nothing reaches system:playback from Surge or the live monitor"
+                "nothing reaches system:playback from Surge (or the FX host) or the live monitor"
             )
             if not args.no_repair:
                 script = REPO_ROOT / "scripts/restore-direct-monitor-path.sh"
@@ -653,7 +653,7 @@ def main(argv: list[str] | None = None) -> int:
                                           capture_output=True, text=True,
                                           timeout=30)
                     if wait_for_live_path() is True:
-                        repaired.append("reconnected Surge -> playback")
+                        repaired.append("reconnected the fan-out source -> playback")
                         problems.pop()
                     else:
                         log(f"repair did not take: "
