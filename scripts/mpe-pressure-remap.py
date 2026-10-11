@@ -214,13 +214,15 @@ class PressureRemapDaemon:
         for out_msg in out_msgs:
             self._send(out_msg)
 
-    def _replay_to_surge(self, binding: SourceBinding | None, message: list[int]) -> None:
+    def _replay_to_surge(self, binding: SourceBinding | None, message: list[int]) -> bool:
         """fx_policy handing the mod wheel back to the patch: resend the knob's
         last position through the transform of the device it came from. A
-        device unplugged since then has nothing to resend."""
+        device unplugged since then has nothing to resend: False, so the Patch
+        mod fader is not told Surge has a value it never got."""
         if binding is None or binding not in self._bindings:
-            return
+            return False
         self._emit_message(binding, message)
+        return True
 
     def _process_fade_request(self) -> None:
         if not fade_actuation_enabled() or self._out is None:

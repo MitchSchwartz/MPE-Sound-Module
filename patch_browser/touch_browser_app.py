@@ -515,7 +515,7 @@ class TouchPatchBrowser(
             self._poll_audio_profile_switch()
             self._poll_surge_audio_switch()
             self._poll_device_volume()
-            self.fx_policy.poll_depth()
+            self.fx_policy.poll_levels()
             self._poll_engine_recovery_toast()
             self._poll_restart_bench_result()
             terminal_dirty = self._poll_terminal()
