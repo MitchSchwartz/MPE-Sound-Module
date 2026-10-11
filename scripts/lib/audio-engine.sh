@@ -1186,6 +1186,69 @@ mpe_reconcile_looper_if_orphaned() {
     mpe_restart_looper_after_graph_change "$reason"
 }
 
+# A Surge-only restart leaves the looper running and on the bus, but JACK drops
+# every connection a client had when it leaves -- so Surge comes back reaching
+# playback (or the live monitor, which reconnects itself) and NO loop input.
+# Pads light, record, and capture silence. The orphan check above cannot see
+# it: the looper is not orphaned. Until 2026-10-11 nothing rewired it.
+#
+# Event-driven, not polled: start-surge-cli.sh writes a new `started=` into
+# surge.state on every start, and this acts once per new value. Steady-state
+# cost is reading that three-line tmpfs file with bash builtins (no fork) on
+# each surge-watchdog probe that finds Surge on the graph -- at most every
+# MPE_JACK_PROBE_INTERVAL_S (10 s). Per Surge start: one `jack_lsp -c` and one
+# python3 (the routing authority's record check, ~0.5 s on the Pi), plus
+# wire-jack-graph.sh only when the record path is actually broken. A repair
+# that does not take is retried on the next probe, at most
+# MPE_RECORD_PATH_MAX_TRIES times per Surge start, then left loud in the log.
+_MPE_RECORD_PATH_TOKEN_DONE=""
+_MPE_RECORD_PATH_TOKEN_TRIES=0
+mpe_reconcile_record_path_after_surge_start() {
+    local reason="${1:-surge-start}"
+    local max_tries="${MPE_RECORD_PATH_MAX_TRIES:-3}"
+    local file token="" k v rc root routing
+    file="${MPE_SURGE_STATE_FILE:-${_MPE_SURGE_STATE_FILE_CACHED:-}}"
+    if [ -z "$file" ]; then
+        _MPE_SURGE_STATE_FILE_CACHED="$(mpe_surge_state_file)"
+        file="$_MPE_SURGE_STATE_FILE_CACHED"
+    fi
+    [ -r "$file" ] || return 0
+    while IFS='=' read -r k v; do
+        [ "$k" = started ] && token="$v"
+    done < "$file"
+    [ -n "$token" ] || return 0
+    [ "$token" = "$_MPE_RECORD_PATH_TOKEN_DONE" ] && return 0
+    if [ "${_MPE_RECORD_PATH_TOKEN_SEEN:-}" != "$token" ]; then
+        _MPE_RECORD_PATH_TOKEN_SEEN="$token"
+        _MPE_RECORD_PATH_TOKEN_TRIES=0
+    fi
+    if [ "$_MPE_RECORD_PATH_TOKEN_TRIES" -ge "$max_tries" ]; then
+        return 0
+    fi
+    _MPE_RECORD_PATH_TOKEN_TRIES=$((_MPE_RECORD_PATH_TOKEN_TRIES + 1))
+
+    root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+    routing="$root/patch_browser/audio_routing.py"
+    { mpe_jack_lsp -c 2>/dev/null || true; } | python3 "$routing" check record >/dev/null 2>&1 \
+        && rc=0 || rc=$?
+    case "$rc" in
+        0 | 2)
+            # Reached, or no looper to reach: nothing to do for this Surge start.
+            _MPE_RECORD_PATH_TOKEN_DONE="$token"
+            return 0
+            ;;
+    esac
+    echo "audio-engine: Surge restarted ($reason) and no longer reaches every loop input — rewiring the record path" >&2
+    if bash "$root/scripts/sooperlooper/wire-jack-graph.sh" connect >&2; then
+        _MPE_RECORD_PATH_TOKEN_DONE="$token"
+        return 0
+    fi
+    if [ "$_MPE_RECORD_PATH_TOKEN_TRIES" -ge "$max_tries" ]; then
+        echo "audio-engine: record path still broken after $max_tries rewires since Surge started — giving up until the next Surge start; run: mpe looper sl-restart" >&2
+    fi
+    return 1
+}
+
 # ---------------------------------------------------------------------------
 # Stray engine reaper
 # ---------------------------------------------------------------------------

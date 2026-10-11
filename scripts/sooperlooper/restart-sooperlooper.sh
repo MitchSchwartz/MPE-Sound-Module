@@ -28,9 +28,11 @@ jack_client_visible() {
   jack_lsp 2>/dev/null | grep -q "^${JACK_CLIENT}:"
 }
 
+# Surge reaches every loop input, by whatever route the routing authority
+# says is current (directly, or through the FX host on the trunk).
 record_path_ok() {
-  jack_lsp -c "${JACK_CLIENT}:loop0_in_1" 2>/dev/null | grep -Fq "Surge XT:out_1" \
-    && jack_lsp -c "${JACK_CLIENT}:loop$((LOOPS - 1))_in_1" 2>/dev/null | grep -Fq "Surge XT:out_1"
+  jack_lsp -c 2>/dev/null \
+    | python3 "${SCRIPT_DIR}/../../patch_browser/audio_routing.py" check record --loops "${LOOPS}" >/dev/null
 }
 
 playback_path_ok() {
@@ -91,14 +93,14 @@ restart_unit() {
   for i in $(seq 1 40); do
     if systemctl is-active --quiet mpe-sooperlooper.service \
        && jack_client_visible && record_path_ok && playback_path_ok; then
-      log "PASS — Surge -> loop0_in, common_out -> playback (mpe-sooperlooper.service, ${i}x0.5s)"
+      log "PASS — fan-out source -> loop inputs, common_out -> playback (mpe-sooperlooper.service, ${i}x0.5s)"
       return 0
     fi
     sleep 0.5
   done
   echo "sl-restart: mpe-sooperlooper.service did not come up with a wired graph in 20 s" >&2
   systemctl status mpe-sooperlooper.service --no-pager 2>/dev/null | tail -n 8 >&2 || true
-  jack_lsp -c "Surge XT:out_1" 2>/dev/null || true
+  jack_lsp -c "${JACK_CLIENT}:loop0_in_1" 2>/dev/null || true
   return 1
 }
 
@@ -143,7 +145,7 @@ main() {
   sleep 0.5
 
   if record_path_ok && playback_path_ok; then
-    log "PASS — Surge -> loop0_in, common_out -> playback"
+    log "PASS — fan-out source -> loop inputs, common_out -> playback"
     # Tell the bench the engine is new, or it keeps applying the old one's grid
     # to a process that has never heard of it. `start_engine` launches the
     # binary directly (setsid nohup), NOT via systemd, so the ExecStartPost on
@@ -157,7 +159,7 @@ main() {
         log "WARN: could not emit looper.engine.started"
   else
     echo "sl-restart: graph verify failed" >&2
-    jack_lsp -c "Surge XT:out_1" 2>/dev/null || true
+    jack_lsp -c "${JACK_CLIENT}:loop0_in_1" 2>/dev/null || true
     exit 1
   fi
 }
