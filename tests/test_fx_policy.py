@@ -169,7 +169,7 @@ class FxPolicyTests(unittest.TestCase):
         self.addCleanup(self._dir.cleanup)
         self.root = Path(self._dir.name)
         self.route = self.root / "fx-route.json"
-        self.depth = self.root / "fx-depth.json"
+        self.levels = self.root / "fx-levels.json"
         self.with_wheel = self.root / "with.fxp"
         self.with_wheel.write_bytes(WITH_MODWHEEL)
         self.without_wheel = self.root / "without.fxp"
@@ -184,7 +184,7 @@ class FxPolicyTests(unittest.TestCase):
     def _policy(self, **kw) -> FxPolicy:
         kw.setdefault("enabled", True)
         kw.setdefault("route_path", self.route)
-        kw.setdefault("depth_path", self.depth)
+        kw.setdefault("levels_path", self.levels)
         kw.setdefault("clock", lambda: self.now)
         return FxPolicy(**kw)
 
@@ -253,18 +253,18 @@ class FxPolicyTests(unittest.TestCase):
 
     def test_fader_follows_the_knob(self) -> None:
         policy = self._policy()
-        self.depth.write_text(json.dumps({"depth": 0.75, "source": "knob", "request": None}))
-        self.assertTrue(policy.poll_depth())
+        self.levels.write_text(json.dumps({"depth": 0.75, "source": "knob", "request": None}))
+        self.assertTrue(policy.poll_levels())
         self.assertEqual(policy.depth, 0.75)
-        self.assertFalse(policy.poll_depth())  # throttled
-        self.now += fx_policy.DEPTH_POLL_S
-        self.assertFalse(policy.poll_depth())  # unchanged file: no read
+        self.assertFalse(policy.poll_levels())  # throttled
+        self.now += fx_policy.LEVELS_POLL_S
+        self.assertFalse(policy.poll_levels())  # unchanged file: no read
 
     def test_held_fader_is_not_pulled_by_the_file(self) -> None:
         policy = self._policy()
         policy.set_depth(0.2)  # drag in progress
-        self.depth.write_text(json.dumps({"depth": 0.9, "source": "knob", "request": None}))
-        self.assertFalse(policy.poll_depth())
+        self.levels.write_text(json.dumps({"depth": 0.9, "source": "knob", "request": None}))
+        self.assertFalse(policy.poll_levels())
         self.assertEqual(policy.depth, 0.2)
 
     def test_stale_fader_echo_is_ignored(self) -> None:
@@ -273,8 +273,8 @@ class FxPolicyTests(unittest.TestCase):
         old = self._route()["depth_stamp"]
         self.now += 1
         policy.set_depth(0.6, final=True)
-        self.depth.write_text(json.dumps({"depth": 0.2, "source": "fader", "request": old}))
-        self.assertFalse(policy.poll_depth())
+        self.levels.write_text(json.dumps({"depth": 0.2, "source": "fader", "request": old}))
+        self.assertFalse(policy.poll_levels())
         self.assertEqual(policy.depth, 0.6)
 
     def test_policy_never_sends_to_the_fx_host(self) -> None:
@@ -287,6 +287,105 @@ class FxPolicyTests(unittest.TestCase):
             policy.finish_depth()
         init.assert_not_called()
         send.assert_not_called()
+
+    def _levels_file(self, **data) -> None:
+        self.levels.write_text(json.dumps(data))
+
+    def test_patch_mod_follows_a_knob_move_newer_than_the_fader(self) -> None:
+        policy = self._policy()
+        policy.set_patch_mod(30)  # fader at t=50
+        self._levels_file(patch_mod=80, patch_mod_at=49.0)  # knob before it: Surge has 30
+        self.assertFalse(policy.poll_levels())
+        self.assertEqual(policy.patch_mod, 30)
+        self.now += fx_policy.LEVELS_POLL_S
+        self._levels_file(patch_mod=80, patch_mod_at=51.0)  # knob after it
+        self.assertTrue(policy.poll_levels())
+        self.assertEqual(policy.patch_mod, 80)
+
+    def test_patch_mod_repeat_value_after_a_fader_move_still_wins(self) -> None:
+        policy = self._policy()
+        self._levels_file(patch_mod=64, patch_mod_at=49.0)
+        self.assertTrue(policy.poll_levels())
+        policy.set_patch_mod(100)  # t=50
+        self.now += 1
+        self._levels_file(patch_mod=64, patch_mod_at=50.5)  # knob back to 64, later
+        self.assertTrue(policy.poll_levels())
+        self.assertEqual(policy.patch_mod, 64)
+
+    def test_patch_mod_already_read_is_not_reapplied(self) -> None:
+        """The file is rewritten when the depth moves; an old patch mod stays old."""
+        policy = self._policy()
+        self._levels_file(patch_mod=64, patch_mod_at=49.0)
+        self.assertTrue(policy.poll_levels())
+        policy.patch_mod = 10  # anything moved it since; nothing from the file should
+        self.now += fx_policy.LEVELS_POLL_S
+        self._levels_file(patch_mod=64, patch_mod_at=49.0, depth=0.5, source="knob", depth_at=50.0)
+        policy.poll_levels()
+        self.assertEqual(policy.patch_mod, 10)
+        self.assertEqual(policy.depth, 0.5)
+
+    def test_held_patch_mod_is_not_pulled(self) -> None:
+        policy = self._policy()
+        policy.set_patch_mod(30, final=False)
+        self._levels_file(patch_mod=90, patch_mod_at=99.0)
+        self.assertFalse(policy.poll_levels())
+        self.assertEqual(policy.patch_mod, 30)
+        policy.finish_patch_mod()
+        self.assertFalse(policy.dragging_patch_mod)
+
+    def test_held_patch_mod_does_not_hold_the_effect_fader(self) -> None:
+        policy = self._policy()
+        policy.set_patch_mod(30, final=False)
+        self._levels_file(depth=0.7, source="knob", depth_at=99.0, patch_mod=90, patch_mod_at=99.0)
+        self.assertTrue(policy.poll_levels())
+        self.assertEqual(policy.depth, 0.7)
+        self.assertEqual(policy.patch_mod, 30)
+
+    def test_depth_already_read_is_not_reapplied_over_a_newer_request(self) -> None:
+        policy = self._policy()
+        self._levels_file(depth=0.75, source="knob", depth_at=49.0)
+        self.assertTrue(policy.poll_levels())
+        policy.set_depth(0.2, final=True)  # in flight to the remapper
+        self.now += fx_policy.LEVELS_POLL_S
+        # Rewritten for a patch mod move, before the request was applied.
+        self._levels_file(depth=0.75, source="knob", depth_at=49.0, patch_mod=1, patch_mod_at=50.05)
+        policy.poll_levels()
+        self.assertEqual(policy.depth, 0.2)
+
+    def test_knob_depth_older_than_the_request_is_ignored(self) -> None:
+        policy = self._policy()
+        policy.set_depth(0.2, final=True)  # t=50
+        self._levels_file(depth=0.9, source="knob", depth_at=49.9)
+        self.assertFalse(policy.poll_levels())
+        self.assertEqual(policy.depth, 0.2)
+
+    def test_malformed_levels_move_nothing(self) -> None:
+        policy = self._policy()
+        policy.set_patch_mod(30)
+        for bad in (
+            {"patch_mod": 200, "patch_mod_at": 99.0},
+            {"patch_mod": True, "patch_mod_at": 99.0},
+            {"patch_mod": 64.5, "patch_mod_at": 99.0},
+            {"patch_mod": 64},
+            {"patch_mod": 64, "patch_mod_at": "soon"},
+            {"depth": 0.5, "source": "elsewhere", "depth_at": 99.0},
+        ):
+            with self.subTest(bad=bad):
+                self.now += fx_policy.LEVELS_POLL_S
+                self._levels_file(**bad)
+                self.assertFalse(policy.poll_levels())
+        self.assertEqual(policy.patch_mod, 30)
+        self.assertEqual(policy.depth, 0.0)
+
+    def test_knob_label_states_the_destination(self) -> None:
+        policy = self._policy()
+        policy.on_patch_loaded(self.with_wheel)
+        self.assertEqual(policy.knob_label, "Mod knob \u2192 Patch mod")
+        policy.set_target(MOD_WHEEL_EFFECT)
+        self.assertEqual(policy.knob_label, "Mod knob \u2192 Effect")
+        policy.on_patch_loaded(self.without_wheel)  # patch first, but no wheel routing
+        self.assertEqual(policy.target, MOD_WHEEL_PATCH_FIRST)
+        self.assertEqual(policy.knob_label, "Mod knob \u2192 Effect")
 
     def test_patch_mod_is_surge_osc_cc1_on_the_master_channel(self) -> None:
         address, args = self._policy().set_patch_mod(64.4)
@@ -301,16 +400,16 @@ class InertWhenOffTests(unittest.TestCase):
     def test_policy_writes_nothing(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             route = Path(tmp) / "fx-route.json"
-            depth = Path(tmp) / "fx-depth.json"
-            depth.write_text(json.dumps({"depth": 0.9, "source": "knob"}))
+            levels = Path(tmp) / "fx-levels.json"
+            levels.write_text(json.dumps({"depth": 0.9, "source": "knob"}))
             patch = Path(tmp) / "p.fxp"
             patch.write_bytes(NO_ROUTINGS)
-            policy = FxPolicy(enabled=False, route_path=route, depth_path=depth, global_target=MOD_WHEEL_EFFECT)
+            policy = FxPolicy(enabled=False, route_path=route, levels_path=levels, global_target=MOD_WHEEL_EFFECT)
             policy.on_patch_loaded(patch)
             policy.set_target(MOD_WHEEL_EFFECT)
             policy.set_depth(0.8, final=True)
             self.assertFalse(route.exists())
-            self.assertFalse(policy.poll_depth())
+            self.assertFalse(policy.poll_levels())
             # The readout still knows the patch.
             self.assertIs(policy.uses_mod_wheel, False)
 
@@ -363,8 +462,9 @@ class _RecordingForward:
     def __init__(self) -> None:
         self.calls: list[tuple[object, list[int]]] = []
 
-    def __call__(self, source, raw) -> None:
+    def __call__(self, source, raw) -> bool:
         self.calls.append((source, list(raw)))
+        return True
 
 
 class Cc1RouterTests(unittest.TestCase):
@@ -372,14 +472,14 @@ class Cc1RouterTests(unittest.TestCase):
         self._dir = tempfile.TemporaryDirectory()
         self.addCleanup(self._dir.cleanup)
         self.route = Path(self._dir.name) / "fx-route.json"
-        self.depth = Path(self._dir.name) / "fx-depth.json"
+        self.levels = Path(self._dir.name) / "fx-levels.json"
         self.sender = _RecordingSender()
         self.forward = _RecordingForward()
         self.now = 100.0
         self.router = Cc1Router(
             sender=self.sender,
             route_path=self.route,
-            depth_path=self.depth,
+            levels_path=self.levels,
             forward=self.forward,
             clock=lambda: self.now,
         )
@@ -459,8 +559,10 @@ class Cc1RouterTests(unittest.TestCase):
         self._tick()
         self.assertEqual(self.sender.sent, [(0, 0.4)])
         self._tick()  # flushes the echo on the next tick at the latest
-        echo = json.loads(self.depth.read_text())
-        self.assertEqual(echo, {"depth": 0.4, "source": "fader", "request": "d1"})
+        echo = json.loads(self.levels.read_text())
+        self.assertEqual(
+            echo, {"depth": 0.4, "source": "fader", "request": "d1", "depth_at": self.now - fx_policy.ROUTE_REFRESH_S}
+        )
         # Rewritten with the same request stamp: not re-applied, not a route change.
         self._publish(CC1_TO_SURGE, route_stamp="r", depth=0.4, depth_stamp="d1")
         self._tick()
@@ -476,8 +578,8 @@ class Cc1RouterTests(unittest.TestCase):
             self._tick()
             self._tick()  # nothing moved: no write
         self.assertEqual(writer.call_count, 1)
-        self.assertEqual(json.loads(self.depth.read_text())["depth"], 120 / 127)
-        self.assertEqual(json.loads(self.depth.read_text())["source"], "knob")
+        self.assertEqual(json.loads(self.levels.read_text())["depth"], 120 / 127)
+        self.assertEqual(json.loads(self.levels.read_text())["source"], "knob")
 
     def test_knob_and_fader_last_one_wins(self) -> None:
         self._publish(CC1_TO_FX, route_stamp="r")
@@ -488,6 +590,69 @@ class Cc1RouterTests(unittest.TestCase):
         self.assertEqual(self.router.depth, 0.1)
         self.router.consume([0xB0, 1, 0])
         self.assertEqual(self.router.depth, 0.0)
+
+    def _levels(self) -> dict:
+        return json.loads(self.levels.read_text())
+
+    def test_knob_to_surge_publishes_patch_mod_once_per_tick(self) -> None:
+        self._publish(CC1_TO_SURGE)
+        self._tick()
+        with mock.patch.object(fx_policy, "atomic_write_json", wraps=fx_policy.atomic_write_json) as writer:
+            for value in range(0, 128, 8):
+                self.now += 0.001
+                self.assertFalse(self.router.consume([0xB0, 1, value]))
+            moved_at = self.now
+            self._tick()
+            self._tick()  # nothing moved: no write
+        self.assertEqual(writer.call_count, 1)
+        self.assertEqual(self._levels(), {"patch_mod": 120, "patch_mod_at": moved_at})
+        self.assertEqual(self.sender.sent, [])
+
+    def test_no_levels_file_until_something_moves(self) -> None:
+        self._publish(CC1_TO_SURGE)
+        self._tick()
+        self.router.consume([0xB1, 1, 64])  # member channel: not the knob
+        self.router.consume([0xB0, 74, 64])
+        self._tick()
+        self.assertFalse(self.levels.exists())
+
+    def test_knob_to_the_effect_leaves_patch_mod_alone(self) -> None:
+        self._publish(CC1_TO_SURGE)
+        self._tick()
+        self.router.consume([0xB0, 1, 10])
+        self._tick()
+        self._publish(CC1_TO_FX)
+        self._tick()
+        self.router.consume([0xB0, 1, 100])
+        self._tick()
+        levels = self._levels()
+        self.assertEqual(levels["patch_mod"], 10)
+        self.assertEqual(levels["depth"], 100 / 127)
+        self.assertEqual(levels["source"], "knob")
+
+    def test_handing_the_knob_back_publishes_the_replayed_value(self) -> None:
+        source = object()
+        self._publish(CC1_TO_FX)
+        self._tick()
+        self.router.consume([0xB0, 1, 90], source)
+        self._tick()
+        self.assertNotIn("patch_mod", self._levels())
+        self._publish(CC1_TO_SURGE)
+        self._tick()
+        self._tick()
+        self.assertEqual(self._levels()["patch_mod"], 90)
+        self.assertEqual(self.forward.calls, [(source, [0xB0, 1, 90])])
+
+    def test_replay_that_could_not_send_publishes_nothing(self) -> None:
+        self.router._forward = lambda _source, _raw: False  # the device is gone
+        self._publish(CC1_TO_FX)
+        self._tick()
+        self.router.consume([0xB0, 1, 90])
+        self._tick()
+        self._publish(CC1_TO_SURGE)
+        self._tick()
+        self._tick()
+        self.assertNotIn("patch_mod", self._levels())
 
     def test_garbage_route_file_means_surge(self) -> None:
         self.route.write_text('{"cc1": "elsewhere", "effect": 0.0, "depth_request": "x", "depth_stamp": 5}')
@@ -503,7 +668,7 @@ class Cc1RouterTests(unittest.TestCase):
         policy = FxPolicy(
             enabled=True,
             route_path=self.route,
-            depth_path=self.depth,
+            levels_path=self.levels,
             global_target=MOD_WHEEL_EFFECT,
             clock=lambda: clock[0],
         )
@@ -517,8 +682,52 @@ class Cc1RouterTests(unittest.TestCase):
         self.assertTrue(self.router.consume([0xB0, 1, 127]))  # knob turned up
         self._tick()
         clock[0] += 1
-        self.assertTrue(policy.poll_depth())
+        self.assertTrue(policy.poll_levels())
         self.assertEqual(policy.depth, 1.0)
+
+    def test_patch_mod_round_trip_last_move_wins(self) -> None:
+        """One clock, as on the appliance: knob and fader take turns."""
+        policy = FxPolicy(
+            enabled=True,
+            route_path=self.route,
+            levels_path=self.levels,
+            global_target=MOD_WHEEL_PATCH_FIRST,
+            clock=lambda: self.now,
+        )
+        patch = Path(self._dir.name) / "p.fxp"
+        patch.write_bytes(WITH_MODWHEEL)
+        policy.on_patch_loaded(patch)  # CC 1 -> Surge
+        self._tick()
+
+        def ui_poll() -> bool:
+            self.now += fx_policy.LEVELS_POLL_S
+            return policy.poll_levels()
+
+        self.assertFalse(self.router.consume([0xB0, 1, 70]))  # knob
+        self._tick()
+        self.assertTrue(ui_poll())
+        self.assertEqual(policy.patch_mod, 70)
+        self.now += 0.01
+        policy.set_patch_mod(20)  # fader, later
+        self.assertFalse(ui_poll())
+        self.assertEqual(policy.patch_mod, 20)
+        self.now += 0.01
+        self.router.consume([0xB0, 1, 71])  # knob again, later still
+        self._tick()
+        self.assertTrue(ui_poll())
+        self.assertEqual(policy.patch_mod, 71)
+        # Flip to the effect and back: the replay lands on the Patch mod fader.
+        policy.set_patch_mod(5)
+        policy.set_target(MOD_WHEEL_EFFECT)
+        self._tick()
+        self.assertEqual(self.sender.sent[-1], (0, 71 / 127))
+        self.assertTrue(ui_poll())  # the Effect fader jumps to the knob
+        self.assertEqual(policy.depth, 71 / 127)
+        self.assertEqual(policy.patch_mod, 5)
+        policy.set_target(MOD_WHEEL_PATCH_FIRST)
+        self._tick()
+        self.assertTrue(ui_poll())
+        self.assertEqual(policy.patch_mod, 71)
 
 
 class FxHostSenderTests(unittest.TestCase):
@@ -586,9 +795,9 @@ class RemapDaemonCc1Tests(unittest.TestCase):
         _module, daemon, emitted = self._daemon("1")
         live, gone = object(), object()
         daemon._bindings = [live]
-        daemon._replay_to_surge(live, [0xB0, 1, 77])
-        daemon._replay_to_surge(gone, [0xB0, 1, 78])  # unplugged since
-        daemon._replay_to_surge(None, [0xB0, 1, 79])
+        self.assertIs(daemon._replay_to_surge(live, [0xB0, 1, 77]), True)
+        self.assertIs(daemon._replay_to_surge(gone, [0xB0, 1, 78]), False)  # unplugged since
+        self.assertIs(daemon._replay_to_surge(None, [0xB0, 1, 79]), False)
         self.assertEqual(emitted, [[0xB0, 1, 77]])
         self.assertEqual(daemon._cc1._forward, daemon._replay_to_surge)
 
