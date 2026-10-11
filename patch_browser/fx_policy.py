@@ -462,6 +462,14 @@ class FxPolicy:
     def knob_label(self) -> str:
         return mod_knob_label(self.destination)
 
+    @property
+    def switch_locked(self) -> bool:
+        """The play-screen switch has nothing to choose: the loaded patch has no
+        mod-wheel routing, so the knob goes to the effect either way. Unknown
+        (unreadable patch) is not locked: it counts as using the wheel, as in
+        cc1_destination."""
+        return self.uses_mod_wheel is False
+
     def on_patch_loaded(self, patch_path) -> None:
         self.uses_mod_wheel = patch_uses_mod_wheel(patch_path)
         self.patch_loaded = True
