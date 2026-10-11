@@ -546,8 +546,13 @@ Full suite 2147 passed.
 **Not done:** H2 (the poly governor) was never falsified on the appliance, and
 no longer needs to be — the mechanism is confirmed and the governor is
 configured here with `MPE_POLY_REST_CAP=48`, not the defaults §11 originally
-quoted. The live appliance is still running the old code; the manual reset
-cured the current Surge process only.
+quoted.
+
+**Shipped.** Merged to `dev` and deployed 2026-10-10 (`mpe-pressure-remap`
+restarted; Surge untouched). The bind-time reset was verified on the wire with a
+tap on `14:0` across a service restart: all 15 member channels written. Mitch
+reproduced the original failure sequence — play, use the wheel, play again — and
+confirmed it fixed 2026-10-11. §11 is closed.
 
 ### What to do next, in order
 
