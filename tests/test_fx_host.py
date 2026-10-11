@@ -67,9 +67,12 @@ def _need_compiler(case: unittest.TestCase) -> None:
 
 class DspSelfTest(unittest.TestCase):
     def test_every_listener_protecting_property_holds(self):
-        """Depth 0 is the input; output never exceeds input or ±1; no NaN or
-        denormal blowup over two minutes; depth steps and effect swaps are
-        click-free — each against a control that must fail."""
+        """For every effect: depth 0 is the input; output RMS never exceeds the
+        input's (and peak, where the effect can promise it) or ±1; no NaN or
+        denormal blowup over two minutes; depth steps, swaps between every pair
+        and re-entry after bypass are click-free; the drive's oversampling
+        holds aliasing down — each against a deliberately broken run that must
+        fail the same check."""
         _need_compiler(self)
         _, run = _selftest()
         self.assertEqual(run.returncode, 0, f"{run.stdout}\n{run.stderr}")
@@ -90,18 +93,34 @@ class WireFormat(unittest.TestCase):
         for bad_depth in (float("nan"), float("inf"), float("-inf")):
             with self.subTest(depth=bad_depth), self.assertRaises(ValueError):
                 proto.encode(0, bad_depth)
-        for bad_id in (1, -1, 99, True, 0.0, "0"):
+        for bad_id in (4, -1, 99, True, 0.0, "0"):
             with self.subTest(effect=bad_id), self.assertRaises(ValueError):
                 proto.encode(bad_id, 0.5)
 
     def test_python_effect_ids_match_the_c_table(self):
-        """EFFECT_IDS is the table's indices, read from the C, not restated."""
+        """EFFECT_IDS is the table's indices, read from the C, not restated:
+        same count, same order, each Python name the C entry's name. An id is
+        a number on the wire, so a reorder on either side must fail here."""
         source = C_DSP.read_text()
         table = re.search(r"const fx_effect_desc FX_EFFECTS\[\] = \{(.*?)\n\};", source, re.S)
         self.assertIsNotNone(table, "FX_EFFECTS table not found in fx_dsp.c")
         names = re.findall(r'\{\s*"([a-z0-9_-]+)"', table.group(1))
-        self.assertEqual(tuple(range(len(names))), proto.EFFECT_IDS)
-        self.assertEqual(names[proto.EFFECT_CHORUS], "chorus")
+        self.assertEqual(names, ["chorus", "drive", "phaser", "tremolo"])
+        self.assertEqual(proto.EFFECT_IDS, tuple(range(len(names))))
+        self.assertEqual(sorted(proto.EFFECT_NAMES), list(proto.EFFECT_IDS))
+        for effect_id in proto.EFFECT_IDS:
+            with self.subTest(effect=effect_id):
+                self.assertEqual(proto.EFFECT_NAMES[effect_id].lower(), names[effect_id])
+        self.assertEqual(
+            (proto.EFFECT_CHORUS, proto.EFFECT_TUBE_DRIVE, proto.EFFECT_PHASER,
+             proto.EFFECT_TREMOLO),
+            (0, 1, 2, 3),
+        )
+
+    def test_every_shipped_id_encodes(self):
+        for effect_id in proto.EFFECT_IDS:
+            with self.subTest(effect=effect_id):
+                self.assertEqual(proto.encode(effect_id, 0.25), f"fx {effect_id} 0.250000".encode())
 
     def test_the_control_port_matches_the_client(self):
         match = re.search(r"#define\s+CONTROL_PORT_DEFAULT\s+(\d+)", C_CLIENT.read_text())
@@ -134,10 +153,11 @@ class WireFormat(unittest.TestCase):
                 [str(binary), "--parse", text], capture_output=True, text=True, timeout=10,
             ).stdout.strip()
 
-        for depth in (0.0, 0.000001, 0.25, 0.5, 0.999999, 1.0):
-            with self.subTest(depth=depth):
-                wire = proto.encode(0, depth).decode("ascii")
-                self.assertEqual(parse(wire), f"ok 0 {depth:.6f}")
+        for effect_id in proto.EFFECT_IDS:
+            for depth in (0.0, 0.000001, 0.25, 0.5, 0.999999, 1.0):
+                with self.subTest(effect=effect_id, depth=depth):
+                    wire = proto.encode(effect_id, depth).decode("ascii")
+                    self.assertEqual(parse(wire), f"ok {effect_id} {depth:.6f}")
         # Things a stray loopback sender might send must change nothing.
         for junk in ("gain 0.5", "fx", "fx 0", "fx 0 nan", "fx 0 inf", "fx -1 0.5",
                      "fx 0x1 0.5", "fx 0 0.5 extra", "fx0 0.5", "fx 1e3 0.5", ""):
