@@ -934,7 +934,8 @@ class TouchBrowserDrawMixin:
     def _draw_mod_wheel_row(self) -> None:
         """The switch is the setting (on = Effect); its label is where the knob
         goes now, which for a patch with no mod-wheel routing is the Effect
-        even with the switch off."""
+        even with the switch off. That patch greys the switch out (Norm's
+        disabled look) and a tap does nothing."""
         policy = getattr(self, "fx_policy", None)
         switch = getattr(self, "mod_wheel_switch_rect", None)
         if policy is None or switch is None or switch.w <= 0:
@@ -943,6 +944,7 @@ class TouchBrowserDrawMixin:
             switch,
             policy.target == MOD_WHEEL_EFFECT,
             has_gain=True,
+            disabled=policy.switch_locked,
             label=policy.knob_label,
         )
     def _draw_browser(self) -> None:
