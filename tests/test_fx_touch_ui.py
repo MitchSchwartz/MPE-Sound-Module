@@ -14,6 +14,7 @@ from tests.fake_pygame import install_fake_pygame
 install_fake_pygame()
 
 from patch_browser.fx_policy import (  # noqa: E402
+    MOD_KNOB_LABELS,
     MOD_WHEEL_EFFECT,
     MOD_WHEEL_PATCH_FIRST,
     FxPolicy,
@@ -21,6 +22,8 @@ from patch_browser.fx_policy import (  # noqa: E402
 from patch_browser.geometry import Rect  # noqa: E402
 from patch_browser.touch_browser_app import TouchPatchBrowser  # noqa: E402
 from patch_browser.touch_ui_constants import (  # noqa: E402
+    COMPACT_TOGGLE_W,
+    SETTINGS_TOGGLE_W,
     BROWSE_FILTER_W,
     BROWSE_OFFSET_HOME,
     BROWSE_PATCH_W,
@@ -30,6 +33,25 @@ from patch_browser.touch_ui_constants import (  # noqa: E402
 from patch_browser.touch_ui_enums import Screen  # noqa: E402
 
 SCREEN_W, SCREEN_H = 800, 480
+
+#: Pixel widths of the switch labels in the UI font (DejaVu Sans, which the
+#: appliance loads first), measured with pygame 2.5 on 2026-10-11. The fake
+#: pygame cannot measure glyphs, so the fit test checks against these. Change a
+#: label and `test_measured_widths_cover_every_label` fails until re-measured.
+LABEL_PX = {
+    22: {"Mod knob \u2192 Patch mod": 232, "Mod knob \u2192 Effect": 184},
+    18: {"Mod knob \u2192 Patch mod": 188, "Mod knob \u2192 Effect": 149},
+}
+
+#: (switch setting, patch routes the mod wheel) -> what the label says.
+LABEL_TRUTH = [
+    (MOD_WHEEL_PATCH_FIRST, True, "Mod knob \u2192 Patch mod"),
+    (MOD_WHEEL_PATCH_FIRST, None, "Mod knob \u2192 Patch mod"),  # unreadable patch: Surge
+    (MOD_WHEEL_PATCH_FIRST, False, "Mod knob \u2192 Effect"),
+    (MOD_WHEEL_EFFECT, True, "Mod knob \u2192 Effect"),
+    (MOD_WHEEL_EFFECT, False, "Mod knob \u2192 Effect"),
+    (MOD_WHEEL_EFFECT, None, "Mod knob \u2192 Effect"),
+]
 
 
 def _overlaps(a: Rect, b: Rect) -> bool:
@@ -95,7 +117,7 @@ class _BrowserCase(unittest.TestCase):
         self.policy = FxPolicy(
             enabled=fx_enabled,
             route_path=self.root / "fx-route.json",
-            depth_path=self.root / "fx-depth.json",
+            levels_path=self.root / "fx-levels.json",
         )
         patches = [
             mock.patch("patch_browser.touch_browser_app.PatchScanner", return_value=scanner),
@@ -150,7 +172,6 @@ class PlayScreenLayoutTests(_BrowserCase):
         for a, b in itertools.combinations(columns, 2):
             self.assertFalse(_overlaps(a, b), (a, b))
         row = [
-            browser.mod_wheel_info_rect,
             browser.mod_wheel_switch_rect,
             browser.normalize_btn,
             browser.favorites_btn,
@@ -193,13 +214,36 @@ class PlayScreenLayoutTests(_BrowserCase):
         for b in buttons:
             self.assertTrue(_inside(b, browser.nav_header_rect), b)
 
-    def test_fx_off_hides_switch_and_effect_but_keeps_patch_mod_and_readout(self) -> None:
+    def test_fx_off_hides_switch_and_effect_but_keeps_patch_mod(self) -> None:
         browser = self._make_browser(fx_enabled=False)
         ids = [c.channel_id for c in browser.mixer_channels]
         self.assertIn("patch_mod", ids)
         self.assertNotIn("effect", ids)
         self.assertEqual(browser.mod_wheel_switch_rect.w, 0)
-        self.assertGreater(browser.mod_wheel_info_rect.w, 0)
+
+    def test_switch_label_fits_on_one_line_in_both_states_and_both_navs(self) -> None:
+        """At 800x480, nav open (250 px) and collapsed, whatever the label says."""
+        for collapsed, (_target, _uses, label) in itertools.product((False, True), LABEL_TRUTH):
+            with self.subTest(collapsed=collapsed, label=label):
+                browser = self._make_browser(fx_enabled=True)
+                browser.left_nav_collapsed = collapsed
+                browser._layout()
+                rect = browser.mod_wheel_switch_rect
+                self.assertTrue(_inside(rect, browser.main_rect), rect)
+                for other in [browser.normalize_btn, browser.favorites_btn] + [
+                    c.column_rect for c in browser.mixer_channels
+                ]:
+                    self.assertFalse(_overlaps(rect, other), (rect, other))
+                # The same budget `_draw_normalize_toggle` gives its label.
+                compact = rect.w < 180
+                size = 18 if compact else 22
+                toggle_w = COMPACT_TOGGLE_W if compact else SETTINGS_TOGGLE_W
+                budget = rect.w - toggle_w - 28
+                self.assertLessEqual(LABEL_PX[size][label], budget, (rect, size))
+
+    def test_measured_widths_cover_every_label(self) -> None:
+        for size, widths in LABEL_PX.items():
+            self.assertEqual(set(widths), set(MOD_KNOB_LABELS.values()), size)
 
     def test_draw_does_not_raise(self) -> None:
         for enabled in (True, False):
@@ -214,6 +258,63 @@ class PlayScreenLayoutTests(_BrowserCase):
 
 
 class PlayScreenSwitchTests(_BrowserCase):
+    def _drawn_switch(self, browser) -> tuple[bool, str]:
+        calls = []
+        with mock.patch.object(
+            browser, "_draw_normalize_toggle", side_effect=lambda rect, on, **kw: calls.append((rect, on, kw))
+        ):
+            browser._draw_mod_wheel_row()
+        self.assertEqual(len(calls), 1)
+        rect, on, kw = calls[0]
+        self.assertEqual(rect, browser.mod_wheel_switch_rect)
+        return on, kw["label"]
+
+    def test_label_states_where_the_knob_goes_now(self) -> None:
+        browser = self._make_browser(fx_enabled=True)
+        for target, uses, label in LABEL_TRUTH:
+            with self.subTest(target=target, uses=uses):
+                self.policy.uses_mod_wheel = uses
+                self.policy.target = target
+                on, drawn = self._drawn_switch(browser)
+                self.assertEqual(drawn, label)
+                self.assertEqual(on, target == MOD_WHEEL_EFFECT)  # the switch is the setting
+
+    def test_label_names_the_faders_it_means(self) -> None:
+        browser = self._make_browser(fx_enabled=True)
+        names = {c.channel_id: c.label for c in browser.mixer_channels}
+        self.assertTrue(MOD_KNOB_LABELS["surge"].endswith(names["patch_mod"]))
+        self.assertTrue(MOD_KNOB_LABELS["fx"].endswith(names["effect"]))
+
+    def test_tap_relabels_the_switch(self) -> None:
+        browser = self._make_browser(fx_enabled=True)
+        self.policy.uses_mod_wheel = True
+        self.assertEqual(self._drawn_switch(browser)[1], "Mod knob \u2192 Patch mod")
+        browser._handle_browser_tap(_center(browser.mod_wheel_switch_rect))
+        self.assertEqual(self._drawn_switch(browser)[1], "Mod knob \u2192 Effect")
+
+    def test_no_explanation_text_on_the_play_screen(self) -> None:
+        """The readout under the faders is gone, with FX on or off."""
+        import patch_browser.touch_browser_draw as draw_mod
+
+        for enabled in (True, False):
+            with self.subTest(enabled=enabled):
+                browser = self._make_browser(fx_enabled=enabled)
+                browser.screen_state = Screen.BROWSER
+                browser.left_nav_collapsed = True
+                browser._layout()
+                drawn: list[str] = []
+                real = draw_mod.blit_text_block
+
+                def record(screen, font, lines, *a, **kw):
+                    drawn.extend(lines)
+                    return real(screen, font, lines, *a, **kw)
+
+                with mock.patch.object(draw_mod, "blit_text_block", side_effect=record):
+                    browser._draw()
+                self.assertTrue(drawn)  # the instrument sees the title block
+                for line in drawn:
+                    self.assertNotIn("wheel", line.lower(), line)
+
     def test_tap_flips_the_current_target_not_the_default(self) -> None:
         browser = self._make_browser(fx_enabled=True)
         self.assertEqual(self.policy.target, MOD_WHEEL_PATCH_FIRST)
@@ -254,9 +355,56 @@ class EffectFaderTests(_BrowserCase):
         from patch_browser.mixer_controls import mixer_control_by_id
 
         browser = self._make_browser(fx_enabled=True)
-        (self.root / "fx-depth.json").write_text(json.dumps({"depth": 0.6, "source": "knob", "request": None}))
-        self.assertTrue(self.policy.poll_depth())
+        (self.root / "fx-levels.json").write_text(json.dumps({"depth": 0.6, "source": "knob", "request": None}))
+        self.assertTrue(self.policy.poll_levels())
         self.assertAlmostEqual(mixer_control_by_id(browser, "effect").read(browser), 0.6)
+
+
+class PatchModFaderTests(_BrowserCase):
+    """The Patch mod handle follows the knob while CC 1 goes to Surge."""
+
+    def _browser(self):
+        browser = self._make_browser(fx_enabled=True)
+        # The real loader would build the OSC message through the same policy.
+        browser.loader.send_patch_mod.side_effect = lambda value, final=True: self.policy.set_patch_mod(
+            value, final=final
+        )
+        return browser
+
+    def _channel(self, browser):
+        return next(c for c in browser.mixer_channels if c.channel_id == "patch_mod")
+
+    def _knob(self, value: int, at: float) -> None:
+        (self.root / "fx-levels.json").write_text(json.dumps({"patch_mod": value, "patch_mod_at": at}))
+
+    def _read(self, browser) -> float:
+        from patch_browser.mixer_controls import mixer_control_by_id
+
+        return mixer_control_by_id(browser, "patch_mod").read(browser)
+
+    def test_handle_follows_the_knob(self) -> None:
+        browser = self._browser()
+        self._knob(90, at=1e9)
+        self.assertTrue(self.policy.poll_levels(now=1e9))
+        self.assertEqual(self._read(browser), 90)
+
+    def test_drag_holds_the_handle_and_release_lets_go(self) -> None:
+        browser = self._browser()
+        channel = self._channel(browser)
+        x = channel.column_rect.centerx
+        browser._handle_mixer_down((x, channel.track_rect.y))
+        self.assertTrue(self.policy.dragging_patch_mod)
+        self.assertEqual(self._read(browser), 127)
+        # The knob moves while the finger is on the fader: the handle stays put.
+        self._knob(5, at=1e12)
+        self.assertFalse(self.policy.poll_levels(now=1e12))
+        self.assertEqual(self._read(browser), 127)
+        browser._persist_mixer_drag()
+        self.assertFalse(self.policy.dragging_patch_mod)
+        # A later knob move takes it again.
+        self._knob(20, at=2e12)
+        self.assertTrue(self.policy.poll_levels(now=2e12))
+        self.assertEqual(self._read(browser), 20)
 
 
 class SettingsDefaultTests(_BrowserCase):

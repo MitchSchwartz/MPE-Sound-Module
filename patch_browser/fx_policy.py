@@ -27,8 +27,16 @@ publishes the resulting CC 1 destination, plus any Effect fader request, to
 `fx-route.json` in the run dir. The remapper sees every controller message, so
 it owns `Cc1Router`, the one process that talks to the FX host: it reads that
 file when it changes, asks `route_cc1` what to do with each message, and
-publishes the depth in force to `fx-depth.json` for the fader to follow. Each
-file has one writer.
+publishes what the knob and the fader have set to `fx-levels.json`: the depth
+in force, for the Effect fader, and the last CC 1 it sent Surge, for the Patch
+mod fader. Each file has one writer.
+
+**Last move wins, and the fader shows it.** The Patch mod fader sends to Surge
+over OSC, not through the remapper, so the remapper cannot order the two. Both
+processes stamp each move with `time.monotonic()`, which on Linux is one
+system-wide clock (CLOCK_MONOTONIC), and the UI follows a knob value only when
+it is newer than its own last fader move. The Effect fader's requests carry the
+same stamp, for the same reason.
 
 **Off means off.** With MPE_FX_HOST unset, neither object is active: no file,
 no socket, and the remapper forwards CC 1 to Surge exactly as before.
@@ -71,14 +79,14 @@ CC_MAX = 127
 
 #: UI -> remapper: CC 1 destination, effect, and the Effect fader's request.
 ROUTE_FILE_NAME = "fx-route.json"
-#: Remapper -> UI: the depth in force, from the knob or the fader.
-DEPTH_FILE_NAME = "fx-depth.json"
+#: Remapper -> UI: the depth in force (knob or fader) and the last CC 1 sent to Surge.
+LEVELS_FILE_NAME = "fx-levels.json"
 DEPTH_FROM_KNOB = "knob"
 DEPTH_FROM_FADER = "fader"
 #: Fader requests while dragging are written at most this often.
 DEPTH_PUBLISH_S = 0.05
-#: How often the UI checks the depth file for a knob move.
-DEPTH_POLL_S = 0.1
+#: How often the UI checks the levels file for a knob move.
+LEVELS_POLL_S = 0.1
 
 #: Seconds between mtime checks of the route file in the remapper. The file
 #: moves once per patch load, so this bounds how late a new route applies.
@@ -98,16 +106,32 @@ def mod_wheel_target_label(target: str) -> str:
     return MOD_WHEEL_TARGET_LABELS[normalize_target(target)]
 
 
+#: The two faders the knob can drive. `mixer_controls` labels them with these,
+#: so the play-screen switch names exactly the fader the knob moves.
+PATCH_MOD_FADER_LABEL = "Patch mod"
+EFFECT_FADER_LABEL = "Effect"
+
+MOD_KNOB_LABELS = {
+    CC1_TO_SURGE: f"Mod knob \u2192 {PATCH_MOD_FADER_LABEL}",
+    CC1_TO_FX: f"Mod knob \u2192 {EFFECT_FADER_LABEL}",
+}
+
+
+def mod_knob_label(destination: str) -> str:
+    """The play-screen switch's label: where the knob goes now, not the setting."""
+    return MOD_KNOB_LABELS.get(destination, MOD_KNOB_LABELS[CC1_TO_SURGE])
+
+
 def route_state_path() -> Path:
     from patch_browser.mpe_run_dir import run_dir
 
     return run_dir() / ROUTE_FILE_NAME
 
 
-def depth_state_path() -> Path:
+def levels_state_path() -> Path:
     from patch_browser.mpe_run_dir import run_dir
 
-    return run_dir() / DEPTH_FILE_NAME
+    return run_dir() / LEVELS_FILE_NAME
 
 
 def normalize_target(value) -> str:
@@ -219,14 +243,51 @@ def read_route(path: Path) -> Route:
     )
 
 
-def read_depth(path: Path) -> tuple[float, str, str | None] | None:
-    """(depth, source, applied fader request) from the remapper, or None."""
+def _moment(value) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return float(value) if math.isfinite(value) else None
+
+
+def _cc_value(value) -> int | None:
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    return value if 0 <= value <= CC_MAX else None
+
+
+@dataclass(frozen=True)
+class Levels:
+    """What the remapper published. A part that is missing or malformed is None.
+
+    `depth_at` and `patch_mod_at` are `time.monotonic()` at the move.
+    """
+
+    depth: float | None = None
+    source: str | None = None
+    request: str | None = None
+    depth_at: float | None = None
+    patch_mod: int | None = None
+    patch_mod_at: float | None = None
+
+
+def read_levels(path: Path) -> Levels:
     data = read_json_dict(path)
     depth = _depth_value(data.get("depth"))
     source = data.get("source")
     if depth is None or source not in (DEPTH_FROM_KNOB, DEPTH_FROM_FADER):
-        return None
-    return depth, source, _stamp(data.get("request"))
+        depth, source = None, None
+    patch_mod = _cc_value(data.get("patch_mod"))
+    patch_mod_at = _moment(data.get("patch_mod_at"))
+    if patch_mod is None or patch_mod_at is None:
+        patch_mod, patch_mod_at = None, None
+    return Levels(
+        depth=depth,
+        source=source,
+        request=_stamp(data.get("request")) if depth is not None else None,
+        depth_at=_moment(data.get("depth_at")) if depth is not None else None,
+        patch_mod=patch_mod,
+        patch_mod_at=patch_mod_at,
+    )
 
 
 def _file_identity(path: Path) -> tuple[int, int] | None:
@@ -342,7 +403,9 @@ class FxPolicy:
 
     The Effect fader is a request, not a level: the remapper applies it,
     and publishes the depth actually in force (fader or knob, whichever moved
-    last) to the depth file, which `poll_depth` reads back.
+    last) to the levels file, which `poll_levels` reads back. The Patch mod
+    fader sends to Surge itself; `poll_levels` moves it when the knob, routed
+    to Surge, sent a later value.
     """
 
     def __init__(
@@ -350,13 +413,14 @@ class FxPolicy:
         *,
         enabled: bool | None = None,
         route_path: Path | None = None,
-        depth_path: Path | None = None,
+        levels_path: Path | None = None,
         global_target: str | None = None,
         clock=time.monotonic,
     ) -> None:
         self.enabled = fx_host_protocol.enabled() if enabled is None else bool(enabled)
         self._route_path = route_path
-        self._depth_path = depth_path
+        self._levels_path = levels_path
+        #: Must be the remapper's clock: moves from both processes are compared.
         self._clock = clock
         if global_target is None:
             from patch_browser.ui_prefs import read_ui_prefs_file
@@ -378,9 +442,13 @@ class FxPolicy:
         self._depth_stamp: str | None = None
         self._next_depth_write = 0.0
         self._depth_unsent = False
-        self._depth_file_id: tuple[int, int] | None = None
-        self._next_depth_poll = 0.0
+        self._depth_requested_at: float | None = None
+        self._patch_mod_set_at: float | None = None
+        self._patch_mod_seen_at: float | None = None
+        self._levels_file_id: tuple[int, int] | None = None
+        self._next_levels_poll = 0.0
         self.dragging_depth = False
+        self.dragging_patch_mod = False
 
     def _next_stamp(self) -> str:
         self._seq += 1
@@ -389,6 +457,10 @@ class FxPolicy:
     @property
     def destination(self) -> str:
         return cc1_destination(self.target, self.uses_mod_wheel)
+
+    @property
+    def knob_label(self) -> str:
+        return mod_knob_label(self.destination)
 
     def on_patch_loaded(self, patch_path) -> None:
         self.uses_mod_wheel = patch_uses_mod_wheel(patch_path)
@@ -432,6 +504,7 @@ class FxPolicy:
         self._depth_stamp = self._next_stamp()
         self.dragging_depth = not final
         now = self._clock()
+        self._depth_requested_at = now
         if final or now >= self._next_depth_write:
             self._next_depth_write = now + DEPTH_PUBLISH_S
             self._depth_unsent = False
@@ -446,47 +519,81 @@ class FxPolicy:
             self._depth_unsent = False
             self.publish()
 
-    def poll_depth(self, now: float | None = None) -> bool:
-        """Follow the depth in force (the knob may have moved it). True on change.
+    def poll_levels(self, now: float | None = None) -> bool:
+        """Follow what the knob set: the depth in force and Surge's mod wheel.
 
-        Cost: one stat() per DEPTH_POLL_S (10/s) on the UI loop, a read only
-        when the remapper rewrote the file, which it does at most 20/s and only
-        while the depth is moving. Never while the fader is held, so the file
-        cannot pull it from under the finger.
+        True when either fader moved. Cost: one stat() per LEVELS_POLL_S
+        (10/s) on the UI loop, a read only when the remapper rewrote the file,
+        which it does at most 20/s and only while something is moving. A held
+        fader is never moved, so the file cannot pull it from under the finger.
         """
-        if not self.enabled or self.dragging_depth:
+        if not self.enabled or (self.dragging_depth and self.dragging_patch_mod):
             return False
         stamp = self._clock() if now is None else now
-        if stamp < self._next_depth_poll:
+        if stamp < self._next_levels_poll:
             return False
-        self._next_depth_poll = stamp + DEPTH_POLL_S
-        path = self._depth_path or depth_state_path()
+        self._next_levels_poll = stamp + LEVELS_POLL_S
+        path = self._levels_path or levels_state_path()
         file_id = _file_identity(path)
-        if file_id is None or file_id == self._depth_file_id:
+        if file_id is None or file_id == self._levels_file_id:
             return False
-        self._depth_file_id = file_id
-        state = read_depth(path)
-        if state is None:
+        self._levels_file_id = file_id
+        levels = read_levels(path)
+        moved = False
+        if not self.dragging_depth:
+            moved = self._follow_depth(levels) or moved
+        if not self.dragging_patch_mod:
+            moved = self._follow_patch_mod(levels) or moved
+        return moved
+
+    def _follow_depth(self, levels: Levels) -> bool:
+        if levels.depth is None:
             return False
-        depth, source, applied = state
         # A fader echo older than our latest request is stale: the newer one
-        # is on its way. Only the knob, or our own latest request, moves it.
-        if source == DEPTH_FROM_FADER and applied != self._depth_stamp:
+        # is on its way. A knob move older than that request lost to it, which
+        # also covers a depth re-read because the file moved for patch mod.
+        if levels.source == DEPTH_FROM_FADER and levels.request != self._depth_stamp:
             return False
-        if abs(depth - self.depth) <= SEND_TOLERANCE:
+        if (
+            levels.source == DEPTH_FROM_KNOB
+            and levels.depth_at is not None
+            and self._depth_requested_at is not None
+            and levels.depth_at <= self._depth_requested_at
+        ):
             return False
-        self.depth = depth
+        if abs(levels.depth - self.depth) <= SEND_TOLERANCE:
+            return False
+        self.depth = levels.depth
         return True
 
-    def set_patch_mod(self, value: float) -> tuple[str, list[float]]:
+    def _follow_patch_mod(self, levels: Levels) -> bool:
+        if levels.patch_mod is None or levels.patch_mod_at == self._patch_mod_seen_at:
+            return False
+        self._patch_mod_seen_at = levels.patch_mod_at
+        # The fader moved after the knob did: Surge has the fader's value.
+        if self._patch_mod_set_at is not None and levels.patch_mod_at <= self._patch_mod_set_at:
+            return False
+        if levels.patch_mod == self.patch_mod:
+            return False
+        self.patch_mod = levels.patch_mod
+        return True
+
+    def set_patch_mod(self, value: float, *, final: bool = True) -> tuple[str, list[float]]:
         """Patch mod fader: the OSC message that sets Surge's mod wheel.
 
         Sent over Surge's own `/cc` (channel, controller, value; floats), so it
         reaches the patch the same way a hardware wheel on the master channel
-        would. It never touches the FX, whatever the target.
+        would. It never touches the FX, whatever the target. `final` is False
+        while the fader is held.
         """
         self.patch_mod = max(0, min(CC_MAX, int(round(float(value)))))
+        self._patch_mod_set_at = self._clock()
+        self.dragging_patch_mod = not final
         return "/cc", [0.0, float(CC_MOD_WHEEL), float(self.patch_mod)]
+
+    def finish_patch_mod(self) -> None:
+        """Patch mod fader released: the knob may move it again."""
+        self.dragging_patch_mod = False
 
     def publish(self) -> None:
         if not self.enabled:
@@ -515,7 +622,8 @@ class Cc1Router:
     It applies the published route to incoming CC 1, applies the fader's depth
     requests, and publishes the depth in force for the UI. Depth has one owner
     here: the knob and the fader are two inputs to it, last one wins, and
-    nothing else sends to UDP 9958.
+    nothing else sends to UDP 9958. It also publishes the last CC 1 value it
+    sent Surge (forwarded or replayed), so the Patch mod fader follows the knob.
 
     It remembers the last mod-wheel message and the source it came from, even
     while CC 1 is going to Surge. When a route change hands the wheel to the
@@ -530,26 +638,31 @@ class Cc1Router:
         *,
         sender: FxHostSender | None = None,
         route_path: Path | None = None,
-        depth_path: Path | None = None,
+        levels_path: Path | None = None,
         forward=None,
         clock=time.monotonic,
     ) -> None:
         self._sender = sender or FxHostSender()
         self._path = route_path or route_state_path()
-        self._depth_path = depth_path or depth_state_path()
+        self._levels_path = levels_path or levels_state_path()
         #: forward(source, raw): emit `raw` to Surge as if it came from `source`.
+        #: Returns True when it sent, False when it could not (that device is gone).
         self._forward = forward
+        #: Must be the UI's clock: moves from both processes are compared.
         self._clock = clock
         self._file_id: tuple[int, int] | None = None
         self._next_refresh = 0.0
         self._route_stamp: str | None = None
         self._depth_stamp: str | None = None
-        self._pending_depth: tuple[float, str, str | None] | None = None
+        self._levels: dict = {}
+        self._levels_dirty = False
         self.destination = CC1_TO_SURGE
         self.effect_id = fx_host_protocol.EFFECT_CHORUS
         self.depth: float | None = None
         self.last_cc: int | None = None
         self._last_cc_source = None
+        #: The last CC 1 value sent to Surge, and when.
+        self.patch_mod: int | None = None
 
     @classmethod
     def from_env(cls, *, forward=None) -> "Cc1Router | None":
@@ -561,15 +674,15 @@ class Cc1Router:
         """Called from the remapper's drain loop; does work every ROUTE_REFRESH_S.
 
         Per tick: one stat() of the route file (read only when it was
-        rewritten) and at most one write of the depth file (only when the
-        depth moved since the last tick). 20 ticks/s.
+        rewritten) and at most one write of the levels file (only when the
+        depth or the patch mod value moved since the last tick). 20 ticks/s.
         """
         stamp = self._clock() if now is None else now
         if stamp < self._next_refresh:
             return
         self._next_refresh = stamp + ROUTE_REFRESH_S
         self._read_route()
-        self._flush_depth()
+        self._flush_levels()
 
     def _read_route(self) -> None:
         file_id = _file_identity(self._path)
@@ -587,10 +700,12 @@ class Cc1Router:
                 if self.destination == CC1_TO_FX and previous != CC1_TO_FX:
                     self._set_depth(depth_from_cc(self.last_cc), DEPTH_FROM_KNOB)
                 elif self.destination == CC1_TO_SURGE and self._forward is not None:
-                    self._forward(
+                    sent = self._forward(
                         self._last_cc_source,
                         [MASTER_CONTROL_CHANGE, CC_MOD_WHEEL, self.last_cc],
                     )
+                    if sent:
+                        self._note_patch_mod(self.last_cc)
         if route.depth_stamp is not None and route.depth_stamp != self._depth_stamp:
             self._depth_stamp = route.depth_stamp
             if route.depth_request is not None:
@@ -601,28 +716,35 @@ class Cc1Router:
     def _set_depth(self, depth: float, source: str, request: str | None = None) -> None:
         self.depth = max(0.0, min(1.0, float(depth)))
         self._sender.send(self.effect_id, self.depth)
-        self._pending_depth = (self.depth, source, request)
+        self._levels.update(depth=self.depth, source=source, request=request, depth_at=self._clock())
+        self._levels_dirty = True
 
-    def _flush_depth(self) -> None:
-        if self._pending_depth is None:
+    def _note_patch_mod(self, value: int) -> None:
+        # Not deduplicated by value: the Patch mod fader may have moved Surge
+        # since, so a repeat of the same value is still a newer move.
+        self.patch_mod = value
+        self._levels.update(patch_mod=value, patch_mod_at=self._clock())
+        self._levels_dirty = True
+
+    def _flush_levels(self) -> None:
+        if not self._levels_dirty:
             return
-        depth, source, request = self._pending_depth
-        self._pending_depth = None
+        self._levels_dirty = False
         try:
-            atomic_write_json(
-                self._depth_path,
-                {"depth": depth, "source": source, "request": request},
-            )
+            atomic_write_json(self._levels_path, dict(self._levels))
         except OSError as exc:
-            print(f"Warning: could not publish FX depth ({exc})", flush=True)
+            print(f"Warning: could not publish FX levels ({exc})", flush=True)
 
     def consume(self, raw, source=None) -> bool:
         """True when the message was taken for the effect and must not reach Surge."""
-        if is_master_mod_wheel(raw):
-            self.last_cc = int(raw[2])
-            self._last_cc_source = source
+        if not is_master_mod_wheel(raw):
+            return False
+        self.last_cc = int(raw[2])
+        self._last_cc_source = source
         depth = route_cc1(raw, self.destination)
         if depth is None:
+            # Forwarded to Surge: the Patch mod fader follows it.
+            self._note_patch_mod(self.last_cc)
             return False
         self._set_depth(depth, DEPTH_FROM_KNOB)
         return True
