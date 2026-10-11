@@ -32,7 +32,16 @@ DEFAULT_PORT = 9958
 #: a number on the wire, and renumbering would silently change what an old
 #: sender selects.
 EFFECT_CHORUS = 0
-EFFECT_IDS: tuple[int, ...] = (EFFECT_CHORUS,)
+EFFECT_TUBE_DRIVE = 1
+EFFECT_PHASER = 2
+EFFECT_TREMOLO = 3
+EFFECT_IDS: tuple[int, ...] = (EFFECT_CHORUS, EFFECT_TUBE_DRIVE, EFFECT_PHASER, EFFECT_TREMOLO)
+EFFECT_NAMES: dict[int, str] = {
+    EFFECT_CHORUS: "Chorus",
+    EFFECT_TUBE_DRIVE: "Drive",
+    EFFECT_PHASER: "Phaser",
+    EFFECT_TREMOLO: "Tremolo",
+}
 
 
 def enabled(value: str | None = None) -> bool:
