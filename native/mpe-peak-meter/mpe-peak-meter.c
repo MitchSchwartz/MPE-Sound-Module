@@ -26,6 +26,10 @@
 #define CLIENT_NAME "mpe-peak-meter"
 #define SURGE_CLIENT_DEFAULT "Surge XT"
 #define LOOPER_CLIENT_DEFAULT "mpe-looper"
+/* The two inserts the routing authority (patch_browser/audio_routing.py) knows.
+ * The trunk insert is absent today and harmless absent. */
+#define TRUNK_INSERT "mpe-fx-host"
+#define MONITOR_INSERT "mpe-live-monitor"
 /* Match SurgePeakMonitor POLL_INTERVAL_S (0.2 s = 5 Hz). Decay is per write. */
 #define WRITER_INTERVAL_US 200000
 #define CONNECT_INTERVAL_US 2000000
@@ -217,9 +221,40 @@ static int port_fed_by(const char *port_name, const char *source)
     return found;
 }
 
-/* Can you hear yourself play? True when Surge reaches playback directly on both
- * channels, or when mpe-live-monitor does it on Surge's behalf — and for the
- * insert, only when Surge actually reaches the insert's input.
+/* Is the FX host on the trunk? Its input fed by Surge on every channel.
+ * Mirror of audio_routing.trunk_insert_carrying(). */
+static int trunk_insert_carrying(void)
+{
+    for (int ch = 1; ch <= 2; ch++) {
+        char surge_out[192];
+        char fx_in[64];
+        snprintf(surge_out, sizeof(surge_out), "%s:out_%d", g_surge_client, ch);
+        snprintf(fx_in, sizeof(fx_in), TRUNK_INSERT ":in_%d", ch);
+        if (!port_fed_by(fx_in, surge_out)) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+/* The fan-out source on channel `ch`: the FX host while it carries, otherwise
+ * Surge. Mirror of audio_routing.fanout_source(). The meter's own input tap
+ * stays on Surge (ensure_wiring below): levels and calibration measure Surge
+ * alone, before any effect. */
+static void fanout_source(int ch, char *buf, size_t size)
+{
+    if (trunk_insert_carrying()) {
+        snprintf(buf, size, TRUNK_INSERT ":out_%d", ch);
+    } else {
+        snprintf(buf, size, "%s:out_%d", g_surge_client, ch);
+    }
+}
+
+/* Can you hear yourself play? True when the fan-out source (Surge, or the FX
+ * host on the trunk) reaches playback directly on both channels, or when
+ * mpe-live-monitor does it on its behalf — and for the insert, only when the
+ * fan-out source actually reaches the insert's input. Mirror of
+ * audio_routing.live_path_ok(); tests/test_audio_routing.py runs both.
  *
  * Both legs, both channels, exact names. The first version of this asked
  * whether ANY connection whose name started with "mpe-live-monitor:" was on
@@ -233,17 +268,17 @@ static int surge_playback_wired(void)
     int direct = 1;
     int through_insert = 1;
     for (int ch = 1; ch <= 2; ch++) {
-        char surge_out[192];
+        char source[192];
         char insert_in[64];
         char insert_out[64];
-        snprintf(surge_out, sizeof(surge_out), "%s:out_%d", g_surge_client, ch);
-        snprintf(insert_in, sizeof(insert_in), "mpe-live-monitor:in_%d", ch);
-        snprintf(insert_out, sizeof(insert_out), "mpe-live-monitor:out_%d", ch);
+        fanout_source(ch, source, sizeof(source));
+        snprintf(insert_in, sizeof(insert_in), MONITOR_INSERT ":in_%d", ch);
+        snprintf(insert_out, sizeof(insert_out), MONITOR_INSERT ":out_%d", ch);
 
-        if (!playback_fed_by(ch, surge_out)) {
+        if (!playback_fed_by(ch, source)) {
             direct = 0;
         }
-        if (!playback_fed_by(ch, insert_out) || !port_fed_by(insert_in, surge_out)) {
+        if (!playback_fed_by(ch, insert_out) || !port_fed_by(insert_in, source)) {
             through_insert = 0;
         }
     }
@@ -480,8 +515,17 @@ int main(int argc, char **argv)
     jack_deactivate(g_client);
     jack_client_close(g_client);
 
-    /* jack_on_shutdown is expected when jackd restarts (buffer change). Exit 0 so
-     * Restart=on-failure does not treat a normal graph teardown as a failure. */
-    (void)g_jack_shutdown;
+    /* Non-zero when JACK went away underneath us, so Restart=on-failure brings
+     * the meter back. This used to exit 0 on the theory that a jackd restart is
+     * a normal teardown — but a systemd restart or stop of mpe-jackd reaches
+     * this unit first (PartOf= plus After= orders our SIGTERM before jackd's),
+     * which still exits 0 below. Only a jackd that dies or is killed outside
+     * systemd lands here, and exiting 0 then left the unit inactive with
+     * Result=success, the meter reading zero forever: indistinguishable from
+     * real silence (found 2026-09-02). */
+    if (g_jack_shutdown) {
+        fprintf(stderr, "mpe-peak-meter: JACK shut down — exiting non-zero for Restart=on-failure\n");
+        return 1;
+    }
     return 0;
 }
