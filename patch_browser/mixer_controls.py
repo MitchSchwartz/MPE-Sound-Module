@@ -1,4 +1,4 @@
-"""Reusable mixer fader bindings — one control per column (Vol / Tail / Touch / Norm).
+"""Reusable mixer fader bindings — one control per column (Vol / Tail / Touch / Norm / Patch mod / Effect).
 
 Fader semantics: docs/TOUCH_PATCH_BROWSER.md §Mixer faders (Tail ≠ Touch ≠ Norm).
 """
@@ -322,11 +322,73 @@ class TouchControl:
         browser.loader.pressure.save()
 
 
+class PatchModControl:
+    """On-screen mod wheel: sends CC 1 to Surge (via OSC), never to the FX.
+
+    Not persisted: it is a performance control, like the hardware wheel.
+    """
+
+    spec = MixerControlSpec("patch_mod", "Patch mod", 0.0, 127.0)
+
+    def visible(self, browser) -> bool:
+        return bool(browser.detail_patch)
+
+    def read(self, browser) -> float:
+        return float(browser.fx_policy.patch_mod)
+
+    def default(self, browser) -> float:
+        return 0.0
+
+    def write(self, browser, value: float, *, persist: bool) -> None:
+        # The loader holds the same FxPolicy as browser.fx_policy.
+        browser.loader.send_patch_mod(value)
+
+    def reset(self, browser) -> None:
+        self.write(browser, 0.0, persist=True)
+        browser._toast("Patch mod reset", 1.2)
+
+    def format(self, value: float) -> str:
+        return str(int(round(value)))
+
+    def persist(self, browser) -> None:
+        pass
+
+
+class EffectControl:
+    """FX host depth (0 = bypass). Shown only when MPE_FX_HOST is on."""
+
+    spec = MixerControlSpec("effect", "Effect", 0.0, 1.0)
+
+    def visible(self, browser) -> bool:
+        return bool(browser.detail_patch) and bool(browser.fx_policy.enabled)
+
+    def read(self, browser) -> float:
+        return float(browser.fx_policy.depth)
+
+    def default(self, browser) -> float:
+        return 0.0
+
+    def write(self, browser, value: float, *, persist: bool) -> None:
+        browser.fx_policy.set_depth(value)
+
+    def reset(self, browser) -> None:
+        browser.fx_policy.set_depth(0.0)
+        browser._toast("Effect off", 1.2)
+
+    def format(self, value: float) -> str:
+        return f"{round(max(0.0, min(1.0, value)) * 100)}%"
+
+    def persist(self, browser) -> None:
+        pass
+
+
 _MIXER_CONTROLS: list[MixerControl] = [
     VolumeControl(),
     TailControl(),
     TouchControl(),
     NormControl(),
+    PatchModControl(),
+    EffectControl(),
 ]
 
 
