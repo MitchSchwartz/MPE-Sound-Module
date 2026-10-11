@@ -42,6 +42,7 @@ class TouchBrowserInputMixin:
             Screen.BRIGHTNESS_MODAL,
             Screen.WIFI_MODAL,
             Screen.MIDI_SYNC_MODAL,
+            Screen.FX_EFFECT_MODAL,
         }
     )
 
@@ -79,6 +80,8 @@ class TouchBrowserInputMixin:
             self._close_wifi_modal()
         elif state == Screen.MIDI_SYNC_MODAL:
             self._close_midi_sync_modal()
+        elif state == Screen.FX_EFFECT_MODAL:
+            self._close_fx_effect_modal()
 
     def _try_dismiss_modal_backdrop(self, pos: tuple[int, int]) -> bool:
         if self.screen_state not in self._BACKDROP_DISMISS_SCREENS:
@@ -109,6 +112,7 @@ class TouchBrowserInputMixin:
             Screen.NAME_PROMPT,
             Screen.LOOPER_CONFIRM,
             Screen.LOOPER_NAME,
+            Screen.FX_EFFECT_MODAL,
         )
         panel_visible = self.screen_state == Screen.SETTINGS or self._settings_slide > 0.004
 
@@ -158,6 +162,8 @@ class TouchBrowserInputMixin:
                 self._draw_looper_confirm_modal()
             elif self.screen_state == Screen.LOOPER_NAME:
                 self._draw_looper_name_modal()
+            elif self.screen_state == Screen.FX_EFFECT_MODAL:
+                self._draw_fx_effect_modal()
         else:
             self._draw_browser()
         if getattr(self, "_audio_profile_switching", False):
@@ -202,6 +208,10 @@ class TouchBrowserInputMixin:
 
         if self.detail_patch and self._mod_wheel_switch_hit(pos):
             self._toggle_mod_wheel_target()
+            return
+
+        if self._effect_label_tapped(pos):
+            self._open_fx_effect_modal()
             return
 
         if self._try_looper_menu_tap_at(pos):
@@ -837,6 +847,8 @@ class TouchBrowserInputMixin:
                 self._handle_wifi_modal_pointer_down(event.pos)
             elif self.screen_state == Screen.MIDI_SYNC_MODAL:
                 self._handle_midi_sync_modal_pointer_down(event.pos)
+            elif self.screen_state == Screen.FX_EFFECT_MODAL:
+                self._handle_fx_effect_modal_pointer_down(event.pos)
             elif self.screen_state == Screen.BROWSER:
                 if self._handle_az_rail_touch("down", event.pos):
                     pass
@@ -879,6 +891,8 @@ class TouchBrowserInputMixin:
                 self._handle_wifi_modal_pointer_up(event.pos)
             elif self.screen_state == Screen.MIDI_SYNC_MODAL:
                 self._handle_midi_sync_modal_pointer_up(event.pos)
+            elif self.screen_state == Screen.FX_EFFECT_MODAL:
+                self._handle_fx_effect_modal_pointer_up(event.pos)
             elif self.screen_state == Screen.BROWSER:
                 if self._handle_az_rail_touch("up", event.pos):
                     return

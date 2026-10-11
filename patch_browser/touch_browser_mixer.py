@@ -26,6 +26,17 @@ class TouchBrowserMixerMixin:
     def _mixer_control(self, channel_id: str):
         return mixer_control_by_id(self, channel_id)
 
+    def _mixer_control_label(self, control) -> str:
+        """A control's label now: most are fixed, the Effect fader names its effect."""
+        label_for = getattr(control, "label_for", None)
+        return label_for(self) if label_for is not None else control.spec.label
+
+    def _mixer_channel_label(self, channel: MixerChannel) -> str:
+        # Read at draw time, so a label that follows state never goes stale
+        # between layouts.
+        control = self._mixer_control(channel.channel_id)
+        return self._mixer_control_label(control) if control is not None else channel.label
+
     def _mixer_default_value(self, channel: MixerChannel) -> float:
         control = self._mixer_control(channel.channel_id)
         if control is not None:
@@ -82,6 +93,10 @@ class TouchBrowserMixerMixin:
         return None
 
     def _handle_mixer_down(self, pos: tuple[int, int]) -> bool:
+        # The Effect fader's label opens the effect picker on release; it must
+        # not start a drag, which would set the depth from below the track (0).
+        if self._effect_label_pointer_down(pos):
+            return False
         channel = self._mixer_channel_at(pos)
         if channel is None:
             return False
