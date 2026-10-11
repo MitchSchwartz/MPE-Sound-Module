@@ -15,6 +15,7 @@ from patch_browser.draw_primitives import (
     draw_looper_icon,
     draw_sidebar_panel_icon,
 )
+from patch_browser.fx_policy import CC1_TO_FX, MOD_WHEEL_EFFECT
 from patch_browser.peak_meter_math import peak_meter_color_dbfs
 from patch_browser.geometry import Rect
 from patch_browser.mixer import MixerChannel
@@ -929,6 +930,47 @@ class TouchBrowserDrawMixin:
             disabled=not self.loader.normalization.is_globally_enabled(),
         )
         self._draw_heart_icon(self.favorites_btn, self._patch_is_favorited(self.detail_patch))
+        self._draw_mod_wheel_row()
+    def _mod_wheel_info_lines(self) -> list[str]:
+        policy = self.fx_policy
+        if not policy.patch_loaded:
+            return ["No patch loaded"]
+        uses = policy.uses_mod_wheel
+        if uses is None:
+            patch_line = "Patch wheel: unreadable"
+        elif uses:
+            patch_line = "Patch uses wheel"
+        else:
+            patch_line = "Patch has no wheel"
+        if not policy.enabled:
+            return [patch_line]
+        drives = "Effect" if policy.destination == CC1_TO_FX else "Patch"
+        return [f"Wheel drives: {drives}", patch_line]
+    def _draw_mod_wheel_row(self) -> None:
+        policy = getattr(self, "fx_policy", None)
+        if policy is None:
+            return
+        info = getattr(self, "mod_wheel_info_rect", None)
+        if info is not None and info.w > 0:
+            lines = self._mod_wheel_info_lines()
+            block_h = text_block_height(self.font_sm, len(lines), line_spacing=2)
+            blit_text_block(
+                self.screen,
+                self.font_sm,
+                lines,
+                info.x,
+                info.y + max(0, (info.h - block_h) // 2),
+                self.theme.muted,
+                line_spacing=2,
+            )
+        switch = getattr(self, "mod_wheel_switch_rect", None)
+        if switch is not None and switch.w > 0:
+            self._draw_normalize_toggle(
+                switch,
+                policy.target == MOD_WHEEL_EFFECT,
+                has_gain=True,
+                label="Wheel FX",
+            )
     def _draw_browser(self) -> None:
         self.screen.fill(self.theme.bg)
         self._draw_status_bar()

@@ -200,6 +200,10 @@ class TouchBrowserInputMixin:
             self._toggle_favorites()
             return
 
+        if self.detail_patch and self._mod_wheel_switch_hit(pos):
+            self._toggle_mod_wheel_target()
+            return
+
         if self._try_looper_menu_tap_at(pos):
             return
 
@@ -303,6 +307,9 @@ class TouchBrowserInputMixin:
 
         if self._settings_rect_hit(self.settings_audio_drill_rect, local_pos):
             return "audio_drill"
+        wheel_rect = getattr(self, "mod_wheel_row_rect", None)
+        if wheel_rect is not None and self._settings_rect_hit(wheel_rect, local_pos):
+            return "mod_wheel"
         if self._settings_rect_hit(self.settings_advanced_header_rect, local_pos):
             return "advanced_toggle"
         if self._settings_rect_hit(self.cpu_meter_toggle_rect, local_pos):
@@ -351,6 +358,8 @@ class TouchBrowserInputMixin:
             self._toggle_peak_meter_visibility()
         elif hit == "looper_hud":
             self._toggle_looper_hud_visibility()
+        elif hit == "mod_wheel":
+            self._cycle_mod_wheel_default()
         elif hit == "looper_sync":
             if not getattr(self, "_midi_sync_switching", False):
                 self._open_midi_sync_modal()

@@ -65,6 +65,9 @@ class TouchBrowserEvdevMixin:
             if self.detail_patch and self.favorites_btn.contains(*pos):
                 self._pending_favorites_toggle = True
                 return
+            if self.detail_patch and self._mod_wheel_switch_hit(pos):
+                self._pending_mod_wheel_toggle = True
+                return
             if self._handle_browse_pointer_down(pos):
                 self._touch_browse_capture = True
                 return
@@ -105,6 +108,11 @@ class TouchBrowserEvdevMixin:
             if getattr(self, "_pending_favorites_toggle", False):
                 self._pending_favorites_toggle = False
                 self._toggle_favorites()
+                self._touch_list_capture = False
+                return
+            if getattr(self, "_pending_mod_wheel_toggle", False):
+                self._pending_mod_wheel_toggle = False
+                self._toggle_mod_wheel_target()
                 self._touch_list_capture = False
                 return
 

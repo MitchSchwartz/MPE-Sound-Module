@@ -22,6 +22,7 @@ from patch_browser.shutdown_trace import log_shutdown_event
 from patch_browser.backlight import BacklightController
 from patch_browser.geometry import Rect
 from patch_browser.mixer import MixerChannel
+from patch_browser.fx_policy import FxPolicy
 from patch_browser.patch_loader import PatchLoader
 from patch_browser.patch_scanner import FAVORITES_NAME, SURGE_PATCH_DIRS, PatchScanner, favorites_display_name
 from patch_browser.scroll_widgets import ContentScrollArea, ScrollList
@@ -147,7 +148,10 @@ class TouchPatchBrowser(
         self.backlight.restore_saved()
 
         self.scanner = PatchScanner(SURGE_PATCH_DIRS)
-        self.loader = PatchLoader()
+        # One policy object, shared with the loader so every patch load
+        # resolves it (fx_policy.py).
+        self.fx_policy = FxPolicy()
+        self.loader = PatchLoader(fx_policy=self.fx_policy)
         self.scanner.bind_sidecar_loader(self.loader)
         self.surge_monitor = SurgeMonitor()
         self.cpu_monitor = SurgeCpuMonitor(self.surge_monitor)
@@ -214,6 +218,7 @@ class TouchPatchBrowser(
         self._mixer_drag_moved = False
         self._pending_norm_toggle = False
         self._pending_favorites_toggle = False
+        self._pending_mod_wheel_toggle = False
         self.mixer_channels: list[MixerChannel] = []
         self._scan_dirty = False
         self._pending_last_patch: dict | None = None
@@ -510,6 +515,7 @@ class TouchPatchBrowser(
             self._poll_audio_profile_switch()
             self._poll_surge_audio_switch()
             self._poll_device_volume()
+            self.fx_policy.poll_depth()
             self._poll_engine_recovery_toast()
             self._poll_restart_bench_result()
             terminal_dirty = self._poll_terminal()
