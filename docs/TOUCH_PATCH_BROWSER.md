@@ -241,6 +241,9 @@ Per-fader detail:
 - **Tail** — per-patch multiplier on amp envelope **sustain, decay, and release** (both scenes). Under the hood: **0.25×–4.0×** via log mapping; fader shows **−50…+50** with **0** at center (patch-as-loaded). Double-tap resets to **0**. Persists in `~/.patch_browser_hold.json`.
 - **Touch** — per-patch **MPE pressure floor** (light press vs full press). Fader shows **−50…+50**. **Handle position = cal anchor + user trim** (`touch_fader_value` in `patch_pressure.py`): calibration sets the anchor; drag applies trim (negative = less lift than cal). Stored as `cal_floor` + optional `user_touch_offset` in `~/.patch_browser_pressure.json`. Double-tap clears trim and restores the cal anchor. Live remapping: `mpe-pressure-remap.service`.
 - **Norm** — per-patch normalization gain (dB); visible only when **Norm.** is checked. Double-tap resets to calibrated default.
+- **Patch mod** — an on-screen mod wheel: sends CC 1 (0…127) to Surge over OSC `/cc`, whatever the wheel switch says. Not persisted. Double-tap resets to 0.
+- **Effect** — FX host depth (0 = bypass); visible only with `MPE_FX_HOST` on. A request to the remapper, which is the only process that talks to the FX host; the handle follows the depth in force, so it moves when the hardware knob does. Not persisted. Double-tap resets to 0.
+- **Wheel FX** switch (same row as **Norm.**, only with `MPE_FX_HOST` on) — what the hardware mod wheel drives for the loaded patch: off = patch first, on = effect. Handing the wheel back to the patch resends the knob's last position to Surge. The next patch load resets it to the **Mod wheel** default in System settings. The text beside it shows what the wheel drives now and whether the patch routes the mod wheel. The rule lives in `patch_browser/fx_policy.py`.
 - Touch **down + drag** on a fader; release does not trigger nav taps underneath.
 - **Norm.** — label-left / checkbox-right toggle for per-patch loudness normalization (see [`PATCH_NORMALIZATION.md`](PATCH_NORMALIZATION.md)).
 
@@ -460,7 +463,7 @@ the nav list) — see
 
 While browsing a **folder** or **patch list** (not All patches, not with the
 nav collapsed), the browser screen is a three-column horizontal track:
-`[ Filter 532px ][ Nav 268px ][ Patch 532px ]`, 1332px total on an 800px
+`[ Filter 550px ][ Nav 250px ][ Patch 550px ]`, 1350px total on an 800px
 viewport. Two stops:
 
 - **Home** (default) — Nav + Patch pane visible, Filter off-screen left
