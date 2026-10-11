@@ -25,9 +25,10 @@ $(BIN): $(SRC) $(HDR)
 	$(CC) $(CFLAGS) $(shell pkg-config --cflags jack) -o $@ $(SRC) $(LDFLAGS) $(shell pkg-config --libs jack) -lm -lpthread
 
 # The self-test is built with -Werror: it guards the listener, so a warning in
-# it is not something to scroll past.
+# it is not something to scroll past. FX_SELFTEST compiles in the deliberately
+# broken effect variants the checks must catch; the client never has them.
 selftest: fx_selftest.c fx_dsp.c $(HDR)
-	$(CC) $(CFLAGS) -Werror -o $(SELFTEST_BIN) fx_selftest.c fx_dsp.c $(LDFLAGS) -lm
+	$(CC) $(CFLAGS) -Werror -DFX_SELFTEST -o $(SELFTEST_BIN) fx_selftest.c fx_dsp.c $(LDFLAGS) -lm
 	$(abspath $(SELFTEST_BIN))
 
 clean:
