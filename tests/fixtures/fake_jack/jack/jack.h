@@ -1,8 +1,8 @@
 /*
  * A fake <jack/jack.h> for tests/test_audio_routing.py — NOT the JACK API.
  *
- * Declares just what native/mpe-live-monitor and native/mpe-peak-meter use, so
- * those files compile against an in-memory graph (fake_jack_impl.h) and their
+ * Declares just what native/mpe-live-monitor, native/mpe-peak-meter and
+ * native/mpe-fx-host use, so those files compile against an in-memory graph (fake_jack_impl.h) and their
  * routing decisions can be executed and compared with
  * patch_browser/audio_routing.py. No JACK headers or server are needed.
  */
@@ -12,6 +12,7 @@
 #include <stdint.h>
 
 typedef uint32_t jack_nframes_t;
+typedef uint32_t jack_port_id_t;
 typedef float jack_default_audio_sample_t;
 typedef struct fake_jack_port jack_port_t;
 typedef struct fake_jack_client jack_client_t;
@@ -26,6 +27,8 @@ typedef int (*JackProcessCallback)(jack_nframes_t nframes, void *arg);
 typedef int (*JackSampleRateCallback)(jack_nframes_t nframes, void *arg);
 typedef int (*JackXRunCallback)(void *arg);
 typedef void (*JackShutdownCallback)(void *arg);
+typedef void (*JackPortConnectCallback)(jack_port_id_t a, jack_port_id_t b, int connect, void *arg);
+typedef void (*JackPortRegistrationCallback)(jack_port_id_t port, int registered, void *arg);
 
 jack_client_t *jack_client_open(const char *name, jack_options_t options, jack_status_t *status, ...);
 int jack_client_close(jack_client_t *client);
@@ -35,6 +38,8 @@ int jack_set_process_callback(jack_client_t *client, JackProcessCallback cb, voi
 int jack_set_sample_rate_callback(jack_client_t *client, JackSampleRateCallback cb, void *arg);
 int jack_set_xrun_callback(jack_client_t *client, JackXRunCallback cb, void *arg);
 void jack_on_shutdown(jack_client_t *client, JackShutdownCallback cb, void *arg);
+int jack_set_port_connect_callback(jack_client_t *client, JackPortConnectCallback cb, void *arg);
+int jack_set_port_registration_callback(jack_client_t *client, JackPortRegistrationCallback cb, void *arg);
 jack_nframes_t jack_get_sample_rate(jack_client_t *client);
 float jack_cpu_load(jack_client_t *client);
 jack_port_t *jack_port_register(jack_client_t *client, const char *name, const char *type,
