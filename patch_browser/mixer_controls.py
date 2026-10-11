@@ -355,7 +355,11 @@ class PatchModControl:
 
 
 class EffectControl:
-    """FX host depth (0 = bypass). Shown only when MPE_FX_HOST is on."""
+    """FX host depth (0 = bypass). Shown only when MPE_FX_HOST is on.
+
+    A request to the remapper, which owns depth; the handle follows the depth
+    in force, so it moves when the hardware knob does.
+    """
 
     spec = MixerControlSpec("effect", "Effect", 0.0, 1.0)
 
@@ -369,17 +373,17 @@ class EffectControl:
         return 0.0
 
     def write(self, browser, value: float, *, persist: bool) -> None:
-        browser.fx_policy.set_depth(value)
+        browser.fx_policy.set_depth(value, final=persist)
 
     def reset(self, browser) -> None:
-        browser.fx_policy.set_depth(0.0)
+        browser.fx_policy.set_depth(0.0, final=True)
         browser._toast("Effect off", 1.2)
 
     def format(self, value: float) -> str:
         return f"{round(max(0.0, min(1.0, value)) * 100)}%"
 
     def persist(self, browser) -> None:
-        pass
+        browser.fx_policy.finish_depth()
 
 
 _MIXER_CONTROLS: list[MixerControl] = [

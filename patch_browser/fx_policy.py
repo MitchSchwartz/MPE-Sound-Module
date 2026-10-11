@@ -23,10 +23,12 @@ controller they are per-note expression.
 
 **Who runs what.** The touch UI loads patches, so it owns `FxPolicy`: it reads
 the patch's mod-wheel flag once per load, resolves the effective config and
-publishes the resulting CC 1 destination to `fx-route.json` in the run dir.
-The remapper process sees every controller message, so it owns `Cc1Router`:
-it reads that file when its mtime moves and asks `route_cc1` what to do with
-each message. Neither process decides anything the other decides.
+publishes the resulting CC 1 destination, plus any Effect fader request, to
+`fx-route.json` in the run dir. The remapper sees every controller message, so
+it owns `Cc1Router`, the one process that talks to the FX host: it reads that
+file when it changes, asks `route_cc1` what to do with each message, and
+publishes the depth in force to `fx-depth.json` for the fader to follow. Each
+file has one writer.
 
 **Off means off.** With MPE_FX_HOST unset, neither object is active: no file,
 no socket, and the remapper forwards CC 1 to Surge exactly as before.
@@ -38,6 +40,8 @@ the sidecar stores); nothing supplies a patch value yet.
 
 from __future__ import annotations
 
+import math
+import os
 import re
 import socket
 import threading
@@ -65,7 +69,16 @@ MASTER_CONTROL_CHANGE = 0xB0
 CC_MOD_WHEEL = 1
 CC_MAX = 127
 
+#: UI -> remapper: CC 1 destination, effect, and the Effect fader's request.
 ROUTE_FILE_NAME = "fx-route.json"
+#: Remapper -> UI: the depth in force, from the knob or the fader.
+DEPTH_FILE_NAME = "fx-depth.json"
+DEPTH_FROM_KNOB = "knob"
+DEPTH_FROM_FADER = "fader"
+#: Fader requests while dragging are written at most this often.
+DEPTH_PUBLISH_S = 0.05
+#: How often the UI checks the depth file for a knob move.
+DEPTH_POLL_S = 0.1
 
 #: Seconds between mtime checks of the route file in the remapper. The file
 #: moves once per patch load, so this bounds how late a new route applies.
@@ -89,6 +102,12 @@ def route_state_path() -> Path:
     from patch_browser.mpe_run_dir import run_dir
 
     return run_dir() / ROUTE_FILE_NAME
+
+
+def depth_state_path() -> Path:
+    from patch_browser.mpe_run_dir import run_dir
+
+    return run_dir() / DEPTH_FILE_NAME
 
 
 def normalize_target(value) -> str:
@@ -156,20 +175,68 @@ def route_cc1(raw, destination: str) -> float | None:
     return depth_from_cc(raw[2])
 
 
-def read_route(path: Path) -> tuple[str, int]:
-    """(destination, effect id) from the route file. Surge when unknown."""
+@dataclass(frozen=True)
+class Route:
+    """What the UI published. Anything missing or malformed reads as Surge."""
+
+    destination: str = CC1_TO_SURGE
+    effect_id: int = fx_host_protocol.EFFECT_CHORUS
+    route_stamp: str | None = None
+    depth_request: float | None = None
+    depth_stamp: str | None = None
+
+
+def _valid_effect(value) -> bool:
+    return (
+        not isinstance(value, bool)
+        and isinstance(value, int)
+        and value in fx_host_protocol.EFFECT_IDS
+    )
+
+
+def _depth_value(value) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    if not math.isfinite(value):
+        return None
+    return max(0.0, min(1.0, float(value)))
+
+
+def _stamp(value) -> str | None:
+    return value if isinstance(value, str) and value else None
+
+
+def read_route(path: Path) -> Route:
     data = read_json_dict(path)
     destination = data.get("cc1")
-    if destination not in (CC1_TO_SURGE, CC1_TO_FX):
-        destination = CC1_TO_SURGE
     effect_id = data.get("effect")
-    if (
-        isinstance(effect_id, bool)
-        or not isinstance(effect_id, int)
-        or effect_id not in fx_host_protocol.EFFECT_IDS
-    ):
-        effect_id = fx_host_protocol.EFFECT_CHORUS
-    return destination, effect_id
+    return Route(
+        destination=destination if destination in (CC1_TO_SURGE, CC1_TO_FX) else CC1_TO_SURGE,
+        effect_id=effect_id if _valid_effect(effect_id) else fx_host_protocol.EFFECT_CHORUS,
+        route_stamp=_stamp(data.get("route_stamp")),
+        depth_request=_depth_value(data.get("depth_request")),
+        depth_stamp=_stamp(data.get("depth_stamp")),
+    )
+
+
+def read_depth(path: Path) -> tuple[float, str, str | None] | None:
+    """(depth, source, applied fader request) from the remapper, or None."""
+    data = read_json_dict(path)
+    depth = _depth_value(data.get("depth"))
+    source = data.get("source")
+    if depth is None or source not in (DEPTH_FROM_KNOB, DEPTH_FROM_FADER):
+        return None
+    return depth, source, _stamp(data.get("request"))
+
+
+def _file_identity(path: Path) -> tuple[int, int] | None:
+    """(inode, mtime ns). Every atomic write is a new inode, so two writes
+    inside one mtime tick still read as a change."""
+    try:
+        st = path.stat()
+    except OSError:
+        return None
+    return st.st_ino, st.st_mtime_ns
 
 
 #: Seconds between complaints about an unreachable FX host. Time-limited for
@@ -260,7 +327,10 @@ class FxHostSender:
 
 
 class FxPolicy:
-    """The touch UI's half: resolves each patch load and publishes the route.
+    """The touch UI's half: resolves each patch load and publishes intent.
+
+    It never talks to the FX host. Everything it decides goes into the route
+    file, and `Cc1Router` in the remapper is the one process that sends.
 
     Two controls set the mod-wheel target and they do not compete:
 
@@ -269,19 +339,25 @@ class FxPolicy:
       the patch had been loaded again;
     * the play-screen switch sets the target for the loaded patch only. The
       next patch load replaces it with the resolved config.
+
+    The Effect fader is a request, not a level: the remapper applies it,
+    and publishes the depth actually in force (fader or knob, whichever moved
+    last) to the depth file, which `poll_depth` reads back.
     """
 
     def __init__(
         self,
         *,
         enabled: bool | None = None,
-        sender: FxHostSender | None = None,
         route_path: Path | None = None,
+        depth_path: Path | None = None,
         global_target: str | None = None,
+        clock=time.monotonic,
     ) -> None:
         self.enabled = fx_host_protocol.enabled() if enabled is None else bool(enabled)
-        self._sender = sender
         self._route_path = route_path
+        self._depth_path = depth_path
+        self._clock = clock
         if global_target is None:
             from patch_browser.ui_prefs import read_ui_prefs_file
 
@@ -293,6 +369,22 @@ class FxPolicy:
         self.patch_loaded = False
         self.depth = 0.0
         self.patch_mod = 0
+        # Each route change and each fader request carries its own stamp, so
+        # the remapper can tell "the route moved" from "the fader moved" in one
+        # file. pid-prefixed so a restarted UI never repeats an old stamp.
+        self._seq = 0
+        self._route_stamp = self._next_stamp()
+        self._depth_request: float | None = None
+        self._depth_stamp: str | None = None
+        self._next_depth_write = 0.0
+        self._depth_unsent = False
+        self._depth_file_id: tuple[int, int] | None = None
+        self._next_depth_poll = 0.0
+        self.dragging_depth = False
+
+    def _next_stamp(self) -> str:
+        self._seq += 1
+        return f"{os.getpid()}-{self._seq}"
 
     @property
     def destination(self) -> str:
@@ -303,12 +395,12 @@ class FxPolicy:
         self.patch_loaded = True
         self.config = resolve_config(global_target=self.global_target)
         self.target = self.config.mod_wheel_target
-        self.publish()
+        self._route_changed()
 
     def set_target(self, target: str) -> None:
         """Play-screen switch: the loaded patch only."""
         self.target = normalize_target(target)
-        self.publish()
+        self._route_changed()
 
     def set_global_default(self, target: str, *, persist: bool = True) -> None:
         """Settings: the default for every load, applied to the loaded patch now."""
@@ -321,16 +413,70 @@ class FxPolicy:
             write_ui_prefs_file(data)
         self.config = resolve_config(global_target=self.global_target)
         self.target = self.config.mod_wheel_target
+        self._route_changed()
+
+    def _route_changed(self) -> None:
+        self._route_stamp = self._next_stamp()
         self.publish()
 
-    def set_depth(self, depth: float) -> None:
-        """Effect fader."""
+    def set_depth(self, depth: float, *, final: bool = False) -> None:
+        """Effect fader: request a depth. The remapper applies it.
+
+        While dragging, requests are written at most every DEPTH_PUBLISH_S;
+        `final` (release, reset) always writes, so the last position lands.
+        """
         self.depth = max(0.0, min(1.0, float(depth)))
         if not self.enabled:
             return
-        if self._sender is None:
-            self._sender = FxHostSender()
-        self._sender.send(self.config.effect_id, self.depth)
+        self._depth_request = self.depth
+        self._depth_stamp = self._next_stamp()
+        self.dragging_depth = not final
+        now = self._clock()
+        if final or now >= self._next_depth_write:
+            self._next_depth_write = now + DEPTH_PUBLISH_S
+            self._depth_unsent = False
+            self.publish()
+        else:
+            self._depth_unsent = True
+
+    def finish_depth(self) -> None:
+        """Fader released: write the last request if a throttle held it back."""
+        self.dragging_depth = False
+        if self._depth_unsent and self._depth_request is not None:
+            self._depth_unsent = False
+            self.publish()
+
+    def poll_depth(self, now: float | None = None) -> bool:
+        """Follow the depth in force (the knob may have moved it). True on change.
+
+        Cost: one stat() per DEPTH_POLL_S (10/s) on the UI loop, a read only
+        when the remapper rewrote the file, which it does at most 20/s and only
+        while the depth is moving. Never while the fader is held, so the file
+        cannot pull it from under the finger.
+        """
+        if not self.enabled or self.dragging_depth:
+            return False
+        stamp = self._clock() if now is None else now
+        if stamp < self._next_depth_poll:
+            return False
+        self._next_depth_poll = stamp + DEPTH_POLL_S
+        path = self._depth_path or depth_state_path()
+        file_id = _file_identity(path)
+        if file_id is None or file_id == self._depth_file_id:
+            return False
+        self._depth_file_id = file_id
+        state = read_depth(path)
+        if state is None:
+            return False
+        depth, source, applied = state
+        # A fader echo older than our latest request is stale: the newer one
+        # is on its way. Only the knob, or our own latest request, moves it.
+        if source == DEPTH_FROM_FADER and applied != self._depth_stamp:
+            return False
+        if abs(depth - self.depth) <= SEND_TOLERANCE:
+            return False
+        self.depth = depth
+        return True
 
     def set_patch_mod(self, value: float) -> tuple[str, list[float]]:
         """Patch mod fader: the OSC message that sets Surge's mod wheel.
@@ -354,6 +500,9 @@ class FxPolicy:
                     "effect": self.config.effect_id,
                     "target": self.target,
                     "uses_mod_wheel": self.uses_mod_wheel,
+                    "route_stamp": self._route_stamp,
+                    "depth_request": self._depth_request,
+                    "depth_stamp": self._depth_stamp,
                 },
             )
         except OSError as exc:
@@ -361,52 +510,119 @@ class FxPolicy:
 
 
 class Cc1Router:
-    """The remapper's half: applies the published route to incoming CC 1.
+    """The remapper's half, and the only process that talks to the FX host.
 
-    Remembers the last mod-wheel position even while CC 1 is going to Surge,
-    so when a patch load hands the wheel to the effect, the depth moves to
-    where the knob already is. The FX host smooths the jump.
+    It applies the published route to incoming CC 1, applies the fader's depth
+    requests, and publishes the depth in force for the UI. Depth has one owner
+    here: the knob and the fader are two inputs to it, last one wins, and
+    nothing else sends to UDP 9958.
+
+    It remembers the last mod-wheel message and the source it came from, even
+    while CC 1 is going to Surge. When a route change hands the wheel to the
+    effect, the depth moves to where the knob is (the FX host smooths the
+    jump). When a route change leaves the wheel with the patch, that message
+    is replayed to Surge through its own source's transform, so the patch's
+    mod state matches the knob: on the switch, the setting, and every load.
     """
 
-    def __init__(self, *, sender: FxHostSender | None = None, route_path: Path | None = None, clock=time.monotonic) -> None:
+    def __init__(
+        self,
+        *,
+        sender: FxHostSender | None = None,
+        route_path: Path | None = None,
+        depth_path: Path | None = None,
+        forward=None,
+        clock=time.monotonic,
+    ) -> None:
         self._sender = sender or FxHostSender()
         self._path = route_path or route_state_path()
+        self._depth_path = depth_path or depth_state_path()
+        #: forward(source, raw): emit `raw` to Surge as if it came from `source`.
+        self._forward = forward
         self._clock = clock
-        self._mtime = 0.0
+        self._file_id: tuple[int, int] | None = None
         self._next_refresh = 0.0
+        self._route_stamp: str | None = None
+        self._depth_stamp: str | None = None
+        self._pending_depth: tuple[float, str, str | None] | None = None
         self.destination = CC1_TO_SURGE
         self.effect_id = fx_host_protocol.EFFECT_CHORUS
+        self.depth: float | None = None
         self.last_cc: int | None = None
+        self._last_cc_source = None
 
     @classmethod
-    def from_env(cls) -> "Cc1Router | None":
+    def from_env(cls, *, forward=None) -> "Cc1Router | None":
         if not fx_host_protocol.enabled():
             return None
-        return cls()
+        return cls(forward=forward)
 
     def refresh(self, now: float | None = None) -> None:
+        """Called from the remapper's drain loop; does work every ROUTE_REFRESH_S.
+
+        Per tick: one stat() of the route file (read only when it was
+        rewritten) and at most one write of the depth file (only when the
+        depth moved since the last tick). 20 ticks/s.
+        """
         stamp = self._clock() if now is None else now
         if stamp < self._next_refresh:
             return
         self._next_refresh = stamp + ROUTE_REFRESH_S
-        try:
-            mtime = self._path.stat().st_mtime
-        except OSError:
-            return
-        if mtime <= self._mtime:
-            return
-        self._mtime = mtime
-        previous = self.destination
-        self.destination, self.effect_id = read_route(self._path)
-        if previous != CC1_TO_FX and self.destination == CC1_TO_FX and self.last_cc is not None:
-            self._sender.send(self.effect_id, depth_from_cc(self.last_cc))
+        self._read_route()
+        self._flush_depth()
 
-    def consume(self, raw) -> bool:
+    def _read_route(self) -> None:
+        file_id = _file_identity(self._path)
+        if file_id is None or file_id == self._file_id:
+            return
+        self._file_id = file_id
+        route = read_route(self._path)
+        previous = self.destination
+        effect_changed = route.effect_id != self.effect_id
+        self.destination = route.destination
+        self.effect_id = route.effect_id
+        if route.route_stamp != self._route_stamp:
+            self._route_stamp = route.route_stamp
+            if self.last_cc is not None:
+                if self.destination == CC1_TO_FX and previous != CC1_TO_FX:
+                    self._set_depth(depth_from_cc(self.last_cc), DEPTH_FROM_KNOB)
+                elif self.destination == CC1_TO_SURGE and self._forward is not None:
+                    self._forward(
+                        self._last_cc_source,
+                        [MASTER_CONTROL_CHANGE, CC_MOD_WHEEL, self.last_cc],
+                    )
+        if route.depth_stamp is not None and route.depth_stamp != self._depth_stamp:
+            self._depth_stamp = route.depth_stamp
+            if route.depth_request is not None:
+                self._set_depth(route.depth_request, DEPTH_FROM_FADER, route.depth_stamp)
+        elif effect_changed and self.depth is not None:
+            self._sender.send(self.effect_id, self.depth)
+
+    def _set_depth(self, depth: float, source: str, request: str | None = None) -> None:
+        self.depth = max(0.0, min(1.0, float(depth)))
+        self._sender.send(self.effect_id, self.depth)
+        self._pending_depth = (self.depth, source, request)
+
+    def _flush_depth(self) -> None:
+        if self._pending_depth is None:
+            return
+        depth, source, request = self._pending_depth
+        self._pending_depth = None
+        try:
+            atomic_write_json(
+                self._depth_path,
+                {"depth": depth, "source": source, "request": request},
+            )
+        except OSError as exc:
+            print(f"Warning: could not publish FX depth ({exc})", flush=True)
+
+    def consume(self, raw, source=None) -> bool:
         """True when the message was taken for the effect and must not reach Surge."""
         if is_master_mod_wheel(raw):
             self.last_cc = int(raw[2])
+            self._last_cc_source = source
         depth = route_cc1(raw, self.destination)
         if depth is None:
             return False
-        self._sender.send(self.effect_id, depth)
+        self._set_depth(depth, DEPTH_FROM_KNOB)
         return True
