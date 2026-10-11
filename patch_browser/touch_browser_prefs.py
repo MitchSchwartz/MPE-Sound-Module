@@ -282,6 +282,33 @@ class TouchBrowserPrefsMixin:
         else:
             self._toast("Looper tempo off", 1.2)
 
+    def _mod_wheel_switch_hit(self, pos: tuple[int, int]) -> bool:
+        rect = getattr(self, "mod_wheel_switch_rect", None)
+        return rect is not None and rect.w > 0 and rect.contains(*pos)
+
+    def _toggle_mod_wheel_target(self) -> None:
+        """Play-screen switch: the loaded patch only; the next load re-resolves."""
+        from patch_browser.fx_policy import MOD_WHEEL_EFFECT, MOD_WHEEL_PATCH_FIRST
+
+        policy = self.fx_policy
+        if policy.target == MOD_WHEEL_EFFECT:
+            policy.set_target(MOD_WHEEL_PATCH_FIRST)
+            self._toast("Wheel: patch first", 1.2)
+        else:
+            policy.set_target(MOD_WHEEL_EFFECT)
+            self._toast("Wheel: effect", 1.2)
+
+    def _cycle_mod_wheel_default(self) -> None:
+        """Settings: the default every patch load starts from."""
+        from patch_browser.fx_policy import MOD_WHEEL_EFFECT, MOD_WHEEL_PATCH_FIRST
+
+        policy = self.fx_policy
+        if policy.global_target == MOD_WHEEL_EFFECT:
+            policy.set_global_default(MOD_WHEEL_PATCH_FIRST)
+        else:
+            policy.set_global_default(MOD_WHEEL_EFFECT)
+        self._layout_settings_content()
+
     def _toggle_poly_governor(self) -> None:
         self.poly_governor_enabled = not self.poly_governor_enabled
         self._save_ui_preference("poly_governor_enabled", self.poly_governor_enabled)

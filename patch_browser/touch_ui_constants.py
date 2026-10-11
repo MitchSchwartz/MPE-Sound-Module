@@ -16,14 +16,19 @@ SETTINGS_SECTION_GAP = 6
 SETTINGS_PANEL_HEADER_H = 56
 SETTINGS_PANEL_FOOTER_H = 72
 SETTINGS_PANEL_ANIM_SPEED = 10.0
-LEFT_NAV_WIDTH = 268
+# Narrowed from 268 (issue #142) so the play screen holds six faders plus the
+# mod-wheel switch. 250 is the floor: below it the browse header's looper
+# button (right - 114) runs into the All button (ends at x + 126).
+LEFT_NAV_WIDTH = 250
 LEFT_NAV_COLLAPSED_WIDTH = 36
-# Browse carousel track (touch-browser-browse-carousel-spec.md).
+# Browse carousel track (touch-browser-browse-carousel-spec.md). The panes
+# are sized to the 800 px DSI panel.
+DSI_SCREEN_W = 800
 BROWSE_EDGE_GRAB_W = 48
-BROWSE_FILTER_W = 532  # 800 - LEFT_NAV_WIDTH
-BROWSE_PATCH_W = 532
-BROWSE_TRACK_W = 1332  # FILTER + NAV + PATCH
-BROWSE_OFFSET_HOME = -532
+BROWSE_FILTER_W = DSI_SCREEN_W - LEFT_NAV_WIDTH
+BROWSE_PATCH_W = DSI_SCREEN_W - LEFT_NAV_WIDTH
+BROWSE_TRACK_W = BROWSE_FILTER_W + LEFT_NAV_WIDTH + BROWSE_PATCH_W
+BROWSE_OFFSET_HOME = -BROWSE_FILTER_W
 BROWSE_OFFSET_FILTER = 0
 BROWSE_SNAP_COMMIT_PX = 56  # match settings panel dismiss feel
 # Live finger-tracking drag is off on Pi until a lightweight tick-based path exists
@@ -53,6 +58,10 @@ MIXER_BOTTOM_GAP = 8
 NORM_ROW_W = 128
 NORM_ROW_H = 40
 NORM_CHECKBOX_SIZE = 22
+# Play-screen mod-wheel switch (same row as Norm., left of it) and the
+# "what the wheel drives" readout that fills the rest of that row.
+MOD_WHEEL_SWITCH_W = 150
+MOD_WHEEL_INFO_MIN_W = 120
 SETTINGS_TOGGLE_W = 48
 SETTINGS_TOGGLE_H = 28
 SETTINGS_TOGGLE_KNOB_PAD = 3

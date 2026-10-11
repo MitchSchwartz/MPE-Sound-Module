@@ -8,6 +8,7 @@ import struct
 import time
 from pathlib import Path
 
+from patch_browser.fx_policy import FxPolicy
 from patch_browser.patch_hold import (
     PatchHoldStore,
     effective_aeg_value,
@@ -49,6 +50,7 @@ class PatchLoader:
         hold_store=None,
         pressure_store=None,
         osc_out_port: int = OSC_OUT_PORT,
+        fx_policy: FxPolicy | None = None,
     ):
         try:
             from pythonosc import udp_client
@@ -66,6 +68,7 @@ class PatchLoader:
         self.normalization = normalization_store or PatchNormalizationStore()
         self.hold = hold_store or PatchHoldStore()
         self.pressure = pressure_store or PatchPressureStore()
+        self.fx_policy = fx_policy or FxPolicy()
         self.osc_host = osc_host
         self.osc_out_port = osc_out_port
         self.user_volume_trim = 1.0
@@ -247,6 +250,18 @@ class PatchLoader:
             print(f"Error applying Hold via OSC: {e}")
             return False
 
+    def send_patch_mod(self, value: float) -> bool:
+        """Patch mod fader: set Surge's mod wheel. fx_policy builds the message."""
+        if not self.osc_enabled:
+            return False
+        address, args = self.fx_policy.set_patch_mod(value)
+        try:
+            self.osc_client.send_message(address, args)
+            return True
+        except Exception as e:
+            print(f"Error sending patch mod via OSC: {e}")
+            return False
+
     def refresh_hold(self, patch_name: str) -> bool:
         """Re-apply Hold multiplier to the current patch baseline."""
         if not self.osc_enabled:
@@ -312,6 +327,9 @@ class PatchLoader:
             if not self._capture_hold_baseline(patch_name):
                 print(f"Hold baseline query failed for {patch_name}; using stored values if any")
             self._send_hold_osc(patch_name)
+            # The source file, not the Reuse Single copy: same routings, and
+            # the copy may not exist when the feature is off.
+            self.fx_policy.on_patch_loaded(patch_path)
             return True
         except Exception as e:
             print(f"Error loading patch via OSC: {e}")
