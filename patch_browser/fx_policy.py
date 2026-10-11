@@ -41,9 +41,16 @@ same stamp, for the same reason.
 **Off means off.** With MPE_FX_HOST unset, neither object is active: no file,
 no socket, and the remapper forwards CC 1 to Surge exactly as before.
 
+**Which effect.** The effect picker on the play screen sets one global
+choice, persisted in the UI prefs (`EFFECT_PREF_KEY`). It reaches the FX host
+the way everything else does: the UI writes it to the route file's `effect`,
+and the remapper sends it. The Effect fader and the mod-knob switch name the
+active effect (`effect_name`), so the screen says what the knob drives.
+
 **Per-patch overrides come later.** `resolve_config` already takes the
-patch's own value ahead of the global default (the `get_effective_*` order of
-the sidecar stores); nothing supplies a patch value yet.
+patch's own value ahead of the global defaults (the `get_effective_*` order of
+the sidecar stores), for the effect and the mod-wheel target alike; nothing
+supplies a patch value yet.
 """
 
 from __future__ import annotations
@@ -66,6 +73,9 @@ MOD_WHEEL_TARGETS = (MOD_WHEEL_PATCH_FIRST, MOD_WHEEL_EFFECT)
 DEFAULT_MOD_WHEEL_TARGET = MOD_WHEEL_PATCH_FIRST
 #: Key in the touch UI prefs file (`ui_prefs.UI_STATE_FILE`).
 MOD_WHEEL_PREF_KEY = "mod_wheel_target"
+#: Key in the same file: the effect id the picker chose, global for now.
+EFFECT_PREF_KEY = "fx_effect"
+DEFAULT_EFFECT = fx_host_protocol.EFFECT_CHORUS
 
 CC1_TO_SURGE = "surge"
 CC1_TO_FX = "fx"
@@ -106,20 +116,39 @@ def mod_wheel_target_label(target: str) -> str:
     return MOD_WHEEL_TARGET_LABELS[normalize_target(target)]
 
 
-#: The two faders the knob can drive. `mixer_controls` labels them with these,
-#: so the play-screen switch names exactly the fader the knob moves.
+#: The two faders the knob can drive. The Patch mod fader is labelled with
+#: this; the Effect fader is labelled with the active effect's name
+#: (`effect_name`), so the play-screen switch, which uses the same two, names
+#: exactly the fader the knob moves.
 PATCH_MOD_FADER_LABEL = "Patch mod"
+#: The Effect fader's name where no effect is in view (the Settings row, docs).
 EFFECT_FADER_LABEL = "Effect"
 
-MOD_KNOB_LABELS = {
-    CC1_TO_SURGE: f"Mod knob \u2192 {PATCH_MOD_FADER_LABEL}",
-    CC1_TO_FX: f"Mod knob \u2192 {EFFECT_FADER_LABEL}",
-}
+
+def normalize_effect(value) -> int:
+    """A shipped effect id, or the default. Never trusts a stored value."""
+    return value if _valid_effect(value) else DEFAULT_EFFECT
 
 
-def mod_knob_label(destination: str) -> str:
-    """The play-screen switch's label: where the knob goes now, not the setting."""
-    return MOD_KNOB_LABELS.get(destination, MOD_KNOB_LABELS[CC1_TO_SURGE])
+def effect_name(effect_id) -> str:
+    """The name the screen shows for an effect, from the protocol's table."""
+    return fx_host_protocol.EFFECT_NAMES[normalize_effect(effect_id)]
+
+
+def mod_knob_label(destination: str, effect_id: int = DEFAULT_EFFECT) -> str:
+    """The play-screen switch's label: where the knob goes now, not the setting.
+
+    Routed to the effect, it names the effect, as the Effect fader does.
+    """
+    fader = effect_name(effect_id) if destination == CC1_TO_FX else PATCH_MOD_FADER_LABEL
+    return f"Mod knob \u2192 {fader}"
+
+
+def mod_knob_labels() -> tuple[str, ...]:
+    """Every label the switch can show, for layout checks."""
+    return (mod_knob_label(CC1_TO_SURGE),) + tuple(
+        mod_knob_label(CC1_TO_FX, effect_id) for effect_id in fx_host_protocol.EFFECT_IDS
+    )
 
 
 def route_state_path() -> Path:
@@ -163,11 +192,19 @@ class FxConfig:
     mod_wheel_target: str = DEFAULT_MOD_WHEEL_TARGET
 
 
-def resolve_config(*, global_target: str, patch_config: FxConfig | None = None) -> FxConfig:
-    """The patch's own config if it has one, else the global default."""
+def resolve_config(
+    *,
+    global_target: str,
+    global_effect: int = DEFAULT_EFFECT,
+    patch_config: FxConfig | None = None,
+) -> FxConfig:
+    """The patch's own config if it has one, else the global defaults."""
     if patch_config is not None:
         return patch_config
-    return FxConfig(mod_wheel_target=normalize_target(global_target))
+    return FxConfig(
+        effect_id=normalize_effect(global_effect),
+        mod_wheel_target=normalize_target(global_target),
+    )
 
 
 def cc1_destination(target: str, uses_mod_wheel: bool | None) -> str:
@@ -415,6 +452,7 @@ class FxPolicy:
         route_path: Path | None = None,
         levels_path: Path | None = None,
         global_target: str | None = None,
+        global_effect: int | None = None,
         clock=time.monotonic,
     ) -> None:
         self.enabled = fx_host_protocol.enabled() if enabled is None else bool(enabled)
@@ -422,12 +460,17 @@ class FxPolicy:
         self._levels_path = levels_path
         #: Must be the remapper's clock: moves from both processes are compared.
         self._clock = clock
-        if global_target is None:
+        if global_target is None or global_effect is None:
             from patch_browser.ui_prefs import read_ui_prefs_file
 
-            global_target = read_ui_prefs_file().get(MOD_WHEEL_PREF_KEY)
+            prefs = read_ui_prefs_file()
+            if global_target is None:
+                global_target = prefs.get(MOD_WHEEL_PREF_KEY)
+            if global_effect is None:
+                global_effect = prefs.get(EFFECT_PREF_KEY)
         self.global_target = normalize_target(global_target)
-        self.config = resolve_config(global_target=self.global_target)
+        self.global_effect = normalize_effect(global_effect)
+        self.config = self._resolve()
         self.target = self.config.mod_wheel_target
         self.uses_mod_wheel: bool | None = None
         self.patch_loaded = False
@@ -459,8 +502,21 @@ class FxPolicy:
         return cc1_destination(self.target, self.uses_mod_wheel)
 
     @property
+    def effect_id(self) -> int:
+        """The effect in force: what the route file carries."""
+        return self.config.effect_id
+
+    @property
+    def effect_name(self) -> str:
+        return effect_name(self.effect_id)
+
+    @property
     def knob_label(self) -> str:
-        return mod_knob_label(self.destination)
+        return mod_knob_label(self.destination, self.effect_id)
+
+    def _resolve(self) -> FxConfig:
+        # The patch-load seam: a per-patch config would be passed here.
+        return resolve_config(global_target=self.global_target, global_effect=self.global_effect)
 
     @property
     def switch_locked(self) -> bool:
@@ -473,7 +529,7 @@ class FxPolicy:
     def on_patch_loaded(self, patch_path) -> None:
         self.uses_mod_wheel = patch_uses_mod_wheel(patch_path)
         self.patch_loaded = True
-        self.config = resolve_config(global_target=self.global_target)
+        self.config = self._resolve()
         self.target = self.config.mod_wheel_target
         self._route_changed()
 
@@ -491,9 +547,28 @@ class FxPolicy:
             data = read_ui_prefs_file()
             data[MOD_WHEEL_PREF_KEY] = self.global_target
             write_ui_prefs_file(data)
-        self.config = resolve_config(global_target=self.global_target)
+        self.config = self._resolve()
         self.target = self.config.mod_wheel_target
         self._route_changed()
+
+    def set_global_effect(self, effect_id: int, *, persist: bool = True) -> None:
+        """Effect picker: the effect for every load, applied to the loaded patch now.
+
+        Inert when the FX host is off. Only the effect moves: the mod-wheel
+        target, and so the route stamp, stay as they are, and the remapper
+        resends the depth in force under the new effect when it sees the file.
+        """
+        if not self.enabled:
+            return
+        self.global_effect = normalize_effect(effect_id)
+        if persist:
+            from patch_browser.ui_prefs import read_ui_prefs_file, write_ui_prefs_file
+
+            data = read_ui_prefs_file()
+            data[EFFECT_PREF_KEY] = self.global_effect
+            write_ui_prefs_file(data)
+        self.config = self._resolve()
+        self.publish()
 
     def _route_changed(self) -> None:
         self._route_stamp = self._next_stamp()
@@ -612,7 +687,7 @@ class FxPolicy:
                 path,
                 {
                     "cc1": self.destination,
-                    "effect": self.config.effect_id,
+                    "effect": self.effect_id,
                     "target": self.target,
                     "uses_mod_wheel": self.uses_mod_wheel,
                     "route_stamp": self._route_stamp,

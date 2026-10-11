@@ -360,13 +360,17 @@ class EffectControl:
     """FX host depth (0 = bypass). Shown only when MPE_FX_HOST is on.
 
     A request to the remapper, which owns depth; the handle follows the depth
-    in force, so it moves when the hardware knob does.
+    in force, so it moves when the hardware knob does. Its label is the active
+    effect's name, and a tap on the label opens the effect picker.
     """
 
     spec = MixerControlSpec("effect", EFFECT_FADER_LABEL, 0.0, 1.0)
 
     def visible(self, browser) -> bool:
         return bool(browser.detail_patch) and bool(browser.fx_policy.enabled)
+
+    def label_for(self, browser) -> str:
+        return browser.fx_policy.effect_name
 
     def read(self, browser) -> float:
         return float(browser.fx_policy.depth)

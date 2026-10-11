@@ -456,7 +456,7 @@ class TouchBrowserLayoutMixin:
             defs.append(
                 {
                     "id": spec.channel_id,
-                    "label": spec.label,
+                    "label": self._mixer_control_label(control),
                     "min": spec.min_value,
                     "max": spec.max_value,
                     "enabled": True,
