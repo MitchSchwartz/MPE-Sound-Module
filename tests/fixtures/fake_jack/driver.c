@@ -1,7 +1,8 @@
 /*
  * Runs a native client's routing decisions against an in-memory graph.
  * Built by tests/test_audio_routing.py with -I<this dir> (the fake jack.h) and
- * -DCLIENT_SRC='"<path to .c>"' plus -DCLIENT_MONITOR or -DCLIENT_METER.
+ * -DCLIENT_SRC='"<path to .c>"' plus -DCLIENT_MONITOR, -DCLIENT_METER or
+ * -DCLIENT_FX (which also links native/mpe-fx-host/fx_dsp.c).
  *
  * stdin, one scenario at a time:
  *     port <name>
@@ -86,6 +87,8 @@ int jack_set_process_callback(jack_client_t *c, JackProcessCallback cb, void *a)
 int jack_set_sample_rate_callback(jack_client_t *c, JackSampleRateCallback cb, void *a) { (void)c; (void)cb; (void)a; return 0; }
 int jack_set_xrun_callback(jack_client_t *c, JackXRunCallback cb, void *a) { (void)c; (void)cb; (void)a; return 0; }
 void jack_on_shutdown(jack_client_t *c, JackShutdownCallback cb, void *a) { (void)c; (void)cb; (void)a; }
+int jack_set_port_connect_callback(jack_client_t *c, JackPortConnectCallback cb, void *a) { (void)c; (void)cb; (void)a; return 0; }
+int jack_set_port_registration_callback(jack_client_t *c, JackPortRegistrationCallback cb, void *a) { (void)c; (void)cb; (void)a; return 0; }
 jack_nframes_t jack_get_sample_rate(jack_client_t *c) { (void)c; return 48000; }
 float jack_cpu_load(jack_client_t *c) { (void)c; return 0.0f; }
 jack_port_t *jack_port_register(jack_client_t *c, const char *n, const char *t, unsigned long f, unsigned long b)
@@ -154,10 +157,39 @@ static void print_edges(void)
     }
 }
 
+/* Edges as "a>b|c>d": the FX line has more fields than the monitor's, and a
+ * tab inside the list would split them. */
+static void print_edges_compact(void)
+{
+    for (int i = 0; i < fj_edge_count; i++) {
+        printf("%s%s>%s", i ? "|" : "", fj_edges[i][0], fj_edges[i][1]);
+    }
+}
+
 static void evaluate(void)
 {
     g_client = &fj_client;
-#ifdef CLIENT_MONITOR
+#if defined(CLIENT_FX)
+    load_env();
+    for (int ch = 0; ch < CHANNELS; ch++) {
+        char name[64];
+        snprintf(name, sizeof(name), CLIENT_NAME ":in_%d", ch + 1);
+        g_in_ports[ch] = fj_add_port(name);
+        snprintf(name, sizeof(name), CLIENT_NAME ":out_%d", ch + 1);
+        g_out_ports[ch] = fj_add_port(name);
+    }
+    char s1[192], s2[192];
+    fanout_source(1, s1, sizeof(s1));
+    fanout_source(2, s2, sizeof(s2));
+    printf("source=%s|%s\tcarrying_before=%d\t", s1, s2, trunk_insert_carrying());
+    int carrying = wiring_pass();
+    printf("carrying_after=%d\tedges=", carrying);
+    print_edges_compact();
+    leave_trunk();
+    printf("\treturned=");
+    print_edges_compact();
+    printf("\n");
+#elif defined(CLIENT_MONITOR)
     for (int ch = 0; ch < CHANNELS; ch++) {
         char name[64];
         snprintf(name, sizeof(name), CLIENT_NAME ":in_%d", ch + 1);
