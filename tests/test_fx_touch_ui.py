@@ -95,7 +95,7 @@ class _BrowserCase(unittest.TestCase):
         self.policy = FxPolicy(
             enabled=fx_enabled,
             route_path=self.root / "fx-route.json",
-            sender=mock.Mock(),
+            depth_path=self.root / "fx-depth.json",
         )
         patches = [
             mock.patch("patch_browser.touch_browser_app.PatchScanner", return_value=scanner),
@@ -230,6 +230,33 @@ class PlayScreenSwitchTests(_BrowserCase):
         browser._handle_evdev_browser_touch("down", pos)
         browser._handle_evdev_browser_touch("up", pos)
         self.assertEqual(self.policy.target, MOD_WHEEL_EFFECT)
+
+
+class EffectFaderTests(_BrowserCase):
+    def _effect_channel(self, browser):
+        return next(c for c in browser.mixer_channels if c.channel_id == "effect")
+
+    def test_drag_writes_a_request_and_release_lands_the_last_position(self) -> None:
+        browser = self._make_browser(fx_enabled=True)
+        channel = self._effect_channel(browser)
+        top = channel.track_rect.y
+        x = channel.column_rect.centerx
+        browser._handle_mixer_down((x, channel.track_rect.bottom))
+        self.assertTrue(self.policy.dragging_depth)
+        browser._handle_mixer_motion((x, top + channel.track_rect.h // 2))
+        browser._handle_mixer_motion((x, top))
+        browser._persist_mixer_drag()
+        self.assertFalse(self.policy.dragging_depth)
+        route = json.loads((self.root / "fx-route.json").read_text())
+        self.assertEqual(route["depth_request"], 1.0)
+
+    def test_fader_follows_the_knob(self) -> None:
+        from patch_browser.mixer_controls import mixer_control_by_id
+
+        browser = self._make_browser(fx_enabled=True)
+        (self.root / "fx-depth.json").write_text(json.dumps({"depth": 0.6, "source": "knob", "request": None}))
+        self.assertTrue(self.policy.poll_depth())
+        self.assertAlmostEqual(mixer_control_by_id(browser, "effect").read(browser), 0.6)
 
 
 class SettingsDefaultTests(_BrowserCase):

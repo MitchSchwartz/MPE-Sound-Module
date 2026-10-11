@@ -169,6 +169,7 @@ class FxPolicyTests(unittest.TestCase):
         self.addCleanup(self._dir.cleanup)
         self.root = Path(self._dir.name)
         self.route = self.root / "fx-route.json"
+        self.depth = self.root / "fx-depth.json"
         self.with_wheel = self.root / "with.fxp"
         self.with_wheel.write_bytes(WITH_MODWHEEL)
         self.without_wheel = self.root / "without.fxp"
@@ -178,12 +179,17 @@ class FxPolicyTests(unittest.TestCase):
         patcher.start()
         self.addCleanup(patcher.stop)
         self.prefs = prefs
+        self.now = 50.0
 
     def _policy(self, **kw) -> FxPolicy:
         kw.setdefault("enabled", True)
         kw.setdefault("route_path", self.route)
-        kw.setdefault("sender", _RecordingSender())
+        kw.setdefault("depth_path", self.depth)
+        kw.setdefault("clock", lambda: self.now)
         return FxPolicy(**kw)
+
+    def _route(self) -> dict:
+        return json.loads(self.route.read_text())
 
     def test_default_global_target_is_patch_first(self) -> None:
         self.assertEqual(self._policy().global_target, MOD_WHEEL_PATCH_FIRST)
@@ -191,21 +197,23 @@ class FxPolicyTests(unittest.TestCase):
     def test_patch_load_publishes_the_route(self) -> None:
         policy = self._policy()
         policy.on_patch_loaded(self.without_wheel)
-        data = json.loads(self.route.read_text())
+        data = self._route()
         self.assertEqual(data["cc1"], CC1_TO_FX)
         self.assertEqual(data["effect"], fx_host_protocol.EFFECT_CHORUS)
+        first = data["route_stamp"]
         policy.on_patch_loaded(self.with_wheel)
-        self.assertEqual(json.loads(self.route.read_text())["cc1"], CC1_TO_SURGE)
+        self.assertEqual(self._route()["cc1"], CC1_TO_SURGE)
+        self.assertNotEqual(self._route()["route_stamp"], first)  # every load is a route change
 
     def test_screen_switch_lasts_until_the_next_load(self) -> None:
         policy = self._policy()
         policy.on_patch_loaded(self.with_wheel)
         policy.set_target(MOD_WHEEL_EFFECT)
-        self.assertEqual(json.loads(self.route.read_text())["cc1"], CC1_TO_FX)
+        self.assertEqual(self._route()["cc1"], CC1_TO_FX)
         self.assertEqual(policy.global_target, MOD_WHEEL_PATCH_FIRST)  # not touched
         policy.on_patch_loaded(self.with_wheel)
         self.assertEqual(policy.target, MOD_WHEEL_PATCH_FIRST)
-        self.assertEqual(json.loads(self.route.read_text())["cc1"], CC1_TO_SURGE)
+        self.assertEqual(self._route()["cc1"], CC1_TO_SURGE)
 
     def test_settings_default_persists_and_applies_now(self) -> None:
         self.prefs.write_text(json.dumps({"theme_mode": "dark"}))
@@ -213,7 +221,7 @@ class FxPolicyTests(unittest.TestCase):
         policy.on_patch_loaded(self.with_wheel)
         policy.set_global_default(MOD_WHEEL_EFFECT)
         self.assertEqual(policy.target, MOD_WHEEL_EFFECT)
-        self.assertEqual(json.loads(self.route.read_text())["cc1"], CC1_TO_FX)
+        self.assertEqual(self._route()["cc1"], CC1_TO_FX)
         saved = json.loads(self.prefs.read_text())
         self.assertEqual(saved["mod_wheel_target"], MOD_WHEEL_EFFECT)
         self.assertEqual(saved["theme_mode"], "dark")  # other prefs survive
@@ -224,12 +232,61 @@ class FxPolicyTests(unittest.TestCase):
         self.prefs.write_text(json.dumps({"mod_wheel_target": 3}))
         self.assertEqual(FxPolicy(enabled=False).global_target, MOD_WHEEL_PATCH_FIRST)
 
-    def test_effect_fader_sends_depth(self) -> None:
-        sender = _RecordingSender()
-        policy = self._policy(sender=sender)
+    def test_effect_fader_is_a_request_in_the_route_file(self) -> None:
+        policy = self._policy()
         policy.set_depth(0.25)
-        policy.set_depth(7.0)
-        self.assertEqual(sender.sent, [(0, 0.25), (0, 1.0)])
+        data = self._route()
+        self.assertEqual(data["depth_request"], 0.25)
+        self.assertTrue(data["depth_stamp"])
+
+    def test_dragging_writes_are_throttled_and_release_lands_the_last(self) -> None:
+        policy = self._policy()
+        policy.set_depth(0.1)  # first write goes out
+        policy.set_depth(0.2)  # inside the throttle: held
+        policy.set_depth(0.3)
+        self.assertEqual(self._route()["depth_request"], 0.1)
+        policy.finish_depth()
+        self.assertEqual(self._route()["depth_request"], 0.3)
+        self.now += fx_policy.DEPTH_PUBLISH_S
+        policy.set_depth(0.4, final=True)
+        self.assertEqual(self._route()["depth_request"], 0.4)
+
+    def test_fader_follows_the_knob(self) -> None:
+        policy = self._policy()
+        self.depth.write_text(json.dumps({"depth": 0.75, "source": "knob", "request": None}))
+        self.assertTrue(policy.poll_depth())
+        self.assertEqual(policy.depth, 0.75)
+        self.assertFalse(policy.poll_depth())  # throttled
+        self.now += fx_policy.DEPTH_POLL_S
+        self.assertFalse(policy.poll_depth())  # unchanged file: no read
+
+    def test_held_fader_is_not_pulled_by_the_file(self) -> None:
+        policy = self._policy()
+        policy.set_depth(0.2)  # drag in progress
+        self.depth.write_text(json.dumps({"depth": 0.9, "source": "knob", "request": None}))
+        self.assertFalse(policy.poll_depth())
+        self.assertEqual(policy.depth, 0.2)
+
+    def test_stale_fader_echo_is_ignored(self) -> None:
+        policy = self._policy()
+        policy.set_depth(0.2, final=True)
+        old = self._route()["depth_stamp"]
+        self.now += 1
+        policy.set_depth(0.6, final=True)
+        self.depth.write_text(json.dumps({"depth": 0.2, "source": "fader", "request": old}))
+        self.assertFalse(policy.poll_depth())
+        self.assertEqual(policy.depth, 0.6)
+
+    def test_policy_never_sends_to_the_fx_host(self) -> None:
+        with mock.patch.object(fx_policy.FxHostSender, "send") as send, mock.patch.object(
+            fx_policy.FxHostSender, "__init__", return_value=None
+        ) as init:
+            policy = self._policy()
+            policy.on_patch_loaded(self.without_wheel)
+            policy.set_depth(0.5, final=True)
+            policy.finish_depth()
+        init.assert_not_called()
+        send.assert_not_called()
 
     def test_patch_mod_is_surge_osc_cc1_on_the_master_channel(self) -> None:
         address, args = self._policy().set_patch_mod(64.4)
@@ -241,18 +298,19 @@ class FxPolicyTests(unittest.TestCase):
 class InertWhenOffTests(unittest.TestCase):
     """MPE_FX_HOST off: no route file, no datagram, CC 1 passes to Surge."""
 
-    def test_policy_writes_and_sends_nothing(self) -> None:
+    def test_policy_writes_nothing(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             route = Path(tmp) / "fx-route.json"
+            depth = Path(tmp) / "fx-depth.json"
+            depth.write_text(json.dumps({"depth": 0.9, "source": "knob"}))
             patch = Path(tmp) / "p.fxp"
             patch.write_bytes(NO_ROUTINGS)
-            sender = _RecordingSender()
-            policy = FxPolicy(enabled=False, route_path=route, sender=sender, global_target=MOD_WHEEL_EFFECT)
+            policy = FxPolicy(enabled=False, route_path=route, depth_path=depth, global_target=MOD_WHEEL_EFFECT)
             policy.on_patch_loaded(patch)
             policy.set_target(MOD_WHEEL_EFFECT)
-            policy.set_depth(0.8)
+            policy.set_depth(0.8, final=True)
             self.assertFalse(route.exists())
-            self.assertEqual(sender.sent, [])
+            self.assertFalse(policy.poll_depth())
             # The readout still knows the patch.
             self.assertIs(policy.uses_mod_wheel, False)
 
@@ -261,7 +319,9 @@ class InertWhenOffTests(unittest.TestCase):
             with self.subTest(value=value), mock.patch.dict(os.environ, {"MPE_FX_HOST": value}):
                 self.assertIsNone(Cc1Router.from_env())
         with mock.patch.dict(os.environ, {"MPE_FX_HOST": "on"}):
-            self.assertIsNotNone(Cc1Router.from_env())
+            router = Cc1Router.from_env()
+            self.assertIsNotNone(router)
+            router._sender.close()
 
     def test_default_policy_follows_the_env(self) -> None:
         with mock.patch.dict(os.environ, {"MPE_FX_HOST": "0"}):
@@ -270,56 +330,195 @@ class InertWhenOffTests(unittest.TestCase):
             self.assertTrue(FxPolicy(global_target=MOD_WHEEL_PATCH_FIRST).enabled)
 
 
+class OneSenderGuardTests(unittest.TestCase):
+    """Depth has one writer: Cc1Router, in the remapper. Refuse a second."""
+
+    def test_only_the_router_constructs_a_sender(self) -> None:
+        import ast
+
+        tree = ast.parse((REPO / "patch_browser" / "fx_policy.py").read_text())
+        owners = []
+        for cls in (n for n in tree.body if isinstance(n, ast.ClassDef)):
+            for node in ast.walk(cls):
+                if isinstance(node, ast.Name) and node.id == "FxHostSender":
+                    owners.append(cls.name)
+        self.assertEqual(set(owners), {"Cc1Router"})
+
+    def test_nothing_else_in_the_repo_encodes_or_sends(self) -> None:
+        allowed = {
+            REPO / "patch_browser" / "fx_policy.py",
+            REPO / "patch_browser" / "fx_host_protocol.py",
+        }
+        offenders = []
+        for path in list((REPO / "patch_browser").rglob("*.py")) + list((REPO / "scripts").rglob("*.py")):
+            if path in allowed:
+                continue
+            text = path.read_text(encoding="utf-8", errors="replace")
+            if "FxHostSender" in text or "fx_host_protocol.encode" in text or "from patch_browser.fx_host_protocol import" in text and "encode" in text:
+                offenders.append(str(path.relative_to(REPO)))
+        self.assertEqual(offenders, [])
+
+
+class _RecordingForward:
+    def __init__(self) -> None:
+        self.calls: list[tuple[object, list[int]]] = []
+
+    def __call__(self, source, raw) -> None:
+        self.calls.append((source, list(raw)))
+
+
 class Cc1RouterTests(unittest.TestCase):
     def setUp(self) -> None:
         self._dir = tempfile.TemporaryDirectory()
         self.addCleanup(self._dir.cleanup)
         self.route = Path(self._dir.name) / "fx-route.json"
+        self.depth = Path(self._dir.name) / "fx-depth.json"
         self.sender = _RecordingSender()
+        self.forward = _RecordingForward()
         self.now = 100.0
-        self.router = Cc1Router(sender=self.sender, route_path=self.route, clock=lambda: self.now)
+        self.router = Cc1Router(
+            sender=self.sender,
+            route_path=self.route,
+            depth_path=self.depth,
+            forward=self.forward,
+            clock=lambda: self.now,
+        )
+        self._n = 0
 
-    def _publish(self, dest: str, mtime: float) -> None:
-        self.route.write_text(json.dumps({"cc1": dest, "effect": 0}))
-        os.utime(self.route, (mtime, mtime))
+    def _publish(self, dest: str, *, route_stamp: str | None = None, depth=None, depth_stamp=None) -> None:
+        self._n += 1
+        self.route.write_text(
+            json.dumps(
+                {
+                    "cc1": dest,
+                    "effect": 0,
+                    "route_stamp": route_stamp or f"r{self._n}",
+                    "depth_request": depth,
+                    "depth_stamp": depth_stamp,
+                }
+            )
+        )
+
+    def _tick(self) -> None:
+        self.now += fx_policy.ROUTE_REFRESH_S
+        self.router.refresh()
 
     def test_no_route_file_means_surge(self) -> None:
-        self.router.refresh()
+        self._tick()
         self.assertFalse(self.router.consume([0xB0, 1, 90]))
         self.assertEqual(self.sender.sent, [])
 
     def test_follows_the_published_route(self) -> None:
-        self._publish(CC1_TO_FX, 1000)
-        self.router.refresh()
+        self._publish(CC1_TO_FX)
+        self._tick()
         self.assertTrue(self.router.consume([0xB0, 1, 127]))
         self.assertFalse(self.router.consume([0xB1, 1, 127]))  # member channel
         self.assertFalse(self.router.consume([0xB0, 74, 127]))
         self.assertEqual(self.sender.sent, [(0, 1.0)])
 
-    def test_refresh_is_throttled_and_mtime_guarded(self) -> None:
-        self._publish(CC1_TO_FX, 1000)
+    def test_refresh_is_throttled_and_change_guarded(self) -> None:
+        self._publish(CC1_TO_FX)
         with mock.patch.object(fx_policy, "read_route", wraps=fx_policy.read_route) as reader:
             self.router.refresh()
             self.router.refresh()  # same instant: throttled, no stat
-            self.now += fx_policy.ROUTE_REFRESH_S
-            self.router.refresh()  # stat, but mtime unchanged: no read
+            self._tick()  # stat, file unchanged: no read
             self.assertEqual(reader.call_count, 1)
+            self._publish(CC1_TO_FX)  # same second, new inode: still seen
+            self._tick()
+            self.assertEqual(reader.call_count, 2)
 
     def test_handing_the_wheel_to_the_effect_jumps_to_the_knob(self) -> None:
-        self._publish(CC1_TO_SURGE, 1000)
-        self.router.refresh()
+        self._publish(CC1_TO_SURGE)
+        self._tick()
         self.assertFalse(self.router.consume([0xB0, 1, 127]))  # to Surge, remembered
-        self.now += 1
-        self._publish(CC1_TO_FX, 1001)
-        self.router.refresh()
+        self._publish(CC1_TO_FX)
+        self._tick()
         self.assertEqual(self.sender.sent, [(0, 1.0)])
 
+    def test_handing_the_wheel_back_replays_the_knob_to_surge(self) -> None:
+        """Switch, setting or load: any route change that lands on Surge."""
+        source = object()
+        self._publish(CC1_TO_FX)
+        self._tick()
+        self.assertTrue(self.router.consume([0xB0, 1, 90], source))
+        self._publish(CC1_TO_SURGE)
+        self._tick()
+        self.assertEqual(self.forward.calls, [(source, [0xB0, 1, 90])])
+        # A patch load that stays with Surge replays too: Surge may not keep it.
+        self._publish(CC1_TO_SURGE)
+        self._tick()
+        self.assertEqual(len(self.forward.calls), 2)
+
+    def test_no_replay_before_the_knob_has_moved(self) -> None:
+        self._publish(CC1_TO_SURGE)
+        self._tick()
+        self.assertEqual(self.forward.calls, [])
+
+    def test_fader_request_is_applied_once_and_echoed(self) -> None:
+        self._publish(CC1_TO_SURGE, route_stamp="r", depth=0.4, depth_stamp="d1")
+        self._tick()
+        self.assertEqual(self.sender.sent, [(0, 0.4)])
+        self._tick()  # flushes the echo on the next tick at the latest
+        echo = json.loads(self.depth.read_text())
+        self.assertEqual(echo, {"depth": 0.4, "source": "fader", "request": "d1"})
+        # Rewritten with the same request stamp: not re-applied, not a route change.
+        self._publish(CC1_TO_SURGE, route_stamp="r", depth=0.4, depth_stamp="d1")
+        self._tick()
+        self.assertEqual(self.sender.sent, [(0, 0.4)])
+        self.assertEqual(self.forward.calls, [])
+
+    def test_knob_moves_are_echoed_at_most_once_per_tick(self) -> None:
+        self._publish(CC1_TO_FX)
+        self._tick()
+        with mock.patch.object(fx_policy, "atomic_write_json", wraps=fx_policy.atomic_write_json) as writer:
+            for value in range(0, 128, 8):
+                self.router.consume([0xB0, 1, value])
+            self._tick()
+            self._tick()  # nothing moved: no write
+        self.assertEqual(writer.call_count, 1)
+        self.assertEqual(json.loads(self.depth.read_text())["depth"], 120 / 127)
+        self.assertEqual(json.loads(self.depth.read_text())["source"], "knob")
+
+    def test_knob_and_fader_last_one_wins(self) -> None:
+        self._publish(CC1_TO_FX, route_stamp="r")
+        self._tick()
+        self.router.consume([0xB0, 1, 127])
+        self._publish(CC1_TO_FX, route_stamp="r", depth=0.1, depth_stamp="d1")
+        self._tick()
+        self.assertEqual(self.router.depth, 0.1)
+        self.router.consume([0xB0, 1, 0])
+        self.assertEqual(self.router.depth, 0.0)
+
     def test_garbage_route_file_means_surge(self) -> None:
-        self.route.write_text('{"cc1": "elsewhere", "effect": 0.0}')
-        self.router.refresh()
+        self.route.write_text('{"cc1": "elsewhere", "effect": 0.0, "depth_request": "x", "depth_stamp": 5}')
+        self._tick()
         self.assertEqual(self.router.destination, CC1_TO_SURGE)
         self.assertEqual(self.router.effect_id, 0)
         self.assertIsInstance(self.router.effect_id, int)
+        self.assertEqual(self.sender.sent, [])
+
+    def test_ui_and_remapper_round_trip(self) -> None:
+        """FxPolicy writes, Cc1Router applies and echoes, FxPolicy follows."""
+        clock = [10.0]
+        policy = FxPolicy(
+            enabled=True,
+            route_path=self.route,
+            depth_path=self.depth,
+            global_target=MOD_WHEEL_EFFECT,
+            clock=lambda: clock[0],
+        )
+        patch = Path(self._dir.name) / "p.fxp"
+        patch.write_bytes(WITH_MODWHEEL)
+        policy.on_patch_loaded(patch)
+        policy.set_depth(0.3, final=True)
+        self._tick()
+        self._tick()
+        self.assertEqual(self.sender.sent, [(0, 0.3)])
+        self.assertTrue(self.router.consume([0xB0, 1, 127]))  # knob turned up
+        self._tick()
+        clock[0] += 1
+        self.assertTrue(policy.poll_depth())
+        self.assertEqual(policy.depth, 1.0)
 
 
 class FxHostSenderTests(unittest.TestCase):
@@ -382,6 +581,16 @@ class RemapDaemonCc1Tests(unittest.TestCase):
         daemon._handle_incoming(None, [0xB0, 74, 64], 0.0)
         self.assertEqual(emitted, [[0xB3, 1, 64], [0xB3, 74, 64], [0xB0, 74, 64]])
         self.assertEqual(sender.sent, [(0, 64 / 127)])
+
+    def test_replay_goes_through_the_source_binding(self) -> None:
+        _module, daemon, emitted = self._daemon("1")
+        live, gone = object(), object()
+        daemon._bindings = [live]
+        daemon._replay_to_surge(live, [0xB0, 1, 77])
+        daemon._replay_to_surge(gone, [0xB0, 1, 78])  # unplugged since
+        daemon._replay_to_surge(None, [0xB0, 1, 79])
+        self.assertEqual(emitted, [[0xB0, 1, 77]])
+        self.assertEqual(daemon._cc1._forward, daemon._replay_to_surge)
 
     def test_on_but_routed_to_surge_forwards(self) -> None:
         _module, daemon, emitted = self._daemon("1")

@@ -119,7 +119,7 @@ class PressureRemapDaemon:
         self._voice_tracker = PolyVoiceTracker()
         self._last_fade_request_id: float | None = None
         # None unless MPE_FX_HOST is on: then CC 1 is forwarded exactly as before.
-        self._cc1 = Cc1Router.from_env()
+        self._cc1 = Cc1Router.from_env(forward=self._replay_to_surge)
 
     def _refresh_floor(self) -> None:
         from patch_browser.patch_pressure import LIVE_STATE_FILE
@@ -214,6 +214,14 @@ class PressureRemapDaemon:
         for out_msg in out_msgs:
             self._send(out_msg)
 
+    def _replay_to_surge(self, binding: SourceBinding | None, message: list[int]) -> None:
+        """fx_policy handing the mod wheel back to the patch: resend the knob's
+        last position through the transform of the device it came from. A
+        device unplugged since then has nothing to resend."""
+        if binding is None or binding not in self._bindings:
+            return
+        self._emit_message(binding, message)
+
     def _process_fade_request(self) -> None:
         if not fade_actuation_enabled() or self._out is None:
             return
@@ -253,7 +261,7 @@ class PressureRemapDaemon:
         # Before the translator: a classic device's CC 1 arrives on the master
         # channel here and is spread across member channels after. fx_policy
         # decides; a consumed message goes to the FX host, never to Surge.
-        if self._cc1 is not None and self._cc1.consume(raw):
+        if self._cc1 is not None and self._cc1.consume(raw, binding):
             return
 
         quantize = self._grid_ticks > 0 and is_note_on(raw)
