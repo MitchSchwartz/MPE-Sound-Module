@@ -67,12 +67,13 @@ core, forever**. Compute cost × cadence and put it in the PR. Rules and measure
 3. **Never raise a level to diagnose silence.** If you expect sound and hear none, the cause is almost always routing, a stopped service, or a wrong device — not gain. Turning it up to find out is exactly how the damage happens. Check `mpe-yolo jack-status`, `osc-check`, and the unit states first.
 4. **Restore any level you change**, and say in your summary that you changed it.
 
-**There are four gain stages, and they are not all in series.** A level that is
+**There are four gain stages, plus the opt-in FX insert, and they are not all in series.** A level that is
 safe at one is not safe end to end:
 
 | Stage | Control | Reaches |
 |---|---|---|
 | Surge patch output | OSC `/param/a/amp/volume`, `/param/b/amp/volume` (UDP 53280) | everything — it is upstream of the fan-out |
+| FX insert (opt-in, `MPE_FX_HOST`) | `native/mpe-fx-host`, UDP 9958 (`patch_browser/fx_host_protocol.py`) | the trunk: playback and every loop input (meters stay pre-FX). Mixes toward wet, never on top; clamped to ±1.0; depth 0 is the input unchanged |
 | Live monitor | `native/mpe-live-monitor`, driven by `scripts/sooperlooper/live_monitor.py` (UDP 9957) | what you hear yourself at, never what is captured |
 | Looper | `MPE_SL_LOOP_GAIN`, `MPE_SL_LOOP_GAIN_LAW`, per-loop `wet` via `loop_mix.py` | loop playback only |
 | Hardware mixer | Bound DAC's playback element, owned by `patch_browser/device_volume.py` | everything |
