@@ -186,6 +186,48 @@ def scenarios():
             yield f"{mode}:{''.join(map(str, flags))}", graph(*edges, ports=tuple(ports))
 
 
+def fx_scenarios():
+    """Graphs the FX host can wake up to. Its own ports always exist (it is the
+    process under test); Surge, the looper and the monitor may or may not."""
+    fx_edges = {
+        "none": [],
+        "ch1": [(S(1), FX_IN(1))],
+        "both": both(lambda ch: (S(ch), FX_IN(ch))),
+    }
+    optional = {
+        "surge->pb": lambda ch: (S(ch), PB(ch)),
+        "fx->pb": lambda ch: (FX_OUT(ch), PB(ch)),
+        "surge->mon": lambda ch: (S(ch), MON_IN(ch)),
+        "mon->pb": lambda ch: (MON_OUT(ch), PB(ch)),
+        "surge->loop0": lambda ch: (S(ch), TOPO.loop_in(0, ch)),
+        "fx->loop1": lambda ch: (FX_OUT(ch), TOPO.loop_in(1, ch)),
+    }
+    for fx_mode, base in fx_edges.items():
+        for monitor in (False, True):
+            for looper in (False, True):
+                for flags in itertools.product((0, 1), repeat=len(optional)):
+                    ports = [FX_IN(1), FX_IN(2), FX_OUT(1), FX_OUT(2)]
+                    if monitor:
+                        ports += [MON_IN(1), MON_IN(2), MON_OUT(1), MON_OUT(2)]
+                    if looper:
+                        ports += list(LOOPER_PORTS)
+                    edges = list(base)
+                    for on, (key, fn) in zip(flags, optional.items()):
+                        needs_mon = "mon" in key
+                        needs_loop = "loop" in key
+                        if on and (monitor or not needs_mon) and (looper or not needs_loop):
+                            edges += both(fn)
+                    yield (f"{fx_mode}:mon{int(monitor)}:loop{int(looper)}:"
+                           f"{''.join(map(str, flags))}", graph(*edges, ports=tuple(ports)))
+    # Surge gone (restarting): the FX host must touch nothing.
+    gone = Graph()
+    gone.ports.update(("system:playback_1", "system:playback_2", FX_IN(1), FX_IN(2),
+                       FX_OUT(1), FX_OUT(2)) + LOOPER_PORTS)
+    for ch in ar.CHANNELS:
+        gone.connect(FX_OUT(ch), PB(ch))
+    yield "surge-gone", gone
+
+
 class PlanProperties(unittest.TestCase):
     def test_applying_the_plan_reaches_everything_and_doubles_nothing(self):
         for name, g in scenarios():
@@ -201,11 +243,13 @@ class PlanProperties(unittest.TestCase):
 
 # --- the native mirrors -------------------------------------------------------
 
-def _build_driver(kind: str, source: str, out: Path) -> None:
+def _build_driver(kind: str, source: str, out: Path, extra: tuple[str, ...] = ()) -> None:
     subprocess.run(
         ["cc", "-std=c11", "-Wall", "-Wextra", "-Wno-unused-function",
-         f"-I{FAKE_JACK}", f"-DCLIENT_{kind}", f'-DCLIENT_SRC="{REPO / source}"',
-         str(FAKE_JACK / "driver.c"), "-o", str(out), "-lm", "-lpthread"],
+         f"-I{FAKE_JACK}", f"-I{(REPO / source).parent}", f"-DCLIENT_{kind}",
+         f'-DCLIENT_SRC="{REPO / source}"',
+         str(FAKE_JACK / "driver.c"), *(str(REPO / e) for e in extra),
+         "-o", str(out), "-lm", "-lpthread"],
         check=True, capture_output=True, text=True, timeout=120)
 
 
@@ -226,6 +270,9 @@ class NativeMirrorTests(unittest.TestCase):
         cls.meter = cls.tmp / "meter"
         _build_driver("MONITOR", "native/mpe-live-monitor/mpe-live-monitor.c", cls.monitor)
         _build_driver("METER", "native/mpe-peak-meter/mpe-peak-meter.c", cls.meter)
+        cls.fx = cls.tmp / "fx"
+        _build_driver("FX", "native/mpe-fx-host/mpe-fx-host.c", cls.fx,
+                      extra=("native/mpe-fx-host/fx_dsp.c",))
         cls.cases = list(scenarios())
 
     @classmethod
@@ -269,6 +316,80 @@ class NativeMirrorTests(unittest.TestCase):
                         self.assertFalse(after.connected(FX_OUT(ch), PB(ch)), "FX left on playback")
                         self.assertEqual(ar.surge_paths(after, TOPO, PB(ch), ch), 1)
 
+    def test_the_fx_host_takes_and_returns_the_trunk_as_the_authority_says(self):
+        """The FX host's whole wiring life, on every graph: one pass, then exit.
+
+        After the pass it is the fan-out source and every destination is fed
+        from it exactly once; Surge feeds none of them directly; the authority
+        has nothing left to add. After `leave_trunk` (its SIGTERM path) it is
+        not the source, feeds nothing, and Surge is back everywhere.
+        """
+        cases = list(fx_scenarios())
+        proc = subprocess.run([str(self.fx)], input="".join(_feed(g) for _, g in cases),
+                              capture_output=True, text=True, timeout=60,
+                              env=dict(os.environ, MPE_SL_LOOPS=str(TOPO.loops)))
+        self.assertEqual(proc.returncode, 0, proc.stderr[-2000:])
+        lines = proc.stdout.splitlines()
+        self.assertEqual(len(lines), len(cases), "driver skipped scenarios")
+
+        def edges(field: str, ports: set[str]) -> Graph:
+            out = Graph()
+            out.ports.update(ports)
+            for pair in filter(None, field.split("|")):
+                out.connect(*pair.split(">"))
+            return out
+
+        for (name, g), line in zip(cases, lines):
+            with self.subTest(scenario=name):
+                fields = dict(f.split("=", 1) for f in line.split("\t"))
+                self.assertEqual(fields["source"].split("|"),
+                                 [ar.fanout_source(g, TOPO, ch) for ch in ar.CHANNELS])
+                self.assertEqual(fields["carrying_before"], str(int(ar.trunk_insert_carrying(g, TOPO))))
+                after = edges(fields["edges"], g.ports)
+                back = edges(fields["returned"], g.ports)
+                surge_present = g.has(S(1)) and g.has(S(2))
+                self.assertEqual(fields["carrying_after"],
+                                 str(int(ar.trunk_insert_carrying(after, TOPO))))
+                if not surge_present:
+                    # Nothing to carry and nothing to give back to: hands off.
+                    self.assertEqual(fields["carrying_after"], "0")
+                    self.assertEqual(after.edges, g.edges)
+                    self.assertEqual(back.edges, g.edges)
+                    continue
+
+                self.assertEqual(fields["carrying_after"], "1")
+                loops = [(ch, TOPO.loop_in(m, ch)) for m in range(TOPO.loops)
+                         for ch in ar.CHANNELS] if g.client_present(TOPO.looper) else []
+                for ch, dest in loops:
+                    self.assertTrue(after.connected(FX_OUT(ch), dest), dest)
+                    self.assertFalse(after.connected(S(ch), dest), f"Surge left on {dest}")
+                    self.assertEqual(ar.surge_paths(after, TOPO, dest, ch), 1, dest)
+                for ch in ar.CHANNELS:
+                    self.assertFalse(after.connected(S(ch), PB(ch)), "Surge left on playback")
+                    if g.has(MON_IN(ch)):
+                        self.assertTrue(after.connected(FX_OUT(ch), MON_IN(ch)))
+                        self.assertFalse(after.connected(S(ch), MON_IN(ch)))
+                self.assertTrue(ar.live_path_ok(after, TOPO))
+                self.assertEqual(ar.plan(after, TOPO), [], "the authority still wants edges")
+                for dest in ar.doubled(after, TOPO):
+                    # Only the monitor's own clean-up may be pending: a direct
+                    # FX -> playback edge that was ALREADY there, beneath a
+                    # monitor that now carries. One the FX host made itself
+                    # would be a doubled signal until the monitor's next pass.
+                    ch = int(dest[-1])
+                    self.assertEqual(dest, PB(ch))
+                    self.assertTrue(ar.monitor_insert_carrying(after, TOPO))
+                    self.assertTrue(g.connected(FX_OUT(ch), PB(ch)),
+                                    "the FX host doubled playback under a carrying monitor")
+
+                self.assertFalse(ar.trunk_insert_carrying(back, TOPO))
+                for ch in ar.CHANNELS:
+                    self.assertFalse(any(FX_OUT(ch) in e for e in back.edges), "FX still feeds")
+                for ch, dest in loops:
+                    self.assertTrue(back.connected(S(ch), dest), dest)
+                self.assertTrue(ar.live_path_ok(back, TOPO))
+                self.assertEqual(ar.plan(back, TOPO), [])
+
     def test_the_mirrors_name_the_same_clients(self):
         for rel in ("native/mpe-live-monitor/mpe-live-monitor.c",
                     "native/mpe-peak-meter/mpe-peak-meter.c"):
@@ -277,6 +398,12 @@ class NativeMirrorTests(unittest.TestCase):
             self.assertIn(f'#define SURGE_CLIENT_DEFAULT "{ar.SURGE_CLIENT_DEFAULT}"', src, rel)
         meter = (REPO / "native/mpe-peak-meter/mpe-peak-meter.c").read_text()
         self.assertIn(f'#define MONITOR_INSERT "{MONITOR_INSERT}"', meter)
+        fx = (REPO / "native/mpe-fx-host/mpe-fx-host.c").read_text()
+        self.assertIn(f'#define CLIENT_NAME "{TRUNK_INSERT}"', fx)
+        self.assertIn(f'#define MONITOR_INSERT "{MONITOR_INSERT}"', fx)
+        self.assertIn(f'#define SURGE_CLIENT_DEFAULT "{ar.SURGE_CLIENT_DEFAULT}"', fx)
+        self.assertIn(f'#define LOOPER_CLIENT_DEFAULT "{ar.LOOPER_CLIENT_DEFAULT}"', fx)
+        self.assertIn(f"#define LOOPS_DEFAULT {ar.LOOPS_DEFAULT}", fx)
         monitor = (REPO / "native/mpe-live-monitor/mpe-live-monitor.c").read_text()
         self.assertIn(f'#define CLIENT_NAME "{MONITOR_INSERT}"', monitor)
 
@@ -448,6 +575,10 @@ class OneAuthority(unittest.TestCase):
         "native/mpe-peak-meter/mpe-peak-meter.c":
             "taps Surge onto its own input (pre-FX, by design) and mirrors the "
             "live-path predicate for sl-watchdog",
+        "native/mpe-fx-host/mpe-fx-host.c":
+            "the trunk insert: once Surge feeds its input on every channel it "
+            "becomes the fan-out source, moves every destination off Surge, and "
+            "moves them back when it leaves",
     }
     AUTHORITY = "patch_browser/audio_routing.py"
     ROOTS = ("scripts", "patch_browser", "native", "config")

@@ -1,4 +1,7 @@
-"""mpe-fx-host: the DSP self-test, the wire format, the gate, the unit, the restore.
+"""mpe-fx-host: the DSP self-test, the wire format, the gate, the unit.
+
+Its wiring is tested where every client's is: tests/test_audio_routing.py runs
+mpe-fx-host.c against a fake JACK and checks it against the routing authority.
 
 The DSP checks live in C (`native/mpe-fx-host/fx_selftest.c`) and run here
 through `make selftest` whenever a C compiler is present. Without one they are
@@ -25,7 +28,6 @@ C_CLIENT = NATIVE / "mpe-fx-host.c"
 C_DSP = NATIVE / "fx_dsp.c"
 UNIT = REPO_ROOT / "config" / "mpe-fx-host.service"
 START = REPO_ROOT / "scripts" / "start-mpe-fx-host.sh"
-RESTORE = REPO_ROOT / "scripts" / "restore-fx-trunk.sh"
 
 
 def _compiler() -> str | None:
@@ -183,7 +185,7 @@ class Gate(unittest.TestCase):
 
 
 class Unit(unittest.TestCase):
-    """The live monitor's unit shape, with the trunk restore."""
+    """The live monitor's unit shape."""
 
     def _lines(self, path: Path) -> set[str]:
         return {line.strip() for line in path.read_text().splitlines()}
@@ -198,7 +200,9 @@ class Unit(unittest.TestCase):
             "KillMode=mixed",
             "TimeoutStopSec=5",
             "ExecStart=@MPE_MODULE_REPO@/scripts/start-mpe-fx-host.sh",
-            "ExecStopPost=-@MPE_MODULE_REPO@/scripts/restore-fx-trunk.sh",
+            # The live monitor's restore: it asks the routing authority, which
+            # names Surge once our ports are gone.
+            "ExecStopPost=-@MPE_MODULE_REPO@/scripts/restore-direct-monitor-path.sh",
         ):
             self.assertIn(want, lines)
 
@@ -224,71 +228,6 @@ class Unit(unittest.TestCase):
         branch = re.search(r"if \(g_jack_shutdown\) \{(.*?)\n    \}", source, re.S)
         self.assertIsNotNone(branch, "no JACK-shutdown exit branch in main")
         self.assertRegex(branch.group(1), r"return 1;")
-
-
-class RestoreTrunk(unittest.TestCase):
-    """restore-fx-trunk.sh replays exactly the edges the client recorded."""
-
-    def _run(self, state: str | None) -> tuple[list[str], Path, subprocess.CompletedProcess]:
-        run_dir = Path(self.enterContext(tempfile.TemporaryDirectory()))
-        log = run_dir / "calls"
-        fake = run_dir / "jack_connect"
-        fake.write_text(f'#!/bin/sh\nprintf "%s|%s\\n" "$1" "$2" >> "{log}"\n'
-                        'case "$2" in *broken*) echo "cannot connect" >&2; exit 1;; esac\n'
-                        "exit 0\n")
-        fake.chmod(0o755)
-        state_file = run_dir / "fx-host.state"
-        if state is not None:
-            state_file.write_text(state)
-        env = dict(os.environ, MPE_RUN_DIR=str(run_dir),
-                   PATH=str(run_dir) + os.pathsep + os.environ["PATH"])
-        env.pop("MPE_SL_SURGE_CLIENT", None)
-        proc = subprocess.run(["bash", str(RESTORE)], env=env,
-                              capture_output=True, text=True, timeout=30)
-        calls = log.read_text().splitlines() if log.exists() else []
-        return calls, state_file, proc
-
-    def test_replays_every_recorded_edge_and_only_those(self):
-        calls, state_file, proc = self._run(
-            "carrying=1\ntaken=3\n"
-            "edge=1 system:playback_1\n"
-            "edge=2 system:playback_2\n"
-            "edge=1 mpe-looper:loop3_in_1\n"
-            "surge_client=Surge XT\nupdated=1\n"
-        )
-        self.assertEqual(proc.returncode, 0, proc.stderr)
-        self.assertEqual(calls, [
-            "Surge XT:out_1|system:playback_1",
-            "Surge XT:out_2|system:playback_2",
-            "Surge XT:out_1|mpe-looper:loop3_in_1",
-        ])
-        after = state_file.read_text()
-        self.assertIn("carrying=0", after)
-        self.assertIn("taken=0", after)
-        self.assertNotIn("edge=", after)
-
-    def test_a_failed_edge_stays_owed(self):
-        calls, state_file, proc = self._run(
-            "carrying=1\nedge=1 system:playback_1\nedge=2 broken:in_2\n")
-        self.assertEqual(proc.returncode, 0)
-        self.assertEqual(len(calls), 2)
-        after = state_file.read_text()
-        self.assertIn("edge=2 broken:in_2", after)
-        self.assertNotIn("edge=1 system:playback_1", after)
-
-    def test_nothing_recorded_means_nothing_touched(self):
-        calls, _, proc = self._run(None)
-        self.assertEqual(proc.returncode, 0)
-        self.assertEqual(calls, [])
-        calls, _, proc = self._run("carrying=0\ntaken=0\nedge=x nope\nedge=1\n")
-        self.assertEqual(proc.returncode, 0)
-        self.assertEqual(calls, [])
-
-    def test_the_client_writes_the_format_this_reads(self):
-        source = C_CLIENT.read_text()
-        self.assertIn('STATE_NAME "fx-host.state"', source)
-        self.assertIn('"edge=%d %s\\n"', source)
-        self.assertIn('fprintf(fh, "carrying=%d\\n"', source)
 
 
 if __name__ == "__main__":
