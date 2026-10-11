@@ -100,6 +100,9 @@ _reconcile_engine() {
         mpe_engine_state_write "$MPE_ENGINE_NAME" jack ok "$(mpe_engine_sink_reason)" "$looper_label"
         mpe_engine_reconcile_reset
         mpe_reconcile_looper_if_orphaned "surge-on-graph"
+        # Once per Surge start (surge.state `started=`), not per tick: a
+        # Surge-only restart drops Surge -> every loop input.
+        mpe_reconcile_record_path_after_surge_start "surge-on-graph" || true
         return 0
     fi
 
