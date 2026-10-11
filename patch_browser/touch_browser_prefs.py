@@ -291,6 +291,8 @@ class TouchBrowserPrefsMixin:
         from patch_browser.fx_policy import MOD_WHEEL_EFFECT, MOD_WHEEL_PATCH_FIRST
 
         policy = self.fx_policy
+        if policy.switch_locked:
+            return
         if policy.target == MOD_WHEEL_EFFECT:
             policy.set_target(MOD_WHEEL_PATCH_FIRST)
         else:
