@@ -50,6 +50,7 @@ def install_fake_pygame(*, minimal: bool = False) -> None:
     fake.MOUSEBUTTONDOWN = 1025
     fake.MOUSEBUTTONUP = 1026
     fake.MOUSEMOTION = 1024
+    fake.MOUSEWHEEL = 1027
     fake.FINGERDOWN = 1792
     fake.FINGERUP = 1793
     fake.FINGERMOTION = 1794
@@ -118,6 +119,9 @@ def install_fake_pygame(*, minimal: bool = False) -> None:
 
         def get_linesize(self) -> int:
             return 18
+
+        def get_height(self) -> int:
+            return 16
 
     class _FakeEvent:
         def __init__(self, kind, attrs=None):
