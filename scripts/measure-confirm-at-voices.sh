@@ -21,8 +21,9 @@ BUFFER=1024
 source "$SCRIPT_DIR/lib/mpe-services.sh"
 # shellcheck source=lib/measure-run-as-user.sh
 source "$SCRIPT_DIR/lib/measure-run-as-user.sh"
+# shellcheck source=lib/measure-env.sh
+source "$SCRIPT_DIR/lib/measure-env.sh"
 PERIODS=3
-ENV_FILE="/etc/mpe/mpe.env"
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -53,24 +54,13 @@ PATCH_PATH="${QUICK_SELECT}/${PATCH_NAME}.fxp"
 
 TAG="${TAG:-confirm-${PATCH_NAME// /_}-v${VOICES}}"
 
-_set_env_var() {
-    local key="$1" value="$2" tmp
-    tmp="$(mktemp)"
-    if grep -q "^${key}=" "$ENV_FILE" 2>/dev/null; then
-        sed "s|^${key}=.*|${key}=${value}|" "$ENV_FILE" >"$tmp"
-    else
-        cat "$ENV_FILE" >"$tmp" 2>/dev/null || true
-        printf '\n%s=%s\n' "$key" "$value" >>"$tmp"
-    fi
-    install -m 0644 "$tmp" "$ENV_FILE"
-    rm -f "$tmp"
-}
-
-_set_env_var MPE_POLY_GOVERNOR 0
-_set_env_var MPE_POLY_CEILING 64
-_set_env_var MPE_POLY_FLOOR 64
+# Edits only when they differ, restored byte for byte on exit (lib/measure-env.sh).
+mpe_env_arm
+mpe_env_set MPE_POLY_GOVERNOR 0
+mpe_env_set MPE_POLY_CEILING 64
+mpe_env_set MPE_POLY_FLOOR 64
 mpe_source_appliance_env
-systemctl stop surge-poly-governor.service 2>/dev/null || true
+mpe_unit_stop_for_measure surge-poly-governor.service
 
 {
     echo "=== measure-confirm-at-voices tag=${TAG} patch=${PATCH_NAME} voices=${VOICES} sec=${SECONDS_HOLD} $(date -Is) ==="

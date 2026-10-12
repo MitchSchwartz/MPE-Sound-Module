@@ -30,7 +30,8 @@ USER_HOME="$(getent passwd "$RUN_AS_USER" | cut -d: -f6)"
 MPE_RUN_AS_USER="$RUN_AS_USER"
 MPE_RUN_AS_USER_HOME="$USER_HOME"
 QUICK_SELECT="${USER_HOME}/Documents/Surge XT/Patches/Quick Select"
-ENV_FILE="/etc/mpe/mpe.env"
+# shellcheck source=lib/measure-env.sh
+source "$SCRIPT_DIR/lib/measure-env.sh"
 
 PLATFORM=""
 PASS=1
@@ -71,19 +72,6 @@ JSON_OUT="${ARTIFACT_DIR}/reference-suite-${PLATFORM}-pass${PASS}.json"
 TSV_OUT="${ARTIFACT_DIR}/reference-suite-cells.tsv"
 mkdir -p "$ARTIFACT_DIR"
 exec > >(tee -a "${ARTIFACT_DIR}/reference-suite.log") 2>&1
-
-_set_env_var() {
-    local key="$1" value="$2" tmp
-    tmp="$(mktemp)"
-    if grep -q "^${key}=" "$ENV_FILE" 2>/dev/null; then
-        sed "s|^${key}=.*|${key}=${value}|" "$ENV_FILE" >"$tmp"
-    else
-        cat "$ENV_FILE" >"$tmp" 2>/dev/null || true
-        printf '\n%s=%s\n' "$key" "$value" >>"$tmp"
-    fi
-    install -m 0644 "$tmp" "$ENV_FILE"
-    rm -f "$tmp"
-}
 
 _clock_mhz() {
     local raw
@@ -349,13 +337,15 @@ if [ ! -x "${MPE_MODULE_REPO}/native/mpe-xrun-probe/mpe-xrun-probe" ]; then
     "$SCRIPT_DIR/build-mpe-xrun-probe.sh" --required
 fi
 
-_set_env_var MPE_POLY_GOVERNOR 0
-_set_env_var MPE_POLY_CEILING 64
-_set_env_var MPE_POLY_FLOOR 64
+# Edits only when they differ; restored byte for byte on exit (lib/measure-env.sh).
+mpe_env_arm
+mpe_env_set MPE_POLY_GOVERNOR 0
+mpe_env_set MPE_POLY_CEILING 64
+mpe_env_set MPE_POLY_FLOOR 64
 # shellcheck source=lib/mpe-services.sh
 source "$SCRIPT_DIR/lib/mpe-services.sh"
 mpe_source_appliance_env
-systemctl stop surge-poly-governor.service 2>/dev/null || true
+mpe_unit_stop_for_measure surge-poly-governor.service
 
 if ! mpe_meter_xruns_read >/dev/null 2>&1; then
     echo "Peak meter blind — restarting audio graph"

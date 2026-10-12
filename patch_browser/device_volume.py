@@ -195,6 +195,43 @@ def card_model_key(index: str, root: Path = ASOUND_ROOT) -> str | None:
     return f"usb:{usbid}" if usbid else None
 
 
+def resolve_binding(
+    jack_state: dict[str, str], *, runner=None, asound_root: Path = ASOUND_ROOT
+) -> tuple[str | None, str | None, VolumeElement | None]:
+    """(card, model key, element) for a graph start. Reads only; never writes.
+
+    The one place the device/trim decision is made. `DeviceVolume.rebind` uses
+    it, and so does any tool that has to know the mode without taking the
+    fader over (scripts/load-patch-osc.py).
+    """
+    run = runner or _run_amixer
+    card = bound_card_index(jack_state)
+    key = card_model_key(card, asound_root) if card else None
+    if card is None or key is None:
+        return card, key, None
+    text = run(["-c", card, "contents"])
+    return card, key, choose_element(parse_contents(text or ""))
+
+
+def surge_volume_args(*, device_active: bool, level: float) -> tuple[float, float]:
+    """(fader, headroom_db) for PatchLoader.set_volume. The one Surge-level rule.
+
+    Device mode: the DAC is the level stage, Surge sits at full fader with the
+    fixed DEVICE_MODE_SURGE_TRIM_DB headroom. Trim mode: the fader trims Surge.
+    """
+    from patch_browser.touch_ui_constants import VOLUME_MAX
+
+    if device_active:
+        return VOLUME_MAX, DEVICE_MODE_SURGE_TRIM_DB
+    return float(level), 0.0
+
+
+def apply_surge_volume(loader, *, device_active: bool, level: float):
+    """Send Surge's level through PatchLoader.set_volume, the UI's own path."""
+    fader, headroom_db = surge_volume_args(device_active=device_active, level=level)
+    return loader.set_volume(fader, headroom_db=headroom_db)
+
+
 def default_db(env_path: Path = MPE_ENV_PATH) -> float:
     raw = os.environ.get("MPE_DAC_VOLUME_DB", "")
     if not raw and env_path.is_file():
@@ -281,15 +318,12 @@ class DeviceVolume:
         if binding == self._binding:
             return False
         self._binding = binding
-        self.card = bound_card_index(jack_state)
-        self.key = card_model_key(self.card, self._asound_root) if self.card else None
+        self.card, self.key, element = resolve_binding(
+            jack_state, runner=self._runner, asound_root=self._asound_root
+        )
         self.element = None
         self._db = None
         self._written_raw = None
-        if self.card is None or self.key is None:
-            return True
-        text = self._runner(["-c", self.card, "contents"])
-        element = choose_element(parse_contents(text or ""))
         if element is None:
             return True
         self.element = element
