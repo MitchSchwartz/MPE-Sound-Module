@@ -19,7 +19,8 @@
  *     signal.
  *
  * Chain. The enabled effects run in series in one fixed order, FX_CHAIN_ORDER
- * (Drive -> Phaser -> Chorus -> Tremolo), whatever order they were enabled in.
+ * (Drive -> Phaser -> Flanger -> Chorus -> Tremolo), whatever order they were
+ * enabled in.
  * An enable mask (bit 1 << id) says which; one depth applies to all of them.
  * Each stage k turns its input x into
  *
@@ -113,8 +114,9 @@ typedef struct {
     /* Keep history current without producing output — the bypass path. The
      * chorus writes its delay line and skips the modulated reads and LFO, so
      * coming back in reads real audio, not whatever was there last time. The
-     * filters (drive, phaser) run in full with the output discarded; the
-     * tremolo advances its LFO. NULL for an effect with no history. */
+     * recursive ones (drive, phaser, and the flanger, whose delay line holds
+     * its own feedback) run in full with the output discarded; the tremolo
+     * advances its LFO. NULL for an effect with no history. */
     void (*feed)(void *state, const float *const in[FX_CHANNELS], uint32_t n);
 } fx_effect_desc;
 
@@ -188,9 +190,14 @@ enum {
     FX_MUT_DRIVE_ROUND3_BIAS,       /* bias 0.1: fewer even harmonics */
     FX_MUT_DRIVE_NO_FLUSH,          /* filter memories never flushed */
     FX_MUT_PHASER_NO_FLUSH,
-    FX_MUT_PHASER_HOT_FEEDBACK,     /* positive feedback: resonant peaks > 1 */
+    FX_MUT_PHASER_HOT_FEEDBACK,     /* feedback 0.95: resonance far above unity */
+    FX_MUT_PHASER_FULL_BAND,        /* feedback not band-limited: a shelf boost */
+    FX_MUT_PHASER_RUNAWAY,          /* feedback 1.1: the loop grows */
     FX_MUT_TREMOLO_OVERSHOOT,       /* LFO gain reaching 1.25 */
     FX_MUT_TREMOLO_SHALLOW_TOP,     /* LFO gain topping out at 0.8: too quiet */
+    FX_MUT_FLANGER_NO_FLUSH,        /* delay line and filter memories never flushed */
+    FX_MUT_FLANGER_HOT_FEEDBACK,    /* feedback 0.95: resonance far above unity */
+    FX_MUT_FLANGER_RUNAWAY,         /* feedback 1.1: the loop grows */
     FX_MUT_COUNT
 };
 extern const fx_effect_desc FX_TEST_MUTANTS[];

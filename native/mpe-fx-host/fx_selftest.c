@@ -10,7 +10,7 @@
  *   fx-selftest --measure-unlevelled   the same with no level curve (the
  *                               mixes' own loss, as #149 had it)
  *   fx-selftest --bench         ns per stereo frame for each effect, and for
- *                               the engine with each alone and all four on
+ *                               the engine with each alone and all five on
  *
  * The discontinuity checks each carry a control: the same run with the
  * protection switched off (no depth smoothing, an instant swap) must FAIL the
@@ -373,7 +373,7 @@ static void test_rate_limits(void)
 }
 
 /* ========================================================================= */
-/* The starter pack: drive (1), phaser (2), tremolo (3)                       */
+/* The starter pack: drive (1), phaser (2), tremolo (3); flanger (4)          */
 /* ========================================================================= */
 /*
  * The same battery as the chorus, per effect, each check paired with a
@@ -382,8 +382,15 @@ static void test_rate_limits(void)
  * descriptor (feed removed, wet made 0.5 dB hotter).
  */
 
-#define N_FX 4
-static const char *const FX_LABEL[N_FX] = { "chorus", "drive", "phaser", "tremolo" };
+#define N_FX 5
+static const char *const FX_LABEL[N_FX] = { "chorus", "drive", "phaser", "tremolo", "flanger" };
+#define FX_I_FLANGER 4
+
+/* The effects with a static level curve (fx_dsp.h): the mixes. */
+static int has_level_curve(int k)
+{
+    return k == 0 || k == 2 || k == FX_I_FLANGER;
+}
 
 /* The shipped table with entry `k` replaced. */
 static fx_effect_desc g_table[N_FX];
@@ -582,10 +589,12 @@ static void test_pack_bypass_identity(int k)
 
 /* Fixed margin on the RMS bound: 0.1 dB. */
 #define RMS_MARGIN 1.0116f
-/* The lower bound: -1 dB. The phaser's is -1.3 dB: its static level curve
- * cannot reach -1 dB on keys without white noise and an 80 Hz tone, which
- * lose about half as much in its notches, going over the input (the upper
- * bound wins; see PHASER_LEVEL_SCALE in fx_dsp.c). */
+/* The lower bound: -1 dB. The phaser's is -1.3 dB. Round 4's four-stage
+ * phaser could not reach -1 dB on keys without white noise and an 80 Hz tone
+ * going over their input. Round 5's alone could (-0.93 dB at worst), but in
+ * series with the flanger the two curves stack: phaser + flanger at full
+ * measured keys +0.28 dB over its input. The upper bound wins, so the
+ * phaser's curve is held lower (see PHASER_LEVEL_SCALE in fx_dsp.c). */
 #define RMS_FLOOR 0.8913f
 #define RMS_FLOOR_PHASER 0.8610f
 
@@ -718,11 +727,13 @@ static void test_pack_level_bound(int k)
     CHECK(r.rms_max <= RMS_MARGIN, "%s: output RMS %.4fx input (depth %.2f, %s)", FX_LABEL[k],
           (double)r.rms_max, (double)r.at_depth, LEVEL_SIGNAL_LABEL[r.at_signal]);
 
-    /* Its controls. Chorus and phaser: their level curve 0.5 dB hot. Phaser
-     * also: positive feedback, a resonance above unity. Drive: its wet 0.5 dB hot. Tremolo: its
-     * guarantee is the peak one, so an LFO that overshoots unity. */
-    level_result c;
-    if (k == 0 || k == 2) {
+    /* Its controls. Chorus, phaser and flanger: their level curve 0.5 dB hot.
+     * Phaser and flanger also: feedback 0.95, a resonance far above unity;
+     * the phaser also its feedback full-band (the shelf boost). Drive: its
+     * wet 0.5 dB hot. Tremolo: its guarantee is the peak one, so an LFO that
+     * overshoots unity. */
+    level_result c = { 0.0f, 0.0f, 0.0f, -1, { 0 }, { 0 }, 0.0f };
+    if (has_level_curve(k)) {
         fx_test_level_hot = 1;
         c = level_sweep(FX_EFFECTS, BIT(k), MASK_ALL, 4, NULL);
         fx_test_level_hot = 0;
@@ -742,6 +753,19 @@ static void test_pack_level_bound(int k)
                         4, NULL);
         CHECK(c.rms_max > RMS_MARGIN, "phaser: control (hot feedback) passed: %+.3f dB",
               db(c.rms_max));
+        level_result fb = level_sweep(table_with(k, &FX_TEST_MUTANTS[FX_MUT_PHASER_FULL_BAND]),
+                                      BIT(k), MASK_ALL, 4, NULL);
+        CHECK(fb.rms_max > RMS_MARGIN, "phaser: control (full-band feedback) passed: %+.3f dB",
+              db(fb.rms_max));
+        if (g_verbose) {
+            printf("  phaser   upper control, full-band feedback: RMS %+.3f dB (%s)\n",
+                   db(fb.rms_max), fb.at_signal >= 0 ? LEVEL_SIGNAL_LABEL[fb.at_signal] : "-");
+        }
+    } else if (k == FX_I_FLANGER) {
+        c = level_sweep(table_with(k, &FX_TEST_MUTANTS[FX_MUT_FLANGER_HOT_FEEDBACK]), BIT(k),
+                        MASK_ALL, 4, NULL);
+        CHECK(c.rms_max > RMS_MARGIN, "flanger: control (hot feedback) passed: %+.3f dB",
+              db(c.rms_max));
     } else if (k == 3) {
         c = level_sweep(table_with(k, &FX_TEST_MUTANTS[FX_MUT_TREMOLO_OVERSHOOT]), BIT(k), MASK_ALL, 4,
                         NULL);
@@ -756,8 +780,9 @@ static void test_pack_level_bound(int k)
     /* Peak, where the effect can promise it. The tremolo's gain is in [0, 1];
      * the drive's limiter holds it under the input's recent peak. The chorus's
      * is the input's peak times its static gain (test_output_is_bounded). The
-     * phaser cannot: an all-pass moves phase and raises the crest factor, and
-     * the static gain adds to that. The ±1 clamp holds for every effect. */
+     * phaser and the flanger cannot: an all-pass moves phase and raises the
+     * crest factor, a resonance swells what it crosses, and the static gain
+     * adds to that. The ±1 clamp holds for every effect. */
     if (k == 3) {
         CHECK(r.peak_max <= 1.0f + 1e-6f, "tremolo: output peak %.6fx input",
               (double)r.peak_max);
@@ -932,7 +957,7 @@ static void test_pack_clamp(int k)
     size_t c = clamp_violations(BIT(k), &rec, 1);
     fx_test_no_clamp = 0;
     CHECK(c > 0, "%s: control (clamp off) passed too", FX_LABEL[k]);
-    if (k == 0 || k == 2) {
+    if (has_level_curve(k)) {
         /* Control for the recovery criterion: the level curve off. */
         float stuck = 0.0f;
         fx_test_no_level = 1;
@@ -1005,6 +1030,7 @@ static void test_pack_long_run(int k)
           FX_LABEL[k], c.nonfinite, c.subnormal, c.residue);
     const fx_effect_desc *broken = k == 1 ? &FX_TEST_MUTANTS[FX_MUT_DRIVE_NO_FLUSH]
                                  : k == 2 ? &FX_TEST_MUTANTS[FX_MUT_PHASER_NO_FLUSH]
+                                 : k == FX_I_FLANGER ? &FX_TEST_MUTANTS[FX_MUT_FLANGER_NO_FLUSH]
                                           : &LEAKY;   /* the tremolo has no memory to flush */
     clean_result m = long_run(table_with(k, broken), BIT(k));
     CHECK(!clean(m), "%s: control (%s) also came out clean", FX_LABEL[k], broken->name);
@@ -1231,6 +1257,187 @@ static void test_drive_aliasing(void)
           (double)c);
 }
 
+/* --- 9. feedback stability (phaser, flanger) ------------------------------ */
+
+/* Two minutes at full depth with the clamp off, so the clamp cannot hide a
+ * loop that grows: keys at 0.5 with a 0.1 s burst of noise at the start of
+ * every 9.6 s window (four keys loops), then 2 s of silence. The RMS out/in of
+ * each window against the first's, the largest output sample against the
+ * input's, non-finite samples, and non-zero samples in the last second of the
+ * silence. A loop at or above unity gain grows, overflows, or rings on. */
+typedef struct {
+    double growth_db, peak_db;
+    size_t nonfinite, residue;
+} stability;
+
+static stability feedback_stability(const fx_effect_desc *table, int k)
+{
+    fx_engine e;
+    CHECK(fx_engine_init(&e, table, N_FX, RATE, DEPTH_MS, XFADE_MS) == 0, "init");
+    float l[PERIOD], r[PERIOD], ol[PERIOD], or_[PERIOD];
+    signal_gen g = { SIG_KEYS, 0.5f, 0.0f, 0.0 };
+    const int window = (int)(9.6f * RATE / PERIOD), windows = 12, burst = (int)(0.1f * RATE / PERIOD);
+    stability st = { 0.0, -1e9, 0, 0 };
+    double first = 0.0, sum_in = 0.0, sum_out = 0.0;
+    float peak_in = 0.0f, peak_out = 0.0f;
+    fx_test_no_clamp = 1;
+    for (int p = 0; p < window * windows; p++) {
+        sig_fill(&g, l, r, PERIOD);
+        if (p % window < burst) {
+            for (uint32_t i = 0; i < PERIOD; i++) {
+                l[i] += 0.4f * noise();
+                r[i] += 0.4f * noise();
+            }
+        }
+        run_period(&e, l, r, ol, or_, PERIOD, BIT(k), 1.0f);
+        for (uint32_t i = 0; i < PERIOD; i++) {
+            st.nonfinite += !isfinite(ol[i]) + !isfinite(or_[i]);
+            peak_in = fmaxf(peak_in, fmaxf(fabsf(l[i]), fabsf(r[i])));
+            float po = fmaxf(fabsf(ol[i]), fabsf(or_[i]));
+            peak_out = po > peak_out || po != po ? po : peak_out;
+            sum_in += (double)l[i] * l[i] + (double)r[i] * r[i];
+            sum_out += (double)ol[i] * ol[i] + (double)or_[i] * or_[i];
+        }
+        if ((p + 1) % window == 0) {
+            double ratio = 10.0 * log10(sum_out / sum_in);
+            if (p + 1 == window) {
+                first = ratio;
+            }
+            double grow = ratio - first;
+            st.growth_db = grow > st.growth_db || grow != grow ? grow : st.growth_db;
+            sum_in = sum_out = 0.0;
+        }
+    }
+    st.peak_db = 20.0 * log10((double)peak_out / (double)peak_in);
+    memset(l, 0, sizeof(l));
+    memset(r, 0, sizeof(r));
+    const int silence = (int)(2.0f * RATE / PERIOD);
+    for (int p = 0; p < silence; p++) {
+        run_period(&e, l, r, ol, or_, PERIOD, BIT(k), 1.0f);
+        for (uint32_t i = 0; i < PERIOD; i++) {
+            st.nonfinite += !isfinite(ol[i]) + !isfinite(or_[i]);
+            if (p >= silence / 2) {
+                st.residue += (ol[i] != 0.0f) + (or_[i] != 0.0f);
+            }
+        }
+    }
+    fx_test_no_clamp = 0;
+    fx_engine_free(&e);
+    return st;
+}
+
+/* Limits: no window more than 1 dB above the first, no sample more than
+ * 12 dB over the input's peak (a resonance swells a tone, it does not
+ * explode), exact silence a second after the input stops. */
+static int stable(stability st)
+{
+    return st.nonfinite == 0 && st.growth_db < 1.0 && st.peak_db < 12.0 && st.residue == 0;
+}
+
+static void test_feedback_stability(int k)
+{
+    const fx_effect_desc *runaway = k == 2 ? &FX_TEST_MUTANTS[FX_MUT_PHASER_RUNAWAY]
+                                           : &FX_TEST_MUTANTS[FX_MUT_FLANGER_RUNAWAY];
+    stability st = feedback_stability(FX_EFFECTS, k);
+    stability c = feedback_stability(table_with(k, runaway), k);
+    if (g_verbose) {
+        printf("  %-8s feedback, 115 s at full depth, clamp off: growth %+.2f dB, peak %+.2f dB "
+               "over input, %zu non-finite, %zu residue; control (%s) growth %+.1f dB, peak "
+               "%+.1f dB, %zu non-finite, %zu residue\n", FX_LABEL[k], st.growth_db, st.peak_db,
+               st.nonfinite, st.residue, runaway->name, c.growth_db, c.peak_db, c.nonfinite,
+               c.residue);
+    }
+    CHECK(stable(st), "%s: feedback not stable at full depth: growth %+.2f dB, peak %+.2f dB, "
+          "%zu non-finite, %zu residue", FX_LABEL[k], st.growth_db, st.peak_db, st.nonfinite,
+          st.residue);
+    CHECK(!stable(c), "%s: control (%s) looked stable too", FX_LABEL[k], runaway->name);
+}
+
+/* --- 10. strength: the notches are deep (phaser, flanger) ----------------- */
+
+/* Round 5: "too subtle". A sweeping filter is heard through its notches: as
+ * one crosses a tone, the tone dips. Tones at 300 Hz, 1 kHz and 3 kHz (0.25,
+ * well clear of the clamp) through the effect alone at full depth for a whole
+ * sweep; the tone's amplitude is read by demodulating eight-cycle windows
+ * every two cycles. Returns the mean over the three tones of each one's
+ * deepest dip, in dB re the input. Shipped: phaser -42 / -41 / -20 dB (its
+ * notches are shallower near 3 kHz, where the feedback band-pass rolls off),
+ * flanger -29 / -34 / -48 dB. Round 4's phaser dipped -16.7 dB at every
+ * frequency (its notches were all the same depth). The limit on the mean is
+ * -25 dB. */
+#define NOTCH_LIMIT_DB -25.0
+
+static double sweep_dip_db(const fx_effect_desc *table, int k, float hz, float seconds)
+{
+    fx_engine e;
+    CHECK(fx_engine_init(&e, table, N_FX, RATE, DEPTH_MS, XFADE_MS) == 0, "init");
+    enum { MAX_FRAMES = 300000 };
+    static float y[MAX_FRAMES];
+    float l[PERIOD], r[PERIOD], ol[PERIOD], or_[PERIOD];
+    const int settle = (int)(0.4f * RATE / PERIOD);
+    const int periods = settle + (int)(seconds * RATE / PERIOD);
+    const uint32_t cycle = (uint32_t)(RATE / hz + 0.5f);   /* 160, 48, 16 */
+    long t = 0, n = 0;
+    for (int p = 0; p < periods; p++) {
+        for (uint32_t i = 0; i < PERIOD; i++, t++) {
+            l[i] = r[i] = 0.25f * (float)sin(2.0 * M_PI * (double)(t % cycle) / cycle);
+        }
+        run_period(&e, l, r, ol, or_, PERIOD, BIT(k), 1.0f);
+        if (p >= settle) {
+            for (uint32_t i = 0; i < PERIOD && n < MAX_FRAMES; i++) {
+                y[n++] = ol[i];
+            }
+        }
+    }
+    fx_engine_free(&e);
+    const long win = 8 * (long)cycle, hop = 2 * (long)cycle;
+    double lowest = 1e9;
+    for (long start = 0; start + win <= n; start += hop) {
+        double re = 0.0, im = 0.0;
+        for (long i = 0; i < win; i++) {
+            double ph = 2.0 * M_PI * (double)((start + i) % (long)cycle) / cycle;
+            re += y[start + i] * cos(ph);
+            im += y[start + i] * sin(ph);
+        }
+        double amp = 2.0 * sqrt(re * re + im * im) / (double)win;
+        lowest = fmin(lowest, amp);
+    }
+    return 20.0 * log10(lowest / 0.25 + 1e-12);
+}
+
+static double notch_depth_db(const fx_effect_desc *table, int k, float seconds, double dips[3])
+{
+    static const float tones[3] = { 300.0f, 1000.0f, 3000.0f };
+    double sum = 0.0;
+    for (int j = 0; j < 3; j++) {
+        dips[j] = sweep_dip_db(table, k, tones[j], seconds);
+        sum += dips[j];
+    }
+    return sum / 3.0;
+}
+
+static void test_notch_depth(int k)
+{
+    /* One whole sweep: 2.5 s for the phaser (0.4 Hz), 5 s for the flanger. */
+    const float seconds = k == 2 ? 2.5f : 5.0f;
+    double d[3], c[3];
+    double depth = notch_depth_db(FX_EFFECTS, k, seconds, d);
+    /* Control: the same effect mixed short of the null (wet 0.35, not 0.6),
+     * the shallow, "too subtle" kind of sweep. */
+    fx_effect_desc weak = FX_EFFECTS[k];
+    weak.wet_max = 0.35f;
+    double cd = notch_depth_db(table_with(k, &weak), k, seconds, c);
+    if (g_verbose) {
+        printf("  %-8s notch depth at full, 300 Hz / 1 kHz / 3 kHz: %.1f / %.1f / %.1f dB; "
+               "mean %.1f; control (wet 0.35) %.1f / %.1f / %.1f dB, mean %.1f; limit %.0f\n",
+               FX_LABEL[k], d[0], d[1], d[2], depth, c[0], c[1], c[2], cd, NOTCH_LIMIT_DB);
+    }
+    CHECK(depth <= NOTCH_LIMIT_DB, "%s: tones dip only %.1f dB (mean) as the notches sweep past, "
+          "limit %.0f", FX_LABEL[k], depth, NOTCH_LIMIT_DB);
+    CHECK(cd > NOTCH_LIMIT_DB, "%s: control (wet 0.35) dipped %.1f dB: the check cannot tell a "
+          "shallow sweep", FX_LABEL[k], cd);
+}
+
 /* --- cost ----------------------------------------------------------------- */
 
 #include <time.h>
@@ -1267,11 +1474,12 @@ static void bench(void)
                ns, sink == 12345.0 ? " " : "");
         free(s);
     }
-    /* The whole engine, as the client runs it: one effect, then all four. */
-    static const uint32_t masks[6] = { 0u, 1u << 0, 1u << 1, 1u << 2, 1u << 3, (1u << 4) - 1u };
-    static const char *const names[6] = { "bypass", "chorus", "drive", "phaser", "tremolo",
-                                          "all four" };
-    for (int m = 0; m < 6; m++) {
+    /* The whole engine, as the client runs it: one effect, then all five. */
+    static const uint32_t masks[7] = { 0u, 1u << 0, 1u << 1, 1u << 2, 1u << 3, 1u << 4,
+                                       (1u << 5) - 1u };
+    static const char *const names[7] = { "bypass", "chorus", "drive", "phaser", "tremolo",
+                                          "flanger", "all five" };
+    for (int m = 0; m < 7; m++) {
         fx_engine e;
         fx_engine_init(&e, FX_EFFECTS, FX_EFFECT_COUNT, RATE, 40.0, 30.0);
         float bl[256], br[256], ol[256], or_[256];
@@ -1366,9 +1574,10 @@ static void measure_report(void)
             printf(" %+8.2f %+8.2f %+8.2f\n", (double)lo, (double)hi, (double)pk);
         }
     }
-    static const uint32_t chains[4] = { 0x3u, 0x5u, 0x7u, 0xFu };
-    static const char *const chain_names[4] = { "ch+drv", "ch+ph", "ch+dr+ph", "all4" };
-    for (int c = 0; c < 4; c++) {
+    static const uint32_t chains[7] = { 0x3u, 0x5u, 0x7u, 0xFu, 0x14u, 0x11u, 0x1Fu };
+    static const char *const chain_names[7] = { "ch+drv", "ch+ph", "ch+dr+ph", "all4", "ph+fl",
+                                                "ch+fl", "all5" };
+    for (int c = 0; c < 7; c++) {
         for (int j = 1; j < 5; j++) {
             float lo = 1e9f, hi = -1e9f, pk = -1e9f;
             printf("%-8s %4.0f%%", chain_names[c], 100.0 * knobs[j]);
@@ -1456,6 +1665,10 @@ static void test_pack(void)
         test_pack_depth_steps(k);
         test_pack_reentry(k);
     }
+    test_feedback_stability(2);
+    test_feedback_stability(FX_I_FLANGER);
+    test_notch_depth(2);
+    test_notch_depth(FX_I_FLANGER);
     test_drive_level_step();
     test_drive_aliasing();
     test_drive_smoothness();
@@ -1472,6 +1685,7 @@ static void test_pack(void)
 #define BIT_PHASER BIT(2)
 #define BIT_CHORUS BIT(0)
 #define BIT_TREMOLO BIT(3)
+#define BIT_FLANGER BIT(4)
 
 /* --- static level: the output is the #149 mix times a constant ------------ */
 
@@ -1539,8 +1753,8 @@ static double static_level_residual_db(int k, float depth, float *gain)
 
 static void test_static_level(void)
 {
-    static const int ks[2] = { 0, 2 };
-    for (int j = 0; j < 2; j++) {
+    static const int ks[3] = { 0, 2, FX_I_FLANGER };
+    for (int j = 0; j < 3; j++) {
         int k = ks[j];
         float gain = 0.0f, cg = 0.0f;
         double res = static_level_residual_db(k, 0.7f, &gain);
@@ -1560,11 +1774,12 @@ static void test_static_level(void)
 
 /* --- order ----------------------------------------------------------------- */
 
-/* Four test effects that do not commute, in the shipped table's slots: the
- * drive's clips at ±0.1, the phaser's scales by 0.25, the chorus's adds 0.01,
- * the tremolo's inverts. A constant 0.5 through all four in the shipped order
- * (drive, phaser, chorus, tremolo) is -(0.25 * 0.1 + 0.01) = -0.035; no other
- * order gives that. */
+/* Five test effects that do not commute, in the shipped table's slots: the
+ * drive's clips at ±0.1, the phaser's scales by 0.25, the flanger's is
+ * 2x + 0.03, the chorus's adds 0.01, the tremolo's inverts. A constant 0.5
+ * through all five in the shipped order (drive, phaser, flanger, chorus,
+ * tremolo) is -(2 (0.25 * 0.1) + 0.03 + 0.01) = -0.09; swapping any two
+ * neighbours gives something else. */
 static int op_init(void *s, float r) { (void)s; (void)r; return 0; }
 #define OP(name, expr)                                                                 \
     static void name(void *s, const float *const in[FX_CHANNELS],                       \
@@ -1583,6 +1798,7 @@ OP(op_add, x + 0.01f)
 OP(op_clip, fminf(0.1f, fmaxf(-0.1f, x)))
 OP(op_scale, 0.25f * x)
 OP(op_neg, -x)
+OP(op_affine, 2.0f * x + 0.03f)
 
 static float chain_order_output(void)
 {
@@ -1591,6 +1807,7 @@ static float chain_order_output(void)
         { "clip", 1.0f, 1.0f, 0.0f, 0.0f, 1, op_init, op_clip, NULL },
         { "scale", 1.0f, 1.0f, 0.0f, 0.0f, 1, op_init, op_scale, NULL },
         { "neg", 1.0f, 1.0f, 0.0f, 0.0f, 1, op_init, op_neg, NULL },
+        { "affine", 1.0f, 1.0f, 0.0f, 0.0f, 1, op_init, op_affine, NULL },
     };
     fx_engine e;
     CHECK(fx_engine_init(&e, ops, N_FX, RATE, DEPTH_MS, XFADE_MS) == 0, "init");
@@ -1609,19 +1826,20 @@ static void test_chain_order(void)
 {
     fx_engine e;
     CHECK(fx_engine_init(&e, FX_EFFECTS, FX_EFFECT_COUNT, RATE, DEPTH_MS, XFADE_MS) == 0, "init");
-    CHECK(FX_CHAIN_LEN == N_FX && e.order[0] == 1 && e.order[1] == 2 && e.order[2] == 0 &&
-          e.order[3] == 3, "run order is not drive, phaser, chorus, tremolo");
+    CHECK(FX_CHAIN_LEN == N_FX && e.order[0] == 1 && e.order[1] == 2 && e.order[2] == 4 &&
+          e.order[3] == 0 && e.order[4] == 3,
+          "run order is not drive, phaser, flanger, chorus, tremolo");
     fx_engine_free(&e);
     float y = chain_order_output();
     fx_test_reverse_order = 1;
     float c = chain_order_output();
     fx_test_reverse_order = 0;
     if (g_verbose) {
-        printf("  chain    order: %.6f (drive, phaser, chorus, tremolo = -0.035); control "
-               "(reversed) %.6f\n", (double)y, (double)c);
+        printf("  chain    order: %.6f (drive, phaser, flanger, chorus, tremolo = -0.09); "
+               "control (reversed) %.6f\n", (double)y, (double)c);
     }
-    CHECK(fabsf(y + 0.035f) < 1e-6f, "chain order: 0.5 came out %.6f, not -0.035", (double)y);
-    CHECK(fabsf(c + 0.035f) >= 1e-6f, "chain order: control (reversed) gave -0.035 too");
+    CHECK(fabsf(y + 0.09f) < 1e-6f, "chain order: 0.5 came out %.6f, not -0.09", (double)y);
+    CHECK(fabsf(c + 0.09f) >= 1e-6f, "chain order: control (reversed) gave -0.09 too");
 }
 
 /* --- bypass: an empty mask --------------------------------------------- */
@@ -1666,12 +1884,12 @@ static void test_chain_bypass(void)
     size_t m1 = bypass_mismatches_mask(0u, 1.0f, FX_ALL);
     size_t m2 = bypass_mismatches_mask(FX_ALL, 0.0f, FX_ALL);
     CHECK(m0 == 0, "empty mask at full depth: %zu periods differ from the input", m0);
-    CHECK(m1 == 0, "empty mask after all four: %zu periods differ from the input", m1);
-    CHECK(m2 == 0, "all four at depth 0: %zu periods differ from the input", m2);
+    CHECK(m1 == 0, "empty mask after all five: %zu periods differ from the input", m1);
+    CHECK(m2 == 0, "all five at depth 0: %zu periods differ from the input", m2);
     size_t c = bypass_mismatches_mask(FX_ALL, 1.0f / 127.0f, FX_ALL);
-    CHECK(c > 0, "control (all four at depth 1/127) also identical: the comparison is blind");
+    CHECK(c > 0, "control (all five at depth 1/127) also identical: the comparison is blind");
     if (g_verbose) {
-        printf("  chain    bypass: empty mask %zu, after all four %zu, depth 0 %zu differing "
+        printf("  chain    bypass: empty mask %zu, after all five %zu, depth 0 %zu differing "
                "periods; control (1/127) %zu\n", m0, m1, m2, c);
     }
 }
@@ -1682,7 +1900,7 @@ static void test_chain_toggles(void)
 {
     const uint32_t masks[] = {
         0u, BIT_DRIVE, BIT_DRIVE | BIT_CHORUS, BIT_CHORUS, FX_ALL, BIT_PHASER | BIT_TREMOLO,
-        0u, FX_ALL, BIT_TREMOLO, BIT_PHASER,
+        0u, FX_ALL, BIT_TREMOLO, BIT_FLANGER, BIT_PHASER | BIT_FLANGER, BIT_PHASER,
     };
     const int segs = (int)(sizeof(masks) / sizeof(masks[0]));
     float depths[sizeof(masks) / sizeof(masks[0])];
@@ -1692,7 +1910,8 @@ static void test_chain_toggles(void)
     fx_engine e;
     CHECK(fx_engine_init(&e, FX_EFFECTS, FX_EFFECT_COUNT, RATE, DEPTH_MS, XFADE_MS) == 0, "init");
     steps s = measure_steps_sig(&e, masks, depths, segs, 190, 60, 0.1f, 110.0f);
-    int landed = e.on[2] == 1.0f && e.on[0] == 0.0f && e.on[1] == 0.0f && e.on[3] == 0.0f;
+    int landed = e.on[2] == 1.0f && e.on[0] == 0.0f && e.on[1] == 0.0f && e.on[3] == 0.0f &&
+                 e.on[4] == 0.0f;
     fx_engine_free(&e);
     CHECK(fx_engine_init(&e, FX_EFFECTS, FX_EFFECT_COUNT, RATE, DEPTH_MS, 0.0) == 0, "init");
     steps c = measure_steps_sig(&e, masks, depths, segs, 190, 60, 0.1f, 110.0f);
@@ -1732,7 +1951,7 @@ static void test_chain_level_bound(void)
     CHECK(c.rms_max > RMS_MARGIN, "chain: control (hot level curve) passed: %+.3f dB",
           db(c.rms_max));
     if (g_verbose) {
-        printf("  chain    level: worst RMS out/in over all 15 masks %+.3f dB (mask %u); "
+        printf("  chain    level: worst RMS out/in over all 31 masks %+.3f dB (mask %u); "
                "control (hot) %+.3f dB\n", db(worst), (unsigned)at_mask, db(c.rms_max));
     }
 }
