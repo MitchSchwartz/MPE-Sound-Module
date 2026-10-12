@@ -30,11 +30,15 @@
  * always an interpolation between two input samples from the last ~9 ms and
  * cannot exceed them.
  *
- * Level. Half dry and half a copy 5..9 ms late measured -3.0 dB on the keys
- * signal and -3.8 dB on noise at full depth (the two halves are partly
- * decorrelated, so they add in power, not amplitude), and up to -9.5 dB on an
- * 80 Hz tone, which sits on the first comb notch. The engine's level stage
- * (fx_dsp.h) lifts it back, at most +6 dB.
+ * Level. Half dry and half a copy 5..9 ms late measured -3.1 dB on the keys
+ * signal and -3.8 dB on noise at full depth (the two halves are decorrelated,
+ * so they add in power, not amplitude), and up to -9.5 dB on an 80 Hz tone,
+ * which sits on the first comb notch. The engine's static level curve
+ * (fx_dsp.h) gives most of the power-sum loss back: correlation 0, scale
+ * CHORUS_LEVEL_SCALE. It is a fixed gain per knob position, so the chorus's
+ * tone is the #149 tone, including the comb's softening of the highs: round 3
+ * put a dynamic makeup and a peak limiter on this mix, and the limiter, acting
+ * on every peak, measured two-tone IMD -32 dB at full (#149: -75 dB).
  *
  * Per stereo frame while active: one triangle step (add, compare, abs, fma),
  * then per channel one delay-time fma, a float->int split, a write, two reads
@@ -42,9 +46,10 @@
 #define CHORUS_CENTER_MS 7.0f
 #define CHORUS_SWEEP_MS 2.0f   /* ± around the centre: 5..9 ms */
 #define CHORUS_RATE_HZ 0.6f
-/* Level stage lift ceiling: +6 dB. Half dry and half a copy 5..9 ms late is
- * -3 dB on anything broadband and much less on a tone near a comb notch. */
-#define CHORUS_MAKEUP 1.9953f
+/* Static level curve (fx_dsp.h): a decorrelated copy, given back to within
+ * CHORUS_LEVEL_SCALE of its power-sum loss. Calibrated on the keys signal. */
+#define CHORUS_LEVEL_CORR 0.0f
+#define CHORUS_LEVEL_SCALE 0.9f
 
 /* Power of two ≥ (centre + sweep) at FX_MAX_RATE plus two taps of headroom:
  * 9 ms × 192 kHz = 1728 samples. */
@@ -203,13 +208,14 @@ static inline float limiter_need(float need, float y, float ceil)
  *     dominate the clipping (tighter, less mud) — the overdrive-pedal habit.
  *   - Drive G = 0.5 (1 + 15 a^2) for knob a: 0.5 (clean) .. 8 (+24 dB over
  *     that; +18 dB over unity). Was .. 16: the top is 6 dB lower.
- *   - Shaper: f(u) = a(u + 0.1) - a(0.1), a(v) = v / sqrt(1 + v^2). The
+ *   - Shaper: f(u) = a(u + 0.2) - a(0.2), a(v) = v / sqrt(1 + v^2). The
  *     algebraic sigmoid has no corner anywhere (the old cubic went flat at
  *     |v| = 1 with a jump in curvature, which is what turns a hard-driven
  *     wave square and its harmonics slow to fall off): the knee is soft, and
- *     h3, h5, h7 fall about twice as fast in dB. The 0.1 bias (was 0.2)
- *     keeps a gentler asymmetry for the even harmonics. |f(u)| <= |u|, since
- *     a' <= 1; |f| < 1 + a(0.1) = sat.
+ *     h3, h5, h7 fall about twice as fast in dB. The bias is 0.2, the #149
+ *     value (round 3 tried 0.1; round 4, after the second ear test, "maybe a
+ *     little too smooth", put it back): the asymmetry that gives the even
+ *     harmonics. |f(u)| <= |u|, since a' <= 1; |f| < 1 + a(0.2) = sat.
  *   - Post: a DC blocker at 20 Hz (the asymmetry makes DC), then presence: a
  *     first-order high shelf, +4 dB above ~1.8 kHz, into a one-pole low-pass
  *     at 6.5 kHz. Net, about +2 dB across 2-5 kHz, level at 8 kHz, -2 dB at
@@ -278,8 +284,8 @@ static const float HB_B[DRIVE_HB_B_K] = {
     1.743344741e-04f,
 };
 
-#define DRIVE_BIAS 0.1f
-#define DRIVE_F_BIAS 0.0995037190f   /* a(0.1) = 0.1 / sqrt(1.01) */
+#define DRIVE_BIAS 0.2f
+#define DRIVE_F_BIAS 0.1961161351f   /* a(0.2) = 0.2 / sqrt(1.04) */
 #define DRIVE_SAT (1.0f + DRIVE_F_BIAS)
 #define DRIVE_MAX 8.0f               /* G at the top of the knob */
 #define DRIVE_PRES_DB 4.0
@@ -353,6 +359,15 @@ static inline float drive_shape(float u)
 }
 
 #ifdef FX_SELFTEST
+/* The round-3 bias (0.1), kept only so the self-test can show its even-
+ * harmonic check failing it. a(0.1) = 0.0995037190. */
+static inline float drive_shape_round3(float u)
+{
+    float v = u + 0.1f;
+    v = v > 1.0e4f ? 1.0e4f : (v < -1.0e4f ? -1.0e4f : v);
+    return v / sqrtf(1.0f + v * v) - 0.0995037190f;
+}
+
 /* The round-2 shaper, kept only so the self-test can show its smoothness
  * check failing it: (s(u + 0.2) - s(0.2)) / 1.5, s(v) = 1.5v - 0.5v^3 on
  * [-1, 1] and flat outside. */
@@ -383,7 +398,7 @@ typedef struct {
 
 enum {
     DRIVE_NO_OS = 1, DRIVE_NO_CEILING = 2, DRIVE_NO_FLUSH = 4, DRIVE_NO_MAKEUP = 8,
-    DRIVE_OLD_SHAPER = 16
+    DRIVE_OLD_SHAPER = 16, DRIVE_ROUND3_BIAS = 32
 };
 
 static int drive_init(void *state, float rate)
@@ -427,6 +442,10 @@ static inline float drive_core(drive_chan *c, float u, int mode)
 #ifdef FX_SELFTEST
         if (mode & DRIVE_OLD_SHAPER) {
             b[j] = drive_shape_old(b[j]);
+            continue;
+        }
+        if (mode & DRIVE_ROUND3_BIAS) {
+            b[j] = drive_shape_round3(b[j]);
             continue;
         }
 #endif
@@ -553,9 +572,14 @@ static void drive_feed(void *state, const float *const in[FX_CHANNELS], uint32_t
  * frequency: that is its level guarantee for steady input (RMS); peaks are not
  * guaranteed, an all-pass moves phase and can raise the crest factor. Positive
  * feedback would resonate above unity — the hot-feedback mutant shows the
- * self-test catching exactly that. The notches cost level (-2.7 dB on the
- * keys signal at full mix); the engine's level stage lifts it back, at most
- * +6 dB, and because it only ever lifts, a too-loud phaser still shows.
+ * self-test catching exactly that. The notches cost level (-2.5 dB on the
+ * keys signal at full mix); the engine's static level curve (fx_dsp.h) gives
+ * part of it back. It is calibrated on keys (correlation PHASER_LEVEL_CORR
+ * fits the keys loss at every knob position) and its scale is held where
+ * white noise, which loses less (-1.5 dB: most of its energy is above the
+ * notches), stays under the input. Round 3 used a dynamic makeup that followed
+ * the sweep, under a peak limiter: two-tone IMD -33 dB at full (#149: -118 dB),
+ * the "distortion that comes and goes with the sweep".
  *
  * The corner -> coefficient map needs tan(); it is tabulated per rate (257
  * points over one LFO cycle) and linearly interpolated per frame.
@@ -571,8 +595,8 @@ static void drive_feed(void *state, const float *const in[FX_CHANNELS], uint32_t
 #define PHASER_STEREO_OFFSET 0.25f
 #define PHASER_FEEDBACK -0.2f
 #define PHASER_TABLE 256
-/* Level stage lift ceiling: +6 dB (the notches cost up to ~2.7 dB). */
-#define PHASER_MAKEUP 1.9953f
+#define PHASER_LEVEL_CORR 0.13f
+#define PHASER_LEVEL_SCALE 0.58f
 
 typedef struct {
     float table[PHASER_TABLE + 1];
@@ -739,15 +763,24 @@ static void tremolo_feed(void *state, const float *const in[FX_CHANNELS], uint32
  * patch_browser/fx_host_protocol.py names the same ids in the same order;
  * tests/test_fx_host.py reads this table and fails if they drift. */
 const fx_effect_desc FX_EFFECTS[] = {
-    { "chorus", 0.5f, 1.0f, CHORUS_MAKEUP, sizeof(chorus_state), chorus_init, chorus_process,
-      chorus_feed },
-    { "drive", 1.0f, 0.05f, 1.0f, sizeof(drive_state), drive_init, drive_process, drive_feed },
-    { "phaser", 0.5f, 1.0f, PHASER_MAKEUP, sizeof(phaser_state), phaser_init, phaser_process,
-      phaser_feed },
-    { "tremolo", 1.0f, 1.0f, 1.0f, sizeof(tremolo_state), tremolo_init, tremolo_process,
+    { "chorus", 0.5f, 1.0f, CHORUS_LEVEL_CORR, CHORUS_LEVEL_SCALE, sizeof(chorus_state),
+      chorus_init, chorus_process, chorus_feed },
+    { "drive", 1.0f, 0.05f, 0.0f, 0.0f, sizeof(drive_state), drive_init, drive_process,
+      drive_feed },
+    { "phaser", 0.5f, 1.0f, PHASER_LEVEL_CORR, PHASER_LEVEL_SCALE, sizeof(phaser_state),
+      phaser_init, phaser_process, phaser_feed },
+    { "tremolo", 1.0f, 1.0f, 0.0f, 0.0f, sizeof(tremolo_state), tremolo_init, tremolo_process,
       tremolo_feed },
 };
 const int FX_EFFECT_COUNT = (int)(sizeof(FX_EFFECTS) / sizeof(FX_EFFECTS[0]));
+
+/* The run order, as ids: Drive -> Phaser -> Chorus -> Tremolo. The drive
+ * first, so it shapes the plain signal rather than a swept or doubled one;
+ * the tremolo last, so its level wobble is not then shaped by anything.
+ * patch_browser/fx_host_protocol.py's CHAIN_ORDER names the same ids;
+ * tests/test_fx_host.py reads this array and fails if they drift. */
+const int FX_CHAIN_ORDER[] = { 1, 2, 0, 3 };
+const int FX_CHAIN_LEN = (int)(sizeof(FX_CHAIN_ORDER) / sizeof(FX_CHAIN_ORDER[0]));
 
 #ifdef FX_SELFTEST
 static void drive_no_os(void *st, const float *const in[FX_CHANNELS],
@@ -769,6 +802,11 @@ static void drive_old_shaper(void *st, const float *const in[FX_CHANNELS],
                              float *const wet[FX_CHANNELS], const float *amount, uint32_t n)
 {
     drive_run(st, in, wet, amount, n, DRIVE_OLD_SHAPER);
+}
+static void drive_round3_bias(void *st, const float *const in[FX_CHANNELS],
+                              float *const wet[FX_CHANNELS], const float *amount, uint32_t n)
+{
+    drive_run(st, in, wet, amount, n, DRIVE_ROUND3_BIAS);
 }
 static void drive_no_flush(void *st, const float *const in[FX_CHANNELS],
                            float *const wet[FX_CHANNELS], const float *amount, uint32_t n)
@@ -810,23 +848,28 @@ static void tremolo_shallow_top(void *st, const float *const in[FX_CHANNELS],
 }
 
 const fx_effect_desc FX_TEST_MUTANTS[FX_MUT_COUNT] = {
-    [FX_MUT_DRIVE_NO_OVERSAMPLING] = { "drive-no-os", 1.0f, 0.05f, 1.0f, sizeof(drive_state),
+    [FX_MUT_DRIVE_NO_OVERSAMPLING] = { "drive-no-os", 1.0f, 0.05f, 0.0f, 0.0f, sizeof(drive_state),
                                        drive_init, drive_no_os, drive_feed },
-    [FX_MUT_DRIVE_NO_CEILING] = { "drive-no-ceiling", 1.0f, 0.05f, 1.0f, sizeof(drive_state),
+    [FX_MUT_DRIVE_NO_CEILING] = { "drive-no-ceiling", 1.0f, 0.05f, 0.0f, 0.0f, sizeof(drive_state),
                                   drive_init, drive_no_ceiling, drive_feed },
-    [FX_MUT_DRIVE_NO_MAKEUP] = { "drive-no-makeup", 1.0f, 0.05f, 1.0f, sizeof(drive_state),
+    [FX_MUT_DRIVE_NO_MAKEUP] = { "drive-no-makeup", 1.0f, 0.05f, 0.0f, 0.0f, sizeof(drive_state),
                                  drive_init, drive_no_makeup, drive_feed },
-    [FX_MUT_DRIVE_OLD_SHAPER] = { "drive-old-shaper", 1.0f, 0.05f, 1.0f, sizeof(drive_state),
+    [FX_MUT_DRIVE_OLD_SHAPER] = { "drive-old-shaper", 1.0f, 0.05f, 0.0f, 0.0f, sizeof(drive_state),
                                   drive_init, drive_old_shaper, drive_feed },
-    [FX_MUT_DRIVE_NO_FLUSH] = { "drive-no-flush", 1.0f, 0.05f, 1.0f, sizeof(drive_state),
+    [FX_MUT_DRIVE_ROUND3_BIAS] = { "drive-round3-bias", 1.0f, 0.05f, 0.0f, 0.0f,
+                                   sizeof(drive_state), drive_init, drive_round3_bias,
+                                   drive_feed },
+    [FX_MUT_DRIVE_NO_FLUSH] = { "drive-no-flush", 1.0f, 0.05f, 0.0f, 0.0f, sizeof(drive_state),
                                 drive_init, drive_no_flush, drive_no_flush_feed },
-    [FX_MUT_PHASER_NO_FLUSH] = { "phaser-no-flush", 0.5f, 1.0f, PHASER_MAKEUP, sizeof(phaser_state),
+    [FX_MUT_PHASER_NO_FLUSH] = { "phaser-no-flush", 0.5f, 1.0f, PHASER_LEVEL_CORR, PHASER_LEVEL_SCALE,
+                                 sizeof(phaser_state),
                                  phaser_init, phaser_no_flush, phaser_no_flush_feed },
-    [FX_MUT_PHASER_HOT_FEEDBACK] = { "phaser-hot", 0.5f, 1.0f, PHASER_MAKEUP, sizeof(phaser_state),
+    [FX_MUT_PHASER_HOT_FEEDBACK] = { "phaser-hot", 0.5f, 1.0f, PHASER_LEVEL_CORR, PHASER_LEVEL_SCALE,
+                                 sizeof(phaser_state),
                                      phaser_init, phaser_hot, phaser_feed },
-    [FX_MUT_TREMOLO_OVERSHOOT] = { "tremolo-overshoot", 1.0f, 1.0f, 1.0f, sizeof(tremolo_state),
+    [FX_MUT_TREMOLO_OVERSHOOT] = { "tremolo-overshoot", 1.0f, 1.0f, 0.0f, 0.0f, sizeof(tremolo_state),
                                    tremolo_init, tremolo_overshoot, tremolo_feed },
-    [FX_MUT_TREMOLO_SHALLOW_TOP] = { "tremolo-shallow-top", 1.0f, 1.0f, 1.0f,
+    [FX_MUT_TREMOLO_SHALLOW_TOP] = { "tremolo-shallow-top", 1.0f, 1.0f, 0.0f, 0.0f,
                                      sizeof(tremolo_state), tremolo_init, tremolo_shallow_top,
                                      tremolo_feed },
 };
@@ -846,103 +889,54 @@ static float one_pole_alpha(double ms, float rate)
     return (float)(1.0 - exp(-1.0 / ((ms / 1000.0) * (double)rate)));
 }
 
-/* Level stage (fx_dsp.h, "Level match"). */
-#define LEVEL_DETECT_MS 50.0
-#define LEVEL_SMOOTH_MS 20.0
-#define LEVEL_TARGET 0.9886f       /* -0.1 dB: aim just under parity */
-#define LEVEL_RELEASE_MS 10.0      /* the limiter's recovery */
-#define LEVEL_PEAK_BLOCK_MS 4.0f   /* peak window: the current block + 5 before */
-#define LEVEL_EPS 1e-10f
-
 #ifdef FX_SELFTEST
 int fx_test_no_level;
 int fx_test_level_hot;
-int fx_test_no_limit;
+int fx_test_level_wobble;
+int fx_test_reverse_order;
+static uint32_t g_wobble_t;
 #endif
 
-/* Mean square of a stereo pair, with non-finite input read as silence so one
- * NaN cannot sit in a detector for good. */
-static inline float level_sq(float l, float r)
+/* The static level curve (fx_dsp.h, "Level curve"), tabulated over depth.
+ * Startup and rate change only: it uses pow. */
+static void level_table(fx_engine *e, int k)
 {
-    float sq = l * l + r * r;
-    return sq <= 1.0e30f ? sq : 0.0f;
+    const fx_effect_desc *d = &e->table[k];
+    for (int j = 0; j <= FX_LEVEL_POINTS; j++) {
+        double depth = (double)j / FX_LEVEL_POINTS;
+        double w = (double)d->wet_max * fmin(1.0, depth / (double)d->mix_full_at);
+        double ms = 1.0 - 2.0 * w * (1.0 - w) * (1.0 - (double)d->level_corr);
+        double g = d->level_scale > 0.0f && ms > 0.0 ? pow(ms, -0.5 * (double)d->level_scale)
+                                                      : 1.0;
+        e->level[k][j] = j == 0 ? 1.0f : (float)g;   /* exactly 1 at depth 0 */
+    }
 }
 
-/* Run the dry-side detectors for one frame: mean square and peak window. */
-static inline float level_dry(fx_engine *e, float l, float r)
+/* g_k(d), linearly interpolated: d is the smoothed depth, so the gain moves
+ * only as fast as the knob's smoothing lets it. */
+static inline float level_at(const fx_engine *e, int k, float d)
 {
-    e->ms_dry += e->lv_detect * (level_sq(l, r) - e->ms_dry);
-    e->ms_dry = flush(e->ms_dry);
-    float p = fmaxf(fabsf(l), fabsf(r));      /* fmaxf drops a NaN */
-    e->peak_now = p > e->peak_now ? p : e->peak_now;
-    float peak = e->peak_now;
-    for (int b = 0; b < 5; b++) {
-        peak = e->peak_blocks[b] > peak ? e->peak_blocks[b] : peak;
+    float pos = d * (float)FX_LEVEL_POINTS;
+    int j = (int)pos;
+    if (j >= FX_LEVEL_POINTS) {
+        j = FX_LEVEL_POINTS - 1;
     }
-    if (++e->block_pos >= e->block_len) {
-        for (int b = 4; b > 0; b--) {
-            e->peak_blocks[b] = e->peak_blocks[b - 1];
-        }
-        e->peak_blocks[0] = e->peak_now;
-        e->peak_now = 0.0f;
-        e->block_pos = 0;
-    }
-    return peak;
-}
-
-/* An effect that is not being heard starts from parity when it comes back. */
-static inline void level_reset(fx_engine *e, int k)
-{
-    e->lv_ms[k] = e->ms_dry;
-    e->lv_gain[k] = 1.0f;
-    e->lv_target[k] = 1.0f;
-    e->lim_gain[k] = 1.0f;
-}
-
-/* Lift effect k's mix pair in place toward the dry level (fx_dsp.h). */
-/* Effect k's lift target from its detectors: once per chunk (64 frames,
- * 1.3 ms at 48 kHz), well inside the 20 ms the gain is smoothed over, so the
- * sqrt and divide are not paid per frame. */
-static inline void level_target(fx_engine *e, int k)
-{
-    const float gmax = e->table[k].makeup_max;
-    if (!(gmax > 1.0f)) {
-        return;
-    }
-    float target = sqrtf((e->ms_dry + LEVEL_EPS) / (e->lv_ms[k] + LEVEL_EPS)) * LEVEL_TARGET;
+    float frac = pos - (float)j;
+    float g = e->level[k][j] + frac * (e->level[k][j + 1] - e->level[k][j]);
 #ifdef FX_SELFTEST
-    if (fx_test_level_hot) {
-        target *= 1.0593f;
-    }
     if (fx_test_no_level) {
-        target = 1.0f;
+        g = 1.0f;
+    }
+    if (fx_test_level_hot && d > 0.0f) {
+        g *= 1.0593f;
+    }
+    if (fx_test_level_wobble && e->table[k].level_scale > 0.0f) {
+        /* +-0.5 dB at ~0.4 Hz: what a gain that follows the sweep does. */
+        float ph = (float)(g_wobble_t % 120000u) / 120000.0f;
+        g *= 1.0f + 0.06f * (4.0f * fabsf(ph - 0.5f) - 1.0f);
     }
 #endif
-    e->lv_target[k] = target > gmax ? gmax : (target > 1.0f ? target : 1.0f);
-}
-
-/* Lift effect k's mix pair in place toward the dry level (fx_dsp.h). */
-static inline void level_apply(fx_engine *e, int k, float *m0, float *m1, float peak)
-{
-    if (!(e->table[k].makeup_max > 1.0f)) {
-        return;
-    }
-    e->lv_ms[k] += e->lv_detect * (level_sq(*m0, *m1) - e->lv_ms[k]);
-    e->lv_ms[k] = flush(e->lv_ms[k]);
-    float g = e->lv_gain[k] + e->lv_smooth * (e->lv_target[k] - e->lv_gain[k]);
-    e->lv_gain[k] = g;
-    float y0 = g * *m0, y1 = g * *m1;
-    float need = limiter_need(1.0f, y0, fmaxf(peak, fabsf(*m0)));
-    need = limiter_need(need, y1, fmaxf(peak, fabsf(*m1)));
-#ifdef FX_SELFTEST
-    if (fx_test_no_limit) {
-        need = 1.0f;
-    }
-#endif
-    float h = limiter_gain(e->lim_gain[k], need, e->lv_release);
-    e->lim_gain[k] = h;
-    *m0 = h * y0;
-    *m1 = h * y1;
+    return g;
 }
 
 static float xfade_step_for(double ms, float rate)
@@ -965,18 +959,6 @@ int fx_engine_set_rate(fx_engine *e, float rate)
     e->rate = rate;
     e->depth_alpha = one_pole_alpha(e->depth_ms, rate);
     e->xfade_step = xfade_step_for(e->xfade_ms, rate);
-    e->lv_detect = one_pole_alpha(LEVEL_DETECT_MS, rate);
-    e->lv_smooth = one_pole_alpha(LEVEL_SMOOTH_MS, rate);
-    e->lv_release = one_pole_alpha(LEVEL_RELEASE_MS, rate);
-    e->ms_dry = 0.0f;
-    e->peak_now = 0.0f;
-    memset(e->peak_blocks, 0, sizeof(e->peak_blocks));
-    e->block_len = (uint32_t)(LEVEL_PEAK_BLOCK_MS * 0.001f * rate);
-    e->block_len = e->block_len < 1u ? 1u : e->block_len;
-    e->block_pos = 0;
-    for (int k = 0; k < FX_MAX_EFFECTS; k++) {
-        level_reset(e, k);
-    }
     return 0;
 }
 
@@ -991,9 +973,24 @@ int fx_engine_init(fx_engine *e, const fx_effect_desc *table, int count, float r
     e->count = count;
     e->depth_ms = depth_ms;
     e->xfade_ms = xfade_ms;
-    e->active = 0;
-    e->incoming = -1;
+    /* The run order: FX_CHAIN_ORDER's ids that this table has, then any it
+     * does not name, in id order. */
+    int n = 0;
+    int placed[FX_MAX_EFFECTS] = { 0 };
+    for (int i = 0; i < FX_CHAIN_LEN; i++) {
+        int k = FX_CHAIN_ORDER[i];
+        if (k >= 0 && k < count && !placed[k]) {
+            e->order[n++] = k;
+            placed[k] = 1;
+        }
+    }
     for (int k = 0; k < count; k++) {
+        if (!placed[k]) {
+            e->order[n++] = k;
+        }
+    }
+    for (int k = 0; k < count; k++) {
+        level_table(e, k);
         e->state[k] = calloc(1, table[k].state_bytes);
         if (e->state[k] == NULL) {
             fx_engine_free(e);
@@ -1037,28 +1034,24 @@ static inline float clamp_out(float x)
     return x;
 }
 
-static void feed_idle(fx_engine *e, const float *const dry[FX_CHANNELS], uint32_t n,
-                      int skip_a, int skip_b)
+static inline void feed_one(fx_engine *e, int k, const float *const x[FX_CHANNELS], uint32_t n)
 {
-    for (int k = 0; k < e->count; k++) {
-        if (k == skip_a || k == skip_b || e->table[k].feed == NULL) {
-            continue;
-        }
-        e->table[k].feed(e->state[k], dry, n);
+    if (e->table[k].feed != NULL) {
+        e->table[k].feed(e->state[k], x, n);
     }
 }
 
 void fx_engine_process(fx_engine *e, const float *const in[FX_CHANNELS],
                        float *const out[FX_CHANNELS], uint32_t nframes,
-                       int effect, float depth)
+                       uint32_t mask, float depth)
 {
-    float dry_buf[FX_CHANNELS][FX_CHUNK];
-    float wet_a_buf[FX_CHANNELS][FX_CHUNK];
-    float wet_b_buf[FX_CHANNELS][FX_CHUNK];
+    /* The signal as it passes down the chain, and one stage's wet. */
+    float x_buf[FX_CHANNELS][FX_CHUNK];
+    float wet_buf[FX_CHANNELS][FX_CHUNK];
     float depth_ramp[FX_CHUNK];
-    const float *const dry[FX_CHANNELS] = { dry_buf[0], dry_buf[1] };
-    float *const wet_a[FX_CHANNELS] = { wet_a_buf[0], wet_a_buf[1] };
-    float *const wet_b[FX_CHANNELS] = { wet_b_buf[0], wet_b_buf[1] };
+    float on_ramp[FX_CHUNK];
+    const float *const x_in[FX_CHANNELS] = { x_buf[0], x_buf[1] };
+    float *const wet[FX_CHANNELS] = { wet_buf[0], wet_buf[1] };
 
     float target = depth;
     if (!(target > 0.0f)) {        /* also catches NaN */
@@ -1073,120 +1066,111 @@ void fx_engine_process(fx_engine *e, const float *const in[FX_CHANNELS],
         /* Copied before anything is written, so `out` may alias `in`. */
         for (int ch = 0; ch < FX_CHANNELS; ch++) {
             if (in[ch] != NULL) {
-                memcpy(dry_buf[ch], in[ch] + off, n * sizeof(float));
+                memcpy(x_buf[ch], in[ch] + off, n * sizeof(float));
             } else {
-                memset(dry_buf[ch], 0, n * sizeof(float));
+                memset(x_buf[ch], 0, n * sizeof(float));
             }
         }
 
-        /* One swap at a time; a request that arrives mid-fade waits for the
-         * fade in progress to land and then starts its own. */
-        if (e->incoming < 0 && effect >= 0 && effect < e->count && effect != e->active) {
-            e->incoming = effect;
-            e->xfade_pos = 0.0f;
+        int audible = 0;   /* any stage enabled or still fading out */
+        for (int k = 0; k < e->count; k++) {
+            audible |= ((mask >> k) & 1u) || e->on[k] > 0.0f;
         }
 
-        if (e->depth == 0.0f && target == 0.0f) {
+        if ((e->depth == 0.0f && target == 0.0f) || !audible) {
             /* Bypass. Output is the input, bit for bit (within the clamp);
-             * every effect keeps its history so re-entry is click-free. A
-             * pending swap lands immediately — nothing is audible to fade. */
-            if (e->incoming >= 0) {
-                e->active = e->incoming;
-                e->incoming = -1;
-                e->xfade_pos = 0.0f;
-            }
-            feed_idle(e, dry, n, -1, -1);
-            for (uint32_t i = 0; i < n; i++) {
-                (void)level_dry(e, dry_buf[0][i], dry_buf[1][i]);
-            }
+             * every effect keeps its history so re-entry is click-free. The
+             * enable ramps land on their targets: nothing is audible to fade.
+             * The depth smoother keeps following the knob, so a stage enabled
+             * later starts from where the knob is. */
             for (int k = 0; k < e->count; k++) {
-                level_reset(e, k);
+                e->on[k] = ((mask >> k) & 1u) ? 1.0f : 0.0f;
+                feed_one(e, k, x_in, n);
+            }
+            if (!audible) {
+                e->depth = target;
             }
             for (int ch = 0; ch < FX_CHANNELS; ch++) {
                 if (out[ch] == NULL) {
                     continue;
                 }
                 for (uint32_t i = 0; i < n; i++) {
-                    out[ch][off + i] = clamp_out(dry_buf[ch][i]);
+                    out[ch][off + i] = clamp_out(x_buf[ch][i]);
                 }
             }
+#ifdef FX_SELFTEST
+            g_wobble_t += n;
+#endif
             continue;
         }
 
         float d = e->depth;
         for (uint32_t i = 0; i < n; i++) {
-            if (e->depth_alpha <= 0.0f || fabsf(target - d) <= DEPTH_SNAP) {
+            /* Land on the target once close, or once a step no longer moves d:
+             * near 1.0 a float cannot hold a step of alpha * 1e-5, and the
+             * ramp used to stop ~5e-5 short of a full knob for good. */
+            const float next = d + e->depth_alpha * (target - d);
+            if (e->depth_alpha <= 0.0f || fabsf(target - d) <= DEPTH_SNAP || next == d) {
                 d = target;
             } else {
-                d += e->depth_alpha * (target - d);
+                d = next;
             }
             depth_ramp[i] = d;
         }
         e->depth = d;
 
-        const int a = e->active;
-        const int b = e->incoming;
-        e->table[a].process(e->state[a], dry, wet_a, depth_ramp, n);
-        if (b >= 0) {
-            e->table[b].process(e->state[b], dry, wet_b, depth_ramp, n);
-        }
-        feed_idle(e, dry, n, a, b);
+        for (int s = 0; s < e->count; s++) {
+#ifdef FX_SELFTEST
+            const int k = e->order[fx_test_reverse_order ? e->count - 1 - s : s];
+#else
+            const int k = e->order[s];
+#endif
+            const float want = ((mask >> k) & 1u) ? 1.0f : 0.0f;
+            float c = e->on[k];
+            if (c == 0.0f && want == 0.0f) {
+                /* Off: its history follows the signal at its place. */
+                feed_one(e, k, x_in, n);
+                continue;
+            }
+            for (uint32_t i = 0; i < n; i++) {
+                if (c < want) {
+                    c = fminf(want, c + e->xfade_step);
+                } else if (c > want) {
+                    c = fmaxf(want, c - e->xfade_step);
+                }
+                on_ramp[i] = c;
+            }
+            e->on[k] = c;
 
-        const float wa = e->table[a].wet_max;
-        const float wb = b >= 0 ? e->table[b].wet_max : 0.0f;
-        const float fa = 1.0f / e->table[a].mix_full_at;
-        const float fb = b >= 0 ? 1.0f / e->table[b].mix_full_at : 1.0f;
-        for (int k = 0; k < e->count; k++) {
-            if (k != a && k != b) {
-                level_reset(e, k);
-            }
-        }
-        level_target(e, a);
-        if (b >= 0) {
-            level_target(e, b);
-        }
-        float pos = e->xfade_pos;
-        for (uint32_t i = 0; i < n; i++) {
-            float x = 0.0f;
-            if (b >= 0) {
-                pos += e->xfade_step;
-                if (pos > 1.0f) {
-                    pos = 1.0f;
-                }
-                x = pos;
-            }
-            const float peak = level_dry(e, dry_buf[0][i], dry_buf[1][i]);
-            /* fa = 1 (the knob is the mix) leaves d unchanged, bit for bit. */
-            const float da = fminf(1.0f, depth_ramp[i] * fa);
-            const float db = fminf(1.0f, depth_ramp[i] * fb);
-            float mix[FX_CHANNELS], mix_b[FX_CHANNELS];
-            for (int ch = 0; ch < FX_CHANNELS; ch++) {
-                float dry_s = dry_buf[ch][i];
-                mix[ch] = dry_s + da * wa * (wet_a_buf[ch][i] - dry_s);
-                if (b >= 0) {
-                    mix_b[ch] = dry_s + db * wb * (wet_b_buf[ch][i] - dry_s);
-                }
-            }
-            level_apply(e, a, &mix[0], &mix[1], peak);
-            if (b >= 0) {
-                level_apply(e, b, &mix_b[0], &mix_b[1], peak);
-            }
-            for (int ch = 0; ch < FX_CHANNELS; ch++) {
-                float m = mix[ch];
-                if (b >= 0) {
-                    m += x * (mix_b[ch] - m);
-                }
-                if (out[ch] != NULL) {
-                    out[ch][off + i] = clamp_out(m);
+            const fx_effect_desc *desc = &e->table[k];
+            desc->process(e->state[k], x_in, wet, depth_ramp, n);
+            const float wmax = desc->wet_max;
+            const float full = 1.0f / desc->mix_full_at;
+            for (uint32_t i = 0; i < n; i++) {
+                /* full = 1 (the knob is the mix) leaves d unchanged, bit for bit. */
+                const float dk = depth_ramp[i];
+                const float w = fminf(1.0f, dk * full) * wmax;
+                const float g = level_at(e, k, dk);
+                const float ck = on_ramp[i];
+                for (int ch = 0; ch < FX_CHANNELS; ch++) {
+                    const float xs = x_buf[ch][i];
+                    const float y = g * (xs + w * (wet_buf[ch][i] - xs));
+                    x_buf[ch][i] = ck >= 1.0f ? y : xs + ck * (y - xs);
                 }
             }
         }
-        if (b >= 0 && pos >= 1.0f) {
-            e->active = b;
-            e->incoming = -1;
-            pos = 0.0f;
+#ifdef FX_SELFTEST
+        g_wobble_t += n;
+#endif
+
+        for (int ch = 0; ch < FX_CHANNELS; ch++) {
+            if (out[ch] == NULL) {
+                continue;
+            }
+            for (uint32_t i = 0; i < n; i++) {
+                out[ch][off + i] = clamp_out(x_buf[ch][i]);
+            }
         }
-        e->xfade_pos = pos;
     }
 }
 
@@ -1197,34 +1181,54 @@ void fx_engine_process(fx_engine *e, const float *const in[FX_CHANNELS],
 /* Deliberately not OSC, for the same reasons as the live monitor's `gain`
  * line: the sender stays a one-line sendto with no dependency, and a malformed
  * datagram from anything else on loopback must be ignorable without a parser. */
-int fx_parse_control(const char *text, int *effect, float *depth)
+/* A decimal integer with no sign, no hex and no empty, followed by a blank. */
+static int parse_uint(const char **cursor, long max, long *value)
 {
-    while (*text == ' ' || *text == '\t') {
-        text++;
-    }
-    if (strncmp(text, "fx", 2) != 0) {
-        return 0;
-    }
-    const char *rest = text + 2;
-    if (*rest != ' ' && *rest != '\t') {
-        return 0;
-    }
+    const char *rest = *cursor;
     while (*rest == ' ' || *rest == '\t') {
         rest++;
     }
-    if (*rest < '0' || *rest > '9') {   /* no sign, no hex, no empty */
+    if (*rest < '0' || *rest > '9') {
         return 0;
     }
     char *end = NULL;
     errno = 0;
-    long id = strtol(rest, &end, 10);
-    if (end == rest || errno == ERANGE || id > FX_MAX_EFFECTS) {
+    long v = strtol(rest, &end, 10);
+    if (end == rest || errno == ERANGE || v > max) {
         return 0;
     }
     if (*end != ' ' && *end != '\t') {
         return 0;
     }
-    rest = end;
+    *cursor = end;
+    *value = v;
+    return 1;
+}
+
+int fx_parse_control(const char *text, uint32_t *mask, float *depth)
+{
+    while (*text == ' ' || *text == '\t') {
+        text++;
+    }
+    int single;
+    const char *rest;
+    if (strncmp(text, "chain", 5) == 0) {
+        single = 0;
+        rest = text + 5;
+    } else if (strncmp(text, "fx", 2) == 0) {
+        single = 1;
+        rest = text + 2;
+    } else {
+        return 0;
+    }
+    if (*rest != ' ' && *rest != '\t') {
+        return 0;
+    }
+    long v = 0;
+    if (!parse_uint(&rest, single ? FX_MAX_EFFECTS - 1 : (1L << FX_MAX_EFFECTS) - 1, &v)) {
+        return 0;
+    }
+    char *end = NULL;
     errno = 0;
     float value = strtof(rest, &end);
     if (end == rest || errno == ERANGE || !isfinite(value)) {
@@ -1236,7 +1240,7 @@ int fx_parse_control(const char *text, int *effect, float *depth)
     if (*end != '\0') {
         return 0;
     }
-    *effect = (int)id;
+    *mask = single ? (1u << v) : (uint32_t)v;
     *depth = value;
     return 1;
 }
