@@ -96,6 +96,8 @@ Treat the **dB figure as the real number**. The fader position is ALSA's percept
 
 **Loops sum.** A per-loop gain that is fine alone is not fine with 16 playing at once. Bring level up *after* the loops are running, never before.
 
+**Measurement harnesses make sound too.** They load patches only through `scripts/load-patch-osc.py` (the UI's volume path, so the device-mode trim holds), play only through `patch_browser/measure_midi.py` (velocity 20 unless `--velocity`, member channels only, at most 15 voices), and edit `/etc/mpe/mpe.env` only through `scripts/lib/measure-env.sh` (writes only on a real change, restored byte for byte by the exit trap). Do not add a second copy of any of the three.
+
 **You cannot infer the output device.** Cards 0 (Pi headphone jack), 2 and 3 (HDMI) also exist. Which one reaches Mitch's ears is not visible from the appliance — assume the worst case.
 
 ---

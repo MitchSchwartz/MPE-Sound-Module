@@ -42,7 +42,7 @@ HOLD_VOICES=0
 PROVENANCE_PATCH=""
 PROVENANCE_VOICES=""
 PLAYING_LOOPS=0
-_SOFTMODE_CHANGED=0
+BUFFER_CHANGED=0
 _LOAD_PID=""
 _PROBE_PID=""
 PROBE_BIN="${MPE_MODULE_REPO}/native/mpe-xrun-probe/mpe-xrun-probe"
@@ -117,27 +117,8 @@ _reload_provenance_patch() {
     return 0
 }
 
-ENV_FILE="/etc/mpe/mpe.env"
-
-_set_env_var() {
-    local key="$1" value="$2" tmp
-    tmp="$(mktemp)"
-    if grep -q "^${key}=" "$ENV_FILE" 2>/dev/null; then
-        sed "s|^${key}=.*|${key}=${value}|" "$ENV_FILE" >"$tmp"
-    else
-        cat "$ENV_FILE" >"$tmp" 2>/dev/null || true
-        printf '\n%s=%s\n' "$key" "$value" >>"$tmp"
-    fi
-    install -m 0644 "$tmp" "$ENV_FILE"
-    rm -f "$tmp"
-}
-
-_restore_softmode() {
-    if [ "$_SOFTMODE_CHANGED" = 1 ]; then
-        _set_env_var MPE_JACK_SOFTMODE 1
-        _SOFTMODE_CHANGED=0
-    fi
-}
+# shellcheck source=lib/measure-env.sh
+source "$SCRIPT_DIR/lib/measure-env.sh"
 
 _stop_midi_load() {
     if [ -n "$_LOAD_PID" ] && kill -0 "$_LOAD_PID" 2>/dev/null; then
@@ -231,34 +212,20 @@ _jackd_alsa_xrun_stats() {
         '
 }
 
-_restore_sl_loops() {
-    # /etc/mpe/mpe.env persists across deploys, and this script edits it. Without
-    # this, one latency block left MPE_SL_LOOPS at the measurement value forever
-    # and every later session ran on it — a config change with no expiry, made by
-    # an instrument, invisible to the person playing the instrument afterwards.
-    [ "${RESTORE_SL_LOOPS_SET:-false}" = true ] || return 0
-    if [ -n "${RESTORE_SL_LOOPS:-}" ]; then
-        sed -i "s/^MPE_SL_LOOPS=.*/MPE_SL_LOOPS=${RESTORE_SL_LOOPS}/" "$ENV_FILE" || true
-    else
-        sed -i '/^MPE_SL_LOOPS=/d' "$ENV_FILE" || true
-    fi
-    RESTORE_SL_LOOPS_SET=false
-}
-
 _restore_all() {
+    # /etc/mpe/mpe.env (softmode, MPE_SL_LOOPS) is restored byte for byte after
+    # this hook by lib/measure-env.sh, with the restarts its edits needed.
     _stop_midi_load
-    _restore_sl_loops
     _stop_fill_poller
     _stop_xrun_probe
-    _restore_softmode
-    if [ "$SKIP_BUFFER_RESTORE" = true ]; then
+    if [ "$SKIP_BUFFER_RESTORE" = true ] || [ "$BUFFER_CHANGED" != 1 ]; then
         return 0
     fi
     if [ -n "$RESTORE_BUFFER" ] && [ "$RESTORE_BUFFER" != "$(mpe_jack_period 2>/dev/null || echo "$RESTORE_BUFFER")" ]; then
         "$SCRIPT_DIR/set-surge-audio.sh" --buffer "$RESTORE_BUFFER" >/dev/null 2>&1 || true
     fi
 }
-trap _restore_all EXIT INT TERM HUP
+mpe_env_arm _restore_all
 
 _jack_period_from_proc() {
     local pid
@@ -467,14 +434,22 @@ _delay_stats_legacy() {
     ' "$f" 2>/dev/null || echo "0 0 0 0 0"
 }
 
-_enable_strict_xrun_reporting() {
-    _set_env_var MPE_JACK_SOFTMODE 0
-    _SOFTMODE_CHANGED=1
+_restart_graph() {
     systemctl restart mpe-jackd.service
     sleep 4
     mpe_wait_for_jack_server 30 || return 1
     systemctl restart surge-xt-cli.service 2>/dev/null || true
     sleep 6
+}
+
+# Restarts jackd only when softmode was actually on; the same restart runs again
+# after the env file is restored.
+_enable_strict_xrun_reporting() {
+    mpe_env_set MPE_JACK_SOFTMODE 0
+    if [ "$MPE_ENV_LAST_CHANGED" = 1 ]; then
+        mpe_env_on_restore _restart_graph
+        _restart_graph || return 1
+    fi
     _set_condition "$CONDITION"
     return 0
 }
@@ -692,13 +667,27 @@ _run_window() {
         echo "ERROR: --buffer is required" >&2
         exit 2
     fi
-    if ! "$SCRIPT_DIR/set-surge-audio.sh" "${_audio_args[@]}"; then
-        echo "ERROR: set-surge-audio.sh ${_audio_args[*]} failed" >&2
-        exit 1
+    # Only when the requested buffer differs from the live one (2026-10-12).
+    if [ -n "$BUFFER" ] && [ "$BUFFER" != "$RESTORE_BUFFER" ]; then
+        BUFFER_CHANGED=1
+    fi
+    if [ -n "$PERIODS" ] && [ "$PERIODS" != "$RESTORE_PERIODS" ]; then
+        BUFFER_CHANGED=1
+    fi
+    if [ "$BUFFER_CHANGED" = 1 ]; then
+        # set-surge-audio.sh edits the env file itself: snapshot it first, unless
+        # the caller asked to keep the new buffer.
+        if [ "$SKIP_BUFFER_RESTORE" != true ]; then
+            mpe_env_snapshot
+        fi
+        if ! "$SCRIPT_DIR/set-surge-audio.sh" "${_audio_args[@]}"; then
+            echo "ERROR: set-surge-audio.sh ${_audio_args[*]} failed" >&2
+            exit 1
+        fi
+        sleep 8
     fi
     mpe_source_appliance_env
     PERIODS_EFFECTIVE="$(mpe_jack_periods)"
-    sleep 8
     _assert_jack_period "$BUFFER" || exit 1
     _assert_jack_periods "$PERIODS_EFFECTIVE" || exit 1
 
@@ -736,15 +725,14 @@ _run_window() {
                 exit 2
                 ;;
         esac
-        RESTORE_SL_LOOPS="$(sed -n 's/^MPE_SL_LOOPS=//p' "$ENV_FILE" 2>/dev/null | tail -1)"
-        RESTORE_SL_LOOPS_SET=true
-        if ! grep -q "^MPE_SL_LOOPS=" "$ENV_FILE" 2>/dev/null; then
-            printf '\nMPE_SL_LOOPS=%s\n' "$PLAYING_LOOPS" >>"$ENV_FILE"
-        else
-            sed -i "s/^MPE_SL_LOOPS=.*/MPE_SL_LOOPS=${PLAYING_LOOPS}/" "$ENV_FILE"
+        # Restored byte for byte on exit: a measurement value left in mpe.env
+        # outlives the session (2026-08-20).
+        mpe_env_set MPE_SL_LOOPS "$PLAYING_LOOPS"
+        if [ "$MPE_ENV_LAST_CHANGED" = 1 ]; then
+            mpe_env_on_restore systemctl restart mpe-sooperlooper.service
+            systemctl restart mpe-sooperlooper.service
+            sleep 8
         fi
-        systemctl restart mpe-sooperlooper.service
-        sleep 8
         if ! bash "${SCRIPT_DIR}/sooperlooper/load-n-loops.sh" "$PLAYING_LOOPS"; then
             echo "ERROR: load-n-loops ${PLAYING_LOOPS} failed" >&2
             exit 1
@@ -821,7 +809,9 @@ _run_window() {
     done
 
     echo "=== restore buffer ${RESTORE_BUFFER} periods ${RESTORE_PERIODS} ==="
-    if [ "$SKIP_BUFFER_RESTORE" != true ]; then
+    if [ "$BUFFER_CHANGED" != 1 ]; then
+        echo "buffer unchanged; nothing to restore"
+    elif [ "$SKIP_BUFFER_RESTORE" != true ]; then
         "$SCRIPT_DIR/set-surge-audio.sh" --buffer "$RESTORE_BUFFER" --periods "$RESTORE_PERIODS" || true
         sleep 6
         _assert_jack_period "$RESTORE_BUFFER" || echo "WARNING: restore period check failed" >&2
