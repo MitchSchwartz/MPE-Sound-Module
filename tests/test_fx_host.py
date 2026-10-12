@@ -67,14 +67,16 @@ def _need_compiler(case: unittest.TestCase) -> None:
 
 class DspSelfTest(unittest.TestCase):
     def test_every_listener_protecting_property_holds(self):
-        """For every effect: depth 0 is the input; output RMS never exceeds the
-        input's (and peak, where the effect can promise it) or ±1, and on the
-        keys signal never falls more than 1 dB below it (the tremolo: below
-        its computed level); no NaN or
-        denormal blowup over two minutes; depth steps, swaps between every pair
-        and re-entry after bypass are click-free; the drive's oversampling
-        holds aliasing down — each against a deliberately broken run that must
-        fail the same check."""
+        """For every effect and the chain: depth 0 or an empty mask is the
+        input; output RMS never exceeds the input's, for every effect alone and
+        every mask (and peak, where the effect can promise it), nor ±1; on the
+        keys signal it never falls more than 1 dB below it (phaser 1.3 dB, the
+        tremolo: below its computed level); the chorus and phaser are their
+        #149 mix times a static gain; the chain runs drive, phaser, chorus,
+        tremolo; no NaN or denormal blowup over two minutes; depth steps,
+        toggles and re-entry after bypass are click-free; the drive's
+        oversampling holds aliasing down — each against a deliberately broken
+        run that must fail the same check."""
         _need_compiler(self)
         _, run = _selftest()
         self.assertEqual(run.returncode, 0, f"{run.stdout}\n{run.stderr}")
@@ -172,6 +174,15 @@ class WireFormat(unittest.TestCase):
             with self.subTest(effect=effect_id):
                 self.assertEqual(proto.effects_in(proto.mask_of([effect_id])), (effect_id,))
 
+    def test_chain_order_matches_the_c(self):
+        """CHAIN_ORDER is FX_CHAIN_ORDER in fx_dsp.c, read from the C. The
+        order is what the engine runs; a drift would make the UI's label order
+        lie about it."""
+        found = re.search(r"const int FX_CHAIN_ORDER\[\] = \{([^}]*)\};", C_DSP.read_text())
+        self.assertIsNotNone(found, "FX_CHAIN_ORDER not found in fx_dsp.c")
+        c_order = tuple(int(v) for v in found.group(1).split(","))
+        self.assertEqual(c_order, proto.CHAIN_ORDER)
+
     def test_the_control_port_matches_the_client(self):
         match = re.search(r"#define\s+CONTROL_PORT_DEFAULT\s+(\d+)", C_CLIENT.read_text())
         self.assertIsNotNone(match)
@@ -203,14 +214,24 @@ class WireFormat(unittest.TestCase):
                 [str(binary), "--parse", text], capture_output=True, text=True, timeout=10,
             ).stdout.strip()
 
-        for effect_id in proto.EFFECT_IDS:
+        for mask in range(proto.MASK_ALL + 1):
             for depth in (0.0, 0.000001, 0.25, 0.5, 0.999999, 1.0):
-                with self.subTest(effect=effect_id, depth=depth):
-                    wire = proto.encode(effect_id, depth).decode("ascii")
-                    self.assertEqual(parse(wire), f"ok {effect_id} {depth:.6f}")
-        # Things a stray loopback sender might send must change nothing.
+                with self.subTest(mask=mask, depth=depth):
+                    wire = proto.encode_chain(mask, depth).decode("ascii")
+                    self.assertEqual(parse(wire), f"ok {mask} {depth:.6f}")
+        # The first protocol's single-effect datagram is the one-bit mask.
+        for effect_id in proto.EFFECT_IDS:
+            with self.subTest(effect=effect_id):
+                wire = proto.encode(effect_id, 0.5).decode("ascii")
+                self.assertEqual(parse(wire), f"ok {proto.mask_of([effect_id])} 0.500000")
+        # Things a stray loopback sender might send must change nothing. (A
+        # mask naming an effect the build lacks, e.g. 16, parses; the client
+        # refuses it against its table.)
         for junk in ("gain 0.5", "fx", "fx 0", "fx 0 nan", "fx 0 inf", "fx -1 0.5",
-                     "fx 0x1 0.5", "fx 0 0.5 extra", "fx0 0.5", "fx 1e3 0.5", ""):
+                     "fx 0x1 0.5", "fx 0 0.5 extra", "fx0 0.5", "fx 1e3 0.5", "fx 8 0.5", "",
+                     "chain", "chain 5", "chain -1 0.5", "chain 0x5 0.5", "chain 5 nan",
+                     "chain 5 0.5 extra", "chain5 0.5", "chain 256 0.5", "chain 5.0 0.5",
+                     "chains 5 0.5"):
             with self.subTest(junk=junk):
                 self.assertEqual(parse(junk), "reject")
 
