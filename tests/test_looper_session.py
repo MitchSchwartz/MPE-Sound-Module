@@ -98,6 +98,7 @@ import sys
 sys.path.insert(0, "{sooper}")
 sys.path.insert(0, "{REPO}")
 import looper_session as ls
+ls.wait_for_apc = lambda *a, **k: True  # APC present; absence: test_looper_session_apc_absent.py
 ls.start_hud_thread = lambda _s: (_ for _ in ()).throw(AssertionError("hud started"))
 class _FakeSession:
     def start(self):
@@ -219,6 +220,7 @@ sys.path.insert(0, "{sooper}")
 sys.path.insert(0, "{REPO}")
 sys.argv = ["looper-session.py", "--bench-only"]
 import looper_session as ls
+ls.wait_for_apc = lambda *a, **k: True  # APC present; absence: test_looper_session_apc_absent.py
 ls.start_hud_thread = lambda *a, **k: (_ for _ in ()).throw(AssertionError("hud started"))
 class _FakeBench:
     @staticmethod
