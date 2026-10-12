@@ -6,7 +6,13 @@
 # measure-confirm-at-voices.sh for 60 s confirm.
 #
 # Usage: sudo ./scripts/measure-capacity-ramp.sh --buffer 1024 --periods 3 \
-#            --patch-name Crystals --output /path/log --tag V7-a
+#            --patch-name Crystals --output /path/log --tag V7-a [--velocity 20]
+#
+# Audio-safe by construction (2026-10-12): the patch loads at the UI's level
+# (load-patch-osc.py keeps the device-mode trim), notes are quiet and on member
+# channels only (patch_browser/measure_midi.py), and /etc/mpe/mpe.env, the buffer
+# and the governor change only when they differ from the live config, each
+# restored by the exit trap (lib/measure-env.sh). No per-probe jackd restart.
 
 set -euo pipefail
 
@@ -19,6 +25,8 @@ source "$SCRIPT_DIR/lib/mpe-services.sh"
 # shellcheck source=lib/measure-run-as-user.sh
 source "$SCRIPT_DIR/lib/measure-run-as-user.sh"
 source "$SCRIPT_DIR/lib/audio-engine.sh"
+# shellcheck source=lib/measure-env.sh
+source "$SCRIPT_DIR/lib/measure-env.sh"
 
 BUFFER=""
 PERIODS=3
@@ -34,7 +42,7 @@ SKIP_CONFIRM=0
 SKIP_SETUP=0
 PATCH_PATH=""
 RATE=48000
-ENV_FILE="/etc/mpe/mpe.env"
+VELOCITY=""
 RUN_AS_USER="${MPE_PI_USER:-mitch}"
 
 while [ $# -gt 0 ]; do
@@ -50,7 +58,8 @@ while [ $# -gt 0 ]; do
         --skip-setup) SKIP_SETUP=1; shift ;;
         --start-voice) START_VOICE="${2:?}"; shift 2 ;;
         --max-voices) MAX_VOICES="${2:?}"; shift 2 ;;
-        -h | --help) sed -n '2,12p' "$0"; exit 0 ;;
+        --velocity) VELOCITY="${2:?}"; shift 2 ;;
+        -h | --help) sed -n '2,18p' "$0"; exit 0 ;;
         *) echo "Unknown: $1" >&2; exit 2 ;;
     esac
 done
@@ -59,6 +68,16 @@ done
     echo "ERROR: --buffer --tag --output required" >&2
     exit 2
 }
+
+# One voice per MPE member channel; midi-load-hold.py refuses more.
+if [ "$MAX_VOICES" -gt 15 ] || [ "$MAX_VOICES" -lt 1 ]; then
+    echo "ERROR: --max-voices must be 1..15 (MPE member channels)" >&2
+    exit 2
+fi
+VELOCITY_ARGS=()
+if [ -n "$VELOCITY" ]; then
+    VELOCITY_ARGS=(--velocity "$VELOCITY")
+fi
 
 if [ "$(id -u)" -ne 0 ]; then
     echo "ERROR: run with sudo" >&2
@@ -69,26 +88,42 @@ MPE_RUN_AS_USER="${RUN_AS_USER:-mitch}"
 MPE_RUN_AS_USER_HOME="$(getent passwd "$MPE_RUN_AS_USER" | cut -d: -f6)"
 _as_user() { mpe_as_user "$@"; }
 
-_set_env_var() {
-    local key="$1" value="$2" tmp
-    tmp="$(mktemp)"
-    if grep -q "^${key}=" "$ENV_FILE" 2>/dev/null; then
-        sed "s|^${key}=.*|${key}=${value}|" "$ENV_FILE" >"$tmp"
-    else
-        cat "$ENV_FILE" >"$tmp" 2>/dev/null || true
-        printf '\n%s=%s\n' "$key" "$value" >>"$tmp"
-    fi
-    install -m 0644 "$tmp" "$ENV_FILE"
-    rm -f "$tmp"
-}
-
-_enable_strict() {
-    _set_env_var MPE_JACK_SOFTMODE 0
+_restart_graph() {
     systemctl restart mpe-jackd.service
     sleep 4
     mpe_wait_for_jack_server 30
     systemctl restart surge-xt-cli.service
     sleep 6
+}
+
+# Strict xrun reporting. Restarts the graph only when softmode was actually on,
+# and registers the same restart for after the env file is restored.
+_enable_strict() {
+    mpe_env_set MPE_JACK_SOFTMODE 0
+    [ "$MPE_ENV_LAST_CHANGED" = 1 ] || return 0
+    mpe_env_on_restore _restart_graph
+    _restart_graph
+}
+
+# The load generator's PID, in a file: probes run in $(...) subshells, whose
+# variables the exit trap cannot see.
+LOAD_PIDFILE="$(mktemp)"
+RESTORE_BUFFER=""
+RESTORE_PERIODS=""
+# Runs from the exit trap before the env file is restored.
+_on_exit() {
+    local pid
+    pid="$(cat "$LOAD_PIDFILE" 2>/dev/null || true)"
+    if [ -n "$pid" ]; then
+        # SIGTERM: midi-load-hold.py releases its notes on the way out.
+        kill "$pid" 2>/dev/null || true
+        wait "$pid" 2>/dev/null || true
+    fi
+    rm -f "$LOAD_PIDFILE"
+    if [ -n "$RESTORE_BUFFER" ]; then
+        "$SCRIPT_DIR/set-surge-audio.sh" --buffer "$RESTORE_BUFFER" --periods "$RESTORE_PERIODS" \
+            || echo "ERROR: could not restore buffer ${RESTORE_BUFFER}x${RESTORE_PERIODS}" >&2
+    fi
 }
 
 _ensure_peak_meter() {
@@ -116,13 +151,11 @@ _xruns_delta() {
 
     _ensure_peak_meter || return 1
 
-    # Match measure-latency-run: strict jackd restart immediately before the window.
-    _enable_strict
-    sleep 2
-
+    # No jackd restart per probe (2026-10-12): strict mode is set once at setup.
     _as_user python3 "$SCRIPT_DIR/midi-load-hold.py" "$((secs + 5))" "$voices" \
-        >/tmp/midi-load-hold-$$.log 2>&1 &
+        "${VELOCITY_ARGS[@]}" >/tmp/midi-load-hold-$$.log 2>&1 &
     local pid=$!
+    echo "$pid" >"$LOAD_PIDFILE"
     sleep 2
 
     if ! start_xr="$(mpe_meter_xruns_read)"; then
@@ -151,6 +184,7 @@ _xruns_delta() {
     done
 
     wait "$pid" 2>/dev/null || true
+    : >"$LOAD_PIDFILE"
     mpe_meter_assert_live || {
         echo "ERROR: meter blind at probe end voices=${voices}" >&2
         return 1
@@ -166,8 +200,9 @@ _confirm_window() {
     period_ms="$(awk -v b="$BUFFER" -v r="$RATE" 'BEGIN { printf "%.6f", b * 1000 / r }')"
     : >"$raw"
     _as_user python3 "$SCRIPT_DIR/midi-load-hold.py" "$((CONFIRM_SEC + 2))" "$voices" \
-        >/tmp/midi-load-hold-confirm-$$.log 2>&1 &
+        "${VELOCITY_ARGS[@]}" >/tmp/midi-load-hold-confirm-$$.log 2>&1 &
     local load_pid=$!
+    echo "$load_pid" >"$LOAD_PIDFILE"
     sleep 2
     _as_user stdbuf -oL jack_cpu_load >"$raw" 2>/dev/null &
     jcl=$!
@@ -175,6 +210,7 @@ _confirm_window() {
     kill -9 "$jcl" 2>/dev/null || true
     wait "$jcl" 2>/dev/null || true
     wait "$load_pid" 2>/dev/null || true
+    : >"$LOAD_PIDFILE"
     awk -v pms="$period_ms" '
         /[0-9]+\.[0-9]+/ { v = $NF + 0; if (v > 0 && v <= 200) a[++n] = v }
         END {
@@ -188,21 +224,30 @@ _confirm_window() {
     ' "$raw"
 }
 
+mpe_env_arm _on_exit
 mpe_source_appliance_env
-_set_env_var MPE_POLY_GOVERNOR 0
-_set_env_var MPE_POLY_CEILING 64
-_set_env_var MPE_POLY_FLOOR 64
-systemctl stop surge-poly-governor.service 2>/dev/null || true
+mpe_env_set MPE_POLY_GOVERNOR 0
+mpe_env_set MPE_POLY_CEILING 64
+mpe_env_set MPE_POLY_FLOOR 64
+mpe_unit_stop_for_measure surge-poly-governor.service
 if [ "$SKIP_SETUP" -eq 0 ]; then
     _enable_strict
-    "$SCRIPT_DIR/set-surge-audio.sh" --buffer "$BUFFER" --periods "$PERIODS"
-    sleep 6
+    _live_buffer="$(mpe_env_get MPE_JACK_BUFFER)"
+    _live_periods="$(mpe_env_get MPE_JACK_PERIODS)"
+    if [ "$_live_buffer" != "$BUFFER" ] || [ "$_live_periods" != "$PERIODS" ]; then
+        # set-surge-audio.sh edits the env file itself: snapshot it first.
+        mpe_env_snapshot
+        RESTORE_BUFFER="${_live_buffer:-256}"
+        RESTORE_PERIODS="${_live_periods:-3}"
+        "$SCRIPT_DIR/set-surge-audio.sh" --buffer "$BUFFER" --periods "$PERIODS"
+        sleep 6
+    fi
 fi
 
 if [ -n "$PATCH_PATH" ]; then
     [ -f "$PATCH_PATH" ] || { echo "ERROR: patch not found: $PATCH_PATH" >&2; exit 1; }
     PATCH_NAME="${PATCH_NAME:-$(basename "$PATCH_PATH" .fxp)}"
-    _as_user python3 "$SCRIPT_DIR/load-patch-osc.py" "$PATCH_PATH" || exit 1
+    mpe_load_patch_osc "$PATCH_PATH" "$SCRIPT_DIR" || exit 1
     sleep 1
 fi
 

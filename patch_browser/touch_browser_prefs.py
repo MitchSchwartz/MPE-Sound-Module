@@ -624,14 +624,16 @@ class TouchBrowserPrefsMixin:
             # FX and for chords) so nothing stacks, and the looper master is
             # left alone because the DAC already moves the loops with
             # everything else.
-            from patch_browser.device_volume import DEVICE_MODE_SURGE_TRIM_DB
+            from patch_browser.device_volume import apply_surge_volume
 
             if self.loader.osc_enabled:
-                self.loader.set_volume(VOLUME_MAX, headroom_db=DEVICE_MODE_SURGE_TRIM_DB)
+                apply_surge_volume(self.loader, device_active=True, level=self.volume_level)
             device.set_position(self.volume_level, persist=persist)
             return
         if self.loader.osc_enabled:
-            self.loader.set_volume(self.volume_level)
+            from patch_browser.device_volume import apply_surge_volume
+
+            apply_surge_volume(self.loader, device_active=False, level=self.volume_level)
         self._send_looper_volume(self.volume_level)
         if persist:
             self._save_volume_level()

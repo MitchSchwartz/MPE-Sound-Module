@@ -22,6 +22,8 @@ source "$SCRIPT_DIR/lib/audio-engine.sh"
 # shellcheck source=lib/measure-run-as-user.sh
 source "$SCRIPT_DIR/lib/measure-run-as-user.sh"
 source "$SCRIPT_DIR/lib/measurement-result.sh"
+# shellcheck source=lib/measure-env.sh
+source "$SCRIPT_DIR/lib/measure-env.sh"
 
 HOURS=8
 MINUTES=0
@@ -32,7 +34,6 @@ BUFFER=1024
 PERIODS=2
 GOVERNOR=off
 RUN_LABEL=""
-ENV_FILE="/etc/mpe/mpe.env"
 RUN_AS_USER="${MPE_PI_USER:-mitch}"
 USER_HOME="$(getent passwd "$RUN_AS_USER" | cut -d: -f6)"
 QUICK_SELECT="${USER_HOME}/Documents/Surge XT/Patches/Quick Select"
@@ -201,20 +202,22 @@ _cleanup() {
     if [ "${SOAK_COMPLETE:-0}" -eq 0 ] && [ -n "${OUTPUT:-}" ]; then
         echo "SENTINEL soak-aborted stage=${STAGE:-unknown} rc=${rc}" >>"$OUTPUT" 2>/dev/null || true
     fi
-}
-trap _cleanup EXIT INT TERM
-
-_set_env_var() {
-    local key="$1" value="$2" tmp
-    tmp="$(mktemp)"
-    if grep -q "^${key}=" "$ENV_FILE" 2>/dev/null; then
-        sed "s|^${key}=.*|${key}=${value}|" "$ENV_FILE" >"$tmp"
-    else
-        cat "$ENV_FILE" >"$tmp" 2>/dev/null || true
-        printf '\n%s=%s\n' "$key" "$value" >>"$tmp"
+    if [ -n "${RESTORE_BUFFER:-}" ]; then
+        "$SCRIPT_DIR/set-surge-audio.sh" --buffer "$RESTORE_BUFFER" --periods "$RESTORE_PERIODS" \
+            || echo "ERROR: could not restore buffer ${RESTORE_BUFFER}x${RESTORE_PERIODS}" >&2
     fi
-    install -m 0644 "$tmp" "$ENV_FILE"
-    rm -f "$tmp"
+}
+# _cleanup first, then /etc/mpe/mpe.env and stopped units come back (lib/measure-env.sh).
+mpe_env_arm _cleanup
+RESTORE_BUFFER=""
+RESTORE_PERIODS=""
+
+_restart_graph() {
+    systemctl restart mpe-jackd.service
+    sleep 4
+    mpe_wait_for_jack_server 30
+    systemctl restart surge-xt-cli.service
+    sleep 6
 }
 
 FINISH_EPOCH=$(( $(date +%s) + TOTAL_MIN * 60 ))
@@ -248,41 +251,63 @@ STAGE=header
 exec 2> >(tee -a "$OUTPUT" >&2)
 
 STAGE=env-config
-_set_env_var MPE_JACK_SOFTMODE 0
+# Each edit only when the file differs; jackd and Surge restart only when
+# softmode or the buffer actually changed.
+mpe_env_set MPE_JACK_SOFTMODE 0
+SOFTMODE_CHANGED="$MPE_ENV_LAST_CHANGED"
+if [ "$SOFTMODE_CHANGED" = 1 ]; then
+    mpe_env_on_restore _restart_graph
+fi
 if [ "$GOVERNOR" = on ]; then
-    _set_env_var MPE_POLY_GOVERNOR 1
+    mpe_env_set MPE_POLY_GOVERNOR 1
 else
-    _set_env_var MPE_POLY_GOVERNOR 0
+    mpe_env_set MPE_POLY_GOVERNOR 0
     # Match reference / capacity harnesses — native poly, no touch ceiling 12.
-    _set_env_var MPE_POLY_CEILING 64
-    _set_env_var MPE_POLY_FLOOR 64
+    mpe_env_set MPE_POLY_CEILING 64
+    mpe_env_set MPE_POLY_FLOOR 64
 fi
 mpe_source_appliance_env
 
 STAGE=services-stop
-systemctl stop mpe-looper-session.service sl-watchdog.service mpe-sooperlooper.service 2>/dev/null || true
-systemctl stop touch-patch-browser.service patch-browser.service 2>/dev/null || true
+for _unit in mpe-sooperlooper.service mpe-looper-session.service sl-watchdog.service \
+    touch-patch-browser.service patch-browser.service; do
+    mpe_unit_stop_for_measure "$_unit"
+done
 if [ "$GOVERNOR" = off ]; then
-    systemctl stop surge-poly-governor.service 2>/dev/null || true
+    mpe_unit_stop_for_measure surge-poly-governor.service
 fi
 
 STAGE=set-surge-audio
-if ! "$SCRIPT_DIR/set-surge-audio.sh" --buffer "$BUFFER" --periods "$PERIODS"; then
-    echo "ERROR: set-surge-audio failed" >&2
-    exit 1
+GRAPH_RESTARTED=0
+_live_buffer="$(mpe_env_get MPE_JACK_BUFFER)"
+_live_periods="$(mpe_env_get MPE_JACK_PERIODS)"
+if [ "$_live_buffer" != "$BUFFER" ] || [ "$_live_periods" != "$PERIODS" ]; then
+    # set-surge-audio.sh edits the env file itself: snapshot it first.
+    mpe_env_snapshot
+    RESTORE_BUFFER="${_live_buffer:-256}"
+    RESTORE_PERIODS="${_live_periods:-3}"
+    if ! "$SCRIPT_DIR/set-surge-audio.sh" --buffer "$BUFFER" --periods "$PERIODS"; then
+        echo "ERROR: set-surge-audio failed" >&2
+        exit 1
+    fi
+    GRAPH_RESTARTED=1
+    sleep 8
 fi
-sleep 8
 
-STAGE=jack-restart
-systemctl restart mpe-jackd.service
-sleep 4
-STAGE=jack-wait
-mpe_wait_for_jack_server 30
-STAGE=surge-restart
-systemctl restart surge-xt-cli.service
-sleep 6
+if [ "$SOFTMODE_CHANGED" = 1 ] && [ "$GRAPH_RESTARTED" = 0 ]; then
+    STAGE=graph-restart
+    _restart_graph
+fi
 if [ "$GOVERNOR" = on ]; then
     STAGE=governor-start
+    if ! systemctl is-enabled --quiet surge-poly-governor.service 2>/dev/null; then
+        mpe_env_on_restore systemctl disable surge-poly-governor.service
+    fi
+    if systemctl is-active --quiet surge-poly-governor.service 2>/dev/null; then
+        mpe_env_on_restore systemctl restart surge-poly-governor.service
+    else
+        mpe_env_on_restore systemctl stop surge-poly-governor.service
+    fi
     systemctl enable surge-poly-governor.service 2>/dev/null || true
     systemctl restart surge-poly-governor.service
     GOV_SINCE="$(date -Is)"
@@ -293,7 +318,7 @@ systemctl start mpe-peak-meter.service 2>/dev/null || true
 sleep 2
 
 STAGE=load-patch
-_as_user python3 "$SCRIPT_DIR/load-patch-osc.py" "$PATCH_PATH"
+mpe_load_patch_osc "$PATCH_PATH" "$SCRIPT_DIR"
 if [ -f "${USER_HOME}/.patch_browser_poly_state.json" ]; then
     echo "poly_state_after_load=$(tr -d '\n' <"${USER_HOME}/.patch_browser_poly_state.json")" >>"$OUTPUT"
 fi
