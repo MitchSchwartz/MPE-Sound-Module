@@ -3,11 +3,15 @@
 A sidecar store like normalization and hold (`SidecarKeyMixin`): keyed by the
 patch's stable key, read with the legacy stem as a fallback, migrated by the
 post-scan stem migration. A moved or renamed patch has a new stable key and
-starts again from the global defaults, the same as its Hold and normalization.
+starts again from the defaults, the same as its Hold and normalization.
 
-Each field is optional. Missing means "use the global default", resolved by
-`fx_policy.resolve_config`: patch value first, then the global default. A
-patch never set plays the global default chain at depth 0.
+**Effect state is entirely per patch.** A patch with no entry plays the
+factory default: no effect on (`FACTORY_MASK`) at depth 0 (`FACTORY_DEPTH`),
+never a global or last-used value. Every entry this store holds has both a
+mask and a depth: an entry read without one (written before #142 round 5,
+which resolved a missing field from the global default) is completed with the
+factory value on load, and the next save writes it whole. Only `target` may
+be missing; it then follows the global Settings default, on purpose.
 
 Entry shape (one per patch):
 
@@ -25,7 +29,8 @@ with `effect` or `depths` and no `mask` is read as that shape. The selected effe
 one-bit mask and its depth the shared depth; the other effects' depths are
 dropped, because there is now one depth. An old entry with depths but no
 selected effect keeps no depth: which effect those belonged to depended on the
-global default at the time, which the store cannot see. Entries are converted
+global default at the time, which the store cannot see; it gets the factory
+default like any other missing field. Entries are converted
 when the file is loaded, so the next save writes the new shape for every patch.
 
 This module only stores. `FxPolicy` decides when to write (debounced, never
@@ -48,6 +53,10 @@ from patch_browser.patch_sidecar_store import SidecarKeyMixin
 #: `fx_policy.MOD_WHEEL_TARGETS`; restated here so the store does not import
 #: the policy (the policy imports the store's types).
 STORED_TARGETS = ("patch_first", "effect")
+
+#: The factory default effect state: nothing on, depth 0.
+FACTORY_MASK = fx_host_protocol.MASK_NONE
+FACTORY_DEPTH = 0.0
 
 
 def default_fx_path() -> Path:
@@ -93,7 +102,9 @@ def _from_per_effect(raw: dict) -> tuple[int | None, float | None]:
 
 @dataclass(frozen=True)
 class PatchFx:
-    """One patch's own values. None means the global default."""
+    """One patch's own values. None: the factory default (mask, depth) or the
+    global default (target). The store never hands out a None mask or depth
+    for a patch it has an entry for."""
 
     mask: int | None = None
     depth: float | None = None
@@ -124,6 +135,15 @@ class PatchFx:
             mask, depth = _from_per_effect(raw)
         return cls(mask=mask, depth=depth, target=target if target in STORED_TARGETS else None)
 
+    def completed(self) -> "PatchFx":
+        """The same entry with a missing mask or depth set to the factory
+        default (never a global one). The target stays optional."""
+        return PatchFx(
+            mask=FACTORY_MASK if self.mask is None else self.mask,
+            depth=FACTORY_DEPTH if self.depth is None else self.depth,
+            target=self.target,
+        )
+
 
 class PatchFxStore(SidecarKeyMixin):
     """Persist each patch's effect setup."""
@@ -135,13 +155,15 @@ class PatchFxStore(SidecarKeyMixin):
 
     def load(self) -> None:
         """Read the file, converting every entry to the current shape in memory
-        (the file itself changes at the next save)."""
+        and completing a missing mask or depth with the factory default (the
+        file itself changes at the next save). An entry with nothing usable in
+        it is dropped: the patch then plays the factory default anyway."""
         self._data = {}
         if self.path.exists():
             for key, entry in read_json_dict(self.path, label="fx file").items():
                 fx = PatchFx.from_json(entry)
                 if not fx.is_empty:
-                    self._data[key] = fx.to_json()
+                    self._data[key] = fx.completed().to_json()
 
     def save(self) -> None:
         atomic_write_json(self.path, self._data)
@@ -173,6 +195,6 @@ class PatchFxStore(SidecarKeyMixin):
         if fx.is_empty:
             self._data.pop(key, None)
         else:
-            self._data[key] = fx.to_json()
+            self._data[key] = fx.completed().to_json()
         if persist:
             self.save()
