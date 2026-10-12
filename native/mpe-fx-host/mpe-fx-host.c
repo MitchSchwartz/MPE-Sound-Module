@@ -34,9 +34,11 @@
  *   1. **It cannot make the trunk louder.** Depth mixes toward the wet signal,
  *      never on top of it, and every effect's wet signal is held to its input's
  *      level (each says how in fx_dsp.c; fx_selftest.c measures it at every
- *      knob position). Every output sample is clamped to ±1.0 and NaN becomes
- *      silence (fx_dsp.h). Depth 0 — the startup state — is the input, bit for
- *      bit.
+ *      knob position). What a mix loses, the level stage lifts back toward the
+ *      input's level and never past it, under a limiter that keeps a lifted
+ *      peak below the input's recent peak (fx_dsp.h, "Level match"). Every
+ *      output sample is clamped to ±1.0 and NaN becomes silence. Depth 0 — the
+ *      startup state — is the input, bit for bit.
  *
  *   2. **It takes the trunk only once it is carrying audio, and gives it back
  *      when it leaves.** Carrying is the authority's rule: Surge reaches our
