@@ -9,12 +9,12 @@
  *                                                              └─> mpe-looper:loopM_in_N
  *
  * JACK runs clients in graph order inside one period, so this adds no buffer
- * latency. The DSP — the effect table, depth smoothing, the swap crossfade,
- * bypass and the output clamp — is in fx_dsp.c, which has no JACK in it so the
+ * latency. The DSP — the effect table, the chain, depth smoothing, the enable
+ * crossfades, bypass and the output clamp — is in fx_dsp.c, which has no JACK in it so the
  * self-test can run anywhere.
  *
- * What effect and how much is not decided here. This process holds no policy:
- * it is told an effect id and a depth over UDP and it applies them. The Python
+ * Which effects and how much is not decided here. This process holds no
+ * policy: it is told an enable mask and one depth over UDP and applies them. The Python
  * policy module is the only thing that decides; the datagram format has one
  * definition on that side, `patch_browser/fx_host_protocol.py`.
  *
@@ -34,11 +34,11 @@
  *   1. **It cannot make the trunk louder.** Depth mixes toward the wet signal,
  *      never on top of it, and every effect's wet signal is held to its input's
  *      level (each says how in fx_dsp.c; fx_selftest.c measures it at every
- *      knob position). What a mix loses, the level stage lifts back toward the
- *      input's level and never past it, under a limiter that keeps a lifted
- *      peak below the input's recent peak (fx_dsp.h, "Level match"). Every
- *      output sample is clamped to ±1.0 and NaN becomes silence. Depth 0 — the
- *      startup state — is the input, bit for bit.
+ *      knob position). What a mix loses, a static gain per knob position
+ *      gives back short of the input's level (fx_dsp.h, "Level curve"), and
+ *      the chain of enabled effects is held to the same bound. Every output
+ *      sample is clamped to ±1.0 and NaN becomes silence. Depth 0 or no effect
+ *      enabled — the startup state — is the input, bit for bit.
  *
  *   2. **It takes the trunk only once it is carrying audio, and gives it back
  *      when it leaves.** Carrying is the authority's rule: Surge reaches our
@@ -83,8 +83,8 @@
  * it zippers; much longer and the knob feels disconnected. A patch change with
  * the knob already raised jumps the target, and this is what ramps it. */
 #define DEPTH_MS 40.0
-/* Effect swap crossfade: long enough to hide the change of character, short
- * enough that a swap on a patch change lands before the next note matters. */
+/* Enable/disable crossfade: long enough to hide the change of character, short
+ * enough that a toggle on a patch change lands before the next note matters. */
 #define XFADE_MS 30.0
 
 /* --------------------------------------------------------------------------
@@ -141,10 +141,10 @@ static volatile sig_atomic_t g_jack_shutdown = 0;
 
 static fx_engine g_engine;
 
-/* Targets set by the control thread, followed by the RT callback. Chorus at
- * depth 0 until something says otherwise: an unconfigured insert must be
+/* Targets set by the control thread, followed by the RT callback. No effect
+ * at depth 0 until something says otherwise: an unconfigured insert must be
  * inaudible, not silent. */
-static atomic_int g_target_effect = 0;
+static atomic_uint g_target_mask = 0;
 static _Atomic float g_target_depth = 0.0f;
 static _Atomic float g_rate = 0.0f;
 
@@ -158,7 +158,7 @@ static atomic_int g_wake_pending = 0;
 static int process(jack_nframes_t nframes, void *arg)
 {
     (void)arg;
-    const int effect = atomic_load_explicit(&g_target_effect, memory_order_relaxed);
+    const uint32_t mask = atomic_load_explicit(&g_target_mask, memory_order_relaxed);
     float depth = atomic_load_explicit(&g_target_depth, memory_order_relaxed);
     const float rate = atomic_load_explicit(&g_rate, memory_order_relaxed);
 
@@ -181,7 +181,7 @@ static int process(jack_nframes_t nframes, void *arg)
      * engine — never an unwritten buffer left at whatever the last period had. */
     const float *const cin[FX_CHANNELS] = { in[0], in[1] };
     float *const cout[FX_CHANNELS] = { out[0], out[1] };
-    fx_engine_process(&g_engine, cin, cout, nframes, effect, depth);
+    fx_engine_process(&g_engine, cin, cout, nframes, mask, depth);
     return 0;
 }
 
@@ -524,17 +524,17 @@ static void *control_thread(void *arg)
             continue;
         }
         buf[got] = '\0';
-        int effect = 0;
+        uint32_t mask = 0;
         float depth = 0.0f;
-        if (!fx_parse_control(buf, &effect, &depth) || effect < 0 || effect >= FX_EFFECT_COUNT) {
-            continue;   /* a malformed or unknown request changes nothing */
+        if (!fx_parse_control(buf, &mask, &depth) || (mask >> FX_EFFECT_COUNT) != 0u) {
+            continue;   /* malformed, or naming an effect not shipped: changes nothing */
         }
         if (depth < 0.0f) {
             depth = 0.0f;
         } else if (depth > 1.0f) {
             depth = 1.0f;
         }
-        atomic_store_explicit(&g_target_effect, effect, memory_order_relaxed);
+        atomic_store_explicit(&g_target_mask, mask, memory_order_relaxed);
         atomic_store_explicit(&g_target_depth, depth, memory_order_relaxed);
     }
     close(sock);
@@ -577,7 +577,7 @@ int main(int argc, char **argv)
     (void)argc;
     (void)argv;
 
-    if (!atomic_is_lock_free(&g_target_depth) || !atomic_is_lock_free(&g_target_effect)) {
+    if (!atomic_is_lock_free(&g_target_depth) || !atomic_is_lock_free(&g_target_mask)) {
         fprintf(stderr, "mpe-fx-host: atomics are not lock-free on this platform — refusing to start\n");
         return 1;
     }
