@@ -43,18 +43,32 @@ EFFECT_CHORUS = 0
 EFFECT_TUBE_DRIVE = 1
 EFFECT_PHASER = 2
 EFFECT_TREMOLO = 3
-EFFECT_IDS: tuple[int, ...] = (EFFECT_CHORUS, EFFECT_TUBE_DRIVE, EFFECT_PHASER, EFFECT_TREMOLO)
+EFFECT_FLANGER = 4
+EFFECT_IDS: tuple[int, ...] = (
+    EFFECT_CHORUS,
+    EFFECT_TUBE_DRIVE,
+    EFFECT_PHASER,
+    EFFECT_TREMOLO,
+    EFFECT_FLANGER,
+)
 EFFECT_NAMES: dict[int, str] = {
     EFFECT_CHORUS: "Chorus",
     EFFECT_TUBE_DRIVE: "Drive",
     EFFECT_PHASER: "Phaser",
     EFFECT_TREMOLO: "Tremolo",
+    EFFECT_FLANGER: "Flanger",
 }
 
 #: The order the enabled effects run in, first to last. A property of the DSP,
 #: not of the wire: the mask's bit order is the id order above, never this.
 #: Must equal FX_CHAIN_ORDER in fx_dsp.c; `tests/test_fx_host.py` reads it.
-CHAIN_ORDER: tuple[int, ...] = (EFFECT_TUBE_DRIVE, EFFECT_PHASER, EFFECT_CHORUS, EFFECT_TREMOLO)
+CHAIN_ORDER: tuple[int, ...] = (
+    EFFECT_TUBE_DRIVE,
+    EFFECT_PHASER,
+    EFFECT_FLANGER,
+    EFFECT_CHORUS,
+    EFFECT_TREMOLO,
+)
 
 #: No effect enabled, and every effect this build ships enabled.
 MASK_NONE = 0

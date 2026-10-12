@@ -556,55 +556,82 @@ static void drive_feed(void *state, const float *const in[FX_CHANNELS], uint32_t
 /* Phaser                                                                     */
 /* ------------------------------------------------------------------------- */
 
-/* Four first-order all-pass stages swept together by a slow LFO, mixed 50/50
- * with the dry signal (wet_max 0.5), so where the chain's phase reaches 180
- * degrees the two cancel: two notches sweeping up and down. The knob is the
- * mix.
+/* Eight first-order all-pass stages swept together by a slow LFO, with
+ * band-limited feedback, mixed with the dry signal (wet_max 0.6). Where the
+ * chain's phase reaches 180 degrees the two cancel: four notches sweeping up
+ * and down, with resonant peaks between them. The knob is the mix.
  *
- * Fixed voicing: stage corner swept 300 Hz .. 3 kHz on a log scale, 0.4 Hz,
- * the right channel a quarter cycle ahead for width; feedback -0.2.
+ * Fixed voicing (round 5: "too subtle"; round 4 had four stages, 300 Hz ..
+ * 3 kHz and feedback -0.2, which made two notches only about 17 dB deep):
+ *   - Stage corner swept 100 Hz .. 6 kHz on a log scale (5.9 octaves, was
+ *     3.3), 0.4 Hz, the right channel a quarter cycle ahead for width.
+ *   - Feedback +0.6, taken from the chain's output through a band-pass (one-
+ *     pole high-pass at 150 Hz, one-pole low-pass at 3 kHz) and fed back one
+ *     sample later: y = A(x + g B(z^-1 y)). The resonance sits in the band
+ *     where the notches are. Full-band feedback, the textbook form, also
+ *     resonates at DC and at Nyquist, where an even all-pass chain is always
+ *     in phase: that is a +4 dB shelf on everything above ~10 kHz, which made
+ *     white noise 3 dB louder than the keys signal, so a static level gain
+ *     that kept noise under its input left the keys 3-4 dB down. The
+ *     full-band mutant shows the self-test catching it.
+ *   - Mix 0.6 wet, not 0.5: with feedback g the in-band wet at a notch is
+ *     -1/(1+g) of the dry, and w = (1+g)/(2+g) = 0.62 puts the cancellation
+ *     back toward a null (measured with the LFO frozen: the deepest notch
+ *     35-68 dB down across the sweep, three to four notches at once; round
+ *     4's were 17 dB, one or two).
  *
- * Feedback is solved without a delay (zero-delay feedback): y = A(x + g y),
- * so y = A x / (1 - g A) exactly. At full mix the response is
- *   H = (1 + A / (1 - gA)) / 2 = (1 + (1 - g)A) / (2 (1 - gA))
- * and for -0.618 < g <= 0 its magnitude is largest where A = 1, at
- * (2 - g) / (2 (1 - g)) — 0.917 for g = -0.2. So the phaser never boosts any
- * frequency: that is its level guarantee for steady input (RMS); peaks are not
- * guaranteed, an all-pass moves phase and can raise the crest factor. Positive
- * feedback would resonate above unity — the hot-feedback mutant shows the
- * self-test catching exactly that. The notches cost level (-2.5 dB on the
- * keys signal at full mix); the engine's static level curve (fx_dsp.h) gives
- * part of it back. It is calibrated on keys (correlation PHASER_LEVEL_CORR
- * fits the keys loss at every knob position) and its scale is held where
- * white noise, which loses less (-1.5 dB: most of its energy is above the
- * notches), stays under the input. Round 3 used a dynamic makeup that followed
- * the sweep, under a peak limiter: two-tone IMD -33 dB at full (#149: -118 dB),
- * the "distortion that comes and goes with the sweep".
+ * Stability: the loop gain is |g B A| <= g < 1 at every frequency (A is an
+ * all-pass, |B| <= 1), so the loop cannot run away; the self-test runs it two
+ * minutes at full depth and checks it decays to exact silence, against a
+ * mutant with g = 1.1 that must grow.
+ *
+ * Level. The resonant peaks lift what they cross by up to about +5 dB (a
+ * tone the sweep passes over swells: a phaser's sound) and the notches take
+ * energy out. Over whole sweeps the keys signal loses 1.55 dB at half mix and
+ * 0.88 dB at full, white noise 1.1-1.2 dB. The engine's static level curve
+ * (fx_dsp.h) gives part of it back: correlation PHASER_LEVEL_CORR, scale
+ * PHASER_LEVEL_SCALE. Alone, the phaser could come to within 0.93 dB of its
+ * input on keys at every knob position (scale 0.79), but in series with the
+ * flanger the two curves stack and phaser + flanger at full went +0.28 dB
+ * over the input on keys. The scale is held at 0.50, where that pair is
+ * +0.02 dB and the phaser alone is -1.17 dB at worst (55 %) and -0.41 dB at
+ * full on keys. It is a fixed gain per knob position: no detector, no limiter
+ * (round 3's dynamic makeup under a limiter measured two-tone IMD -33 dB at
+ * full, the "distortion that comes and goes with the sweep"). Peaks are not
+ * guaranteed: an all-pass moves phase and raises the crest factor, and the
+ * resonance adds to that (+6.0 dB over the input's peak at full on noise and
+ * tones; keys -0.3 dB). The engine's clamp holds ±1.
  *
  * The corner -> coefficient map needs tan(); it is tabulated per rate (257
  * points over one LFO cycle) and linearly interpolated per frame.
  *
- * Per stereo frame, active: LFO wraps 4; per channel: table lerp 7, a^4 2,
- * state fold 6, feedback solve 7 (one divide), four stages x 6 (incl. flush)
- * 24 => 46; total ~96 ops. Runs while bypassed too. Laptop: ~25 ns/frame.
+ * Per stereo frame, active: LFO wraps 4; per channel: table lerp 7, feedback
+ * in 2, eight stages x 6 (incl. flush) 48, feedback band-pass 7 and its
+ * flushes 4 => 68; total ~140 ops (was ~96). Runs while bypassed too.
+ * Laptop: ~37-40 ns/frame (was ~31).
  */
-#define PHASER_STAGES 4
-#define PHASER_LO_HZ 300.0
-#define PHASER_HI_HZ 3000.0
+#define PHASER_STAGES 8
+#define PHASER_LO_HZ 100.0
+#define PHASER_HI_HZ 6000.0
 #define PHASER_RATE_HZ 0.4f
 #define PHASER_STEREO_OFFSET 0.25f
-#define PHASER_FEEDBACK -0.2f
+#define PHASER_FEEDBACK 0.6f
+#define PHASER_FB_HP_HZ 150.0f
+#define PHASER_FB_LP_HZ 3000.0f
+#define PHASER_WET 0.6f
 #define PHASER_TABLE 256
-#define PHASER_LEVEL_CORR 0.13f
-#define PHASER_LEVEL_SCALE 0.58f
+#define PHASER_LEVEL_CORR 0.60f
+#define PHASER_LEVEL_SCALE 0.50f
 
 typedef struct {
     float table[PHASER_TABLE + 1];
     float z[FX_CHANNELS][PHASER_STAGES];
+    float hp[FX_CHANNELS], lp[FX_CHANNELS];   /* feedback band-pass memories */
+    float a_hp, a_lp;
     float phase, phase_inc;
 } phaser_state;
 
-enum { PHASER_NO_FLUSH = 1, PHASER_HOT = 2 };
+enum { PHASER_NO_FLUSH = 1, PHASER_HOT = 2, PHASER_FULL_BAND = 4, PHASER_RUNAWAY = 8 };
 
 static int phaser_init(void *state, float rate)
 {
@@ -619,6 +646,8 @@ static int phaser_init(void *state, float rate)
         double t = tan(M_PI * hz / (double)rate);
         s->table[k] = (float)((t - 1.0) / (t + 1.0));
     }
+    s->a_hp = pole_alpha(PHASER_FB_HP_HZ, rate);
+    s->a_lp = pole_alpha(PHASER_FB_LP_HZ, rate);
     s->phase = 0.0f;
     s->phase_inc = PHASER_RATE_HZ / rate;
     return 0;
@@ -638,19 +667,15 @@ static inline float phaser_coef(const phaser_state *s, float phase)
 static inline void phaser_run(phaser_state *s, const float *const in[FX_CHANNELS],
                               float *const wet[FX_CHANNELS], uint32_t n, int mode)
 {
-    const float g = (mode & PHASER_HOT) ? 0.6f : PHASER_FEEDBACK;
+    const float g = (mode & PHASER_RUNAWAY) ? 1.1f : (mode & PHASER_HOT) ? 0.95f : PHASER_FEEDBACK;
     float phase = s->phase;
     for (uint32_t i = 0; i < n; i++) {
         float x[FX_CHANNELS] = { finite_or_zero(in[0][i]), finite_or_zero(in[1][i]) };
         for (int ch = 0; ch < FX_CHANNELS; ch++) {
             float a = phaser_coef(s, ch == 0 ? phase : wrap01(phase + PHASER_STEREO_OFFSET));
             float *z = s->z[ch];
-            /* Chain output = G v + S, G = a^4, S folded from the memories. */
-            float a2 = a * a;
-            float G = a2 * a2;
-            float S = ((z[0] * a + z[1]) * a + z[2]) * a + z[3];
-            float y = (G * x[ch] + S) / (1.0f - g * G);
-            float v = x[ch] + g * y;
+            /* The band-passed output of the last frame, fed back. */
+            float v = x[ch] + g * s->lp[ch];
             for (int k = 0; k < PHASER_STAGES; k++) {
                 float o = a * v + z[k];
                 z[k] = v - a * o;
@@ -658,6 +683,16 @@ static inline void phaser_run(phaser_state *s, const float *const in[FX_CHANNELS
                     z[k] = flush(z[k]);
                 }
                 v = o;
+            }
+            if (mode & PHASER_FULL_BAND) {
+                s->lp[ch] = v;
+            } else {
+                s->hp[ch] += s->a_hp * (v - s->hp[ch]);
+                s->lp[ch] += s->a_lp * ((v - s->hp[ch]) - s->lp[ch]);
+            }
+            if (!(mode & PHASER_NO_FLUSH)) {
+                s->hp[ch] = flush(s->hp[ch]);
+                s->lp[ch] = flush(s->lp[ch]);
             }
             if (wet != NULL) {
                 wet[ch][i] = v;
@@ -678,6 +713,157 @@ static void phaser_process(void *state, const float *const in[FX_CHANNELS],
 static void phaser_feed(void *state, const float *const in[FX_CHANNELS], uint32_t n)
 {
     phaser_run(state, in, NULL, n, 0);
+}
+
+/* ------------------------------------------------------------------------- */
+/* Flanger                                                                    */
+/* ------------------------------------------------------------------------- */
+
+/* A short swept delay with feedback, mixed with the dry signal (wet_max 0.6):
+ * a comb filter whose teeth sweep, the jet sound. The knob is the mix.
+ *
+ * Signal path, per channel:
+ *
+ *   s[n] = x[n] + g B(s[n - D])        the delay line's input
+ *   wet  = s[n - D]
+ *
+ * so wet/x = z^-D / (1 - g B z^-D). Fixed voicing:
+ *   - D swept 0.5 .. 8 ms (linearly, the rounded-triangle LFO), 0.2 Hz, the
+ *     right channel a quarter cycle ahead: the combs move apart across the
+ *     image instead of the whole sound flanging as one.
+ *   - Feedback +0.6 through a band-pass (one-pole high-pass at 200 Hz, one-
+ *     pole low-pass at 6 kHz). The high-pass keeps the bass out of the loop:
+ *     with full-band feedback every short delay is in phase at low
+ *     frequencies, so the bass is boosted by up to 1/(1-g) = +8 dB whenever
+ *     the sweep is near its short end. The low-pass darkens each pass the way
+ *     a tape or bucket-brigade flanger's does, so the high resonances do not
+ *     fizz.
+ *   - Mix 0.6 wet: (1+g)/(2+g) = 0.62 makes the in-band notches nulls.
+ *
+ * Stability: loop gain |g B| <= g < 1 (the linear interpolation's gain is at
+ * most 1 too), so it cannot run away; the self-test runs two minutes at full
+ * depth and checks it decays to exact silence, against a mutant with g = 1.1
+ * that must grow.
+ *
+ * Level. Over a whole sweep the keys signal loses 2.6 dB at 75 % mix and
+ * 2.1 dB at full, white noise 3.5 dB at full (the combs' notches take more
+ * than their peaks give). The static level curve (fx_dsp.h),
+ * FLANGER_LEVEL_CORR and FLANGER_LEVEL_SCALE, calibrated on keys, gives most
+ * of it back: keys within 0.92 dB of the input at every knob position (worst
+ * at 65 %, -0.41 dB at full), and no test signal over its input (the 3 kHz
+ * tone is the one at the limit, +0.02 dB at full). Peaks are not guaranteed:
+ * a resonant peak sweeping over a tone swells it, +6.0 dB over the input's
+ * peak at full on noise and tones (keys +0.5 dB). The engine's clamp holds
+ * ±1, so a loud pure tone at full depth is clipped there.
+ *
+ * The delay line is written in bypass too (feed runs the whole loop with the
+ * output discarded), so coming back in reads real audio, and re-entry matches
+ * an instance that never stopped.
+ *
+ * Per stereo frame, active: phase step 3; per channel: LFO shape 8 (and a
+ * wrap 2 for the right), delay time 2, float->int split 2, two reads and a
+ * lerp 3, band-pass 7, feedback 2, flushes 6, finite check 2 => ~34; total
+ * ~70 ops plus 6 memory ops. No trig, no division. Runs while bypassed too.
+ * Laptop: ~21-24 ns/frame.
+ */
+#define FLANGER_MIN_MS 0.5f
+#define FLANGER_MAX_MS 8.0f
+#define FLANGER_RATE_HZ 0.2f
+#define FLANGER_STEREO_OFFSET 0.25f
+#define FLANGER_FEEDBACK 0.6f
+#define FLANGER_FB_HP_HZ 200.0f
+#define FLANGER_FB_LP_HZ 6000.0f
+#define FLANGER_WET 0.6f
+#define FLANGER_LEVEL_CORR 0.46f
+#define FLANGER_LEVEL_SCALE 1.285f
+
+/* Power of two >= FLANGER_MAX_MS at FX_MAX_RATE plus two taps of headroom:
+ * 8 ms x 192 kHz = 1536 samples. */
+#define FLANGER_BUF 2048u
+#define FLANGER_MASK (FLANGER_BUF - 1u)
+
+typedef struct {
+    float buf[FX_CHANNELS][FLANGER_BUF];
+    float hp[FX_CHANNELS], lp[FX_CHANNELS];   /* feedback band-pass memories */
+    float a_hp, a_lp;
+    uint32_t w;
+    float phase, phase_inc;
+    float center, sweep;   /* samples */
+} flanger_state;
+
+enum { FLANGER_NO_FLUSH = 1, FLANGER_HOT = 2, FLANGER_RUNAWAY = 4 };
+
+static int flanger_init(void *state, float rate)
+{
+    flanger_state *s = state;
+    if (!(rate > 0.0f) || rate > (float)FX_MAX_RATE) {
+        return -1;
+    }
+    s->w = 0;
+    s->phase = 0.0f;
+    s->phase_inc = FLANGER_RATE_HZ / rate;
+    s->center = 0.5f * (FLANGER_MIN_MS + FLANGER_MAX_MS) * 0.001f * rate;
+    s->sweep = 0.5f * (FLANGER_MAX_MS - FLANGER_MIN_MS) * 0.001f * rate;
+    s->a_hp = pole_alpha(FLANGER_FB_HP_HZ, rate);
+    s->a_lp = pole_alpha(FLANGER_FB_LP_HZ, rate);
+    return 0;
+}
+
+/* s[n - delay], delay >= 1 sample, read before s[n] is written. */
+static inline float flanger_tap(const float *buf, uint32_t w, float delay)
+{
+    uint32_t whole = (uint32_t)delay;
+    float frac = delay - (float)whole;
+    float a = buf[(w - whole) & FLANGER_MASK];
+    float b = buf[(w - whole - 1u) & FLANGER_MASK];
+    return a + frac * (b - a);
+}
+
+static inline void flanger_run(flanger_state *s, const float *const in[FX_CHANNELS],
+                               float *const wet[FX_CHANNELS], uint32_t n, int mode)
+{
+    const float g = (mode & FLANGER_RUNAWAY) ? 1.1f : (mode & FLANGER_HOT) ? 0.95f
+                                                                            : FLANGER_FEEDBACK;
+    uint32_t w = s->w;
+    float phase = s->phase;
+    for (uint32_t i = 0; i < n; i++) {
+        /* Read the inputs before any write: `wet` may share memory with them. */
+        float x[FX_CHANNELS] = { finite_or_zero(in[0][i]), finite_or_zero(in[1][i]) };
+        float tap[FX_CHANNELS];
+        for (int ch = 0; ch < FX_CHANNELS; ch++) {
+            float shape = lfo_shape(ch == 0 ? phase : wrap01(phase + FLANGER_STEREO_OFFSET));
+            tap[ch] = flanger_tap(s->buf[ch], w, s->center + s->sweep * shape);
+            s->hp[ch] += s->a_hp * (tap[ch] - s->hp[ch]);
+            s->lp[ch] += s->a_lp * ((tap[ch] - s->hp[ch]) - s->lp[ch]);
+            float v = x[ch] + g * s->lp[ch];
+            if (!(mode & FLANGER_NO_FLUSH)) {
+                s->hp[ch] = flush(s->hp[ch]);
+                s->lp[ch] = flush(s->lp[ch]);
+                v = flush(v);
+            }
+            s->buf[ch][w] = v;
+        }
+        if (wet != NULL) {
+            wet[0][i] = tap[0];
+            wet[1][i] = tap[1];
+        }
+        phase = wrap01(phase + s->phase_inc);
+        w = (w + 1u) & FLANGER_MASK;
+    }
+    s->w = w;
+    s->phase = phase;
+}
+
+static void flanger_process(void *state, const float *const in[FX_CHANNELS],
+                            float *const wet[FX_CHANNELS], const float *amount, uint32_t n)
+{
+    (void)amount;
+    flanger_run(state, in, wet, n, 0);
+}
+
+static void flanger_feed(void *state, const float *const in[FX_CHANNELS], uint32_t n)
+{
+    flanger_run(state, in, NULL, n, 0);
 }
 
 /* ------------------------------------------------------------------------- */
@@ -767,19 +953,22 @@ const fx_effect_desc FX_EFFECTS[] = {
       chorus_init, chorus_process, chorus_feed },
     { "drive", 1.0f, 0.05f, 0.0f, 0.0f, sizeof(drive_state), drive_init, drive_process,
       drive_feed },
-    { "phaser", 0.5f, 1.0f, PHASER_LEVEL_CORR, PHASER_LEVEL_SCALE, sizeof(phaser_state),
+    { "phaser", PHASER_WET, 1.0f, PHASER_LEVEL_CORR, PHASER_LEVEL_SCALE, sizeof(phaser_state),
       phaser_init, phaser_process, phaser_feed },
     { "tremolo", 1.0f, 1.0f, 0.0f, 0.0f, sizeof(tremolo_state), tremolo_init, tremolo_process,
       tremolo_feed },
+    { "flanger", FLANGER_WET, 1.0f, FLANGER_LEVEL_CORR, FLANGER_LEVEL_SCALE,
+      sizeof(flanger_state), flanger_init, flanger_process, flanger_feed },
 };
 const int FX_EFFECT_COUNT = (int)(sizeof(FX_EFFECTS) / sizeof(FX_EFFECTS[0]));
 
-/* The run order, as ids: Drive -> Phaser -> Chorus -> Tremolo. The drive
- * first, so it shapes the plain signal rather than a swept or doubled one;
- * the tremolo last, so its level wobble is not then shaped by anything.
+/* The run order, as ids: Drive -> Phaser -> Flanger -> Chorus -> Tremolo. The
+ * drive first, so it shapes the plain signal rather than a swept or doubled
+ * one; the two sweeps next to each other, ahead of the chorus's doubling; the
+ * tremolo last, so its level wobble is not then shaped by anything.
  * patch_browser/fx_host_protocol.py's CHAIN_ORDER names the same ids;
  * tests/test_fx_host.py reads this array and fails if they drift. */
-const int FX_CHAIN_ORDER[] = { 1, 2, 0, 3 };
+const int FX_CHAIN_ORDER[] = { 1, 2, 4, 0, 3 };
 const int FX_CHAIN_LEN = (int)(sizeof(FX_CHAIN_ORDER) / sizeof(FX_CHAIN_ORDER[0]));
 
 #ifdef FX_SELFTEST
@@ -833,6 +1022,48 @@ static void phaser_hot(void *st, const float *const in[FX_CHANNELS],
     (void)amount;
     phaser_run(st, in, wet, n, PHASER_HOT);
 }
+static void phaser_full_band(void *st, const float *const in[FX_CHANNELS],
+                             float *const wet[FX_CHANNELS], const float *amount, uint32_t n)
+{
+    (void)amount;
+    phaser_run(st, in, wet, n, PHASER_FULL_BAND);
+}
+static void phaser_runaway(void *st, const float *const in[FX_CHANNELS],
+                           float *const wet[FX_CHANNELS], const float *amount, uint32_t n)
+{
+    (void)amount;
+    phaser_run(st, in, wet, n, PHASER_RUNAWAY);
+}
+static void phaser_runaway_feed(void *st, const float *const in[FX_CHANNELS], uint32_t n)
+{
+    phaser_run(st, in, NULL, n, PHASER_RUNAWAY);
+}
+static void flanger_no_flush(void *st, const float *const in[FX_CHANNELS],
+                             float *const wet[FX_CHANNELS], const float *amount, uint32_t n)
+{
+    (void)amount;
+    flanger_run(st, in, wet, n, FLANGER_NO_FLUSH);
+}
+static void flanger_no_flush_feed(void *st, const float *const in[FX_CHANNELS], uint32_t n)
+{
+    flanger_run(st, in, NULL, n, FLANGER_NO_FLUSH);
+}
+static void flanger_hot(void *st, const float *const in[FX_CHANNELS],
+                        float *const wet[FX_CHANNELS], const float *amount, uint32_t n)
+{
+    (void)amount;
+    flanger_run(st, in, wet, n, FLANGER_HOT);
+}
+static void flanger_runaway(void *st, const float *const in[FX_CHANNELS],
+                            float *const wet[FX_CHANNELS], const float *amount, uint32_t n)
+{
+    (void)amount;
+    flanger_run(st, in, wet, n, FLANGER_RUNAWAY);
+}
+static void flanger_runaway_feed(void *st, const float *const in[FX_CHANNELS], uint32_t n)
+{
+    flanger_run(st, in, NULL, n, FLANGER_RUNAWAY);
+}
 static void tremolo_overshoot(void *st, const float *const in[FX_CHANNELS],
                               float *const wet[FX_CHANNELS], const float *amount, uint32_t n)
 {
@@ -861,12 +1092,27 @@ const fx_effect_desc FX_TEST_MUTANTS[FX_MUT_COUNT] = {
                                    drive_feed },
     [FX_MUT_DRIVE_NO_FLUSH] = { "drive-no-flush", 1.0f, 0.05f, 0.0f, 0.0f, sizeof(drive_state),
                                 drive_init, drive_no_flush, drive_no_flush_feed },
-    [FX_MUT_PHASER_NO_FLUSH] = { "phaser-no-flush", 0.5f, 1.0f, PHASER_LEVEL_CORR, PHASER_LEVEL_SCALE,
-                                 sizeof(phaser_state),
+    [FX_MUT_PHASER_NO_FLUSH] = { "phaser-no-flush", PHASER_WET, 1.0f, PHASER_LEVEL_CORR,
+                                 PHASER_LEVEL_SCALE, sizeof(phaser_state),
                                  phaser_init, phaser_no_flush, phaser_no_flush_feed },
-    [FX_MUT_PHASER_HOT_FEEDBACK] = { "phaser-hot", 0.5f, 1.0f, PHASER_LEVEL_CORR, PHASER_LEVEL_SCALE,
-                                 sizeof(phaser_state),
+    [FX_MUT_PHASER_HOT_FEEDBACK] = { "phaser-hot", PHASER_WET, 1.0f, PHASER_LEVEL_CORR,
+                                     PHASER_LEVEL_SCALE, sizeof(phaser_state),
                                      phaser_init, phaser_hot, phaser_feed },
+    [FX_MUT_PHASER_FULL_BAND] = { "phaser-full-band", PHASER_WET, 1.0f, PHASER_LEVEL_CORR,
+                                  PHASER_LEVEL_SCALE, sizeof(phaser_state),
+                                  phaser_init, phaser_full_band, phaser_feed },
+    [FX_MUT_PHASER_RUNAWAY] = { "phaser-runaway", PHASER_WET, 1.0f, PHASER_LEVEL_CORR,
+                                PHASER_LEVEL_SCALE, sizeof(phaser_state),
+                                phaser_init, phaser_runaway, phaser_runaway_feed },
+    [FX_MUT_FLANGER_NO_FLUSH] = { "flanger-no-flush", FLANGER_WET, 1.0f, FLANGER_LEVEL_CORR,
+                                  FLANGER_LEVEL_SCALE, sizeof(flanger_state),
+                                  flanger_init, flanger_no_flush, flanger_no_flush_feed },
+    [FX_MUT_FLANGER_HOT_FEEDBACK] = { "flanger-hot", FLANGER_WET, 1.0f, FLANGER_LEVEL_CORR,
+                                      FLANGER_LEVEL_SCALE, sizeof(flanger_state),
+                                      flanger_init, flanger_hot, flanger_feed },
+    [FX_MUT_FLANGER_RUNAWAY] = { "flanger-runaway", FLANGER_WET, 1.0f, FLANGER_LEVEL_CORR,
+                                 FLANGER_LEVEL_SCALE, sizeof(flanger_state),
+                                 flanger_init, flanger_runaway, flanger_runaway_feed },
     [FX_MUT_TREMOLO_OVERSHOOT] = { "tremolo-overshoot", 1.0f, 1.0f, 0.0f, 0.0f, sizeof(tremolo_state),
                                    tremolo_init, tremolo_overshoot, tremolo_feed },
     [FX_MUT_TREMOLO_SHALLOW_TOP] = { "tremolo-shallow-top", 1.0f, 1.0f, 0.0f, 0.0f,
