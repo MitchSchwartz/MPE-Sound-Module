@@ -65,7 +65,29 @@ DEFAULT_POLL_SLOW_S = 0.15
 DEFAULT_XRUN_NUDGE = 8.0
 DEFAULT_MIN_HEADROOM = 3
 DEFAULT_REST_CAP = 0
-DEFAULT_JACK_BASELINE = -1.0
+# --- always_on jack constants: the ONE place they are set ----------------------
+# Derived 2026-10-11 (#154) for the real 0-100 meter. Until then mpe-peak-meter
+# multiplied jack_cpu_load() (already a percentage) by 100 and clamped, so
+# dsp_percent read 100.000 at any load >= 1%, and BASELINE=97 / HARD=100 were
+# tuned against that pinned value: stress was a constant 3 and the curve never
+# moved. Measured at period 96 x 2 (2000 us), full stack, 0 voices:
+#   jackd fCPULoad 17-38%; Surge 220 us p50 / 594 us max (11% / 30%);
+#   whole graph finished <= 801 us (40%).
+# BASELINE = 40. Stress is raw - BASELINE, and this controller steps the limit
+#   DOWN whenever stress exceeds recover_below = max(8, 3 * MIN_HEADROOM) = 9.
+#   Idle must therefore normalize to (about) zero, so the baseline sits at the
+#   TOP of the idle band, not its bottom: 38% measured, 40% = the worst sampled
+#   idle graph (801/2000 us). A baseline at the idle minimum (17, which is what
+#   MPE_POLY_JACK_BASELINE=-1 learns) would read idle jitter as 21 points of
+#   stress and step down while nobody plays.
+# HARD = 50. The curve reaches FLOOR at raw = BASELINE + HARD = 90%, i.e. with
+#   10% of the period (200 us) left before the deadline at raw 100.
+#   HARD = 100 - BASELINE = 60 would put the floor exactly at the xrun, where it
+#   can only arrive too late; the meter is a 32-cycle smoothed figure that lags.
+# Valid only at 96 x 2 on the Pi 5 stack measured above: the load thresholds move
+# with buffer size (docs/POLY-GOVERNOR.md, "Buffer dependence").
+DEFAULT_JACK_BASELINE = 40.0
+DEFAULT_ALWAYS_ON_LIMIT_HARD = 50.0
 DEFAULT_LIMIT_MODE = "always_on"
 VERBOSE_TRACE_FILE = "poly-governor.trace"
 
@@ -181,7 +203,12 @@ def load_governor_config() -> GovernorConfig:
         step_up=_env_int("MPE_POLY_STEP_UP", DEFAULT_STEP_UP),
         governor_v2=governor_v2_enabled(),
         limit_soft_start=_env_float("MPE_POLY_LIMIT_SOFT_START", DEFAULT_LIMIT_SOFT_START),
-        limit_hard=_env_float("MPE_POLY_LIMIT_HARD", DEFAULT_LIMIT_HARD),
+        limit_hard=_env_float(
+            "MPE_POLY_LIMIT_HARD",
+            DEFAULT_ALWAYS_ON_LIMIT_HARD
+            if limit_mode_name() == "always_on"
+            else DEFAULT_LIMIT_HARD,
+        ),
         rise_enable=_env_bool("MPE_POLY_RISE_ENABLE", True),
         rise_full_rate=_env_float("MPE_POLY_RISE_FULL_RATE", DEFAULT_RISE_FULL_RATE),
         rise_bias_max=_env_float("MPE_POLY_RISE_BIAS_MAX", DEFAULT_RISE_BIAS_MAX),
@@ -405,6 +432,7 @@ class SurgePolyGovernor:
         self._load_tracker = LoadTracker(
             cpu_monitor=self.cpu_monitor,
             surge_monitor=self.surge_monitor,
+            jack_baseline=self.config.jack_baseline,
         )
         self._last_step_down_at: float | None = None
         self._adaptive_poll_interval = self.config.poll_interval_s
