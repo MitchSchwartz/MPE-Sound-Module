@@ -30,6 +30,27 @@
  * exception: its knob is the drive amount, handed to `process` per frame, and
  * the mix only fades the effect in across the first few percent so leaving
  * bypass is a fade, not a step.
+ *
+ * Level match. A mix that never gets louder usually gets quieter: half dry
+ * and half a decorrelated copy is -3 dB, a phaser's notches take energy out,
+ * a drive's tone filters do too. An effect with makeup_max > 1 gets the
+ * engine's level stage on its mix:
+ *
+ *   g    = clamp( sqrt(ms_dry / ms_mix) * LEVEL_TARGET, 1, makeup_max ), smoothed
+ *   out  = limit( g * mix,  max(peak_dry, |mix|) )
+ *
+ * ms_* are 50 ms mean squares over both channels, peak_dry the largest dry
+ * sample of the last ~24 ms. The gain only ever lifts (g >= 1), so an effect
+ * that is too loud on its own still shows as too loud: the stage cannot hide
+ * it. The limiter (instant attack, 50 ms release) keeps every lifted sample at
+ * or below the larger of the recent input peak and what the unlifted mix was,
+ * so the makeup cannot add a peak the input or the effect did not already
+ * have.
+ * The tremolo has no level stage: see fx_dsp.c for why its level falls.
+ *
+ * Cost: the dry detectors ~15 ops per frame whenever the effect is heard, the
+ * stage ~30 more for an effect that has it (the sqrt and divide once per
+ * 64-frame chunk, not per frame). Laptop: ~+5 and ~+10 ns per frame.
  */
 
 #ifndef MPE_FX_DSP_H
@@ -58,6 +79,9 @@ typedef struct {
     float wet_max;
     /* Depth at which the mix reaches wet_max: 1.0 when the knob is the mix. */
     float mix_full_at;
+    /* Largest lift the engine's level stage may apply to this effect's mix;
+     * 1.0 turns the stage off (see "Level match" above). */
+    float makeup_max;
     size_t state_bytes;
     /* Called at startup and on a rate change. Never allocates; `state` is
      * already `state_bytes` of zeroed memory. Returns 0 on success. */
@@ -92,6 +116,19 @@ typedef struct {
     float depth;        /* smoothed */
     float depth_alpha;  /* one-pole coefficient; 0 means "jump" */
     double depth_ms;
+
+    /* Level stage (see "Level match" above). */
+    float lv_detect;    /* one-pole coefficient of the mean squares */
+    float lv_smooth;    /* one-pole coefficient of the gain */
+    float lv_release;   /* one-pole coefficient of the limiter's recovery */
+    float ms_dry;
+    float lv_ms[FX_MAX_EFFECTS];
+    float lv_gain[FX_MAX_EFFECTS];
+    float lv_target[FX_MAX_EFFECTS];
+    float lim_gain[FX_MAX_EFFECTS];
+    float peak_blocks[5];
+    float peak_now;
+    uint32_t block_len, block_pos;
 } fx_engine;
 
 /* The effects this build ships. Index = the effect id on the wire. */
@@ -127,16 +164,25 @@ int fx_parse_control(const char *text, int *effect, float *depth);
  * property runs against the matching mutant and must fail it. Indices: */
 enum {
     FX_MUT_DRIVE_NO_OVERSAMPLING,   /* the shaper runs at the base rate */
-    FX_MUT_DRIVE_NO_CEILING,        /* makeup gain without the peak ceiling */
+    FX_MUT_DRIVE_NO_CEILING,        /* makeup without the peak ceiling or the limiter */
+    FX_MUT_DRIVE_NO_MAKEUP,         /* no level compensation at all: too quiet */
+    FX_MUT_DRIVE_OLD_SHAPER,        /* the round-2 cubic shaper: harsher */
     FX_MUT_DRIVE_NO_FLUSH,          /* filter memories never flushed */
     FX_MUT_PHASER_NO_FLUSH,
     FX_MUT_PHASER_HOT_FEEDBACK,     /* positive feedback: resonant peaks > 1 */
     FX_MUT_TREMOLO_OVERSHOOT,       /* LFO gain reaching 1.25 */
+    FX_MUT_TREMOLO_SHALLOW_TOP,     /* LFO gain topping out at 0.8: too quiet */
     FX_MUT_COUNT
 };
 extern const fx_effect_desc FX_TEST_MUTANTS[];
 /* Non-zero turns the engine's output clamp off. Self-test only. */
 extern int fx_test_no_clamp;
+/* Broken level stages, self-test only: no lift at all (the lower bound must
+ * catch it), a target 0.5 dB hot (the upper bound must), and no limiter (the
+ * peak bound must). */
+extern int fx_test_no_level;
+extern int fx_test_level_hot;
+extern int fx_test_no_limit;
 #endif
 
 #endif

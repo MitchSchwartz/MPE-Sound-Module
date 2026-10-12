@@ -68,7 +68,9 @@ def _need_compiler(case: unittest.TestCase) -> None:
 class DspSelfTest(unittest.TestCase):
     def test_every_listener_protecting_property_holds(self):
         """For every effect: depth 0 is the input; output RMS never exceeds the
-        input's (and peak, where the effect can promise it) or ±1; no NaN or
+        input's (and peak, where the effect can promise it) or ±1, and on the
+        keys signal never falls more than 1 dB below it (the tremolo: below
+        its computed level); no NaN or
         denormal blowup over two minutes; depth steps, swaps between every pair
         and re-entry after bypass are click-free; the drive's oversampling
         holds aliasing down — each against a deliberately broken run that must
