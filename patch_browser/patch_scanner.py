@@ -257,7 +257,7 @@ class PatchScanner:
     def bind_sidecar_loader(self, loader) -> None:
         """Attach loader so post-scan sidecar migration can run."""
         self._sidecar_loader = loader
-        for store in (loader.normalization, loader.hold, loader.pressure):
+        for store in (loader.normalization, loader.hold, loader.pressure, loader.fx_store):
             store.set_patch_dirs(self.patch_dirs)
 
     def scan_patches_background(self):

@@ -43,12 +43,21 @@ from sl_limits import MAX_USABLE_LOOPS
 
 import math
 import os
+import sys
 from collections import deque
 from dataclasses import dataclass, field
 from enum import Enum
+from pathlib import Path
 
 from apc_faders import CC_MAX, MASTER, FaderId
 from apc_grid import DEFAULT_VIEW, GridView
+
+_REPO = Path(__file__).resolve().parents[2]
+if str(_REPO) not in sys.path:
+    sys.path.insert(0, str(_REPO))
+
+# The anchor bookkeeping is shared with the mod knob's pickup (fx_policy).
+from patch_browser.fader_pickup import PICKUP_TOLERANCE_CC, Pickup  # noqa: E402,F401
 
 # Bottom of fader travel must mean silence. A log taper cannot reach zero, so
 # the bottom of the range is snapped to it explicitly. Without this the fader
@@ -57,10 +66,6 @@ SILENCE_CC = int(os.environ.get("MPE_APC_FADER_SILENCE_CC", "1"))
 
 FADER_FLOOR_DB = float(os.environ.get("MPE_APC_FADER_FLOOR_DB", "-40.0"))
 FADER_CEIL_DB = float(os.environ.get("MPE_APC_FADER_CEIL_DB", "0.0"))
-
-# Pickup tolerance in CC steps. Faders are noisy near the detent; requiring an
-# exact crossing can leave a fader permanently inert.
-PICKUP_TOLERANCE_CC = int(os.environ.get("MPE_APC_FADER_PICKUP_CC", "2"))
 
 # Engine `wet` echoes include master and auto-law — compare composed level,
 # not per-column fader CC, or master moves corrupt user_gain.
@@ -174,7 +179,7 @@ class LoopMix:
     #: `seed_from_engine`.
     echo_probe: object = None
     # The last CC each fader sent. Set on first touch, advanced on every move.
-    _pickup_anchor: dict[int, int] = field(default_factory=dict)
+    _pickup_anchor: Pickup = field(default_factory=Pickup)
     # Column level before rounding to `user_gain`, so slow moves near either
     # end of travel still accumulate instead of rounding away every step.
     _pickup_ref: dict[int, float] = field(default_factory=dict)
@@ -208,7 +213,7 @@ class LoopMix:
         if view == self.view:
             return
         self.view = view
-        self._pickup_anchor.clear()
+        self._pickup_anchor.rearm()
         for col in range(8):
             loops = self.view.loops_for_column(col)
             self._pickup_ref[col] = (
@@ -267,7 +272,7 @@ class LoopMix:
         self.user_gain[loop] = cc
         for col in range(8):
             if loop in self.view.loops_for_column(col):
-                self._pickup_anchor.pop(col, None)
+                self._pickup_anchor.rearm(col)
                 self._pickup_ref[col] = cc
         return SEED_ADOPTED
 
@@ -325,7 +330,7 @@ class LoopMix:
             return []
 
         level = self._scaled_level(fader, raw)
-        self._pickup_anchor[fader] = raw
+        self._pickup_anchor.moved(fader, raw)
         self._pickup_ref[fader] = level
         for loop in loops:
             # Python's round() is banker's rounding — .5 goes to even, not up.
@@ -340,10 +345,7 @@ class LoopMix:
         After that every move is accepted and scaled — see `_scaled_level`.
         Returning False here is what makes a grab silent instead of a jump.
         """
-        if fader in self._pickup_anchor:
-            return True
-        self._pickup_anchor[fader] = raw
-        return False
+        return not self._pickup_anchor.first_touch(fader, raw)
 
     def _scaled_level(self, fader: int, raw: int) -> float:
         """Move the column level toward the end of travel the fader is heading for.
@@ -366,7 +368,7 @@ class LoopMix:
         36, and moving back up kept lowering it until the fader crossed the
         anchor. That was the clip "breaking or going silent" on a fader move.
         """
-        prev = self._pickup_anchor[fader]
+        prev = self._pickup_anchor.previous(fader)
         ref = self._pickup_ref.get(fader, CC_MAX)
         if raw < prev:
             level = ref - ref * (prev - raw) / prev
