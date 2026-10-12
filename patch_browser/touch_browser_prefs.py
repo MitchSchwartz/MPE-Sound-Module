@@ -297,7 +297,7 @@ class TouchBrowserPrefsMixin:
             policy.set_target(MOD_WHEEL_PATCH_FIRST)
         else:
             policy.set_target(MOD_WHEEL_EFFECT)
-        self._toast(policy.knob_label, 1.2)
+        self._toast(policy.knob_label(), 1.2)
 
     def _cycle_mod_wheel_default(self) -> None:
         """Settings: the default every patch load starts from."""

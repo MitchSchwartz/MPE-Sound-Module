@@ -122,6 +122,13 @@ class TouchBrowserNormalizationMixin:
         pad = (row.h - th) // 2
         return Rect(row.right - pad - tw, row.y + pad, tw, th)
 
+    def _toggle_label_budget(self, rect: Rect) -> tuple:
+        """(font, max width in px) for a toggle row's label: the one budget the
+        draw wraps to and a label chooser measures against."""
+        compact = rect.w < 180
+        toggle = self._toggle_switch_rect(rect, compact=compact)
+        return (self.font_sm if compact else self.font_md), max(1, rect.w - toggle.w - 28)
+
     def _draw_normalize_toggle(
         self,
         rect: Rect,
@@ -137,9 +144,7 @@ class TouchBrowserNormalizationMixin:
         pygame.draw.rect(self.screen, row_bg, rect.pygame_rect, border_radius=10)
 
         text_color = self.theme.muted if disabled else self.theme.text
-        label_font = self.font_sm if compact else self.font_md
-        toggle_w = toggle.w
-        label_max_w = max(1, rect.w - toggle_w - 28)
+        label_font, label_max_w = self._toggle_label_budget(rect)
         lines = wrap_text_lines(label_font, label, label_max_w, max_lines=2)
         block_h = text_block_height(label_font, len(lines), line_spacing=2)
         start_y = rect.y + max(0, (rect.h - block_h) // 2)
