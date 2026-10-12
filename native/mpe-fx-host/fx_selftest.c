@@ -732,7 +732,7 @@ static void test_pack_level_bound(int k)
      * the phaser also its feedback full-band (the shelf boost). Drive: its
      * wet 0.5 dB hot. Tremolo: its guarantee is the peak one, so an LFO that
      * overshoots unity. */
-    level_result c;
+    level_result c = { 0.0f, 0.0f, 0.0f, -1, { 0 }, { 0 }, 0.0f };
     if (has_level_curve(k)) {
         fx_test_level_hot = 1;
         c = level_sweep(FX_EFFECTS, BIT(k), MASK_ALL, 4, NULL);
