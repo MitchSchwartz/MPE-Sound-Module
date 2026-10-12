@@ -10,8 +10,9 @@ whatever ALSA's restore rule last saved for it. Measured 2026-09-13:
 Two modes, decided per bound card:
 
   device  exactly ONE playback-only volume element that is writable and carries
-          a dB range. The fader IS that element; Surge's trim sits at unity so
-          nothing stacks. KA1 (PCM) and Sound Blaster (Speaker) qualify.
+          a dB range. The fader IS that element; Surge's trim is fixed at
+          DEVICE_MODE_SURGE_TRIM_DB (-6 dB) so nothing stacks and the graph
+          keeps headroom. KA1 (PCM) and Sound Blaster (Speaker) qualify.
   trim    anything else — no element, no dB, or more than one candidate. The
           Scarlett 4i4 exposes four Line volumes behind a hardware knob, and
           choosing one would be a guess. The fader keeps trimming Surge.
@@ -39,6 +40,22 @@ from pathlib import Path
 
 DEVICE_MODE = "device"
 TRIM_MODE = "trim"
+
+# Surge's fixed trim while the DAC is the level stage. The only place it is set.
+#
+# Normalization (patch_normalization.py) calibrates each patch to -18 LUFS with
+# a -3 dBTP peak cap on single test notes. Live chords with pressure stack well
+# past that, and the FX host adds peaks of its own (phaser up to +5.4 dB) before
+# clamping at +-1.0. In trim mode the fader's attenuation gave that headroom by
+# accident; from 2026-09-13 (a51a975) device mode put Surge at unity, and Mitch's
+# hand-calibrated favourites started reaching 0 dBFS. The DAC has the range to
+# make this up in analogue: the KA1 sat at -41 dB of -63.5..0.
+#
+# Deliberately not compensated on upgrade: raising the stored DAC level by 6 dB
+# would make the box jump louder at the next boot, the dangerous direction
+# (AGENTS.md "Audio output safety"). It comes up 6 dB quieter; the fader brings
+# it back.
+DEVICE_MODE_SURGE_TRIM_DB = -6.0
 
 DEFAULT_DB = -12.0
 STATE_FILE = Path.home() / ".patch_browser_device_volume.json"

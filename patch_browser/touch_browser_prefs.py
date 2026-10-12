@@ -620,10 +620,14 @@ class TouchBrowserPrefsMixin:
         device = getattr(self, "device_volume", None)
         if device is not None and device.active:
             # The DAC is the level stage (patch_browser/device_volume.py). Surge
-            # sits at unity so nothing stacks, and the looper master is left
-            # alone because the DAC already moves the loops with everything else.
+            # sits at a fixed trim (DEVICE_MODE_SURGE_TRIM_DB, headroom for the
+            # FX and for chords) so nothing stacks, and the looper master is
+            # left alone because the DAC already moves the loops with
+            # everything else.
+            from patch_browser.device_volume import DEVICE_MODE_SURGE_TRIM_DB
+
             if self.loader.osc_enabled:
-                self.loader.set_volume(VOLUME_MAX)
+                self.loader.set_volume(VOLUME_MAX, headroom_db=DEVICE_MODE_SURGE_TRIM_DB)
             device.set_position(self.volume_level, persist=persist)
             return
         if self.loader.osc_enabled:
