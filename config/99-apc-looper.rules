@@ -1,0 +1,27 @@
+# Akai APC (USB vendor 09e8): start the looper session when one is plugged in,
+# and stop it when it is removed. This is the foot pedal's pattern
+# (99-foot-pedal.rules, docs/FOOT_PEDAL.md). With no APC there is no process.
+#
+# The rule matches the ALSA card, not its controlC/midiC children. The card's
+# `change` event (78-sound-card.rules sets SOUND_INITIALIZED=1 on it) is ALSA's
+# "every child node is ready" point, so the session starts after the MIDI port
+# exists. 78-sound-card.rules also imports ID_VENDOR_ID and ID_MODEL on that
+# event and stores them in the udev db, which is what lets the `remove` rule
+# match a card that is already gone.
+#
+# ID_MODEL is the USB product string with spaces turned into underscores, e.g.
+# APC_MINI or APC_mini_mk2. "*APC*" keeps other Akai devices (MPK and so on)
+# from starting a looper.
+#
+# This file is the only thing that starts mpe-looper-session. The unit has no
+# [Install] section, and surge-watchdog's reconcile checks
+# patch_browser/apc_presence.py before it starts anything.
+#
+# Testing on the appliance:
+#   udevadm info /sys/class/sound/cardN       # ID_VENDOR_ID=09e8, ID_MODEL=APC_...
+#   udevadm test /sys/class/sound/cardN       # should list SYSTEMD_WANTS=...mpe-looper-session.service
+#   journalctl -u mpe-looper-session -f       # then plug / unplug the APC
+
+ACTION=="change", SUBSYSTEM=="sound", KERNEL=="card[0-9]*", ENV{SOUND_INITIALIZED}=="1", ENV{ID_VENDOR_ID}=="09e8", ENV{ID_MODEL}=="*APC*", TAG+="systemd", ENV{SYSTEMD_WANTS}+="mpe-looper-session.service"
+
+ACTION=="remove", SUBSYSTEM=="sound", KERNEL=="card[0-9]*", ENV{ID_VENDOR_ID}=="09e8", ENV{ID_MODEL}=="*APC*", RUN+="/bin/systemctl --no-block stop mpe-looper-session.service"

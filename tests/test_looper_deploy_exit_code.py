@@ -50,6 +50,8 @@ case "$1" in
         # "was:" banner. $ACTIVE_AFTER decides what the unit looks like.
         [ "${ACTIVE_AFTER:-yes}" = yes ] || exit 3
         echo active; exit 0 ;;
+    # ExecMainStatus of the last run. 69 = no APC connected (#154).
+    show) echo "${EXEC_STATUS:-1}"; exit 0 ;;
 esac
 exit 0
 """
@@ -91,8 +93,10 @@ class LooperDeployExitCodeTests(unittest.TestCase):
         systemctl.chmod(0o755)
 
     def _run(self, *, restart_rc: int = 0, active_after: str = "yes",
-             gate_rc: int = 0, gate_present: bool = True, skip_gate: bool = False):
+             gate_rc: int = 0, gate_present: bool = True, skip_gate: bool = False,
+             exec_status: int = 1):
         env = dict(os.environ)
+        env["EXEC_STATUS"] = str(exec_status)
         env["PATH"] = f"{self.bin}:{env['PATH']}"
         env["RESTART_RC"] = str(restart_rc)
         env["ACTIVE_AFTER"] = active_after
@@ -140,6 +144,18 @@ class LooperDeployExitCodeTests(unittest.TestCase):
             "unit inactive after a 'successful' restart and the deploy still "
             "reported success",
         )
+
+
+    def test_no_apc_connected_is_a_successful_deploy(self) -> None:
+        """No APC: the session exits 69 before loading code, and udev starts it on plug.
+
+        Nothing is left running pre-deploy code, so this is not the
+        2026-08-30 failure. Before #154 it was reported as one, every time.
+        """
+        r = self._run(restart_rc=0, active_after="no", exec_status=69)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("no APC connected", r.stdout)
+        self.assertNotIn("session active", r.stdout)
 
 
 class LooperDeployCiGateTests(LooperDeployExitCodeTests):
