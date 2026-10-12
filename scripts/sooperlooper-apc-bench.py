@@ -158,6 +158,12 @@ def run_bench(argv: list[str] | None = None, *, osc_session=None) -> int:
     ports_in = midi_in.get_ports()
     idx = next((i for i, n in enumerate(ports_in) if port_hint.lower() in n.lower()), None)
     if idx is None:
+        # Exit 1, so Restart=always retries. The session only reaches this
+        # line after patch_browser.apc_presence has seen an APC card, so here a
+        # missing port means the card is up and its sequencer port is not yet
+        # registered (a hot-plug race), and a retry is the right answer. A card
+        # that is truly absent exits APC_ABSENT_EXIT earlier, and that status
+        # does not restart.
         print("No APC port. Ports:", ports_in, file=sys.stderr)
         return 1
 

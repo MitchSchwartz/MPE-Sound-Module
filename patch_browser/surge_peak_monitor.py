@@ -1,5 +1,9 @@
 """Passive OUT peak meter reader for the touch UI.
 
+The reading is post-FX: mpe-peak-meter taps the fan-out source (the FX host's
+output while it carries the trunk, else Surge), and its ``clip=`` is a sample
+peak >= 0.999 latch on that same signal, held in the compiled meter.
+
 Phase 5 (session-control-plane-spec): the JACK tap is a compiled out-of-process
 client (``mpe-peak-meter``) writing ``/run/mpe/meter.state``. This module is
 Edge-plane only — it never registers a JACK process callback.
@@ -51,6 +55,7 @@ class SurgePeakMonitor:
         self._state_path = state_path or METER_STATE_FILE
         self._lock = threading.Lock()
         self._peak_linear = 0.0
+        self._clip = False
         self._online = False
         self._source = "none"
         self._stop = threading.Event()
@@ -80,6 +85,7 @@ class SurgePeakMonitor:
                     "peak_linear": None,
                     "dbfs": None,
                     "ratio": None,
+                    "clip": False,
                     "source": self._source,
                 }
             dbfs = linear_peak_to_dbfs(self._peak_linear)
@@ -91,6 +97,7 @@ class SurgePeakMonitor:
                 "peak_linear": self._peak_linear,
                 "dbfs": dbfs,
                 "ratio": ratio,
+                "clip": self._clip,
                 "source": self._source,
             }
 
@@ -117,6 +124,7 @@ class SurgePeakMonitor:
                 self._peak_linear = 0.0
             elif peak_raw is not None:
                 self._peak_linear = peak_raw
+            self._clip = wired and state.get("clip") == "1"
             self._online = wired
             self._source = source if wired else "none"
 
@@ -124,4 +132,5 @@ class SurgePeakMonitor:
         with self._lock:
             self._online = online
             self._peak_linear = 0.0
+            self._clip = False
             self._source = "none"
