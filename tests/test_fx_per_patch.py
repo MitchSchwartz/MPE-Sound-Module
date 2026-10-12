@@ -1,5 +1,6 @@
 """Per-patch chain memory (enable mask + one depth), its migration from #150's
-per-effect entries, knob pickup, and the target switch (#142 round 3 A, round 4 E)."""
+per-effect entries, knob pickup, and the target switch (#142 round 3 A, round 4 E,
+round 5 F1-F3)."""
 
 from __future__ import annotations
 
@@ -15,7 +16,7 @@ REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
 
 from patch_browser import fx_host_protocol, fx_policy  # noqa: E402
-from patch_browser.fader_pickup import Pickup  # noqa: E402
+from patch_browser.fader_pickup import Pickup, scaled  # noqa: E402
 from patch_browser.fx_policy import (  # noqa: E402
     MOD_WHEEL_EFFECT,
     MOD_WHEEL_PATCH_FIRST,
@@ -33,7 +34,11 @@ PHASER = fx_host_protocol.EFFECT_PHASER
 TREMOLO = fx_host_protocol.EFFECT_TREMOLO
 #: One-bit masks.
 C, D, P, T = (1 << CHORUS), (1 << DRIVE), (1 << PHASER), (1 << TREMOLO)
+FLANGER = fx_host_protocol.EFFECT_FLANGER
 FIXTURE_150 = REPO / "tests" / "fixtures" / "fx-store-per-effect-150.json"
+#: Entries as rounds 3/4 left them on the appliance: a mask with no depth (the
+#: depth then came from nowhere, 0 by luck), a mask and depth, all three.
+FIXTURE_ROUND4 = REPO / "tests" / "fixtures" / "fx-store-round4-partial.json"
 ROOT = "/surge/patches_factory"
 
 
@@ -66,7 +71,6 @@ class _Rig(unittest.TestCase):
         kw.setdefault("route_path", self.route)
         kw.setdefault("levels_path", self.levels)
         kw.setdefault("global_target", MOD_WHEEL_PATCH_FIRST)
-        kw.setdefault("global_mask", C)
         kw.setdefault("store", self.store)
         kw.setdefault("clock", lambda: self.now)
         return FxPolicy(**kw)
@@ -96,42 +100,69 @@ class _Rig(unittest.TestCase):
     def saved(self) -> dict:
         return json.loads(self.store_path.read_text()) if self.store_path.exists() else {}
 
+    def route_file(self) -> dict:
+        return json.loads(self.route.read_text())
+
 
 class PickupTests(unittest.TestCase):
-    """The crossing law on the shared anchor (`fader_pickup.Pickup`)."""
+    """F1: the scaling law (`fader_pickup.scaled`), shared with loop_mix."""
 
-    def test_no_change_until_crossed_from_below_then_follows(self) -> None:
-        pickup = Pickup()
-        self.assertFalse(pickup.catch("k", 10, 64))
-        self.assertFalse(pickup.catch("k", 40, 64))
-        self.assertTrue(pickup.catch("k", 70, 64))  # crossed between 40 and 70
-        self.assertTrue(pickup.catch("k", 20, 64))  # caught: follows anywhere
+    def test_a_move_responds_at_once_in_its_direction_without_a_jump(self) -> None:
+        # Knob at 100, value at 20: a small move up raises the value a little.
+        up = scaled(100, 103, 20.0)
+        self.assertGreater(up, 20.0)
+        self.assertAlmostEqual(up, 20 + 107 * 3 / 27)
+        self.assertLess(up - 20.0, 103 - 100 + 12)  # nowhere near the knob's 103
+        down = scaled(100, 97, 20.0)
+        self.assertLess(down, 20.0)
+        self.assertAlmostEqual(down, 20 - 20 * 3 / 100)
+        self.assertEqual(scaled(100, 100, 20.0), 20.0)
 
-    def test_no_change_until_crossed_from_above_then_follows(self) -> None:
-        pickup = Pickup()
-        self.assertFalse(pickup.catch("k", 120, 64))
-        self.assertFalse(pickup.catch("k", 90, 64))
-        self.assertTrue(pickup.catch("k", 50, 64))
-        self.assertTrue(pickup.catch("k", 127, 64))
+    def test_it_converges_on_the_knob_at_both_ends(self) -> None:
+        for prev, ref in ((100, 20.0), (5, 90.0), (64, 64.0), (1, 126.0)):
+            with self.subTest(prev=prev, ref=ref):
+                self.assertEqual(scaled(prev, 0, ref), 0.0)
+                self.assertEqual(scaled(prev, 127, ref), 127.0)
 
-    def test_landing_within_tolerance_catches_on_the_first_message(self) -> None:
-        pickup = Pickup()
-        self.assertTrue(pickup.catch("k", 63, 64))
+    def test_value_and_knob_meet_as_the_knob_sweeps(self) -> None:
+        """Both directions: the gap only closes, and is gone at the end."""
+        for start, ref, path in ((100, 20.0, range(100, -1, -5)), (10, 90.0, range(10, 128, 7))):
+            with self.subTest(start=start):
+                prev, value, gap = start, ref, abs(start - ref)
+                for raw in path:
+                    value = scaled(prev, raw, value)
+                    self.assertLessEqual(abs(raw - value), gap + 1e-9)
+                    gap, prev = abs(raw - value), raw
+                end = 0 if path.step < 0 else 127
+                self.assertEqual(scaled(prev, end, value), float(end))
 
-    def test_a_first_message_far_away_never_counts_as_a_crossing(self) -> None:
+    def test_follow_anchors_first_then_scales(self) -> None:
         pickup = Pickup()
-        self.assertFalse(pickup.catch("k", 0, 64))
-        self.assertFalse(pickup.catch("k", 0, 64))
-
-    def test_rearm_needs_a_new_crossing(self) -> None:
-        pickup = Pickup()
-        self.assertTrue(pickup.catch("k", 64, 64))
+        self.assertIsNone(pickup.follow("k", 40, 100.0))  # never seen: anchors only
+        self.assertAlmostEqual(pickup.follow("k", 50, 100.0), scaled(40, 50, 100.0))
+        self.assertEqual(pickup.previous("k"), 50)
         pickup.rearm("k")
-        self.assertFalse(pickup.catch("k", 100, 30))
-        self.assertTrue(pickup.catch("k", 10, 30))
+        self.assertIsNone(pickup.follow("k", 60, 10.0))
         pickup.rearm()
         self.assertNotIn("k", pickup)
-        self.assertFalse(pickup.catch("k", 100, 30))
+
+    def test_the_crossing_law_is_gone(self) -> None:
+        for name in ("catch", "caught"):
+            self.assertFalse(hasattr(Pickup, name), name)
+        text = (REPO / "patch_browser" / "fx_policy.py").read_text()
+        self.assertNotIn(".catch(", text)
+
+    def test_loop_mix_and_the_knob_share_one_law(self) -> None:
+        sys.path.insert(0, str(REPO / "scripts" / "sooperlooper"))
+        import loop_mix
+
+        self.assertIs(loop_mix.scaled, scaled)
+        mix = loop_mix.LoopMix()
+        mix._pickup_anchor.first_touch(0, 40)
+        mix._pickup_ref[0] = 90.0
+        self.assertEqual(mix._scaled_level(0, 20), scaled(40, 20, 90.0))
+        text = (REPO / "scripts" / "sooperlooper" / "loop_mix.py").read_text()
+        self.assertNotIn("(CC_MAX - ref) * (raw - prev)", text)  # no second copy
 
     def test_the_relative_law_still_reads_the_same_anchor(self) -> None:
         pickup = Pickup()
@@ -168,20 +199,21 @@ class StoreTests(_Rig):
     def test_an_empty_mask_is_a_value_not_a_default(self) -> None:
         """"No FX" chosen for a patch is kept; it is not "use the default"."""
         self.store.set("Keys", PatchFx(mask=0), stable_key="factory:Test/Keys")
-        self.assertEqual(self.saved(), {"factory:Test/Keys": {"mask": 0}})
+        self.assertEqual(self.saved(), {"factory:Test/Keys": {"mask": 0, "depth": 0.0}})
         self.assertEqual(PatchFxStore(self.store_path).get("Keys", stable_key="factory:Test/Keys").mask, 0)
 
     def test_nothing_read_from_the_file_is_trusted(self) -> None:
+        too_big = fx_host_protocol.MASK_ALL + 1
         cases = {
-            "mask too big": ({"mask": 16, "depth": 0.5}, PatchFx(depth=0.5)),
+            "mask too big": ({"mask": too_big, "depth": 0.5}, PatchFx(mask=0, depth=0.5)),
             "negative mask": ({"mask": -1}, PatchFx()),
             "bool mask": ({"mask": True}, PatchFx()),
             "float mask": ({"mask": 1.0}, PatchFx()),
             "string mask": ({"mask": "3"}, PatchFx()),
-            "depth too big": ({"mask": 3, "depth": 2.0}, PatchFx(mask=3)),
-            "nan depth": ({"mask": 3, "depth": float("nan")}, PatchFx(mask=3)),
-            "bool depth": ({"mask": 3, "depth": True}, PatchFx(mask=3)),
-            "bad target": ({"mask": 3, "target": "sideways"}, PatchFx(mask=3)),
+            "depth too big": ({"mask": 3, "depth": 2.0}, PatchFx(mask=3, depth=0.0)),
+            "nan depth": ({"mask": 3, "depth": float("nan")}, PatchFx(mask=3, depth=0.0)),
+            "bool depth": ({"mask": 3, "depth": True}, PatchFx(mask=3, depth=0.0)),
+            "bad target": ({"mask": 3, "target": "sideways"}, PatchFx(mask=3, depth=0.0)),
         }
         for label, (entry, want) in cases.items():
             with self.subTest(label):
@@ -209,6 +241,11 @@ class StoreTests(_Rig):
             self.assertFalse(hasattr(FxPolicy, name), name)
         for name in ("EFFECT_PREF_KEY", "DEFAULT_EFFECT", "normalize_effect", "effect_name"):
             self.assertFalse(hasattr(fx_policy, name), name)
+        # Round 5 (F3): no global effect state either.
+        for name in ("set_global_mask", "global_mask", "_persist_global_mask"):
+            self.assertFalse(hasattr(FxPolicy, name), name)
+        for name in ("MASK_PREF_KEY", "LEGACY_EFFECT_PREF_KEY", "DEFAULT_MASK", "_pref_mask"):
+            self.assertFalse(hasattr(fx_policy, name), name)
 
 
 class MigrationTests(_Rig):
@@ -226,12 +263,12 @@ class MigrationTests(_Rig):
             "Keys/Bonita Keys": PatchFx(mask=D, depth=0.25),
             # Phaser set by the knob: CC 77.
             "Strings/Bowed String": PatchFx(mask=P, depth=0.6062992125984252),
-            # Tremolo chosen, never given a depth: Tremolo at the default 0.
-            "Pads/Glass Pad": PatchFx(mask=T),
-            # Only the switch was ever moved.
-            "Leads/Saw Lead": PatchFx(target=MOD_WHEEL_EFFECT),
+            # Tremolo chosen, never given a depth: Tremolo at the factory 0.
+            "Pads/Glass Pad": PatchFx(mask=T, depth=0.0),
+            # Only the switch was ever moved: the factory effect state (F3).
+            "Leads/Saw Lead": PatchFx(mask=0, depth=0.0, target=MOD_WHEEL_EFFECT),
             # A depth for Tremolo, then Phaser selected: Phaser, never set (0).
-            "Bass/Sub Bass": PatchFx(mask=P, target=MOD_WHEEL_EFFECT),
+            "Bass/Sub Bass": PatchFx(mask=P, depth=0.0, target=MOD_WHEEL_EFFECT),
         }
         for rel, fx in want.items():
             with self.subTest(rel):
@@ -243,25 +280,26 @@ class MigrationTests(_Rig):
             {
                 "factory:Keys/Bonita Keys": {"mask": D, "depth": 0.25},
                 "factory:Strings/Bowed String": {"mask": P, "depth": 0.6062992125984252},
-                "factory:Pads/Glass Pad": {"mask": T},
-                "factory:Leads/Saw Lead": {"target": "effect"},
-                "factory:Bass/Sub Bass": {"mask": P, "target": "effect"},
+                "factory:Pads/Glass Pad": {"mask": T, "depth": 0.0},
+                "factory:Leads/Saw Lead": {"mask": 0, "depth": 0.0, "target": "effect"},
+                "factory:Bass/Sub Bass": {"mask": P, "depth": 0.0, "target": "effect"},
             },
         )
 
     def test_a_migrated_patch_loads_and_sends_its_old_sound(self) -> None:
         self.store_path.write_bytes(FIXTURE_150.read_bytes())
-        policy = self._policy(store=PatchFxStore(self.store_path), global_mask=C | T)
+        policy = self._policy(store=PatchFxStore(self.store_path))
         keys = self._patch("Bonita Keys", WITH_MODWHEEL)
         policy.on_patch_loaded(keys, patch_name="Bonita Keys", stable_key="factory:Keys/Bonita Keys")
         self.now += fx_policy.ROUTE_REFRESH_S
         self.router.refresh()
         self.assertEqual((policy.mask, policy.depth), (D, 0.25))
         self.assertEqual(self.sender.sent, [(D, 0.25)])
-        # A migrated patch with only a target follows the global mask at 0.
+        # A migrated patch with only a target: the factory effect state, not
+        # what was played last.
         lead = self._patch("Saw Lead", WITH_MODWHEEL)
         policy.on_patch_loaded(lead, patch_name="Saw Lead", stable_key="factory:Leads/Saw Lead")
-        self.assertEqual((policy.mask, policy.depth, policy.target), (C | T, 0.0, MOD_WHEEL_EFFECT))
+        self.assertEqual((policy.mask, policy.depth, policy.target), (0, 0.0, MOD_WHEEL_EFFECT))
 
     def test_old_shapes_one_by_one(self) -> None:
         cases = {
@@ -287,21 +325,53 @@ class MigrationTests(_Rig):
         store.save()
         self.assertEqual(self.saved(), {})
 
-    def test_global_effect_pref_becomes_the_global_mask(self) -> None:
+    def test_round4_entries_are_completed_with_the_factory_default(self) -> None:
+        """F3 migration on entries shaped like the appliance's store: mask
+        only, mask + depth, mask + depth + target. A missing field gets the
+        factory value; nothing is borrowed from a global or last-used value,
+        even with stale global prefs in the file."""
+        (self.root / "ui.json").write_text(json.dumps({"fx_mask": D | T, "fx_effect": TREMOLO}))
+        self.store_path.write_bytes(FIXTURE_ROUND4.read_bytes())
+        store = PatchFxStore(self.store_path)
+        want = {
+            "Keys/Mask Only": PatchFx(mask=6, depth=0.0),
+            "Pads/Mask And Depth": PatchFx(mask=6, depth=0.5669291338582677),
+            "Leads/Mask Depth Target": PatchFx(mask=9, depth=0.25, target=MOD_WHEEL_EFFECT),
+            "Bass/No FX Chosen": PatchFx(mask=0, depth=0.0),
+        }
+        for rel, fx in want.items():
+            with self.subTest(rel):
+                self.assertEqual(store.get(Path(rel).name, stable_key=f"factory:{rel}"), fx)
+        # Loaded, each plays exactly that (the mask-only patch at depth 0).
+        policy = self._policy(store=store, global_target=MOD_WHEEL_EFFECT)
+        for rel, fx in want.items():
+            with self.subTest(load=rel):
+                policy.on_patch_loaded(self._patch(Path(rel).name, NO_ROUTINGS), patch_name=Path(rel).name,
+                                       stable_key=f"factory:{rel}")
+                self.now += fx_policy.ROUTE_REFRESH_S
+                self.router.refresh()
+                self.assertEqual((policy.mask, policy.depth), (fx.mask, fx.depth))
+                self.assertEqual(self.sender.sent[-1], (fx.mask, fx.depth))
+        # The next save writes every entry whole.
+        store.save()
+        self.assertEqual(
+            self.saved(),
+            {
+                "factory:Keys/Mask Only": {"mask": 6, "depth": 0.0},
+                "factory:Pads/Mask And Depth": {"mask": 6, "depth": 0.5669291338582677},
+                "factory:Leads/Mask Depth Target": {"mask": 9, "depth": 0.25, "target": "effect"},
+                "factory:Bass/No FX Chosen": {"mask": 0, "depth": 0.0},
+            },
+        )
+
+    def test_stale_global_prefs_are_neither_read_nor_written(self) -> None:
         prefs = self.root / "ui.json"
-        for stored, want in ((DRIVE, D), (TREMOLO, T), (9, C), (True, C), ("1", C)):
-            with self.subTest(stored=stored):
-                prefs.write_text(json.dumps({"fx_effect": stored, "theme_mode": "dark"}))
-                policy = FxPolicy(enabled=True, route_path=self.route, levels_path=self.levels)
-                self.assertEqual(policy.global_mask, want)
-        prefs.write_text(json.dumps({"fx_effect": DRIVE, "fx_mask": P | T}))
-        self.assertEqual(FxPolicy(enabled=True, route_path=self.route, levels_path=self.levels).global_mask, P | T)
-        # The first write replaces the old key with the new one.
-        prefs.write_text(json.dumps({"fx_effect": DRIVE, "theme_mode": "dark"}))
-        policy = FxPolicy(enabled=True, route_path=self.route, levels_path=self.levels)
-        self.load(self.keys, policy)
+        prefs.write_text(json.dumps({"fx_effect": DRIVE, "fx_mask": P | T, "theme_mode": "dark"}))
+        policy = FxPolicy(enabled=True, route_path=self.route, levels_path=self.levels, store=self.store)
+        self.load(self.pad, policy)
+        self.assertEqual(policy.mask, 0)
         policy.toggle_effect(CHORUS)
-        self.assertEqual(json.loads(prefs.read_text()), {"fx_mask": D | C, "theme_mode": "dark"})
+        self.assertEqual(json.loads(prefs.read_text()), {"fx_effect": DRIVE, "fx_mask": P | T, "theme_mode": "dark"})
 
 
 class KeyStabilityTests(_Rig):
@@ -315,7 +385,7 @@ class KeyStabilityTests(_Rig):
         store = PatchFxStore(self.store_path)
         self.assertEqual(store.get("Keys", stable_key="factory:Keys/Keys").mask, D)
         store.set("Keys", PatchFx(mask=P), stable_key="factory:Keys/Keys")
-        self.assertEqual(json.loads(self.store_path.read_text()), {"factory:Keys/Keys": {"mask": P}})
+        self.assertEqual(json.loads(self.store_path.read_text()), {"factory:Keys/Keys": {"mask": P, "depth": 0.0}})
 
     def test_post_scan_migration_moves_unambiguous_stems(self) -> None:
         # #150-shaped stem entries: migrated in shape and in key.
@@ -324,7 +394,7 @@ class KeyStabilityTests(_Rig):
         patches = [self._p("Keys/Keys.fxp"), self._p("Bass/Lead.fxp"), self._p("Pad/Lead.fxp")]
         warnings = migrate_sidecar_stores(fx=store, patches=patches, patch_dirs=[Path(ROOT)])
         saved = json.loads(self.store_path.read_text())
-        self.assertEqual(saved["factory:Keys/Keys"], {"mask": D})
+        self.assertEqual(saved["factory:Keys/Keys"], {"mask": D, "depth": 0.0})
         self.assertIn("Lead", saved)  # ambiguous: kept, not merged
         self.assertTrue(any("PatchFxStore" in w and "ambiguous" in w for w in warnings))
 
@@ -353,42 +423,45 @@ class KeyStabilityTests(_Rig):
 
 
 class PerPatchMemoryTests(_Rig):
-    def test_never_set_patch_gets_the_global_mask_at_depth_0(self) -> None:
-        self.policy.set_global_mask(P | T)
+    def test_never_set_patch_gets_the_factory_default(self) -> None:
+        """F3: no effect at depth 0, whatever was played before."""
         self.load(self.keys)
+        self.policy.set_mask(P | T)
+        self.policy.set_depth(0.8, final=True)
+        self.load(self.pad)
         self.settle()
-        self.assertEqual((self.policy.mask, self.policy.depth), (P | T, 0.0))
-        self.assertEqual(self.sender.sent[-1], (P | T, 0.0))
+        self.assertEqual((self.policy.mask, self.policy.depth), (0, 0.0))
+        self.assertEqual(self.sender.sent[-1], (0, 0.0))
         self.policy.flush_store()
-        self.assertEqual(self.saved(), {})  # loading writes nothing
+        self.assertNotIn("factory:Test/Pad", self.saved())  # loading writes nothing
 
     def test_each_patch_remembers_mask_depth_and_target(self) -> None:
         self.load(self.keys)
-        self.policy.toggle_effect(DRIVE)  # chorus + drive
+        self.policy.toggle_effect(DRIVE)
         self.policy.set_depth(0.5, final=True)
         self.policy.set_target(MOD_WHEEL_EFFECT)
         self.load(self.pad)
-        self.policy.toggle_effect(CHORUS)  # the global is now C|D: off leaves drive
+        self.policy.toggle_effect(CHORUS)  # from the factory default, not from Keys
         self.policy.toggle_effect(TREMOLO)
         self.policy.set_depth(0.2, final=True)
         self.load(self.keys)
         self.settle()
-        self.assertEqual(self.policy.mask, C | D)
+        self.assertEqual(self.policy.mask, D)
         self.assertEqual(self.policy.depth, 0.5)
         self.assertEqual(self.policy.target, MOD_WHEEL_EFFECT)
-        self.assertEqual(self.sender.sent[-1], (C | D, 0.5))
+        self.assertEqual(self.sender.sent[-1], (D, 0.5))
         # A fresh UI process reads the same back from the file.
         self.policy.flush_store()
         fresh = self._policy(store=PatchFxStore(self.store_path))
         self.load(self.pad, fresh)
-        self.assertEqual((fresh.mask, fresh.depth, fresh.target), (D | T, 0.2, MOD_WHEEL_PATCH_FIRST))
+        self.assertEqual((fresh.mask, fresh.depth, fresh.target), (C | T, 0.2, MOD_WHEEL_PATCH_FIRST))
         self.load(self.keys, fresh)
-        self.assertEqual((fresh.mask, fresh.depth, fresh.target), (C | D, 0.5, MOD_WHEEL_EFFECT))
+        self.assertEqual((fresh.mask, fresh.depth, fresh.target), (D, 0.5, MOD_WHEEL_EFFECT))
         self.assertEqual(
             self.saved(),
             {
-                "factory:Test/Keys": {"mask": C | D, "depth": 0.5, "target": "effect"},
-                "factory:Test/Pad": {"mask": D | T, "depth": 0.2},
+                "factory:Test/Keys": {"mask": D, "depth": 0.5, "target": "effect"},
+                "factory:Test/Pad": {"mask": C | T, "depth": 0.2},
             },
         )
 
@@ -406,8 +479,10 @@ class PerPatchMemoryTests(_Rig):
         self.settle()
         self.policy.set_depth(0.3, final=True)
         self.settle()
-        stamp = json.loads(self.route.read_text())["route_stamp"]
-        for effect, want in ((DRIVE, C | D), (PHASER, C | D | P), (CHORUS, D | P), (DRIVE, P), (PHASER, 0)):
+        stamp = self.route_file()["route_stamp"]
+        steps = ((DRIVE, D), (PHASER, D | P), (FLANGER, D | P | (1 << FLANGER)), (CHORUS, C | D | P | (1 << FLANGER)),
+                 (DRIVE, C | P | (1 << FLANGER)), (FLANGER, C | P), (PHASER, C))
+        for effect, want in steps:
             with self.subTest(effect=effect):
                 self.policy.toggle_effect(effect)
                 self.settle()
@@ -415,10 +490,10 @@ class PerPatchMemoryTests(_Rig):
                 self.assertEqual(self.policy.depth, 0.3)
                 self.assertEqual(self.router.depth, 0.3)
                 self.assertEqual(self.sender.sent[-1], (want, 0.3))
-                route = json.loads(self.route.read_text())
+                route = self.route_file()
                 self.assertEqual((route["mask"], route["route_stamp"]), (want, stamp))
         self.policy.flush_store()
-        self.assertEqual(self.saved()["factory:Test/Keys"], {"mask": 0, "depth": 0.3})
+        self.assertEqual(self.saved()["factory:Test/Keys"], {"mask": C, "depth": 0.3})
 
     def test_a_tap_on_one_row_twice_is_where_it_started(self) -> None:
         self.load(self.keys)
@@ -435,22 +510,32 @@ class PerPatchMemoryTests(_Rig):
         for bad in (9, -1, True, "1", None):
             with self.subTest(bad=bad):
                 self.policy.toggle_effect(bad)
-                self.assertEqual(self.policy.mask, C)
+                self.assertEqual(self.policy.mask, 0)
 
-    def test_picking_also_sets_the_default_for_never_set_patches(self) -> None:
+    def test_a_toggle_never_reaches_another_patch(self) -> None:
+        """F3: the leak. A pick on one patch is not what the next one plays."""
         self.load(self.keys)
         self.policy.toggle_effect(TREMOLO)
+        self.policy.set_depth(0.7, final=True)
         self.load(self.pad)
-        self.assertEqual((self.policy.mask, self.policy.depth), (C | T, 0.0))
+        self.assertEqual((self.policy.mask, self.policy.depth), (0, 0.0))
+        prefs = self.root / "ui.json"
+        self.assertNotIn("fx_mask", json.loads(prefs.read_text()) if prefs.exists() else {})
 
-    def test_a_depth_pins_the_mask(self) -> None:
-        """Else a later change of the global default would play it on another chain."""
-        self.load(self.keys)
-        self.policy.set_depth(0.6, final=True)
-        self.policy.set_global_mask(D)
-        self.assertEqual((self.policy.mask, self.policy.depth), (C, 0.6))
-        self.load(self.pad)  # never set: the new default
-        self.assertEqual((self.policy.mask, self.policy.depth), (D, 0.0))
+    def test_a_patch_entry_is_always_written_whole(self) -> None:
+        """A depth, a mask or a target alone still writes mask and depth."""
+        for change, want in (
+            (lambda: self.policy.set_depth(0.6, final=True), {"mask": 0, "depth": 0.6}),
+            (lambda: self.policy.toggle_effect(DRIVE), {"mask": D, "depth": 0.0}),
+            (lambda: self.policy.set_target(MOD_WHEEL_EFFECT), {"mask": 0, "depth": 0.0, "target": "effect"}),
+        ):
+            with self.subTest(want=want):
+                self.store_path.unlink(missing_ok=True)
+                self.store.load()
+                self.load(self.keys)
+                change()
+                self.policy.flush_store()
+                self.assertEqual(self.saved(), {"factory:Test/Keys": want})
 
 
 class StoreWriteTimingTests(_Rig):
@@ -476,20 +561,20 @@ class StoreWriteTimingTests(_Rig):
             self.assertEqual(save.call_count, 1)
             self.settle(STORE_WRITE_DELAY_S * 3)
             self.assertEqual(save.call_count, 1)
-        self.assertEqual(self.saved()["factory:Test/Keys"], {"mask": C, "depth": 0.7})
+        self.assertEqual(self.saved()["factory:Test/Keys"], {"mask": 0, "depth": 0.7})
 
     def test_a_pending_change_is_written_before_the_next_load(self) -> None:
         self.load(self.keys)
         self.policy.set_depth(0.4, final=True)
         self.load(self.pad)
-        self.assertEqual(self.saved()["factory:Test/Keys"], {"mask": C, "depth": 0.4})
+        self.assertEqual(self.saved()["factory:Test/Keys"], {"mask": 0, "depth": 0.4})
 
     def test_shutdown_flush_writes_what_is_pending(self) -> None:
         self.load(self.keys)
         self.policy.set_target(MOD_WHEEL_EFFECT)
         self.assertEqual(self.saved(), {})
         self.assertTrue(self.policy.flush_store())
-        self.assertEqual(self.saved()["factory:Test/Keys"], {"target": "effect"})
+        self.assertEqual(self.saved()["factory:Test/Keys"], {"mask": 0, "depth": 0.0, "target": "effect"})
         self.assertFalse(self.policy.flush_store())
 
     def test_off_writes_nothing(self) -> None:
@@ -498,78 +583,91 @@ class StoreWriteTimingTests(_Rig):
         policy.set_depth(0.5, final=True)
         policy.set_target(MOD_WHEEL_EFFECT)
         policy.toggle_effect(DRIVE)
-        policy.set_global_mask(D)
-        self.assertEqual(policy.mask, C)
+        policy.set_mask(D)
+        self.assertEqual(policy.mask, 0)
         policy.flush_store()
         self.assertFalse(self.store_path.exists())
 
 
 class PickupInTheRouterTests(_Rig):
-    """A3: after any switch the knob does nothing until it crosses the value in force."""
+    """F1: the knob scales from the value in force; it never waits, never jumps."""
 
-    def test_effect_knob_after_a_patch_switch_both_directions(self) -> None:
+    def test_effect_knob_after_a_patch_switch_responds_at_once_both_directions(self) -> None:
         self.policy.set_global_default(MOD_WHEEL_EFFECT)
         self.load(self.keys)
-        self.policy.set_depth(0.5, final=True)  # 63.5 in CC units
+        self.policy.set_mask(C)
+        self.policy.set_depth(0.2, final=True)  # 25.4 in CC units
         self.load(self.pad)
         self.settle()
-        self.knob(0, 64)  # pad never set: depth 0, picked up at 0
+        self.knob(0)  # the first message this remapper sees: an anchor, nothing else
+        self.assertEqual(self.sender.sent[-1], (0, 0.0))
+        self.knob(64)  # from depth 0 at knob 0: all the way to the knob
         self.assertAlmostEqual(self.policy.depth, 64 / 127)
-        self.load(self.keys)  # knob physically at 64... (0.5 stored)
-        self.settle()
-        self.knob(20)  # far below 63.5 now
-        self.load(self.pad)
+        self.load(self.keys)  # depth 0.2 stored; the knob stays at 64
         self.settle()
         sent = len(self.sender.sent)
-        self.knob(100, 90)  # above pad's 64, approaching from above, not crossed
-        self.assertEqual(len(self.sender.sent), sent)
-        self.assertAlmostEqual(self.policy.depth, 64 / 127)
-        self.knob(60)  # crossed 64 coming down: follows from here
-        self.assertEqual(self.sender.sent[-1], (C, 60 / 127))
-        self.knob(30)
-        self.assertEqual(self.sender.sent[-1], (C, 30 / 127))
-        self.load(self.keys)
-        self.settle()
-        self.assertEqual(self.policy.depth, 0.5)
-        sent = len(self.sender.sent)
-        self.knob(40, 60)  # below 63.5, rising, not yet crossed
-        self.assertEqual(len(self.sender.sent), sent)
-        self.knob(70)  # crossed going up
-        self.assertEqual(self.sender.sent[-1], (C, 70 / 127))
+        self.knob(70)  # the first move after the switch moves the depth, up, a little
+        self.assertEqual(len(self.sender.sent), sent + 1)
+        up = (25.4 + (127 - 25.4) * 6 / 63) / 127
+        self.assertAlmostEqual(self.sender.sent[-1][1], up)
+        self.assertLess(self.sender.sent[-1][1], 70 / 127 - 0.2)  # no jump to the knob
+        self.knob(35)  # down
+        down = (up * 127 - up * 127 * 35 / 70) / 127
+        self.assertAlmostEqual(self.sender.sent[-1][1], down)
+        self.knob(0)  # bottom of travel: the effect's bottom
+        self.assertEqual(self.sender.sent[-1], (C, 0.0))
+        self.knob(127)  # and the top
+        self.assertEqual(self.sender.sent[-1], (C, 1.0))
+        self.assertEqual(self.policy.depth, 1.0)
 
-    def test_patch_mod_knob_is_swallowed_until_it_crosses(self) -> None:
+    def test_patch_mod_knob_forwards_the_scaled_value(self) -> None:
         self.load(self.keys)  # routes the wheel: CC 1 to Surge
         self.policy.set_patch_mod(80)
         self.settle()
-        self.assertFalse(self.router.consume([0xB0, 1, 79]))  # reached (tolerance)
+        self.assertTrue(self.router.consume([0xB0, 1, 79]))  # first sight: anchors, swallowed
+        msg = [0xB0, 1, 70]
+        self.assertFalse(self.router.consume(msg))  # forwarded at once...
+        self.assertEqual(msg[2], round(80 - 80 * 9 / 79))  # ...scaled from 80, not 70
         self.policy.set_patch_mod(20)  # the fader moved it from under the knob
         self.settle()
-        self.assertTrue(self.router.consume([0xB0, 1, 79]))  # swallowed
-        self.assertTrue(self.router.consume([0xB0, 1, 50]))
-        self.assertFalse(self.router.consume([0xB0, 1, 10]))  # crossed 20
-        self.assertFalse(self.router.consume([0xB0, 1, 30]))
+        msg = [0xB0, 1, 60]
+        self.assertFalse(self.router.consume(msg))
+        self.assertEqual(msg[2], round(20 - 20 * 10 / 70))
+        self.assertFalse(self.router.consume([0xB0, 1, 0]))
         self.settle()
-        self.assertEqual(self.policy.patch_mod, 30)
+        self.assertEqual(self.policy.patch_mod, 0)
+        msg = [0xB0, 1, 127]
+        self.assertFalse(self.router.consume(msg))
+        self.assertEqual(msg[2], 127)
+
+    def test_slow_moves_accumulate_instead_of_rounding_away(self) -> None:
+        """Surge gets whole CCs; the scaled value is kept unrounded between them."""
+        self.load(self.keys)
+        self.policy.set_patch_mod(10)
+        self.settle()
+        self.router.consume([0xB0, 1, 120])  # anchor
+        for raw in range(119, 99, -1):  # one step at a time
+            self.router.consume([0xB0, 1, raw])
+        self.assertEqual(self.router.patch_mod, round(10 * 100 / 120))
 
     def test_a_fader_move_rearms_it(self) -> None:
         self.policy.set_global_default(MOD_WHEEL_EFFECT)
         self.load(self.keys)
         self.settle()
         self.knob(0, 50)
+        self.assertAlmostEqual(self.policy.depth, 50 / 127)
         self.policy.set_depth(0.9, final=True)
         self.settle()
-        sent = len(self.sender.sent)
-        self.knob(52)  # the fader moved the depth from under the knob
-        self.assertEqual(len(self.sender.sent), sent)
-        self.assertEqual(self.policy.depth, 0.9)
-        self.knob(120)  # crossed 0.9 * 127
-        self.assertEqual(self.sender.sent[-1], (C, 120 / 127))
+        self.knob(52)  # scales from the fader's 0.9, not from the knob's 52
+        self.assertAlmostEqual(self.policy.depth, (0.9 * 127 + (127 - 0.9 * 127) * 2 / 77) / 127)
+        self.knob(127)
+        self.assertEqual(self.sender.sent[-1], (0, 1.0))
 
     def test_a_toggle_does_not_rearm_it(self) -> None:
-        """Toggling moves no depth, so a knob that had caught the depth keeps
-        following it (and one that had not still has to cross it)."""
+        """Toggling moves no depth: the knob carries on from the depth in force."""
         self.policy.set_global_default(MOD_WHEEL_EFFECT)
         self.load(self.keys)
+        self.policy.set_mask(C)
         self.settle()
         self.knob(0, 50)
         self.policy.toggle_effect(DRIVE)
@@ -577,25 +675,16 @@ class PickupInTheRouterTests(_Rig):
         self.assertEqual(self.sender.sent[-1], (C | D, 50 / 127))
         self.knob(60)
         self.assertEqual(self.sender.sent[-1], (C | D, 60 / 127))
-        self.load(self.pad)  # depth 0: re-armed by the load
-        self.settle()
-        self.knob(70)
-        self.policy.toggle_effect(TREMOLO)
-        self.settle()
-        self.knob(65)  # still not crossed 0
-        self.assertEqual(self.policy.depth, 0.0)
-        self.assertEqual(self.sender.sent[-1], (C | D | T, 0.0))
 
     def test_no_effect_enabled_the_knob_still_follows_the_rules(self) -> None:
         """E3: with the empty mask the knob moves the depth (inaudibly) under
         the same pickup, and an effect switched on then plays at it."""
         self.policy.set_global_default(MOD_WHEEL_EFFECT)
         self.load(self.keys)
-        self.policy.toggle_effect(CHORUS)
         self.settle()
         self.assertEqual(self.policy.mask, 0)
         self.assertEqual(self.sender.sent[-1], (0, 0.0))
-        self.knob(40)  # not crossed 0
+        self.knob(40)  # anchors
         self.assertEqual(self.sender.sent[-1], (0, 0.0))
         self.knob(0, 64)
         self.assertEqual(self.sender.sent[-1], (0, 64 / 127))
@@ -604,7 +693,7 @@ class PickupInTheRouterTests(_Rig):
         self.settle()
         self.assertEqual(self.sender.sent[-1], (P, 64 / 127))
 
-    def test_faders_show_the_stored_values_while_the_knob_is_elsewhere(self) -> None:
+    def test_faders_show_the_stored_values_not_the_knob(self) -> None:
         self.load(self.keys)
         self.policy.toggle_effect(PHASER)
         self.policy.set_depth(0.25, final=True)
@@ -614,8 +703,7 @@ class PickupInTheRouterTests(_Rig):
         self.knob(0, 127)
         self.load(self.keys)
         self.settle()
-        self.knob(126, 125)  # not picked up
-        self.assertEqual(self.policy.mask, C | P)
+        self.assertEqual(self.policy.mask, P)
         self.assertEqual(self.policy.depth, 0.25)
         self.assertEqual(self.policy.patch_mod, 40)
 
@@ -630,9 +718,9 @@ class TargetSwitchTests(_Rig):
         self.settle()
         self.knob(89, 10)  # the knob drives Surge down to 10
         self.assertEqual(self.policy.patch_mod, 10)
+        self.knob(0)
         self.policy.set_patch_mod(90, final=True)
-        self.settle()
-        self.knob(0)  # knob parked at 0, far from everything
+        self.settle()  # knob parked at 0, far from everything
         sent = list(self.sender.sent)
         for target in (MOD_WHEEL_EFFECT, MOD_WHEEL_PATCH_FIRST, MOD_WHEEL_EFFECT, MOD_WHEEL_PATCH_FIRST):
             with self.subTest(target=target):
@@ -645,6 +733,73 @@ class TargetSwitchTests(_Rig):
                 self.assertEqual(self.sender.sent, sent)  # the effect was told nothing
                 self.knob(0)  # and the parked knob changes neither
                 self.assertEqual((self.policy.depth, self.policy.patch_mod), (0.6, 90))
+
+    def test_knob_depth_survives_a_flip_away_and_back(self) -> None:
+        """F2, the captured sequence: a knob-driven depth, flip away, flip back.
+
+        As on the appliance: the Effect fader last moved to 0, so the route
+        file's request is 0.0 under an old stamp; the knob then took the
+        depth to 0.567 (CC 72). Flipping away and back must leave 0.567 in
+        force, in the UI, in the route file, and for a remapper that reads the
+        route file fresh (restarted).
+        """
+        self.load(self.keys)  # wheel routed: Surge
+        self.policy.set_target(MOD_WHEEL_EFFECT)
+        self.policy.toggle_effect(DRIVE)
+        self.policy.toggle_effect(PHASER)  # mask 6, as in the capture
+        self.policy.set_depth(0.3, final=False)
+        self.policy.set_depth(0.0, final=True)  # the fader last moved to 0
+        self.settle()
+        self.knob(0, 30, 50, 72)
+        depth = 72 / 127
+        self.assertAlmostEqual(self.policy.depth, depth)
+        self.assertEqual(self.sender.sent[-1], (D | P, depth))
+        sent = len(self.sender.sent)
+        self.policy.set_target(MOD_WHEEL_PATCH_FIRST)  # flip away
+        self.settle()
+        self.knob(80, 101)  # the knob plays Surge meanwhile
+        self.policy.set_target(MOD_WHEEL_EFFECT)  # flip back
+        self.settle(0.5)
+        self.assertEqual(len(self.sender.sent), sent)  # nothing sent: no zero
+        self.assertAlmostEqual(self.router.depth, depth)
+        self.assertAlmostEqual(self.policy.depth, depth)
+        self.assertAlmostEqual(self.route_file()["depth_request"], depth)
+        restarted = []
+        fresh = Cc1Router(sender=mock.Mock(send=lambda m, d: restarted.append((m, d))), route_path=self.route,
+                          levels_path=self.root / "other-levels.json", clock=lambda: self.now)
+        fresh.refresh(self.now)
+        self.assertEqual(len(restarted), 1)
+        self.assertAlmostEqual(restarted[0][1], depth)  # not the stale 0.0
+        self.policy.flush_store()
+        self.assertAlmostEqual(self.saved()["factory:Test/Keys"]["depth"], depth)
+        # The first knob move after the flip (the knob is at 101) responds at
+        # once, up, from the depth: no jump to the knob.
+        self.knob(110)
+        self.assertAlmostEqual(self.sender.sent[-1][1], (72 + 55 * 9 / 26) / 127)
+        self.assertLess(self.sender.sent[-1][1], 110 / 127)
+
+    def test_the_captured_zero_was_a_patch_load(self) -> None:
+        """What the capture at t+293.199 actually was: a new depth stamp and a
+        Patch mod resend, which only `on_patch_loaded` + `_resend_patch_mod`
+        produce, not a flip. The patch it loaded had no depth of its own; it
+        now plays the factory default, and nothing of the patch before."""
+        self.load(self.keys)
+        self.policy.set_target(MOD_WHEEL_EFFECT)
+        self.policy.set_mask(D | P)
+        self.settle()
+        self.knob(0, 72)
+        self.policy.set_target(MOD_WHEEL_PATCH_FIRST)
+        self.settle()
+        before = self.route_file()
+        self.load(self.pad)  # what the tap at t+293 did
+        after = self.route_file()
+        self.assertNotEqual(after["depth_stamp"], before["depth_stamp"])
+        self.settle()
+        self.assertEqual(self.sender.sent[-1], (0, 0.0))  # the pad's own (factory) state
+        self.load(self.keys)
+        self.settle()
+        self.assertEqual(self.sender.sent[-1][0], D | P)
+        self.assertAlmostEqual(self.sender.sent[-1][1], 72 / 127)
 
     def test_a_knob_move_after_a_fader_move_wins_even_if_read_first(self) -> None:
         """The fader's value reaches the remapper late; Surge got the knob after it."""

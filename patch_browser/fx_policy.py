@@ -44,9 +44,8 @@ no socket, and the remapper forwards CC 1 to Surge exactly as before.
 **Which effects.** The effects run in series in the fixed order
 `fx_host_protocol.CHAIN_ORDER`; an enable mask says which are on, and one depth
 (the knob) applies to all of them. The picker on the play screen is a list of
-checkboxes: a tap toggles one effect (`toggle_effect`) for the loaded patch,
-and the resulting mask also becomes the global default, persisted in the UI
-prefs (`MASK_PREF_KEY`), for patches that never chose. It reaches the FX host
+checkboxes: a tap toggles one effect (`toggle_effect`) for the loaded patch
+only; nothing global is written. It reaches the FX host
 the way everything else does: the UI writes it to the route file's `mask`, and
 the remapper sends it. Toggling moves no depth: the effects that stay on keep
 playing at the depth in force, and one switched on comes in at it.
@@ -66,17 +65,19 @@ it is still greyed out for a patch with no mod-wheel routing, as with any mask.
 
 **Each patch remembers its setup** (`patch_fx.PatchFxStore`, a sidecar store
 like Hold and normalization): its mask, its one depth, and the mod-knob target.
-`resolve_config` takes each of the patch's own values ahead of the global
-default, field by field. A patch never set plays the global default mask at
-depth 0. The store is written from the UI loop, `STORE_WRITE_DELAY_S` after
+Effect state is entirely per patch: a patch with no entry, or a missing field,
+plays the factory default (`FACTORY_MASK`, no effect, at depth 0), never what
+was used last. Only the target falls back to a global value, the Settings
+default. The store is written from the UI loop, `STORE_WRITE_DELAY_S` after
 the last change and before the next patch load, never per knob tick.
 
-**Pickup.** After a switch (patch load, mod-knob target) or a move on
-the touch screen, the hardware knob's position says nothing about the value in
-force. `Cc1Router` ignores it until it reaches or crosses that value, then it
-follows (`fader_pickup.Pickup.catch`, the anchor bookkeeping shared with the
-APC faders in `loop_mix`). Until then the faders show the value in force, the
-stored one, not the knob.
+**Pickup.** After a switch (patch load, mod-knob target) or a move on the
+touch screen, the hardware knob's position says nothing about the value in
+force. `Cc1Router` uses the scaling law shared with the APC faders in
+`loop_mix` (`fader_pickup.scaled`): the knob's moves change the value in
+force by the fraction of travel they cover, so it responds at once, never
+jumps, and meets the knob at the ends of travel. The faders show the value in
+force, not the knob.
 
 **Switching the target only moves the knob.** Flipping between Patch mod and
 the effect changes where CC 1 goes and nothing else: the effects keep their
@@ -97,6 +98,8 @@ from pathlib import Path
 from patch_browser import fx_host_protocol
 from patch_browser.fader_pickup import Pickup
 from patch_browser.json_store import atomic_write_json, read_json_dict
+from patch_browser.patch_fx import FACTORY_DEPTH as PATCH_FACTORY_DEPTH
+from patch_browser.patch_fx import FACTORY_MASK as PATCH_FACTORY_MASK
 from patch_browser.patch_fx import PatchFx, valid_mask
 
 MOD_WHEEL_PATCH_FIRST = "patch_first"
@@ -105,14 +108,11 @@ MOD_WHEEL_TARGETS = (MOD_WHEEL_PATCH_FIRST, MOD_WHEEL_EFFECT)
 DEFAULT_MOD_WHEEL_TARGET = MOD_WHEEL_PATCH_FIRST
 #: Key in the touch UI prefs file (`ui_prefs.UI_STATE_FILE`).
 MOD_WHEEL_PREF_KEY = "mod_wheel_target"
-#: Key in the same file: the enable mask the picker last set, the default for
-#: patches that never chose.
-MASK_PREF_KEY = "fx_mask"
-#: Where #148/#150 kept the single effect id. Read once, when `MASK_PREF_KEY`
-#: is absent, as the one-bit mask; never written.
-LEGACY_EFFECT_PREF_KEY = "fx_effect"
-#: Chorus alone: what a fresh install played before the chain existed.
-DEFAULT_MASK = fx_host_protocol.mask_of((fx_host_protocol.EFFECT_CHORUS,))
+#: The factory default effect state, for a patch with no entry or a missing
+#: field: no effect on, depth 0. Never the last-used value (#142 round 5, F3).
+#: Same values as `patch_fx.FACTORY_MASK` / `FACTORY_DEPTH`.
+FACTORY_MASK = PATCH_FACTORY_MASK
+FACTORY_DEPTH = PATCH_FACTORY_DEPTH
 
 CC1_TO_SURGE = "surge"
 CC1_TO_FX = "fx"
@@ -172,19 +172,10 @@ MOD_KNOB_PREFIX = "Mod knob \u2192 "
 
 
 def normalize_mask(value) -> int:
-    """A mask of shipped effects, or the default. Never trusts a stored value."""
+    """A mask of shipped effects, or the factory default (none). Never trusts
+    a stored value."""
     mask = valid_mask(value)
-    return DEFAULT_MASK if mask is None else mask
-
-
-def _pref_mask(prefs: dict):
-    """The stored default mask; a #148/#150 effect id when there is none yet."""
-    if MASK_PREF_KEY in prefs:
-        return prefs.get(MASK_PREF_KEY)
-    effect = prefs.get(LEGACY_EFFECT_PREF_KEY)
-    if not isinstance(effect, bool) and isinstance(effect, int) and effect in fx_host_protocol.EFFECT_IDS:
-        return fx_host_protocol.mask_of((effect,))
-    return None
+    return FACTORY_MASK if mask is None else mask
 
 
 def _always_fits(_text: str) -> bool:
@@ -225,7 +216,7 @@ def chain_labels() -> tuple[str, ...]:
     return tuple(out)
 
 
-def mod_knob_label(destination: str, mask: int = DEFAULT_MASK, fits=_always_fits) -> str:
+def mod_knob_label(destination: str, mask: int = FACTORY_MASK, fits=_always_fits) -> str:
     """The play-screen switch's label: where the knob goes now, not the setting.
 
     Routed to the effect, it names the chain as the Effect fader does, and
@@ -278,29 +269,29 @@ def patch_uses_mod_wheel(patch_path) -> bool | None:
 class FxConfig:
     """What one patch load resolves to."""
 
-    mask: int = DEFAULT_MASK
+    mask: int = FACTORY_MASK
     mod_wheel_target: str = DEFAULT_MOD_WHEEL_TARGET
-    depth: float = 0.0
+    depth: float = FACTORY_DEPTH
 
 
 def resolve_config(
     *,
     global_target: str,
-    global_mask: int = DEFAULT_MASK,
     patch_config: PatchFx | None = None,
 ) -> FxConfig:
-    """Each of the patch's own values, else the global default for that field.
+    """The patch's own effect state, and its target else the global one.
 
-    A patch with no depth of its own plays at 0: a patch never set plays the
-    global default mask at depth 0.
+    Effect state (mask and depth) is entirely per patch: a patch with no
+    entry, or a missing field, gets the factory default (no effect, depth 0),
+    never a global or last-used value. Only the mod-knob target has a global
+    default (the Settings value), on purpose.
     """
     patch = patch_config or PatchFx()
-    mask = patch.mask if patch.mask is not None else normalize_mask(global_mask)
     target = patch.target if patch.target is not None else normalize_target(global_target)
     return FxConfig(
-        mask=mask,
+        mask=FACTORY_MASK if patch.mask is None else patch.mask,
         mod_wheel_target=normalize_target(target),
-        depth=0.0 if patch.depth is None else patch.depth,
+        depth=FACTORY_DEPTH if patch.depth is None else patch.depth,
     )
 
 
@@ -552,7 +543,6 @@ class FxPolicy:
         route_path: Path | None = None,
         levels_path: Path | None = None,
         global_target: str | None = None,
-        global_mask: int | None = None,
         store=None,
         clock=time.monotonic,
     ) -> None:
@@ -561,21 +551,17 @@ class FxPolicy:
         self._levels_path = levels_path
         #: Must be the remapper's clock: moves from both processes are compared.
         self._clock = clock
-        if global_target is None or global_mask is None:
+        if global_target is None:
             from patch_browser.ui_prefs import read_ui_prefs_file
 
-            prefs = read_ui_prefs_file()
-            if global_target is None:
-                global_target = prefs.get(MOD_WHEEL_PREF_KEY)
-            if global_mask is None:
-                global_mask = _pref_mask(prefs)
+            global_target = read_ui_prefs_file().get(MOD_WHEEL_PREF_KEY)
         self.global_target = normalize_target(global_target)
-        self.global_mask = normalize_mask(global_mask)
         #: `patch_fx.PatchFxStore`, or None to keep the setup in memory only.
         self._store = store
         #: (name, path, stable key) of the loaded patch, for the store.
         self._patch_ref: tuple[str, str | None, str | None] | None = None
-        #: The loaded patch's own values (each None = the global default).
+        #: The loaded patch's own values (None: the factory default for
+        #: mask and depth, the global default for the target).
         self.patch_fx = PatchFx()
         self._store_due: float | None = None
         self.config = self._resolve()
@@ -634,11 +620,7 @@ class FxPolicy:
         return mod_knob_label(self.destination, self.mask, fits)
 
     def _resolve(self) -> FxConfig:
-        return resolve_config(
-            global_target=self.global_target,
-            global_mask=self.global_mask,
-            patch_config=self.patch_fx,
-        )
+        return resolve_config(global_target=self.global_target, patch_config=self.patch_fx)
 
     @property
     def switch_locked(self) -> bool:
@@ -655,14 +637,11 @@ class FxPolicy:
         if not self.enabled or self._patch_ref is None:
             return
         fx = self.patch_fx
-        if "depth" in changes:
-            # A depth is set for the effects it is heard on: pin the mask too,
-            # or a later change of the global default would play this depth
-            # on another chain.
-            changes.setdefault("mask", self.mask)
+        # The effect state is written whole: mask and depth together, as they
+        # are in force, so no entry this writes has a field left to default.
         self.patch_fx = PatchFx(
-            mask=changes.get("mask", fx.mask),
-            depth=changes.get("depth", fx.depth),
+            mask=changes.get("mask", self.mask),
+            depth=changes.get("depth", self.depth),
             target=changes.get("target", fx.target),
         )
         self._store_due = self._clock() + STORE_WRITE_DELAY_S
@@ -731,44 +710,29 @@ class FxPolicy:
         self.target = self.config.mod_wheel_target
         self._route_changed()
 
-    def _persist_global_mask(self, mask: int, persist: bool) -> None:
-        self.global_mask = normalize_mask(mask)
-        if persist:
-            from patch_browser.ui_prefs import read_ui_prefs_file, write_ui_prefs_file
-
-            data = read_ui_prefs_file()
-            data[MASK_PREF_KEY] = self.global_mask
-            data.pop(LEGACY_EFFECT_PREF_KEY, None)
-            write_ui_prefs_file(data)
-
-    def set_global_mask(self, mask: int, *, persist: bool = True) -> None:
-        """The default chain for patches that never chose one.
-
-        Applied to the loaded patch now if it has no mask of its own. Moves no
-        depth. Inert when the FX host is off.
-        """
+    def set_mask(self, mask: int) -> None:
+        """The loaded patch's enable mask (stored with it). Writes no global
+        default: there is none for effect state. Moves no depth. Inert when
+        the FX host is off."""
         if not self.enabled:
             return
-        self._persist_global_mask(mask, persist)
-        self._mask_resolved()
+        self._patch_changed(mask=normalize_mask(mask))
+        self.config = FxConfig(
+            mask=normalize_mask(mask),
+            mod_wheel_target=self.config.mod_wheel_target,
+            depth=self.config.depth,
+        )
+        self.publish()
 
-    def toggle_effect(self, effect_id: int, *, persist: bool = True) -> None:
+    def toggle_effect(self, effect_id: int) -> None:
         """Picker row: switch one effect on or off for the loaded patch.
 
-        The new mask is also the global default for patches that never chose.
-        Only the mask moves: the depth in force, the mod-wheel target and so
-        the route stamp stay as they are, and the knob keeps its pickup.
+        Only the mask moves, and only for this patch: the depth in force, the
+        mod-wheel target and so the route stamp stay as they are.
         """
         if not self.enabled or isinstance(effect_id, bool) or effect_id not in fx_host_protocol.EFFECT_IDS:
             return
-        mask = fx_host_protocol.toggled(self.mask, effect_id)
-        self._persist_global_mask(mask, persist)
-        self._patch_changed(mask=mask)
-        self._mask_resolved()
-
-    def _mask_resolved(self) -> None:
-        self.config = self._resolve()
-        self.publish()
+        self.set_mask(fx_host_protocol.toggled(self.mask, effect_id))
 
     def _route_changed(self) -> None:
         self._route_stamp = self._next_stamp()
@@ -865,6 +829,13 @@ class FxPolicy:
             return False
         self.depth = levels.depth
         if levels.source == DEPTH_FROM_KNOB:
+            # The knob's depth is now the request in force too (same stamp,
+            # so the remapper that set it does not re-apply it). Otherwise the
+            # route file keeps the last fader or load request, and every later
+            # publish (a flip, a toggle) carries that stale depth to a router
+            # that has not seen its stamp: a restarted remapper (#142 round 5).
+            if self._depth_request is not None:
+                self._depth_request = self.depth
             self._patch_changed(depth=self.depth)
         return True
 
@@ -950,15 +921,19 @@ class Cc1Router:
     nothing else sends to UDP 9958. It also publishes the last CC 1 value it
     sent Surge, so the Patch mod fader follows the knob.
 
-    **Pickup.** The knob has no motor. Whenever the value it drives moved
-    without it (a route change: patch load or target switch; an effect
-    an Effect fader request; a Patch mod fader move), it is re-armed:
-    its messages change nothing until it reaches or crosses the value in
-    force, in CC units, then it follows. A message ignored while routed to
-    Surge is swallowed too, or Surge would jump. With no value known yet
-    (nothing published since this process started) the knob follows at once.
-    A mask change is not a switch: the depth in force is the same, so a knob
-    that had caught it keeps following.
+    **Pickup.** The knob has no motor, so its position is not the value it
+    drives. It uses the scaling law (`fader_pickup.scaled`, the one
+    `loop_mix` uses): each move changes the value in force by the fraction of
+    the remaining knob travel it covered, toward the end it is heading for.
+    It responds at once, never jumps, and meets the knob at either end. When
+    the value moves without the knob (a patch load, an Effect fader request,
+    a Patch mod fader move) or the knob changes target (a flip), the next move
+    scales from the new value: that is the re-arm. The knob's position stays
+    known across all of them (every master CC 1 passes through here), so
+    only its very first message since this process started is an anchor and
+    nothing else; routed to Surge, that one is swallowed. Messages forwarded to
+    Surge carry the scaled value. With no value known yet (nothing published
+    since this process started) the knob's position is the value.
 
     **A route change moves nothing.** The effects keep their depth and Surge
     keeps its mod-wheel value; only where the next knob message goes changes.
@@ -992,6 +967,9 @@ class Cc1Router:
         #: Surge's mod-wheel value as far as this process knows: the last CC 1
         #: it forwarded, or the Patch mod fader's value from the route file.
         self.patch_mod: int | None = None
+        #: The same value before rounding to a CC, so slow knob moves
+        #: accumulate instead of rounding away (as `loop_mix._pickup_ref`).
+        self._surge_ref: float | None = None
 
     @classmethod
     def from_env(cls) -> "Cc1Router | None":
@@ -1022,10 +1000,10 @@ class Cc1Router:
         mask_changed = route.mask != self.mask
         self.destination = route.destination
         self.mask = route.mask
-        moved = False
-        if route.route_stamp != self._route_stamp:
-            self._route_stamp = route.route_stamp
-            moved = True
+        # A route change (patch load, target flip) moves nothing here: the
+        # knob is where it was, and its next move scales from whatever value
+        # it now drives.
+        self._route_stamp = route.route_stamp
         if route.patch_mod_stamp is not None and route.patch_mod_stamp != self._patch_mod_stamp:
             self._patch_mod_stamp = route.patch_mod_stamp
             # Both reach Surge on their own path, so the later move is what
@@ -1035,17 +1013,16 @@ class Cc1Router:
             if route.patch_mod is not None and (
                 forwarded_at is None or route.patch_mod_at is None or route.patch_mod_at >= forwarded_at
             ):
+                # Pickup re-arm: the knob's next move scales from this value.
                 self.patch_mod = route.patch_mod
-                moved = True
+                self._surge_ref = float(route.patch_mod)
         if route.depth_stamp is not None and route.depth_stamp != self._depth_stamp:
             self._depth_stamp = route.depth_stamp
             if route.depth_request is not None:
+                # Pickup re-arm: the knob's next move scales from this depth.
                 self._set_depth(route.depth_request, DEPTH_FROM_FADER, route.depth_stamp)
-                moved = True
         elif mask_changed and self.depth is not None:
             self._sender.send(self.mask, self.depth)
-        if moved:
-            self._pickup.rearm(_KNOB)
 
     def _set_depth(self, depth: float, source: str, request: str | None = None) -> None:
         self.depth = max(0.0, min(1.0, float(depth)))
@@ -1069,26 +1046,39 @@ class Cc1Router:
         except OSError as exc:
             print(f"Warning: could not publish FX levels ({exc})", flush=True)
 
-    def _caught(self, value: int, in_force: float | None) -> bool:
-        """Pickup: may the knob at `value` set what holds `in_force` (CC units)?"""
+    def _knob(self, value: int, in_force: float | None) -> float | None:
+        """Pickup: what the knob at `value` sets the value `in_force` to (CC
+        units), or None when this message only anchored it.
+
+        Scaling law (`fader_pickup.scaled`) from the value in force. With no
+        value known yet (nothing published since this process started), the
+        knob's position is the value.
+        """
         if in_force is None:
             self._pickup.moved(_KNOB, value)
-            return True
-        return self._pickup.catch(_KNOB, value, in_force)
+            return float(value)
+        return self._pickup.follow(_KNOB, value, in_force)
 
     def consume(self, raw, source=None) -> bool:
         """True when the message must not reach Surge: taken for the effect,
-        or swallowed because the knob has not picked up Surge's value yet."""
+        or swallowed because it only anchored the knob.
+
+        A message for Surge is forwarded with its value rewritten in place
+        (`raw[2]`) to the scaled value, so Surge never jumps to the knob.
+        """
         if not is_master_mod_wheel(raw):
             return False
         self.last_cc = int(raw[2])
-        depth = route_cc1(raw, self.destination)
-        if depth is None:
-            if not self._caught(self.last_cc, None if self.patch_mod is None else float(self.patch_mod)):
+        if route_cc1(raw, self.destination) is None:
+            level = self._knob(self.last_cc, self._surge_ref)
+            if level is None:
                 return True
+            self._surge_ref = level
+            raw[2] = int(round(level))
             # Forwarded to Surge: the Patch mod fader follows it.
-            self._note_patch_mod(self.last_cc)
+            self._note_patch_mod(raw[2])
             return False
-        if self._caught(self.last_cc, None if self.depth is None else self.depth * CC_MAX):
-            self._set_depth(depth, DEPTH_FROM_KNOB)
+        level = self._knob(self.last_cc, None if self.depth is None else self.depth * CC_MAX)
+        if level is not None and (self.depth is None or level / CC_MAX != self.depth):
+            self._set_depth(level / CC_MAX, DEPTH_FROM_KNOB)
         return True
