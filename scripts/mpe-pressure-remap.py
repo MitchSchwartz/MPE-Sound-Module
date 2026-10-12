@@ -28,6 +28,8 @@ from patch_browser.midi_sync import (  # noqa: E402
 )
 from patch_browser.patch_pressure import PatchPressureStore  # noqa: E402
 from patch_browser.poly_voice_tracker import (  # noqa: E402
+    FADE_REQUEST_FILE,
+    SHED_NOTE_OFF_VELOCITY,
     PolyVoiceTracker,
     clear_fade_request,
     fade_actuation_enabled,
@@ -81,6 +83,11 @@ CLOCK_REFRESH_S = 0.05
 # moves a few times a day. Cheap check before the expensive one, on the busiest
 # loop in the router.
 OFFSET_REFRESH_S = 1.0
+# The governor's shed request is a file on tmpfs. It used to be opened and
+# parsed on every 2 ms drain (~500 reads/s of a file that is absent nearly
+# always); now one stat() per 20 ms, and a read only when it changed. 20 ms is
+# well inside the governor's own 50-150 ms poll, so no shed is delayed by it.
+SHED_POLL_S = 0.02
 
 
 def lsusb_has_roli() -> bool:
@@ -118,6 +125,10 @@ class PressureRemapDaemon:
         self._pass_clock = clock_through_enabled()
         self._voice_tracker = PolyVoiceTracker()
         self._last_fade_request_id: float | None = None
+        self._next_shed_poll = 0.0
+        self._shed_request_mtime = 0.0
+        # (limit, requested_at, reason) while a request still has work to do.
+        self._shed_pending: tuple[int, float, str] | None = None
         # None unless MPE_FX_HOST is on: then CC 1 is forwarded exactly as before.
         self._cc1 = Cc1Router.from_env()
 
@@ -214,32 +225,66 @@ class PressureRemapDaemon:
         for out_msg in out_msgs:
             self._send(out_msg)
 
-    def _process_fade_request(self) -> None:
-        if not fade_actuation_enabled() or self._out is None:
+    def _poll_shed_request(self, now: float) -> None:
+        """Pick up a new shed request from the governor (stat first, read on change)."""
+        if now < self._next_shed_poll:
             return
-        request = read_fade_request()
-        if not request:
-            return
+        self._next_shed_poll = now + SHED_POLL_S
         try:
-            request_id = float(request.get("request_id"))
-            release_count = int(request.get("release_count", 0))
-        except (TypeError, ValueError):
-            clear_fade_request()
+            mtime = FADE_REQUEST_FILE.stat().st_mtime
+        except OSError:
             return
-        if release_count <= 0:
+        if mtime == self._shed_request_mtime:
+            return
+        self._shed_request_mtime = mtime
+        request = read_fade_request()
+        try:
+            request_id = float(request["request_id"])
+            limit = int(request["limit"])
+            requested_at = float(request.get("requested_at", request_id))
+        except (KeyError, TypeError, ValueError):
             clear_fade_request()
             return
         if self._last_fade_request_id == request_id:
             return
-        targets = self._voice_tracker.notes_to_release(release_count)
-        if not targets:
-            return
-        for channel, note in targets:
-            self._out.send_message([0x80 | channel, note, 0])
-            self._voice_tracker.observe_message([0x80 | channel, note, 0])
-        self._voice_tracker.persist()
         self._last_fade_request_id = request_id
-        clear_fade_request()
+        # A newer request supersedes an unfinished one: it carries the
+        # governor's current limit.
+        self._shed_pending = (limit, requested_at, str(request.get("reason", "")))
+
+    def _process_shed_request(self, now: float) -> None:
+        """Release the notes plan_shed picks; the policy is in poly_voice_tracker."""
+        if not fade_actuation_enabled() or self._out is None:
+            return
+        self._poll_shed_request(now)
+        if self._shed_pending is None:
+            return
+        limit, requested_at, reason = self._shed_pending
+        sounding = self._voice_tracker.active_count()
+        plan = self._voice_tracker.plan_shed(
+            limit=limit, requested_at=requested_at, now=now
+        )
+        for channel, note in plan.release:
+            off = [0x80 | channel, note, SHED_NOTE_OFF_VELOCITY]
+            self._out.send_message(off)
+            self._voice_tracker.observe_message(off, now=now)
+        if plan.release:
+            self._voice_tracker.persist()
+        if plan.release or plan.blocked_by_sustain or (plan.done and sounding > limit):
+            # Rare (only on a governor step-down below the sounding count), so
+            # a journal line per pass is the record that shedding happened, and
+            # of every note it could not shed.
+            shed = " ".join(f"{ch + 1}:{n}" for ch, n in plan.release)
+            print(
+                f"governor shed: released={len(plan.release)} [{shed}] "
+                f"limit={limit} sounding={sounding} "
+                f"blocked_sustain={plan.blocked_by_sustain} "
+                f"too_young={plan.too_young} reason={reason}",
+                flush=True,
+            )
+        if plan.done:
+            self._shed_pending = None
+            clear_fade_request()
 
     def _handle_incoming(
         self, binding: SourceBinding, raw: list[int], now: float
@@ -292,7 +337,7 @@ class PressureRemapDaemon:
         if self._cc1 is not None:
             self._cc1.refresh(now)
         sent = self._drain_scheduled(now)
-        self._process_fade_request()
+        self._process_shed_request(now)
         while True:
             try:
                 binding, raw = self._queue.get_nowait()
