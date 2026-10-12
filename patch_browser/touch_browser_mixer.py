@@ -27,7 +27,7 @@ class TouchBrowserMixerMixin:
         return mixer_control_by_id(self, channel_id)
 
     def _mixer_control_label(self, control) -> str:
-        """A control's label now: most are fixed, the Effect fader names its effect."""
+        """A control's label now: most are fixed, the Effect fader names its chain."""
         label_for = getattr(control, "label_for", None)
         return label_for(self) if label_for is not None else control.spec.label
 

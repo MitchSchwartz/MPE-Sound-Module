@@ -947,7 +947,7 @@ class TouchBrowserDrawMixin:
             policy.switch_locked or policy.target == MOD_WHEEL_EFFECT,
             has_gain=True,
             disabled=policy.switch_locked,
-            label=policy.knob_label,
+            label=self._mod_knob_switch_label(),
         )
     def _draw_browser(self) -> None:
         self.screen.fill(self.theme.bg)
