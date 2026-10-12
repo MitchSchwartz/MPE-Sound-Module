@@ -73,7 +73,7 @@ safe at one is not safe end to end:
 | Stage | Control | Reaches |
 |---|---|---|
 | Surge patch output | OSC `/param/a/amp/volume`, `/param/b/amp/volume` (UDP 53280) | everything — it is upstream of the fan-out |
-| FX insert (opt-in, `MPE_FX_HOST`) | `native/mpe-fx-host`, UDP 9958 (`patch_browser/fx_host_protocol.py`) | the trunk: playback and every loop input (meters stay pre-FX). Mixes toward wet, never on top; clamped to ±1.0; depth 0 is the input unchanged |
+| FX insert (opt-in, `MPE_FX_HOST`) | `native/mpe-fx-host`, UDP 9958 (`patch_browser/fx_host_protocol.py`) | the trunk: playback and every loop input (meters stay pre-FX). Mixes toward wet, never on top; level-matched to the input (RMS), never louder; clamped to ±1.0; depth 0 is the input unchanged |
 | Live monitor | `native/mpe-live-monitor`, driven by `scripts/sooperlooper/live_monitor.py` (UDP 9957) | what you hear yourself at, never what is captured |
 | Looper | `MPE_SL_LOOP_GAIN`, `MPE_SL_LOOP_GAIN_LAW`, per-loop `wet` via `loop_mix.py` | loop playback only |
 | Hardware mixer | Bound DAC's playback element, owned by `patch_browser/device_volume.py` | everything |
