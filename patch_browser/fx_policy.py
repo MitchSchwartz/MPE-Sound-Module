@@ -41,16 +41,32 @@ same stamp, for the same reason.
 **Off means off.** With MPE_FX_HOST unset, neither object is active: no file,
 no socket, and the remapper forwards CC 1 to Surge exactly as before.
 
-**Which effect.** The effect picker on the play screen sets one global
-choice, persisted in the UI prefs (`EFFECT_PREF_KEY`). It reaches the FX host
+**Which effect.** The effect picker on the play screen chooses the loaded
+patch's effect and also makes it the global default, persisted in the UI prefs
+(`EFFECT_PREF_KEY`), for patches that never chose one. It reaches the FX host
 the way everything else does: the UI writes it to the route file's `effect`,
 and the remapper sends it. The Effect fader and the mod-knob switch name the
 active effect (`effect_name`), so the screen says what the knob drives.
 
-**Per-patch overrides come later.** `resolve_config` already takes the
-patch's own value ahead of the global defaults (the `get_effective_*` order of
-the sidecar stores), for the effect and the mod-wheel target alike; nothing
-supplies a patch value yet.
+**Each patch remembers its setup** (`patch_fx.PatchFxStore`, a sidecar store
+like Hold and normalization): its effect, a depth for each effect, and the
+mod-knob target. `resolve_config` takes each of the patch's own values ahead
+of the global default, field by field. A patch never set plays the global
+default effect at depth 0. Switching effects restores that effect's depth for
+this patch; the knob level does not carry over. The store is written from the
+UI loop, `STORE_WRITE_DELAY_S` after the last change and before the next patch
+load, never per knob tick.
+
+**Pickup.** After a switch (patch load, effect, mod-knob target) or a move on
+the touch screen, the hardware knob's position says nothing about the value in
+force. `Cc1Router` ignores it until it reaches or crosses that value, then it
+follows (`fader_pickup.Pickup.catch`, the anchor bookkeeping shared with the
+APC faders in `loop_mix`). Until then the faders show the value in force, the
+stored one, not the knob.
+
+**Switching the target only moves the knob.** Flipping between Patch mod and
+the effect changes where CC 1 goes and nothing else: the effect keeps its
+depth and Surge keeps its mod-wheel value, so both stay audible.
 """
 
 from __future__ import annotations
@@ -65,7 +81,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from patch_browser import fx_host_protocol
+from patch_browser.fader_pickup import Pickup
 from patch_browser.json_store import atomic_write_json, read_json_dict
+from patch_browser.patch_fx import PatchFx
 
 MOD_WHEEL_PATCH_FIRST = "patch_first"
 MOD_WHEEL_EFFECT = "effect"
@@ -97,6 +115,10 @@ DEPTH_FROM_FADER = "fader"
 DEPTH_PUBLISH_S = 0.05
 #: How often the UI checks the levels file for a knob move.
 LEVELS_POLL_S = 0.1
+#: The per-patch store is written this long after the last change (a knob
+#: sweep or a fader drag is one write, not one per tick), and at once before
+#: the next patch load.
+STORE_WRITE_DELAY_S = 1.0
 
 #: Seconds between mtime checks of the route file in the remapper. The file
 #: moves once per patch load, so this bounds how late a new route applies.
@@ -190,20 +212,27 @@ class FxConfig:
 
     effect_id: int = fx_host_protocol.EFFECT_CHORUS
     mod_wheel_target: str = DEFAULT_MOD_WHEEL_TARGET
+    depth: float = 0.0
 
 
 def resolve_config(
     *,
     global_target: str,
     global_effect: int = DEFAULT_EFFECT,
-    patch_config: FxConfig | None = None,
+    patch_config: PatchFx | None = None,
 ) -> FxConfig:
-    """The patch's own config if it has one, else the global defaults."""
-    if patch_config is not None:
-        return patch_config
+    """Each of the patch's own values, else the global default for that field.
+
+    The depth is the patch's depth for the resolved effect, 0 if it never set
+    one: a patch never set plays the global default effect at depth 0.
+    """
+    patch = patch_config or PatchFx()
+    effect_id = patch.effect if patch.effect is not None else normalize_effect(global_effect)
+    target = patch.target if patch.target is not None else normalize_target(global_target)
     return FxConfig(
-        effect_id=normalize_effect(global_effect),
-        mod_wheel_target=normalize_target(global_target),
+        effect_id=effect_id,
+        mod_wheel_target=normalize_target(target),
+        depth=patch.depth_for(effect_id),
     )
 
 
@@ -245,6 +274,11 @@ class Route:
     route_stamp: str | None = None
     depth_request: float | None = None
     depth_stamp: str | None = None
+    #: The Patch mod fader's value: what Surge's mod wheel is now, for pickup.
+    patch_mod: int | None = None
+    patch_mod_stamp: str | None = None
+    #: `time.monotonic()` at that fader move, to order it against the knob.
+    patch_mod_at: float | None = None
 
 
 def _valid_effect(value) -> bool:
@@ -277,6 +311,9 @@ def read_route(path: Path) -> Route:
         route_stamp=_stamp(data.get("route_stamp")),
         depth_request=_depth_value(data.get("depth_request")),
         depth_stamp=_stamp(data.get("depth_stamp")),
+        patch_mod=_cc_value(data.get("patch_mod")),
+        patch_mod_stamp=_stamp(data.get("patch_mod_stamp")),
+        patch_mod_at=_moment(data.get("patch_mod_at")),
     )
 
 
@@ -433,16 +470,17 @@ class FxPolicy:
     Two controls set the mod-wheel target and they do not compete:
 
     * the Settings value is the global default. It is applied at every patch
-      load, and changing it re-resolves the loaded patch at once, exactly as if
-      the patch had been loaded again;
-    * the play-screen switch sets the target for the loaded patch only. The
-      next patch load replaces it with the resolved config.
+      load, and changing it re-resolves the loaded patch at once, unless the
+      patch has its own target;
+    * the play-screen switch sets the loaded patch's own target, which the
+      patch keeps (`patch_fx`).
 
     The Effect fader is a request, not a level: the remapper applies it,
     and publishes the depth actually in force (fader or knob, whichever moved
     last) to the levels file, which `poll_levels` reads back. The Patch mod
-    fader sends to Surge itself; `poll_levels` moves it when the knob, routed
-    to Surge, sent a later value.
+    fader sends to Surge itself, and tells the remapper the value so the knob
+    picks it up; `poll_levels` moves it when the knob, routed to Surge, sent a
+    later value.
     """
 
     def __init__(
@@ -453,6 +491,7 @@ class FxPolicy:
         levels_path: Path | None = None,
         global_target: str | None = None,
         global_effect: int | None = None,
+        store=None,
         clock=time.monotonic,
     ) -> None:
         self.enabled = fx_host_protocol.enabled() if enabled is None else bool(enabled)
@@ -470,12 +509,22 @@ class FxPolicy:
                 global_effect = prefs.get(EFFECT_PREF_KEY)
         self.global_target = normalize_target(global_target)
         self.global_effect = normalize_effect(global_effect)
+        #: `patch_fx.PatchFxStore`, or None to keep the setup in memory only.
+        self._store = store
+        #: (name, path, stable key) of the loaded patch, for the store.
+        self._patch_ref: tuple[str, str | None, str | None] | None = None
+        #: The loaded patch's own values (each None = the global default).
+        self.patch_fx = PatchFx()
+        self._store_due: float | None = None
         self.config = self._resolve()
         self.target = self.config.mod_wheel_target
         self.uses_mod_wheel: bool | None = None
         self.patch_loaded = False
         self.depth = 0.0
         self.patch_mod = 0
+        #: True once the Patch mod value is known (fader or knob): before
+        #: that, 0 is a placeholder, not something Surge was sent.
+        self.patch_mod_known = False
         # Each route change and each fader request carries its own stamp, so
         # the remapper can tell "the route moved" from "the fader moved" in one
         # file. pid-prefixed so a restarted UI never repeats an old stamp.
@@ -486,12 +535,20 @@ class FxPolicy:
         self._next_depth_write = 0.0
         self._depth_unsent = False
         self._depth_requested_at: float | None = None
+        self._patch_mod_request: int | None = None
+        self._patch_mod_stamp: str | None = None
+        self._next_patch_mod_write = 0.0
+        self._patch_mod_unsent = False
         self._patch_mod_set_at: float | None = None
         self._patch_mod_seen_at: float | None = None
         self._levels_file_id: tuple[int, int] | None = None
         self._next_levels_poll = 0.0
         self.dragging_depth = False
         self.dragging_patch_mod = False
+
+    def bind_store(self, store) -> None:
+        """The per-patch store (the loader owns it, as it owns Hold's)."""
+        self._store = store
 
     def _next_stamp(self) -> str:
         self._seq += 1
@@ -515,8 +572,11 @@ class FxPolicy:
         return mod_knob_label(self.destination, self.effect_id)
 
     def _resolve(self) -> FxConfig:
-        # The patch-load seam: a per-patch config would be passed here.
-        return resolve_config(global_target=self.global_target, global_effect=self.global_effect)
+        return resolve_config(
+            global_target=self.global_target,
+            global_effect=self.global_effect,
+            patch_config=self.patch_fx,
+        )
 
     @property
     def switch_locked(self) -> bool:
@@ -526,20 +586,80 @@ class FxPolicy:
         cc1_destination."""
         return self.uses_mod_wheel is False
 
-    def on_patch_loaded(self, patch_path) -> None:
+    # -- the per-patch store ------------------------------------------------
+
+    def _patch_changed(self, **changes) -> None:
+        """Record a change to the loaded patch's own values; write later."""
+        if not self.enabled or self._patch_ref is None:
+            return
+        fx = self.patch_fx
+        depths = dict(fx.depths)
+        if "depth" in changes:
+            effect_id, depth = changes.pop("depth")
+            depths[effect_id] = depth
+            # A depth belongs to an effect: pin the effect too, or a later
+            # change of the global default would hide this depth.
+            changes.setdefault("effect", effect_id)
+        self.patch_fx = PatchFx(
+            effect=changes.get("effect", fx.effect),
+            depths=depths,
+            target=changes.get("target", fx.target),
+        )
+        self._store_due = self._clock() + STORE_WRITE_DELAY_S
+
+    def flush_store(self, now: float | None = None) -> bool:
+        """Write the loaded patch's setup if a change is due (or now, with no
+        `now`). True when it wrote."""
+        if self._store_due is None:
+            return False
+        if now is not None and now < self._store_due:
+            return False
+        self._store_due = None
+        if self._store is None or self._patch_ref is None:
+            return False
+        name, path, stable_key = self._patch_ref
+        try:
+            self._store.set(name, self.patch_fx, patch_path=path, stable_key=stable_key)
+        except OSError as exc:
+            print(f"Warning: could not save the patch's effect setup ({exc})")
+            return False
+        return True
+
+    # -- patch loads and switches -------------------------------------------
+
+    def on_patch_loaded(self, patch_path, *, patch_name: str | None = None, stable_key: str | None = None) -> None:
+        """Resolve the new patch: its own values first, then the global ones.
+
+        Both faders show the resolved values at once: the Effect fader the
+        patch's depth for its effect, the Patch mod fader what Surge has.
+        """
+        self.flush_store()
         self.uses_mod_wheel = patch_uses_mod_wheel(patch_path)
         self.patch_loaded = True
+        path = None if patch_path is None else str(patch_path)
+        name = patch_name or (Path(path).stem if path else "")
+        self._patch_ref = (name, path, stable_key) if name else None
+        self.patch_fx = PatchFx()
+        if self.enabled and self._store is not None and self._patch_ref is not None:
+            self.patch_fx = self._store.get(name, patch_path=path, stable_key=stable_key)
         self.config = self._resolve()
         self.target = self.config.mod_wheel_target
+        self._request_depth(self.config.depth)
         self._route_changed()
 
     def set_target(self, target: str) -> None:
-        """Play-screen switch: the loaded patch only."""
+        """Play-screen switch: the loaded patch's own target, kept with it.
+
+        Only where the knob goes changes. The effect keeps its depth and Surge
+        keeps its mod-wheel value.
+        """
         self.target = normalize_target(target)
+        self._patch_changed(target=self.target)
         self._route_changed()
 
     def set_global_default(self, target: str, *, persist: bool = True) -> None:
-        """Settings: the default for every load, applied to the loaded patch now."""
+        """Settings: the default for every load, applied to the loaded patch now
+        unless it has its own target."""
         self.global_target = normalize_target(target)
         if persist:
             from patch_browser.ui_prefs import read_ui_prefs_file, write_ui_prefs_file
@@ -551,15 +671,7 @@ class FxPolicy:
         self.target = self.config.mod_wheel_target
         self._route_changed()
 
-    def set_global_effect(self, effect_id: int, *, persist: bool = True) -> None:
-        """Effect picker: the effect for every load, applied to the loaded patch now.
-
-        Inert when the FX host is off. Only the effect moves: the mod-wheel
-        target, and so the route stamp, stay as they are, and the remapper
-        resends the depth in force under the new effect when it sees the file.
-        """
-        if not self.enabled:
-            return
+    def _persist_global_effect(self, effect_id: int, persist: bool) -> None:
         self.global_effect = normalize_effect(effect_id)
         if persist:
             from patch_browser.ui_prefs import read_ui_prefs_file, write_ui_prefs_file
@@ -567,12 +679,55 @@ class FxPolicy:
             data = read_ui_prefs_file()
             data[EFFECT_PREF_KEY] = self.global_effect
             write_ui_prefs_file(data)
+
+    def set_global_effect(self, effect_id: int, *, persist: bool = True) -> None:
+        """The default effect for patches that never chose one.
+
+        Applied to the loaded patch now if it has no effect of its own, at the
+        patch's depth for that effect (0 if never set). Inert when the FX host
+        is off.
+        """
+        if not self.enabled:
+            return
+        self._persist_global_effect(effect_id, persist)
+        self._effect_resolved()
+
+    def select_effect(self, effect_id: int, *, persist: bool = True) -> None:
+        """Effect picker: the loaded patch's effect, and the new global default.
+
+        Restores this patch's depth for that effect (0 if never set); the
+        knob level does not carry over. Only the effect and its depth move:
+        the mod-wheel target, and so the route stamp, stay as they are.
+        """
+        if not self.enabled:
+            return
+        effect_id = normalize_effect(effect_id)
+        self._persist_global_effect(effect_id, persist)
+        self._patch_changed(effect=effect_id)
+        self._effect_resolved()
+
+    def _effect_resolved(self) -> None:
+        before = (self.config.effect_id, self.config.depth)
         self.config = self._resolve()
+        if (self.config.effect_id, self.config.depth) != before or self.depth != self.config.depth:
+            self._request_depth(self.config.depth)
         self.publish()
 
     def _route_changed(self) -> None:
         self._route_stamp = self._next_stamp()
         self.publish()
+
+    def _request_depth(self, depth: float) -> None:
+        """Ask the remapper for a depth (with the next publish). Not a user move."""
+        self.depth = max(0.0, min(1.0, float(depth)))
+        if not self.enabled:
+            return
+        self._depth_request = self.depth
+        self._depth_stamp = self._next_stamp()
+        self._depth_requested_at = self._clock()
+        self._depth_unsent = False
+
+    # -- the faders ---------------------------------------------------------
 
     def set_depth(self, depth: float, *, final: bool = False) -> None:
         """Effect fader: request a depth. The remapper applies it.
@@ -588,6 +743,7 @@ class FxPolicy:
         self.dragging_depth = not final
         now = self._clock()
         self._depth_requested_at = now
+        self._patch_changed(depth=(self.effect_id, self.depth))
         if final or now >= self._next_depth_write:
             self._next_depth_write = now + DEPTH_PUBLISH_S
             self._depth_unsent = False
@@ -609,10 +765,14 @@ class FxPolicy:
         (10/s) on the UI loop, a read only when the remapper rewrote the file,
         which it does at most 20/s and only while something is moving. A held
         fader is never moved, so the file cannot pull it from under the finger.
+        Also writes the per-patch store once a change is due.
         """
-        if not self.enabled or (self.dragging_depth and self.dragging_patch_mod):
+        if not self.enabled:
             return False
         stamp = self._clock() if now is None else now
+        self.flush_store(stamp)
+        if self.dragging_depth and self.dragging_patch_mod:
+            return False
         if stamp < self._next_levels_poll:
             return False
         self._next_levels_poll = stamp + LEVELS_POLL_S
@@ -647,6 +807,8 @@ class FxPolicy:
         if abs(levels.depth - self.depth) <= SEND_TOLERANCE:
             return False
         self.depth = levels.depth
+        if levels.source == DEPTH_FROM_KNOB:
+            self._patch_changed(depth=(self.effect_id, self.depth))
         return True
 
     def _follow_patch_mod(self, levels: Levels) -> bool:
@@ -656,6 +818,7 @@ class FxPolicy:
         # The fader moved after the knob did: Surge has the fader's value.
         if self._patch_mod_set_at is not None and levels.patch_mod_at <= self._patch_mod_set_at:
             return False
+        self.patch_mod_known = True
         if levels.patch_mod == self.patch_mod:
             return False
         self.patch_mod = levels.patch_mod
@@ -667,16 +830,31 @@ class FxPolicy:
         Sent over Surge's own `/cc` (channel, controller, value; floats), so it
         reaches the patch the same way a hardware wheel on the master channel
         would. It never touches the FX, whatever the target. `final` is False
-        while the fader is held.
+        while the fader is held. The value also goes into the route file, so
+        the remapper knows what the knob has to pick up.
         """
         self.patch_mod = max(0, min(CC_MAX, int(round(float(value)))))
-        self._patch_mod_set_at = self._clock()
+        self.patch_mod_known = True
+        now = self._clock()
+        self._patch_mod_set_at = now
         self.dragging_patch_mod = not final
+        if self.enabled:
+            self._patch_mod_request = self.patch_mod
+            self._patch_mod_stamp = self._next_stamp()
+            if final or now >= self._next_patch_mod_write:
+                self._next_patch_mod_write = now + DEPTH_PUBLISH_S
+                self._patch_mod_unsent = False
+                self.publish()
+            else:
+                self._patch_mod_unsent = True
         return "/cc", [0.0, float(CC_MOD_WHEEL), float(self.patch_mod)]
 
     def finish_patch_mod(self) -> None:
         """Patch mod fader released: the knob may move it again."""
         self.dragging_patch_mod = False
+        if self._patch_mod_unsent:
+            self._patch_mod_unsent = False
+            self.publish()
 
     def publish(self) -> None:
         if not self.enabled:
@@ -693,10 +871,17 @@ class FxPolicy:
                     "route_stamp": self._route_stamp,
                     "depth_request": self._depth_request,
                     "depth_stamp": self._depth_stamp,
+                    "patch_mod": self._patch_mod_request,
+                    "patch_mod_stamp": self._patch_mod_stamp,
+                    "patch_mod_at": self._patch_mod_set_at if self._patch_mod_request is not None else None,
                 },
             )
         except OSError as exc:
             print(f"Warning: could not publish FX route ({exc})")
+
+
+#: The one key the mod knob has in `Cc1Router`'s pickup.
+_KNOB = "cc1"
 
 
 class Cc1Router:
@@ -706,14 +891,18 @@ class Cc1Router:
     requests, and publishes the depth in force for the UI. Depth has one owner
     here: the knob and the fader are two inputs to it, last one wins, and
     nothing else sends to UDP 9958. It also publishes the last CC 1 value it
-    sent Surge (forwarded or replayed), so the Patch mod fader follows the knob.
+    sent Surge, so the Patch mod fader follows the knob.
 
-    It remembers the last mod-wheel message and the source it came from, even
-    while CC 1 is going to Surge. When a route change hands the wheel to the
-    effect, the depth moves to where the knob is (the FX host smooths the
-    jump). When a route change leaves the wheel with the patch, that message
-    is replayed to Surge through its own source's transform, so the patch's
-    mod state matches the knob: on the switch, the setting, and every load.
+    **Pickup.** The knob has no motor. Whenever the value it drives moved
+    without it (a route change: patch load or target switch; an effect
+    change; an Effect fader request; a Patch mod fader move), it is re-armed:
+    its messages change nothing until it reaches or crosses the value in
+    force, in CC units, then it follows. A message ignored while routed to
+    Surge is swallowed too, or Surge would jump. With no value known yet
+    (nothing published since this process started) the knob follows at once.
+
+    **A route change moves nothing.** The effect keeps its depth and Surge
+    keeps its mod-wheel value; only where the next knob message goes changes.
     """
 
     def __init__(
@@ -722,36 +911,34 @@ class Cc1Router:
         sender: FxHostSender | None = None,
         route_path: Path | None = None,
         levels_path: Path | None = None,
-        forward=None,
         clock=time.monotonic,
     ) -> None:
         self._sender = sender or FxHostSender()
         self._path = route_path or route_state_path()
         self._levels_path = levels_path or levels_state_path()
-        #: forward(source, raw): emit `raw` to Surge as if it came from `source`.
-        #: Returns True when it sent, False when it could not (that device is gone).
-        self._forward = forward
         #: Must be the UI's clock: moves from both processes are compared.
         self._clock = clock
         self._file_id: tuple[int, int] | None = None
         self._next_refresh = 0.0
         self._route_stamp: str | None = None
         self._depth_stamp: str | None = None
+        self._patch_mod_stamp: str | None = None
         self._levels: dict = {}
         self._levels_dirty = False
+        self._pickup = Pickup()
         self.destination = CC1_TO_SURGE
         self.effect_id = fx_host_protocol.EFFECT_CHORUS
         self.depth: float | None = None
         self.last_cc: int | None = None
-        self._last_cc_source = None
-        #: The last CC 1 value sent to Surge, and when.
+        #: Surge's mod-wheel value as far as this process knows: the last CC 1
+        #: it forwarded, or the Patch mod fader's value from the route file.
         self.patch_mod: int | None = None
 
     @classmethod
-    def from_env(cls, *, forward=None) -> "Cc1Router | None":
+    def from_env(cls) -> "Cc1Router | None":
         if not fx_host_protocol.enabled():
             return None
-        return cls(forward=forward)
+        return cls()
 
     def refresh(self, now: float | None = None) -> None:
         """Called from the remapper's drain loop; does work every ROUTE_REFRESH_S.
@@ -773,28 +960,33 @@ class Cc1Router:
             return
         self._file_id = file_id
         route = read_route(self._path)
-        previous = self.destination
         effect_changed = route.effect_id != self.effect_id
         self.destination = route.destination
         self.effect_id = route.effect_id
+        moved = effect_changed
         if route.route_stamp != self._route_stamp:
             self._route_stamp = route.route_stamp
-            if self.last_cc is not None:
-                if self.destination == CC1_TO_FX and previous != CC1_TO_FX:
-                    self._set_depth(depth_from_cc(self.last_cc), DEPTH_FROM_KNOB)
-                elif self.destination == CC1_TO_SURGE and self._forward is not None:
-                    sent = self._forward(
-                        self._last_cc_source,
-                        [MASTER_CONTROL_CHANGE, CC_MOD_WHEEL, self.last_cc],
-                    )
-                    if sent:
-                        self._note_patch_mod(self.last_cc)
+            moved = True
+        if route.patch_mod_stamp is not None and route.patch_mod_stamp != self._patch_mod_stamp:
+            self._patch_mod_stamp = route.patch_mod_stamp
+            # Both reach Surge on their own path, so the later move is what
+            # Surge has: a knob message forwarded after this fader move wins
+            # (a tie goes to the fader, as in `FxPolicy._follow_patch_mod`).
+            forwarded_at = self._levels.get("patch_mod_at")
+            if route.patch_mod is not None and (
+                forwarded_at is None or route.patch_mod_at is None or route.patch_mod_at >= forwarded_at
+            ):
+                self.patch_mod = route.patch_mod
+                moved = True
         if route.depth_stamp is not None and route.depth_stamp != self._depth_stamp:
             self._depth_stamp = route.depth_stamp
             if route.depth_request is not None:
                 self._set_depth(route.depth_request, DEPTH_FROM_FADER, route.depth_stamp)
+                moved = True
         elif effect_changed and self.depth is not None:
             self._sender.send(self.effect_id, self.depth)
+        if moved:
+            self._pickup.rearm(_KNOB)
 
     def _set_depth(self, depth: float, source: str, request: str | None = None) -> None:
         self.depth = max(0.0, min(1.0, float(depth)))
@@ -818,16 +1010,26 @@ class Cc1Router:
         except OSError as exc:
             print(f"Warning: could not publish FX levels ({exc})", flush=True)
 
+    def _caught(self, value: int, in_force: float | None) -> bool:
+        """Pickup: may the knob at `value` set what holds `in_force` (CC units)?"""
+        if in_force is None:
+            self._pickup.moved(_KNOB, value)
+            return True
+        return self._pickup.catch(_KNOB, value, in_force)
+
     def consume(self, raw, source=None) -> bool:
-        """True when the message was taken for the effect and must not reach Surge."""
+        """True when the message must not reach Surge: taken for the effect,
+        or swallowed because the knob has not picked up Surge's value yet."""
         if not is_master_mod_wheel(raw):
             return False
         self.last_cc = int(raw[2])
-        self._last_cc_source = source
         depth = route_cc1(raw, self.destination)
         if depth is None:
+            if not self._caught(self.last_cc, None if self.patch_mod is None else float(self.patch_mod)):
+                return True
             # Forwarded to Surge: the Patch mod fader follows it.
             self._note_patch_mod(self.last_cc)
             return False
-        self._set_depth(depth, DEPTH_FROM_KNOB)
+        if self._caught(self.last_cc, None if self.depth is None else self.depth * CC_MAX):
+            self._set_depth(depth, DEPTH_FROM_KNOB)
         return True

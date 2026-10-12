@@ -34,8 +34,8 @@ class PatchLoaderPlaybackTests(unittest.TestCase):
         policy_mock.assert_called_once_with("Lead")
 
     def test_load_patch_resolves_fx_policy_from_the_source_file(self) -> None:
-        fx = mock.Mock()
-        loader = PatchLoader(fx_policy=fx)
+        fx = mock.Mock(enabled=False)
+        loader = PatchLoader(fx_policy=fx, fx_store=mock.Mock())
         loader.osc_client = FakeOscClient()
         loader.osc_enabled = True
         with (
@@ -47,7 +47,8 @@ class PatchLoaderPlaybackTests(unittest.TestCase):
             mock.patch.object(loader, "_apply_playback_policy"),
         ):
             self.assertTrue(loader.load_patch("/p/Lead.fxp", apply_normalization=False))
-        fx.on_patch_loaded.assert_called_once_with("/p/Lead.fxp")
+        # With the identity the per-patch FX store is keyed by.
+        fx.on_patch_loaded.assert_called_once_with("/p/Lead.fxp", patch_name="Lead", stable_key=None)
 
     def test_patch_mod_sends_surge_cc1(self) -> None:
         from patch_browser.fx_policy import FxPolicy
