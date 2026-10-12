@@ -203,13 +203,14 @@ static inline float limiter_need(float need, float y, float ceil)
  *     dominate the clipping (tighter, less mud) — the overdrive-pedal habit.
  *   - Drive G = 0.5 (1 + 15 a^2) for knob a: 0.5 (clean) .. 8 (+24 dB over
  *     that; +18 dB over unity). Was .. 16: the top is 6 dB lower.
- *   - Shaper: f(u) = a(u + 0.1) - a(0.1), a(v) = v / sqrt(1 + v^2). The
+ *   - Shaper: f(u) = a(u + 0.2) - a(0.2), a(v) = v / sqrt(1 + v^2). The
  *     algebraic sigmoid has no corner anywhere (the old cubic went flat at
  *     |v| = 1 with a jump in curvature, which is what turns a hard-driven
  *     wave square and its harmonics slow to fall off): the knee is soft, and
- *     h3, h5, h7 fall about twice as fast in dB. The 0.1 bias (was 0.2)
- *     keeps a gentler asymmetry for the even harmonics. |f(u)| <= |u|, since
- *     a' <= 1; |f| < 1 + a(0.1) = sat.
+ *     h3, h5, h7 fall about twice as fast in dB. The bias is 0.2, the #149
+ *     value (round 3 tried 0.1; round 4, after the second ear test, "maybe a
+ *     little too smooth", put it back): the asymmetry that gives the even
+ *     harmonics. |f(u)| <= |u|, since a' <= 1; |f| < 1 + a(0.2) = sat.
  *   - Post: a DC blocker at 20 Hz (the asymmetry makes DC), then presence: a
  *     first-order high shelf, +4 dB above ~1.8 kHz, into a one-pole low-pass
  *     at 6.5 kHz. Net, about +2 dB across 2-5 kHz, level at 8 kHz, -2 dB at
@@ -278,8 +279,8 @@ static const float HB_B[DRIVE_HB_B_K] = {
     1.743344741e-04f,
 };
 
-#define DRIVE_BIAS 0.1f
-#define DRIVE_F_BIAS 0.0995037190f   /* a(0.1) = 0.1 / sqrt(1.01) */
+#define DRIVE_BIAS 0.2f
+#define DRIVE_F_BIAS 0.1961161351f   /* a(0.2) = 0.2 / sqrt(1.04) */
 #define DRIVE_SAT (1.0f + DRIVE_F_BIAS)
 #define DRIVE_MAX 8.0f               /* G at the top of the knob */
 #define DRIVE_PRES_DB 4.0
