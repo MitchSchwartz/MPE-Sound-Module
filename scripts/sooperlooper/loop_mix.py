@@ -56,8 +56,9 @@ _REPO = Path(__file__).resolve().parents[2]
 if str(_REPO) not in sys.path:
     sys.path.insert(0, str(_REPO))
 
-# The anchor bookkeeping is shared with the mod knob's pickup (fx_policy).
-from patch_browser.fader_pickup import PICKUP_TOLERANCE_CC, Pickup  # noqa: E402,F401
+# The anchor bookkeeping and the scaling law are shared with the mod knob's
+# pickup (fx_policy).
+from patch_browser.fader_pickup import PICKUP_TOLERANCE_CC, Pickup, scaled  # noqa: E402,F401
 
 # Bottom of fader travel must mean silence. A log taper cannot reach zero, so
 # the bottom of the range is snapped to it explicitly. Without this the fader
@@ -370,13 +371,7 @@ class LoopMix:
         """
         prev = self._pickup_anchor.previous(fader)
         ref = self._pickup_ref.get(fader, CC_MAX)
-        if raw < prev:
-            level = ref - ref * (prev - raw) / prev
-        elif raw > prev:
-            level = ref + (CC_MAX - ref) * (raw - prev) / (CC_MAX - prev)
-        else:
-            level = ref
-        return max(0.0, min(float(CC_MAX), level))
+        return scaled(prev, raw, ref, CC_MAX)
 
     def _message_for_loop(self, loop: int) -> tuple[str, list]:
         param = PARAMETERS[self.mode]

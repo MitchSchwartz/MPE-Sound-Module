@@ -200,7 +200,7 @@ class FxPolicyTests(unittest.TestCase):
         policy.on_patch_loaded(self.without_wheel)
         data = self._route()
         self.assertEqual(data["cc1"], CC1_TO_FX)
-        self.assertEqual(data["mask"], 1 << fx_host_protocol.EFFECT_CHORUS)
+        self.assertEqual(data["mask"], 0)  # never set: the factory default, no effect
         first = data["route_stamp"]
         policy.on_patch_loaded(self.with_wheel)
         self.assertEqual(self._route()["cc1"], CC1_TO_SURGE)
@@ -383,10 +383,10 @@ class FxPolicyTests(unittest.TestCase):
         policy.on_patch_loaded(self.with_wheel)
         self.assertEqual(policy.knob_label(), "Mod knob \u2192 Patch mod")
         policy.set_target(MOD_WHEEL_EFFECT)
-        self.assertEqual(policy.knob_label(), "Mod knob \u2192 Chorus")
+        self.assertEqual(policy.knob_label(), "Mod knob \u2192 No FX")
         policy.on_patch_loaded(self.without_wheel)  # patch first, but no wheel routing
         self.assertEqual(policy.target, MOD_WHEEL_PATCH_FIRST)
-        self.assertEqual(policy.knob_label(), "Mod knob \u2192 Chorus")
+        self.assertEqual(policy.knob_label(), "Mod knob \u2192 No FX")
 
     def test_patch_mod_is_surge_osc_cc1_on_the_master_channel(self) -> None:
         address, args = self._policy().set_patch_mod(64.4)
@@ -398,6 +398,7 @@ class FxPolicyTests(unittest.TestCase):
 C, D, P, T = (1 << fx_host_protocol.EFFECT_CHORUS), (1 << fx_host_protocol.EFFECT_TUBE_DRIVE), (
     1 << fx_host_protocol.EFFECT_PHASER
 ), (1 << fx_host_protocol.EFFECT_TREMOLO)
+F = 1 << fx_host_protocol.EFFECT_FLANGER
 
 
 class ChainLabelTests(unittest.TestCase):
@@ -406,21 +407,37 @@ class ChainLabelTests(unittest.TestCase):
     #: Every mask -> (names, count).
     TRUTH = {
         0: ("No FX", "No FX"),
-        C: ("Chorus", "1 FX"),
         D: ("Drive", "1 FX"),
         P: ("Phaser", "1 FX"),
+        F: ("Flanger", "1 FX"),
+        C: ("Chorus", "1 FX"),
         T: ("Tremolo", "1 FX"),
-        C | D: ("Drive+Chorus", "2 FX"),
-        C | P: ("Phaser+Chorus", "2 FX"),
-        C | T: ("Chorus+Tremolo", "2 FX"),
         D | P: ("Drive+Phaser", "2 FX"),
+        D | F: ("Drive+Flanger", "2 FX"),
+        D | C: ("Drive+Chorus", "2 FX"),
         D | T: ("Drive+Tremolo", "2 FX"),
+        P | F: ("Phaser+Flanger", "2 FX"),
+        P | C: ("Phaser+Chorus", "2 FX"),
         P | T: ("Phaser+Tremolo", "2 FX"),
-        C | D | P: ("Drive+Phaser+Chorus", "3 FX"),
-        C | D | T: ("Drive+Chorus+Tremolo", "3 FX"),
-        C | P | T: ("Phaser+Chorus+Tremolo", "3 FX"),
+        F | C: ("Flanger+Chorus", "2 FX"),
+        F | T: ("Flanger+Tremolo", "2 FX"),
+        C | T: ("Chorus+Tremolo", "2 FX"),
+        D | P | F: ("Drive+Phaser+Flanger", "3 FX"),
+        D | P | C: ("Drive+Phaser+Chorus", "3 FX"),
         D | P | T: ("Drive+Phaser+Tremolo", "3 FX"),
-        C | D | P | T: ("Drive+Phaser+Chorus+Tremolo", "4 FX"),
+        D | F | C: ("Drive+Flanger+Chorus", "3 FX"),
+        D | F | T: ("Drive+Flanger+Tremolo", "3 FX"),
+        D | C | T: ("Drive+Chorus+Tremolo", "3 FX"),
+        P | F | C: ("Phaser+Flanger+Chorus", "3 FX"),
+        P | F | T: ("Phaser+Flanger+Tremolo", "3 FX"),
+        P | C | T: ("Phaser+Chorus+Tremolo", "3 FX"),
+        F | C | T: ("Flanger+Chorus+Tremolo", "3 FX"),
+        D | P | F | C: ("Drive+Phaser+Flanger+Chorus", "4 FX"),
+        D | P | F | T: ("Drive+Phaser+Flanger+Tremolo", "4 FX"),
+        D | P | C | T: ("Drive+Phaser+Chorus+Tremolo", "4 FX"),
+        D | F | C | T: ("Drive+Flanger+Chorus+Tremolo", "4 FX"),
+        P | F | C | T: ("Phaser+Flanger+Chorus+Tremolo", "4 FX"),
+        D | P | F | C | T: ("Drive+Phaser+Flanger+Chorus+Tremolo", "5 FX"),
     }
 
     def test_every_mask_both_forms(self) -> None:
@@ -502,43 +519,48 @@ class ChainSelectionTests(unittest.TestCase):
     def _route(self) -> dict:
         return json.loads(self.route.read_text())
 
-    def test_default_is_chorus_alone_and_the_route_carries_it(self) -> None:
+    def test_default_is_no_fx_and_the_route_carries_it(self) -> None:
         policy = self._policy()
-        self.assertEqual(policy.mask, C)
-        self.assertEqual(policy.chain_label(), "Chorus")
+        self.assertEqual(policy.mask, 0)
+        self.assertEqual(policy.chain_label(), "No FX")
         policy.on_patch_loaded(self.with_wheel)
-        self.assertEqual(self._route()["mask"], C)
+        self.assertEqual(self._route()["mask"], 0)
 
-    def test_choice_persists_and_reaches_the_route_file(self) -> None:
+    def test_a_choice_is_the_patch_s_own_and_writes_no_global_default(self) -> None:
+        """F3: a toggle reaches the route file and nothing global."""
         self.prefs.write_text(json.dumps({"theme_mode": "dark", "mod_wheel_target": MOD_WHEEL_EFFECT}))
         policy = self._policy()
         policy.on_patch_loaded(self.with_wheel)
         policy.toggle_effect(fx_host_protocol.EFFECT_TUBE_DRIVE)
-        self.assertEqual(policy.mask, C | D)
-        self.assertEqual(self._route()["mask"], C | D)
-        saved = json.loads(self.prefs.read_text())
-        self.assertEqual(saved[fx_policy.MASK_PREF_KEY], C | D)
-        self.assertEqual(saved["theme_mode"], "dark")
-        self.assertEqual(saved["mod_wheel_target"], MOD_WHEEL_EFFECT)
-        # A fresh process reads it back, and its first route carries it.
+        self.assertEqual(policy.mask, D)
+        self.assertEqual(self._route()["mask"], D)
+        self.assertEqual(
+            json.loads(self.prefs.read_text()), {"theme_mode": "dark", "mod_wheel_target": MOD_WHEEL_EFFECT}
+        )
+        self.assertFalse(hasattr(fx_policy, "MASK_PREF_KEY"))
+        self.assertFalse(hasattr(FxPolicy, "set_global_mask"))
+        # A fresh process plays the factory default for a patch it knows nothing of.
         fresh = self._policy()
-        self.assertEqual(fresh.mask, C | D)
+        self.assertEqual(fresh.mask, 0)
         fresh.on_patch_loaded(self.without_wheel)
-        self.assertEqual(self._route()["mask"], C | D)
+        self.assertEqual(self._route()["mask"], 0)
 
     def test_every_mask_round_trips(self) -> None:
         for mask in range(fx_host_protocol.MASK_ALL + 1):
             with self.subTest(mask=mask):
-                self._policy().set_global_mask(mask)
+                self._policy().set_mask(mask)
                 self.assertEqual(self._route()["mask"], mask)
                 self.assertEqual(fx_policy.read_route(self.route).mask, mask)
-                self.assertEqual(self._policy().mask, mask)
 
-    def test_bad_stored_value_falls_back_to_chorus(self) -> None:
-        for bad in (16, -1, True, "1", 1.0, None, [1]):
-            with self.subTest(value=bad):
-                self.prefs.write_text(json.dumps({fx_policy.MASK_PREF_KEY: bad}))
-                self.assertEqual(self._policy().mask, C)
+    def test_a_stale_global_pref_is_never_read(self) -> None:
+        """The prefs rounds 3/4 wrote (`fx_mask`, `fx_effect`) are ignored."""
+        for prefs in ({"fx_mask": D | T}, {"fx_effect": 1}, {"fx_mask": 16, "fx_effect": 2}):
+            with self.subTest(prefs=prefs):
+                self.prefs.write_text(json.dumps(prefs))
+                policy = self._policy()
+                self.assertEqual(policy.mask, 0)
+                policy.on_patch_loaded(self.with_wheel)
+                self.assertEqual(self._route()["mask"], 0)
 
     def test_route_file_carries_the_mask_and_nothing_of_the_old_shape(self) -> None:
         policy = self._policy()
@@ -559,7 +581,7 @@ class ChainSelectionTests(unittest.TestCase):
                 "patch_mod_at",
             },
         )
-        self.assertEqual(self._route()["mask"], C | P)
+        self.assertEqual(self._route()["mask"], P)
 
     def test_choice_is_not_a_route_change(self) -> None:
         """Only the mask moves: same target, same route stamp, no depth request."""
@@ -574,34 +596,37 @@ class ChainSelectionTests(unittest.TestCase):
         self.assertEqual(after["cc1"], before["cc1"])
         self.assertEqual(policy.target, MOD_WHEEL_EFFECT)
 
-    def test_choice_survives_patch_loads_and_the_settings_default(self) -> None:
+    def test_choice_survives_the_settings_default_and_a_flip(self) -> None:
         policy = self._policy()
-        policy.set_global_mask(T | D)
         policy.on_patch_loaded(self.with_wheel)
+        policy.set_mask(T | D)
         self.assertEqual(self._route()["mask"], T | D)
         policy.set_global_default(MOD_WHEEL_EFFECT)
         self.assertEqual(self._route()["mask"], T | D)
         policy.set_target(MOD_WHEEL_PATCH_FIRST)
         self.assertEqual(self._route()["mask"], T | D)
 
-    def test_patch_value_wins_over_the_global_mask(self) -> None:
-        got = resolve_config(global_target=MOD_WHEEL_PATCH_FIRST, global_mask=D, patch_config=PatchFx(mask=P | C))
-        self.assertEqual(got.mask, P | C)
-        got = resolve_config(global_target=MOD_WHEEL_PATCH_FIRST, global_mask=D, patch_config=PatchFx(mask=0))
-        self.assertEqual(got.mask, 0)  # "No FX" is the patch's own choice
-        got = resolve_config(global_target=MOD_WHEEL_PATCH_FIRST, global_mask=D)
-        self.assertEqual(got, FxConfig(mask=D, depth=0.0))
-        got = resolve_config(global_target=MOD_WHEEL_PATCH_FIRST, global_mask=D, patch_config=PatchFx(depth=0.4))
-        self.assertEqual(got.depth, 0.4)
+    def test_missing_fields_are_the_factory_default_never_a_global_one(self) -> None:
+        got = resolve_config(global_target=MOD_WHEEL_PATCH_FIRST, patch_config=PatchFx(mask=P | C))
+        self.assertEqual((got.mask, got.depth), (P | C, 0.0))
+        got = resolve_config(global_target=MOD_WHEEL_PATCH_FIRST, patch_config=PatchFx(mask=0))
+        self.assertEqual(got.mask, 0)
+        got = resolve_config(global_target=MOD_WHEEL_PATCH_FIRST)
+        self.assertEqual(got, FxConfig(mask=0, depth=0.0))
+        got = resolve_config(global_target=MOD_WHEEL_PATCH_FIRST, patch_config=PatchFx(depth=0.4))
+        self.assertEqual((got.mask, got.depth), (0, 0.4))
+        # The target alone keeps its global (Settings) default.
+        got = resolve_config(global_target=MOD_WHEEL_EFFECT, patch_config=PatchFx(mask=D, depth=0.2))
+        self.assertEqual(got.mod_wheel_target, MOD_WHEEL_EFFECT)
 
     def test_knob_label_names_the_chain(self) -> None:
         policy = self._policy(global_target=MOD_WHEEL_EFFECT)
-        policy.set_global_mask(D)
+        policy.set_mask(D)
         self.assertEqual(policy.knob_label(), "Mod knob \u2192 Drive")
-        policy.set_global_mask(D | T)
+        policy.set_mask(D | T)
         self.assertEqual(policy.knob_label(), "Mod knob \u2192 Drive+Tremolo")
         self.assertEqual(policy.knob_label(lambda _t: False), "Mod knob \u2192 2 FX")
-        policy.set_global_mask(0)
+        policy.set_mask(0)
         self.assertEqual(policy.knob_label(), "Mod knob \u2192 No FX")
         policy.on_patch_loaded(self.with_wheel)
         policy.set_target(MOD_WHEEL_PATCH_FIRST)
@@ -609,11 +634,11 @@ class ChainSelectionTests(unittest.TestCase):
 
     def test_inert_when_off(self) -> None:
         policy = self._policy(enabled=False)
-        policy.set_global_mask(D)
+        policy.set_mask(D)
         policy.toggle_effect(fx_host_protocol.EFFECT_TUBE_DRIVE)
         self.assertFalse(self.route.exists())
         self.assertFalse(self.prefs.exists())
-        self.assertEqual(policy.mask, C)
+        self.assertEqual(policy.mask, 0)
 
     def test_remapper_sends_the_chain_and_nothing_else_does(self) -> None:
         sender = _RecordingSender()
@@ -631,21 +656,21 @@ class ChainSelectionTests(unittest.TestCase):
         policy = self._policy(global_target=MOD_WHEEL_EFFECT)
         policy.on_patch_loaded(self.with_wheel)
         tick()
-        # A never-set patch: the default mask at depth 0.
-        self.assertEqual(sender.sent, [(C, 0.0)])
-        self.assertTrue(router.consume([0xB0, 1, 1]))  # knob picks up 0...
-        self.assertTrue(router.consume([0xB0, 1, 127]))  # ...and follows
-        self.assertEqual(sender.sent[-1], (C, 1.0))
+        # A never-set patch: the factory default, no effect at depth 0.
+        self.assertEqual(sender.sent, [(0, 0.0)])
+        self.assertTrue(router.consume([0xB0, 1, 1]))  # first sight of the knob: anchors
+        self.assertTrue(router.consume([0xB0, 1, 127]))  # ...then scales to the top
+        self.assertEqual(sender.sent[-1], (0, 1.0))
         with mock.patch.object(socket_module(), "socket", side_effect=AssertionError("UI opened a socket")):
             policy.toggle_effect(fx_host_protocol.EFFECT_TUBE_DRIVE)
         tick()
         # Drive joins at the depth in force; sent once, by the remapper.
-        self.assertEqual(sender.sent[-1], (C | D, 1.0))
+        self.assertEqual(sender.sent[-1], (D, 1.0))
         count = len(sender.sent)
         tick()
         self.assertEqual(len(sender.sent), count)
-        self.assertTrue(router.consume([0xB0, 1, 64]))  # caught before the toggle: follows
-        self.assertEqual(sender.sent[-1], (C | D, 64 / 127))
+        self.assertTrue(router.consume([0xB0, 1, 64]))  # a toggle moves nothing: still follows
+        self.assertEqual(sender.sent[-1], (D, 64 / 127))
 
 
 def socket_module():
@@ -826,17 +851,19 @@ class Cc1RouterTests(unittest.TestCase):
     def test_knob_and_fader_last_one_wins(self) -> None:
         self._publish(CC1_TO_FX, route_stamp="r")
         self._tick()
-        self.router.consume([0xB0, 1, 127])
+        self.router.consume([0xB0, 1, 127])  # nothing in force yet: the knob is the value
+        self.assertEqual(self.router.depth, 1.0)
         self._publish(CC1_TO_FX, route_stamp="r", depth=0.1, depth_stamp="d1")
         self._tick()
         self.assertEqual(self.router.depth, 0.1)
-        # The fader moved the depth from under the knob: it picks up first.
-        self.router.consume([0xB0, 1, 0])
-        self.assertEqual(self.router.depth, 0.1)
-        self.router.consume([0xB0, 1, 20])  # crosses 0.1 * 127
-        self.assertEqual(self.router.depth, 20 / 127)
+        # The fader moved the depth from under the knob: the knob's next move
+        # scales from 0.1, it does not jump to where the knob is.
+        self.router.consume([0xB0, 1, 120])
+        self.assertAlmostEqual(self.router.depth, 0.1 * 120 / 127)
         self.router.consume([0xB0, 1, 0])
         self.assertEqual(self.router.depth, 0.0)
+        self.router.consume([0xB0, 1, 127])
+        self.assertEqual(self.router.depth, 1.0)
 
     def _levels(self) -> dict:
         return json.loads(self.levels.read_text())
@@ -886,7 +913,7 @@ class Cc1RouterTests(unittest.TestCase):
         self.assertEqual(self.sender.sent, [])
 
     def test_a_mask_naming_an_unshipped_effect_is_bypass(self) -> None:
-        for bad in (16, -1, True, "5", None):
+        for bad in (fx_host_protocol.MASK_ALL + 1, -1, True, "5", None):
             with self.subTest(mask=bad):
                 self.route.write_text(json.dumps({"cc1": "fx", "mask": bad, "route_stamp": f"r{bad}"}))
                 self.assertEqual(fx_policy.read_route(self.route).mask, fx_host_protocol.MASK_NONE)
@@ -917,8 +944,8 @@ class Cc1RouterTests(unittest.TestCase):
         policy.set_depth(0.3, final=True)
         self._tick()
         self._tick()
-        self.assertEqual(self.sender.sent, [(C, 0.3)])
-        self.assertTrue(self.router.consume([0xB0, 1, 30]))  # knob picks up 0.3...
+        self.assertEqual(self.sender.sent, [(0, 0.3)])
+        self.assertTrue(self.router.consume([0xB0, 1, 30]))  # first sight of the knob: anchors...
         self.assertTrue(self.router.consume([0xB0, 1, 50]))
         self.assertTrue(self.router.consume([0xB0, 1, 127]))  # ...and is turned up
         self._tick()
@@ -969,15 +996,16 @@ class Cc1RouterTests(unittest.TestCase):
         self._tick()
         self.assertFalse(ui_poll())
         self.assertEqual((policy.depth, policy.patch_mod), (0.0, 5))
-        # The fader set 5: the knob at 71 is ignored until it comes down to it.
+        # The fader set 5: the knob at 71 turned down to 0 takes Surge down
+        # from 5, scaled, never up to where the knob is.
         self.now += 0.01
-        self.assertTrue(self.router.consume([0xB0, 1, 60]))  # swallowed
-        self._tick()
-        self.assertFalse(ui_poll())
-        self.assertFalse(self.router.consume([0xB0, 1, 4]))  # crossed 5: forwarded
+        msg = [0xB0, 1, 36]
+        self.assertFalse(self.router.consume(msg))  # half the way down: forwarded, scaled
+        self.assertEqual(msg[2], round(5 * 36 / 71))
+        self.assertFalse(self.router.consume([0xB0, 1, 0]))
         self._tick()
         self.assertTrue(ui_poll())
-        self.assertEqual(policy.patch_mod, 4)
+        self.assertEqual(policy.patch_mod, 0)
 
 
 class FxHostSenderTests(unittest.TestCase):
@@ -1003,7 +1031,7 @@ class FxHostSenderTests(unittest.TestCase):
     def test_bad_mask_is_logged_not_raised(self) -> None:
         said: list[str] = []
         sender = fx_policy.FxHostSender(send=lambda _p: None, log=said.append)
-        self.assertFalse(sender.send(16, 0.5))
+        self.assertFalse(sender.send(fx_host_protocol.MASK_ALL + 1, 0.5))
         self.assertFalse(sender.send(C, float("nan")))
         self.assertEqual(len(said), 2)
 
