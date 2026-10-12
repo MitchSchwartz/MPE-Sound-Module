@@ -7,7 +7,7 @@ several can be set in one visit; Done or a tap on the backdrop closes it, as
 the other modals close.
 
 The panel only states intent. `FxPolicy.toggle_effect` sets the loaded patch's
-enable mask (and the default for patches that never chose), and writes it to
+enable mask (and nothing global), and writes it to
 `fx-route.json`; the remapper is still the one process that sends to the FX
 host. With MPE_FX_HOST off there is no Effect fader, so there is no label to
 tap, and opening is refused anyway.
