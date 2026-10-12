@@ -1,23 +1,32 @@
-"""Effect picker: which effect the FX host plays, chosen on the play screen.
+"""Effect picker: which effects the FX chain plays, chosen on the play screen.
 
-A tap on the Effect fader's label opens it; the label is the active effect's
-name. Tapping an effect selects it and closes the panel; Cancel or a tap on the
-backdrop closes it unchanged, as the other modals do.
+A tap on the Effect fader's label opens it. Each effect is a checkbox row,
+listed in the order the chain runs them (`fx_host_protocol.CHAIN_ORDER`). A
+tap on a row switches that effect on or off and the panel stays open, so
+several can be set in one visit; Done or a tap on the backdrop closes it, as
+the other modals close.
 
-The panel only states intent. `FxPolicy.select_effect` sets the loaded
-patch's effect (and the default for patches that never chose one), restores
-that effect's depth for the patch, and writes both to `fx-route.json`; the
-remapper is still the one process that sends to the FX host. With MPE_FX_HOST off there is no Effect fader, so
-there is no label to tap, and opening is refused anyway.
+The panel only states intent. `FxPolicy.toggle_effect` sets the loaded patch's
+enable mask (and the default for patches that never chose), and writes it to
+`fx-route.json`; the remapper is still the one process that sends to the FX
+host. With MPE_FX_HOST off there is no Effect fader, so there is no label to
+tap, and opening is refused anyway.
 
-Names come from `fx_host_protocol.EFFECT_NAMES`, in id order; nothing here
-lists effects of its own.
+This module also chooses the two labels that name the chain, because both are
+a fit against pixels on this screen: the Effect fader's (`_effect_fader_label`)
+and the mod-knob switch's (`_mod_knob_switch_label`). Each takes the names when
+they fit its budget, else the count (`fx_policy.chain_label`). Text is measured
+in one place, `_text_px`.
+
+Names come from `fx_host_protocol.EFFECT_NAMES`; nothing here lists effects of
+its own.
 """
 
 from __future__ import annotations
 
+import pygame
+
 from patch_browser import fx_host_protocol
-from patch_browser.fx_policy import effect_name
 from patch_browser.geometry import Rect
 from patch_browser.touch_ui_constants import SETTINGS_ROW_GAP, SETTINGS_ROW_H, TAP_MOVE_THRESHOLD_PX
 from patch_browser.touch_ui_enums import Screen
@@ -29,6 +38,15 @@ EFFECT_LABEL_TRACK_CLEARANCE = 4
 #: ...and is this tall, the minimum touch target, reaching into the gap above
 #: the bottom row by the clearance.
 EFFECT_LABEL_TARGET_H = 44
+#: The Effect fader's label starts at least this far right of its neighbour's
+#: (Patch mod, wider than its own column): they may not touch. The glyphs' side
+#: bearings add a few pixels of visible space on top. Tremolo, the longest single
+#: name, has exactly this with the nav open, so a larger gap would turn it into
+#: "1 FX".
+EFFECT_LABEL_GAP_PX = 1
+#: The checkbox square in each picker row, and the space either side of it.
+FX_EFFECT_CHECK_PX = 24
+FX_EFFECT_CHECK_PAD = 12
 FX_EFFECT_MODAL_W = 420
 FX_EFFECT_MODAL_PAD = 24
 FX_EFFECT_OPTION_H = SETTINGS_ROW_H
@@ -90,6 +108,47 @@ class TouchBrowserFxEffectModalMixin:
             and self._pointer_move_distance(start, pos) <= TAP_MOVE_THRESHOLD_PX
         )
 
+    # -- the labels that name the chain --------------------------------------
+
+    def _text_px(self, font, text: str) -> int:
+        """Rendered width of `text`: the one measurement the labels fit by."""
+        return font.size(text)[0]
+
+    def _effect_fader_label(self) -> str:
+        """The enabled effects' names if they fit under the Effect fader, else
+        the count. Centred on its column like every fader label, it must clear
+        the label to its left (Patch mod, wider than its column) and the pane's
+        right edge."""
+        channels = list(getattr(self, "mixer_channels", ()))
+        index = next((i for i, c in enumerate(channels) if c.channel_id == EFFECT_CHANNEL_ID), None)
+        if index is None:
+            return self.fx_policy.chain_label()
+        column = channels[index].column_rect
+        left_limit = self.main_rect.x
+        if index > 0:
+            neighbour = channels[index - 1]
+            n_col = neighbour.column_rect
+            n_w = self._text_px(self.font_sm, self._mixer_channel_label(neighbour))
+            left_limit = n_col.x + (n_col.w + n_w) // 2 + EFFECT_LABEL_GAP_PX
+
+        def fits(text: str) -> bool:
+            width = self._text_px(self.font_sm, text)
+            left = column.x + (column.w - width) // 2
+            return left >= left_limit and left + width <= self.main_rect.right
+
+        return self.fx_policy.chain_label(fits)
+
+    def _mod_knob_switch_label(self) -> str:
+        """Where the knob goes, naming the chain only if it fits the switch's
+        label budget (`_toggle_label_budget`, what the draw wraps to)."""
+        rect = getattr(self, "mod_wheel_switch_rect", None)
+        if rect is None or rect.w <= 0:
+            return self.fx_policy.knob_label()
+        font, budget = self._toggle_label_budget(rect)
+        return self.fx_policy.knob_label(lambda text: self._text_px(font, text) <= budget)
+
+    # -- the panel -------------------------------------------------------------
+
     def _open_fx_effect_modal(self) -> None:
         if not self.fx_policy.enabled:
             return
@@ -100,14 +159,14 @@ class TouchBrowserFxEffectModalMixin:
         self._clear_modal_pointer()
         self.screen_state = Screen.BROWSER
 
-    def _select_fx_effect(self, effect_id: int) -> None:
-        self.fx_policy.select_effect(effect_id)
-        self._close_fx_effect_modal()
-        self._toast(f"Effect: {self.fx_policy.effect_name}", 1.2)
+    def _toggle_fx_effect(self, effect_id: int) -> None:
+        """A row tap: that effect on or off. The panel stays open."""
+        self.fx_policy.toggle_effect(effect_id)
 
     def _fx_effect_modal_layout(self) -> tuple[Rect, list[tuple[Rect, int]], Rect]:
-        """(panel, [(option rect, effect id)], cancel rect), shared by draw and hit test."""
-        ids = fx_host_protocol.EFFECT_IDS
+        """(panel, [(row rect, effect id)] in run order, Done rect), shared by
+        draw and hit test."""
+        ids = fx_host_protocol.CHAIN_ORDER
         pad = FX_EFFECT_MODAL_PAD
         panel_w = min(FX_EFFECT_MODAL_W, self.width - 48)
         title_h = self.font_md.get_height() + 12
@@ -126,31 +185,60 @@ class TouchBrowserFxEffectModalMixin:
             )
             for i, effect_id in enumerate(ids)
         ]
-        cancel = Rect(inner_x, panel.bottom - pad - SETTINGS_ROW_H, inner_w, SETTINGS_ROW_H)
-        return panel, options, cancel
+        done = Rect(inner_x, panel.bottom - pad - SETTINGS_ROW_H, inner_w, SETTINGS_ROW_H)
+        return panel, options, done
+
+    def _draw_fx_effect_row(self, rect: Rect, label: str, *, checked: bool, pressed: bool = False) -> None:
+        """One checkbox row: the box, then the effect's name."""
+        theme = self.theme
+        pygame.draw.rect(self.screen, theme.accent if pressed else theme.surface_alt, rect.pygame_rect, border_radius=10)
+        box = Rect(
+            rect.x + FX_EFFECT_CHECK_PAD,
+            rect.y + (rect.h - FX_EFFECT_CHECK_PX) // 2,
+            FX_EFFECT_CHECK_PX,
+            FX_EFFECT_CHECK_PX,
+        )
+        if checked:
+            pygame.draw.rect(self.screen, theme.bg if pressed else theme.accent, box.pygame_rect, border_radius=5)
+            tick = theme.accent if pressed else theme.bg
+            points = [
+                (box.x + 5, box.y + 12),
+                (box.x + 10, box.y + 17),
+                (box.x + 19, box.y + 7),
+            ]
+            pygame.draw.lines(self.screen, tick, False, points, 3)
+        else:
+            pygame.draw.rect(
+                self.screen, theme.bg if pressed else theme.muted, box.pygame_rect, width=2, border_radius=5
+            )
+        text_color = theme.bg if pressed else theme.text
+        self.screen.blit(
+            self.font_md.render(label, True, text_color),
+            (box.right + FX_EFFECT_CHECK_PAD, rect.y + (rect.h - self.font_md.get_height()) // 2),
+        )
 
     def _draw_fx_effect_modal(self) -> None:
         self._draw_modal_backdrop(legacy_alpha=150)
-        panel, options, cancel = self._fx_effect_modal_layout()
+        panel, options, done = self._fx_effect_modal_layout()
         self._draw_modal_shell(panel, border_radius=16)
         self.screen.blit(
-            self.font_md.render("Effect", True, self.theme.text),
+            self.font_md.render("Effects", True, self.theme.text),
             (panel.x + FX_EFFECT_MODAL_PAD, panel.y + FX_EFFECT_MODAL_PAD),
         )
-        active = self.fx_policy.effect_id
+        mask = self.fx_policy.mask
         for rect, effect_id in options:
-            self._draw_theme_choice(
+            self._draw_fx_effect_row(
                 rect,
-                effect_name(effect_id),
-                selected=effect_id == active,
+                fx_host_protocol.EFFECT_NAMES[effect_id],
+                checked=fx_host_protocol.is_enabled(mask, effect_id),
                 pressed=self._pressed(f"effect:{effect_id}"),
             )
-        self._draw_button(cancel, "Cancel", pressed=self._pressed("cancel"))
+        self._draw_button(done, "Done", pressed=self._pressed("done"))
 
     def _fx_effect_modal_hit_at(self, pos: tuple[int, int]) -> str | None:
-        _panel, options, cancel = self._fx_effect_modal_layout()
-        if cancel.contains(*pos):
-            return "cancel"
+        _panel, options, done = self._fx_effect_modal_layout()
+        if done.contains(*pos):
+            return "done"
         for rect, effect_id in options:
             if rect.contains(*pos):
                 return f"effect:{effect_id}"
@@ -172,7 +260,7 @@ class TouchBrowserFxEffectModalMixin:
             return
         hit = self._modal_pending_key
         self._clear_modal_pointer()
-        if hit == "cancel":
+        if hit == "done":
             self._close_fx_effect_modal()
         elif hit.startswith("effect:"):
-            self._select_fx_effect(int(hit.split(":", 1)[1]))
+            self._toggle_fx_effect(int(hit.split(":", 1)[1]))

@@ -19,6 +19,9 @@ from patch_browser.fx_policy import (  # noqa: E402
     MOD_WHEEL_EFFECT,
     MOD_WHEEL_PATCH_FIRST,
     FxPolicy,
+    chain_count,
+    chain_labels,
+    chain_names,
     mod_knob_label,
     mod_knob_labels,
 )
@@ -39,30 +42,86 @@ from patch_browser.touch_ui_enums import Screen  # noqa: E402
 
 SCREEN_W, SCREEN_H = 800, 480
 
-#: Pixel widths of the switch labels in the UI font (DejaVu Sans, which the
-#: appliance loads first), measured with pygame 2.5 on 2026-10-11. The fake
-#: pygame cannot measure glyphs, so the fit test checks against these. Change a
-#: label and `test_measured_widths_cover_every_label` fails until re-measured.
+#: Pixel widths of every label the switch can show (`mod_knob_labels`) in the
+#: UI font (DejaVu Sans, which the appliance loads first), measured with
+#: pygame-ce 2.5.8 on 2026-10-11. The fake pygame cannot measure glyphs, so the
+#: fit tests measure through these (`_measure`), and a label missing from the
+#: table is a KeyError. Change a label and
+#: `test_measured_widths_cover_every_label` fails until re-measured.
 LABEL_PX = {
     22: {
         "Mod knob \u2192 Patch mod": 232,
+        "Mod knob \u2192 No FX": 184,
         "Mod knob \u2192 Chorus": 196,
+        "Mod knob \u2192 1 FX": 170,
         "Mod knob \u2192 Drive": 179,
+        "Mod knob \u2192 Drive+Chorus": 266,
+        "Mod knob \u2192 2 FX": 170,
         "Mod knob \u2192 Phaser": 194,
+        "Mod knob \u2192 Phaser+Chorus": 280,
+        "Mod knob \u2192 Drive+Phaser": 264,
+        "Mod knob \u2192 Drive+Phaser+Chorus": 350,
+        "Mod knob \u2192 3 FX": 170,
         "Mod knob \u2192 Tremolo": 207,
+        "Mod knob \u2192 Chorus+Tremolo": 294,
+        "Mod knob \u2192 Drive+Tremolo": 277,
+        "Mod knob \u2192 Drive+Chorus+Tremolo": 364,
+        "Mod knob \u2192 Phaser+Tremolo": 291,
+        "Mod knob \u2192 Phaser+Chorus+Tremolo": 378,
+        "Mod knob \u2192 Drive+Phaser+Tremolo": 361,
+        "Mod knob \u2192 Drive+Phaser+Chorus+Tremolo": 448,
+        "Mod knob \u2192 4 FX": 170,
     },
     18: {
         "Mod knob \u2192 Patch mod": 188,
+        "Mod knob \u2192 No FX": 149,
         "Mod knob \u2192 Chorus": 158,
+        "Mod knob \u2192 1 FX": 137,
         "Mod knob \u2192 Drive": 146,
+        "Mod knob \u2192 Drive+Chorus": 216,
+        "Mod knob \u2192 2 FX": 137,
         "Mod knob \u2192 Phaser": 157,
+        "Mod knob \u2192 Phaser+Chorus": 227,
+        "Mod knob \u2192 Drive+Phaser": 215,
+        "Mod knob \u2192 Drive+Phaser+Chorus": 285,
+        "Mod knob \u2192 3 FX": 137,
         "Mod knob \u2192 Tremolo": 170,
+        "Mod knob \u2192 Chorus+Tremolo": 240,
+        "Mod knob \u2192 Drive+Tremolo": 228,
+        "Mod knob \u2192 Drive+Chorus+Tremolo": 298,
+        "Mod knob \u2192 Phaser+Tremolo": 239,
+        "Mod knob \u2192 Phaser+Chorus+Tremolo": 309,
+        "Mod knob \u2192 Drive+Phaser+Tremolo": 297,
+        "Mod knob \u2192 Drive+Phaser+Chorus+Tremolo": 367,
+        "Mod knob \u2192 4 FX": 137,
     },
 }
 
-#: Fader labels in the 18 px font (`font_sm`), measured the same way. The
-#: Effect fader's label is the active effect's name.
-FADER_LABEL_PX_18 = {"Patch mod": 86, "Chorus": 56, "Drive": 44, "Phaser": 55, "Tremolo": 69}
+#: Fader labels in the 18 px font (`font_sm`), measured the same way: Patch mod
+#: and every label the Effect fader can show (`chain_labels`).
+FADER_LABEL_PX_18 = {
+    "Patch mod": 86,
+    "No FX": 47,
+    "Chorus": 56,
+    "1 FX": 35,
+    "Drive": 44,
+    "Drive+Chorus": 114,
+    "2 FX": 35,
+    "Phaser": 55,
+    "Phaser+Chorus": 125,
+    "Drive+Phaser": 113,
+    "Drive+Phaser+Chorus": 183,
+    "3 FX": 35,
+    "Tremolo": 69,
+    "Chorus+Tremolo": 138,
+    "Drive+Tremolo": 126,
+    "Drive+Chorus+Tremolo": 196,
+    "Phaser+Tremolo": 137,
+    "Phaser+Chorus+Tremolo": 207,
+    "Drive+Phaser+Tremolo": 195,
+    "Drive+Phaser+Chorus+Tremolo": 265,
+    "4 FX": 35,
+}
 #: The smallest touch target the picker's controls may have.
 MIN_TARGET_PX = 44
 
@@ -75,6 +134,12 @@ LABEL_TRUTH = [
     (MOD_WHEEL_EFFECT, False, "Mod knob \u2192 Chorus"),
     (MOD_WHEEL_EFFECT, None, "Mod knob \u2192 Chorus"),
 ]
+
+
+ALL_MASKS = tuple(range(fx_host_protocol.MASK_ALL + 1))
+C, D, P, T = (1 << fx_host_protocol.EFFECT_CHORUS), (1 << fx_host_protocol.EFFECT_TUBE_DRIVE), (
+    1 << fx_host_protocol.EFFECT_PHASER
+), (1 << fx_host_protocol.EFFECT_TREMOLO)
 
 
 def _overlaps(a: Rect, b: Rect) -> bool:
@@ -173,6 +238,18 @@ class _BrowserCase(unittest.TestCase):
         browser._layout()
         return browser
 
+    def _measure(self, browser) -> None:
+        """Measure text as the appliance's font does (the tables above)."""
+
+        def px(font, text: str) -> int:
+            return (FADER_LABEL_PX_18 if font is browser.font_sm and text in FADER_LABEL_PX_18 else LABEL_PX[
+                18 if font is browser.font_sm else 22
+            ])[text]
+
+        patcher = mock.patch.object(browser, "_text_px", side_effect=px)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
 
 class PlayScreenLayoutTests(_BrowserCase):
     def test_carousel_widths_follow_the_narrower_nav(self) -> None:
@@ -245,28 +322,50 @@ class PlayScreenLayoutTests(_BrowserCase):
         self.assertEqual(browser.mod_wheel_switch_rect.w, 0)
 
     def test_switch_label_fits_on_one_line_in_both_states_and_both_navs(self) -> None:
-        """At 800x480, nav open (250 px) and collapsed, whatever the label says."""
-        for collapsed, (_target, _uses, label) in itertools.product((False, True), LABEL_TRUTH):
-            with self.subTest(collapsed=collapsed, label=label):
-                browser = self._make_browser(fx_enabled=True)
-                browser.left_nav_collapsed = collapsed
-                browser._layout()
-                rect = browser.mod_wheel_switch_rect
-                self.assertTrue(_inside(rect, browser.main_rect), rect)
-                for other in [browser.normalize_btn, browser.favorites_btn] + [
-                    c.column_rect for c in browser.mixer_channels
-                ]:
-                    self.assertFalse(_overlaps(rect, other), (rect, other))
-                # The same budget `_draw_normalize_toggle` gives its label.
-                compact = rect.w < 180
-                size = 18 if compact else 22
-                toggle_w = COMPACT_TOGGLE_W if compact else SETTINGS_TOGGLE_W
-                budget = rect.w - toggle_w - 28
-                self.assertLessEqual(LABEL_PX[size][label], budget, (rect, size))
+        """At 800x480, nav open (250 px) and collapsed, every mask, both
+        destinations: the label chosen fits, and it is the names whenever they fit."""
+        for collapsed in (False, True):
+            browser = self._make_browser(fx_enabled=True)
+            self._measure(browser)
+            browser.left_nav_collapsed = collapsed
+            browser._layout()
+            rect = browser.mod_wheel_switch_rect
+            self.assertTrue(_inside(rect, browser.main_rect), rect)
+            for other in [browser.normalize_btn, browser.favorites_btn] + [c.column_rect for c in browser.mixer_channels]:
+                self.assertFalse(_overlaps(rect, other), (rect, other))
+            # The same budget `_draw_normalize_toggle` gives its label.
+            compact = rect.w < 180
+            size = 18 if compact else 22
+            toggle_w = COMPACT_TOGGLE_W if compact else SETTINGS_TOGGLE_W
+            budget = rect.w - toggle_w - 28
+            for mask, target in itertools.product(ALL_MASKS, (MOD_WHEEL_PATCH_FIRST, MOD_WHEEL_EFFECT)):
+                with self.subTest(collapsed=collapsed, mask=mask, target=target):
+                    self.policy.uses_mod_wheel = True
+                    self.policy.target = target
+                    self.policy.set_global_mask(mask, persist=False)
+                    label = browser._mod_knob_switch_label()
+                    self.assertLessEqual(LABEL_PX[size][label], budget, (rect, size, label))
+                    if target == MOD_WHEEL_PATCH_FIRST:
+                        self.assertEqual(label, "Mod knob \u2192 Patch mod")
+                        continue
+                    names = "Mod knob \u2192 " + chain_names(mask)
+                    want = names if LABEL_PX[size][names] <= budget else "Mod knob \u2192 " + chain_count(mask)
+                    self.assertEqual(label, want)
+
+    def test_switch_names_one_effect_and_counts_two_or_more(self) -> None:
+        """What the measured budget comes to on the 800x480 screen today."""
+        browser = self._make_browser(fx_enabled=True)
+        self._measure(browser)
+        self.policy.target = MOD_WHEEL_EFFECT
+        for mask, want in ((0, "No FX"), (T, "Tremolo"), (C | D, "2 FX"), (C | D | P | T, "4 FX")):
+            with self.subTest(mask=mask):
+                self.policy.set_global_mask(mask, persist=False)
+                self.assertEqual(browser._mod_knob_switch_label(), "Mod knob \u2192 " + want)
 
     def test_measured_widths_cover_every_label(self) -> None:
         for size, widths in LABEL_PX.items():
             self.assertEqual(set(widths), set(mod_knob_labels()), size)
+        self.assertEqual(set(FADER_LABEL_PX_18), {"Patch mod"} | set(chain_labels()))
 
     def test_draw_does_not_raise(self) -> None:
         for enabled in (True, False):
@@ -308,10 +407,22 @@ class PlayScreenSwitchTests(_BrowserCase):
                 self.assertEqual(on, uses is False or target == MOD_WHEEL_EFFECT)
 
     def test_label_names_the_faders_it_means(self) -> None:
+        """The switch names the Patch mod fader, or the same chain the Effect
+        fader names (in full, or counted where the switch has less room)."""
         browser = self._make_browser(fx_enabled=True)
-        names = {c.channel_id: c.label for c in browser.mixer_channels}
+        self._measure(browser)
+        browser.left_nav_collapsed = True
+        browser._layout()
+        names = {c.channel_id: browser._mixer_channel_label(c) for c in browser.mixer_channels}
         self.assertTrue(mod_knob_label(CC1_TO_SURGE).endswith(names["patch_mod"]))
-        self.assertTrue(mod_knob_label(CC1_TO_FX, self.policy.effect_id).endswith(names["effect"]))
+        self.policy.target = MOD_WHEEL_EFFECT
+        for mask in ALL_MASKS:
+            with self.subTest(mask=mask):
+                self.policy.set_global_mask(mask, persist=False)
+                fader = browser._mixer_channel_label(next(c for c in browser.mixer_channels if c.channel_id == "effect"))
+                self.assertIn(fader, (chain_names(mask), chain_count(mask)))
+                tail = browser._mod_knob_switch_label().removeprefix("Mod knob \u2192 ")
+                self.assertIn(tail, (chain_names(mask), chain_count(mask)))
 
     def test_tap_relabels_the_switch(self) -> None:
         browser = self._make_browser(fx_enabled=True)
@@ -466,7 +577,7 @@ class EffectFaderTests(_BrowserCase):
 
 
 class EffectPickerTests(_BrowserCase):
-    """Tap the Effect fader's label, pick an effect; both input paths."""
+    """Tap the Effect fader's label, toggle effects; both input paths."""
 
     DRIVE = fx_host_protocol.EFFECT_TUBE_DRIVE
 
@@ -484,7 +595,7 @@ class EffectPickerTests(_BrowserCase):
         return _center(browser._effect_label_rect())
 
     def _option_pos(self, browser, effect_id: int) -> tuple[int, int]:
-        _panel, options, _cancel = browser._fx_effect_modal_layout()
+        _panel, options, _done = browser._fx_effect_modal_layout()
         return _center(next(rect for rect, eid in options if eid == effect_id))
 
     # Two input paths. pygame: SDL mouse events into _handle_event. evdev: the
@@ -529,43 +640,105 @@ class EffectPickerTests(_BrowserCase):
         browser._draw()
         return texts
 
-    def test_label_shows_the_active_effect(self) -> None:
+    def _effect_label(self, browser) -> str:
+        return browser._mixer_channel_label(self._effect_channel(browser))
+
+    def test_label_names_the_enabled_effects(self) -> None:
         browser = self._browser(collapsed=True)
-        self.assertEqual(browser._mixer_channel_label(self._effect_channel(browser)), "Chorus")
-        # Changed without a relayout: the next frame still names it.
-        self.policy.set_global_effect(self.DRIVE)
+        self._measure(browser)
+        self.assertEqual(self._effect_label(browser), "Chorus")
+        # Changed without a relayout: the next frame names the new chain.
+        self.policy.set_global_mask(D | C)
         texts = self._rendered_texts(browser)
-        self.assertIn("Drive", texts)
+        self.assertIn("Drive+Chorus", texts)
         self.assertNotIn("Chorus", texts)
         self.assertNotIn("Effect", texts)
 
-    def test_tap_on_the_label_opens_and_a_choice_selects_and_closes(self) -> None:
+    def test_fader_label_in_every_state_and_both_navs(self) -> None:
+        """Names in run order where they fit under the fader, else the count,
+        "No FX" with none: each clears Patch mod's label and the pane edge."""
+        for collapsed in (False, True):
+            browser = self._browser(collapsed=collapsed)
+            self._measure(browser)
+            effect = self._effect_channel(browser)
+            patch_mod = next(c for c in browser.mixer_channels if c.channel_id == "patch_mod")
+            pm_right = patch_mod.column_rect.x + (patch_mod.column_rect.w + FADER_LABEL_PX_18["Patch mod"]) // 2
+
+            def clears(text: str) -> bool:
+                w = FADER_LABEL_PX_18[text]
+                left = effect.column_rect.x + (effect.column_rect.w - w) // 2
+                return pm_right < left and left + w <= browser.main_rect.right
+
+            for mask in ALL_MASKS:
+                with self.subTest(collapsed=collapsed, mask=mask):
+                    self.policy.set_global_mask(mask, persist=False)
+                    label = self._effect_label(browser)
+                    self.assertTrue(clears(label), label)
+                    self.assertEqual(label, chain_names(mask) if clears(chain_names(mask)) else chain_count(mask))
+
+    def test_fader_label_respects_the_pane_edge(self) -> None:
+        """Unreachable at 800x480 (the Patch mod side binds first), so pinned
+        with a narrowed pane: a name that would cross the edge becomes the count."""
+        browser = self._browser(collapsed=True)
+        self._measure(browser)
+        column = self._effect_channel(browser).column_rect
+        m = browser.main_rect
+        browser.main_rect = Rect(m.x, m.y, column.right + 2 - m.x, m.h)
+        self.policy.set_global_mask(T, persist=False)
+        self.assertEqual(self._effect_label(browser), "1 FX")
+        self.policy.set_global_mask(D, persist=False)
+        self.assertEqual(self._effect_label(browser), "Drive")
+
+    def test_fader_label_on_the_screen_today(self) -> None:
+        """What the measured budget comes to: one name with the nav open, two
+        short ones with it collapsed."""
+        cases = {
+            False: {0: "No FX", T: "Tremolo", C | D: "2 FX", C | D | P | T: "4 FX"},
+            True: {T: "Tremolo", C | D: "Drive+Chorus", D | P: "Drive+Phaser", C | T: "2 FX", C | D | P: "3 FX"},
+        }
+        for collapsed, table in cases.items():
+            browser = self._browser(collapsed=collapsed)
+            self._measure(browser)
+            for mask, want in table.items():
+                with self.subTest(collapsed=collapsed, mask=mask):
+                    self.policy.set_global_mask(mask, persist=False)
+                    self.assertEqual(self._effect_label(browser), want)
+
+    def test_rows_toggle_and_the_panel_stays_open_until_done(self) -> None:
         for path in self.PATHS:
             with self.subTest(path=path):
                 self.prefs.unlink(missing_ok=True)
                 browser = self._browser()
+                self.policy.set_global_mask(C)
                 self.policy.set_depth(0.4, final=True)
                 self._tap(path, browser, self._label_pos(browser))
                 self.assertEqual(browser.screen_state, Screen.FX_EFFECT_MODAL)
                 self.assertEqual(self.policy.depth, 0.4)  # the label tap moved nothing
-                self._tap(path, browser, self._option_pos(browser, self.DRIVE))
+                for effect_id, want in ((self.DRIVE, C | D), (fx_host_protocol.EFFECT_TREMOLO, C | D | T),
+                                        (fx_host_protocol.EFFECT_CHORUS, D | T)):
+                    self._tap(path, browser, self._option_pos(browser, effect_id))
+                    self.assertEqual(browser.screen_state, Screen.FX_EFFECT_MODAL)
+                    self.assertEqual(self.policy.mask, want)
+                    self.assertEqual(json.loads((self.root / "fx-route.json").read_text())["mask"], want)
+                    self.assertEqual(json.loads(self.prefs.read_text())["fx_mask"], want)
+                    self.assertEqual(self.policy.depth, 0.4)
+                self._tap(path, browser, _center(browser._fx_effect_modal_layout()[2]))
                 self.assertEqual(browser.screen_state, Screen.BROWSER)
-                self.assertEqual(self.policy.effect_id, self.DRIVE)
-                self.assertEqual(json.loads((self.root / "fx-route.json").read_text())["effect"], self.DRIVE)
-                self.assertEqual(json.loads(self.prefs.read_text())["fx_effect"], self.DRIVE)
-                self.assertEqual(browser._mixer_channel_label(self._effect_channel(browser)), "Drive")
-                self.policy.set_global_effect(fx_host_protocol.EFFECT_CHORUS)
+                self.assertEqual(self.policy.mask, D | T)
+                self._measure(browser)
+                # Nav open: two names do not fit under the fader.
+                self.assertEqual(self._effect_label(browser), "2 FX")
 
-    def test_cancel_and_backdrop_close_it_unchanged(self) -> None:
+    def test_done_and_backdrop_close_it_unchanged(self) -> None:
         for path in self.PATHS:
-            for how in ("cancel", "backdrop"):
+            for how in ("done", "backdrop"):
                 with self.subTest(path=path, how=how):
                     browser = self._browser()
                     self._tap(path, browser, self._label_pos(browser))
                     self.assertEqual(browser.screen_state, Screen.FX_EFFECT_MODAL)
                     route = (self.root / "fx-route.json")
                     before = route.read_bytes() if route.exists() else None
-                    if how == "cancel":
+                    if how == "done":
                         pos = _center(browser._fx_effect_modal_layout()[2])
                     else:
                         panel = browser._fx_effect_modal_layout()[0]
@@ -573,8 +746,18 @@ class EffectPickerTests(_BrowserCase):
                         self.assertFalse(panel.contains(*pos))
                     self._tap(path, browser, pos)
                     self.assertEqual(browser.screen_state, Screen.BROWSER)
-                    self.assertEqual(self.policy.effect_id, fx_host_protocol.EFFECT_CHORUS)
+                    self.assertEqual(self.policy.mask, C)
                     self.assertEqual(route.read_bytes() if route.exists() else None, before)
+
+    def test_a_drag_across_a_row_toggles_nothing(self) -> None:
+        for path in self.PATHS:
+            with self.subTest(path=path):
+                browser = self._browser()
+                browser._open_fx_effect_modal()
+                x, y = self._option_pos(browser, self.DRIVE)
+                self._tap(path, browser, (x, y), end=(x + TAP_MOVE_THRESHOLD_PX + 20, y))
+                self.assertEqual(self.policy.mask, C)
+                self.assertEqual(browser.screen_state, Screen.FX_EFFECT_MODAL)
 
     def test_a_drag_from_the_label_opens_nothing_and_moves_nothing(self) -> None:
         for path in self.PATHS:
@@ -622,19 +805,32 @@ class EffectPickerTests(_BrowserCase):
         self.assertEqual(browser.screen_state, Screen.BROWSER)
         self.assertFalse((self.root / "fx-route.json").exists())
 
-    def test_panel_lists_every_effect_by_name_and_marks_the_active_one(self) -> None:
+    def test_panel_lists_every_effect_in_run_order_and_checks_the_enabled(self) -> None:
         browser = self._browser(collapsed=True)
-        self.policy.set_global_effect(self.DRIVE)
+        for mask in ALL_MASKS:
+            with self.subTest(mask=mask):
+                self.policy.set_global_mask(mask, persist=False)
+                browser._open_fx_effect_modal()
+                drawn = []
+                with mock.patch.object(
+                    browser,
+                    "_draw_fx_effect_row",
+                    side_effect=lambda rect, label, **kw: drawn.append((label, kw["checked"])),
+                ):
+                    browser._draw()
+                self.assertEqual(
+                    drawn,
+                    [
+                        (fx_host_protocol.EFFECT_NAMES[i], bool(mask & (1 << i)))
+                        for i in fx_host_protocol.CHAIN_ORDER
+                    ],
+                )
+
+    def test_rows_draw_in_both_states(self) -> None:
+        browser = self._browser(collapsed=True)
+        self.policy.set_global_mask(C | P, persist=False)
         browser._open_fx_effect_modal()
-        drawn = []
-        with mock.patch.object(
-            browser, "_draw_theme_choice", side_effect=lambda rect, label, **kw: drawn.append((label, kw["selected"]))
-        ):
-            browser._draw()
-        self.assertEqual(
-            drawn,
-            [(fx_host_protocol.EFFECT_NAMES[i], i == self.DRIVE) for i in fx_host_protocol.EFFECT_IDS],
-        )
+        browser._draw()  # the real row drawing, checked and unchecked
 
     def test_panel_and_label_fit_at_800x480_with_either_nav(self) -> None:
         screen = Rect(0, 0, SCREEN_W, SCREEN_H)
@@ -654,27 +850,16 @@ class EffectPickerTests(_BrowserCase):
                 for channel in browser.mixer_channels:
                     if channel is not effect:
                         self.assertFalse(_overlaps(label, channel.column_rect), channel.channel_id)
-                # Every name, measured, clears Patch mod's label and the pane edge.
-                patch_mod = next(c for c in browser.mixer_channels if c.channel_id == "patch_mod")
-                pm_right = patch_mod.column_rect.x + (patch_mod.column_rect.w + FADER_LABEL_PX_18["Patch mod"]) // 2
-                for effect_id, name in fx_host_protocol.EFFECT_NAMES.items():
-                    w = FADER_LABEL_PX_18[name]
-                    left = effect.column_rect.x + (effect.column_rect.w - w) // 2
-                    self.assertLess(pm_right, left, name)
-                    self.assertLessEqual(left + w, browser.main_rect.right, name)
-                panel, options, cancel = browser._fx_effect_modal_layout()
+                panel, options, done = browser._fx_effect_modal_layout()
                 self.assertTrue(_inside(panel, screen), panel)
                 for rect, _eid in options:
                     self.assertTrue(_inside(rect, panel), rect)
                     self.assertGreaterEqual(rect.h, MIN_TARGET_PX)
-                self.assertTrue(_inside(cancel, panel))
-                self.assertGreaterEqual(cancel.h, MIN_TARGET_PX)
-                for a, b in itertools.combinations([r for r, _ in options] + [cancel], 2):
+                self.assertTrue(_inside(done, panel))
+                self.assertGreaterEqual(done.h, MIN_TARGET_PX)
+                for a, b in itertools.combinations([r for r, _ in options] + [done], 2):
                     self.assertFalse(_overlaps(a, b), (a, b))
-                self.assertEqual([eid for _r, eid in options], list(fx_host_protocol.EFFECT_IDS))
-
-    def test_measured_fader_widths_cover_every_name(self) -> None:
-        self.assertTrue(set(fx_host_protocol.EFFECT_NAMES.values()) <= set(FADER_LABEL_PX_18))
+                self.assertEqual([eid for _r, eid in options], list(fx_host_protocol.CHAIN_ORDER))
 
     def test_modal_draw_does_not_raise(self) -> None:
         browser = self._browser(collapsed=True)
