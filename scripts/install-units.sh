@@ -87,6 +87,12 @@ DISABLED=(
     #   mpe looper on   ->  systemctl start mpe-sooperlooper mpe-looper-session sl-watchdog
     # See Documents/DECISIONS.md 2026-08-18 and DIRECTION.md D15 (adopt/kill verdict).
     mpe-sooperlooper
+    # mpe-looper-session has no [Install] section since 2026-10-11. udev
+    # starts it when an APC is plugged in (config/99-apc-looper.rules). It
+    # stays in this list because `systemctl disable` removes the leftover
+    # multi-user.target.wants link on appliances that enabled it before then.
+    # Without that, the unit would still start at boot with no APC (one
+    # clean exit 69, no restart loop, but a start for nothing).
     mpe-looper-session
     sl-watchdog
     # Phase 1 snapshot publisher. Installed, not started: measured at 0.39% of a

@@ -98,7 +98,14 @@ if systemctl list-unit-files mpe-looper-session.service >/dev/null 2>&1; then
             echo "    journalctl -u mpe-looper-session.service -n 50" >&2
             exit 1
         fi
-        if ! systemctl is-active --quiet mpe-looper-session.service; then
+        if ! systemctl is-active --quiet mpe-looper-session.service \
+            && [ "$(systemctl show -p ExecMainStatus --value mpe-looper-session.service 2>/dev/null)" = 69 ]; then
+            # 69 = no APC connected (patch_browser/apc_presence.py). The session
+            # stopped on purpose before loading any code, so no process is left
+            # running pre-deploy code. udev starts it on the new SHA when an APC
+            # is plugged in. Any other exit status still fails below.
+            echo "looper-deploy: no APC connected. Session idle until one is plugged in; nothing is running old code."
+        elif ! systemctl is-active --quiet mpe-looper-session.service; then
             # Belt and braces: the unit can exit non-zero AFTER a restart that
             # reported success, which is exactly how a crashloop presents —
             # systemd returns from `restart` and the process dies milliseconds
@@ -108,8 +115,9 @@ if systemctl list-unit-files mpe-looper-session.service >/dev/null 2>&1; then
             echo "  after a restart that reported success (crashloop?). Check:" >&2
             echo "    journalctl -u mpe-looper-session.service -n 50" >&2
             exit 1
+        else
+            echo "looper-deploy: session active on $(git rev-parse --short HEAD 2>/dev/null || echo '?')"
         fi
-        echo "looper-deploy: session active on $(git rev-parse --short HEAD 2>/dev/null || echo '?')"
     fi
 else
     echo "looper-deploy: no mpe-looper-session.service on this host — skipping"

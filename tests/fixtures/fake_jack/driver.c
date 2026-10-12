@@ -7,8 +7,19 @@
  * stdin, one scenario at a time:
  *     port <name>
  *     edge <a>\t<b>
+ *     level <name>\t<constant sample value>   (optional; what an output port plays)
  *     end
+ *
+ * Buffers: an output port given a level plays that constant; any other port's
+ * buffer is the sum of the levels of the ports connected to it — JACK's own
+ * summing of every connection into an input. Only the meter's driver reads
+ * buffers.
  * stdout, one line per scenario (see the bottom of this file).
+ *
+ * Meter only (-DCLIENT_METER), one line each:
+ *     cpuload <value>   what jack_cpu_load() returns ("nan" and "inf" parse)
+ *     dsp               writes meter.state into $MPE_RUN_DIR through the
+ *                       meter's own read + write path; prints "dsp written"
  */
 #define _GNU_SOURCE
 #include <errno.h>
@@ -23,7 +34,7 @@
 #define MAX_EDGES 256
 #define NAME_MAX_LEN 192
 
-struct fake_jack_port { char name[NAME_MAX_LEN]; int used; };
+struct fake_jack_port { char name[NAME_MAX_LEN]; int used; int has_level; float level; };
 struct fake_jack_client { int unused; };
 
 static struct fake_jack_port fj_ports[MAX_PORTS];
@@ -90,13 +101,35 @@ void jack_on_shutdown(jack_client_t *c, JackShutdownCallback cb, void *a) { (voi
 int jack_set_port_connect_callback(jack_client_t *c, JackPortConnectCallback cb, void *a) { (void)c; (void)cb; (void)a; return 0; }
 int jack_set_port_registration_callback(jack_client_t *c, JackPortRegistrationCallback cb, void *a) { (void)c; (void)cb; (void)a; return 0; }
 jack_nframes_t jack_get_sample_rate(jack_client_t *c) { (void)c; return 48000; }
-float jack_cpu_load(jack_client_t *c) { (void)c; return 0.0f; }
+/* What jackd would report: a percentage, 0-100 (set by the `cpuload` command). */
+static float fj_cpu_load = 0.0f;
+float jack_cpu_load(jack_client_t *c) { (void)c; return fj_cpu_load; }
 jack_port_t *jack_port_register(jack_client_t *c, const char *n, const char *t, unsigned long f, unsigned long b)
 {
     (void)c; (void)t; (void)f; (void)b;
     return fj_add_port(n);
 }
-void *jack_port_get_buffer(jack_port_t *p, jack_nframes_t n) { (void)p; (void)n; return NULL; }
+#define FJ_FRAMES 64
+static float fj_buffers[MAX_PORTS][FJ_FRAMES];
+void *jack_port_get_buffer(jack_port_t *p, jack_nframes_t n)
+{
+    if (n > FJ_FRAMES) abort();
+    float value = 0.0f;
+    if (p->has_level) {
+        value = p->level;
+    } else {
+        for (int i = 0; i < fj_edge_count; i++) {
+            const char *other = NULL;
+            if (strcmp(fj_edges[i][0], p->name) == 0) other = fj_edges[i][1];
+            else if (strcmp(fj_edges[i][1], p->name) == 0) other = fj_edges[i][0];
+            jack_port_t *q = other ? fj_find(other) : NULL;
+            if (q != NULL && q->has_level) value += q->level;
+        }
+    }
+    float *buf = fj_buffers[p - fj_ports];
+    for (jack_nframes_t k = 0; k < n; k++) buf[k] = value;
+    return buf;
+}
 const char *jack_port_name(const jack_port_t *p) { return p->name; }
 jack_port_t *jack_port_by_name(jack_client_t *c, const char *n) { (void)c; return fj_find(n); }
 
@@ -207,7 +240,37 @@ static void evaluate(void)
     print_edges();
     printf("\n");
 #else
-    printf("surge_playback=%d\n", surge_playback_wired());
+    /* The meter: its health keys, then one connect pass, then the level it
+     * reads off its tap and the clip latch over the windows that follow. */
+    for (int ch = 0; ch < 2; ch++) {
+        char name[64];
+        snprintf(name, sizeof(name), CLIENT_NAME ":in_%d", ch + 1);
+        g_in_ports[ch] = fj_add_port(name);
+    }
+    atomic_store(&g_period_peak, 0.0f);
+    ensure_wiring();
+    printf("surge_playback=%d\twired=%d\ttap=",
+           atomic_load(&g_surge_playback), atomic_load(&g_surge_wired));
+    for (int ch = 0; ch < 2; ch++) {
+        const char **conns = jack_port_get_all_connections(g_client, g_in_ports[ch]);
+        printf("%s", ch ? "|" : "");
+        for (int k = 0; conns != NULL && conns[k] != NULL; k++) {
+            printf("%s%s", k ? "+" : "", conns[k]);
+        }
+        jack_free(conns);
+    }
+    process(FJ_FRAMES, NULL);
+    struct meter_hold hold = { 0.0f, 0 };
+    meter_hold_step(&hold, atomic_exchange(&g_period_peak, 0.0f));
+    printf("\tpeak=%.4f\tclip=", hold.held_peak);
+    /* clip= over the clipped window and the silent windows after it. */
+    for (int w = 0; w < CLIP_HOLD_WRITES + 2; w++) {
+        if (w > 0) {
+            meter_hold_step(&hold, 0.0f);
+        }
+        printf("%d", hold.clip_writes > 0);
+    }
+    printf("\n");
 #endif
 }
 
@@ -227,6 +290,23 @@ int main(void)
             fj_add_port(line + 5);
             fj_add_port(tab + 1);
             jack_connect(&fj_client, line + 5, tab + 1);
+        } else if (strncmp(line, "level ", 6) == 0) {
+            char *tab = strchr(line + 6, '\t');
+            if (tab == NULL) abort();
+            *tab = '\0';
+            jack_port_t *p = fj_add_port(line + 6);
+            p->has_level = 1;
+            p->level = strtof(tab + 1, NULL);
+#if defined(CLIENT_METER)
+        } else if (strncmp(line, "cpuload ", 8) == 0) {
+            fj_cpu_load = strtof(line + 8, NULL);
+        } else if (strcmp(line, "dsp") == 0) {
+            load_env();
+            g_client = &fj_client;
+            write_meter_state(0.0f, 0, 0, 0, 0, 0, 0, read_dsp_percent());
+            printf("dsp written\n");
+            fflush(stdout);
+#endif
         } else if (strcmp(line, "end") == 0) {
             evaluate();
             fflush(stdout);
