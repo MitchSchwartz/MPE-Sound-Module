@@ -19,7 +19,8 @@ RUN_AS_USER="${MPE_PI_USER:-<user>}"
 USER_HOME="$(getent passwd "$RUN_AS_USER" | cut -d: -f6)"
 QUICK_SELECT="${USER_HOME}/Documents/Surge XT/Patches/Quick Select"
 ARTIFACT_DIR="${USER_HOME}/plan-v11-$(date +%Y%m%d-%H%M%S)"
-ENV_FILE="/etc/mpe/mpe.env"
+# shellcheck source=lib/measure-env.sh
+source "$SCRIPT_DIR/lib/measure-env.sh"
 SECONDS_HOLD=45
 RUNS=3
 
@@ -36,27 +37,16 @@ if [ "$(id -u)" -ne 0 ]; then
     exit 1
 fi
 
-_set_env_var() {
-    local key="$1" value="$2" tmp
-    tmp="$(mktemp)"
-    if grep -q "^${key}=" "$ENV_FILE" 2>/dev/null; then
-        sed "s|^${key}=.*|${key}=${value}|" "$ENV_FILE" >"$tmp"
-    else
-        cat "$ENV_FILE" >"$tmp" 2>/dev/null || true
-        printf '\n%s=%s\n' "$key" "$value" >>"$tmp"
-    fi
-    install -m 0644 "$tmp" "$ENV_FILE"
-    rm -f "$tmp"
-}
-
 mkdir -p "$ARTIFACT_DIR"
 exec > >(tee -a "${ARTIFACT_DIR}/plan-v11.log") 2>&1
 
 echo "=== Plan V11 $(date -Is) artifacts=$ARTIFACT_DIR ==="
 echo "PROVENANCE governor=off clock=1800 cells=512x2,256x3 patches=Crystals@3,CloudHorn@5,Duduk@3"
 
-_set_env_var MPE_POLY_GOVERNOR 0
-systemctl stop surge-poly-governor.service 2>/dev/null || true
+# Edits only when they differ; restored byte for byte on exit (lib/measure-env.sh).
+mpe_env_arm
+mpe_env_set MPE_POLY_GOVERNOR 0
+mpe_unit_stop_for_measure surge-poly-governor.service
 if ! mpe_meter_xruns_read >/dev/null 2>&1; then
     echo "Peak meter blind — restarting audio graph"
     systemctl restart mpe-jackd.service

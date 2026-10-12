@@ -26,7 +26,8 @@ BUFFER=1024
 # This value is sed'd into the persistent /etc/mpe/mpe.env below and is NOT
 # restored afterwards, so it outlives the run and the next deploy.
 LOOPS=15
-ENV_FILE="/etc/mpe/mpe.env"
+# shellcheck source=lib/measure-env.sh
+source "$SCRIPT_DIR/lib/measure-env.sh"
 RUN_AS_USER="${MPE_PI_USER:-<user>}"
 MIDI_PID=""
 
@@ -76,10 +77,16 @@ _read_xruns_or_blind() {
     return 0
 }
 
+RESTORE_BUFFER=""
 _cleanup() {
     [ -n "$MIDI_PID" ] && kill "$MIDI_PID" 2>/dev/null || true
+    if [ -n "$RESTORE_BUFFER" ]; then
+        "$SCRIPT_DIR/set-surge-audio.sh" --buffer "$RESTORE_BUFFER" \
+            || echo "ERROR: could not restore buffer ${RESTORE_BUFFER}" >&2
+    fi
 }
-trap _cleanup EXIT INT TERM
+# _cleanup first, then mpe.env comes back byte for byte (lib/measure-env.sh).
+mpe_env_arm _cleanup
 
 TOTAL_MIN=$((HOURS * 60))
 FINISH_EPOCH=$(( $(date +%s) + TOTAL_MIN * 60 ))
@@ -97,11 +104,17 @@ echo "Log: ${OUTPUT}"
     echo "expected_finish=${FINISH_ISO}"
 } >>"$OUTPUT"
 
-if ! "$SCRIPT_DIR/set-surge-audio.sh" --buffer "$BUFFER"; then
-    echo "ERROR: set-surge-audio --buffer ${BUFFER} failed" >&2
-    exit 1
+_live_buffer="$(mpe_env_get MPE_JACK_BUFFER)"
+if [ "$_live_buffer" != "$BUFFER" ]; then
+    # set-surge-audio.sh edits the env file itself: snapshot it first.
+    mpe_env_snapshot
+    RESTORE_BUFFER="${_live_buffer:-256}"
+    if ! "$SCRIPT_DIR/set-surge-audio.sh" --buffer "$BUFFER"; then
+        echo "ERROR: set-surge-audio --buffer ${BUFFER} failed" >&2
+        exit 1
+    fi
+    sleep 8
 fi
-sleep 8
 
 # Condition D — full stack
 systemctl start mpe-sooperlooper.service
@@ -113,13 +126,12 @@ sleep 6
 systemctl start mpe-peak-meter.service 2>/dev/null || true
 sleep 2
 
-if ! grep -q "^MPE_SL_LOOPS=" "$ENV_FILE" 2>/dev/null; then
-    printf '\nMPE_SL_LOOPS=%s\n' "$LOOPS" >>"$ENV_FILE"
-else
-    sed -i "s/^MPE_SL_LOOPS=.*/MPE_SL_LOOPS=${LOOPS}/" "$ENV_FILE"
+mpe_env_set MPE_SL_LOOPS "$LOOPS"
+if [ "$MPE_ENV_LAST_CHANGED" = 1 ]; then
+    mpe_env_on_restore systemctl restart mpe-sooperlooper.service
+    systemctl restart mpe-sooperlooper.service
+    sleep 8
 fi
-systemctl restart mpe-sooperlooper.service
-sleep 8
 
 if ! bash "${SCRIPT_DIR}/sooperlooper/load-n-loops.sh" "$LOOPS"; then
     echo "ERROR: load-n-loops ${LOOPS} failed" >&2
