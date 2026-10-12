@@ -4,9 +4,10 @@ A tap on the Effect fader's label opens it; the label is the active effect's
 name. Tapping an effect selects it and closes the panel; Cancel or a tap on the
 backdrop closes it unchanged, as the other modals do.
 
-The panel only states intent. `FxPolicy.set_global_effect` persists the choice
-and writes it to `fx-route.json`, and the remapper is still the one process
-that sends to the FX host. With MPE_FX_HOST off there is no Effect fader, so
+The panel only states intent. `FxPolicy.select_effect` sets the loaded
+patch's effect (and the default for patches that never chose one), restores
+that effect's depth for the patch, and writes both to `fx-route.json`; the
+remapper is still the one process that sends to the FX host. With MPE_FX_HOST off there is no Effect fader, so
 there is no label to tap, and opening is refused anyway.
 
 Names come from `fx_host_protocol.EFFECT_NAMES`, in id order; nothing here
@@ -31,6 +32,22 @@ EFFECT_LABEL_TARGET_H = 44
 FX_EFFECT_MODAL_W = 420
 FX_EFFECT_MODAL_PAD = 24
 FX_EFFECT_OPTION_H = SETTINGS_ROW_H
+#: Width kept at the right end of each row for a per-effect settings button
+#: (parameter pages, later). 0 today: no button, the whole row is the choice.
+FX_EFFECT_ROW_SETTINGS_W = 0
+
+
+def split_effect_row(row: Rect, settings_w: int | None = None) -> tuple[Rect, Rect | None]:
+    """(choice, settings button or None) for one picker row.
+
+    The one place a row is divided, so a settings button is a width here and
+    a hit/draw branch, not a new layout.
+    """
+    width = FX_EFFECT_ROW_SETTINGS_W if settings_w is None else settings_w
+    if width <= 0:
+        return row, None
+    choice = Rect(row.x, row.y, row.w - width - SETTINGS_ROW_GAP, row.h)
+    return choice, Rect(choice.right + SETTINGS_ROW_GAP, row.y, width, row.h)
 
 
 class TouchBrowserFxEffectModalMixin:
@@ -84,7 +101,7 @@ class TouchBrowserFxEffectModalMixin:
         self.screen_state = Screen.BROWSER
 
     def _select_fx_effect(self, effect_id: int) -> None:
-        self.fx_policy.set_global_effect(effect_id)
+        self.fx_policy.select_effect(effect_id)
         self._close_fx_effect_modal()
         self._toast(f"Effect: {self.fx_policy.effect_name}", 1.2)
 
@@ -101,7 +118,12 @@ class TouchBrowserFxEffectModalMixin:
         inner_w = panel.w - pad * 2
         y = panel.y + pad + title_h
         options = [
-            (Rect(inner_x, y + i * (FX_EFFECT_OPTION_H + SETTINGS_ROW_GAP), inner_w, FX_EFFECT_OPTION_H), effect_id)
+            (
+                split_effect_row(
+                    Rect(inner_x, y + i * (FX_EFFECT_OPTION_H + SETTINGS_ROW_GAP), inner_w, FX_EFFECT_OPTION_H)
+                )[0],
+                effect_id,
+            )
             for i, effect_id in enumerate(ids)
         ]
         cancel = Rect(inner_x, panel.bottom - pad - SETTINGS_ROW_H, inner_w, SETTINGS_ROW_H)

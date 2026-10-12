@@ -581,6 +581,8 @@ class TouchPatchBrowser(
             self._screen_recorder.close()
         self.cpu_monitor.stop()
         self.peak_monitor.stop()
+        # A change made in the last STORE_WRITE_DELAY_S is still pending.
+        self.fx_policy.flush_store()
         pygame.quit()
 
 
