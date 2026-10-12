@@ -14,7 +14,8 @@ RUN_AS_USER="${MPE_PI_USER:-<user>}"
 USER_HOME="$(getent passwd "$RUN_AS_USER" | cut -d: -f6)"
 ARTIFACT_DIR="${USER_HOME}/plan-v8-$(date +%Y%m%d-%H%M%S)"
 QUICK_SELECT="${USER_HOME}/Documents/Surge XT/Patches/Quick Select"
-ENV_FILE="/etc/mpe/mpe.env"
+# shellcheck source=lib/measure-env.sh
+source "$SCRIPT_DIR/lib/measure-env.sh"
 PROBE_SEC=8
 
 while [ $# -gt 0 ]; do
@@ -34,28 +35,20 @@ fi
 mkdir -p "$ARTIFACT_DIR"
 exec > >(tee -a "${ARTIFACT_DIR}/plan-v8.log") 2>&1
 
-_set_env_var() {
-    local key="$1" value="$2" tmp
-    tmp="$(mktemp)"
-    if grep -q "^${key}=" "$ENV_FILE" 2>/dev/null; then
-        sed "s|^${key}=.*|${key}=${value}|" "$ENV_FILE" >"$tmp"
-    else
-        cat "$ENV_FILE" >"$tmp" 2>/dev/null || true
-        printf '\n%s=%s\n' "$key" "$value" >>"$tmp"
-    fi
-    install -m 0644 "$tmp" "$ENV_FILE"
-    rm -f "$tmp"
-}
-
 echo "=== Plan V8 $(date -Is) artifacts=$ARTIFACT_DIR ==="
 echo "quick_select=$QUICK_SELECT"
 echo "git=$(git -C "$SCRIPT_DIR/.." rev-parse --short HEAD 2>/dev/null || echo unknown)"
 
-_set_env_var MPE_POLY_GOVERNOR 0
-_set_env_var MPE_POLY_CEILING 64
-_set_env_var MPE_POLY_FLOOR 64
-systemctl stop surge-poly-governor.service 2>/dev/null || true
-systemctl disable surge-poly-governor.service 2>/dev/null || true
+# Edits only when they differ; restored byte for byte on exit (lib/measure-env.sh).
+mpe_env_arm
+mpe_env_set MPE_POLY_GOVERNOR 0
+mpe_env_set MPE_POLY_CEILING 64
+mpe_env_set MPE_POLY_FLOOR 64
+mpe_unit_stop_for_measure surge-poly-governor.service
+if systemctl is-enabled --quiet surge-poly-governor.service 2>/dev/null; then
+    mpe_env_on_restore systemctl enable surge-poly-governor.service
+    systemctl disable surge-poly-governor.service 2>/dev/null || true
+fi
 
 V8A_LOG="${ARTIFACT_DIR}/v8a-survey.log"
 : >"$V8A_LOG"
@@ -148,12 +141,8 @@ V8B_X3="${ARTIFACT_DIR}/v8b-1024x3.log"
     --output "$V8B_X3"
 
 echo ""
-echo "=== restore shipping softmode ==="
-_set_env_var MPE_JACK_SOFTMODE 1
-systemctl restart mpe-jackd.service
-sleep 4
-systemctl restart surge-xt-cli.service
-sleep 4
+# Softmode: each measure-latency-run.sh restores the file it edited, and this
+# script's exit trap restores the governor keys, byte for byte.
 
 echo "SENTINEL plan-v8-complete $(date -Is)"
 echo "v8a_log=$V8A_LOG"
