@@ -6,6 +6,17 @@
  *
  * RT callback: block peak only — no syscalls, locks, or allocation.
  * Writer thread: 5 Hz atomic read + atomic KEY=value file install (matches UI poll).
+ *
+ * WHAT IT MEASURES (2026-10-11): what leaves the box. The input tap follows the
+ * fan-out source — the FX host's output while it carries the trunk, otherwise
+ * Surge — so the level and the clip latch see the effects' added peaks and
+ * their ±1.0 clamp. Until then the tap sat on Surge, before the FX host, and a
+ * phaser's +5.4 dB could clip audibly while the meter read -3 dBFS.
+ *
+ * The HEALTH keys did not move with it. wired= / online= still answer "are
+ * Surge's outputs on the graph" (audio-engine.sh's on-graph probe) and
+ * surge_playback= still answers "can you hear yourself play" (sl-watchdog);
+ * neither depends on where the meter listens.
  */
 
 #define _GNU_SOURCE
@@ -35,6 +46,12 @@
 #define CONNECT_INTERVAL_US 2000000
 /* 0.606 per 200 ms write ~= 0.92 per 33 ms (old 30 Hz writer feel). */
 #define PEAK_DECAY 0.606f
+/* Sample peak at or above this is a clip: the DAC clips on samples, and the FX
+ * host clamps at exactly 1.0, so true-peak detection would add nothing. */
+#define CLIP_THRESHOLD 0.999f
+/* clip=1 stays up for this many writes after the last clipped window: 8 x 200 ms
+ * = 1.6 s, long enough to be seen on a glance at the UI. */
+#define CLIP_HOLD_WRITES 8
 #define METER_STATE_NAME "meter.state"
 #define RUN_DIR_MAX 480
 
@@ -239,8 +256,7 @@ static int trunk_insert_carrying(void)
 
 /* The fan-out source on channel `ch`: the FX host while it carries, otherwise
  * Surge. Mirror of audio_routing.fanout_source(). The meter's own input tap
- * stays on Surge (ensure_wiring below): levels and calibration measure Surge
- * alone, before any effect. */
+ * follows it (ensure_wiring below), so the meter reads what leaves the box. */
 static void fanout_source(int ch, char *buf, size_t size)
 {
     if (trunk_insert_carrying()) {
@@ -248,6 +264,22 @@ static void fanout_source(int ch, char *buf, size_t size)
     } else {
         snprintf(buf, size, "%s:out_%d", g_surge_client, ch);
     }
+}
+
+/* Are Surge's outputs on the graph, every channel? The health answer behind
+ * wired= / online=. It used to be read off the meter's own connect from Surge
+ * succeeding; the tap no longer always comes from Surge, so it is asked of
+ * Surge directly. */
+static int surge_ports_present(void)
+{
+    for (int ch = 1; ch <= 2; ch++) {
+        char surge_out[192];
+        snprintf(surge_out, sizeof(surge_out), "%s:out_%d", g_surge_client, ch);
+        if (jack_port_by_name(g_client, surge_out) == NULL) {
+            return 0;
+        }
+    }
+    return 1;
 }
 
 /* Can you hear yourself play? True when the fan-out source (Surge, or the FX
@@ -285,7 +317,30 @@ static int surge_playback_wired(void)
     return direct || through_insert;
 }
 
-static void write_meter_state(float peak_linear, int surge_wired, int looper_client,
+/* The writer's per-window state: the decaying displayed peak and the clip latch. */
+struct meter_hold {
+    float held_peak;
+    int clip_writes;
+};
+
+/* One writer window. `window_peak` is the largest sample the RT callback saw
+ * since the last window, off the post-FX tap. Pure, so the fake-JACK driver
+ * runs it exactly as the writer does. */
+static void meter_hold_step(struct meter_hold *h, float window_peak)
+{
+    if (window_peak > h->held_peak) {
+        h->held_peak = window_peak;
+    } else {
+        h->held_peak *= PEAK_DECAY;
+    }
+    if (window_peak >= CLIP_THRESHOLD) {
+        h->clip_writes = CLIP_HOLD_WRITES;
+    } else if (h->clip_writes > 0) {
+        h->clip_writes--;
+    }
+}
+
+static void write_meter_state(float peak_linear, int clip, int surge_wired, int looper_client,
                               int looper_playback, int surge_playback,
                               unsigned long xruns, float dsp_percent)
 {
@@ -304,8 +359,11 @@ static void write_meter_state(float peak_linear, int surge_wired, int looper_cli
     if (fh == NULL) {
         return;
     }
+    /* peak_linear= and clip= are the post-FX tap: what leaves the box. */
     fprintf(fh, "peak_linear=%.9g\n", peak_linear);
-    /* wired= reflects Surge XT:out_{1,2} only; looper taps are best-effort. */
+    fprintf(fh, "clip=%d\n", clip ? 1 : 0);
+    /* wired= reflects Surge XT:out_{1,2} being on the graph only — not where
+     * the meter listens; looper taps are best-effort. */
     fprintf(fh, "wired=%d\n", surge_wired ? 1 : 0);
     /* jack_online=1 whenever this process is on the graph (watchdog graph probe). */
     fprintf(fh, "jack_online=%d\n", 1);
@@ -351,16 +409,32 @@ static int connect_source(const char *source, jack_port_t *dest)
     return 0;
 }
 
+/* Point the meter's input on channel `ch` at `want` and at nothing else from
+ * the trunk. Break, then make: the meter is a leaf, so a moment of silence on
+ * it costs nothing, while a moment fed by both Surge and the FX host would sum
+ * them and could latch a clip that never reached the DAC. */
+static int tap_from(int ch, const char *want)
+{
+    char candidates[2][192];
+    snprintf(candidates[0], sizeof(candidates[0]), "%s:out_%d", g_surge_client, ch);
+    snprintf(candidates[1], sizeof(candidates[1]), TRUNK_INSERT ":out_%d", ch);
+    for (int i = 0; i < 2; i++) {
+        if (strcmp(candidates[i], want) != 0 &&
+            port_connected_to(g_in_ports[ch - 1], candidates[i])) {
+            (void)jack_disconnect(g_client, candidates[i], jack_port_name(g_in_ports[ch - 1]));
+        }
+    }
+    return connect_source(want, g_in_ports[ch - 1]);
+}
+
 static int ensure_wiring(void)
 {
     char src[256];
-    int surge_ok = 1;
     for (int ch = 1; ch <= 2; ch++) {
-        snprintf(src, sizeof(src), "%s:out_%d", g_surge_client, ch);
-        if (connect_source(src, g_in_ports[ch - 1]) != 0) {
-            surge_ok = 0;
-        }
+        fanout_source(ch, src, sizeof(src));
+        (void)tap_from(ch, src);
     }
+    const int surge_ok = surge_ports_present();
     if (g_include_looper) {
         for (int ch = 1; ch <= 2; ch++) {
             snprintf(src, sizeof(src), "%s:common_out_%d", LOOPER_CLIENT_DEFAULT, ch);
@@ -377,15 +451,11 @@ static int ensure_wiring(void)
 static void *writer_thread(void *arg)
 {
     (void)arg;
-    float held_peak = 0.0f;
+    struct meter_hold hold = { 0.0f, 0 };
     while (g_running) {
         float window_peak =
             atomic_exchange_explicit(&g_period_peak, 0.0f, memory_order_relaxed);
-        if (window_peak > held_peak) {
-            held_peak = window_peak;
-        } else {
-            held_peak *= PEAK_DECAY;
-        }
+        meter_hold_step(&hold, window_peak);
         int surge_wired = atomic_load_explicit(&g_surge_wired, memory_order_relaxed);
         int looper_client = atomic_load_explicit(&g_looper_client, memory_order_relaxed);
         int looper_playback = atomic_load_explicit(&g_looper_playback, memory_order_relaxed);
@@ -400,11 +470,11 @@ static void *writer_thread(void *arg)
                 dsp_percent = 100.0f;
             }
         }
-        write_meter_state(held_peak, surge_wired, looper_client, looper_playback,
-                          surge_playback, xruns, dsp_percent);
+        write_meter_state(hold.held_peak, hold.clip_writes > 0, surge_wired, looper_client,
+                          looper_playback, surge_playback, xruns, dsp_percent);
         interruptible_usleep(WRITER_INTERVAL_US);
     }
-    write_meter_state(0.0f, 0, 0, 0, 0,
+    write_meter_state(0.0f, 0, 0, 0, 0, 0,
                       atomic_load_explicit(&g_xrun_count, memory_order_relaxed), 0.0f);
     return NULL;
 }

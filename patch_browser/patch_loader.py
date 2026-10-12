@@ -78,6 +78,9 @@ class PatchLoader:
         self.osc_host = osc_host
         self.osc_out_port = osc_out_port
         self.user_volume_trim = 1.0
+        # Fixed attenuation after the fader law, in dB. 0 in trim mode; device
+        # mode passes device_volume.DEVICE_MODE_SURGE_TRIM_DB.
+        self._headroom_db = 0.0
         self._patch_gain_linear = 1.0
         self._norm_active = False
         self._loaded_patch_name: str | None = None
@@ -86,9 +89,14 @@ class PatchLoader:
         self._native_poly_limit: int | None = None
         self._effective_poly_limit: int | None = None
 
-    def set_volume(self, volume=1.0):
-        """Set user volume trim (stacks on per-patch normalization baseline)."""
+    def set_volume(self, volume=1.0, *, headroom_db: float = 0.0):
+        """Set user volume trim (stacks on per-patch normalization baseline).
+
+        `headroom_db` is a fixed gain applied after the fader law; every call
+        states it, so leaving device mode for trim mode returns it to 0.
+        """
         self.user_volume_trim = float(volume)
+        self._headroom_db = float(headroom_db)
         return self._send_combined_volume()
 
     def _volume_cap(self) -> float:
@@ -108,7 +116,7 @@ class PatchLoader:
             fader_min=VOLUME_MIN,
             fader_max=VOLUME_MAX,
             norm_active=self._norm_active,
-        )
+        ) * db_to_linear(self._headroom_db)
         try:
             self.osc_client.send_message("/param/a/amp/volume", combined)
             self.osc_client.send_message("/param/b/amp/volume", combined)
