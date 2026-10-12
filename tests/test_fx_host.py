@@ -124,6 +124,54 @@ class WireFormat(unittest.TestCase):
             with self.subTest(effect=effect_id):
                 self.assertEqual(proto.encode(effect_id, 0.25), f"fx {effect_id} 0.250000".encode())
 
+    def test_chain_encoding(self):
+        self.assertEqual(proto.encode_chain(0b0101, 0.5), b"chain 5 0.500000")
+        self.assertEqual(proto.encode_chain(proto.MASK_NONE, 0.5), b"chain 0 0.500000")
+        self.assertEqual(proto.encode_chain(proto.MASK_ALL, 1), b"chain 15 1.000000")
+        self.assertEqual(proto.encode_chain(1, -0.3), b"chain 1 0.000000")
+        self.assertEqual(proto.encode_chain(1, 7.0), b"chain 1 1.000000")
+
+    def test_chain_refuses_what_it_cannot_say_honestly(self):
+        for bad_depth in (float("nan"), float("inf"), float("-inf")):
+            with self.subTest(depth=bad_depth), self.assertRaises(ValueError):
+                proto.encode_chain(1, bad_depth)
+        for bad_mask in (16, 0b10001, -1, True, 1.0, "1", None):
+            with self.subTest(mask=bad_mask), self.assertRaises(ValueError):
+                proto.encode_chain(bad_mask, 0.5)
+
+    def test_mask_helpers(self):
+        D, P, C, T = (proto.EFFECT_TUBE_DRIVE, proto.EFFECT_PHASER, proto.EFFECT_CHORUS,
+                      proto.EFFECT_TREMOLO)
+        self.assertEqual(proto.CHAIN_ORDER, (D, P, C, T))
+        self.assertEqual(sorted(proto.CHAIN_ORDER), list(proto.EFFECT_IDS))
+        self.assertEqual(proto.MASK_ALL, 0b1111)
+        self.assertEqual(proto.mask_of([]), proto.MASK_NONE)
+        self.assertEqual(proto.mask_of([T, C, C]), (1 << T) | (1 << C))
+        self.assertEqual(proto.mask_of(proto.EFFECT_IDS), proto.MASK_ALL)
+        # The run order, whatever order they were enabled in.
+        self.assertEqual(proto.effects_in(proto.mask_of([T, C, D])), (D, C, T))
+        self.assertEqual(proto.effects_in(proto.MASK_ALL), proto.CHAIN_ORDER)
+        self.assertEqual(proto.effects_in(proto.MASK_NONE), ())
+        self.assertTrue(proto.is_enabled(proto.mask_of([P]), P))
+        self.assertFalse(proto.is_enabled(proto.mask_of([P]), C))
+        self.assertEqual(proto.toggled(proto.MASK_NONE, P), 1 << P)
+        self.assertEqual(proto.toggled(1 << P, P), proto.MASK_NONE)
+        for bad in (4, -1, True, "0"):
+            with self.subTest(effect=bad):
+                with self.assertRaises(ValueError):
+                    proto.mask_of([bad])
+                with self.assertRaises(ValueError):
+                    proto.toggled(0, bad)
+        with self.assertRaises(ValueError):
+            proto.effects_in(16)
+
+    def test_the_old_datagram_is_the_one_bit_mask(self):
+        """`encode` is kept for the single-effect datagram; the client reads
+        `fx <id> d` as `chain <1 << id> d` (the C side is checked below)."""
+        for effect_id in proto.EFFECT_IDS:
+            with self.subTest(effect=effect_id):
+                self.assertEqual(proto.effects_in(proto.mask_of([effect_id])), (effect_id,))
+
     def test_the_control_port_matches_the_client(self):
         match = re.search(r"#define\s+CONTROL_PORT_DEFAULT\s+(\d+)", C_CLIENT.read_text())
         self.assertIsNotNone(match)
