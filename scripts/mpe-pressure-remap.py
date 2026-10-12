@@ -252,7 +252,8 @@ class PressureRemapDaemon:
             return
         # Before the translator: a classic device's CC 1 arrives on the master
         # channel here and is spread across member channels after. fx_policy
-        # decides; a consumed message goes to the FX host, never to Surge.
+        # decides; a consumed message goes to the FX host, never to Surge. One
+        # it lets through may carry a rewritten value (knob pickup, scaled).
         if self._cc1 is not None and self._cc1.consume(raw, binding):
             return
 
