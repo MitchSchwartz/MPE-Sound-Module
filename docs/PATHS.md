@@ -62,7 +62,7 @@ Written by jackd, Surge, and the supervisor. tmpfs — cleared on reboot (correc
 | `jack.state` | `start-jackd.sh` | `device`, `period`, `periods`, `rate`, `started` |
 | `engine-reconcile.state` | watchdog | Supervisor cooldown: `last_restart`, `restarts` |
 | `jack-device` | `jackd-prestart.sh` | Selected `JACK_DEVICE=hw:N` for this start |
-| `meter.state` | `mpe-peak-meter` | `peak_linear`, `wired`, `looper_client`, `looper_playback`, `surge_playback` (can you hear yourself play — Surge to playback, or the live monitor insert with Surge actually feeding it), `xruns`, `dsp_percent`, `updated` |
+| `meter.state` | `mpe-peak-meter` | `peak_linear` and `clip` (post-FX: the fan-out source, FX host output while it carries; `clip=1` held 1.6 s after a sample ≥ 0.999), `wired` (Surge's outputs on the graph), `looper_client`, `looper_playback`, `surge_playback` (can you hear yourself play — Surge to playback, or the live monitor insert with Surge actually feeding it), `xruns`, `dsp_percent`, `updated` |
 | `live-monitor.state` | `mpe-live-monitor` | `carrying` (audio traverses the insert end to end), `detached` (the direct Surge → playback path has been removed), `gain`, `surge_client`, `updated`. **Its staleness is the alarm:** the file stops being written when the insert dies, and `detached=1` in a stale file is how `sl-watchdog.py` knows the fail-open path was taken away by a process that is no longer there to give it back. |
 
 Units declare `RuntimeDirectory=mpe` + `RuntimeDirectoryPreserve=yes` on `surge-xt-cli`, `mpe-jackd`, and `surge-watchdog` so sibling restarts do not wipe shared state.

@@ -253,10 +253,48 @@ def _build_driver(kind: str, source: str, out: Path, extra: tuple[str, ...] = ()
         check=True, capture_output=True, text=True, timeout=120)
 
 
-def _feed(g: Graph) -> str:
+def _feed(g: Graph, levels: dict[str, float] | None = None) -> str:
     lines = [f"port {p}" for p in sorted(g.ports)]
     lines += ["edge " + "\t".join(sorted(e)) for e in g.edges]
+    lines += [f"level {port}\t{value}" for port, value in sorted((levels or {}).items())
+              if port in g.ports]
     return "\n".join(lines) + "\nend\n"
+
+
+METER_IN = lambda ch: f"mpe-peak-meter:in_{ch}"  # noqa: E731
+#: What each trunk port plays in the meter scenarios. Surge is hot but legal;
+#: the FX host's output sits at its own +-1.0 clamp, as a phaser's added peaks
+#: leave it on a chord Surge plays at -2 dBFS.
+SURGE_LEVEL = 0.8
+FX_LEVEL = 1.0
+#: CLIP_HOLD_WRITES in mpe-peak-meter.c: clip= stays up this many writes.
+CLIP_HOLD_WRITES = 8
+
+
+def meter_scenarios():
+    """Every routing scenario, with the meter's tap left in each state a
+    previous pass, an FX host arriving, or one leaving could leave it in."""
+    presets = {
+        "tap-none": lambda ch: [],
+        "tap-surge": lambda ch: [(S(ch), METER_IN(ch))],
+        "tap-fx": lambda ch: [(FX_OUT(ch), METER_IN(ch))],
+        "tap-both": lambda ch: [(S(ch), METER_IN(ch)), (FX_OUT(ch), METER_IN(ch))],
+    }
+    for name, g in scenarios():
+        for preset, fn in presets.items():
+            out = Graph()
+            out.ports.update(g.ports)
+            out.edges.update(g.edges)
+            for ch in ar.CHANNELS:
+                for a, b in fn(ch):
+                    if out.has(a):
+                        out.connect(a, b)
+            yield f"{name}:{preset}", out
+    # Surge restarting: its ports are gone, the FX host is idle.
+    gone = Graph()
+    gone.ports.update(("system:playback_1", "system:playback_2",
+                       FX_IN(1), FX_IN(2), FX_OUT(1), FX_OUT(2)))
+    yield "surge-gone", gone
 
 
 @unittest.skipUnless(shutil.which("cc"), "no C compiler — native mirrors not checked")
@@ -287,10 +325,64 @@ class NativeMirrorTests(unittest.TestCase):
         self.assertEqual(len(lines), len(self.cases), "driver skipped scenarios")
         return lines
 
+    def _run_meter(self):
+        cases = list(meter_scenarios())
+        levels = {S(ch): SURGE_LEVEL for ch in ar.CHANNELS}
+        levels.update({FX_OUT(ch): FX_LEVEL for ch in ar.CHANNELS})
+        proc = subprocess.run([str(self.meter)],
+                              input="".join(_feed(g, levels) for _, g in cases),
+                              capture_output=True, text=True, timeout=60)
+        self.assertEqual(proc.returncode, 0, proc.stderr[-2000:])
+        lines = proc.stdout.splitlines()
+        self.assertEqual(len(lines), len(cases), "driver skipped scenarios")
+        for (name, g), line in zip(cases, lines):
+            yield name, g, dict(f.split("=", 1) for f in line.split("\t"))
+
     def test_the_meter_hears_what_the_authority_hears(self):
-        for (name, g), line in zip(self.cases, self._run(self.meter)):
+        """surge_playback= (sl-watchdog's live-path sensor) is the authority's
+        live_path_ok, whatever the meter's own tap is doing."""
+        for name, g, fields in self._run_meter():
             with self.subTest(scenario=name):
-                self.assertEqual(line, f"surge_playback={int(ar.live_path_ok(g, TOPO))}")
+                self.assertEqual(fields["surge_playback"], str(int(ar.live_path_ok(g, TOPO))))
+
+    def test_wired_still_means_surge_is_on_the_graph(self):
+        """wired= is audio-engine.sh's on-graph probe. It answers for Surge's
+        ports, not for where the meter listens: an FX host carrying the trunk
+        does not change it, and Surge gone does."""
+        for name, g, fields in self._run_meter():
+            with self.subTest(scenario=name):
+                present = all(g.has(S(ch)) for ch in ar.CHANNELS)
+                self.assertEqual(fields["wired"], str(int(present)))
+
+    def test_the_meter_taps_the_fanout_source_and_nothing_else(self):
+        """The level shown is what leaves the box: the FX host's output while
+        it carries, Surge otherwise -- one of them, never both summed."""
+        for name, g, fields in self._run_meter():
+            with self.subTest(scenario=name):
+                taps = fields["tap"].split("|")
+                for ch in ar.CHANNELS:
+                    feeds = set(filter(None, taps[ch - 1].split("+")))
+                    source = ar.fanout_source(g, TOPO, ch)
+                    expected = {source} if g.has(source) else set()
+                    self.assertEqual(feeds, expected, f"meter in_{ch}")
+
+    def test_the_level_and_the_clip_latch_are_post_fx(self):
+        """A clamped FX output at 1.0 over a Surge signal at 0.8: the meter
+        reads 1.0 and latches a clip while the FX host carries, and reads 0.8
+        with no clip when Surge is the source."""
+        held = "1" * CLIP_HOLD_WRITES + "00"
+        for name, g, fields in self._run_meter():
+            with self.subTest(scenario=name):
+                source = ar.fanout_source(g, TOPO, 1)
+                if not g.has(source):
+                    self.assertEqual(float(fields["peak"]), 0.0)
+                    self.assertEqual(fields["clip"], "0" * len(held))
+                elif ar.trunk_insert_carrying(g, TOPO):
+                    self.assertAlmostEqual(float(fields["peak"]), FX_LEVEL, places=4)
+                    self.assertEqual(fields["clip"], held)
+                else:
+                    self.assertAlmostEqual(float(fields["peak"]), SURGE_LEVEL, places=4)
+                    self.assertEqual(fields["clip"], "0" * len(held))
 
     def test_the_monitor_follows_the_authority(self):
         for (name, g), line in zip(self.cases, self._run(self.monitor)):
@@ -573,8 +665,8 @@ class OneAuthority(unittest.TestCase):
             "the monitor-branch insert: follows the fan-out source onto its own "
             "input and takes the direct path to playback away while it carries",
         "native/mpe-peak-meter/mpe-peak-meter.c":
-            "taps Surge onto its own input (pre-FX, by design) and mirrors the "
-            "live-path predicate for sl-watchdog",
+            "taps the fan-out source onto its own input (post-FX: what leaves "
+            "the box) and mirrors the live-path predicate for sl-watchdog",
         "native/mpe-fx-host/mpe-fx-host.c":
             "the trunk insert: once Surge feeds its input on every channel it "
             "becomes the fan-out source, moves every destination off Surge, and "

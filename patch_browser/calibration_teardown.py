@@ -19,6 +19,7 @@ import sys
 import time
 from collections.abc import Iterator
 
+from patch_browser.apc_presence import apc_present
 from patch_browser.calibration_constants import (
     MPE_CALIB_FROM_BROWSER,
     TOUCH_PATCH_BROWSER_SCRIPT,
@@ -46,6 +47,25 @@ LOOPER_UNITS_START_ORDER = (
     "sl-watchdog",
 )
 
+# Units that exist only to drive a piece of optional hardware. udev starts them
+# when the device appears (config/99-apc-looper.rules), and nothing else may
+# start them without first checking that the device is there. Starting the
+# session with no APC was the crash loop in #154. A periodic reconcile that
+# starts it blind would rebuild that loop at the reconcile's own period.
+DEVICE_GATED_UNITS = frozenset({"mpe-looper-session"})
+
+
+def _device_allows_start(unit: str) -> bool:
+    """False only when the unit's device is known to be absent.
+
+    None (card list unreadable) allows the start, and the session falls back on
+    the bench's own port lookup. Refusing on None would turn a /proc read error
+    into pads that never come back.
+    """
+    if unit not in DEVICE_GATED_UNITS:
+        return True
+    return apc_present() is not False
+
 
 def _systemctl(unit: str, verb: str) -> None:
     subprocess.run(["sudo", "systemctl", verb, f"{unit}.service"], check=False)
@@ -70,6 +90,8 @@ def ensure_looper_units_running() -> None:
         return
     for unit in LOOPER_UNITS_START_ORDER:
         if systemd_unit_enabled(unit) is False:
+            continue
+        if not _device_allows_start(unit):
             continue
         if systemd_unit_active(unit) is False:
             _systemctl(unit, "start")
@@ -132,6 +154,8 @@ def restore_mpe_audio_services(*, restart_browser: bool = True) -> None:
     _systemctl("surge-xt-cli", "start")
     time.sleep(1)
     for unit in LOOPER_UNITS_START_ORDER:
+        if not _device_allows_start(unit):
+            continue
         _systemctl(unit, "start")
     _safe_emit_event(
         "looper.units.started",

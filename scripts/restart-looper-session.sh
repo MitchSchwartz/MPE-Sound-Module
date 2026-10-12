@@ -40,6 +40,13 @@ sudo systemctl start "$UNIT"
 sleep 6
 
 if ! systemctl is-active --quiet "$UNIT"; then
+    # 69 = no APC connected (patch_browser/apc_presence.py APC_ABSENT_EXIT).
+    # The session checked the card list and stopped on purpose. udev starts it
+    # when an APC is plugged in. That is a correct state, not a failed restart.
+    if [ "$(systemctl show -p ExecMainStatus --value "$UNIT" 2>/dev/null)" = 69 ]; then
+        echo "restart-looper-session: no APC connected. $UNIT is idle until one is plugged in (exit 69)."
+        exit 0
+    fi
     echo "restart-looper-session: FAIL — $UNIT not active" >&2
     systemctl status "$UNIT" --no-pager -l || true
     exit 1
