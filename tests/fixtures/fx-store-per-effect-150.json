@@ -1,0 +1,28 @@
+{
+  "factory:Bass/Sub Bass": {
+    "depths": {
+      "3": 0.6
+    },
+    "effect": 2,
+    "target": "effect"
+  },
+  "factory:Keys/Bonita Keys": {
+    "depths": {
+      "0": 0.4,
+      "1": 0.25
+    },
+    "effect": 1
+  },
+  "factory:Leads/Saw Lead": {
+    "target": "effect"
+  },
+  "factory:Pads/Glass Pad": {
+    "effect": 3
+  },
+  "factory:Strings/Bowed String": {
+    "depths": {
+      "2": 0.6062992125984252
+    },
+    "effect": 2
+  }
+}

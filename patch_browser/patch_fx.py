@@ -1,4 +1,4 @@
-"""Per-patch effect setup: the selected effect, each effect's depth, the mod-knob target.
+"""Per-patch effect setup: which effects are on, one depth, the mod-knob target.
 
 A sidecar store like normalization and hold (`SidecarKeyMixin`): keyed by the
 patch's stable key, read with the legacy stem as a fallback, migrated by the
@@ -7,15 +7,26 @@ starts again from the global defaults, the same as its Hold and normalization.
 
 Each field is optional. Missing means "use the global default", resolved by
 `fx_policy.resolve_config`: patch value first, then the global default. A
-patch never set plays the global default effect at depth 0.
+patch never set plays the global default chain at depth 0.
 
 Entry shape (one per patch):
 
-    {"effect": 1, "depths": {"0": 0.4, "1": 0.25}, "target": "effect"}
+    {"mask": 5, "depth": 0.4, "target": "effect"}
 
-Depth keys are effect ids as strings (JSON object keys). Nothing read from the
-file is trusted: unknown effect ids, non-finite or out-of-range depths and
-unknown targets are dropped on read.
+`mask` is the chain's enable mask (`fx_host_protocol`: bit `1 << effect_id`
+per enabled effect), `depth` the one depth every enabled effect plays at.
+Nothing read from the file is trusted: a mask naming an effect this build does
+not ship, a non-finite or out-of-range depth and an unknown target are dropped
+on read.
+
+**Migration from the per-effect entries of #150**, which looked like
+`{"effect": 1, "depths": {"0": 0.4, "1": 0.25}, "target": "effect"}`: an entry
+with `effect` or `depths` and no `mask` is read as that shape. The selected effect becomes a
+one-bit mask and its depth the shared depth; the other effects' depths are
+dropped, because there is now one depth. An old entry with depths but no
+selected effect keeps no depth: which effect those belonged to depended on the
+global default at the time, which the store cannot see. Entries are converted
+when the file is loaded, so the next save writes the new shape for every patch.
 
 This module only stores. `FxPolicy` decides when to write (debounced, never
 per knob tick) and what the values mean.
@@ -25,7 +36,7 @@ from __future__ import annotations
 
 import math
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -46,12 +57,16 @@ def default_fx_path() -> Path:
     return Path.home() / ".patch_browser_fx.json"
 
 
-def _valid_effect(value) -> bool:
-    return (
-        not isinstance(value, bool)
-        and isinstance(value, int)
-        and value in fx_host_protocol.EFFECT_IDS
-    )
+def _int(value) -> int | None:
+    return None if isinstance(value, bool) or not isinstance(value, int) else value
+
+
+def valid_mask(value) -> int | None:
+    """`value` if it is a mask of effects this build ships, else None."""
+    mask = _int(value)
+    if mask is None or mask < 0 or mask & ~fx_host_protocol.MASK_ALL:
+        return None
+    return mask
 
 
 def _depth(value) -> float | None:
@@ -62,28 +77,38 @@ def _depth(value) -> float | None:
     return float(value)
 
 
+#: Keys only a #150 entry has.
+_LEGACY_KEYS = frozenset(("effect", "depths"))
+
+
+def _from_per_effect(raw: dict) -> tuple[int | None, float | None]:
+    """(mask, depth) from a #150 entry: the selected effect and its depth."""
+    effect = _int(raw.get("effect"))
+    if effect is None or effect not in fx_host_protocol.EFFECT_IDS:
+        return None, None
+    depths = raw.get("depths")
+    depth = _depth(depths.get(str(effect))) if isinstance(depths, dict) else None
+    return fx_host_protocol.mask_of((effect,)), depth
+
+
 @dataclass(frozen=True)
 class PatchFx:
-    """One patch's own values. None / absent means the global default."""
+    """One patch's own values. None means the global default."""
 
-    effect: int | None = None
-    depths: dict[int, float] = field(default_factory=dict)
+    mask: int | None = None
+    depth: float | None = None
     target: str | None = None
 
     @property
     def is_empty(self) -> bool:
-        return self.effect is None and not self.depths and self.target is None
-
-    def depth_for(self, effect_id: int) -> float:
-        """This patch's depth for an effect; 0 for one it never set."""
-        return self.depths.get(effect_id, 0.0)
+        return self.mask is None and self.depth is None and self.target is None
 
     def to_json(self) -> dict[str, Any]:
         out: dict[str, Any] = {}
-        if self.effect is not None:
-            out["effect"] = self.effect
-        if self.depths:
-            out["depths"] = {str(k): self.depths[k] for k in sorted(self.depths)}
+        if self.mask is not None:
+            out["mask"] = self.mask
+        if self.depth is not None:
+            out["depth"] = self.depth
         if self.target is not None:
             out["target"] = self.target
         return out
@@ -92,26 +117,12 @@ class PatchFx:
     def from_json(cls, raw) -> "PatchFx":
         if not isinstance(raw, dict):
             return cls()
-        effect = raw.get("effect")
         target = raw.get("target")
-        depths: dict[int, float] = {}
-        raw_depths = raw.get("depths")
-        if isinstance(raw_depths, dict):
-            for key, value in raw_depths.items():
-                try:
-                    effect_id = int(key)
-                except (TypeError, ValueError):
-                    continue
-                if str(effect_id) != str(key) or not _valid_effect(effect_id):
-                    continue
-                depth = _depth(value)
-                if depth is not None:
-                    depths[effect_id] = depth
-        return cls(
-            effect=effect if _valid_effect(effect) else None,
-            depths=depths,
-            target=target if target in STORED_TARGETS else None,
-        )
+        if "mask" in raw or not _LEGACY_KEYS & raw.keys():
+            mask, depth = valid_mask(raw.get("mask")), _depth(raw.get("depth"))
+        else:
+            mask, depth = _from_per_effect(raw)
+        return cls(mask=mask, depth=depth, target=target if target in STORED_TARGETS else None)
 
 
 class PatchFxStore(SidecarKeyMixin):
@@ -123,11 +134,14 @@ class PatchFxStore(SidecarKeyMixin):
         self.load()
 
     def load(self) -> None:
+        """Read the file, converting every entry to the current shape in memory
+        (the file itself changes at the next save)."""
         self._data = {}
         if self.path.exists():
             for key, entry in read_json_dict(self.path, label="fx file").items():
-                if isinstance(entry, dict):
-                    self._data[key] = dict(entry)
+                fx = PatchFx.from_json(entry)
+                if not fx.is_empty:
+                    self._data[key] = fx.to_json()
 
     def save(self) -> None:
         atomic_write_json(self.path, self._data)
