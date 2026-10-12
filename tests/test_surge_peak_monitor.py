@@ -133,5 +133,27 @@ class SurgePeakMonitorStateFileTests(unittest.TestCase):
                 monitor._poll_once()
             self.assertAlmostEqual(monitor.snapshot()["peak_linear"], 0.2)
 
+    def test_clip_latch_is_read_from_the_compiled_meter(self) -> None:
+        """clip= is latched in mpe-peak-meter on the post-FX tap; the reader
+        passes it through and drops it when the meter goes offline or clears."""
+        with tempfile.TemporaryDirectory() as tmp:
+            state_path = Path(tmp) / "meter.state"
+            monitor = SurgePeakMonitor(_healthy_surge(), state_path=state_path)
+            with patch.dict("os.environ", {PEAK_METER_ENV: "1"}):
+                state_path.write_text("peak_linear=1\nclip=1\nwired=1\n", encoding="utf-8")
+                monitor._poll_once()
+                self.assertTrue(monitor.snapshot()["clip"])
+                state_path.write_text("peak_linear=0.3\nclip=0\nwired=1\n", encoding="utf-8")
+                monitor._poll_once()
+                self.assertFalse(monitor.snapshot()["clip"])
+                state_path.write_text("peak_linear=1\nclip=1\nwired=0\n", encoding="utf-8")
+                monitor._poll_once()
+                self.assertFalse(monitor.snapshot()["clip"])
+                # An older meter that never wrote clip= is not a clip.
+                state_path.write_text("peak_linear=1\nwired=1\n", encoding="utf-8")
+                monitor._poll_once()
+                self.assertFalse(monitor.snapshot()["clip"])
+
+
 if __name__ == "__main__":
     unittest.main()

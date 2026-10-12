@@ -431,6 +431,11 @@ class TouchBrowserDrawMixin:
             self.screen.blit(dash, (dash_x, dash_y))
             return
 
+        clip = bool(snap.get("clip"))
+        if clip:
+            # The compiled meter's latch: a post-FX sample reached full scale in
+            # the last ~1.6 s. Outlined so it reads even after the bar decays.
+            pygame.draw.rect(self.screen, self.theme.danger, bar_rect, width=1, border_radius=3)
         ratio = max(0.0, min(1.0, float(snap["ratio"] or 0.0)))
         if ratio <= 0.0:
             return
@@ -438,7 +443,7 @@ class TouchBrowserDrawMixin:
         fill_rect = pygame.Rect(bar_rect.x, bar_rect.bottom - fill_h, bar_rect.w, fill_h)
         pygame.draw.rect(
             self.screen,
-            self._peak_meter_color(snap["dbfs"]),
+            self.theme.danger if clip else self._peak_meter_color(snap["dbfs"]),
             fill_rect,
             border_radius=3,
         )
