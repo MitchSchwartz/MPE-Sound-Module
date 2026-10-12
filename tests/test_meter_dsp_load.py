@@ -252,6 +252,11 @@ class GovernorResponseAtBaselineTests(unittest.TestCase):
                             if line and not line.startswith("#") and "=" in line}
                 self.assertNotIn("MPE_POLY_JACK_BASELINE", set_keys)
                 self.assertNotIn("MPE_POLY_LIMIT_HARD", set_keys)
+                self.assertNotIn("MPE_POLY_REST_CAP", set_keys)
+                self.assertNotEqual(
+                    dict(line.split("=", 1) for line in path.read_text().splitlines()
+                         if line.startswith("MPE_POLY_STEP_UP=")).get("MPE_POLY_STEP_UP"),
+                    "0", "step-up 0 with shedding holds the limit down until a patch load")
 
 
 if __name__ == "__main__":
