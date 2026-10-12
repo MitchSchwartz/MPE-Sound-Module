@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from patch_browser.patch_fx import PatchFxStore
 from patch_browser.patch_hold import PatchHoldStore
 from patch_browser.patch_loader import PatchLoader
 from patch_browser.patch_normalization import PatchNormalizationStore
@@ -15,6 +16,7 @@ def migrate_sidecar_stores(
     normalization: PatchNormalizationStore | None = None,
     hold: PatchHoldStore | None = None,
     pressure: PatchPressureStore | None = None,
+    fx: PatchFxStore | None = None,
     patches: list[dict],
     patch_dirs: list[Path] | tuple[Path, ...],
 ) -> list[str]:
@@ -29,6 +31,7 @@ def migrate_sidecar_stores(
             normalization,
             hold,
             pressure,
+            fx,
         )
         if store is not None
     ]
@@ -52,6 +55,7 @@ def migrate_loader_sidecars(
         normalization=loader.normalization,
         hold=loader.hold,
         pressure=loader.pressure,
+        fx=getattr(loader, "fx_store", None),
         patches=patches,
         patch_dirs=patch_dirs,
     )
