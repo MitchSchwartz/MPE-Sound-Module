@@ -15,6 +15,11 @@
  * summing of every connection into an input. Only the meter's driver reads
  * buffers.
  * stdout, one line per scenario (see the bottom of this file).
+ *
+ * Meter only (-DCLIENT_METER), one line each:
+ *     cpuload <value>   what jack_cpu_load() returns ("nan" and "inf" parse)
+ *     dsp               writes meter.state into $MPE_RUN_DIR through the
+ *                       meter's own read + write path; prints "dsp written"
  */
 #define _GNU_SOURCE
 #include <errno.h>
@@ -96,7 +101,9 @@ void jack_on_shutdown(jack_client_t *c, JackShutdownCallback cb, void *a) { (voi
 int jack_set_port_connect_callback(jack_client_t *c, JackPortConnectCallback cb, void *a) { (void)c; (void)cb; (void)a; return 0; }
 int jack_set_port_registration_callback(jack_client_t *c, JackPortRegistrationCallback cb, void *a) { (void)c; (void)cb; (void)a; return 0; }
 jack_nframes_t jack_get_sample_rate(jack_client_t *c) { (void)c; return 48000; }
-float jack_cpu_load(jack_client_t *c) { (void)c; return 0.0f; }
+/* What jackd would report: a percentage, 0-100 (set by the `cpuload` command). */
+static float fj_cpu_load = 0.0f;
+float jack_cpu_load(jack_client_t *c) { (void)c; return fj_cpu_load; }
 jack_port_t *jack_port_register(jack_client_t *c, const char *n, const char *t, unsigned long f, unsigned long b)
 {
     (void)c; (void)t; (void)f; (void)b;
@@ -290,6 +297,16 @@ int main(void)
             jack_port_t *p = fj_add_port(line + 6);
             p->has_level = 1;
             p->level = strtof(tab + 1, NULL);
+#if defined(CLIENT_METER)
+        } else if (strncmp(line, "cpuload ", 8) == 0) {
+            fj_cpu_load = strtof(line + 8, NULL);
+        } else if (strcmp(line, "dsp") == 0) {
+            load_env();
+            g_client = &fj_client;
+            write_meter_state(0.0f, 0, 0, 0, 0, 0, 0, read_dsp_percent());
+            printf("dsp written\n");
+            fflush(stdout);
+#endif
         } else if (strcmp(line, "end") == 0) {
             evaluate();
             fflush(stdout);

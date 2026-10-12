@@ -373,7 +373,14 @@ static void write_meter_state(float peak_linear, int clip, int surge_wired, int 
     fprintf(fh, "surge_playback=%d\n", surge_playback ? 1 : 0);
     fprintf(fh, "source=jack\n");
     fprintf(fh, "xruns=%lu\n", xruns);
-    fprintf(fh, "dsp_percent=%.3f\n", dsp_percent);
+    /* NAN = no valid reading (see read_dsp_percent). "invalid" fails float()
+     * in governor_load, which is its existing stale path: fall back to proc
+     * and say so in the journal. Never a plausible number. */
+    if (isfinite(dsp_percent)) {
+        fprintf(fh, "dsp_percent=%.3f\n", dsp_percent);
+    } else {
+        fprintf(fh, "dsp_percent=invalid\n");
+    }
     fprintf(fh, "updated=%ld\n", (long)time(NULL));
     fclose(fh);
     chmod(tmp, 0644);
@@ -448,6 +455,43 @@ static int ensure_wiring(void)
     return surge_ok;
 }
 
+/*
+ * jack_cpu_load() is ALREADY a percentage, 0-100 of the real time available
+ * per cycle (jack.h; jack2 JackEngineControl::CalcCPULoad). It is published
+ * as-is. From 2026-08-23 (d4d91cb) to 2026-10-11 it was multiplied by 100 and
+ * clamped, so every real load >= 1% read 100.000 (#154).
+ *
+ * A value jackd cannot produce (non-finite, < 0, > 100) is NOT clamped: a
+ * clamp turns a broken instrument into a plausible reading. It returns NAN,
+ * which write_meter_state publishes as "invalid", and is logged once per
+ * valid->invalid transition.
+ */
+static float dsp_percent_from_jack_load(float load)
+{
+    if (!isfinite(load) || load < 0.0f || load > 100.0f) {
+        return NAN;
+    }
+    return load;
+}
+
+static float read_dsp_percent(void)
+{
+    static int reported_invalid = 0;
+    if (g_client == NULL) {
+        return NAN;
+    }
+    float raw = jack_cpu_load(g_client);
+    float dsp = dsp_percent_from_jack_load(raw);
+    if (isfinite(dsp)) {
+        reported_invalid = 0;
+    } else if (!reported_invalid) {
+        fprintf(stderr, CLIENT_NAME ": jack_cpu_load()=%g outside 0-100; "
+                "publishing dsp_percent=invalid\n", (double)raw);
+        reported_invalid = 1;
+    }
+    return dsp;
+}
+
 static void *writer_thread(void *arg)
 {
     (void)arg;
@@ -461,21 +505,13 @@ static void *writer_thread(void *arg)
         int looper_playback = atomic_load_explicit(&g_looper_playback, memory_order_relaxed);
         int surge_playback = atomic_load_explicit(&g_surge_playback, memory_order_relaxed);
         unsigned long xruns = atomic_load_explicit(&g_xrun_count, memory_order_relaxed);
-        float dsp_percent = 0.0f;
-        if (g_client != NULL) {
-            dsp_percent = (float)(jack_cpu_load(g_client) * 100.0);
-            if (!isfinite(dsp_percent) || dsp_percent < 0.0f) {
-                dsp_percent = 0.0f;
-            } else if (dsp_percent > 100.0f) {
-                dsp_percent = 100.0f;
-            }
-        }
+        float dsp_percent = read_dsp_percent();
         write_meter_state(hold.held_peak, hold.clip_writes > 0, surge_wired, looper_client,
                           looper_playback, surge_playback, xruns, dsp_percent);
         interruptible_usleep(WRITER_INTERVAL_US);
     }
     write_meter_state(0.0f, 0, 0, 0, 0, 0,
-                      atomic_load_explicit(&g_xrun_count, memory_order_relaxed), 0.0f);
+                      atomic_load_explicit(&g_xrun_count, memory_order_relaxed), NAN);
     return NULL;
 }
 
