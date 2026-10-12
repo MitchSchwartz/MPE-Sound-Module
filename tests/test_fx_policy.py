@@ -30,6 +30,7 @@ from patch_browser.fx_policy import (  # noqa: E402
     resolve_config,
     route_cc1,
 )
+from patch_browser.patch_fx import PatchFx  # noqa: E402
 
 # A Surge .fxp is a binary chunk header, the patch XML, then optional binary
 # data. These fixtures keep that shape so the parser is tested on it.
@@ -149,9 +150,9 @@ class ResolveConfigTests(unittest.TestCase):
         self.assertEqual(resolve_config(global_target="nonsense").mod_wheel_target, MOD_WHEEL_PATCH_FIRST)
 
     def test_patch_value_wins_over_global(self) -> None:
-        own = FxConfig(mod_wheel_target=MOD_WHEEL_PATCH_FIRST)
+        own = PatchFx(target=MOD_WHEEL_PATCH_FIRST)
         got = resolve_config(global_target=MOD_WHEEL_EFFECT, patch_config=own)
-        self.assertEqual(got, own)
+        self.assertEqual(got, FxConfig(mod_wheel_target=MOD_WHEEL_PATCH_FIRST))
 
 
 class _RecordingSender:
@@ -505,7 +506,7 @@ class EffectSelectionTests(unittest.TestCase):
         self.assertEqual(self._route()["effect"], fx_host_protocol.EFFECT_TREMOLO)
 
     def test_patch_value_wins_over_the_global_effect(self) -> None:
-        own = FxConfig(effect_id=fx_host_protocol.EFFECT_PHASER)
+        own = PatchFx(effect=fx_host_protocol.EFFECT_PHASER)
         got = resolve_config(
             global_target=MOD_WHEEL_PATCH_FIRST,
             global_effect=fx_host_protocol.EFFECT_TUBE_DRIVE,
@@ -533,12 +534,10 @@ class EffectSelectionTests(unittest.TestCase):
 
     def test_remapper_sends_the_chosen_effect_and_nothing_else_does(self) -> None:
         sender = _RecordingSender()
-        forward = _RecordingForward()
         router = Cc1Router(
             sender=sender,
             route_path=self.route,
             levels_path=self.levels,
-            forward=forward,
             clock=lambda: self.now,
         )
 
@@ -549,18 +548,23 @@ class EffectSelectionTests(unittest.TestCase):
         policy = self._policy(global_target=MOD_WHEEL_EFFECT)
         policy.on_patch_loaded(self.with_wheel)
         tick()
-        self.assertTrue(router.consume([0xB0, 1, 127]))  # knob up, effect 0
-        self.assertEqual(sender.sent, [(fx_host_protocol.EFFECT_CHORUS, 1.0)])
-        forwarded = len(forward.calls)
+        # A never-set patch: the default effect at depth 0.
+        self.assertEqual(sender.sent, [(fx_host_protocol.EFFECT_CHORUS, 0.0)])
+        self.assertTrue(router.consume([0xB0, 1, 1]))  # knob picks up 0...
+        self.assertTrue(router.consume([0xB0, 1, 127]))  # ...and follows
+        self.assertEqual(sender.sent[-1], (fx_host_protocol.EFFECT_CHORUS, 1.0))
         with mock.patch.object(socket_module(), "socket", side_effect=AssertionError("UI opened a socket")):
             policy.set_global_effect(fx_host_protocol.EFFECT_TUBE_DRIVE)
         tick()
-        # The remapper resends the depth in force under the new effect, once.
-        self.assertEqual(sender.sent[-1], (fx_host_protocol.EFFECT_TUBE_DRIVE, 1.0))
-        self.assertEqual(len(sender.sent), 2)
-        self.assertEqual(len(forward.calls), forwarded)  # no replay to Surge
+        # The new effect plays at its own depth for this patch (never set: 0);
+        # the knob level does not carry over. Sent once, by the remapper.
+        self.assertEqual(sender.sent[-1], (fx_host_protocol.EFFECT_TUBE_DRIVE, 0.0))
+        count = len(sender.sent)
         tick()
-        self.assertEqual(len(sender.sent), 2)
+        self.assertEqual(len(sender.sent), count)
+        self.assertTrue(router.consume([0xB0, 1, 64]))  # not picked up: nothing
+        self.assertEqual(len(sender.sent), count)
+        self.assertTrue(router.consume([0xB0, 1, 0]))  # crosses 0: follows
         self.assertTrue(router.consume([0xB0, 1, 64]))
         self.assertEqual(sender.sent[-1], (fx_host_protocol.EFFECT_TUBE_DRIVE, 64 / 127))
 
@@ -633,15 +637,6 @@ class OneSenderGuardTests(unittest.TestCase):
         self.assertEqual(offenders, [])
 
 
-class _RecordingForward:
-    def __init__(self) -> None:
-        self.calls: list[tuple[object, list[int]]] = []
-
-    def __call__(self, source, raw) -> bool:
-        self.calls.append((source, list(raw)))
-        return True
-
-
 class Cc1RouterTests(unittest.TestCase):
     def setUp(self) -> None:
         self._dir = tempfile.TemporaryDirectory()
@@ -649,13 +644,11 @@ class Cc1RouterTests(unittest.TestCase):
         self.route = Path(self._dir.name) / "fx-route.json"
         self.levels = Path(self._dir.name) / "fx-levels.json"
         self.sender = _RecordingSender()
-        self.forward = _RecordingForward()
         self.now = 100.0
         self.router = Cc1Router(
             sender=self.sender,
             route_path=self.route,
             levels_path=self.levels,
-            forward=self.forward,
             clock=lambda: self.now,
         )
         self._n = 0
@@ -702,32 +695,28 @@ class Cc1RouterTests(unittest.TestCase):
             self._tick()
             self.assertEqual(reader.call_count, 2)
 
-    def test_handing_the_wheel_to_the_effect_jumps_to_the_knob(self) -> None:
-        self._publish(CC1_TO_SURGE)
+    def test_handing_the_wheel_to_the_effect_moves_no_depth(self) -> None:
+        """A route change only says where the next knob message goes (A4)."""
+        self._publish(CC1_TO_SURGE, route_stamp="r", depth=0.6, depth_stamp="d1")
         self._tick()
-        self.assertFalse(self.router.consume([0xB0, 1, 127]))  # to Surge, remembered
+        self.assertFalse(self.router.consume([0xB0, 1, 0]))  # to Surge
         self._publish(CC1_TO_FX)
         self._tick()
-        self.assertEqual(self.sender.sent, [(0, 1.0)])
+        self.assertEqual(self.sender.sent, [(0, 0.6)])
+        self.assertEqual(self.router.depth, 0.6)
 
-    def test_handing_the_wheel_back_replays_the_knob_to_surge(self) -> None:
-        """Switch, setting or load: any route change that lands on Surge."""
-        source = object()
+    def test_handing_the_wheel_back_sends_surge_nothing(self) -> None:
         self._publish(CC1_TO_FX)
         self._tick()
-        self.assertTrue(self.router.consume([0xB0, 1, 90], source))
-        self._publish(CC1_TO_SURGE)
+        self.assertTrue(self.router.consume([0xB0, 1, 90]))
         self._tick()
-        self.assertEqual(self.forward.calls, [(source, [0xB0, 1, 90])])
-        # A patch load that stays with Surge replays too: Surge may not keep it.
-        self._publish(CC1_TO_SURGE)
-        self._tick()
-        self.assertEqual(len(self.forward.calls), 2)
-
-    def test_no_replay_before_the_knob_has_moved(self) -> None:
-        self._publish(CC1_TO_SURGE)
-        self._tick()
-        self.assertEqual(self.forward.calls, [])
+        before = self._levels()
+        for _ in range(2):  # the switch, then a load that stays with Surge
+            self._publish(CC1_TO_SURGE)
+            self._tick()
+            self._tick()
+        self.assertEqual(self._levels(), before)
+        self.assertNotIn("patch_mod", self._levels())
 
     def test_fader_request_is_applied_once_and_echoed(self) -> None:
         self._publish(CC1_TO_SURGE, route_stamp="r", depth=0.4, depth_stamp="d1")
@@ -742,7 +731,6 @@ class Cc1RouterTests(unittest.TestCase):
         self._publish(CC1_TO_SURGE, route_stamp="r", depth=0.4, depth_stamp="d1")
         self._tick()
         self.assertEqual(self.sender.sent, [(0, 0.4)])
-        self.assertEqual(self.forward.calls, [])
 
     def test_knob_moves_are_echoed_at_most_once_per_tick(self) -> None:
         self._publish(CC1_TO_FX)
@@ -763,6 +751,11 @@ class Cc1RouterTests(unittest.TestCase):
         self._publish(CC1_TO_FX, route_stamp="r", depth=0.1, depth_stamp="d1")
         self._tick()
         self.assertEqual(self.router.depth, 0.1)
+        # The fader moved the depth from under the knob: it picks up first.
+        self.router.consume([0xB0, 1, 0])
+        self.assertEqual(self.router.depth, 0.1)
+        self.router.consume([0xB0, 1, 20])  # crosses 0.1 * 127
+        self.assertEqual(self.router.depth, 20 / 127)
         self.router.consume([0xB0, 1, 0])
         self.assertEqual(self.router.depth, 0.0)
 
@@ -805,30 +798,6 @@ class Cc1RouterTests(unittest.TestCase):
         self.assertEqual(levels["depth"], 100 / 127)
         self.assertEqual(levels["source"], "knob")
 
-    def test_handing_the_knob_back_publishes_the_replayed_value(self) -> None:
-        source = object()
-        self._publish(CC1_TO_FX)
-        self._tick()
-        self.router.consume([0xB0, 1, 90], source)
-        self._tick()
-        self.assertNotIn("patch_mod", self._levels())
-        self._publish(CC1_TO_SURGE)
-        self._tick()
-        self._tick()
-        self.assertEqual(self._levels()["patch_mod"], 90)
-        self.assertEqual(self.forward.calls, [(source, [0xB0, 1, 90])])
-
-    def test_replay_that_could_not_send_publishes_nothing(self) -> None:
-        self.router._forward = lambda _source, _raw: False  # the device is gone
-        self._publish(CC1_TO_FX)
-        self._tick()
-        self.router.consume([0xB0, 1, 90])
-        self._tick()
-        self._publish(CC1_TO_SURGE)
-        self._tick()
-        self._tick()
-        self.assertNotIn("patch_mod", self._levels())
-
     def test_garbage_route_file_means_surge(self) -> None:
         self.route.write_text('{"cc1": "elsewhere", "effect": 0.0, "depth_request": "x", "depth_stamp": 5}')
         self._tick()
@@ -854,7 +823,9 @@ class Cc1RouterTests(unittest.TestCase):
         self._tick()
         self._tick()
         self.assertEqual(self.sender.sent, [(0, 0.3)])
-        self.assertTrue(self.router.consume([0xB0, 1, 127]))  # knob turned up
+        self.assertTrue(self.router.consume([0xB0, 1, 30]))  # knob picks up 0.3...
+        self.assertTrue(self.router.consume([0xB0, 1, 50]))
+        self.assertTrue(self.router.consume([0xB0, 1, 127]))  # ...and is turned up
         self._tick()
         clock[0] += 1
         self.assertTrue(policy.poll_levels())
@@ -891,18 +862,27 @@ class Cc1RouterTests(unittest.TestCase):
         self._tick()
         self.assertTrue(ui_poll())
         self.assertEqual(policy.patch_mod, 71)
-        # Flip to the effect and back: the replay lands on the Patch mod fader.
+        # Flip to the effect and back: nothing moves but where the knob goes.
         policy.set_patch_mod(5)
+        sent = list(self.sender.sent)
         policy.set_target(MOD_WHEEL_EFFECT)
         self._tick()
-        self.assertEqual(self.sender.sent[-1], (0, 71 / 127))
-        self.assertTrue(ui_poll())  # the Effect fader jumps to the knob
-        self.assertEqual(policy.depth, 71 / 127)
-        self.assertEqual(policy.patch_mod, 5)
+        self.assertEqual(self.sender.sent, sent)
+        self.assertFalse(ui_poll())
+        self.assertEqual((policy.depth, policy.patch_mod), (0.0, 5))
         policy.set_target(MOD_WHEEL_PATCH_FIRST)
         self._tick()
+        self.assertFalse(ui_poll())
+        self.assertEqual((policy.depth, policy.patch_mod), (0.0, 5))
+        # The fader set 5: the knob at 71 is ignored until it comes down to it.
+        self.now += 0.01
+        self.assertTrue(self.router.consume([0xB0, 1, 60]))  # swallowed
+        self._tick()
+        self.assertFalse(ui_poll())
+        self.assertFalse(self.router.consume([0xB0, 1, 4]))  # crossed 5: forwarded
+        self._tick()
         self.assertTrue(ui_poll())
-        self.assertEqual(policy.patch_mod, 71)
+        self.assertEqual(policy.patch_mod, 4)
 
 
 class FxHostSenderTests(unittest.TestCase):
@@ -965,16 +945,6 @@ class RemapDaemonCc1Tests(unittest.TestCase):
         daemon._handle_incoming(None, [0xB0, 74, 64], 0.0)
         self.assertEqual(emitted, [[0xB3, 1, 64], [0xB3, 74, 64], [0xB0, 74, 64]])
         self.assertEqual(sender.sent, [(0, 64 / 127)])
-
-    def test_replay_goes_through_the_source_binding(self) -> None:
-        _module, daemon, emitted = self._daemon("1")
-        live, gone = object(), object()
-        daemon._bindings = [live]
-        self.assertIs(daemon._replay_to_surge(live, [0xB0, 1, 77]), True)
-        self.assertIs(daemon._replay_to_surge(gone, [0xB0, 1, 78]), False)  # unplugged since
-        self.assertIs(daemon._replay_to_surge(None, [0xB0, 1, 79]), False)
-        self.assertEqual(emitted, [[0xB0, 1, 77]])
-        self.assertEqual(daemon._cc1._forward, daemon._replay_to_surge)
 
     def test_on_but_routed_to_surge_forwards(self) -> None:
         _module, daemon, emitted = self._daemon("1")

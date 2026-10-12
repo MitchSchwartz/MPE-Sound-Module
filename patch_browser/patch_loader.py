@@ -9,6 +9,7 @@ import time
 from pathlib import Path
 
 from patch_browser.fx_policy import FxPolicy
+from patch_browser.patch_fx import PatchFxStore
 from patch_browser.patch_hold import (
     PatchHoldStore,
     effective_aeg_value,
@@ -51,6 +52,7 @@ class PatchLoader:
         pressure_store=None,
         osc_out_port: int = OSC_OUT_PORT,
         fx_policy: FxPolicy | None = None,
+        fx_store: PatchFxStore | None = None,
     ):
         try:
             from pythonosc import udp_client
@@ -69,6 +71,10 @@ class PatchLoader:
         self.hold = hold_store or PatchHoldStore()
         self.pressure = pressure_store or PatchPressureStore()
         self.fx_policy = fx_policy or FxPolicy()
+        # Each patch's effect setup; the policy reads it at load and writes it
+        # back (debounced), resolved patch value first, then the global default.
+        self.fx_store = fx_store or PatchFxStore()
+        self.fx_policy.bind_store(self.fx_store)
         self.osc_host = osc_host
         self.osc_out_port = osc_out_port
         self.user_volume_trim = 1.0
@@ -262,6 +268,19 @@ class PatchLoader:
             print(f"Error sending patch mod via OSC: {e}")
             return False
 
+    def _resend_patch_mod(self) -> None:
+        """After a load, give Surge the Patch mod fader's value again.
+
+        Surge may not keep its mod wheel across a patch load (unverified), and
+        nothing else re-sends it: switching patches moves neither fader, so the
+        fader's value has to be what the new patch hears. Only with the FX
+        host on (otherwise the knob reaches Surge directly and the fader does
+        not follow it) and only once the value is known.
+        """
+        policy = self.fx_policy
+        if policy.enabled and policy.patch_mod_known:
+            self.send_patch_mod(policy.patch_mod, final=True)
+
     def refresh_hold(self, patch_name: str) -> bool:
         """Re-apply Hold multiplier to the current patch baseline."""
         if not self.osc_enabled:
@@ -329,7 +348,10 @@ class PatchLoader:
             self._send_hold_osc(patch_name)
             # The source file, not the Reuse Single copy: same routings, and
             # the copy may not exist when the feature is off.
-            self.fx_policy.on_patch_loaded(patch_path)
+            self.fx_policy.on_patch_loaded(
+                patch_path, patch_name=patch_name, stable_key=stable_key
+            )
+            self._resend_patch_mod()
             return True
         except Exception as e:
             print(f"Error loading patch via OSC: {e}")
