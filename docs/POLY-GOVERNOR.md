@@ -1,6 +1,6 @@
 # Dynamic voice limit (poly governor)
 
-*Last updated: 2026-08-25 (America/Toronto)*
+*Last updated: 2026-10-11 (America/Toronto)*
 
 Surge's polyphony ceiling is not fixed at boot. A background service (`surge-poly-governor.service`) watches real-time DSP load and moves Surge's voice limit up and down so dense playing stays inside JACK's deadline. Surge's built-in softkill (`uber_release`) steals voices when the limit bites — there is no MIDI panic.
 
@@ -32,10 +32,10 @@ A **continuous curve** maps normalized jack load → voice limit between a rest 
 
 | Knob | Role |
 |---|---|
-| `MPE_POLY_JACK_BASELINE` | Platform idle load (%); stress = meter − baseline |
+| `MPE_POLY_JACK_BASELINE` | Platform idle load (%); stress = meter − baseline. Default **40** (top of the measured idle band at 96 x 2); `-1` learns the idle minimum |
 | `MPE_POLY_MIN_HEADROOM` | At zero stress, limit = ceiling − headroom (when rest cap off) |
 | `MPE_POLY_REST_CAP` | **Pre-engaged cap** — fixed rest limit from boot (experiment); overrides headroom when > 0 |
-| `MPE_POLY_LIMIT_HARD` | Load % where curve reaches floor |
+| `MPE_POLY_LIMIT_HARD` | Stress (points above baseline) where the curve reaches floor. always_on default **50**, so floor at raw 90% |
 | `MPE_POLY_RAMP_APPLY` | While load is rising, OSC limit tracks the curve immediately (no deferral) |
 | `MPE_POLY_RISE_*` | Rate-of-rise bias — lead the curve on fast attacks |
 | `MPE_POLY_LIMIT_MAX_STEP_DOWN` / `MPE_POLY_LIMIT_STEP_INTERVAL_S` | Rate-limit OSC steps so steals are gradual |
@@ -62,8 +62,25 @@ The governor then **lowers** that limit under load and **raises** it when headro
 
 ## Buffer dependence and meter saturation
 
-*Found 2026-08-25 while ear-tuning the Pi 5 at `64 x 2`. Unresolved — this section records
-the finding, not a fix.*
+> **Correction, 2026-10-11 (#154).** The "saturation" below was not buffer physics. It was a
+> defect in the instrument: `mpe-peak-meter` multiplied `jack_cpu_load()` by 100, but jack2
+> already returns a 0–100 percentage, and the result was clamped to 100. Every real load of
+> 1% or more therefore read `100.000`, at any buffer size, from the day `dsp_percent` became
+> the governor's input (d4d91cb, 2026-08-23). Read at the same moments, jackd's own figure
+> was 17–38% at `96 x 2`. The meter now publishes the value as-is and writes
+> `dsp_percent=invalid` for anything outside 0–100, which the governor treats as stale
+> (falls back to `/proc` and logs it). `JACK_BASELINE=97` / `LIMIT_HARD=100` were tuned
+> against the pinned value and are replaced by derived defaults (40 / 50) in
+> `patch_browser/surge_poly_governor.py`, which carries the derivation.
+>
+> What still stands from this section: the xrun-reflex description (it is what the
+> governor actually did for seven weeks), the allocation-denial finding, the floor
+> experiment, and the point that load thresholds move with buffer size. What does not:
+> "the meter changes meaning" as the cause, "rescaling the thresholds is not the fix",
+> and the 99.9 reading, which this defect does not explain and remains unexplained.
+
+*Found 2026-08-25 while ear-tuning the Pi 5 at `64 x 2`. Kept as the record of what was
+believed then; read it through the correction above.*
 
 ### The finding
 
@@ -205,8 +222,8 @@ Backup of the pre-session values: `/etc/mpe/mpe.env.bak-20260825-160932` on `ras
 
 ### Open questions
 
-1. Is `dsp_percent` saturating, or honestly reporting ~100% of a 1.33 ms budget? These need
-   different fixes and are not currently distinguishable from the log.
+1. ~~Is `dsp_percent` saturating, or honestly reporting ~100% of a 1.33 ms budget?~~
+   Neither: it was scaled twice (#154, 2026-10-11). See the correction above.
 2. What is idle `dsp_percent` at 1024 / 512 / 256 / 128 / 64 on Pi 5? One table would make
    the baseline derivable instead of guessed.
 3. Should voice-count knobs live in `config/platform/` per (platform, buffer) rather than a
