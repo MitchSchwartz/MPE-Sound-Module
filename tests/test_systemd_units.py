@@ -138,9 +138,15 @@ class LooperStackIsSupervisedTests(unittest.TestCase):
             )
 
     def test_looper_units_have_an_install_section(self) -> None:
-        """No [Install] means `systemctl enable` silently does nothing."""
-        for name in LOOPER_UNITS:
-            self.assertIn("[Install]", _unit_text(name), f"{name} cannot be enabled")
+        """No [Install] means `systemctl enable` silently does nothing.
+
+        The engine only. mpe-looper-session is started by udev when an APC is
+        plugged in, like the foot pedal, and must NOT have an install target:
+        started at boot with no APC it was a 10.5 s crash loop (#154). See
+        tests/test_looper_session_apc_absent.py.
+        """
+        self.assertIn("[Install]", _unit_text("mpe-sooperlooper"),
+                      "mpe-sooperlooper cannot be enabled")
 
     def test_no_condition_path_exists_on_looper_units(self) -> None:
         """The ghost unit skipped every boot on an unmet ConditionPathExists."""

@@ -24,7 +24,8 @@ _install_one() {
 echo "Installing udev rules (MPE_MODULE_REPO=$MPE_MODULE_REPO)..."
 for rule in "$MPE_MODULE_REPO/config/99-backlight-permissions.rules" \
             "$MPE_MODULE_REPO/config/99-usb-audio.rules" \
-            "$MPE_MODULE_REPO/config/99-roli-seaboard.rules"; do
+            "$MPE_MODULE_REPO/config/99-roli-seaboard.rules" \
+            "$MPE_MODULE_REPO/config/99-apc-looper.rules"; do
     if [ -f "$rule" ]; then
         _install_one "$rule"
     fi

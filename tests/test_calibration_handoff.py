@@ -44,11 +44,15 @@ def _systemctl_calls(run_mock: mock.Mock, verb: str) -> list[str]:
 
 
 class LooperReconcileTests(unittest.TestCase):
+    # APC present: these tests are about recovering stopped units. The no-APC
+    # case is tests/test_looper_session_apc_absent.py.
+    @mock.patch("patch_browser.calibration_teardown.apc_present", return_value=True)
     @mock.patch("patch_browser.calibration_teardown._systemctl")
     @mock.patch("patch_browser.calibration_teardown.systemd_unit_active", return_value=False)
     @mock.patch("patch_browser.calibration_teardown.maintenance_mode_active", return_value=False)
     def test_ensure_looper_starts_stopped_units(
-        self, _maint: mock.Mock, _active: mock.Mock, systemctl_mock: mock.Mock
+        self, _maint: mock.Mock, _active: mock.Mock, systemctl_mock: mock.Mock,
+        _apc: mock.Mock,
     ) -> None:
         ct.ensure_looper_units_running()
         started = [c.args[0] for c in systemctl_mock.call_args_list if c.args[1] == "start"]
@@ -151,12 +155,14 @@ class CalibrationHandoffTests(unittest.TestCase):
         self.assertNotIn("touch-patch-browser", started)
         self.assertIn("surge-xt-cli", started)
 
+    @mock.patch("patch_browser.calibration_teardown.apc_present", return_value=True)
     @mock.patch("patch_browser.calibration_teardown.emit_event")
     @mock.patch("patch_browser.calibration_teardown.time.sleep")
     @mock.patch("patch_browser.calibration_teardown.subprocess.run")
     def test_restore_starts_looper_units_after_surge(
-        self, run_mock: mock.Mock, _sleep: mock.Mock, _emit: mock.Mock
+        self, run_mock: mock.Mock, _sleep: mock.Mock, _emit: mock.Mock, _apc: mock.Mock
     ) -> None:
+        """APC present. Without one the session is skipped: test_looper_session_apc_absent.py."""
         ct.restore_mpe_audio_services(restart_browser=False)
         started = _systemctl_calls(run_mock, "start")
         surge_idx = started.index("surge-xt-cli")
@@ -257,8 +263,10 @@ class LooperReconcileRespectsDisabledTests(unittest.TestCase):
     @mock.patch("patch_browser.calibration_teardown.systemd_unit_active", return_value=False)
     @mock.patch("patch_browser.calibration_teardown.systemd_unit_enabled", return_value=True)
     @mock.patch("patch_browser.calibration_teardown.subprocess.run")
+    @mock.patch("patch_browser.calibration_teardown.apc_present", return_value=True)
     def test_enabled_but_stopped_units_are_still_recovered(
-        self, run_mock: mock.Mock, _enabled: mock.Mock, _active: mock.Mock, _maint: mock.Mock
+        self, _apc: mock.Mock, run_mock: mock.Mock, _enabled: mock.Mock, _active: mock.Mock,
+        _maint: mock.Mock,
     ) -> None:
         """The aborted-calibration recovery this function exists for must still work."""
         ct.ensure_looper_units_running()

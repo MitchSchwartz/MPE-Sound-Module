@@ -248,10 +248,20 @@ there is audio in that loop** — see spec §L.
 **Transport (Shift + Stop All Clips):** quick release = stop all; hold **3 s** = clear all. Verify note numbers: `sooperlooper-apc-bench.py --dump-midi`.
 
 **Touch HUD:** `mpe-looper-session.service` (HUD thread) → bar/beat derived from the
-grid tempo and SL's reported loop position (`~/.mpe_sl_hud_state.json`). Pure
-Python, no JACK client.
+grid tempo and SL's reported loop position (`~/.mpe_sl_hud_state.json`). Its
+health readout holds one long-lived `jack_cpu_load` client
+(`patch_browser/looper_health.py`), so starting and stopping the session adds a
+client to the JACK graph and removes it again.
 
 **APC bench:** merged into `mpe-looper-session.service` — OSC state listener on port **9953** (all loops incl. 0). Debug: `looper-session.py --bench-only`.
+
+**Only with an APC.** udev starts the session when an APC is plugged in and
+stops it when the APC is removed (`config/99-apc-looper.rules`, the foot pedal's
+pattern). The unit has no `[Install]` section. With no APC card the session
+exits 69 before it opens anything, and the unit does not restart on 69
+(`patch_browser/apc_presence.py`). Before #154 a missing APC was exit 1 under
+`Restart=always`: a new session every 10.5 s, and the xruns fell inside those
+restarts.
 
 ## Health and recovery
 

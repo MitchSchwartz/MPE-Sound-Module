@@ -15,6 +15,7 @@ _REPO = Path(__file__).resolve().parents[2]
 if str(_REPO) not in sys.path:
     sys.path.insert(0, str(_REPO))
 
+from patch_browser.apc_presence import APC_ABSENT_EXIT, port_hint, wait_for_apc  # noqa: E402
 from patch_browser.sl_hud_state import SL_HUD_STATE_FILE  # noqa: E402
 
 from sl_hud_monitor import HudWriter  # noqa: E402
@@ -118,6 +119,31 @@ def run_session(argv: list[str] | None = None) -> int:
     if args.bench_only and args.hud_only:
         print("Error: --bench-only and --hud-only are mutually exclusive", file=sys.stderr)
         return 2
+
+    # The APC is optional. Without it there is nothing for this process to do,
+    # so ask BEFORE opening anything: the OSC port, the HUD thread and its
+    # jack_cpu_load JACK client all sit below this line. Exiting 1 here was a
+    # crash loop: Restart=always, every 10.5 s, 3535 times, with xruns landing
+    # inside those 0.3 s lifetimes (#154). APC_ABSENT_EXIT is in the unit's
+    # RestartPreventExitStatus, and udev starts the unit again when an APC
+    # appears (config/99-apc-looper.rules).
+    if not args.hud_only:
+        present = wait_for_apc()
+        if present is False:
+            print(
+                f"looper-session: no APC connected (no ALSA card matching "
+                f"{port_hint()!r}). Nothing to drive; exiting {APC_ABSENT_EXIT} "
+                f"without restart. udev starts this unit when an APC is plugged in.",
+                flush=True,
+            )
+            return APC_ABSENT_EXIT
+        if present is None:
+            # Cannot read the card list. Fall through: the bench's own port
+            # lookup decides, and a missing port still exits 1 under
+            # Restart=always, as before. An unreadable /proc must not read as
+            # "absent" and silently switch the pads off.
+            print("looper-session: WARN cannot read the ALSA card list; "
+                  "leaving the APC check to the bench", flush=True)
 
     session = SlOscSession().start()
 
