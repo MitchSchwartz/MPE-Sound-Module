@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from patch_browser.patch_metadata import INSTRUMENT_VOCAB
+from patch_browser.patch_metadata import INSTRUMENT_DISPLAY_ORDER
 
 if TYPE_CHECKING:
     from patch_browser.patch_scanner import PatchScanner
@@ -32,20 +32,15 @@ def instrument_counts(patches: list[dict]) -> dict[str, int]:
 
 
 def instruments_with_patches(patches: list[dict]) -> list[str]:
-    """Instruments that have at least one patch, ordered A-Z by chip label.
+    """Instruments that have at least one patch, in INSTRUMENT_DISPLAY_ORDER
+    (A-Z, "Other" last), the order the favorites sections and the Set
+    instrument menu use.
 
-    Sorted here rather than by reordering INSTRUMENT_VOCAB, because that tuple
-    is also the key order for classification scoring
-    (`patch_metadata.classify_instrument`) — reordering it would change
-    tie-breaks between instruments that score equally, which is a silent
-    change to how patches are labelled, not a display change.
-
-    Membership still comes from the vocab, so an unknown instrument_primary
-    cannot introduce a chip.
+    Membership comes from that tuple, so an unknown instrument_primary cannot
+    introduce a chip.
     """
     counts = instrument_counts(patches)
-    present = [name for name in INSTRUMENT_VOCAB if counts.get(name, 0) > 0]
-    return sorted(present, key=instrument_chip_label)
+    return [name for name in INSTRUMENT_DISPLAY_ORDER if counts.get(name, 0) > 0]
 
 
 def instrument_chip_label(instrument: str) -> str:

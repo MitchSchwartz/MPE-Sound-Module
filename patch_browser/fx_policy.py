@@ -65,18 +65,23 @@ count ("3 FX"), and "No FX" when none is on. Whether a label fits is the
 screen's call (a pixel budget it measures); this module only offers the long
 form first and the count after it.
 
-**No effect enabled.** The knob and the Effect fader keep every rule above:
-the switch still routes CC 1, pickup still applies, the depth still moves and
-is stored. The FX host is sent the empty mask, which is bypass, so none of it
-is audible until an effect is switched on, which then plays at that depth. The
-switch reads "Mod knob → No FX" when it routes the knob to the effect, and
-it is still greyed out for a patch with no mod-wheel routing, as with any mask.
+**No effect enabled** (`effect_inert`, the one test). The FX host is sent the
+empty mask, which is bypass, and the depth has nothing to drive, so it is left
+alone: the Effect fader is greyed out, shows 0 and takes no touch (as Patch mod
+is for a patch with no wheel routing), and CC 1 routed to the effect moves
+nothing. It is still taken from Surge, since the route says the effect, and
+the knob's position is still tracked, so pickup holds when an effect comes
+back. The stored depth is never touched, so ticking an effect brings back the
+depth the patch had. Moving a depth nobody can see or hear would make the
+level an effect comes back at a surprise, and an unseen jump in level is the
+dangerous direction. The effect picker's label still opens on a tap.
 
-**A patch with no mod-wheel routing** greys out both the switch
-(`switch_locked`) and the Patch mod fader (`patch_mod_locked`, the same test):
-the fader shows 0, takes no touch and sends Surge nothing, not even the resend
-after a load. The kept Patch mod value is not touched, so the next patch that
-routes the wheel gets it back.
+**A patch with no mod-wheel routing** hides the play-screen switch
+(`switch_locked`: the knob goes to the effect either way, so there is nothing
+to choose) and greys out the Patch mod fader (`patch_mod_locked`, the same
+test): the fader shows 0, takes no touch and sends Surge nothing, not even the
+resend after a load. The kept Patch mod value is not touched, so the next
+patch that routes the wheel gets it back.
 
 **Each patch remembers its setup** (`patch_fx.PatchFxStore`, a sidecar store
 like Hold and normalization): its mask, its one depth, its levels, and the
@@ -198,6 +203,16 @@ def normalize_mask(value) -> int:
 
 def _always_fits(_text: str) -> bool:
     return True
+
+
+def effect_inert(mask: int) -> bool:
+    """No effect is ticked: the chain is bypass and the depth drives nothing.
+
+    The one test for it. The Effect fader is greyed out (`FxPolicy.
+    effect_locked`) and the knob routed to the effect moves nothing
+    (`Cc1Router.consume`); neither touches the stored depth.
+    """
+    return not fx_host_protocol.effects_in(mask)
 
 
 def chain_names(mask: int) -> str:
@@ -682,6 +697,14 @@ class FxPolicy:
         out, shows 0 and sends nothing; `patch_mod`, the value kept across
         loads, is left as it is for the next patch that routes the wheel."""
         return self.switch_locked
+
+    @property
+    def effect_locked(self) -> bool:
+        """The Effect fader has nothing to drive: no effect is ticked
+        (`effect_inert`). The fader is greyed out, shows 0 and takes no touch;
+        `depth`, the patch's stored depth, is left as it is, so ticking an
+        effect brings it back."""
+        return effect_inert(self.mask)
 
     # -- the per-patch store ------------------------------------------------
 
@@ -1177,6 +1200,12 @@ class Cc1Router:
             # Forwarded to Surge: the Patch mod fader follows it.
             self._note_patch_mod(raw[2])
             return False
+        if effect_inert(self.mask):
+            # No effect ticked: nothing to drive, and the depth is left as
+            # stored. Only where the knob is gets recorded, so the first move
+            # after an effect is ticked scales from the depth, not a jump.
+            self._pickup.moved(_KNOB, self.last_cc)
+            return True
         level = self._knob(self.last_cc, None if self.depth is None else self.depth * CC_MAX)
         if level is not None and (self.depth is None or level / CC_MAX != self.depth):
             self._set_depth(level / CC_MAX, DEPTH_FROM_KNOB)

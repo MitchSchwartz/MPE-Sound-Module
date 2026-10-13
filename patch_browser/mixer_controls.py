@@ -375,6 +375,11 @@ class EffectControl:
     in force, so it moves when the hardware knob does. Its label names the
     enabled effects (or counts them, or says "No FX"; `fx_policy.chain_label`),
     and a tap on the label opens the effect picker.
+
+    With no effect ticked (`FxPolicy.effect_locked`) it is greyed out as Patch
+    mod is: it reads 0 and takes no input. Display only: the patch's stored
+    depth is kept, and comes back when an effect is ticked. The label still
+    opens the picker, which is how an effect gets ticked.
     """
 
     spec = MixerControlSpec("effect", EFFECT_FADER_LABEL, 0.0, 1.0)
@@ -385,16 +390,25 @@ class EffectControl:
     def label_for(self, browser) -> str:
         return browser._effect_fader_label()
 
+    def enabled(self, browser) -> bool:
+        return not browser.fx_policy.effect_locked
+
     def read(self, browser) -> float:
+        if not self.enabled(browser):
+            return 0.0
         return float(browser.fx_policy.depth)
 
     def default(self, browser) -> float:
         return 0.0
 
     def write(self, browser, value: float, *, persist: bool) -> None:
+        if not self.enabled(browser):
+            return
         browser.fx_policy.set_depth(value, final=persist)
 
     def reset(self, browser) -> None:
+        if not self.enabled(browser):
+            return
         browser.fx_policy.set_depth(0.0, final=True)
         browser._toast("Effect off", 1.2)
 
