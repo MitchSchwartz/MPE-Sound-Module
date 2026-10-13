@@ -1,9 +1,10 @@
 """Favorites list sections: which instrument group a favorite is shown under.
 
-This module is the only place that decides a favorite's group and the order the
-groups appear in. ``PatchScanner.favorite_groups`` resolves the inputs (it owns
-the metadata index and the favorites index) and calls ``favorite_group``; the
-touch browser only lays out what comes back. A guard test refuses a second
+This module is the only place that decides a favorite's group. The order the
+groups appear in is ``patch_metadata.INSTRUMENT_DISPLAY_ORDER``, the one
+instrument order on screen. ``PatchScanner.favorite_groups`` resolves the
+inputs (it owns the metadata index and the favorites index) and calls
+``favorite_group``; the touch browser only lays out what comes back. A guard test refuses a second
 decision site.
 
 Where the instrument comes from. Surge writes a ``category`` attribute into each
@@ -28,32 +29,14 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from patch_browser.patch_metadata import INSTRUMENT_VOCAB
+from patch_browser.patch_metadata import INSTRUMENT_DISPLAY_ORDER
 
 OTHER_GROUP = "other"
 
-#: Fixed section order: the keyboard family first, then bass, lead and pad, the
-#: acoustic families, then synth-type groups, and "Other" always last. A fixed
-#: order (not A-Z) keeps related instruments next to each other, and a section
-#: never moves when an unrelated favorite is added. A guard test keeps this a
-#: permutation of INSTRUMENT_VOCAB, so a new instrument cannot be left out.
-FAVORITES_SECTION_ORDER: tuple[str, ...] = (
-    "piano",
-    "keys",
-    "organ",
-    "bass",
-    "lead",
-    "pad",
-    "strings",
-    "brass",
-    "woodwind",
-    "pluck",
-    "synth",
-    "sequencer",
-    "percussion",
-    "fx",
-    OTHER_GROUP,
-)
+#: Sections appear in INSTRUMENT_DISPLAY_ORDER (A-Z, "Other" last), the one
+#: instrument order the screen uses; the Set instrument menu and the chips use
+#: it too. The jump strip lists the sections top to bottom, so it follows.
+#: A section never moves when an unrelated favorite is added.
 
 _SECTION_LABELS: dict[str, str] = {
     "fx": "FX",
@@ -100,9 +83,9 @@ def favorite_group(
     outside the vocabulary counts as no answer, so it can never make a section.
     """
     if user_instrument:
-        return user_instrument if user_instrument in FAVORITES_SECTION_ORDER else OTHER_GROUP
+        return user_instrument if user_instrument in INSTRUMENT_DISPLAY_ORDER else OTHER_GROUP
     for candidate in (source_primary, own_primary):
-        if candidate and candidate != OTHER_GROUP and candidate in FAVORITES_SECTION_ORDER:
+        if candidate and candidate != OTHER_GROUP and candidate in INSTRUMENT_DISPLAY_ORDER:
             return candidate
     return OTHER_GROUP
 
@@ -119,7 +102,7 @@ def sectioned_entries(
     patch_entries: list[dict],
     group_of: Callable[[dict], str],
 ) -> list[dict]:
-    """Patch rows regrouped under header rows, in FAVORITES_SECTION_ORDER.
+    """Patch rows regrouped under header rows, in INSTRUMENT_DISPLAY_ORDER.
 
     ``patch_entries`` are nav entries (``{"kind": "patch", "patch": ...}``) in
     the current favorites order; that order is kept inside each section.
@@ -129,11 +112,11 @@ def sectioned_entries(
     buckets: dict[str, list[dict]] = {}
     for entry in patch_entries:
         group = group_of(entry["patch"])
-        if group not in FAVORITES_SECTION_ORDER:
+        if group not in INSTRUMENT_DISPLAY_ORDER:
             group = OTHER_GROUP
         buckets.setdefault(group, []).append(entry)
     out: list[dict] = []
-    for group in FAVORITES_SECTION_ORDER:
+    for group in INSTRUMENT_DISPLAY_ORDER:
         rows = buckets.get(group)
         if not rows:
             continue
