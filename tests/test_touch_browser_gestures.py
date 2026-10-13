@@ -201,7 +201,7 @@ class _NestedBrowseHost(TouchBrowserPatchesMixin):
         # Favorites sections (2026-10-13): the stand-in groups by the fixture's
         # own instrument; the real resolution is tested in test_favorites_sections.
         self.scanner.favorite_sections.side_effect = lambda patches: {
-            str(p.get("path", "")): (p.get("instrument_primary") or "other", "") for p in patches
+            str(p.get("path", "")): p.get("instrument_primary") or "other" for p in patches
         }
         self.instrument_filter = None
 

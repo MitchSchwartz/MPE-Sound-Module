@@ -311,10 +311,11 @@ class TouchBrowserPatchesMixin:
         # Favorites: instrument sections under header rows, in the one list.
         sections = self.scanner.favorite_sections([e["patch"] for e in patch_entries])
         for entry in patch_entries:
-            entry["subtitle"] = sections[str(entry["patch"].get("path", ""))][1]
+            # The header names the instrument; the row drops its subtitle line.
+            entry["sectioned"] = True
         return entries + sectioned_entries(
             patch_entries,
-            lambda patch: sections[str(patch.get("path", ""))][0],
+            lambda patch: sections[str(patch.get("path", ""))],
         )
 
     def _patches_in_browse_folder(self) -> list[dict]:

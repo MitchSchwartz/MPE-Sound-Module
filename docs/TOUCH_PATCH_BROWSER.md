@@ -532,7 +532,9 @@ instrument you set on the favorite (long-press, **Set instrument…**), else the
 source patch's instrument (the copy's own folder says nothing), else the copy's,
 else **Other**. Sections run in a fixed order, Piano → Keys → Organ → Bass →
 Lead → Pad → Strings → Brass → Woodwind → Pluck → Synth → Sequencer →
-Percussion → FX → Other; inside a section the list keeps its order. The `.fxp`
+Percussion → FX → Other; inside a section the list keeps its order. Rows
+under a heading show the name only (centred, same 58 px row), since an
+instrument line would repeat the heading. The `.fxp`
 `category` attribute is not used: it is mostly an author or pack name.
 
 Any patch list taller than the screen gets a 40 px **jump strip** at its right
