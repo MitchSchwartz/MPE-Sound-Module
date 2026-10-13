@@ -12,7 +12,7 @@ instrument and not only about a hand-written double.
 
 WHAT IT DOES. Asks the GitHub check-runs API for the commit and requires one
 completed, successful check run for every job named in --require (default:
-the three jobs in .github/workflows/test.yml). A run still in progress is
+REQUIRED_DEFAULT, the test jobs in .github/workflows/test.yml). A run still in progress is
 waited for, up to --wait seconds. Anything else -- a failed job, a missing
 job, a commit GitHub has never seen, an API it cannot reach -- is a refusal.
 The repo is public, so no token is needed; GITHUB_TOKEN is used if set.
@@ -36,7 +36,10 @@ import urllib.request
 from collections.abc import Callable
 
 API = "https://api.github.com"
-REQUIRED_DEFAULT: tuple[str, ...] = ("unittest", "engine", "shell-tests")
+# fx-selftest joined on 2026-10-13, when the FX DSP self-test moved out of the
+# unittest job into its own. It always reports: green when it ran and passed,
+# green with a notice when nothing it tests changed.
+REQUIRED_DEFAULT: tuple[str, ...] = ("unittest", "engine", "shell-tests", "fx-selftest")
 POLL_S = 20.0
 WAIT_S = 900.0
 
