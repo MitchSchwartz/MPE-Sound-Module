@@ -932,6 +932,8 @@ class TouchBrowserInputMixin:
                 self._handle_midi_sync_modal_pointer_move(event.pos)
             elif self.screen_state == Screen.BRIGHTNESS_MODAL:
                 self._handle_brightness_modal_pointer_move(event.pos)
+            elif self.screen_state == Screen.FX_EFFECT_MODAL:
+                self._handle_fx_effect_modal_pointer_move(event.pos)
             self._handle_mixer_motion(event.pos)
 
     def _handle_keydown(self, event: pygame.event.Event) -> bool:

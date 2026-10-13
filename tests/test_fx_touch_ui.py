@@ -948,6 +948,288 @@ class EffectPickerTests(_BrowserCase):
         self.assertEqual(browser._modal_panel_rect, browser._fx_effect_modal_layout()[0])
 
 
+#: Effect names in DejaVu Sans 22 (font_md) and the slider's widest value in
+#: DejaVu Sans 18 (font_sm), measured with pygame-ce 2.5.8 on 2026-10-13
+#: (`pygame.font.match_font("dejavusans")`, as the app loads it).
+EFFECT_NAME_PX_22 = {"Drive": 53, "Phaser": 68, "Flanger": 76, "Chorus": 70, "Tremolo": 82}
+LEVEL_VALUE_PX_18 = {"100%": 45}
+
+
+class EffectLevelSliderTests(_BrowserCase):
+    """Per-effect level sliders in the picker: layout, drag, greyed, recall."""
+
+    CHORUS = fx_host_protocol.EFFECT_CHORUS
+    DRIVE = fx_host_protocol.EFFECT_TUBE_DRIVE
+    TREMOLO = fx_host_protocol.EFFECT_TREMOLO
+    PATHS = EffectPickerTests.PATHS
+    _browser = EffectPickerTests._browser
+
+    def _open(self, *, mask: int, collapsed: bool = False):
+        browser = self._browser(collapsed=collapsed)
+        self.now = 500.0
+        self.policy._clock = lambda: self.now
+        self.policy.set_mask(mask)
+        browser._open_fx_effect_modal()
+        return browser
+
+    def _slider(self, browser, effect_id: int):
+        return next((level, track) for level, track, eid in browser._fx_effect_level_layout() if eid == effect_id)
+
+    def _x_for(self, track: Rect, level: float) -> int:
+        return track.x + int(round(track.w * level))
+
+    def _event(self, path, browser, kind, pos) -> None:
+        import pygame
+
+        if path == "evdev":
+            browser._evdev_touch_queue.put((kind, pos))
+            browser._drain_evdev_touch_queue()
+            return
+        if kind == "down":
+            event = pygame.event.Event(pygame.MOUSEBUTTONDOWN, {"pos": pos, "button": 1})
+        elif kind == "up":
+            event = pygame.event.Event(pygame.MOUSEBUTTONUP, {"pos": pos, "button": 1})
+        else:
+            event = pygame.event.Event(pygame.MOUSEMOTION, {"pos": pos, "rel": (0, 0), "buttons": (1, 0, 0)})
+        browser._handle_event(event)
+
+    def _route_levels(self) -> list[float] | None:
+        route = self.root / "fx-route.json"
+        return json.loads(route.read_text())["levels"] if route.exists() else None
+
+    def test_rows_fit_with_a_full_height_slider_at_800x480(self) -> None:
+        screen = Rect(0, 0, SCREEN_W, SCREEN_H)
+        for collapsed in (False, True):
+            with self.subTest(collapsed=collapsed):
+                browser = self._open(mask=fx_host_protocol.MASK_ALL, collapsed=collapsed)
+                with mock.patch.object(browser.font_md, "get_height", return_value=26):
+                    panel, options, done = browser._fx_effect_modal_layout()
+                    sliders = browser._fx_effect_level_layout()
+                self.assertTrue(_inside(panel, screen), panel)
+                self.assertEqual(panel.w, 600)
+                self.assertEqual([eid for _l, _t, eid in sliders], list(fx_host_protocol.CHAIN_ORDER))
+                rects = [r for r, _ in options] + [level for level, _t, _e in sliders] + [done]
+                for a, b in itertools.combinations(rects, 2):
+                    self.assertFalse(_overlaps(a, b), (a, b))
+                for (choice, eid), (level, track, leid) in zip(options, sliders, strict=True):
+                    self.assertEqual(eid, leid)
+                    self.assertTrue(_inside(level, panel), level)
+                    self.assertGreaterEqual(level.h, 40)
+                    self.assertGreaterEqual(level.h, MIN_TARGET_PX)
+                    self.assertEqual((level.y, level.h), (choice.y, choice.h))  # one row, side by side
+                    self.assertGreater(level.x, choice.right)
+                    self.assertTrue(_inside(track, level), (track, level))
+                    self.assertGreaterEqual(track.w, 300)  # a few px per percent
+                    # The value column after the track holds "100%".
+                    self.assertGreaterEqual(level.right - track.right, LEVEL_VALUE_PX_18["100%"])
+                # The longest name fits its column right of the checkbox.
+                from patch_browser.touch_browser_fx_effect_modal import FX_EFFECT_NAME_W
+
+                self.assertLessEqual(max(EFFECT_NAME_PX_22.values()), FX_EFFECT_NAME_W)
+                self.assertEqual(set(EFFECT_NAME_PX_22), set(fx_host_protocol.EFFECT_NAMES.values()))
+
+    def test_drag_sets_the_level_live_and_release_lands_it(self) -> None:
+        for path in self.PATHS:
+            with self.subTest(path=path):
+                browser = self._open(mask=C | D)
+                level, track = self._slider(browser, self.CHORUS)
+                y = level.y + level.h // 2
+                # Press: the level jumps to the finger and is written at once.
+                self._event(path, browser, "down", (self._x_for(track, 0.8), y))
+                self.assertEqual(self.policy.level(self.CHORUS), 0.8)
+                self.assertEqual(self._route_levels()[self.CHORUS], 0.8)
+                self.assertEqual(browser._fx_level_dragging, self.CHORUS)
+                # Moves inside the publish interval: the level follows, the file waits.
+                self.now += 0.01
+                self._event(path, browser, "motion", (self._x_for(track, 0.6), y))
+                self.assertEqual(self.policy.level(self.CHORUS), 0.6)
+                self.assertEqual(self._route_levels()[self.CHORUS], 0.8)
+                # After it: written (live audio, through the remapper).
+                self.now += fx_policy_publish_s()
+                self._event(path, browser, "motion", (self._x_for(track, 0.42), y))
+                self.assertEqual(self._route_levels()[self.CHORUS], 0.42)
+                # Off the track's end: clamped. Release lands the last position.
+                self.now += 0.01
+                self._event(path, browser, "motion", (track.x - 50, y))
+                self._event(path, browser, "up", (track.x - 50, y))
+                self.assertEqual(self.policy.level(self.CHORUS), 0.0)
+                self.assertEqual(self._route_levels()[self.CHORUS], 0.0)
+                self.assertIsNone(browser._fx_level_dragging)
+                self.assertFalse(self.policy.dragging_level)
+                # Only the chorus moved: the mask, the depth, the drive's level, the panel.
+                self.assertEqual(self.policy.mask, C | D)
+                self.assertEqual(self.policy.level(self.DRIVE), 1.0)
+                self.assertEqual(browser.screen_state, Screen.FX_EFFECT_MODAL)
+
+    def test_greyed_slider_is_inert(self) -> None:
+        for path in self.PATHS:
+            with self.subTest(path=path):
+                browser = self._open(mask=C)
+                self.policy.set_level(self.CHORUS, 0.5, final=True)
+                before_file = (self.root / "fx-route.json").read_bytes()
+                level, track = self._slider(browser, self.TREMOLO)  # unticked
+                y = level.y + level.h // 2
+                self._event(path, browser, "down", (self._x_for(track, 0.2), y))
+                self._event(path, browser, "motion", (self._x_for(track, 0.4), y))
+                self._event(path, browser, "up", (self._x_for(track, 0.4), y))
+                self.assertEqual(self.policy.level(self.TREMOLO), 1.0)
+                self.assertEqual(self.policy.mask, C)  # not a toggle either
+                self.assertEqual((self.root / "fx-route.json").read_bytes(), before_file)
+                self.assertIsNone(browser._fx_level_dragging)
+                self.assertEqual(browser.screen_state, Screen.FX_EFFECT_MODAL)
+                self.assertIsNone(browser._fx_effect_modal_hit_at((self._x_for(track, 0.4), y)))
+
+    def test_unticked_sliders_draw_greyed_at_the_value_they_keep(self) -> None:
+        browser = self._open(mask=C | T, collapsed=True)  # the fake pygame draws the collapsed nav
+        self.policy.set_level(self.TREMOLO, 0.3, final=True)
+        browser._toggle_fx_effect(self.TREMOLO)  # off
+        drawn = {}
+        real = browser._draw_fx_effect_level
+
+        def record(level, track, value, *, enabled, dragging=False):
+            eid = next(e for l, _t, e in browser._fx_effect_level_layout() if l == level)
+            drawn[eid] = (value, enabled, dragging)
+            return real(level, track, value, enabled=enabled, dragging=dragging)
+
+        with mock.patch.object(browser, "_draw_fx_effect_level", side_effect=record):
+            browser._draw()
+        self.assertEqual(drawn[self.TREMOLO], (0.3, False, False))
+        self.assertEqual(drawn[self.CHORUS], (1.0, True, False))
+        self.assertEqual(drawn[self.DRIVE], (1.0, False, False))
+        self.assertEqual(len(drawn), len(fx_host_protocol.EFFECT_IDS))
+        browser._toggle_fx_effect(self.TREMOLO)  # back on at the kept value
+        self.assertEqual(self.policy.level(self.TREMOLO), 0.3)
+
+    def test_the_greyed_look_is_the_locked_fader_look(self) -> None:
+        """Dim track, no fill, hollow handle, muted value; live: accent fill
+        and handle, text-coloured value."""
+        browser = self._open(mask=C)
+        level, track = self._slider(browser, self.CHORUS)
+        theme = browser.theme
+        for enabled in (True, False):
+            with self.subTest(enabled=enabled):
+                rects, texts = [], []
+                with mock.patch("pygame.draw.rect", side_effect=lambda _s, color, r, *a, **k: rects.append((color, k.get("width", a[0] if a else 0)))), \
+                        mock.patch.object(browser.font_sm, "render", side_effect=lambda text, aa, color: texts.append((text, color)) or mock.Mock(get_width=lambda: 40)):
+                    browser._draw_fx_effect_level(level, track, 0.5, enabled=enabled)
+                fills = [c for c, w in rects if not w]
+                outlines = [c for c, w in rects if w]
+                if enabled:
+                    self.assertEqual(fills, [theme.bg, theme.accent, theme.accent])
+                    self.assertEqual(outlines, [theme.text])
+                    self.assertEqual(texts, [("50%", theme.text)])
+                else:
+                    self.assertEqual(fills, [theme.surface, theme.surface])
+                    self.assertEqual(outlines, [theme.muted])
+                    self.assertEqual(texts, [("50%", theme.muted)])
+
+    def test_value_is_shown_as_a_percent(self) -> None:
+        browser = self._open(mask=fx_host_protocol.MASK_ALL, collapsed=True)
+        for eid, level in ((self.CHORUS, 0.42), (self.DRIVE, 0.0), (self.TREMOLO, 1.0)):
+            self.policy.set_level(eid, level, final=True)
+        texts = EffectPickerTests._rendered_texts(self, browser)
+        for want in ("42%", "0%", "100%"):
+            self.assertIn(want, texts)
+
+    def test_a_tap_on_the_name_still_toggles_and_moves_no_level(self) -> None:
+        for path in self.PATHS:
+            with self.subTest(path=path):
+                browser = self._open(mask=C)
+                self.policy.set_level(self.CHORUS, 0.6, final=True)
+                _panel, options, _done = browser._fx_effect_modal_layout()
+                pos = _center(next(r for r, e in options if e == self.CHORUS))
+                self._event(path, browser, "down", pos)
+                self._event(path, browser, "up", pos)
+                self.assertEqual(self.policy.mask, 0)
+                self.assertEqual(self.policy.level(self.CHORUS), 0.6)
+
+    def test_the_release_position_is_the_level_that_lands(self) -> None:
+        """A release away from the last move (a lifted finger can report a
+        last position no motion event carried) sets the level there."""
+        for path in self.PATHS:
+            with self.subTest(path=path):
+                browser = self._open(mask=C)
+                level, track = self._slider(browser, self.CHORUS)
+                y = level.y + level.h // 2
+                self._event(path, browser, "down", (self._x_for(track, 0.5), y))
+                self._event(path, browser, "motion", (self._x_for(track, 0.6), y))
+                self._event(path, browser, "up", (self._x_for(track, 0.7), y))
+                self.assertEqual(self.policy.level(self.CHORUS), 0.7)
+                self.assertEqual(self._route_levels()[self.CHORUS], 0.7)
+
+    def test_level_at_x_clamps_and_rounds_to_the_shown_percent(self) -> None:
+        from patch_browser.touch_browser_fx_effect_modal import level_at_x, level_percent
+
+        track = Rect(100, 0, 300, 8)
+        self.assertEqual(level_at_x(track, 40), 0.0)
+        self.assertEqual(level_at_x(track, 900), 1.0)
+        self.assertEqual(level_at_x(track, 100 + 127), 0.42)  # 0.4233 shows as 42 %, and is 0.42
+        self.assertEqual(level_percent(level_at_x(track, 100 + 127)), "42%")
+        self.assertEqual(level_at_x(Rect(0, 0, 0, 8), 5), 0.0)
+
+    def test_a_drag_released_off_the_panel_ends_it_and_keeps_the_panel_open(self) -> None:
+        for path in self.PATHS:
+            with self.subTest(path=path):
+                browser = self._open(mask=C)
+                level, track = self._slider(browser, self.CHORUS)
+                y = level.y + level.h // 2
+                self._event(path, browser, "down", (self._x_for(track, 0.5), y))
+                self._event(path, browser, "motion", (SCREEN_W - 2, SCREEN_H - 2))
+                self._event(path, browser, "up", (SCREEN_W - 2, SCREEN_H - 2))
+                self.assertEqual(browser.screen_state, Screen.FX_EFFECT_MODAL)
+                self.assertEqual(self.policy.level(self.CHORUS), 1.0)  # clamped to the right end
+                self.assertIsNone(browser._fx_level_dragging)
+
+    def test_closing_mid_drag_lands_the_level(self) -> None:
+        browser = self._open(mask=C)
+        level, track = self._slider(browser, self.CHORUS)
+        y = level.y + level.h // 2
+        self._event("pygame", browser, "down", (self._x_for(track, 0.9), y))
+        self.now += 0.01
+        self._event("pygame", browser, "motion", (self._x_for(track, 0.3), y))
+        self.assertEqual(self._route_levels()[self.CHORUS], 0.9)  # throttled
+        browser._close_fx_effect_modal()
+        self.assertEqual(self._route_levels()[self.CHORUS], 0.3)
+        self.assertFalse(self.policy.dragging_level)
+
+    def test_per_patch_recall_through_the_picker(self) -> None:
+        """Levels set on the screen are the patch's: another patch has its own,
+        and coming back shows the first patch's sliders where they were."""
+        from patch_browser.patch_fx import PatchFxStore
+
+        store = PatchFxStore(self.root / "fx.json")
+        browser = self._open(mask=0, collapsed=True)
+        self.policy.bind_store(store)
+        keys = self.root / "keys.fxp"
+        pad = self.root / "pad.fxp"
+        for path in (keys, pad):
+            path.write_bytes(b"<patch></patch>")
+        self.policy.on_patch_loaded(keys, patch_name="Keys", stable_key="factory:Test/Keys")
+        self.policy.set_mask(C | D)
+        level, track = self._slider(browser, self.DRIVE)
+        y = level.y + level.h // 2
+        self._event("pygame", browser, "down", (self._x_for(track, 0.25), y))
+        self._event("pygame", browser, "up", (self._x_for(track, 0.25), y))
+        self.policy.on_patch_loaded(pad, patch_name="Pad", stable_key="factory:Test/Pad")
+        self.assertEqual(self.policy.levels, (1.0,) * len(fx_host_protocol.EFFECT_IDS))
+        self.policy.on_patch_loaded(keys, patch_name="Keys", stable_key="factory:Test/Keys")
+        self.assertEqual(self.policy.level(self.DRIVE), 0.25)
+        self.assertEqual(self._route_levels()[self.DRIVE], 0.25)
+        drawn = {}
+        with mock.patch.object(
+            browser, "_draw_fx_effect_level",
+            side_effect=lambda lvl, _t, value, **kw: drawn.__setitem__(lvl.y, (value, kw["enabled"])),
+        ):
+            browser._draw()
+        self.assertEqual(drawn[level.y], (0.25, True))
+
+
+def fx_policy_publish_s() -> float:
+    from patch_browser.fx_policy import DEPTH_PUBLISH_S
+
+    return DEPTH_PUBLISH_S
+
+
 class PatchModFaderTests(_BrowserCase):
     """The Patch mod handle follows the knob while CC 1 goes to Surge."""
 
