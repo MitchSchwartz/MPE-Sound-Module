@@ -156,11 +156,15 @@ class ResolveConfigTests(unittest.TestCase):
 
 
 class _RecordingSender:
+    """(mask, depth) per send in `sent`; the levels sent with each, in `levels`."""
+
     def __init__(self) -> None:
         self.sent: list[tuple[int, float]] = []
+        self.levels: list[tuple[float, ...] | None] = []
 
-    def send(self, effect_id: int, depth: float) -> bool:
-        self.sent.append((effect_id, depth))
+    def send(self, mask: int, depth: float, levels=None) -> bool:
+        self.sent.append((mask, depth))
+        self.levels.append(None if levels is None else tuple(levels))
         return True
 
 
@@ -571,6 +575,7 @@ class ChainSelectionTests(unittest.TestCase):
             {
                 "cc1",
                 "mask",
+                "levels",
                 "target",
                 "uses_mod_wheel",
                 "route_stamp",
@@ -1012,28 +1017,36 @@ class FxHostSenderTests(unittest.TestCase):
     def test_datagram_is_the_chain_encoding_and_deduplicated(self) -> None:
         sent: list[bytes] = []
         sender = fx_policy.FxHostSender(send=sent.append, log=None)
+        ones = fx_host_protocol.LEVELS_DEFAULT
+        half_drive = (1.0, 0.5, 1.0, 1.0, 1.0)
         self.assertTrue(sender.send(C, 0.5))
         self.assertFalse(sender.send(C, 0.5))
+        self.assertFalse(sender.send(C, 0.5, ones))  # no levels is every level 1.0
         self.assertTrue(sender.send(C, 0.75))
         self.assertTrue(sender.send(C | T, 0.75))  # same depth, new mask: sent
-        self.assertTrue(sender.send(0, 0.75))
+        self.assertTrue(sender.send(C | T, 0.75, half_drive))  # same mask and depth, new levels: sent
+        self.assertFalse(sender.send(C | T, 0.75, list(half_drive)))
+        self.assertTrue(sender.send(0, 0.75, half_drive))
         self.assertEqual(
             sent,
             [
-                fx_host_protocol.encode_chain(C, 0.5),
-                fx_host_protocol.encode_chain(C, 0.75),
-                fx_host_protocol.encode_chain(C | T, 0.75),
-                fx_host_protocol.encode_chain(0, 0.75),
+                fx_host_protocol.encode_chain_levels(C, 0.5, ones),
+                fx_host_protocol.encode_chain_levels(C, 0.75, ones),
+                fx_host_protocol.encode_chain_levels(C | T, 0.75, ones),
+                fx_host_protocol.encode_chain_levels(C | T, 0.75, half_drive),
+                fx_host_protocol.encode_chain_levels(0, 0.75, half_drive),
             ],
         )
-        self.assertEqual(sent[2], b"chain 9 0.750000")
+        self.assertEqual(sent[3], b"chainl 9 0.750000 1.000000 0.500000 1.000000 1.000000 1.000000")
 
     def test_bad_mask_is_logged_not_raised(self) -> None:
         said: list[str] = []
         sender = fx_policy.FxHostSender(send=lambda _p: None, log=said.append)
         self.assertFalse(sender.send(fx_host_protocol.MASK_ALL + 1, 0.5))
         self.assertFalse(sender.send(C, float("nan")))
-        self.assertEqual(len(said), 2)
+        self.assertFalse(sender.send(C, 0.5, (1.0, float("nan"), 1.0, 1.0, 1.0)))
+        self.assertFalse(sender.send(C, 0.5, (1.0, 1.0)))
+        self.assertEqual(len(said), 4)
 
     def test_absent_fx_host_never_raises(self) -> None:
         # Nothing listens on this port; a connected UDP socket gets the refusal
@@ -1083,10 +1096,12 @@ class RemapDaemonCc1Tests(unittest.TestCase):
         self.assertEqual(sender.sent, [(C | D, 64 / 127)])
 
     def test_the_datagram_on_the_wire_is_the_chain_encoding(self) -> None:
-        """The remapper's real sender, route file to bytes: `chain <mask> <depth>`."""
+        """The remapper's real sender, route file to bytes: `chainl <mask> <depth> <levels>`."""
         with tempfile.TemporaryDirectory() as tmp:
             route = Path(tmp) / "fx-route.json"
-            route.write_text(json.dumps({"cc1": "fx", "mask": D | T, "route_stamp": "r1"}))
+            route.write_text(
+                json.dumps({"cc1": "fx", "mask": D | T, "levels": [1.0, 0.25, 1.0, 0.5, 1.0], "route_stamp": "r1"})
+            )
             with mock.patch.object(fx_policy, "route_state_path", return_value=route), mock.patch.object(
                 fx_policy, "levels_state_path", return_value=Path(tmp) / "fx-levels.json"
             ):
@@ -1096,7 +1111,7 @@ class RemapDaemonCc1Tests(unittest.TestCase):
             daemon._cc1.refresh(1e6)
             daemon._handle_incoming(None, [0xB0, 1, 127], 0.0)
         self.assertEqual(emitted, [])
-        self.assertEqual(wire, [b"chain 10 1.000000"])
+        self.assertEqual(wire, [b"chainl 10 1.000000 1.000000 0.250000 1.000000 0.500000 1.000000"])
 
     def test_on_but_routed_to_surge_forwards(self) -> None:
         _module, daemon, emitted = self._daemon("1")
