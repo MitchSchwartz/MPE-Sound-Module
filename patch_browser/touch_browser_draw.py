@@ -25,6 +25,8 @@ from patch_browser.patch_identity import (
     patch_list_subtitle,
 )
 from patch_browser.dsi_splash import shutdown_animation_phase
+from patch_browser.favorites_sections import HEADER_KIND, section_tag
+from patch_browser.jump_strip import section_cell_bounds, thumb_top
 from patch_browser.touch_ui_constants import (
     CPU_METER_BAR_W,
     CPU_METER_LABEL_GAP,
@@ -773,13 +775,7 @@ class TouchBrowserDrawMixin:
             self.screen.set_clip(clip)
             return
 
-        row_h = self.nav_list.row_height
-        start = int(self.nav_list._scroll_pixels // row_h)
-        sub_pixel = self.nav_list._scroll_pixels - start * row_h
-        end = min(len(entries), start + self.nav_list.visible_count() + 3)
-        y = self.nav_list.rect.y + self.nav_list.padding - int(sub_pixel)
-
-        for index in range(start, end):
+        for index, y, row_h in self.nav_list.visible_rows():
             entry = entries[index]
             row_rect = pygame.Rect(
                 self.nav_list.rect.x + 4,
@@ -787,6 +783,9 @@ class TouchBrowserDrawMixin:
                 self.nav_list.rect.w - 8,
                 row_h - 2,
             )
+            if entry["kind"] == HEADER_KIND:
+                self._draw_section_header(row_rect, entry)
+                continue
             is_highlight = self.nav_list.highlight_index == index
             is_loaded = self.nav_list.loaded_marker_index == index
             self._draw_row_touch_chrome(row_rect, index)
@@ -802,21 +801,25 @@ class TouchBrowserDrawMixin:
                 self.screen.blit(name_s, (row_rect.x + 10, ty))
             else:
                 patch = entry["patch"]
+                if entry.get("sectioned"):
+                    # Under a section header the instrument line would repeat
+                    # the header (Mitch, 2026-10-13): the name alone, centred
+                    # in the unchanged 58 px row so the tap target stays put.
+                    subtitle = ""
+                elif self._instrument_filter_active():
+                    subtitle = patch_browse_subtitle(patch)
+                else:
+                    subtitle = patch_browse_instrument_subtitle(patch)
                 name_clipped = ellipsize_text(self.font_md, patch["name"], name_max_w)
                 name_s = self.font_md.render(name_clipped, True, text_color)
-                self.screen.blit(name_s, (row_rect.x + 10, row_rect.y + 6))
-                subtitle = (
-                    patch_browse_subtitle(patch)
-                    if self._instrument_filter_active()
-                    else patch_browse_instrument_subtitle(patch)
-                )
-                inst_clipped = ellipsize_text(
-                    self.font_sm,
-                    subtitle,
-                    name_max_w,
-                )
-                inst_s = self.font_sm.render(inst_clipped, True, self.theme.muted)
-                self.screen.blit(inst_s, (row_rect.x + 10, row_rect.y + 26))
+                if subtitle:
+                    self.screen.blit(name_s, (row_rect.x + 10, row_rect.y + 6))
+                    inst_clipped = ellipsize_text(self.font_sm, subtitle, name_max_w)
+                    inst_s = self.font_sm.render(inst_clipped, True, self.theme.muted)
+                    self.screen.blit(inst_s, (row_rect.x + 10, row_rect.y + 26))
+                else:
+                    ty = row_rect.y + (row_rect.h - name_s.get_height()) // 2
+                    self.screen.blit(name_s, (row_rect.x + 10, ty))
 
             if is_loaded:
                 pygame.draw.circle(
@@ -826,9 +829,77 @@ class TouchBrowserDrawMixin:
                     5,
                 )
 
-            y += row_h
-
         self.screen.set_clip(clip)
+
+    def _draw_section_header(self, row_rect: pygame.Rect, entry: dict) -> None:
+        """Favorites section heading: accent caps, count, rule. No row chrome:
+        it is not a button."""
+        count_s = self.font_sm.render(str(entry["count"]), True, self.theme.muted)
+        label_w = max(1, row_rect.w - 12 - count_s.get_width() - 10)
+        label = ellipsize_text(self.font_sm, entry["label"].upper(), label_w)
+        label_s = self.font_sm.render(label, True, self.theme.accent)
+        ty = row_rect.bottom - label_s.get_height() - 4
+        self.screen.blit(label_s, (row_rect.x + 6, ty))
+        self.screen.blit(count_s, (row_rect.right - 6 - count_s.get_width(), ty))
+        pygame.draw.line(
+            self.screen,
+            self.theme.muted,
+            (row_rect.x + 6, row_rect.bottom),
+            (row_rect.right - 6, row_rect.bottom),
+            1,
+        )
+
+    def _draw_jump_strip(self) -> None:
+        rect = self.jump_strip_rect
+        if rect.w <= 0:
+            return
+        pygame.draw.rect(self.screen, self.theme.surface_alt, rect.pygame_rect, border_radius=8)
+        sections = self._jump_strip_sections()
+        capturing = getattr(self, "_jump_strip_capture", False)
+        if sections:
+            top_index = self.nav_list.index_at_content_y(self.nav_list.scroll_pixels) or 0
+            current = 0
+            for i, (_group, header_index) in enumerate(sections):
+                if header_index <= top_index:
+                    current = i
+            pressed = getattr(self, "_jump_strip_cell", None) if capturing else None
+            count = len(sections)
+            for i, (group, _header_index) in enumerate(sections):
+                y0, y1 = section_cell_bounds(i, rect.y, rect.h, count)
+                pill = pygame.Rect(rect.x + 3, y0 + 1, rect.w - 6, max(4, y1 - y0 - 2))
+                # The section at the top of the list is filled (inverted text),
+                # so it reads in every accent style, Monochrome included, where
+                # accent and text are one colour.
+                if i == current:
+                    pygame.draw.rect(self.screen, self.theme.accent, pill, border_radius=6)
+                if i == pressed:
+                    pygame.draw.rect(self.screen, self.theme.text, pill, width=2, border_radius=6)
+                color = self.theme.bg if i == current else self.theme.text
+                tag = self.font_xs.render(section_tag(group), True, color)
+                tx = rect.x + (rect.w - tag.get_width()) // 2
+                ty = y0 + max(0, (y1 - y0 - tag.get_height()) // 2)
+                self.screen.blit(tag, (tx, ty))
+            return
+        nav = self.nav_list
+        thumb_h = self._jump_strip_thumb_h()
+        max_scroll = nav.max_scroll_pixels()
+        fraction = nav.scroll_pixels / max_scroll if max_scroll > 0 else 0.0
+        track_x = rect.centerx
+        pygame.draw.line(
+            self.screen,
+            self.theme.muted,
+            (track_x, rect.y + 8),
+            (track_x, rect.bottom - 8),
+            1,
+        )
+        ty = thumb_top(fraction, rect.y, rect.h, thumb_h)
+        thumb = pygame.Rect(rect.x + 8, ty, rect.w - 16, thumb_h)
+        pygame.draw.rect(
+            self.screen,
+            self.theme.accent if capturing else self.theme.muted,
+            thumb,
+            border_radius=6,
+        )
 
     def _draw_az_rail(self) -> None:
         if self.az_rail_rect.w <= 0:
@@ -880,6 +951,7 @@ class TouchBrowserDrawMixin:
             self._draw_az_rail()
         elif self.left_nav_mode == LeftNavMode.PATCHES:
             self._draw_browse_patches_list()
+            self._draw_jump_strip()
         else:
             font = self.font_sm
             self.nav_list.row_touch_feedback = self._row_touch_feedback
