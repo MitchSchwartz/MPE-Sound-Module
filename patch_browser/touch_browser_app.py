@@ -212,6 +212,9 @@ class TouchPatchBrowser(
         self.brightness_percent = self.backlight.get_percent()
         self.toast_message = ""
         self.toast_until = 0.0
+        #: (button label, callback) offered on the toast, or None.
+        self.toast_action: tuple[str, object] | None = None
+        self._toast_action_down = False
         self._loader_toast_active = False
         self._loader_toast_base = ""
         self.power_action: str | None = None
@@ -401,15 +404,44 @@ class TouchPatchBrowser(
 
     def _pressed(self, target_id: str) -> bool:
         return self._touch_press.is_pressed(target_id)
-    def _toast(self, message: str, seconds: float = 2.0) -> None:
+    def _toast(self, message: str, seconds: float = 2.0, *, action=None) -> None:
+        """Show a message for `seconds`. `action`: (button label, callback), a
+        button on the toast (Undo) that runs the callback once when tapped.
+        There is one toast: a new one replaces it, and its button with it."""
         self._loader_toast_active = False
         self._loader_toast_base = ""
         self.toast_message = message
         self.toast_until = time.time() + seconds
+        self.toast_action = action
+        self._toast_action_down = False
 
     def _clear_toast(self) -> None:
         self.toast_message = ""
         self.toast_until = 0.0
+        self.toast_action = None
+        self._toast_action_down = False
+
+    def _toast_action_touch(self, kind: str, pos: tuple[int, int]) -> bool:
+        """The toast's button, ahead of everything under it. True when taken.
+
+        Press and release both on the button runs the action, once; a press
+        that slides off does nothing. Only on the browser screen, the one the
+        button is drawn on (`_toast_action_rect`).
+        """
+        if kind == "down":
+            rect = self._toast_action_rect()
+            self._toast_action_down = rect is not None and rect.contains(*pos)
+            return self._toast_action_down
+        if not self._toast_action_down:
+            return False
+        if kind == "up":
+            self._toast_action_down = False
+            rect = self._toast_action_rect()
+            action = self.toast_action
+            if rect is not None and rect.contains(*pos) and action is not None:
+                self._clear_toast()
+                action[1]()
+        return True
 
     def _start_loader_toast(self, base: str) -> None:
         from patch_browser.audio_engine import toast_loader_base
@@ -419,6 +451,8 @@ class TouchPatchBrowser(
             return
         self._loader_toast_base = normalized
         self._loader_toast_active = True
+        self.toast_action = None
+        self._toast_action_down = False
         self.toast_until = time.time() + 86400.0
         self._tick_loader_toast()
 

@@ -825,9 +825,10 @@ class PickupInTheRouterTests(_Rig):
         self.policy.set_mask(C)
         self.policy.set_depth(0.2, final=True)  # 25.4 in CC units
         self.load(self.pad)
+        self.policy.set_mask(C)
         self.settle()
         self.knob(0)  # the first message this remapper sees: an anchor, nothing else
-        self.assertEqual(self.sender.sent[-1], (0, 0.0))
+        self.assertEqual(self.sender.sent[-1], (C, 0.0))
         self.knob(64)  # from depth 0 at knob 0: all the way to the knob
         self.assertAlmostEqual(self.policy.depth, 64 / 127)
         self.load(self.keys)  # depth 0.2 stored; the knob stays at 64
@@ -880,6 +881,7 @@ class PickupInTheRouterTests(_Rig):
     def test_a_fader_move_rearms_it(self) -> None:
         self.policy.set_global_default(MOD_WHEEL_EFFECT)
         self.load(self.keys)
+        self.policy.set_mask(C)
         self.settle()
         self.knob(0, 50)
         self.assertAlmostEqual(self.policy.depth, 50 / 127)
@@ -888,7 +890,7 @@ class PickupInTheRouterTests(_Rig):
         self.knob(52)  # scales from the fader's 0.9, not from the knob's 52
         self.assertAlmostEqual(self.policy.depth, (0.9 * 127 + (127 - 0.9 * 127) * 2 / 77) / 127)
         self.knob(127)
-        self.assertEqual(self.sender.sent[-1], (0, 1.0))
+        self.assertEqual(self.sender.sent[-1], (C, 1.0))
 
     def test_a_toggle_does_not_rearm_it(self) -> None:
         """Toggling moves no depth: the knob carries on from the depth in force."""
@@ -903,22 +905,36 @@ class PickupInTheRouterTests(_Rig):
         self.knob(60)
         self.assertEqual(self.sender.sent[-1], (C | D, 60 / 127))
 
-    def test_no_effect_enabled_the_knob_still_follows_the_rules(self) -> None:
-        """E3: with the empty mask the knob moves the depth (inaudibly) under
-        the same pickup, and an effect switched on then plays at it."""
+    def test_no_effect_ticked_the_knob_moves_nothing(self) -> None:
+        """With the empty mask the knob, routed to the effect, is taken from
+        Surge and moves nothing: not the depth, not the store, nothing sent.
+        Its position is still tracked, so an effect ticked later plays at the
+        stored depth and the knob's next move scales from it, no jump.
+        (Replaces #142 round 5 E3, where it moved the depth inaudibly.)"""
         self.policy.set_global_default(MOD_WHEEL_EFFECT)
         self.load(self.keys)
+        self.policy.toggle_effect(PHASER)
+        self.policy.set_depth(0.3, final=True)
+        self.policy.toggle_effect(PHASER)  # off again: the empty mask, depth 0.3 stored
         self.settle()
         self.assertEqual(self.policy.mask, 0)
-        self.assertEqual(self.sender.sent[-1], (0, 0.0))
+        self.assertEqual(self.sender.sent[-1], (0, 0.3))
+        sent = len(self.sender.sent)
         self.knob(40)  # anchors
-        self.assertEqual(self.sender.sent[-1], (0, 0.0))
-        self.knob(0, 64)
-        self.assertEqual(self.sender.sent[-1], (0, 64 / 127))
-        self.assertAlmostEqual(self.policy.depth, 64 / 127)
+        self.assertTrue(self.router.consume([0xB0, 1, 0]))  # taken from Surge...
+        self.assertTrue(self.router.consume([0xB0, 1, 110]))
+        self.settle()
+        self.assertEqual(len(self.sender.sent), sent)  # ...and nothing sent
+        self.assertAlmostEqual(self.router.depth, 0.3)
+        self.assertAlmostEqual(self.policy.depth, 0.3)
+        self.policy.flush_store()
+        self.assertAlmostEqual(self.saved()["factory:Test/Keys"]["depth"], 0.3)
         self.policy.toggle_effect(PHASER)
         self.settle()
-        self.assertEqual(self.sender.sent[-1], (P, 64 / 127))
+        self.assertEqual(self.sender.sent[-1], (P, 0.3))  # back at the stored depth
+        self.knob(120)  # tracked at 110: a small move up from 0.3, not a jump to 120
+        expected = (0.3 * 127 + (127 - 0.3 * 127) * 10 / 17) / 127
+        self.assertAlmostEqual(self.sender.sent[-1][1], expected)
 
     def test_faders_show_the_stored_values_not_the_knob(self) -> None:
         self.load(self.keys)

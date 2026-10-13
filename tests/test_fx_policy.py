@@ -664,15 +664,17 @@ class ChainSelectionTests(unittest.TestCase):
         # A never-set patch: the factory default, no effect at depth 0.
         self.assertEqual(sender.sent, [(0, 0.0)])
         self.assertTrue(router.consume([0xB0, 1, 1]))  # first sight of the knob: anchors
-        self.assertTrue(router.consume([0xB0, 1, 127]))  # ...then scales to the top
-        self.assertEqual(sender.sent[-1], (0, 1.0))
+        self.assertTrue(router.consume([0xB0, 1, 127]))  # no effect ticked: taken, moves nothing
+        self.assertEqual(sender.sent, [(0, 0.0)])
         with mock.patch.object(socket_module(), "socket", side_effect=AssertionError("UI opened a socket")):
             policy.toggle_effect(fx_host_protocol.EFFECT_TUBE_DRIVE)
         tick()
         # Drive joins at the depth in force; sent once, by the remapper.
-        self.assertEqual(sender.sent[-1], (D, 1.0))
+        self.assertEqual(sender.sent[-1], (D, 0.0))
         count = len(sender.sent)
         tick()
+        self.assertEqual(len(sender.sent), count)
+        self.assertTrue(router.consume([0xB0, 1, 0]))  # the knob was tracked at 127: down from 0 is 0
         self.assertEqual(len(sender.sent), count)
         self.assertTrue(router.consume([0xB0, 1, 64]))  # a toggle moves nothing: still follows
         self.assertEqual(sender.sent[-1], (D, 64 / 127))
@@ -946,10 +948,11 @@ class Cc1RouterTests(unittest.TestCase):
         patch = Path(self._dir.name) / "p.fxp"
         patch.write_bytes(WITH_MODWHEEL)
         policy.on_patch_loaded(patch)
+        policy.set_mask(D)
         policy.set_depth(0.3, final=True)
         self._tick()
         self._tick()
-        self.assertEqual(self.sender.sent, [(0, 0.3)])
+        self.assertEqual(self.sender.sent, [(D, 0.3)])
         self.assertTrue(self.router.consume([0xB0, 1, 30]))  # first sight of the knob: anchors...
         self.assertTrue(self.router.consume([0xB0, 1, 50]))
         self.assertTrue(self.router.consume([0xB0, 1, 127]))  # ...and is turned up
