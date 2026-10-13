@@ -20,6 +20,8 @@
  *                               drive's harmonic profile and its aliasing
  *   fx-selftest --measure-unlevelled   the same with no level curve (the
  *                               mixes' own loss, as #149 had it)
+ *   fx-selftest --measure-no-makeup    the same without the chain's makeup
+ *                               (the levels as they were before it)
  *   fx-selftest --bench         ns per stereo frame for each effect, and for
  *                               the engine with each alone and all five on,
  *                               and all five at mixed levels, settled and
@@ -127,6 +129,27 @@ static void build_two(void)
  * which is the `chain` command. The level checks set it and put it back. */
 static const float *g_levels;
 
+/* The chain's makeup the engine should apply once settled, from FX_MAKEUP_DB
+ * and the depth alone, never from the engine's own table: a broken table must
+ * not move the bound with it. m is the loudest enabled stage's depth, the
+ * shared depth times its level (fx_dsp.h, "Makeup"). */
+static float makeup_m(uint32_t fx, float depth)
+{
+    float top = 0.0f;
+    for (int k = 0; k < FX_MAX_EFFECTS; k++) {
+        if ((fx >> k) & 1u) {
+            float lv = g_levels == NULL ? 1.0f : g_levels[k];
+            lv = lv > 1.0f ? 1.0f : (lv > 0.0f ? lv : 0.0f);
+            top = fmaxf(top, lv);
+        }
+    }
+    return depth * top;
+}
+static float makeup_gain(float m)
+{
+    return (float)pow(10.0, FX_MAKEUP_DB * (double)m / 20.0);
+}
+
 /* One period with the effects in `mask` enabled (BIT(k) for effect k alone). */
 static void run_period(fx_engine *e, float *l, float *r, float *ol, float *or_,
                        uint32_t n, uint32_t mask, float depth)
@@ -184,8 +207,8 @@ static void test_depth_zero_is_the_input(void)
 }
 
 /* Peak: with in-range input of peak A, no output sample exceeds A times the
- * chorus's level gain at full depth, the largest gain the engine applies to
- * it — the mix itself (an interpolation of the last ~9 ms of input) never
+ * chorus's level gain at full depth times the chain's makeup at full, the
+ * largest gain the engine applies to it — the mix itself (an interpolation of the last ~9 ms of input) never
  * exceeds A, and the gain is static. Then the clamp: out-of-range, infinite
  * and NaN input never leave ±1.0 or produce NaN. */
 /* Largest output sample over 32 s of noise at peak `amp`, depth stepping
@@ -218,7 +241,7 @@ static void test_output_is_bounded(void)
     CHECK(fx_engine_init(&e, g_two, 2, RATE, DEPTH_MS, XFADE_MS) == 0, "init");
     float l[PERIOD], r[PERIOD], ol[PERIOD], or_[PERIOD];
     const float amp = 0.5f;
-    const float bound = amp * e.level[0][FX_LEVEL_POINTS] + 1e-6f;
+    const float bound = amp * e.level[0][FX_LEVEL_POINTS] * makeup_gain(1.0f) + 1e-6f;
     float peak = bounded_peak(&e, amp);
     CHECK(peak <= bound, "output peak %.7f exceeds input peak x full-depth gain %.7f", peak,
           bound);
@@ -228,8 +251,9 @@ static void test_output_is_bounded(void)
     fx_test_level_hot = 0;
     CHECK(c > bound, "control (level 0.5 dB hot) kept the peak too: %.7f", (double)c);
     if (g_verbose) {
-        printf("  chorus   peak bound: %.4f for input %.4f x gain %.4f; control (hot) %.4f\n",
-               (double)peak, (double)amp, (double)e.level[0][FX_LEVEL_POINTS], (double)c);
+        printf("  chorus   peak bound: %.4f for input %.4f x gain %.4f x makeup %.4f; control "
+               "(hot) %.4f\n", (double)peak, (double)amp, (double)e.level[0][FX_LEVEL_POINTS],
+               (double)makeup_gain(1.0f), (double)c);
     }
 
     size_t bad = 0;
@@ -774,7 +798,10 @@ typedef struct {
     float floor_margin_db;            /* vs `floor`, if given: worst measured - floor */
 } level_result;
 
-/* `steps` + 1 knob positions from 0 to 1, on the signals in `mask`. */
+/* `steps` + 1 knob positions from 0 to 1, on the signals in `mask`. Every
+ * reading is out / (in x G(m)): relative to the chain's makeup at that knob
+ * position, so "never louder" below means never louder than the makeup, and
+ * the floors are floors under it. */
 static level_result level_sweep(const fx_effect_desc *table, uint32_t fx, unsigned mask,
                                 int steps, double (*floor_db)(float depth))
 {
@@ -788,6 +815,9 @@ static level_result level_sweep(const fx_effect_desc *table, uint32_t fx, unsign
             float depth = (float)step / (float)steps;
             float rr, pr;
             level_at(table, fx, sgi, depth, &rr, &pr);
+            const float gm = makeup_gain(makeup_m(fx, depth));
+            rr /= gm;
+            pr /= gm;
             if (rr > res.rms_max) {
                 res.rms_max = rr;
                 res.at_depth = depth;
@@ -935,15 +965,16 @@ static void check_pack_level_bound(int k, const level_result sw[LB_N])
 {
     const level_result r = sw[LB_MAIN];
     if (g_verbose) {
-        printf("  %-8s level: worst RMS out/in %+.3f dB (depth %.2f, %s), worst peak out/in "
+        printf("  %-8s level vs makeup: worst RMS %+.3f dB (depth %.2f, %s), worst peak "
                "%+.3f dB; keys lowest %+.3f dB (depth %.2f)\n", FX_LABEL[k], db(r.rms_max),
                (double)r.at_depth, r.at_signal >= 0 ? LEVEL_SIGNAL_LABEL[r.at_signal] : "-",
                db(r.peak_max), db(r.rms_min[SIG_I_KEYS]), (double)r.min_depth[SIG_I_KEYS]);
     }
 
-    /* Upper bound: never louder (RMS, + 0.1 dB), every effect, every signal,
-     * every knob position. */
-    CHECK(r.rms_max <= RMS_MARGIN, "%s: output RMS %.4fx input (depth %.2f, %s)", FX_LABEL[k],
+    /* Upper bound: never louder than the makeup (RMS, + 0.1 dB), every
+     * effect, every signal, every knob position. */
+    CHECK(r.rms_max <= RMS_MARGIN, "%s: output RMS %.4fx input x makeup (depth %.2f, %s)",
+          FX_LABEL[k],
           (double)r.rms_max, (double)r.at_depth, LEVEL_SIGNAL_LABEL[r.at_signal]);
 
     /* Its controls. Chorus, phaser and flanger: their level curve 0.5 dB hot.
@@ -989,8 +1020,9 @@ static void check_pack_level_bound(int k, const level_result sw[LB_N])
                db(c.rms_max), db(c.peak_max));
     }
 
-    /* Peak, where the effect can promise it. The tremolo's gain is in [0, 1];
-     * the drive's limiter holds it under the input's recent peak. The chorus's
+    /* Peak, where the effect can promise it, times the makeup (r is already
+     * relative to it). The tremolo's gain is in [0, 1]; the drive's limiter
+     * holds it under the input's recent peak. The chorus's
      * is the input's peak times its static gain (test_output_is_bounded). The
      * phaser and the flanger cannot: an all-pass moves phase and raises the
      * crest factor, a resonance swells what it crosses, and the static gain
@@ -1010,8 +1042,8 @@ static void check_pack_level_bound(int k, const level_result sw[LB_N])
         }
     }
 
-    /* Lower bound: not more than 1 dB quieter, on the keys signal at every
-     * knob position (the phaser: -1.3 dB, see RMS_FLOOR_PHASER). The other
+    /* Lower bound: not more than 1 dB under the makeup, on the keys signal at
+     * every knob position (the phaser: -1.3 dB, see RMS_FLOOR_PHASER). The other
      * signals are reported by --measure: one static gain per knob position
      * cannot bring white noise and pure tones through a sweeping notch to
      * parity as well. The tremolo
@@ -1073,7 +1105,9 @@ static float drive_tail_excess(const fx_effect_desc *table)
                     ref = fmaxf(ref, in_hist[h]);
                 }
                 if (p > drop + 2 || p < drop) {
-                    worst = fmaxf(worst, out_peak / ref);
+                    /* Relative to the chain's makeup at full: that gain is
+                     * static, the drive's own makeup is what may pump. */
+                    worst = fmaxf(worst, out_peak / (ref * makeup_gain(1.0f)));
                 }
                 pos = 0;
                 in_peak = out_peak = 0.0f;
@@ -1089,7 +1123,7 @@ static void test_drive_level_step(void)
     float w = drive_tail_excess(FX_EFFECTS);
     float c = drive_tail_excess(table_with(1, &FX_TEST_MUTANTS[FX_MUT_DRIVE_NO_CEILING]));
     if (g_verbose) {
-        printf("  drive    level step: worst windowed peak out/in %+.2f dB "
+        printf("  drive    level step: worst windowed peak out/(in x makeup) %+.2f dB "
                "(control, no ceiling: %+.2f dB)\n", 20.0 * log10(w), 20.0 * log10(c));
     }
     CHECK(w <= 1.122f, "drive: after a 40 dB drop the output peak reached %.3fx the input's", (double)w);
@@ -1283,12 +1317,19 @@ static void test_pack_depth_steps(int k)
     const float depths[] = { 0.0f, 1.0f, 0.0f, 0.5f, 1.0f };
     float amp, hz;
     step_signal(k, &amp, &hz);
+    /* The settled reference is the largest step the steady signal makes, so
+     * it must see the whole of the flanger's 5 s sweep (as level_window_s's
+     * windows do): 0.7 s of it read 1.22x under the transitions' worst before
+     * the chain's makeup, and 1.28x once a full-depth transition was 1 dB
+     * louder than the half-depth segment that set the reference. 1000
+     * periods (5.3 s), 940 of them settled (5.0 s). */
+    const int seg_periods = k == FX_I_FLANGER ? 1000 : 190;
     fx_engine e;
     CHECK(fx_engine_init(&e, FX_EFFECTS, FX_EFFECT_COUNT, RATE, DEPTH_MS, XFADE_MS) == 0, "init");
-    steps s = measure_steps_sig(&e, effects, depths, 5, 190, 60, amp, hz);
+    steps s = measure_steps_sig(&e, effects, depths, 5, seg_periods, 60, amp, hz);
     fx_engine_free(&e);
     CHECK(fx_engine_init(&e, FX_EFFECTS, FX_EFFECT_COUNT, RATE, 0.0, XFADE_MS) == 0, "init");
-    steps c = measure_steps_sig(&e, effects, depths, 5, 190, 60, amp, hz);
+    steps c = measure_steps_sig(&e, effects, depths, 5, seg_periods, 60, amp, hz);
     fx_engine_free(&e);
     if (g_verbose) {
         printf("  %-8s depth steps: worst %.5f / settled %.5f; control %.5f / %.5f\n",
@@ -2016,12 +2057,14 @@ static float chain_order_output(void)
     fx_engine e;
     CHECK(fx_engine_init(&e, ops, N_FX, RATE, DEPTH_MS, XFADE_MS) == 0, "init");
     float l[PERIOD], r[PERIOD], ol[PERIOD], or_[PERIOD];
+    fx_test_no_makeup = 1;   /* the order, not the chain's gain (test_makeup_*) */
     for (int p = 0; p < 200; p++) {
         for (uint32_t i = 0; i < PERIOD; i++) {
             l[i] = r[i] = 0.5f;
         }
         run_period(&e, l, r, ol, or_, PERIOD, FX_ALL, 1.0f);
     }
+    fx_test_no_makeup = 0;
     fx_engine_free(&e);
     return ol[PERIOD - 1];
 }
@@ -2160,7 +2203,8 @@ static void test_chain_level_bound(int unused)
             worst = r->rms_max;
             at_mask = m;
         }
-        CHECK(r->rms_max <= RMS_MARGIN, "chain mask %u: output RMS %.4fx input (depth %.2f, %s)",
+        CHECK(r->rms_max <= RMS_MARGIN, "chain mask %u: output RMS %.4fx input x makeup (depth "
+              "%.2f, %s)",
               (unsigned)m, (double)r->rms_max, (double)r->at_depth,
               LEVEL_SIGNAL_LABEL[r->at_signal]);
     }
@@ -2168,7 +2212,7 @@ static void test_chain_level_bound(int unused)
     CHECK(c->rms_max > RMS_MARGIN, "chain: control (hot level curve) passed: %+.3f dB",
           db(c->rms_max));
     if (g_verbose) {
-        printf("  chain    level: worst RMS out/in over all 31 masks %+.3f dB (mask %u); "
+        printf("  chain    level vs makeup: worst RMS over all 31 masks %+.3f dB (mask %u); "
                "control (hot) %+.3f dB\n", db(worst), (unsigned)at_mask, db(c->rms_max));
     }
 }
@@ -2420,7 +2464,8 @@ static void test_level_steps_have_no_click(void)
     }
 }
 
-/* Never louder at any levels, argued down to the cases nothing else covers.
+/* Never louder than the makeup at any levels, argued down to the cases
+ * nothing else covers.
  * A level only sets a stage's depth (d_k = shared x level_k, bit for bit:
  * test_level_is_a_depth_product), so:
  *  - one stage on, any level: that effect at some depth, which its own sweep
@@ -2480,6 +2525,7 @@ static vector_worst levels_vector_worst(uint32_t mask_from, uint32_t mask_to, in
                 }
                 float rr, pr;
                 level_at(FX_EFFECTS, m, sgi, 1.0f, &rr, &pr);
+                rr /= makeup_gain(makeup_m(m, 1.0f));   /* the loudest stage's level */
                 if (rr > w.worst) {
                     w.worst = rr;
                     w.at_mask = m;
@@ -2524,13 +2570,13 @@ static void test_levels_never_louder(int unused)
             w = *part;
         }
     }
-    CHECK(w.worst <= RMS_MARGIN, "levels: output RMS %+.3f dB over the input (mask %u, level "
+    CHECK(w.worst <= RMS_MARGIN, "levels: output RMS %+.3f dB over input x makeup (mask %u, level "
           "vector %d)", db(w.worst), (unsigned)w.at_mask, w.at_vector);
     const vector_worst *c = slot_of(g_lv_case[LV_CONTROL_PART]);
     CHECK(c->worst > RMS_MARGIN, "levels: control (hot level curve) passed: %+.3f dB",
           db(c->worst));
     if (g_verbose) {
-        printf("  levels   worst RMS out/in over 26 multi-stage masks x %d alternating level "
+        printf("  levels   worst RMS vs makeup over 26 multi-stage masks x %d alternating level "
                "vectors: %+.3f dB (mask %u, vector %d); control (hot) %+.3f dB\n", LV_VECTORS,
                db(w.worst), (unsigned)w.at_mask, w.at_vector, db(c->worst));
     }
@@ -2567,6 +2613,177 @@ static void test_a_stage_enabled_later_starts_at_its_depth(void)
         fx_engine_free(&e);
     }
     g_levels = saved;
+}
+
+/* --- the chain's makeup ---------------------------------------------------- */
+
+/* RMS of the engine's output over the same chain with the makeup off, same
+ * input, same start: keys at 0.35 (about -9 dBFS, the device-mode level), 0.4 s
+ * to settle, 0.6 s measured. `broken` runs the measured engine with the makeup
+ * off too: the control. The two engines differ only by G, so the ratio is the
+ * makeup itself, wherever the clamp does not bite. */
+static float makeup_ratio(uint32_t fx, float depth, int broken)
+{
+    fx_engine a, b;
+    CHECK(fx_engine_init(&a, FX_EFFECTS, FX_EFFECT_COUNT, RATE, DEPTH_MS, XFADE_MS) == 0, "init");
+    CHECK(fx_engine_init(&b, FX_EFFECTS, FX_EFFECT_COUNT, RATE, DEPTH_MS, XFADE_MS) == 0, "init");
+    signal_gen g = { SIG_KEYS, 0.35f, 0.0f, 0.0 };
+    float l[PERIOD], r[PERIOD], al[PERIOD], ar[PERIOD], bl[PERIOD], br[PERIOD];
+    double sa = 0.0, sb = 0.0;
+    const int settle = (int)(0.4f * RATE / PERIOD), measure = (int)(0.6f * RATE / PERIOD);
+    for (int p = 0; p < settle + measure; p++) {
+        sig_fill(&g, l, r, PERIOD);
+        fx_test_no_makeup = broken;
+        run_period(&a, l, r, al, ar, PERIOD, fx, depth);
+        fx_test_no_makeup = 1;
+        run_period(&b, l, r, bl, br, PERIOD, fx, depth);
+        fx_test_no_makeup = 0;
+        if (p >= settle) {
+            for (uint32_t i = 0; i < PERIOD; i++) {
+                sa += (double)al[i] * al[i] + (double)ar[i] * ar[i];
+                sb += (double)bl[i] * bl[i] + (double)br[i] * br[i];
+            }
+        }
+    }
+    fx_engine_free(&a);
+    fx_engine_free(&b);
+    return (float)sqrt(sa / sb);
+}
+
+/* The makeup is there, once per chain, and scales with depth. At full depth,
+ * each effect alone and all five: at least +0.7 dB over the same chain
+ * without it, and not more than FX_MAKEUP_DB + 0.1 dB (five stages each
+ * adding it would be +5). At half depth: within 0.1 dB of half of it (a
+ * makeup that ignored depth would be the whole of it). The upper bounds
+ * elsewhere hold the output to the makeup; this is the bound under it, which
+ * a makeup that silently did nothing would fail. Control: the makeup off. */
+#define MAKEUP_FLOOR_DB 0.7
+static void test_makeup_is_applied(void)
+{
+    static const uint32_t masks[N_FX + 1] = { BIT(0), BIT(1), BIT(2), BIT(3), BIT(4), FX_ALL };
+    for (int j = 0; j <= N_FX; j++) {
+        const char *label = j == N_FX ? "all five" : FX_LABEL[j];
+        double full = db(makeup_ratio(masks[j], 1.0f, 0));
+        double half = db(makeup_ratio(masks[j], 0.5f, 0));
+        if (g_verbose) {
+            printf("  %-8s makeup over the same chain without it: full %+.3f dB, half %+.3f dB\n",
+                   label, full, half);
+        }
+        CHECK(full >= MAKEUP_FLOOR_DB && full <= FX_MAKEUP_DB + 0.1, "%s: makeup at full depth "
+              "%+.3f dB, wanted %+.1f..%+.1f", label, full, MAKEUP_FLOOR_DB, FX_MAKEUP_DB + 0.1);
+        CHECK(fabs(half - 0.5 * FX_MAKEUP_DB) <= 0.1, "%s: makeup at half depth %+.3f dB, "
+              "wanted %+.2f", label, half, 0.5 * FX_MAKEUP_DB);
+    }
+    double c = db(makeup_ratio(FX_ALL, 1.0f, 1));
+    if (g_verbose) {
+        printf("  all five makeup control (makeup off): full %+.3f dB\n", c);
+    }
+    CHECK(c < MAKEUP_FLOOR_DB, "makeup: control (makeup off) met the floor: %+.3f dB", c);
+}
+
+/* The makeup moves smoothly. The generic click criterion (largest step vs
+ * the settled signal's) is too coarse for a 1 dB gain step on a resonant
+ * effect: on the phaser and on all five, a makeup that jumped to its target
+ * passed it. So this reads the gain itself: two engines, one with the makeup
+ * off, the same input and the same moves (depth, levels, mask). Their ratio,
+ * frame by frame, is G(m) exactly (both clamp-free at this level), so its
+ * largest change per frame (across any frames skipped near a zero of the
+ * output) is the makeup's slew. Smoothed,
+ * it is under 0.001 dB a frame (the depth's one-pole: 1 dB x 1/1920; the
+ * enable ramp: 1 dB / 1440). Limit 0.005 dB. The ratio must also span most of
+ * the makeup (0..1 dB), or the run saw nothing move. Control: the makeup
+ * following the targets. */
+#define MK_SEGS 9
+#define MK_PERIODS 60   /* 0.32 s: the 40 ms smoother and the 30 ms ramp land */
+#define MAKEUP_SLEW_DB 0.005
+
+typedef struct {
+    double slew_db;   /* largest frame-to-frame change of the gain */
+    double lo_db, hi_db;
+} makeup_motion;
+
+static makeup_motion makeup_moves(int j, int broken)
+{
+    /* Effect j alone, or (j == N_FX) all five with the alternating levels, so
+     * a mask change moves m too. */
+    const int chain = j == N_FX;
+    const uint32_t all = chain ? FX_ALL : BIT(j);
+    static const float seg_depth[MK_SEGS] = { 0.0f, 1.0f, 0.3f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 0.6f };
+    float lv[FX_MAX_EFFECTS];
+    fx_engine a, b;
+    CHECK(fx_engine_init(&a, FX_EFFECTS, FX_EFFECT_COUNT, RATE, DEPTH_MS, XFADE_MS) == 0, "init");
+    CHECK(fx_engine_init(&b, FX_EFFECTS, FX_EFFECT_COUNT, RATE, DEPTH_MS, XFADE_MS) == 0, "init");
+    signal_gen g = { SIG_SINE, 0.2f, 220.0f, 0.0 };
+    float l[PERIOD], r[PERIOD], al[PERIOD], ar[PERIOD], bl[PERIOD], br[PERIOD];
+    makeup_motion mm = { 0.0, 1e9, -1e9 };
+    double prev = 0.0;
+    long t = 0, t_prev = -1;
+    const float *saved = g_levels;
+    g_levels = lv;
+    for (int seg = 0; seg < MK_SEGS; seg++) {
+        uint32_t mask = all;
+        for (int k = 0; k < FX_MAX_EFFECTS; k++) {
+            lv[k] = chain && k < N_FX ? LEVEL_VECTORS[0][k] : 1.0f;
+        }
+        if (seg == 3) {
+            lv[chain ? 0 : j] = 0.2f;              /* a level step down */
+            if (chain) {
+                lv[2] = lv[4] = 0.2f;              /* every level-1 stage */
+            }
+        } else if (seg == 4) {
+            mask = chain ? BIT_TREMOLO : 0u;       /* toggled off (chain: to m = 0.3) */
+        } else if (seg == 6) {
+            for (int k = 0; k < FX_MAX_EFFECTS; k++) {
+                lv[k] = 0.0f;                      /* every level to 0 */
+            }
+        }
+        for (int p = 0; p < MK_PERIODS; p++) {
+            sig_fill(&g, l, r, PERIOD);
+            fx_test_makeup_unsmoothed = broken;
+            run_period(&a, l, r, al, ar, PERIOD, mask, seg_depth[seg]);
+            fx_test_makeup_unsmoothed = 0;
+            fx_test_no_makeup = 1;
+            run_period(&b, l, r, bl, br, PERIOD, mask, seg_depth[seg]);
+            fx_test_no_makeup = 0;
+            for (uint32_t i = 0; i < PERIOD; i++, t++) {
+                if (fabsf(bl[i]) < 1e-3f) {
+                    continue;   /* too near zero for the ratio to mean much */
+                }
+                double gdb = 20.0 * log10((double)al[i] / (double)bl[i]);
+                if (t_prev >= 0) {   /* per frame, across any frames skipped */
+                    mm.slew_db = fmax(mm.slew_db, fabs(gdb - prev) / (double)(t - t_prev));
+                }
+                mm.lo_db = fmin(mm.lo_db, gdb);
+                mm.hi_db = fmax(mm.hi_db, gdb);
+                prev = gdb;
+                t_prev = t;
+            }
+        }
+    }
+    g_levels = saved;
+    fx_engine_free(&a);
+    fx_engine_free(&b);
+    return mm;
+}
+
+static void test_makeup_moves_smoothly(void)
+{
+    for (int j = 0; j <= N_FX; j++) {
+        const char *label = j == N_FX ? "all five" : FX_LABEL[j];
+        makeup_motion m = makeup_moves(j, 0);
+        makeup_motion c = makeup_moves(j, 1);
+        if (g_verbose) {
+            printf("  %-8s makeup moves: slew %.5f dB/frame over %+.3f..%+.3f dB; control "
+                   "(makeup unsmoothed) %.5f dB/frame\n", label, m.slew_db, m.lo_db, m.hi_db,
+                   c.slew_db);
+        }
+        CHECK(m.slew_db <= MAKEUP_SLEW_DB, "%s: the makeup stepped %.5f dB in one frame",
+              label, m.slew_db);
+        CHECK(m.lo_db <= 0.1 && m.hi_db >= FX_MAKEUP_DB - 0.1, "%s: the makeup only spanned "
+              "%+.3f..%+.3f dB: the run did not see it move", label, m.lo_db, m.hi_db);
+        CHECK(c.slew_db > MAKEUP_SLEW_DB, "%s: control (makeup unsmoothed) passed too: %.5f "
+              "dB/frame", label, c.slew_db);
+    }
 }
 
 static void print_parse(const char *text)
@@ -2684,6 +2901,8 @@ CASE0(test_level_is_a_depth_product)
 CASE0(test_level_zero_is_off)
 CASE0(test_levels_zero_is_bypass)
 CASE0(test_level_steps_have_no_click)
+CASE0(test_makeup_is_applied)
+CASE0(test_makeup_moves_smoothly)
 
 /* The pack's level bound: part arg = (k * LB_N + v) * N_LEVEL_SIGNALS + sgi. */
 static int g_lb_case[N_FX][LB_N][N_LEVEL_SIGNALS];
@@ -2777,6 +2996,8 @@ static void build_cases(void)
     }
     add_case("chain level", 0, NULL, test_chain_level_bound, 0);
     add_case("chain clean", 0, case_test_chain_clean, NULL, 14);
+    add_case("chain makeup", 0, case_test_makeup_is_applied, NULL, 2);
+    add_case("chain makeup moves", 0, case_test_makeup_moves_smoothly, NULL, 2);
 
     /* Per-effect levels. */
     add_case("level enabled later", 0, case_test_a_stage_enabled_later_starts_at_its_depth,
@@ -3047,6 +3268,12 @@ int main(int argc, char **argv)
         measure_report();
         return g_failures != 0;
     }
+    if (argc == 2 && strcmp(argv[1], "--measure-no-makeup") == 0) {
+        fx_test_no_makeup = 1;   /* the levels before the chain's makeup */
+        g_full = 1;
+        measure_report();
+        return g_failures != 0;
+    }
     if (argc == 2 && strcmp(argv[1], "--bench") == 0) {
         bench();
         return 0;
@@ -3054,7 +3281,7 @@ int main(int argc, char **argv)
     const int runner_check = argc == 3 && strcmp(argv[1], "--runner-check") == 0;
     if (!runner_check && (argc > 2 || (argc == 2 && strcmp(argv[1], "-v") != 0))) {
         fprintf(stderr, "usage: fx-selftest [-v | --parse TEXT | --parse-lines | --measure | "
-                        "--measure-unlevelled | --bench | --runner-check order|fail|crash]\n");
+                        "--measure-unlevelled | --measure-no-makeup | --bench | --runner-check order|fail|crash]\n");
         return 2;
     }
     g_verbose = argc == 2;
