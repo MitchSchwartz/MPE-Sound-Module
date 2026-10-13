@@ -523,6 +523,30 @@ Quick Access favorites use a **copy-based** layout plus a JSON index — not sym
 
 **User folders:** the index API supports create/rename/delete user subfolders under Quick Access. Long-press a folder for New subfolder / Rename / Delete. Legacy **`Liked/`** is migrated to root automatically on scan; it cannot be deleted from the UI.
 
+### Sections and the jump strip (2026-10-13)
+
+The Quick Access list is grouped by instrument under non-tappable heading rows,
+in one scrolling list (no subfolders). A favorite's group is decided in
+`patch_browser/favorites_sections.py` (`favorite_group`) and nowhere else: the
+instrument you set on the favorite (long-press, **Set instrument…**), else the
+source patch's instrument (the copy's own folder says nothing), else the copy's,
+else **Other**. Sections run in a fixed order, Piano → Keys → Organ → Bass →
+Lead → Pad → Strings → Brass → Woodwind → Pluck → Synth → Sequencer →
+Percussion → FX → Other; inside a section the list keeps its order. The `.fxp`
+`category` attribute is not used: it is mostly an author or pack name.
+
+Any patch list taller than the screen gets a 40 px **jump strip** at its right
+edge. In Quick Access it shows a three-letter tag per section: tap or drag to
+jump to that heading. In other folders it is a position scrubber with a thumb.
+Rows end where the strip starts, so a strip touch never taps a row.
+
+Fling physics for every scroll widget live in `touch_ui_constants.py`
+(`SCROLL_*`) and `scroll_widgets.fling_launch_velocity`. Releases at or under
+600 px/s coast as before; faster flicks get up to 2.5× (at 2400 px/s). Lift-off
+is a sample, so a drag that stops and holds does not launch the list.
+
+Tests: `tests/test_favorites_sections.py`, `tests/test_scroll_fling.py`
+
 ### Migrate flat Quick Access root copies
 
 Older installs may have `.fxp` copies sitting directly in the Quick Access root. Run on the Pi (or any machine with the library mounted):

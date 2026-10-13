@@ -425,6 +425,18 @@ class PatchMetadataIndex:
 
         return classify_patch_instruments(patch)
 
+    def user_instrument(self, stable_key: str | None) -> str | None:
+        """The instrument the user set on this exact key (first if a list), or None."""
+        if not stable_key:
+            return None
+        row = self._user.get(stable_key)
+        override = row.get("instrument_user") if row else None
+        if isinstance(override, str) and override:
+            return override
+        if isinstance(override, list) and override:
+            return str(override[0])
+        return None
+
     def enrich_patch(self, patch: dict) -> dict:
         instruments = self.instruments_for_patch(patch)
         patch["instruments"] = instruments

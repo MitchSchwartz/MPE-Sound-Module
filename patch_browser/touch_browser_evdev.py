@@ -57,7 +57,10 @@ class TouchBrowserEvdevMixin:
             self._touch_list_capture = False
             self._touch_browse_capture = False
             self._az_rail_capture = False
+            self._jump_strip_capture = False
             if self._handle_az_rail_touch("down", pos):
+                return
+            if self._handle_jump_strip_touch("down", pos):
                 return
             if self.detail_patch and self.normalize_btn.contains(*pos):
                 self._pending_norm_toggle = True
@@ -79,6 +82,8 @@ class TouchBrowserEvdevMixin:
                 self._handle_mixer_down(pos)
         elif kind == "motion":
             if self._handle_az_rail_touch("motion", pos):
+                return
+            if self._handle_jump_strip_touch("motion", pos):
                 return
             if self._touch_browse_capture or self._browse_gesture_active():
                 self._handle_browse_pointer_move(pos)
@@ -117,6 +122,10 @@ class TouchBrowserEvdevMixin:
                 return
 
             if self._handle_az_rail_touch("up", pos):
+                self._touch_list_capture = False
+                self._touch_browse_capture = False
+                return
+            if self._handle_jump_strip_touch("up", pos):
                 self._touch_list_capture = False
                 self._touch_browse_capture = False
                 return
