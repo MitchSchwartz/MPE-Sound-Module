@@ -13,7 +13,7 @@ HDR := fx_dsp.h
 # Overridable so the unit tests can build into a temp dir, not the tree.
 SELFTEST_BIN ?= fx-selftest
 
-.PHONY: all clean install check selftest
+.PHONY: all clean install check selftest selftest-bin
 
 all: $(BIN)
 
@@ -27,8 +27,13 @@ $(BIN): $(SRC) $(HDR)
 # The self-test is built with -Werror: it guards the listener, so a warning in
 # it is not something to scroll past. FX_SELFTEST compiles in the deliberately
 # broken effect variants the checks must catch; the client never has them.
-selftest: fx_selftest.c fx_dsp.c $(HDR)
+# `selftest-bin` only builds it (the wire-format tests need its parser, not the
+# DSP checks); `selftest` builds and runs every check, one worker per core
+# (FX_SELFTEST_JOBS=1 for the serial run).
+selftest-bin:
 	$(CC) $(CFLAGS) -Werror -DFX_SELFTEST -o $(SELFTEST_BIN) fx_selftest.c fx_dsp.c $(LDFLAGS) -lm
+
+selftest: selftest-bin
 	$(abspath $(SELFTEST_BIN))
 
 clean:

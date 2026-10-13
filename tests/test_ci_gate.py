@@ -7,8 +7,10 @@ EXIT CODE, because the caller is shell and reads nothing else.
 
 from __future__ import annotations
 
+import re
 import unittest
 import urllib.error
+from pathlib import Path
 
 from scripts import ci_gate
 from scripts.ci_gate import GATED, PENDING, REFUSED, UNREACHABLE, evaluate, gate, parse_repo
@@ -30,6 +32,19 @@ class ParseRepo(unittest.TestCase):
         self.assertEqual(parse_repo("https://github.com/Owner/Repo"), "Owner/Repo")
         self.assertEqual(parse_repo("git@github.com:Owner/Repo.git\n"), "Owner/Repo")
         self.assertIsNone(parse_repo("https://gitlab.com/Owner/Repo.git"))
+
+
+class Required(unittest.TestCase):
+    def test_the_default_names_jobs_the_workflow_has(self) -> None:
+        """A required name with no such job refuses every deploy; a test job
+        missing from the list is one a deploy never waits for. The FX DSP
+        self-test moved out of `unittest` into `fx-selftest` on 2026-10-13."""
+        workflow = (Path(__file__).resolve().parent.parent / ".github/workflows/test.yml").read_text()
+        jobs = workflow.split("\njobs:\n", 1)[1]
+        names = set(re.findall(r"^  ([a-z][a-z0-9-]*):\s*$", jobs, re.M))
+        self.assertLessEqual(set(ci_gate.REQUIRED_DEFAULT), names)
+        self.assertIn("fx-selftest", ci_gate.REQUIRED_DEFAULT)
+        self.assertIn("unittest", ci_gate.REQUIRED_DEFAULT)
 
 
 class Evaluate(unittest.TestCase):
