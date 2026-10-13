@@ -253,6 +253,12 @@ python3 -m unittest discover -s tests -q
 
 Run before opening PRs to `dev`.
 
+The FX DSP self-test (`native/mpe-fx-host`, about 30 s on 16 cores) is skipped
+when its sources hash to a run that already passed on this machine
+(`~/.cache/mpe-fx-selftest/`). The skip prints its reason; it is not a pass.
+`FX_SELFTEST_FORCE=1` runs it, `FX_SELFTEST_JOBS=1` runs it serially, and CI
+runs it in its own `fx-selftest` job only when the FX code changes.
+
 ### Never ask Mitch to run a test you could have run yourself
 
 If a check does not require his hands or his ears, run it. Do not stage it, describe
