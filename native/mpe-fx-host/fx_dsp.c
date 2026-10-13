@@ -1287,9 +1287,49 @@ static inline void feed_one(fx_engine *e, int k, const float *const x[FX_CHANNEL
     }
 }
 
+static inline float unit_clamp(float v)
+{
+    if (!(v > 0.0f)) {        /* also catches NaN */
+        return 0.0f;
+    }
+    return v > 1.0f ? 1.0f : v;
+}
+
+/* One stage's depth over `n` frames: its smoothed d_k stepped toward `target`
+ * into `ramp`. Land on the target once close, or once a step no longer moves
+ * d: near 1.0 a float cannot hold a step of alpha * 1e-5, and the ramp used to
+ * stop ~5e-5 short of a full knob for good. */
+static inline void depth_ramp_for(fx_engine *e, int k, float target, float *ramp, uint32_t n)
+{
+    float d = e->depth[k];
+    if (d == target) {
+        for (uint32_t i = 0; i < n; i++) {
+            ramp[i] = d;
+        }
+        return;
+    }
+    for (uint32_t i = 0; i < n; i++) {
+        const float next = d + e->depth_alpha * (target - d);
+        if (e->depth_alpha <= 0.0f || fabsf(target - d) <= DEPTH_SNAP || next == d) {
+            d = target;
+        } else {
+            d = next;
+        }
+        ramp[i] = d;
+    }
+    e->depth[k] = d;
+}
+
 void fx_engine_process(fx_engine *e, const float *const in[FX_CHANNELS],
                        float *const out[FX_CHANNELS], uint32_t nframes,
                        uint32_t mask, float depth)
+{
+    fx_engine_process_levels(e, in, out, nframes, mask, depth, NULL);
+}
+
+void fx_engine_process_levels(fx_engine *e, const float *const in[FX_CHANNELS],
+                              float *const out[FX_CHANNELS], uint32_t nframes,
+                              uint32_t mask, float depth, const float *levels)
 {
     /* The signal as it passes down the chain, and one stage's wet. */
     float x_buf[FX_CHANNELS][FX_CHUNK];
@@ -1299,11 +1339,12 @@ void fx_engine_process(fx_engine *e, const float *const in[FX_CHANNELS],
     const float *const x_in[FX_CHANNELS] = { x_buf[0], x_buf[1] };
     float *const wet[FX_CHANNELS] = { wet_buf[0], wet_buf[1] };
 
-    float target = depth;
-    if (!(target > 0.0f)) {        /* also catches NaN */
-        target = 0.0f;
-    } else if (target > 1.0f) {
-        target = 1.0f;
+    /* Each effect's target depth: the shared depth times its level. A level
+     * of 1.0 leaves the shared depth as it is, bit for bit. */
+    const float shared = unit_clamp(depth);
+    float target[FX_MAX_EFFECTS];
+    for (int k = 0; k < e->count; k++) {
+        target[k] = levels == NULL ? shared : shared * unit_clamp(levels[k]);
     }
 
     for (uint32_t off = 0; off < nframes; off += FX_CHUNK) {
@@ -1318,23 +1359,24 @@ void fx_engine_process(fx_engine *e, const float *const in[FX_CHANNELS],
             }
         }
 
-        int audible = 0;   /* any stage enabled or still fading out */
+        /* Any stage enabled or still fading out, at a depth that is not 0. */
+        int live = 0;
         for (int k = 0; k < e->count; k++) {
-            audible |= ((mask >> k) & 1u) || e->on[k] > 0.0f;
+            const int audible = ((mask >> k) & 1u) || e->on[k] > 0.0f;
+            live |= audible && !(e->depth[k] == 0.0f && target[k] == 0.0f);
         }
 
-        if ((e->depth == 0.0f && target == 0.0f) || !audible) {
+        if (!live) {
             /* Bypass. Output is the input, bit for bit (within the clamp);
              * every effect keeps its history so re-entry is click-free. The
              * enable ramps land on their targets: nothing is audible to fade.
-             * The depth smoother keeps following the knob, so a stage enabled
-             * later starts from where the knob is. */
+             * Each depth takes its target: an audible stage's is 0 already,
+             * and a stage enabled later starts from where the knob and its
+             * level are. */
             for (int k = 0; k < e->count; k++) {
                 e->on[k] = ((mask >> k) & 1u) ? 1.0f : 0.0f;
+                e->depth[k] = target[k];
                 feed_one(e, k, x_in, n);
-            }
-            if (!audible) {
-                e->depth = target;
             }
             for (int ch = 0; ch < FX_CHANNELS; ch++) {
                 if (out[ch] == NULL) {
@@ -1350,21 +1392,6 @@ void fx_engine_process(fx_engine *e, const float *const in[FX_CHANNELS],
             continue;
         }
 
-        float d = e->depth;
-        for (uint32_t i = 0; i < n; i++) {
-            /* Land on the target once close, or once a step no longer moves d:
-             * near 1.0 a float cannot hold a step of alpha * 1e-5, and the
-             * ramp used to stop ~5e-5 short of a full knob for good. */
-            const float next = d + e->depth_alpha * (target - d);
-            if (e->depth_alpha <= 0.0f || fabsf(target - d) <= DEPTH_SNAP || next == d) {
-                d = target;
-            } else {
-                d = next;
-            }
-            depth_ramp[i] = d;
-        }
-        e->depth = d;
-
         for (int s = 0; s < e->count; s++) {
 #ifdef FX_SELFTEST
             const int k = e->order[fx_test_reverse_order ? e->count - 1 - s : s];
@@ -1374,7 +1401,18 @@ void fx_engine_process(fx_engine *e, const float *const in[FX_CHANNELS],
             const float want = ((mask >> k) & 1u) ? 1.0f : 0.0f;
             float c = e->on[k];
             if (c == 0.0f && want == 0.0f) {
-                /* Off: its history follows the signal at its place. */
+                /* Off: its history follows the signal at its place, and its
+                 * depth takes its target, as in bypass. */
+                e->depth[k] = target[k];
+                feed_one(e, k, x_in, n);
+                continue;
+            }
+            if (e->depth[k] == 0.0f && target[k] == 0.0f) {
+                /* On at depth 0 (its level is 0, or the knob is): its output
+                 * would be its input, so it is skipped as an off stage is,
+                 * and its enable ramp lands. Coming up from here is the
+                 * depth's ramp, not a step. */
+                e->on[k] = want;
                 feed_one(e, k, x_in, n);
                 continue;
             }
@@ -1387,6 +1425,7 @@ void fx_engine_process(fx_engine *e, const float *const in[FX_CHANNELS],
                 on_ramp[i] = c;
             }
             e->on[k] = c;
+            depth_ramp_for(e, k, target[k], depth_ramp, n);
 
             const fx_effect_desc *desc = &e->table[k];
             desc->process(e->state[k], x_in, wet, depth_ramp, n);
@@ -1451,18 +1490,52 @@ static int parse_uint(const char **cursor, long max, long *value)
     return 1;
 }
 
-int fx_parse_control(const char *text, uint32_t *mask, float *depth)
+/* A finite float, then a blank or the end. Leaves the cursor after it. */
+static int parse_float(const char **cursor, float *value)
+{
+    const char *rest = *cursor;
+    while (*rest == ' ' || *rest == '\t') {
+        rest++;
+    }
+    char *end = NULL;
+    errno = 0;
+    float v = strtof(rest, &end);
+    if (end == rest || errno == ERANGE || !isfinite(v)) {
+        return 0;
+    }
+    if (*end != '\0' && *end != ' ' && *end != '\t' && *end != '\n' && *end != '\r') {
+        return 0;
+    }
+    *cursor = end;
+    *value = v;
+    return 1;
+}
+
+static int only_blanks(const char *rest)
+{
+    while (*rest == ' ' || *rest == '\t' || *rest == '\n' || *rest == '\r') {
+        rest++;
+    }
+    return *rest == '\0';
+}
+
+int fx_parse_control(const char *text, uint32_t *mask, float *depth,
+                     float levels[FX_MAX_EFFECTS])
 {
     while (*text == ' ' || *text == '\t') {
         text++;
     }
-    int single;
+    enum { SINGLE, CHAIN, CHAIN_LEVELS } kind;
     const char *rest;
-    if (strncmp(text, "chain", 5) == 0) {
-        single = 0;
+    /* "chainl" before "chain": the one is a prefix of the other. */
+    if (strncmp(text, "chainl", 6) == 0) {
+        kind = CHAIN_LEVELS;
+        rest = text + 6;
+    } else if (strncmp(text, "chain", 5) == 0) {
+        kind = CHAIN;
         rest = text + 5;
     } else if (strncmp(text, "fx", 2) == 0) {
-        single = 1;
+        kind = SINGLE;
         rest = text + 2;
     } else {
         return 0;
@@ -1471,22 +1544,32 @@ int fx_parse_control(const char *text, uint32_t *mask, float *depth)
         return 0;
     }
     long v = 0;
-    if (!parse_uint(&rest, single ? FX_MAX_EFFECTS - 1 : (1L << FX_MAX_EFFECTS) - 1, &v)) {
+    if (!parse_uint(&rest, kind == SINGLE ? FX_MAX_EFFECTS - 1 : (1L << FX_MAX_EFFECTS) - 1,
+                    &v)) {
         return 0;
     }
-    char *end = NULL;
-    errno = 0;
-    float value = strtof(rest, &end);
-    if (end == rest || errno == ERANGE || !isfinite(value)) {
+    float value = 0.0f;
+    if (!parse_float(&rest, &value)) {
         return 0;
     }
-    while (*end == ' ' || *end == '\t' || *end == '\n' || *end == '\r') {
-        end++;
+    /* A level the sender did not name is 1.0. */
+    float got[FX_MAX_EFFECTS];
+    for (int k = 0; k < FX_MAX_EFFECTS; k++) {
+        got[k] = 1.0f;
     }
-    if (*end != '\0') {
+    int n = 0;
+    if (kind == CHAIN_LEVELS) {
+        while (!only_blanks(rest)) {
+            if (n == FX_MAX_EFFECTS || !parse_float(&rest, &got[n])) {
+                return 0;
+            }
+            n++;
+        }
+    } else if (!only_blanks(rest)) {
         return 0;
     }
-    *mask = single ? (1u << v) : (uint32_t)v;
+    *mask = kind == SINGLE ? (1u << v) : (uint32_t)v;
     *depth = value;
+    memcpy(levels, got, sizeof(got));
     return 1;
 }
