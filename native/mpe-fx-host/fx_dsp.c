@@ -1140,8 +1140,36 @@ int fx_test_no_level;
 int fx_test_level_hot;
 int fx_test_level_wobble;
 int fx_test_reverse_order;
+int fx_test_no_makeup;
+int fx_test_makeup_unsmoothed;
 static uint32_t g_wobble_t;
 #endif
+
+/* The chain's makeup G(m) (fx_dsp.h, "Makeup"), tabulated over m. Startup
+ * only: it uses pow. Exactly 1 at m = 0. */
+static void makeup_table(fx_engine *e)
+{
+    for (int j = 0; j <= FX_LEVEL_POINTS; j++) {
+        double m = (double)j / FX_LEVEL_POINTS;
+        e->makeup[j] = j == 0 ? 1.0f : (float)pow(10.0, FX_MAKEUP_DB * m / 20.0);
+    }
+}
+
+static inline float makeup_at(const fx_engine *e, float m)
+{
+#ifdef FX_SELFTEST
+    if (fx_test_no_makeup) {
+        return 1.0f;
+    }
+#endif
+    float pos = m * (float)FX_LEVEL_POINTS;
+    int j = (int)pos;
+    if (j >= FX_LEVEL_POINTS) {
+        j = FX_LEVEL_POINTS - 1;
+    }
+    float frac = pos - (float)j;
+    return e->makeup[j] + frac * (e->makeup[j + 1] - e->makeup[j]);
+}
 
 /* The static level curve (fx_dsp.h, "Level curve"), tabulated over depth.
  * Startup and rate change only: it uses pow. */
@@ -1235,6 +1263,7 @@ int fx_engine_init(fx_engine *e, const fx_effect_desc *table, int count, float r
             e->order[n++] = k;
         }
     }
+    makeup_table(e);
     for (int k = 0; k < count; k++) {
         level_table(e, k);
         e->state[k] = calloc(1, table[k].state_bytes);
@@ -1336,6 +1365,7 @@ void fx_engine_process_levels(fx_engine *e, const float *const in[FX_CHANNELS],
     float wet_buf[FX_CHANNELS][FX_CHUNK];
     float depth_ramp[FX_CHUNK];
     float on_ramp[FX_CHUNK];
+    float makeup_m[FX_CHUNK];   /* the chain's makeup driver m, per frame */
     const float *const x_in[FX_CHANNELS] = { x_buf[0], x_buf[1] };
     float *const wet[FX_CHANNELS] = { wet_buf[0], wet_buf[1] };
 
@@ -1392,6 +1422,9 @@ void fx_engine_process_levels(fx_engine *e, const float *const in[FX_CHANNELS],
             continue;
         }
 
+        for (uint32_t i = 0; i < n; i++) {
+            makeup_m[i] = 0.0f;
+        }
         for (int s = 0; s < e->count; s++) {
 #ifdef FX_SELFTEST
             const int k = e->order[fx_test_reverse_order ? e->count - 1 - s : s];
@@ -1442,6 +1475,30 @@ void fx_engine_process_levels(fx_engine *e, const float *const in[FX_CHANNELS],
                     const float y = g * (xs + w * (wet_buf[ch][i] - xs));
                     x_buf[ch][i] = ck >= 1.0f ? y : xs + ck * (y - xs);
                 }
+                /* This stage's effective depth, as heard: smoothed, times
+                 * its enable ramp. */
+                makeup_m[i] = fmaxf(makeup_m[i], ck * dk);
+            }
+        }
+#ifdef FX_SELFTEST
+        if (fx_test_makeup_unsmoothed) {
+            /* A makeup that skipped the ramps: it jumps to the targets. */
+            float m_t = 0.0f;
+            for (int k = 0; k < e->count; k++) {
+                if ((mask >> k) & 1u) {
+                    m_t = fmaxf(m_t, target[k]);
+                }
+            }
+            for (uint32_t i = 0; i < n; i++) {
+                makeup_m[i] = m_t;
+            }
+        }
+#endif
+        /* The chain's makeup, once, after the last stage. G(0) is exactly 1. */
+        for (uint32_t i = 0; i < n; i++) {
+            const float gm = makeup_at(e, makeup_m[i]);
+            for (int ch = 0; ch < FX_CHANNELS; ch++) {
+                x_buf[ch][i] *= gm;
             }
         }
 #ifdef FX_SELFTEST

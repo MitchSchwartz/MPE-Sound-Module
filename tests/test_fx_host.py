@@ -181,10 +181,13 @@ def _need_selftest_run(case: unittest.TestCase) -> None:
 class DspSelfTest(unittest.TestCase):
     def test_every_listener_protecting_property_holds(self):
         """For every effect and the chain: depth 0 or an empty mask is the
-        input; output RMS never exceeds the input's, for every effect alone and
-        every mask (and peak, where the effect can promise it), nor ±1; on the
-        keys signal it never falls more than 1 dB below it (phaser 1.3 dB, the
-        tremolo: below its computed level); the chorus and phaser are their
+        input; output RMS never exceeds the input's times the chain's makeup
+        (+1 dB x the loudest stage's depth), for every effect alone and every
+        mask (and peak, where the effect can promise it), nor ±1; on the keys
+        signal it never falls more than 1 dB below that (phaser 1.3 dB, the
+        tremolo: below its computed level); the makeup is applied once per
+        chain (+0.7..+1.1 dB at full depth over the same chain without it) and
+        moves no faster than the depth smoother and the enable ramp; the chorus and phaser are their
         #149 mix times a static gain; the chain runs drive, phaser, chorus,
         tremolo; no NaN or denormal blowup over 30 s (feedback: 115 s); depth
         steps, toggles and re-entry after bypass are click-free; the drive's

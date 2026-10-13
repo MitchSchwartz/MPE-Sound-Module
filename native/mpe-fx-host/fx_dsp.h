@@ -15,7 +15,7 @@
  *     client is activated. Nothing here allocates afterwards.
  *   - The engine owns everything the listener can hear go wrong: depth
  *     smoothing, the crossfade when an effect is enabled or disabled, bypass,
- *     the level curve, and the output clamp. Effects only ever produce a wet
+ *     the level curve, the chain's makeup, and the output clamp. Effects only ever produce a wet
  *     signal.
  *
  * Chain. The enabled effects run in series in one fixed order, FX_CHAIN_ORDER
@@ -41,9 +41,10 @@
  * of dry and wet with non-negative weights summing to 1. An effect whose wet
  * signal is never louder than its input therefore cannot make the mix louder
  * either. The enable crossfade is another such average, so a chain of stages
- * that are each never louder is never louder: fx_selftest.c measures that for
- * every effect and every mask, at every knob position. The clamp to ±1.0 is
- * the backstop, not the mechanism.
+ * that are each never louder is never louder, before the chain's one makeup
+ * gain (see "Makeup" below): fx_selftest.c measures that for every effect and
+ * every mask, at every knob position. The clamp to ±1.0 is the backstop, not
+ * the mechanism.
  *
  * For most effects the knob IS the mix (mix_full_at = 1). The drive is the
  * exception: its knob is the drive amount, handed to `process` per frame, and
@@ -76,6 +77,28 @@
  * enabled stage is, that is the bypass above, bit for bit. Never louder still
  * holds: a level only picks which d in [0, 1] a stage plays at, and each stage
  * is never louder at every d.
+ *
+ * Makeup (2026-10-13). "Never louder" read as "adding an effect takes level
+ * away", so the chain now ends in one small gain:
+ *
+ *   out = G(m) * x_chain,   G(m) = 10 ^ (FX_MAKEUP_DB * m / 20)
+ *   m   = max over the stages running this frame of c_k * d_k
+ *
+ * Once per chain, not per stage: five stages at +1 dB each would be +5 dB,
+ * and the brief is "keep it small". The max, not a sum or a mean, so the
+ * makeup is the loudest stage's depth: one effect at full gets the whole
+ * +1 dB, and switching on a second at a lower level adds nothing. m reads
+ * the smoothed d_k and the enable ramp c_k, the values the stages themselves
+ * play at, so G has no smoother of its own and cannot disagree with them: a
+ * knob, level or mask move ramps the makeup exactly as it ramps the mix and
+ * the level curve. A max of continuous ramps is continuous, so there is no
+ * step. G(0) = 1 exactly, so depth 0 is still the input bit for bit, and so
+ * is a stage still ramping up from 0. The bound becomes "never louder than
+ * G(m)": each stage is never louder at its own depth, and G multiplies the
+ * whole chain once. fx_selftest.c checks out/in <= G(m) + 0.1 dB, and that
+ * at full depth the output is at least +0.7 dB over the same chain without
+ * the makeup. Tabulated like the level curve; per frame it is a max per
+ * stage (2 ops), a lookup (5) and a multiply per channel (2).
  *
  * Cost of the engine per enabled stage, per stereo frame: depth smoothing 4
  * (none once it has settled), mix 6, level lookup 5, apply 2, enable crossfade
@@ -137,6 +160,10 @@ typedef struct {
 /* Points of the per-effect level table over depth 0..1. */
 #define FX_LEVEL_POINTS 64
 
+/* The chain's makeup at full depth, in dB (see "Makeup" above). The one place
+ * it is set: the self-test derives its bounds from it. */
+#define FX_MAKEUP_DB 1.0
+
 typedef struct {
     const fx_effect_desc *table;
     int count;
@@ -158,6 +185,8 @@ typedef struct {
     double depth_ms;
 
     float level[FX_MAX_EFFECTS][FX_LEVEL_POINTS + 1];
+    /* G(m) over m = 0..1, the chain's makeup (see "Makeup" above). */
+    float makeup[FX_LEVEL_POINTS + 1];
 } fx_engine;
 
 /* The effects this build ships. Index = the effect id on the wire. */
@@ -242,6 +271,11 @@ extern int fx_test_level_hot;
 extern int fx_test_level_wobble;
 /* The chain run in reverse order (the order check must catch it). */
 extern int fx_test_reverse_order;
+/* The makeup broken: off (the lower bound must catch it), and following the
+ * targets instead of the smoothed depths and enable ramps (the click checks
+ * must). */
+extern int fx_test_no_makeup;
+extern int fx_test_makeup_unsmoothed;
 #endif
 
 #endif
