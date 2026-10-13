@@ -74,13 +74,35 @@ INSTRUMENT_CHIP_ROW_H = 32
 INSTRUMENT_CHIP_GAP = 6
 INSTRUMENT_CHIP_PAD_X = 8
 PATCHES_ROW_HEIGHT = 58
+# Favorites section header row: about half a patch row, not tappable.
+NAV_SECTION_HEADER_H = 30
+# Jump strip at the right edge of a patch list that overflows: tap or drag to
+# jump to a section (Favorites) or a position (any other folder). 40 px is the
+# finger minimum; it comes out of the 250 px nav (rows keep 250 - 40 - gap).
+JUMP_STRIP_W = 40
+JUMP_STRIP_GAP = 2
+JUMP_STRIP_THUMB_MIN_H = 28
 SCROLL_DRAG_THRESHOLD_PX = 10
 SCROLL_DRAG_THRESHOLD_CATCH_PX = 5
 SCROLL_VELOCITY_DRAG_PX_S = 220.0
+# Kinetic scroll. Every scroll widget reads these; nothing else sets fling physics.
+# History: on 2026-08-14 the nav list "took off" (2cb6f40 damped it, 4a91cce and
+# 9621924 retuned it, bd0e78f put it back on these shared values). Coast distance
+# is about launch velocity / SCROLL_FRICTION, so a 3200 px/s flick stopped after
+# ~1165 px (~20 rows): sluggish top to bottom (Mitch, 2026-10-13).
 SCROLL_FRICTION = 2.8
 SCROLL_MIN_VELOCITY = 12.0
+# Cap on the *measured* finger speed. Guards a glitched sample pair (tiny dt,
+# large jump) from launching the list; the fling gain applies after it.
 SCROLL_VELOCITY_CAP = 3200.0
 SCROLL_SAMPLE_WINDOW_S = 0.12
+# Fling gain: a release at or below GENTLE coasts exactly as before (gain 1), so
+# a slow drag stays where it is put. Above it the gain rises linearly to
+# BOOST_MAX at FIRM, so only a firm flick travels further. Largest possible
+# coast: SCROLL_VELOCITY_CAP * SCROLL_FLING_BOOST_MAX / SCROLL_FRICTION.
+SCROLL_FLING_GENTLE_PX_S = 600.0
+SCROLL_FLING_FIRM_PX_S = 2400.0
+SCROLL_FLING_BOOST_MAX = 2.5
 LONG_PRESS_S = 0.6
 MIXER_DOUBLE_TAP_MS = 800
 MIXER_DRAG_THRESHOLD_PX = 10

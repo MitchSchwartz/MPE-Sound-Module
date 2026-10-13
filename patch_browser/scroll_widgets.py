@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import bisect
 import math
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 
 import pygame
 
@@ -12,6 +13,9 @@ from patch_browser.geometry import Rect
 from patch_browser.touch_ui_constants import (
     SCROLL_DRAG_THRESHOLD_CATCH_PX,
     SCROLL_DRAG_THRESHOLD_PX,
+    SCROLL_FLING_BOOST_MAX,
+    SCROLL_FLING_FIRM_PX_S,
+    SCROLL_FLING_GENTLE_PX_S,
     SCROLL_FRICTION,
     SCROLL_MIN_VELOCITY,
     SCROLL_SAMPLE_WINDOW_S,
@@ -37,6 +41,42 @@ def compute_release_velocity(
     if dt <= min_dt:
         return 0.0
     return max(-cap, min(cap, (s1 - s0) / dt))
+
+
+def fling_gain(speed: float) -> float:
+    """Launch multiplier for a release at ``speed`` px/s (sign ignored).
+
+    1.0 up to SCROLL_FLING_GENTLE_PX_S, so a slow drag coasts as it always did;
+    rising linearly to SCROLL_FLING_BOOST_MAX at SCROLL_FLING_FIRM_PX_S and flat
+    above it.
+    """
+    speed = abs(speed)
+    if speed <= SCROLL_FLING_GENTLE_PX_S:
+        return 1.0
+    span = SCROLL_FLING_FIRM_PX_S - SCROLL_FLING_GENTLE_PX_S
+    t = min(1.0, (speed - SCROLL_FLING_GENTLE_PX_S) / span)
+    return 1.0 + (SCROLL_FLING_BOOST_MAX - 1.0) * t
+
+
+def fling_launch_velocity(
+    samples: list[tuple[float, float]],
+    release: tuple[float, float],
+    *,
+    cap: float = SCROLL_VELOCITY_CAP,
+) -> float:
+    """Coast velocity (px/s) at lift-off — the one fling rule for every scroll widget.
+
+    ``release`` is (time, scroll position) at lift-off. It is appended before
+    the window is cut, so the measured speed is the speed over the last
+    SCROLL_SAMPLE_WINDOW_S *up to lift-off*. Without it, a drag that stops and
+    holds still (a stationary finger sends no motion events) kept its old
+    samples and launched the list on release: the "took off" case.
+    """
+    now, position = release
+    window = [(t, s) for t, s in samples if t >= now - SCROLL_SAMPLE_WINDOW_S]
+    window.append((now, position))
+    measured = compute_release_velocity(window, cap=cap)
+    return measured * fling_gain(measured)
 
 
 class ScrollList:
@@ -81,6 +121,11 @@ class ScrollList:
         self._scroll_anim_duration = 0.0
         self.pressed_index: int | None = None
         self.row_touch_feedback: Callable[[int], tuple[bool, float]] | None = None
+        # None = every row is row_height tall and selectable (the original list).
+        # Set together by set_items(row_heights=..., selectable=...) for a list
+        # with section headers: shorter rows that cannot be tapped.
+        self._row_tops: list[int] | None = None
+        self._selectable: list[bool] | None = None
 
     def cancel_active_pointer(self) -> None:
         """Drop in-progress tap/scroll gesture without firing a row tap."""
@@ -156,8 +201,9 @@ class ScrollList:
             return None
 
         if self._drag_start_y is not None:
-            release_v = compute_release_velocity(
+            release_v = fling_launch_velocity(
                 self._scroll_samples,
+                (time.time(), self._scroll_pixels),
                 cap=self._velocity_cap,
             )
             if self._pointer_scrolled and abs(release_v) >= self._min_velocity:
@@ -190,8 +236,24 @@ class ScrollList:
         loaded_marker_index: int | None = None,
         *,
         preserve_scroll: bool = True,
+        row_heights: list[int] | None = None,
+        selectable: list[bool] | None = None,
     ) -> None:
+        """Replace the rows. ``row_heights``/``selectable`` are per row, or None
+        for the uniform list (every row ``row_height`` tall and tappable)."""
+        if row_heights is not None and len(row_heights) != len(items):
+            raise ValueError("row_heights must have one entry per item")
+        if selectable is not None and len(selectable) != len(items):
+            raise ValueError("selectable must have one entry per item")
         self.items = items
+        if row_heights is None:
+            self._row_tops = None
+        else:
+            tops = [0]
+            for h in row_heights:
+                tops.append(tops[-1] + int(h))
+            self._row_tops = tops
+        self._selectable = list(selectable) if selectable is not None else None
         self.highlight_index = highlight_index
         self.loaded_marker_index = loaded_marker_index
         if preserve_scroll:
@@ -272,13 +334,82 @@ class ScrollList:
     def _max_scroll(self) -> int:
         return max(0, len(self.items) - self.visible_count())
 
+    def _inner_height(self) -> int:
+        return self.rect.h - self.padding * 2
+
+    def row_top(self, index: int) -> int:
+        """Content y of a row's top edge (0 = first row)."""
+        if self._row_tops is None:
+            return index * self.row_height
+        return self._row_tops[index]
+
+    def row_extent(self, index: int) -> int:
+        if self._row_tops is None:
+            return self.row_height
+        return self._row_tops[index + 1] - self._row_tops[index]
+
+    def content_height(self) -> int:
+        return self.row_top(len(self.items))
+
+    def is_selectable(self, index: int) -> bool:
+        if not 0 <= index < len(self.items):
+            return False
+        return self._selectable is None or self._selectable[index]
+
+    def index_at_content_y(self, content_y: float) -> int | None:
+        """Row under a content y (any row, headers included), or None past the ends."""
+        if content_y < 0 or not self.items:
+            return None
+        if self._row_tops is None:
+            index = int(content_y // self.row_height)
+        else:
+            index = bisect.bisect_right(self._row_tops, content_y) - 1
+        return index if 0 <= index < len(self.items) else None
+
     def _max_scroll_pixels(self) -> float:
-        return float(self._max_scroll() * self.row_height)
+        if self._row_tops is None:
+            return float(self._max_scroll() * self.row_height)
+        return float(max(0, self.content_height() - self._inner_height()))
+
+    def max_scroll_pixels(self) -> float:
+        return self._max_scroll_pixels()
+
+    @property
+    def scroll_pixels(self) -> float:
+        return self._scroll_pixels
+
+    def set_scroll_pixels(self, pixels: float) -> None:
+        """Jump to a scroll position (clamped), stopping any coast or animation."""
+        self.stop_momentum()
+        self._scroll_pixels = float(pixels)
+        self._clamp_scroll()
 
     def _sync_scroll_offset(self) -> None:
-        maximum = self._max_scroll()
-        row = int(self._scroll_pixels // self.row_height)
-        self.scroll_offset = max(0, min(maximum, row))
+        if self._row_tops is None:
+            maximum = self._max_scroll()
+            row = int(self._scroll_pixels // self.row_height)
+            self.scroll_offset = max(0, min(maximum, row))
+            return
+        index = self.index_at_content_y(self._scroll_pixels)
+        self.scroll_offset = index if index is not None else 0
+
+    def visible_rows(self) -> Iterator[tuple[int, int, int]]:
+        """(index, screen y, height) of each row that can be on screen now."""
+        if not self.items:
+            return
+        if self._row_tops is None:
+            start = int(self._scroll_pixels // self.row_height)
+            end = min(len(self.items), start + self.visible_count() + 3)
+        else:
+            start = self.index_at_content_y(self._scroll_pixels) or 0
+            end = len(self.items)
+        bottom = self.rect.y + self.rect.h
+        origin = self.rect.y + self.padding - int(self._scroll_pixels)
+        for index in range(start, end):
+            y = origin + self.row_top(index)
+            if y >= bottom:
+                break
+            yield index, y, self.row_extent(index)
 
     def _clamp_scroll(self) -> None:
         max_pixels = self._max_scroll_pixels()
@@ -289,8 +420,8 @@ class ScrollList:
         if not self.rect.contains(px, py) or not self.items:
             return None
         local_y = py - self.rect.y - self.padding + self._scroll_pixels
-        index = int(local_y // self.row_height)
-        if 0 <= index < len(self.items):
+        index = self.index_at_content_y(local_y)
+        if index is not None and self.is_selectable(index):
             return index
         return None
 
@@ -298,6 +429,17 @@ class ScrollList:
         if not self.items:
             return
         index = max(0, min(index, len(self.items) - 1))
+        if self._row_tops is not None:
+            top = self.row_top(index)
+            if align == "top" or top < self._scroll_pixels:
+                self._scroll_pixels = float(top)
+            else:
+                bottom = top + self.row_extent(index)
+                if bottom > self._scroll_pixels + self._inner_height():
+                    self._scroll_pixels = float(bottom - self._inner_height())
+            self.stop_momentum()
+            self._clamp_scroll()
+            return
         if align == "top":
             self.scroll_offset = index
         else:
@@ -321,7 +463,7 @@ class ScrollList:
             return
         index = max(0, min(index, len(self.items) - 1))
         if align == "top":
-            target_pixels = float(index * self.row_height)
+            target_pixels = float(self.row_top(index))
         else:
             self.scroll_to_index(index, align="visible")
             return
@@ -358,14 +500,9 @@ class ScrollList:
             surface.set_clip(clip)
             return
 
-        start = int(self._scroll_pixels // self.row_height)
-        sub_pixel = self._scroll_pixels - start * self.row_height
-        end = min(len(self.items), start + self.visible_count() + 3)
-        y = self.rect.y + self.padding - int(sub_pixel)
-
-        for index in range(start, end):
+        for index, y, row_h in self.visible_rows():
             label = self.items[index]
-            row_rect = pygame.Rect(self.rect.x + 4, y, self.rect.w - 8, self.row_height - 4)
+            row_rect = pygame.Rect(self.rect.x + 4, y, self.rect.w - 8, row_h - 4)
             is_highlight = self.highlight_index == index
             is_loaded = self.loaded_marker_index == index
             if self.row_touch_feedback:
@@ -393,8 +530,6 @@ class ScrollList:
 
             if is_loaded:
                 pygame.draw.circle(surface, theme.accent, (row_rect.right - 16, row_rect.centery), 5)
-
-            y += self.row_height
 
         surface.set_clip(clip)
 
@@ -481,7 +616,10 @@ class ContentScrollArea:
     def pointer_up(self, pos: tuple[int, int]) -> bool:
         scrolled = self._pointer_scrolled
         if scrolled:
-            release_v = compute_release_velocity(self._scroll_samples)
+            release_v = fling_launch_velocity(
+                self._scroll_samples,
+                (time.time(), self._scroll_pixels),
+            )
             if abs(release_v) >= SCROLL_MIN_VELOCITY:
                 self._velocity = release_v
                 self._momentum_active = True

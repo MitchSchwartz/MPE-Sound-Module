@@ -145,6 +145,8 @@ class TouchPatchBrowser(
         self.font_lg = self._load_font(34)
         self.font_md = self._load_font(22)
         self.font_sm = self._load_font(18)
+        # Jump-strip section tags: three letters in a 40 px strip.
+        self.font_xs = self._load_font(15)
 
         self.backlight = BacklightController()
         self.backlight.restore_saved()
@@ -174,6 +176,9 @@ class TouchPatchBrowser(
         self.all_patches_letter_index: dict[str, int] = {}
         self.az_rail_rect = Rect(0, 0, 0, 0)
         self.az_rail_letter_rects: list[tuple[str, Rect]] = []
+        self.jump_strip_rect = Rect(0, 0, 0, 0)
+        self._jump_strip_capture = False
+        self._jump_strip_cell: int | None = None
         self.nav_all_btn = Rect(0, 0, 0, 0)
         self.nav_current_btn = Rect(0, 0, 0, 0)
         self._all_patches_saved_scroll = 0.0
@@ -508,6 +513,7 @@ class TouchPatchBrowser(
                 and (
                     self.nav_list.is_interacting()
                     or getattr(self, "_az_rail_capture", False)
+                    or getattr(self, "_jump_strip_capture", False)
                 )
             ):
                 self._scan_dirty = False
