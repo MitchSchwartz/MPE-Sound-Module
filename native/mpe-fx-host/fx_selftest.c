@@ -2,15 +2,21 @@
  * fx_selftest — the listener-protecting properties of fx_dsp, run without JACK.
  *
  *   fx-selftest                 run every check; exit 0 only if all pass
- *   fx-selftest --parse TEXT    print "ok <mask> <depth>" or "reject" for one
- *                               datagram, through the client's real parser
+ *   fx-selftest --parse TEXT    print "ok <mask> <depth> <l0> ... <l7>" (every
+ *                               level slot, FX_MAX_EFFECTS of them) or
+ *                               "reject" for one datagram, through the
+ *                               client's real parser
+ *   fx-selftest --parse-lines   the same for each line of stdin, one answer
+ *                               per line
  *   fx-selftest --measure       print the level table (RMS out/in per effect,
  *                               a few chains, knob position and signal), the
  *                               drive's harmonic profile and its aliasing
  *   fx-selftest --measure-unlevelled   the same with no level curve (the
  *                               mixes' own loss, as #149 had it)
  *   fx-selftest --bench         ns per stereo frame for each effect, and for
- *                               the engine with each alone and all five on
+ *                               the engine with each alone and all five on,
+ *                               and all five at mixed levels, settled and
+ *                               moving every period
  *
  * The discontinuity checks each carry a control: the same run with the
  * protection switched off (no depth smoothing, an instant swap) must FAIL the
@@ -82,13 +88,21 @@ static void build_two(void)
 
 #define BIT(k) (1u << (k))
 
+/* The per-effect levels every run_period plays at: NULL is every level 1.0,
+ * which is the `chain` command. The level checks set it and put it back. */
+static const float *g_levels;
+
 /* One period with the effects in `mask` enabled (BIT(k) for effect k alone). */
 static void run_period(fx_engine *e, float *l, float *r, float *ol, float *or_,
                        uint32_t n, uint32_t mask, float depth)
 {
     const float *const in[FX_CHANNELS] = { l, r };
     float *const out[FX_CHANNELS] = { ol, or_ };
-    fx_engine_process(e, in, out, n, mask, depth);
+    if (g_levels == NULL) {
+        fx_engine_process(e, in, out, n, mask, depth);
+    } else {
+        fx_engine_process_levels(e, in, out, n, mask, depth, g_levels);
+    }
 }
 
 static void test_depth_zero_is_the_input(void)
@@ -1501,6 +1515,36 @@ static void bench(void)
         printf("engine, %-9s %6.1f ns/stereo frame\n", names[m], ns);
         fx_engine_free(&e);
     }
+    /* All five with per-effect levels: settled (each depth reached its
+     * target, the smoother is a fill), and moving (the levels change every
+     * period, so every stage's smoother runs every frame: the worst case). */
+    static const float mixed[FX_MAX_EFFECTS] = { 0.8f, 0.35f, 1.0f, 0.15f, 0.6f, 1.0f, 1.0f, 1.0f };
+    for (int moving = 0; moving < 2; moving++) {
+        fx_engine e;
+        fx_engine_init(&e, FX_EFFECTS, FX_EFFECT_COUNT, RATE, 40.0, 30.0);
+        float bl[256], br[256], ol[256], or_[256], lv[FX_MAX_EFFECTS];
+        const int periods = 50000;
+        struct timespec t0, t1;
+        clock_gettime(CLOCK_MONOTONIC, &t0);
+        for (int p = 0; p < periods; p++) {
+            for (uint32_t i = 0; i < 256; i++) {
+                bl[i] = 0.3f * noise();
+                br[i] = 0.3f * noise();
+            }
+            for (int k = 0; k < FX_MAX_EFFECTS; k++) {
+                lv[k] = moving && (p & 1) ? 1.0f - 0.5f * mixed[k] : mixed[k];
+            }
+            const float *const in2[FX_CHANNELS] = { bl, br };
+            float *const out2[FX_CHANNELS] = { ol, or_ };
+            fx_engine_process_levels(&e, in2, out2, 256, (1u << 5) - 1u, 0.7f, lv);
+        }
+        clock_gettime(CLOCK_MONOTONIC, &t1);
+        double ns = ((double)(t1.tv_sec - t0.tv_sec) * 1e9 + (double)(t1.tv_nsec - t0.tv_nsec)) /
+                    ((double)periods * 256);
+        printf("engine, all five, levels %-8s %6.1f ns/stereo frame\n",
+               moving ? "moving" : "settled", ns);
+        fx_engine_free(&e);
+    }
 }
 
 /* --- measurement report (--measure) --------------------------------------- */
@@ -1991,15 +2035,362 @@ static void test_chain(void)
     test_chain_clean();
 }
 
+/* --- per-effect levels ----------------------------------------------------- */
+
+/* Run `periods` of `sig` through a fresh engine at (mask, depth, levels) and
+ * keep the last `keep` periods of the left output in `out`. */
+static void levels_run(uint32_t mask, float depth, const float *levels, int periods, int keep,
+                       float *out)
+{
+    fx_engine e;
+    CHECK(fx_engine_init(&e, FX_EFFECTS, FX_EFFECT_COUNT, RATE, DEPTH_MS, XFADE_MS) == 0, "init");
+    signal_gen g = { SIG_KEYS, 0.5f, 0.0f, 0.0 };
+    float l[PERIOD], r[PERIOD], ol[PERIOD], or_[PERIOD];
+    const float *saved = g_levels;
+    g_levels = levels;
+    for (int p = 0; p < periods; p++) {
+        sig_fill(&g, l, r, PERIOD);
+        run_period(&e, l, r, ol, or_, PERIOD, mask, depth);
+        if (p >= periods - keep) {
+            memcpy(out + (size_t)(p - (periods - keep)) * PERIOD, ol, sizeof(ol));
+        }
+    }
+    g_levels = saved;
+    fx_engine_free(&e);
+}
+
+#define LV_PERIODS 120
+#define LV_KEEP 40
+
+static int same_output(const float *a, const float *b)
+{
+    return memcmp(a, b, sizeof(float) * LV_KEEP * PERIOD) == 0;
+}
+
+/* d_k = shared x level_k, bit for bit: depth 0.75 at level 0.5 is depth 0.375
+ * at level 1 (all three exact in binary), for every effect, from a fresh
+ * engine (so the smoothing from 0 is compared too). Control: the same depth
+ * at levels 0.5 and 1.0 must differ, or the comparison cannot see a level. */
+static void test_level_is_a_depth_product(void)
+{
+    static float a[LV_KEEP * PERIOD], b[LV_KEEP * PERIOD], c[LV_KEEP * PERIOD];
+    float half[FX_MAX_EFFECTS], one[FX_MAX_EFFECTS];
+    for (int k = 0; k < FX_MAX_EFFECTS; k++) {
+        half[k] = 0.5f;
+        one[k] = 1.0f;
+    }
+    int controls_differ = 1;
+    for (int k = 0; k < N_FX; k++) {
+        levels_run(BIT(k), 0.75f, half, LV_PERIODS, LV_KEEP, a);
+        levels_run(BIT(k), 0.375f, one, LV_PERIODS, LV_KEEP, b);
+        levels_run(BIT(k), 0.75f, one, LV_PERIODS, LV_KEEP, c);
+        CHECK(same_output(a, b), "%s: depth 0.75 at level 0.5 is not depth 0.375", FX_LABEL[k]);
+        controls_differ &= !same_output(a, c);
+        CHECK(!same_output(a, c), "%s: control (level 0.5 vs 1.0) identical: the comparison "
+              "cannot see a level", FX_LABEL[k]);
+    }
+    /* Levels NULL (the `chain` command) and every level 1.0 are one thing. */
+    levels_run(FX_ALL, 0.6f, NULL, LV_PERIODS, LV_KEEP, a);
+    levels_run(FX_ALL, 0.6f, one, LV_PERIODS, LV_KEEP, b);
+    CHECK(same_output(a, b), "all five: levels 1.0 differ from no levels");
+    /* Out of range and NaN are clamped: 7 is 1, -1 and NaN are 0. */
+    float wild[FX_MAX_EFFECTS], tame[FX_MAX_EFFECTS];
+    for (int k = 0; k < FX_MAX_EFFECTS; k++) {
+        wild[k] = k % 3 == 0 ? 7.0f : k % 3 == 1 ? -1.0f : NAN;
+        tame[k] = k % 3 == 0 ? 1.0f : 0.0f;
+    }
+    levels_run(FX_ALL, 0.6f, wild, LV_PERIODS, LV_KEEP, a);
+    levels_run(FX_ALL, 0.6f, tame, LV_PERIODS, LV_KEEP, b);
+    CHECK(same_output(a, b), "all five: levels 7 / -1 / NaN are not 1 / 0 / 0");
+    if (g_verbose) {
+        printf("  levels   d = shared x level, bit for bit for all five; controls (0.5 vs 1.0) "
+               "differ: %s\n", controls_differ ? "yes" : "NO");
+    }
+}
+
+/* A stage at level 0 is not in the chain: all five with drive and chorus at
+ * level 0 is, bit for bit, phaser + flanger + tremolo alone. Control: level
+ * 1/127 must differ. */
+static void test_level_zero_is_off(void)
+{
+    static float a[LV_KEEP * PERIOD], b[LV_KEEP * PERIOD], c[LV_KEEP * PERIOD];
+    float lv[FX_MAX_EFFECTS], tiny[FX_MAX_EFFECTS];
+    for (int k = 0; k < FX_MAX_EFFECTS; k++) {
+        lv[k] = tiny[k] = 1.0f;
+    }
+    lv[0] = lv[1] = 0.0f;                  /* chorus, drive */
+    tiny[0] = tiny[1] = 1.0f / 127.0f;
+    levels_run(FX_ALL, 0.8f, lv, LV_PERIODS, LV_KEEP, a);
+    levels_run(BIT_PHASER | BIT_FLANGER | BIT_TREMOLO, 0.8f, NULL, LV_PERIODS, LV_KEEP, b);
+    levels_run(FX_ALL, 0.8f, tiny, LV_PERIODS, LV_KEEP, c);
+    CHECK(same_output(a, b), "level 0 is not the same as the effect off");
+    CHECK(!same_output(c, b), "control (level 1/127) identical to off: the comparison is blind");
+}
+
+/* Every level 0 is bypass: the input, bit for bit, at any depth and mask, and
+ * again after a ramp down from full levels. Control: levels at 1/127. */
+static size_t levels_bypass_mismatches(const float *after)
+{
+    fx_engine e;
+    CHECK(fx_engine_init(&e, FX_EFFECTS, FX_EFFECT_COUNT, RATE, DEPTH_MS, XFADE_MS) == 0, "init");
+    float l[PERIOD], r[PERIOD], ol[PERIOD], or_[PERIOD], keep_l[PERIOD], keep_r[PERIOD];
+    size_t mismatches = 0;
+    for (int p = 0; p < 100; p++) {   /* 0.5 s of all five at full levels first */
+        for (uint32_t i = 0; i < PERIOD; i++) {
+            l[i] = 0.5f * noise();
+            r[i] = 0.5f * noise();
+        }
+        run_period(&e, l, r, ol, or_, PERIOD, FX_ALL, 1.0f);
+    }
+    const float *saved = g_levels;
+    g_levels = after;
+    for (int p = 0; p < 400; p++) {
+        for (uint32_t i = 0; i < PERIOD; i++) {
+            l[i] = 0.5f * noise();
+            r[i] = 0.5f * noise();
+        }
+        run_period(&e, l, r, ol, or_, PERIOD, FX_ALL, 1.0f);
+        if (p < 120) {
+            continue;   /* the 40 ms depth ramp, down to where it lands on 0 */
+        }
+        mismatches += memcmp(l, ol, sizeof(l)) != 0 || memcmp(r, or_, sizeof(r)) != 0;
+        memcpy(keep_l, l, sizeof(l));
+        memcpy(keep_r, r, sizeof(r));
+        run_period(&e, l, r, l, r, PERIOD, FX_ALL, 1.0f);
+        mismatches += memcmp(keep_l, l, sizeof(l)) != 0 || memcmp(keep_r, r, sizeof(r)) != 0;
+    }
+    g_levels = saved;
+    fx_engine_free(&e);
+    return mismatches;
+}
+
+static void test_levels_zero_is_bypass(void)
+{
+    float zero[FX_MAX_EFFECTS], tiny[FX_MAX_EFFECTS];
+    for (int k = 0; k < FX_MAX_EFFECTS; k++) {
+        zero[k] = 0.0f;
+        tiny[k] = 1.0f / 127.0f;
+    }
+    size_t m = levels_bypass_mismatches(zero);
+    size_t c = levels_bypass_mismatches(tiny);
+    CHECK(m == 0, "all five, every level 0: %zu periods differ from the input", m);
+    CHECK(c > 0, "control (every level 1/127) also identical: the comparison is blind");
+    if (g_verbose) {
+        printf("  levels   every level 0 after full: %zu differing periods; control (1/127) %zu\n",
+               m, c);
+    }
+}
+
+/* Level moves are smoothed like knob moves: steps between segments at a fixed
+ * depth, for each effect alone and for all five at once. Control: the same
+ * moves with smoothing off must click. */
+#define LV_SEGS 6
+static const float LV_STEPS[LV_SEGS] = { 1.0f, 0.2f, 1.0f, 0.0f, 0.6f, 1.0f };
+
+static steps measure_level_steps(fx_engine *e, uint32_t mask, float depth, float amp, float hz)
+{
+    float l[PERIOD], r[PERIOD], ol[PERIOD], or_[PERIOD];
+    signal_gen g = { SIG_SINE, amp, hz, 0.0 };
+    float prev = 0.0f;
+    int have_prev = 0;
+    steps s = { 0.0f, 0.0f };
+    float lv[FX_MAX_EFFECTS];
+    const float *saved = g_levels;
+    g_levels = lv;
+    for (int seg = 0; seg < LV_SEGS; seg++) {
+        /* Each effect moves to its own value, so a chain's stages do not all
+         * move together: effect k takes the step k segments later. */
+        for (int k = 0; k < FX_MAX_EFFECTS; k++) {
+            lv[k] = LV_STEPS[(seg + k) % LV_SEGS];
+        }
+        for (int p = 0; p < 190; p++) {
+            sig_fill(&g, l, r, PERIOD);
+            run_period(e, l, r, ol, or_, PERIOD, mask, depth);
+            for (uint32_t i = 0; i < PERIOD; i++) {
+                if (have_prev) {
+                    float step = fabsf(ol[i] - prev);
+                    s.worst = fmaxf(s.worst, step);
+                    if (p >= 60) {
+                        s.settled = fmaxf(s.settled, step);
+                    }
+                }
+                prev = ol[i];
+                have_prev = 1;
+            }
+        }
+    }
+    g_levels = saved;
+    return s;
+}
+
+static void test_level_steps_have_no_click(void)
+{
+    for (int k = 0; k <= N_FX; k++) {
+        const int chain = k == N_FX;
+        const uint32_t mask = chain ? FX_ALL : BIT(k);
+        float amp, hz;
+        if (chain) {
+            amp = 0.1f;   /* as the toggle check: the drive's edges stay soft */
+            hz = 110.0f;
+        } else {
+            step_signal(k, &amp, &hz);
+        }
+        const char *label = chain ? "all five" : FX_LABEL[k];
+        fx_engine e;
+        CHECK(fx_engine_init(&e, FX_EFFECTS, FX_EFFECT_COUNT, RATE, DEPTH_MS, XFADE_MS) == 0,
+              "init");
+        steps s = measure_level_steps(&e, mask, 1.0f, amp, hz);
+        fx_engine_free(&e);
+        CHECK(fx_engine_init(&e, FX_EFFECTS, FX_EFFECT_COUNT, RATE, 0.0, XFADE_MS) == 0, "init");
+        steps c = measure_level_steps(&e, mask, 1.0f, amp, hz);
+        fx_engine_free(&e);
+        if (g_verbose) {
+            printf("  %-8s level steps: worst %.5f / settled %.5f; control (unsmoothed) "
+                   "%.5f / %.5f\n", label, (double)s.worst, (double)s.settled, (double)c.worst,
+                   (double)c.settled);
+        }
+        CHECK(click_free(s), "%s level steps: worst %.5f vs settled %.5f", label,
+              (double)s.worst, (double)s.settled);
+        CHECK(!click_free(c), "%s: control (unsmoothed) passed too: worst %.5f vs settled %.5f",
+              label, (double)c.worst, (double)c.settled);
+    }
+}
+
+/* Never louder at any levels: every mask, at a grid of level settings, at half
+ * and full depth, on the keys and on loud noise. Control: the same grid with
+ * the level curve 0.5 dB hot must fail. */
+#define LV_GRID 5
+static const float LEVEL_GRID[LV_GRID][N_FX] = {
+    { 0.25f, 0.5f, 0.75f, 1.0f, 0.0f },     /* by id: chorus, drive, phaser, tremolo, flanger */
+    { 1.0f, 0.75f, 0.5f, 0.25f, 0.6f },
+    { 1.0f, 0.3f, 1.0f, 0.3f, 1.0f },
+    { 0.5f, 0.5f, 0.5f, 0.5f, 0.5f },
+    { 0.8f, 0.15f, 0.6f, 0.95f, 0.4f },
+};
+#define MASK_GRID_SIGNALS ((1u << 0) | MASK_KEYS)   /* noise.5 and keys */
+
+static float levels_grid_worst(uint32_t mask_from, uint32_t mask_to, uint32_t *at_mask, int *at_grid)
+{
+    float worst = 0.0f;
+    float lv[FX_MAX_EFFECTS];
+    const float *saved = g_levels;
+    g_levels = lv;
+    for (int gi = 0; gi < LV_GRID; gi++) {
+        for (int k = 0; k < FX_MAX_EFFECTS; k++) {
+            lv[k] = k < N_FX ? LEVEL_GRID[gi][k] : 1.0f;
+        }
+        for (uint32_t m = mask_from; m <= mask_to; m++) {
+            for (int di = 0; di < 2; di++) {
+                const float depth = di == 0 ? 0.5f : 1.0f;
+                for (int sgi = 0; sgi < N_LEVEL_SIGNALS; sgi++) {
+                    if (!(MASK_GRID_SIGNALS & (1u << sgi))) {
+                        continue;
+                    }
+                    float rr, pr;
+                    level_at(FX_EFFECTS, m, sgi, depth, &rr, &pr);
+                    if (rr > worst) {
+                        worst = rr;
+                        *at_mask = m;
+                        *at_grid = gi;
+                    }
+                }
+            }
+        }
+    }
+    g_levels = saved;
+    return worst;
+}
+
+static void test_levels_never_louder(void)
+{
+    uint32_t at_mask = 0;
+    int at_grid = -1;
+    float worst = levels_grid_worst(1u, FX_ALL, &at_mask, &at_grid);
+    CHECK(worst <= RMS_MARGIN, "levels: output RMS %+.3f dB over the input (mask %u, level row "
+          "%d)", db(worst), (unsigned)at_mask, at_grid);
+    uint32_t cm = 0;
+    int cg = -1;
+    fx_test_level_hot = 1;
+    float c = levels_grid_worst(BIT_PHASER | BIT_CHORUS, BIT_PHASER | BIT_CHORUS, &cm, &cg);
+    fx_test_level_hot = 0;
+    CHECK(c > RMS_MARGIN, "levels: control (hot level curve) passed: %+.3f dB", db(c));
+    if (g_verbose) {
+        printf("  levels   worst RMS out/in over 31 masks x %d level rows x 2 depths: %+.3f dB "
+               "(mask %u, row %d); control (hot) %+.3f dB\n", LV_GRID, db(worst),
+               (unsigned)at_mask, at_grid, db(c));
+    }
+}
+
+/* A stage switched on later starts at its own depth (the knob times its
+ * level), whether the engine was running other stages or bypassed: its depth
+ * followed the knob while it was off, so the enable crossfade is its only
+ * transition. An exact state check, so it has no broken twin here; the
+ * mutation run (a stage whose depth stays where it was while off) is its
+ * negative control. */
+static void test_a_stage_enabled_later_starts_at_its_depth(void)
+{
+    float lv[FX_MAX_EFFECTS];
+    for (int k = 0; k < FX_MAX_EFFECTS; k++) {
+        lv[k] = 1.0f;
+    }
+    lv[1] = 0.5f;   /* drive */
+    float l[PERIOD], r[PERIOD], ol[PERIOD], or_[PERIOD];
+    const float *saved = g_levels;
+    g_levels = lv;
+    for (int first = 0; first < 2; first++) {   /* chorus running, then bypass (empty mask) */
+        fx_engine e;
+        CHECK(fx_engine_init(&e, FX_EFFECTS, FX_EFFECT_COUNT, RATE, DEPTH_MS, XFADE_MS) == 0, "init");
+        for (int p = 0; p < 60; p++) {
+            for (uint32_t i = 0; i < PERIOD; i++) {
+                l[i] = r[i] = 0.3f * noise();
+            }
+            run_period(&e, l, r, ol, or_, PERIOD, first == 0 ? BIT(0) : 0u, 0.6f);
+        }
+        run_period(&e, l, r, ol, or_, PERIOD, (first == 0 ? BIT(0) : 0u) | BIT_DRIVE, 0.6f);
+        CHECK(e.depth[1] == 0.6f * 0.5f, "drive switched on after %s starts at depth %.6f, not 0.3",
+              first == 0 ? "the chorus" : "bypass", (double)e.depth[1]);
+        fx_engine_free(&e);
+    }
+    g_levels = saved;
+}
+
+static void test_levels(void)
+{
+    test_a_stage_enabled_later_starts_at_its_depth();
+    test_level_is_a_depth_product();
+    test_level_zero_is_off();
+    test_levels_zero_is_bypass();
+    test_level_steps_have_no_click();
+    test_levels_never_louder();
+}
+
+static void print_parse(const char *text)
+{
+    uint32_t mask = 0;
+    float depth = 0.0f;
+    float levels[FX_MAX_EFFECTS];
+    if (!fx_parse_control(text, &mask, &depth, levels)) {
+        printf("reject\n");
+        return;
+    }
+    printf("ok %u %.6f", (unsigned)mask, (double)depth);
+    for (int k = 0; k < FX_MAX_EFFECTS; k++) {
+        printf(" %.6f", (double)levels[k]);
+    }
+    printf("\n");
+}
+
 int main(int argc, char **argv)
 {
     if (argc == 3 && strcmp(argv[1], "--parse") == 0) {
-        uint32_t mask = 0;
-        float depth = 0.0f;
-        if (fx_parse_control(argv[2], &mask, &depth)) {
-            printf("ok %u %.6f\n", (unsigned)mask, (double)depth);
-        } else {
-            printf("reject\n");
+        print_parse(argv[2]);
+        return 0;
+    }
+    if (argc == 2 && strcmp(argv[1], "--parse-lines") == 0) {
+        char line[512];
+        while (fgets(line, sizeof(line), stdin) != NULL) {
+            line[strcspn(line, "\n")] = '\0';
+            print_parse(line);
         }
         return 0;
     }
@@ -2027,6 +2418,7 @@ int main(int argc, char **argv)
     test_rate_limits();
     test_pack();
     test_chain();
+    test_levels();
 
     if (g_failures != 0) {
         fprintf(stderr, "fx-selftest: %d check(s) failed\n", g_failures);

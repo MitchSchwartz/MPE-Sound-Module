@@ -1,8 +1,9 @@
 """The wire format to `native/mpe-fx-host`, and nothing else.
 
 `mpe-fx-host` is the effects insert on the Surge trunk. It holds no policy: it
-is told which effects are on and one depth, and it applies them. Whatever
-decides those (the FX policy module) sends them through `encode_chain` here,
+is told which effects are on, one depth and a level per effect, and it
+applies them. Whatever decides those (the FX policy module) sends them through
+`encode_chain_levels` here,
 so the datagram has one definition on the Python side. The C side's parser is
 `fx_parse_control` in `native/mpe-fx-host/fx_dsp.c`; `tests/test_fx_host.py`
 runs every encoding through it.
@@ -10,7 +11,19 @@ runs every encoding through it.
 One ASCII line per UDP datagram to 127.0.0.1, in the live monitor's style
 (`gain 0.500000`):
 
+    chainl <mask> <depth> <l0> ... <l4>
+                     e.g.  chainl 5 0.500000 1.000000 1.000000 0.400000 1.000000 1.000000
     chain <mask> <depth>            e.g.  chain 5 0.500000
+
+**Per-effect levels** (`chainl`, what the remapper sends, `encode_chain_levels`).
+After the mask and the shared depth comes one level per effect, 0.0-1.0,
+indexed by effect id (l0 is the chorus, l1 the drive, ...), not in run order.
+Effect i plays at depth `depth * l_i`: one knob moves every enabled effect and
+they keep their proportions. The levels are append-only, like the ids: the
+client reads a level it is not sent as 1.0 and ignores levels for ids it does
+not ship, so a sender and a client that disagree on how many effects exist
+still agree on the ones both know. `chain <mask> <depth>` is the same with
+every level 1.0, and sets them so.
 
 The mask is a decimal integer with bit `1 << effect_id` set for each enabled
 effect (5 = chorus + phaser). The effects run in series in the fixed order
@@ -73,6 +86,13 @@ CHAIN_ORDER: tuple[int, ...] = (
 #: No effect enabled, and every effect this build ships enabled.
 MASK_NONE = 0
 MASK_ALL = (1 << len(EFFECT_IDS)) - 1
+
+#: An effect's level when nothing says otherwise: it plays at the shared depth.
+LEVEL_DEFAULT = 1.0
+#: Every effect at LEVEL_DEFAULT, by effect id: the `chain` command's levels.
+LEVELS_DEFAULT: tuple[float, ...] = tuple(LEVEL_DEFAULT for _ in EFFECT_IDS)
+#: Must equal FX_MAX_EFFECTS in fx_dsp.h: the most levels a `chainl` may carry.
+MAX_LEVELS = 8
 
 
 def enabled(value: str | None = None) -> bool:
@@ -167,3 +187,72 @@ def encode_chain(mask: int, depth: float) -> bytes:
         raise ValueError(f"depth must be finite, got {depth!r}")
     value = max(0.0, min(1.0, value))
     return f"chain {mask} {value:.6f}".encode("ascii")
+
+
+def level_value(value) -> float | None:
+    """`value` as a level, clamped to 0..1, or None if it is not a finite number."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    if not math.isfinite(value):
+        return None
+    return max(0.0, min(1.0, float(value)))
+
+
+def levels_from(value) -> tuple[float, ...] | None:
+    """A full levels tuple (one per shipped effect, by id) from a stored or
+    published list, or None when `value` is not a list at all.
+
+    Append-only, as on the wire: a list written by a build with fewer effects
+    is read with LEVEL_DEFAULT for the ones it lacks, and entries for ids this
+    build does not ship are dropped. An entry that is not a finite number is
+    LEVEL_DEFAULT: nothing read from a file is trusted, and 1.0 is what the
+    patch played at before it had levels.
+    """
+    if not isinstance(value, (list, tuple)):
+        return None
+    out = []
+    for effect_id in EFFECT_IDS:
+        level = level_value(value[effect_id]) if effect_id < len(value) else None
+        out.append(LEVEL_DEFAULT if level is None else level)
+    return tuple(out)
+
+
+def with_level(levels, effect_id: int, level: float) -> tuple[float, ...]:
+    """`levels` with `effect_id`'s level set (clamped to 0..1)."""
+    _check_id(effect_id)
+    value = level_value(level)
+    if value is None:
+        raise ValueError(f"level must be finite, got {level!r}")
+    full = list(_check_levels(levels))
+    full[effect_id] = value
+    return tuple(full)
+
+
+def _check_levels(levels) -> tuple[float, ...]:
+    if not isinstance(levels, (list, tuple)) or len(levels) != len(EFFECT_IDS):
+        raise ValueError(f"levels must be {len(EFFECT_IDS)} numbers by effect id, got {levels!r}")
+    out = []
+    for value in levels:
+        level = level_value(value)
+        if level is None:
+            raise ValueError(f"level must be finite, got {value!r}")
+        out.append(level)
+    return tuple(out)
+
+
+def encode_chain_levels(mask: int, depth: float, levels) -> bytes:
+    """The datagram that enables the effects in `mask` at the shared `depth`,
+    each at its own level: one per shipped effect, by effect id (each clamped
+    to 0..1). Effect i plays at `depth * levels[i]`.
+
+    Raises ValueError for a mask naming an effect this build does not ship, a
+    non-finite depth or level, or a levels list that is not one per effect,
+    for the reason `encode` does.
+    """
+    _check_mask(mask)
+    value = float(depth)
+    if not math.isfinite(value):
+        raise ValueError(f"depth must be finite, got {depth!r}")
+    value = max(0.0, min(1.0, value))
+    fields = " ".join(f"{level:.6f}" for level in _check_levels(levels))
+    return f"chainl {mask} {value:.6f} {fields}".encode("ascii")
