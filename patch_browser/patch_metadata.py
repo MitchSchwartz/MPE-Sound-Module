@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import os
 import re
 from pathlib import Path
@@ -29,6 +30,17 @@ INSTRUMENT_VOCAB: tuple[str, ...] = (
     "fx",
     "other",
 )
+
+#: The order every instrument list on screen uses: the favorites sections and
+#: their jump strip, the Set instrument menu, and the filter chips. A-Z by name,
+#: with "other" last, because it is not an instrument but the lack of one (the
+#: catch-all for a patch nothing classified). Defined here and nowhere else; a
+#: guard test refuses a second ordering. INSTRUMENT_VOCAB's own order is the
+#: classifier's tie-break order (`_score_instruments`), so it is never
+#: reordered for display.
+INSTRUMENT_DISPLAY_ORDER: tuple[str, ...] = tuple(
+    sorted(name for name in INSTRUMENT_VOCAB if name != "other")
+) + ("other",)
 
 # Top-level Surge factory / common folder names → instrument(s)
 FOLDER_INSTRUMENT_MAP: dict[str, tuple[str, ...]] = {
@@ -462,6 +474,23 @@ class PatchMetadataIndex:
             row.setdefault("path_segments", path_segments_for_patch(patch))
         row["instrument_user"] = instrument_user
         self._user[stable_key] = row
+        self._save_user()
+
+    def user_row(self, stable_key: str) -> dict[str, Any] | None:
+        """A copy of the user's row for this key (None: no row), for undo."""
+        row = self._user.get(stable_key)
+        return copy.deepcopy(row) if row is not None else None
+
+    def restore_user_row(self, stable_key: str, row: dict[str, Any] | None) -> None:
+        """Put back a row taken with `user_row`; None removes the key's row, so
+        a patch with no instrument of its own goes back to having none."""
+        if row is None:
+            self._user.pop(stable_key, None)
+        else:
+            self._user[stable_key] = copy.deepcopy(row)
+        self._save_user()
+
+    def _save_user(self) -> None:
         write_metadata_file(
             self.user_path,
             {"version": METADATA_VERSION, "patches": self._user},

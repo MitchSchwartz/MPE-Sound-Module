@@ -53,6 +53,8 @@ class TouchBrowserEvdevMixin:
             )
         self._handle_event(event)
     def _handle_evdev_browser_touch(self, kind: str, pos: tuple[int, int]) -> None:
+        if self._toast_action_touch(kind, pos):
+            return
         if kind == "down":
             self._touch_list_capture = False
             self._touch_browse_capture = False

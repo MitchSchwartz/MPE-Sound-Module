@@ -16,6 +16,7 @@ from patch_browser.draw_primitives import (
     draw_sidebar_panel_icon,
 )
 from patch_browser.fx_policy import MOD_WHEEL_EFFECT
+from patch_browser.touch_browser_fx_effect_modal import EFFECT_CHANNEL_ID
 from patch_browser.peak_meter_math import peak_meter_color_dbfs
 from patch_browser.geometry import Rect
 from patch_browser.mixer import FADER_NAME_DY, FADER_VALUE_DY, MixerChannel
@@ -43,6 +44,9 @@ from patch_browser.touch_ui_constants import (
     SETTINGS_PANEL_HEADER_H,
     SETTINGS_ROW_GAP,
     SETTINGS_ROW_H,
+    TOAST_ACTION_H,
+    TOAST_ACTION_HIT_PAD_PX,
+    TOAST_ACTION_PAD_X,
 )
 from patch_browser.audio_profile import header_badge_label
 from patch_browser.audio_engine import engine_hud_label, engine_hud_semantic, engine_hud_should_show
@@ -62,6 +66,7 @@ from patch_browser.looper_hud import (
 from patch_browser.touch_ui_enums import (
     CalibrateMode,
     LeftNavMode,
+    Screen,
 )
 from patch_browser.ui_text import (
     blit_text_block,
@@ -394,7 +399,10 @@ class TouchBrowserDrawMixin:
         val_x = channel.column_rect.x + (channel.column_rect.w - val_s.get_width()) // 2
         self.screen.blit(val_s, (val_x, channel.track_rect.bottom + FADER_VALUE_DY))
 
-        label_color = self.theme.text if enabled else self.theme.muted
+        # The Effect fader's label opens the picker even while the fader is
+        # greyed out (no effect ticked), so it keeps the live colour.
+        label_live = enabled or channel.channel_id == EFFECT_CHANNEL_ID
+        label_color = self.theme.text if label_live else self.theme.muted
         label_s = self.font_sm.render(self._mixer_channel_label(channel), True, label_color)
         label_x = channel.column_rect.x + (channel.column_rect.w - label_s.get_width()) // 2
         label_y = channel.track_rect.bottom + FADER_NAME_DY
@@ -1020,20 +1028,14 @@ class TouchBrowserDrawMixin:
         self._draw_mod_wheel_row()
     def _draw_mod_wheel_row(self) -> None:
         """The switch is the setting (on = Effect); its label is where the knob
-        goes now, which for a patch with no mod-wheel routing is the Effect
-        even with the switch off. That patch greys the switch out (Norm's
-        disabled look) in the Effect position, and a tap does nothing."""
-        policy = getattr(self, "fx_policy", None)
-        switch = getattr(self, "mod_wheel_switch_rect", None)
-        if policy is None or switch is None or switch.w <= 0:
+        goes now. Not drawn for a patch with no mod-wheel routing
+        (`_mod_wheel_switch_shown`): the knob goes to the effect regardless."""
+        if not self._mod_wheel_switch_shown():
             return
         self._draw_normalize_toggle(
-            switch,
-            # Locked: the knob goes to the effect, so the switch shows it there.
-            # Drawing only; the stored target is untouched.
-            policy.switch_locked or policy.target == MOD_WHEEL_EFFECT,
+            self.mod_wheel_switch_rect,
+            self.fx_policy.target == MOD_WHEEL_EFFECT,
             has_gain=True,
-            disabled=policy.switch_locked,
             label=self._mod_knob_switch_label(),
         )
     def _draw_browser(self) -> None:
@@ -1712,6 +1714,46 @@ class TouchBrowserDrawMixin:
             muted=start_disabled,
             pressed=self._pressed("cal:start"),
         )
+    def _toast_action_live(self) -> bool:
+        """The toast offers its button now: an action, still in time, not a
+        loader toast, and on the browser screen (modals take their own
+        touches, so the button is neither drawn nor hit there)."""
+        return (
+            self.toast_action is not None
+            and bool(self.toast_message)
+            and time.time() <= self.toast_until
+            and not getattr(self, "_loader_toast_active", False)
+            and self.screen_state == Screen.BROWSER
+        )
+
+    def _toast_layout(self):
+        """(toast rect, text lines, button rect or None): the one geometry the
+        draw and the hit test share."""
+        button = self._toast_action_live()
+        pad_x, pad_y = 16, 10
+        button_w = 0
+        if button:
+            button_w = self.font_sm.size(self.toast_action[0])[0] + TOAST_ACTION_PAD_X * 2
+        max_w = min(560, self.width - 48) - button_w
+        lines = wrap_text_lines(self.font_sm, self.toast_message, max_w, max_lines=3)
+        text_w = max(self.font_sm.size(line)[0] for line in lines)
+        block_h = text_block_height(self.font_sm, len(lines), line_spacing=2)
+        h = block_h + pad_y * 2
+        if button:
+            h = max(h, TOAST_ACTION_H)
+        w = text_w + pad_x * 2 + button_w
+        rect = Rect((self.width - w) // 2, self.height - 80 - max(0, h - 40), w, h)
+        button_rect = Rect(rect.right - button_w, rect.y, button_w, rect.h) if button else None
+        return rect, lines, button_rect
+
+    def _toast_action_rect(self) -> Rect | None:
+        """Where a tap reaches the toast's button: the button and a margin."""
+        if not self._toast_action_live():
+            return None
+        _rect, _lines, button = self._toast_layout()
+        pad = TOAST_ACTION_HIT_PAD_PX
+        return Rect(button.x - pad, button.y - pad, button.w + 2 * pad, button.h + 2 * pad)
+
     def _draw_toast(self) -> None:
         if time.time() > self.toast_until:
             return
@@ -1720,23 +1762,31 @@ class TouchBrowserDrawMixin:
             return
         if not self.toast_message:
             return
-        max_w = min(560, self.width - 48)
-        lines = wrap_text_lines(self.font_sm, self.toast_message, max_w, max_lines=3)
-        line_surfs = [self.font_sm.render(line, True, self.theme.text) for line in lines]
-        pad_x, pad_y = 16, 10
-        w = max(s.get_width() for s in line_surfs) + pad_x * 2
+        rect, lines, button = self._toast_layout()
+        pad_x = 16
         block_h = text_block_height(self.font_sm, len(lines), line_spacing=2)
-        h = block_h + pad_y * 2
-        rect = pygame.Rect((self.width - w) // 2, self.height - 80 - max(0, block_h - 20), w, h)
-        pygame.draw.rect(self.screen, self.theme.surface_alt, rect, border_radius=10)
+        pygame.draw.rect(self.screen, self.theme.surface_alt, rect.pygame_rect, border_radius=10)
         blit_text_block(
             self.screen,
             self.font_sm,
             lines,
             rect.x + pad_x,
-            rect.y + pad_y,
+            rect.y + (rect.h - block_h) // 2,
             self.theme.text,
             line_spacing=2,
+        )
+        if button is None:
+            return
+        pressed = getattr(self, "_toast_action_down", False)
+        inner = pygame.Rect(button.x + 4, button.y + 4, button.w - 8, button.h - 8)
+        pygame.draw.rect(
+            self.screen, self.theme.accent if pressed else self.theme.surface, inner, border_radius=8
+        )
+        pygame.draw.rect(self.screen, self.theme.accent, inner, width=1, border_radius=8)
+        label = self.font_sm.render(self.toast_action[0], True, self.theme.bg if pressed else self.theme.accent)
+        self.screen.blit(
+            label,
+            (inner.x + (inner.w - label.get_width()) // 2, inner.y + (inner.h - label.get_height()) // 2),
         )
 
     def _draw_loader_toast(self) -> None:

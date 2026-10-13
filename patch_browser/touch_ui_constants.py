@@ -128,3 +128,11 @@ LOOPER_HUD_TITLE_GAP = 16
 # Ceiling on how much of the status bar the patch title may claim before it
 # truncates — past this the sweep matters more than the rest of the name.
 LOOPER_HUD_TITLE_MAX_FRAC = 0.42
+# A toast with an action (Undo after Set instrument): how long the action is
+# offered, and the button's size. 48 px tall, the size of the other touch
+# targets on the play screen; the hit area reaches TOAST_ACTION_HIT_PAD_PX
+# past it, since a miss lands on the list or a fader underneath.
+TOAST_ACTION_S = 10.0
+TOAST_ACTION_H = 48
+TOAST_ACTION_PAD_X = 18
+TOAST_ACTION_HIT_PAD_PX = 8

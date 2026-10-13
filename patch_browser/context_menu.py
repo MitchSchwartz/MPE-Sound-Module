@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 from patch_browser.favorites_index import is_protected_qa_folder
-from patch_browser.patch_metadata import INSTRUMENT_VOCAB
+from patch_browser.patch_metadata import INSTRUMENT_DISPLAY_ORDER
 from patch_browser.patch_scanner import favorites_folder_matches
 
 ContextKind = Literal["library_folder", "patch", "qa_folder"]
@@ -61,7 +61,8 @@ def folder_picker_actions(folders: list[str]) -> list[tuple[str, str]]:
 
 
 def instrument_picker_actions() -> list[tuple[str, str]]:
-    return [(f"pick_instrument:{name}", name.capitalize()) for name in INSTRUMENT_VOCAB]
+    """Set instrument menu rows, in INSTRUMENT_DISPLAY_ORDER (A-Z, Other last)."""
+    return [(f"pick_instrument:{name}", name.capitalize()) for name in INSTRUMENT_DISPLAY_ORDER]
 
 
 def qa_folder_display_name(target: ContextTarget) -> str:

@@ -451,16 +451,29 @@ class PlayScreenSwitchTests(_BrowserCase):
         on, kw = self._drawn_kwargs(browser)
         return on, kw["label"]
 
+    def _assert_switch_gone(self, browser) -> None:
+        """Not drawn, and no hit area anywhere in its rect (#2026-10-13)."""
+        with mock.patch.object(browser, "_draw_normalize_toggle") as draw:
+            browser._draw_mod_wheel_row()
+        draw.assert_not_called()
+        rect = browser.mod_wheel_switch_rect
+        self.assertGreater(rect.w, 0)  # laid out: only the patch hides it
+        for pos in ((rect.x, rect.y), _center(rect), (rect.right - 1, rect.bottom - 1)):
+            self.assertFalse(browser._mod_wheel_switch_hit(pos), pos)
+
     def test_label_states_where_the_knob_goes_now(self) -> None:
         browser = self._make_browser(fx_enabled=True)
         for target, uses, label in LABEL_TRUTH:
             with self.subTest(target=target, uses=uses):
                 self.policy.uses_mod_wheel = uses
                 self.policy.target = target
+                if uses is False:
+                    self._assert_switch_gone(browser)
+                    continue
                 on, drawn = self._drawn_switch(browser)
                 self.assertEqual(drawn, label)
-                # The switch is the setting, except locked, where it shows Effect.
-                self.assertEqual(on, uses is False or target == MOD_WHEEL_EFFECT)
+                # The switch is the setting.
+                self.assertEqual(on, target == MOD_WHEEL_EFFECT)
 
     def test_label_names_the_faders_it_means(self) -> None:
         """The switch names the Patch mod fader, or the same chain the Effect
@@ -520,18 +533,23 @@ class PlayScreenSwitchTests(_BrowserCase):
         browser._handle_browser_tap(_center(browser.mod_wheel_switch_rect))
         self.assertEqual(self.policy.target, MOD_WHEEL_PATCH_FIRST)
 
-    def test_switch_is_greyed_out_only_when_the_patch_has_no_mod_wheel_routing(self) -> None:
+    def test_switch_is_gone_only_when_the_patch_has_no_mod_wheel_routing(self) -> None:
         browser = self._make_browser(fx_enabled=True)
         for target, uses, label in LABEL_TRUTH:
             with self.subTest(target=target, uses=uses):
                 self.policy.uses_mod_wheel = uses
                 self.policy.target = target
-                on, kw = self._drawn_kwargs(browser)
+                # The same test as the greyed Patch mod fader.
+                self.assertEqual(browser._mod_wheel_switch_shown(), not self.policy.patch_mod_locked)
+                if uses is False:
+                    self._assert_switch_gone(browser)
+                    continue
                 # Unknown (unreadable patch) stays live, like the fail-safe.
-                self.assertIs(kw.get("disabled", False), uses is False)
+                on, kw = self._drawn_kwargs(browser)
+                self.assertFalse(kw.get("disabled", False))
                 self.assertEqual(kw["label"], label)
-                # Locked shows the Effect position; otherwise the setting.
-                self.assertEqual(on, uses is False or target == MOD_WHEEL_EFFECT)
+                self.assertEqual(on, target == MOD_WHEEL_EFFECT)
+                self.assertTrue(browser._mod_wheel_switch_hit(_center(browser.mod_wheel_switch_rect)))
 
     def _tap_changes_nothing(self, browser, tap) -> None:
         route = self.root / "fx-route.json"
@@ -542,9 +560,9 @@ class PlayScreenSwitchTests(_BrowserCase):
         self.assertEqual(self.policy.target, target)
         self.assertEqual(route.read_bytes() if route.exists() else None, before)
         toast.assert_not_called()
-        self.assertEqual(self._drawn_switch(browser)[1], "Mod knob \u2192 No FX")
+        self._assert_switch_gone(browser)
 
-    def test_tap_on_a_greyed_out_switch_changes_and_writes_nothing(self) -> None:
+    def test_tap_where_a_hidden_switch_would_be_changes_and_writes_nothing(self) -> None:
         for target in (MOD_WHEEL_PATCH_FIRST, MOD_WHEEL_EFFECT):
             with self.subTest(target=target):
                 browser = self._make_browser(fx_enabled=True)
@@ -566,7 +584,7 @@ class PlayScreenSwitchTests(_BrowserCase):
         self.assertEqual(self.policy.target, MOD_WHEEL_EFFECT)
         self.assertEqual(json.loads((self.root / "fx-route.json").read_text())["target"], MOD_WHEEL_EFFECT)
 
-    def test_locked_switch_draws_on_without_touching_the_target(self) -> None:
+    def test_locked_switch_is_hidden_without_touching_the_target(self) -> None:
         browser = self._make_browser(fx_enabled=True)
         plain, wheel = self.root / "plain.fxp", self.root / "wheel.fxp"
         plain.write_bytes(b"hdr<patch><modrouting source=\"2\"/></patch>")
@@ -574,15 +592,13 @@ class PlayScreenSwitchTests(_BrowserCase):
         self.assertEqual(self.policy.global_target, MOD_WHEEL_PATCH_FIRST)
         self.policy.on_patch_loaded(plain)
         route = (self.root / "fx-route.json").read_bytes()
-        on, kw = self._drawn_kwargs(browser)
-        self.assertTrue(on)
-        self.assertTrue(kw["disabled"])
+        self._assert_switch_gone(browser)
         self.assertEqual(self.policy.target, MOD_WHEEL_PATCH_FIRST)
         self.assertEqual((self.root / "fx-route.json").read_bytes(), route)
         self.policy.on_patch_loaded(wheel)
         on, kw = self._drawn_kwargs(browser)
         self.assertFalse(on)  # the real setting again
-        self.assertFalse(kw["disabled"])
+        self.assertFalse(kw.get("disabled", False))
 
     def test_loading_a_patch_that_uses_the_wheel_brings_the_switch_back(self) -> None:
         browser = self._make_browser(fx_enabled=True)
@@ -590,9 +606,9 @@ class PlayScreenSwitchTests(_BrowserCase):
         plain.write_bytes(b"hdr<patch><modrouting source=\"2\"/></patch>")
         wheel.write_bytes(b"hdr<patch><modrouting source=\"6\"/></patch>")
         self.policy.on_patch_loaded(plain)
-        self.assertTrue(self._drawn_kwargs(browser)[1]["disabled"])
+        self._assert_switch_gone(browser)
         self.policy.on_patch_loaded(wheel)
-        self.assertFalse(self._drawn_kwargs(browser)[1]["disabled"])
+        self.assertFalse(self._drawn_kwargs(browser)[1].get("disabled", False))
         self.assertEqual(self.policy.target, self.policy.global_target)
         browser._handle_browser_tap(_center(browser.mod_wheel_switch_rect))
         self.assertEqual(self.policy.target, MOD_WHEEL_EFFECT)
@@ -611,6 +627,7 @@ class EffectFaderTests(_BrowserCase):
 
     def test_drag_writes_a_request_and_release_lands_the_last_position(self) -> None:
         browser = self._make_browser(fx_enabled=True)
+        self.policy.set_mask(D)
         channel = self._effect_channel(browser)
         top = channel.track_rect.y
         x = channel.column_rect.centerx
@@ -627,6 +644,7 @@ class EffectFaderTests(_BrowserCase):
         from patch_browser.mixer_controls import mixer_control_by_id
 
         browser = self._make_browser(fx_enabled=True)
+        self.policy.set_mask(D)
         (self.root / "fx-levels.json").write_text(json.dumps({"depth": 0.6, "source": "knob", "request": None}))
         self.assertTrue(self.policy.poll_levels())
         self.assertAlmostEqual(mixer_control_by_id(browser, "effect").read(browser), 0.6)
@@ -843,6 +861,7 @@ class EffectPickerTests(_BrowserCase):
 
     def test_the_track_is_still_a_fader(self) -> None:
         browser = self._browser()
+        self.policy.set_mask(1 << self.DRIVE)
         channel = self._effect_channel(browser)
         browser._handle_mixer_down((channel.column_rect.centerx, channel.track_rect.bottom - 1))
         self.assertTrue(self.policy.dragging_depth)
@@ -1360,11 +1379,13 @@ class PatchModNoWheelTests(_BrowserCase):
         return texts, rect.call_args_list, line.call_args_list
 
     def _locked_toggle_colours(self, browser) -> dict:
-        """What the greyed-out mod-knob switch is drawn with, the look to match."""
+        """What a greyed-out toggle (Norm's disabled look) is drawn with, the
+        look to match. The mod-knob switch used to be drawn this way; it is now
+        hidden instead."""
         with mock.patch("patch_browser.touch_browser_normalization.draw_toggle_switch") as switch:
-            browser._draw_mod_wheel_row()
+            browser._draw_normalize_toggle(browser.normalize_btn, True, has_gain=True, disabled=True)
         kw = switch.call_args.kwargs
-        self.assertTrue(kw["on"])  # locked: drawn in the Effect position
+        self.assertTrue(kw["on"])
         return {"track": kw["track_on"], "knob": kw["knob_color"], "border": kw["border_color"]}
 
     def _touch(self, path, browser, pos, end=None) -> None:
@@ -1678,6 +1699,159 @@ class EffectCaretTests(_BrowserCase):
     def test_no_caret_without_the_fx_host(self) -> None:
         browser = self._make_browser(fx_enabled=False)
         self.assertEqual(self._drawn_carets(browser), [])
+
+
+class EffectFaderNoEffectTickedTests(_BrowserCase):
+    """No effect ticked (2026-10-13): the Effect fader is greyed out as Patch
+    mod is for a no-wheel patch. Shows 0, takes no touch, stored depth kept;
+    the label still opens the picker."""
+
+    _tap_pygame = EffectPickerTests._tap_pygame
+    _tap_evdev = EffectPickerTests._tap_evdev
+    _tap = EffectPickerTests._tap
+    PATHS = EffectPickerTests.PATHS
+
+    def _browser(self):
+        browser = self._make_browser(fx_enabled=True)
+        browser.screen_state = Screen.BROWSER
+        browser.left_nav_collapsed = True
+        browser._layout()
+        # A stored depth, then no effect: what Mitch gets by unticking the last.
+        self.policy.set_mask(D)
+        self.policy.set_depth(0.6, final=True)
+        self.policy.set_mask(0)
+        return browser
+
+    def _channel(self, browser):
+        return next(c for c in browser.mixer_channels if c.channel_id == "effect")
+
+    def _control(self):
+        from patch_browser.mixer_controls import mixer_control_by_id
+
+        return mixer_control_by_id(None, "effect")
+
+    def test_greyed_out_reading_zero_with_the_depth_kept(self) -> None:
+        browser = self._browser()
+        channel = self._channel(browser)
+        self.assertTrue(self.policy.effect_locked)
+        self.assertFalse(browser._mixer_channel_enabled(channel))
+        self.assertEqual(self._control().read(browser), 0.0)
+        self.assertEqual(browser._value_to_handle_y(channel, browser._mixer_value(channel)),
+                         channel.track_rect.bottom - FADER_HANDLE_H)
+        self.assertAlmostEqual(self.policy.depth, 0.6)
+
+    def test_drawn_like_the_greyed_patch_mod_but_the_label_stays_live(self) -> None:
+        import pygame
+
+        browser = self._browser()
+        texts: list[tuple[str, tuple]] = []
+        real = browser.font_sm.render
+
+        def record(text, aa, color, *a, **kw):
+            texts.append((text, color))
+            return real(text, aa, color, *a, **kw)
+
+        with (
+            mock.patch.object(browser.font_sm, "render", side_effect=record),
+            mock.patch.object(pygame.draw, "rect") as rect,
+            mock.patch.object(pygame.draw, "polygon") as caret,
+        ):
+            browser._draw_vertical_fader(self._channel(browser))
+        theme = browser.theme
+        self.assertIn(("0%", theme.muted), texts)
+        self.assertNotIn("60%", [text for text, _c in texts])
+        self.assertIn(("No FX", theme.text), texts)  # the way back in: not greyed
+        self.assertEqual(caret.call_args.args[1], theme.text)
+        colours = [c.args[1] for c in rect.call_args_list]
+        self.assertEqual(colours[:3], [theme.surface, theme.surface, theme.muted])  # track, handle, outline
+        self.assertNotIn(theme.accent, colours)
+
+    def test_touches_on_the_track_do_nothing_and_send_nothing(self) -> None:
+        for path in self.PATHS:
+            with self.subTest(path=path):
+                browser = self._browser()
+                route = self.root / "fx-route.json"
+                before = route.read_bytes()
+                channel = self._channel(browser)
+                x = channel.column_rect.centerx
+                with mock.patch.object(browser, "_toast") as toast:
+                    self._tap(path, browser, (x, channel.track_rect.y + 5), end=(x, channel.track_rect.y + 60))
+                    self._tap(path, browser, (x, channel.track_rect.y + 5))  # a double tap: no reset
+                    self._tap(path, browser, (x, channel.track_rect.y + 5))
+                toast.assert_not_called()
+                self.assertFalse(self.policy.dragging_depth)
+                self.assertAlmostEqual(self.policy.depth, 0.6)
+                self.assertEqual(route.read_bytes(), before)
+                self.assertEqual(browser.screen_state, Screen.BROWSER)
+
+    def test_reset_and_write_are_refused(self) -> None:
+        browser = self._browser()
+        with mock.patch.object(browser, "_toast") as toast:
+            self._control().reset(browser)
+            self._control().write(browser, 0.1, persist=True)
+        toast.assert_not_called()
+        self.assertAlmostEqual(self.policy.depth, 0.6)
+
+    def test_the_label_still_opens_the_picker_and_ticking_brings_the_depth_back(self) -> None:
+        for path in self.PATHS:
+            with self.subTest(path=path):
+                browser = self._browser()
+                self._tap(path, browser, _center(browser._effect_label_rect()))
+                self.assertEqual(browser.screen_state, Screen.FX_EFFECT_MODAL)
+                browser._close_fx_effect_modal()
+                self.policy.toggle_effect(fx_host_protocol.EFFECT_CHORUS)
+                channel = self._channel(browser)
+                self.assertTrue(browser._mixer_channel_enabled(channel))
+                self.assertAlmostEqual(self._control().read(browser), 0.6)
+                route = json.loads((self.root / "fx-route.json").read_text())
+                self.assertEqual(route["mask"], C)
+                self.assertAlmostEqual(route["depth_request"], 0.6)
+
+    def test_one_test_decides_it(self) -> None:
+        """The fader and the router both ask fx_policy.effect_inert; nothing
+        else in patch_browser tests a mask for emptiness to grey the fader."""
+        import re
+
+        repo = Path(__file__).resolve().parents[1]
+        definers = []
+        for path in sorted((repo / "patch_browser").rglob("*.py")):
+            text = path.read_text(errors="replace")
+            if re.search(r"^def effect_inert\(", text, re.M):
+                definers.append(path.name)
+        self.assertEqual(definers, ["fx_policy.py"])
+        mixer = (repo / "patch_browser" / "mixer_controls.py").read_text()
+        self.assertNotIn("MASK_NONE", mixer)
+        self.assertNotIn("effects_in", mixer)
+        self._browser()
+        for mask in ALL_MASKS:
+            self.policy.set_mask(mask)
+            self.assertEqual(self.policy.effect_locked, mask == 0, mask)
+
+
+class ModSwitchGoneLayoutTests(_BrowserCase):
+    """With the switch gone the bottom row keeps its layout: Norm and the
+    heart stay where they are, and nothing else claims the switch's place."""
+
+    def test_norm_and_heart_do_not_move(self) -> None:
+        for collapsed in (False, True):
+            with self.subTest(collapsed=collapsed):
+                browser = self._make_browser(fx_enabled=True)
+                browser.left_nav_collapsed = collapsed
+                self.policy.uses_mod_wheel = True
+                browser._layout()
+                shown = (browser.normalize_btn, browser.favorites_btn, browser.mod_wheel_switch_rect)
+                self.policy.uses_mod_wheel = False
+                browser._layout()
+                self.assertEqual((browser.normalize_btn, browser.favorites_btn, browser.mod_wheel_switch_rect), shown)
+                self.assertFalse(browser._mod_wheel_switch_shown())
+                # A tap where it was reaches no control: nothing toggles.
+                with mock.patch.object(browser, "_toggle_normalization") as norm, \
+                        mock.patch.object(browser, "_toggle_favorites") as fav:
+                    pos = _center(browser.mod_wheel_switch_rect)
+                    browser._handle_evdev_browser_touch("down", pos)
+                    browser._handle_evdev_browser_touch("up", pos)
+                norm.assert_not_called()
+                fav.assert_not_called()
 
 
 if __name__ == "__main__":
