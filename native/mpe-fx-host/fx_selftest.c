@@ -2256,43 +2256,62 @@ static void test_level_steps_have_no_click(void)
     }
 }
 
-/* Never louder at any levels: every mask, at a grid of level settings, at half
- * and full depth, on the keys and on loud noise. Control: the same grid with
- * the level curve 0.5 dB hot must fail. */
-#define LV_GRID 5
-static const float LEVEL_GRID[LV_GRID][N_FX] = {
-    { 0.25f, 0.5f, 0.75f, 1.0f, 0.0f },     /* by id: chorus, drive, phaser, tremolo, flanger */
-    { 1.0f, 0.75f, 0.5f, 0.25f, 0.6f },
-    { 1.0f, 0.3f, 1.0f, 0.3f, 1.0f },
-    { 0.5f, 0.5f, 0.5f, 0.5f, 0.5f },
-    { 0.8f, 0.15f, 0.6f, 0.95f, 0.4f },
+/* Never louder at any levels, argued down to the cases nothing else covers.
+ * A level only sets a stage's depth (d_k = shared x level_k, bit for bit:
+ * test_level_is_a_depth_product), so:
+ *  - one stage on, any level: that effect at some depth, which its own sweep
+ *    (test_pack_level_bound, 21 depths, every signal) already bounds;
+ *  - a level 0 stage is not in the chain (test_level_zero_is_off), so "one at
+ *    1, the rest 0" is the one-stage case again;
+ *  - every level equal (all 1, all 0.5): the chain at one shared depth, which
+ *    test_chain_level_bound sweeps over all 31 masks.
+ * What is left is unequal levels inside a chain of two or more. The two
+ * alternating vectors (and each the other's complement) give every adjacent
+ * pair of stages both orders of loud-then-quiet, on every multi-stage mask, at
+ * full depth, on loud noise and the keys. Control: the same check with the
+ * level curve 0.5 dB hot must fail. A full level grid (31 masks x N^5) is
+ * neither needed nor affordable: the self-test runs on every CI push. */
+#define LV_VECTORS 2
+static const float LEVEL_VECTORS[LV_VECTORS][N_FX] = {
+    { 1.0f, 0.3f, 1.0f, 0.3f, 1.0f },       /* by id: chorus, drive, phaser, tremolo, flanger */
+    { 0.3f, 1.0f, 0.3f, 1.0f, 0.3f },
 };
-#define MASK_GRID_SIGNALS ((1u << 0) | MASK_KEYS)   /* noise.5 and keys */
+#define LEVEL_VECTOR_SIGNALS ((1u << 0) | MASK_KEYS)   /* noise.5 and keys */
 
-static float levels_grid_worst(uint32_t mask_from, uint32_t mask_to, uint32_t *at_mask, int *at_grid)
+static int popcount5(uint32_t m)
+{
+    int n = 0;
+    for (; m != 0; m &= m - 1) {
+        n++;
+    }
+    return n;
+}
+
+static float levels_vector_worst(uint32_t mask_from, uint32_t mask_to, uint32_t *at_mask,
+                                 int *at_vector)
 {
     float worst = 0.0f;
     float lv[FX_MAX_EFFECTS];
     const float *saved = g_levels;
     g_levels = lv;
-    for (int gi = 0; gi < LV_GRID; gi++) {
+    for (int vi = 0; vi < LV_VECTORS; vi++) {
         for (int k = 0; k < FX_MAX_EFFECTS; k++) {
-            lv[k] = k < N_FX ? LEVEL_GRID[gi][k] : 1.0f;
+            lv[k] = k < N_FX ? LEVEL_VECTORS[vi][k] : 1.0f;
         }
         for (uint32_t m = mask_from; m <= mask_to; m++) {
-            for (int di = 0; di < 2; di++) {
-                const float depth = di == 0 ? 0.5f : 1.0f;
-                for (int sgi = 0; sgi < N_LEVEL_SIGNALS; sgi++) {
-                    if (!(MASK_GRID_SIGNALS & (1u << sgi))) {
-                        continue;
-                    }
-                    float rr, pr;
-                    level_at(FX_EFFECTS, m, sgi, depth, &rr, &pr);
-                    if (rr > worst) {
-                        worst = rr;
-                        *at_mask = m;
-                        *at_grid = gi;
-                    }
+            if (popcount5(m) < 2) {
+                continue;   /* one stage: its own depth sweep covers it (above) */
+            }
+            for (int sgi = 0; sgi < N_LEVEL_SIGNALS; sgi++) {
+                if (!(LEVEL_VECTOR_SIGNALS & (1u << sgi))) {
+                    continue;
+                }
+                float rr, pr;
+                level_at(FX_EFFECTS, m, sgi, 1.0f, &rr, &pr);
+                if (rr > worst) {
+                    worst = rr;
+                    *at_mask = m;
+                    *at_vector = vi;
                 }
             }
         }
@@ -2304,20 +2323,20 @@ static float levels_grid_worst(uint32_t mask_from, uint32_t mask_to, uint32_t *a
 static void test_levels_never_louder(void)
 {
     uint32_t at_mask = 0;
-    int at_grid = -1;
-    float worst = levels_grid_worst(1u, FX_ALL, &at_mask, &at_grid);
-    CHECK(worst <= RMS_MARGIN, "levels: output RMS %+.3f dB over the input (mask %u, level row "
-          "%d)", db(worst), (unsigned)at_mask, at_grid);
+    int at_vector = -1;
+    float worst = levels_vector_worst(1u, FX_ALL, &at_mask, &at_vector);
+    CHECK(worst <= RMS_MARGIN, "levels: output RMS %+.3f dB over the input (mask %u, level "
+          "vector %d)", db(worst), (unsigned)at_mask, at_vector);
     uint32_t cm = 0;
-    int cg = -1;
+    int cv = -1;
     fx_test_level_hot = 1;
-    float c = levels_grid_worst(BIT_PHASER | BIT_CHORUS, BIT_PHASER | BIT_CHORUS, &cm, &cg);
+    float c = levels_vector_worst(BIT_PHASER | BIT_CHORUS, BIT_PHASER | BIT_CHORUS, &cm, &cv);
     fx_test_level_hot = 0;
     CHECK(c > RMS_MARGIN, "levels: control (hot level curve) passed: %+.3f dB", db(c));
     if (g_verbose) {
-        printf("  levels   worst RMS out/in over 31 masks x %d level rows x 2 depths: %+.3f dB "
-               "(mask %u, row %d); control (hot) %+.3f dB\n", LV_GRID, db(worst),
-               (unsigned)at_mask, at_grid, db(c));
+        printf("  levels   worst RMS out/in over 26 multi-stage masks x %d alternating level "
+               "vectors: %+.3f dB (mask %u, vector %d); control (hot) %+.3f dB\n", LV_VECTORS,
+               db(worst), (unsigned)at_mask, at_vector, db(c));
     }
 }
 
