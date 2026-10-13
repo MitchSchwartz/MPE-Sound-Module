@@ -6,6 +6,7 @@ import time
 
 import pygame
 
+from patch_browser.favorites_sections import HEADER_KIND
 from patch_browser.context_menu import (
     ContextTarget,
     build_context_actions,
@@ -69,6 +70,8 @@ class TouchBrowserContextMixin:
             if index < 0 or index >= len(self._browse_nav_entries):
                 return None
             entry = self._browse_nav_entries[index]
+            if entry["kind"] == HEADER_KIND:
+                return None
             category = self._browse_category_name()
             inner = self._browse_inner_segments()
             if entry["kind"] == "folder":
@@ -427,6 +430,8 @@ class TouchBrowserContextMixin:
                     canonical = self.scanner.get_patch_by_stable_key(stable_key)
                     if canonical is not None and canonical is not patch:
                         self.scanner.metadata_index.enrich_patch(canonical)
+                    # Favorites sections are cached per copy; this may move one.
+                    self.scanner.invalidate_favorite_cache()
                     if self.detail_patch and self.detail_patch.get("path") == patch.get("path"):
                         self.detail_patch = dict(patch)
                     if self.loaded_patch_info and self.loaded_patch_info.get("path") == patch.get(

@@ -10,18 +10,21 @@ import pygame
 
 from patch_browser.all_patches_index import build_flat_patch_list
 from patch_browser.dsi_splash import boot_animation_phase
+from patch_browser.favorites_sections import HEADER_KIND, section_starts, sectioned_entries
 from patch_browser.instrument_filter import (
     filter_patches_by_instrument,
     patches_in_browse_subtree,
 )
-from patch_browser.patch_scanner import favorites_display_name
+from patch_browser.patch_scanner import favorites_display_name, favorites_folder_matches
 from patch_browser.patch_sidecar_key import clear_path_caches
 from patch_browser.touch_ui_constants import (
     ALL_PATCHES_ROW_HEIGHT,
     ALL_PATCHES_SCROLL_ANIM_S,
     AZ_RAIL_FEEDBACK_S,
+    NAV_SECTION_HEADER_H,
     PATCHES_ROW_HEIGHT,
 )
+from patch_browser.jump_strip import scrub_fraction, section_cell_at
 from patch_browser.touch_ui_enums import LeftNavMode
 
 
@@ -298,11 +301,22 @@ class TouchBrowserPatchesMixin:
             return entries
         for name in self.scanner.get_subfolders(category, inner):
             entries.append({"kind": "folder", "name": name, "label": f"{name}  >"})
+        patch_entries: list[dict] = []
         for patch in self.scanner.get_patches_in_folder(category, inner):
             if not self._patch_passes_instrument_filter(patch):
                 continue
-            entries.append({"kind": "patch", "patch": patch, "label": patch["name"]})
-        return entries
+            patch_entries.append({"kind": "patch", "patch": patch, "label": patch["name"]})
+        if not favorites_folder_matches(category):
+            return entries + patch_entries
+        # Favorites: instrument sections under header rows, in the one list.
+        sections = self.scanner.favorite_sections([e["patch"] for e in patch_entries])
+        for entry in patch_entries:
+            # The header names the instrument; the row drops its subtitle line.
+            entry["sectioned"] = True
+        return entries + sectioned_entries(
+            patch_entries,
+            lambda patch: sections[str(patch.get("path", ""))],
+        )
 
     def _patches_in_browse_folder(self) -> list[dict]:
         if not self.categories:
@@ -330,6 +344,8 @@ class TouchBrowserPatchesMixin:
         if idx < 0 or idx >= len(self._browse_nav_entries):
             return
         entry = self._browse_nav_entries[idx]
+        if entry["kind"] == HEADER_KIND:
+            return
         if entry["kind"] == "folder":
             self._enter_subfolder(entry["name"])
         else:
@@ -433,7 +449,19 @@ class TouchBrowserPatchesMixin:
                 self.loaded_patch_info
             ):
                 loaded_idx = self._browse_entry_index_for_patch(self.loaded_patch_info)
-            self.nav_list.set_items(labels, highlight_index=highlight, loaded_marker_index=loaded_idx)
+            kinds = [entry["kind"] for entry in self._browse_nav_entries]
+            sectioned = HEADER_KIND in kinds
+            self.nav_list.set_items(
+                labels,
+                highlight_index=highlight,
+                loaded_marker_index=loaded_idx,
+                row_heights=(
+                    [NAV_SECTION_HEADER_H if k == HEADER_KIND else PATCHES_ROW_HEIGHT for k in kinds]
+                    if sectioned
+                    else None
+                ),
+                selectable=[k != HEADER_KIND for k in kinds] if sectioned else None,
+            )
             if scroll_to_selection:
                 if highlight is not None:
                     self.nav_list.scroll_to_index(highlight)
@@ -445,6 +473,7 @@ class TouchBrowserPatchesMixin:
                 if saved_momentum:
                     self.nav_list._velocity = saved_velocity
                     self.nav_list._momentum_active = True
+        self._layout_jump_strip()
         self._refresh_instrument_chips()
     def _load_patch(self, patch: dict) -> None:
         if not self.loader.osc_enabled:
@@ -568,6 +597,52 @@ class TouchBrowserPatchesMixin:
             self._az_rail_scrub_letter = None
             return True
         return False
+    def _jump_strip_sections(self) -> list[tuple[str, int]]:
+        """(group, header row) per section in the list; [] when unsectioned.
+
+        Only read while the strip is up, which is only in a patch list.
+        """
+        return section_starts(self._browse_nav_entries)
+
+    def _jump_strip_seek(self, pos: tuple[int, int]) -> None:
+        rect = self.jump_strip_rect
+        sections = self._jump_strip_sections()
+        if sections:
+            cell = section_cell_at(pos[1], rect.y, rect.h, len(sections))
+            if cell == self._jump_strip_cell:
+                return
+            self._jump_strip_cell = cell
+            self.nav_list.animate_scroll_to_index(
+                sections[cell][1],
+                align="top",
+                duration=ALL_PATCHES_SCROLL_ANIM_S,
+            )
+            return
+        fraction = scrub_fraction(pos[1], rect.y, rect.h, self._jump_strip_thumb_h())
+        self.nav_list.set_scroll_pixels(fraction * self.nav_list.max_scroll_pixels())
+
+    def _handle_jump_strip_touch(self, kind: str, pos: tuple[int, int]) -> bool:
+        """Tap or drag on the strip at the list's right edge: jump, not scroll."""
+        rect = getattr(self, "jump_strip_rect", None)
+        if kind == "down":
+            if rect is None or rect.w <= 0 or not rect.contains(*pos):
+                return False
+            self._jump_strip_capture = True
+            self._jump_strip_cell = None
+            self._cancel_long_press()
+            self._jump_strip_seek(pos)
+            return True
+        if not getattr(self, "_jump_strip_capture", False):
+            return False
+        if kind == "motion":
+            self._jump_strip_seek(pos)
+            return True
+        if kind == "up":
+            self._jump_strip_capture = False
+            self._jump_strip_cell = None
+            return True
+        return False
+
     def _go_to_loaded_folder(self) -> None:
         if not self.loaded_patch_info:
             return
