@@ -22,9 +22,14 @@ class ComputeReleaseVelocityTests(unittest.TestCase):
 
 
 class _AdvancingClock:
-    """Deterministic time for gesture tests (fast CI/VPS can finish within min_dt)."""
+    """Deterministic time for gesture tests (fast CI/VPS can finish within min_dt).
 
-    def __init__(self, start: float = 1000.0, step: float = 0.05) -> None:
+    10 ms per clock read. Lift-off is now a sample too (fling_launch_velocity),
+    so a coarser step reads as the finger pausing before it lifts: at 50 ms per
+    read the release landed 100 ms after the last move and correctly did not coast.
+    """
+
+    def __init__(self, start: float = 1000.0, step: float = 0.01) -> None:
         self._t = start - step
         self._step = step
 

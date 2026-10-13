@@ -17,6 +17,7 @@ from patch_browser.patch_identity import (
     patch_root_label,
     stable_key_for_relative_path,
 )
+from patch_browser.favorites_sections import OTHER_GROUP, favorite_group
 from patch_browser.patch_metadata import PatchMetadataIndex
 from patch_browser.favorites_index import (
     DEFAULT_FAVORITES_FOLDER,
@@ -166,6 +167,10 @@ class PatchScanner:
         # the UI process, which is also the process hosting a JACK client. Favourites
         # change only on explicit user action or a rescan, both of which invalidate.
         self._favorite_cache: dict[str, bool] = {}
+        # Favorites section per Quick Access copy path. Resolving one walks the
+        # favorites index (Path.resolve per entry), so it is computed when the
+        # list is built and kept until a favourites change or an instrument edit.
+        self._favorite_group_cache: dict[str, str] = {}
 
         self.scan_complete = threading.Event()
         self.scan_lock = threading.Lock()
@@ -238,6 +243,7 @@ class PatchScanner:
 
         self.metadata_index.reload()
         self.metadata_index.enrich_all(patches_by_key)
+        self._favorite_group_cache.clear()
 
         migrated = self.favorites_index.migrate_legacy_liked_to_root(
             self.get_favorites_folder_path()
@@ -465,6 +471,44 @@ class PatchScanner:
     def invalidate_favorite_cache(self) -> None:
         """Drop memoised heart state — any favourites mutation or rescan must call this."""
         self._favorite_cache.clear()
+        self._favorite_group_cache.clear()
+
+    def favorite_sections(self, patches: list[dict]) -> dict[str, str]:
+        """Section group for each Quick Access copy, keyed by its path.
+
+        The group is ``favorite_group``'s decision; this method only gathers its
+        inputs. Paths already seen come from the cache; the rest share one
+        dest-to-source map built from the favorites index, so N favorites cost
+        N resolves, not N squared.
+        """
+        missing = [p for p in patches if str(p.get("path", "")) not in self._favorite_group_cache]
+        if missing:
+            source_by_dest: dict[str, str] = {}
+            for key, entry in self.favorites_index.entries.items():
+                raw = entry.get("dest_path")
+                if not raw:
+                    continue
+                try:
+                    source_by_dest[str(Path(raw).resolve())] = key
+                except OSError:
+                    source_by_dest[str(raw)] = key
+            for patch in missing:
+                path = str(patch.get("path", ""))
+                try:
+                    resolved = str(Path(path).resolve()) if path else ""
+                except OSError:
+                    resolved = path
+                source_key = source_by_dest.get(resolved) or source_by_dest.get(path)
+                source = self.get_patch_by_stable_key(source_key) if source_key else None
+                self._favorite_group_cache[path] = favorite_group(
+                    user_instrument=self.metadata_index.user_instrument(patch.get("stable_key")),
+                    source_primary=(source or {}).get("instrument_primary"),
+                    own_primary=patch.get("instrument_primary"),
+                )
+        return {
+            str(p.get("path", "")): self._favorite_group_cache.get(str(p.get("path", "")), OTHER_GROUP)
+            for p in patches
+        }
 
     def _favorite_cache_key(self, patch) -> str | None:
         key = patch.get("stable_key") or patch.get("path") or patch.get("name")
