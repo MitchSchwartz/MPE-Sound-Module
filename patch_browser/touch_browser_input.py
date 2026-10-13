@@ -759,6 +759,18 @@ class TouchBrowserInputMixin:
                     {"pos": pos, "rel": (0, 0), "buttons": (1, 0, 0)},
                 )
 
+        pointer_kind = {
+            pygame.MOUSEBUTTONDOWN: "down",
+            pygame.MOUSEBUTTONUP: "up",
+            pygame.MOUSEMOTION: "motion",
+        }.get(event.type)
+        if (
+            pointer_kind is not None
+            and getattr(event, "button", 1) == 1
+            and self._toast_action_touch(pointer_kind, event.pos)
+        ):
+            return
+
         if (
             self.screen_state == Screen.BROWSER
             and not self.left_nav_collapsed
