@@ -14,7 +14,6 @@ from patch_browser.patch_identity import (
     build_folder_tree,
     category_and_inner_segments,
     make_patch_entry,
-    patch_browse_subtitle,
     patch_root_label,
     stable_key_for_relative_path,
 )
@@ -171,7 +170,7 @@ class PatchScanner:
         # Favorites section per Quick Access copy path. Resolving one walks the
         # favorites index (Path.resolve per entry), so it is computed when the
         # list is built and kept until a favourites change or an instrument edit.
-        self._favorite_group_cache: dict[str, tuple[str, str]] = {}
+        self._favorite_group_cache: dict[str, str] = {}
 
         self.scan_complete = threading.Event()
         self.scan_lock = threading.Lock()
@@ -474,15 +473,13 @@ class PatchScanner:
         self._favorite_cache.clear()
         self._favorite_group_cache.clear()
 
-    def favorite_sections(self, patches: list[dict]) -> dict[str, tuple[str, str]]:
-        """(group, source folder) for each Quick Access copy, keyed by its path.
+    def favorite_sections(self, patches: list[dict]) -> dict[str, str]:
+        """Section group for each Quick Access copy, keyed by its path.
 
         The group is ``favorite_group``'s decision; this method only gathers its
-        inputs. The source folder (``Basses``, ``Pack/Keys``) is where the copy
-        came from, shown as the row subtitle under a section header, or "" when
-        the copy cannot be traced. Paths already seen come from the cache; the
-        rest share one dest-to-source map built from the favorites index, so N
-        favorites cost N resolves, not N squared.
+        inputs. Paths already seen come from the cache; the rest share one
+        dest-to-source map built from the favorites index, so N favorites cost
+        N resolves, not N squared.
         """
         missing = [p for p in patches if str(p.get("path", "")) not in self._favorite_group_cache]
         if missing:
@@ -503,17 +500,13 @@ class PatchScanner:
                     resolved = path
                 source_key = source_by_dest.get(resolved) or source_by_dest.get(path)
                 source = self.get_patch_by_stable_key(source_key) if source_key else None
-                group = favorite_group(
+                self._favorite_group_cache[path] = favorite_group(
                     user_instrument=self.metadata_index.user_instrument(patch.get("stable_key")),
                     source_primary=(source or {}).get("instrument_primary"),
                     own_primary=patch.get("instrument_primary"),
                 )
-                folder = patch_browse_subtitle(source) if source else ""
-                self._favorite_group_cache[path] = (group, folder)
         return {
-            str(p.get("path", "")): self._favorite_group_cache.get(
-                str(p.get("path", "")), (OTHER_GROUP, "")
-            )
+            str(p.get("path", "")): self._favorite_group_cache.get(str(p.get("path", "")), OTHER_GROUP)
             for p in patches
         }
 

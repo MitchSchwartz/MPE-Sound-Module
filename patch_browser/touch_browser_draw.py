@@ -801,10 +801,11 @@ class TouchBrowserDrawMixin:
                 self.screen.blit(name_s, (row_rect.x + 10, ty))
             else:
                 patch = entry["patch"]
-                if "subtitle" in entry:
-                    # Under a section header: where the favorite came from. The
-                    # instrument is the header's job.
-                    subtitle = entry["subtitle"]
+                if entry.get("sectioned"):
+                    # Under a section header the instrument line would repeat
+                    # the header (Mitch, 2026-10-13): the name alone, centred
+                    # in the unchanged 58 px row so the tap target stays put.
+                    subtitle = ""
                 elif self._instrument_filter_active():
                     subtitle = patch_browse_subtitle(patch)
                 else:

@@ -217,7 +217,7 @@ class ScannerFavoriteSections(unittest.TestCase):
 
     def _groups(self) -> dict[str, str]:
         info = self.scanner.favorite_sections(self.library.qa_patches())
-        return {Path(p).stem: g for p, (g, _src) in info.items()}
+        return {Path(p).stem: g for p, g in info.items()}
 
     def test_copies_take_the_source_folders_instrument(self) -> None:
         groups = self._groups()
@@ -231,12 +231,6 @@ class ScannerFavoriteSections(unittest.TestCase):
 
     def test_an_untraced_copy_is_other(self) -> None:
         self.assertEqual(self._groups()["Mystery Patch"], OTHER_GROUP)
-
-    def test_source_folder_is_the_row_subtitle(self) -> None:
-        info = self.scanner.favorite_sections(self.library.qa_patches())
-        by_name = {Path(p).stem: src for p, (_g, src) in info.items()}
-        self.assertEqual(by_name["Attacky"], "Basses")
-        self.assertEqual(by_name["Mystery Patch"], "")
 
     def test_a_user_instrument_on_the_copy_moves_it(self) -> None:
         copy = next(p for p in self.library.qa_patches() if p["name"] == "Attacky")
@@ -488,6 +482,67 @@ class FavoritesListInTheBrowser(_BrowserCase):
         nav.set_scroll_pixels(123)
         self.browser._refresh_lists()
         self.assertEqual(nav.scroll_pixels, 123)
+
+    def _drawn_rows(self) -> dict[str, list[tuple[str, int]]]:
+        """Draw the list once; return each row's texts by font, with blit y.
+
+        Keys: "md" (patch names, font_md) and "sm" (subtitles and header text,
+        font_sm), each a list of (text, y).
+        """
+        b = self.browser
+        drawn: dict[str, list[tuple[str, int]]] = {"md": [], "sm": []}
+        surfaces: dict[int, tuple[str, str]] = {}
+
+        def recorder(key, real):
+            def render(text, aa, color):
+                surf = real(text, aa, color)
+                surfaces[id(surf)] = (key, text)
+                return surf
+            return render
+
+        screen = mock.Mock()
+        screen.get_clip.return_value = None
+
+        def blit(surf, pos, *args, **kwargs):
+            if id(surf) in surfaces:
+                key, text = surfaces[id(surf)]
+                drawn[key].append((text, pos[1]))
+
+        screen.blit.side_effect = blit
+        with mock.patch.object(b, "screen", screen), \
+                mock.patch.object(b.font_md, "render", side_effect=recorder("md", b.font_md.render)), \
+                mock.patch.object(b.font_sm, "render", side_effect=recorder("sm", b.font_sm.render)), \
+                mock.patch("patch_browser.touch_browser_draw.pygame.draw"):
+            b._draw_browse_patches_list()
+        return drawn
+
+    def test_sectioned_rows_draw_no_subtitle_and_centre_the_name(self) -> None:
+        """Approved 2026-10-13: the header names the instrument, the row does not."""
+        self.open_favorites()
+        b = self.browser
+        nav = b.nav_list
+        header_texts = set()
+        for entry in self.entries():
+            if entry["kind"] == HEADER_KIND:
+                header_texts |= {entry["label"].upper(), str(entry["count"])}
+        drawn = self._drawn_rows()
+        self.assertTrue(drawn["md"], "patch names were drawn")
+        self.assertTrue(set(t for t, _y in drawn["sm"]) <= header_texts, drawn["sm"])
+        # Row height unchanged; the name sits in the middle of it.
+        for index, y, h in nav.visible_rows():
+            entry = self.entries()[index]
+            if entry["kind"] != "patch":
+                continue
+            self.assertEqual(h, PATCHES_ROW_HEIGHT)
+            name_y = [ty for text, ty in drawn["md"] if text == entry["patch"]["name"]]
+            text_h = b.font_md.render(entry["patch"]["name"], True, (0, 0, 0)).get_height()
+            self.assertEqual(name_y, [y + (h - 2 - text_h) // 2], entry["patch"]["name"])
+
+    def test_unsectioned_folders_keep_their_subtitle(self) -> None:
+        self.open_folder("Basses")
+        drawn = self._drawn_rows()
+        subtitles = [t for t, _y in drawn["sm"]]
+        self.assertEqual(subtitles.count("Bass"), len(LIBRARY["Basses"]), subtitles)
 
     def test_draw_smoke(self) -> None:
         """The list and strip draw at the top, the bottom, and in a plain folder.
