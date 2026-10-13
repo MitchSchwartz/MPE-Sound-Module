@@ -101,6 +101,49 @@ class WireFormat(unittest.TestCase):
             with self.subTest(effect=bad_id), self.assertRaises(ValueError):
                 proto.encode(bad_id, 0.5)
 
+    def test_levels_encoding(self):
+        self.assertEqual(
+            proto.encode_chain_levels(5, 0.5, (1.0, 0.25, 0, 1, 0.5)),
+            b"chainl 5 0.500000 1.000000 0.250000 0.000000 1.000000 0.500000",
+        )
+        # Clamped like the depth.
+        self.assertEqual(
+            proto.encode_chain_levels(0, 2.0, (-1.0, 3.0, 0.5, 0.5, 0.5)),
+            b"chainl 0 1.000000 0.000000 1.000000 0.500000 0.500000 0.500000",
+        )
+        self.assertEqual(proto.LEVELS_DEFAULT, (1.0,) * len(proto.EFFECT_IDS))
+
+    def test_levels_encoding_refuses_what_it_cannot_say_honestly(self):
+        good = (1.0,) * len(proto.EFFECT_IDS)
+        for bad in ((1.0,) * 4, (1.0,) * 6, (1.0, 1.0, float("nan"), 1.0, 1.0),
+                    (1.0, float("inf"), 1.0, 1.0, 1.0), (1.0, True, 1.0, 1.0, 1.0),
+                    ("1", 1.0, 1.0, 1.0, 1.0), None, {0: 1.0}):
+            with self.subTest(levels=bad), self.assertRaises(ValueError):
+                proto.encode_chain_levels(5, 0.5, bad)
+        with self.assertRaises(ValueError):
+            proto.encode_chain_levels(proto.MASK_ALL + 1, 0.5, good)
+        with self.assertRaises(ValueError):
+            proto.encode_chain_levels(5, float("nan"), good)
+
+    def test_levels_from_is_append_only(self):
+        n = len(proto.EFFECT_IDS)
+        self.assertIsNone(proto.levels_from(None))
+        self.assertIsNone(proto.levels_from({"0": 1.0}))
+        self.assertEqual(proto.levels_from([]), (1.0,) * n)
+        self.assertEqual(proto.levels_from([0.5]), (0.5,) + (1.0,) * (n - 1))
+        self.assertEqual(proto.levels_from([0.1] * (n + 3)), (0.1,) * n)
+        self.assertEqual(proto.levels_from(["x", None, True, 2.0, -2.0]), (1.0, 1.0, 1.0, 1.0, 0.0))
+
+    def test_with_level(self):
+        ones = proto.LEVELS_DEFAULT
+        self.assertEqual(proto.with_level(ones, proto.EFFECT_PHASER, 0.4), (1.0, 1.0, 0.4, 1.0, 1.0))
+        self.assertEqual(proto.with_level(ones, proto.EFFECT_PHASER, 4), (1.0, 1.0, 1.0, 1.0, 1.0))
+        for bad_id in (5, -1, True):
+            with self.subTest(effect=bad_id), self.assertRaises(ValueError):
+                proto.with_level(ones, bad_id, 0.5)
+        with self.assertRaises(ValueError):
+            proto.with_level(ones, 0, float("nan"))
+
     def test_python_effect_ids_match_the_c_table(self):
         """EFFECT_IDS is the table's indices, read from the C, not restated:
         same count, same order, each Python name the C entry's name. An id is
@@ -212,32 +255,111 @@ class WireFormat(unittest.TestCase):
         _need_compiler(self)
         binary, run = _selftest()
         self.assertTrue(binary.exists(), run.stderr)
+        ones = " ".join(["1.000000"] * proto.MAX_LEVELS)
 
-        def parse(text: str) -> str:
-            return subprocess.run(
-                [str(binary), "--parse", text], capture_output=True, text=True, timeout=10,
-            ).stdout.strip()
-
+        cases: list[tuple[str, str]] = []
         for mask in range(proto.MASK_ALL + 1):
             for depth in (0.0, 0.000001, 0.25, 0.5, 0.999999, 1.0):
-                with self.subTest(mask=mask, depth=depth):
-                    wire = proto.encode_chain(mask, depth).decode("ascii")
-                    self.assertEqual(parse(wire), f"ok {mask} {depth:.6f}")
+                # `chain` is every level 1.0.
+                cases.append((proto.encode_chain(mask, depth).decode("ascii"), f"ok {mask} {depth:.6f} {ones}"))
+        for mask in range(proto.MASK_ALL + 1):
+            for depth in (0.0, 0.5, 1.0):
+                for levels in LEVEL_GRID:
+                    want = " ".join(f"{v:.6f}" for v in levels)
+                    pad = " ".join(["1.000000"] * (proto.MAX_LEVELS - len(levels)))
+                    cases.append(
+                        (
+                            proto.encode_chain_levels(mask, depth, levels).decode("ascii"),
+                            f"ok {mask} {depth:.6f} {want} {pad}",
+                        )
+                    )
         # The first protocol's single-effect datagram is the one-bit mask.
         for effect_id in proto.EFFECT_IDS:
-            with self.subTest(effect=effect_id):
-                wire = proto.encode(effect_id, 0.5).decode("ascii")
-                self.assertEqual(parse(wire), f"ok {proto.mask_of([effect_id])} 0.500000")
-        # Things a stray loopback sender might send must change nothing. (A
-        # mask naming an effect the build lacks, e.g. 32, parses; the client
-        # refuses it against its table.)
-        for junk in ("gain 0.5", "fx", "fx 0", "fx 0 nan", "fx 0 inf", "fx -1 0.5",
-                     "fx 0x1 0.5", "fx 0 0.5 extra", "fx0 0.5", "fx 1e3 0.5", "fx 8 0.5", "",
-                     "chain", "chain 5", "chain -1 0.5", "chain 0x5 0.5", "chain 5 nan",
-                     "chain 5 0.5 extra", "chain5 0.5", "chain 256 0.5", "chain 5.0 0.5",
-                     "chains 5 0.5"):
-            with self.subTest(junk=junk):
-                self.assertEqual(parse(junk), "reject")
+            cases.append((proto.encode(effect_id, 0.5).decode("ascii"), f"ok {proto.mask_of([effect_id])} 0.500000 {ones}"))
+        got = _parse_lines(binary, [wire for wire, _ in cases])
+        for (wire, want), answer in zip(cases, got, strict=True):
+            with self.subTest(wire=wire):
+                self.assertEqual(answer, want)
+
+    def test_levels_are_append_only_on_the_wire(self):
+        """A sender with fewer levels than the client has effects leaves the
+        rest at 1.0; one with more (a future sixth effect) still parses, up to
+        the client's FX_MAX_EFFECTS slots; past that it is refused."""
+        _need_compiler(self)
+        binary, _run = _selftest()
+        pad = lambda n: " ".join(["1.000000"] * n)  # noqa: E731
+        cases = [
+            ("chainl 5 0.5", f"ok 5 0.500000 {pad(8)}"),
+            ("chainl 5 0.5 0.25", f"ok 5 0.500000 0.250000 {pad(7)}"),
+            ("chainl 5 0.5 0.1 0.2 0.3 0.4 0.5 0.6", f"ok 5 0.500000 0.100000 0.200000 0.300000 0.400000 0.500000 0.600000 {pad(2)}"),
+            ("chainl 5 0.5 " + " ".join(["0.5"] * 8), "ok 5 0.500000 " + " ".join(["0.500000"] * 8)),
+            ("chainl 5 0.5 " + " ".join(["0.5"] * 9), "reject"),
+            # Out-of-range levels parse as sent; the client clamps them.
+            ("chainl 5 0.5 2 -1", f"ok 5 0.500000 2.000000 -1.000000 {pad(6)}"),
+            ("chainl 5 0.5 0.25\n", f"ok 5 0.500000 0.250000 {pad(7)}"),
+        ]
+        got = _parse_lines(binary, [c for c, _ in cases])
+        for (wire, want), answer in zip(cases, got, strict=True):
+            with self.subTest(wire=wire):
+                self.assertEqual(answer, want)
+
+    def test_junk_changes_nothing(self):
+        """Things a stray loopback sender might send must change nothing. (A
+        mask naming an effect the build lacks, e.g. 32, parses; the client
+        refuses it against its table.)"""
+        _need_compiler(self)
+        binary, _run = _selftest()
+        junk = ["gain 0.5", "fx", "fx 0", "fx 0 nan", "fx 0 inf", "fx -1 0.5",
+                "fx 0x1 0.5", "fx 0 0.5 extra", "fx0 0.5", "fx 1e3 0.5", "fx 8 0.5", "",
+                "chain", "chain 5", "chain -1 0.5", "chain 0x5 0.5", "chain 5 nan",
+                "chain 5 0.5 extra", "chain5 0.5", "chain 256 0.5", "chain 5.0 0.5",
+                "chains 5 0.5",
+                # The levels form: no depth, a bad level, glued numbers, levels on `chain`.
+                "chainl", "chainl 5", "chainl5 0.5 1", "chainl 5 0.5 nan", "chainl 5 0.5 inf",
+                "chainl 5 0.5 1 x", "chainl 5 0.5 0.50.5", "chainl 5 0.5,1", "chainl 256 0.5 1",
+                "chainl -1 0.5 1", "chain 5 0.5 1", "chainlx 5 0.5 1", "chainl 5 0.5 1e40"]
+        got = _parse_lines(binary, junk)
+        for text, answer in zip(junk, got, strict=True):
+            with self.subTest(junk=text):
+                self.assertEqual(answer, "reject")
+
+    def test_the_level_slots_match_the_c(self):
+        found = re.search(r"#define\s+FX_MAX_EFFECTS\s+(\d+)", (NATIVE / "fx_dsp.h").read_text())
+        self.assertIsNotNone(found)
+        self.assertEqual(int(found.group(1)), proto.MAX_LEVELS)
+
+    def test_the_longest_datagram_fits_the_client_buffer(self):
+        """The client ignores a datagram that fills its receive buffer (it may
+        have been cut short, and a cut number still parses). The longest the
+        encoder can write, and one with every level slot at that width, fit."""
+        found = re.search(r"char buf\[(\d+)\];", C_CLIENT.read_text())
+        self.assertIsNotNone(found, "no receive buffer in mpe-fx-host.c")
+        size = int(found.group(1))
+        longest = proto.encode_chain_levels(proto.MASK_ALL, 1.0, [1.0] * len(proto.EFFECT_IDS))
+        self.assertLess(len(longest), size - 1)
+        every_slot = b"chainl 255 1.000000 " + b" ".join([b"1.000000"] * proto.MAX_LEVELS)
+        self.assertLess(len(every_slot), size - 1)
+
+
+#: Level rows for the round trip: by effect id, the edges and the in-betweens.
+LEVEL_GRID = (
+    (1.0, 1.0, 1.0, 1.0, 1.0),
+    (0.0, 0.0, 0.0, 0.0, 0.0),
+    (0.25, 0.5, 0.75, 1.0, 0.0),
+    (0.000001, 0.999999, 0.333333, 0.5, 0.123456),
+)
+
+
+def _parse_lines(binary: Path, lines: list[str]) -> list[str]:
+    """Each line through the client's parser (`fx-selftest --parse-lines`)."""
+    for line in lines:
+        assert "\n" not in line.rstrip("\n"), line
+    proc = subprocess.run(
+        [str(binary), "--parse-lines"], input="".join(l.rstrip("\n") + "\n" for l in lines),
+        capture_output=True, text=True, timeout=60,
+    )
+    assert proc.returncode == 0, proc.stderr
+    return proc.stdout.splitlines()
 
 
 class Gate(unittest.TestCase):

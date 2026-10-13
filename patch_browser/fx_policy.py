@@ -5,7 +5,8 @@ applies them. This module is the policy, the same split as
 `scripts/sooperlooper/live_monitor.py` and `native/mpe-live-monitor`. It is the
 only place that decides:
 
-* which effects are on (the chain's enable mask), and at what depth;
+* which effects are on (the chain's enable mask), at what depth, and each
+  effect's level relative to that depth;
 * whether CC 1 (the mod wheel) reaches Surge or drives the effect.
 
 **The CC 1 rule.** The global setting `mod_wheel_target` is `patch_first`
@@ -43,12 +44,20 @@ no socket, and the remapper forwards CC 1 to Surge exactly as before.
 
 **Which effects.** The effects run in series in the fixed order
 `fx_host_protocol.CHAIN_ORDER`; an enable mask says which are on, and one depth
-(the knob) applies to all of them. The picker on the play screen is a list of
+(the knob) applies to all of them, each scaled by its own level (below). The picker on the play screen is a list of
 checkboxes: a tap toggles one effect (`toggle_effect`) for the loaded patch
 only; nothing global is written. It reaches the FX host
 the way everything else does: the UI writes it to the route file's `mask`, and
 the remapper sends it. Toggling moves no depth: the effects that stay on keep
 playing at the depth in force, and one switched on comes in at it.
+
+**Per-effect levels.** Each effect has a level, 0-1 (default 1.0), set by its
+slider in the picker (`set_level`) for the loaded patch only. Effect i plays at
+`depth * level_i`, so the knob and the Effect fader move every enabled effect
+and they keep their proportions. An unticked effect keeps its level. The
+levels go the way the mask does: the UI writes them to the route file's
+`levels` (throttled like a fader drag), and the remapper sends them with every
+datagram (`chainl`), so a restarted remapper re-asserts them with the depth.
 
 **Labels** (`chain_label`). The Effect fader and the mod-knob switch name the
 enabled effects in run order when the names fit ("Drive+Chorus"), otherwise a
@@ -70,7 +79,8 @@ after a load. The kept Patch mod value is not touched, so the next patch that
 routes the wheel gets it back.
 
 **Each patch remembers its setup** (`patch_fx.PatchFxStore`, a sidecar store
-like Hold and normalization): its mask, its one depth, and the mod-knob target.
+like Hold and normalization): its mask, its one depth, its levels, and the
+mod-knob target.
 Effect state is entirely per patch: a patch with no entry, or a missing field,
 plays the factory default (`FACTORY_MASK`, no effect, at depth 0), never what
 was used last. Only the target falls back to a global value, the Settings
@@ -105,6 +115,7 @@ from patch_browser import fx_host_protocol
 from patch_browser.fader_pickup import Pickup
 from patch_browser.json_store import atomic_write_json, read_json_dict
 from patch_browser.patch_fx import FACTORY_DEPTH as PATCH_FACTORY_DEPTH
+from patch_browser.patch_fx import FACTORY_LEVELS as PATCH_FACTORY_LEVELS
 from patch_browser.patch_fx import FACTORY_MASK as PATCH_FACTORY_MASK
 from patch_browser.patch_fx import PatchFx, valid_mask
 
@@ -119,6 +130,7 @@ MOD_WHEEL_PREF_KEY = "mod_wheel_target"
 #: Same values as `patch_fx.FACTORY_MASK` / `FACTORY_DEPTH`.
 FACTORY_MASK = PATCH_FACTORY_MASK
 FACTORY_DEPTH = PATCH_FACTORY_DEPTH
+FACTORY_LEVELS = PATCH_FACTORY_LEVELS
 
 CC1_TO_SURGE = "surge"
 CC1_TO_FX = "fx"
@@ -278,6 +290,8 @@ class FxConfig:
     mask: int = FACTORY_MASK
     mod_wheel_target: str = DEFAULT_MOD_WHEEL_TARGET
     depth: float = FACTORY_DEPTH
+    #: One level per shipped effect, by effect id.
+    levels: tuple[float, ...] = FACTORY_LEVELS
 
 
 def resolve_config(
@@ -298,6 +312,7 @@ def resolve_config(
         mask=FACTORY_MASK if patch.mask is None else patch.mask,
         mod_wheel_target=normalize_target(target),
         depth=FACTORY_DEPTH if patch.depth is None else patch.depth,
+        levels=FACTORY_LEVELS if patch.levels is None else patch.levels,
     )
 
 
@@ -337,6 +352,8 @@ class Route:
     destination: str = CC1_TO_SURGE
     #: The enable mask; malformed or missing reads as none enabled (bypass).
     mask: int = fx_host_protocol.MASK_NONE
+    #: One level per effect, by id; missing reads as every level 1.0.
+    levels: tuple[float, ...] = fx_host_protocol.LEVELS_DEFAULT
     route_stamp: str | None = None
     depth_request: float | None = None
     depth_stamp: str | None = None
@@ -363,9 +380,11 @@ def read_route(path: Path) -> Route:
     data = read_json_dict(path)
     destination = data.get("cc1")
     mask = valid_mask(data.get("mask"))
+    levels = fx_host_protocol.levels_from(data.get("levels"))
     return Route(
         destination=destination if destination in (CC1_TO_SURGE, CC1_TO_FX) else CC1_TO_SURGE,
         mask=fx_host_protocol.MASK_NONE if mask is None else mask,
+        levels=fx_host_protocol.LEVELS_DEFAULT if levels is None else levels,
         route_stamp=_stamp(data.get("route_stamp")),
         depth_request=_depth_value(data.get("depth_request")),
         depth_stamp=_stamp(data.get("depth_stamp")),
@@ -440,7 +459,8 @@ SEND_TOLERANCE = 1e-4
 
 
 class FxHostSender:
-    """Fire-and-forget enable mask + depth at the FX host, deduplicated.
+    """Fire-and-forget enable mask + depth + levels at the FX host
+    (`chainl`), deduplicated.
 
     Modelled on `LiveMonitorSender`: a connected, non-blocking UDP socket so an
     absent FX host shows up as ECONNREFUSED (counted and logged, rate-limited)
@@ -454,8 +474,8 @@ class FxHostSender:
         self._send = send
         self._log = log
         self._sock: socket.socket | None = None
-        #: (mask, depth) last delivered.
-        self._last: tuple[int, float] | None = None
+        #: (mask, depth, levels) last delivered.
+        self._last: tuple[int, float, tuple[float, ...]] | None = None
         self._lock = threading.Lock()
         self._complained_at: float | None = None
         self.delivered = 0
@@ -472,16 +492,24 @@ class FxHostSender:
                 self._sock = None
         return self._sock
 
-    def send(self, mask: int, depth: float) -> bool:
+    def send(self, mask: int, depth: float, levels=None) -> bool:
+        """`levels`: one per effect, by id; None is every level 1.0."""
+        levels = fx_host_protocol.LEVELS_DEFAULT if levels is None else levels
         try:
-            payload = fx_host_protocol.encode_chain(mask, depth)
+            payload = fx_host_protocol.encode_chain_levels(mask, depth, levels)
         except ValueError as exc:
             self._say(f"fx host: not sending ({exc})")
             return False
         value = max(0.0, min(1.0, float(depth)))
+        levels = tuple(max(0.0, min(1.0, float(level))) for level in levels)
         with self._lock:
             last = self._last
-            if last is not None and last[0] == mask and abs(last[1] - value) <= SEND_TOLERANCE:
+            if (
+                last is not None
+                and last[0] == mask
+                and abs(last[1] - value) <= SEND_TOLERANCE
+                and all(abs(a - b) <= SEND_TOLERANCE for a, b in zip(last[2], levels))
+            ):
                 return False
             if self._send is not None:
                 self._send(payload)
@@ -494,7 +522,7 @@ class FxHostSender:
                 except OSError as exc:
                     self._note_refusal(exc)
                     return False
-            self._last = (mask, value)
+            self._last = (mask, value, levels)
             self.delivered += 1
             return True
 
@@ -589,6 +617,9 @@ class FxPolicy:
         self._next_depth_write = 0.0
         self._depth_unsent = False
         self._depth_requested_at: float | None = None
+        self._next_level_write = 0.0
+        self._level_unsent = False
+        self.dragging_level = False
         self._patch_mod_request: int | None = None
         self._patch_mod_stamp: str | None = None
         self._next_patch_mod_write = 0.0
@@ -616,6 +647,14 @@ class FxPolicy:
     def mask(self) -> int:
         """The enable mask in force: what the route file carries."""
         return self.config.mask
+
+    @property
+    def levels(self) -> tuple[float, ...]:
+        """The levels in force, one per effect by id: what the route file carries."""
+        return self.config.levels
+
+    def level(self, effect_id: int) -> float:
+        return self.config.levels[effect_id]
 
     def chain_label(self, fits=_always_fits) -> str:
         """The Effect fader's label (`chain_label`) within the caller's budget."""
@@ -657,6 +696,7 @@ class FxPolicy:
             mask=changes.get("mask", self.mask),
             depth=changes.get("depth", self.depth),
             target=changes.get("target", fx.target),
+            levels=changes.get("levels", self.levels),
         )
         self._store_due = self._clock() + STORE_WRITE_DELAY_S
 
@@ -735,6 +775,7 @@ class FxPolicy:
             mask=normalize_mask(mask),
             mod_wheel_target=self.config.mod_wheel_target,
             depth=self.config.depth,
+            levels=self.config.levels,
         )
         self.publish()
 
@@ -747,6 +788,46 @@ class FxPolicy:
         if not self.enabled or isinstance(effect_id, bool) or effect_id not in fx_host_protocol.EFFECT_IDS:
             return
         self.set_mask(fx_host_protocol.toggled(self.mask, effect_id))
+
+    def set_level(self, effect_id: int, level: float, *, final: bool = False) -> None:
+        """Picker slider: one effect's level for the loaded patch (stored with
+        it). Only that level moves: the mask, the depth and the route stamp
+        stay. While dragging, the route file is written at most every
+        DEPTH_PUBLISH_S, as the Effect fader's requests are; `final` (release)
+        always writes, so the last position lands. Inert when the FX host is
+        off, for an id this build does not ship, and for an effect that is not
+        enabled: its slider is greyed out, and it keeps the level it has.
+        """
+        if not self.enabled or isinstance(effect_id, bool) or effect_id not in fx_host_protocol.EFFECT_IDS:
+            return
+        if not fx_host_protocol.is_enabled(self.mask, effect_id):
+            return
+        try:
+            levels = fx_host_protocol.with_level(self.levels, effect_id, level)
+        except ValueError:
+            return
+        self.dragging_level = not final
+        if levels != self.levels:
+            self._patch_changed(levels=levels)
+            self.config = FxConfig(
+                mask=self.config.mask,
+                mod_wheel_target=self.config.mod_wheel_target,
+                depth=self.config.depth,
+                levels=levels,
+            )
+            self._level_unsent = True
+        now = self._clock()
+        if self._level_unsent and (final or now >= self._next_level_write):
+            self._next_level_write = now + DEPTH_PUBLISH_S
+            self._level_unsent = False
+            self.publish()
+
+    def finish_level(self) -> None:
+        """Slider released: write the last level if a throttle held it back."""
+        self.dragging_level = False
+        if self._level_unsent:
+            self._level_unsent = False
+            self.publish()
 
     def _route_changed(self) -> None:
         self._route_stamp = self._next_stamp()
@@ -908,6 +989,7 @@ class FxPolicy:
                 {
                     "cc1": self.destination,
                     "mask": self.mask,
+                    "levels": list(self.levels),
                     "target": self.target,
                     "uses_mod_wheel": self.uses_mod_wheel,
                     "route_stamp": self._route_stamp,
@@ -930,7 +1012,8 @@ class Cc1Router:
     """The remapper's half, and the only process that talks to the FX host.
 
     It applies the published route to incoming CC 1, applies the fader's depth
-    requests and the enable mask, and publishes the depth in force for the UI. Depth has one owner
+    requests, the enable mask and the per-effect levels, and publishes the
+    depth in force for the UI. Depth has one owner
     here: the knob and the fader are two inputs to it, last one wins, and
     nothing else sends to UDP 9958. It also publishes the last CC 1 value it
     sent Surge, so the Patch mod fader follows the knob.
@@ -976,6 +1059,7 @@ class Cc1Router:
         self._pickup = Pickup()
         self.destination = CC1_TO_SURGE
         self.mask = fx_host_protocol.MASK_NONE
+        self.levels: tuple[float, ...] = fx_host_protocol.LEVELS_DEFAULT
         self.depth: float | None = None
         self.last_cc: int | None = None
         #: Surge's mod-wheel value as far as this process knows: the last CC 1
@@ -1011,9 +1095,10 @@ class Cc1Router:
             return
         self._file_id = file_id
         route = read_route(self._path)
-        mask_changed = route.mask != self.mask
+        chain_changed = route.mask != self.mask or route.levels != self.levels
         self.destination = route.destination
         self.mask = route.mask
+        self.levels = route.levels
         # A route change (patch load, target flip) moves nothing here: the
         # knob is where it was, and its next move scales from whatever value
         # it now drives.
@@ -1035,12 +1120,12 @@ class Cc1Router:
             if route.depth_request is not None:
                 # Pickup re-arm: the knob's next move scales from this depth.
                 self._set_depth(route.depth_request, DEPTH_FROM_FADER, route.depth_stamp)
-        elif mask_changed and self.depth is not None:
-            self._sender.send(self.mask, self.depth)
+        elif chain_changed and self.depth is not None:
+            self._sender.send(self.mask, self.depth, self.levels)
 
     def _set_depth(self, depth: float, source: str, request: str | None = None) -> None:
         self.depth = max(0.0, min(1.0, float(depth)))
-        self._sender.send(self.mask, self.depth)
+        self._sender.send(self.mask, self.depth, self.levels)
         self._levels.update(depth=self.depth, source=source, request=request, depth_at=self._clock())
         self._levels_dirty = True
 

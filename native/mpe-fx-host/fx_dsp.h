@@ -66,8 +66,22 @@
  * never changes with the signal: no detector, no limiter, no pumping.
  * g(0) = 1 exactly.
  *
- * Cost of the engine per enabled stage, per stereo frame: mix 6, level lookup
- * 5, apply 2, enable crossfade 6 => ~20 ops on top of the effect's own.
+ * Per-effect levels. Each effect has a level, 0..1 (default 1), and plays at
+ * its own depth d_k = shared depth x level_k: one knob moves every enabled
+ * effect and they keep their proportions. Everything above is per effect and
+ * reads d_k: the mix w_k(d_k), the level curve g_k(d_k), and the drive's
+ * amount. Each d_k is smoothed on its own (the same one-pole, DEPTH_MS), so a
+ * level move ramps like a knob move. A stage whose d_k is 0, smoothed and
+ * target, is skipped as a disabled one is (fed, and x' = x exactly); when every
+ * enabled stage is, that is the bypass above, bit for bit. Never louder still
+ * holds: a level only picks which d in [0, 1] a stage plays at, and each stage
+ * is never louder at every d.
+ *
+ * Cost of the engine per enabled stage, per stereo frame: depth smoothing 4
+ * (none once it has settled), mix 6, level lookup 5, apply 2, enable crossfade
+ * 6 => ~23 ops on top of the effect's own. Before per-effect levels the
+ * smoother ran once per frame for the whole chain: + ~4 ops per enabled stage
+ * after the first while a depth or level is moving, and nothing once settled.
  */
 
 #ifndef MPE_FX_DSP_H
@@ -137,7 +151,9 @@ typedef struct {
     float xfade_step;           /* per frame; 1.0 makes a toggle instant */
     double xfade_ms;
 
-    float depth;        /* smoothed */
+    /* Each effect's own depth, smoothed: the shared depth times its level
+     * (see "Per-effect levels" above). */
+    float depth[FX_MAX_EFFECTS];
     float depth_alpha;  /* one-pole coefficient; 0 means "jump" */
     double depth_ms;
 
@@ -161,22 +177,36 @@ void fx_engine_free(fx_engine *e);
 int fx_engine_set_rate(fx_engine *e, float rate);
 
 /* One period. `in` entries may be NULL (read as silence); `out` entries may be
- * NULL (skipped) and may alias `in`. `mask` (bit 1 << id per enabled effect)
- * and `depth` are the targets the control thread last stored; bits beyond the
- * table are ignored and depth is clamped. */
+ * NULL (skipped) and may alias `in`. `mask` (bit 1 << id per enabled effect),
+ * `depth` and `levels` (one per table entry, indexed by effect id; NULL means
+ * every level 1.0) are the targets the control thread last stored; bits beyond
+ * the table are ignored, and depth and each level are clamped to 0..1 (NaN
+ * reads as 0). */
+void fx_engine_process_levels(fx_engine *e, const float *const in[FX_CHANNELS],
+                              float *const out[FX_CHANNELS], uint32_t nframes,
+                              uint32_t mask, float depth, const float *levels);
+/* The same with every level at 1.0. */
 void fx_engine_process(fx_engine *e, const float *const in[FX_CHANNELS],
                        float *const out[FX_CHANNELS], uint32_t nframes,
                        uint32_t mask, float depth);
 
 /* One line of ASCII per datagram:
- *   `chain <mask> <depth>`   the enabled effects and the one depth
+ *   `chainl <mask> <depth> <l0> <l1> ...`  the enabled effects, the shared
+ *                            depth, and a level per effect in effect-id order
+ *   `chain <mask> <depth>`   the same with every level 1.0
  *   `fx <effect id> <depth>` the first protocol: means chain <1 << id> <depth>
- * Returns 1 and fills the outputs on a well-formed message, 0 otherwise. Range
- * checks against the table are the caller's (it knows the table; the parser
- * only refuses bits beyond FX_MAX_EFFECTS); depth is returned unclamped but
- * finite. Shared by the client and the self-test so the Python side's encoder
- * can be checked against the real parser. */
-int fx_parse_control(const char *text, uint32_t *mask, float *depth);
+ * `chainl` carries from 0 to FX_MAX_EFFECTS levels. Append-only: an effect
+ * the sender names no level for plays at level 1.0, and levels for ids this
+ * build does not ship are parsed and left unused, so a sender that knows a
+ * sixth effect and a client that does not still agree on the first five.
+ * Returns 1 and fills the outputs (all FX_MAX_EFFECTS levels) on a well-formed
+ * message, 0 otherwise. Range checks against the table are the caller's (it
+ * knows the table; the parser only refuses bits beyond FX_MAX_EFFECTS); depth
+ * and levels are returned unclamped but finite. Shared by the client and the
+ * self-test so the Python side's encoder can be checked against the real
+ * parser. */
+int fx_parse_control(const char *text, uint32_t *mask, float *depth,
+                     float levels[FX_MAX_EFFECTS]);
 
 #ifdef FX_SELFTEST
 /* Deliberately broken builds of the shipped effects, compiled only into the

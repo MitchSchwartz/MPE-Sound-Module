@@ -14,7 +14,7 @@
  * self-test can run anywhere.
  *
  * Which effects and how much is not decided here. This process holds no
- * policy: it is told an enable mask and one depth over UDP and applies them. The Python
+ * policy: it is told an enable mask, one depth and a level per effect over UDP and applies them. The Python
  * policy module is the only thing that decides; the datagram format has one
  * definition on that side, `patch_browser/fx_host_protocol.py`.
  *
@@ -146,6 +146,11 @@ static fx_engine g_engine;
  * inaudible, not silent. */
 static atomic_uint g_target_mask = 0;
 static _Atomic float g_target_depth = 0.0f;
+/* Each effect's level, 0..1, by effect id (fx_dsp.h, "Per-effect levels").
+ * 1.0 until a `chainl` says otherwise, so `chain` alone plays as it always
+ * has; set to 1.0 in main before the client is activated. Each is stored on
+ * its own: a period that reads a half-updated set ramps to it all the same. */
+static _Atomic float g_target_level[FX_MAX_EFFECTS];
 static _Atomic float g_rate = 0.0f;
 
 static int g_control_port = CONTROL_PORT_DEFAULT;
@@ -160,6 +165,10 @@ static int process(jack_nframes_t nframes, void *arg)
     (void)arg;
     const uint32_t mask = atomic_load_explicit(&g_target_mask, memory_order_relaxed);
     float depth = atomic_load_explicit(&g_target_depth, memory_order_relaxed);
+    float levels[FX_MAX_EFFECTS];
+    for (int k = 0; k < FX_MAX_EFFECTS; k++) {
+        levels[k] = atomic_load_explicit(&g_target_level[k], memory_order_relaxed);
+    }
     const float rate = atomic_load_explicit(&g_rate, memory_order_relaxed);
 
     /* A rate change re-derives coefficients and clears history: no allocation,
@@ -181,7 +190,7 @@ static int process(jack_nframes_t nframes, void *arg)
      * engine — never an unwritten buffer left at whatever the last period had. */
     const float *const cin[FX_CHANNELS] = { in[0], in[1] };
     float *const cout[FX_CHANNELS] = { out[0], out[1] };
-    fx_engine_process(&g_engine, cin, cout, nframes, mask, depth);
+    fx_engine_process_levels(&g_engine, cin, cout, nframes, mask, depth, levels);
     return 0;
 }
 
@@ -517,22 +526,29 @@ static void *control_thread(void *arg)
         return NULL;
     }
 
-    char buf[64];
+    /* `chainl` with eight levels is ~100 bytes. A datagram that fills the
+     * buffer may have been cut short, and a cut number still parses: ignored. */
+    char buf[256];
     while (g_running) {
-        ssize_t got = recvfrom(sock, buf, sizeof(buf) - 1, 0, NULL, NULL);
-        if (got <= 0) {
+        ssize_t got = recvfrom(sock, buf, sizeof(buf), 0, NULL, NULL);
+        if (got <= 0 || (size_t)got >= sizeof(buf)) {
             continue;
         }
         buf[got] = '\0';
         uint32_t mask = 0;
         float depth = 0.0f;
-        if (!fx_parse_control(buf, &mask, &depth) || (mask >> FX_EFFECT_COUNT) != 0u) {
+        float levels[FX_MAX_EFFECTS];
+        if (!fx_parse_control(buf, &mask, &depth, levels) || (mask >> FX_EFFECT_COUNT) != 0u) {
             continue;   /* malformed, or naming an effect not shipped: changes nothing */
         }
         if (depth < 0.0f) {
             depth = 0.0f;
         } else if (depth > 1.0f) {
             depth = 1.0f;
+        }
+        for (int k = 0; k < FX_MAX_EFFECTS; k++) {
+            const float level = levels[k] < 0.0f ? 0.0f : levels[k] > 1.0f ? 1.0f : levels[k];
+            atomic_store_explicit(&g_target_level[k], level, memory_order_relaxed);
         }
         atomic_store_explicit(&g_target_mask, mask, memory_order_relaxed);
         atomic_store_explicit(&g_target_depth, depth, memory_order_relaxed);
@@ -577,9 +593,13 @@ int main(int argc, char **argv)
     (void)argc;
     (void)argv;
 
-    if (!atomic_is_lock_free(&g_target_depth) || !atomic_is_lock_free(&g_target_mask)) {
+    if (!atomic_is_lock_free(&g_target_depth) || !atomic_is_lock_free(&g_target_mask) ||
+        !atomic_is_lock_free(&g_target_level[0])) {
         fprintf(stderr, "mpe-fx-host: atomics are not lock-free on this platform — refusing to start\n");
         return 1;
+    }
+    for (int k = 0; k < FX_MAX_EFFECTS; k++) {
+        atomic_init(&g_target_level[k], 1.0f);
     }
 
     load_env();
