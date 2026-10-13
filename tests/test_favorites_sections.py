@@ -16,7 +16,6 @@ install_fake_pygame()
 
 from patch_browser.favorites_index import FavoritesIndex  # noqa: E402
 from patch_browser.favorites_sections import (  # noqa: E402
-    FAVORITES_SECTION_ORDER,
     HEADER_KIND,
     OTHER_GROUP,
     favorite_group,
@@ -33,7 +32,7 @@ from patch_browser.jump_strip import (  # noqa: E402
     thumb_height,
     thumb_top,
 )
-from patch_browser.patch_metadata import INSTRUMENT_VOCAB, PatchMetadataIndex  # noqa: E402
+from patch_browser.patch_metadata import INSTRUMENT_DISPLAY_ORDER, PatchMetadataIndex  # noqa: E402
 from patch_browser.patch_scanner import PatchScanner, favorites_display_name  # noqa: E402
 from patch_browser.scroll_widgets import ScrollList  # noqa: E402
 from patch_browser.touch_browser_app import TouchPatchBrowser  # noqa: E402
@@ -91,21 +90,17 @@ class FavoriteGroupAuthority(unittest.TestCase):
             OTHER_GROUP,
         )
 
-    def test_section_order_is_the_vocabulary_with_other_last(self) -> None:
-        self.assertEqual(sorted(FAVORITES_SECTION_ORDER), sorted(INSTRUMENT_VOCAB))
-        self.assertEqual(len(set(FAVORITES_SECTION_ORDER)), len(FAVORITES_SECTION_ORDER))
-        self.assertEqual(FAVORITES_SECTION_ORDER[-1], OTHER_GROUP)
-
     def test_labels_and_strip_tags_are_distinct(self) -> None:
-        tags = [section_tag(g) for g in FAVORITES_SECTION_ORDER]
+        tags = [section_tag(g) for g in INSTRUMENT_DISPLAY_ORDER]
         self.assertEqual(len(set(tags)), len(tags), tags)
         self.assertTrue(all(len(t) <= 3 for t in tags), tags)
         self.assertEqual(section_label("fx"), "FX")
         self.assertEqual(section_label("bass"), "Bass")
 
     def test_one_decision_site(self) -> None:
-        """Only favorites_sections decides a group or the order; only the scanner asks it."""
-        definers, callers, orders = [], [], []
+        """Only favorites_sections decides a group; only the scanner asks it.
+        (The order's guard is in test_instrument_order.)"""
+        definers, callers = [], []
         for path in sorted((REPO / "patch_browser").rglob("*.py")):
             text = path.read_text(errors="replace")
             rel = path.relative_to(REPO).as_posix()
@@ -113,10 +108,7 @@ class FavoriteGroupAuthority(unittest.TestCase):
                 definers.append(rel)
             if re.search(r"(?<!def )\bfavorite_group\(", text):
                 callers.append(rel)
-            if re.search(r"^\s*FAVORITES_SECTION_ORDER\s*[:=]", text, re.M):
-                orders.append(rel)
         self.assertEqual(definers, ["patch_browser/favorites_sections.py"])
-        self.assertEqual(orders, ["patch_browser/favorites_sections.py"])
         self.assertEqual(callers, ["patch_browser/patch_scanner.py"])
 
 
@@ -132,13 +124,13 @@ class SectionedEntries(unittest.TestCase):
         names = ["Beta", "Zed", "Odd", "Mid", "Alpha", "Low"]
         return sectioned_entries([_entry(n) for n in names], lambda p: self.GROUPS[p["name"]])
 
-    def test_sections_in_fixed_order_and_order_kept_inside(self) -> None:
+    def test_sections_a_to_z_other_last_and_order_kept_inside(self) -> None:
         rows = [(e["kind"], e.get("group") or e["patch"]["name"]) for e in self._build()]
         self.assertEqual(
             rows,
             [
-                (HEADER_KIND, "keys"), ("patch", "Beta"),
                 (HEADER_KIND, "bass"), ("patch", "Zed"), ("patch", "Mid"),
+                (HEADER_KIND, "keys"), ("patch", "Beta"),
                 (HEADER_KIND, "pad"), ("patch", "Alpha"),
                 (HEADER_KIND, "other"), ("patch", "Odd"), ("patch", "Low"),
             ],
@@ -148,7 +140,7 @@ class SectionedEntries(unittest.TestCase):
         entries = self._build()
         counts = {e["group"]: e["count"] for e in entries if e["kind"] == HEADER_KIND}
         self.assertEqual(counts, {"keys": 1, "bass": 2, "pad": 1, "other": 2})
-        self.assertEqual(section_starts(entries), [("keys", 0), ("bass", 2), ("pad", 5), ("other", 7)])
+        self.assertEqual(section_starts(entries), [("bass", 0), ("keys", 3), ("pad", 5), ("other", 7)])
 
     def test_every_patch_appears_once(self) -> None:
         entries = self._build()
@@ -408,7 +400,11 @@ class FavoritesListInTheBrowser(_BrowserCase):
         kinds = [e["kind"] for e in self.entries()]
         self.assertEqual(kinds[0], HEADER_KIND)
         self.assertEqual(
-            [g for g, _i in section_starts(self.entries())], ["keys", "bass", "lead", "pad", "other"]
+            [g for g, _i in section_starts(self.entries())], ["bass", "keys", "lead", "pad", "other"]
+        )
+        # The jump strip lists the same sections in the same order.
+        self.assertEqual(
+            [g for g, _i in self.browser._jump_strip_sections()], ["bass", "keys", "lead", "pad", "other"]
         )
         self.open_folder("Basses")
         self.assertNotIn(HEADER_KIND, [e["kind"] for e in self.entries()])

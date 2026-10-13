@@ -282,9 +282,21 @@ class TouchBrowserPrefsMixin:
         else:
             self._toast("Looper tempo off", 1.2)
 
-    def _mod_wheel_switch_hit(self, pos: tuple[int, int]) -> bool:
+    def _mod_wheel_switch_shown(self) -> bool:
+        """The play-screen mod-knob switch is on screen: laid out (FX host on)
+        and the loaded patch has something to choose. A patch with no mod-wheel
+        routing (`FxPolicy.switch_locked`, the test that greys Patch mod) sends
+        the knob to the effect either way, so the switch is not drawn and has
+        no hit area. Read per frame and per touch: a patch load needs no
+        relayout."""
         rect = getattr(self, "mod_wheel_switch_rect", None)
-        return rect is not None and rect.w > 0 and rect.contains(*pos)
+        policy = getattr(self, "fx_policy", None)
+        if rect is None or rect.w <= 0 or policy is None:
+            return False
+        return not policy.switch_locked
+
+    def _mod_wheel_switch_hit(self, pos: tuple[int, int]) -> bool:
+        return self._mod_wheel_switch_shown() and self.mod_wheel_switch_rect.contains(*pos)
 
     def _toggle_mod_wheel_target(self) -> None:
         """Play-screen switch: the loaded patch only; the next load re-resolves."""

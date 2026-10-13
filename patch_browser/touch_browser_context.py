@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import time
+from dataclasses import dataclass
 
 import pygame
 
-from patch_browser.favorites_sections import HEADER_KIND
+from patch_browser.favorites_sections import HEADER_KIND, section_label
 from patch_browser.context_menu import (
     ContextTarget,
     build_context_actions,
@@ -29,8 +30,31 @@ from patch_browser.touch_ui_constants import (
     SETTINGS_ROW_GAP,
     SETTINGS_ROW_H,
     TAP_MOVE_THRESHOLD_PX,
+    TOAST_ACTION_S,
 )
 from patch_browser.touch_ui_enums import LeftNavMode, Screen
+
+
+@dataclass(frozen=True)
+class InstrumentUndo:
+    """One Set instrument, as its Undo button puts it back.
+
+    Bound to one patch key and one value, so it can only ever undo that
+    change: setting another patch's instrument meanwhile replaces the toast
+    (and this undo with it) and touches a different key, and if this key no
+    longer holds `set_to` the undo is refused rather than clobbering a newer
+    choice.
+    """
+
+    stable_key: str
+    path: str
+    #: The user's row before the change (`PatchMetadataIndex.user_row`); None
+    #: when the patch had no instrument of its own, so undo unsets it.
+    row_before: dict | None
+    set_to: str
+    #: The list on screen at the time and its scroll, to put the view back.
+    view: tuple
+    scroll_pixels: float
 
 
 class TouchBrowserContextMixin:
@@ -416,33 +440,78 @@ class TouchBrowserContextMixin:
         if action_id.startswith("pick_instrument:"):
             instrument = action_id.split(":", 1)[1]
             patch = target.patch
+            undo = None
             if patch:
                 stable_key = patch.get("stable_key") or self.scanner._stable_key_for_path(
                     patch.get("path", "")
                 )
                 if stable_key:
-                    self.scanner.metadata_index.set_user_instrument(
-                        stable_key,
-                        instrument,
-                        patch=patch,
+                    index = self.scanner.metadata_index
+                    undo = InstrumentUndo(
+                        stable_key=stable_key,
+                        path=str(patch.get("path", "")),
+                        row_before=index.user_row(stable_key),
+                        set_to=instrument,
+                        view=self._instrument_undo_view(),
+                        scroll_pixels=float(self.nav_list.scroll_pixels),
                     )
-                    self.scanner.metadata_index.enrich_patch(patch)
-                    canonical = self.scanner.get_patch_by_stable_key(stable_key)
-                    if canonical is not None and canonical is not patch:
-                        self.scanner.metadata_index.enrich_patch(canonical)
-                    # Favorites sections are cached per copy; this may move one.
-                    self.scanner.invalidate_favorite_cache()
-                    if self.detail_patch and self.detail_patch.get("path") == patch.get("path"):
-                        self.detail_patch = dict(patch)
-                    if self.loaded_patch_info and self.loaded_patch_info.get("path") == patch.get(
-                        "path"
-                    ):
-                        self.loaded_patch_info = dict(patch)
+                    index.set_user_instrument(stable_key, instrument, patch=patch)
+                    self._after_user_instrument_change(patch, stable_key)
             self._close_context_menu()
             self._rebuild_all_patches_index()
             self._refresh_lists()
-            self._toast(f"Instrument → {instrument}", 2.0)
+            message = f"Instrument \u2192 {section_label(instrument)}"
+            if undo is None:
+                self._toast(message, 2.0)
+            else:
+                self._toast(message, TOAST_ACTION_S, action=("Undo", lambda: self._undo_set_instrument(undo)))
             return
+
+    def _instrument_undo_view(self) -> tuple:
+        """Which list is on screen: an undo restores the scroll only to it."""
+        return (self.left_nav_mode, self.browse_folder_index, self._browse_inner_segments())
+
+    def _after_user_instrument_change(self, patch: dict, stable_key: str) -> None:
+        """Re-read a patch's instrument everywhere it is held, after a set or
+        an undo: the patch dict, the scanner's copy, the favorites sections
+        cache, and the play screen's patch."""
+        index = self.scanner.metadata_index
+        index.enrich_patch(patch)
+        canonical = self.scanner.get_patch_by_stable_key(stable_key)
+        if canonical is not None and canonical is not patch:
+            index.enrich_patch(canonical)
+        # Favorites sections are cached per copy; this may move one.
+        self.scanner.invalidate_favorite_cache()
+        path = patch.get("path")
+        if self.detail_patch and self.detail_patch.get("path") == path:
+            self.detail_patch = dict(patch)
+        if self.loaded_patch_info and self.loaded_patch_info.get("path") == path:
+            self.loaded_patch_info = dict(patch)
+
+    def _undo_set_instrument(self, undo: InstrumentUndo) -> None:
+        """The toast's Undo: the patch's previous instrument (or none), back
+        in its old section, with the list where it was."""
+        index = self.scanner.metadata_index
+        now = (index.user_row(undo.stable_key) or {}).get("instrument_user")
+        if now != undo.set_to:
+            self._toast("Instrument changed since; not undone", 2.5)
+            return
+        index.restore_user_row(undo.stable_key, undo.row_before)
+        patch = self.scanner.get_patch_by_stable_key(undo.stable_key) or self.scanner.get_patch_by_path(
+            undo.path
+        )
+        if patch is not None:
+            self._after_user_instrument_change(patch, undo.stable_key)
+        else:
+            self.scanner.invalidate_favorite_cache()
+        self._rebuild_all_patches_index()
+        same_view = self._instrument_undo_view() == undo.view
+        self._refresh_lists()
+        if same_view:
+            self.nav_list.set_scroll_pixels(undo.scroll_pixels)
+        # Not naming the instrument: a favorite's section comes from its source
+        # patch (favorites_sections), so the copy's own tag would misname it.
+        self._toast("Instrument change undone", 2.0)
 
     def _qa_parent_path(self, target: ContextTarget):
         qa_root = self.scanner.get_favorites_folder_path()

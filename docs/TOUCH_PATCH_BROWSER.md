@@ -241,9 +241,9 @@ Per-fader detail:
 - **Tail** — per-patch multiplier on amp envelope **sustain, decay, and release** (both scenes). Under the hood: **0.25×–4.0×** via log mapping; fader shows **−50…+50** with **0** at center (patch-as-loaded). Double-tap resets to **0**. Persists in `~/.patch_browser_hold.json`.
 - **Touch** — per-patch **MPE pressure floor** (light press vs full press). Fader shows **−50…+50**. **Handle position = cal anchor + user trim** (`touch_fader_value` in `patch_pressure.py`): calibration sets the anchor; drag applies trim (negative = less lift than cal). Stored as `cal_floor` + optional `user_touch_offset` in `~/.patch_browser_pressure.json`. Double-tap clears trim and restores the cal anchor. Live remapping: `mpe-pressure-remap.service`.
 - **Norm** — per-patch normalization gain (dB); visible only when **Norm.** is checked. Double-tap resets to calibrated default.
-- **Patch mod** — an on-screen mod wheel: sends CC 1 (0…127) to Surge over OSC `/cc`, whatever the switch says. With `MPE_FX_HOST` on, the handle also follows the hardware knob while the knob drives the patch; fader and knob are two inputs to the same value, and the last move wins. Not stored per patch: it is a performance value, kept across patch loads and resent to Surge on each load. Double-tap resets to 0. A patch with no mod-wheel routing (the one that greys out the **Mod knob** switch) greys it out too: it shows 0, ignores touches and sends Surge nothing, not even the resend; the kept value comes back on the next patch that routes the wheel.
-- **Effect** — the FX chain's one depth (0 = bypass); visible only with `MPE_FX_HOST` on. A request to the remapper, which is the only process that talks to the FX host; the handle follows the depth in force, so it moves when the hardware knob does. Its label names the enabled effects in the order they run (**Drive+Chorus**), or counts them when the names do not fit (**3 FX**), or says **No FX**. Tap the label (the small up caret after it marks it as a button) for the effect list: each row is a checkbox and name (a tap switches that effect on or off) beside a level slider, 0–100 % with the value shown, and the panel stays open until **Done** or a tap outside it. The effects run in series, Drive → Phaser → Flanger → Chorus → Tremolo; each plays at the fader's depth times its own level, so the fader and the knob move them all and they keep their proportions (all at 100 % is one shared depth, as before). Dragging a level is heard as you drag. An unticked effect's slider is greyed out, takes no touch, and keeps its value for when it is switched back on. Switching one on or off moves no depth and no level. Each patch keeps its enabled effects, its depth and its levels (`~/.patch_browser_fx.json`, written about a second after the last move and before the next patch load). Effect state is entirely per patch: a patch never set, or one stored without a depth, plays the factory default (no effect, depth 0, every level 100 %), never what was used last; an entry stored before levels existed plays every level at 100 %, as it sounded, and the picker writes no global default. With no effect enabled the fader and the knob still move and store the depth, which is silent until an effect is switched on. Double-tap resets to 0.
-- **Mod knob** switch (same row as **Norm.**, only with `MPE_FX_HOST` on) — what the hardware mod wheel or knob (CC 1) drives for the loaded patch: off = patch first, on = effect. Its label is where the knob goes now, named after the fader it moves: **Mod knob → Patch mod**, or **Mod knob →** the Effect fader's label (the effect names, a count, or **No FX**). A patch with no mod-wheel routing sends the knob to the effect even with the switch off, and the label says so. Flipping it only changes where the knob goes: the effects keep their depth and Surge keeps its mod-wheel value. The patch keeps the switch's position; a patch never switched follows the **Mod wheel** default in System settings. The rule lives in `patch_browser/fx_policy.py`.
+- **Patch mod** — an on-screen mod wheel: sends CC 1 (0…127) to Surge over OSC `/cc`, whatever the switch says. With `MPE_FX_HOST` on, the handle also follows the hardware knob while the knob drives the patch; fader and knob are two inputs to the same value, and the last move wins. Not stored per patch: it is a performance value, kept across patch loads and resent to Surge on each load. Double-tap resets to 0. A patch with no mod-wheel routing (the one that hides the **Mod knob** switch) greys it out: it shows 0, ignores touches and sends Surge nothing, not even the resend; the kept value comes back on the next patch that routes the wheel.
+- **Effect** — the FX chain's one depth (0 = bypass); visible only with `MPE_FX_HOST` on. A request to the remapper, which is the only process that talks to the FX host; the handle follows the depth in force, so it moves when the hardware knob does. Its label names the enabled effects in the order they run (**Drive+Chorus**), or counts them when the names do not fit (**3 FX**), or says **No FX**. Tap the label (the small up caret after it marks it as a button) for the effect list: each row is a checkbox and name (a tap switches that effect on or off) beside a level slider, 0–100 % with the value shown, and the panel stays open until **Done** or a tap outside it. The effects run in series, Drive → Phaser → Flanger → Chorus → Tremolo; each plays at the fader's depth times its own level, so the fader and the knob move them all and they keep their proportions (all at 100 % is one shared depth, as before). Dragging a level is heard as you drag. An unticked effect's slider is greyed out, takes no touch, and keeps its value for when it is switched back on. Switching one on or off moves no depth and no level. Each patch keeps its enabled effects, its depth and its levels (`~/.patch_browser_fx.json`, written about a second after the last move and before the next patch load). Effect state is entirely per patch: a patch never set, or one stored without a depth, plays the factory default (no effect, depth 0, every level 100 %), never what was used last; an entry stored before levels existed plays every level at 100 %, as it sounded, and the picker writes no global default. With no effect ticked the fader is greyed out the way Patch mod is for a no-wheel patch: it shows 0 and ignores touches, and the knob routed to the effect moves nothing (it is still taken from Surge). Neither touches the patch's stored depth, so ticking an effect again brings that depth back; the label still opens the effect list. The test is `fx_policy.effect_inert`. Double-tap resets to 0.
+- **Mod knob** switch (same row as **Norm.**, only with `MPE_FX_HOST` on) — what the hardware mod wheel or knob (CC 1) drives for the loaded patch: off = patch first, on = effect. Its label is where the knob goes now, named after the fader it moves: **Mod knob → Patch mod**, or **Mod knob →** the Effect fader's label (the effect names, a count, or **No FX**). A patch with no mod-wheel routing sends the knob to the effect whatever the switch says, so the switch is not shown for it at all (no drawing, no hit area; **Norm.** and the heart stay where they are). The knob still drives the effect. Flipping it only changes where the knob goes: the effects keep their depth and Surge keeps its mod-wheel value. The patch keeps the switch's position; a patch never switched follows the **Mod wheel** default in System settings. The rule lives in `patch_browser/fx_policy.py`.
 - **Knob pickup** (with `MPE_FX_HOST` on) — scaling pickup, the law the APC column faders use (`patch_browser/fader_pickup.py`). After a patch load, a switch flip or a move of either fader on screen, the knob's first move changes the value in force at once, in the direction turned, by the share of the remaining knob travel it covered; it never jumps to the knob's position, and at either end of travel the value meets the knob (fully down is 0, fully up is full). Switching an effect on or off changes nothing for the knob, because the depth in force has not moved. The faders always show the value in force, not where the knob is.
 - Touch **down + drag** on a fader; release does not trigger nav taps underneath.
 - **Norm.** — label-left / checkbox-right toggle for per-patch loudness normalization (see [`PATCH_NORMALIZATION.md`](PATCH_NORMALIZATION.md)).
@@ -475,8 +475,8 @@ content height) to pan between stops — drag right from Home to reach Filter,
 left from Filter back to Home. Release commits to the other stop once the
 drag crosses ~56px (or 50% of the track travel, whichever is smaller);
 otherwise it snaps back. The filter pane shows one tappable chip per
-instrument with patches in the current context (plus **All**), each with a
-patch count; tags with zero matches are hidden. **Tapping a tag updates the
+instrument with patches in the current context (plus **All**), A–Z with
+**Other** last (`INSTRUMENT_DISPLAY_ORDER`), each with a patch count; tags with zero matches are hidden. **Tapping a tag updates the
 list immediately without leaving the Filter stop or closing the pane** — the
 filter is a persistent search modifier, not a one-shot picker.
 
@@ -505,9 +505,19 @@ Hold a folder or patch row in the left nav for ~600ms (cancel if you scroll firs
 | Patch | Add/remove Quick Access; Move to folder…; Set instrument… |
 | Quick Access subfolder | New subfolder; Rename / Delete (top-level user folders only) |
 
-Folder and instrument pickers are sub-menus. New/rename folder uses the on-screen keyboard (same layout as Wi‑Fi password entry).
+Folder and instrument pickers are sub-menus; instruments are listed A–Z, **Other** last. New/rename folder uses the on-screen keyboard (same layout as Wi‑Fi password entry).
 
-Tests: `tests/test_context_menu.py`
+**Undo after Set instrument.** The toast that confirms it carries an **Undo**
+button for 10 s (`TOAST_ACTION_S`). Undo puts back exactly what the patch had,
+including no instrument of its own, so it returns to its old section, and the
+list goes back to where it was scrolled if it is still the list on screen. One
+toast at a time: setting another patch's instrument replaces the toast, and
+Undo then undoes that one only. An Undo whose patch has been changed since by
+another route is refused rather than overwrite the newer choice. Any toast can
+carry a button this way (`_toast(..., action=(label, callback))`); it is drawn
+and hit only on the browser screen.
+
+Tests: `tests/test_context_menu.py`, `tests/test_instrument_undo.py`
 
 ## Favorites v2 (Phase 3)
 
@@ -530,9 +540,11 @@ in one scrolling list (no subfolders). A favorite's group is decided in
 `patch_browser/favorites_sections.py` (`favorite_group`) and nowhere else: the
 instrument you set on the favorite (long-press, **Set instrument…**), else the
 source patch's instrument (the copy's own folder says nothing), else the copy's,
-else **Other**. Sections run in a fixed order, Piano → Keys → Organ → Bass →
-Lead → Pad → Strings → Brass → Woodwind → Pluck → Synth → Sequencer →
-Percussion → FX → Other; inside a section the list keeps its order. Rows
+else **Other**. Sections run A–Z by instrument, with **Other** last (it is
+the catch-all, not an instrument); inside a section the list keeps its order.
+The order is `patch_metadata.INSTRUMENT_DISPLAY_ORDER`, the one instrument
+order on screen: the jump strip, the **Set instrument…** menu and the filter
+chips use it too, and `tests/test_instrument_order.py` refuses a second one. Rows
 under a heading show the name only (centred, same 58 px row), since an
 instrument line would repeat the heading. The `.fxp`
 `category` attribute is not used: it is mostly an author or pack name.
