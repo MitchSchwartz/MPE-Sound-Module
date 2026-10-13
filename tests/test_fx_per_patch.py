@@ -28,6 +28,10 @@ from patch_browser.patch_fx import STORED_TARGETS, PatchFx, PatchFxStore  # noqa
 from patch_browser.patch_sidecar_migrate import migrate_sidecar_stores  # noqa: E402
 from tests.test_fx_policy import NO_ROUTINGS, WITH_MODWHEEL, _RecordingSender  # noqa: E402
 
+#: Every level 1.0, as a stored entry (list) and as PatchFx holds it (tuple).
+ONES = [1.0] * len(fx_host_protocol.EFFECT_IDS)
+ONES_T = tuple(ONES)
+
 CHORUS = fx_host_protocol.EFFECT_CHORUS
 DRIVE = fx_host_protocol.EFFECT_TUBE_DRIVE
 PHASER = fx_host_protocol.EFFECT_PHASER
@@ -39,6 +43,10 @@ FIXTURE_150 = REPO / "tests" / "fixtures" / "fx-store-per-effect-150.json"
 #: Entries as rounds 3/4 left them on the appliance: a mask with no depth (the
 #: depth then came from nowhere, 0 by luck), a mask and depth, all three.
 FIXTURE_ROUND4 = REPO / "tests" / "fixtures" / "fx-store-round4-partial.json"
+#: Written by the store as it was before per-effect levels (origin/dev at
+#: 4a1e29e, its own FxPolicy and PatchFxStore driven through toggles, depths
+#: and a switch flip): every entry has a mask and a depth, none has levels.
+FIXTURE_PRE_LEVELS = REPO / "tests" / "fixtures" / "fx-store-pre-levels.json"
 ROOT = "/surge/patches_factory"
 
 
@@ -184,13 +192,20 @@ class PickupTests(unittest.TestCase):
 
 class StoreTests(_Rig):
     def test_round_trip_through_the_file(self) -> None:
-        fx = PatchFx(mask=D | C, depth=0.25, target=MOD_WHEEL_EFFECT)
+        fx = PatchFx(mask=D | C, depth=0.25, target=MOD_WHEEL_EFFECT, levels=(1.0, 0.5, 0.25, 0.0, 0.75))
         self.store.set("Keys", fx, stable_key="factory:Test/Keys")
         again = PatchFxStore(self.store_path)
         self.assertEqual(again.get("Keys", stable_key="factory:Test/Keys"), fx)
         self.assertEqual(
             self.saved(),
-            {"factory:Test/Keys": {"mask": D | C, "depth": 0.25, "target": "effect"}},
+            {
+                "factory:Test/Keys": {
+                    "mask": D | C,
+                    "depth": 0.25,
+                    "target": "effect",
+                    "levels": [1.0, 0.5, 0.25, 0.0, 0.75],
+                }
+            },
         )
 
     def test_never_set_is_empty(self) -> None:
@@ -199,21 +214,34 @@ class StoreTests(_Rig):
     def test_an_empty_mask_is_a_value_not_a_default(self) -> None:
         """"No FX" chosen for a patch is kept; it is not "use the default"."""
         self.store.set("Keys", PatchFx(mask=0), stable_key="factory:Test/Keys")
-        self.assertEqual(self.saved(), {"factory:Test/Keys": {"mask": 0, "depth": 0.0}})
+        self.assertEqual(self.saved(), {"factory:Test/Keys": {"mask": 0, "depth": 0.0, "levels": ONES}})
         self.assertEqual(PatchFxStore(self.store_path).get("Keys", stable_key="factory:Test/Keys").mask, 0)
 
     def test_nothing_read_from_the_file_is_trusted(self) -> None:
         too_big = fx_host_protocol.MASK_ALL + 1
         cases = {
-            "mask too big": ({"mask": too_big, "depth": 0.5}, PatchFx(mask=0, depth=0.5)),
+            "mask too big": ({"mask": too_big, "depth": 0.5}, PatchFx(mask=0, depth=0.5, levels=ONES_T)),
             "negative mask": ({"mask": -1}, PatchFx()),
             "bool mask": ({"mask": True}, PatchFx()),
             "float mask": ({"mask": 1.0}, PatchFx()),
             "string mask": ({"mask": "3"}, PatchFx()),
-            "depth too big": ({"mask": 3, "depth": 2.0}, PatchFx(mask=3, depth=0.0)),
-            "nan depth": ({"mask": 3, "depth": float("nan")}, PatchFx(mask=3, depth=0.0)),
-            "bool depth": ({"mask": 3, "depth": True}, PatchFx(mask=3, depth=0.0)),
-            "bad target": ({"mask": 3, "target": "sideways"}, PatchFx(mask=3, depth=0.0)),
+            "depth too big": ({"mask": 3, "depth": 2.0}, PatchFx(mask=3, depth=0.0, levels=ONES_T)),
+            "nan depth": ({"mask": 3, "depth": float("nan")}, PatchFx(mask=3, depth=0.0, levels=ONES_T)),
+            "bool depth": ({"mask": 3, "depth": True}, PatchFx(mask=3, depth=0.0, levels=ONES_T)),
+            "bad target": ({"mask": 3, "target": "sideways"}, PatchFx(mask=3, depth=0.0, levels=ONES_T)),
+            # Levels: not a list is every level 1.0; a bad entry is 1.0, an
+            # out-of-range one is clamped; a short list (an older build) is
+            # padded with 1.0 and a long one (a newer build) cut.
+            "levels not a list": ({"mask": 3, "levels": {"0": 0.5}}, PatchFx(mask=3, depth=0.0, levels=ONES_T)),
+            "bad level entries": (
+                {"mask": 3, "levels": ["x", 2.0, -1, True, float("nan")]},
+                PatchFx(mask=3, depth=0.0, levels=(1.0, 1.0, 0.0, 1.0, 1.0)),
+            ),
+            "short levels": ({"mask": 3, "levels": [0.5, 0.25]}, PatchFx(mask=3, depth=0.0, levels=(0.5, 0.25, 1.0, 1.0, 1.0))),
+            "long levels": (
+                {"mask": 3, "levels": [0.5, 0.25, 0.1, 0.2, 0.3, 0.9]},
+                PatchFx(mask=3, depth=0.0, levels=(0.5, 0.25, 0.1, 0.2, 0.3)),
+            ),
         }
         for label, (entry, want) in cases.items():
             with self.subTest(label):
@@ -234,7 +262,7 @@ class StoreTests(_Rig):
 
     def test_no_per_effect_depth_is_left(self) -> None:
         """One depth: the #150 fields are gone from the type and the policy."""
-        self.assertEqual({f.name for f in fields(PatchFx)}, {"mask", "depth", "target"})
+        self.assertEqual({f.name for f in fields(PatchFx)}, {"mask", "depth", "target", "levels"})
         for name in ("depth_for", "depths", "effect"):
             self.assertFalse(hasattr(PatchFx(), name), name)
         for name in ("select_effect", "set_global_effect", "effect_id", "effect_name"):
@@ -260,15 +288,15 @@ class MigrationTests(_Rig):
         store = PatchFxStore(self.store_path)
         want = {
             # Chorus 0.4 and Drive 0.25 stored, Drive selected: Drive at 0.25.
-            "Keys/Bonita Keys": PatchFx(mask=D, depth=0.25),
+            "Keys/Bonita Keys": PatchFx(mask=D, depth=0.25, levels=ONES_T),
             # Phaser set by the knob: CC 77.
-            "Strings/Bowed String": PatchFx(mask=P, depth=0.6062992125984252),
+            "Strings/Bowed String": PatchFx(mask=P, depth=0.6062992125984252, levels=ONES_T),
             # Tremolo chosen, never given a depth: Tremolo at the factory 0.
-            "Pads/Glass Pad": PatchFx(mask=T, depth=0.0),
+            "Pads/Glass Pad": PatchFx(mask=T, depth=0.0, levels=ONES_T),
             # Only the switch was ever moved: the factory effect state (F3).
-            "Leads/Saw Lead": PatchFx(mask=0, depth=0.0, target=MOD_WHEEL_EFFECT),
+            "Leads/Saw Lead": PatchFx(mask=0, depth=0.0, target=MOD_WHEEL_EFFECT, levels=ONES_T),
             # A depth for Tremolo, then Phaser selected: Phaser, never set (0).
-            "Bass/Sub Bass": PatchFx(mask=P, depth=0.0, target=MOD_WHEEL_EFFECT),
+            "Bass/Sub Bass": PatchFx(mask=P, depth=0.0, target=MOD_WHEEL_EFFECT, levels=ONES_T),
         }
         for rel, fx in want.items():
             with self.subTest(rel):
@@ -278,11 +306,11 @@ class MigrationTests(_Rig):
         self.assertEqual(
             self.saved(),
             {
-                "factory:Keys/Bonita Keys": {"mask": D, "depth": 0.25},
-                "factory:Strings/Bowed String": {"mask": P, "depth": 0.6062992125984252},
-                "factory:Pads/Glass Pad": {"mask": T, "depth": 0.0},
-                "factory:Leads/Saw Lead": {"mask": 0, "depth": 0.0, "target": "effect"},
-                "factory:Bass/Sub Bass": {"mask": P, "depth": 0.0, "target": "effect"},
+                "factory:Keys/Bonita Keys": {"mask": D, "depth": 0.25, "levels": ONES},
+                "factory:Strings/Bowed String": {"mask": P, "depth": 0.6062992125984252, "levels": ONES},
+                "factory:Pads/Glass Pad": {"mask": T, "depth": 0.0, "levels": ONES},
+                "factory:Leads/Saw Lead": {"mask": 0, "depth": 0.0, "target": "effect", "levels": ONES},
+                "factory:Bass/Sub Bass": {"mask": P, "depth": 0.0, "target": "effect", "levels": ONES},
             },
         )
 
@@ -334,10 +362,10 @@ class MigrationTests(_Rig):
         self.store_path.write_bytes(FIXTURE_ROUND4.read_bytes())
         store = PatchFxStore(self.store_path)
         want = {
-            "Keys/Mask Only": PatchFx(mask=6, depth=0.0),
-            "Pads/Mask And Depth": PatchFx(mask=6, depth=0.5669291338582677),
-            "Leads/Mask Depth Target": PatchFx(mask=9, depth=0.25, target=MOD_WHEEL_EFFECT),
-            "Bass/No FX Chosen": PatchFx(mask=0, depth=0.0),
+            "Keys/Mask Only": PatchFx(mask=6, depth=0.0, levels=ONES_T),
+            "Pads/Mask And Depth": PatchFx(mask=6, depth=0.5669291338582677, levels=ONES_T),
+            "Leads/Mask Depth Target": PatchFx(mask=9, depth=0.25, target=MOD_WHEEL_EFFECT, levels=ONES_T),
+            "Bass/No FX Chosen": PatchFx(mask=0, depth=0.0, levels=ONES_T),
         }
         for rel, fx in want.items():
             with self.subTest(rel):
@@ -357,10 +385,10 @@ class MigrationTests(_Rig):
         self.assertEqual(
             self.saved(),
             {
-                "factory:Keys/Mask Only": {"mask": 6, "depth": 0.0},
-                "factory:Pads/Mask And Depth": {"mask": 6, "depth": 0.5669291338582677},
-                "factory:Leads/Mask Depth Target": {"mask": 9, "depth": 0.25, "target": "effect"},
-                "factory:Bass/No FX Chosen": {"mask": 0, "depth": 0.0},
+                "factory:Keys/Mask Only": {"mask": 6, "depth": 0.0, "levels": ONES},
+                "factory:Pads/Mask And Depth": {"mask": 6, "depth": 0.5669291338582677, "levels": ONES},
+                "factory:Leads/Mask Depth Target": {"mask": 9, "depth": 0.25, "target": "effect", "levels": ONES},
+                "factory:Bass/No FX Chosen": {"mask": 0, "depth": 0.0, "levels": ONES},
             },
         )
 
@@ -374,6 +402,205 @@ class MigrationTests(_Rig):
         self.assertEqual(json.loads(prefs.read_text()), {"fx_effect": DRIVE, "fx_mask": P | T, "theme_mode": "dark"})
 
 
+class LevelMigrationTests(_Rig):
+    """Per-effect levels: an entry without them plays as it did, every level 1.0."""
+
+    WANT = {
+        "Keys/Bonita Keys": PatchFx(mask=D | C, depth=0.5, target=MOD_WHEEL_EFFECT, levels=ONES_T),
+        "Pads/Glass Pad": PatchFx(mask=fx_host_protocol.MASK_ALL, depth=0.8, levels=ONES_T),
+        "Leads/Saw Lead": PatchFx(mask=0, depth=0.3, levels=ONES_T),
+        "Bass/Sub Bass": PatchFx(mask=P | (1 << FLANGER), depth=1.0, levels=ONES_T),
+    }
+
+    def test_the_pre_levels_store_file_migrates(self) -> None:
+        raw = json.loads(FIXTURE_PRE_LEVELS.read_text())
+        self.assertTrue(raw and all("levels" not in entry for entry in raw.values()))
+        self.store_path.write_bytes(FIXTURE_PRE_LEVELS.read_bytes())
+        store = PatchFxStore(self.store_path)
+        for rel, fx in self.WANT.items():
+            with self.subTest(rel):
+                self.assertEqual(store.get(Path(rel).name, stable_key=f"factory:{rel}"), fx)
+        # The next save writes every entry whole, levels included, and
+        # changes nothing else in it.
+        store.save()
+        self.assertEqual(
+            self.saved(),
+            {key: dict(entry, levels=ONES) for key, entry in raw.items()},
+        )
+
+    def test_a_pre_levels_patch_sends_its_old_sound(self) -> None:
+        """Mask and depth as before, every level 1.0 on the wire: `chainl`
+        with ones, which the engine plays bit for bit as `chain` (fx-selftest,
+        test_level_is_a_depth_product)."""
+        self.store_path.write_bytes(FIXTURE_PRE_LEVELS.read_bytes())
+        policy = self._policy(store=PatchFxStore(self.store_path))
+        wire: list[bytes] = []
+        self.router._sender = fx_policy.FxHostSender(send=wire.append, log=None)
+        for rel, fx in self.WANT.items():
+            with self.subTest(rel):
+                policy.on_patch_loaded(self._patch(Path(rel).name, NO_ROUTINGS), patch_name=Path(rel).name,
+                                       stable_key=f"factory:{rel}")
+                self.now += fx_policy.ROUTE_REFRESH_S
+                self.router.refresh()
+                self.assertEqual((policy.mask, policy.depth, policy.levels), (fx.mask, fx.depth, ONES_T))
+                self.assertEqual(wire[-1], fx_host_protocol.encode_chain_levels(fx.mask, fx.depth, ONES))
+                self.assertTrue(wire[-1].endswith(b" 1.000000 1.000000 1.000000 1.000000 1.000000"))
+
+
+class LevelMemoryTests(_Rig):
+    """Each patch remembers its levels; a level moves only itself."""
+
+    def test_each_patch_recalls_its_levels(self) -> None:
+        self.load(self.keys)
+        self.policy.set_mask(C | D | P)
+        self.policy.set_depth(0.6, final=True)
+        self.policy.set_level(DRIVE, 0.25, final=True)
+        self.policy.set_level(PHASER, 0.5, final=True)
+        self.load(self.pad)
+        self.settle()
+        # Another patch: the factory levels, never the last-used ones.
+        self.assertEqual(self.policy.levels, ONES_T)
+        self.assertEqual(self.sender.levels[-1], ONES_T)
+        self.policy.set_mask(C)
+        self.policy.set_level(CHORUS, 0.7, final=True)
+        self.load(self.keys)
+        self.settle()
+        keys_levels = (1.0, 0.25, 0.5, 1.0, 1.0)
+        self.assertEqual(self.policy.levels, keys_levels)
+        self.assertEqual((self.sender.sent[-1], self.sender.levels[-1]), ((C | D | P, 0.6), keys_levels))
+        self.assertEqual(self.route_file()["levels"], list(keys_levels))
+        # A fresh UI process reads them back from the file.
+        self.policy.flush_store()
+        self.assertEqual(self.saved()["factory:Test/Keys"]["levels"], list(keys_levels))
+        self.assertEqual(self.saved()["factory:Test/Pad"]["levels"], [0.7, 1.0, 1.0, 1.0, 1.0])
+        fresh = self._policy(store=PatchFxStore(self.store_path))
+        self.load(self.keys, fresh)
+        self.assertEqual(fresh.levels, keys_levels)
+        self.load(self.pad, fresh)
+        self.assertEqual(fresh.levels, (0.7, 1.0, 1.0, 1.0, 1.0))
+
+    def test_a_level_moves_nothing_else(self) -> None:
+        self.load(self.keys)
+        self.policy.set_mask(C | D)
+        self.policy.set_depth(0.4, final=True)
+        self.settle()
+        before = self.route_file()
+        self.policy.set_level(DRIVE, 0.3, final=True)
+        after = self.route_file()
+        self.assertEqual(after["levels"], [1.0, 0.3, 1.0, 1.0, 1.0])
+        for key in ("cc1", "mask", "target", "route_stamp", "depth_request", "depth_stamp"):
+            self.assertEqual(after[key], before[key], key)
+        self.settle()
+        self.assertEqual((self.policy.mask, self.policy.depth), (C | D, 0.4))
+        self.assertEqual((self.sender.sent[-1], self.sender.levels[-1]), ((C | D, 0.4), (1.0, 0.3, 1.0, 1.0, 1.0)))
+
+    def test_an_unticked_effect_keeps_its_level_and_takes_no_new_one(self) -> None:
+        self.load(self.keys)
+        self.policy.set_mask(C | T)
+        self.policy.set_level(TREMOLO, 0.35, final=True)
+        self.policy.toggle_effect(TREMOLO)  # off: greyed, keeps 0.35
+        self.assertEqual(self.policy.level(TREMOLO), 0.35)
+        self.policy.set_level(TREMOLO, 0.9, final=True)  # inert while off
+        self.assertEqual(self.policy.level(TREMOLO), 0.35)
+        self.assertEqual(self.route_file()["levels"][TREMOLO], 0.35)
+        self.policy.toggle_effect(TREMOLO)  # back on at the level it kept
+        self.settle()
+        self.assertEqual(self.sender.levels[-1][TREMOLO], 0.35)
+
+    def test_a_drag_writes_at_most_every_publish_interval_and_lands_the_last(self) -> None:
+        self.load(self.keys)
+        self.policy.set_mask(C)
+        writes = []
+        real = fx_policy.atomic_write_json
+
+        def spy(path, data):
+            if Path(path) == self.route:
+                writes.append(data["levels"][CHORUS])
+            return real(path, data)
+
+        with mock.patch.object(fx_policy, "atomic_write_json", side_effect=spy):
+            for i, level in enumerate((0.9, 0.8, 0.7, 0.6, 0.5)):
+                self.now += 0.01
+                self.policy.set_level(CHORUS, level)
+            self.assertEqual(writes, [0.9])  # one write inside DEPTH_PUBLISH_S
+            self.now += fx_policy.DEPTH_PUBLISH_S
+            self.policy.set_level(CHORUS, 0.45)
+            self.assertEqual(writes, [0.9, 0.45])
+            self.policy.set_level(CHORUS, 0.4)  # throttled...
+            self.assertEqual(writes, [0.9, 0.45])
+            self.policy.finish_level()  # ...and released: the last one lands
+            self.assertEqual(writes, [0.9, 0.45, 0.4])
+            self.policy.finish_level()  # nothing pending: no write
+            self.assertEqual(writes, [0.9, 0.45, 0.4])
+        self.assertFalse(self.policy.dragging_level)
+
+    def test_a_final_level_is_written_at_once_even_inside_the_interval(self) -> None:
+        self.load(self.keys)
+        self.policy.set_mask(C)
+        self.policy.set_level(CHORUS, 0.9)
+        self.now += 0.01
+        self.policy.set_level(CHORUS, 0.3, final=True)
+        self.assertEqual(self.route_file()["levels"][CHORUS], 0.3)
+        self.assertFalse(self.policy.dragging_level)
+
+    def test_a_route_file_without_levels_plays_every_level_at_one(self) -> None:
+        """A UI from before per-effect levels (the UI and the remapper restart
+        on their own): its route file has no `levels`, and the remapper sends
+        every level 1.0, which is the sound that UI chose."""
+        self.route.write_text(json.dumps({"cc1": "fx", "mask": C | D, "route_stamp": "r1",
+                                          "depth_request": 0.5, "depth_stamp": "d1"}))
+        self.now += fx_policy.ROUTE_REFRESH_S
+        self.router.refresh()
+        self.assertEqual((self.sender.sent[-1], self.sender.levels[-1]), ((C | D, 0.5), ONES_T))
+
+    def test_levels_reach_the_fx_host_live_while_dragging(self) -> None:
+        self.load(self.keys)
+        self.policy.set_mask(P)
+        self.policy.set_depth(0.8, final=True)
+        self.settle()
+        for level in (0.9, 0.7, 0.5):
+            self.now += fx_policy.DEPTH_PUBLISH_S
+            self.policy.set_level(PHASER, level)
+            self.now += fx_policy.ROUTE_REFRESH_S
+            self.router.refresh()
+            self.assertEqual(self.sender.levels[-1][PHASER], level)
+            self.assertEqual(self.sender.sent[-1], (P, 0.8))
+
+    def test_a_restarted_remapper_reasserts_the_levels(self) -> None:
+        self.load(self.keys)
+        self.policy.set_mask(C | D)
+        self.policy.set_depth(0.5, final=True)
+        self.policy.set_level(CHORUS, 0.2, final=True)
+        self.settle()
+        restarted = _RecordingSender()
+        fresh = Cc1Router(sender=restarted, route_path=self.route, levels_path=self.root / "other-levels.json",
+                          clock=lambda: self.now)
+        self.now += fx_policy.ROUTE_REFRESH_S
+        fresh.refresh()
+        self.assertEqual(restarted.sent, [(C | D, 0.5)])
+        self.assertEqual(restarted.levels, [(0.2, 1.0, 1.0, 1.0, 1.0)])
+
+    def test_bad_level_calls_change_nothing(self) -> None:
+        self.load(self.keys)
+        self.policy.set_mask(C)
+        before = self.policy.levels
+        for effect_id, level in ((CHORUS, float("nan")), (CHORUS, float("inf")), (9, 0.5), (True, 0.5), (-1, 0.5)):
+            with self.subTest(effect=effect_id, level=level):
+                self.policy.set_level(effect_id, level, final=True)
+                self.assertEqual(self.policy.levels, before)
+        self.policy.set_level(CHORUS, 7.0, final=True)  # clamped, as a slider cannot exceed 100 %
+        self.assertEqual(self.policy.level(CHORUS), 1.0)
+        self.policy.set_level(CHORUS, -3.0, final=True)
+        self.assertEqual(self.policy.level(CHORUS), 0.0)
+
+    def test_off_writes_and_sends_nothing(self) -> None:
+        policy = self._policy(enabled=False)
+        self.load(self.keys, policy)
+        policy.set_level(CHORUS, 0.3, final=True)
+        self.assertFalse(self.route.exists())
+        self.assertEqual(policy.levels, ONES_T)
+
+
 class KeyStabilityTests(_Rig):
     """The existing sidecar key logic, unchanged: stable key, stem fallback, migration."""
 
@@ -385,7 +612,7 @@ class KeyStabilityTests(_Rig):
         store = PatchFxStore(self.store_path)
         self.assertEqual(store.get("Keys", stable_key="factory:Keys/Keys").mask, D)
         store.set("Keys", PatchFx(mask=P), stable_key="factory:Keys/Keys")
-        self.assertEqual(json.loads(self.store_path.read_text()), {"factory:Keys/Keys": {"mask": P, "depth": 0.0}})
+        self.assertEqual(json.loads(self.store_path.read_text()), {"factory:Keys/Keys": {"mask": P, "depth": 0.0, "levels": ONES}})
 
     def test_post_scan_migration_moves_unambiguous_stems(self) -> None:
         # #150-shaped stem entries: migrated in shape and in key.
@@ -394,7 +621,7 @@ class KeyStabilityTests(_Rig):
         patches = [self._p("Keys/Keys.fxp"), self._p("Bass/Lead.fxp"), self._p("Pad/Lead.fxp")]
         warnings = migrate_sidecar_stores(fx=store, patches=patches, patch_dirs=[Path(ROOT)])
         saved = json.loads(self.store_path.read_text())
-        self.assertEqual(saved["factory:Keys/Keys"], {"mask": D, "depth": 0.0})
+        self.assertEqual(saved["factory:Keys/Keys"], {"mask": D, "depth": 0.0, "levels": ONES})
         self.assertIn("Lead", saved)  # ambiguous: kept, not merged
         self.assertTrue(any("PatchFxStore" in w and "ambiguous" in w for w in warnings))
 
@@ -460,8 +687,8 @@ class PerPatchMemoryTests(_Rig):
         self.assertEqual(
             self.saved(),
             {
-                "factory:Test/Keys": {"mask": D, "depth": 0.5, "target": "effect"},
-                "factory:Test/Pad": {"mask": C | T, "depth": 0.2},
+                "factory:Test/Keys": {"mask": D, "depth": 0.5, "target": "effect", "levels": ONES},
+                "factory:Test/Pad": {"mask": C | T, "depth": 0.2, "levels": ONES},
             },
         )
 
@@ -493,7 +720,7 @@ class PerPatchMemoryTests(_Rig):
                 route = self.route_file()
                 self.assertEqual((route["mask"], route["route_stamp"]), (want, stamp))
         self.policy.flush_store()
-        self.assertEqual(self.saved()["factory:Test/Keys"], {"mask": C, "depth": 0.3})
+        self.assertEqual(self.saved()["factory:Test/Keys"], {"mask": C, "depth": 0.3, "levels": ONES})
 
     def test_a_tap_on_one_row_twice_is_where_it_started(self) -> None:
         self.load(self.keys)
@@ -525,9 +752,9 @@ class PerPatchMemoryTests(_Rig):
     def test_a_patch_entry_is_always_written_whole(self) -> None:
         """A depth, a mask or a target alone still writes mask and depth."""
         for change, want in (
-            (lambda: self.policy.set_depth(0.6, final=True), {"mask": 0, "depth": 0.6}),
-            (lambda: self.policy.toggle_effect(DRIVE), {"mask": D, "depth": 0.0}),
-            (lambda: self.policy.set_target(MOD_WHEEL_EFFECT), {"mask": 0, "depth": 0.0, "target": "effect"}),
+            (lambda: self.policy.set_depth(0.6, final=True), {"mask": 0, "depth": 0.6, "levels": ONES}),
+            (lambda: self.policy.toggle_effect(DRIVE), {"mask": D, "depth": 0.0, "levels": ONES}),
+            (lambda: self.policy.set_target(MOD_WHEEL_EFFECT), {"mask": 0, "depth": 0.0, "target": "effect", "levels": ONES}),
         ):
             with self.subTest(want=want):
                 self.store_path.unlink(missing_ok=True)
@@ -561,20 +788,20 @@ class StoreWriteTimingTests(_Rig):
             self.assertEqual(save.call_count, 1)
             self.settle(STORE_WRITE_DELAY_S * 3)
             self.assertEqual(save.call_count, 1)
-        self.assertEqual(self.saved()["factory:Test/Keys"], {"mask": 0, "depth": 0.7})
+        self.assertEqual(self.saved()["factory:Test/Keys"], {"mask": 0, "depth": 0.7, "levels": ONES})
 
     def test_a_pending_change_is_written_before_the_next_load(self) -> None:
         self.load(self.keys)
         self.policy.set_depth(0.4, final=True)
         self.load(self.pad)
-        self.assertEqual(self.saved()["factory:Test/Keys"], {"mask": 0, "depth": 0.4})
+        self.assertEqual(self.saved()["factory:Test/Keys"], {"mask": 0, "depth": 0.4, "levels": ONES})
 
     def test_shutdown_flush_writes_what_is_pending(self) -> None:
         self.load(self.keys)
         self.policy.set_target(MOD_WHEEL_EFFECT)
         self.assertEqual(self.saved(), {})
         self.assertTrue(self.policy.flush_store())
-        self.assertEqual(self.saved()["factory:Test/Keys"], {"mask": 0, "depth": 0.0, "target": "effect"})
+        self.assertEqual(self.saved()["factory:Test/Keys"], {"mask": 0, "depth": 0.0, "target": "effect", "levels": ONES})
         self.assertFalse(self.policy.flush_store())
 
     def test_off_writes_nothing(self) -> None:
@@ -765,7 +992,7 @@ class TargetSwitchTests(_Rig):
         self.assertAlmostEqual(self.policy.depth, depth)
         self.assertAlmostEqual(self.route_file()["depth_request"], depth)
         restarted = []
-        fresh = Cc1Router(sender=mock.Mock(send=lambda m, d: restarted.append((m, d))), route_path=self.route,
+        fresh = Cc1Router(sender=mock.Mock(send=lambda m, d, _levels=None: restarted.append((m, d))), route_path=self.route,
                           levels_path=self.root / "other-levels.json", clock=lambda: self.now)
         fresh.refresh(self.now)
         self.assertEqual(len(restarted), 1)
@@ -848,25 +1075,34 @@ class PickerRowTests(unittest.TestCase):
 
         install_fake_pygame()
 
-    def test_no_button_today_the_row_is_the_choice(self) -> None:
+    def test_no_button_today_the_row_is_the_choice_and_the_level(self) -> None:
         from patch_browser.geometry import Rect
-        from patch_browser.touch_browser_fx_effect_modal import FX_EFFECT_ROW_SETTINGS_W, split_effect_row
+        from patch_browser.touch_browser_fx_effect_modal import (
+            FX_EFFECT_CHOICE_W,
+            FX_EFFECT_ROW_SETTINGS_W,
+            split_effect_row,
+        )
 
-        row = Rect(10, 20, 300, 48)
+        row = Rect(10, 20, 560, 52)
         self.assertEqual(FX_EFFECT_ROW_SETTINGS_W, 0)
-        self.assertEqual(split_effect_row(row), (row, None))
+        choice, level, settings = split_effect_row(row)
+        self.assertIsNone(settings)
+        self.assertEqual((choice.x, choice.w), (row.x, FX_EFFECT_CHOICE_W))
+        self.assertEqual(level.right, row.right)
+        self.assertLess(choice.right, level.x)
+        self.assertEqual((choice.y, choice.h, level.y, level.h), (row.y, row.h, row.y, row.h))
 
     def test_a_settings_width_splits_the_row(self) -> None:
         from patch_browser.geometry import Rect
         from patch_browser.touch_browser_fx_effect_modal import split_effect_row
 
-        row = Rect(10, 20, 300, 48)
-        choice, settings = split_effect_row(row, 48)
+        row = Rect(10, 20, 560, 52)
+        choice, level, settings = split_effect_row(row, 48)
         self.assertEqual(settings.w, 48)
         self.assertEqual(settings.right, row.right)
-        self.assertLess(choice.right, settings.x)
+        self.assertLess(choice.right, level.x)
+        self.assertLess(level.right, settings.x)
         self.assertEqual((choice.y, choice.h, settings.y, settings.h), (row.y, row.h, row.y, row.h))
-
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,0 +1,19 @@
+{
+  "factory:Bass/Sub Bass": {
+    "depth": 1.0,
+    "mask": 20
+  },
+  "factory:Keys/Bonita Keys": {
+    "depth": 0.5,
+    "mask": 3,
+    "target": "effect"
+  },
+  "factory:Leads/Saw Lead": {
+    "depth": 0.3,
+    "mask": 0
+  },
+  "factory:Pads/Glass Pad": {
+    "depth": 0.8,
+    "mask": 31
+  }
+}
