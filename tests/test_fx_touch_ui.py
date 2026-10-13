@@ -31,6 +31,7 @@ from patch_browser.touch_browser_app import TouchPatchBrowser  # noqa: E402
 from patch_browser.touch_ui_constants import (  # noqa: E402
     TAP_MOVE_THRESHOLD_PX,
     COMPACT_TOGGLE_W,
+    FADER_HANDLE_H,
     SETTINGS_TOGGLE_W,
     BROWSE_FILTER_W,
     BROWSE_OFFSET_HOME,
@@ -39,6 +40,10 @@ from patch_browser.touch_ui_constants import (  # noqa: E402
     LEFT_NAV_WIDTH,
 )
 from patch_browser.touch_ui_enums import Screen  # noqa: E402
+from patch_browser.touch_browser_fx_effect_modal import (  # noqa: E402
+    EFFECT_CARET_GAP_PX,
+    EFFECT_CARET_W,
+)
 
 SCREEN_W, SCREEN_H = 800, 480
 
@@ -734,11 +739,18 @@ class EffectPickerTests(_BrowserCase):
         self._measure(browser)
         column = self._effect_channel(browser).column_rect
         m = browser.main_rect
-        browser.main_rect = Rect(m.x, m.y, column.right + 2 - m.x, m.h)
+        # The edge exactly where Drive's caret ends: Drive fits with no pixel
+        # to spare, and one pixel less turns it into the count. The caret
+        # counts: the text alone would still fit.
+        drive = FADER_LABEL_PX_18["Drive"]
+        caret_right = column.x + (column.w - drive) // 2 + drive + EFFECT_CARET_GAP_PX + EFFECT_CARET_W
+        browser.main_rect = Rect(m.x, m.y, caret_right - m.x, m.h)
         self.policy.set_mask(T)
         self.assertEqual(self._effect_label(browser), "1 FX")
         self.policy.set_mask(D)
         self.assertEqual(self._effect_label(browser), "Drive")
+        browser.main_rect = Rect(m.x, m.y, caret_right - 1 - m.x, m.h)
+        self.assertEqual(self._effect_label(browser), "1 FX")
 
     def test_fader_label_on_the_screen_today(self) -> None:
         """What the measured budget comes to: one name with the nav open, two
@@ -1016,6 +1028,374 @@ class SettingsDefaultTests(_BrowserCase):
         browser._open_settings_panel()
         browser._settings_slide = 1.0
         browser._draw()
+
+
+class PatchModNoWheelTests(_BrowserCase):
+    """A patch with no mod-wheel routing greys out the Patch mod fader: it
+    shows 0, takes no touch, sends nothing, and the kept value survives."""
+
+    KEPT = 93
+
+    def _browser(self, *, fx_enabled: bool = True):
+        browser = self._make_browser(fx_enabled=fx_enabled)
+        browser.screen_state = Screen.BROWSER
+        browser.loader.send_patch_mod.side_effect = lambda value, final=True: self.policy.set_patch_mod(
+            value, final=final
+        )
+        self.plain, self.wheel = self.root / "plain.fxp", self.root / "wheel.fxp"
+        self.plain.write_bytes(b'hdr<patch><modrouting source="2"/></patch>')
+        self.wheel.write_bytes(b'hdr<patch><modrouting source="6"/></patch>')
+        # The kept value: Surge's mod wheel, set before the no-wheel load.
+        self.policy.set_patch_mod(self.KEPT, final=True)
+        browser.loader.send_patch_mod.reset_mock()
+        return browser
+
+    def _channel(self, browser):
+        return next(c for c in browser.mixer_channels if c.channel_id == "patch_mod")
+
+    def _control(self):
+        from patch_browser.mixer_controls import mixer_control_by_id
+
+        return mixer_control_by_id(None, "patch_mod")
+
+    def _draw_fader(self, browser):
+        """(rendered (text, colour) pairs, rect calls, line calls) for the Patch mod fader."""
+        import pygame
+
+        texts: list[tuple[str, tuple]] = []
+        real = browser.font_sm.render
+
+        def record(text, aa, color, *a, **kw):
+            texts.append((text, color))
+            return real(text, aa, color, *a, **kw)
+
+        with (
+            mock.patch.object(browser.font_sm, "render", side_effect=record),
+            mock.patch.object(pygame.draw, "rect") as rect,
+            mock.patch.object(pygame.draw, "line") as line,
+        ):
+            browser._draw_vertical_fader(self._channel(browser))
+        return texts, rect.call_args_list, line.call_args_list
+
+    def _locked_toggle_colours(self, browser) -> dict:
+        """What the greyed-out mod-knob switch is drawn with, the look to match."""
+        with mock.patch("patch_browser.touch_browser_normalization.draw_toggle_switch") as switch:
+            browser._draw_mod_wheel_row()
+        kw = switch.call_args.kwargs
+        self.assertTrue(kw["on"])  # locked: drawn in the Effect position
+        return {"track": kw["track_on"], "knob": kw["knob_color"], "border": kw["border_color"]}
+
+    def _touch(self, path, browser, pos, end=None) -> None:
+        import pygame
+
+        if path == "pygame":
+            browser._handle_event(pygame.event.Event(pygame.MOUSEBUTTONDOWN, {"pos": pos, "button": 1}))
+            if end is not None:
+                browser._handle_event(
+                    pygame.event.Event(pygame.MOUSEMOTION, {"pos": end, "rel": (0, 0), "buttons": (1, 0, 0)})
+                )
+            browser._handle_event(pygame.event.Event(pygame.MOUSEBUTTONUP, {"pos": end or pos, "button": 1}))
+        else:
+            browser._handle_evdev_browser_touch("down", pos)
+            if end is not None:
+                browser._handle_evdev_browser_touch("motion", end)
+            browser._handle_evdev_browser_touch("up", end or pos)
+
+    def test_no_wheel_greys_the_fader_and_shows_zero(self) -> None:
+        browser = self._browser()
+        self.policy.on_patch_loaded(self.plain)
+        channel = self._channel(browser)
+        self.assertFalse(browser._mixer_channel_enabled(channel))
+        self.assertEqual(self._control().read(browser), 0.0)
+        self.assertEqual(browser._value_to_handle_y(channel, browser._mixer_value(channel)),
+                         channel.track_rect.bottom - FADER_HANDLE_H)
+        texts, rects, lines = self._draw_fader(browser)
+        theme = browser.theme
+        self.assertIn(("0", theme.muted), texts)
+        self.assertIn(("Patch mod", theme.muted), texts)
+        self.assertNotIn(str(self.KEPT), [t for t, _c in texts])
+        # The same greys as the locked switch: its knob and border make the
+        # handle; the track is dimmed (a muted bar would read as full level).
+        look = self._locked_toggle_colours(browser)
+        colours = [c.args[1] for c in rects]
+        self.assertEqual(colours[0], theme.surface)  # the track, dimmed
+        self.assertNotEqual(colours[0], look["track"])
+        self.assertEqual(colours[1], look["knob"])  # the handle's fill
+        self.assertEqual(colours[2], look["border"])  # the handle's outline
+        self.assertNotIn(theme.accent, colours)
+        self.assertEqual(lines[-1].args[1], look["border"])  # the grip line
+
+    def test_wheel_patch_draws_as_before(self) -> None:
+        browser = self._browser()
+        self.policy.on_patch_loaded(self.wheel)
+        channel = self._channel(browser)
+        self.assertTrue(browser._mixer_channel_enabled(channel))
+        self.assertEqual(self._control().read(browser), float(self.KEPT))
+        texts, rects, lines = self._draw_fader(browser)
+        theme = browser.theme
+        self.assertIn((str(self.KEPT), theme.muted), texts)
+        self.assertIn(("Patch mod", theme.text), texts)
+        colours = [c.args[1] for c in rects]
+        self.assertEqual(colours[:3], [theme.surface_alt, theme.accent, theme.text])
+        self.assertEqual(lines[-1].args[1], theme.bg)
+
+    def test_touches_do_nothing_and_send_nothing(self) -> None:
+        for path in ("pygame", "evdev"):
+            with self.subTest(path=path):
+                browser = self._browser()
+                self.policy.on_patch_loaded(self.plain)
+                route = self.root / "fx-route.json"
+                before = route.read_bytes()
+                channel = self._channel(browser)
+                x = channel.column_rect.centerx
+                top, bottom = channel.track_rect.y, channel.track_rect.bottom
+                # Mid-gesture: a press takes nothing, not even a drag.
+                if path == "pygame":
+                    import pygame
+
+                    browser._handle_event(pygame.event.Event(pygame.MOUSEBUTTONDOWN, {"pos": (x, top), "button": 1}))
+                    browser._handle_event(pygame.event.Event(pygame.MOUSEBUTTONUP, {"pos": (x, top), "button": 1}))
+                    browser._handle_event(pygame.event.Event(pygame.MOUSEBUTTONDOWN, {"pos": (x, top), "button": 1}))
+                else:
+                    browser._handle_evdev_browser_touch("down", (x, top))
+                    browser._handle_evdev_browser_touch("up", (x, top))
+                    browser._handle_evdev_browser_touch("down", (x, top))
+                self.assertIsNone(browser._dragging_mixer_id)
+                self.assertIsNone(browser._mixer_last_tap_id)
+                self.assertFalse(self.policy.dragging_patch_mod)
+                if path == "pygame":
+                    browser._handle_event(pygame.event.Event(pygame.MOUSEBUTTONUP, {"pos": (x, top), "button": 1}))
+                else:
+                    browser._handle_evdev_browser_touch("up", (x, top))
+                with mock.patch.object(browser, "_toast") as toast:
+                    self._touch(path, browser, (x, top))  # a tap at the top
+                    self._touch(path, browser, (x, bottom - 1), end=(x, top))  # a drag up
+                    self._touch(path, browser, (x, top + 5))  # double-tap: no reset
+                    self._touch(path, browser, (x, top + 5))
+                    self._touch(path, browser, (x, bottom + 20))  # its label
+                toast.assert_not_called()
+                browser.loader.send_patch_mod.assert_not_called()
+                self.assertEqual(self.policy.patch_mod, self.KEPT)
+                self.assertFalse(self.policy.dragging_patch_mod)
+                self.assertIsNone(browser._dragging_mixer_id)
+                self.assertEqual(route.read_bytes(), before)
+                self.assertEqual(browser.screen_state, Screen.BROWSER)
+
+    def test_the_control_refuses_writes_and_resets_too(self) -> None:
+        """Below the touch layer: nothing reaches Surge however the control is called."""
+        browser = self._browser()
+        self.policy.on_patch_loaded(self.plain)
+        control = self._control()
+        with mock.patch.object(browser, "_toast") as toast:
+            control.write(browser, 40.0, persist=True)
+            control.reset(browser)
+            browser._reset_mixer_channel(self._channel(browser))
+            browser._set_mixer_value(self._channel(browser), 12.0)
+        toast.assert_not_called()
+        browser.loader.send_patch_mod.assert_not_called()
+        self.assertEqual(self.policy.patch_mod, self.KEPT)
+
+    def test_kept_value_comes_back_on_a_wheel_patch(self) -> None:
+        browser = self._browser()
+        self.policy.on_patch_loaded(self.plain)
+        self.assertEqual(self._control().read(browser), 0.0)
+        self.assertEqual(self.policy.patch_mod, self.KEPT)
+        self.policy.on_patch_loaded(self.wheel)
+        self.assertEqual(self._control().read(browser), float(self.KEPT))
+        channel = self._channel(browser)
+        x = channel.column_rect.centerx
+        self._touch("pygame", browser, (x, channel.track_rect.y))
+        browser.loader.send_patch_mod.assert_called()
+        self.assertEqual(self.policy.patch_mod, 127)
+
+    def test_unknown_patch_keeps_the_fader_live(self) -> None:
+        """Unreadable counts as using the wheel, as for the switch."""
+        browser = self._browser()
+        self.policy.on_patch_loaded(self.root / "missing.fxp")
+        self.assertIsNone(self.policy.uses_mod_wheel)
+        self.assertTrue(browser._mixer_channel_enabled(self._channel(browser)))
+        self.assertEqual(self._control().read(browser), float(self.KEPT))
+
+    def test_greyed_with_the_fx_host_off_too(self) -> None:
+        """The fader exists without the FX host and drives the same Surge wheel."""
+        browser = self._browser(fx_enabled=False)
+        self.policy.on_patch_loaded(self.plain)
+        self.assertFalse(browser._mixer_channel_enabled(self._channel(browser)))
+        self.assertEqual(self._control().read(browser), 0.0)
+
+    def test_the_knob_still_drives_the_effect(self) -> None:
+        browser = self._browser()
+        del browser
+        for target in (MOD_WHEEL_PATCH_FIRST, MOD_WHEEL_EFFECT):
+            with self.subTest(target=target):
+                self.policy.target = target
+                self.policy.on_patch_loaded(self.plain)
+                self.assertEqual(json.loads((self.root / "fx-route.json").read_text())["cc1"], CC1_TO_FX)
+
+    def test_follows_the_switch_lock_and_nothing_else(self) -> None:
+        """One authority: the fader asks `patch_mod_locked`, which is
+        `switch_locked`, whatever `uses_mod_wheel` says."""
+        browser = self._browser()
+        channel = self._channel(browser)
+        for uses in (True, False, None):
+            self.policy.uses_mod_wheel = uses
+            self.assertEqual(self.policy.patch_mod_locked, self.policy.switch_locked)
+            self.assertEqual(browser._mixer_channel_enabled(channel), uses is not False)
+        for locked in (True, False):
+            with mock.patch.object(FxPolicy, "switch_locked", new_callable=mock.PropertyMock, return_value=locked):
+                # What a second reading of the flag would say is the opposite.
+                self.policy.uses_mod_wheel = locked
+                self.assertIs(self.policy.patch_mod_locked, locked)
+                self.assertEqual(browser._mixer_channel_enabled(channel), not locked)
+
+    def test_no_second_detection_site(self) -> None:
+        """Only fx_policy reads a patch for mod-wheel routing or holds the flag."""
+        root = Path(__file__).resolve().parent.parent / "patch_browser"
+        for path in sorted(root.glob("*.py")):
+            if path.name == "fx_policy.py":
+                continue
+            text = path.read_text(encoding="utf-8")
+            for word in ("uses_mod_wheel", "patch_uses_mod_wheel", "modrouting", "MS_MODWHEEL"):
+                with self.subTest(file=path.name, word=word):
+                    self.assertNotIn(word, text)
+
+
+class PatchModResendTests(unittest.TestCase):
+    """After a load the kept value is resent to Surge, but never to a patch
+    whose fader is greyed out."""
+
+    def setUp(self) -> None:
+        from patch_browser.patch_loader import PatchLoader
+
+        self._dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self._dir.cleanup)
+        root = Path(self._dir.name)
+        self.policy = FxPolicy(enabled=True, route_path=root / "r.json", levels_path=root / "l.json")
+        self.loader = PatchLoader.__new__(PatchLoader)
+        self.loader.fx_policy = self.policy
+        self.loader.osc_enabled = True
+        self.loader.osc_client = mock.Mock()
+        self.plain, self.wheel = root / "plain.fxp", root / "wheel.fxp"
+        self.plain.write_bytes(b'hdr<patch><modrouting source="2"/></patch>')
+        self.wheel.write_bytes(b'hdr<patch><modrouting source="6"/></patch>')
+        self.policy.set_patch_mod(64)
+
+    def test_no_resend_to_a_no_wheel_patch(self) -> None:
+        self.policy.on_patch_loaded(self.plain)
+        self.loader._resend_patch_mod()
+        self.loader.osc_client.send_message.assert_not_called()
+        self.assertEqual(self.policy.patch_mod, 64)
+
+    def test_resend_to_a_wheel_patch_as_before(self) -> None:
+        self.policy.on_patch_loaded(self.plain)
+        self.loader._resend_patch_mod()
+        self.policy.on_patch_loaded(self.wheel)
+        self.loader._resend_patch_mod()
+        self.loader.osc_client.send_message.assert_called_once_with("/cc", [0.0, 1.0, 64.0])
+
+
+class EffectCaretTests(_BrowserCase):
+    """The up caret after the Effect fader's label: inside the tap target, in
+    the label's colour, and the longest label still fits with it."""
+
+    def _browser(self, *, collapsed: bool):
+        browser = self._make_browser(fx_enabled=True)
+        browser.screen_state = Screen.BROWSER
+        browser.left_nav_collapsed = collapsed
+        browser._layout()
+        self._measure(browser)
+        return browser
+
+    def _drawn_carets(self, browser) -> list:
+        import pygame
+
+        with mock.patch.object(pygame.draw, "polygon") as polygon:
+            browser._draw_mixer_strip()
+        return polygon.call_args_list
+
+    def _effect(self, browser):
+        return next(c for c in browser.mixer_channels if c.channel_id == "effect")
+
+    def test_one_caret_inside_the_tap_target_for_every_label(self) -> None:
+        for collapsed in (False, True):
+            browser = self._browser(collapsed=collapsed)
+            effect = self._effect(browser)
+            for mask in ALL_MASKS:
+                with self.subTest(collapsed=collapsed, mask=mask):
+                    self.policy.set_mask(mask)
+                    calls = self._drawn_carets(browser)
+                    self.assertEqual(len(calls), 1)
+                    points = calls[0].args[2]
+                    target = browser._effect_label_rect()
+                    for x, y in points:
+                        self.assertTrue(target.x <= x < target.right and target.y <= y < target.bottom, (x, y, target))
+                    # Right of the label's text, after the gap.
+                    text = FADER_LABEL_PX_18[browser._mixer_channel_label(effect)]
+                    text_right = effect.column_rect.x + (effect.column_rect.w - text) // 2 + text
+                    self.assertEqual(min(x for x, _ in points), text_right + EFFECT_CARET_GAP_PX)
+                    # Pointing up: the apex is the highest point, centred.
+                    apex = min(points, key=lambda p: p[1])
+                    xs = [x for x, _ in points]
+                    self.assertEqual(apex[0], min(xs) + EFFECT_CARET_W // 2)
+                    self.assertLess(apex[1], max(y for _, y in points))
+
+    def test_caret_is_the_label_colour(self) -> None:
+        browser = self._browser(collapsed=True)
+        self.policy.set_mask(D | C)
+        # The default theme's text and accent are one colour; part them.
+        with mock.patch("patch_browser.ui_theme.TEXT", (1, 2, 3)):
+            calls = self._drawn_carets(browser)
+        self.assertEqual(calls[0].args[1], (1, 2, 3))
+
+    def test_tapping_the_caret_opens_the_picker(self) -> None:
+        for collapsed in (False, True):
+            for mask in (T, D | C, C | D | P | T):
+                with self.subTest(collapsed=collapsed, mask=mask):
+                    browser = self._browser(collapsed=collapsed)
+                    self.policy.set_mask(mask)
+                    caret = browser._effect_caret_rect(self._effect(browser))
+                    self.assertTrue(_inside(caret, browser._effect_label_rect()))
+                    pos = _center(caret)
+                    import pygame
+
+                    browser._handle_event(pygame.event.Event(pygame.MOUSEBUTTONDOWN, {"pos": pos, "button": 1}))
+                    browser._handle_event(pygame.event.Event(pygame.MOUSEBUTTONUP, {"pos": pos, "button": 1}))
+                    self.assertEqual(browser.screen_state, Screen.FX_EFFECT_MODAL)
+
+    def test_longest_label_fits_with_the_caret(self) -> None:
+        """Every label the fader can show, both navs: text clears Patch mod's
+        label, the caret clears the pane edge, and the tap target stays in
+        the pane and off every other control."""
+        for collapsed in (False, True):
+            browser = self._browser(collapsed=collapsed)
+            effect = self._effect(browser)
+            pm = next(c for c in browser.mixer_channels if c.channel_id == "patch_mod")
+            pm_right = pm.column_rect.x + (pm.column_rect.w + FADER_LABEL_PX_18["Patch mod"]) // 2
+            widest = 0
+            for mask in ALL_MASKS:
+                with self.subTest(collapsed=collapsed, mask=mask):
+                    self.policy.set_mask(mask)
+                    label = browser._mixer_channel_label(effect)
+                    w = FADER_LABEL_PX_18[label]
+                    widest = max(widest, w)
+                    left = effect.column_rect.x + (effect.column_rect.w - w) // 2
+                    caret = browser._effect_caret_rect(effect)
+                    self.assertLess(pm_right, left)
+                    self.assertLessEqual(caret.right, browser.main_rect.right)
+                    target = browser._effect_label_rect()
+                    self.assertTrue(_inside(target, browser.main_rect), target)
+                    self.assertTrue(_inside(caret, target), (caret, target))
+                    for other in [browser.mod_wheel_switch_rect, browser.normalize_btn, browser.favorites_btn]:
+                        self.assertFalse(_overlaps(target, other), (target, other))
+                    for channel in browser.mixer_channels:
+                        if channel is not effect:
+                            self.assertFalse(_overlaps(target, channel.column_rect), channel.channel_id)
+            # The widest label each nav shows: Tremolo open, Drive+Flanger collapsed.
+            self.assertEqual(widest, FADER_LABEL_PX_18["Tremolo" if not collapsed else "Drive+Flanger"])
+
+    def test_no_caret_without_the_fx_host(self) -> None:
+        browser = self._make_browser(fx_enabled=False)
+        self.assertEqual(self._drawn_carets(browser), [])
 
 
 if __name__ == "__main__":

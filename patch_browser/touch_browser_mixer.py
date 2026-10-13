@@ -37,6 +37,14 @@ class TouchBrowserMixerMixin:
         control = self._mixer_control(channel.channel_id)
         return self._mixer_control_label(control) if control is not None else channel.label
 
+    def _mixer_channel_enabled(self, channel: MixerChannel) -> bool:
+        """Takes input now: the layout's flag, and the control's own say (Patch
+        mod is greyed out for a patch with no mod-wheel routing). Read per
+        touch and per frame, so a patch load needs no relayout."""
+        control = self._mixer_control(channel.channel_id)
+        enabled_for = getattr(control, "enabled", None)
+        return channel.enabled and (enabled_for is None or enabled_for(self))
+
     def _mixer_default_value(self, channel: MixerChannel) -> float:
         control = self._mixer_control(channel.channel_id)
         if control is not None:
@@ -66,7 +74,7 @@ class TouchBrowserMixerMixin:
         clamped = max(channel.min_value, min(channel.max_value, value))
         control = self._mixer_control(channel.channel_id)
         if control is not None:
-            if channel.enabled:
+            if self._mixer_channel_enabled(channel):
                 control.write(self, clamped, persist=persist)
             return
         self._mixer_levels[channel.channel_id] = clamped
@@ -100,6 +108,14 @@ class TouchBrowserMixerMixin:
         channel = self._mixer_channel_at(pos)
         if channel is None:
             return False
+        if not self._mixer_channel_enabled(channel):
+            # Greyed out: the touch is taken (nothing under it reacts) and
+            # does nothing, double-tap reset included.
+            self._mixer_last_tap_id = None
+            self._mixer_drag_origin = None
+            self._mixer_drag_moved = False
+            self._dragging_mixer_id = None
+            return True
 
         now = time.time()
         if (
@@ -120,7 +136,7 @@ class TouchBrowserMixerMixin:
         self._mixer_drag_origin = pos
         self._mixer_drag_moved = False
         self._dragging_mixer_id = channel.channel_id
-        if channel.enabled:
+        if self._mixer_channel_enabled(channel):
             self._set_mixer_value(channel, self._value_from_track_y(channel, pos[1]), persist=False)
         return True
 
@@ -134,7 +150,7 @@ class TouchBrowserMixerMixin:
         if not self._dragging_mixer_id:
             return
         for channel in self.mixer_channels:
-            if channel.channel_id == self._dragging_mixer_id and channel.enabled:
+            if channel.channel_id == self._dragging_mixer_id and self._mixer_channel_enabled(channel):
                 self._set_mixer_value(
                     channel,
                     self._value_from_track_y(channel, pos[1]),
