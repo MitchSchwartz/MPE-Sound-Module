@@ -852,6 +852,8 @@ class TouchBrowserInputMixin:
             elif self.screen_state == Screen.BROWSER:
                 if self._handle_az_rail_touch("down", event.pos):
                     pass
+                elif self._handle_jump_strip_touch("down", event.pos):
+                    pass
                 elif self.left_nav_mode != LeftNavMode.ALL_PATCHES:
                     self._handle_mixer_down(event.pos)
         elif event.type == pygame.MOUSEBUTTONUP and event.button == 1:
@@ -896,6 +898,8 @@ class TouchBrowserInputMixin:
             elif self.screen_state == Screen.BROWSER:
                 if self._handle_az_rail_touch("up", event.pos):
                     return
+                if self._handle_jump_strip_touch("up", event.pos):
+                    return
                 if self.screen_state != Screen.BROWSER:
                     return
                 idx = self.nav_list.take_tap_index()
@@ -905,6 +909,8 @@ class TouchBrowserInputMixin:
                     self._handle_browser_tap(event.pos)
         elif event.type == pygame.MOUSEMOTION:
             if self._handle_az_rail_touch("motion", event.pos):
+                pass
+            elif self._handle_jump_strip_touch("motion", event.pos):
                 pass
             elif self._picker_slider_channel and self.screen_state == Screen.THEME:
                 self._apply_picker_slider_channel(self._picker_slider_channel, event.pos)
