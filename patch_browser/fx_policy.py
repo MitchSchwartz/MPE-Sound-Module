@@ -63,6 +63,12 @@ is audible until an effect is switched on, which then plays at that depth. The
 switch reads "Mod knob → No FX" when it routes the knob to the effect, and
 it is still greyed out for a patch with no mod-wheel routing, as with any mask.
 
+**A patch with no mod-wheel routing** greys out both the switch
+(`switch_locked`) and the Patch mod fader (`patch_mod_locked`, the same test):
+the fader shows 0, takes no touch and sends Surge nothing, not even the resend
+after a load. The kept Patch mod value is not touched, so the next patch that
+routes the wheel gets it back.
+
 **Each patch remembers its setup** (`patch_fx.PatchFxStore`, a sidecar store
 like Hold and normalization): its mask, its one depth, and the mod-knob target.
 Effect state is entirely per patch: a patch with no entry, or a missing field,
@@ -629,6 +635,14 @@ class FxPolicy:
         (unreadable patch) is not locked: it counts as using the wheel, as in
         cc1_destination."""
         return self.uses_mod_wheel is False
+
+    @property
+    def patch_mod_locked(self) -> bool:
+        """The Patch mod fader has nothing to drive: the same patches as
+        `switch_locked`, decided there and nowhere else. The fader is greyed
+        out, shows 0 and sends nothing; `patch_mod`, the value kept across
+        loads, is left as it is for the next patch that routes the wheel."""
+        return self.switch_locked
 
     # -- the per-patch store ------------------------------------------------
 

@@ -328,6 +328,9 @@ class PatchModControl:
 
     Not persisted: it is a performance control, like the hardware wheel. The
     handle follows the knob while CC 1 goes to Surge (`FxPolicy.poll_levels`).
+
+    A patch with no mod-wheel routing (`FxPolicy.patch_mod_locked`) greys it
+    out: it reads 0 and takes no input. The kept value is only hidden.
     """
 
     spec = MixerControlSpec("patch_mod", PATCH_MOD_FADER_LABEL, 0.0, 127.0)
@@ -335,17 +338,26 @@ class PatchModControl:
     def visible(self, browser) -> bool:
         return bool(browser.detail_patch)
 
+    def enabled(self, browser) -> bool:
+        return not browser.fx_policy.patch_mod_locked
+
     def read(self, browser) -> float:
+        if not self.enabled(browser):
+            return 0.0
         return float(browser.fx_policy.patch_mod)
 
     def default(self, browser) -> float:
         return 0.0
 
     def write(self, browser, value: float, *, persist: bool) -> None:
+        if not self.enabled(browser):
+            return
         # The loader holds the same FxPolicy as browser.fx_policy.
         browser.loader.send_patch_mod(value, final=persist)
 
     def reset(self, browser) -> None:
+        if not self.enabled(browser):
+            return
         self.write(browser, 0.0, persist=True)
         browser._toast("Patch mod reset", 1.2)
 

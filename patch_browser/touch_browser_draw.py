@@ -18,7 +18,7 @@ from patch_browser.draw_primitives import (
 from patch_browser.fx_policy import MOD_WHEEL_EFFECT
 from patch_browser.peak_meter_math import peak_meter_color_dbfs
 from patch_browser.geometry import Rect
-from patch_browser.mixer import MixerChannel
+from patch_browser.mixer import FADER_NAME_DY, FADER_VALUE_DY, MixerChannel
 from patch_browser.patch_identity import (
     patch_browse_instrument_subtitle,
     patch_browse_subtitle,
@@ -350,8 +350,13 @@ class TouchBrowserDrawMixin:
         value = self._mixer_value(channel)
         handle_y = self._value_to_handle_y(channel, value)
         handle_x = channel.column_rect.x + (channel.column_rect.w - FADER_HANDLE_W) // 2
+        enabled = self._mixer_channel_enabled(channel)
 
-        track_color = self.theme.surface_alt if channel.enabled else self.theme.surface
+        # Greyed out as a locked toggle is (`_draw_normalize_toggle`, disabled):
+        # a hollow handle (surface fill, muted border) and muted text, on a
+        # dimmed track. Not the toggle's muted track: a muted bar the length
+        # of the fader reads as a full level, the opposite of 0.
+        track_color = self.theme.surface_alt if enabled else self.theme.surface
         pygame.draw.rect(self.screen, track_color, channel.track_rect.pygame_rect, border_radius=5)
 
         # Tick marks for mixing-board feel
@@ -365,31 +370,36 @@ class TouchBrowserDrawMixin:
                 1,
             )
 
-        handle_color = self.theme.accent if channel.enabled else self.theme.muted
+        handle_color = self.theme.accent if enabled else self.theme.surface
         handle_rect = pygame.Rect(handle_x, handle_y, FADER_HANDLE_W, FADER_HANDLE_H)
         pygame.draw.rect(self.screen, handle_color, handle_rect, border_radius=6)
-        pygame.draw.rect(self.screen, self.theme.text, handle_rect, width=1, border_radius=6)
+        pygame.draw.rect(
+            self.screen, self.theme.text if enabled else self.theme.muted, handle_rect, width=1, border_radius=6
+        )
         pygame.draw.line(
             self.screen,
-            self.theme.bg,
+            self.theme.bg if enabled else self.theme.muted,
             (handle_rect.x + 8, handle_rect.centery),
             (handle_rect.right - 8, handle_rect.centery),
             2,
         )
 
         control = self._mixer_control(channel.channel_id)
-        if channel.enabled and control is not None:
+        if control is not None:
             format_for = getattr(control, "format_for", None)
             value_label = format_for(self, value) if format_for else control.format(value)
         else:
             value_label = "—"
-        val_s = self.font_sm.render(value_label, True, self.theme.muted if channel.enabled else self.theme.muted)
+        val_s = self.font_sm.render(value_label, True, self.theme.muted)
         val_x = channel.column_rect.x + (channel.column_rect.w - val_s.get_width()) // 2
-        self.screen.blit(val_s, (val_x, channel.track_rect.bottom + 6))
+        self.screen.blit(val_s, (val_x, channel.track_rect.bottom + FADER_VALUE_DY))
 
-        label_s = self.font_sm.render(self._mixer_channel_label(channel), True, self.theme.text if channel.enabled else self.theme.muted)
+        label_color = self.theme.text if enabled else self.theme.muted
+        label_s = self.font_sm.render(self._mixer_channel_label(channel), True, label_color)
         label_x = channel.column_rect.x + (channel.column_rect.w - label_s.get_width()) // 2
-        self.screen.blit(label_s, (label_x, channel.track_rect.bottom + 24))
+        label_y = channel.track_rect.bottom + FADER_NAME_DY
+        self.screen.blit(label_s, (label_x, label_y))
+        self._draw_effect_caret(channel, label_color)
     def _draw_mixer_strip(self) -> None:
         for channel in self.mixer_channels:
             self._draw_vertical_fader(channel)

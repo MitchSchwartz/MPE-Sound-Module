@@ -283,10 +283,11 @@ class PatchLoader:
         nothing else re-sends it: switching patches moves neither fader, so the
         fader's value has to be what the new patch hears. Only with the FX
         host on (otherwise the knob reaches Surge directly and the fader does
-        not follow it) and only once the value is known.
+        not follow it), only once the value is known, and never to a patch
+        with no mod-wheel routing (`patch_mod_locked`: its fader sends nothing).
         """
         policy = self.fx_policy
-        if policy.enabled and policy.patch_mod_known:
+        if policy.enabled and policy.patch_mod_known and not policy.patch_mod_locked:
             self.send_patch_mod(policy.patch_mod, final=True)
 
     def refresh_hold(self, patch_name: str) -> bool:
