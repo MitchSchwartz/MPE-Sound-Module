@@ -1,6 +1,7 @@
 """Effect picker: which effects the FX chain plays, chosen on the play screen.
 
-A tap on the Effect fader's label opens it. Each effect is a checkbox row,
+A tap on the Effect fader's label opens it. A small up caret drawn right of the
+label's text (`_effect_caret_rect`, inside the tap target) says it can be tapped. Each effect is a checkbox row,
 listed in the order the chain runs them (`fx_host_protocol.CHAIN_ORDER`). A
 tap on a row switches that effect on or off and the panel stays open, so
 several can be set in one visit; Done or a tap on the backdrop closes it, as
@@ -28,6 +29,7 @@ import pygame
 
 from patch_browser import fx_host_protocol
 from patch_browser.geometry import Rect
+from patch_browser.mixer import FADER_NAME_DY
 from patch_browser.touch_ui_constants import SETTINGS_ROW_GAP, SETTINGS_ROW_H, TAP_MOVE_THRESHOLD_PX
 from patch_browser.touch_ui_enums import Screen
 
@@ -44,6 +46,14 @@ EFFECT_LABEL_TARGET_H = 44
 #: name, has exactly this with the nav open, so a larger gap would turn it into
 #: "1 FX".
 EFFECT_LABEL_GAP_PX = 1
+#: The up caret right of the label's text: this far after the text, this wide
+#: (odd, so the point is one pixel), this tall. Drawn with pygame primitives, not
+#: a glyph, so it does not depend on the font. The label's text stays centred on
+#: its column like every fader label; the caret hangs to its right, toward the
+#: pane edge, so it never narrows the room the names have on the Patch mod side.
+EFFECT_CARET_GAP_PX = 4
+EFFECT_CARET_W = 9
+EFFECT_CARET_H = 5
 #: The checkbox square in each picker row, and the space either side of it.
 FX_EFFECT_CHECK_PX = 24
 FX_EFFECT_CHECK_PAD = 12
@@ -71,17 +81,46 @@ def split_effect_row(row: Rect, settings_w: int | None = None) -> tuple[Rect, Re
 class TouchBrowserFxEffectModalMixin:
     """Mixin — expects TouchPatchBrowser host attributes."""
 
+    def _effect_channel(self):
+        for channel in getattr(self, "mixer_channels", ()):
+            if channel.channel_id == EFFECT_CHANNEL_ID:
+                return channel
+        return None
+
     def _effect_label_rect(self) -> Rect:
         """The Effect fader's label, the picker's tap target. Empty when no fader.
 
-        The strip under the track (value and name lines), the column's width.
+        The strip under the track (value and name lines), the column's width,
+        widened to the right when the caret reaches past the column.
         """
-        for channel in getattr(self, "mixer_channels", ()):
-            if channel.channel_id == EFFECT_CHANNEL_ID:
-                column, track = channel.column_rect, channel.track_rect
-                top = track.bottom + EFFECT_LABEL_TRACK_CLEARANCE
-                return Rect(column.x, top, column.w, EFFECT_LABEL_TARGET_H)
-        return Rect(0, 0, 0, 0)
+        channel = self._effect_channel()
+        if channel is None:
+            return Rect(0, 0, 0, 0)
+        column, track = channel.column_rect, channel.track_rect
+        top = track.bottom + EFFECT_LABEL_TRACK_CLEARANCE
+        right = max(column.right, self._effect_caret_rect(channel).right)
+        return Rect(column.x, top, right - column.x, EFFECT_LABEL_TARGET_H)
+
+    def _effect_caret_rect(self, channel) -> Rect:
+        """Where the caret goes: after the label's text (centred on the column,
+        as `_draw_vertical_fader` draws it), centred on the name line."""
+        column = channel.column_rect
+        text_w = self._text_px(self.font_sm, self._mixer_channel_label(channel))
+        x = column.x + (column.w - text_w) // 2 + text_w + EFFECT_CARET_GAP_PX
+        mid_y = channel.track_rect.bottom + FADER_NAME_DY + self.font_sm.get_linesize() // 2
+        return Rect(x, mid_y - EFFECT_CARET_H // 2, EFFECT_CARET_W, EFFECT_CARET_H)
+
+    def _draw_effect_caret(self, channel, color) -> None:
+        """The up caret after the Effect fader's label, in the label's colour.
+        Every other fader draws nothing here."""
+        if channel.channel_id != EFFECT_CHANNEL_ID:
+            return
+        caret = self._effect_caret_rect(channel)
+        pygame.draw.polygon(
+            self.screen,
+            color,
+            [(caret.x, caret.bottom - 1), (caret.x + caret.w // 2, caret.y), (caret.right - 1, caret.bottom - 1)],
+        )
 
     def _effect_label_hit(self, pos: tuple[int, int]) -> bool:
         policy = getattr(self, "fx_policy", None)
@@ -117,8 +156,8 @@ class TouchBrowserFxEffectModalMixin:
     def _effect_fader_label(self) -> str:
         """The enabled effects' names if they fit under the Effect fader, else
         the count. Centred on its column like every fader label, it must clear
-        the label to its left (Patch mod, wider than its column) and the pane's
-        right edge."""
+        the label to its left (Patch mod, wider than its column), and its caret
+        the pane's right edge."""
         channels = list(getattr(self, "mixer_channels", ()))
         index = next((i for i, c in enumerate(channels) if c.channel_id == EFFECT_CHANNEL_ID), None)
         if index is None:
@@ -134,7 +173,8 @@ class TouchBrowserFxEffectModalMixin:
         def fits(text: str) -> bool:
             width = self._text_px(self.font_sm, text)
             left = column.x + (column.w - width) // 2
-            return left >= left_limit and left + width <= self.main_rect.right
+            caret_right = left + width + EFFECT_CARET_GAP_PX + EFFECT_CARET_W
+            return left >= left_limit and caret_right <= self.main_rect.right
 
         return self.fx_policy.chain_label(fits)
 

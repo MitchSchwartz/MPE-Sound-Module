@@ -6,6 +6,12 @@ from dataclasses import dataclass
 
 from patch_browser.geometry import Rect
 
+#: Under each fader's track: the value line starts this far below it...
+FADER_VALUE_DY = 6
+#: ...and the name line this far. The draw and the Effect label's caret
+#: (`touch_browser_fx_effect_modal`) both place text from these.
+FADER_NAME_DY = 24
+
 
 @dataclass
 class MixerChannel:
