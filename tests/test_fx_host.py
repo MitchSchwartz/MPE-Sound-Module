@@ -3,20 +3,36 @@
 Its wiring is tested where every client's is: tests/test_audio_routing.py runs
 mpe-fx-host.c against a fake JACK and checks it against the routing authority.
 
-The DSP checks live in C (`native/mpe-fx-host/fx_selftest.c`) and run here
-through `make selftest` whenever a C compiler is present. Without one they are
-SKIPPED, loudly — a skipped self-test is not a passed one, and the skip reason
-says so.
+The DSP checks live in C (`native/mpe-fx-host/fx_selftest.c`), built here by
+`make selftest-bin` whenever a C compiler is present and run with one worker
+per core. They are SKIPPED, loudly, and the skip reason says which case:
+
+- no C compiler: nothing is verified on this machine;
+- FX_SELFTEST_SKIP=1 (CI's unittest job): CI's fx-selftest job runs them,
+  only when the FX code changes;
+- the self-test's inputs (its C sources, its Makefile, the compiler, its
+  environment switches) hash to a run that already passed on this machine.
+  The pass is recorded under ~/.cache/mpe-fx-selftest/, written only on a
+  pass. FX_SELFTEST_FORCE=1 runs it anyway.
+
+A skipped self-test is not a passed one. The wire-format tests below use the
+built binary's parser and need only the compile, so they run every time.
+
+FX_SELFTEST_SERIAL=1 also runs the self-test serially (one worker) beside the
+parallel run and requires the two to print the same bytes, numbers included.
+CI's fx-selftest job sets it.
 """
 
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -29,40 +45,137 @@ C_DSP = NATIVE / "fx_dsp.c"
 UNIT = REPO_ROOT / "config" / "mpe-fx-host.service"
 START = REPO_ROOT / "scripts" / "start-mpe-fx-host.sh"
 
+#: What `make selftest-bin` compiles, and so all the self-test's result can
+#: depend on besides the compiler. Not the client (mpe-fx-host.c) and not the
+#: Python protocol: the self-test never reads either. Its own switches are in
+#: the key too (_SELFTEST_ENV).
+SELFTEST_INPUTS = ("fx_dsp.c", "fx_dsp.h", "fx_selftest.c", "Makefile")
+_SELFTEST_ENV = ("CC", "CFLAGS", "LDFLAGS", "FX_SELFTEST_FULL")
+
 
 def _compiler() -> str | None:
     return shutil.which(os.environ.get("CC", "cc")) or shutil.which("gcc")
 
 
-_SELFTEST_DIR: tempfile.TemporaryDirectory | None = None
-_SELFTEST_BIN: Path | None = None
-_SELFTEST_RUN: subprocess.CompletedProcess | None = None
+def _flag(name: str) -> bool:
+    return os.environ.get(name, "") == "1"
 
 
-def _selftest() -> tuple[Path, subprocess.CompletedProcess]:
-    """Build (once per run, into a temp dir — never the tree) and run it."""
-    global _SELFTEST_DIR, _SELFTEST_BIN, _SELFTEST_RUN
-    if _SELFTEST_RUN is None:
-        _SELFTEST_DIR = tempfile.TemporaryDirectory()
-        _SELFTEST_BIN = Path(_SELFTEST_DIR.name) / "fx-selftest"
-        _SELFTEST_RUN = subprocess.run(
-            ["make", "-s", "-C", str(NATIVE), "selftest", f"SELFTEST_BIN={_SELFTEST_BIN}"],
-            capture_output=True, text=True, timeout=600,
+def selftest_cache_dir() -> Path:
+    base = os.environ.get("XDG_CACHE_HOME") or str(Path.home() / ".cache")
+    return Path(base) / "mpe-fx-selftest"
+
+
+def selftest_key(native: Path = NATIVE) -> str:
+    """A content hash of everything the self-test's result depends on."""
+    h = hashlib.sha256()
+    for name in SELFTEST_INPUTS:
+        h.update(name.encode() + b"\0" + (native / name).read_bytes() + b"\0")
+    cc = os.environ.get("CC", "cc")
+    try:
+        version = subprocess.run([cc, "--version"], capture_output=True, text=True,
+                                 timeout=30).stdout
+    except OSError:
+        version = "no compiler"
+    h.update(version.encode() + b"\0")
+    for name in _SELFTEST_ENV:
+        h.update(f"{name}={os.environ.get(name, '')}".encode() + b"\0")
+    return h.hexdigest()
+
+
+def _passed_marker(key: str) -> Path:
+    return selftest_cache_dir() / f"passed-{key}"
+
+
+_BUILD_DIR: tempfile.TemporaryDirectory | None = None
+_BUILD: tuple[Path, subprocess.CompletedProcess] | None = None
+_RUNS: tuple[subprocess.CompletedProcess, subprocess.CompletedProcess | None] | None = None
+
+
+def _selftest_binary() -> tuple[Path, subprocess.CompletedProcess]:
+    """Build (once per run, into a temp dir, never the tree); do not run."""
+    global _BUILD_DIR, _BUILD
+    if _BUILD is None:
+        _BUILD_DIR = tempfile.TemporaryDirectory()
+        binary = Path(_BUILD_DIR.name) / "fx-selftest"
+        _BUILD = binary, subprocess.run(
+            ["make", "-s", "-C", str(NATIVE), "selftest-bin", f"SELFTEST_BIN={binary}"],
+            capture_output=True, text=True, timeout=300,
         )
-    return _SELFTEST_BIN, _SELFTEST_RUN
+    return _BUILD
+
+
+def _selftest_env(jobs: str | None) -> dict[str, str]:
+    env = {k: v for k, v in os.environ.items()
+           if k not in ("FX_SELFTEST_JOBS", "FX_SELFTEST_TIMES")}
+    if jobs is not None:
+        env["FX_SELFTEST_JOBS"] = jobs
+    return env
+
+
+def _selftest_runs() -> tuple[subprocess.CompletedProcess, subprocess.CompletedProcess | None]:
+    """Run every check, `-v`, one worker per core; with FX_SELFTEST_SERIAL=1,
+    the serial run (one worker) at the same time. Records the pass."""
+    global _RUNS
+    if _RUNS is not None:
+        return _RUNS
+    binary, build = _selftest_binary()
+    if build.returncode != 0:
+        _RUNS = build, None
+        return _RUNS
+    key = selftest_key()
+    started = time.monotonic()
+    serial = None
+    if _flag("FX_SELFTEST_SERIAL"):
+        serial = subprocess.Popen([str(binary), "-v"], env=_selftest_env("1"), text=True,
+                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    parallel = subprocess.run([str(binary), "-v"], env=_selftest_env(None), capture_output=True,
+                              text=True, timeout=900)
+    serial_run = None
+    if serial is not None:
+        out, err = serial.communicate(timeout=1800)
+        serial_run = subprocess.CompletedProcess(serial.args, serial.returncode, out, err)
+    passed = parallel.returncode == 0 and "fx-selftest: all checks passed" in parallel.stdout
+    if serial_run is not None:
+        passed = passed and (serial_run.stdout, serial_run.stderr) == (parallel.stdout, parallel.stderr)
+    if passed:
+        marker = _passed_marker(key)
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        marker.write_text(f"passed {time.strftime('%Y-%m-%dT%H:%M:%S')} "
+                          f"in {time.monotonic() - started:.1f} s\n")
+    _RUNS = parallel, serial_run
+    return _RUNS
 
 
 def tearDownModule() -> None:
-    if _SELFTEST_DIR is not None:
-        _SELFTEST_DIR.cleanup()
+    if _BUILD_DIR is not None:
+        _BUILD_DIR.cleanup()
+
+
+def _skip(case: unittest.TestCase, msg: str) -> None:
+    print(f"\nSKIP: {msg}", file=sys.stderr)
+    case.skipTest(msg)
 
 
 def _need_compiler(case: unittest.TestCase) -> None:
     if _compiler() is None or shutil.which("make") is None:
-        msg = ("NO C COMPILER — mpe-fx-host DSP self-test NOT RUN. Depth-0 identity, "
-               "output bound, click-free depth/swap are unverified on this machine.")
-        print(f"\nSKIP: {msg}", file=sys.stderr)
-        case.skipTest(msg)
+        _skip(case, "NO C COMPILER — mpe-fx-host DSP self-test NOT RUN. Depth-0 identity, "
+                    "output bound, click-free depth/swap are unverified on this machine.")
+
+
+def _need_selftest_run(case: unittest.TestCase) -> None:
+    """Skip, visibly and with the reason, when the DSP checks are not to run."""
+    _need_compiler(case)
+    if _flag("FX_SELFTEST_SKIP"):
+        _skip(case, "FX_SELFTEST_SKIP=1: mpe-fx-host DSP self-test NOT RUN here (CI runs it in "
+                    "its fx-selftest job when the FX code changes).")
+    if _flag("FX_SELFTEST_FORCE") or _RUNS is not None:
+        return
+    key = selftest_key()
+    if _passed_marker(key).exists():
+        _skip(case, f"mpe-fx-host DSP self-test NOT RUN: its inputs are unchanged since a run "
+                    f"that passed on this machine ({_passed_marker(key)}). "
+                    f"FX_SELFTEST_FORCE=1 runs it.")
 
 
 class DspSelfTest(unittest.TestCase):
@@ -73,14 +186,122 @@ class DspSelfTest(unittest.TestCase):
         keys signal it never falls more than 1 dB below it (phaser 1.3 dB, the
         tremolo: below its computed level); the chorus and phaser are their
         #149 mix times a static gain; the chain runs drive, phaser, chorus,
-        tremolo; no NaN or denormal blowup over two minutes; depth steps,
-        toggles and re-entry after bypass are click-free; the drive's
+        tremolo; no NaN or denormal blowup over 30 s (feedback: 115 s); depth
+        steps, toggles and re-entry after bypass are click-free; the drive's
         oversampling holds aliasing down — each against a deliberately broken
         run that must fail the same check."""
-        _need_compiler(self)
-        _, run = _selftest()
+        _need_selftest_run(self)
+        run, _serial = _selftest_runs()
         self.assertEqual(run.returncode, 0, f"{run.stdout}\n{run.stderr}")
-        self.assertIn("all checks passed", run.stdout)
+        self.assertIn("fx-selftest: all checks passed", run.stdout)
+
+    def test_serial_and_parallel_print_the_same(self):
+        """Every check in its own worker, one at a time or one per core: the
+        same verbose output, byte for byte, numbers included."""
+        _need_selftest_run(self)
+        if not _flag("FX_SELFTEST_SERIAL"):
+            _skip(self, "FX_SELFTEST_SERIAL is not 1: the serial run (about 2.5 min) is NOT "
+                        "compared with the parallel one here; CI's fx-selftest job compares them.")
+        parallel, serial = _selftest_runs()
+        self.assertIsNotNone(serial, parallel.stderr)
+        self.assertEqual(serial.returncode, parallel.returncode, serial.stderr)
+        self.assertIn("fx-selftest: all checks passed", serial.stdout)
+        self.assertEqual(serial.stdout, parallel.stdout)
+        self.assertEqual(serial.stderr, parallel.stderr)
+
+
+class Runner(unittest.TestCase):
+    """The self-test's runner is its failure channel: each check runs in a
+    worker, and a failure reaches the exit code only through it. Its own
+    controls, through the built binary, every run (they take under a second)."""
+
+    def _check(self, mode: str, jobs: str = "4") -> subprocess.CompletedProcess:
+        _need_compiler(self)
+        binary, build = _selftest_binary()
+        self.assertEqual(build.returncode, 0, build.stderr)
+        return subprocess.run([str(binary), "--runner-check", mode], env=_selftest_env(jobs),
+                              capture_output=True, text=True, timeout=60)
+
+    def test_output_is_in_case_order_and_the_fold_sees_every_part(self):
+        """Later cases finish first; with one worker or several, the output is
+        in case order and the fold sums every part (1 + ... + 12)."""
+        want = "".join(f"case {i}\n" for i in range(12)) + "fold 78\nfx-selftest: all checks passed\n"
+        for jobs in ("1", "4"):
+            with self.subTest(jobs=jobs):
+                run = self._check("order", jobs)
+                self.assertEqual(run.returncode, 0, run.stderr)
+                self.assertEqual(run.stdout, want)
+
+    def test_a_failed_check_in_a_worker_fails_the_run(self):
+        run = self._check("fail")
+        self.assertEqual(run.returncode, 1)
+        self.assertEqual(run.stdout, "ran 0\nran 1\nran 2\n")
+        self.assertEqual(run.stderr.count("deliberate failure (runner control)"), 2)
+        self.assertIn("fx-selftest: 2 check(s) failed", run.stderr)
+
+    def test_a_worker_that_dies_fails_the_run(self):
+        run = self._check("crash")
+        self.assertEqual(run.returncode, 1)
+        self.assertIn("FAIL crash: worker killed by signal", run.stderr)
+        self.assertIn("ran 2", run.stdout)
+        self.assertIn("fx-selftest: 1 check(s) failed", run.stderr)
+
+    def test_jobs_must_be_a_positive_whole_number(self):
+        for bad in ("0", "-2", "x", "1.5"):
+            with self.subTest(jobs=bad):
+                run = self._check("order", bad)
+                self.assertEqual(run.returncode, 2)
+                self.assertIn("FX_SELFTEST_JOBS", run.stderr)
+
+
+class SelfTestCache(unittest.TestCase):
+    """The skip is keyed on content, so any change to what the self-test
+    builds from makes it run again."""
+
+    def _copy(self) -> Path:
+        tmp = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        for name in SELFTEST_INPUTS:
+            shutil.copy(NATIVE / name, tmp / name)
+        return tmp
+
+    def test_every_input_changes_the_key(self):
+        tmp = self._copy()
+        base = selftest_key(tmp)
+        self.assertEqual(selftest_key(tmp), base)
+        for name in SELFTEST_INPUTS:
+            with self.subTest(file=name):
+                original = (tmp / name).read_bytes()
+                (tmp / name).write_bytes(original + b"\n")
+                self.assertNotEqual(selftest_key(tmp), base)
+                (tmp / name).write_bytes(original)
+        self.assertEqual(selftest_key(tmp), base)
+
+    def test_the_switches_change_the_key(self):
+        tmp = self._copy()
+        base = selftest_key(tmp)
+        for name in _SELFTEST_ENV:
+            with self.subTest(var=name):
+                old = os.environ.get(name)
+                os.environ[name] = "1" if name == "FX_SELFTEST_FULL" else (old or "") + " x"
+                try:
+                    self.assertNotEqual(selftest_key(tmp), base)
+                finally:
+                    if old is None:
+                        os.environ.pop(name, None)
+                    else:
+                        os.environ[name] = old
+
+    def test_the_inputs_are_what_the_makefile_compiles(self):
+        """A source the self-test build gains must join the key."""
+        rule = re.search(r"^selftest-bin:.*?\n\t(.*?)\n", (NATIVE / "Makefile").read_text(), re.S | re.M)
+        self.assertIsNotNone(rule, "no selftest-bin rule in the Makefile")
+        compiled = set(re.findall(r"\b([\w-]+\.c)\b", rule.group(1)))
+        self.assertEqual(compiled, {"fx_selftest.c", "fx_dsp.c"})
+        self.assertLessEqual(compiled, set(SELFTEST_INPUTS))
+        for source in compiled:
+            for header in re.findall(r'#include "([^"]+)"', (NATIVE / source).read_text()):
+                with self.subTest(source=source, header=header):
+                    self.assertIn(header, SELFTEST_INPUTS)
 
 
 class WireFormat(unittest.TestCase):
@@ -253,8 +474,8 @@ class WireFormat(unittest.TestCase):
     def test_every_encoding_round_trips_through_the_real_parser(self):
         """Both sides of one protocol, the C side executed, not read."""
         _need_compiler(self)
-        binary, run = _selftest()
-        self.assertTrue(binary.exists(), run.stderr)
+        binary, build = _selftest_binary()
+        self.assertEqual(build.returncode, 0, build.stderr)
         ones = " ".join(["1.000000"] * proto.MAX_LEVELS)
 
         cases: list[tuple[str, str]] = []
@@ -286,7 +507,8 @@ class WireFormat(unittest.TestCase):
         rest at 1.0; one with more (a future sixth effect) still parses, up to
         the client's FX_MAX_EFFECTS slots; past that it is refused."""
         _need_compiler(self)
-        binary, _run = _selftest()
+        binary, build = _selftest_binary()
+        self.assertEqual(build.returncode, 0, build.stderr)
         pad = lambda n: " ".join(["1.000000"] * n)  # noqa: E731
         cases = [
             ("chainl 5 0.5", f"ok 5 0.500000 {pad(8)}"),
@@ -308,7 +530,8 @@ class WireFormat(unittest.TestCase):
         mask naming an effect the build lacks, e.g. 32, parses; the client
         refuses it against its table.)"""
         _need_compiler(self)
-        binary, _run = _selftest()
+        binary, build = _selftest_binary()
+        self.assertEqual(build.returncode, 0, build.stderr)
         junk = ["gain 0.5", "fx", "fx 0", "fx 0 nan", "fx 0 inf", "fx -1 0.5",
                 "fx 0x1 0.5", "fx 0 0.5 extra", "fx0 0.5", "fx 1e3 0.5", "fx 8 0.5", "",
                 "chain", "chain 5", "chain -1 0.5", "chain 0x5 0.5", "chain 5 nan",
