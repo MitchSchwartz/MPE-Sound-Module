@@ -31,12 +31,15 @@
  *
  * Safety properties, the live monitor's plus one:
  *
- *   1. **It cannot make the trunk louder.** Depth mixes toward the wet signal,
- *      never on top of it, and every effect's wet signal is held to its input's
- *      level (each says how in fx_dsp.c; fx_selftest.c measures it at every
- *      knob position). What a mix loses, a static gain per knob position
- *      gives back short of the input's level (fx_dsp.h, "Level curve"), and
- *      the chain of enabled effects is held to the same bound. Every output
+ *   1. **It makes the trunk at most FX_MAKEUP_DB (1 dB) louder, scaled by
+ *      depth.** Depth mixes toward the wet signal, never on top of it, and
+ *      every effect's wet signal is held to its input's level (each says how
+ *      in fx_dsp.c; fx_selftest.c measures it at every knob position). What a
+ *      mix loses, a static gain per knob position gives back short of the
+ *      input's level (fx_dsp.h, "Level curve"), and the chain of enabled
+ *      effects is held to the same bound. The chain then ends in one static
+ *      makeup gain, +1 dB times the loudest stage's depth, once per chain
+ *      however many effects are on (fx_dsp.h, "Makeup"). Every output
  *      sample is clamped to ±1.0 and NaN becomes silence. Depth 0 or no effect
  *      enabled — the startup state — is the input, bit for bit.
  *
