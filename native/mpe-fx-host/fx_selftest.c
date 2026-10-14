@@ -22,9 +22,19 @@
  *                               mixes' own loss, as #149 had it)
  *   fx-selftest --measure-no-makeup    the same without the chain's makeup
  *                               (the levels as they were before it)
+ *   fx-selftest --unity-raw K DEPTH   effect K alone at DEPTH, no level
+ *                               curve, no makeup: the raw loss on each level
+ *                               signal, what the level fits are fitted to
+ *   fx-selftest --unity MASK DEPTH    the chain MASK at DEPTH as shipped: each
+ *                               signal in dB re the input x makeup, the worst
+ *                               peak over the input, and the keys at -9 dBFS
+ *                               (device mode): peak dBFS and clamped samples
+ *   fx-selftest --tremolo-shape one cycle of the tremolo's gain, before (the
+ *                               rounded triangle) and after (the sine with a
+ *                               floor), and their worst per-sample slopes
  *   fx-selftest --bench         ns per stereo frame for each effect, and for
- *                               the engine with each alone and all five on,
- *                               and all five at mixed levels, settled and
+ *                               the engine with each alone and all seven on,
+ *                               and all seven at mixed levels, settled and
  *                               moving every period
  *
  * The discontinuity checks each carry a control: the same run with the
@@ -65,6 +75,12 @@ static int g_verbose;
  * at 28.8 s its growth reading of the phaser runaway fell from +1.6 dB to
  * +0.0 dB, so that criterion no longer saw its control. */
 static int g_full;
+/* Set while a chain sweep of a mask with the rotary or the auto-wah runs:
+ * one keys loop (2.4 s) and at most 2.5 s of the others. Those masks are
+ * swept for an old stage's curve meeting a reshaped spectrum, not for a slow
+ * sweep's worst phase, which the old masks' long windows already catch
+ * (chain_level_part). */
+static int g_short_windows;
 #define LONG_RUN_S (g_full ? 120.0f : 30.0f)
 #define FEEDBACK_WINDOWS 12   /* of 9.6 s: 115.2 s */
 
@@ -120,7 +136,7 @@ static fx_effect_desc g_two[2];
 static void build_two(void)
 {
     g_two[0] = FX_EFFECTS[0];
-    g_two[1] = (fx_effect_desc){ "flip", 0.5f, 1.0f, 0.0f, 0.0f, 1, flip_init, flip_process, NULL };
+    g_two[1] = (fx_effect_desc){ "flip", 0.5f, 1.0f, { 0.0f, 0.0f, 0.0f, 0.0f }, 1, flip_init, flip_process, NULL };
 }
 
 #define BIT(k) (1u << (k))
@@ -456,7 +472,8 @@ static void test_rate_limits(void)
 }
 
 /* ========================================================================= */
-/* The starter pack: drive (1), phaser (2), tremolo (3); flanger (4)          */
+/* The starter pack: drive (1), phaser (2), tremolo (3); flanger (4);         */
+/* rotary (5), auto-wah (6)                                                   */
 /* ========================================================================= */
 /*
  * The same battery as the chorus, per effect, each check paired with a
@@ -465,14 +482,29 @@ static void test_rate_limits(void)
  * descriptor (feed removed, wet made 0.5 dB hotter).
  */
 
-#define N_FX 5
-static const char *const FX_LABEL[N_FX] = { "chorus", "drive", "phaser", "tremolo", "flanger" };
+#define N_FX 7
+static const char *const FX_LABEL[N_FX] = { "chorus", "drive", "phaser", "tremolo", "flanger",
+                                            "rotary", "auto-wah" };
 #define FX_I_FLANGER 4
+#define FX_I_ROTARY 5
+#define FX_I_WAH 6
 
-/* The effects with a static level curve (fx_dsp.h): the mixes. */
+/* Every effect has a static level curve (fx_dsp.h, 2026-10-13). This picks
+ * the ones whose curve at half depth is far enough from 0 dB (0.4 dB and up)
+ * to serve as the NaN-recovery control in test_pack_clamp: all but the
+ * drive, whose curve stays within 0.1 dB of it. */
 static int has_level_curve(int k)
 {
-    return k == 0 || k == 2 || k == FX_I_FLANGER;
+    return k != 1;
+}
+
+static int popcount(uint32_t m)
+{
+    int n = 0;
+    for (; m != 0; m &= m - 1) {
+        n++;
+    }
+    return n;
 }
 
 /* The shipped table with entry `k` replaced. */
@@ -536,7 +568,7 @@ static void leaky_feed(void *s, const float *const in[FX_CHANNELS], uint32_t n)
 {
     leaky_run(s, in, NULL, n);
 }
-static const fx_effect_desc LEAKY = { "leaky", 1.0f, 1.0f, 0.0f, 0.0f, sizeof(leaky_state),
+static const fx_effect_desc LEAKY = { "leaky", 1.0f, 1.0f, { 0.0f, 0.0f, 0.0f, 0.0f }, sizeof(leaky_state),
                                       leaky_init, leaky_process, leaky_feed };
 
 /* The chorus long run's control (test_long_run_stays_clean): the leaky effect
@@ -686,16 +718,33 @@ static void test_pack_bypass_identity(int k)
 
 /* --- 2. level bound ------------------------------------------------------ */
 
-/* Fixed margin on the RMS bound: 0.1 dB. */
-#define RMS_MARGIN 1.0116f
-/* The lower bound: -1 dB. The phaser's is -1.3 dB. Round 4's four-stage
- * phaser could not reach -1 dB on keys without white noise and an 80 Hz tone
- * going over their input. Round 5's alone could (-0.93 dB at worst), but in
- * series with the flanger the two curves stack: phaser + flanger at full
- * measured keys +0.28 dB over its input. The upper bound wins, so the
- * phaser's curve is held lower (see PHASER_LEVEL_SCALE in fx_dsp.c). */
-#define RMS_FLOOR 0.8913f
-#define RMS_FLOOR_PHASER 0.8610f
+/* Unity (2026-10-13): with at least one effect on, the output is the dry
+ * signal times the chain's makeup G(m), on the keys. Every reading below is
+ * out / (in x G(m)) in dB.
+ *
+ * One effect alone, any knob position: within UNITY_TOL_DB. The level fits
+ * (fx_dsp.c) measured -0.07..+0.10 dB at 32 depths per effect, full
+ * windows; 0.3 leaves the 0.5 dB controls (level curve hot, cold) outside.
+ *
+ * A chain of two or more, at 50 and 100 %, and the level vectors: CHAIN_LO_DB
+ * ..CHAIN_HI_DB. The stages' interactions do not cancel: all 120 multi-stage
+ * masks at full measured -0.39..+1.11 dB (phaser and flanger together, which
+ * stack their combs, are the top 4; without that pair, -0.39..+0.59), at 50 %
+ * -0.26..+0.56. No per-mask correction: a pairwise model of the
+ * interactions fitted the pairs and made the 3..7-stage masks worse (residual
+ * -1.6..+0.3 dB), and a 127-entry table per depth is a parameter per mask
+ * nobody could hear the difference between. The bounds are the self-test's
+ * own readings (shorter windows) with 0.3 dB of margin.
+ *
+ * Any signal, any mask, any knob position: at most CEIL_DB. Unity holds on
+ * the keys only: a narrow tone through a resonance can sit above them (the
+ * auto-wah's 3 kHz tone at full, +2.0 dB; the rotary's 80 Hz tone in its
+ * fade-in, +2.5 dB). The ceiling is the runaway check: a resonance far above
+ * unity crosses it. */
+#define UNITY_TOL_DB 0.3
+#define CHAIN_LO_DB (-0.85)
+#define CHAIN_HI_DB 1.65
+#define CEIL_DB 3.0
 
 #define N_LEVEL_SIGNALS 8
 enum { SIG_I_KEYS = 7 };
@@ -720,17 +769,27 @@ static const char *const LEVEL_SIGNAL_LABEL[N_LEVEL_SIGNALS] = {
  * through the phaser read 0.13 to 0.2 dB off its long-run level, which is the
  * whole margin a static level curve has (see PHASER_LEVEL_SCALE). The LFOs:
  * flanger 0.2 Hz (5 s), phaser 0.4 Hz (2.5 s), chorus 0.6 Hz (1.67 s),
- * tremolo 5 Hz (0.2 s); the drive has none. So 5 s with the flanger, or the
- * chorus and the phaser together; 2.5 s for the phaser, one chorus sweep for
- * the chorus, 1 s (five tremolo cycles) for the drive and the tremolo. The
- * keys: two loops (4.8 s, 1.9 phaser cycles) with a sweep slower than the
- * loop, one loop (2.4 s) without. Until 2026-10-13 every mask had 5 s, keys
- * 4.8 s (FX_SELFTEST_FULL=1). */
+ * tremolo 5 Hz (0.2 s); the drive and the auto-wah have none. The rotary's
+ * rotors turn at 0.67 (drum) and 0.8 Hz (horn) at the bottom of their range,
+ * faster above it: 2.5 s is 1.7 drum turns at the slowest, and its level is
+ * even across a turn by construction (fx_dsp.c: the two microphones' powers
+ * sum to the input's), so a part-turn moves only how the power splits
+ * between the channels, which the RMS over both does not see. So 5 s with
+ * the flanger, or the chorus and the phaser together; 2.5 s for the phaser
+ * or the rotary, one chorus sweep for the chorus, 1 s (five tremolo
+ * cycles) for the drive, the auto-wah and the tremolo. The keys: two loops
+ * (4.8 s, 1.9 phaser cycles) with a sweep or rotor slower than the loop, one
+ * loop (2.4 s) without. Until 2026-10-13 every mask had 5 s, keys 4.8 s
+ * (FX_SELFTEST_FULL=1). */
 static float level_window_s(uint32_t fx, int kind)
 {
-    const uint32_t sweeps = BIT(0) | BIT(2) | BIT(FX_I_FLANGER);
+    const uint32_t sweeps = BIT(0) | BIT(2) | BIT(FX_I_FLANGER) | BIT(FX_I_ROTARY);
     if (g_full) {
         return kind == SIG_KEYS ? 4.8f : 5.0f;
+    }
+    if (g_short_windows) {
+        return kind == SIG_KEYS ? 2.4f : ((fx & (BIT(0) | BIT(2) | BIT(FX_I_FLANGER) |
+                                                 BIT(FX_I_ROTARY))) != 0 ? 2.5f : 1.0f);
     }
     if (kind == SIG_KEYS) {
         return (fx & sweeps) != 0 ? 4.8f : 2.4f;
@@ -738,7 +797,7 @@ static float level_window_s(uint32_t fx, int kind)
     if ((fx & BIT(FX_I_FLANGER)) != 0 || (fx & (BIT(0) | BIT(2))) == (BIT(0) | BIT(2))) {
         return 5.0f;
     }
-    if ((fx & BIT(2)) != 0) {
+    if ((fx & (BIT(2) | BIT(FX_I_ROTARY))) != 0) {
         return 2.5f;
     }
     if ((fx & BIT(0)) != 0) {
@@ -796,22 +855,22 @@ typedef struct {
     float rms_min[N_LEVEL_SIGNALS];   /* worst out/in, downward, per signal */
     float min_depth[N_LEVEL_SIGNALS];
     float floor_margin_db;            /* vs `floor`, if given: worst measured - floor */
+    float rms_hi[N_LEVEL_SIGNALS];    /* worst out/in, upward, per signal */
 } level_result;
 
 /* `steps` + 1 knob positions from 0 to 1, on the signals in `mask`. Every
  * reading is out / (in x G(m)): relative to the chain's makeup at that knob
- * position, so "never louder" below means never louder than the makeup, and
- * the floors are floors under it. */
-static level_result level_sweep(const fx_effect_desc *table, uint32_t fx, unsigned mask,
-                                int steps, double (*floor_db)(float depth))
+ * position: the unity bounds (UNITY_TOL_DB) are around it. */
+static level_result level_sweep_from(const fx_effect_desc *table, uint32_t fx, unsigned mask,
+                                     int first, int steps, double (*floor_db)(float depth))
 {
-    level_result res = { 0.0f, 0.0f, 0.0f, -1, { 0 }, { 0 }, 1e9f };
+    level_result res = { 0.0f, 0.0f, 0.0f, -1, { 0 }, { 0 }, 1e9f, { 0 } };
     for (int sgi = 0; sgi < N_LEVEL_SIGNALS; sgi++) {
         res.rms_min[sgi] = 1e9f;
         if (!(mask & (1u << sgi))) {
             continue;
         }
-        for (int step = 0; step <= steps; step++) {
+        for (int step = first; step <= steps; step++) {
             float depth = (float)step / (float)steps;
             float rr, pr;
             level_at(table, fx, sgi, depth, &rr, &pr);
@@ -827,6 +886,7 @@ static level_result level_sweep(const fx_effect_desc *table, uint32_t fx, unsign
                 res.rms_min[sgi] = rr;
                 res.min_depth[sgi] = depth;
             }
+            res.rms_hi[sgi] = fmaxf(res.rms_hi[sgi], rr);
             res.peak_max = fmaxf(res.peak_max, pr);
             if (floor_db != NULL) {
                 res.floor_margin_db = fminf(res.floor_margin_db,
@@ -837,16 +897,28 @@ static level_result level_sweep(const fx_effect_desc *table, uint32_t fx, unsign
     return res;
 }
 
-/* The tremolo's level at depth d, by construction: out = in (1 - d + d g),
- * g = (1 + s) / 2 for the rounded-triangle LFO s, whose mean square is
- * E[s^2] = 2.25/3 - 1.5/5 + 0.25/7 = 0.4857 (mean 0). So the mean-square gain
- * is (1 - d/2)^2 + (d/2)^2 E[s^2]: -1.1, -2.3, -3.4, -4.3 dB at 25..100 %.
- * Its floor is that, less 0.2 dB. */
-static double tremolo_floor_db(float depth)
+static level_result level_sweep(const fx_effect_desc *table, uint32_t fx, unsigned mask,
+                                int steps, double (*floor_db)(float depth))
 {
-    const double q = 2.25 / 3.0 - 1.5 / 5.0 + 0.25 / 7.0;
-    double h = 0.5 * (double)depth;
-    return 10.0 * log10((1.0 - h) * (1.0 - h) + h * h * q) - 0.2;
+    return level_sweep_from(table, fx, mask, 0, steps, floor_db);
+}
+
+/* The tremolo's trough (fx_dsp.c), restated here rather than read from the
+ * DSP, so a changed trough shows as a failed shape check, not a moved bound. */
+#define TREMOLO_TROUGH 0.25
+
+/* The largest static level gain effect k's table holds (fx_dsp.c), any knob
+ * position: what bounds the tremolo's and the drive's peaks. */
+static float level_gain_max(int k)
+{
+    fx_engine e;
+    CHECK(fx_engine_init(&e, FX_EFFECTS, N_FX, RATE, DEPTH_MS, XFADE_MS) == 0, "init");
+    float g = 0.0f;
+    for (int j = 0; j <= FX_LEVEL_POINTS; j++) {
+        g = fmaxf(g, e.level[k][j]);
+    }
+    fx_engine_free(&e);
+    return g;
 }
 
 static double db(float ratio)
@@ -858,48 +930,50 @@ static double db(float ratio)
  * its own worker, merged back in signal order (lb_merge): the same result a
  * single sweep over every signal gives. The variants are the main sweep and
  * the controls below. */
-enum { LB_MAIN, LB_CURVE_HOT, LB_UPPER, LB_UPPER2, LB_PEAK, LB_LOWER, LB_N };
+enum { LB_MAIN, LB_HOT, LB_COLD, LB_UPPER, LB_PEAK, LB_LOWER, LB_N };
 
 typedef struct {
     const fx_effect_desc *table;
     unsigned mask;
     int steps;
     double (*floor_db)(float depth);
-    int level_hot, no_level;
+    int level_hot, level_cold, no_level;
 } lb_spec;
 
 /* The sweep for effect k, variant v; 0 if k has no such variant. */
 static int lb_spec_for(int k, int v, lb_spec *sp)
 {
-    static fx_effect_desc hot;
-    *sp = (lb_spec){ FX_EFFECTS, MASK_ALL, 4, NULL, 0, 0 };
+    static fx_effect_desc hot, weak;
+    *sp = (lb_spec){ FX_EFFECTS, MASK_ALL, 4, NULL, 0, 0, 0 };
     switch (v) {
     case LB_MAIN:
         sp->steps = 20;
-        sp->floor_db = k == 3 ? tremolo_floor_db : NULL;
         return 1;
-    case LB_CURVE_HOT:
+    case LB_HOT:
+        sp->mask = MASK_KEYS;
         sp->level_hot = 1;
-        return has_level_curve(k);
+        return 1;
+    case LB_COLD:
+        sp->mask = MASK_KEYS;
+        sp->level_cold = 1;
+        return 1;
     case LB_UPPER:
         if (k == 1) {
             hot = hot_version(k);
             sp->table = table_with(k, &hot);
+            sp->mask = MASK_KEYS;
         } else if (k == 2) {
             sp->table = table_with(k, &FX_TEST_MUTANTS[FX_MUT_PHASER_HOT_FEEDBACK]);
         } else if (k == FX_I_FLANGER) {
             sp->table = table_with(k, &FX_TEST_MUTANTS[FX_MUT_FLANGER_HOT_FEEDBACK]);
         } else if (k == 3) {
             sp->table = table_with(k, &FX_TEST_MUTANTS[FX_MUT_TREMOLO_OVERSHOOT]);
+            sp->mask = MASK_KEYS;
+        } else if (k == FX_I_WAH) {
+            sp->table = table_with(k, &FX_TEST_MUTANTS[FX_MUT_WAH_WHISTLE]);
         } else {
             return 0;
         }
-        return 1;
-    case LB_UPPER2:
-        if (k != 2) {
-            return 0;
-        }
-        sp->table = table_with(k, &FX_TEST_MUTANTS[FX_MUT_PHASER_FULL_BAND]);
         return 1;
     case LB_PEAK:
         if (k != 1) {
@@ -911,9 +985,17 @@ static int lb_spec_for(int k, int v, lb_spec *sp)
         sp->mask = MASK_KEYS;
         if (k == 3) {
             sp->table = table_with(k, &FX_TEST_MUTANTS[FX_MUT_TREMOLO_SHALLOW_TOP]);
-            sp->floor_db = tremolo_floor_db;
         } else if (k == 1) {
             sp->table = table_with(k, &FX_TEST_MUTANTS[FX_MUT_DRIVE_NO_MAKEUP]);
+        } else if (k == FX_I_ROTARY) {
+            /* The delays centred on 1 ms: the fade-in's comb reaches the keys. */
+            sp->table = table_with(k, &FX_TEST_MUTANTS[FX_MUT_ROTARY_WIDE_CENTER]);
+            sp->steps = 20;
+        } else if (k == FX_I_WAH) {
+            /* Mixed further toward the band-pass: more taken away. */
+            weak = FX_EFFECTS[k];
+            weak.wet_max = 0.9f;
+            sp->table = table_with(k, &weak);
         } else {
             sp->no_level = 1;
         }
@@ -929,15 +1011,17 @@ static void lb_sweep_signal(int k, int v, int sgi, level_result *out)
     lb_spec sp;
     CHECK(lb_spec_for(k, v, &sp) && (sp.mask & (1u << sgi)), "no sweep %d/%d/%d", k, v, sgi);
     fx_test_level_hot = sp.level_hot;
+    fx_test_level_cold = sp.level_cold;
     fx_test_no_level = sp.no_level;
     *out = level_sweep(sp.table, BIT(k), 1u << sgi, sp.steps, sp.floor_db);
     fx_test_level_hot = 0;
+    fx_test_level_cold = 0;
     fx_test_no_level = 0;
 }
 
 static level_result lb_init(void)
 {
-    level_result res = { 0.0f, 0.0f, 0.0f, -1, { 0 }, { 0 }, 1e9f };
+    level_result res = { 0.0f, 0.0f, 0.0f, -1, { 0 }, { 0 }, 1e9f, { 0 } };
     for (int sgi = 0; sgi < N_LEVEL_SIGNALS; sgi++) {
         res.rms_min[sgi] = 1e9f;
     }
@@ -956,6 +1040,7 @@ static void lb_merge(level_result *acc, const level_result *part, int sgi)
     }
     acc->rms_min[sgi] = part->rms_min[sgi];
     acc->min_depth[sgi] = part->min_depth[sgi];
+    acc->rms_hi[sgi] = part->rms_hi[sgi];
     acc->peak_max = fmaxf(acc->peak_max, part->peak_max);
     acc->floor_margin_db = fminf(acc->floor_margin_db, part->floor_margin_db);
 }
@@ -964,111 +1049,89 @@ static void lb_merge(level_result *acc, const level_result *part, int sgi)
 static void check_pack_level_bound(int k, const level_result sw[LB_N])
 {
     const level_result r = sw[LB_MAIN];
+    const double hi = db(r.rms_hi[SIG_I_KEYS]), lo = db(r.rms_min[SIG_I_KEYS]);
     if (g_verbose) {
-        printf("  %-8s level vs makeup: worst RMS %+.3f dB (depth %.2f, %s), worst peak "
-               "%+.3f dB; keys lowest %+.3f dB (depth %.2f)\n", FX_LABEL[k], db(r.rms_max),
+        printf("  %-8s keys vs makeup, 21 depths: %+.3f..%+.3f dB; worst any signal %+.3f dB "
+               "(depth %.2f, %s), worst peak %+.3f dB\n", FX_LABEL[k], lo, hi, db(r.rms_max),
                (double)r.at_depth, r.at_signal >= 0 ? LEVEL_SIGNAL_LABEL[r.at_signal] : "-",
-               db(r.peak_max), db(r.rms_min[SIG_I_KEYS]), (double)r.min_depth[SIG_I_KEYS]);
+               db(r.peak_max));
     }
 
-    /* Upper bound: never louder than the makeup (RMS, + 0.1 dB), every
-     * effect, every signal, every knob position. */
-    CHECK(r.rms_max <= RMS_MARGIN, "%s: output RMS %.4fx input x makeup (depth %.2f, %s)",
-          FX_LABEL[k],
-          (double)r.rms_max, (double)r.at_depth, LEVEL_SIGNAL_LABEL[r.at_signal]);
-
-    /* Its controls. Chorus, phaser and flanger: their level curve 0.5 dB hot.
-     * Phaser and flanger also: feedback 0.95, a resonance far above unity;
-     * the phaser also its feedback full-band (the shelf boost). Drive: its
-     * wet 0.5 dB hot. Tremolo: its guarantee is the peak one, so an LFO that
-     * overshoots unity. */
-    level_result c = { 0.0f, 0.0f, 0.0f, -1, { 0 }, { 0 }, 0.0f };
-    if (has_level_curve(k)) {
-        c = sw[LB_CURVE_HOT];
-        CHECK(c.rms_max > RMS_MARGIN, "%s: control (level curve 0.5 dB hot) passed: %+.3f dB",
-              FX_LABEL[k], db(c.rms_max));
-        if (g_verbose) {
-            printf("  %-8s upper control, level curve hot: RMS %+.3f dB\n", FX_LABEL[k],
-                   db(c.rms_max));
-        }
-    }
-    if (k == 1) {
-        c = sw[LB_UPPER];
-        CHECK(c.rms_max > RMS_MARGIN, "drive: control (+0.5 dB) passed: %+.3f dB", db(c.rms_max));
-    } else if (k == 2) {
-        c = sw[LB_UPPER];
-        CHECK(c.rms_max > RMS_MARGIN, "phaser: control (hot feedback) passed: %+.3f dB",
-              db(c.rms_max));
-        const level_result fb = sw[LB_UPPER2];
-        CHECK(fb.rms_max > RMS_MARGIN, "phaser: control (full-band feedback) passed: %+.3f dB",
-              db(fb.rms_max));
-        if (g_verbose) {
-            printf("  phaser   upper control, full-band feedback: RMS %+.3f dB (%s)\n",
-                   db(fb.rms_max), fb.at_signal >= 0 ? LEVEL_SIGNAL_LABEL[fb.at_signal] : "-");
-        }
-    } else if (k == FX_I_FLANGER) {
-        c = sw[LB_UPPER];
-        CHECK(c.rms_max > RMS_MARGIN, "flanger: control (hot feedback) passed: %+.3f dB",
-              db(c.rms_max));
-    } else if (k == 3) {
-        c = sw[LB_UPPER];
-        CHECK(c.peak_max > 1.0f + 1e-6f, "tremolo: control (overshoot) passed: %+.3f dB",
-              db(c.peak_max));
-    }
-    if (g_verbose && k != 0) {
-        printf("  %-8s upper control: RMS %+.3f dB, peak %+.3f dB\n", FX_LABEL[k],
-               db(c.rms_max), db(c.peak_max));
-    }
-
-    /* Peak, where the effect can promise it, times the makeup (r is already
-     * relative to it). The tremolo's gain is in [0, 1]; the drive's limiter
-     * holds it under the input's recent peak. The chorus's
-     * is the input's peak times its static gain (test_output_is_bounded). The
-     * phaser and the flanger cannot: an all-pass moves phase and raises the
-     * crest factor, a resonance swells what it crosses, and the static gain
-     * adds to that. The ±1 clamp holds for every effect. */
-    if (k == 3) {
-        CHECK(r.peak_max <= 1.0f + 1e-6f, "tremolo: output peak %.6fx input",
-              (double)r.peak_max);
-    }
-    if (k == 1) {
-        CHECK(r.peak_max <= 1.0f + 1e-4f, "drive: output peak %.6fx input", (double)r.peak_max);
-        const level_result cp = sw[LB_PEAK];
-        CHECK(cp.peak_max > 1.0f + 1e-4f, "drive: control (no ceiling, no limiter) kept the "
-              "peak: %+.3f dB", db(cp.peak_max));
-        if (g_verbose) {
-            printf("  drive    peak control (no ceiling, no limiter): %+.3f dB\n",
-                   db(cp.peak_max));
-        }
-    }
-
-    /* Lower bound: not more than 1 dB under the makeup, on the keys signal at
-     * every knob position (the phaser: -1.3 dB, see RMS_FLOOR_PHASER). The other
-     * signals are reported by --measure: one static gain per knob position
-     * cannot bring white noise and pure tones through a sweeping notch to
-     * parity as well. The tremolo
-     * cannot meet -1 dB at all without its peak going over the input, so it
-     * is held to its own computed level instead (tremolo_floor_db). */
-    const level_result cl = sw[LB_LOWER];
-    if (k == 3) {
-        CHECK(r.floor_margin_db >= 0.0f, "tremolo: %.3f dB under its computed level",
-              -(double)r.floor_margin_db);
-        CHECK(cl.floor_margin_db < 0.0f, "tremolo: control (top at 0.8) met the floor: %+.3f dB",
-              (double)cl.floor_margin_db);
-        if (g_verbose) {
-            printf("  tremolo  vs computed level: worst %+.3f dB; control (top 0.8) %+.3f dB\n",
-                   (double)r.floor_margin_db, (double)cl.floor_margin_db);
-        }
-        return;
-    }
-    const float floor = k == 2 ? RMS_FLOOR_PHASER : RMS_FLOOR;
-    CHECK(r.rms_min[SIG_I_KEYS] >= floor, "%s: keys %.3f dB at depth %.2f, floor %.1f dB",
-          FX_LABEL[k], db(r.rms_min[SIG_I_KEYS]), (double)r.min_depth[SIG_I_KEYS], db(floor));
-    CHECK(cl.rms_min[SIG_I_KEYS] < floor, "%s: control (%s) met the floor: %+.3f dB",
-          FX_LABEL[k], k == 1 ? "no makeup" : "no level curve", db(cl.rms_min[SIG_I_KEYS]));
+    /* Unity on the keys, both ways, and its controls: the level curve 0.5
+     * dB hot, and 0.5 dB cold. */
+    CHECK(hi <= UNITY_TOL_DB, "%s: keys %+.3f dB over dry x makeup, tolerance %.1f", FX_LABEL[k],
+          hi, UNITY_TOL_DB);
+    CHECK(lo >= -UNITY_TOL_DB, "%s: keys %+.3f dB under dry x makeup (depth %.2f), tolerance "
+          "%.1f", FX_LABEL[k], lo, (double)r.min_depth[SIG_I_KEYS], UNITY_TOL_DB);
+    const double chot = db(sw[LB_HOT].rms_hi[SIG_I_KEYS]);
+    const double ccold = db(sw[LB_COLD].rms_min[SIG_I_KEYS]);
+    CHECK(chot > UNITY_TOL_DB, "%s: control (level curve 0.5 dB hot) passed: keys %+.3f dB",
+          FX_LABEL[k], chot);
+    CHECK(ccold < -UNITY_TOL_DB, "%s: control (level curve 0.5 dB cold) passed: keys %+.3f dB",
+          FX_LABEL[k], ccold);
     if (g_verbose) {
-        printf("  %-8s lower control (%s): keys %+.3f dB\n", FX_LABEL[k],
-               k == 1 ? "no makeup" : "no level curve", db(cl.rms_min[SIG_I_KEYS]));
+        printf("  %-8s controls: curve hot keys %+.3f dB, curve cold keys %+.3f dB\n",
+               FX_LABEL[k], chot, ccold);
+    }
+
+    /* The ceiling, every signal, and its controls: a resonance far above
+     * unity (phaser and flanger feedback 0.95, the auto-wah's whistle: Q 12
+     * unnormalised). */
+    CHECK(r.rms_max <= (float)pow(10.0, CEIL_DB / 20.0), "%s: output RMS %+.3f dB over dry x "
+          "makeup (depth %.2f, %s), ceiling %+.1f", FX_LABEL[k], db(r.rms_max),
+          (double)r.at_depth, LEVEL_SIGNAL_LABEL[r.at_signal], CEIL_DB);
+    if (k == 2 || k == FX_I_FLANGER || k == FX_I_WAH) {
+        const level_result c = sw[LB_UPPER];
+        CHECK(db(c.rms_max) > CEIL_DB, "%s: control (%s) passed the ceiling: %+.3f dB",
+              FX_LABEL[k], k == FX_I_WAH ? "whistle" : "hot feedback", db(c.rms_max));
+        if (g_verbose) {
+            printf("  %-8s ceiling control (%s): %+.3f dB (%s)\n", FX_LABEL[k],
+                   k == FX_I_WAH ? "whistle" : "hot feedback", db(c.rms_max),
+                   c.at_signal >= 0 ? LEVEL_SIGNAL_LABEL[c.at_signal] : "-");
+        }
+    }
+    if (k == 1) {
+        const double c = db(sw[LB_UPPER].rms_hi[SIG_I_KEYS]);
+        CHECK(c > UNITY_TOL_DB, "drive: control (wet +0.5 dB) passed: keys %+.3f dB", c);
+    }
+
+    /* Peak, where the effect can promise it: the tremolo's gain is in [0, 1]
+     * and the drive's limiter holds it under the input's recent peak, so
+     * either's output peak is at most its static level gain (the largest in
+     * its table) times the makeup (r is already relative to the makeup).
+     * Controls: an LFO that overshoots unity; the drive with no ceiling and
+     * no limiter. The chorus's is test_output_is_bounded. The phaser and the
+     * flanger cannot promise one: an all-pass moves phase and raises the
+     * crest factor, a resonance swells what it crosses. The rotary's Doppler
+     * and the auto-wah's band-pass move phase as well. The ±1 clamp holds for
+     * every effect. */
+    if (k == 3 || k == 1) {
+        const float gmax = level_gain_max(k);
+        const level_result cp = sw[k == 3 ? LB_UPPER : LB_PEAK];
+        CHECK(r.peak_max <= gmax * (1.0f + 1e-4f), "%s: output peak %+.3f dB over the input, "
+              "its level gain at most %+.3f dB", FX_LABEL[k], db(r.peak_max), db(gmax));
+        CHECK(cp.peak_max > gmax * (1.0f + 1e-4f), "%s: control (%s) kept the peak: %+.3f dB",
+              FX_LABEL[k], k == 3 ? "overshoot" : "no ceiling, no limiter", db(cp.peak_max));
+        if (g_verbose) {
+            printf("  %-8s peak %+.3f dB, level gain at most %+.3f dB; control (%s) %+.3f dB\n",
+                   FX_LABEL[k], db(r.peak_max), db(gmax),
+                   k == 3 ? "overshoot" : "no ceiling, no limiter", db(cp.peak_max));
+        }
+    }
+
+    /* A second control under the floor, from the effect itself: the tremolo
+     * with its top at 0.8, the drive without its makeup, the rotary centred
+     * on 1 ms, the auto-wah mixed 0.9 toward the band-pass, and the others
+     * with no level curve at all. */
+    const level_result cl = sw[LB_LOWER];
+    const char *control = k == 1 ? "no makeup" : k == FX_I_WAH ? "wet 0.9"
+                        : k == FX_I_ROTARY ? "1 ms centre" : k == 3 ? "top at 0.8"
+                        : "no level curve";
+    CHECK(db(cl.rms_min[SIG_I_KEYS]) < -UNITY_TOL_DB, "%s: control (%s) met unity: keys %+.3f "
+          "dB", FX_LABEL[k], control, db(cl.rms_min[SIG_I_KEYS]));
+    if (g_verbose) {
+        printf("  %-8s lower control (%s): keys %+.3f dB\n", FX_LABEL[k], control,
+               db(cl.rms_min[SIG_I_KEYS]));
     }
 }
 
@@ -1262,6 +1325,8 @@ static void test_pack_long_run(int k)
     const fx_effect_desc *broken = k == 1 ? &FX_TEST_MUTANTS[FX_MUT_DRIVE_NO_FLUSH]
                                  : k == 2 ? &FX_TEST_MUTANTS[FX_MUT_PHASER_NO_FLUSH]
                                  : k == FX_I_FLANGER ? &FX_TEST_MUTANTS[FX_MUT_FLANGER_NO_FLUSH]
+                                 : k == FX_I_ROTARY ? &FX_TEST_MUTANTS[FX_MUT_ROTARY_NO_FLUSH]
+                                 : k == FX_I_WAH ? &FX_TEST_MUTANTS[FX_MUT_WAH_NO_FLUSH]
                                           : &LEAKY;   /* the tremolo has no memory to flush */
     clean_result m = long_run(table_with(k, broken), BIT(k));
     CHECK(!clean(m), "%s: control (%s) also came out clean", FX_LABEL[k], broken->name);
@@ -1495,14 +1560,23 @@ static void test_drive_aliasing(void)
           (double)c);
 }
 
-/* --- 9. feedback stability (phaser, flanger) ------------------------------ */
+/* --- 9. feedback stability (phaser, flanger, auto-wah) -------------------- */
 
 /* 115.2 s (FEEDBACK_WINDOWS) at full depth with the clamp off, so the clamp
  * cannot hide a loop that grows: keys at 0.5 with a 0.1 s burst of noise at the start of
  * every 9.6 s window (four keys loops), then 2 s of silence. The RMS out/in of
  * each window against the first's, the largest output sample against the
  * input's, non-finite samples, and non-zero samples in the last second of the
- * silence. A loop at or above unity gain grows, overflows, or rings on. */
+ * silence. A loop at or above unity gain grows, overflows, or rings on.
+ * The auto-wah runs 3 windows (28.8 s): its loop is one state-variable
+ * filter, stable for any damping above 0 and gone in milliseconds below it
+ * (its runaway control is non-finite inside the first window), not a long
+ * delay line whose growth needs minutes to show. */
+#define FEEDBACK_WINDOWS_WAH 3
+static int feedback_windows(int k)
+{
+    return k == FX_I_WAH ? FEEDBACK_WINDOWS_WAH : FEEDBACK_WINDOWS;
+}
 typedef struct {
     double growth_db, peak_db;
     size_t nonfinite, residue;
@@ -1514,7 +1588,7 @@ static stability feedback_stability(const fx_effect_desc *table, int k)
     CHECK(fx_engine_init(&e, table, N_FX, RATE, DEPTH_MS, XFADE_MS) == 0, "init");
     float l[PERIOD], r[PERIOD], ol[PERIOD], or_[PERIOD];
     signal_gen g = { SIG_KEYS, 0.5f, 0.0f, 0.0 };
-    const int window = (int)(9.6f * RATE / PERIOD), windows = FEEDBACK_WINDOWS, burst = (int)(0.1f * RATE / PERIOD);
+    const int window = (int)(9.6f * RATE / PERIOD), windows = feedback_windows(k), burst = (int)(0.1f * RATE / PERIOD);
     stability st = { 0.0, -1e9, 0, 0 };
     double first = 0.0, sum_in = 0.0, sum_out = 0.0;
     float peak_in = 0.0f, peak_out = 0.0f;
@@ -1575,13 +1649,14 @@ static int stable(stability st)
 static void test_feedback_stability(int k)
 {
     const fx_effect_desc *runaway = k == 2 ? &FX_TEST_MUTANTS[FX_MUT_PHASER_RUNAWAY]
-                                           : &FX_TEST_MUTANTS[FX_MUT_FLANGER_RUNAWAY];
+                                  : k == FX_I_WAH ? &FX_TEST_MUTANTS[FX_MUT_WAH_RUNAWAY]
+                                                  : &FX_TEST_MUTANTS[FX_MUT_FLANGER_RUNAWAY];
     stability st = feedback_stability(FX_EFFECTS, k);
     stability c = feedback_stability(table_with(k, runaway), k);
     if (g_verbose) {
         printf("  %-8s feedback, %.1f s at full depth, clamp off: growth %+.2f dB, peak %+.2f dB "
                "over input, %zu non-finite, %zu residue; control (%s) growth %+.1f dB, peak "
-               "%+.1f dB, %zu non-finite, %zu residue\n", FX_LABEL[k], 9.6 * FEEDBACK_WINDOWS,
+               "%+.1f dB, %zu non-finite, %zu residue\n", FX_LABEL[k], 9.6 * feedback_windows(k),
                st.growth_db, st.peak_db,
                st.nonfinite, st.residue, runaway->name, c.growth_db, c.peak_db, c.nonfinite,
                c.residue);
@@ -1713,12 +1788,12 @@ static void bench(void)
                ns, sink == 12345.0 ? " " : "");
         free(s);
     }
-    /* The whole engine, as the client runs it: one effect, then all five. */
-    static const uint32_t masks[7] = { 0u, 1u << 0, 1u << 1, 1u << 2, 1u << 3, 1u << 4,
-                                       (1u << 5) - 1u };
-    static const char *const names[7] = { "bypass", "chorus", "drive", "phaser", "tremolo",
-                                          "flanger", "all five" };
-    for (int m = 0; m < 7; m++) {
+    /* The whole engine, as the client runs it: one effect, then all seven. */
+    static const uint32_t masks[9] = { 0u, 1u << 0, 1u << 1, 1u << 2, 1u << 3, 1u << 4,
+                                       1u << 5, 1u << 6, (1u << 7) - 1u };
+    static const char *const names[9] = { "bypass", "chorus", "drive", "phaser", "tremolo",
+                                          "flanger", "rotary", "auto-wah", "all seven" };
+    for (int m = 0; m < 9; m++) {
         fx_engine e;
         fx_engine_init(&e, FX_EFFECTS, FX_EFFECT_COUNT, RATE, 40.0, 30.0);
         float bl[256], br[256], ol[256], or_[256];
@@ -1740,10 +1815,10 @@ static void bench(void)
         printf("engine, %-9s %6.1f ns/stereo frame\n", names[m], ns);
         fx_engine_free(&e);
     }
-    /* All five with per-effect levels: settled (each depth reached its
+    /* All seven with per-effect levels: settled (each depth reached its
      * target, the smoother is a fill), and moving (the levels change every
      * period, so every stage's smoother runs every frame: the worst case). */
-    static const float mixed[FX_MAX_EFFECTS] = { 0.8f, 0.35f, 1.0f, 0.15f, 0.6f, 1.0f, 1.0f, 1.0f };
+    static const float mixed[FX_MAX_EFFECTS] = { 0.8f, 0.35f, 1.0f, 0.15f, 0.6f, 0.7f, 0.5f, 1.0f };
     for (int moving = 0; moving < 2; moving++) {
         fx_engine e;
         fx_engine_init(&e, FX_EFFECTS, FX_EFFECT_COUNT, RATE, 40.0, 30.0);
@@ -1761,12 +1836,12 @@ static void bench(void)
             }
             const float *const in2[FX_CHANNELS] = { bl, br };
             float *const out2[FX_CHANNELS] = { ol, or_ };
-            fx_engine_process_levels(&e, in2, out2, 256, (1u << 5) - 1u, 0.7f, lv);
+            fx_engine_process_levels(&e, in2, out2, 256, (1u << 7) - 1u, 0.7f, lv);
         }
         clock_gettime(CLOCK_MONOTONIC, &t1);
         double ns = ((double)(t1.tv_sec - t0.tv_sec) * 1e9 + (double)(t1.tv_nsec - t0.tv_nsec)) /
                     ((double)periods * 256);
-        printf("engine, all five, levels %-8s %6.1f ns/stereo frame\n",
+        printf("engine, all seven, levels %-8s %6.1f ns/stereo frame\n",
                moving ? "moving" : "settled", ns);
         fx_engine_free(&e);
     }
@@ -1843,10 +1918,12 @@ static void measure_report(void)
             printf(" %+8.2f %+8.2f %+8.2f\n", (double)lo, (double)hi, (double)pk);
         }
     }
-    static const uint32_t chains[7] = { 0x3u, 0x5u, 0x7u, 0xFu, 0x14u, 0x11u, 0x1Fu };
-    static const char *const chain_names[7] = { "ch+drv", "ch+ph", "ch+dr+ph", "all4", "ph+fl",
-                                                "ch+fl", "all5" };
-    for (int c = 0; c < 7; c++) {
+    static const uint32_t chains[11] = { 0x3u, 0x5u, 0x7u, 0xFu, 0x14u, 0x11u, 0x1Fu, 0x21u,
+                                         0x42u, 0x60u, 0x7Fu };
+    static const char *const chain_names[11] = { "ch+drv", "ch+ph", "ch+dr+ph", "all4", "ph+fl",
+                                                 "ch+fl", "all5", "ch+rot", "dr+wah", "rot+wah",
+                                                 "all7" };
+    for (int c = 0; c < 11; c++) {
         for (int j = 1; j < 5; j++) {
             float lo = 1e9f, hi = -1e9f, pk = -1e9f;
             printf("%-8s %4.0f%%", chain_names[c], 100.0 * knobs[j]);
@@ -1876,6 +1953,66 @@ static void measure_report(void)
     }
     printf("\nDrive aliasing, 10 kHz sine 0.5, knob 100%%: %.1f dB of output energy\n",
            (double)drive_alias_db(FX_EFFECTS));
+}
+
+/* --unity-raw K DEPTH: effect K alone at DEPTH, level curve and makeup off,
+ * out/in RMS in dB on every level signal (full windows): one tab-separated
+ * row of the raw loss the level fits (fx_dsp.c) are calibrated against. The
+ * calibration ran it at 33 depths per effect, plus 12 inside the drive's
+ * fade-in (0..0.05) and 12 inside the rotary's (0..0.1). */
+static void unity_raw_line(int k, float depth)
+{
+    fx_test_no_level = 1;
+    fx_test_no_makeup = 1;
+    g_full = 1;
+    printf("%s\t%.5f", FX_LABEL[k], (double)depth);
+    for (int sgi = 0; sgi < N_LEVEL_SIGNALS; sgi++) {
+        float rr, pr;
+        level_at(FX_EFFECTS, BIT(k), sgi, depth, &rr, &pr);
+        printf("\t%+.3f", 20.0 * log10((double)rr));
+    }
+    printf("\n");
+    fx_test_no_level = 0;
+    fx_test_no_makeup = 0;
+}
+
+/* --unity MASK DEPTH: one line, the chain `MASK` at DEPTH with its level
+ * curves and makeup, out/in RMS minus the makeup in dB on every level signal
+ * (full windows), then the worst peak over the input and the clamp's count
+ * on the keys at -9 dBFS (device mode). The calibration and spread reports
+ * (2026-10-13) run it for every effect and every mask. */
+static void unity_line(uint32_t mask, float depth)
+{
+    g_full = 1;
+    const double gm = 20.0 * log10((double)makeup_gain(makeup_m(mask, depth)));
+    printf("%u\t%.5f", (unsigned)mask, (double)depth);
+    float pk = 0.0f;
+    for (int sgi = 0; sgi < N_LEVEL_SIGNALS; sgi++) {
+        float rr, pr;
+        level_at(FX_EFFECTS, mask, sgi, depth, &rr, &pr);
+        printf("\t%+.3f", 20.0 * log10((double)rr) - gm);
+        pk = fmaxf(pk, pr);
+    }
+    /* Device mode: keys at 0.35 (about -9 dBFS), 5 s after 0.4 s, clamp off,
+     * counting the samples the clamp would have cut, and the peak in dBFS. */
+    fx_engine e;
+    CHECK(fx_engine_init(&e, FX_EFFECTS, N_FX, RATE, DEPTH_MS, XFADE_MS) == 0, "init");
+    signal_gen g = { SIG_KEYS, 0.35f, 0.0f, 0.0 };
+    float l[PERIOD], r[PERIOD], ol[PERIOD], or_[PERIOD], dpk = 0.0f;
+    long clipped = 0;
+    const int settle = (int)(0.4f * RATE / PERIOD), measure = (int)(5.0f * RATE / PERIOD);
+    fx_test_no_clamp = 1;
+    for (int p = 0; p < settle + measure; p++) {
+        sig_fill(&g, l, r, PERIOD);
+        run_period(&e, l, r, ol, or_, PERIOD, mask, depth);
+        for (uint32_t i = 0; p >= settle && i < PERIOD; i++) {
+            clipped += (fabsf(ol[i]) > 1.0f) + (fabsf(or_[i]) > 1.0f);
+            dpk = fmaxf(dpk, fmaxf(fabsf(ol[i]), fabsf(or_[i])));
+        }
+    }
+    fx_test_no_clamp = 0;
+    fx_engine_free(&e);
+    printf("\t%+.3f\t%+.2f\t%ld\n", 20.0 * log10((double)pk), 20.0 * log10((double)dpk), clipped);
 }
 
 /* Smoother at full drive, as an objective proxy for the ear: on a 250 Hz
@@ -1922,6 +2059,522 @@ static void test_drive_asymmetry(void)
 }
 
 /* ========================================================================= */
+/* Round 6 (2026-10-13): a smoother tremolo, the rotary, the auto-wah         */
+/* ========================================================================= */
+
+/* --- the tremolo swells, it does not chop ---------------------------------- */
+
+/* One second (five cycles) of the tremolo's left gain at 48 kHz, read as the
+ * wet of a constant 1.0 through the descriptor: the trough (the smallest
+ * gain), the worst per-sample slope, and the worst of harmonics 2-5 of the
+ * gain against its fundamental. Shipped: a sine between 0.25 and 1, slope
+ * (1 - 0.25) / 2 x 2 pi 5 / 48000 = 2.45e-4, harmonics at the polynomial's
+ * error (-107 dB). The pre-2026-10-13 rounded triangle: trough 0 (silent a
+ * fifth of every cycle), slope 3.13e-4, third harmonic -38 dB. A sine with no
+ * floor: trough 0, slope 3.27e-4. Limits: trough >= 0.25 - 1e-4, slope <= the
+ * shipped sine's x 1.01, harmonics <= -60 dB; each fails at least one
+ * control. */
+typedef struct {
+    double trough, slope, harm_db;
+} trem_shape;
+
+static trem_shape tremolo_shape(const fx_effect_desc *d)
+{
+    enum { N = 48000 };
+    static float g[N];
+    void *st = calloc(1, d->state_bytes);
+    CHECK(st != NULL && d->init(st, RATE) == 0, "init");
+    float one[FX_CHUNK], wl[FX_CHUNK], wr[FX_CHUNK];
+    static const float zero[FX_CHUNK];
+    for (uint32_t i = 0; i < FX_CHUNK; i++) {
+        one[i] = 1.0f;
+    }
+    const float *const in[FX_CHANNELS] = { one, one };
+    float *const wet[FX_CHANNELS] = { wl, wr };
+    for (uint32_t off = 0; off < N; off += FX_CHUNK) {
+        d->process(st, in, wet, zero, FX_CHUNK);
+        memcpy(g + off, wl, sizeof(wl));
+    }
+    free(st);
+    trem_shape t = { 1e9, 0.0, -1e9 };
+    for (uint32_t i = 0; i < N; i++) {
+        t.trough = fmin(t.trough, (double)g[i]);
+        if (i > 0) {
+            t.slope = fmax(t.slope, fabs((double)g[i] - (double)g[i - 1]));
+        }
+    }
+    double mag[6];
+    for (int h = 1; h <= 5; h++) {   /* 5 Hz x h: bin 5h of a 1 s DFT */
+        double re = 0.0, im = 0.0;
+        for (uint32_t i = 0; i < N; i++) {
+            re += g[i] * cos(2.0 * M_PI * 5.0 * h * i / N);
+            im -= g[i] * sin(2.0 * M_PI * 5.0 * h * i / N);
+        }
+        mag[h] = sqrt(re * re + im * im);
+    }
+    for (int h = 2; h <= 5; h++) {
+        t.harm_db = fmax(t.harm_db, 20.0 * log10(mag[h] / mag[1] + 1e-30));
+    }
+    return t;
+}
+
+#define TREMOLO_SLOPE_MAX (1.01 * 0.5 * (1.0 - TREMOLO_TROUGH) * 2.0 * M_PI * 5.0 / 48000.0)
+
+static int tremolo_smooth(trem_shape t)
+{
+    return t.trough >= TREMOLO_TROUGH - 1e-4 && t.slope <= TREMOLO_SLOPE_MAX && t.harm_db <= -60.0;
+}
+
+static void test_tremolo_smoothness(void)
+{
+    trem_shape t = tremolo_shape(&FX_EFFECTS[3]);
+    trem_shape r = tremolo_shape(&FX_TEST_MUTANTS[FX_MUT_TREMOLO_ROUNDED_TRI]);
+    trem_shape f = tremolo_shape(&FX_TEST_MUTANTS[FX_MUT_TREMOLO_NO_FLOOR]);
+    if (g_verbose) {
+        printf("  tremolo  shape: trough %.4f, slope %.3e/sample, harmonics %.1f dB; control "
+               "(rounded triangle) %.4f, %.3e, %.1f dB; control (sine, no floor) %.4f, %.3e, "
+               "%.1f dB; limits >= %.2f, <= %.3e, <= -60\n", t.trough, t.slope, t.harm_db,
+               r.trough, r.slope, r.harm_db, f.trough, f.slope, f.harm_db, TREMOLO_TROUGH,
+               TREMOLO_SLOPE_MAX);
+    }
+    CHECK(tremolo_smooth(t), "tremolo: trough %.4f, slope %.3e, harmonics %.1f dB", t.trough,
+          t.slope, t.harm_db);
+    /* Each criterion fails at least one control. */
+    CHECK(r.trough < TREMOLO_TROUGH - 1e-4 && f.trough < TREMOLO_TROUGH - 1e-4,
+          "tremolo: a control met the trough");
+    CHECK(r.slope > TREMOLO_SLOPE_MAX && f.slope > TREMOLO_SLOPE_MAX,
+          "tremolo: a control met the slope limit");
+    CHECK(r.harm_db > -60.0, "tremolo: control (rounded triangle) met the purity limit: %.1f dB",
+          r.harm_db);
+}
+
+/* The before/after report (--tremolo-shape): 21 points of one cycle's gain at
+ * full depth, and the worst per-sample slope at 48 kHz. */
+static void tremolo_shape_report(void)
+{
+    printf("Tremolo gain over one cycle at full depth (phase, before = rounded triangle to 0, "
+           "after = sine to %.2f)\n", TREMOLO_TROUGH);
+    for (int j = 0; j <= 20; j++) {
+        float ph = (float)j / 20.0f;
+        double before = 0.5 + 0.5 * fx_test_lfo_rounded(ph);
+        double after = TREMOLO_TROUGH + (1.0 - TREMOLO_TROUGH) * (0.5 + 0.5 * fx_test_lfo_sine(ph));
+        printf("  %.2f  before %.3f %-22.*s after %.3f %.*s\n", (double)ph, before,
+               (int)(before * 20.0 + 0.5), "######################", after,
+               (int)(after * 20.0 + 0.5), "######################");
+    }
+    trem_shape t = tremolo_shape(&FX_EFFECTS[3]);
+    trem_shape r = tremolo_shape(&FX_TEST_MUTANTS[FX_MUT_TREMOLO_ROUNDED_TRI]);
+    printf("worst per-sample gain slope at 48 kHz: before %.3e, after %.3e\n", r.slope, t.slope);
+    printf("trough: before %.4f, after %.4f; harmonics 2-5: before %.1f dB, after %.1f dB\n",
+           r.trough, t.trough, r.harm_db, t.harm_db);
+}
+
+/* --- the rotary actually moves the pitch ----------------------------------- */
+
+/* A 2 kHz tone (horn band), both channels, through the rotary at full depth:
+ * 3 s to spin up, then 1 s of the left output, demodulated one 24-sample
+ * cycle at a time. The phase step between cycles is the frequency offset;
+ * returns the largest, as a fraction of 2 kHz. Shipped: about 1.7 % (the
+ * horn's 0.40 ms excursion at 6.7 Hz). Control: the rotary with its delays
+ * held still (level modulation only), which moves no phase. Limit 0.5 %. */
+#define ROTARY_PITCH_MIN 0.005
+
+static double rotary_pitch_dev(const fx_effect_desc *d)
+{
+    enum { P = 24, SPIN = 3 * 48000, N = 48000 };
+    static float y[N];
+    void *st = calloc(1, d->state_bytes);
+    CHECK(st != NULL && d->init(st, RATE) == 0, "init");
+    float l[FX_CHUNK], wl[FX_CHUNK], wr[FX_CHUNK], full[FX_CHUNK];
+    for (uint32_t i = 0; i < FX_CHUNK; i++) {
+        full[i] = 1.0f;
+    }
+    const float *const in[FX_CHANNELS] = { l, l };
+    float *const wet[FX_CHANNELS] = { wl, wr };
+    long t = 0;
+    for (long off = 0; off < SPIN + N; off += FX_CHUNK) {
+        for (uint32_t i = 0; i < FX_CHUNK; i++, t++) {
+            l[i] = 0.25f * (float)sin(2.0 * M_PI * (double)(t % P) / P);
+        }
+        d->process(st, in, wet, full, FX_CHUNK);
+        if (off >= SPIN) {
+            memcpy(y + (off - SPIN), wl, sizeof(wl));
+        }
+    }
+    free(st);
+    double worst = 0.0, prev = 0.0;
+    for (int c = 0; c < N / P; c++) {
+        double re = 0.0, im = 0.0;
+        for (int i = 0; i < P; i++) {
+            re += y[c * P + i] * cos(2.0 * M_PI * i / P);
+            im -= y[c * P + i] * sin(2.0 * M_PI * i / P);
+        }
+        double ph = atan2(im, re);
+        if (c > 0) {
+            double step = ph - prev;
+            step -= 2.0 * M_PI * floor((step + M_PI) / (2.0 * M_PI));   /* to (-pi, pi] */
+            worst = fmax(worst, fabs(step) / (2.0 * M_PI));   /* cycles per cycle */
+        }
+        prev = ph;
+    }
+    return worst;
+}
+
+static void test_rotary_pitch(void)
+{
+    double p = rotary_pitch_dev(&FX_EFFECTS[FX_I_ROTARY]);
+    double c = rotary_pitch_dev(&FX_TEST_MUTANTS[FX_MUT_ROTARY_NO_DOPPLER]);
+    if (g_verbose) {
+        printf("  rotary   pitch, 2 kHz at full speed: +-%.2f %% (%.0f cents); control (no Doppler) "
+               "+-%.3f %%; limit %.1f %%\n", 100.0 * p, 1200.0 * log2(1.0 + p), 100.0 * c,
+               100.0 * ROTARY_PITCH_MIN);
+    }
+    CHECK(p >= ROTARY_PITCH_MIN, "rotary: the pitch moves only +-%.3f %%", 100.0 * p);
+    CHECK(c < ROTARY_PITCH_MIN, "rotary: control (no Doppler) moved the pitch +-%.3f %% too: the "
+          "check cannot tell level from pitch", 100.0 * c);
+}
+
+/* --- the rotors have inertia ----------------------------------------------- */
+
+/* From rest at the slow speed, the knob to the top for 12 s, then to 0 for
+ * 12 s: how long each rotor takes to cover 90 % of the way, up and down.
+ * Shipped: horn ~0.8 s up and ~1.4 s down, drum ~3.5 s and ~4.6 s (one-pole
+ * time constants 0.35 / 0.60 and 1.5 / 2.0 s). Limits: the horn 0.4-2 s up
+ * and 0.6-3 s down; the drum 2-6 s and 2.5-8 s, and slower than the horn
+ * both ways. Control: a rotor whose speed jumps to the knob's. */
+typedef struct {
+    double up[2], down[2];   /* seconds, horn then drum */
+} spin_times;
+
+static spin_times rotary_spin(const fx_effect_desc *d)
+{
+    static const float slow[2] = { 0.80f, 0.67f }, fast[2] = { 6.7f, 5.7f };
+    void *st = calloc(1, d->state_bytes);
+    CHECK(st != NULL && d->init(st, RATE) == 0, "init");
+    float l[FX_CHUNK], wl[FX_CHUNK], wr[FX_CHUNK], amt[FX_CHUNK];
+    memset(l, 0, sizeof(l));
+    const float *const in[FX_CHANNELS] = { l, l };
+    float *const wet[FX_CHANNELS] = { wl, wr };
+    spin_times s = { { -1.0, -1.0 }, { -1.0, -1.0 } };
+    const long half = 12L * 48000L;
+    for (long t = 0; t < 2 * half; t += FX_CHUNK) {
+        const int going_up = t < half;
+        for (uint32_t i = 0; i < FX_CHUNK; i++) {
+            amt[i] = going_up ? 1.0f : 0.0f;
+        }
+        d->process(st, in, wet, amt, FX_CHUNK);
+        for (int r = 0; r < 2; r++) {
+            const float hz = fx_test_rotary_speed(st, r);
+            const double sec = (double)(going_up ? t + FX_CHUNK : t + FX_CHUNK - half) / RATE;
+            if (going_up && s.up[r] < 0.0 && hz >= slow[r] + 0.9f * (fast[r] - slow[r])) {
+                s.up[r] = sec;
+            }
+            if (!going_up && s.down[r] < 0.0 && hz <= fast[r] - 0.9f * (fast[r] - slow[r])) {
+                s.down[r] = sec;
+            }
+        }
+    }
+    free(st);
+    return s;
+}
+
+static int realistic_spin(spin_times s)
+{
+    return s.up[0] >= 0.4 && s.up[0] <= 2.0 && s.down[0] >= 0.6 && s.down[0] <= 3.0 &&
+           s.up[1] >= 2.0 && s.up[1] <= 6.0 && s.down[1] >= 2.5 && s.down[1] <= 8.0 &&
+           s.up[1] > s.up[0] && s.down[1] > s.down[0];
+}
+
+static void test_rotary_inertia(void)
+{
+    spin_times s = rotary_spin(&FX_EFFECTS[FX_I_ROTARY]);
+    spin_times c = rotary_spin(&FX_TEST_MUTANTS[FX_MUT_ROTARY_NO_INERTIA]);
+    if (g_verbose) {
+        printf("  rotary   spin, 90 %% of the way: horn up %.2f s down %.2f s, drum up %.2f s down "
+               "%.2f s; control (no inertia) %.3f / %.3f / %.3f / %.3f s\n", s.up[0], s.down[0],
+               s.up[1], s.down[1], c.up[0], c.down[0], c.up[1], c.down[1]);
+    }
+    CHECK(realistic_spin(s), "rotary: spin times horn %.2f / %.2f s, drum %.2f / %.2f s", s.up[0],
+          s.down[0], s.up[1], s.down[1]);
+    CHECK(!realistic_spin(c), "rotary: control (no inertia) passed the spin times");
+}
+
+/* --- the rotary's two sides keep the input's power ------------------------- */
+
+/* A 3 kHz tone (the horn's band) at 0.3 through the rotary alone at full
+ * depth (fast), 3 s to spin up, then 2 s in 10 ms windows: each window's
+ * L^2 + R^2 out over in. The horn's and the drum's gains are constant-power
+ * pairs, sqrt(1 + a c) and sqrt(1 - a c), so as each rotor turns the sound
+ * moves across the image and the sum stays put: what is left is the Doppler
+ * and the crossover. The spread (loudest window over quietest) is the check:
+ * shipped 1.25 dB. Limit 1.8 dB. Control: gains 1 + a c and 1 - a c, whose
+ * power sum swells by 2 a^2 c^2 (+1.7 dB at the horn's a = 0.7): 2.58 dB. */
+#define ROTARY_POWER_SPREAD_DB 1.8
+
+static double rotary_power_spread_db(const fx_effect_desc *d)
+{
+    void *st = calloc(1, d->state_bytes);
+    CHECK(st != NULL && d->init(st, RATE) == 0, "init");
+    float l[FX_CHUNK], r[FX_CHUNK], wl[FX_CHUNK], wr[FX_CHUNK], full[FX_CHUNK];
+    for (uint32_t i = 0; i < FX_CHUNK; i++) {
+        full[i] = 1.0f;
+    }
+    const float *const in[FX_CHANNELS] = { l, r };
+    float *const wet[FX_CHANNELS] = { wl, wr };
+    signal_gen g = { SIG_SINE, 0.3f, 3000.0f, 0.0 };
+    const long settle = 3 * (long)RATE, total = 5 * (long)RATE, win = (long)RATE / 100;
+    double so = 0.0, si = 0.0, lo = 1e9, hi = 0.0;
+    long n = 0;
+    for (long t = 0; t < total; t += FX_CHUNK) {
+        sig_fill(&g, l, r, FX_CHUNK);
+        d->process(st, in, wet, full, FX_CHUNK);
+        for (uint32_t i = 0; i < FX_CHUNK && t >= settle; i++) {
+            so += (double)wl[i] * wl[i] + (double)wr[i] * wr[i];
+            si += (double)l[i] * l[i] + (double)r[i] * r[i];
+            if (++n == win) {
+                lo = fmin(lo, so / si);
+                hi = fmax(hi, so / si);
+                so = si = 0.0;
+                n = 0;
+            }
+        }
+    }
+    free(st);
+    return 10.0 * log10(hi / lo);
+}
+
+static void test_rotary_power(void)
+{
+    double s = rotary_power_spread_db(&FX_EFFECTS[FX_I_ROTARY]);
+    double c = rotary_power_spread_db(&FX_TEST_MUTANTS[FX_MUT_ROTARY_LINEAR_AM]);
+    if (g_verbose) {
+        printf("  rotary   power, 3 kHz at full, 10 ms windows: spread %.2f dB; control (linear "
+               "AM) %.2f dB; limit %.1f\n", s, c, ROTARY_POWER_SPREAD_DB);
+    }
+    CHECK(s <= ROTARY_POWER_SPREAD_DB, "rotary: L^2 + R^2 swings %.2f dB as the rotors turn", s);
+    CHECK(c > ROTARY_POWER_SPREAD_DB, "rotary: control (linear AM) swung only %.2f dB", c);
+}
+
+/* --- the auto-wah's band-pass peaks at 1 ------------------------------------- */
+
+/* 48 tones, log-spaced 250 Hz..2.5 kHz, at 0.4 through the auto-wah alone at
+ * full depth: 0.2 s to settle (the follower holds the band still on a steady
+ * tone), then the wet's RMS over the input's for 0.1 s. The band-pass is
+ * normalised to a peak gain of exactly 1, and the tones are 5 % apart, so
+ * the loudest lands on or next to the centre: shipped 1.0000. Limits
+ * 0.97..1.01 (a wet 6 % hot reads 1.06). The level curve gives back what the band takes from broadband
+ * material; this is what it must not have to give back twice. Control: the
+ * whistle (Q 12, unnormalised). */
+static double wah_peak_gain(const fx_effect_desc *d)
+{
+    double worst = 0.0;
+    for (int j = 0; j < 48; j++) {
+        void *st = calloc(1, d->state_bytes);
+        CHECK(st != NULL && d->init(st, RATE) == 0, "init");
+        float l[FX_CHUNK], r[FX_CHUNK], wl[FX_CHUNK], wr[FX_CHUNK], full[FX_CHUNK];
+        for (uint32_t i = 0; i < FX_CHUNK; i++) {
+            full[i] = 1.0f;
+        }
+        const float *const in[FX_CHANNELS] = { l, r };
+        float *const wet[FX_CHANNELS] = { wl, wr };
+        signal_gen g = { SIG_SINE, 0.4f, (float)(250.0 * pow(10.0, j / 47.0)), 0.0 };
+        double so = 0.0, si = 0.0;
+        for (long t = 0; t < (long)(0.3 * RATE); t += FX_CHUNK) {
+            sig_fill(&g, l, r, FX_CHUNK);
+            d->process(st, in, wet, full, FX_CHUNK);
+            for (uint32_t i = 0; i < FX_CHUNK && t >= (long)(0.2 * RATE); i++) {
+                so += (double)wl[i] * wl[i];
+                si += (double)l[i] * l[i];
+            }
+        }
+        free(st);
+        worst = fmax(worst, sqrt(so / si));
+    }
+    return worst;
+}
+
+static void test_wah_peak_gain(void)
+{
+    double s = wah_peak_gain(&FX_EFFECTS[FX_I_WAH]);
+    double c = wah_peak_gain(&FX_TEST_MUTANTS[FX_MUT_WAH_WHISTLE]);
+    if (g_verbose) {
+        printf("  auto-wah band-pass peak, 48 tones 250 Hz..2.5 kHz: %.4f; control (whistle) "
+               "%.4f; limits 0.97..1.01\n", s, c);
+    }
+    CHECK(s >= 0.97 && s <= 1.01, "auto-wah: band-pass peak gain %.4f, wanted 0.97..1.01", s);
+    CHECK(c > 1.01, "auto-wah: control (whistle) peaked at %.4f", c);
+}
+
+/* --- the auto-wah opens on the attack ---------------------------------------- */
+
+/* Noise at 0.01 for 0.5 s, then at 0.4: the wet's RMS frequency (as in
+ * wah_sweep_ratio) over 5..25 ms after the step, over the quiet half's last
+ * 0.25 s. The envelope's 4 ms attack has the band most of the way open by
+ * then, so a note's attack is what sweeps it, the point of an envelope wah.
+ * Shipped 2.37x. Limit 1.8x. Control: a 400 ms attack, which leaves the band
+ * near where the quiet noise had it: 1.28x. */
+#define WAH_ONSET_MIN 1.8
+
+static double wah_onset_ratio(const fx_effect_desc *d)
+{
+    void *st = calloc(1, d->state_bytes);
+    CHECK(st != NULL && d->init(st, RATE) == 0, "init");
+    float l[FX_CHUNK], r[FX_CHUNK], wl[FX_CHUNK], wr[FX_CHUNK], full[FX_CHUNK];
+    for (uint32_t i = 0; i < FX_CHUNK; i++) {
+        full[i] = 1.0f;
+    }
+    const float *const in[FX_CHANNELS] = { l, r };
+    float *const wet[FX_CHANNELS] = { wl, wr };
+    const long step = 24000, a0 = step + 240, a1 = step + 1200, total = step + 1200;
+    double sd[2] = { 0.0, 0.0 }, sy[2] = { 0.0, 0.0 };
+    float prev = 0.0f;
+    for (long t = 0; t < total; t += FX_CHUNK) {
+        for (uint32_t i = 0; i < FX_CHUNK; i++) {
+            const float amp = t + (long)i < step ? 0.01f : 0.4f;
+            l[i] = amp * noise();
+            r[i] = amp * noise();
+        }
+        d->process(st, in, wet, full, FX_CHUNK);
+        for (uint32_t i = 0; i < FX_CHUNK; i++) {
+            const long u = t + (long)i;
+            const int k = u >= a0 && u < a1 ? 0 : (u >= step / 2 && u < step ? 1 : -1);
+            if (k >= 0) {
+                sd[k] += (double)(wl[i] - prev) * (wl[i] - prev);
+                sy[k] += (double)wl[i] * wl[i];
+            }
+            prev = wl[i];
+        }
+    }
+    free(st);
+    return sqrt(sd[0] / sy[0]) / sqrt(sd[1] / sy[1]);
+}
+
+static void test_wah_onset(void)
+{
+    double s = wah_onset_ratio(&FX_EFFECTS[FX_I_WAH]);
+    double c = wah_onset_ratio(&FX_TEST_MUTANTS[FX_MUT_WAH_SLOW_ATTACK]);
+    if (g_verbose) {
+        printf("  auto-wah onset, 5..25 ms after a 32 dB step up: band at %.2fx the quiet one's; "
+               "control (400 ms attack) %.2fx; limit %.1fx\n", s, c, WAH_ONSET_MIN);
+    }
+    CHECK(s >= WAH_ONSET_MIN, "auto-wah: 5..25 ms into a loud note the band has moved only %.2fx",
+          s);
+    CHECK(c < WAH_ONSET_MIN, "auto-wah: control (400 ms attack) moved it %.2fx too", c);
+}
+
+/* --- the auto-wah actually sweeps ------------------------------------------ */
+
+/* White noise through the auto-wah at full depth, 0.5 s loud (0.4) then
+ * 0.5 s quiet (0.01), four times. In the last 0.25 s of each half, the wet's
+ * RMS frequency, rate / 2 pi x sqrt(E[dy^2] / E[y^2]): where the band-pass
+ * sits. Returns loud over quiet. Shipped: 3045 / 1510 Hz, 2.02x (the filter
+ * opens on the loud noise and closes on the quiet; the centre itself moves
+ * further, the band-pass's skirts pull this measure toward the middle).
+ * Control: the envelope never reaching the filter, 1.00x. Limit 1.5x. */
+#define WAH_SWEEP_MIN 1.5
+
+static double wah_sweep_ratio(const fx_effect_desc *d, double *loud_hz, double *quiet_hz)
+{
+    void *st = calloc(1, d->state_bytes);
+    CHECK(st != NULL && d->init(st, RATE) == 0, "init");
+    float l[FX_CHUNK], r[FX_CHUNK], wl[FX_CHUNK], wr[FX_CHUNK], full[FX_CHUNK];
+    for (uint32_t i = 0; i < FX_CHUNK; i++) {
+        full[i] = 1.0f;
+    }
+    const float *const in[FX_CHANNELS] = { l, r };
+    float *const wet[FX_CHANNELS] = { wl, wr };
+    const long half = 24000;
+    double sd[2] = { 0.0, 0.0 }, sy[2] = { 0.0, 0.0 };
+    float prev = 0.0f;
+    for (long t = 0; t < 8 * half; t += FX_CHUNK) {
+        const int quiet = (t / half) % 2;
+        const float amp = quiet ? 0.01f : 0.4f;
+        for (uint32_t i = 0; i < FX_CHUNK; i++) {
+            l[i] = amp * noise();
+            r[i] = amp * noise();
+        }
+        d->process(st, in, wet, full, FX_CHUNK);
+        for (uint32_t i = 0; i < FX_CHUNK; i++) {
+            if ((t + (long)i) % half >= half / 2) {
+                sd[quiet] += (double)(wl[i] - prev) * (wl[i] - prev);
+                sy[quiet] += (double)wl[i] * wl[i];
+            }
+            prev = wl[i];
+        }
+    }
+    free(st);
+    *loud_hz = RATE / (2.0 * M_PI) * sqrt(sd[0] / sy[0]);
+    *quiet_hz = RATE / (2.0 * M_PI) * sqrt(sd[1] / sy[1]);
+    return *loud_hz / *quiet_hz;
+}
+
+static void test_wah_sweeps(void)
+{
+    double lh, qh, clh, cqh;
+    double s = wah_sweep_ratio(&FX_EFFECTS[FX_I_WAH], &lh, &qh);
+    double c = wah_sweep_ratio(&FX_TEST_MUTANTS[FX_MUT_WAH_NO_SWEEP], &clh, &cqh);
+    if (g_verbose) {
+        printf("  auto-wah sweep: loud %.0f Hz / quiet %.0f Hz = %.2fx; control (no sweep) %.0f / "
+               "%.0f = %.2fx; limit %.1fx\n", lh, qh, s, clh, cqh, c, WAH_SWEEP_MIN);
+    }
+    CHECK(s >= WAH_SWEEP_MIN, "auto-wah: loud vs quiet moves the band only %.2fx", s);
+    CHECK(c < WAH_SWEEP_MIN, "auto-wah: control (no sweep) moved it %.2fx too", c);
+}
+
+/* --- the auto-wah never whistles ------------------------------------------- */
+
+/* A 20 ms noise burst (0.5) and then silence, through the auto-wah at 30 %
+ * (the band stays low, 280-530 Hz, where a resonance rings longest): how long
+ * after the burst the wet stays above -40 dB re its peak. A band-pass rings
+ * for about 4.6 x 2Q / (2 pi f): ~6 ms at Q 2.2 and 530 Hz, ~33 ms at Q 12.
+ * Limit 15 ms. Control: Q 12 (the whistle mutant). */
+#define WAH_RING_MAX_MS 15.0
+
+static double wah_ring_ms(const fx_effect_desc *d)
+{
+    void *st = calloc(1, d->state_bytes);
+    CHECK(st != NULL && d->init(st, RATE) == 0, "init");
+    float l[FX_CHUNK], r[FX_CHUNK], wl[FX_CHUNK], wr[FX_CHUNK], amt[FX_CHUNK];
+    for (uint32_t i = 0; i < FX_CHUNK; i++) {
+        amt[i] = 0.3f;
+    }
+    const float *const in[FX_CHANNELS] = { l, r };
+    float *const wet[FX_CHANNELS] = { wl, wr };
+    const long burst = 960, total = 960 + 24000;
+    float peak = 0.0f;
+    long last_loud = burst;
+    for (long t = 0; t < total; t += FX_CHUNK) {
+        for (uint32_t i = 0; i < FX_CHUNK; i++) {
+            l[i] = t + (long)i < burst ? 0.5f * noise() : 0.0f;
+            r[i] = l[i];
+        }
+        d->process(st, in, wet, amt, FX_CHUNK);
+        for (uint32_t i = 0; i < FX_CHUNK; i++) {
+            const float a = fabsf(wl[i]);
+            if (t + (long)i < burst) {
+                peak = fmaxf(peak, a);
+            } else if (a > 0.01f * peak) {
+                last_loud = t + (long)i;
+            }
+        }
+    }
+    free(st);
+    return 1000.0 * (double)(last_loud - burst) / RATE;
+}
+
+static void test_wah_never_whistles(void)
+{
+    double m = wah_ring_ms(&FX_EFFECTS[FX_I_WAH]);
+    double c = wah_ring_ms(&FX_TEST_MUTANTS[FX_MUT_WAH_WHISTLE]);
+    if (g_verbose) {
+        printf("  auto-wah ring-down to -40 dB after a burst: %.1f ms; control (Q 12) %.1f ms; "
+               "limit %.0f ms\n", m, c, WAH_RING_MAX_MS);
+    }
+    CHECK(m <= WAH_RING_MAX_MS, "auto-wah: rings %.1f ms after the input stops", m);
+    CHECK(c > WAH_RING_MAX_MS, "auto-wah: control (Q 12) rang only %.1f ms", c);
+}
+
+/* ========================================================================= */
 /* The chain (round 4)                                                        */
 /* ========================================================================= */
 
@@ -1931,6 +2584,8 @@ static void test_drive_asymmetry(void)
 #define BIT_CHORUS BIT(0)
 #define BIT_TREMOLO BIT(3)
 #define BIT_FLANGER BIT(4)
+#define BIT_ROTARY BIT(FX_I_ROTARY)
+#define BIT_WAH BIT(FX_I_WAH)
 
 /* --- static level: the output is the #149 mix times a constant ------------ */
 
@@ -1998,32 +2653,40 @@ static double static_level_residual_db(int k, float depth, float *gain)
 
 static void test_static_level(void)
 {
-    static const int ks[3] = { 0, 2, FX_I_FLANGER };
-    for (int j = 0; j < 3; j++) {
+    /* Every effect but two. The drive's own makeup is dynamic. The rotary's
+     * rotors integrate the knob's path into their angle, so a reference fed
+     * the target from the first frame runs at another angle for good (the
+     * residual reads about -9 dB with or without the control). Its level
+     * gain is the same table lookup as the other five's. */
+    static const int ks[5] = { 0, 2, 3, FX_I_FLANGER, FX_I_WAH };
+    for (int j = 0; j < 5; j++) {
         int k = ks[j];
+        const float at = 0.7f;
         float gain = 0.0f, cg = 0.0f;
-        double res = static_level_residual_db(k, 0.7f, &gain);
+        double res = static_level_residual_db(k, at, &gain);
         fx_test_level_wobble = 1;
-        double c = static_level_residual_db(k, 0.7f, &cg);
+        double c = static_level_residual_db(k, at, &cg);
         fx_test_level_wobble = 0;
         if (g_verbose) {
-            printf("  %-8s static level at 70%%: gain %+.2f dB, residual %.1f dB; control "
-                   "(gain wobbling +-0.5 dB) %.1f dB\n", FX_LABEL[k], db(gain), res, c);
+            printf("  %-8s static level at %.0f%%: gain %+.2f dB, residual %.1f dB; control "
+                   "(gain wobbling +-0.5 dB) %.1f dB\n", FX_LABEL[k], 100.0 * at, db(gain), res, c);
         }
         CHECK(res < -100.0, "%s: output is not the #149 mix times a constant: residual %.1f dB",
               FX_LABEL[k], res);
-        CHECK(gain > 1.0f, "%s: no level gain at 70%%: %+.2f dB", FX_LABEL[k], db(gain));
+        CHECK(gain > 1.0f, "%s: no level gain at %.0f%%: %+.2f dB", FX_LABEL[k], 100.0 * at,
+              db(gain));
         CHECK(c >= -100.0, "%s: control (wobbling gain) passed too: %.1f dB", FX_LABEL[k], c);
     }
 }
 
 /* --- order ----------------------------------------------------------------- */
 
-/* Five test effects that do not commute, in the shipped table's slots: the
- * drive's clips at ±0.1, the phaser's scales by 0.25, the flanger's is
- * 2x + 0.03, the chorus's adds 0.01, the tremolo's inverts. A constant 0.5
- * through all five in the shipped order (drive, phaser, flanger, chorus,
- * tremolo) is -(2 (0.25 * 0.1) + 0.03 + 0.01) = -0.09; swapping any two
+/* Seven test effects that do not commute, in the shipped table's slots: the
+ * drive's clips at ±0.1, the auto-wah's subtracts 0.02, the phaser's scales
+ * by 0.25, the flanger's is 2x + 0.03, the chorus's adds 0.01, the rotary's
+ * is x^2 + 0.005, the tremolo's inverts. A constant 0.5 through all seven in
+ * the shipped order (drive, auto-wah, phaser, flanger, chorus, rotary,
+ * tremolo): 0.1, 0.08, 0.02, 0.07, 0.08, 0.0114, -0.0114. Swapping any two
  * neighbours gives something else. */
 static int op_init(void *s, float r) { (void)s; (void)r; return 0; }
 #define OP(name, expr)                                                                 \
@@ -2044,15 +2707,20 @@ OP(op_clip, fminf(0.1f, fmaxf(-0.1f, x)))
 OP(op_scale, 0.25f * x)
 OP(op_neg, -x)
 OP(op_affine, 2.0f * x + 0.03f)
+OP(op_square, x * x + 0.005f)
+OP(op_sub, x - 0.02f)
+#define ORDER_OUT (-0.0114f)
 
 static float chain_order_output(void)
 {
     const fx_effect_desc ops[N_FX] = {
-        { "add", 1.0f, 1.0f, 0.0f, 0.0f, 1, op_init, op_add, NULL },
-        { "clip", 1.0f, 1.0f, 0.0f, 0.0f, 1, op_init, op_clip, NULL },
-        { "scale", 1.0f, 1.0f, 0.0f, 0.0f, 1, op_init, op_scale, NULL },
-        { "neg", 1.0f, 1.0f, 0.0f, 0.0f, 1, op_init, op_neg, NULL },
-        { "affine", 1.0f, 1.0f, 0.0f, 0.0f, 1, op_init, op_affine, NULL },
+        { "add", 1.0f, 1.0f, { 0.0f, 0.0f, 0.0f, 0.0f }, 1, op_init, op_add, NULL },
+        { "clip", 1.0f, 1.0f, { 0.0f, 0.0f, 0.0f, 0.0f }, 1, op_init, op_clip, NULL },
+        { "scale", 1.0f, 1.0f, { 0.0f, 0.0f, 0.0f, 0.0f }, 1, op_init, op_scale, NULL },
+        { "neg", 1.0f, 1.0f, { 0.0f, 0.0f, 0.0f, 0.0f }, 1, op_init, op_neg, NULL },
+        { "affine", 1.0f, 1.0f, { 0.0f, 0.0f, 0.0f, 0.0f }, 1, op_init, op_affine, NULL },
+        { "square", 1.0f, 1.0f, { 0.0f, 0.0f, 0.0f, 0.0f }, 1, op_init, op_square, NULL },
+        { "sub", 1.0f, 1.0f, { 0.0f, 0.0f, 0.0f, 0.0f }, 1, op_init, op_sub, NULL },
     };
     fx_engine e;
     CHECK(fx_engine_init(&e, ops, N_FX, RATE, DEPTH_MS, XFADE_MS) == 0, "init");
@@ -2073,20 +2741,24 @@ static void test_chain_order(void)
 {
     fx_engine e;
     CHECK(fx_engine_init(&e, FX_EFFECTS, FX_EFFECT_COUNT, RATE, DEPTH_MS, XFADE_MS) == 0, "init");
-    CHECK(FX_CHAIN_LEN == N_FX && e.order[0] == 1 && e.order[1] == 2 && e.order[2] == 4 &&
-          e.order[3] == 0 && e.order[4] == 3,
-          "run order is not drive, phaser, flanger, chorus, tremolo");
+    CHECK(FX_CHAIN_LEN == N_FX && e.order[0] == 1 && e.order[1] == FX_I_WAH && e.order[2] == 2 &&
+          e.order[3] == FX_I_FLANGER && e.order[4] == 0 && e.order[5] == FX_I_ROTARY &&
+          e.order[6] == 3,
+          "run order is not drive, auto-wah, phaser, flanger, chorus, rotary, tremolo");
     fx_engine_free(&e);
     float y = chain_order_output();
     fx_test_reverse_order = 1;
     float c = chain_order_output();
     fx_test_reverse_order = 0;
     if (g_verbose) {
-        printf("  chain    order: %.6f (drive, phaser, flanger, chorus, tremolo = -0.09); "
-               "control (reversed) %.6f\n", (double)y, (double)c);
+        printf("  chain    order: %.6f (drive, auto-wah, phaser, flanger, chorus, rotary, "
+               "tremolo = %.4f); control (reversed) %.6f\n", (double)y, (double)ORDER_OUT,
+               (double)c);
     }
-    CHECK(fabsf(y + 0.09f) < 1e-6f, "chain order: 0.5 came out %.6f, not -0.09", (double)y);
-    CHECK(fabsf(c + 0.09f) >= 1e-6f, "chain order: control (reversed) gave -0.09 too");
+    CHECK(fabsf(y - ORDER_OUT) < 1e-6f, "chain order: 0.5 came out %.6f, not %.4f", (double)y,
+          (double)ORDER_OUT);
+    CHECK(fabsf(c - ORDER_OUT) >= 1e-6f, "chain order: control (reversed) gave %.4f too",
+          (double)ORDER_OUT);
 }
 
 /* --- bypass: an empty mask --------------------------------------------- */
@@ -2131,12 +2803,12 @@ static void test_chain_bypass(void)
     size_t m1 = bypass_mismatches_mask(0u, 1.0f, FX_ALL);
     size_t m2 = bypass_mismatches_mask(FX_ALL, 0.0f, FX_ALL);
     CHECK(m0 == 0, "empty mask at full depth: %zu periods differ from the input", m0);
-    CHECK(m1 == 0, "empty mask after all five: %zu periods differ from the input", m1);
-    CHECK(m2 == 0, "all five at depth 0: %zu periods differ from the input", m2);
+    CHECK(m1 == 0, "empty mask after all seven: %zu periods differ from the input", m1);
+    CHECK(m2 == 0, "all seven at depth 0: %zu periods differ from the input", m2);
     size_t c = bypass_mismatches_mask(FX_ALL, 1.0f / 127.0f, FX_ALL);
-    CHECK(c > 0, "control (all five at depth 1/127) also identical: the comparison is blind");
+    CHECK(c > 0, "control (all seven at depth 1/127) also identical: the comparison is blind");
     if (g_verbose) {
-        printf("  chain    bypass: empty mask %zu, after all five %zu, depth 0 %zu differing "
+        printf("  chain    bypass: empty mask %zu, after all seven %zu, depth 0 %zu differing "
                "periods; control (1/127) %zu\n", m0, m1, m2, c);
     }
 }
@@ -2147,7 +2819,8 @@ static void test_chain_toggles(void)
 {
     const uint32_t masks[] = {
         0u, BIT_DRIVE, BIT_DRIVE | BIT_CHORUS, BIT_CHORUS, FX_ALL, BIT_PHASER | BIT_TREMOLO,
-        0u, FX_ALL, BIT_TREMOLO, BIT_FLANGER, BIT_PHASER | BIT_FLANGER, BIT_PHASER,
+        0u, FX_ALL, BIT_TREMOLO, BIT_FLANGER, BIT_ROTARY, BIT_WAH | BIT_ROTARY, BIT_WAH,
+        BIT_DRIVE | BIT_WAH, BIT_PHASER | BIT_FLANGER, BIT_PHASER,
     };
     const int segs = (int)(sizeof(masks) / sizeof(masks[0]));
     float depths[sizeof(masks) / sizeof(masks[0])];
@@ -2157,8 +2830,10 @@ static void test_chain_toggles(void)
     fx_engine e;
     CHECK(fx_engine_init(&e, FX_EFFECTS, FX_EFFECT_COUNT, RATE, DEPTH_MS, XFADE_MS) == 0, "init");
     steps s = measure_steps_sig(&e, masks, depths, segs, 190, 60, 0.1f, 110.0f);
-    int landed = e.on[2] == 1.0f && e.on[0] == 0.0f && e.on[1] == 0.0f && e.on[3] == 0.0f &&
-                 e.on[4] == 0.0f;
+    int landed = 1;
+    for (int k = 0; k < N_FX; k++) {
+        landed &= e.on[k] == (k == 2 ? 1.0f : 0.0f);
+    }
     fx_engine_free(&e);
     CHECK(fx_engine_init(&e, FX_EFFECTS, FX_EFFECT_COUNT, RATE, DEPTH_MS, 0.0) == 0, "init");
     steps c = measure_steps_sig(&e, masks, depths, segs, 190, 60, 0.1f, 110.0f);
@@ -2174,46 +2849,99 @@ static void test_chain_toggles(void)
           (double)c.worst, (double)c.settled);
 }
 
-/* --- never louder, any mask ---------------------------------------------- */
+/* --- unity, any mask ------------------------------------------------------- */
 
-/* One mask (1..31) at 0, 50 and 100 %, every signal; at 0, the control: one
- * hot stage (phaser and chorus 0.5 dB hot) inside the chain. */
+/* One mask (1..127), or a control (CHAIN_CTL_*): the bounds are CHAIN_LO_DB..
+ * CHAIN_HI_DB on the keys and CEIL_DB on every signal (see UNITY_TOL_DB).
+ *
+ * The 31 masks of the first five effects: 0, 50 and 100 %, every signal. The
+ * 96 with the rotary or the auto-wah: 50 and 100 %, on loud noise and the
+ * keys, in shorter windows (g_short_windows). Depth 0 is the input bit for
+ * bit (test_chain_bypass), so it reads 0 dB by construction. The pure tones
+ * of the old masks are the narrowest spectrum there is, and they are swept
+ * with every old stage; the noise and the keys carry the broadband and the
+ * real-material cases for the new ones. All 96 x 8 signals x 3 depths would
+ * have cost about 20 s of wall time on a 16-core laptop; these cost about 3.
+ *
+ * Controls, each on the mask nearest the bound it tests: phaser, flanger and
+ * rotary (the loudest at full) with every level curve 0.5 dB hot; chorus,
+ * drive, tremolo and flanger (the quietest) 0.5 dB cold; phaser and flanger
+ * with the phaser's feedback at 0.95, for the ceiling. */
+#define NEW_FX (BIT_ROTARY | BIT_WAH)
+#define CHAIN_NEW_SIGNALS ((1u << 0) | MASK_KEYS)
+#define CHAIN_CTL_HOT ((int)FX_ALL + 1)
+#define CHAIN_CTL_COLD ((int)FX_ALL + 2)
+#define CHAIN_CTL_CEIL ((int)FX_ALL + 3)
+#define CHAIN_HOT_MASK (BIT_PHASER | BIT_FLANGER | BIT_ROTARY)
+#define CHAIN_COLD_MASK (BIT_CHORUS | BIT_DRIVE | BIT_TREMOLO | BIT_FLANGER)
 static void chain_level_part(int m, void *slot)
 {
     level_result *out = slot;
-    if (m == 0) {
-        fx_test_level_hot = 1;
-        *out = level_sweep(FX_EFFECTS, BIT_DRIVE | BIT_PHASER | BIT_CHORUS, MASK_ALL, 2, NULL);
+    if (m == CHAIN_CTL_HOT || m == CHAIN_CTL_COLD) {
+        fx_test_level_hot = m == CHAIN_CTL_HOT;
+        fx_test_level_cold = m == CHAIN_CTL_COLD;
+        g_short_windows = 1;
+        *out = level_sweep_from(FX_EFFECTS, m == CHAIN_CTL_HOT ? CHAIN_HOT_MASK : CHAIN_COLD_MASK,
+                                MASK_KEYS, 1, 2, NULL);
+        g_short_windows = 0;
         fx_test_level_hot = 0;
+        fx_test_level_cold = 0;
+        return;
+    }
+    if (m == CHAIN_CTL_CEIL) {
+        *out = level_sweep_from(table_with(2, &FX_TEST_MUTANTS[FX_MUT_PHASER_HOT_FEEDBACK]),
+                                BIT_PHASER | BIT_FLANGER, MASK_ALL, 1, 2, NULL);
+        return;
+    }
+    if ((uint32_t)m & NEW_FX) {
+        g_short_windows = 1;
+        *out = level_sweep_from(FX_EFFECTS, (uint32_t)m, CHAIN_NEW_SIGNALS, 1, 2, NULL);   /* 50, 100 % */
+        g_short_windows = 0;
         return;
     }
     *out = level_sweep(FX_EFFECTS, (uint32_t)m, MASK_ALL, 2, NULL);   /* 0, 50, 100 % */
 }
 
-static int g_chain_case[FX_ALL + 1];   /* the case holding each mask's part */
+static int g_chain_case[CHAIN_CTL_CEIL + 1];   /* the case holding each part; [0] unused */
 
 static void test_chain_level_bound(int unused)
 {
     (void)unused;
-    float worst = 0.0f;
-    uint32_t at_mask = 0;
+    double hi = -1e9, lo = 1e9, top = -1e9;
+    uint32_t at_hi = 0, at_lo = 0, at_top = 0;
     for (uint32_t m = 1; m <= FX_ALL; m++) {
         const level_result *r = slot_of(g_chain_case[m]);
-        if (r->rms_max > worst) {
-            worst = r->rms_max;
-            at_mask = m;
+        const double h = db(r->rms_hi[SIG_I_KEYS]), l = db(r->rms_min[SIG_I_KEYS]);
+        if (h > hi) {
+            hi = h;
+            at_hi = m;
         }
-        CHECK(r->rms_max <= RMS_MARGIN, "chain mask %u: output RMS %.4fx input x makeup (depth "
-              "%.2f, %s)",
-              (unsigned)m, (double)r->rms_max, (double)r->at_depth,
-              LEVEL_SIGNAL_LABEL[r->at_signal]);
+        if (l < lo) {
+            lo = l;
+            at_lo = m;
+        }
+        if (db(r->rms_max) > top) {
+            top = db(r->rms_max);
+            at_top = m;
+        }
+        CHECK(h <= CHAIN_HI_DB && l >= CHAIN_LO_DB, "chain mask %u: keys %+.3f..%+.3f dB vs dry x "
+              "makeup, bounds %+.2f..%+.2f", (unsigned)m, l, h, CHAIN_LO_DB, CHAIN_HI_DB);
+        CHECK(db(r->rms_max) <= CEIL_DB, "chain mask %u: output RMS %+.3f dB over dry x makeup "
+              "(depth %.2f, %s), ceiling %+.1f", (unsigned)m, db(r->rms_max),
+              (double)r->at_depth, LEVEL_SIGNAL_LABEL[r->at_signal], CEIL_DB);
     }
-    const level_result *c = slot_of(g_chain_case[0]);
-    CHECK(c->rms_max > RMS_MARGIN, "chain: control (hot level curve) passed: %+.3f dB",
-          db(c->rms_max));
+    const double chot = db(((const level_result *)slot_of(g_chain_case[CHAIN_CTL_HOT]))->rms_hi[SIG_I_KEYS]);
+    const double ccold = db(((const level_result *)slot_of(g_chain_case[CHAIN_CTL_COLD]))->rms_min[SIG_I_KEYS]);
+    const double cceil = db(((const level_result *)slot_of(g_chain_case[CHAIN_CTL_CEIL]))->rms_max);
+    CHECK(chot > CHAIN_HI_DB, "chain: control (curves hot) passed: keys %+.3f dB", chot);
+    CHECK(ccold < CHAIN_LO_DB, "chain: control (curves cold) passed: keys %+.3f dB", ccold);
+    CHECK(cceil > CEIL_DB, "chain: control (phaser feedback 0.95) passed the ceiling: %+.3f dB",
+          cceil);
     if (g_verbose) {
-        printf("  chain    level vs makeup: worst RMS over all 31 masks %+.3f dB (mask %u); "
-               "control (hot) %+.3f dB\n", db(worst), (unsigned)at_mask, db(c->rms_max));
+        printf("  chain    keys vs makeup over all 127 masks: %+.3f dB (mask %u) .. %+.3f dB "
+               "(mask %u); any signal at most %+.3f dB (mask %u); controls: hot %+.3f, cold "
+               "%+.3f, ceiling %+.3f dB\n", lo, (unsigned)at_lo, hi, (unsigned)at_hi, top,
+               (unsigned)at_top, chot, ccold, cceil);
     }
 }
 
@@ -2300,7 +3028,7 @@ static void test_level_is_a_depth_product(void)
     /* Levels NULL (the `chain` command) and every level 1.0 are one thing. */
     levels_run(FX_ALL, 0.6f, NULL, LV_PERIODS, LV_KEEP, a);
     levels_run(FX_ALL, 0.6f, one, LV_PERIODS, LV_KEEP, b);
-    CHECK(same_output(a, b), "all five: levels 1.0 differ from no levels");
+    CHECK(same_output(a, b), "all seven: levels 1.0 differ from no levels");
     /* Out of range and NaN are clamped: 7 is 1, -1 and NaN are 0. */
     float wild[FX_MAX_EFFECTS], tame[FX_MAX_EFFECTS];
     for (int k = 0; k < FX_MAX_EFFECTS; k++) {
@@ -2309,16 +3037,16 @@ static void test_level_is_a_depth_product(void)
     }
     levels_run(FX_ALL, 0.6f, wild, LV_PERIODS, LV_KEEP, a);
     levels_run(FX_ALL, 0.6f, tame, LV_PERIODS, LV_KEEP, b);
-    CHECK(same_output(a, b), "all five: levels 7 / -1 / NaN are not 1 / 0 / 0");
+    CHECK(same_output(a, b), "all seven: levels 7 / -1 / NaN are not 1 / 0 / 0");
     if (g_verbose) {
-        printf("  levels   d = shared x level, bit for bit for all five; controls (0.5 vs 1.0) "
+        printf("  levels   d = shared x level, bit for bit for all seven; controls (0.5 vs 1.0) "
                "differ: %s\n", controls_differ ? "yes" : "NO");
     }
 }
 
-/* A stage at level 0 is not in the chain: all five with drive and chorus at
- * level 0 is, bit for bit, phaser + flanger + tremolo alone. Control: level
- * 1/127 must differ. */
+/* A stage at level 0 is not in the chain: all seven with drive and chorus at
+ * level 0 is, bit for bit, the other five alone. Control: level 1/127 must
+ * differ. */
 static void test_level_zero_is_off(void)
 {
     static float a[LV_KEEP * PERIOD], b[LV_KEEP * PERIOD], c[LV_KEEP * PERIOD];
@@ -2329,7 +3057,7 @@ static void test_level_zero_is_off(void)
     lv[0] = lv[1] = 0.0f;                  /* chorus, drive */
     tiny[0] = tiny[1] = 1.0f / 127.0f;
     levels_run(FX_ALL, 0.8f, lv, LV_PERIODS, LV_KEEP, a);
-    levels_run(BIT_PHASER | BIT_FLANGER | BIT_TREMOLO, 0.8f, NULL, LV_PERIODS, LV_KEEP, b);
+    levels_run(FX_ALL & ~(BIT_CHORUS | BIT_DRIVE), 0.8f, NULL, LV_PERIODS, LV_KEEP, b);
     levels_run(FX_ALL, 0.8f, tiny, LV_PERIODS, LV_KEEP, c);
     CHECK(same_output(a, b), "level 0 is not the same as the effect off");
     CHECK(!same_output(c, b), "control (level 1/127) identical to off: the comparison is blind");
@@ -2343,7 +3071,7 @@ static size_t levels_bypass_mismatches(const float *after)
     CHECK(fx_engine_init(&e, FX_EFFECTS, FX_EFFECT_COUNT, RATE, DEPTH_MS, XFADE_MS) == 0, "init");
     float l[PERIOD], r[PERIOD], ol[PERIOD], or_[PERIOD], keep_l[PERIOD], keep_r[PERIOD];
     size_t mismatches = 0;
-    for (int p = 0; p < 100; p++) {   /* 0.5 s of all five at full levels first */
+    for (int p = 0; p < 100; p++) {   /* 0.5 s of all seven at full levels first */
         for (uint32_t i = 0; i < PERIOD; i++) {
             l[i] = 0.5f * noise();
             r[i] = 0.5f * noise();
@@ -2381,7 +3109,7 @@ static void test_levels_zero_is_bypass(void)
     }
     size_t m = levels_bypass_mismatches(zero);
     size_t c = levels_bypass_mismatches(tiny);
-    CHECK(m == 0, "all five, every level 0: %zu periods differ from the input", m);
+    CHECK(m == 0, "all seven, every level 0: %zu periods differ from the input", m);
     CHECK(c > 0, "control (every level 1/127) also identical: the comparison is blind");
     if (g_verbose) {
         printf("  levels   every level 0 after full: %zu differing periods; control (1/127) %zu\n",
@@ -2390,7 +3118,7 @@ static void test_levels_zero_is_bypass(void)
 }
 
 /* Level moves are smoothed like knob moves: steps between segments at a fixed
- * depth, for each effect alone and for all five at once. Control: the same
+ * depth, for each effect alone and for all seven at once. Control: the same
  * moves with smoothing off must click. */
 #define LV_SEGS 6
 static const float LV_STEPS[LV_SEGS] = { 1.0f, 0.2f, 1.0f, 0.0f, 0.6f, 1.0f };
@@ -2443,7 +3171,7 @@ static void test_level_steps_have_no_click(void)
         } else {
             step_signal(k, &amp, &hz);
         }
-        const char *label = chain ? "all five" : FX_LABEL[k];
+        const char *label = chain ? "all seven" : FX_LABEL[k];
         fx_engine e;
         CHECK(fx_engine_init(&e, FX_EFFECTS, FX_EFFECT_COUNT, RATE, DEPTH_MS, XFADE_MS) == 0,
               "init");
@@ -2464,50 +3192,67 @@ static void test_level_steps_have_no_click(void)
     }
 }
 
-/* Never louder than the makeup at any levels, argued down to the cases
- * nothing else covers.
+/* Unity at any levels, argued down to the cases nothing else covers.
  * A level only sets a stage's depth (d_k = shared x level_k, bit for bit:
  * test_level_is_a_depth_product), so:
  *  - one stage on, any level: that effect at some depth, which its own sweep
- *    (test_pack_level_bound, 21 depths, every signal) already bounds;
+ *    (test_pack_level_bound, 21 depths) already holds to unity;
  *  - a level 0 stage is not in the chain (test_level_zero_is_off), so "one at
  *    1, the rest 0" is the one-stage case again;
  *  - every level equal (all 1, all 0.5): the chain at one shared depth, which
- *    test_chain_level_bound sweeps over all 31 masks.
- * What is left is unequal levels inside a chain of two or more. The two
- * alternating vectors (and each the other's complement) give every adjacent
- * pair of stages both orders of loud-then-quiet, on every multi-stage mask, at
- * full depth, on loud noise and the keys. Control: the same check with the
- * level curve 0.5 dB hot must fail. A full level grid (31 masks x N^5) is
- * neither needed nor affordable: the self-test runs on every CI push. */
+ *    test_chain_level_bound sweeps over all 127 masks.
+ * What is left is unequal levels inside a chain of two or more. Two level
+ * vectors, each the other's complement, so every pair of stages whose levels
+ * differ is heard both loud-then-quiet and quiet-then-loud, on every multi-
+ * stage mask, at full depth: the 26 masks of the first five effects on loud
+ * noise and the keys, the 94 with the rotary or the auto-wah on the keys
+ * alone, in shorter windows. The bounds are the chain's (CHAIN_LO_DB..
+ * CHAIN_HI_DB on the keys, CEIL_DB on the noise), against the makeup of the
+ * loudest stage's level. Controls: the curves 0.5 dB hot on phaser, flanger
+ * and rotary, and 0.5 dB cold on chorus, drive, tremolo and flanger (the
+ * chain controls' masks), both vectors. A full level grid (127 masks x N^7)
+ * is neither needed nor affordable: the self-test runs on every CI push. */
 #define LV_VECTORS 2
 static const float LEVEL_VECTORS[LV_VECTORS][N_FX] = {
-    { 1.0f, 0.3f, 1.0f, 0.3f, 1.0f },       /* by id: chorus, drive, phaser, tremolo, flanger */
-    { 0.3f, 1.0f, 0.3f, 1.0f, 0.3f },
+    /* by id: chorus, drive, phaser, tremolo, flanger, rotary, auto-wah */
+    { 1.0f, 0.3f, 1.0f, 0.3f, 1.0f, 0.3f, 1.0f },
+    { 0.3f, 1.0f, 0.3f, 1.0f, 0.3f, 1.0f, 0.3f },
 };
 #define LEVEL_VECTOR_SIGNALS ((1u << 0) | MASK_KEYS)   /* noise.5 and keys */
-
-static int popcount5(uint32_t m)
-{
-    int n = 0;
-    for (; m != 0; m &= m - 1) {
-        n++;
-    }
-    return n;
-}
+#define LEVEL_VECTOR_SIGNALS_NEW MASK_KEYS
 
 typedef struct {
-    float worst;
-    uint32_t at_mask;
-    int at_vector;
+    float hi, lo, top;          /* keys max and min, any signal max: out / (in x G) */
+    uint32_t at_hi, at_lo;
+    int v_hi, v_lo;
 } vector_worst;
 
+static vector_worst vector_init(void)
+{
+    return (vector_worst){ 0.0f, 1e9f, 0.0f, 0u, 0u, -1, -1 };
+}
+
+static void vector_fold(vector_worst *w, const vector_worst *p)
+{
+    if (p->hi > w->hi) {
+        w->hi = p->hi;
+        w->at_hi = p->at_hi;
+        w->v_hi = p->v_hi;
+    }
+    if (p->lo < w->lo) {
+        w->lo = p->lo;
+        w->at_lo = p->at_lo;
+        w->v_lo = p->v_lo;
+    }
+    w->top = fmaxf(w->top, p->top);
+}
+
 /* Masks mask_from..mask_to of two or more stages, level vectors vi_from..
- * vi_to, in that order: the first strictly loudest wins. */
+ * vi_to, in that order. */
 static vector_worst levels_vector_worst(uint32_t mask_from, uint32_t mask_to, int vi_from,
                                         int vi_to)
 {
-    vector_worst w = { 0.0f, 0u, -1 };
+    vector_worst w = vector_init();
     float lv[FX_MAX_EFFECTS];
     const float *saved = g_levels;
     g_levels = lv;
@@ -2516,21 +3261,20 @@ static vector_worst levels_vector_worst(uint32_t mask_from, uint32_t mask_to, in
             lv[k] = k < N_FX ? LEVEL_VECTORS[vi][k] : 1.0f;
         }
         for (uint32_t m = mask_from; m <= mask_to; m++) {
-            if (popcount5(m) < 2) {
+            if (popcount(m) < 2) {
                 continue;   /* one stage: its own depth sweep covers it (above) */
             }
+            const unsigned sigs = (m & NEW_FX) ? LEVEL_VECTOR_SIGNALS_NEW : LEVEL_VECTOR_SIGNALS;
             for (int sgi = 0; sgi < N_LEVEL_SIGNALS; sgi++) {
-                if (!(LEVEL_VECTOR_SIGNALS & (1u << sgi))) {
+                if (!(sigs & (1u << sgi))) {
                     continue;
                 }
                 float rr, pr;
                 level_at(FX_EFFECTS, m, sgi, 1.0f, &rr, &pr);
                 rr /= makeup_gain(makeup_m(m, 1.0f));   /* the loudest stage's level */
-                if (rr > w.worst) {
-                    w.worst = rr;
-                    w.at_mask = m;
-                    w.at_vector = vi;
-                }
+                const vector_worst p = { sgi == SIG_I_KEYS ? rr : 0.0f,
+                                         sgi == SIG_I_KEYS ? rr : 1e9f, rr, m, m, vi, vi };
+                vector_fold(&w, &p);
             }
         }
     }
@@ -2538,47 +3282,58 @@ static vector_worst levels_vector_worst(uint32_t mask_from, uint32_t mask_to, in
     return w;
 }
 
-/* Part `arg` = vector * 32 + mask, in a worker; LV_CONTROL_PART is the
- * control: the level curve 0.5 dB hot, phaser and chorus, both vectors. */
-#define LV_CONTROL_PART (LV_VECTORS * 32)
-static void levels_never_louder_part(int arg, void *slot)
+/* Part `arg` = vector * 128 + mask, in a worker; LV_CTL_HOT and LV_CTL_COLD
+ * are the controls. */
+#define LV_MASKS ((int)FX_ALL + 1)
+#define LV_CTL_HOT (LV_VECTORS * LV_MASKS)
+#define LV_CTL_COLD (LV_CTL_HOT + 1)
+static void levels_unity_part(int arg, void *slot)
 {
     vector_worst *out = slot;
-    if (arg == LV_CONTROL_PART) {
-        fx_test_level_hot = 1;
-        *out = levels_vector_worst(BIT_PHASER | BIT_CHORUS, BIT_PHASER | BIT_CHORUS, 0,
-                                   LV_VECTORS - 1);
+    if (arg == LV_CTL_HOT || arg == LV_CTL_COLD) {
+        const uint32_t m = arg == LV_CTL_HOT ? CHAIN_HOT_MASK : CHAIN_COLD_MASK;
+        fx_test_level_hot = arg == LV_CTL_HOT;
+        fx_test_level_cold = arg == LV_CTL_COLD;
+        g_short_windows = 1;
+        *out = levels_vector_worst(m, m, 0, LV_VECTORS - 1);
+        g_short_windows = 0;
         fx_test_level_hot = 0;
+        fx_test_level_cold = 0;
         return;
     }
-    const uint32_t m = (uint32_t)(arg % 32);
-    *out = levels_vector_worst(m, m, arg / 32, arg / 32);
+    const uint32_t m = (uint32_t)(arg % LV_MASKS);
+    g_short_windows = (m & NEW_FX) != 0;
+    *out = levels_vector_worst(m, m, arg / LV_MASKS, arg / LV_MASKS);
+    g_short_windows = 0;
 }
 
-static int g_lv_case[LV_CONTROL_PART + 1];   /* -1: no such part (one stage) */
+static int g_lv_case[LV_CTL_COLD + 1];   /* -1: no such part (one stage) */
 
-static void test_levels_never_louder(int unused)
+static void test_levels_unity(int unused)
 {
     (void)unused;
-    vector_worst w = { 0.0f, 0u, -1 };
-    for (int arg = 0; arg < LV_CONTROL_PART; arg++) {
-        if (g_lv_case[arg] < 0) {
-            continue;
-        }
-        const vector_worst *part = slot_of(g_lv_case[arg]);
-        if (part->worst > w.worst) {
-            w = *part;
+    vector_worst w = vector_init();
+    for (int arg = 0; arg < LV_CTL_HOT; arg++) {
+        if (g_lv_case[arg] >= 0) {
+            vector_fold(&w, slot_of(g_lv_case[arg]));
         }
     }
-    CHECK(w.worst <= RMS_MARGIN, "levels: output RMS %+.3f dB over input x makeup (mask %u, level "
-          "vector %d)", db(w.worst), (unsigned)w.at_mask, w.at_vector);
-    const vector_worst *c = slot_of(g_lv_case[LV_CONTROL_PART]);
-    CHECK(c->worst > RMS_MARGIN, "levels: control (hot level curve) passed: %+.3f dB",
-          db(c->worst));
+    CHECK(db(w.hi) <= CHAIN_HI_DB, "levels: keys %+.3f dB over dry x makeup (mask %u, level "
+          "vector %d), bound %+.2f", db(w.hi), (unsigned)w.at_hi, w.v_hi, CHAIN_HI_DB);
+    CHECK(db(w.lo) >= CHAIN_LO_DB, "levels: keys %+.3f dB under dry x makeup (mask %u, level "
+          "vector %d), bound %+.2f", db(w.lo), (unsigned)w.at_lo, w.v_lo, CHAIN_LO_DB);
+    CHECK(db(w.top) <= CEIL_DB, "levels: output RMS %+.3f dB over dry x makeup, ceiling %+.1f",
+          db(w.top), CEIL_DB);
+    const double chot = db(((const vector_worst *)slot_of(g_lv_case[LV_CTL_HOT]))->hi);
+    const double ccold = db(((const vector_worst *)slot_of(g_lv_case[LV_CTL_COLD]))->lo);
+    CHECK(chot > CHAIN_HI_DB, "levels: control (curves hot) passed: keys %+.3f dB", chot);
+    CHECK(ccold < CHAIN_LO_DB, "levels: control (curves cold) passed: keys %+.3f dB", ccold);
     if (g_verbose) {
-        printf("  levels   worst RMS vs makeup over 26 multi-stage masks x %d alternating level "
-               "vectors: %+.3f dB (mask %u, vector %d); control (hot) %+.3f dB\n", LV_VECTORS,
-               db(w.worst), (unsigned)w.at_mask, w.at_vector, db(c->worst));
+        printf("  levels   keys vs makeup over 120 multi-stage masks x %d complementary level "
+               "vectors: %+.3f dB (mask %u, vector %d) .. %+.3f dB (mask %u, vector %d); any "
+               "signal at most %+.3f dB; controls: hot %+.3f, cold %+.3f dB\n", LV_VECTORS,
+               db(w.lo), (unsigned)w.at_lo, w.v_lo, db(w.hi), (unsigned)w.at_hi, w.v_hi,
+               db(w.top), chot, ccold);
     }
 }
 
@@ -2651,18 +3406,19 @@ static float makeup_ratio(uint32_t fx, float depth, int broken)
 }
 
 /* The makeup is there, once per chain, and scales with depth. At full depth,
- * each effect alone and all five: at least +0.7 dB over the same chain
- * without it, and not more than FX_MAKEUP_DB + 0.1 dB (five stages each
- * adding it would be +5). At half depth: within 0.1 dB of half of it (a
+ * each effect alone and all seven: at least +0.7 dB over the same chain
+ * without it, and not more than FX_MAKEUP_DB + 0.1 dB (seven stages each
+ * adding it would be +7). At half depth: within 0.1 dB of half of it (a
  * makeup that ignored depth would be the whole of it). The upper bounds
  * elsewhere hold the output to the makeup; this is the bound under it, which
  * a makeup that silently did nothing would fail. Control: the makeup off. */
 #define MAKEUP_FLOOR_DB 0.7
 static void test_makeup_is_applied(void)
 {
-    static const uint32_t masks[N_FX + 1] = { BIT(0), BIT(1), BIT(2), BIT(3), BIT(4), FX_ALL };
+    static const uint32_t masks[N_FX + 1] = { BIT(0), BIT(1), BIT(2), BIT(3), BIT(4), BIT(5),
+                                               BIT(6), FX_ALL };
     for (int j = 0; j <= N_FX; j++) {
-        const char *label = j == N_FX ? "all five" : FX_LABEL[j];
+        const char *label = j == N_FX ? "all seven" : FX_LABEL[j];
         double full = db(makeup_ratio(masks[j], 1.0f, 0));
         double half = db(makeup_ratio(masks[j], 0.5f, 0));
         if (g_verbose) {
@@ -2676,14 +3432,14 @@ static void test_makeup_is_applied(void)
     }
     double c = db(makeup_ratio(FX_ALL, 1.0f, 1));
     if (g_verbose) {
-        printf("  all five makeup control (makeup off): full %+.3f dB\n", c);
+        printf("  all seven makeup control (makeup off): full %+.3f dB\n", c);
     }
     CHECK(c < MAKEUP_FLOOR_DB, "makeup: control (makeup off) met the floor: %+.3f dB", c);
 }
 
 /* The makeup moves smoothly. The generic click criterion (largest step vs
  * the settled signal's) is too coarse for a 1 dB gain step on a resonant
- * effect: on the phaser and on all five, a makeup that jumped to its target
+ * effect: on the phaser and on all seven, a makeup that jumped to its target
  * passed it. So this reads the gain itself: two engines, one with the makeup
  * off, the same input and the same moves (depth, levels, mask). Their ratio,
  * frame by frame, is G(m) exactly (both clamp-free at this level), so its
@@ -2704,7 +3460,7 @@ typedef struct {
 
 static makeup_motion makeup_moves(int j, int broken)
 {
-    /* Effect j alone, or (j == N_FX) all five with the alternating levels, so
+    /* Effect j alone, or (j == N_FX) all seven with the alternating levels, so
      * a mask change moves m too. */
     const int chain = j == N_FX;
     const uint32_t all = chain ? FX_ALL : BIT(j);
@@ -2726,9 +3482,14 @@ static makeup_motion makeup_moves(int j, int broken)
             lv[k] = chain && k < N_FX ? LEVEL_VECTORS[0][k] : 1.0f;
         }
         if (seg == 3) {
-            lv[chain ? 0 : j] = 0.2f;              /* a level step down */
             if (chain) {
-                lv[2] = lv[4] = 0.2f;              /* every level-1 stage */
+                for (int k = 0; k < N_FX; k++) {
+                    if (lv[k] == 1.0f) {
+                        lv[k] = 0.2f;              /* every level-1 stage steps down */
+                    }
+                }
+            } else {
+                lv[j] = 0.2f;                      /* a level step down */
             }
         } else if (seg == 4) {
             mask = chain ? BIT_TREMOLO : 0u;       /* toggled off (chain: to m = 0.3) */
@@ -2769,7 +3530,7 @@ static makeup_motion makeup_moves(int j, int broken)
 static void test_makeup_moves_smoothly(void)
 {
     for (int j = 0; j <= N_FX; j++) {
-        const char *label = j == N_FX ? "all five" : FX_LABEL[j];
+        const char *label = j == N_FX ? "all seven" : FX_LABEL[j];
         makeup_motion m = makeup_moves(j, 0);
         makeup_motion c = makeup_moves(j, 1);
         if (g_verbose) {
@@ -2831,7 +3592,7 @@ typedef struct {
     int weight;                         /* launch heavy cases first */
 } st_case;
 
-#define MAX_CASES 512
+#define MAX_CASES 1024
 static st_case g_cases[MAX_CASES];
 static int g_ncases;
 static int *g_case_failures;   /* shared: each worker's failed-check count */
@@ -2891,6 +3652,14 @@ CASE0(test_drive_aliasing)
 CASE0(test_drive_smoothness)
 CASE0(test_drive_asymmetry)
 CASE0(test_pack_swaps)
+CASE0(test_tremolo_smoothness)
+CASE0(test_rotary_pitch)
+CASE0(test_rotary_inertia)
+CASE0(test_rotary_power)
+CASE0(test_wah_onset)
+CASE0(test_wah_peak_gain)
+CASE0(test_wah_sweeps)
+CASE0(test_wah_never_whistles)
 CASE0(test_static_level)
 CASE0(test_chain_order)
 CASE0(test_chain_bypass)
@@ -2984,15 +3753,29 @@ static void build_cases(void)
     add_case("drive smoothness", 0, case_test_drive_smoothness, NULL, 1);
     add_case("drive asymmetry", 0, case_test_drive_asymmetry, NULL, 1);
     add_case("swaps", 0, case_test_pack_swaps, NULL, 2);
+    add_case("tremolo smoothness", 0, case_test_tremolo_smoothness, NULL, 1);
+    add_case("rotary pitch", 0, case_test_rotary_pitch, NULL, 2);
+    add_case("rotary inertia", 0, case_test_rotary_inertia, NULL, 1);
+    add_case("rotary power", 0, case_test_rotary_power, NULL, 1);
+    add_case("auto-wah onset", 0, case_test_wah_onset, NULL, 1);
+    add_case("auto-wah peak gain", 0, case_test_wah_peak_gain, NULL, 1);
+    add_case("feedback auto-wah", FX_I_WAH, case_test_feedback_stability, NULL, 3);
+    add_case("auto-wah sweep", 0, case_test_wah_sweeps, NULL, 1);
+    add_case("auto-wah whistle", 0, case_test_wah_never_whistles, NULL, 1);
 
     /* The chain. */
     add_case("chain static level", 0, case_test_static_level, NULL, 1);
     add_case("chain order", 0, case_test_chain_order, NULL, 1);
     add_case("chain bypass", 0, case_test_chain_bypass, NULL, 1);
     add_case("chain toggles", 0, case_test_chain_toggles, NULL, 1);
-    for (uint32_t m = 0; m <= FX_ALL; m++) {
-        snprintf(name, sizeof(name), "chain level mask %u%s", (unsigned)m, m == 0 ? " (control)" : "");
-        g_chain_case[m] = add_case(name, (int)m, chain_level_part, NULL, 8 + popcount5(m));
+    for (int m = 1; m <= CHAIN_CTL_CEIL; m++) {
+        if (m <= (int)FX_ALL) {
+            snprintf(name, sizeof(name), "chain level mask %d", m);
+        } else {
+            snprintf(name, sizeof(name), "chain level control %d", m - (int)FX_ALL);
+        }
+        g_chain_case[m] = add_case(name, m, chain_level_part, NULL,
+                                   m <= (int)FX_ALL ? 8 + popcount((uint32_t)m) : 10);
     }
     add_case("chain level", 0, NULL, test_chain_level_bound, 0);
     add_case("chain clean", 0, case_test_chain_clean, NULL, 14);
@@ -3006,15 +3789,15 @@ static void build_cases(void)
     add_case("level zero is off", 0, case_test_level_zero_is_off, NULL, 1);
     add_case("levels zero is bypass", 0, case_test_levels_zero_is_bypass, NULL, 1);
     add_case("level steps", 0, case_test_level_steps_have_no_click, NULL, 1);
-    for (int arg = 0; arg <= LV_CONTROL_PART; arg++) {
+    for (int arg = 0; arg <= LV_CTL_COLD; arg++) {
         g_lv_case[arg] = -1;
-        if (arg != LV_CONTROL_PART && popcount5((uint32_t)(arg % 32)) < 2) {
+        if (arg < LV_CTL_HOT && popcount((uint32_t)(arg % LV_MASKS)) < 2) {
             continue;
         }
-        snprintf(name, sizeof(name), "levels louder %d", arg);
-        g_lv_case[arg] = add_case(name, arg, levels_never_louder_part, NULL, 4);
+        snprintf(name, sizeof(name), "levels unity %d", arg);
+        g_lv_case[arg] = add_case(name, arg, levels_unity_part, NULL, 4);
     }
-    add_case("levels never louder", 0, NULL, test_levels_never_louder, 0);
+    add_case("levels unity", 0, NULL, test_levels_unity, 0);
 }
 
 static int selftest_jobs(void)
@@ -3274,6 +4057,24 @@ int main(int argc, char **argv)
         measure_report();
         return g_failures != 0;
     }
+    if (argc == 4 && strcmp(argv[1], "--unity-raw") == 0) {
+        const int k = atoi(argv[2]);
+        if (k < 0 || k >= N_FX) {
+            return 2;
+        }
+        keys_build();
+        unity_raw_line(k, (float)atof(argv[3]));
+        return 0;
+    }
+    if (argc == 4 && strcmp(argv[1], "--unity") == 0) {
+        keys_build();
+        unity_line((uint32_t)atoi(argv[2]), (float)atof(argv[3]));
+        return 0;
+    }
+    if (argc == 2 && strcmp(argv[1], "--tremolo-shape") == 0) {
+        tremolo_shape_report();
+        return 0;
+    }
     if (argc == 2 && strcmp(argv[1], "--bench") == 0) {
         bench();
         return 0;
@@ -3281,7 +4082,9 @@ int main(int argc, char **argv)
     const int runner_check = argc == 3 && strcmp(argv[1], "--runner-check") == 0;
     if (!runner_check && (argc > 2 || (argc == 2 && strcmp(argv[1], "-v") != 0))) {
         fprintf(stderr, "usage: fx-selftest [-v | --parse TEXT | --parse-lines | --measure | "
-                        "--measure-unlevelled | --measure-no-makeup | --bench | --runner-check order|fail|crash]\n");
+                        "--measure-unlevelled | --measure-no-makeup | --tremolo-shape | --bench | "
+                        "--unity-raw K DEPTH | --unity MASK DEPTH | "
+                        "--runner-check order|fail|crash]\n");
         return 2;
     }
     g_verbose = argc == 2;
