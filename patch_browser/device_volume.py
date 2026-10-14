@@ -11,7 +11,7 @@ Two modes, decided per bound card:
 
   device  exactly ONE playback-only volume element that is writable and carries
           a dB range. The fader IS that element; Surge's trim is fixed at
-          DEVICE_MODE_SURGE_TRIM_DB (-6 dB) so nothing stacks and the graph
+          DEVICE_MODE_SURGE_TRIM_DB (-9 dB) so nothing stacks and the graph
           keeps headroom. KA1 (PCM) and Sound Blaster (Speaker) qualify.
   trim    anything else — no element, no dB, or more than one candidate. The
           Scarlett 4i4 exposes four Line volumes behind a hardware knob, and
@@ -51,11 +51,15 @@ TRIM_MODE = "trim"
 # hand-calibrated favourites started reaching 0 dBFS. The DAC has the range to
 # make this up in analogue: the KA1 sat at -41 dB of -63.5..0.
 #
-# Deliberately not compensated on upgrade: raising the stored DAC level by 6 dB
-# would make the box jump louder at the next boot, the dangerous direction
-# (AGENTS.md "Audio output safety"). It comes up 6 dB quieter; the fader brings
-# it back.
-DEVICE_MODE_SURGE_TRIM_DB = -6.0
+# -6 dB from 2026-10-11 (#156); -9 dB from 2026-10-13. With seven effects at
+# +1 dB makeup (#169), all seven on peaked at -0.5 dBFS on the self-test's worst
+# signal from a -9 dBFS input, and live chords with pressure run hotter than the
+# calibration's test notes. The extra 3 dB is that margin.
+#
+# Deliberately not compensated on upgrade: raising the stored DAC level would
+# make the box jump louder at the next boot, the dangerous direction (AGENTS.md
+# "Audio output safety"). It comes up quieter; the fader brings it back.
+DEVICE_MODE_SURGE_TRIM_DB = -9.0
 
 DEFAULT_DB = -12.0
 STATE_FILE = Path.home() / ".patch_browser_device_volume.json"
