@@ -1,0 +1,70 @@
+{
+  "factory:Bass/Sub Bass": {
+    "depth": 1.0,
+    "levels": [
+      1.0,
+      1.0,
+      0.6062992125984252,
+      1.0,
+      0.33
+    ],
+    "mask": 20
+  },
+  "factory:Keys/Bonita Keys": {
+    "depth": 0.5,
+    "levels": [
+      0.7,
+      0.25,
+      1.0,
+      1.0,
+      1.0
+    ],
+    "mask": 3,
+    "target": "effect"
+  },
+  "factory:Leads/Saw Lead": {
+    "depth": 0.3,
+    "levels": [
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      0.15
+    ],
+    "mask": 0
+  },
+  "factory:Organs/Drawbar": {
+    "depth": 0.25196850393700787,
+    "levels": [
+      1.0,
+      1.0,
+      1.0,
+      0.5,
+      1.0
+    ],
+    "mask": 9,
+    "target": "patch_first"
+  },
+  "factory:Pads/Glass Pad": {
+    "depth": 0.8,
+    "levels": [
+      0.4,
+      0.0,
+      0.55,
+      0.3,
+      0.9
+    ],
+    "mask": 31
+  },
+  "factory:Plucks/Tine": {
+    "depth": 0.0,
+    "levels": [
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0
+    ],
+    "mask": 8
+  }
+}
