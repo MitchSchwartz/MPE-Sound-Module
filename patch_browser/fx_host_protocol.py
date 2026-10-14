@@ -11,8 +11,8 @@ runs every encoding through it.
 One ASCII line per UDP datagram to 127.0.0.1, in the live monitor's style
 (`gain 0.500000`):
 
-    chainl <mask> <depth> <l0> ... <l4>
-                     e.g.  chainl 5 0.500000 1.000000 1.000000 0.400000 1.000000 1.000000
+    chainl <mask> <depth> <l0> ... <l6>
+                     e.g.  chainl 5 0.500000 1.000000 1.000000 0.400000 1.000000 1.000000 1.000000 1.000000
     chain <mask> <depth>            e.g.  chain 5 0.500000
 
 **Per-effect levels** (`chainl`, what the remapper sends, `encode_chain_levels`).
@@ -57,12 +57,16 @@ EFFECT_TUBE_DRIVE = 1
 EFFECT_PHASER = 2
 EFFECT_TREMOLO = 3
 EFFECT_FLANGER = 4
+EFFECT_ROTARY = 5
+EFFECT_AUTO_WAH = 6
 EFFECT_IDS: tuple[int, ...] = (
     EFFECT_CHORUS,
     EFFECT_TUBE_DRIVE,
     EFFECT_PHASER,
     EFFECT_TREMOLO,
     EFFECT_FLANGER,
+    EFFECT_ROTARY,
+    EFFECT_AUTO_WAH,
 )
 EFFECT_NAMES: dict[int, str] = {
     EFFECT_CHORUS: "Chorus",
@@ -70,6 +74,8 @@ EFFECT_NAMES: dict[int, str] = {
     EFFECT_PHASER: "Phaser",
     EFFECT_TREMOLO: "Tremolo",
     EFFECT_FLANGER: "Flanger",
+    EFFECT_ROTARY: "Rotary",
+    EFFECT_AUTO_WAH: "Auto-wah",
 }
 
 #: The order the enabled effects run in, first to last. A property of the DSP,
@@ -77,9 +83,11 @@ EFFECT_NAMES: dict[int, str] = {
 #: Must equal FX_CHAIN_ORDER in fx_dsp.c; `tests/test_fx_host.py` reads it.
 CHAIN_ORDER: tuple[int, ...] = (
     EFFECT_TUBE_DRIVE,
+    EFFECT_AUTO_WAH,
     EFFECT_PHASER,
     EFFECT_FLANGER,
     EFFECT_CHORUS,
+    EFFECT_ROTARY,
     EFFECT_TREMOLO,
 )
 

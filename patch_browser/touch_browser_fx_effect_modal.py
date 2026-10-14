@@ -7,6 +7,14 @@ tap on a row's checkbox or name switches that effect on or off and the panel sta
 several can be set in one visit; Done or a tap on the backdrop closes it, as
 the other modals close.
 
+Seven rows at 800x480 (2026-10-13, the rotary and the auto-wah): one column,
+in run order, each row 44 px (the minimum touch target) with 6 px between, and
+Done in the header row at the right of the title rather than under the list.
+Five 52 px rows, a title and a Done row under them were 418 px; seven of them
+would be 556, past the screen. One column keeps the run order readable top to
+bottom and every slider ~390 px long; two columns would halve the sliders, and
+a scrolling list would hide rows.
+
 Each row is two controls side by side (`split_effect_row`): the checkbox and
 name on the left, a tap target that toggles the effect, and a horizontal level
 slider on the right, 0-100 %, with its value shown after the track. The
@@ -41,7 +49,7 @@ import pygame
 from patch_browser import fx_host_protocol
 from patch_browser.geometry import Rect
 from patch_browser.mixer import FADER_NAME_DY
-from patch_browser.touch_ui_constants import SETTINGS_ROW_GAP, SETTINGS_ROW_H, TAP_MOVE_THRESHOLD_PX
+from patch_browser.touch_ui_constants import SETTINGS_ROW_GAP, TAP_MOVE_THRESHOLD_PX
 from patch_browser.touch_ui_enums import Screen
 
 EFFECT_CHANNEL_ID = "effect"
@@ -69,17 +77,26 @@ EFFECT_CARET_H = 5
 FX_EFFECT_CHECK_PX = 24
 FX_EFFECT_CHECK_PAD = 12
 #: The effect names' column, right of the checkbox: the longest name (the
-#: tremolo's, 82 px in DejaVu Sans 22 with pygame-ce 2.5.8) and some air.
-FX_EFFECT_NAME_W = 96
+#: auto-wah's, 95 px in DejaVu Sans 22 with pygame-ce 2.5.8; the tremolo's 82)
+#: and some air.
+FX_EFFECT_NAME_W = 104
 #: The toggle's width: pad, checkbox, pad, name column.
 FX_EFFECT_CHOICE_W = FX_EFFECT_CHECK_PAD * 2 + FX_EFFECT_CHECK_PX + FX_EFFECT_NAME_W
 #: Panel width. 420 held a checkbox list; the level sliders need room for a
 #: track a finger can place to a few percent (~320 px at 600), so the panel is
-#: wider. The rows keep their height (SETTINGS_ROW_H, 52 px): the slider's
-#: touch target is the whole row height, above the 44 px minimum.
+#: wider. Rows are the 44 px minimum touch target (seven fit; see the module
+#: docstring): the slider's touch target is the whole row height.
 FX_EFFECT_MODAL_W = 600
+#: Side padding, and the (smaller) padding above the header and below the list.
 FX_EFFECT_MODAL_PAD = 24
-FX_EFFECT_OPTION_H = SETTINGS_ROW_H
+FX_EFFECT_MODAL_PAD_V = 16
+FX_EFFECT_OPTION_H = 44
+FX_EFFECT_ROW_GAP = 6
+#: The header row: the title at the left, Done at the right, one row tall,
+#: and the space between it and the first effect.
+FX_EFFECT_HEADER_H = 44
+FX_EFFECT_HEADER_GAP = 10
+FX_EFFECT_DONE_W = 120
 #: The level slider: the space between the toggle and the slider, the value
 #: text's column at the slider's right end ("100%", 45 px in DejaVu Sans 18),
 #: the handle, and the drawn track's thickness. The track is inset by half a
@@ -265,24 +282,23 @@ class TouchBrowserFxEffectModalMixin:
         """(panel, [(row rect, effect id)] in run order, Done rect), shared by
         draw and hit test."""
         ids = fx_host_protocol.CHAIN_ORDER
-        pad = FX_EFFECT_MODAL_PAD
+        pad, pad_v = FX_EFFECT_MODAL_PAD, FX_EFFECT_MODAL_PAD_V
         panel_w = min(FX_EFFECT_MODAL_W, self.width - 48)
-        title_h = self.font_md.get_height() + 12
-        list_h = len(ids) * FX_EFFECT_OPTION_H + max(0, len(ids) - 1) * SETTINGS_ROW_GAP
-        panel_h = pad + title_h + list_h + 16 + SETTINGS_ROW_H + pad
+        list_h = len(ids) * FX_EFFECT_OPTION_H + max(0, len(ids) - 1) * FX_EFFECT_ROW_GAP
+        panel_h = pad_v + FX_EFFECT_HEADER_H + FX_EFFECT_HEADER_GAP + list_h + pad_v
         panel = Rect((self.width - panel_w) // 2, (self.height - panel_h) // 2, panel_w, panel_h)
         inner_x = panel.x + pad
         inner_w = panel.w - pad * 2
-        y = panel.y + pad + title_h
+        y = panel.y + pad_v + FX_EFFECT_HEADER_H + FX_EFFECT_HEADER_GAP
         options = [
             (split_effect_row(row)[0], effect_id) for row, effect_id in self._fx_effect_rows(inner_x, y, inner_w)
         ]
-        done = Rect(inner_x, panel.bottom - pad - SETTINGS_ROW_H, inner_w, SETTINGS_ROW_H)
+        done = Rect(inner_x + inner_w - FX_EFFECT_DONE_W, panel.y + pad_v, FX_EFFECT_DONE_W, FX_EFFECT_HEADER_H)
         return panel, options, done
 
     def _fx_effect_rows(self, inner_x: int, y: int, inner_w: int) -> list[tuple[Rect, int]]:
         return [
-            (Rect(inner_x, y + i * (FX_EFFECT_OPTION_H + SETTINGS_ROW_GAP), inner_w, FX_EFFECT_OPTION_H), effect_id)
+            (Rect(inner_x, y + i * (FX_EFFECT_OPTION_H + FX_EFFECT_ROW_GAP), inner_w, FX_EFFECT_OPTION_H), effect_id)
             for i, effect_id in enumerate(fx_host_protocol.CHAIN_ORDER)
         ]
 
@@ -333,7 +349,7 @@ class TouchBrowserFxEffectModalMixin:
         self._draw_modal_shell(panel, border_radius=16)
         self.screen.blit(
             self.font_md.render("Effects", True, self.theme.text),
-            (panel.x + FX_EFFECT_MODAL_PAD, panel.y + FX_EFFECT_MODAL_PAD),
+            (panel.x + FX_EFFECT_MODAL_PAD, done.y + (done.h - self.font_md.get_height()) // 2),
         )
         mask = self.fx_policy.mask
         sliders = {effect_id: (level, track) for level, track, effect_id in self._fx_effect_level_layout()}

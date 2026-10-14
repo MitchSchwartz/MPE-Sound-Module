@@ -47,6 +47,10 @@ FIXTURE_ROUND4 = REPO / "tests" / "fixtures" / "fx-store-round4-partial.json"
 #: 4a1e29e, its own FxPolicy and PatchFxStore driven through toggles, depths
 #: and a switch flip): every entry has a mask and a depth, none has levels.
 FIXTURE_PRE_LEVELS = REPO / "tests" / "fixtures" / "fx-store-pre-levels.json"
+#: Written by the store as it was with five effects and per-effect levels
+#: (origin/dev at dee9e03, its own PatchFxStore, 2026-10-13): mixed masks
+#: (none, one, two, all five), depths and five-entry levels, both targets.
+FIXTURE_FIVE_EFFECTS = REPO / "tests" / "fixtures" / "fx-store-five-effects.json"
 ROOT = "/surge/patches_factory"
 
 
@@ -192,7 +196,7 @@ class PickupTests(unittest.TestCase):
 
 class StoreTests(_Rig):
     def test_round_trip_through_the_file(self) -> None:
-        fx = PatchFx(mask=D | C, depth=0.25, target=MOD_WHEEL_EFFECT, levels=(1.0, 0.5, 0.25, 0.0, 0.75))
+        fx = PatchFx(mask=D | C, depth=0.25, target=MOD_WHEEL_EFFECT, levels=(1.0, 0.5, 0.25, 0.0, 0.75, 0.6, 0.35))
         self.store.set("Keys", fx, stable_key="factory:Test/Keys")
         again = PatchFxStore(self.store_path)
         self.assertEqual(again.get("Keys", stable_key="factory:Test/Keys"), fx)
@@ -203,7 +207,7 @@ class StoreTests(_Rig):
                     "mask": D | C,
                     "depth": 0.25,
                     "target": "effect",
-                    "levels": [1.0, 0.5, 0.25, 0.0, 0.75],
+                    "levels": [1.0, 0.5, 0.25, 0.0, 0.75, 0.6, 0.35],
                 }
             },
         )
@@ -235,12 +239,12 @@ class StoreTests(_Rig):
             "levels not a list": ({"mask": 3, "levels": {"0": 0.5}}, PatchFx(mask=3, depth=0.0, levels=ONES_T)),
             "bad level entries": (
                 {"mask": 3, "levels": ["x", 2.0, -1, True, float("nan")]},
-                PatchFx(mask=3, depth=0.0, levels=(1.0, 1.0, 0.0, 1.0, 1.0)),
+                PatchFx(mask=3, depth=0.0, levels=(1.0, 1.0, 0.0, 1.0, 1.0, 1.0, 1.0)),
             ),
-            "short levels": ({"mask": 3, "levels": [0.5, 0.25]}, PatchFx(mask=3, depth=0.0, levels=(0.5, 0.25, 1.0, 1.0, 1.0))),
+            "short levels": ({"mask": 3, "levels": [0.5, 0.25]}, PatchFx(mask=3, depth=0.0, levels=(0.5, 0.25, 1.0, 1.0, 1.0, 1.0, 1.0))),
             "long levels": (
-                {"mask": 3, "levels": [0.5, 0.25, 0.1, 0.2, 0.3, 0.9]},
-                PatchFx(mask=3, depth=0.0, levels=(0.5, 0.25, 0.1, 0.2, 0.3)),
+                {"mask": 3, "levels": [0.5, 0.25, 0.1, 0.2, 0.3, 0.9, 0.8, 0.7]},
+                PatchFx(mask=3, depth=0.0, levels=(0.5, 0.25, 0.1, 0.2, 0.3, 0.9, 0.8)),
             ),
         }
         for label, (entry, want) in cases.items():
@@ -407,7 +411,8 @@ class LevelMigrationTests(_Rig):
 
     WANT = {
         "Keys/Bonita Keys": PatchFx(mask=D | C, depth=0.5, target=MOD_WHEEL_EFFECT, levels=ONES_T),
-        "Pads/Glass Pad": PatchFx(mask=fx_host_protocol.MASK_ALL, depth=0.8, levels=ONES_T),
+        # Stored as 31: the five effects of its day, never the two added since.
+        "Pads/Glass Pad": PatchFx(mask=0b11111, depth=0.8, levels=ONES_T),
         "Leads/Saw Lead": PatchFx(mask=0, depth=0.3, levels=ONES_T),
         "Bass/Sub Bass": PatchFx(mask=P | (1 << FLANGER), depth=1.0, levels=ONES_T),
     }
@@ -444,7 +449,87 @@ class LevelMigrationTests(_Rig):
                 self.router.refresh()
                 self.assertEqual((policy.mask, policy.depth, policy.levels), (fx.mask, fx.depth, ONES_T))
                 self.assertEqual(wire[-1], fx_host_protocol.encode_chain_levels(fx.mask, fx.depth, ONES))
-                self.assertTrue(wire[-1].endswith(b" 1.000000 1.000000 1.000000 1.000000 1.000000"))
+                self.assertTrue(wire[-1].endswith(b" 1.000000" * len(fx_host_protocol.EFFECT_IDS)))
+
+
+class SevenEffectsMigrationTests(_Rig):
+    """The rotary (id 5) and the auto-wah (id 6) appended: every setting a
+    patch already has means what it meant. Masks keep their bits (31 is the
+    five effects of its day, not "all"), depths and targets are untouched, the
+    five stored levels are the first five, and the new two read off at 1.0."""
+
+    NEW_BITS = (1 << fx_host_protocol.EFFECT_ROTARY) | (1 << fx_host_protocol.EFFECT_AUTO_WAH)
+
+    def _raw(self) -> dict:
+        raw = json.loads(FIXTURE_FIVE_EFFECTS.read_text())
+        # What the five-effect build wrote: five levels, masks under 32.
+        self.assertTrue(raw)
+        for entry in raw.values():
+            self.assertEqual(len(entry["levels"]), 5)
+            self.assertLess(entry["mask"], 32)
+        self.assertIn(0b11111, {e["mask"] for e in raw.values()})
+        self.assertIn(0, {e["mask"] for e in raw.values()})
+        return raw
+
+    def test_every_stored_value_reads_back_with_its_meaning(self) -> None:
+        raw = self._raw()
+        self.store_path.write_bytes(FIXTURE_FIVE_EFFECTS.read_bytes())
+        store = PatchFxStore(self.store_path)
+        for key, entry in raw.items():
+            rel = key.split(":", 1)[1]
+            with self.subTest(rel):
+                fx = store.get(Path(rel).name, stable_key=key)
+                self.assertEqual(fx.mask, entry["mask"])
+                self.assertEqual(fx.mask & self.NEW_BITS, 0)
+                self.assertEqual(fx.depth, entry["depth"])
+                self.assertEqual(fx.target, entry.get("target"))
+                self.assertEqual(fx.levels[:5], tuple(entry["levels"]))
+                self.assertEqual(fx.levels[5:], (1.0, 1.0))
+
+    def test_the_next_save_only_appends_the_two_new_levels(self) -> None:
+        raw = self._raw()
+        self.store_path.write_bytes(FIXTURE_FIVE_EFFECTS.read_bytes())
+        PatchFxStore(self.store_path).save()
+        self.assertEqual(
+            self.saved(),
+            {key: dict(entry, levels=entry["levels"] + [1.0, 1.0]) for key, entry in raw.items()},
+        )
+        # And that file reads back to the same values again: a fixed point.
+        again = PatchFxStore(self.store_path)
+        again.save()
+        self.assertEqual(self.saved(), {key: dict(e, levels=e["levels"] + [1.0, 1.0]) for key, e in raw.items()})
+
+    def test_each_patch_sends_what_the_five_effect_build_sent(self) -> None:
+        """On the wire: the five-effect datagram (mask, depth, five levels)
+        plus two levels of 1.0 for effects the mask leaves off. The client's
+        own parser reads the old datagram and the new one to the same state
+        (it pads a short level list with 1.0)."""
+        raw = self._raw()
+        self.store_path.write_bytes(FIXTURE_FIVE_EFFECTS.read_bytes())
+        policy = self._policy(store=PatchFxStore(self.store_path))
+        wire: list[bytes] = []
+        self.router._sender = fx_policy.FxHostSender(send=wire.append, log=None)
+        old_wires, new_wires = [], []
+        for key, entry in raw.items():
+            rel = key.split(":", 1)[1]
+            with self.subTest(rel):
+                policy.on_patch_loaded(self._patch(Path(rel).name, NO_ROUTINGS), patch_name=Path(rel).name,
+                                       stable_key=key)
+                self.now += fx_policy.ROUTE_REFRESH_S
+                self.router.refresh()
+                old = "chainl {} {:.6f} {}".format(
+                    entry["mask"], entry["depth"], " ".join(f"{v:.6f}" for v in entry["levels"])
+                ).encode()
+                self.assertEqual(wire[-1], old + b" 1.000000 1.000000")
+                old_wires.append(old.decode())
+                new_wires.append(wire[-1].decode())
+        from tests.test_fx_host import _compiler, _parse_lines, _selftest_binary
+
+        if _compiler() is None:
+            self.skipTest("no C compiler: the client's parser is not run here (test_fx_host covers it)")
+        binary, build = _selftest_binary()
+        self.assertEqual(build.returncode, 0, build.stderr)
+        self.assertEqual(_parse_lines(binary, old_wires), _parse_lines(binary, new_wires))
 
 
 class LevelMemoryTests(_Rig):
@@ -465,19 +550,19 @@ class LevelMemoryTests(_Rig):
         self.policy.set_level(CHORUS, 0.7, final=True)
         self.load(self.keys)
         self.settle()
-        keys_levels = (1.0, 0.25, 0.5, 1.0, 1.0)
+        keys_levels = (1.0, 0.25, 0.5, 1.0, 1.0, 1.0, 1.0)
         self.assertEqual(self.policy.levels, keys_levels)
         self.assertEqual((self.sender.sent[-1], self.sender.levels[-1]), ((C | D | P, 0.6), keys_levels))
         self.assertEqual(self.route_file()["levels"], list(keys_levels))
         # A fresh UI process reads them back from the file.
         self.policy.flush_store()
         self.assertEqual(self.saved()["factory:Test/Keys"]["levels"], list(keys_levels))
-        self.assertEqual(self.saved()["factory:Test/Pad"]["levels"], [0.7, 1.0, 1.0, 1.0, 1.0])
+        self.assertEqual(self.saved()["factory:Test/Pad"]["levels"], [0.7, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0])
         fresh = self._policy(store=PatchFxStore(self.store_path))
         self.load(self.keys, fresh)
         self.assertEqual(fresh.levels, keys_levels)
         self.load(self.pad, fresh)
-        self.assertEqual(fresh.levels, (0.7, 1.0, 1.0, 1.0, 1.0))
+        self.assertEqual(fresh.levels, (0.7, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0))
 
     def test_a_level_moves_nothing_else(self) -> None:
         self.load(self.keys)
@@ -487,12 +572,12 @@ class LevelMemoryTests(_Rig):
         before = self.route_file()
         self.policy.set_level(DRIVE, 0.3, final=True)
         after = self.route_file()
-        self.assertEqual(after["levels"], [1.0, 0.3, 1.0, 1.0, 1.0])
+        self.assertEqual(after["levels"], [1.0, 0.3, 1.0, 1.0, 1.0, 1.0, 1.0])
         for key in ("cc1", "mask", "target", "route_stamp", "depth_request", "depth_stamp"):
             self.assertEqual(after[key], before[key], key)
         self.settle()
         self.assertEqual((self.policy.mask, self.policy.depth), (C | D, 0.4))
-        self.assertEqual((self.sender.sent[-1], self.sender.levels[-1]), ((C | D, 0.4), (1.0, 0.3, 1.0, 1.0, 1.0)))
+        self.assertEqual((self.sender.sent[-1], self.sender.levels[-1]), ((C | D, 0.4), (1.0, 0.3, 1.0, 1.0, 1.0, 1.0, 1.0)))
 
     def test_an_unticked_effect_keeps_its_level_and_takes_no_new_one(self) -> None:
         self.load(self.keys)
@@ -578,7 +663,7 @@ class LevelMemoryTests(_Rig):
         self.now += fx_policy.ROUTE_REFRESH_S
         fresh.refresh()
         self.assertEqual(restarted.sent, [(C | D, 0.5)])
-        self.assertEqual(restarted.levels, [(0.2, 1.0, 1.0, 1.0, 1.0)])
+        self.assertEqual(restarted.levels, [(0.2, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0)])
 
     def test_bad_level_calls_change_nothing(self) -> None:
         self.load(self.keys)
