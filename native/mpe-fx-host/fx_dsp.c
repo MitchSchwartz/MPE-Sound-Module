@@ -34,8 +34,8 @@
  * signal and -3.8 dB on noise at full depth (the two halves are decorrelated,
  * so they add in power, not amplitude), and up to -9.5 dB on an 80 Hz tone,
  * which sits on the first comb notch. The engine's static level curve
- * (fx_dsp.h) gives most of the power-sum loss back: correlation 0, scale
- * CHORUS_LEVEL_SCALE. It is a fixed gain per knob position, so the chorus's
+ * (fx_dsp.h; CHORUS_LEVEL below the effects) gives the loss back, to the
+ * input's level on the keys signal. It is a fixed gain per knob position, so the chorus's
  * tone is the #149 tone, including the comb's softening of the highs: round 3
  * put a dynamic makeup and a peak limiter on this mix, and the limiter, acting
  * on every peak, measured two-tone IMD -32 dB at full (#149: -75 dB).
@@ -46,10 +46,6 @@
 #define CHORUS_CENTER_MS 7.0f
 #define CHORUS_SWEEP_MS 2.0f   /* ± around the centre: 5..9 ms */
 #define CHORUS_RATE_HZ 0.6f
-/* Static level curve (fx_dsp.h): a decorrelated copy, given back to within
- * CHORUS_LEVEL_SCALE of its power-sum loss. Calibrated on the keys signal. */
-#define CHORUS_LEVEL_CORR 0.0f
-#define CHORUS_LEVEL_SCALE 0.9f
 
 /* Power of two ≥ (centre + sweep) at FX_MAX_RATE plus two taps of headroom:
  * 9 ms × 192 kHz = 1728 samples. */
@@ -163,6 +159,24 @@ static inline float lfo_shape(float phase)
 {
     float tri = 4.0f * fabsf(phase - 0.5f) - 1.0f;
     return tri * (1.5f - 0.5f * tri * tri);
+}
+
+/* sin(pi x / 2) for x in [-1, 1], no trig: the odd Taylor polynomial to x^7,
+ * its last coefficient adjusted so the ends land on exactly +-1. Off a true
+ * sine by at most 1.4e-5 (-97 dB). */
+static inline float half_sine(float x)
+{
+    const float x2 = x * x;
+    return x * (1.5707963f + x2 * (-0.6459641f + x2 * (0.0796926f + x2 * -0.0045248f)));
+}
+
+/* A true sine LFO, no trig: the triangle above is linear in phase, so
+ * half_sine of it is exactly cos(2 pi phase) up to the polynomial. Returns
+ * -1..1 for phase 0..1, starting at +1. The rounded triangle (lfo_shape) is
+ * the same curve's cubic approximation, 2 % off at worst. */
+static inline float lfo_sine(float phase)
+{
+    return half_sine(4.0f * fabsf(phase - 0.5f) - 1.0f);
 }
 
 static inline float wrap01(float p)
@@ -572,8 +586,9 @@ static void drive_feed(void *state, const float *const in[FX_CHANNELS], uint32_t
  *     resonates at DC and at Nyquist, where an even all-pass chain is always
  *     in phase: that is a +4 dB shelf on everything above ~10 kHz, which made
  *     white noise 3 dB louder than the keys signal, so a static level gain
- *     that kept noise under its input left the keys 3-4 dB down. The
- *     full-band mutant shows the self-test catching it.
+ *     that kept noise under its input left the keys 3-4 dB down. (Under
+ *     the unity fit, 2026-10-13, a full-band mutant read keys -0.15 dB and
+ *     noise +0.7 dB, inside every bound, so it is no longer a control.)
  *   - Mix 0.6 wet, not 0.5: with feedback g the in-band wet at a notch is
  *     -1/(1+g) of the dry, and w = (1+g)/(2+g) = 0.62 puts the cancellation
  *     back toward a null (measured with the LFO frozen: the deepest notch
@@ -589,13 +604,10 @@ static void drive_feed(void *state, const float *const in[FX_CHANNELS], uint32_t
  * tone the sweep passes over swells: a phaser's sound) and the notches take
  * energy out. Over whole sweeps the keys signal loses 1.55 dB at half mix and
  * 0.88 dB at full, white noise 1.1-1.2 dB. The engine's static level curve
- * (fx_dsp.h) gives part of it back: correlation PHASER_LEVEL_CORR, scale
- * PHASER_LEVEL_SCALE. Alone, the phaser could come to within 0.93 dB of its
- * input on keys at every knob position (scale 0.79), but in series with the
- * flanger the two curves stack and phaser + flanger at full went +0.28 dB
- * over the input on keys. The scale is held at 0.50, where that pair is
- * +0.02 dB and the phaser alone is -1.17 dB at worst (55 %) and -0.41 dB at
- * full on keys. It is a fixed gain per knob position: no detector, no limiter
+ * (fx_dsp.h; PHASER_LEVEL below the effects) gives it back, to the input's
+ * level on the keys signal at every knob position (2026-10-13; until then
+ * it was held short, -1.17 dB at worst, so the phaser and flanger in series
+ * stayed under the input). It is a fixed gain per knob position: no detector, no limiter
  * (round 3's dynamic makeup under a limiter measured two-tone IMD -33 dB at
  * full, the "distortion that comes and goes with the sweep"). Peaks are not
  * guaranteed: an all-pass moves phase and raises the crest factor, and the
@@ -620,8 +632,6 @@ static void drive_feed(void *state, const float *const in[FX_CHANNELS], uint32_t
 #define PHASER_FB_LP_HZ 3000.0f
 #define PHASER_WET 0.6f
 #define PHASER_TABLE 256
-#define PHASER_LEVEL_CORR 0.60f
-#define PHASER_LEVEL_SCALE 0.50f
 
 typedef struct {
     float table[PHASER_TABLE + 1];
@@ -631,7 +641,7 @@ typedef struct {
     float phase, phase_inc;
 } phaser_state;
 
-enum { PHASER_NO_FLUSH = 1, PHASER_HOT = 2, PHASER_FULL_BAND = 4, PHASER_RUNAWAY = 8 };
+enum { PHASER_NO_FLUSH = 1, PHASER_HOT = 2, PHASER_RUNAWAY = 8 };
 
 static int phaser_init(void *state, float rate)
 {
@@ -684,12 +694,8 @@ static inline void phaser_run(phaser_state *s, const float *const in[FX_CHANNELS
                 }
                 v = o;
             }
-            if (mode & PHASER_FULL_BAND) {
-                s->lp[ch] = v;
-            } else {
-                s->hp[ch] += s->a_hp * (v - s->hp[ch]);
-                s->lp[ch] += s->a_lp * ((v - s->hp[ch]) - s->lp[ch]);
-            }
+            s->hp[ch] += s->a_hp * (v - s->hp[ch]);
+            s->lp[ch] += s->a_lp * ((v - s->hp[ch]) - s->lp[ch]);
             if (!(mode & PHASER_NO_FLUSH)) {
                 s->hp[ch] = flush(s->hp[ch]);
                 s->lp[ch] = flush(s->lp[ch]);
@@ -747,11 +753,9 @@ static void phaser_feed(void *state, const float *const in[FX_CHANNELS], uint32_
  *
  * Level. Over a whole sweep the keys signal loses 2.6 dB at 75 % mix and
  * 2.1 dB at full, white noise 3.5 dB at full (the combs' notches take more
- * than their peaks give). The static level curve (fx_dsp.h),
- * FLANGER_LEVEL_CORR and FLANGER_LEVEL_SCALE, calibrated on keys, gives most
- * of it back: keys within 0.92 dB of the input at every knob position (worst
- * at 65 %, -0.41 dB at full), and no test signal over its input (the 3 kHz
- * tone is the one at the limit, +0.02 dB at full). Peaks are not guaranteed:
+ * than their peaks give). The static level curve (fx_dsp.h; FLANGER_LEVEL
+ * below the effects), calibrated on keys, gives it back to the input's level
+ * on keys at every knob position (2026-10-13; it was -0.92 dB at worst). Peaks are not guaranteed:
  * a resonant peak sweeping over a tone swells it, +6.0 dB over the input's
  * peak at full on noise and tones (keys +0.5 dB). The engine's clamp holds
  * ±1, so a loud pure tone at full depth is clipped there.
@@ -774,8 +778,6 @@ static void phaser_feed(void *state, const float *const in[FX_CHANNELS], uint32_
 #define FLANGER_FB_HP_HZ 200.0f
 #define FLANGER_FB_LP_HZ 6000.0f
 #define FLANGER_WET 0.6f
-#define FLANGER_LEVEL_CORR 0.46f
-#define FLANGER_LEVEL_SCALE 1.285f
 
 /* Power of two >= FLANGER_MAX_MS at FX_MAX_RATE plus two taps of headroom:
  * 8 ms x 192 kHz = 1536 samples. */
@@ -873,27 +875,49 @@ static void flanger_feed(void *state, const float *const in[FX_CHANNELS], uint32
 /* Amplitude LFO; the right channel half a cycle behind the left, so at full
  * depth it is an auto-pan (one channel rises as the other falls) and a mono
  * sum stays level. The knob is the depth: wet is the input times a gain in
- * [0, 1], wet_max 1, so out = in (1 - d + d gain) — never louder, peak or RMS.
- * Fixed voicing: 5 Hz, the rounded-triangle shape (no trig).
+ * [TREMOLO_FLOOR, 1], wet_max 1, so out = in (1 - d + d gain) before the
+ * level curve. The curve gives back the RMS the dips take (+3.4 dB at full),
+ * so the peaks, at the top of each swell, rise by that much over the input.
+ * Fixed voicing: 5 Hz, a sine.
+ *
+ * Smoother (2026-10-13, asked for as "a smoother tremolo"). Two changes:
+ *   - Shape: a sine (lfo_sine) instead of the rounded triangle. The rounded
+ *     triangle was already within 2 % of a sine, so this alone is nearly
+ *     inaudible: its third harmonic was -38 dB, and its worst per-sample gain
+ *     slope (3.1e-4 at 48 kHz) was 4 % under a full-depth sine's (3.3e-4).
+ *   - Floor: the gain's trough is TREMOLO_FLOOR (-12 dB), not silence. This is
+ *     the audible change. Before, at full depth each channel went fully quiet
+ *     for a fifth of every cycle (gain under 0.1, -20 dB, 19.6 % of the time):
+ *     a gate opening and shutting five times a second, which is the chop. Now
+ *     the level swells between 0 and -12 dB and never closes, and the slope
+ *     falls to 0.75 of the sine's (2.45e-4 per sample).
+ * fx_selftest.c checks the trough, the slope and the shape's purity, each
+ * against the shape that fails it (the rounded triangle, a sine with no
+ * floor).
  *
  * Bypass advances the LFO so it stays in time with an always-on one.
  *
  * Level. It has no level stage, on purpose. Its level falls by construction:
- * the mean-square gain is (1 - d/2)^2 + (d/2)^2 E[s^2], E[s^2] = 0.486 for
- * this LFO, so -1.1, -2.3, -3.4 and -4.3 dB at 25, 50, 75 and 100 %. Lifting
- * that back means gains above 1 on the LFO's crests, i.e. peaks up to +4.3 dB
- * over the input, and its peak guarantee is the one it has. The self-test
- * holds it to that computed level instead of to -1 dB.
+ * gain = a + b s, a = (1 + F) / 2, b = (1 - F) / 2 for the floor F and the
+ * sine s (E[s^2] = 1/2), so the mean-square gain at depth d is
+ * (1 - d (1 - a))^2 + (d b)^2 / 2: -0.8, -1.7, -2.6, -3.4 dB at 25, 50, 75 and
+ * 100 % (was -1.1, -2.3, -3.4, -4.3). Lifting that back means gains above 1
+ * on the LFO's crests, i.e. peaks over the input, and its peak guarantee is
+ * the one it has. The self-test holds it to that computed level instead of to
+ * -1 dB.
  *
- * Per stereo frame, active: LFO shape 2 x 8, gain 2 x 3, wraps 4, apply 2
- * => ~28 ops. Bypassed: the phase steps only, 2 ops. Laptop: ~5 ns/frame.
+ * Per stereo frame, active: LFO shape 2 x 9, gain 2 x 3, wraps 4, apply 2
+ * => ~30 ops. Bypassed: the phase steps only, 2 ops. Laptop: ~5 ns/frame.
  */
 #define TREMOLO_RATE_HZ 5.0f
 #define TREMOLO_STEREO_OFFSET 0.5f
+#define TREMOLO_FLOOR 0.25f   /* -12 dB: the trough at full depth */
 
 typedef struct {
     float phase, phase_inc;
 } tremolo_state;
+
+enum { TREMOLO_ROUNDED = 1, TREMOLO_NO_FLOOR = 2 };
 
 static int tremolo_init(void *state, float rate)
 {
@@ -906,17 +930,23 @@ static int tremolo_init(void *state, float rate)
     return 0;
 }
 
+/* `mode` is a compile-time constant at every call site. */
+static inline float tremolo_gain(float phase, float top, int mode)
+{
+    const float shape = (mode & TREMOLO_ROUNDED) ? lfo_shape(phase) : lfo_sine(phase);
+    const float floor = (mode & (TREMOLO_ROUNDED | TREMOLO_NO_FLOOR)) ? 0.0f : TREMOLO_FLOOR;
+    return top * (floor + (1.0f - floor) * (0.5f + 0.5f * shape));
+}
+
 static inline void tremolo_run(tremolo_state *s, const float *const in[FX_CHANNELS],
-                               float *const wet[FX_CHANNELS], uint32_t n, float top)
+                               float *const wet[FX_CHANNELS], uint32_t n, float top, int mode)
 {
     float phase = s->phase;
     for (uint32_t i = 0; i < n; i++) {
         float l = in[0][i];
         float r = in[1][i];
-        float gl = top * (0.5f + 0.5f * lfo_shape(phase));
-        float gr = top * (0.5f + 0.5f * lfo_shape(wrap01(phase + TREMOLO_STEREO_OFFSET)));
-        wet[0][i] = l * gl;
-        wet[1][i] = r * gr;
+        wet[0][i] = l * tremolo_gain(phase, top, mode);
+        wet[1][i] = r * tremolo_gain(wrap01(phase + TREMOLO_STEREO_OFFSET), top, mode);
         phase = wrap01(phase + s->phase_inc);
     }
     s->phase = phase;
@@ -926,7 +956,7 @@ static void tremolo_process(void *state, const float *const in[FX_CHANNELS],
                             float *const wet[FX_CHANNELS], const float *amount, uint32_t n)
 {
     (void)amount;
-    tremolo_run(state, in, wet, n, 1.0f);
+    tremolo_run(state, in, wet, n, 1.0f, 0);
 }
 
 static void tremolo_feed(void *state, const float *const in[FX_CHANNELS], uint32_t n)
@@ -941,34 +971,452 @@ static void tremolo_feed(void *state, const float *const in[FX_CHANNELS], uint32
 }
 
 /* ------------------------------------------------------------------------- */
+/* Rotary speaker                                                             */
+/* ------------------------------------------------------------------------- */
+
+/* A Leslie-style rotary speaker: a horn and a drum spinning in front of two
+ * microphones, one per channel, on opposite sides of the cabinet.
+ *
+ * Signal path, per channel (the input's own channel: the left input plays
+ * into the left microphone's view, so a stereo patch stays stereo; a real
+ * Leslie is fed mono, and a mono sum would collapse the patch and lose 3 dB on
+ * whatever is not common to both sides):
+ *
+ *   x -> crossover (800 Hz) -> low  -> drum line -> tap at the drum's delay  x drum gain --+
+ *                           -> high -> horn line -> tap at the horn's delay  x horn gain --+-> wet
+ *
+ *   - Crossover: second-order Linkwitz-Riley built from one one-pole low-pass
+ *     coefficient: low = LP(LP(x)), high = -HP(HP(x)), HP = 1 - LP. The two
+ *     bands add back to an all-pass of x when they line up, and their powers
+ *     add to at most the input's whatever their delays: |LP|^4 + |HP|^4 <=
+ *     (|LP|^2 + |HP|^2)^2 <= 1, since for the one-pole LP = a / (1 - b z^-1),
+ *     b = 1 - a, |LP|^2 + |HP|^2 = 1 - 2ab (1 - cos w) / |1 - b e^-jw|^2.
+ *   - Each rotor has a phase th (0..1) and c = cos(2 pi th) (lfo_sine). The
+ *     left microphone sees the horn come round as c goes to +1, the right as c
+ *     goes to -1. Doppler: the delay is centre -/+ excursion x c (the horn
+ *     0.40 ms, the drum 0.25 ms, both around 0.5 ms), so the pitch rises as
+ *     a rotor approaches a microphone and falls as it leaves: at the fast
+ *     speed, +-1.7 % (29 cents) for the horn by the excursion alone, +-2.3 %
+ *     as fx_selftest.c reads it on a 2 kHz tone (the level swing adds its
+ *     sidebands), +-0.9 % for the drum, the two ears in opposite directions. Level: the gains are sqrt(1 +- a c), a 0.70 for the
+ *     horn (+2.3 / -5.2 dB) and 0.35 for the drum, so the two microphones'
+ *     powers always sum to 2: the sound swings across the image without the
+ *     total changing.
+ *   - Speed: the knob is the speed. Its first ROTARY_MIX_FULL (10 %) fades the
+ *     rotary in at the slow (chorale) speed: the engine's mix, mix_full_at
+ *     0.1. From there to the top the target speed runs linearly from chorale
+ *     (horn 0.80 Hz, drum 0.67 Hz) to tremolo (horn 6.7 Hz, drum 5.7 Hz).
+ *     Each rotor follows its target through its own inertia, a one-pole on
+ *     the speed: the light horn spins up in ~1 s and down in ~1.8 s (time
+ *     constants 0.35 / 0.60 s), the heavy drum in ~4.5 s and ~6 s (1.5 /
+ *     2.0 s), so a knob flip from slow to fast is the familiar wind-up, the
+ *     horn ahead of the drum, and back.
+ *
+ * Depth 0 is the engine's bypass, bit for bit. Above it the mix is
+ * d / 0.1 of full: the first knob step (1/127) mixes in 8 % of the rotary,
+ * about -22 dB, at the edge of hearing; by 5 % the mix is half and the slow
+ * rotor is clearly there; at 10 % it is all rotary at chorale speed.
+ *
+ * Level. With the same signal on both channels the two microphones' powers
+ * sum to the input's at every instant, whatever the rotors do: for one band
+ * the gains' squares sum to 2, and the crossover's bands, aligned or not, add
+ * to at most the input (above); fx_selftest.c checks the power sum stays
+ * within 1.8 dB on a 3 kHz tone (1.25 measured: the Doppler and the
+ * crossover). Below 10 % it is a mix of the input and a ~0.5 ms late copy, a
+ * comb whose first notch is at 1 kHz: keys -2.8 dB at 5 % before the level
+ * curve. A 1 ms centre put that notch at 500 Hz, in the middle of the keys:
+ * -5.1 dB. The crossover's band edge (its powers sum to -3 dB at 800 Hz when
+ * the bands' delays differ) and the delay lines' linear interpolation lose a
+ * little more on broadband: keys -0.47 dB at full. The level curve gives all
+ * of it back on keys; tones the comb passes come out over the input, up to
+ * +2.5 dB (80 Hz at 5 %). Peaks are not guaranteed: a channel's gain reaches
+ * +2.3 dB as the horn faces it. The engine's clamp holds +-1.
+ *
+ * The delay lines and crossover are written in bypass too (feed runs the whole
+ * effect with the output discarded), and the rotors keep turning at the speed
+ * the knob at 0 asks for (chorale), so coming back in matches an instance
+ * that never stopped.
+ *
+ * Per stereo frame, active: speed targets 4, two rotors' inertia 2 x 4 and
+ * phase 2 x 3, two cosines 2 x 9, four gains (one sqrt each) 4 x 3; per
+ * channel: crossover 10 and its flushes 3, two writes, two taps (delay 2,
+ * split 2, two reads and a lerp 3) 14, mix 3 => ~30; total ~110 ops plus 8
+ * memory ops. No trig, no division. Runs while bypassed too.
+ */
+#define ROTARY_XOVER_HZ 800.0f
+#define ROTARY_HORN_SLOW_HZ 0.80f
+#define ROTARY_HORN_FAST_HZ 6.7f
+#define ROTARY_DRUM_SLOW_HZ 0.67f
+#define ROTARY_DRUM_FAST_HZ 5.7f
+#define ROTARY_HORN_UP_S 0.35f
+#define ROTARY_HORN_DOWN_S 0.60f
+#define ROTARY_DRUM_UP_S 1.5f
+#define ROTARY_DRUM_DOWN_S 2.0f
+#define ROTARY_CENTER_MS 0.5f
+#define ROTARY_HORN_EXC_MS 0.40f
+#define ROTARY_DRUM_EXC_MS 0.25f
+#define ROTARY_HORN_AM 0.70f
+#define ROTARY_DRUM_AM 0.35f
+#define ROTARY_DRUM_START 0.37f   /* the drum's phase at start: not in step with the horn */
+#define ROTARY_MIX_FULL 0.1f      /* the knob position where the mix is all rotary */
+
+/* Power of two >= (centre + excursion) at FX_MAX_RATE plus two taps:
+ * 1.4 ms x 192 kHz = 269 samples. */
+#define ROTARY_BUF 512u
+#define ROTARY_MASK (ROTARY_BUF - 1u)
+
+typedef struct {
+    float horn[FX_CHANNELS][ROTARY_BUF];
+    float drum[FX_CHANNELS][ROTARY_BUF];
+    float lp1[FX_CHANNELS], lp2[FX_CHANNELS], hp2[FX_CHANNELS];   /* crossover */
+    float a_x;
+    uint32_t w;
+    float horn_hz, drum_hz;        /* the rotors' speeds */
+    float horn_ph, drum_ph;        /* their phases, 0..1 */
+    float inv_rate;
+    float horn_up, horn_down, drum_up, drum_down;   /* inertia, per frame */
+    float center, horn_exc, drum_exc;               /* samples */
+} rotary_state;
+
+enum { ROTARY_NO_FLUSH = 1, ROTARY_NO_DOPPLER = 2, ROTARY_NO_INERTIA = 4, ROTARY_LINEAR_AM = 8,
+       ROTARY_WIDE_CENTER = 16 };
+
+static float inertia_alpha(float seconds, float rate)
+{
+    return (float)(1.0 - exp(-1.0 / ((double)seconds * (double)rate)));
+}
+
+static int rotary_init(void *state, float rate)
+{
+    rotary_state *s = state;
+    if (!(rate > 0.0f) || rate > (float)FX_MAX_RATE) {
+        return -1;
+    }
+    s->a_x = pole_alpha(ROTARY_XOVER_HZ, rate);
+    s->w = 0;
+    s->horn_hz = ROTARY_HORN_SLOW_HZ;
+    s->drum_hz = ROTARY_DRUM_SLOW_HZ;
+    s->horn_ph = 0.0f;
+    s->drum_ph = ROTARY_DRUM_START;
+    s->inv_rate = 1.0f / rate;
+    s->horn_up = inertia_alpha(ROTARY_HORN_UP_S, rate);
+    s->horn_down = inertia_alpha(ROTARY_HORN_DOWN_S, rate);
+    s->drum_up = inertia_alpha(ROTARY_DRUM_UP_S, rate);
+    s->drum_down = inertia_alpha(ROTARY_DRUM_DOWN_S, rate);
+    s->center = ROTARY_CENTER_MS * 0.001f * rate;
+    s->horn_exc = ROTARY_HORN_EXC_MS * 0.001f * rate;
+    s->drum_exc = ROTARY_DRUM_EXC_MS * 0.001f * rate;
+    return 0;
+}
+
+/* buf[n - delay], delay >= 1 sample, read before buf[n] is written. */
+static inline float rotary_tap(const float *buf, uint32_t w, float delay)
+{
+    uint32_t whole = (uint32_t)delay;
+    float frac = delay - (float)whole;
+    float a = buf[(w - whole) & ROTARY_MASK];
+    float b = buf[(w - whole - 1u) & ROTARY_MASK];
+    return a + frac * (b - a);
+}
+
+static inline float rotor_step(float hz, float target, float up, float down, int mode)
+{
+    if (mode & ROTARY_NO_INERTIA) {
+        return target;
+    }
+    return hz + (target > hz ? up : down) * (target - hz);
+}
+
+static inline void rotary_run(rotary_state *s, const float *const in[FX_CHANNELS],
+                              float *const wet[FX_CHANNELS], const float *amount, uint32_t n,
+                              int mode)
+{
+    uint32_t w = s->w;
+    const float horn_exc = (mode & ROTARY_NO_DOPPLER) ? 0.0f : s->horn_exc;
+    const float drum_exc = (mode & ROTARY_NO_DOPPLER) ? 0.0f : s->drum_exc;
+    const float center = (mode & ROTARY_WIDE_CENTER) ? 2.0f * s->center : s->center;
+    for (uint32_t i = 0; i < n; i++) {
+        /* Read the inputs before any write: `wet` may share memory with them. */
+        float x[FX_CHANNELS] = { finite_or_zero(in[0][i]), finite_or_zero(in[1][i]) };
+
+        float sp = (amount[i] - ROTARY_MIX_FULL) * (1.0f / (1.0f - ROTARY_MIX_FULL));
+        sp = sp > 0.0f ? (sp < 1.0f ? sp : 1.0f) : 0.0f;   /* NaN -> 0 */
+        const float horn_t = ROTARY_HORN_SLOW_HZ + (ROTARY_HORN_FAST_HZ - ROTARY_HORN_SLOW_HZ) * sp;
+        const float drum_t = ROTARY_DRUM_SLOW_HZ + (ROTARY_DRUM_FAST_HZ - ROTARY_DRUM_SLOW_HZ) * sp;
+        s->horn_hz = rotor_step(s->horn_hz, horn_t, s->horn_up, s->horn_down, mode);
+        s->drum_hz = rotor_step(s->drum_hz, drum_t, s->drum_up, s->drum_down, mode);
+        s->horn_ph = wrap01(s->horn_ph + s->horn_hz * s->inv_rate);
+        s->drum_ph = wrap01(s->drum_ph + s->drum_hz * s->inv_rate);
+        const float ch = lfo_sine(s->horn_ph);
+        const float cd = lfo_sine(s->drum_ph);
+        /* Left microphone: +c; right: -c. */
+        float gh[FX_CHANNELS] = { sqrtf(1.0f + ROTARY_HORN_AM * ch),
+                                  sqrtf(1.0f - ROTARY_HORN_AM * ch) };
+        float gd[FX_CHANNELS] = { sqrtf(1.0f + ROTARY_DRUM_AM * cd),
+                                  sqrtf(1.0f - ROTARY_DRUM_AM * cd) };
+        if (mode & ROTARY_LINEAR_AM) {   /* self-test: powers no longer sum to 2 */
+            gh[0] = 1.0f + ROTARY_HORN_AM * ch;
+            gh[1] = 1.0f - ROTARY_HORN_AM * ch;
+            gd[0] = 1.0f + ROTARY_DRUM_AM * cd;
+            gd[1] = 1.0f - ROTARY_DRUM_AM * cd;
+        }
+        const float dh[FX_CHANNELS] = { center - horn_exc * ch, center + horn_exc * ch };
+        const float dd[FX_CHANNELS] = { center - drum_exc * cd, center + drum_exc * cd };
+
+        float y[FX_CHANNELS];
+        for (int c = 0; c < FX_CHANNELS; c++) {
+            s->lp1[c] += s->a_x * (x[c] - s->lp1[c]);
+            s->lp2[c] += s->a_x * (s->lp1[c] - s->lp2[c]);
+            const float h1 = x[c] - s->lp1[c];
+            s->hp2[c] += s->a_x * (h1 - s->hp2[c]);
+            const float lo = s->lp2[c];
+            const float hi = s->hp2[c] - h1;   /* -(h1 - LP(h1)) */
+            if (!(mode & ROTARY_NO_FLUSH)) {
+                s->lp1[c] = flush(s->lp1[c]);
+                s->lp2[c] = flush(s->lp2[c]);
+                s->hp2[c] = flush(s->hp2[c]);
+            }
+            const float th = rotary_tap(s->horn[c], w, dh[c]);
+            const float td = rotary_tap(s->drum[c], w, dd[c]);
+            s->horn[c][w] = hi;
+            s->drum[c][w] = lo;
+            y[c] = gh[c] * th + gd[c] * td;
+        }
+        if (wet != NULL) {
+            wet[0][i] = y[0];
+            wet[1][i] = y[1];
+        }
+        w = (w + 1u) & ROTARY_MASK;
+    }
+    s->w = w;
+}
+
+static void rotary_process(void *state, const float *const in[FX_CHANNELS],
+                           float *const wet[FX_CHANNELS], const float *amount, uint32_t n)
+{
+    rotary_run(state, in, wet, amount, n, 0);
+}
+
+static void rotary_feed(void *state, const float *const in[FX_CHANNELS], uint32_t n)
+{
+    rotary_run(state, in, NULL, ZERO_AMOUNT, n, 0);
+}
+
+/* ------------------------------------------------------------------------- */
+/* Auto-wah                                                                   */
+/* ------------------------------------------------------------------------- */
+
+/* An envelope filter: a resonant band-pass whose centre follows how hard the
+ * keys are played. A strike opens it upward, and as the note decays it closes
+ * back down: the "wow".
+ *
+ * Signal path (both channels through one filter setting, so the image does not
+ * move):
+ *
+ *   envelope = attack/release follower of max(|L|, |R|)
+ *   s        = envelope / (envelope + WAH_SENS)          0..1, no log
+ *   u        = s x depth                                  where in the range
+ *   centre   = WAH_LO_HZ x (WAH_HI_HZ / WAH_LO_HZ)^u      a table, per rate
+ *   wet      = k x bandpass(x)                            peak gain exactly 1
+ *
+ *   - Envelope: attack 4 ms (a strike opens it at once), release 120 ms (it
+ *     closes with the note, not with each cycle of the waveform). One compare
+ *     and one multiply-add per frame, in place: no buffer, no allocation.
+ *   - s: a soft knee at WAH_SENS (0.05, -26 dBFS): a quiet note opens it a
+ *     little, a firm one most of the way. One divide.
+ *   - Range: 280 Hz (closed) to 2.4 kHz (fully open), on a log scale, so the
+ *     sweep is even in pitch. Depth scales the range: at half depth the most
+ *     a strike can open it is ~820 Hz.
+ *   - Filter: the trapezoidal state-variable filter (Zavalishin's TPT SVF),
+ *     which stays stable and click-free under a cutoff moving every sample.
+ *     Q 2.2 (k = 1/Q = 0.45): enough to hear the vowel, low enough that it
+ *     never whistles: after a noise burst it rings down 40 dB in 5.3 ms
+ *     low in the range (fx_selftest.c; Q 12 takes 32 ms), and k x band-pass has gain exactly 1 at its centre
+ *     and below 1 everywhere else, so no tone is ever lifted. The coefficient
+ *     g = tan(pi f / rate) is tabulated over u (WAH_TABLE points) and
+ *     interpolated; a1 = 1 / (1 + g (g + k)) is one divide per frame.
+ *   - Mix: wet_max 0.65 at full depth, rising with the knob (mix_full_at 1):
+ *     away from the centre the output is 0.35 of the input (-9 dB), at the
+ *     centre all of it. Depth sets both the range and the mix.
+ *
+ * Depth 0 is the engine's bypass, bit for bit. The first knob step (1/127)
+ * mixes in 0.5 % of a filter that barely leaves 280 Hz: inaudible. Around
+ * 15-20 % it is plainly a filter moving with the playing.
+ *
+ * Level. The band-pass's gain is at most 1 at every frequency, and the mix is
+ * a weighted average of the input and it, so before the level curve the wah
+ * only takes energy away, and its whole sound is how much it takes from
+ * outside its band: keys -2.8 dB at 50 % and -8.3 dB at full. The level curve
+ * gives that back on keys (up to +8.3 dB), so what sits in the band comes out
+ * over its input: the 3 kHz tone +2.0 dB at full, white noise +0.6 dB.
+ * fx_selftest.c checks the band opens within 25 ms of a loud note.
+ *
+ * Stability: for any g > 0 and k > 0 the TPT SVF is stable, and the table
+ * only holds positive g; the self-test runs 28.8 s at full depth with the
+ * clamp off, against a mutant with negative damping that must grow.
+ *
+ * Bypass runs the follower and the filter with the output discarded, so
+ * coming back in matches an instance that never stopped.
+ *
+ * Per stereo frame, active: detector 4, follower 3, knee 3 (one divide),
+ * range 1, table lerp 6, a1..a3 6 (one divide); per channel: SVF 10, flushes
+ * 2, scale 1 => ~26; total ~75 ops. No trig. Runs while bypassed too.
+ */
+#define WAH_LO_HZ 280.0
+#define WAH_HI_HZ 2400.0
+#define WAH_K 0.45f              /* 1 / Q */
+#define WAH_ATTACK_MS 4.0f
+#define WAH_RELEASE_MS 120.0f
+#define WAH_SENS 0.05f
+#define WAH_WET 0.65f
+#define WAH_TABLE 128
+
+typedef struct {
+    float g[WAH_TABLE + 1];
+    float ic1[FX_CHANNELS], ic2[FX_CHANNELS];
+    float env;
+    float a_attack, a_release;
+} wah_state;
+
+enum { WAH_NO_FLUSH = 1, WAH_NO_SWEEP = 2, WAH_RUNAWAY = 4, WAH_WHISTLE = 8, WAH_SLOW_ATTACK = 16 };
+
+static int wah_init(void *state, float rate)
+{
+    wah_state *s = state;
+    if (!(rate > 0.0f) || rate > (float)FX_MAX_RATE) {
+        return -1;
+    }
+    for (int j = 0; j <= WAH_TABLE; j++) {
+        double hz = WAH_LO_HZ * pow(WAH_HI_HZ / WAH_LO_HZ, (double)j / WAH_TABLE);
+        s->g[j] = (float)tan(M_PI * hz / (double)rate);
+    }
+    s->a_attack = (float)(1.0 - exp(-1.0 / (WAH_ATTACK_MS * 0.001 * (double)rate)));
+    s->a_release = (float)(1.0 - exp(-1.0 / (WAH_RELEASE_MS * 0.001 * (double)rate)));
+    s->env = 0.0f;
+    return 0;
+}
+
+static inline void wah_run(wah_state *s, const float *const in[FX_CHANNELS],
+                           float *const wet[FX_CHANNELS], const float *amount, uint32_t n,
+                           int mode)
+{
+    const float k = (mode & WAH_RUNAWAY) ? -0.05f : (mode & WAH_WHISTLE) ? (1.0f / 12.0f) : WAH_K;
+    const float out_k = (mode & WAH_WHISTLE) ? 1.0f : k;
+    /* 4 ms -> ~400 ms: the one-pole's coefficient is ~1 / (ms x rate). */
+    const float a_attack = (mode & WAH_SLOW_ATTACK) ? 0.01f * s->a_attack : s->a_attack;
+    for (uint32_t i = 0; i < n; i++) {
+        /* Read the inputs before any write: `wet` may share memory with them. */
+        float x[FX_CHANNELS] = { finite_or_zero(in[0][i]), finite_or_zero(in[1][i]) };
+        float peak = fmaxf(fabsf(x[0]), fabsf(x[1]));
+        s->env += (peak > s->env ? a_attack : s->a_release) * (peak - s->env);
+        if (!(mode & WAH_NO_FLUSH)) {
+            s->env = flush(s->env);
+        }
+        float open = s->env / (s->env + WAH_SENS);
+        if (mode & WAH_NO_SWEEP) {
+            open = 0.5f;
+        }
+        float u = open * amount[i];
+        u = u > 0.0f ? (u < 1.0f ? u : 1.0f) : 0.0f;   /* NaN -> 0 */
+        float pos = u * (float)WAH_TABLE;
+        uint32_t j = (uint32_t)pos;
+        if (j >= WAH_TABLE) {
+            j = WAH_TABLE - 1;
+        }
+        const float g = s->g[j] + (pos - (float)j) * (s->g[j + 1] - s->g[j]);
+        const float a1 = 1.0f / (1.0f + g * (g + k));
+        const float a2 = g * a1;
+        const float a3 = g * a2;
+        for (int c = 0; c < FX_CHANNELS; c++) {
+            const float v3 = x[c] - s->ic2[c];
+            const float v1 = a1 * s->ic1[c] + a2 * v3;
+            const float v2 = s->ic2[c] + a2 * s->ic1[c] + a3 * v3;
+            s->ic1[c] = 2.0f * v1 - s->ic1[c];
+            s->ic2[c] = 2.0f * v2 - s->ic2[c];
+            if (!(mode & WAH_NO_FLUSH)) {
+                s->ic1[c] = flush(s->ic1[c]);
+                s->ic2[c] = flush(s->ic2[c]);
+            }
+            if (wet != NULL) {
+                wet[c][i] = out_k * v1;
+            }
+        }
+    }
+}
+
+static void wah_process(void *state, const float *const in[FX_CHANNELS],
+                        float *const wet[FX_CHANNELS], const float *amount, uint32_t n)
+{
+    wah_run(state, in, wet, amount, n, 0);
+}
+
+static void wah_feed(void *state, const float *const in[FX_CHANNELS], uint32_t n)
+{
+    wah_run(state, in, NULL, ZERO_AMOUNT, n, 0);
+}
+
+/* ------------------------------------------------------------------------- */
 /* The table                                                                  */
 /* ------------------------------------------------------------------------- */
+
+/* Level fits (fx_dsp.h, "Level curve"): { p0, p1, c0, c1 } per effect, so the
+ * effect alone reads the input's RMS on the keys signal at every knob
+ * position, before the chain's makeup (2026-10-13: "the total boost should be
+ * 1 dB no matter what the effects are"). Least squares, relative error, on
+ * each effect's raw loss at 32 knob positions, plus 12 inside the drive's and
+ * the rotary's fade-ins (`fx-selftest --unity-raw K DEPTH`, level curve and
+ * makeup off, 4.8 s of keys); the fit's worst residual is 0.10 dB (the
+ * auto-wah and the rotary), 0.05 the drive, 0.001 the rest. The self-test
+ * holds every effect to +-0.3 dB of the input on keys. Re-run the report and
+ * refit when an effect's voicing changes: the unity check fails first. What
+ * the raw loss was, keys at full depth: chorus -3.0, drive +0.06, phaser
+ * -0.88, tremolo -3.36, flanger -2.09, rotary -0.47, auto-wah -8.34 dB.
+ * Other signals keep their own difference from keys (`fx-selftest --unity
+ * MASK DEPTH`): one effect alone at any depth, -6.6..+2.5 dB (the chorus's
+ * 80 Hz tone at full; the rotary's 80 Hz tone in its fade-in). */
+#define CHORUS_LEVEL { 0.2381f, 0.3811f, 0.0030f, 0.1900f }
+#define DRIVE_LEVEL { 0.9524f, 0.0736f, 0.4631f, -0.1642f }
+#define PHASER_LEVEL { 0.5039f, 0.6722f, 0.1522f, 0.3351f }
+#define TREMOLO_LEVEL { 0.2555f, 0.2044f, 0.6255f, 0.1021f }
+#define FLANGER_LEVEL { 0.4161f, 0.5551f, -0.0499f, 0.2770f }
+#define ROTARY_LEVEL { 0.8985f, 0.0007f, 0.0830f, 0.2065f }
+#define WAH_LEVEL { -0.0346f, 0.1771f, 0.3864f, -0.4606f }
 
 /* The wire's effect ids. Append only: an id is a number the policy module
  * sends, and renumbering would silently change what an old sender selects.
  * patch_browser/fx_host_protocol.py names the same ids in the same order;
  * tests/test_fx_host.py reads this table and fails if they drift. */
 const fx_effect_desc FX_EFFECTS[] = {
-    { "chorus", 0.5f, 1.0f, CHORUS_LEVEL_CORR, CHORUS_LEVEL_SCALE, sizeof(chorus_state),
+    { "chorus", 0.5f, 1.0f, CHORUS_LEVEL, sizeof(chorus_state),
       chorus_init, chorus_process, chorus_feed },
-    { "drive", 1.0f, 0.05f, 0.0f, 0.0f, sizeof(drive_state), drive_init, drive_process,
+    { "drive", 1.0f, 0.05f, DRIVE_LEVEL, sizeof(drive_state), drive_init, drive_process,
       drive_feed },
-    { "phaser", PHASER_WET, 1.0f, PHASER_LEVEL_CORR, PHASER_LEVEL_SCALE, sizeof(phaser_state),
+    { "phaser", PHASER_WET, 1.0f, PHASER_LEVEL, sizeof(phaser_state),
       phaser_init, phaser_process, phaser_feed },
-    { "tremolo", 1.0f, 1.0f, 0.0f, 0.0f, sizeof(tremolo_state), tremolo_init, tremolo_process,
+    { "tremolo", 1.0f, 1.0f, TREMOLO_LEVEL, sizeof(tremolo_state), tremolo_init, tremolo_process,
       tremolo_feed },
-    { "flanger", FLANGER_WET, 1.0f, FLANGER_LEVEL_CORR, FLANGER_LEVEL_SCALE,
+    { "flanger", FLANGER_WET, 1.0f, FLANGER_LEVEL,
       sizeof(flanger_state), flanger_init, flanger_process, flanger_feed },
+    { "rotary", 1.0f, ROTARY_MIX_FULL, ROTARY_LEVEL,
+      sizeof(rotary_state), rotary_init, rotary_process, rotary_feed },
+    { "auto-wah", WAH_WET, 1.0f, WAH_LEVEL, sizeof(wah_state), wah_init, wah_process, wah_feed },
 };
 const int FX_EFFECT_COUNT = (int)(sizeof(FX_EFFECTS) / sizeof(FX_EFFECTS[0]));
 
-/* The run order, as ids: Drive -> Phaser -> Flanger -> Chorus -> Tremolo. The
- * drive first, so it shapes the plain signal rather than a swept or doubled
- * one; the two sweeps next to each other, ahead of the chorus's doubling; the
- * tremolo last, so its level wobble is not then shaped by anything.
- * patch_browser/fx_host_protocol.py's CHAIN_ORDER names the same ids;
- * tests/test_fx_host.py reads this array and fails if they drift. */
-const int FX_CHAIN_ORDER[] = { 1, 2, 4, 0, 3 };
+/* The run order, as ids: Drive -> Auto-wah -> Phaser -> Flanger -> Chorus ->
+ * Rotary -> Tremolo. The drive first, so it shapes the plain signal rather
+ * than a swept or doubled one. The auto-wah next: an envelope filter reads how
+ * hard the keys are played, and every later stage blurs that (a sweep moves
+ * the level, the rotary and tremolo modulate it), while the drive's own level
+ * law keeps the dynamics it hands on; a wah after a drive is the pedalboard
+ * habit too. The two sweeps next to each other, ahead of the chorus's
+ * doubling. The rotary after them: it is a speaker cabinet, the end of an
+ * organ's chain, so what comes before it is what it plays (an organ's own
+ * chorus-vibrato sits before its Leslie), and a chorus after it would smear
+ * its Doppler. The tremolo last, so its level wobble is not then shaped by
+ * anything. patch_browser/fx_host_protocol.py's CHAIN_ORDER names the same
+ * ids; tests/test_fx_host.py reads this array and fails if they drift. */
+const int FX_CHAIN_ORDER[] = { 1, 6, 2, 4, 0, 5, 3 };
 const int FX_CHAIN_LEN = (int)(sizeof(FX_CHAIN_ORDER) / sizeof(FX_CHAIN_ORDER[0]));
 
 #ifdef FX_SELFTEST
@@ -1022,12 +1470,6 @@ static void phaser_hot(void *st, const float *const in[FX_CHANNELS],
     (void)amount;
     phaser_run(st, in, wet, n, PHASER_HOT);
 }
-static void phaser_full_band(void *st, const float *const in[FX_CHANNELS],
-                             float *const wet[FX_CHANNELS], const float *amount, uint32_t n)
-{
-    (void)amount;
-    phaser_run(st, in, wet, n, PHASER_FULL_BAND);
-}
 static void phaser_runaway(void *st, const float *const in[FX_CHANNELS],
                            float *const wet[FX_CHANNELS], const float *amount, uint32_t n)
 {
@@ -1068,56 +1510,170 @@ static void tremolo_overshoot(void *st, const float *const in[FX_CHANNELS],
                               float *const wet[FX_CHANNELS], const float *amount, uint32_t n)
 {
     (void)amount;
-    tremolo_run(st, in, wet, n, 1.25f);
+    tremolo_run(st, in, wet, n, 1.25f, 0);
 }
 
 static void tremolo_shallow_top(void *st, const float *const in[FX_CHANNELS],
                                 float *const wet[FX_CHANNELS], const float *amount, uint32_t n)
 {
     (void)amount;
-    tremolo_run(st, in, wet, n, 0.8f);
+    tremolo_run(st, in, wet, n, 0.8f, 0);
+}
+static void tremolo_rounded(void *st, const float *const in[FX_CHANNELS],
+                            float *const wet[FX_CHANNELS], const float *amount, uint32_t n)
+{
+    (void)amount;
+    tremolo_run(st, in, wet, n, 1.0f, TREMOLO_ROUNDED);
+}
+static void tremolo_no_floor(void *st, const float *const in[FX_CHANNELS],
+                             float *const wet[FX_CHANNELS], const float *amount, uint32_t n)
+{
+    (void)amount;
+    tremolo_run(st, in, wet, n, 1.0f, TREMOLO_NO_FLOOR);
+}
+static void rotary_no_flush(void *st, const float *const in[FX_CHANNELS],
+                            float *const wet[FX_CHANNELS], const float *amount, uint32_t n)
+{
+    rotary_run(st, in, wet, amount, n, ROTARY_NO_FLUSH);
+}
+static void rotary_no_flush_feed(void *st, const float *const in[FX_CHANNELS], uint32_t n)
+{
+    rotary_run(st, in, NULL, ZERO_AMOUNT, n, ROTARY_NO_FLUSH);
+}
+static void rotary_no_doppler(void *st, const float *const in[FX_CHANNELS],
+                              float *const wet[FX_CHANNELS], const float *amount, uint32_t n)
+{
+    rotary_run(st, in, wet, amount, n, ROTARY_NO_DOPPLER);
+}
+static void rotary_no_inertia(void *st, const float *const in[FX_CHANNELS],
+                              float *const wet[FX_CHANNELS], const float *amount, uint32_t n)
+{
+    rotary_run(st, in, wet, amount, n, ROTARY_NO_INERTIA);
+}
+static void rotary_linear_am(void *st, const float *const in[FX_CHANNELS],
+                             float *const wet[FX_CHANNELS], const float *amount, uint32_t n)
+{
+    rotary_run(st, in, wet, amount, n, ROTARY_LINEAR_AM);
+}
+static void rotary_wide_center(void *st, const float *const in[FX_CHANNELS],
+                               float *const wet[FX_CHANNELS], const float *amount, uint32_t n)
+{
+    rotary_run(st, in, wet, amount, n, ROTARY_WIDE_CENTER);
+}
+static void rotary_wide_center_feed(void *st, const float *const in[FX_CHANNELS], uint32_t n)
+{
+    rotary_run(st, in, NULL, ZERO_AMOUNT, n, ROTARY_WIDE_CENTER);
+}
+static void wah_no_flush(void *st, const float *const in[FX_CHANNELS],
+                         float *const wet[FX_CHANNELS], const float *amount, uint32_t n)
+{
+    wah_run(st, in, wet, amount, n, WAH_NO_FLUSH);
+}
+static void wah_no_flush_feed(void *st, const float *const in[FX_CHANNELS], uint32_t n)
+{
+    wah_run(st, in, NULL, ZERO_AMOUNT, n, WAH_NO_FLUSH);
+}
+static void wah_no_sweep(void *st, const float *const in[FX_CHANNELS],
+                         float *const wet[FX_CHANNELS], const float *amount, uint32_t n)
+{
+    wah_run(st, in, wet, amount, n, WAH_NO_SWEEP);
+}
+static void wah_runaway(void *st, const float *const in[FX_CHANNELS],
+                        float *const wet[FX_CHANNELS], const float *amount, uint32_t n)
+{
+    wah_run(st, in, wet, amount, n, WAH_RUNAWAY);
+}
+static void wah_runaway_feed(void *st, const float *const in[FX_CHANNELS], uint32_t n)
+{
+    wah_run(st, in, NULL, ZERO_AMOUNT, n, WAH_RUNAWAY);
+}
+static void wah_whistle(void *st, const float *const in[FX_CHANNELS],
+                        float *const wet[FX_CHANNELS], const float *amount, uint32_t n)
+{
+    wah_run(st, in, wet, amount, n, WAH_WHISTLE);
+}
+static void wah_slow_attack(void *st, const float *const in[FX_CHANNELS],
+                            float *const wet[FX_CHANNELS], const float *amount, uint32_t n)
+{
+    wah_run(st, in, wet, amount, n, WAH_SLOW_ATTACK);
+}
+
+float fx_test_rotary_speed(const void *state, int rotor)
+{
+    const rotary_state *s = state;
+    return rotor == 0 ? s->horn_hz : s->drum_hz;
+}
+float fx_test_lfo_sine(float phase)
+{
+    return lfo_sine(phase);
+}
+float fx_test_lfo_rounded(float phase)
+{
+    return lfo_shape(phase);
 }
 
 const fx_effect_desc FX_TEST_MUTANTS[FX_MUT_COUNT] = {
-    [FX_MUT_DRIVE_NO_OVERSAMPLING] = { "drive-no-os", 1.0f, 0.05f, 0.0f, 0.0f, sizeof(drive_state),
+    [FX_MUT_DRIVE_NO_OVERSAMPLING] = { "drive-no-os", 1.0f, 0.05f, DRIVE_LEVEL, sizeof(drive_state),
                                        drive_init, drive_no_os, drive_feed },
-    [FX_MUT_DRIVE_NO_CEILING] = { "drive-no-ceiling", 1.0f, 0.05f, 0.0f, 0.0f, sizeof(drive_state),
+    [FX_MUT_DRIVE_NO_CEILING] = { "drive-no-ceiling", 1.0f, 0.05f, DRIVE_LEVEL, sizeof(drive_state),
                                   drive_init, drive_no_ceiling, drive_feed },
-    [FX_MUT_DRIVE_NO_MAKEUP] = { "drive-no-makeup", 1.0f, 0.05f, 0.0f, 0.0f, sizeof(drive_state),
+    [FX_MUT_DRIVE_NO_MAKEUP] = { "drive-no-makeup", 1.0f, 0.05f, DRIVE_LEVEL, sizeof(drive_state),
                                  drive_init, drive_no_makeup, drive_feed },
-    [FX_MUT_DRIVE_OLD_SHAPER] = { "drive-old-shaper", 1.0f, 0.05f, 0.0f, 0.0f, sizeof(drive_state),
+    [FX_MUT_DRIVE_OLD_SHAPER] = { "drive-old-shaper", 1.0f, 0.05f, DRIVE_LEVEL, sizeof(drive_state),
                                   drive_init, drive_old_shaper, drive_feed },
-    [FX_MUT_DRIVE_ROUND3_BIAS] = { "drive-round3-bias", 1.0f, 0.05f, 0.0f, 0.0f,
+    [FX_MUT_DRIVE_ROUND3_BIAS] = { "drive-round3-bias", 1.0f, 0.05f, DRIVE_LEVEL,
                                    sizeof(drive_state), drive_init, drive_round3_bias,
                                    drive_feed },
-    [FX_MUT_DRIVE_NO_FLUSH] = { "drive-no-flush", 1.0f, 0.05f, 0.0f, 0.0f, sizeof(drive_state),
+    [FX_MUT_DRIVE_NO_FLUSH] = { "drive-no-flush", 1.0f, 0.05f, DRIVE_LEVEL, sizeof(drive_state),
                                 drive_init, drive_no_flush, drive_no_flush_feed },
-    [FX_MUT_PHASER_NO_FLUSH] = { "phaser-no-flush", PHASER_WET, 1.0f, PHASER_LEVEL_CORR,
-                                 PHASER_LEVEL_SCALE, sizeof(phaser_state),
+    [FX_MUT_PHASER_NO_FLUSH] = { "phaser-no-flush", PHASER_WET, 1.0f, PHASER_LEVEL, sizeof(phaser_state),
                                  phaser_init, phaser_no_flush, phaser_no_flush_feed },
-    [FX_MUT_PHASER_HOT_FEEDBACK] = { "phaser-hot", PHASER_WET, 1.0f, PHASER_LEVEL_CORR,
-                                     PHASER_LEVEL_SCALE, sizeof(phaser_state),
+    [FX_MUT_PHASER_HOT_FEEDBACK] = { "phaser-hot", PHASER_WET, 1.0f, PHASER_LEVEL, sizeof(phaser_state),
                                      phaser_init, phaser_hot, phaser_feed },
-    [FX_MUT_PHASER_FULL_BAND] = { "phaser-full-band", PHASER_WET, 1.0f, PHASER_LEVEL_CORR,
-                                  PHASER_LEVEL_SCALE, sizeof(phaser_state),
-                                  phaser_init, phaser_full_band, phaser_feed },
-    [FX_MUT_PHASER_RUNAWAY] = { "phaser-runaway", PHASER_WET, 1.0f, PHASER_LEVEL_CORR,
-                                PHASER_LEVEL_SCALE, sizeof(phaser_state),
+    [FX_MUT_PHASER_RUNAWAY] = { "phaser-runaway", PHASER_WET, 1.0f, PHASER_LEVEL, sizeof(phaser_state),
                                 phaser_init, phaser_runaway, phaser_runaway_feed },
-    [FX_MUT_FLANGER_NO_FLUSH] = { "flanger-no-flush", FLANGER_WET, 1.0f, FLANGER_LEVEL_CORR,
-                                  FLANGER_LEVEL_SCALE, sizeof(flanger_state),
+    [FX_MUT_FLANGER_NO_FLUSH] = { "flanger-no-flush", FLANGER_WET, 1.0f, FLANGER_LEVEL, sizeof(flanger_state),
                                   flanger_init, flanger_no_flush, flanger_no_flush_feed },
-    [FX_MUT_FLANGER_HOT_FEEDBACK] = { "flanger-hot", FLANGER_WET, 1.0f, FLANGER_LEVEL_CORR,
-                                      FLANGER_LEVEL_SCALE, sizeof(flanger_state),
+    [FX_MUT_FLANGER_HOT_FEEDBACK] = { "flanger-hot", FLANGER_WET, 1.0f, FLANGER_LEVEL, sizeof(flanger_state),
                                       flanger_init, flanger_hot, flanger_feed },
-    [FX_MUT_FLANGER_RUNAWAY] = { "flanger-runaway", FLANGER_WET, 1.0f, FLANGER_LEVEL_CORR,
-                                 FLANGER_LEVEL_SCALE, sizeof(flanger_state),
+    [FX_MUT_FLANGER_RUNAWAY] = { "flanger-runaway", FLANGER_WET, 1.0f, FLANGER_LEVEL, sizeof(flanger_state),
                                  flanger_init, flanger_runaway, flanger_runaway_feed },
-    [FX_MUT_TREMOLO_OVERSHOOT] = { "tremolo-overshoot", 1.0f, 1.0f, 0.0f, 0.0f, sizeof(tremolo_state),
+    [FX_MUT_TREMOLO_OVERSHOOT] = { "tremolo-overshoot", 1.0f, 1.0f, TREMOLO_LEVEL, sizeof(tremolo_state),
                                    tremolo_init, tremolo_overshoot, tremolo_feed },
-    [FX_MUT_TREMOLO_SHALLOW_TOP] = { "tremolo-shallow-top", 1.0f, 1.0f, 0.0f, 0.0f,
+    [FX_MUT_TREMOLO_SHALLOW_TOP] = { "tremolo-shallow-top", 1.0f, 1.0f, TREMOLO_LEVEL,
                                      sizeof(tremolo_state), tremolo_init, tremolo_shallow_top,
                                      tremolo_feed },
+    [FX_MUT_TREMOLO_ROUNDED_TRI] = { "tremolo-rounded-triangle", 1.0f, 1.0f, TREMOLO_LEVEL,
+                                     sizeof(tremolo_state), tremolo_init, tremolo_rounded,
+                                     tremolo_feed },
+    [FX_MUT_TREMOLO_NO_FLOOR] = { "tremolo-no-floor", 1.0f, 1.0f, TREMOLO_LEVEL,
+                                  sizeof(tremolo_state), tremolo_init, tremolo_no_floor,
+                                  tremolo_feed },
+    [FX_MUT_ROTARY_NO_FLUSH] = { "rotary-no-flush", 1.0f, ROTARY_MIX_FULL, ROTARY_LEVEL,
+                                 sizeof(rotary_state), rotary_init,
+                                 rotary_no_flush, rotary_no_flush_feed },
+    [FX_MUT_ROTARY_NO_DOPPLER] = { "rotary-no-doppler", 1.0f, ROTARY_MIX_FULL, ROTARY_LEVEL,
+                                   sizeof(rotary_state), rotary_init,
+                                   rotary_no_doppler, rotary_feed },
+    [FX_MUT_ROTARY_NO_INERTIA] = { "rotary-no-inertia", 1.0f, ROTARY_MIX_FULL, ROTARY_LEVEL,
+                                   sizeof(rotary_state), rotary_init,
+                                   rotary_no_inertia, rotary_feed },
+    [FX_MUT_ROTARY_LINEAR_AM] = { "rotary-linear-am", 1.0f, ROTARY_MIX_FULL, ROTARY_LEVEL,
+                                  sizeof(rotary_state), rotary_init, rotary_linear_am,
+                                  rotary_feed },
+    [FX_MUT_ROTARY_WIDE_CENTER] = { "rotary-1ms-centre", 1.0f, ROTARY_MIX_FULL, ROTARY_LEVEL,
+                                    sizeof(rotary_state), rotary_init, rotary_wide_center,
+                                    rotary_wide_center_feed },
+    [FX_MUT_WAH_NO_FLUSH] = { "auto-wah-no-flush", WAH_WET, 1.0f, WAH_LEVEL, sizeof(wah_state),
+                              wah_init, wah_no_flush, wah_no_flush_feed },
+    [FX_MUT_WAH_NO_SWEEP] = { "auto-wah-no-sweep", WAH_WET, 1.0f, WAH_LEVEL, sizeof(wah_state),
+                              wah_init, wah_no_sweep, wah_feed },
+    [FX_MUT_WAH_RUNAWAY] = { "auto-wah-runaway", WAH_WET, 1.0f, WAH_LEVEL, sizeof(wah_state),
+                             wah_init, wah_runaway, wah_runaway_feed },
+    [FX_MUT_WAH_WHISTLE] = { "auto-wah-whistle", WAH_WET, 1.0f, WAH_LEVEL, sizeof(wah_state),
+                             wah_init, wah_whistle, wah_feed },
+    [FX_MUT_WAH_SLOW_ATTACK] = { "auto-wah-slow-attack", WAH_WET, 1.0f, WAH_LEVEL,
+                                 sizeof(wah_state), wah_init, wah_slow_attack, wah_feed },
 };
 
 int fx_test_no_clamp;
@@ -1138,6 +1694,7 @@ static float one_pole_alpha(double ms, float rate)
 #ifdef FX_SELFTEST
 int fx_test_no_level;
 int fx_test_level_hot;
+int fx_test_level_cold;
 int fx_test_level_wobble;
 int fx_test_reverse_order;
 int fx_test_no_makeup;
@@ -1179,9 +1736,10 @@ static void level_table(fx_engine *e, int k)
     for (int j = 0; j <= FX_LEVEL_POINTS; j++) {
         double depth = (double)j / FX_LEVEL_POINTS;
         double w = (double)d->wet_max * fmin(1.0, depth / (double)d->mix_full_at);
-        double ms = 1.0 - 2.0 * w * (1.0 - w) * (1.0 - (double)d->level_corr);
-        double g = d->level_scale > 0.0f && ms > 0.0 ? pow(ms, -0.5 * (double)d->level_scale)
-                                                      : 1.0;
+        const fx_level_fit *f = &d->level;
+        double ms = (1.0 - w) * (1.0 - w) + w * w * ((double)f->p0 + (double)f->p1 * depth) +
+                    2.0 * w * (1.0 - w) * ((double)f->c0 + (double)f->c1 * depth);
+        double g = fx_level_fit_on(f) ? pow(fmax(ms, FX_LEVEL_MS_MIN), -0.5) : 1.0;
         e->level[k][j] = j == 0 ? 1.0f : (float)g;   /* exactly 1 at depth 0 */
     }
 }
@@ -1204,7 +1762,10 @@ static inline float level_at(const fx_engine *e, int k, float d)
     if (fx_test_level_hot && d > 0.0f) {
         g *= 1.0593f;
     }
-    if (fx_test_level_wobble && e->table[k].level_scale > 0.0f) {
+    if (fx_test_level_cold && d > 0.0f) {
+        g *= 0.9441f;   /* -0.5 dB */
+    }
+    if (fx_test_level_wobble && fx_level_fit_on(&e->table[k].level)) {
         /* +-0.5 dB at ~0.4 Hz: what a gain that follows the sweep does. */
         float ph = (float)(g_wobble_t % 120000u) / 120000.0f;
         g *= 1.0f + 0.06f * (4.0f * fabsf(ph - 0.5f) - 1.0f);
