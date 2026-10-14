@@ -321,27 +321,27 @@ class WireFormat(unittest.TestCase):
         for bad_depth in (float("nan"), float("inf"), float("-inf")):
             with self.subTest(depth=bad_depth), self.assertRaises(ValueError):
                 proto.encode(0, bad_depth)
-        for bad_id in (5, -1, 99, True, 0.0, "0"):
+        for bad_id in (7, -1, 99, True, 0.0, "0"):
             with self.subTest(effect=bad_id), self.assertRaises(ValueError):
                 proto.encode(bad_id, 0.5)
 
     def test_levels_encoding(self):
         self.assertEqual(
-            proto.encode_chain_levels(5, 0.5, (1.0, 0.25, 0, 1, 0.5)),
-            b"chainl 5 0.500000 1.000000 0.250000 0.000000 1.000000 0.500000",
+            proto.encode_chain_levels(5, 0.5, (1.0, 0.25, 0, 1, 0.5, 0.75, 0.1)),
+            b"chainl 5 0.500000 1.000000 0.250000 0.000000 1.000000 0.500000 0.750000 0.100000",
         )
         # Clamped like the depth.
         self.assertEqual(
-            proto.encode_chain_levels(0, 2.0, (-1.0, 3.0, 0.5, 0.5, 0.5)),
-            b"chainl 0 1.000000 0.000000 1.000000 0.500000 0.500000 0.500000",
+            proto.encode_chain_levels(0, 2.0, (-1.0, 3.0, 0.5, 0.5, 0.5, 0.5, 0.5)),
+            b"chainl 0 1.000000 0.000000 1.000000 0.500000 0.500000 0.500000 0.500000 0.500000",
         )
         self.assertEqual(proto.LEVELS_DEFAULT, (1.0,) * len(proto.EFFECT_IDS))
 
     def test_levels_encoding_refuses_what_it_cannot_say_honestly(self):
         good = (1.0,) * len(proto.EFFECT_IDS)
-        for bad in ((1.0,) * 4, (1.0,) * 6, (1.0, 1.0, float("nan"), 1.0, 1.0),
-                    (1.0, float("inf"), 1.0, 1.0, 1.0), (1.0, True, 1.0, 1.0, 1.0),
-                    ("1", 1.0, 1.0, 1.0, 1.0), None, {0: 1.0}):
+        for bad in ((1.0,) * 5, (1.0,) * 6, (1.0,) * 8, (1.0, 1.0, float("nan"), 1.0, 1.0, 1.0, 1.0),
+                    (1.0, float("inf"), 1.0, 1.0, 1.0, 1.0, 1.0), (1.0, True, 1.0, 1.0, 1.0, 1.0, 1.0),
+                    ("1", 1.0, 1.0, 1.0, 1.0, 1.0, 1.0), None, {0: 1.0}):
             with self.subTest(levels=bad), self.assertRaises(ValueError):
                 proto.encode_chain_levels(5, 0.5, bad)
         with self.assertRaises(ValueError):
@@ -356,13 +356,17 @@ class WireFormat(unittest.TestCase):
         self.assertEqual(proto.levels_from([]), (1.0,) * n)
         self.assertEqual(proto.levels_from([0.5]), (0.5,) + (1.0,) * (n - 1))
         self.assertEqual(proto.levels_from([0.1] * (n + 3)), (0.1,) * n)
-        self.assertEqual(proto.levels_from(["x", None, True, 2.0, -2.0]), (1.0, 1.0, 1.0, 1.0, 0.0))
+        self.assertEqual(proto.levels_from(["x", None, True, 2.0, -2.0]), (1.0, 1.0, 1.0, 1.0, 0.0, 1.0, 1.0))
+        # A five-effect build's list (before 2026-10-13): the first five as
+        # stored, the rotary and the auto-wah at 1.0.
+        self.assertEqual(proto.levels_from([0.4, 0.0, 0.55, 0.3, 0.9]), (0.4, 0.0, 0.55, 0.3, 0.9, 1.0, 1.0))
 
     def test_with_level(self):
         ones = proto.LEVELS_DEFAULT
-        self.assertEqual(proto.with_level(ones, proto.EFFECT_PHASER, 0.4), (1.0, 1.0, 0.4, 1.0, 1.0))
-        self.assertEqual(proto.with_level(ones, proto.EFFECT_PHASER, 4), (1.0, 1.0, 1.0, 1.0, 1.0))
-        for bad_id in (5, -1, True):
+        self.assertEqual(proto.with_level(ones, proto.EFFECT_PHASER, 0.4), (1.0, 1.0, 0.4, 1.0, 1.0, 1.0, 1.0))
+        self.assertEqual(proto.with_level(ones, proto.EFFECT_PHASER, 4), (1.0,) * 7)
+        self.assertEqual(proto.with_level(ones, proto.EFFECT_AUTO_WAH, 0.3), (1.0,) * 6 + (0.3,))
+        for bad_id in (7, -1, True):
             with self.subTest(effect=bad_id), self.assertRaises(ValueError):
                 proto.with_level(ones, bad_id, 0.5)
         with self.assertRaises(ValueError):
@@ -376,16 +380,18 @@ class WireFormat(unittest.TestCase):
         table = re.search(r"const fx_effect_desc FX_EFFECTS\[\] = \{(.*?)\n\};", source, re.S)
         self.assertIsNotNone(table, "FX_EFFECTS table not found in fx_dsp.c")
         names = re.findall(r'\{\s*"([a-z0-9_-]+)"', table.group(1))
-        self.assertEqual(names, ["chorus", "drive", "phaser", "tremolo", "flanger"])
+        self.assertEqual(names, ["chorus", "drive", "phaser", "tremolo", "flanger", "rotary", "auto-wah"])
         self.assertEqual(proto.EFFECT_IDS, tuple(range(len(names))))
         self.assertEqual(sorted(proto.EFFECT_NAMES), list(proto.EFFECT_IDS))
         for effect_id in proto.EFFECT_IDS:
             with self.subTest(effect=effect_id):
                 self.assertEqual(proto.EFFECT_NAMES[effect_id].lower(), names[effect_id])
+        # Pinned numbers: ids are on the wire and in every stored patch, so
+        # the first five keep theirs and the two added 2026-10-13 append.
         self.assertEqual(
             (proto.EFFECT_CHORUS, proto.EFFECT_TUBE_DRIVE, proto.EFFECT_PHASER,
-             proto.EFFECT_TREMOLO, proto.EFFECT_FLANGER),
-            (0, 1, 2, 3, 4),
+             proto.EFFECT_TREMOLO, proto.EFFECT_FLANGER, proto.EFFECT_ROTARY, proto.EFFECT_AUTO_WAH),
+            (0, 1, 2, 3, 4, 5, 6),
         )
 
     def test_every_shipped_id_encodes(self):
@@ -396,7 +402,8 @@ class WireFormat(unittest.TestCase):
     def test_chain_encoding(self):
         self.assertEqual(proto.encode_chain(0b0101, 0.5), b"chain 5 0.500000")
         self.assertEqual(proto.encode_chain(proto.MASK_NONE, 0.5), b"chain 0 0.500000")
-        self.assertEqual(proto.encode_chain(proto.MASK_ALL, 1), b"chain 31 1.000000")
+        self.assertEqual(proto.encode_chain(proto.MASK_ALL, 1), b"chain 127 1.000000")
+        self.assertEqual(proto.encode_chain(0b11111, 1), b"chain 31 1.000000")
         self.assertEqual(proto.encode_chain(1 << proto.EFFECT_FLANGER, 0.5), b"chain 16 0.500000")
         self.assertEqual(proto.encode_chain(1, -0.3), b"chain 1 0.000000")
         self.assertEqual(proto.encode_chain(1, 7.0), b"chain 1 1.000000")
@@ -405,19 +412,26 @@ class WireFormat(unittest.TestCase):
         for bad_depth in (float("nan"), float("inf"), float("-inf")):
             with self.subTest(depth=bad_depth), self.assertRaises(ValueError):
                 proto.encode_chain(1, bad_depth)
-        for bad_mask in (32, 0b100001, -1, True, 1.0, "1", None):
+        for bad_mask in (128, 0b10000001, -1, True, 1.0, "1", None):
             with self.subTest(mask=bad_mask), self.assertRaises(ValueError):
                 proto.encode_chain(bad_mask, 0.5)
 
     def test_mask_helpers(self):
         D, P, C, T, F = (proto.EFFECT_TUBE_DRIVE, proto.EFFECT_PHASER, proto.EFFECT_CHORUS,
                          proto.EFFECT_TREMOLO, proto.EFFECT_FLANGER)
-        self.assertEqual(proto.CHAIN_ORDER, (D, P, F, C, T))
+        R, W = proto.EFFECT_ROTARY, proto.EFFECT_AUTO_WAH
+        self.assertEqual(proto.CHAIN_ORDER, (D, W, P, F, C, R, T))
         self.assertEqual(sorted(proto.CHAIN_ORDER), list(proto.EFFECT_IDS))
-        self.assertEqual(proto.MASK_ALL, 0b11111)
+        self.assertEqual(proto.MASK_ALL, 0b1111111)
         self.assertEqual(proto.EFFECT_NAMES[F], "Flanger")
+        self.assertEqual((proto.EFFECT_NAMES[R], proto.EFFECT_NAMES[W]), ("Rotary", "Auto-wah"))
         # The flanger runs between the phaser and the chorus.
         self.assertEqual(proto.effects_in(proto.mask_of([T, C, F, P])), (P, F, C, T))
+        # The auto-wah right after the drive, the rotary just before the tremolo.
+        self.assertEqual(proto.effects_in(proto.mask_of([T, R, C, W, D])), (D, W, C, R, T))
+        # The old five keep their relative order.
+        old = tuple(i for i in proto.CHAIN_ORDER if i < 5)
+        self.assertEqual(old, (D, P, F, C, T))
         self.assertEqual(proto.mask_of([]), proto.MASK_NONE)
         self.assertEqual(proto.mask_of([T, C, C]), (1 << T) | (1 << C))
         self.assertEqual(proto.mask_of(proto.EFFECT_IDS), proto.MASK_ALL)
@@ -429,14 +443,14 @@ class WireFormat(unittest.TestCase):
         self.assertFalse(proto.is_enabled(proto.mask_of([P]), C))
         self.assertEqual(proto.toggled(proto.MASK_NONE, P), 1 << P)
         self.assertEqual(proto.toggled(1 << P, P), proto.MASK_NONE)
-        for bad in (5, -1, True, "0"):
+        for bad in (7, -1, True, "0"):
             with self.subTest(effect=bad):
                 with self.assertRaises(ValueError):
                     proto.mask_of([bad])
                 with self.assertRaises(ValueError):
                     proto.toggled(0, bad)
         with self.assertRaises(ValueError):
-            proto.effects_in(32)
+            proto.effects_in(128)
 
     def test_the_old_datagram_is_the_one_bit_mask(self):
         """`encode` is kept for the single-effect datagram; the client reads
@@ -569,10 +583,10 @@ class WireFormat(unittest.TestCase):
 
 #: Level rows for the round trip: by effect id, the edges and the in-betweens.
 LEVEL_GRID = (
-    (1.0, 1.0, 1.0, 1.0, 1.0),
-    (0.0, 0.0, 0.0, 0.0, 0.0),
-    (0.25, 0.5, 0.75, 1.0, 0.0),
-    (0.000001, 0.999999, 0.333333, 0.5, 0.123456),
+    (1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0),
+    (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+    (0.25, 0.5, 0.75, 1.0, 0.0, 0.5, 0.25),
+    (0.000001, 0.999999, 0.333333, 0.5, 0.123456, 0.654321, 0.000002),
 )
 
 
